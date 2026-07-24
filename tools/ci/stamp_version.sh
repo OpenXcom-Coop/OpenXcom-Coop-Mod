@@ -16,11 +16,17 @@ f="${3:-src/version.h}"
 maj="${v%%.*}"; rest="${v#*.}"; min="${rest%%.*}"; pat="${rest#*.}"
 case "$maj$min$pat" in *[!0-9]*) echo "version '$v' is not <major>.<minor>.<patch>"; exit 1;; esac
 
+# Channel comes from the suffix ci-main.yml computed (" (nightly <date> <sha>)"
+# vs " (v<tag>)") so the workflow needs no extra plumbing. The main menu prints
+# it after the coop version, e.g. "Coop Mod 8.4.13201.0 (nightly)".
+case "$suffix" in *nightly*) channel="nightly";; *) channel="release";; esac
+
 sed -i.bak \
   -e "s|OPENXCOM_VERSION_SHORT \"[^\"]*\"|OPENXCOM_VERSION_SHORT \"Extended $v\"|" \
   -e "s|OPENXCOM_VERSION_LONG \"[^\"]*\"|OPENXCOM_VERSION_LONG \"$v.0\"|" \
   -e "s|OPENXCOM_VERSION_NUMBER [0-9, ]*|OPENXCOM_VERSION_NUMBER $maj,$min,$pat,0|" \
   -e "s|OPENXCOM_VERSION_GIT \"[^\"]*\"|OPENXCOM_VERSION_GIT \"$suffix\"|" \
+  -e "s|OPENXCOM_VERSION_CHANNEL \"[^\"]*\"|OPENXCOM_VERSION_CHANNEL \"$channel\"|" \
   "$f"
 rm -f "$f.bak"
 
