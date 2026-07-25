@@ -1310,7 +1310,7 @@ void GeoscapeState::init()
 		// so serialize it and stream it to the waiting client as its replica.
 		// Streaming HERE (not at base naming) means the replica adopts the SETTLED
 		// funds: the client's own init sees monthsPassed==0 and never re-charges,
-		// and the host's time-sync then agrees. Hold in COOP_DLG_RESUME_ACK_WAIT
+		// and the host's time-sync then agrees. Hold in COOP_DLG_WAIT_PLAYERS
 		// until the client acks loaded, then BEGIN releases both. The dialog also
 		// keeps the host's geoscape from broadcasting before the client is ready.
 		if (_game->getCoopMod()->isSharedCampaign()
@@ -1319,7 +1319,7 @@ void GeoscapeState::init()
 		{
 			connectionTCP::session.resumeAck = false;
 			_game->getCoopMod()->streamSharedWorldToClient();
-			_game->pushState(new CoopState(COOP_DLG_RESUME_ACK_WAIT));
+			_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 		}
 	}
 }

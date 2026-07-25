@@ -685,6 +685,11 @@ class connectionTCP
 	// route through this so the rule lives in one place (PRD-08 tunes the host
 	// case later by editing only this function).
 	static bool localSavesAllowed();
+	// issue #79: the campaign is OVER on this machine (won or lost) - the
+	// active save carries an ending. A peer leaving after that is not a drop
+	// to recover from, it is two players walking away from a finished game, so
+	// every "the other player vanished" notice and freeze is suppressed.
+	static bool campaignEnded();
 	// PRD-08 C7: may this machine LOAD a local save RIGHT NOW? False whenever a
 	// live coop session is attached (host OR client) - loading mid-session forks
 	// the served world silently. True when solo / after the session ends (the

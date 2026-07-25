@@ -37,9 +37,13 @@ private:
 	TextButton *_btnSaveGame;
 	std::string _selected;
 	int _previousSelectedRow, _selectedRow;
+	/// Issue #81: this save list was opened by a "save and quit" action, so the
+	/// write is followed by a trip to the main menu instead of a return here.
+	/// Carried by the state (not a global) so CANCEL costs nothing to undo.
+	bool _quitAfterSave;
 public:
 	/// Creates the Save Game state.
-	ListSaveState(OptionsOrigin origin);
+	ListSaveState(OptionsOrigin origin, bool quitAfterSave = false);
 	/// Cleans up the Save Game state.
 	~ListSaveState();
 	/// Updates the savegame list.
@@ -52,6 +56,9 @@ public:
 	void lstSavesPress(Action *action) override;
 	/// Save game.
 	void saveGame();
+	/// Test harness: name the new-slot save and commit it, as a player would
+	/// by typing into the top row and pressing SAVE GAME.
+	void harnessSaveAs(const std::string &name);
 };
 
 }

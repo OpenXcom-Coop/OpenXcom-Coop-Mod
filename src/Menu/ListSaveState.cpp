@@ -36,7 +36,7 @@ namespace OpenXcom
  * @param game Pointer to the core game.
  * @param origin Game section that originated this state.
  */
-ListSaveState::ListSaveState(OptionsOrigin origin) : ListGamesState(origin, 1, false), _previousSelectedRow(-1), _selectedRow(-1)
+ListSaveState::ListSaveState(OptionsOrigin origin, bool quitAfterSave) : ListGamesState(origin, 1, false), _previousSelectedRow(-1), _selectedRow(-1), _quitAfterSave(quitAfterSave)
 {
 	// Create objects
 	_edtSave = new TextEdit(this, 168, 9, 0, 0);
@@ -192,7 +192,18 @@ void ListSaveState::saveGame()
 		}
 	}
 	newFilename += ".sav";
-	_game->pushState(new SaveGameState(_origin, newFilename, _palette));
+	_game->pushState(new SaveGameState(_origin, newFilename, _palette, _quitAfterSave));
+}
+
+/**
+ * Test harness: type a name into the "new save" slot and press SAVE GAME.
+ * @param name Save name.
+ */
+void ListSaveState::harnessSaveAs(const std::string &name)
+{
+	_selectedRow = 0;
+	_edtSave->setText(name);
+	saveGame();
 }
 
 }

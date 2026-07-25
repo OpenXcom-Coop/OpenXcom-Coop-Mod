@@ -632,7 +632,7 @@ void LobbyMenu::resumeCampaign()
 	// every player reports its world loaded
 	closeLobby();
 
-	_game->pushState(new CoopState(COOP_DLG_RESUME_ACK_WAIT));
+	_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 
 }
 

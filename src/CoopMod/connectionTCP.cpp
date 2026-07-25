@@ -643,6 +643,17 @@ bool connectionTCP::localSavesAllowed()
 	return (!coopSession && !getCoopStatic()) || getServerOwner();
 }
 
+// issue #79: is the campaign on this machine finished (won or lost)? Read off
+// the live save's ending, which BOTH machines have by the time the defeat is
+// on screen: the host sets it in GeoscapeState, and a replica adopts it from
+// the "cutscene" packet before the same cutscene plays. Once it is set there
+// is nothing left to do together, so a peer leaving must cost nothing.
+bool connectionTCP::campaignEnded()
+{
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	return save && save->getEnding() != END_NONE;
+}
+
 bool connectionTCP::localLoadsAllowed()
 {
 	// Same liveness terms the save gate uses, WITHOUT the host escape: a live
@@ -1781,7 +1792,12 @@ void connectionTCP::updateCoopTask()
 	if (onConnect == -2)
 	{
 
-		if (allow_cutscene == true)
+		// issue #79: after the campaign has ended, a peer leaving is silent on
+		// both sides - no "<player> has left the server", no "Server connection
+		// lost". Either player may close a finished game first, and neither
+		// exit is allowed to interrupt the other's end-of-game screens. The
+		// plain teardown below still runs, so nothing is left half-attached.
+		if (allow_cutscene == true && !campaignEnded())
 		{
 			// Make sure it calls disconnectTCP, otherwise it may get stuck.
 			if (getServerOwner() == true)
@@ -7782,14 +7798,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// P2/F1: a battle resume parks the host behind its resume lobby/wait
 		// dialogs - resumeCampaign() closes the lobby but leaves the HostMenu
-		// beneath the COOP_DLG_RESUME_ACK_WAIT it pushed, and on the battle path
+		// beneath the COOP_DLG_WAIT_PLAYERS it pushed, and on the battle path
 		// the host never gets a resumeAck (it emits campaign_resume_battle
 		// instead), so nothing ever pops them. The client has now finished
 		// loading the streamed battle (this packet), so return the host to its
 		// own BattlescapeState: pop everything above it so BattlescapeState::
 		// think() runs and re-arms the coop-init block (_battleInit / role /
 		// turn) once COOP_READY sets coopSession below. Gate strictly on the
-		// RESUME_ACK_WAIT dialog actually being on the stack so this fires ONLY
+		// player-wait dialog actually being on the stack so this fires ONLY
 		// on a resume, never on a LIVE battle entry - there the host stacks
 		// Briefing/Inventory over a fresh battle and also receives
 		// close_load_progress, and popping those would eat the briefing.
@@ -7799,7 +7815,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto* st : _game->getStates())
 			{
 				CoopState* cs = dynamic_cast<CoopState*>(st);
-				if (cs && cs->getStateCode() == COOP_DLG_RESUME_ACK_WAIT)
+				if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
 				{
 					inBattleResume = true;
 					break;
@@ -10648,7 +10664,12 @@ void connectionTCP::disconnectTCP(bool isMain)
 		const bool teardownAsHost = (session.role == CoopRole::Host);
 
 		// both
-		if ((connectionTCP::no_bases == true || !teardownAsHost) && !isMain && connectionTCP::_coopCampaign == true)
+		// issue #79: not after the campaign has ended. The player is on the
+		// defeat/victory statistics screen with their own OK button; yanking
+		// them to the main menu because the other side closed the game first
+		// is exactly the "one player's exit affects the other" bug.
+		if ((connectionTCP::no_bases == true || !teardownAsHost) && !isMain
+			&& connectionTCP::_coopCampaign == true && !campaignEnded())
 		{
 			_game->setState(new MainMenuState);
 		}
@@ -10661,29 +10682,36 @@ void connectionTCP::disconnectTCP(bool isMain)
 
 			if (connectionTCP::session.lobbyMode != 0 && connectionTCP::session.lobbyClosed == true)
 			{
-				// mid-session client drop: freeze until they reconnect (D5).
-				// The dialog sits over the geoscape/battlescape, pausing it.
-				// Don't stack a second dialog when a campaign wait dialog that
-				// already covers "wait for the player to come back" is present
-				// ANYWHERE in the stack, not just on top. A resume-ack wait (62)
-				// already shows RESUME once resumeAck arrives, so it covers the
-				// freeze dialog's job - stacking a 64 over a buried 62 produces
-				// two RESUME dialogs and a double campaign_begun broadcast (C9).
+				// mid-session client drop: wait until they reconnect (D5). The
+				// dialog sits over the geoscape/battlescape, pausing it. Never
+				// stack a second one when a player-wait is already present
+				// ANYWHERE in the stack, not just on top - two of them means two
+				// RESUME buttons and a double campaign_begun broadcast (C9). The
+				// one already there re-words itself for the drop, so it covers
+				// this case (CoopState::waitingTitle).
 				bool waitDialogPresent = false;
 				for (State* st : _game->getStates())
 				{
 					CoopState* cs = dynamic_cast<CoopState*>(st);
-					if (cs && (cs->getStateCode() == COOP_DLG_FREEZE
-							|| cs->getStateCode() == COOP_DLG_RESUME_ACK_WAIT))
+					if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
 					{
 						waitDialogPresent = true;
 						break;
 					}
 				}
-				if (!waitDialogPresent)
+				// issue #79: and never once the campaign is over. After a
+				// defeat/victory there is nothing left to do together, so a
+				// client walking away is not a drop to freeze and wait on -
+				// the host must be free to finish its own end-of-game screens.
+				if (campaignEnded())
+				{
+					Log(LOG_INFO) << "[coop] freeze dialog suppressed: the campaign "
+						"has ended; the peer has nothing left to reconnect for";
+				}
+				else if (!waitDialogPresent)
 				{
 					connectionTCP::session.freeze();
-					_game->pushState(new CoopState(COOP_DLG_FREEZE));
+					_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 				}
 				else
 				{

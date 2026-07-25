@@ -55,6 +55,30 @@ namespace OpenXcom
 
 Globe *currentGlobe = 0;
 
+namespace
+{
+// Layout of the host-wait dialog family (60/62/64) - issues #79/#81.
+//
+// These dialogs are strips that sit over a live geoscape/battlescape, so they
+// are sized to their CONTENT: inner padding, one wrapped title, and one or two
+// button rows. Nothing is positioned by absolute screen coordinate; every row
+// is measured from the window, which is what keeps the margins even and the
+// window cropped to what it actually holds.
+const int kWaitW       = 216;  // shared with the other CoopState dialogs
+const int kWaitPad     = 8;    // inner margin: border to content, all four sides
+const int kWaitGap     = 6;    // between the title and a row, and between rows
+const int kWaitBtnH    = 17;   // _btnBack's stock height; the pair matches it
+const int kWaitBtnW    = 99;   // two of these + kWaitGap fit the padded width
+const int kWaitActionW = 100;  // RESUME / BEGIN, centered on its own row
+const int kWaitTitleH  = 22;   // two small wrapped lines
+const int kWaitCenterY = 100;  // the dialogs stay centered on this line
+
+// padding, title, one button row, padding. ONE row is all these dialogs ever
+// need: the escape hatch and the RESUME/BEGIN action are mutually exclusive
+// (see setWaitAction), so the window never has to grow or leave a hole.
+const int kWaitH = kWaitPad + kWaitTitleH + kWaitGap + kWaitBtnH + kWaitPad;
+}
+
 /**
  * Initializes all the elements in the Pause window.
  * @param game Pointer to the core game.
@@ -75,19 +99,15 @@ CoopState::CoopState(int state)
 		_window = new Window(this, 216, 54, x, 73, POPUP_BOTH);
 		_txtTitle = new Text(206, 26, x + 5, 88);
 	}
-	else if (state == COOP_DLG_WAIT_BASES)
+	else if (isHostWaitDialog(state))
 	{
-		// same compact styling as the client's hold dialog (they show the same
-		// "waiting for bases" message), but with room for the BEGIN button
-		_window = new Window(this, 216, 68, x, 66, POPUP_BOTH);
-		_txtTitle = new Text(206, 26, x + 5, 72);
-	}
-	else if (state == COOP_DLG_FREEZE)
-	{
-		// ~30% of the old height: a small "waiting for X to reconnect" strip
-		// with room for the RESUME button that appears once the peer is back
-		_window = new Window(this, 216, 52, x, 74, POPUP_BOTH);
-		_txtTitle = new Text(206, 22, x + 5, 78);
+		// One content-sized strip for the whole host-wait family (60/62/64):
+		// padding, a wrapped title, and a single button row that holds either
+		// the escape hatch or the dialog's own action - never both.
+		_window = new Window(this, kWaitW, kWaitH, x,
+							 kWaitCenterY - kWaitH / 2, POPUP_BOTH);
+		_txtTitle = new Text(kWaitW - 2 * kWaitPad, kWaitTitleH, x + kWaitPad,
+							 kWaitCenterY - kWaitH / 2 + kWaitPad);
 	}
 	else if (state == COOP_DLG_SHARED_FAIL)
 	{
@@ -105,6 +125,10 @@ CoopState::CoopState(int state)
 	_btnMessage = new TextButton(100, 17, x + 55, 100);
 	_btnBack = new TextButton(100, 17, x + 55, 150);
 	_btnYes = new TextButton(80, 20, 40, 150);
+	// issues #79/#81: the host's escape hatch, side by side under the wait
+	// message. layoutWaitRows() places them; hidden everywhere else.
+	_btnSaveQuit = new TextButton(kWaitBtnW, kWaitBtnH, x + kWaitPad, 150);
+	_btnAbandon = new TextButton(kWaitBtnW, kWaitBtnH, x + kWaitPad, 150);
 
 	// Set palette
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
@@ -114,20 +138,24 @@ CoopState::CoopState(int state)
 	add(_btnMessage, "button", "pauseMenu");
 	add(_btnBack, "button", "pauseMenu");
 	add(_btnYes, "button", "pauseMenu");
+	add(_btnSaveQuit, "button", "pauseMenu");
+	add(_btnAbandon, "button", "pauseMenu");
 
 	centerAllSurfaces();
 
 	// Set up objects
 	setWindowBackground(_window, "pauseMenu");
 
+	_origin = OPT_GEOSCAPE;
+
 	if (_game->getSavedGame())
 	{
 		if (_game->getSavedGame()->getSavedBattle())
 		{
-			
+
 			applyBattlescapeTheme("pauseMenu");
 			_origin = OPT_BATTLESCAPE;
-			
+
 		}
 	}
 
@@ -138,6 +166,8 @@ CoopState::CoopState(int state)
 	_btnMessage->setVisible(false);
 	_btnBack->setVisible(false);
 	_btnYes->setVisible(false);
+	_btnSaveQuit->setVisible(false);
+	_btnAbandon->setVisible(false);
 
 	_btnMessage->setText(tr("OK"));
 	_btnMessage->onMouseClick((ActionHandler)&CoopState::loadCoop);
@@ -148,6 +178,12 @@ CoopState::CoopState(int state)
 	_btnYes->setText(tr("STR_YES"));
 	_btnYes->onMouseClick((ActionHandler)&CoopState::btnYesClick);
 	_btnYes->onKeyboardPress((ActionHandler)&CoopState::btnYesClick, Options::keyOk);
+
+	_btnSaveQuit->setText("SAVE & QUIT");
+	_btnSaveQuit->onMouseClick((ActionHandler)&CoopState::btnSaveQuitClick);
+
+	_btnAbandon->setText("ABANDON GAME");
+	_btnAbandon->onMouseClick((ActionHandler)&CoopState::btnAbandonClick);
 
 	// HostLoadProgress (client)
 	if (state == COOP_DLG_CLIENT_LOAD_WAIT)
@@ -267,26 +303,14 @@ CoopState::CoopState(int state)
 		_btnBack->setVisible(true);
 	}
 
-	// host waits for resuming players to finish loading (flow-redesign F3)
-	if (state == COOP_DLG_RESUME_ACK_WAIT)
+	// Host waits on a peer: resuming players finishing their load (flow-redesign
+	// F3) and a mid-session drop waiting for a reconnect (F4/D5) are the SAME
+	// dialog - see COOP_DLG_WAIT_PLAYERS. Wording comes from waitingTitle(), so
+	// it follows the peer instead of the push site; the shared host-wait block
+	// below does the rest.
+	if (state == COOP_DLG_WAIT_PLAYERS)
 	{
-		_txtTitle->setText("Waiting for players to load...");
-
 		_btnBack->setText("RESUME");
-		_btnBack->setVisible(false);
-	}
-
-	// mid-session freeze: a registered player dropped; everything waits
-	// until they reconnect and reload (flow-redesign F4/D5)
-	if (state == COOP_DLG_FREEZE)
-	{
-		_txtTitle->setSmall();
-		_txtTitle->setWordWrap(true);
-		_txtTitle->setText("Waiting for " + _game->getCoopMod()->getCurrentClientName() + " to reconnect...");
-
-		_btnBack->setText("RESUME");
-		_btnBack->setY(104);
-		_btnBack->setVisible(false);
 	}
 
 	// non-host player finished early (base placed / world loaded) and holds
@@ -342,15 +366,24 @@ CoopState::CoopState(int state)
 	// a base; the button turns into RESUME when they have (flow-redesign F2)
 	if (state == COOP_DLG_WAIT_BASES)
 	{
-		// same wording + compact styling as the client's hold dialog
-		// (COOP_DLG_CLIENT_HOLD) - one message, one look, two actors
+		_btnBack->setText("BEGIN");
+	}
+
+	// issues #79/#81: every HOST-side campaign wait blocks on a peer that may
+	// never come back (a client that quit, crashed, or simply never joined).
+	// Without an exit the host is trapped in the dialog and cannot even save.
+	// Both buttons are live from the first frame - they must work precisely
+	// when nothing else on this dialog does.
+	if (isHostWaitDialog(state))
+	{
+		// one title treatment for the family: small, wrapped, and centered in
+		// its box so a one-line message doesn't hang off the top of it
 		_txtTitle->setSmall();
 		_txtTitle->setWordWrap(true);
-		_txtTitle->setText("Waiting for all players\nto place their bases...");
+		_txtTitle->setVerticalAlign(ALIGN_MIDDLE);
 
-		_btnBack->setText("BEGIN");
-		_btnBack->setY(108);
-		_btnBack->setVisible(false);
+		// wording, visibility and layout all come from the one state machine
+		setWaitAction(waitSatisfied());
 	}
 
 	// host-save cycle (host)
@@ -817,6 +850,132 @@ int CoopState::getWindowHeight() const
 	return _window ? _window->getHeight() : 0;
 }
 
+/**
+ * Issues #79/#81: place the rows of a host-wait dialog, measured from the
+ * window itself. centerAllSurfaces has already shifted every surface by the
+ * screen delta, so working off _window->getX()/getY() keeps the content pinned
+ * to its own window at any display scale - an absolute setY would not.
+ * Every widget already has its final SIZE from the constructor; this only moves
+ * them, so nothing re-wraps or re-renders.
+ * @param withAction The row holds RESUME/BEGIN rather than the escape hatch.
+ */
+void CoopState::layoutWaitRows(bool withAction)
+{
+	const int wx = _window->getX();
+	const int wy = _window->getY();
+	const int row = wy + kWaitPad + kWaitTitleH + kWaitGap;
+
+	_txtTitle->setX(wx + kWaitPad);
+	_txtTitle->setY(wy + kWaitPad);
+
+	if (withAction)
+	{
+		_btnBack->setX(wx + (kWaitW - kWaitActionW) / 2);
+		_btnBack->setY(row);
+	}
+	else
+	{
+		_btnSaveQuit->setX(wx + kWaitPad);
+		_btnSaveQuit->setY(row);
+		_btnAbandon->setX(wx + kWaitW - kWaitPad - kWaitBtnW);
+		_btnAbandon->setY(row);
+	}
+}
+
+/**
+ * Issues #79/#81: switch a host-wait dialog between its two states.
+ *
+ * WAITING  the peer is missing, so there is nothing to RESUME/BEGIN and the
+ *          only useful actions are leaving - SAVE & QUIT / ABANDON GAME.
+ * READY    the peer is back, so the wait is over and quitting the campaign is
+ *          not what this dialog is for; RESUME/BEGIN is the only action.
+ *
+ * They are mutually exclusive, which is why one button row is enough. Driven
+ * from think() in BOTH directions: a peer that drops again gets the escape
+ * hatch back rather than being left with a RESUME that resumes nobody.
+ */
+/**
+ * Issues #79/#81: what a host-wait dialog is waiting on, worded from the peer's
+ * CURRENT presence rather than from whatever the push site assumed.
+ *
+ * This is why the resume-ack wait and the reconnect freeze are one dialog: they
+ * only ever differed in this sentence, and the difference is a property of the
+ * session, not of the two call sites. A client that drops while the host is
+ * already waiting now re-words the dialog it is in - it used to keep claiming
+ * the player was loading, because the freeze push was suppressed.
+ */
+std::string CoopState::waitingTitle() const
+{
+	if (global_state == COOP_DLG_WAIT_BASES)
+	{
+		// same wording as the client's hold dialog (COOP_DLG_CLIENT_HOLD) -
+		// one message, one look, two actors
+		return "Waiting for all players\nto place their bases...";
+	}
+	if (connectionTCP::session.clientInLobby)
+	{
+		return "Waiting for players to load...";
+	}
+	const std::string peer = _game->getCoopMod()->getCurrentClientName();
+	return peer.empty() ? "Waiting for players to reconnect..."
+						: "Waiting for " + peer + " to reconnect...";
+}
+
+/**
+ * The same dialog's wording once the wait is over.
+ */
+std::string CoopState::readyTitle() const
+{
+	return global_state == COOP_DLG_WAIT_BASES ? "All bases placed."
+											   : "All players connected";
+}
+
+/**
+ * Is the thing this host-wait dialog waits for satisfied right now? Bases wait
+ * on every registered client's world blob (a client pushes progress right after
+ * base naming); the player wait is answered by resume_ack (F3/F4).
+ */
+bool CoopState::waitSatisfied() const
+{
+	if (global_state == COOP_DLG_WAIT_BASES)
+	{
+		return connectionTCP::hasCoopFile(
+			connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
+	}
+	return connectionTCP::session.resumeAck;
+}
+
+void CoopState::setWaitAction(bool ready)
+{
+	_txtTitle->setText(ready ? readyTitle() : waitingTitle());
+
+	_btnBack->setVisible(ready);
+	_btnSaveQuit->setVisible(!ready);
+	_btnAbandon->setVisible(!ready);
+
+	layoutWaitRows(ready);
+}
+
+std::string CoopState::getSaveQuitText() const
+{
+	return _btnSaveQuit ? _btnSaveQuit->getText() : "";
+}
+
+bool CoopState::isSaveQuitVisible() const
+{
+	return _btnSaveQuit && _btnSaveQuit->getVisible();
+}
+
+std::string CoopState::getAbandonText() const
+{
+	return _btnAbandon ? _btnAbandon->getText() : "";
+}
+
+bool CoopState::isAbandonVisible() const
+{
+	return _btnAbandon && _btnAbandon->getVisible();
+}
+
 void CoopState::think()
 {
 
@@ -910,30 +1069,22 @@ void CoopState::think()
 			}
 
 		}
-		else if (global_state == COOP_DLG_WAIT_BASES)
+		else if (isHostWaitDialog(global_state))
 		{
 
-			// all players placed = every registered client's world blob has
-			// arrived (a client pushes progress right after base naming)
-			bool allPlaced = connectionTCP::hasCoopFile(
-				connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
-
-			if (allPlaced)
+			// One poll for the whole family. Tracks BOTH directions: a peer that
+			// drops after having been ready must get the escape hatch back, not
+			// a RESUME that would resume nobody.
+			const bool ready = waitSatisfied();
+			if (ready != _btnBack->getVisible())
 			{
-				_txtTitle->setText("All bases placed.");
-				_btnBack->setText("BEGIN");
-				_btnBack->setVisible(true);
+				setWaitAction(ready);
 			}
-
-		}
-		else if (global_state == COOP_DLG_RESUME_ACK_WAIT || global_state == COOP_DLG_FREEZE)
-		{
-
-			// resuming/rejoining players report in via resume_ack (F3/F4)
-			if (connectionTCP::session.resumeAck)
+			else if (!ready)
 			{
-				_txtTitle->setText("All players connected");
-				_btnBack->setVisible(true);
+				// still waiting, but WHO we are waiting on can change under us
+				// (the loading client just dropped) - re-word in place
+				_txtTitle->setText(waitingTitle());
 			}
 
 		}
@@ -1009,7 +1160,7 @@ void CoopState::previous(Action *)
 
 	// The host clicked RESUME on a waiting dialog: release every non-host
 	// player from their "waiting for players" hold (D5).
-	if (global_state == COOP_DLG_WAIT_BASES || global_state == COOP_DLG_RESUME_ACK_WAIT || global_state == COOP_DLG_FREEZE)
+	if (isHostWaitDialog(global_state))
 	{
 		connectionTCP::session.sessionLive();
 
@@ -1055,6 +1206,43 @@ void CoopState::previous(Action *)
 	}
 
 
+}
+
+/**
+ * Issue #81: SAVE & QUIT on a host campaign-wait dialog. Opens the ordinary
+ * save-slot list; once the file is written, SaveGameState leaves for the main
+ * menu instead of returning here (the whole point is to get OUT of the wait).
+ * The session teardown rides the main-menu transition, as it does everywhere
+ * else - see MainMenuState's constructor.
+ */
+void CoopState::btnSaveQuitClick(Action *)
+{
+	_game->pushState(new ListSaveState(_origin, true));
+}
+
+/**
+ * Issue #81: ABANDON GAME on a host campaign-wait dialog. Straight to the main
+ * menu, nothing written - the same contract as AbandonGameState's YES, minus
+ * the confirmation step (the host already chose this over SAVE & QUIT).
+ */
+void CoopState::btnAbandonClick(Action *)
+{
+	_game->resetTouchButtonFlags();
+
+	// Tear the session down FIRST and as the "main" teardown: that path never
+	// pushes a replacement dialog, so abandoning can't resurrect the very wait
+	// dialog we are leaving. Role is cleared AFTER the teardown, never before -
+	// disconnectTCP branches on it, and clearing it early makes the host tear
+	// down as a client (the disconnect->cancel bug family).
+	_game->getCoopMod()->disconnectTCP(true);
+	_game->getCoopMod()->setServerOwner(false);
+	connectionTCP::session.resetSession();
+
+	Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
+	_game->getScreen()->resetDisplay(false);
+
+	_game->setState(new MainMenuState);
+	_game->setSavedGame(0);
 }
 
 void CoopState::btnYesClick(Action *)
