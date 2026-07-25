@@ -4314,22 +4314,35 @@ int BattlescapeGame::checkForProximityGrenadesCoop(BattleUnit* unit)
 				{
 					const RuleItem* ruleItem = item->getRules();
 					bool g = item->getGlow();
-					if (item->fuseProximityEvent() || 1 == 1)
+					bool isGrenade = ruleItem->getBattleType() == BT_GRENADE || ruleItem->getBattleType() == BT_PROXIMITYGRENADE;
+					// Ask "was this primed?" BEFORE fuseProximityEvent(), which arms the
+					// fuse as a side effect.
+					bool primed = item->getFuseTimer() >= 0;
+					bool fired = item->fuseProximityEvent();
+					// The host only sends the "checkForProximityGrenades" packet once it has
+					// already decided a trigger happened, so a PRIMED grenade detonates here
+					// whatever this machine's own fuse bookkeeping says - and, more to the
+					// point, whatever this machine's `RNG::percent(specialChance)` roll inside
+					// fuseProximityEvent() says, which is an independent roll from the host's.
+					// That forced trigger must not reach any further than that:
+					//   * an UNPRIMED grenade lying on the floor (the squad's spare grenades
+					//     on the Skyranger deck) is not what the host detonated;
+					//   * every non-grenade item is only swept away when its own proximity
+					//     fuse fires, exactly as in the vanilla twin below.
+					// Forcing either of those - which `|| 1 == 1` did - deletes items on the
+					// peer that the host still has.
+					if (isGrenade && (fired || primed))
 					{
-						if (ruleItem->getBattleType() == BT_GRENADE || ruleItem->getBattleType() == BT_PROXIMITYGRENADE)
+						Position p = t->getPosition().toVoxel() + Position(8, 8, t->getTerrainLevel());
+						statePushNext(new ExplosionBState(this, p, BattleActionAttack::GetBeforeShoot(BA_TRIGGER_PROXY_GRENADE, nullptr, item)));
+						exploded = true;
+					}
+					else if (!isGrenade && fired)
+					{
+						forRemoval.push_back(item);
+						if (g)
 						{
-
-							Position p = t->getPosition().toVoxel() + Position(8, 8, t->getTerrainLevel());
-							statePushNext(new ExplosionBState(this, p, BattleActionAttack::GetBeforeShoot(BA_TRIGGER_PROXY_GRENADE, nullptr, item)));
-							exploded = true;
-						}
-						else
-						{
-							forRemoval.push_back(item);
-							if (g)
-							{
-								glow = true;
-							}
+							glow = true;
 						}
 					}
 					else
