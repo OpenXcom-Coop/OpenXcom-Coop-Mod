@@ -69,6 +69,10 @@ protected:
 	void init() override;
 	/// Sorts the server list.
 	void sortList(playerSort sort);
+	/// Puts the player in row @a row on @a team ("XCOM" / "Alien") and re-derives
+	/// the game mode, exactly as the host clicking that row does. Exposed so the
+	/// test harness can set up a PvP session without faking SDL clicks.
+	bool setPlayerTeam(int row, const std::string& team);
 	/// Updates the server list.
 	virtual void updateList();
 	/// Handler for clicking the Cancel button.

@@ -72,6 +72,9 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
+#include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/BattleItem.h"
+#include "../Mod/RuleItem.h"
 
 namespace OpenXcom
 {
@@ -5291,6 +5294,39 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
+	}
+
+	// coop (issue #74): the host's blast destroyed these items. A client cannot
+	// derive the set itself - hitUnit() early-returns on a client, which
+	// short-circuits both item tests inside TileEngine::explode - so the host
+	// ships the outcome and the client applies exactly it. Matched on id AND
+	// type: an id alone would be trusted blindly, and this is the same identity
+	// the rest of the battle protocol uses.
+	if (stateString == "explode_items")
+	{
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+			const Json::Value& arr = obj["items"];
+			for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
+			{
+				int itemId = arr[i]["id"].asInt();
+				std::string itemType = arr[i]["type"].asString();
+				BattleItem* victim = nullptr;
+				for (auto* bi : *sbg->getItems())
+				{
+					if (bi->getId() == itemId && bi->getRules()->getType() == itemType)
+					{
+						victim = bi;
+						break;
+					}
+				}
+				if (victim)
+				{
+					sbg->removeItem(victim);
+				}
+			}
+		}
 	}
 
 	// hit tile

@@ -149,6 +149,49 @@ campaign each run.
   original preserved, upgraded header/body shape + embedded client world),
   embed + sidecar recovery, and the negatives (mid-battle refused, gamemode
   mismatch refused, skip-client warns + 0 client worlds).
+- `test_coop_alien_launcher_item_loss.py` - issue #74: an alien firing a blaster
+  launcher must not disturb anyone else's items on the peer. The replayed shot
+  named its weapon by TYPE plus `BattlescapeState::_hand` - a sticky string only
+  a local hand-button click ever writes, so an AI actor's shot carried whatever
+  hand the sender's player last used. The peer looked in the wrong hand and then
+  fabricated a `new BattleItem` to shoot with, which (a) has no ammo, so the peer
+  never spent the blaster bomb the shooter spent, and (b) post-increments
+  `SavedBattleGame::getCurrentItemId()`, so the receiver's item-id counter ran
+  ahead of the sender's for the rest of the battle and every id in the protocol
+  then denoted a different instance on the two machines. Asserts the FULL item
+  census (id -> type + owning unit) is identical on both machines after the shot,
+  that the soldier's launcher never changes hands, and that a freshly spawned
+  item still gets the SAME id on both. Runs the launcher in the claimed hand
+  (control, passes pre-fix) and in the other one (the AI case, red pre-fix).
+- `test_coop_inventory_item_theft.py` - issue #74, the REPORTED SYMPTOM end to
+  end. Chains the two halves: (1) the alien's shot drifts the two machines'
+  item-id spaces apart (see above), so the same logical item now carries
+  different ids on each; (2) a soldier then DROPS its own blaster launcher - a
+  mundane mid-battle action - and on the peer `moveCoopInventory`'s (id, name)
+  lookup lands on ANOTHER soldier's launcher, which
+  `TileEngine::itemMoveInventory` re-owners onto the ground. Result before the
+  fix: `client: the VICTIM soldier 1 had its blaster launcher (item 79) moved
+  from (1, 'STR_RIGHT_HAND') to (-1, 'STR_GROUND') by the peer's replayed
+  inventory action - nobody touched it`, while the host still shows it in hand.
+  The drop matters: `itemMoveInventory` only re-owners an item whose destination
+  is the ground, so a hand-to-hand move corrupts the slot but not the owner.
+- `test_coop_pvp_blaster.py` - issue #74 in the REPORTER'S setup: a PvP skirmish
+  (`coop_gamemode` 2/3, a human on the alien side) where the alien player fires a
+  blaster launcher. Blast item destruction is vanilla - `DT_HE` sets
+  `ToItem = 1.0f` (Mod.cpp), and a launcher's armor 40 loses to a power-200 bomb
+  - but it was applied on the HOST only: `TileEngine::hitUnit` early-returns
+  `true` on a client, which short-circuits both item tests inside
+  `TileEngine::explode`, and (unlike `TileEngine::hit`) explode was never brought
+  under host authority. Before the fix: `host destroyed 32 items, client
+  destroyed 1`, the host's X-COM squad stripped of gear the peer still sees.
+  The host now ships the destroyed set as `explode_items` and the client applies
+  exactly that, removing nothing of its own accord. Uses `lobby_set_team` to pick
+  the PvP mode.
+- `test_coop_blast_item_damage.py` - the same blast in a SHARED battle, which
+  passes both before and after that fix and is what isolates the divergence to
+  PvP. `I74_BLAST_RANGE` moves the alien further out (the default 2 is
+  point-blank); at range the blast is absorbed by terrain before it reaches the
+  squad, so no SHARED divergence could be constructed.
 - `test_save_upgrade_flow.py` - the load-gate + full flow on a REAL save: a real
   campaign save is stripped into a legacy DUAL pair; loading it through the real
   `LoadGameState` must hit the upgrade dialog (not load as solo); then the
@@ -246,7 +289,10 @@ Full suite (serial) is ~20 min; no test exceeds ~2 min. Known flakes, retry once
 / `assert_client_zero_disk`) used by every test; `joint_fixture.py` builds the
 JOINT bring-up + world equality on top of it.
 
-`harness.py` is the shared library (not a test).
+`harness.py` is the shared library (not a test). Set `OXC_TEST_EXE` to point the
+whole suite at another build - e.g. `bin/x64/Release-nofix/OpenXcom.exe` - to
+watch a regression test go red against a binary without the fix. That tree needs
+its own staged data (`tools/worktree_bootstrap.ps1`).
 
 ## Command catalog (TestServer::execute)
 
@@ -295,7 +341,30 @@ JOINT bring-up + world equality on top of it.
   `award_dogfight_xp` (HOST-only: award deterministic dogfight XP to a live fight's
   crew, for the GAP-7 propagation test).
 - Battlescape: `close_briefing`, `battle_inventory`, `battle_state`,
-  `battle_action` (`select` / `move` / `shoot` / `end_turn` / `abort`).
+  `battle_action` (`select` / `move` / `shoot` / `end_turn` / `abort`),
+  `battle_items` (every BattleItem instance: `id`/`type`/`owner`/`slot`/`isAmmo`/
+  `qty`/`ammo[]`, plus per-type `counts` - diff two machines' dumps to catch an
+  item that vanishes on one side only), `battle_give` (`unit`, `item`, optional
+  `ammo` loaded into slot 0, `slot`=right|left|<inventory id>, `clear_hands`;
+  places explicitly rather than via `BattleUnit::addItem`, whose auto-loadout
+  heuristics refuse to hand a geoscape soldier a weapon - call it on BOTH
+  machines, nothing replicates a mid-battle item spawn, and compare the returned
+  ids), `battle_fire` (`unit`, `mode`=snap|aimed|auto|**launch**, `weapon_id`,
+  `target` unit or x/y/z, `waypoints[]` for a launch, `tu` to top the actor up,
+  `hand` to stamp `BattlescapeState::_hand`), `battle_teleport`, and
+  `battle_open_inventory` / `battle_close_inventory` (open a unit's inventory
+  MID-BATTLE via the real `btnInventoryClick`, so a follow-up `inventory_move`
+  runs the same `Inventory::moveItem` a mouse drop calls - which is where the
+  co-op mirror packet is built).
+
+  `battle_state` also reports `activeSync` (`_isActivePlayerSync`): the coop
+  battle states only emit their packet when it is true, so a driver has to fire
+  from THAT machine or the action never reaches the peer.
+- Lobby: `lobby_set_team` (host-only; puts lobby row <row> on `XCOM`/`Alien`
+  through the real `LobbyMenu::setPlayerTeam`, which is what selects the co-op
+  game mode - both XCOM = PVE (1), client Alien = PVP (2), host Alien = PVP2 (3),
+  both Alien = PVE2 (4); the reply carries the resulting `gamemode`, and which
+  row holds which player is not fixed, so check it rather than assuming).
 - Server browser: `open_server_browser`, `server_combo`, `combo_open`,
   `screenshot`.
 - Save upgrader (drives the Phase A engine headless, no UI): `upgrade_detect`

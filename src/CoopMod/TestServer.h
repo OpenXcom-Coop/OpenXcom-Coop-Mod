@@ -64,6 +64,9 @@ private:
 	/// chain it tipped C1061 again, so the back half of execute()'s chain lives here.
 	/// execute() tries this after executeShared10. True = @a cmd was handled here.
 	bool executeShared11(const std::string& cmd, const Json::Value& req, Json::Value& resp);
+	/// Third sub-dispatcher: battlescape item/fire introspection + drivers (issue #74).
+	/// execute() tries this FIRST, so it never grows execute()'s own if/else chain.
+	bool executeBattle12(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 
 	Game* _game = nullptr;
 	std::thread _thread;

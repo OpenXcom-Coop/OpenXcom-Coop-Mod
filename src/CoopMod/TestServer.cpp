@@ -2105,6 +2105,24 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		_game->pushState(new LobbyMenu());
 		resp["ok"] = true;
 	}
+	else if (cmd == "lobby_set_team")
+	{
+		// Host-only: put lobby row <row> (0 = host, 1 = the joined client) on
+		// <team> ("XCOM"/"Alien") through the same LobbyMenu path the host
+		// clicking that row uses. The XCOM/Alien split is what selects the co-op
+		// game mode: both XCOM = PVE (1), client Alien = PVP (2), host Alien =
+		// PVP2 (3), both Alien = PVE2 (4).
+		LobbyMenu* lobby = findState<LobbyMenu>(_game);
+		if (!lobby)
+			resp["error"] = "no LobbyMenu";
+		else if (!lobby->setPlayerTeam(req.get("row", 1).asInt(), req.get("team", "Alien").asString()))
+			resp["error"] = "no such lobby row";
+		else
+		{
+			resp["gamemode"] = connectionTCP::getCoopGamemode();
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "lobby_action")
 	{
 		// Playtest B7: click the lobby's single action button (RESUME GAME when
@@ -3063,6 +3081,270 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	return true;
 }
 
+bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	// Issue #74 driver set: per-instance battlescape item census + the ability to
+	// arm an arbitrary unit and make it fire a specific weapon (incl. BA_LAUNCH,
+	// which the generic battle_action shoot cannot express). Kept in its own
+	// dispatcher so execute()'s if/else chain does not grow (MSVC C1061).
+	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
+		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
+		&& cmd != "battle_close_inventory")
+	{
+		return false;
+	}
+
+	SavedGame* sg = _game->getSavedGame();
+	SavedBattleGame* sbg = sg ? sg->getSavedBattle() : nullptr;
+	if (!sbg)
+	{
+		resp["error"] = "not in battlescape";
+		return true;
+	}
+	BattlescapeGame* bg = sbg->getBattleGame();
+	BattlescapeState* bstate = sbg->getBattleState();
+
+	auto findUnit = [&](int id) -> BattleUnit*
+	{
+		for (auto* u : *sbg->getUnits())
+			if (u->getId() == id) return u;
+		return nullptr;
+	};
+
+	if (cmd == "battle_items")
+	{
+		// EVERY BattleItem instance this machine knows about, with the identity
+		// (id + type) the coop wire protocol matches on and the owner it hangs
+		// off. Comparing the two machines' dumps is what makes an item that
+		// vanishes on one side but not the other visible to a test.
+		Json::Value items(Json::arrayValue);
+		std::map<std::string, int> counts;
+		for (auto* it : *sbg->getItems())
+		{
+			Json::Value ji;
+			ji["id"] = it->getId();
+			ji["type"] = it->getRules()->getType();
+			ji["owner"] = it->getOwner() ? it->getOwner()->getId() : -1;
+			ji["slot"] = it->getSlot() ? it->getSlot()->getId() : "";
+			ji["isAmmo"] = it->isAmmo();
+			ji["qty"] = it->getAmmoQuantity();
+			ji["onTile"] = (it->getTile() != nullptr);
+			Json::Value am(Json::arrayValue);
+			for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
+			{
+				BattleItem* a = it->getAmmoForSlot(s);
+				if (a) am.append(a->getId());
+			}
+			ji["ammo"] = am;
+			items.append(ji);
+			counts[it->getRules()->getType()]++;
+		}
+		Json::Value jc(Json::objectValue);
+		for (const auto& kv : counts) jc[kv.first] = kv.second;
+		resp["items"] = items;
+		resp["counts"] = jc;
+		resp["total"] = (int)sbg->getItems()->size();
+		resp["ok"] = true;
+	}
+	else if (cmd == "battle_give")
+	{
+		// Arm <unit> with <item> (+ an optional <ammo> loaded into slot 0).
+		// Call it on BOTH machines: nothing in the coop protocol replicates a
+		// mid-battle item spawn, and the ids only line up if both sides create
+		// the same items in the same order (reported back so a test can check).
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		const RuleItem* wrule = _game->getMod()->getItem(req.get("item", "").asString());
+		if (!unit)
+			resp["error"] = "no unit id";
+		else if (!wrule)
+			resp["error"] = "unknown item type";
+		else
+		{
+			if (req.get("clear_hands", false).asBool())
+			{
+				std::vector<BattleItem*> hands;
+				for (auto* bi : *unit->getInventory())
+					if (bi->getSlot() && (bi->getSlot()->getId() == "STR_RIGHT_HAND"
+						|| bi->getSlot()->getId() == "STR_LEFT_HAND"))
+						hands.push_back(bi);
+				for (auto* bi : hands)
+					sbg->removeItem(bi);
+			}
+			// Explicit placement, NOT BattleUnit::addItem: the auto-loadout
+			// heuristics refuse to hand a real soldier a weapon (allowAutoLoadout
+			// is false for a geoscape soldier), and a test wants the item exactly
+			// where it asked for it on both machines.
+			RuleInventory* dest = _game->getMod()->getInventoryRightHand();
+			std::string slotId = req.get("slot", "").asString();
+			if (slotId == "left") dest = _game->getMod()->getInventoryLeftHand();
+			else if (!slotId.empty() && slotId != "right")
+				dest = _game->getMod()->getInventory(slotId, false) ? _game->getMod()->getInventory(slotId, false) : dest;
+
+			BattleItem* w = new BattleItem(wrule, sbg->getCurrentItemId());
+			w->moveToOwner(unit);
+			w->setSlot(dest);
+			w->setSlotX(req.get("slotX", 0).asInt());
+			w->setSlotY(req.get("slotY", 0).asInt());
+			w->setXCOMProperty(unit->getFaction() == FACTION_PLAYER);
+			sbg->getItems()->push_back(w);
+			sbg->initItem(w, unit);
+			resp["weaponId"] = w->getId();
+			resp["weaponSlot"] = w->getSlot() ? w->getSlot()->getId() : "";
+			std::string ammoType = req.get("ammo", "").asString();
+			resp["ammoId"] = -1;
+			if (!ammoType.empty())
+			{
+				const RuleItem* arule = _game->getMod()->getItem(ammoType);
+				if (arule)
+				{
+					BattleItem* a = new BattleItem(arule, sbg->getCurrentItemId());
+					a->setXCOMProperty(unit->getFaction() == FACTION_PLAYER);
+					sbg->getItems()->push_back(a);
+					sbg->initItem(a, unit);
+					w->setAmmoForSlot(0, a);
+					resp["ammoId"] = a->getId();
+				}
+			}
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_open_inventory")
+	{
+		// Open <unit>'s inventory MID-BATTLE through the real button handler, so
+		// the follow-up `inventory_move` runs the same Inventory::moveItem a mouse
+		// drop calls - which is where the co-op mirror packet is built.
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!unit || !bstate)
+			resp["error"] = "no unit id / no BattlescapeState";
+		else
+		{
+			sbg->setSelectedUnit(unit);
+			bstate->btnInventoryClick(nullptr);
+			InventoryState* inv = findState<InventoryState>(_game);
+			resp["opened"] = (inv != nullptr);
+			resp["ok"] = (inv != nullptr);
+			if (!inv) resp["error"] = "inventory did not open (unit not playable here?)";
+		}
+	}
+	else if (cmd == "battle_close_inventory")
+	{
+		InventoryState* inv = findState<InventoryState>(_game);
+		if (!inv)
+			resp["error"] = "no open InventoryState";
+		else
+		{
+			inv->btnOkClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_teleport")
+	{
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!unit || !bg)
+			resp["error"] = "no unit id / no battle game";
+		else
+		{
+			// teleport() silently refuses a tile that fails
+			// isPositionValidForUnit (wall, occupied, no floor), so report where
+			// the unit actually ended up - a caller probing for a free tile needs
+			// to know which attempt took.
+			bg->teleport(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
+						 req.get("z", 0).asInt(), unit);
+			Position p = unit->getPosition();
+			resp["x"] = p.x; resp["y"] = p.y; resp["z"] = p.z;
+			resp["moved"] = (p == Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
+										   req.get("z", 0).asInt()));
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_fire")
+	{
+		// Fire <weapon_id> (or the main hand weapon) from <unit>. mode =
+		// snap|aimed|auto|launch. launch takes <waypoints> (a list of x/y/z) -
+		// exactly what a blaster launcher does. <hand> stamps
+		// BattlescapeState::_hand, which is what the coop packet reports as the
+		// firing hand. <tu> tops the actor's TU up first so the shot is never
+		// refused for want of time units.
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!unit || !bg)
+		{
+			resp["error"] = "no unit id / no battle game";
+			return true;
+		}
+		BattleItem* w = nullptr;
+		int wid = req.get("weapon_id", -1).asInt();
+		if (wid != -1)
+		{
+			for (auto* bi : *sbg->getItems())
+				if (bi->getId() == wid) w = bi;
+		}
+		else
+		{
+			w = unit->getMainHandWeapon(false);
+		}
+		if (!w)
+		{
+			resp["error"] = "no weapon";
+			return true;
+		}
+		if (req.isMember("tu"))
+		{
+			unit->setTimeUnits(req["tu"].asInt());
+		}
+		if (bstate && req.isMember("hand"))
+			bstate->_hand = req["hand"].asString();
+
+		std::string mode = req.get("mode", "snap").asString();
+		BattleActionType bt = BA_SNAPSHOT;
+		if (mode == "aimed") bt = BA_AIMEDSHOT;
+		else if (mode == "auto") bt = BA_AUTOSHOT;
+		else if (mode == "launch") bt = BA_LAUNCH;
+
+		sbg->setSelectedUnit(unit);
+		BattleAction* a = bg->getCurrentAction();
+		a->actor = unit;
+		a->weapon = w;
+		a->type = bt;
+		a->targeting = true;
+		a->waypoints.clear();
+		Position target(req.get("x", 0).asInt(), req.get("y", 0).asInt(), req.get("z", 0).asInt());
+		int tid = req.get("target", -1).asInt();
+		if (tid != -1)
+		{
+			BattleUnit* tgt = findUnit(tid);
+			if (!tgt)
+			{
+				resp["error"] = "no target id";
+				return true;
+			}
+			target = tgt->getPosition();
+		}
+		a->target = target;
+		if (bt == BA_LAUNCH)
+		{
+			const Json::Value& wp = req["waypoints"];
+			for (Json::ArrayIndex i = 0; i < wp.size(); ++i)
+			{
+				a->waypoints.push_back(Position(wp[i].get("x", 0).asInt(),
+												wp[i].get("y", 0).asInt(),
+												wp[i].get("z", 0).asInt()));
+			}
+			if (a->waypoints.empty())
+				a->waypoints.push_back(target);
+			a->target = a->waypoints.front();
+		}
+		a->updateTU();
+		resp["tuCost"] = a->Time;
+		resp["tuHave"] = unit->getTimeUnits();
+		resp["weaponId"] = w->getId();
+		resp["ammoId"] = w->getAmmoForAction(bt) ? w->getAmmoForAction(bt)->getId() : -1;
+		bg->statePushBack(new UnitTurnBState(bg, *a));
+		bg->statePushBack(new ProjectileFlyBState(bg, *a));
+		resp["ok"] = true;
+	}
+	return true;
+}
+
 std::string TestServer::execute(const std::string& line)
 {
 	Json::Value req;
@@ -3081,7 +3363,11 @@ std::string TestServer::execute(const std::string& line)
 		std::string cmd = req.get("cmd", "").asString();
 		connectionTCP* coop = _game->getCoopMod();
 
-		if (executeShared10(cmd, req, resp))
+		if (executeBattle12(cmd, req, resp))
+		{
+			// handled by the battlescape item/fire dispatcher (issue #74)
+		}
+		else if (executeShared10(cmd, req, resp))
 		{
 			// handled by the PRD-J10 dispatcher above
 		}
@@ -3801,6 +4087,11 @@ std::string TestServer::execute(const std::string& line)
 				resp["coopStatic"] = connectionTCP::getCoopStatic();
 				resp["coopInventory"] = connectionTCP::coopInventory;
 				resp["playerTurn"] = _game->getCoopMod()->getPlayerTurn();
+				// Which machine currently OWNS the simulation: the coop battle
+				// states only ship a packet when this is true, so a test that
+				// drives a unit has to drive it from this side or the action
+				// simply never reaches the peer.
+				resp["activeSync"] = _game->getCoopMod()->_isActivePlayerSync;
 				resp["coopGamemode"] = connectionTCP::getCoopGamemode();
 				// Sub-conditions of the coop-init gate (BattlescapeState.cpp:1284) so a
 				// test can see exactly which one blocks _battleInit from ever being set.

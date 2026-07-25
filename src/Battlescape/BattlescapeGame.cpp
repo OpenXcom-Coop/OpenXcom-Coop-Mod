@@ -513,6 +513,8 @@ void BattlescapeGame::psi_attack(std::string obj_str)
 	// new!
 	std::string weapon_type = obj["weapon_type"].asString();
 	std::string hand = obj["hand"].asString();
+	// -1 when the packet came from a peer that predates the weapon_id field.
+	int weapon_id = obj.get("weapon_id", -1).asInt();
 	int type = obj["type"].asInt();
 
 	Position* startpos = new Position(startx, starty, startz);
@@ -553,35 +555,18 @@ void BattlescapeGame::psi_attack(std::string obj_str)
 	_currentAction.target = *endpos;
 	_currentAction.type = (BattleActionType)type;
 
-	// if not weapon
-	if (!_currentAction.weapon && weapon_type != "")
+	// coop (issue #74): resolve the actor's OWN weapon and never fabricate one -
+	// a receiver-side `new BattleItem` bumps this machine's item-id counter and
+	// permanently drifts the two machines' id spaces apart.
+	_currentAction.weapon = coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
+
+	if (_currentAction.weapon && _currentAction.weapon == unit->getLeftHandWeapon())
 	{
-		if (hand == "right")
-		{
-
-			_currentAction.weapon = unit->getRightHandWeapon();
-
-			unit->setActiveRightHand();
-		}
-
-		if (hand == "left")
-		{
-
-			_currentAction.weapon = unit->getLeftHandWeapon();
-
-			unit->setActiveLeftHand();
-		}
-
-		_currentAction.weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
+		unit->setActiveLeftHand();
 	}
-	else if (_currentAction.weapon)
+	else if (_currentAction.weapon && _currentAction.weapon == unit->getRightHandWeapon())
 	{
-
-		if (_currentAction.weapon->getRules()->getType() != weapon_type && weapon_type != "")
-		{
-
-			_currentAction.weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
-		}
+		unit->setActiveRightHand();
 	}
 
 	// if weapon is not null
@@ -625,6 +610,8 @@ void BattlescapeGame::melee_attack(std::string obj_str)
 	// new!
 	std::string weapon_type = obj["weapon_type"].asString();
 	std::string hand = obj["hand"].asString();
+	// -1 when the packet came from a peer that predates the weapon_id field.
+	int weapon_id = obj.get("weapon_id", -1).asInt();
 	int type = obj["type"].asInt();
 
 	int hitNumber = obj["hitNumber"].asInt();
@@ -672,35 +659,18 @@ void BattlescapeGame::melee_attack(std::string obj_str)
 	_currentAction.target = *endpos;
 	_currentAction.type = (BattleActionType)type;
 
-	// if not weapon
-	if (!_currentAction.weapon && weapon_type != "")
+	// coop (issue #74): resolve the actor's OWN weapon and never fabricate one -
+	// a receiver-side `new BattleItem` bumps this machine's item-id counter and
+	// permanently drifts the two machines' id spaces apart.
+	_currentAction.weapon = coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
+
+	if (_currentAction.weapon && _currentAction.weapon == unit->getLeftHandWeapon())
 	{
-		if (hand == "right")
-		{
-
-			_currentAction.weapon = unit->getRightHandWeapon();
-
-			unit->setActiveRightHand();
-		}
-
-		if (hand == "left")
-		{
-
-			_currentAction.weapon = unit->getLeftHandWeapon();
-
-			unit->setActiveLeftHand();
-		}
-
-		_currentAction.weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
+		unit->setActiveLeftHand();
 	}
-	else if (_currentAction.weapon)
+	else if (_currentAction.weapon && _currentAction.weapon == unit->getRightHandWeapon())
 	{
-
-		if (_currentAction.weapon->getRules()->getType() != weapon_type && weapon_type != "")
-		{
-
-			_currentAction.weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
-		}
+		unit->setActiveRightHand();
 	}
 
 	// if weapon is not null
@@ -760,6 +730,100 @@ int BattlescapeGame::getCoopGamemode()
 std::string BattlescapeGame::getCoopWeaponHand()
 {
 	return _parentState->_hand;
+}
+
+/**
+ * Names the hand @a weapon is actually held in, so a co-op packet describes the
+ * shot that happened instead of the last hand button the sender's player
+ * clicked. See the header for why the old value was wrong. (coop, issue #74)
+ */
+std::string BattlescapeGame::coopHandOf(BattleUnit* actor, const BattleItem* weapon, const std::string& uiHand)
+{
+	if (actor && weapon)
+	{
+		if (actor->getRightHandWeapon() == weapon)
+		{
+			return "right";
+		}
+		if (actor->getLeftHandWeapon() == weapon)
+		{
+			return "left";
+		}
+	}
+	return uiHand;
+}
+
+/**
+ * Resolves the weapon of a replayed co-op action. Never allocates: a receiver
+ * that invents a BattleItem bumps its own item-id counter and the two machines'
+ * id spaces drift apart for the rest of the battle, after which every id-based
+ * lookup in the protocol degrades into a by-type guess. (coop, issue #74)
+ */
+BattleItem* BattlescapeGame::coopResolveWeapon(SavedBattleGame* save, BattleUnit* actor, int weaponId, const std::string& weaponType, const std::string& hand)
+{
+	if (!save)
+	{
+		return nullptr;
+	}
+
+	// 1. the exact instance, on the actor that fired it
+	if (actor && weaponId != -1)
+	{
+		for (auto* bi : *actor->getInventory())
+		{
+			if (bi->getId() == weaponId && (weaponType.empty() || bi->getRules()->getType() == weaponType))
+			{
+				return bi;
+			}
+		}
+	}
+
+	// 2. the hand the packet named, if it holds the right kind of weapon
+	if (actor)
+	{
+		BattleItem* handItem = (hand == "left") ? actor->getLeftHandWeapon() : actor->getRightHandWeapon();
+		if (handItem && (weaponType.empty() || handItem->getRules()->getType() == weaponType))
+		{
+			return handItem;
+		}
+
+		// 3. the actor's OWN inventory by type - covers a stale hand string
+		//    without ever reaching for another unit's identical weapon.
+		if (!weaponType.empty())
+		{
+			for (auto* bi : *actor->getInventory())
+			{
+				if (bi->getRules()->getType() == weaponType)
+				{
+					return bi;
+				}
+			}
+
+			// 3b. built-in specials (an alien psi weapon, a fixed turret gun)
+			//     belong to the unit but live outside its inventory list.
+			for (auto* bi : *save->getItems())
+			{
+				if (bi->getOwner() == actor && bi->getRules()->getType() == weaponType)
+				{
+					return bi;
+				}
+			}
+		}
+	}
+
+	// 4. the identified instance anywhere (dropped, or held by a spawned unit)
+	if (weaponId != -1)
+	{
+		for (auto* bi : *save->getItems())
+		{
+			if (bi->getId() == weaponId && (weaponType.empty() || bi->getRules()->getType() == weaponType))
+			{
+				return bi;
+			}
+		}
+	}
+
+	return nullptr;
 }
 
 bool BattlescapeGame::getHost()

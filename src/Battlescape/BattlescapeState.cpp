@@ -2282,56 +2282,18 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 
 	_battleGame->getCurrentAction()->type = (BattleActionType)type;
 
-	if (hand == "right")
+	// coop (issue #74): same resolution rule as shootPlayerTarget - the actor's
+	// own weapon, never a fabricated one.
+	BattleItem* acted = BattlescapeGame::coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
+	_battleGame->getCurrentAction()->weapon = acted;
+
+	if (acted && acted == unit->getLeftHandWeapon())
 	{
-		_battleGame->getCurrentAction()->weapon = _battleGame->getCurrentAction()->actor->getRightHandWeapon();
-		_battleGame->getCurrentAction()->actor->setActiveRightHand();
+		unit->setActiveLeftHand();
 	}
-
-	if (hand == "left")
+	else if (acted && acted == unit->getRightHandWeapon())
 	{
-		_battleGame->getCurrentAction()->weapon = _battleGame->getCurrentAction()->actor->getLeftHandWeapon();
-		_battleGame->getCurrentAction()->actor->setActiveLeftHand();
-	}
-
-	// if not weapon
-	if (!_battleGame->getCurrentAction()->weapon && weapon_type != "")
-	{
-
-		bool found = false;
-
-		// First, check if the weapon exists in the map
-		for (auto &item : *_save->getItems())
-		{
-
-			if (item->getId() == weapon_id && item->getRules()->getName() == weapon_type)
-			{
-
-				found = true;
-				_battleGame->getCurrentAction()->weapon = item;
-				break;
-
-			}
-
-		}
-
-		if (found == false)
-		{
-
-			_battleGame->getCurrentAction()->weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
-
-		}
-
-
-	}
-	else if (_battleGame->getCurrentAction()->weapon)
-	{
-
-		if (_battleGame->getCurrentAction()->weapon->getRules()->getType() != weapon_type && weapon_type != "")
-		{
-
-			_battleGame->getCurrentAction()->weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
-		}
+		unit->setActiveRightHand();
 	}
 
 
@@ -4468,6 +4430,8 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	bool actor_unable_to_throw_here = obj["actor_unable_to_throw_here"].asBool();
 
 	std::string weapon_type = obj["weapon_type"].asString();
+	// -1 when the packet came from a peer that predates the weapon_id field.
+	int weapon_id = obj.get("weapon_id", -1).asInt();
 
 	int target_x = obj["coords"]["target"]["x"].asInt();
 	int target_y = obj["coords"]["target"]["y"].asInt();
@@ -4550,40 +4514,21 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 
 	_battleGame->getCurrentAction()->actor = unit;
 
-	if (hand == "right")
+	// coop (issue #74): resolve the SHOOTER'S OWN weapon. Reading a hand blindly
+	// and then inventing a BattleItem when it was empty (a stale `hand` string,
+	// which is what every AI shot carried) leaked an item AND advanced this
+	// machine's item-id counter, drifting the two id spaces apart until the
+	// protocol's other id lookups started matching other players' gear by type.
+	BattleItem* firing = BattlescapeGame::coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
+	_battleGame->getCurrentAction()->weapon = firing;
+
+	if (firing && firing == unit->getLeftHandWeapon())
 	{
-
-		_battleGame->getCurrentAction()->weapon = unit->getRightHandWeapon();
-
-		unit->setActiveRightHand();
-	}
-
-	if (hand == "left")
-	{
-
-		_battleGame->getCurrentAction()->weapon = unit->getLeftHandWeapon();
-
 		unit->setActiveLeftHand();
 	}
-
-
-	// if not weapon
-	if (!_battleGame->getCurrentAction()->weapon && weapon_type != "")
+	else if (firing && firing == unit->getRightHandWeapon())
 	{
-
-		_battleGame->getCurrentAction()->weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
-	
-	}
-	else if (_battleGame->getCurrentAction()->weapon)
-	{
-
-		if (_battleGame->getCurrentAction()->weapon->getRules()->getType() != weapon_type && weapon_type != "")
-		{
-
-			_battleGame->getCurrentAction()->weapon = new BattleItem(_save->getMod()->getItem(weapon_type), _save->getCurrentItemId());
-			
-		}
-
+		unit->setActiveRightHand();
 	}
 
 	// check panic or mindcontrol
@@ -4676,12 +4621,22 @@ void BattlescapeState::moveCoopInventory(std::string ammos_str, std::string item
 	}
 
 	// NAME
+	// coop (issue #74): last-ditch by-name recovery, but ONLY over items that are
+	// free to move - loose on the ground, or already carried by the unit the
+	// packet is about. Scanning every item in the battle used to hand this move
+	// the identically-typed weapon out of ANOTHER player's soldier's hands, which
+	// is exactly the reported "my blaster launcher disappeared".
 	if (found == false)
 	{
 
 		for (auto& items : *_save->getItems())
 		{
-			if (items->getRules()->getName() == item_name)
+			if (items->getRules()->getName() != item_name)
+			{
+				continue;
+			}
+			BattleUnit* holder = items->getOwner();
+			if (holder == nullptr || holder == unit)
 			{
 				currentItem = items;
 				break;

@@ -1003,12 +1003,45 @@ void LobbyMenu::lstSavesPress(Action* action)
 	// The host switches a player to another team.
 	if (_game->getCoopMod()->getServerOwner() == true && action->getDetails()->button.button == SDL_BUTTON_LEFT && connectionTCP::session.sessionLocked == false)
 	{
-		auto connectedPlayer = _connectedPlayers;  
+		setPlayerTeam(_lstPlayers->getSelectedRow() - _firstValidRow, "");
+	}
+	else if (_game->getCoopMod()->getServerOwner() == true && action->getDetails()->button.button == SDL_BUTTON_RIGHT)
+	{
+
 		int sel = _lstPlayers->getSelectedRow() - _firstValidRow;
+		if (sel >= 0 && sel < (int)_connectedPlayers.size())
+		{
+
+			if (_connectedPlayers[sel].id != 1)
+			{
+
+				_game->pushState(new CoopState(12345));
+
+			}
+
+		}
+
+	}
+}
+
+/**
+ * Puts one lobby row on a team and re-derives the co-op game mode from the
+ * resulting XCOM/Alien split. @a team empty = toggle (what a click does).
+ * @return true if @a row addressed a real player.
+ */
+bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
+{
+	{
+		auto connectedPlayer = _connectedPlayers;
+		int sel = row;
 		if (sel >= 0 && sel < (int)connectedPlayer.size())
 		{
 
-			if (connectedPlayer[sel].team == "XCOM")
+			if (!team.empty())
+			{
+				connectedPlayer[sel].team = team;
+			}
+			else if (connectedPlayer[sel].team == "XCOM")
 			{
 				connectedPlayer[sel].team = "Alien"; 
 			}
@@ -1017,6 +1050,10 @@ void LobbyMenu::lstSavesPress(Action* action)
 				connectedPlayer[sel].team = "XCOM"; 
 			}
 
+		}
+		else
+		{
+			return false;
 		}
 
 		bool isHostAlien = false;
@@ -1085,24 +1122,8 @@ void LobbyMenu::lstSavesPress(Action* action)
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 	}
-	else if (_game->getCoopMod()->getServerOwner() == true && action->getDetails()->button.button == SDL_BUTTON_RIGHT)
-	{
 
-		int sel = _lstPlayers->getSelectedRow() - _firstValidRow;
-		if (sel >= 0 && sel < (int)_connectedPlayers.size())
-		{
-
-			if (_connectedPlayers[sel].id != 1)
-			{
-
-				_game->pushState(new CoopState(12345));
-
-			}
-
-		}
-
-	}
-
+	return true;
 }
 
 void LobbyMenu::disableSort()

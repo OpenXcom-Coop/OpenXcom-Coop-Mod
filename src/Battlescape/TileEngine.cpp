@@ -3666,6 +3666,21 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 	std::map<Tile*, int> tilesAffected;
 	std::vector<BattleItem*> toRemove;
 	std::pair<std::map<Tile*, int>::iterator, bool> ret;
+	// coop (issue #74): every item this blast destroys, for the host to ship to
+	// the peer. A client must not decide this for itself. For CARRIED items it
+	// cannot - hitUnit() returns early with `true` on a client (it applies no
+	// damage; the host mirrors the result via "hit_unit"), short-circuiting the
+	// `!hitUnit(...) && ...` test below. For items on the GROUND it half can,
+	// because hitUnit() returns false for a non-corpse before reaching that
+	// early return - but it would judge them against its OWN
+	// type->getRandomDamage() roll, which is a different number from the host's.
+	// So the client removes nothing here and applies the host's list instead.
+	Json::Value coopRemoved(Json::arrayValue);
+	bool coopClient = false;
+	if (_save->getBattleGame() && _save->getBattleGame()->getCoopMod()->getCoopStatic() == true)
+	{
+		coopClient = (_save->getBattleGame()->getCoopMod()->getHost() == false);
+	}
 
 	if (type->FireBlastCalc)
 	{
@@ -3778,6 +3793,14 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 						}
 						for (auto* bi : toRemove)
 						{
+							if (coopClient)
+							{
+								continue; // the host's "explode_items" decides
+							}
+							Json::Value e;
+							e["id"] = bi->getId();
+							e["type"] = bi->getRules()->getType();
+							coopRemoved.append(e);
 							_save->removeItem(bi);
 						}
 
@@ -3854,6 +3877,23 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 				applyGravity(j);
 		}
 	}
+	// coop (issue #74): hand the peer the exact set of items this blast destroyed.
+	// Outcome replication, not input replication - the per-tile damage roll
+	// (type->getRandomDamage) is drawn from each machine's own RNG stream, so
+	// asking the client to recompute the set would only trade "one side destroys"
+	// for "both destroy, disagreeing about which".
+	if (_save->getBattleGame() && !coopRemoved.empty())
+	{
+		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true
+			&& _save->getBattleGame()->getCoopMod()->getHost() == true)
+		{
+			Json::Value root;
+			root["state"] = "explode_items";
+			root["items"] = coopRemoved;
+			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		}
+	}
+
 	// coop
 	bool coop_is_second_fov = false;
 	calculateLighting(LL_AMBIENT, centetTile, maxRadius + 1, true); // roofs could have been destroyed and fires could have been started
