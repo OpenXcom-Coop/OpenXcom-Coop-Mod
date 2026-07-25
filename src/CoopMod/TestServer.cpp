@@ -3145,7 +3145,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	// dispatcher so execute()'s if/else chain does not grow (MSVC C1061).
 	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
-		&& cmd != "battle_close_inventory")
+		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
+		&& cmd != "battle_prox")
 	{
 		return false;
 	}
@@ -3185,6 +3186,17 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			ji["isAmmo"] = it->isAmmo();
 			ji["qty"] = it->getAmmoQuantity();
 			ji["onTile"] = (it->getTile() != nullptr);
+			// Where it lies, for the items that lie on the floor: a tile sweep
+			// (checkForProximityGrenades) is scoped by position, so a test has to
+			// be able to say "this item was on one of the tiles it swept".
+			if (it->getTile())
+			{
+				Position tp = it->getTile()->getPosition();
+				ji["tx"] = tp.x;
+				ji["ty"] = tp.y;
+				ji["tz"] = tp.z;
+			}
+			ji["fuse"] = it->getFuseTimer();
 			Json::Value am(Json::arrayValue);
 			for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
 			{
@@ -3328,6 +3340,56 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		else
 		{
 			inv->btnOkClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_drop")
+	{
+		// Put loose items on the FLOOR of <x,y,z> (the tile inventory - not a
+		// unit's), optionally primed. Call it on BOTH machines: no coop packet
+		// replicates a mid-battle item spawn, and the ids only line up if both
+		// sides create the same items in the same order.
+		Tile* t = sbg->getTile(Position(req.get("x", 0).asInt(),
+									   req.get("y", 0).asInt(),
+									   req.get("z", 0).asInt()));
+		const RuleItem* rule = _game->getMod()->getItem(req.get("item", "").asString());
+		if (!t)
+			resp["error"] = "no such tile";
+		else if (!rule)
+			resp["error"] = "unknown item type";
+		else
+		{
+			Json::Value ids(Json::arrayValue);
+			int count = req.get("count", 1).asInt();
+			for (int i = 0; i < count; ++i)
+			{
+				BattleItem* bi = sbg->createItemForTile(rule, t);
+				bi->setXCOMProperty(req.get("xcom", true).asBool());
+				if (req.get("prime", false).asBool())
+				{
+					// What priming a grenade does: an armed fuse is the whole
+					// precondition of BattleItem::fuseProximityEvent().
+					bi->setFuseTimer(req.get("fuse", 0).asInt());
+					bi->setFuseEnabled(true);
+				}
+				ids.append(bi->getId());
+			}
+			resp["ids"] = ids;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_prox")
+	{
+		// Run the REAL proximity check for <unit> - the same call UnitWalkBState
+		// makes after every step, including its host-side coop packet. Driving it
+		// directly keeps the trigger deterministic (no pathfinding, no TU budget)
+		// while still exercising the actual sender and the peer's receiver.
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!unit || !bg)
+			resp["error"] = "no unit id / no battle game";
+		else
+		{
+			resp["change"] = bg->checkForProximityGrenades(unit);
 			resp["ok"] = true;
 		}
 	}

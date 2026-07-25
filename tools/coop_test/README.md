@@ -415,8 +415,9 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
 - Battlescape: `close_briefing`, `battle_inventory`, `battle_state`,
   `battle_action` (`select` / `move` / `shoot` / `end_turn` / `abort`),
   `battle_items` (every BattleItem instance: `id`/`type`/`owner`/`slot`/`isAmmo`/
-  `qty`/`ammo[]`, plus per-type `counts` - diff two machines' dumps to catch an
-  item that vanishes on one side only), `battle_give` (`unit`, `item`, optional
+  `qty`/`fuse`/`ammo[]` and, for a floor item, its tile `tx`/`ty`/`tz`, plus
+  per-type `counts` - diff two machines' dumps to catch an item that vanishes on
+  one side only), `battle_give` (`unit`, `item`, optional
   `ammo` loaded into slot 0, `slot`=right|left|ground|<inventory id>, `fuse` to
   prime it, `clear_hands`; `slot`=ground drops it straight onto the unit's tile
   via `createItemForTile`, which is the only reliable way to place a known number
@@ -427,7 +428,13 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
   ids), `battle_fire` (`unit`, `mode`=snap|aimed|auto|**launch**, `weapon_id`,
   `target` unit or x/y/z, `waypoints[]` for a launch, `tu` to top the actor up,
   `hand` to stamp `BattlescapeState::_hand`; `mode`=`throw` lobs a primed
-  grenade), `battle_teleport`, and
+  grenade), `battle_drop` (`x`/`y`/`z`, `item`, `count`, `prime` [+`fuse`] -
+  loose items on an ARBITRARY tile's floor, optionally with an armed fuse;
+  `battle_give` with `slot`=ground can only reach the unit's own tile),
+  `battle_prox` (`unit` - run the real `checkForProximityGrenades`, the call
+  `UnitWalkBState` makes after every step, incl. its host-side coop packet; a
+  deterministic trigger with no pathfinding or TU budget in the way),
+  `battle_teleport`, and
   `battle_open_inventory` / `battle_close_inventory` (open a unit's inventory
   MID-BATTLE via the real `btnInventoryClick`, so a follow-up `inventory_move`
   runs the same `Inventory::moveItem` a mouse drop calls - which is where the
