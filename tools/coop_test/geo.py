@@ -10,6 +10,10 @@ and dismiss_popup. Every test (present or future) can import these to:
                              an event of interest.
   * skip_ingame_time(...)  - same, but bounded by in-game minutes instead of
                              wall-clock.
+  * slow_clock(...)        - drop both clocks to the 5-second step, so a test can
+                             seed state and read baselines without the sim (which
+                             keeps running at whatever speed the last skip left)
+                             advancing whole game days underneath it.
 
 The two skip helpers take an optional `interest` predicate so they stop as soon
 as something you care about happens (e.g. a mission site appears) instead of
@@ -160,6 +164,27 @@ def _apply_speed(host, client, speed_idx):
     for gc in (host, client):
         if on_geoscape(gc):
             gc.cmd({"cmd": "geo_set_speed", "idx": speed_idx})
+
+
+def slow_clock(host, client, settle=0.3):
+    """Drop BOTH clocks to the 5-second step (speed idx 0) and let the in-flight
+    tick land, i.e. "stop the world" for a test's setup window.
+
+    Why every seed-then-observe step needs this: the geoscape timer fires every
+    geoClockSpeed=80ms, and at speed 5 one tick advances a whole GAME DAY (24
+    hourly sim steps). Nothing pauses time when skip_ingame_time()/skip_realtime()
+    return, so a test that afterwards seeds state and reads a baseline is racing a
+    sim that runs ~6 game days per 0.5s poll: a production seeded one hour short of
+    completion can finish BETWEEN the host and client baseline reads, and then the
+    "+1 on both" expectation is unreachable (the replica's baseline already counts
+    the delivered item).
+
+    At speed 0 a game hour takes ~58 real seconds, so no hourly step (production,
+    transfers, craft maintenance) can fire inside a sub-second setup sequence.
+    Call it BEFORE the setup, then let the next skip_* re-apply the fast speed."""
+    _apply_speed(host, client, 0)
+    time.sleep(settle)
+    _apply_speed(host, client, 0)
 
 
 def _step_dialogs(host, client, interest, do_dismiss, dismissed):

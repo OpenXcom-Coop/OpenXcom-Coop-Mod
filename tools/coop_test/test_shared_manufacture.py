@@ -184,6 +184,7 @@ def main():
         #    a known _timeSpent on the HOST; crossing a day boundary must carry that
         #    value to the replica via day_tick (its own step() never runs).
         # ================================================================
+        geo.slow_clock(host, client)   # seed with the sim stopped (see step 6)
         host.ok({"cmd": "shared_cmd", "jcmd": "man_alloc", "baseId": 0,
                  "payload": {"item": LASER, "engineers": 0, "qty": 1,
                              "infinite": False, "sell": False, "fallback": False}})
@@ -208,16 +209,25 @@ def main():
         #    then advance -> the host completes on the very next hourly step and
         #    broadcasts prod_done; the item is delivered on BOTH machines and the
         #    engineers are freed (J04 path, on a SHARED-started production).
+        #
+        #    slow_clock() FIRST: the step-5 skip leaves both clocks at speed 5, where
+        #    one 80ms timer tick advances a whole game day (24 hourly steps). Giving
+        #    the laser an engineer at that speed completes it within a tick or two -
+        #    before (or between) the baseline reads below - and then "+1 on both" can
+        #    never come true because the replica's baseline already counts the item.
         # ================================================================
+        geo.slow_clock(host, client)
         host.ok({"cmd": "shared_cmd", "jcmd": "man_alloc", "baseId": 0,
                  "payload": {"item": LASER, "engineers": 1, "qty": 1,
                              "infinite": False, "sell": False, "fallback": False}})
         host.wait_for("host laser to 1 eng",
                       lambda: (_prod(host, LASER) and _prod(host, LASER)["engineers"] == 1) or None,
                       timeout=30, interval=0.5)
+        laser0_h, laser0_c = _storage(host, LASER), _storage(client, LASER)
+        assert laser0_h == laser0_c, \
+            f"{LASER} baseline differs before the completion step: host={laser0_h} client={laser0_c}"
         r = host.ok({"cmd": "set_production_progress", "item": LASER, "timeSpent": 299})
         assert r.get("found"), f"could not seed production progress on host: {r}"
-        laser0_h, laser0_c = _storage(host, LASER), _storage(client, LASER)
         geo.skip_ingame_time(host, client, minutes=60 * 24, speed_idx=5, real_timeout=90)
         host.wait_for("host laser produced",
                       lambda: (_storage(host, LASER) == laser0_h + 1) or None, timeout=30, interval=0.5)
@@ -250,6 +260,9 @@ def main():
         OVER_ENG = 400
         over_units = OVER_ENG // ALLOYS_TIME          # host getAmountProduced() at completion
         assert over_units >= 2, "test must actually overshoot _amount(=1)"
+        # Same reason as step 6: the previous skip left the clocks at a game day per
+        # tick, so seed and read baselines with the sim effectively stopped.
+        geo.slow_clock(host, client)
         client.ok({"cmd": "shared_cmd", "jcmd": "man_start", "baseId": 0,
                    "payload": {"item": ALLOYS, "engineers": 1, "qty": 1,
                                "infinite": False, "sell": False, "fallback": False}})

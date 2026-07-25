@@ -316,6 +316,18 @@ Traps worth knowing before you write a JOINT test:
 - A popup on **either** machine stalls the shared clock (co-op only advances while
   both players are on the geoscape at the same speed). Drain both sides - but
   never dismiss `ConfirmLandingState`: `dismiss_popup`/`geo_run` auto-decline it.
+- **`geo.skip_ingame_time()` / `skip_realtime()` do not stop time when they
+  return.** The geoscape timer fires every `geoClockSpeed`=80 ms, and at
+  `speed_idx=5` one tick advances a whole game DAY (24 hourly sim steps) - a 0.5 s
+  poll is ~6 game days. So anything you seed or read AFTER a skip is racing a
+  running sim: a production seeded one hour short of completion can finish between
+  the host and the client baseline read, and then "+1 on both" is unreachable
+  because the replica's baseline already counts the delivered item (this was the
+  `test_shared_manufacture` COMPLETION flake). Call `geo.slow_clock(host, client)`
+  first - it drops both sides to the 5-second step (~58 s real per game hour) so no
+  hourly step can fire inside the setup window - then let the next `skip_*`
+  re-apply the fast speed. Asserting the host/client baseline is equal before you
+  wait on a delta turns any residual straddle into an instant, readable failure.
 - New TestServer hooks go in `TestServer::executeJoint10`; the old `execute`
   if/else chain is at MSVC's 128-block nesting limit (C1061).
 
