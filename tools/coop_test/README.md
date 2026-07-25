@@ -187,11 +187,20 @@ campaign each run.
   The host now ships the destroyed set as `explode_items` and the client applies
   exactly that, removing nothing of its own accord. Uses `lobby_set_team` to pick
   the PvP mode.
-- `test_coop_blast_item_damage.py` - the same blast in a SHARED battle, which
-  passes both before and after that fix and is what isolates the divergence to
-  PvP. `I74_BLAST_RANGE` moves the alien further out (the default 2 is
-  point-blank); at range the blast is absorbed by terrain before it reaches the
-  squad, so no SHARED divergence could be constructed.
+- `test_coop_blast_item_damage.py` - the same blast in a SHARED battle. Passes
+  before AND after the fix, because a power-200 bomb is so far above a launcher's
+  armor 40 that every item in radius dies on any roll, and point-blank it kills
+  the squad, after which the death path converges both machines anyway. Kept as
+  a coverage check; it settles nothing on its own. `I74_BLAST_RANGE` moves the
+  alien out (default 2 = point-blank), but at range terrain absorbs the blast.
+- `test_coop_shared_blast_ground_items.py` - what DID settle it: the divergence
+  is not PvP-specific. A plain `STR_GRENADE` (power 50) against loose
+  `STR_BLASTER_LAUNCHER`s (armor 40) puts `getRandomDamage` in [25, 75], i.e.
+  marginal rather than a foregone conclusion. With `explode_items` backed out,
+  twice: `host destroyed 8/8 loose launchers, client destroyed 0/8`. The client
+  destroying ZERO rather than a different subset shows it never reaches the item
+  loop at all. Needs `battleInstantGrenade` (set via `set_option` on both
+  machines) or `fuseThrowEvent` lets the grenade land and wait for the turn.
 - `test_save_upgrade_flow.py` - the load-gate + full flow on a REAL save: a real
   campaign save is stripped into a legacy DUAL pair; loading it through the real
   `LoadGameState` must hit the upgrade dialog (not load as solo); then the
@@ -345,13 +354,17 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
   `battle_items` (every BattleItem instance: `id`/`type`/`owner`/`slot`/`isAmmo`/
   `qty`/`ammo[]`, plus per-type `counts` - diff two machines' dumps to catch an
   item that vanishes on one side only), `battle_give` (`unit`, `item`, optional
-  `ammo` loaded into slot 0, `slot`=right|left|<inventory id>, `clear_hands`;
+  `ammo` loaded into slot 0, `slot`=right|left|ground|<inventory id>, `fuse` to
+  prime it, `clear_hands`; `slot`=ground drops it straight onto the unit's tile
+  via `createItemForTile`, which is the only reliable way to place a known number
+  of loose items - the inventory route no-ops under several co-op guards;
   places explicitly rather than via `BattleUnit::addItem`, whose auto-loadout
   heuristics refuse to hand a geoscape soldier a weapon - call it on BOTH
   machines, nothing replicates a mid-battle item spawn, and compare the returned
   ids), `battle_fire` (`unit`, `mode`=snap|aimed|auto|**launch**, `weapon_id`,
   `target` unit or x/y/z, `waypoints[]` for a launch, `tu` to top the actor up,
-  `hand` to stamp `BattlescapeState::_hand`), `battle_teleport`, and
+  `hand` to stamp `BattlescapeState::_hand`; `mode`=`throw` lobs a primed
+  grenade), `battle_teleport`, and
   `battle_open_inventory` / `battle_close_inventory` (open a unit's inventory
   MID-BATTLE via the real `btnInventoryClick`, so a follow-up `inventory_move`
   runs the same `Inventory::moveItem` a mouse drop calls - which is where the

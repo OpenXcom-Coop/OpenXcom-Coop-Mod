@@ -2311,6 +2311,15 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			Options::oxceAlternateCraftEquipmentManagement = req.get("value", false).asBool();
 			resp["ok"] = true;
 		}
+		else if (name == "battleInstantGrenade")
+		{
+			// BattleItem::fuseThrowEvent only detonates a primed grenade on impact
+			// when this is on (or the item's fuseTimerType is BFT_INSTANT);
+			// otherwise it just lands and waits for the turn to tick. Set it on
+			// BOTH machines - it changes when the explosion happens.
+			Options::battleInstantGrenade = req.get("value", false).asBool();
+			resp["ok"] = true;
+		}
 		else
 		{
 			resp["error"] = "unknown option: " + name;
@@ -3170,6 +3179,31 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				for (auto* bi : hands)
 					sbg->removeItem(bi);
 			}
+			// slot=ground: drop the item straight onto the unit's tile instead of
+			// into an inventory slot. Deterministic loose items - the inventory
+			// route (open + drag to ground) silently no-ops under several co-op
+			// guards, so it cannot be relied on to place a known number of them.
+			if (req.get("slot", "").asString() == "ground")
+			{
+				Tile* t = unit->getTile();
+				BattleItem* g = t ? sbg->createItemForTile(wrule, t) : nullptr;
+				if (!g)
+				{
+					resp["error"] = "unit has no tile";
+					return true;
+				}
+				if (req.isMember("fuse"))
+				{
+					g->setFuseTimer(req["fuse"].asInt());
+					g->setFuseEnabled(true);
+				}
+				resp["weaponId"] = g->getId();
+				resp["weaponSlot"] = "STR_GROUND";
+				resp["ammoId"] = -1;
+				resp["ok"] = true;
+				return true;
+			}
+
 			// Explicit placement, NOT BattleUnit::addItem: the auto-loadout
 			// heuristics refuse to hand a real soldier a weapon (allowAutoLoadout
 			// is false for a geoscape soldier), and a test wants the item exactly
@@ -3188,6 +3222,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			w->setXCOMProperty(unit->getFaction() == FACTION_PLAYER);
 			sbg->getItems()->push_back(w);
 			sbg->initItem(w, unit);
+			if (req.isMember("fuse"))
+			{
+				w->setFuseTimer(req["fuse"].asInt());
+				w->setFuseEnabled(true);
+			}
 			resp["weaponId"] = w->getId();
 			resp["weaponSlot"] = w->getSlot() ? w->getSlot()->getId() : "";
 			std::string ammoType = req.get("ammo", "").asString();
@@ -3271,6 +3310,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["error"] = "no unit id / no battle game";
 			return true;
 		}
+		std::string mode = req.get("mode", "snap").asString();
 		BattleItem* w = nullptr;
 		int wid = req.get("weapon_id", -1).asInt();
 		if (wid != -1)
@@ -3281,6 +3321,19 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		else
 		{
 			w = unit->getMainHandWeapon(false);
+			if (!w && mode == "throw")
+			{
+				// a primed grenade is not a "main hand weapon"
+				for (auto* bi : *unit->getInventory())
+				{
+					if (bi->getSlot() && (bi->getSlot()->getId() == "STR_RIGHT_HAND"
+						|| bi->getSlot()->getId() == "STR_LEFT_HAND"))
+					{
+						w = bi;
+						break;
+					}
+				}
+			}
 		}
 		if (!w)
 		{
@@ -3294,11 +3347,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		if (bstate && req.isMember("hand"))
 			bstate->_hand = req["hand"].asString();
 
-		std::string mode = req.get("mode", "snap").asString();
 		BattleActionType bt = BA_SNAPSHOT;
 		if (mode == "aimed") bt = BA_AIMEDSHOT;
 		else if (mode == "auto") bt = BA_AUTOSHOT;
 		else if (mode == "launch") bt = BA_LAUNCH;
+		else if (mode == "throw") bt = BA_THROW;
 
 		sbg->setSelectedUnit(unit);
 		BattleAction* a = bg->getCurrentAction();
