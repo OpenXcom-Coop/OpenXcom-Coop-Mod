@@ -17,7 +17,11 @@ import subprocess
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EXE = os.path.join(REPO, "bin", "x64", "Release", "OpenXcom.exe")
+# OXC_TEST_EXE points the whole suite at a different build - e.g.
+# bin/x64/Release-nofix/OpenXcom.exe, to watch a regression test go red against
+# a binary without the fix. The exe's own directory supplies the game data, so
+# that tree has to be staged (tools/worktree_bootstrap.ps1).
+EXE = os.environ.get("OXC_TEST_EXE") or os.path.join(REPO, "bin", "x64", "Release", "OpenXcom.exe")
 TEST_ROOT = os.path.join(os.environ["TEMP"], "oxc-coop-test")
 
 # Machine-wide harness lock: suites are stateful (fixed TCP ports per test,

@@ -170,7 +170,10 @@ void PsiAttackBState::init()
 		// new!
 		obj["weapon_type"] = _action.weapon->getRules()->getType();
 		obj["type"] = (int)_action.type;
-		obj["hand"] = _parent->getCoopWeaponHand();
+		// coop (issue #74): the weapon that actually acted, and the hand it is
+		// really in - not the sender's last hand-button click.
+		obj["weapon_id"] = _action.weapon->getId();
+		obj["hand"] = BattlescapeGame::coopHandOf(_action.actor, _action.weapon, _parent->getCoopWeaponHand());
 
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
