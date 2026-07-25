@@ -341,9 +341,17 @@ Traps worth knowing before you write a BATTLESCAPE test:
 - Prefer a walk over a shot when asserting replication: a shot can legitimately
   miss, so an unchanged victim is ambiguous, while a position is not.
 
-Full suite (serial) is ~20 min; no test exceeds ~2 min. Known flakes, retry once:
-`test_ufo_notice`, `test_joint_manufacture`, `test_joint_commerce`,
-`test_joint_disconnect`, `test_joint_resync`.
+Full suite (serial) is ~20 min; no test exceeds ~2 min.
+
+Known flakes: `test_ufo_notice`, `test_shared_manufacture`,
+`test_shared_commerce`, `test_shared_disconnect`, `test_shared_resync`. **CI does
+not tolerate them.** `tools/ci/run_coop_suite.ps1` retries a failed test once and
+then fails the shard; its `$quarantine` list is empty, so nothing is reported as
+KNOWN-FAIL (and that list is for tests known-broken on main, not for flakes). A
+flake here is a red build, not a warning - re-run the failed jobs
+(`gh run rerun <id> --failed`) and fix it if it keeps recurring. Note the names
+above were `test_joint_*` before the JOINT ->
+SHARED rename; the quarantine list never tracked either spelling.
 
 `session.py` is the shared campaign dance (`new_campaign` / `resume_campaign`
 / `assert_client_zero_disk`) used by every test; `joint_fixture.py` builds the
