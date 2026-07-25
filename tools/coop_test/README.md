@@ -193,14 +193,22 @@ campaign each run.
   the squad, after which the death path converges both machines anyway. Kept as
   a coverage check; it settles nothing on its own. `I74_BLAST_RANGE` moves the
   alien out (default 2 = point-blank), but at range terrain absorbs the blast.
-- `test_coop_shared_blast_ground_items.py` - what DID settle it: the divergence
-  is not PvP-specific. A plain `STR_GRENADE` (power 50) against loose
-  `STR_BLASTER_LAUNCHER`s (armor 40) puts `getRandomDamage` in [25, 75], i.e.
-  marginal rather than a foregone conclusion. With `explode_items` backed out,
-  twice: `host destroyed 8/8 loose launchers, client destroyed 0/8`. The client
-  destroying ZERO rather than a different subset shows it never reaches the item
-  loop at all. Needs `battleInstantGrenade` (set via `set_option` on both
-  machines) or `fuseThrowEvent` lets the grenade land and wait for the turn.
+  **SHARED remains an open question, with no committed test.** A hand-rolled
+  probe (a `STR_GRENADE`, power 50, against loose `STR_BLASTER_LAUNCHER`s, armor
+  40, so `getRandomDamage`'s [25, 75] straddles the threshold) DID diverge in
+  SHARED with `explode_items` backed out - `host 8/8, client 0/8`, twice. But
+  that shape is a per-TILE coin flip, so as a suite test it is flaky in both
+  directions, and CI duly failed it on "nothing destroyed". Swapping to a
+  low-armor item (`STR_PISTOL_CLIP`, default armor 20, under the minimum damage
+  of 25) makes it deterministic - and then it passes WITHOUT the fix too, because
+  both machines destroy everything whatever they roll. So the SHARED ground-item
+  divergence is real but probabilistic, and the earlier claim that "the client
+  never reaches the item loop" was WRONG: it does, its roll just lands the other
+  side of the threshold. A deterministic SHARED test needs the CARRIED-item path
+  instead, where the client applies no damage at all, so
+  `bu->getOverKillDamage()` is 0 and it removes nothing regardless of any roll.
+  Not yet written. (`battle_give slot=ground` + `fuse`, `battle_fire mode=throw`
+  and `set_option battleInstantGrenade` were added for that probe and are kept.)
 - `test_save_upgrade_flow.py` - the load-gate + full flow on a REAL save: a real
   campaign save is stripped into a legacy DUAL pair; loading it through the real
   `LoadGameState` must hit the upgrade dialog (not load as solo); then the
