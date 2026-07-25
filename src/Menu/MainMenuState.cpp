@@ -358,9 +358,17 @@ MainMenuState::MainMenuState(bool updateCheck)
 	_textCoopVersion->setAlign(ALIGN_CENTER);
 	_textCoopVersion->setSmall();
 
+	// OPENXCOM_VERSION_LONG is "<major>.<minor>.<patch>.0" - the 4th field only
+	// exists for the Windows version resource, so drop it and show the 3-part
+	// version that actually gets tagged (8.4.3, not 8.4.3.0).
+	std::string coopVersion = OPENXCOM_VERSION_LONG;
+	const size_t lastDot = coopVersion.rfind('.');
+	if (lastDot != std::string::npos && coopVersion.substr(lastDot) == ".0")
+		coopVersion.erase(lastDot);
+
 	std::ostringstream versions;
 	versions << "OpenXcom " << OPENXCOM_VERSION_ENGINE << " " << OPENXCOM_VERSION_OXCE << "\n";
-	versions << "Coop Mod " << OPENXCOM_VERSION_LONG;
+	versions << "Coop Mod " << coopVersion;
 	if (std::string(OPENXCOM_VERSION_CHANNEL) != "release")
 		versions << " (" << OPENXCOM_VERSION_CHANNEL << ")";
 	_textCoopVersion->setText(versions.str());
