@@ -3185,7 +3185,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			// guards, so it cannot be relied on to place a known number of them.
 			if (req.get("slot", "").asString() == "ground")
 			{
+				// optional x/y/z: any tile, not just the unit's own - a blast test
+				// needs items spread over SEVERAL tiles, because explode draws one
+				// damage roll per tile.
 				Tile* t = unit->getTile();
+				if (req.isMember("x"))
+				{
+					t = sbg->getTile(Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
+											  req.get("z", 0).asInt()));
+				}
 				BattleItem* g = t ? sbg->createItemForTile(wrule, t) : nullptr;
 				if (!g)
 				{

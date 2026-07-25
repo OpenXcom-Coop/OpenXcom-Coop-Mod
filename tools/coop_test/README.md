@@ -193,22 +193,36 @@ campaign each run.
   the squad, after which the death path converges both machines anyway. Kept as
   a coverage check; it settles nothing on its own. `I74_BLAST_RANGE` moves the
   alien out (default 2 = point-blank), but at range terrain absorbs the blast.
-  **SHARED remains an open question, with no committed test.** A hand-rolled
-  probe (a `STR_GRENADE`, power 50, against loose `STR_BLASTER_LAUNCHER`s, armor
-  40, so `getRandomDamage`'s [25, 75] straddles the threshold) DID diverge in
-  SHARED with `explode_items` backed out - `host 8/8, client 0/8`, twice. But
-  that shape is a per-TILE coin flip, so as a suite test it is flaky in both
-  directions, and CI duly failed it on "nothing destroyed". Swapping to a
-  low-armor item (`STR_PISTOL_CLIP`, default armor 20, under the minimum damage
-  of 25) makes it deterministic - and then it passes WITHOUT the fix too, because
-  both machines destroy everything whatever they roll. So the SHARED ground-item
-  divergence is real but probabilistic, and the earlier claim that "the client
-  never reaches the item loop" was WRONG: it does, its roll just lands the other
-  side of the threshold. A deterministic SHARED test needs the CARRIED-item path
-  instead, where the client applies no damage at all, so
-  `bu->getOverKillDamage()` is 0 and it removes nothing regardless of any roll.
-  Not yet written. (`battle_give slot=ground` + `fuse`, `battle_fire mode=throw`
-  and `set_option battleInstantGrenade` were added for that probe and are kept.)
+  **SHARED: measured, understood, deliberately NOT guarded by a test.**
+  `TileEngine::explode` draws `damage = type->getRandomDamage(power_)` once per
+  TILE from each machine's own RNG stream, and both machines DO evaluate the item
+  loop. Instrumenting one blast, same tile, same explosion:
+
+      host  : tile=45,39,1 damage=279 overkill=0 [80:STR_BLASTER_LAUNCHER(a40,ground)]
+      client: tile=45,39,1 damage=109 overkill=0 [80:STR_BLASTER_LAUNCHER(a40,ground)]
+
+  The streams are wildly apart, but they only DISAGREE about an item when its
+  armor falls between the two rolls. A blaster bomb (power 200, radius 10) has no
+  such band - every covered tile rolls hundreds, everything past the radius rolls
+  nothing - so both machines destroy an identical set. Measured: 15/24 seeded
+  armor-40 items destroyed, on both, three runs, with AND without the fix.
+  Only a weak blast produces a straddle band: a STR_GRENADE (power 50) against
+  armor-40 items did diverge (`host 8/8, client 0/8`, twice) - but that is ONE
+  roll per tile, so ~30% of runs destroy nothing and the test fails itself. CI
+  duly failed it. Three test shapes were tried and all three were discarded:
+  marginal-single-tile (flaky), low-armor (passes unfixed - both destroy
+  everything), multi-tile-strong-blast (passes unfixed - no straddle band).
+
+  Note also `overkill=0` on BOTH machines above: the CARRIED-item branch
+  (`bu->getOverKillDamage()`) did not fire at all, so it is not the lever it
+  looks like either.
+
+  So SHARED's exposure is real but narrow and probabilistic, where PvP's is
+  deterministic and severe (host 32 items vs client 1). The fix covers both
+  identically - it is gated on `getCoopStatic() && getHost()` with no gamemode
+  condition - and `test_coop_pvp_blaster.py` is the regression guard. A SHARED
+  guard would need a weak-blast geometry with enough independent straddling tiles
+  to be reliable; not attempted further.
 - `test_save_upgrade_flow.py` - the load-gate + full flow on a REAL save: a real
   campaign save is stripped into a legacy DUAL pair; loading it through the real
   `LoadGameState` must hit the upgrade dialog (not load as solo); then the
