@@ -120,10 +120,14 @@ def assert_escape_buttons(gc, code, tag):
     assert d["abandonText"] == "ABANDON GAME", f"{tag}: {d['abandonText']!r}"
     # The buttons have to fit inside the window they are drawn in, or they are
     # decoration the player cannot click - and the window has to stay cropped to
-    # its content (padding + title + one or two button rows = 60 or 83), not the
-    # full-height 160 these dialogs used to reserve.
-    assert 52 <= d["windowHeight"] <= 90, \
+    # its content (padding + title + ONE button row = 61), not the full-height
+    # 160 these dialogs used to reserve.
+    assert 52 <= d["windowHeight"] <= 64, \
         f"{tag}: window not sized to its content: {d}"
+    # WAITING and READY are mutually exclusive: RESUME/BEGIN must not share the
+    # dialog with an escape hatch that no longer means anything.
+    assert not d["backVisible"], \
+        f"{tag}: escape hatch shown alongside {d['backText']!r}: {d}"
     return d
 
 
@@ -235,6 +239,32 @@ def scenario_freeze_buttons():
         assert not d["backVisible"], f"RESUME shown with nobody to resume: {d}"
         assert d["backText"] == "RESUME", f"back button repurposed: {d}"
         print("PASS freeze-resume: RESUME still hidden until the peer returns")
+
+        # ...and the swap goes the other way too: once the peer is back the
+        # wait is over, so SAVE & QUIT / ABANDON GAME stop being offered and
+        # RESUME takes the row.
+        client2 = GameClient("client", js.client.port + 20,
+                             make_user_dir("rdlg_c_client2"))
+        client2.spawn()
+        client2.connect()
+        client2.ok({"cmd": "join_tcp", "ip": "127.0.0.1",
+                    "port": str(js.coop_port), "player": "ClientPlayer"})
+        try:
+            js.host.wait_for("rejoin acked",
+                             lambda: js.host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
+                             timeout=150)
+            if session.has_state(js.host, "Profile"):
+                js.host.ok({"cmd": "profile_ok"})
+            js.host.wait_for("RESUME offered",
+                             lambda: dialog(js.host).get("backVisible") or None,
+                             timeout=60, interval=0.5)
+            r = dialog(js.host)
+            assert not r["saveQuitVisible"] and not r["abandonVisible"], (
+                f"escape hatch still offered after the peer came back: {r}")
+            assert r["title"] == "All players connected", f"title stale: {r}"
+            print("PASS freeze-ready: escape hatch retired once the peer is back")
+        finally:
+            client2.shutdown()
     finally:
         js.shutdown()
 

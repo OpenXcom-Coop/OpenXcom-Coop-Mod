@@ -67,16 +67,16 @@ namespace
 const int kWaitW       = 216;  // shared with the other CoopState dialogs
 const int kWaitPad     = 8;    // inner margin: border to content, all four sides
 const int kWaitGap     = 6;    // between the title and a row, and between rows
-const int kWaitBtnH    = 16;
+const int kWaitBtnH    = 17;   // _btnBack's stock height; the pair matches it
 const int kWaitBtnW    = 99;   // two of these + kWaitGap fit the padded width
 const int kWaitActionW = 100;  // RESUME / BEGIN, centered on its own row
-const int kWaitActionH = 17;   // _btnBack's stock size - never resized, only moved
 const int kWaitTitleH  = 22;   // two small wrapped lines
-const int kWaitCenterY = 100;  // dialogs stay centered on this line as they grow
+const int kWaitCenterY = 100;  // the dialogs stay centered on this line
 
-// title + escape row, and the same plus the action row above it
-const int kWaitCompactH = kWaitPad + kWaitTitleH + kWaitGap + kWaitBtnH + kWaitPad;
-const int kWaitTallH    = kWaitCompactH + kWaitActionH + kWaitGap;
+// padding, title, one button row, padding. ONE row is all these dialogs ever
+// need: the escape hatch and the RESUME/BEGIN action are mutually exclusive
+// (see setWaitAction), so the window never has to grow or leave a hole.
+const int kWaitH = kWaitPad + kWaitTitleH + kWaitGap + kWaitBtnH + kWaitPad;
 }
 
 /**
@@ -102,15 +102,12 @@ CoopState::CoopState(int state)
 	else if (isHostWaitDialog(state))
 	{
 		// One content-sized strip for the whole host-wait family (60/62/64):
-		// padding, a wrapped title, and the escape-hatch row. The dialog's own
-		// action button (RESUME/BEGIN) is hidden until the peer is actually
-		// there, so it gets NO row here - reserving one would leave a hole in
-		// the state the host stares at longest. growWaitWindow() adds the row
-		// (and the height) at the moment the button appears.
-		_window = new Window(this, kWaitW, kWaitCompactH, x,
-							 kWaitCenterY - kWaitCompactH / 2, POPUP_BOTH);
+		// padding, a wrapped title, and a single button row that holds either
+		// the escape hatch or the dialog's own action - never both.
+		_window = new Window(this, kWaitW, kWaitH, x,
+							 kWaitCenterY - kWaitH / 2, POPUP_BOTH);
 		_txtTitle = new Text(kWaitW - 2 * kWaitPad, kWaitTitleH, x + kWaitPad,
-							 kWaitCenterY - kWaitCompactH / 2 + kWaitPad);
+							 kWaitCenterY - kWaitH / 2 + kWaitPad);
 	}
 	else if (state == COOP_DLG_SHARED_FAIL)
 	{
@@ -403,10 +400,13 @@ CoopState::CoopState(int state)
 		_txtTitle->setWordWrap(true);
 		_txtTitle->setVerticalAlign(ALIGN_MIDDLE);
 
-		layoutWaitRows(false);
+		// the per-state blocks above set the WAITING wording; capture it (and
+		// its READY counterpart) so setWaitAction can flip between them
+		_waitTitle = _txtTitle->getText();
+		_waitReadyTitle = (state == COOP_DLG_WAIT_BASES) ? "All bases placed."
+														 : "All players connected";
 
-		_btnSaveQuit->setVisible(true);
-		_btnAbandon->setVisible(true);
+		setWaitAction(false);
 	}
 
 	// host-save cycle (host)
@@ -880,43 +880,52 @@ int CoopState::getWindowHeight() const
  * to its own window at any display scale - an absolute setY would not.
  * Every widget already has its final SIZE from the constructor; this only moves
  * them, so nothing re-wraps or re-renders.
- * @param withAction Reserve a row for the dialog's RESUME/BEGIN button.
+ * @param withAction The row holds RESUME/BEGIN rather than the escape hatch.
  */
 void CoopState::layoutWaitRows(bool withAction)
 {
 	const int wx = _window->getX();
 	const int wy = _window->getY();
+	const int row = wy + kWaitPad + kWaitTitleH + kWaitGap;
 
 	_txtTitle->setX(wx + kWaitPad);
 	_txtTitle->setY(wy + kWaitPad);
-
-	int row = wy + kWaitPad + kWaitTitleH + kWaitGap;
 
 	if (withAction)
 	{
 		_btnBack->setX(wx + (kWaitW - kWaitActionW) / 2);
 		_btnBack->setY(row);
-		row += kWaitActionH + kWaitGap;
 	}
-
-	_btnSaveQuit->setX(wx + kWaitPad);
-	_btnSaveQuit->setY(row);
-	_btnAbandon->setX(wx + kWaitW - kWaitPad - kWaitBtnW);
-	_btnAbandon->setY(row);
+	else
+	{
+		_btnSaveQuit->setX(wx + kWaitPad);
+		_btnSaveQuit->setY(row);
+		_btnAbandon->setX(wx + kWaitW - kWaitPad - kWaitBtnW);
+		_btnAbandon->setY(row);
+	}
 }
 
 /**
- * Issues #79/#81: the wait dialog's action button just became relevant, so the
- * window grows by exactly one row and re-centers on kWaitCenterY. Sizing for
- * this case up front instead would leave a visible hole in the state the host
- * sees for far longer - waiting, with no peer and no button.
+ * Issues #79/#81: switch a host-wait dialog between its two states.
+ *
+ * WAITING  the peer is missing, so there is nothing to RESUME/BEGIN and the
+ *          only useful actions are leaving - SAVE & QUIT / ABANDON GAME.
+ * READY    the peer is back, so the wait is over and quitting the campaign is
+ *          not what this dialog is for; RESUME/BEGIN is the only action.
+ *
+ * They are mutually exclusive, which is why one button row is enough. Driven
+ * from think() in BOTH directions: a peer that drops again gets the escape
+ * hatch back rather than being left with a RESUME that resumes nobody.
  */
-void CoopState::growWaitWindow()
+void CoopState::setWaitAction(bool ready)
 {
-	const int grow = kWaitTallH - kWaitCompactH;
-	_window->setY(_window->getY() - grow / 2);
-	_window->setHeight(kWaitTallH);
-	layoutWaitRows(true);
+	_txtTitle->setText(ready ? _waitReadyTitle : _waitTitle);
+
+	_btnBack->setVisible(ready);
+	_btnSaveQuit->setVisible(!ready);
+	_btnAbandon->setVisible(!ready);
+
+	layoutWaitRows(ready);
 }
 
 std::string CoopState::getSaveQuitText() const
@@ -1040,24 +1049,23 @@ void CoopState::think()
 			bool allPlaced = connectionTCP::hasCoopFile(
 				connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
 
-			if (allPlaced && !_btnBack->getVisible())
+			// tracks both directions: the row holds BEGIN once every base is in,
+			// and the escape hatch again if it somehow is not
+			if (allPlaced != _btnBack->getVisible())
 			{
-				_txtTitle->setText("All bases placed.");
-				_btnBack->setText("BEGIN");
-				growWaitWindow();   // the action row only exists once it is real
-				_btnBack->setVisible(true);
+				setWaitAction(allPlaced);
 			}
 
 		}
 		else if (global_state == COOP_DLG_RESUME_ACK_WAIT || global_state == COOP_DLG_FREEZE)
 		{
 
-			// resuming/rejoining players report in via resume_ack (F3/F4)
-			if (connectionTCP::session.resumeAck && !_btnBack->getVisible())
+			// resuming/rejoining players report in via resume_ack (F3/F4).
+			// Tracks both directions - a peer that drops again must get the
+			// escape hatch back, not a RESUME that would resume nobody.
+			if (connectionTCP::session.resumeAck != _btnBack->getVisible())
 			{
-				_txtTitle->setText("All players connected");
-				growWaitWindow();   // the action row only exists once it is real
-				_btnBack->setVisible(true);
+				setWaitAction(connectionTCP::session.resumeAck);
 			}
 
 		}
