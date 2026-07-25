@@ -1269,11 +1269,37 @@ void BattlescapeState::think()
 
 				if (_game->getCoopMod()->getCoopGamemode() == 4)
 				{
-					showCoopWarning("XCOM Activity");
+		
+					if (_save->getSide() == FACTION_NEUTRAL)
+					{
+						showCoopWarning("Outsiders Activity");
+					}
+					else if (_save->getSide() == FACTION_HOSTILE)
+					{
+						showCoopWarning("XCOM Activity");
+					}
+					else
+					{
+						showCoopWarning("Waiting for " + _game->getCoopMod()->getCurrentClientName());
+					}
+
 				}
 				else
 				{
-					showCoopWarning("Alien Activity");
+
+					if (_save->getSide() == FACTION_NEUTRAL)
+					{
+						showCoopWarning("Outsiders Activity");
+					}
+					else if (_save->getSide() == FACTION_HOSTILE)
+					{
+						showCoopWarning("Alien Activity");
+					}
+					else
+					{
+						showCoopWarning("Waiting for " + _game->getCoopMod()->getCurrentClientName());
+					}
+
 				}
 
 
