@@ -119,8 +119,11 @@ def assert_escape_buttons(gc, code, tag):
     assert d["saveQuitText"] == "SAVE & QUIT", f"{tag}: {d['saveQuitText']!r}"
     assert d["abandonText"] == "ABANDON GAME", f"{tag}: {d['abandonText']!r}"
     # The buttons have to fit inside the window they are drawn in, or they are
-    # decoration the player cannot click.
-    assert d["windowHeight"] >= 52, f"{tag}: window too small for two buttons: {d}"
+    # decoration the player cannot click - and the window has to stay cropped to
+    # its content (padding + title + one or two button rows = 60 or 83), not the
+    # full-height 160 these dialogs used to reserve.
+    assert 52 <= d["windowHeight"] <= 90, \
+        f"{tag}: window not sized to its content: {d}"
     return d
 
 

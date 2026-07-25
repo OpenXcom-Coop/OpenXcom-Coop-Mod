@@ -55,6 +55,30 @@ namespace OpenXcom
 
 Globe *currentGlobe = 0;
 
+namespace
+{
+// Layout of the host-wait dialog family (60/62/64) - issues #79/#81.
+//
+// These dialogs are strips that sit over a live geoscape/battlescape, so they
+// are sized to their CONTENT: inner padding, one wrapped title, and one or two
+// button rows. Nothing is positioned by absolute screen coordinate; every row
+// is measured from the window, which is what keeps the margins even and the
+// window cropped to what it actually holds.
+const int kWaitW       = 216;  // shared with the other CoopState dialogs
+const int kWaitPad     = 8;    // inner margin: border to content, all four sides
+const int kWaitGap     = 6;    // between the title and a row, and between rows
+const int kWaitBtnH    = 16;
+const int kWaitBtnW    = 99;   // two of these + kWaitGap fit the padded width
+const int kWaitActionW = 100;  // RESUME / BEGIN, centered on its own row
+const int kWaitActionH = 17;   // _btnBack's stock size - never resized, only moved
+const int kWaitTitleH  = 22;   // two small wrapped lines
+const int kWaitCenterY = 100;  // dialogs stay centered on this line as they grow
+
+// title + escape row, and the same plus the action row above it
+const int kWaitCompactH = kWaitPad + kWaitTitleH + kWaitGap + kWaitBtnH + kWaitPad;
+const int kWaitTallH    = kWaitCompactH + kWaitActionH + kWaitGap;
+}
+
 /**
  * Initializes all the elements in the Pause window.
  * @param game Pointer to the core game.
@@ -75,21 +99,18 @@ CoopState::CoopState(int state)
 		_window = new Window(this, 216, 54, x, 73, POPUP_BOTH);
 		_txtTitle = new Text(206, 26, x + 5, 88);
 	}
-	else if (state == COOP_DLG_WAIT_BASES)
+	else if (isHostWaitDialog(state))
 	{
-		// same compact styling as the client's hold dialog (they show the same
-		// "waiting for bases" message), but with room for the BEGIN button and
-		// the two escape buttons below it (issues #79/#81)
-		_window = new Window(this, 216, 92, x, 56, POPUP_BOTH);
-		_txtTitle = new Text(206, 26, x + 5, 64);
-	}
-	else if (state == COOP_DLG_FREEZE)
-	{
-		// a small "waiting for X to reconnect" strip with room for the RESUME
-		// button that appears once the peer is back, plus the SAVE & QUIT /
-		// ABANDON GAME row that is always there (issues #79/#81)
-		_window = new Window(this, 216, 80, x, 64, POPUP_BOTH);
-		_txtTitle = new Text(206, 22, x + 5, 70);
+		// One content-sized strip for the whole host-wait family (60/62/64):
+		// padding, a wrapped title, and the escape-hatch row. The dialog's own
+		// action button (RESUME/BEGIN) is hidden until the peer is actually
+		// there, so it gets NO row here - reserving one would leave a hole in
+		// the state the host stares at longest. growWaitWindow() adds the row
+		// (and the height) at the moment the button appears.
+		_window = new Window(this, kWaitW, kWaitCompactH, x,
+							 kWaitCenterY - kWaitCompactH / 2, POPUP_BOTH);
+		_txtTitle = new Text(kWaitW - 2 * kWaitPad, kWaitTitleH, x + kWaitPad,
+							 kWaitCenterY - kWaitCompactH / 2 + kWaitPad);
 	}
 	else if (state == COOP_DLG_SHARED_FAIL)
 	{
@@ -108,9 +129,9 @@ CoopState::CoopState(int state)
 	_btnBack = new TextButton(100, 17, x + 55, 150);
 	_btnYes = new TextButton(80, 20, 40, 150);
 	// issues #79/#81: the host's escape hatch, side by side under the wait
-	// message. Positioned per-dialog below; hidden everywhere else.
-	_btnSaveQuit = new TextButton(100, 16, x + 3, 150);
-	_btnAbandon = new TextButton(100, 16, x + 113, 150);
+	// message. layoutWaitRows() places them; hidden everywhere else.
+	_btnSaveQuit = new TextButton(kWaitBtnW, kWaitBtnH, x + kWaitPad, 150);
+	_btnAbandon = new TextButton(kWaitBtnW, kWaitBtnH, x + kWaitPad, 150);
 
 	// Set palette
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
@@ -374,24 +395,16 @@ CoopState::CoopState(int state)
 	// Without an exit the host is trapped in the dialog and cannot even save.
 	// Both buttons are live from the first frame - they must work precisely
 	// when nothing else on this dialog does.
-	//
-	// One place lays out all three buttons of this family, WINDOW-relative:
-	// centerAllSurfaces has already shifted everything by the screen delta, so
-	// an absolute setY would drift off its own window at non-default scales.
-	// Row 1 is the dialog's own action (RESUME/BEGIN, hidden until the peer is
-	// there); row 2 is the escape hatch, always visible.
 	if (isHostWaitDialog(state))
 	{
-		const int top = _window->getY();
-		const int action = (state == COOP_DLG_RESUME_ACK_WAIT) ? 100
-						 : (state == COOP_DLG_WAIT_BASES)      ? 40
-																: 32;
-		const int escape = (state == COOP_DLG_RESUME_ACK_WAIT) ? 130
-						 : (state == COOP_DLG_WAIT_BASES)      ? 64
-																: 54;
-		_btnBack->setY(top + action);
-		_btnSaveQuit->setY(top + escape);
-		_btnAbandon->setY(top + escape);
+		// one title treatment for the family: small, wrapped, and centered in
+		// its box so a one-line message doesn't hang off the top of it
+		_txtTitle->setSmall();
+		_txtTitle->setWordWrap(true);
+		_txtTitle->setVerticalAlign(ALIGN_MIDDLE);
+
+		layoutWaitRows(false);
+
 		_btnSaveQuit->setVisible(true);
 		_btnAbandon->setVisible(true);
 	}
@@ -860,6 +873,52 @@ int CoopState::getWindowHeight() const
 	return _window ? _window->getHeight() : 0;
 }
 
+/**
+ * Issues #79/#81: place the rows of a host-wait dialog, measured from the
+ * window itself. centerAllSurfaces has already shifted every surface by the
+ * screen delta, so working off _window->getX()/getY() keeps the content pinned
+ * to its own window at any display scale - an absolute setY would not.
+ * Every widget already has its final SIZE from the constructor; this only moves
+ * them, so nothing re-wraps or re-renders.
+ * @param withAction Reserve a row for the dialog's RESUME/BEGIN button.
+ */
+void CoopState::layoutWaitRows(bool withAction)
+{
+	const int wx = _window->getX();
+	const int wy = _window->getY();
+
+	_txtTitle->setX(wx + kWaitPad);
+	_txtTitle->setY(wy + kWaitPad);
+
+	int row = wy + kWaitPad + kWaitTitleH + kWaitGap;
+
+	if (withAction)
+	{
+		_btnBack->setX(wx + (kWaitW - kWaitActionW) / 2);
+		_btnBack->setY(row);
+		row += kWaitActionH + kWaitGap;
+	}
+
+	_btnSaveQuit->setX(wx + kWaitPad);
+	_btnSaveQuit->setY(row);
+	_btnAbandon->setX(wx + kWaitW - kWaitPad - kWaitBtnW);
+	_btnAbandon->setY(row);
+}
+
+/**
+ * Issues #79/#81: the wait dialog's action button just became relevant, so the
+ * window grows by exactly one row and re-centers on kWaitCenterY. Sizing for
+ * this case up front instead would leave a visible hole in the state the host
+ * sees for far longer - waiting, with no peer and no button.
+ */
+void CoopState::growWaitWindow()
+{
+	const int grow = kWaitTallH - kWaitCompactH;
+	_window->setY(_window->getY() - grow / 2);
+	_window->setHeight(kWaitTallH);
+	layoutWaitRows(true);
+}
+
 std::string CoopState::getSaveQuitText() const
 {
 	return _btnSaveQuit ? _btnSaveQuit->getText() : "";
@@ -981,10 +1040,11 @@ void CoopState::think()
 			bool allPlaced = connectionTCP::hasCoopFile(
 				connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
 
-			if (allPlaced)
+			if (allPlaced && !_btnBack->getVisible())
 			{
 				_txtTitle->setText("All bases placed.");
 				_btnBack->setText("BEGIN");
+				growWaitWindow();   // the action row only exists once it is real
 				_btnBack->setVisible(true);
 			}
 
@@ -993,9 +1053,10 @@ void CoopState::think()
 		{
 
 			// resuming/rejoining players report in via resume_ack (F3/F4)
-			if (connectionTCP::session.resumeAck)
+			if (connectionTCP::session.resumeAck && !_btnBack->getVisible())
 			{
 				_txtTitle->setText("All players connected");
+				growWaitWindow();   // the action row only exists once it is real
 				_btnBack->setVisible(true);
 			}
 

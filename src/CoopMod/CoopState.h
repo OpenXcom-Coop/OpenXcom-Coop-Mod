@@ -86,6 +86,12 @@ class CoopState : public State
 	/// issue #81: ABANDON GAME - leave for the main menu, writing nothing.
 	void btnAbandonClick(Action *);
 	void loadWorld();
+	/// Issues #79/#81: place a host-wait dialog's title + button rows, measured
+	/// from the window. `withAction` reserves a row for RESUME/BEGIN.
+	void layoutWaitRows(bool withAction);
+	/// Issues #79/#81: grow a host-wait dialog by one row once its RESUME/BEGIN
+	/// button becomes relevant, keeping it centered.
+	void growWaitWindow();
 	void setGlobe(Globe *globe);
 	void setBaseName(std::string name);
 	/// Which dialog this is (see the state-code blocks in the constructor).
