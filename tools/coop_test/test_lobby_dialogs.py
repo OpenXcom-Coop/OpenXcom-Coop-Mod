@@ -191,7 +191,13 @@ def test_wait_bases_dialog():
         assert hd["code"] == 60, f"BUG3: expected WAIT_BASES(60): {hd}"
         assert hd["title"] == WAIT_BASES_MSG, f"BUG3: host message mismatch: {hd!r}"
         assert not hd["backVisible"], f"BUG3: button visible while still waiting: {hd}"
-        assert hd["windowHeight"] <= 80, f"BUG3: host wait dialog not compact: {hd}"
+        # Still the compact strip, not the old full-height (160) window. The
+        # ceiling grew from 80 to 100 when issue #81 added the host's SAVE &
+        # QUIT / ABANDON GAME row - a wait the client may never end has to
+        # offer a way out (see test_reconnect_dialog).
+        assert hd["windowHeight"] <= 100, f"BUG3: host wait dialog not compact: {hd}"
+        assert hd["saveQuitVisible"] and hd["abandonVisible"], \
+            f"BUG3/#81: host wait-bases offers no escape hatch: {hd}"
         print(f"PASS bug3: host wait-bases matches client message, compact (h={hd['windowHeight']})")
 
         # the client, having placed, holds with the SAME message (proves reuse)
@@ -230,7 +236,11 @@ def test_rejoin_hold_and_freeze():
         fd = dlg(host)
         assert fd["code"] == 64, f"BUG5: expected FREEZE(64): {fd}"
         assert "to reconnect" in fd["title"], f"BUG5: wrong freeze text: {fd!r}"
-        assert fd["windowHeight"] <= 60, f"BUG5: freeze dialog too tall (h={fd['windowHeight']}): {fd}"
+        # Same story as BUG3 above: still a strip, not the old full-height (160)
+        # window, but with room for the issue #81 escape hatch.
+        assert fd["windowHeight"] <= 88, f"BUG5: freeze dialog too tall (h={fd['windowHeight']}): {fd}"
+        assert fd["saveQuitVisible"] and fd["abandonVisible"], \
+            f"BUG5/#81: freeze dialog offers no escape hatch: {fd}"
         print(f"PASS bug5: freeze dialog compact (h={fd['windowHeight']})")
 
         # registered client rejoins from a fresh process + empty dir

@@ -59,10 +59,13 @@ enum CoopDialogCode {
 class CoopState : public State
 {
   private:
-	OptionsOrigin _origin;
+	OptionsOrigin _origin = OPT_GEOSCAPE;
 	Window *_window;
 	Text *_txtTitle;
 	TextButton *_btnMessage, *_btnBack, *_btnYes;
+	// issues #79/#81: the host's escape hatch out of a campaign wait that a
+	// missing peer may never end. Only ever built/shown for isHostWaitDialog().
+	TextButton *_btnSaveQuit, *_btnAbandon;
 	int global_state = 0;
 	int state_counter = 0;
 	// PRD-11 C13: retry bookkeeping for the client load-wait dialog (52). When
@@ -78,6 +81,10 @@ class CoopState : public State
 	void loadCoop(Action *);
 	void previous(Action *);
 	void btnYesClick(Action *);
+	/// issue #81: SAVE & QUIT - write a save, then leave for the main menu.
+	void btnSaveQuitClick(Action *);
+	/// issue #81: ABANDON GAME - leave for the main menu, writing nothing.
+	void btnAbandonClick(Action *);
 	void loadWorld();
 	void setGlobe(Globe *globe);
 	void setBaseName(std::string name);
@@ -89,6 +96,20 @@ class CoopState : public State
 	std::string getBackText() const;
 	bool isBackVisible() const;
 	int getWindowHeight() const;
+	/// Same introspection for the host's SAVE & QUIT / ABANDON GAME buttons.
+	std::string getSaveQuitText() const;
+	bool isSaveQuitVisible() const;
+	std::string getAbandonText() const;
+	bool isAbandonVisible() const;
+	/// True for the HOST-side campaign waits that block on a peer who may never
+	/// come back (60/62/64). Issues #79/#81: these - and only these - carry the
+	/// SAVE & QUIT / ABANDON GAME escape hatch, so the host is never trapped.
+	static bool isHostWaitDialog(int code)
+	{
+		return code == COOP_DLG_WAIT_BASES
+			|| code == COOP_DLG_RESUME_ACK_WAIT
+			|| code == COOP_DLG_FREEZE;
+	}
 	/// True for the campaign-wait family (60/62/64/65/67): dialogs that manage
 	/// their own lifetime and must never be popped by save/load-progress handlers.
 	bool isCampaignWaitDialog() const

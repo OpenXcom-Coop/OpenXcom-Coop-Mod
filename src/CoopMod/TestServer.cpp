@@ -96,7 +96,9 @@
 #include "../Menu/NewGameState.h"
 #include "../Menu/NewBattleState.h"
 #include "../Menu/LoadGameState.h"
+#include "../Menu/ListSaveState.h"
 #include "../Menu/SaveGameState.h"
+#include "../Menu/StatisticsState.h"
 #include "../Savegame/Upgrade/SaveUpgrade.h"
 #include "../Menu/SaveUpgradeDialogState.h"
 #include "../Menu/SaveUpgradeClientState.h"
@@ -1503,6 +1505,51 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			sg->setTime(nt);
 			resp["day"] = sg->getTime()->getDay();
 			resp["month"] = sg->getTime()->getMonth();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "set_ending")
+	{
+		// issue #79 test helper: arm the campaign ending (0 none, 1 win, 2 lose)
+		// on the live save. The geoscape's own time5Seconds check then takes over
+		// on the next tick and runs the SHIPPED defeat path (lose cutscene ->
+		// broadcast to the replica -> StatisticsState); the alternative - actually
+		// destroying every base - would change the world under the very
+		// disconnect behaviour being tested.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg)
+			resp["error"] = "no save";
+		else
+		{
+			sg->setEnding(static_cast<GameEnding>(req.get("ending", 2).asInt()));
+			resp["ending"] = static_cast<int>(sg->getEnding());
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "ending_state")
+	{
+		// issue #79: the ending on this machine + whether the end-of-game
+		// statistics screen is up, so a test can tell "campaign over" from
+		// "still playing" without guessing from the state-stack dump.
+		SavedGame* sg = _game->getSavedGame();
+		resp["hasSave"] = (sg != nullptr);
+		resp["ending"] = sg ? static_cast<int>(sg->getEnding()) : 0;
+		resp["campaignEnded"] = connectionTCP::campaignEnded();
+		resp["statistics"] = (findState<StatisticsState>(_game) != nullptr);
+		resp["mainMenu"] = (findState<MainMenuState>(_game) != nullptr);
+		resp["ok"] = true;
+	}
+	else if (cmd == "statistics_ok")
+	{
+		// issue #79: press OK on the end-of-game statistics screen - the click
+		// that takes a finished campaign to the main menu (and, for a client,
+		// silently drops the co-op session on the way out).
+		StatisticsState* st = findState<StatisticsState>(_game);
+		if (!st)
+			resp["error"] = "no StatisticsState";
+		else
+		{
+			st->btnOkClick(nullptr);
 			resp["ok"] = true;
 		}
 	}
@@ -4636,8 +4683,86 @@ std::string TestServer::execute(const std::string& line)
 				resp["backText"] = cs->getBackText();
 				resp["backVisible"] = cs->isBackVisible();
 				resp["windowHeight"] = cs->getWindowHeight();
+				// issues #79/#81: the host's escape hatch out of a campaign wait
+				resp["saveQuitText"] = cs->getSaveQuitText();
+				resp["saveQuitVisible"] = cs->isSaveQuitVisible();
+				resp["abandonText"] = cs->getAbandonText();
+				resp["abandonVisible"] = cs->isAbandonVisible();
 			}
 			resp["ok"] = true;
+		}
+		else if (cmd == "coop_dialog_count")
+		{
+			// How many CoopState dialogs with the given code sit ANYWHERE in
+			// the stack. Issue #79 asserts a ZERO here for the freeze dialog
+			// after a post-defeat drop, which the top-only coop_dialog_info
+			// cannot express (the freeze dialog lands OVER the statistics
+			// screen, so "not on top" is not the same as "not there").
+			int want = req.get("code", -1).asInt();
+			int count = 0;
+			for (State* st : _game->getStates())
+			{
+				CoopState* cs = dynamic_cast<CoopState*>(st);
+				if (cs && (want < 0 || cs->getStateCode() == want))
+				{
+					count++;
+				}
+			}
+			resp["count"] = count;
+			resp["ok"] = true;
+		}
+		else if (cmd == "coop_dialog_save_quit")
+		{
+			// issue #81: click SAVE & QUIT on the top CoopState wait dialog.
+			CoopState* cs = topState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["error"] = "no CoopState on top";
+			}
+			else if (!cs->isSaveQuitVisible())
+			{
+				resp["error"] = "SAVE & QUIT not offered on this dialog";
+			}
+			else
+			{
+				cs->btnSaveQuitClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "coop_dialog_abandon")
+		{
+			// issue #81: click ABANDON GAME on the top CoopState wait dialog.
+			CoopState* cs = topState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["error"] = "no CoopState on top";
+			}
+			else if (!cs->isAbandonVisible())
+			{
+				resp["error"] = "ABANDON GAME not offered on this dialog";
+			}
+			else
+			{
+				cs->btnAbandonClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "list_save_confirm")
+		{
+			// Drive the real save-slot list: type a name into the NEW SAVE row
+			// and press SAVE GAME. Used by the "save and quit" flow tests, which
+			// must go through ListSaveState -> SaveGameState exactly as a player
+			// does (save_game_ui only exposes the auto/quick types).
+			ListSaveState* ls = topState<ListSaveState>(_game);
+			if (!ls)
+			{
+				resp["error"] = "no ListSaveState on top";
+			}
+			else
+			{
+				ls->harnessSaveAs(req.get("name", "harness").asString());
+				resp["ok"] = true;
+			}
 		}
 		else if (cmd == "coop_push_connecting")
 		{

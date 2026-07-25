@@ -643,6 +643,17 @@ bool connectionTCP::localSavesAllowed()
 	return (!coopSession && !getCoopStatic()) || getServerOwner();
 }
 
+// issue #79: is the campaign on this machine finished (won or lost)? Read off
+// the live save's ending, which BOTH machines have by the time the defeat is
+// on screen: the host sets it in GeoscapeState, and a replica adopts it from
+// the "cutscene" packet before the same cutscene plays. Once it is set there
+// is nothing left to do together, so a peer leaving must cost nothing.
+bool connectionTCP::campaignEnded()
+{
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	return save && save->getEnding() != END_NONE;
+}
+
 bool connectionTCP::localLoadsAllowed()
 {
 	// Same liveness terms the save gate uses, WITHOUT the host escape: a live
@@ -1781,7 +1792,12 @@ void connectionTCP::updateCoopTask()
 	if (onConnect == -2)
 	{
 
-		if (allow_cutscene == true)
+		// issue #79: after the campaign has ended, a peer leaving is silent on
+		// both sides - no "<player> has left the server", no "Server connection
+		// lost". Either player may close a finished game first, and neither
+		// exit is allowed to interrupt the other's end-of-game screens. The
+		// plain teardown below still runs, so nothing is left half-attached.
+		if (allow_cutscene == true && !campaignEnded())
 		{
 			// Make sure it calls disconnectTCP, otherwise it may get stuck.
 			if (getServerOwner() == true)
@@ -10648,7 +10664,12 @@ void connectionTCP::disconnectTCP(bool isMain)
 		const bool teardownAsHost = (session.role == CoopRole::Host);
 
 		// both
-		if ((connectionTCP::no_bases == true || !teardownAsHost) && !isMain && connectionTCP::_coopCampaign == true)
+		// issue #79: not after the campaign has ended. The player is on the
+		// defeat/victory statistics screen with their own OK button; yanking
+		// them to the main menu because the other side closed the game first
+		// is exactly the "one player's exit affects the other" bug.
+		if ((connectionTCP::no_bases == true || !teardownAsHost) && !isMain
+			&& connectionTCP::_coopCampaign == true && !campaignEnded())
 		{
 			_game->setState(new MainMenuState);
 		}
@@ -10680,7 +10701,16 @@ void connectionTCP::disconnectTCP(bool isMain)
 						break;
 					}
 				}
-				if (!waitDialogPresent)
+				// issue #79: and never once the campaign is over. After a
+				// defeat/victory there is nothing left to do together, so a
+				// client walking away is not a drop to freeze and wait on -
+				// the host must be free to finish its own end-of-game screens.
+				if (campaignEnded())
+				{
+					Log(LOG_INFO) << "[coop] freeze dialog suppressed: the campaign "
+						"has ended; the peer has nothing left to reconnect for";
+				}
+				else if (!waitDialogPresent)
 				{
 					connectionTCP::session.freeze();
 					_game->pushState(new CoopState(COOP_DLG_FREEZE));

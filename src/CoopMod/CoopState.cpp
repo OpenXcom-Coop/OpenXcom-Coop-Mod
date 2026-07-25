@@ -78,16 +78,18 @@ CoopState::CoopState(int state)
 	else if (state == COOP_DLG_WAIT_BASES)
 	{
 		// same compact styling as the client's hold dialog (they show the same
-		// "waiting for bases" message), but with room for the BEGIN button
-		_window = new Window(this, 216, 68, x, 66, POPUP_BOTH);
-		_txtTitle = new Text(206, 26, x + 5, 72);
+		// "waiting for bases" message), but with room for the BEGIN button and
+		// the two escape buttons below it (issues #79/#81)
+		_window = new Window(this, 216, 92, x, 56, POPUP_BOTH);
+		_txtTitle = new Text(206, 26, x + 5, 64);
 	}
 	else if (state == COOP_DLG_FREEZE)
 	{
-		// ~30% of the old height: a small "waiting for X to reconnect" strip
-		// with room for the RESUME button that appears once the peer is back
-		_window = new Window(this, 216, 52, x, 74, POPUP_BOTH);
-		_txtTitle = new Text(206, 22, x + 5, 78);
+		// a small "waiting for X to reconnect" strip with room for the RESUME
+		// button that appears once the peer is back, plus the SAVE & QUIT /
+		// ABANDON GAME row that is always there (issues #79/#81)
+		_window = new Window(this, 216, 80, x, 64, POPUP_BOTH);
+		_txtTitle = new Text(206, 22, x + 5, 70);
 	}
 	else if (state == COOP_DLG_SHARED_FAIL)
 	{
@@ -105,6 +107,10 @@ CoopState::CoopState(int state)
 	_btnMessage = new TextButton(100, 17, x + 55, 100);
 	_btnBack = new TextButton(100, 17, x + 55, 150);
 	_btnYes = new TextButton(80, 20, 40, 150);
+	// issues #79/#81: the host's escape hatch, side by side under the wait
+	// message. Positioned per-dialog below; hidden everywhere else.
+	_btnSaveQuit = new TextButton(100, 16, x + 3, 150);
+	_btnAbandon = new TextButton(100, 16, x + 113, 150);
 
 	// Set palette
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
@@ -114,20 +120,24 @@ CoopState::CoopState(int state)
 	add(_btnMessage, "button", "pauseMenu");
 	add(_btnBack, "button", "pauseMenu");
 	add(_btnYes, "button", "pauseMenu");
+	add(_btnSaveQuit, "button", "pauseMenu");
+	add(_btnAbandon, "button", "pauseMenu");
 
 	centerAllSurfaces();
 
 	// Set up objects
 	setWindowBackground(_window, "pauseMenu");
 
+	_origin = OPT_GEOSCAPE;
+
 	if (_game->getSavedGame())
 	{
 		if (_game->getSavedGame()->getSavedBattle())
 		{
-			
+
 			applyBattlescapeTheme("pauseMenu");
 			_origin = OPT_BATTLESCAPE;
-			
+
 		}
 	}
 
@@ -138,6 +148,8 @@ CoopState::CoopState(int state)
 	_btnMessage->setVisible(false);
 	_btnBack->setVisible(false);
 	_btnYes->setVisible(false);
+	_btnSaveQuit->setVisible(false);
+	_btnAbandon->setVisible(false);
 
 	_btnMessage->setText(tr("OK"));
 	_btnMessage->onMouseClick((ActionHandler)&CoopState::loadCoop);
@@ -148,6 +160,12 @@ CoopState::CoopState(int state)
 	_btnYes->setText(tr("STR_YES"));
 	_btnYes->onMouseClick((ActionHandler)&CoopState::btnYesClick);
 	_btnYes->onKeyboardPress((ActionHandler)&CoopState::btnYesClick, Options::keyOk);
+
+	_btnSaveQuit->setText("SAVE & QUIT");
+	_btnSaveQuit->onMouseClick((ActionHandler)&CoopState::btnSaveQuitClick);
+
+	_btnAbandon->setText("ABANDON GAME");
+	_btnAbandon->onMouseClick((ActionHandler)&CoopState::btnAbandonClick);
 
 	// HostLoadProgress (client)
 	if (state == COOP_DLG_CLIENT_LOAD_WAIT)
@@ -285,7 +303,6 @@ CoopState::CoopState(int state)
 		_txtTitle->setText("Waiting for " + _game->getCoopMod()->getCurrentClientName() + " to reconnect...");
 
 		_btnBack->setText("RESUME");
-		_btnBack->setY(104);
 		_btnBack->setVisible(false);
 	}
 
@@ -349,8 +366,34 @@ CoopState::CoopState(int state)
 		_txtTitle->setText("Waiting for all players\nto place their bases...");
 
 		_btnBack->setText("BEGIN");
-		_btnBack->setY(108);
 		_btnBack->setVisible(false);
+	}
+
+	// issues #79/#81: every HOST-side campaign wait blocks on a peer that may
+	// never come back (a client that quit, crashed, or simply never joined).
+	// Without an exit the host is trapped in the dialog and cannot even save.
+	// Both buttons are live from the first frame - they must work precisely
+	// when nothing else on this dialog does.
+	//
+	// One place lays out all three buttons of this family, WINDOW-relative:
+	// centerAllSurfaces has already shifted everything by the screen delta, so
+	// an absolute setY would drift off its own window at non-default scales.
+	// Row 1 is the dialog's own action (RESUME/BEGIN, hidden until the peer is
+	// there); row 2 is the escape hatch, always visible.
+	if (isHostWaitDialog(state))
+	{
+		const int top = _window->getY();
+		const int action = (state == COOP_DLG_RESUME_ACK_WAIT) ? 100
+						 : (state == COOP_DLG_WAIT_BASES)      ? 40
+																: 32;
+		const int escape = (state == COOP_DLG_RESUME_ACK_WAIT) ? 130
+						 : (state == COOP_DLG_WAIT_BASES)      ? 64
+																: 54;
+		_btnBack->setY(top + action);
+		_btnSaveQuit->setY(top + escape);
+		_btnAbandon->setY(top + escape);
+		_btnSaveQuit->setVisible(true);
+		_btnAbandon->setVisible(true);
 	}
 
 	// host-save cycle (host)
@@ -817,6 +860,26 @@ int CoopState::getWindowHeight() const
 	return _window ? _window->getHeight() : 0;
 }
 
+std::string CoopState::getSaveQuitText() const
+{
+	return _btnSaveQuit ? _btnSaveQuit->getText() : "";
+}
+
+bool CoopState::isSaveQuitVisible() const
+{
+	return _btnSaveQuit && _btnSaveQuit->getVisible();
+}
+
+std::string CoopState::getAbandonText() const
+{
+	return _btnAbandon ? _btnAbandon->getText() : "";
+}
+
+bool CoopState::isAbandonVisible() const
+{
+	return _btnAbandon && _btnAbandon->getVisible();
+}
+
 void CoopState::think()
 {
 
@@ -1055,6 +1118,43 @@ void CoopState::previous(Action *)
 	}
 
 
+}
+
+/**
+ * Issue #81: SAVE & QUIT on a host campaign-wait dialog. Opens the ordinary
+ * save-slot list; once the file is written, SaveGameState leaves for the main
+ * menu instead of returning here (the whole point is to get OUT of the wait).
+ * The session teardown rides the main-menu transition, as it does everywhere
+ * else - see MainMenuState's constructor.
+ */
+void CoopState::btnSaveQuitClick(Action *)
+{
+	_game->pushState(new ListSaveState(_origin, true));
+}
+
+/**
+ * Issue #81: ABANDON GAME on a host campaign-wait dialog. Straight to the main
+ * menu, nothing written - the same contract as AbandonGameState's YES, minus
+ * the confirmation step (the host already chose this over SAVE & QUIT).
+ */
+void CoopState::btnAbandonClick(Action *)
+{
+	_game->resetTouchButtonFlags();
+
+	// Tear the session down FIRST and as the "main" teardown: that path never
+	// pushes a replacement dialog, so abandoning can't resurrect the very wait
+	// dialog we are leaving. Role is cleared AFTER the teardown, never before -
+	// disconnectTCP branches on it, and clearing it early makes the host tear
+	// down as a client (the disconnect->cancel bug family).
+	_game->getCoopMod()->disconnectTCP(true);
+	_game->getCoopMod()->setServerOwner(false);
+	connectionTCP::session.resetSession();
+
+	Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
+	_game->getScreen()->resetDisplay(false);
+
+	_game->setState(new MainMenuState);
+	_game->setSavedGame(0);
 }
 
 void CoopState::btnYesClick(Action *)
