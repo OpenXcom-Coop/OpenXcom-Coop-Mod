@@ -63,6 +63,13 @@ campaign each run.
   Exposes `bootstrap_fresh_session()` and `own_base()` reused by other tests.
 - `test_gift_rollback.py` - host-save-is-authority rollback of a gift, both directions.
 - `test_server_browser.py` - rendezvous-server combobox state (offline path).
+- `test_skirmish_battle_turn_control.py` - a battle reached the skirmish way
+  (NEW BATTLE > COOP > lobby > BATTLE SETTINGS > OK) must run the coop turn-init
+  handshake: `battleInit` on both machines, exactly one with `coopTurn==2` +
+  `activeSync`, disjoint selectable sets, and a walk driven from the simulation
+  owner reaching the peer. Prints every sub-condition of the init gate
+  (`BattlescapeState.cpp:1284`) on failure, and prints the pre-drain snapshot -
+  the state that gets mistaken for "skirmish never turn-inits".
 - `test_ufo_notice.py` - when one player detects a UFO, the peer gets the notice
   too (both `UfoDetectedState` popups); checks both directions.
 - `test_client_zero_disk.py` - host-save authority: after a full session with
@@ -312,6 +319,28 @@ Traps worth knowing before you write a JOINT test:
 - New TestServer hooks go in `TestServer::executeJoint10`; the old `execute`
   if/else chain is at MSVC's 128-block nesting limit (C1061).
 
+Traps worth knowing before you write a BATTLESCAPE test:
+
+- **`BattlescapeState` existing is not the same as the battle having started.**
+  The coop turn-init handshake that sets `_battleInit` lives in
+  `BattlescapeState::think()`, which only runs while `_popups` is empty *and*
+  `BattlescapeState` is the top state. A driver that stops as soon as
+  `battle_state` reports `inBattle` is typically still sitting under
+  `NextTurnState`, and will read `battleInit=False`, `coopTurn=0`,
+  `playerTurn=3`, `activeSync=False` on both machines, with every player unit
+  `selectable` on both (`BattleUnit::isSelectable` falls through to the vanilla
+  branch until the split is initialised). That looks exactly like "coop never
+  initialises", but it is the undismissed popup. Drain to `BattlescapeState`
+  (see `drain_to_tactical` in `test_skirmish_battle_turn_control.py` /
+  `test_coop_resume_battle_control.py`) and re-read.
+- A coop battle action only replicates from the machine where
+  `activeSync == true`. Driving a unit from the passive side proves nothing -
+  the coop battle states (`UnitWalkBState`, `ProjectileFlyBState`,
+  `MeleeAttackBState`, `PsiAttackBState`, ...) gate their packet send on it.
+  It is not simply "the host": read `activeSync` and drive from that side.
+- Prefer a walk over a shot when asserting replication: a shot can legitimately
+  miss, so an unchanged victim is ambiguous, while a position is not.
+
 Full suite (serial) is ~20 min; no test exceeds ~2 min. Known flakes, retry once:
 `test_ufo_notice`, `test_joint_manufacture`, `test_joint_commerce`,
 `test_joint_disconnect`, `test_joint_resync`.
@@ -394,7 +423,10 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
 
   `battle_state` also reports `activeSync` (`_isActivePlayerSync`): the coop
   battle states only emit their packet when it is true, so a driver has to fire
-  from THAT machine or the action never reaches the peer.
+  from THAT machine or the action never reaches the peer. It reports the
+  coop-init gate field by field too - `battleInit`, `coopSession`, `coopStatic`,
+  `coopCampaign`, `isBusy`, `panicHandled`, `isPreview`, `clientPanicHandle`,
+  `side` - plus `coopTurn`, `playerTurn`, `waitBC`/`waitBH`.
 - Lobby: `lobby_set_team` (host-only; puts lobby row <row> on `XCOM`/`Alien`
   through the real `LobbyMenu::setPlayerTeam`, which is what selects the co-op
   game mode - both XCOM = PVE (1), client Alien = PVP (2), host Alien = PVP2 (3),
