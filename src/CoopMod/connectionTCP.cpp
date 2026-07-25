@@ -7798,14 +7798,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// P2/F1: a battle resume parks the host behind its resume lobby/wait
 		// dialogs - resumeCampaign() closes the lobby but leaves the HostMenu
-		// beneath the COOP_DLG_RESUME_ACK_WAIT it pushed, and on the battle path
+		// beneath the COOP_DLG_WAIT_PLAYERS it pushed, and on the battle path
 		// the host never gets a resumeAck (it emits campaign_resume_battle
 		// instead), so nothing ever pops them. The client has now finished
 		// loading the streamed battle (this packet), so return the host to its
 		// own BattlescapeState: pop everything above it so BattlescapeState::
 		// think() runs and re-arms the coop-init block (_battleInit / role /
 		// turn) once COOP_READY sets coopSession below. Gate strictly on the
-		// RESUME_ACK_WAIT dialog actually being on the stack so this fires ONLY
+		// player-wait dialog actually being on the stack so this fires ONLY
 		// on a resume, never on a LIVE battle entry - there the host stacks
 		// Briefing/Inventory over a fresh battle and also receives
 		// close_load_progress, and popping those would eat the briefing.
@@ -7815,7 +7815,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto* st : _game->getStates())
 			{
 				CoopState* cs = dynamic_cast<CoopState*>(st);
-				if (cs && cs->getStateCode() == COOP_DLG_RESUME_ACK_WAIT)
+				if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
 				{
 					inBattleResume = true;
 					break;
@@ -10682,20 +10682,18 @@ void connectionTCP::disconnectTCP(bool isMain)
 
 			if (connectionTCP::session.lobbyMode != 0 && connectionTCP::session.lobbyClosed == true)
 			{
-				// mid-session client drop: freeze until they reconnect (D5).
-				// The dialog sits over the geoscape/battlescape, pausing it.
-				// Don't stack a second dialog when a campaign wait dialog that
-				// already covers "wait for the player to come back" is present
-				// ANYWHERE in the stack, not just on top. A resume-ack wait (62)
-				// already shows RESUME once resumeAck arrives, so it covers the
-				// freeze dialog's job - stacking a 64 over a buried 62 produces
-				// two RESUME dialogs and a double campaign_begun broadcast (C9).
+				// mid-session client drop: wait until they reconnect (D5). The
+				// dialog sits over the geoscape/battlescape, pausing it. Never
+				// stack a second one when a player-wait is already present
+				// ANYWHERE in the stack, not just on top - two of them means two
+				// RESUME buttons and a double campaign_begun broadcast (C9). The
+				// one already there re-words itself for the drop, so it covers
+				// this case (CoopState::waitingTitle).
 				bool waitDialogPresent = false;
 				for (State* st : _game->getStates())
 				{
 					CoopState* cs = dynamic_cast<CoopState*>(st);
-					if (cs && (cs->getStateCode() == COOP_DLG_FREEZE
-							|| cs->getStateCode() == COOP_DLG_RESUME_ACK_WAIT))
+					if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
 					{
 						waitDialogPresent = true;
 						break;
@@ -10713,7 +10711,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 				else if (!waitDialogPresent)
 				{
 					connectionTCP::session.freeze();
-					_game->pushState(new CoopState(COOP_DLG_FREEZE));
+					_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 				}
 				else
 				{

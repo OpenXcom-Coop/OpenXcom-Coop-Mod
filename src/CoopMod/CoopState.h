@@ -44,8 +44,13 @@ enum CoopDialogCode {
 	COOP_DLG_CLIENT_LOAD_WAIT = 52, // client "loading" wait
 	COOP_DLG_HOST_SAVE_WAIT   = 54, // host "saving" wait
 	COOP_DLG_WAIT_BASES       = 60, // host waits for every client to place a base
-	COOP_DLG_RESUME_ACK_WAIT  = 62, // host waits for resuming players to ack
-	COOP_DLG_FREEZE           = 64, // mid-session freeze: a player dropped
+	// Host waits on a peer to be ready: either loading a streamed world or gone
+	// and expected back. These used to be two codes (62 resume-ack, 64 freeze)
+	// that rendered the same dialog and needed a suppression rule to stop them
+	// stacking two RESUME buttons. One code, and the wording follows the peer's
+	// actual presence (CoopState::waitingTitle) instead of the push site's guess
+	// - so a client that drops mid-wait re-words the dialog it is already in.
+	COOP_DLG_WAIT_PLAYERS     = 62,
 	COOP_DLG_CLIENT_HOLD      = 65, // client placed base, holds until host resumes
 	COOP_DLG_CLIENT_RESUME_HOLD = 68, // rejoined client holds until host resumes
 	COOP_DLG_SHARED_FAIL       = 556, // PRD-J10: the host rejected a SHARED command
@@ -73,11 +78,6 @@ class CoopState : public State
 	// re-send request_load_progress, up to a bounded number of retries.
 	int _loadRetries = 0;
 	int _loadWaitTicks = 0;
-	// Issues #79/#81: the two titles a host-wait dialog flips between, captured
-	// in the constructor so setWaitAction can restore the WAITING one if the
-	// peer drops again after having come back.
-	std::string _waitTitle;
-	std::string _waitReadyTitle;
   public:
 	/// Creates the Pause state.
 	CoopState(int state);
@@ -98,6 +98,13 @@ class CoopState : public State
 	/// Issues #79/#81: flip a host-wait dialog between WAITING (escape hatch)
 	/// and READY (RESUME/BEGIN). The two are mutually exclusive.
 	void setWaitAction(bool ready);
+	/// What this host-wait dialog is waiting on, worded from the peer's CURRENT
+	/// presence rather than from whatever the push site assumed.
+	std::string waitingTitle() const;
+	/// The same dialog's wording once the wait is over.
+	std::string readyTitle() const;
+	/// Is the thing this host-wait dialog waits for satisfied right now?
+	bool waitSatisfied() const;
 	void setGlobe(Globe *globe);
 	void setBaseName(std::string name);
 	/// Which dialog this is (see the state-code blocks in the constructor).
@@ -119,16 +126,14 @@ class CoopState : public State
 	static bool isHostWaitDialog(int code)
 	{
 		return code == COOP_DLG_WAIT_BASES
-			|| code == COOP_DLG_RESUME_ACK_WAIT
-			|| code == COOP_DLG_FREEZE;
+			|| code == COOP_DLG_WAIT_PLAYERS;
 	}
 	/// True for the campaign-wait family (60/62/64/65/67): dialogs that manage
 	/// their own lifetime and must never be popped by save/load-progress handlers.
 	bool isCampaignWaitDialog() const
 	{
 		return global_state == COOP_DLG_WAIT_BASES
-			|| global_state == COOP_DLG_RESUME_ACK_WAIT
-			|| global_state == COOP_DLG_FREEZE
+			|| global_state == COOP_DLG_WAIT_PLAYERS
 			|| global_state == COOP_DLG_CLIENT_HOLD
 			|| global_state == COOP_DLG_CLIENT_RESUME_HOLD;
 	}

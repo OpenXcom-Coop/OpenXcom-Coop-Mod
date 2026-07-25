@@ -14,21 +14,27 @@ Two complaints about the same dialog, so one suite:
        reason: the client left early and the host cannot even save. The dialog
        now carries two live buttons - SAVE & QUIT (save-slot list, then the
        main menu) and ABANDON GAME (main menu, nothing written) - on EVERY
-       host-side campaign wait, not just the freeze dialog.
+       host-side campaign wait, and retires them once the peer is back.
+
+The two host player-waits (a peer loading a streamed world, a peer that dropped)
+are ONE dialog, COOP_DLG_WAIT_PLAYERS (62); the wording follows the peer's actual
+presence. WAIT-REWORD covers the case that merge exists to fix.
 
 SCENARIOS
-  DEFEAT-CLIENT   defeat, the client leaves first  -> no freeze dialog on the
+  DEFEAT-CLIENT   defeat, the client leaves first  -> no wait dialog on the
                   host, host still reaches the main menu on its own OK.
   DEFEAT-HOST     defeat, the HOST leaves first    -> the client is not yanked
                   off its statistics screen and gets no "connection lost" popup.
-  FREEZE-BUTTONS  mid-campaign client drop -> the freeze dialog (64) offers both
-                  buttons.
-  ABANDON         ABANDON GAME on the freeze dialog -> main menu, nothing on disk.
-  SAVE-AND-QUIT   SAVE & QUIT on the freeze dialog -> real save-slot list, a .sav
+  FREEZE-BUTTONS  mid-campaign client drop -> the wait dialog offers both
+                  buttons, and retires them when the peer rejoins.
+  ABANDON         ABANDON GAME on the wait dialog -> main menu, nothing on disk.
+  SAVE-AND-QUIT   SAVE & QUIT on the wait dialog -> real save-slot list, a .sav
                   on disk, then the main menu. This is the #81 headline: the save
                   must NOT wait on the client blob that will never arrive.
-  RESUME-WAIT     the SAME escape hatch on the OTHER host wait dialog (62), where
-                  a client that never finishes joining traps the host identically.
+  RESUME-WAIT     the same escape hatch when a client never finishes joining.
+  WAIT-REWORD     a client that drops WHILE the host waits on it re-words the
+                  dialog in place - it used to keep claiming the peer was
+                  loading, because the second dialog was suppressed.
 
 Run:  python tools/coop_test/test_reconnect_dialog.py
 """
@@ -43,8 +49,9 @@ import shared_fixture
 import session
 import geo
 
-COOP_DLG_RESUME_ACK_WAIT = 62
-COOP_DLG_FREEZE = 64
+# One code for both host player-waits: a peer loading a streamed world and a
+# peer that dropped are the same dialog, worded from the peer's presence.
+COOP_DLG_WAIT_PLAYERS = 62
 
 END_LOSE = 2
 
@@ -57,12 +64,12 @@ def dialog(gc):
 
 
 def freeze_dialogs(gc):
-    """How many freeze dialogs (64) sit ANYWHERE on gc's state stack.
+    """How many player-wait dialogs (62) sit ANYWHERE on gc's state stack.
 
     Deliberately not "is it on top": the #79 bug pushes the freeze dialog OVER
     the statistics screen, so only a whole-stack count can assert its absence.
     """
-    return gc.ok({"cmd": "coop_dialog_count", "code": COOP_DLG_FREEZE})["count"]
+    return gc.ok({"cmd": "coop_dialog_count", "code": COOP_DLG_WAIT_PLAYERS})["count"]
 
 
 def any_coop_dialog(gc):
@@ -213,7 +220,7 @@ def _drop_client_into_freeze(js):
     try:
         host.wait_for(
             "host raised the reconnect dialog",
-            lambda: (lambda d: (d.get("present") and d.get("code") == COOP_DLG_FREEZE) or None)(
+            lambda: (lambda d: (d.get("present") and d.get("code") == COOP_DLG_WAIT_PLAYERS) or None)(
                 dialog(host)),
             timeout=120, interval=0.5)
     except TimeoutError:
@@ -230,7 +237,7 @@ def scenario_freeze_buttons():
     try:
         d = _drop_client_into_freeze(js)
         assert "reconnect" in d["title"], f"not the reconnect dialog: {d}"
-        assert_escape_buttons(js.host, COOP_DLG_FREEZE, "freeze dialog")
+        assert_escape_buttons(js.host, COOP_DLG_WAIT_PLAYERS, "reconnect wait")
         print(f"PASS freeze-buttons: {d['saveQuitText']!r} + {d['abandonText']!r} "
               f"offered on {d['title']!r}")
 
@@ -323,9 +330,9 @@ def scenario_save_and_quit():
 
 def scenario_resume_wait_buttons():
     """#81 for the OTHER host wait dialog. A client that joins and then dies
-    before acking the streamed world leaves the host in COOP_DLG_RESUME_ACK_WAIT
-    (62), which deliberately suppresses the freeze dialog - so 62 has to carry
-    the escape hatch itself or the host is trapped with no dialog that does."""
+    before acking the streamed world leaves the host in COOP_DLG_WAIT_PLAYERS,
+    which suppresses any second wait dialog - so this one has to carry the escape
+    hatch itself or the host is trapped with no dialog that does."""
     host_dir = make_user_dir("rdlg_f_host")
     client_dir = make_user_dir("rdlg_f_client")
     host = GameClient("host", 49020, host_dir)
@@ -368,7 +375,7 @@ def scenario_resume_wait_buttons():
         host.wait_for(
             "host holding in the resume-ack wait",
             lambda: (lambda d: (d.get("present")
-                                and d.get("code") == COOP_DLG_RESUME_ACK_WAIT) or None)(
+                                and d.get("code") == COOP_DLG_WAIT_PLAYERS) or None)(
                 dialog(host)),
             timeout=120, interval=0.5)
 
@@ -380,12 +387,84 @@ def scenario_resume_wait_buttons():
         wait_peer_dropped(host, "host noticed the drop")
         time.sleep(3)
 
-        d = assert_escape_buttons(host, COOP_DLG_RESUME_ACK_WAIT, "resume-ack wait")
+        d = assert_escape_buttons(host, COOP_DLG_WAIT_PLAYERS, "resume-ack wait")
         print(f"PASS resume-wait-buttons: escape hatch offered on {d['title']!r}")
 
         host.ok({"cmd": "coop_dialog_abandon"})
         wait_main_menu(host, "host escaped the resume-ack wait")
         print("PASS resume-wait-abandon: the host is no longer trapped")
+    finally:
+        host.shutdown()
+        client.shutdown()
+
+
+def scenario_wait_reword():
+    """The merge's reason for existing: a client that drops WHILE the host is
+    already waiting on it.
+
+    The host is holding in COOP_DLG_WAIT_PLAYERS for the client to finish
+    loading. The client dies. A second wait dialog is (correctly) suppressed -
+    stacking two would mean two RESUME buttons - so the dialog already on screen
+    has to notice and re-word itself. Before the merge it kept claiming the peer
+    was loading, forever.
+    """
+    host_dir = make_user_dir("rdlg_g_host")
+    client_dir = make_user_dir("rdlg_g_client")
+    host = GameClient("host", 49024, host_dir)
+    client = GameClient("client", 49025, client_dir)
+    port = "48324"
+    try:
+        host.spawn()
+        client.spawn()
+        host.connect()
+        client.connect()
+
+        host.ok({"cmd": "open_new_game", "mode": "shared"})
+        host.wait_for("difficulty", lambda: session.has_state(host, "NewGameState"))
+        host.ok({"cmd": "newgame_ok"})
+        host.wait_for("host window", lambda: session.has_state(host, "HostMenu"))
+        host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": port,
+                 "player": "HostPlayer"})
+        host.wait_for("host lobby", lambda: session.has_state(host, "LobbyMenu"))
+        client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port,
+                   "player": "ClientPlayer"})
+        client.wait_for("client lobby", lambda: session.has_state(client, "LobbyMenu"))
+        for gc in (host, client):
+            gc.wait_for("join popup", lambda gc=gc: session.has_state(gc, "Profile"))
+            gc.ok({"cmd": "profile_ok"})
+        host.wait_for("start eligible",
+                      lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None)
+        host.ok({"cmd": "lobby_start_campaign"})
+        host.wait_for("host base placement",
+                      lambda: session.has_state(host, "BuildNewBaseState"))
+        r = host.cmd({"cmd": "place_first_base", "lon": session.HOST_LON,
+                      "lat": session.HOST_LAT, "name": "HostBase"})
+        if not r.get("ok"):
+            host.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT,
+                     "name": "HostBase"})
+
+        host.wait_for(
+            "host waiting on the loading client",
+            lambda: (lambda d: (d.get("code") == COOP_DLG_WAIT_PLAYERS
+                                and "load" in (d.get("title") or "")) or None)(dialog(host)),
+            timeout=120, interval=0.5)
+        print(f"PASS wait-loading: host reads {dialog(host)['title']!r}")
+
+        client.proc.kill()
+        client.proc.wait(timeout=10)
+        wait_peer_dropped(host, "host noticed the drop")
+
+        host.wait_for(
+            "dialog re-worded for the drop",
+            lambda: ("reconnect" in (dialog(host).get("title") or "")) or None,
+            timeout=60, interval=0.5)
+        d = dialog(host)
+        assert freeze_dialogs(host) == 1, (
+            f"a second wait dialog was stacked instead of re-wording: "
+            f"{freeze_dialogs(host)} present")
+        assert d["saveQuitVisible"] and d["abandonVisible"], \
+            f"escape hatch missing after the re-word: {d}"
+        print(f"PASS wait-reword: same dialog now reads {d['title']!r}")
     finally:
         host.shutdown()
         client.shutdown()
@@ -398,6 +477,7 @@ def main():
     scenario_abandon()
     scenario_save_and_quit()
     scenario_resume_wait_buttons()
+    scenario_wait_reword()
     print("ALL RECONNECT DIALOG TESTS PASSED")
 
 

@@ -303,25 +303,14 @@ CoopState::CoopState(int state)
 		_btnBack->setVisible(true);
 	}
 
-	// host waits for resuming players to finish loading (flow-redesign F3)
-	if (state == COOP_DLG_RESUME_ACK_WAIT)
+	// Host waits on a peer: resuming players finishing their load (flow-redesign
+	// F3) and a mid-session drop waiting for a reconnect (F4/D5) are the SAME
+	// dialog - see COOP_DLG_WAIT_PLAYERS. Wording comes from waitingTitle(), so
+	// it follows the peer instead of the push site; the shared host-wait block
+	// below does the rest.
+	if (state == COOP_DLG_WAIT_PLAYERS)
 	{
-		_txtTitle->setText("Waiting for players to load...");
-
 		_btnBack->setText("RESUME");
-		_btnBack->setVisible(false);
-	}
-
-	// mid-session freeze: a registered player dropped; everything waits
-	// until they reconnect and reload (flow-redesign F4/D5)
-	if (state == COOP_DLG_FREEZE)
-	{
-		_txtTitle->setSmall();
-		_txtTitle->setWordWrap(true);
-		_txtTitle->setText("Waiting for " + _game->getCoopMod()->getCurrentClientName() + " to reconnect...");
-
-		_btnBack->setText("RESUME");
-		_btnBack->setVisible(false);
 	}
 
 	// non-host player finished early (base placed / world loaded) and holds
@@ -377,14 +366,7 @@ CoopState::CoopState(int state)
 	// a base; the button turns into RESUME when they have (flow-redesign F2)
 	if (state == COOP_DLG_WAIT_BASES)
 	{
-		// same wording + compact styling as the client's hold dialog
-		// (COOP_DLG_CLIENT_HOLD) - one message, one look, two actors
-		_txtTitle->setSmall();
-		_txtTitle->setWordWrap(true);
-		_txtTitle->setText("Waiting for all players\nto place their bases...");
-
 		_btnBack->setText("BEGIN");
-		_btnBack->setVisible(false);
 	}
 
 	// issues #79/#81: every HOST-side campaign wait blocks on a peer that may
@@ -400,13 +382,8 @@ CoopState::CoopState(int state)
 		_txtTitle->setWordWrap(true);
 		_txtTitle->setVerticalAlign(ALIGN_MIDDLE);
 
-		// the per-state blocks above set the WAITING wording; capture it (and
-		// its READY counterpart) so setWaitAction can flip between them
-		_waitTitle = _txtTitle->getText();
-		_waitReadyTitle = (state == COOP_DLG_WAIT_BASES) ? "All bases placed."
-														 : "All players connected";
-
-		setWaitAction(false);
+		// wording, visibility and layout all come from the one state machine
+		setWaitAction(waitSatisfied());
 	}
 
 	// host-save cycle (host)
@@ -917,9 +894,60 @@ void CoopState::layoutWaitRows(bool withAction)
  * from think() in BOTH directions: a peer that drops again gets the escape
  * hatch back rather than being left with a RESUME that resumes nobody.
  */
+/**
+ * Issues #79/#81: what a host-wait dialog is waiting on, worded from the peer's
+ * CURRENT presence rather than from whatever the push site assumed.
+ *
+ * This is why the resume-ack wait and the reconnect freeze are one dialog: they
+ * only ever differed in this sentence, and the difference is a property of the
+ * session, not of the two call sites. A client that drops while the host is
+ * already waiting now re-words the dialog it is in - it used to keep claiming
+ * the player was loading, because the freeze push was suppressed.
+ */
+std::string CoopState::waitingTitle() const
+{
+	if (global_state == COOP_DLG_WAIT_BASES)
+	{
+		// same wording as the client's hold dialog (COOP_DLG_CLIENT_HOLD) -
+		// one message, one look, two actors
+		return "Waiting for all players\nto place their bases...";
+	}
+	if (connectionTCP::session.clientInLobby)
+	{
+		return "Waiting for players to load...";
+	}
+	const std::string peer = _game->getCoopMod()->getCurrentClientName();
+	return peer.empty() ? "Waiting for players to reconnect..."
+						: "Waiting for " + peer + " to reconnect...";
+}
+
+/**
+ * The same dialog's wording once the wait is over.
+ */
+std::string CoopState::readyTitle() const
+{
+	return global_state == COOP_DLG_WAIT_BASES ? "All bases placed."
+											   : "All players connected";
+}
+
+/**
+ * Is the thing this host-wait dialog waits for satisfied right now? Bases wait
+ * on every registered client's world blob (a client pushes progress right after
+ * base naming); the player wait is answered by resume_ack (F3/F4).
+ */
+bool CoopState::waitSatisfied() const
+{
+	if (global_state == COOP_DLG_WAIT_BASES)
+	{
+		return connectionTCP::hasCoopFile(
+			connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
+	}
+	return connectionTCP::session.resumeAck;
+}
+
 void CoopState::setWaitAction(bool ready)
 {
-	_txtTitle->setText(ready ? _waitReadyTitle : _waitTitle);
+	_txtTitle->setText(ready ? readyTitle() : waitingTitle());
 
 	_btnBack->setVisible(ready);
 	_btnSaveQuit->setVisible(!ready);
@@ -1041,31 +1069,22 @@ void CoopState::think()
 			}
 
 		}
-		else if (global_state == COOP_DLG_WAIT_BASES)
+		else if (isHostWaitDialog(global_state))
 		{
 
-			// all players placed = every registered client's world blob has
-			// arrived (a client pushes progress right after base naming)
-			bool allPlaced = connectionTCP::hasCoopFile(
-				connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
-
-			// tracks both directions: the row holds BEGIN once every base is in,
-			// and the escape hatch again if it somehow is not
-			if (allPlaced != _btnBack->getVisible())
+			// One poll for the whole family. Tracks BOTH directions: a peer that
+			// drops after having been ready must get the escape hatch back, not
+			// a RESUME that would resume nobody.
+			const bool ready = waitSatisfied();
+			if (ready != _btnBack->getVisible())
 			{
-				setWaitAction(allPlaced);
+				setWaitAction(ready);
 			}
-
-		}
-		else if (global_state == COOP_DLG_RESUME_ACK_WAIT || global_state == COOP_DLG_FREEZE)
-		{
-
-			// resuming/rejoining players report in via resume_ack (F3/F4).
-			// Tracks both directions - a peer that drops again must get the
-			// escape hatch back, not a RESUME that would resume nobody.
-			if (connectionTCP::session.resumeAck != _btnBack->getVisible())
+			else if (!ready)
 			{
-				setWaitAction(connectionTCP::session.resumeAck);
+				// still waiting, but WHO we are waiting on can change under us
+				// (the loading client just dropped) - re-word in place
+				_txtTitle->setText(waitingTitle());
 			}
 
 		}
@@ -1141,7 +1160,7 @@ void CoopState::previous(Action *)
 
 	// The host clicked RESUME on a waiting dialog: release every non-host
 	// player from their "waiting for players" hold (D5).
-	if (global_state == COOP_DLG_WAIT_BASES || global_state == COOP_DLG_RESUME_ACK_WAIT || global_state == COOP_DLG_FREEZE)
+	if (isHostWaitDialog(global_state))
 	{
 		connectionTCP::session.sessionLive();
 

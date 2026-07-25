@@ -13,8 +13,8 @@
    scaling as the client's hold dialog (was a big, poorly-scaled window).
 4. A rejoining client must hold with "Waiting for host to resume the game." (was
    the fresh-placement message "Waiting for all players to place their bases...").
-5. The "Waiting for <player> to reconnect" freeze dialog must be compact (~30% of
-   the old height), not a huge window.
+5. The "Waiting for <player> to reconnect" wait dialog must be compact (a
+   content-sized strip), not a huge window.
 
 Dialog introspection uses the coop_dialog_info harness command (code / title /
 back-button text+visibility / window height).
@@ -231,9 +231,10 @@ def test_rejoin_hold_and_freeze():
         client.proc.kill(); client.proc.wait(timeout=10)
 
         # bug 5: host freezes in a compact "waiting to reconnect" dialog
-        host.wait_for("host freeze dialog", lambda: (dlg(host).get("code") == 64) or None, timeout=60)
+        host.wait_for("host player-wait dialog",
+                      lambda: (dlg(host).get("code") == 62) or None, timeout=60)
         fd = dlg(host)
-        assert fd["code"] == 64, f"BUG5: expected FREEZE(64): {fd}"
+        assert fd["code"] == 62, f"BUG5: expected WAIT_PLAYERS(62): {fd}"
         assert "to reconnect" in fd["title"], f"BUG5: wrong freeze text: {fd!r}"
         # Same content-sized strip as BUG3. The client is dead, so RESUME can
         # never appear here and the compact height (60) is deterministic.
