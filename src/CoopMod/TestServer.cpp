@@ -4154,6 +4154,11 @@ std::string TestServer::execute(const std::string& line)
 				// simply never reaches the peer.
 				resp["activeSync"] = _game->getCoopMod()->_isActivePlayerSync;
 				resp["coopGamemode"] = connectionTCP::getCoopGamemode();
+				// Skirmish diagnosis: the coop-init gate also depends on the campaign
+				// flag and on the WAIT_BATTLESCAPE_* handshake having been exchanged.
+				resp["coopCampaign"] = _game->getCoopMod()->getCoopCampaign();
+				resp["waitBC"] = _game->getCoopMod()->_waitBC;
+				resp["waitBH"] = _game->getCoopMod()->_waitBH;
 				// Sub-conditions of the coop-init gate (BattlescapeState.cpp:1284) so a
 				// test can see exactly which one blocks _battleInit from ever being set.
 				resp["isBusy"] = bg->getBattleGame() ? bg->getBattleGame()->isBusy() : false;
