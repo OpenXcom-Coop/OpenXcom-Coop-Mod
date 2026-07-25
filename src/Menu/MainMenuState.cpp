@@ -353,13 +353,16 @@ MainMenuState::MainMenuState(bool updateCheck)
 	// the COOP mod's version, so the engine line uses OPENXCOM_VERSION_OXCE (the
 	// upstream OXCE release this fork is synced from) and the git suffix - which on a
 	// nightly is " (nightly <date> <sha>)" and ran off both edges of the window - is
-	// replaced by the short channel name.
+	// replaced by the short channel name. An official release needs no channel at
+	// all: "Coop Mod <tagged version>" is exactly what it is.
 	_textCoopVersion->setAlign(ALIGN_CENTER);
 	_textCoopVersion->setSmall();
 
 	std::ostringstream versions;
 	versions << "OpenXcom " << OPENXCOM_VERSION_ENGINE << " " << OPENXCOM_VERSION_OXCE << "\n";
-	versions << "Coop Mod " << OPENXCOM_VERSION_LONG << " (" << OPENXCOM_VERSION_CHANNEL << ")";
+	versions << "Coop Mod " << OPENXCOM_VERSION_LONG;
+	if (std::string(OPENXCOM_VERSION_CHANNEL) != "release")
+		versions << " (" << OPENXCOM_VERSION_CHANNEL << ")";
 	_textCoopVersion->setText(versions.str());
 
 }
