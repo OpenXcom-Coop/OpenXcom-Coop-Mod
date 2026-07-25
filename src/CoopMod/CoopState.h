@@ -49,6 +49,8 @@ enum CoopDialogCode {
 	COOP_DLG_CLIENT_HOLD      = 65, // client placed base, holds until host resumes
 	COOP_DLG_CLIENT_RESUME_HOLD = 68, // rejoined client holds until host resumes
 	COOP_DLG_SHARED_FAIL       = 556, // PRD-J10: the host rejected a SHARED command
+	COOP_DLG_CONFIRM_EQUIP_CRAFT = 557, // lock the Custom Battle craft before equipment
+	COOP_DLG_VOTE_COOLDOWN = 558, // a seat tried to start another vote too soon
 };
 
 /**
@@ -65,6 +67,7 @@ class CoopState : public State
 	TextButton *_btnMessage, *_btnBack, *_btnYes;
 	int global_state = 0;
 	int state_counter = 0;
+	int _value = 0; // optional dialog-specific numeric value
 	// PRD-11 C13: retry bookkeeping for the client load-wait dialog (52). When
 	// the host replies "busy", wait ~2s (_loadWaitTicks at the 500ms gate) then
 	// re-send request_load_progress, up to a bounded number of retries.
@@ -72,7 +75,7 @@ class CoopState : public State
 	int _loadWaitTicks = 0;
   public:
 	/// Creates the Pause state.
-	CoopState(int state);
+	CoopState(int state, int value = 0);
 	/// Cleans up the Pause state.
 	~CoopState();
 	void loadCoop(Action *);

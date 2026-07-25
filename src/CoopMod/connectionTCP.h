@@ -235,6 +235,11 @@ struct CoopSession
 	// set on clients when the host begins/resumes the campaign; releases the
 	// "waiting for players" hold (CoopState 65)
 	bool campaignBegun = false;
+	// Custom Battle equipment gate. The host locks the selected craft before
+	// either player may enter EQUIP CRAFT. The selected craft id then remains
+	// authoritative for the lifetime of this multiplayer session.
+	bool customBattleCraftLocked = false;
+	int customBattleCraftId = -1;
 	// host .sav awaiting a re-save once the fresh client blob arrives
 	// (stale-embed race fix)
 	std::string pendingHostSaveName;
@@ -257,6 +262,7 @@ struct CoopSession
 	void clearDeferredSave();        // deferred host save consumed/cleared
 	void signalCampaignBegun();      // host began/resumed: release the client hold (campaignBegun=true)
 	void consumeCampaignBegun();     // client consumed the release / cleared a stale one (campaignBegun=false)
+	void lockCustomBattleCraft(int craftId); // freeze Custom Battle craft choice and unlock equipment UI
 
 	// --- the ONLY reset paths ---
 	void resetSession();     // full teardown / back to main menu
@@ -299,6 +305,10 @@ public:
 	// Host-snapshotted names in seat order. The menu renders this copy instead
 	// of asking each machine to reconstruct the roster independently.
 	std::vector<std::string> playerNames;
+	// The host owns the real deadline. Clients receive the remaining duration
+	// and keep a local display deadline; vote_result remains authoritative.
+	static constexpr std::uint32_t DEFAULT_TIMEOUT_MS = 30000;
+	std::uint32_t deadlineTicks = 0;
 
 	void clear()
 	{
@@ -314,6 +324,7 @@ public:
 		starterSeat = -1;
 		votes.clear();
 		playerNames.clear();
+		deadlineTicks = 0;
 	}
 
 	void start(
@@ -323,7 +334,8 @@ public:
 		const std::string &voteQuestion,
 		int playerCount,
 		const std::vector<std::string> &seatNames,
-		int starter)
+		int starter,
+		std::uint32_t timeoutMs = DEFAULT_TIMEOUT_MS)
 	{
 		clear();
 
@@ -342,6 +354,7 @@ public:
 		{
 			playerNames[i] = seatNames[i];
 		}
+		deadlineTicks = SDL_GetTicks() + std::max<std::uint32_t>(1, timeoutMs);
 
 		// Starting a vote is itself a YES vote. This lets any player request
 		// the action without having to confirm it twice.
@@ -381,6 +394,29 @@ public:
 	int remainingVotes() const
 	{
 		return std::max(0, totalPlayers - votesCast());
+	}
+
+	std::uint32_t remainingMilliseconds(std::uint32_t nowTicks = SDL_GetTicks()) const
+	{
+		if (!active || deadlineTicks == 0)
+		{
+			return 0;
+		}
+
+		// Signed subtraction is wrap-safe for deadlines less than 2^31 ms away.
+		const std::int32_t remaining =
+			static_cast<std::int32_t>(deadlineTicks - nowTicks);
+		return remaining > 0 ? static_cast<std::uint32_t>(remaining) : 0;
+	}
+
+	bool timedOut(std::uint32_t nowTicks = SDL_GetTicks()) const
+	{
+		return active && remainingMilliseconds(nowTicks) == 0;
+	}
+
+	void setRemainingMilliseconds(std::uint32_t remainingMs)
+	{
+		deadlineTicks = SDL_GetTicks() + std::max<std::uint32_t>(1, remainingMs);
 	}
 
 	VoteDecision decision() const
@@ -441,11 +477,20 @@ class connectionTCP
 	VoteSession _activeVote;
 	bool _voteRequestPending = false;
 	std::uint64_t _voteSequence = 0;
+	// Per-seat host-authoritative vote-start cooldown. Starting a vote writes a
+	// 60-second deadline for that seat; other seats remain free to start votes.
+	static constexpr std::uint32_t VOTE_START_COOLDOWN_MS = 60000;
+	std::vector<std::uint32_t> _voteStarterCooldownUntil;
 	VoteMenu* findVoteMenu(std::uint64_t voteId) const;
 	void openVoteMenu();
 	void updateVoteMenu();
-	void beginVoteAsHost(const std::string& action, const std::string& title,
+	bool beginVoteAsHost(const std::string& action, const std::string& title,
 		const std::string& question, int starterSeat);
+	std::uint32_t voteStarterCooldownRemainingMs(int seat,
+		std::uint32_t nowTicks = SDL_GetTicks()) const;
+	void beginVoteStarterCooldown(int seat);
+	void showVoteCooldownDialog(std::uint32_t remainingMs);
+	void sendVoteCooldown(int seat, std::uint32_t remainingMs);
 	void acceptVote(int seat, bool yes);
 	void broadcastVoteStart();
 	void broadcastVoteUpdate();
@@ -516,10 +561,22 @@ class connectionTCP
 	// Casts the local seat's vote. Duplicate votes are rejected.
 	bool castVote(std::uint64_t voteId, bool yes);
 	bool hasVoteInProgress() const { return _activeVote.active || _voteRequestPending; }
+	// Host-only Custom Battle transition. Once locked, the selected craft cannot
+	// be changed and clients may open their local EQUIP CRAFT screen.
+	bool lockCustomBattleCraft(std::size_t craftId);
+	bool isCustomBattleCraftLocked() const { return session.customBattleCraftLocked; }
+	int getLockedCustomBattleCraftId() const { return session.customBattleCraftId; }
 	// Regression-harness accessors keep TestServer out of private members. The
 	// session getter is read-only; the menu getter is used to press public controls.
 	const VoteSession& getActiveVoteForTest() const { return _activeVote; }
 	VoteMenu* getVoteMenuForTest(std::uint64_t voteId) const { return findVoteMenu(voteId); }
+	// Deterministic harness hooks: exercise the real host timeout/cooldown paths
+	// without making the regression suite sleep for 30 or 60 seconds.
+	bool forceActiveVoteTimeoutForTest();
+	std::uint32_t getVoteStarterCooldownRemainingForTest(int seat) const
+	{
+		return voteStarterCooldownRemainingMs(seat);
+	}
 	// Send a full-state geoscape snapshot via the conflation slot (last-write-wins,
 	// never queued FIFO). slot is a CoopSnapSlot. Used by GeoscapeState::think().
 	void sendCoopSnapshot(int slot, std::string data);

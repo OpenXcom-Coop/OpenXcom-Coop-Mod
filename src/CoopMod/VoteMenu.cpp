@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <sstream>
+#include <SDL.h>
 
 #include "connectionTCP.h"
 #include "../Engine/Game.h"
@@ -32,7 +33,8 @@ VoteMenu::VoteMenu(
 	const std::string &question,
 	int totalPlayers,
 	int requiredYesVotes,
-	const VotePlayerNames &playerNames)
+	const VotePlayerNames &playerNames,
+	std::uint32_t remainingMilliseconds)
 	: _voteId(voteId),
 	  _localSeat(connectionTCP::localSeat()),
 	  _totalPlayers(std::max(1, totalPlayers)),
@@ -40,7 +42,10 @@ VoteMenu::VoteMenu(
 	  _votes(static_cast<std::size_t>(std::max(1, totalPlayers)), VoteSession::NOT_VOTED),
 	  _playerNames(static_cast<std::size_t>(std::max(1, totalPlayers))),
 	  _submitted(false),
-	  _finished(false)
+	  _finished(false),
+	  _locallyTimedOut(false),
+	  _deadlineTicks(SDL_GetTicks() + remainingMilliseconds),
+	  _lastDisplayedSeconds(-1)
 {
 	// The host sends a name snapshot together with vote_start. Copy it once so
 	// later save swaps or lobby teardown cannot turn the rows back into generic
@@ -133,9 +138,43 @@ VoteMenu::~VoteMenu()
 {
 }
 
+void VoteMenu::think()
+{
+	State::think();
+
+	if (_finished)
+	{
+		return;
+	}
+
+	const std::int32_t remaining =
+		static_cast<std::int32_t>(_deadlineTicks - SDL_GetTicks());
+	const int seconds = remaining > 0 ? (remaining + 999) / 1000 : 0;
+	if (seconds != _lastDisplayedSeconds)
+	{
+		_lastDisplayedSeconds = seconds;
+		refreshStatus();
+	}
+
+	// The host will send the authoritative failed result. Hiding the buttons
+	// locally at zero prevents a client from submitting a visibly late vote.
+	if (seconds == 0 && !_locallyTimedOut)
+	{
+		_locallyTimedOut = true;
+		_btnYes->setVisible(false);
+		_btnNo->setVisible(false);
+		refreshStatus();
+	}
+}
+
 std::string VoteMenu::getPlayerRowsText() const
 {
 	return _txtPlayers ? _txtPlayers->getText() : std::string();
+}
+
+std::string VoteMenu::getStatusText() const
+{
+	return _txtStatus ? _txtStatus->getText() : std::string();
 }
 
 std::string VoteMenu::playerName(int seat) const
@@ -220,23 +259,33 @@ void VoteMenu::refreshStatus()
 		}
 	}
 
-	if (_submitted)
+	const std::int32_t remaining =
+		static_cast<std::int32_t>(_deadlineTicks - SDL_GetTicks());
+	const int seconds = remaining > 0 ? (remaining + 999) / 1000 : 0;
+
+	if (_locallyTimedOut)
+	{
+		_txtStatus->setText("TIME EXPIRED - WAITING FOR HOST");
+	}
+	else if (_submitted)
 	{
 		_txtStatus->setText(
 			"VOTE SENT - YES: " + std::to_string(yesVotes) +
-			"  NO: " + std::to_string(noVotes));
+			"  NO: " + std::to_string(noVotes) +
+			"  TIME: " + std::to_string(seconds) + "s");
 	}
 	else
 	{
 		_txtStatus->setText(
-			"CAST YOUR VOTE - YES: " + std::to_string(yesVotes) +
-			"  NO: " + std::to_string(noVotes));
+			"CAST VOTE - YES: " + std::to_string(yesVotes) +
+			"  NO: " + std::to_string(noVotes) +
+			"  TIME: " + std::to_string(seconds) + "s");
 	}
 }
 
 void VoteMenu::submitVote(bool yes)
 {
-	if (_submitted || _finished)
+	if (_submitted || _finished || _locallyTimedOut)
 	{
 		return;
 	}
@@ -297,6 +346,31 @@ void VoteMenu::setVotes(const std::vector<int> &votes)
 	refreshStatus();
 }
 
+void VoteMenu::setRemainingMilliseconds(std::uint32_t remainingMilliseconds)
+{
+	if (_finished)
+	{
+		return;
+	}
+
+	_deadlineTicks = SDL_GetTicks() + remainingMilliseconds;
+	_locallyTimedOut = (remainingMilliseconds == 0);
+	_lastDisplayedSeconds = -1;
+
+	if (!_locallyTimedOut && !_submitted)
+	{
+		_btnYes->setVisible(true);
+		_btnNo->setVisible(true);
+	}
+	else if (_locallyTimedOut)
+	{
+		_btnYes->setVisible(false);
+		_btnNo->setVisible(false);
+	}
+
+	refreshStatus();
+}
+
 void VoteMenu::finishVote(bool passed)
 {
 	_finished = true;
@@ -307,6 +381,19 @@ void VoteMenu::finishVote(bool passed)
 	_btnClose->setVisible(true);
 
 	_txtStatus->setText(passed ? "VOTE PASSED" : "VOTE FAILED");
+}
+
+void VoteMenu::cancelVote()
+{
+	_finished = true;
+	_submitted = true;
+	_locallyTimedOut = false;
+
+	_btnYes->setVisible(false);
+	_btnNo->setVisible(false);
+	_btnClose->setVisible(true);
+
+	_txtStatus->setText("CONNECTION LOST - VOTE CANCELLED");
 }
 
 }

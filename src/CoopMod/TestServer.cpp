@@ -494,6 +494,8 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		resp["requiredYes"] = vote.requiredYesVotes;
 		resp["starterSeat"] = vote.starterSeat;
 		resp["localSeat"] = connectionTCP::localSeat();
+		resp["remainingMs"] = Json::UInt(vote.remainingMilliseconds());
+		resp["defaultTimeoutMs"] = Json::UInt(VoteSession::DEFAULT_TIMEOUT_MS);
 		resp["votes"] = Json::arrayValue;
 		for (int value : vote.votes)
 		{
@@ -515,7 +517,20 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 				resp["menuPlayerNames"].append(name);
 			}
 			resp["menuRows"] = menu->getPlayerRowsText();
+			resp["menuStatus"] = menu->getStatusText();
 			resp["menuFinished"] = menu->isFinished();
+		}
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_menu_state")
+	{
+		const std::uint64_t voteId = req.get("id", Json::UInt64(0)).asUInt64();
+		VoteMenu* menu = voteId ? coop->getVoteMenuForTest(voteId) : nullptr;
+		resp["menuOpen"] = menu != nullptr;
+		if (menu)
+		{
+			resp["menuFinished"] = menu->isFinished();
+			resp["menuStatus"] = menu->getStatusText();
 		}
 		resp["ok"] = true;
 	}
@@ -526,14 +541,22 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 			req.get("title", "TEST VOTE").asString(),
 			req.get("question", "Run the test vote?").asString());
 		resp["accepted"] = accepted;
-		if (accepted)
-		{
-			resp["ok"] = true;
-		}
-		else
-		{
-			resp["error"] = "vote request rejected";
-		}
+		// A cooldown rejection is an expected, observable result rather than a
+		// TestServer transport failure.
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_force_timeout")
+	{
+		resp["accepted"] = coop->forceActiveVoteTimeoutForTest();
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_cooldown_state")
+	{
+		const int seat = req.get("seat", connectionTCP::localSeat()).asInt();
+		resp["seat"] = seat;
+		resp["remainingMs"] = Json::UInt(
+			coop->getVoteStarterCooldownRemainingForTest(seat));
+		resp["ok"] = true;
 	}
 	else if (cmd == "vote_cast")
 	{
@@ -582,6 +605,9 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 
 		VoteSession probe;
 		probe.start(1, "probe", "PROBE", "Probe?", players, names, starter);
+		resp["defaultTimeoutMs"] = Json::UInt(VoteSession::DEFAULT_TIMEOUT_MS);
+		resp["remainingMs"] = Json::UInt(probe.remainingMilliseconds());
+		resp["timedOutAtDeadline"] = probe.timedOut(probe.deadlineTicks);
 		resp["accepted"] = Json::arrayValue;
 		if (req.isMember("casts") && req["casts"].isArray())
 		{

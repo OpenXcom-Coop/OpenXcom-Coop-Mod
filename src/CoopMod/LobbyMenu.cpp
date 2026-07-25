@@ -235,9 +235,8 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		}
 		else
 		{
-			// A custom-battle client cannot change the shared battle settings, but it
-			// may prepare its local craft while the host remains in the setup screen.
-			// The same action-button slot is therefore used for EQUIP CRAFT.
+			// A custom-battle client cannot change the shared battle settings. EQUIP
+			// CRAFT appears only after the host confirms and locks the craft type.
 			_btnCancel->setText(tr("STR_EQUIP_CRAFT"));
 			_btnCancel->setVisible(canOpenEquipCraft());
 		}
@@ -891,6 +890,13 @@ void LobbyMenu::openBattleSettings()
  */
 bool LobbyMenu::canOpenEquipCraft() const
 {
+	// The client must not enter equipment preparation until the host has
+	// confirmed and locked the shared craft type in NewBattleState.
+	if (!_game->getCoopMod()->isCustomBattleCraftLocked())
+	{
+		return false;
+	}
+
 	SavedGame *save = _game->getSavedGame();
 	if (!save || save->getBases()->empty()
 		|| !save->getBases()->front()
@@ -1294,8 +1300,8 @@ void LobbyMenu::think()
 		else if (connectionTCP::session.sessionLocked == false)
 		{
 			// Skirmish lobby (NEW BATTLE > COOP): the host edits the shared battle
-			// settings. The client gets an EQUIP CRAFT action in the same button
-			// slot and may prepare its local craft without leaving the lobby.
+			// settings. The client gets EQUIP CRAFT only after the host has locked
+			// the selected craft and entered equipment preparation.
 			if (_game->getCoopMod()->getServerOwner() == true)
 			{
 				_btnCancel->setText("BATTLE SETTINGS");

@@ -75,6 +75,9 @@ private:
 	static const int TFTD_DEPLOYMENTS = 22;
 	void fillList(NewBattleSelectType selectType, bool isRightClick);
 	void cleanup();
+	void openEquipCraftScreen();
+	bool isCustomBattleCraftLocked() const;
+	void enforceLockedCraftSelection();
 public:
 	/// Creates the New Battle state.
 	NewBattleState();
@@ -100,6 +103,8 @@ public:
 	void btnRandomClick(Action *action);
 	/// Handler for clicking the Equip Craft button.
 	void btnEquipClick(Action *action);
+	/// Called by the host confirmation dialog: lock the craft and open equipment.
+	void confirmEquipCraftLock();
 	/// Handler for changing the Mission combobox.
 	void cbxMissionChange(Action *action);
 	/// Handler for changing the Craft combobox.

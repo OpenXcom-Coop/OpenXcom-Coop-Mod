@@ -60,6 +60,9 @@ private:
 	VotePlayerNames _playerNames;
 	bool _submitted;
 	bool _finished;
+	bool _locallyTimedOut;
+	std::uint32_t _deadlineTicks;
+	int _lastDisplayedSeconds;
 
 	void submitVote(bool yes);
 	void refreshPlayerRows();
@@ -73,8 +76,10 @@ public:
 		const std::string &question,
 		int totalPlayers,
 		int requiredYesVotes,
-		const VotePlayerNames &playerNames);
+		const VotePlayerNames &playerNames,
+		std::uint32_t remainingMilliseconds);
 	~VoteMenu() override;
+	void think() override;
 
 	void btnYesClick(Action *action);
 	void btnNoClick(Action *action);
@@ -84,9 +89,12 @@ public:
 	bool isFinished() const { return _finished; }
 	const VotePlayerNames& getPlayerNames() const { return _playerNames; }
 	std::string getPlayerRowsText() const;
+	std::string getStatusText() const;
 
 	void setVotes(const std::vector<int> &votes);
+	void setRemainingMilliseconds(std::uint32_t remainingMilliseconds);
 	void finishVote(bool passed);
+	void cancelVote();
 };
 
 }
