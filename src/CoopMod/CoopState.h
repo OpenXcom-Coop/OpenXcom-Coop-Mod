@@ -78,6 +78,13 @@ class CoopState : public State
 	// re-send request_load_progress, up to a bounded number of retries.
 	int _loadRetries = 0;
 	int _loadWaitTicks = 0;
+	// issue #91: the client's resume hold (68) has no button and no timeout, so a
+	// release that never arrives is a permanent freeze. Counts consecutive think
+	// gates spent held WHILE the host is demonstrably back on its geoscape (see
+	// CoopState::think); _holdGaveUp latches the disconnect offer so it is built
+	// once.
+	int _holdWatchTicks = 0;
+	bool _holdGaveUp = false;
   public:
 	/// Creates the Pause state.
 	CoopState(int state);

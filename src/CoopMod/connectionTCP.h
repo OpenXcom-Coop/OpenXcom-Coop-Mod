@@ -394,22 +394,16 @@ class connectionTCP
 	// streamer (single-client resume-blob lane) so the connected client adopts
 	// it as its replica. Host only; used at SHARED campaign start and resume.
 	void streamSharedWorldToClient();
-	// PRD-J09: set while a POST-BATTLE world restream is in flight. The client
-	// adopting a streamed world always sends resume_ack and then HOLDS in
-	// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) waiting for the host to
-	// "resume" - at bootstrap/resume the operator's BEGIN sends campaign_begun.
-	// After a battle there is no such click, so the resume_ack handler releases
-	// the hold automatically when this flag is set.
-	bool sharedPostBattleRestream = false;
-	// PRD-J10: same shape, different trigger - set while a DESYNC-REPAIR world
-	// restream is in flight (the replica's world checksum diverged and it asked for
-	// a fresh one). Mid-session nobody clicks BEGIN either, so the resume_ack
-	// handler must release the client's hold for this restream too, or the client
-	// parks in COOP_DLG_CLIENT_RESUME_HOLD forever with a perfectly good world.
-	bool sharedResyncRestream = false;
-	// PRD-J10: serve a replica's shared_resync_request - mark the restream
-	// auto-releasing and stream the authoritative world. No-op (the replica re-asks
-	// on its next mismatching checksum) if the single-slot streamer is busy.
+	// PRD-J10: serve a replica's shared_resync_request - stream the authoritative
+	// world. No-op (the replica re-asks on its next mismatching checksum) if the
+	// single-slot streamer is busy.
+	//
+	// issue #91: this used to also arm a one-shot "auto-release" flag read by the
+	// resume_ack handler. It no longer does, and neither does the post-battle
+	// restream: two restreams in a row shared the one flag and the second client
+	// hold was never released. The handler now decides from the host's own state
+	// (no wait dialog on the stack => the release is owed), which covers every
+	// stream site instead of the two that remembered to arm a flag.
 	void sharedResyncStream();
 	// Seat = index into SavedGame::_coopPlayers (host = 0). N-player safe.
 	static int localSeat();                 // this machine's seat

@@ -73,6 +73,15 @@ const int kWaitActionW = 100;  // RESUME / BEGIN, centered on its own row
 const int kWaitTitleH  = 22;   // two small wrapped lines
 const int kWaitCenterY = 100;  // the dialogs stay centered on this line
 
+// issue #91: how long the client sits in the resume hold, with the host provably
+// back on its geoscape, before it stops waiting for a release that is not coming.
+// Counted in 500ms think gates, so 40 == ~20s.
+const int kHoldGiveUpTicks = 40;
+// The peer counts as "on the geoscape" if its `time` heartbeat is this fresh. Same
+// grace the host uses to freeze the shared clock on a quiet peer
+// (GeoscapeState::timeAdvance), and comfortably above the per-frame heartbeat gap.
+const Uint32 kPeerLiveGraceMs = 1000;
+
 // padding, title, one button row, padding. ONE row is all these dialogs ever
 // need: the escape hatch and the RESUME/BEGIN action are mutually exclusive
 // (see setWaitAction), so the window never has to grow or leave a hole.
@@ -1097,6 +1106,37 @@ void CoopState::think()
 				connectionTCP::session.consumeCampaignBegun();
 				_game->popState();
 			}
+			// issue #91: nothing else can release this dialog - it has no button and
+			// no timeout - so a release that never comes freezes the client for good
+			// while the host plays on. We can tell the two apart: only the TOP state
+			// thinks, so a host still deliberating behind its own wait dialog emits no
+			// `time` heartbeat, while a host that has moved on heartbeats every frame.
+			// Heartbeats arriving WHILE we are held mean no RESUME click is coming and
+			// waiting longer cannot help - so stop waiting and let the player leave.
+			// Only the streamed-world hold (68) qualifies: the base-placing hold (65)
+			// belongs to a lobby where the host legitimately has no geoscape at all.
+			else if (global_state == COOP_DLG_CLIENT_RESUME_HOLD && !_holdGaveUp)
+			{
+				const Uint32 peerAgeMs = SDL_GetTicks()
+					- _game->getCoopMod()->lastPeerTimePacketMs.load();
+				_holdWatchTicks = (peerAgeMs < kPeerLiveGraceMs) ? _holdWatchTicks + 1 : 0;
+
+				if (_holdWatchTicks >= kHoldGiveUpTicks)
+				{
+					_holdGaveUp = true;
+
+					_txtTitle->setSmall();
+					_txtTitle->setWordWrap(true);
+					_txtTitle->setText("Lost synchronization with the host.\n"
+									   "Returning to the main menu.");
+
+					_btnBack->setText(tr("OK"));
+					_btnBack->setVisible(true);
+
+					Log(LOG_ERROR) << "[coop] the host never released this resume hold"
+						" and is back on its geoscape; offering the disconnect";
+				}
+			}
 
 		}
 		else if (global_state == 15)
@@ -1167,6 +1207,23 @@ void CoopState::previous(Action *)
 		Json::Value root;
 		root["state"] = "campaign_begun";
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+	}
+
+	// issue #91: OK on a resume hold that the host never released. Nothing on this
+	// side can recover the session - the world we hold is frozen behind a dialog no
+	// campaign_begun is coming for - so tear the connection down and leave. The
+	// client teardown inside disconnectTCP() usually makes the main-menu transition
+	// itself; the explicit setState covers the gates where it does not.
+	if (global_state == COOP_DLG_CLIENT_RESUME_HOLD)
+	{
+		_game->getCoopMod()->disconnectTCP();
+
+		if (_game->getStates().empty()
+			|| dynamic_cast<MainMenuState*>(_game->getStates().back()) == nullptr)
+		{
+			_game->setState(new MainMenuState);
+		}
+		return;
 	}
 
 	// disconnect
