@@ -157,10 +157,25 @@ void ProjectileFlyBState::init()
 
 			}
 
-			if (found == false)
+			// coop (issue #74): the exact instance is gone (or the two machines'
+			// item-id spaces have drifted). Fall back ONLY to ammo this actor is
+			// carrying. The old code scanned every item in the battle for a type
+			// match, which happily picked the clip loaded in some other soldier's
+			// identical weapon, and then fabricated a BattleItem if even that
+			// failed - silently advancing this machine's item-id counter.
+			if (found == false && _action.weapon)
 			{
+				BattleItem* own = _action.weapon->getAmmoForAction(_action.type);
+				if (own && own->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
+				{
+					found = true;
+					_ammo = own;
+				}
+			}
 
-				for (auto ammo_item : *_parent->getSave()->getItems())
+			if (found == false && _action.actor)
+			{
+				for (auto ammo_item : *_action.actor->getInventory())
 				{
 
 					if (ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
@@ -171,15 +186,6 @@ void ProjectileFlyBState::init()
 						break;
 					}
 				}
-
-			}
-
-			// Something really bad happened here...
-			// In this exceptional case, create new ammo
-			if (found == false)
-			{
-
-				_ammo = new BattleItem(_parent->getSave()->getMod()->getItem(_parent->getCoopMod()->currentAmmoType), _parent->getSave()->getCurrentItemId());
 
 			}
 
@@ -549,7 +555,12 @@ void ProjectileFlyBState::init()
 		obj["actor_no_line_fire"] = _action.actor->coop_no_line_fire;
 		obj["actor_unable_to_throw_here"] = _action.actor->coop_unable_to_throw_here;
 		obj["type"] = (int)_action.type;
-		obj["hand"] = _parent->getCoopWeaponHand();
+		// coop (issue #74): describe the weapon that actually fired - the hand it
+		// is really in, plus its instance id - instead of the sender's last
+		// hand-button click and a bare type name. An AI actor never clicks
+		// anything, so the old hand string belonged to some earlier player action.
+		obj["hand"] = BattlescapeGame::coopHandOf(_action.actor, _action.weapon, _parent->getCoopWeaponHand());
+		obj["weapon_id"] = _action.weapon->getId();
 		obj["fusetimer"] = _action.weapon->getFuseTimer();
 		obj["fuse"] = _action.weapon->isFuseEnabled();
 		obj["coords"]["target"]["x"] = _action.target.x;

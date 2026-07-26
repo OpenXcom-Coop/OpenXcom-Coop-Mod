@@ -201,7 +201,7 @@ void BaseNameState::btnOkClick(Action *)
 			// pushes a dialog here. A dialog would block the geoscape init that
 			// finalizes the world (month advance + start-of-game maintenance);
 			// GeoscapeState::init streams the SETTLED world and holds in
-			// COOP_DLG_RESUME_ACK_WAIT there.
+			// COOP_DLG_WAIT_PLAYERS there.
 			if (!_game->getCoopMod()->isSharedCampaign())
 			{
 				_game->pushState(new CoopState(COOP_DLG_WAIT_BASES));

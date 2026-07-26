@@ -298,6 +298,20 @@ public:
 	void setKneelReserved(bool reserved);
 	/// Checks the kneel reservation setting.
 	bool getKneelReserved() const;
+	/// Names the hand a weapon is actually held in ("right"/"left"), falling back
+	/// to @a uiHand. The co-op packets used to report BattlescapeGame::
+	/// getCoopWeaponHand() alone, which is only ever written when the LOCAL player
+	/// clicks a hand button - so an AI actor's shot carried somebody else's stale
+	/// hand. (coop, issue #74)
+	static std::string coopHandOf(BattleUnit* actor, const BattleItem* weapon, const std::string& uiHand);
+	/// Resolves the weapon a replayed co-op action was fired with, WITHOUT ever
+	/// fabricating a BattleItem: exact (id,type) on the actor, then the named
+	/// hand, then the actor's own inventory by type, then the identified instance
+	/// anywhere. Returns nullptr when the peer genuinely does not have it - the
+	/// caller must then skip the action rather than invent an item, because every
+	/// `new BattleItem` on a receiver silently advances that machine's item-id
+	/// counter and permanently desynchronises the two id spaces. (coop, issue #74)
+	static BattleItem* coopResolveWeapon(SavedBattleGame* save, BattleUnit* actor, int weaponId, const std::string& weaponType, const std::string& hand);
 	/// Checks for and triggers proximity grenades. (coop)
 	void checkForProximityCoop(BattleUnit* unit);
 	int checkForProximityGrenadesCoop(BattleUnit* unit);

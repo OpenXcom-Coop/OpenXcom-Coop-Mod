@@ -31,6 +31,17 @@
 #define OPENXCOM_VERSION_LONG "8.4.2.0"
 #define OPENXCOM_VERSION_NUMBER 8,4,2,0
 
+// Upstream OXCE version this fork is synced from. Unlike the macros above it is
+// NEVER stamped by CI (tools/ci/stamp_version.sh rewrites those with the coop
+// mod's own build version, e.g. 8.4.13201) - bump it by hand on each OXCE rebase.
+#define OPENXCOM_VERSION_OXCE "8.4.2"
+
+// Release channel of this build; stamped by tools/ci/stamp_version.sh.
+// Local/dev builds keep "dev".
+#ifndef OPENXCOM_VERSION_CHANNEL
+#define OPENXCOM_VERSION_CHANNEL "dev"
+#endif
+
 #ifndef OPENXCOM_VERSION_GIT
 #define OPENXCOM_VERSION_GIT " (v2025-10-06)"
 #endif

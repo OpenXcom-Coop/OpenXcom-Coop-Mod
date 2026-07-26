@@ -39,9 +39,12 @@ private:
 	Text *_txtStatus;
 	std::string _filename;
 	SaveType _type;
+	/// Issue #81: leave for the main menu once this file is written, instead of
+	/// falling back to whatever pushed the save list ("save and quit").
+	bool _quitAfterSave;
 public:
 	/// Creates the Save Game state.
-	SaveGameState(OptionsOrigin origin, const std::string &filename, SDL_Color *palette);
+	SaveGameState(OptionsOrigin origin, const std::string &filename, SDL_Color *palette, bool quitAfterSave = false);
 	/// Creates the Load Game state.
 	SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette, int currentTurn = 0);
 	/// Cleans up the Save Game state.
@@ -52,6 +55,9 @@ public:
 	void think() override;
 	/// Shows an error message.
 	void error(const std::string &msg);
+	/// Issue #81: drops the session and returns to the main menu after a
+	/// "save and quit".
+	void quitToMainMenu();
 };
 
 }

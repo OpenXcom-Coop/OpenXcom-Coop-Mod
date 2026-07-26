@@ -298,6 +298,13 @@ void LoadGameState::think()
 					{
 						Json::Value root;
 						root["state"] = "resume_ack";
+						// issue #91: this ack is the one that comes with a HOLD attached -
+						// we just adopted a streamed world and are about to park in
+						// COOP_DLG_CLIENT_RESUME_HOLD until the host releases us. Say so,
+						// so the host can tell it apart from the other resume_ack senders
+						// (base naming, battle phase two), which hold nothing and must not
+						// be answered with a campaign_begun.
+						root["adoptedWorld"] = true;
 						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 						// (in a battle resume the follow-up battle stream
@@ -462,9 +469,31 @@ void LoadGameState::think()
 					bs->toggleTouchButtons(false, true);
 
 					// battle-save resume / mid-battle rejoin, phase two
-					// complete: report the loaded battle to the host (F3/F4)
-					if (connectionTCP::session.lobbyMode != 0 && _game->getCoopMod()->getServerOwner() == false && _coopKey == "battleclient")
+					// complete: report the loaded battle to the host (F3/F4).
+					//
+					// issue #93: a SKIRMISH (lobbyMode 0) rejoin arrives here too,
+					// but only when session.skirmishRejoinPending says this blob is
+					// a rejoin - the FIRST battle of a skirmish loads the same
+					// "battleclient" key through its own handshake and must not ack.
+					const bool skirmishRejoin = connectionTCP::session.lobbyMode == 0
+						&& connectionTCP::session.skirmishRejoinPending;
+					if ((connectionTCP::session.lobbyMode != 0 || skirmishRejoin)
+						&& _game->getCoopMod()->getServerOwner() == false && _coopKey == "battleclient")
 					{
+						if (skirmishRejoin)
+						{
+							connectionTCP::session.skirmishRejoinPending = false;
+
+							// The host is still frozen behind its reconnect dialog and
+							// only its RESUME releases the battle. Hold BEFORE acking:
+							// the ack is what makes RESUME appear, and the release flag
+							// it broadcasts is one-shot (issue #91) - a hold pushed
+							// after the ack can miss its own release and strand the
+							// client on a live battle it may not touch.
+							connectionTCP::session.consumeCampaignBegun();
+							_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
+						}
+
 						Json::Value root;
 						root["state"] = "resume_ack";
 						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());

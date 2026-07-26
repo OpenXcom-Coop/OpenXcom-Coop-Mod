@@ -37,6 +37,7 @@
 
 #include "HostMenu.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Battlescape/BattlescapeState.h"
 #include "../Geoscape/Globe.h"
 #include "../Geoscape/BaseNameState.h"
 #include "../Geoscape/BuildNewBaseState.h"
@@ -117,19 +118,23 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 {
 
 	// Playtest B7: detect the "opened mid-game" case BEFORE markLobbyOpen flips the
-	// lobby flag. Two conditions must BOTH hold, or the pre-game campaign lobby (which
-	// also has a paused GeoscapeState underneath, created by NewGameState before the
-	// lobby) would wrongly show RESUME GAME:
-	//   1. the campaign has actually started (sessionLocked) - false in the pre-game
-	//      lobby, true once START/RESUME/campaign_start locked the session; and
-	//   2. a running-game geoscape sits on the stack underneath to return to.
-	if (connectionTCP::session.sessionLocked)
+	// lobby flag - there has to be a running game underneath to return to.
+	//
+	// A tactical map alone is proof enough: a battle cannot exist before a session
+	// starts, and issue #93's drop teardown clears sessionLocked, so demanding it
+	// would leave a coop menu opened over a live battle with no way back into it.
+	// A geoscape on its own is NOT proof: the pre-game campaign lobby also has one
+	// underneath (paused, created by NewGameState before the lobby), so that case
+	// still needs the campaign to have actually started (sessionLocked).
+	bool battleRunning = false;
+	bool geoRunning = false;
+	for (auto* s : _game->getStates())
 	{
-		for (auto* s : _game->getStates())
-		{
-			if (dynamic_cast<GeoscapeState*>(s)) { _resumeToGame = true; break; }
-		}
+		if (dynamic_cast<BattlescapeState*>(s)) { battleRunning = true; }
+		else if (dynamic_cast<GeoscapeState*>(s)) { geoRunning = true; }
 	}
+	_resumeToGame = battleRunning
+		|| (geoRunning && connectionTCP::session.sessionLocked);
 
 	connectionTCP::session.markLobbyOpen();
 
@@ -635,7 +640,7 @@ void LobbyMenu::resumeCampaign()
 	// every player reports its world loaded
 	closeLobby();
 
-	_game->pushState(new CoopState(COOP_DLG_RESUME_ACK_WAIT));
+	_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 
 }
 
@@ -646,17 +651,26 @@ void LobbyMenu::openStartConfirmDialog()
 
 /**
  * Playtest B7: return from the mid-game coop menu to the running game. The lobby was
- * opened over a live campaign geoscape; the connection and shared world stay up, so
- * just pop the coop-menu states (this lobby + the pause menu it came from) back down
- * to that geoscape. Restores the lobby-closed flag that this menu's ctor cleared.
+ * opened over a live session; the connection and shared world stay up, so just pop the
+ * coop-menu states (this lobby + the pause menu it came from) back down to it.
+ * Restores the lobby-closed flag that this menu's ctor cleared.
+ *
+ * Issue #93: "the running game" is whatever the menu was opened OVER, which mid-mission
+ * is the BATTLE, not the geoscape. Every co-op battle has a geoscape at the bottom of
+ * the stack (a campaign's own world; in a skirmish the one LoadGameState creates before
+ * pushing the streamed battle), so stopping only at a GeoscapeState popped the live
+ * BattlescapeState and dropped the player on a globe with an orphaned battle in its
+ * world. A battlescape always sits ABOVE its geoscape, so stopping at either one lands
+ * on the battle when a mission is running and on the globe when one is not.
  */
 void LobbyMenu::returnToRunningGame()
 {
 	connectionTCP::session.markLobbyClosed();
-	// Pop every state above the running geoscape (bounded by the stack depth).
+	// Pop every state above the running game (bounded by the stack depth).
 	int guard = 0;
 	while (guard++ < 32 && _game->getStates().size() > 1
-		&& !dynamic_cast<GeoscapeState*>(_game->getStates().back()))
+		&& !dynamic_cast<GeoscapeState*>(_game->getStates().back())
+		&& !dynamic_cast<BattlescapeState*>(_game->getStates().back()))
 	{
 		_game->popState();
 	}
@@ -1073,12 +1087,45 @@ void LobbyMenu::lstSavesPress(Action* action)
 	// The host switches a player to another team.
 	if (_game->getCoopMod()->getServerOwner() == true && action->getDetails()->button.button == SDL_BUTTON_LEFT && connectionTCP::session.sessionLocked == false)
 	{
-		auto connectedPlayer = _connectedPlayers;  
+		setPlayerTeam(_lstPlayers->getSelectedRow() - _firstValidRow, "");
+	}
+	else if (_game->getCoopMod()->getServerOwner() == true && action->getDetails()->button.button == SDL_BUTTON_RIGHT)
+	{
+
 		int sel = _lstPlayers->getSelectedRow() - _firstValidRow;
+		if (sel >= 0 && sel < (int)_connectedPlayers.size())
+		{
+
+			if (_connectedPlayers[sel].id != 1)
+			{
+
+				_game->pushState(new CoopState(12345));
+
+			}
+
+		}
+
+	}
+}
+
+/**
+ * Puts one lobby row on a team and re-derives the co-op game mode from the
+ * resulting XCOM/Alien split. @a team empty = toggle (what a click does).
+ * @return true if @a row addressed a real player.
+ */
+bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
+{
+	{
+		auto connectedPlayer = _connectedPlayers;
+		int sel = row;
 		if (sel >= 0 && sel < (int)connectedPlayer.size())
 		{
 
-			if (connectedPlayer[sel].team == "XCOM")
+			if (!team.empty())
+			{
+				connectedPlayer[sel].team = team;
+			}
+			else if (connectedPlayer[sel].team == "XCOM")
 			{
 				connectedPlayer[sel].team = "Alien"; 
 			}
@@ -1087,6 +1134,10 @@ void LobbyMenu::lstSavesPress(Action* action)
 				connectedPlayer[sel].team = "XCOM"; 
 			}
 
+		}
+		else
+		{
+			return false;
 		}
 
 		bool isHostAlien = false;
@@ -1155,24 +1206,8 @@ void LobbyMenu::lstSavesPress(Action* action)
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 	}
-	else if (_game->getCoopMod()->getServerOwner() == true && action->getDetails()->button.button == SDL_BUTTON_RIGHT)
-	{
 
-		int sel = _lstPlayers->getSelectedRow() - _firstValidRow;
-		if (sel >= 0 && sel < (int)_connectedPlayers.size())
-		{
-
-			if (_connectedPlayers[sel].id != 1)
-			{
-
-				_game->pushState(new CoopState(12345));
-
-			}
-
-		}
-
-	}
-
+	return true;
 }
 
 void LobbyMenu::disableSort()

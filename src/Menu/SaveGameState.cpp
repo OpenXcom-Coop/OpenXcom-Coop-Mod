@@ -44,7 +44,7 @@ namespace OpenXcom
  * @param filename Name of the save file without extension.
  * @param palette Parent state palette.
  */
-SaveGameState::SaveGameState(OptionsOrigin origin, const std::string &filename, SDL_Color *palette) : _firstRun(0), _origin(origin), _filename(filename), _type(SAVE_DEFAULT)
+SaveGameState::SaveGameState(OptionsOrigin origin, const std::string &filename, SDL_Color *palette, bool quitAfterSave) : _firstRun(0), _origin(origin), _filename(filename), _type(SAVE_DEFAULT), _quitAfterSave(quitAfterSave)
 {
 	buildUi(palette);
 }
@@ -56,7 +56,7 @@ SaveGameState::SaveGameState(OptionsOrigin origin, const std::string &filename, 
  * @param type Type of auto-save being used.
  * @param palette Parent state palette.
  */
-SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette, int currentTurn) : _firstRun(0), _origin(origin), _type(type)
+SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette, int currentTurn) : _firstRun(0), _origin(origin), _type(type), _quitAfterSave(false)
 {
 	switch (type)
 	{
@@ -191,6 +191,13 @@ void SaveGameState::think()
 		// authority. Swallow the save silently; UI states were popped above.
 		if (!_game->getCoopMod()->localSavesAllowed())
 		{
+			// issue #81: a machine that may not write locally has nothing to
+			// quit-after-save on, but it still asked to leave. Honour the quit.
+			if (_quitAfterSave)
+			{
+				quitToMainMenu();
+				return;
+			}
 			if (_type == SAVE_IRONMAN_END)
 			{
 				Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
@@ -218,8 +225,13 @@ void SaveGameState::think()
 			// host-save authority: a host geoscape save pulls fresh client progress
 			// before writing, so the embedded client world is current. Ironman-end
 			// is excluded (it needs the immediate write + MainMenu transition below).
+			// issue #81: NEVER defer a "save and quit". The deferral waits on a
+			// fresh client blob, and this button exists precisely for the case
+			// where the client is gone - the wait would never end. Write now
+			// with whatever blob is in the store (same staleness guarantee the
+			// autosaves and the COOP_DLG_HOST_SAVE_WAIT cancel already have).
 			bool deferHostSave = false;
-			if ((_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false && _type != SAVE_IRONMAN_END)
+			if (!_quitAfterSave && (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false && _type != SAVE_IRONMAN_END)
 			{
 
 				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
@@ -278,6 +290,22 @@ void SaveGameState::think()
 			{
 				// do nothing
 			}
+
+			// issue #81: "save and quit". The file is on disk, so leave. A coop
+			// save that bailed out (saveError) wrote nothing - report it and
+			// stay put rather than quitting on top of a lost campaign.
+			if (_quitAfterSave)
+			{
+				if (connectionTCP::saveError)
+				{
+					connectionTCP::saveError = false;
+					_game->pushState(new CoopState(995));
+				}
+				else
+				{
+					quitToMainMenu();
+				}
+			}
 		}
 		catch (Exception &e)
 		{
@@ -288,6 +316,29 @@ void SaveGameState::think()
 			error(e.what());
 		}
 	}
+}
+
+/**
+ * Issue #81: leaves the co-op session and returns to the main menu once a
+ * "save and quit" has written its file. Same shape as AbandonGameState's YES;
+ * the explicit teardown here runs as the "main" one so it can never push a
+ * replacement wait dialog on the way out.
+ */
+void SaveGameState::quitToMainMenu()
+{
+	_game->resetTouchButtonFlags();
+
+	// Role is cleared AFTER the teardown, never before: disconnectTCP branches
+	// on it, and clearing it early makes the host tear down as a client.
+	_game->getCoopMod()->disconnectTCP(true);
+	_game->getCoopMod()->setServerOwner(false);
+	connectionTCP::session.resetSession();
+
+	Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
+	_game->getScreen()->resetDisplay(false);
+
+	_game->setState(new MainMenuState);
+	_game->setSavedGame(0);
 }
 
 /**

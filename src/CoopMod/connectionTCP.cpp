@@ -73,9 +73,26 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
+#include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/BattleItem.h"
+#include "../Mod/RuleItem.h"
 
 namespace OpenXcom
 {
+
+/**
+ * Issue #93: is a tactical mission actually running on this machine?
+ *
+ * The drop handling branches on it: a peer vanishing mid-battle is a freeze to
+ * wait out (or leave via SAVE & QUIT / ABANDON GAME), exactly like the campaign
+ * geoscape case - never a lobby popped over the battle. Reads the WORLD, not the
+ * state stack, so it is true from the moment the battle exists.
+ */
+static bool coopBattleLive(Game* game)
+{
+	return game && game->getSavedGame()
+		&& game->getSavedGame()->getSavedBattle() != nullptr;
+}
 
 // COOP VARIABLES
 // is the session created?
@@ -325,6 +342,7 @@ void CoopSession::resetSession()
 	campaignBegun = false;
 	customBattleCraftLocked = false;
 	customBattleCraftId = -1;
+	skirmishRejoinPending = false;
 	pendingHostSaveName.clear();
 
 	// Full teardown returns the process to a pristine coop identity so a later
@@ -653,6 +671,17 @@ std::string connectionTCP::hostBlobKey(const std::string& clientName)
 bool connectionTCP::localSavesAllowed()
 {
 	return (!coopSession && !getCoopStatic()) || getServerOwner();
+}
+
+// issue #79: is the campaign on this machine finished (won or lost)? Read off
+// the live save's ending, which BOTH machines have by the time the defeat is
+// on screen: the host sets it in GeoscapeState, and a replica adopts it from
+// the "cutscene" packet before the same cutscene plays. Once it is set there
+// is nothing left to do together, so a peer leaving must cost nothing.
+bool connectionTCP::campaignEnded()
+{
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	return save && save->getEnding() != END_NONE;
 }
 
 bool connectionTCP::localLoadsAllowed()
@@ -1800,7 +1829,12 @@ void connectionTCP::updateCoopTask()
 	if (onConnect == -2)
 	{
 
-		if (allow_cutscene == true)
+		// issue #79: after the campaign has ended, a peer leaving is silent on
+		// both sides - no "<player> has left the server", no "Server connection
+		// lost". Either player may close a finished game first, and neither
+		// exit is allowed to interrupt the other's end-of-game screens. The
+		// plain teardown below still runs, so nothing is left half-attached.
+		if (allow_cutscene == true && !campaignEnded())
 		{
 			// Make sure it calls disconnectTCP, otherwise it may get stuck.
 			if (getServerOwner() == true)
@@ -1810,7 +1844,15 @@ void connectionTCP::updateCoopTask()
 				// refused joiner warrants no notification at all (D5). The
 				// disconnect still has to run (CoopState(20)'s constructor
 				// used to do it); its cleanup pushes the freeze dialog.
-				if (connectionTCP::session.lobbyMode == 0)
+				//
+				// issue #93: a drop DURING A MISSION takes the campaign route
+				// whatever the lobby mode. The freeze dialog is the whole
+				// answer there - it names the missing player, freezes the
+				// battle and carries SAVE & QUIT / ABANDON GAME - so a second,
+				// dismissable "has left the server" popup on top of it would
+				// only invite the host to click past the freeze. It also zeroes
+				// _coopGamemode, which a rejoin into the same battle needs.
+				if (connectionTCP::session.lobbyMode == 0 && !coopBattleLive(_game))
 				{
 					_game->pushState(new CoopState(20));
 				}
@@ -2868,7 +2910,14 @@ void connectionTCP::initProfile(bool clientInBattle, bool inBattle)
 {
 	// campaign flow: sessions are lobby-gated up front - no post-join lobby
 	// re-entry (F2/F3). Only the legacy new-battle path reopens it here.
-	if (_game->getCoopMod()->getServerOwner() == false && connectionTCP::session.lobbyMode == 0)
+	//
+	// issue #93: never over a battle. A skirmish REJOIN finishes this handshake
+	// with the streamed battle already loaded and the player held until the host
+	// resumes; dropping the lobby on top of that hands them the very menu whose
+	// RESUME GAME used to throw the battle away.
+	if (_game->getCoopMod()->getServerOwner() == false
+		&& connectionTCP::session.lobbyMode == 0
+		&& !coopBattleLive(_game))
 	{
 		pushKeepingProfileOnTop(new LobbyMenu);
 	}
@@ -3809,27 +3858,61 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			connectionTCP::session.resumeAck = true;
 
-			// PRD-J09 / PRD-J10: an AUTOMATIC SHARED world restream just landed on
-			// the client - post-battle (J09) or desync repair (J10). Adopting a
-			// streamed world always parks the client in
-			// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) until the host
-			// "resumes" - at bootstrap/resume that release is the operator's
-			// BEGIN click (campaign_begun). Neither of these restreams has a
-			// click behind it, so release the hold here: the replica now holds
-			// the authoritative world and the session is already live.
-			if ((sharedPostBattleRestream || sharedResyncRestream)
-				&& isSharedCampaign() && getServerOwner())
+			// issue #91: EVERY streamed world the client adopts parks it in
+			// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) - a dialog with no button
+			// and no timeout - and the only thing that can ever release it is a
+			// campaign_begun. So for THAT ack the release is owed by default, and
+			// there is exactly one reason to withhold it: a host wait dialog is on our
+			// stack. That dialog IS the deliberate hold, and its RESUME/BEGIN sends the
+			// release itself (CoopState::previous). Both operator flows push it
+			// synchronously before the client can possibly ack (GeoscapeState
+			// bootstrap, LobbyMenu::resumeCampaign), so this reads their intent.
+			//
+			// `adoptedWorld` is what keeps this to the acks that actually hold
+			// something. The other senders - base naming (BaseNameState) and battle
+			// phase two (LoadGameState's battleclient branch) - carry no hold that a
+			// campaign_begun should open: releasing the base-placement hold early
+			// un-freezes the first placer's clock while the other player is still
+			// placing (test_lobby_gating BUG2).
+			//
+			// This used to be a pair of one-shot flags armed by two of the restream
+			// sites. The streamer frees itself the moment the last chunk goes out,
+			// long before the client has adopted anything, so two restreams in a row
+			// SHARED one flag: the first ack consumed it and the second found it
+			// false, leaving the client holding a perfectly good world that nothing
+			// would ever release. The third stream site (request_load_progress) armed
+			// no flag at all. Deciding it here - from the state the answer actually
+			// depends on - covers every site, present and future.
+			const bool adoptedWorld = obj.get("adoptedWorld", false).asBool();
+
+			bool hostWaitDialog = false;
+			if (getServerOwner() && adoptedWorld)
 			{
-				const char* why = sharedPostBattleRestream ? "post-battle" : "resync";
-				sharedPostBattleRestream = false;
-				sharedResyncRestream = false;
-				connectionTCP::session.sessionLive();
+				for (State* st : _game->getStates())
+				{
+					CoopState* cs = dynamic_cast<CoopState*>(st);
+					if (cs && CoopState::isHostWaitDialog(cs->getStateCode()))
+					{
+						hostWaitDialog = true;
+						break;
+					}
+				}
 
-				Json::Value begun;
-				begun["state"] = "campaign_begun";
-				sendTCPPacketData(begun.toStyledString());
+				if (!hostWaitDialog)
+				{
+					connectionTCP::session.sessionLive();
 
-				Log(LOG_INFO) << "[coop-shared] " << why << " restream adopted; released the client hold";
+					Json::Value begun;
+					begun["state"] = "campaign_begun";
+					sendTCPPacketData(begun.toStyledString());
+
+					Log(LOG_INFO) << "[coop] restream adopted; released the client hold";
+				}
+				else
+				{
+					Log(LOG_INFO) << "[coop] restream adopted; the host wait dialog owns"
+						" the release (its RESUME/BEGIN sends campaign_begun)";
+				}
 			}
 		}
 
@@ -4425,7 +4508,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "request_load_progress")
 	{
 
-		if (_game->getSavedGame() && !sendFileClient && isSharedCampaign())
+		// issue #93: SKIRMISH (NEW BATTLE > COOP) rejoin. There is no campaign
+		// world to resume and no stored per-client blob - in a skirmish the world
+		// IS the battle, so the two-phase (geoscape then battle) dance a campaign
+		// resume runs has nothing to do here. Stream the live battle snapshot the
+		// same way the mission originally started, in one phase. Must come first:
+		// the no-blob arm below would otherwise answer a skirmish with
+		// campaign_start and hand the rejoiner a brand new campaign.
+		if (_game->getSavedGame() && !sendFileClient
+			&& _game->getCoopMod()->getCoopCampaign() == false && coopBattleLive(_game))
+		{
+			streamSkirmishBattleToClient();
+		}
+		else if (_game->getSavedGame() && !sendFileClient && isSharedCampaign())
 		{
 
 			// PRD-J02: SHARED resume/bootstrap. There is exactly one authoritative
@@ -5956,6 +6051,39 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
+	}
+
+	// coop (issue #74): the host's blast destroyed these items. A client cannot
+	// derive the set itself - hitUnit() early-returns on a client, which
+	// short-circuits both item tests inside TileEngine::explode - so the host
+	// ships the outcome and the client applies exactly it. Matched on id AND
+	// type: an id alone would be trusted blindly, and this is the same identity
+	// the rest of the battle protocol uses.
+	if (stateString == "explode_items")
+	{
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+			const Json::Value& arr = obj["items"];
+			for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
+			{
+				int itemId = arr[i]["id"].asInt();
+				std::string itemType = arr[i]["type"].asString();
+				BattleItem* victim = nullptr;
+				for (auto* bi : *sbg->getItems())
+				{
+					if (bi->getId() == itemId && bi->getRules()->getType() == itemType)
+					{
+						victim = bi;
+						break;
+					}
+				}
+				if (victim)
+				{
+					sbg->removeItem(victim);
+				}
+			}
+		}
 	}
 
 	// hit tile
@@ -8411,24 +8539,33 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// P2/F1: a battle resume parks the host behind its resume lobby/wait
 		// dialogs - resumeCampaign() closes the lobby but leaves the HostMenu
-		// beneath the COOP_DLG_RESUME_ACK_WAIT it pushed, and on the battle path
+		// beneath the COOP_DLG_WAIT_PLAYERS it pushed, and on the battle path
 		// the host never gets a resumeAck (it emits campaign_resume_battle
 		// instead), so nothing ever pops them. The client has now finished
 		// loading the streamed battle (this packet), so return the host to its
 		// own BattlescapeState: pop everything above it so BattlescapeState::
 		// think() runs and re-arms the coop-init block (_battleInit / role /
 		// turn) once COOP_READY sets coopSession below. Gate strictly on the
-		// RESUME_ACK_WAIT dialog actually being on the stack so this fires ONLY
+		// player-wait dialog actually being on the stack so this fires ONLY
 		// on a resume, never on a LIVE battle entry - there the host stacks
 		// Briefing/Inventory over a fresh battle and also receives
 		// close_load_progress, and popping those would eat the briefing.
+		//
+		// issue #93: NOT for a skirmish rejoin. There the player-wait dialog is
+		// the live reconnect dialog the host is frozen behind: the ack that just
+		// arrived flips it to "All players connected" / RESUME, and the host's own
+		// RESUME click is what releases both machines (the rejoiner is holding for
+		// exactly that broadcast). Popping it here would resume the host silently
+		// and strand the client on its hold. The campaign resume keeps the pop -
+		// its host already clicked RESUME back in the lobby.
 		bool inBattleResume = false;
-		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle() != nullptr)
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle() != nullptr
+			&& _game->getCoopMod()->getCoopCampaign() == true)
 		{
 			for (auto* st : _game->getStates())
 			{
 				CoopState* cs = dynamic_cast<CoopState*>(st);
-				if (cs && cs->getStateCode() == COOP_DLG_RESUME_ACK_WAIT)
+				if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
 				{
 					inBattleResume = true;
 					break;
@@ -8642,6 +8779,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			connectionTCP::forceCloseCoopStateMenu = true;
 			connectionTCP::forceClosePasswordCheckMenu = true;
 
+			// issue #93: a mode-0 rejoin means the host has a SKIRMISH battle
+			// running and is about to stream it. Remember that, because the blob
+			// arrives under the same key as a first mission and only a rejoin owes
+			// the host a resume_ack (and owes itself a hold until RESUME).
+			connectionTCP::session.skirmishRejoinPending =
+				(connectionTCP::session.lobbyMode == 0);
+			if (connectionTCP::session.skirmishRejoinPending)
+			{
+				// dropping into a battle already in progress: no pre-battle
+				// equip screen (same call the campaign battle rejoin makes
+				// before asking for the battle stream).
+				_game->getCoopMod()->inventory_battle_window = false;
+			}
+
 			_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
 
 			Json::Value req;
@@ -8839,7 +8990,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// past every gate: a real client is now attached to the session
 		connectionTCP::session.clientAttached();
 
-		if (_game->getCoopMod()->getCoopCampaign() == true)
+		// issue #93: a joiner arriving while a SKIRMISH battle is already running is
+		// a rejoin into that battle, not a new lobby guest. The skirmish lobby has
+		// nothing left to offer (the battle started; its BATTLE SETTINGS button is
+		// gone) and the host is frozen behind the reconnect dialog waiting for
+		// exactly this. Route it down the campaign rejoin road - the world stream
+		// and the resume_ack that releases the freeze are mode-agnostic.
+		const bool skirmishBattleRejoin = _game->getCoopMod()->getCoopCampaign() == false
+			&& coopBattleLive(_game);
+
+		if (_game->getCoopMod()->getCoopCampaign() == true || skirmishBattleRejoin)
 		{
 			root["state"] = "COOP_READY_SAVE_PROGRESS";
 			// Kept on the wire for older clients; host-save authority is the only mode.
@@ -8847,8 +9007,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// campaign lobbies (new or resume): the client joins the lobby
 			// instead of requesting a world (flow-redesign F2/F3). A live
 			// session (lobby closed) = mid-session rejoin: fetch directly.
-			root["campaign_started"] = (connectionTCP::session.lobbyMode == 0 || connectionTCP::session.lobbyClosed == true);
-			root["rejoin"] = (connectionTCP::session.lobbyMode != 0 && connectionTCP::session.lobbyClosed == true);
+			root["campaign_started"] = skirmishBattleRejoin
+				|| (connectionTCP::session.lobbyMode == 0 || connectionTCP::session.lobbyClosed == true);
+			root["rejoin"] = skirmishBattleRejoin
+				|| (connectionTCP::session.lobbyMode != 0 && connectionTCP::session.lobbyClosed == true);
 			root["lobby_mode"] = connectionTCP::session.lobbyMode;
 			// PRD-J01: tell the joining client the campaign economy model now,
 			// before its save exists, so the lobby type label can render.
@@ -10140,11 +10302,11 @@ void connectionTCP::streamSharedWorldToClient()
 }
 
 // PRD-J10: desync repair. A replica reported a world-checksum mismatch; hand it a
-// fresh authoritative world down the same J02 bootstrap lane. The release flag is
-// the load-bearing half: LoadGameState parks EVERY client that adopts a streamed
-// world in COOP_DLG_CLIENT_RESUME_HOLD until a campaign_begun arrives, and
-// mid-session there is no operator BEGIN click to send one (PRD-J09 learned this
-// the hard way after battles). resume_ack releases it when this flag is set.
+// fresh authoritative world down the same J02 bootstrap lane. LoadGameState parks
+// EVERY client that adopts a streamed world in COOP_DLG_CLIENT_RESUME_HOLD until a
+// campaign_begun arrives, and mid-session there is no operator BEGIN click to send
+// one - the resume_ack handler covers that for us now (issue #91), for this
+// restream and every other, so there is nothing to arm here.
 void connectionTCP::sharedResyncStream()
 {
 	if (!getServerOwner() || !isSharedCampaign() || !_game->getSavedGame())
@@ -10160,13 +10322,9 @@ void connectionTCP::sharedResyncStream()
 		return;
 	}
 
-	sharedResyncRestream = true;
 	streamSharedWorldToClient();
 	if (!sendFileClient)
 	{
-		// serialization refused: nothing is in flight, so do not leave the
-		// auto-release armed for an unrelated future stream.
-		sharedResyncRestream = false;
 		Log(LOG_ERROR) << "[coop-shared] resync restream failed to serialize the world";
 	}
 }
@@ -10396,6 +10554,41 @@ void connectionTCP::sendMissionFile()
 		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
 
+}
+
+/**
+ * Issue #93: hand a rejoining client the SKIRMISH battle that is running right now.
+ *
+ * Deliberately the same wire flow the mission started with (snapshot the live world
+ * into the "battlehost" blob, then SEND_FILE_CLIENT_TRUE -> the client asks for the
+ * file -> the streamer sends it -> the client loads "battleclient" straight into a
+ * BattlescapeState). The snapshot is taken NOW, so the rejoiner gets the battle as it
+ * currently stands, not as it was deployed - and every id in it comes from the host,
+ * which is what keeps the two machines talking about the same units and items.
+ *
+ * Only the host serves this; target=false because a skirmish has no geoscape UFO or
+ * mission site to retire on the client.
+ */
+void connectionTCP::streamSkirmishBattleToClient()
+{
+	if (!getServerOwner() || !_game->getSavedGame() || !_game->getSavedGame()->getSavedBattle())
+	{
+		Log(LOG_WARNING) << "[coop] skirmish rejoin: no live battle to stream";
+		return;
+	}
+
+	// the host owns the save (see sendMissionFile)
+	connectionTCP::coop_save_owner_player_id = 0;
+
+	_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
+
+	Json::Value obj;
+	obj["state"] = "SEND_FILE_CLIENT_TRUE";
+	obj["target"] = false;
+	sendTCPPacketData(obj.toStyledString());
+
+	Log(LOG_INFO) << "[coop] skirmish rejoin: streaming the live battle to "
+		<< _game->getCoopMod()->getCurrentClientName();
 }
 
 void connectionTCP::sendSaveProgressFile()
@@ -11260,7 +11453,14 @@ void connectionTCP::disconnectTCP(bool isMain)
 		connectionTCP::isPlayersReady = false;
 
 		connectionTCP::LobbyFileStatus = -1;
-		connectionTCP::_coopGamemode = 0;
+		// issue #93: a drop mid-mission is a freeze, not the end of the session -
+		// the peer is expected back in the SAME battle, and the game mode
+		// (PVE/PVP/PVE2) decides which units each machine commands. Zeroing it
+		// here would hand a rejoining player the wrong side of its own battle.
+		if (!coopBattleLive(_game))
+		{
+			connectionTCP::_coopGamemode = 0;
+		}
 		connectionTCP::show_inactive_player_inventory = false;
 		// A transport drop can happen while VoteMenu is the top state. Mark it as
 		// cancelled before clearing the controller state so the popup always gains
@@ -11291,8 +11491,30 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// machine (the disconnect->cancel bug family).
 		const bool teardownAsHost = (session.role == CoopRole::Host);
 
+		// issue #93: when the host vanishes the client is TOLD, and leaves when it
+		// says so. CoopState(21) "Server connection lost" is pushed just before
+		// this teardown runs (its ctor calls us), and its OK button owns the trip
+		// to the main menu now - so jumping there ourselves would wipe the message
+		// the player never got to read, mid-battle worst of all.
+		bool lostDialogPresent = false;
+		for (State* st : _game->getStates())
+		{
+			CoopState* cs = dynamic_cast<CoopState*>(st);
+			if (cs && cs->getStateCode() == 21)
+			{
+				lostDialogPresent = true;
+				break;
+			}
+		}
+
 		// both
-		if ((connectionTCP::no_bases == true || !teardownAsHost) && !isMain && connectionTCP::_coopCampaign == true)
+		// issue #79: not after the campaign has ended. The player is on the
+		// defeat/victory statistics screen with their own OK button; yanking
+		// them to the main menu because the other side closed the game first
+		// is exactly the "one player's exit affects the other" bug.
+		if ((connectionTCP::no_bases == true || !teardownAsHost) && !isMain
+			&& connectionTCP::_coopCampaign == true && !campaignEnded()
+			&& !lostDialogPresent)
 		{
 			_game->setState(new MainMenuState);
 		}
@@ -11303,31 +11525,45 @@ void connectionTCP::disconnectTCP(bool isMain)
 
 			onConnect = 1;
 
-			if (connectionTCP::session.lobbyMode != 0 && connectionTCP::session.lobbyClosed == true)
+			// issue #93: route on "is a mission running", not on the lobby mode.
+			// A skirmish (NEW BATTLE > COOP) battle used to raise the LOBBY over
+			// the tactical map on a drop - a menu whose RESUME GAME then threw the
+			// battle away - while the campaign path already did the right thing.
+			// A drop with no battle running (host still on the NEW BATTLE setup
+			// screen) keeps re-opening the lobby: that IS where it belongs.
+			if ((connectionTCP::session.lobbyMode != 0 || coopBattleLive(_game))
+				&& connectionTCP::session.lobbyClosed == true)
 			{
-				// mid-session client drop: freeze until they reconnect (D5).
-				// The dialog sits over the geoscape/battlescape, pausing it.
-				// Don't stack a second dialog when a campaign wait dialog that
-				// already covers "wait for the player to come back" is present
-				// ANYWHERE in the stack, not just on top. A resume-ack wait (62)
-				// already shows RESUME once resumeAck arrives, so it covers the
-				// freeze dialog's job - stacking a 64 over a buried 62 produces
-				// two RESUME dialogs and a double campaign_begun broadcast (C9).
+				// mid-session client drop: wait until they reconnect (D5). The
+				// dialog sits over the geoscape/battlescape, pausing it. Never
+				// stack a second one when a player-wait is already present
+				// ANYWHERE in the stack, not just on top - two of them means two
+				// RESUME buttons and a double campaign_begun broadcast (C9). The
+				// one already there re-words itself for the drop, so it covers
+				// this case (CoopState::waitingTitle).
 				bool waitDialogPresent = false;
 				for (State* st : _game->getStates())
 				{
 					CoopState* cs = dynamic_cast<CoopState*>(st);
-					if (cs && (cs->getStateCode() == COOP_DLG_FREEZE
-							|| cs->getStateCode() == COOP_DLG_RESUME_ACK_WAIT))
+					if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
 					{
 						waitDialogPresent = true;
 						break;
 					}
 				}
-				if (!waitDialogPresent)
+				// issue #79: and never once the campaign is over. After a
+				// defeat/victory there is nothing left to do together, so a
+				// client walking away is not a drop to freeze and wait on -
+				// the host must be free to finish its own end-of-game screens.
+				if (campaignEnded())
+				{
+					Log(LOG_INFO) << "[coop] freeze dialog suppressed: the campaign "
+						"has ended; the peer has nothing left to reconnect for";
+				}
+				else if (!waitDialogPresent)
 				{
 					connectionTCP::session.freeze();
-					_game->pushState(new CoopState(COOP_DLG_FREEZE));
+					_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 				}
 				else
 				{

@@ -106,10 +106,23 @@ void MeleeAttackBState::init()
 				}
 			}
 
-			if (found == false)
+			// coop (issue #74): fall back ONLY to ammo this actor is carrying, and
+			// never fabricate a BattleItem - a global by-type scan picks another
+			// unit's identical clip, and a receiver-side allocation drifts this
+			// machine's item-id counter away from the peer's for good.
+			if (found == false && _action.weapon)
 			{
+				BattleItem* own = _action.weapon->getAmmoForAction(_action.type);
+				if (own && own->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
+				{
+					found = true;
+					_ammo = own;
+				}
+			}
 
-				for (auto ammo_item : *_parent->getSave()->getItems())
+			if (found == false && _action.actor)
+			{
+				for (auto ammo_item : *_action.actor->getInventory())
 				{
 
 					if (ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
@@ -120,14 +133,6 @@ void MeleeAttackBState::init()
 						break;
 					}
 				}
-			}
-
-			// Something really bad happened here...
-			// In this exceptional case, create new ammo
-			if (found == false)
-			{
-
-				_ammo = new BattleItem(_parent->getSave()->getMod()->getItem(_parent->getCoopMod()->currentAmmoType), _parent->getSave()->getCurrentItemId());
 			}
 
 			_parent->getCoopMod()->currentAmmoType = "";
@@ -298,7 +303,10 @@ void MeleeAttackBState::init()
 		// new!
 		obj["weapon_type"] = _action.weapon->getRules()->getType();
 		obj["type"] = (int)_action.type;
-		obj["hand"] = _parent->getCoopWeaponHand();
+		// coop (issue #74): the weapon that actually acted, and the hand it is
+		// really in - not the sender's last hand-button click.
+		obj["weapon_id"] = _action.weapon->getId();
+		obj["hand"] = BattlescapeGame::coopHandOf(_action.actor, _action.weapon, _parent->getCoopWeaponHand());
 
 		obj["hitNumber"] = _hitNumber;
 

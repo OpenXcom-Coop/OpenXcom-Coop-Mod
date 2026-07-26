@@ -35,7 +35,6 @@
 #include "../Engine/FileMap.h"
 #include "../Engine/SDL2Helpers.h"
 #include <fstream>
-#include "../CoopMod/connectionUDP/rendezvous_config.h"
 
 namespace OpenXcom
 {
@@ -187,9 +186,10 @@ MainMenuState::MainMenuState(bool updateCheck)
 	_btnQuit = new TextButton(92, 20, 164, 146);
 	_btnUpdate = new TextButton(72, 16, 209, 27);
 	_txtUpdateInfo = new Text(320, 17, 0, 11);
-	_txtTitle = new Text(256, 30, 32, 45);
-	// coop
-	_textCoopVersion = new Text(256, 30, 32, 70);
+	_txtTitle = new Text(256, 17, 32, 45);
+	// coop: two small lines under the title - the OXCE version this fork is synced
+	// from, then the coop mod's own build version + channel (issue #61).
+	_textCoopVersion = new Text(256, 20, 32, 64);
 
 	// Set palette
 	setInterface("mainMenu");
@@ -347,17 +347,31 @@ MainMenuState::MainMenuState(bool updateCheck)
 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setBig();
-	std::ostringstream title;
-	title << tr("STR_OPENXCOM").arg(Options::getActiveMasterInfo()->getVersionDisplay()) << Unicode::TOK_NL_SMALL;
-	title << "OpenXcom " << OPENXCOM_VERSION_SHORT << OPENXCOM_VERSION_GIT;
-	_txtTitle->setText(title.str());
+	_txtTitle->setText(tr("STR_OPENXCOM").arg(Options::getActiveMasterInfo()->getVersionDisplay()));
 
-	// coop version
+	// Version block (issue #61). OPENXCOM_VERSION_SHORT/LONG are stamped by CI with
+	// the COOP mod's version, so the engine line uses OPENXCOM_VERSION_OXCE (the
+	// upstream OXCE release this fork is synced from) and the git suffix - which on a
+	// nightly is " (nightly <date> <sha>)" and ran off both edges of the window - is
+	// replaced by the short channel name. An official release needs no channel at
+	// all: "Coop Mod <tagged version>" is exactly what it is.
 	_textCoopVersion->setAlign(ALIGN_CENTER);
 	_textCoopVersion->setSmall();
 
-	std::string coopVersion = std::string("Coop Mod ") + OpenXcom::getBuiltInRendezvousConfig().gameVersion;
-	_textCoopVersion->setText(coopVersion);
+	// OPENXCOM_VERSION_LONG is "<major>.<minor>.<patch>.0" - the 4th field only
+	// exists for the Windows version resource, so drop it and show the 3-part
+	// version that actually gets tagged (8.4.3, not 8.4.3.0).
+	std::string coopVersion = OPENXCOM_VERSION_LONG;
+	const size_t lastDot = coopVersion.rfind('.');
+	if (lastDot != std::string::npos && coopVersion.substr(lastDot) == ".0")
+		coopVersion.erase(lastDot);
+
+	std::ostringstream versions;
+	versions << "OpenXcom " << OPENXCOM_VERSION_ENGINE << " " << OPENXCOM_VERSION_OXCE << "\n";
+	versions << "Coop Mod " << coopVersion;
+	if (std::string(OPENXCOM_VERSION_CHANNEL) != "release")
+		versions << " (" << OPENXCOM_VERSION_CHANNEL << ")";
+	_textCoopVersion->setText(versions.str());
 
 }
 

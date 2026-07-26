@@ -13,8 +13,8 @@
    scaling as the client's hold dialog (was a big, poorly-scaled window).
 4. A rejoining client must hold with "Waiting for host to resume the game." (was
    the fresh-placement message "Waiting for all players to place their bases...").
-5. The "Waiting for <player> to reconnect" freeze dialog must be compact (~30% of
-   the old height), not a huge window.
+5. The "Waiting for <player> to reconnect" wait dialog must be compact (a
+   content-sized strip), not a huge window.
 
 Dialog introspection uses the coop_dialog_info harness command (code / title /
 back-button text+visibility / window height).
@@ -191,7 +191,12 @@ def test_wait_bases_dialog():
         assert hd["code"] == 60, f"BUG3: expected WAIT_BASES(60): {hd}"
         assert hd["title"] == WAIT_BASES_MSG, f"BUG3: host message mismatch: {hd!r}"
         assert not hd["backVisible"], f"BUG3: button visible while still waiting: {hd}"
-        assert hd["windowHeight"] <= 80, f"BUG3: host wait dialog not compact: {hd}"
+        # Content-sized: padding + title + the escape row = 60. The assertion
+        # above already pinned the BEGIN row as hidden, so this is the compact
+        # form; a regression to the old full-height (160) window fails here.
+        assert hd["windowHeight"] <= 64, f"BUG3: host wait dialog not compact: {hd}"
+        assert hd["saveQuitVisible"] and hd["abandonVisible"], \
+            f"BUG3/#81: host wait-bases offers no escape hatch: {hd}"
         print(f"PASS bug3: host wait-bases matches client message, compact (h={hd['windowHeight']})")
 
         # the client, having placed, holds with the SAME message (proves reuse)
@@ -226,11 +231,16 @@ def test_rejoin_hold_and_freeze():
         client.proc.kill(); client.proc.wait(timeout=10)
 
         # bug 5: host freezes in a compact "waiting to reconnect" dialog
-        host.wait_for("host freeze dialog", lambda: (dlg(host).get("code") == 64) or None, timeout=60)
+        host.wait_for("host player-wait dialog",
+                      lambda: (dlg(host).get("code") == 62) or None, timeout=60)
         fd = dlg(host)
-        assert fd["code"] == 64, f"BUG5: expected FREEZE(64): {fd}"
+        assert fd["code"] == 62, f"BUG5: expected WAIT_PLAYERS(62): {fd}"
         assert "to reconnect" in fd["title"], f"BUG5: wrong freeze text: {fd!r}"
-        assert fd["windowHeight"] <= 60, f"BUG5: freeze dialog too tall (h={fd['windowHeight']}): {fd}"
+        # Same content-sized strip as BUG3. The client is dead, so RESUME can
+        # never appear here and the compact height (60) is deterministic.
+        assert fd["windowHeight"] <= 64, f"BUG5: freeze dialog too tall (h={fd['windowHeight']}): {fd}"
+        assert fd["saveQuitVisible"] and fd["abandonVisible"], \
+            f"BUG5/#81: freeze dialog offers no escape hatch: {fd}"
         print(f"PASS bug5: freeze dialog compact (h={fd['windowHeight']})")
 
         # registered client rejoins from a fresh process + empty dir

@@ -572,7 +572,9 @@ void ActionMenuState::handleAction()
 		
 		obj["actor_id"] = _action->actor->getId();
 	
-		obj["hand"] = _game->getSavedGame()->getSavedBattle()->getBattleGame()->getCoopWeaponHand();
+		// coop (issue #74): report the hand the weapon is really in.
+		obj["hand"] = BattlescapeGame::coopHandOf(_action->actor, _action->weapon,
+			_game->getSavedGame()->getSavedBattle()->getBattleGame()->getCoopWeaponHand());
 
 		if (_action->weapon)
 		{

@@ -96,7 +96,9 @@
 #include "../Menu/NewGameState.h"
 #include "../Menu/NewBattleState.h"
 #include "../Menu/LoadGameState.h"
+#include "../Menu/ListSaveState.h"
 #include "../Menu/SaveGameState.h"
+#include "../Menu/StatisticsState.h"
 #include "../Savegame/Upgrade/SaveUpgrade.h"
 #include "../Menu/SaveUpgradeDialogState.h"
 #include "../Menu/SaveUpgradeClientState.h"
@@ -1666,6 +1668,51 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "set_ending")
+	{
+		// issue #79 test helper: arm the campaign ending (0 none, 1 win, 2 lose)
+		// on the live save. The geoscape's own time5Seconds check then takes over
+		// on the next tick and runs the SHIPPED defeat path (lose cutscene ->
+		// broadcast to the replica -> StatisticsState); the alternative - actually
+		// destroying every base - would change the world under the very
+		// disconnect behaviour being tested.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg)
+			resp["error"] = "no save";
+		else
+		{
+			sg->setEnding(static_cast<GameEnding>(req.get("ending", 2).asInt()));
+			resp["ending"] = static_cast<int>(sg->getEnding());
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "ending_state")
+	{
+		// issue #79: the ending on this machine + whether the end-of-game
+		// statistics screen is up, so a test can tell "campaign over" from
+		// "still playing" without guessing from the state-stack dump.
+		SavedGame* sg = _game->getSavedGame();
+		resp["hasSave"] = (sg != nullptr);
+		resp["ending"] = sg ? static_cast<int>(sg->getEnding()) : 0;
+		resp["campaignEnded"] = connectionTCP::campaignEnded();
+		resp["statistics"] = (findState<StatisticsState>(_game) != nullptr);
+		resp["mainMenu"] = (findState<MainMenuState>(_game) != nullptr);
+		resp["ok"] = true;
+	}
+	else if (cmd == "statistics_ok")
+	{
+		// issue #79: press OK on the end-of-game statistics screen - the click
+		// that takes a finished campaign to the main menu (and, for a client,
+		// silently drops the co-op session on the way out).
+		StatisticsState* st = findState<StatisticsState>(_game);
+		if (!st)
+			resp["error"] = "no StatisticsState";
+		else
+		{
+			st->btnOkClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "fly_craft")
 	{
 		// PRD-J04 test helper: launch the first ready craft at the first real
@@ -2265,6 +2312,24 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		_game->pushState(new LobbyMenu());
 		resp["ok"] = true;
 	}
+	else if (cmd == "lobby_set_team")
+	{
+		// Host-only: put lobby row <row> (0 = host, 1 = the joined client) on
+		// <team> ("XCOM"/"Alien") through the same LobbyMenu path the host
+		// clicking that row uses. The XCOM/Alien split is what selects the co-op
+		// game mode: both XCOM = PVE (1), client Alien = PVP (2), host Alien =
+		// PVP2 (3), both Alien = PVE2 (4).
+		LobbyMenu* lobby = findState<LobbyMenu>(_game);
+		if (!lobby)
+			resp["error"] = "no LobbyMenu";
+		else if (!lobby->setPlayerTeam(req.get("row", 1).asInt(), req.get("team", "Alien").asString()))
+			resp["error"] = "no such lobby row";
+		else
+		{
+			resp["gamemode"] = connectionTCP::getCoopGamemode();
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "lobby_action")
 	{
 		// Playtest B7: click the lobby's single action button (RESUME GAME when
@@ -2451,6 +2516,15 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		else if (name == "oxceAlternateCraftEquipmentManagement")
 		{
 			Options::oxceAlternateCraftEquipmentManagement = req.get("value", false).asBool();
+			resp["ok"] = true;
+		}
+		else if (name == "battleInstantGrenade")
+		{
+			// BattleItem::fuseThrowEvent only detonates a primed grenade on impact
+			// when this is on (or the item's fuseTimerType is BFT_INSTANT);
+			// otherwise it just lands and waits for the turn to tick. Set it on
+			// BOTH machines - it changes when the explosion happens.
+			Options::battleInstantGrenade = req.get("value", false).asBool();
 			resp["ok"] = true;
 		}
 		else
@@ -3223,6 +3297,384 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	return true;
 }
 
+bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	// Issue #74 driver set: per-instance battlescape item census + the ability to
+	// arm an arbitrary unit and make it fire a specific weapon (incl. BA_LAUNCH,
+	// which the generic battle_action shoot cannot express). Kept in its own
+	// dispatcher so execute()'s if/else chain does not grow (MSVC C1061).
+	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
+		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
+		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
+		&& cmd != "battle_prox")
+	{
+		return false;
+	}
+
+	SavedGame* sg = _game->getSavedGame();
+	SavedBattleGame* sbg = sg ? sg->getSavedBattle() : nullptr;
+	if (!sbg)
+	{
+		resp["error"] = "not in battlescape";
+		return true;
+	}
+	BattlescapeGame* bg = sbg->getBattleGame();
+	BattlescapeState* bstate = sbg->getBattleState();
+
+	auto findUnit = [&](int id) -> BattleUnit*
+	{
+		for (auto* u : *sbg->getUnits())
+			if (u->getId() == id) return u;
+		return nullptr;
+	};
+
+	if (cmd == "battle_items")
+	{
+		// EVERY BattleItem instance this machine knows about, with the identity
+		// (id + type) the coop wire protocol matches on and the owner it hangs
+		// off. Comparing the two machines' dumps is what makes an item that
+		// vanishes on one side but not the other visible to a test.
+		Json::Value items(Json::arrayValue);
+		std::map<std::string, int> counts;
+		for (auto* it : *sbg->getItems())
+		{
+			Json::Value ji;
+			ji["id"] = it->getId();
+			ji["type"] = it->getRules()->getType();
+			ji["owner"] = it->getOwner() ? it->getOwner()->getId() : -1;
+			ji["slot"] = it->getSlot() ? it->getSlot()->getId() : "";
+			ji["isAmmo"] = it->isAmmo();
+			ji["qty"] = it->getAmmoQuantity();
+			ji["onTile"] = (it->getTile() != nullptr);
+			// Where it lies, for the items that lie on the floor: a tile sweep
+			// (checkForProximityGrenades) is scoped by position, so a test has to
+			// be able to say "this item was on one of the tiles it swept".
+			if (it->getTile())
+			{
+				Position tp = it->getTile()->getPosition();
+				ji["tx"] = tp.x;
+				ji["ty"] = tp.y;
+				ji["tz"] = tp.z;
+			}
+			ji["fuse"] = it->getFuseTimer();
+			Json::Value am(Json::arrayValue);
+			for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
+			{
+				BattleItem* a = it->getAmmoForSlot(s);
+				if (a) am.append(a->getId());
+			}
+			ji["ammo"] = am;
+			items.append(ji);
+			counts[it->getRules()->getType()]++;
+		}
+		Json::Value jc(Json::objectValue);
+		for (const auto& kv : counts) jc[kv.first] = kv.second;
+		resp["items"] = items;
+		resp["counts"] = jc;
+		resp["total"] = (int)sbg->getItems()->size();
+		resp["ok"] = true;
+	}
+	else if (cmd == "battle_give")
+	{
+		// Arm <unit> with <item> (+ an optional <ammo> loaded into slot 0).
+		// Call it on BOTH machines: nothing in the coop protocol replicates a
+		// mid-battle item spawn, and the ids only line up if both sides create
+		// the same items in the same order (reported back so a test can check).
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		const RuleItem* wrule = _game->getMod()->getItem(req.get("item", "").asString());
+		if (!unit)
+			resp["error"] = "no unit id";
+		else if (!wrule)
+			resp["error"] = "unknown item type";
+		else
+		{
+			if (req.get("clear_hands", false).asBool())
+			{
+				std::vector<BattleItem*> hands;
+				for (auto* bi : *unit->getInventory())
+					if (bi->getSlot() && (bi->getSlot()->getId() == "STR_RIGHT_HAND"
+						|| bi->getSlot()->getId() == "STR_LEFT_HAND"))
+						hands.push_back(bi);
+				for (auto* bi : hands)
+					sbg->removeItem(bi);
+			}
+			// slot=ground: drop the item straight onto the unit's tile instead of
+			// into an inventory slot. Deterministic loose items - the inventory
+			// route (open + drag to ground) silently no-ops under several co-op
+			// guards, so it cannot be relied on to place a known number of them.
+			if (req.get("slot", "").asString() == "ground")
+			{
+				// optional x/y/z: any tile, not just the unit's own - a blast test
+				// needs items spread over SEVERAL tiles, because explode draws one
+				// damage roll per tile.
+				Tile* t = unit->getTile();
+				if (req.isMember("x"))
+				{
+					t = sbg->getTile(Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
+											  req.get("z", 0).asInt()));
+				}
+				BattleItem* g = t ? sbg->createItemForTile(wrule, t) : nullptr;
+				if (!g)
+				{
+					resp["error"] = "unit has no tile";
+					return true;
+				}
+				if (req.isMember("fuse"))
+				{
+					g->setFuseTimer(req["fuse"].asInt());
+					g->setFuseEnabled(true);
+				}
+				resp["weaponId"] = g->getId();
+				resp["weaponSlot"] = "STR_GROUND";
+				resp["ammoId"] = -1;
+				resp["ok"] = true;
+				return true;
+			}
+
+			// Explicit placement, NOT BattleUnit::addItem: the auto-loadout
+			// heuristics refuse to hand a real soldier a weapon (allowAutoLoadout
+			// is false for a geoscape soldier), and a test wants the item exactly
+			// where it asked for it on both machines.
+			RuleInventory* dest = _game->getMod()->getInventoryRightHand();
+			std::string slotId = req.get("slot", "").asString();
+			if (slotId == "left") dest = _game->getMod()->getInventoryLeftHand();
+			else if (!slotId.empty() && slotId != "right")
+				dest = _game->getMod()->getInventory(slotId, false) ? _game->getMod()->getInventory(slotId, false) : dest;
+
+			BattleItem* w = new BattleItem(wrule, sbg->getCurrentItemId());
+			w->moveToOwner(unit);
+			w->setSlot(dest);
+			w->setSlotX(req.get("slotX", 0).asInt());
+			w->setSlotY(req.get("slotY", 0).asInt());
+			w->setXCOMProperty(unit->getFaction() == FACTION_PLAYER);
+			sbg->getItems()->push_back(w);
+			sbg->initItem(w, unit);
+			if (req.isMember("fuse"))
+			{
+				w->setFuseTimer(req["fuse"].asInt());
+				w->setFuseEnabled(true);
+			}
+			resp["weaponId"] = w->getId();
+			resp["weaponSlot"] = w->getSlot() ? w->getSlot()->getId() : "";
+			std::string ammoType = req.get("ammo", "").asString();
+			resp["ammoId"] = -1;
+			if (!ammoType.empty())
+			{
+				const RuleItem* arule = _game->getMod()->getItem(ammoType);
+				if (arule)
+				{
+					BattleItem* a = new BattleItem(arule, sbg->getCurrentItemId());
+					a->setXCOMProperty(unit->getFaction() == FACTION_PLAYER);
+					sbg->getItems()->push_back(a);
+					sbg->initItem(a, unit);
+					w->setAmmoForSlot(0, a);
+					resp["ammoId"] = a->getId();
+				}
+			}
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_open_inventory")
+	{
+		// Open <unit>'s inventory MID-BATTLE through the real button handler, so
+		// the follow-up `inventory_move` runs the same Inventory::moveItem a mouse
+		// drop calls - which is where the co-op mirror packet is built.
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!unit || !bstate)
+			resp["error"] = "no unit id / no BattlescapeState";
+		else
+		{
+			sbg->setSelectedUnit(unit);
+			bstate->btnInventoryClick(nullptr);
+			InventoryState* inv = findState<InventoryState>(_game);
+			resp["opened"] = (inv != nullptr);
+			resp["ok"] = (inv != nullptr);
+			if (!inv) resp["error"] = "inventory did not open (unit not playable here?)";
+		}
+	}
+	else if (cmd == "battle_close_inventory")
+	{
+		InventoryState* inv = findState<InventoryState>(_game);
+		if (!inv)
+			resp["error"] = "no open InventoryState";
+		else
+		{
+			inv->btnOkClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_drop")
+	{
+		// Put loose items on the FLOOR of <x,y,z> (the tile inventory - not a
+		// unit's), optionally primed. Call it on BOTH machines: no coop packet
+		// replicates a mid-battle item spawn, and the ids only line up if both
+		// sides create the same items in the same order.
+		Tile* t = sbg->getTile(Position(req.get("x", 0).asInt(),
+									   req.get("y", 0).asInt(),
+									   req.get("z", 0).asInt()));
+		const RuleItem* rule = _game->getMod()->getItem(req.get("item", "").asString());
+		if (!t)
+			resp["error"] = "no such tile";
+		else if (!rule)
+			resp["error"] = "unknown item type";
+		else
+		{
+			Json::Value ids(Json::arrayValue);
+			int count = req.get("count", 1).asInt();
+			for (int i = 0; i < count; ++i)
+			{
+				BattleItem* bi = sbg->createItemForTile(rule, t);
+				bi->setXCOMProperty(req.get("xcom", true).asBool());
+				if (req.get("prime", false).asBool())
+				{
+					// What priming a grenade does: an armed fuse is the whole
+					// precondition of BattleItem::fuseProximityEvent().
+					bi->setFuseTimer(req.get("fuse", 0).asInt());
+					bi->setFuseEnabled(true);
+				}
+				ids.append(bi->getId());
+			}
+			resp["ids"] = ids;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_prox")
+	{
+		// Run the REAL proximity check for <unit> - the same call UnitWalkBState
+		// makes after every step, including its host-side coop packet. Driving it
+		// directly keeps the trigger deterministic (no pathfinding, no TU budget)
+		// while still exercising the actual sender and the peer's receiver.
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!unit || !bg)
+			resp["error"] = "no unit id / no battle game";
+		else
+		{
+			resp["change"] = bg->checkForProximityGrenades(unit);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_teleport")
+	{
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!unit || !bg)
+			resp["error"] = "no unit id / no battle game";
+		else
+		{
+			// teleport() silently refuses a tile that fails
+			// isPositionValidForUnit (wall, occupied, no floor), so report where
+			// the unit actually ended up - a caller probing for a free tile needs
+			// to know which attempt took.
+			bg->teleport(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
+						 req.get("z", 0).asInt(), unit);
+			Position p = unit->getPosition();
+			resp["x"] = p.x; resp["y"] = p.y; resp["z"] = p.z;
+			resp["moved"] = (p == Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
+										   req.get("z", 0).asInt()));
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_fire")
+	{
+		// Fire <weapon_id> (or the main hand weapon) from <unit>. mode =
+		// snap|aimed|auto|launch. launch takes <waypoints> (a list of x/y/z) -
+		// exactly what a blaster launcher does. <hand> stamps
+		// BattlescapeState::_hand, which is what the coop packet reports as the
+		// firing hand. <tu> tops the actor's TU up first so the shot is never
+		// refused for want of time units.
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!unit || !bg)
+		{
+			resp["error"] = "no unit id / no battle game";
+			return true;
+		}
+		std::string mode = req.get("mode", "snap").asString();
+		BattleItem* w = nullptr;
+		int wid = req.get("weapon_id", -1).asInt();
+		if (wid != -1)
+		{
+			for (auto* bi : *sbg->getItems())
+				if (bi->getId() == wid) w = bi;
+		}
+		else
+		{
+			w = unit->getMainHandWeapon(false);
+			if (!w && mode == "throw")
+			{
+				// a primed grenade is not a "main hand weapon"
+				for (auto* bi : *unit->getInventory())
+				{
+					if (bi->getSlot() && (bi->getSlot()->getId() == "STR_RIGHT_HAND"
+						|| bi->getSlot()->getId() == "STR_LEFT_HAND"))
+					{
+						w = bi;
+						break;
+					}
+				}
+			}
+		}
+		if (!w)
+		{
+			resp["error"] = "no weapon";
+			return true;
+		}
+		if (req.isMember("tu"))
+		{
+			unit->setTimeUnits(req["tu"].asInt());
+		}
+		if (bstate && req.isMember("hand"))
+			bstate->_hand = req["hand"].asString();
+
+		BattleActionType bt = BA_SNAPSHOT;
+		if (mode == "aimed") bt = BA_AIMEDSHOT;
+		else if (mode == "auto") bt = BA_AUTOSHOT;
+		else if (mode == "launch") bt = BA_LAUNCH;
+		else if (mode == "throw") bt = BA_THROW;
+
+		sbg->setSelectedUnit(unit);
+		BattleAction* a = bg->getCurrentAction();
+		a->actor = unit;
+		a->weapon = w;
+		a->type = bt;
+		a->targeting = true;
+		a->waypoints.clear();
+		Position target(req.get("x", 0).asInt(), req.get("y", 0).asInt(), req.get("z", 0).asInt());
+		int tid = req.get("target", -1).asInt();
+		if (tid != -1)
+		{
+			BattleUnit* tgt = findUnit(tid);
+			if (!tgt)
+			{
+				resp["error"] = "no target id";
+				return true;
+			}
+			target = tgt->getPosition();
+		}
+		a->target = target;
+		if (bt == BA_LAUNCH)
+		{
+			const Json::Value& wp = req["waypoints"];
+			for (Json::ArrayIndex i = 0; i < wp.size(); ++i)
+			{
+				a->waypoints.push_back(Position(wp[i].get("x", 0).asInt(),
+												wp[i].get("y", 0).asInt(),
+												wp[i].get("z", 0).asInt()));
+			}
+			if (a->waypoints.empty())
+				a->waypoints.push_back(target);
+			a->target = a->waypoints.front();
+		}
+		a->updateTU();
+		resp["tuCost"] = a->Time;
+		resp["tuHave"] = unit->getTimeUnits();
+		resp["weaponId"] = w->getId();
+		resp["ammoId"] = w->getAmmoForAction(bt) ? w->getAmmoForAction(bt)->getId() : -1;
+		bg->statePushBack(new UnitTurnBState(bg, *a));
+		bg->statePushBack(new ProjectileFlyBState(bg, *a));
+		resp["ok"] = true;
+	}
+	return true;
+}
+
 std::string TestServer::execute(const std::string& line)
 {
 	Json::Value req;
@@ -3241,7 +3693,11 @@ std::string TestServer::execute(const std::string& line)
 		std::string cmd = req.get("cmd", "").asString();
 		connectionTCP* coop = _game->getCoopMod();
 
-		if (executeShared10(cmd, req, resp))
+		if (executeBattle12(cmd, req, resp))
+		{
+			// handled by the battlescape item/fire dispatcher (issue #74)
+		}
+		else if (executeShared10(cmd, req, resp))
 		{
 			// handled by the PRD-J10 dispatcher above
 		}
@@ -3961,7 +4417,17 @@ std::string TestServer::execute(const std::string& line)
 				resp["coopStatic"] = connectionTCP::getCoopStatic();
 				resp["coopInventory"] = connectionTCP::coopInventory;
 				resp["playerTurn"] = _game->getCoopMod()->getPlayerTurn();
+				// Which machine currently OWNS the simulation: the coop battle
+				// states only ship a packet when this is true, so a test that
+				// drives a unit has to drive it from this side or the action
+				// simply never reaches the peer.
+				resp["activeSync"] = _game->getCoopMod()->_isActivePlayerSync;
 				resp["coopGamemode"] = connectionTCP::getCoopGamemode();
+				// Skirmish diagnosis: the coop-init gate also depends on the campaign
+				// flag and on the WAIT_BATTLESCAPE_* handshake having been exchanged.
+				resp["coopCampaign"] = _game->getCoopMod()->getCoopCampaign();
+				resp["waitBC"] = _game->getCoopMod()->_waitBC;
+				resp["waitBH"] = _game->getCoopMod()->_waitBH;
 				// Sub-conditions of the coop-init gate (BattlescapeState.cpp:1284) so a
 				// test can see exactly which one blocks _battleInit from ever being set.
 				resp["isBusy"] = bg->getBattleGame() ? bg->getBattleGame()->isBusy() : false;
@@ -4439,8 +4905,86 @@ std::string TestServer::execute(const std::string& line)
 				resp["backText"] = cs->getBackText();
 				resp["backVisible"] = cs->isBackVisible();
 				resp["windowHeight"] = cs->getWindowHeight();
+				// issues #79/#81: the host's escape hatch out of a campaign wait
+				resp["saveQuitText"] = cs->getSaveQuitText();
+				resp["saveQuitVisible"] = cs->isSaveQuitVisible();
+				resp["abandonText"] = cs->getAbandonText();
+				resp["abandonVisible"] = cs->isAbandonVisible();
 			}
 			resp["ok"] = true;
+		}
+		else if (cmd == "coop_dialog_count")
+		{
+			// How many CoopState dialogs with the given code sit ANYWHERE in
+			// the stack. Issue #79 asserts a ZERO here for the freeze dialog
+			// after a post-defeat drop, which the top-only coop_dialog_info
+			// cannot express (the freeze dialog lands OVER the statistics
+			// screen, so "not on top" is not the same as "not there").
+			int want = req.get("code", -1).asInt();
+			int count = 0;
+			for (State* st : _game->getStates())
+			{
+				CoopState* cs = dynamic_cast<CoopState*>(st);
+				if (cs && (want < 0 || cs->getStateCode() == want))
+				{
+					count++;
+				}
+			}
+			resp["count"] = count;
+			resp["ok"] = true;
+		}
+		else if (cmd == "coop_dialog_save_quit")
+		{
+			// issue #81: click SAVE & QUIT on the top CoopState wait dialog.
+			CoopState* cs = topState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["error"] = "no CoopState on top";
+			}
+			else if (!cs->isSaveQuitVisible())
+			{
+				resp["error"] = "SAVE & QUIT not offered on this dialog";
+			}
+			else
+			{
+				cs->btnSaveQuitClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "coop_dialog_abandon")
+		{
+			// issue #81: click ABANDON GAME on the top CoopState wait dialog.
+			CoopState* cs = topState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["error"] = "no CoopState on top";
+			}
+			else if (!cs->isAbandonVisible())
+			{
+				resp["error"] = "ABANDON GAME not offered on this dialog";
+			}
+			else
+			{
+				cs->btnAbandonClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "list_save_confirm")
+		{
+			// Drive the real save-slot list: type a name into the NEW SAVE row
+			// and press SAVE GAME. Used by the "save and quit" flow tests, which
+			// must go through ListSaveState -> SaveGameState exactly as a player
+			// does (save_game_ui only exposes the auto/quick types).
+			ListSaveState* ls = topState<ListSaveState>(_game);
+			if (!ls)
+			{
+				resp["error"] = "no ListSaveState on top";
+			}
+			else
+			{
+				ls->harnessSaveAs(req.get("name", "harness").asString());
+				resp["ok"] = true;
+			}
 		}
 		else if (cmd == "coop_push_connecting")
 		{

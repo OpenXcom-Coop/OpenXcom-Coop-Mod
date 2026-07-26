@@ -44,8 +44,13 @@ enum CoopDialogCode {
 	COOP_DLG_CLIENT_LOAD_WAIT = 52, // client "loading" wait
 	COOP_DLG_HOST_SAVE_WAIT   = 54, // host "saving" wait
 	COOP_DLG_WAIT_BASES       = 60, // host waits for every client to place a base
-	COOP_DLG_RESUME_ACK_WAIT  = 62, // host waits for resuming players to ack
-	COOP_DLG_FREEZE           = 64, // mid-session freeze: a player dropped
+	// Host waits on a peer to be ready: either loading a streamed world or gone
+	// and expected back. These used to be two codes (62 resume-ack, 64 freeze)
+	// that rendered the same dialog and needed a suppression rule to stop them
+	// stacking two RESUME buttons. One code, and the wording follows the peer's
+	// actual presence (CoopState::waitingTitle) instead of the push site's guess
+	// - so a client that drops mid-wait re-words the dialog it is already in.
+	COOP_DLG_WAIT_PLAYERS     = 62,
 	COOP_DLG_CLIENT_HOLD      = 65, // client placed base, holds until host resumes
 	COOP_DLG_CLIENT_RESUME_HOLD = 68, // rejoined client holds until host resumes
 	COOP_DLG_SHARED_FAIL       = 556, // PRD-J10: the host rejected a SHARED command
@@ -61,10 +66,13 @@ enum CoopDialogCode {
 class CoopState : public State
 {
   private:
-	OptionsOrigin _origin;
+	OptionsOrigin _origin = OPT_GEOSCAPE;
 	Window *_window;
 	Text *_txtTitle;
 	TextButton *_btnMessage, *_btnBack, *_btnYes;
+	// issues #79/#81: the host's escape hatch out of a campaign wait that a
+	// missing peer may never end. Only ever built/shown for isHostWaitDialog().
+	TextButton *_btnSaveQuit, *_btnAbandon;
 	int global_state = 0;
 	int state_counter = 0;
 	int _value = 0; // optional dialog-specific numeric value
@@ -73,6 +81,13 @@ class CoopState : public State
 	// re-send request_load_progress, up to a bounded number of retries.
 	int _loadRetries = 0;
 	int _loadWaitTicks = 0;
+	// issue #91: the client's resume hold (68) has no button and no timeout, so a
+	// release that never arrives is a permanent freeze. Counts consecutive think
+	// gates spent held WHILE the host is demonstrably back on its geoscape (see
+	// CoopState::think); _holdGaveUp latches the disconnect offer so it is built
+	// once.
+	int _holdWatchTicks = 0;
+	bool _holdGaveUp = false;
   public:
 	/// Creates the Pause state.
 	CoopState(int state, int value = 0);
@@ -81,7 +96,25 @@ class CoopState : public State
 	void loadCoop(Action *);
 	void previous(Action *);
 	void btnYesClick(Action *);
+	/// issue #81: SAVE & QUIT - write a save, then leave for the main menu.
+	void btnSaveQuitClick(Action *);
+	/// issue #81: ABANDON GAME - leave for the main menu, writing nothing.
+	void btnAbandonClick(Action *);
 	void loadWorld();
+	/// Issues #79/#81: place a host-wait dialog's title + button row, measured
+	/// from the window. `withAction` puts RESUME/BEGIN in the row instead of
+	/// the escape hatch.
+	void layoutWaitRows(bool withAction);
+	/// Issues #79/#81: flip a host-wait dialog between WAITING (escape hatch)
+	/// and READY (RESUME/BEGIN). The two are mutually exclusive.
+	void setWaitAction(bool ready);
+	/// What this host-wait dialog is waiting on, worded from the peer's CURRENT
+	/// presence rather than from whatever the push site assumed.
+	std::string waitingTitle() const;
+	/// The same dialog's wording once the wait is over.
+	std::string readyTitle() const;
+	/// Is the thing this host-wait dialog waits for satisfied right now?
+	bool waitSatisfied() const;
 	void setGlobe(Globe *globe);
 	void setBaseName(std::string name);
 	/// Which dialog this is (see the state-code blocks in the constructor).
@@ -92,13 +125,25 @@ class CoopState : public State
 	std::string getBackText() const;
 	bool isBackVisible() const;
 	int getWindowHeight() const;
+	/// Same introspection for the host's SAVE & QUIT / ABANDON GAME buttons.
+	std::string getSaveQuitText() const;
+	bool isSaveQuitVisible() const;
+	std::string getAbandonText() const;
+	bool isAbandonVisible() const;
+	/// True for the HOST-side campaign waits that block on a peer who may never
+	/// come back (60/62/64). Issues #79/#81: these - and only these - carry the
+	/// SAVE & QUIT / ABANDON GAME escape hatch, so the host is never trapped.
+	static bool isHostWaitDialog(int code)
+	{
+		return code == COOP_DLG_WAIT_BASES
+			|| code == COOP_DLG_WAIT_PLAYERS;
+	}
 	/// True for the campaign-wait family (60/62/64/65/67): dialogs that manage
 	/// their own lifetime and must never be popped by save/load-progress handlers.
 	bool isCampaignWaitDialog() const
 	{
 		return global_state == COOP_DLG_WAIT_BASES
-			|| global_state == COOP_DLG_RESUME_ACK_WAIT
-			|| global_state == COOP_DLG_FREEZE
+			|| global_state == COOP_DLG_WAIT_PLAYERS
 			|| global_state == COOP_DLG_CLIENT_HOLD
 			|| global_state == COOP_DLG_CLIENT_RESUME_HOLD;
 	}
