@@ -3129,6 +3129,12 @@ void BattlescapeState::abortMissionByVote()
 		return;
 	}
 
+	// The deciding vote_cast can arrive mid-animation (vote packets bypass
+	// the coop task gate), so stop any running battle action before the
+	// teardown that finishBattle starts.
+	_battleGame->cancelCurrentAction();
+	_battleGame->cancelAllActions();
+
 	const BattlescapeTally tally = _battleGame->tallyUnits();
 	_save->setAborted(true);
 	finishBattle(true, tally.inExit);
