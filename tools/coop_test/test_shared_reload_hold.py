@@ -52,6 +52,10 @@ def _coop(gc):
     return gc.ok({"cmd": "get_coop"})
 
 
+def _held(gc):
+    return _coop(gc)["coopDialog"] == COOP_DLG_CLIENT_RESUME_HOLD
+
+
 def _log_tail(user_dir, offset):
     with open(os.path.join(user_dir, "openxcom.log"), "r",
               encoding="utf-8", errors="replace") as f:
@@ -86,22 +90,23 @@ def main():
                       timeout=60, interval=0.5)
         print("PASS serve: host streamed its world for the reload request")
 
-        # Wait for the adopt to actually park the client first - the hold is
-        # pushed a second or so after the blob lands, and asking "is it released?"
-        # before it is even pushed answers itself.
-        client.wait_for("client parked in the resume hold after the adopt",
-                        lambda: (_coop(client)["coopDialog"]
-                                 == COOP_DLG_CLIENT_RESUME_HOLD) or None,
-                        timeout=60, interval=0.25)
-        print("PASS adopt: client parked in COOP_DLG_CLIENT_RESUME_HOLD (68) - "
-              "every streamed world does this (LoadGameState.cpp:305)")
-
+        # The client parks in dialog 68 for every streamed world it adopts
+        # (LoadGameState.cpp:305), but do NOT gate on seeing it: a working host
+        # releases it within a think gate or two, which a poll can miss entirely
+        # (it did, on CI). What must be true is the OUTCOME - the client is not
+        # left holding, and the host sent a release for the world it streamed.
+        held_seen = False
+        released = False
         deadline = time.time() + 45
         while time.time() < deadline:
-            if _coop(client)["coopDialog"] != COOP_DLG_CLIENT_RESUME_HOLD:
+            if _held(client):
+                held_seen = True
+            elif RELEASE_LINE in _log_tail(js.host_dir, offset):
+                released = True
                 break
-            time.sleep(0.5)
-        else:
+            time.sleep(0.25)
+
+        if not released:
             tail = _log_tail(js.host_dir, offset)
             raise AssertionError(
                 "ISSUE #91 (second door) REPRODUCED: the client adopted a world "
@@ -120,8 +125,12 @@ def main():
         assert tail.count(RELEASE_LINE) >= tail.count(STREAM_LINE), (
             f"host served {tail.count(STREAM_LINE)} restream(s) but sent only "
             f"{tail.count(RELEASE_LINE)} release(s)")
-        print(f"PASS release: client left the resume hold "
-              f"(dialog={_coop(client)['coopDialog']})")
+        assert not _held(client), (
+            "the host sent a release but the client is still holding: "
+            f"{_coop(client)}")
+        print(f"PASS release: host released the adopted world and the client is not "
+              f"holding (dialog={_coop(client)['coopDialog']}, "
+              f"hold observed in flight: {held_seen})")
 
         js.finish()
         print("ALL SHARED RELOAD HOLD TESTS PASSED")

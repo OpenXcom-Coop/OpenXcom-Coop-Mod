@@ -3171,12 +3171,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// issue #91: EVERY streamed world the client adopts parks it in
 			// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) - a dialog with no button
 			// and no timeout - and the only thing that can ever release it is a
-			// campaign_begun. So the release is OWED by default, and there is exactly
-			// one reason to withhold it: a host wait dialog is on our stack. That
-			// dialog IS the deliberate hold, and its RESUME/BEGIN sends the release
-			// itself (CoopState::previous). Both operator flows push it synchronously
-			// before the client can possibly ack (GeoscapeState bootstrap,
-			// LobbyMenu::resumeCampaign), so this reads their intent correctly.
+			// campaign_begun. So for THAT ack the release is owed by default, and
+			// there is exactly one reason to withhold it: a host wait dialog is on our
+			// stack. That dialog IS the deliberate hold, and its RESUME/BEGIN sends the
+			// release itself (CoopState::previous). Both operator flows push it
+			// synchronously before the client can possibly ack (GeoscapeState
+			// bootstrap, LobbyMenu::resumeCampaign), so this reads their intent.
+			//
+			// `adoptedWorld` is what keeps this to the acks that actually hold
+			// something. The other senders - base naming (BaseNameState) and battle
+			// phase two (LoadGameState's battleclient branch) - carry no hold that a
+			// campaign_begun should open: releasing the base-placement hold early
+			// un-freezes the first placer's clock while the other player is still
+			// placing (test_lobby_gating BUG2).
 			//
 			// This used to be a pair of one-shot flags armed by two of the restream
 			// sites. The streamer frees itself the moment the last chunk goes out,
@@ -3186,8 +3193,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// would ever release. The third stream site (request_load_progress) armed
 			// no flag at all. Deciding it here - from the state the answer actually
 			// depends on - covers every site, present and future.
+			const bool adoptedWorld = obj.get("adoptedWorld", false).asBool();
+
 			bool hostWaitDialog = false;
-			if (getServerOwner())
+			if (getServerOwner() && adoptedWorld)
 			{
 				for (State* st : _game->getStates())
 				{

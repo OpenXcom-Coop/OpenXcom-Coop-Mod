@@ -298,6 +298,13 @@ void LoadGameState::think()
 					{
 						Json::Value root;
 						root["state"] = "resume_ack";
+						// issue #91: this ack is the one that comes with a HOLD attached -
+						// we just adopted a streamed world and are about to park in
+						// COOP_DLG_CLIENT_RESUME_HOLD until the host releases us. Say so,
+						// so the host can tell it apart from the other resume_ack senders
+						// (base naming, battle phase two), which hold nothing and must not
+						// be answered with a campaign_begun.
+						root["adoptedWorld"] = true;
 						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 						// (in a battle resume the follow-up battle stream
