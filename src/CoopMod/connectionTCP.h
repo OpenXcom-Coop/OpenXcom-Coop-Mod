@@ -234,6 +234,13 @@ struct CoopSession
 	// set on clients when the host begins/resumes the campaign; releases the
 	// "waiting for players" hold (CoopState 65)
 	bool campaignBegun = false;
+	// issue #93: this client is rejoining a SKIRMISH (lobbyMode 0) session whose
+	// battle is already running, so the battle blob it is about to load is a
+	// REJOIN, not the start of a mission. One-shot: the load consumes it to send
+	// the resume_ack that flips the host's freeze dialog to RESUME, and to hold
+	// the client until the host presses it. The first battle of a skirmish loads
+	// the very same blob key ("battleclient") and must not do either.
+	bool skirmishRejoinPending = false;
 	// host .sav awaiting a re-save once the fresh client blob arrives
 	// (stale-embed race fix)
 	std::string pendingHostSaveName;
@@ -329,6 +336,8 @@ class connectionTCP
 	void onTCPMessage(std::string data, Json::Value obj);
 	void sendBaseFile();
 	void sendMissionFile();
+	/// issue #93: stream the RUNNING skirmish battle to a rejoining client.
+	void streamSkirmishBattleToClient();
 	void sendSaveProgressFile();
 	int gamePaused = 0; // 0 = no set, 1 = team, 2 = your
 	bool cancel_connect = false;

@@ -1191,6 +1191,15 @@ void CoopState::previous(Action *)
 
 		_game->setState(new MainMenuState);
 	}
+	// issue #93: "Server connection lost". The host is gone, so there is no
+	// session left to return to - and a client sitting in a co-op battle must not
+	// be handed a solo game to carry on with. OK is an acknowledgement, and the
+	// acknowledgement is what takes the player out. (The teardown used to jump to
+	// the main menu on its own, wiping this message before it could be read.)
+	else if (global_state == 21)
+	{
+		_game->setState(new MainMenuState);
+	}
 	// PRD-06 C5: CANCEL on the host "saving..." wait dialog. The user asked for
 	// a save - honour it NOW with whatever client blob is currently in the store
 	// (same staleness guarantee autosaves already have), then disarm so a late
