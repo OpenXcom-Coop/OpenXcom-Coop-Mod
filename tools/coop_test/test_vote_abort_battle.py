@@ -23,17 +23,29 @@ what the change means for a running battle.
    still hold a BattlescapeState, and that the vote is still running. Against
    an unfixed build these assertions fail - that is the point.
 
-2. THE E2E
-   With the hammer survived, finish the mission the way a player does, through
-   session.coop_abort_battle(): the peer votes YES, the 2/2 majority passes,
-   the host runs abortMissionByVote -> finishBattle -> DebriefingState and the
-   client follows via EndCoopBattle. Both machines land back on the geoscape
-   holding ONE identical shared world.
+2. THE FAILURE PATHS
+   A vote that does not pass must leave the battle exactly where it was: only
+   a PASSED abandon_mission runs executeVoteAction -> abortMissionByVote. Both
+   ways of losing are exercised inside the SAME battle. The peer votes NO,
+   which a 2-player strict majority can never recover from (1 YES + 0 votes
+   left < 2), so the host fails it the moment the cast lands; and the
+   host-authoritative 30-second deadline expires (vote_force_timeout moves it
+   to now and runs the normal evaluator). After each one both processes must
+   still answer, both must still hold a BattlescapeState, and the
+   SavedBattleGame must still be live.
 
-Only ONE vote is started for the whole test (the second battle_action/abort
-inside coop_abort_battle is absorbed by requestVote, which just re-shows the
-already-active vote), so the host's 60-second vote-starter cooldown is never
-reached and no second battle is needed.
+3. THE E2E
+   With the hammer and both failures survived, finish the mission the way a
+   player does, through session.coop_abort_battle(): the peer votes YES, the
+   2/2 majority passes, the host runs abortMissionByVote -> finishBattle ->
+   DebriefingState and the client follows via EndCoopBattle. Both machines
+   land back on the geoscape holding ONE identical shared world.
+
+Between phases the finished VoteMenu has to be closed on BOTH machines and the
+host's per-seat starter cooldown cleared - see _reset_vote(). Sections 1 and 2's
+NO path share a single vote (a repeated battle_action/abort while one is active
+is absorbed by requestVote, which just re-shows the open menu), so the whole
+test needs one battle and three votes.
 
 Run:  python tools/coop_test/test_vote_abort_battle.py
 Exit 0 = pass; 2 = failure.
@@ -100,6 +112,46 @@ def _world_fingerprint(gc):
         "roster": sorted((s["id"], s["owner"]) for s in _roster(gc)),
         "storage": dict(sorted(rep["storage"].items())),
     }
+
+
+def _wait_vote(gc, tag, desc, predicate, timeout=25):
+    """gc.wait_for() over vote_state, returning the matching snapshot."""
+    return gc.wait_for(
+        f"{tag} {desc}",
+        lambda: (lambda s: s if predicate(s) else None)(
+            gc.ok({"cmd": "vote_state"})),
+        timeout=timeout, interval=0.25)
+
+
+def _reset_vote(host, client):
+    """Retire a FINISHED vote on both machines so the next ABORT starts a new one.
+
+    requestVote() short-circuits while _activeVote.finished and that vote's
+    VoteMenu is still on the stack - it only re-shows the menu and returns true,
+    without creating a vote. So both menus go first (vote_close), and only then
+    is the host's 60-second per-seat starter cooldown expired; the host enforces
+    that cooldown for EVERY seat, so clearing it there covers both players.
+    """
+    for gc in (host, client):
+        gc.ok({"cmd": "vote_close"})
+    host.ok({"cmd": "vote_clear_cooldown"})
+
+
+def _assert_battle_alive(gc, tag, phase):
+    """A failed vote must leave the process, the state stack and the battle alone."""
+    try:
+        st = _states(gc)
+    except (OSError, EOFError, ValueError) as e:
+        raise AssertionError(
+            f"{tag}: PROCESS DIED during the {phase} phase ({e!r}) - a FAILED "
+            f"abandon-mission vote must not touch the running battle at all")
+    assert any("BattlescapeState" in s for s in st), (
+        f"{tag}: BATTLESCAPE POPPED by the {phase} phase - the vote did NOT "
+        f"pass, so nothing may have ended the mission: states={st}")
+    assert _battle(gc).get("inBattle"), (
+        f"{tag}: the SavedBattleGame is gone after the {phase} phase even "
+        f"though the vote failed: states={st}")
+    return st
 
 
 def _dbg(host, client):
@@ -280,9 +332,62 @@ def main():
               f"left both processes alive, both battlescapes on the stack and "
               f"the vote still running (host popped {popped['host']})")
 
-        # ==== 3. E2E: the peer votes YES -> debriefing -> geoscape ==========
-        # Reuses the already-open vote; no second vote is started, so the
-        # 60-second vote-starter cooldown never comes into play.
+        # ==== 3. FAILURE PATH A: the peer votes NO ==========================
+        # The section-1 vote is still open (the hammer could not answer it), so
+        # this ABORT is absorbed by requestVote and just re-shows that menu -
+        # exactly what a second ABORT press does for a player.
+        host.ok({"cmd": "battle_action", "action": "abort"})
+        for gc, tag in ((host, "host"), (client, "client")):
+            _wait_vote(gc, tag, "open abandon-mission vote",
+                       lambda s: (s.get("active") and s.get("menuOpen")
+                                  and not s.get("finished")))
+        cast = client.ok({"cmd": "vote_cast", "yes": False})
+        assert cast.get("accepted"), (
+            f"client NO vote was rejected: {cast}; if the vote had already "
+            f"timed out, sections 1-2 are too slow for the 30s deadline")
+
+        for gc, tag in ((host, "host"), (client, "client")):
+            v = _wait_vote(gc, tag, "failed (NO) abandon-mission result",
+                           lambda s: s.get("finished") and s.get("menuFinished"))
+            assert v["passed"] is False, \
+                f"{tag}: a 1-1 split passed a 2/2 majority vote: {v}"
+            assert v["votes"] == [1, 0], f"{tag}: {v}"  # seat0 YES, seat1 NO
+            assert v["menuStatus"] == "VOTE FAILED", f"{tag}: {v}"
+        for gc, tag in ((host, "host"), (client, "client")):
+            _assert_battle_alive(gc, tag, "NO-vote")
+        print("PASS no-vote: the peer's NO failed the 2/2 majority and BOTH "
+              "machines are alive with the battle still running")
+        _reset_vote(host, client)
+
+        # ==== 4. FAILURE PATH B: the host-authoritative deadline ============
+        # A genuinely NEW vote this time: the id must differ from the one just
+        # closed, otherwise requestVote only re-showed the finished menu.
+        stale_id = host.ok({"cmd": "vote_state"})["id"]
+        host.ok({"cmd": "battle_action", "action": "abort"})
+        for gc, tag in ((host, "host"), (client, "client")):
+            v = _wait_vote(gc, tag, "second abandon-mission vote",
+                           lambda s: (s.get("active") and not s.get("finished")
+                                      and s.get("id") != stale_id))
+            assert v["action"] == "abandon_mission", f"{tag}: wrong vote: {v}"
+            assert v["starterSeat"] == 0, f"{tag}: {v}"   # the host pressed ABORT
+            assert v["votes"] == [1, -1], f"{tag}: {v}"   # starter auto-YES only
+
+        forced = host.ok({"cmd": "vote_force_timeout"})
+        assert forced.get("accepted") is True, forced
+        for gc, tag in ((host, "host"), (client, "client")):
+            v = _wait_vote(gc, tag, "timed-out abandon-mission result",
+                           lambda s: s.get("finished") and s.get("menuFinished"))
+            assert v["passed"] is False, f"{tag}: a timed-out vote passed: {v}"
+            assert v["menuStatus"] == "VOTE FAILED", f"{tag}: {v}"
+        for gc, tag in ((host, "host"), (client, "client")):
+            _assert_battle_alive(gc, tag, "timeout")
+        print("PASS timeout: the 30s deadline failed the vote on BOTH machines "
+              "and the battle survived it untouched")
+        _reset_vote(host, client)
+
+        # ==== 5. E2E: the peer votes YES -> debriefing -> geoscape ==========
+        # The third and last vote of the test: both failed menus are closed and
+        # the starter cooldowns cleared, so this ABORT really opens a new one.
         session.coop_abort_battle(host, client)
         for gc, tag in ((host, "host"), (client, "client")):
             assert not _battle(gc).get("inBattle"), f"{tag}: still in the battle"

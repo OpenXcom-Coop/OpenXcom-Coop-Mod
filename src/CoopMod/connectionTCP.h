@@ -582,6 +582,7 @@ class connectionTCP
 	// Deterministic harness hooks: exercise the real host timeout/cooldown paths
 	// without making the regression suite sleep for 30 or 60 seconds.
 	bool forceActiveVoteTimeoutForTest();
+	void clearVoteStarterCooldownsForTest() { _voteStarterCooldownUntil.clear(); }
 	std::uint32_t getVoteStarterCooldownRemainingForTest(int seat) const
 	{
 		return voteStarterCooldownRemainingMs(seat);

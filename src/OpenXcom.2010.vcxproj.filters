@@ -1259,23 +1259,45 @@
     <ClCompile Include="CoopMod\Profile.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
-    <ClCompile Include="CoopMod\CrashHandler.cpp" />
+    <ClCompile Include="CoopMod\CrashHandler.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
     <ClCompile Include="CoopMod\TestServer.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
     <ClCompile Include="CoopMod\SharedEcon.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
-    <ClCompile Include="CoopMod\AddServerMenu.cpp" />
-    <ClCompile Include="CoopMod\DirectConnect.cpp" />
-    <ClCompile Include="CoopMod\FilterMenu.cpp" />
-    <ClCompile Include="CoopMod\GiftNoticeState.cpp" />
-    <ClCompile Include="CoopMod\GiftSoldierMenu.cpp" />
-    <ClCompile Include="CoopMod\HostMenu.cpp" />
-    <ClCompile Include="CoopMod\LobbyMenu.cpp" />
-    <ClCompile Include="CoopMod\ModCheckMenu.cpp" />
-    <ClCompile Include="CoopMod\PasswordCheckMenu.cpp" />
-    <ClCompile Include="CoopMod\ServerList.cpp" />
+    <ClCompile Include="CoopMod\AddServerMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\DirectConnect.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\FilterMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\GiftNoticeState.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\GiftSoldierMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\HostMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\LobbyMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\ModCheckMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\PasswordCheckMenu.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\ServerList.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
     <ClCompile Include="CoopMod\connectionUDP\connectionUDP.cpp" />
     <ClCompile Include="CoopMod\connectionUDP\connection_lan_discovery.cpp" />
     <ClCompile Include="CoopMod\connectionUDP\connection_rendezvous_glue.cpp" />
@@ -2813,23 +2835,45 @@
     <ClInclude Include="CoopMod\Profile.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
-    <ClInclude Include="CoopMod\CrashHandler.h" />
+    <ClInclude Include="CoopMod\CrashHandler.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
     <ClInclude Include="CoopMod\TestServer.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\SharedEcon.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
-    <ClInclude Include="CoopMod\AddServerMenu.h" />
-    <ClInclude Include="CoopMod\DirectConnect.h" />
-    <ClInclude Include="CoopMod\FilterMenu.h" />
-    <ClInclude Include="CoopMod\GiftNoticeState.h" />
-    <ClInclude Include="CoopMod\GiftSoldierMenu.h" />
-    <ClInclude Include="CoopMod\HostMenu.h" />
-    <ClInclude Include="CoopMod\LobbyMenu.h" />
-    <ClInclude Include="CoopMod\ModCheckMenu.h" />
-    <ClInclude Include="CoopMod\PasswordCheckMenu.h" />
-    <ClInclude Include="CoopMod\ServerList.h" />
+    <ClInclude Include="CoopMod\AddServerMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\DirectConnect.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\FilterMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\GiftNoticeState.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\GiftSoldierMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\HostMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\LobbyMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\ModCheckMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\PasswordCheckMenu.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\ServerList.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
     <ClInclude Include="CoopMod\connectionUDP\connectionUDP.h" />
     <ClInclude Include="CoopMod\connectionUDP\connection_lan_discovery.h" />
     <ClInclude Include="CoopMod\connectionUDP\connection_rendezvous_glue.h" />

@@ -552,6 +552,13 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		resp["accepted"] = coop->forceActiveVoteTimeoutForTest();
 		resp["ok"] = true;
 	}
+	else if (cmd == "vote_clear_cooldown")
+	{
+		// Expire every seat's 60s starter cooldown so a multi-vote regression
+		// test does not have to sleep between votes.
+		coop->clearVoteStarterCooldownsForTest();
+		resp["ok"] = true;
+	}
 	else if (cmd == "vote_cooldown_state")
 	{
 		const int seat = req.get("seat", connectionTCP::localSeat()).asInt();
@@ -3781,6 +3788,34 @@ std::string TestServer::execute(const std::string& line)
 			resp["count"] = count;
 			resp["ok"] = true;
 		}
+		else if (cmd == "server_list_direct_connect")
+		{
+			// Press "Direct Connect" in the server browser -> DirectConnect menu.
+			ServerList* browser = findState<ServerList>(_game);
+			if (!browser)
+			{
+				resp["error"] = "no ServerList in state stack";
+			}
+			else
+			{
+				browser->btnDirectConnectClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "server_list_add_server")
+		{
+			// Press "Add Server" in the server browser -> AddServerMenu.
+			ServerList* browser = findState<ServerList>(_game);
+			if (!browser)
+			{
+				resp["error"] = "no ServerList in state stack";
+			}
+			else
+			{
+				browser->btnAddServerClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "server_list_host")
 		{
 			// Press "Host" in the server browser -> HostMenu. This is the real
@@ -4864,6 +4899,21 @@ std::string TestServer::execute(const std::string& line)
 			_game->pushState(new NewBattleState);
 			resp["ok"] = true;
 		}
+		else if (cmd == "newbattle_equip")
+		{
+			// host EQUIP CRAFT entry: in a coop custom battle this first opens
+			// the confirm-equip-craft CoopState (answer with coop_dialog_yes).
+			NewBattleState* nb = findState<NewBattleState>(_game);
+			if (!nb)
+			{
+				resp["error"] = "no NewBattleState in state stack";
+			}
+			else
+			{
+				nb->btnEquipClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "newbattle_coop")
 		{
 			NewBattleState* nb = findState<NewBattleState>(_game);
@@ -5025,6 +5075,21 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				pw->submitPassword(req.get("password", "").asString());
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "coop_dialog_yes")
+		{
+			// click the YES button of the top CoopState dialog (e.g. the
+			// Custom Battle confirm-equip-craft gate)
+			CoopState* cs = topState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["error"] = "no CoopState on top";
+			}
+			else
+			{
+				cs->btnYesClick(nullptr);
 				resp["ok"] = true;
 			}
 		}
