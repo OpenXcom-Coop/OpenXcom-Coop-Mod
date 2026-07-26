@@ -397,6 +397,19 @@ void NewBattleState::init()
 		load();
 	}
 
+	if (isCustomBattleCraftLocked())
+	{
+		enforceLockedCraftSelection();
+		_btnRandom->setVisible(false);
+	}
+	else if (_surfaceBackup.empty())
+	{
+		// A Custom Battle craft lock is session-scoped. When the connection is
+		// torn down, CoopSession::onClientDrop clears it and the Battle Generator
+		// must restore its normal craft-changing controls.
+		_btnRandom->setVisible(true);
+	}
+
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
@@ -863,6 +876,13 @@ void NewBattleState::btnCancelClick(Action *)
  */
 void NewBattleState::btnRandomClick(Action *)
 {
+	// Randomize rebuilds the entire generated base and may choose another craft.
+	// Once equipment preparation begins, preserve that craft and its loadout.
+	if (isCustomBattleCraftLocked())
+	{
+		return;
+	}
+
 	initSave();
 
 	_cbxMission->setSelected(RNG::generate(0, _missionTypes.size()-1));
@@ -882,6 +902,63 @@ void NewBattleState::btnRandomClick(Action *)
  * @param action Pointer to an action.
  */
 void NewBattleState::btnEquipClick(Action *)
+{
+	// In a hosted Custom Battle, the first EQUIP CRAFT click is a one-way
+	// transition: the host confirms the currently selected craft, the craft id is
+	// broadcast to clients, and only then may either side edit its equipment.
+	if (_game->getCoopMod()->getCoopStatic()
+		&& _game->getCoopMod()->getServerOwner()
+		&& connectionTCP::session.lobbyMode == 0
+		&& !isCustomBattleCraftLocked())
+	{
+		_game->pushState(new CoopState(COOP_DLG_CONFIRM_EQUIP_CRAFT));
+		return;
+	}
+
+	openEquipCraftScreen();
+}
+
+void NewBattleState::confirmEquipCraftLock()
+{
+	if (!_game->getCoopMod()->lockCustomBattleCraft(_cbxCraft->getSelected()))
+	{
+		return;
+	}
+
+	enforceLockedCraftSelection();
+	_btnRandom->setVisible(false);
+	openEquipCraftScreen();
+}
+
+bool NewBattleState::isCustomBattleCraftLocked() const
+{
+	return _game->getCoopMod()->getCoopStatic()
+		&& connectionTCP::session.lobbyMode == 0
+		&& _game->getCoopMod()->isCustomBattleCraftLocked();
+}
+
+void NewBattleState::enforceLockedCraftSelection()
+{
+	const int lockedCraftId = _game->getCoopMod()->getLockedCustomBattleCraftId();
+	if (lockedCraftId < 0 || static_cast<std::size_t>(lockedCraftId) >= _crafts.size())
+	{
+		return;
+	}
+
+	const std::size_t locked = static_cast<std::size_t>(lockedCraftId);
+	_game->getCoopMod()->_coop_selected_craft_id = locked;
+	if (_cbxCraft->getSelected() != locked)
+	{
+		_cbxCraft->setSelected(locked);
+	}
+
+	if (_craft)
+	{
+		_craft->changeRules(_game->getMod()->getCraft(_crafts[locked]));
+	}
+}
+
+void NewBattleState::openEquipCraftScreen()
 {
 
 	// coop
@@ -988,6 +1065,15 @@ void NewBattleState::cbxMissionChange(Action *)
  */
 void NewBattleState::cbxCraftChange(Action *)
 {
+
+	// The host's confirmation freezes the craft id for the rest of this Custom
+	// Battle session. A dropdown selection made after that is immediately
+	// restored and is never sent to the client.
+	if (isCustomBattleCraftLocked())
+	{
+		enforceLockedCraftSelection();
+		return;
+	}
 
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() == true)

@@ -42,6 +42,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
+import session
 import geo
 
 LASER = "STR_LASER_PISTOL"
@@ -209,20 +210,10 @@ def _fly_a_battle(host, client):
     for gc in (host, client):
         gc.wait_for("tactical", lambda gc=gc: _has(gc, "BattlescapeState") or None,
                     timeout=120, interval=0.5)
-    host.ok({"cmd": "battle_action", "action": "abort"})
-
-    def _drain(gc, deadline):
-        while time.time() < deadline:
-            if "GeoscapeState" in _states(gc)[-1]:
-                return True
-            gc.cmd({"cmd": "dismiss_popup"})
-            time.sleep(0.4)
-        return None
-
-    deadline = time.time() + 200
-    for gc in (host, client):
-        gc.wait_for("back on the geoscape", lambda gc=gc: _drain(gc, deadline),
-                    timeout=220, interval=1.0)
+    # ABORT opens the co-op abandon-mission majority vote, not AbortMissionState;
+    # a blind dismiss_popup drain would generic-pop the VoteMenu and then the
+    # battlescape itself (see test_vote_abort_battle.py).
+    session.coop_abort_battle(host, client)
     return squad
 
 

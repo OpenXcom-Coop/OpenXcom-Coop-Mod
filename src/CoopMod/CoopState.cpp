@@ -49,6 +49,7 @@
 #include "../Menu/LoadGameState.h"
 
 #include "../Menu/MainMenuState.h"
+#include "../Menu/NewBattleState.h"
 
 namespace OpenXcom
 {
@@ -93,7 +94,7 @@ const int kWaitH = kWaitPad + kWaitTitleH + kWaitGap + kWaitBtnH + kWaitPad;
  * @param game Pointer to the core game.
  * @param origin Game section that originated this state.
  */
-CoopState::CoopState(int state)
+CoopState::CoopState(int state, int value) : _value(value)
 {
 	_screen = false;
 
@@ -125,6 +126,19 @@ CoopState::CoopState(int state)
 		// instead of the standard one-liner strip.
 		_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
 		_txtTitle = new Text(206, 72, x + 5, 62);
+	}
+	else if (state == COOP_DLG_CONFIRM_EQUIP_CRAFT)
+	{
+		// content-sized confirm: a wrapped question plus one YES/NO row,
+		// horizontally centered instead of the legacy x=20 strip
+		_window = new Window(this, 216, 96, 52, 52, POPUP_BOTH);
+		_txtTitle = new Text(196, 44, 62, 62);
+	}
+	else if (state == COOP_DLG_VOTE_COOLDOWN)
+	{
+		// content-sized notice: two wrapped lines plus a single OK row
+		_window = new Window(this, 216, 64, 52, 68, POPUP_BOTH);
+		_txtTitle = new Text(196, 18, 62, 78);
 	}
 	else
 	{
@@ -234,6 +248,52 @@ CoopState::CoopState(int state)
 							   : connectionTCP::sharedFailReason);
 
 		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
+	// Custom Battle: equipment is shared against one fixed craft type. The host
+	// confirms this irreversible session transition before the equipment screen
+	// is opened and before clients receive their EQUIP CRAFT lobby button.
+	if (state == COOP_DLG_CONFIRM_EQUIP_CRAFT)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setWordWrap(true);
+		_txtTitle->setAlign(ALIGN_CENTER);
+		_txtTitle->setText(
+			"Open EQUIP CRAFT?\n\n"
+			"The selected craft will be locked for this multiplayer session.");
+
+		_btnYes->setX(72);
+		_btnYes->setY(118);
+		_btnYes->setWidth(80);
+		_btnYes->setHeight(20);
+		_btnYes->setVisible(true);
+
+		_btnBack->setText(tr("STR_NO"));
+		_btnBack->setX(168);
+		_btnBack->setY(118);
+		_btnBack->setWidth(80);
+		_btnBack->setHeight(20);
+		_btnBack->setVisible(true);
+	}
+
+	// A player may start at most one vote every 30 seconds. The host sends the
+	// authoritative remaining time, and this ordinary CoopState explains why
+	// the new vote request was rejected.
+	if (state == COOP_DLG_VOTE_COOLDOWN)
+	{
+		const int seconds = std::max(1, _value);
+		_txtTitle->setSmall();
+		_txtTitle->setWordWrap(true);
+		_txtTitle->setAlign(ALIGN_CENTER);
+		_txtTitle->setText(
+			"Please wait " + std::to_string(seconds)
+			+ (seconds == 1 ? " second" : " seconds")
+			+ " before starting another vote.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setX(110);
+		_btnBack->setY(105);
 		_btnBack->setVisible(true);
 	}
 
@@ -1313,6 +1373,27 @@ void CoopState::btnAbandonClick(Action *)
 
 void CoopState::btnYesClick(Action *)
 {
+
+	if (global_state == COOP_DLG_CONFIRM_EQUIP_CRAFT)
+	{
+		NewBattleState* newBattle = nullptr;
+		for (State* state : _game->getStates())
+		{
+			if (NewBattleState* candidate = dynamic_cast<NewBattleState*>(state))
+			{
+				newBattle = candidate;
+			}
+		}
+
+		// Remove the confirmation first. The NewBattleState remains underneath and
+		// opens CraftInfoState only after the host-side lock packet is sent.
+		_game->popState();
+		if (newBattle)
+		{
+			newBattle->confirmEquipCraftLock();
+		}
+		return;
+	}
 
 	if (global_state == 123)
 	{

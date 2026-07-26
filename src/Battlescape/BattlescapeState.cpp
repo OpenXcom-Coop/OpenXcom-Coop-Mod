@@ -2361,15 +2361,28 @@ void BattlescapeState::EndCoopBattle()
 
 	if (_game->getCoopMod()->show_briefing_state == false)
 	{
+		const std::list<State*> &states = _game->getStates();
+
+		// The Battlescape may already have been removed after a vote result.
+		// Never pop states while searching for a state that is no longer there.
+		if (std::find(states.begin(), states.end(), this) == states.end())
+		{
+			return;
+		}
 
 		_battleGame->cancelCurrentAction();
 		_battleGame->cancelAllActions();
 
 		_battleGame->cleanupDeleted();
 
-		while (!_game->isState(this))
+		while (!_game->getStates().empty() && !_game->isState(this))
 		{
 			_game->popState();
+		}
+
+		if (!_game->isState(this))
+		{
+			return;
 		}
 
 		_popups.clear();
@@ -3066,7 +3079,6 @@ void BattlescapeState::btnAbortClick(Action *)
 
 		}
 
-		_game->getCoopMod()->setPauseOn();
 
 	}
 
@@ -3091,8 +3103,41 @@ void BattlescapeState::btnAbortClick(Action *)
 	}
 
 	if (allowButtons())
-		_game->pushState(new AbortMissionState(_save, this));
+	{
+		// In multiplayer, abandoning a mission requires a strict majority vote.
+		if (_game->getCoopMod()->getCoopStatic() == true && !_save->isPreview())
+		{
+			_game->getCoopMod()->requestVote(
+				"abandon_mission",
+				"ABANDON MISSION",
+				tr("STR_ABORT_MISSION_QUESTION"));
+			return;
+		}
 
+		_game->pushState(new AbortMissionState(_save, this));
+	}
+
+}
+
+/**
+ * Applies an approved multiplayer abandon vote locally.
+ */
+void BattlescapeState::abortMissionByVote()
+{
+	if (!_save || _save->isPreview())
+	{
+		return;
+	}
+
+	// The deciding vote_cast can arrive mid-animation (vote packets bypass
+	// the coop task gate), so stop any running battle action before the
+	// teardown that finishBattle starts.
+	_battleGame->cancelCurrentAction();
+	_battleGame->cancelAllActions();
+
+	const BattlescapeTally tally = _battleGame->tallyUnits();
+	_save->setAborted(true);
+	finishBattle(true, tally.inExit);
 }
 
 /**

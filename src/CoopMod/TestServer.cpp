@@ -150,7 +150,9 @@
 #include "CoopState.h"
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
+#include "VoteMenu.h"
 #include "../Interface/DisableableComboBox.h"
+#include "../Interface/Text.h"
 
 namespace OpenXcom
 {
@@ -479,7 +481,172 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 {
 	connectionTCP* coop = _game->getCoopMod();
 
-	if (cmd == "shared_resync_stats")
+	// Vote regression hooks live in this shallow dispatcher because execute() is
+	// already at MSVC's nested-block limit. They drive the real connectionTCP /
+	// VoteSession code; no separate test implementation of the vote rules exists.
+	if (cmd == "vote_state")
+	{
+		const VoteSession& vote = coop->getActiveVoteForTest();
+		resp["active"] = vote.active;
+		resp["finished"] = vote.finished;
+		resp["passed"] = vote.passed;
+		resp["id"] = Json::UInt64(vote.id);
+		resp["action"] = vote.action;
+		resp["totalPlayers"] = vote.totalPlayers;
+		resp["requiredYes"] = vote.requiredYesVotes;
+		resp["starterSeat"] = vote.starterSeat;
+		resp["localSeat"] = connectionTCP::localSeat();
+		resp["remainingMs"] = Json::UInt(vote.remainingMilliseconds());
+		resp["defaultTimeoutMs"] = Json::UInt(VoteSession::DEFAULT_TIMEOUT_MS);
+		resp["votes"] = Json::arrayValue;
+		for (int value : vote.votes)
+		{
+			resp["votes"].append(value);
+		}
+		resp["playerNames"] = Json::arrayValue;
+		for (const std::string& name : vote.playerNames)
+		{
+			resp["playerNames"].append(name);
+		}
+
+		VoteMenu* menu = vote.id ? coop->getVoteMenuForTest(vote.id) : nullptr;
+		resp["menuOpen"] = menu != nullptr;
+		resp["menuPlayerNames"] = Json::arrayValue;
+		if (menu)
+		{
+			for (const std::string& name : menu->getPlayerNames())
+			{
+				resp["menuPlayerNames"].append(name);
+			}
+			resp["menuRows"] = menu->getPlayerRowsText();
+			resp["menuStatus"] = menu->getStatusText();
+			resp["menuFinished"] = menu->isFinished();
+		}
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_menu_state")
+	{
+		const std::uint64_t voteId = req.get("id", Json::UInt64(0)).asUInt64();
+		VoteMenu* menu = voteId ? coop->getVoteMenuForTest(voteId) : nullptr;
+		resp["menuOpen"] = menu != nullptr;
+		if (menu)
+		{
+			resp["menuFinished"] = menu->isFinished();
+			resp["menuStatus"] = menu->getStatusText();
+		}
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_request")
+	{
+		const bool accepted = coop->requestVote(
+			req.get("action", "test_vote").asString(),
+			req.get("title", "TEST VOTE").asString(),
+			req.get("question", "Run the test vote?").asString());
+		resp["accepted"] = accepted;
+		// A cooldown rejection is an expected, observable result rather than a
+		// TestServer transport failure.
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_force_timeout")
+	{
+		resp["accepted"] = coop->forceActiveVoteTimeoutForTest();
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_clear_cooldown")
+	{
+		// Expire every seat's 60s starter cooldown so a multi-vote regression
+		// test does not have to sleep between votes.
+		coop->clearVoteStarterCooldownsForTest();
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_cooldown_state")
+	{
+		const int seat = req.get("seat", connectionTCP::localSeat()).asInt();
+		resp["seat"] = seat;
+		resp["remainingMs"] = Json::UInt(
+			coop->getVoteStarterCooldownRemainingForTest(seat));
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_cast")
+	{
+		const std::uint64_t voteId = req.isMember("id")
+			? req["id"].asUInt64()
+			: coop->getActiveVoteForTest().id;
+		resp["accepted"] = coop->castVote(
+			voteId, req.get("yes", true).asBool());
+		// A rejected duplicate is an observable test result, not a harness error.
+		resp["ok"] = true;
+	}
+	else if (cmd == "vote_close")
+	{
+		const VoteSession& vote = coop->getActiveVoteForTest();
+		VoteMenu* menu = vote.id
+			? coop->getVoteMenuForTest(vote.id) : nullptr;
+		if (!menu)
+		{
+			resp["error"] = "no VoteMenu";
+		}
+		else if (!menu->isFinished())
+		{
+			resp["error"] = "vote is not finished";
+		}
+		else
+		{
+			menu->btnCloseClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "vote_session_probe")
+	{
+		// Pure rule probe using the production VoteSession class. This covers
+		// 3/4-player majority and duplicate-seat rejection even while the current
+		// transport harness still launches a host plus one client.
+		const int players = std::max(1, req.get("players", 3).asInt());
+		const int starter = req.get("starter", 0).asInt();
+		std::vector<std::string> names;
+		if (req.isMember("names") && req["names"].isArray())
+		{
+			for (const auto& value : req["names"])
+			{
+				names.push_back(value.asString());
+			}
+		}
+
+		VoteSession probe;
+		probe.start(1, "probe", "PROBE", "Probe?", players, names, starter);
+		resp["defaultTimeoutMs"] = Json::UInt(VoteSession::DEFAULT_TIMEOUT_MS);
+		resp["remainingMs"] = Json::UInt(probe.remainingMilliseconds());
+		resp["timedOutAtDeadline"] = probe.timedOut(probe.deadlineTicks);
+		resp["accepted"] = Json::arrayValue;
+		if (req.isMember("casts") && req["casts"].isArray())
+		{
+			for (const auto& cast : req["casts"])
+			{
+				resp["accepted"].append(probe.castVote(
+					cast.get("seat", -1).asInt(),
+					cast.get("yes", false).asBool()));
+			}
+		}
+
+		const VoteDecision decision = probe.decision();
+		resp["decision"] = decision == VoteDecision::Passed ? "passed"
+			: (decision == VoteDecision::Failed ? "failed" : "pending");
+		resp["requiredYes"] = probe.requiredYesVotes;
+		resp["yesVotes"] = probe.yesVotes();
+		resp["noVotes"] = probe.noVotes();
+		resp["votes"] = Json::arrayValue;
+		for (int value : probe.votes)
+		{
+			resp["votes"].append(value);
+		}
+		resp["playerNames"] = Json::arrayValue;
+		for (const std::string& name : probe.playerNames)
+		{
+			resp["playerNames"].append(name);
+		}
+		resp["ok"] = true;
+	}
+	else if (cmd == "shared_resync_stats")
 	{
 		// PRD-J10: auto-resync bookkeeping (replica: mismatches seen + repairs
 		// asked for; host: repairs served).
@@ -3621,6 +3788,34 @@ std::string TestServer::execute(const std::string& line)
 			resp["count"] = count;
 			resp["ok"] = true;
 		}
+		else if (cmd == "server_list_direct_connect")
+		{
+			// Press "Direct Connect" in the server browser -> DirectConnect menu.
+			ServerList* browser = findState<ServerList>(_game);
+			if (!browser)
+			{
+				resp["error"] = "no ServerList in state stack";
+			}
+			else
+			{
+				browser->btnDirectConnectClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "server_list_add_server")
+		{
+			// Press "Add Server" in the server browser -> AddServerMenu.
+			ServerList* browser = findState<ServerList>(_game);
+			if (!browser)
+			{
+				resp["error"] = "no ServerList in state stack";
+			}
+			else
+			{
+				browser->btnAddServerClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "server_list_host")
 		{
 			// Press "Host" in the server browser -> HostMenu. This is the real
@@ -4511,6 +4706,23 @@ std::string TestServer::execute(const std::string& line)
 				resp["wait"] = true;
 				resp["error"] = "coop wait dialog (auto-closes; not dismissable)";
 			}
+			else if (dynamic_cast<VoteMenu*>(top))
+			{
+				// A vote is a decision, not a dismissable popup. Popping it would
+				// strand the active vote, and the NEXT generic pop would take the
+				// battlescape itself. Drivers answer via vote_cast or wait for the
+				// host's vote_result.
+				resp["wait"] = true;
+				resp["error"] = "VoteMenu (answer via vote_cast; not dismissable)";
+			}
+			else if (dynamic_cast<BattlescapeState*>(top))
+			{
+				// The battle map itself is never a popup. Popping it raw shreds the
+				// state stack while SavedBattleGame stays live underneath (the
+				// pre-#87 CI client crashes came exactly from this).
+				resp["handled"] = "none";
+				resp["ok"] = true;
+			}
 			else
 			{
 				// Unknown geoscape popup: generically close it so "skip all
@@ -4687,6 +4899,21 @@ std::string TestServer::execute(const std::string& line)
 			_game->pushState(new NewBattleState);
 			resp["ok"] = true;
 		}
+		else if (cmd == "newbattle_equip")
+		{
+			// host EQUIP CRAFT entry: in a coop custom battle this first opens
+			// the confirm-equip-craft CoopState (answer with coop_dialog_yes).
+			NewBattleState* nb = findState<NewBattleState>(_game);
+			if (!nb)
+			{
+				resp["error"] = "no NewBattleState in state stack";
+			}
+			else
+			{
+				nb->btnEquipClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "newbattle_coop")
 		{
 			NewBattleState* nb = findState<NewBattleState>(_game);
@@ -4848,6 +5075,21 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				pw->submitPassword(req.get("password", "").asString());
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "coop_dialog_yes")
+		{
+			// click the YES button of the top CoopState dialog (e.g. the
+			// Custom Battle confirm-equip-craft gate)
+			CoopState* cs = topState<CoopState>(_game);
+			if (!cs)
+			{
+				resp["error"] = "no CoopState on top";
+			}
+			else
+			{
+				cs->btnYesClick(nullptr);
 				resp["ok"] = true;
 			}
 		}
