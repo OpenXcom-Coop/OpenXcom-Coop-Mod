@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright 2010-2016 OpenXcom Developers.
  * Copyright 2023-2026 XComCoopTeam (https://www.moddb.com/mods/openxcom-coop-mod)
  *
@@ -73,6 +73,7 @@
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/BattleUnit.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
 
@@ -1070,18 +1071,244 @@ void connectionTCP::loopData()
 	}
 }
 
+void connectionTCP::setGiftSelectedBattleUnit(BattleUnit* unit)
+{
+	// This is intentionally independent of SavedBattleGame::selectedUnit. The
+	// latter follows the active turn, while this value belongs only to the local
+	// player and may be updated by left-clicking during another player's turn.
+	if (canGiftBattleUnit(unit))
+	{
+		_giftSelectedBattleUnitId = unit->getId();
+	}
+}
+
+BattleUnit* connectionTCP::getGiftSelectedBattleUnit() const
+{
+	if (_giftSelectedBattleUnitId < 0 || !_game || !_game->getSavedGame())
+	{
+		return nullptr;
+	}
+
+	SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+	if (!battle)
+	{
+		return nullptr;
+	}
+
+	for (BattleUnit* unit : *battle->getUnits())
+	{
+		if (unit->getId() == _giftSelectedBattleUnitId)
+		{
+			// Revalidate every read because the unit may have died or changed owner
+			// after it was clicked. A stale local selection must never be giftable.
+			return canGiftBattleUnit(unit) ? unit : nullptr;
+		}
+	}
+
+	return nullptr;
+}
+
+void connectionTCP::clearGiftSelectedBattleUnit()
+{
+	_giftSelectedBattleUnitId = -1;
+}
+
+bool connectionTCP::canGiftBattleUnit(const BattleUnit* unit) const
+{
+	if (!unit || !_game || !_game->getSavedGame() || !_game->getSavedGame()->getSavedBattle())
+	{
+		return false;
+	}
+
+	if (!getCoopStatic() || getCoopGamemode() == 2 || getCoopGamemode() == 3)
+	{
+		return false;
+	}
+
+	// Ownership, not the active turn, decides whether the transfer is legal.
+	// This lets both peers gift different soldiers at the same time without
+	// allowing either peer to transfer a soldier controlled by somebody else.
+	return unit->getFaction() == FACTION_PLAYER
+		&& !unit->isOut()
+		&& unit->getHealth() > 0
+		&& unit->getCoop() == localSeat();
+}
+
+void connectionTCP::refreshBattleGiftControlState()
+{
+	if (!_game || !_game->getSavedGame())
+	{
+		return;
+	}
+
+	SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+	if (!battle || battle->isPreview() || !getCoopStatic())
+	{
+		return;
+	}
+
+	const int localPlayerId = localSeat();
+	BattleUnit* firstLocalUnit = nullptr;
+
+	for (BattleUnit* unit : *battle->getUnits())
+	{
+		if (unit->getFaction() == FACTION_PLAYER
+			&& !unit->isOut()
+			&& unit->getHealth() > 0
+			&& unit->getCoop() == localPlayerId)
+		{
+			firstLocalUnit = unit;
+			break;
+		}
+	}
+
+	BattlescapeState* battleState = battle->getBattleState();
+	BattleUnit* selected = battle->getSelectedUnit();
+
+	// The normal Battlescape selectedUnit can already be set before the local
+	// gift selection is initialized, and on a waiting peer it may represent the
+	// remote active player's unit. Initialize the separate local gift selection
+	// from a valid locally owned unit instead of relying on selectedUnit. This
+	// allows the initially available soldier to be gifted immediately without a
+	// mouse click while keeping the active-turn selection untouched.
+	if (!getGiftSelectedBattleUnit())
+	{
+		BattleUnit* initialGiftUnit = canGiftBattleUnit(selected)
+			? selected
+			: firstLocalUnit;
+		setGiftSelectedBattleUnit(initialGiftUnit);
+	}
+
+	const bool localTurnActive = getPlayerTurn() == 2
+		|| (battleState && battleState->getCurrentTurn() == 2);
+	const bool localWasSpectator = getPlayerTurn() == 4
+		|| (battleState && battleState->getCurrentTurn() == 4);
+
+	if (!firstLocalUnit)
+	{
+		clearGiftSelectedBattleUnit();
+
+		// Gifting is allowed while the other player is taking their turn. In that
+		// case this machine must remain in its normal waiting state: changing it to
+		// spectator would overwrite the synchronized turn even though the remote
+		// player is still active. The regular turn-start roster check will enter
+		// spectator mode later if this player still owns no living soldiers.
+		if (!localTurnActive)
+		{
+			return;
+		}
+
+		// The final soldier was gifted during this player's own active turn.
+		// Clear the now-invalid active selection and enter spectator mode at once.
+		if (selected && selected->getCoop() != localPlayerId)
+		{
+			battle->setSelectedUnit(nullptr);
+		}
+
+		setPlayerTurn(4);
+		if (battleState)
+		{
+			battleState->setCurrentTurn(4);
+			battleState->showCoopWarning("You are in spectator mode");
+		}
+		return;
+	}
+
+	// Never replace SavedBattleGame::selectedUnit on a waiting machine. That
+	// value belongs to the player whose turn is currently active. A local unit
+	// is selected only on our own turn or when restoring from spectator mode.
+	if ((localTurnActive || localWasSpectator)
+		&& (!selected || selected->isOut() || selected->getHealth() <= 0
+			|| selected->getCoop() != localPlayerId))
+	{
+		battle->setSelectedUnit(firstLocalUnit);
+
+		// setSelectedUnit() bypasses both the mouse-click path and
+		// SavedBattleGame::selectPlayerUnit(). Keep the separate local gift
+		// selection synchronized here so a player restored from spectator mode
+		// can gift the received soldier immediately without clicking it first.
+		setGiftSelectedBattleUnit(firstLocalUnit);
+
+		if (battleState)
+		{
+			battleState->updateSoldierInfo();
+		}
+	}
+
+	if (battleState && localWasSpectator)
+	{
+		const int restoredTurn = _isActivePlayerSync ? 2 : 1;
+		setPlayerTurn(restoredTurn);
+		battleState->setCurrentTurn(restoredTurn);
+		if (restoredTurn == 2)
+		{
+			battleState->showCoopLongWarning("Your Turn");
+		}
+		else
+		{
+			battleState->showCoopWarning(getCurrentClientName() + "'s Turn");
+		}
+	}
+}
+
+void connectionTCP::giftBattleUnit(BattleUnit* unit, int newOwnerId, bool broadcast)
+{
+	if (!canGiftBattleUnit(unit) || newOwnerId < 0 || newOwnerId >= seatCount() || newOwnerId == localSeat())
+	{
+		Log(LOG_WARNING) << "[coop-gift] rejected battle gift: invalid unit, owner, or target";
+		return;
+	}
+
+	if (unit->getGeoscapeSoldier())
+	{
+		giftSoldier(unit->getGeoscapeSoldier(), newOwnerId, broadcast);
+		return;
+	}
+
+	// Skirmish-only units have no persistent Soldier object. Their gift is only
+	// a live Battlescape control transfer, but it follows the same ownership,
+	// stale-packet and notification rules as campaign soldiers.
+	const int previousOwner = unit->getCoop();
+	unit->setCoop(newOwnerId);
+	if (_giftSelectedBattleUnitId == unit->getId())
+	{
+		clearGiftSelectedBattleUnit();
+	}
+
+	SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+	if (battle->getSelectedUnit() == unit && newOwnerId != localSeat())
+	{
+		battle->selectNextPlayerUnit();
+	}
+
+	if (broadcast)
+	{
+		const long long giftEventId = (getHost() ? 1000000000000000LL : 2000000000000000LL)
+			+ (long long)time(0) * 1000LL + (++_giftSendCounter % 1000);
+
+		Json::Value obj;
+		obj["state"] = "giveUnit";
+		obj["unit_id"] = unit->getId();
+		obj["coop"] = newOwnerId;
+		obj["previous_owner"] = previousOwner;
+		obj["giver_name"] = seatName(previousOwner);
+		obj["unit_name"] = unit->getName(_game->getLanguage());
+		obj["xfer_id"] = Json::Value::Int64(giftEventId);
+		sendTCPPacketData(obj.toStyledString());
+	}
+
+	refreshBattleGiftControlState();
+}
+
 void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast)
 {
-
 	if (!soldier || !_game->getSavedGame())
 	{
 		return;
 	}
 
-	// Playtest: SHARED geoscape gift is host-authoritative - route the ownership move
-	// through the soldier_gift shared_cmd so BOTH machines adopt it (the SEPARATE
-	// local+broadcast below never reached the SHARED replica). Battle-time gifts still
-	// use the live-control path below.
+	// SHARED geoscape gifts are host-authoritative. Battle-time gifts use the
+	// live-control path below because both battle replicas must update at once.
 	if (broadcast && isSharedCampaign() && !_game->getSavedGame()->getSavedBattle())
 	{
 		int baseId = 0;
@@ -1100,80 +1327,114 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 		return;
 	}
 
+	SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+	const int localPlayerId = localSeat();
+
+	if (battle)
+	{
+		BattleUnit* battleUnit = nullptr;
+		for (BattleUnit* unit : *battle->getUnits())
+		{
+			if (unit->getGeoscapeSoldier() == soldier)
+			{
+				battleUnit = unit;
+				break;
+			}
+		}
+
+		if (!canGiftBattleUnit(battleUnit)
+			|| newOwnerId < 0
+			|| newOwnerId >= seatCount()
+			|| newOwnerId == localPlayerId)
+		{
+			Log(LOG_WARNING) << "[coop-gift] rejected campaign battle gift for '" << soldier->getName()
+				<< "': local seat does not own the live unit or target is invalid";
+			return;
+		}
+
+		const int previousOwner = battleUnit->getCoop();
+		soldier->setOwnerPlayerId(newOwnerId);
+		soldier->setCoop(newOwnerId);
+		battleUnit->setCoop(newOwnerId);
+		if (_giftSelectedBattleUnitId == battleUnit->getId())
+		{
+			clearGiftSelectedBattleUnit();
+		}
+
+		Log(LOG_INFO) << "[coop-gift] battle gift '" << soldier->getName() << "' id=" << soldier->getId()
+			<< " previousOwner=" << previousOwner << " newOwner=" << newOwnerId
+			<< " localPlayer=" << localPlayerId << " broadcast=" << (broadcast ? 1 : 0);
+
+		if (battle->getSelectedUnit() == battleUnit && newOwnerId != localPlayerId)
+		{
+			battle->selectNextPlayerUnit();
+		}
+
+		// A later gift-back supersedes an older pending physical transfer for the
+		// same Soldier. Keep at most one final post-mission destination.
+		_pendingSoldierGifts.erase(
+			std::remove_if(_pendingSoldierGifts.begin(), _pendingSoldierGifts.end(),
+				[soldier](const PendingSoldierGift& pending) { return pending.soldier == soldier; }),
+			_pendingSoldierGifts.end());
+		if (broadcast && newOwnerId != localPlayerId)
+		{
+			int craftId = -1;
+			std::string craftType;
+
+			// Capture the craft identity now, while the in-battle Craft* still
+			// belongs to the live world. The battle/save hand-off may destroy or
+			// replace that Craft before processPendingSoldierGifts() runs, so the
+			// deferred transfer must never dereference soldier->getCraft().
+			if (Craft* craft = soldier->getCraft())
+			{
+				craftId = craft->getId();
+				craftType = craft->getType();
+			}
+
+			_pendingSoldierGifts.push_back(
+				PendingSoldierGift(soldier, newOwnerId, craftId, craftType));
+		}
+
+		if (broadcast)
+		{
+			const long long giftEventId = (getHost() ? 1000000000000000LL : 2000000000000000LL)
+				+ (long long)time(0) * 1000LL + (++_giftSendCounter % 1000);
+
+			Json::Value obj;
+			obj["state"] = "giftSoldier";
+			obj["soldier_id"] = soldier->getId();
+			obj["owner"] = newOwnerId;
+			obj["unit_id"] = battleUnit->getId();
+			obj["previous_owner"] = previousOwner;
+			obj["giver_name"] = seatName(previousOwner);
+			obj["soldier_name"] = soldier->getName();
+			obj["xfer_id"] = Json::Value::Int64(giftEventId);
+			sendTCPPacketData(obj.toStyledString());
+		}
+
+		refreshBattleGiftControlState();
+		return;
+	}
+
+	// Geoscape transfer: move the persistent soldier object to its new owner.
 	soldier->setOwnerPlayerId(newOwnerId);
 	soldier->setCoop(newOwnerId);
 
-	int localPlayerId = localSeat();
-
 	Log(LOG_INFO) << "[coop-gift] giftSoldier '" << soldier->getName() << "' id=" << soldier->getId()
-	              << " newOwner=" << newOwnerId << " localPlayer=" << localPlayerId
-	              << " broadcast=" << (broadcast ? 1 : 0)
-	              << " inBattle=" << (_game->getSavedGame()->getSavedBattle() ? 1 : 0);
+		<< " newOwner=" << newOwnerId << " localPlayer=" << localPlayerId
+		<< " broadcast=" << (broadcast ? 1 : 0) << " inBattle=0";
 
-	if (_game->getSavedGame()->getSavedBattle())
+	if (broadcast && newOwnerId != localPlayerId)
 	{
-
-		// Battle running: flip live control now, do the physical move only
-		// after the mission ends (the BattleUnit and the debriefing still
-		// reference this Soldier).
-		auto* battle = _game->getSavedGame()->getSavedBattle();
-
-		for (auto& unit : *battle->getUnits())
-		{
-
-			if (unit->getGeoscapeSoldier() == soldier)
-			{
-
-				unit->setCoop(newOwnerId);
-
-				// The unit is no longer ours: move the selection along.
-				if (battle->getSelectedUnit() == unit && newOwnerId != localPlayerId)
-				{
-					battle->selectNextPlayerUnit();
-				}
-
-				if (broadcast)
-				{
-
-					// Immediate control flip on the peer's battle too.
-					Json::Value obj;
-					obj["state"] = "giftSoldier";
-					obj["soldier_id"] = soldier->getId();
-					obj["owner"] = newOwnerId;
-					obj["unit_id"] = unit->getId();
-
-					sendTCPPacketData(obj.toStyledString());
-
-				}
-
-				break;
-
-			}
-
-		}
-
-		if (broadcast && newOwnerId != localPlayerId)
-		{
-			_pendingSoldierGifts.push_back(std::make_pair(soldier, newOwnerId));
-		}
-
-	}
-	else if (broadcast && newOwnerId != localPlayerId)
-	{
-
-		// The soldier's object lives in its owner's save (guest-soldier
-		// model): hand it to the peer and drop it from our world. It keeps
-		// its station base, so it stays "in" the base it is in right now.
+		// The soldier's object lives in its owner's save (guest-soldier model):
+		// hand it to the peer and drop it from our world while retaining its
+		// station-base id in the serialized packet.
 		sendSoldierGiftPacket(soldier, newOwnerId);
 		removeSoldierFromLocalBases(soldier);
 		_giftedSoldiers.push_back(soldier);
 		_giftedAwaySoldierIds.insert(soldier->getId());
-
-		// keep the host-side client blob fresh (no-op on the host itself)
 		pushProgressToHostSilently();
-
 	}
-
 }
 
 void connectionTCP::processPendingSoldierGifts()
@@ -1277,10 +1538,10 @@ void connectionTCP::processPendingSoldierGifts()
 		return;
 	}
 
-	for (auto& pending : _pendingSoldierGifts)
+	for (const PendingSoldierGift& pending : _pendingSoldierGifts)
 	{
 
-		Soldier* soldier = pending.first;
+		Soldier* soldier = pending.soldier;
 
 		// Died during the mission: stays in the giver's memorial. The physical
 		// hand-off never happened, so undo the in-battle ownership flip that
@@ -1296,21 +1557,19 @@ void connectionTCP::processPendingSoldierGifts()
 			continue;
 		}
 
-		// Auto-keep an in-battle-gifted soldier on the craft it was
-		// deployed on, mirroring how a giver's own crew stays aboard their
-		// craft after a mission. The guest lives in the receiver's world, so
-		// the live Craft* pointer cannot survive the hand-off (it is detached
-		// in sendSoldierGiftPacket) - translate it into the guest CoopCraft
-		// mechanism, which the receiver's mission-end reload and battle merge
-		// honour (CoopCraft = the host craft id, CoopCraftType = its type).
+		// Auto-keep an in-battle-gifted soldier on the craft it was deployed
+		// on, mirroring how a giver's own crew stays aboard after a mission.
+		// Use only the identity snapshot captured when the gift was queued. A
+		// non-null Soldier::getCraft() here may point into the destroyed battle
+		// world; calling getId() or getType() on it would be a use-after-free.
 		// A wounded survivor is deliberately left unassigned so it is not flown
 		// straight back out while it should be recovering.
-		if (Craft* craft = soldier->getCraft())
+		if (pending.craftId >= 0)
 		{
 			if (!soldier->isWounded())
 			{
-				soldier->setCoopCraft(craft->getId());
-				soldier->setCoopCraftType(craft->getType());
+				soldier->setCoopCraft(pending.craftId);
+				soldier->setCoopCraftType(pending.craftType);
 			}
 			else
 			{
@@ -1319,7 +1578,7 @@ void connectionTCP::processPendingSoldierGifts()
 			}
 		}
 
-		sendSoldierGiftPacket(soldier, pending.second);
+		sendSoldierGiftPacket(soldier, pending.newOwnerId);
 		removeSoldierFromLocalBases(soldier);
 		_giftedSoldiers.push_back(soldier);
 		_giftedAwaySoldierIds.insert(soldier->getId());
@@ -1512,6 +1771,7 @@ void connectionTCP::resetGiftSessionState()
 
 	_pendingSoldierGifts.clear();
 	_pendingIncomingGifts.clear();
+	clearGiftSelectedBattleUnit();
 	_seenGiftPacketIds.clear();
 	_giftedAwaySoldierIds.clear();
 
@@ -3275,52 +3535,87 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "giveUnit")
 	{
-
-		if (_game->getSavedGame())
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
 		{
+			const int unitId = obj.get("unit_id", -1).asInt();
+			const int newOwner = obj.get("coop", -1).asInt();
+			const int previousOwner = obj.get("previous_owner", -1).asInt();
+			const long long giftEventId = obj.get("xfer_id", Json::Value::Int64(0)).asInt64();
 
-			if (_game->getSavedGame()->getSavedBattle())
+			if (giftEventId != 0 && _seenGiftPacketIds.count(giftEventId) != 0)
 			{
-
-				int unit_id = obj["unit_id"].asInt();
-				int coop = obj["coop"].asInt();
-
-				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				Log(LOG_INFO) << "[coop-gift] ignored duplicate giveUnit event " << giftEventId;
+			}
+			else
+			{
+				BattleUnit* matchedUnit = nullptr;
+				for (BattleUnit* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
-
-					if (unit->getId() == unit_id)
+					if (unit->getId() == unitId)
 					{
-
-						// save
-						if (getHost() == true && getCoopCampaign() == true)
-						{
-
-							if (unit->getGeoscapeSoldier())
-							{
-
-								if (unit->getGeoscapeSoldier()->getOwnerPlayerId() == 999)
-								{
-
-									unit->getGeoscapeSoldier()->setOwnerPlayerId(unit->getCoop());
-
-								}
-
-							}
-
-						}
-
-						unit->setCoop(coop);
-
+						matchedUnit = unit;
 						break;
-
 					}
-
 				}
 
+				if (!matchedUnit || newOwner < 0 || newOwner >= seatCount())
+				{
+					Log(LOG_WARNING) << "[coop-gift] rejected giveUnit packet: invalid unit or owner";
+				}
+				else if (previousOwner >= 0 && matchedUnit->getCoop() != previousOwner)
+				{
+					// Both players may transfer at the same time. A delayed packet is
+					// valid only while the unit still belongs to the sender recorded in
+					// the packet; otherwise it would overwrite a newer transfer.
+					Log(LOG_WARNING) << "[coop-gift] ignored stale giveUnit packet for unit " << unitId
+						<< ": expected owner " << previousOwner << ", actual " << matchedUnit->getCoop();
+				}
+				else
+				{
+					matchedUnit->setCoop(newOwner);
+					if (matchedUnit->getGeoscapeSoldier())
+					{
+						matchedUnit->getGeoscapeSoldier()->setOwnerPlayerId(newOwner);
+						matchedUnit->getGeoscapeSoldier()->setCoop(newOwner);
+					}
+
+					if (newOwner == localSeat() && previousOwner != newOwner)
+					{
+						// A received ownership packet does not pass through the local
+						// mouse-click or selectPlayerUnit() paths. Select the received
+						// soldier explicitly for gifting so the active player can give
+						// it back immediately without clicking it first. Do not change
+						// SavedBattleGame::selectedUnit here; that remains the normal
+						// tactical selection for the active turn.
+						setGiftSelectedBattleUnit(matchedUnit);
+					}
+
+					SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+					if (battle->getSelectedUnit() == matchedUnit && newOwner != localSeat())
+					{
+						battle->selectNextPlayerUnit();
+					}
+
+					if (giftEventId != 0)
+					{
+						_seenGiftPacketIds.insert(giftEventId);
+					}
+
+					refreshBattleGiftControlState();
+
+					if (newOwner == localSeat() && previousOwner != newOwner)
+					{
+						std::string giverName = obj.get("giver_name", "").asString();
+						if (giverName.empty()) giverName = seatName(previousOwner);
+						if (giverName.empty()) giverName = getCurrentClientName();
+						if (giverName.empty()) giverName = "Another player";
+
+						std::string unitName = obj.get("unit_name", "soldier").asString();
+						_game->pushState(new GiftNoticeState(giverName + " gave " + unitName + " to you."));
+					}
+				}
 			}
-
 		}
-
 	}
 
 	if (stateString == "giftSoldier")
@@ -3602,51 +3897,110 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			else
 			{
-
-				// Control flip for a soldier deployed in the current battle.
-				// The physical move arrives in a later packet once the
-				// giver's mission has ended.
-				if (_game->getSavedGame()->getSavedBattle())
+				// Live Battlescape control transfer. The persistent Soldier move is
+				// still deferred until mission end, but ownership, the receiver popup
+				// and spectator state update immediately on both battle replicas.
+				SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+				if (battle)
 				{
+					const int previousOwner = obj.get("previous_owner", -1).asInt();
+					const long long giftEventId = obj.get("xfer_id", Json::Value::Int64(0)).asInt64();
 
-					auto* battle = _game->getSavedGame()->getSavedBattle();
-
-					for (auto& unit : *battle->getUnits())
+					if (giftEventId != 0 && _seenGiftPacketIds.count(giftEventId) != 0)
 					{
-
-						bool match = (unit_id != -1 && unit->getId() == unit_id);
-
-						if (!match && unit->getGeoscapeSoldier() && unit->getGeoscapeSoldier()->getId() == soldier_id)
+						Log(LOG_INFO) << "[coop-gift] ignored duplicate battle gift event " << giftEventId;
+					}
+					else
+					{
+						BattleUnit* matchedUnit = nullptr;
+						for (BattleUnit* unit : *battle->getUnits())
 						{
-							match = true;
+							bool match = (unit_id != -1 && unit->getId() == unit_id);
+							if (!match && unit->getGeoscapeSoldier()
+								&& unit->getGeoscapeSoldier()->getId() == soldier_id)
+							{
+								match = true;
+							}
+							if (match)
+							{
+								matchedUnit = unit;
+								break;
+							}
 						}
 
-						if (match)
+						if (!matchedUnit || owner < 0 || owner >= seatCount())
 						{
-
-							unit->setCoop(owner);
-
-							if (unit->getGeoscapeSoldier())
+							Log(LOG_WARNING) << "[coop-gift] rejected battle gift packet: invalid unit or owner";
+						}
+						else if (previousOwner >= 0 && matchedUnit->getCoop() != previousOwner)
+						{
+							Log(LOG_WARNING) << "[coop-gift] ignored stale battle gift for unit "
+								<< matchedUnit->getId() << ": expected owner " << previousOwner
+								<< ", actual " << matchedUnit->getCoop();
+						}
+						else
+						{
+							matchedUnit->setCoop(owner);
+							Soldier* matchedSoldier = matchedUnit->getGeoscapeSoldier();
+							if (matchedSoldier)
 							{
-								unit->getGeoscapeSoldier()->setOwnerPlayerId(owner);
-								unit->getGeoscapeSoldier()->setCoop(owner);
+								matchedSoldier->setOwnerPlayerId(owner);
+								matchedSoldier->setCoop(owner);
+
+								// If a soldier returns to this machine during the battle, cancel
+								// any older pending transfer-away for the same object.
+								if (owner == localSeat())
+								{
+									_pendingSoldierGifts.erase(
+										std::remove_if(_pendingSoldierGifts.begin(), _pendingSoldierGifts.end(),
+											[matchedSoldier](const PendingSoldierGift& pending)
+											{ return pending.soldier == matchedSoldier; }),
+										_pendingSoldierGifts.end());
+								}
 							}
 
-							int localPlayerId = localSeat();
+							if (owner == localSeat() && previousOwner != owner)
+							{
+								// Campaign battle gifts arrive through giftSoldier rather than
+								// giveUnit, but they have the same local-selection requirement:
+								// receiving ownership does not trigger a mouse click or
+								// selectPlayerUnit(), so make the received soldier the current
+								// gift target immediately without changing selectedUnit.
+								setGiftSelectedBattleUnit(matchedUnit);
+							}
 
-							if (battle->getSelectedUnit() == unit && owner != localPlayerId)
+							if (battle->getSelectedUnit() == matchedUnit && owner != localSeat())
 							{
 								battle->selectNextPlayerUnit();
 							}
 
-							break;
+							if (giftEventId != 0)
+							{
+								_seenGiftPacketIds.insert(giftEventId);
+							}
 
+							refreshBattleGiftControlState();
+
+							if (owner == localSeat() && previousOwner != owner)
+							{
+								std::string giverName = obj.get("giver_name", "").asString();
+								if (giverName.empty()) giverName = seatName(previousOwner);
+								if (giverName.empty()) giverName = getCurrentClientName();
+								if (giverName.empty()) giverName = "Another player";
+
+								std::string soldierName = obj.get("soldier_name", "").asString();
+								if (soldierName.empty() && matchedSoldier)
+								{
+									soldierName = matchedSoldier->getName();
+								}
+								if (soldierName.empty()) soldierName = "a soldier";
+
+								_game->pushState(new GiftNoticeState(
+									giverName + " gave " + soldierName + " to you."));
+							}
 						}
-
 					}
-
 				}
-
 			}
 
 		}
@@ -9665,12 +10019,28 @@ void connectionTCP::sharedResyncStream()
 
 // PRD-J01: this machine's seat. Host is always 0; a client's seat is its
 // roster index, carried today by coop_save_owner_player_id (2-player: 1).
-// Byte-identical to the historical `getHost() ? 0 : 1` in 2-player play.
+//
+// Do not use getHost() here. onTcpHost describes the current transport/file-
+// transfer direction and is temporarily changed during save/world transfers.
+// Using it as player identity can make the sender look like the receiver, for
+// example causing a player to receive their own soldier-gift popup.
+//
+// getServerOwner() identifies the actual multiplayer host: the player who
+// created and owns the server. This is the stable value that should be used
+// when determining whether the local player occupies host seat 0.
+//
+// getHost() has a different meaning. It describes the temporary mission/save
+// transfer role and may change during synchronization. In my opinion,
+// getHost() should be renamed to isMissionGiver() to make this distinction
+// clear. getServerOwner() could also be renamed to isServerHost().
+//
+// A cleaner long-term solution would still be to assign a permanent
+// session.localSeatId when the roster locks and use that value directly.
 int connectionTCP::localSeat()
 {
-	if (getHost())
+	if (getServerOwner())
 		return 0;
-	return coop_save_owner_player_id != 0 ? coop_save_owner_player_id : 1;
+	return coop_save_owner_player_id > 0 ? coop_save_owner_player_id : 1;
 }
 
 // PRD-J01: active roster size (host + clients). Falls back to the legacy

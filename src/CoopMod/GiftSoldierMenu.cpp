@@ -19,12 +19,15 @@
  */
 #include "GiftSoldierMenu.h"
 
+#include <sstream>
+
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
 #include "../Engine/Options.h"
 #include "../Interface/Text.h"
 #include "../Interface/TextButton.h"
 #include "../Interface/Window.h"
+#include "../Savegame/BattleUnit.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/Soldier.h"
@@ -47,28 +50,59 @@ int GiftSoldierMenu::resolveOwnerId(Soldier *soldier)
 	return connectionTCP::localSeat();
 }
 
-GiftSoldierMenu::GiftSoldierMenu(Soldier *soldier, int currentOwnerId) : _soldier(soldier)
+GiftSoldierMenu::GiftSoldierMenu(Soldier *soldier, int currentOwnerId)
+	: _soldier(soldier), _battleUnit(nullptr),
+	  _unitName(soldier ? soldier->getName() : "UNIT")
+{
+	init(currentOwnerId);
+}
+
+GiftSoldierMenu::GiftSoldierMenu(BattleUnit *battleUnit, int currentOwnerId)
+	: _soldier(nullptr), _battleUnit(battleUnit),
+	  _unitName(battleUnit ? battleUnit->getName(_game->getLanguage()) : "UNIT")
+{
+	init(currentOwnerId);
+}
+
+void GiftSoldierMenu::init(int currentOwnerId)
 {
 	_screen = false;
 
-	// One button per player that is not the current owner. Player ids follow
-	// the co-op convention: 0 = host, 1 = client. Built as a list so more
-	// players slot in when the game grows past two.
-	//
-	// Name getters are machine-relative, not role-fixed: getHostName() is the
-	// LOCAL player's own name (every machine writes its own name box there)
-	// and getCurrentClientName() is the PEER's name (from received packets).
+	// One button per player that is not the current owner. The same target
+	// list is used for campaign soldiers and Custom Battle units so Custom
+	// Battle does not silently transfer to an assumed two-player target.
 	connectionTCP *coop = _game->getCoopMod();
-	int localPlayerId = connectionTCP::localSeat();
+	const int localPlayerId = connectionTCP::localSeat();
+	int playerCount = connectionTCP::seatCount();
+	if (playerCount < 2)
+	{
+		playerCount = 2;
+	}
 
 	std::vector<std::pair<int, std::string> > targets;
-	for (int playerId = 0; playerId <= 1; ++playerId)
+	for (int playerId = 0; playerId < playerCount; ++playerId)
 	{
-		if (playerId != currentOwnerId)
+		if (playerId == currentOwnerId)
 		{
-			std::string name = (playerId == localPlayerId) ? coop->getHostName() : coop->getCurrentClientName();
-			targets.push_back(std::make_pair(playerId, name));
+			continue;
 		}
+
+		std::string name = connectionTCP::seatName(playerId);
+		if (name.empty())
+		{
+			// Legacy two-player fallback for sessions whose roster names have not
+			// yet been copied into SavedGame::_coopPlayers.
+			name = (playerId == localPlayerId)
+				? coop->getHostName()
+				: coop->getCurrentClientName();
+		}
+		if (name.empty())
+		{
+			std::ostringstream fallback;
+			fallback << "PLAYER " << (playerId + 1);
+			name = fallback.str();
+		}
+		targets.push_back(std::make_pair(playerId, name));
 	}
 
 	const int btnHeight = 16;
@@ -133,16 +167,11 @@ GiftSoldierMenu::GiftSoldierMenu(Soldier *soldier, int currentOwnerId) : _soldie
 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setWordWrap(true);
-	_txtTitle->setText("Gift " + _soldier->getName() + " to another player?");
+	_txtTitle->setText("Gift " + _unitName + " to another player?");
 
 	for (size_t i = 0; i < _btnTargets.size(); ++i)
 	{
-		std::string name = targets[i].second;
-		if (name.empty())
-		{
-			name = targets[i].first == 0 ? "HOST" : "CLIENT";
-		}
-		_btnTargets[i]->setText(name);
+		_btnTargets[i]->setText(targets[i].second);
 		_btnTargets[i]->onMouseClick((ActionHandler)&GiftSoldierMenu::btnGiftClick);
 	}
 
@@ -157,7 +186,17 @@ void GiftSoldierMenu::btnGiftClick(Action *action)
 	{
 		if (action->getSender() == _btnTargets[i])
 		{
-			_game->getCoopMod()->giftSoldier(_soldier, _targetIds[i], true);
+			if (_battleUnit)
+			{
+				// giftBattleUnit() handles both Custom Battle units and campaign
+				// BattleUnits. For campaign units it delegates to giftSoldier(),
+				// keeping persistent Soldier ownership in sync.
+				_game->getCoopMod()->giftBattleUnit(_battleUnit, _targetIds[i], true);
+			}
+			else if (_soldier)
+			{
+				_game->getCoopMod()->giftSoldier(_soldier, _targetIds[i], true);
+			}
 			break;
 		}
 	}
@@ -167,6 +206,26 @@ void GiftSoldierMenu::btnGiftClick(Action *action)
 void GiftSoldierMenu::btnCancelClick(Action *)
 {
 	_game->popState();
+}
+
+bool GiftSoldierMenu::isBattleUnitGift() const
+{
+	return _battleUnit != nullptr;
+}
+
+int GiftSoldierMenu::getBattleUnitId() const
+{
+	return _battleUnit ? _battleUnit->getId() : -1;
+}
+
+const std::vector<int>& GiftSoldierMenu::getTargetIds() const
+{
+	return _targetIds;
+}
+
+std::string GiftSoldierMenu::getTitleText() const
+{
+	return _txtTitle ? _txtTitle->getText() : std::string();
 }
 
 }

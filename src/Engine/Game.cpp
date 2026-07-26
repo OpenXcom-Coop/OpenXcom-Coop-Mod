@@ -347,62 +347,29 @@ void Game::run()
 						{
 
 							// coop
-							// Give Unit to Teammate
-							if (_event.key.keysym.sym == Options::giveUnit && _tcpConnection->getCoopStatic() == true && _tcpConnection->getCoopGamemode() != 2 && _tcpConnection->getCoopGamemode() != 3 && _tcpConnection->getCurrentTurn() == 2)
+							// Give one of this machine's soldiers to another player. Ownership,
+							// rather than the active turn, controls access so both peers may gift
+							// different soldiers at the same time.
+							if (_event.key.keysym.sym == Options::giveUnit
+								&& _tcpConnection->getCoopStatic() == true
+								&& _tcpConnection->getCoopGamemode() != 2
+								&& _tcpConnection->getCoopGamemode() != 3
+								&& _save->getSavedBattle())
 							{
+								// Do not use SavedBattleGame::selectedUnit here. That selection is
+								// controlled by the active tactical turn and does not follow an
+								// off-turn player's left clicks. mapClick maintains this separate,
+								// local-only gift selection for both active and waiting players.
+								BattleUnit* giftUnit = _tcpConnection->getGiftSelectedBattleUnit();
 
-								if (_save->getSavedBattle())
+								if (_tcpConnection->canGiftBattleUnit(giftUnit))
 								{
-
-									if (_save->getSavedBattle()->getSelectedUnit())
-									{
-
-										if (_save->getSavedBattle()->getSelectedUnit()->getFaction() == FACTION_PLAYER && !_save->getSavedBattle()->getSelectedUnit()->isOut())
-										{
-
-											BattleUnit* selectedUnit = _save->getSavedBattle()->getSelectedUnit();
-
-											if (_tcpConnection->getCoopCampaign() == true && selectedUnit->getGeoscapeSoldier())
-											{
-
-												// Campaign soldier: open the permanent-transfer dialog.
-												pushState(new GiftSoldierMenu(selectedUnit->getGeoscapeSoldier(), selectedUnit->getCoop()));
-
-											}
-											else
-											{
-
-												// Legacy battle-only loan (skirmish games and units
-												// without a geoscape soldier).
-												if (_tcpConnection->getHost() == true)
-												{
-													selectedUnit->setCoop(1);
-												}
-												else
-												{
-													selectedUnit->setCoop(0);
-												}
-
-												// send
-												Json::Value obj;
-												obj["state"] = "giveUnit";
-
-												obj["unit_id"] = selectedUnit->getId();
-												obj["coop"] = selectedUnit->getCoop();
-
-												_tcpConnection->sendTCPPacketData(obj.toStyledString());
-
-												// reset
-												_save->getSavedBattle()->selectNextPlayerUnit();
-
-											}
-
-										}
-
-									}
-
+									// Use the same target-selection dialog in campaign and Custom
+									// Battle. The menu calls giftBattleUnit(), which delegates to the
+									// persistent Soldier transfer path when the BattleUnit belongs to
+									// a campaign soldier. This also remains valid for 3-4 players.
+									pushState(new GiftSoldierMenu(giftUnit, giftUnit->getCoop()));
 								}
-
 							}
 
 							// Activate chat with Options::keyChat

@@ -54,6 +54,7 @@
 #include "../fallthrough.h"
 #include "../fmath.h"
 #include "../Engine/Language.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -865,6 +866,21 @@ BattleUnit *SavedBattleGame::getSelectedUnit() const
 void SavedBattleGame::setSelectedUnit(BattleUnit *unit)
 {
 	_selectedUnit = unit;
+
+	// The first local gift target may be initialized before Battlescape finishes
+	// choosing the unit shown in the HUD. Keep the gift target synchronized when
+	// the normal selection later changes to another locally owned soldier, so the
+	// GiftSoldierMenu cannot display or transfer an older fallback unit.
+	//
+	// setGiftSelectedBattleUnit() validates local ownership. On a waiting peer,
+	// selectedUnit may describe the remote active player's soldier; that invalid
+	// unit is ignored and the waiting player's separate local gift selection is
+	// preserved.
+	if (unit && _battleState && _battleState->getGame()
+		&& _battleState->getGame()->getCoopMod())
+	{
+		_battleState->getGame()->getCoopMod()->setGiftSelectedBattleUnit(unit);
+	}
 }
 
 /**
@@ -976,6 +992,15 @@ BattleUnit *SavedBattleGame::selectPlayerUnit(int dir, bool checkReselect, bool 
 	while (!(*i)->isSelectable(_side, checkReselect, checkInventory));
 
 	_selectedUnit = (*i);
+
+	// Keep the local gift selection synchronized with normal next/previous
+	// soldier selection. connectionTCP revalidates ownership, so selecting a
+	// unit controlled by another seat cannot make it giftable.
+	if (_battleState && _battleState->getGame() && _battleState->getGame()->getCoopMod())
+	{
+		_battleState->getGame()->getCoopMod()->setGiftSelectedBattleUnit(_selectedUnit);
+	}
+
 	return _selectedUnit;
 }
 
@@ -1013,6 +1038,17 @@ BattleUnit* SavedBattleGame::selectNextPlayerUnitByDistance(bool checkReselect, 
 
 		_selectedUnit = candidates.front().second;
 	}
+
+	// This path changes the HUD selection without calling setSelectedUnit().
+	// Keep the same active-player gift target synchronization as the regular
+	// next/previous-unit path. Local ownership validation prevents a remote
+	// active unit from replacing an off-turn player's private gift selection.
+	if (_selectedUnit && _battleState && _battleState->getGame()
+		&& _battleState->getGame()->getCoopMod())
+	{
+		_battleState->getGame()->getCoopMod()->setGiftSelectedBattleUnit(_selectedUnit);
+	}
+
 	return _selectedUnit;
 }
 

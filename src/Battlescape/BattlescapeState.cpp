@@ -111,6 +111,10 @@ BattlescapeState::BattlescapeState() :
 {
 	_save = _game->getSavedGame()->getSavedBattle();
 
+	// A new Battlescape starts with no local gift selection. The selection used
+	// for gifting is deliberately separate from SavedBattleGame::selectedUnit.
+	_game->getCoopMod()->clearGiftSelectedBattleUnit();
+
 	std::fill_n(_visibleUnit, 10, (BattleUnit*)(0));
 
 	const int screenWidth = Options::baseXResolution;
@@ -1188,6 +1192,17 @@ void BattlescapeState::init()
 			_battleGame->setupCursor();
 			_map->getCamera()->centerOnPosition(_save->getSelectedUnit()->getPosition());
 		}
+
+		// A mission may already have selectedUnit before the first init, and on a
+		// waiting peer that unit may belong to the remote active player. Build the
+		// separate local gift selection from the local roster instead of copying
+		// selectedUnit directly. This lets either peer gift an initial soldier
+		// without clicking while preserving the active-turn selection.
+		if (_game->getCoopMod()->getCoopStatic())
+		{
+			_game->getCoopMod()->refreshBattleGiftControlState();
+		}
+
 		_firstInit = false;
 		_btnReserveNone->setGroup(&_reserve);
 		_btnReserveSnap->setGroup(&_reserve);
@@ -2049,12 +2064,27 @@ void BattlescapeState::mapClick(Action *action)
 	// don't handle mouseclicks over the buttons (it overlaps with map surface)
 	if (_mouseOverIcons) return;
 
-
-	// don't accept leftclicks if there is no cursor or there is an action busy
-	if (_map->getCursorType() == CT_NONE || _battleGame->isBusy()) return;
-
 	Position pos;
 	_map->getSelectorPosition(&pos);
+
+	// Update the local gift selection before the normal cursor/busy gate. An
+	// off-turn player may have no actionable cursor while the active player is
+	// moving, but must still be able to left-click one of their own soldiers and
+	// use the gift hotkey. This never calls primaryAction or changes the active
+	// turn's SavedBattleGame::selectedUnit.
+	if (_game->isLeftClick(action, true)
+		&& _game->getCoopMod()->getCoopStatic()
+		&& _save->getTile(pos) != nullptr)
+	{
+		BattleUnit* clickedUnit = _save->selectUnit(pos);
+		if (_game->getCoopMod()->canGiftBattleUnit(clickedUnit))
+		{
+			_game->getCoopMod()->setGiftSelectedBattleUnit(clickedUnit);
+		}
+	}
+
+	// don't accept normal tactical leftclicks if there is no cursor or there is an action busy
+	if (_map->getCursorType() == CT_NONE || _battleGame->isBusy()) return;
 
 	if (_save->getDebugMode())
 	{
@@ -2078,8 +2108,9 @@ void BattlescapeState::mapClick(Action *action)
 		}
 		else if (_game->isLeftClick(action, true))
 		{
-
-			// coop
+			// Off-turn left clicks must not call primaryAction, but the local gift
+			// selection above has still been updated. On our own turn the same click
+			// also proceeds through the normal unit/action selection path.
 			if ((_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
 			{
 				return;
