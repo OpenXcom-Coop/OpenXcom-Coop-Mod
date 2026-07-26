@@ -993,10 +993,10 @@ void GeoscapeState::init()
 		// streamer -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState).
 		if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner() == true)
 		{
-			// Mark it POST-BATTLE so the client's automatic resume-hold (pushed by
-			// LoadGameState whenever a streamed world is adopted) is released by the
-			// resume_ack handler - after a battle there is no BEGIN click to do it.
-			_game->getCoopMod()->sharedPostBattleRestream = true;
+			// The client's automatic resume-hold (pushed by LoadGameState whenever a
+			// streamed world is adopted) is released by the resume_ack handler: after
+			// a battle there is no BEGIN click to do it, and no wait dialog on this
+			// host's stack for it to belong to (issue #91).
 			_game->getCoopMod()->streamSharedWorldToClient();
 		}
 

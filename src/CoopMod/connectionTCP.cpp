@@ -3198,27 +3198,61 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			connectionTCP::session.resumeAck = true;
 
-			// PRD-J09 / PRD-J10: an AUTOMATIC SHARED world restream just landed on
-			// the client - post-battle (J09) or desync repair (J10). Adopting a
-			// streamed world always parks the client in
-			// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) until the host
-			// "resumes" - at bootstrap/resume that release is the operator's
-			// BEGIN click (campaign_begun). Neither of these restreams has a
-			// click behind it, so release the hold here: the replica now holds
-			// the authoritative world and the session is already live.
-			if ((sharedPostBattleRestream || sharedResyncRestream)
-				&& isSharedCampaign() && getServerOwner())
+			// issue #91: EVERY streamed world the client adopts parks it in
+			// COOP_DLG_CLIENT_RESUME_HOLD (LoadGameState) - a dialog with no button
+			// and no timeout - and the only thing that can ever release it is a
+			// campaign_begun. So for THAT ack the release is owed by default, and
+			// there is exactly one reason to withhold it: a host wait dialog is on our
+			// stack. That dialog IS the deliberate hold, and its RESUME/BEGIN sends the
+			// release itself (CoopState::previous). Both operator flows push it
+			// synchronously before the client can possibly ack (GeoscapeState
+			// bootstrap, LobbyMenu::resumeCampaign), so this reads their intent.
+			//
+			// `adoptedWorld` is what keeps this to the acks that actually hold
+			// something. The other senders - base naming (BaseNameState) and battle
+			// phase two (LoadGameState's battleclient branch) - carry no hold that a
+			// campaign_begun should open: releasing the base-placement hold early
+			// un-freezes the first placer's clock while the other player is still
+			// placing (test_lobby_gating BUG2).
+			//
+			// This used to be a pair of one-shot flags armed by two of the restream
+			// sites. The streamer frees itself the moment the last chunk goes out,
+			// long before the client has adopted anything, so two restreams in a row
+			// SHARED one flag: the first ack consumed it and the second found it
+			// false, leaving the client holding a perfectly good world that nothing
+			// would ever release. The third stream site (request_load_progress) armed
+			// no flag at all. Deciding it here - from the state the answer actually
+			// depends on - covers every site, present and future.
+			const bool adoptedWorld = obj.get("adoptedWorld", false).asBool();
+
+			bool hostWaitDialog = false;
+			if (getServerOwner() && adoptedWorld)
 			{
-				const char* why = sharedPostBattleRestream ? "post-battle" : "resync";
-				sharedPostBattleRestream = false;
-				sharedResyncRestream = false;
-				connectionTCP::session.sessionLive();
+				for (State* st : _game->getStates())
+				{
+					CoopState* cs = dynamic_cast<CoopState*>(st);
+					if (cs && CoopState::isHostWaitDialog(cs->getStateCode()))
+					{
+						hostWaitDialog = true;
+						break;
+					}
+				}
 
-				Json::Value begun;
-				begun["state"] = "campaign_begun";
-				sendTCPPacketData(begun.toStyledString());
+				if (!hostWaitDialog)
+				{
+					connectionTCP::session.sessionLive();
 
-				Log(LOG_INFO) << "[coop-shared] " << why << " restream adopted; released the client hold";
+					Json::Value begun;
+					begun["state"] = "campaign_begun";
+					sendTCPPacketData(begun.toStyledString());
+
+					Log(LOG_INFO) << "[coop] restream adopted; released the client hold";
+				}
+				else
+				{
+					Log(LOG_INFO) << "[coop] restream adopted; the host wait dialog owns"
+						" the release (its RESUME/BEGIN sends campaign_begun)";
+				}
 			}
 		}
 
@@ -9602,11 +9636,11 @@ void connectionTCP::streamSharedWorldToClient()
 }
 
 // PRD-J10: desync repair. A replica reported a world-checksum mismatch; hand it a
-// fresh authoritative world down the same J02 bootstrap lane. The release flag is
-// the load-bearing half: LoadGameState parks EVERY client that adopts a streamed
-// world in COOP_DLG_CLIENT_RESUME_HOLD until a campaign_begun arrives, and
-// mid-session there is no operator BEGIN click to send one (PRD-J09 learned this
-// the hard way after battles). resume_ack releases it when this flag is set.
+// fresh authoritative world down the same J02 bootstrap lane. LoadGameState parks
+// EVERY client that adopts a streamed world in COOP_DLG_CLIENT_RESUME_HOLD until a
+// campaign_begun arrives, and mid-session there is no operator BEGIN click to send
+// one - the resume_ack handler covers that for us now (issue #91), for this
+// restream and every other, so there is nothing to arm here.
 void connectionTCP::sharedResyncStream()
 {
 	if (!getServerOwner() || !isSharedCampaign() || !_game->getSavedGame())
@@ -9622,13 +9656,9 @@ void connectionTCP::sharedResyncStream()
 		return;
 	}
 
-	sharedResyncRestream = true;
 	streamSharedWorldToClient();
 	if (!sendFileClient)
 	{
-		// serialization refused: nothing is in flight, so do not leave the
-		// auto-release armed for an unrelated future stream.
-		sharedResyncRestream = false;
 		Log(LOG_ERROR) << "[coop-shared] resync restream failed to serialize the world";
 	}
 }
