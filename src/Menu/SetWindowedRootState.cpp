@@ -50,7 +50,7 @@ SetWindowedRootState::SetWindowedRootState(OptionsOrigin origin, OptionsVideoSta
 	_edtWindowedModePositionY = new TextEdit(this, 40, 10, 190, 100);
 
 	// Set palette
-	setInterface("optionsMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	setInterface("optionsMenu", false, battlePaletteSource(_origin == OPT_BATTLESCAPE));
 
 	add(_window, "confirmVideo", "optionsMenu");
 	add(_btnOk, "confirmVideo", "optionsMenu");

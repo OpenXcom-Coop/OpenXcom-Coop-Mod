@@ -1278,10 +1278,13 @@ void CoopState::previous(Action *)
 	{
 		_game->getCoopMod()->disconnectTCP();
 
+		// issue #82: GoToMainMenuState is the chokepoint that drops the world on the
+		// way out, so a transition already heading there counts as "we are leaving".
 		if (_game->getStates().empty()
-			|| dynamic_cast<MainMenuState*>(_game->getStates().back()) == nullptr)
+			|| (dynamic_cast<MainMenuState*>(_game->getStates().back()) == nullptr
+				&& dynamic_cast<GoToMainMenuState*>(_game->getStates().back()) == nullptr))
 		{
-			_game->setState(new MainMenuState);
+			_game->setState(new GoToMainMenuState(false));
 		}
 		return;
 	}
@@ -1306,7 +1309,7 @@ void CoopState::previous(Action *)
 	else if (global_state == 979)
 	{
 
-		_game->setState(new MainMenuState);
+		_game->setState(new GoToMainMenuState(false));
 	}
 	// issue #93: "Server connection lost". The host is gone, so there is no
 	// session left to return to - and a client sitting in a co-op battle must not
@@ -1315,7 +1318,7 @@ void CoopState::previous(Action *)
 	// the main menu on its own, wiping this message before it could be read.)
 	else if (global_state == 21)
 	{
-		_game->setState(new MainMenuState);
+		_game->setState(new GoToMainMenuState(false));
 	}
 	// PRD-06 C5: CANCEL on the host "saving..." wait dialog. The user asked for
 	// a save - honour it NOW with whatever client blob is currently in the store
@@ -1364,11 +1367,9 @@ void CoopState::btnAbandonClick(Action *)
 	_game->getCoopMod()->setServerOwner(false);
 	connectionTCP::session.resetSession();
 
-	Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
-	_game->getScreen()->resetDisplay(false);
-
-	_game->setState(new MainMenuState);
-	_game->setSavedGame(0);
+	// issue #82: GoToMainMenuState::init does the geoscape rescale and drops the
+	// SavedGame - after the popped states are freed, not before them.
+	_game->setState(new GoToMainMenuState(false));
 }
 
 void CoopState::btnYesClick(Action *)

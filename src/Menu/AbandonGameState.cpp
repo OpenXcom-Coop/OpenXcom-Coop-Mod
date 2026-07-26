@@ -59,7 +59,7 @@ AbandonGameState::AbandonGameState(OptionsOrigin origin) : _origin(origin)
 	_txtTitle = new Text(206, 17, x+5, 70);
 
 	// Set palette
-	setInterface("geoscape", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	setInterface("geoscape", false, battlePaletteSource(_origin == OPT_BATTLESCAPE));
 
 	add(_window, "genericWindow", "geoscape");
 	add(_btnYes, "genericButton2", "geoscape");
@@ -118,11 +118,10 @@ void AbandonGameState::btnYesClick(Action *)
 		_game->getMod()->getSoundByDepth(0, _game->getSavedGame()->getSavedBattle()->getAmbientSound())->stopLoop();
 	if (!_game->getSavedGame()->isIronman())
 	{
-		Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
-		_game->getScreen()->resetDisplay(false);
-
-		_game->setState(new MainMenuState);
-		_game->setSavedGame(0);
+		// issue #82: one chokepoint owns the geoscape rescale AND dropping the world.
+		// Clearing the save here would delete it while the states popped by setState are
+		// still queued for destruction; GoToMainMenuState::init runs after that flush.
+		_game->setState(new GoToMainMenuState(false));
 	}
 	else
 	{

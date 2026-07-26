@@ -11516,7 +11516,10 @@ void connectionTCP::disconnectTCP(bool isMain)
 			&& connectionTCP::_coopCampaign == true && !campaignEnded()
 			&& !lostDialogPresent)
 		{
-			_game->setState(new MainMenuState);
+			// issue #82: via GoToMainMenuState so the battle this client was in is
+			// dropped with the rest of the world - a battle left on the SavedGame hands
+			// the battlescape palette to every menu opened afterwards.
+			_game->setState(new GoToMainMenuState(false));
 		}
 
 		// host

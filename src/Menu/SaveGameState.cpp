@@ -200,11 +200,9 @@ void SaveGameState::think()
 			}
 			if (_type == SAVE_IRONMAN_END)
 			{
-				Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
-				_game->getScreen()->resetDisplay(false);
-
-				_game->setState(new MainMenuState);
-				_game->setSavedGame(0);
+				// issue #82: the rescale and the world teardown both live in
+				// GoToMainMenuState::init, which runs after the popped states are freed.
+				_game->setState(new GoToMainMenuState(false));
 			}
 			// PRD-J02: a SHARED replica must never write to disk. Autosaves stay
 			// silent (they fire automatically), but a user-initiated save gets an
@@ -277,11 +275,9 @@ void SaveGameState::think()
 
 			if (_type == SAVE_IRONMAN_END)
 			{
-				Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
-				_game->getScreen()->resetDisplay(false);
-
-				_game->setState(new MainMenuState);
-				_game->setSavedGame(0);
+				// issue #82: the rescale and the world teardown both live in
+				// GoToMainMenuState::init, which runs after the popped states are freed.
+				_game->setState(new GoToMainMenuState(false));
 			}
 
 			// Clear the SDL event queue (i.e. ignore input from impatient users)
@@ -334,11 +330,9 @@ void SaveGameState::quitToMainMenu()
 	_game->getCoopMod()->setServerOwner(false);
 	connectionTCP::session.resetSession();
 
-	Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
-	_game->getScreen()->resetDisplay(false);
-
-	_game->setState(new MainMenuState);
-	_game->setSavedGame(0);
+	// issue #82: GoToMainMenuState::init owns the geoscape rescale and drops the
+	// SavedGame (battle included) once the popped states have actually been freed.
+	_game->setState(new GoToMainMenuState(false));
 }
 
 /**

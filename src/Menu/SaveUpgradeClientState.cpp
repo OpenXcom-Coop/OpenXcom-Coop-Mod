@@ -69,7 +69,7 @@ SaveUpgradeClientState::SaveUpgradeClientState(OptionsOrigin origin, const std::
 	_btnSkip = new TextButton(120, 16, 132, 176);
 	_btnCancel = new TextButton(60, 16, 256, 176);
 
-	setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	setInterface("geoscape", true, battlePaletteSource(_origin == OPT_BATTLESCAPE));
 
 	add(_window, "window", "saveMenus");
 	add(_txtTitle, "text", "saveMenus");
