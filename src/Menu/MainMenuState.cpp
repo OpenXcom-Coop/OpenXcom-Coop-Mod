@@ -32,6 +32,7 @@
 #include "OptionsVideoState.h"
 #include "ModListState.h"
 #include "../Engine/Options.h"
+#include "../Savegame/SavedGame.h"
 #include "../Engine/FileMap.h"
 #include "../Engine/SDL2Helpers.h"
 #include <fstream>
@@ -161,6 +162,21 @@ GoToMainMenuState::~GoToMainMenuState()
 
 void GoToMainMenuState::init()
 {
+	// issue #82: leaving for the main menu ends the world, so the world goes with it.
+	// Dropping the SavedGame also deletes its SavedBattleGame, and that matters: menus
+	// pick their palette by asking the save whether a battle is running (State::setInterface),
+	// so a battle left behind here paints the load/save/options screens in the battlescape
+	// palette for the rest of the process. Exit points used to each clear up after
+	// themselves - and half of them (the co-op ones) forgot. This is the one chokepoint
+	// every "back to the main menu" transition goes through, so the cleanup lives here.
+	//
+	// This MUST stay in init() and never move into the constructor: Game::run flushes the
+	// popped-state queue (Game.cpp) BEFORE calling init() on the new top state, so by the
+	// time we run, every BattlescapeState/GeoscapeState that could still touch the save is
+	// already destroyed. Clearing in a constructor would delete the save out from under
+	// states that are still alive.
+	_game->setSavedGame(0);
+
 	Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
 	_game->getScreen()->resetDisplay(false);
 	_game->setState(new MainMenuState(_updateCheck));
@@ -378,12 +394,28 @@ MainMenuState::MainMenuState(bool updateCheck)
 void MainMenuState::init()
 {
 	State::init();
+
+	// issue #82: the main menu is the one place the player has no world, so anything
+	// still holding one got here through an exit point that skipped GoToMainMenuState.
+	// Heal it (a surviving SavedBattleGame would hand the battlescape palette to every
+	// menu opened from here) and say so, loudly enough to grep for.
+	if (_game->getSavedGame())
+	{
+		Log(LOG_WARNING) << "[exit] stale SavedGame reached the main menu - some exit point "
+							"bypassed GoToMainMenuState (issue #82)";
+		_game->setSavedGame(0);
+	}
+
 	if (Options::getLoadLastSave() && !Options::getLoadThisSave().empty())
 	{
 		Log(LOG_INFO) << "Loading saved game passed as parameter";
 		btnLoadClick(NULL);
 	}
-	else if (Options::getLoadLastSave() && _game->getSavedGame()->getList(_game->getLanguage(), true).size() > 0)
+	// SavedGame::getList is static and only reads the save folder. It used to be called
+	// through _game->getSavedGame(), which is null on the very first main menu (and, since
+	// issue #82, null on every one) - that only ever "worked" because no member was
+	// touched. Call it for what it is.
+	else if (Options::getLoadLastSave() && SavedGame::getList(_game->getLanguage(), true).size() > 0)
 	{
 		Log(LOG_INFO) << "Loading last saved game";
 		btnLoadClick(NULL);

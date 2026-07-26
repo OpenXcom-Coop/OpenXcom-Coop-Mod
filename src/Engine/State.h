@@ -68,6 +68,8 @@ protected:
 	virtual ~State();
 	/// Set interface rules.
 	void setInterface(const std::string &s, bool alterPal = false, SavedBattleGame *battleGame = 0);
+	/// Gets the battle to take a palette from, but only when really in the battlescape.
+	SavedBattleGame *battlePaletteSource(bool inBattlescape) const;
 	/// Set window background.
 	void setWindowBackground(Window *window, const std::string &s);
 	/// Set window background by image name (instead of by interface name).

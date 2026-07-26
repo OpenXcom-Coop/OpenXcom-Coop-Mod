@@ -52,7 +52,7 @@ NotesState::NotesState(OptionsOrigin origin) : _origin(origin), _previousSelecte
 	_btnDelete = new ToggleTextButton(288, 16, 16, 23);
 
 	// Set palette
-	setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	setInterface("geoscape", true, battlePaletteSource(_origin == OPT_BATTLESCAPE));
 
 	add(_window, "window", "noteMenu");
 	add(_txtTitle, "text", "noteMenu");

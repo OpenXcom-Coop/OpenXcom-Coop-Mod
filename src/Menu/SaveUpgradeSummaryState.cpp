@@ -56,7 +56,7 @@ SaveUpgradeSummaryState::SaveUpgradeSummaryState(OptionsOrigin origin, const std
 	_txtNotes = new Text(300, 38, 10, 130);
 	_btnOk = new TextButton(180, 16, 70, 176);
 
-	setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	setInterface("geoscape", true, battlePaletteSource(_origin == OPT_BATTLESCAPE));
 
 	add(_window, "window", "saveMenus");
 	add(_txtTitle, "text", "saveMenus");

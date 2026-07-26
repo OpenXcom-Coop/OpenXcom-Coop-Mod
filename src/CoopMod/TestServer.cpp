@@ -96,6 +96,7 @@
 #include "../Menu/NewGameState.h"
 #include "../Menu/NewBattleState.h"
 #include "../Menu/LoadGameState.h"
+#include "../Menu/ListLoadState.h"
 #include "../Menu/ListSaveState.h"
 #include "../Menu/SaveGameState.h"
 #include "../Menu/StatisticsState.h"
@@ -3573,6 +3574,38 @@ std::string TestServer::execute(const std::string& line)
 			resp["states"] = states;
 			resp["ok"] = true;
 		}
+		else if (cmd == "world_state")
+		{
+			// issue #82: the invariant the battlescape-palette bug violated - at the main
+			// menu there is no world at all. Asserting this beats asserting palette bytes:
+			// it catches an exit point that skipped the GoToMainMenuState teardown even
+			// when nothing on screen visibly changes colour.
+			SavedGame* save = _game->getSavedGame();
+			resp["has_save"] = (save != 0);
+			resp["has_battle"] = (save != 0 && save->getSavedBattle() != 0);
+			resp["ok"] = true;
+		}
+		else if (cmd == "open_load_menu")
+		{
+			// issue #82: the LOAD GAME list is where a leaked battlescape palette is
+			// visible. Pushed with OPT_MENU because that is the reported repro - the
+			// list opened from the main menu, with no battle anywhere in sight.
+			_game->pushState(new ListLoadState(OPT_MENU));
+			resp["ok"] = true;
+		}
+		else if (cmd == "pop_state")
+		{
+			// Pop the top state, whatever it is (the load list has no dedicated hook).
+			if (_game->getStates().size() < 2)
+			{
+				resp["error"] = "refusing to pop the last state";
+			}
+			else
+			{
+				_game->popState();
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "open_server_browser")
 		{
 			// Push the coop Server Browser so its rendezvous-server combobox can
@@ -4723,7 +4756,7 @@ std::string TestServer::execute(const std::string& line)
 			coop->disconnectTCP(true);
 			coop->setServerOwner(false);
 			connectionTCP::session.resetSession();
-			_game->setState(new MainMenuState);
+			_game->setState(new GoToMainMenuState(false));
 			resp["ok"] = true;
 		}
 		else if (cmd == "coop_dialog_info")

@@ -1545,7 +1545,9 @@ void DebriefingState::btnOkClick(Action *)
 	_game->popState();
 	if (_game->getSavedGame()->getMonthsPassed() == -1)
 	{
-		_game->setState(new MainMenuState);
+		// issue #82: a skirmish ends the world - GoToMainMenuState drops the SavedGame
+		// instead of leaving it live (and leaking) for the rest of the process.
+		_game->setState(new GoToMainMenuState(false));
 	}
 	else
 	{
