@@ -38,7 +38,6 @@ Exit 0 = pass; 2 = failure.
 
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
@@ -199,21 +198,13 @@ def main():
                         lambda gc=gc: _has(gc, "BattlescapeState") or None, timeout=120, interval=0.5)
         print("PASS tactical: both machines reached the battlescape (shared lockstep battle)")
 
-        # ---- abort -> debriefing -> back to geoscape ------------------------
-        host.ok({"cmd": "battle_action", "action": "abort"})
-
-        def _drain(gc, deadline):
-            while time.time() < deadline:
-                if "GeoscapeState" in _states(gc)[-1]:
-                    return True
-                gc.cmd({"cmd": "dismiss_popup"})
-                time.sleep(0.4)
-            return None
-
-        deadline = time.time() + 200
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} back on geoscape after debriefing",
-                        lambda gc=gc: _drain(gc, deadline), timeout=220, interval=1.0)
+        # ---- abort -> abandon-mission vote -> debriefing -> geoscape --------
+        # Aborting is still the only headless way to end this battle, but in
+        # co-op ABORT now opens a majority vote instead of AbortMissionState; a
+        # blind dismiss_popup drain would generic-pop the VoteMenu and then the
+        # battlescape itself (see test_vote_abort_battle.py). The abort still
+        # LOSES the attacked base - that is what the assertions below expect.
+        session.coop_abort_battle(host, client)
         print("PASS debriefing: both machines returned to the geoscape")
 
         # ---- single-world post-battle merge: both worlds identical ----------

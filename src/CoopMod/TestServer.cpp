@@ -4671,6 +4671,23 @@ std::string TestServer::execute(const std::string& line)
 				resp["wait"] = true;
 				resp["error"] = "coop wait dialog (auto-closes; not dismissable)";
 			}
+			else if (dynamic_cast<VoteMenu*>(top))
+			{
+				// A vote is a decision, not a dismissable popup. Popping it would
+				// strand the active vote, and the NEXT generic pop would take the
+				// battlescape itself. Drivers answer via vote_cast or wait for the
+				// host's vote_result.
+				resp["wait"] = true;
+				resp["error"] = "VoteMenu (answer via vote_cast; not dismissable)";
+			}
+			else if (dynamic_cast<BattlescapeState*>(top))
+			{
+				// The battle map itself is never a popup. Popping it raw shreds the
+				// state stack while SavedBattleGame stays live underneath (the
+				// pre-#87 CI client crashes came exactly from this).
+				resp["handled"] = "none";
+				resp["ok"] = true;
+			}
 			else
 			{
 				// Unknown geoscape popup: generically close it so "skip all
