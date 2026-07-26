@@ -127,6 +127,19 @@ CoopState::CoopState(int state, int value) : _value(value)
 		_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
 		_txtTitle = new Text(206, 72, x + 5, 62);
 	}
+	else if (state == COOP_DLG_CONFIRM_EQUIP_CRAFT)
+	{
+		// content-sized confirm: a wrapped question plus one YES/NO row,
+		// horizontally centered instead of the legacy x=20 strip
+		_window = new Window(this, 216, 96, 52, 52, POPUP_BOTH);
+		_txtTitle = new Text(196, 44, 62, 62);
+	}
+	else if (state == COOP_DLG_VOTE_COOLDOWN)
+	{
+		// content-sized notice: two wrapped lines plus a single OK row
+		_window = new Window(this, 216, 64, 52, 68, POPUP_BOTH);
+		_txtTitle = new Text(196, 18, 62, 78);
+	}
 	else
 	{
 		_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
@@ -245,20 +258,23 @@ CoopState::CoopState(int state, int value) : _value(value)
 	{
 		_txtTitle->setSmall();
 		_txtTitle->setWordWrap(true);
-		_txtTitle->setHeight(62);
-		_txtTitle->setY(68);
+		_txtTitle->setAlign(ALIGN_CENTER);
 		_txtTitle->setText(
 			"Open EQUIP CRAFT?\n\n"
 			"The selected craft will be locked for this multiplayer session.");
 
+		_btnYes->setX(72);
+		_btnYes->setY(118);
+		_btnYes->setWidth(80);
+		_btnYes->setHeight(20);
+		_btnYes->setVisible(true);
+
 		_btnBack->setText(tr("STR_NO"));
-		_btnBack->setX(136);
-		_btnBack->setY(150);
+		_btnBack->setX(168);
+		_btnBack->setY(118);
 		_btnBack->setWidth(80);
 		_btnBack->setHeight(20);
 		_btnBack->setVisible(true);
-
-		_btnYes->setVisible(true);
 	}
 
 	// A player may start at most one vote every 30 seconds. The host sends the
@@ -269,14 +285,15 @@ CoopState::CoopState(int state, int value) : _value(value)
 		const int seconds = std::max(1, _value);
 		_txtTitle->setSmall();
 		_txtTitle->setWordWrap(true);
-		_txtTitle->setHeight(52);
-		_txtTitle->setY(74);
+		_txtTitle->setAlign(ALIGN_CENTER);
 		_txtTitle->setText(
 			"Please wait " + std::to_string(seconds)
 			+ (seconds == 1 ? " second" : " seconds")
 			+ " before starting another vote.");
 
 		_btnBack->setText(tr("OK"));
+		_btnBack->setX(110);
+		_btnBack->setY(105);
 		_btnBack->setVisible(true);
 	}
 
