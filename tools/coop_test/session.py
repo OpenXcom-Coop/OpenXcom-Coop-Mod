@@ -7,6 +7,11 @@ bootstrap code):
                                  window -> lobby -> START CAMPAIGN -> both
                                  players place bases -> host RESUME ->
                                  session up on the geoscape.
+  coop_abort_battle(h, c)      - end a live co-op battle: ABORT -> the
+                                 abandon-mission majority vote -> debriefing ->
+                                 both machines back on the geoscape. The ONLY
+                                 safe way out of a co-op battle; see the
+                                 NO_DISMISS_STATES note below.
   assert_client_zero_disk(dir) - the standing invariant: a co-op client never
                                  writes save data to disk. Call in teardown.
 
@@ -217,6 +222,109 @@ def resume_campaign_battle(host, client, save_file, port="47900",
         f"battle resume: both machines did not enter the battle within {timeout}s\n"
         f"  host:   {_detail(host)}\n"
         f"  client: {_detail(client)}")
+
+
+# ---- ending a co-op battle ------------------------------------------------
+#
+# dismiss_popup closes the popup types it knows about and GENERICALLY pops
+# anything else, so "skip all dialogs" stays robust as new popups appear. Two
+# states must therefore never be handed to it while a co-op battle is live:
+#
+#   VoteMenu          - BattlescapeState::btnAbortClick no longer pushes
+#                       AbortMissionState in co-op; it opens an abandon-mission
+#                       VoteMenu, which dismiss_popup does not recognise.
+#   BattlescapeState  - once the VoteMenu above it has been generic-popped, the
+#                       battlescape itself is the top state, and the next
+#                       dismiss_popup pops the running battle off the stack.
+#
+# Both are closed by production code (the host's finishBattle pop-loop, the
+# client's EndCoopBattle), so the drain below waits them out instead.
+NO_DISMISS_STATES = ("VoteMenu", "BattlescapeState")
+
+
+def drain_to_geoscape(gc, deadline, interval=0.4):
+    """dismiss_popup one machine's stack down to the geoscape, never touching a
+    state the game itself is still responsible for closing (NO_DISMISS_STATES).
+
+    Returns True once the geoscape is the top state, or None when `deadline`
+    (an absolute time.time() value) passes - the shape gc.wait_for() wants.
+    """
+    while time.time() < deadline:
+        st = states(gc)
+        top = st[-1] if st else ""
+        if "GeoscapeState" in top:
+            return True
+        if any(name in top for name in NO_DISMISS_STATES):
+            time.sleep(interval)  # not ours to pop; the battle is still ending
+            continue
+        gc.cmd({"cmd": "dismiss_popup"})
+        time.sleep(interval)
+    return None
+
+
+def coop_abort_battle(host, client, vote_timeout=25, drain_timeout=200,
+                      interval=0.4):
+    """End a live co-op battle the only way a player now can: ABORT -> vote ->
+    debriefing -> geoscape, on BOTH machines.
+
+    In multiplayer, abandoning a mission takes a strict majority: btnAbortClick
+    calls requestVote("abandon_mission", ...) and every machine opens a
+    VoteMenu. The host is the starter here, so its seat is an automatic YES and
+    the client's YES carries the 2/2 majority; the host then runs
+    abortMissionByVote -> finishBattle (which pops its own VoteMenu) and ships
+    the debriefing to the client, whose EndCoopBattle does the same. Only then
+    is dismiss_popup safe again - DebriefingState is a type it handles.
+
+    Exactly ONE vote is started, so the host's 60-second vote-starter cooldown
+    is never reached; a repeated battle_action/abort while a vote is already
+    active is absorbed by requestVote (it just re-shows the open menu).
+
+    Raises AssertionError if the vote is not the abandon-mission one or does not
+    pass, and TimeoutError (with both machines' top states) if either machine
+    never gets back to the geoscape.
+    """
+
+    host.ok({"cmd": "battle_action", "action": "abort"})
+
+    def _vote(gc, want):
+        return gc.wait_for(
+            f"abandon-mission vote {want}",
+            lambda: (lambda s: s if (
+                s.get(want) and (want != "active" or s.get("menuOpen"))
+            ) else None)(gc.ok({"cmd": "vote_state"})),
+            timeout=vote_timeout,
+            interval=0.25,
+        )
+
+    for gc in (host, client):
+        v = _vote(gc, "active")
+        assert v["action"] == "abandon_mission", \
+            f"{gc.name}: ABORT opened the wrong vote: {v}"
+
+    # The starter (the host, seat 0) auto-voted YES when the vote was created,
+    # so this single YES is the second of the two a 2-player majority needs.
+    cast = client.ok({"cmd": "vote_cast", "yes": True})
+    assert cast.get("accepted"), f"client vote_cast was rejected: {cast}"
+
+    for gc in (host, client):
+        v = _vote(gc, "finished")
+        assert v.get("passed"), \
+            f"{gc.name}: the abandon-mission vote did not pass: {v}"
+
+    deadline = time.time() + drain_timeout
+    for gc in (host, client):
+        try:
+            gc.wait_for("back on the geoscape after debriefing",
+                        lambda gc=gc: drain_to_geoscape(gc, deadline, interval),
+                        timeout=drain_timeout + 20, interval=1.0)
+        except TimeoutError:
+            raise TimeoutError(
+                f"abandon-mission abort: {gc.name} never reached the geoscape "
+                f"within {drain_timeout}s\n"
+                f"  host:   {states(host)[-3:]}\n"
+                f"  client: {states(client)[-3:]}")
+
+    print("abandon-mission vote passed; both machines back on the geoscape")
 
 
 def save_files(user_dir):

@@ -77,7 +77,7 @@ OptionsBaseState::OptionsBaseState(OptionsOrigin origin) : _origin(origin), _gro
 	_btnMultiplayer = new TextButton(80, 16, 8, 148);
 
 	// Set palette
-	setInterface("optionsMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	setInterface("optionsMenu", false, battlePaletteSource(_origin == OPT_BATTLESCAPE));
 
 	add(_window, "window", "optionsMenu");
 
@@ -157,7 +157,6 @@ void OptionsBaseState::restart(OptionsOrigin origin)
 		if (_game->getCoopMod()->getCoopStatic() == true)
 		{
 
-			_game->getCoopMod()->setPauseOff();
 
 			_game->getCoopMod()->_waitBC = true;
 			_game->getCoopMod()->_waitBH = true;
@@ -170,7 +169,7 @@ void OptionsBaseState::restart(OptionsOrigin origin)
 
 	if (origin == OPT_MENU)
 	{
-		_game->setState(new MainMenuState);
+		_game->setState(new GoToMainMenuState(false));
 	}
 	else if (origin == OPT_GEOSCAPE)
 	{
@@ -242,7 +241,6 @@ void OptionsBaseState::btnOkClick(Action *)
 		if (_game->getCoopMod()->getCoopStatic() == true)
 		{
 
-			_game->getCoopMod()->setPauseOff();
 
 			_game->getCoopMod()->_waitBC = true;
 			_game->getCoopMod()->_waitBH = true;

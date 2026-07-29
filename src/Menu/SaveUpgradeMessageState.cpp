@@ -61,7 +61,7 @@ void SaveUpgradeMessageState::build(const std::string& header, const std::vector
 	_txtTitle = new Text(268, 17, 26, 28);
 	_txtBody = new Text(268, 80, 26, 48);
 
-	setInterface("saveMenus", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	setInterface("saveMenus", false, battlePaletteSource(_origin == OPT_BATTLESCAPE));
 
 	add(_window, "confirmLoad", "saveMenus");
 	add(_txtTitle, "confirmLoad", "saveMenus");

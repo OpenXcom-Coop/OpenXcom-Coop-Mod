@@ -688,18 +688,6 @@ connectionTCP* BattlescapeGame::getCoopMod()
 	return _parentState->getGame()->getCoopMod();
 }
 
-void BattlescapeGame::setPauseOn()
-{
-
-	_parentState->getGame()->getCoopMod()->setPauseOn();
-}
-
-void BattlescapeGame::setPauseOff()
-{
-
-	_parentState->getGame()->getCoopMod()->setPauseOff();
-}
-
 void BattlescapeGame::setCoopTaskCompleted(bool task)
 {
 

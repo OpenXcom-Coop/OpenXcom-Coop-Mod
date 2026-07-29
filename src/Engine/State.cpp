@@ -36,6 +36,7 @@
 #include "../Interface/Cursor.h"
 #include "../Interface/FpsCounter.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/SavedGame.h"
 #include "../Mod/RuleInterface.h"
 
 namespace OpenXcom
@@ -117,6 +118,29 @@ void State::setInterface(const std::string& category, bool alterPal, SavedBattle
 	{
 		setStandardPalette(pal, backPal);
 	}
+}
+
+/**
+ * The battle whose palette this state should adopt.
+ *
+ * A live SavedBattleGame is NOT proof that the player is in the battlescape: several
+ * exit points used to leave the battle behind on the SavedGame, and every menu built
+ * afterwards asked that corpse "are we in a battle?" and got "yes" - which is how the
+ * battlescape palette leaked into the load/save menus (issue #82). The caller already
+ * knows where it was opened from, so ask it instead: no battlescape origin, no
+ * battlescape palette, whatever the SavedGame still happens to be holding.
+ *
+ * @param inBattlescape Was this state opened from the battlescape?
+ * @return The battle to take the palette from, or 0 for the standard palette.
+ */
+SavedBattleGame *State::battlePaletteSource(bool inBattlescape) const
+{
+	if (!inBattlescape)
+	{
+		return 0;
+	}
+	SavedGame *save = _game->getSavedGame();
+	return save ? save->getSavedBattle() : 0;
 }
 
 /**

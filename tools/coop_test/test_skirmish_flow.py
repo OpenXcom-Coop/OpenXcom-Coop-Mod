@@ -11,6 +11,10 @@ lobby). Desired flow:
   4. host's action button reads BATTLE SETTINGS; the client has no button
   5. host presses BATTLE SETTINGS -> host returns to the NEW BATTLE setup
      screen to finalise craft/equipment/enemies; the CLIENT STAYS in the lobby
+  5b. host presses EQUIP CRAFT on the setup screen -> a confirm dialog, because
+     confirming LOCKS the craft type and broadcasts it; on YES the host reaches
+     CraftInfoState and the client's lobby raises its own EQUIP CRAFT button,
+     which opens the client's craft screen OVER the lobby (it never leaves it)
   6. the setup screen's COOP button re-opens the lobby, which still offers
      BATTLE SETTINGS, so the host can bounce between the two
   7. host presses OK on the setup screen -> the client leaves the lobby and
@@ -39,6 +43,10 @@ from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
 import session
 
 CONNECTING = 15  # CoopState code for the "Connecting..." wait dialog
+# CoopState code for the custom-battle "lock this craft?" gate the host answers
+# before either machine may edit equipment (CoopState.h COOP_DLG_CONFIRM_EQUIP_CRAFT).
+CONFIRM_EQUIP_CRAFT = 557
+EQUIP_CRAFT_TEXT = "EQUIP CRAFT"  # tr("STR_EQUIP_CRAFT")
 
 
 def states(gc):
@@ -57,6 +65,15 @@ def connecting_anywhere(gc):
 
 def lobby(gc):
     return gc.cmd({"cmd": "lobby_state"})
+
+
+def coop_dialog(gc, code, description, timeout=20):
+    """Wait for a CoopState with `code` to sit anywhere in the stack."""
+    return gc.wait_for(
+        description,
+        lambda: (lambda d: d if (d.get("present") and d.get("code") == code)
+                 else None)(gc.ok({"cmd": "coop_dialog_info"})),
+        timeout=timeout, interval=0.25)
 
 
 def skirmish_host(host, port, player="HostPlayer", password=None):
@@ -157,6 +174,65 @@ def test_skirmish_full_flow():
         assert not lobby(client)["sessionLocked"], \
             "nothing has started yet, so the session must not be locked"
         print("PASS step 5: host at BATTLE SETTINGS, client still waiting in the lobby")
+
+        # 5b. EQUIP CRAFT. The host's first press is a one-way gate: with a
+        # skirmish session live, NewBattleState::btnEquipClick pushes the
+        # confirm CoopState instead of opening the craft screen, because
+        # confirming BROADCASTS the craft type and freezes it for both players.
+        host.ok({"cmd": "newbattle_equip"})
+        coop_dialog(host, CONFIRM_EQUIP_CRAFT, "host confirm-equip-craft gate")
+        assert top_state(host) == "CoopState", \
+            f"the confirm gate must be the top state, stack={states(host)}"
+        assert session.has_state(host, "NewBattleState"), \
+            f"the setup screen must survive under the gate: {states(host)}"
+        print("PASS step 5b: EQUIP CRAFT opened the confirm-craft-lock dialog, "
+              "not the equipment screen")
+
+        host.ok({"cmd": "coop_dialog_yes"})
+        host.wait_for("host craft equipment screen",
+                      lambda: session.has_state(host, "CraftInfoState"))
+        assert top_state(host) == "CraftInfoState", \
+            f"host should be equipping the locked craft, stack={states(host)}"
+        assert host.ok({"cmd": "coop_dialog_count",
+                        "code": CONFIRM_EQUIP_CRAFT})["count"] == 0, \
+            "the confirm dialog must be retired once the craft is locked"
+        print("PASS step 5b: host confirmed the lock and reached CraftInfoState")
+
+        # The lock packet is the only thing that can raise the client's button:
+        # LobbyMenu::canOpenEquipCraft() is gated on isCustomBattleCraftLocked(),
+        # and step 4 already proved the button was hidden before this.
+        client.wait_for("client EQUIP CRAFT offered",
+                        lambda: lobby(client).get("buttonVisible") or None,
+                        timeout=30)
+        cl = lobby(client)
+        assert cl["buttonText"] == EQUIP_CRAFT_TEXT, \
+            f"client button should read {EQUIP_CRAFT_TEXT!r}, got {cl['buttonText']!r}"
+        print("PASS step 5b: the host's craft lock reached the client - its "
+              "lobby now offers EQUIP CRAFT")
+
+        # the client equips from inside the lobby: CraftInfoState is pushed
+        # ABOVE LobbyMenu, so the client never leaves the lobby to do it
+        client.ok({"cmd": "lobby_action"})
+        client.wait_for("client craft equipment screen",
+                        lambda: session.has_state(client, "CraftInfoState"))
+        assert top_state(client) == "CraftInfoState", \
+            f"client should be on its own craft screen, stack={states(client)}"
+        assert "LobbyMenu" in states(client), \
+            f"the client's lobby must survive underneath it: {states(client)}"
+        print("PASS step 5b: client opened its own craft equipment screen")
+
+        # closing it drops the client back onto the lobby it never left
+        client.ok({"cmd": "dismiss_popup"})
+        client.wait_for("client back in the lobby",
+                        lambda: (top_state(client) == "LobbyMenu") or None)
+        assert lobby(client)["lobbyOpen"], \
+            f"client fell out of the lobby after equipping: {states(client)}"
+        print("PASS step 5b: closing the craft screen returned the client to the lobby")
+
+        # host back to the setup screen so the rest of the flow is unchanged
+        host.ok({"cmd": "dismiss_popup"})
+        host.wait_for("host back at battle settings",
+                      lambda: (top_state(host) == "NewBattleState") or None)
 
         # 6. the COOP button re-opens the lobby, still offering BATTLE SETTINGS
         host.ok({"cmd": "newbattle_coop"})

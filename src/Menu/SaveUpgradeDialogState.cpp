@@ -50,7 +50,7 @@ SaveUpgradeDialogState::SaveUpgradeDialogState(OptionsOrigin origin, const std::
 	_btnUpgrade = new TextButton(248, 16, 36, 118);
 	_btnCancel = new TextButton(248, 16, 36, 138);
 
-	setInterface("saveMenus", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	setInterface("saveMenus", false, battlePaletteSource(_origin == OPT_BATTLESCAPE));
 
 	add(_window, "confirmLoad", "saveMenus");
 	add(_txtTitle, "confirmLoad", "saveMenus");

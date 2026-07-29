@@ -58,7 +58,7 @@ SelectMusicTrackState::SelectMusicTrackState(SelectMusicTrackOrigin origin) : _o
 	_lstTracks = new TextList(180, 96, x + 13, 52);
 
 	// Set palette
-	setInterface("selectMusicTrack", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+	setInterface("selectMusicTrack", false, battlePaletteSource(_origin == SMT_BATTLESCAPE));
 
 	add(_window, "window", "selectMusicTrack");
 	add(_txtTitle, "text", "selectMusicTrack");
