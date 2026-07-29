@@ -329,7 +329,8 @@ jobs:
             $body += $lines[$i]
           }
           Set-Content $out ($body -join "`n").Trim() -Encoding utf8
-          Write-Host "Release notes for $v:"; Get-Content $out
+          # ${v} not $v - pwsh parses "$v:" as a drive-qualified variable (ParserError)
+          Write-Host "Release notes for ${v}:"; Get-Content $out
 
       - name: Move rolling nightly tag
         if: needs.meta.outputs.channel == 'nightly'
