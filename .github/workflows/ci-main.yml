@@ -364,7 +364,7 @@ jobs:
           body_path: ${{ needs.meta.outputs.channel == 'release' && 'release-notes.md' || '' }}
           generate_release_notes: ${{ needs.meta.outputs.channel != 'release' }}
 
-      - name: Strip auto-generated 'New Contributors' from nightly notes
+      - name: Strip 'New Contributors' + author handles from nightly notes
         if: needs.meta.outputs.channel == 'nightly'
         shell: pwsh
         env:
@@ -379,10 +379,13 @@ jobs:
           # the regex below never match. Always -join "`n" first.
           $body  = (gh release view nightly --repo "$env:GITHUB_REPOSITORY" --json body --jq '.body') -join "`n"
           $clean = [regex]::Replace($body, "(?s)\r?\n?## New Contributors\r?\n(?:\*.*\r?\n?)*\r?\n?(?=\*\*Full Changelog\*\*)", "`n`n")
+          # Drop the "by @author" credit from each "What's Changed" bullet - the notes
+          # should describe the change, not the committer.
+          $clean = [regex]::Replace($clean, ' by @[A-Za-z0-9-]+ in (https://\S+)', ' in $1')
           Set-Content nightly-notes.md $clean -Encoding utf8
           if ($clean -notmatch "## What's Changed") { throw "nightly notes look wrong after strip - aborting rather than publishing mangled notes" }
           gh release edit nightly --repo "$env:GITHUB_REPOSITORY" --notes-file nightly-notes.md
-          Write-Host "Stripped 'New Contributors' from nightly notes"
+          Write-Host "Stripped 'New Contributors' + author handles from nightly notes"
 
   # 32-bit static WinXP binary, MinGW cross-compiled on Linux via MXE. Shares no
   # artifact with the x64 build, so it starts as soon as `meta` has the version and
