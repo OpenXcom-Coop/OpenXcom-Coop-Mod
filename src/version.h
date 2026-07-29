@@ -36,6 +36,16 @@
 // mod's own build version, e.g. 8.4.13201) - bump it by hand on each OXCE rebase.
 #define OPENXCOM_VERSION_OXCE "8.4.2"
 
+// Numeric form of OPENXCOM_VERSION_OXCE, for OXCE engine-compat checks (mod
+// requiredExtendedVersion in ModInfo.cpp) and the update check
+// (CrossPlatform::isHigherThanCurrentVersion). Like OPENXCOM_VERSION_OXCE it is
+// NEVER stamped by CI - bump both together on each OXCE rebase. The stamped
+// OPENXCOM_VERSION_NUMBER above is the coop mod's own version (e.g. 2,0,0,0)
+// and must never be used for OXCE compatibility comparisons: a coop version
+// numerically below the OXCE version would silently fail every mod's
+// engine-version requirement.
+#define OPENXCOM_VERSION_OXCE_NUMBER 8,4,2,0
+
 // Release channel of this build; stamped by tools/ci/stamp_version.sh.
 // Local/dev builds keep "dev".
 #ifndef OPENXCOM_VERSION_CHANNEL

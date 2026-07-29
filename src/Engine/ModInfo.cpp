@@ -180,7 +180,7 @@ struct EngineData
  * List of engines that current version support.
  */
 const EngineData supportedEngines[] = {
-	{ OPENXCOM_VERSION_ENGINE, { OPENXCOM_VERSION_NUMBER }},
+	{ OPENXCOM_VERSION_ENGINE, { OPENXCOM_VERSION_OXCE_NUMBER }},
 	{ "", { 0, 0, 0, 0 } }, // assume that every engine support mods from base game, remove if its not true.
 };
 
@@ -314,11 +314,11 @@ static auto dummy = ([]
 		return std::array<int, 4>{{i, j, k, l}};
 	};
 
-	assert(findCompatibleEngine(supportedEngines, "Extended", create(OPENXCOM_VERSION_NUMBER)));
+	assert(findCompatibleEngine(supportedEngines, "Extended", create(OPENXCOM_VERSION_OXCE_NUMBER)));
 	assert(findCompatibleEngine(supportedEngines, "Extended", create(1, 0, 0, 0)));
 	assert(findCompatibleEngine(supportedEngines, "", create(0, 0, 0, 0)));
-	assert(!findCompatibleEngine(supportedEngines, "Extended", create(OPENXCOM_VERSION_NUMBER + 1)));
-	assert(!findCompatibleEngine(supportedEngines, "XYZ", create(OPENXCOM_VERSION_NUMBER)));
+	assert(!findCompatibleEngine(supportedEngines, "Extended", create(OPENXCOM_VERSION_OXCE_NUMBER + 1)));
+	assert(!findCompatibleEngine(supportedEngines, "XYZ", create(OPENXCOM_VERSION_OXCE_NUMBER)));
 	assert(!findCompatibleEngine(supportedEngines, "XYZ", create(0, 0, 0, 0)));
 
 
