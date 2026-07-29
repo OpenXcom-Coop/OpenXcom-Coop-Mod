@@ -1058,6 +1058,9 @@ class connectionTCP
 	// duplicate-delivery guard (sufficient now: the host's save is the single
 	// authority, so packets are never re-sent across sessions).
 	int _giftSendCounter = 0;
+	// Mints the next outgoing gift packet id. Seat-keyed so two senders
+	// never share an id space; see the definition in connectionTCP.cpp.
+	long long nextGiftXferId();
 	// Local-only id of the soldier last left-clicked for gifting. It must not use
 	// SavedBattleGame::_selectedUnit because that is controlled by the active turn.
 	int _giftSelectedBattleUnitId = -1;

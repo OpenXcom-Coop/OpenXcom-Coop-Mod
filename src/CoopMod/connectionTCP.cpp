@@ -1266,6 +1266,20 @@ void connectionTCP::refreshBattleGiftControlState()
 	}
 }
 
+// Unique id for one outgoing gift packet: seat tag + wall-clock + counter.
+// Keyed on localSeat(), NOT getHost(): getHost() is the transient mission/save
+// transfer role and reaches true on BOTH machines (NewBattleState sets it
+// unconditionally in skirmish; BattlescapeState only re-derives it from
+// getServerOwner() on the SHARED branch). Two senders sharing one prefix can
+// mint the same id in the same second, and a third seat would then drop the
+// second sender's gift as a duplicate. Seat 0 -> 1e15 and seat 1 -> 2e15, so
+// this is byte-identical to the old formula wherever getHost() was correct.
+long long connectionTCP::nextGiftXferId()
+{
+	return (long long)(localSeat() + 1) * 1000000000000000LL
+		+ (long long)time(0) * 1000LL + (++_giftSendCounter % 1000);
+}
+
 void connectionTCP::giftBattleUnit(BattleUnit* unit, int newOwnerId, bool broadcast)
 {
 	if (!canGiftBattleUnit(unit) || newOwnerId < 0 || newOwnerId >= seatCount() || newOwnerId == localSeat())
@@ -1298,8 +1312,7 @@ void connectionTCP::giftBattleUnit(BattleUnit* unit, int newOwnerId, bool broadc
 
 	if (broadcast)
 	{
-		const long long giftEventId = (getHost() ? 1000000000000000LL : 2000000000000000LL)
-			+ (long long)time(0) * 1000LL + (++_giftSendCounter % 1000);
+		const long long giftEventId = nextGiftXferId();
 
 		Json::Value obj;
 		obj["state"] = "giveUnit";
@@ -1412,8 +1425,7 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 
 		if (broadcast)
 		{
-			const long long giftEventId = (getHost() ? 1000000000000000LL : 2000000000000000LL)
-				+ (long long)time(0) * 1000LL + (++_giftSendCounter % 1000);
+			const long long giftEventId = nextGiftXferId();
 
 			Json::Value obj;
 			obj["state"] = "giftSoldier";
@@ -1872,9 +1884,9 @@ void connectionTCP::sendSoldierGiftPacket(Soldier* soldier, int newOwnerId)
 	writer.setAsMap();
 	soldier->save(writer["soldier"], _game->getMod()->getScriptGlobal());
 
-	// Durable unique id: player tag + wall-clock + counter. Receipts persist
-	// in saves across sessions, so a per-run counter alone would collide.
-	long long xferId = (getHost() ? 1000000000000000LL : 2000000000000000LL) + (long long)time(0) * 1000LL + (++_giftSendCounter % 1000);
+	// Durable unique id shared with the battle-time gift paths, so one
+	// counter orders every gift this machine sends.
+	long long xferId = nextGiftXferId();
 
 	std::string yaml = writer.emit().yaml;
 
