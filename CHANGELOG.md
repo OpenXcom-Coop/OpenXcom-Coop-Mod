@@ -10,6 +10,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
 ## [Unreleased]
 - Notes for the next release accumulate here; rename to `## [x.y.z]` when tagging.
 
+<!-- Template for the next release section (keep this comment ABOVE the newest
+     released section: the notes extractor reads from "## [<v>]" until the next
+     line starting with "## ", so a commented heading below a real section would
+     leak a dangling "<!-" into the release body):
+## [2.0.1] - 2026-XX-XX
+### Added
+- ...
+### Fixed
+- ...
+### Changed
+- ...
+-->
+
 ## [2.0.0] - 2026-07-28
 
 The first official release since v1.8.4, and the biggest update the mod has
@@ -94,13 +107,3 @@ with every release.
 - Password-protected lobbies can be joined — and left — cleanly.
 - Co-op menu entry points no longer crash when no save is active.
 - Fixed a crash when unloading a weapon at a base.
-
-<!--
-## [2.0.1] - 2026-XX-XX
-### Added
-- ...
-### Fixed
-- ...
-### Changed
-- ...
--->
