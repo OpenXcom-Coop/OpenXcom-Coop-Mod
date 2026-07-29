@@ -26,13 +26,14 @@
 namespace OpenXcom
 {
 
+class BattleUnit;
 class Window;
 class Text;
 class TextButton;
 class Soldier;
 
 /**
- * Co-op dialog to permanently transfer ownership of a soldier to another
+ * Co-op dialog for transferring a soldier or Custom Battle unit to another
  * player. Shows one button per other player plus Cancel. Opened with the
  * "Give Unit to Teammate" keybind (Options::giveUnit) from the base soldier
  * lists, the soldier stat screen, or the battlescape.
@@ -45,17 +46,29 @@ private:
 	std::vector<TextButton*> _btnTargets;
 	TextButton *_btnCancel;
 	Soldier *_soldier;
-	// target player ids matching _btnTargets by index
+	BattleUnit *_battleUnit;
+	std::string _unitName;
+	// Target player ids matching _btnTargets by index.
 	std::vector<int> _targetIds;
 
+	void init(int currentOwnerId);
+
 public:
-	/// Creates the dialog. currentOwnerId: 0 = host, 1 = client.
+	/// Creates the dialog for a persistent campaign soldier.
 	GiftSoldierMenu(Soldier *soldier, int currentOwnerId);
-	/// Resolves who currently owns a soldier (0 = host, 1 = client) from its
-	/// persistent owner id, falling back to the co-op control flag.
+	/// Creates the same dialog for a Battlescape unit, including Custom Battle.
+	GiftSoldierMenu(BattleUnit *battleUnit, int currentOwnerId);
+	/// Resolves who currently owns a soldier from its persistent owner id,
+	/// falling back to the local co-op seat.
 	static int resolveOwnerId(Soldier *soldier);
 	void btnGiftClick(Action *action);
 	void btnCancelClick(Action *action);
+
+	// Read-only access used by the regression harness.
+	bool isBattleUnitGift() const;
+	int getBattleUnitId() const;
+	const std::vector<int>& getTargetIds() const;
+	std::string getTitleText() const;
 };
 
 }

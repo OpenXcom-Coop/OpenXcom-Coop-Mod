@@ -106,6 +106,11 @@ GiftNoticeState::GiftNoticeState(const std::string &message)
 	_btnOk->onKeyboardPress((ActionHandler)&GiftNoticeState::btnOkClick, Options::keyCancel);
 }
 
+std::string GiftNoticeState::getMessageText() const
+{
+	return _txtMessage ? _txtMessage->getText() : std::string();
+}
+
 void GiftNoticeState::btnOkClick(Action *)
 {
 	_game->popState();

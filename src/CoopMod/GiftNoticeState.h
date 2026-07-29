@@ -47,6 +47,8 @@ public:
 	void btnOkClick(Action *action);
 	/// Interface category the widgets were themed with (test introspection).
 	const std::string &getCategory() const { return _category; }
+	/// Visible message text (read-only test introspection).
+	std::string getMessageText() const;
 };
 
 }

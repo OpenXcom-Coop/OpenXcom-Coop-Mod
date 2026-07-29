@@ -2089,15 +2089,18 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "get_notices")
 	{
 		Json::Value notices(Json::arrayValue);
-		// PRD-13: left inline - appends every match's category into a container, not a find
+		Json::Value messages(Json::arrayValue);
+		// PRD-13: left inline - appends every matching notice to containers.
 		for (auto* s : _game->getStates())
 		{
 			if (auto* n = dynamic_cast<GiftNoticeState*>(s))
 			{
 				notices.append(n->getCategory());
+				messages.append(n->getMessageText());
 			}
 		}
 		resp["categories"] = notices;
+		resp["messages"] = messages;
 		resp["ok"] = true;
 	}
 	else if (cmd == "dismiss_notice")
@@ -4506,6 +4509,8 @@ std::string TestServer::execute(const std::string& line)
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
+				const BattleUnit* giftSel = coop->getGiftSelectedBattleUnit();
+				resp["giftSelectedId"] = giftSel ? giftSel->getId() : -1;
 				Json::Value units(Json::arrayValue);
 				for (auto* u : *bg->getUnits())
 				{
@@ -4552,6 +4557,153 @@ std::string TestServer::execute(const std::string& line)
 				for (int id : spotted) sp.append(id);
 				resp["spotted"] = sp;
 				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "battle_gift_select")
+		{
+			SavedGame* sg = _game->getSavedGame();
+			SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+			const int unitId = req.get("unit_id", -1).asInt();
+
+			BattleUnit* found = nullptr;
+			if (bg)
+			{
+				for (BattleUnit* unit : *bg->getUnits())
+				{
+					if (unit->getId() == unitId)
+					{
+						found = unit;
+						break;
+					}
+				}
+			}
+
+			if (!bg)
+			{
+				resp["error"] = "not in battlescape";
+			}
+			else if (!found)
+			{
+				resp["error"] = "battle unit not found";
+			}
+			else if (!coop->canGiftBattleUnit(found))
+			{
+				resp["error"] = "local player does not own a giftable live unit";
+			}
+			else
+			{
+				const BattleUnit* normalSelectedBefore = bg->getSelectedUnit();
+				coop->setGiftSelectedBattleUnit(found);
+				const BattleUnit* normalSelectedAfter = bg->getSelectedUnit();
+				const BattleUnit* giftSelected = coop->getGiftSelectedBattleUnit();
+				resp["selectedBeforeId"] = normalSelectedBefore ? normalSelectedBefore->getId() : -1;
+				resp["selectedAfterId"] = normalSelectedAfter ? normalSelectedAfter->getId() : -1;
+				resp["giftSelectedId"] = giftSelected ? giftSelected->getId() : -1;
+				resp["coopTurn"] = BattlescapeGame::isYourTurn;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "open_battle_gift_dialog")
+		{
+			// Open the same GiftSoldierMenu used by the real give-unit key path.
+			// This regression hook proves that a Custom Battle BattleUnit opens a
+			// target-selection dialog instead of being transferred immediately.
+			SavedGame* sg = _game->getSavedGame();
+			SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+			BattleUnit* found = coop->getGiftSelectedBattleUnit();
+
+			if (!bg)
+			{
+				resp["error"] = "not in battlescape";
+			}
+			else if (!found || !coop->canGiftBattleUnit(found))
+			{
+				resp["error"] = "no valid local gift selection";
+			}
+			else
+			{
+				GiftSoldierMenu* menu = new GiftSoldierMenu(found, found->getCoop());
+				_game->pushState(menu);
+
+				Json::Value targets(Json::arrayValue);
+				for (int targetId : menu->getTargetIds())
+				{
+					targets.append(targetId);
+				}
+
+				resp["battleUnitGift"] = menu->isBattleUnitGift();
+				resp["unitId"] = menu->getBattleUnitId();
+				resp["title"] = menu->getTitleText();
+				resp["targets"] = targets;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "battle_gift")
+		{
+			SavedGame* sg = _game->getSavedGame();
+			SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+			const bool useGiftSelection = !req.isMember("unit_id");
+			const int unitId = req.get("unit_id", -1).asInt();
+			const int newOwner = req.get("owner", -1).asInt();
+			const bool execute = req.get("execute", true).asBool();
+
+			BattleUnit* found = useGiftSelection ? coop->getGiftSelectedBattleUnit() : nullptr;
+			if (bg && !useGiftSelection)
+			{
+				for (BattleUnit* unit : *bg->getUnits())
+				{
+					if (unit->getId() == unitId)
+					{
+						found = unit;
+						break;
+					}
+				}
+			}
+
+			if (!bg)
+			{
+				resp["error"] = "not in battlescape";
+			}
+			else if (!found)
+			{
+				resp["error"] = useGiftSelection
+					? "no valid local gift selection"
+					: "battle unit not found";
+			}
+			else
+			{
+				resp["unitId"] = found->getId();
+				resp["soldierId"] = found->getGeoscapeSoldier()
+					? found->getGeoscapeSoldier()->getId() : -1;
+				resp["name"] = found->getName(_game->getLanguage());
+				resp["beforeOwner"] = found->getCoop();
+				resp["localSeat"] = connectionTCP::localSeat();
+				resp["coopTurn"] = BattlescapeGame::isYourTurn;
+				resp["canGift"] = coop->canGiftBattleUnit(found);
+
+				if (execute)
+				{
+					if (!coop->canGiftBattleUnit(found))
+					{
+						resp["error"] = "local player does not own a giftable live unit";
+					}
+					else if (newOwner < 0 || newOwner >= connectionTCP::seatCount()
+						|| newOwner == connectionTCP::localSeat())
+					{
+						resp["error"] = "invalid target owner";
+					}
+					else
+					{
+						coop->giftBattleUnit(found, newOwner, true);
+						resp["afterOwner"] = found->getCoop();
+						resp["playerTurnAfter"] = coop->getPlayerTurn();
+						resp["ok"] = true;
+					}
+				}
+				else
+				{
+					resp["ok"] = true;
+				}
 			}
 		}
 		else if (cmd == "battle_action")

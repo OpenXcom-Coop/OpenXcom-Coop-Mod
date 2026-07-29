@@ -184,6 +184,7 @@ void clearNetworkSessionQueues();
 class Game;
 class Ufo;
 class SavedGame;
+class BattleUnit;
 class VoteMenu;
 
 // ===== Coop session lifecycle state =====
@@ -986,6 +987,25 @@ class connectionTCP
 	static bool canRemoveManuallyAddedServer;
 	static bool isInfoboxClosed;
 
+	// True when this machine may transfer control of the given live Battlescape
+	// unit. This deliberately does not depend on whose turn it is: players may
+	// gift their own soldiers while another player is acting.
+	bool canGiftBattleUnit(const BattleUnit* unit) const;
+	// Keeps a local gift-selection separate from SavedBattleGame::selectedUnit.
+	// The normal selection belongs to the active tactical turn and is not updated
+	// by an off-turn player's left click. mapClick updates this local selection
+	// whenever this machine clicks one of its own giftable soldiers.
+	void setGiftSelectedBattleUnit(BattleUnit* unit);
+	BattleUnit* getGiftSelectedBattleUnit() const;
+	void clearGiftSelectedBattleUnit();
+	// Transfers a deployed unit to another seat. Campaign soldiers use the
+	// permanent gift path; skirmish-only units use a battle-only control flip.
+	void giftBattleUnit(BattleUnit* unit, int newOwnerId, bool broadcast);
+	// Re-evaluates this machine's local tactical roster after a transfer. If no
+	// living local soldiers remain, Battlescape enters spectator mode
+	// immediately. Receiving a soldier restores control from spectator mode.
+	void refreshBattleGiftControlState();
+
 	// Permanently gifts a soldier to another player (0 = host, 1 = client).
 	// Follows the guest-soldier model: a soldier's object lives in its OWNER's
 	// save, tagged with coopBase = the station base's coop id when that base
@@ -994,8 +1014,8 @@ class connectionTCP
 	// recreated in the receiver's save, keeping the same station base - so it
 	// stays "in" the base it was in, and shows up when the new owner views
 	// that base. During battle only the control flags flip immediately; the
-	// physical move is queued and runs after the mission ends. Gifts
-	// overwrite unconditionally, so soldiers can be gifted back and forth.
+	// physical move is queued and runs after the mission ends. A newer,
+	// ownership-validated transfer supersedes an older pending destination.
 	void giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast);
 	// Completes queued in-battle gifts once no battle is active. Must run
 	// before the post-battle coop cleanup (GeoscapeState calls it first).
@@ -1008,8 +1028,24 @@ class connectionTCP
 	// Erases the soldier pointer from every base roster (including the
 	// SoldiersState/CraftSoldiersState base_oldsoldiers snapshots).
 	void removeSoldierFromLocalBases(Soldier* soldier);
-	// In-battle gifts waiting for the mission to end: soldier + new owner.
-	std::vector<std::pair<Soldier*, int> > _pendingSoldierGifts;
+	// In-battle gifts waiting for the mission to end. Snapshot the craft id and
+	// type while the battle world is still alive: Soldier::getCraft() may keep a
+	// non-null pointer to a Craft that has already been destroyed or replaced by
+	// the time processPendingSoldierGifts() runs. Dereferencing that stale Craft*
+	// after mission teardown is a use-after-free and can crash in Craft::getType().
+	struct PendingSoldierGift
+	{
+		Soldier* soldier;
+		int newOwnerId;
+		int craftId;
+		std::string craftType;
+
+		PendingSoldierGift(Soldier* soldier_, int newOwnerId_, int craftId_, const std::string& craftType_)
+			: soldier(soldier_), newOwnerId(newOwnerId_), craftId(craftId_), craftType(craftType_)
+		{
+		}
+	};
+	std::vector<PendingSoldierGift> _pendingSoldierGifts;
 	// Soldiers gifted away are parked here instead of deleted: UI states
 	// (sort snapshots, open dialogs) may still hold pointers to them.
 	std::vector<Soldier*> _giftedSoldiers;
@@ -1022,6 +1058,12 @@ class connectionTCP
 	// duplicate-delivery guard (sufficient now: the host's save is the single
 	// authority, so packets are never re-sent across sessions).
 	int _giftSendCounter = 0;
+	// Mints the next outgoing gift packet id. Seat-keyed so two senders
+	// never share an id space; see the definition in connectionTCP.cpp.
+	long long nextGiftXferId();
+	// Local-only id of the soldier last left-clicked for gifting. It must not use
+	// SavedBattleGame::_selectedUnit because that is controlled by the active turn.
+	int _giftSelectedBattleUnitId = -1;
 	std::unordered_set<long long> _seenGiftPacketIds;
 	// Incoming physical gifts received while our SavedGame is swapped out
 	// (viewing the peer's base, playerInsideCoopBase). Applying them then
