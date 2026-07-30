@@ -512,22 +512,31 @@ jobs:
   build-linux:
     needs: meta
     runs-on: ubuntu-latest
+    # Build inside an old-glibc container (2.31) so the AppImage runs on nearly
+    # every current distro. An AppImage bundles its own libs but NOT glibc, so its
+    # portability floor is the build host's glibc - ubuntu-latest (2.39) would lock
+    # out older distros and reproduce the very "can't run it" bug this restores the
+    # AppImage to fix. Same container pattern as build-winxp.
+    container: ubuntu:20.04
     timeout-minutes: 60
     defaults:
       run:
         shell: bash
     steps:
       - name: Install deps
-        # Same mirror-flake retry as build-winxp - see the comment there.
+        # Same mirror-flake retry as build-winxp - see the comment there. No sudo
+        # (root in the container); git must land BEFORE checkout, which the
+        # `submodules: recursive` step needs and the bare container lacks.
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           set -eu
-          apt_get() { sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
+          apt_get() { apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
           ok=0
           for n in 1 2 3 4; do
             if apt_get update && apt_get install -y \
-                 cmake g++ make \
+                 git ca-certificates wget file pkg-config python3 \
+                 cmake g++ make patchelf \
                  libsdl1.2-dev libsdl-mixer1.2-dev libsdl-gfx1.2-dev libsdl-image1.2-dev libsdl-net1.2-dev \
                  libyaml-cpp-dev libjsoncpp-dev libsodium-dev zlib1g-dev
             then ok=1; break; fi
@@ -553,6 +562,38 @@ jobs:
             -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS" "$GITHUB_WORKSPACE"
           make -j"$(nproc)"
 
+      - name: Build AppImage (linuxdeploy)
+        run: |
+          set -euxo pipefail
+          # Bundle the binary + its shared libs into a self-contained AppImage,
+          # restoring the pre-2.0.0 Linux UX. A bare dynamically-linked binary
+          # needs matching system SDL and a new-enough glibc; the AppImage carries
+          # its own libs, so it runs on any x86_64 desktop. Data folders still live
+          # NEXT TO the AppImage in the tarball - the game finds common/, standard/
+          # and rendezvous.json via the "./" (CWD) entry in findDataFolders(), so it
+          # must be run from the extracted folder, same as the v1.8.4 release.
+          #
+          # linuxdeploy and its appimage plugin are themselves AppImages; hosted
+          # runners have no FUSE, so extract-and-run instead of mounting, and put
+          # the plugin on PATH where linuxdeploy discovers it by name.
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export PATH="$PWD:$PATH"
+          base=https://github.com/linuxdeploy
+          wget -q "$base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          wget -q "$base/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage"
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-appimage-x86_64.AppImage
+          # appimagetool wants the icon file named after the desktop's Icon= key (openxcom).
+          cp res/linux/icons/openxcom_128x128.png openxcom.png
+          # OUTPUT keeps the v1.8.4 asset name so existing docs/links still match.
+          OUTPUT=OpenXcoop-x86_64.AppImage \
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --executable build/bin/openxcom \
+            --desktop-file res/linux/openxcom.desktop \
+            --icon-file openxcom.png \
+            --output appimage
+          test -f OpenXcoop-x86_64.AppImage
+
       - name: Package Linux tarball
         env:
           RELEASE_RENDEZVOUS_JSON: ${{ secrets.RELEASE_RENDEZVOUS_JSON }}
@@ -561,7 +602,9 @@ jobs:
           v="${{ needs.meta.outputs.version }}"
           pkg="openxcom-coop-linux-$v-x86_64"
           mkdir -p "$pkg/UFO" "$pkg/TFTD"
-          cp build/bin/openxcom "$pkg/"
+          # Self-contained AppImage instead of the bare binary (see the AppImage step).
+          cp OpenXcoop-x86_64.AppImage "$pkg/"
+          chmod +x "$pkg/OpenXcoop-x86_64.AppImage"
           cp -r bin/common bin/standard "$pkg/"
           # coop art only - never the whole UFO/TFTD dir (licensed retail data).
           # Globe's ctor throws on a missing multiplayer/base.png, killing "new game".
@@ -572,6 +615,21 @@ jobs:
           if [ -z "$RELEASE_RENDEZVOUS_JSON" ]; then echo "RELEASE_RENDEZVOUS_JSON secret empty"; exit 1; fi
           printf '%s' "$RELEASE_RENDEZVOUS_JSON" > "$pkg/rendezvous.json"
           python3 -c "import json; json.load(open('$pkg/rendezvous.json'))" || { echo "rendezvous.json not valid JSON"; exit 1; }
+          # The AppImage finds its data via CWD, so it must be launched from this
+          # folder - spell that out to avoid a "no data" launch from elsewhere.
+          cat > "$pkg/HOW_TO_RUN.txt" <<'EOF'
+          OpenXcom Coop - Linux
+          =====================
+          Keep OpenXcoop-x86_64.AppImage in THIS folder (next to common/, standard/,
+          UFO/, TFTD/, rendezvous.json) and run it from here:
+
+              chmod +x OpenXcoop-x86_64.AppImage
+              ./OpenXcoop-x86_64.AppImage
+
+          The game looks for its data in the current folder, so launching the
+          AppImage from somewhere else (e.g. double-clicking after moving it out)
+          will fail to find the game data.
+          EOF
           sh tools/ci/assert_package_dir.sh "$pkg"
           tar czf "$pkg.tar.gz" "$pkg"
 

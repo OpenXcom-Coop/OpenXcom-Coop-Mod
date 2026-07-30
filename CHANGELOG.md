@@ -9,6 +9,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
 
 ## [Unreleased]
 - Notes for the next release accumulate here; rename to `## [x.y.z]` when tagging.
+### Fixed
+- Linux download is a self-contained AppImage again (as in v1.8.4) instead of a
+  bare dynamically-linked binary, so it no longer needs matching system SDL
+  libraries or a new-enough glibc to start. Built on an older base (glibc 2.31)
+  for broad distro support. Run `OpenXcoop-x86_64.AppImage` from the extracted
+  folder, next to the data folders (see the bundled `HOW_TO_RUN.txt`).
 
 <!-- Template for the next release section (keep this comment ABOVE the newest
      released section: the notes extractor reads from "## [<v>]" until the next
