@@ -353,22 +353,29 @@ jobs:
   # Native Linux (x86_64) build via GCC - the other platform ci-main.yml ships.
   build-linux:
     runs-on: ubuntu-latest
+    # Mirrors ci-main's build-linux: old-glibc container (2.31) so the AppImage the
+    # gate builds matches the released one. An AppImage bundles its libs but NOT
+    # glibc, so its portability floor is the build host's - see the ci-main comment.
+    container: ubuntu:20.04
     timeout-minutes: 60
     defaults:
       run:
         shell: bash
     steps:
       - name: Install deps
-        # Same mirror-flake retry as build-winxp - see the comment there.
+        # Same mirror-flake retry as build-winxp - see the comment there. No sudo
+        # (root in the container); git must land BEFORE checkout, which the
+        # `submodules: recursive` step needs and the bare container lacks.
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           set -eu
-          apt_get() { sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
+          apt_get() { apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
           ok=0
           for n in 1 2 3 4; do
             if apt_get update && apt_get install -y \
-                 cmake g++ make \
+                 git ca-certificates wget file pkg-config python3 \
+                 cmake g++ make patchelf \
                  libsdl1.2-dev libsdl-mixer1.2-dev libsdl-gfx1.2-dev libsdl-image1.2-dev libsdl-net1.2-dev \
                  libyaml-cpp-dev libjsoncpp-dev libsodium-dev zlib1g-dev
             then ok=1; break; fi
@@ -394,12 +401,34 @@ jobs:
             -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS" "$GITHUB_WORKSPACE"
           make -j"$(nproc)"
 
+      - name: Build AppImage (linuxdeploy)
+        # Same as ci-main's step - proves the AppImage packaging on the PR, even
+        # though this gate uploads nothing (it stops at the asserted tree below).
+        run: |
+          set -euxo pipefail
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export PATH="$PWD:$PATH"
+          base=https://github.com/linuxdeploy
+          wget -q "$base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          wget -q "$base/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage"
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-appimage-x86_64.AppImage
+          cp res/linux/icons/openxcom_128x128.png openxcom.png
+          OUTPUT=OpenXcoop-x86_64.AppImage \
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --executable build/bin/openxcom \
+            --desktop-file res/linux/openxcom.desktop \
+            --icon-file openxcom.png \
+            --output appimage
+          test -f OpenXcoop-x86_64.AppImage
+
       - name: Assert the package tree (no secret, no archive)
         run: |
           set -euxo pipefail
           pkg=pkg-linux
           mkdir -p "$pkg/UFO" "$pkg/TFTD"
-          cp build/bin/openxcom "$pkg/"
+          cp OpenXcoop-x86_64.AppImage "$pkg/"
+          chmod +x "$pkg/OpenXcoop-x86_64.AppImage"
           cp -r bin/common bin/standard "$pkg/"
           # coop art only - never the whole UFO/TFTD dir (licensed retail data).
           cp -r bin/UFO/multiplayer  "$pkg/UFO/"
