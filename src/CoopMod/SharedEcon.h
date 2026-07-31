@@ -337,7 +337,8 @@ void hostAlienBaseFound(Game* game, AlienBase* alienBase);
 void hostAlert(Game* game, const std::string& cls, const std::string& msg = "",
                Base* base = nullptr, int craftId = -1,
                const std::vector<std::string>& names = {},
-               const std::vector<int>& ids = {}, bool flag = false);
+               const std::vector<int>& ids = {}, bool flag = false,
+               const Json::Value& rows = Json::Value());
 /// Playtest: host broadcasts that a craft's landing decision is resolved, so every
 /// other seat's broker ConfirmLandingState closes itself.
 void broadcastLandClose(Game* game, Craft* craft);

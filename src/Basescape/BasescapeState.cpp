@@ -83,7 +83,7 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 	// while browsing, restored on exit in btnGeoscapeClick. PRD-J07: fenced in
 	// SHARED - every base in _bases is real and fully browsable by any player, so
 	// no entry filtering / old_bases juggling.)
-	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign() && _base && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
 		// coop
@@ -225,7 +225,11 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 
 
 	// COOP
-	if (_base->_coopBase == true)
+	// _base can be null here: vanilla allows BasescapeState(nullptr, ...) (e.g.
+	// GeoscapeState's no-base path, or a SHARED replica's ItemsArrivingState
+	// "Go to Base" whose _base was never resolved). init()->setBase() normalizes
+	// a null base to a real one, but this ctor block runs first, so guard it.
+	if (_base && _base->_coopBase == true)
 	{
 		_btnNewBase->setVisible(false);
 		_btnFacilities->setVisible(false);

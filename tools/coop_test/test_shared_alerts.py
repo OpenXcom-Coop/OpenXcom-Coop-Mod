@@ -83,7 +83,12 @@ def main():
 
         _check(host, client, "LowFuelState", {"craft_id": craft_id}, "low fuel")
 
-        _check(host, client, "ItemsArrivingState", {}, "items arriving")
+        # ItemsArrivingState now requires a rows payload (an empty arrival popup no
+        # longer pops); pass one synthetic arrival so the client rebuilds + pops it.
+        _check(host, client, "ItemsArrivingState",
+               {"rows": [{"type": 0, "name": "STR_TEST_ARRIVAL", "qty": 1,
+                          "base": "HostBase", "baseIdx": 0, "ownerSeat": -1}]},
+               "items arriving")
 
         # New-possibility family (research/manufacture/purchase/craft/facility).
         _check(host, client, "NewPossibleResearchState",
