@@ -3893,8 +3893,28 @@ void GeoscapeState::time1Hour()
 	}
 	if (window)
 	{
-		popup(new ItemsArrivingState(this));
-		SharedEcon::hostAlert(_game, "ItemsArrivingState");
+		ItemsArrivingState* ia = new ItemsArrivingState(this);
+		if (ia->getRows().empty())
+		{
+			delete ia;
+		}
+		else
+		{
+			popup(ia);
+			Json::Value rowsJson(Json::arrayValue);
+			for (const auto& r : ia->getRows())
+			{
+				Json::Value j;
+				j["type"] = r.type;
+				j["name"] = r.name;
+				j["qty"] = r.qty;
+				j["base"] = r.base;
+				j["baseIdx"] = r.baseIdx;
+				j["ownerSeat"] = r.ownerSeat;
+				rowsJson.append(j);
+			}
+			SharedEcon::hostAlert(_game, "ItemsArrivingState", "", nullptr, -1, {}, {}, false, rowsJson);
+		}
 	}
 	// Handle Production
 	for (auto* xbase : *_game->getSavedGame()->getBases())

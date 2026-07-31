@@ -2278,7 +2278,23 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	}
 	else if (cls == "ItemsArrivingState")
 	{
-		gs->popup(new ItemsArrivingState(gs));
+		const Json::Value& jr = payload["rows"];
+		if (jr.isArray() && !jr.empty())
+		{
+			std::vector<ArrivalRow> rows;
+			for (Json::ArrayIndex i = 0; i < jr.size(); ++i)
+			{
+				ArrivalRow row;
+				row.type = jr[i].get("type", 0).asInt();
+				row.name = jr[i].get("name", "").asString();
+				row.qty = jr[i].get("qty", 0).asInt();
+				row.base = jr[i].get("base", "").asString();
+				row.baseIdx = jr[i].get("baseIdx", -1).asInt();
+				row.ownerSeat = jr[i].get("ownerSeat", -1).asInt();
+				rows.push_back(row);
+			}
+			gs->popup(new ItemsArrivingState(gs, rows));
+		}
 	}
 	else if (cls == "ResearchRequiredState")
 	{
@@ -3337,7 +3353,7 @@ void hostAlienBaseFound(Game* game, AlienBase* alienBase)
 
 void hostAlert(Game* game, const std::string& cls, const std::string& msg,
                Base* base, int craftId, const std::vector<std::string>& names,
-               const std::vector<int>& ids, bool flag)
+               const std::vector<int>& ids, bool flag, const Json::Value& rows)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;
@@ -3351,6 +3367,8 @@ void hostAlert(Game* game, const std::string& cls, const std::string& msg,
 	Json::Value ji(Json::arrayValue);
 	for (int i : ids) ji.append(i);
 	p["ids"] = ji;
+	if (rows.isArray() && !rows.empty())
+		p["rows"] = rows;
 	submitLocalCmd(game, "alert", base ? baseIndex(game, base) : 0, p);
 }
 

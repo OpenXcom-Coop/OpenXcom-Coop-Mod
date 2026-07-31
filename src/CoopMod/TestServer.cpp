@@ -34,6 +34,7 @@
 #include "../Engine/Options.h"
 #include "../Engine/State.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/ItemsArrivingState.h"
 #include "../Geoscape/GeoscapeCraftState.h"
 #include "../Geoscape/GeoscapeEventState.h"
 #include "../Geoscape/MonthlyReportState.h"
@@ -2905,8 +2906,49 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		SharedEcon::hostAlert(_game, req.get("cls", "").asString(),
 			req.get("msg", "").asString(), alertBase,
 			req.get("craft_id", -1).asInt(), alertNames, alertIds,
-			req.get("flag", false).asBool());
+			req.get("flag", false).asBool(), req.get("rows", Json::Value()));
 		resp["ok"] = true;
+	}
+	else if (cmd == "items_arriving_goto")
+	{
+		// Repro for the SHARED "ordered soldiers arrive" crash (host orders
+		// soldiers in a shared base -> the 2nd player crashes on arrival). On a
+		// replica the ItemsArrivingState is raised via SharedEcon::hostAlert and its
+		// _base is null (the replica's own transfers are frozen, so the ctor finds
+		// no hour-0 transfer). Fire the REAL "Go to Base" path; pre-fix this built
+		// BasescapeState(nullptr) and faulted in the ctor's coop block.
+		if (auto* ia = topState<ItemsArrivingState>(_game))
+		{
+			ia->harnessGotoBase();
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "ItemsArrivingState not on top";
+		}
+	}
+	else if (cmd == "items_arriving_rows")
+	{
+		// Read the arrival popup's displayed row labels (owner-prefixed) plus this
+		// machine's seat and the shared player roster, for the arrival owner-label test.
+		if (auto* ia = topState<ItemsArrivingState>(_game))
+		{
+			Json::Value arr(Json::arrayValue);
+			for (const auto& s : ia->harnessRows())
+				arr.append(s);
+			resp["rows"] = arr;
+			resp["localSeat"] = connectionTCP::localSeat();
+			Json::Value players(Json::arrayValue);
+			if (_game->getSavedGame())
+				for (const auto& p : _game->getSavedGame()->getCoopPlayers())
+					players.append(p);
+			resp["coopPlayers"] = players;
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["error"] = "ItemsArrivingState not on top";
+		}
 	}
 	else if (cmd == "spawn_craft")
 	{

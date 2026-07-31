@@ -29,20 +29,32 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/Soldier.h"
 #include "../Mod/RuleItem.h"
 #include "GeoscapeState.h"
 #include "../Engine/Options.h"
 #include "../Basescape/BasescapeState.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
 
+static std::string formatRow(const ArrivalRow& r)
+{
+	if (r.type == TRANSFER_SOLDIER && r.ownerSeat >= 0
+		&& r.ownerSeat != connectionTCP::localSeat())
+	{
+		std::string owner = connectionTCP::seatName(r.ownerSeat);
+		if (!owner.empty())
+			return "[" + owner + "] " + r.name;
+	}
+	return r.name;
+}
+
 /**
- * Initializes all the elements in the Items Arriving window.
- * @param game Pointer to the core game.
- * @param state Pointer to the Geoscape state.
+ * Builds the shared window widgets.
  */
-ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _base(0)
+void ItemsArrivingState::buildUI()
 {
 	_screen = false;
 
@@ -95,7 +107,18 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 	_lstTransfers->setSelectable(true);
 	_lstTransfers->setBackground(_window);
 	_lstTransfers->setMargin(2);
+}
 
+/**
+ * Initializes all the elements in the Items Arriving window.
+ * @param game Pointer to the core game.
+ * @param state Pointer to the Geoscape state.
+ */
+ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _base(0)
+{
+	buildUI();
+
+	int baseIdx = 0;
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		for (auto transferIt = xbase->getTransfers()->begin(); transferIt != xbase->getTransfers()->end();)
@@ -121,7 +144,16 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 				// Remove transfer
 				std::ostringstream ss;
 				ss << transfer->getQuantity();
-				_lstTransfers->addRow(3, transfer->getName(_game->getLanguage()).c_str(), ss.str().c_str(), xbase->getName().c_str());
+				ArrivalRow row;
+				row.type = transfer->getType();
+				row.name = transfer->getName(_game->getLanguage());
+				row.qty = transfer->getQuantity();
+				row.base = xbase->getName();
+				row.baseIdx = baseIdx;
+				row.ownerSeat = (transfer->getType() == TRANSFER_SOLDIER && transfer->getSoldier())
+					? transfer->getSoldier()->getOwnerPlayerId() : -1;
+				_rows.push_back(row);
+				_lstTransfers->addRow(3, formatRow(row).c_str(), ss.str().c_str(), xbase->getName().c_str());
 				delete transfer;
 				transferIt = xbase->getTransfers()->erase(transferIt);
 			}
@@ -130,6 +162,34 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 				++transferIt;
 			}
 		}
+		++baseIdx;
+	}
+}
+
+/**
+ * Initializes the window from a network-supplied row list (SHARED replica),
+ * without scanning or deleting any transfers.
+ * @param state Pointer to the Geoscape state.
+ * @param rows Arrival rows to display.
+ */
+ItemsArrivingState::ItemsArrivingState(GeoscapeState *state, const std::vector<ArrivalRow>& rows) : _state(state), _base(0)
+{
+	buildUI();
+
+	for (const ArrivalRow& r : rows)
+	{
+		_rows.push_back(r);
+		std::ostringstream ss;
+		ss << r.qty;
+		_lstTransfers->addRow(3, formatRow(r).c_str(), ss.str().c_str(), r.base.c_str());
+	}
+
+	if (!rows.empty())
+	{
+		auto* bases = _game->getSavedGame()->getBases();
+		int idx = rows.front().baseIdx;
+		if (idx >= 0 && idx < (int)bases->size())
+			_base = bases->at(idx);
 	}
 }
 
@@ -158,7 +218,32 @@ void ItemsArrivingState::btnGotoBaseClick(Action *)
 {
 	_state->timerReset();
 	_game->popState();
-	_game->pushState(new BasescapeState(_base, _state->getGlobe()));
+	// A SHARED replica's ItemsArrivingState is raised via SharedEcon::hostAlert
+	// with no hour-0 transfer of its own, so _base is null here; fall back to a
+	// real base (the BasescapeState ctor's coop block dereferences it).
+	// getSelectedBase() never returns null when any base exists.
+	Base *target = _base;
+	if (!target && !_game->getSavedGame()->getBases()->empty())
+		target = _game->getSavedGame()->getSelectedBase();
+	_game->pushState(new BasescapeState(target, _state->getGlobe()));
+}
+
+/**
+ * Test automation: fire the real "Go to Base" path (drives btnGotoBaseClick).
+ * Used by the SHARED "ordered soldiers arrive" crash repro, where a replica's
+ * hostAlert-raised popup carries a null _base.
+ */
+void ItemsArrivingState::harnessGotoBase()
+{
+	btnGotoBaseClick(nullptr);
+}
+
+std::vector<std::string> ItemsArrivingState::harnessRows() const
+{
+	std::vector<std::string> out;
+	for (const auto& r : _rows)
+		out.push_back(formatRow(r));
+	return out;
 }
 
 }
