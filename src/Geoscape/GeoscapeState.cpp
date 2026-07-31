@@ -165,8 +165,27 @@ static std::vector<int> sharedAlertSoldierIds(const std::vector<Soldier*>& v)
 { std::vector<int> o; for (auto* s : v) if (s) o.push_back(s->getId()); return o; }
 
 
-// coop
-Ufo* temp_ufo = 0;
+// coop: base-defense parameters captured when an attacking UFO arms a coop base
+// defense (handleBaseDefense). The coop battle start is DEFERRED across a
+// host<->client handshake, during which the attacking Ufo is freed (confirmed:
+// the armed UFO is deleted before startCoopMission runs). Holding a raw Ufo*
+// across that gap was a use-after-free ("save crashes on month end"), so we
+// snapshot exactly the fields the deferred startCoopMission needs and never
+// dereference the (possibly freed) UFO later.
+namespace
+{
+struct CoopBaseDefense
+{
+	bool pending = false;   // a coop base defense is armed, not yet consumed
+	bool coop = false;      // ufo->getCoop() at arm time
+	double lon = 0.0;
+	double lat = 0.0;
+	int damagePercentage = 0;
+	std::string missionCustomDeploy;
+	std::string alienRace;
+};
+CoopBaseDefense g_coopBaseDefense;
+}
 
 /**
  * Initializes all the elements in the Geoscape screen.
@@ -564,21 +583,24 @@ GeoscapeState::~GeoscapeState()
 
 void GeoscapeState::startCoopMission()
 {
-
-	// coop
-	if (temp_ufo && temp_ufo->getCoop() == false && _game->getSavedGame() && _game->getSavedGame()->getSelectedBase())
+	// coop: consume the base-defense snapshot captured at arm time. NEVER
+	// dereference the attacking UFO here - it has been freed during the deferred
+	// host<->client handshake (see CoopBaseDefense above).
+	if (g_coopBaseDefense.pending && g_coopBaseDefense.coop == false
+		&& _game->getSavedGame() && _game->getSavedGame()->getSelectedBase())
 	{
+		g_coopBaseDefense.pending = false; // one-shot; never re-fire on a stale snapshot
 
 		// Get the shade and texture for the globe at the location of the base, using the ufo position
 		int texture, shade;
-		double baseLon = temp_ufo->getLongitude();
-		double baseLat = temp_ufo->getLatitude();
+		double baseLon = g_coopBaseDefense.lon;
+		double baseLat = g_coopBaseDefense.lat;
 		_globe->getPolygonTextureAndShade(baseLon, baseLat, &texture, &shade);
 
 		int ufoDamagePercentage = 0;
 		if (_game->getMod()->getLessAliensDuringBaseDefense())
 		{
-			ufoDamagePercentage = temp_ufo->getDamagePercentage();
+			ufoDamagePercentage = g_coopBaseDefense.damagePercentage;
 		}
 
 		SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
@@ -586,8 +608,8 @@ void GeoscapeState::startCoopMission()
 		bgame->setMissionType("STR_BASE_DEFENSE");
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.setBase(_game->getSavedGame()->getSelectedBase());
-		bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(temp_ufo->getCraftStats().missionCustomDeploy));
-		bgen.setAlienRace(temp_ufo->getAlienRace());
+		bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(g_coopBaseDefense.missionCustomDeploy));
+		bgen.setAlienRace(g_coopBaseDefense.alienRace);
 		bgen.setWorldShade(shade);
 		Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
 		bgen.setWorldTexture(globeTexture, globeTexture);
@@ -6006,7 +6028,16 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 				_game->getCoopMod()->setGeoscapeState(this);
 				_game->getCoopMod()->_isMainCampaignBaseDefense = true;
 
-				temp_ufo = ufo;
+				// coop: snapshot the attacking UFO's parameters NOW. The coop base
+				// defense is started later in startCoopMission(), by when this Ufo
+				// has been freed - so capture the fields, never keep the pointer.
+				g_coopBaseDefense.pending = true;
+				g_coopBaseDefense.coop = ufo->getCoop();
+				g_coopBaseDefense.lon = ufo->getLongitude();
+				g_coopBaseDefense.lat = ufo->getLatitude();
+				g_coopBaseDefense.damagePercentage = ufo->getDamagePercentage();
+				g_coopBaseDefense.missionCustomDeploy = ufo->getCraftStats().missionCustomDeploy;
+				g_coopBaseDefense.alienRace = ufo->getAlienRace();
 
 				// PRD-J09 GAP-1: SHARED base defense. The garrison is the single shared
 				// world's roster, and the HOST (the only machine whose sim reaches this
