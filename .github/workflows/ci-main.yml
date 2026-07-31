@@ -512,12 +512,16 @@ jobs:
   build-linux:
     needs: meta
     runs-on: ubuntu-latest
-    # Build inside an old-glibc container (2.31) so the AppImage runs on nearly
-    # every current distro. An AppImage bundles its own libs but NOT glibc, so its
-    # portability floor is the build host's glibc - ubuntu-latest (2.39) would lock
-    # out older distros and reproduce the very "can't run it" bug this restores the
-    # AppImage to fix. Same container pattern as build-winxp.
-    container: ubuntu:20.04
+    # Build inside a low-glibc container so the AppImage runs on nearly every
+    # current distro: an AppImage bundles its own libs but NOT glibc, so its
+    # portability floor is the build host's glibc, and ubuntu-latest (2.39) would
+    # lock out older distros and reproduce the very "can't run it" bug this fixes.
+    # debian:11 (bullseye) gives glibc 2.31 - covers Debian 11+, Ubuntu 20.04+ and
+    # RHEL/Rocky 9 (2.34) - with gcc 10. Its distro jsoncpp (1.9.4) makes the coop
+    # code's int64/uint64 -> Json::Value writes ambiguous on gcc, so we build
+    # jsoncpp 1.9.5 from source below (the version ubuntu-latest had when this
+    # compiled) rather than change the game source or raise the glibc floor.
+    container: debian:11
     timeout-minutes: 60
     defaults:
       run:
@@ -538,7 +542,7 @@ jobs:
                  git ca-certificates wget file pkg-config python3 \
                  cmake g++ make patchelf \
                  libsdl1.2-dev libsdl-mixer1.2-dev libsdl-gfx1.2-dev libsdl-image1.2-dev libsdl-net1.2-dev \
-                 libyaml-cpp-dev libjsoncpp-dev libsodium-dev zlib1g-dev
+                 libyaml-cpp-dev libsodium-dev zlib1g-dev
             then ok=1; break; fi
             echo "apt attempt $n failed (mirror flake); retrying in $((n * 15))s"
             sleep $((n * 15))
@@ -548,18 +552,43 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0, submodules: recursive }
 
+      - name: Build jsoncpp 1.9.5 from source
+        # The distro jsoncpp (bullseye 1.9.4) types Int64/UInt64 as long long, so on
+        # LP64 a raw int64_t/uint64_t (long) -> Json::Value write is ambiguous and
+        # the coop code fails to compile. 1.9.5 types them as int64_t/uint64_t, so
+        # those writes match exactly - this is the jsoncpp the code has always been
+        # built against on ubuntu-latest. Install to /usr/local; ldconfig so the
+        # linker/loader (and linuxdeploy's ldd) resolve it. NOT the distro package.
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch 1.9.5 https://github.com/open-source-parsers/jsoncpp.git /tmp/jsoncpp
+          cmake -S /tmp/jsoncpp -B /tmp/jsoncpp/build \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+            -DJSONCPP_WITH_TESTS=OFF -DJSONCPP_WITH_POST_BUILD_UNITTEST=OFF \
+            -DCMAKE_INSTALL_PREFIX=/usr/local
+          cmake --build /tmp/jsoncpp/build -j"$(nproc)"
+          cmake --install /tmp/jsoncpp/build
+          ldconfig
+
       - name: Stamp src/version.h
         run: sh tools/ci/stamp_version.sh "${{ needs.meta.outputs.version }}" "${{ needs.meta.outputs.gitSuffix }}"
 
       - name: Configure + build (Linux x86_64)
         run: |
           set -euxo pipefail
-          # ubuntu's libjsoncpp-dev installs headers under /usr/include/jsoncpp;
-          # the code includes <json/json.h>, so add jsoncpp's include dir.
+          # Prefer the from-source jsoncpp in /usr/local over anything else: its .pc
+          # for the -I flags, its lib dir for the -ljsoncpp link.
+          export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          export LIBRARY_PATH="/usr/local/lib:${LIBRARY_PATH:-}"
           JSONCPP_CFLAGS=$(pkg-config --cflags jsoncpp)
           rm -rf build && mkdir -p build && cd build
+          # -pthread: the coop code spawns std::threads, but the CMake build never
+          # links libpthread. On glibc >= 2.34 (ubuntu-latest) pthread lives in libc
+          # so it links anyway; on glibc 2.31 (debian:11) libpthread is separate and
+          # the link fails with "undefined reference to pthread_create", so force it.
           cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF \
-            -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS" "$GITHUB_WORKSPACE"
+            -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS -pthread" \
+            -DCMAKE_EXE_LINKER_FLAGS="-pthread" "$GITHUB_WORKSPACE"
           make -j"$(nproc)"
 
       - name: Build AppImage (linuxdeploy)
@@ -578,6 +607,8 @@ jobs:
           # the plugin on PATH where linuxdeploy discovers it by name.
           export APPIMAGE_EXTRACT_AND_RUN=1
           export PATH="$PWD:$PATH"
+          # so linuxdeploy's ldd resolves the from-source jsoncpp for bundling
+          export LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH:-}"
           base=https://github.com/linuxdeploy
           wget -q "$base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
           wget -q "$base/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage"

@@ -353,10 +353,10 @@ jobs:
   # Native Linux (x86_64) build via GCC - the other platform ci-main.yml ships.
   build-linux:
     runs-on: ubuntu-latest
-    # Mirrors ci-main's build-linux: old-glibc container (2.31) so the AppImage the
-    # gate builds matches the released one. An AppImage bundles its libs but NOT
-    # glibc, so its portability floor is the build host's - see the ci-main comment.
-    container: ubuntu:20.04
+    # Mirrors ci-main's build-linux: debian:11 (glibc 2.31) + jsoncpp 1.9.5 built
+    # from source, so the AppImage the gate builds matches the release and compiles
+    # - see the ci-main comment for the jsoncpp/glibc reasoning.
+    container: debian:11
     timeout-minutes: 60
     defaults:
       run:
@@ -377,7 +377,7 @@ jobs:
                  git ca-certificates wget file pkg-config python3 \
                  cmake g++ make patchelf \
                  libsdl1.2-dev libsdl-mixer1.2-dev libsdl-gfx1.2-dev libsdl-image1.2-dev libsdl-net1.2-dev \
-                 libyaml-cpp-dev libjsoncpp-dev libsodium-dev zlib1g-dev
+                 libyaml-cpp-dev libsodium-dev zlib1g-dev
             then ok=1; break; fi
             echo "apt attempt $n failed (mirror flake); retrying in $((n * 15))s"
             sleep $((n * 15))
@@ -390,15 +390,34 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Build jsoncpp 1.9.5 from source
+        # bullseye's jsoncpp (1.9.4) makes the coop code's int64/uint64 -> Json::Value
+        # writes ambiguous on gcc; 1.9.5 does not. Build the same jsoncpp the code is
+        # built against on ubuntu-latest, into /usr/local. See ci-main for detail.
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch 1.9.5 https://github.com/open-source-parsers/jsoncpp.git /tmp/jsoncpp
+          cmake -S /tmp/jsoncpp -B /tmp/jsoncpp/build \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+            -DJSONCPP_WITH_TESTS=OFF -DJSONCPP_WITH_POST_BUILD_UNITTEST=OFF \
+            -DCMAKE_INSTALL_PREFIX=/usr/local
+          cmake --build /tmp/jsoncpp/build -j"$(nproc)"
+          cmake --install /tmp/jsoncpp/build
+          ldconfig
+
       - name: Configure + build (Linux x86_64)
         run: |
           set -euxo pipefail
-          # ubuntu's libjsoncpp-dev installs headers under /usr/include/jsoncpp;
-          # the code includes <json/json.h>, so add jsoncpp's include dir.
+          # Prefer the from-source jsoncpp in /usr/local (its .pc for -I, its lib for -l).
+          export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          export LIBRARY_PATH="/usr/local/lib:${LIBRARY_PATH:-}"
           JSONCPP_CFLAGS=$(pkg-config --cflags jsoncpp)
           rm -rf build && mkdir -p build && cd build
+          # -pthread: coop code uses std::threads but CMake never links libpthread;
+          # separate lib on glibc 2.31 (debian:11), so force it. See ci-main.
           cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF \
-            -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS" "$GITHUB_WORKSPACE"
+            -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS -pthread" \
+            -DCMAKE_EXE_LINKER_FLAGS="-pthread" "$GITHUB_WORKSPACE"
           make -j"$(nproc)"
 
       - name: Build AppImage (linuxdeploy)
@@ -408,6 +427,8 @@ jobs:
           set -euxo pipefail
           export APPIMAGE_EXTRACT_AND_RUN=1
           export PATH="$PWD:$PATH"
+          # so linuxdeploy's ldd resolves the from-source jsoncpp for bundling
+          export LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH:-}"
           base=https://github.com/linuxdeploy
           wget -q "$base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
           wget -q "$base/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage"
