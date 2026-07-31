@@ -124,6 +124,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # Debug symbols for crash symbolication. MSVC emits OpenXcom.pdb next to the
+      # exe from the same link (matched to it by GUID+age), so no build change is
+      # needed - the PDB just has to be captured. `publish` folds it into Symbols.zip.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sym-x64
+          path: bin/x64/Release/OpenXcom.pdb
+          if-no-files-found: error
+          retention-days: 7
+
   # Splits the suite into 4 runtime-balanced shards, ONCE, from the previous run's
   # measured durations (Actions cache; tools/ci/test_weights.json on a cold cache).
   # Every shard consumes this one plan, so a cache refresh mid-run cannot make two
@@ -263,6 +273,13 @@ jobs:
           path: .pkgs
           merge-multiple: true
 
+      - name: Download debug symbols (x64 PDB + WinXP/Linux .debug)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sym-*
+          path: .syms
+          merge-multiple: true    # distinct filenames -> flatten all three into .syms
+
       - name: Stage packaging inputs (no UFO data in this job)
         shell: pwsh
         run: |
@@ -313,9 +330,19 @@ jobs:
           ./tools/ci/assert_package.ps1 $xp.FullName
           $tar = Get-ChildItem .pkgs\*linux*.tar.gz | Select-Object -First 1
           if (-not $tar) { throw "Linux package artifact missing" }
+          # All three debug-symbol files (x64 OpenXcom.pdb, WinXP + Linux .debug) in
+          # ONE Symbols.zip release asset - never inside the player packages, so a
+          # crash dump from any platform can be symbolicated from the matching release.
+          # Fail loudly if any is missing rather than shipping partial symbols.
+          $syms = Get-ChildItem .syms -File
+          foreach ($n in 'OpenXcom.pdb','openxcom-winxp-i686.debug','openxcom-linux-x86_64.debug') {
+            if ($syms.Name -notcontains $n) { throw "symbol file missing from Symbols.zip: $n" }
+          }
+          $sym = "Symbols.zip"
+          Compress-Archive .syms\* -DestinationPath $sym -Force
           # Multi-line env var: GITHUB_ENV needs the delimiter form, and
           # action-gh-release takes newline-separated paths in `files:`.
-          $assets = @($z, $xp.FullName, $tar.FullName) -join "`n"
+          $assets = @($z, $xp.FullName, $tar.FullName, $sym) -join "`n"
           "ASSETS<<PKGEOF`n$assets`nPKGEOF" >> $env:GITHUB_ENV
           Write-Host "publishing:`n$assets"
 
@@ -493,14 +520,25 @@ jobs:
           export PKG_CONFIG_PATH="$MXE_PREFIX/lib/pkgconfig"
           export PKG_CONFIG_LIBDIR="$MXE_PREFIX/lib/pkgconfig"
           rm -rf build && mkdir -p build && cd build
+          # -g: GCC/MinGW Release is -O3 -DNDEBUG with NO debug info (unlike MSVC,
+          # which emits a PDB regardless). CMAKE_CXX_FLAGS is the *base*, so -g lands
+          # before CMAKE_CXX_FLAGS_RELEASE's -O3 - optimized code WITH DWARF symbols.
           i686-w64-mingw32.static-cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DDEV_BUILD=OFF \
             -DBUILD_PACKAGE=OFF \
+            -DCMAKE_CXX_FLAGS="-g" \
             -DCMAKE_PREFIX_PATH="$MXE_PREFIX" \
             -DDEPS_DIR= \
             "$GITHUB_WORKSPACE"
           make -j"$(nproc)"
+          # Split the DWARF debug info into a separate .debug (for Symbols.zip), then
+          # strip the shipped exe and add a debuglink so a debugger can pair them
+          # (matched by the debuglink's CRC). Keeps the WinXP zip small while keeping
+          # symbols archivable. objcopy/strip are the MXE cross-tools on PATH above.
+          i686-w64-mingw32.static-objcopy --only-keep-debug bin/openxcom.exe "$GITHUB_WORKSPACE/openxcom-winxp-i686.debug"
+          i686-w64-mingw32.static-strip --strip-debug --strip-unneeded bin/openxcom.exe
+          i686-w64-mingw32.static-objcopy --add-gnu-debuglink="$GITHUB_WORKSPACE/openxcom-winxp-i686.debug" bin/openxcom.exe
 
       - name: Package WinXP zip
         env:
@@ -526,6 +564,13 @@ jobs:
         with:
           name: pkg-winxp
           path: openxcom-coop-winxp-${{ needs.meta.outputs.version }}-i686.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sym-winxp
+          path: openxcom-winxp-i686.debug
           if-no-files-found: error
           retention-days: 7
 
@@ -608,10 +653,16 @@ jobs:
           # links libpthread. On glibc >= 2.34 (ubuntu-latest) pthread lives in libc
           # so it links anyway; on glibc 2.31 (debian:11) libpthread is separate and
           # the link fails with "undefined reference to pthread_create", so force it.
+          # -g adds DWARF symbols (Release is -O3 -DNDEBUG with none). It sits in the
+          # base CXX flags, ahead of -O3, so the binary stays optimized but debuggable.
           cmake -DCMAKE_BUILD_TYPE=Release -DDEV_BUILD=OFF -DBUILD_PACKAGE=OFF \
-            -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS -pthread" \
+            -DCMAKE_CXX_FLAGS="$JSONCPP_CFLAGS -pthread -g" \
             -DCMAKE_EXE_LINKER_FLAGS="-pthread" "$GITHUB_WORKSPACE"
           make -j"$(nproc)"
+          # Split debug info OUT before the AppImage step (linuxdeploy strips the
+          # bundled binary). gdb re-pairs this .debug to the stripped binary via the
+          # GNU build-id ld emits by default, so extracting is enough - no strip here.
+          objcopy --only-keep-debug bin/openxcom "$GITHUB_WORKSPACE/openxcom-linux-x86_64.debug"
 
       - name: Build AppImage (linuxdeploy)
         run: |
@@ -690,5 +741,12 @@ jobs:
         with:
           name: pkg-linux
           path: openxcom-coop-linux-${{ needs.meta.outputs.version }}-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sym-linux
+          path: openxcom-linux-x86_64.debug
           if-no-files-found: error
           retention-days: 7
