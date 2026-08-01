@@ -752,3 +752,390 @@ jobs:
           path: openxcom-linux-x86_64.debug
           if-no-files-found: error
           retention-days: 7
+
+  # Native Apple Silicon macOS build. Appended after the existing Windows, WinXP,
+  # and Linux jobs so their build/test/release flow remains unchanged. The package
+  # contains only public coop assets; licensed UFO data is fetched later only by
+  # the macOS test jobs and is never uploaded in an artifact or release asset.
+  build-macos:
+    needs: meta
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Install macOS build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew install \
+            cmake pkgconf autoconf automake libtool \
+            sdl12-compat sdl_gfx \
+            jsoncpp libsodium libvorbis flac libmikmod \
+            libpng jpeg-turbo libtiff zlib
+
+          local_prefix="$GITHUB_WORKSPACE/.mac-deps"
+          mkdir -p "$local_prefix"
+
+          # Homebrew's Apple Silicon prefix is /opt/homebrew, which Clang does not
+          # search automatically. SDL_image/mixer/net 1.2 are built below into the
+          # local prefix, while the remaining dependencies come from Homebrew.
+          pc_paths=("$local_prefix/lib/pkgconfig")
+          include_paths=("$local_prefix/include" "$local_prefix/include/SDL")
+          lib_paths=("$local_prefix/lib")
+          for formula in sdl12-compat sdl_gfx jsoncpp libsodium libvorbis flac libmikmod libpng jpeg-turbo libtiff zlib; do
+            prefix="$(brew --prefix "$formula")"
+            [[ -d "$prefix/lib/pkgconfig" ]] && pc_paths+=("$prefix/lib/pkgconfig")
+            [[ -d "$prefix/share/pkgconfig" ]] && pc_paths+=("$prefix/share/pkgconfig")
+            [[ -d "$prefix/include" ]] && include_paths+=("$prefix/include")
+            [[ -d "$prefix/lib" ]] && lib_paths+=("$prefix/lib")
+          done
+
+          {
+            echo "MAC_DEPS_PREFIX=$local_prefix"
+            echo "PKG_CONFIG_PATH=$(IFS=:; echo "${pc_paths[*]}")"
+            echo "CPPFLAGS=$(printf -- '-I%s ' "${include_paths[@]}")"
+            echo "LDFLAGS=$(printf -- '-L%s ' "${lib_paths[@]}")"
+            echo "PATH=$local_prefix/bin:$PATH"
+          } >> "$GITHUB_ENV"
+
+      - name: Build SDL 1.2 companion libraries
+        shell: bash
+        run: |
+          set -euxo pipefail
+          src="$RUNNER_TEMP/sdl12-deps"
+          rm -rf "$src"
+          mkdir -p "$src"
+          cd "$src"
+
+          modern_guess="$(find "$(brew --prefix automake)/share" -name config.guess -type f | head -1)"
+          modern_sub="$(find "$(brew --prefix automake)/share" -name config.sub -type f | head -1)"
+          [[ -f "$modern_guess" && -f "$modern_sub" ]]
+
+          build_autotools() {
+            local name="$1"
+            local version="$2"
+            local url="$3"
+            local archive="${name}-${version}.tar.gz"
+
+            curl --fail --location --retry 5 --retry-all-errors \
+              --output "$archive" "$url"
+            tar -xzf "$archive"
+            cd "${name}-${version}"
+
+            # The original release tarballs predate Apple Silicon. Replace their
+            # platform-detection helpers and keep legacy C warnings local to them.
+            while IFS= read -r -d '' f; do cp "$modern_guess" "$f"; done < <(find . -name config.guess -print0)
+            while IFS= read -r -d '' f; do cp "$modern_sub" "$f"; done < <(find . -name config.sub -print0)
+
+            CFLAGS="${CFLAGS:-} -Wno-implicit-function-declaration -Wno-error=implicit-function-declaration" \
+            OBJCFLAGS="${OBJCFLAGS:-} -Wno-implicit-function-declaration -Wno-error=implicit-function-declaration" \
+            SDL_CONFIG="$(brew --prefix sdl12-compat)/bin/sdl-config" \
+              ./configure --prefix="$MAC_DEPS_PREFIX" --disable-dependency-tracking
+            make -j"$(sysctl -n hw.logicalcpu)"
+            make install
+            cd "$src"
+          }
+
+          build_autotools SDL_image 1.2.12 \
+            https://www.libsdl.org/projects/SDL_image/release/SDL_image-1.2.12.tar.gz
+          build_autotools SDL_mixer 1.2.12 \
+            https://www.libsdl.org/projects/SDL_mixer/release/SDL_mixer-1.2.12.tar.gz
+          build_autotools SDL_net 1.2.8 \
+            https://www.libsdl.org/projects/SDL_net/release/SDL_net-1.2.8.tar.gz
+
+          pkg-config --modversion sdl SDL_image SDL_gfx SDL_mixer SDL_net libsodium zlib jsoncpp
+
+      - name: Stamp src/version.h
+        shell: bash
+        run: sh tools/ci/stamp_version.sh "${{ needs.meta.outputs.version }}" "${{ needs.meta.outputs.gitSuffix }}"
+
+      - name: Configure + build macOS arm64 bundle
+        shell: bash
+        run: |
+          set -euxo pipefail
+          jsoncpp_cflags="$(pkg-config --cflags jsoncpp)"
+          cmake -S . -B build-macos \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDEV_BUILD=OFF \
+            -DBUILD_PACKAGE=OFF \
+            -DCREATE_BUNDLE=ON \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
+            -DCMAKE_PREFIX_PATH="$MAC_DEPS_PREFIX;$(brew --prefix)" \
+            -DCMAKE_C_FLAGS="$CPPFLAGS" \
+            -DCMAKE_CXX_FLAGS="$CPPFLAGS $jsoncpp_cflags" \
+            -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS"
+          cmake --build build-macos --config Release --parallel 3
+
+          exe="build-macos/openxcom.app/Contents/MacOS/openxcom"
+          test -x "$exe"
+          file "$exe"
+          file "$exe" | grep -q 'arm64'
+
+      - name: Prepare + validate macOS package
+        shell: bash
+        env:
+          RELEASE_RENDEZVOUS_JSON: ${{ secrets.RELEASE_RENDEZVOUS_JSON }}
+        run: |
+          set -euxo pipefail
+          app="build-macos/openxcom.app"
+          resources="$app/Contents/Resources"
+
+          if [[ -z "${RELEASE_RENDEZVOUS_JSON:-}" ]]; then
+            echo "::error::RELEASE_RENDEZVOUS_JSON is empty or unset"
+            exit 1
+          fi
+          RENDEZVOUS_PATH="$resources/rendezvous.json" \
+          RELEASE_RENDEZVOUS_JSON="$RELEASE_RENDEZVOUS_JSON" \
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ["RELEASE_RENDEZVOUS_JSON"]
+          parsed = json.loads(raw)
+          servers = parsed.get("servers")
+          if not isinstance(servers, list) or not servers:
+              raise SystemExit("RELEASE_RENDEZVOUS_JSON must contain a non-empty servers array")
+          Path(os.environ["RENDEZVOUS_PATH"]).write_text(raw, encoding="ascii")
+          PY
+
+          # Ad-hoc signing is sufficient for CI and local testing on the Mac mini.
+          # It is not notarization and does not require an Apple Developer account.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+          test -d "$resources/common"
+          test -d "$resources/standard"
+          test -f "$resources/UFO/multiplayer/base.png"
+          test ! -e "$resources/UFO/GEODATA"
+
+          # The finished app must not depend on Homebrew or checkout paths that only
+          # exist on the GitHub runner. PostprocessBundle.cmake should internalize them.
+          bad=0
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q 'Mach-O'; then
+              echo "--- $f"
+              otool -L "$f"
+              if otool -L "$f" | grep -E '/opt/homebrew|/usr/local|/Users/runner/work'; then
+                echo "::error::unbundled dependency in $f"
+                bad=1
+              fi
+            fi
+          done < <(find "$app" -type f -print0)
+          [[ "$bad" -eq 0 ]]
+
+      - name: Package macOS app
+        id: mac-package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          package="openxcom-coop-macos-${{ needs.meta.outputs.version }}-arm64"
+          mkdir -p "$package"
+          ditto build-macos/openxcom.app "$package/openxcom.app"
+          cp LICENSE.txt "$package/"
+          cat > "$package/HOW_TO_RUN.txt" <<'EOF'
+          OpenXcom Coop - macOS Apple Silicon
+          ===================================
+
+          This build is for Apple Silicon Macs (M1/M2/M3/M4), including an M4 Mac mini.
+
+          1. Extract the zip.
+          2. Copy your legally owned UFO: Enemy Unknown data into:
+             ~/Library/Application Support/OpenXcom/UFO/
+          3. Open openxcom.app. Because this CI build is not Apple-notarized, the first
+             launch may require right-clicking the app and choosing Open.
+
+          The zip deliberately contains no licensed UFO game data.
+          EOF
+          zip="${package}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$package" "$zip"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-macos
+          path: ${{ steps.mac-package.outputs.zip }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # Separate timing cache for macOS because its per-test runtimes differ from the
+  # Windows suite. All four macOS shards consume exactly this one generated plan.
+  macos-shard-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: .ci_timings_macos
+          key: coop-timings-macos-${{ github.run_id }}
+          restore-keys: coop-timings-macos-
+
+      - name: Plan four macOS test shards
+        shell: pwsh
+        run: ./tools/ci/plan_shards.ps1 -Of 4 -Timings .ci_timings_macos/timings.json -Out macos-shard-plan.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-shard-plan
+          path: macos-shard-plan.json
+          if-no-files-found: error
+          retention-days: 7
+
+  coop-macos-shard:
+    needs: [build-macos, macos-shard-plan]
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: { shard: [1, 2, 3, 4] }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-macos
+          path: .mac-package
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-shard-plan
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.13' }
+
+      - name: Extract macOS app
+        id: mac-app
+        shell: bash
+        run: |
+          set -euxo pipefail
+          zip="$(find .mac-package -maxdepth 1 -name '*.zip' -type f | head -1)"
+          test -n "$zip"
+          rm -rf .mac-test
+          mkdir .mac-test
+          ditto -x -k "$zip" .mac-test
+          app="$(find .mac-test -name openxcom.app -type d | head -1)"
+          test -d "$app"
+          echo "path=$app" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch UFO data (private, licensed)
+        uses: actions/checkout@v4
+        with:
+          repository: OpenXcom-Coop/UFO_Data
+          ssh-key: ${{ secrets.UFO_DATA_DEPLOY_KEY }}
+          path: .ufo_data
+          persist-credentials: false
+
+      - name: Stage test-only data inside app bundle
+        shell: bash
+        env:
+          APP: ${{ steps.mac-app.outputs.path }}
+        run: |
+          set -euxo pipefail
+          resources="$APP/Contents/Resources"
+          mkdir -p "$resources/UFO"
+          rsync -a --exclude .git .ufo_data/ "$resources/UFO/"
+          rsync -a bin/UFO/multiplayer/ "$resources/UFO/multiplayer/"
+          cp tools/coop_test/rendezvous.ci.json "$resources/rendezvous.json"
+          test -f "$resources/UFO/GEODATA"
+          test -f "$resources/UFO/multiplayer/base.png"
+          test -f "$resources/rendezvous.json"
+          codesign --force --deep --sign - "$APP"
+
+      - name: Coop test suite (macOS, shard ${{ matrix.shard }}/4)
+        timeout-minutes: 35
+        shell: pwsh
+        env:
+          OXC_TEST_EXE: ${{ steps.mac-app.outputs.path }}/Contents/MacOS/openxcom
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+          TEMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: >-
+          ./tools/ci/run_coop_suite.ps1 -PlanFile macos-shard-plan.json
+          -Shard ${{ matrix.shard }} -TimingsOut timings-${{ matrix.shard }}.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-timings-${{ matrix.shard }}
+          path: timings-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  coop-macos-tests:
+    needs: coop-macos-shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Gate on every macOS shard
+        if: needs.coop-macos-shard.result == 'failure' || needs.coop-macos-shard.result == 'cancelled'
+        run: |
+          echo "::error::coop-macos-shard: ${{ needs.coop-macos-shard.result }}"
+          exit 1
+
+      - uses: actions/checkout@v4
+        if: needs.coop-macos-shard.result == 'success'
+
+      - uses: actions/download-artifact@v4
+        if: needs.coop-macos-shard.result == 'success'
+        with:
+          pattern: macos-timings-*
+          path: .ci_new_macos
+          merge-multiple: false
+        continue-on-error: true
+
+      - uses: actions/cache/restore@v4
+        if: needs.coop-macos-shard.result == 'success'
+        with:
+          path: .ci_timings_macos
+          key: coop-timings-macos-${{ github.run_id }}
+          restore-keys: coop-timings-macos-
+        continue-on-error: true
+
+      - name: Merge macOS shard timings for the next run
+        if: needs.coop-macos-shard.result == 'success'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          New-Item -ItemType Directory -Force .ci_timings_macos | Out-Null
+          ./tools/ci/merge_timings.ps1 -In .ci_new_macos -Prev .ci_timings_macos/timings.json -Out .ci_timings_macos/timings.json
+
+      - uses: actions/cache/save@v4
+        if: needs.coop-macos-shard.result == 'success'
+        continue-on-error: true
+        with:
+          path: .ci_timings_macos
+          key: coop-timings-macos-${{ github.run_id }}
+
+  # Keep the original publish job untouched. After it has created the nightly or
+  # versioned release, append the tested macOS package as one more release asset.
+  publish-macos:
+    needs: [meta, publish, build-macos, coop-macos-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pkg-macos
+          path: .pkg-macos
+
+      - name: Attach macOS package to the existing release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          package="$(find .pkg-macos -maxdepth 1 -name '*.zip' -type f | head -1)"
+          test -n "$package"
+          gh release upload "${{ needs.meta.outputs.tag }}" "$package" \
+            --repo "$GITHUB_REPOSITORY" --clobber
