@@ -169,7 +169,7 @@ def resume_campaign(host, client, save_file, port="47900",
 
 def resume_campaign_battle(host, client, save_file, port="47900",
                            host_name="HostPlayer", client_name="ClientPlayer",
-                           timeout=260, interval=2.0):
+                           timeout=120, interval=2.0):
     """Resume a MID-BATTLE co-op save.
 
     Like resume_campaign(), but the save carries a battleGame, so this must NOT
@@ -198,11 +198,20 @@ def resume_campaign_battle(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
+    # Wait until the client is registered in the host's resume lobby (both roster
+    # slots present), THEN press the REAL resume button. We must NOT use
+    # lobby_resume_campaign as the readiness probe: that command calls
+    # LobbyMenu::resumeCampaign() DIRECTLY, bypassing btnCancelClick and its
+    # _resumeToGame branch - the exact code path where the mid-battle-resume bug
+    # lives (issue: client stuck on lobby, host plays solo). Press the button the
+    # player actually presses instead, so the test exercises that branch.
     host.wait_for(
-        "all registered players joined",
-        lambda: (lambda r: r.get("ok") is True or None)(host.cmd({"cmd": "lobby_resume_campaign"})),
-        timeout=60, interval=2.0,
+        "client registered in resume lobby",
+        lambda: (host.cmd({"cmd": "get_coop"}).get("clientName") == client_name) or None,
+        timeout=60, interval=1.0,
     )
+    time.sleep(2)                      # let the roster/registration settle
+    host.ok({"cmd": "lobby_action"})   # real RESUME button (btnCancelClick)
 
     def _in_battle(gc):
         return gc.cmd({"cmd": "battle_state"}).get("inBattle")
