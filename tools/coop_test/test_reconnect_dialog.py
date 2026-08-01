@@ -363,7 +363,7 @@ def scenario_resume_wait_buttons():
 
         host.wait_for("start eligible",
                       lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None)
-        host.ok({"cmd": "lobby_start_campaign"})
+        session.start_campaign_via_button(host)
         host.wait_for("host base placement",
                       lambda: session.has_state(host, "BuildNewBaseState"))
         r = host.cmd({"cmd": "place_first_base", "lon": session.HOST_LON,
@@ -434,7 +434,7 @@ def scenario_wait_reword():
             gc.ok({"cmd": "profile_ok"})
         host.wait_for("start eligible",
                       lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None)
-        host.ok({"cmd": "lobby_start_campaign"})
+        session.start_campaign_via_button(host)
         host.wait_for("host base placement",
                       lambda: session.has_state(host, "BuildNewBaseState"))
         r = host.cmd({"cmd": "place_first_base", "lon": session.HOST_LON,

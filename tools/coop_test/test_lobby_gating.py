@@ -52,8 +52,16 @@ def main():
         # show the mid-game RESUME GAME button - that is only for the in-game coop menu.
         assert ls.get("buttonText") != "RESUME GAME", \
             f"B7: pre-game lobby wrongly shows RESUME GAME: {ls}"
-        r = host.cmd({"cmd": "lobby_start_campaign"})
-        assert not r.get("ok"), f"BUG1: lone host could START CAMPAIGN: {r}"
+        # press the REAL START button; a lone (ineligible) host must no-op - no
+        # confirm dialog, no start, still in the lobby.
+        host.ok({"cmd": "lobby_action"})
+        time.sleep(1)
+        assert not session._has_state(host, "ConfirmStartCampaignState"), \
+            "BUG1: lone host opened the START CAMPAIGN confirm dialog"
+        assert not session._has_state(host, "BuildNewBaseState"), \
+            "BUG1: lone host started the campaign (reached base placement)"
+        assert session._has_state(host, "LobbyMenu"), \
+            "BUG1: lone host fell out of the lobby"
         print("PASS bug1: lone host cannot start the campaign")
 
         # --- Bug 2: first placer waits with frozen time ---
@@ -63,7 +71,7 @@ def main():
             "start eligible with client",
             lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None,
         )
-        host.ok({"cmd": "lobby_start_campaign"})
+        session.start_campaign_via_button(host)
 
         # CLIENT places first, before the host
         client.wait_for("client base placement", lambda: session._has_state(client, "BuildNewBaseState"))
@@ -139,8 +147,8 @@ def main():
             lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None,
         )
 
-        # open the REAL confirm dialog (not the startCampaign bypass)
-        host.ok({"cmd": "lobby_start_campaign", "confirm": "dialog"})
+        # open the REAL confirm dialog via the real START button (btnCancelClick)
+        host.ok({"cmd": "lobby_action"})
         host.wait_for(
             "confirm dialog up",
             lambda: ("ConfirmStartCampaignState" in geo.top_state(host)) or None,
