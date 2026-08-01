@@ -77,7 +77,14 @@ def new_campaign(host, client, port="47900",
         "start eligible",
         lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None,
     )
-    host.ok({"cmd": "lobby_start_campaign"})
+    # Press the REAL START CAMPAIGN button (btnCancelClick), not the
+    # lobby_start_campaign shortcut which calls startCampaign() directly and skips
+    # btnCancelClick's gating + the confirm dialog. btnCancelClick opens
+    # ConfirmStartCampaignState; its OK (clickStartConfirmOk) actually starts.
+    host.ok({"cmd": "lobby_action"})
+    host.wait_for("start confirm dialog",
+                  lambda: _has_state(host, "ConfirmStartCampaignState"))
+    host.ok({"cmd": "lobby_confirm_ok"})
 
     # the host always places its own first base
     host.wait_for("host base placement", lambda: _has_state(host, "BuildNewBaseState"))
@@ -144,12 +151,17 @@ def resume_campaign(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
+    # Press the REAL RESUME button (btnCancelClick), not the lobby_resume_campaign
+    # shortcut which calls resumeCampaign() directly and bypasses btnCancelClick's
+    # _resumeToGame branch + gates. Wait until the host sees the peer first so the
+    # button's missingPlayers()/startEligible() gate is satisfied.
     host.wait_for(
-        "all registered players joined",
-        lambda: (lambda r: r.get("ok") is True or None)(host.cmd({"cmd": "lobby_resume_campaign"})),
-        timeout=60,
-        interval=2.0,
+        "client registered in resume lobby",
+        lambda: (host.cmd({"cmd": "get_coop"}).get("clientName") == client_name) or None,
+        timeout=60, interval=1.0,
     )
+    time.sleep(2)
+    host.ok({"cmd": "lobby_action"})
 
     # host holds in the loading dialog until the client acks, then RESUME
     host.wait_for(
