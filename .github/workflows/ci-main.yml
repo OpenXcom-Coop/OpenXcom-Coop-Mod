@@ -287,6 +287,31 @@ jobs:
           if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
           if (-not (Test-Path "bin\x64\Release\OpenXcom.exe")) { throw "exe artifact missing" }
 
+      - name: Bundle MSVC x64 CRT (app-local, so no VC++ Redistributable needed)
+        shell: pwsh
+        run: |
+          # The shipped x64 exe links the MSVC runtime dynamically (OpenXcom.2010.vcxproj
+          # Release|x64 = MultiThreadedDLL, i.e. /MD), so it needs vcruntime140.dll,
+          # vcruntime140_1.dll and msvcp140.dll at runtime. Only the third-party libs
+          # (SDL, zlib, ...) were bundled, so on a fresh machine WITHOUT the VC++
+          # Redistributable installed the game failed to start with "DLL are missing".
+          # Ship the CRT app-local next to the exe (Microsoft-sanctioned redistribution).
+          # The Universal CRT (ucrtbase.dll) ships with Windows 10+, so it is not bundled.
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere not found at $vswhere - cannot locate MSVC redist" }
+          $vsRoot = & $vswhere -latest -products * -property installationPath
+          if (-not $vsRoot) { throw "no Visual Studio install found for the MSVC redist" }
+          # The redist version dir floats with the toolset; take the newest x64 CRT dir.
+          $crtDir = Get-ChildItem "$vsRoot\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory -ErrorAction SilentlyContinue |
+                    Sort-Object FullName | Select-Object -Last 1
+          if (-not $crtDir) { throw "MSVC x64 CRT redist dir not found under $vsRoot\VC\Redist\MSVC" }
+          foreach ($d in 'vcruntime140.dll','vcruntime140_1.dll','msvcp140.dll') {
+            $src = Join-Path $crtDir.FullName $d
+            if (-not (Test-Path $src)) { throw "CRT DLL missing from redist: $src" }
+            Copy-Item $src bin\x64\Release -Force
+          }
+          Write-Host "bundled MSVC x64 CRT from $($crtDir.FullName)"
+
       - name: Write release rendezvous.json (real Official server, from secret)
         shell: pwsh
         env:
@@ -323,6 +348,15 @@ jobs:
           Copy-Item bin\TFTD\multiplayer "$p\TFTD" -Recurse    # coop art only
           Compress-Archive "$p\*" -DestinationPath $z -Force
           ./tools/ci/assert_package.ps1 $z
+          # Regression guard for the "requires C++ Redistributable" bug: the /MD-linked
+          # x64 exe needs these three CRT DLLs bundled app-local. WinXP is static and
+          # Linux/macOS bundle their own runtime, so this check is x64-only.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zx = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $z).Path)
+          try { $zn = @($zx.Entries.FullName -replace '\\','/') } finally { $zx.Dispose() }
+          foreach ($d in 'vcruntime140.dll','vcruntime140_1.dll','msvcp140.dll') {
+            if ($zn -notcontains $d) { throw "$z is missing bundled CRT $d - would need the VC++ Redistributable" }
+          }
           # The WinXP zip was asserted as a staged tree in its own job; re-assert the
           # finished archive here, so what actually gets uploaded is what was checked.
           $xp = Get-ChildItem .pkgs\*winxp*.zip | Select-Object -First 1
