@@ -5562,6 +5562,12 @@ std::string TestServer::execute(const std::string& line)
 				// consume that base's quarters.
 				resp["usedQuarters"] = target->getUsedQuarters();
 				resp["availableQuarters"] = target->getAvailableQuarters();
+				// General-stores accounting (read-only). Personnel hires need ZERO
+				// store space, so a full store must never block a scientist/engineer/
+				// soldier recruit while quarters are free - a test can assert both
+				// preconditions (usedStores > availableStores, quarters free) here.
+				resp["usedStores"] = target->getUsedStores();
+				resp["availableStores"] = target->getAvailableStores();
 				resp["totalSoldiers"] = target->getTotalSoldiers();
 				resp["coopQuarters"] = target->coop_quarters;
 				resp["coopSoldiers"] = target->coop_soldiers;

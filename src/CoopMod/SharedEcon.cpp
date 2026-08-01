@@ -376,7 +376,12 @@ bool buyValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*
 
 	// Funds checked first so an insufficient-funds rejection is unambiguous.
 	if (save->getFunds() < total) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
-	if (base->storesOverfull(storeAdd)) { failReason = "STR_NOT_ENOUGH_STORE_SPACE"; return false; }
+	// Only gate on store space when the order actually adds store volume. A
+	// personnel-only hire (soldier/scientist/engineer) has storeAdd==0 and needs no
+	// stores, so it must never be blocked just because existing stores are already
+	// full - storesOverfull(0.0) is true whenever the base is at/over capacity.
+	if (storeAdd > 0.0 && base->storesOverfull(storeAdd))
+		{ failReason = "STR_NOT_ENOUGH_STORE_SPACE"; return false; }
 	if (quartersAdd > base->getAvailableQuarters() - base->getUsedQuarters())
 		{ failReason = "STR_NOT_ENOUGH_LIVING_SPACE"; return false; }
 	if (hangarsAdd > base->getAvailableHangars() - base->getUsedHangars())

@@ -8,7 +8,11 @@ tag a release. Nightlies use auto-generated notes and do not read this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
 
 ## [Unreleased]
-- Notes for the next release accumulate here; rename to `## [x.y.z]` when tagging.
+### Fixed
+- Co-op SHARED campaigns: hiring soldiers, scientists, or engineers is no longer
+  blocked with "not enough store space" when a base's general stores are full but
+  its living quarters have room. Personnel occupy quarters, not stores, so a
+  zero-store hire must not be rejected just because existing stores are at capacity.
 
 <!-- Template for the next release section (keep this comment ABOVE the newest
      released section: the notes extractor reads from "## [<v>]" until the next
