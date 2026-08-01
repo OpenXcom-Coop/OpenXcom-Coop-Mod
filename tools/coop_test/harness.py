@@ -113,7 +113,14 @@ class GameClient:
         env["OXC_TEST_PORT"] = str(self.port)
         # tuck the window into a corner (host left, client right of it)
         env["SDL_VIDEO_WINDOW_POS"] = "0,40" if "host" in self.name else "660,40"
-        args = [EXE, "-user", self.user_dir] + list(extra_args)
+        exe_dir = os.path.dirname(EXE) or "."
+        if os.name == "nt":
+            # Preserve the existing Windows launch path.
+            launch_exe = EXE
+        else:
+            # POSIX resolves this relative to exe_dir after changing cwd.
+            launch_exe = os.path.join(".", os.path.basename(EXE))
+        args = [launch_exe, "-user", self.user_dir] + list(extra_args)
         popen_kwargs = {}
         if os.name == "nt":
             # Best-effort: ask Windows to start the window without activating it.
@@ -122,7 +129,7 @@ class GameClient:
             si.wShowWindow = 7  # SW_SHOWMINNOACTIVE
             popen_kwargs["startupinfo"] = si
         self.proc = subprocess.Popen(
-            args, env=env, cwd=os.path.dirname(EXE), **popen_kwargs)
+            args, env=env, cwd=exe_dir, **popen_kwargs)
 
     def connect(self, timeout=60):
         deadline = time.time() + timeout
