@@ -50,6 +50,10 @@ private:
 	/// SHARED (PRD-J09 GAP-5b): mount @a selRule (0 = dismount) in this slot -
 	/// routes craft_rearm in SHARED, mutates the shared stores locally in SEPARATE.
 	void equipSelectedWeapon(RuleCraftWeapon* selRule);
+	/// Capacity gate shared by lstWeaponsClick (UI) and harnessEquip (test):
+	/// STR_ error key of the first craft-capacity limit mounting @a refWeapon in
+	/// this slot would violate, or "" if it fits. No state-stack side effects.
+	std::string equipCapacityError(const RuleCraftWeapon* refWeapon) const;
 public:
 	/// Creates the Craft Weapons state.
 	CraftWeaponsState(Base *base, size_t craft, size_t weapon);
