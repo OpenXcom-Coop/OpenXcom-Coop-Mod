@@ -133,8 +133,17 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		if (dynamic_cast<BattlescapeState*>(s)) { battleRunning = true; }
 		else if (dynamic_cast<GeoscapeState*>(s)) { geoRunning = true; }
 	}
-	_resumeToGame = battleRunning
-		|| (geoRunning && connectionTCP::session.sessionLocked);
+	// ...but a mode-2 lobby is a RESUME-FROM-SAVE lobby: loading a mid-battle save
+	// leaves a BattlescapeState on the stack (the host's own battle) BEFORE the
+	// session is live and BEFORE any client has been served its world. Treating
+	// that as "return to the running game" makes RESUME pop the host straight into
+	// its battle and never serve the client - the client is stranded on the lobby.
+	// Such a lobby must always go through resumeCampaign(); it is never a
+	// resume-to-running-game. The mid-game coop menu (B7) and a mid-battle
+	// reconnect are never mode 2, so they are unaffected.
+	_resumeToGame = (battleRunning
+		|| (geoRunning && connectionTCP::session.sessionLocked))
+		&& connectionTCP::session.lobbyMode != 2;
 
 	connectionTCP::session.markLobbyOpen();
 

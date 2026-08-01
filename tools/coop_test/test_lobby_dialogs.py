@@ -175,7 +175,7 @@ def test_wait_bases_dialog():
 
         host.wait_for("start eligible",
                       lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None)
-        host.ok({"cmd": "lobby_start_campaign"})
+        session.start_campaign_via_button(host)
 
         # host places first, then sits in WAIT_BASES waiting for the client
         host.wait_for("host base placement", lambda: session.has_state(host, "BuildNewBaseState"))

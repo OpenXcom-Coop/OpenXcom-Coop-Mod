@@ -80,11 +80,7 @@ def main():
         client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47900", "player": "ClientPlayer"})
         client.wait_for("client resume lobby", lambda: session._has_state(client, "LobbyMenu"))
 
-        host.wait_for(
-            "resume accepted",
-            lambda: (lambda rr: rr.get("ok") is True or None)(host.cmd({"cmd": "lobby_resume_campaign"})),
-            timeout=60, interval=2.0,
-        )
+        session.resume_campaign_via_button(host, "ClientPlayer")
         host.wait_for(
             "client world ack",
             lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,

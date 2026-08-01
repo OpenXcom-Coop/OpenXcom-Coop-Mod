@@ -43,6 +43,33 @@ _states = states
 _has_state = has_state
 
 
+def start_campaign_via_button(host):
+    """Press the REAL START CAMPAIGN button the way a player does: btnCancelClick
+    (which opens ConfirmStartCampaignState) then the dialog's OK
+    (clickStartConfirmOk). Do NOT use lobby_start_campaign - it calls
+    LobbyMenu::startCampaign() directly and skips btnCancelClick's gating + the
+    confirm dialog (the same class of bypass that hid the mid-battle-resume bug).
+    Host must be an eligible mode-1 lobby (client joined, startEligible)."""
+    host.ok({"cmd": "lobby_action"})
+    host.wait_for("start confirm dialog",
+                  lambda: _has_state(host, "ConfirmStartCampaignState"))
+    host.ok({"cmd": "lobby_confirm_ok"})
+
+
+def resume_campaign_via_button(host, client_name="ClientPlayer"):
+    """Press the REAL RESUME button (btnCancelClick) on a mode-2 resume lobby,
+    after the host sees the peer so the missingPlayers()/startEligible() gate is
+    satisfied. Do NOT use lobby_resume_campaign - it calls resumeCampaign()
+    directly and bypasses btnCancelClick's _resumeToGame branch."""
+    host.wait_for(
+        "client registered in resume lobby",
+        lambda: (host.cmd({"cmd": "get_coop"}).get("clientName") == client_name) or None,
+        timeout=60, interval=1.0,
+    )
+    time.sleep(2)
+    host.ok({"cmd": "lobby_action"})
+
+
 def new_campaign(host, client, port="47900",
                  host_name="HostPlayer", client_name="ClientPlayer",
                  host_base="HostBase", client_base="ClientBase",
@@ -77,7 +104,8 @@ def new_campaign(host, client, port="47900",
         "start eligible",
         lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None,
     )
-    host.ok({"cmd": "lobby_start_campaign"})
+    # Press the REAL START CAMPAIGN button + confirm dialog (see helper).
+    start_campaign_via_button(host)
 
     # the host always places its own first base
     host.wait_for("host base placement", lambda: _has_state(host, "BuildNewBaseState"))
@@ -144,12 +172,8 @@ def resume_campaign(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
-    host.wait_for(
-        "all registered players joined",
-        lambda: (lambda r: r.get("ok") is True or None)(host.cmd({"cmd": "lobby_resume_campaign"})),
-        timeout=60,
-        interval=2.0,
-    )
+    # Press the REAL RESUME button (see helper) instead of the direct-call shortcut.
+    resume_campaign_via_button(host, client_name)
 
     # host holds in the loading dialog until the client acks, then RESUME
     host.wait_for(
@@ -169,7 +193,7 @@ def resume_campaign(host, client, save_file, port="47900",
 
 def resume_campaign_battle(host, client, save_file, port="47900",
                            host_name="HostPlayer", client_name="ClientPlayer",
-                           timeout=260, interval=2.0):
+                           timeout=120, interval=2.0):
     """Resume a MID-BATTLE co-op save.
 
     Like resume_campaign(), but the save carries a battleGame, so this must NOT
@@ -198,11 +222,10 @@ def resume_campaign_battle(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
-    host.wait_for(
-        "all registered players joined",
-        lambda: (lambda r: r.get("ok") is True or None)(host.cmd({"cmd": "lobby_resume_campaign"})),
-        timeout=60, interval=2.0,
-    )
+    # Press the REAL resume button (btnCancelClick). This is the branch where the
+    # mid-battle-resume bug lived - the direct lobby_resume_campaign shortcut skips
+    # it. See resume_campaign_via_button.
+    resume_campaign_via_button(host, client_name)
 
     def _in_battle(gc):
         return gc.cmd({"cmd": "battle_state"}).get("inBattle")

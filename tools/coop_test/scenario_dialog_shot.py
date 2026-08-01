@@ -29,7 +29,7 @@ def main(out_png):
         client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47900", "player": "ClientPlayer"})
         client.wait_for("client lobby", lambda: session._has_state(client, "LobbyMenu"))
         host.wait_for("eligible", lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None)
-        host.ok({"cmd": "lobby_start_campaign"})
+        session.start_campaign_via_button(host)
 
         client.wait_for("client base placement", lambda: session._has_state(client, "BuildNewBaseState"))
         client.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": "ClientBase"})
