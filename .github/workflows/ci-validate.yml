@@ -695,7 +695,7 @@ jobs:
           rsync -a --exclude .git .ufo_data/ "$resources/UFO/"
           rsync -a bin/UFO/multiplayer/ "$resources/UFO/multiplayer/"
           cp tools/coop_test/rendezvous.ci.json "$resources/rendezvous.json"
-          test -f "$resources/UFO/GEODATA"
+          test -d "$resources/UFO/GEODATA"
           test -f "$resources/UFO/multiplayer/base.png"
           test -f "$resources/rendezvous.json"
           codesign --force --deep --sign - "$APP"

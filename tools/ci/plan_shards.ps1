@@ -18,12 +18,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Same discovery the suite uses, so the plan can never disagree with the runner.
-$tests = Get-ChildItem tools\coop_test\boot_check.py, tools\coop_test\test_*.py |
+$testDir = Join-Path (Get-Location) "tools/coop_test"
+$tests = Get-ChildItem (Join-Path $testDir "boot_check.py"), (Join-Path $testDir "test_*.py") |
          Select-Object -ExpandProperty BaseName | Sort-Object
 
 $weights = @{}
 $source = "none"
-foreach ($f in @($Timings, "tools\ci\test_weights.json")) {
+foreach ($f in @($Timings, (Join-Path (Get-Location) "tools/ci/test_weights.json"))) {
   if ($f -and (Test-Path $f)) {
     (Get-Content $f -Raw | ConvertFrom-Json).PSObject.Properties |
       ForEach-Object { $weights[$_.Name] = [double]$_.Value }

@@ -40,7 +40,8 @@ foreach ($kv in $new.GetEnumerator()) {
 }
 
 # Forget tests that are gone, so the weights file cannot grow forever.
-$live = @(Get-ChildItem tools\coop_test\boot_check.py, tools\coop_test\test_*.py -ErrorAction SilentlyContinue |
+$testDir = Join-Path (Get-Location) "tools/coop_test"
+$live = @(Get-ChildItem (Join-Path $testDir "boot_check.py"), (Join-Path $testDir "test_*.py") -ErrorAction SilentlyContinue |
           Select-Object -ExpandProperty BaseName)
 $dropped = @()
 if ($live.Count) {
