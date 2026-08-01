@@ -479,7 +479,7 @@ jobs:
           set -euxo pipefail
           brew install \
             cmake pkgconf autoconf automake libtool \
-            sdl12-compat sdl_gfx \
+            sdl12-compat sdl2-compat sdl3 sdl_gfx \
             jsoncpp libsodium libvorbis flac libmikmod \
             libpng jpeg-turbo libtiff zlib
 
@@ -573,9 +573,37 @@ jobs:
           set -euxo pipefail
           app="build-macos/openxcom.app"
           resources="$app/Contents/Resources"
+
+          # sdl12-compat loads SDL2 with dlopen(), so CMake cannot discover it
+          # as a normal linked dependency. Bundle Homebrew's SDL2 and SDL3
+          # compatibility runtimes explicitly before signing the application.
+          bash tools/ci/bundle_macos_sdl_runtime.sh "$app"
           cp tools/coop_test/rendezvous.ci.json "$resources/rendezvous.json"
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
+
+          # Load the bundled SDL 1.2 compatibility library directly. Its startup
+          # path must now find the bundled SDL2 runtime, which in turn must find
+          # the bundled SDL3 runtime. This catches the exact failure seen on the
+          # Mac mini before an artifact is uploaded.
+          bundled_sdl12="$(find "$app/Contents/Frameworks" -maxdepth 1 -type f -name 'libSDL-1.2*.dylib' | head -1)"
+          test -n "$bundled_sdl12"
+          BUNDLED_SDL12="$bundled_sdl12" \
+          SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+          python3 - <<'PY'
+          import ctypes
+          import os
+
+          sdl = ctypes.CDLL(os.environ["BUNDLED_SDL12"])
+          sdl.SDL_Init.argtypes = [ctypes.c_uint32]
+          sdl.SDL_Init.restype = ctypes.c_int
+          sdl.SDL_GetError.restype = ctypes.c_char_p
+          if sdl.SDL_Init(0) != 0:
+              error = sdl.SDL_GetError()
+              raise SystemExit(error.decode("utf-8", errors="replace") if error else "SDL_Init failed")
+          sdl.SDL_Quit()
+          print("Bundled SDL 1.2 -> SDL2 -> SDL3 runtime chain loaded successfully.")
+          PY
 
           test -d "$resources/common"
           test -d "$resources/standard"
@@ -586,9 +614,14 @@ jobs:
           while IFS= read -r -d '' f; do
             if file "$f" | grep -q 'Mach-O'; then
               echo "--- $f"
-              otool -L "$f"
-              if otool -L "$f" | grep -E '/opt/homebrew|/usr/local|/Users/runner/work'; then
-                echo "::error::unbundled dependency in $f"
+              dependencies="$(otool -L "$f")"
+              rpaths="$(otool -l "$f" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }')"
+              printf '%s\n' "$dependencies"
+              if [[ -n "$rpaths" ]]; then
+                printf 'LC_RPATH: %s\n' "$rpaths"
+              fi
+              if printf '%s\n%s\n' "$dependencies" "$rpaths" | grep -E '/opt/homebrew|/usr/local|/Users/runner/work'; then
+                echo "::error::unbundled dependency or runtime path in $f"
                 bad=1
               fi
             fi
