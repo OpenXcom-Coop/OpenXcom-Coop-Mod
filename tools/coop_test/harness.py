@@ -9,12 +9,18 @@ drive both through save-load / host / join / lobby, then assert on soldiers.
 """
 
 import json
-import msvcrt
+import errno
 import os
 import shutil
 import socket
 import subprocess
+import tempfile
 import time
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # OXC_TEST_EXE points the whole suite at a different build - e.g.
@@ -22,13 +28,14 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # a binary without the fix. The exe's own directory supplies the game data, so
 # that tree has to be staged (tools/worktree_bootstrap.ps1).
 EXE = os.environ.get("OXC_TEST_EXE") or os.path.join(REPO, "bin", "x64", "Release", "OpenXcom.exe")
-TEST_ROOT = os.path.join(os.environ["TEMP"], "oxc-coop-test")
+TEMP_ROOT = os.environ.get("TEMP") or os.environ.get("TMPDIR") or tempfile.gettempdir()
+TEST_ROOT = os.path.join(TEMP_ROOT, "oxc-coop-test")
 
 # Machine-wide harness lock: suites are stateful (fixed TCP ports per test,
 # shared TEST_ROOT under %TEMP%), so concurrent runs — e.g. from two git
 # worktrees — would collide. First spawn in a process takes the lock; the OS
 # releases it when the process exits (including on crash).
-_LOCK_PATH = os.path.join(os.environ["TEMP"], "oxc-coop-harness.lock")
+_LOCK_PATH = os.path.join(TEMP_ROOT, "oxc-coop-harness.lock")
 _lock_handle = None
 
 
@@ -41,12 +48,18 @@ def _acquire_machine_lock(timeout=3600):
     waited = False
     while True:
         try:
-            msvcrt.locking(h.fileno(), msvcrt.LK_NBLCK, 1)
+            if os.name == "nt":
+                msvcrt.locking(h.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(h.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             _lock_handle = h  # held for process lifetime
             if waited:
                 print("[harness] machine lock acquired")
             return
-        except OSError:
+        except OSError as exc:
+            if os.name != "nt" and exc.errno not in (errno.EACCES, errno.EAGAIN):
+                h.close()
+                raise
             if time.time() > deadline:
                 h.close()
                 raise TimeoutError(
@@ -100,12 +113,23 @@ class GameClient:
         env["OXC_TEST_PORT"] = str(self.port)
         # tuck the window into a corner (host left, client right of it)
         env["SDL_VIDEO_WINDOW_POS"] = "0,40" if "host" in self.name else "660,40"
-        args = [EXE, "-user", self.user_dir] + list(extra_args)
-        # best-effort: ask Windows to start the window without activating it
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        si.wShowWindow = 7  # SW_SHOWMINNOACTIVE
-        self.proc = subprocess.Popen(args, env=env, cwd=os.path.dirname(EXE), startupinfo=si)
+        exe_dir = os.path.dirname(EXE) or "."
+        if os.name == "nt":
+            # Preserve the existing Windows launch path.
+            launch_exe = EXE
+        else:
+            # POSIX resolves this relative to exe_dir after changing cwd.
+            launch_exe = os.path.join(".", os.path.basename(EXE))
+        args = [launch_exe, "-user", self.user_dir] + list(extra_args)
+        popen_kwargs = {}
+        if os.name == "nt":
+            # Best-effort: ask Windows to start the window without activating it.
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 7  # SW_SHOWMINNOACTIVE
+            popen_kwargs["startupinfo"] = si
+        self.proc = subprocess.Popen(
+            args, env=env, cwd=exe_dir, **popen_kwargs)
 
     def connect(self, timeout=60):
         deadline = time.time() + timeout

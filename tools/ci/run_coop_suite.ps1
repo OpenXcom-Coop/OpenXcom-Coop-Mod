@@ -20,20 +20,28 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+# Use the platform's normal Python command. setup-python provides both names on CI,
+# but this also keeps local macOS/Linux runs working when only python3 is installed.
+$python = if ($env:OS -eq "Windows_NT") { "python" } else { "python3" }
+
 # Ensure the harness's Python deps. test_save_upgrade{,_flow}.py parse the two-document
 # save streams with PyYAML; the CI runners do not ship it. Install once, only if missing
 # (a no-op on dev machines that already have it). No stderr redirect: under
 # ErrorActionPreference=Stop a redirected native stderr can raise NativeCommandError; an
 # unredirected ImportError traceback is harmless (only prints on the miss, before install).
-python -c "import yaml"
+& $python -c "import yaml"
 if ($LASTEXITCODE -ne 0) {
   Write-Host "installing pyyaml (required by the save-upgrade tests)..."
-  python -m pip install --quiet --disable-pip-version-check pyyaml
+  & $python -m pip install --quiet --disable-pip-version-check pyyaml
   if ($LASTEXITCODE -ne 0) { throw "failed to install pyyaml" }
 }
 
 # Discover the checkout's actual harness so the suite never goes stale.
-$tests = Get-ChildItem tools\coop_test\boot_check.py, tools\coop_test\test_*.py |
+# Join-Path keeps this script usable on Windows, Linux, and macOS.
+$testDir = Join-Path (Get-Location) "tools/coop_test"
+$bootCheck = Join-Path $testDir "boot_check.py"
+$testPattern = Join-Path $testDir "test_*.py"
+$tests = Get-ChildItem $bootCheck, $testPattern |
          Select-Object -ExpandProperty BaseName | Sort-Object
 
 if ($PlanFile) {
@@ -61,12 +69,12 @@ $results = @()
 $fail = 0
 foreach ($t in $tests) {
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
-  python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE
+  & $python (Join-Path $testDir "$t.py"); $rc = $LASTEXITCODE
   $attempts = 1
   $secs = [math]::Round($sw.Elapsed.TotalSeconds, 1)
   if ($rc -ne 0) {
     $sw.Restart()
-    python "tools\coop_test\$t.py"; $rc = $LASTEXITCODE   # retry once (flake tolerance)
+    & $python (Join-Path $testDir "$t.py"); $rc = $LASTEXITCODE   # retry once (flake tolerance)
     $attempts = 2
     $secs = [math]::Round($sw.Elapsed.TotalSeconds, 1)    # time the LAST attempt only:
   }                                                       # a retry must not inflate the

@@ -457,3 +457,184 @@ jobs:
           cp LICENSE.txt "$pkg/"
           cp tools/coop_test/rendezvous.ci.json "$pkg/rendezvous.json"
           sh tools/ci/assert_package_dir.sh "$pkg"
+
+  # Native Apple Silicon macOS validation appended after the existing Windows,
+  # WinXP, and Linux jobs. It builds the PR head without release secrets, validates
+  # the standalone .app, and uploads it only as a short-lived test artifact.
+  build-macos:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install macOS build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew install \
+            cmake pkgconf autoconf automake libtool \
+            sdl12-compat sdl2-compat sdl3 sdl_gfx \
+            jsoncpp libsodium libvorbis flac libmikmod \
+            libpng jpeg-turbo libtiff zlib
+
+          local_prefix="$GITHUB_WORKSPACE/.mac-deps"
+          mkdir -p "$local_prefix"
+          pc_paths=("$local_prefix/lib/pkgconfig")
+          include_paths=("$local_prefix/include" "$local_prefix/include/SDL")
+          lib_paths=("$local_prefix/lib")
+          for formula in sdl12-compat sdl_gfx jsoncpp libsodium libvorbis flac libmikmod libpng jpeg-turbo libtiff zlib; do
+            prefix="$(brew --prefix "$formula")"
+            [[ -d "$prefix/lib/pkgconfig" ]] && pc_paths+=("$prefix/lib/pkgconfig")
+            [[ -d "$prefix/share/pkgconfig" ]] && pc_paths+=("$prefix/share/pkgconfig")
+            [[ -d "$prefix/include" ]] && include_paths+=("$prefix/include")
+            [[ -d "$prefix/lib" ]] && lib_paths+=("$prefix/lib")
+          done
+          {
+            echo "MAC_DEPS_PREFIX=$local_prefix"
+            echo "PKG_CONFIG_PATH=$(IFS=:; echo "${pc_paths[*]}")"
+            echo "CPPFLAGS=$(printf -- '-I%s ' "${include_paths[@]}")"
+            echo "LDFLAGS=$(printf -- '-L%s ' "${lib_paths[@]}")"
+            echo "PATH=$local_prefix/bin:$PATH"
+          } >> "$GITHUB_ENV"
+
+      - name: Build SDL 1.2 companion libraries
+        shell: bash
+        run: |
+          set -euxo pipefail
+          src="$RUNNER_TEMP/sdl12-deps"
+          rm -rf "$src"
+          mkdir -p "$src"
+          cd "$src"
+
+          modern_guess="$(find "$(brew --prefix automake)/share" -name config.guess -type f | head -1)"
+          modern_sub="$(find "$(brew --prefix automake)/share" -name config.sub -type f | head -1)"
+          [[ -f "$modern_guess" && -f "$modern_sub" ]]
+
+          build_autotools() {
+            local name="$1"
+            local version="$2"
+            local url="$3"
+            local archive="${name}-${version}.tar.gz"
+            curl --fail --location --retry 5 --retry-all-errors \
+              --output "$archive" "$url"
+            tar -xzf "$archive"
+            cd "${name}-${version}"
+            while IFS= read -r -d '' f; do cp "$modern_guess" "$f"; done < <(find . -name config.guess -print0)
+            while IFS= read -r -d '' f; do cp "$modern_sub" "$f"; done < <(find . -name config.sub -print0)
+            CFLAGS="${CFLAGS:-} -Wno-implicit-function-declaration -Wno-error=implicit-function-declaration" \
+            OBJCFLAGS="${OBJCFLAGS:-} -Wno-implicit-function-declaration -Wno-error=implicit-function-declaration" \
+            SDL_CONFIG="$(brew --prefix sdl12-compat)/bin/sdl-config" \
+              ./configure --prefix="$MAC_DEPS_PREFIX" --disable-dependency-tracking
+            make -j"$(sysctl -n hw.logicalcpu)"
+            make install
+            cd "$src"
+          }
+
+          build_autotools SDL_image 1.2.12 \
+            https://www.libsdl.org/projects/SDL_image/release/SDL_image-1.2.12.tar.gz
+          build_autotools SDL_mixer 1.2.12 \
+            https://www.libsdl.org/projects/SDL_mixer/release/SDL_mixer-1.2.12.tar.gz
+          build_autotools SDL_net 1.2.8 \
+            https://www.libsdl.org/projects/SDL_net/release/SDL_net-1.2.8.tar.gz
+          pkg-config --modversion sdl SDL_image SDL_gfx SDL_mixer SDL_net libsodium zlib jsoncpp
+
+      - name: Configure + build macOS arm64 bundle
+        shell: bash
+        run: |
+          set -euxo pipefail
+          jsoncpp_cflags="$(pkg-config --cflags jsoncpp)"
+          cmake -S . -B build-macos \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDEV_BUILD=OFF \
+            -DBUILD_PACKAGE=OFF \
+            -DCREATE_BUNDLE=ON \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
+            -DCMAKE_PREFIX_PATH="$MAC_DEPS_PREFIX;$(brew --prefix)" \
+            -DCMAKE_C_FLAGS="$CPPFLAGS" \
+            -DCMAKE_CXX_FLAGS="$CPPFLAGS $jsoncpp_cflags" \
+            -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS"
+          cmake --build build-macos --config Release --parallel 3
+
+          exe="build-macos/openxcom.app/Contents/MacOS/openxcom"
+          test -x "$exe"
+          file "$exe"
+          file "$exe" | grep -q 'arm64'
+
+      - name: Prepare + validate PR package (no release secret)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          app="build-macos/openxcom.app"
+          resources="$app/Contents/Resources"
+
+          # sdl12-compat loads SDL2 with dlopen(), so CMake cannot discover it
+          # as a normal linked dependency. Bundle Homebrew's SDL2 and SDL3
+          # compatibility runtimes explicitly before signing the application.
+          bash tools/ci/bundle_macos_sdl_runtime.sh "$app"
+          cp tools/coop_test/rendezvous.ci.json "$resources/rendezvous.json"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+          # Load the bundled SDL 1.2 compatibility library directly. Its startup
+          # path must now find the bundled SDL2 runtime, which in turn must find
+          # the bundled SDL3 runtime. This catches the exact failure seen on the
+          # Mac mini before an artifact is uploaded.
+          bundled_sdl12="$(find "$app/Contents/Frameworks" -maxdepth 1 -type f -name 'libSDL-1.2*.dylib' | head -1)"
+          test -n "$bundled_sdl12"
+          BUNDLED_SDL12="$bundled_sdl12" \
+          SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+          python3 - <<'PY'
+          import ctypes
+          import os
+
+          sdl = ctypes.CDLL(os.environ["BUNDLED_SDL12"])
+          sdl.SDL_Init.argtypes = [ctypes.c_uint32]
+          sdl.SDL_Init.restype = ctypes.c_int
+          sdl.SDL_GetError.restype = ctypes.c_char_p
+          if sdl.SDL_Init(0) != 0:
+              error = sdl.SDL_GetError()
+              raise SystemExit(error.decode("utf-8", errors="replace") if error else "SDL_Init failed")
+          sdl.SDL_Quit()
+          print("Bundled SDL 1.2 -> SDL2 -> SDL3 runtime chain loaded successfully.")
+          PY
+
+          test -d "$resources/common"
+          test -d "$resources/standard"
+          test -f "$resources/UFO/multiplayer/base.png"
+          test ! -e "$resources/UFO/GEODATA"
+
+          bad=0
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q 'Mach-O'; then
+              echo "--- $f"
+              dependencies="$(otool -L "$f")"
+              rpaths="$(otool -l "$f" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }')"
+              printf '%s\n' "$dependencies"
+              if [[ -n "$rpaths" ]]; then
+                printf 'LC_RPATH: %s\n' "$rpaths"
+              fi
+              if printf '%s\n%s\n' "$dependencies" "$rpaths" | grep -E '/opt/homebrew|/usr/local|/Users/runner/work'; then
+                echo "::error::unbundled dependency or runtime path in $f"
+                bad=1
+              fi
+            fi
+          done < <(find "$app" -type f -print0)
+          [[ "$bad" -eq 0 ]]
+
+      - name: Package macOS app for validation
+        shell: bash
+        run: ditto -c -k --sequesterRsrc --keepParent build-macos/openxcom.app openxcom-pr-arm64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: validate-macos-app
+          path: openxcom-pr-arm64.zip
+          if-no-files-found: error
+          retention-days: 7

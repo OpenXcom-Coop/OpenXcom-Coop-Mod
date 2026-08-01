@@ -48,7 +48,9 @@ from session import new_campaign, resume_campaign
 
 
 def keep_awake():
-    ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
+    if os.name == "nt":
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            0x80000000 | 0x00000001 | 0x00000002)
 
 
 def own_crafts(gc):
