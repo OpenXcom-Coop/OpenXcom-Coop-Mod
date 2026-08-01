@@ -162,54 +162,28 @@ void CraftWeaponsState::btnCancelClick(Action *)
 }
 
 /**
- * Equips the weapon on the craft and returns to the previous screen.
- * @param action Pointer to an action.
+ * Capacity gate shared by lstWeaponsClick (UI) and harnessEquip (test), so the
+ * harness cannot reach an over-capacity state the UI blocks. Returns the STR_
+ * error key of the first craft-capacity limit mounting @a refWeapon in this slot
+ * would violate, or "" if it fits. No state-stack side effects.
  */
-void CraftWeaponsState::lstWeaponsClick(Action *)
+std::string CraftWeaponsState::equipCapacityError(const RuleCraftWeapon* refWeapon) const
 {
 	CraftWeapon *current = _craft->getWeapons()->at(_weapon);
-
-	const RuleCraftWeapon* refWeapon = _weapons[_lstWeapons->getSelectedRow()];
 	const RuleCraftWeapon* currWeapon = current ? current->getRules() : nullptr;
 	{
 		int refCapBonus1 = refWeapon ? refWeapon->getBonusStats().soldiers : 0;
 		int currCapBonus1 = currWeapon ? currWeapon->getBonusStats().soldiers : 0;
 		int diff1 = (refCapBonus1 - currCapBonus1);
-		if (diff1)
-		{
-			if ((_craft->getMaxUnitsRaw() - _craft->getSpaceUsed() + diff1) < 0)
-			{
-				_game->popState();
-				_game->pushState(new ErrorMessageState(
-					tr("STR_NOT_ENOUGH_CARGO_SPACE"),
-					_palette,
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
-					"BACK14.SCR",
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
-				);
-				return;
-			}
-		}
+		if (diff1 && (_craft->getMaxUnitsRaw() - _craft->getSpaceUsed() + diff1) < 0)
+			return "STR_NOT_ENOUGH_CARGO_SPACE";
 	}
 	{
 		int refCapBonus2 = refWeapon ? refWeapon->getBonusStats().vehicles : 0;
 		int currCapBonus2 = currWeapon ? currWeapon->getBonusStats().vehicles : 0;
 		int diff2 = (refCapBonus2 - currCapBonus2);
-		if (diff2)
-		{
-			if ((_craft->getMaxVehiclesAndLargeSoldiersRaw() - _craft->getNumVehiclesAndLargeSoldiers() + diff2) < 0)
-			{
-				_game->popState();
-				_game->pushState(new ErrorMessageState(
-					tr("STR_NOT_ENOUGH_HWP_CAPACITY"),
-					_palette,
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
-					"BACK14.SCR",
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
-				);
-				return;
-			}
-		}
+		if (diff2 && (_craft->getMaxVehiclesAndLargeSoldiersRaw() - _craft->getNumVehiclesAndLargeSoldiers() + diff2) < 0)
+			return "STR_NOT_ENOUGH_HWP_CAPACITY";
 	}
 	{
 		int refCapBonus3 = refWeapon ? refWeapon->getBonusStats().maxItems : 0;
@@ -228,51 +202,40 @@ void CraftWeaponsState::lstWeaponsClick(Action *)
 			for (auto& itemType : _game->getMod()->getItemsList())
 			{
 				RuleItem* rule = _game->getMod()->getItem(itemType);
+				if (rule->getVehicleUnit())
+					continue; // vehicles count against HWP capacity, checked above
+				int cQty = _craft->getItems()->getItem(rule);
+				totalItems += cQty;
+				totalItemStorageSize += cQty * rule->getSize();
+			}
+		}
+		if (diff3 && (_craft->getMaxItemsRaw() - totalItems + diff3) < 0)
+			return "STR_NOT_ENOUGH_STORAGE_SPACE_1";
+		if (diff4_b && (_craft->getMaxStorageSpaceRaw() - totalItemStorageSize + diff4) < 0.0)
+			return "STR_NOT_ENOUGH_STORAGE_SPACE_2";
+	}
+	return "";
+}
 
-				Unit* isVehicle = rule->getVehicleUnit();
-				int cQty = 0;
-				if (isVehicle)
-				{
-					cQty = _craft->getVehicleCount(itemType);
-				}
-				else
-				{
-					cQty = _craft->getItems()->getItem(rule);
-					totalItems += cQty;
-					totalItemStorageSize += cQty * rule->getSize();
-				}
-			}
-		}
-		if (diff3)
-		{
-			if ((_craft->getMaxItemsRaw() - totalItems + diff3) < 0)
-			{
-				_game->popState();
-				_game->pushState(new ErrorMessageState(
-					tr("STR_NOT_ENOUGH_STORAGE_SPACE_1"),
-					_palette,
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
-					"BACK14.SCR",
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
-				);
-				return;
-			}
-		}
-		if (diff4_b)
-		{
-			if ((_craft->getMaxStorageSpaceRaw() - totalItemStorageSize + diff4) < 0.0)
-			{
-				_game->popState();
-				_game->pushState(new ErrorMessageState(
-					tr("STR_NOT_ENOUGH_STORAGE_SPACE_2"),
-					_palette,
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
-					"BACK14.SCR",
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
-				);
-				return;
-			}
-		}
+/**
+ * Equips the weapon on the craft and returns to the previous screen.
+ * @param action Pointer to an action.
+ */
+void CraftWeaponsState::lstWeaponsClick(Action *)
+{
+	const RuleCraftWeapon* refWeapon = _weapons[_lstWeapons->getSelectedRow()];
+	std::string capErr = equipCapacityError(refWeapon);
+	if (!capErr.empty())
+	{
+		_game->popState();
+		_game->pushState(new ErrorMessageState(
+			tr(capErr),
+			_palette,
+			_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
+			"BACK14.SCR",
+			_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
+		);
+		return;
 	}
 
 	equipSelectedWeapon(_weapons[_lstWeapons->getSelectedRow()]);
@@ -336,6 +299,11 @@ bool CraftWeaponsState::harnessEquip(const std::string& weaponType)
 		std::string t = _weapons[i] ? _weapons[i]->getType() : "";
 		if (t == weaponType)
 		{
+			// Enforce the SAME capacity gate lstWeaponsClick applies, so the
+			// harness cannot mount into an over-capacity craft a real player is
+			// blocked from. Return false as "click refused".
+			if (!equipCapacityError(_weapons[i]).empty())
+				return false;
 			equipSelectedWeapon(_weapons[i]);
 			return true;
 		}

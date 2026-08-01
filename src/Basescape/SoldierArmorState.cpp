@@ -356,6 +356,13 @@ bool SoldierArmorState::harnessSetArmor(const std::string& armorType)
 		{
 			Armor* next = _game->getMod()->getArmor(armorType, false);
 			if (!next) return false;
+			// Enforce the SAME craft-space gate lstArmorClick applies, so the
+			// harness cannot reach an over-capacity state a real player is blocked
+			// from (STR_NOT_ENOUGH_CRAFT_SPACE). Return false as "click refused".
+			Soldier* soldier = _base->getSoldiers()->at(_soldier);
+			Craft* craft = soldier->getCraft();
+			if (craft && !craft->validateArmorChange(soldier->getArmor()->getSize(), next->getSize()))
+				return false;
 			applyArmorSelection(next);
 			return true;
 		}
