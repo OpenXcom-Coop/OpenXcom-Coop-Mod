@@ -348,14 +348,25 @@ void SoldierArmorState::applyArmorSelection(Armor* next)
  * store path a list click drives. Returns false if that armor is not on the list.
  * Does not pop the state.
  */
-bool SoldierArmorState::harnessSetArmor(const std::string& armorType)
+bool SoldierArmorState::harnessSetArmor(const std::string& armorType, bool bypassGate, std::string& blockedBy)
 {
+	blockedBy.clear();
 	for (const auto& armorItem : _armors)
 	{
 		if (armorItem.type == armorType)
 		{
 			Armor* next = _game->getMod()->getArmor(armorType, false);
 			if (!next) return false;
+			if (!bypassGate)
+			{
+				Soldier* soldier = _base->getSoldiers()->at(_soldier);
+				Craft* craft = soldier->getCraft();
+				if (craft && !craft->validateArmorChange(soldier->getArmor()->getSize(), next->getSize()))
+				{
+					blockedBy = "STR_NOT_ENOUGH_CRAFT_SPACE";
+					return true; // found, but the client gate blocked it
+				}
+			}
 			applyArmorSelection(next);
 			return true;
 		}

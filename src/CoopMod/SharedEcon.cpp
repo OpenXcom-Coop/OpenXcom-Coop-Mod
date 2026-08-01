@@ -79,6 +79,7 @@
 
 #include <cmath>
 #include "../Basescape/BaseView.h"
+#include "../Basescape/CraftWeaponsState.h" // issue #121: shared craft-weapon capacity gate
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ConfirmLandingState.h"
 #include "../Geoscape/Globe.h"
@@ -1958,13 +1959,23 @@ bool craftRearmValidate(Game* game, const Json::Value& payload, Base* base, int 
 	int slot = payload.get("slot", -1).asInt();
 	if (slot < 0 || slot >= (int)craft->getWeapons()->size()) { failReason = "bad weapon slot"; return false; }
 	std::string wtype = payload.get("weapon", "").asString();
+	const RuleCraftWeapon* selRule = nullptr;
 	if (!wtype.empty())
 	{
-		const RuleCraftWeapon* w = game->getMod()->getCraftWeapon(wtype, false);
-		if (!w) { failReason = "unknown craft weapon"; return false; }
-		if (!craft->getRules()->isValidWeaponSlot((size_t)slot, w->getWeaponType()))
+		selRule = game->getMod()->getCraftWeapon(wtype, false);
+		if (!selRule) { failReason = "unknown craft weapon"; return false; }
+		if (!craft->getRules()->isValidWeaponSlot((size_t)slot, selRule->getWeaponType()))
 		{ failReason = "weapon not valid for slot"; return false; }
 	}
+
+	// issue #121: re-run the SAME four capacity gates the client's CraftWeaponsState
+	// enforces, against the host-authoritative craft. The client gate can pass on a
+	// stale replica view; the host is the single authority, so it must reject an
+	// over-capacity swap here rather than apply it and desync/deploy-fault later.
+	CraftWeapon* current = craft->getWeapons()->at(slot);
+	const RuleCraftWeapon* curRule = current ? current->getRules() : nullptr;
+	std::string capErr = CraftWeaponsState::equipCapacityError(game->getMod(), craft, selRule, curRule);
+	if (!capErr.empty()) { failReason = capErr; return false; }
 	return true;
 }
 
@@ -2020,8 +2031,18 @@ bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, in
 {
 	cost = 0;
 	if (!base) { failReason = "base not found"; return false; }
-	if (!findSoldier(base, payload.get("soldierId", -1).asInt())) { failReason = "soldier not found"; return false; }
-	if (!game->getMod()->getArmor(payload.get("armor", "").asString(), false)) { failReason = "unknown armor"; return false; }
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	if (!s) { failReason = "soldier not found"; return false; }
+	Armor* next = game->getMod()->getArmor(payload.get("armor", "").asString(), false);
+	if (!next) { failReason = "unknown armor"; return false; }
+
+	// issue #121: re-run the client's craft-space gate (SoldierArmorState::lstArmorClick)
+	// against the host-authoritative world. If the soldier rides a craft, a larger armor
+	// must still fit; the client gate can pass on a stale replica view, so the host is the
+	// backstop that keeps a shared craft from being pushed over capacity.
+	Craft* craft = s->getCraft();
+	if (craft && !craft->validateArmorChange(s->getArmor()->getSize(), next->getSize()))
+	{ failReason = "STR_NOT_ENOUGH_CRAFT_SPACE"; return false; }
 	return true;
 }
 
