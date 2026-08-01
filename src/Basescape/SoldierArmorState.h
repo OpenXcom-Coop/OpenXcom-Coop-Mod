@@ -100,7 +100,12 @@ public:
 	/// Handler for clicking the Name arrow.
 	void sortNameClick(Action *action);
 	/// Harness (PRD-J09 GAP-5b): drive the real armor-change store path for one type.
-	bool harnessSetArmor(const std::string& armorType);
+	/// Returns false only when @a armorType is not on the soldier's armor list. With
+	/// @a bypassGate false the client craft-space gate (Craft::validateArmorChange) runs
+	/// first and, if it blocks, fills @a blockedBy with its STR_ error and leaves the
+	/// change unmade; bypassGate models a stale replica whose gate passed (issue #121),
+	/// letting the request reach the host un-gated.
+	bool harnessSetArmor(const std::string& armorType, bool bypassGate, std::string& blockedBy);
 };
 
 }

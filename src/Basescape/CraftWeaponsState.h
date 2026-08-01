@@ -25,6 +25,7 @@ namespace OpenXcom
 
 class Base;
 class Craft;
+class Mod;
 class TextButton;
 class Window;
 class Text;
@@ -61,8 +62,19 @@ public:
 	void lstWeaponsClick(Action *action);
 	/// Handler for middle clicking the Weapons list.
 	void lstWeaponsMiddleClick(Action *action);
+	/// Pure capacity gate, shared by the UI click handler and the SHARED host validator
+	/// (issue #121): returns "" if mounting @a refWeapon (nullptr = dismount) in place of
+	/// @a currWeapon (nullptr = empty slot) keeps @a craft within all four capacity limits,
+	/// else the STR_ error id the client shows. Host and client run identical math so the
+	/// host can re-check a request whose (possibly stale) replica gate already passed.
+	static std::string equipCapacityError(Mod *mod, Craft *craft,
+		const RuleCraftWeapon *refWeapon, const RuleCraftWeapon *currWeapon);
 	/// Harness (PRD-J09 GAP-5b): drive the real weapon-mount store path for one type.
-	bool harnessEquip(const std::string& weaponType);
+	/// Returns false only when @a weaponType is not a mountable armament here. With
+	/// @a bypassGate false the client capacity gate runs first and, if it blocks, fills
+	/// @a blockedBy with its STR_ error and leaves the mount unmade; bypassGate models a
+	/// stale replica whose gate passed, letting the request reach the host un-gated.
+	bool harnessEquip(const std::string& weaponType, bool bypassGate, std::string& blockedBy);
 };
 
 }

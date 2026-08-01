@@ -1107,11 +1107,15 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		// the shared base stores). In SHARED (after the fix) this routes a
 		// craft_rearm shared_cmd host-side; before it, it mutates THIS machine's
 		// base stores locally - the pre-battle store drift GAP-5b closes.
-		// Params: weapon, slot (default 0), optional base + craft_id.
+		// Params: weapon, slot (default 0), optional base + craft_id, optional force.
+		// force=true bypasses the client capacity gate (issue #121: models a stale
+		// replica whose gate passed), so the request reaches the host un-gated and
+		// the host validator is the one under test.
 		std::string weapon = req.get("weapon", "").asString();
 		int slot = req.get("slot", 0).asInt();
 		std::string baseName = req.get("base", "").asString();
 		int craftId = req.get("craft_id", -1).asInt();
+		bool force = req.get("force", false).asBool();
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 			for (auto* b : *_game->getSavedGame()->getBases())
@@ -1130,11 +1134,28 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		else
 		{
 			CraftWeaponsState* cws = new CraftWeaponsState(target, idx, (size_t)slot);
-			bool moved = cws->harnessEquip(weapon);
+			std::string blockedBy;
+			bool found = cws->harnessEquip(weapon, force, blockedBy);
 			delete cws;
-			resp["moved"] = moved;
-			resp["ok"] = moved;
-			if (!moved) resp["error"] = "weapon not on craft armament list: " + weapon;
+			if (!found)
+			{
+				resp["moved"] = false;
+				resp["ok"] = false;
+				resp["error"] = "weapon not on craft armament list: " + weapon;
+			}
+			else if (!blockedBy.empty())
+			{
+				// The client capacity gate blocked it (no request sent). Faithful to a
+				// real player's screen; the test asserts on resp["gate"].
+				resp["moved"] = false;
+				resp["ok"] = false;
+				resp["gate"] = blockedBy;
+			}
+			else
+			{
+				resp["moved"] = true;
+				resp["ok"] = true;
+			}
 		}
 	}
 	else if (cmd == "soldier_armor")
@@ -1143,10 +1164,13 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		// through the REAL SoldierArmorState store path (returns the old armor's
 		// store item, consumes the new one). In SHARED (after the fix) this routes a
 		// soldier_armor shared_cmd; before it, it mutates THIS machine's base stores.
-		// Params: soldier_id, armor, optional base.
+		// Params: soldier_id, armor, optional base, optional force. force=true bypasses
+		// the client craft-space gate (issue #121: models a stale replica whose gate
+		// passed), so the host validator is the one under test.
 		std::string armor = req.get("armor", "").asString();
 		int soldierId = req.get("soldier_id", -1).asInt();
 		std::string baseName = req.get("base", "").asString();
+		bool force = req.get("force", false).asBool();
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 			for (auto* b : *_game->getSavedGame()->getBases())
@@ -1165,11 +1189,26 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		else
 		{
 			SoldierArmorState* sas = new SoldierArmorState(target, sidx, SA_GEOSCAPE);
-			bool moved = sas->harnessSetArmor(armor);
+			std::string blockedBy;
+			bool found = sas->harnessSetArmor(armor, force, blockedBy);
 			delete sas;
-			resp["moved"] = moved;
-			resp["ok"] = moved;
-			if (!moved) resp["error"] = "armor not on soldier list: " + armor;
+			if (!found)
+			{
+				resp["moved"] = false;
+				resp["ok"] = false;
+				resp["error"] = "armor not on soldier list: " + armor;
+			}
+			else if (!blockedBy.empty())
+			{
+				resp["moved"] = false;
+				resp["ok"] = false;
+				resp["gate"] = blockedBy;
+			}
+			else
+			{
+				resp["moved"] = true;
+				resp["ok"] = true;
+			}
 		}
 	}
 	else if (cmd == "craft_deequip_armor")

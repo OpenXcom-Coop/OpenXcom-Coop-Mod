@@ -171,45 +171,49 @@ void CraftWeaponsState::lstWeaponsClick(Action *)
 
 	const RuleCraftWeapon* refWeapon = _weapons[_lstWeapons->getSelectedRow()];
 	const RuleCraftWeapon* currWeapon = current ? current->getRules() : nullptr;
+
+	std::string capError = equipCapacityError(_game->getMod(), _craft, refWeapon, currWeapon);
+	if (!capError.empty())
+	{
+		_game->popState();
+		_game->pushState(new ErrorMessageState(
+			tr(capError),
+			_palette,
+			_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
+			"BACK14.SCR",
+			_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
+		);
+		return;
+	}
+
+	equipSelectedWeapon(_weapons[_lstWeapons->getSelectedRow()]);
+	_game->popState();
+}
+
+/**
+ * Pure capacity gate shared by the UI (lstWeaponsClick) and the SHARED host validator
+ * (issue #121: craftRearmValidate). Replicates vanilla's four craft-capacity checks for
+ * mounting @a refWeapon (nullptr = dismount) in place of @a currWeapon (nullptr = empty
+ * slot), from the weapons' getBonusStats() deltas. Returns "" if the change is within
+ * every limit, else the STR_ error id vanilla would show. The math is byte-identical to
+ * the old inline block, so host and client always agree.
+ */
+std::string CraftWeaponsState::equipCapacityError(Mod *mod, Craft *craft,
+	const RuleCraftWeapon *refWeapon, const RuleCraftWeapon *currWeapon)
+{
 	{
 		int refCapBonus1 = refWeapon ? refWeapon->getBonusStats().soldiers : 0;
 		int currCapBonus1 = currWeapon ? currWeapon->getBonusStats().soldiers : 0;
 		int diff1 = (refCapBonus1 - currCapBonus1);
-		if (diff1)
-		{
-			if ((_craft->getMaxUnitsRaw() - _craft->getSpaceUsed() + diff1) < 0)
-			{
-				_game->popState();
-				_game->pushState(new ErrorMessageState(
-					tr("STR_NOT_ENOUGH_CARGO_SPACE"),
-					_palette,
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
-					"BACK14.SCR",
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
-				);
-				return;
-			}
-		}
+		if (diff1 && (craft->getMaxUnitsRaw() - craft->getSpaceUsed() + diff1) < 0)
+			return "STR_NOT_ENOUGH_CARGO_SPACE";
 	}
 	{
 		int refCapBonus2 = refWeapon ? refWeapon->getBonusStats().vehicles : 0;
 		int currCapBonus2 = currWeapon ? currWeapon->getBonusStats().vehicles : 0;
 		int diff2 = (refCapBonus2 - currCapBonus2);
-		if (diff2)
-		{
-			if ((_craft->getMaxVehiclesAndLargeSoldiersRaw() - _craft->getNumVehiclesAndLargeSoldiers() + diff2) < 0)
-			{
-				_game->popState();
-				_game->pushState(new ErrorMessageState(
-					tr("STR_NOT_ENOUGH_HWP_CAPACITY"),
-					_palette,
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
-					"BACK14.SCR",
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
-				);
-				return;
-			}
-		}
+		if (diff2 && (craft->getMaxVehiclesAndLargeSoldiersRaw() - craft->getNumVehiclesAndLargeSoldiers() + diff2) < 0)
+			return "STR_NOT_ENOUGH_HWP_CAPACITY";
 	}
 	{
 		int refCapBonus3 = refWeapon ? refWeapon->getBonusStats().maxItems : 0;
@@ -225,58 +229,25 @@ void CraftWeaponsState::lstWeaponsClick(Action *)
 		double totalItemStorageSize = 0.0;
 		if (diff3 || diff4_b)
 		{
-			for (auto& itemType : _game->getMod()->getItemsList())
+			for (auto& itemType : mod->getItemsList())
 			{
-				RuleItem* rule = _game->getMod()->getItem(itemType);
+				RuleItem* rule = mod->getItem(itemType);
 
 				Unit* isVehicle = rule->getVehicleUnit();
-				int cQty = 0;
-				if (isVehicle)
+				if (!isVehicle)
 				{
-					cQty = _craft->getVehicleCount(itemType);
-				}
-				else
-				{
-					cQty = _craft->getItems()->getItem(rule);
+					int cQty = craft->getItems()->getItem(rule);
 					totalItems += cQty;
 					totalItemStorageSize += cQty * rule->getSize();
 				}
 			}
 		}
-		if (diff3)
-		{
-			if ((_craft->getMaxItemsRaw() - totalItems + diff3) < 0)
-			{
-				_game->popState();
-				_game->pushState(new ErrorMessageState(
-					tr("STR_NOT_ENOUGH_STORAGE_SPACE_1"),
-					_palette,
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
-					"BACK14.SCR",
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
-				);
-				return;
-			}
-		}
-		if (diff4_b)
-		{
-			if ((_craft->getMaxStorageSpaceRaw() - totalItemStorageSize + diff4) < 0.0)
-			{
-				_game->popState();
-				_game->pushState(new ErrorMessageState(
-					tr("STR_NOT_ENOUGH_STORAGE_SPACE_2"),
-					_palette,
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorMessage")->color,
-					"BACK14.SCR",
-					_game->getMod()->getInterface("craftWeapons")->getElement("errorPalette")->color)
-				);
-				return;
-			}
-		}
+		if (diff3 && (craft->getMaxItemsRaw() - totalItems + diff3) < 0)
+			return "STR_NOT_ENOUGH_STORAGE_SPACE_1";
+		if (diff4_b && (craft->getMaxStorageSpaceRaw() - totalItemStorageSize + diff4) < 0.0)
+			return "STR_NOT_ENOUGH_STORAGE_SPACE_2";
 	}
-
-	equipSelectedWeapon(_weapons[_lstWeapons->getSelectedRow()]);
-	_game->popState();
+	return "";
 }
 
 /**
@@ -329,13 +300,21 @@ void CraftWeaponsState::equipSelectedWeapon(RuleCraftWeapon* selRule)
  * "None"/dismount row) via the SAME store path a list click drives. Returns false
  * if that weapon is not on this screen's list. Does not pop the state.
  */
-bool CraftWeaponsState::harnessEquip(const std::string& weaponType)
+bool CraftWeaponsState::harnessEquip(const std::string& weaponType, bool bypassGate, std::string& blockedBy)
 {
+	blockedBy.clear();
 	for (size_t i = 0; i < _weapons.size(); ++i)
 	{
 		std::string t = _weapons[i] ? _weapons[i]->getType() : "";
 		if (t == weaponType)
 		{
+			if (!bypassGate)
+			{
+				CraftWeapon* current = _craft->getWeapons()->at(_weapon);
+				const RuleCraftWeapon* currWeapon = current ? current->getRules() : nullptr;
+				blockedBy = equipCapacityError(_game->getMod(), _craft, _weapons[i], currWeapon);
+				if (!blockedBy.empty()) return true; // found, but the client gate blocked it
+			}
 			equipSelectedWeapon(_weapons[i]);
 			return true;
 		}
