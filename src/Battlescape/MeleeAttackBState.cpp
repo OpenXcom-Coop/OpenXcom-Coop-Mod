@@ -200,7 +200,11 @@ void MeleeAttackBState::init()
 	}
 
 	//spend TU
-	if (!_action.spendTU(&_action.result) && !coop_action)
+	// coop: spendTU() was the LEFT operand, so a replayed melee spent the TU
+	// AGAIN on top of the authoritative value the packet had just written
+	// (measured 49 vs 29). The guard has to short-circuit, not just suppress the
+	// popState.
+	if (!coop_action && !_action.spendTU(&_action.result))
 	{
 		_parent->popState();
 		return;
@@ -264,6 +268,23 @@ void MeleeAttackBState::init()
 
 	}
 
+	// coop (PRD-P3 GAP-4b): decide hit/miss HERE, before the ExplosionBState this
+	// pushes can roll it, and park the answer for TileEngine::meleeAttack to
+	// replay. The sender is the machine that already owns every other pre-roll
+	// for this action (the aim/trajectory queue), and deciding it now is what
+	// lets the boolean ride the SAME packet - a follow-up would race the peer's
+	// own ExplosionBState, which starts one frame after its MeleeAttackBState.
+	bool coopMeleeHit = false;
+	const bool coopMeleeSender = _parent->getCoopMod()->getCoopStatic() == true
+								 && _parent->getCoopMod()->_isActivePlayerSync == true;
+	if (coopMeleeSender)
+	{
+		coopMeleeHit = (terrainMeleeTilePart > 0) // terrain melee never misses
+					   || (_parent->getTileEngine()->meleeAttackCalculate(
+							   BattleActionAttack::GetAferShoot(_action, _ammo), _target) > 0);
+		_parent->getCoopMod()->_meleeResults.push_back(coopMeleeHit ? 1 : 0);
+	}
+
 	performMeleeAttack();
 
 	// coop
@@ -271,6 +292,7 @@ void MeleeAttackBState::init()
 	{
 		Json::Value obj;
 		obj["state"] = "melee_attack";
+		obj["hit"] = coopMeleeHit;
 
 		int index = 0;
 

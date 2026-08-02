@@ -2292,20 +2292,17 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 		else if (connectionTCP::getCoopGamemode() == 4)
 		{
 
-			if (connectionTCP::_isActivePlayerSync == true)
-			{
-				unit->setCoop(1);
-				newUnit->setCoop(1);
-			}
-			else
-			{
-				unit->setCoop(0);
-				newUnit->setCoop(0);
-			}
+			// coop (PRD-P3, AUDIT-guards top break): this used to read
+			// _isActivePlayerSync and the host branch below assigned the OPPOSITE
+			// value, so the pair only agreed while exactly one machine held the flag.
+			// The respawn now inherits the DYING unit's owner - a value both machines
+			// already hold and compute identically, with no dependence on whose turn
+			// it is.
+			newUnit->setCoop(unit->getCoop());
 
 			unit->convertToFaction(FACTION_PLAYER);
 			unit->setOriginalFaction(FACTION_PLAYER);
-	
+
 			newUnit->convertToFaction(FACTION_PLAYER);
 			newUnit->setOriginalFaction(FACTION_PLAYER);
 
@@ -2351,16 +2348,10 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 		else if (connectionTCP::getCoopGamemode() == 4)
 		{
 
-			if (connectionTCP::_isActivePlayerSync == true)
-			{
-				unit->setCoop(0);
-				newUnit->setCoop(0);
-			}
-			else
-			{
-				unit->setCoop(1);
-				newUnit->setCoop(1);
-			}
+			// coop (PRD-P3): same seat-deterministic rule as the client branch above
+			// - the respawn inherits the dying unit's owner, so both machines reach
+			// the same answer without consulting _isActivePlayerSync.
+			newUnit->setCoop(unit->getCoop());
 
 			unit->convertToFaction(FACTION_PLAYER);
 			unit->setOriginalFaction(FACTION_PLAYER);

@@ -99,6 +99,15 @@ def census(gc):
     return {i["id"]: (i["type"], i["owner"]) for i in r["items"]}
 
 
+def wait_until(fn, timeout, interval=0.4):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if fn():
+            return True
+        time.sleep(interval)
+    return False
+
+
 def settle(host, client, seconds=10):
     """Let both state machines drain. Never dismiss the battlescape itself."""
     deadline = time.time() + seconds
@@ -156,7 +165,7 @@ def part1_pellets(host, client, driver, watcher, dtag, shooter_id, target):
     r = driver.cmd({"cmd": "battle_fire", "unit": shooter_id, "mode": "snap",
                     "tu": 200, "target": target["id"]})
     assert r.get("ok"), f"the {dtag} could not fire the shotgun: {r}"
-    settle(host, client, seconds=14)
+    settle(host, client, seconds=12)
 
     after = session.assert_battle_synced(host, client, "after the shotgun volley")
     assert not TW.desync_seen(host) and not TW.desync_seen(client), \
@@ -194,14 +203,20 @@ def part1_spawn(host, client, driver, watcher, dtag, shooter_id):
         if not r.get("ok"):
             print(f"    rocket at {tile} refused ({r.get('error')}), trying another tile")
             continue
-        pre_rockets = sum(1 for t, _ in census(driver).values() if t == SPAWNER)
-        settle(host, client, seconds=18)
-        post_rockets = sum(1 for t, _ in census(driver).values() if t == SPAWNER)
+        # The rocket is spent the moment the shot actually leaves the launcher, so
+        # a launcher that refused (no line of fire) is detectable in a few seconds
+        # instead of costing the full settle.
+        def rockets():
+            return sum(1 for t, _ in census(driver).values() if t == SPAWNER)
+
+        pre_rockets = rockets()
+        fired = wait_until(lambda: rockets() < pre_rockets, 8)
+        settle(host, client, seconds=14 if fired else 2)
 
         new_h = unit_ids(host) - before_h
         new_c = unit_ids(client) - before_c
-        print(f"    rocket at {tile}: fire={r} rockets {pre_rockets}->{post_rockets}; "
-              f"host spawned {sorted(new_h)}, client spawned {sorted(new_c)}")
+        print(f"    rocket at {tile}: fired={fired}; host spawned {sorted(new_h)}, "
+              f"client spawned {sorted(new_c)}")
         if not new_h and not new_c:
             continue  # the rocket found no valid spawn tile; try another direction
         assert new_h == new_c, (
@@ -225,6 +240,110 @@ def part1_spawn(host, client, driver, watcher, dtag, shooter_id):
     raise AssertionError(
         "no rocket produced a mid-battle spawn on either machine - the lever is "
         "dead, so the replication assertion above never ran")
+
+
+def place_adjacent(driver, watcher, mover_id, tpos):
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+        spot = (tpos[0] + dx, tpos[1] + dy, tpos[2])
+        res = [gc.cmd({"cmd": "battle_teleport", "unit": mover_id,
+                       "x": spot[0], "y": spot[1], "z": spot[2]})
+               for gc in (driver, watcher)]
+        if all(r.get("moved") for r in res):
+            return spot
+    return None
+
+
+def part2_melee(host, client, driver, watcher, dtag, wtag, mover_id):
+    """GAP-4b + the melee TU double-charge: after a replayed melee the two machines
+    must agree on the attacker's TU and on how many hits the attack produced."""
+    print("-- part 2a: melee authority --")
+    aliens = [u for u in TW.battle(driver)["units"]
+              if u.get("faction") == 1 and not u.get("isOut")]
+    assert aliens, "no live hostile left to melee"
+    target = aliens[0]
+    tpos = (target["x"], target["y"], target["z"])
+    spot = place_adjacent(driver, watcher, mover_id, tpos)
+    assert spot, f"no free tile adjacent to hostile {target['id']}"
+
+    gave = [gc.cmd({"cmd": "battle_give", "unit": mover_id, "item": "STR_STUN_ROD",
+                    "slot": "right", "clear_hands": True}) for gc in (driver, watcher)]
+    assert all(g.get("ok") for g in gave), f"battle_give STR_STUN_ROD failed: {gave}"
+    time.sleep(2)
+
+    before = units(watcher)[mover_id]["tu"]
+    r = driver.cmd({"cmd": "battle_fire", "unit": mover_id, "mode": "hit",
+                    "weapon_id": gave[0]["weaponId"], "tu": 100,
+                    "x": tpos[0], "y": tpos[1], "z": tpos[2]})
+    assert r.get("ok"), f"the engine refused the melee: {r.get('error')}"
+    assert wait_until(lambda: units(watcher)[mover_id]["tu"] != before, 45), \
+        f"the melee never replicated to the {wtag} (TU still {before})"
+    settle(host, client, seconds=8)
+
+    dtu = units(driver)[mover_id]["tu"]
+    wtu = units(watcher)[mover_id]["tu"]
+    assert dtu == wtu, (
+        f"the melee replay charged the {wtag} twice: attacker {mover_id} has "
+        f"TU={dtu} on the {dtag} but {wtu} on the {wtag}. The packet writes the "
+        f"authoritative value and MeleeAttackBState::init must not spend on top.")
+    assert_hits_paired(watcher, f"the {wtag}", "after the melee")
+    session.assert_battle_synced(host, client, "after the melee")
+    print(f"PASS melee: attacker {mover_id} left with TU={dtu} on BOTH machines and "
+          f"every hit paired")
+
+
+def part2_psi(host, client, driver, watcher, dtag, wtag, mover_id, attempts=3):
+    """GAP-2: a psi outcome in a PVE co-op battle is the host's, and it must reach
+    the peer - `psi_result` used to be PVP-only, so a mind control that landed on
+    one machine and failed on the other was permanent (next_turn repairs stats and
+    tiles, never faction)."""
+    print("-- part 2b: psi in PVE --")
+    mode = TW.battle(host).get("coopGamemode")
+    assert mode not in (2, 3), \
+        f"this fixture is a PVP battle (gamemode {mode}); GAP-2 is about PVE"
+
+    gave = [gc.cmd({"cmd": "battle_give", "unit": mover_id, "item": "STR_PSI_AMP",
+                    "slot": "right", "clear_hands": True}) for gc in (driver, watcher)]
+    assert all(g.get("ok") for g in gave), f"battle_give STR_PSI_AMP failed: {gave}"
+    time.sleep(2)
+
+    tried = 0
+    for _ in range(attempts):
+        aliens = [u for u in TW.battle(driver)["units"]
+                  if u.get("faction") == 1 and not u.get("isOut")]
+        if not aliens:
+            break
+        target = aliens[0]
+        tpos = (target["x"], target["y"], target["z"])
+        before = units(watcher)[mover_id]["tu"]
+        r = driver.cmd({"cmd": "battle_fire", "unit": mover_id, "mode": "psi",
+                        "weapon_id": gave[0]["weaponId"], "tu": 100,
+                        "x": tpos[0], "y": tpos[1], "z": tpos[2]})
+        if not r.get("ok"):
+            print(f"    psi refused ({r.get('error')})")
+            continue
+        if not wait_until(lambda: units(watcher)[mover_id]["tu"] != before, 45):
+            print("    psi did not replicate (actor TU unchanged on the watcher)")
+            continue
+        settle(host, client, seconds=5)
+        tried += 1
+
+        hv, cv = units(host).get(target["id"]), units(client).get(target["id"])
+        assert hv and cv, f"unit {target['id']} vanished from one machine"
+        print(f"    psi on {target['id']}: host faction={hv['faction']} coop={hv.get('coop')} "
+              f"| client faction={cv['faction']} coop={cv.get('coop')}")
+        assert hv["faction"] == cv["faction"], (
+            f"GAP-2: the psi outcome did not replicate - unit {target['id']} is "
+            f"faction {hv['faction']} on the host and {cv['faction']} on the client. "
+            f"Both machines resolved the attack for themselves.")
+        assert hv.get("coop") == cv.get("coop"), (
+            f"unit {target['id']} ended up owned by different players "
+            f"({hv.get('coop')} vs {cv.get('coop')})")
+        session.assert_battle_synced(host, client, "after the psi attack")
+
+    assert tried, ("no psi attack ever ran, so the replication assertion never "
+                   "executed")
+    print(f"PASS psi: {tried} mind-control attempt(s) left every victim's faction and "
+          f"owner identical on both machines")
 
 
 def main():
@@ -261,6 +380,9 @@ def main():
 
         part1_pellets(host, client, driver, watcher, dtag, shooter_id, target)
         part1_spawn(host, client, driver, watcher, dtag, shooter_id)
+        # psi first: a stun rod tends to take the target out of the fight.
+        part2_psi(host, client, driver, watcher, dtag, wtag, shooter_id)
+        part2_melee(host, client, driver, watcher, dtag, wtag, shooter_id)
 
         print("ALL PRD-P3 OUTCOME-GAP TESTS PASSED")
     except Exception as e:

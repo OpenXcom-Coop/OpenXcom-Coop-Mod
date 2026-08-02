@@ -2017,16 +2017,30 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 			&& !hasAlreadyExploded() && selfDestructItem)
 		{
 			setAlreadyExploded(true);
+			// coop (PRD-P3 GAP-4b): ExplosionBState::init rolls
+			// RNG::percent(getSpecialChance()) for a BA_SELF_DESTRUCT, and it does so
+			// AFTER this packet has already gone out - so the two machines could
+			// disagree about whether the corpse actually detonates. Roll it here
+			// instead (this whole function is host-only) and park it for the local
+			// ExplosionBState while the peer gets it on the packet.
+			bool triggered = true;
+			const bool coopHostSD = connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true;
+			if (coopHostSD)
+			{
+				triggered = RNG::percent(selfDestructItem->getRules()->getSpecialChance());
+				save->getBattleGame()->getCoopMod()->_selfDestructResults.push_back(triggered ? 1 : 0);
+			}
 			Position p = getPosition().toVoxel();
 			save->getBattleGame()->statePushNext(new ExplosionBState(save->getBattleGame(), p, BattleActionAttack{ BA_SELF_DESTRUCT, this, selfDestructItem, selfDestructItem }, 0));
 
 			// coop
-			if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
+			if (coopHostSD)
 			{
 
 				Json::Value root;
 				root["state"] = "selfDestruct";
 				root["unit_id"] = _id;
+				root["triggered"] = triggered;
 
 				connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 

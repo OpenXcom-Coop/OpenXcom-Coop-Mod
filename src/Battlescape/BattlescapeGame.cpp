@@ -686,6 +686,14 @@ void BattlescapeGame::melee_attack(std::string obj_str)
 		}
 	}
 
+	// coop: every sibling replay handler has this guard; without it an unknown
+	// unit id (a unit this machine has already removed) dereferences null.
+	if (found_unit == false)
+	{
+		Log(LOG_INFO) << "coop: melee_attack replay skipped, no local unit " << unit_id;
+		return;
+	}
+
 	unit->setPosition(*startpos);
 
 	// stats
@@ -722,6 +730,17 @@ void BattlescapeGame::melee_attack(std::string obj_str)
 	{
 
 		action.updateTU();
+
+		// coop (PRD-P3 GAP-4b): the to-hit roll is the SENDER's. Park it so this
+		// machine's TileEngine::meleeAttack replays it instead of rolling its own
+		// - two independent rolls meant one machine landed a hit the other
+		// missed, and from there the two hit streams no longer lined up at all.
+		// Parked only once the attack is definitely going to run, so a skipped
+		// replay cannot leave an orphan entry to poison the next melee.
+		if (obj.isMember("hit"))
+		{
+			getCoopMod()->_meleeResults.push_back(obj["hit"].asBool() ? 1 : 0);
+		}
 
 		statePushBack(new MeleeAttackBState(this, action));
 	}
@@ -3250,6 +3269,10 @@ void BattlescapeGame::psiAttackMessage(BattleActionAttack attack, BattleUnit* vi
 
 			Json::Value root;
 			root["state"] = "psi_result";
+			// coop (PRD-P3 GAP-2): marks the LEGACY flavour - an inverted PVP flip
+			// ("mine now" / "yours no more"), not a state copy. Absent means an
+			// older peer, which only ever sent this one.
+			root["pvp"] = true;
 			root["unit_id"] = victim->getId();
 
 			game->getCoopMod()->sendTCPPacketData(root.toStyledString());
@@ -3530,12 +3553,28 @@ void BattlescapeGame::spawnNewUnit(BattleActionAttack attack, Position position)
 		_save->initUnit(newUnit, itemLevel);
 
 		getTileEngine()->applyGravity(newUnit->getTile());
+
+		// coop: applyGravity reads the floor the blast just destroyed, and tile
+		// destruction is itself host-authoritative and arrives on its own packet -
+		// so the peer can drop the unit a level differently. The landing tile is
+		// state, not a decision: take the host's.
+		if (_coopSpawnReplay.active && _coopSpawnReplay.finalPos != TileEngine::invalid
+			&& newUnit->getPosition() != _coopSpawnReplay.finalPos)
+		{
+			Log(LOG_INFO) << "coop: spawn_units - local gravity put unit " << newUnit->getId()
+						  << " at " << newUnit->getPosition() << ", host says "
+						  << _coopSpawnReplay.finalPos << "; using the host's";
+			newUnit->setTile(_save->getTile(_coopSpawnReplay.finalPos), _save);
+			newUnit->setPosition(_coopSpawnReplay.finalPos);
+		}
+
 		getTileEngine()->calculateFOV(newUnit->getPosition()); // happens fairly rarely, so do a full recalc for units in range to handle the potential unit visible cache issues.
 
 		// coop
 		if (coopHost)
 		{
-			sendCoopSpawnManifest("unit", item, type->getType(), coopSeed, position, attack.attacker, owner,
+			sendCoopSpawnManifest("unit", item, type->getType(), coopSeed, position,
+								  newUnit->getPosition(), attack.attacker, owner,
 								  (int)faction, unitDirection, (int)itemLevel,
 								  newUnit->getId(), coopFirstItemId, _save->getCurrentItemIdValue() - 1);
 		}
@@ -3647,7 +3686,9 @@ void BattlescapeGame::spawnNewItem(BattleActionAttack attack, Position position)
 		// coop
 		if (coopHost)
 		{
-			sendCoopSpawnManifest("item", item, type->getType(), coopSeed, position, attack.attacker, owner,
+			sendCoopSpawnManifest("item", item, type->getType(), coopSeed, position,
+								  newItem->getTile() ? newItem->getTile()->getPosition() : position,
+								  attack.attacker, owner,
 								  -1, -1, -1,
 								  -1, coopFirstItemId, _save->getCurrentItemIdValue() - 1);
 		}
@@ -3688,7 +3729,7 @@ BattleUnit* BattlescapeGame::coopFindUnit(int unitId) const
  * faction, owner, direction, built-in weapon item level), plus the ids the host
  * minted so the peer can prove it minted the same ones.
  */
-void BattlescapeGame::sendCoopSpawnManifest(const char* kind, const RuleItem* carrierRule, const std::string& rule, uint64_t seed, Position position, const BattleUnit* attacker, const BattleUnit* owner, int faction, int direction, int itemLevel, int unitId, int firstItemId, int lastItemId)
+void BattlescapeGame::sendCoopSpawnManifest(const char* kind, const RuleItem* carrierRule, const std::string& rule, uint64_t seed, Position position, Position finalPos, const BattleUnit* attacker, const BattleUnit* owner, int faction, int direction, int itemLevel, int unitId, int firstItemId, int lastItemId)
 {
 	Json::Value root;
 	root["state"] = "spawn_units";
@@ -3705,6 +3746,9 @@ void BattlescapeGame::sendCoopSpawnManifest(const char* kind, const RuleItem* ca
 	entry["pos"]["x"] = position.x;
 	entry["pos"]["y"] = position.y;
 	entry["pos"]["z"] = position.z;
+	entry["final_pos"]["x"] = finalPos.x;
+	entry["final_pos"]["y"] = finalPos.y;
+	entry["final_pos"]["z"] = finalPos.z;
 	entry["direction"] = direction;
 	entry["itemLevel"] = itemLevel;
 
@@ -3758,6 +3802,11 @@ void BattlescapeGame::spawn_units(std::string obj_str)
 		_coopSpawnReplay.itemLevel = e.get("itemLevel", -1).asInt();
 		_coopSpawnReplay.unitId = e.get("unit_id", -1).asInt();
 		_coopSpawnReplay.firstItemId = e["item_ids"].empty() ? -1 : e["item_ids"][0u].asInt();
+		_coopSpawnReplay.finalPos = e.isMember("final_pos")
+										? Position(e["final_pos"]["x"].asInt(),
+												   e["final_pos"]["y"].asInt(),
+												   e["final_pos"]["z"].asInt())
+										: TileEngine::invalid;
 
 		RNG::setSeed(seed);
 

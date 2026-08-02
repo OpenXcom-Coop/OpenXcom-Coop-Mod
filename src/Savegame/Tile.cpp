@@ -731,6 +731,17 @@ int Tile::getFuel(TilePart part) const
  */
 void Tile::ignite(int power)
 {
+	// coop (PRD-P3 GAP-3): tile fire and smoke are host-authoritative - setFire()
+	// and setSmoke() have carried that guard (and the packet that goes with it) for
+	// a long time, but ignite() wrote _fire/_smoke DIRECTLY, so a burning-floor unit
+	// or a melee attack lit fires on the peer off its own RNG::percent() roll and
+	// told nobody. Same guard, and the writes now go through the two setters so
+	// set_fire_tile / set_smoke_tile carry them.
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
+	{
+		return;
+	}
+
 	if (getFlammability() != 255)
 	{
 		power = power - (getFlammability() / 10) + 15;
@@ -742,10 +753,10 @@ void Tile::ignite(int power)
 		{
 			if (_fire == 0)
 			{
-				_smoke = 15 - Clamp(getFlammability() / 10, 1, 12);
+				// set BEFORE setSmoke: the smoke packet ships _overlaps.
 				_overlaps = 1;
-				_fire = getFuel() + 1;
-				_animationOffset = RNG::generate(0,3);
+				setSmoke(15 - Clamp(getFlammability() / 10, 1, 12));
+				setFire(getFuel() + 1);
 			}
 		}
 	}
