@@ -3132,11 +3132,21 @@ void BattlescapeGame::psiButtonAction()
 		return;
 	BattleItem* item = _save->getSelectedUnit()->getSpecialWeapon(BT_PSIAMP);
 
-	// coop
+	// coop + PRD-P2: these two fallbacks mint a BattleItem that is never added to
+	// _items - it exists only to give _currentAction a weapon to point at when the
+	// unit carries no psi amp. Minting it off getCurrentItemId() advanced the
+	// REPLICATED SavedBattleGame::_itemId counter on this machine alone (the ctor
+	// post-increments), so every psi button press drifted the two machines' next item
+	// id apart - exactly the chkBattleItemId term the drift tripwire watches. Mint off
+	// a local throwaway counter instead: same object, no effect on the shared counter,
+	// and the id stays -1 so it can never collide with a real item on either side.
+	// Resolving an existing special weapon is not an alternative here - these
+	// fallbacks run precisely because getSpecialWeapon() found none.
+	int transientItemId = -1;
 	if (!item)
 	{
 
-		item = new BattleItem(_save->getMod()->getItem("STR_PSI_AMP"), _save->getCurrentItemId());
+		item = new BattleItem(_save->getMod()->getItem("STR_PSI_AMP"), &transientItemId);
 	}
 
 	// coop
@@ -3144,7 +3154,8 @@ void BattlescapeGame::psiButtonAction()
 	{
 		if (!item->getRules())
 		{
-			item = new BattleItem(_save->getMod()->getItem("ALIEN_PSI_WEAPON"), _save->getCurrentItemId());
+			transientItemId = -1;
+			item = new BattleItem(_save->getMod()->getItem("ALIEN_PSI_WEAPON"), &transientItemId);
 		}
 	}
 

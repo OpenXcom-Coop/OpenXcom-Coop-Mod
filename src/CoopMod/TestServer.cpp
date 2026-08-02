@@ -4712,6 +4712,18 @@ std::string TestServer::execute(const std::string& line)
 				// carried on battle_state (as well as parallel_state) so the harness'
 				// session.can_drive() decides from a single query.
 				resp["parallelActive"] = false;
+				// PRD-P2: the two battle drift terms this machine would stamp onto the
+				// next_turn packet, plus whether the tripwire has fired here. Comparing
+				// the pair across the two machines is session.assert_battle_synced();
+				// `desyncSeen` is the 3b flag (set by SharedEcon::verifyBattleChecksum,
+				// cleared at co-op battle init).
+				{
+					int64_t chkBattleItemId = -1, chkBattleCensus = -1;
+					SharedEcon::battleChecksumTerms(_game, chkBattleItemId, chkBattleCensus);
+					resp["itemIdCounter"] = Json::Value::Int64(chkBattleItemId);
+					resp["battleCensus"] = Json::Value::Int64(chkBattleCensus);
+					resp["desyncSeen"] = SharedEcon::battleDesyncSeen();
+				}
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
 				// PRD-P1: the two other things a replayed peer action used to steal
