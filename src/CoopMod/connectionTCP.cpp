@@ -1404,7 +1404,15 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 			std::remove_if(_pendingSoldierGifts.begin(), _pendingSoldierGifts.end(),
 				[soldier](const PendingSoldierGift& pending) { return pending.soldier == soldier; }),
 			_pendingSoldierGifts.end());
-		if (broadcast && newOwnerId != localPlayerId)
+		// Issue #126: never queue the SEPARATE physical hand-off in a SHARED
+		// campaign. SHARED is ONE host-authoritative world - the in-battle
+		// ownership flip above already moved the (shared) soldier on both battle
+		// replicas, and the host's post-battle whole-world restream carries that to
+		// both machines. Running the physical hand-off (sendSoldierGiftPacket +
+		// removeSoldierFromLocalBases, with the peer re-materialising the soldier
+		// via `new Soldier`) DUPLICATES the shared soldier when it is gifted back
+		// and forth, and LOSES it on a one-way gift. The live flip is sufficient.
+		if (broadcast && newOwnerId != localPlayerId && !isSharedCampaign())
 		{
 			int craftId = -1;
 			std::string craftType;
@@ -1562,6 +1570,16 @@ void connectionTCP::processPendingSoldierGifts()
 	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
 	{
 		// Still in battle; try again later.
+		return;
+	}
+
+	// Issue #126: SHARED never runs the SEPARATE physical hand-off (giftSoldier
+	// no longer queues it in SHARED). Drop any residual entry rather than replay
+	// it - the shared world's ownership is already carried by the host restream,
+	// and materialising a copy on the peer would duplicate the shared soldier.
+	if (isSharedCampaign())
+	{
+		_pendingSoldierGifts.clear();
 		return;
 	}
 

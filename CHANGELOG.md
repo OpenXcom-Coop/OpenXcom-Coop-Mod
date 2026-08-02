@@ -9,6 +9,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
 
 ## [Unreleased]
 ### Fixed
+- Co-op SHARED campaigns: a soldier gifted between players during a battle no
+  longer duplicates after the mission ends. Transferring a soldier back and forth
+  in the battlescape used to leave a second copy of it in the shared roster once
+  the mission finished; the shared world now moves the soldier by ownership alone,
+  so the roster stays intact.
 - Co-op SHARED campaigns: hiring soldiers, scientists, or engineers is no longer
   blocked with "not enough store space" when a base's general stores are full but
   its living quarters have room. Personnel occupy quarters, not stores, so a
