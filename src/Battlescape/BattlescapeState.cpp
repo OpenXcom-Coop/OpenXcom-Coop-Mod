@@ -1403,13 +1403,23 @@ void BattlescapeState::think()
 				_save->getBattleGame()->getCoopMod()->_clientPanicHandle = false;
 			}
 
+			// coop (PRD-P5): is the parallel shared player side live? Both machines
+			// then hold isYourTurn == 2 for the whole side, which kills every
+			// "is it my turn" term below - the off-turn banners have nothing left to
+			// describe and would only squat on the warning widget (showCoopWarning
+			// posts a PERSISTENT message that is repainted every frame, so it blocks
+			// the deny/ready flashes P6/P8 put through the same widget).
+			const bool coopParallel = _game->getCoopMod()->parallelTurnActive();
+
 			// game paused
-			if (_game->getCoopMod()->gamePaused != 0 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _battleGame->isYourTurn != 2 && _game->getCoopMod()->_battleInit == true)
+			// The `isYourTurn != 2` term is dead in parallel mode; the pause banner
+			// is not, so it keys on gamePaused alone there.
+			if (_game->getCoopMod()->gamePaused != 0 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && (_battleGame->isYourTurn != 2 || coopParallel) && _game->getCoopMod()->_battleInit == true)
 			{
 				showCoopWarning("Multiplayer Paused");
 
 			}
-			else if (_battleGame->isYourTurn == 1 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true)
+			else if (_battleGame->isYourTurn == 1 && coopParallel == false && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true)
 			{
 				showCoopWarning(_game->getCoopMod()->getCurrentClientName() + "'s Turn");
 			}
@@ -1504,16 +1514,27 @@ void BattlescapeState::think()
 					_btnEndTurn->setVisible(false);
 
 					// waiting
+					// coop (PRD-P5): the three states still exist in parallel mode -
+					// 3 is the pre-_battleInit wait every turn starts in, 1 only
+					// happens while the session is paused, and 4 is the commanding
+					// spectator the gift flow keys on. Only their PERSISTENT banners
+					// are dropped (see the coopParallel comment above).
 					if (_game->getCoopMod()->_playerTurn == 3)
 					{
-						showCoopWarning("Waiting for " + _game->getCoopMod()->getCurrentClientName());
+						if (!coopParallel)
+						{
+							showCoopWarning("Waiting for " + _game->getCoopMod()->getCurrentClientName());
+						}
 						_battleGame->isYourTurn = 3;
 					}
 					// other turn
 					else if (_game->getCoopMod()->_playerTurn == 1)
 					{
 
-						showCoopWarning(_game->getCoopMod()->getCurrentClientName() + "'s Turn");
+						if (!coopParallel)
+						{
+							showCoopWarning(_game->getCoopMod()->getCurrentClientName() + "'s Turn");
+						}
 
 						_battleGame->isYourTurn = 1;
 					}
@@ -1522,7 +1543,10 @@ void BattlescapeState::think()
 					{
 						_btnEndTurn->setVisible(true);
 						_battleGame->isYourTurn = 4;
-						showCoopWarning("You are in spectator mode");
+						if (!coopParallel)
+						{
+							showCoopWarning("You are in spectator mode");
+						}
 					}
 
 
@@ -1602,8 +1626,50 @@ void BattlescapeState::think()
 
 					_battleGame->isYourTurn = 2;
 
+					// coop (PRD-P5): PARALLEL UNIT SELECTOR.
+					// Both machines run the same ownership-only scan over their own
+					// seat's soldiers - there is no active/passive split left to
+					// branch on, and neither machine ships a `selected_unit` follow
+					// packet: in parallel that packet would hijack the peer's live
+					// selection, cursor and stat panel while the peer is acting.
+					if (coopParallel)
+					{
+						const int mySeat = connectionTCP::localSeat();
+						BattleUnit* mine = nullptr;
+
+						for (auto unit : *_save->getUnits())
+						{
+							if (unit->getCoop() == mySeat && unit->getHealth() > 0
+								&& unit->isOut() == false && unit->getFaction() == FACTION_PLAYER)
+							{
+								mine = unit;
+								break;
+							}
+						}
+
+						// No soldiers left to command: commanding spectator. The
+						// state survives (connectionTCP::refreshBattleGiftControlState
+						// and the gift flow read _playerTurn == 4); only the
+						// persistent banner is dropped.
+						if (mine == nullptr && _game->getCoopMod()->isCoopSession() == true)
+						{
+							_game->getCoopMod()->setPlayerTurn(4);
+						}
+						else
+						{
+							showCoopLongWarning("Your Turn");
+							_game->getCoopMod()->gamePaused = 0;
+
+							if (mine)
+							{
+								_save->setSelectedUnit(mine);
+								updateSoldierInfo();
+								_battleGame->getCurrentAction()->actor = mine;
+							}
+						}
+					}
 					// CLIENT UNIT SELECTOR
-					if (_game->getCoopMod()->getHost() == false)
+					else if (_game->getCoopMod()->getHost() == false)
 					{
 
 						bool found = false;
@@ -1654,7 +1720,9 @@ void BattlescapeState::think()
 					
 
 					// HOST UNIT SELECTOR
-					if (_game->getCoopMod()->getHost() == true)
+					// (classic only - the parallel branch above already handled both
+					// machines with one ownership scan)
+					if (coopParallel == false && _game->getCoopMod()->getHost() == true)
 					{
 
 						bool found = false;
@@ -1783,11 +1851,27 @@ void BattlescapeState::think()
 						_game->getCoopMod()->_isActiveAISync = true;
 
 					}
+					// PVE / PVE2 (after the first hand-off to the AI)
 					else
 					{
 
-						_game->getCoopMod()->setPlayerTurn(1);
-						_game->getCoopMod()->_isActivePlayerSync = false;
+						// coop (PRD-P5): the executor invariant. In parallel mode the
+						// client holds the SAME turn state as the host (both 2, full
+						// UI, both players act) but is never the executor - every
+						// send/RNG guard in the battle states reads
+						// _isActivePlayerSync, so leaving it false here is what keeps
+						// the host the single simulation authority. PRD-P6 routes the
+						// client's input to the host as intents.
+						if (_game->getCoopMod()->parallelTurnActive())
+						{
+							_game->getCoopMod()->setPlayerTurn(2);
+							_game->getCoopMod()->_isActivePlayerSync = false;
+						}
+						else
+						{
+							_game->getCoopMod()->setPlayerTurn(1);
+							_game->getCoopMod()->_isActivePlayerSync = false;
+						}
 
 					}
 
@@ -1819,6 +1903,10 @@ void BattlescapeState::think()
 						endTurnCoop();
 
 					}
+					// PVE / PVE2 (after the first hand-off to the AI). coop (PRD-P5):
+					// this branch already IS the parallel invariant on the host side
+					// (turn 2, executor true) - the client branch above is the one
+					// that changes.
 					else
 					{
 
@@ -1827,19 +1915,7 @@ void BattlescapeState::think()
 					}
 
 				}
-		
-				// PVP
-				// This only runs in PvP mode. The XCOM player�s time units are reset here. The alien player�s time units are reset elsewhere, after the XCOM player�s turn has ended
-				/*
-				if ((_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _game->getCoopMod()->_isActivePlayerSync == true)
-				{
-					for (auto& unit : *_save->getUnits())
-					{
-						unit->resetTimeUnitsAndEnergy();
-					}
-				}
-				*/
-			
+
 			}
 
 
@@ -2104,7 +2180,12 @@ void BattlescapeState::mapClick(Action *action)
 		{
 
 			// coop
-			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
+			// (PRD-P5 §4) parallelInputBlocked() is the TEMPORARY stand-in for
+			// the off-turn gates that die in parallel mode: the client holds
+			// isYourTurn == 2 like the host, so nothing above stops it any more.
+			// PRD-P6 replaces the silent return with an `action_intent` send.
+			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4
+				|| connectionTCP::parallelInputBlocked())
 			{
 				return;
 			}
@@ -2116,7 +2197,8 @@ void BattlescapeState::mapClick(Action *action)
 			// Off-turn left clicks must not call primaryAction, but the local gift
 			// selection above has still been updated. On our own turn the same click
 			// also proceeds through the normal unit/action selection path.
-			if ((_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
+			if ((_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
+				|| connectionTCP::parallelInputBlocked())
 			{
 				return;
 			}
@@ -2853,6 +2935,14 @@ void BattlescapeState::btnHelpClick(Action *)
 void BattlescapeState::btnEndTurnClick(Action *)
 {
 
+	// coop (PRD-P5 §4): during a parallel player side only the HOST closes the
+	// side. The client's END TURN is swallowed here until PRD-P8 lands the
+	// per-seat readiness gate + tally.
+	if (connectionTCP::parallelInputBlocked())
+	{
+		return;
+	}
+
 	// hotseat
 	if (_game->getCoopMod()->_isHotseatActive == true)
 	{
@@ -2952,10 +3042,35 @@ void BattlescapeState::btnEndTurnClick(Action *)
 
 	}
 
+	// coop (PRD-P5 §5): parallel mode has NO mid-side hand-off. Only the host gets
+	// here (the client's press was swallowed above), and its press closes the whole
+	// player side straight away - the very flow the host's `PlayerTurnYour` receive
+	// branch used to run once the client had also passed
+	// (connectionTCP.cpp, stateString == "PlayerTurnYour", host branch). No
+	// `PlayerTurnYour` is sent: BattlescapeGame::endTurn() ships `endTurn` (which
+	// carries the RNG seed in parallel mode) and NextTurnState::close ships
+	// `next_turn` with the full unit/tile bulk state, so the boundary reseed and
+	// the display safety net both survive the hand-off's removal.
+	if (_game->getCoopMod()->parallelTurnActive() && _game->getCoopMod()->getCoopStatic() == true && !_save->isPreview())
+	{
+		// the host remains the executor for the AI side that follows
+		_game->getCoopMod()->_isActivePlayerSync = true;
+		_game->getCoopMod()->_isActiveAISync = true;
+		_game->getCoopMod()->_battleInit = false;
+
+		// the per-turn co-op init handshake must re-arm from scratch, exactly as it
+		// does on the classic path
+		_game->getCoopMod()->_waitBH = false;
+		_game->getCoopMod()->_waitBC = false;
+
+		endTurnCoop();
+		return;
+	}
+
 	_game->getCoopMod()->_isActivePlayerSync = false;
 
 	bool is_return = false;
-	
+
 	if (_game->getCoopMod()->getCoopStatic() == true && !_save->isPreview())
 	{
 
@@ -3782,6 +3897,17 @@ bool BattlescapeState::playableUnitSelected()
 	// coop
 	if (_save->getSelectedUnit())
 	{
+
+		// coop (PRD-P5): in parallel mode `_isActivePlayerSync` names the EXECUTOR
+		// role (host true / client FALSE, permanently) instead of "is it my turn",
+		// so the classic test below would leave every action button, stats popup
+		// and right-click permanently dead on the client. The question that
+		// survives is ownership: is the selected soldier one of mine.
+		if (connectionTCP::parallelTurnActive())
+		{
+			return _save->getSelectedUnit()->getCoop() == connectionTCP::localSeat()
+				&& allowButtons();
+		}
 
 		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 1)
 			return true;
@@ -4973,6 +5099,11 @@ void BattlescapeState::showCoopWarning(const std::string &message)
 {
 	_warning->showMessage(message, -1);
 	
+}
+
+std::string BattlescapeState::getCoopWarningText() const
+{
+	return _warning ? _warning->getMessage() : std::string();
 }
 
 void BattlescapeState::doAbortPath()

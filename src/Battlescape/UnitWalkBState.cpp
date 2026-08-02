@@ -22,6 +22,7 @@
 #include "TileEngine.h"
 #include "Pathfinding.h"
 #include "BattlescapeState.h"
+#include "../CoopMod/connectionTCP.h"
 #include "Map.h"
 #include "Camera.h"
 #include "../Savegame/BattleUnit.h"
@@ -332,7 +333,17 @@ void UnitWalkBState::think()
 			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && _unit->getFaction() != FACTION_PLAYER && _unit->getVisible())
 				_parent->getMap()->getCamera()->centerOnPosition(_unit->getPosition());
 			// if the unit changed level, camera changes level with
-			_parent->getMap()->getCamera()->setViewLevel(_unit->getPosition().z);
+			// coop (PRD-P5): NOT for a teammate's replayed walk during a parallel
+			// player side. Both players are acting at once there, so this per-step
+			// level-follow would drag the local player's view up and down the map
+			// while they are trying to aim. The AI phase (_isActiveAISync) and
+			// classic co-op keep the unconditional follow - in classic the watcher
+			// has no action of their own to protect.
+			if (!(_action.coopReplay && connectionTCP::parallelTurnActive()
+					&& _parent->getCoopMod()->_isActiveAISync == false))
+			{
+				_parent->getMap()->getCamera()->setViewLevel(_unit->getPosition().z);
+			}
 		}
 
 		// is the step finished?

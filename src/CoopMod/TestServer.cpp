@@ -3892,8 +3892,22 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// admitBlocked/pendingReqId, P7 fastForward/peerDisplayAckedSeq,
 		// P8 readySeats/autoSeats/sideSeq.
 		connectionTCP* pcoop = _game->getCoopMod();
-		// PRD-P5 replaces this with parallelTurnActive().
-		resp["parallelActive"] = false;
+		// PRD-P5: the real predicate. `parallelEnabled` is the handshake mirror
+		// (connectionTCP::_enable_parallel_turns) and `clientInputBlocked` the
+		// temporary §4 input gate, so a test can tell "the mode is on" from "the
+		// mode is on AND this machine is the one that may not act".
+		resp["parallelActive"] = connectionTCP::parallelTurnActive();
+		resp["parallelEnabled"] = connectionTCP::_enable_parallel_turns;
+		resp["clientInputBlocked"] = connectionTCP::parallelInputBlocked();
+		{
+			std::string warn;
+			if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle()
+				&& _game->getSavedGame()->getSavedBattle()->getBattleState())
+			{
+				warn = _game->getSavedGame()->getSavedBattle()->getBattleState()->getCoopWarningText();
+			}
+			resp["warning"] = warn;
+		}
 		resp["taskCompleted"] = pcoop ? pcoop->_coop_task_completed : true;
 		resp["pathLock"] = pcoop ? pcoop->_pathLock : -1;
 		resp["coopWalkInit"] = pcoop ? pcoop->_coopWalkInit : false;
@@ -4764,10 +4778,17 @@ std::string TestServer::execute(const std::string& line)
 				resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
 				resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
 				resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
-				// Parallel-turns mode. FALSE until PRD-P5 lands parallelTurnActive();
-				// carried on battle_state (as well as parallel_state) so the harness'
-				// session.can_drive() decides from a single query.
-				resp["parallelActive"] = false;
+				// Parallel-turns mode (PRD-P5), carried on battle_state (as well as
+				// parallel_state) so the harness' session.can_drive() decides from a
+				// single query.
+				resp["parallelActive"] = connectionTCP::parallelTurnActive();
+				resp["parallelEnabled"] = connectionTCP::_enable_parallel_turns;
+				resp["clientInputBlocked"] = connectionTCP::parallelInputBlocked();
+				// PRD-P5: the banner currently squatting on the in-battle warning widget
+				// ("" = none). The persistent off-turn banners have no meaning in
+				// parallel mode and would block P6/P8's deny/ready flashes, so a test
+				// has to be able to see them.
+				resp["warning"] = bg->getBattleState() ? bg->getBattleState()->getCoopWarningText() : std::string();
 				// PRD-P2: the two battle drift terms this machine would stamp onto the
 				// next_turn packet, plus whether the tripwire has fired here. Comparing
 				// the pair across the two machines is session.assert_battle_synced();
@@ -5693,6 +5714,13 @@ std::string TestServer::execute(const std::string& line)
 			resp["isLoadProgress"] = coop->_isLoadProgress;
 			resp["shared"] = coop->isSharedCampaign();
 			resp["gamemode"] = connectionTCP::getCoopGamemode();
+			// PRD-P5: the parallel-turns session mode. On get_coop (not only
+			// battle_state/parallel_state) because it is a SESSION property, frozen by
+			// the COOP_READY_HOST handshake at join time - a test must be able to read
+			// it from the lobby, long before a battle exists.
+			resp["parallelEnabled"] = connectionTCP::_enable_parallel_turns;
+			resp["parallelActive"] = connectionTCP::parallelTurnActive();
+			resp["clientInputBlocked"] = connectionTCP::parallelInputBlocked();
 			{
 				CoopState* top = findState<CoopState>(_game);
 				resp["coopDialog"] = top ? top->getStateCode() : -1;

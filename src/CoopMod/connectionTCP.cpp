@@ -224,6 +224,10 @@ bool connectionTCP::_enable_xcom_equipment_aliens_pvp = true;
 
 bool connectionTCP::_unbalanced_craft_soldiers_limit = false;
 
+// coop (PRD-P5): default OFF = classic alternating sub-turns. Only the
+// COOP_READY_HOST handshake (and a save load) ever writes it.
+bool connectionTCP::_enable_parallel_turns = false;
+
 bool connectionTCP::_coopCampaign = false;
 
 bool connectionTCP::_battleInit = false;
@@ -787,6 +791,9 @@ Json::Value connectionTCP::buildCampaignStartPacket(const SavedGame* save)
 	root["saveID"] = static_cast<Json::Int64>(connectionTCP::saveID);
 	// PRD-J01: propagate the campaign economy model so the client adopts it.
 	root["campaignType"] = static_cast<int>(save->getCampaignType());
+	// PRD-P5: and the parallel-turns session mode, so a client that started its
+	// world from this packet (rather than from a streamed save) still agrees.
+	root["enable_parallel_turns"] = connectionTCP::_enable_parallel_turns;
 	int idx = 0;
 	for (const auto& p : save->getCoopPlayers())
 	{
@@ -1295,7 +1302,12 @@ void connectionTCP::refreshBattleGiftControlState()
 
 	if (battleState && localWasSpectator)
 	{
-		const int restoredTurn = _isActivePlayerSync ? 2 : 1;
+		// coop (PRD-P5): in parallel mode there is no off-turn state to come back
+		// to - both machines hold 2 for the whole player side, so a player who
+		// receives a soldier while in commanding-spectator mode is simply active
+		// again. `_isActivePlayerSync` must NOT be read here: it is the EXECUTOR
+		// role in parallel (host true / client false), not "is it my turn".
+		const int restoredTurn = parallelTurnActive() ? 2 : (_isActivePlayerSync ? 2 : 1);
 		setPlayerTurn(restoredTurn);
 		battleState->setCurrentTurn(restoredTurn);
 		if (restoredTurn == 2)
@@ -1304,6 +1316,9 @@ void connectionTCP::refreshBattleGiftControlState()
 		}
 		else
 		{
+			// Unreachable in parallel mode (restoredTurn is always 2). The
+			// persistent "X's Turn" banner (showMessage(msg, -1), repainted every
+			// frame) would otherwise sit on top of every later warning.
 			battleState->showCoopWarning(getCurrentClientName() + "'s Turn");
 		}
 	}
@@ -4157,6 +4172,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		CoopCampaignType campaignType =
 			static_cast<CoopCampaignType>(obj.get("campaignType", 0).asInt());
+
+		// PRD-P5: the host's parallel-turns mode rides the campaign start too
+		// (COOP_READY_HOST already set it; this keeps the two in step for a
+		// client whose world is built from this packet). Missing key = classic.
+		connectionTCP::_enable_parallel_turns = obj.get("enable_parallel_turns", false).asBool();
 
 		if (campaignType == CoopCampaignType::Shared)
 		{
@@ -8638,6 +8658,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_waitBC = false;
 				_waitBH = false;
 
+				// coop (PRD-P5 §5): side-boundary reseed. Only the parallel host
+				// stamps it (classic still ships the seed on `PlayerTurnYour`), so
+				// an absent key means "classic packet, do not touch the stream".
+				if (obj.isMember("seed"))
+				{
+					RNG::setSeed(obj["seed"].asUInt64());
+				}
+
 				int side = obj["side"].asInt();
 
 				_game->getSavedGame()->getSavedBattle()->setSideCoop(side);
@@ -9890,6 +9918,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::_enable_other_player_footsteps = Options::EnableOtherPlayerFootsteps;
 		root["enable_other_player_footsteps"] = connectionTCP::_enable_other_player_footsteps;
 
+		// parallel battlescape turns (PRD-P5). The HOST's option decides the mode
+		// for the whole session; a client's own setting is irrelevant. A peer that
+		// does not know the key reads false = classic (old-build degrade).
+		connectionTCP::_enable_parallel_turns = Options::EnableCoopParallelTurns;
+		root["enable_parallel_turns"] = connectionTCP::_enable_parallel_turns;
+
 		// enable host only time speed
 		connectionTCP::_enable_host_only_time_speed = Options::EnableHostOnlyTimeSpeed;
 		root["enable_host_only_time_speed"] = connectionTCP::_enable_host_only_time_speed;
@@ -10023,6 +10057,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// other player footsteps sounds
 		bool enable_other_player_footsteps = obj["enable_other_player_footsteps"].asBool();
 		connectionTCP::_enable_other_player_footsteps = enable_other_player_footsteps;
+
+		// parallel battlescape turns (PRD-P5). get(..., false): an older host does
+		// not send the key at all, and the missing key must mean classic mode.
+		connectionTCP::_enable_parallel_turns = obj.get("enable_parallel_turns", false).asBool();
 
 		// enable host only time speed
 		bool enable_host_only_time_speed = obj["enable_host_only_time_speed"].asBool();
@@ -11124,6 +11162,28 @@ int connectionTCP::localSeat()
 	if (getServerOwner())
 		return 0;
 	return coop_save_owner_player_id > 0 ? coop_save_owner_player_id : 1;
+}
+
+// coop (PRD-P5): the parallel shared player side. See PROTOCOL.md "Core
+// invariant". PVP/PVP2 (gamemode 2/3) are adversarial by construction - the two
+// sides must not act at once - and hotseat has only one machine, so both are
+// excluded. Static so the battle-side guards (BattleUnit, the BStates) can ask
+// without a connectionTCP instance.
+bool connectionTCP::parallelTurnActive()
+{
+	if (!_enable_parallel_turns)
+		return false;
+	if (!getCoopStatic() || _isHotseatActive)
+		return false;
+	const int gamemode = getCoopGamemode();
+	return gamemode == 1 || gamemode == 4;
+}
+
+// coop (PRD-P5 §4): the temporary client input gate. PRD-P6 deletes it and
+// routes the same sites into `action_intent` instead.
+bool connectionTCP::parallelInputBlocked()
+{
+	return parallelTurnActive() && !getHost() && !Options::coopParallelDebugClientInput;
 }
 
 // PRD-J01: active roster size (host + clients). Falls back to the legacy

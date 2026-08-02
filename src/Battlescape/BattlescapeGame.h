@@ -91,6 +91,12 @@ struct BattleAction : BattleActionCost
 	bool sprayTargeting; // Used to separate waypoint checks between confirm firing mode and the "spray" autoshot
 	BattleActionOrigin relativeOrigin = BattleActionOrigin::CENTRE; // preferred origin voxel (centre, left or right)
 	int terrainMeleeTilePart = 0; // terrain melee
+	// coop (PRD-P5): true only on the stack-local action a REPLAYED (peer- or
+	// AI-originated) chain runs on - see BattlescapeGame::makeReplayAction. The
+	// BStates copy the action they are given, so this rides the whole chain and
+	// lets display-only code tell "the local player did this" from "I am watching
+	// my teammate". Used to stop a peer action yanking the local camera.
+	bool coopReplay = false;
 
 	/// Default constructor
 	BattleAction() : target(-1, -1, -1), targeting(false), value(0), diff(0), autoShotCounter(0), cameraPosition(0, 0, -1), desperate(false), finalFacing(-1), finalAction(false), number(0), sprayTargeting(false) { }
