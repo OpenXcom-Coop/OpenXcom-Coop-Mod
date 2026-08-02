@@ -238,10 +238,15 @@ std::uint32_t connectionTCP::_intentSlotReqId = 0;
 int connectionTCP::_intentSlotSeat = -1;
 std::string connectionTCP::_intentSlotKind;
 std::string connectionTCP::_admitBlocked;
+std::string connectionTCP::_pendBlocked;
 std::uint32_t connectionTCP::_clientReqSeq = 0;
 std::uint32_t connectionTCP::_clientPendingReqId = 0;
 std::string connectionTCP::_clientPendingKind;
 std::uint32_t connectionTCP::_clientPendingSentTicks = 0;
+// coop (PRD-P7): pending-admit slots and the two display-flow counters.
+std::vector<connectionTCP::CoopPendingIntent> connectionTCP::_pendingAdmits;
+std::uint32_t connectionTCP::_openChainSeq = 0;
+std::uint32_t connectionTCP::_clientDisplaySeq = 0;
 
 bool connectionTCP::_coopCampaign = false;
 
@@ -2061,6 +2066,19 @@ void connectionTCP::updateCoopTask()
 	// thread, so the warning flash it may raise touches the battlescape safely.
 	tickActionIntents();
 
+	// coop (PRD-P7): the executor's two main-thread duties.
+	//  - close the admitted chain that has drained, so the client can report it
+	//    displayed. Needed here as well as at the popState() drain point because
+	//    three admitted kinds (kneel, prime, medikit) push no BattleState at all
+	//    and therefore never reach a pop.
+	//  - admit ONE deferred input. Not done from popState(): executing an action
+	//    pushes states back onto the queue the pop is still walking.
+	if (parallelTurnActive() && getHost())
+	{
+		coopCloseActionChain();
+		coopAdmitPendingIntents();
+	}
+
 	// COOP living quarters: re-report our guest headcount whenever it changes.
 	// Driven from here rather than from each mutation site (transfer, gift,
 	// sack, base loss) so no path can forget it; sendGuestCensus is a cheap
@@ -2367,6 +2385,22 @@ void connectionTCP::updateCoopTask()
 		// If nothing progressed this pass, stop to avoid busy-waiting
 		if (consumedThisPass == 0)
 			break;
+	}
+
+	// coop (PRD-P7): client display fast-forward. A packet still sitting in the
+	// hold queue behind a closed receive gate means the executor has already moved
+	// on while this machine is still animating. If what it is animating is nothing
+	// but locomotion, there is nothing to wait for: `abortPath`'s teleport-correct
+	// fixes the endpoint exactly either way, so only the animation length changes.
+	if (parallelTurnActive() && !getHost() && !coopTaskCompleted() && rxHoldSize() > 0)
+	{
+		SavedGame* pgSave = _game ? _game->getSavedGame() : nullptr;
+		SavedBattleGame* pgBattle = pgSave ? pgSave->getSavedBattle() : nullptr;
+		BattlescapeGame* pgGame = pgBattle ? pgBattle->getBattleGame() : nullptr;
+		if (pgGame && pgGame->chainIsSkippable())
+		{
+			pgGame->setCoopFastForward(true);
+		}
 	}
 
 	// coop
@@ -6066,6 +6100,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			std::string denyReason;
 			std::string denyWarning;
+			// coop (PRD-P7): true = the intent was DEFERRED, not answered. The ack
+			// is owed when the pending slot is admitted, so nothing travels now.
+			bool pended = false;
 
 			if (!bg || sideSeq != _sideSeq || battle->getSide() != FACTION_PLAYER)
 			{
@@ -6082,12 +6119,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 				else if (!canAdmitAction())
 				{
-					denyReason = "busy";
-					denyWarning = "STR_COOP_PLAYER_BUSY";
+					// coop (PRD-P7): a chain of pure locomotion in the way is a WAIT,
+					// not a refusal - defer the intent and stop watching the walk.
+					// Anything else keeps PRD-P6's `busy`.
+					pended = coopPendIntent(seat, reqId, obj.get("kind", "").asString(),
+											obj.toStyledString(), false);
+					if (!pended)
+					{
+						denyReason = "busy";
+						denyWarning = "STR_COOP_PLAYER_BUSY";
+					}
 				}
 			}
 
-			if (!denyReason.empty())
+			if (pended)
+			{
+				// deliberately silent: coopAdmitPendingIntents() acks on admission
+			}
+			else if (!denyReason.empty())
 			{
 				Json::Value root;
 				root["state"] = "action_deny";
@@ -6130,7 +6179,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			clearClientPendingIntent();
 		}
-		_actionSeq = static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+		// coop (PRD-P7): never move the watermark BACKWARDS - `action_end` may
+		// already have carried the client past this ack's value.
+		const std::uint32_t acked = static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+		if (acked > _actionSeq)
+		{
+			_actionSeq = acked;
+		}
 	}
 
 	if (stateString == "action_deny")
@@ -6150,6 +6205,42 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			Log(LOG_INFO) << "coop: action_intent req " << reqId << " denied ("
 						  << obj.get("reason", "").asString() << ")";
+		}
+	}
+
+	// coop (PRD-P7): "chain N has no more packets coming" - the host's drain
+	// marker. NOT whitelisted, so the client consumes it only at receive-gate
+	// depth 0, which is precisely when it has finished DISPLAYING that chain.
+	if (stateString == "action_end")
+	{
+		const std::uint32_t seq = static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+		if (!getHost() && seq > _clientDisplaySeq)
+		{
+			_clientDisplaySeq = seq;
+			if (seq > _actionSeq)
+			{
+				// the host's own actions carry no ack, so this is where the client
+				// learns how far the executor has got.
+				_actionSeq = seq;
+			}
+			coopEmitActionDone();
+		}
+	}
+
+	// coop (PRD-P7): the display flow-control return leg. Whitelisted (it carries
+	// no sim mutation), so it reaches the arbiter even while the host is mid-chain.
+	// The `<= _actionSeq` guard drops a report that crossed a side boundary in
+	// flight - without it the uint32 backlog term would underflow and block
+	// admission for the rest of the battle.
+	if (stateString == "action_done")
+	{
+		if (getHost())
+		{
+			const std::uint32_t seq = static_cast<std::uint32_t>(obj.get("seq", 0).asUInt());
+			if (seq > peerDisplayAckedSeq && seq <= _actionSeq)
+			{
+				peerDisplayAckedSeq = seq;
+			}
 		}
 	}
 
@@ -6371,7 +6462,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					int type = obj["type"].asInt();
 					std::string hand = obj["hand"].asString();
 
-					bool fusetimer = obj["fusetimer"].asInt();
+					// coop: the fuse the item ACTUALLY ended on, and it is an int.
+					// Reading it into a bool clipped every fuse to 1 (and turned the
+					// -1 a failed prime / an unprime ships into 1, arming a grenade
+					// the executor never armed) before handing it to
+					// coopActiveGranade(..., int fusetimer, ...). Pre-existing in
+					// classic co-op; PRD-P6's re-broadcast made it clip a parallel
+					// client's intent-primed fuses too.
+					int fusetimer = obj["fusetimer"].asInt();
 
 					int item_id = obj["item_id"].asInt();
 
@@ -8737,6 +8835,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 					_sideSeq = static_cast<std::uint32_t>(obj["side_seq"].asUInt());
 					clearClientPendingIntent();
+					// coop (PRD-P7): the host zeroed _actionSeq/peerDisplayAckedSeq
+					// on its side of this very packet (BattlescapeGame::endTurn).
+					// A client that kept its old display watermark would never
+					// report `action_done` against the new, lower sequence again and
+					// the executor's backlog term would wedge shut for good.
+					resetActionArbiter(false);
 				}
 
 				int side = obj["side"].asInt();
@@ -11297,12 +11401,29 @@ bool connectionTCP::canAdmitAction()
 		_admitBlocked = "gate_depth";
 		return false;
 	}
+	// coop (PRD-P7): display flow control. The peer applies action packets one
+	// chain at a time, so running more than one chain ahead of what it has
+	// finished DISPLAYING just piles up lag it can never see through. Host-only:
+	// on a client `_actionSeq` is a mirror of what it has been told and
+	// peerDisplayAckedSeq is its own display watermark, so the subtraction would
+	// mean something different there. The `>` guard keeps the uint32 term safe if
+	// a stale `action_done` ever outruns the counter across a side boundary.
+	if (getHost() && _actionSeq > peerDisplayAckedSeq && (_actionSeq - peerDisplayAckedSeq) >= 2)
+	{
+		_admitBlocked = "display_backlog";
+		return false;
+	}
 	return true;
 }
 
 std::uint32_t connectionTCP::stampAdmittedAction()
 {
-	return ++_actionSeq;
+	// coop (PRD-P7): the chain that is now running owes the client an `action_end`.
+	// If the previous chain never got its marker out (a stateless kind admitted and
+	// completed inside one frame), this overwrites it - the client's watermark then
+	// jumps straight to the newer seq, which is exactly as correct and self-heals.
+	_openChainSeq = ++_actionSeq;
+	return _actionSeq;
 }
 
 // coop (PRD-P6): `fullReset` = a new battle or a session teardown (everything,
@@ -11312,6 +11433,13 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 {
 	_actionSeq = 0;
 	peerDisplayAckedSeq = 0;
+	// coop (PRD-P7): the two display-flow terms reset with _actionSeq, for exactly
+	// the reason peerDisplayAckedSeq does - a client left holding a watermark from
+	// the previous side would never report `action_done` against the new, lower
+	// sequence and the executor's backlog term would wedge shut.
+	_openChainSeq = 0;
+	_clientDisplaySeq = 0;
+	_pendingAdmits.clear();
 	_sideCommitInProgress = false;
 	_intentSlotReqId = 0;
 	_intentSlotSeat = -1;
@@ -11381,6 +11509,269 @@ void connectionTCP::flashBattleWarning(const std::string& key)
 	{
 		_game->getSavedGame()->getSavedBattle()->getBattleState()->warning(key);
 	}
+}
+
+// ---- coop (PRD-P7): pending-admit + display flow control --------------------
+
+/// Refuses one deferred input. A remote seat gets the ordinary `action_deny`; the
+/// executor's own deferred click never travelled, so it just flashes locally.
+static void coopRefusePendingIntent(connectionTCP* coop,
+									const connectionTCP::CoopPendingIntent& slot,
+									const std::string& reason)
+{
+	if (!coop)
+	{
+		return;
+	}
+	const std::string warning = (reason == "turn_over") ? "STR_COOP_TURN_OVER"
+														: "STR_COOP_PLAYER_BUSY";
+	if (slot.local)
+	{
+		coop->flashBattleWarning(warning);
+		return;
+	}
+	Json::Value root;
+	root["state"] = "action_deny";
+	root["req_id"] = static_cast<Json::UInt>(slot.reqId);
+	root["reason"] = reason;
+	root["warning"] = warning;
+	root["side_seq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
+	coop->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P7): take an input the arbiter cannot admit YET, instead of refusing
+ * it outright.
+ *
+ * The only chain worth deferring behind is one that is pure locomotion: it has no
+ * outcome to wait for, so the arbiter can stop watching it (the fast-forward) and
+ * run the deferred input the moment the queue drains. Anything else - a shot in
+ * flight, an explosion, a side commit - keeps PRD-P6's `busy` refusal, because the
+ * world the player clicked against is about to change.
+ */
+bool connectionTCP::coopPendIntent(int seat, std::uint32_t reqId, const std::string& kind,
+								   const std::string& intentJson, bool localOrigin)
+{
+	_pendBlocked.clear();
+	if (!parallelTurnActive() || !getHost() || !_staticGame)
+	{
+		_pendBlocked = "not_executor";
+		return false;
+	}
+	SavedGame* save = _staticGame->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	if (!bg || battle->getSide() != FACTION_PLAYER || _sideCommitInProgress)
+	{
+		_pendBlocked = "side";
+		return false;
+	}
+	if (!bg->chainIsSkippable())
+	{
+		// the two cases read very differently in a log: an EMPTY queue means the
+		// chain drained between the admission check and here (nothing to defer
+		// behind), a non-empty one means the chain is doing something that must be
+		// watched.
+		_pendBlocked = bg->isBusy() ? "not_skippable" : "chain_drained";
+		return false;
+	}
+
+	// One slot per seat, newest wins: the player changed their mind, so the older
+	// click is the one that is refused.
+	for (auto it = _pendingAdmits.begin(); it != _pendingAdmits.end(); ++it)
+	{
+		if (it->seat == seat)
+		{
+			CoopPendingIntent replaced = *it;
+			_pendingAdmits.erase(it);
+			coopRefusePendingIntent(_staticGame->getCoopMod(), replaced, "busy");
+			break;
+		}
+	}
+
+	CoopPendingIntent slot;
+	slot.reqId = reqId;
+	slot.seat = seat;
+	slot.kind = kind;
+	slot.json = intentJson;
+	slot.local = localOrigin;
+	_pendingAdmits.push_back(slot);
+
+	bg->setCoopFastForward(true);
+	return true;
+}
+
+/**
+ * coop (PRD-P7): drop every deferred input.
+ *
+ * Called when a fast-forwarded chain stops being skippable - reaction fire is the
+ * case that matters. The player aimed their deferred click at a battlefield that
+ * has just been shot up, so re-clicking is the honest answer.
+ */
+void connectionTCP::coopDenyPendingIntents(const std::string& reason)
+{
+	if (_pendingAdmits.empty())
+	{
+		return;
+	}
+	std::vector<CoopPendingIntent> dropped;
+	dropped.swap(_pendingAdmits);
+	connectionTCP* coop = _staticGame ? _staticGame->getCoopMod() : nullptr;
+	for (const auto& slot : dropped)
+	{
+		coopRefusePendingIntent(coop, slot, reason);
+	}
+}
+
+/**
+ * coop (PRD-P7): admit ONE deferred input, from the main-thread tick.
+ *
+ * Not called from popState(): executing an action pushes states back onto the
+ * queue that the pop is still walking. One per tick is deliberate too - the
+ * admitted chain has to start before the next slot can be judged, and any slot
+ * left over keeps the fast-forward armed so the queue keeps compressing.
+ */
+void connectionTCP::coopAdmitPendingIntents()
+{
+	if (_pendingAdmits.empty() || !parallelTurnActive() || !getHost())
+	{
+		return;
+	}
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	if (!bg)
+	{
+		coopDenyPendingIntents("turn_over");
+		return;
+	}
+	if (battle->getSide() != FACTION_PLAYER || _sideCommitInProgress)
+	{
+		coopDenyPendingIntents("turn_over");
+		return;
+	}
+	if (!canAdmitAction())
+	{
+		return;
+	}
+
+	CoopPendingIntent slot = _pendingAdmits.front();
+	_pendingAdmits.erase(_pendingAdmits.begin());
+
+	// Re-validated at ADMIT time, not at defer time: TU, ownership and the actor's
+	// own health may all have moved while the chain in front was running.
+	std::string warning;
+	const std::string bad = bg->coopValidateIntent(slot.json, slot.seat, warning);
+	if (!bad.empty())
+	{
+		if (slot.local)
+		{
+			flashBattleWarning(warning.empty() ? "STR_COOP_ACTION_REFUSED" : warning);
+		}
+		else
+		{
+			Json::Value root;
+			root["state"] = "action_deny";
+			root["req_id"] = static_cast<Json::UInt>(slot.reqId);
+			root["reason"] = "invalid";
+			root["warning"] = warning;
+			root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+			sendTCPPacketData(root.toStyledString());
+		}
+	}
+	else
+	{
+		_intentSlotReqId = slot.reqId;
+		_intentSlotSeat = slot.seat;
+		_intentSlotKind = slot.kind;
+
+		const std::uint32_t seq = stampAdmittedAction();
+		if (!slot.local)
+		{
+			// PROTOCOL.md: the ack goes out at ADMIT time, which for a deferred
+			// intent is now rather than when it arrived.
+			Json::Value ack;
+			ack["state"] = "action_ack";
+			ack["req_id"] = static_cast<Json::UInt>(slot.reqId);
+			ack["action_seq"] = static_cast<Json::UInt>(seq);
+			sendTCPPacketData(ack.toStyledString());
+		}
+		bg->coopExecuteIntent(slot.json, slot.local);
+	}
+
+	// Somebody is still waiting: keep skipping past whatever just started.
+	if (!_pendingAdmits.empty() && bg->chainIsSkippable())
+	{
+		bg->setCoopFastForward(true);
+	}
+}
+
+/**
+ * coop (PRD-P7): "chain N has no more packets coming".
+ *
+ * PROTOCOL.md deviation, documented there: the frozen sketch stamped `action_seq`
+ * on every broadcast packet of the chain. A stamp can only say "chain N STARTED",
+ * and three admitted kinds (kneel, prime, medikit) push no BattleState and may
+ * ship a single packet or - a turn that turns nothing, a walk with no path - none
+ * at all. The client would then never learn that chain N existed, never report it
+ * displayed, and the backlog term would wedge the arbiter for the rest of the
+ * side. One marker at the drain point says exactly the thing the flow control
+ * needs, rides the ordinary receive gate (so the client consumes it only once its
+ * display of that chain has finished), and costs no per-packet work.
+ */
+void connectionTCP::coopCloseActionChain()
+{
+	if (_openChainSeq == 0 || !parallelTurnActive() || !getHost() || !_staticGame)
+	{
+		return;
+	}
+	connectionTCP* coop = _staticGame->getCoopMod();
+	if (!coop)
+	{
+		return;
+	}
+	SavedGame* save = _staticGame->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	if (bg && bg->isBusy())
+	{
+		return; // the chain is still running
+	}
+	if (!coop->coopTaskCompleted())
+	{
+		return;
+	}
+	Json::Value root;
+	root["state"] = "action_end";
+	root["action_seq"] = static_cast<Json::UInt>(_openChainSeq);
+	_openChainSeq = 0;
+	coop->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P7): the client's single `action_done` emit point.
+ *
+ * `_clientDisplaySeq` is written only when the gated `action_end` marker is
+ * CONSUMED, and a gated consume by definition happens at receive-gate depth 0 -
+ * i.e. the moment the display of that chain finished. So there is exactly one
+ * place this can fire from, and it cannot fire early.
+ */
+void connectionTCP::coopEmitActionDone()
+{
+	if (!parallelTurnActive() || getHost())
+	{
+		return;
+	}
+	if (_clientDisplaySeq == 0 || _clientDisplaySeq <= peerDisplayAckedSeq)
+	{
+		return;
+	}
+	peerDisplayAckedSeq = _clientDisplaySeq;
+	Json::Value root;
+	root["state"] = "action_done";
+	root["seq"] = static_cast<Json::UInt>(peerDisplayAckedSeq);
+	root["seat"] = localSeat();
+	sendTCPPacketData(root.toStyledString());
 }
 
 // PRD-J01: active roster size (host + clients). Falls back to the legacy

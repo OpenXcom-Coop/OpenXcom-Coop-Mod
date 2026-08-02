@@ -59,7 +59,12 @@ UnitFallBState::~UnitFallBState()
 void UnitFallBState::init()
 {
 	_terrain = _parent->getTileEngine();
-	if (_parent->getSave()->getSide() == FACTION_PLAYER)
+	// coop (PRD-P7): fast-forwarded chains run their fall animation at frame rate
+	// too - a fall is locomotion, and the peer is told the landing tile explicitly.
+	// Parallel mode only; classic keeps the original two lines.
+	if (_parent->getCoopFastForward())
+		_parent->setStateInterval(0);
+	else if (_parent->getSave()->getSide() == FACTION_PLAYER)
 		_parent->setStateInterval(Options::battleXcomSpeed);
 	else
 		_parent->setStateInterval(Options::battleAlienSpeed);

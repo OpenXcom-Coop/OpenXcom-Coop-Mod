@@ -192,6 +192,12 @@ private:
 		Position finalPos = Position(-1, -1, -1);
 	};
 	CoopSpawnReplay _coopSpawnReplay;
+	// coop (PRD-P7): "do not wait for this walk". Set by the arbiter when an input
+	// arrives while a SKIPPABLE chain is running (host) or while an action packet
+	// sits deferred behind the receive gate (client); cleared the moment _states
+	// drains or the chain stops being skippable. Only the walk/turn/fall think
+	// intervals read it - never a projectile, explosion, death or melee state.
+	bool _coopFastForward = false;
 	/// coop: id -> live BattleUnit (null when absent). Never fabricates.
 	BattleUnit* coopFindUnit(int unitId) const;
 	/// coop: ships one spawn manifest entry to the peer (host only).
@@ -273,7 +279,23 @@ public:
 	/// battlescape headers.
 	std::string coopValidateIntent(const std::string& intentJson, int seat, std::string& warning);
 	/// Host: rebuild the intent as a BattleAction and run it through executeAction.
-	void coopExecuteIntent(const std::string& intentJson);
+	/// `localOrigin` = this machine's own deferred click (PRD-P7 pending-admit), so
+	/// the action is NOT flagged coopReplay and the camera still follows it.
+	void coopExecuteIntent(const std::string& intentJson, bool localOrigin = false);
+	// ---- coop (PRD-P7): walk fast-forward ---------------------------------
+	/// True iff EVERY queued state is a walk / turn / fall of a FACTION_PLAYER
+	/// unit - i.e. the whole chain is animation nobody has to watch. A shot, an
+	/// explosion, a death, a melee or psi state, the end-turn sentinel, or a
+	/// non-player actor all make it false. Empty queue = false (nothing to skip).
+	bool chainIsSkippable() const;
+	/// Is the current chain being fast-forwarded (walk/turn/fall interval 0)?
+	bool getCoopFastForward() const { return _coopFastForward; }
+	/// Arms/disarms the fast-forward. Arming is refused outside parallel mode, so
+	/// classic co-op and single player can never take the interval-0 branch.
+	void setCoopFastForward(bool on);
+	/// Re-evaluates the fast-forward after the state queue changed (a push, a pop).
+	/// On a drain it also closes the host's action chain (PROTOCOL.md `action_end`).
+	void coopChainChanged();
 	/// Ships the classic replay packet for a mutation that has no BattleState of
 	/// its own, so the peer still sees it. (BState-driven kinds broadcast through
 	/// their own send sites.)

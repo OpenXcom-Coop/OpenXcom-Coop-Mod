@@ -140,7 +140,12 @@ void UnitTurnBState::init()
 	_coopStartTurret = _unit->getTurretDirection();
 
 	_action.clearTU();
-	if (_unit->getFaction() == FACTION_PLAYER)
+	// coop (PRD-P7): while the fast-forward is armed the turn animation is not
+	// being waited for (see UnitWalkBState::setNormalWalkSpeed). Parallel mode
+	// only; classic keeps the original two lines.
+	if (_parent->getCoopFastForward())
+		_parent->setStateInterval(0);
+	else if (_unit->getFaction() == FACTION_PLAYER)
 		_parent->setStateInterval(Options::battleXcomSpeed);
 	else
 		_parent->setStateInterval(Options::battleAlienSpeed);
