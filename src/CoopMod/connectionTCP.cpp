@@ -7073,6 +7073,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						}
 					}
 				}
+
+				// PRD-P2 3b: the host stamped its item-id counter and item census on
+				// this packet. Compare them against ours: a mismatch means the two
+				// battles have drifted apart. Detection only - logs, notifies once and
+				// raises the harness flag; it must NEVER restream the world mid-battle.
+				SharedEcon::verifyBattleChecksum(_game, obj, "next_turn");
 			}
 		}
 

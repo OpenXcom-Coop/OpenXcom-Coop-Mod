@@ -366,6 +366,44 @@ void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol);
 void attachWorldChecksum(Game* game, Json::Value& msg);
 void verifyWorldChecksum(Game* game, const Json::Value& msg);
 
+// ---- PRD-P2: battlescape drift tripwire --------------------------------------
+// INV: after every replicated action the two machines hold identical
+// (id -> BattleItem) maps AND equal SavedBattleGame::_itemId counters. It holds at
+// generation (both machines generate the same map deterministically) and is the
+// first thing to drift once they simulate independently - a peer-side
+// `new BattleItem`, an un-scoped transient mint or a lost item moves one of the two
+// terms below.
+//
+// Two terms, both cheap:
+//   chkBattleItemId = SavedBattleGame::_itemId, the next id this machine will mint.
+//   chkBattleCensus = SUM over getItems() of FNV-1a(type) mixed with the item id and
+//                     its owner unit id. A sum, not a rolling hash, so the vector
+//                     ORDER - which is not replicated - cannot matter.
+// Negative = "not stamped" = agree, the same convention the world checksum uses for
+// its GAP-4 fields, so a peer that predates this can never raise a false positive.
+//
+// DETECTION ONLY. A mid-battle sharedResyncStream is impossible (the world restream
+// replaces the whole state stack, live battle included), so a mismatch logs,
+// notifies at most once per RESYNC_DEBOUNCE_MS through the in-battle warning banner
+// and raises battleDesyncSeen() for the harness. Prevention is PRD-P3/P4's job.
+
+/// Computes this machine's two battle terms. Returns false (and sets both to -1)
+/// when no battle is live - which is what makes every caller geoscape-safe.
+bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census);
+/// Stamps chkBattleItemId / chkBattleCensus onto @a msg. No-op without a battle.
+void attachBattleChecksum(Game* game, Json::Value& msg);
+/// Compares a peer's stamped terms against this machine's battle and reports a
+/// mismatch. @a context names the packet that carried them (for the log line).
+/// Never triggers a resync - see the note above.
+void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string& context);
+/// Harness: has the battle tripwire fired on this machine? A LATCH - once a battle
+/// has been seen to drift, the report stands for the rest of the session; nothing
+/// in a battle clears it (co-op re-arms _battleInit every turn, so that is NOT a
+/// battle-start hook). resetBattleDesyncSeen(), and therefore resetResyncStats() /
+/// the harness' shared_reset_resync_stats, is the only way to clear it.
+bool battleDesyncSeen();
+void resetBattleDesyncSeen();
+
 /// Game-minute cooldown between automatic resyncs (see verifyWorldChecksum).
 extern const int RESYNC_COOLDOWN_MINUTES;
 /// Wall-clock ms a checksum mismatch must SURVIVE before it counts as a desync.

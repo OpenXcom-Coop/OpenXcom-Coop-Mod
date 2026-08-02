@@ -48,6 +48,7 @@
 #include "Map.h"
 #include "TileEngine.h"
 #include "Pathfinding.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -756,6 +757,12 @@ void NextTurnState::close()
 
 						++tile_index;
 					}
+
+					// PRD-P2 3b: the battle drift tripwire rides the per-turn packet -
+					// the one packet guaranteed to cross once a turn, and already a
+					// full-state stamp. The client compares and REPORTS; it never
+					// repairs (SharedEcon.h explains why).
+					SharedEcon::attachBattleChecksum(_game, root);
 
 					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
