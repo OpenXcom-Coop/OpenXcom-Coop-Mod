@@ -249,6 +249,9 @@ std::string connectionTCP::_clientLastDenyWarning;
 std::vector<connectionTCP::CoopPendingIntent> connectionTCP::_pendingAdmits;
 std::uint32_t connectionTCP::_openChainSeq = 0;
 std::uint32_t connectionTCP::_clientDisplaySeq = 0;
+// coop (PRD-P9 3): stuck-chain diagnostic, reset wherever _openChainSeq is.
+std::uint32_t connectionTCP::_openChainTicks = 0;
+bool connectionTCP::_openChainWarned = false;
 // coop (PRD-P8): the end-turn readiness tally. Reset with the arbiter.
 std::vector<bool> connectionTCP::_endTurnReady;
 std::vector<bool> connectionTCP::_endTurnAuto;
@@ -523,6 +526,12 @@ SPSCQueue<1024> g_rxQ{};
 // function so disconnect/reconnect cleanup can reset it fully between sessions.
 static std::mutex g_rxHoldMutex;
 static std::deque<std::string> g_rxHold;
+// coop (PRD-P9 rider R7): packets excluded by a condition this pump can never
+// change itself (the `endPlayerTurn` term in updateCoopTask). Rotating one of
+// those re-examines it on every tick for the rest of the session, so it is
+// parked here instead and spliced back to the FRONT of g_rxHold the moment the
+// exclusion lifts. Guarded by g_rxHoldMutex, like g_rxHold.
+static std::deque<std::string> g_rxPark;
 
 // PRD-P0: hold-queue introspection for the harness (see connectionTCP.h).
 std::atomic<uint32_t> g_rxRotateCount{0};
@@ -532,6 +541,41 @@ size_t rxHoldSize()
 {
 	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 	return g_rxHold.size();
+}
+
+// coop (PRD-P9 soak finding): apply an actor's post-action TU/energy from a
+// replay packet that carries them. Presence-gated on BOTH fields, so a packet
+// from an older build (or one whose sender had no actor in scope) is applied
+// exactly as it always was.
+static void coopApplyActorCost(const Json::Value& obj, int unitId,
+							   SavedBattleGame* battle);
+
+size_t rxParkSize()
+{
+	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+	return g_rxPark.size();
+}
+
+static void coopApplyActorCost(const Json::Value& obj, int unitId,
+							   SavedBattleGame* battle)
+{
+	if (unitId < 0 || !battle || !obj.isMember("tu"))
+	{
+		return;
+	}
+	for (auto* unit : *battle->getUnits())
+	{
+		if (unit->getId() != unitId)
+		{
+			continue;
+		}
+		unit->setTimeUnits(obj["tu"].asInt());
+		if (obj.isMember("energy"))
+		{
+			unit->setCoopEnergy(obj["energy"].asInt());
+		}
+		return;
+	}
 }
 
 // TX-queue drop counter (test harness diagnostic; see connectionTCP.h).
@@ -660,6 +704,7 @@ void clearNetworkSessionQueues()
 	{
 		std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 		g_rxHold.clear();
+		g_rxPark.clear();
 	}
 
 	clearSnapshotSlots();
@@ -2066,6 +2111,9 @@ void connectionTCP::updateCoopTask()
 	if (parallelTurnActive() && getHost())
 	{
 		coopCloseActionChain();
+		// coop (PRD-P9 3): after the close attempt, so a chain that has just
+		// drained is never reported stuck.
+		coopCheckStuckChain();
 		coopAdmitPendingIntents();
 		// coop (PRD-P8): the readiness tally and the side commit, in that order.
 		// Auto readiness is re-derived first (a seat whose last unit just died is
@@ -2271,6 +2319,23 @@ void connectionTCP::updateCoopTask()
 		}
 	}
 
+	// coop (PRD-P9 rider R7): un-park anything the `endPlayerTurn` exclusion put
+	// aside, as soon as that exclusion no longer holds. Restored to the FRONT,
+	// because a parked packet arrived before everything queued behind it - which
+	// is strictly closer to FIFO than the rotate this replaced.
+	{
+		std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+		if (!g_rxPark.empty() && _coopEnd != 1
+			&& !(_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()))
+		{
+			while (!g_rxPark.empty())
+			{
+				g_rxHold.emplace_front(std::move(g_rxPark.back()));
+				g_rxPark.pop_back();
+			}
+		}
+	}
+
 	for (;;)
 	{
 		size_t passCount = 0;
@@ -2338,17 +2403,35 @@ void connectionTCP::updateCoopTask()
 				// the very chain currently holding the gate (`abortPath` ends the
 				// walk that took it; the two death packets end the shot that took
 				// it), so waiting for depth 0 would deadlock them.
+				// coop (PRD-P9 rider R7): hoisted out of the expression below so the
+				// pump can tell "not yet" (rotate and try again next pass) from "not
+				// while this holds" (park). `_coopEnd` only ever moves inside the
+				// endPlayerTurn handler - the very handler this term excludes - so a
+				// rotated one is re-examined every tick for the rest of the session.
+				const bool endTurnExcluded =
+					(stateString == "endPlayerTurn"
+					 && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
+
 				const bool consumeNow =
 						 (coopTaskCompleted() || ((stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInitDeath) ||
 						 (stateString == "after_unit_death" && _coopInitDeath)) ||
 					 stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
-					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
+					!endTurnExcluded;
 
 				if (consumeNow)
 				{
 					onTCPMessage(stateString, obj);
 					++consumedThisPass;
+				}
+				else if (endTurnExcluded)
+				{
+					// PRD-P9 rider R7: park, do not rotate. Nothing this loop does can
+					// lift the exclusion, so rotating burns a queue traversal every tick
+					// forever (measured: five-figure rxRotates on an otherwise idle
+					// battle). The un-park above puts it back the moment it can apply.
+					std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+					g_rxPark.emplace_back(std::move(jsonStr));
 				}
 				else
 				{
@@ -5270,6 +5353,23 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						unit->setDirectionTurretCoop(setTurretDirection);
 						unit->setTurretToDirectionCoop(setTurretToDirection);
 
+						// coop (PRD-P9 rider R2): the walk's END STATE, not just where it
+						// stopped. `abortPath` closes every replayed walk, and it used to
+						// correct position and facing only - so a peer whose animation had
+						// been truncated (a slow machine, an interrupted fast-forward) kept
+						// whatever TU its own truncated walk had spent. Measured drift: 2 TU
+						// on the executor against 44 on the peer at a 1:300 speed skew. Both
+						// fields are additive and presence-gated, so an older peer ignores
+						// them and behaves exactly as before.
+						if (obj.isMember("tu"))
+						{
+							unit->setTimeUnits(obj["tu"].asInt());
+						}
+						if (obj.isMember("energy"))
+						{
+							unit->setCoopEnergy(obj["energy"].asInt());
+						}
+
 						_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(x, y, z, unit);
 
 						break;
@@ -6600,6 +6700,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					_game->getSavedGame()->getSavedBattle()->getBattleState()->coopActiveGranade(actor_id, type, hand, fusetimer, item_id);
 
+					// coop (PRD-P9 soak finding): charge the actor the way the executor
+					// did. Presence-gated, so an older peer's packet behaves exactly as
+					// before. Without it the two copies of the soldier drift apart by the
+					// action's cost on every use - this kind pushes no BattleState, so
+					// nothing else on the peer would ever charge it.
+					coopApplyActorCost(obj, actor_id, _game->getSavedGame()->getSavedBattle());
+
 				}
 			}
 		}
@@ -6621,7 +6728,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					std::string hand = obj["hand"].asString();
 
 					bool fuse = obj["fuse"].asBool();
-					bool fusetimer = obj["fusetimer"].asInt();
+					// coop (PRD-P9 rider R1): the fuse is an INT and coopActionClick takes
+					// an int. Reading it into a bool clipped every fuse above 1 to 1 and
+					// turned the -1 an unprime ships into 1, arming a grenade the sender
+					// had just disarmed - the same defect PRD-P7 fixed on the
+					// `active_grenade` receive. This path is classic-only (a parallel
+					// client suppresses `action_click` outright), so it is a classic
+					// co-op fix rather than a parallel-mode one.
+					int fusetimer = obj["fusetimer"].asInt();
 
 					int target_x = obj["target_x"].asInt();
 					int target_y = obj["target_y"].asInt();
@@ -6693,6 +6807,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 											 obj.get("weapon_id", -1).asInt(),
 											 obj.get("weapon_type", "").asString(),
 											 obj.get("hand", "").asString());
+
+					// coop (PRD-P9 soak finding): charge the actor the way the executor
+					// did. Presence-gated, so an older peer's packet behaves exactly as
+					// before. Without it the two copies of the soldier drift apart by the
+					// action's cost on every use - this kind pushes no BattleState, so
+					// nothing else on the peer would ever charge it.
+					// keyed on the HEALER, not `actor_id` (which is the patient here).
+					coopApplyActorCost(obj, obj.get("healer_id", -1).asInt(),
+									   _game->getSavedGame()->getSavedBattle());
 
 				}
 			}
@@ -7184,8 +7307,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 							_game->getSavedGame()->getSavedBattle()->getBattleGame()->coopDeath(unit, damageType, noSound);
 
-							// TILE
-							bool isTile = obj["isTile"].asBool();
+							// TILE. coop (PRD-P9 soak finding): DEFAULT TRUE. `unit_death` did
+							// not carry the field at all, and Json::Value::asBool() on a
+							// missing key is false - so every death unlinked the peer's unit
+							// from its tile before the die state ran, and the inventory it
+							// should have dropped stayed on the corpse.
+							bool isTile = obj.get("isTile", true).asBool();
 
 							if (!isTile)
 							{
@@ -11551,6 +11678,9 @@ std::uint32_t connectionTCP::stampAdmittedAction()
 	// completed inside one frame), this overwrites it - the client's watermark then
 	// jumps straight to the newer seq, which is exactly as correct and self-heals.
 	_openChainSeq = ++_actionSeq;
+	// coop (PRD-P9 3): restart the stuck-chain clock with the chain itself.
+	_openChainTicks = SDL_GetTicks();
+	_openChainWarned = false;
 	return _actionSeq;
 }
 
@@ -11567,6 +11697,8 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 	// sequence and the executor's backlog term would wedge shut.
 	_openChainSeq = 0;
 	_clientDisplaySeq = 0;
+	_openChainTicks = 0;
+	_openChainWarned = false;
 	_pendingAdmits.clear();
 	_sideCommitInProgress = false;
 	_intentSlotReqId = 0;
@@ -11652,6 +11784,17 @@ void connectionTCP::flashBattleWarning(const std::string& key)
 
 // ---- coop (PRD-P7): pending-admit + display flow control --------------------
 
+// coop (PRD-P9 rider R4): how long the executor may sit on a DEFERRED input.
+// Deliberately inside the client's 10 s pending-intent watchdog
+// (tickActionIntents), so a slot that cannot be admitted in time comes back as
+// a real `action_deny` the player can read, instead of the client timing out
+// locally and the host running the action afterwards into an ack whose req_id
+// no longer matches anything.
+static const std::uint32_t COOP_PEND_TIMEOUT_MS = 8000;
+
+// coop (PRD-P9 3): a chain open this long is a bug, not a slow animation.
+static const std::uint32_t COOP_STUCK_CHAIN_MS = 120000;
+
 /// Refuses one deferred input. A remote seat gets the ordinary `action_deny`; the
 /// executor's own deferred click never travelled, so it just flashes locally.
 static void coopRefusePendingIntent(connectionTCP* coop,
@@ -11734,6 +11877,8 @@ bool connectionTCP::coopPendIntent(int seat, std::uint32_t reqId, const std::str
 	slot.kind = kind;
 	slot.json = intentJson;
 	slot.local = localOrigin;
+	// PRD-P9 rider R4: the expiry clock starts when the input is taken.
+	slot.deferTicks = SDL_GetTicks();
 	_pendingAdmits.push_back(slot);
 
 	bg->setCoopFastForward(true);
@@ -11789,6 +11934,39 @@ void connectionTCP::coopAdmitPendingIntents()
 		coopDenyPendingIntents("turn_over");
 		return;
 	}
+
+	// coop (PRD-P9 rider R4): expire before admitting. A deferred slot had no
+	// bound of its own - PRD-P7 relied on the chain in front draining - so a
+	// wedged chain (or a peer that stops reporting its display) could hold an
+	// input past the CLIENT's 10 s watchdog and then run it for a seat that had
+	// already given up on it. Refusing at 8 s keeps the answer inside the
+	// client's window, so the player is told rather than surprised.
+	{
+		const std::uint32_t nowTicks = SDL_GetTicks();
+		for (auto it = _pendingAdmits.begin(); it != _pendingAdmits.end(); )
+		{
+			if (it->deferTicks != 0 && nowTicks - it->deferTicks >= COOP_PEND_TIMEOUT_MS)
+			{
+				CoopPendingIntent expired = *it;
+				it = _pendingAdmits.erase(it);
+				Log(LOG_INFO) << "coop: deferred intent req " << expired.reqId
+							  << " (seat " << expired.seat << ", " << expired.kind
+							  << ") expired after " << COOP_PEND_TIMEOUT_MS
+							  << " ms without an admission; refusing it";
+				coopRefusePendingIntent(_game ? _game->getCoopMod() : nullptr,
+										expired, "busy");
+			}
+			else
+			{
+				++it;
+			}
+		}
+		if (_pendingAdmits.empty())
+		{
+			return;
+		}
+	}
+
 	if (!canAdmitAction())
 	{
 		return;
@@ -11888,7 +12066,51 @@ void connectionTCP::coopCloseActionChain()
 	root["state"] = "action_end";
 	root["action_seq"] = static_cast<Json::UInt>(_openChainSeq);
 	_openChainSeq = 0;
+	_openChainTicks = 0;
+	_openChainWarned = false;
 	coop->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P9 3): the stuck-chain diagnostic.
+ *
+ * There is no distributed lock in this design, so there is nothing to break open
+ * when a chain stops draining - but a chain that has been "running" for two
+ * minutes is always a bug (a BattleState that never pops, a receive gate whose
+ * depth never returns to 0, a peer that stopped reporting `action_done`), and
+ * the arbiter state that says WHICH is gone by the time anyone looks. So this
+ * logs it exactly once per chain, with every term the admission check reads.
+ */
+void connectionTCP::coopCheckStuckChain()
+{
+	if (_openChainSeq == 0 || _openChainTicks == 0 || _openChainWarned)
+	{
+		return;
+	}
+	if (SDL_GetTicks() - _openChainTicks < COOP_STUCK_CHAIN_MS)
+	{
+		return;
+	}
+	_openChainWarned = true;
+
+	SavedGame* stuckSave = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	SavedBattleGame* stuckBattle = stuckSave ? stuckSave->getSavedBattle() : nullptr;
+	BattlescapeGame* stuckBg = stuckBattle ? stuckBattle->getBattleGame() : nullptr;
+	connectionTCP* stuckCoop = _staticGame ? _staticGame->getCoopMod() : nullptr;
+	const std::uint32_t backlog =
+		_actionSeq > peerDisplayAckedSeq ? _actionSeq - peerDisplayAckedSeq : 0;
+	canAdmitAction();   // refreshes _admitBlocked for the line below
+	Log(LOG_WARNING) << "coop: action chain " << _openChainSeq
+					 << " has been open for over " << (COOP_STUCK_CHAIN_MS / 1000)
+					 << " s - seat " << _intentSlotSeat << " req " << _intentSlotReqId
+					 << " (" << _intentSlotKind << "); isBusy="
+					 << (stuckBg && stuckBg->isBusy() ? 1 : 0)
+					 << " gateDepth=" << (stuckCoop ? stuckCoop->coopTaskDepth() : -1)
+					 << " rxHold=" << rxHoldSize() << " rxPark=" << rxParkSize()
+					 << " displayBacklog=" << backlog
+					 << " pendingAdmits=" << _pendingAdmits.size()
+					 << " admitBlocked=" << (_admitBlocked.empty() ? "-" : _admitBlocked)
+					 << " sideCommit=" << (_sideCommitInProgress ? 1 : 0);
 }
 
 /**

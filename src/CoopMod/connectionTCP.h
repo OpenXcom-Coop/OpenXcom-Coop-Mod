@@ -159,6 +159,7 @@ extern std::atomic<uint64_t> g_txDropCount;
 // connectionTCP.cpp - same shape as g_txDropCount above, and like it both
 // counters are process-monotonic (never reset).
 size_t rxHoldSize();               // current hold-queue depth
+size_t rxParkSize();               // PRD-P9 R7: packets parked, not rotated
 extern std::atomic<uint32_t> g_rxRotateCount;   // packets rotated back unconsumed
 extern std::atomic<uint32_t> g_rxHoldMaxSeen;   // hold-queue high-water mark
 
@@ -735,6 +736,12 @@ class connectionTCP
 	/// CLIENT: the chain seq the display is currently working through - the value
 	/// the next `action_done` will carry. PRD-P7.
 	static std::uint32_t _clientDisplaySeq;
+	/// HOST (PRD-P9 3): the SDL tick `_openChainSeq` was stamped at, and whether
+	/// the stuck-chain warning has already been logged for it. Diagnostic only -
+	/// there is no distributed lock to break, so all this can do is say so once,
+	/// with the arbiter state a bug report would otherwise have to guess at.
+	static std::uint32_t _openChainTicks;
+	static bool _openChainWarned;
 	/// HOST-owned, +1 per side transition; the staleness token an intent
 	/// carries. The client adopts the value stamped on the `endTurn` packet.
 	static std::uint32_t _sideSeq;
@@ -773,6 +780,11 @@ class connectionTCP
 		std::string kind;
 		std::string json;          // the serialized `action_intent` body
 		bool local = false;
+		/// PRD-P9 rider R4: SDL tick this slot was deferred at. The CLIENT gives
+		/// up on an unanswered intent after 10 s, so a slot that outlives
+		/// COOP_PEND_TIMEOUT_MS is refused rather than admitted into a seat that
+		/// has already forgotten it.
+		std::uint32_t deferTicks = 0;
 	};
 	static std::vector<CoopPendingIntent> _pendingAdmits;
 
@@ -792,6 +804,9 @@ class connectionTCP
 	/// HOST: ship the `action_end` marker for the chain that has just drained, so
 	/// the client can say when it has finished DISPLAYING it. Idempotent.
 	static void coopCloseActionChain();
+	/// HOST (PRD-P9 3): log ONCE if the open chain has been running for over two
+	/// minutes. Purely diagnostic; it frees nothing.
+	static void coopCheckStuckChain();
 	/// CLIENT: the single `action_done` emit point (PROTOCOL.md). No-op unless a
 	/// newly displayed chain seq is outstanding.
 	void coopEmitActionDone();
