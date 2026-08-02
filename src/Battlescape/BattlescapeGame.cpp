@@ -1391,7 +1391,18 @@ void BattlescapeGame::endTurn()
 		bool exploded = false;
 
 		// check for hot grenades on the ground
-		if (_save->getSide() != FACTION_NEUTRAL && !_save->isPreview())
+		// coop (PRD-P3 GAP-9): BattleItem::fuseTimeEvent() ends in
+		// RNG::percent(getSpecialChance()), and a failed roll re-arms or disables the
+		// fuse instead of detonating - so a co-op client rolling for itself could dud
+		// a grenade the host had exploded (or vice versa) and then hold, forever, an
+		// item the host no longer has. `next_turn` repairs stats and tiles, never item
+		// existence. The client makes NO fuse rolls; the host ships the outcome.
+		const bool coopFuseClient = getCoopMod()->getCoopStatic() == true && getCoopMod()->getHost() == false;
+		const bool coopFuseHost = getCoopMod()->getCoopStatic() == true && getCoopMod()->getHost() == true;
+		Json::Value fuseExploded(Json::arrayValue);
+		Json::Value fuseRemoved(Json::arrayValue);
+		Json::Value fuseTimers(Json::arrayValue);
+		if (_save->getSide() != FACTION_NEUTRAL && !_save->isPreview() && !coopFuseClient)
 		{
 			for (BattleItem* item : *_save->getItems())
 			{
@@ -1414,6 +1425,7 @@ void BattlescapeGame::endTurn()
 				}
 				if (tile)
 				{
+					const int fuseBefore = item->getFuseTimer();
 					if (item->fuseTimeEvent())
 					{
 						if (rule->getBattleType() == BT_GRENADE) // it's a grenade to explode now
@@ -1421,11 +1433,20 @@ void BattlescapeGame::endTurn()
 							Position p = tile->getPosition().toVoxel() + Position(8, 8, -tile->getTerrainLevel() + (unit ? unit->getHeight() / 2 : 0));
 							forRemoval.push_back(std::tuple(nullptr, new ExplosionBState(this, p, BattleActionAttack::GetBeforeShoot(BA_TRIGGER_TIMED_GRENADE, unit, item))));
 							exploded = true;
+							fuseExploded.append(item->getId());
 						}
 						else
 						{
 							forRemoval.push_back(std::tuple(item, nullptr));
 						}
+					}
+					else if (coopFuseHost && item->getFuseTimer() != fuseBefore)
+					{
+						// the roll failed: fuseTimeEvent re-armed (BFT_SET) or disabled it
+						Json::Value f;
+						f["id"] = item->getId();
+						f["timer"] = item->getFuseTimer();
+						fuseTimers.append(f);
 					}
 				}
 			}
@@ -1441,12 +1462,39 @@ void BattlescapeGame::endTurn()
 				{
 					// we can't remove special weapons, disable the fuse at least
 					item->setFuseTimer(-1);
+					if (coopFuseHost)
+					{
+						Json::Value f;
+						f["id"] = item->getId();
+						f["timer"] = -1;
+						fuseTimers.append(f);
+					}
 				}
 				else
 				{
+					if (coopFuseHost)
+					{
+						fuseRemoved.append(item->getId());
+					}
 					_save->removeItem(item);
 				}
 			}
+
+			// coop: one packet per side end, and only when something happened.
+			// Deliberately NOT folded into `next_turn` (PROTOCOL's first sketch):
+			// next_turn only crosses at the START of the player's turn, so a fuse
+			// decided when the PLAYER side ended would not reach the peer until a
+			// whole alien side had run.
+			if (coopFuseHost && (!fuseExploded.empty() || !fuseRemoved.empty() || !fuseTimers.empty()))
+			{
+				Json::Value root;
+				root["state"] = "fuse_events";
+				root["exploded"] = fuseExploded;
+				root["removed"] = fuseRemoved;
+				root["fuses"] = fuseTimers;
+				getCoopMod()->sendTCPPacketData(root.toStyledString());
+			}
+
 			if (exploded)
 			{
 				statePushBack(0);
@@ -4658,7 +4706,11 @@ int BattlescapeGame::checkForProximityGrenadesCoop(BattleUnit* unit)
 					}
 					else if (!isGrenade && fired)
 					{
-						forRemoval.push_back(item);
+						// coop (PRD-P3 GAP-8): `fired` is THIS machine's own
+						// RNG::percent(specialChance) inside fuseProximityEvent(), and
+						// a non-grenade item swept away by a proximity fuse is item
+						// EXISTENCE - a host decision. The host ships the exact set on
+						// the sweep packet's removed_items; nothing is deleted here.
 						if (g)
 						{
 							glow = true;
@@ -4672,6 +4724,9 @@ int BattlescapeGame::checkForProximityGrenadesCoop(BattleUnit* unit)
 						}
 					}
 				}
+				// coop (PRD-P3 GAP-8): always empty now - the non-grenade branch above
+				// no longer feeds it, because item existence is a host decision that
+				// arrives on the sweep packet's removed_items.
 				for (BattleItem* item : forRemoval)
 				{
 					_save->removeItem(item);
@@ -4791,6 +4846,9 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit* unit)
 
 	bool exploded = false;
 	bool glow = false;
+	// coop (PRD-P3 GAP-8): every non-grenade item this sweep removes, so the peer
+	// can delete exactly those instead of judging for itself.
+	Json::Value coopRemoved(Json::arrayValue);
 	int size = unit->getArmor()->getSize() + 1;
 	for (int tx = -1; tx < size; tx++)
 	{
@@ -4846,10 +4904,28 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit* unit)
 				}
 				for (BattleItem* item : forRemoval)
 				{
+					Json::Value e;
+					e["id"] = item->getId();
+					e["type"] = item->getRules()->getType();
+					coopRemoved.append(e);
 					_save->removeItem(item);
 				}
 			}
 		}
+	}
+
+	// coop (PRD-P3 GAP-8): ship the removal set. A sweep packet carrying
+	// removed_items tells the peer to delete exactly these; one WITHOUT it (the
+	// three sends above) is the trigger notification that makes the peer run its
+	// own scan, for the explosion states and the glow bookkeeping.
+	if (!coopRemoved.empty()
+		&& getCoopMod()->getCoopStatic() == true && getCoopMod()->getHost() == true)
+	{
+		Json::Value root;
+		root["state"] = "checkForProximityGrenades";
+		root["unit_id"] = unit->getId();
+		root["removed_items"] = coopRemoved;
+		getCoopMod()->sendTCPPacketData(root.toStyledString());
 	}
 	return exploded ? 2 : glow ? 1
 							   : 0;

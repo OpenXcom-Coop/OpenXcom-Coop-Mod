@@ -2970,37 +2970,19 @@ int TileEngine::hitTile(Tile* tile, int damage, const RuleDamageType* type)
 		if (tile->getSmoke() < _save->getBattleGame()->getMod()->getTooMuchSmokeThreshold() && tile->getTerrainLevel() > -24)
 		{
 			tile->setFire(0);
+			// coop (PRD-P3 GAP-7): the _smokeRNGs relay is gone. It was unbalanced -
+			// pushed once per hit(), popped only down this smoke branch, and popped
+			// again by explode()'s hitTile with no matching push - and vestigial: the
+			// value it carried only ever reached setSmoke(), which is host-gated and
+			// ships set_smoke_tile. That packet is the single source of the peer's
+			// smoke, so the roll below runs on the host and nowhere else.
 			if (damage >= type->SmokeThreshold * 2)
 			{
-
-				if (_save->getBattleGame()->getCoopMod()->_smokeRNGs.empty())
-				{
-					tile->setSmoke(RNG::generate(7, 15)); // for SmokeThreshold == 0
-				}
-				else
-				{
-
-					int oldest = _save->getBattleGame()->getCoopMod()->_smokeRNGs.front();
-					tile->setSmoke(oldest); // for SmokeThreshold == 0
-					_save->getBattleGame()->getCoopMod()->_smokeRNGs.erase(_save->getBattleGame()->getCoopMod()->_smokeRNGs.begin());
-				}
-
+				tile->setSmoke(RNG::generate(7, 15)); // for SmokeThreshold == 0
 			}
 			else
 			{
-
-				if (_save->getBattleGame()->getCoopMod()->_smokeRNGs.empty())
-				{
-					tile->setSmoke(RNG::generate(7, 15) * (damage - type->SmokeThreshold) / type->SmokeThreshold);
-				}
-				else
-				{
-
-					int oldest2 = _save->getBattleGame()->getCoopMod()->_smokeRNGs.front();
-					tile->setSmoke(oldest2 * (damage - type->SmokeThreshold) / type->SmokeThreshold);
-					_save->getBattleGame()->getCoopMod()->_smokeRNGs.erase(_save->getBattleGame()->getCoopMod()->_smokeRNGs.begin());
-				}
-
+				tile->setSmoke(RNG::generate(7, 15) * (damage - type->SmokeThreshold) / type->SmokeThreshold);
 			}
 
 			return 1;
@@ -3487,10 +3469,6 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 			damage = current_damage;
 			tileFinalDamage = current_damage;
 
-			uint64_t _smokeRNG = RNG::generate(7, 15);
-
-			_save->getBattleGame()->getCoopMod()->_smokeRNGs.push_back(_smokeRNG);
-
 			Json::Value root;
 			root["state"] = "hit_tile";
 
@@ -3506,7 +3484,6 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 			root["terrainMeleeTilePart"] = terrainMeleeTilePart;
 
 			root["seed"] = seed;
-			root["smokeRNG"] = _smokeRNG;
 
 			// new!!!
 			root["ArmorEffectiveness"] = type->ArmorEffectiveness;
