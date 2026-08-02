@@ -150,6 +150,18 @@ extern int tcp_port;
 // this via the coop_stats command to detect the "TX queue full" backlog bug).
 extern std::atomic<uint64_t> g_txDropCount;
 
+// PRD-P0 (harness introspection, test-only): receive-gate readout.
+// updateCoopTask() parks every packet this machine is not yet allowed to
+// consume in a file-scope hold deque and rotates the unconsumed ones to the
+// back of it, so a test that sees a peer "not react" cannot otherwise tell a
+// dropped packet from one still waiting on the local task to finish. Free
+// functions/counters (not members) because the deque itself is file-scope in
+// connectionTCP.cpp - same shape as g_txDropCount above, and like it both
+// counters are process-monotonic (never reset).
+size_t rxHoldSize();               // current hold-queue depth
+extern std::atomic<uint32_t> g_rxRotateCount;   // packets rotated back unconsumed
+extern std::atomic<uint32_t> g_rxHoldMaxSeen;   // hold-queue high-water mark
+
 // ===== Geoscape sync conflation slot =====
 // The two GeoscapeState::think() heartbeats are full-state, last-write-wins
 // snapshots. Instead of FIFO-queuing every per-frame copy onto g_txQ (which

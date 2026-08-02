@@ -43,6 +43,31 @@ _states = states
 _has_state = has_state
 
 
+def can_drive(state):
+    """May THIS machine drive a battlescape action? `state` is a battle_state
+    (or parallel_state) response dict.
+
+    Classic co-op: only the machine that owns the simulation may drive, and
+    `activeSync` (connectionTCP::_isActivePlayerSync) is that flag - every coop
+    battle state gates its packet send on it, so an action driven from the
+    passive side runs locally and never reaches the peer.
+
+    Parallel turns (PRD-P5+): `activeSync` stops being the driver predicate and
+    becomes the EXECUTOR invariant (`_isActivePlayerSync == getHost()`, so host
+    true / client false, permanently). A client-side action is forwarded to the
+    host as an intent (PRD-P6) rather than executed locally, so BOTH machines
+    may drive. `parallelActive` says whether that mode is live.
+
+    `parallelActive` is false until P5 lands, so this is exactly `activeSync`
+    today - use it instead of reading `activeSync` directly wherever the
+    question is "which machine should I drive this action from".
+
+    NOT for invariant assertions: a test that asserts exactly one machine owns
+    the simulation is asking about `activeSync` itself and must keep reading it.
+    """
+    return bool(state.get("activeSync") or state.get("parallelActive", False))
+
+
 def start_campaign_via_button(host):
     """Press the REAL START CAMPAIGN button the way a player does: btnCancelClick
     (which opens ConfirmStartCampaignState) then the dialog's OK

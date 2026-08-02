@@ -194,3 +194,10 @@ OPT std::vector< std::pair<std::string, bool> > mods; // ordered list of availab
 OPT SoundFormat currentSound;
 
 OPT int battleXcomSpeedOrig;
+
+// PRD-P0/P5 parallel battlescape turns. Declared here (no OptionInfo yet) so
+// the test harness can set them before PRD-P5 lands the toggle that reads
+// them; P5 registers them in createAdvancedOptionsOTHER() for the UI +
+// options.cfg persistence and drops the default-init in Options.cpp.
+OPT bool EnableCoopParallelTurns;
+OPT bool coopParallelDebugClientInput;
