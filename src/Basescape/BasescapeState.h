@@ -44,6 +44,12 @@ private:
 	TextEdit *_edtBase;
 	TextButton *_btnNewBase, *_btnBaseInfo, *_btnSoldiers, *_btnCrafts, *_btnFacilities, *_btnResearch, *_btnManufacture, *_btnTransfer, *_btnPurchase, *_btnSell, *_btnGeoscape;
 	Base *_base;
+	// issue #124: true only when THIS state created _base as a temporary blank base
+	// (the "no bases" edge case in setBase). The destructor deletes _base iff this is
+	// set - never via a "is _base in getBases()" heuristic, which a SHARED world
+	// restream defeats (it replaces the whole base list, so a borrowed real _base is
+	// no longer found and would be wrongly deleted -> double free).
+	bool _ownsBase = false;
 	Globe *_globe;
 	/// PRD-J10: live refresh. This screen is the funds header + the facility grid,
 	/// and both move under a peer's shared_apply.

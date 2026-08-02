@@ -396,6 +396,44 @@ bool startDirectLanHost(uint16_t localUdpPort,
 	return ok;
 }
 
+// Direct-LAN JOIN (client): mirror of startDirectLanHost. Derives the same
+// session from the shared password and dials the host directly (no rendezvous),
+// so a hermetic 127.0.0.1 test can bring up the REAL UDP transport threads.
+bool startDirectLanJoin(const std::string& remoteHost,
+                        uint16_t remotePort,
+                        uint16_t localUdpPort,
+                        const std::string& playerName,
+                        const std::string& password)
+{
+	if (localUdpPort == 0)
+		localUdpPort = 3001;
+
+	uint64_t sessionId = 0;
+	std::array<unsigned char, connectionUDP::kSessionKeyBytes> sessionKey{};
+	if (!deriveDirectLanSession(password, sessionId, sessionKey))
+	{
+		DebugLog("connectionUDP direct LAN join: failed to derive session key\n");
+		onConnect = -3;
+		return false;
+	}
+
+	DebugLog(("connectionUDP direct LAN join: dialing " + remoteHost + ":" +
+			  std::to_string(remotePort) + " localPort=" + std::to_string(localUdpPort) +
+			  "\n").c_str());
+
+	const bool ok = startUdpPeer(remoteHost,
+								 remotePort,
+								 localUdpPort,
+								 sessionId,
+								 sessionKey,
+								 false /*isHost*/,
+								 playerName,
+								 true /*sendInitServerWhenClient*/);
+	if (!ok)
+		onConnect = -3;
+	return ok;
+}
+
 void lockUdpSessionWhenBothReady()
 {
 	if (s_connectionUDP)

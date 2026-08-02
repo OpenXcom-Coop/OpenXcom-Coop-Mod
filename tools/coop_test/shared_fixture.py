@@ -200,9 +200,10 @@ def assert_world_equal(host, client, tag="", timeout=45, interval=1.0):
 class SharedSession:
     """A live SHARED campaign: host + client, world streamed, both on geoscape."""
 
-    def __init__(self, tag, ports, mods=()):
+    def __init__(self, tag, ports, mods=(), transport="tcp"):
         self.tag = tag
         self.host_port, self.client_port, self.coop_port = ports
+        self.transport = transport
         # Both machines get the SAME mods, or their rulesets diverge.
         self.host_dir = make_user_dir(f"{tag}_host", mods=mods)
         self.client_dir = make_user_dir(f"{tag}_client", mods=mods)
@@ -216,7 +217,8 @@ class SharedSession:
         self.client.connect()
         session.new_campaign(self.host, self.client, port=str(self.coop_port),
                              campaign_mode="shared",
-                             host_base=host_base, client_base=client_base)
+                             host_base=host_base, client_base=client_base,
+                             transport=self.transport)
         if wait_ready:
             geo.wait_both_ready(self.host, self.client)
 
@@ -244,17 +246,21 @@ class SharedSession:
 
 
 def bring_up(tag, ports, wait_ready=True,
-             host_base="HostBase", client_base="ClientBase", mods=()):
+             host_base="HostBase", client_base="ClientBase", mods=(),
+             transport="tcp"):
     """Stand up a SHARED campaign: host creates it, client joins, the host streams
     the authoritative world, both settle on the geoscape.
 
     tag   - short prefix for the two isolated user dirs ("jbuy" -> jbuy_host/...).
     ports - (host_test_port, client_test_port, coop_session_port).
+    transport - "tcp" (default) or "udp". UDP runs the real direct-LAN
+                connectionUDP transport on 127.0.0.1 (host binds coop_port, client
+                binds coop_port+1); opt in only for a repro that needs it.
 
     Cleans up its own processes if bring-up fails, so the caller's try/finally
     only has to cover the body.
     """
-    js = SharedSession(tag, ports, mods=mods)
+    js = SharedSession(tag, ports, mods=mods, transport=transport)
     try:
         js._start(wait_ready, host_base, client_base)
     except BaseException:

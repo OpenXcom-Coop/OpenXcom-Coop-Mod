@@ -35,6 +35,13 @@ bool startDirectLanHost(uint16_t localUdpPort,
                         const std::string& playerName,
                         const std::string& password);
 
+// Direct-LAN JOIN (client) entry point; see the .cpp.
+bool startDirectLanJoin(const std::string& remoteHost,
+                        uint16_t remotePort,
+                        uint16_t localUdpPort,
+                        const std::string& playerName,
+                        const std::string& password);
+
 void lockUdpSessionWhenBothReady();
 void stopUdpPeer();
 void clearAllReceivedUDPPackets();
