@@ -148,8 +148,6 @@ void createOptionsOXC()
 	_info.push_back(OptionInfo(OPTION_OXC, "battleFireSpeed", &battleFireSpeed, 6));
 	_info.push_back(OptionInfo(OPTION_OXC, "battleXcomSpeed", &battleXcomSpeed, 30));
 	battleXcomSpeedOrig = -1;
-	EnableCoopParallelTurns = false;      // PRD-P0/P5 (no OptionInfo yet)
-	coopParallelDebugClientInput = false; // PRD-P0/P5 (no OptionInfo yet)
 	_info.push_back(OptionInfo(OPTION_OXC, "battleAlienSpeed", &battleAlienSpeed, 30));
 #ifdef __MOBILE__
 	_info.push_back(OptionInfo(OPTION_OXC, "battleNewPreviewPath", (int*)&battleNewPreviewPath, PATH_FULL)); // for android, set full preview by default
@@ -581,10 +579,20 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableOtherPlayerFootsteps", &EnableOtherPlayerFootsteps, true,"Enable Other Player Footstep Sounds", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopFollowPeerActions", &coopFollowPeerActions, true, "Follow Teammate Actions with Camera", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableXcomEquipmentAliensPVP", &EnableXcomEquipmentAliensPVP, true, "Enable XCOM Equipment for Aliens in PVP", "STR_BATTLESCAPE"));
+	// coop (PRD-P5): both players act during the same player side. Read by the HOST
+	// only - it ships the value on COOP_READY_HOST and the client mirrors it into
+	// connectionTCP::_enable_parallel_turns, so the session mode is decided once.
+	_info.push_back(OptionInfo(OPTION_OTHER, "EnableCoopParallelTurns", &EnableCoopParallelTurns, false, "Parallel Battlescape Turns", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "debugMode", &debugMode, true, "Enable Debug Mode (requires restart)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logInfoToFile", &logInfoToFile, false, "Write INFO messages to log file", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logPacketMessages", &logPacketMessages, false, "Write packet messages to log files (heavy logging)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHotseatDebugMode", &EnableHotseatDebugMode, false, "Enable Hotseat Debug Mode", "STR_AI"));
+	// coop (PRD-P5 §4): TEMPORARY dev plumbing, deleted by PRD-P6. With it on the
+	// co-op client's input executes LOCALLY and replicates NOTHING (every executor
+	// send site is _isActivePlayerSync-gated and the client permanently holds
+	// false), so the two machines intentionally diverge. Smoke-testing the input
+	// path only - never a play mode.
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopParallelDebugClientInput", &coopParallelDebugClientInput, false, "DEBUG: allow client input during parallel turns (temporary)", "STR_AI"));
 
 }
 

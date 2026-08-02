@@ -136,6 +136,8 @@ private:
 	void melee_attack(std::string str_obj);
 	void shootPlayerTarget(std::string str_obj);
 	void showCoopWarning(const std::string &message);
+	/// coop (PRD-P5): the banner currently on the warning widget ("" = none).
+	std::string getCoopWarningText() const;
 	void showCoopLongWarning(const std::string &message);
 	void doAbortPath();
 	/// Selects the next soldier.

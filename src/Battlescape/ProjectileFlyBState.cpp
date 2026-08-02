@@ -37,6 +37,7 @@
 #include "Camera.h"
 #include "Explosion.h"
 #include "BattlescapeState.h"
+#include "../CoopMod/connectionTCP.h"
 #include "../Savegame/BattleUnitStatistics.h"
 #include "../fmath.h"
 
@@ -556,6 +557,17 @@ void ProjectileFlyBState::init()
 		if (_parent->getMap()->isAltPressed() || (conf && !conf->followProjectiles))
 		{
 			// temporarily turn off camera following projectiles to prevent annoying flashing effects (e.g. on minigun-like weapons)
+			_parent->getMap()->setFollowProjectile(false);
+		}
+		// coop (PRD-P5): a teammate's replayed shot must not drag the local camera
+		// during a parallel player side - the local player is aiming their own shot
+		// at the same time. Map::draw()'s projectile follow is the one that would do
+		// it. deinit() turns following back on unconditionally, so this is scoped to
+		// the replayed chain. The AI phase keeps the follow (nobody is acting
+		// locally), and classic co-op is untouched.
+		if (_action.coopReplay && connectionTCP::parallelTurnActive()
+			&& _parent->getCoopMod()->_isActiveAISync == false)
+		{
 			_parent->getMap()->setFollowProjectile(false);
 		}
 		if (_range == 0) _action.spendTU();

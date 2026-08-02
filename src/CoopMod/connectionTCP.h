@@ -673,6 +673,17 @@ class connectionTCP
 	static std::string seatName(int seat);  // player name for a seat
 	// no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
 	static int getCoopGamemode();
+	/// coop (PRD-P5): is the parallel shared player side live right now?
+	/// PROTOCOL.md: `_enable_parallel_turns && gamemode in {1,4} && !hotseat`
+	/// (plus an actual co-op session). While it is true both machines hold
+	/// isYourTurn == 2 and `_isActivePlayerSync == getHost()` - the executor
+	/// invariant every existing send/RNG guard is already written against.
+	static bool parallelTurnActive();
+	/// coop (PRD-P5 §4, TEMPORARY - PRD-P6 replaces it with action intents):
+	/// must this machine swallow local battlescape input? True only on the
+	/// co-op CLIENT during a parallel player side, and only while the debug
+	/// override is off. The host always acts.
+	static bool parallelInputBlocked();
 	void createCoopMenu();
 	static void sendTCPPacketStaticData2(std::string data);
 	void writeHostMapFile2();
@@ -765,6 +776,13 @@ class connectionTCP
 	static bool _enable_xcom_equipment_aliens_pvp;
 
 	static bool _unbalanced_craft_soldiers_limit;
+
+	// coop (PRD-P5): the SESSION's parallel-turns mode. Mirrors the HOST's
+	// Options::EnableCoopParallelTurns across the COOP_READY_HOST handshake, so
+	// both machines answer parallelTurnActive() identically for the whole
+	// session. A peer that never sends the key (old build) leaves this false =
+	// classic mode, which is the free backwards-compatibility degrade.
+	static bool _enable_parallel_turns;
 
 	int walk_end_unit_id = -1;
 
