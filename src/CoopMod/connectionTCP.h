@@ -823,8 +823,6 @@ class connectionTCP
 	bool _cqbBlocked = false;
 	int _cqbDefenderId = -1;
 
-	std::vector <int> _smokeRNGs;
-
 	bool pve2_init = false;
 
 	std::string other_time_speed_coop = "";
