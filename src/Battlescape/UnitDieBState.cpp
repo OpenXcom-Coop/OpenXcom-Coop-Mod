@@ -35,6 +35,7 @@
 #include "InfoboxOKState.h"
 #include "InfoboxState.h"
 #include "../Savegame/Node.h"
+#include "../CoopMod/SharedEcon.h" // coop (PRD-P4): Tier-A corpse id-manifest
 
 namespace OpenXcom
 {
@@ -156,6 +157,13 @@ UnitDieBState::~UnitDieBState()
 		}
 
 		root["isTile"] = isTile;
+
+		// coop (PRD-P4): the ids this death's corpses were minted with. This is the
+		// FIRST packet after convertUnitToCorpse() has run, so it is where the
+		// manifest belongs; writes nothing when the death produced no corpse (an
+		// overkill, a carried body - convertToCorpse() reuses the body item's id -
+		// or a respawn, which ships its own manifest on `convertUnit`).
+		SharedEcon::flushSpawnRecord(root, "corpse", _unit->getId());
 
 		_parent->sendPacketData(root.toStyledString());
 	}
@@ -446,6 +454,14 @@ void UnitDieBState::convertUnitToCorpse()
 	{
 		if (!_overKill)
 		{
+			// coop (PRD-P4): a Tier-A spawn. The corpse SET is deterministic (the
+			// armor's corpse list, size^2 of them) so both machines create the same
+			// items - but each mints its own ids off its own counter, and once those
+			// disagree every later id-keyed packet lands on the wrong instance. Only
+			// one of these two is ever live: the record on the host (its ids ride
+			// `after_unit_death`), the guard on the peer.
+			SharedEcon::CoopSpawnRecord coopRec("corpse", _unit->getId());
+			SharedEcon::CoopSubjectGuard coopGuard("corpse", _unit->getId());
 			int i = size * size - 1;
 			for (int y = size - 1; y >= 0; --y)
 			{

@@ -6407,6 +6407,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (_game->getSavedGame()->getSavedBattle())
 			{
 
+				// coop (PRD-P4): the corpse id-manifest. This packet POST-dates the
+				// peer's own corpse creation - that was triggered by the earlier
+				// `unit_death`, and this one only reaches the handler once that replay
+				// has completed - so the manifest is applied by REMAPPING the corpses
+				// that already exist (path b, hole H3). Path (a), the guard around
+				// UnitDieBState's creation loop, is what would consume it if the two
+				// ever crossed the other way round; whichever fires first wins and the
+				// manifest is dropped, so the pair is idempotent.
+				SavedBattleGame* coopBattle = _game->getSavedGame()->getSavedBattle();
+				const int coopDeadUnitId = obj["unit_id"].asInt();
+				if (SharedEcon::storeSpawnManifest(coopBattle, "corpse", coopDeadUnitId, obj))
+				{
+					SharedEcon::remapCorpseIds(coopBattle, coopDeadUnitId);
+				}
+
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
 
@@ -7100,6 +7115,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// (its replay was skipped) must not poison the next turn's attack.
 		_meleeResults.clear();
 		_selfDestructResults.clear();
+		// PRD-P4: same hygiene for a Tier-A id-manifest whose replay never happened
+		// (the host minted corpses for a death this machine did not corpse-ify).
+		SharedEcon::clearSpawnManifests();
 
 		if (_game->getSavedGame())
 		{
