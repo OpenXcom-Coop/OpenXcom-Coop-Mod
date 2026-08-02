@@ -347,6 +347,9 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	// coop (PRD-P5): the parallel-turns session mode survives a save/load so a
+	// mid-battle resume comes back in the same mode it was played in.
+	reader.tryRead("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
 	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
 	{
 		reader.tryRead("no_bases", connectionTCP::no_bases);
@@ -856,6 +859,9 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	// coop (PRD-P5): the parallel-turns session mode survives a save/load so a
+	// mid-battle resume comes back in the same mode it was played in.
+	reader.tryRead("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
 	// Single-authority: a host save embeds every client-world blob captured
 	// at save time. Restore them as the served copies (memory only - the
 	// reconnect flow streams from these), so a rolled-back save rolls every
@@ -1323,6 +1329,8 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 		writer.write("saveID", connectionTCP::saveID);
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	// coop (PRD-P5)
+	writer.write("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
 	writer.write("no_bases", connectionTCP::no_bases);
 
 	writer.write("monthsPassed", _monthsPassed);
@@ -1579,6 +1587,8 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		writer.write("saveID", connectionTCP::saveID);
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	// coop (PRD-P5)
+	writer.write("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
 	writer.write("no_bases", connectionTCP::no_bases);
 	// Single-authority: embed the freshest client-world blob of EVERY client
 	// so this save captures all players' rosters atomically. Skip when this

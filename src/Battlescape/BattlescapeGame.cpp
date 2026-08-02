@@ -190,6 +190,9 @@ BattleAction BattlescapeGame::makeReplayAction(BattleUnit* actor)
 {
 	BattleAction action;
 	action.actor = actor;
+	// coop (PRD-P5): mark the chain as replayed so display-only code (camera
+	// follow) can tell it from the local player's own action.
+	action.coopReplay = true;
 	return action;
 }
 
@@ -1366,6 +1369,16 @@ void BattlescapeGame::endTurn()
 		Json::Value root;
 		root["state"] = "endTurn";
 		root["side"] = (int)_save->getSide();
+
+		// coop (PRD-P5 §5): the side-boundary reseed. In classic co-op the RNG seed
+		// rode `PlayerTurnYour`, the mid-side hand-off packet - which parallel mode
+		// deletes. `endTurn` is the packet that replaces it as the side-close event,
+		// so it carries the seed there. Written ONLY in parallel mode and read only
+		// when present, so the classic wire format is untouched.
+		if (connectionTCP::parallelTurnActive())
+		{
+			root["seed"] = static_cast<Json::UInt64>(RNG::getSeed());
+		}
 
 		getCoopMod()->sendTCPPacketData(root.toStyledString());
 	}
