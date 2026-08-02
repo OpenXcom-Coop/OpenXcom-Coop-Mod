@@ -3993,6 +3993,8 @@ void flushSpawnRecord(Json::Value& root, const char* action, int subject)
 		Json::Value ids(Json::arrayValue);
 		for (int id : it->second) ids.append(id);
 		root["minted_ids"] = ids;
+		Log(LOG_INFO) << "[COOP] id-manifest: shipping " << it->second.size() << " " << key.action
+					  << " id(s) for subject " << subject;
 	}
 	g_spawnManifest.erase(it);
 }
@@ -4069,7 +4071,7 @@ int remapCorpseIds(SavedBattleGame* battle, int unitId)
 					   << " corpse item(s) here but the host minted " << it->second.size()
 					   << " - re-stamping the common prefix only";
 	}
-	int n = 0;
+	int n = 0, changed = 0;
 	for (BattleItem* corpse : corpses)
 	{
 		if (it->second.empty()) break;
@@ -4079,10 +4081,15 @@ int remapCorpseIds(SavedBattleGame* battle, int unitId)
 		{
 			Log(LOG_INFO) << "[COOP] id-manifest: corpse of unit " << unitId
 						  << " re-stamped " << corpse->getId() << " -> " << hostId;
+			++changed;
 		}
 		corpse->setIdCoop(hostId);
 		++n;
 	}
+	// One line per applied manifest, always: "0 re-stamped" is the healthy answer
+	// and is the only positive evidence that the pilot ran at all.
+	Log(LOG_INFO) << "[COOP] id-manifest: corpse manifest for unit " << unitId << " applied - "
+				  << n << " corpse(s), " << changed << " re-stamped";
 	g_spawnManifest.erase(it);
 	return n;
 }
