@@ -3430,6 +3430,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
 		&& cmd != "battle_prox" && cmd != "battle_intent"
+		&& cmd != "battle_camera"
 		&& cmd != "parallel_state")
 	{
 		return false;
@@ -3694,6 +3695,52 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["x"] = p.x; resp["y"] = p.y; resp["z"] = p.z;
 			resp["moved"] = (p == Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
 										   req.get("z", 0).asInt()));
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_camera")
+	{
+		// Point the map camera at <unit> (or an explicit x/y/z) and report whether
+		// it is on screen afterwards.
+		//
+		// PRD-P7 needs this: UnitWalkBState ALREADY runs an off-screen walk at
+		// interval 0 (nobody can see it), so a test that means to observe a slow
+		// walk - the fast-forward contention scenarios, and the client display lag
+		// the flow-control cap bounds - has to put the walker in view first.
+		// Nothing in the game replicates the camera, so each machine is aimed
+		// independently, which is exactly what a test of two players watching
+		// different things wants.
+		BattlescapeState* pbs = bstate;
+		Map* map = pbs ? pbs->getMap() : nullptr;
+		Camera* cam = map ? map->getCamera() : nullptr;
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!cam)
+		{
+			resp["error"] = "no battlescape map";
+		}
+		else
+		{
+			Position at = unit ? unit->getPosition()
+							   : Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
+										  req.get("z", 0).asInt());
+			cam->centerOnPosition(at);
+			cam->setViewLevel(at.z);
+			// "visible": UnitWalkBState's on-screen test is
+			// `getVisible() && isOnScreen(...)`, and BattleUnit::_visible is only
+			// raised for a PLAYER unit that some player unit can actually SEE
+			// (TileEngine.cpp:1493). A driver the fixture teleported away from the
+			// squad is therefore invisible on the machine that does not own it,
+			// which silently puts its walk back on the interval-0 seam. The flag is
+			// display-only (Map drawing and the UI panels) and TileEngine raises it
+			// on its own the moment anybody sees the unit.
+			if (unit && req.get("visible", false).asBool())
+			{
+				unit->setVisible(true);
+			}
+			const int size = unit ? unit->getArmor()->getSize() - 1 : 0;
+			resp["x"] = at.x; resp["y"] = at.y; resp["z"] = at.z;
+			resp["visible"] = unit ? unit->getVisible() : false;
+			resp["onScreen"] = cam->isOnScreen(at, true, size, false);
 			resp["ok"] = true;
 		}
 	}
@@ -4128,6 +4175,37 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["pendingIntent"]["kind"] = connectionTCP::_intentSlotKind;
 		resp["pendingReqId"] = static_cast<Json::UInt>(connectionTCP::_clientPendingReqId);
 		resp["pendingKind"] = connectionTCP::_clientPendingKind;
+		// PRD-P7: walk fast-forward + display flow control.
+		//   fastForward     - is the walk/turn/fall interval pinned to 0 right now
+		//   chainSkippable  - would a new input be DEFERRED rather than refused
+		//   openChainSeq    - HOST: the admitted chain still owing an `action_end`
+		//   displaySeq      - CLIENT: the chain it has finished displaying
+		//   displayBacklog  - HOST: admitted-but-undisplayed chains; the arbiter
+		//                     refuses at 2, so this is the bound the skew test reads
+		//   pendingAdmits   - the deferred inputs, one slot per seat
+		{
+			SavedBattleGame* pbattle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+			BattlescapeGame* pbg = pbattle ? pbattle->getBattleGame() : nullptr;
+			resp["fastForward"] = pbg ? pbg->getCoopFastForward() : false;
+			resp["chainSkippable"] = pbg ? pbg->chainIsSkippable() : false;
+		}
+		resp["pendBlocked"] = connectionTCP::_pendBlocked;
+		resp["openChainSeq"] = static_cast<Json::UInt>(connectionTCP::_openChainSeq);
+		resp["displaySeq"] = static_cast<Json::UInt>(connectionTCP::_clientDisplaySeq);
+		resp["displayBacklog"] = static_cast<Json::UInt>(
+			connectionTCP::_actionSeq > connectionTCP::peerDisplayAckedSeq
+				? connectionTCP::_actionSeq - connectionTCP::peerDisplayAckedSeq : 0);
+		Json::Value pend(Json::arrayValue);
+		for (const auto& slot : connectionTCP::_pendingAdmits)
+		{
+			Json::Value js;
+			js["reqId"] = static_cast<Json::UInt>(slot.reqId);
+			js["seat"] = slot.seat;
+			js["kind"] = slot.kind;
+			js["local"] = slot.local;
+			pend.append(js);
+		}
+		resp["pendingAdmits"] = pend;
 		resp["ok"] = true;
 	}
 	return true;

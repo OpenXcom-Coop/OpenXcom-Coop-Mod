@@ -700,6 +700,17 @@ void UnitWalkBState::postPathProcedures()
  */
 void UnitWalkBState::setNormalWalkSpeed()
 {
+	// coop (PRD-P7): the same interval-0 seam an OFF-SCREEN walk already takes
+	// (think(), the `onScreen || debugMode` branch below its caller). While the
+	// fast-forward is armed nobody is waiting for this animation - the arbiter has
+	// another action queued behind it - so it runs at frame rate. The flag can
+	// only be armed during a parallel player side, so classic co-op and single
+	// player keep the original two lines exactly.
+	if (_parent->getCoopFastForward())
+	{
+		_parent->setStateInterval(0);
+		return;
+	}
 	if (_unit->getFaction() == FACTION_PLAYER)
 		_parent->setStateInterval(Options::battleXcomSpeed);
 	else

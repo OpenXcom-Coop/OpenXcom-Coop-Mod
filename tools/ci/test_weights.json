@@ -25,6 +25,8 @@
   "test_parallel_introspection": 18.8,
   "test_parallel_replay_decouple": 75.0,
   "test_parallel_sharedturn": 87.5,
+  "test_parallel_skip": 300.0,
+  "test_parallel_speed_skew": 240.0,
   "test_purchase_sync_repro": 5.2,
   "test_rejoin_flow": 8.4,
   "test_resume_flow": 14.3,

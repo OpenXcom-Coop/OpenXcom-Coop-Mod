@@ -722,9 +722,19 @@ class connectionTCP
 	/// backlog term `(_actionSeq - peerDisplayAckedSeq)` and blocks admission
 	/// for the rest of the battle.
 	static std::uint32_t _actionSeq;
-	/// PRD-P7's display-flow term. Lands here dormant so the two counters can
-	/// never be reset apart.
+	/// PRD-P7's display-flow term: the highest chain the PEER has reported having
+	/// finished DISPLAYING (`action_done`). Lives next to _actionSeq so the two
+	/// counters can never be reset apart. On a client this is instead the highest
+	/// chain THIS machine has reported done, so the same readout means "how far
+	/// the display has got" on either side.
 	static std::uint32_t peerDisplayAckedSeq;
+	/// HOST: the admitted chain that still owes the client an `action_end`
+	/// (0 = none open). Stamped by stampAdmittedAction(), cleared when the marker
+	/// goes out. PRD-P7.
+	static std::uint32_t _openChainSeq;
+	/// CLIENT: the chain seq the display is currently working through - the value
+	/// the next `action_done` will carry. PRD-P7.
+	static std::uint32_t _clientDisplaySeq;
 	/// HOST-owned, +1 per side transition; the staleness token an intent
 	/// carries. The client adopts the value stamped on the `endTurn` packet.
 	static std::uint32_t _sideSeq;
@@ -737,6 +747,9 @@ class connectionTCP
 	static std::string _intentSlotKind;
 	/// HOST: why canAdmitAction() last refused ("" = it did not).
 	static std::string _admitBlocked;
+	/// HOST: why coopPendIntent() last refused to DEFER ("" = it took the input).
+	/// PRD-P7; the counterpart of _admitBlocked for the pending-admit decision.
+	static std::string _pendBlocked;
 	/// CLIENT: monotonic req_id source (from 1, per battle).
 	static std::uint32_t _clientReqSeq;
 	/// CLIENT: the single pending slot. 0 = nothing outstanding.
@@ -744,9 +757,43 @@ class connectionTCP
 	static std::string _clientPendingKind;
 	static std::uint32_t _clientPendingSentTicks;
 
+	// ---- coop (PRD-P7): pending-admit + display flow control ----------------
+	/// One deferred input. The executor keeps at most one per seat: a newer input
+	/// from the same seat REPLACES it and the replaced one is refused `busy`.
+	struct CoopPendingIntent
+	{
+		std::uint32_t reqId = 0;   // 0 = the executor's own local click
+		int seat = -1;
+		std::string kind;
+		std::string json;          // the serialized `action_intent` body
+		bool local = false;
+	};
+	static std::vector<CoopPendingIntent> _pendingAdmits;
+
+	/// HOST: take this input as PENDING instead of refusing it, when the chain in
+	/// the way is pure locomotion (BattlescapeGame::chainIsSkippable). Arms the
+	/// fast-forward. Returns false when the caller must fall back to `busy`.
+	static bool coopPendIntent(int seat, std::uint32_t reqId, const std::string& kind,
+							   const std::string& intentJson, bool localOrigin);
+	/// HOST: drop every pending input with a deny (default `busy`) - what reaction
+	/// fire interrupting a fast-forwarded walk does, because the positions and TU
+	/// the player clicked against may have moved a long way.
+	static void coopDenyPendingIntents(const std::string& reason = "busy");
+	/// HOST, main-thread tick: admit ONE pending input if the arbiter will take it.
+	/// Deliberately not called from popState() - executing an action re-enters the
+	/// state queue, and the drain point is in the middle of a pop.
+	void coopAdmitPendingIntents();
+	/// HOST: ship the `action_end` marker for the chain that has just drained, so
+	/// the client can say when it has finished DISPLAYING it. Idempotent.
+	static void coopCloseActionChain();
+	/// CLIENT: the single `action_done` emit point (PROTOCOL.md). No-op unless a
+	/// newly displayed chain seq is outstanding.
+	void coopEmitActionDone();
+
 	/// May the executor start a new action chain right now? PROTOCOL.md
 	/// "Ordering invariants" 3: no BattleState queued, receive gate open, no
-	/// side commit under way. (PRD-P7 adds the display-backlog term.)
+	/// side commit under way, and (PRD-P7) the client's undisplayed backlog
+	/// below 2.
 	static bool canAdmitAction();
 	/// Stamps an admitted action: ++_actionSeq, returns the new value.
 	static std::uint32_t stampAdmittedAction();
