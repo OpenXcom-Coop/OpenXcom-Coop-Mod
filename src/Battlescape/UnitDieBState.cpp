@@ -211,6 +211,15 @@ void UnitDieBState::init()
 		root["damageType"] = _parent->getCoopMod()->ItemDamageTypeToInt(_damageType->ResistType);
 		root["noSound"] = _noSound;
 
+		// coop (PRD-P9 soak finding): whether the dying unit still stands on a
+		// tile. Only `after_unit_death` used to carry this, and the peer read the
+		// MISSING key here as false - so it unlinked the tile before its own
+		// UnitDieBState ran, and convertUnitToCorpse's `dropItems && getTile()`
+		// test then skipped itemDropInventory. The dead soldier's whole kit
+		// stayed in its inventory on the peer while it lay on the ground on the
+		// executor - a strict-census divergence on every equipped casualty.
+		root["isTile"] = (_unit->getTile() != nullptr);
+
 		// new
 		root["respawn"] = _unit->getRespawn();
 
@@ -263,7 +272,17 @@ void UnitDieBState::think()
 	// coop
 	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && _coop_death == false)
 	{
-		_unit->setCoopStatus(STATUS_STANDING);
+		// coop (PRD-P9 soak finding): cancel the LOCAL death - the peer never
+		// decides who dies - but never RESURRECT. The executor's `unit_death` may
+		// already have arrived and set this unit STATUS_DEAD (it is sent from
+		// UnitDieBState::init, ahead of the damage packets the peer's own
+		// checkForCasualties reacts to), and writing STATUS_STANDING over it left
+		// the peer holding a soldier that was dead on the executor and standing
+		// here, on 0 HP, for the rest of the battle.
+		if (!_unit->isOut())
+		{
+			_unit->setCoopStatus(STATUS_STANDING);
+		}
 		_parent->popState();
 		return;
 	}

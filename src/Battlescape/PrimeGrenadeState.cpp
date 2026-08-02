@@ -201,6 +201,18 @@ void PrimeGrenadeState::btnClick(Action *action)
 	
 			root["actor_id"] = _game->getSavedGame()->getSavedBattle()->getBattleGame()->getCoopActorID();
 
+			if (_action && _action->actor)
+			{
+			// coop (PRD-P9 soak finding, same shape as rider R2): the ACTOR's cost.
+			// Prime, unprime and medikit mutate synchronously inside a UI handler, so
+			// they push no BattleState and the peer has nothing that would charge them
+			// - it mirrored the EFFECT (fuse, wounds) but never the price, and the two
+			// copies of the soldier drifted apart by the action's TU on every use
+			// (measured: 31 vs 62 after one prime). Additive and presence-gated.
+				root["tu"] = _action->actor->getTimeUnits();
+				root["energy"] = _action->actor->getEnergy();
+			}
+
 			if (_grenadeInInventory)
 			{
 				root["item_id"] = _grenadeInInventory->getId();

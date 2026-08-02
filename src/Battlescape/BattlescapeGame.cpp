@@ -514,7 +514,16 @@ void BattlescapeGame::turnPlayerTargetAfter(std::string obj_str)
 	if (found_unit == false)
 		return;
 
-	unit->abortTurn();
+	// coop (PRD-P9 soak finding): never resurrect. abortTurn() writes
+	// STATUS_STANDING, so a facing correction that lands AFTER the executor's
+	// `unit_death` (the packets are independent and the death is sent from
+	// UnitDieBState::init, mid-chain) put a corpse back on its feet: dead on
+	// the executor, standing on 0 HP here, for the rest of the battle. The
+	// facing itself is still applied - a corpse has one.
+	if (!unit->isOut())
+	{
+		unit->abortTurn();
+	}
 	unit->setFaceDirection(setFaceDirection);
 	unit->setDirection(setDirection);
 
@@ -2578,6 +2587,14 @@ void BattlescapeGame::coopSendPrimePacket(const BattleAction &action, BattleActi
 	root["type"] = (int)primeType;
 	root["actor_id"] = action.actor->getId();
 	root["item_id"] = action.weapon->getId();
+	// coop (PRD-P9 soak finding, same shape as rider R2): the ACTOR's cost.
+	// Prime, unprime and medikit mutate synchronously inside a UI handler, so
+	// they push no BattleState and the peer has nothing that would charge them
+	// - it mirrored the EFFECT (fuse, wounds) but never the price, and the two
+	// copies of the soldier drifted apart by the action's TU on every use
+	// (measured: 31 vs 62 after one prime). Additive and presence-gated.
+	root["tu"] = action.actor->getTimeUnits();
+	root["energy"] = action.actor->getEnergy();
 	getCoopMod()->sendTCPPacketData(root.toStyledString());
 }
 
@@ -2606,6 +2623,14 @@ void BattlescapeGame::coopSendMedikitPacket(const BattleAction &action, BattleUn
 	obj["weapon_id"] = action.weapon->getId();
 	obj["weapon_type"] = action.weapon->getRules()->getType();
 	obj["hand"] = coopHandOf(action.actor, action.weapon, getCoopWeaponHand());
+	// coop (PRD-P9 soak finding, same shape as rider R2): the ACTOR's cost.
+	// Prime, unprime and medikit mutate synchronously inside a UI handler, so
+	// they push no BattleState and the peer has nothing that would charge them
+	// - it mirrored the EFFECT (fuse, wounds) but never the price, and the two
+	// copies of the soldier drifted apart by the action's TU on every use
+	// (measured: 31 vs 62 after one prime). Additive and presence-gated.
+	obj["tu"] = action.actor->getTimeUnits();
+	obj["energy"] = action.actor->getEnergy();
 	getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	(void)medikitMode;
 }

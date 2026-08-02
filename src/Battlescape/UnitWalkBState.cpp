@@ -159,6 +159,14 @@ void UnitWalkBState::deinit()
 		root["setTurretDirection"] = _unit->getTurretDirection();
 		root["setTurretToDirection"] = _unit->getTurretToDirection();
 
+		// coop (PRD-P9 rider R2): the walk's END STATE. This packet already
+		// teleport-corrects the peer onto the executor's tile and facing; without
+		// the two costs the peer keeps whatever its own (possibly truncated or
+		// fast-forwarded) animation happened to spend, which is a real TU skew
+		// until some later packet or the side boundary overwrites it.
+		root["tu"] = _unit->getTimeUnits();
+		root["energy"] = _unit->getEnergy();
+
 		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
 		{
 			int j = 0;
@@ -199,7 +207,17 @@ void UnitWalkBState::think()
 
 		_parent->getCoopMod()->AbortCoopWalk = false;
 
-		_unit->setCoopStatus(STATUS_STANDING);
+		// coop (PRD-P9 soak finding): never resurrect. A unit killed DURING the
+		// replayed walk - reaction fire on the executor, whose `unit_death`
+		// arrives before the `abortPath` that closes the walk - is already
+		// STATUS_DEAD by the time this runs, and the unconditional write below
+		// put it back on its feet with 0 HP: dead on the executor, standing on
+		// the peer, for the rest of the battle. Coop-only block (AbortCoopWalk is
+		// a coop flag), so single player is untouched.
+		if (!_unit->isOut())
+		{
+			_unit->setCoopStatus(STATUS_STANDING);
+		}
 		_unit->setwalkPhaseCoop(0);
 
 		_pf->abortPath();
