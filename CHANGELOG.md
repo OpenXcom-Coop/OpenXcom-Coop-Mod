@@ -8,7 +8,33 @@ tag a release. Nightlies use auto-generated notes and do not read this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
 
 ## [Unreleased]
+### Added
+- **Parallel battlescape turns (optional).** Both players can now act during the
+  same X-Com side instead of taking alternating half-turns. Turn it on from the
+  HOST window before starting a session ("Parallel Battlescape Turns"); it covers
+  co-op PVE and PVE2 missions. The host machine runs the simulation and the
+  joining player's clicks are forwarded to it, so both squads move, shoot and
+  throw against one battlefield, and the side ends only once BOTH players have
+  pressed END TURN (the button shows how many players are ready). A player whose
+  soldiers are all down or mind-controlled counts as ready automatically. Reserve
+  TU settings are now per-player rather than mirrored. If either player is on an
+  older build, or the mission is PVP, the session falls back to the classic
+  alternating turns with no change in behaviour.
+
 ### Fixed
+- Co-op: a soldier killed while walking, or while a facing update was in flight,
+  could end up dead on one machine and standing on 0 HP on the other for the rest
+  of the mission.
+- Co-op: the gear of a soldier who died was left in the corpse's inventory on the
+  joining player's machine instead of dropping to the floor as it did on the host.
+- Co-op: priming or de-priming a grenade and using a medi-kit did not charge the
+  acting soldier's time units on the other player's machine, so the two views of
+  the same soldier drifted apart with every use.
+- Co-op: a walk that ended early (an interrupted or fast-forwarded move) left the
+  other player's copy of the soldier holding the wrong time units and energy.
+- Co-op: an ACTION MENU grenade prime sent across the wire with a fuse above 1
+  arrived as 1, and a de-prime arrived as an arming - the peer could be left
+  holding a live grenade the other player had just made safe.
 - Co-op SHARED campaigns: hiring soldiers, scientists, or engineers is no longer
   blocked with "not enough store space" when a base's general stores are full but
   its living quarters have room. Personnel occupy quarters, not stores, so a
