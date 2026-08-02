@@ -20,6 +20,7 @@
   "test_lobby_polish": 19.5,
   "test_new_campaign_flow": 6.1,
   "test_parallel_introspection": 18.8,
+  "test_parallel_replay_decouple": 75.0,
   "test_purchase_sync_repro": 5.2,
   "test_rejoin_flow": 8.4,
   "test_resume_flow": 14.3,

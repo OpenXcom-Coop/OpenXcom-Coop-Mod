@@ -101,6 +101,10 @@ OPT bool debugMode;
 OPT bool logInfoToFile;
 OPT bool logPacketMessages;
 OPT bool EnableHotseatDebugMode;
+// PRD-P1: follow a replayed teammate action with the camera (classic coop).
+// Default true = the pre-P1 behaviour. PRD-P5 suppresses camera-follow during a
+// parallel player side regardless of this option.
+OPT bool coopFollowPeerActions;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;

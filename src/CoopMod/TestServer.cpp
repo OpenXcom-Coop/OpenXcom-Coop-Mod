@@ -55,7 +55,11 @@
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/ProjectileFlyBState.h"
+#include "../Battlescape/MeleeAttackBState.h"
+#include "../Battlescape/PsiAttackBState.h"
 #include "../Battlescape/Position.h"
+#include "../Battlescape/Map.h"
+#include "../Battlescape/Camera.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleInventory.h"
@@ -3701,7 +3705,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "battle_fire")
 	{
 		// Fire <weapon_id> (or the main hand weapon) from <unit>. mode =
-		// snap|aimed|auto|launch. launch takes <waypoints> (a list of x/y/z) -
+		// snap|aimed|auto|launch|throw|hit|psi|panic. `hit` runs MeleeAttackBState
+		// and `psi`/`panic` run PsiAttackBState, so a test can drive the melee and
+		// psi coop packets (the only other producers of the replay handlers) -
+		// both need a unit standing ON the target tile. launch takes <waypoints>
+		// (a list of x/y/z) -
 		// exactly what a blaster launcher does. <hand> stamps
 		// BattlescapeState::_hand, which is what the coop packet reports as the
 		// firing hand. <tu> tops the actor's TU up first so the shot is never
@@ -3754,13 +3762,16 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		else if (mode == "auto") bt = BA_AUTOSHOT;
 		else if (mode == "launch") bt = BA_LAUNCH;
 		else if (mode == "throw") bt = BA_THROW;
+		else if (mode == "hit") bt = BA_HIT;
+		else if (mode == "psi") bt = BA_MINDCONTROL;
+		else if (mode == "panic") bt = BA_PANIC;
 
 		sbg->setSelectedUnit(unit);
 		BattleAction* a = bg->getCurrentAction();
 		a->actor = unit;
 		a->weapon = w;
 		a->type = bt;
-		a->targeting = true;
+		a->targeting = (bt != BA_HIT);
 		a->waypoints.clear();
 		Position target(req.get("x", 0).asInt(), req.get("y", 0).asInt(), req.get("z", 0).asInt());
 		int tid = req.get("target", -1).asInt();
@@ -3793,8 +3804,34 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["tuHave"] = unit->getTimeUnits();
 		resp["weaponId"] = w->getId();
 		resp["ammoId"] = w->getAmmoForAction(bt) ? w->getAmmoForAction(bt)->getId() : -1;
-		bg->statePushBack(new UnitTurnBState(bg, *a));
-		bg->statePushBack(new ProjectileFlyBState(bg, *a));
+		if (bt == BA_HIT)
+		{
+			// MeleeAttackBState dereferences the unit standing on the target tile;
+			// refuse rather than throw when there is nobody there.
+			Tile* tt = sbg->getTile(a->target);
+			if (!tt || !tt->getUnit())
+			{
+				resp["error"] = "melee target tile holds no unit";
+				return true;
+			}
+			bg->statePushBack(new UnitTurnBState(bg, *a));
+			bg->statePushBack(new MeleeAttackBState(bg, *a));
+		}
+		else if (bt == BA_MINDCONTROL || bt == BA_PANIC)
+		{
+			Tile* tt = sbg->getTile(a->target);
+			if (!tt || !tt->getUnit())
+			{
+				resp["error"] = "psi target tile holds no unit";
+				return true;
+			}
+			bg->statePushBack(new PsiAttackBState(bg, *a));
+		}
+		else
+		{
+			bg->statePushBack(new UnitTurnBState(bg, *a));
+			bg->statePushBack(new ProjectileFlyBState(bg, *a));
+		}
 		resp["ok"] = true;
 	}
 	else if (cmd == "parallel_state")
@@ -4661,6 +4698,33 @@ std::string TestServer::execute(const std::string& line)
 				resp["parallelActive"] = false;
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
+				// PRD-P1: the two other things a replayed peer action used to steal
+				// from the local player - the camera and the singleton
+				// BattlescapeGame::_currentAction. Read-only; a decoupling test
+				// cannot see either of them from selectedId alone.
+				if (BattlescapeState* pbs = bg->getBattleState())
+				{
+					if (Camera* cam = pbs->getMap() ? pbs->getMap()->getCamera() : nullptr)
+					{
+						Position off = cam->getMapOffset();
+						resp["cameraX"] = off.x;
+						resp["cameraY"] = off.y;
+						resp["cameraZ"] = off.z;
+						resp["viewLevel"] = cam->getViewLevel();
+					}
+				}
+				if (BattlescapeGame* pbg = bg->getBattleGame())
+				{
+					BattleAction* ca = pbg->getCurrentAction();
+					resp["actionType"] = (int)ca->type;
+					resp["actionActorId"] = ca->actor ? ca->actor->getId() : -1;
+					resp["actionWeaponId"] = ca->weapon ? ca->weapon->getId() : -1;
+					resp["actionTargeting"] = ca->targeting;
+					resp["actionTargetX"] = ca->target.x;
+					resp["actionTargetY"] = ca->target.y;
+					resp["actionTargetZ"] = ca->target.z;
+					resp["actionWaypoints"] = (int)ca->waypoints.size();
+				}
 				const BattleUnit* giftSel = coop->getGiftSelectedBattleUnit();
 				resp["giftSelectedId"] = giftSel ? giftSel->getId() : -1;
 				Json::Value units(Json::arrayValue);
@@ -4861,8 +4925,8 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "battle_action")
 		{
 			// Unified battlescape action driver. action = select|move|shoot|
-			// end_turn|abort. Reaches the BattlescapeGame via the top
-			// BattlescapeState. All ops are on the main thread (race-free).
+			// end_turn|end_turn_button|abort. Reaches the BattlescapeGame via the
+			// top BattlescapeState. All ops are on the main thread (race-free).
 			BattlescapeGame* bg = nullptr;
 			BattlescapeState* bstate = nullptr;
 			// PRD-13: left inline - assigns two vars + calls getBattleGame() per match, not pure find-last
@@ -4878,6 +4942,20 @@ std::string TestServer::execute(const std::string& line)
 			{
 				bg->requestEndTurn(false);
 				resp["ok"] = true;
+			}
+			else if (act == "end_turn_button")
+			{
+				// The REAL END TURN button. requestEndTurn() above is the VANILLA
+				// end turn and never ships the co-op `PlayerTurnYour` handoff -
+				// only btnEndTurnClick does, so a test about the handoff has to
+				// press the button a player presses.
+				if (bstate)
+				{
+					bstate->btnEndTurnClick(nullptr);
+					resp["ok"] = true;
+				}
+				else
+					resp["error"] = "no BattlescapeState";
 			}
 			else if (act == "abort")
 			{
