@@ -198,6 +198,23 @@ private:
 	// drains or the chain stops being skippable. Only the walk/turn/fall think
 	// intervals read it - never a projectile, explosion, death or melee state.
 	bool _coopFastForward = false;
+	// coop (PRD-P8 §5): the reserve mode the CURRENTLY RUNNING intent was sent
+	// with. Reserve is per-machine in parallel mode, so a client's chain must be
+	// judged against the client's reserve - and the walk/turn per-step checks run
+	// long after coopExecuteIntent has returned, which is why this is a chain-
+	// scoped override rather than a swap around the synchronous call.
+	// Keyed on the ACTOR so a leaked override can never reach another unit.
+	bool _coopChainReserveActive = false;
+	int _coopChainReserveUnit = -1;
+	BattleActionType _coopChainReserve = BA_NONE;
+	bool _coopChainKneelReserve = false;
+	/// The reserve settings checkReservedTU/kneel must judge `bu` by: the running
+	/// intent's when it owns this actor, otherwise this machine's own.
+	BattleActionType coopReserveModeFor(const BattleUnit* bu) const;
+	bool coopKneelReserveFor(const BattleUnit* bu) const;
+	/// Drops the chain-scoped reserve override (chain drained, or a local action
+	/// is about to run instead).
+	void coopClearChainReserve();
 	/// coop: id -> live BattleUnit (null when absent). Never fabricates.
 	BattleUnit* coopFindUnit(int unitId) const;
 	/// coop: ships one spawn manifest entry to the peer (host only).
@@ -296,6 +313,11 @@ public:
 	/// Re-evaluates the fast-forward after the state queue changed (a push, a pop).
 	/// On a drain it also closes the host's action chain (PROTOCOL.md `action_end`).
 	void coopChainChanged();
+	// ---- coop (PRD-P8): the running intent's reserve override (introspection) --
+	/// The reserve mode the running client intent installed, or -1 when none is.
+	int coopChainReserveMode() const { return _coopChainReserveActive ? (int)_coopChainReserve : -1; }
+	/// The actor that override is keyed on, or -1.
+	int coopChainReserveUnit() const { return _coopChainReserveActive ? _coopChainReserveUnit : -1; }
 	/// Ships the classic replay packet for a mutation that has no BattleState of
 	/// its own, so the peer still sees it. (BState-driven kinds broadcast through
 	/// their own send sites.)
