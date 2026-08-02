@@ -262,17 +262,16 @@ BasescapeState::~BasescapeState()
 {
 	_sharedRefresh.unbind(this);
 
-	// Clean up any temporary bases
-	bool exists = false;
-	for (const auto* xbase : *_game->getSavedGame()->getBases())
-	{
-		if (xbase == _base)
-		{
-			exists = true;
-			break;
-		}
-	}
-	if (!exists)
+	// issue #124: delete _base ONLY if we own it (the temporary blank base created
+	// in setBase when the player has no bases). The old code deleted _base whenever
+	// it was not found in getSavedGame()->getBases() - but a SHARED world restream
+	// (the post-mission merge) calls Game::setSavedGame, which frees the old bases
+	// and builds new ones. A BasescapeState open across that restream then holds a
+	// borrowed _base that (a) is already freed and (b) is no longer in the new list,
+	// so the heuristic double-freed it: Game.cpp:201 -> ~BasescapeState -> delete
+	// _base -> 0xC0000374. A borrowed real base is owned by the SavedGame; we never
+	// free it here.
+	if (_ownsBase)
 	{
 		delete _base;
 	}
@@ -540,6 +539,15 @@ void BasescapeState::sharedRefresh()
  */
 void BasescapeState::setBase(Base *base)
 {
+	// issue #124: if we still own a temporary blank base from a previous call, free
+	// it before repointing _base (prevents both a leak and a later double-free).
+	if (_ownsBase)
+	{
+		delete _base;
+		_base = nullptr;
+		_ownsBase = false;
+	}
+
 	if (!_game->getSavedGame()->getBases()->empty())
 	{
 		// Check if base still exists
@@ -567,6 +575,7 @@ void BasescapeState::setBase(Base *base)
 	{
 		// Use a blank base for special case when player has no bases
 		_base = new Base(_game->getMod());
+		_ownsBase = true; // issue #124: we own this temporary; the dtor frees it
 		_mini->setSelectedBase(0);
 		_game->getSavedGame()->setSelectedBase(0);
 	}
