@@ -2125,6 +2125,23 @@ bool BattlescapeGame::coopRouteAction(BattleAction &action, const std::string &k
 	// meets - otherwise the two players would be held to different rules.
 	if (!connectionTCP::canAdmitAction())
 	{
+		// coop (PRD-P7): a chain that is nothing but locomotion is not worth making
+		// the player re-click for. The input is DEFERRED instead of refused, and the
+		// walk in the way stops being waited for. Refused deferral (a shot in
+		// flight, a side commit) keeps PRD-P6's busy flash.
+		// Serialized through the very same builder a client uses, so pending-admit
+		// has ONE shape. `kind` and `seat` are stamped here because on the client
+		// they are added by connectionTCP::sendActionIntent, which this side of the
+		// wire never visits - and coopValidateIntent/coopExecuteIntent both key off
+		// `kind`.
+		Json::Value deferred = coopBuildIntent(this, _save, action, kind);
+		deferred["kind"] = kind;
+		deferred["seat"] = connectionTCP::localSeat();
+		if (connectionTCP::coopPendIntent(connectionTCP::localSeat(), 0, kind,
+				deferred.toStyledString(), true))
+		{
+			return true;
+		}
 		_parentState->warning("STR_COOP_PLAYER_BUSY");
 		return true;
 	}
@@ -2148,6 +2165,101 @@ bool BattlescapeGame::coopRouteMedikit(BattleAction* action, BattleUnit* target,
 	copy.coopMedikitMode = medikitMode;
 	copy.coopBodyPart = bodyPart;
 	return coopRouteAction(copy, "medikit");
+}
+
+/**
+ * coop (PRD-P7): may the whole queued chain be skipped past?
+ *
+ * The three states listed here are pure locomotion: their outcome is the unit's
+ * final position/facing, which the peer receives explicitly (the walk ends on an
+ * `abortPath` teleport-correct), so running them at interval 0 changes only how
+ * long the animation is on screen. Anything that ROLLS something - a projectile,
+ * an explosion, a death, a melee or psi attack - plays at its normal interval,
+ * and so does any chain that belongs to the AI or a civilian.
+ *
+ * An empty queue answers false: there is nothing to skip, and the callers use
+ * "skippable" to mean "wait for this one" rather than "the field is clear".
+ */
+bool BattlescapeGame::chainIsSkippable() const
+{
+	if (_states.empty())
+	{
+		return false;
+	}
+	for (auto* bs : _states)
+	{
+		if (bs == 0)
+		{
+			// the end-turn sentinel: the side is closing, nothing to fast-forward
+			return false;
+		}
+		BattleUnit* actor = bs->getAction().actor;
+		if (dynamic_cast<UnitWalkBState*>(bs) != 0 || dynamic_cast<UnitTurnBState*>(bs) != 0)
+		{
+			if (!actor || actor->getFaction() != FACTION_PLAYER)
+			{
+				return false;
+			}
+		}
+		else if (dynamic_cast<UnitFallBState*>(bs) != 0)
+		{
+			// UnitFallBState is constructed WITHOUT an action (BattlescapeGame.cpp
+			// :1021 / UnitWalkBState.cpp:336), so its actor is null - the units it
+			// moves are the save's falling list.
+			for (auto* u : *_save->getFallingUnits())
+			{
+				if (u && u->getFaction() != FACTION_PLAYER)
+				{
+					return false;
+				}
+			}
+		}
+		else
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * coop (PRD-P7): arming is refused outside a parallel player side, so classic
+ * co-op and single player never reach the interval-0 branch and stay
+ * byte-identical. Disarming always takes effect.
+ */
+void BattlescapeGame::setCoopFastForward(bool on)
+{
+	_coopFastForward = on && connectionTCP::parallelTurnActive();
+}
+
+/**
+ * coop (PRD-P7): the state queue changed - re-decide the fast-forward.
+ *
+ * Two transitions matter:
+ *  - the queue DRAINED: the chain is over, so the fast-forward lapses and (on the
+ *    executor) the chain's `action_end` marker is owed to the client.
+ *  - the chain stopped being skippable while it was being fast-forwarded, which
+ *    in practice means reaction fire interrupted a walk. The shot must play at
+ *    full speed, and the pending intents are dropped: positions and TU may have
+ *    moved a long way from what the player was looking at when they clicked.
+ */
+void BattlescapeGame::coopChainChanged()
+{
+	if (!connectionTCP::parallelTurnActive())
+	{
+		return;
+	}
+	if (_states.empty())
+	{
+		_coopFastForward = false;
+		connectionTCP::coopCloseActionChain();
+		return;
+	}
+	if (_coopFastForward && !chainIsSkippable())
+	{
+		_coopFastForward = false;
+		connectionTCP::coopDenyPendingIntents();
+	}
 }
 
 /**
@@ -2287,8 +2399,13 @@ std::string BattlescapeGame::coopValidateIntent(const std::string &intentJson, i
  * The action is built with makeReplayAction, i.e. `coopReplay` set: it is a PEER
  * action as far as this machine's display is concerned, so it must not yank the
  * host's camera (PRD-P1) - and `cameraPosition` stays unset for the same reason.
+ *
+ * PRD-P7 added `localOrigin`: a deferred intent that came from THIS machine's own
+ * click is replayed through the same serialization (so pending-admit has one
+ * shape), but it is the local player's own action, so it must NOT be flagged
+ * coopReplay - that flag is what tells the display code "somebody else did this".
  */
-void BattlescapeGame::coopExecuteIntent(const std::string &intentJson)
+void BattlescapeGame::coopExecuteIntent(const std::string &intentJson, bool localOrigin)
 {
 	Json::Reader reader;
 	Json::Value obj;
@@ -2303,6 +2420,7 @@ void BattlescapeGame::coopExecuteIntent(const std::string &intentJson)
 	const std::string kind = obj.get("kind", "").asString();
 
 	BattleAction action = makeReplayAction(unit);
+	action.coopReplay = !localOrigin;
 	action.targeting = false;
 	action.type = (BattleActionType)obj.get("ba_type", (int)BA_NONE).asInt();
 	action.target = Position(obj["target"].get("x", 0).asInt(),
@@ -2659,6 +2777,7 @@ void BattlescapeGame::statePushFront(BattleState* bs)
 {
 	_states.push_front(bs);
 	bs->init();
+	coopChainChanged(); // coop (PRD-P7): reaction fire lands here
 }
 
 /**
@@ -2676,6 +2795,7 @@ void BattlescapeGame::statePushNext(BattleState* bs)
 	{
 		_states.insert(++_states.begin(), bs);
 	}
+	coopChainChanged(); // coop (PRD-P7)
 }
 
 /**
@@ -2703,6 +2823,7 @@ void BattlescapeGame::statePushBack(BattleState* bs)
 	{
 		_states.push_back(bs);
 	}
+	coopChainChanged(); // coop (PRD-P7)
 }
 
 /**
@@ -2830,6 +2951,9 @@ void BattlescapeGame::popState()
 			_save->selectNextPlayerUnit(true, true);
 	}
 	_parentState->updateSoldierInfo();
+	// coop (PRD-P7): the drain point. Clears the fast-forward and, on the executor,
+	// tells the client that the chain it is displaying has no more packets coming.
+	coopChainChanged();
 }
 
 /**

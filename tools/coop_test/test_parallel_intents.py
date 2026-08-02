@@ -23,7 +23,10 @@ What this test asserts (PRD-P6 acceptance, in order):
      back at it (the PRD-P1 decoupling, which the intent loop leans on entirely).
   2. Host mid-chain: the client's intent is denied `busy`, the client flashes
      STR_COOP_PLAYER_BUSY and drops its pending slot, and the same intent
-     succeeds once the chain ends.
+     succeeds once the chain ends. The chain used is a SHOT: from PRD-P7 on, a
+     chain that is nothing but locomotion is deferred rather than refused
+     (test_parallel_skip.py owns that half), so only a non-skippable chain still
+     reaches the deny.
   3. Invalid intents are refused with the RIGHT warning key and nothing runs:
      a soldier the client does not own (STR_COOP_NOT_YOUR_SOLDIER), an actor the
      HOST's copy has no time units for (STR_NOT_ENOUGH_TIME_UNITS), and a unit
@@ -202,6 +205,27 @@ def free_step(gc, uid, radius=2):
     return (s["x"], s["y"], s["z"])
 
 
+def steps_of(gc, uid, radius=2):
+    r = intent(gc, action="probe_step", unit=uid, radius=radius, max=400)
+    return [(s["x"], s["y"], s["z"]) for s in r.get("steps", [])] if r.get("ok") else []
+
+
+def free_step_both(host, client, uid, radius=2):
+    """A tile BOTH machines agree `uid` can path to.
+
+    The fixture teleports the whole squad around looking for drivers, and a
+    teleport that took on one machine but not the other leaves a BLOCKER in a
+    different place. A tile the client's pathfinder likes can therefore be
+    occupied on the host - which is where a client intent actually executes, so
+    the walk would be admitted and then quietly do nothing."""
+    hs = steps_of(host, uid, radius)
+    cs = set(steps_of(client, uid, radius))
+    for s in hs:
+        if s in cs:
+            return s
+    return None
+
+
 def teleport_both(host, client, uid, spot):
     res = [gc.cmd({"cmd": "battle_teleport", "unit": uid,
                    "x": spot[0], "y": spot[1], "z": spot[2]})
@@ -218,7 +242,9 @@ def place_near(host, client, uid, tpos, ring=NEAR_RING):
         if not teleport_both(host, client, uid, spot):
             continue
         landed += 1
-        if free_step(client, uid):
+        # BOTH machines: a driver the client can move but the host cannot is
+        # useless, because the host is where every action actually runs.
+        if free_step_both(host, client, uid):
             return spot
         stuck += 1
     print(f"    unit {uid}: {landed}/{len(ring)} tiles near {tpos} took the "
@@ -253,7 +279,7 @@ def pick_driver(host, client, seat, tag):
 
 def scenario_walk(host, client, mover_id):
     print("-- 1: client walk intent -> host executes -> both converge --")
-    dest = free_step(client, mover_id)
+    dest = free_step_both(host, client, mover_id)
     assert dest, f"client soldier {mover_id} cannot step anywhere"
 
     before_h = pos(battle(host), mover_id)
@@ -307,31 +333,69 @@ def scenario_walk(host, client, mover_id):
 
 # ---- 2. deny busy ----------------------------------------------------------
 
+def aim_away(host, uid, dist=4):
+    """A tile `dist` away from `uid`, in the direction AWAY from the nearest live
+    hostile - the fixture has one alien and the later scenarios still need it."""
+    b = battle(host)
+    here = pos(b, uid)
+    enemy = alive_enemy(b)
+    if not enemy:
+        return (here[0] + dist, here[1] + dist, here[2])
+    sx = 1 if here[0] >= enemy["x"] else -1
+    sy = 1 if here[1] >= enemy["y"] else -1
+    return (here[0] + sx * dist, here[1] + sy * dist, here[2])
+
+
+def start_busy_shot(host, client, uid, wid, tries=6):
+    """Start a SHOT chain on the host and prove it is actually running.
+
+    A shot aimed at a tile the trajectory code rejects (out of bounds, no line of
+    fire) pops in the very frame it is pushed, which would make every "the host
+    was busy" assertion vacuous. The candidate tiles are therefore ones the
+    pathfinder has already vouched for, tried furthest-first, and the chain is
+    confirmed against `canAdmit` before the caller is told it may proceed.
+    Returns (aim, host parallel_state) or (None, state)."""
+    r = intent(host, action="probe_step", unit=uid, radius=4, max=400)
+    cands = [(s["x"], s["y"], s["z"]) for s in r.get("steps", [])][::-1]
+    for aim in cands[:tries]:
+        top_up(host, client, uid)
+        if not intent(host, action="shoot", unit=uid, mode="auto", weapon_id=wid,
+                      x=aim[0], y=aim[1], z=aim[2]).get("ok"):
+            continue
+        ps = parallel(host)
+        if ps.get("canAdmit") is False:
+            return aim, ps
+        wait_until(lambda: parallel(host).get("canAdmit") is True, 30)
+    return None, parallel(host)
+
+
 def scenario_busy(host, client, host_mover, client_mover):
     print("-- 2: deny busy while the host is mid-chain, then retry --")
     top_up(host, client, host_mover)
     # The client's destination is resolved NOW, while both machines are idle:
     # `probe_step` refuses mid-chain (Pathfinding is a singleton the running
     # UnitWalkBState dequeues from), and the client will be busy displaying the
-    # host's walk when the denied intent goes out.
-    client_dest = free_step(client, client_mover)
+    # host's chain when the denied intent goes out.
+    client_dest = free_step_both(host, client, client_mover)
     assert client_dest, f"client soldier {client_mover} cannot step anywhere"
-    # The whole fixture runs at battleXcomSpeed 2 (1 ms/step) so the suite stays
-    # quick, which means a walk is over before a poll can see it. Slow the HOST's
-    # walk animation right down for this one chain - `canAdmit` is about the
-    # BattleState queue, so a slow walk is a long-running chain and nothing else
-    # about the assertion changes.
+    # PRD-P7 changed WHICH chains refuse. A walk in the way is now DEFERRED
+    # (pending-admit + fast-forward, see test_parallel_skip.py), so holding the
+    # host with a walk no longer exercises the deny at all. A chain carrying a
+    # ProjectileFlyBState is never skippable, which is exactly the case PRD-P6's
+    # own acceptance names ("host mid-shot"). battleXcomSpeed slows the turn the
+    # shot pushes in front of itself, so the chain outlives the round trip.
+    wid = give_both(host, client, host_mover, "STR_RIFLE", "STR_RIFLE_CLIP")
     host.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": 200})
-    dest = far_step(host, host_mover)
-    assert dest, f"host soldier {host_mover} cannot step anywhere"
-    assert intent(host, action="move", unit=host_mover,
-                  x=dest[0], y=dest[1], z=dest[2]).get("ok")
-    busy = wait_until(lambda: parallel(host).get("canAdmit") is False, 20)
-    if not busy:
+    aim, ps = start_busy_shot(host, client, host_mover, wid)
+    if not aim or ps.get("chainSkippable") is not False:
         host.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": 2})
-    assert busy, (
-        f"the host never became busy walking {host_mover} to {dest}, so the deny "
-        f"path was never exercised: {parallel(host)}")
+    assert aim, (
+        f"no aim point produced a shot chain that outlived the RPC, so the deny "
+        f"path was never exercised: {ps}")
+    assert ps.get("chainSkippable") is False, (
+        f"a chain carrying a shot reported itself SKIPPABLE ({ps}); PRD-P7 would "
+        f"then defer the client's intent instead of refusing it, and this "
+        f"scenario would be vacuous")
 
     was = pos(battle(host), client_mover)
     r = intent(client, action="move", unit=client_mover,
@@ -359,7 +423,7 @@ def scenario_busy(host, client, host_mover, client_mover):
     host.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": 2})
     assert idle(host), f"the host's chain never finished: {parallel(host)}"
     settle(host, client, seconds=4)
-    dest = free_step(client, client_mover)
+    dest = free_step_both(host, client, client_mover)
     assert dest, "the client soldier cannot step after the host's chain"
     before = pos(battle(host), client_mover)
     assert intent(client, action="move", unit=client_mover,
@@ -582,7 +646,7 @@ def scenario_race(host, client, host_mover, client_mover):
         top_up(host, client, uid)
 
     h_dest = free_step(host, host_mover)
-    c_dest = free_step(client, client_mover)
+    c_dest = free_step_both(host, client, client_mover)
     assert h_dest and c_dest, (
         f"both drivers must be able to step for the race "
         f"(host {h_dest}, client {c_dest})")
@@ -638,7 +702,7 @@ def scenario_reaction(host, client, mover):
     reacted = False
     for step in range(6):
         before_hp = unit(battle(host), mover)["health"]
-        dest = free_step(client, mover)
+        dest = free_step_both(host, client, mover)
         if not dest:
             break
         r = intent(client, action="move", unit=mover,
