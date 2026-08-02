@@ -28,6 +28,13 @@ with. Two consequences:
 Scenarios: the alien's launcher sits in the hand the packet claims
 (`right_hand`) and in the other one (`left_hand`, the AI case).
 
+PRD-P4 keeps the census assertion strict and adds the two drift-tripwire terms
+to it: the blast kills the firing alien, and its CORPSES are a Tier-A spawn
+whose ids the host now names on `after_unit_death`. A corpse id that differs
+between the machines is a real divergence, so it is asserted rather than
+filtered; the item-id counter is asserted too, because a census comparison
+cannot see it.
+
 Run:  python tools/coop_test/test_coop_alien_launcher_item_loss.py
 Exit 0 = pass; 2 = failure.
 """
@@ -233,6 +240,21 @@ def run_scenario(label, alien_slot, ports, fails):
             for line in d:
                 print(f"  [DIVERGE] {line}")
             fails.append(f"{label}: host/client item census diverged ({len(d)} items)")
+        # PRD-P4: the census stays STRICT - no per-type filter and no "ignore the
+        # corpses" escape hatch. The blast kills the firing alien, and a corpse is a
+        # Tier-A spawn (a deterministic set each machine creates for itself), so a
+        # corpse whose id differs between the two machines is precisely the drift the
+        # id-manifest removes - not noise to filter out. The two tripwire terms go
+        # with it: the item-id COUNTER is invisible to a census comparison, and two
+        # machines can hold identical item sets while one is primed to mint the next
+        # id differently.
+        try:
+            session.assert_battle_synced(host, client, f"after the {label} shot")
+        except AssertionError as e:
+            fails.append(f"{label}: {e}")
+        for gc, tag in ((host, "host"), (client, "client")):
+            if battle(gc).get("desyncSeen"):
+                fails.append(f"{label}: the PRD-P2 drift tripwire fired on the {tag}")
         for tag, cen in (("host", h), ("client", c)):
             if soldier_launcher not in cen:
                 fails.append(f"{label}/{tag}: the soldier's blaster launcher (item "
