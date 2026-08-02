@@ -186,7 +186,7 @@ class GameClient:
                 self.proc.kill()
 
 
-def make_user_dir(name, saves=(), mods=()):
+def make_user_dir(name, saves=(), mods=(), options=None):
     """Hermetic, isolated user folder: a freshly written options.cfg pinning
     the stock `xcom1` master (see HERMETIC_OPTIONS) with no external mods and
     no dependence on the machine's real config. `saves` are copied into the
@@ -196,7 +196,13 @@ def make_user_dir(name, saves=(), mods=()):
     copied into <userdir>/mods/ - the user mod location; note that the shipped
     standard/ directory is a protected allowlist and silently rejects anything
     else ("Invalid standard mod '<name>', skipping."). Both machines in a co-op
-    pair must get the SAME mods or their rulesets diverge."""
+    pair must get the SAME mods or their rulesets diverge.
+
+    `options` is a dict of extra options.cfg keys spliced into HERMETIC_OPTIONS'
+    `options:` block, e.g. {"battleXcomSpeed": 1}. Unlike the set_option command
+    (which flips a value mid-test) these are in force from the instance's very
+    first frame, and they are PER INSTANCE - a test can start the host slow and
+    the client fast. Booleans are written as YAML true/false."""
     d = os.path.join(TEST_ROOT, name)
     if os.path.exists(d):
         shutil.rmtree(d)
@@ -209,6 +215,13 @@ def make_user_dir(name, saves=(), mods=()):
     opts = HERMETIC_OPTIONS
     if extra:
         opts = opts.replace("options:\n", extra + "options:\n", 1)
+    if options:
+        extra_opts = ""
+        for key, value in options.items():
+            if isinstance(value, bool):
+                value = "true" if value else "false"
+            extra_opts += "  %s: %s\n" % (key, value)
+        opts = opts.replace("options:\n", "options:\n" + extra_opts, 1)
     with open(os.path.join(d, "options.cfg"), "w", encoding="utf-8") as f:
         f.write(opts)
     for save in saves:

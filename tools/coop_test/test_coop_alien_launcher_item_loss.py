@@ -37,6 +37,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import session
 import shared_fixture
 import test_shared_battle as B
 
@@ -201,12 +202,14 @@ def run_scenario(label, alien_slot, ports, fails):
             f"censuses diverged BEFORE the shot: {diff_census(pre_h, pre_c)}"
         print(f"PASS pre-shot: {len(pre_h)} item instances, identical on both machines")
 
-        # The shot must be driven from the machine that owns the simulation: the
-        # coop battle states only emit their packet when _isActivePlayerSync is
-        # true, so firing from the passive side would never reach the peer.
+        # The shot must be driven from a machine that may drive it: in classic
+        # coop the battle states only emit their packet when _isActivePlayerSync
+        # is true, so firing from the passive side would never reach the peer.
+        # session.can_drive() also covers parallel turns (PRD-P5+), where both
+        # machines may drive.
         def _sim_owner():
             for gc, tag in ((host, "host"), (client, "client")):
-                if battle(gc).get("activeSync"):
+                if session.can_drive(battle(gc)):
                     return (gc, tag)
             return None
 
