@@ -712,9 +712,9 @@ class connectionTCP
 	static bool parallelTurnActive();
 	/// coop: is this machine a CLIENT during a parallel player side? PRD-P5
 	/// used it as a blanket input gate; PRD-P6 replaced that with action
-	/// intents, so all it still answers is "am I the non-executor machine".
-	/// Its one remaining gate is END TURN, which stays host-only until PRD-P8
-	/// lands the per-seat readiness tally.
+	/// intents and PRD-P8 replaced its last gate (END TURN) with the per-seat
+	/// readiness toggle, so all it still answers is "am I the non-executor
+	/// machine" - which the two classic UI-mirror send sites still ask.
 	static bool parallelInputBlocked();
 
 	// ---- coop (PRD-P6): action-intent arbitration -------------------------
@@ -764,6 +764,12 @@ class connectionTCP
 	static std::uint32_t _clientPendingReqId;
 	static std::string _clientPendingKind;
 	static std::uint32_t _clientPendingSentTicks;
+	/// CLIENT: the last `action_deny` it was sent - reason and warning key.
+	/// The flash fades (and BattlescapeState::warning swallows it entirely off
+	/// the player side), so this is the only stable readout of WHY an intent was
+	/// refused. Test introspection; cleared with the request sequence.
+	static std::string _clientLastDenyReason;
+	static std::string _clientLastDenyWarning;
 
 	// ---- coop (PRD-P7): pending-admit + display flow control ----------------
 	/// One deferred input. The executor keeps at most one per seat: a newer input
@@ -813,12 +819,71 @@ class connectionTCP
 	bool sendActionIntent(Json::Value intent, const std::string& kind);
 	/// CLIENT: drops the pending slot (ack received, deny received, timeout).
 	static void clearClientPendingIntent();
+	/// CLIENT: forgets the last deny (test introspection reset).
+	static void clearClientLastDeny();
 	/// Main-thread tick: the 10 s pending-intent timeout.
 	void tickActionIntents();
 	/// Flashes a translatable key on the battlescape warning widget, if there
 	/// is a battlescape. The deny UX; survives thanks to PRD-P5 dropping the
 	/// persistent off-turn banners that used to squat on that widget.
 	void flashBattleWarning(const std::string& key);
+
+	// ---- coop (PRD-P8): end-turn readiness gate ---------------------------
+	// A parallel side has no single owner, so it cannot be closed by one
+	// player's button press. Every seat arms its readiness (explicitly, or
+	// automatically once it has nothing left to command) and the executor
+	// commits the side when the last one arms. PROTOCOL.md
+	// `end_turn_ready` / `end_turn_tally` - standalone messages, NOT VoteSession.
+
+	/// Seat-indexed EXPLICIT readiness (an END TURN press). Host-authoritative;
+	/// a client holds the echoed tally plus its own optimistic bit.
+	static std::vector<bool> _endTurnReady;
+	/// Seat-indexed AUTO readiness: "this seat has no live commandable unit
+	/// left". Derived, never pressed - recomputed by the executor every tick, so
+	/// a death, a mind-control flip and a gift all clear/raise it with no
+	/// per-site hook to forget.
+	static std::vector<bool> _endTurnAuto;
+	/// The `side_seq` the currently-held tally belongs to. A tally for a
+	/// DIFFERENT side is adopted silently (no peer flash) - the all-clear that
+	/// follows a commit is not somebody cancelling.
+	static std::uint32_t _endTurnTallySideSeq;
+	/// HOST: character signature of the last `end_turn_tally` put on the wire
+	/// ("<side_seq>:<seats>:" then one of R/A/. per seat), so the tick echo only
+	/// builds and sends a packet when something actually changed.
+	static std::string _endTurnTallySent;
+	/// HOST: why coopCheckSideCommit() last refused ("" = it did not, or it
+	/// committed). Test introspection.
+	static std::string _commitBlocked;
+
+	/// Grows both readiness vectors to seatCount(). Cheap; called before any read.
+	static void ensureEndTurnSeats();
+	/// Everything a side boundary / teardown must forget. Lives inside
+	/// resetActionArbiter() so it can never be reset apart from the arbiter.
+	static void resetEndTurnReady();
+	/// Is `seat` ready by either route?
+	static bool endTurnSeatReady(int seat);
+	/// How many seats are ready (either route) - the tally UI's numerator.
+	static int endTurnReadyCount();
+	/// Are ALL seats ready? (the commit's first term)
+	static bool endTurnAllReady();
+	/// HOST: re-derive `_endTurnAuto` from the live roster.
+	static void recomputeEndTurnAuto();
+	/// HOST: put `end_turn_tally` on the wire if the tally changed since the last
+	/// send. The "echo after EVERY change" of PRD-P8 §1, driven from the tick so
+	/// no mutation site can forget it.
+	void sendEndTurnTallyIfChanged();
+	/// HOST: this seat just had an action ADMITTED, so its explicit ready is
+	/// stale (it clearly did not mean "I am done"). Auto readiness is derived and
+	/// is left alone.
+	static void noteSeatActed(int seat);
+	/// LOCAL: the END TURN button in parallel mode. Flips this machine's own
+	/// readiness; a client ships `end_turn_ready`, the host just updates the
+	/// tally it owns.
+	void toggleEndTurnReady();
+	/// HOST, main-thread tick: close the side once every seat is ready, the
+	/// arbiter is idle and the peer's display backlog has drained.
+	void coopCheckSideCommit();
+
 	void createCoopMenu();
 	static void sendTCPPacketStaticData2(std::string data);
 	void writeHostMapFile2();

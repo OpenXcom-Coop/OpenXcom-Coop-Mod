@@ -1339,7 +1339,9 @@ void BattlescapeGame::handleAI(BattleUnit* unit)
 bool BattlescapeGame::kneel(BattleUnit* bu)
 {
 	int tu = bu->getKneelChangeCost();
-	if (bu->getArmor()->allowsKneeling(bu->getType() == "SOLDIER") && !bu->isFloating() && ((!bu->isKneeled() && _save->getKneelReserved()) || checkReservedTU(bu, tu, 0)))
+	// coop (PRD-P8 §5): coopKneelReserveFor() is _save->getKneelReserved() for
+	// every actor but the one whose client-sent intent is running right now.
+	if (bu->getArmor()->allowsKneeling(bu->getType() == "SOLDIER") && !bu->isFloating() && ((!bu->isKneeled() && coopKneelReserveFor(bu)) || checkReservedTU(bu, tu, 0)))
 	{
 		BattleAction kneel;
 		kneel.type = BA_KNEEL;
@@ -2145,6 +2147,12 @@ bool BattlescapeGame::coopRouteAction(BattleAction &action, const std::string &k
 		_parentState->warning("STR_COOP_PLAYER_BUSY");
 		return true;
 	}
+	// coop (PRD-P8): the executor's own action clears its own END TURN readiness
+	// (it clearly did not mean "I am done"), and drops any reserve override left
+	// over from a client chain - what runs next is a LOCAL action, judged by this
+	// machine's own reserve.
+	connectionTCP::noteSeatActed(connectionTCP::localSeat());
+	coopClearChainReserve();
 	connectionTCP::stampAdmittedAction();
 	return false;
 }
@@ -2252,6 +2260,8 @@ void BattlescapeGame::coopChainChanged()
 	if (_states.empty())
 	{
 		_coopFastForward = false;
+		// coop (PRD-P8 §5): the chain that owned the reserve override is over.
+		coopClearChainReserve();
 		connectionTCP::coopCloseActionChain();
 		return;
 	}
@@ -2469,23 +2479,69 @@ void BattlescapeGame::coopExecuteIntent(const std::string &intentJson, bool loca
 	}
 
 	// PROTOCOL.md: the sender's reserve settings apply to THIS action's cost
-	// check only. Swapped in around the synchronous execution; the per-step walk
-	// reserve check lives inside UnitWalkBState and is PRD-P8's to localize.
-	const BattleActionType savedReserve = _save->getTUReserved();
-	const bool savedKneelReserve = _save->getKneelReserved();
-	if (obj.isMember("reserve"))
+	// check only.
+	//
+	// PRD-P8 §5 localizes it properly. PRD-P6 swapped the values into _save around
+	// the synchronous call, which covered kneel() and everything else decided
+	// inside executeAction - but a walk's reserve check is per STEP, inside
+	// UnitWalkBState::think(), frames after this function has returned and the
+	// values were put back. A client's walk was therefore judged against the
+	// HOST's reserve for its entire length. The override below lives as long as
+	// the chain does and is keyed on the actor, so it cannot leak sideways onto
+	// another unit; the host's own UI reading of _save is left untouched, which
+	// the swap could not manage either.
+	coopClearChainReserve();
+	if (obj.isMember("reserve") || obj.isMember("kneelReserve"))
 	{
-		_save->setTUReserved((BattleActionType)obj["reserve"].asInt());
-	}
-	if (obj.isMember("kneelReserve"))
-	{
-		_save->setKneelReserved(obj["kneelReserve"].asBool());
+		_coopChainReserveActive = true;
+		_coopChainReserveUnit = unit->getId();
+		_coopChainReserve = obj.isMember("reserve")
+			? (BattleActionType)obj["reserve"].asInt() : _save->getTUReserved();
+		_coopChainKneelReserve = obj.isMember("kneelReserve")
+			? obj["kneelReserve"].asBool() : _save->getKneelReserved();
 	}
 
 	executeAction(action, true);
 
-	_save->setTUReserved(savedReserve);
-	_save->setKneelReserved(savedKneelReserve);
+	if (_states.empty())
+	{
+		// nothing was queued (kneel, prime, medikit, a walk with no path): the
+		// chain is already over, so coopChainChanged() will never be reached.
+		coopClearChainReserve();
+	}
+}
+
+/**
+ * coop (PRD-P8 §5): the reserve a cost check must judge `bu` by.
+ *
+ * Only the actor of the running intent is answered from the override; everything
+ * else - the local player's own soldiers, the AI, a reaction-fire check - reads
+ * this machine's own setting exactly as it always did.
+ */
+BattleActionType BattlescapeGame::coopReserveModeFor(const BattleUnit* bu) const
+{
+	if (_coopChainReserveActive && bu && bu->getId() == _coopChainReserveUnit)
+	{
+		return _coopChainReserve;
+	}
+	return _save->getTUReserved();
+}
+
+bool BattlescapeGame::coopKneelReserveFor(const BattleUnit* bu) const
+{
+	if (_coopChainReserveActive && bu && bu->getId() == _coopChainReserveUnit)
+	{
+		return _coopChainKneelReserve;
+	}
+	return _save->getKneelReserved();
+}
+
+void BattlescapeGame::coopClearChainReserve()
+{
+	_coopChainReserveActive = false;
+	_coopChainReserveUnit = -1;
+	_coopChainReserve = BA_NONE;
+	_coopChainKneelReserve = false;
 }
 
 /**
@@ -2996,7 +3052,11 @@ bool BattlescapeGame::checkReservedTU(BattleUnit* bu, int tu, int energy, bool j
 {
 	BattleActionCost cost;
 	cost.actor = bu;
-	cost.type = _save->getTUReserved();         // avoid changing _tuReserved in this method
+	// coop (PRD-P8 §5): the running intent's reserve when `bu` is its actor,
+	// otherwise this machine's own - see coopReserveModeFor().
+	const BattleActionType coopReserve = coopReserveModeFor(bu);
+	const bool coopKneelReserve = coopKneelReserveFor(bu);
+	cost.type = coopReserve;                    // avoid changing _tuReserved in this method
 	cost.weapon = bu->getMainHandWeapon(false); // check TUs against slowest weapon if we have two weapons
 
 	if (_save->getSide() != bu->getFaction() || _save->getSide() == FACTION_NEUTRAL)
@@ -3044,7 +3104,7 @@ bool BattlescapeGame::checkReservedTU(BattleUnit* bu, int tu, int energy, bool j
 		cost.type = BA_AIMEDSHOT;
 		cost.updateTU();
 	}
-	const int tuKneel = (_save->getKneelReserved() && !bu->isKneeled() && bu->getArmor()->allowsKneeling(bu->getType() == "SOLDIER")) ? bu->getKneelDownCost() : 0;
+	const int tuKneel = (coopKneelReserve && !bu->isKneeled() && bu->getArmor()->allowsKneeling(bu->getType() == "SOLDIER")) ? bu->getKneelDownCost() : 0;
 	// no aimed shot available? revert to none.
 	if (cost.Time == 0 && cost.type == BA_AIMEDSHOT)
 	{
@@ -3069,7 +3129,7 @@ bool BattlescapeGame::checkReservedTU(BattleUnit* bu, int tu, int energy, bool j
 	cost.Time += tu;
 	cost.Energy += energy;
 
-	if ((cost.type != BA_NONE || _save->getKneelReserved()) && !cost.haveTU())
+	if ((cost.type != BA_NONE || coopKneelReserve) && !cost.haveTU())
 	{
 		if (!justChecking)
 		{
@@ -3086,7 +3146,7 @@ bool BattlescapeGame::checkReservedTU(BattleUnit* bu, int tu, int energy, bool j
 			}
 			else
 			{
-				switch (_save->getTUReserved())
+				switch (coopReserve)
 				{
 				case BA_SNAPSHOT:
 					_parentState->warning("STR_TIME_UNITS_RESERVED_FOR_SNAP_SHOT");
