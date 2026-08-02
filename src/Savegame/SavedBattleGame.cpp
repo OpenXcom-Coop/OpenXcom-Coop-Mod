@@ -4133,10 +4133,33 @@ void flashLongMessageVariadicScriptImpl(SavedBattleGame* sbg, ScriptText message
 
 
 
+/**
+ * coop (PRD-P3 GAP-10): the two mod-script RNG bindings below draw from the GLOBAL
+ * stream on whichever machine happens to run the script, and nothing captures or
+ * ships the result - so any modded battle behaviour built on them diverges silently
+ * between host and peer. Fixing that properly needs a host-decides channel for
+ * arbitrary script calls, which is out of scope here; V1 is to say so, once, so a
+ * modder who hits it can see it in the log instead of chasing a phantom desync.
+ */
+static void coopWarnScriptRng(const SavedBattleGame* sbg, const char* which)
+{
+	static bool warned = false;
+	if (warned || !connectionTCP::getCoopStatic())
+	{
+		return;
+	}
+	warned = true;
+	Log(LOG_WARNING) << "coop: mod script called " << which << " during a co-op battle. "
+					 << "Script RNG is UNSUPPORTED in co-op: each machine draws from its own "
+					 << "stream and the result is not replicated, so anything it decides can "
+					 << "differ between the two players (turn " << (sbg ? sbg->getTurn() : -1) << ").";
+}
+
 void randomChanceScript(SavedBattleGame* sbg, int& val)
 {
 	if (sbg)
 	{
+		coopWarnScriptRng(sbg, "randomChance");
 		val = RNG::percent(val);
 	}
 	else
@@ -4149,6 +4172,7 @@ void randomRangeScript(SavedBattleGame* sbg, int& val, int min, int max)
 {
 	if (sbg && max >= min)
 	{
+		coopWarnScriptRng(sbg, "randomRange");
 		val = RNG::generate(min, max);
 	}
 	else

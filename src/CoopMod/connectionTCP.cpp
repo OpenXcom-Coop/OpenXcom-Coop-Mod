@@ -6639,13 +6639,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					int center_z = obj["center_z"].asInt();
 
 					int power = obj["power"].asInt();
-					int damageType_int = obj["damageType"].asInt();
 					bool rangeAtack = obj["rangeAtack"].asBool();
 					int terrainMeleeTilePart = obj["terrainMeleeTilePart"].asInt();
 
 					uint64_t seed = obj["seed"].asUInt64();
-					int smokeRNG = obj["smokeRNG"].asInt();
-					_smokeRNGs.push_back(smokeRNG);
 
 					float ArmorEffectiveness = obj["ArmorEffectiveness"].asFloat();
 					bool FireBlastCalc = obj["FireBlastCalc"].asBool();
@@ -7048,6 +7045,59 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	// coop (PRD-P3 GAP-9): the host's end-of-side fuse outcome. A client makes no
+	// BattleItem::fuseTimeEvent() rolls of its own, so this is the ONLY thing that
+	// detonates or removes a timed item there.
+	//
+	// Deviation from PROTOCOL's first sketch (which hung this off `next_turn`):
+	// next_turn only crosses at the START of the player's turn, so a fuse decided
+	// when the PLAYER side ended would not reach the peer until an entire alien
+	// side had run - a whole side of the peer holding items the host had destroyed.
+	// Its own state string is additive and silently ignored by an older peer.
+	if (stateString == "fuse_events")
+	{
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+
+			// A failed roll re-arms or disables the fuse instead of detonating.
+			const Json::Value& fuses = obj["fuses"];
+			for (Json::ArrayIndex i = 0; i < fuses.size(); ++i)
+			{
+				int itemId = fuses[i]["id"].asInt();
+				for (auto* bi : *sbg->getItems())
+				{
+					if (bi->getId() == itemId)
+					{
+						bi->setFuseTimer(fuses[i]["timer"].asInt());
+						break;
+					}
+				}
+			}
+
+			// Exploded grenades and swept items alike: the blast CONSEQUENCES already
+			// reached this machine on the host's explosion packets (hit_unit,
+			// explode_items, set_fire_tile, destroy_tile) - what never crossed was the
+			// disappearance of the item itself.
+			for (const char* key : { "exploded", "removed" })
+			{
+				const Json::Value& arr = obj[key];
+				for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
+				{
+					int itemId = arr[i].asInt();
+					for (auto* bi : *sbg->getItems())
+					{
+						if (bi->getId() == itemId)
+						{
+							sbg->removeItem(bi);
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if (stateString == "checkForProximityGrenades")
 	{
 
@@ -7062,18 +7112,44 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					int unit_id = obj["unit_id"].asInt();
 
-					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					// coop (PRD-P3 GAP-8): a sweep packet carrying `removed_items` is
+					// the HOST's removal list, not an invitation to re-scan. The peer
+					// used to decide for itself which non-grenade items a proximity
+					// fuse had swept away, off its own RNG::percent(specialChance)
+					// roll inside fuseProximityEvent().
+					if (obj.isMember("removed_items"))
 					{
-
-						if (unit->getId() == unit_id)
+						SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+						const Json::Value& gone = obj["removed_items"];
+						for (Json::ArrayIndex i = 0; i < gone.size(); ++i)
 						{
-		
-							_game->getSavedGame()->getSavedBattle()->getBattleGame()->checkForProximityCoop(unit);
+							int itemId = gone[i]["id"].asInt();
+							std::string itemType = gone[i]["type"].asString();
+							for (auto* bi : *sbg->getItems())
+							{
+								if (bi->getId() == itemId && bi->getRules()->getType() == itemType)
+								{
+									sbg->removeItem(bi);
+									break;
+								}
+							}
+						}
+					}
+					else
+					{
+						for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+						{
 
-							break;
+							if (unit->getId() == unit_id)
+							{
+		
+								_game->getSavedGame()->getSavedBattle()->getBattleGame()->checkForProximityCoop(unit);
+
+								break;
+
+							}
 
 						}
-
 					}
 
 
