@@ -97,6 +97,12 @@ struct BattleAction : BattleActionCost
 	// lets display-only code tell "the local player did this" from "I am watching
 	// my teammate". Used to stop a peer action yanking the local camera.
 	bool coopReplay = false;
+	// coop (PRD-P6): the medikit operands an `action_intent` carries that have no
+	// home in BattleAction's normal fields, so ONE executeAction() can dispatch
+	// every kind. -1 = "this is not a medikit action".
+	int coopTargetUnit = -1;
+	int coopMedikitMode = -1;   // BattleMediKitAction
+	int coopBodyPart = 0;       // UnitBodyPart
 
 	/// Default constructor
 	BattleAction() : target(-1, -1, -1), targeting(false), value(0), diff(0), autoShotCounter(0), cameraPosition(0, 0, -1), desperate(false), finalFacing(-1), finalAction(false), number(0), sprayTargeting(false) { }
@@ -246,6 +252,35 @@ public:
 	void statePushNext(BattleState *bs);
 	/// Pushes a state to the back of the list.
 	void statePushBack(BattleState *bs);
+	// ---- coop (PRD-P6): action intents ------------------------------------
+	/// THE executor's single entry point for a player-initiated action. Factored
+	/// out of the local-input tails so the host's own clicks and a client's
+	/// `action_intent` run exactly the same code. `calculatePath` is false when
+	/// the caller has already run Pathfinding::calculate for this move (the
+	/// mapClick tail has, an intent has not).
+	void executeAction(BattleAction& action, bool calculatePath = true);
+	/// The door every player-initiated action passes through. Returns TRUE when
+	/// the caller must NOT execute anything locally:
+	///  - parallel CLIENT: the action was shipped as an `action_intent`;
+	///  - parallel HOST: admission was refused, and the busy flash is up.
+	/// Classic co-op and single player always return false - untouched.
+	bool coopRouteAction(BattleAction& action, const std::string& kind);
+	/// Same door for a medikit press (the operands do not fit a BattleAction).
+	bool coopRouteMedikit(BattleAction* action, BattleUnit* target, int medikitMode, int bodyPart);
+	/// Host: "" when the intent may run, otherwise a short cause; `warning` gets
+	/// the translatable key the client is told to flash. Takes the serialized
+	/// packet (like every sibling replay handler) so jsoncpp stays out of the
+	/// battlescape headers.
+	std::string coopValidateIntent(const std::string& intentJson, int seat, std::string& warning);
+	/// Host: rebuild the intent as a BattleAction and run it through executeAction.
+	void coopExecuteIntent(const std::string& intentJson);
+	/// Ships the classic replay packet for a mutation that has no BattleState of
+	/// its own, so the peer still sees it. (BState-driven kinds broadcast through
+	/// their own send sites.)
+	void coopSendKneelPacket(BattleUnit* bu);
+	void coopSendPrimePacket(const BattleAction& action, BattleActionType primeType);
+	void coopSendMedikitPacket(const BattleAction& action, BattleUnit* target, int medikitMode, int bodyPart, const std::string& medkitState);
+
 	/// Handles the result of non target actions, like priming a grenade.
 	void handleNonTargetAction();
 	/// Same, on an explicit action - lets a replayed peer action (coopActionClick)

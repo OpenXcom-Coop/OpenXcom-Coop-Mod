@@ -176,8 +176,11 @@ void PrimeGrenadeState::btnClick(Action *action)
 	if (btnID != -1)
 	{
 
-		// coop
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() != 1)
+		// coop. A parallel CLIENT never sends it: the prime is confirmed in
+		// BattlescapeGame::handleNonTargetAction(), which ships an `action_intent`,
+		// and the host re-broadcasts `active_grenade` once it has actually primed.
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() != 1
+			&& !connectionTCP::parallelInputBlocked())
 		{
 
 			Json::Value root;

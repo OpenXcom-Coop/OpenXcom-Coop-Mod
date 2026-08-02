@@ -320,7 +320,9 @@ DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _countr
 		_game->getCoopMod()->coopInventory = false;
 
 		// fix
-		_game->getCoopMod()->_coop_task_completed = true;
+		// PRD-P6 pre-task: teardown forces the gate open whatever depth it is at -
+		// a BState that never got to deinit() must not jam the queue for good.
+		_game->getCoopMod()->resetCoopTaskDepth();
 		_game->getCoopMod()->playerInsideCoopBase = false;
 		_game->getCoopMod()->_battleWindow = false;
 		_game->getCoopMod()->_isMainCampaignBaseDefense = false;

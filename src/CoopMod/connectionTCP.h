@@ -636,7 +636,30 @@ class connectionTCP
 	static bool getHost();
 	static int getHostSpaceAvailable();
 	static void setHostSpaceAvailable(int _hostSpace);
-	bool _coop_task_completed = true; // is the co-op task completed (walk, turn, shoot, etc.)?
+	// coop (PRD-P6 pre-task): the receive gate, as a DEPTH COUNTER.
+	//
+	// It used to be `bool _coop_task_completed`. A bool cannot nest, and the
+	// chains that hold it do: an InfoboxState opening and closing inside a shot
+	// (InfoboxState ctor/dtor vs ProjectileFlyBState::init/deinit) wrote the gate
+	// back OPEN while the projectile was still in flight, so a peer packet could
+	// interleave into the middle of a local action chain. Depth 0 == "completed";
+	// every holder takes a reference and gives it back.
+	//
+	// Writers go through setCoopTaskCompleted(false/true) (acquire/release) and
+	// the two teardown sites through resetCoopTaskDepth(). Holders that can have
+	// their init() re-entered (a BattleState is re-init'ed whenever something
+	// pushed IN FRONT of it pops) must acquire at most once - they carry their own
+	// `held` flag; see UnitWalkBState.
+	int _coopTaskDepth = 0;
+	/// Is no co-op action chain in progress (walk, turn, shoot, melee, psi, modal)?
+	bool coopTaskCompleted() const { return _coopTaskDepth <= 0; }
+	/// Current gate depth (0 = open). Test introspection / arbiter admission.
+	int coopTaskDepth() const { return _coopTaskDepth; }
+	/// false = acquire (++), true = release (-- , clamped at 0). Same call shape
+	/// the pre-P6 bool API had, so every writer site reads unchanged.
+	void setCoopTaskCompleted(bool completed);
+	/// Teardown only: force the gate open, whatever is still holding it.
+	void resetCoopTaskDepth() { _coopTaskDepth = 0; }
 	size_t _coop_selected_craft_id = 0;
 	std::string getPing();
 	bool isCoopSession(); // is the co-op session created? (does not consider whether a player has joined)
@@ -687,11 +710,68 @@ class connectionTCP
 	/// isYourTurn == 2 and `_isActivePlayerSync == getHost()` - the executor
 	/// invariant every existing send/RNG guard is already written against.
 	static bool parallelTurnActive();
-	/// coop (PRD-P5 §4, TEMPORARY - PRD-P6 replaces it with action intents):
-	/// must this machine swallow local battlescape input? True only on the
-	/// co-op CLIENT during a parallel player side, and only while the debug
-	/// override is off. The host always acts.
+	/// coop: is this machine a CLIENT during a parallel player side? PRD-P5
+	/// used it as a blanket input gate; PRD-P6 replaced that with action
+	/// intents, so all it still answers is "am I the non-executor machine".
+	/// Its one remaining gate is END TURN, which stays host-only until PRD-P8
+	/// lands the per-seat readiness tally.
 	static bool parallelInputBlocked();
+
+	// ---- coop (PRD-P6): action-intent arbitration -------------------------
+	// The client never executes battle sim in parallel mode: it ships an
+	// `action_intent`, the host validates + executes + broadcasts, and the
+	// client displays the broadcast exactly as it displays a host action in
+	// classic co-op. See PROTOCOL.md.
+
+	/// HOST-owned. +1 per ADMITTED action (the host's own and every client
+	/// intent). Stamped on `action_ack`; the broadcast packets carry it only
+	/// from PRD-P7 on. Reset at each side boundary TOGETHER with
+	/// peerDisplayAckedSeq - resetting one alone underflows P7's uint32
+	/// backlog term `(_actionSeq - peerDisplayAckedSeq)` and blocks admission
+	/// for the rest of the battle.
+	static std::uint32_t _actionSeq;
+	/// PRD-P7's display-flow term. Lands here dormant so the two counters can
+	/// never be reset apart.
+	static std::uint32_t peerDisplayAckedSeq;
+	/// HOST-owned, +1 per side transition; the staleness token an intent
+	/// carries. The client adopts the value stamped on the `endTurn` packet.
+	static std::uint32_t _sideSeq;
+	/// HOST: true from the END TURN press until the next player side opens.
+	static bool _sideCommitInProgress;
+	/// HOST: the one-slot pending intent (per seat; P6 executes on admission,
+	/// so the slot records the intent whose chain is running).
+	static std::uint32_t _intentSlotReqId;
+	static int _intentSlotSeat;
+	static std::string _intentSlotKind;
+	/// HOST: why canAdmitAction() last refused ("" = it did not).
+	static std::string _admitBlocked;
+	/// CLIENT: monotonic req_id source (from 1, per battle).
+	static std::uint32_t _clientReqSeq;
+	/// CLIENT: the single pending slot. 0 = nothing outstanding.
+	static std::uint32_t _clientPendingReqId;
+	static std::string _clientPendingKind;
+	static std::uint32_t _clientPendingSentTicks;
+
+	/// May the executor start a new action chain right now? PROTOCOL.md
+	/// "Ordering invariants" 3: no BattleState queued, receive gate open, no
+	/// side commit under way. (PRD-P7 adds the display-backlog term.)
+	static bool canAdmitAction();
+	/// Stamps an admitted action: ++_actionSeq, returns the new value.
+	static std::uint32_t stampAdmittedAction();
+	/// Battle start / side boundary / teardown: counters and slots back to a
+	/// known state. `fullReset` also zeroes the side and request sequences.
+	static void resetActionArbiter(bool fullReset);
+	/// CLIENT: ships an intent and takes the pending slot (a second input
+	/// REPLACES the slot - the stale ack is then ignored by req_id).
+	bool sendActionIntent(Json::Value intent, const std::string& kind);
+	/// CLIENT: drops the pending slot (ack received, deny received, timeout).
+	static void clearClientPendingIntent();
+	/// Main-thread tick: the 10 s pending-intent timeout.
+	void tickActionIntents();
+	/// Flashes a translatable key on the battlescape warning widget, if there
+	/// is a battlescape. The deny UX; survives thanks to PRD-P5 dropping the
+	/// persistent off-turn banners that used to squat on that widget.
+	void flashBattleWarning(const std::string& key);
 	void createCoopMenu();
 	static void sendTCPPacketStaticData2(std::string data);
 	void writeHostMapFile2();

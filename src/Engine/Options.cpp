@@ -593,7 +593,6 @@ void createAdvancedOptionsOTHER()
 	// send site is _isActivePlayerSync-gated and the client permanently holds
 	// false), so the two machines intentionally diverge. Smoke-testing the input
 	// path only - never a play mode.
-	_info.push_back(OptionInfo(OPTION_OTHER, "coopParallelDebugClientInput", &coopParallelDebugClientInput, false, "DEBUG: allow client input during parallel turns (temporary)", "STR_AI"));
 
 }
 
