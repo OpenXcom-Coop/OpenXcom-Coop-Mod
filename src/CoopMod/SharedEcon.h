@@ -35,6 +35,8 @@ class Ufo;
 class Target;
 class Soldier;
 class AlienBase;
+class BattleItem;
+class SavedBattleGame;
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -445,6 +447,102 @@ struct Stats
 Stats stats();
 std::string lastFailReason();
 void resetStats();
+
+// ---- PRD-P4: Tier-A spawn id-manifest ----------------------------------------
+// Every BattleItem id comes from the LOCAL counter SavedBattleGame::_itemId, and
+// battle resolution keys on it (moveCoopInventory, coopResolveWeapon, the ammo
+// matches in the Melee/ProjectileFly states). A "Tier-A" spawn is a DETERMINISTIC
+// set that both machines create for themselves - corpses (armor corpse list, one
+// per size^2 tile), death-trap grenades (STR_DEATH_TRAP_<floorSpecialType>, pure
+// map data), convertUnit built-ins (fixed getSpawnUnit() type). No RNG picks the
+// set, so both machines create the SAME items; only the ids can drift, and when
+// they do the drift is a TRANSPOSITION - id N denotes a different instance on the
+// two machines and every later id-keyed packet lands on the wrong item.
+//
+// The fix is the host naming the ids it minted and the peer adopting them. A
+// manifest is a `minted_ids` array on the action's own carrier packet, keyed by
+// {action, subject} - transient, per action, NEVER persisted and never spanning a
+// save. Old-peer compatible by construction: absent `minted_ids` = no manifest =
+// the peer keeps its local ids, exactly today's behaviour.
+//
+// Tier-B (RNG-DIVERGENT) spawns are a different mechanism entirely and are already
+// handled by PRD-P3's seed-replay manifest (`spawn_units`): there the host has to
+// ship the DECISION, not just the ids. Do not merge the two.
+//
+// Deviation from the PRD sketch: the guards take no `coopMod` argument.
+// connectionTCP::getCoopStatic() / ::getHost() are static, so a pointer would
+// carry no information - and SavedBattleGame::convertUnit, one of the three
+// sites, has no coopMod handy.
+
+/// HOST-side RAII recorder. While one is open, every BattleItem the SavedBattleGame
+/// factories mint appends its id to the {action, subject} list, in creation order.
+/// Opening CLEARS whatever was under that key, so a repeatable action (the same
+/// unit stepping onto a second death trap) can never ship a previous run's tail.
+/// Inert unless this machine is a co-op HOST. Closing ends the recording window
+/// only - the recorded ids live on until flushSpawnRecord() ships them.
+class CoopSpawnRecord
+{
+public:
+	CoopSpawnRecord(const char* action, int subject);
+	~CoopSpawnRecord();
+	CoopSpawnRecord(const CoopSpawnRecord&) = delete;
+	CoopSpawnRecord& operator=(const CoopSpawnRecord&) = delete;
+private:
+	bool _open;
+};
+
+/// PEER-side RAII consumer, bound to THIS call's subject. While one is open the
+/// factories dequeue the host's ids (creation order) and setIdCoop() them onto the
+/// items being created. Deliberately PER CALL and stacked, never a global "active
+/// subject": two deaths in flight at once would clobber a single global (hole H2).
+/// Closing DROPS whatever the manifest still held for that key - a replay that
+/// created fewer items than the host did must not leave ids parked for the next one.
+/// Inert unless this machine is a co-op peer (non-host).
+class CoopSubjectGuard
+{
+public:
+	CoopSubjectGuard(const char* action, int subject);
+	~CoopSubjectGuard();
+	CoopSubjectGuard(const CoopSubjectGuard&) = delete;
+	CoopSubjectGuard& operator=(const CoopSubjectGuard&) = delete;
+private:
+	bool _open;
+	std::string _action;
+	int _subject;
+};
+
+/// HOST: move the ids recorded for {action, subject} onto @a root as "minted_ids"
+/// and drop the record. Writes NO field when nothing was recorded, which is what
+/// keeps an older peer (and every non-spawning pass through the same send site)
+/// on exactly today's behaviour.
+void flushSpawnRecord(Json::Value& root, const char* action, int subject);
+
+/// PEER: park the host's `minted_ids` (if @a root carries any) for {action,
+/// subject}, and RE-SLAVE the local counter to `max(_itemId, maxHostId + 1)` -
+/// the same rule SavedBattleGame's loader applies to a save's item ids, so an id
+/// the peer adopts can never be minted a second time. Returns true if a manifest
+/// was stored. Call it BEFORE the replay path that creates the items.
+bool storeSpawnManifest(SavedBattleGame* battle, const char* action, int subject,
+						const Json::Value& root);
+
+/// PEER, path (b) "remap on load": re-stamp corpses that ALREADY exist. The corpse
+/// manifest rides `after_unit_death`, which post-dates the peer's own corpse
+/// creation (that was triggered by the earlier `unit_death`), so consume-on-create
+/// alone would never fire for it (hole H3). Matches BT_CORPSE items whose getUnit()
+/// is @a unitId, in _items order = creation order = the order the host recorded -
+/// all size^2 of them for a big unit. No-op (and the manifest is LEFT parked for
+/// the guard) when the corpses do not exist yet. Returns how many were re-stamped.
+int remapCorpseIds(SavedBattleGame* battle, int unitId);
+
+/// Factory hook: a BattleItem was just minted. Appends to an open host record or
+/// consumes an id from an open peer guard; does nothing at all when neither is
+/// open, which is every mint outside a Tier-A spawn (and every non-co-op game).
+void noteMintedItem(BattleItem* item);
+
+/// Hygiene: drop every parked manifest. Called at each turn boundary - a manifest
+/// whose replay never happened (the peer created no corpse for that death) must not
+/// outlive the turn it belonged to.
+void clearSpawnManifests();
 
 } // namespace SharedEcon
 
