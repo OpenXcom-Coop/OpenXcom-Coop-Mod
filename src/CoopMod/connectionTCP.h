@@ -551,6 +551,11 @@ class connectionTCP
 	Craft* getSelectedCraft();
 	void hostTCPServer(std::string servername, std::string port);
 	void connectTCPServer(std::string ipaddress, std::string port);
+	// Direct-LAN UDP transport (test/LAN): real connectionUDP threads on a
+	// 127.0.0.1 password-derived session, no rendezvous. See the .cpp.
+	void hostDirectLanUDP(std::string port, std::string player, std::string password);
+	void joinDirectLanUDP(std::string ipaddress, std::string port, std::string localport,
+	                      std::string player, std::string password);
 	void onTCPMessage(std::string data, Json::Value obj);
 	void sendBaseFile();
 	void sendMissionFile();

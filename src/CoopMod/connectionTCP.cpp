@@ -11713,6 +11713,57 @@ void connectionTCP::connectTCPServer(std::string ipaddress, std::string str_port
 
 }
 
+// Test/LAN transport: bring up the REAL connectionUDP transport threads on a
+// direct 127.0.0.1 session (no rendezvous), so the coop harness can exercise the
+// UDP path per-test. Mirrors hostTCPServer/connectTCPServer state, swapping only
+// the transport start. Session is derived from the shared password (both peers).
+void connectionTCP::hostDirectLanUDP(std::string str_port, std::string player, std::string password)
+{
+	gamePaused = 0;
+	_waitBC = false;
+	_waitBH = false;
+	_battleWindow = false;
+	_battleInit = false;
+	coopInventory = false;
+	coopMissionEnd = false;
+	inventory_battle_window = true;
+
+	int port = -1;
+	if (valid_port(str_port))
+		port = std::stoi(str_port);
+	tcp_port = (port == -1) ? 3000 : port;
+
+	session.beginHosting();
+	startDirectLanHost(static_cast<uint16_t>(tcp_port), player, password);
+}
+
+void connectionTCP::joinDirectLanUDP(std::string ipaddress, std::string str_port,
+									 std::string str_localport, std::string player, std::string password)
+{
+	ipAddress = ipaddress;
+	gamePaused = 0;
+	_waitBC = false;
+	_waitBH = false;
+	_battleWindow = false;
+	_battleInit = false;
+	coopInventory = false;
+	coopMissionEnd = false;
+	inventory_battle_window = true;
+
+	int port = -1;
+	if (valid_port(str_port))
+		port = std::stoi(str_port);
+	tcp_port = (port == -1) ? 3000 : port;
+
+	int lport = -1;
+	if (valid_port(str_localport))
+		lport = std::stoi(str_localport);
+	uint16_t localPort = (lport == -1) ? static_cast<uint16_t>(3001) : static_cast<uint16_t>(lport);
+
+	session.beginJoining();
+	startDirectLanJoin(ipaddress, static_cast<uint16_t>(tcp_port), localPort, player, password);
+}
+
 // coop
 void connectionTCP::setConfirmLandingState(ConfirmLandingState* landing)
 {

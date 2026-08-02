@@ -5110,6 +5110,39 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "host_udp")
+		{
+			// UDP twin of host_tcp: bring up the REAL direct-LAN UDP transport on
+			// 127.0.0.1 (no rendezvous). Lets a test opt into the UDP path via the
+			// harness transport selector. Session derives from a shared password.
+			std::string port = req.get("port", "3000").asString();
+			std::string player = req.get("player", "HostPlayer").asString();
+			std::string password = req.get("password", "lan").asString();
+			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
+			if (campaign)
+			{
+				connectionTCP::session.lobbyMode = _game->getSavedGame()->getCoopPlayers().empty() ? 1 : 2;
+			}
+			connectionTCP::password = password;
+			connectionTCP::isPasswordRequired = !password.empty();
+			connectionTCP::_coopGamemode = 1; // PVE
+			coop->setCoopSession(false);
+			coop->setPlayerTurn(3);
+			coop->setHostName(player);
+			coop->setCoopCampaign(campaign);
+			coop->hostDirectLanUDP(port, player, password);
+			coop->setServerOwner(true);
+			if (campaign)
+			{
+				if (topState<HostMenu>(_game))
+				{
+					_game->popState();
+				}
+				_game->pushState(new LobbyMenu());
+			}
+			resp["campaign"] = campaign;
+			resp["ok"] = true;
+		}
 		else if (cmd == "host_menu_host")
 		{
 			// drive the real host window: pick a connection type
@@ -5386,6 +5419,48 @@ std::string TestServer::execute(const std::string& line)
 			coop->setCoopCampaign(campaign);
 			coop->connectTCPServer(ipaddr, port);
 			resp["ok"] = true;
+		}
+		else if (cmd == "join_udp")
+		{
+			// UDP twin of join_tcp: dial the host directly over UDP (127.0.0.1).
+			// remote "port" = host UDP port; "localport" = this client's UDP port
+			// (must differ from the host's on the same loopback host).
+			std::string ipaddr = req.get("ip", "127.0.0.1").asString();
+			std::string port = req.get("port", "3000").asString();
+			std::string localport = req.get("localport", "3001").asString();
+			std::string player = req.get("player", "ClientPlayer").asString();
+			std::string password = req.get("password", "lan").asString();
+			connectionTCP::password = password;
+			connectionTCP::isPasswordRequired = !password.empty();
+			coop->setCoopSession(false);
+			coop->setPlayerTurn(3);
+			coop->setHostName(player);
+			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
+			coop->setCoopCampaign(campaign);
+			coop->joinDirectLanUDP(ipaddr, port, localport, player, password);
+			resp["ok"] = true;
+		}
+		else if (cmd == "crashlog_probe")
+		{
+			// issue #124: write a probe crash log through the same CrashHandler::log
+			// path a real crash uses, so the harness can assert the header now records
+			// the active mod list. Returns the directory the log landed in.
+			std::string note = req.get("note",
+				"harness crashlog probe (issue #124 modlist verify)").asString();
+			CrashHandler::log(note);
+			resp["dir"] = CrashHandler::logDirectory();
+			resp["ok"] = true;
+		}
+		else if (cmd == "force_crash")
+		{
+			// Test-only: deliberately fault so the harness can verify a crash now
+			// produces a .dmp (and a .log recording the mod list). issue #124. The
+			// coop VEH captures the dump in-thread before the process unwinds, so a
+			// crash_*.dmp exists on disk by the time the socket drops. The response
+			// below never reaches the client - the null write faults first.
+			resp["ok"] = true;
+			volatile int* boom = nullptr;
+			*boom = 0xC0DE; // -> access violation (0xC0000005)
 		}
 		else if (cmd == "profile_ok")
 		{

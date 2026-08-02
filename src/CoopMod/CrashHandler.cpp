@@ -34,6 +34,11 @@ namespace
 char g_logDir[1024] = {0};
 std::atomic<unsigned> g_fileSeq{0};
 
+// Active mod list, snapshotted from a HEALTHY thread (Options::updateMods) into a
+// plain fixed buffer. The crash writer only fputs this buffer, so it never walks
+// the (possibly corrupt) heap at crash time. See CrashHandler::setModList.
+char g_modList[8192] = "(not captured)";
+
 #ifdef _WIN32
 void initLogDir()
 {
@@ -302,24 +307,6 @@ void tryWriteMiniDumpOnce(unsigned seq, PEXCEPTION_POINTERS info)
 		writeMiniDump(seq, info);
 }
 
-// Exception codes that mean the process is going down (as opposed to first-chance
-// exceptions the app catches and handles).
-static bool isFatalException(DWORD code)
-{
-	switch (code)
-	{
-	case 0xC0000005: // access violation
-	case 0xC00000FD: // stack overflow
-	case 0xC000001D: // illegal instruction
-	case 0xC0000094: // integer divide by zero
-	case 0xC0000096: // privileged instruction
-	case 0xC0000025: // noncontinuable exception
-	case 0xC0000026: // invalid disposition
-		return true;
-	default:
-		return false;
-	}
-}
 #endif // _WIN32
 
 FILE* openCrashFile()
@@ -350,6 +337,9 @@ FILE* openCrashFile()
 	std::fprintf(f, "Version: %s%s\n", OPENXCOM_VERSION_SHORT, OPENXCOM_VERSION_GIT);
 	std::fprintf(f, "Compiled: %s %s\n", __DATE__, __TIME__);
 #endif
+	// Active mods at crash time (issue #124: needed to reproduce mod-specific
+	// crashes; a minidump does not record the game's mod list).
+	std::fprintf(f, "Mods: %s\n", g_modList);
 	return f;
 }
 
@@ -405,10 +395,20 @@ LONG WINAPI vectoredHandler(PEXCEPTION_POINTERS info)
 		std::fclose(f);
 	}
 
-	// Capture a minidump here, while we still hold the faulting CONTEXT - the
-	// exception may otherwise reach std::terminate rather than unhandledFilter.
-	if (isFatalException(code))
-		tryWriteMiniDumpOnce(seq, info);
+	// issue #124: ALWAYS capture a minidump here, for ANY exception we just wrote a
+	// crash log for (i.e. any error-severity, non-noise, non-C++-EH exception). This
+	// used to be gated by a hand-maintained "fatal code" whitelist, so codes off the
+	// list - most importantly heap corruption (0xC0000374) - produced a .log but NO
+	// .dmp, and if the crash then fast-failed before the unhandled filter ran, no
+	// dump was ever written. Two facts make dumping-on-everything-logged safe: the
+	// codebase installs NO __try/__except or SE-translator, so nothing catches a
+	// hardware/OS exception first-chance and continues; and this same condition
+	// already gates the crash-log write above, which is not spammy in practice - so
+	// it only fires at a real crash. The g_dumpWritten one-shot still bounds us to a
+	// single dump. (True __fastfail / int 0x29 bypasses user-mode dispatch entirely -
+	// neither this VEH nor the unhandled filter sees it - and can only be captured
+	// via WER LocalDumps; that is a per-machine setup, not something this code can do.)
+	tryWriteMiniDumpOnce(seq, info);
 
 	return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -558,5 +558,22 @@ void log(const std::string& message)
 #endif
 
 	std::fclose(f);
+}
+
+void setModList(const std::string& mods)
+{
+	// Copy into the fixed buffer the crash writer reads. Bounded, no allocation,
+	// so it is safe to call on the main thread whenever the mod set changes.
+	size_t n = mods.size();
+	if (n >= sizeof(g_modList))
+		n = sizeof(g_modList) - 1;
+	std::memcpy(g_modList, mods.data(), n);
+	g_modList[n] = '\0';
+}
+
+std::string logDirectory()
+{
+	initLogDir();
+	return std::string(g_logDir);
 }
 }

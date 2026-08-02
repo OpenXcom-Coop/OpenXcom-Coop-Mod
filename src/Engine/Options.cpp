@@ -34,6 +34,7 @@
 #include "../Menu/ModConfirmExtendedState.h"
 #include "FileMap.h"
 #include "Screen.h"
+#include "../CoopMod/CrashHandler.h"
 
 namespace OpenXcom
 {
@@ -1070,6 +1071,26 @@ void updateMods()
 	// check active mods that don't meet the enforced OXCE requirements
 	auto* masterInf = getActiveMasterInfo();
 	auto activeModsList = getActiveMods();
+
+	// issue #124: record the active mod set for the crash log. A minidump does not
+	// capture the game's mod list, so mod-specific crashes are unreproducible
+	// without it. Snapshot here (healthy main thread); the crash writer only reads
+	// the resulting buffer, never the heap.
+	{
+		std::string modsSummary;
+		for (const ModInfo* mi : activeModsList)
+		{
+			if (!mi)
+				continue;
+			if (!modsSummary.empty())
+				modsSummary += ", ";
+			modsSummary += mi->getId();
+			if (!mi->getVersion().empty())
+				modsSummary += " " + mi->getVersion();
+		}
+		CrashHandler::setModList(modsSummary);
+	}
+
 	bool forceQuit = false;
 	for (auto* modInf : activeModsList)
 	{

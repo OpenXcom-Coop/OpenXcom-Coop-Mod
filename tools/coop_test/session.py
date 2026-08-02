@@ -73,11 +73,17 @@ def resume_campaign_via_button(host, client_name="ClientPlayer"):
 def new_campaign(host, client, port="47900",
                  host_name="HostPlayer", client_name="ClientPlayer",
                  host_base="HostBase", client_base="ClientBase",
-                 campaign_mode="coop"):
+                 campaign_mode="coop", transport="tcp"):
     """Bring up a fresh co-op campaign through the redesigned flow.
 
     campaign_mode selects the New Game dropdown choice: "coop" (SEPARATE,
     the default, unchanged) or "shared" (PRD-J01 SHARED economy).
+
+    transport selects the wire: "tcp" (default, host_tcp/join_tcp) or "udp"
+    (host_udp/join_udp - the REAL direct-LAN connectionUDP transport on 127.0.0.1,
+    no rendezvous). UDP is opt-in per test: only a repro that needs the UDP
+    background threads (e.g. a UDP-only crash) should ask for it. The host binds
+    UDP on `port`; the client binds `port`+1 and dials the host.
     """
 
     # host: New Game -> Co-op -> difficulty OK (world created, HostMenu opens)
@@ -86,15 +92,27 @@ def new_campaign(host, client, port="47900",
     host.ok({"cmd": "newgame_ok"})
     host.wait_for("host window", lambda: _has_state(host, "HostMenu"))
 
+    udp_pw = "harness-lan"
+    client_udp_port = str(int(port) + 1)
+
     # host window -> lobby
-    host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": port, "player": host_name})
+    if transport == "udp":
+        host.ok({"cmd": "host_udp", "port": port, "player": host_name, "password": udp_pw})
+    else:
+        host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": port, "player": host_name})
     host.wait_for("host lobby", lambda: _has_state(host, "LobbyMenu"))
 
     # client joins and lands in the lobby (no ready button). Both machines then
     # show the "player joined" popup over the lobby; dismiss it the way a player
-    # would so callers see the lobby as the top state.
-    client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
-    client.wait_for("client lobby", lambda: _has_state(client, "LobbyMenu"))
+    # would so callers see the lobby as the top state. The UDP handshake
+    # (hole-punch + INIT_SERVER) is async, so the client can take a few seconds
+    # longer to surface the lobby than on TCP.
+    if transport == "udp":
+        client.ok({"cmd": "join_udp", "ip": "127.0.0.1", "port": port,
+                   "localport": client_udp_port, "player": client_name, "password": udp_pw})
+    else:
+        client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
+    client.wait_for("client lobby", lambda: _has_state(client, "LobbyMenu"), timeout=120)
     for gc in (host, client):
         gc.wait_for("join popup", lambda gc=gc: _has_state(gc, "Profile"))
         gc.ok({"cmd": "profile_ok"})
