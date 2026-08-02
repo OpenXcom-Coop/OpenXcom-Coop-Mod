@@ -54,6 +54,11 @@ resolves data (`UFO`/`TFTD`/`standard`/`common`) from the exe's own directory.
 No local config is read and no save is needed: the tests bootstrap a brand-new
 campaign each run.
 
+`make_user_dir(..., options={...})` splices extra keys into that `options:`
+block, PER INSTANCE, so a test can start the host with `battleXcomSpeed: 1` and
+the client with `40` from the very first frame. Use the `set_option` command
+for mid-test flips instead.
+
 ## Tests
 
 - `boot_check.py` - single-instance install smoke test.
@@ -349,7 +354,13 @@ Traps worth knowing before you write a BATTLESCAPE test:
   `activeSync == true`. Driving a unit from the passive side proves nothing -
   the coop battle states (`UnitWalkBState`, `ProjectileFlyBState`,
   `MeleeAttackBState`, `PsiAttackBState`, ...) gate their packet send on it.
-  It is not simply "the host": read `activeSync` and drive from that side.
+  It is not simply "the host". Ask **`session.can_drive(battle_state)`** rather
+  than reading `activeSync` yourself (PRD-P0): under parallel turns (PRD-P5+)
+  `activeSync` becomes the executor invariant - host true / client false,
+  permanently - and a client-side action is forwarded to the host as an intent
+  instead of executed locally, so both machines may drive. `can_drive()` is
+  exactly `activeSync` until then. A test that asserts *exactly one machine
+  owns the simulation* is asking about `activeSync` itself and keeps reading it.
 - Prefer a walk over a shot when asserting replication: a shot can legitimately
   miss, so an unchanged victim is ambiguous, while a position is not.
 
@@ -369,7 +380,10 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
 ## Command catalog (TestServer::execute)
 
 - Introspection: `ping`, `get_state`, `get_coop`, `get_soldiers`,
-  `get_mirror_soldiers`, `has_coop_file`, `coop_stats`, `set_option`.
+  `get_mirror_soldiers`, `has_coop_file`, `coop_stats`, `set_option`
+  (the four PRD-P0 additions - `battleXcomSpeed`, `battleAlienSpeed`,
+  `EnableCoopParallelTurns`, `coopParallelDebugClientInput` - echo the applied
+  value back as `value`), `parallel_state` (battlescape only).
 - Session flow: `load_save`, `load_save_menu` (real LoadGameState routing),
   `save_game`, `save_game_ui` (through the real SaveGameState funnel: `type` =
   `quick` | `auto_geoscape`), `open_new_game` (`mode`: `solo` | `coop`),
@@ -446,6 +460,16 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
   coop-init gate field by field too - `battleInit`, `coopSession`, `coopStatic`,
   `coopCampaign`, `isBusy`, `panicHandled`, `isPreview`, `clientPanicHandle`,
   `side` - plus `coopTurn`, `playerTurn`, `waitBC`/`waitBH`.
+
+  PRD-P0 adds the RECEIVE GATE to `battle_state`, and a cheaper
+  `parallel_state` (battlescape only) carrying the same fields without the unit
+  dump: `taskCompleted` (`_coop_task_completed`), `pathLock`, `coopWalkInit`,
+  `coopInitDeath`, `coopEnd`, plus `rxHold` / `rxRotates` / `rxHoldMax` - the
+  depth, rotate count and high-water mark of `updateCoopTask()`'s hold queue.
+  A peer that "does not react" is usually a packet parked behind that gate, not
+  a dropped one; the two `rx*` counters are process-monotonic (never reset).
+  Both commands also carry `parallelActive`, false until PRD-P5 lands the
+  parallel-turns mode.
 - Lobby: `lobby_set_team` (host-only; puts lobby row <row> on `XCOM`/`Alien`
   through the real `LobbyMenu::setPlayerTeam`, which is what selects the co-op
   game mode - both XCOM = PVE (1), client Alien = PVP (2), host Alien = PVP2 (3),

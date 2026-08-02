@@ -2588,6 +2588,39 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			Options::battleInstantGrenade = req.get("value", false).asBool();
 			resp["ok"] = true;
 		}
+		else if (name == "battleXcomSpeed")
+		{
+			// Per-unit walk animation delay in ms (lower = faster). Tests use it to
+			// make one machine walk slowly while the other races ahead.
+			// battleXcomSpeedOrig is the saved value of the ctrl-s "quick mode"
+			// speed swap (BattlescapeState::handle): while a swap is armed the
+			// next toggle restores that OLD speed over the one set here, so
+			// disarm it too.
+			Options::battleXcomSpeed = req.get("value", 30).asInt();
+			Options::battleXcomSpeedOrig = -1;
+			resp["value"] = Options::battleXcomSpeed;
+			resp["ok"] = true;
+		}
+		else if (name == "battleAlienSpeed")
+		{
+			Options::battleAlienSpeed = req.get("value", 30).asInt();
+			resp["value"] = Options::battleAlienSpeed;
+			resp["ok"] = true;
+		}
+		else if (name == "EnableCoopParallelTurns")
+		{
+			// PRD-P5's option, declared inert by P0 (Options.inc.h) so the harness
+			// can set it before anything reads it.
+			Options::EnableCoopParallelTurns = req.get("value", false).asBool();
+			resp["value"] = Options::EnableCoopParallelTurns;
+			resp["ok"] = true;
+		}
+		else if (name == "coopParallelDebugClientInput")
+		{
+			Options::coopParallelDebugClientInput = req.get("value", false).asBool();
+			resp["value"] = Options::coopParallelDebugClientInput;
+			resp["ok"] = true;
+		}
 		else
 		{
 			resp["error"] = "unknown option: " + name;
@@ -3408,7 +3441,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
-		&& cmd != "battle_prox" && cmd != "tile_info")
+		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "parallel_state")
 	{
 		return false;
 	}
@@ -3812,6 +3845,27 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["ammoId"] = w->getAmmoForAction(bt) ? w->getAmmoForAction(bt)->getId() : -1;
 		bg->statePushBack(new UnitTurnBState(bg, *a));
 		bg->statePushBack(new ProjectileFlyBState(bg, *a));
+		resp["ok"] = true;
+	}
+	else if (cmd == "parallel_state")
+	{
+		// PRD-P0 skeleton: the receive-gate readout plus the parallel-turns mode
+		// flag in one cheap query (battle_state also carries them, but it dumps
+		// every unit as well, which a per-frame poll should not pay for).
+		// Later PRDs append their own fields here: P6 actionSeq/pendingIntent/
+		// admitBlocked/pendingReqId, P7 fastForward/peerDisplayAckedSeq,
+		// P8 readySeats/autoSeats/sideSeq.
+		connectionTCP* pcoop = _game->getCoopMod();
+		// PRD-P5 replaces this with parallelTurnActive().
+		resp["parallelActive"] = false;
+		resp["taskCompleted"] = pcoop ? pcoop->_coop_task_completed : true;
+		resp["pathLock"] = pcoop ? pcoop->_pathLock : -1;
+		resp["coopWalkInit"] = pcoop ? pcoop->_coopWalkInit : false;
+		resp["coopInitDeath"] = pcoop ? pcoop->_coopInitDeath : false;
+		resp["coopEnd"] = pcoop ? pcoop->_coopEnd : 0;
+		resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
+		resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
+		resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
 		resp["ok"] = true;
 	}
 	return true;
@@ -4661,6 +4715,23 @@ std::string TestServer::execute(const std::string& line)
 				resp["clientPanicHandle"] = _game->getCoopMod()->_clientPanicHandle;
 				resp["serverOwner"] = connectionTCP::getServerOwner();
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
+				// PRD-P0: the receive gate. updateCoopTask() will only hand a packet to
+				// onTCPMessage() once _coop_task_completed (or one of the per-action
+				// exemptions) says this machine is idle; everything else is parked in the
+				// hold queue and rotated. Without these a test can only see that the peer
+				// did not react, not WHY.
+				resp["taskCompleted"] = coop->_coop_task_completed;
+				resp["pathLock"] = coop->_pathLock;
+				resp["coopWalkInit"] = coop->_coopWalkInit;
+				resp["coopInitDeath"] = coop->_coopInitDeath;
+				resp["coopEnd"] = coop->_coopEnd;
+				resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
+				resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
+				resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
+				// Parallel-turns mode. FALSE until PRD-P5 lands parallelTurnActive();
+				// carried on battle_state (as well as parallel_state) so the harness'
+				// session.can_drive() decides from a single query.
+				resp["parallelActive"] = false;
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
 				const BattleUnit* giftSel = coop->getGiftSelectedBattleUnit();

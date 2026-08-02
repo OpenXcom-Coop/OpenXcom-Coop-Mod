@@ -459,6 +459,16 @@ SPSCQueue<1024> g_rxQ{};
 static std::mutex g_rxHoldMutex;
 static std::deque<std::string> g_rxHold;
 
+// PRD-P0: hold-queue introspection for the harness (see connectionTCP.h).
+std::atomic<uint32_t> g_rxRotateCount{0};
+std::atomic<uint32_t> g_rxHoldMaxSeen{0};
+
+size_t rxHoldSize()
+{
+	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+	return g_rxHold.size();
+}
+
 // TX-queue drop counter (test harness diagnostic; see connectionTCP.h).
 std::atomic<uint64_t> g_txDropCount{0};
 
@@ -2235,6 +2245,9 @@ void connectionTCP::updateCoopTask()
 			if (g_rxHold.empty())
 				break;
 			passCount = g_rxHold.size();
+			// PRD-P0: hold-queue high-water mark (test introspection only).
+			if ((uint32_t)passCount > g_rxHoldMaxSeen.load(std::memory_order_relaxed))
+				g_rxHoldMaxSeen.store((uint32_t)passCount, std::memory_order_relaxed);
 		}
 
 		size_t consumedThisPass = 0;
@@ -2302,6 +2315,7 @@ void connectionTCP::updateCoopTask()
 					{
 						std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 						g_rxHold.emplace_back(std::move(jsonStr));
+						++g_rxRotateCount;   // PRD-P0: gate-hold counter (test introspection)
 					}
 				}
 			}
