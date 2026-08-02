@@ -228,6 +228,8 @@ public:
 	int psiAttackCalculate(BattleActionAttack::ReadOnly attack, const BattleUnit *victim);
 	/// Attempts a panic or mind control action.
 	bool psiAttack(BattleActionAttack attack, BattleUnit *victim);
+	/// coop (PRD-P3 GAP-2): ships the host's psi outcome to the peer (PVE modes).
+	void coopShipPsiResult(BattleActionAttack attack, BattleUnit* victim, bool success);
 	/// Calculate success rate of melee attack action.
 	int meleeAttackCalculate(BattleActionAttack::ReadOnly attack, const BattleUnit *victim);
 	/// Attempts a melee attack action.
