@@ -5,6 +5,7 @@
   "test_client_zero_disk": 15.5,
   "test_coop_base_equip_visibility": 8.8,
   "test_coop_guest_craft_seat": 17.5,
+  "test_coop_outcome_gaps": 95.0,
   "test_coop_peer_equip_screens": 10.1,
   "test_coop_quarters_accounting": 10.2,
   "test_coop_transfer_equipment_counts": 16.6,

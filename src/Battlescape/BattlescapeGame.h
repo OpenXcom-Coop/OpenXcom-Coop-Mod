@@ -163,6 +163,26 @@ private:
 	std::vector<InfoboxOKState*> _infoboxQueue;
 	/// Shows the infoboxes in the queue (if any).
 	void showInfoBoxQueue();
+	// coop (PRD-P3 GAP-1): set only while spawn_units() replays a host manifest.
+	// While it is false a co-op peer refuses to spawn anything at all - the spawn
+	// chance, the spawn direction, the built-in-weapon item level and every id the
+	// spawn mints come from the host, never from this machine's RNG stream.
+	struct CoopSpawnReplay
+	{
+		bool active = false;
+		const RuleItem* carrierRule = nullptr;
+		int faction = -1;
+		int ownerId = -1;
+		int direction = -1;
+		int itemLevel = -1;
+		int unitId = -1;
+		int firstItemId = -1;
+	};
+	CoopSpawnReplay _coopSpawnReplay;
+	/// coop: id -> live BattleUnit (null when absent). Never fabricates.
+	BattleUnit* coopFindUnit(int unitId) const;
+	/// coop: ships one spawn manifest entry to the peer (host only).
+	void sendCoopSpawnManifest(const char* kind, const RuleItem* carrierRule, const std::string& rule, uint64_t seed, Position position, const BattleUnit* attacker, const BattleUnit* owner, int faction, int direction, int itemLevel, int unitId, int firstItemId, int lastItemId);
 public:
 	bool _AISecondMove, _playedAggroSound;
 	/// is debug mode enabled in the battlescape?
@@ -186,6 +206,10 @@ public:
 	void turnPlayerTargetAfter(std::string str_obj);
 	void psi_attack(std::string str_obj);
 	void melee_attack(std::string str_obj);
+	/// coop (PRD-P3 GAP-1): applies a host "spawn_units" manifest - re-runs the very
+	/// same spawn code from the host's RNG seed, with the host's direction/itemLevel,
+	/// so the peer mints identical unit and item ids instead of rolling its own.
+	void spawn_units(std::string str_obj);
 	bool getHost();
 	bool isCoop();
 	void abortCoopPath(int x, int y, int z, int unit_id, int setDirection, int setFaceDirection);

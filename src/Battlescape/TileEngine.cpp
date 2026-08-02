@@ -3317,6 +3317,9 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 
 			Json::Value root;
 			root["state"] = "hit_unit";
+			// coop (PRD-P3 GAP-4a): correlation only - a hit_unit is keyed by unit id,
+			// not by the peer's parked-attack queue, so nothing consumes this.
+			root["attack_id"] = connectionTCP::coopAttackKey(attack);
 			root["unit_id"] = target->getId();
 			root["health"] = target->getHealth();
 			root["stunlevel"] = target->getStunlevel();
@@ -3466,7 +3469,11 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false)
 		{
 
+			// coop (PRD-P3 GAP-4a): park the attack under its own identity, which is
+			// the same key the host stamps on the matching "hit_tile", so the two
+			// streams pair by WHAT the attack is instead of by queue position.
 			_save->getBattleGame()->getCoopMod()->_battleActions.push_back(attack);
+			_save->getBattleGame()->getCoopMod()->_battleActionKeys.push_back(connectionTCP::coopAttackKey(attack));
 
 			return;
 		}
@@ -3486,6 +3493,9 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 
 			Json::Value root;
 			root["state"] = "hit_tile";
+
+			// coop (PRD-P3 GAP-4a): identity of the attack, for the peer's parked copy.
+			root["attack_id"] = connectionTCP::coopAttackKey(attack);
 
 			root["center_x"] = center.x;
 			root["center_y"] = center.y;

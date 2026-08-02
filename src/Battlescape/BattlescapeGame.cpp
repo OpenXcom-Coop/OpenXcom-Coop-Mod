@@ -3380,14 +3380,35 @@ void BattlescapeGame::spawnNewUnit(BattleItem* item)
 
 void BattlescapeGame::spawnNewUnit(BattleActionAttack attack, Position position)
 {
-	if (!attack.damage_item) // no idea how this happened, but make sure we have an item
+	// coop: on a replay the carrier item is normally already gone (a grenade removes
+	// itself before spawning), so the manifest names its rule instead.
+	const RuleItem* item = _coopSpawnReplay.active && _coopSpawnReplay.carrierRule
+							   ? _coopSpawnReplay.carrierRule
+							   : (attack.damage_item ? attack.damage_item->getRules() : nullptr);
+	if (!item) // no idea how this happened, but make sure we have an item
 		return;
 
-	const RuleItem* item = attack.damage_item->getRules();
 	const Unit* type = item->getSpawnUnit();
 
 	if (!type)
 		return;
+
+	// coop (PRD-P3 GAP-1): mid-battle spawns used to be rolled AND created on both
+	// machines. Two independent RNG::percent() draws decide differently, and even
+	// when they agree the two units (plus every built-in weapon they carry) are
+	// minted out of each machine's own id counter at a different moment - the
+	// worst id-drift class there is. The host decides and ships "spawn_units";
+	// the peer re-runs this very function from that manifest and nowhere else.
+	const bool coopHost = getCoopMod()->getCoopStatic() && getCoopMod()->getHost();
+	const bool coopPeer = getCoopMod()->getCoopStatic() && !getCoopMod()->getHost();
+	if (coopPeer && !_coopSpawnReplay.active)
+	{
+		return;
+	}
+
+	// The seed is captured (not consumed) before the first roll, so replaying it on
+	// the peer reproduces this machine's draws exactly.
+	const uint64_t coopSeed = RNG::getSeed();
 
 	int chance = item->getSpawnUnitChance();
 	if (auto* conf = attack.weapon_item ? attack.weapon_item->getActionConf(attack.type) : nullptr)
@@ -3395,19 +3416,24 @@ void BattlescapeGame::spawnNewUnit(BattleActionAttack attack, Position position)
 		chance = useIntNullable(conf->ammoSpawnUnitChanceOverride, chance);
 	}
 
-	if (!RNG::percent(chance))
+	// The peer only ever gets here because the host already rolled a spawn.
+	if (!_coopSpawnReplay.active && !RNG::percent(chance))
 	{
 		return;
 	}
 
 	BattleUnit* owner = attack.attacker;
-	if (owner == nullptr)
+	if (owner == nullptr && attack.damage_item)
 	{
 		owner = attack.damage_item->getOwner();
 		if (owner == nullptr)
 		{
 			owner = attack.damage_item->getPreviousOwner();
 		}
+	}
+	if (_coopSpawnReplay.active)
+	{
+		owner = coopFindUnit(_coopSpawnReplay.ownerId);
 	}
 
 	// Check which faction the new unit will be
@@ -3434,11 +3460,21 @@ void BattlescapeGame::spawnNewUnit(BattleActionAttack attack, Position position)
 			break;
 		}
 	}
+	// coop: the faction can hang off the carrier's owner, whose local lookup may
+	// fail on the peer - so it rides the manifest and wins.
+	if (_coopSpawnReplay.active && _coopSpawnReplay.faction >= 0)
+	{
+		faction = (UnitFaction)_coopSpawnReplay.faction;
+	}
 
 	if (_save->isPreview() && faction != FACTION_PLAYER)
 	{
 		return;
 	}
+
+	// coop: first id this spawn is about to mint, so the manifest can name the
+	// whole range (the unit's built-in weapons are minted inside initUnit below).
+	const int coopFirstItemId = _save->getCurrentItemIdValue();
 
 	// Create the unit
 	BattleUnit* newUnit = _save->createTempUnit(type, faction);
@@ -3449,6 +3485,13 @@ void BattlescapeGame::spawnNewUnit(BattleActionAttack attack, Position position)
 	if (positionValid) // Place the unit and initialize it in the battlescape
 	{
 		int unitDirection = attack.attacker ? attack.attacker->getDirection() : RNG::generate(0, 7);
+		// coop: the two machines' tile occupancy is read at slightly different
+		// moments, so direction and item level ride the manifest rather than being
+		// re-derived. Seed replay alone would not survive an extra local RNG draw.
+		if (_coopSpawnReplay.active && _coopSpawnReplay.direction >= 0)
+		{
+			unitDirection = _coopSpawnReplay.direction;
+		}
 		// If this is a tank, arm it with its weapon
 		if (getMod()->getItem(newUnit->getType()) && getMod()->getItem(newUnit->getType())->isFixed())
 		{
@@ -3471,6 +3514,10 @@ void BattlescapeGame::spawnNewUnit(BattleActionAttack attack, Position position)
 
 		// Pick the item sets if the unit has builtInWeaponSets
 		size_t itemLevel = (size_t)(getMod()->getAlienItemLevels().at(_save->getAlienItemLevel()).at(RNG::generate(0, 9)));
+		if (_coopSpawnReplay.active && _coopSpawnReplay.itemLevel >= 0)
+		{
+			itemLevel = (size_t)_coopSpawnReplay.itemLevel;
+		}
 
 		// Initialize the unit and its position
 		newUnit->setTile(_save->getTile(position), _save);
@@ -3484,6 +3531,24 @@ void BattlescapeGame::spawnNewUnit(BattleActionAttack attack, Position position)
 
 		getTileEngine()->applyGravity(newUnit->getTile());
 		getTileEngine()->calculateFOV(newUnit->getPosition()); // happens fairly rarely, so do a full recalc for units in range to handle the potential unit visible cache issues.
+
+		// coop
+		if (coopHost)
+		{
+			sendCoopSpawnManifest("unit", item, type->getType(), coopSeed, position, attack.attacker, owner,
+								  (int)faction, unitDirection, (int)itemLevel,
+								  newUnit->getId(), coopFirstItemId, _save->getCurrentItemIdValue() - 1);
+		}
+		else if (_coopSpawnReplay.active)
+		{
+			if ((_coopSpawnReplay.unitId >= 0 && _coopSpawnReplay.unitId != newUnit->getId())
+				|| (_coopSpawnReplay.firstItemId >= 0 && _coopSpawnReplay.firstItemId != coopFirstItemId))
+			{
+				Log(LOG_ERROR) << "coop: spawn_units id drift - host unit " << _coopSpawnReplay.unitId
+							   << "/item " << _coopSpawnReplay.firstItemId << " vs local unit " << newUnit->getId()
+							   << "/item " << coopFirstItemId << " (rule " << type->getType() << ")";
+			}
+		}
 	}
 	else
 	{
@@ -3509,14 +3574,27 @@ void BattlescapeGame::spawnNewItem(BattleItem* item)
 
 void BattlescapeGame::spawnNewItem(BattleActionAttack attack, Position position)
 {
-	if (!attack.damage_item) // no idea how this happened, but make sure we have an item
+	// coop: see spawnNewUnit - on a replay the carrier's rule comes off the manifest.
+	const RuleItem* item = _coopSpawnReplay.active && _coopSpawnReplay.carrierRule
+							   ? _coopSpawnReplay.carrierRule
+							   : (attack.damage_item ? attack.damage_item->getRules() : nullptr);
+	if (!item) // no idea how this happened, but make sure we have an item
 		return;
 
-	const RuleItem* item = attack.damage_item->getRules();
 	const RuleItem* type = item->getSpawnItem();
 
 	if (!type)
 		return;
+
+	// coop (PRD-P3 GAP-1): host decides, peer replays. See spawnNewUnit.
+	const bool coopHost = getCoopMod()->getCoopStatic() && getCoopMod()->getHost();
+	const bool coopPeer = getCoopMod()->getCoopStatic() && !getCoopMod()->getHost();
+	if (coopPeer && !_coopSpawnReplay.active)
+	{
+		return;
+	}
+
+	const uint64_t coopSeed = RNG::getSeed();
 
 	int chance = item->getSpawnItemChance();
 	if (auto* conf = attack.weapon_item ? attack.weapon_item->getActionConf(attack.type) : nullptr)
@@ -3524,13 +3602,13 @@ void BattlescapeGame::spawnNewItem(BattleActionAttack attack, Position position)
 		chance = useIntNullable(conf->ammoSpawnItemChanceOverride, chance);
 	}
 
-	if (!RNG::percent(chance))
+	if (!_coopSpawnReplay.active && !RNG::percent(chance))
 	{
 		return;
 	}
 
 	BattleUnit* owner = attack.attacker;
-	if (owner == nullptr)
+	if (owner == nullptr && attack.damage_item)
 	{
 		owner = attack.damage_item->getOwner();
 		if (owner == nullptr)
@@ -3538,6 +3616,13 @@ void BattlescapeGame::spawnNewItem(BattleActionAttack attack, Position position)
 			owner = attack.damage_item->getPreviousOwner();
 		}
 	}
+	if (_coopSpawnReplay.active)
+	{
+		owner = coopFindUnit(_coopSpawnReplay.ownerId);
+	}
+
+	// coop: first minted id, for the manifest / the peer's drift check.
+	const int coopFirstItemId = _save->getCurrentItemIdValue();
 
 	// Create the item
 	auto* newItem = _save->createTempItem(type);
@@ -3558,10 +3643,135 @@ void BattlescapeGame::spawnNewItem(BattleActionAttack attack, Position position)
 			getTileEngine()->calculateLighting(LL_ITEMS, tile->getPosition());
 			getTileEngine()->calculateFOV(tile->getPosition(), newItem->getVisibilityUpdateRange(), false);
 		}
+
+		// coop
+		if (coopHost)
+		{
+			sendCoopSpawnManifest("item", item, type->getType(), coopSeed, position, attack.attacker, owner,
+								  -1, -1, -1,
+								  -1, coopFirstItemId, _save->getCurrentItemIdValue() - 1);
+		}
+		else if (_coopSpawnReplay.active && _coopSpawnReplay.firstItemId >= 0 && _coopSpawnReplay.firstItemId != coopFirstItemId)
+		{
+			Log(LOG_ERROR) << "coop: spawn_units id drift - host item " << _coopSpawnReplay.firstItemId
+						   << " vs local item " << coopFirstItemId << " (rule " << type->getType() << ")";
+		}
 	}
 	else
 	{
 		delete newItem;
+	}
+}
+
+/**
+ * coop: id -> live BattleUnit, or null. Never fabricates.
+ */
+BattleUnit* BattlescapeGame::coopFindUnit(int unitId) const
+{
+	if (unitId < 0)
+	{
+		return nullptr;
+	}
+	for (auto* u : *_save->getUnits())
+	{
+		if (u->getId() == unitId)
+		{
+			return u;
+		}
+	}
+	return nullptr;
+}
+
+/**
+ * coop (PRD-P3 GAP-1): ships one mid-battle spawn to the peer. Carries the RNG seed
+ * the host spawned from AND every value the peer must not re-derive (carrier rule,
+ * faction, owner, direction, built-in weapon item level), plus the ids the host
+ * minted so the peer can prove it minted the same ones.
+ */
+void BattlescapeGame::sendCoopSpawnManifest(const char* kind, const RuleItem* carrierRule, const std::string& rule, uint64_t seed, Position position, const BattleUnit* attacker, const BattleUnit* owner, int faction, int direction, int itemLevel, int unitId, int firstItemId, int lastItemId)
+{
+	Json::Value root;
+	root["state"] = "spawn_units";
+	root["seed"] = (Json::UInt64)seed;
+
+	Json::Value entry(Json::objectValue);
+	entry["kind"] = kind;
+	entry["rule"] = rule;
+	entry["carrier_rule"] = carrierRule ? carrierRule->getType() : "";
+	entry["attacker_id"] = attacker ? attacker->getId() : -1;
+	entry["owner_id"] = owner ? owner->getId() : -1;
+	entry["faction"] = faction;
+	entry["unit_id"] = unitId;
+	entry["pos"]["x"] = position.x;
+	entry["pos"]["y"] = position.y;
+	entry["pos"]["z"] = position.z;
+	entry["direction"] = direction;
+	entry["itemLevel"] = itemLevel;
+
+	Json::Value itemIds(Json::arrayValue);
+	for (int id = firstItemId; id <= lastItemId; ++id)
+	{
+		itemIds.append(id);
+	}
+	entry["item_ids"] = itemIds;
+
+	Json::Value spawns(Json::arrayValue);
+	spawns.append(entry);
+	root["spawns"] = spawns;
+
+	getCoopMod()->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P3 GAP-1): peer-side entry point for the host's spawn manifest.
+ */
+void BattlescapeGame::spawn_units(std::string obj_str)
+{
+	Json::Reader reader;
+	Json::Value obj;
+	reader.parse(obj_str, obj);
+
+	const uint64_t seed = obj["seed"].asUInt64();
+	const Json::Value& spawns = obj["spawns"];
+
+	for (Json::ArrayIndex i = 0; i < spawns.size(); ++i)
+	{
+		const Json::Value& e = spawns[i];
+		const std::string kind = e["kind"].asString();
+		Position pos(e["pos"]["x"].asInt(), e["pos"]["y"].asInt(), e["pos"]["z"].asInt());
+
+		// The carrier item is usually already destroyed by the blast that spawned
+		// through it, so the manifest names its RULE. Nothing here ever constructs a
+		// BattleItem (issue #74).
+		const RuleItem* carrier = getMod()->getItem(e["carrier_rule"].asString());
+		if (!carrier)
+		{
+			Log(LOG_ERROR) << "coop: spawn_units - unknown carrier rule '" << e["carrier_rule"].asString() << "', skipped";
+			continue;
+		}
+
+		_coopSpawnReplay.active = true;
+		_coopSpawnReplay.carrierRule = carrier;
+		_coopSpawnReplay.faction = e.get("faction", -1).asInt();
+		_coopSpawnReplay.ownerId = e.get("owner_id", -1).asInt();
+		_coopSpawnReplay.direction = e.get("direction", -1).asInt();
+		_coopSpawnReplay.itemLevel = e.get("itemLevel", -1).asInt();
+		_coopSpawnReplay.unitId = e.get("unit_id", -1).asInt();
+		_coopSpawnReplay.firstItemId = e["item_ids"].empty() ? -1 : e["item_ids"][0u].asInt();
+
+		RNG::setSeed(seed);
+
+		BattleActionAttack attack{ BA_NONE, coopFindUnit(e.get("attacker_id", -1).asInt()), nullptr, nullptr, };
+		if (kind == "unit")
+		{
+			spawnNewUnit(attack, pos);
+		}
+		else
+		{
+			spawnNewItem(attack, pos);
+		}
+
+		_coopSpawnReplay = CoopSpawnReplay();
 	}
 }
 
