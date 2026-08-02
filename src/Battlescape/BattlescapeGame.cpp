@@ -61,6 +61,7 @@
 #include <sstream>
 
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SharedEcon.h" // coop (PRD-P4): Tier-A spawn id-manifest
 
 namespace OpenXcom
 {
@@ -4653,6 +4654,10 @@ int BattlescapeGame::checkForProximityGrenadesCoop(BattleUnit* unit)
 			}
 			if (!deathTrapItem)
 			{
+				// coop (PRD-P4): Tier-A spawn. The peer is REPLAYING the host's
+				// sweep, so consume-on-create is enough here - unlike the corpse
+				// case, the manifest lands before the item is made.
+				SharedEcon::CoopSubjectGuard coopGuard(_save, "death_trap", unit->getId());
 				deathTrapItem = _save->createItemForTile(deathTrapRule, deathTrapTile);
 			}
 			if (deathTrapRule->getBattleType() == BT_PROXIMITYGRENADE)
@@ -4802,6 +4807,8 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit* unit)
 			}
 			if (!deathTrapItem)
 			{
+				// coop (PRD-P4): record the id, so the two sends below can name it.
+				SharedEcon::CoopSpawnRecord coopRec("death_trap", unit->getId());
 				deathTrapItem = _save->createItemForTile(deathTrapRule, deathTrapTile);
 			}
 			if (deathTrapRule->getBattleType() == BT_PROXIMITYGRENADE)
@@ -4816,6 +4823,9 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit* unit)
 						Json::Value root;
 						root["state"] = "checkForProximityGrenades";
 						root["unit_id"] = unit->getId();
+						// coop (PRD-P4): absent when the trap item was already on the
+						// tile (a second unit stepping on the same trap mints nothing).
+						SharedEcon::flushSpawnRecord(root, "death_trap", unit->getId());
 
 						_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 					}
@@ -4838,6 +4848,7 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit* unit)
 						Json::Value root;
 						root["state"] = "checkForProximityGrenades";
 						root["unit_id"] = unit->getId();
+						SharedEcon::flushSpawnRecord(root, "death_trap", unit->getId()); // coop (PRD-P4)
 
 						_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 					}
