@@ -294,8 +294,37 @@ void ProjectileFlyBState::init()
 		return;
 	}
 
+	// coop (PRD-P3 GAP-4b): the close-quarters check is three independent RNG draws
+	// (the sneak-up percent, the to-hit roll, and the redirect direction) that both
+	// machines used to make for the same shot. The SENDER runs it; the peer applies
+	// the outcome, which mostly rides this packet already - the redirected aim IS
+	// the target the packet carries, because the block below rewrites _action.target
+	// before the send at the end of init().
+	bool coopCqbBlocked = false;
+	int coopCqbDefender = -1;
+	const bool coopCqbReplay = _parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == false;
+	if (coopCqbReplay)
+	{
+		coopCqbBlocked = _parent->getCoopMod()->_cqbBlocked;
+		coopCqbDefender = _parent->getCoopMod()->_cqbDefenderId;
+		_parent->getCoopMod()->_cqbBlocked = false;
+		_parent->getCoopMod()->_cqbDefenderId = -1;
+		if (coopCqbBlocked && coopCqbDefender != -1)
+		{
+			for (auto* bu : *_parent->getSave()->getUnits())
+			{
+				if (bu->getId() == coopCqbDefender)
+				{
+					bu->spendTimeUnits(_parent->getMod()->getCloseQuartersTuCostGlobal());
+					bu->spendEnergy(_parent->getMod()->getCloseQuartersEnergyCostGlobal());
+					break;
+				}
+			}
+		}
+	}
+
 	// Check for close quarters combat
-	if (_parent->getMod()->getEnableCloseQuartersCombat() && _action.type != BA_THROW && _action.type != BA_LAUNCH && _unit->getTurretType() == -1 && !_unit->getArmor()->getIgnoresMeleeThreat())
+	if (!coopCqbReplay && _parent->getMod()->getEnableCloseQuartersCombat() && _action.type != BA_THROW && _action.type != BA_LAUNCH && _unit->getTurretType() == -1 && !_unit->getArmor()->getIgnoresMeleeThreat())
 	{
 		// Start by finding 'targets' for the check
 		std::vector<BattleUnit*> closeQuartersTargetList;
@@ -406,6 +435,9 @@ void ProjectileFlyBState::init()
 					// We're done, spend TUs and Energy; and don't check remaining CQB candidates anymore
 					bu->spendTimeUnits(_parent->getMod()->getCloseQuartersTuCostGlobal());
 					bu->spendEnergy(_parent->getMod()->getCloseQuartersEnergyCostGlobal());
+					// coop: report the outcome with the shot packet at the end of init()
+					coopCqbBlocked = true;
+					coopCqbDefender = bu->getId();
 					break;
 				}
 			}
@@ -572,6 +604,11 @@ void ProjectileFlyBState::init()
 		obj["targeting"] = _action.targeting;
 		// fix!
 		obj["weapon_type"] = _action.weapon->getRules()->getType();
+
+		// coop (PRD-P3 GAP-4b): close-quarters outcome. The redirected aim needs no
+		// field of its own - the coords above already carry it.
+		obj["cqb_blocked"] = coopCqbBlocked;
+		obj["cqb_defender"] = coopCqbDefender;
 
 		obj["projectiles"] = _parent->getCoopMod()->_coopProjectilesClient;
 

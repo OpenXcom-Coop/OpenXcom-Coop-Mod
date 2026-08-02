@@ -814,6 +814,22 @@ class connectionTCP
 	// park the matching attack, so the peer is permanently one behind and no
 	// counter the two machines keep separately can ever line up.
 	static int coopAttackKey(const BattleActionAttack& attack);
+	// coop (PRD-P3 GAP-4b): parked hit/miss decisions, FIFO. The melee sender rolls
+	// in MeleeAttackBState::init (before the ExplosionBState it pushes can roll it)
+	// and ships the boolean on the SAME packet, so the receiver has the answer
+	// parked before its own chain starts - a follow-up packet would race it.
+	// TileEngine::meleeAttack pops one; BA_CQB never touches this queue.
+	std::vector<int> _meleeResults;
+	// Same shape for the BA_SELF_DESTRUCT chance: the host rolls it in
+	// BattleUnit::damage (which is already host-only) and ships it on the existing
+	// selfDestruct packet, because ExplosionBState::init - where the roll used to
+	// live - runs after that packet has already gone out.
+	std::vector<int> _selfDestructResults;
+	// coop (PRD-P3 GAP-4b): close-quarters outcome shipped with the shot packet.
+	// The peer does not run the CQB check at all (its redirect already rides the
+	// packet's target coords); it only applies the defender's cost.
+	bool _cqbBlocked = false;
+	int _cqbDefenderId = -1;
 
 	std::vector <int> _smokeRNGs;
 

@@ -177,12 +177,13 @@ private:
 		int itemLevel = -1;
 		int unitId = -1;
 		int firstItemId = -1;
+		Position finalPos = Position(-1, -1, -1);
 	};
 	CoopSpawnReplay _coopSpawnReplay;
 	/// coop: id -> live BattleUnit (null when absent). Never fabricates.
 	BattleUnit* coopFindUnit(int unitId) const;
 	/// coop: ships one spawn manifest entry to the peer (host only).
-	void sendCoopSpawnManifest(const char* kind, const RuleItem* carrierRule, const std::string& rule, uint64_t seed, Position position, const BattleUnit* attacker, const BattleUnit* owner, int faction, int direction, int itemLevel, int unitId, int firstItemId, int lastItemId);
+	void sendCoopSpawnManifest(const char* kind, const RuleItem* carrierRule, const std::string& rule, uint64_t seed, Position position, Position finalPos, const BattleUnit* attacker, const BattleUnit* owner, int faction, int direction, int itemLevel, int unitId, int firstItemId, int lastItemId);
 public:
 	bool _AISecondMove, _playedAggroSound;
 	/// is debug mode enabled in the battlescape?

@@ -130,7 +130,20 @@ void ExplosionBState::init()
 		//testing if we hit target
 		if (action == BA_SELF_DESTRUCT)
 		{
-			if (!RNG::percent(itemRule->getSpecialChance()))
+			// coop (PRD-P3 GAP-4b): the host rolled this in BattleUnit::damage, before
+			// the selfDestruct packet went out, and parked the answer here.
+			auto* coopSD = _parent->getCoopMod();
+			bool triggered;
+			if (coopSD && coopSD->getCoopStatic() && !coopSD->_selfDestructResults.empty())
+			{
+				triggered = coopSD->_selfDestructResults.front() != 0;
+				coopSD->_selfDestructResults.erase(coopSD->_selfDestructResults.begin());
+			}
+			else
+			{
+				triggered = RNG::percent(itemRule->getSpecialChance());
+			}
+			if (!triggered)
 			{
 				_power = 0;
 			}

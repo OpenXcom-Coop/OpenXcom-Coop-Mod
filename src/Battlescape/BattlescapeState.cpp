@@ -4550,6 +4550,13 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	_battleGame->getCoopMod()->_coopProjectilesHost.clear();
 	_battleGame->getCoopMod()->_coopProjectilesClient = arr;
 
+	// coop (PRD-P3 GAP-4b): the sender's close-quarters outcome. The peer does not
+	// run the CQB check at all - the redirected aim already rides this packet's
+	// target coords - it only applies the defender's TU/energy cost, which is the
+	// one piece of state the redirect leaves behind.
+	_battleGame->getCoopMod()->_cqbBlocked = obj.get("cqb_blocked", false).asBool();
+	_battleGame->getCoopMod()->_cqbDefenderId = obj.get("cqb_defender", -1).asInt();
+
 	// coop (PRD-P1): the replayed shot carries its OWN waypoint list. Clearing
 	// and refilling _currentAction.waypoints threw away the local player's
 	// in-progress blaster waypoints every time a teammate fired.

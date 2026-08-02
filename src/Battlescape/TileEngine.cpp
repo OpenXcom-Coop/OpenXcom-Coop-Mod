@@ -5129,6 +5129,23 @@ bool TileEngine::psiAttack(BattleActionAttack attack, BattleUnit *victim)
 	if (!victim)
 		return false;
 
+	// coop (PRD-P3 GAP-2): psi is host-authoritative in the co-operative modes,
+	// mirroring hitUnit(). Both machines used to roll psiAttackCalculate and apply
+	// the whole outcome - faction flip, panic morale, mind-controller id - and
+	// `psi_result` was only ever sent in PVP, so a PVE mind control that succeeded
+	// on one machine and failed on the other was permanent (next_turn repairs
+	// stats and tiles, never faction).
+	//
+	// PVP/PVP2 keep the old executor-decides mirror below untouched: there the
+	// packet is an INVERTED flip ("mine now" / "yours no more"), not a state copy,
+	// and the executor may be either machine.
+	auto* coopPsi = _save->getBattleGame() ? _save->getBattleGame()->getCoopMod() : nullptr;
+	const bool coopPvp = coopPsi && (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3);
+	if (coopPsi && coopPsi->getCoopStatic() && !coopPsi->getHost() && !coopPvp)
+	{
+		return false;
+	}
+
 	// Mana experience - this is a temporary/experimental approach, can be improved later after modder feedback
 	attack.attacker->addManaExp(attack.weapon_item->getRules()->getManaExperience());
 
@@ -5230,6 +5247,7 @@ bool TileEngine::psiAttack(BattleActionAttack attack, BattleUnit *victim)
 				_save->getBattleGame()->autoEndBattle();
 			}
 		}
+		coopShipPsiResult(attack, victim, true);
 		return true;
 	}
 	else
@@ -5238,8 +5256,43 @@ bool TileEngine::psiAttack(BattleActionAttack attack, BattleUnit *victim)
 		{
 			victim->addPsiStrengthExp(); // experience for the victim, not the attacker
 		}
+		coopShipPsiResult(attack, victim, false);
 		return false;
 	}
+}
+
+/**
+ * coop (PRD-P3 GAP-2): host-authoritative psi outcome for the co-operative modes.
+ * Ships the victim's POST-state rather than the inputs, so the peer never re-derives
+ * anything (reduceByBravery, convertToFaction and recoverTimeUnits all read state
+ * this machine has already changed). `pvp: false` tells the handler this is the new
+ * state-copy flavour and not the legacy PVP inverted flip.
+ */
+void TileEngine::coopShipPsiResult(BattleActionAttack attack, BattleUnit* victim, bool success)
+{
+	auto* coop = _save->getBattleGame() ? _save->getBattleGame()->getCoopMod() : nullptr;
+	if (!coop || !coop->getCoopStatic() || !coop->getHost())
+	{
+		return;
+	}
+	if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3)
+	{
+		return; // PVP keeps its own psi_result, sent from psiAttackMessage
+	}
+
+	Json::Value root;
+	root["state"] = "psi_result";
+	root["pvp"] = false;
+	root["unit_id"] = victim->getId();
+	root["success"] = success;
+	root["ba_type"] = (int)attack.type;
+	root["mindControllerId"] = victim->getMindControllerId();
+	root["faction"] = (int)victim->getFaction();
+	root["morale"] = victim->getMorale();
+	root["tu"] = victim->getTimeUnits();
+	root["coop"] = victim->getCoop();
+
+	coop->sendTCPPacketData(root.toStyledString());
 }
 
 /**
@@ -5302,6 +5355,19 @@ bool TileEngine::meleeAttack(BattleActionAttack attack, BattleUnit *victim, int 
 		if (victim && Mod::EXTENDED_MELEE_REACTIONS == 2)
 		{
 			victim->setMeleeAttackedBy(attack.attacker->getId());
+		}
+
+		// coop (PRD-P3 GAP-4b): replay the sender's to-hit decision (parked by
+		// MeleeAttackBState::init locally, or by the melee_attack handler on the
+		// receiver) instead of rolling an independent one. BA_CQB is deliberately
+		// excluded - close-quarters checks are a different stream and must not eat
+		// a real melee's answer; ProjectileFlyBState skips them on the peer instead.
+		auto* coop = _save->getBattleGame() ? _save->getBattleGame()->getCoopMod() : nullptr;
+		if (coop && coop->getCoopStatic() && !coop->_meleeResults.empty())
+		{
+			bool hit = coop->_meleeResults.front() != 0;
+			coop->_meleeResults.erase(coop->_meleeResults.begin());
+			return hit;
 		}
 	}
 

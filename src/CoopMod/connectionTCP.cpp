@@ -37,6 +37,7 @@
 #include "../Savegame/AlienMission.h"
 #include "../Mod/UfoTrajectory.h"
 #include "../Savegame/Ufo.h"
+#include "../Battlescape/AIModule.h"
 #include "../Battlescape/DebriefingState.h"
 #include "../Battlescape/BattlescapeState.h"
 
@@ -6476,7 +6477,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "selfDestruct")
 	{
 
-		
+		// coop (PRD-P3 GAP-4b): the host rolled the BA_SELF_DESTRUCT chance before it
+		// sent this, so park the answer for the ExplosionBState damageCoop is about to
+		// push. Absent = older peer: fall back to this machine's own roll, as before.
+		if (obj.isMember("triggered"))
+		{
+			_selfDestructResults.push_back(obj["triggered"].asBool() ? 1 : 0);
+		}
+
 		if (_game->getSavedGame())
 		{
 
@@ -7012,6 +7020,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// clearing them keeps the queue from growing for the whole battle.
 		_battleActions.clear();
 		_battleActionKeys.clear();
+		// PRD-P3 GAP-4b: a parked melee/self-destruct outcome that was never consumed
+		// (its replay was skipped) must not poison the next turn's attack.
+		_meleeResults.clear();
+		_selfDestructResults.clear();
 
 		if (_game->getSavedGame())
 		{
@@ -8729,8 +8741,45 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		int unit_id = obj["unit_id"].asInt();
+		// coop (PRD-P3 GAP-2): "pvp" absent means an older peer, which only ever sent
+		// the PVP flavour - so the legacy inverted flip stays the default.
+		bool psiPvp = obj.get("pvp", true).asBool();
 
-		if (_game->getSavedGame())
+		if (!psiPvp)
+		{
+			// PVE/PVE2: the host RESOLVED the attack (TileEngine::psiAttack
+			// early-returns false here) and ships the victim's post-state. Copy it;
+			// nothing is re-derived, because reduceByBravery / convertToFaction /
+			// recoverTimeUnits all read state only the host has changed.
+			if (obj.get("success", false).asBool()
+				&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+			{
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+					if (unit->getId() != unit_id)
+					{
+						continue;
+					}
+					int newFaction = obj.get("faction", -1).asInt();
+					if (newFaction >= 0 && (int)unit->getFaction() != newFaction)
+					{
+						unit->convertToFaction((UnitFaction)newFaction);
+						if (newFaction == (int)FACTION_NEUTRAL && unit->getAIModule())
+						{
+							unit->getAIModule()->setTargetFaction(FACTION_HOSTILE);
+						}
+						unit->allowReselect();
+						unit->abortTurn();
+					}
+					unit->setMindControllerId(obj.get("mindControllerId", 0).asInt());
+					unit->setCoopMorale(obj.get("morale", unit->getMorale()).asInt());
+					unit->setTimeUnits(obj.get("tu", unit->getTimeUnits()).asInt());
+					unit->setCoop(obj.get("coop", unit->getCoop()).asInt());
+					break;
+				}
+			}
+		}
+		else if (_game->getSavedGame())
 		{
 
 			if (_game->getSavedGame()->getSavedBattle())
