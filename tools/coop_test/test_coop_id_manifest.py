@@ -32,12 +32,17 @@ both machines load the SAME rules or they would diverge for a different reason):
                matching STR_DEATH_TRAP_200 item is defined harmless (power 1).
   respawn      no stock unit reachable in this fixture converts on death, so
                STR_SECTOID_SOLDIER gains `spawnUnit: STR_CHRYSSALID_TERRORIST`.
-               The kill is a STUN ROD, deliberately: a blast overkills a 30-HP
-               sectoid (`_overKill` needs 4x max health) and UnitDieBState skips
-               BOTH the respawn and the corpses when it is set.
   size-2 corpse the fixture is a SECTOID terror site, whose deployment ranks 6/7
                are STR_CYBERDISC_TERRORIST - a 2x2 unit, so its death mints FOUR
                corpse items and exercises the multi-tile remap.
+
+Both kills are STUN ROD knockouts (see stun_down): a blast aimed at a 2x2 unit's
+own tile is fired from inside that unit and often never leaves the muzzle, and a
+big blast OVERKILLS (health past -4x max), after which UnitDieBState mints no
+corpses and runs no respawn at all - the one outcome that would leave the
+assertions here vacuous. Blast-killed corpses are covered by the strict censuses
+in test_coop_alien_launcher_item_loss / test_coop_inventory_item_theft, whose
+blaster shot kills the firing alien.
 
 Run:  python tools/coop_test/test_coop_id_manifest.py
 Exit 0 = pass; 2 = failure.
@@ -54,18 +59,11 @@ import session
 import shared_fixture
 import test_coop_alien_launcher_item_loss as I74
 
-LAUNCHER = "STR_BLASTER_LAUNCHER"
-BOMB = "STR_BLASTER_BOMB"
 STUN_ROD = "STR_STUN_ROD"
 TRAP_TYPE = 200
 TRAP_ITEM = "STR_DEATH_TRAP_%d" % TRAP_TYPE
 RESPAWNER = "STR_SECTOID_SOLDIER"
 RESPAWNED = "STR_CHRYSSALID_TERRORIST"
-# A Cyberdisc is 120 HP behind 34 armor AND a 0.6 HE damage modifier, so a stock
-# blaster bomb (power 200) usually leaves it standing. 400 kills it on most rolls
-# while staying clear of OVERKILL, which needs 4x max health (480) net and would
-# mint no corpses at all - the one outcome that would make this part vacuous.
-BOMB_POWER = 400
 
 # MCD objects that are ORDINARY floors: Tile_Type 0 (floor), Target_Type 0 (no
 # specialType of their own) and a real floor (No_Floor 0). Anything that already
@@ -110,13 +108,11 @@ items:
     battleType: 5
     blastRadius: 1
     recover: false
-  - type: %s
-    power: %d
 units:
   - type: %s
     spawnUnit: %s
 MCDPatches:
-%s""" % (TRAP_ITEM, BOMB, BOMB_POWER, RESPAWNER, RESPAWNED, patches)
+%s""" % (TRAP_ITEM, RESPAWNER, RESPAWNED, patches)
 
 
 def make_mod(root):
@@ -249,11 +245,65 @@ def part_death_trap(host, client, fails):
     check_synced(host, client, "after the death trap", fails)
 
 
+# ---- shared lever: a deterministic knockout ---------------------------------
+
+def place_adjacent(host, client, mover_id, tpos):
+    """Put `mover_id` on a free tile next to `tpos`, on BOTH machines."""
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+        want = (tpos[0] + dx, tpos[1] + dy, tpos[2])
+        res = [gc.cmd({"cmd": "battle_teleport", "unit": mover_id,
+                       "x": want[0], "y": want[1], "z": want[2]}) for gc in (host, client)]
+        if all(r.get("moved") for r in res):
+            return want
+    return None
+
+
+def stun_down(host, client, soldier_id, target, swings, fails, what):
+    """Beat `target` down with a stun rod until it is out, from whichever machine
+    owns the simulation.
+
+    A stun rod rather than a blast, for two independent reasons:
+      * DELIVERY - a blaster bomb aimed at a 2x2 unit's own tile is fired from
+        inside that unit and frequently never leaves the muzzle, so "the target
+        died" is not something a blast can be relied on to produce;
+      * OVERKILL - a big blast drives health past -4x max, and UnitDieBState then
+        mints NO corpses and runs NO respawn, which is the one outcome that would
+        make the assertions below vacuous. Stun damage cannot overkill.
+    Blast-killed corpses are covered elsewhere: the blaster shot in
+    test_coop_alien_launcher_item_loss / test_coop_inventory_item_theft kills its
+    firing alien, and both assert the census strictly.
+    """
+    spot = place_adjacent(host, client, soldier_id, (target["x"], target["y"], target["z"]))
+    if not spot:
+        fails.append(f"{what}: no free tile next to unit {target['id']} for the melee")
+        return False
+    shooter, _ = sim_owner(host, client)
+    for swing in range(1, swings + 1):
+        gave = {}
+        for gc, name in ((host, "host"), (client, "client")):
+            gave[name] = gc.ok({"cmd": "battle_give", "unit": soldier_id, "item": STUN_ROD,
+                                "slot": "right", "clear_hands": True})
+        time.sleep(1.5)
+        r = shooter.cmd({"cmd": "battle_fire", "unit": soldier_id, "mode": "hit",
+                         "weapon_id": gave["host" if shooter is host else "client"]["weaponId"],
+                         "tu": 100, "x": target["x"], "y": target["y"], "z": target["z"]})
+        if not r.get("ok"):
+            print(f"       swing {swing} refused ({r.get('error')})")
+        wait_quiesced(host, client)
+        if units(host)[target["id"]]["isOut"]:
+            print(f"       unit {target['id']} went down after {swing} swing(s)")
+            return True
+    fails.append(f"{what}: unit {target['id']} never went down in {swings} swings - "
+                 f"the lever is dead, so this part asserted nothing")
+    return False
+
+
 # ---- part 2: a size-2 unit's corpses ----------------------------------------
 
 def part_corpses(host, client, fails):
     """A 2x2 unit mints FOUR corpse items in one pass of UnitDieBState's size^2
-    loop. All four must carry the host's ids on the peer."""
+    loop. All four must carry the host's ids on the peer. A Cyberdisc is
+    `capturable: false`, so a stun knockout instaKills it and the corpses follow."""
     print("\n-- part 2: the corpses of a 2x2 unit --")
     big = [u for u in I74.battle(host)["units"]
            if u["faction"] == 1 and not u["isOut"] and "CYBERDISC" in u["name"].upper()]
@@ -262,35 +312,13 @@ def part_corpses(host, client, fails):
                      "was not exercised")
         return
     target = big[0]
+    soldier = next((u for u in I74.battle(host)["units"]
+                    if u["faction"] == 0 and not u["isOut"]), None)
+    if not soldier:
+        fails.append("no live soldier left to swing a stun rod")
+        return
     before = set(corpses(host))
-    shooter, tag = sim_owner(host, client)
-    for attempt in (1, 2, 3, 4, 5):
-        # Arm the unit and detonate a blaster bomb on its OWN tile: the waypoint is
-        # always valid, so the shot cannot be refused for want of line of fire. The
-        # bomb's stock power kills a 120-HP Cyberdisc without OVERKILLING it
-        # (that needs 4x max health, i.e. more than the bomb's maximum roll) -
-        # overkill is the one outcome that would mint no corpses at all.
-        gave = {}
-        for gc, name in ((host, "host"), (client, "client")):
-            gave[name] = gc.ok({"cmd": "battle_give", "unit": target["id"], "item": LAUNCHER,
-                                "ammo": BOMB, "slot": "right", "clear_hands": True})
-        time.sleep(2)
-        hb = units(host)[target["id"]]
-        # weapon_id explicitly: a terror unit already carries a built-in weapon, and
-        # `getMainHandWeapon` hands that one back instead of the launcher.
-        r = shooter.cmd({"cmd": "battle_fire", "unit": target["id"], "mode": "launch",
-                         "weapon_id": gave["host" if shooter is host else "client"]["weaponId"],
-                         "tu": 200,
-                         "waypoints": [{"x": hb["x"], "y": hb["y"], "z": hb["z"]}]})
-        if not r.get("ok"):
-            print(f"       shot {attempt} refused ({r.get('error')})")
-            continue
-        wait_quiesced(host, client)
-        if units(host)[target["id"]]["isOut"]:
-            break
-        print(f"       the Cyberdisc survived blast {attempt}, firing again")
-    if not units(host)[target["id"]]["isOut"]:
-        fails.append(f"could not kill Cyberdisc {target['id']} - no corpses were minted")
+    if not stun_down(host, client, soldier["id"], target, 10, fails, "2x2 corpses"):
         return
 
     hc, cc = corpses(host), corpses(client)
@@ -302,15 +330,15 @@ def part_corpses(host, client, fails):
         fails.append(f"the corpse ids do not match: host {sorted(fresh_h.items())} vs "
                      f"client {sorted(fresh_c.items())} - the id-manifest did not "
                      f"re-stamp them")
-    quad = [t for t in set(fresh_h.values())
-            if sum(1 for v in fresh_h.values() if v == t) >= 1 and "CYBERDISC" in t.upper()]
-    if len(fresh_h) >= 4 and quad:
-        print(f"PASS 2x2 corpses: {len(fresh_h)} corpse items minted for the Cyberdisc "
-              f"and every id agrees on both machines")
+    quad = sum(1 for v in fresh_h.values() if "CYBERDISC" in v.upper())
+    if quad != 4:
+        fails.append(f"the 2x2 unit minted {quad} Cyberdisc corpse item(s), not 4 - "
+                     f"the multi-tile corpse loop was not exercised: "
+                     f"{sorted(fresh_h.items())}")
     else:
-        print(f"       NOTE: {len(fresh_h)} corpse item(s) appeared; the blast also "
-              f"caught other units, so the exact count is not asserted")
-    check_synced(host, client, "after the 2x2 blast kill", fails)
+        print(f"PASS 2x2 corpses: all 4 corpse items of the Cyberdisc carry the same "
+              f"id on both machines")
+    check_synced(host, client, "after the 2x2 unit's death", fails)
 
 
 # ---- part 3: convertUnit ----------------------------------------------------
@@ -333,34 +361,8 @@ def part_convert(host, client, fails):
         fails.append("no live soldier left to swing a stun rod")
         return
 
-    spot = None
-    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
-        want = (victim["x"] + dx, victim["y"] + dy, victim["z"])
-        res = [gc.cmd({"cmd": "battle_teleport", "unit": soldier["id"],
-                       "x": want[0], "y": want[1], "z": want[2]}) for gc in (host, client)]
-        if all(r.get("moved") for r in res):
-            spot = want
-            break
-    if not spot:
-        fails.append(f"no free tile next to sectoid {victim['id']} for the melee")
-        return
-
     before_ids = set(units(host))
-    shooter, tag = sim_owner(host, client)
-    for swing in range(1, 7):
-        gave = [gc.ok({"cmd": "battle_give", "unit": soldier["id"], "item": STUN_ROD,
-                       "slot": "right", "clear_hands": True}) for gc in (host, client)]
-        time.sleep(1.5)
-        r = shooter.cmd({"cmd": "battle_fire", "unit": soldier["id"], "mode": "hit",
-                         "weapon_id": gave[0 if shooter is host else 1]["weaponId"],
-                         "tu": 100, "x": victim["x"], "y": victim["y"], "z": victim["z"]})
-        if not r.get("ok"):
-            print(f"       swing {swing} refused ({r.get('error')})")
-        wait_quiesced(host, client)
-        if units(host)[victim["id"]]["isOut"]:
-            break
-    if not units(host)[victim["id"]]["isOut"]:
-        fails.append(f"sectoid {victim['id']} never went down - no convertUnit ran")
+    if not stun_down(host, client, soldier["id"], victim, 8, fails, "convertUnit"):
         return
 
     new_h = set(units(host)) - before_ids
