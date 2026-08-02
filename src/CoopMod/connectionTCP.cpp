@@ -6370,6 +6370,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						auto* spawnType = _game->getSavedGame()->getSavedBattle()->getMod()->getUnit(spawnUnitType);
 						unit->setSpawnUnit(spawnType);
 
+						// coop (PRD-P4): park the built-in ids before the respawn
+						// runs; the guard inside convertUnit adopts them.
+						SharedEcon::storeSpawnManifest(_game->getSavedGame()->getSavedBattle(),
+													   "convert", unit_id, obj);
+
 						_game->getSavedGame()->getSavedBattle()->convertUnit(unit);
 
 						break;
@@ -7058,12 +7063,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					}
 					else
 					{
+						// coop (PRD-P4): a death trap the host had to CREATE names the
+						// id it minted. Park it before the replay runs - the peer's
+						// checkForProximityGrenadesCoop creates its own copy inside a
+						// guard, which is where the id is adopted.
+						SharedEcon::storeSpawnManifest(_game->getSavedGame()->getSavedBattle(),
+													   "death_trap", unit_id, obj);
+
 						for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 						{
 
 							if (unit->getId() == unit_id)
 							{
-		
+
 								_game->getSavedGame()->getSavedBattle()->getBattleGame()->checkForProximityCoop(unit);
 
 								break;

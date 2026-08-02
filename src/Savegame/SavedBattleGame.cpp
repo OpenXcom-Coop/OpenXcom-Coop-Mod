@@ -2267,7 +2267,15 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 	newUnit->setPosition(unit->getPosition());
 	newUnit->setDirection(unit->getDirection());
 	getUnits()->push_back(newUnit);
-	initUnit(newUnit);
+	{
+		// coop (PRD-P4): Tier-A spawn. initUnit() mints the respawn's fixed built-in
+		// weapons - a set fixed by getSpawnUnit()'s rules, so both machines create
+		// the same items and only the ids can drift. Keyed on the DYING unit's id,
+		// which is what the `convertUnit` packet carries.
+		SharedEcon::CoopSpawnRecord coopRec("convert", unit->getId());
+		SharedEcon::CoopSubjectGuard coopGuard(this, "convert", unit->getId());
+		initUnit(newUnit);
+	}
 
 	getTileEngine()->calculateFOV(newUnit->getPosition());  //happens fairly rarely, so do a full recalc for units in range to handle the potential unit visible cache issues.
 	getTileEngine()->applyGravity(newUnit->getTile());
@@ -2329,6 +2337,8 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 		root["respawn"] = unit->getRespawn();
 		root["spawn_unit_faction"] = (int)unit->getSpawnUnitFaction();
 		root["spawn_unit_type"] = unit->getSpawnUnit()->getType();
+		// coop (PRD-P4): the ids initUnit() just minted for the respawn's built-ins.
+		SharedEcon::flushSpawnRecord(root, "convert", unit->getId());
 
 		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 

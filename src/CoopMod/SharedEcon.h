@@ -501,12 +501,13 @@ private:
 class CoopSubjectGuard
 {
 public:
-	CoopSubjectGuard(const char* action, int subject);
+	CoopSubjectGuard(SavedBattleGame* battle, const char* action, int subject);
 	~CoopSubjectGuard();
 	CoopSubjectGuard(const CoopSubjectGuard&) = delete;
 	CoopSubjectGuard& operator=(const CoopSubjectGuard&) = delete;
 private:
 	bool _open;
+	SavedBattleGame* _battle; // for the counter re-slave when the guard closes
 	std::string _action;
 	int _subject;
 };
@@ -518,10 +519,16 @@ private:
 void flushSpawnRecord(Json::Value& root, const char* action, int subject);
 
 /// PEER: park the host's `minted_ids` (if @a root carries any) for {action,
-/// subject}, and RE-SLAVE the local counter to `max(_itemId, maxHostId + 1)` -
-/// the same rule SavedBattleGame's loader applies to a save's item ids, so an id
-/// the peer adopts can never be minted a second time. Returns true if a manifest
-/// was stored. Call it BEFORE the replay path that creates the items.
+/// subject}. Returns true if a manifest was stored. Call it BEFORE the replay path
+/// that creates the items.
+///
+/// The counter re-slave (`_itemId = max(_itemId, maxHostId + 1)`, the same rule
+/// SavedBattleGame's loader applies to a save's item ids, so an adopted id can
+/// never be minted twice) happens once the manifest has been APPLIED - in the
+/// guard's destructor or at the end of remapCorpseIds. Doing it HERE is off by
+/// one: the factories still mint a local id and only then adopt the host's, so an
+/// up-front bump pushes that local mint one past the host's and the two counters
+/// end up permanently one apart.
 bool storeSpawnManifest(SavedBattleGame* battle, const char* action, int subject,
 						const Json::Value& root);
 

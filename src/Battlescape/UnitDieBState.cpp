@@ -461,7 +461,7 @@ void UnitDieBState::convertUnitToCorpse()
 			// one of these two is ever live: the record on the host (its ids ride
 			// `after_unit_death`), the guard on the peer.
 			SharedEcon::CoopSpawnRecord coopRec("corpse", _unit->getId());
-			SharedEcon::CoopSubjectGuard coopGuard("corpse", _unit->getId());
+			SharedEcon::CoopSubjectGuard coopGuard(_parent->getSave(), "corpse", _unit->getId());
 			int i = size * size - 1;
 			for (int y = size - 1; y >= 0; --y)
 			{

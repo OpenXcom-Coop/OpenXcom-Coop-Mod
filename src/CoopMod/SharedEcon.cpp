@@ -3883,9 +3883,32 @@ struct CoopSpawnKey
 	}
 };
 
+struct CoopSpawnEntry
+{
+	std::deque<int> ids;   // not yet consumed, in creation order
+	int maxHostId = -1;    // highest id the manifest EVER held (survives popping)
+};
+
 /// Parked id lists. TRANSIENT - nothing here is ever serialised, and every entry
 /// is dropped at the latest by the next turn boundary (clearSpawnManifests).
-std::map<CoopSpawnKey, std::deque<int>> g_spawnManifest;
+std::map<CoopSpawnKey, CoopSpawnEntry> g_spawnManifest;
+
+/// Counter re-slave, applied AFTER a manifest has been consumed - never before.
+/// Order matters: the peer's factories still mint a local id first and only then
+/// adopt the host's, so bumping the counter up front would push that local mint
+/// one past where the host's went and leave the counters permanently one apart.
+/// Same rule SavedBattleGame's loader applies to a save's item ids. Only ever
+/// moves FORWARD, so it can only close a gap, never open one.
+void reslaveItemCounter(SavedBattleGame* battle, int maxHostId,
+						const std::string& action, int subject)
+{
+	if (!battle || maxHostId < 0) return;
+	int* counter = battle->getCurrentItemId();
+	if (!counter || *counter >= maxHostId + 1) return;
+	Log(LOG_INFO) << "[COOP] id-manifest: item-id counter re-slaved " << *counter << " -> "
+				  << (maxHostId + 1) << " (" << action << " subject " << subject << ")";
+	*counter = maxHostId + 1;
+}
 
 /// A frame is one OPEN record (host, appending) or guard (peer, consuming). A
 /// STACK, not a single "active subject": the guards are per call by design, and a
@@ -3894,6 +3917,7 @@ struct CoopSpawnFrame
 {
 	CoopSpawnKey key;
 	bool consuming; // false = host record, true = peer guard
+	int adopted = 0; // peer: how many host ids this scope has taken
 };
 std::vector<CoopSpawnFrame> g_spawnFrames;
 
@@ -3910,8 +3934,8 @@ CoopSpawnRecord::CoopSpawnRecord(const char* action, int subject) : _open(false)
 	CoopSpawnKey key{action ? action : "", subject};
 	// A record OWNS its key for the duration: start from empty, so a repeat of the
 	// same action on the same subject never appends onto an unflushed tail.
-	g_spawnManifest[key].clear();
-	g_spawnFrames.push_back(CoopSpawnFrame{key, false});
+	g_spawnManifest[key] = CoopSpawnEntry();
+	g_spawnFrames.push_back(CoopSpawnFrame{key, false, 0});
 	_open = true;
 }
 
@@ -3922,30 +3946,44 @@ CoopSpawnRecord::~CoopSpawnRecord()
 	// The ids stay parked: flushSpawnRecord() is what ships and drops them.
 }
 
-CoopSubjectGuard::CoopSubjectGuard(const char* action, int subject)
-	: _open(false), _action(action ? action : ""), _subject(subject)
+CoopSubjectGuard::CoopSubjectGuard(SavedBattleGame* battle, const char* action, int subject)
+	: _open(false), _battle(battle), _action(action ? action : ""), _subject(subject)
 {
 	if (!connectionTCP::getCoopStatic() || connectionTCP::getHost()) return;
 
-	g_spawnFrames.push_back(CoopSpawnFrame{CoopSpawnKey{_action, _subject}, true});
+	g_spawnFrames.push_back(CoopSpawnFrame{CoopSpawnKey{_action, _subject}, true, 0});
 	_open = true;
 }
 
 CoopSubjectGuard::~CoopSubjectGuard()
 {
 	if (!_open) return;
-	if (!g_spawnFrames.empty()) g_spawnFrames.pop_back();
+	int adopted = 0;
+	if (!g_spawnFrames.empty())
+	{
+		adopted = g_spawnFrames.back().adopted;
+		g_spawnFrames.pop_back();
+	}
+	if (adopted > 0)
+	{
+		// One line per applied manifest, mirroring remapCorpseIds - positive
+		// evidence that the consume-on-create path RAN, which "the ids happened to
+		// agree anyway" cannot give on its own.
+		Log(LOG_INFO) << "[COOP] id-manifest: " << _action << " manifest for subject "
+					  << _subject << " applied - " << adopted << " id(s) adopted on create";
+	}
 
 	CoopSpawnKey key{_action, _subject};
 	auto it = g_spawnManifest.find(key);
 	if (it != g_spawnManifest.end())
 	{
-		if (!it->second.empty())
+		if (!it->second.ids.empty())
 		{
-			Log(LOG_INFO) << "[COOP] id-manifest: " << it->second.size() << " host id(s) left over "
+			Log(LOG_INFO) << "[COOP] id-manifest: " << it->second.ids.size() << " host id(s) left over "
 						  << "after replaying " << _action << " for subject " << _subject
 						  << " - this machine created fewer items than the host did";
 		}
+		reslaveItemCounter(_battle, it->second.maxHostId, _action, _subject);
 		g_spawnManifest.erase(it);
 	}
 }
@@ -3956,24 +3994,25 @@ void noteMintedItem(BattleItem* item)
 	// spawn is in progress (and in a single-player game there never is one).
 	if (g_spawnFrames.empty() || !item) return;
 
-	const CoopSpawnFrame& frame = g_spawnFrames.back();
+	CoopSpawnFrame& frame = g_spawnFrames.back();
 	auto it = g_spawnManifest.find(frame.key);
 	if (!frame.consuming)
 	{
 		if (it == g_spawnManifest.end())
 		{
-			it = g_spawnManifest.emplace(frame.key, std::deque<int>()).first;
+			it = g_spawnManifest.emplace(frame.key, CoopSpawnEntry()).first;
 		}
-		it->second.push_back(item->getId());
+		it->second.ids.push_back(item->getId());
 		return;
 	}
 
 	// Peer: adopt the host's id for this position in the creation order. Running
 	// dry is not an error worth shouting about - it is exactly what an older host
 	// (no manifest at all) looks like.
-	if (it == g_spawnManifest.end() || it->second.empty()) return;
-	const int hostId = it->second.front();
-	it->second.pop_front();
+	if (it == g_spawnManifest.end() || it->second.ids.empty()) return;
+	const int hostId = it->second.ids.front();
+	it->second.ids.pop_front();
+	++frame.adopted;
 	if (hostId != item->getId())
 	{
 		Log(LOG_INFO) << "[COOP] id-manifest: " << frame.key.action << " subject "
@@ -3988,13 +4027,13 @@ void flushSpawnRecord(Json::Value& root, const char* action, int subject)
 	CoopSpawnKey key{action ? action : "", subject};
 	auto it = g_spawnManifest.find(key);
 	if (it == g_spawnManifest.end()) return;
-	if (!it->second.empty())
+	if (!it->second.ids.empty())
 	{
 		Json::Value ids(Json::arrayValue);
-		for (int id : it->second) ids.append(id);
+		for (int id : it->second.ids) ids.append(id);
 		root["minted_ids"] = ids;
-		Log(LOG_INFO) << "[COOP] id-manifest: shipping " << it->second.size() << " " << key.action
-					  << " id(s) for subject " << subject;
+		Log(LOG_INFO) << "[COOP] id-manifest: shipping " << it->second.ids.size() << " "
+					  << key.action << " id(s) for subject " << subject;
 	}
 	g_spawnManifest.erase(it);
 }
@@ -4013,31 +4052,18 @@ bool storeSpawnManifest(SavedBattleGame* battle, const char* action, int subject
 		g_spawnManifest.clear();
 	}
 
-	std::deque<int> parked;
-	int maxHostId = -1;
+	CoopSpawnEntry parked;
 	for (Json::ArrayIndex i = 0; i < ids.size(); ++i)
 	{
 		const int id = ids[i].asInt();
-		parked.push_back(id);
-		if (id > maxHostId) maxHostId = id;
+		parked.ids.push_back(id);
+		if (id > parked.maxHostId) parked.maxHostId = id;
 	}
 	g_spawnManifest[CoopSpawnKey{action ? action : "", subject}] = parked;
-
-	// Counter re-slave. Same rule the loader applies to a save's item ids
-	// (SavedBattleGame::load): the next id this machine mints must be past every id
-	// it has just been told about, or an adopted id could be handed out a second
-	// time. Only ever moves the counter FORWARD, so it can only close a gap.
-	if (battle && maxHostId >= 0)
-	{
-		int* counter = battle->getCurrentItemId();
-		if (counter && *counter < maxHostId + 1)
-		{
-			Log(LOG_INFO) << "[COOP] id-manifest: item-id counter re-slaved " << *counter
-						  << " -> " << (maxHostId + 1) << " (" << (action ? action : "?")
-						  << " subject " << subject << ")";
-			*counter = maxHostId + 1;
-		}
-	}
+	// NOTE: the counter is NOT re-slaved here. It is re-slaved once the manifest has
+	// been APPLIED (the guard's destructor, or the end of remapCorpseIds) - see
+	// reslaveItemCounter for why doing it up front is off by one.
+	(void)battle;
 	return true;
 }
 
@@ -4046,7 +4072,7 @@ int remapCorpseIds(SavedBattleGame* battle, int unitId)
 	if (!battle) return 0;
 	CoopSpawnKey key{"corpse", unitId};
 	auto it = g_spawnManifest.find(key);
-	if (it == g_spawnManifest.end() || it->second.empty()) return 0;
+	if (it == g_spawnManifest.end() || it->second.ids.empty()) return 0;
 
 	// _items is append-ordered, so this walk yields the corpses in the order
 	// UnitDieBState created them - which is the order the host recorded them in.
@@ -4065,18 +4091,18 @@ int remapCorpseIds(SavedBattleGame* battle, int unitId)
 		return 0;
 	}
 
-	if (corpses.size() != it->second.size())
+	if (corpses.size() != it->second.ids.size())
 	{
 		Log(LOG_ERROR) << "[COOP] id-manifest: unit " << unitId << " has " << corpses.size()
-					   << " corpse item(s) here but the host minted " << it->second.size()
+					   << " corpse item(s) here but the host minted " << it->second.ids.size()
 					   << " - re-stamping the common prefix only";
 	}
 	int n = 0, changed = 0;
 	for (BattleItem* corpse : corpses)
 	{
-		if (it->second.empty()) break;
-		const int hostId = it->second.front();
-		it->second.pop_front();
+		if (it->second.ids.empty()) break;
+		const int hostId = it->second.ids.front();
+		it->second.ids.pop_front();
 		if (hostId != corpse->getId())
 		{
 			Log(LOG_INFO) << "[COOP] id-manifest: corpse of unit " << unitId
@@ -4090,6 +4116,7 @@ int remapCorpseIds(SavedBattleGame* battle, int unitId)
 	// and is the only positive evidence that the pilot ran at all.
 	Log(LOG_INFO) << "[COOP] id-manifest: corpse manifest for unit " << unitId << " applied - "
 				  << n << " corpse(s), " << changed << " re-stamped";
+	reslaveItemCounter(battle, it->second.maxHostId, key.action, unitId);
 	g_spawnManifest.erase(it);
 	return n;
 }
