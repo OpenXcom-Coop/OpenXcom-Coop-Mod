@@ -210,19 +210,31 @@ def steps_of(gc, uid, radius=2):
     return [(s["x"], s["y"], s["z"]) for s in r.get("steps", [])] if r.get("ok") else []
 
 
-def free_step_both(host, client, uid, radius=2):
-    """A tile BOTH machines agree `uid` can path to.
+def common_steps(host, client, uid, radius=2):
+    """Every tile BOTH machines agree `uid` can path to, nearest ring first.
 
     The fixture teleports the whole squad around looking for drivers, and a
     teleport that took on one machine but not the other leaves a BLOCKER in a
     different place. A tile the client's pathfinder likes can therefore be
     occupied on the host - which is where a client intent actually executes, so
     the walk would be admitted and then quietly do nothing."""
-    hs = steps_of(host, uid, radius)
     cs = set(steps_of(client, uid, radius))
-    for s in hs:
-        if s in cs:
-            return s
+    return [s for s in steps_of(host, uid, radius) if s in cs]
+
+
+def free_step_both(host, client, uid, radius=2):
+    """One tile BOTH machines agree `uid` can path to.
+
+    PRD-P9 rider R6: widened. The skirmish fixture packs 14 soldiers into the
+    Skyranger's 2x7 interior, so a driver whose immediate ring is boxed in by its
+    own squadmates has nothing at radius 2 while a tile two rings out is wide
+    open - and the caller only ever asked "can it step at all". Falling back to a
+    larger radius costs one extra probe_step RPC in the rare case and nothing at
+    all in the common one; it never widens a search that already succeeded."""
+    for r in (radius, radius + 1, radius + 2):
+        got = common_steps(host, client, uid, r)
+        if got:
+            return got[0]
     return None
 
 
@@ -233,22 +245,33 @@ def teleport_both(host, client, uid, spot):
     return all(r.get("moved") for r in res)
 
 
-def place_near(host, client, uid, tpos, ring=NEAR_RING):
+def place_near(host, client, uid, tpos, ring=NEAR_RING, want=2):
     """Teleport `uid` onto open ground near `tpos` on BOTH machines and prove it
-    can then take a step."""
+    can then take a step.
+
+    PRD-P9 rider R6: two passes. The first insists on `want` tiles both machines
+    agree are walkable, because a driver with exactly ONE way out is a driver
+    that fails the moment a squadmate, a corpse or a dropped weapon lands on it -
+    which is what made the walk scenarios flaky. The second pass restores the old
+    "any step at all" bar, so a cramped fixture still yields a driver rather than
+    an assertion."""
     landed = stuck = 0
-    for dx, dy in ring:
-        spot = (tpos[0] + dx, tpos[1] + dy, tpos[2])
-        if not teleport_both(host, client, uid, spot):
-            continue
-        landed += 1
-        # BOTH machines: a driver the client can move but the host cannot is
-        # useless, because the host is where every action actually runs.
-        if free_step_both(host, client, uid):
-            return spot
-        stuck += 1
+    for need in (want, 1):
+        for dx, dy in ring:
+            spot = (tpos[0] + dx, tpos[1] + dy, tpos[2])
+            if not teleport_both(host, client, uid, spot):
+                continue
+            if need == want:
+                landed += 1
+            # BOTH machines: a driver the client can move but the host cannot is
+            # useless, because the host is where every action actually runs.
+            if len(common_steps(host, client, uid, 2)) >= need or (
+                    need == 1 and free_step_both(host, client, uid)):
+                return spot
+            if need == want:
+                stuck += 1
     print(f"    unit {uid}: {landed}/{len(ring)} tiles near {tpos} took the "
-          f"teleport, {stuck} of those could path nowhere")
+          f"teleport, {stuck} of those had fewer than {want} shared exits")
     return None
 
 
@@ -258,6 +281,30 @@ def place_adjacent(host, client, uid, tpos):
         if teleport_both(host, client, uid, spot):
             return spot
     return None
+
+
+def step_dest(host, client, uid):
+    """A tile `uid` can walk to, re-placing it if it has been boxed in.
+
+    PRD-P9 rider R6. `free_step_both` answers "where can it go from here"; over a
+    long scenario the answer legitimately becomes "nowhere" - the squad shuffles,
+    somebody dies on the only exit, a thrown crate lands next door - and every
+    caller turned that into a hard assertion failure that read like an intent bug.
+    Re-placing the driver next to a hostile (the same thing `pick_driver` does at
+    the start) is what a human tester would do, and it keeps the failure that
+    matters (an intent that does not execute) distinguishable from a fixture that
+    simply parked the unit in a corner."""
+    dest = free_step_both(host, client, uid)
+    if dest:
+        return dest
+    enemy = alive_enemy(battle(host))
+    if not enemy:
+        return None
+    print(f"    (unit {uid} is boxed in - re-placing it before the walk)")
+    if not place_near(host, client, uid, (enemy["x"], enemy["y"], enemy["z"])):
+        return None
+    top_up(host, client, uid)
+    return free_step_both(host, client, uid)
 
 
 def pick_driver(host, client, seat, tag):
@@ -279,7 +326,7 @@ def pick_driver(host, client, seat, tag):
 
 def scenario_walk(host, client, mover_id):
     print("-- 1: client walk intent -> host executes -> both converge --")
-    dest = free_step_both(host, client, mover_id)
+    dest = step_dest(host, client, mover_id)
     assert dest, f"client soldier {mover_id} cannot step anywhere"
 
     before_h = pos(battle(host), mover_id)
@@ -376,7 +423,7 @@ def scenario_busy(host, client, host_mover, client_mover):
     # `probe_step` refuses mid-chain (Pathfinding is a singleton the running
     # UnitWalkBState dequeues from), and the client will be busy displaying the
     # host's chain when the denied intent goes out.
-    client_dest = free_step_both(host, client, client_mover)
+    client_dest = step_dest(host, client, client_mover)
     assert client_dest, f"client soldier {client_mover} cannot step anywhere"
     # PRD-P7 changed WHICH chains refuse. A walk in the way is now DEFERRED
     # (pending-admit + fast-forward, see test_parallel_skip.py), so holding the
@@ -423,7 +470,7 @@ def scenario_busy(host, client, host_mover, client_mover):
     host.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": 2})
     assert idle(host), f"the host's chain never finished: {parallel(host)}"
     settle(host, client, seconds=4)
-    dest = free_step_both(host, client, client_mover)
+    dest = step_dest(host, client, client_mover)
     assert dest, "the client soldier cannot step after the host's chain"
     before = pos(battle(host), client_mover)
     assert intent(client, action="move", unit=client_mover,
@@ -645,8 +692,8 @@ def scenario_race(host, client, host_mover, client_mover):
     for uid in (host_mover, client_mover):
         top_up(host, client, uid)
 
-    h_dest = free_step(host, host_mover)
-    c_dest = free_step_both(host, client, client_mover)
+    h_dest = step_dest(host, client, host_mover)
+    c_dest = step_dest(host, client, client_mover)
     assert h_dest and c_dest, (
         f"both drivers must be able to step for the race "
         f"(host {h_dest}, client {c_dest})")

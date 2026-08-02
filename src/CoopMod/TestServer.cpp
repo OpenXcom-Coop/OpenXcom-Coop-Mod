@@ -2604,6 +2604,16 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["value"] = Options::battleXcomSpeed;
 			resp["ok"] = true;
 		}
+		else if (name == "battleFireSpeed")
+		{
+			// Projectile animation delay in ms. PRD-P9 needs it: battleXcomSpeed
+			// only slows walk/turn animation, and PRD-P7 fast-forwards exactly
+			// those on a lagging client - so a SHOT is the only chain that can
+			// build the display backlog `canAdmitAction()` caps at 2.
+			Options::battleFireSpeed = req.get("value", 6).asInt();
+			resp["value"] = Options::battleFireSpeed;
+			resp["ok"] = true;
+		}
 		else if (name == "battleAlienSpeed")
 		{
 			Options::battleAlienSpeed = req.get("value", 30).asInt();
@@ -3435,7 +3445,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	// arm an arbitrary unit and make it fire a specific weapon (incl. BA_LAUNCH,
 	// which the generic battle_action shoot cannot express). Kept in its own
 	// dispatcher so execute()'s if/else chain does not grow (MSVC C1061).
-	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
+	if (cmd != "battle_items" && cmd != "battle_tiles"
+		&& cmd != "battle_give" && cmd != "battle_fire"
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
 		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "battle_intent"
@@ -3507,6 +3518,45 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["items"] = items;
 		resp["counts"] = jc;
 		resp["total"] = (int)sbg->getItems()->size();
+		resp["ok"] = true;
+	}
+	else if (cmd == "battle_tiles")
+	{
+		// PRD-P9 soak: the per-tile HAZARD census. Fire and smoke are the two
+		// pieces of battle state that can drift without touching a unit or an
+		// item (they arrive on their own `set_fire_tile` / `set_smoke_tile`
+		// packets and decay on their own schedule), so the drift tripwire's two
+		// item terms cannot see them. Order-independent sums, so the comparison
+		// is one cheap equality per side.
+		long long fireHash = 0, smokeHash = 0;
+		int fireTiles = 0, smokeTiles = 0, fireSum = 0, smokeSum = 0;
+		const int tileCount = sbg->getMapSizeXYZ();
+		for (int i = 0; i < tileCount; ++i)
+		{
+			Tile* tl = sbg->getTile(i);
+			if (!tl) continue;
+			const int f = tl->getFire();
+			const int sm = tl->getSmoke();
+			if (f > 0)
+			{
+				++fireTiles;
+				fireSum += f;
+				fireHash += (long long)(i + 1) * 1000003LL + f;
+			}
+			if (sm > 0)
+			{
+				++smokeTiles;
+				smokeSum += sm;
+				smokeHash += (long long)(i + 1) * 1000003LL + sm;
+			}
+		}
+		resp["fireTiles"] = fireTiles;
+		resp["smokeTiles"] = smokeTiles;
+		resp["fireSum"] = fireSum;
+		resp["smokeSum"] = smokeSum;
+		resp["fireHash"] = Json::Value::Int64(fireHash);
+		resp["smokeHash"] = Json::Value::Int64(smokeHash);
+		resp["tileCount"] = tileCount;
 		resp["ok"] = true;
 	}
 	else if (cmd == "battle_give")
@@ -3946,6 +3996,14 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		{
 			unit->setTimeUnits(req["tu"].asInt());
 		}
+		// PRD-P9: energy too. A soak drives hundreds of walks, and a soldier out
+		// of ENERGY refuses to move just as surely as one out of TU - which made a
+		// scenario that meant to time a long walk quietly measure a walk that
+		// never happened.
+		if (req.isMember("energy"))
+		{
+			unit->setCoopEnergy(req["energy"].asInt());
+		}
 		if (bstate && req.isMember("hand"))
 		{
 			bstate->_hand = req["hand"].asString();
@@ -4207,6 +4265,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["coopInitDeath"] = pcoop ? pcoop->_coopInitDeath : false;
 		resp["coopEnd"] = pcoop ? pcoop->_coopEnd : 0;
 		resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
+		// PRD-P9 R7: packets set aside by a permanent exclusion instead of being
+		// rotated forever. Nothing is lost - they re-enter g_rxHold at the front.
+		resp["rxPark"] = static_cast<Json::UInt>(rxParkSize());
 		resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
 		resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
 		// PRD-P6: the action-intent arbiter. `actionSeq`/`sideSeq` are the host's
@@ -4291,7 +4352,6 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["localSeat"] = connectionTCP::localSeat();
 			resp["localReady"] = connectionTCP::endTurnSeatReady(connectionTCP::localSeat());
 		}
-		resp["commitBlocked"] = connectionTCP::_commitBlocked;
 		resp["commitBlocked"] = connectionTCP::_commitBlocked;
 		resp["reserve"] = (int)sbg->getTUReserved();
 		resp["kneelReserve"] = sbg->getKneelReserved();
@@ -5186,6 +5246,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["coopInitDeath"] = coop->_coopInitDeath;
 				resp["coopEnd"] = coop->_coopEnd;
 				resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
+				resp["rxPark"] = static_cast<Json::UInt>(rxParkSize());
 				resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
 				resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
 				// Parallel-turns mode (PRD-P5), carried on battle_state (as well as
@@ -5259,6 +5320,12 @@ std::string TestServer::execute(const std::string& line)
 					ju["health"] = u->getHealth();
 					ju["tu"] = u->getTimeUnits();
 					ju["stun"] = u->getStunlevel();
+					// PRD-P9 soak: the two per-unit terms the census was missing.
+					// Fatal wounds only ever move through host-resolved damage, and
+					// energy is what a walk spends alongside TU - both are drift the
+					// item-census tripwire cannot see.
+					ju["wounds"] = u->getFatalWounds();
+					ju["energy"] = u->getEnergy();
 					ju["name"] = u->getName(_game->getLanguage());
 					ju["isPlayerSoldier"] = (u->getGeoscapeSoldier() != nullptr);
 					// PRD-J09: in-battle control split. _coop 0 = host-controlled,
