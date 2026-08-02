@@ -80,6 +80,13 @@ private:
 	Timer *_animTimer, *_gameTimer;
 	SavedBattleGame *_save;
 	Text *_txtDebug, *_txtTooltip;
+	// coop (PRD-P8): the end-turn readiness tally ("END TURN 1/2"), shown next to
+	// the END TURN button while a parallel side has at least one seat armed.
+	// Deliberately NOT on the _warning surface - that one fades, and the tally has
+	// to stay up for as long as somebody is waiting.
+	Text *_txtCoopEndTurn;
+	int _coopTallyReady, _coopTallySeats;
+	bool _coopTallyLocalReady;
 	Uint8 _tooltipDefaultColor;
 	Uint8 _medikitRed, _medikitGreen, _medikitBlue, _medikitOrange;
 	std::vector<State*> _popups;
@@ -110,7 +117,14 @@ private:
 	void blinkHealthBar();
 	/// Shows the unit kneel state.
 	void toggleKneelButton(BattleUnit* unit);
+	/// coop (PRD-P8): repaints the END TURN readiness lamp + tally from the
+	/// connectionTCP tally. No-op (and hidden) outside a parallel side.
+	void updateCoopEndTurnTally();
   public:
+	/// coop (PRD-P8 §5): the classic reserve mirror packet (`TU_COOP` /
+	/// `kneel_reserved`). Suppressed in parallel mode, where reserve is a
+	/// per-machine setting and travels per-action on `action_intent` instead.
+	void coopSendReserveState(bool kneel);
 	// coop
 	void setSelectedCoopUnit(int actor_id);
 	// coop (PRD-P6): healer_id/weapon_* are additive - an older peer omits them

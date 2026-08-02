@@ -3431,6 +3431,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
 		&& cmd != "battle_prox" && cmd != "battle_intent"
 		&& cmd != "battle_camera"
+		&& cmd != "battle_reserve"
 		&& cmd != "parallel_state")
 	{
 		return false;
@@ -4175,6 +4176,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["pendingIntent"]["kind"] = connectionTCP::_intentSlotKind;
 		resp["pendingReqId"] = static_cast<Json::UInt>(connectionTCP::_clientPendingReqId);
 		resp["pendingKind"] = connectionTCP::_clientPendingKind;
+		// CLIENT: why its last intent was refused. The flash fades (and is
+		// swallowed outright off the player side), so this is the only stable
+		// readout of a deny REASON. `clear_deny` resets it.
+		resp["lastDenyReason"] = connectionTCP::_clientLastDenyReason;
+		resp["lastDenyWarning"] = connectionTCP::_clientLastDenyWarning;
+		if (req.get("clear_deny", false).asBool())
+		{
+			connectionTCP::clearClientLastDeny();
+		}
 		// PRD-P7: walk fast-forward + display flow control.
 		//   fastForward     - is the walk/turn/fall interval pinned to 0 right now
 		//   chainSkippable  - would a new input be DEFERRED rather than refused
@@ -4206,6 +4216,66 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			pend.append(js);
 		}
 		resp["pendingAdmits"] = pend;
+		// PRD-P8: the end-turn readiness tally.
+		//   readySeats / autoSeats - the two seat-indexed bits, as seat lists
+		//   readyCount / seatCount - the tally the UI renders ("END TURN r/n")
+		//   commitBlocked          - why coopCheckSideCommit() last refused
+		//                            ("" = it did not, or it committed)
+		//   reserve / kneelReserve - this machine's OWN reserve, which parallel
+		//                            mode stops mirroring across the wire
+		//   chainReserve*          - the reserve override the running client
+		//                            intent installed (-1 = none)
+		connectionTCP::ensureEndTurnSeats();
+		{
+			const int seats = std::max(1, connectionTCP::seatCount());
+			Json::Value ready(Json::arrayValue), autos(Json::arrayValue);
+			for (int s = 0; s < seats; ++s)
+			{
+				if (connectionTCP::_endTurnReady[(size_t)s]) ready.append(s);
+				if (connectionTCP::_endTurnAuto[(size_t)s]) autos.append(s);
+			}
+			resp["readySeats"] = ready;
+			resp["autoSeats"] = autos;
+			resp["readyCount"] = connectionTCP::endTurnReadyCount();
+			resp["seatCount"] = seats;
+			resp["allReady"] = connectionTCP::endTurnAllReady();
+			resp["localSeat"] = connectionTCP::localSeat();
+			resp["localReady"] = connectionTCP::endTurnSeatReady(connectionTCP::localSeat());
+		}
+		resp["commitBlocked"] = connectionTCP::_commitBlocked;
+		resp["commitBlocked"] = connectionTCP::_commitBlocked;
+		resp["reserve"] = (int)sbg->getTUReserved();
+		resp["kneelReserve"] = sbg->getKneelReserved();
+		resp["chainReserve"] = bg ? bg->coopChainReserveMode() : -1;
+		resp["chainReserveUnit"] = bg ? bg->coopChainReserveUnit() : -1;
+		resp["ok"] = true;
+	}
+	else if (cmd == "battle_reserve")
+	{
+		// PRD-P8 §5: read / set THIS machine's reserve mode, through the very
+		// send path the reserve buttons use (BattlescapeState::coopSendReserveState)
+		// - so a test proves the SUPPRESSION, not just the local setting.
+		if (!bg)
+		{
+			resp["error"] = "no battle game";
+			return true;
+		}
+		if (req.isMember("mode"))
+		{
+			const std::string m = req["mode"].asString();
+			const BattleActionType bt = m == "snap" ? BA_SNAPSHOT
+									  : m == "aimed" ? BA_AIMEDSHOT
+									  : m == "auto" ? BA_AUTOSHOT : BA_NONE;
+			bg->setTUReserved(bt);
+			if (bstate) bstate->coopSendReserveState(false);
+		}
+		if (req.isMember("kneel"))
+		{
+			bg->setKneelReserved(req["kneel"].asBool());
+			if (bstate) bstate->coopSendReserveState(true);
+		}
+		resp["reserve"] = (int)sbg->getTUReserved();
+		resp["kneelReserve"] = sbg->getKneelReserved();
 		resp["ok"] = true;
 	}
 	return true;

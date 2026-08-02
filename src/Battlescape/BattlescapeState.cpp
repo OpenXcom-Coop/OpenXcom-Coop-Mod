@@ -255,6 +255,13 @@ BattlescapeState::BattlescapeState() :
 
 	_txtDebug = new Text(300, 10, 20, 0);
 	_txtTooltip = new Text(300, 10, x + 2, y - 10);
+	// coop (PRD-P8): the readiness tally, right-aligned so it ends flush with the
+	// END TURN button (x + 240 .. x + 272) it belongs to. Same row as the tooltip,
+	// which is left-aligned from x + 2 and only visible on hover.
+	_txtCoopEndTurn = new Text(120, 9, x + 152, y - 10);
+	_coopTallyReady = -1;
+	_coopTallySeats = -1;
+	_coopTallyLocalReady = false;
 
 	// Palette transformations
 	auto* enviro = _save->getEnviroEffects();
@@ -388,6 +395,18 @@ BattlescapeState::BattlescapeState() :
 	add(_warning, "warning", "battlescape", _icons);
 	add(_txtDebug);
 	add(_txtTooltip, "textTooltip", "battlescape", _icons);
+	// coop (PRD-P8): borrows the tooltip's interface element for its COLOUR only -
+	// geometry is re-applied afterwards, because add() would otherwise move this
+	// text on top of the tooltip (the element carries x/y/w/h). Right-aligned so
+	// it ends flush with the END TURN button; hidden until a seat arms.
+	add(_txtCoopEndTurn, "textTooltip", "battlescape", _icons);
+	_txtCoopEndTurn->setWidth(120);
+	_txtCoopEndTurn->setHeight(9);
+	_txtCoopEndTurn->setX(x + 152);
+	_txtCoopEndTurn->setY(y - 10);
+	_txtCoopEndTurn->setAlign(ALIGN_RIGHT);
+	_txtCoopEndTurn->setHighContrast(true);
+	_txtCoopEndTurn->setVisible(false);
 	add(_btnLaunch);
 	_game->getMod()->getSurfaceSet("SPICONS.DAT")->getFrame(0)->blitNShade(_btnLaunch, 0, 0);
 	add(_btnPsi);
@@ -562,6 +581,12 @@ BattlescapeState::BattlescapeState() :
 	_btnEndTurn->setTooltip("STR_END_TURN");
 	_btnEndTurn->onMouseIn((ActionHandler)&BattlescapeState::txtTooltipInEndTurn);
 	_btnEndTurn->onMouseOut((ActionHandler)&BattlescapeState::txtTooltipOut);
+	// coop (PRD-P8): the parallel END TURN is a latching readiness toggle, so the
+	// button has to be able to SHOW that it is armed. INVERT_TOGGLE only enables
+	// the explicit toggle() call updateCoopEndTurnTally() makes - mousePress and
+	// mouseRelease both look for INVERT_CLICK, so click behaviour (and therefore
+	// classic co-op and single player) is byte-identical.
+	_btnEndTurn->allowToggleInversion();
 
 	_btnAbort->onMouseClick((ActionHandler)&BattlescapeState::btnAbortClick);
 	_btnAbort->onKeyboardPress((ActionHandler)&BattlescapeState::btnAbortClick, Options::keyBattleAbort);
@@ -1914,6 +1939,10 @@ void BattlescapeState::think()
 			}
 
 
+			// coop (PRD-P8): the readiness lamp + tally. Cheap - it early-outs
+			// unless the counts actually moved.
+			updateCoopEndTurnTally();
+
 			_animTimer->think(this, 0);
 			_gameTimer->think(this, 0);
 			if (popped)
@@ -3008,14 +3037,6 @@ void BattlescapeState::btnHelpClick(Action *)
 void BattlescapeState::btnEndTurnClick(Action *)
 {
 
-	// coop (PRD-P5 §4): during a parallel player side only the HOST closes the
-	// side. The client's END TURN is swallowed here until PRD-P8 lands the
-	// per-seat readiness gate + tally.
-	if (connectionTCP::parallelInputBlocked())
-	{
-		return;
-	}
-
 	// hotseat
 	if (_game->getCoopMod()->_isHotseatActive == true)
 	{
@@ -3115,33 +3136,17 @@ void BattlescapeState::btnEndTurnClick(Action *)
 
 	}
 
-	// coop (PRD-P5 §5): parallel mode has NO mid-side hand-off. Only the host gets
-	// here (the client's press was swallowed above), and its press closes the whole
-	// player side straight away - the very flow the host's `PlayerTurnYour` receive
-	// branch used to run once the client had also passed
-	// (connectionTCP.cpp, stateString == "PlayerTurnYour", host branch). No
-	// `PlayerTurnYour` is sent: BattlescapeGame::endTurn() ships `endTurn` (which
-	// carries the RNG seed in parallel mode) and NextTurnState::close ships
-	// `next_turn` with the full unit/tile bulk state, so the boundary reseed and
-	// the display safety net both survive the hand-off's removal.
+	// coop (PRD-P8): parallel mode has NO mid-side hand-off AND no side owner.
+	// BOTH machines reach this handler now (PRD-P5's client swallow is gone), and
+	// on either one the press does exactly one thing: arm or disarm THIS seat's
+	// readiness. The side is closed by connectionTCP::coopCheckSideCommit() on the
+	// executor's tick, once every seat is ready, the arbiter is idle and the
+	// peer's display has drained - PRD-P5's direct close from here (which only the
+	// host could reach, and which could not wait for the peer) moved there whole.
 	if (_game->getCoopMod()->parallelTurnActive() && _game->getCoopMod()->getCoopStatic() == true && !_save->isPreview())
 	{
-		// coop (PRD-P6): the side is committing from here until the boundary
-		// packet goes out. No action may be admitted in that window - a client
-		// intent that arrives now is denied `turn_over`.
-		connectionTCP::_sideCommitInProgress = true;
-
-		// the host remains the executor for the AI side that follows
-		_game->getCoopMod()->_isActivePlayerSync = true;
-		_game->getCoopMod()->_isActiveAISync = true;
-		_game->getCoopMod()->_battleInit = false;
-
-		// the per-turn co-op init handshake must re-arm from scratch, exactly as it
-		// does on the classic path
-		_game->getCoopMod()->_waitBH = false;
-		_game->getCoopMod()->_waitBC = false;
-
-		endTurnCoop();
+		_game->getCoopMod()->toggleEndTurnReady();
+		updateCoopEndTurnTally();
 		return;
 	}
 
@@ -3843,14 +3848,7 @@ void BattlescapeState::btnReserveClick(Action *action)
 	}
 
 	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _battleGame->isYourTurn == 2)
-	{
-		Json::Value obj;
-		obj["state"] = "TU_COOP";
-		obj["reverse"] = (int)_save->getTUReserved();
-
-		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-	}
+	coopSendReserveState(false);
 
 }
 
@@ -5125,7 +5123,95 @@ void BattlescapeState::moveCoopInventory(std::string ammos_str, std::string item
 void BattlescapeState::showCoopWarning(const std::string &message)
 {
 	_warning->showMessage(message, -1);
-	
+
+}
+
+/**
+ * coop (PRD-P8): repaints the END TURN readiness lamp and the tally.
+ *
+ * Two surfaces, both driven from connectionTCP's seat-indexed tally:
+ *  - the END TURN button is INVERTED while THIS machine is armed, which is the
+ *    only "my press did something" feedback a latching toggle can give;
+ *  - a small right-aligned "END TURN 1/2" above the button, visible while at
+ *    least one seat is armed. Deliberately NOT on the _warning widget (PRD-P8
+ *    §4): that one fades after a few seconds, and a player who is waiting needs
+ *    the count to stay on screen.
+ *
+ * The local seat's bit is whatever this machine last set, so a client shows its
+ * own press optimistically and the host's echoed tally confirms (or quietly
+ * undoes) it.
+ */
+void BattlescapeState::updateCoopEndTurnTally()
+{
+	if (!connectionTCP::parallelTurnActive() || _save->isPreview())
+	{
+		if (_coopTallySeats != -1)
+		{
+			_txtCoopEndTurn->setVisible(false);
+			_btnEndTurn->toggle(false);
+			_coopTallyReady = _coopTallySeats = -1;
+			_coopTallyLocalReady = false;
+		}
+		return;
+	}
+
+	connectionTCP::ensureEndTurnSeats();
+	const int seats = std::max(1, connectionTCP::seatCount());
+	const int ready = connectionTCP::endTurnReadyCount();
+	const bool mine = connectionTCP::endTurnSeatReady(connectionTCP::localSeat());
+	if (ready == _coopTallyReady && seats == _coopTallySeats && mine == _coopTallyLocalReady)
+	{
+		return;
+	}
+	_coopTallyReady = ready;
+	_coopTallySeats = seats;
+	_coopTallyLocalReady = mine;
+
+	_btnEndTurn->toggle(mine);
+	if (ready > 0)
+	{
+		_txtCoopEndTurn->setText(tr("STR_COOP_END_TURN_TALLY")
+			.arg(ready).arg(seats));
+		_txtCoopEndTurn->setVisible(true);
+	}
+	else
+	{
+		_txtCoopEndTurn->setVisible(false);
+	}
+}
+
+/**
+ * coop (PRD-P8 §5): the classic reserve mirror.
+ *
+ * Classic co-op keeps ONE reserve setting across both machines, because only one
+ * of them is acting at a time. In parallel mode both are, so one player's reserve
+ * gating the other's soldiers is simply wrong - the setting becomes per-machine
+ * and the value that matters rides `action_intent` per action instead
+ * (PROTOCOL.md). Factored out of the two button handlers so the suppression is
+ * decided in exactly one place.
+ */
+void BattlescapeState::coopSendReserveState(bool kneel)
+{
+	if (_game->getCoopMod()->getCoopStatic() != true || _battleGame->isYourTurn != 2)
+	{
+		return;
+	}
+	if (connectionTCP::parallelTurnActive())
+	{
+		return;
+	}
+	Json::Value obj;
+	if (kneel)
+	{
+		obj["state"] = "kneel_reserved";
+		obj["battle_action"] = _save->getKneelReserved();
+	}
+	else
+	{
+		obj["state"] = "TU_COOP";
+		obj["reverse"] = (int)_save->getTUReserved();
+	}
+	_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 }
 
 std::string BattlescapeState::getCoopWarningText() const
@@ -6336,14 +6422,7 @@ void BattlescapeState::btnReserveKneelClick(Action *action)
 		}
 
 		// COOP
-		if (_game->getCoopMod()->getCoopStatic() == true && _battleGame->isYourTurn == 2)
-		{
-			Json::Value obj;
-			obj["state"] = "kneel_reserved";
-			obj["battle_action"] = _save->getKneelReserved();
-
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
+		coopSendReserveState(true);
 
 	}
 }

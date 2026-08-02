@@ -243,10 +243,18 @@ std::uint32_t connectionTCP::_clientReqSeq = 0;
 std::uint32_t connectionTCP::_clientPendingReqId = 0;
 std::string connectionTCP::_clientPendingKind;
 std::uint32_t connectionTCP::_clientPendingSentTicks = 0;
+std::string connectionTCP::_clientLastDenyReason;
+std::string connectionTCP::_clientLastDenyWarning;
 // coop (PRD-P7): pending-admit slots and the two display-flow counters.
 std::vector<connectionTCP::CoopPendingIntent> connectionTCP::_pendingAdmits;
 std::uint32_t connectionTCP::_openChainSeq = 0;
 std::uint32_t connectionTCP::_clientDisplaySeq = 0;
+// coop (PRD-P8): the end-turn readiness tally. Reset with the arbiter.
+std::vector<bool> connectionTCP::_endTurnReady;
+std::vector<bool> connectionTCP::_endTurnAuto;
+std::uint32_t connectionTCP::_endTurnTallySideSeq = 0;
+std::string connectionTCP::_endTurnTallySent;
+std::string connectionTCP::_commitBlocked;
 
 bool connectionTCP::_coopCampaign = false;
 
@@ -2077,6 +2085,15 @@ void connectionTCP::updateCoopTask()
 	{
 		coopCloseActionChain();
 		coopAdmitPendingIntents();
+		// coop (PRD-P8): the readiness tally and the side commit, in that order.
+		// Auto readiness is re-derived first (a seat whose last unit just died is
+		// ready NOW), the echo goes out only when the tally actually moved, and
+		// the commit is re-evaluated LAST - after coopAdmitPendingIntents(), so an
+		// intent admitted this same tick has already cleared its seat's ready bit
+		// and the commit it was racing (E14) simply does not fire.
+		recomputeEndTurnAuto();
+		coopCheckSideCommit();
+		sendEndTurnTallyIfChanged();
 	}
 
 	// COOP living quarters: re-report our guest headcount whenever it changes.
@@ -5625,8 +5642,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 				_game->getSavedGame()->getSavedBattle()->getBattleState()->setSelectedCoopUnit(actor_id);
 
-				_game->getSavedGame()->getSavedBattle()->setKneelReserved(kneel);
-				_game->getSavedGame()->getSavedBattle()->setTUReserved((BattleActionType)reverse);
+				// coop (PRD-P8 §5): the reserve fields piggybacked on this packet
+				// are classic-only. PRD-P5 already stopped SENDING `selected_unit`
+				// in parallel mode (the peer's selection is its own there), so this
+				// is dead code in parallel today - guarded anyway, because it is a
+				// second door into the same per-machine setting.
+				if (!parallelTurnActive())
+				{
+					_game->getSavedGame()->getSavedBattle()->setKneelReserved(kneel);
+					_game->getSavedGame()->getSavedBattle()->setTUReserved((BattleActionType)reverse);
+				}
 			}
 		}
 	}
@@ -6067,18 +6092,30 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		gamePaused = 0;
 	}
 
+	// coop (PRD-P8 §5): the reserve mirror is a CLASSIC-mode packet. In parallel
+	// mode reserve is a per-machine setting - both players are acting at once, so
+	// one player's reserve has no business gating the other's soldiers - and the
+	// setting that matters travels per-action on `action_intent` instead. The
+	// senders are suppressed there (BattlescapeState::coopSendReserveState); these
+	// two guards are belt-and-braces for a peer that suppressed neither.
 	if (stateString == "TU_COOP")
 	{
-		int reverse = obj["reverse"].asInt();
+		if (!parallelTurnActive())
+		{
+			int reverse = obj["reverse"].asInt();
 
-		_game->getSavedGame()->getSavedBattle()->setTUReserved((BattleActionType)reverse);
+			_game->getSavedGame()->getSavedBattle()->setTUReserved((BattleActionType)reverse);
+		}
 	}
 
 	if (stateString == "kneel_reserved")
 	{
-		bool battle_action = obj["battle_action"].asBool();
+		if (!parallelTurnActive())
+		{
+			bool battle_action = obj["battle_action"].asBool();
 
-		_game->getSavedGame()->getSavedBattle()->setKneelReserved(battle_action);
+			_game->getSavedGame()->getSavedBattle()->setKneelReserved(battle_action);
+		}
 	}
 
 	// coop (PRD-P6): the client asks, the host decides and executes. All three
@@ -6100,13 +6137,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			std::string denyReason;
 			std::string denyWarning;
+			// the validator's short cause, for the log only - "invalid" alone
+			// names five different branches and is useless in a bug report.
+			std::string denyDetail;
 			// coop (PRD-P7): true = the intent was DEFERRED, not answered. The ack
 			// is owed when the pending slot is admitted, so nothing travels now.
 			bool pended = false;
 
-			if (!bg || sideSeq != _sideSeq || battle->getSide() != FACTION_PLAYER)
+			if (!bg || sideSeq != _sideSeq || battle->getSide() != FACTION_PLAYER
+				|| _sideCommitInProgress)
 			{
-				// a stale side token, or the AI already holds the field
+				// a stale side token, the AI already holds the field, or (PRD-P8
+				// E14) the side commit won the race and this intent lost it
 				denyReason = "turn_over";
 				denyWarning = "STR_COOP_TURN_OVER";
 			}
@@ -6116,6 +6158,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (!bad.empty())
 				{
 					denyReason = "invalid";
+					denyDetail = bad;
 				}
 				else if (!canAdmitAction())
 				{
@@ -6138,6 +6181,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			else if (!denyReason.empty())
 			{
+				Log(LOG_INFO) << "coop: action_intent req " << reqId << " (seat "
+							  << seat << ", " << obj.get("kind", "").asString()
+							  << " unit " << obj.get("unit_id", -1).asInt()
+							  << ") denied " << denyReason
+							  << (denyDetail.empty() ? "" : "/" + denyDetail);
 				Json::Value root;
 				root["state"] = "action_deny";
 				root["req_id"] = static_cast<Json::UInt>(reqId);
@@ -6151,6 +6199,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_intentSlotReqId = reqId;
 				_intentSlotSeat = seat;
 				_intentSlotKind = obj.get("kind", "").asString();
+
+				// coop (PRD-P8): a seat that is still acting is not done. This is
+				// the E14 abort: the commit condition is re-evaluated on the next
+				// tick and no longer holds.
+				noteSeatActed(seat);
 
 				Json::Value ack;
 				ack["state"] = "action_ack";
@@ -6199,12 +6252,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			clearClientPendingIntent();
 			const std::string warning = obj.get("warning", "").asString();
+			// The flash fades, and off the player side BattlescapeState::warning
+			// swallows it outright - so the reason is remembered here as well.
+			_clientLastDenyReason = obj.get("reason", "").asString();
+			_clientLastDenyWarning = warning;
 			if (!warning.empty())
 			{
 				flashBattleWarning(warning);
 			}
 			Log(LOG_INFO) << "coop: action_intent req " << reqId << " denied ("
-						  << obj.get("reason", "").asString() << ")";
+						  << _clientLastDenyReason << ")";
 		}
 	}
 
@@ -6240,6 +6297,92 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (seq > peerDisplayAckedSeq && seq <= _actionSeq)
 			{
 				peerDisplayAckedSeq = seq;
+			}
+		}
+	}
+
+	// coop (PRD-P8): a seat arming or disarming its END TURN. Host-only - the
+	// tally is the executor's, and the echo (`end_turn_tally`) is what every
+	// other machine reads. Whitelisted like the rest of the arbiter traffic: it
+	// carries no sim mutation and must reach the host even mid-chain, otherwise a
+	// player could not answer while the other one was walking.
+	if (stateString == "end_turn_ready")
+	{
+		if (getHost() && parallelTurnActive())
+		{
+			const int seat = obj.get("seat", -1).asInt();
+			const bool want = obj.get("ready", false).asBool();
+			const std::uint32_t sideSeq = static_cast<std::uint32_t>(obj.get("side_seq", 0).asUInt());
+			ensureEndTurnSeats();
+			if (sideSeq != _sideSeq)
+			{
+				// a toggle aimed at a side that has already closed
+				Log(LOG_INFO) << "coop: end_turn_ready from seat " << seat
+							  << " dropped (side_seq " << sideSeq << " != " << _sideSeq << ")";
+			}
+			else if (seat >= 0 && static_cast<size_t>(seat) < _endTurnReady.size())
+			{
+				if (_endTurnReady[static_cast<size_t>(seat)] != want)
+				{
+					_endTurnReady[static_cast<size_t>(seat)] = want;
+					flashBattleWarning(want ? "STR_COOP_PEER_WANTS_END_TURN"
+											: "STR_COOP_PEER_CANCELED_END_TURN");
+				}
+			}
+		}
+	}
+
+	// coop (PRD-P8): the executor's tally echo. A machine that is not the host
+	// adopts it wholesale - including its OWN bit, which confirms (or quietly
+	// undoes) the optimistic flip its button press made.
+	if (stateString == "end_turn_tally")
+	{
+		if (!getHost())
+		{
+			const std::uint32_t sideSeq = static_cast<std::uint32_t>(obj.get("side_seq", 0).asUInt());
+			// `end_turn_tally` is whitelisted and `endTurn` is not, so a tally can
+			// overtake the boundary packet that would have advanced _sideSeq here.
+			// Accepting >= (rather than ==) is what keeps the two orders equivalent;
+			// a tally from a side already closed is the only thing dropped.
+			if (sideSeq + 1 > _endTurnTallySideSeq)
+			{
+				ensureEndTurnSeats();
+				const int seats = std::max(1, seatCount());
+				std::vector<bool> ready(_endTurnReady.size(), false);
+				std::vector<bool> autos(_endTurnAuto.size(), false);
+				const Json::Value& rs = obj["ready_seats"];
+				for (Json::ArrayIndex i = 0; i < rs.size(); ++i)
+				{
+					const int s = rs[i].asInt();
+					if (s >= 0 && static_cast<size_t>(s) < ready.size())
+						ready[static_cast<size_t>(s)] = true;
+				}
+				const Json::Value& as = obj["auto_seats"];
+				for (Json::ArrayIndex i = 0; i < as.size(); ++i)
+				{
+					const int s = as[i].asInt();
+					if (s >= 0 && static_cast<size_t>(s) < autos.size())
+						autos[static_cast<size_t>(s)] = true;
+				}
+				// Only flash for a tally that belongs to the SAME side we were
+				// already showing: the all-clear that follows a commit is a reset,
+				// not somebody cancelling.
+				const bool sameSide = (sideSeq == _endTurnTallySideSeq);
+				const int me = localSeat();
+				for (int s = 0; sameSide && s < seats; ++s)
+				{
+					if (s == me || static_cast<size_t>(s) >= ready.size())
+						continue;
+					if (ready[static_cast<size_t>(s)] != _endTurnReady[static_cast<size_t>(s)])
+					{
+						flashBattleWarning(ready[static_cast<size_t>(s)]
+							? "STR_COOP_PEER_WANTS_END_TURN"
+							: "STR_COOP_PEER_CANCELED_END_TURN");
+					}
+				}
+				_endTurnReady = ready;
+				_endTurnAuto = autos;
+				_endTurnTallySideSeq = sideSeq;
 			}
 		}
 	}
@@ -11356,8 +11499,11 @@ bool connectionTCP::parallelTurnActive()
 }
 
 // coop: "am I the non-executor machine during a parallel player side?" PRD-P5
-// used this as a blanket input gate; PRD-P6 replaced that with action intents,
-// so the only handler still gated on it is END TURN (host-only until PRD-P8).
+// used this as a blanket input gate; PRD-P6 replaced that with action intents
+// and PRD-P8 replaced its last gate (END TURN) with the readiness toggle. What
+// is left are the two classic UI-mirror packets a client must not send, because
+// they are commands to the peer and `action_intent` is what replaced them
+// (PROTOCOL.md: `action_click` / `active_grenade`).
 bool connectionTCP::parallelInputBlocked()
 {
 	return parallelTurnActive() && !getHost();
@@ -11450,7 +11596,12 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 		_sideSeq = 0;
 		_clientReqSeq = 0;
 		clearClientPendingIntent();
+		clearClientLastDeny();
 	}
+	// coop (PRD-P8): readiness is scoped to a side exactly the way _actionSeq is,
+	// so it is reset from the same call - a seat carrying "I am done" across a
+	// boundary would close the next side the instant it opened.
+	resetEndTurnReady();
 }
 
 void connectionTCP::clearClientPendingIntent()
@@ -11458,6 +11609,12 @@ void connectionTCP::clearClientPendingIntent()
 	_clientPendingReqId = 0;
 	_clientPendingKind.clear();
 	_clientPendingSentTicks = 0;
+}
+
+void connectionTCP::clearClientLastDeny()
+{
+	_clientLastDenyReason.clear();
+	_clientLastDenyWarning.clear();
 }
 
 // coop (PRD-P6): the client's send half. ONE pending slot - a second input
@@ -11685,6 +11842,10 @@ void connectionTCP::coopAdmitPendingIntents()
 		_intentSlotSeat = slot.seat;
 		_intentSlotKind = slot.kind;
 
+		// coop (PRD-P8): same rule as an immediately-admitted intent - a seat
+		// whose deferred input has just started is not done with the side.
+		noteSeatActed(slot.seat);
+
 		const std::uint32_t seq = stampAdmittedAction();
 		if (!slot.local)
 		{
@@ -11772,6 +11933,313 @@ void connectionTCP::coopEmitActionDone()
 	root["seq"] = static_cast<Json::UInt>(peerDisplayAckedSeq);
 	root["seat"] = localSeat();
 	sendTCPPacketData(root.toStyledString());
+}
+
+// ---- coop (PRD-P8): end-turn readiness gate ---------------------------------
+
+void connectionTCP::ensureEndTurnSeats()
+{
+	const size_t want = static_cast<size_t>(std::max(1, seatCount()));
+	if (_endTurnReady.size() < want)
+	{
+		_endTurnReady.resize(want, false);
+	}
+	if (_endTurnAuto.size() < want)
+	{
+		_endTurnAuto.resize(want, false);
+	}
+}
+
+/**
+ * coop (PRD-P8): everything a side boundary must forget.
+ *
+ * Deliberately co-located with the arbiter reset (resetActionArbiter calls this)
+ * rather than owning its own reset site: readiness is scoped to a side exactly
+ * the way `_actionSeq` is, and the two drifting apart is what would let a seat
+ * carry a stale "I am done" across a boundary and close the NEXT side instantly.
+ */
+void connectionTCP::resetEndTurnReady()
+{
+	_endTurnReady.assign(_endTurnReady.size(), false);
+	_endTurnAuto.assign(_endTurnAuto.size(), false);
+	_endTurnTallySideSeq = _sideSeq;
+	_endTurnTallySent.clear();
+	_commitBlocked.clear();
+}
+
+bool connectionTCP::endTurnSeatReady(int seat)
+{
+	if (seat < 0)
+	{
+		return false;
+	}
+	const size_t i = static_cast<size_t>(seat);
+	return (i < _endTurnReady.size() && _endTurnReady[i])
+		|| (i < _endTurnAuto.size() && _endTurnAuto[i]);
+}
+
+int connectionTCP::endTurnReadyCount()
+{
+	int n = 0;
+	const int seats = std::max(1, seatCount());
+	for (int s = 0; s < seats; ++s)
+	{
+		if (endTurnSeatReady(s))
+		{
+			++n;
+		}
+	}
+	return n;
+}
+
+bool connectionTCP::endTurnAllReady()
+{
+	const int seats = std::max(1, seatCount());
+	return endTurnReadyCount() >= seats;
+}
+
+/**
+ * coop (PRD-P8): auto readiness is DERIVED, not remembered.
+ *
+ * PRD-P8 §1 names three events that have to move it - a unit dying, a
+ * mind-control `setCoop` flip, an in-battle gift - and hooking each one is three
+ * chances to miss a fourth (a unit going unconscious, a stun wearing off, a
+ * spawned reinforcement). Re-deriving the whole thing from the live roster on
+ * the executor's tick is cheaper than any of those hooks and cannot miss a site:
+ * a seat is auto-ready exactly while it commands no live FACTION_PLAYER unit, so
+ * gaining one clears it for free. Explicit readiness is a separate bit and is
+ * never touched here.
+ */
+void connectionTCP::recomputeEndTurnAuto()
+{
+	ensureEndTurnSeats();
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	if (!battle)
+	{
+		return;
+	}
+	const int seats = std::max(1, seatCount());
+	std::vector<int> live(static_cast<size_t>(seats), 0);
+	for (auto* u : *battle->getUnits())
+	{
+		if (!u || u->getFaction() != FACTION_PLAYER || u->isOut())
+		{
+			continue;
+		}
+		const int seat = u->getCoop();
+		if (seat >= 0 && seat < seats)
+		{
+			++live[static_cast<size_t>(seat)];
+		}
+	}
+	for (int s = 0; s < seats; ++s)
+	{
+		_endTurnAuto[static_cast<size_t>(s)] = (live[static_cast<size_t>(s)] == 0);
+	}
+}
+
+/**
+ * coop (PRD-P8): the tally echo.
+ *
+ * PRD-P8 §1 asks for an echo "after EVERY change (incl. auto)". Sending it from
+ * the tick against a remembered signature is that, with one frame of latency and
+ * without a send call at every mutation site - the auto half in particular has no
+ * single site to hang one on (see recomputeEndTurnAuto).
+ */
+void connectionTCP::sendEndTurnTallyIfChanged()
+{
+	if (!parallelTurnActive() || !getHost())
+	{
+		return;
+	}
+	ensureEndTurnSeats();
+	const int seats = std::max(1, seatCount());
+
+	// A cheap character signature first: this runs on EVERY main-thread tick, and
+	// building a Json::Value + toStyledString() just to compare it would allocate
+	// per frame for a message that changes a handful of times per side.
+	std::string sig = std::to_string(_sideSeq) + ":" + std::to_string(seats) + ":";
+	for (int s = 0; s < seats; ++s)
+	{
+		sig += _endTurnReady[static_cast<size_t>(s)] ? 'R'
+			 : (_endTurnAuto[static_cast<size_t>(s)] ? 'A' : '.');
+	}
+	if (sig == _endTurnTallySent)
+	{
+		return;
+	}
+	_endTurnTallySent = sig;
+	_endTurnTallySideSeq = _sideSeq;
+
+	Json::Value root;
+	root["state"] = "end_turn_tally";
+	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+	root["ready_seats"] = Json::Value(Json::arrayValue);
+	root["auto_seats"] = Json::Value(Json::arrayValue);
+	for (int s = 0; s < seats; ++s)
+	{
+		if (_endTurnReady[static_cast<size_t>(s)])
+		{
+			root["ready_seats"].append(s);
+		}
+		if (_endTurnAuto[static_cast<size_t>(s)])
+		{
+			root["auto_seats"].append(s);
+		}
+	}
+	root["total"] = seats;
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P8): a seat that just had an action admitted did not mean "I am
+ * done". Only the EXPLICIT bit is cleared - auto readiness is derived from the
+ * roster and a seat with no units left cannot have had an action admitted.
+ */
+void connectionTCP::noteSeatActed(int seat)
+{
+	if (!parallelTurnActive() || !getHost() || seat < 0)
+	{
+		return;
+	}
+	ensureEndTurnSeats();
+	const size_t i = static_cast<size_t>(seat);
+	if (i < _endTurnReady.size() && _endTurnReady[i])
+	{
+		_endTurnReady[i] = false;
+		// the tick's echo picks the change up; nothing else has to remember to.
+	}
+}
+
+/**
+ * coop (PRD-P8): the END TURN button during a parallel side.
+ *
+ * There is no side owner any more, so the press cannot close anything: it arms
+ * (or disarms) THIS machine's readiness. The host owns the tally outright, a
+ * client ships `end_turn_ready` and shows its own bit optimistically until the
+ * echo confirms it.
+ */
+void connectionTCP::toggleEndTurnReady()
+{
+	if (!parallelTurnActive())
+	{
+		return;
+	}
+	ensureEndTurnSeats();
+	const int seat = localSeat();
+	if (seat < 0 || static_cast<size_t>(seat) >= _endTurnReady.size())
+	{
+		return;
+	}
+	const bool want = !_endTurnReady[static_cast<size_t>(seat)];
+	_endTurnReady[static_cast<size_t>(seat)] = want;
+
+	if (getHost())
+	{
+		// the tick echoes the new tally; the commit is re-evaluated there too.
+		return;
+	}
+	Json::Value root;
+	root["state"] = "end_turn_ready";
+	root["seat"] = seat;
+	root["ready"] = want;
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	root["turn"] = battle ? battle->getTurn() : 0;
+	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P8): the side commit.
+ *
+ * Four terms, in the order PROTOCOL.md "Ordering invariants" 4 lists them: every
+ * seat ready, the arbiter idle (no chain, receive gate open, no commit already
+ * running), and the peer's DISPLAY drained - the last one is why this lives on
+ * the tick rather than inside the toggle handler. The client can be several
+ * chains behind when the last seat arms, and closing the side then would tear
+ * down the very state it is still drawing.
+ *
+ * Everything after the barrier is PRD-P5's verified boundary flow, moved here
+ * wholesale from btnEndTurnClick: `_sideSeq` is NOT bumped here, because
+ * BattlescapeGame::endTurn() - which endTurnCoop() ultimately reaches - is the
+ * site that both bumps it and stamps it on the `endTurn` packet the client reads
+ * (PRD-P6 as-built). Bumping it twice would leave every client intent stale for
+ * the whole next side.
+ */
+void connectionTCP::coopCheckSideCommit()
+{
+	_commitBlocked.clear();
+	if (!parallelTurnActive() || !getHost() || !_game)
+	{
+		_commitBlocked = "not_executor";
+		return;
+	}
+	if (_sideCommitInProgress)
+	{
+		_commitBlocked = "side_commit";
+		return;
+	}
+	SavedGame* save = _game->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	BattlescapeState* bstate = battle ? battle->getBattleState() : nullptr;
+	if (!bg || !bstate || battle->isPreview() || battle->getSide() != FACTION_PLAYER)
+	{
+		_commitBlocked = "no_side";
+		return;
+	}
+	if (!_battleInit)
+	{
+		// the per-turn co-op handshake has not re-armed yet
+		_commitBlocked = "battle_init";
+		return;
+	}
+	if (!_game->isState(bstate))
+	{
+		// a modal is up (inventory, pause, a vote): the player is not looking at
+		// the battle, so do not pull it out from under them.
+		_commitBlocked = "not_top_state";
+		return;
+	}
+	ensureEndTurnSeats();
+	if (!endTurnAllReady())
+	{
+		_commitBlocked = "not_ready";
+		return;
+	}
+	if (!canAdmitAction())
+	{
+		_commitBlocked = _admitBlocked.empty() ? "admit" : _admitBlocked;
+		return;
+	}
+	if (peerDisplayAckedSeq < _actionSeq)
+	{
+		// PROTOCOL.md `action_done`: the end-turn display drain barrier.
+		_commitBlocked = "display_backlog";
+		return;
+	}
+
+	Log(LOG_INFO) << "coop (PRD-P8): all " << seatCount() << " seat(s) ready - "
+				  << "committing the parallel player side (turn "
+				  << battle->getTurn() << ", side_seq " << _sideSeq << ")";
+
+	// From here nothing may be admitted: a client intent that arrives now is
+	// denied `turn_over`, and so is anything still deferred (E14).
+	_sideCommitInProgress = true;
+	coopDenyPendingIntents("turn_over");
+
+	// PRD-P5's verified boundary flow. The host stays the executor for the AI
+	// side that follows; the per-turn co-op init handshake re-arms from scratch,
+	// exactly as it does on the classic path.
+	_isActivePlayerSync = true;
+	_isActiveAISync = true;
+	_battleInit = false;
+	_waitBH = false;
+	_waitBC = false;
+
+	bstate->endTurnCoop();
 }
 
 // PRD-J01: active roster size (host + clients). Falls back to the legacy
