@@ -2462,6 +2462,18 @@ int *SavedBattleGame::getCurrentItemId()
 }
 
 /**
+ * Gets the current item ID without handing out the counter itself.
+ * PRD-P2: the co-op drift tripwire stamps this on the wire. EVERY `new BattleItem`
+ * advances it (BattleItem's ctor post-increments), even a transient one that is
+ * never added to _items, so an uneven mint on one machine shows up here at once.
+ * @return Current item ID value.
+ */
+int SavedBattleGame::getCurrentItemIdValue() const
+{
+	return _itemId;
+}
+
+/**
  * Finds a fitting node where a unit can spawn.
  * @param nodeRank Rank of the node (this is not the rank of the alien!).
  * @param unit Pointer to the unit (to get its position).

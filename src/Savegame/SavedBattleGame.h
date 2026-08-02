@@ -473,6 +473,8 @@ public:
 	bool allObjectivesDestroyed() const;
 	/// Gets the current item ID.
 	int *getCurrentItemId();
+	/// Gets the current item ID value (const read; the co-op drift tripwire).
+	int getCurrentItemIdValue() const;
 	/// Gets a spawn node.
 	Node *getSpawnNode(int nodeRank, BattleUnit *unit);
 	/// Gets a patrol node.

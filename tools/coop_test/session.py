@@ -292,6 +292,54 @@ def resume_campaign_battle(host, client, save_file, port="47900",
         f"  client: {_detail(client)}")
 
 
+# ---- PRD-P2: the battlescape drift terms -----------------------------------
+
+def battle_checksum(gc):
+    """One machine's two battle drift terms, read off `battle_state`.
+
+    Returns (itemIdCounter, battleCensus) - exactly what SharedEcon stamps on the
+    per-turn `next_turn` packet as chkBattleItemId / chkBattleCensus:
+
+      itemIdCounter  SavedBattleGame::_itemId, the next id this machine will mint.
+                     EVERY `new BattleItem` advances it, so a mint that happens on
+                     one machine only shows up here immediately.
+      battleCensus   an order-independent sum over getItems() of the item identity
+                     the wire protocol matches on (id + type + owner unit id).
+
+    Both are -1 when no battle is live.
+    """
+    b = gc.cmd({"cmd": "battle_state"})
+    for key in ("itemIdCounter", "battleCensus"):
+        assert key in b, (
+            f"battle_state carries no {key!r} - PRD-P2's harness exposure is "
+            f"missing, so this assertion would be vacuous: {sorted(b)}")
+    return b["itemIdCounter"], b["battleCensus"]
+
+
+def assert_battle_synced(host, client, what=""):
+    """PRD-P2's invariant: after every replicated action the two machines hold the
+    same item-id counter AND the same item census.
+
+    This is the harness-side reading of the same two terms the in-game tripwire
+    compares on `next_turn` - direct, so a test can check it after a single action
+    instead of waiting for a turn to roll over. Returns the (agreed) pair.
+    """
+    h = battle_checksum(host)
+    c = battle_checksum(client)
+    tag = f" {what}" if what else ""
+    assert h[0] >= 0 and c[0] >= 0, (
+        f"battle drift terms{tag}: no live battle to compare "
+        f"(host={h}, client={c})")
+    assert h == c, (
+        f"BATTLE DRIFT{tag}: the two machines no longer agree.\n"
+        f"    itemIdCounter host={h[0]} client={c[0]}"
+        f"{'  <-- an item was minted on one machine only' if h[0] != c[0] else ''}\n"
+        f"    battleCensus  host={h[1]} client={c[1]}"
+        f"{'  <-- the (id, type, owner) item sets differ' if h[1] != c[1] else ''}\n"
+        f"  `battle_items` on both machines shows which item.")
+    return h
+
+
 # ---- ending a co-op battle ------------------------------------------------
 #
 # dismiss_popup closes the popup types it knows about and GENERICALLY pops

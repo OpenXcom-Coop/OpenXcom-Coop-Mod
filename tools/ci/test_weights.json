@@ -1,5 +1,6 @@
 {
   "boot_check": 11.8,
+  "test_battle_tripwire": 24.6,
   "test_bug_fixes": 7.8,
   "test_client_zero_disk": 15.5,
   "test_coop_base_equip_visibility": 8.8,

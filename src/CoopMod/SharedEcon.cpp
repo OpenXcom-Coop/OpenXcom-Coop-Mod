@@ -71,6 +71,11 @@
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/Country.h"
 #include "../Savegame/WeightedOptions.h"
+#include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/BattleItem.h"
+#include "../Savegame/BattleUnit.h"
+#include "../Battlescape/BattlescapeGame.h"
+#include "../Battlescape/BattlescapeState.h"
 #include "../Mod/RuleUfo.h"
 #include "../Mod/RuleCraftWeapon.h"
 #include "../Mod/RuleCountry.h"
@@ -3550,6 +3555,132 @@ void worldAggregates(SavedGame* save, int64_t& items, int64_t& soldiers,
 }
 } // namespace
 
+// ---- PRD-P2: battlescape drift tripwire (3a stamp + 3b compare) --------------
+namespace {
+bool g_battleDesyncSeen = false;      // harness flag: the tripwire fired here
+bool g_battleMismatchLogged = false;  // one log line per mismatch EPISODE
+int64_t g_lastBattleNotifyMs = -1;    // player notify throttle (RESYNC_DEBOUNCE_MS)
+
+// FNV-1a. std::hash is implementation-defined and the two machines are not
+// necessarily the same build (Windows .exe vs the Linux AppImage), so the census
+// mix has to be spelled out to be comparable ACROSS the wire.
+uint64_t fnv1a(const std::string& s)
+{
+	uint64_t h = 1469598103934665603ULL;
+	for (char c : s)
+	{
+		h ^= (uint64_t)(unsigned char)c;
+		h *= 1099511628211ULL;
+	}
+	return h;
+}
+} // namespace
+
+bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census)
+{
+	itemIdCounter = -1;
+	census = -1;
+	if (!game || !game->getSavedGame()) return false;
+	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
+	if (!battle) return false;
+
+	itemIdCounter = battle->getCurrentItemIdValue();
+	uint64_t sum = 0;
+	for (BattleItem* item : *battle->getItems())
+	{
+		if (!item) continue;
+		uint64_t h = fnv1a(item->getRules() ? item->getRules()->getType() : std::string("?"));
+		h = (h ^ (uint64_t)(int64_t)item->getId()) * 1099511628211ULL;
+		h = (h ^ (uint64_t)(int64_t)(item->getOwner() ? item->getOwner()->getId() : -1)) * 1099511628211ULL;
+		// SUM, not a rolling hash: _items order is not replicated, so the term must
+		// not depend on it. Identity (id + type + owner) is what has to agree.
+		sum += h;
+	}
+	// Fold into the non-negative range: a negative wire value is the "the peer did
+	// not stamp this" sentinel and must never be producible by a real battle.
+	census = (int64_t)(sum & 0x3FFFFFFFFFFFFFFFULL);
+	return true;
+}
+
+void attachBattleChecksum(Game* game, Json::Value& msg)
+{
+	int64_t itemIdCounter, census;
+	if (!battleChecksumTerms(game, itemIdCounter, census)) return; // no live battle
+	msg["chkBattleItemId"] = Json::Value::Int64(itemIdCounter);
+	msg["chkBattleCensus"] = Json::Value::Int64(census);
+}
+
+void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string& context)
+{
+	const int64_t peerItemId = msg.get("chkBattleItemId", -1).asInt64();
+	const int64_t peerCensus = msg.get("chkBattleCensus", -1).asInt64();
+	if (peerItemId < 0 && peerCensus < 0) return; // old peer, or it has no battle
+
+	int64_t myItemId, myCensus;
+	if (!battleChecksumTerms(game, myItemId, myCensus)) return; // no battle here
+
+	if ((peerItemId < 0 || peerItemId == myItemId)
+		&& (peerCensus < 0 || peerCensus == myCensus))
+	{
+		if (g_battleMismatchLogged)
+		{
+			Log(LOG_INFO) << "[COOP] battle checksum back in agreement with the peer";
+			g_battleMismatchLogged = false;
+		}
+		return;
+	}
+
+	// DETECTION ONLY. Whatever diverged, the battle cannot be repaired in place:
+	// sharedResyncStream replaces this machine's entire state stack, which mid-battle
+	// means destroying the running battle. Report and let the players finish.
+	g_battleDesyncSeen = true;
+	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
+	if (!g_battleMismatchLogged)
+	{
+		g_battleMismatchLogged = true;
+		BattlescapeGame* bg = battle->getBattleGame();
+		const BattleUnit* sel = battle->getSelectedUnit();
+		// "Last action context" is what exists pre-PRD-P6: the packet that carried
+		// the stamp, the turn, and this machine's live action/selection. P6's
+		// action_seq replaces the last two once intents are numbered.
+		Log(LOG_ERROR) << "[COOP] BATTLE DESYNC on " << context
+			<< ": itemId peer=" << peerItemId << " local=" << myItemId
+			<< ", census peer=" << peerCensus << " local=" << myCensus
+			<< ", turn=" << battle->getTurn()
+			<< ", side=" << (int)battle->getSide()
+			<< ", items=" << (int)battle->getItems()->size()
+			<< ", localAction=" << (bg ? (int)bg->getCurrentAction()->type : -1)
+			<< ", selected=" << (sel ? sel->getId() : -1);
+	}
+
+	// One player-facing notify per debounce window - the same constant the world
+	// checksum debounces on - so a term that stays wrong for the rest of the battle
+	// does not spam the map.
+	const int64_t nowMs = steadyMs();
+	if (g_lastBattleNotifyMs >= 0 && nowMs - g_lastBattleNotifyMs < RESYNC_DEBOUNCE_MS) return;
+	g_lastBattleNotifyMs = nowMs;
+	if (BattlescapeState* bs = battle->getBattleState())
+	{
+		// The in-battle warning banner, NOT a modal: pushing a CoopState over a live
+		// battle is the dialog/dismiss trap, and the tripwire must never disturb the
+		// state stack it is diagnosing. warningLongRaw() self-suppresses while the
+		// peer is acting (isYourTurn == 1); the log line above is unconditional.
+		bs->warningLongRaw("CO-OP DESYNC DETECTED - SEE openxcom.log");
+	}
+}
+
+bool battleDesyncSeen()
+{
+	return g_battleDesyncSeen;
+}
+
+void resetBattleDesyncSeen()
+{
+	g_battleDesyncSeen = false;
+	g_battleMismatchLogged = false;
+	g_lastBattleNotifyMs = -1;
+}
+
 void attachWorldChecksum(Game* game, Json::Value& msg)
 {
 	if (!game || !game->getSavedGame()) return;
@@ -3571,6 +3702,11 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 	// issue #78: an orphaned replica mission site (a despawn the snapshot missed)
 	// must trip the auto-repair too. Count only - the restream is the repair.
 	msg["chkSites"] = (int)save->getMissionSites()->size();
+
+	// PRD-P2 3a: the battle terms ride along whenever a battle is live, so the
+	// harness' shared_checksum hook exposes them without a second command. No-op on
+	// the geoscape heartbeat, where there is no battle to stamp.
+	attachBattleChecksum(game, msg);
 }
 
 bool requestResync(Game* game, const std::string& why, bool force)
@@ -3603,6 +3739,10 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 {
 	if (!game || !game->getSavedGame()) return;
 	if (!msg.isMember("chkFunds")) return; // older/non-SHARED host
+	// PRD-P2 3a: the battle terms are compared on their OWN path and are deliberately
+	// NOT folded into the world condition below - that condition's repair is
+	// sharedResyncStream, and a mid-battle world restream tears down the live battle.
+	verifyBattleChecksum(game, msg, "world checksum");
 	SavedGame* save = game->getSavedGame();
 	int64_t hostFunds = msg["chkFunds"].asInt64();
 	int hostBases = msg.get("chkBases", -1).asInt();
@@ -3725,6 +3865,7 @@ void resetResyncStats()
 	g_mismatchLogged = false;
 	g_mismatchSinceMs = -1;
 	g_lastResyncGameMin = -1;
+	resetBattleDesyncSeen(); // PRD-P2: same "clear the diagnostics" request
 }
 
 } // namespace SharedEcon
