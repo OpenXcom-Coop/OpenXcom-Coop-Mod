@@ -274,7 +274,7 @@ void UnitWalkBState::think()
 			if (_parent->getCoopMod()->getCoopGamemode() == 2 || _parent->getCoopMod()->getCoopGamemode() == 3)
 			{
 
-				if (_parent->getCurrentAction()->sneak == true)
+				if (_action.sneak == true)
 				{
 					sound = false;
 				}
@@ -339,7 +339,12 @@ void UnitWalkBState::think()
 		if (_unit->getStatus() == STATUS_STANDING)
 		{
 			// update the TU display
-			_parent->getSave()->getBattleState()->updateSoldierInfo();
+			// coop (PRD-P1): only for the unit this player actually has selected -
+			// a replayed teammate walk must not repaint our stat panel.
+			if (_unit == _parent->getSave()->getSelectedUnit())
+			{
+				_parent->getSave()->getBattleState()->updateSoldierInfo();
+			}
 			// if the unit burns floor tiles, burn floor tiles as long as we're not falling
 			if (!_falling && (_unit->getSpecialAbility() == SPECAB_BURNFLOOR || _unit->getSpecialAbility() == SPECAB_BURN_AND_EXPLODE))
 			{

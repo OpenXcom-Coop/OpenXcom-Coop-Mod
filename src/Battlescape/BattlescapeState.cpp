@@ -2323,8 +2323,10 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 	if (!unit)
 		return;
 
-	_save->setSelectedUnit(unit);
-	_battleGame->getCurrentAction()->actor = unit;
+	// coop (PRD-P1): replay on a stack-local action - selecting the peer's actor
+	// and writing _currentAction used to hand this player's cursor, hands panel
+	// and stat panel to whatever the teammate clicked.
+	BattleAction action = BattlescapeGame::makeReplayAction(unit);
 
 
 	if (target_x != -1 && target_y != -1 && target_z != -1)
@@ -2332,17 +2334,17 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 
 		Position current_target = Position(target_x, target_y, target_z);
 
-		_battleGame->getCurrentAction()->target = current_target;
+		action.target = current_target;
 
 	}
 
 
-	_battleGame->getCurrentAction()->type = (BattleActionType)type;
+	action.type = (BattleActionType)type;
 
 	// coop (issue #74): same resolution rule as shootPlayerTarget - the actor's
 	// own weapon, never a fabricated one.
 	BattleItem* acted = BattlescapeGame::coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
-	_battleGame->getCurrentAction()->weapon = acted;
+	action.weapon = acted;
 
 	if (acted && acted == unit->getLeftHandWeapon())
 	{
@@ -2354,33 +2356,33 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 	}
 
 
-	if (_battleGame->getCurrentAction()->type == BA_HIT)
+	if (action.type == BA_HIT)
 	{
 
-		_battleGame->getCurrentAction()->skillRules = nullptr;
-		_battleGame->getCurrentAction()->updateTU();
+		action.skillRules = nullptr;
+		action.updateTU();
 
 		// after update...
-		//_battleGame->getCurrentAction()->Time = time;
+		//action.Time = time;
 
 		// check beforehand if we have enough time units
-		if (!_battleGame->getCurrentAction()->haveTU(&_battleGame->getCurrentAction()->result))
+		if (!action.haveTU(&action.result))
 		{
 			// nothing
 		}
 		else if (!_game->getSavedGame()->getSavedBattle()->getTileEngine()->validMeleeRange(
-					 _battleGame->getCurrentAction()->actor->getPosition(),
-					 _battleGame->getCurrentAction()->actor->getDirection(),
-					 _battleGame->getCurrentAction()->actor,
-					 0, &_battleGame->getCurrentAction()->target))
+					 action.actor->getPosition(),
+					 action.actor->getDirection(),
+					 action.actor,
+					 0, &action.target))
 		{
-			if (!_game->getSavedGame()->getSavedBattle()->getTileEngine()->validTerrainMeleeRange(_battleGame->getCurrentAction()))
+			if (!_game->getSavedGame()->getSavedBattle()->getTileEngine()->validTerrainMeleeRange(&action))
 			{
-				_battleGame->getCurrentAction()->result = "STR_THERE_IS_NO_ONE_THERE";
+				action.result = "STR_THERE_IS_NO_ONE_THERE";
 			}
 		}
 
-		_battleGame->handleNonTargetAction();
+		_battleGame->handleNonTargetAction(action);
 
 	}
 
@@ -4548,7 +4550,10 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	_battleGame->getCoopMod()->_coopProjectilesHost.clear();
 	_battleGame->getCoopMod()->_coopProjectilesClient = arr;
 
-	_battleGame->getCurrentAction()->waypoints.clear();
+	// coop (PRD-P1): the replayed shot carries its OWN waypoint list. Clearing
+	// and refilling _currentAction.waypoints threw away the local player's
+	// in-progress blaster waypoints every time a teammate fired.
+	std::list<Position> replayWaypoints;
 
 	// waypoints
 	for (int i = 0; i < obj["waypoints"].size(); i++)
@@ -4560,7 +4565,7 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 
 		Position new_waypoint = Position(pos_x, pos_y, pos_z);
 
-		_battleGame->getCurrentAction()->waypoints.push_back(new_waypoint);
+		replayWaypoints.push_back(new_waypoint);
 
 	}
 
@@ -4614,7 +4619,11 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	unit->coop_no_line_fire = actor_no_line_fire;
 	unit->coop_unable_to_throw_here = actor_unable_to_throw_here;
 
-	_battleGame->getCurrentAction()->actor = unit;
+	// coop (PRD-P1): replay on a stack-local action - the peer's shot no longer
+	// lands in the local player's _currentAction (which is what made the watching
+	// player's next map click fire instead of walk).
+	BattleAction action = BattlescapeGame::makeReplayAction(unit);
+	action.waypoints = replayWaypoints;
 
 	// coop (issue #74): resolve the SHOOTER'S OWN weapon. Reading a hand blindly
 	// and then inventing a BattleItem when it was empty (a stale `hand` string,
@@ -4622,7 +4631,7 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	// machine's item-id counter, drifting the two id spaces apart until the
 	// protocol's other id lookups started matching other players' gear by type.
 	BattleItem* firing = BattlescapeGame::coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
-	_battleGame->getCurrentAction()->weapon = firing;
+	action.weapon = firing;
 
 	if (firing && firing == unit->getLeftHandWeapon())
 	{
@@ -4641,27 +4650,35 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 
 
 	// if weapon is not null
-	if (_battleGame->getCurrentAction()->weapon)
+	if (action.weapon)
 	{
 
-		_battleGame->getCurrentAction()->weapon->setFuseEnabled(fuse);
+		action.weapon->setFuseEnabled(fuse);
 
 		if (fusetimer != -1)
 		{
-			_battleGame->getCurrentAction()->weapon->setFuseTimer(fusetimer);
+			action.weapon->setFuseTimer(fusetimer);
 		}
 
 		
-		_battleGame->getCurrentAction()->targeting = targeting;
+		action.targeting = targeting;
 
-		_battleGame->getCurrentAction()->target = targetPos;
+		action.target = targetPos;
 
-		_battleGame->getCurrentAction()->type = (BattleActionType)type;
+		action.type = (BattleActionType)type;
 
-		_battleGame->getCurrentAction()->updateTU();
+		action.updateTU();
 
-		_battleGame->CoopShoot();
+		_battleGame->CoopShoot(action);
 
+	}
+	else
+	{
+		// coop (issue #74): no weapon resolved => skip the shot entirely. Never
+		// fabricate a BattleItem on a receiver.
+		Log(LOG_INFO) << "coop: shot replay skipped, unit " << actor_id
+					  << " has no '" << weapon_type << "' (id " << weapon_id
+					  << ") - never fabricating one (issue #74)";
 	}
 
 

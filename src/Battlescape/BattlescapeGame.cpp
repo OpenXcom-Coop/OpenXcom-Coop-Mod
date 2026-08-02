@@ -175,6 +175,23 @@ bool BattleActionCost::spendTU(std::string* message)
 	return false;
 }
 
+/**
+ * Builds the action a REPLAYED (peer- or AI-originated) chain runs on.
+ *
+ * coop, PRD-P1: the replay handlers used to mutate BattlescapeGame::_currentAction
+ * - the singleton that belongs to the LOCAL player's cursor, hands panel and
+ * click handling - and to setSelectedUnit() the remote actor on top of it. The
+ * passive player's selection, stat panel and cursor were therefore driven by
+ * whatever the teammate was doing. The BStates copy the action they are given
+ * (BattleState.h:33), so a stack-local carries the replay end to end.
+ */
+BattleAction BattlescapeGame::makeReplayAction(BattleUnit* actor)
+{
+	BattleAction action;
+	action.actor = actor;
+	return action;
+}
+
 void BattlescapeGame::movePlayerTarget(std::string obj_str)
 {
 
@@ -268,28 +285,38 @@ void BattlescapeGame::movePlayerTarget(std::string obj_str)
 	}
 
 	// other
-	_save->setSelectedUnit(unit);
-	_currentAction.actor = unit;
-	_currentAction.type = BA_WALK;
+	// coop (PRD-P1): replay on a stack-local action - no setSelectedUnit(), no
+	// write to the local player's _currentAction.
+	BattleAction action = makeReplayAction(unit);
+	action.type = BA_WALK;
 
-	_currentAction.targeting = false;
+	action.targeting = false;
 
-	_currentAction.target = *endpos;
+	action.target = *endpos;
 
 	// new
-	_currentAction.strafe = strafe;
-	_currentAction.run = run;
-	_currentAction.sneak = sneak;
+	action.strafe = strafe;
+	action.run = run;
+	action.sneak = sneak;
 
-	if (_save->getBattleGame()->getCoopMod()->_clientPanicHandle == true || _save->getBattleGame()->getCoopMod()->_isActiveAISync == true)
+	// coop (PRD-P1): the AI phase keeps centring unconditionally; the peer-side
+	// follow is the one the player can now switch off (default ON = pre-P1
+	// behaviour).
+	if ((_save->getBattleGame()->getCoopMod()->_clientPanicHandle == true && Options::coopFollowPeerActions)
+		|| _save->getBattleGame()->getCoopMod()->_isActiveAISync == true)
 	{
 
-		getMap()->getCamera()->centerOnPosition(_currentAction.actor->getPosition());
+		getMap()->getCamera()->centerOnPosition(action.actor->getPosition());
 	}
 
-	_save->getPathfinding()->calculate(_currentAction.actor, _currentAction.target, _currentAction.getMoveType());
+	// coop (PRD-P1): calculate() below replaces the pathfinder's path, which is
+	// what the LOCAL player's hover preview was drawn from. Drop the preview while
+	// the old path is still around to unmark, otherwise its tiles stay lit.
+	_save->getPathfinding()->removePreview();
 
-	statePushBack(new UnitWalkBState(this, _currentAction));
+	_save->getPathfinding()->calculate(action.actor, action.target, action.getMoveType());
+
+	statePushBack(new UnitWalkBState(this, action));
 
 	bool sound = true;
 
@@ -297,7 +324,7 @@ void BattlescapeGame::movePlayerTarget(std::string obj_str)
 	if (_save->getBattleGame()->getCoopMod()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopMod()->getCoopGamemode() == 3)
 	{
 
-		if (_currentAction.sneak == true)
+		if (action.sneak == true)
 		{
 			sound = false;
 		}
@@ -305,7 +332,7 @@ void BattlescapeGame::movePlayerTarget(std::string obj_str)
 
 	if (sound == true && connectionTCP::_enable_other_player_footsteps == true)
 	{
-		playUnitResponseSound(_currentAction.actor, 1); // "start moving" sound
+		playUnitResponseSound(action.actor, 1); // "start moving" sound
 	}
 }
 
@@ -388,25 +415,31 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 	unit->setCoopMana(mana);
 
 	// other
-	_save->setSelectedUnit(unit);
-	_currentAction.actor = unit;
-	_currentAction.type = BA_TURN;
+	// coop (PRD-P1): replay on a stack-local action - no setSelectedUnit(), no
+	// write to the local player's _currentAction.
+	BattleAction action = makeReplayAction(unit);
+	action.type = BA_TURN;
 
 	if (isActionTypeNone == true)
 	{
-		_currentAction.type = BA_NONE;
+		action.type = BA_NONE;
 	}
 
-	_currentAction.targeting = false;
+	action.targeting = false;
 
 	bool isUnitAlreadyTurn = false;
 
-	if (_currentAction.target == *endpos)
+	// coop (PRD-P1): the "already facing there => this is a door-open, not a
+	// turn" test compares against the previous REPLAYED turn target. It used to
+	// read _currentAction.target, which only held that value because the replay
+	// wrote the singleton; _replayTurnTarget keeps it on the replay's own side.
+	if (_replayTurnTarget == *endpos)
 	{
 		isUnitAlreadyTurn = true;
 	}
 
-	_currentAction.target = *endpos;
+	action.target = *endpos;
+	_replayTurnTarget = *endpos;
 
 	if (isUnitAlreadyTurn == false)
 	{
@@ -414,13 +447,13 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 		// above (setTimeUnits), so replay the turn for animation only,
 		// without charging again (chargeTUs = false). Charging here would
 		// double the turn cost on the client.
-		statePushFront(new UnitTurnBState(this, _currentAction, false));
+		statePushFront(new UnitTurnBState(this, action, false));
 	}
 	// door fix
 	else
 	{
 
-		if (_currentAction.type == BA_NONE)
+		if (action.type == BA_NONE)
 		{
 			// try to open a door
 			int door = _save->getTileEngine()->unitOpensDoor(unit, true);
@@ -434,7 +467,10 @@ void BattlescapeGame::turnPlayerTarget(std::string obj_str)
 			}
 			if (door == 4)
 			{
-				_currentAction.result = "STR_NOT_ENOUGH_TIME_UNITS";
+				// coop (PRD-P1): stays on the replay's own action. It used to be
+				// parked on _currentAction, where the LOCAL player's next
+				// non-target action popped it as a spurious warning.
+				action.result = "STR_NOT_ENOUGH_TIME_UNITS";
 			}
 		}
 	}
@@ -549,33 +585,40 @@ void BattlescapeGame::psi_attack(std::string obj_str)
 	unit->setCoopMana(mana);
 
 	// other
-	_save->setSelectedUnit(unit);
-	_currentAction.actor = unit;
-	_currentAction.targeting = false;
-	_currentAction.target = *endpos;
-	_currentAction.type = (BattleActionType)type;
+	// coop (PRD-P1): replay on a stack-local action - no setSelectedUnit(), no
+	// write to the local player's _currentAction.
+	BattleAction action = makeReplayAction(unit);
+	action.targeting = false;
+	action.target = *endpos;
+	action.type = (BattleActionType)type;
 
 	// coop (issue #74): resolve the actor's OWN weapon and never fabricate one -
 	// a receiver-side `new BattleItem` bumps this machine's item-id counter and
 	// permanently drifts the two machines' id spaces apart.
-	_currentAction.weapon = coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
+	action.weapon = coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
 
-	if (_currentAction.weapon && _currentAction.weapon == unit->getLeftHandWeapon())
+	if (action.weapon && action.weapon == unit->getLeftHandWeapon())
 	{
 		unit->setActiveLeftHand();
 	}
-	else if (_currentAction.weapon && _currentAction.weapon == unit->getRightHandWeapon())
+	else if (action.weapon && action.weapon == unit->getRightHandWeapon())
 	{
 		unit->setActiveRightHand();
 	}
 
 	// if weapon is not null
-	if (_currentAction.weapon)
+	if (action.weapon)
 	{
 
-		_currentAction.updateTU();
+		action.updateTU();
 
-		statePushBack(new PsiAttackBState(this, _currentAction));
+		statePushBack(new PsiAttackBState(this, action));
+	}
+	else
+	{
+		Log(LOG_INFO) << "coop: psi_attack replay skipped, unit " << unit_id
+					  << " has no '" << weapon_type << "' (id " << weapon_id
+					  << ") - never fabricating one (issue #74)";
 	}
 }
 
@@ -653,33 +696,40 @@ void BattlescapeGame::melee_attack(std::string obj_str)
 	unit->setCoopMana(mana);
 
 	// other
-	_save->setSelectedUnit(unit);
-	_currentAction.actor = unit;
-	_currentAction.targeting = false;
-	_currentAction.target = *endpos;
-	_currentAction.type = (BattleActionType)type;
+	// coop (PRD-P1): replay on a stack-local action - no setSelectedUnit(), no
+	// write to the local player's _currentAction.
+	BattleAction action = makeReplayAction(unit);
+	action.targeting = false;
+	action.target = *endpos;
+	action.type = (BattleActionType)type;
 
 	// coop (issue #74): resolve the actor's OWN weapon and never fabricate one -
 	// a receiver-side `new BattleItem` bumps this machine's item-id counter and
 	// permanently drifts the two machines' id spaces apart.
-	_currentAction.weapon = coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
+	action.weapon = coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
 
-	if (_currentAction.weapon && _currentAction.weapon == unit->getLeftHandWeapon())
+	if (action.weapon && action.weapon == unit->getLeftHandWeapon())
 	{
 		unit->setActiveLeftHand();
 	}
-	else if (_currentAction.weapon && _currentAction.weapon == unit->getRightHandWeapon())
+	else if (action.weapon && action.weapon == unit->getRightHandWeapon())
 	{
 		unit->setActiveRightHand();
 	}
 
 	// if weapon is not null
-	if (_currentAction.weapon)
+	if (action.weapon)
 	{
 
-		_currentAction.updateTU();
+		action.updateTU();
 
-		statePushBack(new MeleeAttackBState(this, _currentAction));
+		statePushBack(new MeleeAttackBState(this, action));
+	}
+	else
+	{
+		Log(LOG_INFO) << "coop: melee_attack replay skipped, unit " << unit_id
+					  << " has no '" << weapon_type << "' (id " << weapon_id
+					  << ") - never fabricating one (issue #74)";
 	}
 }
 
@@ -1832,63 +1882,74 @@ void BattlescapeGame::missionComplete()
  */
 void BattlescapeGame::handleNonTargetAction()
 {
-	if (!_currentAction.targeting)
+	handleNonTargetAction(_currentAction);
+}
+
+/**
+ * coop (PRD-P1): the same handler on an explicit action, so a replayed peer
+ * action (coopActionClick) can run its BA_PRIME/BA_UNPRIME/BA_USE/BA_HIT
+ * follow-up without writing the LOCAL player's _currentAction. The no-argument
+ * overload above passes _currentAction, so every classic call site is unchanged.
+ */
+void BattlescapeGame::handleNonTargetAction(BattleAction& action)
+{
+	if (!action.targeting)
 	{
 		std::string error;
-		_currentAction.cameraPosition = Position(0, 0, -1);
-		if (!_currentAction.result.empty())
+		action.cameraPosition = Position(0, 0, -1);
+		if (!action.result.empty())
 		{
-			_parentState->warning(_currentAction.result);
-			_currentAction.result = "";
+			_parentState->warning(action.result);
+			action.result = "";
 		}
-		else if (_currentAction.type == BA_PRIME && _currentAction.value > -1)
+		else if (action.type == BA_PRIME && action.value > -1)
 		{
-			if (_currentAction.spendTU(&error))
+			if (action.spendTU(&error))
 			{
-				_parentState->warning(_currentAction.weapon->getRules()->getPrimeActionMessage());
-				_currentAction.weapon->setFuseTimer(_currentAction.value);
-				playSound(_currentAction.weapon->getRules()->getPrimeSound()); // prime sound
-				_save->getTileEngine()->calculateLighting(LL_UNITS, _currentAction.actor->getPosition());
-				_save->getTileEngine()->calculateFOV(_currentAction.actor->getPosition(), _currentAction.weapon->getVisibilityUpdateRange(), false);
+				_parentState->warning(action.weapon->getRules()->getPrimeActionMessage());
+				action.weapon->setFuseTimer(action.value);
+				playSound(action.weapon->getRules()->getPrimeSound()); // prime sound
+				_save->getTileEngine()->calculateLighting(LL_UNITS, action.actor->getPosition());
+				_save->getTileEngine()->calculateFOV(action.actor->getPosition(), action.weapon->getVisibilityUpdateRange(), false);
 			}
 			else
 			{
 				_parentState->warning(error);
 			}
 		}
-		else if (_currentAction.type == BA_UNPRIME)
+		else if (action.type == BA_UNPRIME)
 		{
-			if (_currentAction.spendTU(&error))
+			if (action.spendTU(&error))
 			{
-				_parentState->warning(_currentAction.weapon->getRules()->getUnprimeActionMessage());
-				_currentAction.weapon->setFuseTimer(-1);
-				playSound(_currentAction.weapon->getRules()->getUnprimeSound()); // unprime sound
-				_save->getTileEngine()->calculateLighting(LL_UNITS, _currentAction.actor->getPosition());
-				_save->getTileEngine()->calculateFOV(_currentAction.actor->getPosition(), _currentAction.weapon->getVisibilityUpdateRange(), false);
+				_parentState->warning(action.weapon->getRules()->getUnprimeActionMessage());
+				action.weapon->setFuseTimer(-1);
+				playSound(action.weapon->getRules()->getUnprimeSound()); // unprime sound
+				_save->getTileEngine()->calculateLighting(LL_UNITS, action.actor->getPosition());
+				_save->getTileEngine()->calculateFOV(action.actor->getPosition(), action.weapon->getVisibilityUpdateRange(), false);
 			}
 			else
 			{
 				_parentState->warning(error);
 			}
 		}
-		else if (_currentAction.type == BA_USE)
+		else if (action.type == BA_USE)
 		{
-			getTileEngine()->updateGameStateAfterScript(BattleActionAttack::GetBeforeShoot(_currentAction), TileEngine::invalid);
+			getTileEngine()->updateGameStateAfterScript(BattleActionAttack::GetBeforeShoot(action), TileEngine::invalid);
 		}
-		else if (_currentAction.type == BA_HIT)
+		else if (action.type == BA_HIT)
 		{
-			if (_currentAction.haveTU(&error))
+			if (action.haveTU(&error))
 			{
-				statePushBack(new MeleeAttackBState(this, _currentAction));
+				statePushBack(new MeleeAttackBState(this, action));
 			}
 			else
 			{
 				_parentState->warning(error);
 			}
 		}
-		if (_currentAction.type != BA_HIT) // don't clear the action type if we're meleeing, let the melee action state take care of that
+		if (action.type != BA_HIT) // don't clear the action type if we're meleeing, let the melee action state take care of that
 		{
-			_currentAction.type = BA_NONE;
+			action.type = BA_NONE;
 		}
 		_parentState->updateSoldierInfo();
 	}
@@ -4677,10 +4738,12 @@ void BattlescapeGame::clearWaypointsCoop()
 	getMap()->getWaypoints()->clear();
 }
 
-void BattlescapeGame::CoopShoot()
+void BattlescapeGame::CoopShoot(const BattleAction& action)
 {
-	_states.push_back(new ProjectileFlyBState(this, _currentAction));
-	statePushFront(new UnitTurnBState(this, _currentAction)); // first of all turn towards the target
+	// coop (PRD-P1): runs on the replay's own action - shootPlayerTarget no
+	// longer parks the peer's shot on the local player's _currentAction.
+	_states.push_back(new ProjectileFlyBState(this, action));
+	statePushFront(new UnitTurnBState(this, action)); // first of all turn towards the target
 }
 
 void BattlescapeGame::hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack, int terrainMeleeTilePart, uint64_t seed)
