@@ -764,6 +764,13 @@ void NextTurnState::close()
 					// repairs (SharedEcon.h explains why).
 					SharedEcon::attachBattleChecksum(_game, root);
 
+					// PRD-P4: the same turn-boundary hygiene the peer does on the
+					// receiving side. A Tier-A record whose carrier packet never went
+					// out - the host replaying a CLIENT-driven death, whose
+					// `after_unit_death` this machine does not send - would otherwise
+					// sit in the store for the rest of the battle.
+					SharedEcon::clearSpawnManifests();
+
 					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 				}
