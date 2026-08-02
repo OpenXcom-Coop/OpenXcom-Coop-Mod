@@ -1088,6 +1088,15 @@ int BattleItem::getId() const
 }
 
 /**
+ * coop (PRD-P4): re-stamps the item's id with the host's.
+ * @param id The id the HOST minted for this instance.
+ */
+void BattleItem::setIdCoop(int id)
+{
+	_id = id;
+}
+
+/**
  * Gets the corpse's unit.
  * @return Pointer to BattleUnit.
  */

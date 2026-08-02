@@ -55,6 +55,7 @@
 #include "../fmath.h"
 #include "../Engine/Language.h"
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SharedEcon.h" // coop (PRD-P4): Tier-A spawn id-manifest
 
 namespace OpenXcom
 {
@@ -2103,6 +2104,9 @@ BattleItem *SavedBattleGame::createItemForUnit(const RuleItem *rule, BattleUnit 
 	else
 	{
 		_items.push_back(item);
+		// coop (PRD-P4): only after the item is actually KEPT - an item the unit
+		// refused never existed, so it must not consume a host id either.
+		SharedEcon::noteMintedItem(item);
 		initItem(item, unit);
 	}
 	return item;
@@ -2122,6 +2126,7 @@ BattleItem *SavedBattleGame::createItemForUnitSpecialBuiltin(const RuleItem *rul
 	item->setOwner(unit);
 	item->setSlot(nullptr);
 	_items.push_back(item);
+	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
 	initItem(item, unit);
 	return item;
 }
@@ -2150,6 +2155,7 @@ BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile,
 	}
 	item->setUnit(corpseFor);
 	_items.push_back(item);
+	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
 	initItem(item);
 	return item;
 }
@@ -2161,7 +2167,9 @@ BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile,
  */
 BattleItem *SavedBattleGame::createTempItem(const RuleItem *rule)
 {
-	return new BattleItem(rule, getCurrentItemId());
+	BattleItem *item = new BattleItem(rule, getCurrentItemId());
+	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
+	return item;
 }
 
 /**
