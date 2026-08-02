@@ -140,6 +140,12 @@ private:
 	bool _playerPanicHandled;
 	int _AIActionCounter;
 	BattleAction _currentAction;
+	// coop (PRD-P1): turnPlayerTarget's "the unit already faces there, so this is
+	// a door-open" test used to compare against _currentAction.target, which only
+	// worked because the replay wrote the singleton action. The replay now builds
+	// a stack-local action, so it keeps its own last-target here instead of
+	// reading (and clobbering) the local player's action.
+	Position _replayTurnTarget = Position(-1, -1, -1);
 	bool _endTurnRequested;
 	bool _endConfirmationHandled;
 	bool _allEnemiesNeutralized;
@@ -171,6 +177,10 @@ public:
 	int getCoopActorID();
 	int getCoopGamemode();
 	std::string getCoopWeaponHand();
+	/// Builds the stack-local BattleAction a replayed peer/AI action runs on, so
+	/// replaying never writes the singleton _currentAction (which belongs to the
+	/// LOCAL player's UI) - PRD-P1.
+	static BattleAction makeReplayAction(BattleUnit* actor);
 	void movePlayerTarget(std::string obj);
 	void turnPlayerTarget(std::string str_obj);
 	void turnPlayerTargetAfter(std::string str_obj);
@@ -207,6 +217,9 @@ public:
 	void statePushBack(BattleState *bs);
 	/// Handles the result of non target actions, like priming a grenade.
 	void handleNonTargetAction();
+	/// Same, on an explicit action - lets a replayed peer action (coopActionClick)
+	/// run without writing the local player's _currentAction (PRD-P1).
+	void handleNonTargetAction(BattleAction& action);
 	// coop
 	void endTurnCoop();
 	void endBattleTurnCoop();
@@ -340,7 +353,7 @@ public:
 	// coop
 	void setWaypointCoop(int x, int y, int z);
 	void clearWaypointsCoop();
-	void CoopShoot();
+	void CoopShoot(const BattleAction& action);
 	void hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack = true, int terrainMeleeTilePart = 0, uint64_t seed = 0);
 	void centerOnPositionCoop(Position pos);
 };
