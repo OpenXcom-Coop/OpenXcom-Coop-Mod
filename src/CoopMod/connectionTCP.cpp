@@ -228,6 +228,21 @@ bool connectionTCP::_unbalanced_craft_soldiers_limit = false;
 // COOP_READY_HOST handshake (and a save load) ever writes it.
 bool connectionTCP::_enable_parallel_turns = false;
 
+// coop (PRD-P6): action-intent arbitration. All per-battle, all reset by
+// resetActionArbiter().
+std::uint32_t connectionTCP::_actionSeq = 0;
+std::uint32_t connectionTCP::peerDisplayAckedSeq = 0;
+std::uint32_t connectionTCP::_sideSeq = 0;
+bool connectionTCP::_sideCommitInProgress = false;
+std::uint32_t connectionTCP::_intentSlotReqId = 0;
+int connectionTCP::_intentSlotSeat = -1;
+std::string connectionTCP::_intentSlotKind;
+std::string connectionTCP::_admitBlocked;
+std::uint32_t connectionTCP::_clientReqSeq = 0;
+std::uint32_t connectionTCP::_clientPendingReqId = 0;
+std::string connectionTCP::_clientPendingKind;
+std::uint32_t connectionTCP::_clientPendingSentTicks = 0;
+
 bool connectionTCP::_coopCampaign = false;
 
 bool connectionTCP::_battleInit = false;
@@ -2042,6 +2057,10 @@ void connectionTCP::updateCoopTask()
 	// coopMissionEnd path in GeoscapeState).
 	processPendingSoldierGifts();
 
+	// coop (PRD-P6): the client's 10 s pending-intent watchdog. On the main
+	// thread, so the warning flash it may raise touches the battlescape safely.
+	tickActionIntents();
+
 	// COOP living quarters: re-report our guest headcount whenever it changes.
 	// Driven from here rather than from each mutation site (transfer, gift,
 	// sack, base loss) so no path can forget it; sendGuestCensus is a cheap
@@ -2336,7 +2355,7 @@ void connectionTCP::updateCoopTask()
 				if (Options::logPacketMessages == true && Options::logInfoToFile == true)
 				{			
 					std::string str_debug =
-						std::string("task completed: ") + (_coop_task_completed ? "true" : "false") +
+						std::string("task completed: ") + (coopTaskCompleted() ? "true" : "false") +
 						"   connection status: " + std::to_string(onConnect) + 
 						"   packet name: " + stateString +
 						"   packet data: " + obj.toStyledString();
@@ -2345,11 +2364,18 @@ void connectionTCP::updateCoopTask()
 				}
 
 				// Make operator precedence explicit:
+				//
+				// coop (PRD-P6 pre-task): `coopTaskCompleted()` is now "gate depth
+				// 0" rather than a bool. The three per-action exemptions after it
+				// are unchanged and still needed - each names a packet that CLOSES
+				// the very chain currently holding the gate (`abortPath` ends the
+				// walk that took it; the two death packets end the shot that took
+				// it), so waiting for depth 0 would deadlock them.
 				const bool consumeNow =
-						 (_coop_task_completed || ((stateString == "abortPath" && _coopWalkInit) ||
+						 (coopTaskCompleted() || ((stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInitDeath) ||
 						 (stateString == "after_unit_death" && _coopInitDeath)) ||
-					 stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
+					 stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
 					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
 
 				if (consumeNow)
@@ -6097,6 +6123,112 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		_game->getSavedGame()->getSavedBattle()->setKneelReserved(battle_action);
 	}
 
+	// coop (PRD-P6): the client asks, the host decides and executes. All three
+	// are whitelisted in the hold queue (PROTOCOL.md "Interrupt whitelist
+	// additions") because none of them carries a peer-side sim mutation - the
+	// ACTION they lead to rides the normal broadcast packets, which stay behind
+	// the receive gate and therefore still apply in chain order.
+	if (stateString == "action_intent")
+	{
+		// only the executor arbitrates; anybody else silently ignores it.
+		if (getHost() && parallelTurnActive())
+		{
+			const std::uint32_t reqId = static_cast<std::uint32_t>(obj.get("req_id", 0).asUInt());
+			const int seat = obj.get("seat", -1).asInt();
+			const std::uint32_t sideSeq = static_cast<std::uint32_t>(obj.get("side_seq", 0).asUInt());
+
+			SavedBattleGame* battle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+			BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+
+			std::string denyReason;
+			std::string denyWarning;
+
+			if (!bg || sideSeq != _sideSeq || battle->getSide() != FACTION_PLAYER)
+			{
+				// a stale side token, or the AI already holds the field
+				denyReason = "turn_over";
+				denyWarning = "STR_COOP_TURN_OVER";
+			}
+			else
+			{
+				const std::string bad = bg->coopValidateIntent(obj.toStyledString(), seat, denyWarning);
+				if (!bad.empty())
+				{
+					denyReason = "invalid";
+				}
+				else if (!canAdmitAction())
+				{
+					denyReason = "busy";
+					denyWarning = "STR_COOP_PLAYER_BUSY";
+				}
+			}
+
+			if (!denyReason.empty())
+			{
+				Json::Value root;
+				root["state"] = "action_deny";
+				root["req_id"] = static_cast<Json::UInt>(reqId);
+				root["reason"] = denyReason;
+				root["warning"] = denyWarning;
+				root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+				sendTCPPacketData(root.toStyledString());
+			}
+			else
+			{
+				_intentSlotReqId = reqId;
+				_intentSlotSeat = seat;
+				_intentSlotKind = obj.get("kind", "").asString();
+
+				Json::Value ack;
+				ack["state"] = "action_ack";
+				ack["req_id"] = static_cast<Json::UInt>(reqId);
+				ack["action_seq"] = static_cast<Json::UInt>(stampAdmittedAction());
+				sendTCPPacketData(ack.toStyledString());
+
+				// From here on it is an ordinary HOST action: every existing send
+				// site fires because the host holds _isActivePlayerSync (the
+				// PRD-P5 executor invariant), so the client displays this chain
+				// exactly as it displays a host action in classic co-op.
+				bg->coopExecuteIntent(obj.toStyledString());
+			}
+		}
+	}
+
+	if (stateString == "action_ack")
+	{
+		const std::uint32_t reqId = static_cast<std::uint32_t>(obj.get("req_id", 0).asUInt());
+		// PROTOCOL.md: the slot clears on ACK RECEIPT. Not on the broadcast - the
+		// action packets carry no action_seq until PRD-P7, so a broadcast-based
+		// clear would leave the slot stuck until the 10 s timeout after EVERY
+		// intent. A stale ack (the slot was already replaced by a newer input)
+		// matches no req_id and clears nothing.
+		if (reqId != 0 && reqId == _clientPendingReqId)
+		{
+			clearClientPendingIntent();
+		}
+		_actionSeq = static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+	}
+
+	if (stateString == "action_deny")
+	{
+		const std::uint32_t reqId = static_cast<std::uint32_t>(obj.get("req_id", 0).asUInt());
+		if (obj.isMember("side_seq"))
+		{
+			_sideSeq = static_cast<std::uint32_t>(obj["side_seq"].asUInt());
+		}
+		if (reqId == 0 || reqId == _clientPendingReqId)
+		{
+			clearClientPendingIntent();
+			const std::string warning = obj.get("warning", "").asString();
+			if (!warning.empty())
+			{
+				flashBattleWarning(warning);
+			}
+			Log(LOG_INFO) << "coop: action_intent req " << reqId << " denied ("
+						  << obj.get("reason", "").asString() << ")";
+		}
+	}
+
 	if (stateString == "kneel")
 	{
 
@@ -6406,7 +6538,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 
-					battlestate->coopHealing(actor_id, type, part, medkit_state, action_result, time);
+					// coop (PRD-P6): additive identification of the healer and the
+					// medikit that acted; absent from an older peer's packet, in
+					// which case the classic branch runs unchanged.
+					battlestate->coopHealing(actor_id, type, part, medkit_state, action_result, time,
+											 obj.get("healer_id", -1).asInt(),
+											 obj.get("weapon_id", -1).asInt(),
+											 obj.get("weapon_type", "").asString(),
+											 obj.get("hand", "").asString());
 
 				}
 			}
@@ -8664,6 +8803,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (obj.isMember("seed"))
 				{
 					RNG::setSeed(obj["seed"].asUInt64());
+				}
+
+				// coop (PRD-P6): the side token every intent is validated against.
+				// The host owns it and stamps it on the one packet that crosses at
+				// every side transition; a client acting into a side that has
+				// already closed is denied `turn_over` instead.
+				if (obj.isMember("side_seq"))
+				{
+					_sideSeq = static_cast<std::uint32_t>(obj["side_seq"].asUInt());
+					clearClientPendingIntent();
 				}
 
 				int side = obj["side"].asInt();
@@ -11164,6 +11313,29 @@ int connectionTCP::localSeat()
 	return coop_save_owner_player_id > 0 ? coop_save_owner_player_id : 1;
 }
 
+// coop (PRD-P6 pre-task): the receive gate's acquire/release. `completed` keeps
+// the pre-P6 bool call shape: false = "a chain started here" (acquire), true =
+// "that chain finished" (release). Depth 0 is the only state in which the hold
+// queue may hand a peer packet to onTCPMessage().
+//
+// Clamped at zero because releases outnumber acquires in practice: the two
+// teardown sites reset the depth outright, and a BState that was still holding
+// the gate when the battle ended releases afterwards.
+void connectionTCP::setCoopTaskCompleted(bool completed)
+{
+	if (completed)
+	{
+		if (_coopTaskDepth > 0)
+		{
+			--_coopTaskDepth;
+		}
+	}
+	else
+	{
+		++_coopTaskDepth;
+	}
+}
+
 // coop (PRD-P5): the parallel shared player side. See PROTOCOL.md "Core
 // invariant". PVP/PVP2 (gamemode 2/3) are adversarial by construction - the two
 // sides must not act at once - and hotseat has only one machine, so both are
@@ -11179,11 +11351,136 @@ bool connectionTCP::parallelTurnActive()
 	return gamemode == 1 || gamemode == 4;
 }
 
-// coop (PRD-P5 §4): the temporary client input gate. PRD-P6 deletes it and
-// routes the same sites into `action_intent` instead.
+// coop: "am I the non-executor machine during a parallel player side?" PRD-P5
+// used this as a blanket input gate; PRD-P6 replaced that with action intents,
+// so the only handler still gated on it is END TURN (host-only until PRD-P8).
 bool connectionTCP::parallelInputBlocked()
 {
-	return parallelTurnActive() && !getHost() && !Options::coopParallelDebugClientInput;
+	return parallelTurnActive() && !getHost();
+}
+
+// coop (PRD-P6): may the executor start a new action chain right now?
+// PROTOCOL.md "Ordering invariants" 3. Deliberately conservative: the peer
+// applies action packets one at a time behind the receive gate, so admitting a
+// second chain while the first is still running would interleave two chains on
+// the client's display. PRD-P7 adds the display-backlog term.
+bool connectionTCP::canAdmitAction()
+{
+	_admitBlocked.clear();
+	// static: reach the running game through the static mirror, not `_game`.
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	if (!bg)
+	{
+		_admitBlocked = "no_battle";
+		return false;
+	}
+	if (battle->getSide() != FACTION_PLAYER)
+	{
+		_admitBlocked = "ai_side";
+		return false;
+	}
+	if (_sideCommitInProgress)
+	{
+		_admitBlocked = "side_commit";
+		return false;
+	}
+	if (bg->isBusy())
+	{
+		_admitBlocked = "states";
+		return false;
+	}
+	connectionTCP* coop = _staticGame->getCoopMod();
+	if (coop && !coop->coopTaskCompleted())
+	{
+		_admitBlocked = "gate_depth";
+		return false;
+	}
+	return true;
+}
+
+std::uint32_t connectionTCP::stampAdmittedAction()
+{
+	return ++_actionSeq;
+}
+
+// coop (PRD-P6): `fullReset` = a new battle or a session teardown (everything,
+// including the side and request sequences). Otherwise a side boundary: the
+// action sequence and PRD-P7's display term, which MUST move together.
+void connectionTCP::resetActionArbiter(bool fullReset)
+{
+	_actionSeq = 0;
+	peerDisplayAckedSeq = 0;
+	_sideCommitInProgress = false;
+	_intentSlotReqId = 0;
+	_intentSlotSeat = -1;
+	_intentSlotKind.clear();
+	_admitBlocked.clear();
+	if (fullReset)
+	{
+		_sideSeq = 0;
+		_clientReqSeq = 0;
+		clearClientPendingIntent();
+	}
+}
+
+void connectionTCP::clearClientPendingIntent()
+{
+	_clientPendingReqId = 0;
+	_clientPendingKind.clear();
+	_clientPendingSentTicks = 0;
+}
+
+// coop (PRD-P6): the client's send half. ONE pending slot - a second input
+// simply replaces it, and the ack/deny of the replaced intent is dropped on
+// arrival because its req_id no longer matches.
+bool connectionTCP::sendActionIntent(Json::Value intent, const std::string& kind)
+{
+	intent["state"] = "action_intent";
+	intent["req_id"] = static_cast<Json::UInt>(++_clientReqSeq);
+	intent["seat"] = localSeat();
+	intent["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+	intent["kind"] = kind;
+
+	_clientPendingReqId = _clientReqSeq;
+	_clientPendingKind = kind;
+	_clientPendingSentTicks = SDL_GetTicks();
+
+	sendTCPPacketData(intent.toStyledString());
+	return true;
+}
+
+// coop (PRD-P6): PROTOCOL.md "Timeouts" - no ack/deny inside 10 s means the
+// intent is gone. A transport failure is already PING/PONG's business, so all
+// this has to do is stop the one-slot pending from wedging shut.
+void connectionTCP::tickActionIntents()
+{
+	if (_clientPendingReqId == 0)
+	{
+		return;
+	}
+	const std::uint32_t now = SDL_GetTicks();
+	if (now - _clientPendingSentTicks < 10000)
+	{
+		return;
+	}
+	Log(LOG_INFO) << "coop: action_intent req " << _clientPendingReqId << " ("
+				  << _clientPendingKind << ") timed out with no ack/deny";
+	clearClientPendingIntent();
+	flashBattleWarning("STR_COOP_ACTION_TIMEOUT");
+}
+
+// coop (PRD-P6): the deny/timeout flash. BattlescapeState::warning() translates
+// the key and posts it with the widget's normal fade - PRD-P5 dropped the
+// persistent off-turn banners that used to squat on that same widget.
+void connectionTCP::flashBattleWarning(const std::string& key)
+{
+	if (_game && _game->getSavedGame() && _game->getSavedGame()->getSavedBattle()
+		&& _game->getSavedGame()->getSavedBattle()->getBattleState())
+	{
+		_game->getSavedGame()->getSavedBattle()->getBattleState()->warning(key);
+	}
 }
 
 // PRD-J01: active roster size (host + clients). Falls back to the legacy
@@ -12524,7 +12821,9 @@ void connectionTCP::disconnectTCP(bool isMain)
 		gamePaused = 0;
 		playerInsideCoopBase = false;
 
-		_coop_task_completed = true;
+		resetCoopTaskDepth();
+		// PRD-P6: no arbiter state may survive a session teardown.
+		resetActionArbiter(true);
 
 		_isActiveAISync = false;
 

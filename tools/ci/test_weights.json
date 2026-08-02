@@ -21,6 +21,7 @@
   "test_lobby_gating": 19.9,
   "test_lobby_polish": 19.5,
   "test_new_campaign_flow": 6.1,
+  "test_parallel_intents": 300.0,
   "test_parallel_introspection": 18.8,
   "test_parallel_replay_decouple": 75.0,
   "test_parallel_sharedturn": 87.5,

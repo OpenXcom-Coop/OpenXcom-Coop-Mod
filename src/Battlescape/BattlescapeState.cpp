@@ -2179,13 +2179,10 @@ void BattlescapeState::mapClick(Action *action)
 		if (_game->isRightClick(action, true) && playableUnitSelected())
 		{
 
-			// coop
-			// (PRD-P5 §4) parallelInputBlocked() is the TEMPORARY stand-in for
-			// the off-turn gates that die in parallel mode: the client holds
-			// isYourTurn == 2 like the host, so nothing above stops it any more.
-			// PRD-P6 replaces the silent return with an `action_intent` send.
-			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4
-				|| connectionTCP::parallelInputBlocked())
+			// coop: PRD-P5's temporary parallel input gate is gone from here -
+			// PRD-P6 lets the click through and BattlescapeGame::secondaryAction
+			// turns it into an `action_intent` on the client instead of a turn.
+			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
 			{
 				return;
 			}
@@ -2197,8 +2194,7 @@ void BattlescapeState::mapClick(Action *action)
 			// Off-turn left clicks must not call primaryAction, but the local gift
 			// selection above has still been updated. On our own turn the same click
 			// also proceeds through the normal unit/action selection path.
-			if ((_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
-				|| connectionTCP::parallelInputBlocked())
+			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
 			{
 				return;
 			}
@@ -2272,7 +2268,8 @@ void BattlescapeState::setSelectedCoopUnit(int actor_id)
 
 }
 
-void BattlescapeState::coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time)
+void BattlescapeState::coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time,
+								   int healer_id, int weapon_id, std::string weapon_type, std::string hand)
 {
 
 	BattleUnit *unit = 0;
@@ -2289,6 +2286,49 @@ void BattlescapeState::coopHealing(int actor_id, int type, int part, std::string
 
 	if (!unit)
 		return;
+
+	// coop (PRD-P1 rule, applied here by PRD-P6): replay on a stack-local action
+	// carrying the HEALER's own medikit. The classic branch below runs on
+	// _currentAction, whose weapon is whatever the receiving player happens to be
+	// holding - in parallel mode that is the other player's business entirely,
+	// and medikitUse() dereferences it.
+	if (connectionTCP::parallelTurnActive())
+	{
+		BattleUnit* healer = unit;
+		if (healer_id != -1)
+		{
+			for (auto u : *_save->getUnits())
+			{
+				if (u->getId() == healer_id)
+				{
+					healer = u;
+					break;
+				}
+			}
+		}
+
+		BattleAction action = BattlescapeGame::makeReplayAction(healer);
+		action.type = (BattleActionType)type;
+		action.Time = time;
+		action.weapon = BattlescapeGame::coopResolveWeapon(_save, healer, weapon_id, weapon_type, hand);
+		if (!action.weapon)
+		{
+			Log(LOG_INFO) << "coop: medkit replay skipped, healer " << healer->getId()
+						  << " has no '" << weapon_type << "' (id " << weapon_id << ")";
+			return;
+		}
+
+		BattleMediKitAction mode = medkit_state == "stimulant" ? BMA_STIMULANT
+								 : medkit_state == "painkiller" ? BMA_PAINKILLER
+																: BMA_HEAL;
+		UnitBodyPart bodyPart = mode == BMA_HEAL ? (UnitBodyPart)part : BODYPART_TORSO;
+		_battleGame->getTileEngine()->medikitUse(&action, unit, mode, bodyPart);
+		// both machines now hold the same charge counts, so this reaches the same
+		// answer on both and the item census stays equal.
+		_battleGame->getTileEngine()->medikitRemoveIfEmpty(&action);
+		updateSoldierInfo();
+		return;
+	}
 
 	_save->setSelectedUnit(unit);
 	_battleGame->getCurrentAction()->actor = unit;
@@ -2339,6 +2379,40 @@ void BattlescapeState::coopActiveGranade(int actor_id, int type, std::string han
 		return;
 
 	
+	// coop (PRD-P1 rule, applied here by PRD-P6): a replayed prime must not hand
+	// THIS player's selection and _currentAction to the peer's actor. In parallel
+	// mode both players are acting at once, so doing it yanked the receiver's
+	// hands panel and stat panel mid-click. Classic keeps the old writes: its
+	// hand branches below read _currentAction->actor.
+	if (connectionTCP::parallelTurnActive())
+	{
+		BattleItem* primed = nullptr;
+		if (item_id != 0)
+		{
+			for (auto* item : *unit->getInventory())
+			{
+				if (item->getId() == item_id)
+				{
+					primed = item;
+					break;
+				}
+			}
+		}
+		else if (hand == "left")
+		{
+			primed = unit->getLeftHandWeapon();
+		}
+		else
+		{
+			primed = unit->getRightHandWeapon();
+		}
+		if (primed)
+		{
+			primed->setFuseTimer(fusetimer);
+		}
+		return;
+	}
+
 	_save->setSelectedUnit(unit);
 	_battleGame->getCurrentAction()->actor = unit;
 
@@ -2672,7 +2746,22 @@ void BattlescapeState::btnKneelClick(Action *)
 		BattleUnit *bu = _save->getSelectedUnit();
 		if (bu)
 		{
-			_battleGame->kneel(bu);
+			// coop (PRD-P6): kneeling is a sim mutation, so the parallel client
+			// asks instead of doing it. The button/preview refresh below is
+			// display and stays local either way - it re-reads the unit, which
+			// the host's `kneel` broadcast will have updated by then.
+			BattleAction action;
+			action.type = BA_KNEEL;
+			action.actor = bu;
+			if (_battleGame->coopRouteAction(action, "kneel"))
+			{
+				return;
+			}
+
+			// kneel() + the classic `kneel` packet, in one place both this button
+			// and an admitted client intent go through.
+			_battleGame->executeAction(action);
+
 			toggleKneelButton(bu);
 
 			// update any path preview when unit kneels
@@ -2680,17 +2769,6 @@ void BattlescapeState::btnKneelClick(Action *)
 			{
 				_battleGame->getPathfinding()->refreshPath();
 			}
-
-			// coop
-			if (_game->getCoopMod()->getCoopStatic() == true)
-			{
-				Json::Value obj;
-				obj["state"] = "kneel";
-				obj["id"] = bu->getId();
-
-				_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-			}
-
 		}
 	}
 }
@@ -3053,6 +3131,11 @@ void BattlescapeState::btnEndTurnClick(Action *)
 	// the display safety net both survive the hand-off's removal.
 	if (_game->getCoopMod()->parallelTurnActive() && _game->getCoopMod()->getCoopStatic() == true && !_save->isPreview())
 	{
+		// coop (PRD-P6): the side is committing from here until the boundary
+		// packet goes out. No action may be admitted in that window - a client
+		// intent that arrives now is denied `turn_over`.
+		connectionTCP::_sideCommitInProgress = true;
+
 		// the host remains the executor for the AI side that follows
 		_game->getCoopMod()->_isActivePlayerSync = true;
 		_game->getCoopMod()->_isActiveAISync = true;

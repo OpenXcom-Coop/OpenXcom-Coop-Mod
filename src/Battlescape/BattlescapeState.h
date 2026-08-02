@@ -113,7 +113,10 @@ private:
   public:
 	// coop
 	void setSelectedCoopUnit(int actor_id);
-	void coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time);
+	// coop (PRD-P6): healer_id/weapon_* are additive - an older peer omits them
+	// and the classic branch (which reads the local _currentAction) still runs.
+	void coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time,
+					 int healer_id = -1, int weapon_id = -1, std::string weapon_type = "", std::string hand = "");
 	void coopActiveGranade(int actor_id, int type, std::string hand, int fusetimer, int item_id);
 	void coopActionClick(int actor_id, std::string hand, int type, bool fuse, int fusetimer, int target_x, int target_y, int target_z, int time, std::string weapon_type, int weapon_id);
 	// This should end the co-op battle.

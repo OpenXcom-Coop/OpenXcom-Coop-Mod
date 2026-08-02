@@ -73,8 +73,11 @@ void ProjectileFlyBState::init()
 	if (_initialized) return;
 	_initialized = true;
 
-	// coop
-	_parent->getCoopMod()->_coop_task_completed = false;
+	// coop: acquire the receive gate for the whole shot. Safe to do unguarded -
+	// init() returns early above when it has already run, which is what keeps this
+	// paired with the single deinit() release even though popState() re-init()s the
+	// state every time an ExplosionBState pushed in front of it pops.
+	_parent->getCoopMod()->setCoopTaskCompleted(false);
 	_parent->getCoopMod()->_coopInitDeath = true;
 	_parent->getCoopMod()->_hasHitUnit = -1;
 
@@ -868,7 +871,7 @@ void ProjectileFlyBState::deinit()
 {
 
 	// coop
-	_parent->getCoopMod()->_coop_task_completed = true;
+	_parent->getCoopMod()->setCoopTaskCompleted(true);
 	_parent->getCoopMod()->_coopInitDeath = false;
 	// coop fix
 	_parent->getCoopMod()->_trajectoryCoop.clear();
