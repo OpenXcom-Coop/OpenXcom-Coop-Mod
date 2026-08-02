@@ -763,8 +763,9 @@ connectionTCP* BattlescapeGame::getCoopMod()
 
 void BattlescapeGame::setCoopTaskCompleted(bool task)
 {
-
-	_parentState->getGame()->getCoopMod()->_coop_task_completed = task;
+	// coop (PRD-P6 pre-task): now an acquire/release on a depth counter, not a
+	// bool store. Callers are unchanged - false still means "my chain started".
+	_parentState->getGame()->getCoopMod()->setCoopTaskCompleted(task);
 }
 
 int BattlescapeGame::getCoopActorID()
@@ -984,6 +985,10 @@ BattlescapeGame::BattlescapeGame(SavedBattleGame* save, BattlescapeState* parent
 	_currentAction.skillRules = nullptr;
 
 	_debugPlay = false;
+
+	// coop (PRD-P6): a battle starts with a clean arbiter - action/side sequences
+	// at 0 on both machines, no pending intent left over from the last one.
+	connectionTCP::resetActionArbiter(true);
 
 	checkForCasualties(nullptr, BattleActionAttack{}, true);
 	cancelCurrentAction();
@@ -1378,6 +1383,15 @@ void BattlescapeGame::endTurn()
 		if (connectionTCP::parallelTurnActive())
 		{
 			root["seed"] = static_cast<Json::UInt64>(RNG::getSeed());
+
+			// coop (PRD-P6): this packet is the side transition, so it is where
+			// the host advances the staleness token the client stamps on its
+			// intents - and where `_actionSeq` (with PRD-P7's
+			// `peerDisplayAckedSeq`, which must never be reset without it) goes
+			// back to 0 for the new side.
+			++connectionTCP::_sideSeq;
+			root["side_seq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
+			connectionTCP::resetActionArbiter(false);
 		}
 
 		getCoopMod()->sendTCPPacketData(root.toStyledString());
@@ -1961,8 +1975,502 @@ void BattlescapeGame::missionComplete()
 /**
  * Handles the result of non target actions, like priming a grenade.
  */
+// ===========================================================================
+// coop (PRD-P6): action intents - the client asks, the host executes.
+// ===========================================================================
+
+/// Serializes an action as the body of an `action_intent`; defined below.
+static Json::Value coopBuildIntent(BattlescapeGame* game, SavedBattleGame* save, const BattleAction& action, const std::string& kind);
+
+/**
+ * THE executor's entry point for a player-initiated action.
+ *
+ * Factored out of the local-input tails (mapClick's move/turn/shot branches, the
+ * kneel button, handleNonTargetAction's prime/melee, the medikit presses) so the
+ * host's own clicks and a client's `action_intent` run identical code. On the
+ * host `_isActivePlayerSync` is true (the PRD-P5 executor invariant), so every
+ * chain pushed here broadcasts through the existing BState send sites and the
+ * client displays it exactly as it displays a host action in classic co-op.
+ *
+ * The kinds that have NO BattleState of their own (kneel, prime, medikit) mutate
+ * synchronously and therefore ship their classic replay packet from here - the
+ * UI handler that used to send it is not on this path.
+ */
+void BattlescapeGame::executeAction(BattleAction &action, bool calculatePath)
+{
+	if (!action.actor)
+	{
+		return;
+	}
+
+	// handleNonTargetAction() clears the type on its way out, so remember it.
+	const BattleActionType type = action.type;
+
+	switch (type)
+	{
+	case BA_WALK:
+		if (calculatePath)
+		{
+			_save->getPathfinding()->calculate(action.actor, action.target, action.getMoveType());
+		}
+		statePushBack(new UnitWalkBState(this, action));
+		break;
+
+	case BA_TURN:
+	{
+		// BA_TURN is the INTENT's dispatch key, not a BattleAction type
+		// UnitTurnBState understands: it reads `_action.type == BA_NONE` to decide
+		// whether this turn also opens a door (UnitTurnBState.cpp:155) and whether
+		// a newly spotted unit interrupts it (:199). A right-click turn is a
+		// BA_NONE turn, so that is what the state must be handed.
+		BattleAction turn = action;
+		turn.type = BA_NONE;
+		statePushBack(new UnitTurnBState(this, turn));
+		break;
+	}
+
+	case BA_KNEEL:
+		kneel(action.actor);
+		coopSendKneelPacket(action.actor);
+		break;
+
+	case BA_THROW:
+	case BA_SNAPSHOT:
+	case BA_AUTOSHOT:
+	case BA_AIMEDSHOT:
+	case BA_LAUNCH:
+		// same two pushes the mapClick targeting tail makes, in the same order
+		_states.push_back(new ProjectileFlyBState(this, action));
+		statePushFront(new UnitTurnBState(this, action)); // turn towards the target first
+		break;
+
+	case BA_MINDCONTROL:
+	case BA_PANIC:
+		statePushBack(new PsiAttackBState(this, action));
+		break;
+
+	case BA_USE:
+		if (action.weapon && action.weapon->getRules()->getBattleType() == BT_PSIAMP)
+		{
+			statePushBack(new PsiAttackBState(this, action));
+		}
+		else if (action.coopTargetUnit != -1)
+		{
+			BattleUnit* target = coopFindUnit(action.coopTargetUnit);
+			if (target && action.weapon && action.spendTU(&action.result))
+			{
+				const char* medkitState = action.coopMedikitMode == BMA_STIMULANT ? "stimulant"
+										  : action.coopMedikitMode == BMA_PAINKILLER ? "painkiller"
+																					 : "heal";
+				getTileEngine()->medikitUse(&action, target,
+					(BattleMediKitAction)action.coopMedikitMode, (UnitBodyPart)action.coopBodyPart);
+				coopSendMedikitPacket(action, target, action.coopMedikitMode, action.coopBodyPart, medkitState);
+				// decided from charge counts both machines now hold, so the peer's
+				// own medikitRemoveIfEmpty reaches the same answer.
+				getTileEngine()->medikitRemoveIfEmpty(&action);
+			}
+			_parentState->updateSoldierInfo();
+		}
+		else if (action.weapon
+				 && (action.weapon->getRules()->getBattleType() == BT_SCANNER
+					 || action.weapon->getRules()->getBattleType() == BT_MINDPROBE))
+		{
+			// the executor pays for it; the display (scanner window / unit info)
+			// is the asking machine's own business.
+			action.spendTU(&action.result);
+			_parentState->updateSoldierInfo();
+		}
+		else
+		{
+			handleNonTargetAction(action);
+		}
+		break;
+
+	case BA_HIT:
+		handleNonTargetAction(action);
+		break;
+
+	case BA_PRIME:
+	case BA_UNPRIME:
+		handleNonTargetAction(action);
+		coopSendPrimePacket(action, type);
+		break;
+
+	default:
+		break;
+	}
+}
+
+/**
+ * The door every player-initiated battle action passes through.
+ *
+ * Classic co-op and single player never take a branch here - the option is off,
+ * so the caller runs its normal tail and the behaviour is byte-identical.
+ */
+bool BattlescapeGame::coopRouteAction(BattleAction &action, const std::string &kind)
+{
+	if (!connectionTCP::parallelTurnActive())
+	{
+		return false;
+	}
+
+	if (!getHost())
+	{
+		// The client never simulates. Everything it just built travels instead.
+		getCoopMod()->sendActionIntent(coopBuildIntent(this, _save, action, kind), kind);
+		return true;
+	}
+
+	// The host executes, but through the same admission gate a client intent
+	// meets - otherwise the two players would be held to different rules.
+	if (!connectionTCP::canAdmitAction())
+	{
+		_parentState->warning("STR_COOP_PLAYER_BUSY");
+		return true;
+	}
+	connectionTCP::stampAdmittedAction();
+	return false;
+}
+
+/**
+ * Same door for a medikit press: the operands (which unit, which body part,
+ * heal/stim/pain) have no home in BattleAction, so they are stamped onto the
+ * co-op fields first.
+ */
+bool BattlescapeGame::coopRouteMedikit(BattleAction* action, BattleUnit* target, int medikitMode, int bodyPart)
+{
+	if (!action || !target || !connectionTCP::parallelTurnActive())
+	{
+		return false;
+	}
+	BattleAction copy = *action;
+	copy.coopTargetUnit = target->getId();
+	copy.coopMedikitMode = medikitMode;
+	copy.coopBodyPart = bodyPart;
+	return coopRouteAction(copy, "medikit");
+}
+
+/**
+ * Serializes an action as the body of an `action_intent` (PROTOCOL.md).
+ *
+ * Deviation from the sketched shape, documented in PROTOCOL.md: the intent also
+ * carries `weapon_id`/`weapon_type`. `hand` alone cannot name the item that
+ * acted - a unit can hold two, and built-in specials live outside the hands
+ * entirely - and the host must resolve the exact instance with
+ * coopResolveWeapon, which never fabricates a BattleItem (issue #74).
+ */
+static Json::Value coopBuildIntent(BattlescapeGame* game, SavedBattleGame* save, const BattleAction &action, const std::string &kind)
+{
+	Json::Value root;
+	root["unit_id"] = action.actor ? action.actor->getId() : -1;
+	root["ba_type"] = (int)action.type;
+
+	root["target"]["x"] = action.target.x;
+	root["target"]["y"] = action.target.y;
+	root["target"]["z"] = action.target.z;
+
+	root["run"] = action.run;
+	root["strafe"] = action.strafe;
+	root["sneak"] = action.sneak;
+	root["ignore_spotted"] = action.ignoreSpottedEnemies;
+
+	root["hand"] = BattlescapeGame::coopHandOf(action.actor, action.weapon, game->getCoopWeaponHand());
+	root["weapon_id"] = action.weapon ? action.weapon->getId() : -1;
+	root["weapon_type"] = action.weapon ? action.weapon->getRules()->getType() : std::string();
+
+	root["waypoints"] = Json::Value(Json::arrayValue);
+	for (const auto& wp : action.waypoints)
+	{
+		Json::Value entry;
+		entry["x"] = wp.x;
+		entry["y"] = wp.y;
+		entry["z"] = wp.z;
+		root["waypoints"].append(entry);
+	}
+
+	// PROTOCOL.md: ALL kinds carry the sender's current reserve mode; the host
+	// applies it to THIS action's cost check only. PRD-P8 owns the rest.
+	root["reserve"] = (int)save->getTUReserved();
+	root["kneelReserve"] = save->getKneelReserved();
+
+	root["extra"] = Json::Value(Json::objectValue);
+	if (kind == "prime")
+	{
+		root["extra"]["fuse"] = action.value;
+	}
+	else if (kind == "medikit")
+	{
+		root["extra"]["target_unit"] = action.coopTargetUnit;
+		root["extra"]["action"] = action.coopMedikitMode == BMA_STIMULANT ? "stim"
+								  : action.coopMedikitMode == BMA_PAINKILLER ? "pain"
+																			 : "heal";
+		root["extra"]["bodypart"] = action.coopBodyPart;
+	}
+	else if (kind == "shoot")
+	{
+		root["extra"]["sprayTargeting"] = action.sprayTargeting;
+	}
+	return root;
+}
+
+/**
+ * Host: is this intent allowed to run at all? Ownership is the important half -
+ * a client may only ever drive its own seat's soldiers.
+ */
+std::string BattlescapeGame::coopValidateIntent(const std::string &intentJson, int seat, std::string &warning)
+{
+	Json::Reader reader;
+	Json::Value obj;
+	reader.parse(intentJson, obj);
+
+	warning = "STR_COOP_ACTION_REFUSED";
+
+	BattleUnit* unit = coopFindUnit(obj.get("unit_id", -1).asInt());
+	if (!unit)
+	{
+		return "no_unit";
+	}
+	if (unit->isOut())
+	{
+		return "unit_out";
+	}
+	if (unit->getFaction() != FACTION_PLAYER)
+	{
+		warning = "STR_COOP_NOT_YOUR_SOLDIER";
+		return "faction";
+	}
+	if (unit->getCoop() != seat)
+	{
+		warning = "STR_COOP_NOT_YOUR_SOLDIER";
+		return "ownership";
+	}
+
+	const std::string kind = obj.get("kind", "").asString();
+	if (kind == "kneel")
+	{
+		if (unit->getTimeUnits() < unit->getKneelChangeCost())
+		{
+			warning = "STR_NOT_ENOUGH_TIME_UNITS";
+			return "no_tu";
+		}
+	}
+	else if (kind == "shoot" || kind == "throw" || kind == "psi" || kind == "melee"
+			 || kind == "prime" || kind == "medikit")
+	{
+		BattleItem* weapon = coopResolveWeapon(_save, unit,
+			obj.get("weapon_id", -1).asInt(), obj.get("weapon_type", "").asString(),
+			obj.get("hand", "").asString());
+		if (!weapon)
+		{
+			// issue #74: never fabricate one to make the intent runnable.
+			return "no_weapon";
+		}
+		BattleActionCost cost((BattleActionType)obj.get("ba_type", (int)BA_NONE).asInt(), unit, weapon);
+		std::string message;
+		// An EMPTY message means haveTU() bailed on `Time <= 0` - a free action,
+		// not an unaffordable one. Denying that would refuse every zero-cost
+		// action outright, so only a real cost complaint is a refusal.
+		if (!cost.haveTU(&message) && !message.empty())
+		{
+			warning = message;
+			return "no_tu";
+		}
+	}
+
+	warning.clear();
+	return "";
+}
+
+/**
+ * Host: rebuild the client's intent as a BattleAction and run it.
+ *
+ * The action is built with makeReplayAction, i.e. `coopReplay` set: it is a PEER
+ * action as far as this machine's display is concerned, so it must not yank the
+ * host's camera (PRD-P1) - and `cameraPosition` stays unset for the same reason.
+ */
+void BattlescapeGame::coopExecuteIntent(const std::string &intentJson)
+{
+	Json::Reader reader;
+	Json::Value obj;
+	reader.parse(intentJson, obj);
+
+	BattleUnit* unit = coopFindUnit(obj.get("unit_id", -1).asInt());
+	if (!unit)
+	{
+		return;
+	}
+
+	const std::string kind = obj.get("kind", "").asString();
+
+	BattleAction action = makeReplayAction(unit);
+	action.targeting = false;
+	action.type = (BattleActionType)obj.get("ba_type", (int)BA_NONE).asInt();
+	action.target = Position(obj["target"].get("x", 0).asInt(),
+							 obj["target"].get("y", 0).asInt(),
+							 obj["target"].get("z", 0).asInt());
+	action.run = obj.get("run", false).asBool();
+	action.strafe = obj.get("strafe", false).asBool();
+	action.sneak = obj.get("sneak", false).asBool();
+	action.ignoreSpottedEnemies = obj.get("ignore_spotted", false).asBool();
+	action.cameraPosition = Position(0, 0, -1);
+
+	action.weapon = coopResolveWeapon(_save, unit, obj.get("weapon_id", -1).asInt(),
+		obj.get("weapon_type", "").asString(), obj.get("hand", "").asString());
+
+	const Json::Value& wps = obj["waypoints"];
+	for (Json::ArrayIndex i = 0; i < wps.size(); ++i)
+	{
+		action.waypoints.push_back(Position(wps[i].get("x", 0).asInt(),
+											wps[i].get("y", 0).asInt(),
+											wps[i].get("z", 0).asInt()));
+	}
+
+	const Json::Value& extra = obj["extra"];
+	if (kind == "prime")
+	{
+		action.value = extra.get("fuse", -1).asInt();
+	}
+	else if (kind == "medikit")
+	{
+		const std::string mode = extra.get("action", "heal").asString();
+		action.coopTargetUnit = extra.get("target_unit", -1).asInt();
+		action.coopMedikitMode = mode == "stim" ? BMA_STIMULANT
+							   : mode == "pain" ? BMA_PAINKILLER
+												: BMA_HEAL;
+		action.coopBodyPart = extra.get("bodypart", 0).asInt();
+	}
+	else if (kind == "shoot")
+	{
+		action.sprayTargeting = extra.get("sprayTargeting", false).asBool();
+	}
+
+	if (kind == "shoot" || kind == "throw" || kind == "psi" || kind == "melee"
+		|| kind == "prime" || kind == "medikit" || kind == "other")
+	{
+		action.updateTU();
+	}
+
+	// PROTOCOL.md: the sender's reserve settings apply to THIS action's cost
+	// check only. Swapped in around the synchronous execution; the per-step walk
+	// reserve check lives inside UnitWalkBState and is PRD-P8's to localize.
+	const BattleActionType savedReserve = _save->getTUReserved();
+	const bool savedKneelReserve = _save->getKneelReserved();
+	if (obj.isMember("reserve"))
+	{
+		_save->setTUReserved((BattleActionType)obj["reserve"].asInt());
+	}
+	if (obj.isMember("kneelReserve"))
+	{
+		_save->setKneelReserved(obj["kneelReserve"].asBool());
+	}
+
+	executeAction(action, true);
+
+	_save->setTUReserved(savedReserve);
+	_save->setKneelReserved(savedKneelReserve);
+}
+
+/**
+ * The classic `kneel` replay packet. kneel() has no BattleState of its own, so
+ * nothing else would tell the peer about it.
+ */
+void BattlescapeGame::coopSendKneelPacket(BattleUnit* bu)
+{
+	if (!bu || !isCoop())
+	{
+		return;
+	}
+	Json::Value obj;
+	obj["state"] = "kneel";
+	obj["id"] = bu->getId();
+	getCoopMod()->sendTCPPacketData(obj.toStyledString());
+}
+
+/**
+ * The classic `active_grenade` replay packet, shipped with the fuse the weapon
+ * ACTUALLY ended up on - a prime that failed its TU check ships -1, so the peer
+ * mirrors the failure instead of arming a grenade the executor never armed.
+ */
+void BattlescapeGame::coopSendPrimePacket(const BattleAction &action, BattleActionType primeType)
+{
+	if (!isCoop() || !action.actor || !action.weapon)
+	{
+		return;
+	}
+	Json::Value root;
+	root["state"] = "active_grenade";
+	root["fusetimer"] = action.weapon->getFuseTimer();
+	root["hand"] = coopHandOf(action.actor, action.weapon, getCoopWeaponHand());
+	root["type"] = (int)primeType;
+	root["actor_id"] = action.actor->getId();
+	root["item_id"] = action.weapon->getId();
+	getCoopMod()->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * The classic `medkit` replay packet, plus the healer/weapon identification the
+ * legacy shape never carried - without it the receiver has to guess the medikit
+ * from whatever is in ITS OWN _currentAction, which in parallel mode belongs to
+ * the other player entirely.
+ */
+void BattlescapeGame::coopSendMedikitPacket(const BattleAction &action, BattleUnit* target, int medikitMode, int bodyPart, const std::string &medkitState)
+{
+	if (!isCoop() || !target || !action.actor || !action.weapon)
+	{
+		return;
+	}
+	Json::Value obj;
+	obj["state"] = "medkit";
+	obj["actor_id"] = target->getId();     // legacy name: this is the PATIENT
+	obj["type"] = (int)action.type;
+	obj["part"] = bodyPart;
+	obj["medkit_state"] = medkitState;
+	obj["action_result"] = action.result;
+	obj["time"] = action.Time;
+	// additive (an older peer ignores them)
+	obj["healer_id"] = action.actor->getId();
+	obj["weapon_id"] = action.weapon->getId();
+	obj["weapon_type"] = action.weapon->getRules()->getType();
+	obj["hand"] = coopHandOf(action.actor, action.weapon, getCoopWeaponHand());
+	getCoopMod()->sendTCPPacketData(obj.toStyledString());
+	(void)medikitMode;
+}
+
 void BattlescapeGame::handleNonTargetAction()
 {
+	// coop (PRD-P6): prime / unprime / melee are confirmed here (the action menu
+	// only sets the type up), so this is where the parallel client turns them
+	// into an intent instead of mutating its own sim. BA_USE is deliberately NOT
+	// routed: its only local effect is updateGameStateAfterScript, which the
+	// classic replay path runs on both machines anyway.
+	if (connectionTCP::parallelTurnActive() && !_currentAction.targeting
+		&& _currentAction.result.empty() && _currentAction.actor)
+	{
+		const char* kind = nullptr;
+		if (_currentAction.type == BA_HIT)
+		{
+			kind = "melee";
+		}
+		else if (_currentAction.type == BA_UNPRIME
+				 || (_currentAction.type == BA_PRIME && _currentAction.value > -1))
+		{
+			kind = "prime";
+		}
+
+		if (kind)
+		{
+			BattleAction action = _currentAction;
+			if (coopRouteAction(action, kind))
+			{
+				_currentAction.type = BA_NONE;
+				_currentAction.value = 0;
+				_parentState->updateSoldierInfo();
+				setupCursor();
+				return;
+			}
+		}
+	}
+
 	handleNonTargetAction(_currentAction);
 }
 
@@ -2914,8 +3422,17 @@ void BattlescapeGame::primaryAction(Position pos)
 				getMap()->getWaypoints()->clear();
 				_parentState->getGame()->getCursor()->setVisible(false);
 				_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
-				_states.push_back(new ProjectileFlyBState(this, _currentAction));
-				statePushFront(new UnitTurnBState(this, _currentAction));
+				// coop (PRD-P6): the spray waypoints were computed locally and ride
+				// the intent verbatim.
+				if (coopRouteAction(_currentAction, "shoot"))
+				{
+					_parentState->getGame()->getCursor()->setVisible(true);
+					_currentAction.sprayTargeting = false;
+					_currentAction.waypoints.clear();
+					setupCursor();
+					return;
+				}
+				executeAction(_currentAction, false);
 				_currentAction.sprayTargeting = false;
 				_currentAction.waypoints.clear();
 			}
@@ -2945,7 +3462,19 @@ void BattlescapeGame::primaryAction(Position pos)
 					std::find(_currentAction.actor->getVisibleUnits()->begin(), _currentAction.actor->getVisibleUnits()->end(), targetUnit) != _currentAction.actor->getVisibleUnits()->end())
 				{
 					std::string error;
-					if (_currentAction.spendTU(&error))
+					// coop (PRD-P6): a mind probe's only sim effect is the TU it
+					// costs, and in parallel mode only the executor may spend it.
+					// The read-out itself is this player's own business.
+					if (connectionTCP::parallelTurnActive() && !getHost())
+					{
+						BattleAction probe = _currentAction;
+						probe.target = pos;
+						coopRouteAction(probe, "other");
+						_parentState->getGame()->getMod()->getSoundByDepth(_save->getDepth(), _currentAction.weapon->getRules()->getHitSound())->play(-1, getMap()->getSoundAngle(pos));
+						_parentState->getGame()->pushState(new UnitInfoState(targetUnit, _parentState, false, true));
+						cancelCurrentAction();
+					}
+					else if (_currentAction.spendTU(&error))
 					{
 						_parentState->getGame()->getMod()->getSoundByDepth(_save->getDepth(), _currentAction.weapon->getRules()->getHitSound())->play(-1, getMap()->getSoundAngle(pos));
 						_parentState->getGame()->pushState(new UnitInfoState(targetUnit, _parentState, false, true));
@@ -3016,7 +3545,14 @@ void BattlescapeGame::primaryAction(Position pos)
 						getMap()->setCursorType(CT_NONE);
 						_parentState->getGame()->getCursor()->setVisible(false);
 						_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
-						statePushBack(new PsiAttackBState(this, _currentAction));
+						// coop (PRD-P6): the confirmed psi attack.
+						if (coopRouteAction(_currentAction, "psi"))
+						{
+							_parentState->getGame()->getCursor()->setVisible(true);
+							setupCursor();
+							return;
+						}
+						executeAction(_currentAction, false);
 					}
 					else
 					{
@@ -3049,8 +3585,24 @@ void BattlescapeGame::primaryAction(Position pos)
 
 			_parentState->getGame()->getCursor()->setVisible(false);
 			_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
-			_states.push_back(new ProjectileFlyBState(this, _currentAction));
-			statePushFront(new UnitTurnBState(this, _currentAction)); // first of all turn towards the target
+
+			// coop (PRD-P6): the confirmed shot / throw.
+			if (coopRouteAction(_currentAction,
+					_currentAction.type == BA_THROW ? "throw" : "shoot"))
+			{
+				_parentState->getGame()->getCursor()->setVisible(true);
+				if (_currentAction.type == BA_THROW || _currentAction.type == BA_LAUNCH)
+				{
+					// classic drops out of targeting after a throw/launch (see
+					// popState); no chain runs here to do it for us.
+					_currentAction.waypoints.clear();
+					cancelCurrentAction(true);
+				}
+				setupCursor();
+				return;
+			}
+
+			executeAction(_currentAction, false);
 		}
 	}
 	else
@@ -3148,6 +3700,18 @@ void BattlescapeGame::primaryAction(Position pos)
 
 			if (!bPreviewed && _save->getPathfinding()->getStartDirection() != -1)
 			{
+				// coop (PRD-P6): the confirmed move. A parallel CLIENT ships it as
+				// an `action_intent` and walks nothing; the targeting UI, the path
+				// preview and the cursor above all stayed local.
+				BattleAction walk = _currentAction;
+				walk.type = BA_WALK;
+				if (coopRouteAction(walk, "walk"))
+				{
+					_save->getPathfinding()->removePreview();
+					getMap()->setCursorType(CT_NORMAL);
+					_parentState->getGame()->getCursor()->setVisible(true);
+					return;
+				}
 
 				// coop (cursor free)
 				if (isYourTurn != 1)
@@ -3162,7 +3726,8 @@ void BattlescapeGame::primaryAction(Position pos)
 					getMap()->setCursorType(CT_NORMAL);
 				}
 
-				statePushBack(new UnitWalkBState(this, _currentAction));
+				// the path is already calculated above, hence `false`
+				executeAction(walk, false);
 				playUnitResponseSound(_currentAction.actor, 1); // "start moving" sound
 			}
 		}
@@ -3179,6 +3744,18 @@ void BattlescapeGame::secondaryAction(Position pos)
 	_currentAction.target = pos;
 	_currentAction.actor = _save->getSelectedUnit();
 	_currentAction.strafe = Options::strafe && _save->isCtrlPressed(true) && _save->getSelectedUnit()->getTurretType() > -1;
+
+	// coop (PRD-P6): the confirmed turn / door-open. Only the INTENT gets the
+	// BA_TURN dispatch key; the local tail keeps _currentAction verbatim, because
+	// UnitTurnBState branches on `_action.type == BA_NONE` (door opening, the
+	// spotted-unit interrupt, the co-op turn packet's `isActionTypeNone`) and a
+	// right click can arrive with a queued BA_HIT still in _currentAction.
+	BattleAction turn = _currentAction;
+	turn.type = BA_TURN;
+	if (coopRouteAction(turn, "turn"))
+	{
+		return;
+	}
 	statePushBack(new UnitTurnBState(this, _currentAction));
 }
 
@@ -3193,8 +3770,16 @@ void BattlescapeGame::launchAction()
 	getMap()->setCursorType(CT_NONE);
 	_parentState->getGame()->getCursor()->setVisible(false);
 	_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
-	_states.push_back(new ProjectileFlyBState(this, _currentAction));
-	statePushFront(new UnitTurnBState(this, _currentAction)); // first of all turn towards the target
+
+	// coop (PRD-P6): the waypoints the player laid out ride the intent verbatim.
+	if (coopRouteAction(_currentAction, "shoot"))
+	{
+		_parentState->getGame()->getCursor()->setVisible(true);
+		_currentAction.waypoints.clear();
+		cancelCurrentAction(true);
+		return;
+	}
+	executeAction(_currentAction, false);
 }
 
 /**
@@ -3256,8 +3841,14 @@ void BattlescapeGame::psiButtonAction()
 		_currentAction.updateTU();
 		setupCursor();
 
-		// coop psi click
-		if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true && _parentState->getGame()->getCoopMod()->_isActivePlayerSync == true)
+		// coop psi click. NOT in parallel mode: coopPsiButtonAction() sets up the
+		// RECEIVER's targeting cursor and _currentAction, which in parallel belong
+		// to a player who is acting at the same time (PRD-P1's rule, PRD-P6's
+		// scope). The psi attack itself replays off `psi_attack`, which carries
+		// everything, so nothing is lost.
+		if (_parentState->getGame()->getCoopMod()->getCoopStatic() == true
+			&& _parentState->getGame()->getCoopMod()->_isActivePlayerSync == true
+			&& !connectionTCP::parallelTurnActive())
 		{
 
 			Json::Value root;
@@ -3358,6 +3949,16 @@ void BattlescapeGame::moveUpDown(BattleUnit* unit, int dir)
 	{
 		_currentAction.target.z--;
 	}
+	// coop (PRD-P6): routed BEFORE the stand-up, which is itself a sim mutation
+	// the client may not make. UnitWalkBState stands a kneeling unit up on its
+	// own first step, so the executor still does it.
+	BattleAction walk = _currentAction;
+	walk.type = BA_WALK;
+	if (coopRouteAction(walk, "walk"))
+	{
+		return;
+	}
+
 	getMap()->setCursorType(CT_NONE);
 	_parentState->getGame()->getCursor()->setVisible(false);
 	if (_save->getSelectedUnit()->isKneeled())
@@ -3365,7 +3966,7 @@ void BattlescapeGame::moveUpDown(BattleUnit* unit, int dir)
 		kneel(_save->getSelectedUnit());
 	}
 	_save->getPathfinding()->calculate(_currentAction.actor, _currentAction.target, _currentAction.getMoveType());
-	statePushBack(new UnitWalkBState(this, _currentAction));
+	executeAction(walk, false);
 }
 
 /**

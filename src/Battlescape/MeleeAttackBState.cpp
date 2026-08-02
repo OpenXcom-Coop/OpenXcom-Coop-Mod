@@ -59,6 +59,16 @@ void MeleeAttackBState::init()
 	if (_initialized) return;
 	_initialized = true;
 
+	// coop (PRD-P6 pre-task): melee had no receive-gate coverage - the peer could
+	// apply an unrelated packet halfway through a melee chain. Mirrors
+	// UnitTurnBState. Guarded: popState() re-init()s this state when the
+	// ExplosionBState it pushes in front of itself pops.
+	if (!_coopGateHeld)
+	{
+		_coopGateHeld = true;
+		_parent->setCoopTaskCompleted(false);
+	}
+
 	
 	// coop
 	if (_parent->getCoopMod()->_isActivePlayerSync == false && _parent->getCoopMod()->getCoopStatic() == true)
@@ -346,6 +356,18 @@ void MeleeAttackBState::init()
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
 
+}
+
+/**
+ * Deinitializes the state - releases the co-op receive gate init() took.
+ */
+void MeleeAttackBState::deinit()
+{
+	if (_coopGateHeld)
+	{
+		_coopGateHeld = false;
+		_parent->setCoopTaskCompleted(true);
+	}
 }
 
 /**

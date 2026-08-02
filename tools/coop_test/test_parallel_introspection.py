@@ -20,8 +20,10 @@ honest on BOTH machines of a live co-op battle:
   5. The receive-gate counters are self-consistent (rxHold <= rxHoldMax, and a
      co-op session that has exchanged battle packets has rotated at least one).
   6. set_option round-trips battleXcomSpeed / battleAlienSpeed /
-     EnableCoopParallelTurns / coopParallelDebugClientInput, and still rejects
-     an unknown name (the new branches must not swallow the else).
+     EnableCoopParallelTurns, still rejects an unknown name (the new branches
+     must not swallow the else), and rejects the retired
+     coopParallelDebugClientInput (PRD-P5's temporary client-input override,
+     deleted by PRD-P6 along with the gate it fed).
 
 Battle fixture: the skirmish flow (NEW BATTLE > COOP), the cheapest co-op
 battle in the suite - same path test_skirmish_battle_turn_control.py drives.
@@ -157,16 +159,21 @@ def assert_set_option(gc, tag):
             r = gc.ok({"cmd": "set_option", "name": name, "value": want})
             assert r.get("value") == want, \
                 f"{tag}: set_option {name}={want} echoed {r}"
-    for name in ("EnableCoopParallelTurns", "coopParallelDebugClientInput"):
-        for want in (True, False):
-            r = gc.ok({"cmd": "set_option", "name": name, "value": want})
-            assert r.get("value") is want, \
-                f"{tag}: set_option {name}={want} echoed {r}"
-    bad = gc.cmd({"cmd": "set_option", "name": "notAnOptionAtAll", "value": 1})
-    assert not bad.get("ok") and "unknown option" in bad.get("error", ""), \
-        f"{tag}: an unknown option must still be rejected, got {bad}"
-    print(f"PASS {tag}: set_option round-trips the four new names and still "
-          f"rejects an unknown one")
+    # coopParallelDebugClientInput was PRD-P5's temporary client-input override.
+    # PRD-P6 replaced the gate it fed with `action_intent` forwarding and deleted
+    # the option outright, so it must now be rejected like any unknown name.
+    for want in (True, False):
+        r = gc.ok({"cmd": "set_option", "name": "EnableCoopParallelTurns",
+                   "value": want})
+        assert r.get("value") is want, \
+            f"{tag}: set_option EnableCoopParallelTurns={want} echoed {r}"
+    for name in ("notAnOptionAtAll", "coopParallelDebugClientInput"):
+        bad = gc.cmd({"cmd": "set_option", "name": name, "value": 1})
+        assert not bad.get("ok") and "unknown option" in bad.get("error", ""), \
+            f"{tag}: {name} must be rejected, got {bad}"
+    print(f"PASS {tag}: set_option round-trips the three surviving names, and "
+          f"the retired coopParallelDebugClientInput is rejected like any "
+          f"unknown one")
 
 
 def main():

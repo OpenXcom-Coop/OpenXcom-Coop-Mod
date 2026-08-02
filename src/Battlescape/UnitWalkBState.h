@@ -53,6 +53,12 @@ private:
 	void playMovementSound();
 	std::size_t _numUnitsSpotted;
 	int _preMovementCost;
+	/// coop (PRD-P6 pre-task): does this state hold the receive gate?
+	/// init() is re-entered whenever the UnitFallBState it pushes in front of
+	/// itself pops, and the gate is a DEPTH COUNTER now - a second acquire would
+	/// never be released and would jam the peer's queue for the rest of the
+	/// battle. Acquire once, release once.
+	bool _coopGateHeld = false;
 public:
 	/// Creates a new UnitWalkBState class.
 	UnitWalkBState(BattlescapeGame *parent, BattleAction _action);

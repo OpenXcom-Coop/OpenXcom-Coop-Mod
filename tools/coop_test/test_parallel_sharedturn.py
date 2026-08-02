@@ -24,13 +24,15 @@ What this test asserts (PRD-P5 acceptance):
      (`showCoopWarning` -> `showMessage(msg, -1)`, repainted every frame), so one
      left behind would squat on the warning widget for the rest of the battle and
      block the deny/ready flashes P6/P8 put through it.
-  3. The temporary client input gate: `clientInputBlocked` is true on the client
-     and false on the host; the client's REAL END TURN button does nothing; and a
-     client-driven action does not replicate (the send guards read
-     `_isActivePlayerSync`, which the client holds false). Flipping
-     `coopParallelDebugClientInput` flips the gate - and per the PRD's §4 note
-     that debug mode makes the client execute LOCALLY ONLY, so the two machines
-     diverge on purpose. Dev plumbing; PRD-P6 deletes it.
+  3. `clientInputBlocked` (= "this machine is a parallel CLIENT") is true on the
+     client and false on the host; the client's REAL END TURN button still does
+     nothing, because END TURN stays host-only until PRD-P8's readiness tally;
+     and a LOCALLY EXECUTED client action does not replicate (the send guards
+     read `_isActivePlayerSync`, which the client holds false). PRD-P6 removed
+     the blanket input gate and the `coopParallelDebugClientInput` debug switch
+     that went with it - a client's real input now travels as an `action_intent`
+     (test_parallel_intents.py); `battle_action move` deliberately still executes
+     locally, which is what makes it the right lever for this assertion.
   4. A full side boundary: the host ends the turn (there is no mid-side hand-off
      left - no `PlayerTurnYour`), the alien side runs, and the player side comes
      back with the invariant re-asserted. A host shot after the boundary lands
@@ -41,10 +43,11 @@ What this test asserts (PRD-P5 acceptance):
      key at all, which the receiver reads as false - the same outcome.
 
 NOTE on driving: `battle_action move` pushes a UnitWalkBState directly and so
-bypasses BattlescapeState::mapClick, where the §4 gate lives. That makes it the
-right lever for the "does it REPLICATE" half of 3 (it is exactly the debug-mode
-path) and the wrong one for "is the click swallowed"; the click half is asserted
-through END TURN, a real gated handler the harness can press
+bypasses BattlescapeState::mapClick, where PRD-P6's intent capture lives. That
+makes it the right lever for the "does a LOCAL action REPLICATE" half of 3, and
+the wrong one for anything about the capture path - that is
+test_parallel_intents.py's `battle_intent` lever. The END TURN half is asserted
+through a real handler the harness can press
 (`battle_action end_turn_button` -> btnEndTurnClick).
 
 Battle fixture: the skirmish flow (NEW BATTLE > COOP), same path as
@@ -261,20 +264,8 @@ def assert_client_gate(host, client):
         f"the client's END TURN moved the turn state: host={hb['coopTurn']} "
         f"client={cb['coopTurn']}")
     print("PASS gate: the client's END TURN button is swallowed (host stays on "
-          f"turn {turn_before}, both machines still at coopTurn 2)")
-
-    # the debug override is a real switch
-    client.ok({"cmd": "set_option", "name": "coopParallelDebugClientInput",
-               "value": True})
-    assert parallel(client)["clientInputBlocked"] is False, \
-        "coopParallelDebugClientInput did not open the gate"
-    client.ok({"cmd": "set_option", "name": "coopParallelDebugClientInput",
-               "value": False})
-    assert parallel(client)["clientInputBlocked"] is True, \
-        "coopParallelDebugClientInput did not close the gate again"
-    print("PASS gate: coopParallelDebugClientInput flips it both ways (dev "
-          "plumbing only - see the §4 note: with it on the client executes "
-          "locally and replicates NOTHING)")
+          f"turn {turn_before}, both machines still at coopTurn 2) - END TURN "
+          f"stays host-only until PRD-P8's readiness tally")
 
 
 # Candidate destinations, nearest first. A soldier can start boxed into the craft

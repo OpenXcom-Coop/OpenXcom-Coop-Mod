@@ -2609,12 +2609,6 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["value"] = Options::EnableCoopParallelTurns;
 			resp["ok"] = true;
 		}
-		else if (name == "coopParallelDebugClientInput")
-		{
-			Options::coopParallelDebugClientInput = req.get("value", false).asBool();
-			resp["value"] = Options::coopParallelDebugClientInput;
-			resp["ok"] = true;
-		}
 		else
 		{
 			resp["error"] = "unknown option: " + name;
@@ -3435,7 +3429,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
-		&& cmd != "battle_prox" && cmd != "parallel_state")
+		&& cmd != "battle_prox" && cmd != "battle_intent"
+		&& cmd != "parallel_state")
 	{
 		return false;
 	}
@@ -3834,6 +3829,253 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		}
 		resp["ok"] = true;
 	}
+	else if (cmd == "battle_intent")
+	{
+		// PRD-P6: drive an action through the SAME door a UI confirm site uses -
+		// BattlescapeGame::coopRouteAction, then executeAction when it is not
+		// routed. On a parallel client that ships an `action_intent`; on the
+		// parallel host it runs the admission check and executes; in classic it
+		// just executes. `battle_action`/`battle_fire` deliberately still push
+		// BattleStates directly - they are the raw local-execution lever, which
+		// is what test_parallel_sharedturn's no-replication assertion needs.
+		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
+		if (!unit || !bg)
+		{
+			resp["error"] = "no unit id / no battle game";
+			return true;
+		}
+		const std::string what = req.get("action", "move").asString();
+		if (req.isMember("tu"))
+		{
+			unit->setTimeUnits(req["tu"].asInt());
+		}
+		if (bstate && req.isMember("hand"))
+		{
+			bstate->_hand = req["hand"].asString();
+		}
+
+		if (what == "probe_step")
+		{
+			// One RPC for "where can this unit actually walk?". The skirmish
+			// fixture packs the squad into the Skyranger, so a driver has to be
+			// found by trial - and probing tile by tile over the wire was slow
+			// enough to look like a hang.
+			//
+			// Refused while a chain is running: Pathfinding is a SINGLETON that
+			// the running UnitWalkBState dequeues from, so calculating a probe
+			// path mid-walk re-routes the unit that is already walking. The real
+			// capture site cannot hit this - mapClick returns early on isBusy().
+			if (bg->isBusy())
+			{
+				resp["error"] = "busy - probing would re-route the running walk";
+				return true;
+			}
+			const Position from = unit->getPosition();
+			const int radius = req.get("radius", 1).asInt();
+			Json::Value found(Json::arrayValue);
+			for (int r = 1; r <= radius; ++r)
+			{
+				for (int dx = -r; dx <= r; ++dx)
+				{
+					for (int dy = -r; dy <= r; ++dy)
+					{
+						if (std::max(std::abs(dx), std::abs(dy)) != r)
+							continue;
+						Position want(from.x + dx, from.y + dy, from.z);
+						bg->getPathfinding()->calculate(unit, want, BAM_NORMAL);
+						if (bg->getPathfinding()->getStartDirection() == -1)
+							continue;
+						Json::Value entry;
+						entry["x"] = want.x;
+						entry["y"] = want.y;
+						entry["z"] = want.z;
+						found.append(entry);
+						if (found.size() >= (Json::ArrayIndex)req.get("max", 1).asUInt())
+						{
+							resp["steps"] = found;
+							resp["ok"] = true;
+							return true;
+						}
+					}
+				}
+			}
+			resp["steps"] = found;
+			resp["ok"] = !found.empty();
+			if (found.empty())
+			{
+				resp["error"] = "unit can path nowhere";
+			}
+			return true;
+		}
+
+		BattleAction a;
+		a.actor = unit;
+		a.targeting = false;
+		a.target = Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(), req.get("z", 0).asInt());
+		int tid = req.get("target", -1).asInt();
+		if (tid != -1)
+		{
+			BattleUnit* tgt = findUnit(tid);
+			if (!tgt)
+			{
+				resp["error"] = "no target id";
+				return true;
+			}
+			a.target = tgt->getPosition();
+		}
+
+		BattleItem* w = nullptr;
+		int wid = req.get("weapon_id", -1).asInt();
+		if (wid != -1)
+		{
+			for (auto* bi : *sbg->getItems())
+				if (bi->getId() == wid) w = bi;
+		}
+		else
+		{
+			w = unit->getMainHandWeapon(false);
+			if (!w)
+			{
+				for (auto* bi : *unit->getInventory())
+				{
+					if (bi->getSlot() && (bi->getSlot()->getId() == "STR_RIGHT_HAND"
+						|| bi->getSlot()->getId() == "STR_LEFT_HAND"))
+					{
+						w = bi;
+						break;
+					}
+				}
+			}
+		}
+		a.weapon = w;
+
+		std::string kind = "other";
+		if (what == "move")
+		{
+			a.type = BA_WALK;
+			kind = "walk";
+			a.run = req.get("run", false).asBool();
+			a.strafe = req.get("strafe", false).asBool();
+			a.sneak = req.get("sneak", false).asBool();
+		}
+		else if (what == "turn")
+		{
+			a.type = BA_TURN;
+			kind = "turn";
+		}
+		else if (what == "kneel")
+		{
+			a.type = BA_KNEEL;
+			kind = "kneel";
+			a.weapon = nullptr;
+		}
+		else if (what == "throw")
+		{
+			a.type = BA_THROW;
+			kind = "throw";
+		}
+		else if (what == "melee")
+		{
+			a.type = BA_HIT;
+			kind = "melee";
+		}
+		else if (what == "psi")
+		{
+			a.type = req.get("mode", "").asString() == "panic" ? BA_PANIC : BA_MINDCONTROL;
+			kind = "psi";
+		}
+		else if (what == "prime")
+		{
+			a.type = req.get("unprime", false).asBool() ? BA_UNPRIME : BA_PRIME;
+			a.value = req.get("fuse", 0).asInt();
+			kind = "prime";
+		}
+		else if (what == "medikit")
+		{
+			a.type = BA_USE;
+			kind = "medikit";
+		}
+		else
+		{
+			const std::string mode = req.get("mode", "snap").asString();
+			a.type = mode == "aimed" ? BA_AIMEDSHOT : mode == "auto" ? BA_AUTOSHOT
+					 : mode == "launch" ? BA_LAUNCH : BA_SNAPSHOT;
+			kind = "shoot";
+			if (a.type == BA_LAUNCH)
+			{
+				a.waypoints.push_back(a.target);
+			}
+		}
+
+		if (kind != "walk" && kind != "turn" && kind != "kneel")
+		{
+			a.updateTU();
+		}
+		resp["tuCost"] = a.Time;
+		resp["tuHave"] = unit->getTimeUnits();
+		resp["weaponId"] = a.weapon ? a.weapon->getId() : -1;
+
+		if (kind == "walk" && !bg->isBusy())
+		{
+			// mapClick only reaches its capture site when a path exists, so this
+			// lever refuses the same way rather than shipping an unwalkable intent.
+			// Skipped while a chain runs, for the same singleton-Pathfinding reason
+			// probe_step refuses outright: mapClick cannot reach this code while
+			// busy either (it returns early on isBusy()), and the intent that
+			// follows is about to be denied `busy` by the arbiter anyway.
+			bg->getPathfinding()->calculate(a.actor, a.target, a.getMoveType());
+			if (bg->getPathfinding()->getStartDirection() == -1)
+			{
+				resp["error"] = "no path to target";
+				return true;
+			}
+		}
+
+		// dry: set the state up (notably <tu>) and report, route nothing. The only
+		// way a test can put the EXECUTOR's copy of a unit out of time units.
+		if (req.get("dry", false).asBool())
+		{
+			resp["routed"] = false;
+			resp["dry"] = true;
+			resp["ok"] = true;
+			return true;
+		}
+
+		bool routed = false;
+		if (kind == "medikit")
+		{
+			BattleUnit* patient = findUnit(req.get("patient", req.get("unit", -1).asInt()).asInt());
+			if (!patient)
+			{
+				resp["error"] = "no patient id";
+				return true;
+			}
+			const std::string mode = req.get("medikit", "heal").asString();
+			const int mmode = mode == "stim" ? BMA_STIMULANT
+							: mode == "pain" ? BMA_PAINKILLER : BMA_HEAL;
+			routed = bg->coopRouteMedikit(&a, patient, mmode, req.get("part", 0).asInt());
+			if (!routed)
+			{
+				a.coopTargetUnit = patient->getId();
+				a.coopMedikitMode = mmode;
+				a.coopBodyPart = req.get("part", 0).asInt();
+				bg->executeAction(a);
+			}
+		}
+		else
+		{
+			routed = bg->coopRouteAction(a, kind);
+			if (!routed)
+			{
+				bg->executeAction(a);
+			}
+		}
+		// true  = shipped as an intent (client) or refused admission (host)
+		// false = executed right here
+		resp["routed"] = routed;
+		resp["pendingReqId"] = static_cast<Json::UInt>(connectionTCP::_clientPendingReqId);
+		resp["ok"] = true;
+	}
 	else if (cmd == "parallel_state")
 	{
 		// PRD-P0 skeleton: the receive-gate readout plus the parallel-turns mode
@@ -3859,7 +4101,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			}
 			resp["warning"] = warn;
 		}
-		resp["taskCompleted"] = pcoop ? pcoop->_coop_task_completed : true;
+		resp["taskCompleted"] = pcoop ? pcoop->coopTaskCompleted() : true;
+		// PRD-P6 pre-task: the gate is a depth counter now. A chain that leaks a
+		// hold shows up here as a depth that never returns to 0.
+		resp["taskDepth"] = pcoop ? pcoop->coopTaskDepth() : 0;
 		resp["pathLock"] = pcoop ? pcoop->_pathLock : -1;
 		resp["coopWalkInit"] = pcoop ? pcoop->_coopWalkInit : false;
 		resp["coopInitDeath"] = pcoop ? pcoop->_coopInitDeath : false;
@@ -3867,6 +4112,22 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
 		resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
 		resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
+		// PRD-P6: the action-intent arbiter. `actionSeq`/`sideSeq` are the host's
+		// counters (the client mirrors what it is told), `admitBlocked` names the
+		// first canAdmitAction() term that said no ("" = it said yes), and the two
+		// pending readouts are the host's admitted slot and the client's
+		// outstanding request.
+		resp["actionSeq"] = static_cast<Json::UInt>(connectionTCP::_actionSeq);
+		resp["sideSeq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
+		resp["peerDisplayAckedSeq"] = static_cast<Json::UInt>(connectionTCP::peerDisplayAckedSeq);
+		resp["sideCommit"] = connectionTCP::_sideCommitInProgress;
+		resp["canAdmit"] = connectionTCP::canAdmitAction();
+		resp["admitBlocked"] = connectionTCP::_admitBlocked;
+		resp["pendingIntent"]["reqId"] = static_cast<Json::UInt>(connectionTCP::_intentSlotReqId);
+		resp["pendingIntent"]["seat"] = connectionTCP::_intentSlotSeat;
+		resp["pendingIntent"]["kind"] = connectionTCP::_intentSlotKind;
+		resp["pendingReqId"] = static_cast<Json::UInt>(connectionTCP::_clientPendingReqId);
+		resp["pendingKind"] = connectionTCP::_clientPendingKind;
 		resp["ok"] = true;
 	}
 	return true;
@@ -4698,7 +4959,8 @@ std::string TestServer::execute(const std::string& line)
 				// exemptions) says this machine is idle; everything else is parked in the
 				// hold queue and rotated. Without these a test can only see that the peer
 				// did not react, not WHY.
-				resp["taskCompleted"] = coop->_coop_task_completed;
+				resp["taskCompleted"] = coop->coopTaskCompleted();
+				resp["taskDepth"] = coop->coopTaskDepth();
 				resp["pathLock"] = coop->_pathLock;
 				resp["coopWalkInit"] = coop->_coopWalkInit;
 				resp["coopInitDeath"] = coop->_coopInitDeath;
@@ -4712,6 +4974,12 @@ std::string TestServer::execute(const std::string& line)
 				resp["parallelActive"] = connectionTCP::parallelTurnActive();
 				resp["parallelEnabled"] = connectionTCP::_enable_parallel_turns;
 				resp["clientInputBlocked"] = connectionTCP::parallelInputBlocked();
+				// PRD-P6 arbiter, on battle_state too so a driver needs one query
+				resp["actionSeq"] = static_cast<Json::UInt>(connectionTCP::_actionSeq);
+				resp["sideSeq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
+				resp["canAdmit"] = connectionTCP::canAdmitAction();
+				resp["admitBlocked"] = connectionTCP::_admitBlocked;
+				resp["pendingReqId"] = static_cast<Json::UInt>(connectionTCP::_clientPendingReqId);
 				// PRD-P5: the banner currently squatting on the in-battle warning widget
 				// ("" = none). The persistent off-turn banners have no meaning in
 				// parallel mode and would block P6/P8's deny/ready flashes, so a test

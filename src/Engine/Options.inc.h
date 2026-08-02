@@ -204,4 +204,3 @@ OPT int battleXcomSpeedOrig;
 // them; P5 registers them in createAdvancedOptionsOTHER() for the UI +
 // options.cfg persistence and drops the default-init in Options.cpp.
 OPT bool EnableCoopParallelTurns;
-OPT bool coopParallelDebugClientInput;

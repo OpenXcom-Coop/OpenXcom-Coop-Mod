@@ -61,8 +61,14 @@ UnitWalkBState::~UnitWalkBState()
 void UnitWalkBState::init()
 {
 
-	// coop
-	_parent->setCoopTaskCompleted(false);
+	// coop: hold the receive gate for the walk. Guarded because popState()
+	// re-init()s this state after the UnitFallBState it pushes in front of itself
+	// pops, and the gate counts depth (PRD-P6 pre-task).
+	if (!_coopGateHeld)
+	{
+		_coopGateHeld = true;
+		_parent->setCoopTaskCompleted(false);
+	}
 	_parent->getCoopMod()->_coopWalkInit = true;
 
 	_unit = _action.actor;
@@ -170,7 +176,11 @@ void UnitWalkBState::deinit()
 	}
 
 	// coop
-	_parent->setCoopTaskCompleted(true);
+	if (_coopGateHeld)
+	{
+		_coopGateHeld = false;
+		_parent->setCoopTaskCompleted(true);
+	}
 
 	_terrain->removeMovingUnit(_unit);
 
