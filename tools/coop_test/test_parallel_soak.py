@@ -396,6 +396,47 @@ def smoke_block(host, client, cmover):
 
 # ---- D. the display-backlog cap (PRD-P9 rider R3) --------------------------
 
+def move_clear_of_hostiles(host, client, uid, want=8):
+    """Put `uid` somewhere its bursts cannot reach a hostile, on BOTH machines.
+
+    This phase fires auto bursts at whatever tile produces a real chain, and the
+    skirmish fixture can ship as few as ONE alien - so a stray hit ends the
+    mission and every remaining turn with it. Teleporting the shooter clear first
+    is the difference between a soak that runs five turns and one that reports
+    "the fixture's mission ENDED" from turn 3 on.
+    """
+    b = battle(host)
+    foes = [(u["x"], u["y"], u["z"]) for u in b["units"]
+            if u.get("faction") == 1 and not u.get("isOut")]
+    if not foes:
+        return None
+    here = PI.pos(b, uid)
+
+    def clearance(p):
+        return min(max(abs(p[0] - f[0]), abs(p[1] - f[1])) for f in foes)
+
+    best = None
+    for r in range(4, 13):
+        for dx in (-r, 0, r):
+            for dy in (-r, 0, r):
+                if dx == 0 and dy == 0:
+                    continue
+                spot = (here[0] + dx, here[1] + dy, here[2])
+                if clearance(spot) < want:
+                    continue
+                if PI.teleport_both(host, client, uid, spot):
+                    best = spot
+                    break
+            if best:
+                break
+        if best:
+            break
+    if best:
+        print(f"    (shooter {uid} moved to {best}, {clearance(best)} tiles clear "
+              f"of every hostile)")
+    return best
+
+
 def long_walk_both(host, client, uid, radius=4):
     """The FURTHEST tile both machines agree `uid` can path to - a one-tile step
     is over before a slow client can fall behind on it."""
@@ -418,6 +459,7 @@ def scenario_backlog_cap(host, client, shooter, client_unit):
     """
     print("-- D: the display-backlog cap engages and recovers (rider R3) --")
     assert idle(host), f"the host is still busy: {parallel(host)}"
+    move_clear_of_hostiles(host, client, shooter)
     before = PI.pos(battle(host), shooter)
     cam = client.ok({"cmd": "battle_camera", "unit": shooter, "visible": True})
     assert cam.get("onScreen"), (
