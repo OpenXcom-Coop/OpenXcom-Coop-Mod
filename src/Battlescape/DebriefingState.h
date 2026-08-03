@@ -133,6 +133,10 @@ private:
 	void decreaseRecoveredItemCount(const RuleItem *rule, int amount);
 	// Hides the SELL and TRANSFER buttons.
 	void hideSellTransferButtons();
+	/// coop harness: the score page's rows exactly as prepareDebriefing() built them.
+	/// Each machine computes these from its OWN save, so this is the readout for
+	/// "did both players see the same mission result".
+	const std::vector<DebriefingStat*> &harnessStats() const { return _stats; }
 };
 
 }

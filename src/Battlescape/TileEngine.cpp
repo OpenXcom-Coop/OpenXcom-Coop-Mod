@@ -5267,6 +5267,10 @@ void TileEngine::coopShipPsiResult(BattleActionAttack attack, BattleUnit* victim
 	root["faction"] = (int)victim->getFaction();
 	root["morale"] = victim->getMorale();
 	root["tu"] = victim->getTimeUnits();
+	// coop: ENERGY too. A successful mind control runs recoverTimeUnits(), which
+	// restores BOTH tu and energy; shipping only tu left the peer's copy of a
+	// mind-controlled victim on whatever energy it had when the attack landed.
+	root["energy"] = victim->getEnergy();
 	root["coop"] = victim->getCoop();
 
 	coop->sendTCPPacketData(root.toStyledString());

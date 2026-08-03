@@ -5643,6 +5643,42 @@ std::string TestServer::execute(const std::string& line)
 					resp["error"] = "unknown battle action";
 			}
 		}
+		else if (cmd == "debrief_state")
+		{
+			// The debriefing SCORE page, as this machine displays it.
+			//
+			// DebriefingState::prepareDebriefing() runs on BOTH machines and builds
+			// _stats from the local save - the host's debriefing packet only carries
+			// the soldier-stats and diary pages - so these rows are the direct
+			// readout for "did the two players see the same mission result". The
+			// rows are the ones the score list actually shows (qty != 0) and the
+			// total is the same sum the STR_TOTAL_UC row prints.
+			DebriefingState* db = findState<DebriefingState>(_game);
+			if (!db)
+			{
+				resp["error"] = "no DebriefingState in state stack";
+			}
+			else
+			{
+				Json::Value rows(Json::objectValue);
+				Json::Value scores(Json::objectValue);
+				int total = 0;
+				for (const auto* ds : db->harnessStats())
+				{
+					if (ds->qty == 0)
+					{
+						continue;
+					}
+					rows[ds->item] = ds->qty;
+					scores[ds->item] = ds->score;
+					total += ds->score;
+				}
+				resp["rows"] = rows;
+				resp["scores"] = scores;
+				resp["total"] = total;
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "dismiss_popup")
 		{
 			// Confirm/close the top geoscape popup (event intro, etc.). Handled
