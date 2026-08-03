@@ -400,10 +400,10 @@ BattlescapeState::BattlescapeState() :
 	add(_warning, "warning", "battlescape", _icons);
 	add(_txtDebug);
 	add(_txtTooltip, "textTooltip", "battlescape", _icons);
-	// coop (PRD-P8): borrows the tooltip's interface element for its COLOUR only -
-	// geometry is re-applied afterwards, because add() would otherwise move this
-	// text on top of the tooltip (the element carries x/y/w/h). Right-aligned so
-	// it ends flush with the END TURN button; hidden until a seat arms.
+	// coop (PRD-P8): borrows the tooltip's interface element to get wired up at
+	// all - geometry is re-applied afterwards, because add() would otherwise move
+	// this text on top of the tooltip (the element carries x/y/w/h). Right-aligned
+	// so it ends flush with the END TURN button; hidden until a seat arms.
 	add(_txtCoopEndTurn, "textTooltip", "battlescape", _icons);
 	_txtCoopEndTurn->setWidth(120);
 	_txtCoopEndTurn->setHeight(9);
@@ -411,6 +411,12 @@ BattlescapeState::BattlescapeState() :
 	_txtCoopEndTurn->setY(y - 10);
 	_txtCoopEndTurn->setAlign(ALIGN_RIGHT);
 	_txtCoopEndTurn->setHighContrast(true);
+	// ...and painted the SAME green the numbered enemy indicators use for their
+	// green state: `_indicatorGreen` is the `squadsightUnits` interface element,
+	// which is the exact index blinkVisibleUnitButtons() fills those buttons with
+	// (54 in xcom1, 86 in xcom2). Read off that same member rather than written
+	// as a literal, so a mod that re-colours the indicators re-colours this too.
+	_txtCoopEndTurn->setColor(_indicatorGreen);
 	_txtCoopEndTurn->setVisible(false);
 	add(_btnLaunch);
 	_game->getMod()->getSurfaceSet("SPICONS.DAT")->getFrame(0)->blitNShade(_btnLaunch, 0, 0);
