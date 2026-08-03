@@ -23,9 +23,11 @@ What this test asserts (PRD-P8 acceptance, in order):
   7. Reserve localization: `TU_COOP` / `kneel_reserved` stop crossing, so the two
      machines hold DIFFERENT reserve modes at the same time; the client's mode
      rides its intent and the host's own setting is unchanged afterwards.
-  6. Drain barrier: a deliberately slow client with an undisplayed backlog holds
-     the commit off (`commitBlocked == "display_backlog"`) until `action_done`
-     catches up - only then does the side close.
+  6. Drain barrier: a client that has DISPLAYED a chain but is holding its
+     `action_done` back holds the commit off (`commitBlocked ==
+     "display_backlog"`) until the report lands - only then does the side
+     close. Held on demand with the `hold_action_done` lever rather than by
+     trying to make the client slow, which cannot work (see hold_done).
   4. Commit: both ready -> the side ends EXACTLY once, `sideSeq` bumps, and the
      next player side comes back with both machines on `coopTurn == 2`.
   5. E14: intent vs commit, BOTH orders, each forced rather than raced -
@@ -60,8 +62,13 @@ PORT = "47989"
 BA_NONE = 0
 BA_AIMEDSHOT = 9
 
-SLOW_SPEED = 300   # ms/frame - a slideshow, same lever test_parallel_speed_skew uses
 FAST_SPEED = 2
+
+# How long scenario 4+6 holds the peer's display report back, and how many
+# samples inside that window must show the commit stuck behind it. Both are
+# free parameters now that the barrier is held rather than raced.
+HOLD_WINDOW = 12.0
+MIN_HELD_SAMPLES = 10
 
 TURN_OVER_TEXT = "turn has already ended"
 
@@ -296,6 +303,34 @@ def scenario_reserve(host, client, mover):
 
 # ---- 4 + 6. the commit, and the display drain barrier in front of it --------
 
+def hold_done(client, hold):
+    """TestServer `hold_action_done`: while held, the CLIENT parks its
+    `action_done` reports instead of shipping them. Releasing ships the newest
+    parked seq, which subsumes every older one.
+
+    The barrier below is real, but its natural window is ONE network round trip
+    (~200 ms) and no fixture can widen it, so it has to be held open instead of
+    raced. Making the client slow does not work: `battleXcomSpeed` paces only
+    UnitWalk/UnitTurn/UnitFall, and PRD-P7's client-side display fast-forward
+    pins exactly those to interval 0 whenever a gated packet is waiting (and
+    `action_end` always is), while ProjectileFlyBState fixes its own interval and
+    never reads the option at all. Freezing the client's battlescape under a
+    modal does not work either - the background replay keeps draining through
+    handleStateCoop and `action_done` is emitted from the gated drain in
+    updateCoopTask. So the REPORT is held, not the display: same packet, same
+    single emit point, it just leaves when this test says so.
+
+    `heldActionDones` is what makes the scenario non-vacuous: it counts the
+    reports parked since the hold was engaged, i.e. the chains the client really
+    did finish displaying. 0 would mean the client is merely behind, which is a
+    different (and untested) reason for the commit to be held.
+    """
+    r = client.ok({"cmd": "hold_action_done", "hold": bool(hold)})
+    assert r.get("hold") is bool(hold), \
+        f"the `hold_action_done` lever did not take (wanted {hold}): {r}"
+    return r
+
+
 def wait_side(host, client, start_turn, timeout=300):
     """Wait for the player side to close and come back, draining the turn screens
     exactly the way test_parallel_sharedturn.cycle_side does (the HOST's
@@ -336,6 +371,13 @@ def scenario_commit_and_drain(host, client, hmover, hseat, cseat):
     and every closed side is another chance for the mission to end under the
     test (see hush()). The barrier is what delays THIS commit, and the commit's
     own properties are asserted when it finally lands.
+
+    Shape: park the peer's display report (hold_done) -> the host runs ONE chain
+    -> both seats ready -> the commit is stuck on `display_backlog` for as long
+    as the hold lasts -> release -> it fires exactly once. A single chain is the
+    point: the arbiter refuses to ADMIT at a backlog of 2, so one outstanding
+    chain is the only state in which `canAdmit` is true and the display report is
+    provably the last thing standing between two ready seats and the side close.
     """
     print("-- 4 + 6: both ready, commit deferred until the peer's display drains --")
     assert PI.idle(host), "the host is still busy"
@@ -354,81 +396,110 @@ def scenario_commit_and_drain(host, client, hmover, hseat, cseat):
         f"{parallel(host)}")
     print("    one seat ready: commit held on `not_ready`")
 
-    client.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": SLOW_SPEED})
+    # Nothing from the scenarios above may still be undisplayed: the arbiter
+    # refuses to admit at a backlog of 2, so with a stale chain outstanding the
+    # one below would never start.
+    assert PI.wait_until(lambda: parallel(host)["displayBacklog"] == 0, 30), (
+        f"an EARLIER chain is still undisplayed - this scenario has to own the "
+        f"only outstanding one: {parallel(host)}")
+
+    hold_done(client, True)
     held = 0
     blocked_reasons = set()
+    released_at = None
     try:
-        # A SHOT, not a walk, and that is not incidental. PRD-P7 gave the client
-        # its own display fast-forward: whenever a packet is waiting behind the
-        # receive gate AND what it is drawing is nothing but locomotion, it runs
-        # the animation at interval 0. `action_end` is itself a gated packet, so a
-        # walk chain ALWAYS has one waiting - a slow client compresses a lone walk
-        # away and no measurable backlog ever forms (measured: 0 samples). A chain
-        # carrying a ProjectileFlyBState is not skippable, so the client plays it
-        # at its own speed and really does fall behind.
-        aim_at = PI.aim_away(host, hmover, dist=4)
-        cam = client.ok({"cmd": "battle_camera", "unit": hmover, "visible": True})
-        assert cam.get("onScreen") and cam.get("visible"), (
-            f"the slow client cannot actually watch the shooter, so it would "
-            f"display the chain at interval 0 and never fall behind: {cam}")
         PI.top_up(host, client, hmover)
-        # Everyone but the shooter is hushed BEFORE the commit can fire - the
+        # Everyone but the walker is hushed BEFORE the commit can fire - the
         # alien side that follows it is the one that has to stay non-lethal, and
         # by the time the poll loop below exits that side has already run.
         hush(host, client, keep=(hmover,))
-        wid = PI.give_both(host, client, hmover, "STR_RIFLE", "STR_RIFLE_CLIP")
+        dest = PI.free_step_both(host, client, hmover)
+        assert dest, f"host soldier {hmover} cannot step anywhere"
+        before = PI.pos(battle(host), hmover)
         seq_before = parallel(host)["actionSeq"]
-        # aimed AWAY from the fixture's single hostile - a stray kill here would
-        # end the mission and take the rest of the test with it.
-        r = PI.intent(host, action="shoot", unit=hmover, mode="auto",
-                      weapon_id=wid, x=aim_at[0], y=aim_at[1], z=aim_at[2])
-        assert r.get("ok"), f"the host lever refused the shot: {r}"
+        # A plain walk, and with the report held that IS enough. Before the lever
+        # this had to be a SHOT, because a walk the client fast-forwards leaves no
+        # measurable window (measured: 0 samples) - the shot was a workaround for
+        # the missing hold, not something the barrier cares about.
+        r = PI.intent(host, action="move", unit=hmover,
+                      x=dest[0], y=dest[1], z=dest[2])
+        assert r.get("ok"), f"the host lever refused the walk: {r}"
         assert PI.wait_until(
             lambda: parallel(host)["actionSeq"] > seq_before, 30), (
-            f"the shot was never admitted, so no chain exists to fall behind on: "
-            f"{parallel(host)}")
+            f"the walk was never admitted, so no chain exists for the peer to "
+            f"owe a display report on: {parallel(host)}")
+        assert PI.idle(host, timeout=90), "the host chain never ended"
+        assert PI.pos(battle(host), hmover) != before, (
+            f"the chain the barrier is about never moved unit {hmover}")
 
-        # Armed AFTER the shot was admitted - admitting clears the acting seat's
+        # The client HAS displayed the chain and is WITHHOLDING the report.
+        # Without this the barrier below would be indistinguishable from a peer
+        # that simply never received the packet.
+        assert PI.wait_until(
+            lambda: parallel(client)["heldActionDones"] >= 1, 60), (
+            f"the client never finished displaying the chain, so nothing was "
+            f"parked and the barrier is not what would be holding the commit: "
+            f"client={parallel(client)} host={parallel(host)}")
+        assert parallel(host)["displayBacklog"] >= 1, (
+            f"the client parked its report but the host sees no undisplayed "
+            f"chain: {parallel(host)}")
+
+        # Armed AFTER the walk was admitted - admitting clears the acting seat's
         # explicit ready, so arming first would just be undone.
         arm(host)
-        hush(host, client)   # the shooter too, now that its chain is running
+        hush(host, client)   # the walker too, now that its chain is over
+        wait_tally(host, client, [hseat, cseat],
+                   "with both seats ready behind the drain barrier")
 
-        deadline = time.time() + 150
+        deadline = time.time() + HOLD_WINDOW
         while time.time() < deadline:
             ph = parallel(host)
             if ph.get("commitBlocked"):
                 blocked_reasons.add(ph["commitBlocked"])
             backlog = ph.get("displayBacklog", 0)
             now = turn_of(host)
-            if backlog > 0 and ph.get("canAdmit") is True:
-                # states drained, gate open: the ONLY thing left between the two
-                # ready seats and the side close is the peer's display.
+            assert now == turn_before, (
+                f"the side closed with {backlog} chain(s) the peer has not "
+                f"reported DISPLAYED (turn {turn_before} -> {now}). "
+                f"PROTOCOL.md ordering invariant 4 makes the commit wait for "
+                f"`action_done` to drain: host={ph} client={parallel(client)}")
+            if (backlog > 0 and ph.get("canAdmit") is True
+                    and ph.get("commitBlocked") == "display_backlog"):
+                # states drained, gate open, both seats ready: the ONLY thing
+                # left between them and the side close is the peer's report.
                 held += 1
-                assert now == turn_before, (
-                    f"the side closed with {backlog} chain(s) the peer has not "
-                    f"finished DISPLAYING (turn {turn_before} -> {now}). "
-                    f"PROTOCOL.md ordering invariant 4 makes the commit wait for "
-                    f"`action_done` to drain: host={ph} client={parallel(client)}")
-            if now is not None and turn_before is not None and now > turn_before:
-                break
-            time.sleep(0.05)
-        assert held > 0 and "display_backlog" in blocked_reasons, (
-            f"the barrier was never exercised: {held} sample(s) with an idle "
-            f"executor and an undisplayed backlog, reasons seen "
-            f"{sorted(blocked_reasons)}. The host must have out-waited the slow "
-            f"client, which makes this scenario vacuous rather than failing.")
+            time.sleep(0.25)
+        assert "display_backlog" in blocked_reasons, (
+            f"the commit was never held on the drain barrier - reasons seen "
+            f"{sorted(blocked_reasons)}: host={parallel(host)}")
+        assert held >= MIN_HELD_SAMPLES, (
+            f"the barrier was barely exercised: only {held} sample(s) over "
+            f"{HOLD_WINDOW} s had an idle executor, a ready tally and an "
+            f"undisplayed backlog (wanted >= {MIN_HELD_SAMPLES}); reasons seen "
+            f"{sorted(blocked_reasons)}. host={parallel(host)} "
+            f"client={parallel(client)}")
         print(f"    the commit was held on `display_backlog` for {held} "
-              f"sample(s) with both seats ready and the executor idle")
+              f"sample(s) over {HOLD_WINDOW:.0f} s with both seats ready and "
+              f"the executor idle "
+              f"({parallel(client)['heldActionDones']} report(s) parked)")
     finally:
-        client.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": FAST_SPEED})
+        try:
+            hold_done(client, False)
+            released_at = time.time()
+        except Exception as he:   # never mask the real failure
+            print(f"    (releasing the `action_done` hold failed: {he})")
 
     turn = wait_side(host, client, turn_before)
     assert turn, (
-        f"both seats were ready and the side never closed: host="
-        f"{parallel(host)} client={parallel(client)}, host top={TW.top(host)} "
-        f"client top={TW.top(client)}")
+        f"the parked report was released with both seats ready and the side "
+        f"still never closed: host={parallel(host)} client={parallel(client)}, "
+        f"host top={TW.top(host)} client top={TW.top(client)}")
     assert turn == turn_before + 1, (
         f"the side closed more than once: turn {turn_before} -> {turn}")
+    if released_at is not None:
+        print(f"    ...and closed {time.time() - released_at:.1f} s after the "
+              f"report was released, having sat still for {HOLD_WINDOW:.0f} s "
+              f"before it")
 
     side_after = parallel(host)["sideSeq"]
     assert side_after > side_before, (
@@ -443,10 +514,13 @@ def scenario_commit_and_drain(host, client, hmover, hseat, cseat):
         f"the client did not adopt the new side token (host {side_after}, "
         f"client {parallel(client)['sideSeq']}) - its next intent would be "
         f"denied `turn_over`")
-    print(f"PASS 4+6: the barrier held the commit, then the side closed ONCE "
-          f"(turn {turn_before} -> {turn}), sideSeq {side_before} -> "
-          f"{side_after}, both machines back on coopTurn 2 with the tally cleared")
-
+    assert parallel(client)["holdActionDone"] is False, (
+        f"the test lever is still engaged after the scenario - every later "
+        f"chain would wedge the executor: {parallel(client)}")
+    print(f"PASS 4+6: the barrier held the commit until the peer's report was "
+          f"released, then the side closed ONCE (turn {turn_before} -> {turn}), "
+          f"sideSeq {side_before} -> {side_after}, both machines back on "
+          f"coopTurn 2 with the tally cleared")
 
 # ---- 5. the E14 race --------------------------------------------------------
 

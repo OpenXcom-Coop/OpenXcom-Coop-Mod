@@ -249,6 +249,8 @@ std::string connectionTCP::_clientLastDenyWarning;
 std::vector<connectionTCP::CoopPendingIntent> connectionTCP::_pendingAdmits;
 std::uint32_t connectionTCP::_openChainSeq = 0;
 std::uint32_t connectionTCP::_clientDisplaySeq = 0;
+bool connectionTCP::_testHoldActionDone = false;
+std::uint32_t connectionTCP::_heldActionDones = 0;
 // coop (PRD-P9 3): stuck-chain diagnostic, reset wherever _openChainSeq is.
 std::uint32_t connectionTCP::_openChainTicks = 0;
 bool connectionTCP::_openChainWarned = false;
@@ -12662,6 +12664,14 @@ void connectionTCP::coopEmitActionDone()
 	}
 	if (_clientDisplaySeq == 0 || _clientDisplaySeq <= peerDisplayAckedSeq)
 	{
+		return;
+	}
+	// TEST-ONLY (TestServer `hold_action_done`), default off: park the report
+	// rather than ship it. peerDisplayAckedSeq stays put, so the release path
+	// re-enters here and emits the newest seq - which subsumes every parked one.
+	if (_testHoldActionDone)
+	{
+		++_heldActionDones;
 		return;
 	}
 	peerDisplayAckedSeq = _clientDisplaySeq;
