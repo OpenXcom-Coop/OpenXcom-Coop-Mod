@@ -746,6 +746,19 @@ class connectionTCP
 	/// CLIENT: the chain seq the display is currently working through - the value
 	/// the next `action_done` will carry. PRD-P7.
 	static std::uint32_t _clientDisplaySeq;
+	/// TEST-ONLY lever, default false, set ONLY by the test server
+	/// (`hold_action_done`). While true the client PARKS its `action_done`
+	/// reports instead of shipping them: the packet is unchanged, it just leaves
+	/// later, so a test can hold the host's end-turn drain barrier open for as
+	/// long as it likes instead of racing a ~200 ms round trip. Releasing emits
+	/// the latest parked seq (`_clientDisplaySeq` is already the newest, and
+	/// peerDisplayAckedSeq is deliberately NOT advanced while held, so one emit
+	/// clears the whole backlog). `_heldActionDones` counts the reports parked
+	/// since the hold was engaged - 0 means the client never finished displaying
+	/// anything, i.e. the barrier was never exercised and a scenario asserting on
+	/// it would be vacuous.
+	static bool _testHoldActionDone;
+	static std::uint32_t _heldActionDones;
 	/// HOST (PRD-P9 3): the SDL tick `_openChainSeq` was stamped at, and whether
 	/// the stuck-chain warning has already been logged for it. Diagnostic only -
 	/// there is no distributed lock to break, so all this can do is say so once,
