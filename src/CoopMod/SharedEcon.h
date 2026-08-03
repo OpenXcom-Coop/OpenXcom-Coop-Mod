@@ -539,7 +539,44 @@ bool storeSpawnManifest(SavedBattleGame* battle, const char* action, int subject
 /// is @a unitId, in _items order = creation order = the order the host recorded -
 /// all size^2 of them for a big unit. No-op (and the manifest is LEFT parked for
 /// the guard) when the corpses do not exist yet. Returns how many were re-stamped.
+///
+/// PRD-P10: also a no-op while noteCorpseReplayPending() says this unit's replay
+/// has not run yet - see there for the double-death shape that made "a BT_CORPSE
+/// item of this unit already exists" the wrong test.
 int remapCorpseIds(SavedBattleGame* battle, int unitId);
+
+/// PEER (PRD-P10): the corpse replay for @a unitId has been PUSHED (coopDeath)
+/// but has not converted yet.
+///
+/// remapCorpseIds' "do the corpses exist here already?" test is a BT_CORPSE scan
+/// keyed on getUnit(), and an UNCONSCIOUS unit is ALREADY represented by such an
+/// item - the body item convertUnitToCorpse removes on its way to minting the
+/// real corpse. So a unit that is knocked out and later bleeds out ships TWO
+/// deaths, and the second one's manifest, arriving before the peer's die state
+/// had a frame to run (both death packets are exempt from the receive gate while
+/// `_coopInitDeath` is up), re-stamped the OLD body item with the NEW corpse's
+/// id. The peer then removed that body and minted its corpse one id further on -
+/// the two machines' corpses one apart, for the rest of the battle.
+void noteCorpseReplayPending(int unitId);
+/// PEER: the corpse replay for @a unitId has run (or can no longer run).
+void clearCorpseReplayPending(int unitId);
+/// PEER: is a pushed death replay for @a unitId still waiting to convert?
+///
+/// Also the guard on `after_unit_death`'s tile unlink. That packet is sent AFTER
+/// the executor's convertUnitToCorpse, so it always says "no tile" - and it is
+/// exempt from the receive gate (`_coopInitDeath`), so it routinely lands while
+/// the peer's own UnitDieBState is still queued behind an animation. Unlinking
+/// there costs the replay everything that reads getTile():
+/// convertUnitToCorpse's `dropItems && getTile()` skips itemDropInventory (the
+/// dead unit's whole kit stays on the body here and lies on the floor there),
+/// and UnitDieBState::init()'s `!getTile()` pops the state outright for any
+/// non-PLAYER unit - no corpse and no drop at all. The replay unlinks the tile
+/// itself one line after the drop, so the repair is redundant until then.
+bool corpseReplayPending(int unitId);
+/// PEER: is ANY death replay still waiting to convert? The drift tripwire's two
+/// terms (item-id counter, item census) are both one corpse short while one is,
+/// so a stamp that lands in that window is not comparable.
+bool corpseReplayPendingAny();
 
 /// Factory hook: a BattleItem was just minted. Appends to an open host record or
 /// consumes an id from an open peer guard; does nothing at all when neither is

@@ -4030,7 +4030,6 @@ void connectionTCP::executeVoteAction(const std::string& action)
 
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
-
 	// PRD-J03: single early hook routing the shared_* economy protocol into the
 	// SharedEcon dispatch table (the anti-if-chain requirement). If SharedEcon
 	// consumes the message, it never falls through to the if-chain below.
@@ -7068,7 +7067,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						// TILE
 						bool isTile = obj["isTile"].asBool();
 
-						if (!isTile)
+						// coop (PRD-P10): NOT while this machine's own death replay is
+						// still queued. See SharedEcon::corpseReplayPending - unlinking
+						// here is what made the executor drop a casualty's kit on the
+						// floor while the peer kept it on the body, and what made an
+						// ALIEN casualty lose its corpse and its drop entirely
+						// (UnitDieBState::init pops a tile-less non-PLAYER unit). The
+						// replay unlinks the tile itself, immediately after the drop.
+						if (!isTile && !SharedEcon::corpseReplayPending(unit->getId()))
 						{
 
 							if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
@@ -7434,6 +7440,61 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// Make sure the Battlescape does not get stuck...
 		_hasHitUnit = -1;
 
+	}
+
+	// coop (PRD-P10): the panic OUTCOME (UnitPanicBState, host-resolved).
+	//
+	// Everything a panic DOES already crossed on its own packet - the dropped
+	// hand weapons on `Inventory`, the flee walk on the walk packet, a
+	// berserker's shots on `ProjectileFlyBState`. What did not was the state
+	// UnitPanicBState itself writes when the panic ends: status back to
+	// STANDING, TU cleared, +15 morale. The peer had adopted the PANICKING
+	// status from `next_turn` (sent before the host resolves anything) and kept
+	// it, with a full turn's TU, for the rest of the battle.
+	//
+	// Deliberately NOT in the always-consume list above: it must stay behind
+	// the same receive gate as `next_turn` so the two cannot swap places (a
+	// rotated `next_turn` would otherwise re-stamp the pre-panic TU on top of
+	// this outcome).
+	if (stateString == "panic_action")
+	{
+		SavedBattleGame* panicBattle = _game && _game->getSavedGame()
+										   ? _game->getSavedGame()->getSavedBattle()
+										   : nullptr;
+		if (panicBattle)
+		{
+			const int panicUnitId = obj["unit_id"].asInt();
+			for (auto* unit : *panicBattle->getUnits())
+			{
+				if (unit->getId() != panicUnitId)
+				{
+					continue;
+				}
+
+				unit->setTimeUnits(obj["time"].asInt());
+				unit->setCoopEnergy(obj["energy"].asInt());
+				unit->setHealth(obj["health"].asInt());
+				unit->setCoopMorale(obj["morale"].asInt());
+				unit->setCoopMana(obj["mana"].asInt());
+				unit->setStunlevelCoop(obj["stunlevel"].asInt());
+				unit->setDirection(obj["setDirection"].asInt());
+				unit->setFaceDirection(obj["setFaceDirection"].asInt());
+
+				// Never RESURRECT: the same rule UnitDieBState's replay follows.
+				// A unit that died while panicking (a berserker walking into
+				// reaction fire) is already STATUS_DEAD here, and the host's
+				// outcome - captured before the death - must not undo that.
+				if (!unit->isOut())
+				{
+					unit->setCoopStatus(intToUnitstatus(obj["status"].asInt()));
+				}
+
+				Log(LOG_INFO) << "coop (PRD-P10): panic outcome applied to unit "
+							  << panicUnitId << " - tu " << unit->getTimeUnits()
+							  << ", morale " << unit->getMorale();
+				break;
+			}
+		}
 	}
 
 	if (stateString == "set_smoke_tile")
@@ -7903,7 +7964,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							// TILE
 							bool isTile = obj["units"][i]["isTile"].asBool();
 
-							if (!isTile)
+							// coop (PRD-P10): the same exemption `after_unit_death` takes,
+							// for the same reason and at the harder moment. The last
+							// casualty of an alien side dies a frame or two before the
+							// side closes, so this per-turn stamp routinely arrives while
+							// the peer's UnitDieBState is still queued - and unlinking
+							// here cost that replay its itemDropInventory, leaving the
+							// dead soldier's whole kit on the body while it lay on the
+							// floor on the executor.
+							if (!isTile && !SharedEcon::corpseReplayPending(unit->getId()))
 							{
 
 								if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)

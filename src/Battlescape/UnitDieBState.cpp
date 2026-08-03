@@ -118,6 +118,25 @@ UnitDieBState::UnitDieBState(BattlescapeGame* parent, BattleUnit* unit, const Ru
  */
 UnitDieBState::~UnitDieBState()
 {
+}
+
+/**
+ * coop (PRD-P10): `after_unit_death` moved here from the DESTRUCTOR.
+ *
+ * A BattleState is destroyed by cleanupDeleted(), which runs at a turn boundary
+ * and at a couple of UI transitions - NOT when the state finishes. So this
+ * packet, which carries the death's final unit state AND the PRD-P4 corpse
+ * id-manifest, was being sent up to a whole side after the corpse existed
+ * (measured: 82 s on a soak run). For every second of that window the peer's
+ * corpse carried an id off the host's, and any census taken in it disagreed -
+ * including the one after the alien side, because a death DURING that side does
+ * not reach a cleanupDeleted() until the boundary AFTER the census.
+ *
+ * deinit() is called by popState() the instant the state pops, exactly once per
+ * pop, which is what "the death is over" actually means.
+ */
+void UnitDieBState::deinit()
+{
 
 	// coop
 	if ((_parent->isCoop() == true && _coop_death == false && _parent->getCoopMod()->getHost() == true))
@@ -429,6 +448,11 @@ void UnitDieBState::convertUnitToCorpse()
 	bool dropItems = (_unit->hasInventory() &&
 		(!Options::weaponSelfDestruction ||
 		(_unit->getOriginalFaction() != FACTION_HOSTILE || _unit->getStatus() == STATUS_UNCONSCIOUS)));
+
+	// coop (PRD-P10): the replay has reached its corpse creation, so the parked
+	// manifest is now unambiguously about the corpse the loop below mints. Cleared
+	// BEFORE removeUnconsciousBodyItem so the two can never be confused again.
+	SharedEcon::clearCorpseReplayPending(_unit->getId());
 
 	if (!_noSound)
 	{

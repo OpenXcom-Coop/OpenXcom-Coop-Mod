@@ -3619,6 +3619,19 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 	int64_t myItemId, myCensus;
 	if (!battleChecksumTerms(game, myItemId, myCensus)) return; // no battle here
 
+	// coop (PRD-P10): not comparable mid-death. A death replay that is still
+	// QUEUED here has not minted its corpse yet, so both terms are legitimately
+	// one death behind the stamp - and `next_turn` lands in that window whenever
+	// the alien side's last casualty dies a frame or two before the side closes.
+	// Skipping is right rather than merely quiet: the next stamp compares the
+	// same two machines once this one has caught up.
+	if (corpseReplayPendingAny())
+	{
+		Log(LOG_INFO) << "[COOP] battle checksum on " << context
+					  << " skipped - a death replay here has not converted yet";
+		return;
+	}
+
 	if ((peerItemId < 0 || peerItemId == myItemId)
 		&& (peerCensus < 0 || peerCensus == myCensus))
 	{
@@ -3918,12 +3931,19 @@ struct CoopSpawnFrame
 	CoopSpawnKey key;
 	bool consuming; // false = host record, true = peer guard
 	int adopted = 0; // peer: how many host ids this scope has taken
+	// PRD-P10: the peer's battle, so noteMintedItem can hand back the local id an
+	// adoption just wasted (see there).
+	SavedBattleGame* battle = nullptr;
 };
 std::vector<CoopSpawnFrame> g_spawnFrames;
 
 /// A runaway store would be a slow leak, not a desync - but a bound makes that
 /// impossible to miss instead of impossible to see.
 const size_t kMaxParkedManifests = 64;
+
+/// PRD-P10: units whose corpse replay is pushed but has not converted yet. See
+/// SharedEcon.h's noteCorpseReplayPending for the double-death shape.
+std::set<int> g_corpseReplayPending;
 
 } // namespace
 
@@ -3951,7 +3971,7 @@ CoopSubjectGuard::CoopSubjectGuard(SavedBattleGame* battle, const char* action, 
 {
 	if (!connectionTCP::getCoopStatic() || connectionTCP::getHost()) return;
 
-	g_spawnFrames.push_back(CoopSpawnFrame{CoopSpawnKey{_action, _subject}, true, 0});
+	g_spawnFrames.push_back(CoopSpawnFrame{CoopSpawnKey{_action, _subject}, true, 0, battle});
 	_open = true;
 }
 
@@ -4013,13 +4033,34 @@ void noteMintedItem(BattleItem* item)
 	const int hostId = it->second.ids.front();
 	it->second.ids.pop_front();
 	++frame.adopted;
-	if (hostId != item->getId())
+	const int localId = item->getId();
+	if (hostId != localId)
 	{
 		Log(LOG_INFO) << "[COOP] id-manifest: " << frame.key.action << " subject "
-					  << frame.key.subject << " - re-stamping local item " << item->getId()
+					  << frame.key.subject << " - re-stamping local item " << localId
 					  << " as host item " << hostId;
 	}
 	item->setIdCoop(hostId);
+
+	// PRD-P10: hand the wasted local id BACK.
+	//
+	// The factory minted `localId` and bumped the counter past it; adopting the
+	// host's id leaves that number unused here and used nowhere on the host, so
+	// keeping the counter past it puts the peer permanently one ahead. It only
+	// shows when the adopted id is LOWER than the local one - i.e. when the two
+	// machines created this Tier-A batch in a different ORDER, which is exactly
+	// what a peer whose death replays are queued behind an animation does. The
+	// counter is only rolled back when `localId` is provably the last id minted;
+	// reslaveItemCounter still pushes it forward afterwards, so this can only
+	// close a gap the peer opened, never hand out an id twice.
+	if (hostId != localId && frame.battle)
+	{
+		int* counter = frame.battle->getCurrentItemId();
+		if (counter && *counter == localId + 1)
+		{
+			*counter = localId;
+		}
+	}
 }
 
 void flushSpawnRecord(Json::Value& root, const char* action, int subject)
@@ -4067,12 +4108,44 @@ bool storeSpawnManifest(SavedBattleGame* battle, const char* action, int subject
 	return true;
 }
 
+void noteCorpseReplayPending(int unitId)
+{
+	if (!connectionTCP::getCoopStatic() || connectionTCP::getHost()) return;
+	g_corpseReplayPending.insert(unitId);
+}
+
+void clearCorpseReplayPending(int unitId)
+{
+	g_corpseReplayPending.erase(unitId);
+}
+
+bool corpseReplayPending(int unitId)
+{
+	return g_corpseReplayPending.count(unitId) != 0;
+}
+
+bool corpseReplayPendingAny()
+{
+	return !g_corpseReplayPending.empty();
+}
+
 int remapCorpseIds(SavedBattleGame* battle, int unitId)
 {
 	if (!battle) return 0;
 	CoopSpawnKey key{"corpse", unitId};
 	auto it = g_spawnManifest.find(key);
 	if (it == g_spawnManifest.end() || it->second.ids.empty()) return 0;
+
+	// PRD-P10: the replay is still queued, so every BT_CORPSE item this unit owns
+	// right now pre-dates this death (the body item of an earlier knockout). Leave
+	// the manifest parked - the CoopSubjectGuard inside the replay's
+	// convertUnitToCorpse (path a) is the one that must consume it.
+	if (g_corpseReplayPending.count(unitId))
+	{
+		Log(LOG_INFO) << "[COOP] id-manifest: corpse manifest for unit " << unitId
+					  << " parked - this machine's death replay has not converted yet";
+		return 0;
+	}
 
 	// _items is append-ordered, so this walk yields the corpses in the order
 	// UnitDieBState created them - which is the order the host recorded them in.
@@ -4123,12 +4196,49 @@ int remapCorpseIds(SavedBattleGame* battle, int unitId)
 
 void clearSpawnManifests()
 {
-	if (!g_spawnManifest.empty())
+	// PRD-P10: a corpse manifest whose death replay is still QUEUED on this
+	// machine is not stale - it is the id list that replay is about to adopt
+	// (path a). The turn boundary crosses in the middle of a death routinely (the
+	// alien side's last casualty dies a frame or two before the side closes), and
+	// dropping it there left the peer minting its own corpse ids off a counter
+	// the host had already moved past.
+	size_t kept = 0, dropped = 0;
+	for (auto it = g_spawnManifest.begin(); it != g_spawnManifest.end(); )
 	{
-		Log(LOG_INFO) << "[COOP] id-manifest: dropping " << g_spawnManifest.size()
+		if (it->first.action == "corpse" && g_corpseReplayPending.count(it->first.subject))
+		{
+			++kept;
+			++it;
+			continue;
+		}
+		it = g_spawnManifest.erase(it);
+		++dropped;
+	}
+	if (dropped)
+	{
+		Log(LOG_INFO) << "[COOP] id-manifest: dropping " << dropped
 					  << " manifest(s) that were never consumed";
 	}
-	g_spawnManifest.clear();
+	if (kept)
+	{
+		Log(LOG_INFO) << "[COOP] id-manifest: keeping " << kept
+					  << " manifest(s) whose death replay has not converted yet";
+	}
+	// Hygiene for the pending flags themselves: one with nothing parked behind it
+	// can no longer be waiting for a manifest (a respawn took convertUnit instead,
+	// a chain was torn down), so it would only keep exempting this unit from the
+	// tile repair forever.
+	for (auto it = g_corpseReplayPending.begin(); it != g_corpseReplayPending.end(); )
+	{
+		if (g_spawnManifest.count(CoopSpawnKey{"corpse", *it}))
+		{
+			++it;
+		}
+		else
+		{
+			it = g_corpseReplayPending.erase(it);
+		}
+	}
 }
 
 } // namespace SharedEcon
