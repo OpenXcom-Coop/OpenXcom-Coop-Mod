@@ -62,6 +62,40 @@ DEFAULT_TURNS = 5
 DEFAULT_MIN_ACTIONS = 100
 DEFAULT_SEED = 20260802
 
+# ---- the fixture -----------------------------------------------------------
+#
+# The skirmish bring-up IS the NEW BATTLE screen (BATTLE SETTINGS -> newbattle_ok),
+# and that screen reads `<userdir>/<master>/battle.cfg` on the way up
+# (NewBattleState::load -> Options::getMasterUserFolder() + "battle.cfg"). With no
+# file it takes the built-in defaults, and mission index 0 is STR_SMALL_SCOUT -
+# whose deployment is a single rank at `lowQty: 1, highQty: 1, dQty: 0`, i.e. ONE
+# hostile on every difficulty. A soak that fires for five turns eventually kills
+# it; the mission then ENDS mid-run and every census after that point is vacuous,
+# which is exactly the fail-fast in `assert_census`.
+#
+# Index 1 is STR_MEDIUM_SCOUT: two ranks at `lowQty` 2 and 1, so >= 3 hostiles
+# even on Beginner (BattlescapeGenerator::deployAliens takes `lowQty` there), with
+# the same 40x40 map footprint as the small scout. That is the whole lever - one
+# integer, written by the test into its own hermetic user dir. Deliberately NO
+# `base` key: without it NewBattleState still takes its normal `initSave()` path,
+# so the fixture is byte-for-byte what it was apart from the mission index.
+MISSION_MEDIUM_SCOUT = 1
+MIN_HOSTILES = 3
+
+
+def write_battle_fixture(user_dir, mission=MISSION_MEDIUM_SCOUT):
+    """Pin the NEW BATTLE mission for one instance's user dir (see above).
+
+    Written to BOTH machines even though only the host generates the map: the
+    client walks the same NEW BATTLE screen on its way to the server browser
+    (`newbattle_coop`), and leaving the two setup screens on different missions
+    costs nothing to avoid.
+    """
+    path = os.path.join(user_dir, "xcom1", "battle.cfg")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("mission: %d\n" % mission)
+    return path
+
 
 # ---- readouts --------------------------------------------------------------
 
@@ -231,8 +265,9 @@ def assert_census(host, client, what):
         f"the fixture's mission ENDED before the census {what} (host "
         f"inBattle={hb.get('inBattle')} top={TW.top(host)}, client "
         f"inBattle={cb.get('inBattle')} top={TW.top(client)}). The skirmish "
-        f"fixture ships a handful of aliens and the soak has to keep at least "
-        f"one of them alive; everything after this point would be vacuous.")
+        f"fixture ships a handful of aliens (write_battle_fixture pins the "
+        f"mission that guarantees >= {MIN_HOSTILES}) and the soak has to keep at "
+        f"least one alive; everything after this point would be vacuous.")
     hu, cu = unit_census(hb), unit_census(cb)
     if hu != cu:
         # `status` is not in the asserted tuple (it moves through animation states
@@ -400,8 +435,9 @@ def move_clear_of_hostiles(host, client, uid, want=8):
     """Put `uid` somewhere its bursts cannot reach a hostile, on BOTH machines.
 
     This phase fires auto bursts at whatever tile produces a real chain, and the
-    skirmish fixture can ship as few as ONE alien - so a stray hit ends the
-    mission and every remaining turn with it. Teleporting the shooter clear first
+    fixture ships a handful of aliens (>= MIN_HOSTILES, see write_battle_fixture)
+    - so a stray hit still walks the mission towards its end and could take the
+    remaining turns with it. Teleporting the shooter clear first
     is the difference between a soak that runs five turns and one that reports
     "the fixture's mission ENDED" from turn 3 on.
     """
@@ -667,6 +703,8 @@ def main():
                                       options={"battleXcomSpeed": FAST_SPEED,
                                                "battleAlienSpeed": FAST_SPEED,
                                                "EnableCoopParallelTurns": False}))
+    for gc in (host, client):
+        write_battle_fixture(gc.user_dir)
     try:
         host.spawn(); host.connect()
         client.spawn(); client.connect()
@@ -696,6 +734,20 @@ def main():
         assert "wounds" in battle(host)["units"][0], (
             "battle_state units carry no 'wounds' - the PRD-P9 unit census would "
             "be missing a term")
+
+        # The fixture floor. Everything below assumes the mission stays LIVE for
+        # five full turns, and a mission ends the moment its last hostile dies -
+        # so a run that starts with too few is not worth the twenty minutes.
+        foes = [u["id"] for u in battle(host)["units"]
+                if u.get("faction") == 1 and not u.get("isOut")]
+        assert len(foes) >= MIN_HOSTILES, (
+            f"the generated battle holds only {len(foes)} hostile(s), below the "
+            f"{MIN_HOSTILES} this soak needs to survive five turns of shooting - "
+            f"`battle.cfg` did not take (mission index {MISSION_MEDIUM_SCOUT} is "
+            f"STR_MEDIUM_SCOUT only while the mission list is the stock xcom1 "
+            f"deployment order with hidden entries filtered, i.e. Options::debug "
+            f"off). Units: {[(u['id'], u.get('faction')) for u in battle(host)['units']]}")
+        print(f"    fixture: {len(foes)} hostiles {foes}")
 
         hseat = parallel(host)["localSeat"]
         cseat = parallel(client)["localSeat"]
