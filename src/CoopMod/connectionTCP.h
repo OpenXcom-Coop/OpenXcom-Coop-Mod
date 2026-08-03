@@ -159,8 +159,18 @@ extern std::atomic<uint64_t> g_txDropCount;
 // counters are process-monotonic (never reset).
 size_t rxHoldSize();               // current hold-queue depth
 size_t rxParkSize();               // PRD-P9 R7: packets parked, not rotated
-extern std::atomic<uint32_t> g_rxRotateCount;   // packets rotated back unconsumed
+extern std::atomic<uint32_t> g_rxRotateCount;   // PRD-P11: gate holds (nothing rotates now)
 extern std::atomic<uint32_t> g_rxHoldMaxSeen;   // hold-queue high-water mark
+// coop (PRD-P11): the in-order pump. The queue is consumed IN PLACE and a packet
+// the gate refuses keeps its position, so a unit's packets can never be applied
+// out of the order they were sent.
+extern std::atomic<uint32_t> g_rxSkipBlocked;   // held back: an earlier packet names the same unit
+extern std::atomic<uint32_t> g_rxLegacyPasses;  // liveness-floor engagements (expected 0)
+// The last `limit` packets the pump applied, oldest first: [{seq,state,unit}].
+// Test-only introspection; `unit` is -1 for a packet that names no single unit.
+Json::Value rxAppliedTrace(size_t limit);
+// Append a packet to the hold queue as if it had just arrived (TestServer only).
+void rxInjectForTest(std::string&& payload);
 
 // ===== Geoscape sync conflation slot =====
 // The two GeoscapeState::think() heartbeats are full-state, last-write-wins

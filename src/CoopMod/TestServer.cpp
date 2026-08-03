@@ -337,11 +337,34 @@ void TestServer::ioThread(int port)
 	SDLNet_FreeSocketSet(set);
 }
 
+// PRD-P11 (test-only): packets armed by `rx_inject {awaitGate: true}`, held
+// until a tick where the receive gate is SHUT. Flushed from pump(), which runs
+// immediately before updateCoopTask() in Game::run, so "the gate was shut when
+// they landed" is exact rather than a round-trip race the test has to win.
+static std::vector<std::string> g_rxArmed;
+static bool g_rxArmedFired = false;
+static int g_rxArmedCount = 0;
+
 void TestServer::pump()
 {
 	if (!_running.load())
 	{
 		return;
+	}
+
+	if (!g_rxArmed.empty())
+	{
+		connectionTCP* armCoop = _game->getCoopMod();
+		if (armCoop && !armCoop->coopTaskCompleted())
+		{
+			for (auto& payload : g_rxArmed)
+			{
+				rxInjectForTest(std::string(payload));
+			}
+			g_rxArmedCount = static_cast<int>(g_rxArmed.size());
+			g_rxArmed.clear();
+			g_rxArmedFired = true;
+		}
 	}
 	// While StartState is on the stack the mod is still being loaded on its
 	// worker thread; executing commands now races it (e.g. GeoscapeState
@@ -3452,6 +3475,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "battle_intent"
 		&& cmd != "battle_camera"
 		&& cmd != "battle_reserve"
+		&& cmd != "rx_inject"
 		&& cmd != "parallel_state")
 	{
 		return false;
@@ -3473,6 +3497,60 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			if (u->getId() == id) return u;
 		return nullptr;
 	};
+
+	if (cmd == "rx_inject")
+	{
+		// PRD-P11 (test-only): put packets straight into the receive hold queue,
+		// in order, and report the state of the receive gate AT THAT MOMENT. The
+		// pump's ordering guarantee is about what happens to a packet that lands
+		// while the gate is shut and an earlier packet about the same unit is
+		// still queued; waiting for that window from the game side is a race, and
+		// `gateClosed` here is what lets a test know it actually hit it.
+		const Json::Value& packets = req["packets"];
+		Json::StreamWriterBuilder wb;
+		wb["indentation"] = "";
+		connectionTCP* rxCoop = _game->getCoopMod();
+		resp["gateClosed"] = rxCoop ? !rxCoop->coopTaskCompleted() : false;
+		resp["taskDepth"] = rxCoop ? rxCoop->coopTaskDepth() : 0;
+		resp["walkInit"] = rxCoop ? rxCoop->_coopWalkInit : false;
+		resp["armedPending"] = static_cast<Json::UInt>(g_rxArmed.size());
+		resp["fired"] = g_rxArmedFired;
+		resp["firedCount"] = g_rxArmedCount;
+		if (req.get("status", false).asBool())
+		{
+			// read-only: how the armed batch got on
+			resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
+			resp["ok"] = true;
+		}
+		else if (req.get("awaitGate", false).asBool())
+		{
+			// Arm, do not inject. pump() lands them on the first tick whose gate
+			// is shut - the window this PRD's ordering rule is about.
+			g_rxArmed.clear();
+			g_rxArmedFired = false;
+			g_rxArmedCount = 0;
+			for (Json::ArrayIndex i = 0; i < packets.size(); ++i)
+			{
+				g_rxArmed.push_back(Json::writeString(wb, packets[i]));
+			}
+			resp["armed"] = static_cast<Json::UInt>(g_rxArmed.size());
+			resp["fired"] = false;
+			resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
+			resp["ok"] = true;
+		}
+		else
+		{
+			int injected = 0;
+			for (Json::ArrayIndex i = 0; i < packets.size(); ++i)
+			{
+				rxInjectForTest(Json::writeString(wb, packets[i]));
+				++injected;
+			}
+			resp["injected"] = injected;
+			resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
+			resp["ok"] = true;
+		}
+	}
 
 	if (cmd == "battle_items")
 	{
@@ -4270,6 +4348,18 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["rxPark"] = static_cast<Json::UInt>(rxParkSize());
 		resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
 		resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
+		// PRD-P11: the in-order pump. `rxSkippedBlocked` counts packets the gate
+		// would have let through but that waited for an earlier packet about the
+		// same unit; `rxLegacyPasses` counts liveness-floor engagements and is
+		// expected to stay 0. `trace: true` returns the applied-packet ring, which
+		// is the only way to assert ORDER rather than end state.
+		resp["rxSkippedBlocked"] = static_cast<Json::UInt>(g_rxSkipBlocked.load());
+		resp["rxLegacyPasses"] = static_cast<Json::UInt>(g_rxLegacyPasses.load());
+		if (req.get("trace", false).asBool())
+		{
+			resp["rxTrace"] = rxAppliedTrace(
+				static_cast<size_t>(req.get("traceLimit", 64).asUInt()));
+		}
 		// PRD-P6: the action-intent arbiter. `actionSeq`/`sideSeq` are the host's
 		// counters (the client mirrors what it is told), `admitBlocked` names the
 		// first canAdmitAction() term that said no ("" = it said yes), and the two
@@ -5249,6 +5339,9 @@ std::string TestServer::execute(const std::string& line)
 				resp["rxPark"] = static_cast<Json::UInt>(rxParkSize());
 				resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
 				resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
+				// PRD-P11: see the parallel_state readout for what these mean.
+				resp["rxSkippedBlocked"] = static_cast<Json::UInt>(g_rxSkipBlocked.load());
+				resp["rxLegacyPasses"] = static_cast<Json::UInt>(g_rxLegacyPasses.load());
 				// Parallel-turns mode (PRD-P5), carried on battle_state (as well as
 				// parallel_state) so the harness' session.can_drive() decides from a
 				// single query.
