@@ -3467,6 +3467,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_camera"
 		&& cmd != "battle_reserve"
 		&& cmd != "rx_inject"
+		&& cmd != "hold_action_done"
 		&& cmd != "parallel_state")
 	{
 		return false;
@@ -4356,6 +4357,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["displayBacklog"] = static_cast<Json::UInt>(
 			connectionTCP::_actionSeq > connectionTCP::peerDisplayAckedSeq
 				? connectionTCP::_actionSeq - connectionTCP::peerDisplayAckedSeq : 0);
+		// TEST-ONLY `hold_action_done` lever: is this machine parking its
+		// `action_done` reports, and how many it has parked since the hold was
+		// engaged. A held count of 0 means nothing finished displaying, so a
+		// drain-barrier assertion resting on it would be vacuous.
+		resp["holdActionDone"] = connectionTCP::_testHoldActionDone;
+		resp["heldActionDones"] = static_cast<Json::UInt>(connectionTCP::_heldActionDones);
 		Json::Value pend(Json::arrayValue);
 		for (const auto& slot : connectionTCP::_pendingAdmits)
 		{
@@ -4398,6 +4405,37 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["kneelReserve"] = sbg->getKneelReserved();
 		resp["chainReserve"] = bg ? bg->coopChainReserveMode() : -1;
 		resp["chainReserveUnit"] = bg ? bg->coopChainReserveUnit() : -1;
+		resp["ok"] = true;
+	}
+	else if (cmd == "hold_action_done")
+	{
+		// TEST-ONLY observability lever for PRD-P8's end-turn drain barrier.
+		//
+		// The barrier holds the side commit until the peer reports every admitted
+		// chain DISPLAYED (`action_done`). Producing an undisplayed backlog by
+		// making the client slow does not work: battleXcomSpeed paces only
+		// UnitWalk/UnitTurn/UnitFall, which PRD-P7's client fast-forward pins to
+		// interval 0 anyway, and ProjectileFlyBState uses its own fixed interval
+		// and never reads the option - so the real window is one network round
+		// trip (~200 ms) and no fixture can widen it. This holds the report
+		// instead: `{hold:true}` parks it, `{hold:false}` ships the newest parked
+		// seq immediately (main thread, same emit point as the live path).
+		const bool want = req.get("hold", true).asBool();
+		connectionTCP* hcoop = _game->getCoopMod();
+		if (want)
+		{
+			connectionTCP::_heldActionDones = 0;
+			connectionTCP::_testHoldActionDone = true;
+		}
+		else
+		{
+			connectionTCP::_testHoldActionDone = false;
+			if (hcoop) hcoop->coopEmitActionDone();
+		}
+		resp["hold"] = connectionTCP::_testHoldActionDone;
+		resp["heldActionDones"] = static_cast<Json::UInt>(connectionTCP::_heldActionDones);
+		resp["displaySeq"] = static_cast<Json::UInt>(connectionTCP::_clientDisplaySeq);
+		resp["peerDisplayAckedSeq"] = static_cast<Json::UInt>(connectionTCP::peerDisplayAckedSeq);
 		resp["ok"] = true;
 	}
 	else if (cmd == "battle_reserve")
