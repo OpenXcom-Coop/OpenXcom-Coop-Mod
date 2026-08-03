@@ -1210,6 +1210,13 @@ class connectionTCP
 	// to recover from, it is two players walking away from a finished game, so
 	// every "the other player vanished" notice and freeze is suppressed.
 	static bool campaignEnded();
+	// The skirmish twin of campaignEnded(): a NEW BATTLE > COOP mission has run
+	// and finished, so the only thing the world is still holding up is the
+	// debriefing each player is reading. Closing that debriefing ends the world
+	// (DebriefingState::btnOkClick -> GoToMainMenuState for a monthsPassed == -1
+	// save), so a peer leaving now is EXPECTED - they closed theirs first - not a
+	// drop to report or to re-open a lobby for.
+	static bool skirmishMissionOver();
 	// PRD-08 C7: may this machine LOAD a local save RIGHT NOW? False whenever a
 	// live coop session is attached (host OR client) - loading mid-session forks
 	// the served world silently. True when solo / after the session ends (the

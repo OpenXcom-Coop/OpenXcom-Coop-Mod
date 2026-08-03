@@ -35,6 +35,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
 - Co-op: an ACTION MENU grenade prime sent across the wire with a fuse above 1
   arrived as 1, and a de-prime arrived as an arming - the peer could be left
   holding a live grenade the other player had just made safe.
+- Co-op skirmish (NEW BATTLE > COOP): finishing a mission - by winning it or by
+  abandoning it - now returns BOTH players to the main menu. Whichever player
+  closed their debriefing second used to be interrupted by the other's ordinary
+  exit: the host was shown a lobby whose RESUME GAME dropped them onto an empty
+  Geoscape, and the joining player got a "Server connection lost" message over
+  their debriefing. A skirmish mission ending is no longer treated as a
+  disconnection.
 - Co-op SHARED campaigns: hiring soldiers, scientists, or engineers is no longer
   blocked with "not enough store space" when a base's general stores are full but
   its living quarters have room. Personnel occupy quarters, not stores, so a
