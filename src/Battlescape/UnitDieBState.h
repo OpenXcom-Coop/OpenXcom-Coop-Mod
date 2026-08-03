@@ -46,6 +46,8 @@ private:
 	~UnitDieBState();
 	/// Initializes the state.
 	void init() override;
+	/// coop (PRD-P10): ships `after_unit_death` the moment the state POPS.
+	void deinit() override;
 	/// Handles a cancels request.
 	void cancel() override;
 	/// Runs state functionality every cycle.

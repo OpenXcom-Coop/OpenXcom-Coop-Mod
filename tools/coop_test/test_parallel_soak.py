@@ -81,6 +81,10 @@ DEFAULT_SEED = 20260802
 # so the fixture is byte-for-byte what it was apart from the mission index.
 MISSION_MEDIUM_SCOUT = 1
 MIN_HOSTILES = 3
+# How many bring-ups to spend looking for a battle that clears MIN_HOSTILES. The
+# generator sometimes hands back aliens that are already dead (see main()), and a
+# bring-up costs ~15 s against a ~350 s run.
+FIXTURE_TRIES = 4
 
 
 def write_battle_fixture(user_dir, mission=MISSION_MEDIUM_SCOUT):
@@ -658,13 +662,30 @@ def scenario_backlog_cap(host, client, shooter, client_unit):
 
 # ---- the turn loop ---------------------------------------------------------
 
+def side_started(host, turn_before):
+    """Has the side this call was asked to close already gone?"""
+    return battle(host).get("turn") != turn_before or not parallel(host)["localReady"]
+
+
 def close_side(host, client, hseat, cseat, turn_before):
     """Both seats ready -> the executor commits -> a new player side."""
     PE.hush(host, client)
     for gc in (host, client):
         if not parallel(gc)["localReady"]:
             PE.arm(gc)
-    got = poll(lambda: parallel(host)["allReady"] is True, 30, 0.2)
+    # `allReady` is almost never OBSERVABLE. The executor commits on the same
+    # tick that applies the second seat's `end_turn_ready` (updateCoopTask ->
+    # coopCheckSideCommit), and committing calls resetEndTurnReady() - so the
+    # window in which an RPC could sample allReady==True is one frame wide, and
+    # a poll for it reliably runs its full timeout instead. Re-arming after that
+    # timeout re-armed BOTH seats into the NEXT side and closed it too: the soak
+    # then measured a battle that was advancing a turn behind its back (measured
+    # on a failing run: commits at +0s, +30s, +30s, +30s with no actions between
+    # them, and the "after the alien side of turn N" census comparing two
+    # machines mid-flight). Accept the side having ALREADY moved as success, and
+    # only re-arm a seat that is genuinely still unarmed on the ORIGINAL turn.
+    got = poll(lambda: parallel(host)["allReady"] is True
+               or side_started(host, turn_before), 30, 0.2)
     if not got:
         for gc in (host, client):
             if not parallel(gc)["localReady"]:
@@ -692,62 +713,82 @@ def main():
 
     started = time.time()
     fail = None
-    host = GameClient("host", 48880,
-                      make_user_dir("p9_soak_host",
-                                    options={"battleXcomSpeed": FAST_SPEED,
-                                             "battleAlienSpeed": FAST_SPEED,
-                                             "skipNextTurnScreen": True,
-                                             "EnableCoopParallelTurns": True}))
-    client = GameClient("client", 48881,
-                        make_user_dir("p9_soak_client",
-                                      options={"battleXcomSpeed": FAST_SPEED,
-                                               "battleAlienSpeed": FAST_SPEED,
-                                               "EnableCoopParallelTurns": False}))
-    for gc in (host, client):
-        write_battle_fixture(gc.user_dir)
+    host = client = None
     try:
-        host.spawn(); host.connect()
-        client.spawn(); client.connect()
-        TW.PORT = PORT
-        PI.PORT = PORT
-        PE.PORT = PORT
-        TW.bring_up_battle(host, client)
-        print(f"battle up on both machines ({time.time() - started:.0f}s)")
+        # --- the fixture, RE-ROLLED if the generator shorts it -------------
+        #
+        # STR_MEDIUM_SCOUT deploys 3-5 hostiles, but some of them arrive DEAD:
+        # BattlescapeGame's constructor runs checkForCasualties() and it finds
+        # freshly-generated aliens on 0 HP (observed: 3 of 5, all clustered, at
+        # turn 0 - a stock generator/deployment accident, reproduced on a build
+        # with nothing but logging added). A run that comes up under the floor
+        # cannot survive five turns of shooting, so re-roll the whole battle
+        # rather than fail: the map is generated afresh on every bring-up, and
+        # `set_seed` only pins the stream AFTER it.
+        for attempt in range(1, FIXTURE_TRIES + 1):
+            host = GameClient("host", 48880,
+                              make_user_dir("p9_soak_host",
+                                            options={"battleXcomSpeed": FAST_SPEED,
+                                                     "battleAlienSpeed": FAST_SPEED,
+                                                     "skipNextTurnScreen": True,
+                                                     "EnableCoopParallelTurns": True}))
+            client = GameClient("client", 48881,
+                                make_user_dir("p9_soak_client",
+                                              options={"battleXcomSpeed": FAST_SPEED,
+                                                       "battleAlienSpeed": FAST_SPEED,
+                                                       "EnableCoopParallelTurns": False}))
+            for gc in (host, client):
+                write_battle_fixture(gc.user_dir)
+            host.spawn(); host.connect()
+            client.spawn(); client.connect()
+            TW.PORT = PORT
+            PI.PORT = PORT
+            PE.PORT = PORT
+            TW.bring_up_battle(host, client)
+            print(f"battle up on both machines ({time.time() - started:.0f}s)")
 
-        # --- A. seed + the mode invariant ---------------------------------
-        for gc, tag in ((host, "host"), (client, "client")):
-            s = gc.ok({"cmd": "set_seed", "seed": args.seed})
-            print(f"    {tag} seed pinned to {s['seed']}")
-        gm = battle(host).get("coopGamemode")
-        assert gm in (1, 4), (
-            f"the skirmish fixture came up in gamemode {gm}; parallel turns only "
-            f"cover PVE (1) and PVE2 (4), so this soak would be vacuous")
-        for gc, tag in ((host, "host"), (client, "client")):
-            assert battle(gc)["parallelActive"] is True, \
-                f"{tag}: parallel mode is not live: {battle(gc)}"
-        assert battle(host)["activeSync"] is True and battle(client)["activeSync"] is False, \
-            "the PRD-P5 executor invariant does not hold; nothing below is testing it"
-        for key in ("fireTiles", "smokeTiles", "fireHash"):
-            assert key in tiles(host), (
-                f"`battle_tiles` carries no {key!r} - PRD-P9's hazard census is "
-                f"missing and part C would be vacuous")
-        assert "wounds" in battle(host)["units"][0], (
-            "battle_state units carry no 'wounds' - the PRD-P9 unit census would "
-            "be missing a term")
+            # --- A. seed + the mode invariant -----------------------------
+            for gc, tag in ((host, "host"), (client, "client")):
+                s = gc.ok({"cmd": "set_seed", "seed": args.seed})
+                print(f"    {tag} seed pinned to {s['seed']}")
+            gm = battle(host).get("coopGamemode")
+            assert gm in (1, 4), (
+                f"the skirmish fixture came up in gamemode {gm}; parallel turns only "
+                f"cover PVE (1) and PVE2 (4), so this soak would be vacuous")
+            for gc, tag in ((host, "host"), (client, "client")):
+                assert battle(gc)["parallelActive"] is True, \
+                    f"{tag}: parallel mode is not live: {battle(gc)}"
+            assert battle(host)["activeSync"] is True and battle(client)["activeSync"] is False, \
+                "the PRD-P5 executor invariant does not hold; nothing below is testing it"
+            for key in ("fireTiles", "smokeTiles", "fireHash"):
+                assert key in tiles(host), (
+                    f"`battle_tiles` carries no {key!r} - PRD-P9's hazard census is "
+                    f"missing and part C would be vacuous")
+            assert "wounds" in battle(host)["units"][0], (
+                "battle_state units carry no 'wounds' - the PRD-P9 unit census would "
+                "be missing a term")
 
-        # The fixture floor. Everything below assumes the mission stays LIVE for
-        # five full turns, and a mission ends the moment its last hostile dies -
-        # so a run that starts with too few is not worth the twenty minutes.
-        foes = [u["id"] for u in battle(host)["units"]
-                if u.get("faction") == 1 and not u.get("isOut")]
-        assert len(foes) >= MIN_HOSTILES, (
-            f"the generated battle holds only {len(foes)} hostile(s), below the "
-            f"{MIN_HOSTILES} this soak needs to survive five turns of shooting - "
-            f"`battle.cfg` did not take (mission index {MISSION_MEDIUM_SCOUT} is "
-            f"STR_MEDIUM_SCOUT only while the mission list is the stock xcom1 "
-            f"deployment order with hidden entries filtered, i.e. Options::debug "
-            f"off). Units: {[(u['id'], u.get('faction')) for u in battle(host)['units']]}")
-        print(f"    fixture: {len(foes)} hostiles {foes}")
+            foes = [u["id"] for u in battle(host)["units"]
+                    if u.get("faction") == 1 and not u.get("isOut")]
+            if len(foes) >= MIN_HOSTILES:
+                print(f"    fixture: {len(foes)} hostiles {foes}")
+                break
+            all_hostiles = [u["id"] for u in battle(host)["units"]
+                            if u.get("faction") == 1]
+            print(f"    fixture short on attempt {attempt}: {len(foes)} live "
+                  f"hostile(s) of {len(all_hostiles)} generated {all_hostiles} - "
+                  f"re-rolling the battle")
+            assert attempt < FIXTURE_TRIES, (
+                f"{FIXTURE_TRIES} bring-ups in a row generated fewer than "
+                f"{MIN_HOSTILES} LIVE hostiles. If every one of them also shows "
+                f"fewer than {MIN_HOSTILES} hostiles GENERATED, `battle.cfg` did "
+                f"not take (mission index {MISSION_MEDIUM_SCOUT} is "
+                f"STR_MEDIUM_SCOUT only while the mission list is the stock xcom1 "
+                f"deployment order with hidden entries filtered, i.e. "
+                f"Options::debug off). Units: "
+                f"{[(u['id'], u.get('faction')) for u in battle(host)['units']]}")
+            host.shutdown(); client.shutdown()
+            host = client = None
 
         hseat = parallel(host)["localSeat"]
         cseat = parallel(client)["localSeat"]
@@ -815,12 +856,16 @@ def main():
         print(f"[FAIL] {e}")
         for tag, gc in (("host", host), ("client", client)):
             try:
+                if gc is None:
+                    continue
                 print(f"  DBG {tag} parallel: {parallel(gc)}")
                 print(f"  DBG {tag} top:      {TW.top(gc)}")
             except Exception as de:
                 print(f"  DBG {tag} dump failed: {de}")
     finally:
-        host.shutdown(); client.shutdown()
+        for gc in (host, client):
+            if gc is not None:
+                gc.shutdown()
 
     sys.exit(2 if fail else 0)
 
