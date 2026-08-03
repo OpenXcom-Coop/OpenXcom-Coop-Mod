@@ -942,6 +942,14 @@ void BattlescapeGame::sendPacketData(std::string data)
 
 void BattlescapeGame::coopDeath(BattleUnit* unit, const RuleDamageType* damageType, bool noSound)
 {
+	// coop (PRD-P10): from here until convertUnitToCorpse runs, any BT_CORPSE item
+	// this unit owns is an OLDER one (the body item of a knockout), so the
+	// id-manifest's remap-in-place path must not claim it. See
+	// SharedEcon::noteCorpseReplayPending.
+	if (unit)
+	{
+		SharedEcon::noteCorpseReplayPending(unit->getId());
+	}
 
 	statePushNext(new UnitDieBState(this, unit, damageType, noSound, true));
 }
@@ -5923,7 +5931,16 @@ void BattlescapeGame::CoopShoot(const BattleAction& action)
 	// coop (PRD-P1): runs on the replay's own action - shootPlayerTarget no
 	// longer parks the peer's shot on the local player's _currentAction.
 	_states.push_back(new ProjectileFlyBState(this, action));
-	statePushFront(new UnitTurnBState(this, action)); // first of all turn towards the target
+	// coop (PRD-P10): chargeTUs = FALSE, matching turnPlayerTarget's replay.
+	// `actor_tu` on the shot packet is read at the TOP of the executor's
+	// ProjectileFlyBState::init(), i.e. AFTER its own UnitTurnBState has already
+	// charged the facing - so charging it again here spent the turn twice on the
+	// peer. REACTION fire is the shape that made it permanent: the executor
+	// turns for free inside ProjectileFlyBState::init (`lookAt` + the turn
+	// loop, no TU), so every replayed reaction shot billed the peer a facing
+	// cost the executor never paid, and a unit that does not shoot again keeps
+	// the deficit until the next turn's reset.
+	statePushFront(new UnitTurnBState(this, action, false)); // first of all turn towards the target
 }
 
 void BattlescapeGame::hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack, int terrainMeleeTilePart, uint64_t seed)
