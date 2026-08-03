@@ -7252,6 +7252,26 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						UnitStatus unitStatus = intToUnitstatus(status_int);
 						unit->setCoopStatus(unitStatus);
 
+						// coop: the host's kill ATTRIBUTION (UnitDieBState::coopWriteKillAttribution).
+						// This machine derives killedBy/murdererId for itself only when it happens to
+						// run its own checkForCasualties over the same victim - which it does for a
+						// death caused by an action it is replaying, and NOT for one it never replays
+						// as a local attack chain (a reaction-fire kill during the alien side). There
+						// the alien kept the ctor default `_killedBy = its own faction` and
+						// DebriefingState scored it as no kill at all, so the two players saw
+						// different alien-kill counts and different mission scores.
+						//
+						// Additive: absent means an older peer, so keep whatever was derived locally.
+						// Never re-derived here - the executor decides who killed whom, always.
+						if (obj.isMember("killedBy"))
+						{
+							unit->killedBy((UnitFaction)obj["killedBy"].asInt());
+						}
+						if (obj.isMember("murdererId"))
+						{
+							unit->setMurdererId(obj["murdererId"].asInt());
+						}
+
 						// TILE
 						bool isTile = obj["isTile"].asBool();
 
@@ -7588,6 +7608,26 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							int status_int = obj["status"].asInt();
 							UnitStatus unitStatus = intToUnitstatus(status_int);
 							unit->setCoopStatus(unitStatus);
+
+							// coop: the host's kill ATTRIBUTION (UnitDieBState::coopWriteKillAttribution).
+							// This machine derives killedBy/murdererId for itself only when it happens to
+							// run its own checkForCasualties over the same victim - which it does for a
+							// death caused by an action it is replaying, and NOT for one it never replays
+							// as a local attack chain (a reaction-fire kill during the alien side). There
+							// the alien kept the ctor default `_killedBy = its own faction` and
+							// DebriefingState scored it as no kill at all, so the two players saw
+							// different alien-kill counts and different mission scores.
+							//
+							// Additive: absent means an older peer, so keep whatever was derived locally.
+							// Never re-derived here - the executor decides who killed whom, always.
+							if (obj.isMember("killedBy"))
+							{
+								unit->killedBy((UnitFaction)obj["killedBy"].asInt());
+							}
+							if (obj.isMember("murdererId"))
+							{
+								unit->setMurdererId(obj["murdererId"].asInt());
+							}
 
 							int damageType_int = obj["damageType"].asInt();
 							bool noSound = obj["noSound"].asBool();
@@ -9764,6 +9804,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					unit->setMindControllerId(obj.get("mindControllerId", 0).asInt());
 					unit->setCoopMorale(obj.get("morale", unit->getMorale()).asInt());
 					unit->setTimeUnits(obj.get("tu", unit->getTimeUnits()).asInt());
+					// coop: the host's recoverTimeUnits() restored ENERGY as well as TU.
+					// Additive - absent means an older peer, so leave energy alone.
+					unit->setCoopEnergy(obj.get("energy", unit->getEnergy()).asInt());
 					unit->setCoop(obj.get("coop", unit->getCoop()).asInt());
 					break;
 				}

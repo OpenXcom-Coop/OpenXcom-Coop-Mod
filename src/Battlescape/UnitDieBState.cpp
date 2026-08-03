@@ -121,6 +121,35 @@ UnitDieBState::~UnitDieBState()
 }
 
 /**
+ * coop: stamps the host's kill ATTRIBUTION on a death packet.
+ *
+ * `killedBy` and `murdererId` are written by BattlescapeGame::checkForCasualties -
+ * on the machine that RESOLVED the death, before it pushes this state - and they
+ * were the one part of a death that never crossed the wire. The peer got away with
+ * that whenever it happened to run its own checkForCasualties over the same victim
+ * (it is displaying the attack, so the murderer is resolvable there too), which is
+ * every death caused by an action the peer replays. It does NOT happen for a death
+ * the peer never replays as a local attack chain - a reaction-fire kill during the
+ * ALIEN side is the everyday one - and there the alien keeps the BattleUnit ctor
+ * default `_killedBy = its own faction`.
+ *
+ * That is a scored, persisted divergence, not a cosmetic one: DebriefingState
+ * counts STR_ALIENS_KILLED as `oldFaction == FACTION_HOSTILE && killedBy() ==
+ * FACTION_PLAYER` over each machine's OWN save (prepareDebriefing runs on both,
+ * ahead of the host's debriefing packet), so the two players saw different kill
+ * counts and different scores for the same battle - and `killedBy` is saved.
+ *
+ * Written on BOTH death packets: `unit_death` so the peer has it while the death
+ * is still being displayed, `after_unit_death` as the definitive re-stamp once the
+ * death has fully resolved. Applying it twice is idempotent.
+ */
+void UnitDieBState::coopWriteKillAttribution(Json::Value& root) const
+{
+	root["killedBy"] = (int)_unit->killedBy();
+	root["murdererId"] = _unit->getMurdererId();
+}
+
+/**
  * coop (PRD-P10): `after_unit_death` moved here from the DESTRUCTOR.
  *
  * A BattleState is destroyed by cleanupDeleted(), which runs at a turn boundary
@@ -176,6 +205,9 @@ void UnitDieBState::deinit()
 		}
 
 		root["isTile"] = isTile;
+
+		// coop: the kill ATTRIBUTION, the host's final word on it.
+		coopWriteKillAttribution(root);
 
 		// coop (PRD-P4): the ids this death's corpses were minted with. This is the
 		// FIRST packet after convertUnitToCorpse() has run, so it is where the
@@ -251,6 +283,11 @@ void UnitDieBState::init()
 		}
 
 		root["isTile"] = isTile;
+
+		// coop: the kill ATTRIBUTION - see coopWriteKillAttribution(). Both
+		// killedBy and murdererId are already final here: checkForCasualties
+		// stamps them and only then pushes this state.
+		coopWriteKillAttribution(root);
 
 		_parent->sendPacketData(root.toStyledString());
 
