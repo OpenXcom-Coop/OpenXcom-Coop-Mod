@@ -534,8 +534,147 @@ static std::deque<std::string> g_rxHold;
 static std::deque<std::string> g_rxPark;
 
 // PRD-P0: hold-queue introspection for the harness (see connectionTCP.h).
+// coop (PRD-P11): nothing is physically rotated any more - the pump consumes in
+// place - so this now counts GATE HOLDS: packets the receive gate refused, which
+// keep their position in the queue and are re-examined next pass. The name and
+// the reading ("packets the gate would not let through") are unchanged.
 std::atomic<uint32_t> g_rxRotateCount{0};
 std::atomic<uint32_t> g_rxHoldMaxSeen{0};
+
+// coop (PRD-P11): packets the GATE WOULD HAVE LET THROUGH but that were held back
+// because an earlier, still-unconsumed packet in the queue names the same unit.
+// This is the price of ordering, and the only counter that distinguishes the new
+// pump from the old one.
+std::atomic<uint32_t> g_rxSkipBlocked{0};
+// coop (PRD-P11): passes that ran with per-subject blocking DISABLED because the
+// liveness floor fired (see updateCoopTask()). Expected to stay 0 for the life of
+// a session; anything else means ordering was traded away to keep a queue moving.
+std::atomic<uint32_t> g_rxLegacyPasses{0};
+
+// coop (PRD-P11): bumped by clearNetworkSessionQueues() so a pass holding packets
+// when the session is torn down drops them instead of splicing them back into a
+// queue that was deliberately emptied. Guarded by g_rxHoldMutex.
+static uint32_t g_rxHoldGen = 0;
+
+// coop (PRD-P11): consecutive main-loop ticks that consumed NOTHING while
+// per-subject blocking was holding back at least one otherwise-consumable packet.
+// Main thread only (updateCoopTask is called from Game::run).
+static uint32_t g_rxBlockedStallTicks = 0;
+static const uint32_t kRxBlockedStallTicks = 600;   // ~10 s at 60 ticks/s
+
+// coop (PRD-P11, test introspection): the packets the pump actually handed to
+// onTCPMessage(), in application order. The defect this PRD fixes had no visible
+// symptom other than ORDER (a unit walked from a stale position two seconds
+// late), so a test needs to read the order back, not just the end state.
+struct RxTraceEntry
+{
+	uint32_t seq;
+	std::string state;
+	int subject;
+};
+static std::mutex g_rxTraceMutex;
+static std::deque<RxTraceEntry> g_rxTrace;
+static uint32_t g_rxTraceSeq = 0;
+static const size_t kRxTraceMax = 256;
+
+static void rxTraceRecord(const std::string& state, int subject)
+{
+	std::lock_guard<std::mutex> lock(g_rxTraceMutex);
+	RxTraceEntry e;
+	e.seq = ++g_rxTraceSeq;
+	e.state = state;
+	e.subject = subject;
+	g_rxTrace.push_back(std::move(e));
+	while (g_rxTrace.size() > kRxTraceMax)
+	{
+		g_rxTrace.pop_front();
+	}
+}
+
+Json::Value rxAppliedTrace(size_t limit)
+{
+	Json::Value out(Json::arrayValue);
+	std::lock_guard<std::mutex> lock(g_rxTraceMutex);
+	const size_t skip = (limit > 0 && g_rxTrace.size() > limit)
+							? g_rxTrace.size() - limit
+							: 0;
+	for (size_t i = skip; i < g_rxTrace.size(); ++i)
+	{
+		Json::Value e(Json::objectValue);
+		e["seq"] = static_cast<Json::UInt>(g_rxTrace[i].seq);
+		e["state"] = g_rxTrace[i].state;
+		e["unit"] = g_rxTrace[i].subject;
+		out.append(e);
+	}
+	return out;
+}
+
+/**
+ * coop (PRD-P11): the unit a battle packet is ABOUT, or -1 for "no single unit".
+ *
+ * The pump uses this to keep a unit's packets in the order they were sent even
+ * when it cannot consume all of them in one pass (see updateCoopTask()). The
+ * field name is per-packet - the wire has three spellings for the same thing
+ * (`id`, `unit_id`, `actor_id`) - so this is a whitelist keyed on the state
+ * string, NOT a generic "look for an id field" probe: `id` alone means a base, a
+ * craft, a vote or an item in a dozen other packets, and a namespace collision
+ * here would hold back traffic for no reason.
+ *
+ * Deliberately absent:
+ *  - tile-only hazards (`set_smoke_tile`, `set_fire_tile`, `destroy_tile`) and
+ *    `hit_tile` / `calc_explode_fov` / `hasHitUnit`: no unit subject at all.
+ *    `hit_tile` carries `attack_id`, but that is an FNV hash of the attack (see
+ *    coopAttackKey) and the peer already pairs it with its own parked attack by
+ *    that key - pump order is not what orders it.
+ *  - arbitration and flow control (`action_intent`, `action_ack`, `action_deny`,
+ *    `action_done`, `action_end`, `end_turn_*`, votes): sequenced by their own
+ *    req_id/seq fields, and delaying them would stall the arbiter, not order it.
+ *  - selection/UI (`selected_unit`, `update_progress`, `AIProgress`): they name a
+ *    unit but do not act on one.
+ *  - `unit_fire`. MEASURED, and the reason this table is a whitelist rather than
+ *    "any packet with a unit id": it is the only always-consume packet that
+ *    names a unit and is not a chain closer, so it is the only one ordering could
+ *    actually DELAY - and delaying it is worse than applying it early. The peer
+ *    burns its own units: `BattleUnit::prepareHealth` subtracts fire damage and
+ *    decrements `_fire` at every turn tick, and on a peer `_fire` is written by
+ *    nothing but this packet (`setFire` early-returns off-host). A `unit_fire`
+ *    held behind an earlier packet while a turn boundary crossed therefore
+ *    burned the host's unit and not the peer's - measured as a one-item census
+ *    drift (a corpse the host had and the peer did not) in a five-turn soak.
+ */
+static int coopPacketSubject(const std::string& state, const Json::Value& obj)
+{
+	const char* field = 0;
+
+	if (state == "BattleScapeMove" || state == "turnBattlescapeUnit"
+		|| state == "kneel")
+	{
+		field = "id";
+	}
+	else if (state == "abortPath" || state == "afterBattlescapeUnitTurn"
+			 || state == "psi_attack" || state == "melee_attack"
+			 || state == "unit_death" || state == "after_unit_death"
+			 || state == "hit_unit"
+			 || state == "convertUnit" || state == "selfDestruct"
+			 || state == "panic_action" || state == "psi_result"
+			 || state == "checkForProximityGrenades" || state == "motion_scan")
+	{
+		field = "unit_id";
+	}
+	else if (state == "ProjectileFlyBState" || state == "unit_action"
+			 || state == "action_click" || state == "medkit"
+			 || state == "active_grenade")
+	{
+		field = "actor_id";
+	}
+
+	if (!field || !obj.isMember(field) || !obj[field].isNumeric())
+	{
+		return -1;
+	}
+	const int id = obj[field].asInt();
+	return id >= 0 ? id : -1;
+}
 
 size_t rxHoldSize()
 {
@@ -554,6 +693,18 @@ size_t rxParkSize()
 {
 	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 	return g_rxPark.size();
+}
+
+// coop (PRD-P11, test-only): append a packet to the hold queue exactly as the
+// transport drain would. The ordering property this PRD fixes depends on the
+// STATE OF THE QUEUE at the moment a packet lands - gate closed, an earlier
+// packet about the same unit still unconsumed - and reproducing that from the
+// game side is a timing race. Called from TestServer's `rx_inject` (main thread,
+// between two updateCoopTask() ticks) and from nowhere else.
+void rxInjectForTest(std::string&& payload)
+{
+	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+	g_rxHold.emplace_back(std::move(payload));
 }
 
 static void coopApplyActorCost(const Json::Value& obj, int unitId,
@@ -705,6 +856,9 @@ void clearNetworkSessionQueues()
 		std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 		g_rxHold.clear();
 		g_rxPark.clear();
+		// coop (PRD-P11): tell an in-flight pump pass that what it is holding
+		// belongs to a session that is over.
+		++g_rxHoldGen;
 	}
 
 	clearSnapshotSlots();
@@ -2336,20 +2490,65 @@ void connectionTCP::updateCoopTask()
 		}
 	}
 
+	// coop (PRD-P11): the pump walks the hold queue IN ORDER and consumes IN
+	// PLACE. It used to rotate a packet it could not consume to the BACK of
+	// g_rxHold and carry on, which reordered the stream against itself: the
+	// always-consume packets sitting behind the blocked one were applied as the
+	// pass continued, so a `BattleScapeMove` blocked once could end up permanently
+	// behind its own follow-ups. Measured on a badly backed-up client
+	// (rxRotates > 200k): the host sent Move(47) abortPath(37) Move(37)
+	// abortPath(27); the peer applied abortPath(37) Move(37) abortPath(27) and only
+	// then Move(47), two seconds later - walking unit 47 from a stale position with
+	// nothing left to correct it.
+	//
+	// So nothing is rotated. A packet that cannot be consumed keeps its place in
+	// the queue; the pass steps over it, remembers the unit it names in
+	// `blockedSubjects`, and consumes no later packet about that unit - not even
+	// one on the always-consume list. Only four always-consume packets carry a unit
+	// subject at all (`unit_fire` plus the three chain-closing exemptions
+	// `abortPath` / `unit_death` / `after_unit_death`), so tile hazards, votes and
+	// flow control are completely unaffected and still consume the moment the gate
+	// allows.
+	//
+	// Preserved exactly: the gate itself (depth 0 or the whitelist), the three
+	// per-action exemptions, `action_end`'s gated consumption (PRD-P7 - it must not
+	// jump the line), g_rxPark (PRD-P9 R7), and the pass-consumed-nothing exit that
+	// keeps the pump from busy-waiting.
+	//
+	// LIVENESS FLOOR: holding `abortPath` behind an unconsumed packet for the same
+	// unit is the one case that could in principle wedge - that exemption exists so
+	// a walk the peer cannot finish can be closed from outside. If a whole tick
+	// consumes nothing while per-subject blocking is holding something back, and
+	// that repeats for kRxBlockedStallTicks ticks, the next tick runs with blocking
+	// disabled (counted in g_rxLegacyPasses) so this pump can never be stuck longer
+	// than the old one would have been. It is expected never to fire.
+	const bool legacyOrder = (g_rxBlockedStallTicks >= kRxBlockedStallTicks);
+	bool blockedSomething = false;
+	size_t consumedThisTick = 0;
+
 	for (;;)
 	{
 		size_t passCount = 0;
+		uint32_t holdGen = 0;
 		{
 			std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 			if (g_rxHold.empty())
 				break;
 			passCount = g_rxHold.size();
+			holdGen = g_rxHoldGen;
 			// PRD-P0: hold-queue high-water mark (test introspection only).
 			if ((uint32_t)passCount > g_rxHoldMaxSeen.load(std::memory_order_relaxed))
 				g_rxHoldMaxSeen.store((uint32_t)passCount, std::memory_order_relaxed);
 		}
 
 		size_t consumedThisPass = 0;
+		// Packets this pass could not consume, in their original relative order.
+		// Spliced back onto the FRONT of g_rxHold when the pass ends, so the queue
+		// is exactly what it was minus what was applied.
+		std::deque<std::string> deferred;
+		// The units named by `deferred`. Bounded by the unit count, so a linear
+		// scan is cheaper than any container with an allocation in it.
+		std::vector<int> blockedSubjects;
 
 		for (size_t i = 0; i < passCount; ++i)
 		{
@@ -2412,15 +2611,52 @@ void connectionTCP::updateCoopTask()
 					(stateString == "endPlayerTurn"
 					 && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
 
-				const bool consumeNow =
-						 (coopTaskCompleted() || ((stateString == "abortPath" && _coopWalkInit) ||
+				// coop (PRD-P11): the three per-action exemptions, hoisted so the
+				// ordering rule below can see them. A packet that qualifies ONLY
+				// through one of these is the CLOSER of the chain currently holding
+				// the gate, and must never be held back by the ordering rule - see
+				// the carve-out where `subjectHeld` is computed.
+				const bool chainCloser =
+						((stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInitDeath) ||
-						 (stateString == "after_unit_death" && _coopInitDeath)) ||
+						 (stateString == "after_unit_death" && _coopInitDeath));
+
+				const bool gateAllows =
+						 (coopTaskCompleted() || chainCloser ||
 					 stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
 					!endTurnExcluded;
 
-				if (consumeNow)
+				// coop (PRD-P11): the unit this packet is about, and whether an
+				// earlier packet still in the queue already names it.
+				//
+				// CARVE-OUT (measured, PRD-P11 soak): a chain closer is exempt.
+				// Holding one back is not a delay, it is a deadlock - `abortPath`
+				// ends the walk that holds the gate, so anything queued between
+				// that walk's `BattleScapeMove` (already consumed) and its
+				// `abortPath` - a mid-walk reaction hit, say - would block the
+				// only packet that can open the gate again. Measured with the
+				// carve-out missing: the liveness floor below fired twice in a
+				// five-turn soak, i.e. two ten-second stalls. The closers are also
+				// the packets whose ordering matters least: each one ENDS a chain
+				// this machine has already started, so there is nothing of that
+				// unit's left to overtake.
+				const int subject = coopPacketSubject(stateString, obj);
+				bool subjectHeld = false;
+				if (subject >= 0 && !legacyOrder && !chainCloser)
 				{
+					for (size_t b = 0; b < blockedSubjects.size(); ++b)
+					{
+						if (blockedSubjects[b] == subject)
+						{
+							subjectHeld = true;
+							break;
+						}
+					}
+				}
+
+				if (gateAllows && !subjectHeld)
+				{
+					rxTraceRecord(stateString, subject);
 					onTCPMessage(stateString, obj);
 					++consumedThisPass;
 				}
@@ -2435,12 +2671,26 @@ void connectionTCP::updateCoopTask()
 				}
 				else
 				{
-					// Rotate to the back so we can try the next message.
+					// coop (PRD-P11): keep the packet's PLACE. Everything behind it
+					// that names the same unit waits with it (a chain closer is
+					// never blocked, but it still SEEDS the block - a packet that
+					// arrived after it must not be applied before it).
+					if (subject >= 0 && !legacyOrder && !subjectHeld)
 					{
-						std::lock_guard<std::mutex> lock(g_rxHoldMutex);
-						g_rxHold.emplace_back(std::move(jsonStr));
+						blockedSubjects.push_back(subject);
+					}
+					if (gateAllows)
+					{
+						// The gate said yes and ordering said no: the one case the old
+						// pump got wrong.
+						blockedSomething = true;
+						++g_rxSkipBlocked;
+					}
+					else
+					{
 						++g_rxRotateCount;   // PRD-P0: gate-hold counter (test introspection)
 					}
+					deferred.emplace_back(std::move(jsonStr));
 				}
 			}
 			catch (const std::exception& e)
@@ -2454,19 +2704,55 @@ void connectionTCP::updateCoopTask()
 				// Write a crash-style log file into user/logs/crash_YYYY-MM-DD_HH-MM-SS.log
 				CRASH_LOG(msg);
 
-				// Put back to the *back* to avoid pinning the head.
-				{
-					std::lock_guard<std::mutex> lock(g_rxHoldMutex);
-					g_rxHold.emplace_back(std::move(jsonStr));
-				}
+				// coop (PRD-P11): keep its place like any other unconsumed packet
+				// (it used to go to the back, which is the reordering this PRD
+				// removes). The session is being torn down anyway.
+				deferred.emplace_back(std::move(jsonStr));
 				onConnect = -3;
 				break;
 			}
 		}
 
+		// coop (PRD-P11): put the untouched packets back, in order, AHEAD of
+		// everything the pass did not reach.
+		bool sessionReset = false;
+		{
+			std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+			if (g_rxHoldGen != holdGen)
+			{
+				// clearNetworkSessionQueues() ran while this pass was inside
+				// onTCPMessage(): the queue was deliberately emptied, so what we
+				// are holding belongs to a session that is over.
+				sessionReset = true;
+				deferred.clear();
+			}
+			while (!deferred.empty())
+			{
+				g_rxHold.emplace_front(std::move(deferred.back()));
+				deferred.pop_back();
+			}
+		}
+
+		consumedThisTick += consumedThisPass;
+
 		// If nothing progressed this pass, stop to avoid busy-waiting
-		if (consumedThisPass == 0)
+		if (sessionReset || consumedThisPass == 0)
 			break;
+	}
+
+	// coop (PRD-P11): the liveness floor (see the pump's header comment).
+	if (legacyOrder)
+	{
+		++g_rxLegacyPasses;
+		g_rxBlockedStallTicks = 0;
+	}
+	else if (consumedThisTick == 0 && blockedSomething)
+	{
+		++g_rxBlockedStallTicks;
+	}
+	else
+	{
+		g_rxBlockedStallTicks = 0;
 	}
 
 	// coop (PRD-P7): client display fast-forward. A packet still sitting in the
