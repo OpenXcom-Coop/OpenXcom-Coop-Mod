@@ -959,6 +959,39 @@ bool connectionTCP::campaignEnded()
 	return save && save->getEnding() != END_NONE;
 }
 
+// The skirmish twin of campaignEnded(): has the NEW BATTLE > COOP mission run
+// its course on this machine? A skirmish session exists only to play one
+// mission, so once the debriefing is up the session is spent: closing that
+// screen drops the whole world (DebriefingState::btnOkClick sees
+// monthsPassed == -1 and goes through GoToMainMenuState).
+//
+// Terms, all three needed:
+//   lobbyMode == 0   - a skirmish session, not a campaign one (a campaign's
+//                      post-mission life continues on the geoscape, so its
+//                      drops keep taking the freeze/wait route).
+//   no live battle   - a drop DURING the mission is a real drop; that is the
+//                      rejoin/freeze case and must keep its dialogs.
+//   coopMissionEnd   - set by the DebriefingState constructor for every co-op
+//                      session, i.e. the mission actually reached its scoring
+//                      screen. Without it, the pre-battle lobby (host still on
+//                      the NEW BATTLE setup screen) would look identical.
+//
+// Why it matters: a skirmish leaves a GeoscapeState buried under the battle
+// (the world arrives through LoadGameState on BOTH machines), so anything that
+// re-opens the lobby after the mission hands the player a RESUME GAME button
+// that pops straight down to that dead geoscape - a half-torn world of exactly
+// the shape issue #82 exists to prevent.
+bool connectionTCP::skirmishMissionOver()
+{
+	if (connectionTCP::session.lobbyMode != 0)
+		return false;
+	if (!_staticGame || !_staticGame->getSavedGame())
+		return false;
+	if (coopBattleLive(_staticGame))
+		return false;
+	return _staticGame->getCoopMod()->coopMissionEnd;
+}
+
 bool connectionTCP::localLoadsAllowed()
 {
 	// Same liveness terms the save gate uses, WITHOUT the host escape: a live
@@ -2488,7 +2521,13 @@ void connectionTCP::updateCoopTask()
 		// lost". Either player may close a finished game first, and neither
 		// exit is allowed to interrupt the other's end-of-game screens. The
 		// plain teardown below still runs, so nothing is left half-attached.
-		if (allow_cutscene == true && !campaignEnded())
+		//
+		// A finished SKIRMISH is the same story with a different end screen:
+		// once both players are reading their debriefing, whoever presses OK
+		// first leaves through GoToMainMenuState, and that ordinary exit must
+		// not throw a "has left the server" / "connection lost" popup over the
+		// other player's debriefing (skirmishMissionOver).
+		if (allow_cutscene == true && !campaignEnded() && !skirmishMissionOver())
 		{
 			// Make sure it calls disconnectTCP, otherwise it may get stuck.
 			if (getServerOwner() == true)
@@ -14231,7 +14270,22 @@ void connectionTCP::disconnectTCP(bool isMain)
 			}
 			else if (connectionTCP::session.lobbyClosed == true)
 			{
-				_game->pushState(new LobbyMenu);
+				// ...but NOT once the skirmish mission is over. The peer left
+				// because they closed their debriefing; the host is still
+				// reading its own, and a lobby dropped on top of it offers
+				// RESUME GAME - which pops the debriefing away and lands the
+				// host on the dead geoscape the skirmish world was loaded onto
+				// (issue #82's half-torn world). The host's own debriefing OK
+				// is the exit, and it goes through GoToMainMenuState.
+				if (skirmishMissionOver())
+				{
+					Log(LOG_INFO) << "[coop] lobby re-open suppressed: the skirmish "
+						"mission is over; the debriefing owns the trip to the main menu";
+				}
+				else
+				{
+					_game->pushState(new LobbyMenu);
+				}
 			}
 
 		}
