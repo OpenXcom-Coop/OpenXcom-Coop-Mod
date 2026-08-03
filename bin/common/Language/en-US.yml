@@ -37,8 +37,6 @@ en-US:
   STR_COOP_ACTION_TIMEOUT: "No answer from the host - action dropped"
   # coop (PRD-P8): end-turn readiness gate.
   STR_COOP_END_TURN_TALLY: "END TURN {0}/{1}"
-  STR_COOP_PEER_WANTS_END_TURN: "The other player wants to end the turn"
-  STR_COOP_PEER_CANCELED_END_TURN: "The other player is not done after all"
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

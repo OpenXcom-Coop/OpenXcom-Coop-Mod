@@ -237,7 +237,7 @@ def assert_no_banners(host, client, what, seconds=8.0):
             f"{tag}: an off-turn banner is on screen {what}: {bad}. These are "
             f"posted with showMessage(msg, -1) - they never fade, so they squat "
             f"on the warning widget for the rest of the battle and swallow the "
-            f"deny/ready flashes PRD-P6/P8 send through it.")
+            f"deny flashes PRD-P6 sends through it.")
     print(f"PASS banners {what}: none of {FORBIDDEN_BANNERS} on either machine "
           f"(host saw {sorted(seen['host']) or 'nothing'}, client saw "
           f"{sorted(seen['client']) or 'nothing'})")

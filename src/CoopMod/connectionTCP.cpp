@@ -6707,12 +6707,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			else if (seat >= 0 && static_cast<size_t>(seat) < _endTurnReady.size())
 			{
-				if (_endTurnReady[static_cast<size_t>(seat)] != want)
-				{
-					_endTurnReady[static_cast<size_t>(seat)] = want;
-					flashBattleWarning(want ? "STR_COOP_PEER_WANTS_END_TURN"
-											: "STR_COOP_PEER_CANCELED_END_TURN");
-				}
+				_endTurnReady[static_cast<size_t>(seat)] = want;
 			}
 		}
 	}
@@ -6732,7 +6727,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (sideSeq + 1 > _endTurnTallySideSeq)
 			{
 				ensureEndTurnSeats();
-				const int seats = std::max(1, seatCount());
 				std::vector<bool> ready(_endTurnReady.size(), false);
 				std::vector<bool> autos(_endTurnAuto.size(), false);
 				const Json::Value& rs = obj["ready_seats"];
@@ -6748,22 +6742,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					const int s = as[i].asInt();
 					if (s >= 0 && static_cast<size_t>(s) < autos.size())
 						autos[static_cast<size_t>(s)] = true;
-				}
-				// Only flash for a tally that belongs to the SAME side we were
-				// already showing: the all-clear that follows a commit is a reset,
-				// not somebody cancelling.
-				const bool sameSide = (sideSeq == _endTurnTallySideSeq);
-				const int me = localSeat();
-				for (int s = 0; sameSide && s < seats; ++s)
-				{
-					if (s == me || static_cast<size_t>(s) >= ready.size())
-						continue;
-					if (ready[static_cast<size_t>(s)] != _endTurnReady[static_cast<size_t>(s)])
-					{
-						flashBattleWarning(ready[static_cast<size_t>(s)]
-							? "STR_COOP_PEER_WANTS_END_TURN"
-							: "STR_COOP_PEER_CANCELED_END_TURN");
-					}
 				}
 				_endTurnReady = ready;
 				_endTurnAuto = autos;
