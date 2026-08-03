@@ -20,6 +20,8 @@
 #include "BattleState.h"
 #include "../Mod/RuleItem.h"
 
+namespace Json { class Value; }
+
 namespace OpenXcom
 {
 
@@ -52,6 +54,8 @@ private:
 	void cancel() override;
 	/// Runs state functionality every cycle.
 	void think() override;
+	/// coop: stamps killedBy/murdererId (the host's kill attribution) on a death packet.
+	void coopWriteKillAttribution(Json::Value& root) const;
 	/// Converts a unit to a corpse.
 	void convertUnitToCorpse();
 	/// Plays the death sound.
