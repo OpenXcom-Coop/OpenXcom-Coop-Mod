@@ -2,11 +2,16 @@
 
 Two things are validated:
 
-1. Propagation: when one player detects a UFO, the peer gets the notice too
-   (both show UfoDetectedState). Mechanism: the detecting owner sends a reliable
-   "ufo_popup" packet (src/Geoscape/UfoDetectedState.cpp:238); the peer pops a
-   UfoDetectedState for the matching coop UFO (connectionTCP "ufo_popup" ->
-   GeoscapeState show_coop_ufo_popup).
+1. Propagation (REPORTED, NOT GATED): when one player detects a UFO, the peer
+   generally gets the notice too (both show UfoDetectedState). Mechanism: the
+   detecting owner sends a reliable "ufo_popup" packet
+   (src/Geoscape/UfoDetectedState.cpp:238); the peer pops a UfoDetectedState for
+   the matching coop UFO (connectionTCP "ufo_popup" -> GeoscapeState
+   show_coop_ufo_popup) - but ONLY once the peer's getDetected() has flipped,
+   which rides the throttled best-effort geo snapshot. That flag can be dropped
+   for a UFO's whole lifetime (PRD-J04/J08), so per-UFO detection set-equality is
+   intermittent by design and is only reported here, never asserted (issue #129).
+   Deterministic propagation is asserted by test_shared_ufo_alert / test_shared_sim.
 
 2. Parallel acknowledgement (the important one): both players must be able to
    see and dismiss the dialog INDEPENDENTLY. The historical bug was: a UFO
@@ -202,6 +207,24 @@ def main():
         # that bug leaves a player frozen with no dialog and unable to advance,
         # which the TimeWatchdog would kill + surface as a hard failure.
 
+        # Detection PROPAGATION is best-effort by design and is NOT a hard gate
+        # here. The peer's getDetected() rides the throttled SNAP_GEO_POSITIONS
+        # snapshot, a channel independent of UFO-object existence, so a UFO can be
+        # fully mirrored on the peer yet never flip `detected` there for its entire
+        # lifetime (shared_fixture docstring: "ufos ... snapshot-replicated best-
+        # effort ... PRD-J04/J08 known limits"). Issue #129 RCA reproduced the
+        # flake as exactly this: single-side `detected` with the object present on
+        # the peer, never closed by a settle-poll, and NOT removed by slowing the
+        # clock (a 22h-lived UFO mirrored the whole time still never propagated its
+        # flag). Asserting exact cross-machine set-equality of `detected` is
+        # therefore asserting a quantity the design only propagates best-effort ->
+        # a guaranteed intermittent gate. Deterministic propagation IS guarded, by
+        # test_shared_ufo_alert (single forced UFO, asserts the broadcast) and
+        # test_shared_sim; this test's hard guarantee is the one its docstring
+        # calls "the important one": PARALLEL ACKNOWLEDGEMENT + liveness. A serial
+        # freeze (peer stuck, clock frozen, no dialog) freezes BOTH sides, so the
+        # host-clock TimeWatchdog above kills it as a hard failure; an early
+        # instance exit raised a crash. Reaching here means neither happened.
         propagation_gap = bool(host_only) or bool(client_only)
         parallel_evidence = simultaneous > 0 or holds["parallel"] > 0 or holds["same_freeze"] > 0
         saw_notices = len(allids) > 0 or popups["host"] or popups["client"]
@@ -209,13 +232,14 @@ def main():
             print("\nverdict: INCONCLUSIVE - no UFO notices in the window "
                   "(raise the in-game-days arg)")
             sys.exit(0)
-        ok = not propagation_gap
+        if propagation_gap:
+            print(f"\nnote: best-effort detection tail (NOT gated - PRD-J04/J08): "
+                  f"host-only={host_only} client-only={client_only}")
         print("\nverdict:",
-              "OK - notices propagate; parallel acknowledgement observed"
-              if (ok and parallel_evidence) else
-              "OK - notices propagate (no parallel overlap sampled this run)"
-              if ok else "PROPAGATION GAP")
-        sys.exit(0 if ok else 2)
+              "OK - parallel acknowledgement observed (no serial freeze)"
+              if parallel_evidence else
+              "OK - no serial freeze (no parallel overlap sampled this run)")
+        sys.exit(0)
     finally:
         host.shutdown(); client.shutdown()
 
