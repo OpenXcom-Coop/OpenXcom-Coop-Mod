@@ -692,6 +692,27 @@ bool rxPassDeferred()
 	return g_rxPassDeferred.load(std::memory_order_relaxed);
 }
 
+// coop (PRD-P10 follow-up): the packet that OPENS the replay chain a given
+// CLOSER ends, or 0 when there is no such pairing.
+//
+// The receive pump exempts closers from the per-subject ordering rule (see
+// `chainCloser` below) because holding one back can deadlock: a closer ends the
+// chain that is holding the receive gate, so making it wait for a mid-chain
+// packet of the same unit would leave nothing able to open the gate again.
+// That exemption is right for a MID-chain packet and wrong for the chain's own
+// OPENER - and the two are told apart here.
+//
+// `unit_death` is deliberately absent. It is a closer too, but of the SHOT
+// chain, whose opener (`ProjectileFlyBState`) is keyed on the shooter while
+// `unit_death` is keyed on the victim - two different subjects, so the ordering
+// rule can never pair them anyway.
+static const char* coopChainOpener(const std::string& closer)
+{
+	if (closer == "abortPath") return "BattleScapeMove";
+	if (closer == "after_unit_death") return "unit_death";
+	return 0;
+}
+
 size_t rxHoldSize()
 {
 	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
@@ -2622,6 +2643,11 @@ void connectionTCP::updateCoopTask()
 		// The units named by `deferred`. Bounded by the unit count, so a linear
 		// scan is cheaper than any container with an allocation in it.
 		std::vector<int> blockedSubjects;
+		// coop (PRD-P10 follow-up): and WHICH packet seeded each of them, so the
+		// closer carve-out can tell a mid-chain blocker (jump it - that is the
+		// deadlock the carve-out exists for) from the chain's own opener (wait for
+		// it - see coopChainOpener). Parallel to blockedSubjects.
+		std::vector<std::string> blockedBy;
 
 		for (size_t i = 0; i < passCount; ++i)
 		{
@@ -2727,7 +2753,43 @@ void connectionTCP::updateCoopTask()
 					}
 				}
 
-				if (gateAllows && !subjectHeld)
+				// coop (PRD-P10 follow-up; root-caused off a PRD-P9 soak failure):
+				// `_coopWalkInit` / `_coopInitDeath` are GLOBAL "a replay chain is
+				// running here" flags, not per unit. So while ANY unit's walk replay
+				// was running, an `abortPath` for a DIFFERENT unit counted as a chain
+				// closer, skipped the ordering rule above and overtook that unit's own
+				// still-queued `BattleScapeMove`. The peer then teleport-corrected the
+				// unit, replayed the walk on top - `movePlayerTarget` starts by putting
+				// the unit back on the packet's start tile and re-pathing locally - and
+				// had no closer left to correct the result, so it kept whatever its own
+				// truncated path spent. Measured: an alien a tile off with 2 energy of
+				// skew that survived the side, i.e. the residual UNIT CENSUS DRIFT.
+				// The death pair inverts the same way and is worse: `unit_death` carries
+				// the victim's status AT THE START of the death (STANDING), so applying
+				// it after `after_unit_death` puts a corpse back on its feet on 0 HP.
+				//
+				// A closer may still jump a MID-chain packet - that is the exemption the
+				// carve-out was written for and it stays. It may not jump the OPENER of
+				// the chain it closes: the wire is FIFO, so an opener still queued ahead
+				// of its closer means this machine has not started that chain at all and
+				// there is nothing yet for the closer to close.
+				bool closerOvertakesOpener = false;
+				if (chainCloser && subject >= 0 && !legacyOrder)
+				{
+					if (const char* opener = coopChainOpener(stateString))
+					{
+						for (size_t b = 0; b < blockedSubjects.size(); ++b)
+						{
+							if (blockedSubjects[b] == subject && blockedBy[b] == opener)
+							{
+								closerOvertakesOpener = true;
+								break;
+							}
+						}
+					}
+				}
+
+				if (gateAllows && !subjectHeld && !closerOvertakesOpener)
 				{
 					// See rxPassDeferred(): anything already deferred in this pass
 					// precedes this packet on the wire and has NOT been applied yet.
@@ -2754,6 +2816,7 @@ void connectionTCP::updateCoopTask()
 					if (subject >= 0 && !legacyOrder && !subjectHeld)
 					{
 						blockedSubjects.push_back(subject);
+						blockedBy.push_back(stateString);
 					}
 					if (gateAllows)
 					{
