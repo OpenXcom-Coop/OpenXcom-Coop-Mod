@@ -304,6 +304,17 @@ def assert_census(host, client, what):
     assert not TW.desync_seen(host) and not TW.desync_seen(client), (
         f"the PRD-P2 drift tripwire FIRED {what} - a release blocker, "
         f"root-cause it before shipping")
+    # ... and it left no side effects. The auto-report bundle is what a fired
+    # tripwire costs a real player - a multi-megabyte zip and a modal over the
+    # battle - so the silence criterion is asserted on DISK as well as on the
+    # flag, after every side rather than only at the end (this soak has plenty of
+    # earlier ways to stop, and a check that never runs proves nothing).
+    for tag, gc in (("host", host), ("client", client)):
+        d = os.path.join(gc.user_dir, "desync-reports")
+        wrote = sorted(os.listdir(d)) if os.path.isdir(d) else []
+        assert not wrote, (
+            f"{tag} wrote a desync diagnostic bundle {what} in a CLEAN battle: "
+            f"{wrote} in {d}")
     skew = tu_report(hb, cb)
     if skew:
         print(f"    NOTE {what}: non-player TU skew (reported, not asserted): "
@@ -847,6 +858,9 @@ def main():
 
         # zero-disk holds even after a long battle
         session.assert_client_zero_disk(client.user_dir)
+
+        # (the desync-report silence criterion rides assert_census, so it has
+        # already been checked after every side of every turn)
         print(f"\nSOAK CLEAN: {total} admitted actions over {args.turns} full "
               f"turns, seed {args.seed}, census equal after every side, tripwire "
               f"silent, backlog cap exercised. {time.time() - started:.0f}s")

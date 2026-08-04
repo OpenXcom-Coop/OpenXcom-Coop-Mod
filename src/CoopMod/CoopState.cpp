@@ -1869,4 +1869,83 @@ void CoopState::loadCoop(Action *)
 
 }
 
+// ---- CoopDesyncNoticeState ---------------------------------------------------
+
+CoopDesyncNoticeState::CoopDesyncNoticeState(const std::string &message)
+{
+	_screen = false;
+
+	// Roomier than the notice family's usual 256x88: this one carries a full
+	// filesystem path AND the "send it here" sentence, and a clipped path is a
+	// bug report the player cannot find.
+	_window = new Window(this, 300, 160, 10, 20, POPUP_BOTH);
+	_txtMessage = new Text(284, 112, 18, 30);
+	_btnOk = new TextButton(120, 16, 100, 156);
+
+	std::string category = "sackSoldier";
+	std::string textElement = "text";
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+	{
+		// Same combination the co-op lobby uses in battle: geoscape interface with
+		// alterPal, saveMenus colors, under the battle palette. Anything else is
+		// illegible over the battlescape (see GiftNoticeState).
+		setInterface("geoscape", true, _game->getSavedGame()->getSavedBattle());
+		category = "saveMenus";
+	}
+	else
+	{
+		// Adopt the palette of whatever screen we are over - no swap, no flicker.
+		// Skip sibling notices when deciding the context: with two stacked, the
+		// "top state" is the other notice, not the screen underneath.
+		State* context = nullptr;
+		for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
+		{
+			if (dynamic_cast<CoopDesyncNoticeState*>(*it) == nullptr)
+			{
+				context = *it;
+				break;
+			}
+		}
+		if (context)
+		{
+			setStatePalette(context->getPalette());
+			if (dynamic_cast<GeoscapeState*>(context))
+			{
+				category = "geoManufactureComplete"; // standard geoscape popup colors
+				textElement = "text1";
+			}
+		}
+	}
+
+	add(_window, "window", category);
+	add(_txtMessage, textElement, category);
+	add(_btnOk, "button", category);
+
+	centerAllSurfaces();
+	setWindowBackground(_window, category);
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+	{
+		applyBattlescapeTheme(category);
+	}
+
+	_txtMessage->setAlign(ALIGN_CENTER);
+	_txtMessage->setWordWrap(true);
+	_txtMessage->setText(message);
+
+	_btnOk->setText(tr("STR_OK"));
+	_btnOk->onMouseClick((ActionHandler)&CoopDesyncNoticeState::btnOkClick);
+	_btnOk->onKeyboardPress((ActionHandler)&CoopDesyncNoticeState::btnOkClick, Options::keyOk);
+	_btnOk->onKeyboardPress((ActionHandler)&CoopDesyncNoticeState::btnOkClick, Options::keyCancel);
+}
+
+std::string CoopDesyncNoticeState::getMessageText() const
+{
+	return _txtMessage ? _txtMessage->getText() : std::string();
+}
+
+void CoopDesyncNoticeState::btnOkClick(Action *)
+{
+	_game->popState();
+}
+
 }

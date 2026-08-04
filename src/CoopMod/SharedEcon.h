@@ -406,6 +406,49 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 bool battleDesyncSeen();
 void resetBattleDesyncSeen();
 
+// ---- Desync auto-report bundle -----------------------------------------------
+// A logic desync leaves no stack to trace: by the time the two machines disagree
+// the cause is minutes of divergent simulation behind them. So the tripwire
+// captures the two artefacts that DO reproduce it - this machine's `openxcom.log`
+// (which already carries the BATTLE DESYNC line and everything that led up to it)
+// and a forced mid-battle SAVE, i.e. the sim-state dump. Deliberately NOT a
+// process minidump: huge, and it says nothing about a rules-level divergence.
+//
+// BOTH machines write one. The detector also ships `desync_report` so its peer
+// captures the OTHER half of the pair at (nearly) the same instant - one side of
+// a disagreement on its own proves nothing.
+//
+// ONE BUNDLE PER BATTLE PER MACHINE. The latch lives next to g_battleDesyncSeen
+// and clears in resetBattleDesyncSeen() - the same reset the harness drives
+// through shared_reset_resync_stats. The RESYNC_DEBOUNCE_MS notify throttle is a
+// separate thing and still governs the in-battle banner.
+
+/// The checksum terms and packet context one bundle records. The detector fills
+/// all four; a machine told by `desync_report` fills the peer pair from the wire
+/// and its own pair from battleChecksumTerms().
+struct DesyncTerms
+{
+	int64_t peerItemId = -1;
+	int64_t localItemId = -1;
+	int64_t peerCensus = -1;
+	int64_t localCensus = -1;
+	std::string context;         // the packet that carried the peer's stamp
+	bool viaPeerReport = false;  // told by the peer rather than by a local compare
+};
+
+/// Writes the bundle (log + forced save + desync-info.json) to
+/// <user folder>/desync-reports/desync-YYYYMMDD-HHMMSS.zip, raises the notice
+/// dialog, and - unless this machine was ITSELF told by a peer - sends
+/// `desync_report` so the other machine captures its half too.
+///
+/// Best-effort by contract: latched before any work so a failed write can never
+/// re-fire, every step guarded, and any failure logs and returns. Capturing a
+/// diagnostic must never be able to crash or stall the game it is diagnosing.
+void captureDesyncReport(Game* game, const DesyncTerms& terms);
+/// Harness/diagnostics: has this machine written its one bundle, and where to.
+bool desyncReportWritten();
+std::string desyncReportPath();
+
 /// Game-minute cooldown between automatic resyncs (see verifyWorldChecksum).
 extern const int RESYNC_COOLDOWN_MINUTES;
 /// Wall-clock ms a checksum mismatch must SURVIVE before it counts as a desync.

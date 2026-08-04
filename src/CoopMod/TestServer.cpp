@@ -5336,6 +5336,11 @@ std::string TestServer::execute(const std::string& line)
 					resp["itemIdCounter"] = Json::Value::Int64(chkBattleItemId);
 					resp["battleCensus"] = Json::Value::Int64(chkBattleCensus);
 					resp["desyncSeen"] = SharedEcon::battleDesyncSeen();
+					// The auto-report bundle: latched to one per battle per machine,
+					// so a test can assert both that it appeared and that a SECOND
+					// divergence produced no second file.
+					resp["desyncReportWritten"] = SharedEcon::desyncReportWritten();
+					resp["desyncReportPath"] = SharedEcon::desyncReportPath();
 				}
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;

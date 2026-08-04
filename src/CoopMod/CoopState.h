@@ -151,4 +151,33 @@ class CoopState : public State
 	void think() override;
 };
 
+/**
+ * Click-to-dismiss notice raised once a battle desync diagnostic bundle has been
+ * written (SharedEcon::captureDesyncReport). Its own class rather than a CoopState
+ * code or an InfoboxOKState because:
+ *  - it is nearly always raised OVER a live battle, where CoopState's geoscape
+ *    window is the documented dialog/dismiss trap;
+ *  - InfoboxOKState's constructor REPLICATES itself to the peer when the local
+ *    machine is the host, and each machine's report names its own local path -
+ *    the peer must never be shown this one;
+ *  - it has to hold a full filesystem path plus a "where to send it" sentence,
+ *    which does not fit InfoboxOKState's 255x61 big-font title.
+ * Palette handling mirrors GiftNoticeState: adopt the screen underneath, and in
+ * battle use the co-op lobby's geoscape/saveMenus combination under the battle
+ * palette. NOTHING is captured here - the bundle is already on disk by the time
+ * this is pushed, so a dialog the player leaves sitting cannot spoil it.
+ */
+class CoopDesyncNoticeState : public State
+{
+  private:
+	Window *_window;
+	Text *_txtMessage;
+	TextButton *_btnOk;
+  public:
+	explicit CoopDesyncNoticeState(const std::string &message);
+	/// Harness introspection: what this notice says.
+	std::string getMessageText() const;
+	void btnOkClick(Action *);
+};
+
 }

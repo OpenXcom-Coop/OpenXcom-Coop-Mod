@@ -37,6 +37,9 @@ en-GB:
   STR_COOP_ACTION_TIMEOUT: "No answer from the host - action dropped"
   # coop (PRD-P8): end-turn readiness gate.
   STR_COOP_END_TURN_TALLY: "END TURN {0}/{1}"
+  # coop (PRD-P2 rider): battle desync auto-report bundle. {0} is the full path
+  # of the zip, pre-wrapped onto dialog-width lines by the caller.
+  STR_COOP_DESYNC_REPORT_SAVED: "CO-OP DESYNC DETECTED{NEWLINE}The two games no longer agree. A diagnostic report (log, save and context) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can reproduce and fix it."
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

@@ -2664,7 +2664,7 @@ void connectionTCP::updateCoopTask()
 
 				const bool gateAllows =
 						 (coopTaskCompleted() || chainCloser ||
-					 stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
+					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
 					!endTurnExcluded;
 
 				// coop (PRD-P11): the unit this packet is about, and whether an
@@ -8253,6 +8253,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
+	}
+
+	// coop: the PEER's battle drift tripwire fired and it has written a diagnostic
+	// bundle. Write ours too - one side of a disagreement proves nothing, and the
+	// pair is only comparable if both halves are captured at nearly the same
+	// instant. Symmetric on purpose (either machine can be the detector), and
+	// captureDesyncReport never re-sends when it was itself told, so there is no
+	// ping-pong. An older peer simply drops an unknown state string, which is the
+	// additive contract.
+	if (stateString == "desync_report")
+	{
+		SharedEcon::DesyncTerms report;
+		report.peerItemId = obj.get("peer_itemId", -1).asInt64();
+		report.peerCensus = obj.get("peer_census", -1).asInt64();
+		SharedEcon::battleChecksumTerms(_game, report.localItemId, report.localCensus);
+		report.context = obj.get("context", "next_turn").asString();
+		report.viaPeerReport = true;
+		SharedEcon::captureDesyncReport(_game, report);
 	}
 
 	// ufo damage
