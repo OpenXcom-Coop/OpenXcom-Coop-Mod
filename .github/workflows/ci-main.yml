@@ -346,6 +346,30 @@ jobs:
           Copy-Item bin\common,bin\standard $p -Recurse
           Copy-Item bin\UFO\multiplayer  "$p\UFO"  -Recurse    # coop art only
           Copy-Item bin\TFTD\multiplayer "$p\TFTD" -Recurse    # coop art only
+          # Install/how-to note at the package root (issue #137). Linux/macOS ship
+          # their own; Windows needs its own wording (run the .exe, drop UFO data in).
+          # Body is indented to the YAML block level; the scalar strips it so pwsh
+          # sees the here-string body/terminator at column 0.
+          @'
+          OpenXcom Coop - Windows (64-bit)
+          ================================
+          Keep everything in THIS folder together - OpenXcom.exe next to common\,
+          standard\, UFO\, TFTD\, rendezvous.json and the bundled .dll files - and
+          start the game by double-clicking:
+
+              OpenXcom.exe
+
+          The game looks for its data in this folder, so moving OpenXcom.exe out on
+          its own will fail to find the game data.
+
+          To play with the original X-COM content, copy your legally owned
+          UFO: Enemy Unknown data into the UFO\ folder next to OpenXcom.exe. This
+          build deliberately ships no licensed retail game data.
+
+          The Microsoft Visual C++ runtime is already bundled (the vcruntime140*.dll
+          and msvcp140.dll files in this folder), so no separate "VC++
+          Redistributable" install is needed.
+          '@ | Set-Content -Path "$p\HOW_TO_RUN.txt" -Encoding ascii
           Compress-Archive "$p\*" -DestinationPath $z -Force
           ./tools/ci/assert_package.ps1 $z
           # Regression guard for the "requires C++ Redistributable" bug: the /MD-linked
@@ -589,6 +613,31 @@ jobs:
           printf '%s' "$RELEASE_RENDEZVOUS_JSON" > build/bin/rendezvous.json
           grep -q '"servers"' build/bin/rendezvous.json || { echo "rendezvous.json has no servers array"; exit 1; }
           cp LICENSE.txt build/bin/
+          # Install/how-to note at the package root (issue #137). WinXP exe is
+          # lowercase 'openxcom.exe' and the build is static (no CRT DLLs). Body is
+          # indented to the YAML block level; the scalar strips it so the heredoc
+          # body/EOF land at column 0.
+          cat > build/bin/HOW_TO_RUN.txt <<'EOF'
+          OpenXcom Coop - Windows XP (32-bit)
+          ===================================
+          This build is for Windows XP SP3 (32-bit) and other older 32-bit Windows.
+
+          Keep everything in THIS folder together - openxcom.exe next to common\,
+          standard\, UFO\, TFTD\ and rendezvous.json - and start the game by
+          double-clicking:
+
+              openxcom.exe
+
+          The game looks for its data in this folder, so moving openxcom.exe out on
+          its own will fail to find the game data.
+
+          To play with the original X-COM content, copy your legally owned
+          UFO: Enemy Unknown data into the UFO\ folder next to openxcom.exe. This
+          build deliberately ships no licensed retail game data.
+
+          This is a static build - no Visual C++ Redistributable or extra DLLs are
+          required.
+          EOF
           sh tools/ci/assert_package_dir.sh build/bin
           cd build/bin
           rm -f libopenxcom.dll.a || true
