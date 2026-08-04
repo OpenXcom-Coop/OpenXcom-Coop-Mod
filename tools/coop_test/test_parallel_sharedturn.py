@@ -335,6 +335,28 @@ def assert_client_does_not_replicate(host, client, movers):
           f"({client_before} -> {pos(battle(client), mover_id)}) and the host's "
           f"copy never budged from {host_before} - nothing was broadcast")
 
+    # REPAIR the divergence this assertion just created, on the client only.
+    # The step above is a DELIBERATE one-sided state change - that is the whole
+    # point of it - and PRD-P2's unit term (`chkBattleUnits`, added after this
+    # test was last touched) hashes every unit's POSITION. Left standing, the
+    # next `next_turn` compare correctly reports it, `desyncSeen` latches, and
+    # the post-boundary tripwire assertion below fails on this test's own lever
+    # instead of on anything the boundary or the shot did. `battle_teleport` is
+    # local-only (no packet - test_coop_outcome_gaps/place_adjacent has to call
+    # it on BOTH machines to keep them in step), so one call puts the client's
+    # copy back where the host has always had it. TU/energy are excluded from
+    # the term by design, so position parity is full parity for it.
+    back = client.cmd({"cmd": "battle_teleport", "unit": mover_id,
+                       "x": host_before[0], "y": host_before[1],
+                       "z": host_before[2]})
+    assert back.get("moved"), (
+        f"could not put the client's copy of {mover_id} back on the host's tile "
+        f"{host_before} after the no-replication probe ({back}) - the deliberate "
+        f"drift would then trip PRD-P2's unit term at the next boundary")
+    assert pos(battle(host), mover_id) == pos(battle(client), mover_id), (
+        f"the repair teleport left the machines apart: host "
+        f"{pos(battle(host), mover_id)} client {pos(battle(client), mover_id)}")
+
 
 def cycle_side(host, client, timeout=300):
     """Close the player side from the HOST (the only machine that may) and wait for
