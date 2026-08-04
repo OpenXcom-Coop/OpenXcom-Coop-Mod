@@ -70,7 +70,6 @@
 #include "../Mod/AlienRace.h"
 #include "RankCount.h"
 
-#include "../CoopMod/CoopMenu.h"
 #include "../CoopMod/connectionTCP.h"
 #include "Upgrade/SaveUpgrade.h"
 #include "../version.h" // SAVE_SCHEMA_CURRENT

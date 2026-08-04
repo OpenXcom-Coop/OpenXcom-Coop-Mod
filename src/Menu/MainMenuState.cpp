@@ -17,6 +17,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "MainMenuState.h"
+#include "../Engine/Action.h"
 #include <sstream>
 #include "../version.h"
 #include "../Engine/Game.h"

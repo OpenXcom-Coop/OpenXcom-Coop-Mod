@@ -17,6 +17,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "BriefingState.h"
+#include "../Savegame/ItemContainer.h"
 #include "BattlescapeState.h"
 #include "BattlescapeGame.h"
 #include "AliensCrashState.h"
@@ -44,7 +45,6 @@
 #include "../Menu/SaveGameState.h"
 
 // TEST
-#include "../CoopMod/CoopMenu.h"
 #include "../CoopMod/Profile.h"
 #include "../Savegame/Waypoint.h"
 #include "../Mod/RuleInventory.h"

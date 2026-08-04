@@ -81,12 +81,12 @@ class File;
 class HostMenu : public State
 {
   private:
-	TextButton *_btnCancel, *_tcpButtonHost, *_btnStartHotseat, *_btnReactionFire;
+	TextButton *_btnCancel, *_tcpButtonHost;
 	TextList *_lstSaves;
 	TextEdit *_serverName, *_port, *_password;
 	ComboBox *_cbxVisibility, *_cbxMaxPlayers, *_cbxRegions;
 	Window *_window;
-	Text *_txtTitle, *_lblServerName, *_lblPort, *_lblPassword, *_hotseatTooltip;
+	Text *_txtTitle, *_lblServerName, *_lblPort, *_lblPassword;
 	std::map<Surface *, bool> _surfaceBackup;
 	std::vector<std::string> _visibilityTypes, _maxplayersTypes, _regionTypes;
 	Craft *_craft;
@@ -107,8 +107,6 @@ class HostMenu : public State
 	/// Handler for clicking the OK button
 	void btnCancelClick(Action *action);
 	void hostTCPGame(Action *action);
-	void startHotseat(Action* action);
-	void btnReactionFireClick(Action* action);
 	void btnChatClick(Action* action);
 	void cbxVisibilityChange(Action* action);
 	void cbxMaxPlayersChange(Action* action);

@@ -18,6 +18,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
   blocked with "not enough store space" when a base's general stores are full but
   its living quarters have room. Personnel occupy quarters, not stores, so a
   zero-store hire must not be rejected just because existing stores are at capacity.
+- Hotseat mode can be started again. Enable it with the new HOTSEAT button on the
+  New Battle screen, then press OK to launch — two players share one machine
+  (Player 1 commands X-Com, Player 2 the aliens), passing the keyboard each turn
+  with a line-of-sight blackout in between. The earlier menu redesign had buried
+  the toggle inside the network host dialog with no way to actually begin a battle.
+  An optional REACT FIRE toggle appears while hotseat is armed.
 
 <!-- Template for the next release section (keep this comment ABOVE the newest
      released section: the notes extractor reads from "## [<v>]" until the next

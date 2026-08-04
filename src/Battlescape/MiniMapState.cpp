@@ -17,6 +17,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "MiniMapState.h"
+#include "BattlescapeGame.h"
 #include "../Engine/Game.h"
 #include "../Engine/Screen.h"
 #include "../Interface/BattlescapeButton.h"

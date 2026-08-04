@@ -138,7 +138,6 @@ set(coopmod_src
   CoopMod/AddServerMenu.cpp
   CoopMod/ChatMenu.cpp
   CoopMod/connectionTCP.cpp
-  CoopMod/CoopMenu.cpp
   CoopMod/CoopState.cpp
   CoopMod/CrashHandler.cpp
   CoopMod/DirectConnect.cpp

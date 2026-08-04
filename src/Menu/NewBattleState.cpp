@@ -58,7 +58,6 @@
 #include "../Mod/RuleGlobe.h"
 #include "../Mod/Texture.h"
 
-#include "../CoopMod/CoopMenu.h"
 #include "../Savegame/Waypoint.h"
 #include "../CoopMod/CoopState.h"
 
@@ -117,11 +116,15 @@ NewBattleState::NewBattleState() :
 	_txtAlienTech = new Text(120, 9, 178, 143);
 	_slrAlienTech = new Slider(120, 16, 178, 153);
 
-	// coop
-	_btnCoop = new TextButton(76, 16, 8, 176);    
-	_btnOk = new TextButton(76, 16, 84, 176);     
-	_btnCancel = new TextButton(76, 16, 160, 176); 
-	_btnRandom = new TextButton(76, 16, 236, 176); 
+	// coop + hotseat share the bottom button row (5 slots, width 58, pitch 61)
+	_btnHotseat = new ToggleTextButton(58, 16, 8, 176);
+	_btnCoop = new TextButton(58, 16, 69, 176);
+	// hotseat and networked co-op are mutually exclusive, so the reaction-fire
+	// toggle occupies the COOP slot while hotseat is armed
+	_btnHotseatReactionFire = new ToggleTextButton(58, 16, 69, 176);
+	_btnOk = new TextButton(58, 16, 130, 176);
+	_btnCancel = new TextButton(58, 16, 191, 176);
+	_btnRandom = new TextButton(58, 16, 252, 176);
 
 	_lstSelect = new TextList(288, 144, 8, 28);
 
@@ -155,8 +158,10 @@ NewBattleState::NewBattleState() :
 	add(_txtAlienTech, "text", "newBattleMenu");
 	add(_slrAlienTech, "button1", "newBattleMenu");
 
-	// coop
+	// coop + hotseat
+	add(_btnHotseat, "button2", "newBattleMenu");
 	add(_btnCoop, "button2", "newBattleMenu");
+	add(_btnHotseatReactionFire, "button2", "newBattleMenu");
 	add(_btnOk, "button2", "newBattleMenu");
 	add(_btnCancel, "button2", "newBattleMenu");
 	add(_btnRandom, "button2", "newBattleMenu");
@@ -306,6 +311,20 @@ NewBattleState::NewBattleState() :
 	_btnCoop->onMouseClick((ActionHandler)&NewBattleState::btnCoopClick);
 	_btnCoop->onKeyboardPress((ActionHandler)&NewBattleState::btnCoopClick, Options::keyOk);
 
+	// hotseat: local pass-and-play (Player 1 = X-Com, Player 2 = aliens on the
+	// same machine). This toggle only arms the mode; the existing OK button
+	// launches the battle with the flag honored. While hotseat is armed the
+	// COOP button is swapped for the reaction-fire toggle.
+	_btnHotseat->setText("HOTSEAT");
+	_btnHotseat->setPressed(_game->getCoopMod()->_isHotseatActive);
+	_btnHotseat->onMouseClick((ActionHandler)&NewBattleState::btnHotseatClick);
+
+	_btnHotseatReactionFire->setText("REACT FIRE");
+	_btnHotseatReactionFire->setPressed(connectionTCP::_isHotseatReactionFireEnabled);
+	_btnHotseatReactionFire->onMouseClick((ActionHandler)&NewBattleState::btnHotseatReactionFireClick);
+	_btnHotseatReactionFire->setVisible(_game->getCoopMod()->_isHotseatActive);
+	_btnCoop->setVisible(!_game->getCoopMod()->_isHotseatActive);
+
 	_btnCancel->setText(tr("STR_CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&NewBattleState::btnCancelClick);
 	_btnCancel->onKeyboardPress((ActionHandler)&NewBattleState::btnCancelClick, Options::keyCancel);
@@ -428,6 +447,12 @@ void NewBattleState::init()
 		}
 
 	}
+
+	// keep the hotseat controls in sync with the mode on (re)entry
+	_btnHotseat->setPressed(_game->getCoopMod()->_isHotseatActive);
+	_btnHotseatReactionFire->setPressed(connectionTCP::_isHotseatReactionFireEnabled);
+	_btnHotseatReactionFire->setVisible(_game->getCoopMod()->_isHotseatActive);
+	_btnCoop->setVisible(!_game->getCoopMod()->_isHotseatActive);
 
 	save();
 
@@ -854,6 +879,40 @@ void NewBattleState::btnCoopClick(Action *action)
 }
 
 /**
+ * Arms/disarms local hotseat mode. Launching still happens via the OK button.
+ * @param action Pointer to an action.
+ */
+void NewBattleState::btnHotseatClick(Action *)
+{
+	bool on = _btnHotseat->getPressed();
+	_game->getCoopMod()->_isHotseatActive = on;
+
+	// Local hotseat and networked co-op can't run together; while hotseat is
+	// armed, swap the (now-irrelevant) COOP button for the reaction-fire toggle.
+	_btnCoop->setVisible(!on);
+	_btnHotseatReactionFire->setVisible(on);
+}
+
+/**
+ * Toggles whether reaction fire is allowed during a hotseat battle.
+ * @param action Pointer to an action.
+ */
+void NewBattleState::btnHotseatReactionFireClick(Action *)
+{
+	connectionTCP::_isHotseatReactionFireEnabled = _btnHotseatReactionFire->getPressed();
+}
+
+/**
+ * Test hook: arm/disarm hotseat by driving the real toggle handler, so the
+ * harness exercises the same code path a player's click would.
+ */
+void NewBattleState::harnessSetHotseat(bool on)
+{
+	_btnHotseat->setPressed(on);
+	btnHotseatClick(nullptr);
+}
+
+/**
  * Returns to the previous screen.
  * @param action Pointer to an action.
  */
@@ -866,6 +925,9 @@ void NewBattleState::btnCancelClick(Action *)
 	}
 
 	save();
+	// hotseat is a per-skirmish choice; don't let an armed toggle bleed into a
+	// campaign battle launched later.
+	_game->getCoopMod()->_isHotseatActive = false;
 	_game->setSavedGame(0);
 	_game->popState();
 }
