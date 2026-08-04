@@ -37,7 +37,6 @@ namespace OpenXcom
 {
 
 class Mod;
-class CoopMenu;
 class GameTime;
 class Country;
 class Base;
@@ -149,7 +148,6 @@ struct playerInfo
 class SavedGame
 {
 public:
-	CoopMenu *_coopSave;
 	Country *debugCountry = nullptr;
 	Region *debugRegion = nullptr;
 	int debugType = 0;

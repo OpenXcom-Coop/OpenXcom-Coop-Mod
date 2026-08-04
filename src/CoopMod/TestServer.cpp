@@ -3888,6 +3888,22 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "newbattle_hotseat")
+		{
+			// issue #136: arm/disarm local hotseat from the New Battle screen,
+			// then let newbattle_ok START the battle with the flag honored.
+			NewBattleState* nb = findState<NewBattleState>(_game);
+			if (!nb)
+			{
+				resp["error"] = "no NewBattleState in state stack";
+			}
+			else
+			{
+				nb->harnessSetHotseat(req.get("on", true).asBool());
+				resp["hotseat"] = connectionTCP::_isHotseatActive;
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "coop_connecting_dialogs")
 		{
 			// Count "Connecting..." wait dialogs (CoopState 15) ANYWHERE in the
@@ -5017,6 +5033,9 @@ std::string TestServer::execute(const std::string& line)
 			resp["coopSession"] = coop->isCoopSession();
 			resp["hasSave"] = _game->getSavedGame() != nullptr;
 			resp["inBattle"] = _game->getSavedGame() && _game->getSavedGame()->getSavedBattle();
+			// issue #136: local hotseat mode (single machine, no network).
+			resp["hotseat"] = connectionTCP::_isHotseatActive;
+			resp["hotseatReactionFire"] = connectionTCP::_isHotseatReactionFireEnabled;
 			resp["hostName"] = coop->getHostName();
 			resp["clientName"] = coop->getCurrentClientName();
 			resp["insideCoopBase"] = coop->playerInsideCoopBase;

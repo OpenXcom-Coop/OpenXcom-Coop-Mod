@@ -46,7 +46,6 @@
 #include "../Mod/Texture.h"
 #include "../Basescape/CraftSoldiersState.h"
 
-#include "../CoopMod/CoopMenu.h"
 #include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom

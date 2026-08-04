@@ -47,7 +47,6 @@
 #include "ServerList.h"
 #include "LobbyMenu.h"
 
-#include "CoopMenu.h"
 #include "CoopState.h"
 #include "Profile.h"
 #include "ChatMenu.h"
@@ -186,6 +185,10 @@ class Ufo;
 class SavedGame;
 class BattleUnit;
 class VoteMenu;
+class ConfirmLandingState;
+class NewBattleState;
+class GeoscapeState;
+class MissionSite;
 
 // ===== Coop session lifecycle state =====
 

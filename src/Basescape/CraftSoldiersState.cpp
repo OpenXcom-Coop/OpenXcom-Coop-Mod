@@ -47,7 +47,6 @@
 #include "../Savegame/SavedBattleGame.h"
 #include "CraftInfoState.h"
 
-#include "../CoopMod/CoopMenu.h"
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 #include "../CoopMod/SharedEcon.h" // coop (PRD-J09)

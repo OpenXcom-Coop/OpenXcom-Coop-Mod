@@ -1247,9 +1247,6 @@
     <ClCompile Include="CoopMod\connectionTCP.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
-    <ClCompile Include="CoopMod\CoopMenu.cpp">
-      <Filter>CoopMod</Filter>
-    </ClCompile>
     <ClCompile Include="CoopMod\CoopState.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
@@ -2821,9 +2818,6 @@
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\connectionTCP.h">
-      <Filter>CoopMod</Filter>
-    </ClInclude>
-    <ClInclude Include="CoopMod\CoopMenu.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\CoopState.h">

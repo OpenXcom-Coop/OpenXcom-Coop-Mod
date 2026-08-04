@@ -59,6 +59,8 @@ private:
 	TextButton *_btnGlobeTexture;
 	TextButton *_btnGlobeTextureToggle;
 	ToggleTextButton *_btnUfoLanded;
+	// hotseat (local pass-and-play): arm the mode + optional reaction fire
+	ToggleTextButton *_btnHotseat, *_btnHotseatReactionFire;
 	TextList *_lstSelect;
 	TextEdit *_btnQuickSearch;
 	std::map<Surface*, bool> _surfaceBackup;
@@ -97,6 +99,9 @@ public:
 	void btnOkClick(Action *action);
 	// coop
 	void btnCoopClick(Action *action);
+	// hotseat (local pass-and-play)
+	void btnHotseatClick(Action *action);
+	void btnHotseatReactionFireClick(Action *action);
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
 	/// Handler for clicking the Randomize button.
@@ -127,6 +132,8 @@ public:
 	void btnQuickSearchApply(Action *action);
 	// coop
 	void startCoopMission();
+	/// Test hook: arm/disarm local hotseat exactly as the on-screen toggle would.
+	void harnessSetHotseat(bool on);
 };
 
 }

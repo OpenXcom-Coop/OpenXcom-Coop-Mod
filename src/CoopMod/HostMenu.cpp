@@ -58,13 +58,9 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_lblPort = new Text(108, 18, x + 18, 92);
 	_lblPassword = new Text(108, 18, x + 18, 132);
 
-	_hotseatTooltip = new Text(200, 18, x + 18, 72);
-
 	_port = new TextEdit(this, 116, 18, x + 126, 92);
 	_serverName = new TextEdit(this, 116, 18, x + 126, 72);
 	_tcpButtonHost = new TextButton(112, 18, x + 18, 152);
-	_btnStartHotseat = new TextButton(224, 18, x + 18, 112);
-	_btnReactionFire = new TextButton(224, 18, x + 18, 132);
 	_cbxVisibility = new ComboBox(this, 224, 18, x + 18, 50);
 	_cbxRegions = new ComboBox(this, 112, 18, x + 18, 112); 
 	_cbxMaxPlayers = new ComboBox(this, 112, 18, x + 130, 112); 
@@ -81,7 +77,6 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 
 	add(_window, "window", "pauseMenu");
-	add(_hotseatTooltip, "text", "pauseMenu");
 	add(_lblServerName, "text", "pauseMenu");
 	add(_lblPort, "text", "pauseMenu");
 	add(_lblPassword, "text", "pauseMenu");
@@ -89,8 +84,6 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	add(_serverName, "text", "pauseMenu");
 	add(_password, "text", "pauseMenu");
 	add(_tcpButtonHost, "button", "pauseMenu");
-	add(_btnStartHotseat, "button", "pauseMenu");
-	add(_btnReactionFire, "button", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_cbxVisibility, "button", "pauseMenu");
 	add(_cbxRegions, "button", "pauseMenu");
@@ -125,10 +118,6 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 			? "  [SHARED]" : "  [SEPARATE]";
 	}
 	_txtTitle->setText(hostTitle);
-
-	_hotseatTooltip->setBorderColor(color);
-	_hotseatTooltip->setText("Active: In this machine, players swap turns.\nAll locally (no internet).");
-	_hotseatTooltip->setVisible(false);
 
 	// labels
 	_lblServerName->setBig();
@@ -167,22 +156,6 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_tcpButtonHost->onMouseClick((ActionHandler)&HostMenu::hostTCPGame);
 	_tcpButtonHost->setVisible(true);
 
-	_btnStartHotseat->setText("ENABLE HOTSEAT");
-	_btnStartHotseat->onMouseClick((ActionHandler)&HostMenu::startHotseat);
-	_btnStartHotseat->setVisible(false);
-
-	if (connectionTCP::_isHotseatReactionFireEnabled == true)
-	{
-		_btnReactionFire->setText("DISABLE REACTION FIRE");
-	}
-	else
-	{
-		_btnReactionFire->setText("ENABLE REACTION FIRE");
-	}
-
-	_btnReactionFire->onMouseClick((ActionHandler)&HostMenu::btnReactionFireClick);
-	_btnReactionFire->setVisible(false);
-
 	_btnCancel->setText(tr("CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&HostMenu::btnCancelClick);
 	_btnCancel->onKeyboardPress((ActionHandler)&HostMenu::btnCancelClick, Options::keyCancel);
@@ -190,7 +163,8 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_visibilityTypes.push_back("VISIBILITY: PRIVATE (TCP)");
 	_visibilityTypes.push_back("VISIBILITY: PRIVATE (UDP)");
 	_visibilityTypes.push_back("VISIBILITY: PUBLIC (UDP)");
-	_visibilityTypes.push_back("HOTSEAT MODE");
+	// Hotseat is a local skirmish mode, not a networked visibility. It is armed
+	// from the New Battle screen (NewBattleState) instead of this host dialog.
 	_cbxVisibility->setOptions(_visibilityTypes, false);
 	_cbxVisibility->onChange((ActionHandler)&HostMenu::cbxVisibilityChange);
 
@@ -235,34 +209,11 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_game->getCoopMod()->setCoopCampaign(false);
 	}
 
-	// hotseat
-	if (_game->getCoopMod()->_isHotseatActive == true)
-	{
-
-		// hide
-		_tcpButtonHost->setVisible(false);
-		_port->setVisible(false);
-		_lblPort->setVisible(false);
-		_serverName->setVisible(false);
-		_lblServerName->setVisible(false);
-		_cbxVisibility->setVisible(false);
-		_password->setVisible(false);
-		_lblPassword->setVisible(false);
-		_cbxMaxPlayers->setVisible(false);
-		_cbxRegions->setVisible(false);
-		_btnReactionFire->setVisible(false);
-		_hotseatTooltip->setVisible(true);
-
-		// show
-		_btnStartHotseat->setVisible(true);
-		_btnStartHotseat->setText("DISABLE HOTSEAT");
-
-	}
 	// Hide the hosting controls only while a session is genuinely live (a
 	// peer is attached). Keying on isConnected()/getServerOwner() left stale
 	// transport state (esp. after UDP host/disconnect cycles) blanking the
 	// whole window down to the CANCEL button.
-	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
 	{
 
 		_port->setVisible(false);
@@ -275,7 +226,6 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
-		_hotseatTooltip->setVisible(false);
 
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
@@ -290,7 +240,6 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_lblPassword->setVisible(true);
 		_cbxMaxPlayers->setVisible(true);
 		_cbxRegions->setVisible(true);
-		_hotseatTooltip->setVisible(false);
 
 	}
 
@@ -370,43 +319,11 @@ HostMenu::~HostMenu()
 void HostMenu::init()
 {
 
-	// hotseat
-	if (_game->getCoopMod()->_isHotseatActive == true)
-	{
-
-		// hide
-		_tcpButtonHost->setVisible(false);
-		_port->setVisible(false);
-		_lblPort->setVisible(false);
-		_serverName->setVisible(false);
-		_lblServerName->setVisible(false);
-		_cbxVisibility->setVisible(false);
-		_password->setVisible(false);
-		_lblPassword->setVisible(false);
-		_cbxMaxPlayers->setVisible(false);
-		_cbxRegions->setVisible(false);
-		_hotseatTooltip->setVisible(true);
-
-		if (connectionTCP::_isHotseatReactionFireEnabled == true)
-		{
-			_btnReactionFire->setText("DISABLE REACTION FIRE");
-		}
-		else
-		{
-			_btnReactionFire->setText("ENABLE REACTION FIRE");
-		}
-
-		// show
-		_btnStartHotseat->setVisible(true);
-		_btnReactionFire->setVisible(false);
-		_btnStartHotseat->setText("DISABLE HOTSEAT");
-
-	}
 	// Hide the hosting controls only while a session is genuinely live (a
 	// peer is attached). Keying on isConnected()/getServerOwner() left stale
 	// transport state (esp. after UDP host/disconnect cycles) blanking the
 	// whole window down to the CANCEL button.
-	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isCoopSession() == true)
 	{
 
 		_port->setVisible(false);
@@ -419,7 +336,6 @@ void HostMenu::init()
 		_lblPassword->setVisible(false);
 		_cbxMaxPlayers->setVisible(false);
 		_cbxRegions->setVisible(false);
-		_hotseatTooltip->setVisible(false);
 
 	}
 	else if (_game->getCoopMod()->isConnected() == -1)
@@ -434,7 +350,6 @@ void HostMenu::init()
 		_lblPassword->setVisible(true);
 		_cbxMaxPlayers->setVisible(true);
 		_cbxRegions->setVisible(true);
-		_hotseatTooltip->setVisible(false);
 
 	}
 }
@@ -619,31 +534,8 @@ void HostMenu::cbxVisibilityChange(Action* action)
 	_cbxMaxPlayers->setVisible(true);
 	_cbxRegions->setVisible(true);
 
-	// hide
-	_btnStartHotseat->setVisible(false);
-	_btnReactionFire->setVisible(false);
-
-	// HOTSEAT
-	if (selected_gamemode == 3)
-	{
-
-		// hide
-		_tcpButtonHost->setVisible(false);
-		_port->setVisible(false);
-		_lblPort->setVisible(false);
-		_serverName->setVisible(false);
-		_lblServerName->setVisible(false);
-		_password->setVisible(false);
-		_lblPassword->setVisible(false);
-		_cbxMaxPlayers->setVisible(false);
-		_cbxRegions->setVisible(false);
-
-		// show
-		_btnStartHotseat->setVisible(true);
-		_btnReactionFire->setVisible(true);
-	}
 	// UDP (private)
-	else if (selected_gamemode == 1)
+	if (selected_gamemode == 1)
 	{
 		_isUDPconnection = true;
 		isListed = false;
@@ -894,68 +786,10 @@ void HostMenu::testHostWithFields(int comboIndex, const std::string& server,
 
 bool HostMenu::hostControlsVisible() const
 {
-	// the window counts as usable if the primary action (START HOST or the
-	// hotseat toggle) or the connection-type combo can be interacted with
+	// the window counts as usable if the primary action (START HOST) or the
+	// connection-type combo can be interacted with
 	return _tcpButtonHost->getVisible()
-		|| _btnStartHotseat->getVisible()
 		|| _cbxVisibility->getVisible();
-}
-
-void HostMenu::startHotseat(Action* action)
-{
-
-	_game->getCoopMod()->_isHotseatActive = !_game->getCoopMod()->_isHotseatActive;
-
-	// hide
-	_port->setVisible(false);
-	_lblPort->setVisible(false);
-	_tcpButtonHost->setVisible(false);
-	_serverName->setVisible(false);
-	_lblServerName->setVisible(false);
-	_cbxVisibility->setVisible(false);
-	_password->setVisible(false);
-	_lblPassword->setVisible(false);
-	_cbxMaxPlayers->setVisible(false);
-	_cbxRegions->setVisible(false);
-
-	// show
-	_btnStartHotseat->setVisible(true);
-
-	// fix
-	_cbxVisibility->setSelected(2);
-
-	if (_game->getCoopMod()->_isHotseatActive)
-	{
-		_btnStartHotseat->setText("DISABLE HOTSEAT");
-		_btnReactionFire->setVisible(false);
-		_hotseatTooltip->setVisible(true);
-	}
-	else
-	{
-		_btnStartHotseat->setText("ENABLE HOTSEAT");
-
-		_cbxVisibility->setVisible(true);
-		_btnReactionFire->setVisible(true);
-		_hotseatTooltip->setVisible(false);
-
-	}
-
-}
-
-void HostMenu::btnReactionFireClick(Action* action)
-{
-
-	connectionTCP::_isHotseatReactionFireEnabled = !connectionTCP::_isHotseatReactionFireEnabled;
-
-	if (connectionTCP::_isHotseatReactionFireEnabled == true)
-	{
-		_btnReactionFire->setText("DISABLE REACTION FIRE");
-	}
-	else
-	{
-		_btnReactionFire->setText("ENABLE REACTION FIRE");
-	}
-
 }
 
 /**

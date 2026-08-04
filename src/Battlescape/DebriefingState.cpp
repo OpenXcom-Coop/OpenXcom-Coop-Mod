@@ -75,8 +75,6 @@
 #include "../Savegame/BattleUnitStatistics.h"
 #include "../fallthrough.h"
 
-#include "../CoopMod/CoopMenu.h"
-
 namespace OpenXcom
 {
 
@@ -308,6 +306,10 @@ DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _countr
 		_game->getCoopMod()->_firstAlienInit = false;
 		_game->getCoopMod()->_discoveredTilesAlienTurn = Json::nullValue;
 		_game->getCoopMod()->_discoveredTilesXComTurn = Json::nullValue;
+
+		// hotseat is scoped to a single skirmish: clear the mode so it can't
+		// carry over into the next (possibly campaign) battle.
+		_game->getCoopMod()->_isHotseatActive = false;
 
 	}
 
