@@ -4461,6 +4461,18 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["localReady"] = connectionTCP::endTurnSeatReady(connectionTCP::localSeat());
 		}
 		resp["commitBlocked"] = connectionTCP::_commitBlocked;
+		// PRD-I0: the per-action sync-check.
+		//   lastSeq / lastComparedSeq - the deferred loop. On the HOST these close
+		//                     on each other as the peer's `action_done` reports come
+		//                     back; a lastComparedSeq that stops chasing lastSeq
+		//                     means the reports stopped.
+		//   ringDepth       - remembered "state after N" entries (max 64)
+		//   buckets         - {alarm, mismatchCount} per bucket; `alarm` is the
+		//                     compile-time promotion table (all false at I0 birth)
+		//   mismatches      - the last 32, each naming seq + kind + bucket
+		//   sweepUs         - cost of the last computeBattleHashes() sweep
+		SharedEcon::syncCheckReport(resp);
+		resp["boundarySeq"] = static_cast<Json::UInt>(connectionTCP::_boundarySeq);
 		resp["reserve"] = (int)sbg->getTUReserved();
 		resp["kneelReserve"] = sbg->getKneelReserved();
 		resp["chainReserve"] = bg ? bg->coopChainReserveMode() : -1;
@@ -5424,6 +5436,36 @@ std::string TestServer::execute(const std::string& line)
 					// WHICH of the three families moved.
 					resp["battleUnitsChecksum"] = Json::Value::Int64(chkBattleUnits);
 					resp["desyncSeen"] = SharedEcon::battleDesyncSeen();
+				}
+				// PRD-I0, OPT-IN (`{"cmd":"battle_state","sync":true}`). Deliberately
+				// not unconditional: `battle_state` is the harness' hot poll - every
+				// wait_until in every test hits it several times a second - and
+				// hanging a full-map hash sweep plus a nested report off it would
+				// change the size and cost of a response 130 tests already depend on.
+				// The sync-check readout has exactly two callers (session.sync_check
+				// and session.sync_buckets), so they ask for it; everything else sees
+				// the response byte-for-byte as before.
+				if (req.get("sync", false).asBool())
+				{
+					// The raw bucket values THIS machine would report right now: a
+					// test proving a lever moved a specific bucket cannot wait a round
+					// trip for a deferred compare that may never come. The sweep also
+					// refreshes `syncCheck.sweepUs`, which is the cost measurement.
+					SharedEcon::BattleHashSet hs;
+					if (SharedEcon::computeBattleHashes(_game, hs))
+					{
+						Json::Value h(Json::objectValue);
+						for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+						{
+							h[SharedEcon::battleHashBucketName(i)] =
+								static_cast<Json::UInt64>(SharedEcon::battleHashBucketValue(hs, i));
+						}
+						resp["battleHashes"] = h;
+						resp["battleHashSweepUs"] =
+							static_cast<Json::UInt>(SharedEcon::battleHashLastSweepUs());
+					}
+					SharedEcon::syncCheckReport(resp);
+					resp["boundarySeq"] = static_cast<Json::UInt>(connectionTCP::_boundarySeq);
 				}
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;

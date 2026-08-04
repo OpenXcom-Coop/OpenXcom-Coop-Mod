@@ -1168,6 +1168,37 @@ void BattlescapeGame::init()
 }
 
 /**
+ * coop (PRD-I0): the AI-side admit analogue.
+ *
+ * `_actionSeq` was a PLAYER-side counter: PRD-P6 stamps it where an intent is
+ * admitted, and the alien side ran completely unnumbered - so every divergence
+ * introduced by an AI action could only be attributed to "somewhere in that
+ * side", which for the sync-check means no attribution at all.
+ *
+ * handleAI has no single admit site. It has two: the BA_WALK push, and the attack
+ * block that pushes either a PsiAttackBState or a UnitTurnBState followed by the
+ * melee/projectile state (one chain, one seq). Each is the moment the AI COMMITS
+ * to an action - the exact analogue of the arbiter admitting an intent.
+ * Stamping there rather than around the whole call is deliberate: handleAI also
+ * pushes the end-of-side sentinel, and `statePushBack(0)` on an empty queue runs
+ * BattlescapeGame::endTurn() synchronously (which resets the arbiter), so a stamp
+ * taken after the call would number a chain that does not exist and land in the
+ * wrong side's namespace.
+ *
+ * The chain then closes exactly as a player chain does - the queue drains,
+ * coopChainChanged() ships `action_end`, the client reports `action_done`. None
+ * of that machinery was ever player-side-gated, so nothing had to be ungated.
+ */
+void BattlescapeGame::coopStampAiChain()
+{
+	if (!connectionTCP::parallelTurnActive() || !getHost())
+	{
+		return;
+	}
+	connectionTCP::stampAdmittedAction("ai");
+}
+
+/**
  * Handles the processing of the AI states of a unit.
  * @param unit Pointer to a unit.
  */
@@ -1286,6 +1317,7 @@ void BattlescapeGame::handleAI(BattleUnit* unit)
 		}
 		if (_save->getPathfinding()->getStartDirection() != -1)
 		{
+			coopStampAiChain(); // coop (PRD-I0), before the push - see the helper
 			statePushBack(new UnitWalkBState(this, action));
 		}
 		else if (walkToItem)
@@ -1301,6 +1333,7 @@ void BattlescapeGame::handleAI(BattleUnit* unit)
 		ss << "Attack type=" << action.type << " target=" << action.target << " weapon=" << action.weapon->getRules()->getType();
 		_parentState->debug(ss.str());
 		action.updateTU();
+		coopStampAiChain(); // coop (PRD-I0): one seq for the whole turn+attack chain
 		if (action.type == BA_MINDCONTROL || action.type == BA_PANIC || action.type == BA_USE)
 		{
 			statePushBack(new PsiAttackBState(this, action));
@@ -1588,6 +1621,15 @@ void BattlescapeGame::endTurn()
 
 	_triggerProcessed.reset();
 	_endTurnProcessed.reset();
+
+	// coop (PRD-I0): the side-close phase group is done - fuses rolled and shipped
+	// (`fuse_events`), terrain explosions resolved, SavedBattleGame::endTurn() run.
+	// Everything above this line moves state with no admitted chain to attribute it
+	// to, which is why the boundary pseudo-seq exists. Armed rather than sent: the
+	// checkForCasualties() below can still push death chains, and the marker has to
+	// sit behind their packets. Reached only on the FINAL pass through endTurn() -
+	// the explosion paths above return early and re-enter.
+	connectionTCP::coopArmSyncBoundary("endturn");
 
 	if (_save->getSide() == FACTION_PLAYER)
 	{
@@ -2170,7 +2212,7 @@ bool BattlescapeGame::coopRouteAction(BattleAction &action, const std::string &k
 	// machine's own reserve.
 	connectionTCP::noteSeatActed(connectionTCP::localSeat());
 	coopClearChainReserve();
-	connectionTCP::stampAdmittedAction();
+	connectionTCP::stampAdmittedAction(kind);
 	return false;
 }
 

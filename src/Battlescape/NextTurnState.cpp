@@ -49,6 +49,7 @@
 #include "TileEngine.h"
 #include "Pathfinding.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/connectionTCP.h" // coop (PRD-I0): the side-start boundary marker
 
 namespace OpenXcom
 {
@@ -772,6 +773,21 @@ void NextTurnState::close()
 					SharedEcon::clearSpawnManifests();
 
 					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+
+					// coop (PRD-I0): the SIDE-START boundary pseudo-seq. `next_turn`
+					// is the packet that repairs unit stats and tile hazards from the
+					// host's snapshot, so the state right after it is the common
+					// baseline every action of the new side is measured from - and it
+					// is the only place both machines can be asked "do you agree yet?"
+					// with a defensible answer.
+					//
+					// Armed, so the marker leaves AFTER this packet and the client
+					// consumes it once `next_turn` has been APPLIED. That is the
+					// hash-after-apply half of PRD-I0 §1 - deliberately the opposite
+					// of attachBattleChecksum's compare-before-apply above, which
+					// stays as it is because the tripwire needs the PRE-repair state
+					// or it would be silent by construction.
+					connectionTCP::coopArmSyncBoundary("sidestart");
 
 				}
 

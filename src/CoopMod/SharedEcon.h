@@ -415,6 +415,96 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 bool battleDesyncSeen();
 void resetBattleDesyncSeen();
 
+// ---- PRD-I0: per-action sequenced sync-check ---------------------------------
+//
+// The tripwire above is a TURN-grained detector: three terms, stamped once per
+// `next_turn`, compared before the bulk apply. It answers "did the two battles
+// drift?" and nothing more - by the time it speaks, a whole side of actions is
+// the suspect list.
+//
+// I0 makes the same question per-ACTION. Every admitted chain already carries a
+// host-owned `action_seq` (PRD-P6/P7) and already has ONE well-defined drain
+// point per machine: the executor's `coopCloseActionChain()` and the client's
+// `coopEmitActionDone()`. "The state after action N" is therefore well-defined
+// on both machines - at different wall-clock times, which is exactly why the
+// comparison is DEFERRED rather than a barrier:
+//
+//   host   : at its drain, computeBattleHashes() -> push {seq, kind, hashes}
+//            into a 64-deep ring.
+//   client : at its drain, computeBattleHashes() -> attach the set to the
+//            `action_done {seq, seat}` it was going to send anyway (field "h").
+//   host   : on receipt, look the seq up in the ring and compare PER BUCKET.
+//
+// No new packets, no admission coupling, no barrier. A missing "h" is an older
+// peer and the host simply skips the compare.
+//
+// BUCKETS, not one number: a single hash says only THAT something moved. Seven
+// independent sums say which FAMILY moved, which is the difference between a
+// bug report and a bisect. Each bucket is either ALARM (a mismatch fires the
+// existing battleDesyncSeen() path) or REPORT-ONLY (logged and counted). The
+// promotion table is a compile-time constant - see BATTLE_HASH_ALARM.
+//
+// SEMANTICS OF THE TWO HASH FAMILIES, which are deliberately different:
+//   * per-action seqs are hash-AFTER-drain on both machines. Both are "the state
+//     once this chain finished", which is the only moment they can agree.
+//   * boundary pseudo-seqs (the side-close phase group and the side-start /
+//     prepareNewTurn group) are hash-AFTER-APPLY on the client - it hashes once
+//     it has consumed the marker that follows `fuse_events` / `next_turn`, i.e.
+//     with the host's boundary state already in place. That is the OPPOSITE of
+//     the legacy tripwire above, which compares BEFORE `next_turn`'s bulk apply
+//     precisely so the apply cannot silence it. Both are correct for what they
+//     watch: the tripwire wants the pre-repair divergence, the sync-check wants
+//     a post-boundary state both machines can agree on so the NEXT action's
+//     comparison starts from a common baseline. The tripwire is untouched.
+
+/// The bucket registry. One sweep of the battle fills all seven; every term is an
+/// order-independent SUM of FNV-1a mixes, for the same reason the tripwire's terms
+/// are (neither `_items` nor `_units` nor the tile array order is replicated).
+struct BattleHashSet
+{
+	std::uint64_t terrain;     ///< per tile: the four TilePart map-data ids + explosive
+	std::uint64_t fire;        ///< per tile: turns of fire remaining
+	std::uint64_t smoke;       ///< per tile: turns of smoke remaining (+ overlaps)
+	std::uint64_t items;       ///< id, type, owner, slot, tile pos, fuse - the strict census
+	std::uint64_t unitsCore;   ///< id, faction, liveness, position (the chkBattleUnits set)
+	std::uint64_t unitsStats;  ///< TU, energy, health, stun, morale, wounds, kneel, MC id
+	std::uint64_t itemIdCtr;   ///< SavedBattleGame::getCurrentItemIdValue()
+};
+
+/// How many buckets a BattleHashSet holds.
+const int BATTLE_HASH_BUCKETS = 7;
+/// Wire/introspection name of bucket @a i (0..BATTLE_HASH_BUCKETS-1).
+const char* battleHashBucketName(int i);
+/// Value of bucket @a i.
+std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i);
+/// PROMOTION TABLE. true = a mismatch in this bucket fires battleDesyncSeen()
+/// (banner + the I4 bundle); false = REPORT-ONLY, logged and counted.
+bool battleHashBucketAlarms(int i);
+
+/// ONE sweep of the live battle filling every bucket. Returns false (and zeroes
+/// @a out) when no battle is live, which is what makes every caller geoscape-safe.
+bool computeBattleHashes(Game* game, BattleHashSet& out);
+/// Microseconds the last computeBattleHashes() sweep took (harness cost report).
+std::uint32_t battleHashLastSweepUs();
+
+/// HOST: remember "the state after this chain" so a peer report can be compared
+/// against it later. @a boundary selects the boundary pseudo-seq namespace (which
+/// is monotonic per battle) instead of the per-side `action_seq` one.
+void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
+					 bool boundary, const std::string& kind);
+/// CLIENT: compute this machine's buckets and attach them to @a msg as "h".
+/// No-op without a live battle (the caller then ships the bare `action_done`).
+void syncCheckAttach(Game* game, Json::Value& msg);
+/// HOST: compare a peer's attached buckets against the ring entry for its seq.
+/// Silently ignores a message with no "h" (older peer) and one whose seq is not
+/// in the ring (a report that crossed a side boundary, or a 64-deep overflow).
+void syncCheckCompare(Game* game, const Json::Value& msg);
+/// Harness: the `syncCheck` introspection block (see PRD-I0 §4).
+void syncCheckReport(Json::Value& out);
+/// Clears the ring, the latches and the mismatch log. Called from
+/// resetResyncStats() (harness `shared_reset_resync_stats`) and at battle teardown.
+void resetSyncCheck();
+
 /// Game-minute cooldown between automatic resyncs (see verifyWorldChecksum).
 extern const int RESYNC_COOLDOWN_MINUTES;
 /// Wall-clock ms a checksum mismatch must SURVIVE before it counts as a desync.

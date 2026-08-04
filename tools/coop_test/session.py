@@ -374,6 +374,130 @@ def assert_battle_synced(host, client, what=""):
     return h
 
 
+# ---- PRD-I0: the per-action sync-check -------------------------------------
+
+def sync_check(gc):
+    """One machine's PRD-I0 `syncCheck` block, read off `battle_state`.
+
+    Keys: lastSeq / lastComparedSeq (the ACTION namespace, which restarts at 0 at
+    every side boundary), lastBoundarySeq / lastComparedBoundarySeq (the boundary
+    pseudo-seq namespace, monotonic for the whole battle), ringDepth, compares,
+    staleReports, dropped, sweepUs, buckets {name: {alarm, mismatchCount}} and the
+    last 32 mismatches as {seq, boundary, kind, bucket}.
+
+    Only the EXECUTOR compares (the client ships hashes on `action_done` and the
+    host looks them up in its ring), so on a client every counter here stays 0.
+
+    OPT-IN on the wire (`"sync": true`): the block costs a full-map hash sweep,
+    and `battle_state` is the harness' hot poll. Without the flag the response is
+    byte-for-byte what it was before PRD-I0.
+    """
+    b = gc.cmd({"cmd": "battle_state", "sync": True})
+    sc = b.get("syncCheck")
+    assert sc is not None, (
+        f"battle_state carries no 'syncCheck' - PRD-I0's introspection is missing, "
+        f"so this assertion would be vacuous: {sorted(b)}")
+    return sc
+
+
+def sync_buckets(gc):
+    """This machine's RAW bucket values right now (`battle_state.battleHashes`).
+
+    The deferred comparison is what the game does; this is what a test uses to
+    prove a lever moved the bucket it was supposed to move, without waiting a
+    round trip for a report that may never come."""
+    b = gc.cmd({"cmd": "battle_state", "sync": True})
+    h = b.get("battleHashes")
+    assert h is not None, (
+        f"battle_state carries no 'battleHashes' - PRD-I0's bucket sweep is not "
+        f"exposed: {sorted(b)}")
+    return h
+
+
+def assert_sync_clean(host, client, what="", strict=False, allow=(), timeout=30,
+                      interval=0.5, quiet=False):
+    """PRD-I0's invariant, read off the EXECUTOR: every action seq the host
+    recorded has been answered by the peer, and no bucket disagreed.
+
+    Two halves, and the difference between them is the whole onboarding
+    programme:
+
+    * THE LOOP CLOSES. `lastComparedSeq` must catch `lastSeq` (and the boundary
+      pair likewise), `dropped` must stay 0, and the ring must not have run away.
+      This is asserted unconditionally - it says the detector is alive. A silent
+      detector is worse than no detector, and the only way to tell the two apart
+      is to watch the reports come back.
+    * THE BUCKETS AGREE. Asserted for every bucket the build has PROMOTED to
+      ALARM (`buckets[name].alarm`), and only reported for the rest. At I0 birth
+      every bucket is report-only (SharedEcon.cpp BATTLE_HASH_ALARM says why), so
+      by default this prints the counts and asserts nothing about them. Pass
+      strict=True where the caller genuinely expects a clean battle - which is
+      exactly the burn-in evidence PRD-I3 promotes a bucket on - and name the
+      buckets that are NOT clean yet in `allow`, so the exception is written down
+      instead of hidden behind a blanket non-strict call.
+
+    `client` is accepted (and its own block sanity-checked) so callers read as the
+    cross-machine assertion they are, and so a future two-way comparison does not
+    change every call site.
+    """
+    tag = f" {what}" if what else ""
+    peer = sync_check(client)
+    assert peer["compares"] == 0, (
+        f"the CLIENT compared {peer['compares']} report(s){tag} - only the executor "
+        f"holds a ring, so a client that compares is comparing against nothing")
+
+    def closed(sc):
+        return (sc["lastComparedSeq"] >= sc["lastSeq"]
+                and sc["lastComparedBoundarySeq"] >= sc["lastBoundarySeq"])
+
+    sc = sync_check(host)
+    deadline = time.time() + timeout
+    while not closed(sc) and time.time() < deadline:
+        time.sleep(interval)
+        sc = sync_check(host)
+
+    assert closed(sc), (
+        f"SYNC-CHECK LOOP OPEN{tag}: the host recorded up to action seq "
+        f"{sc['lastSeq']} / boundary seq {sc['lastBoundarySeq']} but the peer has "
+        f"only answered {sc['lastComparedSeq']} / {sc['lastComparedBoundarySeq']} "
+        f"after {timeout}s. The peer has stopped attaching hashes to its "
+        f"`action_done` reports, so every bucket assertion below is vacuous. "
+        f"ringDepth={sc['ringDepth']} compares={sc['compares']} "
+        f"stale={sc['staleReports']} dropped={sc['dropped']}")
+    assert sc["dropped"] == 0, (
+        f"SYNC-CHECK RING OVERFLOW{tag}: {sc['dropped']} uncompared entries were "
+        f"evicted (ring is 64 deep, the display backlog cap is 2) - the peer is "
+        f"not reporting: {sc}")
+
+    buckets = sc["buckets"]
+    bad = {n: b["mismatchCount"] for n, b in buckets.items() if b["mismatchCount"]}
+    alarmed = {n: c for n, c in bad.items() if buckets[n]["alarm"]}
+    assert not alarmed, (
+        f"SYNC-CHECK ALARM{tag}: promoted bucket(s) {alarmed} disagreed.\n"
+        f"    {_sync_mismatch_lines(sc)}")
+    if strict:
+        hard = {n: c for n, c in bad.items() if n not in allow}
+        assert not hard, (
+            f"SYNC-CHECK MISMATCH{tag}: bucket(s) {hard} disagreed (strict, "
+            f"allowing {list(allow)}).\n    {_sync_mismatch_lines(sc)}")
+        if bad and not quiet:
+            print(f"    NOTE{tag}: allowed report-only buckets differ: "
+                  f"{ {n: c for n, c in bad.items() if n in allow} }")
+    elif bad and not quiet:
+        print(f"    NOTE{tag}: report-only sync-check buckets differ: {bad}\n"
+              f"    {_sync_mismatch_lines(sc)}")
+    return sc
+
+
+def _sync_mismatch_lines(sc, limit=6):
+    ms = sc.get("mismatches", [])
+    if not ms:
+        return "(no per-seq detail retained)"
+    out = [f"seq={m['seq']}{' boundary' if m.get('boundary') else ''} "
+           f"kind={m['kind']} bucket={m['bucket']}" for m in ms[-limit:]]
+    return "\n    ".join(out)
+
+
 # ---- ending a co-op battle ------------------------------------------------
 #
 # dismiss_popup closes the popup types it knows about and GENERICALLY pops
