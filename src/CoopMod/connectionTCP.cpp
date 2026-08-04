@@ -678,6 +678,20 @@ static int coopPacketSubject(const std::string& state, const Json::Value& obj)
 	return id >= 0 ? id : -1;
 }
 
+// coop (PRD-P2 unit term): was the packet the pump is dispatching applied
+// AHEAD of packets that precede it on the wire but could not be consumed in
+// this pass? A full-state snapshot like `next_turn` is not subject-keyed, so it
+// legitimately overtakes a deferred per-unit chain - and while it does, this
+// machine's unit positions are one chain behind the peer's through no fault of
+// anybody's. Read by SharedEcon::verifyBattleChecksum, which then leaves the
+// unit term alone until a stamp lands on an in-order pass.
+static std::atomic<bool> g_rxPassDeferred{false};
+
+bool rxPassDeferred()
+{
+	return g_rxPassDeferred.load(std::memory_order_relaxed);
+}
+
 size_t rxHoldSize()
 {
 	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
@@ -2715,6 +2729,9 @@ void connectionTCP::updateCoopTask()
 
 				if (gateAllows && !subjectHeld)
 				{
+					// See rxPassDeferred(): anything already deferred in this pass
+					// precedes this packet on the wire and has NOT been applied yet.
+					g_rxPassDeferred.store(!deferred.empty(), std::memory_order_relaxed);
 					rxTraceRecord(stateString, subject);
 					onTCPMessage(stateString, obj);
 					++consumedThisPass;
@@ -8072,6 +8089,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				bool end = obj["end"].asBool();
 
+				// PRD-P2 3b: the host stamped its three battle terms on this packet.
+				// Compare them against ours: a mismatch means the two battles have
+				// drifted apart. Detection only - logs, notifies once and raises the
+				// harness flag; it must NEVER restream the world mid-battle.
+				//
+				// BEFORE the bulk apply below, and that placement is the whole reason
+				// the unit term can see anything: `next_turn` REPAIRS unit position and
+				// status wholesale from the host's snapshot, so a compare made after it
+				// would find the two machines agreeing every single time - a detector
+				// silent by construction. The item terms do not care (nothing below
+				// touches an item), so all three move together.
+				SharedEcon::verifyBattleChecksum(_game, obj, "next_turn");
+
 				_game->getSavedGame()->getSavedBattle()->abortPathCoop();
 
 				// tiles
@@ -8263,11 +8293,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					}
 				}
 
-				// PRD-P2 3b: the host stamped its item-id counter and item census on
-				// this packet. Compare them against ours: a mismatch means the two
-				// battles have drifted apart. Detection only - logs, notifies once and
-				// raises the harness flag; it must NEVER restream the world mid-battle.
-				SharedEcon::verifyBattleChecksum(_game, obj, "next_turn");
 			}
 		}
 

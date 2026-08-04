@@ -376,23 +376,32 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg);
 // `new BattleItem`, an un-scoped transient mint or a lost item moves one of the two
 // terms below.
 //
-// Two terms, both cheap:
+// Three terms, all cheap:
 //   chkBattleItemId = SavedBattleGame::_itemId, the next id this machine will mint.
 //   chkBattleCensus = SUM over getItems() of FNV-1a(type) mixed with the item id and
 //                     its owner unit id. A sum, not a rolling hash, so the vector
 //                     ORDER - which is not replicated - cannot matter.
+//   chkBattleUnits  = the same shape over getUnits(): id, faction, WHERE the unit is
+//                     and WHETHER IT IS DOWN. See battleChecksumTerms() for the field
+//                     selection and, more importantly, for what is deliberately left
+//                     out - a term that hashes something the protocol does not
+//                     replicate is a permanent red, not a detector.
 // Negative = "not stamped" = agree, the same convention the world checksum uses for
 // its GAP-4 fields, so a peer that predates this can never raise a false positive.
+// The three are independent: the item terms cannot see a unit that died on one
+// machine only until it drops a corpse, and the unit term cannot see an item at all.
 //
 // DETECTION ONLY. A mid-battle sharedResyncStream is impossible (the world restream
 // replaces the whole state stack, live battle included), so a mismatch logs,
 // notifies at most once per RESYNC_DEBOUNCE_MS through the in-battle warning banner
 // and raises battleDesyncSeen() for the harness. Prevention is PRD-P3/P4's job.
 
-/// Computes this machine's two battle terms. Returns false (and sets both to -1)
-/// when no battle is live - which is what makes every caller geoscape-safe.
-bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census);
-/// Stamps chkBattleItemId / chkBattleCensus onto @a msg. No-op without a battle.
+/// Computes this machine's three battle terms. Returns false (and sets all three to
+/// -1) when no battle is live - which is what makes every caller geoscape-safe.
+bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census,
+						 int64_t& units);
+/// Stamps chkBattleItemId / chkBattleCensus / chkBattleUnits onto @a msg. No-op
+/// without a battle.
 void attachBattleChecksum(Game* game, Json::Value& msg);
 /// Compares a peer's stamped terms against this machine's battle and reports a
 /// mismatch. @a context names the packet that carried them (for the log line).
