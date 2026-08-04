@@ -755,6 +755,29 @@ class connectionTCP
 	/// CLIENT: the chain seq the display is currently working through - the value
 	/// the next `action_done` will carry. PRD-P7.
 	static std::uint32_t _clientDisplaySeq;
+	/// HOST (PRD-I0): the kind that was admitted as `_openChainSeq` ("walk",
+	/// "shoot", "ai", ...). The arbiter's `_intentSlotKind` cannot serve: it is
+	/// written only on the two CLIENT-intent admit paths, so the executor's own
+	/// clicks and every AI chain would be attributed to whatever the last client
+	/// happened to do. Purely a label on the sync-check ring entry.
+	static std::string _openChainKind;
+	/// CLIENT (PRD-I0): the `side_seq` the last consumed `action_end` marker
+	/// named. NOT this machine's `_sideSeq`: `endTurn` is whitelisted and
+	/// `action_end` is not, so the live token routinely runs ahead of the markers
+	/// still queued behind the receive gate, and reporting under it would send
+	/// the tail of a side's chains into the next side's key space.
+	static std::uint32_t _clientDisplaySideSeq;
+	/// HOST-owned (PRD-I0): the BOUNDARY pseudo-seq counter - one per side-close
+	/// phase group, one per side start. Its OWN namespace, monotonic for the whole
+	/// battle, deliberately NOT drawn from `_actionSeq`:
+	///  * `_actionSeq` resets every side, so two boundary hashes taken either side
+	///    of a reset would collide with the first real actions of the new side;
+	///  * and, decisively, boundary seqs would enter PRD-P7's display-backlog term.
+	///    A peer that predates PRD-I0 reports nothing for them, so the executor
+	///    would sit at backlog 2 from the first side start and refuse every action
+	///    for the rest of the battle. An additive field must never be able to wedge
+	///    an older peer.
+	static std::uint32_t _boundarySeq;
 	/// TEST-ONLY lever, default false, set ONLY by the test server
 	/// (`hold_action_done`). While true the client PARKS its `action_done`
 	/// reports instead of shipping them: the packet is unchanged, it just leaves
@@ -842,14 +865,39 @@ class connectionTCP
 	/// CLIENT: the single `action_done` emit point (PROTOCOL.md). No-op unless a
 	/// newly displayed chain seq is outstanding.
 	void coopEmitActionDone();
+	/// HOST (PRD-I0): allocate a BOUNDARY pseudo-seq, remember this machine's
+	/// bucket hashes for it, and ship the marker that tells the client to do the
+	/// same. Rides `action_end` (with `"boundary": true`) rather than a new state
+	/// string, precisely because `action_end` is NOT whitelisted: the client
+	/// consumes it at receive-gate depth 0, which is what makes "hash after the
+	/// boundary packets have been applied" true rather than hopeful.
+	/// @a kind is "endturn" (the side-close phase group) or "sidestart".
+	static void coopSendSyncBoundary(const char* kind);
+	/// HOST (PRD-I0): remember that a boundary marker is owed. The side-close
+	/// phases can still have explosion/death chains queued behind them, so the
+	/// marker is sent from the main-thread tick once the executor is quiescent.
+	static void coopArmSyncBoundary(const char* kind);
+	/// HOST (PRD-I0), main-thread tick: send one armed boundary marker if idle.
+	static void coopFlushSyncBoundary();
+	/// HOST (PRD-I0): boundary markers armed but not yet shipped.
+	static std::vector<std::string> _pendingBoundaries;
+	/// CLIENT (PRD-I0): answer a boundary marker with this machine's buckets.
+	void coopEmitBoundaryDone(std::uint32_t bseq);
+	/// CLIENT (PRD-I0): answer an `action_end` whose side has already closed here,
+	/// WITHOUT moving either display watermark. See the call site: adopting such a
+	/// marker's seq freezes `_clientDisplaySeq` above the new side's whole range
+	/// and wedges the executor's display-backlog term for the rest of the battle.
+	void coopEmitStaleActionDone(std::uint32_t seq, std::uint32_t sideSeq);
 
 	/// May the executor start a new action chain right now? PROTOCOL.md
 	/// "Ordering invariants" 3: no BattleState queued, receive gate open, no
 	/// side commit under way, and (PRD-P7) the client's undisplayed backlog
 	/// below 2.
 	static bool canAdmitAction();
-	/// Stamps an admitted action: ++_actionSeq, returns the new value.
-	static std::uint32_t stampAdmittedAction();
+	/// Stamps an admitted action: ++_actionSeq, returns the new value. @a kind
+	/// (PRD-I0) labels the chain for the sync-check ring; it is a diagnostic
+	/// label only and nothing branches on it.
+	static std::uint32_t stampAdmittedAction(const std::string& kind = std::string());
 	/// Battle start / side boundary / teardown: counters and slots back to a
 	/// known state. `fullReset` also zeroes the side and request sequences.
 	static void resetActionArbiter(bool fullReset);

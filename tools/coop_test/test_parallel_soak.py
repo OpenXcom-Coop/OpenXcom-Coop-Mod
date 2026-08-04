@@ -304,6 +304,20 @@ def assert_census(host, client, what):
     assert not TW.desync_seen(host) and not TW.desync_seen(client), (
         f"the PRD-P2 drift tripwire FIRED {what} - a release blocker, "
         f"root-cause it before shipping")
+
+    # PRD-I0 §4: the per-action sync-check, checked wherever the census is. The
+    # census above is a HARNESS comparison at a quiescent moment; this is the
+    # IN-GAME detector's own verdict over every individual action and boundary
+    # since the last check, so it catches a divergence that appeared and healed
+    # between two censuses - which is most of them.
+    #
+    # Non-strict on purpose: at I0 birth every bucket is REPORT-ONLY, so what is
+    # asserted here is that the deferred loop CLOSED (the peer answered every seq
+    # the executor recorded, nothing was dropped) and that no ALARM-promoted
+    # bucket disagreed. The report-only counts are printed, and they are the
+    # burn-in evidence PRD-I3 promotes buckets on - a soak run's output is the
+    # data set.
+    session.assert_sync_clean(host, client, what)
     skew = tu_report(hb, cb)
     if skew:
         print(f"    NOTE {what}: non-player TU skew (reported, not asserted): "

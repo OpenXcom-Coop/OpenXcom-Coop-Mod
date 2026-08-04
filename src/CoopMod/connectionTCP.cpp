@@ -249,6 +249,11 @@ std::string connectionTCP::_clientLastDenyWarning;
 std::vector<connectionTCP::CoopPendingIntent> connectionTCP::_pendingAdmits;
 std::uint32_t connectionTCP::_openChainSeq = 0;
 std::uint32_t connectionTCP::_clientDisplaySeq = 0;
+// coop (PRD-I0): the sync-check label + the boundary pseudo-seq namespace.
+std::string connectionTCP::_openChainKind;
+std::uint32_t connectionTCP::_clientDisplaySideSeq = 0;
+std::uint32_t connectionTCP::_boundarySeq = 0;
+std::vector<std::string> connectionTCP::_pendingBoundaries;
 bool connectionTCP::_testHoldActionDone = false;
 std::uint32_t connectionTCP::_heldActionDones = 0;
 // coop (PRD-P9 3): stuck-chain diagnostic, reset wherever _openChainSeq is.
@@ -2353,6 +2358,10 @@ void connectionTCP::updateCoopTask()
 	if (parallelTurnActive() && getHost())
 	{
 		coopCloseActionChain();
+		// coop (PRD-I0): and one armed boundary marker, on the same "the executor
+		// is idle" terms. Before coopAdmitPendingIntents() so the boundary hash is
+		// taken ahead of whatever action the new side admits first.
+		coopFlushSyncBoundary();
 		// coop (PRD-P9 3): after the close attempt, so a chain that has just
 		// drained is never reported stuck.
 		coopCheckStuckChain();
@@ -6714,7 +6723,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				Json::Value ack;
 				ack["state"] = "action_ack";
 				ack["req_id"] = static_cast<Json::UInt>(reqId);
-				ack["action_seq"] = static_cast<Json::UInt>(stampAdmittedAction());
+				ack["action_seq"] = static_cast<Json::UInt>(stampAdmittedAction(_intentSlotKind));
 				sendTCPPacketData(ack.toStyledString());
 
 				// From here on it is an ordinary HOST action: every existing send
@@ -6776,9 +6785,45 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// depth 0, which is precisely when it has finished DISPLAYING that chain.
 	if (stateString == "action_end")
 	{
-		const std::uint32_t seq = static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
-		if (!getHost() && seq > _clientDisplaySeq)
+		// coop (PRD-I0): a BOUNDARY marker allocates nothing in the action
+		// namespace - it only asks this machine to hash. Consuming it here means
+		// the gate was at depth 0, so the boundary's own packets (`fuse_events`,
+		// `next_turn`) are already applied.
+		if (obj.get("boundary", false).asBool())
 		{
+			if (!getHost())
+			{
+				coopEmitBoundaryDone(static_cast<std::uint32_t>(obj.get("bseq", 0).asUInt()));
+			}
+		}
+		const std::uint32_t seq = static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+		const std::uint32_t markerSide =
+			static_cast<std::uint32_t>(obj.get("side_seq", _sideSeq).asUInt());
+		// coop (PRD-I0): a marker from a side that has ALREADY CLOSED here.
+		//
+		// This is a wedge, not a curiosity, and PRD-I0's AI-side stamping is what
+		// created it. `endTurn` is whitelisted, `action_end` is not, so the boundary
+		// resets this machine's arbiter (`_clientDisplaySeq` back to 0) while the tail
+		// of the previous side's markers is still queued behind the receive gate.
+		// Before I0 the alien side stamped nothing, so no such marker existed; now it
+		// does, and adopting its HIGH seq after the reset freezes `_clientDisplaySeq`
+		// above every seq the new side will ever stamp - after which
+		// `seq > _clientDisplaySeq` is false for the rest of the battle, the client
+		// never reports again, and the executor's display-backlog term refuses every
+		// action with `busy`. Measured: a soak wedged solid at the turn-3 boundary and
+		// spent 40 minutes denying intents.
+		//
+		// The report still goes out (the sync-check ring is keyed on (side_seq, seq),
+		// so the entry can still be answered) - it just must not move a watermark.
+		if (!getHost() && obj.isMember("side_seq") && markerSide != _sideSeq)
+		{
+			coopEmitStaleActionDone(seq, markerSide);
+		}
+		else if (!getHost() && seq > _clientDisplaySeq)
+		{
+			// coop (PRD-I0): remember the side the MARKER named, not this machine's
+			// current `_sideSeq` - see the send site for why they differ.
+			_clientDisplaySideSeq = markerSide;
 			_clientDisplaySeq = seq;
 			if (seq > _actionSeq)
 			{
@@ -6800,10 +6845,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (getHost())
 		{
 			const std::uint32_t seq = static_cast<std::uint32_t>(obj.get("seq", 0).asUInt());
-			if (seq > peerDisplayAckedSeq && seq <= _actionSeq)
+			// coop (PRD-I0): and only when the report belongs to the side that is
+			// running. The seq namespace restarts every side, so a report from the
+			// previous one carries a number that is perfectly valid for THIS side and
+			// would credit chains the peer has not displayed. Presence-gated: an older
+			// peer stamps no `side_seq` and keeps the P7 behaviour exactly.
+			const bool sameSide = !obj.isMember("side_seq")
+				|| static_cast<std::uint32_t>(obj["side_seq"].asUInt()) == _sideSeq;
+			if (sameSide && seq > peerDisplayAckedSeq && seq <= _actionSeq)
 			{
 				peerDisplayAckedSeq = seq;
 			}
+			// coop (PRD-I0): the deferred half of the sync-check. Additive - a
+			// report with no "h" is an older peer and is skipped silently.
+			SharedEcon::syncCheckCompare(_game, obj);
 		}
 	}
 
@@ -12194,13 +12249,15 @@ bool connectionTCP::canAdmitAction()
 	return true;
 }
 
-std::uint32_t connectionTCP::stampAdmittedAction()
+std::uint32_t connectionTCP::stampAdmittedAction(const std::string& kind)
 {
 	// coop (PRD-P7): the chain that is now running owes the client an `action_end`.
 	// If the previous chain never got its marker out (a stateless kind admitted and
 	// completed inside one frame), this overwrites it - the client's watermark then
 	// jumps straight to the newer seq, which is exactly as correct and self-heals.
 	_openChainSeq = ++_actionSeq;
+	// coop (PRD-I0): the label this chain's sync-check ring entry carries.
+	_openChainKind = kind;
 	// coop (PRD-P9 3): restart the stuck-chain clock with the chain itself.
 	_openChainTicks = SDL_GetTicks();
 	_openChainWarned = false;
@@ -12220,6 +12277,8 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 	// sequence and the executor's backlog term would wedge shut.
 	_openChainSeq = 0;
 	_clientDisplaySeq = 0;
+	_clientDisplaySideSeq = 0;
+	_openChainKind.clear();
 	_openChainTicks = 0;
 	_openChainWarned = false;
 	_pendingAdmits.clear();
@@ -12234,6 +12293,13 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 		_clientReqSeq = 0;
 		clearClientPendingIntent();
 		clearClientLastDeny();
+		// coop (PRD-I0): the boundary namespace and the sync-check ring are scoped
+		// to a BATTLE, not to a side - the ring's action entries are keyed on
+		// (side_seq, seq) so they survive a boundary safely, and the boundary seqs
+		// must stay monotonic across every side of the battle.
+		_boundarySeq = 0;
+		_pendingBoundaries.clear();
+		SharedEcon::resetSyncCheck();
 	}
 	// coop (PRD-P8): readiness is scoped to a side exactly the way _actionSeq is,
 	// so it is reset from the same call - a seat carrying "I am done" across a
@@ -12529,7 +12595,7 @@ void connectionTCP::coopAdmitPendingIntents()
 		// whose deferred input has just started is not done with the side.
 		noteSeatActed(slot.seat);
 
-		const std::uint32_t seq = stampAdmittedAction();
+		const std::uint32_t seq = stampAdmittedAction(slot.kind);
 		if (!slot.local)
 		{
 			// PROTOCOL.md: the ack goes out at ADMIT time, which for a deferred
@@ -12585,12 +12651,124 @@ void connectionTCP::coopCloseActionChain()
 	{
 		return;
 	}
+	// coop (PRD-I0): the executor's hash point. This is the ONE place per admitted
+	// chain where the host is provably quiescent (isBusy false, receive gate at
+	// depth 0), so "the state after chain N" is well defined here and nowhere else.
+	// Recorded BEFORE the marker goes out, so the peer's answer can never arrive
+	// before the entry it will be matched against exists.
+	SharedEcon::syncCheckRecord(_staticGame, _openChainSeq, _sideSeq, false,
+								_openChainKind);
+
 	Json::Value root;
 	root["state"] = "action_end";
 	root["action_seq"] = static_cast<Json::UInt>(_openChainSeq);
+	// coop (PRD-I0): the side this seq belongs to, echoed back on `action_done`.
+	// The client CANNOT derive it: `endTurn` is on the interrupt whitelist while
+	// `action_end` deliberately is not, so the client's own `_sideSeq` routinely
+	// runs ahead of the markers still queued behind the receive gate. Measured
+	// without this: two of the alien side's last chains reported under the NEXT
+	// side's token, found no ring entry and were silently dropped as stale.
+	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
 	_openChainSeq = 0;
+	_openChainKind.clear();
 	_openChainTicks = 0;
 	_openChainWarned = false;
+	coop->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-I0): the boundary pseudo-seq marker.
+ *
+ * The side-close phase group (fuses, terrain explosions, SavedBattleGame::endTurn)
+ * and the side start (`next_turn` / prepareNewTurn) are the two places state moves
+ * WITHOUT any admitted chain to hang a hash on - they are also where several known
+ * seams live, so leaving them unhashed would mean every divergence introduced at a
+ * boundary got attributed to the first action of the next side.
+ *
+ * The marker rides `action_end` with `"boundary": true` rather than a new state
+ * string. That is not a saving, it is the mechanism: `action_end` is deliberately
+ * NOT on the interrupt whitelist, so the client consumes it only at receive-gate
+ * depth 0 - i.e. once every packet the host sent before it (the boundary's
+ * `fuse_events` / `next_turn`) has been APPLIED. Hash-after-apply on the client is
+ * what the boundary comparison needs, and it is the opposite of the legacy
+ * tripwire's compare-before-apply, which stays exactly as it is.
+ */
+void connectionTCP::coopArmSyncBoundary(const char* kind)
+{
+	if (!parallelTurnActive() || !getHost() || !kind)
+	{
+		return;
+	}
+	_pendingBoundaries.push_back(kind);
+}
+
+/**
+ * coop (PRD-I0): ship at most one armed boundary marker, once the executor is
+ * quiescent - the same two terms `coopCloseActionChain` waits on.
+ *
+ * Arming and sending are separate because the side-close phases run INSIDE
+ * BattlescapeGame::endTurn(), which can still have explosion or death chains
+ * queued behind it. Hashing there would compare the host mid-chain against a
+ * client that has applied those chains' packets. Waiting costs nothing: the host
+ * hashes at SEND time and the client hashes at CONSUME time, so both are the
+ * state "at this marker's position in the stream" whenever that turns out to be.
+ * The label ("endturn" / "sidestart") is a diagnostic, not part of the compare.
+ */
+void connectionTCP::coopFlushSyncBoundary()
+{
+	if (_pendingBoundaries.empty() || !parallelTurnActive() || !getHost() || !_staticGame)
+	{
+		return;
+	}
+	connectionTCP* coop = _staticGame->getCoopMod();
+	SavedGame* save = _staticGame->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	if (!coop || !battle)
+	{
+		// The battle ended under an armed marker: there is nothing to hash and
+		// nobody to answer, so drop the whole queue rather than carry it into the
+		// next battle.
+		_pendingBoundaries.clear();
+		return;
+	}
+	BattlescapeGame* bg = battle->getBattleGame();
+	if ((bg && bg->isBusy()) || !coop->coopTaskCompleted())
+	{
+		return;
+	}
+	const std::string kind = _pendingBoundaries.front();
+	_pendingBoundaries.erase(_pendingBoundaries.begin());
+	coopSendSyncBoundary(kind.c_str());
+}
+
+void connectionTCP::coopSendSyncBoundary(const char* kind)
+{
+	if (!parallelTurnActive() || !getHost() || !_staticGame)
+	{
+		return;
+	}
+	connectionTCP* coop = _staticGame->getCoopMod();
+	if (!coop)
+	{
+		return;
+	}
+	SavedGame* save = _staticGame->getSavedGame();
+	if (!save || !save->getSavedBattle())
+	{
+		return;
+	}
+	const std::uint32_t seq = ++_boundarySeq;
+	SharedEcon::syncCheckRecord(_staticGame, seq, 0, true, kind ? kind : "boundary");
+
+	Json::Value root;
+	root["state"] = "action_end";
+	// action_seq 0: the marker allocates nothing in the per-side action namespace,
+	// so PRD-P7's `_clientDisplaySeq` watermark and the display-backlog term are
+	// untouched by it (see connectionTCP::_boundarySeq for why that matters).
+	root["action_seq"] = 0;
+	root["boundary"] = true;
+	root["bseq"] = static_cast<Json::UInt>(seq);
+	root["kind"] = kind ? kind : "boundary";
 	coop->sendTCPPacketData(root.toStyledString());
 }
 
@@ -12667,6 +12845,65 @@ void connectionTCP::coopEmitActionDone()
 	root["state"] = "action_done";
 	root["seq"] = static_cast<Json::UInt>(peerDisplayAckedSeq);
 	root["seat"] = localSeat();
+	// coop (PRD-I0): the client's hash point, riding the report it was sending
+	// anyway. `side_seq` disambiguates the seq - `_actionSeq` restarts at 0 every
+	// side, so without it a report that crossed a boundary in flight would be
+	// compared against a brand-new chain carrying the same low number. It is the
+	// value the MARKER carried, never this machine's live `_sideSeq`.
+	root["side_seq"] = static_cast<Json::UInt>(_clientDisplaySideSeq);
+	SharedEcon::syncCheckAttach(_game, root);
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-I0): answer a marker whose side has already closed here.
+ *
+ * Same message, deliberately none of the bookkeeping: `_clientDisplaySeq` and
+ * `peerDisplayAckedSeq` belong to the side that is running now, and a seq from
+ * the previous one is a larger number in a namespace that has restarted. Moving
+ * either of them with it is the wedge documented at the call site. The host
+ * likewise refuses to credit it (its `action_done` handler compares `side_seq`),
+ * so this exists purely so the sync-check ring entry gets its answer instead of
+ * ageing out as "the peer stopped reporting".
+ */
+void connectionTCP::coopEmitStaleActionDone(std::uint32_t seq, std::uint32_t sideSeq)
+{
+	if (!parallelTurnActive() || getHost() || seq == 0)
+	{
+		return;
+	}
+	Json::Value root;
+	root["state"] = "action_done";
+	root["seq"] = static_cast<Json::UInt>(seq);
+	root["seat"] = localSeat();
+	root["side_seq"] = static_cast<Json::UInt>(sideSeq);
+	SharedEcon::syncCheckAttach(_game, root);
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-I0): the client's BOUNDARY hash point.
+ *
+ * Called from the `action_end` handler when the marker carries `boundary: true`.
+ * That handler runs at receive-gate depth 0, so everything the host sent before
+ * the marker has already been applied here - which is exactly the state the host
+ * hashed on its side of the boundary.
+ */
+void connectionTCP::coopEmitBoundaryDone(std::uint32_t bseq)
+{
+	if (!parallelTurnActive() || getHost() || bseq == 0)
+	{
+		return;
+	}
+	Json::Value root;
+	root["state"] = "action_done";
+	// No `seq`: the boundary namespace is separate and must not move PRD-P7's
+	// display watermark. The host's `action_done` handler reads seq 0 as a no-op.
+	root["seq"] = 0;
+	root["seat"] = localSeat();
+	root["boundary"] = true;
+	root["bseq"] = static_cast<Json::UInt>(bseq);
+	SharedEcon::syncCheckAttach(_game, root);
 	sendTCPPacketData(root.toStyledString());
 }
 

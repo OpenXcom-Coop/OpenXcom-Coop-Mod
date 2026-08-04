@@ -343,6 +343,11 @@ public:
 	bool checkReservedTU(BattleUnit *bu, int tu, int energy, bool justChecking = false);
 	/// Handles unit AI.
 	void handleAI(BattleUnit *unit);
+	/// coop (PRD-I0): stamps an AI chain with an `action_seq` at the moment the AI
+	/// commits to an action - the alien-side analogue of the arbiter admitting an
+	/// intent. Host + parallel mode only; see the definition for why it sits at the
+	/// push sites rather than around the handleAI call.
+	void coopStampAiChain();
 	/// Drops an item and affects it with gravity.
 	void dropItem(Position position, BattleItem *item, bool removeItem = false, bool updateLight = true);
 	/// Converts a unit into a unit of another type.

@@ -75,6 +75,11 @@
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/BattleItem.h"
 #include "../Savegame/BattleUnit.h"
+// PRD-I0: the sync-check sweep reads tiles (terrain/fire/smoke), inventory slot
+// ids and the TilePart enum directly.
+#include "../Savegame/Tile.h"
+#include "../Mod/MapData.h"
+#include "../Mod/RuleInventory.h"
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Mod/RuleUfo.h"
@@ -3804,6 +3809,497 @@ void resetBattleDesyncSeen()
 	g_lastBattleNotifyMs = -1;
 }
 
+// ---- PRD-I0: per-action sequenced sync-check --------------------------------
+namespace {
+
+// The PROMOTION TABLE, in BattleHashSet field order. Compile-time constant per
+// build, exactly as PRD-I0 §3 asks for - a runtime option would let a report get
+// written against a policy nobody can reconstruct afterwards.
+//
+// EVERY BUCKET IS REPORT-ONLY AT BIRTH. That is the instrumentation programme's
+// own rule (instrumentation/README.md: "Every bucket onboards REPORT-ONLY,
+// promotes to ALARM after burn-in"), and it is the only honest starting point:
+// I0 ships the DETECTOR, and until each bucket has been through the PRD-I3
+// burn-in nobody knows whether a red is a real divergence or an artefact of
+// where the two machines take the sample. Promoting a bucket early would make
+// `battleDesyncSeen` - which the soak and half a dozen other tests assert on -
+// fire on known-open seams (terrain destruction, fire/smoke decay, per-unit
+// stats), i.e. it would turn a working release gate into noise.
+//
+// PRD-I3 flips these one at a time, each with its burn-in evidence.
+const bool BATTLE_HASH_ALARM[BATTLE_HASH_BUCKETS] = {
+	false,  // terrain
+	false,  // fire
+	false,  // smoke
+	false,  // items
+	false,  // unitsCore
+	false,  // unitsStats  (PRD-I0 names this one explicitly: expected noisy)
+	false,  // itemIdCtr
+};
+
+const char* const BATTLE_HASH_NAMES[BATTLE_HASH_BUCKETS] = {
+	"terrain", "fire", "smoke", "items", "unitsCore", "unitsStats", "itemIdCtr",
+};
+
+const std::uint64_t FNV_OFFSET = 1469598103934665603ULL;
+const std::uint64_t FNV_PRIME = 1099511628211ULL;
+
+inline std::uint64_t mix(std::uint64_t h, std::int64_t v)
+{
+	return (h ^ (std::uint64_t)v) * FNV_PRIME;
+}
+
+std::uint32_t g_lastSweepUs = 0;
+
+/// One remembered "state after N" on the executor.
+struct SyncRingEntry
+{
+	bool boundary;            ///< boundary pseudo-seq namespace?
+	std::uint32_t seq;        ///< action_seq (per side) or boundary seq (per battle)
+	std::uint32_t sideSeq;    ///< the side the action seq belongs to (0 for boundary)
+	std::string kind;         ///< "walk" / "shoot" / "ai" / "endturn" / "sidestart" / ...
+	bool compared;            ///< has a peer report been matched against it?
+	BattleHashSet h;
+};
+
+// Size 64 per PRD-I0 §3. The display-backlog cap is 2, so the executor can never
+// be more than a couple of chains ahead of the peer's reports - 64 is two orders
+// of magnitude of headroom, and an overflow of an UNCOMPARED entry is therefore
+// a tripwire in its own right (it means reports stopped coming back), which is
+// why it logs.
+const size_t SYNC_RING_MAX = 64;
+std::deque<SyncRingEntry> g_syncRing;
+
+struct SyncMismatch
+{
+	std::uint32_t seq;
+	bool boundary;
+	std::string kind;
+	std::string bucket;
+};
+// Bounded: a battle that has gone wrong can produce one of these per action, and
+// the introspection block is read by a test on every poll.
+const size_t SYNC_MISMATCH_MAX = 32;
+std::deque<SyncMismatch> g_syncMismatches;
+
+std::uint64_t g_syncBucketMismatches[BATTLE_HASH_BUCKETS] = { 0 };
+// The two namespaces are tracked apart: `action_seq` restarts at 0 every side, so
+// a shared watermark would be dragged forwards by the battle-monotonic boundary
+// counter and "the deferred loop closed" would read true for ever after.
+std::uint32_t g_syncLastSeq = 0;          ///< newest ACTION seq recorded
+std::uint32_t g_syncLastComparedSeq = 0;  ///< newest ACTION seq a peer report closed
+std::uint32_t g_syncLastBoundarySeq = 0;
+std::uint32_t g_syncLastComparedBoundarySeq = 0;
+std::uint64_t g_syncCompares = 0;         ///< reports matched to a ring entry
+std::uint64_t g_syncStaleReports = 0;     ///< reports with no ring entry left
+std::uint64_t g_syncDropped = 0;          ///< uncompared entries evicted by overflow
+// Compared entries by kind. The only way a test can prove COVERAGE rather than
+// mere silence: "the alien side ran and 7 of its chains were compared" is a
+// different statement from "nothing complained", and PRD-I0's first scenario
+// needs the former (a seq extension that silently stamped nothing would pass a
+// zero-mismatch assertion perfectly).
+std::map<std::string, std::uint64_t> g_syncKindCompares;
+
+} // namespace
+
+const char* battleHashBucketName(int i)
+{
+	return (i >= 0 && i < BATTLE_HASH_BUCKETS) ? BATTLE_HASH_NAMES[i] : "?";
+}
+
+std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i)
+{
+	switch (i)
+	{
+	case 0: return h.terrain;
+	case 1: return h.fire;
+	case 2: return h.smoke;
+	case 3: return h.items;
+	case 4: return h.unitsCore;
+	case 5: return h.unitsStats;
+	case 6: return h.itemIdCtr;
+	default: return 0;
+	}
+}
+
+bool battleHashBucketAlarms(int i)
+{
+	return (i >= 0 && i < BATTLE_HASH_BUCKETS) && BATTLE_HASH_ALARM[i];
+}
+
+std::uint32_t battleHashLastSweepUs()
+{
+	return g_lastSweepUs;
+}
+
+/**
+ * ONE sweep, seven buckets.
+ *
+ * Three loops - tiles, items, units - and a counter read. Every term is a SUM of
+ * per-entity FNV-1a mixes rather than a rolling hash, for the reason the PRD-P2
+ * terms already document: neither the tile array, nor `_items`, nor `_units` has
+ * a replicated ORDER, so a term that depended on it would be a permanent red.
+ *
+ * FNV is spelled out rather than delegated to std::hash because the two machines
+ * are not necessarily the same build (Windows .exe vs the Linux AppImage) and
+ * std::hash is implementation-defined.
+ */
+bool computeBattleHashes(Game* game, BattleHashSet& out)
+{
+	out.terrain = out.fire = out.smoke = out.items = 0;
+	out.unitsCore = out.unitsStats = out.itemIdCtr = 0;
+	if (!game || !game->getSavedGame()) return false;
+	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
+	if (!battle) return false;
+
+	const auto t0 = std::chrono::steady_clock::now();
+
+	// --- tiles: terrain, fire, smoke ---------------------------------------
+	//
+	// terrain hashes the four TilePart map-data IDs, which is precisely what the
+	// `destroy_tile` packet mutates on the peer (Tile::destroyCoop swaps the part
+	// for its died-for object or clears it), plus the explosive accumulator that
+	// packet also carries. NOT the animation frame, not the discovered/FOW bits:
+	// the first is a display phase the two machines are never on the same frame
+	// of, and the second is gated on a design decision PRD-I3 owns.
+	//
+	// A VOID tile contributes nothing at all, so the common case (open air above
+	// the map) costs one branch. That is safe rather than merely fast: the skip is
+	// a pure function of the tile's own state, so a tile that went void on ONE
+	// machine is skipped there and mixed here, and the sums differ - which is the
+	// detection we want.
+	const int tileCount = battle->getMapSizeXYZ();
+	for (int i = 0; i < tileCount; ++i)
+	{
+		Tile* tile = battle->getTile(i);
+		if (!tile) continue;
+
+		// NOT Tile::isVoid(): that also answers false for smoke and for a tile that
+		// merely has an item lying on it, which would make `terrain` move whenever
+		// `items` or `smoke` did - and a bucket that is not independent of its
+		// neighbours cannot attribute anything. The skip here is map data only.
+		bool hasPart = false;
+		for (int part = 0; part < O_MAX && !hasPart; ++part)
+		{
+			hasPart = tile->getMapData((TilePart)part) != nullptr;
+		}
+		if (hasPart || tile->getExplosive() != 0)
+		{
+			std::uint64_t h = FNV_OFFSET;
+			h = mix(h, i);
+			for (int part = 0; part < O_MAX; ++part)
+			{
+				int mapDataID = -1, mapDataSetID = -1;
+				tile->getMapData(&mapDataID, &mapDataSetID, (TilePart)part);
+				h = mix(h, mapDataID);
+				h = mix(h, mapDataSetID);
+			}
+			h = mix(h, tile->getExplosive());
+			h = mix(h, tile->getExplosiveType());
+			out.terrain += h;
+		}
+
+		// The soak's `battle_tiles` census fields, which many clean runs have shown
+		// to be equal at a side boundary - so they are a detector, not a red.
+		const int f = tile->getFire();
+		if (f > 0)
+		{
+			std::uint64_t h = FNV_OFFSET;
+			h = mix(h, i);
+			h = mix(h, f);
+			out.fire += h;
+		}
+		const int sm = tile->getSmoke();
+		if (sm > 0)
+		{
+			std::uint64_t h = FNV_OFFSET;
+			h = mix(h, i);
+			h = mix(h, sm);
+			out.smoke += h;
+		}
+	}
+
+	// --- items: the STRICT census ------------------------------------------
+	// Wider than chkBattleCensus (which is id + type + owner): slot, tile
+	// position and fuse are all replicated state, and each of them is a family of
+	// drift the identity triple cannot see - an item in the wrong hand, an item
+	// on the wrong floor tile, a grenade primed on one machine only.
+	for (BattleItem* item : *battle->getItems())
+	{
+		if (!item) continue;
+		std::uint64_t h = FNV_OFFSET;
+		h = mix(h, item->getId());
+		h ^= fnv1a(item->getRules() ? item->getRules()->getType() : std::string("?"));
+		h *= FNV_PRIME;
+		h = mix(h, item->getOwner() ? item->getOwner()->getId() : -1);
+		h ^= fnv1a(item->getSlot() ? item->getSlot()->getId() : std::string("-"));
+		h *= FNV_PRIME;
+		h = mix(h, item->getSlotX());
+		h = mix(h, item->getSlotY());
+		const Tile* t = item->getTile();
+		h = mix(h, t ? t->getPosition().x : -1);
+		h = mix(h, t ? t->getPosition().y : -1);
+		h = mix(h, t ? t->getPosition().z : -1);
+		h = mix(h, item->getFuseTimer());
+		out.items += h;
+	}
+
+	// --- units: core identity/liveness/position, then the full-fidelity stats --
+	for (BattleUnit* unit : *battle->getUnits())
+	{
+		if (!unit) continue;
+		const Position p = unit->getPosition();
+
+		// EXACTLY the chkBattleUnits field set (id, faction, liveness, position),
+		// reusing unitLiveness() so the two detectors can never disagree about what
+		// "down" means.
+		std::uint64_t c = FNV_OFFSET;
+		c = mix(c, unit->getId());
+		c = mix(c, (int)unit->getFaction());
+		c = mix(c, unitLiveness(unit));
+		c = mix(c, p.x);
+		c = mix(c, p.y);
+		c = mix(c, p.z);
+		out.unitsCore += c;
+
+		// The bucket PRD-I0 flags as expected-noisy, and the reason the split
+		// exists: both machines regenerate TU, bleed fatal wounds and recover stun
+		// in their OWN prepareNewTurn, so this term straddles state the protocol
+		// repairs rather than replicates. It is here because it is also the term
+		// that catches a cost charged on one machine only - which is the single
+		// most common parallel-turns bug found so far (PRD-P9's legacy-packet cost
+		// replication was exactly this). Report-only until PRD-I3 burns it in.
+		std::uint64_t s = FNV_OFFSET;
+		s = mix(s, unit->getId());
+		s = mix(s, unit->getTimeUnits());
+		s = mix(s, unit->getEnergy());
+		s = mix(s, unit->getHealth());
+		s = mix(s, unit->getStunlevel());
+		s = mix(s, unit->getMorale());
+		s = mix(s, unit->getMana());
+		s = mix(s, unit->getFire());
+		s = mix(s, unit->isKneeled() ? 1 : 0);
+		s = mix(s, unit->getMindControllerId());
+		const int* wounds = unit->getFatalWoundsCoop();
+		for (int part = 0; part < BODYPART_MAX; ++part)
+		{
+			s = mix(s, wounds ? wounds[part] : 0);
+		}
+		out.unitsStats += s;
+	}
+
+	out.itemIdCtr = (std::uint64_t)(std::int64_t)battle->getCurrentItemIdValue();
+
+	g_lastSweepUs = (std::uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now() - t0).count();
+	return true;
+}
+
+void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
+					 bool boundary, const std::string& kind)
+{
+	SyncRingEntry e;
+	e.boundary = boundary;
+	e.seq = seq;
+	e.sideSeq = boundary ? 0 : sideSeq;
+	e.kind = kind;
+	e.compared = false;
+	if (!computeBattleHashes(game, e.h)) return; // no battle: nothing to remember
+
+	while (g_syncRing.size() >= SYNC_RING_MAX)
+	{
+		// PRD-I0 §3: overflow drops the OLDEST, with a log. Only an entry that was
+		// never answered is worth a line - evicting a compared one is the ring
+		// doing its job.
+		if (!g_syncRing.front().compared)
+		{
+			++g_syncDropped;
+			Log(LOG_WARNING) << "[COOP] SYNC-CHECK ring overflow: dropping uncompared seq "
+							 << g_syncRing.front().seq
+							 << (g_syncRing.front().boundary ? " (boundary)" : "")
+							 << " kind=" << g_syncRing.front().kind
+							 << " - the peer has stopped reporting hashes";
+		}
+		g_syncRing.pop_front();
+	}
+	g_syncRing.push_back(e);
+	if (boundary) g_syncLastBoundarySeq = seq;
+	else g_syncLastSeq = seq;
+}
+
+void syncCheckAttach(Game* game, Json::Value& msg)
+{
+	BattleHashSet h;
+	if (!computeBattleHashes(game, h)) return;
+	Json::Value node(Json::objectValue);
+	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i)
+	{
+		node[BATTLE_HASH_NAMES[i]] = static_cast<Json::UInt64>(battleHashBucketValue(h, i));
+	}
+	msg["h"] = node;
+}
+
+void syncCheckCompare(Game* game, const Json::Value& msg)
+{
+	if (!msg.isMember("h")) return; // older peer: additive field absent = skip
+	const Json::Value& node = msg["h"];
+	if (!node.isObject()) return;
+
+	const bool boundary = msg.get("boundary", false).asBool();
+	const std::uint32_t seq = boundary
+		? static_cast<std::uint32_t>(msg.get("bseq", 0).asUInt())
+		: static_cast<std::uint32_t>(msg.get("seq", 0).asUInt());
+	const std::uint32_t sideSeq = static_cast<std::uint32_t>(msg.get("side_seq", 0).asUInt());
+	if (seq == 0) return;
+
+	SyncRingEntry* entry = nullptr;
+	for (auto& e : g_syncRing)
+	{
+		// SUBSUMPTION. The client's report carries `_clientDisplaySeq`, which is
+		// allowed to JUMP (a parked report released by the test hold lever, or two
+		// markers consumed before an emit) - and when it does, its hash is the state
+		// after ALL of the chains it skipped, so those entries can never get an
+		// answer of their own. Closing them out here is not a fudge: it is what
+		// stops the ring's overflow warning - "the peer has stopped reporting" -
+		// from firing on chains the peer answered collectively.
+		if (e.boundary == boundary && !e.compared && e.seq < seq
+			&& (boundary || e.sideSeq == sideSeq))
+		{
+			e.compared = true;
+		}
+		// `action_seq` restarts at 0 every side, so the ACTION namespace is keyed
+		// on (side_seq, seq); the boundary namespace is monotonic per battle and
+		// needs no side. Without the side term a report that crossed a boundary in
+		// flight would be compared against a brand-new chain that happens to carry
+		// the same low seq - i.e. a guaranteed false red once a side.
+		if (e.boundary == boundary && e.seq == seq
+			&& (boundary || e.sideSeq == sideSeq))
+		{
+			entry = &e;
+			break;
+		}
+	}
+	if (!entry)
+	{
+		++g_syncStaleReports;
+		return;
+	}
+	entry->compared = true;
+	++g_syncCompares;
+	++g_syncKindCompares[entry->kind.empty() ? std::string("?") : entry->kind];
+	// FOLLOW rather than max: the action namespace restarts at 0 every side, so a
+	// max would leave the watermark stuck on the previous side's highest seq and
+	// "the loop has closed" would never be false again.
+	if (boundary) g_syncLastComparedBoundarySeq = seq;
+	else g_syncLastComparedSeq = seq;
+
+	bool alarm = false;
+	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i)
+	{
+		const char* name = BATTLE_HASH_NAMES[i];
+		if (!node.isMember(name)) continue; // a peer that predates this bucket
+		const std::uint64_t peer = static_cast<std::uint64_t>(node[name].asUInt64());
+		const std::uint64_t mine = battleHashBucketValue(entry->h, i);
+		if (peer == mine) continue;
+
+		++g_syncBucketMismatches[i];
+		if (g_syncMismatches.size() >= SYNC_MISMATCH_MAX) g_syncMismatches.pop_front();
+		SyncMismatch m;
+		m.seq = seq;
+		m.boundary = boundary;
+		m.kind = entry->kind;
+		m.bucket = name;
+		g_syncMismatches.push_back(m);
+
+		Log(LOG_ERROR) << "[COOP] SYNC-CHECK MISMATCH seq=" << seq
+					   << (boundary ? " (boundary)" : "")
+					   << " kind=" << (entry->kind.empty() ? "?" : entry->kind)
+					   << " bucket=" << name
+					   << " host=" << mine << " peer=" << peer
+					   << (battleHashBucketAlarms(i) ? " [ALARM]" : " [report-only]");
+		if (battleHashBucketAlarms(i)) alarm = true;
+	}
+
+	if (!alarm) return;
+
+	// ALARM route: the SAME path the PRD-P2 tripwire takes, deliberately - one
+	// latch, one banner, one bundle (once PRD-I4 lands), whichever detector spoke.
+	g_battleDesyncSeen = true;
+	SavedBattleGame* battle = game && game->getSavedGame()
+		? game->getSavedGame()->getSavedBattle() : nullptr;
+	const std::int64_t nowMs = steadyMs();
+	if (g_lastBattleNotifyMs >= 0 && nowMs - g_lastBattleNotifyMs < RESYNC_DEBOUNCE_MS) return;
+	g_lastBattleNotifyMs = nowMs;
+	if (battle)
+	{
+		if (BattlescapeState* bs = battle->getBattleState())
+		{
+			bs->warningLongRaw("CO-OP DESYNC DETECTED - SEE openxcom.log");
+		}
+	}
+}
+
+void syncCheckReport(Json::Value& out)
+{
+	Json::Value node(Json::objectValue);
+	node["lastSeq"] = static_cast<Json::UInt>(g_syncLastSeq);
+	node["lastComparedSeq"] = static_cast<Json::UInt>(g_syncLastComparedSeq);
+	node["lastBoundarySeq"] = static_cast<Json::UInt>(g_syncLastBoundarySeq);
+	node["lastComparedBoundarySeq"] = static_cast<Json::UInt>(g_syncLastComparedBoundarySeq);
+	node["ringDepth"] = static_cast<Json::UInt>(g_syncRing.size());
+	node["compares"] = static_cast<Json::UInt64>(g_syncCompares);
+	node["staleReports"] = static_cast<Json::UInt64>(g_syncStaleReports);
+	node["dropped"] = static_cast<Json::UInt64>(g_syncDropped);
+	node["sweepUs"] = static_cast<Json::UInt>(g_lastSweepUs);
+	Json::Value kinds(Json::objectValue);
+	for (const auto& kv : g_syncKindCompares)
+	{
+		kinds[kv.first] = static_cast<Json::UInt64>(kv.second);
+	}
+	node["comparedKinds"] = kinds;
+
+	Json::Value buckets(Json::objectValue);
+	std::uint64_t total = 0;
+	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i)
+	{
+		Json::Value b(Json::objectValue);
+		b["alarm"] = BATTLE_HASH_ALARM[i];
+		b["mismatchCount"] = static_cast<Json::UInt64>(g_syncBucketMismatches[i]);
+		buckets[BATTLE_HASH_NAMES[i]] = b;
+		total += g_syncBucketMismatches[i];
+	}
+	node["buckets"] = buckets;
+	node["mismatchCount"] = static_cast<Json::UInt64>(total);
+
+	Json::Value list(Json::arrayValue);
+	for (const auto& m : g_syncMismatches)
+	{
+		Json::Value j(Json::objectValue);
+		j["seq"] = static_cast<Json::UInt>(m.seq);
+		j["boundary"] = m.boundary;
+		j["kind"] = m.kind;
+		j["bucket"] = m.bucket;
+		list.append(j);
+	}
+	node["mismatches"] = list;
+	out["syncCheck"] = node;
+}
+
+void resetSyncCheck()
+{
+	g_syncRing.clear();
+	g_syncMismatches.clear();
+	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i) g_syncBucketMismatches[i] = 0;
+	g_syncLastSeq = 0;
+	g_syncLastComparedSeq = 0;
+	g_syncLastBoundarySeq = 0;
+	g_syncLastComparedBoundarySeq = 0;
+	g_syncCompares = 0;
+	g_syncStaleReports = 0;
+	g_syncDropped = 0;
+	g_syncKindCompares.clear();
+}
+
 void attachWorldChecksum(Game* game, Json::Value& msg)
 {
 	if (!game || !game->getSavedGame()) return;
@@ -3989,6 +4485,7 @@ void resetResyncStats()
 	g_mismatchSinceMs = -1;
 	g_lastResyncGameMin = -1;
 	resetBattleDesyncSeen(); // PRD-P2: same "clear the diagnostics" request
+	resetSyncCheck();        // PRD-I0: and the per-action detector's ring + latches
 }
 
 // ---- PRD-P4: Tier-A spawn id-manifest ----------------------------------------
