@@ -27,6 +27,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <sstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -3576,10 +3577,34 @@ uint64_t fnv1a(const std::string& s)
 }
 } // namespace
 
-bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census)
+// The unit term's status field. NOT the raw UnitStatus: STANDING / WALKING /
+// FLYING / TURNING / AIMING / COLLAPSING / PANICKING / BERSERK are ANIMATION
+// phases, and the two machines are never on the same animation frame - the peer
+// is a display that lags the executor by whatever the packet took to arrive.
+// Hashing the raw enum would fire on every turn where anything was still moving.
+//
+// What must agree is the one classification the protocol really does replicate
+// and that nothing may quietly disagree about: is this unit on its feet, dead, or
+// unconscious. That is exactly BattleUnit::isOut() refined by WHICH of the two
+// out-states it is (dead vs merely stunned is a real difference - a stunned unit
+// can wake up and shoot), and it is the term the PRD-P9 soak asserts.
+int unitLiveness(const BattleUnit* unit)
+{
+	switch (unit->getStatus())
+	{
+	case STATUS_DEAD:        return 1;
+	case STATUS_UNCONSCIOUS: return 2;
+	case STATUS_IGNORE_ME:   return 3;  // isOut() counts this too (isIgnored())
+	default:                 return 0;  // on its feet, however it is animating
+	}
+}
+
+bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census,
+						 int64_t& units)
 {
 	itemIdCounter = -1;
 	census = -1;
+	units = -1;
 	if (!game || !game->getSavedGame()) return false;
 	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
 	if (!battle) return false;
@@ -3599,25 +3624,67 @@ bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census)
 	// Fold into the non-negative range: a negative wire value is the "the peer did
 	// not stamp this" sentinel and must never be producible by a real battle.
 	census = (int64_t)(sum & 0x3FFFFFFFFFFFFFFFULL);
+
+	// The unit term. FIELDS: id, faction, liveness (see unitLiveness) and position.
+	//
+	// DELIBERATELY EXCLUDED, every one of them because it is known to differ
+	// LEGITIMATELY at the instant this is compared:
+	//   * TU / energy of a NON-player unit. An alien's remaining TU is spent by AI
+	//     that runs on the executor alone and reaction fire leaves it a point or
+	//     two apart here - a pre-existing classic co-op accounting seam the soak
+	//     reports rather than asserts (test_parallel_soak.tu_report).
+	//   * TU / energy at all. Only the walk packet and the two cost packets carry
+	//     energy, and BOTH machines regenerate TU in their own prepareNewTurn -
+	//     which straddles this very stamp.
+	//   * health / stun / fatal wounds / morale / mana. Same reason: prepareNewTurn
+	//     bleeds fatal wounds and recovers stun independently on each machine, so
+	//     whether the stamp was taken before or after that pass is a coin flip.
+	//   * the raw animation status and the facing (see unitLiveness).
+	// What is left is the intersection with the set the PRD-P9 soak ASSERTS after
+	// every side - id, position, isOut - which many clean soaks have shown to be
+	// drift-free at a side boundary, plus faction (mind control replicates through
+	// `psi_result` immediately in PVE, and PVP's deferred flip is not a mode this
+	// term is compared in) and the dead/unconscious split isOut() collapses.
+	uint64_t usum = 0;
+	for (BattleUnit* unit : *battle->getUnits())
+	{
+		if (!unit) continue;
+		const Position p = unit->getPosition();
+		uint64_t h = 1469598103934665603ULL;
+		h = (h ^ (uint64_t)(int64_t)unit->getId()) * 1099511628211ULL;
+		h = (h ^ (uint64_t)(int64_t)(int)unit->getFaction()) * 1099511628211ULL;
+		h = (h ^ (uint64_t)(int64_t)unitLiveness(unit)) * 1099511628211ULL;
+		h = (h ^ (uint64_t)(int64_t)p.x) * 1099511628211ULL;
+		h = (h ^ (uint64_t)(int64_t)p.y) * 1099511628211ULL;
+		h = (h ^ (uint64_t)(int64_t)p.z) * 1099511628211ULL;
+		// SUM again, for the same reason as the item census: _units order is not
+		// something the protocol replicates.
+		usum += h;
+	}
+	units = (int64_t)(usum & 0x3FFFFFFFFFFFFFFFULL);
 	return true;
 }
 
 void attachBattleChecksum(Game* game, Json::Value& msg)
 {
-	int64_t itemIdCounter, census;
-	if (!battleChecksumTerms(game, itemIdCounter, census)) return; // no live battle
+	int64_t itemIdCounter, census, units;
+	if (!battleChecksumTerms(game, itemIdCounter, census, units)) return; // no battle
 	msg["chkBattleItemId"] = Json::Value::Int64(itemIdCounter);
 	msg["chkBattleCensus"] = Json::Value::Int64(census);
+	msg["chkBattleUnits"] = Json::Value::Int64(units);
 }
 
 void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string& context)
 {
 	const int64_t peerItemId = msg.get("chkBattleItemId", -1).asInt64();
 	const int64_t peerCensus = msg.get("chkBattleCensus", -1).asInt64();
-	if (peerItemId < 0 && peerCensus < 0) return; // old peer, or it has no battle
+	// Additive: a peer that predates the unit term stamps nothing here, which reads
+	// back as the same -1 "agree" sentinel the other two use.
+	const int64_t peerUnits = msg.get("chkBattleUnits", -1).asInt64();
+	if (peerItemId < 0 && peerCensus < 0 && peerUnits < 0) return; // old peer / no battle
 
-	int64_t myItemId, myCensus;
-	if (!battleChecksumTerms(game, myItemId, myCensus)) return; // no battle here
+	int64_t myItemId, myCensus, myUnits;
+	if (!battleChecksumTerms(game, myItemId, myCensus, myUnits)) return; // no battle here
 
 	// coop (PRD-P10): not comparable mid-death. A death replay that is still
 	// QUEUED here has not minted its corpse yet, so both terms are legitimately
@@ -3632,8 +3699,22 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 		return;
 	}
 
+	// coop: the unit term is a QUIESCENT-state invariant - where every unit is and
+	// whether it is down. `next_turn` carries no subject, so the in-order receive
+	// pump lets it overtake a per-unit chain it could not consume in the same pass
+	// (PRD-P11's design, and correct: the snapshot is a repair). While it has, this
+	// machine is one walk or one death behind the peer THROUGH THE PROTOCOL WORKING
+	// AS INTENDED - the deferred chain applies a tick later and lands on the same
+	// tile. Comparing there reports a divergence that never existed. Measured in a
+	// PRD-P9 soak: an alien three tiles and 12 TU apart at the stamp, identical
+	// again by the time the side settled.
+	//
+	// The ITEM terms keep comparing unconditionally: an item id minted on one
+	// machine only is not a state a late chain can heal.
+	const bool unitsComparable = !rxPassDeferred();
 	if ((peerItemId < 0 || peerItemId == myItemId)
-		&& (peerCensus < 0 || peerCensus == myCensus))
+		&& (peerCensus < 0 || peerCensus == myCensus)
+		&& (peerUnits < 0 || !unitsComparable || peerUnits == myUnits))
 	{
 		if (g_battleMismatchLogged)
 		{
@@ -3653,17 +3734,46 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 		g_battleMismatchLogged = true;
 		BattlescapeGame* bg = battle->getBattleGame();
 		const BattleUnit* sel = battle->getSelectedUnit();
+		// WHICH TERM diverged is the first question a reader has - the three watch
+		// different things (item identity, item-id minting, unit position/liveness)
+		// and point at completely different families of bug.
+		std::string which;
+		if (peerItemId >= 0 && peerItemId != myItemId) which += "itemId ";
+		if (peerCensus >= 0 && peerCensus != myCensus) which += "census ";
+		if (peerUnits >= 0 && unitsComparable && peerUnits != myUnits) which += "units ";
 		// "Last action context" is what exists pre-PRD-P6: the packet that carried
 		// the stamp, the turn, and this machine's live action/selection. P6's
 		// action_seq replaces the last two once intents are numbered.
 		Log(LOG_ERROR) << "[COOP] BATTLE DESYNC on " << context
-			<< ": itemId peer=" << peerItemId << " local=" << myItemId
+			<< ": term(s) " << which
+			<< "- itemId peer=" << peerItemId << " local=" << myItemId
 			<< ", census peer=" << peerCensus << " local=" << myCensus
+			<< ", units peer=" << peerUnits << " local=" << myUnits
 			<< ", turn=" << battle->getTurn()
 			<< ", side=" << (int)battle->getSide()
 			<< ", items=" << (int)battle->getItems()->size()
 			<< ", localAction=" << (bg ? (int)bg->getCurrentAction()->type : -1)
 			<< ", selected=" << (sel ? sel->getId() : -1);
+
+		// A sum says THAT the unit sets differ, never WHICH unit - and unlike the
+		// item census there is no `battle_items` equivalent a player can be asked
+		// to run. So the unit term dumps its own inputs, once, bounded by the unit
+		// count (a battle has tens): diffing the two machines' log lines then names
+		// the unit in one step. Same fields the term hashes, in the same order.
+		if (peerUnits >= 0 && unitsComparable && peerUnits != myUnits)
+		{
+			std::ostringstream dump;
+			for (BattleUnit* u : *battle->getUnits())
+			{
+				if (!u) continue;
+				const Position p = u->getPosition();
+				dump << " " << u->getId() << ":f" << (int)u->getFaction()
+					 << "/l" << unitLiveness(u) << "/s" << (int)u->getStatus()
+					 << "@" << p.x << "," << p.y << "," << p.z;
+			}
+			Log(LOG_ERROR) << "[COOP] BATTLE DESYNC units here (id:faction/liveness/"
+						   << "rawstatus@x,y,z):" << dump.str();
+		}
 	}
 
 	// One player-facing notify per debounce window - the same constant the world

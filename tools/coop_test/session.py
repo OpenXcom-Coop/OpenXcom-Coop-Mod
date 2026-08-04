@@ -295,34 +295,63 @@ def resume_campaign_battle(host, client, save_file, port="47900",
 # ---- PRD-P2: the battlescape drift terms -----------------------------------
 
 def battle_checksum(gc):
-    """One machine's two battle drift terms, read off `battle_state`.
+    """One machine's three battle drift terms, read off `battle_state`.
 
-    Returns (itemIdCounter, battleCensus) - exactly what SharedEcon stamps on the
-    per-turn `next_turn` packet as chkBattleItemId / chkBattleCensus:
+    Returns (itemIdCounter, battleCensus, battleUnitsChecksum) - exactly what
+    SharedEcon stamps on the per-turn `next_turn` packet as chkBattleItemId /
+    chkBattleCensus / chkBattleUnits:
 
       itemIdCounter  SavedBattleGame::_itemId, the next id this machine will mint.
                      EVERY `new BattleItem` advances it, so a mint that happens on
                      one machine only shows up here immediately.
       battleCensus   an order-independent sum over getItems() of the item identity
                      the wire protocol matches on (id + type + owner unit id).
+      battleUnits    the same shape over getUnits(): id + faction + LIVENESS
+                     (on its feet / dead / unconscious - not the raw animation
+                     status, which legitimately differs frame to frame) +
+                     position. Deliberately carries no TU, energy, health, stun,
+                     wounds, morale or mana; see SharedEcon::battleChecksumTerms
+                     for why each of those would be a permanent red rather than a
+                     detector.
 
-    Both are -1 when no battle is live.
+    All three are -1 when no battle is live.
     """
     b = gc.cmd({"cmd": "battle_state"})
-    for key in ("itemIdCounter", "battleCensus"):
+    for key in ("itemIdCounter", "battleCensus", "battleUnitsChecksum"):
         assert key in b, (
             f"battle_state carries no {key!r} - PRD-P2's harness exposure is "
             f"missing, so this assertion would be vacuous: {sorted(b)}")
-    return b["itemIdCounter"], b["battleCensus"]
+    return b["itemIdCounter"], b["battleCensus"], b["battleUnitsChecksum"]
 
 
 def assert_battle_synced(host, client, what=""):
     """PRD-P2's invariant: after every replicated action the two machines hold the
-    same item-id counter AND the same item census.
+    same item-id counter and the same item census.
 
-    This is the harness-side reading of the same two terms the in-game tripwire
-    compares on `next_turn` - direct, so a test can check it after a single action
-    instead of waiting for a turn to roll over. Returns the (agreed) pair.
+    This is the harness-side reading of the terms the in-game tripwire compares on
+    `next_turn` - direct, so a test can check it after a single action instead of
+    waiting for a turn to roll over. Returns the (agreed) triple.
+
+    The UNIT term is READ and REPORTED here, never asserted, and the difference is
+    deliberate rather than timid:
+
+    * The two ITEM terms are permanent facts. An id minted on one machine only, or
+      an item that exists on one machine only, never heals - so wherever a test
+      calls this, an inequality is a bug.
+    * The UNIT term is a SETTLING quantity. It hashes where every unit is and
+      whether it is down, and the peer is a display that lags the executor by
+      whatever is still in flight. Worse, some of its inputs differ LEGITIMATELY
+      for a whole side: `test_coop_outcome_gaps` documents (and deliberately does
+      not assert) a spawned unit sitting a z-level apart after a blast, because
+      gravity follows host-authoritative terrain destruction and `next_turn` is
+      what repairs it.
+
+    So the unit term is asserted where it IS an invariant - by the in-game tripwire
+    at the turn boundary (SharedEcon::verifyBattleChecksum, which also skips itself
+    when the receive pump applied that stamp out of order), and by
+    test_parallel_soak's own per-unit census, which is taken only after both
+    machines are provably quiescent. Here it is a signal, printed with the term
+    named so a failure elsewhere has a breadcrumb.
     """
     h = battle_checksum(host)
     c = battle_checksum(client)
@@ -330,13 +359,18 @@ def assert_battle_synced(host, client, what=""):
     assert h[0] >= 0 and c[0] >= 0, (
         f"battle drift terms{tag}: no live battle to compare "
         f"(host={h}, client={c})")
-    assert h == c, (
+    assert h[:2] == c[:2], (
         f"BATTLE DRIFT{tag}: the two machines no longer agree.\n"
         f"    itemIdCounter host={h[0]} client={c[0]}"
         f"{'  <-- an item was minted on one machine only' if h[0] != c[0] else ''}\n"
         f"    battleCensus  host={h[1]} client={c[1]}"
         f"{'  <-- the (id, type, owner) item sets differ' if h[1] != c[1] else ''}\n"
-        f"  `battle_items` on both machines shows which item.")
+        f"    battleUnits   host={h[2]} client={c[2]}\n"
+        f"  `battle_items` / `battle_state` units on both machines shows which.")
+    if h[2] != c[2]:
+        print(f"    NOTE{tag}: battleUnits differs (host={h[2]} client={c[2]}) - a "
+              f"unit is in a different place, faction or liveness state. Reported, "
+              f"not asserted; see assert_battle_synced.__doc__.")
     return h
 
 

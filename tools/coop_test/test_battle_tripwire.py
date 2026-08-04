@@ -6,17 +6,24 @@ generation (both machines generate the same battle deterministically) and it is 
 first thing to drift once they simulate independently - a peer-side `new BattleItem`,
 an un-scoped transient mint, a lost item.
 
+A THIRD term watches the units: `chkBattleUnits`, an order-independent sum over
+getUnits() of id + faction + LIVENESS (on its feet / dead / unconscious) +
+position. Neither item term can see a unit that is dead on one machine and
+standing on the other until a corpse is minted, which is a whole side too late -
+and "dead here, standing there" is the single most reported co-op battle drift.
+
 P2 makes that invariant OBSERVABLE, two ways:
 
-  3a  SharedEcon::attachWorldChecksum stamps chkBattleItemId / chkBattleCensus
-      whenever a battle is live, so the harness' `shared_checksum` hook and
-      `battle_state` expose both terms (session.battle_checksum /
+  3a  SharedEcon::attachWorldChecksum stamps chkBattleItemId / chkBattleCensus /
+      chkBattleUnits whenever a battle is live, so the harness' `shared_checksum`
+      hook and `battle_state` expose all three terms (session.battle_checksum /
       session.assert_battle_synced).
-  3b  The host stamps the same two terms on the per-turn `next_turn` packet and the
-      client compares them. A mismatch logs, notifies once per RESYNC_DEBOUNCE_MS
-      through the in-battle warning banner, and raises `desyncSeen` - and does
-      NOTHING else. It must never trigger the world restream: that replaces the
-      whole state stack, which mid-battle means destroying the running battle.
+  3b  The host stamps the same three terms on the per-turn `next_turn` packet and
+      the client compares them. A mismatch logs, notifies once per
+      RESYNC_DEBOUNCE_MS through the in-battle warning banner, and raises
+      `desyncSeen` - and does NOTHING else. It must never trigger the world
+      restream: that replaces the whole state stack, which mid-battle means
+      destroying the running battle.
 
 What this test asserts:
 
@@ -38,6 +45,14 @@ What this test asserts:
      terms apart. Within one turn the client's tripwire fires, and the battle is
      still live, still on the battlescape, and still playable (a walk driven after
      the fire still replicates), with no resync request sent.
+  4b. The UNIT term, red and green (section 5). A one-sided status write - the
+     `battle_intent` `status` lever, a bare local assignment nothing in the
+     protocol replicates - moves `battleUnitsChecksum` on ONE machine and leaves
+     both item terms untouched, which is the exclusivity proof: only the new term
+     can see this class of divergence. The in-game tripwire then fires on it and
+     its log line NAMES `units` and dumps this machine's per-unit state - and the
+     divergence is REPAIRED by the same `next_turn` that detected it, which is
+     only possible because the compare runs ahead of the bulk overwrite.
 
 The divergence lever is a TEST-ONLY use of an existing harness command; no
 divergence mechanism ships in the game.
@@ -108,6 +123,34 @@ def wait_until(fn, timeout, interval=0.4):
             return True
         time.sleep(interval)
     return False
+
+
+# ---- the log ---------------------------------------------------------------
+# The tripwire's whole output is a log line, so its CONTENT is an assertion
+# target: which term moved, and the per-unit dump. Options::getUserFolder() is
+# exactly the -user directory the harness handed this instance
+# (Options.cpp: setLogFileName(getUserFolder() + "openxcom.log")), so the two
+# machines can never write into the same file. Read from a MARK taken before the
+# turn under test, or an earlier episode's line would satisfy the assertion.
+
+def log_path(gc):
+    return os.path.join(gc.user_dir, "openxcom.log")
+
+
+def log_size(gc):
+    try:
+        return os.path.getsize(log_path(gc))
+    except OSError:
+        return 0
+
+
+def read_log(gc, mark=0):
+    try:
+        with open(log_path(gc), "rb") as f:
+            f.seek(mark)
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
 
 
 # ---- fixture ---------------------------------------------------------------
@@ -259,10 +302,46 @@ def cycle_turn(host, client, timeout=300):
 
 def report(host, client, what):
     h, c = terms(host), terms(client)
-    print(f"    {what}: host itemId={h[0]} census={h[1]} | "
-          f"client itemId={c[0]} census={c[1]} | "
+    print(f"    {what}: host itemId={h[0]} census={h[1]} units={h[2]} | "
+          f"client itemId={c[0]} census={c[1]} units={c[2]} | "
           f"desyncSeen host={desync_seen(host)} client={desync_seen(client)}")
     return h, c
+
+
+def wait_units_settled(host, client, samples=3, max_wait=60, interval=1.0):
+    """Both machines hold the SAME unit term and neither is still moving.
+
+    A precondition for the one-sided lever below, not a nicety. The lever writes
+    a unit's status on the client and reads the term back a round-trip later; a
+    replay chain still DRAINING on the client rewrites unit position and status
+    as each packet lands, so a write made into that window is silently undone
+    between the two reads and the section reports a dead lever. Waiting for the
+    term to be equal AND unchanged across consecutive samples is what says the
+    display has caught up with the executor.
+    """
+    seen = []
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        pair = (terms(host)[2], terms(client)[2])
+        seen.append(pair)
+        if len(seen) >= samples and pair[0] == pair[1] \
+                and all(s == pair for s in seen[-samples:]):
+            return True
+        time.sleep(interval)
+    return False
+
+
+# The wire encoding of UnitStatus (connectionTCP::unitstatusToInt). Only the
+# "down" values matter here: everything a unit does while on its feet - walking,
+# turning, aiming - collapses to the same liveness class in the checksum, on
+# purpose, because the two machines are never on the same animation frame.
+#
+# DEAD, not UNCONSCIOUS: the engine revives its own unconscious units at every
+# turn boundary (SavedBattleGame::endTurn -> newTurnUpdateScripts ->
+# reviveUnconsciousUnits -> BattleUnit::abortTurn), so an UNCONSCIOUS skew is
+# undone by the very turn cycle that is supposed to stamp it - measured, and a
+# good reminder that this lever has to survive a full side to be worth anything.
+WIRE_STATUS_DEAD = 6
 
 
 def main():
@@ -291,29 +370,31 @@ def main():
 
         # --- 1. the terms exist, are real, and agree at generation -------------
         base = session.assert_battle_synced(host, client, "at battle start")
-        assert base[0] > 0 and base[1] > 0, (
+        assert base[0] > 0 and base[1] > 0 and base[2] > 0, (
             f"the battle drift terms look empty at battle start: {base} - a "
-            f"generated battle always holds items and has minted ids")
+            f"generated battle always holds items, has minted ids and has units")
         assert not desync_seen(host) and not desync_seen(client), \
             "the tripwire is already latched before anything happened"
-        print(f"PASS terms: itemIdCounter={base[0]} battleCensus={base[1]} agree on "
-              f"both machines, tripwire clear")
+        print(f"PASS terms: itemIdCounter={base[0]} battleCensus={base[1]} "
+              f"battleUnits={base[2]} agree on both machines, tripwire clear")
 
-        # 3a: the same two terms must ride the world checksum whenever a battle is
+        # 3a: the same three terms must ride the world checksum whenever a battle is
         # live, which is what puts them on the `shared_checksum` hook for free.
         for gc, tag in ((host, "host"), (client, "client")):
             chk = gc.cmd({"cmd": "shared_checksum"})
-            for key in ("chkBattleItemId", "chkBattleCensus"):
+            for key in ("chkBattleItemId", "chkBattleCensus", "chkBattleUnits"):
                 assert key in chk, (
                     f"{tag}'s shared_checksum carries no {key!r} while a battle is "
                     f"live - PRD-P2 3a did not reach attachWorldChecksum: "
                     f"{sorted(chk)}")
-            assert (chk["chkBattleItemId"], chk["chkBattleCensus"]) == base, (
+            assert (chk["chkBattleItemId"], chk["chkBattleCensus"],
+                    chk["chkBattleUnits"]) == base, (
                 f"{tag}'s shared_checksum battle terms "
-                f"({chk['chkBattleItemId']}, {chk['chkBattleCensus']}) disagree with "
-                f"its own battle_state {base} - two readings of one battle")
-        print("PASS 3a: both machines stamp chkBattleItemId / chkBattleCensus on the "
-              "world checksum while a battle is live")
+                f"({chk['chkBattleItemId']}, {chk['chkBattleCensus']}, "
+                f"{chk['chkBattleUnits']}) disagree with its own battle_state "
+                f"{base} - two readings of one battle")
+        print("PASS 3a: both machines stamp chkBattleItemId / chkBattleCensus / "
+              "chkBattleUnits on the world checksum while a battle is live")
 
         # --- 2. scripted actions keep the two machines in agreement -----------
         driver, watcher, dtag, wtag, db = pick_driver(host, client)
@@ -419,6 +500,112 @@ def main():
         before, landed = drive_walk(driver, watcher, mine[0]["id"])
         print(f"PASS playable: {dtag} still walked {mine[0]['id']} {before} -> "
               f"{landed} and {wtag} still mirrored it after the desync report")
+
+        # --- 5. the UNIT term, red and green ----------------------------------
+        # Everything above moved an ITEM term. This section moves a term neither
+        # item term can see: a unit that is DOWN on one machine and on its feet on
+        # the other. That is the classic co-op battle drift - PRD-P10 fixed three
+        # separate paths that produced exactly it - and no item census notices it
+        # until a corpse is minted, which is a whole side too late.
+        #
+        # The lever is a TEST-ONLY use of `battle_intent`'s `status` setter: a bare
+        # local assignment, on the CLIENT only (the host is the machine that ships
+        # `next_turn`, so the client is the machine that compares). Nothing in the
+        # co-op protocol replicates a bare status write. No divergence mechanism
+        # ships in the game.
+        assert wait_units_settled(host, client), (
+            f"the two machines never settled on a common unit state before the "
+            f"lever (host={terms(host)[2]} client={terms(client)[2]}) - a replay "
+            f"still draining on the client would undo the one-sided write")
+        alive = [u for u in battle(client)["units"]
+                 if not u["isOut"] and u.get("faction") == 0]
+        assert len(alive) >= 2, (
+            f"the fixture has fewer than two live player units to skew: "
+            f"{[(u['id'], u.get('faction'), u['isOut']) for u in battle(client)['units']]}")
+        down_id = alive[-1]["id"]
+        h_pre, c_pre = terms(host), terms(client)
+        lever = client.cmd({"cmd": "battle_intent", "unit": down_id, "action": "turn",
+                            "status": WIRE_STATUS_DEAD, "dry": True})
+        assert lever.get("ok") and lever.get("status") == WIRE_STATUS_DEAD, (
+            f"the status lever did not take on unit {down_id}: {lever} - every "
+            f"assertion below would be vacuous")
+        # One round-trip of tolerance: the write is applied on the client's own
+        # frame, and `terms` is a separate command.
+        wait_until(lambda: terms(client)[2] != c_pre[2], 10)
+        h_post, c_post = terms(host), terms(client)
+
+        # EXCLUSIVITY - the red/green that matters. One unit went down on one
+        # machine: the unit term MUST move, and the two item terms MUST NOT (they
+        # are what a pre-P2-unit-term build had, and they are blind to this).
+        assert c_post[2] != c_pre[2], (
+            f"the one-sided status write did not move the client's unit term "
+            f"({c_pre[2]} -> {c_post[2]}) - the lever is dead")
+        assert c_post[:2] == c_pre[:2], (
+            f"the status write moved an ITEM term as well ({c_pre[:2]} -> "
+            f"{c_post[:2]}); the exclusivity proof needs a unit-only lever")
+        assert h_post == h_pre, (
+            f"the client-side lever moved the HOST's terms ({h_pre} -> {h_post}) "
+            f"- it replicated, so there is no divergence to detect")
+        assert h_post[2] != c_post[2], (
+            f"the two machines still agree on the unit term after the skew "
+            f"(host={h_post[2]} client={c_post[2]})")
+        print(f"PASS unit-term exclusivity: unit {down_id} put down on the client "
+              f"alone moved battleUnits {c_pre[2]} -> {c_post[2]} and left "
+              f"itemId/census at {c_pre[:2]}")
+
+        # ... and the in-game tripwire catches it. The flag is cleared by
+        # `shared_reset_resync_stats` (SharedEcon::resetResyncStats ->
+        # resetBattleDesyncSeen), so this is a FRESH detection, not the latched one
+        # from section 4. The ITEM skew injected earlier is still in place, so the
+        # log line will name `census` as well - which is why exclusivity is proved
+        # above, at the term level, rather than from the log.
+        for gc in (host, client):
+            gc.ok({"cmd": "shared_reset_resync_stats"})
+        assert not desync_seen(client) and not desync_seen(host), \
+            "shared_reset_resync_stats did not clear the tripwire flag"
+        # Mark the log BEFORE the turn that carries the skew, so the line asserted
+        # below can only be the one this section provoked.
+        mark = log_size(client)
+        turn3 = cycle_turn(host, client)
+        assert turn3, (f"the battle never reached a third turn (turn="
+                       f"{battle(host).get('turn')}) - the unit skew was never "
+                       f"stamped")
+        print(f"turn cycled to {turn3} with the unit skew in place")
+        assert desync_seen(client), (
+            f"TRIPWIRE MISSED the unit divergence: host={terms(host)} "
+            f"client={terms(client)} after turn {turn3}")
+
+        # WHICH term diverged has to be in the log line: the three watch different
+        # families of bug, and a bare "BATTLE DESYNC" points a reader nowhere.
+        assert wait_until(
+            lambda: "BATTLE DESYNC on next_turn" in read_log(client, mark), 30), (
+            f"the client's log carries no BATTLE DESYNC line for the `next_turn` "
+            f"that detected the unit skew ({log_path(client)})")
+        tail = read_log(client, mark)
+        named = tail[tail.rfind("BATTLE DESYNC on next_turn"):][:400]
+        assert "units" in named.split("- itemId")[0], (
+            f"the desync log line does not NAME the unit term as diverging: "
+            f"{named.splitlines()[0]!r}")
+        # ... and the per-unit dump, which is the only thing that turns "the unit
+        # sets differ" into "unit N differs" - a sum never names the unit.
+        assert "BATTLE DESYNC units here" in tail, (
+            f"the unit term fired but dumped no per-unit state, so the two "
+            f"machines' logs cannot be diffed to the unit that drifted")
+        print(f"PASS unit-term detection: the tripwire fired, the log names the "
+              f"term ({named.splitlines()[0].split('DESYNC on ')[-1][:80]!r}) and "
+              f"dumps this machine's units")
+
+        # ... and the SAME `next_turn` repaired it. That can only be true if the
+        # compare runs AHEAD of the packet's bulk unit overwrite - a compare made
+        # after it would find the two machines agreeing every time and this whole
+        # section would be untestable.
+        assert wait_until(lambda: terms(client)[2] == terms(host)[2], 30), (
+            f"`next_turn` detected the unit divergence but did not repair it "
+            f"(host={terms(host)[2]} client={terms(client)[2]}) - the compare and "
+            f"the bulk overwrite are in the wrong order, or the overwrite is gone")
+        print("PASS unit-term repair: the same next_turn that detected the skew "
+              "overwrote it, so the compare provably ran before the repair")
+
 
         print("ALL BATTLE-TRIPWIRE TESTS PASSED")
     except Exception as e:

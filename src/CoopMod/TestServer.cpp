@@ -4083,6 +4083,17 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		{
 			unit->setCoopEnergy(req["energy"].asInt());
 		}
+		// PRD-P2 (unit term): a TEST-ONLY one-sided status write, in the wire
+		// encoding (connectionTCP::unitstatusToInt). Nothing in the co-op protocol
+		// replicates a bare status assignment, so setting it on ONE machine moves
+		// that machine's `chkBattleUnits` and NOTHING else - which is precisely the
+		// bug shape the unit term exists to catch (a peer holding a unit on its
+		// feet that the executor has already killed). Pairs with `dry`.
+		if (req.isMember("status") && _game->getCoopMod())
+		{
+			unit->setCoopStatus(_game->getCoopMod()->intToUnitstatus(req["status"].asInt()));
+			resp["status"] = _game->getCoopMod()->unitstatusToInt(unit->getStatus());
+		}
 		if (bstate && req.isMember("hand"))
 		{
 			bstate->_hand = req["hand"].asString();
@@ -5397,16 +5408,21 @@ std::string TestServer::execute(const std::string& line)
 				// parallel mode and would block P6/P8's deny/ready flashes, so a test
 				// has to be able to see them.
 				resp["warning"] = bg->getBattleState() ? bg->getBattleState()->getCoopWarningText() : std::string();
-				// PRD-P2: the two battle drift terms this machine would stamp onto the
-				// next_turn packet, plus whether the tripwire has fired here. Comparing
-				// the pair across the two machines is session.assert_battle_synced();
-				// `desyncSeen` is the 3b flag (set by SharedEcon::verifyBattleChecksum,
-				// cleared at co-op battle init).
+				// PRD-P2: the three battle drift terms this machine would stamp onto
+				// the next_turn packet, plus whether the tripwire has fired here.
+				// Comparing the triple across the two machines is
+				// session.assert_battle_synced(); `desyncSeen` is the 3b flag (set by
+				// SharedEcon::verifyBattleChecksum, cleared at co-op battle init).
 				{
-					int64_t chkBattleItemId = -1, chkBattleCensus = -1;
-					SharedEcon::battleChecksumTerms(_game, chkBattleItemId, chkBattleCensus);
+					int64_t chkBattleItemId = -1, chkBattleCensus = -1, chkBattleUnits = -1;
+					SharedEcon::battleChecksumTerms(_game, chkBattleItemId, chkBattleCensus,
+													chkBattleUnits);
 					resp["itemIdCounter"] = Json::Value::Int64(chkBattleItemId);
 					resp["battleCensus"] = Json::Value::Int64(chkBattleCensus);
+					// The unit term (id + faction + liveness + position) on its own
+					// key rather than widening a pair, so a harness failure names
+					// WHICH of the three families moved.
+					resp["battleUnitsChecksum"] = Json::Value::Int64(chkBattleUnits);
 					resp["desyncSeen"] = SharedEcon::battleDesyncSeen();
 				}
 				const BattleUnit* sel = bg->getSelectedUnit();

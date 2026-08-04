@@ -157,6 +157,7 @@ extern std::atomic<uint64_t> g_txDropCount;
 // functions/counters (not members) because the deque itself is file-scope in
 // connectionTCP.cpp - same shape as g_txDropCount above, and like it both
 // counters are process-monotonic (never reset).
+bool rxPassDeferred();             // PRD-P2: this dispatch overtook a deferred packet
 size_t rxHoldSize();               // current hold-queue depth
 size_t rxParkSize();               // PRD-P9 R7: packets parked, not rotated
 extern std::atomic<uint32_t> g_rxRotateCount;   // PRD-P11: gate holds (nothing rotates now)
