@@ -346,6 +346,37 @@ jobs:
           Copy-Item bin\common,bin\standard $p -Recurse
           Copy-Item bin\UFO\multiplayer  "$p\UFO"  -Recurse    # coop art only
           Copy-Item bin\TFTD\multiplayer "$p\TFTD" -Recurse    # coop art only
+          # Install/how-to note at the package root (issue #137), same shape as the
+          # Linux/macOS ones. Body is indented to the YAML block level; the scalar
+          # strips it so pwsh sees the here-string body/terminator at column 0.
+          @'
+          OpenXcom Coop - Windows (64-bit)
+          ================================
+          Keep OpenXcom.exe in THIS folder (next to common\, standard\, UFO\, TFTD\,
+          rendezvous.json and the bundled .dll files) and run it from here:
+
+              OpenXcom.exe
+
+          The game looks for its data in the current folder, so launching OpenXcom.exe
+          from somewhere else (e.g. moving just the .exe out) will fail to find the
+          game data.
+
+          Adding the original X-COM game data
+          -----------------------------------
+          This build ships no licensed X-COM game data. To play, copy the subfolders
+          from your own legally owned copies into the folders here:
+
+              UFO: Enemy Unknown / X-COM: UFO Defense  ->  UFO\
+              X-COM: Terror From the Deep              ->  TFTD\
+
+          After copying, UFO\ should contain at least GEODATA, GEOGRAPH, MAPS, ROUTES,
+          SOUND, TERRAIN, UFOGRAPH and UNITS (UFOINTRO is optional); TFTD\ the same
+          set, plus the optional ANIMS and FLOP_INT.
+
+          If this folder is not writable, you can instead create UFO and TFTD folders
+          in your user data folder (where OpenXcom keeps its saves) and copy them
+          there. To import old saves, copy your GAME_* folders into that saves folder.
+          '@ | Set-Content -Path "$p\HOW_TO_RUN.txt" -Encoding ascii
           Compress-Archive "$p\*" -DestinationPath $z -Force
           ./tools/ci/assert_package.ps1 $z
           # Regression guard for the "requires C++ Redistributable" bug: the /MD-linked
@@ -589,6 +620,44 @@ jobs:
           printf '%s' "$RELEASE_RENDEZVOUS_JSON" > build/bin/rendezvous.json
           grep -q '"servers"' build/bin/rendezvous.json || { echo "rendezvous.json has no servers array"; exit 1; }
           cp LICENSE.txt build/bin/
+          # CMake copies the whole bin/UFO and bin/TFTD (README.txt included); its
+          # install text now lives in HOW_TO_RUN.txt, so drop the stray READMEs (#137).
+          rm -f build/bin/UFO/README.txt build/bin/TFTD/README.txt
+          # Install/how-to note at the package root (issue #137), same shape as the
+          # Linux/macOS ones - WinXP exe is lowercase 'openxcom.exe' and this static
+          # build ships no DLLs. Body is indented to the YAML block level; the scalar
+          # strips it so the heredoc body/EOF land at column 0.
+          cat > build/bin/HOW_TO_RUN.txt <<'EOF'
+          OpenXcom Coop - Windows XP (32-bit)
+          ===================================
+
+          This build is for Windows XP SP3 (32-bit) and other older 32-bit Windows.
+
+          Keep openxcom.exe in THIS folder (next to common\, standard\, UFO\, TFTD\,
+          rendezvous.json) and run it from here:
+
+              openxcom.exe
+
+          The game looks for its data in the current folder, so launching openxcom.exe
+          from somewhere else (e.g. moving just the .exe out) will fail to find the
+          game data.
+
+          Adding the original X-COM game data
+          -----------------------------------
+          This build ships no licensed X-COM game data. To play, copy the subfolders
+          from your own legally owned copies into the folders here:
+
+              UFO: Enemy Unknown / X-COM: UFO Defense  ->  UFO\
+              X-COM: Terror From the Deep              ->  TFTD\
+
+          After copying, UFO\ should contain at least GEODATA, GEOGRAPH, MAPS, ROUTES,
+          SOUND, TERRAIN, UFOGRAPH and UNITS (UFOINTRO is optional); TFTD\ the same
+          set, plus the optional ANIMS and FLOP_INT.
+
+          If this folder is not writable, you can instead create UFO and TFTD folders
+          in your user data folder (where OpenXcom keeps its saves) and copy them
+          there. To import old saves, copy your GAME_* folders into that saves folder.
+          EOF
           sh tools/ci/assert_package_dir.sh build/bin
           cd build/bin
           rm -f libopenxcom.dll.a || true
@@ -767,6 +836,22 @@ jobs:
           The game looks for its data in the current folder, so launching the
           AppImage from somewhere else (e.g. double-clicking after moving it out)
           will fail to find the game data.
+
+          Adding the original X-COM game data
+          -----------------------------------
+          This build ships no licensed X-COM game data. To play, copy the subfolders
+          from your own legally owned copies into the folders here:
+
+              UFO: Enemy Unknown / X-COM: UFO Defense  ->  UFO/
+              X-COM: Terror From the Deep              ->  TFTD/
+
+          After copying, UFO/ should contain at least GEODATA, GEOGRAPH, MAPS, ROUTES,
+          SOUND, TERRAIN, UFOGRAPH and UNITS (UFOINTRO is optional); TFTD/ the same
+          set, plus the optional ANIMS and FLOP_INT.
+
+          If this folder is not writable, you can instead create UFO and TFTD folders
+          in your user data folder (where OpenXcom keeps its saves) and copy them
+          there. To import old saves, copy your GAME_* folders into that saves folder.
           EOF
           sh tools/ci/assert_package_dir.sh "$pkg"
           # mod.io only accepts .zip, so ship a zip (not a tar.gz). -r recurses the
@@ -1004,20 +1089,27 @@ jobs:
           package="openxcom-coop-macos-${{ needs.meta.outputs.version }}-arm64"
           mkdir -p "$package"
           ditto build-macos/openxcom.app "$package/openxcom.app"
+          # The bundle carries stock UFO/TFTD README.txt install notes; that text now
+          # lives in HOW_TO_RUN.txt at the package root, so drop them (issue #137).
+          rm -f "$package/openxcom.app/Contents/Resources/UFO/README.txt" \
+                "$package/openxcom.app/Contents/Resources/TFTD/README.txt"
           cp LICENSE.txt "$package/"
           cat > "$package/HOW_TO_RUN.txt" <<'EOF'
           OpenXcom Coop - macOS Apple Silicon
           ===================================
 
           This build is for Apple Silicon Macs (M1/M2/M3/M4), including an M4 Mac mini.
+          It ships no licensed X-COM game data - you supply your own.
 
           1. Extract the zip.
-          2. Copy your legally owned UFO: Enemy Unknown data into:
-             ~/Library/Application Support/OpenXcom/UFO/
+          2. Copy the subfolders from your own legally owned copies into:
+               UFO: Enemy Unknown / X-COM: UFO Defense  ->  ~/Library/Application Support/OpenXcom/UFO/
+               X-COM: Terror From the Deep              ->  ~/Library/Application Support/OpenXcom/TFTD/
+             After copying, the UFO folder should contain at least GEODATA, GEOGRAPH,
+             MAPS, ROUTES, SOUND, TERRAIN, UFOGRAPH and UNITS (UFOINTRO is optional);
+             the TFTD folder the same set, plus the optional ANIMS and FLOP_INT.
           3. Open openxcom.app. Because this CI build is not Apple-notarized, the first
              launch may require right-clicking the app and choosing Open.
-
-          The zip deliberately contains no licensed UFO game data.
           EOF
           zip="${package}.zip"
           ditto -c -k --sequesterRsrc --keepParent "$package" "$zip"
