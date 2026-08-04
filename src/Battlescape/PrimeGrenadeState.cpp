@@ -25,6 +25,7 @@
 #include "../Interface/Frame.h"
 #include "../Engine/InteractiveSurface.h"
 #include "../Savegame/BattleItem.h"
+#include "../Savegame/BattleUnit.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "../Mod/Mod.h"
