@@ -201,20 +201,9 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
         # Can't place base (no_bases). Fall through to session-up.
         pass
 
-    # ---- host clicks BEGIN once the client's world blob has arrived ----
-    # The WAIT_BASES/WAIT_PLAYERS dialog enables BEGIN only after finding
-    # the client's blob at key host_<saveID>_<clientName>.data.
-    # Construct the key from the host's get_coop, wait for the blob,
-    # then click BEGIN to release both machines to the geoscape.
+    # ---- host clicks BEGIN to release both machines to the geoscape ----
     if _has(host, "CoopState"):
-        co = host.cmd({"cmd": "get_coop"})
-        save_id = co.get("saveID", 0)
-        client_name = co.get("clientName", "ClientPlayer")
-        blob_key = f"host_{save_id}_{client_name}.data"
-        host.wait_for("client world blob",
-                      lambda: host.cmd({"cmd": "has_coop_file",
-                          "key": blob_key}).get("present") or None,
-                      timeout=60, interval=1.0)
+        # WAIT_BASES/WAIT_PLAYERS always shows BEGIN (see CoopState::waitSatisfied).
         host.ok({"cmd": "coop_dialog_back"})
 
     time.sleep(2)

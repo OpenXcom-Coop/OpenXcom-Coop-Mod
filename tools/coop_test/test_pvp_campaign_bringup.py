@@ -94,19 +94,10 @@ def test_campaign_bringup(fails, alien_player, expect_mode):
         else:
             print(f"PASS {tag}: alien player skipped base")
 
-        # ---- host clicks BEGIN if in a wait dialog ----
-        if alien_player == "host":
-            # Host is alien, in COOP_DLG_WAIT_PLAYERS. Click BEGIN
-            # once the client's world blob has arrived.
-            time.sleep(3)
-            if _has(host, "CoopState"):
-                host.ok({"cmd": "coop_dialog_back"})
-        elif alien_player == "client":
-            # Host is XCOM, in COOP_DLG_WAIT_BASES. Client's blob auto-pushes.
-            # Wait for blob, then click BEGIN.
-            time.sleep(3)
-            if _has(host, "CoopState"):
-                host.ok({"cmd": "coop_dialog_back"})
+        # ---- host clicks BEGIN to release both machines to the geoscape ----
+        if _has(host, "CoopState"):
+            # WAIT_BASES always shows BEGIN (see CoopState::waitSatisfied).
+            host.ok({"cmd": "coop_dialog_back"})
 
         # ---- both reach geoscape ----
         for gc, label in ((host,"host"),(client,"client")):

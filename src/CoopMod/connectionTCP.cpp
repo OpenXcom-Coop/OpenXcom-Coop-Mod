@@ -4094,20 +4094,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			else
 			{
 				// PvP: the alien side has no bases.  Save the world
-				// twice: once under the hostBlobKey the WAIT_BASES
-				// dialog checks, and once under "basehost" which the
-				// sendFileClient file-transfer thread reads.
+				// under the hostBlobKey so a later rejoin can restore
+				// the client's minimal world.  The WAIT_BASES dialog
+				// always shows BEGIN regardless of blob arrival (see
+				// CoopState::waitSatisfied); the blob is only needed
+				// for rejoin, not for initial session start.
 				std::string blobKey = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
 				try
 				{
 					_game->getSavedGame()->saveCoopToMemory(blobKey, _game->getMod(), blobKey);
-					_game->getSavedGame()->saveCoopToMemory("basehost", _game->getMod(), "basehost");
 				}
 				catch (const std::exception &e)
 				{
 					Log(LOG_ERROR) << "[coop] no_bases client blob failed: " << e.what();
 				}
-				sendFileClient = true;
 				_game->pushState(new CoopState(COOP_DLG_CLIENT_HOLD));
 			}
 		}
