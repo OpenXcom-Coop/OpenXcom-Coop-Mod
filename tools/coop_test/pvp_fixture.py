@@ -201,22 +201,21 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
         # Can't place base (no_bases). Fall through to session-up.
         pass
 
-    # If the alien player is the host, they enter COOP_DLG_WAIT_PLAYERS
-    # and need to click BEGIN once the client's world blob arrives.
-    if alien_player == "host":
-        alien_gc = host  # host=alien, client=XCOM places base
-        has_blob = alien_gc.wait_for(
-            "host wait for client world blob",
-            lambda: host.cmd({"cmd": "has_coop_file",
-                "key": host.cmd({"cmd": "get_coop"}).get(
-                    "pendingHostSaveName", "")
-            }).get("present") or None,
-            timeout=120, interval=1.0)
-        # Actual blob check: use has_coop_file with the right key
-        # For simplicity, just wait and click BEGIN
-        time.sleep(3)
-        if _has(host, "CoopState"):
-            host.ok({"cmd": "coop_dialog_back"})
+    # ---- host clicks BEGIN once the client's world blob has arrived ----
+    # The WAIT_BASES/WAIT_PLAYERS dialog enables BEGIN only after finding
+    # the client's blob at key host_<saveID>_<clientName>.data.
+    # Construct the key from the host's get_coop, wait for the blob,
+    # then click BEGIN to release both machines to the geoscape.
+    if _has(host, "CoopState"):
+        co = host.cmd({"cmd": "get_coop"})
+        save_id = co.get("saveID", 0)
+        client_name = co.get("clientName", "ClientPlayer")
+        blob_key = f"host_{save_id}_{client_name}.data"
+        host.wait_for("client world blob",
+                      lambda: host.cmd({"cmd": "has_coop_file",
+                          "key": blob_key}).get("present") or None,
+                      timeout=60, interval=1.0)
+        host.ok({"cmd": "coop_dialog_back"})
 
     time.sleep(2)
     if _has(alien_gc if alien_player == "client" else host, "BuildNewBaseState"):

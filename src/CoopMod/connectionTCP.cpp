@@ -4094,13 +4094,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			else
 			{
 				// PvP: the alien side has no bases.  Save the world
-				// locally and trigger the same file-send protocol the
-				// base-placement path uses, so the host receives a
-				// world blob and can enable BEGIN in WAIT_BASES.
+				// twice: once under the hostBlobKey the WAIT_BASES
+				// dialog checks, and once under "basehost" which the
+				// sendFileClient file-transfer thread reads.
 				std::string blobKey = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
 				try
 				{
-					_game->getSavedGame()->saveCoopToMemory("coop_geoscape.sav", _game->getMod(), blobKey);
+					_game->getSavedGame()->saveCoopToMemory(blobKey, _game->getMod(), blobKey);
+					_game->getSavedGame()->saveCoopToMemory("basehost", _game->getMod(), "basehost");
 				}
 				catch (const std::exception &e)
 				{
