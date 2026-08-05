@@ -4829,6 +4829,16 @@ std::string TestServer::execute(const std::string& line)
 				bg->requestEndTurn(false);
 				resp["ok"] = true;
 			}
+			else if (act == "end_turn_button")
+			{
+				if (bstate)
+				{
+					bstate->btnEndTurnClick(nullptr);
+					resp["ok"] = true;
+				}
+				else
+					resp["error"] = "no BattlescapeState";
+			}
 			else if (act == "abort")
 			{
 				// Proper abort: open the confirm dialog (AbortMissionState). The
@@ -4988,10 +4998,22 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else if (dynamic_cast<CoopState*>(top))
 			{
-				// Coop WAIT dialog (map download / month save-progress sync). It
-				// auto-closes; never pop it. Caller should wait.
-				resp["wait"] = true;
-				resp["error"] = "coop wait dialog (auto-closes; not dismissable)";
+				// CoopState hold dialog.  In a skirmish (lobbyMode 0), this
+				// appears after the battle ends and the client has no valid
+				// session to wait for.  Transition to the main menu directly so
+				// the harness doesn't hang on a non-dismissable wait dialog.
+				// Campaign holds (lobbyMode != 0) still auto-close normally.
+				if (connectionTCP::session.lobbyMode == 0)
+				{
+					_game->setState(new GoToMainMenuState(false));
+					resp["handled"] = "CoopState->MainMenu";
+					resp["ok"] = true;
+				}
+				else
+				{
+					resp["wait"] = true;
+					resp["error"] = "coop wait dialog (auto-closes; not dismissable)";
+				}
 			}
 			else if (dynamic_cast<VoteMenu*>(top))
 			{

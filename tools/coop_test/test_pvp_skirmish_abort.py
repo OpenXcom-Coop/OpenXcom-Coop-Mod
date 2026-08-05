@@ -73,19 +73,25 @@ def test_abort(fails, alien_player, gamemode):
                 return
         print("    vote passed on both machines")
 
-        # Drain the post-battle screen stack to the main menu
+        # Drain post-battle popups to the main menu.  On the skirmish host,
+        # finishBattle pushes GoToMainMenuState after DebriefingState.  The
+        # client receives DebriefingState via a network packet.
+        deadline = time.time() + 120
         for gc, label in ((host, "host"), (client, "client")):
-            deadline = time.time() + 120
             while time.time() < deadline:
                 st = [s.replace("class OpenXcom::", "")
                       for s in gc.cmd({"cmd": "get_state"})["states"]]
-                if "MainMenuState" in st:
+                if "MainMenuState" in st or "GoToMainMenuState" in st:
                     break
-                gc.cmd({"cmd": "dismiss_popup"})
-                time.sleep(0.5)
+                r = gc.cmd({"cmd": "dismiss_popup"})
+                if r.get("wait"):
+                    time.sleep(1)
+                elif not r.get("ok"):
+                    time.sleep(0.5)
+                time.sleep(0.3)
             st = [s.replace("class OpenXcom::", "")
                   for s in gc.cmd({"cmd": "get_state"})["states"]]
-            if "MainMenuState" in st:
+            if "MainMenuState" in st or "GoToMainMenuState" in st:
                 print(f"PASS {tag} abort: {label} returned to main menu")
             else:
                 _fail(fails, f"{tag}: {label} not at main menu: {st[-3:]}")

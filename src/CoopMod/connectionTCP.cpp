@@ -4093,11 +4093,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 			else
 			{
-				// PvP: the alien side has no bases.  Save the world so the
-				// host receives a world blob (otherwise COOP_DLG_WAIT_BASES
-				// sits forever waiting for a blob that never arrives).  Then
-				// enter the same client-hold the base-placement path uses so
-				// the host's BEGIN can release both machines at once.
 				try
 				{
 					_game->getSavedGame()->save("coop_geoscape.sav", _game->getMod());
