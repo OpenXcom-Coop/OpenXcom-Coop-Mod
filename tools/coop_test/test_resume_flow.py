@@ -90,7 +90,8 @@ def main():
 
         client.wait_for(
             "resume session up",
-            lambda: (lambda c: (c.get("hasSave") and not session._has_state(client, "LobbyMenu")) or None)(client.cmd({"cmd": "get_coop"})),
+            lambda: "GeoscapeState" in session.states(client)[-1]
+                    if session.states(client) else None,
             timeout=120,
         )
 

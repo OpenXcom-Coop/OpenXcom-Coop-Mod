@@ -116,7 +116,8 @@ def main():
         )
         client.wait_for(
             "session up",
-            lambda: (lambda c: (c.get("lobbyClosed") and c.get("hasSave")) or None)(client.cmd({"cmd": "get_coop"})),
+            lambda: "GeoscapeState" in session.states(client)[-1]
+                    if session.states(client) else None,
             timeout=120,
         )
         print("PASS bug2c: RESUME releases the waiting player, session up")

@@ -224,11 +224,11 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
               f"a base (no_bases not set)")
 
     for gc in (host, client):
-        gc.wait_for("session up",
+        # Session is up when the player sees the geoscape globe with
+        # no dialogs on top — the top state IS GeoscapeState.
+        gc.wait_for("session up (geoscape)",
                     lambda gc_=gc: (
-                        gc_.cmd({"cmd": "get_coop"}).get("hasSave")
-                        and not _has(gc_, "LobbyMenu")
-                        and not _has(gc_, "CoopState")
+                        _states(gc_) and "GeoscapeState" in _states(gc_)[-1]
                     ) or None,
                     timeout=120)
     print("PvP campaign session up")

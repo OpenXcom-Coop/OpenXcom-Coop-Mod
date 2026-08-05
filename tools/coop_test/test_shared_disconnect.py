@@ -125,8 +125,8 @@ def main():
         host.ok({"cmd": "coop_dialog_back"})   # the host's RESUME releases the hold
         client.wait_for(
             "rejoined client live on the geoscape",
-            lambda: (lambda c: (c.get("hasSave") and c.get("coopStatic")) or None)(
-                client.cmd({"cmd": "get_coop"})),
+            lambda: "GeoscapeState" in session.states(client)[-1]
+                    if session.states(client) else None,
             timeout=120)
 
         cm = client.ok({"cmd": "save_markers"})
