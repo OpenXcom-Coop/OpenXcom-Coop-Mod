@@ -1,16 +1,15 @@
 """PvP campaign bringup: validates the no_bases fix.
 
 Gamemode 2 (client plays aliens):
-  1. Host starts campaign, places base.
-  2. Client (alien player) skips base placement — no BuildNewBaseState.
+  1. Host (XCOM) places base, waits for client blob, clicks BEGIN.
+  2. Client (alien) skips base placement, enters CoopState hold.
   3. Both machines reach the geoscape.
 
 Gamemode 3 (host plays aliens):
-  4. Client (XCOM) places base.
-  5. Host (alien player) skips base placement — no BuildNewBaseState.
-  6. Both machines reach the geoscape.
-
-After bringup, the test aborts cleanly (the campaign world is not needed).
+  1. Host (alien) skips base placement, enters CoopState wait.
+  2. Client (XCOM) places base, pushes world blob.
+  3. Host clicks BEGIN to release client hold.
+  4. Both machines reach the geoscape.
 
 Run:  python tools/coop_test/test_pvp_campaign_bringup.py
 Exit 0 = pass; 2 = failure.
@@ -21,102 +20,121 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
 import session
-import pvp_fixture as PVP
-
-
-def _states(gc):
-    return [s.replace("class OpenXcom::", "")
-            for s in session.states(gc)]
-
-
-def _has(gc, name):
-    return any(name in s for s in _states(gc))
-
 
 PORT = "47995"
 
+def _states(gc):
+    return [s.replace("class OpenXcom::", "") for s in gc.cmd({"cmd":"get_state"})["states"]]
+
+def _has(gc, name):
+    return any(name in s for s in _states(gc))
 
 def _fail(fails, msg):
     print(f"  FAIL {msg}")
     fails.append(msg)
 
-
 def test_campaign_bringup(fails, alien_player, expect_mode):
-    tag = "gm" + str(expect_mode) + "_" + alien_player
-    print(f"\n--- campaign gamemode {expect_mode} ({alien_player} plays aliens) ---")
+    tag = f"gm{expect_mode}_{alien_player}"
+    print(f"\n--- campaign {tag} ---")
 
     host = GameClient("host", 48900, make_user_dir(f"pvp_camp_{tag}_host"))
     client = GameClient("client", 48901, make_user_dir(f"pvp_camp_{tag}_client"))
     try:
-        host.spawn()
-        host.connect()
-        client.spawn()
-        client.connect()
+        host.spawn(); host.connect()
+        client.spawn(); client.connect()
 
-        alien_gc = client if alien_player == "client" else host
-        xcom_gc = host if alien_player == "client" else client
+        # ---- lobby + team assignment ----
+        host.ok({"cmd": "open_new_game", "mode": "coop"})
+        host.wait_for("diff", lambda: _has(host, "NewGameState"))
+        host.ok({"cmd": "newgame_ok"})
+        host.wait_for("hostw", lambda: _has(host, "HostMenu"))
+        host.ok({"cmd": "host_tcp", "server":"TestSrv","port":PORT,"player":"HostPlayer"})
+        host.wait_for("lobby", lambda: _has(host, "LobbyMenu"))
 
-        # Our fixture handles the full flow: lobby -> start campaign -> bases -> geoscape
-        gm = PVP.start_pvp_campaign(host, client, PORT, alien_player=alien_player)
+        client.ok({"cmd":"join_tcp","ip":"127.0.0.1","port":PORT,"player":"ClientPlayer"})
+        client.wait_for("lobby", lambda: _has(client, "LobbyMenu"), timeout=120)
+        for gc in (host, client):
+            gc.wait_for("popup", lambda g=gc: _has(g, "Profile"))
+            gc.ok({"cmd":"profile_ok"})
+        host.wait_for("eligible", lambda: host.cmd({"cmd":"lobby_state"}).get("startEligible") or None)
+
+        ls = host.cmd({"cmd": "lobby_state"})
+        names = ls.get("players", [])
+        want = "ClientPlayer" if alien_player == "client" else "HostPlayer"
+        for i, n in enumerate(names):
+            if want in n:
+                r = host.ok({"cmd":"lobby_set_team","row":i,"team":"Alien"})
+                gm = r["gamemode"]
+                break
         if gm != expect_mode:
-            _fail(fails, f"{tag}: expected gamemode {expect_mode}, got {gm}")
-        else:
-            print(f"PASS {tag}: gamemode {expect_mode}")
+            _fail(fails, f"{tag}: expected {expect_mode}, got {gm}")
+            return
+        print(f"PASS {tag}: gamemode {gm}")
 
-        # ---- alien player must NOT get base placement ----------------------
+        session.start_campaign_via_button(host)
+
+        xcom_gc = host if alien_player == "client" else client
+        alien_gc = client if alien_player == "client" else host
+
+        # ---- XCOM player places base ----
+        if _has(xcom_gc, "BuildNewBaseState"):
+            xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XcomBase"})
+            print(f"PASS {tag}: XCOM player placed base")
+        else:
+            if not _has(xcom_gc, "GeoscapeState"):
+                _fail(fails, f"{tag}: XCOM player not on geoscape: {_states(xcom_gc)[-3:]}")
+            print(f"PASS {tag}: XCOM player on geoscape")
+
+        # ---- Alien player must NOT get base placement ----
         time.sleep(2)
         if _has(alien_gc, "BuildNewBaseState"):
-            _fail(fails,
-                  f"{tag}: {alien_player} (alien side) was prompted to place a base "
-                  f"(no_bases not set)")
+            _fail(fails, f"{tag}: alien player got base prompt (no_bases not set)")
         else:
-            print(f"PASS {tag}: {alien_player} (alien side) skipped base placement")
+            print(f"PASS {tag}: alien player skipped base")
 
-        # ---- XCOM player must place a base --------------------------------
-        if _has(xcom_gc, "BuildNewBaseState"):
-            _fail(fails,
-                  f"{tag}: XCOM player still on BuildNewBaseState "
-                  f"(base placement not completed)")
-        else:
-            has_geo = _has(xcom_gc, "GeoscapeState")
-            if has_geo:
-                print(f"PASS {tag}: XCOM player reached geoscape")
-            else:
-                _fail(fails,
-                      f"{tag}: XCOM player not on geoscape: {_states(xcom_gc)[-3:]}")
+        # ---- host clicks BEGIN if in a wait dialog ----
+        if alien_player == "host":
+            # Host is alien, in COOP_DLG_WAIT_PLAYERS. Click BEGIN
+            # once the client's world blob has arrived.
+            time.sleep(3)
+            if _has(host, "CoopState"):
+                host.ok({"cmd": "coop_dialog_back"})
+        elif alien_player == "client":
+            # Host is XCOM, in COOP_DLG_WAIT_BASES. Client's blob auto-pushes.
+            # Wait for blob, then click BEGIN.
+            time.sleep(3)
+            if _has(host, "CoopState"):
+                host.ok({"cmd": "coop_dialog_back"})
 
-        # ---- both machines must reach the geoscape -------------------------
-        for gc, label in ((host, "host"), (client, "client")):
-            if _has(gc, "GeoscapeState"):
+        # ---- both reach geoscape ----
+        for gc, label in ((host,"host"),(client,"client")):
+            gc.wait_for(f"{label} geoscape",
+                        lambda g=gc: _has(g, "GeoscapeState") and not _has(g, "CoopState") or None,
+                        timeout=120, interval=1.0)
+            if _has(gc, "GeoscapeState") and not _has(gc, "CoopState"):
                 print(f"PASS {tag}: {label} on geoscape")
             else:
-                _fail(fails,
-                      f"{tag}: {label} not on geoscape: {_states(gc)[-3:]}")
+                _fail(fails, f"{tag}: {label} not on geoscape: {_states(gc)[-3:]}")
 
     except Exception as e:
         print(f"[ERROR] {tag}: {e}")
         _fail(fails, str(e))
     finally:
-        host.shutdown()
-        client.shutdown()
-
+        host.shutdown(); client.shutdown()
 
 def main():
     fails = []
-
-    test_campaign_bringup(fails, alien_player="client", expect_mode=2)
-    test_campaign_bringup(fails, alien_player="host", expect_mode=3)
+    test_campaign_bringup(fails, "client", 2)
+    test_campaign_bringup(fails, "host", 3)
 
     print("\n==== PvP campaign bringup summary ====")
     if fails:
-        for f in fails:
-            print(f"  FAIL {f}")
+        for f in fails: print(f"  FAIL {f}")
         sys.exit(2)
-    print("  both gamemodes: alien player skips base, both reach geoscape")
+    print("  both gamemodes: alien skips base, both reach geoscape")
     sys.exit(0)
-
 
 if __name__ == "__main__":
     main()

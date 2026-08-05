@@ -779,6 +779,13 @@ void LobbyMenu::startCampaign()
 
 	if (!connectionTCP::no_bases)
 		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+	else
+	{
+		// PvP: the host is the alien side and has no bases.  Push the
+		// wait-the-client dialog so the host can click BEGIN once the
+		// other machine has placed its base and pushed its world blob.
+		_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+	}
 
 }
 

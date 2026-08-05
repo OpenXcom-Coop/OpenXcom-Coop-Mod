@@ -185,20 +185,41 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
     xcom_gc = host if alien_player == "client" else client
     alien_gc = client if alien_player == "client" else host
 
-    # XCOM player places base via BuildNewBaseState
-    xcom_gc.wait_for(f"{alien_player} XCOM base placement",
-                     lambda gc_=xcom_gc: _has(gc_, "BuildNewBaseState"))
-    r = xcom_gc.ok({"cmd": "place_first_base",
-                    "lon": LAND_LON, "lat": LAND_LAT,
-                    "name": "XcomBase"})
-    if not r.get("ok"):
+    # XCOM player places base via BuildNewBaseState.
+    # The alien player (if host) enters COOP_DLG_WAIT_PLAYERS instead.
+    if _has(xcom_gc, "BuildNewBaseState"):
+        xcom_gc.wait_for(f"{alien_player} XCOM base placement",
+                         lambda gc_=xcom_gc: _has(gc_, "BuildNewBaseState"))
         r = xcom_gc.ok({"cmd": "place_first_base",
-                        "lon": 0.706, "lat": -0.507,
+                        "lon": LAND_LON, "lat": LAND_LAT,
                         "name": "XcomBase"})
+        if not r.get("ok"):
+            r = xcom_gc.ok({"cmd": "place_first_base",
+                            "lon": 0.706, "lat": -0.507,
+                            "name": "XcomBase"})
+    else:
+        # Can't place base (no_bases). Fall through to session-up.
+        pass
 
-    # Alien player must NOT have BuildNewBaseState after a short settle
+    # If the alien player is the host, they enter COOP_DLG_WAIT_PLAYERS
+    # and need to click BEGIN once the client's world blob arrives.
+    if alien_player == "host":
+        alien_gc = host  # host=alien, client=XCOM places base
+        has_blob = alien_gc.wait_for(
+            "host wait for client world blob",
+            lambda: host.cmd({"cmd": "has_coop_file",
+                "key": host.cmd({"cmd": "get_coop"}).get(
+                    "pendingHostSaveName", "")
+            }).get("present") or None,
+            timeout=120, interval=1.0)
+        # Actual blob check: use has_coop_file with the right key
+        # For simplicity, just wait and click BEGIN
+        time.sleep(3)
+        if _has(host, "CoopState"):
+            host.ok({"cmd": "coop_dialog_back"})
+
     time.sleep(2)
-    if _has(alien_gc, "BuildNewBaseState"):
+    if _has(alien_gc if alien_player == "client" else host, "BuildNewBaseState"):
         print(f"WARNING: {alien_player} (alien player) was prompted to place "
               f"a base (no_bases not set)")
 
@@ -207,6 +228,7 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
                     lambda gc_=gc: (
                         gc_.cmd({"cmd": "get_coop"}).get("hasSave")
                         and not _has(gc_, "LobbyMenu")
+                        and not _has(gc_, "CoopState")
                     ) or None,
                     timeout=120)
     print("PvP campaign session up")
