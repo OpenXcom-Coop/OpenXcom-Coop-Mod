@@ -581,6 +581,16 @@ std::vector<std::string> LobbyMenu::rosterNames() const
 	return names;
 }
 
+std::vector<std::string> LobbyMenu::rosterTeams() const
+{
+	std::vector<std::string> teams;
+	for (const auto &p : _connectedPlayers)
+	{
+		teams.push_back(p.team);
+	}
+	return teams;
+}
+
 /// Test automation: the name in a specific roster ROW by player id (unsorted),
 /// since the displayed roster is sorted so row order is not id order. id 1 = the
 /// host row, id 2 = the client row.
@@ -715,6 +725,9 @@ void LobbyMenu::startCampaign()
 	// lock players and teams (change_team refuses while locked)
 	connectionTCP::session.campaignStarted();
 
+	if (_game->getCoopMod()->getCoopGamemode() == 3)
+		connectionTCP::no_bases = true;
+
 	// A NEW campaign always mints a fresh saveID and starts with no world blobs
 	// (fixes C2: a second campaign in the same process must not reuse the first
 	// campaign's ID or serve its stale client world). resumeCampaign keeps the
@@ -764,7 +777,8 @@ void LobbyMenu::startCampaign()
 		}
 	}
 
-	beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+	if (!connectionTCP::no_bases)
+		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 
 }
 
@@ -1282,7 +1296,7 @@ void LobbyMenu::think()
 
 		}
 
-		if (((_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false) || (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)) || _game->getCoopMod()->getCoopGamemode() == 4)
+		if (_game->getCoopMod()->getCoopGamemode() == 3 || _game->getCoopMod()->getCoopGamemode() == 4)
 		{
 			txtTeam = "Alien";
 		}
