@@ -127,6 +127,7 @@ protected:
 	bool actionButtonVisible() const;
 	std::string detailsText() const;
 	std::vector<std::string> rosterNames() const;
+	std::vector<std::string> rosterTeams() const;
 	/// Test automation: roster row name by player id (1=host row, 2=client row),
 	/// unsorted (the displayed roster is name-sorted).
 	std::string rowNameById(int id) const;

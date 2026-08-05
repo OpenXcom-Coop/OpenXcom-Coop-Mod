@@ -4046,6 +4046,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		int difficulty = obj["difficulty"].asInt();
 		connectionTCP::_coopGamemode = obj["gamemode"].asInt();
+		if (connectionTCP::_coopGamemode == 2)
+			connectionTCP::no_bases = true;
 		connectionTCP::saveID = obj["saveID"].asInt64();
 		connectionTCP::session.campaignStarted();
 		connectionTCP::session.lobbyMode = 1;
@@ -4087,7 +4089,25 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_game->setState(gs);
 			gs->init();
 
-			beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+			if (!connectionTCP::no_bases)
+				beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+			else
+			{
+				// PvP: the alien side has no bases.  Save the world so the
+				// host receives a world blob (otherwise COOP_DLG_WAIT_BASES
+				// sits forever waiting for a blob that never arrives).  Then
+				// enter the same client-hold the base-placement path uses so
+				// the host's BEGIN can release both machines at once.
+				try
+				{
+					_game->getSavedGame()->save("coop_geoscape.sav", _game->getMod());
+				}
+				catch (const std::exception &e)
+				{
+					Log(LOG_ERROR) << "[coop] no_bases client save failed: " << e.what();
+				}
+				_game->pushState(new CoopState(COOP_DLG_CLIENT_HOLD));
+			}
 		}
 
 	}

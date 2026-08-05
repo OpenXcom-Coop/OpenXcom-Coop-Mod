@@ -2343,6 +2343,11 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			{
 				resp["players"][idx++] = n;
 			}
+			idx = 0;
+			for (const auto& t : lobby->rosterTeams())
+			{
+				resp["playerTeams"][idx++] = t;
+			}
 		}
 		resp["ok"] = true;
 	}
