@@ -2972,6 +2972,41 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		root["battle"] = false;
 		root["actor_id"] = actor_jd;
 		root["anim_frame"] = _save->getAnimFrame();
+
+		// coop (pvp): determine which side won before stamping the packet
+		if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
+		{
+			bool found_host = false;
+			bool found_client = false;
+
+			for (auto *bu : *_save->getUnits())
+			{
+				if (bu->getCoop() == 0 && !bu->isOut() && bu->getHealth() > 0 && bu->getFaction() == FACTION_PLAYER)
+				{
+					found_host = true;
+					break;
+				}
+			}
+
+			for (auto *bu : *_save->getUnits())
+			{
+				if (bu->getCoop() == 1 && !bu->isOut() && bu->getHealth() > 0 && bu->getFaction() == FACTION_PLAYER)
+				{
+					found_client = true;
+					break;
+				}
+			}
+
+			if (found_host == false && _game->getCoopMod()->getCoopGamemode() == 2)
+				_game->getCoopMod()->_coopPVPwin = 2;  // ufo wins (host XCOM dead)
+			else if (found_client == false && _game->getCoopMod()->getCoopGamemode() == 2)
+				_game->getCoopMod()->_coopPVPwin = 1;  // xcom wins (client alien dead)
+			else if (found_host == false && _game->getCoopMod()->getCoopGamemode() == 3)
+				_game->getCoopMod()->_coopPVPwin = 1;  // xcom wins (host alien dead)
+			else if (found_client == false && _game->getCoopMod()->getCoopGamemode() == 3)
+				_game->getCoopMod()->_coopPVPwin = 2;  // ufo wins (client XCOM dead)
+		}
+
 		root["pvp_win"] = _game->getCoopMod()->_coopPVPwin;
 
 		root["seed"] = RNG::getSeed();
