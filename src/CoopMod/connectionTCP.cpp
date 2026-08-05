@@ -2107,12 +2107,36 @@ void connectionTCP::updateCoopTask()
 	// server error!
 	if (onConnect == -3)
 	{
-
-		closeConnectingDialog();
-
-		// Make sure it calls disconnectTCP, otherwise it may get stuck.
-		_game->pushState(new CoopState(440));
-
+		// Mid-session during a campaign: treat this as a client drop.
+		// Push a freeze/WAIT_PLAYERS dialog so the host can wait for
+		// reconnection (instead of code 440 which tears down the server).
+		if (connectionTCP::session.lobbyClosed
+			&& connectionTCP::session.lobbyMode != 0)
+		{
+			bool waitDialogPresent = false;
+			for (State* st : _game->getStates())
+			{
+				CoopState* cs = dynamic_cast<CoopState*>(st);
+				if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
+				{
+					waitDialogPresent = true;
+					break;
+				}
+			}
+			if (!waitDialogPresent)
+			{
+				connectionTCP::session.freeze();
+				_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+			}
+			// Don't let updateCoopTask re-fire this handler each cycle.
+			// The TCP thread will set onConnect=1 when a peer reconnects.
+			onConnect = 1;
+		}
+		else
+		{
+			closeConnectingDialog();
+			_game->pushState(new CoopState(440));
+		}
 	}
 
 	// disconnect from server!
@@ -11985,7 +12009,10 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// defeat/victory statistics screen with their own OK button; yanking
 		// them to the main menu because the other side closed the game first
 		// is exactly the "one player's exit affects the other" bug.
-		if ((connectionTCP::no_bases == true || !teardownAsHost) && !isMain
+		// A no_bases host (PvP alien side) must NOT be sent to the main menu
+		// here — the freeze dialog handles the reconnection flow, and ripping
+		// the world out from under it breaks rejoin entirely.
+		if (!teardownAsHost && !isMain
 			&& connectionTCP::_coopCampaign == true && !campaignEnded()
 			&& !lostDialogPresent)
 		{
