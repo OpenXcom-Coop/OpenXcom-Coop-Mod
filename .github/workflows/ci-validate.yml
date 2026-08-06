@@ -348,7 +348,7 @@ jobs:
           # needs to prove the tree is shippable, so stand in the CI blackhole config.
           cp tools/coop_test/rendezvous.ci.json build/bin/rendezvous.json
           cp LICENSE.txt build/bin/
-          cp HOW_TO_RUN.txt build/bin/
+          echo "CI validation build - not for distribution" > build/bin/HOW_TO_RUN.txt
           sh tools/ci/assert_package_dir.sh build/bin
 
   # Native Linux (x86_64) build via GCC - the other platform ci-main.yml ships.
@@ -456,7 +456,7 @@ jobs:
           cp -r bin/UFO/multiplayer  "$pkg/UFO/"
           cp -r bin/TFTD/multiplayer "$pkg/TFTD/"
           cp LICENSE.txt "$pkg/"
-          cp HOW_TO_RUN.txt "$pkg/"
+          echo "CI validation build - not for distribution" > "$pkg/HOW_TO_RUN.txt"
           cp tools/coop_test/rendezvous.ci.json "$pkg/rendezvous.json"
           sh tools/ci/assert_package_dir.sh "$pkg"
 
