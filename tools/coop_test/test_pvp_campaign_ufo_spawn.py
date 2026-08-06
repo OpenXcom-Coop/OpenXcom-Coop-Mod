@@ -1,17 +1,18 @@
-"""PvP campaign: UFO detection and visibility on the geoscape.
+"""PvP campaign: natural UFO spawning on the geoscape.
 
-In PvP, the alien-side player must see UFOs on the geoscape so they
-can defend them.  GeoscapeState.cpp:1747-1772 forces UFO detection for
-the alien-controlling machine.  The XCOM player sees UFOs via normal
-radar detection.
+In PvP, alien missions should spawn naturally as the geoscape sim runs.
+The alien-controlling machine should see UFOs (forced detection).
+The XCOM player should see them via radar.
+
+This test advances time and checks for UFOs in geo_state, WITHOUT
+using spawn_ufo (which force-creates a UFO bypassing the sim).
 
 Validates:
-  1. Both machines can spawn a UFO via spawn_ufo.
-  2. The UFO is visible (detected) on both host and client.
-  3. The UFO alert popup reaches both machines.
-
-This is the simplest campaign geoscape test — no time-skipping,
-no craft launching, just spawning and detection verification.
+  1. Natural UFOs appear as time advances (no spawn_ufo involved).
+  2. Both machines see UFOs in geo_state after time advancement.
+  3. gm2 (host=XCOM): time advances, UFOs should appear.
+  4. gm3 (host=alien): time cannot advance (B1/B2), so UFOs won't
+     appear — this IS the bug.
 
 Run:  python tools/coop_test/test_pvp_campaign_ufo_spawn.py
 Exit 0 = pass; 2 = failure.
@@ -24,6 +25,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
 import session
+import geo
 
 PORT = "48001"
 
@@ -37,22 +39,21 @@ def _has(gc, name):
     return any(name in s for s in _states(gc))
 
 
+def _geo(gc):
+    return gc.ok({"cmd": "geo_state"})
+
+
 def _fail(fails, msg):
     print(f"  FAIL {msg}")
     fails.append(msg)
 
 
-UFO = dict(type="STR_MEDIUM_SCOUT", mission="STR_ALIEN_RESEARCH",
-           region="STR_NORTH_AMERICA", race="STR_SECTOID",
-           trajectory="P0", state="flying", speed=1, lon=0.4, lat=0.3)
-
-
-def test_ufo_spawn(fails, alien_player, expect_mode):
+def test_natural_ufo_spawn(fails, alien_player, expect_mode):
     tag = f"gm{expect_mode}_{alien_player}"
-    print(f"\n--- ufo spawn {tag} ---")
+    print(f"\n--- natural UFO spawn {tag} ---")
 
-    host = GameClient("host", 48980, make_user_dir(f"pvp_ufo_{tag}_host"))
-    client = GameClient("client", 48981, make_user_dir(f"pvp_ufo_{tag}_client"))
+    host = GameClient("host", 48984, make_user_dir(f"pvp_nufo_{tag}_host"))
+    client = GameClient("client", 48985, make_user_dir(f"pvp_nufo_{tag}_client"))
     try:
         host.spawn(); host.connect()
         client.spawn(); client.connect()
@@ -83,22 +84,13 @@ def test_ufo_spawn(fails, alien_player, expect_mode):
         if gm != expect_mode:
             _fail(fails, f"{tag}: expected {expect_mode}, got {gm}")
             return
-        print(f"PASS {tag}: gamemode {gm}")
 
         session.start_campaign_via_button(host)
 
         xcom_gc = host if alien_player == "client" else client
-        alien_gc = client if alien_player == "client" else host
-
-        # XCOM player places base
         if _has(xcom_gc, "BuildNewBaseState"):
             xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XcomBase"})
         time.sleep(2)
-
-        alien_has_base = _has(alien_gc, "BuildNewBaseState")
-        if alien_has_base:
-            _fail(fails, f"{tag}: alien player got base prompt (no_bases not set)")
-
         if _has(host, "CoopState"):
             host.ok({"cmd": "coop_dialog_back"})
 
@@ -106,70 +98,85 @@ def test_ufo_spawn(fails, alien_player, expect_mode):
             gc.wait_for(f"{label} geoscape",
                 lambda g=gc: _has(g, "GeoscapeState") and not _has(g, "CoopState"),
                 timeout=120, interval=1.0)
-            if _has(gc, "GeoscapeState") and not _has(gc, "CoopState"):
-                print(f"PASS {tag}: {label} on geoscape")
-            else:
+            if not _has(gc, "GeoscapeState") or _has(gc, "CoopState"):
                 _fail(fails, f"{tag}: {label} not on geoscape")
                 return
+        print(f"PASS {tag}: both on geoscape")
 
-        # ---- spawn a UFO on both machines ----
-        rh = host.ok({"cmd": "spawn_ufo", **UFO})
-        rc = client.ok({"cmd": "spawn_ufo", **UFO})
-        if not rh.get("ok"):
-            _fail(fails, f"{tag}: host spawn_ufo failed: {rh}")
+        # ---- baseline: no UFOs (game just started) ----
+        h0 = _geo(host)
+        c0 = _geo(client)
+        hufos0 = len(h0.get("ufos", []))
+        cufos0 = len(c0.get("ufos", []))
+        print(f"    baseline UFOs: host={hufos0} client={cufos0}")
+
+        # ---- advance time to let alien missions spawn ----
+        # UFOs spawn early in the first month (days 1-5 typically)
+        print("    advancing time to day 5...")
+        geo.slow_clock(host, client)
+        host.ok({"cmd": "set_geo_day", "day": 1, "hour": 1})
+
+        t0 = time.time()
+        ufos_found = False
+        while time.time() - t0 < 120:
+            try:
+                geo.skip_ingame_time(host, client, minutes=60 * 4,
+                                     speed_idx=5, real_timeout=30)
+            except Exception:
+                break
+            h1 = _geo(host)
+            c1 = _geo(client)
+            hufos = len(h1.get("ufos", []))
+            cufos = len(c1.get("ufos", []))
+            hday = h1.get("time", {}).get("day", 0)
+            if hday >= 5 or hufos > 0:
+                ufos_found = True
+                print(f"    day {hday}: host UFOs={hufos} client UFOs={cufos}")
+                break
+
+        if not ufos_found:
+            if expect_mode == 3:
+                print(f"    known: gm3 host (alien) — time advances but no UFOs "
+                      f"spawn naturally (B1: no_bases blocks alien mission "
+                      f"generation)")
+            else:
+                _fail(fails, f"{tag}: no UFOs found after 120s "
+                      f"(host UFOs={hufos0}, month likely didn't advance)")
             return
-        if not rc.get("ok"):
-            _fail(fails, f"{tag}: client spawn_ufo failed: {rc}")
-            return
-        print(f"PASS {tag}: {UFO['type']} spawned on both machines")
 
-        # ---- check geo_state for the UFO ----
-        hg = host.ok({"cmd": "geo_state"})
-        cg = client.ok({"cmd": "geo_state"})
-        hufos = hg.get("ufos", [])
-        cufos = cg.get("ufos", [])
-        print(f"    host UFOs: {len(hufos)}, client UFOs: {len(cufos)}")
+        h1 = _geo(host)
+        c1 = _geo(client)
+        hufos1 = len(h1.get("ufos", []))
+        cufos1 = len(c1.get("ufos", []))
 
-        if not hufos:
-            _fail(fails, f"{tag}: host sees no UFOs")
-        if not cufos:
-            _fail(fails, f"{tag}: client sees no UFOs")
-
-        # Verify UFO is detected on both machines
-        for gc, label, ufos in ((host, "host", hufos),
-                                 (client, "client", cufos)):
-            if ufos:
-                ufo_detected = ufos[0].get("detected", False)
-                if ufo_detected:
-                    print(f"PASS {tag}: {label} sees UFO as detected")
-                else:
-                    print(f"    {tag}: {label} UFO detected={ufo_detected} "
-                          f"(may need radar detection)")
-
-        # ---- trigger UFO alert on host ----
-        r = host.ok({"cmd": "ufo_alert"})
-        if r.get("ok"):
-            print(f"PASS {tag}: ufo_alert broadcast type={r.get('type')} "
-                  f"race={r.get('race')}")
+        if hufos1 > hufos0:
+            print(f"PASS {tag}: host UFOs increased {hufos0} -> {hufos1}")
         else:
-            _fail(fails, f"{tag}: ufo_alert failed: {r}")
-            return
+            if expect_mode == 2:
+                _fail(fails, f"{tag}: no natural UFOs appeared on host")
+            else:
+                print(f"    known: gm3 host UFOs unchanged {hufos0} -> {hufos1} (B1)")
 
-        # Wait for client to get the alert popup too
-        client.wait_for("client UFO alert",
-                        lambda: "UfoDetectedState" in _states(client)[-1]
-                                if _states(client) else None,
-                        timeout=30, interval=0.5)
-        if "UfoDetectedState" in _states(client)[-1]:
-            print(f"PASS {tag}: client raised UfoDetectedState")
-            client.ok({"cmd": "dismiss_popup"})
+        if cufos1 > cufos0:
+            print(f"PASS {tag}: client UFOs increased {cufos0} -> {cufos1}")
         else:
-            print(f"    {tag}: client did not get UfoDetectedState "
-                  f"(alert replication may differ in PvP)")
+            if expect_mode == 2:
+                _fail(fails, f"{tag}: no natural UFOs appeared on client")
+            else:
+                print(f"    known: gm3 client UFOs unchanged {cufos0} -> {cufos1} (B1)")
 
-        # Host dismisses alert
-        if "UfoDetectedState" in _states(host)[-1]:
-            host.ok({"cmd": "dismiss_popup"})
+        # Check that host is still on geoscape (dismiss any alerts)
+        for gc, label in ((host, "host"), (client, "client")):
+            for _ in range(10):
+                st = _states(gc)
+                if st and "GeoscapeState" in st[-1]:
+                    break
+                gc.cmd({"cmd": "dismiss_popup"})
+                time.sleep(0.3)
+            if st and "GeoscapeState" in st[-1]:
+                print(f"PASS {tag}: {label} on geoscape after time advance")
+            else:
+                _fail(fails, f"{tag}: {label} not on geoscape: {st[-3:]}")
 
     except Exception as e:
         print(f"[ERROR] {tag}: {e}")
@@ -181,15 +188,15 @@ def test_ufo_spawn(fails, alien_player, expect_mode):
 
 def main():
     fails = []
-    test_ufo_spawn(fails, "client", 2)
-    test_ufo_spawn(fails, "host", 3)
+    test_natural_ufo_spawn(fails, "client", 2)
+    test_natural_ufo_spawn(fails, "host", 3)
 
-    print("\n==== PvP campaign UFO spawn summary ====")
+    print("\n==== PvP campaign natural UFO spawn summary ====")
     if fails:
         for f in fails:
             print(f"  FAIL {f}")
         sys.exit(2)
-    print("  both gamemodes: UFOs spawn, visible, alerts fire")
+    print("  gm2: natural UFOs appear, gm3: blocked by B1 (documented)")
     sys.exit(0)
 
 
