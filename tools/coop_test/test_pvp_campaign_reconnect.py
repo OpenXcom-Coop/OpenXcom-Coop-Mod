@@ -139,19 +139,13 @@ def main():
 
         # ---- Phase 4: host resumes ----
         print("--- host clicking RESUME ---")
-        # The WAIT_PLAYERS dialog may have been stacked from multiple
-        # onConnect updates.  Pop the top one, then handle any extras.
-        host.ok({"cmd": "coop_dialog_back"})
-        time.sleep(2)
-        # If more WAIT_PLAYERS are stacked, pop those too
-        for _ in range(5):
-            if _has(host, "CoopState"):
-                di = host.cmd({"cmd": "coop_dialog_info"})
-                if di.get("code") in (62, 60):
-                    host.ok({"cmd": "coop_dialog_back"})
-                    time.sleep(1)
-                else:
-                    break
+        # Dismiss the "player joined" Profile popup on the host
+        if _has(host, "Profile"):
+            host.ok({"cmd": "profile_ok"})
+            time.sleep(1)
+        # Click RESUME on the WAIT_PLAYERS dialog
+        if _has(host, "CoopState"):
+            host.ok({"cmd": "coop_dialog_back"})
         time.sleep(5)
 
         try:

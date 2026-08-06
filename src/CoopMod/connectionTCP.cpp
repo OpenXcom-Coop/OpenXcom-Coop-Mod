@@ -2131,6 +2131,9 @@ void connectionTCP::updateCoopTask()
 			// Don't let updateCoopTask re-fire this handler each cycle.
 			// The TCP thread will set onConnect=1 when a peer reconnects.
 			onConnect = 1;
+			// Clear the stale player name so the rejoin roster gate
+			// (nameInUse check) doesn't refuse the returning player.
+			tcpPlayerName.clear();
 		}
 		else
 		{
