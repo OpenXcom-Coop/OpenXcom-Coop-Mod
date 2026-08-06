@@ -4912,6 +4912,60 @@ std::string TestServer::execute(const std::string& line)
 						resp["ok"] = true;
 					}
 				}
+				else if (act == "psi_attack")
+				{
+					int target_id = req.get("target", -1).asInt();
+					BattleUnit* psi_target = nullptr;
+					for (auto* u : *sbg->getUnits())
+						if (u->getId() == target_id) psi_target = u;
+					if (!psi_target)
+						resp["error"] = "no target id";
+					else
+					{
+						int weapon_id = req.get("weapon_id", -1).asInt();
+						Json::Value psi;
+						psi["unit_id"] = unit->getId();
+						psi["target_id"] = psi_target->getId();
+						psi["tu"] = unit->getTimeUnits();
+						psi["energy"] = unit->getEnergy();
+						psi["health"] = unit->getHealth();
+						psi["morale"] = unit->getMorale();
+						psi["stunlevel"] = unit->getStunlevel();
+						psi["mana"] = unit->getMana();
+						psi["coords"]["start"]["x"] = unit->getPosition().x;
+						psi["coords"]["start"]["y"] = unit->getPosition().y;
+						psi["coords"]["start"]["z"] = unit->getPosition().z;
+						psi["coords"]["end"]["x"] = psi_target->getPosition().x;
+						psi["coords"]["end"]["y"] = psi_target->getPosition().y;
+						psi["coords"]["end"]["z"] = psi_target->getPosition().z;
+						psi["type"] = (int)BA_MINDCONTROL;
+						// Find the psi-amp item in the unit's inventory
+						BattleItem* psiWpn = nullptr;
+						std::string hand = "right";
+						if (weapon_id >= 0)
+						{
+							for (auto* item : *unit->getInventory())
+								if (item && item->getId() == weapon_id)
+								{ psiWpn = item; break; }
+						}
+						if (!psiWpn)
+							psiWpn = unit->getMainHandWeapon(false);
+						if (!psiWpn)
+							psiWpn = unit->getLeftHandWeapon();
+						if (!psiWpn)
+						{
+							resp["error"] = "no psi-amp equipped";
+						}
+						else
+						{
+							psi["weapon_id"] = psiWpn->getId();
+							psi["weapon_type"] = psiWpn->getRules()->getType();
+							psi["hand"] = (psiWpn == unit->getLeftHandWeapon()) ? "left" : "right";
+							bstate->psi_attack(psi.toStyledString());
+							resp["ok"] = true;
+						}
+					}
+				}
 				else
 					resp["error"] = "unknown battle action";
 			}
