@@ -3398,7 +3398,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
-		&& cmd != "battle_prox")
+		&& cmd != "battle_prox" && cmd != "tile_info")
 	{
 		return false;
 	}
@@ -3662,6 +3662,46 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["x"] = p.x; resp["y"] = p.y; resp["z"] = p.z;
 			resp["moved"] = (p == Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
 										   req.get("z", 0).asInt()));
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "tile_info")
+	{
+		Tile* t = nullptr;
+		if (req.isMember("index"))
+		{
+			int idx = req["index"].asInt();
+			if (idx >= 0 && idx < sbg->getMapSizeXYZ())
+				t = sbg->getTile(idx);
+		}
+		else
+		{
+			t = sbg->getTile(Position(req.get("x", 0).asInt(),
+									  req.get("y", 0).asInt(),
+									  req.get("z", 0).asInt()));
+		}
+		if (!t)
+			resp["error"] = "no such tile";
+		else
+		{
+			resp["x"] = t->getPosition().x;
+			resp["y"] = t->getPosition().y;
+			resp["z"] = t->getPosition().z;
+			const char* partNames[] = {"floor", "westwall", "northwall", "object"};
+			for (int p = 0; p <= O_OBJECT; ++p)
+			{
+				TilePart tp = (TilePart)p;
+				Json::Value part;
+				part["isDoor"] = t->isDoor(tp);
+				part["isUfoDoor"] = t->isUfoDoor(tp);
+				part["isUfoDoorOpen"] = t->isUfoDoorOpen(tp);
+				part["isDiscovered"] = t->isDiscovered(tp);
+				int did = -1, dsid = -1;
+				t->getMapData(&did, &dsid, tp);
+				part["mapDataID"] = did;
+				part["mapDataSetID"] = dsid;
+				resp["parts"][partNames[p]] = part;
+			}
 			resp["ok"] = true;
 		}
 	}
@@ -4636,9 +4676,10 @@ std::string TestServer::execute(const std::string& line)
 					// kill attribution (for coop outcome cross-validation)
 					ju["murdererId"] = u->getMurdererId();
 					ju["killedBy"] = (int)u->killedBy();
-					Position p = u->getPosition();
-					ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;
-					units.append(ju);
+				ju["direction"] = u->getDirection();
+				Position p = u->getPosition();
+				ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;
+				units.append(ju);
 				}
 				resp["units"] = units;
 				// Spotted hostiles: union of what all player units currently see.
@@ -4896,6 +4937,52 @@ std::string TestServer::execute(const std::string& line)
 						bg->statePushBack(new ProjectileFlyBState(bg, *a));
 						resp["ok"] = true;
 					}
+				}
+				else if (act == "door")
+				{
+					// Right-click door open. Pushes a UnitTurnBState with BA_NONE.
+					// Accepts (x,y,z) target coordinates or computes one tile ahead
+					// in the unit's facing direction. Direction=0 is North, clockwise.
+					BattleAction a;
+					a.actor = unit;
+					a.type = BA_NONE;
+					a.targeting = false;
+					if (req.isMember("x") && req.isMember("y") && req.isMember("z"))
+					{
+						a.target = Position(req["x"].asInt(), req["y"].asInt(), req["z"].asInt());
+					}
+					else
+					{
+						// Direction 0=North, clockwise
+						static const int dx[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+						static const int dy[8] = {-1, -1, 0, 1, 1, 1, 0, -1};
+						int d = unit->getDirection();
+						a.target = Position(unit->getPosition().x + dx[d],
+										   unit->getPosition().y + dy[d],
+										   unit->getPosition().z);
+					}
+					bg->statePushBack(new UnitTurnBState(bg, a));
+					resp["ok"] = true;
+				}
+				else if (act == "turn")
+				{
+					// Pure 1/8 turn (one direction step clockwise). Pushes a
+					// UnitTurnBState with BA_TURN targeting one step clockwise
+					// from the unit's current facing direction. XCOM soldiers
+					// cost exactly 1 TU per 1/8 turn.
+					int newDir = (unit->getDirection() + 1) % 8;
+					static const int dx[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+					static const int dy[8] = {-1, -1, 0, 1, 1, 1, 0, -1};
+					Position target(unit->getPosition().x + dx[newDir],
+									unit->getPosition().y + dy[newDir],
+									unit->getPosition().z);
+					BattleAction a;
+					a.actor = unit;
+					a.target = target;
+					a.type = BA_TURN;
+					a.targeting = false;
+					bg->statePushBack(new UnitTurnBState(bg, a));
+					resp["ok"] = true;
 				}
 				else
 					resp["error"] = "unknown battle action";

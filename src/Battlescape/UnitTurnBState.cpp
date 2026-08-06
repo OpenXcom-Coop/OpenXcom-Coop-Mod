@@ -64,7 +64,11 @@ void UnitTurnBState::deinit()
 							((_coopStartDirection != _unit->getDirection()) ||
 							 (_coopStartTurret != _unit->getTurretDirection()));
 
-		if (turned)
+		// Issue #143: a BA_NONE action (door-open right-click) may not change the
+		// unit facing at all - the soldier is already facing the door. That path
+		// MUST still ship the turnBattlescapeUnit packet so the peer replays the
+		// door-open via the "door fix" block in turnPlayerTarget().
+		if (turned || _action.type == BA_NONE)
 		{
 			Json::Value turn;
 			turn["state"] = "turnBattlescapeUnit";
@@ -150,25 +154,28 @@ void UnitTurnBState::init()
 
 	_unit->lookAt(_action.target, _turret);
 
+	if (_action.type == BA_NONE && _unit->getStatus() != STATUS_TURNING)
+	{
+		// Issue #143: door-open must run on the client replay path too,
+		// where chargeTUs is false (the client mirrors the host's TU
+		// instead of spending its own). Moved outside the _chargeTUs gate
+		// so the "door fix" block in turnPlayerTarget() actually works.
+		int door = _parent->getTileEngine()->unitOpensDoor(_unit, true);
+		if (door == 0)
+		{
+			_parent->getMod()->getSoundByDepth(_parent->getDepth(), Mod::DOOR_OPEN)->play(-1, _parent->getMap()->getSoundAngle(_unit->getPosition())); // normal door
+		}
+		if (door == 1)
+		{
+			_parent->getMod()->getSoundByDepth(_parent->getDepth(), Mod::SLIDING_DOOR_OPEN)->play(-1, _parent->getMap()->getSoundAngle(_unit->getPosition())); // ufo door
+		}
+		if (door == 4)
+		{
+			_action.result = "STR_NOT_ENOUGH_TIME_UNITS";
+		}
+	}
 	if (_chargeTUs && _unit->getStatus() != STATUS_TURNING)
 	{
-		if (_action.type == BA_NONE)
-		{
-			// try to open a door
-			int door = _parent->getTileEngine()->unitOpensDoor(_unit, true);
-			if (door == 0)
-			{
-				_parent->getMod()->getSoundByDepth(_parent->getDepth(), Mod::DOOR_OPEN)->play(-1, _parent->getMap()->getSoundAngle(_unit->getPosition())); // normal door
-			}
-			if (door == 1)
-			{
-				_parent->getMod()->getSoundByDepth(_parent->getDepth(), Mod::SLIDING_DOOR_OPEN)->play(-1, _parent->getMap()->getSoundAngle(_unit->getPosition())); // ufo door
-			}
-			if (door == 4)
-			{
-				_action.result = "STR_NOT_ENOUGH_TIME_UNITS";
-			}
-		}
 		_parent->popState();
 	}
 
