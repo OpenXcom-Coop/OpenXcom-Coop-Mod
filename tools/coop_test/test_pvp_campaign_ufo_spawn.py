@@ -111,13 +111,38 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
         print(f"    baseline UFOs: host={hufos0} client={cufos0}")
 
         # ---- advance time to let alien missions spawn ----
-        # UFOs spawn early in the first month (days 1-5 typically)
-        print("    advancing time to day 5...")
+        # Roll the month first (triggers determineAlienMissions for month 1).
+        # In gm3, no_bases blocked the initial month-0 mission generation.
+        # After the month rolls with our fix, missions should appear.
+        print("    rolling month to trigger mission generation...")
+        mp0 = _geo(host).get("monthsPassed", -1)
         geo.slow_clock(host, client)
-        host.ok({"cmd": "set_geo_day", "day": 1, "hour": 1})
+        host.ok({"cmd": "set_geo_day", "day": 28, "hour": 12})
 
         t0 = time.time()
+        rolled = False
+        while time.time() - t0 < 180:
+            try:
+                geo.skip_ingame_time(host, client, minutes=60 * 24 * 2,
+                                     speed_idx=5, real_timeout=60)
+            except Exception:
+                break
+            if _geo(host).get("monthsPassed", mp0) > mp0:
+                rolled = True
+                break
+        if rolled:
+            print(f"    month rolled: mp {mp0} -> {_geo(host)['monthsPassed']}")
+            # Drain popups after month roll
+            for gc in (host, client):
+                for _ in range(10):
+                    geo.drain_popups(gc)
+                    time.sleep(0.3)
+                gc.cmd({"cmd": "dismiss_popup"})
+
+        # Advance a few more days for UFOs to appear
+        print("    advancing a few days for UFOs to spawn...")
         ufos_found = False
+        t0 = time.time()
         while time.time() - t0 < 120:
             try:
                 geo.skip_ingame_time(host, client, minutes=60 * 4,
@@ -125,23 +150,22 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
             except Exception:
                 break
             h1 = _geo(host)
-            c1 = _geo(client)
             hufos = len(h1.get("ufos", []))
-            cufos = len(c1.get("ufos", []))
             hday = h1.get("time", {}).get("day", 0)
-            if hday >= 5 or hufos > 0:
+            if hufos > 0:
                 ufos_found = True
-                print(f"    day {hday}: host UFOs={hufos} client UFOs={cufos}")
+                print(f"    day {hday}: host UFOs={hufos} "
+                      f"client UFOs={len(_geo(client).get('ufos', []))}")
+                break
+            if hday > 15:
                 break
 
         if not ufos_found:
             if expect_mode == 3:
-                print(f"    known: gm3 host (alien) — time advances but no UFOs "
-                      f"spawn naturally (B1: no_bases blocks alien mission "
-                      f"generation)")
+                print(f"    known: gm3 host (alien) — still no UFOs despite "
+                      f"month roll")
             else:
-                _fail(fails, f"{tag}: no UFOs found after 120s "
-                      f"(host UFOs={hufos0}, month likely didn't advance)")
+                _fail(fails, f"{tag}: no UFOs found after month roll + 15 days")
             return
 
         h1 = _geo(host)

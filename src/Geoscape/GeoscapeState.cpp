@@ -2460,12 +2460,6 @@ const std::vector<Craft*>* GeoscapeState::updateActiveCrafts()
 void GeoscapeState::time5Seconds()
 {
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
 	// PRD-J04: replica simulation freeze. In SHARED only the host runs world
 	// simulation; a replica's clock still advances (from the host "time" packet,
 	// applied in updateCoopTask) and its globe still draws, but every timeXxx
@@ -3134,12 +3128,6 @@ bool DetectXCOMBase::operator()(const Ufo *ufo) const
 void GeoscapeState::time10Minutes()
 {
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
 	// PRD-J04: replica simulation freeze (see time5Seconds). Fuel burn, base/HK
 	// detection and alien-base hunt-mission generation are host-only.
 	if (_game->getCoopMod()->isSharedReplica())
@@ -3508,12 +3496,6 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 void GeoscapeState::time30Minutes()
 {
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
 	// PRD-J04: replica simulation freeze (see time5Seconds). Alien-mission
 	// countdowns, UFO detection, mission-site processing and geoscape events are
 	// host-only; the replica sees them via snapshots / mirrored popups.
@@ -3809,12 +3791,6 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
  */
 void GeoscapeState::time1Hour()
 {
-
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
 
 	// PRD-J04: replica simulation freeze (see time5Seconds). Craft
 	// repair/rearm/refuel, transfer arrival and production steps are host-only;
@@ -4133,12 +4109,6 @@ void GenerateSupplyMission::operator()(AlienBase *base) const
  */
 void GeoscapeState::time1Day()
 {
-
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
 
 	// PRD-J04: replica simulation freeze (see time5Seconds). Research/facility/
 	// soldier daily progress and the autosave are host-only; the host mirrors
@@ -4673,12 +4643,6 @@ void GeoscapeState::time1Day()
  */
 void GeoscapeState::time1Month()
 {
-
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
 
 	// PRD-J04: replica simulation freeze (see time5Seconds). A SHARED replica never
 	// settles funding locally; it adopts the host's monthly result via the extended
@@ -6126,12 +6090,6 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
  */
 void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eventRules)
 {
-
-	// coop fix
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
 
 	SavedGame *save = _game->getSavedGame();
 	AlienStrategy &strategy = save->getAlienStrategy();

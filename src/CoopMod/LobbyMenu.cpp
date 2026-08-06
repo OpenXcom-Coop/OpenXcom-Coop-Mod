@@ -784,6 +784,14 @@ void LobbyMenu::startCampaign()
 		// PvP: the host is the alien side and has no bases.  Push the
 		// wait-the-client dialog so the host can click BEGIN once the
 		// other machine has placed its base and pushed its world blob.
+		// Give the stub base a non-zero location so the geoscape sim
+		// (determineAlienMissions) can find a valid region.
+		Base* stub = _game->getSavedGame()->getBases()->back();
+		if (stub && stub->getLongitude() == 0.0 && stub->getLatitude() == 0.0)
+		{
+			stub->setLongitude(0.7063);
+			stub->setLatitude(-0.5070);
+		}
 		_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 	}
 
