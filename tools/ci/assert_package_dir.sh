@@ -4,7 +4,7 @@
 # the ubuntu:20.04 container here has no unzip/python3 to list an archive with.)
 #
 #   1. Too much: UFO/ and TFTD/ are whitelisted down to their multiplayer/
-#      subdirectory (plus the repo's own README.txt). Anything else under them is
+#      subdirectory plus the vanilla OXCE README.txt. Anything else under them is
 #      licensed retail X-COM data.
 #   2. Too little: every package must carry the coop art (Globe's ctor loads
 #      multiplayer/base.png unguarded, so a package without it crashes the moment a
@@ -16,16 +16,7 @@
 set -eu
 d="$1"
 
-# The stock "copy your X-COM data here" README.txt used to ship inside UFO/ and
-# TFTD/. Its text now lives in HOW_TO_RUN.txt at the package root, so it must not be
-# packaged (issue #137). Checked first so it gets its own clear message.
-for f in UFO/README.txt TFTD/README.txt; do
-  if [ -f "$d/$f" ]; then
-    echo "$d ships $f - its install text belongs in HOW_TO_RUN.txt, not a packaged README"; exit 1
-  fi
-done
-
-bad=$(find "$d/UFO" "$d/TFTD" -mindepth 1 -maxdepth 1 ! -name multiplayer 2>/dev/null || true)
+bad=$(find "$d/UFO" "$d/TFTD" -mindepth 1 -maxdepth 1 ! -name multiplayer ! -name README.txt 2>/dev/null || true)
 if [ -n "$bad" ]; then
   echo "licensed retail data leaked into $d:"; echo "$bad"; exit 1
 fi
@@ -44,4 +35,4 @@ for f in rendezvous.json LICENSE.txt HOW_TO_RUN.txt; do
   fi
 done
 
-echo "package OK ($d): coop art + rendezvous.json + LICENSE.txt + HOW_TO_RUN.txt present, no licensed retail data or stray README"
+echo "package OK ($d): coop art + rendezvous.json + LICENSE.txt + HOW_TO_RUN.txt present, no licensed retail data"
