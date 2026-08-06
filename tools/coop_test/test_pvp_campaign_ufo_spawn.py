@@ -220,7 +220,7 @@ def main():
         for f in fails:
             print(f"  FAIL {f}")
         sys.exit(2)
-    print("  gm2: natural UFOs appear, gm3: blocked by B1 (documented)")
+    print("  both gamemodes: natural UFOs appear after month roll")
     sys.exit(0)
 
 

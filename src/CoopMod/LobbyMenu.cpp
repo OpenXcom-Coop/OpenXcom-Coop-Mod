@@ -791,6 +791,7 @@ void LobbyMenu::startCampaign()
 		{
 			stub->setLongitude(0.7063);
 			stub->setLatitude(-0.5070);
+			stub->setName("AlienHQ");
 		}
 		_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 	}
