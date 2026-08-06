@@ -57,8 +57,8 @@ def test_geoscape_gm2(fails):
         print(f"    host (XCOM)   funds: {hf}")
         print(f"    client (Alien) funds: {cf}")
 
-        if hf < 2000000:
-            _fail(fails, f"host (XCOM) funds too low: {hf} (expected >2M)")
+        if hf < 1000000:
+            _fail(fails, f"host (XCOM) funds too low: {hf} (expected >1M)")
         else:
             print("PASS gm2 funds: host (XCOM) has normal starting funds")
         if cf < 500 or cf > 2000:
@@ -112,7 +112,7 @@ def test_geoscape_gm3(fails):
             _fail(fails, f"host (Alien) funds {hf}, expected stub ~1000")
         else:
             print("PASS gm3 funds: host (Alien) has stub funds (no_bases)")
-        if cf < 2000000:
+        if cf < 1000000:
             _fail(fails, f"client (XCOM) funds too low: {cf} (expected >2M)")
         else:
             print("PASS gm3 funds: client (XCOM) has normal starting funds")

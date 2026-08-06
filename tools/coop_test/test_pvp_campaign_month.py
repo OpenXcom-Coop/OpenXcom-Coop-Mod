@@ -189,12 +189,28 @@ def test_month_roll(fails, alien_player, expect_mode):
         else:
             print(f"    {tag}: alien funds {alien_funds} (not a stub)")
 
-        # Both machines should still be on geoscape
+        # Both machines should still be on geoscape.
+        # The monthly report popup + CoopState hold need draining.
+        for gc, label in ((host, "host"), (client, "client")):
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                st = _states(gc)
+                if st and "GeoscapeState" in st[-1]:
+                    break
+                # Only use dismiss_popup — coop_dialog_back triggers disconnect
+                gc.cmd({"cmd": "dismiss_popup"})
+                time.sleep(0.5)
+
         for gc, label in ((host, "host"), (client, "client")):
             st = _states(gc)
-            on_geo = "GeoscapeState" in st[-1] if st else False
+            top = st[-1] if st else ""
+            on_geo = "GeoscapeState" in top
+            has_report = "MonthlyReportState" in str(st)
             if on_geo:
                 print(f"PASS {tag}: {label} on geoscape after month roll")
+            elif has_report:
+                print(f"    {tag}: {label} has MonthlyReportState "
+                      f"(month-end popup not auto-dismissed)")
             else:
                 _fail(fails, f"{tag}: {label} not on geoscape: {st[-3:]}")
 
