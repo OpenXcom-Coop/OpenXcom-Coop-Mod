@@ -124,8 +124,6 @@ ConfirmLoadState::ConfirmLoadState(OptionsOrigin origin, const std::string &file
 		};
 		for (const auto& mod : _missingMods)
 			checkVer(mod);
-		for (int i = 1; i <= 10; ++i)
-			checkVer("DUMMY_MOD_" + std::to_string(i) + " ver: " + std::to_string(i * 10) + "." + std::to_string(i * 10 + 1) + "." + std::to_string(i * 10 + 2));
 
 		int verColWidth = maxVerLen * 4 + 2;
 
@@ -150,15 +148,6 @@ ConfirmLoadState::ConfirmLoadState(OptionsOrigin origin, const std::string &file
 
 		for (const auto& mod : _missingMods)
 			addModRow(mod);
-		for (int i = 1; i <= 10; ++i)
-		{
-			std::string name = "DUMMY_MOD_" + std::to_string(i);
-			if (i == 5)
-			{
-				name = "VERY_LONG_DUMMY_MOD_NAME_THAT_INTENTIONALLY_OVERFLOWS_THE_MOD_NAME_COLUMN_WIDTH_TO_TEST_HOW_THE_TEXT_LIST_HANDLES_EXTREMELY_LONG_MOD_NAMES_WITH_MANY_CHARACTERS_EXCEEDING_THE_ALLOCATED_SPACE";
-			}
-			addModRow(name + " ver: " + std::to_string(i * 10) + "." + std::to_string(i * 10 + 1) + "." + std::to_string(i * 10 + 2));
-		}
 	}
 	if (_origin == OPT_BATTLESCAPE)
 	{
