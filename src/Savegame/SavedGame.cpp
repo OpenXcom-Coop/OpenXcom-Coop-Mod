@@ -20,6 +20,7 @@
 #include <sstream>
 #include <set>
 #include <map>
+#include <deque>
 #include <iomanip>
 #include <algorithm>
 #include <functional>
@@ -1514,6 +1515,228 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 
 }
 
+// coop (PvP P4): build a minimal "no_bases" client stub blob for a gm2 alien
+// client whose own world never reaches the host. Mirrors saveCoopToMemory's
+// two-doc shape (so the save-list/loader classify it identically) and copies the
+// campaign identity scalars faithfully, with three deliberate differences:
+//   * no_bases is written literally true (never reads/flips the global flag),
+//   * the base-validation guard is skipped,
+//   * "bases" is exactly ONE unplaced/unnamed EMPTY base (never the host's
+//     placed, named bases) and deadSoldiers is empty, so the client never
+//     inherits the host's bases or roster, and
+//   * NO battleGame is written - the stub is a pure geoscape world; a mid-battle
+//     resume streams the real battle on top in phase two.
+// A single base (never zero) is emitted on purpose: a 0-base world hits
+// unguarded getBases()->front() derefs at runtime. Pure builder: it stores into
+// no coop map and takes no lock, so calling it while coopFilesMutex is already
+// held (the SavedGame::save embed loop) cannot deadlock.
+std::string SavedGame::buildCoopStub(Mod* mod) const
+{
+	YAML::YamlRootNodeWriter headerWriter;
+	headerWriter.setAsMap();
+	// Saves the brief game info used in the saves list
+
+	headerWriter.write("name", _name);
+	headerWriter.write("version", OPENXCOM_VERSION_SHORT);
+	headerWriter.write("engine", OPENXCOM_VERSION_ENGINE);
+	std::string git_sha = OPENXCOM_VERSION_GIT;
+	if (!git_sha.empty() && git_sha[0] == '.')
+		git_sha.erase(0, 1);
+	headerWriter.write("build", git_sha);
+	headerWriter.write("saveSchema", (int)SAVE_SCHEMA_CURRENT);
+	_time->save(headerWriter["time"]);
+	// P4: the stub is a pure GEOSCAPE world - never a battle. A mid-battle resume
+	// loads this stub as its phase-one geoscape and streams the real battle on top
+	// in phase two (SEND_FILE_CLIENT_SAVE), so the stub carries no battleGame (nor
+	// its header markers). Emitting the battle here made the client's phase-one
+	// load run SavedBattleGame::load, whose soldier BattleUnits null-deref an empty
+	// roster - the exact crash this omission avoids.
+
+	std::vector<std::string> modsList;
+	for (const auto* modInfo : Options::getActiveMods())
+		modsList.push_back(modInfo->getId() + " ver: " + modInfo->getVersion());
+	headerWriter.write("mods", modsList);
+
+	if (_ironman)
+		headerWriter.write("ironman", _ironman);
+
+	if (_coop)
+	{
+		headerWriter.write("coop", _coop);
+		headerWriter.write("coopPlayers", _coopPlayers);
+		headerWriter.write("coopCampaignType", static_cast<int>(_campaignType));
+	}
+
+	YAML::YamlRootNodeWriter writer(1000000); // 1MB starting buffer
+	writer.setAsMap();
+	writer.write("difficulty", _difficulty);
+	writer.write("end", _end);
+
+	if (_coop)
+		writer.write("saveID", connectionTCP::saveID);
+	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
+	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	// P4: literal true - the client that loads this stub must run in no_bases
+	// mode. We do NOT read/flip the process-global connectionTCP::no_bases.
+	writer.write("no_bases", true);
+
+	writer.write("monthsPassed", _monthsPassed);
+	writer.write("daysPassed", _daysPassed);
+	writer.write("vehiclesLost", _vehiclesLost);
+	writer.write("graphRegionToggles", _graphRegionToggles);
+	writer.write("graphCountryToggles", _graphCountryToggles);
+	writer.write("graphFinanceToggles", _graphFinanceToggles);
+	writer.write("rng", RNG::getSeed());
+	writer.write("funds", _funds);
+	writer.write("maintenance", _maintenance);
+	writer.write("userNotes", _userNotes);
+	if (Options::oxceGeoscapeDebugLogMaxEntries > 0 && _geoscapeDebugLog.size() > 0)
+	{
+		auto geoDebugLog = writer["geoscapeDebugLog"];
+		geoDebugLog.setAsSeq();
+		size_t lastEntriesToWrite = std::min(_geoscapeDebugLog.size(), (size_t)Options::oxceGeoscapeDebugLogMaxEntries);
+		for (size_t j = _geoscapeDebugLog.size() - lastEntriesToWrite; j < _geoscapeDebugLog.size(); ++j)
+			geoDebugLog.write(_geoscapeDebugLog[j]);
+	}
+
+	writer.write("researchScores", _researchScores);
+	writer.write("incomes", _incomes);
+	writer.write("expenditures", _expenditures);
+	writer.write("warned", _warned);
+	writer.write("togglePersonalLight", _togglePersonalLight);
+	writer.write("toggleNightVision", _toggleNightVision);
+	writer.write("toggleBrightness", _toggleBrightness);
+	writer.write("globeLon", _globeLon);
+	writer.write("globeLat", _globeLat);
+	writer.write("globeZoom", _globeZoom);
+	writer.write("ids", _ids);
+
+	saveVector(writer, _countries, "countries", mod->getScriptGlobal());
+	saveVector(writer, _regions, "regions");
+
+	// P4: skip the base-validation guard entirely (a no_bases stub has no placed
+	// base by design) and emit exactly ONE minimal unplaced/unnamed EMPTY base -
+	// the native no_bases geoscape shape - instead of this host's real bases, so
+	// the client never inherits the host's PLACED, NAMED bases (the duplicate-base
+	// / base-identity leak this P4 removes). The default Base ctor yields lon/lat 0
+	// and an empty name, so it can never be mistaken for a placed base and carries
+	// no soldiers, crafts or facilities. The empty roster is safe precisely because
+	// the stub is battle-free (see the header note): a mid-battle resume never runs
+	// SavedBattleGame::load against this world - the battle arrives fresh in phase
+	// two on top of it.
+	{
+		Base stubBase(mod);
+		auto seq = writer["bases"];
+		seq.setAsSeq();
+		stubBase.save(seq.write());
+	}
+
+	saveVector(writer, _waypoints, "waypoints");
+
+	saveVectorIf(writer, _missionSites, "missionSites",
+				 [](const MissionSite* ms)
+				 { return !ms->_coop; });
+
+	saveVectorIf(writer, _alienBases, "alienBases",
+				 [](const AlienBase* ab)
+				 { return !ab->_coop; });
+
+	saveVectorIf(writer, _activeMissions, "alienMissions",
+				 [](const AlienMission* am)
+				 { return !am->_coop; });
+
+	const bool isNewGame = (getMonthsPassed() == -1);
+
+	saveVectorIf(
+		writer, _ufos, "ufos",
+		[](const Ufo* u)
+		{ return !u->_coop; },
+		mod->getScriptGlobal(), isNewGame);
+
+	saveVector(writer, _geoscapeEvents, "geoscapeEvents");
+	if (!_discovered.empty())
+	{
+		auto discoveredWriter = writer["discovered"];
+		discoveredWriter.setAsSeq();
+		{
+			auto discoveredCopy = _discovered;
+			std::sort(discoveredCopy.begin(), discoveredCopy.end(), [&](const RuleResearch* a, const RuleResearch* b)
+					  { return a->getName().compare(b->getName()) < 0; });
+			for (const auto* research : discoveredCopy)
+			{
+				discoveredWriter.write(research->getName());
+			}
+		}
+	}
+	saveVector(writer, _researchDiary, "researchDiary");
+	writer.write("poppedResearch", _poppedResearch,
+				 [](YAML::YamlNodeWriter& w, const RuleResearch* r)
+				 { w.write(r->getName()); });
+	writer.write("generatedEvents", _generatedEvents);
+	writer.write("ufopediaRuleStatus", _ufopediaRuleStatus);
+	writer.write("manufactureRuleStatus", _manufactureRuleStatus);
+	writer.write("researchRuleStatus", _researchRuleStatus);
+	writer.write("monthlyPurchaseLimitLog", _monthlyPurchaseLimitLog);
+	writer.write("hiddenPurchaseItems", _hiddenPurchaseItemsMap);
+	writer.write("customRuleCraftDeployments", _customRuleCraftDeployments);
+	_alienStrategy->save(writer["alienStrategy"]);
+
+	// P4: empty deadSoldiers - no host roster of any kind leaks into the stub.
+
+	for (int j = 0; j < Options::oxceMaxEquipmentLayoutTemplates; ++j)
+	{
+		if (!_globalEquipmentLayout[j].empty())
+			saveVector(writer, _globalEquipmentLayout[j], writer.saveString("globalEquipmentLayout" + std::to_string(j)));
+		if (!_globalEquipmentLayoutName[j].empty())
+			writer.write(writer.saveString("globalEquipmentLayoutName" + std::to_string(j)), _globalEquipmentLayoutName[j]);
+		if (!_globalEquipmentLayoutArmor[j].empty())
+			writer.write(writer.saveString("globalEquipmentLayoutArmor" + std::to_string(j)), _globalEquipmentLayoutArmor[j]);
+	}
+	for (int j = 0; j < MAX_CRAFT_LOADOUT_TEMPLATES; ++j)
+	{
+		if (!_globalCraftLoadout[j]->getContents()->empty())
+			_globalCraftLoadout[j]->save(writer[writer.saveString("globalCraftLoadout" + std::to_string(j))]);
+		if (!_globalCraftLoadoutName[j].empty())
+			writer.write(writer.saveString("globalCraftLoadoutName" + std::to_string(j)), _globalCraftLoadoutName[j]);
+	}
+	if (Options::soldierDiaries)
+		saveVector(writer, _missionStatistics, "missionStatistics");
+
+	if (!_autosales.empty())
+	{
+		auto autoSales = writer["autoSales"];
+		autoSales.setAsSeq();
+		{
+			std::vector<const RuleItem*> autosalesVector(_autosales.begin(), _autosales.end());
+			std::sort(autosalesVector.begin(), autosalesVector.end(), [&](const RuleItem* a, const RuleItem* b)
+					  { return a->getType().compare(b->getType()) < 0; });
+			for (const auto* sale : autosalesVector)
+			{
+				autoSales.write(sale->getType());
+			}
+		}
+	}
+	// snapshot of the user options (just for debugging purposes)
+	auto optionsWriter = writer["options"];
+	optionsWriter.setAsMap();
+	for (const auto& optionInfo : Options::getOptionInfo())
+		optionInfo.save(optionsWriter);
+
+	// P4: no battleGame - the stub is geoscape-only (see the header note above).
+	_scriptValues.save(writer.toBase(), mod->getScriptGlobal());
+
+	// concatenate header + separator + body (identical framing to saveCoopToMemory)
+	YAML::YamlString headerString = headerWriter.emit();
+	std::string directivesEndMarker = "---\n";
+	YAML::YamlString bodyString = writer.emit();
+	std::string finalString;
+	finalString.reserve(headerString.yaml.size() + directivesEndMarker.size() + bodyString.yaml.size());
+	finalString += headerString.yaml;
+	finalString += directivesEndMarker;
+	finalString += bodyString.yaml;
+	return finalString;
+}
+
 /**
  * Saves a saved game's contents to a YAML file.
  * @param filename YAML filename.
@@ -1601,6 +1824,11 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		// "Bob" can never collide with "Super_Bob".
 		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
 		std::vector<std::pair<std::string, const std::string*>> toEmbed; // (key, blob)
+		// PvP P4: stubs generated below must OUTLIVE toEmbed (which stores const
+		// std::string*). A deque never reallocates its elements, so every &back()
+		// stays valid; a std::vector could move them and dangle. Grows at most
+		// once per gm2 client.
+		std::deque<std::string> stubStore;
 		for (size_t i = 1; i < _coopPlayers.size(); ++i)
 		{
 			// blob matched by exact roster name (any saveID); the embedded key is
@@ -1609,6 +1837,16 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 			const std::string* blob = connectionTCP::findHostClientBlob(_coopPlayers[i]);
 			if (blob && !blob->empty())
 				toEmbed.emplace_back(connectionTCP::hostBlobKey(_coopPlayers[i]), blob);
+			else if (connectionTCP::_coopGamemode == 2)
+			{
+				// PvP P4: the gm2 alien client has no host-side world blob (its own
+				// coopFilesClient world never reaches the host). Embed a minimal
+				// no_bases stub so a later rejoin restores its native shape without
+				// leaking host bases/roster. buildCoopStub touches no coop map, so
+				// calling it here under coopFilesMutex cannot deadlock.
+				stubStore.push_back(buildCoopStub(mod));
+				toEmbed.emplace_back(connectionTCP::hostBlobKey(_coopPlayers[i]), &stubStore.back());
+			}
 		}
 		if (!toEmbed.empty())
 		{

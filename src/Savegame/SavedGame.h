@@ -250,6 +250,11 @@ private:
 	void loadUfopediaRuleStatus(const YAML::YamlNodeReader& reader);
 	/// Saves a saved game to YAML.
 	void saveCoopToMemory(const std::string& filename, Mod* mod, const std::string& key) const;
+	/// coop (PvP P4): build a minimal no_bases client stub blob (one unplaced,
+	/// unnamed EMPTY base + empty roster + no_bases:true) as a serialized 2-doc
+	/// save string. Pure builder: touches no coop map and takes no lock, so it
+	/// is safe to call while coopFilesMutex is already held.
+	std::string buildCoopStub(Mod* mod) const;
 	void save(const std::string &filename, Mod *mod) const;
 	/// Gets the game name.
 	std::string getName() const;

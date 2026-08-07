@@ -4143,12 +4143,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 			else
 			{
-				// PvP: the alien side has no bases.  Save the world
-				// under the hostBlobKey so a later rejoin can restore
-				// the client's minimal world.  The WAIT_BASES dialog
-				// always shows BEGIN regardless of blob arrival (see
-				// CoopState::waitSatisfied); the blob is only needed
-				// for rejoin, not for initial session start.
+				// PvP: the alien side has no bases.  This writes the client's
+				// world into its OWN process-local coopFilesClient map
+				// (getServerOwner()==false here); that blob never reaches the
+				// host, so it can NOT drive a host-side rejoin.  On rejoin the
+				// HOST supplies the client world instead: it embeds a minimal
+				// no_bases stub in its .sav (SavedGame::save -> buildCoopStub)
+				// and synthesizes the same stub in LobbyMenu::resumeCampaign.
+				// The WAIT_BASES dialog always shows BEGIN regardless of blob
+				// arrival (see CoopState::waitSatisfied); this local save is
+				// not needed for the initial session start.
 				std::string blobKey = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
 				try
 				{

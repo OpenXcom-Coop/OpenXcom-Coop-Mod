@@ -654,16 +654,25 @@ void LobbyMenu::resumeCampaign()
 	{
 		try
 		{
+			// PvP P4: the gm2 alien client never sends a world blob to the host
+			// (its own coopFilesClient world is process-local). Build a MINIMAL
+			// no_bases stub - one unplaced/unnamed EMPTY base, empty roster - and
+			// store it under the client's hostBlobKey so the campaign_resume branch
+			// below fires. Replaces the former full-world synthesis (host bases +
+			// host roster stamped no_bases via a temporary global flip), which
+			// leaked the host's placed bases and named roster into the client's
+			// rejoin world. buildCoopStub reads no global flag, so there is no flip.
 			std::string key = connectionTCP::hostBlobKey(clientName);
-			// Stamp no_bases so the loading client skips base placement.
-			connectionTCP::no_bases = true;
-			_game->getSavedGame()->saveCoopToMemory(key, _game->getMod(), key);
-			connectionTCP::no_bases = false;
-			Log(LOG_INFO) << "[coop] gm2 resume: synthesized no_bases blob for " << clientName;
+			std::string stub = _game->getSavedGame()->buildCoopStub(_game->getMod());
+			{
+				std::lock_guard<std::mutex> lk(connectionTCP::coopFilesMutex);
+				connectionTCP::coopFilesHost[key] = std::move(stub);
+			}
+			Log(LOG_INFO) << "[coop] gm2 resume: stub no_bases blob for " << clientName;
 		}
 		catch (const std::exception& e)
 		{
-			Log(LOG_ERROR) << "[coop] gm2 resume blob synthesis failed: " << e.what();
+			Log(LOG_ERROR) << "[coop] gm2 resume stub build failed: " << e.what();
 		}
 	}
 
