@@ -1008,14 +1008,17 @@ bool CoopState::waitSatisfied() const
 {
 	if (global_state == COOP_DLG_WAIT_BASES)
 	{
-		// The host's base-placement wait dialog: enable BEGIN once the
-		// client's world blob has arrived.  If the client has no_bases
-		// (PvP alien side) there is no base to place and the blob may
-		// be delayed by the sendFileClient protocol.  Always allow the
-		// host to proceed — the campaign_begun signal that the BEGIN
-		// click emits is what actually releases both machines, and the
-		// blob is only needed for a later rejoin, not for session start.
-		return true;
+		// The host's base-placement wait dialog. For every non-PvP
+		// campaign the client's world blob arriving IS the
+		// base-placement-complete signal (the client pushes it right
+		// after base naming), so BEGIN stays gated on that blob.
+		// PvP gm2 is the exception: the client is the alien side, never
+		// places a base and never sends a blob, so BEGIN must not wait
+		// on one.
+		if (connectionTCP::getCoopGamemode() == 2)
+			return true;
+		return connectionTCP::hasCoopFile(
+			connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
 	}
 	return connectionTCP::session.resumeAck;
 }
