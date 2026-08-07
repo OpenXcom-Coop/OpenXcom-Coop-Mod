@@ -19,6 +19,7 @@
  */
 #include "../Engine/State.h"
 #include <string>
+#include <vector>
 #include "OptionsBaseState.h"
 
 namespace OpenXcom
@@ -27,6 +28,7 @@ namespace OpenXcom
 class TextButton;
 class Window;
 class Text;
+class TextList;
 
 /**
  * Confirms loading a save with missing content.
@@ -36,12 +38,14 @@ class ConfirmLoadState : public State
 private:
 	OptionsOrigin _origin;
 	std::string _fileName;
+	std::vector<std::string> _missingMods;
 	TextButton *_btnYes, *_btnNo;
 	Window *_window;
 	Text *_txtText;
+	TextList *_lstMods;
 public:
 	/// Creates a new confirmation state.
-	ConfirmLoadState(OptionsOrigin origin, const std::string &fileName);
+	ConfirmLoadState(OptionsOrigin origin, const std::string &fileName, const std::vector<std::string> &missingMods);
 	/// Cleans up the confirmation state.
 	virtual ~ConfirmLoadState();
 	/// Handler for clicking the Yes button.
