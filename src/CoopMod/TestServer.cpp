@@ -5130,6 +5130,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["readyCoopBattle"] = coop->ready_coop_battle;
 			resp["isLoadProgress"] = coop->_isLoadProgress;
 			resp["shared"] = coop->isSharedCampaign();
+			resp["gamemode"] = connectionTCP::getCoopGamemode();
 			{
 				CoopState* top = findState<CoopState>(_game);
 				resp["coopDialog"] = top ? top->getStateCode() : -1;
@@ -5189,7 +5190,17 @@ std::string TestServer::execute(const std::string& line)
 				// optional room password (default: open server, like an empty UI box)
 				connectionTCP::password = req.get("password", "").asString();
 				connectionTCP::isPasswordRequired = !connectionTCP::password.empty();
-				connectionTCP::_coopGamemode = 1; // PVE
+				// Preserve the gamemode from a loaded save (resume lobbies
+				// need the original PvP/PvE mode).  Only default to PVE
+				// when starting a fresh campaign.
+				if (campaign && _game->getSavedGame() && _game->getSavedGame()->isCoopSave())
+				{
+					// keep the gamemode from the loaded save
+				}
+				else
+				{
+					connectionTCP::_coopGamemode = 1; // PVE
+				}
 				coop->setCoopSession(false);
 				coop->setPlayerTurn(3);
 				coop->setHostName(player);

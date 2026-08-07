@@ -642,6 +642,31 @@ void LobbyMenu::resumeCampaign()
 	// request_load_progress makes the host serialize the CURRENT world fresh and
 	// stream it (streamSharedWorldToClient). Never build a fresh client world.
 	std::string clientName = _game->getCoopMod()->getCurrentClientName();
+
+	// PvP gamemode 2: the alien client has no_bases, so no world blob was
+	// ever transferred to the host.  Synthesize a minimal one-shot blob
+	// now so the resume-campaign path below takes the campaign_resume
+	// branch instead of falling through to campaign_start (which starts a
+	// fresh world that another campaign_start in request_load_progress
+	// would overwrite, never arming sendFileClient).
+	if (connectionTCP::_coopGamemode == 2
+		&& !connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
+	{
+		try
+		{
+			std::string key = connectionTCP::hostBlobKey(clientName);
+			// Stamp no_bases so the loading client skips base placement.
+			connectionTCP::no_bases = true;
+			_game->getSavedGame()->saveCoopToMemory(key, _game->getMod(), key);
+			connectionTCP::no_bases = false;
+			Log(LOG_INFO) << "[coop] gm2 resume: synthesized no_bases blob for " << clientName;
+		}
+		catch (const std::exception& e)
+		{
+			Log(LOG_ERROR) << "[coop] gm2 resume blob synthesis failed: " << e.what();
+		}
+	}
+
 	if (_game->getCoopMod()->isSharedCampaign()
 		|| connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
 	{
@@ -1236,7 +1261,19 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 			current_gamemode = 3;
 		}
 
-		connectionTCP::_coopGamemode = current_gamemode;
+		// Resume lobbies: the gamemode was read from the loaded save
+		// and must not be recalculated from team flags (which both
+		// default to false → PVE=1).  Preserve it for mode-2 lobbies.
+		if (connectionTCP::session.lobbyMode == 2
+			&& _game->getSavedGame()
+			&& _game->getSavedGame()->isCoopSave())
+		{
+			// _coopGamemode was already set from the save file.
+		}
+		else
+		{
+			connectionTCP::_coopGamemode = current_gamemode;
+		}
 
 		Json::Value root;
 		root["state"] = "change_team";
