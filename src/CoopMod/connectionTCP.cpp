@@ -2110,8 +2110,19 @@ void connectionTCP::updateCoopTask()
 		// Mid-session during a campaign: treat this as a client drop.
 		// Push a freeze/WAIT_PLAYERS dialog so the host can wait for
 		// reconnection (instead of code 440 which tears down the server).
-		if (connectionTCP::session.lobbyClosed
-			&& connectionTCP::session.lobbyMode != 0)
+		//
+		// Two guards, mirrored from the canonical drop path in disconnectTCP:
+		//   * Only the HOST freezes and waits. A client that hits -3 has no
+		//     peer to wait for, so it keeps the plain 440 teardown (a client
+		//     live-rejoin path is deliberately out of scope, F2).
+		//   * Never once the campaign has ended: after defeat/victory there
+		//     is nothing left to reconnect for, so suppress the freeze and
+		//     fall through to teardown (matches the campaignEnded() gate at
+		//     the disconnectTCP drop site).
+		if (getServerOwner() == true
+			&& connectionTCP::session.lobbyClosed
+			&& connectionTCP::session.lobbyMode != 0
+			&& !campaignEnded())
 		{
 			bool waitDialogPresent = false;
 			for (State* st : _game->getStates())
@@ -2137,6 +2148,18 @@ void connectionTCP::updateCoopTask()
 		}
 		else
 		{
+			// issue #79 (mirrored from disconnectTCP): a HOST drop once the
+			// campaign has ended must NOT freeze/wait - there is nothing left
+			// to reconnect for. Log the suppression, then tear down plainly.
+			// A client hitting -3 skips straight past this to the teardown.
+			if (getServerOwner() == true
+				&& connectionTCP::session.lobbyClosed
+				&& connectionTCP::session.lobbyMode != 0
+				&& campaignEnded())
+			{
+				Log(LOG_INFO) << "[coop] freeze dialog suppressed: the campaign "
+					"has ended; the peer has nothing left to reconnect for";
+			}
 			closeConnectingDialog();
 			_game->pushState(new CoopState(440));
 		}
