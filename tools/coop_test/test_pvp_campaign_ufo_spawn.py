@@ -161,11 +161,11 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
                 break
 
         if not ufos_found:
-            if expect_mode == 3:
-                print(f"    known: gm3 host (alien) — still no UFOs despite "
-                      f"month roll")
-            else:
-                _fail(fails, f"{tag}: no UFOs found after month roll + 15 days")
+            # B1 is claimed fixed: the alien host (gamemode 3) must spawn UFOs
+            # like every other campaign. No UFOs after the month roll + 15 days
+            # is a hard failure for every mode now - the gm3 soft-pass that used
+            # to swallow it has been removed so the suite enforces the fix.
+            _fail(fails, f"{tag}: no UFOs found after month roll + 15 days")
             return
 
         h1 = _geo(host)
@@ -176,18 +176,18 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
         if hufos1 > hufos0:
             print(f"PASS {tag}: host UFOs increased {hufos0} -> {hufos1}")
         else:
-            if expect_mode == 2:
-                _fail(fails, f"{tag}: no natural UFOs appeared on host")
-            else:
-                print(f"    known: gm3 host UFOs unchanged {hufos0} -> {hufos1} (B1)")
+            # B1 claimed fixed: gm3 no longer gets a pass here - the host must
+            # grow its UFO set like gm2 does. Hard fail for every mode now.
+            _fail(fails, f"{tag}: no natural UFOs appeared on host")
 
         if cufos1 > cufos0:
             print(f"PASS {tag}: client UFOs increased {cufos0} -> {cufos1}")
         else:
-            if expect_mode == 2:
-                _fail(fails, f"{tag}: no natural UFOs appeared on client")
-            else:
-                print(f"    known: gm3 client UFOs unchanged {cufos0} -> {cufos1} (B1)")
+            # B1 claimed fixed: gm3 no longer gets a pass here either - the
+            # client must grow its UFO set like gm2 does. Hard fail now.
+            _fail(fails, f"{tag}: no natural UFOs appeared on client")
+
+        # armed in S2: gm2 alien client must have zero self-generated UFOs; XCOM real-UFO set == alien mirror set
 
         # Check that host is still on geoscape (dismiss any alerts)
         for gc, label in ((host, "host"), (client, "client")):

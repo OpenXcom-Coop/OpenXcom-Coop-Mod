@@ -132,15 +132,12 @@ def test_month_roll(fails, alien_player, expect_mode):
             time.sleep(1)
 
         if not rolled:
-            # B1/B2: when the host is the alien player (gamemode 3),
-            # no_bases gates prevent time from advancing (GeoscapeState
-            # early-returns in several timeXxx handlers).  Month never
-            # rolls, no alien events spawn, no monthly report.
-            if expect_mode == 3:
-                print(f"    known: gm3 host (alien) cannot advance time "
-                      f"(no_bases blocks geoscape sim — B1/B2)")
-            else:
-                _fail(fails, f"{tag}: did not roll the month within 180s")
+            # B2 is claimed fixed (commits c33fe2f8a/5c96ffe75): the alien
+            # host (gamemode 3) must roll the month like every other campaign.
+            # Failing to roll within the timeout is a hard failure now - the
+            # old gm3 soft-pass that swallowed it has been removed so the
+            # suite actually enforces the fix.
+            _fail(fails, f"{tag}: did not roll the month within 180s")
             return
 
         h1 = _geo(host)
