@@ -2483,6 +2483,14 @@ void GeoscapeState::time5Seconds()
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
 
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
+
 	// If in "slow mode", handle UFO hunting and escorting logic every 5 seconds, not only every 10 minutes
 	if ((_timeSpeed == _btn5Secs || _timeSpeed == _btn1Min) && _game->getMod()->getHunterKillerFastRetarget())
 	{
@@ -3133,6 +3141,14 @@ void GeoscapeState::time10Minutes()
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
 
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
+
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		// Fuel consumption for XCOM craft.
@@ -3502,6 +3518,14 @@ void GeoscapeState::time30Minutes()
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
 
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
+
 	// Decrease mission countdowns
 	for (auto* am : _game->getSavedGame()->getAlienMissions())
 	{
@@ -3798,6 +3822,14 @@ void GeoscapeState::time1Hour()
 	// completions (prod_done) to replicas below.
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	// PRD-J04: index of a base in the shared list = the SHARED baseId (stable, the
 	// replica holds the same ordered list). Used by the host sim-result broadcasts.
@@ -4116,6 +4148,14 @@ void GeoscapeState::time1Day()
 	// (day_tick) to replicas below. A replica NEVER autosaves (it holds no disk save).
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	_game->getSavedGame()->increaseDaysPassed();
 
@@ -4650,6 +4690,14 @@ void GeoscapeState::time1Month()
 	// serverOwner gate below, but kept explicit.
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	// coop
 	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
@@ -6090,6 +6138,14 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
  */
 void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eventRules)
 {
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	SavedGame *save = _game->getSavedGame();
 	AlienStrategy &strategy = save->getAlienStrategy();
