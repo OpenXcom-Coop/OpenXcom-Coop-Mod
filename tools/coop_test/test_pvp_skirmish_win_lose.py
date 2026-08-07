@@ -1,21 +1,30 @@
-"""PvP win/lose: _coopPVPwin setter and cutscene override.
+"""PvP win/lose end-to-end: both machines leave the battle with the right verdict.
 
-In PvP, the end-turn PlayerTurnYour packet carries a pvp_win field
-(1=XCOM wins, 2=UFO wins) computed by iterating units to find which
-side still has living combatants.  The finishBattle cutscene override
-uses this to force the correct win/lose movie.
+In a PvP skirmish BOTH sides are player-controlled, so vanilla "one side out"
+end-conditions never fire when the ENEMY PLAYER's units die.  The [P1] fix makes
+the end-turn scan (BattlescapeState::btnEndTurnClick) detect a wiped side, stamp
+`battle:true` + `pvp_win` into the PlayerTurnYour packet, and drive finishBattle
+LOCALLY; the receiver mirrors the verdict from the packet and runs its own
+finishBattle.  Result: when one side is fully eliminated, BOTH machines leave the
+battlescape into Debriefing with the same win/lose verdict.
 
-This test:
-  1. Enters a PvP skirmish battle.
-  2. Kills all units on one side via blaster launcher (close-range blast).
-  3. Verifies _coopPVPwin is set correctly by checking the pvp_win
-     field is present and nonzero in battle_state after end_turn_button.
-  4. Verifies both machines agree on the pvp_win value.
+Verdict values (_coopPVPwin, surfaced as battle_state.pvpWin):
+    0 = unset, 1 = XCOM wins, 2 = alien/UFO wins.
 
-The pvp_win field is NOT directly readable from TestServer's get_coop
-or battle_state.  We verify indirectly:
-  - After killing all XCOM: the DebriefingState reports a loss.
-  - After killing all aliens: the DebriefingState reports a win.
+Four deterministic sub-cases (units killed host-side via the harness kill_unit
+command, coop_side: 0=host-side, 1=client-side):
+    1. gm2, kill CLIENT-side (coop 1 = aliens)  -> pvpWin 1 (XCOM wins).
+    2. gm2, kill HOST-side   (coop 0 = XCOM)     -> pvpWin 2 (alien wins).
+    3. gm3, kill CLIENT-side (coop 1 = XCOM)     -> pvpWin 2 (alien wins).
+    4. gm3, kill HOST-side   (coop 0 = aliens)   -> pvpWin 1 (XCOM wins).
+
+For each: assert BOTH machines left the battlescape (battle_state.inBattle False,
+i.e. reached Debriefing) AND pvpWin == expected AND equal on both machines.
+
+Note: per-machine cutscene identity (win vs lose movie) is NOT introspectable
+through the harness, so we assert the reachable invariants (both left + verdict
+equal+correct); the cutscene is chosen from that same _coopPVPwin by the
+finishBattle override, so an equal+correct verdict is the load-bearing signal.
 
 Run:  python tools/coop_test/test_pvp_skirmish_win_lose.py
 Exit 0 = pass; 2 = failure.
@@ -41,20 +50,27 @@ def _fail(fails, msg):
     fails.append(msg)
 
 
-def _states(gc):
-    return [s.replace("class OpenXcom::", "") for s in gc.cmd({"cmd":"get_state"})["states"]]
+def _in_battle(gc):
+    return bool(battle(gc).get("inBattle"))
 
 
-def _has(gc, name):
-    return any(name in s for s in _states(gc))
+def _wait_left_battle(gc, timeout=40):
+    """Poll until this machine has left the battlescape (Debriefing/geoscape)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _in_battle(gc):
+            return True
+        time.sleep(0.5)
+    return False
 
 
-def test_win_lose(fails, alien_player, gamemode):
-    tag = f"gm{gamemode}_{alien_player}"
-    print(f"\n--- win/lose {tag} ---")
+def test_win_lose(fails, tag, alien_player, gamemode, kill_side, expect_win,
+                  host_port, client_port):
+    print(f"\n--- win/lose {tag} (gm{gamemode}, kill coop_side {kill_side}, "
+          f"expect pvpWin {expect_win}) ---")
 
-    host = GameClient("host", 48970, make_user_dir(f"pvp_wl_{tag}_host"))
-    client = GameClient("client", 48971, make_user_dir(f"pvp_wl_{tag}_client"))
+    host = GameClient("host", host_port, make_user_dir(f"pvp_wl_{tag}_host"))
+    client = GameClient("client", client_port, make_user_dir(f"pvp_wl_{tag}_client"))
     try:
         host.spawn(); host.connect()
         client.spawn(); client.connect()
@@ -62,99 +78,76 @@ def test_win_lose(fails, alien_player, gamemode):
         gm = PVP.start_pvp_skirmish_battle(host, client, PORT,
                                            alien_player=alien_player)
         if gm != gamemode:
-            _fail(fails, f"{tag}: expected {gamemode}, got {gm}")
+            _fail(fails, f"{tag}: expected gamemode {gamemode}, got {gm}")
             return
 
+        # The executor (coopTurn==2) is the machine whose end-turn scan computes
+        # the verdict and sends the terminating packet.  gm2 -> host, gm3 -> client.
         hb = battle(host)
-        cb = battle(client)
-
-        # Find executor
         executor = host if hb.get("coopTurn") == 2 else client
         peer = client if executor is host else host
+        exec_tag = "host" if executor is host else "client"
+        print(f"    executor = {exec_tag}")
 
-        # Find the executor's selectable units
+        # Sanity: how many living combatants on the side we're about to wipe.
         eb = battle(executor)
-        exec_units = [u for u in eb.get("units", [])
-                      if u.get("selectable") and not u.get("isOut")]
-        # Enemy: alive, opposite faction, NOT selectable
-        exec_side = eb.get("side", 0)
-        enemy_units = [u for u in eb.get("units", [])
-                       if not u.get("selectable") and not u.get("isOut")
-                       and u.get("faction") != exec_side]
-
-        if not exec_units or not enemy_units:
-            _fail(fails, f"{tag}: need both sides with units")
+        living_side = [u for u in eb.get("units", [])
+                       if u.get("coop") == kill_side and not u.get("isOut")
+                       and u.get("faction") != 2]  # 2 = FACTION_NEUTRAL
+        if not living_side:
+            _fail(fails, f"{tag}: no living coop_side {kill_side} units to kill")
             return
 
-        print(f"    executor units: {len(exec_units)}, enemy units: {len(enemy_units)}")
+        # Deterministic host-authority elimination of the whole target side.
+        r = executor.cmd({"cmd": "battle_action", "action": "kill_unit",
+                          "coop_side": kill_side})
+        killed = r.get("killed", [])
+        print(f"    killed {len(killed)} coop_side {kill_side} unit(s): {killed}")
+        if not r.get("ok") or not killed:
+            _fail(fails, f"{tag}: kill_unit failed or killed nothing ({r})")
+            return
 
-        shooter = exec_units[0]
-        target = enemy_units[0]
+        # Confirm the target side is actually wiped on the executor.
+        eb2 = battle(executor)
+        still = [u["id"] for u in eb2.get("units", [])
+                 if u.get("coop") == kill_side and not u.get("isOut")
+                 and u.get("faction") != 2]
+        if still:
+            _fail(fails, f"{tag}: coop_side {kill_side} still has living units "
+                  f"after kill: {still}")
+            return
 
-        # Give a rifle to the executor's unit
-        for gc in (host, client):
-            gc.ok({"cmd": "battle_give", "unit": shooter["id"],
-                   "item": "STR_RIFLE",
-                   "ammo": "STR_RIFLE_CLIP",
-                   "slot": "right", "clear_hands": True})
-        time.sleep(1)
+        # End the executor's turn -> the scan sees a wiped side and terminates.
+        executor.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
-        # Fire at the target using the shoot action
-        executor.cmd({"cmd": "battle_action", "action": "select",
-                      "unit": shooter["id"]})
-        for shot in range(5):
-            res = executor.cmd({"cmd": "battle_action", "action": "shoot",
-                                "unit": shooter["id"],
-                                "target": target["id"],
-                                "mode": "auto"})
-            hit = res.get("tuHave") is not None
-            if res.get("ok"):
-                print(f"    shot {shot + 1}: hit (TU cost={res.get('tuCost')})")
-                time.sleep(2)
-            else:
-                print(f"    shot {shot + 1}: miss or out of TU")
-                break
+        # Both machines should leave the battlescape (their own finishBattle).
+        host_left = _wait_left_battle(host)
+        client_left = _wait_left_battle(client)
+        print(f"    left battle: host={host_left} client={client_left}")
+        if not host_left:
+            _fail(fails, f"{tag}: HOST did not leave the battlescape")
+        if not client_left:
+            _fail(fails, f"{tag}: CLIENT did not leave the battlescape")
 
-        # Verify the item census is still intact (no drift from blast)
-        items_h = len(host.cmd({"cmd": "battle_items"})["items"])
-        items_c = len(client.cmd({"cmd": "battle_items"})["items"])
-        if items_h != items_c:
-            _fail(fails, f"{tag}: item drift after blast: "
-                  f"host={items_h} client={items_c}")
-        else:
-            print(f"PASS {tag}: {items_h} items, identical on both machines")
+        # Read the verdict on both machines (pvpWin is exposed in both the
+        # in-battle and no-battle branches of battle_state).
+        hv = battle(host).get("pvpWin")
+        cv = battle(client).get("pvpWin")
+        print(f"    pvpWin: host={hv} client={cv} (expected {expect_win})")
 
-        # The _coopPVPwin value is computed during end_turn_button via
-        # BattlescapeState line 2975.  Verify the game is still alive
-        # (no crash from the restored setter code).
-        # End the turn to trigger the _coopPVPwin setter
-        for gc in (host, client):
-            st = _states(gc)
-            if "BattlescapeState" in st[-1]:
-                gc.ok({"cmd": "battle_action", "action": "end_turn_button"})
-                break
-        time.sleep(3)
+        if hv != expect_win:
+            _fail(fails, f"{tag}: host pvpWin {hv} != expected {expect_win}")
+        if cv != expect_win:
+            _fail(fails, f"{tag}: client pvpWin {cv} != expected {expect_win}")
+        if hv != cv:
+            _fail(fails, f"{tag}: pvpWin mismatch host={hv} client={cv}")
 
-        # Verify both machines agree on battle state after end turn
-        hb3 = battle(host)
-        cb3 = battle(client)
-        print(f"    after end_turn: host={hb3.get('inBattle')} "
-              f"client={cb3.get('inBattle')} "
-              f"host_side={hb3.get('side')}")
-
-        # If the blaster killed the target, _coopPVPwin should be set.
-        # For gamemode 2 (host=XCOM):
-        #   - If client alien dies: _coopPVPwin = 1 (XCOM wins)
-        # For gamemode 3 (host=alien):
-        #   - If client XCOM dies: _coopPVPwin = 2 (UFO wins)
-        # We can't read _coopPVPwin directly, but the setter runs without
-        # crashing, and the finishBattle path uses it correctly.
-        print(f"PASS {tag}: _coopPVPwin setter restored, no crash, "
-              f"battle state consistent")
+        if host_left and client_left and hv == cv == expect_win:
+            print(f"PASS {tag}: both left battle, pvpWin=={expect_win} on both")
 
     except Exception as e:
         print(f"[ERROR] {tag}: {e}")
-        _fail(fails, str(e))
+        _fail(fails, f"{tag}: {e}")
     finally:
         host.shutdown()
         client.shutdown()
@@ -162,15 +155,23 @@ def test_win_lose(fails, alien_player, gamemode):
 
 def main():
     fails = []
-    test_win_lose(fails, "client", 2)
-    test_win_lose(fails, "host", 3)
+    cases = [
+        # tag, alien_player, gamemode, kill_side, expect_win, host_port, client_port
+        ("gm2_kill_client", "client", 2, 1, 1, 48970, 48971),
+        ("gm2_kill_host",   "client", 2, 0, 2, 48972, 48973),
+        ("gm3_kill_client", "host",   3, 1, 2, 48974, 48975),
+        ("gm3_kill_host",   "host",   3, 0, 1, 48976, 48977),
+    ]
+    for (tag, ap, gmode, ks, ew, hp, cp) in cases:
+        test_win_lose(fails, tag, ap, gmode, ks, ew, hp, cp)
 
     print("\n==== PvP win/lose summary ====")
     if fails:
         for f in fails:
             print(f"  FAIL {f}")
         sys.exit(2)
-    print("  both gamemodes: no crash, item census intact, battle consistent")
+    print("  all 4 sub-cases: both machines left the battle with the correct, "
+          "matching pvpWin verdict")
     sys.exit(0)
 
 
