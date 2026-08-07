@@ -187,7 +187,37 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
             # client must grow its UFO set like gm2 does. Hard fail now.
             _fail(fails, f"{tag}: no natural UFOs appeared on client")
 
-        # armed in S2: gm2 alien client must have zero self-generated UFOs; XCOM real-UFO set == alien mirror set
+        # ---- P2/P7 desync gate: the role-aware no_bases guard must freeze only
+        # the non-host alien machine. Identify the two machines by role:
+        #   gm2 -> alien = client (getHost false, frozen); xcom = host (runs)
+        #   gm3 -> alien = host   (getHost true, runs);     xcom = client (runs)
+        alien_gc = client if alien_player == "client" else host
+        xcom_gs = _geo(xcom_gc)
+        alien_gs = _geo(alien_gc)
+
+        # (1) gm2 only: the alien CLIENT (getHost==false) must self-generate ZERO
+        # UFOs. With the guard removed it ran determineAlienMissions on the month
+        # roll and spun up its own alien world -> desync. coop==false marks a real
+        # self-UFO; coop==true is a mirror of the peer's UFO.
+        if expect_mode == 2:
+            self_ufos = [u for u in alien_gs.get("ufos", []) if not u["coop"]]
+            if self_ufos:
+                _fail(fails, f"{tag}: alien client self-generated UFOs: "
+                             f"{[u['id'] for u in self_ufos]}")
+            else:
+                print(f"PASS {tag}: alien client has zero self-generated UFOs")
+
+        # (2) both modes: every real UFO on the XCOM machine must be mirrored on
+        # the alien machine. Join on coopId (the shared cross-machine id); use the
+        # coop flag (not coopId) as the real/mirror selector. Set equality.
+        xcom_real = {u["coopId"] for u in xcom_gs.get("ufos", []) if not u["coop"]}
+        alien_mirror = {u["coopId"] for u in alien_gs.get("ufos", []) if u["coop"]}
+        if xcom_real == alien_mirror:
+            print(f"PASS {tag}: UFO sets match ({len(xcom_real)} real == mirror)")
+        else:
+            _fail(fails, f"{tag}: UFO set mismatch: "
+                         f"xcom_only={xcom_real - alien_mirror}, "
+                         f"alien_only={alien_mirror - xcom_real}")
 
         # Check that host is still on geoscape (dismiss any alerts)
         for gc, label in ((host, "host"), (client, "client")):
