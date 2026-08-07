@@ -55,6 +55,7 @@
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/ProjectileFlyBState.h"
+#include "../Battlescape/PsiAttackBState.h"
 #include "../Battlescape/Position.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
@@ -4641,6 +4642,9 @@ std::string TestServer::execute(const std::string& line)
 					// + isYourTurn), so a test sees exactly which units THIS player can
 					// command right now - not a Python re-derivation of the rule.
 					ju["selectable"] = u->isSelectable(FACTION_PLAYER, false, false);
+					// F5: mind-control markers for the PvP psi convergence test.
+					ju["mindControllerId"] = u->getMindControllerId();
+					ju["mindControlled"] = u->_coop_mindcontrolled;
 					ju["soldierId"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getId() : -1;
 					ju["owner"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getOwnerPlayerId() : -1;
 					BattleItem* w = u->getMainHandWeapon(false);
@@ -4947,57 +4951,80 @@ std::string TestServer::execute(const std::string& line)
 				}
 				else if (act == "psi_attack")
 				{
-					int target_id = req.get("target", -1).asInt();
-					BattleUnit* psi_target = nullptr;
+					// F5: originate a REAL cross-machine mind-control the same way
+					// primaryAction does (statePushBack(new PsiAttackBState), see
+					// BattlescapeGame.cpp:1211). On the ACTIVE machine (activeSync==true)
+					// PsiAttackBState::init takes its ORIGINATOR branch: it fires the
+					// psi_attack animation packet, then ExplosionBState ->
+					// TileEngine::psiAttack rolls the MC and psiAttackMessage flips
+					// getCoop()/faction and sends the authoritative psi_result packet.
+					// The old code called the receiver-side decoder (bstate->psi_attack),
+					// which only REPLAYS a received attack locally - no flip, no send.
+					int tid = req.get("target", -1).asInt();
+					BattleUnit* tgt = nullptr;
 					for (auto* u : *sbg->getUnits())
-						if (u->getId() == target_id) psi_target = u;
-					if (!psi_target)
+						if (u->getId() == tid) tgt = u;
+					BattleItem* w = nullptr;
+					int wid = req.get("weapon_id", -1).asInt();
+					if (wid >= 0)
+						for (auto* i : *unit->getInventory())
+							if (i && i->getId() == wid) { w = i; break; }
+					if (!w) w = unit->getMainHandWeapon(false);
+					if (!w) w = unit->getLeftHandWeapon();
+					if (!tgt)
 						resp["error"] = "no target id";
+					else if (!w)
+						resp["error"] = "no psi-amp equipped";
 					else
 					{
-						int weapon_id = req.get("weapon_id", -1).asInt();
-						Json::Value psi;
-						psi["unit_id"] = unit->getId();
-						psi["target_id"] = psi_target->getId();
-						psi["tu"] = unit->getTimeUnits();
-						psi["energy"] = unit->getEnergy();
-						psi["health"] = unit->getHealth();
-						psi["morale"] = unit->getMorale();
-						psi["stunlevel"] = unit->getStunlevel();
-						psi["mana"] = unit->getMana();
-						psi["coords"]["start"]["x"] = unit->getPosition().x;
-						psi["coords"]["start"]["y"] = unit->getPosition().y;
-						psi["coords"]["start"]["z"] = unit->getPosition().z;
-						psi["coords"]["end"]["x"] = psi_target->getPosition().x;
-						psi["coords"]["end"]["y"] = psi_target->getPosition().y;
-						psi["coords"]["end"]["z"] = psi_target->getPosition().z;
-						psi["type"] = (int)BA_MINDCONTROL;
-						// Find the psi-amp item in the unit's inventory
-						BattleItem* psiWpn = nullptr;
-						std::string hand = "right";
-						if (weapon_id >= 0)
-						{
-							for (auto* item : *unit->getInventory())
-								if (item && item->getId() == weapon_id)
-								{ psiWpn = item; break; }
-						}
-						if (!psiWpn)
-							psiWpn = unit->getMainHandWeapon(false);
-						if (!psiWpn)
-							psiWpn = unit->getLeftHandWeapon();
-						if (!psiWpn)
-						{
-							resp["error"] = "no psi-amp equipped";
-						}
-						else
-						{
-							psi["weapon_id"] = psiWpn->getId();
-							psi["weapon_type"] = psiWpn->getRules()->getType();
-							psi["hand"] = (psiWpn == unit->getLeftHandWeapon()) ? "left" : "right";
-							bstate->psi_attack(psi.toStyledString());
-							resp["ok"] = true;
-						}
+						sbg->setSelectedUnit(unit);
+						BattleAction* a = bg->getCurrentAction();
+						a->actor = unit;
+						a->weapon = w;
+						a->type = (req.get("mode", "mc").asString() == "panic")
+							? BA_PANIC : BA_MINDCONTROL;
+						a->targeting = true;
+						a->target = tgt->getPosition();
+						a->updateTU();
+						resp["tuCost"] = a->Time;
+						resp["tuHave"] = unit->getTimeUnits();
+						resp["activeSync"] = _game->getCoopMod()->_isActivePlayerSync;
+						resp["targetVisible"] = tgt->getVisible();
+						bg->statePushBack(new PsiAttackBState(bg, *a));  // == primaryAction:1211
+						resp["ok"] = true;
 					}
+				}
+				else if (act == "set_stat")
+				{
+					// F5 determinism helper: force psi capability so the MC roll
+					// (TileEngine::psiAttackCalculate) is a near-certain success, and
+					// optionally force a unit visible - the psiAttackMessage send guard
+					// (BattlescapeGame.cpp:3162) requires victim->getVisible()==true.
+					// getBaseStats() drives getPsiAccuracy's multiplier AND the psiSkill>0
+					// usability gate; a geoscape soldier current stats drive
+					// isNaturallyPsiCapable. Both surfaces are set. Apply on BOTH machines
+					// - each one independently simulates the battle.
+					UnitStats* bs = unit->getBaseStats();
+					Soldier* gs = unit->getGeoscapeSoldier();
+					UnitStats* cs = gs ? gs->getCurrentStatsEditable() : nullptr;
+					auto setStat = [&](const std::string& name, int v)
+					{
+						if (name == "psiSkill")         { bs->psiSkill = v;    if (cs) cs->psiSkill = v; }
+						else if (name == "psiStrength") { bs->psiStrength = v; if (cs) cs->psiStrength = v; }
+						else if (name == "firing")      { bs->firing = v;      if (cs) cs->firing = v; }
+						else if (name == "tu")          { bs->tu = v;          if (cs) cs->tu = v; }
+					};
+					if (req.isMember("psiSkill"))    setStat("psiSkill", req["psiSkill"].asInt());
+					if (req.isMember("psiStrength")) setStat("psiStrength", req["psiStrength"].asInt());
+					if (req.isMember("stat"))        setStat(req["stat"].asString(), req.get("value", 0).asInt());
+					if (req.isMember("visible"))     unit->setVisible(req["visible"].asBool());
+					if (req.get("refill", false).asBool())
+						unit->setTimeUnits(bs->tu);
+					resp["psiSkill"] = bs->psiSkill;
+					resp["psiStrength"] = bs->psiStrength;
+					resp["visible"] = unit->getVisible();
+					resp["tu"] = unit->getTimeUnits();
+					resp["ok"] = true;
 				}
 				else
 					resp["error"] = "unknown battle action";
