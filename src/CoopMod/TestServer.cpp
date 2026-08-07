@@ -4540,6 +4540,11 @@ std::string TestServer::execute(const std::string& line)
 			if (!bg)
 			{
 				resp["inBattle"] = false;
+				// PvP win/lose verdict survives the battle (reset only at the next
+				// battle start), so a test can read it after both machines leave
+				// the battlescape into Debriefing.
+				resp["pvpWin"] = _game->getCoopMod()->_coopPVPwin;
+				resp["coopGamemode"] = connectionTCP::getCoopGamemode();
 				resp["ok"] = true;
 			}
 			else
@@ -4596,6 +4601,8 @@ std::string TestServer::execute(const std::string& line)
 				// simply never reaches the peer.
 				resp["activeSync"] = _game->getCoopMod()->_isActivePlayerSync;
 				resp["coopGamemode"] = connectionTCP::getCoopGamemode();
+				// PvP win/lose verdict (0=unset, 1=xcom, 2=alien/ufo).
+				resp["pvpWin"] = _game->getCoopMod()->_coopPVPwin;
 				// Skirmish diagnosis: the coop-init gate also depends on the campaign
 				// flag and on the WAIT_BATTLESCAPE_* handshake having been exchanged.
 				resp["coopCampaign"] = _game->getCoopMod()->getCoopCampaign();
@@ -4852,6 +4859,32 @@ std::string TestServer::execute(const std::string& line)
 				}
 				else
 					resp["error"] = "no BattlescapeState";
+			}
+			else if (act == "kill_unit")
+			{
+				// Harness-only deterministic elimination for the PvP win/lose
+				// gate. Kills a single unit ("unit" id) or every living combatant
+				// on a coop side ("coop_side": 0=host-side, 1=client-side).
+				// Faction is NOT filtered: the per-machine PvP remap makes the
+				// enemy side FACTION_HOSTILE locally, so a coop-side wipe must key
+				// on getCoop() alone and skip only neutrals. Apply on the machine
+				// whose end-turn scan reads the result (the executor).
+				int coopSide = req.get("coop_side", -1).asInt();
+				int killId = req.get("unit", -1).asInt();
+				Json::Value killed(Json::arrayValue);
+				for (auto* u : *sbg->getUnits())
+				{
+					if (u->isOut() || u->getFaction() == FACTION_NEUTRAL) continue;
+					bool match = (coopSide >= 0 && u->getCoop() == coopSide)
+						|| (killId >= 0 && u->getId() == killId);
+					if (match)
+					{
+						u->instaKill();
+						killed.append(u->getId());
+					}
+				}
+				resp["killed"] = killed;
+				resp["ok"] = true;
 			}
 			else
 			{
