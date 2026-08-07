@@ -1259,7 +1259,12 @@ void DebriefingState::init()
 	}
 
 	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
+	// In PvP (gm2/gm3) both machines end the battle independently via their own
+	// finishBattle, so the host must NOT also push the peer a "DebriefingState"
+	// packet - that would double-run EndCoopBattle + pushState(DebriefingState)
+	// on the client (which already ended). Fence the send to non-PvP modes only.
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true
+		&& !(_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3))
 	{
 
 		Json::Value root;

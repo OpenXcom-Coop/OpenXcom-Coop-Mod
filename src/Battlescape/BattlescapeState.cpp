@@ -115,6 +115,11 @@ BattlescapeState::BattlescapeState() :
 	// for gifting is deliberately separate from SavedBattleGame::selectedUnit.
 	_game->getCoopMod()->clearGiftSelectedBattleUnit();
 
+	// coop (pvp): a fresh battle carries no win/lose verdict. Reset here (battle
+	// start; runs on both machines and for the first battle) so a prior PvP
+	// battle's _coopPVPwin can't leak into this battle's finishBattle override.
+	_game->getCoopMod()->_coopPVPwin = 0;
+
 	std::fill_n(_visibleUnit, 10, (BattleUnit*)(0));
 
 	const int screenWidth = Options::baseXResolution;
@@ -2973,6 +2978,10 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		root["actor_id"] = actor_jd;
 		root["anim_frame"] = _save->getAnimFrame();
 
+		// coop (pvp): does this end-turn eliminate one side? drives both the
+		// battle-terminating flag in the packet and the LOCAL finishBattle below.
+		bool pvp_finished = false;
+
 		// coop (pvp): determine which side won before stamping the packet
 		if (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3)
 		{
@@ -2981,7 +2990,7 @@ void BattlescapeState::btnEndTurnClick(Action *)
 
 			for (auto *bu : *_save->getUnits())
 			{
-				if (bu->getCoop() == 0 && !bu->isOut() && bu->getHealth() > 0 && bu->getFaction() == FACTION_PLAYER)
+				if (bu->getCoop() == 0 && !bu->isOut() && bu->getHealth() > 0 && bu->getFaction() != FACTION_NEUTRAL)
 				{
 					found_host = true;
 					break;
@@ -2990,12 +2999,15 @@ void BattlescapeState::btnEndTurnClick(Action *)
 
 			for (auto *bu : *_save->getUnits())
 			{
-				if (bu->getCoop() == 1 && !bu->isOut() && bu->getHealth() > 0 && bu->getFaction() == FACTION_PLAYER)
+				if (bu->getCoop() == 1 && !bu->isOut() && bu->getHealth() > 0 && bu->getFaction() != FACTION_NEUTRAL)
 				{
 					found_client = true;
 					break;
 				}
 			}
+
+			pvp_finished = (found_host == false || found_client == false);
+			root["battle"] = pvp_finished;
 
 			if (found_host == false && _game->getCoopMod()->getCoopGamemode() == 2)
 				_game->getCoopMod()->_coopPVPwin = 2;  // ufo wins (host XCOM dead)
@@ -3109,6 +3121,15 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		// resets
 		_game->getCoopMod()->_waitBH = false;
 		_game->getCoopMod()->_waitBC = false;
+
+		// coop (pvp): one side is wiped. Drive the LOCAL end into Debriefing and
+		// do NOT fall through to the normal turn handoff (requestEndTurn). The
+		// peer runs the same finishBattle from the battle:true packet just sent.
+		if (pvp_finished)
+		{
+			finishBattle(false, 1);
+			return;
+		}
 
 	}
 	
@@ -5824,7 +5845,7 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 	}
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && abort == false && _save->isPreview() == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && abort == false && _save->isPreview() == false && !(_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3))
 	{
 		return;
 	}

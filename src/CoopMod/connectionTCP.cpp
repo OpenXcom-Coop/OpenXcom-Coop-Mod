@@ -8716,6 +8716,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_chatMenu->setActive(false);
 		}
 
+		// coop (pvp): mirror the win verdict + detect a battle-terminating end
+		// turn. Both machines run finishBattle independently; the sender computes
+		// the verdict and we propagate it so the local cutscene override picks the
+		// right win/lose movie.
+		bool pvp_battle_finished = false;
+		if (getCoopGamemode() == 2 || getCoopGamemode() == 3)
+		{
+			_coopPVPwin = obj.get("pvp_win", 0).asInt();
+			pvp_battle_finished = obj.get("battle", false).asBool();
+		}
+
 		//  selected unit
 		int actor_id = obj["actor_id"].asInt();
 
@@ -8885,7 +8896,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			}
 
-			if (getHost() == false)
+			if (pvp_battle_finished)
+			{
+				// coop (pvp): one side wiped - end the battle locally into
+				// Debriefing instead of the normal turn handoff. The host Debriefing
+				// packet send is fenced in PvP, so this is the only end path on each
+				// machine (no double-Debriefing).
+				SavedBattleGame* pvpSbg = _game->getSavedGame()->getSavedBattle();
+				BattlescapeState* pvpState = pvpSbg ? pvpSbg->getBattleState() : nullptr;
+				if (pvpState)
+				{
+					pvpState->finishBattle(false, 1);
+				}
+			}
+			else if (getHost() == false)
 			{
 
 				// PVP2 fix
