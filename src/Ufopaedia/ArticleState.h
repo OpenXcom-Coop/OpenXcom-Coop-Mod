@@ -90,6 +90,11 @@ namespace OpenXcom
 		/// return the article id
 		std::string getId() const { return _id; }
 
+		/// Test harness (coop TestServer dismiss_popup): press the real OK
+		/// button _btnOk fires. btnOkClick is protected, so expose it minimally;
+		/// its Action* is ignored, so nullptr is safe.
+		void testConfirm() { btnOkClick(0); }
+
 	protected:
 
 		/// converts damage type to string

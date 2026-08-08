@@ -156,11 +156,12 @@ def new_campaign(host, client, port="47900",
         )
         host.ok({"cmd": "coop_dialog_back"})
 
-    # session up: both synced (client holds the streamed / synced world)
+    # session up: both synced — client sees the geoscape with no dialogs
     try:
         client.wait_for(
             "session up",
-            lambda: (lambda c: (c.get("hasSave") and not _has_state(client, "LobbyMenu")) or None)(client.cmd({"cmd": "get_coop"})),
+            lambda: "GeoscapeState" in _states(client)[-1]
+                    if _states(client) else None,
             timeout=120,
         )
     except TimeoutError:
@@ -203,7 +204,8 @@ def resume_campaign(host, client, save_file, port="47900",
 
     client.wait_for(
         "resume session up",
-        lambda: (lambda c: (c.get("hasSave") and not _has_state(client, "LobbyMenu")) or None)(client.cmd({"cmd": "get_coop"})),
+        lambda: "GeoscapeState" in _states(client)[-1]
+                if _states(client) else None,
         timeout=120,
     )
     print("session resumed (redesigned flow)")

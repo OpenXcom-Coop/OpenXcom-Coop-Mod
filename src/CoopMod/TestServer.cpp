@@ -55,6 +55,7 @@
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/ProjectileFlyBState.h"
+#include "../Battlescape/PsiAttackBState.h"
 #include "../Battlescape/Position.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
@@ -2343,6 +2344,11 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			{
 				resp["players"][idx++] = n;
 			}
+			idx = 0;
+			for (const auto& t : lobby->rosterTeams())
+			{
+				resp["playerTeams"][idx++] = t;
+			}
 		}
 		resp["ok"] = true;
 	}
@@ -4575,6 +4581,11 @@ std::string TestServer::execute(const std::string& line)
 			if (!bg)
 			{
 				resp["inBattle"] = false;
+				// PvP win/lose verdict survives the battle (reset only at the next
+				// battle start), so a test can read it after both machines leave
+				// the battlescape into Debriefing.
+				resp["pvpWin"] = _game->getCoopMod()->_coopPVPwin;
+				resp["coopGamemode"] = connectionTCP::getCoopGamemode();
 				resp["ok"] = true;
 			}
 			else
@@ -4631,6 +4642,8 @@ std::string TestServer::execute(const std::string& line)
 				// simply never reaches the peer.
 				resp["activeSync"] = _game->getCoopMod()->_isActivePlayerSync;
 				resp["coopGamemode"] = connectionTCP::getCoopGamemode();
+				// PvP win/lose verdict (0=unset, 1=xcom, 2=alien/ufo).
+				resp["pvpWin"] = _game->getCoopMod()->_coopPVPwin;
 				// Skirmish diagnosis: the coop-init gate also depends on the campaign
 				// flag and on the WAIT_BATTLESCAPE_* handshake having been exchanged.
 				resp["coopCampaign"] = _game->getCoopMod()->getCoopCampaign();
@@ -4669,6 +4682,9 @@ std::string TestServer::execute(const std::string& line)
 					// + isYourTurn), so a test sees exactly which units THIS player can
 					// command right now - not a Python re-derivation of the rule.
 					ju["selectable"] = u->isSelectable(FACTION_PLAYER, false, false);
+					// F5: mind-control markers for the PvP psi convergence test.
+					ju["mindControllerId"] = u->getMindControllerId();
+					ju["mindControlled"] = u->_coop_mindcontrolled;
 					ju["soldierId"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getId() : -1;
 					ju["owner"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getOwnerPlayerId() : -1;
 					BattleItem* w = u->getMainHandWeapon(false);
@@ -4676,10 +4692,10 @@ std::string TestServer::execute(const std::string& line)
 					// kill attribution (for coop outcome cross-validation)
 					ju["murdererId"] = u->getMurdererId();
 					ju["killedBy"] = (int)u->killedBy();
-				ju["direction"] = u->getDirection();
-				Position p = u->getPosition();
-				ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;
-				units.append(ju);
+					ju["direction"] = u->getDirection();
+					Position p = u->getPosition();
+					ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;
+					units.append(ju);
 				}
 				resp["units"] = units;
 				// Spotted hostiles: union of what all player units currently see.
@@ -4865,6 +4881,16 @@ std::string TestServer::execute(const std::string& line)
 				bg->requestEndTurn(false);
 				resp["ok"] = true;
 			}
+			else if (act == "end_turn_button")
+			{
+				if (bstate)
+				{
+					bstate->btnEndTurnClick(nullptr);
+					resp["ok"] = true;
+				}
+				else
+					resp["error"] = "no BattlescapeState";
+			}
 			else if (act == "abort")
 			{
 				// Proper abort: open the confirm dialog (AbortMissionState). The
@@ -4878,6 +4904,32 @@ std::string TestServer::execute(const std::string& line)
 				}
 				else
 					resp["error"] = "no BattlescapeState";
+			}
+			else if (act == "kill_unit")
+			{
+				// Harness-only deterministic elimination for the PvP win/lose
+				// gate. Kills a single unit ("unit" id) or every living combatant
+				// on a coop side ("coop_side": 0=host-side, 1=client-side).
+				// Faction is NOT filtered: the per-machine PvP remap makes the
+				// enemy side FACTION_HOSTILE locally, so a coop-side wipe must key
+				// on getCoop() alone and skip only neutrals. Apply on the machine
+				// whose end-turn scan reads the result (the executor).
+				int coopSide = req.get("coop_side", -1).asInt();
+				int killId = req.get("unit", -1).asInt();
+				Json::Value killed(Json::arrayValue);
+				for (auto* u : *sbg->getUnits())
+				{
+					if (u->isOut() || u->getFaction() == FACTION_NEUTRAL) continue;
+					bool match = (coopSide >= 0 && u->getCoop() == coopSide)
+						|| (killId >= 0 && u->getId() == killId);
+					if (match)
+					{
+						u->instaKill();
+						killed.append(u->getId());
+					}
+				}
+				resp["killed"] = killed;
+				resp["ok"] = true;
 			}
 			else
 			{
@@ -4937,6 +4989,83 @@ std::string TestServer::execute(const std::string& line)
 						bg->statePushBack(new ProjectileFlyBState(bg, *a));
 						resp["ok"] = true;
 					}
+				}
+				else if (act == "psi_attack")
+				{
+					// F5: originate a REAL cross-machine mind-control the same way
+					// primaryAction does (statePushBack(new PsiAttackBState), see
+					// BattlescapeGame.cpp:1211). On the ACTIVE machine (activeSync==true)
+					// PsiAttackBState::init takes its ORIGINATOR branch: it fires the
+					// psi_attack animation packet, then ExplosionBState ->
+					// TileEngine::psiAttack rolls the MC and psiAttackMessage flips
+					// getCoop()/faction and sends the authoritative psi_result packet.
+					// The old code called the receiver-side decoder (bstate->psi_attack),
+					// which only REPLAYS a received attack locally - no flip, no send.
+					int tid = req.get("target", -1).asInt();
+					BattleUnit* tgt = nullptr;
+					for (auto* u : *sbg->getUnits())
+						if (u->getId() == tid) tgt = u;
+					BattleItem* w = nullptr;
+					int wid = req.get("weapon_id", -1).asInt();
+					if (wid >= 0)
+						for (auto* i : *unit->getInventory())
+							if (i && i->getId() == wid) { w = i; break; }
+					if (!w) w = unit->getMainHandWeapon(false);
+					if (!w) w = unit->getLeftHandWeapon();
+					if (!tgt)
+						resp["error"] = "no target id";
+					else if (!w)
+						resp["error"] = "no psi-amp equipped";
+					else
+					{
+						sbg->setSelectedUnit(unit);
+						BattleAction* a = bg->getCurrentAction();
+						a->actor = unit;
+						a->weapon = w;
+						a->type = (req.get("mode", "mc").asString() == "panic")
+							? BA_PANIC : BA_MINDCONTROL;
+						a->targeting = true;
+						a->target = tgt->getPosition();
+						a->updateTU();
+						resp["tuCost"] = a->Time;
+						resp["tuHave"] = unit->getTimeUnits();
+						resp["activeSync"] = _game->getCoopMod()->_isActivePlayerSync;
+						resp["targetVisible"] = tgt->getVisible();
+						bg->statePushBack(new PsiAttackBState(bg, *a));  // == primaryAction:1211
+						resp["ok"] = true;
+					}
+				}
+				else if (act == "set_stat")
+				{
+					// F5 determinism helper: force psi capability so the MC roll
+					// (TileEngine::psiAttackCalculate) is a near-certain success, and
+					// optionally force a unit visible - the psiAttackMessage send guard
+					// (BattlescapeGame.cpp:3162) requires victim->getVisible()==true.
+					// getBaseStats() drives getPsiAccuracy's multiplier AND the psiSkill>0
+					// usability gate; a geoscape soldier current stats drive
+					// isNaturallyPsiCapable. Both surfaces are set. Apply on BOTH machines
+					// - each one independently simulates the battle.
+					UnitStats* bs = unit->getBaseStats();
+					Soldier* gs = unit->getGeoscapeSoldier();
+					UnitStats* cs = gs ? gs->getCurrentStatsEditable() : nullptr;
+					auto setStat = [&](const std::string& name, int v)
+					{
+						if (name == "psiSkill")         { bs->psiSkill = v;    if (cs) cs->psiSkill = v; }
+						else if (name == "psiStrength") { bs->psiStrength = v; if (cs) cs->psiStrength = v; }
+						else if (name == "firing")      { bs->firing = v;      if (cs) cs->firing = v; }
+						else if (name == "tu")          { bs->tu = v;          if (cs) cs->tu = v; }
+					};
+					if (req.isMember("psiSkill"))    setStat("psiSkill", req["psiSkill"].asInt());
+					if (req.isMember("psiStrength")) setStat("psiStrength", req["psiStrength"].asInt());
+					if (req.isMember("stat"))        setStat(req["stat"].asString(), req.get("value", 0).asInt());
+					if (req.isMember("visible"))     unit->setVisible(req["visible"].asBool());
+					if (req.get("refill", false).asBool())
+						unit->setTimeUnits(bs->tu);
+					resp["psiSkill"] = bs->psiSkill;
+					resp["psiStrength"] = bs->psiStrength;
+					resp["visible"] = unit->getVisible();
+					resp["tu"] = unit->getTimeUnits();
+					resp["ok"] = true;
 				}
 				else if (act == "door")
 				{
@@ -5001,13 +5130,15 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "GeoscapeEventState";
 				resp["ok"] = true;
 			}
-			else if (dynamic_cast<ArticleState*>(top))
+			else if (auto* art = dynamic_cast<ArticleState*>(top))
 			{
-				// Ufopaedia article (event reward / intro) — read-only display,
-				// btnOkClick is protected, so just pop it (same effect: return
-				// to the state underneath, ultimately the geoscape).
-				_game->popState();
-				resp["handled"] = "ArticleState";
+				// Ufopaedia article (event reward / intro). Press the real OK
+				// button via the testConfirm forwarder (ArticleState::btnOkClick is
+				// protected); it is the exact handler _btnOk fires. For an article
+				// btnOkClick is itself only _game->popState(), but we route through
+				// the real control for faithfulness/consistency.
+				art->testConfirm();
+				resp["handled"] = "ArticleState->btnOkClick";
 				resp["ok"] = true;
 			}
 			else if (auto* mr = dynamic_cast<MonthlyReportState*>(top))
@@ -5034,12 +5165,15 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "UfoDetectedState";
 				resp["ok"] = true;
 			}
-			else if (dynamic_cast<NextTurnState*>(top))
+			else if (auto* nt = dynamic_cast<NextTurnState*>(top))
 			{
-				// Transient "Turn N" screen — the turn already advanced when it
-				// was created; just pop it to reach the tactical map.
-				_game->popState();
-				resp["handled"] = "NextTurnState";
+				// "Turn N" screen. Press the real close handler a player triggers
+				// (any key/click -> NextTurnState::close, public). close() runs the
+				// full turn-close - coop click_close packet, unit tally,
+				// finishBattle/recenter - not a raw pop, so it reaches the tactical
+				// map exactly as a player would.
+				nt->testConfirm();
+				resp["handled"] = "NextTurnState->close";
 				resp["ok"] = true;
 			}
 			else if (auto* ab = dynamic_cast<AbortMissionState*>(top))
@@ -5054,12 +5188,14 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "DebriefingState";
 				resp["ok"] = true;
 			}
-			else if (dynamic_cast<CraftPatrolState*>(top))
+			else if (auto* cp = dynamic_cast<CraftPatrolState*>(top))
 			{
-				// "Craft reached destination / now patrolling" alert. OK just pops
-				// (keep patrolling); btnOkClick is protected, so pop it directly.
-				_game->popState();
-				resp["handled"] = "CraftPatrolState";
+				// "Craft reached destination / now patrolling" alert. Press the real
+				// OK button via the testConfirm forwarder (same handler _btnOk fires,
+				// CraftPatrolState::btnOkClick); for this alert OK is itself only
+				// _game->popState(), routed through the real control for consistency.
+				cp->testConfirm();
+				resp["handled"] = "CraftPatrolState->btnOkClick";
 				resp["ok"] = true;
 			}
 			else if (!top || dynamic_cast<GeoscapeState*>(top))
@@ -5068,12 +5204,49 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "none";
 				resp["ok"] = true;
 			}
-			else if (dynamic_cast<CoopState*>(top))
+			else if (auto* cs = dynamic_cast<CoopState*>(top))
 			{
-				// Coop WAIT dialog (map download / month save-progress sync). It
-				// auto-closes; never pop it. Caller should wait.
-				resp["wait"] = true;
-				resp["error"] = "coop wait dialog (auto-closes; not dismissable)";
+				// CoopState dialog.  In a skirmish (lobbyMode 0) a DROPPED connection
+				// strands the peer on a terminal "Server connection lost" dialog
+				// (client code 21 / host code 20, both pushed only on onConnect==-2)
+				// with no host signal ever coming - the abort-vote flow leaves the
+				// client there after the host quits (test_pvp_skirmish_abort).  Press
+				// the real Back button (CoopState::previous) on only those - the same
+				// handler _btnBack fires - so the harness does not hang and leaves
+				// exactly as a player clicking Back would.
+				//
+				// Every OTHER CoopState here is a TRANSIENT load/stream wait the coop
+				// network thread (loopData/onTCPMessage) is actively resolving - e.g.
+				// the skirmish battle stream parks the client on codes 1/4 while it
+				// downloads the battle.  Tearing the stack down with setState() while
+				// that thread is mid pushState/popState races the two unsynchronized
+				// _states mutations and can empty the stack, so Game::run reaches
+				// _states.back()->init() on an empty vector (Game.cpp:209, 0xC0000005).
+				// The connection-lost codes never appear while a stream is live (they
+				// require onConnect==-2), so gating on them is race-free.  Never nuke a
+				// transient wait: report it and let the caller keep polling until the
+				// battle/world lands (the pre-#93 behaviour).  Campaign holds
+				// (lobbyMode != 0) still auto-close normally.
+				const int coopCode = cs->getStateCode();
+				if (connectionTCP::session.lobbyMode == 0
+					&& (coopCode == 21 || coopCode == 20))
+				{
+					// Press the real Back button: CoopState::previous is the exact
+					// handler _btnBack fires (CoopState.cpp onMouseClick &previous).
+					// For codes 21/20 previous() runs setState(GoToMainMenuState(false))
+					// plus the issue-#82 chokepoint guard, so the harness leaves exactly
+					// as a player clicking Back would. Still race-free: 20/21 exist only
+					// on onConnect==-2, when nothing is streaming. previous(nullptr) is
+					// null-Action-safe (it never dereferences its Action* argument).
+					cs->previous(nullptr);
+					resp["handled"] = "CoopState->previous";
+					resp["ok"] = true;
+				}
+				else
+				{
+					resp["wait"] = true;
+					resp["error"] = "coop wait dialog (auto-closes; not dismissable)";
+				}
 			}
 			else if (dynamic_cast<VoteMenu*>(top))
 			{
@@ -5136,6 +5309,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["readyCoopBattle"] = coop->ready_coop_battle;
 			resp["isLoadProgress"] = coop->_isLoadProgress;
 			resp["shared"] = coop->isSharedCampaign();
+			resp["gamemode"] = connectionTCP::getCoopGamemode();
 			{
 				CoopState* top = findState<CoopState>(_game);
 				resp["coopDialog"] = top ? top->getStateCode() : -1;
@@ -5195,7 +5369,17 @@ std::string TestServer::execute(const std::string& line)
 				// optional room password (default: open server, like an empty UI box)
 				connectionTCP::password = req.get("password", "").asString();
 				connectionTCP::isPasswordRequired = !connectionTCP::password.empty();
-				connectionTCP::_coopGamemode = 1; // PVE
+				// Preserve the gamemode from a loaded save (resume lobbies
+				// need the original PvP/PvE mode).  Only default to PVE
+				// when starting a fresh campaign.
+				if (campaign && _game->getSavedGame() && _game->getSavedGame()->isCoopSave())
+				{
+					// keep the gamemode from the loaded save
+				}
+				else
+				{
+					connectionTCP::_coopGamemode = 1; // PVE
+				}
 				coop->setCoopSession(false);
 				coop->setPlayerTurn(3);
 				coop->setHostName(player);

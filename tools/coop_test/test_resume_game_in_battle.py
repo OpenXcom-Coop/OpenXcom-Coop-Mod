@@ -82,7 +82,8 @@ def lobby(gc):
 
 def settle_on_tactical(gc, tag, timeout=180):
     """Walk briefing / pre-battle inventory / popups until the tactical map is
-    the top state."""
+    the top state, exactly as a player would: press each dialog's real control
+    and wait through transient no-button coop holds instead of forcing them."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         t = top(gc)
@@ -93,6 +94,11 @@ def settle_on_tactical(gc, tag, timeout=180):
         elif t == "InventoryState":
             gc.cmd({"cmd": "battle_inventory", "action": "ok"})
         else:
+            # dismiss_popup presses the dialog's real button now (CoopState
+            # Back, GeoscapeEvent / MonthlyReport / NextTurn / etc. OK). A
+            # transient coop load/stream hold has no button to press yet and
+            # answers {"wait": True} - that is not an error; we keep polling,
+            # the way a player waits for the battle to finish landing.
             gc.cmd({"cmd": "dismiss_popup"})
         time.sleep(0.5)
     raise AssertionError(f"{tag}: never settled on the tactical map: {states(gc)}")

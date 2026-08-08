@@ -3158,8 +3158,15 @@ void BattlescapeGame::psiAttackMessage(BattleActionAttack attack, BattleUnit* vi
 			}
 		}
 
-		// coop (pvp)
-		if (game->getCoopMod()->getCoopStatic() == true && game->getCoopMod()->_isActivePlayerSync == true && (game->getCoopMod()->getCoopGamemode() == 2 || game->getCoopMod()->getCoopGamemode() == 3) && victim->getFaction() != attack.attacker->getFaction() && victim->getVisible() == true)
+		// coop (pvp) [F5]: gate the authoritative psi_result on SIDE
+		// ownership (getCoop), not the post-conversion faction. By the time
+		// ExplosionBState reaches here it has ALREADY run TileEngine::psiAttack,
+		// which converts the victim to the attacker's faction - so the old
+		// victim->getFaction() != attacker->getFaction() check was always false
+		// and psi_result never fired (the peer never learned of the MC).
+		// getCoop() is untouched by that conversion and still marks the pre-MC
+		// owner, so it cleanly identifies a cross-side control flip.
+		if (game->getCoopMod()->getCoopStatic() == true && game->getCoopMod()->_isActivePlayerSync == true && (game->getCoopMod()->getCoopGamemode() == 2 || game->getCoopMod()->getCoopGamemode() == 3) && victim->getCoop() != attack.attacker->getCoop() && victim->getVisible() == true)
 		{
 
 			if (victim->getCoop() == 0)

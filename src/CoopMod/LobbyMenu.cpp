@@ -581,6 +581,16 @@ std::vector<std::string> LobbyMenu::rosterNames() const
 	return names;
 }
 
+std::vector<std::string> LobbyMenu::rosterTeams() const
+{
+	std::vector<std::string> teams;
+	for (const auto &p : _connectedPlayers)
+	{
+		teams.push_back(p.team);
+	}
+	return teams;
+}
+
 /// Test automation: the name in a specific roster ROW by player id (unsorted),
 /// since the displayed roster is sorted so row order is not id order. id 1 = the
 /// host row, id 2 = the client row.
@@ -632,6 +642,40 @@ void LobbyMenu::resumeCampaign()
 	// request_load_progress makes the host serialize the CURRENT world fresh and
 	// stream it (streamSharedWorldToClient). Never build a fresh client world.
 	std::string clientName = _game->getCoopMod()->getCurrentClientName();
+
+	// PvP gamemode 2: the alien client has no_bases, so no world blob was
+	// ever transferred to the host.  Synthesize a minimal one-shot blob
+	// now so the resume-campaign path below takes the campaign_resume
+	// branch instead of falling through to campaign_start (which starts a
+	// fresh world that another campaign_start in request_load_progress
+	// would overwrite, never arming sendFileClient).
+	if (connectionTCP::_coopGamemode == 2
+		&& !connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
+	{
+		try
+		{
+			// PvP P4: the gm2 alien client never sends a world blob to the host
+			// (its own coopFilesClient world is process-local). Build a MINIMAL
+			// no_bases stub - one unplaced/unnamed EMPTY base, empty roster - and
+			// store it under the client's hostBlobKey so the campaign_resume branch
+			// below fires. Replaces the former full-world synthesis (host bases +
+			// host roster stamped no_bases via a temporary global flip), which
+			// leaked the host's placed bases and named roster into the client's
+			// rejoin world. buildCoopStub reads no global flag, so there is no flip.
+			std::string key = connectionTCP::hostBlobKey(clientName);
+			std::string stub = _game->getSavedGame()->buildCoopStub(_game->getMod());
+			{
+				std::lock_guard<std::mutex> lk(connectionTCP::coopFilesMutex);
+				connectionTCP::coopFilesHost[key] = std::move(stub);
+			}
+			Log(LOG_INFO) << "[coop] gm2 resume: stub no_bases blob for " << clientName;
+		}
+		catch (const std::exception& e)
+		{
+			Log(LOG_ERROR) << "[coop] gm2 resume stub build failed: " << e.what();
+		}
+	}
+
 	if (_game->getCoopMod()->isSharedCampaign()
 		|| connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
 	{
@@ -715,6 +759,9 @@ void LobbyMenu::startCampaign()
 	// lock players and teams (change_team refuses while locked)
 	connectionTCP::session.campaignStarted();
 
+	if (_game->getCoopMod()->getCoopGamemode() == 3)
+		connectionTCP::no_bases = true;
+
 	// A NEW campaign always mints a fresh saveID and starts with no world blobs
 	// (fixes C2: a second campaign in the same process must not reuse the first
 	// campaign's ID or serve its stale client world). resumeCampaign keeps the
@@ -764,7 +811,24 @@ void LobbyMenu::startCampaign()
 		}
 	}
 
-	beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+	if (!connectionTCP::no_bases)
+		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+	else
+	{
+		// PvP: the host is the alien side and has no bases.  Push the
+		// wait-the-client dialog so the host can click BEGIN once the
+		// other machine has placed its base and pushed its world blob.
+		// Give the stub base a non-zero location so the geoscape sim
+		// (determineAlienMissions) can find a valid region.
+		Base* stub = _game->getSavedGame()->getBases()->back();
+		if (stub && stub->getLongitude() == 0.0 && stub->getLatitude() == 0.0)
+		{
+			stub->setLongitude(0.7063);
+			stub->setLatitude(-0.5070);
+			stub->setName("AlienHQ");
+		}
+		_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+	}
 
 }
 
@@ -1206,7 +1270,19 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 			current_gamemode = 3;
 		}
 
-		connectionTCP::_coopGamemode = current_gamemode;
+		// Resume lobbies: the gamemode was read from the loaded save
+		// and must not be recalculated from team flags (which both
+		// default to false → PVE=1).  Preserve it for mode-2 lobbies.
+		if (connectionTCP::session.lobbyMode == 2
+			&& _game->getSavedGame()
+			&& _game->getSavedGame()->isCoopSave())
+		{
+			// _coopGamemode was already set from the save file.
+		}
+		else
+		{
+			connectionTCP::_coopGamemode = current_gamemode;
+		}
 
 		Json::Value root;
 		root["state"] = "change_team";
@@ -1282,7 +1358,7 @@ void LobbyMenu::think()
 
 		}
 
-		if (((_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false) || (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)) || _game->getCoopMod()->getCoopGamemode() == 4)
+		if (_game->getCoopMod()->getCoopGamemode() == 3 || _game->getCoopMod()->getCoopGamemode() == 4)
 		{
 			txtTeam = "Alien";
 		}

@@ -2460,12 +2460,6 @@ const std::vector<Craft*>* GeoscapeState::updateActiveCrafts()
 void GeoscapeState::time5Seconds()
 {
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
 	// PRD-J04: replica simulation freeze. In SHARED only the host runs world
 	// simulation; a replica's clock still advances (from the host "time" packet,
 	// applied in updateCoopTask) and its globe still draws, but every timeXxx
@@ -2488,6 +2482,14 @@ void GeoscapeState::time5Seconds()
 	//                    replica's monthly apply path).
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	// If in "slow mode", handle UFO hunting and escorting logic every 5 seconds, not only every 10 minutes
 	if ((_timeSpeed == _btn5Secs || _timeSpeed == _btn1Min) && _game->getMod()->getHunterKillerFastRetarget())
@@ -3134,16 +3136,18 @@ bool DetectXCOMBase::operator()(const Ufo *ufo) const
 void GeoscapeState::time10Minutes()
 {
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
 	// PRD-J04: replica simulation freeze (see time5Seconds). Fuel burn, base/HK
 	// detection and alien-base hunt-mission generation are host-only.
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
@@ -3508,17 +3512,19 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 void GeoscapeState::time30Minutes()
 {
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
 	// PRD-J04: replica simulation freeze (see time5Seconds). Alien-mission
 	// countdowns, UFO detection, mission-site processing and geoscape events are
 	// host-only; the replica sees them via snapshots / mirrored popups.
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	// Decrease mission countdowns
 	for (auto* am : _game->getSavedGame()->getAlienMissions())
@@ -3810,18 +3816,20 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 void GeoscapeState::time1Hour()
 {
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
 	// PRD-J04: replica simulation freeze (see time5Seconds). Craft
 	// repair/rearm/refuel, transfer arrival and production steps are host-only;
 	// the host mirrors transfer arrivals (transfer_arrived) and production
 	// completions (prod_done) to replicas below.
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	// PRD-J04: index of a base in the shared list = the SHARED baseId (stable, the
 	// replica holds the same ordered list). Used by the host sim-result broadcasts.
@@ -4134,18 +4142,20 @@ void GenerateSupplyMission::operator()(AlienBase *base) const
 void GeoscapeState::time1Day()
 {
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
 	// PRD-J04: replica simulation freeze (see time5Seconds). Research/facility/
 	// soldier daily progress and the autosave are host-only; the host mirrors
 	// research completions, facility completions (fac_done) and soldier recovery
 	// (day_tick) to replicas below. A replica NEVER autosaves (it holds no disk save).
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	_game->getSavedGame()->increaseDaysPassed();
 
@@ -4674,18 +4684,20 @@ void GeoscapeState::time1Day()
 void GeoscapeState::time1Month()
 {
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
 	// PRD-J04: replica simulation freeze (see time5Seconds). A SHARED replica never
 	// settles funding locally; it adopts the host's monthly result via the extended
 	// monthly_report packet (applied in time1MonthCoop). Redundant with the coop
 	// serverOwner gate below, but kept explicit.
 	if (_game->getCoopMod()->isSharedReplica())
 		return;
+
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
+	{
+		return;
+	}
 
 	// coop
 	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
@@ -6127,8 +6139,10 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eventRules)
 {
 
-	// coop fix
-	if (connectionTCP::no_bases == true)
+	// coop PvP: the alien-side machine has no world of its own to simulate —
+	// EXCEPT when it is the host, whose sim is the session authority (B1/B2:
+	// gm3 host=alien must run missions, months, and the clock's consequences).
+	if (connectionTCP::no_bases == true && _game->getCoopMod()->getHost() == false)
 	{
 		return;
 	}

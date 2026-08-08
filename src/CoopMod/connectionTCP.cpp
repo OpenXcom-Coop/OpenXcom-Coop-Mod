@@ -2107,12 +2107,62 @@ void connectionTCP::updateCoopTask()
 	// server error!
 	if (onConnect == -3)
 	{
-
-		closeConnectingDialog();
-
-		// Make sure it calls disconnectTCP, otherwise it may get stuck.
-		_game->pushState(new CoopState(440));
-
+		// Mid-session during a campaign: treat this as a client drop.
+		// Push a freeze/WAIT_PLAYERS dialog so the host can wait for
+		// reconnection (instead of code 440 which tears down the server).
+		//
+		// Two guards, mirrored from the canonical drop path in disconnectTCP:
+		//   * Only the HOST freezes and waits. A client that hits -3 has no
+		//     peer to wait for, so it keeps the plain 440 teardown (a client
+		//     live-rejoin path is deliberately out of scope, F2).
+		//   * Never once the campaign has ended: after defeat/victory there
+		//     is nothing left to reconnect for, so suppress the freeze and
+		//     fall through to teardown (matches the campaignEnded() gate at
+		//     the disconnectTCP drop site).
+		if (getServerOwner() == true
+			&& connectionTCP::session.lobbyClosed
+			&& connectionTCP::session.lobbyMode != 0
+			&& !campaignEnded())
+		{
+			bool waitDialogPresent = false;
+			for (State* st : _game->getStates())
+			{
+				CoopState* cs = dynamic_cast<CoopState*>(st);
+				if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
+				{
+					waitDialogPresent = true;
+					break;
+				}
+			}
+			if (!waitDialogPresent)
+			{
+				connectionTCP::session.freeze();
+				_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+			}
+			// Don't let updateCoopTask re-fire this handler each cycle.
+			// The TCP thread will set onConnect=1 when a peer reconnects.
+			onConnect = 1;
+			// Clear the stale player name so the rejoin roster gate
+			// (nameInUse check) doesn't refuse the returning player.
+			tcpPlayerName.clear();
+		}
+		else
+		{
+			// issue #79 (mirrored from disconnectTCP): a HOST drop once the
+			// campaign has ended must NOT freeze/wait - there is nothing left
+			// to reconnect for. Log the suppression, then tear down plainly.
+			// A client hitting -3 skips straight past this to the teardown.
+			if (getServerOwner() == true
+				&& connectionTCP::session.lobbyClosed
+				&& connectionTCP::session.lobbyMode != 0
+				&& campaignEnded())
+			{
+				Log(LOG_INFO) << "[coop] freeze dialog suppressed: the campaign "
+					"has ended; the peer has nothing left to reconnect for";
+			}
+			closeConnectingDialog();
+			_game->pushState(new CoopState(440));
+		}
 	}
 
 	// disconnect from server!
@@ -4046,6 +4096,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		int difficulty = obj["difficulty"].asInt();
 		connectionTCP::_coopGamemode = obj["gamemode"].asInt();
+		if (connectionTCP::_coopGamemode == 2)
+			connectionTCP::no_bases = true;
 		connectionTCP::saveID = obj["saveID"].asInt64();
 		connectionTCP::session.campaignStarted();
 		connectionTCP::session.lobbyMode = 1;
@@ -4087,7 +4139,31 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_game->setState(gs);
 			gs->init();
 
-			beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+			if (!connectionTCP::no_bases)
+				beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+			else
+			{
+				// PvP: the alien side has no bases.  This writes the client's
+				// world into its OWN process-local coopFilesClient map
+				// (getServerOwner()==false here); that blob never reaches the
+				// host, so it can NOT drive a host-side rejoin.  On rejoin the
+				// HOST supplies the client world instead: it embeds a minimal
+				// no_bases stub in its .sav (SavedGame::save -> buildCoopStub)
+				// and synthesizes the same stub in LobbyMenu::resumeCampaign.
+				// The WAIT_BASES dialog always shows BEGIN regardless of blob
+				// arrival (see CoopState::waitSatisfied); this local save is
+				// not needed for the initial session start.
+				std::string blobKey = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
+				try
+				{
+					_game->getSavedGame()->saveCoopToMemory(blobKey, _game->getMod(), blobKey);
+				}
+				catch (const std::exception &e)
+				{
+					Log(LOG_ERROR) << "[coop] no_bases client blob failed: " << e.what();
+				}
+				_game->pushState(new CoopState(COOP_DLG_CLIENT_HOLD));
+			}
 		}
 
 	}
@@ -8644,6 +8720,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_chatMenu->setActive(false);
 		}
 
+		// coop (pvp): mirror the win verdict + detect a battle-terminating end
+		// turn. Both machines run finishBattle independently; the sender computes
+		// the verdict and we propagate it so the local cutscene override picks the
+		// right win/lose movie.
+		bool pvp_battle_finished = false;
+		if (getCoopGamemode() == 2 || getCoopGamemode() == 3)
+		{
+			_coopPVPwin = obj.get("pvp_win", 0).asInt();
+			pvp_battle_finished = obj.get("battle", false).asBool();
+		}
+
 		//  selected unit
 		int actor_id = obj["actor_id"].asInt();
 
@@ -8813,7 +8900,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			}
 
-			if (getHost() == false)
+			if (pvp_battle_finished)
+			{
+				// coop (pvp): one side wiped - end the battle locally into
+				// Debriefing instead of the normal turn handoff. The host Debriefing
+				// packet send is fenced in PvP, so this is the only end path on each
+				// machine (no double-Debriefing).
+				SavedBattleGame* pvpSbg = _game->getSavedGame()->getSavedBattle();
+				BattlescapeState* pvpState = pvpSbg ? pvpSbg->getBattleState() : nullptr;
+				if (pvpState)
+				{
+					pvpState->finishBattle(false, 1);
+				}
+			}
+			else if (getHost() == false)
 			{
 
 				// PVP2 fix
@@ -11963,7 +12063,10 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// defeat/victory statistics screen with their own OK button; yanking
 		// them to the main menu because the other side closed the game first
 		// is exactly the "one player's exit affects the other" bug.
-		if ((connectionTCP::no_bases == true || !teardownAsHost) && !isMain
+		// A no_bases host (PvP alien side) must NOT be sent to the main menu
+		// here — the freeze dialog handles the reconnection flow, and ripping
+		// the world out from under it breaks rejoin entirely.
+		if (!teardownAsHost && !isMain
 			&& connectionTCP::_coopCampaign == true && !campaignEnded()
 			&& !lostDialogPresent)
 		{

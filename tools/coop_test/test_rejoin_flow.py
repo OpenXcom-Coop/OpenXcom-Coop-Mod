@@ -66,7 +66,8 @@ def main():
 
         client.wait_for(
             "client back on geoscape",
-            lambda: (lambda c: (c.get("hasSave") and c.get("coopStatic")) or None)(client.cmd({"cmd": "get_coop"})),
+            lambda: "GeoscapeState" in session.states(client)[-1]
+                    if session.states(client) else None,
             timeout=120,
         )
 

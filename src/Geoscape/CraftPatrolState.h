@@ -50,6 +50,9 @@ public:
 	void btnOkClick(Action *action);
 	/// Handler for clicking the Redirect Craft button.
 	void btnRedirectClick(Action *action);
+	/// Test harness (coop TestServer dismiss_popup): press the real OK button
+	/// _btnOk fires (btnOkClick); its Action* is ignored, so nullptr is safe.
+	void testConfirm() { btnOkClick(0); }
 };
 
 }
