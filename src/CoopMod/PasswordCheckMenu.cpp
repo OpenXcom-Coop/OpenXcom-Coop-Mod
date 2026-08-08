@@ -33,15 +33,16 @@ void PasswordCheckMenu::initMenu()
 	int x = 20;
 
 	// Create objects
-	_window = new Window(this, 216, 160, x, 20, POPUP_BOTH);
+	_window = new Window(this, 260, 160, x, 20, POPUP_BOTH);
 
-	_password = new TextEdit(this, 180, 18, x + 18, 72);
+	_lblPassword = new Text(108, 18, x + 18, 72);
+	_password = new TextEdit(this, 116, 18, x + 126, 72);
 
-	_tcpButtonJoin = new TextButton(180, 18, x + 18, 132);
+	_tcpButtonJoin = new TextButton(224, 18, x + 18, 132);
 
-	_txtInfo = new Text(180, 18, x + 18, 95);
-	_btnCancel = new TextButton(180, 18, x + 18, 152);
-	_txtTitle = new Text(206, 17, x + 5, 32);
+	_txtInfo = new Text(224, 18, x + 18, 95);
+	_btnCancel = new TextButton(224, 18, x + 18, 152);
+	_txtTitle = new Text(250, 17, x + 5, 32);
 
 	int screenWidth = Options::baseXGeoscape;
 	int screenHeight = Options::baseYGeoscape;
@@ -50,6 +51,7 @@ void PasswordCheckMenu::initMenu()
 	setInterface("pauseMenu", false, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
 
 	add(_window, "window", "pauseMenu");
+	add(_lblPassword, "text", "pauseMenu");
 	add(_password);
 	add(_tcpButtonJoin, "button", "pauseMenu");
 	add(_txtInfo, "text", "pauseMenu");
@@ -81,11 +83,17 @@ void PasswordCheckMenu::initMenu()
 	_txtInfo->setAlign(ALIGN_CENTER);
 	_txtInfo->setSmall();
 
+	// password label
+	_lblPassword->setBig();
+	_lblPassword->setBorderColor(color);
+	_lblPassword->setText("PASSWORD>");
+	_lblPassword->setVisible(true);
+
 	// password
 	_password->setColor(color);
 	_password->setBig();
 	_password->setBorderColor(color);
-	_password->setText("PASSWORD");
+	_password->setText("");
 	_password->setVisible(true);
 
 	_tcpButtonJoin->setText("JOIN");
@@ -98,7 +106,7 @@ void PasswordCheckMenu::initMenu()
 	_btnCancel->onKeyboardPress((ActionHandler)&PasswordCheckMenu::btnCancelClick, Options::keyCancel);
 }
 /**
- * Initializes all the elements in the New Battle window.
+ * Initializes all the elements in the new PasswordCheck Menu.
  * @param game Pointer to the core game.
  */
 PasswordCheckMenu::PasswordCheckMenu(ServerInfo* serverinfo, std::string player, bool isUDP, bool isDirect) : _serverinfo(serverinfo), _player(player), _isUDP(isUDP), _isDirect(isDirect)

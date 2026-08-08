@@ -90,7 +90,7 @@ class PasswordCheckMenu : public State
 	TextButton *_btnCancel, *_tcpButtonJoin;
 	TextEdit *_password;
 	Window *_window;
-	Text *_txtTitle, *_txtInfo;
+	Text *_txtTitle, *_txtInfo, *_lblPassword;
 	bool _isUDP = false;
 	bool _isDirect = false;
 	ServerInfo *_serverinfo;
