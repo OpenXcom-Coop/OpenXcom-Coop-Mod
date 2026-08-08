@@ -5130,13 +5130,15 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "GeoscapeEventState";
 				resp["ok"] = true;
 			}
-			else if (dynamic_cast<ArticleState*>(top))
+			else if (auto* art = dynamic_cast<ArticleState*>(top))
 			{
-				// Ufopaedia article (event reward / intro) — read-only display,
-				// btnOkClick is protected, so just pop it (same effect: return
-				// to the state underneath, ultimately the geoscape).
-				_game->popState();
-				resp["handled"] = "ArticleState";
+				// Ufopaedia article (event reward / intro). Press the real OK
+				// button via the testConfirm forwarder (ArticleState::btnOkClick is
+				// protected); it is the exact handler _btnOk fires. For an article
+				// btnOkClick is itself only _game->popState(), but we route through
+				// the real control for faithfulness/consistency.
+				art->testConfirm();
+				resp["handled"] = "ArticleState->btnOkClick";
 				resp["ok"] = true;
 			}
 			else if (auto* mr = dynamic_cast<MonthlyReportState*>(top))
@@ -5163,12 +5165,15 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "UfoDetectedState";
 				resp["ok"] = true;
 			}
-			else if (dynamic_cast<NextTurnState*>(top))
+			else if (auto* nt = dynamic_cast<NextTurnState*>(top))
 			{
-				// Transient "Turn N" screen — the turn already advanced when it
-				// was created; just pop it to reach the tactical map.
-				_game->popState();
-				resp["handled"] = "NextTurnState";
+				// "Turn N" screen. Press the real close handler a player triggers
+				// (any key/click -> NextTurnState::close, public). close() runs the
+				// full turn-close - coop click_close packet, unit tally,
+				// finishBattle/recenter - not a raw pop, so it reaches the tactical
+				// map exactly as a player would.
+				nt->testConfirm();
+				resp["handled"] = "NextTurnState->close";
 				resp["ok"] = true;
 			}
 			else if (auto* ab = dynamic_cast<AbortMissionState*>(top))
@@ -5183,12 +5188,14 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "DebriefingState";
 				resp["ok"] = true;
 			}
-			else if (dynamic_cast<CraftPatrolState*>(top))
+			else if (auto* cp = dynamic_cast<CraftPatrolState*>(top))
 			{
-				// "Craft reached destination / now patrolling" alert. OK just pops
-				// (keep patrolling); btnOkClick is protected, so pop it directly.
-				_game->popState();
-				resp["handled"] = "CraftPatrolState";
+				// "Craft reached destination / now patrolling" alert. Press the real
+				// OK button via the testConfirm forwarder (same handler _btnOk fires,
+				// CraftPatrolState::btnOkClick); for this alert OK is itself only
+				// _game->popState(), routed through the real control for consistency.
+				cp->testConfirm();
+				resp["handled"] = "CraftPatrolState->btnOkClick";
 				resp["ok"] = true;
 			}
 			else if (!top || dynamic_cast<GeoscapeState*>(top))
@@ -5203,8 +5210,10 @@ std::string TestServer::execute(const std::string& line)
 				// strands the peer on a terminal "Server connection lost" dialog
 				// (client code 21 / host code 20, both pushed only on onConnect==-2)
 				// with no host signal ever coming - the abort-vote flow leaves the
-				// client there after the host quits (test_pvp_skirmish_abort).  Force
-				// only those to the main menu so the harness does not hang.
+				// client there after the host quits (test_pvp_skirmish_abort).  Press
+				// the real Back button (CoopState::previous) on only those - the same
+				// handler _btnBack fires - so the harness does not hang and leaves
+				// exactly as a player clicking Back would.
 				//
 				// Every OTHER CoopState here is a TRANSIENT load/stream wait the coop
 				// network thread (loopData/onTCPMessage) is actively resolving - e.g.
@@ -5222,8 +5231,15 @@ std::string TestServer::execute(const std::string& line)
 				if (connectionTCP::session.lobbyMode == 0
 					&& (coopCode == 21 || coopCode == 20))
 				{
-					_game->setState(new GoToMainMenuState(false));
-					resp["handled"] = "CoopState->MainMenu";
+					// Press the real Back button: CoopState::previous is the exact
+					// handler _btnBack fires (CoopState.cpp onMouseClick &previous).
+					// For codes 21/20 previous() runs setState(GoToMainMenuState(false))
+					// plus the issue-#82 chokepoint guard, so the harness leaves exactly
+					// as a player clicking Back would. Still race-free: 20/21 exist only
+					// on onConnect==-2, when nothing is streaming. previous(nullptr) is
+					// null-Action-safe (it never dereferences its Action* argument).
+					cs->previous(nullptr);
+					resp["handled"] = "CoopState->previous";
 					resp["ok"] = true;
 				}
 				else
