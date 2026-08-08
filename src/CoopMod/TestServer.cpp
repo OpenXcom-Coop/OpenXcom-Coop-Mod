@@ -5197,14 +5197,30 @@ std::string TestServer::execute(const std::string& line)
 				resp["handled"] = "none";
 				resp["ok"] = true;
 			}
-			else if (dynamic_cast<CoopState*>(top))
+			else if (auto* cs = dynamic_cast<CoopState*>(top))
 			{
-				// CoopState hold dialog.  In a skirmish (lobbyMode 0), this
-				// appears after the battle ends and the client has no valid
-				// session to wait for.  Transition to the main menu directly so
-				// the harness doesn't hang on a non-dismissable wait dialog.
-				// Campaign holds (lobbyMode != 0) still auto-close normally.
-				if (connectionTCP::session.lobbyMode == 0)
+				// CoopState dialog.  In a skirmish (lobbyMode 0) a DROPPED connection
+				// strands the peer on a terminal "Server connection lost" dialog
+				// (client code 21 / host code 20, both pushed only on onConnect==-2)
+				// with no host signal ever coming - the abort-vote flow leaves the
+				// client there after the host quits (test_pvp_skirmish_abort).  Force
+				// only those to the main menu so the harness does not hang.
+				//
+				// Every OTHER CoopState here is a TRANSIENT load/stream wait the coop
+				// network thread (loopData/onTCPMessage) is actively resolving - e.g.
+				// the skirmish battle stream parks the client on codes 1/4 while it
+				// downloads the battle.  Tearing the stack down with setState() while
+				// that thread is mid pushState/popState races the two unsynchronized
+				// _states mutations and can empty the stack, so Game::run reaches
+				// _states.back()->init() on an empty vector (Game.cpp:209, 0xC0000005).
+				// The connection-lost codes never appear while a stream is live (they
+				// require onConnect==-2), so gating on them is race-free.  Never nuke a
+				// transient wait: report it and let the caller keep polling until the
+				// battle/world lands (the pre-#93 behaviour).  Campaign holds
+				// (lobbyMode != 0) still auto-close normally.
+				const int coopCode = cs->getStateCode();
+				if (connectionTCP::session.lobbyMode == 0
+					&& (coopCode == 21 || coopCode == 20))
 				{
 					_game->setState(new GoToMainMenuState(false));
 					resp["handled"] = "CoopState->MainMenu";
