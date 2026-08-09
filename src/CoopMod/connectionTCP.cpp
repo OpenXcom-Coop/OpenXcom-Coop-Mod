@@ -13088,7 +13088,7 @@ void connectionTCP::coopEmitBoundaryDone(std::uint32_t bseq)
 	root["seat"] = localSeat();
 	root["boundary"] = true;
 	root["bseq"] = static_cast<Json::UInt>(bseq);
-	SharedEcon::syncCheckAttach(_game, root);
+	SharedEcon::syncCheckAttachBoundary(_game, root);
 	sendTCPPacketData(root.toStyledString());
 }
 

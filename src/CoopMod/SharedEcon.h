@@ -486,6 +486,13 @@ bool battleHashBucketAlarms(int i);
 bool computeBattleHashes(Game* game, BattleHashSet& out);
 /// Microseconds the last computeBattleHashes() sweep took (harness cost report).
 std::uint32_t battleHashLastSweepUs();
+/// PRD-I2: FNV-1a hash of the canonical battle-document serialization, minus a
+/// SHORT machine-local exclusion list. Boundary-only (est. 5-20 ms) - the coverage
+/// backstop for state the per-action sweep does not enumerate. Returns false and
+/// zeroes @a out when no battle is live.
+bool computeSaveBlobHash(Game* game, std::uint64_t& out);
+/// Microseconds the last computeSaveBlobHash() serialization took (harness cost).
+std::uint32_t battleHashLastSaveBlobUs();
 
 /// HOST: remember "the state after this chain" so a peer report can be compared
 /// against it later. @a boundary selects the boundary pseudo-seq namespace (which
@@ -495,6 +502,10 @@ void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
 /// CLIENT: compute this machine's buckets and attach them to @a msg as "h".
 /// No-op without a live battle (the caller then ships the bare `action_done`).
 void syncCheckAttach(Game* game, Json::Value& msg);
+/// CLIENT (PRD-I2): syncCheckAttach plus the boundary-only `saveBlob` bucket in
+/// the "h" map. Called only from the boundary `action_done` emit; a per-action
+/// report never carries `saveBlob`, which is what presence-gates the host compare.
+void syncCheckAttachBoundary(Game* game, Json::Value& msg);
 /// HOST: compare a peer's attached buckets against the ring entry for its seq.
 /// Silently ignores a message with no "h" (older peer) and one whose seq is not
 /// in the ring (a report that crossed a side boundary, or a 64-deep overflow).

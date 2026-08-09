@@ -28,6 +28,7 @@
 #include <mutex>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -3850,6 +3851,7 @@ inline std::uint64_t mix(std::uint64_t h, std::int64_t v)
 }
 
 std::uint32_t g_lastSweepUs = 0;
+std::uint32_t g_lastSaveBlobUs = 0;   // PRD-I2: cost of the last saveBlob serialize
 
 /// One remembered "state after N" on the executor.
 struct SyncRingEntry
@@ -3860,6 +3862,9 @@ struct SyncRingEntry
 	std::string kind;         ///< "walk" / "shoot" / "ai" / "endturn" / "sidestart" / ...
 	bool compared;            ///< has a peer report been matched against it?
 	BattleHashSet h;
+	// PRD-I2: boundary-only save-derived hash. Left 0 (and never shipped) for
+	// per-action entries; recorded only for boundary entries (see syncCheckRecord).
+	std::uint64_t saveBlob = 0;
 };
 
 // Size 64 per PRD-I0 §3. The display-backlog cap is 2, so the executor can never
@@ -3899,6 +3904,85 @@ std::uint64_t g_syncDropped = 0;          ///< uncompared entries evicted by ove
 // needs the former (a seq extension that silently stamped nothing would pass a
 // zero-mismatch assertion perfectly).
 std::map<std::string, std::uint64_t> g_syncKindCompares;
+
+// PRD-I2: the save-derived boundary bucket ("saveBlob"). Kept OUT of the seven-
+// bucket BattleHashSet on purpose: computed ONLY at boundaries (a 5-20 ms
+// serialization, never per action), so it must not appear in the raw per-action
+// `battleHashes` sweep the harness polls. Its own report-only flag + counter.
+const bool SAVEBLOB_ALARM = false;   // REPORT-ONLY at birth (instrumentation rule);
+                                     // also the bucket most likely to need
+                                     // exclusion-list iteration (PRD-I2 4).
+std::uint64_t g_syncSaveBlobMismatches = 0;
+
+// The nodes stripped BEFORE hashing (exclusion by NODE PATH on the parsed tree,
+// robust to emit formatting). Two scopes, both SHORT and each entry justified.
+//
+// TOP-LEVEL of the battle document only - machine-local display/selection state:
+bool saveBlobExcludedTopKey(std::string_view k)
+{
+	// selectedUnit / undoUnit: the LOCAL player's selected unit and undo pointer.
+	//   Each machine drives its own units (thin-client display), so both diverge by
+	//   design - the same reason the fast sweep never hashes selection.
+	// animFrame: the global battlescape animation phase; the two machines are never
+	//   on the same display frame (identical rationale to the terrain bucket's
+	//   animation-frame skip).
+	return k == "selectedUnit" || k == "undoUnit" || k == "animFrame";
+	// Naturally ABSENT, so deliberately not listed: the RNG seed/state, the camera
+	// and the coop_* session keys are not emitted by SavedBattleGame::save at all -
+	// RNG and coop_* live in SavedGame::save (the geoscape document we do NOT
+	// serialize) and the camera is BattlescapeState runtime state. Serializing the
+	// battle document ONLY excludes all three for free.
+}
+
+// ANY DEPTH - host-authoritative AI bookkeeping the thin client never simulates.
+// In the coop/parallel authority model the host runs ALL alien AI and the client
+// only DISPLAYS the results; it never populates these fields, and the host save is
+// the single authority (a resume restreams over the client's copy), so there is no
+// counterpart on the client that could meaningfully agree. This is the
+// "authority-local" exclusion category the initiative's architecture argues for
+// (instrumentation/README.md). Measured, not guessed: the PRD-I2 burn-in diff of a
+// clean boundary showed these were the ONLY battle-document divergences left once
+// the top-level display keys were excluded. PRD-I3 should ratify (or instead choose
+// to REPLICATE this state); recorded in the SEAM LOG.
+bool saveBlobExcludedAnyKey(std::string_view k)
+{
+	// AI: a BattleUnit's whole AIModule sub-map (fromNode/toNode/AIMode/wasHitBy) -
+	//   host-only; the client's alien units keep the defaults (toNode -1, AIMode 0).
+	// aiMedikitUsed: an AI behaviour flag set only when the host's AI heals a unit.
+	// allocated: a pathfinding Node claimed by the host's AI for a patrol/spawn; the
+	//   client never allocates nodes.
+	return k == "AI" || k == "aiMedikitUsed" || k == "allocated";
+}
+
+// Deterministic FNV-1a over the parsed node tree: keys and scalar values in
+// document (= emit) order, recursing maps and sequences. Hashing the STRUCTURE of
+// the re-parsed text (not the raw bytes) normalizes any whitespace/quoting
+// difference between the two builds. @a top marks the battle map's own direct
+// children, where the top-level-only exclusions apply.
+void saveBlobHashTree(const YAML::YamlNodeReader& node, std::uint64_t& h, bool top)
+{
+	if (node.isMap())
+	{
+		for (const auto& child : node.children())
+		{
+			std::string_view key = child.key();
+			if ((top && saveBlobExcludedTopKey(key)) || saveBlobExcludedAnyKey(key))
+				continue;
+			for (char ch : key) { h ^= (std::uint64_t)(unsigned char)ch; h *= FNV_PRIME; }
+			saveBlobHashTree(child, h, false);
+		}
+	}
+	else if (node.isSeq())
+	{
+		for (const auto& child : node.children())
+			saveBlobHashTree(child, h, false);
+	}
+	else
+	{
+		std::string_view val = node.val();
+		for (char ch : val) { h ^= (std::uint64_t)(unsigned char)ch; h *= FNV_PRIME; }
+	}
+}
 
 } // namespace
 
@@ -4095,6 +4179,53 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 	return true;
 }
 
+/**
+ * PRD-I2: the save-derived boundary hash - the coverage backstop.
+ *
+ * Serializes the battle EXACTLY as a save would (the self-contained
+ * SavedBattleGame::save writer, into memory, never disk), strips a short
+ * machine-local exclusion list by node path, and FNV-1a hashes the canonical
+ * tree. The seven sweep buckets certify the fields we enumerated; this certifies
+ * the ones we forgot, and tracks the engine automatically as `save` evolves.
+ *
+ * Cost is the serialization (est. 5-20 ms), which is why it runs ONLY at the two
+ * side boundaries and never per action. Measured into g_lastSaveBlobUs.
+ */
+bool computeSaveBlobHash(Game* game, std::uint64_t& out)
+{
+	out = 0;
+	if (!game || !game->getSavedGame()) return false;
+	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
+	if (!battle) return false;
+
+	const auto t0 = std::chrono::steady_clock::now();
+
+	// Battle document ONLY (separable: SavedBattleGame::save is self-contained), so
+	// none of the geoscape / session / RNG state a full SavedGame::save would drag
+	// in is ever hashed - it is authority-local or role-relative by construction.
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	battle->save(writer["battle"]);
+	YAML::YamlString text = writer.emit();
+
+	// Re-parse and hash the STRUCTURE, so the exclusion list applies on the node
+	// tree (PRD-I2 2) and emit-formatting differences between the two builds cannot
+	// register as a divergence.
+	YAML::YamlRootNodeReader reader(text, "saveBlob");
+	std::uint64_t h = FNV_OFFSET;
+	saveBlobHashTree(reader["battle"], h, true);
+	out = h;
+
+	g_lastSaveBlobUs = (std::uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now() - t0).count();
+	return true;
+}
+
+std::uint32_t battleHashLastSaveBlobUs()
+{
+	return g_lastSaveBlobUs;
+}
+
 void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
 					 bool boundary, const std::string& kind)
 {
@@ -4105,6 +4236,10 @@ void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
 	e.kind = kind;
 	e.compared = false;
 	if (!computeBattleHashes(game, e.h)) return; // no battle: nothing to remember
+	// PRD-I2: the save-derived hash is boundary-only. Per-action entries keep
+	// e.saveBlob at 0 and never ship the field, so it is compared only at
+	// boundaries; recorded here so the peer's boundary report has a match.
+	if (boundary) computeSaveBlobHash(game, e.saveBlob);
 
 	while (g_syncRing.size() >= SYNC_RING_MAX)
 	{
@@ -4137,6 +4272,19 @@ void syncCheckAttach(Game* game, Json::Value& msg)
 		node[BATTLE_HASH_NAMES[i]] = static_cast<Json::UInt64>(battleHashBucketValue(h, i));
 	}
 	msg["h"] = node;
+}
+
+void syncCheckAttachBoundary(Game* game, Json::Value& msg)
+{
+	// The seven fast sweep buckets first (identical to a per-action report)...
+	syncCheckAttach(game, msg);
+	if (!msg.isMember("h")) return; // no live battle
+	// ...then the boundary-only save-derived bucket. Its PRESENCE in the "h" map is
+	// what gates the host compare: a per-action report never carries it and an old
+	// peer never carries it, so both are skipped without any policy flag.
+	std::uint64_t blob = 0;
+	if (computeSaveBlobHash(game, blob))
+		msg["h"]["saveBlob"] = static_cast<Json::UInt64>(blob);
 }
 
 void syncCheckCompare(Game* game, const Json::Value& msg)
@@ -4220,6 +4368,32 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		if (battleHashBucketAlarms(i)) alarm = true;
 	}
 
+	// PRD-I2: the boundary-only save-derived bucket. Presence-gated exactly like
+	// the seven above - only a boundary report from a current-build peer carries
+	// `saveBlob`, and the host recorded entry->saveBlob only for boundary entries.
+	if (node.isMember("saveBlob"))
+	{
+		const std::uint64_t peer = static_cast<std::uint64_t>(node["saveBlob"].asUInt64());
+		const std::uint64_t mine = entry->saveBlob;
+		if (peer != mine)
+		{
+			++g_syncSaveBlobMismatches;
+			if (g_syncMismatches.size() >= SYNC_MISMATCH_MAX) g_syncMismatches.pop_front();
+			SyncMismatch m;
+			m.seq = seq;
+			m.boundary = boundary;
+			m.kind = entry->kind;
+			m.bucket = "saveBlob";
+			g_syncMismatches.push_back(m);
+			Log(LOG_ERROR) << "[COOP] SYNC-CHECK MISMATCH seq=" << seq
+						   << (boundary ? " (boundary)" : "")
+						   << " kind=" << (entry->kind.empty() ? "?" : entry->kind)
+						   << " bucket=saveBlob host=" << mine << " peer=" << peer
+						   << (SAVEBLOB_ALARM ? " [ALARM]" : " [report-only]");
+			if (SAVEBLOB_ALARM) alarm = true;
+		}
+	}
+
 	if (!alarm) return;
 
 	// ALARM route: the SAME path the PRD-P2 tripwire takes, deliberately - one
@@ -4268,6 +4442,17 @@ void syncCheckReport(Json::Value& out)
 		buckets[BATTLE_HASH_NAMES[i]] = b;
 		total += g_syncBucketMismatches[i];
 	}
+	// PRD-I2: the eighth, boundary-only bucket. Kept out of the raw `battleHashes`
+	// sweep (harness `sync_buckets` still sees the seven) but reported here so the
+	// harness can read its report-only counter and the cost of the last serialize.
+	{
+		Json::Value sb(Json::objectValue);
+		sb["alarm"] = SAVEBLOB_ALARM;
+		sb["mismatchCount"] = static_cast<Json::UInt64>(g_syncSaveBlobMismatches);
+		buckets["saveBlob"] = sb;
+		total += g_syncSaveBlobMismatches;
+	}
+	node["saveBlobUs"] = static_cast<Json::UInt>(g_lastSaveBlobUs);
 	node["buckets"] = buckets;
 	node["mismatchCount"] = static_cast<Json::UInt64>(total);
 
@@ -4290,6 +4475,7 @@ void resetSyncCheck()
 	g_syncRing.clear();
 	g_syncMismatches.clear();
 	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i) g_syncBucketMismatches[i] = 0;
+	g_syncSaveBlobMismatches = 0;
 	g_syncLastSeq = 0;
 	g_syncLastComparedSeq = 0;
 	g_syncLastBoundarySeq = 0;

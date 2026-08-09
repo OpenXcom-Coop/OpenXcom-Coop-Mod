@@ -256,6 +256,13 @@ def scenario_clean(host, client, hmover, cmover):
                                    strict=True, allow=("unitsStats",))
     print(f"    {n} player chains driven; compares={sc['compares']} "
           f"kinds={sc['comparedKinds']} sweep={sc['sweepUs']}us")
+    # PRD-I2: saveBlob is BOUNDARY-only. No side has closed since reset_sync, so it
+    # must have zero comparisons/mismatches here; a non-zero count would mean it
+    # fired on a per-action report, which it must never do.
+    assert sc["buckets"]["saveBlob"]["mismatchCount"] == 0, (
+        f"saveBlob moved over PLAYER ACTIONS with no boundary crossed "
+        f"({sc['buckets']['saveBlob']}) - the save-derived hash is computed and "
+        f"compared only at side boundaries")
 
     turn_before = battle(host).get("turn")
     turn = close_side(host, client, turn_before)
@@ -267,7 +274,14 @@ def scenario_clean(host, client, hmover, cmover):
     # buckets are still asserted, including across a full alien side.
     sc = session.assert_sync_clean(
         host, client, f"after the alien side of turn {turn_before}", strict=True,
-        allow=("unitsStats",))
+        allow=("unitsStats", "saveBlob"))
+    # PRD-I2 BURN-IN: saveBlob is the whole-save superset, so it moves at a
+    # clean boundary whenever ANY report-only bucket it subsumes does
+    # (unitsStats via prepareNewTurn, smoke decay, the tile FOW/UFO-door bits
+    # inside binTiles). Expected, and I3's remit - recorded here, not chased.
+    print(f"    saveBlob report-only count over the clean boundary: "
+          f"{sc['buckets']['saveBlob']['mismatchCount']} (subsumes "
+          f"unitsStats/smoke/FOW seams - PRD-I3 burn-in data)")
 
     # COVERAGE, not silence. Each of these is a seq family PRD-I0 had to CREATE;
     # if the extension did not take, the family simply never appears and a bare
@@ -367,6 +381,20 @@ def scenario_ai_and_boundary(host, client, hmover, cmover):
     print(f"PASS 3 (boundary attribution): named at boundary seq "
           f"{bnd[0]['seq']} (kind={bnd[0]['kind']})")
 
+    # PRD-I2 BACKSTOP: the same carried-over skew that named `unitsCore` at a
+    # boundary MUST also flip `saveBlob` at a boundary - the save-derived hash is a
+    # superset of every per-action bucket, so a divergence a fast bucket catches
+    # can never slip past it. This is the proof the backstop actually backstops.
+    sblob = [m for m in ms if m["bucket"] == "saveBlob" and m["boundary"]]
+    assert sblob, (
+        f"the skew flipped unitsCore at a boundary but NOT saveBlob "
+        f"({sorted({m['bucket'] for m in ms})}) - the save-derived backstop missed "
+        f"a divergence a fast bucket caught, which defeats its whole purpose")
+    assert sc["buckets"]["saveBlob"]["alarm"] is False, (
+        "saveBlob is ALARM-promoted; PRD-I2 ships it REPORT-ONLY")
+    print(f"PASS I2 backstop: saveBlob also named at boundary seq "
+          f"{sblob[0]['seq']} (kind={sblob[0]['kind']}), report-only")
+
     # REPORT-ONLY at birth: a red must NOT latch the PRD-P2 desync flag, because
     # nothing in the promotion table is armed yet. This is the routing proof.
     for name in ("unitsCore",):
@@ -452,6 +480,9 @@ def scenario_red_bucket(host, client, hmover, cmover):
             f"- the buckets are not independent, so naming one means nothing")
     print(f"PASS 4a: the `items` bucket was named and "
           f"{'/'.join(ITEM_LEVER_INNOCENT)} stayed quiet ({moved})")
+    assert "saveBlob" not in moved, (
+        f"the per-action item lever moved saveBlob ({moved}) with no boundary "
+        f"crossed - the save-derived hash must be boundary-only")
 
     named = [m for m in sc["mismatches"]
              if m["bucket"] == "items" and not m["boundary"]]
@@ -464,6 +495,60 @@ def scenario_red_bucket(host, client, hmover, cmover):
     kind = [m["kind"] for m in named if m["seq"] == seq][0]
     print(f"PASS 4b: named at seq {seq} (kind={kind!r}), which is exactly the "
           f"chain admitted after the skew")
+    return sc
+
+
+# ---- I2. saveBlob: determinism, cost, boundary-only registry --------------
+
+def scenario_saveblob_selftest(host, client):
+    """PRD-I2's save-derived boundary bucket, its own up-front checks.
+
+    (a) DETERMINISM. `save_blob` serializes the live battle exactly as
+        SavedBattleGame::save would, minus a short machine-local exclusion list,
+        and FNV-1a hashes the canonical tree. Hashing the same quiescent battle
+        TWICE on ONE machine must be byte-identical - the cheap catch for emitter
+        nondeterminism (an unordered_map feeding the writer, or serialization that
+        mutates state) before it can masquerade as a cross-machine desync.
+    (b) COST. The serialization is the whole expense (PRD-I2 estimates 5-20 ms);
+        measured and printed, asserted only against a sane ceiling.
+    (c) REGISTRY. `saveBlob` must show up in the syncCheck bucket table (so its
+        report-only counter is readable) but NEVER in the raw per-action
+        `battleHashes` sweep the harness polls hot - it is boundary-only."""
+    print("-- I2: saveBlob determinism, cost and boundary-only registry --")
+    settle_display(host, client)
+
+    for gc, tag in ((host, "host"), (client, "client")):
+        a = gc.cmd({"cmd": "save_blob"})
+        b = gc.cmd({"cmd": "save_blob"})
+        assert a.get("ok") and b.get("ok"), f"{tag}: save_blob did not run: {a} / {b}"
+        assert a["hash"] == b["hash"], (
+            f"{tag}: the save-derived hash is NON-DETERMINISTIC on ONE machine "
+            f"({a['hash']} != {b['hash']}) - the writer is feeding the emitter from "
+            f"an unordered container, or serializing mutates state. Fix or sort "
+            f"before this can masquerade as a boundary desync.")
+        assert a["hash"] != 0, f"{tag}: save_blob hashed to 0 - serialization empty"
+        assert a["us"] < 200000, (
+            f"{tag}: one saveBlob serialize took {a['us']}us (>200ms) - PRD-I2 "
+            f"budgets 5-20ms and it is boundary-only, but this is pathological")
+        print(f"    {tag}: saveBlob deterministic (hash stable), "
+              f"serialize={a['us']}us")
+
+    sc = sync(host)
+    assert "saveBlob" in sc["buckets"], (
+        f"saveBlob missing from the syncCheck bucket table, so its report-only "
+        f"counter is unreadable: {sorted(sc['buckets'])}")
+    assert sc["buckets"]["saveBlob"]["alarm"] is False, (
+        "saveBlob is ALARM-promoted at birth - PRD-I2 ships it REPORT-ONLY")
+    raw = session.sync_buckets(host)
+    assert "saveBlob" not in raw, (
+        f"saveBlob leaked into the raw per-action `battleHashes` sweep "
+        f"{sorted(raw)} - a 5-20ms boundary cost must never ride the hot poll")
+
+    hh = host.cmd({"cmd": "save_blob"})["hash"]
+    cc = client.cmd({"cmd": "save_blob"})["hash"]
+    print(f"    cross-machine saveBlob at battle start: host={hh} client={cc} "
+          f"({'equal' if hh == cc else 'differ - recorded, report-only'})")
+    print("PASS I2 self-test: deterministic, boundary-only, report-only")
     return sc
 
 
@@ -549,6 +634,7 @@ def main():
         cmover = PI.pick_driver(host, client, cseat, "client")
         hmover = PI.pick_driver(host, client, hseat, "host")
 
+        scenario_saveblob_selftest(host, client)
         scenario_clean(host, client, hmover, cmover)
         cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
         hmover = PE.ensure_driver(host, client, hseat, "host", hmover)

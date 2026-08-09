@@ -3477,7 +3477,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_reserve"
 		&& cmd != "rx_inject"
 		&& cmd != "hold_action_done"
-		&& cmd != "parallel_state")
+		&& cmd != "parallel_state"
+		&& cmd != "save_blob")
 	{
 		return false;
 	}
@@ -3637,6 +3638,18 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["smokeHash"] = Json::Value::Int64(smokeHash);
 		resp["tileCount"] = tileCount;
 		resp["ok"] = true;
+	}
+	else if (cmd == "save_blob")
+	{
+		// PRD-I2 determinism self-test + cost probe: the save-derived boundary hash
+		// computed on demand (the same machinery the boundary ring uses), so a test
+		// can hash the same quiescent battle twice and prove the emitter is
+		// deterministic, and read the serialization cost.
+		std::uint64_t blob = 0;
+		bool okBlob = SharedEcon::computeSaveBlobHash(_game, blob);
+		resp["hash"] = static_cast<Json::UInt64>(blob);
+		resp["us"] = static_cast<Json::UInt>(SharedEcon::battleHashLastSaveBlobUs());
+		resp["ok"] = okBlob;
 	}
 	else if (cmd == "battle_give")
 	{
