@@ -1,0 +1,4569 @@
+name: coop-autoend-crash
+version: Extended 2.0.14
+engine: Extended
+build: " (nightly 2026-08-02 d43f071e0)"
+saveSchema: 2
+time: {second: 55,minute: 5,hour: 7,weekday: 5,day: 1,month: 4,year: 1999}
+mods:
+  - 'xcom1 ver: 8.4.1'
+coop: true
+coopPlayers:
+  - HostPlayer
+  - ClientPlayer
+coopCampaignType: 1
+---
+difficulty: 1
+end: 0
+saveID: 20260806131309
+coop_gamemode: 1
+coop_save_owner_player_id: 1
+no_bases: false
+monthsPassed: 3
+daysPassed: 91
+vehiclesLost: 1
+graphRegionToggles: 1011111111111101
+graphCountryToggles: 00000000000000000
+graphFinanceToggles: 00000
+rng: 4305322276799877571
+funds:
+  - 1424595
+  - 2800109
+  - 1626629
+  - 1626629
+maintenance:
+  - 4761000
+  - 5985000
+  - 6537000
+  - 0
+userNotes: []
+geoscapeDebugLog:
+  - 'month: 0 script: gameStart id: 1 type: STR_ALIEN_RESEARCH race: STR_SECTOID region: STR_SOUTHERN_AFRICA targetZone: -1 targetArea: -1'
+  - 'month: 0 script: recurringTerror id: 2 type: STR_ALIEN_TERROR race: STR_SECTOID region: STR_SOUTHERN_AFRICA targetZone: 3 targetArea: 1'
+  - 'gameTime: 1999-01-01 14:00:00 ufoId: 1 ufoType: STR_SMALL_SCOUT race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P0 missionId: 1 missionType: STR_ALIEN_RESEARCH'
+  - 'gameTime: 1999-01-01 14:30:00 ufoId: 2 ufoType: STR_MEDIUM_SCOUT race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P1 missionId: 2 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-01-05 23:30:00 ufoId: 3 ufoType: STR_LARGE_SCOUT race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P1 missionId: 2 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-01-16 03:00:00 ufoId: 4 ufoType: STR_MEDIUM_SCOUT race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P2 missionId: 1 missionType: STR_ALIEN_RESEARCH'
+  - 'gameTime: 1999-01-16 06:00:00 ufoId: 5 ufoType: STR_TERROR_SHIP race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P0 missionId: 2 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-01-24 22:00:00 ufoId: 6 ufoType: STR_LARGE_SCOUT race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P4 missionId: 1 missionType: STR_ALIEN_RESEARCH'
+  - 'gameTime: 1999-01-24 23:30:00 ufoId: 7 ufoType: STR_TERROR_SHIP race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P7 missionId: 2 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-01-31 18:00:00 ufoId: 8 ufoType: STR_LARGE_SCOUT race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P4 missionId: 1 missionType: STR_ALIEN_RESEARCH'
+  - 'month: 1 script: recurringTerror id: 3 type: STR_ALIEN_TERROR race: STR_SECTOID region: STR_NORTH_AFRICA targetZone: 3 targetArea: 0'
+  - 'month: 1 script: recon id: 4 type: STR_ALIEN_BASE race: STR_SECTOID region: STR_ARCTIC targetZone: -1 targetArea: -1'
+  - 'gameTime: 1999-02-01 02:00:00 ufoId: 9 ufoType: STR_MEDIUM_SCOUT race: STR_SECTOID region: STR_NORTH_AFRICA trajectory: P1 missionId: 3 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-02-06 19:00:00 ufoId: 10 ufoType: STR_SMALL_SCOUT race: STR_SECTOID region: STR_ARCTIC trajectory: P1 missionId: 4 missionType: STR_ALIEN_BASE'
+  - 'gameTime: 1999-02-14 02:00:00 ufoId: 11 ufoType: STR_LARGE_SCOUT race: STR_SECTOID region: STR_NORTH_AFRICA trajectory: P1 missionId: 3 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-02-14 14:00:00 ufoId: 12 ufoType: STR_MEDIUM_SCOUT race: STR_SECTOID region: STR_ARCTIC trajectory: P5 missionId: 4 missionType: STR_ALIEN_BASE'
+  - 'gameTime: 1999-02-14 14:30:00 ufoId: 13 ufoType: STR_LARGE_SCOUT race: STR_SECTOID region: STR_ARCTIC trajectory: P5 missionId: 4 missionType: STR_ALIEN_BASE'
+  - 'gameTime: 1999-02-14 16:00:00 ufoId: 14 ufoType: STR_SUPPLY_SHIP race: STR_SECTOID region: STR_ARCTIC trajectory: P5 missionId: 4 missionType: STR_ALIEN_BASE'
+  - 'gameTime: 1999-02-14 17:30:00 ufoId: 15 ufoType: STR_SUPPLY_SHIP race: STR_SECTOID region: STR_ARCTIC trajectory: P5 missionId: 4 missionType: STR_ALIEN_BASE'
+  - 'gameTime: 1999-02-14 18:00:00 ufoId: 16 ufoType: STR_BATTLESHIP race: STR_SECTOID region: STR_ARCTIC trajectory: P6 missionId: 4 missionType: STR_ALIEN_BASE'
+  - 'gameTime: 1999-02-14 18:00:00 baseId: 1 baseType: STR_ALIEN_BASE race: STR_SECTOID region: STR_ARCTIC deployment: STR_ALIEN_BASE_ASSAULT missionId: 4 missionType: STR_ALIEN_BASE'
+  - 'gameTime: 1999-02-19 12:00:00 ufoId: 17 ufoType: STR_TERROR_SHIP race: STR_SECTOID region: STR_NORTH_AFRICA trajectory: P0 missionId: 3 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-02-23 00:00:00 ufoId: 18 ufoType: STR_TERROR_SHIP race: STR_SECTOID region: STR_NORTH_AFRICA trajectory: P7 missionId: 3 missionType: STR_ALIEN_TERROR'
+  - 'month: 2 script: recurringTerror id: 5 type: STR_ALIEN_TERROR race: STR_SECTOID region: STR_SOUTHERN_AFRICA targetZone: 3 targetArea: 3'
+  - 'month: 2 script: recon id: 6 type: STR_ALIEN_HARVEST race: STR_FLOATER region: STR_NORTH_AFRICA targetZone: -1 targetArea: -1'
+  - 'gameTime: 1999-03-01 02:00:00 ufoId: 19 ufoType: STR_MEDIUM_SCOUT race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P1 missionId: 5 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-03-06 00:30:00 ufoId: 20 ufoType: STR_LARGE_SCOUT race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P1 missionId: 5 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-03-08 04:00:00 ufoId: 21 ufoType: STR_SMALL_SCOUT race: STR_FLOATER region: STR_NORTH_AFRICA trajectory: P0 missionId: 6 missionType: STR_ALIEN_HARVEST'
+  - 'gameTime: 1999-03-10 13:30:00 ufoId: 22 ufoType: STR_TERROR_SHIP race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P0 missionId: 5 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-03-18 17:00:00 ufoId: 23 ufoType: STR_TERROR_SHIP race: STR_SECTOID region: STR_SOUTHERN_AFRICA trajectory: P7 missionId: 5 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-03-21 22:00:00 ufoId: 24 ufoType: STR_SMALL_SCOUT race: STR_FLOATER region: STR_NORTH_AFRICA trajectory: P2 missionId: 6 missionType: STR_ALIEN_HARVEST'
+  - 'gameTime: 1999-03-24 02:30:00 ufoId: 25 ufoType: STR_SMALL_SCOUT race: STR_FLOATER region: STR_NORTH_AFRICA trajectory: P8 missionId: 7 missionType: STR_ALIEN_RETALIATION'
+  - 'gameTime: 1999-03-28 09:30:00 ufoId: 26 ufoType: STR_MEDIUM_SCOUT race: STR_FLOATER region: STR_NORTH_AFRICA trajectory: P8 missionId: 7 missionType: STR_ALIEN_RETALIATION'
+  - 'gameTime: 1999-03-29 20:30:00 ufoId: 27 ufoType: STR_MEDIUM_SCOUT race: STR_FLOATER region: STR_NORTH_AFRICA trajectory: P8 missionId: 7 missionType: STR_ALIEN_RETALIATION'
+  - 'month: 3 script: recurringTerror id: 8 type: STR_ALIEN_TERROR race: STR_SNAKEMAN region: STR_NORTH_AFRICA targetZone: 3 targetArea: 2'
+  - 'month: 3 script: recon id: 9 type: STR_ALIEN_BASE race: STR_MUTON region: STR_NORTH_AMERICA targetZone: -1 targetArea: -1'
+  - 'gameTime: 1999-04-01 02:00:00 ufoId: 28 ufoType: STR_MEDIUM_SCOUT race: STR_SNAKEMAN region: STR_NORTH_AFRICA trajectory: P1 missionId: 8 missionType: STR_ALIEN_TERROR'
+researchScores:
+  - 200
+  - 595
+  - 517
+  - 0
+incomes:
+  - 11715585
+  - 14082314
+  - 10903520
+  - 7358000
+expenditures:
+  - 11529990
+  - 12114800
+  - 12251000
+  - 6537000
+warned: false
+togglePersonalLight: true
+toggleNightVision: false
+toggleBrightness: 0
+globeLon: 0.7960044851659811
+globeLat: -0.44047419128269616
+globeZoom: 2
+ids:
+  ALIEN_MISSIONS: 10
+  STR_ALIEN_BASE: 2
+  STR_CRASH_SITE: 6
+  STR_INTERCEPTOR: 3
+  STR_LANDING_SITE: 15
+  STR_SKYRANGER: 2
+  STR_SOLDIER: 54
+  STR_UFO: 24
+  STR_UFO_UNIQUE: 29
+  STR_WAY_POINT: 29
+countries:
+  - type: STR_USA
+    funding:
+      - 779000
+      - 919000
+      - 964000
+      - 1127000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 1
+      - 1
+      - 0
+      - 0
+  - type: STR_RUSSIA
+    funding:
+      - 409000
+      - 445000
+      - 529000
+      - 555000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 43
+      - 3
+      - 2
+  - type: STR_UK
+    funding:
+      - 334000
+      - 354000
+      - 410000
+      - 487000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 0
+      - 0
+      - 0
+  - type: STR_FRANCE
+    funding:
+      - 441000
+      - 507000
+      - 537000
+      - 606000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 0
+      - 0
+      - 0
+  - type: STR_GERMANY
+    funding:
+      - 344000
+      - 371000
+      - 411000
+      - 431000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 0
+      - 0
+      - 0
+  - type: STR_ITALY
+    funding:
+      - 281000
+      - 334000
+      - 334000
+      - 354000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 0
+      - 0
+      - 0
+  - type: STR_SPAIN
+    funding:
+      - 144000
+      - 154000
+      - 183000
+      - 212000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 0
+      - 0
+      - 0
+  - type: STR_CHINA
+    funding:
+      - 448000
+      - 492000
+      - 570000
+      - 621000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 6
+      - 3
+      - 0
+  - type: STR_JAPAN
+    funding:
+      - 660000
+      - 712000
+      - 854000
+      - 999000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 1
+      - 0
+      - 0
+  - type: STR_INDIA
+    funding:
+      - 259000
+      - 279000
+      - 304000
+      - 319000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 2
+      - 0
+      - 1
+      - 0
+  - type: STR_BRAZIL
+    funding:
+      - 417000
+      - 437000
+      - 489000
+      - 489000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 2
+      - 0
+      - 2
+      - 0
+  - type: STR_AUSTRALIA
+    funding:
+      - 284000
+      - 332000
+      - 355000
+      - 379000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 1
+      - 4
+      - 2
+      - 0
+  - type: STR_NIGERIA
+    funding:
+      - 321000
+      - 321000
+      - 385000
+      - 427000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 1
+      - 3
+      - 0
+  - type: STR_SOUTH_AFRICA
+    funding:
+      - 264000
+      - 295000
+      - 312000
+      - 371000
+    activityXcom:
+      - 287
+      - 219
+      - 872
+      - 0
+    activityAlien:
+      - 40
+      - 20
+      - 22
+      - 0
+  - type: STR_EGYPT
+    funding:
+      - 360000
+      - 410000
+      - 438000
+      - 521000
+    activityXcom:
+      - 0
+      - 0
+      - 100
+      - 0
+    activityAlien:
+      - 0
+      - 2
+      - 0
+      - 0
+  - type: STR_CANADA
+    funding:
+      - 255000
+      - 270000
+      - 283000
+      - 316000
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 3
+      - 4
+      - 0
+      - 0
+regions:
+  - type: STR_NORTH_AMERICA
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 4
+      - 5
+      - 0
+      - 0
+  - type: STR_ARCTIC
+    activityXcom:
+      - 0
+      - 860
+      - 0
+      - 0
+    activityAlien:
+      - 1
+      - 425
+      - 0
+      - 0
+  - type: STR_ANTARCTICA
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 1
+      - 4
+      - 0
+      - 0
+  - type: STR_SOUTH_AMERICA
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 2
+      - 1
+      - 2
+      - 0
+  - type: STR_EUROPE
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 4
+      - 3
+      - 2
+      - 0
+  - type: STR_NORTH_AFRICA
+    activityXcom:
+      - 0
+      - 1090
+      - 445
+      - 0
+    activityAlien:
+      - 7
+      - 68
+      - 44
+      - 1
+  - type: STR_SOUTHERN_AFRICA
+    activityXcom:
+      - 1159
+      - 219
+      - 1075
+      - 0
+    activityAlien:
+      - 90
+      - 25
+      - 49
+      - 0
+  - type: STR_CENTRAL_ASIA
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 75
+    activityAlien:
+      - 2
+      - 6
+      - 8
+      - 2
+  - type: STR_SOUTH_EAST_ASIA
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 2
+      - 6
+      - 2
+      - 0
+  - type: STR_SIBERIA
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 10
+      - 1
+      - 1
+  - type: STR_AUSTRALASIA
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 1
+      - 7
+      - 2
+      - 0
+  - type: STR_PACIFIC
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 0
+      - 7
+      - 0
+      - 0
+  - type: STR_NORTH_ATLANTIC
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 2
+      - 0
+      - 0
+      - 0
+  - type: STR_SOUTH_ATLANTIC
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 1
+      - 4
+      - 2
+      - 0
+  - type: STR_INDIAN_OCEAN
+    activityXcom:
+      - 0
+      - 0
+      - 0
+      - 0
+    activityAlien:
+      - 4
+      - 2
+      - 8
+      - 0
+bases:
+  - lon: 0.33753863050944044
+    lat: 0.03526645496800521
+    name: Base-1
+    facilities:
+      - type: STR_ACCESS_LIFT
+        x: 1
+        y: 2
+      - type: STR_LABORATORY
+        x: 1
+        y: 3
+      - type: STR_LARGE_RADAR_SYSTEM
+        x: 2
+        y: 3
+      - type: STR_LIVING_QUARTERS
+        x: 3
+        y: 3
+      - type: STR_ALIEN_CONTAINMENT
+        x: 4
+        y: 3
+      - type: STR_GENERAL_STORES
+        x: 5
+        y: 3
+      - type: STR_HANGAR
+        x: 0
+        y: 0
+      - type: STR_HANGAR
+        x: 2
+        y: 0
+      - type: STR_HANGAR
+        x: 4
+        y: 0
+      - type: STR_WORKSHOP
+        x: 0
+        y: 3
+      - type: STR_LIVING_QUARTERS
+        x: 1
+        y: 4
+      - type: STR_GENERAL_STORES
+        x: 1
+        y: 5
+      - type: STR_GENERAL_STORES
+        x: 5
+        y: 4
+      - type: STR_LIVING_QUARTERS
+        x: 3
+        y: 4
+      - type: STR_LABORATORY
+        x: 4
+        y: 4
+      - type: STR_WORKSHOP
+        x: 0
+        y: 4
+      - type: STR_GENERAL_STORES
+        x: 5
+        y: 5
+      - type: STR_PSIONIC_LABORATORY
+        x: 4
+        y: 5
+      - type: STR_PSIONIC_LABORATORY
+        x: 3
+        y: 5
+      - type: STR_LIVING_QUARTERS
+        x: 2
+        y: 4
+    soldiers:
+      - type: STR_SOLDIER
+        id: 13
+        name: Nico Jung
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Jordan Weiss
+        ownerplayerid: 0
+        nationality: 29
+        initialStats:
+          tu: 57
+          stamina: 54
+          health: 38
+          bravery: 50
+          reactions: 38
+          firing: 46
+          throwing: 73
+          strength: 32
+          psiStrength: 0
+          psiSkill: 0
+          melee: 34
+          mana: 0
+        currentStats:
+          tu: 57
+          stamina: 54
+          health: 38
+          bravery: 50
+          reactions: 38
+          firing: 46
+          throwing: 73
+          strength: 32
+          psiStrength: 0
+          psiSkill: 0
+          melee: 34
+          mana: 0
+        rank: 0
+        gender: 0
+        look: 0
+        lookVariant: 4
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 3}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+        diary:
+          monthsService: 3
+      - type: STR_SOLDIER
+        id: 18
+        name: Robin Osei
+        coopbase: -1
+        coop: 1
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Devin Brandt
+        ownerplayerid: 1
+        nationality: 25
+        initialStats:
+          tu: 51
+          stamina: 63
+          health: 29
+          bravery: 60
+          reactions: 43
+          firing: 68
+          throwing: 51
+          strength: 36
+          psiStrength: 0
+          psiSkill: 0
+          melee: 27
+          mana: 0
+        currentStats:
+          tu: 59
+          stamina: 76
+          health: 43
+          bravery: 60
+          reactions: 46
+          firing: 69
+          throwing: 52
+          strength: 46
+          psiStrength: 0
+          psiSkill: 0
+          melee: 27
+          mana: 0
+        rank: 3
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 0
+        lookVariant: 62
+        missions: 9
+        kills: 7
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER,slotX: 1}
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 2}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+          - {itemType: STR_MEDI_KIT,slot: STR_BELT}
+          - {itemType: STR_PROXIMITY_GRENADE,slot: STR_BELT,slotX: 1}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_RIFLE,weaponAmmo: STR_RIFLE_CLIP,status: 6,faction: 1,mission: 2,turn: 603,side: 3,bodypart: 1,id: 1000003}
+            - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 6,turn: 1816,side: 0,bodypart: 1,id: 1000002}
+            - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 9,turn: 2707,side: 0,bodypart: 1,id: 1000004}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 9,turn: 2713,side: 3,bodypart: 1,id: 1000003}
+            - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 10,turn: 3021,side: 0,bodypart: 1,id: 1000007}
+            - {type: STR_SECTOID_LEADER,rank: STR_LIVE_LEADER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3333,side: 1,bodypart: 3,id: 1000009}
+            - {type: STR_FLOATER_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_FLOATER,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 12,turn: 3603,side: 3,bodypart: 1,id: 1000001}
+          missionIdList: [2,3,4,5,6,9,10,11,12]
+          daysWoundedTotal: 11
+          monthsService: 3
+          shotAtCounterTotal: 1
+          hitCounterTotal: 1
+          shotsFiredCounterTotal: 20
+          shotsLandedCounterTotal: 7
+          timesWoundedTotal: 1
+          woundsHealedTotal: 3
+          statGainTotal: 50
+      - type: STR_SOLDIER
+        id: 14
+        name: Emerson Xiao
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Elliot Novak
+        ownerplayerid: 0
+        nationality: 4
+        initialStats:
+          tu: 60
+          stamina: 54
+          health: 32
+          bravery: 10
+          reactions: 37
+          firing: 47
+          throwing: 57
+          strength: 21
+          psiStrength: 13
+          psiSkill: 0
+          melee: 21
+          mana: 0
+        currentStats:
+          tu: 60
+          stamina: 54
+          health: 32
+          bravery: 10
+          reactions: 37
+          firing: 47
+          throwing: 57
+          strength: 21
+          psiStrength: 13
+          psiSkill: -56
+          melee: 21
+          mana: 0
+        rank: 0
+        gender: 0
+        look: 0
+        lookVariant: 56
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+        diary:
+          monthsService: 3
+      - type: STR_SOLDIER
+        id: 32
+        name: Micah Cole
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Corey Ivanov
+        ownerplayerid: 0
+        nationality: 10
+        initialStats:
+          tu: 53
+          stamina: 61
+          health: 28
+          bravery: 10
+          reactions: 55
+          firing: 63
+          throwing: 56
+          strength: 24
+          psiStrength: 12
+          psiSkill: 0
+          melee: 21
+          mana: 0
+        currentStats:
+          tu: 58
+          stamina: 67
+          health: 34
+          bravery: 10
+          reactions: 55
+          firing: 63
+          throwing: 58
+          strength: 30
+          psiStrength: 15
+          psiSkill: -38
+          melee: 21
+          mana: 0
+        rank: 1
+        gender: 0
+        look: 0
+        lookVariant: 25
+        missions: 3
+        kills: 1
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER,slotX: 1}
+          - {itemType: STR_MOTION_SCANNER,slot: STR_BELT,slotX: 2}
+          - {itemType: STR_MEDI_KIT,slot: STR_BELT,slotX: 3}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+          - {itemType: STR_PROXIMITY_GRENADE,slot: STR_LEFT_SHOULDER}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 10,turn: 3003,side: 3,bodypart: 1,id: 1000004}
+          missionIdList: [8,9,10]
+          monthsService: 2
+          shotsFiredCounterTotal: 18
+          shotsLandedCounterTotal: 2
+          statGainTotal: 28
+      - type: STR_SOLDIER
+        id: 4
+        name: Yael Marsh
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Morgan Grimm
+        ownerplayerid: 0
+        nationality: 6
+        initialStats:
+          tu: 60
+          stamina: 51
+          health: 28
+          bravery: 20
+          reactions: 43
+          firing: 52
+          throwing: 61
+          strength: 31
+          psiStrength: 25
+          psiSkill: 0
+          melee: 34
+          mana: 0
+        currentStats:
+          tu: 63
+          stamina: 56
+          health: 33
+          bravery: 20
+          reactions: 43
+          firing: 55
+          throwing: 61
+          strength: 36
+          psiStrength: 25
+          psiSkill: -41
+          melee: 34
+          mana: 0
+        rank: 4
+        gender: 0
+        look: 2
+        lookVariant: 52
+        missions: 2
+        kills: 3
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER,slotX: 1}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 0,turn: 18,side: 4,bodypart: 1,id: 1000003}
+            - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_RIFLE,weaponAmmo: STR_RIFLE_CLIP,status: 6,faction: 1,mission: 1,turn: 312,side: 0,bodypart: 1,id: 1000004}
+            - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_RIFLE,weaponAmmo: STR_RIFLE_CLIP,status: 6,faction: 1,mission: 1,turn: 321,side: 2,bodypart: 2,id: 1000007}
+          missionIdList: [0,1]
+          monthsService: 3
+          shotAtCounterTotal: 2
+          shotsFiredCounterTotal: 9
+          shotsLandedCounterTotal: 4
+          statGainTotal: 21
+      - type: STR_SOLDIER
+        id: 39
+        name: Parker Diaz
+        coopbase: -1
+        coop: 1
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Robin Bauer
+        ownerplayerid: 1
+        nationality: 0
+        initialStats:
+          tu: 53
+          stamina: 51
+          health: 29
+          bravery: 50
+          reactions: 32
+          firing: 59
+          throwing: 61
+          strength: 35
+          psiStrength: 36
+          psiSkill: 0
+          melee: 37
+          mana: 0
+        currentStats:
+          tu: 57
+          stamina: 63
+          health: 40
+          bravery: 60
+          reactions: 32
+          firing: 62
+          throwing: 62
+          strength: 50
+          psiStrength: 36
+          psiSkill: -37
+          melee: 37
+          mana: 0
+        rank: 2
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 1
+        lookVariant: 36
+        missions: 5
+        kills: 3
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER}
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER,slotX: 1}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+          - {itemType: STR_PROXIMITY_GRENADE,slot: STR_LEFT_LEG}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 10,turn: 3033,side: 0,bodypart: 1,id: 1000001}
+            - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3333,side: 3,bodypart: 1,id: 1000005}
+            - {type: STR_FLOATER_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_FLOATER,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 12,turn: 3603,side: 3,bodypart: 1,id: 1000004}
+          missionIdList: [8,9,10,11,12]
+          monthsService: 2
+          shotAtCounterTotal: 1
+          shotsFiredCounterTotal: 24
+          shotsLandedCounterTotal: 5
+          statGainTotal: 8
+          braveryGainTotal: 10
+      - type: STR_SOLDIER
+        id: 22
+        name: Vic Ericsson
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Sasha Wolfe
+        ownerplayerid: 0
+        nationality: 10
+        initialStats:
+          tu: 50
+          stamina: 69
+          health: 26
+          bravery: 10
+          reactions: 34
+          firing: 56
+          throwing: 75
+          strength: 34
+          psiStrength: 47
+          psiSkill: 0
+          melee: 27
+          mana: 0
+        currentStats:
+          tu: 55
+          stamina: 72
+          health: 31
+          bravery: 10
+          reactions: 34
+          firing: 56
+          throwing: 77
+          strength: 37
+          psiStrength: 47
+          psiSkill: -44
+          melee: 27
+          mana: 0
+        rank: 1
+        gender: 0
+        look: 1
+        lookVariant: 35
+        missions: 4
+        kills: 2
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER}
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER,slotX: 1}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_LEFT_LEG}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 9,turn: 2706,side: 0,bodypart: 1,id: 1000002}
+            - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3315,side: 0,bodypart: 1,id: 1000012}
+          missionIdList: [8,9,10,11]
+          monthsService: 3
+          shotAtCounterTotal: 1
+          shotsFiredCounterTotal: 26
+          shotsLandedCounterTotal: 2
+          statGainTotal: 18
+      - type: STR_SOLDIER
+        id: 31
+        name: Ollie Silva
+        coopbase: -1
+        coop: 1
+        coopcraft: 1
+        coopcrafttype: STR_SKYRANGER
+        coopname: Devin Cruz
+        ownerplayerid: 1
+        nationality: 14
+        initialStats:
+          tu: 52
+          stamina: 51
+          health: 33
+          bravery: 50
+          reactions: 54
+          firing: 53
+          throwing: 56
+          strength: 26
+          psiStrength: 51
+          psiSkill: 0
+          melee: 20
+          mana: 0
+        currentStats:
+          tu: 55
+          stamina: 56
+          health: 39
+          bravery: 50
+          reactions: 55
+          firing: 56
+          throwing: 57
+          strength: 31
+          psiStrength: 51
+          psiSkill: -21
+          melee: 20
+          mana: 0
+        rank: 2
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 3
+        lookVariant: 24
+        missions: 7
+        kills: 3
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER,slotX: 1}
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT}
+        diary:
+          killList:
+            - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 8,turn: 2430,side: 2,bodypart: 2,id: 1000010}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 10,turn: 3006,side: 0,bodypart: 1,id: 1000003}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 10,turn: 3009,side: 3,bodypart: 1,id: 1000002}
+          missionIdList: [1,2,8,9,10,11,12]
+          monthsService: 3
+          shotAtCounterTotal: 3
+          shotsFiredCounterTotal: 51
+          shotsLandedCounterTotal: 8
+          statGainTotal: 1
+      - type: STR_SOLDIER
+        id: 31
+        name: Jules Park
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Terry Gomez
+        ownerplayerid: 1
+        nationality: 2
+        initialStats:
+          tu: 55
+          stamina: 60
+          health: 28
+          bravery: 60
+          reactions: 31
+          firing: 67
+          throwing: 51
+          strength: 39
+          psiStrength: 56
+          psiSkill: 0
+          melee: 35
+          mana: 0
+        currentStats:
+          tu: 55
+          stamina: 60
+          health: 28
+          bravery: 60
+          reactions: 31
+          firing: 67
+          throwing: 51
+          strength: 39
+          psiStrength: 56
+          psiSkill: -46
+          melee: 35
+          mana: 0
+        rank: 0
+        gender: 1
+        look: 0
+        lookVariant: 31
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_HEAVY_PLASMA,slot: STR_RIGHT_HAND,ammoItem: STR_HEAVY_PLASMA_CLIP,ammoItemSlots: [STR_HEAVY_PLASMA_CLIP]}
+          - {itemType: STR_HEAVY_PLASMA_CLIP,slot: STR_BELT}
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 1}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+          - {itemType: STR_MOTION_SCANNER,slot: STR_BELT,slotX: 3}
+          - {itemType: STR_MEDI_KIT,slot: STR_BACK_PACK}
+        diary:
+          monthsService: 2
+      - type: STR_SOLDIER
+        id: 35
+        name: Jamie Gomez
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Emerson Jung
+        ownerplayerid: 1
+        nationality: 33
+        initialStats:
+          tu: 59
+          stamina: 67
+          health: 31
+          bravery: 10
+          reactions: 39
+          firing: 66
+          throwing: 58
+          strength: 33
+          psiStrength: 60
+          psiSkill: 0
+          melee: 35
+          mana: 0
+        currentStats:
+          tu: 59
+          stamina: 67
+          health: 31
+          bravery: 10
+          reactions: 39
+          firing: 66
+          throwing: 58
+          strength: 33
+          psiStrength: 60
+          psiSkill: -24
+          melee: 35
+          mana: 0
+        rank: 0
+        gender: 0
+        look: 0
+        lookVariant: 45
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_HEAVY_PLASMA,slot: STR_RIGHT_HAND,ammoItem: STR_HEAVY_PLASMA_CLIP,ammoItemSlots: [STR_HEAVY_PLASMA_CLIP]}
+          - {itemType: STR_HEAVY_PLASMA_CLIP,slot: STR_BELT}
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 1}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+          - {itemType: STR_MOTION_SCANNER,slot: STR_BELT,slotX: 3}
+          - {itemType: STR_MEDI_KIT,slot: STR_BACK_PACK}
+        diary:
+          monthsService: 2
+      - type: STR_SOLDIER
+        id: 23
+        name: Nico Dahl
+        coopbase: -1
+        coop: 1
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Sam Petrov
+        ownerplayerid: 1
+        nationality: 23
+        initialStats:
+          tu: 56
+          stamina: 59
+          health: 39
+          bravery: 50
+          reactions: 50
+          firing: 59
+          throwing: 68
+          strength: 23
+          psiStrength: 64
+          psiSkill: 0
+          melee: 40
+          mana: 0
+        currentStats:
+          tu: 64
+          stamina: 66
+          health: 47
+          bravery: 50
+          reactions: 51
+          firing: 60
+          throwing: 69
+          strength: 35
+          psiStrength: 64
+          psiSkill: -31
+          melee: 40
+          mana: 0
+        rank: 3
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 3
+        lookVariant: 28
+        missions: 5
+        kills: 2
+        stuns: 0
+        armor: STR_FLYING_SUIT_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER,fuseTimer: 0}
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER,slotX: 1,fuseTimer: 0}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 7,turn: 2158,side: 0,bodypart: 1,id: 1000008}
+            - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 10,turn: 3024,side: 0,bodypart: 1,id: 1000005}
+          missionIdList: [7,9,10,11,12]
+          daysWoundedTotal: 5
+          monthsService: 3
+          shotsFiredCounterTotal: 20
+          shotsLandedCounterTotal: 3
+          timesWoundedTotal: 1
+          statGainTotal: 5
+      - type: STR_SOLDIER
+        id: 34
+        name: Harper Stein
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Blake Vance
+        ownerplayerid: 1
+        nationality: 17
+        initialStats:
+          tu: 57
+          stamina: 56
+          health: 40
+          bravery: 10
+          reactions: 34
+          firing: 68
+          throwing: 67
+          strength: 34
+          psiStrength: 73
+          psiSkill: 0
+          melee: 26
+          mana: 0
+        currentStats:
+          tu: 57
+          stamina: 56
+          health: 40
+          bravery: 10
+          reactions: 34
+          firing: 68
+          throwing: 67
+          strength: 34
+          psiStrength: 73
+          psiSkill: -21
+          melee: 26
+          mana: 0
+        rank: 0
+        gender: 0
+        look: 0
+        lookVariant: 17
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_HEAVY_PLASMA,slot: STR_RIGHT_HAND,ammoItem: STR_HEAVY_PLASMA_CLIP,ammoItemSlots: [STR_HEAVY_PLASMA_CLIP]}
+          - {itemType: STR_HEAVY_PLASMA_CLIP,slot: STR_BELT}
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 1}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+          - {itemType: STR_MOTION_SCANNER,slot: STR_BELT,slotX: 3}
+          - {itemType: STR_MEDI_KIT,slot: STR_BACK_PACK}
+        diary:
+          monthsService: 2
+      - type: STR_SOLDIER
+        id: 2
+        name: Parker Lang
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Blake Cruz
+        ownerplayerid: 0
+        nationality: 19
+        initialStats:
+          tu: 57
+          stamina: 44
+          health: 40
+          bravery: 20
+          reactions: 32
+          firing: 45
+          throwing: 80
+          strength: 34
+          psiStrength: 75
+          psiSkill: 0
+          melee: 22
+          mana: 0
+        currentStats:
+          tu: 70
+          stamina: 63
+          health: 47
+          bravery: 20
+          reactions: 32
+          firing: 49
+          throwing: 88
+          strength: 47
+          psiStrength: 75
+          psiSkill: -21
+          melee: 22
+          mana: 0
+        rank: 2
+        gender: 1
+        look: 1
+        lookVariant: 56
+        missions: 9
+        kills: 4
+        stuns: 2
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_LASER_PISTOL,slot: STR_RIGHT_HAND}
+          - {itemType: STR_GRENADE,slot: STR_LEFT_SHOULDER,fuseTimer: 0}
+          - {itemType: STR_GRENADE,slot: STR_LEFT_HAND,fuseTimer: 0}
+          - {itemType: STR_GRENADE,slot: STR_LEFT_LEG,fuseTimer: 0}
+          - {itemType: STR_MOTION_SCANNER,slot: STR_LEFT_LEG,slotX: 1}
+          - {itemType: STR_MEDI_KIT,slot: STR_BELT}
+          - {itemType: STR_PROXIMITY_GRENADE,slot: STR_LEFT_SHOULDER,slotX: 1,fuseTimer: 0}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 0,turn: 3,side: 4,bodypart: 1,id: 1000002}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 0,turn: 9,side: 4,bodypart: 1,id: 1000000}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 1,turn: 306,side: 4,bodypart: 1,id: 1000002}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 4,turn: 1206,side: 4,bodypart: 1,id: 1000002}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 7,faction: 1,mission: 4,turn: 1206,side: 1,bodypart: 3,id: 1000005}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 7,faction: 1,mission: 7,turn: 2106,side: 1,bodypart: 3,id: 1000007}
+          missionIdList: [0,1,2,3,4,5,6,7,8]
+          daysWoundedTotal: 25
+          monthsService: 3
+          shotAtCounterTotal: 4
+          shotsFiredCounterTotal: 36
+          shotsLandedCounterTotal: 1
+          timesWoundedTotal: 1
+          statGainTotal: 64
+      - type: STR_SOLDIER
+        id: 36
+        name: Parker Ivanov
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Micah Engel
+        ownerplayerid: 1
+        nationality: 3
+        initialStats:
+          tu: 52
+          stamina: 61
+          health: 32
+          bravery: 20
+          reactions: 43
+          firing: 49
+          throwing: 77
+          strength: 21
+          psiStrength: 75
+          psiSkill: 0
+          melee: 34
+          mana: 0
+        currentStats:
+          tu: 52
+          stamina: 61
+          health: 32
+          bravery: 20
+          reactions: 43
+          firing: 49
+          throwing: 77
+          strength: 21
+          psiStrength: 75
+          psiSkill: -40
+          melee: 34
+          mana: 0
+        rank: 0
+        gender: 0
+        look: 2
+        lookVariant: 12
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_HEAVY_PLASMA,slot: STR_RIGHT_HAND,ammoItem: STR_HEAVY_PLASMA_CLIP,ammoItemSlots: [STR_HEAVY_PLASMA_CLIP]}
+          - {itemType: STR_HEAVY_PLASMA_CLIP,slot: STR_BELT}
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 1}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+        diary:
+          monthsService: 2
+      - type: STR_SOLDIER
+        id: 25
+        name: Devin Roth
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Noel Stein
+        ownerplayerid: 0
+        nationality: 33
+        initialStats:
+          tu: 59
+          stamina: 53
+          health: 36
+          bravery: 20
+          reactions: 33
+          firing: 40
+          throwing: 66
+          strength: 21
+          psiStrength: 85
+          psiSkill: 0
+          melee: 26
+          mana: 0
+        currentStats:
+          tu: 59
+          stamina: 53
+          health: 36
+          bravery: 20
+          reactions: 33
+          firing: 40
+          throwing: 66
+          strength: 21
+          psiStrength: 85
+          psiSkill: -21
+          melee: 26
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 1
+        lookVariant: 44
+        missions: 1
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 3}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+          - {itemType: STR_MEDI_KIT,slot: STR_BELT}
+        diary:
+          missionIdList: [12]
+          monthsService: 3
+          statGainTotal: -23
+      - type: STR_SOLDIER
+        id: 27
+        name: Jamie Xu
+        coopbase: -1
+        coop: 1
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Jordan Stein
+        ownerplayerid: 1
+        nationality: 25
+        initialStats:
+          tu: 57
+          stamina: 42
+          health: 30
+          bravery: 40
+          reactions: 55
+          firing: 62
+          throwing: 58
+          strength: 39
+          psiStrength: 85
+          psiSkill: 0
+          melee: 39
+          mana: 0
+        currentStats:
+          tu: 64
+          stamina: 48
+          health: 35
+          bravery: 40
+          reactions: 55
+          firing: 70
+          throwing: 60
+          strength: 47
+          psiStrength: 85
+          psiSkill: -46
+          melee: 39
+          mana: 0
+        rank: 2
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 0
+        lookVariant: 11
+        missions: 5
+        kills: 8
+        stuns: 0
+        armor: STR_POWER_SUIT_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_LEFT_LEG}
+          - {itemType: STR_GRENADE,slot: STR_LEFT_LEG,slotX: 1}
+          - {itemType: STR_GRENADE,slot: STR_LEFT_HAND}
+          - {itemType: STR_PSI_AMP,slot: STR_RIGHT_HAND}
+          - {itemType: STR_PROXIMITY_GRENADE,slot: STR_BELT,slotX: 1}
+        diary:
+          killList:
+            - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 8,turn: 2406,side: 0,bodypart: 1,id: 1000014}
+            - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 8,turn: 2409,side: 4,bodypart: 1,id: 1000006}
+            - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 8,turn: 2439,side: 1,bodypart: 3,id: 1000011}
+            - {name: MGranat3,rank: STR_SQUADDIE,race: STR_FRIENDLY,weapon: STR_CYBERDISC_CORPSE,weaponAmmo: STR_CYBERDISC_CORPSE,status: 6,faction: 0,mission: 8,turn: 2439,side: 0,bodypart: 1,id: 16}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 9,turn: 2718,side: 0,bodypart: 1,id: 1000001}
+            - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 10,turn: 3027,side: 1,bodypart: 3,id: 1000006}
+            - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3315,side: 0,bodypart: 1,id: 1000011}
+            - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3315,side: 0,bodypart: 1,id: 1000010}
+          missionIdList: [8,9,10,11,12]
+          monthsService: 3
+          shotsFiredCounterTotal: 53
+          shotsLandedCounterTotal: 14
+          statGainTotal: -12
+      - type: STR_SOLDIER
+        id: 44
+        name: Kris Lund
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Harper Torres
+        ownerplayerid: 0
+        nationality: 5
+        initialStats:
+          tu: 59
+          stamina: 70
+          health: 32
+          bravery: 10
+          reactions: 39
+          firing: 56
+          throwing: 78
+          strength: 26
+          psiStrength: 90
+          psiSkill: 0
+          melee: 35
+          mana: 0
+        currentStats:
+          tu: 61
+          stamina: 73
+          health: 34
+          bravery: 10
+          reactions: 39
+          firing: 58
+          throwing: 78
+          strength: 32
+          psiStrength: 90
+          psiSkill: -33
+          melee: 35
+          mana: 0
+        rank: 1
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 0
+        lookVariant: 50
+        missions: 2
+        kills: 2
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 1}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3303,side: 3,bodypart: 1,id: 1000004}
+            - {type: STR_SECTOID_MEDIC,rank: STR_LIVE_MEDIC,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3330,side: 2,bodypart: 2,id: 1000007}
+          missionIdList: [11,12]
+          monthsService: 1
+          shotsFiredCounterTotal: 16
+          shotsLandedCounterTotal: 3
+          woundsHealedTotal: 1
+          statGainTotal: -20
+      - type: STR_SOLDIER
+        id: 15
+        name: Shay Weiss
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Harper Dahl
+        ownerplayerid: 0
+        nationality: 5
+        initialStats:
+          tu: 51
+          stamina: 56
+          health: 30
+          bravery: 50
+          reactions: 38
+          firing: 42
+          throwing: 57
+          strength: 20
+          psiStrength: 95
+          psiSkill: 0
+          melee: 36
+          mana: 0
+        currentStats:
+          tu: 51
+          stamina: 56
+          health: 30
+          bravery: 50
+          reactions: 38
+          firing: 42
+          throwing: 57
+          strength: 20
+          psiStrength: 95
+          psiSkill: -27
+          melee: 36
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 0
+        lookVariant: 49
+        missions: 1
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+        diary:
+          missionIdList: [12]
+          monthsService: 3
+          statGainTotal: -29
+      - type: STR_SOLDIER
+        id: 37
+        name: Wes Lang
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Umi Ortiz
+        ownerplayerid: 1
+        nationality: 8
+        initialStats:
+          tu: 54
+          stamina: 45
+          health: 34
+          bravery: 40
+          reactions: 54
+          firing: 61
+          throwing: 61
+          strength: 36
+          psiStrength: 95
+          psiSkill: 0
+          melee: 33
+          mana: 0
+        currentStats:
+          tu: 54
+          stamina: 45
+          health: 34
+          bravery: 40
+          reactions: 54
+          firing: 61
+          throwing: 61
+          strength: 36
+          psiStrength: 95
+          psiSkill: -23
+          melee: 33
+          mana: 0
+        rank: 0
+        gender: 0
+        look: 1
+        lookVariant: 20
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_HEAVY_PLASMA,slot: STR_RIGHT_HAND,ammoItem: STR_HEAVY_PLASMA_CLIP,ammoItemSlots: [STR_HEAVY_PLASMA_CLIP]}
+          - {itemType: STR_HEAVY_PLASMA_CLIP,slot: STR_BELT}
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 1}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+        diary:
+          monthsService: 2
+      - type: STR_SOLDIER
+        id: 40
+        name: Kris Jansen
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Lane Osei
+        ownerplayerid: 0
+        nationality: 9
+        initialStats:
+          tu: 52
+          stamina: 62
+          health: 27
+          bravery: 30
+          reactions: 50
+          firing: 40
+          throwing: 53
+          strength: 40
+          psiStrength: 95
+          psiSkill: 0
+          melee: 20
+          mana: 0
+        currentStats:
+          tu: 55
+          stamina: 66
+          health: 31
+          bravery: 30
+          reactions: 50
+          firing: 40
+          throwing: 53
+          strength: 42
+          psiStrength: 95
+          psiSkill: -46
+          melee: 20
+          mana: 0
+        rank: 1
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 1
+        lookVariant: 39
+        missions: 2
+        kills: 2
+        stuns: 0
+        armor: STR_PERSONAL_ARMOR_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_BELT,slotX: 1}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 2}
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3321,side: 2,bodypart: 2,id: 1000002}
+            - {type: STR_SECTOID_MEDIC,rank: STR_LIVE_MEDIC,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3324,side: 0,bodypart: 1,id: 1000006}
+          missionIdList: [11,12]
+          monthsService: 2
+          shotsFiredCounterTotal: 17
+          shotsLandedCounterTotal: 1
+          statGainTotal: -35
+      - type: STR_SOLDIER
+        id: 47
+        name: Rowan Novak
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Terry Ivanov
+        ownerplayerid: 0
+        nationality: 14
+        initialStats:
+          tu: 53
+          stamina: 64
+          health: 31
+          bravery: 40
+          reactions: 48
+          firing: 69
+          throwing: 65
+          strength: 26
+          psiStrength: 95
+          psiSkill: 0
+          melee: 39
+          mana: 0
+        currentStats:
+          tu: 54
+          stamina: 68
+          health: 35
+          bravery: 40
+          reactions: 48
+          firing: 71
+          throwing: 66
+          strength: 27
+          psiStrength: 95
+          psiSkill: -36
+          melee: 39
+          mana: 0
+        rank: 1
+        craft:
+          lon: 0.6996639454965251
+          lat: -0.35406398079513796
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 0
+        lookVariant: 42
+        missions: 2
+        kills: 2
+        stuns: 0
+        armor: STR_POWER_SUIT_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_GRENADE,slot: STR_BELT}
+          - {itemType: STR_HEAVY_PLASMA,slot: STR_RIGHT_HAND,ammoItem: STR_HEAVY_PLASMA_CLIP,ammoItemSlots: [STR_HEAVY_PLASMA_CLIP]}
+          - {itemType: STR_MEDI_KIT,slot: STR_BELT,slotX: 3}
+        diary:
+          killList:
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3321,side: 3,bodypart: 1,id: 1000001}
+            - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 11,turn: 3333,side: 2,bodypart: 4,id: 1000003}
+          missionIdList: [11,12]
+          daysWoundedTotal: 8
+          monthsService: 1
+          shotsFiredCounterTotal: 15
+          shotsLandedCounterTotal: 4
+          timesWoundedTotal: 1
+          statGainTotal: -25
+      - type: STR_SOLDIER
+        id: 48
+        name: Jordan Petrov
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Toni Reyes
+        ownerplayerid: 0
+        nationality: 26
+        initialStats:
+          tu: 57
+          stamina: 69
+          health: 40
+          bravery: 60
+          reactions: 46
+          firing: 45
+          throwing: 69
+          strength: 40
+          psiStrength: 95
+          psiSkill: 0
+          melee: 39
+          mana: 0
+        currentStats:
+          tu: 57
+          stamina: 69
+          health: 40
+          bravery: 60
+          reactions: 46
+          firing: 45
+          throwing: 69
+          strength: 40
+          psiStrength: 95
+          psiSkill: -24
+          melee: 39
+          mana: 0
+        rank: 0
+        gender: 0
+        look: 2
+        lookVariant: 38
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_HEAVY_PLASMA,slot: STR_RIGHT_HAND,ammoItem: STR_HEAVY_PLASMA_CLIP,ammoItemSlots: [STR_HEAVY_PLASMA_CLIP]}
+          - {itemType: STR_GRENADE,slot: STR_BELT}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 1}
+        diary:
+          monthsService: 1
+      - type: STR_SOLDIER
+        id: 49
+        name: Lane Lund
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Ollie Osei
+        ownerplayerid: 1
+        nationality: 11
+        initialStats:
+          tu: 54
+          stamina: 54
+          health: 40
+          bravery: 10
+          reactions: 55
+          firing: 58
+          throwing: 80
+          strength: 31
+          psiStrength: 32
+          psiSkill: 0
+          melee: 40
+          mana: 0
+        currentStats:
+          tu: 54
+          stamina: 54
+          health: 40
+          bravery: 10
+          reactions: 55
+          firing: 58
+          throwing: 80
+          strength: 31
+          psiStrength: 32
+          psiSkill: 0
+          melee: 40
+          mana: 0
+        rank: 0
+        gender: 0
+        look: 3
+        lookVariant: 52
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_HEAVY_PLASMA,slot: STR_RIGHT_HAND,ammoItem: STR_HEAVY_PLASMA_CLIP,ammoItemSlots: [STR_HEAVY_PLASMA_CLIP]}
+          - {itemType: STR_GRENADE,slot: STR_BELT}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 1}
+        diary:
+          monthsService: 1
+      - type: STR_SOLDIER
+        id: 50
+        name: Morgan Ivanov
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Nico Jansen
+        ownerplayerid: 0
+        nationality: 29
+        initialStats:
+          tu: 54
+          stamina: 60
+          health: 31
+          bravery: 20
+          reactions: 35
+          firing: 61
+          throwing: 55
+          strength: 20
+          psiStrength: 86
+          psiSkill: 0
+          melee: 22
+          mana: 0
+        currentStats:
+          tu: 54
+          stamina: 60
+          health: 31
+          bravery: 20
+          reactions: 35
+          firing: 61
+          throwing: 55
+          strength: 20
+          psiStrength: 86
+          psiSkill: -40
+          melee: 22
+          mana: 0
+        rank: 0
+        gender: 1
+        look: 0
+        lookVariant: 62
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        psiTraining: true
+        improvement: 0
+        psiStrImprovement: 0
+        equipmentLayout:
+          - {itemType: STR_LASER_RIFLE,slot: STR_RIGHT_HAND}
+          - {itemType: STR_GRENADE,slot: STR_BELT}
+          - {itemType: STR_SMOKE_GRENADE,slot: STR_BELT,slotX: 1}
+        diary:
+          monthsService: 1
+    coopbaseid: 95685
+    crafts:
+      - lon: 0.6996639454965251
+        lat: -0.35406398079513796
+        id: 1
+        dest:
+          lon: 0.7960044851659811
+          lat: -0.44047419128269616
+          type: STR_UFO
+          id: 23
+          uniqueId: 28
+        speedLon: 0.00023046418500680994
+        speedLat: -0.00021805944904914072
+        speedRadian: 0.0003070486647027061
+        speed: 760
+        type: STR_SKYRANGER
+        fuel: 1395
+        damage: 0
+        shield: 0
+        coopItems:
+          - {id: 0,name: STR_LASER_PISTOL,owner: true}
+          - {id: 0,name: STR_GRENADE,owner: true}
+          - {id: 1,name: STR_GRENADE,owner: true}
+          - {id: 2,name: STR_GRENADE,owner: true}
+          - {id: 3,name: STR_GRENADE,owner: true}
+          - {id: 4,name: STR_GRENADE,owner: true}
+          - {id: 5,name: STR_GRENADE,owner: true}
+          - {id: 6,name: STR_GRENADE,owner: true}
+          - {id: 7,name: STR_GRENADE,owner: true}
+          - {id: 8,name: STR_GRENADE,owner: true}
+          - {id: 9,name: STR_GRENADE,owner: true}
+          - {id: 10,name: STR_GRENADE,owner: true}
+          - {id: 11,name: STR_GRENADE,owner: true}
+          - {id: 12,name: STR_GRENADE,owner: true}
+          - {id: 13,name: STR_GRENADE,owner: true}
+          - {id: 14,name: STR_GRENADE,owner: true}
+          - {id: 15,name: STR_GRENADE,owner: true}
+          - {id: 16,name: STR_GRENADE,owner: true}
+          - {id: 17,name: STR_GRENADE,owner: true}
+          - {id: 18,name: STR_GRENADE,owner: true}
+          - {id: 19,name: STR_GRENADE,owner: true}
+          - {id: 20,name: STR_GRENADE,owner: true}
+          - {id: 21,name: STR_GRENADE,owner: true}
+          - {id: 22,name: STR_GRENADE,owner: true}
+          - {id: 23,name: STR_GRENADE,owner: true}
+          - {id: 24,name: STR_GRENADE,owner: true}
+          - {id: 25,name: STR_GRENADE,owner: true}
+          - {id: 26,name: STR_GRENADE,owner: true}
+          - {id: 27,name: STR_GRENADE,owner: true}
+          - {id: 28,name: STR_GRENADE,owner: true}
+          - {id: 29,name: STR_GRENADE,owner: true}
+          - {id: 30,name: STR_GRENADE,owner: true}
+          - {id: 0,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 1,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 2,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 3,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 4,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 5,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 6,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 7,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 8,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 9,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 10,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 11,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 12,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 13,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 14,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 15,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 16,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 17,name: STR_SMOKE_GRENADE,owner: true}
+          - {id: 0,name: STR_MOTION_SCANNER,owner: true}
+          - {id: 1,name: STR_MOTION_SCANNER,owner: true}
+          - {id: 0,name: STR_MEDI_KIT,owner: true}
+          - {id: 1,name: STR_MEDI_KIT,owner: true}
+          - {id: 2,name: STR_MEDI_KIT,owner: true}
+          - {id: 1,name: STR_HEAVY_PLASMA_CLIP,owner: true}
+          - {id: 5,name: STR_HEAVY_PLASMA_CLIP,owner: true}
+          - {id: 6,name: STR_HEAVY_PLASMA_CLIP,owner: true}
+          - {id: 7,name: STR_HEAVY_PLASMA_CLIP,owner: true}
+          - {id: 18,name: STR_HEAVY_PLASMA_CLIP,owner: true}
+          - {id: 19,name: STR_HEAVY_PLASMA_CLIP,owner: true}
+          - {id: 20,name: STR_HEAVY_PLASMA_CLIP,owner: true}
+          - {id: 0,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 1,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 2,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 3,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 4,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 5,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 6,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 7,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 8,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 9,name: STR_HEAVY_PLASMA,owner: true}
+          - {id: 0,name: STR_LASER_RIFLE,owner: true}
+          - {id: 1,name: STR_LASER_RIFLE,owner: true}
+          - {id: 2,name: STR_LASER_RIFLE,owner: true}
+          - {id: 3,name: STR_LASER_RIFLE,owner: true}
+          - {id: 4,name: STR_LASER_RIFLE,owner: true}
+          - {id: 5,name: STR_LASER_RIFLE,owner: true}
+          - {id: 6,name: STR_LASER_RIFLE,owner: true}
+          - {id: 7,name: STR_LASER_RIFLE,owner: true}
+          - {id: 2,name: STR_MOTION_SCANNER,owner: true}
+          - {id: 3,name: STR_MOTION_SCANNER,owner: true}
+          - {id: 4,name: STR_MOTION_SCANNER,owner: true}
+          - {id: 0,name: STR_PROXIMITY_GRENADE,owner: true}
+          - {id: 1,name: STR_PROXIMITY_GRENADE,owner: true}
+          - {id: 2,name: STR_PROXIMITY_GRENADE,owner: true}
+          - {id: 3,name: STR_MEDI_KIT,owner: true}
+          - {id: 4,name: STR_MEDI_KIT,owner: true}
+          - {id: 5,name: STR_MEDI_KIT,owner: true}
+        items:
+          STR_ELECTRO_FLARE: 20
+          STR_GRENADE: 25
+          STR_HEAVY_PLASMA: 2
+          STR_HEAVY_PLASMA_CLIP: 2
+          STR_LASER_RIFLE: 10
+          STR_MEDI_KIT: 3
+          STR_MOTION_SCANNER: 3
+          STR_PROXIMITY_GRENADE: 3
+          STR_PSI_AMP: 7
+          STR_SMOKE_GRENADE: 6
+          STR_STUN_ROD: 4
+        vehicles:
+          - type: STR_TANK_ROCKET_LAUNCHER
+            ammo: 8
+            size: 4
+            coopbase: -1
+            coopcraft: -1
+            coopcrafttype: ''
+        status: STR_OUT
+        lonAuto: 0
+        latAuto: 0
+      - lon: 0.33753863050944044
+        lat: 0.03526645496800521
+        id: 1
+        speedLon: 0
+        speedLat: 0
+        speedRadian: 0
+        speed: 0
+        type: STR_INTERCEPTOR
+        fuel: 685
+        damage: 0
+        shield: 0
+        weapons:
+          - type: STR_AVALANCHE
+            ammo: 2
+            rearming: true
+          - type: STR_AVALANCHE
+            ammo: 3
+        items: {}
+        status: STR_REARMING
+        lonAuto: 0
+        latAuto: 0
+      - lon: 0.33753863050944044
+        lat: 0.03526645496800521
+        id: 2
+        speedLon: 0
+        speedLat: 0
+        speedRadian: 0
+        speed: 0
+        type: STR_INTERCEPTOR
+        fuel: 1000
+        damage: 0
+        shield: 0
+        weapons:
+          - type: STR_AVALANCHE
+            ammo: 3
+          - type: STR_AVALANCHE
+            ammo: 3
+        items: {}
+        status: STR_READY
+        lonAuto: 0
+        latAuto: 0
+    items:
+      STR_ALIEN_ALLOYS: 284
+      STR_ALIEN_ENTERTAINMENT: 1
+      STR_ALIEN_GRENADE: 13
+      STR_AVALANCHE_MISSILES: 4
+      STR_ELERIUM_115: 399
+      STR_GRENADE: 48
+      STR_HEAVY_PLASMA: 14
+      STR_HEAVY_PLASMA_CLIP: 21
+      STR_HWP_ROCKETS: 8
+      STR_LASER_PISTOL: 7
+      STR_MEDI_KIT: 3
+      STR_MIND_PROBE: 2
+      STR_MOTION_SCANNER: 2
+      STR_PLASMA_PISTOL: 1
+      STR_PLASMA_PISTOL_CLIP: 1
+      STR_PLASMA_RIFLE: 1
+      STR_PLASMA_RIFLE_CLIP: 1
+      STR_PSI_AMP: 2
+      STR_SMALL_LAUNCHER: 2
+      STR_SMOKE_GRENADE: 20
+      STR_STUN_BOMB: 6
+      STR_UFO_NAVIGATION: 14
+      STR_UFO_POWER_SOURCE: 4
+    scientists: 100
+    engineers: 0
+    transfers:
+      - hours: 33
+        engineers: 10
+    research:
+      - project: STR_UFO_CONSTRUCTION
+        assigned: 0
+        spent: 0
+        cost: 607
+    productions:
+      - item: STR_LASER_PISTOL
+        assigned: 0
+        spent: 19820
+        amount: 10
+        infinite: true
+        sell: true
+      - item: STR_FLYING_SUIT
+        assigned: 25
+        spent: 975
+        amount: 8
+        infinite: false
+  - lon: 0.8528571307612541
+    lat: -1.164979207141234
+    name: Base-2
+    facilities:
+      - type: STR_ACCESS_LIFT
+        x: 1
+        y: 2
+      - type: STR_LARGE_RADAR_SYSTEM
+        x: 1
+        y: 3
+      - type: STR_GENERAL_STORES
+        x: 2
+        y: 3
+      - type: STR_LIVING_QUARTERS
+        x: 1
+        y: 4
+      - type: STR_HANGAR
+        x: 0
+        y: 0
+    coopbaseid: 30712
+    items: {}
+    scientists: 0
+    engineers: 0
+  - lon: 5.0681536163918555
+    lat: 0.4213261429365412
+    name: Base-3
+    facilities:
+      - type: STR_ACCESS_LIFT
+        x: 1
+        y: 2
+      - type: STR_LARGE_RADAR_SYSTEM
+        x: 1
+        y: 3
+    coopbaseid: 97558
+    items: {}
+    scientists: 0
+    engineers: 0
+  - lon: 4.960699851030686
+    lat: -0.668709739736524
+    name: Base-4
+    facilities:
+      - type: STR_ACCESS_LIFT
+        x: 1
+        y: 2
+      - type: STR_LARGE_RADAR_SYSTEM
+        x: 1
+        y: 3
+    coopbaseid: 64296
+    items: {}
+    scientists: 0
+    engineers: 0
+  - lon: 1.930104864670054
+    lat: 0.13103560200863362
+    name: Base-5
+    facilities:
+      - type: STR_ACCESS_LIFT
+        x: 1
+        y: 2
+      - type: STR_LARGE_RADAR_SYSTEM
+        x: 1
+        y: 3
+      - type: STR_GENERAL_STORES
+        x: 2
+        y: 3
+      - type: STR_PSIONIC_LABORATORY
+        x: 0
+        y: 3
+      - type: STR_LIVING_QUARTERS
+        x: 1
+        y: 4
+    coopbaseid: 8563
+    items: {}
+    scientists: 0
+    engineers: 0
+  - lon: 3.6557250264902623
+    lat: -0.34104096056149125
+    name: Base-6
+    facilities:
+      - type: STR_ACCESS_LIFT
+        x: 1
+        y: 2
+    coopbaseid: 20088
+    items: {}
+    scientists: 0
+    engineers: 0
+alienMissions:
+  - type: STR_ALIEN_HARVEST
+    region: STR_NORTH_AFRICA
+    race: STR_FLOATER
+    nextWave: 2
+    nextUfoCounter: 0
+    spawnCountdown: 2970
+    liveUfos: 0
+    uniqueID: 6
+    missionSiteZone: -1
+  - type: STR_ALIEN_RETALIATION
+    region: STR_NORTH_AFRICA
+    race: STR_FLOATER
+    nextWave: 2
+    nextUfoCounter: 0
+    spawnCountdown: 4710
+    liveUfos: 0
+    uniqueID: 7
+    missionSiteZone: -1
+  - type: STR_ALIEN_TERROR
+    region: STR_NORTH_AFRICA
+    race: STR_SNAKEMAN
+    nextWave: 1
+    nextUfoCounter: 0
+    spawnCountdown: 22650
+    liveUfos: 1
+    uniqueID: 8
+    missionSiteZone: 2
+  - type: STR_ALIEN_BASE
+    region: STR_NORTH_AMERICA
+    race: STR_MUTON
+    nextWave: 0
+    nextUfoCounter: 0
+    spawnCountdown: 11100
+    liveUfos: 0
+    uniqueID: 9
+    missionSiteZone: -1
+ufos:
+  - lon: 0.7960044851659811
+    lat: -0.44047419128269616
+    id: 23
+    speedLon: 0
+    speedLat: 0
+    speedRadian: 0
+    speed: 0
+    type: STR_MEDIUM_SCOUT
+    uniqueId: 28
+    missionWaveNumber: 0
+    crashId: 5
+    damage: 129
+    shield: 0
+    shieldRechargeHandle: 0
+    altitude: STR_GROUND
+    direction: STR_NONE_UC
+    status: 2
+    detected: true
+    secondsRemaining: 163800
+    huntMode: 0
+    huntBehavior: 0
+    mission: 8
+    trajectory: P1
+    trajectoryPoint: 2
+    fireCountdown: 0
+    escapeCountdown: 293
+    coopUfoId: 16685
+discovered:
+  - STR_ALIEN_ALLOYS
+  - STR_ELERIUM_115
+  - STR_FLYING_SUIT
+  - STR_HEAVY_PLASMA
+  - STR_HEAVY_PLASMA_CLIP
+  - STR_LASER_PISTOL
+  - STR_LASER_RIFLE
+  - STR_LASER_WEAPONS
+  - STR_MEDI_KIT
+  - STR_MOTION_SCANNER
+  - STR_PERSONAL_ARMOR
+  - STR_PLASMA_CANNON_DEP1
+  - STR_POWER_SUIT
+  - STR_PSI_AMP
+  - STR_PSI_LAB
+  - STR_SECTOID
+  - STR_SECTOID_LEADER
+  - STR_SECTOID_SOLDIER
+  - STR_UFO_NAVIGATION
+  - STR_UFO_POWER_SOURCE
+researchDiary:
+  - {date: [1999,1,3],name: STR_LASER_WEAPONS,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,1,6],name: STR_LASER_PISTOL,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,1,12],name: STR_LASER_RIFLE,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,1,17],name: STR_MOTION_SCANNER,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,1,21],name: STR_MEDI_KIT,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,1,25],name: STR_SECTOID_SOLDIER,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,1,25],name: STR_SECTOID,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,1,30],name: STR_ALIEN_ALLOYS,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,2,9],name: STR_UFO_NAVIGATION,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,2,16],name: STR_UFO_POWER_SOURCE,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,2,19],name: STR_ELERIUM_115,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,2,21],name: STR_SECTOID_LEADER,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,2,24],name: STR_PSI_LAB,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,3,4],name: STR_PSI_AMP,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,3,16],name: STR_HEAVY_PLASMA,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,3,21],name: STR_HEAVY_PLASMA_CLIP,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,3,21],name: STR_PLASMA_CANNON_DEP1,sourceType: 2,sourceName: STR_HEAVY_PLASMA_CLIP}
+  - {date: [1999,3,23],name: STR_PERSONAL_ARMOR,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,3,25],name: STR_POWER_SUIT,sourceType: 0,sourceName: Base-1}
+  - {date: [1999,3,28],name: STR_FLYING_SUIT,sourceType: 0,sourceName: Base-1}
+poppedResearch:
+  - STR_HEAVY_LASER
+  - STR_ALIEN_ORIGINS
+  - STR_UFO_CONSTRUCTION
+  - STR_MIND_SHIELD
+  - STR_PLASMA_CANNON
+generatedEvents: {}
+ufopediaRuleStatus:
+  STR_ACCESS_LIFT: 0
+  STR_ALIEN_ALLOYS: 1
+  STR_ALIEN_CONTAINMENT: 0
+  STR_AUTO_CANNON: 0
+  STR_AVALANCHE: 0
+  STR_CANNON_UC: 0
+  STR_ELECTRO_FLARE: 0
+  STR_ELERIUM_115: 1
+  STR_FLYING_SUIT_UC: 1
+  STR_GENERAL_STORES: 0
+  STR_GRENADE: 0
+  STR_HANGAR: 0
+  STR_HEAVY_CANNON: 0
+  STR_HEAVY_PLASMA: 1
+  STR_HEAVY_PLASMA_CLIP: 1
+  STR_HIGH_EXPLOSIVE: 0
+  STR_INTERCEPTOR: 0
+  STR_LABORATORY: 0
+  STR_LARGE_RADAR_SYSTEM: 0
+  STR_LASER_PISTOL: 1
+  STR_LASER_RIFLE: 1
+  STR_LIVING_QUARTERS: 0
+  STR_MEDI_KIT: 0
+  STR_MISSILE_DEFENSES: 0
+  STR_MOTION_SCANNER: 0
+  STR_PERSONAL_ARMOR_UC: 1
+  STR_PISTOL: 0
+  STR_POWER_SUIT_UC: 1
+  STR_PROXIMITY_GRENADE: 0
+  STR_PSIONIC_LABORATORY: 0
+  STR_PSI_AMP: 1
+  STR_RIFLE: 0
+  STR_ROCKET_LAUNCHER: 0
+  STR_SECTOID: 0
+  STR_SKYRANGER: 0
+  STR_SMALL_RADAR_SYSTEM: 0
+  STR_SMOKE_GRENADE: 0
+  STR_STINGRAY: 0
+  STR_STUN_ROD: 0
+  STR_TANK_CANNON: 0
+  STR_TANK_ROCKET_LAUNCHER: 0
+  STR_UFO_NAVIGATION: 0
+  STR_UFO_POWER_SOURCE: 0
+  STR_WORKSHOP: 0
+manufactureRuleStatus:
+  STR_ALIEN_ALLOYS: 1
+  STR_FLYING_SUIT: 1
+  STR_HEAVY_PLASMA: 0
+  STR_HEAVY_PLASMA_CLIP: 1
+  STR_LASER_PISTOL: 1
+  STR_LASER_RIFLE: 1
+  STR_MEDI_KIT: 1
+  STR_MOTION_SCANNER: 1
+  STR_PERSONAL_ARMOR: 1
+  STR_POWER_SUIT: 1
+  STR_PSI_AMP: 1
+  STR_UFO_NAVIGATION: 1
+  STR_UFO_POWER_SOURCE: 0
+researchRuleStatus:
+  STR_ALIEN_ALLOYS: 1
+  STR_ELERIUM_115: 1
+  STR_FLYING_SUIT: 1
+  STR_HEAVY_LASER: 1
+  STR_HEAVY_PLASMA: 1
+  STR_HEAVY_PLASMA_CLIP: 1
+  STR_LASER_PISTOL: 1
+  STR_LASER_RIFLE: 1
+  STR_LASER_WEAPONS: 1
+  STR_MEDI_KIT: 1
+  STR_MOTION_SCANNER: 1
+  STR_PERSONAL_ARMOR: 1
+  STR_PLASMA_RIFLE: 1
+  STR_POWER_SUIT: 1
+  STR_PSI_AMP: 1
+  STR_PSI_LAB: 1
+  STR_SECTOID_LEADER: 1
+  STR_SECTOID_SOLDIER: 1
+  STR_UFO_CONSTRUCTION: 1
+  STR_UFO_POWER_SOURCE: 1
+monthlyPurchaseLimitLog: {}
+hiddenPurchaseItems: {}
+customRuleCraftDeployments: {}
+alienStrategy:
+  regions:
+    STR_ANTARCTICA: 4
+    STR_ARCTIC: 4
+    STR_AUSTRALASIA: 10
+    STR_CENTRAL_ASIA: 12
+    STR_EUROPE: 16
+    STR_NORTH_AFRICA: 12
+    STR_NORTH_AMERICA: 18
+    STR_PACIFIC: 5
+    STR_SIBERIA: 10
+    STR_SOUTHERN_AFRICA: 8
+    STR_SOUTH_AMERICA: 10
+    STR_SOUTH_EAST_ASIA: 15
+  possibleMissions:
+    - region: STR_ANTARCTICA
+      missions:
+        STR_ALIEN_BASE: 35
+        STR_ALIEN_RESEARCH: 25
+    - region: STR_ARCTIC
+      missions:
+        STR_ALIEN_RESEARCH: 25
+    - region: STR_AUSTRALASIA
+      missions:
+        STR_ALIEN_ABDUCTION: 4
+        STR_ALIEN_BASE: 16
+        STR_ALIEN_HARVEST: 11
+        STR_ALIEN_INFILTRATION: 8
+        STR_ALIEN_RESEARCH: 15
+    - region: STR_CENTRAL_ASIA
+      missions:
+        STR_ALIEN_ABDUCTION: 6
+        STR_ALIEN_BASE: 8
+        STR_ALIEN_HARVEST: 5
+        STR_ALIEN_INFILTRATION: 10
+        STR_ALIEN_RESEARCH: 5
+    - region: STR_EUROPE
+      missions:
+        STR_ALIEN_ABDUCTION: 15
+        STR_ALIEN_BASE: 6
+        STR_ALIEN_HARVEST: 10
+        STR_ALIEN_INFILTRATION: 20
+        STR_ALIEN_RESEARCH: 10
+    - region: STR_INDIAN_OCEAN
+      missions: ~
+    - region: STR_NORTH_AFRICA
+      missions:
+        STR_ALIEN_ABDUCTION: 8
+        STR_ALIEN_BASE: 19
+        STR_ALIEN_INFILTRATION: 8
+        STR_ALIEN_RESEARCH: 8
+    - region: STR_NORTH_AMERICA
+      missions:
+        STR_ALIEN_ABDUCTION: 20
+        STR_ALIEN_HARVEST: 17
+        STR_ALIEN_INFILTRATION: 20
+        STR_ALIEN_RESEARCH: 14
+    - region: STR_NORTH_ATLANTIC
+      missions: ~
+    - region: STR_PACIFIC
+      missions:
+        STR_ALIEN_BASE: 27
+        STR_ALIEN_RESEARCH: 15
+    - region: STR_SIBERIA
+      missions:
+        STR_ALIEN_ABDUCTION: 4
+        STR_ALIEN_BASE: 9
+        STR_ALIEN_RESEARCH: 6
+    - region: STR_SOUTHERN_AFRICA
+      missions:
+        STR_ALIEN_ABDUCTION: 8
+        STR_ALIEN_BASE: 9
+        STR_ALIEN_HARVEST: 8
+        STR_ALIEN_INFILTRATION: 8
+    - region: STR_SOUTH_AMERICA
+      missions:
+        STR_ALIEN_ABDUCTION: 12
+        STR_ALIEN_BASE: 22
+        STR_ALIEN_HARVEST: 24
+        STR_ALIEN_INFILTRATION: 18
+        STR_ALIEN_RESEARCH: 10
+    - region: STR_SOUTH_ATLANTIC
+      missions: ~
+    - region: STR_SOUTH_EAST_ASIA
+      missions:
+        STR_ALIEN_ABDUCTION: 21
+        STR_ALIEN_BASE: 8
+        STR_ALIEN_HARVEST: 13
+        STR_ALIEN_INFILTRATION: 13
+        STR_ALIEN_RESEARCH: 8
+  missionLocations: {}
+  missionsRun: {}
+deadSoldiers:
+  - type: STR_SOLDIER
+    id: 1
+    name: Riley Kowal
+    coopbase: -1
+    coop: 1
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Blake Zetterlund
+    ownerplayerid: 1
+    nationality: 1
+    initialStats:
+      tu: 60
+      stamina: 59
+      health: 26
+      bravery: 10
+      reactions: 45
+      firing: 50
+      throwing: 70
+      strength: 39
+      psiStrength: 84
+      psiSkill: 0
+      melee: 29
+      mana: 0
+    currentStats:
+      tu: 60
+      stamina: 59
+      health: 26
+      bravery: 10
+      reactions: 45
+      firing: 50
+      throwing: 70
+      strength: 39
+      psiStrength: 84
+      psiSkill: 0
+      melee: 29
+      mana: 0
+    rank: 0
+    gender: 0
+    look: 2
+    lookVariant: 10
+    missions: 1
+    kills: 0
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 50,minute: 17,hour: 23,weekday: 6,day: 1,month: 1,year: 1999}
+      cause: {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_PLASMA_RIFLE,weaponAmmo: STR_PLASMA_RIFLE_CLIP,status: 6,faction: 1,mission: 0,turn: 4,side: 0,bodypart: 1,id: 1}
+    diary:
+      missionIdList: [0]
+      shotAtCounterTotal: 1
+      hitCounterTotal: 1
+      killedInAction: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 5
+    name: Robin Ustinov
+    coopbase: -1
+    coop: 1
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Skyler York
+    ownerplayerid: 1
+    nationality: 24
+    initialStats:
+      tu: 52
+      stamina: 68
+      health: 38
+      bravery: 50
+      reactions: 42
+      firing: 42
+      throwing: 58
+      strength: 34
+      psiStrength: 4
+      psiSkill: 0
+      melee: 20
+      mana: 0
+    currentStats:
+      tu: 52
+      stamina: 68
+      health: 38
+      bravery: 50
+      reactions: 42
+      firing: 42
+      throwing: 58
+      strength: 34
+      psiStrength: 4
+      psiSkill: 0
+      melee: 20
+      mana: 0
+    rank: 0
+    gender: 1
+    look: 1
+    lookVariant: 62
+    missions: 1
+    kills: 1
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 50,minute: 17,hour: 23,weekday: 6,day: 1,month: 1,year: 1999}
+      cause: {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_PLASMA_PISTOL,weaponAmmo: STR_PLASMA_PISTOL_CLIP,status: 6,faction: 1,mission: 0,turn: 16,side: 0,bodypart: 1,id: 5}
+    diary:
+      killList:
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 0,turn: 9,side: 4,bodypart: 1,id: 1000001}
+      missionIdList: [0]
+      shotAtCounterTotal: 2
+      hitCounterTotal: 1
+      killedInAction: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 6
+    name: Corey Grimm
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Nico Bauer
+    ownerplayerid: 0
+    nationality: 25
+    initialStats:
+      tu: 52
+      stamina: 67
+      health: 34
+      bravery: 40
+      reactions: 56
+      firing: 59
+      throwing: 62
+      strength: 27
+      psiStrength: 14
+      psiSkill: 0
+      melee: 32
+      mana: 0
+    currentStats:
+      tu: 52
+      stamina: 67
+      health: 34
+      bravery: 40
+      reactions: 56
+      firing: 59
+      throwing: 62
+      strength: 27
+      psiStrength: 14
+      psiSkill: 0
+      melee: 32
+      mana: 0
+    rank: 0
+    gender: 0
+    look: 0
+    lookVariant: 46
+    missions: 2
+    kills: 0
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 0,minute: 19,hour: 8,weekday: 4,day: 6,month: 1,year: 1999}
+      cause: {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_PLASMA_PISTOL,weaponAmmo: STR_PLASMA_PISTOL_CLIP,status: 6,faction: 1,mission: 1,turn: 3,side: 1,bodypart: 3,id: 6}
+    diary:
+      missionIdList: [0,1]
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 3
+      killedInAction: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 8
+    name: Parker Roth
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Dana Keller
+    ownerplayerid: 0
+    nationality: 24
+    initialStats:
+      tu: 50
+      stamina: 62
+      health: 40
+      bravery: 10
+      reactions: 41
+      firing: 65
+      throwing: 53
+      strength: 23
+      psiStrength: 59
+      psiSkill: 0
+      melee: 29
+      mana: 0
+    currentStats:
+      tu: 50
+      stamina: 62
+      health: 40
+      bravery: 10
+      reactions: 41
+      firing: 65
+      throwing: 54
+      strength: 23
+      psiStrength: 59
+      psiSkill: 0
+      melee: 29
+      mana: 0
+    rank: 0
+    gender: 0
+    look: 0
+    lookVariant: 62
+    missions: 2
+    kills: 0
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 0,minute: 19,hour: 8,weekday: 4,day: 6,month: 1,year: 1999}
+      cause: {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_PLASMA_PISTOL,weaponAmmo: STR_PLASMA_PISTOL_CLIP,status: 6,faction: 1,mission: 1,turn: 6,side: 2,bodypart: 2,id: 8}
+    diary:
+      missionIdList: [0,1]
+      unconciousTotal: 1
+      shotAtCounterTotal: 3
+      hitCounterTotal: 1
+      killedInAction: 1
+      statGainTotal: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 11
+    name: Wes Ustinov
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Jules Ustinov
+    ownerplayerid: 0
+    nationality: 20
+    initialStats:
+      tu: 53
+      stamina: 44
+      health: 26
+      bravery: 20
+      reactions: 40
+      firing: 55
+      throwing: 79
+      strength: 24
+      psiStrength: 75
+      psiSkill: 0
+      melee: 37
+      mana: 0
+    currentStats:
+      tu: 53
+      stamina: 44
+      health: 26
+      bravery: 20
+      reactions: 40
+      firing: 55
+      throwing: 79
+      strength: 24
+      psiStrength: 75
+      psiSkill: 0
+      melee: 37
+      mana: 0
+    rank: 0
+    gender: 0
+    look: 1
+    lookVariant: 38
+    missions: 1
+    kills: 0
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 0,minute: 19,hour: 8,weekday: 4,day: 6,month: 1,year: 1999}
+      cause: {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_PLASMA_RIFLE,weaponAmmo: STR_PLASMA_RIFLE_CLIP,status: 6,faction: 1,mission: 1,turn: 12,side: 3,bodypart: 1,id: 11}
+    diary:
+      missionIdList: [1]
+      shotAtCounterTotal: 1
+      hitCounterTotal: 1
+      killedInAction: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 7
+    name: Alex Holt
+    coopbase: -1
+    coop: 1
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Toni Brandt
+    ownerplayerid: 1
+    nationality: 21
+    initialStats:
+      tu: 55
+      stamina: 57
+      health: 38
+      bravery: 50
+      reactions: 36
+      firing: 43
+      throwing: 66
+      strength: 20
+      psiStrength: 40
+      psiSkill: 0
+      melee: 25
+      mana: 0
+    currentStats:
+      tu: 55
+      stamina: 57
+      health: 38
+      bravery: 50
+      reactions: 36
+      firing: 43
+      throwing: 66
+      strength: 20
+      psiStrength: 40
+      psiSkill: 0
+      melee: 25
+      mana: 0
+    rank: 0
+    gender: 0
+    look: 3
+    lookVariant: 17
+    missions: 2
+    kills: 0
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 0,minute: 19,hour: 8,weekday: 4,day: 6,month: 1,year: 1999}
+      cause: {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_PLASMA_PISTOL,weaponAmmo: STR_PLASMA_PISTOL_CLIP,status: 6,faction: 1,mission: 1,turn: 19,side: 0,bodypart: 1,id: 7}
+    diary:
+      missionIdList: [0,1]
+      shotAtCounterTotal: 2
+      hitCounterTotal: 1
+      lowAccuracyHitCounterTotal: 1
+      shotsFiredCounterTotal: 6
+      shotsLandedCounterTotal: 1
+      killedInAction: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 24
+    name: Nico Holt
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Pat Cole
+    ownerplayerid: 0
+    nationality: 0
+    initialStats:
+      tu: 52
+      stamina: 66
+      health: 39
+      bravery: 30
+      reactions: 48
+      firing: 61
+      throwing: 64
+      strength: 36
+      psiStrength: 19
+      psiSkill: 0
+      melee: 31
+      mana: 0
+    currentStats:
+      tu: 52
+      stamina: 66
+      health: 39
+      bravery: 30
+      reactions: 48
+      firing: 61
+      throwing: 64
+      strength: 36
+      psiStrength: 19
+      psiSkill: 0
+      melee: 31
+      mana: 0
+    rank: 0
+    gender: 0
+    look: 3
+    lookVariant: 19
+    missions: 1
+    kills: 1
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 50,minute: 5,hour: 14,weekday: 7,day: 16,month: 1,year: 1999}
+      cause: {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_PLASMA_PISTOL,weaponAmmo: STR_PLASMA_PISTOL_CLIP,status: 6,faction: 1,mission: 2,turn: 13,side: 3,bodypart: 1,id: 24}
+    diary:
+      killList:
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 2,turn: 609,side: 0,bodypart: 0,id: 1000002}
+      missionIdList: [2]
+      shotAtCounterTotal: 1
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 3
+      shotsLandedCounterTotal: 1
+      killedInAction: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 9
+    name: Harper Novak
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Reese Reyes
+    ownerplayerid: 0
+    nationality: 1
+    initialStats:
+      tu: 54
+      stamina: 55
+      health: 34
+      bravery: 20
+      reactions: 59
+      firing: 57
+      throwing: 80
+      strength: 30
+      psiStrength: 34
+      psiSkill: 0
+      melee: 23
+      mana: 0
+    currentStats:
+      tu: 57
+      stamina: 60
+      health: 38
+      bravery: 20
+      reactions: 61
+      firing: 60
+      throwing: 80
+      strength: 39
+      psiStrength: 34
+      psiSkill: 0
+      melee: 23
+      mana: 0
+    rank: 2
+    gender: 0
+    look: 2
+    lookVariant: 11
+    missions: 4
+    kills: 4
+    stuns: 1
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 30,minute: 54,hour: 4,weekday: 2,day: 1,month: 2,year: 1999}
+      cause: {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_PLASMA_PISTOL,weaponAmmo: STR_PLASMA_PISTOL_CLIP,status: 6,faction: 1,mission: 4,turn: 18,side: 1,bodypart: 3,id: 9}
+    diary:
+      killList:
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_RIFLE,weaponAmmo: STR_RIFLE_CLIP,status: 7,faction: 1,mission: 1,turn: 312,side: 1,bodypart: 3,id: 1000001}
+        - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_RIFLE,weaponAmmo: STR_RIFLE_CLIP,status: 6,faction: 1,mission: 1,turn: 318,side: 1,bodypart: 3,id: 1000006}
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_RIFLE,weaponAmmo: STR_RIFLE_CLIP,status: 6,faction: 1,mission: 1,turn: 321,side: 2,bodypart: 2,id: 1000005}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 3,turn: 912,side: 1,bodypart: 3,id: 1000003}
+        - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 3,turn: 922,side: 1,bodypart: 3,id: 1000005}
+      missionIdList: [1,2,3,4]
+      monthsService: 1
+      shotAtCounterTotal: 1
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 35
+      shotsLandedCounterTotal: 7
+      killedInAction: 1
+      statGainTotal: 26
+      bestOfRank: 679
+      bestSoldier: 679
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 28
+    name: Elliot Isaksen
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Indi Ustinov
+    ownerplayerid: 0
+    nationality: 8
+    initialStats:
+      tu: 59
+      stamina: 45
+      health: 38
+      bravery: 30
+      reactions: 36
+      firing: 49
+      throwing: 57
+      strength: 25
+      psiStrength: 49
+      psiSkill: 0
+      melee: 29
+      mana: 0
+    currentStats:
+      tu: 59
+      stamina: 45
+      health: 38
+      bravery: 30
+      reactions: 36
+      firing: 49
+      throwing: 57
+      strength: 25
+      psiStrength: 49
+      psiSkill: 0
+      melee: 29
+      mana: 0
+    rank: 0
+    gender: 0
+    look: 1
+    lookVariant: 20
+    missions: 0
+    kills: 0
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+      cause: {name: E 14,rank: STR_SERGEANT,race: STR_FRIENDLY,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 0,mission: 7,turn: 7,side: 0,bodypart: 1,id: 28}
+  - type: STR_SOLDIER
+    id: 32
+    name: Gray Ustinov
+    coopbase: -1
+    coop: 1
+    coopcraft: 1
+    coopcrafttype: STR_SKYRANGER
+    coopname: Quinn Kowal
+    ownerplayerid: 1
+    nationality: 27
+    initialStats:
+      tu: 51
+      stamina: 58
+      health: 36
+      bravery: 40
+      reactions: 34
+      firing: 51
+      throwing: 52
+      strength: 25
+      psiStrength: 24
+      psiSkill: 0
+      melee: 27
+      mana: 0
+    currentStats:
+      tu: 51
+      stamina: 59
+      health: 42
+      bravery: 40
+      reactions: 34
+      firing: 51
+      throwing: 53
+      strength: 33
+      psiStrength: 24
+      psiSkill: 0
+      melee: 27
+      mana: 0
+    rank: 2
+    gender: 1
+    look: 0
+    lookVariant: 1
+    missions: 4
+    kills: 3
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+      cause: {name: Simon Hoffmann,rank: STR_ROOKIE,race: STR_FRIENDLY,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 0,mission: 7,turn: 9,side: 4,bodypart: 1,id: 32}
+    diary:
+      killList:
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 0,turn: 18,side: 4,bodypart: 1,id: 1000004}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 2,turn: 603,side: 0,bodypart: 0,id: 1000004}
+        - {name: Simon Hoffmann,rank: STR_ROOKIE,race: STR_FRIENDLY,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 0,mission: 7,turn: 2107,side: 0,bodypart: 1,id: 28}
+      missionIdList: [0,1,2,7]
+      totalShotFriendlyCounter: 1
+      monthsService: 1
+      unconciousTotal: 1
+      shotAtCounterTotal: 2
+      shotsFiredCounterTotal: 17
+      shotsLandedCounterTotal: 3
+      killedInAction: 1
+      statGainTotal: 16
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 3
+    name: Vic Vance
+    coopbase: -1
+    coop: 1
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Ollie Zima
+    ownerplayerid: 1
+    nationality: 27
+    initialStats:
+      tu: 51
+      stamina: 58
+      health: 36
+      bravery: 40
+      reactions: 34
+      firing: 51
+      throwing: 52
+      strength: 25
+      psiStrength: 24
+      psiSkill: 0
+      melee: 27
+      mana: 0
+    currentStats:
+      tu: 54
+      stamina: 63
+      health: 42
+      bravery: 40
+      reactions: 34
+      firing: 51
+      throwing: 54
+      strength: 35
+      psiStrength: 24
+      psiSkill: 0
+      melee: 27
+      mana: 0
+    rank: 2
+    gender: 1
+    look: 0
+    lookVariant: 1
+    missions: 8
+    kills: 3
+    stuns: 2
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+      cause: {name: E 15,rank: STR_SERGEANT,race: STR_FRIENDLY,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 0,mission: 7,turn: 12,side: 0,bodypart: 1,id: 3}
+    diary:
+      killList:
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 0,turn: 18,side: 4,bodypart: 1,id: 1000004}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 2,turn: 603,side: 0,bodypart: 4,id: 1000004}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 2,turn: 609,side: 3,bodypart: 1,id: 1000001}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 7,faction: 1,mission: 4,turn: 1206,side: 4,bodypart: 1,id: 1000003}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_STUN_ROD,weaponAmmo: STR_STUN_ROD,status: 7,faction: 1,mission: 4,turn: 1221,side: 2,bodypart: 2,id: 1000005}
+      missionIdList: [0,1,2,3,4,5,6,7]
+      totalShotByFriendlyCounter: 1
+      monthsService: 1
+      shotAtCounterTotal: 3
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 34
+      shotsLandedCounterTotal: 2
+      killedInAction: 1
+      statGainTotal: 26
+      bestOfRank: 1833
+      bestSoldier: 1833
+  - type: STR_SOLDIER
+    id: 10
+    name: Finley Zetterlund
+    coopbase: -1
+    coop: 1
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Noel Gomez
+    ownerplayerid: 1
+    nationality: 14
+    initialStats:
+      tu: 52
+      stamina: 51
+      health: 33
+      bravery: 50
+      reactions: 54
+      firing: 53
+      throwing: 56
+      strength: 26
+      psiStrength: 51
+      psiSkill: 0
+      melee: 20
+      mana: 0
+    currentStats:
+      tu: 61
+      stamina: 56
+      health: 42
+      bravery: 50
+      reactions: 54
+      firing: 54
+      throwing: 57
+      strength: 32
+      psiStrength: 51
+      psiSkill: 0
+      melee: 20
+      mana: 0
+    rank: 1
+    gender: 0
+    look: 3
+    lookVariant: 24
+    missions: 7
+    kills: 2
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+      cause: {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: CYBERDISC_WEAPON,weaponAmmo: CYBERDISC_WEAPON,status: 6,faction: 1,mission: 7,turn: 16,side: 0,bodypart: 1,id: 10}
+    diary:
+      killList:
+        - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 4,turn: 1218,side: 0,bodypart: 1,id: 1000009}
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 4,turn: 1227,side: 3,bodypart: 1,id: 1000007}
+      missionIdList: [1,2,3,4,5,6,7]
+      monthsService: 1
+      shotAtCounterTotal: 3
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 42
+      shotsLandedCounterTotal: 3
+      killedInAction: 1
+      statGainTotal: 31
+      bestOfRank: 1734
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 33
+    name: Ollie Ueda
+    coopbase: -1
+    coop: 1
+    coopcraft: 1
+    coopcrafttype: STR_SKYRANGER
+    coopname: Wren Gomez
+    ownerplayerid: 1
+    nationality: 1
+    initialStats:
+      tu: 54
+      stamina: 55
+      health: 34
+      bravery: 20
+      reactions: 59
+      firing: 57
+      throwing: 80
+      strength: 30
+      psiStrength: 34
+      psiSkill: 0
+      melee: 23
+      mana: 0
+    currentStats:
+      tu: 54
+      stamina: 56
+      health: 36
+      bravery: 20
+      reactions: 59
+      firing: 59
+      throwing: 80
+      strength: 35
+      psiStrength: 34
+      psiSkill: 0
+      melee: 23
+      mana: 0
+    rank: 2
+    gender: 0
+    look: 2
+    lookVariant: 11
+    missions: 3
+    kills: 5
+    stuns: 1
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+      cause: {name: E 15,rank: STR_SERGEANT,race: STR_FRIENDLY,weapon: STR_CYBERDISC_CORPSE,weaponAmmo: STR_CYBERDISC_CORPSE,status: 6,faction: 0,mission: 7,turn: 18,side: 0,bodypart: 1,id: 33}
+    diary:
+      killList:
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_RIFLE,weaponAmmo: STR_RIFLE_CLIP,status: 7,faction: 1,mission: 1,turn: 312,side: 1,bodypart: 3,id: 1000001}
+        - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_RIFLE,weaponAmmo: STR_RIFLE_CLIP,status: 6,faction: 1,mission: 1,turn: 318,side: 1,bodypart: 3,id: 1000006}
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_RIFLE,weaponAmmo: STR_RIFLE_CLIP,status: 6,faction: 1,mission: 1,turn: 321,side: 2,bodypart: 2,id: 1000005}
+        - {name: E 02,rank: STR_SERGEANT,race: STR_FRIENDLY,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 0,mission: 7,turn: 2112,side: 0,bodypart: 1,id: 3}
+        - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 7,turn: 2118,side: 0,bodypart: 1,id: 1000002}
+        - {name: E 15,rank: STR_SERGEANT,race: STR_FRIENDLY,weapon: STR_CYBERDISC_CORPSE,weaponAmmo: STR_CYBERDISC_CORPSE,status: 6,faction: 0,mission: 7,turn: 2118,side: 0,bodypart: 1,id: 33}
+      missionIdList: [1,2,7]
+      totalShotFriendlyCounter: 1
+      monthsService: 1
+      shotsFiredCounterTotal: 28
+      shotsLandedCounterTotal: 10
+      killedInAction: 1
+      statGainTotal: 10
+      martyrKillsTotal: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 30
+    name: Jordan Keller
+    coopbase: -1
+    coop: 0
+    coopcraft: 1
+    coopcrafttype: STR_SKYRANGER
+    coopname: Indi Haas
+    ownerplayerid: 0
+    nationality: 25
+    initialStats:
+      tu: 56
+      stamina: 47
+      health: 29
+      bravery: 10
+      reactions: 48
+      firing: 56
+      throwing: 78
+      strength: 27
+      psiStrength: 77
+      psiSkill: 0
+      melee: 28
+      mana: 0
+    currentStats:
+      tu: 56
+      stamina: 47
+      health: 29
+      bravery: 10
+      reactions: 48
+      firing: 56
+      throwing: 78
+      strength: 27
+      psiStrength: 77
+      psiSkill: 0
+      melee: 28
+      mana: 0
+    rank: 0
+    gender: 1
+    look: 0
+    lookVariant: 62
+    missions: 1
+    kills: 0
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+      cause: {type: STR_SECTOID_LEADER,rank: STR_LIVE_LEADER,race: STR_SECTOID,weapon: STR_PLASMA_RIFLE,weaponAmmo: STR_PLASMA_RIFLE_CLIP,status: 6,faction: 1,mission: 7,turn: 43,side: 0,bodypart: 1,id: 30}
+    diary:
+      killList:
+        - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 7,turn: 2118,side: 0,bodypart: 1,id: 1000001}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 7,turn: 2127,side: 1,bodypart: 3,id: 1000004}
+        - {type: STR_SECTOID_LEADER,rank: STR_LIVE_LEADER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 7,turn: 2142,side: 4,bodypart: 1,id: 1000012}
+        - {type: STR_SECTOID_COMMANDER,rank: STR_LIVE_COMMANDER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 7,turn: 2142,side: 4,bodypart: 1,id: 1000014}
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 7,turn: 2142,side: 2,bodypart: 2,id: 1000009}
+      missionIdList: [2,7]
+      monthsService: 1
+      shotAtCounterTotal: 2
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 10
+      shotsLandedCounterTotal: 2
+      killedInAction: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 12
+    name: Lane Petrov
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Parker Holt
+    ownerplayerid: 0
+    nationality: 5
+    initialStats:
+      tu: 50
+      stamina: 53
+      health: 30
+      bravery: 60
+      reactions: 57
+      firing: 51
+      throwing: 50
+      strength: 29
+      psiStrength: 49
+      psiSkill: 0
+      melee: 37
+      mana: 0
+    currentStats:
+      tu: 59
+      stamina: 62
+      health: 34
+      bravery: 60
+      reactions: 57
+      firing: 52
+      throwing: 51
+      strength: 35
+      psiStrength: 49
+      psiSkill: 0
+      melee: 37
+      mana: 0
+    rank: 3
+    gender: 0
+    look: 0
+    lookVariant: 45
+    missions: 6
+    kills: 3
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+      cause: {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_PLASMA_PISTOL,weaponAmmo: STR_PLASMA_PISTOL_CLIP,status: 6,faction: 1,mission: 7,turn: 58,side: 1,bodypart: 3,id: 12}
+    diary:
+      killList:
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 2,turn: 615,side: 4,bodypart: 1,id: 1000005}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 6,turn: 1803,side: 1,bodypart: 3,id: 1000000}
+        - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 7,turn: 2124,side: 2,bodypart: 2,id: 1000011}
+      missionIdList: [2,3,4,5,6,7]
+      monthsService: 1
+      shotAtCounterTotal: 5
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 31
+      shotsLandedCounterTotal: 2
+      killedInAction: 1
+      woundsHealedTotal: 2
+      statGainTotal: 30
+      wholeMedikitTotal: 1
+      bestOfRank: 1593
+  - type: STR_SOLDIER
+    id: 30
+    name: Kai Stein
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Micah Keller
+    ownerplayerid: 0
+    nationality: 14
+    initialStats:
+      tu: 53
+      stamina: 55
+      health: 25
+      bravery: 60
+      reactions: 53
+      firing: 66
+      throwing: 65
+      strength: 37
+      psiStrength: 93
+      psiSkill: 0
+      melee: 34
+      mana: 0
+    currentStats:
+      tu: 53
+      stamina: 55
+      health: 25
+      bravery: 60
+      reactions: 53
+      firing: 66
+      throwing: 65
+      strength: 37
+      psiStrength: 93
+      psiSkill: 0
+      melee: 34
+      mana: 0
+    rank: 0
+    gender: 1
+    look: 0
+    lookVariant: 49
+    missions: 1
+    kills: 5
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+  - type: STR_SOLDIER
+    id: 28
+    name: Logan Lund
+    coopbase: -1
+    coop: 1
+    coopcraft: 1
+    coopcrafttype: STR_SKYRANGER
+    coopname: Rowan Marsh
+    ownerplayerid: 1
+    nationality: 0
+    initialStats:
+      tu: 52
+      stamina: 62
+      health: 39
+      bravery: 40
+      reactions: 52
+      firing: 60
+      throwing: 56
+      strength: 27
+      psiStrength: 16
+      psiSkill: 0
+      melee: 33
+      mana: 0
+    currentStats:
+      tu: 52
+      stamina: 62
+      health: 39
+      bravery: 40
+      reactions: 52
+      firing: 60
+      throwing: 56
+      strength: 27
+      psiStrength: 16
+      psiSkill: 0
+      melee: 33
+      mana: 0
+    rank: 0
+    gender: 1
+    look: 2
+    lookVariant: 60
+    missions: 5
+    kills: 1
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+    diary:
+      killList:
+        - {name: E 14,rank: STR_SERGEANT,race: STR_FRIENDLY,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 7,faction: 0,mission: 7,turn: 2107,side: 4,bodypart: 1,id: 32}
+        - {name: E 14,rank: STR_SERGEANT,race: STR_FRIENDLY,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 0,mission: 7,turn: 2109,side: 4,bodypart: 1,id: 32}
+      missionIdList: [2,4,5,6,7]
+      totalShotByFriendlyCounter: 1
+      monthsService: 1
+      shotAtCounterTotal: 1
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 6
+      killedInAction: 1
+  - type: STR_SOLDIER
+    id: 20
+    name: Hollis Weiss
+    coopbase: -1
+    coop: 1
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Noel Park
+    ownerplayerid: 1
+    nationality: 24
+    initialStats:
+      tu: 57
+      stamina: 40
+      health: 34
+      bravery: 10
+      reactions: 40
+      firing: 54
+      throwing: 67
+      strength: 29
+      psiStrength: 20
+      psiSkill: 0
+      melee: 39
+      mana: 0
+    currentStats:
+      tu: 57
+      stamina: 40
+      health: 34
+      bravery: 10
+      reactions: 40
+      firing: 54
+      throwing: 67
+      strength: 29
+      psiStrength: 20
+      psiSkill: 0
+      melee: 39
+      mana: 0
+    rank: 0
+    gender: 0
+    look: 1
+    lookVariant: 31
+    missions: 1
+    kills: 0
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 10,minute: 19,hour: 7,weekday: 3,day: 23,month: 2,year: 1999}
+      cause: {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: CYBERDISC_WEAPON,weaponAmmo: CYBERDISC_WEAPON,status: 6,faction: 1,mission: 8,turn: 24,side: 0,bodypart: 1,id: 20}
+    diary:
+      missionIdList: [8]
+      monthsService: 1
+      shotAtCounterTotal: 2
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 3
+      killedInAction: 1
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 26
+    name: Lane Silva
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Logan Xu
+    ownerplayerid: 0
+    nationality: 0
+    initialStats:
+      tu: 52
+      stamina: 62
+      health: 39
+      bravery: 40
+      reactions: 52
+      firing: 60
+      throwing: 56
+      strength: 27
+      psiStrength: 16
+      psiSkill: 0
+      melee: 33
+      mana: 0
+    currentStats:
+      tu: 58
+      stamina: 70
+      health: 45
+      bravery: 40
+      reactions: 53
+      firing: 61
+      throwing: 56
+      strength: 41
+      psiStrength: 16
+      psiSkill: 0
+      melee: 33
+      mana: 0
+    rank: 2
+    gender: 1
+    look: 2
+    lookVariant: 60
+    missions: 7
+    kills: 4
+    stuns: 1
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 10,minute: 19,hour: 7,weekday: 3,day: 23,month: 2,year: 1999}
+      cause: {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: CYBERDISC_WEAPON,weaponAmmo: CYBERDISC_WEAPON,status: 6,faction: 1,mission: 8,turn: 37,side: 2,bodypart: 2,id: 26}
+    diary:
+      killList:
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 6,turn: 1818,side: 1,bodypart: 3,id: 1000001}
+        - {type: STR_SECTOID_LEADER,rank: STR_LIVE_LEADER,race: STR_SECTOID,weapon: STR_STUN_ROD,weaponAmmo: STR_STUN_ROD,status: 7,faction: 1,mission: 7,turn: 2145,side: 0,bodypart: 1,id: 1000013}
+        - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 8,turn: 2409,side: 0,bodypart: 1,id: 1000013}
+        - {type: STR_SECTOID_LEADER,rank: STR_LIVE_LEADER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 8,turn: 2428,side: 3,bodypart: 1,id: 1000009}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 8,turn: 2436,side: 2,bodypart: 2,id: 1000005}
+      missionIdList: [2,3,4,5,6,7,8]
+      monthsService: 1
+      shotAtCounterTotal: 2
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 32
+      shotsLandedCounterTotal: 4
+      killedInAction: 1
+      statGainTotal: 36
+      bestOfRank: 1913
+      bestSoldier: 1913
+      postMortemKills: 2
+  - type: STR_SOLDIER
+    id: 16
+    name: Parker Vance
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Vic Stein
+    ownerplayerid: 0
+    nationality: 25
+    initialStats:
+      tu: 56
+      stamina: 47
+      health: 29
+      bravery: 10
+      reactions: 48
+      firing: 56
+      throwing: 78
+      strength: 27
+      psiStrength: 77
+      psiSkill: 0
+      melee: 28
+      mana: 0
+    currentStats:
+      tu: 57
+      stamina: 47
+      health: 34
+      bravery: 10
+      reactions: 48
+      firing: 57
+      throwing: 78
+      strength: 31
+      psiStrength: 77
+      psiSkill: 0
+      melee: 28
+      mana: 0
+    rank: 1
+    gender: 1
+    look: 0
+    lookVariant: 62
+    missions: 6
+    kills: 4
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 10,minute: 19,hour: 7,weekday: 3,day: 23,month: 2,year: 1999}
+      cause: {name: E 12,rank: STR_ROOKIE,race: STR_FRIENDLY,weapon: STR_CYBERDISC_CORPSE,weaponAmmo: STR_CYBERDISC_CORPSE,status: 6,faction: 0,mission: 8,turn: 39,side: 0,bodypart: 1,id: 16}
+    diary:
+      killList:
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 3,turn: 918,side: 0,bodypart: 1,id: 1000004}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 3,turn: 921,side: 1,bodypart: 3,id: 1000001}
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 4,turn: 1227,side: 0,bodypart: 1,id: 1000006}
+        - {type: STR_SECTOID_MEDIC,rank: STR_LIVE_MEDIC,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 8,turn: 2424,side: 3,bodypart: 1,id: 1000007}
+      missionIdList: [2,3,4,5,6,8]
+      monthsService: 1
+      shotsFiredCounterTotal: 59
+      shotsLandedCounterTotal: 10
+      killedInAction: 1
+      statGainTotal: 11
+      bestOfRank: 1833
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 21
+    name: Shay Falk
+    coopbase: -1
+    coop: 0
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Wren Vance
+    ownerplayerid: 0
+    nationality: 22
+    initialStats:
+      tu: 52
+      stamina: 62
+      health: 34
+      bravery: 30
+      reactions: 33
+      firing: 46
+      throwing: 61
+      strength: 39
+      psiStrength: 56
+      psiSkill: 0
+      melee: 22
+      mana: 0
+    currentStats:
+      tu: 56
+      stamina: 66
+      health: 34
+      bravery: 30
+      reactions: 33
+      firing: 46
+      throwing: 62
+      strength: 41
+      psiStrength: 56
+      psiSkill: 0
+      melee: 22
+      mana: 0
+    rank: 1
+    gender: 0
+    look: 2
+    lookVariant: 3
+    missions: 2
+    kills: 3
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 55,minute: 7,hour: 11,weekday: 2,day: 1,month: 3,year: 1999}
+      cause: {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_PLASMA_PISTOL,weaponAmmo: STR_PLASMA_PISTOL_CLIP,status: 6,faction: 1,mission: 9,turn: 13,side: 0,bodypart: 1,id: 21}
+    diary:
+      killList:
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 8,turn: 2412,side: 2,bodypart: 2,id: 1000001}
+        - {type: STR_CYBERDISC_TERRORIST,rank: STR_LIVE_TERRORIST,race: STR_CYBERDISC,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 8,turn: 2418,side: 3,bodypart: 4,id: 1000012}
+        - {type: STR_SECTOID_NAVIGATOR,rank: STR_LIVE_NAVIGATOR,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 9,turn: 2709,side: 1,bodypart: 3,id: 1000005}
+      missionIdList: [8,9]
+      monthsService: 2
+      shotAtCounterTotal: 2
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 22
+      shotsLandedCounterTotal: 2
+      killedInAction: 1
+      statGainTotal: 11
+      bestOfRank: 1913
+      bestSoldier: 1913
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 38
+    name: Jamie Torres
+    coopbase: -1
+    coop: 1
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Sam Ustinov
+    ownerplayerid: 1
+    nationality: 24
+    initialStats:
+      tu: 60
+      stamina: 62
+      health: 28
+      bravery: 50
+      reactions: 42
+      firing: 64
+      throwing: 74
+      strength: 30
+      psiStrength: 29
+      psiSkill: 0
+      melee: 40
+      mana: 0
+    currentStats:
+      tu: 60
+      stamina: 64
+      health: 30
+      bravery: 50
+      reactions: 43
+      firing: 64
+      throwing: 75
+      strength: 32
+      psiStrength: 29
+      psiSkill: 0
+      melee: 40
+      mana: 0
+    rank: 1
+    gender: 1
+    look: 1
+    lookVariant: 20
+    missions: 2
+    kills: 0
+    stuns: 0
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 10,minute: 7,hour: 7,weekday: 7,day: 6,month: 3,year: 1999}
+      cause: {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_PLASMA_PISTOL,weaponAmmo: STR_PLASMA_PISTOL_CLIP,status: 6,faction: 1,mission: 10,turn: 7,side: 0,bodypart: 1,id: 38}
+    diary:
+      missionIdList: [9,10]
+      monthsService: 1
+      shotAtCounterTotal: 1
+      hitCounterTotal: 1
+      killedInAction: 1
+      statGainTotal: 8
+      bestOfRank: 1913
+      bestSoldier: 1913
+    corpseRecovered: true
+  - type: STR_SOLDIER
+    id: 19
+    name: Wren Engel
+    coopbase: -1
+    coop: 1
+    coopcraft: -1
+    coopcrafttype: ''
+    coopname: Noel Frost
+    ownerplayerid: 1
+    nationality: 24
+    initialStats:
+      tu: 59
+      stamina: 55
+      health: 39
+      bravery: 50
+      reactions: 57
+      firing: 42
+      throwing: 51
+      strength: 34
+      psiStrength: 45
+      psiSkill: 0
+      melee: 29
+      mana: 0
+    currentStats:
+      tu: 62
+      stamina: 56
+      health: 39
+      bravery: 50
+      reactions: 57
+      firing: 43
+      throwing: 51
+      strength: 39
+      psiStrength: 45
+      psiSkill: 0
+      melee: 29
+      mana: 0
+    rank: 2
+    gender: 0
+    look: 0
+    lookVariant: 31
+    missions: 6
+    kills: 3
+    stuns: 1
+    armor: STR_NONE_UC
+    improvement: 0
+    psiStrImprovement: 0
+    death:
+      time: {second: 15,minute: 49,hour: 7,weekday: 6,day: 19,month: 3,year: 1999}
+      cause: {type: STR_SECTOID_MEDIC,rank: STR_LIVE_MEDIC,race: STR_SECTOID,weapon: STR_PLASMA_RIFLE,weaponAmmo: STR_PLASMA_RIFLE_CLIP,status: 6,faction: 1,mission: 11,turn: 28,side: 0,bodypart: 1,id: 19}
+    diary:
+      killList:
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_LASER_RIFLE,weaponAmmo: STR_LASER_RIFLE,status: 6,faction: 1,mission: 4,turn: 1203,side: 0,bodypart: 1,id: 1000001}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_GRENADE,weaponAmmo: STR_GRENADE,status: 6,faction: 1,mission: 4,turn: 1212,side: 4,bodypart: 1,id: 1000004}
+        - {type: STR_SECTOID_ENGINEER,rank: STR_LIVE_ENGINEER,race: STR_SECTOID,weapon: STR_PROXIMITY_GRENADE,weaponAmmo: STR_PROXIMITY_GRENADE,status: 6,faction: 1,mission: 4,turn: 1216,side: 4,bodypart: 1,id: 1000008}
+        - {type: STR_SECTOID_SOLDIER,rank: STR_LIVE_SOLDIER,race: STR_SECTOID,weapon: STR_STUN_ROD,weaponAmmo: STR_STUN_ROD,status: 7,faction: 1,mission: 4,turn: 1233,side: 1,bodypart: 3,id: 1000003}
+      missionIdList: [4,5,6,9,10,11]
+      monthsService: 2
+      shotAtCounterTotal: 1
+      hitCounterTotal: 1
+      shotsFiredCounterTotal: 16
+      shotsLandedCounterTotal: 1
+      killedInAction: 1
+      statGainTotal: 10
+      bestOfRank: 1913
+      bestSoldier: 1913
+    corpseRecovered: true
+missionStatistics:
+  - id: 0
+    markerName: STR_LANDING_SITE_
+    markerId: 1
+    time: {second: 50,minute: 17,hour: 23,weekday: 6,day: 1,month: 1,year: 1999}
+    region: STR_SOUTHERN_AFRICA
+    country: STR_UNKNOWN
+    type: STR_UFO_GROUND_ASSAULT
+    ufo: STR_MEDIUM_SCOUT
+    success: true
+    score: 99
+    rating: STR_RATING_OK
+    alienRace: STR_SECTOID
+    daylight: 15
+    lootValue: 1
+  - id: 1
+    markerName: STR_LANDING_SITE_
+    markerId: 2
+    time: {second: 0,minute: 19,hour: 8,weekday: 4,day: 6,month: 1,year: 1999}
+    region: STR_SOUTHERN_AFRICA
+    country: STR_SOUTH_AFRICA
+    type: STR_UFO_GROUND_ASSAULT
+    ufo: STR_LARGE_SCOUT
+    success: true
+    score: 141
+    rating: STR_RATING_OK
+    alienRace: STR_SECTOID
+    daylight: 0
+    lootValue: 1
+  - id: 2
+    markerName: STR_LANDING_SITE_
+    markerId: 3
+    time: {second: 50,minute: 5,hour: 14,weekday: 7,day: 16,month: 1,year: 1999}
+    region: STR_SOUTHERN_AFRICA
+    country: STR_SOUTH_AFRICA
+    type: STR_UFO_GROUND_ASSAULT
+    ufo: STR_MEDIUM_SCOUT
+    success: true
+    score: 146
+    rating: STR_RATING_OK
+    alienRace: STR_SECTOID
+    daylight: 0
+    lootValue: 1
+  - id: 3
+    markerName: STR_LANDING_SITE_
+    markerId: 4
+    time: {second: 20,minute: 1,hour: 4,weekday: 2,day: 25,month: 1,year: 1999}
+    region: STR_SOUTHERN_AFRICA
+    country: STR_UNKNOWN
+    type: STR_UFO_GROUND_ASSAULT
+    ufo: STR_LARGE_SCOUT
+    success: true
+    score: 173
+    rating: STR_RATING_OK
+    alienRace: STR_SECTOID
+    daylight: 0
+    lootValue: 1
+  - id: 4
+    markerName: STR_LANDING_SITE_
+    markerId: 5
+    time: {second: 30,minute: 54,hour: 4,weekday: 2,day: 1,month: 2,year: 1999}
+    region: STR_SOUTHERN_AFRICA
+    country: STR_SOUTH_AFRICA
+    type: STR_UFO_GROUND_ASSAULT
+    ufo: STR_LARGE_SCOUT
+    success: true
+    score: 219
+    rating: STR_RATING_GOOD
+    alienRace: STR_SECTOID
+    daylight: 3
+    lootValue: 1
+  - id: 5
+    markerName: STR_CRASH_SITE_
+    markerId: 1
+    time: {second: 45,minute: 45,hour: 5,weekday: 3,day: 2,month: 2,year: 1999}
+    region: STR_NORTH_AFRICA
+    country: STR_UNKNOWN
+    type: STR_UFO_CRASH_RECOVERY
+    ufo: STR_MEDIUM_SCOUT
+    success: true
+    score: 57
+    rating: STR_RATING_OK
+    alienRace: STR_SECTOID
+    daylight: 0
+    lootValue: 1
+  - id: 6
+    markerName: STR_LANDING_SITE_
+    markerId: 7
+    time: {second: 25,minute: 53,hour: 10,weekday: 1,day: 14,month: 2,year: 1999}
+    region: STR_NORTH_AFRICA
+    country: STR_UNKNOWN
+    type: STR_UFO_GROUND_ASSAULT
+    ufo: STR_LARGE_SCOUT
+    success: true
+    score: 138
+    rating: STR_RATING_OK
+    alienRace: STR_SECTOID
+    daylight: 0
+    injuryList:
+      18: 11
+    lootValue: 1
+  - id: 7
+    markerName: STR_ALIEN_BASE_
+    markerId: 1
+    time: {second: 25,minute: 33,hour: 11,weekday: 6,day: 19,month: 2,year: 1999}
+    region: STR_ARCTIC
+    country: STR_UNKNOWN
+    type: STR_ALIEN_BASE_ASSAULT
+    ufo: NO_UFO
+    success: true
+    score: 860
+    rating: STR_RATING_EXCELLENT
+    alienRace: STR_UNKNOWN
+    daylight: 15
+    injuryList:
+      23: 5
+    lootValue: 1
+  - id: 8
+    markerName: STR_CRASH_SITE_
+    markerId: 2
+    time: {second: 10,minute: 19,hour: 7,weekday: 3,day: 23,month: 2,year: 1999}
+    region: STR_NORTH_AFRICA
+    country: STR_UNKNOWN
+    type: STR_UFO_CRASH_RECOVERY
+    ufo: STR_TERROR_SHIP
+    success: true
+    score: 320
+    rating: STR_RATING_GOOD
+    alienRace: STR_SECTOID
+    daylight: 0
+    injuryList:
+      2: 25
+    lootValue: 1
+  - id: 9
+    markerName: STR_LANDING_SITE_
+    markerId: 9
+    time: {second: 55,minute: 7,hour: 11,weekday: 2,day: 1,month: 3,year: 1999}
+    region: STR_SOUTHERN_AFRICA
+    country: STR_SOUTH_AFRICA
+    type: STR_UFO_GROUND_ASSAULT
+    ufo: STR_MEDIUM_SCOUT
+    success: true
+    score: 119
+    rating: STR_RATING_OK
+    alienRace: STR_SECTOID
+    daylight: 0
+    lootValue: 1
+  - id: 10
+    markerName: STR_LANDING_SITE_
+    markerId: 10
+    time: {second: 10,minute: 7,hour: 7,weekday: 7,day: 6,month: 3,year: 1999}
+    region: STR_SOUTHERN_AFRICA
+    country: STR_UNKNOWN
+    type: STR_UFO_GROUND_ASSAULT
+    ufo: STR_LARGE_SCOUT
+    success: true
+    score: 203
+    rating: STR_RATING_GOOD
+    alienRace: STR_SECTOID
+    daylight: 0
+    lootValue: 1
+  - id: 11
+    markerName: STR_BASE_
+    markerId: 0
+    time: {second: 15,minute: 49,hour: 7,weekday: 6,day: 19,month: 3,year: 1999}
+    region: STR_SOUTHERN_AFRICA
+    country: STR_SOUTH_AFRICA
+    type: STR_UFO_CRASH_RECOVERY
+    ufo: STR_TERROR_SHIP
+    success: true
+    score: 253
+    rating: STR_RATING_GOOD
+    alienRace: STR_SECTOID
+    daylight: 0
+    injuryList:
+      47: 8
+    lootValue: 1
+  - id: 12
+    markerName: STR_CRASH_SITE_
+    markerId: 4
+    time: {second: 30,minute: 16,hour: 11,weekday: 3,day: 30,month: 3,year: 1999}
+    region: STR_NORTH_AFRICA
+    country: STR_UNKNOWN
+    type: STR_UFO_CRASH_RECOVERY
+    ufo: STR_MEDIUM_SCOUT
+    success: true
+    score: 70
+    rating: STR_RATING_OK
+    alienRace: STR_FLOATER
+    daylight: 0
+    lootValue: 1
+options:
+  displayWidth: 1920
+  displayHeight: 991
+  fullscreen: false
+  asyncBlit: true
+  keyboardMode: 1
+  maxFrameSkip: 0
+  traceAI: false
+  verboseLogging: false
+  StereoSound: true
+  geoscapeScale: 6
+  battlescapeScale: 6
+  useScaleFilter: false
+  useHQXFilter: false
+  useXBRZFilter: false
+  useOpenGL: false
+  checkOpenGLErrors: false
+  useOpenGLShader: Shaders/Raw.OpenGL.shader
+  useOpenGLSmoothing: true
+  debug: false
+  debugUi: false
+  soundVolume: 34
+  musicVolume: 33
+  uiVolume: 42
+  language: en-US
+  battleScrollSpeed: 8
+  battleEdgeScroll: 2
+  battleDragScrollButton: 2
+  dragScrollTimeTolerance: 300
+  dragScrollPixelTolerance: 10
+  battleFireSpeed: 6
+  battleXcomSpeed: 30
+  battleAlienSpeed: 30
+  battleNewPreviewPath: 7
+  fpsCounter: false
+  globeDetail: true
+  globeRadarLines: true
+  globeFlightPaths: true
+  globeAllRadarsOnBaseBuild: true
+  audioSampleRate: 22050
+  audioBitDepth: 16
+  audioChunkSize: 1024
+  pauseMode: 0
+  battleNotifyDeath: false
+  showFundsOnGeoscape: false
+  allowResize: true
+  windowedModePositionX: 0
+  windowedModePositionY: 0
+  borderless: false
+  captureMouse: false
+  battleTooltips: true
+  keepAspectRatio: true
+  nonSquarePixelRatio: false
+  cursorInBlackBandsInFullscreen: false
+  cursorInBlackBandsInWindow: true
+  cursorInBlackBandsInBorderlessWindow: false
+  saveOrder: 3
+  geoClockSpeed: 80
+  dogfightSpeed: 30
+  geoScrollSpeed: 20
+  geoDragScrollButton: 2
+  preferredMusic: 0
+  preferredSound: 0
+  preferredVideo: 0
+  wordwrap: 0
+  musicAlwaysLoop: false
+  touchEnabled: false
+  rootWindowedMode: false
+  backgroundMute: false
+  soldierDiaries: true
+  playIntro: false
+  autosave: true
+  autosaveFrequency: 1
+  newSeedOnLoad: false
+  lazyLoadResources: true
+  mousewheelSpeed: 3
+  changeValueByMouseWheel: 0
+  maximizeInfoScreens: false
+  FPS: 60
+  FPSInactive: 30
+  vSyncForOpenGL: true
+  geoDragScrollInvert: false
+  aggressiveRetaliation: false
+  customInitialBase: true
+  allowBuildingQueue: true
+  craftLaunchAlways: true
+  storageLimitsEnforced: false
+  canSellLiveAliens: true
+  anytimePsiTraining: true
+  globeSeasons: false
+  globeSurfaceCache: true
+  psiStrengthEval: true
+  canTransferCraftsWhileAirborne: false
+  retainCorpses: false
+  fieldPromotions: false
+  battleDragScrollInvert: false
+  sneakyAI: false
+  battleUFOExtenderAccuracy: false
+  showMoreStatsInInventoryView: true
+  battleHairBleach: true
+  battleInstantGrenade: true
+  includePrimeStateInSavedLayout: true
+  battleExplosionHeight: 1
+  battleAutoEnd: true
+  battleSmoothCamera: false
+  disableAutoEquip: false
+  battleConfirmFireMode: true
+  weaponSelfDestruction: false
+  allowPsionicCapture: true
+  allowPsiStrengthImprovement: true
+  strafe: false
+  forceFire: true
+  skipNextTurnScreen: false
+  noAlienPanicMessages: false
+  alienBleeding: false
+  keyOk: 13
+  keyCancel: 27
+  keyScreenshot: 293
+  keyFps: 288
+  keyQuickSave: 286
+  keyQuickLoad: 290
+  keyGeoLeft: 276
+  keyGeoRight: 275
+  keyGeoUp: 273
+  keyGeoDown: 274
+  keyGeoZoomIn: 43
+  keyGeoZoomOut: 45
+  keyGeoSpeed1: 49
+  keyGeoSpeed2: 50
+  keyGeoSpeed3: 51
+  keyGeoSpeed4: 52
+  keyGeoSpeed5: 53
+  keyGeoSpeed6: 54
+  keyGeoIntercept: 105
+  keyGeoBases: 98
+  keyGeoGraphs: 103
+  keyGeoUfopedia: 117
+  keyGeoOptions: 27
+  keyGeoFunding: 102
+  keyGeoToggleDetail: 9
+  keyGeoToggleRadar: 114
+  keyBaseSelect1: 49
+  keyBaseSelect2: 50
+  keyBaseSelect3: 51
+  keyBaseSelect4: 52
+  keyBaseSelect5: 53
+  keyBaseSelect6: 54
+  keyBaseSelect7: 55
+  keyBaseSelect8: 56
+  keyBattleLeft: 276
+  keyBattleRight: 275
+  keyBattleUp: 273
+  keyBattleDown: 274
+  keyBattleLevelUp: 280
+  keyBattleLevelDown: 281
+  keyBattleCenterUnit: 278
+  keyBattlePrevUnit: 0
+  keyBattleNextUnit: 9
+  keyBattleDeselectUnit: 92
+  keyBattleUseLeftHand: 113
+  keyBattleUseRightHand: 101
+  keyBattleInventory: 105
+  keyBattleMap: 109
+  keyBattleOptions: 27
+  keyBattleEndTurn: 8
+  keyBattleAbort: 97
+  keyBattleStats: 115
+  keyBattleKneel: 107
+  keyBattleReload: 114
+  keyBattlePersonalLighting: 108
+  keyBattleReserveNone: 282
+  keyBattleReserveSnap: 283
+  keyBattleReserveAimed: 284
+  keyBattleReserveAuto: 285
+  keyBattleReserveKneel: 106
+  keyBattleZeroTUs: 127
+  keyBattleCenterEnemy1: 49
+  keyBattleCenterEnemy2: 50
+  keyBattleCenterEnemy3: 51
+  keyBattleCenterEnemy4: 52
+  keyBattleCenterEnemy5: 53
+  keyBattleCenterEnemy6: 54
+  keyBattleCenterEnemy7: 55
+  keyBattleCenterEnemy8: 56
+  keyBattleCenterEnemy9: 57
+  keyBattleCenterEnemy10: 48
+  keyBattleVoxelView: 291
+  keyInvCreateTemplate: 99
+  keyInvApplyTemplate: 118
+  keyInvClear: 120
+  keyInvAutoEquip: 122
+  oxceModValidationLevel: 2
+  oxceRawScreenShots: false
+  oxceFirstPersonViewFisheyeProjection: false
+  oxceThumbButtons: true
+  oxceThrottleMouseMoveEvent: 0
+  oxceDisableThinkingProgressBar: false
+  oxceEmbeddedOnly: false
+  oxceListVFSContents: false
+  oxceEnablePaletteFlickerFix: false
+  oxceRecommendedOptionsWereSet: false
+  password: secret
+  oxceStartUpTextMode: 0
+  oxceGeoscapeDebugLogMaxEntries: 1000
+  oxceGeoSlowdownFactor: 1
+  oxceGeoShowScoreInsteadOfFunds: false
+  oxceGeoEnableTrainingIndicator: false
+  oxceGeoSuppressRedundantHKAlert: true
+  oxceGeoSuppressLandingWithoutEquipment: false
+  oxceGeoGoToNearestBase: false
+  oxceGeoSortCraftByDistanceToTarget: false
+  oxceBaseInfoDefenseScaleMultiplier: 100
+  oxceBaseSoldierTransformationShowOnlyEligible: false
+  oxceBaseFilterResearchable: false
+  oxceBaseManufactureFallbackButton: false
+  oxceBaseManufactureInfinityButton: false
+  oxceBaseTouchButtons: false
+  oxceDisableAlienInventory: false
+  oxceDisableHitLog: false
+  oxceDisableInventoryTuCost: false
+  oxceDisableProductionDependencyTree: false
+  oxceDisableStatsForNerds: false
+  oxceDisableTechTreeViewer: false
+  oxceTogglePersonalLightType: 1
+  oxceToggleNightVisionType: 1
+  oxceToggleBrightnessType: 0
+  oxceShowBurningAsWounded: false
+  oxceDisableInfoOnThrowCursor: false
+  oxceSwapDontReselectActions: false
+  oxceEnableUnitResponseSounds: true
+  oxceHiddenMovementBackgroundChangeFrequency: 1
+  oxceInventoryShowUnitSlot: false
+  oxceReplaceNotesLink: false
+  oxceInventorySplitScrollButton: false
+  oxceInventoryDropItemOverPaperdoll: false
+  oxceMaxEquipmentLayoutTemplates: 20
+  oxceUpdateCheck: false
+  autosaveSlots: 1
+  oxceGeoAutosaveFrequency: 3
+  oxceGeoAutosaveSlots: 5
+  oxceLinks: false
+  oxceLinksDisableTextEdit: false
+  oxceFatFingerLinks: false
+  oxceBattleTouchButtonsEnabled: false
+  oxceQuickSearchButton: false
+  oxceHighlightNewTopics: true
+  oxcePediaShowClipSize: false
+  oxceInterceptTableSize: 8
+  oxceEnableSlackingIndicator: true
+  oxceInterceptGuiMaintenanceTime: 2
+  oxceShowETAMode: 0
+  oxceUfoLandingAlert: false
+  oxceRememberDisabledCraftWeapons: false
+  oxceGeoscapeEventsInstantDelivery: true
+  oxceShowBaseNameInPopups: false
+  oxceAlternateCraftEquipmentManagement: false
+  oxceBaseInfoScaleEnabled: false
+  oxceResearchScrollSpeed: 1
+  oxceResearchScrollSpeedWithCtrl: 10
+  oxceManufactureFilterSuppliesOK: false
+  oxceManufactureScrollSpeed: 1
+  oxceManufactureScrollSpeedWithCtrl: 10
+  oxcePersonalLayoutIncludingArmor: true
+  oxceManualPromotions: false
+  oxceWoundedDefendBaseIf: 100
+  oxcePlayBriefingMusicDuringEquipment: false
+  oxceNightVisionColor: 5
+  oxceAutoNightVisionThreshold: 15
+  oxceShowAccuracyOnCrosshair: 2
+  oxceReactionFireThreshold: 0
+  oxceAutoSell: false
+  oxceAutomaticPromotions: true
+  oxceEnableOffCentreShooting: true
+  oxceUniformShootingSpread: true
+  oxceCrashedOrLanded: 0
+  keyToggleQuickSearch: 113
+  keyInstaSave: 287
+  keyGeoUfoTracker: 116
+  keyGeoTechTreeViewer: 113
+  keyGeoGlobalProduction: 112
+  keyGeoGlobalResearch: 99
+  keyGeoGlobalAlienContainment: 106
+  keyGeoDailyPilotExperience: 101
+  keyGraphsZoomIn: 270
+  keyGraphsZoomOut: 269
+  keyBasescapeBuildNewBase: 110
+  keyBasescapeBaseInformation: 105
+  keyBasescapeSoldiers: 115
+  keyBasescapeEquipCraft: 101
+  keyBasescapeBuildFacilities: 102
+  keyBasescapeResearch: 114
+  keyBasescapeManufacture: 109
+  keyBasescapeTransfer: 116
+  keyBasescapePurchase: 112
+  keyBasescapeSell: 108
+  keyRemoveSoldiersFromTraining: 120
+  keyAddSoldiersToTraining: 122
+  keyCraftLoadoutSave: 286
+  keyCraftLoadoutLoad: 290
+  keyRemoveSoldiersFromAllCrafts: 120
+  keyRemoveSoldiersFromCraft: 122
+  keyRemoveEquipmentFromCraft: 120
+  keyRemoveArmorFromAllCrafts: 120
+  keyRemoveArmorFromCraft: 122
+  keyInventorySave: 286
+  keyInventoryLoad: 290
+  keyInvSavePersonalEquipment: 115
+  keyInvLoadPersonalEquipment: 108
+  keyInvShowPersonalEquipment: 112
+  keyInventoryArmor: 97
+  keyInventoryAvatar: 109
+  keyInventoryDiaryLight: 100
+  keySellAll: 120
+  keySellAllButOne: 122
+  keyTransferAll: 120
+  keyMarkAllAsSeen: 120
+  keyBattleUnitUp: 0
+  keyBattleUnitDown: 0
+  keyBattleShowLayers: 0
+  keyBattleUseSpecial: 119
+  keyBattleActionItem1: 49
+  keyBattleActionItem2: 50
+  keyBattleActionItem3: 51
+  keyBattleActionItem4: 52
+  keyBattleActionItem5: 53
+  keyNightVisionToggle: 302
+  keyNightVisionHold: 32
+  keySelectMusicTrack: 279
+  EnableTimeSync: true
+  EnableHostOnlyTimeSpeed: true
+  EnableResearchSync: true
+  UnbalancedCraftSoldiersLimit: false
+  EnableReactionFirePvp: true
+  EnableOtherPlayerFootsteps: true
+  EnableXcomEquipmentAliensPVP: true
+  debugMode: true
+  logInfoToFile: false
+  logPacketMessages: false
+  EnableHotseatDebugMode: false
+  keyChat: 257
+  giveUnit: 258
