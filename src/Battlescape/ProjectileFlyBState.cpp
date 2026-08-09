@@ -884,6 +884,10 @@ void ProjectileFlyBState::deinit()
 
 		Json::Value obj;
 		obj["state"] = "hasHitUnit";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(obj);
 
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
@@ -925,6 +929,10 @@ void ProjectileFlyBState::think()
 
 				Json::Value obj;
 				obj["state"] = "hasHitUnit";
+				// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+				// holds this outcome for its own chain's opener instead of contaminating
+				// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+				connectionTCP::coopStampChainSeq(obj);
 
 				_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 

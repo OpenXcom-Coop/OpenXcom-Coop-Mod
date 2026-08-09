@@ -3471,6 +3471,10 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 
 			Json::Value root;
 			root["state"] = "hit_tile";
+			// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+			// holds this outcome for its own chain's opener instead of contaminating
+			// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+			connectionTCP::coopStampChainSeq(root);
 
 			// coop (PRD-P3 GAP-4a): identity of the attack, for the peer's parked copy.
 			root["attack_id"] = connectionTCP::coopAttackKey(attack);
@@ -3900,6 +3904,10 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 
 		Json::Value root;
 		root["state"] = "calc_explode_fov";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(root);
 
 		root["maxRadius"] = maxRadius;
 		root["coop_is_second_fov"] = coop_is_second_fov;

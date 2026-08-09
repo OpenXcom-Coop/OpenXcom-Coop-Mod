@@ -557,6 +557,11 @@ std::atomic<uint32_t> g_rxSkipBlocked{0};
 // liveness floor fired (see updateCoopTask()). Expected to stay 0 for the life of
 // a session; anything else means ordering was traded away to keep a queue moving.
 std::atomic<uint32_t> g_rxLegacyPasses{0};
+// coop (PRD-I1): whitelisted outcome packets held back because they carry the
+// seq of a chain that has not opened on this (client) machine yet - the chain
+// isolation that keeps a client's post-N sync-check state pure. Like the two
+// counters above it feeds the liveness floor and is process-monotonic.
+std::atomic<uint32_t> g_rxSeqDeferred{0};
 
 // coop (PRD-P11): bumped by clearNetworkSessionQueues() so a pass holding packets
 // when the session is torn down drops them instead of splicing them back into a
@@ -716,6 +721,22 @@ static const char* coopChainOpener(const std::string& closer)
 	if (closer == "abortPath") return "BattleScapeMove";
 	if (closer == "after_unit_death") return "unit_death";
 	return 0;
+}
+
+// coop (PRD-I1): the whitelisted always-consume packets that carry a per-chain
+// `action_seq` (stamped at their send sites by connectionTCP::coopStampChainSeq).
+// These are the ones that can leak a FUTURE chain's mutation into the client's
+// post-N sync-check state, so the pump defers one whose chain has not opened
+// locally yet. Kept in lockstep with the always-consume list in updateCoopTask()
+// and with coopStampChainSeq's callers; a packet named here that carries no seq
+// simply never trips the gate (seq 0 = legacy always-consume: old peer, classic
+// co-op, boundary explosion).
+static bool coopIsChainOutcomePacket(const std::string& state)
+{
+	return state == "hit_tile" || state == "destroy_tile"
+		|| state == "set_fire_tile" || state == "set_smoke_tile"
+		|| state == "unit_fire" || state == "calc_explode_fov"
+		|| state == "hasHitUnit";
 }
 
 size_t rxHoldSize()
@@ -2848,7 +2869,35 @@ void connectionTCP::updateCoopTask()
 					}
 				}
 
-				if (gateAllows && !subjectHeld && !closerOvertakesOpener)
+				// coop (PRD-I1): a whitelisted outcome packet carries the seq of the
+				// chain it belongs to (connectionTCP::coopStampChainSeq). If that chain
+				// has not opened locally yet - its seq is beyond the chain the client is
+				// currently displaying (_clientDisplaySeq + 1) - applying it now would
+				// jump ahead of its own opener and contaminate the client's post-N
+				// sync-check state, so it is held IN PLACE (P11-style, no rotation) until
+				// the client catches up. Same side only: a packet from a side that has
+				// already closed here takes the legacy always-consume path, mirroring
+				// I0's stale action_end marker rule, so a boundary arbiter reset cannot
+				// strand it. An absent/zero action_seq is legacy (classic co-op, boundary
+				// explosions, old peer): always-consume, bidirectionally. Disabled while
+				// the liveness floor is engaged, exactly like per-subject ordering.
+				bool seqDeferred = false;
+				if (!getHost() && !legacyOrder && coopIsChainOutcomePacket(stateString))
+				{
+					const std::uint32_t pktSeq =
+						static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+					if (pktSeq != 0)
+					{
+						const std::uint32_t pktSide = static_cast<std::uint32_t>(
+							obj.get("side_seq", _sideSeq).asUInt());
+						if (pktSide == _sideSeq && pktSeq > _clientDisplaySeq + 1)
+						{
+							seqDeferred = true;
+						}
+					}
+				}
+
+				if (gateAllows && !subjectHeld && !closerOvertakesOpener && !seqDeferred)
 				{
 					// See rxPassDeferred(): anything already deferred in this pass
 					// precedes this packet on the wire and has NOT been applied yet.
@@ -2872,12 +2921,25 @@ void connectionTCP::updateCoopTask()
 					// that names the same unit waits with it (a chain closer is
 					// never blocked, but it still SEEDS the block - a packet that
 					// arrived after it must not be applied before it).
-					if (subject >= 0 && !legacyOrder && !subjectHeld)
+					// coop (PRD-I1): a seq-deferred packet must NOT seed a per-subject
+					// block - it is held on its own chain seq, and blocking its subject
+					// would wrongly hold a same-unit packet of the CURRENT chain (only
+					// unit_fire among the outcome packets carries a subject at all).
+					if (subject >= 0 && !legacyOrder && !subjectHeld && !seqDeferred)
 					{
 						blockedSubjects.push_back(subject);
 						blockedBy.push_back(stateString);
 					}
-					if (gateAllows)
+					if (seqDeferred)
+					{
+						// coop (PRD-I1): a chain-isolation hold. Counted on its own, and -
+						// like a subject hold - it feeds the liveness floor so a wedged seq
+						// gate can never outlast the 600-tick legacy-pass floor (which
+						// disables this gate too, see legacyOrder above).
+						blockedSomething = true;
+						++g_rxSeqDeferred;
+					}
+					else if (gateAllows)
 					{
 						// The gate said yes and ordering said no: the one case the old
 						// pump got wrong.
@@ -12362,6 +12424,29 @@ std::uint32_t connectionTCP::stampAdmittedAction(const std::string& kind)
 	_openChainTicks = SDL_GetTicks();
 	_openChainWarned = false;
 	return _actionSeq;
+}
+
+/**
+ * coop (PRD-I1): tag a whitelisted outcome packet with the chain and side it
+ * belongs to, so the client can hold it until that chain opens locally instead
+ * of letting it jump ahead of its own opener (which contaminates the client's
+ * post-N sync-check state - the exact false-mismatch class PRD-I1 removes).
+ *
+ * Stamps ONLY inside an admitted or AI chain on the parallel host: `_openChainSeq`
+ * is non-zero there and nowhere else (set by stampAdmittedAction, which only the
+ * parallel executor reaches, and cleared at the chain drain and every arbiter
+ * reset). So classic co-op, boundary explosions (chain closed, _openChainSeq == 0)
+ * and every non-parallel send carry no seq and keep the legacy always-consume
+ * behaviour on both machines - the field is additive and an older peer ignores it.
+ */
+void connectionTCP::coopStampChainSeq(Json::Value& root)
+{
+	if (_openChainSeq == 0)
+	{
+		return;
+	}
+	root["action_seq"] = static_cast<Json::UInt>(_openChainSeq);
+	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
 }
 
 // coop (PRD-P6): `fullReset` = a new battle or a session teardown (everything,

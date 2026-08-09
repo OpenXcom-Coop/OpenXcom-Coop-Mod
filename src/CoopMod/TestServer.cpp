@@ -3874,6 +3874,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				part["mapDataSetID"] = dsid;
 				resp["parts"][partNames[p]] = part;
 			}
+			// coop (PRD-I1 test): per-tile hazard read, so the seq-gate red/green
+			// can assert whether an injected set_fire_tile applied to THIS tile.
+			resp["fire"] = t->getFire();
+			resp["smoke"] = t->getSmoke();
 			resp["ok"] = true;
 		}
 	}
@@ -4367,6 +4371,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// is the only way to assert ORDER rather than end state.
 		resp["rxSkippedBlocked"] = static_cast<Json::UInt>(g_rxSkipBlocked.load());
 		resp["rxLegacyPasses"] = static_cast<Json::UInt>(g_rxLegacyPasses.load());
+		// PRD-I1: whitelisted outcome packets held for their own chain's opener
+		// (chain isolation). Expected > 0 on a lagging client, 0 on the executor.
+		resp["rxSeqDeferred"] = static_cast<Json::UInt>(g_rxSeqDeferred.load());
 		if (req.get("trace", false).asBool())
 		{
 			resp["rxTrace"] = rxAppliedTrace(
@@ -5403,6 +5410,8 @@ std::string TestServer::execute(const std::string& line)
 				// PRD-P11: see the parallel_state readout for what these mean.
 				resp["rxSkippedBlocked"] = static_cast<Json::UInt>(g_rxSkipBlocked.load());
 				resp["rxLegacyPasses"] = static_cast<Json::UInt>(g_rxLegacyPasses.load());
+				// PRD-I1: see the parallel_state readout.
+				resp["rxSeqDeferred"] = static_cast<Json::UInt>(g_rxSeqDeferred.load());
 				// Parallel-turns mode (PRD-P5), carried on battle_state (as well as
 				// parallel_state) so the harness' session.can_drive() decides from a
 				// single query.

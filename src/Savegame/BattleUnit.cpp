@@ -3115,6 +3115,10 @@ void BattleUnit::setFire(int fire)
 
 		Json::Value root;
 		root["state"] = "unit_fire";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(root);
 
 		root["unit_id"] = _id;
 		root["fire"] = _fire;

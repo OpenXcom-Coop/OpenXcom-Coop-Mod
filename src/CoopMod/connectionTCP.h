@@ -167,6 +167,7 @@ extern std::atomic<uint32_t> g_rxHoldMaxSeen;   // hold-queue high-water mark
 // out of the order they were sent.
 extern std::atomic<uint32_t> g_rxSkipBlocked;   // held back: an earlier packet names the same unit
 extern std::atomic<uint32_t> g_rxLegacyPasses;  // liveness-floor engagements (expected 0)
+extern std::atomic<uint32_t> g_rxSeqDeferred;   // PRD-I1: outcome packet held for its own chain's opener
 // The last `limit` packets the pump applied, oldest first: [{seq,state,unit}].
 // Test-only introspection; `unit` is -1 for a packet that names no single unit.
 Json::Value rxAppliedTrace(size_t limit);
@@ -898,6 +899,11 @@ class connectionTCP
 	/// (PRD-I0) labels the chain for the sync-check ring; it is a diagnostic
 	/// label only and nothing branches on it.
 	static std::uint32_t stampAdmittedAction(const std::string& kind = std::string());
+	/// coop (PRD-I1): tag a whitelisted outcome packet (@a root) with the chain
+	/// and side it belongs to, so the client defers it until that chain opens
+	/// locally instead of letting it overtake its own opener. No-op outside an
+	/// admitted/AI chain on the parallel host (_openChainSeq == 0).
+	static void coopStampChainSeq(Json::Value& root);
 	/// Battle start / side boundary / teardown: counters and slots back to a
 	/// known state. `fullReset` also zeroes the side and request sequences.
 	static void resetActionArbiter(bool fullReset);

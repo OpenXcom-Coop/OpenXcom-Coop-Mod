@@ -292,6 +292,133 @@ def wait_admit(host, timeout=180):
     return False
 
 
+FIRE_VAL = 7   # distinctive non-zero fire the injected set_fire_tile carries
+
+
+def tile_at(gc, index):
+    """tile_info by index -> the response dict (carries x/y/z and, PRD-I1, fire)."""
+    return gc.cmd({"cmd": "tile_info", "index": index})
+
+
+def read_fire(gc, x, y, z):
+    r = gc.cmd({"cmd": "tile_info", "x": x, "y": y, "z": z})
+    return r.get("fire", -1)
+
+
+def find_cold_tiles(gc, n):
+    """`n` distinct valid tiles that are currently fire==0, near the middle of the
+    map. Position (not index) is what set_fire_tile carries, so each is returned as
+    (x, y, z)."""
+    tc = gc.ok({"cmd": "battle_tiles"})["tileCount"]
+    out, idx, tried = [], tc // 2, 0
+    while len(out) < n and tried < 600:
+        r = tile_at(gc, idx)
+        idx = 1 if idx + 1 >= tc else idx + 1
+        tried += 1
+        if r.get("error") or r.get("fire", 0) != 0:
+            continue
+        out.append((r["x"], r["y"], r["z"]))
+    return out
+
+
+def inject_fire(gc, xyz, seq=None, side=None):
+    pkt = {"state": "set_fire_tile", "tile_pos_x": xyz[0], "tile_pos_y": xyz[1],
+           "tile_pos_z": xyz[2], "fire": FIRE_VAL, "animation_offset": 0}
+    if seq is not None:
+        pkt["action_seq"] = seq
+    if side is not None:
+        pkt["side_seq"] = side
+    return gc.ok({"cmd": "rx_inject", "packets": [pkt]})
+
+
+def scenario_future_chain_deferred(host, client):
+    """PRD-I1 red/green through the rx_inject lever.
+
+    The bug I1 closes: a whitelisted outcome packet (`set_fire_tile`, ...) is
+    always-consume, so one belonging to a FUTURE chain applies on the client while
+    it is still displaying an earlier chain - contaminating the client's post-N
+    sync-check state. The fix stamps each such packet with its chain's `action_seq`
+    and defers it, in place, until that chain opens locally (`_clientDisplaySeq+1`).
+
+    Three injections onto three cold client tiles, at a quiescent moment so the
+    client's display watermark is stable:
+
+      1. FUTURE seq  (displaySeq + 5) -> HELD. The tile stays cold, the gate
+         registers the hold (`rxSeqDeferred` climbs) and does so WITHOUT the
+         liveness floor (`rxLegacyPasses` unchanged) - genuine chain isolation,
+         not the escape hatch. This is the packet the old pump applied early.
+      2. CURRENT seq (displaySeq + 1) -> APPLIED. Same packet shape, the chain the
+         client is displaying: an outcome MAY resolve its own chain mid-display.
+      3. NO seq -> APPLIED. Legacy always-consume, the old-peer / classic path,
+         unchanged and bidirectional.
+    """
+    print("-- PRD-I1: a future-chain outcome packet is held for its own opener --")
+    assert PI.idle(host), f"the executor is still busy: {parallel(host)}"
+    PI.settle(host, client, seconds=2)
+
+    pc = parallel(client)
+    assert "displaySeq" in pc and "sideSeq" in pc, \
+        f"parallel_state lacks displaySeq/sideSeq, so this test is vacuous: {sorted(pc)}"
+    side = pc["sideSeq"]
+    seq0 = pc.get("rxSeqDeferred", 0)
+    legacy0 = pc.get("rxLegacyPasses", 0)
+
+    tiles = find_cold_tiles(client, 3)
+    assert len(tiles) == 3, \
+        f"could not find 3 cold tiles on the client to inject onto: {tiles}"
+    fut_t, cur_t, leg_t = tiles
+
+    # (1) FUTURE seq -> deferred. Confirm PROMPTLY (break as soon as the gate
+    # registers the hold): a permanently-stuck packet trips the ~600-tick liveness
+    # floor after ~1 s of idle ticks, and this test must read the held state well
+    # before that or it would race the escape hatch it is asserting did NOT fire.
+    d = parallel(client)["displaySeq"]
+    future_seq = d + 5           # >= displaySeq + 2: a chain not opened locally
+    inject_fire(client, fut_t, seq=future_seq, side=side)
+    pc2 = parallel(client)
+    deadline = time.time() + 3.0
+    while time.time() < deadline:
+        pc2 = parallel(client)
+        if read_fire(client, *fut_t) != 0:
+            break  # it applied - the red-case assert below reports it
+        if pc2.get("rxSeqDeferred", 0) > seq0:
+            break  # the gate has engaged and the tile is still cold: confirmed held
+        time.sleep(0.03)
+    f_future = read_fire(client, *fut_t)
+    assert f_future == 0, (
+        f"a future-seq set_fire_tile (seq {future_seq} > displaySeq {d} + 1) was "
+        f"APPLIED to tile {fut_t} (fire={f_future}) instead of held for its chain's "
+        f"opener - the seq gate did not engage (this is the I1 red case)")
+    assert pc2.get("rxSeqDeferred", 0) > seq0, (
+        f"the future-seq packet did not register as a seq-deferral (rxSeqDeferred "
+        f"{seq0} -> {pc2.get('rxSeqDeferred')}) - it may have been dropped, not held")
+    assert pc2.get("rxLegacyPasses", 0) == legacy0, (
+        f"the liveness floor fired during isolation ({legacy0} -> "
+        f"{pc2.get('rxLegacyPasses')}) - the packet was held via the escape hatch, "
+        f"not clean chain isolation")
+    print(f"    future seq {future_seq}: tile {fut_t} stayed cold; rxSeqDeferred "
+          f"{seq0} -> {pc2.get('rxSeqDeferred')}, rxLegacyPasses still {legacy0}")
+
+    # (2) CURRENT seq -> applied (may resolve its own chain mid-display).
+    d = parallel(client)["displaySeq"]
+    current_seq = d + 1
+    inject_fire(client, cur_t, seq=current_seq, side=side)
+    assert PI.wait_until(lambda: read_fire(client, *cur_t) == FIRE_VAL, 15, 0.1), (
+        f"a current-chain set_fire_tile (seq {current_seq} == displaySeq {d} + 1) "
+        f"was NOT applied to tile {cur_t} (fire={read_fire(client, *cur_t)}) - the "
+        f"gate wrongly held a packet of the chain the client is displaying")
+    print(f"    current seq {current_seq}: tile {cur_t} caught fire (applied)")
+
+    # (3) NO seq -> legacy always-consume.
+    inject_fire(client, leg_t)   # no action_seq
+    assert PI.wait_until(lambda: read_fire(client, *leg_t) == FIRE_VAL, 15, 0.1), (
+        f"a set_fire_tile with NO action_seq was NOT applied to tile {leg_t} "
+        f"(fire={read_fire(client, *leg_t)}) - legacy always-consume regressed")
+    print(f"    no seq        : tile {leg_t} caught fire (legacy applied)")
+    print("PASS: PRD-I1 seq gate holds a future chain's outcome packet and passes "
+          "the current chain's / an unseq'd legacy one")
+
+
 def main():
     fail = None
     host_dir = make_user_dir("p11_order_host",
@@ -438,6 +565,11 @@ def main():
             print("    NOTE: per-subject blocking never engaged on the peer this "
                   "run - the ordering held, but this particular run did not "
                   "exercise the new hold")
+
+        # PRD-I1: the chain-isolation seq gate (extends this file's remit from
+        # "a unit's stream stays in order" to "a future chain's outcome packet
+        # does not overtake its own opener").
+        scenario_future_chain_deferred(host, client)
         print("ALL RECEIVE-ORDER TESTS PASSED")
     except Exception as e:
         fail = e

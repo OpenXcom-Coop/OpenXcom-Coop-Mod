@@ -552,6 +552,10 @@ bool Tile::destroy(TilePart part, SpecialTileType type)
 
 		Json::Value root;
 		root["state"] = "destroy_tile";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(root);
 
 		root["tile_pos_x"] = _pos.x;
 		root["tile_pos_y"] = _pos.y;
@@ -850,6 +854,10 @@ void Tile::setFire(int fire)
 
 		Json::Value root;
 		root["state"] = "set_fire_tile";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(root);
 
 		root["tile_pos_x"] = _pos.x;
 		root["tile_pos_y"] = _pos.y;
@@ -922,6 +930,10 @@ void Tile::setSmoke(int smoke)
 
 		Json::Value root;
 		root["state"] = "set_smoke_tile";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(root);
 
 		root["tile_pos_x"] = _pos.x;
 		root["tile_pos_y"] = _pos.y;
