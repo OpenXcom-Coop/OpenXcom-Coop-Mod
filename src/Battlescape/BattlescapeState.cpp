@@ -5852,9 +5852,24 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 
 	bool isPreview = _save->isPreview();
 
-	while (!_game->isState(this))
+	// Only unwind the state stack down to this BattlescapeState if it is
+	// actually on the stack. In some SHARED coop mission-start paths the
+	// BattlescapeState is created and wired as the save's battle state
+	// (LoadGameState) but is never pushed - the players sit on the
+	// Briefing/lobby. An all-aliens-already-dead crash site then auto-ends the
+	// battle straight into finishBattle; "pop until this is on top" would pop
+	// the entire stack and then keep popping an empty list, underflowing
+	// Game::_states and corrupting the heap (0xC0000374). When this state is not
+	// on the stack the unwind is a no-op: the popState()/DebriefingState logic
+	// below then cleanly dismisses the Briefing and shows the debrief.
+	bool thisOnStack = false;
+	for (auto* s : _game->getStates()) { if (s == this) { thisOnStack = true; break; } }
+	if (thisOnStack)
 	{
-		_game->popState();
+		while (!_game->isState(this))
+		{
+			_game->popState();
+		}
 	}
 	_game->getCursor()->setVisible(true);
 	if (_save->getAmbientSound() != Mod::NO_SOUND)

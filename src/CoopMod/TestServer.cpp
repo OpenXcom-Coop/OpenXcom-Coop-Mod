@@ -27,6 +27,7 @@
 
 #include <json/json.h>
 #include <SDL_net.h>
+#include <SDL.h>
 
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
@@ -51,6 +52,7 @@
 #include "../Battlescape/NextTurnState.h"
 #include "../Battlescape/AbortMissionState.h"
 #include "../Battlescape/DebriefingState.h"
+#include "../Battlescape/AliensCrashState.h"
 #include "../Battlescape/Pathfinding.h"
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/UnitTurnBState.h"
@@ -156,6 +158,8 @@
 #include "VoteMenu.h"
 #include "../Interface/DisableableComboBox.h"
 #include "../Interface/Text.h"
+#include "../Interface/TextButton.h"
+#include "../Engine/InteractiveSurface.h"
 
 namespace OpenXcom
 {
@@ -4931,6 +4935,39 @@ std::string TestServer::execute(const std::string& line)
 				resp["killed"] = killed;
 				resp["ok"] = true;
 			}
+			else if (act == "kill_unit_real")
+			{
+				// FAITHFUL lethal path (unlike kill_unit's instaKill): apply
+				// overkill damage then run casualty processing so UnitDieBState
+				// actually fires - dropping the dead unit's inventory to the
+				// tile, spawning a corpse item, sending coop death packets and
+				// checking autoEndBattle. These real-combat side effects are the
+				// suspected source of the auto-end teardown heap corruption.
+				// Apply on the AUTHORITATIVE machine only (host); the peer learns
+				// of the deaths through the coop sync, same as real play.
+				// Matches by "unit" id, "coop_side", or "faction".
+				int coopSide = req.get("coop_side", -1).asInt();
+				int killId = req.get("unit", -1).asInt();
+				int killFaction = req.get("faction", -1).asInt();
+				const RuleDamageType* dt = _game->getMod()->getDamageType(DT_AP);
+				Json::Value killed(Json::arrayValue);
+				for (auto* u : *sbg->getUnits())
+				{
+					if (u->isOut() || u->getFaction() == FACTION_NEUTRAL) continue;
+					bool match = (coopSide >= 0 && u->getCoop() == coopSide)
+						|| (killId >= 0 && u->getId() == killId)
+						|| (killFaction >= 0 && (int)u->getFaction() == killFaction);
+					if (match)
+					{
+						u->damage(Position(0, 0, 0), u->getHealth() + 1000, dt, sbg, BattleActionAttack{});
+						killed.append(u->getId());
+					}
+				}
+				// spawn the death states (UnitDieBState) + trigger autoEnd
+				bg->checkForCasualties(dt, BattleActionAttack{}, false, false);
+				resp["killed"] = killed;
+				resp["ok"] = true;
+			}
 			else
 			{
 				// actions needing a unit
@@ -5117,6 +5154,192 @@ std::string TestServer::execute(const std::string& line)
 					resp["error"] = "unknown battle action";
 			}
 		}
+		else if (cmd == "inject_input")
+		{
+			// FAITHFUL input replay: push a real SDL event into the queue so it
+			// flows through Game::run's event loop (pre-dispatch work + per-event
+			// state re-init at Game.cpp:426) exactly like a player's key/click -
+			// NOT a direct handler call. Runs on the main thread (pump()), so
+			// SDL_PushEvent is safe. kind=key (default, sym via "key", default
+			// keyOk) or kind=click (at x/y).
+			std::string kind = req.get("kind", "key").asString();
+			SDL_Event ev;
+			memset(&ev, 0, sizeof(ev));
+			if (kind == "key")
+			{
+				int sym = req.get("key", (int)Options::keyOk).asInt();
+				ev.type = SDL_KEYDOWN;
+				ev.key.state = SDL_PRESSED;
+				ev.key.keysym.sym = (SDLKey)sym;
+				ev.key.keysym.unicode = (sym < 128) ? (Uint16)sym : 0;
+				SDL_PushEvent(&ev);
+				memset(&ev, 0, sizeof(ev));
+				ev.type = SDL_KEYUP;
+				ev.key.state = SDL_RELEASED;
+				ev.key.keysym.sym = (SDLKey)sym;
+				SDL_PushEvent(&ev);
+				resp["ok"] = true;
+			}
+			else if (kind == "click")
+			{
+				int x = req.get("x", 160).asInt();
+				int y = req.get("y", 100).asInt();
+				ev.type = SDL_MOUSEBUTTONDOWN;
+				ev.button.button = SDL_BUTTON_LEFT;
+				ev.button.state = SDL_PRESSED;
+				ev.button.x = (Uint16)x; ev.button.y = (Uint16)y;
+				SDL_PushEvent(&ev);
+				memset(&ev, 0, sizeof(ev));
+				ev.type = SDL_MOUSEBUTTONUP;
+				ev.button.button = SDL_BUTTON_LEFT;
+				ev.button.state = SDL_RELEASED;
+				ev.button.x = (Uint16)x; ev.button.y = (Uint16)y;
+				SDL_PushEvent(&ev);
+				resp["ok"] = true;
+			}
+			else
+			{
+				resp["error"] = "inject_input: unknown kind";
+			}
+		}
+		else if (cmd == "list_widgets")
+		{
+			// Introspection: dump the top state's child surfaces (type, rect,
+			// visibility, and TextButton caption) so a semantic test can map a
+			// role/caption to a widget instead of hardcoding pixel coords.
+			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			Json::Value arr(Json::arrayValue);
+			if (top)
+			{
+				int idx = 0;
+				for (auto* s : top->getSurfaces())
+				{
+					if (!s) { idx++; continue; }
+					Json::Value e;
+					e["idx"] = idx++;
+					e["type"] = typeid(*s).name();
+					e["interactive"] = (dynamic_cast<InteractiveSurface*>(s) != nullptr);
+					e["visible"] = s->getVisible();
+					e["x"] = s->getX(); e["y"] = s->getY();
+					e["w"] = s->getWidth(); e["h"] = s->getHeight();
+					if (auto* tb = dynamic_cast<TextButton*>(s)) e["text"] = tb->getText();
+					arr.append(e);
+				}
+			}
+			resp["ok"] = true;
+			resp["state"] = top ? typeid(*top).name() : "none";
+			resp["widgets"] = arr;
+		}
+		else if (cmd == "click_widget")
+		{
+			// SEMANTIC input: locate a widget in the top state and push a REAL SDL
+			// click at its rect centre - through Game::run's event loop, exactly
+			// like inject_input, but resolution/layout independent (no hardcoded
+			// pixel coords). Selection: match = case-insensitive substring of a
+			// TextButton caption; nth disambiguates multiple matches (default 0).
+			// With no match, nth selects among the state's visible
+			// InteractiveSurfaces in add()-order.
+			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			if (!top)
+			{
+				resp["error"] = "click_widget: no state";
+			}
+			else
+			{
+				std::string match = req.get("match", "").asString();
+				std::string lc = match; for (auto& c : lc) c = (char)tolower((unsigned char)c);
+				int nth = req.get("nth", 0).asInt();
+				Surface* chosen = nullptr;
+				std::string chosenText;
+				int seen = 0;
+				for (auto* s : top->getSurfaces())
+				{
+					if (!s || !s->getVisible()) continue;
+					if (!dynamic_cast<InteractiveSurface*>(s)) continue;
+					if (!match.empty())
+					{
+						auto* tb = dynamic_cast<TextButton*>(s);
+						if (!tb) continue;
+						std::string t = tb->getText();
+						std::string tlc = t; for (auto& c : tlc) c = (char)tolower((unsigned char)c);
+						if (tlc.find(lc) == std::string::npos) continue;
+					}
+					if (seen++ < nth) continue;
+					chosen = s;
+					if (auto* tb = dynamic_cast<TextButton*>(s)) chosenText = tb->getText();
+					break;
+				}
+				if (!chosen)
+				{
+					resp["error"] = "click_widget: no match";
+					resp["match"] = match;
+				}
+				else
+				{
+					double bx = chosen->getX() + chosen->getWidth() / 2.0;
+					double by = chosen->getY() + chosen->getHeight() / 2.0;
+					Screen* scr = _game->getScreen();
+					int wx = (int)(bx * scr->getXScale() + scr->getCursorLeftBlackBand());
+					int wy = (int)(by * scr->getYScale() + scr->getCursorTopBlackBand());
+					SDL_Event ev; memset(&ev, 0, sizeof(ev));
+					ev.type = SDL_MOUSEBUTTONDOWN; ev.button.button = SDL_BUTTON_LEFT;
+					ev.button.state = SDL_PRESSED; ev.button.x = (Uint16)wx; ev.button.y = (Uint16)wy;
+					SDL_PushEvent(&ev);
+					memset(&ev, 0, sizeof(ev));
+					ev.type = SDL_MOUSEBUTTONUP; ev.button.button = SDL_BUTTON_LEFT;
+					ev.button.state = SDL_RELEASED; ev.button.x = (Uint16)wx; ev.button.y = (Uint16)wy;
+					SDL_PushEvent(&ev);
+					resp["ok"] = true;
+					resp["text"] = chosenText;
+					resp["baseX"] = (int)bx; resp["baseY"] = (int)by;
+					resp["winX"] = wx; resp["winY"] = wy;
+				}
+			}
+		}
+		else if (cmd == "close_nextturn")
+		{
+			// Invoke the REAL end-of-turn close (NextTurnState::close), which the
+			// auto-end path routes into BattlescapeState::finishBattle. NOTE:
+			// dismiss_popup merely _game->popState()s a NextTurnState WITHOUT
+			// running close(), so the auto-end teardown never fires that way -
+			// which is why the auto-end crash never reproduced through it.
+			if (auto* nts = topState<NextTurnState>(_game))
+			{
+				nts->close();
+				resp["ok"] = true;
+				resp["handled"] = "NextTurnState::close";
+			}
+			else
+			{
+				resp["error"] = "no NextTurnState on top";
+			}
+		}
+		else if (cmd == "battle_autoend")
+		{
+			// Deterministically drive the all-aliens-dead crash site into finishBattle.
+			// In a SHARED mission-start the BattlescapeState is wired as the save's
+			// battle state (setBattleState) but never pushed - the players sit on the
+			// Briefing - so its state machine never ticks and the empty-battle auto-end
+			// that would push the first-turn overlay only lands as a race. Replicate
+			// exactly what BattlescapeGame::endTurn does (BattlescapeGame.cpp:1494):
+			// push NextTurnState(_save, bs). close_nextturn then routes into
+			// finishBattle (the crash site). No-op if no battle is wired.
+			SavedBattleGame* sbg = _game->getSavedGame()
+				? _game->getSavedGame()->getSavedBattle() : nullptr;
+			BattlescapeState* bstate = sbg ? sbg->getBattleState() : nullptr;
+			if (!sbg || !bstate)
+			{
+				resp["error"] = "no wired battlescape state";
+			}
+			else
+			{
+				BattlescapeTally before = bstate->getBattleGame()->tallyUnits();
+				_game->pushState(new NextTurnState(sbg, bstate));
+				resp["ok"] = true;
+				resp["liveAliens"] = before.liveAliens;
+				resp["pushed"] = "NextTurnState";
+			}
+		}
 		else if (cmd == "dismiss_popup")
 		{
 			// Confirm/close the top geoscape popup (event intro, etc.). Handled
@@ -5180,6 +5403,16 @@ std::string TestServer::execute(const std::string& line)
 			{
 				ab->btnOkClick(nullptr);
 				resp["handled"] = "AbortMissionState";
+				resp["ok"] = true;
+			}
+			else if (auto* ac = dynamic_cast<AliensCrashState*>(top))
+			{
+				// "All aliens killed in the crash" instant-win popup (0 live
+				// aliens at generation, e.g. a crashed scout whose power source
+				// wiped the crew). OK -> popState + new DebriefingState. This is
+				// the no-combat auto-end path: load -> begin mission -> click OK.
+				ac->btnOkClick(nullptr);
+				resp["handled"] = "AliensCrashState";
 				resp["ok"] = true;
 			}
 			else if (auto* db = dynamic_cast<DebriefingState*>(top))

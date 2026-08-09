@@ -78,6 +78,8 @@ protected:
 	void add(Surface *surface);
 	/// Adds a child element to the state.
 	void add(Surface *surface, const std::string &id, const std::string &category, Surface *parent = 0);
+	/// Gets the state's child surfaces (test/introspection support).
+	const std::vector<Surface*>& getSurfaces() const { return _surfaces; }
 	/// Gets whether the state is a full-screen.
 	bool isScreen() const;
 	/// Toggles whether the state is a full-screen.
