@@ -6498,11 +6498,14 @@ std::string TestServer::execute(const std::string& line)
 				connectionTCP::password = req.get("password", "").asString();
 				connectionTCP::isPasswordRequired = !connectionTCP::password.empty();
 				// Preserve the gamemode from a loaded save (resume lobbies
-				// need the original PvP/PvE mode).  Only default to PVE
-				// when starting a fresh campaign.
-				if (campaign && _game->getSavedGame() && _game->getSavedGame()->isCoopSave())
+				// need the original PvP/PvE mode).  Only keep it on a genuine
+				// resume (lobbyMode 2); a fresh coop campaign (lobbyMode 1)
+				// carries no coop_gamemode key and must default to PVE.
+				// isCoopSave() is also true for a fresh campaign, so it cannot
+				// be the discriminator (mirrors LobbyMenu::setPlayerTeam).
+				if (campaign && connectionTCP::session.lobbyMode == 2)
 				{
-					// keep the gamemode from the loaded save
+					// keep the gamemode from the loaded save (genuine resume)
 				}
 				else
 				{
