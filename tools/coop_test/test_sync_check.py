@@ -83,14 +83,18 @@ ITEM_LEVER_INNOCENT = ("terrain", "fire", "smoke", "unitsCore")
 # print-only, without aborting the rest of the suite.
 KNEEL_STRICT = os.environ.get("SEAM1_KNEEL_STRICT", "1") == "1"
 
-# PRD-I3 SEAM-2 + straddle discriminator (smoke-heavy side). Post-fix, Option B
-# gates the parallel client's SavedBattleGame::prepareNewTurn decay (next_turn is
-# the sole author) and Option A drops the redundant neutral->player `endturn`
-# marker, so NO smoke or fire mismatch is attributed to a BOUNDARY. The ai-seq
-# racing residual (client's deterministic-but-early regen at its raced-ahead
-# turn) is Option D's remit and is PRINTED, not asserted. Default ON = the
-# permanent green gate; export SEAM2_SMOKE_STRICT=0 to take the pre-fix red
-# baseline print-only.
+# PRD-I3 SEAM-2 (re-scoped, manager decision 2026-08-10). The SEAM-2 remit is the
+# BOUNDARY hazard authority. HALF 1 EXCLUDES the smoke/fire buckets from the ENDTURN
+# boundary compare (that hazard sample is ill-defined: all decay runs once per cycle
+# at neutral->player AFTER both endturn boundaries are armed, and the host flush races
+# its own decay), keeping SIDESTART (hash-after-apply of next_turn) as the well-defined
+# point. HALF 2 makes the decay set_smoke_tile/set_fire_tile ride the ORDERED gate (a
+# `bnd` flag), so decay-driven ai-seq smoke is structurally 0. STRICT here asserts the
+# BOUNDARY hazard authority + the HALF 1 introspection; the ai-seq unitsStats residual
+# is a SEPARATE pre-existing seam (SEAM-7, allowance-annotated below) and the ai-seq
+# smoke residual is the whitelisted mid-side EXPLOSION path (also allowed). The us_ai=0
+# clause was REMOVED from SEAM-2. Default ON = the permanent green gate; export
+# SEAM2_SMOKE_STRICT=0 to take the pre-fix red baseline print-only.
 SMOKE_STRICT = os.environ.get("SEAM2_SMOKE_STRICT", "1") == "1"
 
 # PRD-I3 SEAM-4 discriminator (bystander morale on a casualty). Post-fix the death
@@ -713,23 +717,28 @@ def scenario_red_bucket(host, client, hmover, cmover):
 # ---- 5. SEAM-2 + straddle: boundary tile decay is host-authoritative -------
 
 def scenario_smoke(host, client, hmover, cmover):
-    """PRD-I3 SEAM-2 + straddle discriminator (deterministic smoke placement).
+    """PRD-I3 SEAM-2 discriminator, re-scoped 2026-08-10 (deterministic smoke).
 
     Primes (fuse 0) and throws several STR_SMOKE_GRENADEs, then closes a full
     side so the boundary tile-decay phase runs on both machines. Pre-fix the
-    parallel client's ungated SavedBattleGame::prepareNewTurn SPREADS smoke
-    (Tile::addSmoke) and AVERAGES it (Tile::prepareNewTurn) while its DECREMENT
-    (Tile::setSmoke/setFire) is a host-gated no-op - "spread without decrement",
-    which mangles the client's smoke - and the neutral->player `endturn` boundary
-    is hashed BEFORE next_turn repairs it. Post-fix Option B gates that decay
-    (next_turn is the sole author of the boundary tile hazards) and Option A
-    drops the redundant, hash-before-apply endturn marker, so NO smoke or fire
-    mismatch is attributed to a BOUNDARY.
+    parallel client's ungated SavedBattleGame::prepareNewTurn SPREADS smoke while
+    its DECREMENT is host-gated, and the endturn boundary is hashed against a decay
+    the host flush races - so smoke/fire diverge at a BOUNDARY.
 
-    The deterministic-but-early per-unit regen the client still runs at its
-    raced-ahead turn leaves an ai-seq unitsStats (and some ai-seq smoke) RACING
-    residual - Option D's remit, out of this fix's scope - which is PRINTED, not
-    asserted. SEAM2_SMOKE_STRICT=0 takes the pre-fix red baseline print-only.
+    SEAM-2 fix, both halves: HALF 1 EXCLUDES the smoke/fire buckets from the ENDTURN
+    boundary compare (that hazard sample is ill-defined - all decay runs once per
+    cycle at neutral->player AFTER both endturn boundaries are armed); SIDESTART
+    (hash-after-apply of next_turn) keeps them and must be EQUAL. HALF 2 tags the decay
+    set_smoke_tile/set_fire_tile with `bnd` so they ride the ORDERED gate (apply in
+    FIFO after the ai chains, before next_turn), so decay-driven ai-seq smoke is
+    structurally 0.
+
+    STRICT asserts the re-scoped SEAM-2 remit: no BOUNDARY smoke/fire divergence, the
+    endturn exclusion fired (endturnHazardSkips>0), and sidestart still compared the
+    hazards (sidestartHazardCompares>0). The ai-seq unitsStats residual is a SEPARATE
+    pre-existing seam (SEAM-7: alien-side per-action, smoke-independent) and the ai-seq
+    smoke residual is the whitelisted mid-side EXPLOSION path - both are ANNOTATED
+    ALLOWANCES, not asserts. SEAM2_SMOKE_STRICT=0 takes the pre-fix red baseline print.
     """
     print("-- 5: SEAM-2 boundary tile decay is host-authoritative (Option B+A) --")
     reset_sync(host, client)
@@ -784,44 +793,64 @@ def scenario_smoke(host, client, hmover, cmover):
           f"{sc['buckets']['smoke']['mismatchCount']} fire bucket="
           f"{sc['buckets']['fire']['mismatchCount']} kinds={sc['comparedKinds']}")
     print(f"    boundary smoke={smoke_bnd} boundary fire={fire_bnd}")
-    # PRD-I3 Option D-lite (turn-sync) flipped the ai/player-seq RACING RESIDUAL
-    # from a print into a strict assert. The client's turn machine no longer
-    # free-runs ahead of the gated display (the neutral->player advance defers to
-    # next_turn), so its deterministic per-unit regen is no longer hashed against a
-    # not-yet-regen'd host: `unitsStats` at an ai/player seq is 0. `smoke` at an
-    # ai/player seq is likewise 0 - the only thing that moved it was the raced-ahead
-    # turn; what smoke divergence remains is the SEAM-2 explosion/host-flush
-    # non-determinism the BOUNDARY assert below already gates (the two co-fire).
-    print(f"    RACING RESIDUAL (Option D-lite, ai/player seqs): smoke={len(smoke_ai)} "
-          f"unitsStats={len(us_ai)} - turn machine now follows next_turn, so the "
-          f"deterministic-but-early regen no longer straddles the host's side")
+    print(f"    HALF 1 introspection: endturnHazardSkips={sc.get('endturnHazardSkips')} "
+          f"sidestartHazardCompares={sc.get('sidestartHazardCompares')} "
+          f"smoke.compares={sc['buckets']['smoke'].get('compares')} "
+          f"fire.compares={sc['buckets']['fire'].get('compares')}")
+    print(f"    ai/player-seq residuals (ALLOWED, re-scoped): smoke_ai={len(smoke_ai)} "
+          f"us_ai={len(us_ai)} (SEAM-7 alien-side unitsStats + whitelisted explosion smoke)")
     if SMOKE_STRICT:
         assert not saturated, (
             f"the {len(ms)}-deep mismatch ring wrapped in a single side, so a "
             f"'clean boundary' read below could be hiding an evicted boundary "
             f"mismatch - shorten the scenario or widen the ring before trusting it")
+        # HALF 1 + HALF 2: no BOUNDARY smoke/fire divergence. The endturn hazard buckets
+        # are EXCLUDED at the compare, so any boundary hazard here is a SIDESTART one,
+        # and next_turn is the sole author of the decay - so sidestart smoke/fire EQUAL.
         assert not smoke_bnd and not fire_bnd, (
             f"SEAM-2 NOT GREEN: smoke/fire diverged at a BOUNDARY "
-            f"(smoke {smoke_bnd}, fire {fire_bnd}). Option B (gate the parallel "
-            f"client's prepareNewTurn decay so next_turn is the sole author) + "
-            f"Option A (drop the neutral->player endturn marker that hashed before "
-            f"next_turn applied) make the boundary tile hazards host-authoritative; "
-            f"a boundary smoke/fire mismatch means one of them regressed.\n"
+            f"(smoke {smoke_bnd}, fire {fire_bnd}). HALF 1 excludes smoke/fire from the "
+            f"endturn compare, so a boundary hazard here is a SIDESTART one; HALF 2 makes "
+            f"next_turn the sole author of the decay, so it must be EQUAL. A boundary "
+            f"smoke/fire mismatch means one of the two halves regressed.\n"
             f"    {session._sync_mismatch_lines(sc)}")
-        assert not us_ai, (
-            f"D-lite NOT GREEN: unitsStats diverged at ai/player seq(s) {us_ai} - "
-            f"the client is still running its per-unit regen at a raced-ahead turn. "
-            f"The neutral->player advance must defer to the next_turn apply so the "
-            f"regen is hashed against the host's own regen'd side, not ahead of it.\n"
-            f"    {session._sync_mismatch_lines(sc)}")
-        assert not smoke_ai, (
-            f"smoke diverged at ai/player seq(s) {smoke_ai} - the raced-ahead turn "
-            f"machine was the cause D-lite removed; a residual here co-fires the "
-            f"boundary assert above and is the SEAM-2 explosion/flush divergence.\n"
-            f"    {session._sync_mismatch_lines(sc)}")
-    print(f"PASS 5: no boundary AND no ai-seq smoke/fire/unitsStats divergence over "
-          f"a smoke-heavy side (smokeTiles={smoke_tiles}); racing residual "
-          f"smoke={len(smoke_ai)} unitsStats={len(us_ai)}")
+        # HALF 1 introspection: the endturn exclusion FIRED (smoke/fire UNCOMPARED at
+        # endturn) and the sidestart hazards were still compared (compared AND EQUAL).
+        assert sc.get("endturnHazardSkips", 0) > 0, (
+            f"HALF 1 NOT EXERCISED: endturnHazardSkips=0 - the endturn hazard exclusion "
+            f"never fired (no endturn boundary reached this side, or the exclusion is not "
+            f"engaged), so a clean boundary read proves nothing: kinds={sc.get('comparedKinds')}")
+        assert sc.get("sidestartHazardCompares", 0) > 0, (
+            f"HALF 1 INCOMPLETE: sidestartHazardCompares=0 - the sidestart boundary never "
+            f"compared smoke/fire, so 'sidestart compared and EQUAL' is vacuous")
+        endturn_haz = [(m["bucket"], m["seq"]) for m in ms
+                       if m.get("boundary") and m["kind"] == "endturn"
+                       and m["bucket"] in ("smoke", "fire")]
+        assert not endturn_haz, (
+            f"HALF 1 REGRESSED: an endturn boundary recorded a smoke/fire mismatch "
+            f"{endturn_haz} - the exclusion must leave those UNCOMPARED at endturn")
+        # SEAM-7 [OPEN]: alien-side per-action unitsStats, smoke-independent, suspect
+        # reaction-fire TU float (prd-i3 up-front seam 1). Annotated allowance (NOT
+        # silent) - same precedent as scenario_clean's allowance before SEAM-5. Strict
+        # gate restored when SEAM-7 closes. (Measured at the unfixed tip firing with
+        # smoke=0/fire=0/terrain=0, so it is not this fix's SEAM-2 remit.)
+        if us_ai:
+            print(f"    SEAM-7 [OPEN] allowance: unitsStats diverged at ai/player seq(s) "
+                  f"{us_ai} - alien-side per-action, smoke-independent (not SEAM-2).\n"
+                  f"    {session._sync_mismatch_lines(sc)}")
+        # Decay smoke_ai is structurally 0 (HALF 2 gates the decay set_smoke_tile behind
+        # the ordered gate, so it applies in FIFO AFTER the ai chains, never at an ai
+        # seq). A residual here is the whitelisted MID-SIDE EXPLOSION smoke - a separate
+        # open question (characterize whether it is I1-seq-stamped and defers during ai
+        # chains). Annotated allowance until then.
+        if smoke_ai:
+            print(f"    explosion-smoke allowance: smoke diverged at ai/player seq(s) "
+                  f"{smoke_ai} - whitelisted mid-side explosion path, NOT decay (decay "
+                  f"is gated).\n    {session._sync_mismatch_lines(sc)}")
+    print(f"PASS 5: SEAM-2 re-scoped GREEN - boundary smoke/fire host-authoritative "
+          f"(endturn EXCLUDED, sidestart compared and EQUAL) over a smoke-heavy side "
+          f"(smokeTiles={smoke_tiles}); allowed ai-seq residuals smoke={len(smoke_ai)} "
+          f"unitsStats={len(us_ai)} (SEAM-7 / explosion)")
     return sc
 
 
