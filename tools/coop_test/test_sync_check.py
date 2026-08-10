@@ -76,6 +76,13 @@ WIRE_STATUS_DEAD = 6
 # expected-noisy, so neither belongs in an exclusivity assertion.
 ITEM_LEVER_INNOCENT = ("terrain", "fire", "smoke", "unitsCore")
 
+# PRD-I3 SEAM-1 discriminator (kneel-burst). Post-fix the kneel replay packet
+# ships the actor's cost, so a run of kneel/stand toggles must leave ZERO
+# kneel-KIND unitsStats mismatches. Default ON (this is the permanent green
+# gate); export SEAM1_KNEEL_STRICT=0 to take the pre-fix red baseline
+# print-only, without aborting the rest of the suite.
+KNEEL_STRICT = os.environ.get("SEAM1_KNEEL_STRICT", "1") == "1"
+
 
 # ---- readouts --------------------------------------------------------------
 
@@ -97,6 +104,34 @@ def counts(sc):
 
 def delta(before, after):
     return {n: after[n] - before[n] for n in after if after[n] > before.get(n, 0)}
+
+
+def kneel_stats_mismatches(sc):
+    """Just the unitsStats mismatches attributed to a KNEEL action seq.
+
+    The I0 detector names every mismatch (seq, kind, bucket); SEAM-1 is the
+    kneel replay packet re-deciding the actor's charge on the peer, so its
+    signature is precisely bucket==unitsStats AND kind=="kneel"."""
+    return [m for m in sc.get("mismatches", [])
+            if m["bucket"] == "unitsStats" and m["kind"] == "kneel"]
+
+
+def unit_stat_diff(host, client):
+    """Per-unit numeric-field disagreements between the two machines.
+
+    Diagnostic only: names WHICH unit and WHICH stat drifted, so a residual
+    kneel-kind unitsStats mismatch can be read as the kneeler's own cost
+    (SEAM-1) versus a bystander (a different seam sampled at the kneel seq)."""
+    hu = {u["id"]: u for u in battle(host)["units"]}
+    cu = {u["id"]: u for u in battle(client)["units"]}
+    diffs = []
+    for uid in sorted(set(hu) & set(cu)):
+        h, c = hu[uid], cu[uid]
+        d = {k: (h.get(k), c.get(k)) for k in ("tu", "energy", "health", "stun",
+             "wounds") if k in h and k in c and h.get(k) != c.get(k)}
+        if d:
+            diffs.append((uid, d))
+    return diffs
 
 
 def poll(fn, timeout, interval=0.2):
@@ -256,6 +291,11 @@ def scenario_clean(host, client, hmover, cmover):
                                    strict=True, allow=("unitsStats",))
     print(f"    {n} player chains driven; compares={sc['compares']} "
           f"kinds={sc['comparedKinds']} sweep={sc['sweepUs']}us")
+    # SEAM-1 diagnostic: name the KIND of every unitsStats mismatch, so the
+    # per-action unitsStats drift can be attributed (kneel vs walk/turn).
+    us_ms = [(m["seq"], m["kind"]) for m in sc.get("mismatches", [])
+             if m["bucket"] == "unitsStats"]
+    print(f"    unitsStats mismatch (seq,kind) over player actions: {us_ms}")
     # PRD-I2: saveBlob is BOUNDARY-only. No side has closed since reset_sync, so it
     # must have zero comparisons/mismatches here; a non-zero count would mean it
     # fired on a per-action report, which it must never do.
@@ -316,6 +356,146 @@ def scenario_clean(host, client, hmover, cmover):
               f"{ {k: v for k, v in mism.items() if v} } - see the run report; "
               f"these are the PRD-I3 burn-in candidates, not test failures")
     return sc
+
+
+# ---- SEAM-1. kneel-burst: the kneel replay packet must ship its cost --------
+
+def _saveblob_text_diff(host, client, max_lines=16):
+    import difflib
+    ht = host.cmd({"cmd": "save_blob", "text": True}).get("text", "").splitlines()
+    ct = client.cmd({"cmd": "save_blob", "text": True}).get("text", "").splitlines()
+    out = [l for l in difflib.unified_diff(ht, ct, lineterm="", n=1)
+           if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+    return out[:max_lines]
+
+
+def _burst_toggles(host, client, hmover, cmover, rounds=6):
+    """Plain move->turn->kneel on BOTH a host unit (MODE 1, classic replay) and a
+    client-intent unit (MODE 2, host-executed intent broadcast). With MATCHING
+    (default) reserves the kneel charge is a deterministic constant (kneel cost
+    4 down / 8 up), so both peers reach the same answer and this phase is clean
+    by construction - it exercises the happy path of both receive modes.
+
+    settle_display after each kneel is the I0 comparison discipline: driving the
+    next action before the CLIENT has quiesced lets the detector sample its
+    action_done hash mid-drain, a transient "red that means nothing" (session.py
+    settle_display), which is exactly what makes an un-settled burst intermittent.
+    Settled, the happy path is reliably zero."""
+    toggles = 0
+    for _ in range(rounds):
+        for driver, uid in ((host, hmover), (client, cmover)):
+            if uid is None:
+                continue
+            PI.top_up(host, client, uid)
+            dest = PI.step_dest(host, client, uid)
+            if dest:
+                act(host, client, driver, action="move", unit=uid,
+                    x=dest[0], y=dest[1], z=dest[2])
+            here = PI.pos(battle(host), uid)
+            if here:
+                act(host, client, driver, action="turn", unit=uid,
+                    x=here[0] + 2, y=here[1] + 2, z=here[2])
+            toggles += act(host, client, driver, action="kneel", unit=uid)
+            settle_display(host, client)
+    return toggles
+
+
+def _reserve_mismatch_kneel(host, client, uid):
+    """Deterministically drive SEAM-1: a host kneel whose peer copy re-decides
+    against a DIFFERENT reserve and refuses it.
+
+    In parallel mode battle_reserve does NOT replicate (BattlescapeState::
+    coopSendReserveState early-returns while parallelTurnActive), so a client-only
+    "aimed" reserve is a real per-machine reserve mismatch. With the actor's TU
+    set just inside the refuse window [aimedCost, aimedCost + kneelCost), the
+    host (no reserve) kneels and charges, while the client (aimed reserve) fails
+    checkReservedTU and does NEITHER - so tu AND the kneeling bit diverge at the
+    kneel seq. This is the exact seam clean play only hits intermittently."""
+    if uid is None:
+        return {"set_up": False, "why": "no host driver"}
+    q = host.cmd({"cmd": "battle_intent", "unit": uid, "action": "shoot",
+                  "mode": "aimed", "dry": True})
+    aimed = q.get("tuCost", 0) or 0
+    if aimed <= 8:
+        return {"set_up": False, "why": f"no usable aimed reserve (tuCost={aimed})"}
+    target_tu = aimed + 2  # inside [aimed, aimed+kneelCost) for kneelCost in {4,8}
+    for gc in (host, client):
+        gc.cmd({"cmd": "battle_intent", "unit": uid, "action": "turn",
+                "tu": target_tu, "dry": True})
+    client.cmd({"cmd": "battle_reserve", "mode": "aimed"})
+    host.cmd({"cmd": "battle_reserve", "mode": "none"})
+    hr = host.cmd({"cmd": "battle_reserve"}).get("reserve")
+    cr = client.cmd({"cmd": "battle_reserve"}).get("reserve")
+    before = len(kneel_stats_mismatches(sync(host)))
+    n = act(host, client, host, action="kneel", unit=uid)   # MODE 1: host kneels
+    settle_display(host, client)
+    sc = sync(host)
+    after = kneel_stats_mismatches(sc)
+    diffs = unit_stat_diff(host, client)
+    client.cmd({"cmd": "battle_reserve", "mode": "none"})    # restore
+    PI.top_up(host, client, uid)
+    return {"set_up": n > 0, "aimed": aimed, "target_tu": target_tu,
+            "host_reserve": hr, "client_reserve": cr,
+            "reproduced": len(after) > before, "kneel_ms": len(after),
+            "seq": (after[-1]["seq"] if len(after) > before else None),
+            "diffs": diffs}
+
+
+def scenario_kneel_burst(host, client, hmover, cmover):
+    """PRD-I3 SEAM-1: the kneel replay packet must ship the actor's cost.
+
+    Both receive modes emit the SAME `kneel {id}` packet (BattlescapeGame::
+    coopSendKneelPacket) into the SAME peer handler; the seam is that the packet
+    carried no tu/energy, so the peer re-ran BattlescapeGame::kneel() and
+    re-decided. Two phases: (A) a default-reserve happy-path burst that is clean
+    by construction, and (B) a DETERMINISTIC reserve mismatch that forces the
+    peer to re-decide differently - the reliable red/green discriminator."""
+    print("-- SEAM-1: the kneel replay packet must ship the actor's cost --")
+
+    # Phase A: happy path, both modes, matching reserves.
+    reset_sync(host, client)
+    tog = _burst_toggles(host, client, hmover, cmover, rounds=6)
+    settle_display(host, client)
+    scA = sync(host)
+    kkA = scA["comparedKinds"].get("kneel", 0)
+    ksA = kneel_stats_mismatches(scA)
+    print(f"    [A: default reserves] {tog} kneels, comparedKinds kneel={kkA}, "
+          f"kneel-kind unitsStats mismatches={len(ksA)}")
+    if len(ksA) > 0:
+        print(f"    [A-diag] kneel-kind mismatch seqs={sorted({m['seq'] for m in ksA})}; "
+              f"all unitsStats mismatches={[(m['seq'], m['kind']) for m in scA.get('mismatches', []) if m['bucket']=='unitsStats']}")
+        print(f"    [A-diag] end-of-phase per-unit stat diff={unit_stat_diff(host, client)}")
+        print(f"    [A-diag] end-of-phase saveblob text diff={_saveblob_text_diff(host, client)}")
+    assert kkA > 0, (
+        f"phase A drove {tog} kneels but the detector compared no kneel kinds "
+        f"({scA['comparedKinds']}) - the discriminator is not exercising kneels")
+
+    # Phase B: deterministic reserve mismatch (the reliable discriminator).
+    reset_sync(host, client)
+    r = _reserve_mismatch_kneel(host, client, hmover)
+    print(f"    [B: reserve mismatch] {r}")
+
+    if KNEEL_STRICT:
+        assert len(ksA) == 0, (
+            f"SEAM-1: {len(ksA)} kneel-kind unitsStats mismatch(es) on the "
+            f"default-reserve happy path (seqs "
+            f"{sorted({m['seq'] for m in ksA})})")
+        if r.get("set_up") and r.get("reproduced") is not None:
+            assert r.get("kneel_ms", 0) == 0, (
+                f"SEAM-1 NOT CLOSED: the reserve-mismatch host kneel still left "
+                f"{r['kneel_ms']} kneel-kind unitsStats mismatch(es) at seq "
+                f"{r['seq']} (diffs {r['diffs']}). The peer is not mirroring the "
+                f"executor's kneel cost/state.")
+            print("PASS SEAM-1: reserve-mismatch host kneel left zero kneel-kind "
+                  "unitsStats drift (peer mirrored the executor)")
+        else:
+            print(f"    NOTE: reserve-mismatch phase could not set up "
+                  f"({r.get('why')}); phase A clean is the only assertion")
+    else:
+        print(f"    [SEAM1_KNEEL_STRICT=0] baseline print-only: phase-A "
+              f"kneel-kind={len(ksA)}, phase-B reproduced={r.get('reproduced')} "
+              f"kneel_ms={r.get('kneel_ms')}")
+    return scA
 
 
 # ---- 2 + 3. AI-side and boundary attribution -------------------------------
@@ -548,6 +728,29 @@ def scenario_saveblob_selftest(host, client):
     cc = client.cmd({"cmd": "save_blob"})["hash"]
     print(f"    cross-machine saveBlob at battle start: host={hh} client={cc} "
           f"({'equal' if hh == cc else 'differ - recorded, report-only'})")
+
+    # PRD-I3 FOW Option B rider: the per-unit FOV/spotting keys must be excluded
+    # from the saveBlob hash INPUT (saveBlobExcludedAnyKey), so they cannot appear
+    # in the canonical text the hash consumes. turnsSinceSpotted is written
+    # unconditionally by BattleUnit::save, so its ABSENCE from the dump is the
+    # direct proof the exclusion is live; visible / turnsLeftSpottedForSnipers
+    # asserted too.
+    dump = host.cmd({"cmd": "save_blob", "text": True})
+    txt = dump.get("text", "") if dump.get("textOk") else None
+    if txt is not None:
+        leaked = [k for k in ("visible", "turnsSinceSpotted",
+                              "turnsLeftSpottedForSnipers")
+                  if k in txt]
+        assert not leaked, (
+            f"per-unit FOV keys {leaked} are still in the saveBlob canonical text "
+            f"- the FOW Option B rider's saveBlobExcludedAnyKey entries are not "
+            f"taking, so the hash still moves on presentation-only FOV drift")
+        print(f"    FOW rider live: per-unit FOV keys excluded from the saveBlob "
+              f"canonical text ({len(txt)} chars, no visible/turnsSinceSpotted/"
+              f"turnsLeftSpottedForSnipers)")
+    else:
+        print("    NOTE: save_blob {text} unavailable; FOV-exclusion text check "
+              "skipped")
     print("PASS I2 self-test: deterministic, boundary-only, report-only")
     return sc
 
@@ -636,6 +839,9 @@ def main():
 
         scenario_saveblob_selftest(host, client)
         scenario_clean(host, client, hmover, cmover)
+        cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
+        hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
+        scenario_kneel_burst(host, client, hmover, cmover)
         cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
         hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
         scenario_ai_and_boundary(host, client, hmover, cmover)
