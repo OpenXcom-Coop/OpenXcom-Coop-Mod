@@ -1629,7 +1629,19 @@ void BattlescapeGame::endTurn()
 	// checkForCasualties() below can still push death chains, and the marker has to
 	// sit behind their packets. Reached only on the FINAL pass through endTurn() -
 	// the explosion paths above return early and re-enter.
-	connectionTCP::coopArmSyncBoundary("endturn");
+	//
+	// coop (PRD-I3 Option A rider): at the neutral->player transition (getSide() is
+	// now FACTION_PLAYER, having just been advanced by _save->endTurn() above) this
+	// `endturn` marker is REDUNDANT with the `sidestart` marker NextTurnState::close
+	// arms right after `next_turn`, and it would hash BEFORE `next_turn` applies on
+	// the client - violating I0's boundary hash-after-apply semantics at exactly that
+	// transition. Suppress it there; keep it for the side-closes into an alien side
+	// (player->hostile, hostile->neutral), which are NOT followed by `next_turn` and
+	// are the only place the endturn phase group's state can be attributed.
+	if (_save->getSide() != FACTION_PLAYER)
+	{
+		connectionTCP::coopArmSyncBoundary("endturn");
+	}
 
 	if (_save->getSide() == FACTION_PLAYER)
 	{
