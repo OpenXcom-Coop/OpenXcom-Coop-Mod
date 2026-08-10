@@ -858,6 +858,11 @@ void Tile::setFire(int fire)
 		// holds this outcome for its own chain's opener instead of contaminating
 		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
 		connectionTCP::coopStampChainSeq(root);
+		// coop (PRD-I3 SEAM-2 HALF 2): if this send is the neutral->player boundary
+		// decay, tag `bnd:true` so the client rides it on the ordered gate rather than
+		// the whitelist (no-op outside the decay scope; mid-side explosion fire stays
+		// unflagged and whitelisted).
+		connectionTCP::coopStampBoundaryOrigin(root);
 
 		root["tile_pos_x"] = _pos.x;
 		root["tile_pos_y"] = _pos.y;
@@ -934,6 +939,11 @@ void Tile::setSmoke(int smoke)
 		// holds this outcome for its own chain's opener instead of contaminating
 		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
 		connectionTCP::coopStampChainSeq(root);
+		// coop (PRD-I3 SEAM-2 HALF 2): if this send is the neutral->player boundary
+		// decay, tag `bnd:true` so the client rides it on the ordered gate rather than
+		// the whitelist (no-op outside the decay scope; mid-side explosion smoke stays
+		// unflagged and whitelisted).
+		connectionTCP::coopStampBoundaryOrigin(root);
 
 		root["tile_pos_x"] = _pos.x;
 		root["tile_pos_y"] = _pos.y;

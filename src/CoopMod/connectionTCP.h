@@ -779,6 +779,13 @@ class connectionTCP
 	///    for the rest of the battle. An additive field must never be able to wedge
 	///    an older peer.
 	static std::uint32_t _boundarySeq;
+	/// HOST (PRD-I3 SEAM-2 HALF 2): true only for the duration of the
+	/// neutral->player SavedBattleGame::prepareNewTurn tile-decay call, so the
+	/// set_smoke_tile/set_fire_tile sends it drives carry `bnd:true`. Those flagged
+	/// packets ride the ORDERED receive gate (not the always-consume whitelist), so
+	/// the client's ai-seq hazard hashes sample pre-decay state. Set/cleared around
+	/// the single call site; a mid-side explosion hazard is never inside the scope.
+	static bool _coopBoundaryDecay;
 	/// TEST-ONLY lever, default false, set ONLY by the test server
 	/// (`hold_action_done`). While true the client PARKS its `action_done`
 	/// reports instead of shipping them: the packet is unchanged, it just leaves
@@ -918,6 +925,15 @@ class connectionTCP
 	/// locally instead of letting it overtake its own opener. No-op outside an
 	/// admitted/AI chain on the parallel host (_openChainSeq == 0).
 	static void coopStampChainSeq(Json::Value& root);
+	/// coop (PRD-I3 SEAM-2 HALF 2): open/close the boundary-decay scope around the
+	/// neutral->player prepareNewTurn call. While open, coopStampBoundaryOrigin()
+	/// tags a host tile-hazard send with `bnd:true`.
+	static void coopSetBoundaryDecay(bool active);
+	/// coop (PRD-I3 SEAM-2 HALF 2): tag @a root with `bnd:true` when a host
+	/// set_smoke_tile/set_fire_tile send is the boundary-phase decay, so the client
+	/// gates it in FIFO instead of whitelisting it. No-op (field absent) otherwise -
+	/// additive, an older peer ignores it and keeps the whitelist behaviour.
+	static void coopStampBoundaryOrigin(Json::Value& root);
 	/// Battle start / side boundary / teardown: counters and slots back to a
 	/// known state. `fullReset` also zeroes the side and request sequences.
 	static void resetActionArbiter(bool fullReset);

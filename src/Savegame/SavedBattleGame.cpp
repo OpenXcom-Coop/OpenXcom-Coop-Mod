@@ -1568,7 +1568,18 @@ void SavedBattleGame::endTurn()
 	}
 	else if (_side == FACTION_NEUTRAL)
 	{
+		// coop (PRD-I3 SEAM-2 HALF 2): this is the ONE hazard-decay boundary of the
+		// turn cycle (the sole SavedBattleGame::prepareNewTurn caller). Mark it so the
+		// host's set_smoke_tile/set_fire_tile decay sends carry `bnd:true`; the client
+		// then applies them through the ORDERED gate (in FIFO after the ai-chain
+		// replay, before next_turn) instead of the always-consume whitelist, so its
+		// ai-seq hazard hashes sample PRE-decay state matching the host's pre-decay
+		// ring entries. Set/clear tightly around the call (prepareNewTurn does not
+		// throw); harmless on the non-host machine, where the call early-returns and
+		// the tile setters are host-gated no-ops.
+		connectionTCP::coopSetBoundaryDecay(true);
 		prepareNewTurn();
+		connectionTCP::coopSetBoundaryDecay(false);
 		_turn++;
 		_side = FACTION_PLAYER;
 		if (_lastSelectedUnit && _lastSelectedUnit->isSelectable(FACTION_PLAYER, false, false))

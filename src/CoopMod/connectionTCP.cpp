@@ -253,6 +253,8 @@ std::uint32_t connectionTCP::_clientDisplaySeq = 0;
 std::string connectionTCP::_openChainKind;
 std::uint32_t connectionTCP::_clientDisplaySideSeq = 0;
 std::uint32_t connectionTCP::_boundarySeq = 0;
+// coop (PRD-I3 SEAM-2 HALF 2): scoped only around the neutral->player decay call.
+bool connectionTCP::_coopBoundaryDecay = false;
 std::vector<std::string> connectionTCP::_pendingBoundaries;
 int connectionTCP::_turnAdvanceDeferred = 0;
 int connectionTCP::_turnAdvanceDeferredCount = 0;
@@ -2833,9 +2835,20 @@ void connectionTCP::updateCoopTask()
 						 (stateString == "unit_death" && _coopInitDeath) ||
 						 (stateString == "after_unit_death" && _coopInitDeath));
 
+				// coop (PRD-I3 SEAM-2 HALF 2): a set_smoke_tile/set_fire_tile carrying
+				// `bnd:true` is the neutral->player boundary decay. It belongs to NO chain
+				// (the whitelist exists for mid-chain outcome resolution), so it must ride
+				// the ordered gate: it fails the whitelist and the chain-outcome seq test
+				// below and queues like ordinary gated traffic, applying in FIFO after the
+				// ai-chain replay and before next_turn. Absent flag = old host / mid-side
+				// hazard = the current whitelist behaviour (presence-gated compat).
+				const bool boundaryHazardPacket =
+						(stateString == "set_fire_tile" || stateString == "set_smoke_tile")
+						&& obj.get("bnd", false).asBool();
+
 				const bool gateAllows =
 						 (coopTaskCompleted() || chainCloser ||
-					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
+					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
 					!endTurnExcluded;
 
 				// coop (PRD-P11): the unit this packet is about, and whether an
@@ -2915,7 +2928,7 @@ void connectionTCP::updateCoopTask()
 				// explosions, old peer): always-consume, bidirectionally. Disabled while
 				// the liveness floor is engaged, exactly like per-subject ordering.
 				bool seqDeferred = false;
-				if (!getHost() && !legacyOrder && coopIsChainOutcomePacket(stateString))
+				if (!getHost() && !legacyOrder && coopIsChainOutcomePacket(stateString) && !boundaryHazardPacket)
 				{
 					const std::uint32_t pktSeq =
 						static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
@@ -12624,6 +12637,31 @@ void connectionTCP::coopStampChainSeq(Json::Value& root)
 	}
 	root["action_seq"] = static_cast<Json::UInt>(_openChainSeq);
 	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+}
+
+/**
+ * coop (PRD-I3 SEAM-2 HALF 2): open/close the boundary-decay scope around the ONE
+ * neutral->player SavedBattleGame::prepareNewTurn call (its sole caller). A host
+ * tile-hazard send made inside the scope is tagged `bnd:true`, which routes it
+ * onto the ordered receive gate instead of the always-consume whitelist.
+ */
+void connectionTCP::coopSetBoundaryDecay(bool active)
+{
+	_coopBoundaryDecay = active;
+}
+
+/**
+ * coop (PRD-I3 SEAM-2 HALF 2): stamp `bnd:true` on a host set_smoke_tile /
+ * set_fire_tile send that is part of the boundary-phase decay. Additive and
+ * presence-gated: absent = the mid-side / classic / old-host case, which keeps
+ * the whitelist behaviour on both machines.
+ */
+void connectionTCP::coopStampBoundaryOrigin(Json::Value& root)
+{
+	if (_coopBoundaryDecay)
+	{
+		root["bnd"] = true;
+	}
 }
 
 // coop (PRD-P6): `fullReset` = a new battle or a session teardown (everything,
