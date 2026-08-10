@@ -737,6 +737,10 @@ public:
 	void incTurnsSinceStunned() { _turnsSinceStunned = std::min(255, _turnsSinceStunned + 1); }
 	/// Return how many turns passed since stunned last time.
 	int getTurnsSinceStunned() const { return _turnsSinceStunned; }
+	/// coop (PRD-I3 Option D-lite): run only the DETERMINISTIC per-unit terms that
+	/// prepareNewTurn advances and next_turn does NOT re-ship, at the deferred
+	/// neutral->player apply point on the parallel client.
+	void coopApplyDeferredTurnStart();
 
 	/// Get this unit's original faction
 	UnitFaction getOriginalFaction() const;

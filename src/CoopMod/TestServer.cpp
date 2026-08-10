@@ -4380,6 +4380,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["coopWalkInit"] = pcoop ? pcoop->_coopWalkInit : false;
 		resp["coopInitDeath"] = pcoop ? pcoop->_coopInitDeath : false;
 		resp["coopEnd"] = pcoop ? pcoop->_coopEnd : 0;
+		// coop (PRD-I3 Option D-lite): the pending deferred turn-machine advance
+		// (1 while a neutral->player advance waits for its next_turn, else 0).
+		resp["turnAdvanceDeferred"] = connectionTCP::_turnAdvanceDeferred;
 		resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
 		// PRD-P9 R7: packets set aside by a permanent exclusion instead of being
 		// rotated forever. Nothing is lost - they re-enter g_rxHold at the front.

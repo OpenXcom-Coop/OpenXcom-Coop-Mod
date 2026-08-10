@@ -578,6 +578,11 @@ void NextTurnState::close()
 		// we don't care if someone was revived in the meantime, the decision to end the battle was already made!
 		tally.liveAliens = 0;
 
+		// coop (PRD-I3 Option D-lite): the battle is ending here, so DISCARD any pending
+		// deferred turn advance - there is no player side to advance to and the debriefing
+		// is the authoritative replacement (harmless on the host; the flag is client-only).
+		connectionTCP::_turnAdvanceDeferred = 0;
+
 		// mind control anyone who was revived (needed for correct recovery in the debriefing)
 		for (auto* bu : *_battleGame->getUnits())
 		{
@@ -628,6 +633,12 @@ void NextTurnState::close()
 					int index = 0;
 
 					root["end"] = true;
+
+					// coop (PRD-I3 Option D-lite): the authoritative turn/side for the client's
+					// deferred turn-machine advance. Additive - an old peer ignores them and
+					// keeps the legacy free-run, so classic/old-host posture is unchanged.
+					root["turn"] = _battleGame->getTurn();
+					root["side"] = (int)_battleGame->getSide();
 
 					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 					{

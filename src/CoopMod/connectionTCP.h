@@ -882,6 +882,14 @@ class connectionTCP
 	static void coopFlushSyncBoundary();
 	/// HOST (PRD-I0): boundary markers armed but not yet shipped.
 	static std::vector<std::string> _pendingBoundaries;
+	/// coop (PRD-I3 Option D-lite): the parallel client defers its NEUTRAL->PLAYER
+	/// turn-machine advance off the whitelisted endTurn packet and flushes it at the
+	/// gated next_turn apply, so _turn/_side follow the display. _turnAdvanceDeferred
+	/// is the pending flag (exposed on parallel_state); _hostShipsNextTurnFields learns
+	/// from the first fields-bearing next_turn whether the host authors turn/side (an
+	/// old host never does, so the client keeps the legacy inline advance).
+	static int _turnAdvanceDeferred;
+	static bool _hostShipsNextTurnFields;
 	/// CLIENT (PRD-I0): answer a boundary marker with this machine's buckets.
 	void coopEmitBoundaryDone(std::uint32_t bseq);
 	/// CLIENT (PRD-I0): answer an `action_end` whose side has already closed here,

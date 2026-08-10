@@ -2978,6 +2978,39 @@ void BattleUnit::prepareNewTurn(bool fullProcess)
 }
 
 /**
+ * coop (PRD-I3 Option D-lite): the DETERMINISTIC per-unit terms of prepareNewTurn
+ * that `next_turn` does NOT re-ship, run at the deferred neutral->player apply point
+ * on the parallel client (whose whitelisted `endTurn` no longer runs the turn machine
+ * for that transition). It is the strict subset of prepareNewTurn(true) left over
+ * once next_turn's bulk apply has authored the re-shipped stats (tu/energy/health/
+ * stun/morale/mana/fire/fatalWounds/status/position/motionPoints) and once the RNG
+ * regen terms (prepareHealth fire draw, prepareMorale panic/berserk) are gated off on
+ * the client (the SEAM-2 straddle fix). What is left is exactly the audit's set:
+ * turnsSinceStunned (kept in saveBlob), dontReselect and meleeAttackedBy - plus the
+ * unhashed housekeeping resets prepareNewTurn also makes here so the client's live
+ * state matches. Called for PLAYER-faction units only, mirroring endTurn()'s
+ * `bu->getFaction() == _side` at neutral->player; isOut() is checked exactly as
+ * incTurnsSinceStunned's own guard does, so a soldier who fell during the alien side
+ * is skipped on both machines (it is already out when the host reaches player-start).
+ */
+void BattleUnit::coopApplyDeferredTurnStart()
+{
+	if (isIgnored())
+	{
+		return;
+	}
+	_isSurrendering = false;
+	_unitsSpottedThisTurn.clear();
+	_meleeAttackedBy.clear();
+	_hitByFire = false;
+	_dontReselect = false;
+	if (!isOut())
+	{
+		incTurnsSinceStunned();
+	}
+}
+
+/**
  * Update stats of unit.
  * @param tuAndEnergy
  * @param rest

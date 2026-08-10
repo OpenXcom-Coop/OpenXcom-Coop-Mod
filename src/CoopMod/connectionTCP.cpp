@@ -254,6 +254,8 @@ std::string connectionTCP::_openChainKind;
 std::uint32_t connectionTCP::_clientDisplaySideSeq = 0;
 std::uint32_t connectionTCP::_boundarySeq = 0;
 std::vector<std::string> connectionTCP::_pendingBoundaries;
+int connectionTCP::_turnAdvanceDeferred = 0;
+bool connectionTCP::_hostShipsNextTurnFields = false;
 bool connectionTCP::_testHoldActionDone = false;
 std::uint32_t connectionTCP::_heldActionDones = 0;
 // coop (PRD-P9 3): stuck-chain diagnostic, reset wherever _openChainSeq is.
@@ -8573,6 +8575,40 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					}
 				}
 
+				// coop (PRD-I3 Option D-lite): the parallel client's turn machine follows
+				// next_turn. The host stamps the authoritative turn/side on it (additive: an
+				// old host omits them and the client keeps its legacy inline advance). Authored
+				// AFTER the bulk apply above has settled every unit's faction/status, so the
+				// deterministic-increment pass sees the same PLAYER-faction / isOut view the
+				// host had at neutral->player (a soldier that fell during the alien side is out
+				// on both machines by then and skipped identically).
+				if (obj.isMember("turn") && obj.isMember("side")
+					&& connectionTCP::parallelTurnActive() && !getHost())
+				{
+					_hostShipsNextTurnFields = true;
+					battle->setTurnCoop(obj["turn"].asInt());
+					battle->setSideCoop(obj["side"].asInt());
+					if (_turnAdvanceDeferred)
+					{
+						// run only the deterministic per-unit terms the deferred neutral->player
+						// advance would have run and next_turn does NOT re-ship (turnsSinceStunned,
+						// dontReselect, meleeAttackedBy); the re-shipped stats are already applied.
+						for (auto* bu : *battle->getUnits())
+						{
+							// exactly the units SavedBattleGame::endTurn prepareNewTurn's at
+							// neutral->player: PLAYER-faction, plus a hostile converted to neutral
+							// during the player turn (SavedBattleGame.cpp:1637). HOSTILE/NEUTRAL
+							// units already took their increment at the kept side 0 / side 1.
+							if (bu->getFaction() == FACTION_PLAYER
+								|| (bu->getFaction() == FACTION_NEUTRAL && bu->getOriginalFaction() == FACTION_HOSTILE))
+							{
+								bu->coopApplyDeferredTurnStart();
+							}
+						}
+						_turnAdvanceDeferred = 0;
+					}
+				}
+
 			}
 		}
 
@@ -9856,18 +9892,33 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				int side = obj["side"].asInt();
 
-				_game->getSavedGame()->getSavedBattle()->setSideCoop(side);
-
-				if (side == 0)
+				// coop (PRD-I3 Option D-lite): defer the NEUTRAL->PLAYER advance (its _turn++
+				// and player-side regen) on the parallel client so _turn/_side follow the gated
+				// next_turn instead of racing ahead of the display. PLAYER->HOSTILE (side 0)
+				// and HOSTILE->NEUTRAL (side 1) stay prompt: the host ships this packet AT its
+				// own transition, so consuming them cannot lead it, and side 0 is the ONE that
+				// pushes the ALIENS banner (endBattleTurnCoop never sets _endTurnRequested) and
+				// gives the hostile/neutral units their per-side increments before they can die
+				// mid-side. Only kept when the host authors turn/side on next_turn; an old host
+				// (no fields learned) keeps the legacy inline advance - bidirectional compat.
+				if (connectionTCP::parallelTurnActive() && !getHost()
+					&& _hostShipsNextTurnFields && side == 2)
 				{
-
-					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-					battlestate->endTurnCoop();
-
+					_turnAdvanceDeferred = 1;
 				}
 				else
 				{
-					_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
+					_game->getSavedGame()->getSavedBattle()->setSideCoop(side);
+
+					if (side == 0)
+					{
+						BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+						battlestate->endTurnCoop();
+					}
+					else
+					{
+						_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
+					}
 				}
 
 			}
@@ -9978,17 +10029,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (ret == 0 && _game->getSavedGame()->getSavedBattle()->getBattleGame())
 				{
 
+					// coop (PRD-I3 Option D-lite): keep the _coopEnd state transitions (the rx
+					// pump gates on _coopEnd), but on the parallel client do NOT let this AI-done
+					// heuristic flip _side to NEUTRAL/PLAYER ahead of the host - the side is
+					// tracked from the host-authored setSideCoop(side) above and from next_turn.
+					const bool dliteClient = connectionTCP::parallelTurnActive() && !getHost();
 					if (_coopEnd == 0)
 					{
 				
-						_game->getSavedGame()->getSavedBattle()->setSideCoop(2);
+						if (!dliteClient)
+							_game->getSavedGame()->getSavedBattle()->setSideCoop(2);
 						_coopEnd = 1;
 					
 					}
 					else if (_coopEnd == 1)
 					{
 
-						_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
+						if (!dliteClient)
+							_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
 						_coopEnd = 0;
 
 					}
@@ -12530,6 +12588,11 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 		// must stay monotonic across every side of the battle.
 		_boundarySeq = 0;
 		_pendingBoundaries.clear();
+		// coop (PRD-I3 Option D-lite): a deferred turn advance is battle-scoped; discard
+		// it (and re-learn the host's next_turn capability) on a full reset - battle init
+		// and CoopState teardown both land here, so a stale flag can never cross battles.
+		_turnAdvanceDeferred = 0;
+		_hostShipsNextTurnFields = false;
 		SharedEcon::resetSyncCheck();
 	}
 	// coop (PRD-P8): readiness is scoped to a side exactly the way _actionSeq is,
