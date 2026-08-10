@@ -296,28 +296,31 @@ def scenario_clean(host, client, hmover, cmover):
     # the seven buckets deliver that over ~20 mixed actions - asserted so a
     # regression in any of them is a test failure today.
     #
-    # `unitsStats` is the seventh. Its clean-fixture residual was root-caused
-    # (PRD-I3) to MORALE, in two halves BOTH NOW CLOSED: (1) the DIRECT-DAMAGE half
-    # (a reaction hit's victim keeping its pre-hit morale until next_turn) fixed by
-    # shipping morale/energy/mana/tu on `hit_unit` (296c3b22c); (2) the BYSTANDER
-    # half (checkForCasualties changing EVERY living unit's morale on a casualty the
-    # thin client never runs) fixed by shipping every living unit's absolute morale
-    # on the death packets (SEAM-4) - proven ZERO by scenario_casualty_morale below.
+    # `unitsStats` is the seventh, and its clean-fixture residual is now CLOSED, so
+    # this compare is strict with NO allowance. Three seams were retired to get here:
+    # (1) the DIRECT-DAMAGE morale half (a reaction hit's victim keeping its pre-hit
+    # morale until next_turn) fixed by shipping morale/energy/mana/tu on `hit_unit`
+    # (296c3b22c); (2) the BYSTANDER morale half (checkForCasualties changing EVERY
+    # living unit's morale on a casualty the thin client never runs) fixed by shipping
+    # every living unit's absolute morale on the death packets (SEAM-4) - proven ZERO
+    # by scenario_casualty_morale below; (3) the WALK-INDUCED STAND-UP replication gap
+    # (PRD-I3, this session) - the residual that had kept allow=("unitsStats",).
     #
-    # The allowance still could NOT shrink to empty: what remains is a SEPARATE,
-    # pre-existing residual - the client-not-quiesced SAMPLING transient on
-    # un-settled CLIENT kneels (SEAM-1 HANDOFF item (ii)). drive_mixed drives ~20
-    # actions back-to-back without per-action settle, so the detector intermittently
-    # reads the client's action_done hash for an instant-kind kneel mid-drain. It is
-    # NOT a persistent divergence: the at-rest unitsStats bucket is EQUAL host==client
-    # every time and unit_stat_diff is empty, so it heals the instant the client
-    # quiesces (per-triple settle_display reduces but does not eliminate it). It is an
-    # I0/I1 per-action-comparison timing artifact, not a state seam, and out of
-    # SEAM-4's scope - so the allowance is kept, now naming that residual rather than
-    # morale. Shrinking it to empty needs the instant-kind action_done emitted only
-    # after the kneel packet applies (a receive-ordering fix), or per-action settle.
+    # The SEAM-4-era note called (3) an "instant-kind kneel action_done sampling
+    # transient at the CLIENT kneel seqs". That attribution was WRONG. A host+client
+    # per-seq trace showed the mismatches land at the WALK and TURN seqs that PRECEDE
+    # a kneel, and the diverging field is the KNEELING BIT, not tu (tu matched
+    # exactly). Root cause: UnitWalkBState::init stands a kneeled unit up on its first
+    # step (BattlescapeGame::kneel), a kneel-bit mutation that shipped on NO packet -
+    # only the explicit BA_KNEEL path sends `coopSendKneelPacket`. So the executor's
+    # unit stood up (k0) while the client's stayed kneeled (k1) for the whole move+turn,
+    # healing only when the next explicit kneel re-applied the bit (which is why the
+    # at-rest bucket was always EQUAL - the drive ends each unit on a kneel). The kneel
+    # packet applies promptly (seq 0, consumed at gate depth 0); it HEALS the seam, it
+    # never caused it. FIX: `abortPath` (the walk closer) now carries the actor's
+    # absolute post-walk `kneeled` bit, applied on the parallel non-host machine only.
     sc = session.assert_sync_clean(host, client, "after the player actions",
-                                   strict=True, allow=("unitsStats",))
+                                   strict=True, allow=())
     print(f"    {n} player chains driven; compares={sc['compares']} "
           f"kinds={sc['comparedKinds']} sweep={sc['sweepUs']}us")
     # SEAM-1 diagnostic: name the KIND of every unitsStats mismatch, so the
