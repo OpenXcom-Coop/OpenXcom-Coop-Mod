@@ -151,4 +151,59 @@ class CoopState : public State
 	void think() override;
 };
 
+/**
+ * Click-to-dismiss notice raised once a battle desync diagnostic bundle has been
+ * written (SharedEcon::captureDesyncReport). Its own class rather than a CoopState
+ * code or an InfoboxOKState because:
+ *  - it is nearly always raised OVER a live battle, where CoopState's geoscape
+ *    window is the documented dialog/dismiss trap;
+ *  - InfoboxOKState's constructor REPLICATES itself to the peer when the local
+ *    machine is the host, and each machine's report names its own local path -
+ *    the peer must never be shown this one;
+ *  - it has to hold a full filesystem path plus a "where to send it" sentence,
+ *    which does not fit InfoboxOKState's 255x61 big-font title.
+ * Palette handling mirrors GiftNoticeState: adopt the screen underneath, and in
+ * battle use the co-op lobby's geoscape/saveMenus combination under the battle
+ * palette. NOTHING is captured here - the bundle is already on disk by the time
+ * this is pushed, so a dialog the player leaves sitting cannot spoil it.
+ */
+class CoopDesyncNoticeState : public State
+{
+  private:
+	Window *_window;
+	Text *_txtHeadline;
+	Text *_txtMessage;
+	TextButton *_btnOk;
+	TextButton *_btnOpenFolder;
+	TextButton *_btnReport;
+	std::string _headline;
+	std::string _message;
+	std::string _zipPath;     ///< the diagnostic bundle zip
+	std::string _openTarget;  ///< the folder OPEN FOLDER opens (the reports dir)
+	std::string _reportUrl;   ///< the prefilled GitHub new-issue URL
+	void buildLayout();
+  public:
+	/// PRD-I4: message + attribution headline + one-click UX (open folder / prefilled
+	/// GitHub issue). No auto-upload; the buttons only shell out to the OS helper.
+	CoopDesyncNoticeState(const std::string &message, const std::string &headline,
+						  const std::string &zipPath, const std::string &reportUrl);
+	/// Harness introspection: what this notice says / would open.
+	std::string getMessageText() const;
+	std::string getHeadlineText() const { return _headline; }
+	std::string getReportUrl() const { return _reportUrl; }
+	std::string getOpenFolderTarget() const { return _openTarget; }
+	std::string getZipPath() const { return _zipPath; }
+	void btnOkClick(Action *);
+	void btnOpenFolderClick(Action *);
+	void btnReportClick(Action *);
+	/// Test hook: the values the LAST-raised notice would open, kept after the modal
+	/// is dismissed so a harness poll made later can still read them.
+	static std::string s_lastHeadline;
+	static std::string s_lastMessage;
+	static std::string s_lastReportUrl;
+	static std::string s_lastOpenTarget;
+	static std::string s_lastZipPath;
+	static int s_raiseCount;
+};
+
 }

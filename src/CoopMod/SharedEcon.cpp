@@ -121,6 +121,23 @@
 #include "connectionTCP.h"
 #include "CoopState.h"
 
+// Desync auto-report bundle. miniz is already vendored (libs/miniz) and already
+// compiled into both build systems for FileMap's zip-mod reader, so the zip
+// WRITER costs nothing new. MINIZ_NO_STDIO matches how CMake compiles miniz.c
+// (src/CMakeLists.txt) - without it this header would offer the file-based
+// writer APIs that exist only in the MSVC object, i.e. a Windows-only feature
+// that fails to LINK on the Linux AppImage. The heap writer is guard-free on
+// both, so everything below builds an archive in memory and writes the bytes
+// out through CrossPlatform's binary writeFile().
+#include "../Engine/CrossPlatform.h"
+#include "../version.h"
+
+#include <cstring>
+#include <ctime>
+
+#define MINIZ_NO_STDIO
+#include "../../libs/miniz/miniz.h"
+
 namespace OpenXcom
 {
 namespace SharedEcon
@@ -3567,6 +3584,8 @@ namespace {
 bool g_battleDesyncSeen = false;      // harness flag: the tripwire fired here
 bool g_battleMismatchLogged = false;  // one log line per mismatch EPISODE
 int64_t g_lastBattleNotifyMs = -1;    // player notify throttle (RESYNC_DEBOUNCE_MS)
+bool g_desyncReportWritten = false;   // ONE diagnostic bundle per battle per machine
+std::string g_desyncReportPath;       // ... and where it went
 
 // FNV-1a. std::hash is implementation-defined and the two machines are not
 // necessarily the same build (Windows .exe vs the Linux AppImage), so the census
@@ -3782,6 +3801,22 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 		}
 	}
 
+	// Auto-report. AFTER the log line above on purpose - the bundle copies the log
+	// file, and that line is the entry point a developer reads first. Latched
+	// internally to one bundle per battle, so the repeat compares that follow for
+	// the rest of the battle cost nothing.
+	{
+		DesyncTerms report;
+		report.peerItemId = peerItemId;
+		report.localItemId = myItemId;
+		report.peerCensus = peerCensus;
+		report.localCensus = myCensus;
+		report.peerUnits = peerUnits;
+		report.localUnits = myUnits;
+		report.context = context;
+		captureDesyncReport(game, report);
+	}
+
 	// One player-facing notify per debounce window - the same constant the world
 	// checksum debounces on - so a term that stays wrong for the rest of the battle
 	// does not spam the map.
@@ -3808,6 +3843,439 @@ void resetBattleDesyncSeen()
 	g_battleDesyncSeen = false;
 	g_battleMismatchLogged = false;
 	g_lastBattleNotifyMs = -1;
+	// The bundle latch lives here: one report per battle per machine, cleared by
+	// the same reset (resetResyncStats / the harness' shared_reset_resync_stats)
+	// that clears the tripwire itself.
+	g_desyncReportWritten = false;
+	g_desyncReportPath.clear();
+}
+
+// ---- Desync auto-report bundle -----------------------------------------------
+namespace {
+
+// SAFETY / bounded work: the log is the only member that can grow without limit,
+// so only its TAIL travels. 4 MB is many times a whole battle's worth of co-op
+// tracing and keeps the one-shot compress step to a few hundred ms on the single
+// frame this ever runs.
+const size_t DESYNC_LOG_TAIL_BYTES = 4u * 1024u * 1024u;
+// Hand-wrap width for the path in the notice. The dialog's Text is 284 px of
+// small font and OpenXcom's word wrap only breaks at spaces - a filesystem path
+// has none, so an unwrapped one renders clipped and the player cannot find the
+// file we just asked them to send.
+const size_t DESYNC_PATH_WRAP = 44;
+
+/// "20260803-141530". CrossPlatform::now() is dd-MM-yyyy_HH-mm-ss, which does not
+/// sort; a folder of reports wants the sortable form.
+std::string desyncTimeString(const char* format)
+{
+	std::time_t t = std::time(0);
+	std::tm local;
+	std::memset(&local, 0, sizeof(local));
+	if (const std::tm* p = std::localtime(&t)) local = *p;
+	char buf[40];
+	std::memset(buf, 0, sizeof(buf));
+	if (std::strftime(buf, sizeof(buf), format, &local) == 0) return "unknown";
+	return buf;
+}
+
+const char* desyncPlatform()
+{
+#ifdef _WIN64
+	return "Windows 64 bit";
+#elif defined(_WIN32)
+	return "Windows 32 bit";
+#elif defined(__APPLE__)
+	return "OSX";
+#elif defined(__ANDROID_API__)
+	return "Android";
+#elif defined(__linux__)
+	return "Linux";
+#else
+	return "Unix-like";
+#endif
+}
+
+/// Raw byte read, tail-capped, never throwing. CrossPlatform::readFile is wrong
+/// here twice over: it opens in TEXT mode (which mangles a save's bytes on
+/// Windows) and it THROWS on a missing file - a missing member has to degrade to
+/// a smaller bundle, never to an exception raised inside a diagnostic.
+bool readTailBinary(const std::string& path, size_t maxBytes, std::string& out)
+{
+	out.clear();
+	SDL_RWops* rw = SDL_RWFromFile(path.c_str(), "rb");
+	if (!rw) return false;
+	bool ok = false;
+	const int end = SDL_RWseek(rw, 0, SEEK_END);
+	if (end >= 0)
+	{
+		const size_t total = (size_t)end;
+		size_t from = 0, want = total;
+		if (maxBytes != 0 && total > maxBytes)
+		{
+			from = total - maxBytes;
+			want = maxBytes;
+		}
+		if (SDL_RWseek(rw, (int)from, SEEK_SET) >= 0)
+		{
+			if (want == 0)
+			{
+				ok = true;
+			}
+			else
+			{
+				out.assign(want, '\0');
+				ok = (SDL_RWread(rw, &out[0], 1, (int)want) == (int)want);
+			}
+		}
+	}
+	SDL_RWclose(rw);
+	if (!ok) out.clear();
+	return ok;
+}
+
+/// One zip from in-memory members. Heap writer only - see the include note at the
+/// top of this file for why the file-based writer APIs are off limits.
+bool writeZipArchive(const std::string& path,
+					 const std::vector<std::pair<std::string, std::string> >& members)
+{
+	if (members.empty()) return false;
+	mz_zip_archive zip;
+	std::memset(&zip, 0, sizeof(zip));
+	if (!mz_zip_writer_init_heap(&zip, 0, 256 * 1024)) return false;
+
+	bool ok = true;
+	for (size_t i = 0; ok && i < members.size(); ++i)
+	{
+		ok = (mz_zip_writer_add_mem(&zip, members[i].first.c_str(),
+									members[i].second.data(), members[i].second.size(),
+									MZ_DEFAULT_COMPRESSION) != MZ_FALSE);
+	}
+
+	void* buf = 0;
+	size_t size = 0;
+	if (ok) ok = (mz_zip_writer_finalize_heap_archive(&zip, &buf, &size) != MZ_FALSE);
+	if (ok && buf != 0 && size != 0)
+	{
+		// The vector<unsigned char> overload, NOT the std::string one: that opens
+		// the file in TEXT mode, which on Windows rewrites every 0x0A in the
+		// deflate stream and produces a zip nothing can open.
+		const unsigned char* first = (const unsigned char*)buf;
+		std::vector<unsigned char> bytes(first, first + size);
+		ok = CrossPlatform::writeFile(path, bytes);
+	}
+	// finalize_heap_archive HANDS OVER the block (it nulls m_pMem), so it survives
+	// writer_end and this function owns the free.
+	if (buf) mz_free(buf);
+	mz_zip_writer_end(&zip);
+	return ok;
+}
+
+/// The sim-state dump. Goes through the ordinary save path - SavedGame::save, the
+/// same one co-op's autosave, quicksave and deferred host save use - which
+/// resolves its filename inside the master user folder. So: write a temp, read
+/// the bytes back, delete the temp. `.tmp` rather than `.sav`/`.asav` on purpose,
+/// because the LOAD list scans only those two: a delete that somehow fails still
+/// cannot leave a phantom entry in the player's save list.
+bool captureForcedSave(Game* game, std::string& out)
+{
+	out.clear();
+	if (!game || !game->getSavedGame() || !game->getMod()) return false;
+	const std::string tmpName = "_desync_capture_.tmp";
+	const std::string tmpPath = Options::getMasterUserFolder() + tmpName;
+	bool ok = false;
+	try
+	{
+		game->getSavedGame()->save(tmpName, game->getMod());
+		ok = readTailBinary(tmpPath, 0, out);
+	}
+	catch (const std::exception& e)
+	{
+		Log(LOG_ERROR) << "[COOP] desync report: forced save failed: " << e.what();
+	}
+	catch (...)
+	{
+		Log(LOG_ERROR) << "[COOP] desync report: forced save failed";
+	}
+	if (CrossPlatform::fileExists(tmpPath)) CrossPlatform::deleteFile(tmpPath);
+	if (!ok) out.clear();
+	return ok;
+}
+
+/// The context a log line cannot carry: both machines' checksum terms, the battle
+/// and parallel-turn counters, who this seat is, what build and which mods.
+std::string buildDesyncInfo(Game* game, const DesyncTerms& terms,
+							const Json::Value& attribution)
+{
+	Json::Value root;
+	root["schema"] = 1;
+	root["generated"] = desyncTimeString("%Y-%m-%d %H:%M:%S");
+	root["context"] = terms.context.empty() ? std::string("unknown") : terms.context;
+	root["detected"] = terms.viaPeerReport ? "peer_report" : "local_compare";
+
+	Json::Value chk;
+	chk["peer_itemId"] = Json::Value::Int64(terms.peerItemId);
+	chk["local_itemId"] = Json::Value::Int64(terms.localItemId);
+	chk["peer_census"] = Json::Value::Int64(terms.peerCensus);
+	chk["local_census"] = Json::Value::Int64(terms.localCensus);
+	chk["peer_units"] = Json::Value::Int64(terms.peerUnits);
+	chk["local_units"] = Json::Value::Int64(terms.localUnits);
+	root["checksum"] = chk;
+
+	SavedGame* save = game ? game->getSavedGame() : 0;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : 0;
+	Json::Value b;
+	b["live"] = (battle != 0);
+	if (battle)
+	{
+		b["turn"] = battle->getTurn();
+		b["side"] = (int)battle->getSide();
+		b["items"] = (int)battle->getItems()->size();
+		b["units"] = (int)battle->getUnits()->size();
+		const BattleUnit* sel = battle->getSelectedUnit();
+		b["selected_unit"] = sel ? sel->getId() : -1;
+		BattlescapeGame* bg = battle->getBattleGame();
+		b["local_action"] = bg ? (int)bg->getCurrentAction()->type : -1;
+		b["busy"] = bg ? bg->isBusy() : false;
+	}
+	b["coop_turn"] = BattlescapeGame::isYourTurn;
+	root["battle"] = b;
+
+	Json::Value p;
+	p["parallel_active"] = connectionTCP::parallelTurnActive();
+	p["parallel_enabled"] = connectionTCP::_enable_parallel_turns;
+	p["action_seq"] = (Json::UInt)connectionTCP::_actionSeq;
+	p["side_seq"] = (Json::UInt)connectionTCP::_sideSeq;
+	p["peer_display_acked_seq"] = (Json::UInt)connectionTCP::peerDisplayAckedSeq;
+	p["client_pending_req_id"] = (Json::UInt)connectionTCP::_clientPendingReqId;
+	p["active_sync"] = connectionTCP::_isActivePlayerSync;
+	p["battle_init"] = connectionTCP::_battleInit;
+	if (connectionTCP* coop = game ? game->getCoopMod() : 0)
+	{
+		p["task_depth"] = coop->coopTaskDepth();
+		p["task_completed"] = coop->coopTaskCompleted();
+		p["path_lock"] = coop->_pathLock;
+		p["coop_end"] = coop->_coopEnd;
+	}
+	root["parallel_state"] = p;
+
+	Json::Value s;
+	s["gamemode"] = connectionTCP::getCoopGamemode();
+	s["seat"] = connectionTCP::localSeat();
+	s["host"] = connectionTCP::getHost();
+	s["connected"] = connectionTCP::getCoopStatic();
+	s["shared_campaign"] = connectionTCP::isSharedCampaignStatic();
+	s["save_id"] = Json::Value::Int64((int64_t)connectionTCP::saveID);
+	if (connectionTCP* coop = game ? game->getCoopMod() : 0)
+	{
+		// Machine-relative, not role-relative: getHostName() is THIS player,
+		// getCurrentClientName() is the peer (see the co-op name-getter note).
+		s["local_player"] = coop->getHostName();
+		s["peer_player"] = coop->getCurrentClientName();
+	}
+	root["session"] = s;
+
+	Json::Value v;
+	v["version"] = std::string(OPENXCOM_VERSION_SHORT) + OPENXCOM_VERSION_GIT;
+	v["engine"] = OPENXCOM_VERSION_ENGINE;
+	v["oxce"] = OPENXCOM_VERSION_OXCE;
+	v["save_schema"] = (int)SAVE_SCHEMA_CURRENT;
+	v["platform"] = desyncPlatform();
+	root["build"] = v;
+
+	// No crash-log modlist helper exists in this tree; this is the same
+	// "<id> ver: <version>" line SavedGame::save writes into every save header.
+	Json::Value mods(Json::arrayValue);
+	for (const ModInfo* mi : Options::getActiveMods())
+	{
+		if (mi) mods.append(mi->getId() + " ver: " + mi->getVersion());
+	}
+	root["mods"] = mods;
+
+	// PRD-I4: the sync-check attribution - the offending seq/kind/bucket, the
+	// per-bucket table and a ring snapshot - so a bundle names WHICH action
+	// diverged, not just that the terms disagree.
+	root["attribution"] = attribution;
+	desyncEmbedSyncState(root);
+
+	return root.toStyledString();
+}
+
+/// Break a path onto dialog-sized lines, cutting after a directory separator
+/// where one is in reach and mid-token where none is.
+std::string wrapPathForDialog(const std::string& path)
+{
+	std::string out;
+	size_t start = 0;
+	while (path.size() - start > DESYNC_PATH_WRAP)
+	{
+		size_t cut = path.find_last_of("/\\", start + DESYNC_PATH_WRAP - 1);
+		if (cut == std::string::npos || cut <= start) cut = start + DESYNC_PATH_WRAP - 1;
+		if (!out.empty()) out += '\n';
+		out.append(path, start, cut - start + 1);
+		start = cut + 1;
+	}
+	if (start < path.size())
+	{
+		if (!out.empty()) out += '\n';
+		out.append(path, start, path.size() - start);
+	}
+	return out.empty() ? path : out;
+}
+
+/// Percent-encode a string for use as a URL query value (RFC 3986 unreserved raw).
+std::string desyncUrlEncode(const std::string& s)
+{
+	static const char* hex = "0123456789ABCDEF";
+	std::string out;
+	out.reserve(s.size() * 3);
+	for (unsigned char c : s)
+	{
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~')
+			out += (char)c;
+		else { out += '%'; out += hex[c >> 4]; out += hex[c & 0xF]; }
+	}
+	return out;
+}
+
+/// The prefilled GitHub issue body: the attribution table plus the "attach the
+/// zip" instruction. Plain text; the caller URL-encodes it. NO auto-upload.
+std::string desyncIssueBody(const DesyncTerms& terms, const Json::Value& attribution,
+							const std::string& path)
+{
+	std::ostringstream b;
+	b << "A co-op battle desync was auto-detected.\n\n";
+	b << "Attribution: " << attribution.get("headline", "unknown").asString() << "\n";
+	b << "  source: " << attribution.get("source", "?").asString()
+	  << "  seq: " << attribution.get("seq", 0).asUInt()
+	  << "  kind: " << attribution.get("kind", "").asString()
+	  << "  bucket: " << attribution.get("bucket", "").asString() << "\n\n";
+	b << "Checksum terms (peer vs local):\n";
+	b << "  itemIdCounter: " << terms.peerItemId << " vs " << terms.localItemId << "\n";
+	b << "  battleCensus:  " << terms.peerCensus << " vs " << terms.localCensus << "\n";
+	b << "  battleUnits:   " << terms.peerUnits << " vs " << terms.localUnits << "\n\n";
+	b << "Please ATTACH the diagnostic zip (do not paste it) to this issue:\n";
+	b << "  " << path << "\n\n";
+	b << "(auto-generated by the co-op desync reporter; log + save + context are in the zip)\n";
+	return b.str();
+}
+
+} // namespace
+
+bool desyncReportWritten()
+{
+	return g_desyncReportWritten;
+}
+
+std::string desyncReportPath()
+{
+	return g_desyncReportPath;
+}
+
+void captureDesyncReport(Game* game, const DesyncTerms& terms)
+{
+	// LATCH FIRST, before anything that can fail. A full disk, a read-only user
+	// folder, a save that throws - none of them may put this back in the firing
+	// line, because the tripwire re-compares on every next_turn for the rest of
+	// the battle and a retry loop writing multi-megabyte bundles is far worse
+	// than the desync it is reporting.
+	if (g_desyncReportWritten) return;
+	g_desyncReportWritten = true;
+
+	// PRD-I4: attribution (offending bucket/seq/kind, or the diverged terms) drives
+	// the desync_report packet, the desync-info.json, the dialog headline and the
+	// prefilled GitHub issue. Computed once, before any (fallible) capture work.
+	const Json::Value attribution = desyncComputeAttribution(game, terms);
+	const std::string headline = attribution.get("headline", "").asString();
+
+	try
+	{
+		// Tell the peer BEFORE doing our own (slow) work: its half of the pair is
+		// only worth having if it is captured at nearly the same instant. A
+		// machine that was itself told never re-sends - that is the ping-pong.
+		if (!terms.viaPeerReport && game && game->getCoopMod() && connectionTCP::getCoopStatic())
+		{
+			SavedGame* sg = game->getSavedGame();
+			SavedBattleGame* battle = sg ? sg->getSavedBattle() : 0;
+			Json::Value root;
+			root["state"] = "desync_report";
+			root["turn"] = battle ? battle->getTurn() : 0;
+			root["side"] = battle ? (int)battle->getSide() : -1;
+			// Named from the RECEIVER's point of view: what it will record as its
+			// peer's terms is what this machine holds locally.
+			root["peer_itemId"] = Json::Value::Int64(terms.localItemId);
+			root["peer_census"] = Json::Value::Int64(terms.localCensus);
+			root["peer_units"] = Json::Value::Int64(terms.localUnits);
+			root["context"] = terms.context;
+			root["attribution"] = attribution;
+			game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		}
+
+		const std::string dir = Options::getUserFolder() + "desync-reports/";
+		if (!CrossPlatform::folderExists(dir)) CrossPlatform::createFolder(dir);
+		if (!CrossPlatform::folderExists(dir))
+		{
+			Log(LOG_ERROR) << "[COOP] desync report: cannot create " << dir;
+			return;
+		}
+		const std::string path = dir + "desync-" + desyncTimeString("%Y%m%d-%H%M%S") + ".zip";
+
+		std::vector<std::pair<std::string, std::string> > members;
+		// The json first: it is the one member that cannot fail to be produced, so
+		// a bundle always says SOMETHING even if log and save are both unreadable.
+		members.push_back(std::make_pair(std::string("desync-info.json"),
+										 buildDesyncInfo(game, terms, attribution)));
+		std::string blob;
+		// The log already holds the BATTLE DESYNC line - verifyBattleChecksum logs
+		// it before calling here, and Log() appends to the file per message, so the
+		// copy taken now includes it.
+		if (readTailBinary(CrossPlatform::getLogFileName(), DESYNC_LOG_TAIL_BYTES, blob))
+		{
+			members.push_back(std::make_pair(std::string("openxcom.log"), blob));
+		}
+		else
+		{
+			Log(LOG_WARNING) << "[COOP] desync report: could not read "
+							 << CrossPlatform::getLogFileName();
+		}
+		if (captureForcedSave(game, blob))
+		{
+			members.push_back(std::make_pair(std::string("desync-battle.sav"), blob));
+		}
+
+		if (!writeZipArchive(path, members))
+		{
+			Log(LOG_ERROR) << "[COOP] desync report: failed to write " << path;
+			return;
+		}
+		g_desyncReportPath = path;
+		Log(LOG_ERROR) << "[COOP] desync diagnostic report written to " << path
+					   << " (" << (int)members.size() << " members)";
+
+		if (game && game->getLanguage())
+		{
+			// Post-capture UX only: the bundle is already on disk, so a modal the
+			// player leaves sitting cannot spoil the diagnostic it announces.
+			const std::string issueBase =
+				"https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new";
+			const std::string title = "[coop desync] " +
+				(headline.empty() ? std::string("battle desync") : headline);
+			const std::string reportUrl = issueBase + "?title=" + desyncUrlEncode(title) +
+				"&body=" + desyncUrlEncode(desyncIssueBody(terms, attribution, path));
+			game->pushState(new CoopDesyncNoticeState(
+				game->getLanguage()->getString("STR_COOP_DESYNC_REPORT_SAVED")
+					.arg(wrapPathForDialog(path)),
+				headline, path, reportUrl));
+		}
+	}
+	catch (const std::exception& e)
+	{
+		Log(LOG_ERROR) << "[COOP] desync report failed: " << e.what();
+	}
+	catch (...)
+	{
+		Log(LOG_ERROR) << "[COOP] desync report failed";
+	}
 }
 
 // ---- PRD-I0: per-action sequenced sync-check --------------------------------
@@ -3981,6 +4449,57 @@ void saveBlobHashTree(const YAML::YamlNodeReader& node, std::uint64_t& h, bool t
 	{
 		std::string_view val = node.val();
 		for (char ch : val) { h ^= (std::uint64_t)(unsigned char)ch; h *= FNV_PRIME; }
+	}
+}
+
+// PRD-I4 (test-only): the human-diffable twin of saveBlobHashTree - the SAME walk,
+// the SAME exclusions, emitted as indented text. So when the saveBlob bucket goes
+// red, a diff of the two machines' dumps names the field. Kept in step with
+// saveBlobHashTree above (same key/seq/scalar order, same node skips).
+void saveBlobCanonicalText(const YAML::YamlNodeReader& node, std::string& out,
+						   int depth, bool top)
+{
+	const std::string pad(depth * 2, ' ');
+	if (node.isMap())
+	{
+		for (const auto& child : node.children())
+		{
+			std::string_view key = child.key();
+			if ((top && saveBlobExcludedTopKey(key)) || saveBlobExcludedAnyKey(key))
+				continue;
+			if (child.isMap() || child.isSeq())
+			{
+				out += pad; out.append(key.data(), key.size()); out += ":\n";
+				saveBlobCanonicalText(child, out, depth + 1, false);
+			}
+			else
+			{
+				std::string_view val = child.val();
+				out += pad; out.append(key.data(), key.size()); out += ": ";
+				out.append(val.data(), val.size()); out += "\n";
+			}
+		}
+	}
+	else if (node.isSeq())
+	{
+		for (const auto& child : node.children())
+		{
+			if (child.isMap() || child.isSeq())
+			{
+				out += pad; out += "-\n";
+				saveBlobCanonicalText(child, out, depth + 1, false);
+			}
+			else
+			{
+				std::string_view val = child.val();
+				out += pad; out += "- "; out.append(val.data(), val.size()); out += "\n";
+			}
+		}
+	}
+	else
+	{
+		std::string_view val = node.val();
+		out += pad; out.append(val.data(), val.size()); out += "\n";
 	}
 }
 
@@ -4221,6 +4740,24 @@ bool computeSaveBlobHash(Game* game, std::uint64_t& out)
 	return true;
 }
 
+bool computeSaveBlobText(Game* game, std::string& out)
+{
+	out.clear();
+	if (!game || !game->getSavedGame()) return false;
+	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
+	if (!battle) return false;
+
+	// The same serialization computeSaveBlobHash hashes: the self-contained battle
+	// document, in memory, re-parsed so emit formatting cannot register as content.
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	battle->save(writer["battle"]);
+	YAML::YamlString text = writer.emit();
+	YAML::YamlRootNodeReader reader(text, "saveBlob");
+	saveBlobCanonicalText(reader["battle"], out, 0, true);
+	return true;
+}
+
 std::uint32_t battleHashLastSaveBlobUs()
 {
 	return g_lastSaveBlobUs;
@@ -4397,8 +4934,19 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 	if (!alarm) return;
 
 	// ALARM route: the SAME path the PRD-P2 tripwire takes, deliberately - one
-	// latch, one banner, one bundle (once PRD-I4 lands), whichever detector spoke.
+	// latch, one banner, one bundle, whichever detector spoke.
 	g_battleDesyncSeen = true;
+	// PRD-I4: an ALARM-promoted bucket triggers the diagnostic bundle here, the
+	// same as the P2 tripwire (latched to one per battle). Today every bucket is
+	// REPORT-ONLY (BATTLE_HASH_ALARM all false), so promotion alone arms this - no
+	// further code change. The attribution comes from the sync-check's own last
+	// mismatch (buildDesyncInfo -> desyncComputeAttribution reads g_syncMismatches).
+	{
+		DesyncTerms report;
+		battleChecksumTerms(game, report.localItemId, report.localCensus, report.localUnits);
+		report.context = "sync_check";
+		captureDesyncReport(game, report);
+	}
 	SavedBattleGame* battle = game && game->getSavedGame()
 		? game->getSavedGame()->getSavedBattle() : nullptr;
 	const std::int64_t nowMs = steadyMs();
@@ -4468,6 +5016,90 @@ void syncCheckReport(Json::Value& out)
 	}
 	node["mismatches"] = list;
 	out["syncCheck"] = node;
+}
+
+Json::Value desyncComputeAttribution(Game* game, const DesyncTerms& terms)
+{
+	// A peer told us: reuse the detector's attribution verbatim so both bundles agree.
+	if (terms.attribution.isObject() && !terms.attribution.empty())
+		return terms.attribution;
+
+	Json::Value a(Json::objectValue);
+	Language* lang = game ? game->getLanguage() : nullptr;
+
+	// Prefer the sync-check's own verdict: the most recent mismatch (an ALARM one if
+	// any), which names the exact seq / action kind / bucket. In classic co-op the
+	// sync-check is inert (parallelTurnActive() false) and this list is empty, so the
+	// P2 term fallback below runs instead.
+	const SyncMismatch* lastAny = nullptr;
+	const SyncMismatch* lastAlarm = nullptr;
+	for (const auto& m : g_syncMismatches)
+	{
+		lastAny = &m;
+		bool isAlarm = false;
+		for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i)
+			if (m.bucket == BATTLE_HASH_NAMES[i]) isAlarm = BATTLE_HASH_ALARM[i];
+		if (m.bucket == "saveBlob") isAlarm = SAVEBLOB_ALARM;
+		if (isAlarm) lastAlarm = &m;
+	}
+	const SyncMismatch* pick = lastAlarm ? lastAlarm : lastAny;
+	if (pick)
+	{
+		a["source"] = "sync_check";
+		a["seq"] = (Json::UInt)pick->seq;
+		a["boundary"] = pick->boundary;
+		a["kind"] = pick->kind;
+		a["bucket"] = pick->bucket;
+		std::string headline;
+		if (lang)
+			headline = lang->getString("STR_COOP_DESYNC_HEADLINE_ACTION")
+				.arg(pick->bucket).arg((int)pick->seq)
+				.arg(pick->kind.empty() ? std::string("?") : pick->kind);
+		a["headline"] = headline;
+		return a;
+	}
+
+	// Fallback: name which P2 checksum family diverged.
+	std::string which;
+	if (terms.peerItemId >= 0 && terms.peerItemId != terms.localItemId) which += "itemId ";
+	if (terms.peerCensus >= 0 && terms.peerCensus != terms.localCensus) which += "census ";
+	if (terms.peerUnits >= 0 && terms.peerUnits != terms.localUnits) which += "units ";
+	if (which.empty()) which = "unknown";
+	while (!which.empty() && which.back() == ' ') which.pop_back();
+	a["source"] = "terms";
+	a["seq"] = 0;
+	a["boundary"] = false;
+	a["kind"] = terms.context;
+	a["bucket"] = which;
+	std::string headline;
+	if (lang)
+		headline = lang->getString("STR_COOP_DESYNC_HEADLINE_TERM").arg(which);
+	a["headline"] = headline;
+	return a;
+}
+
+void desyncEmbedSyncState(Json::Value& out)
+{
+	Json::Value sc(Json::objectValue);
+	syncCheckReport(sc);              // sc["syncCheck"] = {buckets, mismatches, ...}
+	out["sync_check"] = sc["syncCheck"];
+
+	// Ring snapshot: the last ~16 recorded seqs (compared or not), oldest first.
+	Json::Value ring(Json::arrayValue);
+	const size_t maxN = 16;
+	const size_t start = g_syncRing.size() > maxN ? g_syncRing.size() - maxN : 0;
+	for (size_t i = start; i < g_syncRing.size(); ++i)
+	{
+		const SyncRingEntry& e = g_syncRing[i];
+		Json::Value j(Json::objectValue);
+		j["seq"] = (Json::UInt)e.seq;
+		j["side_seq"] = (Json::UInt)e.sideSeq;
+		j["kind"] = e.kind;
+		j["boundary"] = e.boundary;
+		j["compared"] = e.compared;
+		ring.append(j);
+	}
+	out["sync_ring"] = ring;
 }
 
 void resetSyncCheck()

@@ -53,6 +53,16 @@ What this test asserts:
      its log line NAMES `units` and dumps this machine's per-unit state - and the
      divergence is REPAIRED by the same `next_turn` that detected it, which is
      only possible because the compare runs ahead of the bulk overwrite.
+  5. The auto-report bundle (PRD-P2 rider). When the tripwire fires, BOTH machines
+     write <userdir>/desync-reports/desync-*.zip - the detector because it
+     detected, its peer because the detector shipped it a `desync_report`. One
+     side of a disagreement proves nothing, so a missing peer bundle is a failure,
+     not a detail. Each zip must hold the log, a forced mid-battle save and a
+     desync-info.json that parses with this battle's turn and both machines'
+     checksum terms; exactly one of the two must say it detected locally and the
+     other that it was told. The notice dialog must have been raised on both. And
+     a SECOND forced divergence in the same battle must add NO second bundle -
+     the latch is what stops a battle that stays desynced from filling the disk.
 
 The divergence lever is a TEST-ONLY use of an existing harness command; no
 divergence mechanism ships in the game.
@@ -64,9 +74,11 @@ Run:  python tools/coop_test/test_battle_tripwire.py
 Exit 0 = pass; 2 = failure.
 """
 
+import json
 import os
 import sys
 import time
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
@@ -74,6 +86,12 @@ import session
 import test_skirmish_flow as SK
 
 PORT = "47979"
+
+# Every state name either machine was seen sitting on while a turn was cycled.
+# The desync notice is a modal that cycle_turn dismisses within a poll or two, so
+# "did the dialog appear" cannot be answered by a check made afterwards - it has
+# to be recorded as the turn runs.
+SEEN_STATES = {"host": set(), "client": set()}
 
 
 def states(gc):
@@ -151,6 +169,34 @@ def read_log(gc, mark=0):
             return f.read().decode("utf-8", "replace")
     except OSError:
         return ""
+# ---- the auto-report bundle ------------------------------------------------
+
+def reports_dir(gc):
+    """<userdir>/desync-reports - Options::getUserFolder() is exactly the -user
+    directory the harness handed this instance, so the two machines can never
+    write into the same folder."""
+    return os.path.join(gc.user_dir, "desync-reports")
+
+
+def report_zips(gc):
+    d = reports_dir(gc)
+    if not os.path.isdir(d):
+        return []
+    return sorted(f for f in os.listdir(d) if f.endswith(".zip"))
+
+
+def read_report(gc, name):
+    """(namelist, parsed desync-info.json) for one bundle."""
+    path = os.path.join(reports_dir(gc), name)
+    with zipfile.ZipFile(path) as z:
+        bad = z.testzip()
+        assert bad is None, f"{path} is a corrupt archive (bad member {bad})"
+        names = z.namelist()
+        assert "desync-info.json" in names, \
+            f"{path} carries no desync-info.json: {names}"
+        info = json.loads(z.read("desync-info.json").decode("utf-8"))
+        sizes = {n: z.getinfo(n).file_size for n in names}
+    return names, info, sizes
 
 
 # ---- fixture ---------------------------------------------------------------
@@ -159,7 +205,11 @@ def drain_to_tactical(host, client, rounds=12):
     for _ in range(rounds):
         moved = False
         for gc in (host, client):
-            if top(gc) != "BattlescapeState":
+            state = top(gc)
+            # Same reason as in cycle_turn: record before dismissing, because the
+            # desync notice is exactly the kind of modal this loop clears.
+            SEEN_STATES["host" if gc is host else "client"].add(state)
+            if state != "BattlescapeState":
                 gc.cmd({"cmd": "dismiss_popup"})
                 moved = True
         time.sleep(1.0)
@@ -261,6 +311,9 @@ def cycle_turn(host, client, timeout=300):
             if not b.get("inBattle"):
                 return None  # battle ended under us
             state = top(gc)
+            # Record before any dismissal: this poll is the only chance to see a
+            # modal the very next branch may pop (see SEEN_STATES).
+            SEEN_STATES["host" if gc is host else "client"].add(state)
             # The HOST's NextTurnState must close ITSELF. `dismiss_popup`
             # generic-pops it (TestServer: "just pop it to reach the tactical
             # map"), which skips NextTurnState::close() - and close() is where the
@@ -375,8 +428,20 @@ def main():
             f"generated battle always holds items, has minted ids and has units")
         assert not desync_seen(host) and not desync_seen(client), \
             "the tripwire is already latched before anything happened"
+        for gc, tag in ((host, "host"), (client, "client")):
+            assert not report_zips(gc), (
+                f"{tag} already holds a desync bundle before anything happened: "
+                f"{report_zips(gc)} in {reports_dir(gc)}")
+            b = battle(gc)
+            assert "desyncReportWritten" in b, (
+                f"{tag}'s battle_state carries no 'desyncReportWritten' - the "
+                f"auto-report introspection is missing, every bundle assertion "
+                f"below would be vacuous: {sorted(b)}")
+            assert not b["desyncReportWritten"], \
+                f"{tag} reports a bundle already written at battle start"
         print(f"PASS terms: itemIdCounter={base[0]} battleCensus={base[1]} "
-              f"battleUnits={base[2]} agree on both machines, tripwire clear")
+              f"battleUnits={base[2]} agree on both machines, tripwire clear, "
+              f"no bundles on disk")
 
         # 3a: the same three terms must ride the world checksum whenever a battle is
         # live, which is what puts them on the `shared_checksum` hook for free.
@@ -492,6 +557,14 @@ def main():
                 f"{tag}'s battlescape left the state stack: {states(gc)[-4:]}"
         print("PASS no repair: no resync requested, both battles still live")
 
+        # The auto-report raises a click-to-dismiss notice, which - like any modal
+        # over the battlescape - stops BattlescapeState::think() and with it the
+        # co-op turn handshake until someone clears it. cycle_turn() returns as
+        # soon as the turn number moves, so the notice can still be sitting there;
+        # clear it before driving anything. (This drain is why the dialog check in
+        # section 5 reads SEEN_STATES instead of the live stack.)
+        drain_to_tactical(host, client)
+
         # ... and the battle is still playable.
         driver, watcher, dtag, wtag, db = pick_driver(host, client)
         mine = movers(battle(driver), 0 if db["host"] else 1)
@@ -501,7 +574,174 @@ def main():
         print(f"PASS playable: {dtag} still walked {mine[0]['id']} {before} -> "
               f"{landed} and {wtag} still mirrored it after the desync report")
 
-        # --- 5. the UNIT term, red and green ----------------------------------
+        # --- 5. the auto-report bundle ---------------------------------------
+        # BOTH machines, always: the detector because it detected, its peer
+        # because the detector shipped it a `desync_report`. A bundle from one
+        # side alone shows one half of a disagreement and cannot be diffed.
+        bundles = {}
+        for gc, tag in ((host, "host"), (client, "client")):
+            assert wait_until(lambda gc=gc: report_zips(gc), 30), (
+                f"{tag} wrote NO desync bundle after the tripwire fired - "
+                f"{reports_dir(gc)} is empty. The detector is the client; the host "
+                f"gets there through the `desync_report` packet, so an empty host "
+                f"folder means the packet never crossed or never wrote.")
+            names = report_zips(gc)
+            assert len(names) == 1, \
+                f"{tag} wrote {len(names)} bundles for one battle: {names}"
+            bundles[tag] = names[0]
+            assert names[0].startswith("desync-") and names[0].endswith(".zip"), \
+                f"{tag}'s bundle is not named desync-<stamp>.zip: {names[0]}"
+        print(f"bundles written: host={bundles['host']} client={bundles['client']}")
+
+        detected = {}
+        for gc, tag in ((host, "host"), (client, "client")):
+            names, info, sizes = read_report(gc, bundles[tag])
+            for member in ("desync-info.json", "openxcom.log", "desync-battle.sav"):
+                assert member in names, \
+                    f"{tag}'s bundle is missing {member}: {names}"
+                assert sizes[member] > 0, \
+                    f"{tag}'s bundle carries an EMPTY {member} - a zero-byte log or "\
+                    f"save reproduces nothing"
+            # The forced mid-battle save is the sim-state dump; prove it really is
+            # a save of THIS battle rather than an empty/geoscape one.
+            with zipfile.ZipFile(os.path.join(reports_dir(gc), bundles[tag])) as z:
+                sav = z.read("desync-battle.sav").decode("utf-8", "replace")
+            assert "battleGame" in sav, (
+                f"{tag}'s desync-battle.sav holds no battleGame section - the forced "
+                f"save did not capture the running battle")
+            assert info.get("context") == "next_turn", \
+                f"{tag}'s desync-info.json names the wrong packet: {info.get('context')}"
+            assert info["battle"]["live"], \
+                f"{tag}'s desync-info.json says no battle was live"
+            live_turn = battle(gc).get("turn")
+            assert 1 <= info["battle"]["turn"] <= live_turn, (
+                f"{tag}'s desync-info.json records turn {info['battle']['turn']}, "
+                f"which is not a turn this battle has reached (live turn "
+                f"{live_turn}, skew stamped on {turn2})")
+            chk = info["checksum"]
+            assert chk["local_itemId"] >= 0 and chk["local_census"] >= 0, \
+                f"{tag}'s bundle carries unstamped local terms: {chk}"
+            assert chk["peer_itemId"] != chk["local_itemId"] \
+                or chk["peer_census"] != chk["local_census"], (
+                f"{tag}'s bundle records the two machines AGREEING ({chk}) - it is "
+                f"reporting a desync that its own numbers deny")
+            assert info["mods"], f"{tag}'s desync-info.json lists no active mods"
+            assert info["build"]["version"], f"{tag}'s desync-info.json has no version"
+            assert "seat" in info["session"] and "gamemode" in info["session"], \
+                f"{tag}'s desync-info.json is missing session context: {info['session']}"
+            # PRD-I4: sync-check attribution. In this classic-coop fixture the
+            # per-action sync-check is inert (parallelTurnActive() false), so the
+            # attribution falls back to the diverged P2 terms - source "terms",
+            # naming the itemId/census family the battle_give skew moved. The object
+            # must be present regardless, and the sync_check/sync_ring backstops too.
+            attr = info.get("attribution")
+            assert isinstance(attr, dict), \
+                f"{tag}'s desync-info.json carries no attribution object: {sorted(info)}"
+            for k in ("source", "seq", "kind", "bucket", "headline"):
+                assert k in attr, f"{tag}'s attribution is missing {k!r}: {attr}"
+            assert attr["headline"], f"{tag}'s attribution has an empty headline: {attr}"
+            assert attr["bucket"], f"{tag}'s attribution names no bucket/term: {attr}"
+            assert ("itemId" in attr["bucket"] or "census" in attr["bucket"]
+                    or attr["source"] == "sync_check"), (
+                f"{tag}'s attribution bucket {attr['bucket']!r} does not name the "
+                f"itemId/census family the skew moved (source={attr['source']})")
+            sc = info.get("sync_check")
+            assert isinstance(sc, dict) and "buckets" in sc and "mismatches" in sc, (
+                f"{tag}'s desync-info.json has no usable sync_check block: {sc}")
+            assert isinstance(info.get("sync_ring"), list), \
+                f"{tag}'s desync-info.json has no sync_ring list: {sorted(info)}"
+            detected[tag] = info.get("detected")
+            print(f"    {tag}: {sorted(names)} turn={info['battle']['turn']} "
+                  f"detected={detected[tag]} checksum={chk}")
+        assert sorted(detected.values()) == ["local_compare", "peer_report"], (
+            f"exactly one machine must have detected locally and the other been told "
+            f"by `desync_report`, got {detected}")
+        print("PASS bundle: both machines hold a log + forced save + parsable "
+              "desync-info.json, one detector and one peer-report")
+
+        # The path the game reports and the file on disk must be the same object,
+        # or the dialog sends the player looking for something that is not there.
+        for gc, tag in ((host, "host"), (client, "client")):
+            b = battle(gc)
+            assert b.get("desyncReportWritten"), \
+                f"{tag} has a bundle on disk but reports desyncReportWritten false"
+            reported = b.get("desyncReportPath") or ""
+            assert os.path.basename(reported.replace("\\", "/")) == bundles[tag], (
+                f"{tag} reports its bundle at {reported!r}, but the file on disk is "
+                f"{bundles[tag]}")
+            assert "CoopDesyncNoticeState" in SEEN_STATES[tag], (
+                f"{tag} never raised the desync notice dialog - states seen while "
+                f"cycling turns: {sorted(SEEN_STATES[tag])}")
+            # PRD-I4: the REPORT-ON-GITHUB url and OPEN-FOLDER target the notice
+            # would open are recorded in statics that survive the modal's dismissal,
+            # so read them here (the live dialog was already cleared by the drain).
+            dlg = gc.cmd({"cmd": "desync_dialog"})
+            last = dlg.get("last", {})
+            assert last.get("raiseCount", 0) >= 1, \
+                f"{tag}'s desync_dialog reports no notice was ever raised: {dlg}"
+            assert last.get("headline"), \
+                f"{tag}'s last notice has an empty attribution headline: {last}"
+            url = last.get("reportUrl", "")
+            assert url.startswith(
+                "https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new"), \
+                f"{tag}'s REPORT ON GITHUB url is not the prefilled new-issue url: {url!r}"
+            assert "title=" in url and "body=" in url, \
+                f"{tag}'s report url is missing the prefilled title/body: {url!r}"
+            target = last.get("openFolderTarget", "").replace("\\", "/")
+            assert target.endswith("desync-reports"), \
+                f"{tag}'s OPEN FOLDER target is not the reports dir: {target!r}"
+        print("PASS notice: both machines raised CoopDesyncNoticeState and report "
+              "the path of the file they actually wrote")
+
+        # --- 5b. the one-click UX buttons (probe) -----------------------------
+        # The real fire's notice is dismissed by the turn cycle within a poll or two,
+        # so its buttons cannot be caught live. Push a probe notice (test-only,
+        # sentinel content, launches nothing) and assert the widget layout + getters
+        # through the established dialog-introspection levers (no pixel coords).
+        probe = host.cmd({"cmd": "desync_probe_dialog"})
+        assert probe.get("ok"), f"desync_probe_dialog failed: {probe}"
+        assert wait_until(lambda: top(host) == "CoopDesyncNoticeState", 15), \
+            f"the probe notice never became top: {states(host)[-3:]}"
+        wid = host.cmd({"cmd": "list_widgets"})
+        labels = [w.get("text", "") for w in wid.get("widgets", []) if "text" in w]
+        for want in ("OK", "OPEN FOLDER", "REPORT ON GITHUB"):
+            hits = [w for w in wid.get("widgets", []) if w.get("text") == want]
+            assert hits, f"the desync notice has no {want!r} button - labels seen: {labels}"
+            b = hits[0]
+            assert b.get("visible") and b.get("interactive"), \
+                f"the {want!r} button is not visible+interactive: {b}"
+        dd = host.cmd({"cmd": "desync_dialog"})
+        assert dd.get("live"), f"desync_dialog does not see the probe notice: {dd}"
+        assert dd.get("reportUrl", "").startswith(
+            "https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new"), \
+            f"the live notice's REPORT url is wrong: {dd.get('reportUrl')!r}"
+        assert dd.get("openFolderTarget"), f"the live notice has no OPEN FOLDER target: {dd}"
+        assert dd.get("headline"), f"the live notice has no headline: {dd}"
+        host.cmd({"cmd": "dismiss_popup"})
+        assert wait_until(lambda: top(host) != "CoopDesyncNoticeState", 15), \
+            f"the probe notice would not dismiss: {states(host)[-3:]}"
+        print("PASS buttons: the notice offers OK / OPEN FOLDER / REPORT ON GITHUB, "
+              "and reports the folder + prefilled GitHub url they would open")
+
+        # --- 6. the latch: a SECOND divergence adds no second bundle -----------
+        skew2 = client.cmd({"cmd": "battle_give", "unit": victim,
+                            "item": "STR_STUN_ROD", "slot": "ground"})
+        assert skew2.get("ok"), f"could not skew the client a second time: {skew2}"
+        turn3 = cycle_turn(host, client)
+        assert turn3, (f"the battle never reached a third turn (turn="
+                       f"{battle(host).get('turn')}) - the second skew was never "
+                       f"stamped, so the latch was never re-tested")
+        print(f"turn cycled to {turn3} with a second one-sided mint in place")
+        for gc, tag in ((host, "host"), (client, "client")):
+            now = report_zips(gc)
+            assert now == [bundles[tag]], (
+                f"{tag} wrote a SECOND bundle for the same battle ({now}) - the "
+                f"latch is broken, and a battle that stays desynced would write one "
+                f"multi-megabyte zip per turn for the rest of the mission")
+        print("PASS latch: a second forced divergence in the same battle produced "
+              "no second bundle on either machine")
+
+        # --- 7. the UNIT term, red and green ----------------------------------
         # Everything above moved an ITEM term. This section moves a term neither
         # item term can see: a unit that is DOWN on one machine and on its feet on
         # the other. That is the classic co-op battle drift - PRD-P10 fixed three

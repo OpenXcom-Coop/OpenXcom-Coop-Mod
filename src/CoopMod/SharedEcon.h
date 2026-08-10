@@ -491,6 +491,10 @@ std::uint32_t battleHashLastSweepUs();
 /// backstop for state the per-action sweep does not enumerate. Returns false and
 /// zeroes @a out when no battle is live.
 bool computeSaveBlobHash(Game* game, std::uint64_t& out);
+/// PRD-I4 (test-only lever): the canonical, exclusion-stripped battle-document text
+/// that computeSaveBlobHash() hashes - so a saveBlob mismatch diagnosis is a diff of
+/// the two machines' dumps. Returns false when no battle is live.
+bool computeSaveBlobText(Game* game, std::string& out);
 /// Microseconds the last computeSaveBlobHash() serialization took (harness cost).
 std::uint32_t battleHashLastSaveBlobUs();
 
@@ -515,6 +519,64 @@ void syncCheckReport(Json::Value& out);
 /// Clears the ring, the latches and the mismatch log. Called from
 /// resetResyncStats() (harness `shared_reset_resync_stats`) and at battle teardown.
 void resetSyncCheck();
+
+// ---- Desync auto-report bundle -----------------------------------------------
+// A logic desync leaves no stack to trace: by the time the two machines disagree
+// the cause is minutes of divergent simulation behind them. So the tripwire
+// captures the two artefacts that DO reproduce it - this machine's `openxcom.log`
+// (which already carries the BATTLE DESYNC line and everything that led up to it)
+// and a forced mid-battle SAVE, i.e. the sim-state dump. Deliberately NOT a
+// process minidump: huge, and it says nothing about a rules-level divergence.
+//
+// BOTH machines write one. The detector also ships `desync_report` so its peer
+// captures the OTHER half of the pair at (nearly) the same instant - one side of
+// a disagreement on its own proves nothing.
+//
+// ONE BUNDLE PER BATTLE PER MACHINE. The latch lives next to g_battleDesyncSeen
+// and clears in resetBattleDesyncSeen() - the same reset the harness drives
+// through shared_reset_resync_stats. The RESYNC_DEBOUNCE_MS notify throttle is a
+// separate thing and still governs the in-battle banner.
+
+/// The checksum terms and packet context one bundle records. The detector fills
+/// all four; a machine told by `desync_report` fills the peer pair from the wire
+/// and its own pair from battleChecksumTerms().
+struct DesyncTerms
+{
+	int64_t peerItemId = -1;
+	int64_t localItemId = -1;
+	int64_t peerCensus = -1;
+	int64_t localCensus = -1;
+	int64_t peerUnits = -1;   // PRD-I4: the P2 unit-census term (added after the bundle branch)
+	int64_t localUnits = -1;
+	std::string context;         // the packet that carried the peer's stamp
+	bool viaPeerReport = false;  // told by the peer rather than by a local compare
+	// PRD-I4: compact seq/kind/bucket/headline attribution. The detector fills it
+	// from its own sync-check (or the diverged terms); a peer told by desync_report
+	// carries the detector's copy so both bundles are equally attributed. Null when
+	// none was received (an older peer, or a local detector before it computes one).
+	Json::Value attribution;
+};
+
+/// Writes the bundle (log + forced save + desync-info.json) to
+/// <user folder>/desync-reports/desync-YYYYMMDD-HHMMSS.zip, raises the notice
+/// dialog, and - unless this machine was ITSELF told by a peer - sends
+/// `desync_report` so the other machine captures its half too.
+///
+/// Best-effort by contract: latched before any work so a failed write can never
+/// re-fire, every step guarded, and any failure logs and returns. Capturing a
+/// diagnostic must never be able to crash or stall the game it is diagnosing.
+void captureDesyncReport(Game* game, const DesyncTerms& terms);
+/// Harness/diagnostics: has this machine written its one bundle, and where to.
+bool desyncReportWritten();
+std::string desyncReportPath();
+/// PRD-I4: the compact primary attribution {source, seq, boundary, kind, bucket,
+/// headline} - from a peer's copy (terms.attribution) if present, else the local
+/// sync-check's last mismatch, else the diverged P2 checksum terms. The headline
+/// is localized via @a game's language.
+Json::Value desyncComputeAttribution(Game* game, const DesyncTerms& terms);
+/// PRD-I4: embeds THIS machine's sync-check state - the per-bucket mismatch table
+/// (out["sync_check"]) and a snapshot of the last ~16 ring seqs (out["sync_ring"]).
+void desyncEmbedSyncState(Json::Value& out);
 
 /// Game-minute cooldown between automatic resyncs (see verifyWorldChecksum).
 extern const int RESYNC_COOLDOWN_MINUTES;

@@ -3650,6 +3650,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["hash"] = static_cast<Json::UInt64>(blob);
 		resp["us"] = static_cast<Json::UInt>(SharedEcon::battleHashLastSaveBlobUs());
 		resp["ok"] = okBlob;
+		// PRD-I4 authorized extra: the canonical, exclusion-stripped battle-document
+		// text the hash is taken over, so a saveBlob mismatch diagnosis = a diff of the
+		// two machines' dumps. Test-only; no wire change beyond this command.
+		if (req.get("text", false).asBool())
+		{
+			std::string dump;
+			resp["textOk"] = SharedEcon::computeSaveBlobText(_game, dump);
+			resp["text"] = dump;
+		}
 	}
 	else if (cmd == "battle_give")
 	{
@@ -5458,6 +5467,11 @@ std::string TestServer::execute(const std::string& line)
 					// WHICH of the three families moved.
 					resp["battleUnitsChecksum"] = Json::Value::Int64(chkBattleUnits);
 					resp["desyncSeen"] = SharedEcon::battleDesyncSeen();
+					// The auto-report bundle: latched to one per battle per machine,
+					// so a test can assert both that it appeared and that a SECOND
+					// divergence produced no second file.
+					resp["desyncReportWritten"] = SharedEcon::desyncReportWritten();
+					resp["desyncReportPath"] = SharedEcon::desyncReportPath();
 				}
 				// PRD-I0, OPT-IN (`{"cmd":"battle_state","sync":true}`). Deliberately
 				// not unconditional: `battle_state` is the harness' hot poll - every
@@ -6160,6 +6174,59 @@ std::string TestServer::execute(const std::string& line)
 					resp["winX"] = wx; resp["winY"] = wy;
 				}
 			}
+		}
+		else if (cmd == "desync_dialog")
+		{
+			// PRD-I4 dialog introspection: the CoopDesyncNoticeState's headline and the
+			// URL/path its buttons WOULD open, plus its buttons when it is live. The
+			// statics survive the modal's dismissal by the turn cycle, so a test can read
+			// what the last-raised notice would open even after it is gone.
+			resp["ok"] = true;
+			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			CoopDesyncNoticeState* dlg = dynamic_cast<CoopDesyncNoticeState*>(top);
+			resp["live"] = (dlg != nullptr);
+			if (dlg)
+			{
+				resp["headline"] = dlg->getHeadlineText();
+				resp["message"] = dlg->getMessageText();
+				resp["reportUrl"] = dlg->getReportUrl();
+				resp["openFolderTarget"] = dlg->getOpenFolderTarget();
+				resp["zipPath"] = dlg->getZipPath();
+				Json::Value btns(Json::arrayValue);
+				for (auto* s : dlg->getSurfaces())
+				{
+					if (auto* tb = dynamic_cast<TextButton*>(s))
+					{
+						Json::Value e;
+						e["text"] = tb->getText();
+						e["visible"] = tb->getVisible();
+						e["interactive"] = (dynamic_cast<InteractiveSurface*>(s) != nullptr);
+						btns.append(e);
+					}
+				}
+				resp["buttons"] = btns;
+			}
+			Json::Value st;
+			st["headline"] = CoopDesyncNoticeState::s_lastHeadline;
+			st["message"] = CoopDesyncNoticeState::s_lastMessage;
+			st["reportUrl"] = CoopDesyncNoticeState::s_lastReportUrl;
+			st["openFolderTarget"] = CoopDesyncNoticeState::s_lastOpenTarget;
+			st["zipPath"] = CoopDesyncNoticeState::s_lastZipPath;
+			st["raiseCount"] = CoopDesyncNoticeState::s_raiseCount;
+			resp["last"] = st;
+		}
+		else if (cmd == "desync_probe_dialog")
+		{
+			// TEST-ONLY: push a real CoopDesyncNoticeState with sentinel content, so a
+			// test can assert the dialog's widget layout (three buttons, correct labels)
+			// and getters deterministically - the real fire's notice is dismissed by the
+			// turn cycle within a poll or two. Nothing here launches a browser or writes.
+			std::string zip = req.get("zip", "C:/probe/desync-reports/desync-probe.zip").asString();
+			std::string url = req.get("url", "https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new?title=probe&body=probe").asString();
+			std::string headline = req.get("headline", "probe: items diverged at action 1: walk").asString();
+			std::string msg = req.get("message", "probe message").asString();
+			_game->pushState(new CoopDesyncNoticeState(msg, headline, zip, url));
+			resp["ok"] = true;
 		}
 		else if (cmd == "close_nextturn")
 		{
