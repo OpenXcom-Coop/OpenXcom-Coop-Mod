@@ -4356,6 +4356,19 @@ const size_t SYNC_MISMATCH_MAX = 32;
 std::deque<SyncMismatch> g_syncMismatches;
 
 std::uint64_t g_syncBucketMismatches[BATTLE_HASH_BUCKETS] = { 0 };
+// PRD-I3 SEAM-2 HALF 1: per-bucket COMPARES - times a bucket was actually sampled
+// cross-machine (never incremented for a bucket the compare skipped). "Was it
+// compared" is a different statement from "did it mismatch", and the acceptance
+// test needs the former to prove the endturn hazard exclusion below really fired.
+std::uint64_t g_syncBucketCompares[BATTLE_HASH_BUCKETS] = { 0 };
+// PRD-I3 SEAM-2 HALF 1: the ENDTURN boundary carries no well-defined hazard sample
+// (all decay runs once per cycle at neutral->player, AFTER both endturn boundaries
+// are armed, and the host flushes the endturn boundary racing its own decay), so
+// its smoke/fire buckets are EXCLUDED from the comparison; the SIDESTART boundary
+// (hash-after-apply of next_turn) keeps them. These count the two so a test can
+// assert the split: endturn skipped, sidestart still compared.
+std::uint64_t g_syncEndturnHazardSkips = 0;
+std::uint64_t g_syncSidestartHazardCompares = 0;
 // The two namespaces are tracked apart: `action_seq` restarts at 0 every side, so
 // a shared watermark would be dragged forwards by the battle-monotonic boundary
 // counter and "the deferred loop closed" would read true for ever after.
@@ -4991,6 +5004,24 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 	{
 		const char* name = BATTLE_HASH_NAMES[i];
 		if (!node.isMember(name)) continue; // a peer that predates this bucket
+		// PRD-I3 SEAM-2 HALF 1: EXCLUDE the smoke/fire hazard buckets from an ENDTURN
+		// boundary comparison - the endturn hazard sample is ill-defined (all decay
+		// runs once per cycle at neutral->player, AFTER both endturn boundaries are
+		// armed, and the host flushes the endturn boundary racing its own decay). The
+		// SIDESTART boundary keeps them (hash-after-apply of next_turn = well-defined).
+		// The client still ships every bucket in `h`; only this host-side compare skips
+		// them, so the wire is unchanged and old/new peers stay symmetric. A skipped
+		// bucket is NOT counted as compared.
+		const bool hazardBucket =
+			std::strcmp(name, "smoke") == 0 || std::strcmp(name, "fire") == 0;
+		if (boundary && hazardBucket && entry->kind == "endturn")
+		{
+			++g_syncEndturnHazardSkips;
+			continue;
+		}
+		++g_syncBucketCompares[i];
+		if (boundary && hazardBucket && entry->kind == "sidestart")
+			++g_syncSidestartHazardCompares;
 		const std::uint64_t peer = static_cast<std::uint64_t>(node[name].asUInt64());
 		const std::uint64_t mine = battleHashBucketValue(entry->h, i);
 		if (peer == mine) continue;
@@ -5087,6 +5118,11 @@ void syncCheckReport(Json::Value& out)
 		kinds[kv.first] = static_cast<Json::UInt64>(kv.second);
 	}
 	node["comparedKinds"] = kinds;
+	// PRD-I3 SEAM-2 HALF 1: the endturn hazard exclusion + the sidestart hazard
+	// compares, so a test can assert smoke/fire are UNCOMPARED at endturn but still
+	// compared (and equal) at sidestart.
+	node["endturnHazardSkips"] = static_cast<Json::UInt64>(g_syncEndturnHazardSkips);
+	node["sidestartHazardCompares"] = static_cast<Json::UInt64>(g_syncSidestartHazardCompares);
 
 	Json::Value buckets(Json::objectValue);
 	std::uint64_t total = 0;
@@ -5095,6 +5131,7 @@ void syncCheckReport(Json::Value& out)
 		Json::Value b(Json::objectValue);
 		b["alarm"] = BATTLE_HASH_ALARM[i];
 		b["mismatchCount"] = static_cast<Json::UInt64>(g_syncBucketMismatches[i]);
+		b["compares"] = static_cast<Json::UInt64>(g_syncBucketCompares[i]);
 		buckets[BATTLE_HASH_NAMES[i]] = b;
 		total += g_syncBucketMismatches[i];
 	}
@@ -5214,7 +5251,9 @@ void resetSyncCheck()
 {
 	g_syncRing.clear();
 	g_syncMismatches.clear();
-	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i) g_syncBucketMismatches[i] = 0;
+	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i) { g_syncBucketMismatches[i] = 0; g_syncBucketCompares[i] = 0; }
+	g_syncEndturnHazardSkips = 0;
+	g_syncSidestartHazardCompares = 0;
 	g_syncSaveBlobMismatches = 0;
 	g_syncLastSeq = 0;
 	g_syncLastComparedSeq = 0;
