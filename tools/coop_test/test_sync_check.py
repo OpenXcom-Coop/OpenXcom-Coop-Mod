@@ -83,6 +83,16 @@ ITEM_LEVER_INNOCENT = ("terrain", "fire", "smoke", "unitsCore")
 # print-only, without aborting the rest of the suite.
 KNEEL_STRICT = os.environ.get("SEAM1_KNEEL_STRICT", "1") == "1"
 
+# PRD-I3 SEAM-2 + straddle discriminator (smoke-heavy side). Post-fix, Option B
+# gates the parallel client's SavedBattleGame::prepareNewTurn decay (next_turn is
+# the sole author) and Option A drops the redundant neutral->player `endturn`
+# marker, so NO smoke or fire mismatch is attributed to a BOUNDARY. The ai-seq
+# racing residual (client's deterministic-but-early regen at its raced-ahead
+# turn) is Option D's remit and is PRINTED, not asserted. Default ON = the
+# permanent green gate; export SEAM2_SMOKE_STRICT=0 to take the pre-fix red
+# baseline print-only.
+SMOKE_STRICT = os.environ.get("SEAM2_SMOKE_STRICT", "1") == "1"
+
 
 # ---- readouts --------------------------------------------------------------
 
@@ -678,6 +688,102 @@ def scenario_red_bucket(host, client, hmover, cmover):
     return sc
 
 
+# ---- 5. SEAM-2 + straddle: boundary tile decay is host-authoritative -------
+
+def scenario_smoke(host, client, hmover, cmover):
+    """PRD-I3 SEAM-2 + straddle discriminator (deterministic smoke placement).
+
+    Primes (fuse 0) and throws several STR_SMOKE_GRENADEs, then closes a full
+    side so the boundary tile-decay phase runs on both machines. Pre-fix the
+    parallel client's ungated SavedBattleGame::prepareNewTurn SPREADS smoke
+    (Tile::addSmoke) and AVERAGES it (Tile::prepareNewTurn) while its DECREMENT
+    (Tile::setSmoke/setFire) is a host-gated no-op - "spread without decrement",
+    which mangles the client's smoke - and the neutral->player `endturn` boundary
+    is hashed BEFORE next_turn repairs it. Post-fix Option B gates that decay
+    (next_turn is the sole author of the boundary tile hazards) and Option A
+    drops the redundant, hash-before-apply endturn marker, so NO smoke or fire
+    mismatch is attributed to a BOUNDARY.
+
+    The deterministic-but-early per-unit regen the client still runs at its
+    raced-ahead turn leaves an ai-seq unitsStats (and some ai-seq smoke) RACING
+    residual - Option D's remit, out of this fix's scope - which is PRINTED, not
+    asserted. SEAM2_SMOKE_STRICT=0 takes the pre-fix red baseline print-only.
+    """
+    print("-- 5: SEAM-2 boundary tile decay is host-authoritative (Option B+A) --")
+    reset_sync(host, client)
+    thrown = 0
+    for i in range(6):
+        if not idle(host):
+            break
+        PI.top_up(host, client, cmover)
+        wid = PI.give_both(host, client, cmover, "STR_SMOKE_GRENADE")
+        if not wid:
+            break
+        if not act(host, client, client, action="prime", unit=cmover, fuse=0,
+                   weapon_id=wid):
+            continue
+        PI.top_up(host, client, cmover)
+        here = PI.pos(battle(host), cmover)
+        if here:
+            thrown += 1 if act(host, client, client, action="throw", unit=cmover,
+                               weapon_id=wid, x=here[0] + 1 + (i % 3),
+                               y=here[1] + 1 + (i // 3), z=here[2]) else 0
+        idle(host, 30)
+    settle_display(host, client)
+    assert thrown >= 2, (
+        f"only {thrown} smoke grenade(s) were thrown; the fixture refused too "
+        f"many for this scenario to place any smoke")
+
+    turn_before = battle(host).get("turn")
+    turn = close_side(host, client, turn_before)
+    settle_display(host, client)
+
+    haz = host.cmd({"cmd": "battle_tiles"})
+    smoke_tiles = haz.get("smokeTiles", 0)
+    assert smoke_tiles > 0, (
+        f"no smoke is on the map after the side ({haz}); the grenades never went "
+        f"off, so a clean smoke bucket below would prove nothing")
+
+    # non-strict: the loop must close and no ALARM bucket may fire; the report-only
+    # counts are printed and inspected per-attribution below.
+    sc = session.assert_sync_clean(
+        host, client, f"after a smoke-heavy alien side of turn {turn_before}",
+        strict=False, quiet=True)
+
+    ms = sc.get("mismatches", [])
+    saturated = len(ms) >= 32  # the ring keeps only the last 32; note if it wrapped
+    smoke_bnd = [(m["seq"], m["kind"]) for m in ms
+                 if m["bucket"] == "smoke" and m.get("boundary")]
+    fire_bnd = [(m["seq"], m["kind"]) for m in ms
+                if m["bucket"] == "fire" and m.get("boundary")]
+    smoke_ai = [m["seq"] for m in ms if m["bucket"] == "smoke" and not m.get("boundary")]
+    us_ai = [m["seq"] for m in ms if m["bucket"] == "unitsStats" and not m.get("boundary")]
+    print(f"    smokeTiles={smoke_tiles} smoke bucket="
+          f"{sc['buckets']['smoke']['mismatchCount']} fire bucket="
+          f"{sc['buckets']['fire']['mismatchCount']} kinds={sc['comparedKinds']}")
+    print(f"    boundary smoke={smoke_bnd} boundary fire={fire_bnd}")
+    print(f"    RACING RESIDUAL (Option D, ai/player seqs): smoke={len(smoke_ai)} "
+          f"unitsStats={len(us_ai)} - deterministic-but-early prepareNewTurn regen "
+          f"at the client's raced-ahead turn (out of this fix's scope)")
+    if SMOKE_STRICT:
+        assert not saturated, (
+            f"the {len(ms)}-deep mismatch ring wrapped in a single side, so a "
+            f"'clean boundary' read below could be hiding an evicted boundary "
+            f"mismatch - shorten the scenario or widen the ring before trusting it")
+        assert not smoke_bnd and not fire_bnd, (
+            f"SEAM-2 NOT GREEN: smoke/fire diverged at a BOUNDARY "
+            f"(smoke {smoke_bnd}, fire {fire_bnd}). Option B (gate the parallel "
+            f"client's prepareNewTurn decay so next_turn is the sole author) + "
+            f"Option A (drop the neutral->player endturn marker that hashed before "
+            f"next_turn applied) make the boundary tile hazards host-authoritative; "
+            f"a boundary smoke/fire mismatch means one of them regressed.\n"
+            f"    {session._sync_mismatch_lines(sc)}")
+    print(f"PASS 5: no boundary smoke/fire divergence over a smoke-heavy side "
+          f"(smokeTiles={smoke_tiles}); racing residual smoke={len(smoke_ai)} "
+          f"unitsStats={len(us_ai)}")
+    return sc
+
+
 # ---- I2. saveBlob: determinism, cost, boundary-only registry --------------
 
 def scenario_saveblob_selftest(host, client):
@@ -847,6 +953,11 @@ def main():
         scenario_ai_and_boundary(host, client, hmover, cmover)
         cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
         hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
+        scenario_smoke(host, client, hmover, cmover)
+        cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
+        hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
+        # scenario_red_bucket runs LAST: its one-sided item mint permanently skews
+        # the battle, so anything after it measures a skewed state.
         scenario_red_bucket(host, client, hmover, cmover)
 
         session.assert_client_zero_disk(client.user_dir)
