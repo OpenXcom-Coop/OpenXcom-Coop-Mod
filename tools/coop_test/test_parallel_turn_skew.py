@@ -192,6 +192,12 @@ def main():
         #     WHILE the host is on a non-player side. The crispest gap-2 witness:
         #     the client cannot have advanced `_turn` past the host mid-alien-side
         #     unless its turn machine free-ran ahead of the gated next_turn.
+        # coop (PRD-I3 rider): the transient `turnAdvanceDeferred` bool arms and
+        # clears inside one next_turn window, which a poll can (and ~3/4 of runs did)
+        # step over. `turnAdvanceDeferredCount` only ever rises, so sample it here and
+        # after the close and assert the DELTA - the neutral->player advance was
+        # deferred at least once - instead of racing the flag.
+        defer_count_before = parallel(client).get("turnAdvanceDeferredCount", 0)
         deadline = time.time() + 150
         max_lead = -99
         lead_at = None
@@ -234,6 +240,7 @@ def main():
                 break
             time.sleep(0.03)
 
+        defer_count_after = parallel(client).get("turnAdvanceDeferredCount", 0)
         PI.settle(host, client, 4)
         # Harden the secondary (census-grade) checks: settle to full quiescence so an
         # in-flight death packet lands before the census is read.
@@ -249,7 +256,8 @@ def main():
                  f"client(t{lead_at[2]}/{SIDE.get(lead_at[3])})" if lead_at else ""))
         print(f"gap-2 samples (client leads by >=2): {lead2}; "
               f"turn-lead-while-host-on-alien-side samples: {turn_lead_on_alien}")
-        print(f"turnAdvanceDeferred armed at some point: {deferred_seen}; "
+        print(f"turnAdvanceDeferredCount {defer_count_before}->{defer_count_after} "
+              f"(delta {defer_count_after - defer_count_before}); bool seen={deferred_seen}; "
               f"client alien banner seen: {saw_alien_banner} "
               f"(banner side {SIDE.get(banner_side_seen, banner_side_seen)})")
 
@@ -290,10 +298,14 @@ def main():
                 "the client never showed the ALIENS banner (NextTurnState on an "
                 "alien side) - the deferral sacrificed the display it was required "
                 "to preserve")
-            assert deferred_seen, (
-                "turnAdvanceDeferred never armed across a whole side close - the "
-                "deferral is not engaging, so this test is vacuous (or the field "
-                "is missing on this build)")
+            # Poll-robust: the monotonic count must have RISEN across the close. The
+            # transient bool (deferred_seen) is kept only as a diagnostic in the print
+            # above - it was the ~3/4 flake, arming and clearing between polls.
+            assert defer_count_after > defer_count_before, (
+                f"the NEUTRAL->PLAYER advance was never deferred across a whole side "
+                f"close (turnAdvanceDeferredCount {defer_count_before}->{defer_count_after}, "
+                f"bool seen={deferred_seen}) - the deferral is not engaging, so this test "
+                f"is vacuous (or the counter is missing on this build)")
             # (1) the whole point: the SIG-2 gap-2 is dead. A lead of 2 is the
             # client a WHOLE cycle ahead of a mid-alien-side host; post-D its turn
             # machine follows the gated next_turn, so that can never happen. A lone
