@@ -5973,6 +5973,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setCoopEnergy(obj["energy"].asInt());
 						}
 
+						// coop (PRD-I3): the walk's END kneel state. UnitWalkBState stands a kneeled
+						// unit up on its first step (BattlescapeGame::kneel), a kneel-bit mutation that
+						// ships on no packet of its own; abortPath is the walk closer that now carries
+						// it. Applied on the PARALLEL NON-HOST machine only - the classic peer runs its
+						// own walk replay and stands the unit up itself, so gating here keeps classic
+						// byte-identical (L4 criterion 6). Presence-gated: an older executor omits it.
+						if (parallelTurnActive() && !getHost() && obj.isMember("kneeled"))
+						{
+							unit->kneel(obj["kneeled"].asBool());
+						}
+
 						_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(x, y, z, unit);
 
 						break;

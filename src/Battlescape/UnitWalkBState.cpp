@@ -167,6 +167,16 @@ void UnitWalkBState::deinit()
 		root["tu"] = _unit->getTimeUnits();
 		root["energy"] = _unit->getEnergy();
 
+		// coop (PRD-I3): the walk's END KNEEL STATE. UnitWalkBState::init stands a
+		// kneeled unit up on its first step (BattlescapeGame::kneel, :239) - a
+		// kneel-bit mutation that ships on NO packet, because only the explicit
+		// BA_KNEEL path sends coopSendKneelPacket. abortPath is the walk closer, so
+		// it carries the actor's absolute post-walk kneeled bit; the parallel peer
+		// applies it, re-syncing a stand-up its own gated/reserve-refused replay
+		// left kneeled. Additive + presence-gated: an older peer ignores it, and the
+		// receiver applies it on the parallel client only, so classic is byte-identical.
+		root["kneeled"] = _unit->isKneeled();
+
 		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
 		{
 			int j = 0;
