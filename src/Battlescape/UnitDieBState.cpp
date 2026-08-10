@@ -150,6 +150,46 @@ void UnitDieBState::coopWriteKillAttribution(Json::Value& root) const
 }
 
 /**
+ * coop (PRD-I3 SEAM-4): every LIVING unit's absolute morale after this casualty.
+ *
+ * BattlescapeGame::checkForCasualties applies a morale change to EVERY living unit
+ * on any death/stun (the losing squad loses morale, the winning squad gains, and a
+ * murderer gets a kill bonus) BEFORE it pushes this state - so by the time this
+ * packet is sent getMorale() is the host's FINAL post-casualty value for all of
+ * them. A PARALLEL thin client never runs checkForCasualties for a kill it only
+ * DISPLAYS (BattlescapeGame::coopDeath just animates the death; a reaction-fire /
+ * alien-side kill is never a local attack chain there), so without this the whole
+ * squad's morale stays at its pre-casualty value until next_turn's bulk re-ship one
+ * side later - a per-action unitsStats(morale) divergence across every living
+ * bystander. `hit_unit` already ships the VICTIM's own post-damage morale; this is
+ * the OTHER units the casualty moved.
+ *
+ * Shipped as an ABSOLUTE {id -> morale} snapshot, so applying it is idempotent: it
+ * cannot double-apply against a chain the client also replays, and it is safe against
+ * next_turn's later bulk re-ship. The receiver applies it ONLY on the parallel
+ * non-host machine (parallelTurnActive() && !getHost()); a classic client replays the
+ * attack and runs its OWN checkForCasualties, so it never reads this and stays
+ * byte-identical. Additive - an older peer ignores the field. Written on BOTH death
+ * packets, mirroring coopWriteKillAttribution: `unit_death` while the death displays,
+ * `after_unit_death` as the freshest re-stamp (a chain-reaction casualty between
+ * init() and deinit() moves morale again).
+ */
+void UnitDieBState::coopWriteBystanderMorale(Json::Value& root) const
+{
+	Json::Value arr(Json::arrayValue);
+	for (auto* bu : *_parent->getSave()->getUnits())
+	{
+		if (bu->isOut())
+			continue;
+		Json::Value entry;
+		entry["id"] = bu->getId();
+		entry["morale"] = bu->getMorale();
+		arr.append(entry);
+	}
+	root["bystander_morale"] = arr;
+}
+
+/**
  * coop (PRD-P10): `after_unit_death` moved here from the DESTRUCTOR.
  *
  * A BattleState is destroyed by cleanupDeleted(), which runs at a turn boundary
@@ -208,6 +248,9 @@ void UnitDieBState::deinit()
 
 		// coop: the kill ATTRIBUTION, the host's final word on it.
 		coopWriteKillAttribution(root);
+
+		// coop (PRD-I3 SEAM-4): every living unit's absolute post-casualty morale.
+		coopWriteBystanderMorale(root);
 
 		// coop (PRD-P4): the ids this death's corpses were minted with. This is the
 		// FIRST packet after convertUnitToCorpse() has run, so it is where the
@@ -288,6 +331,11 @@ void UnitDieBState::init()
 		// killedBy and murdererId are already final here: checkForCasualties
 		// stamps them and only then pushes this state.
 		coopWriteKillAttribution(root);
+
+		// coop (PRD-I3 SEAM-4): every living unit's absolute post-casualty morale -
+		// see coopWriteBystanderMorale(). checkForCasualties applied the bystander
+		// morale change before pushing this state, so getMorale() is final here.
+		coopWriteBystanderMorale(root);
 
 		_parent->sendPacketData(root.toStyledString());
 

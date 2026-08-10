@@ -56,6 +56,8 @@ private:
 	void think() override;
 	/// coop: stamps killedBy/murdererId (the host's kill attribution) on a death packet.
 	void coopWriteKillAttribution(Json::Value& root) const;
+	/// coop (PRD-I3 SEAM-4): every living unit's absolute morale after this casualty.
+	void coopWriteBystanderMorale(Json::Value& root) const;
 	/// Converts a unit to a corpse.
 	void convertUnitToCorpse();
 	/// Plays the death sound.

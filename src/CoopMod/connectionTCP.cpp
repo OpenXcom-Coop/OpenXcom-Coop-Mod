@@ -725,6 +725,36 @@ static const char* coopChainOpener(const std::string& closer)
 	return 0;
 }
 
+// coop (PRD-I3 SEAM-4): apply the host's post-casualty absolute morale to every
+// living unit named in a death packet's `bystander_morale` array.
+// BattlescapeGame::checkForCasualties changes the morale of EVERY living unit on
+// any death/stun (losing squad loses, winning squad gains, murderer kill bonus); a
+// parallel thin client never runs it for a kill it only DISPLAYS (coopDeath just
+// animates the death), so this array is its sole carrier of that squad-wide change.
+// ABSOLUTE overwrite -> idempotent: safe on both death packets and against
+// next_turn's later bulk re-ship. Present-gated (absent = older peer). The CALLER
+// gates on parallelTurnActive() && !getHost() so a classic client - which replays
+// the attack and runs its own checkForCasualties - stays byte-identical.
+static void coopApplyBystanderMorale(SavedBattleGame* battle, const Json::Value& obj)
+{
+	if (!battle || !obj.isMember("bystander_morale"))
+		return;
+	const Json::Value& arr = obj["bystander_morale"];
+	for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
+	{
+		int id = arr[i]["id"].asInt();
+		int morale = arr[i]["morale"].asInt();
+		for (auto* bu : *battle->getUnits())
+		{
+			if (bu->getId() == id)
+			{
+				bu->setCoopMorale(morale);
+				break;
+			}
+		}
+	}
+}
+
 // coop (PRD-I1): the whitelisted always-consume packets that carry a per-chain
 // `action_seq` (stamped at their send sites by connectionTCP::coopStampChainSeq).
 // These are the ones that can leak a FUTURE chain's mutation into the client's
@@ -7553,6 +7583,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					SharedEcon::remapCorpseIds(coopBattle, coopDeadUnitId);
 				}
 
+				// coop (PRD-I3 SEAM-4): apply the host's post-casualty bystander morale
+				// on the parallel client only; absolute overwrite, idempotent.
+				if (parallelTurnActive() && !getHost())
+				{
+					coopApplyBystanderMorale(coopBattle, obj);
+				}
+
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
 
@@ -7898,6 +7935,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 
 				_game->getSavedGame()->getSavedBattle()->abortPathCoop();
+
+				// coop (PRD-I3 SEAM-4): apply the host's post-casualty bystander morale
+				// on the parallel client only (a classic client replays checkForCasualties
+				// itself, so it stays byte-identical); absolute overwrite, idempotent.
+				if (parallelTurnActive() && !getHost())
+				{
+					coopApplyBystanderMorale(_game->getSavedGame()->getSavedBattle(), obj);
+				}
 
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
