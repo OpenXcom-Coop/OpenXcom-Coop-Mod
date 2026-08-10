@@ -4422,6 +4422,78 @@ bool saveBlobExcludedAnyKey(std::string_view k)
 	return k == "AI" || k == "aiMedikitUsed" || k == "allocated";
 }
 
+// PRD-I3 FOW contract (Option B, decided 2026-08-09): the per-tile
+// "discovered"/FOW bits are presentation - derived locally from replicated
+// positions, never promised identical between machines - so they are a permanent
+// carve-out from the saveBlob hash, exactly as the fast `terrain` bucket already
+// excludes them. They live packed inside the opaque binTiles base64 blob
+// (Tile::saveBinary boolFields), which cannot be stripped by YAML node path, so
+// decode the blob, zero the three discovered bits in every tile's boolFields byte,
+// and feed the MASKED bytes to the hash (and its canonical-text twin). Everything
+// else in the blob - the four mapDataID/setID pairs, smoke, fire, and the two
+// ufo-door-open bits - is left byte-for-byte intact and still hashed, so real
+// terrain / door / smoke / fire drift still lights the bucket.
+//
+// Layout anchored to Tile::saveBinary + the index prefix serialized in
+// SavedBattleGame::save, sized by Tile::serializationKey (a compile-time constant,
+// NOT versioned): each record is [index][mapDataID x4][mapDataSetID x4][smoke]
+// [fire][boolFields], stride = serializationKey.totalBytes, boolFields last. In
+// that byte (Tile::saveBinary): bit0 = O_WESTWALL.discovered,
+// bit1 = O_NORTHWALL.discovered, bit2 = O_FLOOR.discovered (FOW, mask 0x07);
+// bit3 = ufo-door-open west, bit4 = ufo-door-open north (KEEP).
+bool saveBlobMaskFowBinTiles(const YAML::YamlNodeReader& node, std::vector<char>& out)
+{
+	out.clear();
+	if (node.isMap() || node.isSeq()) return false; // binTiles is a scalar
+	std::vector<char> bytes;
+	try { bytes = node.readValBase64(); }
+	catch (...) { return false; }
+	const size_t stride = Tile::serializationKey.totalBytes;
+	// boolFields sits after index + 4 mapDataID + 4 mapDataSetID + smoke + fire.
+	const size_t boolOff = (size_t)Tile::serializationKey.index
+		+ 4u * (size_t)Tile::serializationKey._mapDataID
+		+ 4u * (size_t)Tile::serializationKey._mapDataSetID
+		+ (size_t)Tile::serializationKey._smoke
+		+ (size_t)Tile::serializationKey._fire;
+	if (stride == 0 || boolOff >= stride) return false; // layout not as anchored
+	const size_t records = bytes.size() / stride;
+	for (size_t r = 0; r < records; ++r)
+	{
+		unsigned char& bf = reinterpret_cast<unsigned char&>(bytes[r * stride + boolOff]);
+		bf = (unsigned char)(bf & (unsigned char)~0x07u); // clear FOW, keep ufo-door bits
+	}
+	out.swap(bytes);
+	return true;
+}
+
+// Deterministic standard base64 (RFC 4648). The human-diffable saveBlob text twin
+// renders the SAME masked binTiles bytes the hash consumes, so a dump diff stays
+// faithful to the hash. Encoder only; decode is the engine's readValBase64.
+std::string saveBlobBase64(const std::vector<char>& in)
+{
+	static const char T[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	std::string out;
+	out.reserve(((in.size() + 2) / 3) * 4);
+	size_t i = 0;
+	for (; i + 3 <= in.size(); i += 3)
+	{
+		unsigned n = ((unsigned)(unsigned char)in[i] << 16) | ((unsigned)(unsigned char)in[i + 1] << 8) | (unsigned char)in[i + 2];
+		out += T[(n >> 18) & 63]; out += T[(n >> 12) & 63];
+		out += T[(n >> 6) & 63];  out += T[n & 63];
+	}
+	if (i + 1 == in.size())
+	{
+		unsigned n = ((unsigned)(unsigned char)in[i] << 16);
+		out += T[(n >> 18) & 63]; out += T[(n >> 12) & 63]; out += "==";
+	}
+	else if (i + 2 == in.size())
+	{
+		unsigned n = ((unsigned)(unsigned char)in[i] << 16) | ((unsigned)(unsigned char)in[i + 1] << 8);
+		out += T[(n >> 18) & 63]; out += T[(n >> 12) & 63]; out += T[(n >> 6) & 63]; out += "=";
+	}
+	return out;
+}
+
 // Deterministic FNV-1a over the parsed node tree: keys and scalar values in
 // document (= emit) order, recursing maps and sequences. Hashing the STRUCTURE of
 // the re-parsed text (not the raw bytes) normalizes any whitespace/quoting
@@ -4437,6 +4509,13 @@ void saveBlobHashTree(const YAML::YamlNodeReader& node, std::uint64_t& h, bool t
 			if ((top && saveBlobExcludedTopKey(key)) || saveBlobExcludedAnyKey(key))
 				continue;
 			for (char ch : key) { h ^= (std::uint64_t)(unsigned char)ch; h *= FNV_PRIME; }
+			// PRD-I3 FOW: hash the FOW-masked binTiles bytes, not the raw base64 scalar.
+			std::vector<char> maskedTiles;
+			if (key == "binTiles" && saveBlobMaskFowBinTiles(child, maskedTiles))
+			{
+				for (char b : maskedTiles) { h ^= (std::uint64_t)(unsigned char)b; h *= FNV_PRIME; }
+				continue;
+			}
 			saveBlobHashTree(child, h, false);
 		}
 	}
@@ -4474,9 +4553,20 @@ void saveBlobCanonicalText(const YAML::YamlNodeReader& node, std::string& out,
 			}
 			else
 			{
-				std::string_view val = child.val();
-				out += pad; out.append(key.data(), key.size()); out += ": ";
-				out.append(val.data(), val.size()); out += "\n";
+				// PRD-I3 FOW: emit the SAME FOW-masked binTiles bytes the hash consumes,
+				// so a dump diff stays consistent with the saveBlob hash.
+				std::vector<char> maskedTiles;
+				if (key == "binTiles" && saveBlobMaskFowBinTiles(child, maskedTiles))
+				{
+					out += pad; out.append(key.data(), key.size()); out += ": ";
+					out += saveBlobBase64(maskedTiles); out += "\n";
+				}
+				else
+				{
+					std::string_view val = child.val();
+					out += pad; out.append(key.data(), key.size()); out += ": ";
+					out.append(val.data(), val.size()); out += "\n";
+				}
 			}
 		}
 	}
