@@ -2611,6 +2611,21 @@ Node *SavedBattleGame::getPatrolNode(bool scout, BattleUnit *unit, Node *fromNod
  */
 void SavedBattleGame::prepareNewTurn()
 {
+	// coop (PRD-I3 SEAM-2 + straddle): in a PARALLEL player side the boundary-phase
+	// tile decay is host-authoritative and re-shipped wholesale on `next_turn`
+	// (connectionTCP.cpp resets every tile's fire/smoke/dangerous then re-applies the
+	// host's snapshot), so the non-host machine must NOT run its own decay. Left
+	// ungated, the client's smoke SPREADS (Tile::addSmoke) and AVERAGES
+	// (Tile::prepareNewTurn) while its DECREMENT (Tile::setSmoke/setFire) is a
+	// host-gated no-op - "spread-without-decrement" that mangles the client's smoke
+	// (SEAM-2), and calculateEnviDamage below rolls fire/smoke RNG the host owns
+	// (the straddle). Gating the whole call-site is cleaner than per-setter gates and
+	// covers calculateEnviDamage in one place. Classic and option-off paths are
+	// untouched (parallelTurnActive() is false), so classic stays byte-identical.
+	if (connectionTCP::parallelTurnActive() && !connectionTCP::getHost())
+	{
+		return;
+	}
 
 	std::vector<Tile*> tilesOnFire;
 	std::vector<Tile*> tilesOnSmoke;

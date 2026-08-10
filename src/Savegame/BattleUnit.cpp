@@ -2829,7 +2829,13 @@ void BattleUnit::prepareHealth(int health)
 	health -= getFatalWounds();
 
 	// suffer from fire
-	if (!_hitByFire && _fire > 0)
+	// coop (PRD-I3 straddle): fire regen damage is an RNG draw the host owns; its
+	// result (health + the unit `fire` counter) is re-shipped on `next_turn`. On a
+	// PARALLEL client the local draw would diverge from the host's, so defer it -
+	// the deterministic fatal-wound subtraction above still runs on both machines.
+	// Classic/option-off: parallelTurnActive() false, byte-identical.
+	const bool coopClientDefer = connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
+	if (!coopClientDefer && !_hitByFire && _fire > 0)
 	{
 		health -= reduceByResistance(RNG::generate(Mod::FIRE_DAMAGE_RANGE[0], Mod::FIRE_DAMAGE_RANGE[1]), DT_IN);
 		_fire--;
@@ -2879,7 +2885,14 @@ void BattleUnit::prepareMorale(int morale)
 	{
 		moraleChange(morale);
 		int chance = 100 - (2 * getMorale());
-		if (RNG::percent(chance))
+		// coop (PRD-I3 straddle): the panic/berserk decision is an RNG draw the host
+		// owns; its outcome (the unit `status`) is re-shipped on `next_turn` (and the
+		// resolved panic on `panic_action`). A PARALLEL client must not roll it
+		// locally or the two RNG streams diverge - it takes the deterministic
+		// no-panic path instead, so the bravery-exp increment below still runs and a
+		// no-panic turn keeps expBravery synced. Classic/option-off: byte-identical.
+		const bool coopClientDefer = connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
+		if (!coopClientDefer && RNG::percent(chance))
 		{
 			int berserkChance = _unitRules ? _unitRules->getBerserkChance() : -1; // -1 represents true 1/3 (33.33333...%)
 			bool berserk = false;
