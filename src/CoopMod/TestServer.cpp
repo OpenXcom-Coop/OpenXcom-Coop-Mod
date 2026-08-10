@@ -5548,6 +5548,10 @@ std::string TestServer::execute(const std::string& line)
 					ju["health"] = u->getHealth();
 					ju["tu"] = u->getTimeUnits();
 					ju["stun"] = u->getStunlevel();
+					// PRD-I3 SEAM-4 diagnostic: per-unit morale, so a bystander-morale
+					// casualty divergence is visible per unit (not only in the unitsStats
+					// bucket). Harness-only.
+					ju["morale"] = u->getMorale();
 					// PRD-P9 soak: the two per-unit terms the census was missing.
 					// Fatal wounds only ever move through host-resolved damage, and
 					// energy is what a walk spends alongside TU - both are drift the

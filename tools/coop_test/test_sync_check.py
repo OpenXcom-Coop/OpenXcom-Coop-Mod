@@ -93,6 +93,13 @@ KNEEL_STRICT = os.environ.get("SEAM1_KNEEL_STRICT", "1") == "1"
 # baseline print-only.
 SMOKE_STRICT = os.environ.get("SEAM2_SMOKE_STRICT", "1") == "1"
 
+# PRD-I3 SEAM-4 discriminator (bystander morale on a casualty). Post-fix the death
+# packet ships every living unit's absolute morale, so a host casualty leaves ZERO
+# unitsStats(morale) drift on the parallel client with no boundary crossed. Default
+# ON = the permanent green gate; export SEAM4_MORALE_STRICT=0 to take the pre-fix
+# red baseline print-only without aborting the rest of the suite.
+MORALE_STRICT = os.environ.get("SEAM4_MORALE_STRICT", "1") == "1"
+
 
 # ---- readouts --------------------------------------------------------------
 
@@ -138,7 +145,7 @@ def unit_stat_diff(host, client):
     for uid in sorted(set(hu) & set(cu)):
         h, c = hu[uid], cu[uid]
         d = {k: (h.get(k), c.get(k)) for k in ("tu", "energy", "health", "stun",
-             "wounds") if k in h and k in c and h.get(k) != c.get(k)}
+             "wounds", "morale") if k in h and k in c and h.get(k) != c.get(k)}
         if d:
             diffs.append((uid, d))
     return diffs
@@ -286,21 +293,29 @@ def scenario_clean(host, client, hmover, cmover):
         f"scenario to say anything about coverage")
     settle_display(host, client)
     # strict: PRD-I0 scenario 1 asks for ZERO mismatches on a clean battle. Six of
-    # the seven buckets deliver that at birth over ~20 mixed actions - measured,
-    # and asserted here so a regression in any of them is a test failure today
-    # rather than after PRD-I3 promotes them.
+    # the seven buckets deliver that over ~20 mixed actions - asserted so a
+    # regression in any of them is a test failure today.
     #
-    # `unitsStats` is the seventh, and PRD-I0 names it as the expected-noisy one
-    # before a line of it was written. Measured at birth on this fixture: clean on
-    # most runs, 4 mismatches on others, over a plain sequence of walks, turns and
-    # kneels. It is a REAL per-action stat divergence (the sample points are the
-    # two machines' own chain drains, so there is no window for it to be a timing
-    # artefact) and it is PRD-I3's first job. Allowed, not ignored: the count is
-    # printed on every run so the burn-in has numbers to promote on.
-    # PRD-I3 Option D-lite (turn-sync) does NOT close this: it is a PLAYER-side
-    # per-action divergence, not the alien-side turn-machine racing D-lite removed
-    # (measured post-D-lite: still ~3 here over walks/turns/kneels), so the allowance
-    # STAYS - shrinking it to empty was tried and reverted.
+    # `unitsStats` is the seventh. Its clean-fixture residual was root-caused
+    # (PRD-I3) to MORALE, in two halves BOTH NOW CLOSED: (1) the DIRECT-DAMAGE half
+    # (a reaction hit's victim keeping its pre-hit morale until next_turn) fixed by
+    # shipping morale/energy/mana/tu on `hit_unit` (296c3b22c); (2) the BYSTANDER
+    # half (checkForCasualties changing EVERY living unit's morale on a casualty the
+    # thin client never runs) fixed by shipping every living unit's absolute morale
+    # on the death packets (SEAM-4) - proven ZERO by scenario_casualty_morale below.
+    #
+    # The allowance still could NOT shrink to empty: what remains is a SEPARATE,
+    # pre-existing residual - the client-not-quiesced SAMPLING transient on
+    # un-settled CLIENT kneels (SEAM-1 HANDOFF item (ii)). drive_mixed drives ~20
+    # actions back-to-back without per-action settle, so the detector intermittently
+    # reads the client's action_done hash for an instant-kind kneel mid-drain. It is
+    # NOT a persistent divergence: the at-rest unitsStats bucket is EQUAL host==client
+    # every time and unit_stat_diff is empty, so it heals the instant the client
+    # quiesces (per-triple settle_display reduces but does not eliminate it). It is an
+    # I0/I1 per-action-comparison timing artifact, not a state seam, and out of
+    # SEAM-4's scope - so the allowance is kept, now naming that residual rather than
+    # morale. Shrinking it to empty needs the instant-kind action_done emitted only
+    # after the kneel packet applies (a receive-ordering fix), or per-action settle.
     sc = session.assert_sync_clean(host, client, "after the player actions",
                                    strict=True, allow=("unitsStats",))
     print(f"    {n} player chains driven; compares={sc['compares']} "
@@ -807,6 +822,108 @@ def scenario_smoke(host, client, hmover, cmover):
     return sc
 
 
+# ---- SEAM-4. a casualty's bystander morale must replicate ------------------
+
+def scenario_casualty_morale(host, client, hmover, cmover):
+    """PRD-I3 SEAM-4: the death/stun BYSTANDER morale must ride the death packet.
+
+    BattlescapeGame::checkForCasualties applies a morale change to EVERY living unit
+    on any death/stun (the losing squad loses morale, the winning squad gains). A
+    parallel thin client never runs checkForCasualties for a kill it only DISPLAYS
+    (BattlescapeGame::coopDeath animates the death; a reaction-fire / alien-side kill
+    is never a local attack chain there), so pre-fix the whole squad's morale stays at
+    its pre-casualty value until next_turn's bulk re-ship one side later - a per-action
+    unitsStats(morale) divergence across every living bystander, and the residual that
+    kept scenario_clean's allow=("unitsStats",).
+
+    Deterministic discriminator: kill ONE PLAYER soldier on the HOST via kill_unit_real
+    (the faithful damage()+checkForCasualties path; the peer learns of the death only
+    through the coop death packets, exactly as in real play). The soldier's squadmates
+    are the LOSING squad, so their morale drops on the host; pre-fix that never reaches
+    the client. Post-fix the death packet ships every living unit's absolute morale, so
+    the unitsStats bucket and every bystander's morale match AT the casualty, with NO
+    boundary crossed (next_turn would otherwise mask it a side later).
+
+    A non-driver soldier is chosen so the drivers survive for scenario_red_bucket, and
+    only ONE alien-or-player is killed so the battle stays live (no auto-end)."""
+    print("-- SEAM-4: a casualty's bystander morale must ride the death packet --")
+    reset_sync(host, client)
+    settle_display(host, client)
+
+    # Baseline: the two machines must AGREE on unitsStats before the casualty, else a
+    # post-kill inequality would prove nothing.
+    hb = session.sync_buckets(host)["unitsStats"]
+    cb = session.sync_buckets(client)["unitsStats"]
+    assert hb == cb, (
+        f"unitsStats already diverged before the casualty (host {hb} client {cb}) - "
+        f"a carried-over skew, so this discriminator cannot isolate the bystander "
+        f"morale: {unit_stat_diff(host, client)}")
+
+    halive = [u for u in battle(host)["units"] if not u.get("isOut")]
+    hids = {u["id"] for u in halive}
+    cids = {u["id"] for u in battle(client)["units"] if not u.get("isOut")}
+    drivers = {hmover, cmover}
+    # Prefer a non-driver PLAYER soldier (its squadmates are the losing squad, so the
+    # bystander loss lands on the units the RCA measured); the loser-squad morale drop
+    # is unconditional (unlike a winner bump that a full-morale unit clamps away).
+    players = [u["id"] for u in halive if u.get("faction") == 0
+               and u["id"] not in drivers and u["id"] in cids]
+    aliens = [u["id"] for u in halive if u.get("faction") == 1 and u["id"] in cids]
+    n_players_live = sum(1 for u in halive if u.get("faction") == 0)
+    if players and n_players_live >= 3:
+        victim, squad = players[0], "player"
+    elif aliens and len([u for u in halive if u.get("faction") == 1]) >= 2:
+        victim, squad = aliens[0], "alien"
+    else:
+        print(f"    NOTE: no spare casualty available (players_live={n_players_live}, "
+              f"aliens={len(aliens)}); scenario skipped")
+        return sync(host)
+
+    r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": victim})
+    assert r.get("ok") and victim in r.get("killed", []), (
+        f"kill_unit_real did not kill {squad} {victim}: {r}")
+    settle_display(host, client)
+
+    ha = session.sync_buckets(host)["unitsStats"]
+    ca = session.sync_buckets(client)["unitsStats"]
+    diffs = unit_stat_diff(host, client)
+    morale_diffs = [(uid, d["morale"]) for uid, d in diffs if "morale" in d]
+    # kill_unit_real applies overkill damage() DIRECTLY and never sends a `hit_unit`
+    # packet, so the VICTIM's own hit_unit stats (fatalWounds) are not replicated - an
+    # artifact of the synthetic lever, not the seam under test (real play ships them via
+    # hit_unit BEFORE the death). Exclude the victim; SEAM-4 is about the BYSTANDERS.
+    other_diffs = [(uid, d) for uid, d in diffs if uid != victim]
+    non_morale_others = [(uid, {k: v for k, v in d.items() if k != "morale"})
+                         for uid, d in other_diffs if any(k != "morale" for k in d)]
+    print(f"    killed {squad} {victim}; unitsStats bucket host {hb}->{ha} "
+          f"client {cb}->{ca} ({'EQUAL' if ha == ca else 'DIVERGED'})")
+    print(f"    bystander morale diffs (id -> host,client) after the casualty: "
+          f"{morale_diffs}")
+    victim_art = [(uid, d) for uid, d in diffs if uid == victim]
+    if victim_art:
+        print(f"    victim-only artifact (kill_unit_real skips hit_unit): {victim_art}")
+
+    if MORALE_STRICT:
+        assert not morale_diffs, (
+            f"SEAM-4 NOT CLOSED: {len(morale_diffs)} bystander(s) morale diverged "
+            f"after the casualty {morale_diffs} - the death packet's bystander_morale "
+            f"array is not applying on the parallel client (checkForCasualties changed "
+            f"their morale on the host; the thin client never ran it)")
+        assert not non_morale_others, (
+            f"SEAM-4: a NON-victim unit diverged on a non-morale stat after the "
+            f"casualty {non_morale_others} - unexpected, kill_unit_real should move "
+            f"only bystander morale")
+        print(f"PASS SEAM-4: a host {squad} casualty left ZERO bystander morale drift "
+              f"on the thin client over {len([u for u in battle(host)['units'] if not u['isOut']])} "
+              f"living units (the death packet replicated every living unit's morale; "
+              f"victim fatalWounds is a hit_unit-less lever artifact)")
+    else:
+        print(f"    [SEAM4_MORALE_STRICT=0] baseline print-only: unitsStats bucket "
+              f"{'EQUAL' if ha == ca else 'DIVERGED'}, "
+              f"bystander morale diffs={len(morale_diffs)}")
+    return sync(host)
+
+
 # ---- I2. saveBlob: determinism, cost, boundary-only registry --------------
 
 def scenario_saveblob_selftest(host, client):
@@ -977,6 +1094,9 @@ def main():
         cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
         hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
         scenario_smoke(host, client, hmover, cmover)
+        cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
+        hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
+        scenario_casualty_morale(host, client, hmover, cmover)
         cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
         hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
         # scenario_red_bucket runs LAST: its one-sided item mint permanently skews
