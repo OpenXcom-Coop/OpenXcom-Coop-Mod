@@ -3305,6 +3305,16 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 			root["unit_id"] = target->getId();
 			root["health"] = target->getHealth();
 			root["stunlevel"] = target->getStunlevel();
+			// coop (PRD-I3): the remaining combat stats BattleUnit::damage() writes.
+			// A parallel thin client applies hit_unit WITHOUT replaying the attack, so
+			// without these the victim's morale/energy/mana/tu keep their pre-hit value
+			// until next_turn's bulk apply repairs them - a per-action unitsStats seam
+			// (morale is what a vanilla rifle shot exposes). Additive: an older peer
+			// ignores the fields.
+			root["morale"] = target->getMorale();
+			root["energy"] = target->getEnergy();
+			root["mana"] = target->getMana();
+			root["tu"] = target->getTimeUnits();
 
 			Json::Value fatalArray(Json::arrayValue);
 			for (int i = 0; i < BODYPART_MAX; ++i)

@@ -8210,6 +8210,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						unit->setHealth(health);
 						unit->setStunlevelCoop(stunlevel);
+						// coop (PRD-I3): a parallel thin client does NOT replay the attack,
+						// so hit_unit is the ONLY carrier of the victim's post-damage combat
+						// stats. Apply the additive fields the executor now ships (morale/
+						// energy/mana/tu, all written by BattleUnit::damage()) so the
+						// per-action unitsStats hash matches AT the hit instead of only after
+						// next_turn's bulk repair. Parallel-scoped so classic replay (which
+						// runs its own damage()) stays byte-identical; present-gated for old
+						// peers.
+						if (parallelTurnActive() && !getHost())
+						{
+							if (obj.isMember("morale")) unit->setCoopMorale(obj["morale"].asInt());
+							if (obj.isMember("energy")) unit->setCoopEnergy(obj["energy"].asInt());
+							if (obj.isMember("mana")) unit->setCoopMana(obj["mana"].asInt());
+							if (obj.isMember("tu")) unit->setTimeUnits(obj["tu"].asInt());
+						}
 						break;
 
 					}
