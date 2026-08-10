@@ -87,6 +87,35 @@ import test_skirmish_flow as SK
 
 PORT = "47979"
 
+# ---- the fixture pin -------------------------------------------------------
+#
+# The skirmish bring-up walks the NEW BATTLE screen (BATTLE SETTINGS ->
+# newbattle_ok), which reads `<userdir>/xcom1/battle.cfg` on the way up
+# (NewBattleState::load). With no file it takes the built-in defaults, and
+# mission index 0 is STR_SMALL_SCOUT - ONE hostile on a tiny map. A lone alien
+# is routinely cut down by X-Com reaction fire within the first 2-4 alien turns,
+# ending the mission into DebriefingState before the later sections can cross a
+# `next_turn` - the ~40% "battle ends early" flake. Index 1 is STR_MEDIUM_SCOUT:
+# >= MIN_HOSTILES on the same 40x40 footprint, so a handful survive the few
+# turns this test drives. One integer, written by the test into its own hermetic
+# user dir; deliberately NO `base` key, so NewBattleState keeps its normal
+# initSave() path. Same lever the PRD-P9 soak uses (29d5d4cb2).
+MISSION_MEDIUM_SCOUT = 1
+MIN_HOSTILES = 3
+FIXTURE_TRIES = 4
+
+
+def write_battle_fixture(user_dir, mission=MISSION_MEDIUM_SCOUT):
+    """Pin the NEW BATTLE mission for one instance's hermetic user dir. Written
+    to BOTH machines: the client walks the same NEW BATTLE screen on its way to
+    the server browser, so leaving the two setup screens on different missions
+    costs nothing to avoid."""
+    path = os.path.join(user_dir, "xcom1", "battle.cfg")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("mission: %d\n" % mission)
+    return path
+
+
 # Every state name either machine was seen sitting on while a turn was cycled.
 # The desync notice is a modal that cycle_turn dismisses within a poll or two, so
 # "did the dialog appear" cannot be answered by a check made afterwards - it has
@@ -260,25 +289,36 @@ def bring_up_battle(host, client):
 
 def drive_walk(driver, watcher, mover_id):
     """Walk `mover_id` one tile on the driver and wait for the WATCHER to mirror
-    it, so the action provably crossed. Returns (before, landed)."""
-    before = pos(battle(driver), mover_id)
-    dest = None
+    it, so the action provably crossed. Returns (origin, landed).
+
+    An ACCEPTED step can still stall - a walk interrupted the instant it starts
+    (e.g. the unit is spotted mid-step by a reaction-capable alien, likelier on
+    the medium-scout fixture) never moves the unit at all - so fall through to
+    the next adjacent tile rather than fail the whole test on one stalled step.
+    Any real movement counts as the step having crossed; only NO movement on
+    EVERY adjacent tile is a dead driver. Replication is still required."""
+    origin = pos(battle(driver), mover_id)
     driver.cmd({"cmd": "battle_action", "action": "select", "unit": mover_id})
+    landed = None
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
-        want = (before[0] + dx, before[1] + dy, before[2])
+        here = pos(battle(driver), mover_id)
+        want = (here[0] + dx, here[1] + dy, here[2])
         r = driver.cmd({"cmd": "battle_action", "action": "move", "unit": mover_id,
                         "x": want[0], "y": want[1], "z": want[2]})
-        if r.get("ok"):
-            dest = want
+        if not r.get("ok"):
+            continue
+        if wait_until(lambda h=here: pos(battle(driver), mover_id) != h, 45):
+            landed = pos(battle(driver), mover_id)
             break
-    assert dest, f"unit {mover_id} could not step to any adjacent tile"
-    assert wait_until(lambda: pos(battle(driver), mover_id) != before, 45), \
-        f"unit {mover_id} never moved on the driver - the DRIVER failed"
-    landed = pos(battle(driver), mover_id)
+        # accepted but the unit never stepped: a stalled/interrupted walk, not a
+        # replication result - try another direction (the unit may have spent TU).
+    assert landed is not None, (
+        f"unit {mover_id} accepted a step but never moved on any adjacent tile - "
+        f"the DRIVER stalled (started at {origin})")
     assert wait_until(lambda: pos(battle(watcher), mover_id) == landed, 45), \
         (f"the walk never replicated: driver has {mover_id} at {landed}, watcher at "
          f"{pos(battle(watcher), mover_id)}")
-    return before, landed
+    return origin, landed
 
 
 def pick_driver(host, client):
@@ -292,6 +332,23 @@ def movers(state, own_coop):
     return [u for u in state["units"]
             if u.get("faction") == 0 and u.get("selectable") and not u.get("isOut")
             and u.get("coop") == own_coop and u.get("tu", 0) > 20]
+
+
+def pick_grounded_victim(gc):
+    """A LIVE unit whose tile exists, for the one-sided `battle_give` GROUND mint.
+    Blindly taking units[0] can pick a soldier that DIED in the alien turn just
+    cycled - a unit with no tile, on which createItemForTile fails ("unit has no
+    tile"). The medium-scout fixture takes casualties (esp. with 5 aliens), so
+    filter to a unit still on its feet; prefer a player unit (always on a client
+    tile), fall back to any live unit."""
+    units = battle(gc)["units"]
+    for u in units:
+        if u.get("faction") == 0 and not u.get("isOut"):
+            return u["id"]
+    for u in units:
+        if not u.get("isOut"):
+            return u["id"]
+    return None
 
 
 def cycle_turn(host, client, timeout=300):
@@ -384,6 +441,28 @@ def wait_units_settled(host, client, samples=3, max_wait=60, interval=1.0):
     return False
 
 
+def wait_client_items_settled(client, samples=3, max_wait=45, interval=1.0):
+    """The CLIENT's item terms (itemId + census) are UNCHANGED across consecutive
+    samples - i.e. no item packet is still draining into them.
+
+    wait_units_settled quiesces the UNIT term, but a casualty's dropped kit from
+    the turn just cycled keeps landing in the item census afterwards (more so on
+    the medium-scout fixture). If that drain overlaps the exclusivity window
+    below, the census moves for a reason that is NOT the unit lever and the
+    unit-only proof reports a false "moved an item term too". Single-machine
+    STABILITY wait: the item terms are deliberately UNEQUAL between machines after
+    the section-4/6 skews, so cross-machine equality is the wrong test here."""
+    seen = []
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        cur = terms(client)[:2]
+        seen.append(cur)
+        if len(seen) >= samples and all(s == cur for s in seen[-samples:]):
+            return True
+        time.sleep(interval)
+    return False
+
+
 # The wire encoding of UnitStatus (connectionTCP::unitstatusToInt). Only the
 # "down" values matter here: everything a unit does while on its feet - walking,
 # turning, aiming - collapses to the same liveness class in the checksum, on
@@ -410,16 +489,43 @@ def main():
     # the battlescape with it. That is a pre-existing co-op/option interaction, not
     # something P2 touches; the test simply does not walk into it.
     opts = {"battleXcomSpeed": 2, "battleAlienSpeed": 2}
-    host = GameClient("host", 48850,
-                      make_user_dir("p2_tripwire_host",
-                                    options=dict(opts, skipNextTurnScreen=True)))
-    client = GameClient("client", 48851, make_user_dir("p2_tripwire_client", options=opts))
+    host = client = None
     fail = None
     try:
-        host.spawn(); host.connect()
-        client.spawn(); client.connect()
-        bring_up_battle(host, client)
-        print("battle up on both machines")
+        # --- the fixture, RE-ROLLED if the generator shorts it ----------------
+        # write_battle_fixture pins STR_MEDIUM_SCOUT so the battle survives the
+        # few turns this test drives (see the note by that helper). Some
+        # medium-scout aliens can still arrive dead-on-arrival (the same stock
+        # generator accident the PRD-P9 soak hit), so re-roll the whole battle
+        # until at least MIN_HOSTILES are LIVE rather than run a vacuous battle.
+        for attempt in range(1, FIXTURE_TRIES + 1):
+            host = GameClient("host", 48850,
+                              make_user_dir("p2_tripwire_host",
+                                            options=dict(opts, skipNextTurnScreen=True)))
+            client = GameClient("client", 48851,
+                                make_user_dir("p2_tripwire_client", options=opts))
+            for gc in (host, client):
+                write_battle_fixture(gc.user_dir)
+            host.spawn(); host.connect()
+            client.spawn(); client.connect()
+            bring_up_battle(host, client)
+            foes = [u["id"] for u in battle(host)["units"]
+                    if u.get("faction") == 1 and not u.get("isOut")]
+            if len(foes) >= MIN_HOSTILES:
+                print(f"battle up on both machines; fixture: {len(foes)} live "
+                      f"hostiles {foes}")
+                break
+            all_hostiles = [u["id"] for u in battle(host)["units"]
+                            if u.get("faction") == 1]
+            print(f"fixture short on attempt {attempt}: {len(foes)} live "
+                  f"hostile(s) of {len(all_hostiles)} generated {all_hostiles} - "
+                  f"re-rolling the battle")
+            assert attempt < FIXTURE_TRIES, (
+                f"{FIXTURE_TRIES} bring-ups in a row generated fewer than "
+                f"{MIN_HOSTILES} LIVE hostiles - battle.cfg (mission "
+                f"{MISSION_MEDIUM_SCOUT} = STR_MEDIUM_SCOUT) may not have taken. "
+                f"Units: {[(u['id'], u.get('faction')) for u in battle(host)['units']]}")
+            host.shutdown(); client.shutdown(); host = client = None
 
         # --- 1. the terms exist, are real, and agree at generation -------------
         base = session.assert_battle_synced(host, client, "at battle start")
@@ -496,9 +602,9 @@ def main():
             # Not something this test injected: the battle drifted on its own during
             # the alien turn (a known engine gap - PRD-P3/P4 is what fixes those).
             # The tripwire's job is to CATCH that, so assert it did.
-            assert desync_seen(client), (
+            assert wait_until(lambda: desync_seen(client), 30), (
                 f"MISSED: the two machines drifted during the turn (host={h}, "
-                f"client={c}) and the tripwire stayed silent")
+                f"client={c}) and the tripwire stayed silent 30s later")
             print(f"NOTE: the battle drifted on its own during the turn "
                   f"(host={h}, client={c}) - not injected by this test. The "
                   f"tripwire CAUGHT it, which is the assertion that matters; the "
@@ -510,7 +616,10 @@ def main():
         # ships in the game.
         already = desync_seen(client)
         pre = terms(client)
-        victim = battle(client)["units"][0]["id"]
+        victim = pick_grounded_victim(client)
+        assert victim is not None, (
+            "no live client unit with a tile to inject the one-sided mint on - the "
+            "fixture took too many casualties before section 4")
         # slot=ground: createItemForTile mints an id off the SHARED counter and adds
         # the item to _items, so both terms move - and nothing in a unit's inventory
         # is disturbed.
@@ -532,9 +641,9 @@ def main():
                        f"{battle(host).get('turn')}) - the skew was never stamped")
         print(f"turn cycled to {turn2} with the skew in place")
 
-        assert desync_seen(client), (
+        assert wait_until(lambda: desync_seen(client), 30), (
             f"TRIPWIRE MISSED the injected divergence: host={terms(host)} "
-            f"client={terms(client)}, desyncSeen still False after turn {turn2}")
+            f"client={terms(client)}, desyncSeen still False 30s after turn {turn2}")
         if already:
             print("PASS detection: the client's tripwire is set (it had already "
                   "fired on the earlier self-inflicted drift)")
@@ -724,7 +833,13 @@ def main():
               "and reports the folder + prefilled GitHub url they would open")
 
         # --- 6. the latch: a SECOND divergence adds no second bundle -----------
-        skew2 = client.cmd({"cmd": "battle_give", "unit": victim,
+        # A fresh live unit: the section-4 victim may have died in a turn cycled
+        # since, and the latch only needs SOME second one-sided mint.
+        victim2 = pick_grounded_victim(client)
+        assert victim2 is not None, (
+            "no live client unit with a tile for the second mint - the fixture took "
+            "too many casualties before the latch section")
+        skew2 = client.cmd({"cmd": "battle_give", "unit": victim2,
                             "item": "STR_STUN_ROD", "slot": "ground"})
         assert skew2.get("ok"), f"could not skew the client a second time: {skew2}"
         turn3 = cycle_turn(host, client)
@@ -763,6 +878,10 @@ def main():
             f"the fixture has fewer than two live player units to skew: "
             f"{[(u['id'], u.get('faction'), u['isOut']) for u in battle(client)['units']]}")
         down_id = alive[-1]["id"]
+        assert wait_client_items_settled(client), (
+            f"the client's item terms never stopped draining before the unit-only "
+            f"lever (itemId/census {terms(client)[:2]}) - a casualty's kit still "
+            f"landing would move the census inside the exclusivity window below")
         h_pre, c_pre = terms(host), terms(client)
         lever = client.cmd({"cmd": "battle_intent", "unit": down_id, "action": "turn",
                             "status": WIRE_STATUS_DEAD, "dry": True})
@@ -811,9 +930,9 @@ def main():
                        f"{battle(host).get('turn')}) - the unit skew was never "
                        f"stamped")
         print(f"turn cycled to {turn3} with the unit skew in place")
-        assert desync_seen(client), (
+        assert wait_until(lambda: desync_seen(client), 30), (
             f"TRIPWIRE MISSED the unit divergence: host={terms(host)} "
-            f"client={terms(client)} after turn {turn3}")
+            f"client={terms(client)} 30s after turn {turn3}")
 
         # WHICH term diverged has to be in the log line: the three watch different
         # families of bug, and a bare "BATTLE DESYNC" points a reader nowhere.
@@ -852,7 +971,10 @@ def main():
         fail = e
         print(f"[FAIL] {e}")
     finally:
-        host.shutdown(); client.shutdown()
+        if host is not None:
+            host.shutdown()
+        if client is not None:
+            client.shutdown()
 
     sys.exit(2 if fail else 0)
 
