@@ -255,6 +255,7 @@ std::uint32_t connectionTCP::_clientDisplaySideSeq = 0;
 std::uint32_t connectionTCP::_boundarySeq = 0;
 std::vector<std::string> connectionTCP::_pendingBoundaries;
 int connectionTCP::_turnAdvanceDeferred = 0;
+int connectionTCP::_turnAdvanceDeferredCount = 0;
 bool connectionTCP::_hostShipsNextTurnFields = false;
 bool connectionTCP::_testHoldActionDone = false;
 std::uint32_t connectionTCP::_heldActionDones = 0;
@@ -9976,6 +9977,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					&& _hostShipsNextTurnFields && side == 2)
 				{
 					_turnAdvanceDeferred = 1;
+					++_turnAdvanceDeferredCount; // coop (PRD-I3 rider): monotonic arm count
 				}
 				else
 				{
@@ -12663,6 +12665,7 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 		// it (and re-learn the host's next_turn capability) on a full reset - battle init
 		// and CoopState teardown both land here, so a stale flag can never cross battles.
 		_turnAdvanceDeferred = 0;
+		_turnAdvanceDeferredCount = 0;
 		_hostShipsNextTurnFields = false;
 		SharedEcon::resetSyncCheck();
 	}

@@ -4383,6 +4383,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// coop (PRD-I3 Option D-lite): the pending deferred turn-machine advance
 		// (1 while a neutral->player advance waits for its next_turn, else 0).
 		resp["turnAdvanceDeferred"] = connectionTCP::_turnAdvanceDeferred;
+		// coop (PRD-I3 rider): monotonic arm count - poll-timing-robust (the bool above
+		// can arm and clear inside one next_turn window a test poll misses).
+		resp["turnAdvanceDeferredCount"] = connectionTCP::_turnAdvanceDeferredCount;
 		resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
 		// PRD-P9 R7: packets set aside by a permanent exclusion instead of being
 		// rotated forever. Nothing is lost - they re-enter g_rxHold at the front.

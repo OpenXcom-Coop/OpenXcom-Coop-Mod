@@ -889,6 +889,12 @@ class connectionTCP
 	/// from the first fields-bearing next_turn whether the host authors turn/side (an
 	/// old host never does, so the client keeps the legacy inline advance).
 	static int _turnAdvanceDeferred;
+	/// coop (PRD-I3 rider): MONOTONIC count of NEUTRAL->PLAYER advance deferrals this
+	/// battle. The transient _turnAdvanceDeferred bool arms and clears inside one
+	/// next_turn window, which a test poll can miss; this only rises, so a test reads
+	/// a before/after delta instead of racing the flag. Reset with the flag on a full
+	/// resetActionArbiter (battle-scoped).
+	static int _turnAdvanceDeferredCount;
 	static bool _hostShipsNextTurnFields;
 	/// CLIENT (PRD-I0): answer a boundary marker with this machine's buckets.
 	void coopEmitBoundaryDone(std::uint32_t bseq);
