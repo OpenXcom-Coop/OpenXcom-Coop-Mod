@@ -4419,7 +4419,25 @@ bool saveBlobExcludedAnyKey(std::string_view k)
 	// aiMedikitUsed: an AI behaviour flag set only when the host's AI heals a unit.
 	// allocated: a pathfinding Node claimed by the host's AI for a patrol/spawn; the
 	//   client never allocates nodes.
-	return k == "AI" || k == "aiMedikitUsed" || k == "allocated";
+	// --- per-unit FOV / spotting (PRD-I3 FOW Option B rider) ---
+	// The visibility/spotting fields BattleUnit::save writes. Under the Option B
+	// contract FOW is PRESENTATION - derived locally from replicated positions,
+	// never promised identical between machines - so these are a permanent
+	// carve-out, exactly like the per-tile discovered bits masked out of binTiles.
+	// visible: whether THIS machine currently sees the unit (per-machine FOV).
+	// turnsSinceSpotted* / turnsLeftSpottedForSnipers* (the HOSTILE key plus the
+	//   ByXcom / ByCivilian faction variants): per-faction spotting timers driven
+	//   by each machine's own calculateFOV - FOW-class bookkeeping, not shared
+	//   state. turnsSinceStunned is deliberately NOT here: it is a stun-recovery
+	//   stat, part of the real unitsStats, not FOV.
+	return k == "AI" || k == "aiMedikitUsed" || k == "allocated"
+		|| k == "visible"
+		|| k == "turnsSinceSpotted"
+		|| k == "turnsSinceSpottedByXcom"
+		|| k == "turnsSinceSpottedByCivilian"
+		|| k == "turnsLeftSpottedForSnipers"
+		|| k == "turnsLeftSpottedForSnipersByXcom"
+		|| k == "turnsLeftSpottedForSnipersByCivilian";
 }
 
 // PRD-I3 FOW contract (Option B, decided 2026-08-09): the per-tile
