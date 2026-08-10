@@ -297,6 +297,10 @@ def scenario_clean(host, client, hmover, cmover):
     # two machines' own chain drains, so there is no window for it to be a timing
     # artefact) and it is PRD-I3's first job. Allowed, not ignored: the count is
     # printed on every run so the burn-in has numbers to promote on.
+    # PRD-I3 Option D-lite (turn-sync) does NOT close this: it is a PLAYER-side
+    # per-action divergence, not the alien-side turn-machine racing D-lite removed
+    # (measured post-D-lite: still ~3 here over walks/turns/kneels), so the allowance
+    # STAYS - shrinking it to empty was tried and reverted.
     sc = session.assert_sync_clean(host, client, "after the player actions",
                                    strict=True, allow=("unitsStats",))
     print(f"    {n} player chains driven; compares={sc['compares']} "
@@ -762,9 +766,17 @@ def scenario_smoke(host, client, hmover, cmover):
           f"{sc['buckets']['smoke']['mismatchCount']} fire bucket="
           f"{sc['buckets']['fire']['mismatchCount']} kinds={sc['comparedKinds']}")
     print(f"    boundary smoke={smoke_bnd} boundary fire={fire_bnd}")
-    print(f"    RACING RESIDUAL (Option D, ai/player seqs): smoke={len(smoke_ai)} "
-          f"unitsStats={len(us_ai)} - deterministic-but-early prepareNewTurn regen "
-          f"at the client's raced-ahead turn (out of this fix's scope)")
+    # PRD-I3 Option D-lite (turn-sync) flipped the ai/player-seq RACING RESIDUAL
+    # from a print into a strict assert. The client's turn machine no longer
+    # free-runs ahead of the gated display (the neutral->player advance defers to
+    # next_turn), so its deterministic per-unit regen is no longer hashed against a
+    # not-yet-regen'd host: `unitsStats` at an ai/player seq is 0. `smoke` at an
+    # ai/player seq is likewise 0 - the only thing that moved it was the raced-ahead
+    # turn; what smoke divergence remains is the SEAM-2 explosion/host-flush
+    # non-determinism the BOUNDARY assert below already gates (the two co-fire).
+    print(f"    RACING RESIDUAL (Option D-lite, ai/player seqs): smoke={len(smoke_ai)} "
+          f"unitsStats={len(us_ai)} - turn machine now follows next_turn, so the "
+          f"deterministic-but-early regen no longer straddles the host's side")
     if SMOKE_STRICT:
         assert not saturated, (
             f"the {len(ms)}-deep mismatch ring wrapped in a single side, so a "
@@ -778,9 +790,20 @@ def scenario_smoke(host, client, hmover, cmover):
             f"next_turn applied) make the boundary tile hazards host-authoritative; "
             f"a boundary smoke/fire mismatch means one of them regressed.\n"
             f"    {session._sync_mismatch_lines(sc)}")
-    print(f"PASS 5: no boundary smoke/fire divergence over a smoke-heavy side "
-          f"(smokeTiles={smoke_tiles}); racing residual smoke={len(smoke_ai)} "
-          f"unitsStats={len(us_ai)}")
+        assert not us_ai, (
+            f"D-lite NOT GREEN: unitsStats diverged at ai/player seq(s) {us_ai} - "
+            f"the client is still running its per-unit regen at a raced-ahead turn. "
+            f"The neutral->player advance must defer to the next_turn apply so the "
+            f"regen is hashed against the host's own regen'd side, not ahead of it.\n"
+            f"    {session._sync_mismatch_lines(sc)}")
+        assert not smoke_ai, (
+            f"smoke diverged at ai/player seq(s) {smoke_ai} - the raced-ahead turn "
+            f"machine was the cause D-lite removed; a residual here co-fires the "
+            f"boundary assert above and is the SEAM-2 explosion/flush divergence.\n"
+            f"    {session._sync_mismatch_lines(sc)}")
+    print(f"PASS 5: no boundary AND no ai-seq smoke/fire/unitsStats divergence over "
+          f"a smoke-heavy side (smokeTiles={smoke_tiles}); racing residual "
+          f"smoke={len(smoke_ai)} unitsStats={len(us_ai)}")
     return sc
 
 
