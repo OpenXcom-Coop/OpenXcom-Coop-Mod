@@ -1324,7 +1324,7 @@
     <ClInclude Include="version.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\res\windows\openxcom.ico" />
+    <None Include="..\res\windows\openxcom_coop.ico" />
     <None Include="CoopMod\clipboard\ClipboardMac.m" />
   </ItemGroup>
   <ItemGroup>
