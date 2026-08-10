@@ -2616,6 +2616,18 @@ void BattlescapeGame::coopSendKneelPacket(BattleUnit* bu)
 	Json::Value obj;
 	obj["state"] = "kneel";
 	obj["id"] = bu->getId();
+	// coop (PRD-I3 SEAM-1): the actor's POST-ACTION state. kneel() has no
+	// BattleState, so the peer replays it through toggeCoopKneel and re-decides -
+	// and its reserve gate (checkReservedTU / coopKneelReserveFor, keyed on the
+	// PEER's own reserve, which parallel mode does not replicate) can refuse a
+	// kneel this executor performed. The kneel cost is a constant (4 down / 8 up),
+	// so the charge only diverges when the flip itself does - the two drift
+	// together. Shipping the executor's final tu/energy AND kneeling bit lets the
+	// peer mirror the executed kneel instead of re-deciding it. Additive and
+	// presence-gated: an older peer ignores them and keeps the legacy re-decide.
+	obj["tu"] = bu->getTimeUnits();
+	obj["energy"] = bu->getEnergy();
+	obj["kneeled"] = bu->isKneeled();
 	getCoopMod()->sendTCPPacketData(obj.toStyledString());
 }
 

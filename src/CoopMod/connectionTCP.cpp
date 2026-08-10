@@ -7070,6 +7070,30 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		int id = obj["id"].asInt();
 		BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 		battlestate->toggeCoopKneel(id);
+		// coop (PRD-I3 SEAM-1): mirror the executor's post-action kneel instead of
+		// trusting the peer's own re-decide. toggeCoopKneel re-ran kneel(), whose
+		// reserve gate can refuse a kneel the executor performed (the peer's local
+		// reserve is not replicated in parallel mode), leaving the kneeler off by the
+		// kneel cost AND on the wrong kneeling bit. Force the shipped final tu/energy
+		// (the same P9 cost-replication helper as active_grenade / medkit) and the
+		// kneeling bit so the two copies agree. Presence-gated: an older sender omits
+		// them and the legacy re-decide above stands (bidirectional compat).
+		if (obj.isMember("tu"))
+		{
+			SavedBattleGame* battleForKneel = _game->getSavedGame()->getSavedBattle();
+			coopApplyActorCost(obj, id, battleForKneel);
+			if (obj.isMember("kneeled"))
+			{
+				for (auto* u : *battleForKneel->getUnits())
+				{
+					if (u->getId() == id)
+					{
+						u->kneel(obj["kneeled"].asBool());
+						break;
+					}
+				}
+			}
+		}
 	}
 
 	if (stateString == "BattleScapeMove")
