@@ -519,6 +519,18 @@ void syncCheckReport(Json::Value& out);
 /// Clears the ring, the latches and the mismatch log. Called from
 /// resetResyncStats() (harness `shared_reset_resync_stats`) and at battle teardown.
 void resetSyncCheck();
+/// PRD-I3 SEAM-7 (test/burn-in probe): arm/disarm the opt-in per-mismatch field
+/// capture. When on, the client attaches its full per-unit unitsStats field vector
+/// to every action_done ("uv") and the host stashes its own into the sync ring, so a
+/// unitsStats mismatch is diffed field-by-field into syncCheck.fieldDiffs. Off by
+/// default = zero wire delta.
+void setSyncFieldCapture(bool on);
+bool syncFieldCapture();
+/// PRD-I3 SEAM-7: the FULL unitsStats bucket field vector per battle unit - EXACTLY
+/// the fields computeBattleHashes() mixes into the unitsStats sum (tu, energy, health,
+/// stun, morale, mana, fire, kneeled, mind-controller id, the six per-part fatal-wound
+/// counters w0..w5). @a onlyId >= 0 narrows to one unit. Empty array with no battle.
+void unitStatsFullJson(Game* game, Json::Value& out, int onlyId);
 
 // ---- Desync auto-report bundle -----------------------------------------------
 // A logic desync leaves no stack to trace: by the time the two machines disagree

@@ -4333,6 +4333,10 @@ struct SyncRingEntry
 	// PRD-I2: boundary-only save-derived hash. Left 0 (and never shipped) for
 	// per-action entries; recorded only for boundary entries (see syncCheckRecord).
 	std::uint64_t saveBlob = 0;
+	// PRD-I3 SEAM-7 (opt-in): this machine's full per-unit unitsStats field vector at
+	// hash time, so a unitsStats mismatch on this entry can be diffed field-by-field
+	// against the peer's `uv`. Null (and cheap) unless the capture toggle is armed.
+	Json::Value statVec;
 };
 
 // Size 64 per PRD-I0 §3. The display-backlog cap is 2, so the executor can never
@@ -4354,6 +4358,21 @@ struct SyncMismatch
 // the introspection block is read by a test on every poll.
 const size_t SYNC_MISMATCH_MAX = 32;
 std::deque<SyncMismatch> g_syncMismatches;
+
+// PRD-I3 SEAM-7: the exact per-unit field(s) behind a unitsStats bucket mismatch,
+// recorded when the opt-in field capture rode both the ring entry and the peer report.
+struct SyncFieldDiff
+{
+	std::uint32_t seq;
+	bool boundary;
+	std::string kind;
+	int unitId;
+	std::string field;
+	std::int64_t host;
+	std::int64_t peer;
+};
+const size_t SYNC_FIELDDIFF_MAX = 64;
+std::deque<SyncFieldDiff> g_syncFieldDiffs;
 
 std::uint64_t g_syncBucketMismatches[BATTLE_HASH_BUCKETS] = { 0 };
 // PRD-I3 SEAM-2 HALF 1: per-bucket COMPARES - times a bucket was actually sampled
@@ -4819,6 +4838,51 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 	return true;
 }
 
+// ---- PRD-I3 SEAM-7: per-seq live unit-field dump + opt-in field-diff capture -------
+//
+// The unitsStats bucket is a SUM of FNV mixes: a mismatch names the bucket but never
+// WHICH field of WHICH unit drifted, and the existing unit_stat_diff harness probe
+// (battle_state.units) samples only tu/energy/health/stun/wounds/morale - NOT fire,
+// kneeling, mana, mind-controller id or the six PER-PART fatal-wound counters, which
+// are precisely the fields the bucket hashes that it cannot see. This builds the FULL
+// bucket field vector per unit so a live dump (unit_stats_full lever) and an opt-in
+// on-mismatch cross-machine diff can NAME the field. Introspection only.
+bool g_syncFieldCapture = false;
+void setSyncFieldCapture(bool on) { g_syncFieldCapture = on; }
+bool syncFieldCapture() { return g_syncFieldCapture; }
+
+void unitStatsFullJson(Game* game, Json::Value& out, int onlyId)
+{
+	out = Json::Value(Json::arrayValue);
+	if (!game || !game->getSavedGame()) return;
+	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
+	if (!battle) return;
+	for (BattleUnit* unit : *battle->getUnits())
+	{
+		if (!unit) continue;
+		if (onlyId >= 0 && unit->getId() != onlyId) continue;
+		Json::Value u(Json::objectValue);
+		u["id"] = unit->getId();
+		// EXACTLY the computeBattleHashes() unitsStats field set, same order, so a
+		// fieldDiffs readout explains a unitsStats bucket mismatch term for term.
+		u["tu"] = unit->getTimeUnits();
+		u["energy"] = unit->getEnergy();
+		u["health"] = unit->getHealth();
+		u["stun"] = unit->getStunlevel();
+		u["morale"] = unit->getMorale();
+		u["mana"] = unit->getMana();
+		u["fire"] = unit->getFire();
+		u["kneeled"] = unit->isKneeled() ? 1 : 0;
+		u["mc"] = unit->getMindControllerId();
+		const int* wounds = unit->getFatalWoundsCoop();
+		for (int part = 0; part < BODYPART_MAX; ++part)
+		{
+			u["w" + std::to_string(part)] = wounds ? wounds[part] : 0;
+		}
+		out.append(u);
+	}
+}
+
 /**
  * PRD-I2: the save-derived boundary hash - the coverage backstop.
  *
@@ -4898,6 +4962,9 @@ void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
 	// e.saveBlob at 0 and never ship the field, so it is compared only at
 	// boundaries; recorded here so the peer's boundary report has a match.
 	if (boundary) computeSaveBlobHash(game, e.saveBlob);
+	// PRD-I3 SEAM-7: stash this machine's full unitsStats field vector (opt-in), the
+	// SAME sample e.h was computed from, for a field-by-field mismatch diff later.
+	if (g_syncFieldCapture) unitStatsFullJson(game, e.statVec, -1);
 
 	while (g_syncRing.size() >= SYNC_RING_MAX)
 	{
@@ -4930,6 +4997,11 @@ void syncCheckAttach(Game* game, Json::Value& msg)
 		node[BATTLE_HASH_NAMES[i]] = static_cast<Json::UInt64>(battleHashBucketValue(h, i));
 	}
 	msg["h"] = node;
+	// PRD-I3 SEAM-7 (opt-in): the full per-unit field vector, sampled in the SAME pass
+	// as `h`, so the host can diff a unitsStats mismatch field-by-field. Absent unless
+	// the capture toggle is armed (zero wire delta by default; an old/normal peer never
+	// sends it, and the host presence-gates on it).
+	if (g_syncFieldCapture) unitStatsFullJson(game, msg["uv"], -1);
 }
 
 void syncCheckAttachBoundary(Game* game, Json::Value& msg)
@@ -4943,6 +5015,45 @@ void syncCheckAttachBoundary(Game* game, Json::Value& msg)
 	std::uint64_t blob = 0;
 	if (computeSaveBlobHash(game, blob))
 		msg["h"]["saveBlob"] = static_cast<Json::UInt64>(blob);
+}
+
+// PRD-I3 SEAM-7: diff the two machines' full unit-field vectors (host ring entry vs
+// peer `uv`) and record/log each disagreeing (unit, field, host, peer). Called only
+// when a unitsStats bucket term mismatched AND both vectors are present (capture on).
+static void recordSeam7FieldDiffs(const Json::Value& hostUv, const Json::Value& peerUv,
+	std::uint32_t seq, bool boundary, const std::string& kind)
+{
+	std::map<int, Json::Value> peerById;
+	for (Json::ArrayIndex i = 0; i < peerUv.size(); ++i)
+	{
+		const Json::Value& pu = peerUv[i];
+		if (pu.isObject() && pu.isMember("id")) peerById[pu["id"].asInt()] = pu;
+	}
+	for (Json::ArrayIndex i = 0; i < hostUv.size(); ++i)
+	{
+		const Json::Value& hu = hostUv[i];
+		if (!hu.isObject() || !hu.isMember("id")) continue;
+		int id = hu["id"].asInt();
+		auto it = peerById.find(id);
+		if (it == peerById.end()) continue;
+		const Json::Value& pu = it->second;
+		for (const auto& key : hu.getMemberNames())
+		{
+			if (key == "id") continue;
+			if (!pu.isMember(key)) continue;
+			const std::int64_t hv = hu[key].asInt64();
+			const std::int64_t pv = pu[key].asInt64();
+			if (hv == pv) continue;
+			if (g_syncFieldDiffs.size() >= SYNC_FIELDDIFF_MAX) g_syncFieldDiffs.pop_front();
+			SyncFieldDiff d;
+			d.seq = seq; d.boundary = boundary; d.kind = kind;
+			d.unitId = id; d.field = key; d.host = hv; d.peer = pv;
+			g_syncFieldDiffs.push_back(d);
+			Log(LOG_WARNING) << "[COOP][SEAM7] unitsStats field diff seq=" << seq
+				<< (boundary ? " (boundary)" : "") << " kind=" << (kind.empty() ? "?" : kind)
+				<< " unit=" << id << " field=" << key << " host=" << hv << " peer=" << pv;
+		}
+	}
 }
 
 void syncCheckCompare(Game* game, const Json::Value& msg)
@@ -5042,6 +5153,14 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 					   << " host=" << mine << " peer=" << peer
 					   << (battleHashBucketAlarms(i) ? " [ALARM]" : " [report-only]");
 		if (battleHashBucketAlarms(i)) alarm = true;
+
+		// PRD-I3 SEAM-7: name the exact field(s) behind a unitsStats bucket mismatch,
+		// when the opt-in capture rode both this report (`uv`) and this ring entry.
+		if (std::strcmp(name, "unitsStats") == 0 && entry->statVec.isArray()
+			&& msg.isMember("uv") && msg["uv"].isArray())
+		{
+			recordSeam7FieldDiffs(entry->statVec, msg["uv"], seq, boundary, entry->kind);
+		}
 	}
 
 	// PRD-I2: the boundary-only save-derived bucket. Presence-gated exactly like
@@ -5160,6 +5279,25 @@ void syncCheckReport(Json::Value& out)
 		list.append(j);
 	}
 	node["mismatches"] = list;
+
+	// PRD-I3 SEAM-7: the exact per-unit field disagreements behind a unitsStats
+	// mismatch, populated only when the opt-in field capture was armed on both machines.
+	Json::Value fdiffs(Json::arrayValue);
+	for (const auto& d : g_syncFieldDiffs)
+	{
+		Json::Value j(Json::objectValue);
+		j["seq"] = static_cast<Json::UInt>(d.seq);
+		j["boundary"] = d.boundary;
+		j["kind"] = d.kind;
+		j["unit"] = d.unitId;
+		j["field"] = d.field;
+		j["host"] = static_cast<Json::Int64>(d.host);
+		j["peer"] = static_cast<Json::Int64>(d.peer);
+		fdiffs.append(j);
+	}
+	node["fieldDiffs"] = fdiffs;
+	node["fieldCapture"] = g_syncFieldCapture;
+
 	out["syncCheck"] = node;
 }
 
@@ -5263,6 +5401,9 @@ void resetSyncCheck()
 	g_syncStaleReports = 0;
 	g_syncDropped = 0;
 	g_syncKindCompares.clear();
+	// PRD-I3 SEAM-7: per-episode field-diff diagnostics reset with the ring; the
+	// capture TOGGLE is deliberately NOT reset here (the harness arms it once per run).
+	g_syncFieldDiffs.clear();
 }
 
 void attachWorldChecksum(Game* game, Json::Value& msg)

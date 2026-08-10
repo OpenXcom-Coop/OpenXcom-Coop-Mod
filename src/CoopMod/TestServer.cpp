@@ -3477,6 +3477,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_reserve"
 		&& cmd != "rx_inject"
 		&& cmd != "hold_action_done"
+		&& cmd != "unit_stats_full"
+		&& cmd != "sync_capture"
 		&& cmd != "parallel_state"
 		&& cmd != "save_blob")
 	{
@@ -4512,6 +4514,33 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["kneelReserve"] = sbg->getKneelReserved();
 		resp["chainReserve"] = bg ? bg->coopChainReserveMode() : -1;
 		resp["chainReserveUnit"] = bg ? bg->coopChainReserveUnit() : -1;
+		resp["ok"] = true;
+	}
+	else if (cmd == "unit_stats_full")
+	{
+		// PRD-I3 SEAM-7 probe: the FULL unitsStats bucket field vector per unit
+		// (tu/energy/health/stun/morale/mana/fire/kneeled/mind-controller id + the
+		// six per-part fatal-wound counters w0..w5) - every field
+		// computeBattleHashes() mixes into the unitsStats sum, so a live cross-machine
+		// diff at a settle point names the field the bucket hash only counts. The
+		// existing battle_state.units probe omits fire/kneeled/mana/MC/per-part wounds.
+		// Introspection only; `{"id": N}` narrows to one unit.
+		int onlyId = req.get("id", -1).asInt();
+		Json::Value units;
+		SharedEcon::unitStatsFullJson(_game, units, onlyId);
+		resp["units"] = units;
+		resp["ok"] = true;
+	}
+	else if (cmd == "sync_capture")
+	{
+		// PRD-I3 SEAM-7: arm/disarm the opt-in per-mismatch field capture. When ON
+		// (set on BOTH machines), the client attaches its full unit-field vector to
+		// each action_done (`uv`) and the host stashes its own into the sync ring, so a
+		// unitsStats mismatch is diffed field-by-field into syncCheck.fieldDiffs. OFF
+		// by default = zero wire delta. `{"on": bool}` (omitted = true).
+		bool on = req.get("on", true).asBool();
+		SharedEcon::setSyncFieldCapture(on);
+		resp["fieldCapture"] = SharedEcon::syncFieldCapture();
 		resp["ok"] = true;
 	}
 	else if (cmd == "hold_action_done")
