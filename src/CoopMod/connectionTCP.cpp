@@ -5957,6 +5957,23 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				AbortCoopWalk = true;
 
 				_game->getSavedGame()->getSavedBattle()->getBattleGame()->abortCoopPath(x, y, z, unit_id, setDirection, setFaceDirection);
+				// coop (SEAM-3 door B): apply the hinged doors the executor opened during the
+				// walk, cost-free (MCD swap + lighting/FOV, no TU) via the fix-A costFree path.
+				// The peer's own replay walk left hinged doors state-neutral, so this is the
+				// sole authority for them. Additive + presence-gated (old host omits it).
+				if (obj.isMember("doors_opened"))
+				{
+					SavedBattleGame* sbgDoors = _game->getSavedGame()->getSavedBattle();
+					const Json::Value& doorsArr = obj["doors_opened"];
+					for (Json::ArrayIndex di = 0; di < doorsArr.size(); ++di)
+					{
+						Tile* dt = sbgDoors->getTile(Position(doorsArr[di]["x"].asInt(),
+													 doorsArr[di]["y"].asInt(),
+													 doorsArr[di]["z"].asInt()));
+						if (dt)
+							dt->openDoor((TilePart)doorsArr[di]["part"].asInt(), 0, BA_NONE, false, true);
+					}
+				}
 
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{

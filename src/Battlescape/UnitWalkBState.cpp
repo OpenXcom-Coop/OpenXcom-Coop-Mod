@@ -177,6 +177,25 @@ void UnitWalkBState::deinit()
 		// receiver applies it on the parallel client only, so classic is byte-identical.
 		root["kneeled"] = _unit->isKneeled();
 
+		// coop (SEAM-3 door B): the hinged doors this walk opened, keyed {x,y,z,part},
+		// so the peer - whose replay walk is door-state-neutral - applies them cost-free
+		// at abortPath receipt. Additive + presence-gated: an older peer ignores the
+		// field (and falls back to fix A's cost-free replay open).
+		if (!_coopWalkDoors.empty())
+		{
+			Json::Value doorsArr(Json::arrayValue);
+			for (const auto& d : _coopWalkDoors)
+			{
+				Json::Value dj;
+				dj["x"] = d.first.x;
+				dj["y"] = d.first.y;
+				dj["z"] = d.first.z;
+				dj["part"] = d.second;
+				doorsArr.append(dj);
+			}
+			root["doors_opened"] = doorsArr;
+		}
+
 		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
 		{
 			int j = 0;
@@ -540,12 +559,24 @@ void UnitWalkBState::think()
 			// now open doors (if any)
 			if (dir < Pathfinding::DIR_UP)
 			{
-				// coop (SEAM-3 door): on a co-op REPLAY of a host walk (peer, not the active
-			// sync player) open the door cost-free, so a transient local TU/reserve
-			// shortfall from the peer's independent re-path cannot leave a door the host
-			// walked through permanently closed on the peer.
+				// coop (SEAM-3 door B): the peer's REPLAY walk is door-state-neutral - it never
+			// swaps a hinged door. The EXECUTOR records the hinged doors it opens and ships
+			// them on the abortPath closer (deinit), applied cost-free on the peer. So
+			// neither a TU/reserve/re-path shortfall (peer misses a host open) nor a
+			// divergent re-path (peer opens one the host never crossed) can drift hinged-
+			// door state. UFO doors are unaffected (replayNeutral only gates the hinged
+			// branch; their frame animation still runs on the peer).
 			bool coopReplayDoor = _parent->isCoop() && !_parent->getCoopMod()->_isActivePlayerSync;
-			int door = _terrain->unitOpensDoor(_unit, false, dir, coopReplayDoor);
+			Position openedPos;
+			int openedPart = -1;
+			int door = _terrain->unitOpensDoor(_unit, false, dir, false, coopReplayDoor,
+											   coopReplayDoor ? 0 : &openedPos,
+											   coopReplayDoor ? 0 : &openedPart);
+			if (!coopReplayDoor && door == 0 && _parent->isCoop()
+				&& _parent->getCoopMod()->_isActivePlayerSync)
+			{
+				_coopWalkDoors.push_back(std::make_pair(openedPos, openedPart));
+			}
 				if (door == 3)
 				{
 					return; // don't start walking yet, wait for the ufo door to open

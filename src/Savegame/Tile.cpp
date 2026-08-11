@@ -359,7 +359,7 @@ int Tile::getFootstepSound(Tile *tileBelow) const
  * @param rClick
  * @return a value: 0(normal door), 1(ufo door) or -1 if no door opened or 3 if ufo door(=animated) is still opening 4 if not enough TUs
  */
-int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bool rClick, bool costFree)
+int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bool rClick, bool costFree, bool replayNeutral)
 {
 	if (!_objects[part]) return -1;
 
@@ -378,6 +378,13 @@ int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bo
 
 	if (_objectsCache[part].isDoor)
 	{
+		// coop (SEAM-3 door B): the peer's REPLAY walk is door-state-neutral - it never
+		// swaps a hinged door. The executor records the doors it opened and ships them
+		// on abortPath, which the peer applies cost-free. This makes hinged-door state
+		// fully executor-authoritative in BOTH directions (the peer can neither miss a
+		// host open on a TU/reserve/re-path shortfall, nor open one the host never did).
+		if (replayNeutral)
+			return -1;
 		if (unit && unit->isBigUnit()) // don't allow double-wide units to open swinging doors due to engine limitations
 			return -1;
 		// coop (SEAM-3 door): a co-op REPLAY of a host walk (costFree) must not bail on

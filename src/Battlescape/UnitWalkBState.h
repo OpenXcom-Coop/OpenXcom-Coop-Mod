@@ -20,6 +20,8 @@
 #include "BattleState.h"
 #include "BattlescapeGame.h"
 #include "Position.h"
+#include <vector>
+#include <utility>
 
 namespace OpenXcom
 {
@@ -59,6 +61,10 @@ private:
 	/// never be released and would jam the peer's queue for the rest of the
 	/// battle. Acquire once, release once.
 	bool _coopGateHeld = false;
+	/// coop (SEAM-3 door B): hinged doors this EXECUTOR walk opened, shipped on the
+	/// abortPath closer so the peer (whose replay walk is door-state-neutral) can
+	/// apply them cost-free. Each entry is {door tile position, tile part}.
+	std::vector<std::pair<Position, int>> _coopWalkDoors;
 public:
 	/// Creates a new UnitWalkBState class.
 	UnitWalkBState(BattlescapeGame *parent, BattleAction _action);

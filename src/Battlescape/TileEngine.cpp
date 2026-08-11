@@ -4471,7 +4471,7 @@ int TileEngine::blockage(Tile *tile, const TilePart part, ItemDamageType type, i
  *		  4 not enough TUs
  *		  5 would contravene fire reserve
  */
-int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir, bool costFree)
+int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir, bool costFree, bool replayNeutral, Position *openedPos, int *openedPart)
 {
 	int door = -1;
 	int TUCost = 0;
@@ -4575,7 +4575,7 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir, bool costF
 				tile = _save->getTile(unit->getPosition() + Position(x,y,z) + pair.first);
 				if (tile)
 				{
-					door = tile->openDoor(pair.second, unit, _save->getBattleGame()->getReservedAction(), rClick, costFree);
+					door = tile->openDoor(pair.second, unit, _save->getBattleGame()->getReservedAction(), rClick, costFree, replayNeutral);
 					if (door != -1)
 					{
 						part = pair.second;
@@ -4583,6 +4583,10 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir, bool costF
 						{
 							++doorsOpened;
 							doorCentre = unit->getPosition() + Position(x, y, z) + pair.first;
+							// coop (SEAM-3 door B): report the hinged door the executor just
+							// opened, so UnitWalkBState can ship it on the walk closer.
+							if (openedPos) *openedPos = unit->getPosition() + Position(x, y, z) + pair.first;
+							if (openedPart) *openedPart = (int)pair.second;
 						}
 						else if (door == 1)
 						{
