@@ -7,12 +7,15 @@ The XCOM player should see them via radar.
 This test advances time and checks for UFOs in geo_state, WITHOUT
 using spawn_ufo (which force-creates a UFO bypassing the sim).
 
-Validates:
+Validates (both gm2 host=XCOM and gm3 host=alien):
   1. Natural UFOs appear as time advances (no spawn_ufo involved).
-  2. Both machines see UFOs in geo_state after time advancement.
-  3. gm2 (host=XCOM): time advances, UFOs should appear.
-  4. gm3 (host=alien): time cannot advance (B1/B2), so UFOs won't
-     appear — this IS the bug.
+  2. Both machines observe UFOs as the geoscape sim runs.
+
+UFOs are transient, so detection runs at the MAX time step and gates on
+the UNION of coop UFO ids each machine EVER sees across the window -- never
+on an instantaneous count, which can sample the gap between two UFOs and
+fail nondeterministically (the original flake: the peer saw UFOs while the
+host's one-shot count read 0 a moment too early).
 
 Run:  python tools/coop_test/test_pvp_campaign_ufo_spawn.py
 Exit 0 = pass; 2 = failure.
@@ -132,60 +135,68 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
                 break
         if rolled:
             print(f"    month rolled: mp {mp0} -> {_geo(host)['monthsPassed']}")
-            # Drain popups after month roll
+            # Drain popups after month roll (a few passes is enough; the UFO
+            # accumulation loop below also auto-drains every tick).
             for gc in (host, client):
-                for _ in range(10):
+                for _ in range(4):
                     geo.drain_popups(gc)
-                    time.sleep(0.3)
+                    time.sleep(0.2)
                 gc.cmd({"cmd": "dismiss_popup"})
 
-        # Advance a few more days for UFOs to appear
-        print("    advancing a few days for UFOs to spawn...")
-        ufos_found = False
+        # ---- advance at MAX speed and ACCUMULATE natural-UFO sightings ----
+        # Natural UFOs are transient: each spawns, flies, may land, then leaves.
+        # At the max time step (speed 5 = one game-DAY per tick) a single
+        # instantaneous count can fall in the gap between two UFOs and read 0 even
+        # though the alien sim IS producing them - that was the flake (the peer saw
+        # UFOs while the host's one-shot count sampled a moment too early, so the
+        # gate failed nondeterministically). The detection must survive the MAX
+        # step, so keep speed 5 and gate on the UNION of coop UFO ids each machine
+        # has EVER seen across the window, not on a UFO being airborne at one exact
+        # instant. hufos0/cufos0 are the (zero) baselines captured above.
+        print("    advancing (max speed) + accumulating UFO sightings...")
+        host_seen, client_seen = set(), set()
+
+        def _harvest():
+            for gc, seen in ((host, host_seen), (client, client_seen)):
+                for u in _geo(gc).get("ufos", []):
+                    seen.add(u["coopId"])
+
+        _harvest()
+        roll_mp = _geo(host).get("monthsPassed", 0)
+        start_min = geo.game_minutes(host) or 0
         t0 = time.time()
-        while time.time() - t0 < 120:
+        while time.time() - t0 < 240:
             try:
-                geo.skip_ingame_time(host, client, minutes=60 * 4,
+                geo.skip_ingame_time(host, client, minutes=60 * 6,
                                      speed_idx=5, real_timeout=30)
             except Exception:
                 break
-            h1 = _geo(host)
-            hufos = len(h1.get("ufos", []))
-            hday = h1.get("time", {}).get("day", 0)
-            if hufos > 0:
-                ufos_found = True
-                print(f"    day {hday}: host UFOs={hufos} "
-                      f"client UFOs={len(_geo(client).get('ufos', []))}")
+            _harvest()
+            # Stop as soon as BOTH machines have observed a natural UFO.
+            if host_seen and client_seen:
                 break
-            if hday > 15:
+            now_min = geo.game_minutes(host) or start_min
+            # Hard caps so an unlucky seed still terminates AND we never sit long
+            # enough to cross the next month-end (avoids the month-end base-defense
+            # UAF): stop after ~20 game-days or if a 2nd month rolls.
+            if now_min - start_min > 20 * 24 * 60:
+                break
+            if _geo(host).get("monthsPassed", roll_mp) > roll_mp:
                 break
 
-        if not ufos_found:
-            # B1 is claimed fixed: the alien host (gamemode 3) must spawn UFOs
-            # like every other campaign. No UFOs after the month roll + 15 days
-            # is a hard failure for every mode now - the gm3 soft-pass that used
-            # to swallow it has been removed so the suite enforces the fix.
-            _fail(fails, f"{tag}: no UFOs found after month roll + 15 days")
-            return
+        hseen, cseen = len(host_seen), len(client_seen)
+        print(f"    UFO sightings accumulated: host={hseen} client={cseen}")
 
-        h1 = _geo(host)
-        c1 = _geo(client)
-        hufos1 = len(h1.get("ufos", []))
-        cufos1 = len(c1.get("ufos", []))
-
-        if hufos1 > hufos0:
-            print(f"PASS {tag}: host UFOs increased {hufos0} -> {hufos1}")
+        if hseen > 0:
+            print(f"PASS {tag}: host observed natural UFO(s) at max time step "
+                  f"(ids={sorted(host_seen)})")
         else:
-            # B1 claimed fixed: gm3 no longer gets a pass here - the host must
-            # grow its UFO set like gm2 does. Hard fail for every mode now.
-            _fail(fails, f"{tag}: no natural UFOs appeared on host")
+            _fail(fails, f"{tag}: no natural UFOs ever observed on host over the window")
 
-        if cufos1 > cufos0:
-            print(f"PASS {tag}: client UFOs increased {cufos0} -> {cufos1}")
+        if cseen > 0:
+            print(f"PASS {tag}: client observed natural UFO(s) at max time step")
         else:
-            # B1 claimed fixed: gm3 no longer gets a pass here either - the
-            # client must grow its UFO set like gm2 does. Hard fail now.
-            _fail(fails, f"{tag}: no natural UFOs appeared on client")
+            _fail(fails, f"{tag}: no natural UFOs ever observed on client over the window")
 
         # ---- P2/P7 desync gate: the role-aware no_bases guard must freeze only
         # the non-host alien machine. Identify the two machines by role:
