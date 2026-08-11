@@ -534,6 +534,30 @@ bool syncFieldCapture();
 /// counters w0..w5). @a onlyId >= 0 narrows to one unit. Empty array with no battle.
 void unitStatsFullJson(Game* game, Json::Value& out, int onlyId);
 
+// ---- PRD-I3 SEAM-3 (terrain/door): per-seq terrain vector capture ------------
+/// The `terrain` bucket is a SUM of per-tile FNV mixes: a mismatch names the bucket
+/// but never WHICH tile/part/field drifted. This is the terrain analogue of the
+/// SEAM-7 unit field-diff tooling, but the full tile vector (up to 60x60x4 = 14400
+/// tiles) is far too large to ship on every action_done, so it is INTROSPECTION
+/// ONLY (no wire change): when armed, BOTH machines stash their full non-void tile
+/// vector at each hash point into a bounded local ring, and the harness reads both
+/// rings for the mismatching seq and diffs them OFFLINE via the two TestServers.
+void setSyncTerrainCapture(bool on);
+bool syncTerrainCapture();
+/// LIVE probe: the full non-void tile vector right now - per tile: index, the four
+/// TilePart map-data id + set-id pairs and getExplosive()/getExplosiveType() (EXACTLY
+/// the `terrain` bucket field set), plus a diagnostic per-part `door` bitmask
+/// (isUfoDoorOpen, which the bucket is BLIND to - see VERIFY-1). @a onlyIndex >= 0
+/// narrows to one tile. Empty array with no battle.
+void tileTerrainFullJson(Game* game, Json::Value& out, int onlyIndex);
+/// Dump the CAPTURED tile vector for a recorded seq from the local ring (armed
+/// capture only). @a sideSeq < 0 = match on (seq, boundary) taking the newest;
+/// otherwise also filter on side_seq. Returns false if no such entry is held.
+bool terrainCaptureDumpJson(std::uint32_t seq, bool boundary, int sideSeq, Json::Value& out);
+/// Enumerate the seqs currently held in the terrain capture ring, oldest first
+/// ({seq, side_seq, boundary, kind, tileCount}), so a test can pick one to diff.
+void terrainCaptureSeqsJson(Json::Value& out);
+
 // ---- Desync auto-report bundle -----------------------------------------------
 // A logic desync leaves no stack to trace: by the time the two machines disagree
 // the cause is minutes of divergent simulation behind them. So the tripwire

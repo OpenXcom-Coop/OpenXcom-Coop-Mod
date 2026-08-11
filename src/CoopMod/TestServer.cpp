@@ -3479,6 +3479,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "hold_action_done"
 		&& cmd != "unit_stats_full"
 		&& cmd != "sync_capture"
+		&& cmd != "terrain_capture"
+		&& cmd != "tile_terrain_full"
 		&& cmd != "parallel_state"
 		&& cmd != "save_blob")
 	{
@@ -4542,6 +4544,64 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		SharedEcon::setSyncFieldCapture(on);
 		resp["fieldCapture"] = SharedEcon::syncFieldCapture();
 		resp["ok"] = true;
+	}
+	else if (cmd == "terrain_capture")
+	{
+		// PRD-I3 SEAM-3: arm/disarm the opt-in terrain vector capture. When ON (set on
+		// BOTH machines) each machine stashes its FULL non-void tile vector at every
+		// hash point (host ring entry + client emit) into a bounded local ring. Unlike
+		// sync_capture there is NO wire delta - the vector is too big to ship, so the
+		// harness pulls BOTH machines' vectors back via tile_terrain_full {seq} and
+		// diffs them offline. OFF by default. `{"on": bool}` (omitted = true).
+		bool on = req.get("on", true).asBool();
+		SharedEcon::setSyncTerrainCapture(on);
+		resp["terrainCapture"] = SharedEcon::syncTerrainCapture();
+		resp["ok"] = true;
+	}
+	else if (cmd == "tile_terrain_full")
+	{
+		// PRD-I3 SEAM-3 probe/dump. Three modes:
+		//   {}                     -> LIVE full non-void tile vector (the current terrain
+		//                             bucket field set per tile + a diagnostic UFO-door
+		//                             bitmask the bucket is blind to - answers VERIFY-1).
+		//   {"index": N}           -> LIVE, narrowed to one tile.
+		//   {"seq": N[, "boundary": b][, "side_seq": s]}
+		//                          -> the CAPTURED vector for that recorded seq from the
+		//                             local ring (armed capture only), for the offline diff.
+		//   {"list": true}         -> the seqs currently held in the capture ring.
+		if (req.get("list", false).asBool())
+		{
+			Json::Value seqs;
+			SharedEcon::terrainCaptureSeqsJson(seqs);
+			resp["captured"] = seqs;
+			resp["ok"] = true;
+		}
+		else if (req.isMember("seq"))
+		{
+			std::uint32_t seq = static_cast<std::uint32_t>(req["seq"].asUInt());
+			bool boundary = req.get("boundary", false).asBool();
+			int sideSeq = req.get("side_seq", -1).asInt();
+			Json::Value dump;
+			if (SharedEcon::terrainCaptureDumpJson(seq, boundary, sideSeq, dump))
+			{
+				resp["dump"] = dump;
+				resp["ok"] = true;
+			}
+			else
+			{
+				resp["error"] = "no captured terrain vector for that seq";
+				resp["ok"] = false;
+			}
+		}
+		else
+		{
+			int onlyIndex = req.get("index", -1).asInt();
+			Json::Value tiles;
+			SharedEcon::tileTerrainFullJson(_game, tiles, onlyIndex);
+			resp["tiles"] = tiles;
+			resp["tileCount"] = static_cast<Json::UInt>(tiles.size());
+			resp["ok"] = true;
+		}
 	}
 	else if (cmd == "hold_action_done")
 	{

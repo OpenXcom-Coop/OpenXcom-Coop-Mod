@@ -4932,6 +4932,175 @@ void unitStatsFullJson(Game* game, Json::Value& out, int onlyId)
 	}
 }
 
+// ---- PRD-I3 SEAM-3: per-seq terrain vector capture (introspection only) ------------
+//
+// The unit field-diff tooling above ships the client's full unit vector as `uv` on
+// action_done, because a battle has a handful of units. The terrain equivalent cannot:
+// a report would carry every non-void tile (up to 14400), on every action, doubling
+// the action_done payload of a run - and it is armed exactly during the shot/destruction
+// scenarios that already stress the transport (the mass-casualty WinError 10054 class).
+// So this is INTROSPECTION ONLY, no wire change: when armed, BOTH machines stash their
+// own full tile vector at the SAME sample computeBattleHashes() took, into a bounded
+// local ring, and the harness reads BOTH rings for the mismatching seq (which the host
+// already names in syncCheck.mismatches) and diffs them offline. OFF by default = the
+// capture-off path is byte-identical (one bool test at each hash point).
+bool g_syncTerrainCapture = false;
+void setSyncTerrainCapture(bool on) { g_syncTerrainCapture = on; }
+bool syncTerrainCapture() { return g_syncTerrainCapture; }
+
+// One tile's terrain-bucket fields (compact - a Json::Value per tile would be an order
+// of magnitude of memory for a full-map ring). `doorBits` is DIAGNOSTIC only: the bucket
+// does NOT hash UFO-door open state (it lives in Tile::_objectsCache[part].currentFrame,
+// not in the map-data id/set-id the bucket reads - VERIFY-1), so it is captured here to
+// make a door divergence VISIBLE to the offline diff even though it never moves `terrain`.
+struct TerrainTileRec
+{
+	std::int32_t index;
+	std::int32_t m[O_MAX];   ///< mapDataID per part
+	std::int32_t s[O_MAX];   ///< mapDataSetID per part
+	std::int32_t explosive;
+	std::int32_t explosiveType;
+	// DIAGNOSTIC per-part door flags (NONE of these are in the terrain bucket) - 3 bits
+	// per part: isDoor(3p) / isUfoDoor(3p+1) / isUfoDoorOpen(3p+2). Captured at HASH time
+	// so the diff can tell a DOOR straddle (the lagging machine still holds a CLOSED door -
+	// isDoor set - while the other holds the opened leaf) from DESTRUCTION (isDoor clear on
+	// both, only the map-data id moves).
+	std::uint16_t doorBits;
+};
+struct TerrainCaptureEntry
+{
+	bool boundary;
+	std::uint32_t seq;
+	std::uint32_t sideSeq;
+	std::string kind;
+	std::vector<TerrainTileRec> tiles;
+};
+// Bounded like the sync ring: only the last few seqs matter for a live mismatch diff.
+const size_t TERRAIN_CAPTURE_MAX = 48;
+std::deque<TerrainCaptureEntry> g_terrainCaptureRing;
+
+// The INCLUSION TEST here MUST match computeBattleHashes()'s terrain loop exactly (a tile
+// with any map-data part OR a non-zero explosive), so the captured vector reproduces the
+// bucket hash the compare fired on. @a onlyIndex >= 0 narrows to one tile.
+static void buildTerrainVec(SavedBattleGame* battle, std::vector<TerrainTileRec>& out, int onlyIndex)
+{
+	out.clear();
+	if (!battle) return;
+	const int tileCount = battle->getMapSizeXYZ();
+	for (int i = 0; i < tileCount; ++i)
+	{
+		if (onlyIndex >= 0 && i != onlyIndex) continue;
+		Tile* tile = battle->getTile(i);
+		if (!tile) continue;
+		bool hasPart = false;
+		for (int part = 0; part < O_MAX && !hasPart; ++part)
+			hasPart = tile->getMapData((TilePart)part) != nullptr;
+		if (!(hasPart || tile->getExplosive() != 0)) continue;
+		TerrainTileRec r;
+		r.index = i;
+		r.doorBits = 0;
+		for (int part = 0; part < O_MAX; ++part)
+		{
+			int mid = -1, sid = -1;
+			tile->getMapData(&mid, &sid, (TilePart)part);
+			r.m[part] = mid;
+			r.s[part] = sid;
+			if (tile->isDoor((TilePart)part))       r.doorBits |= (std::uint16_t)(1u << (3 * part + 0));
+			if (tile->isUfoDoor((TilePart)part))    r.doorBits |= (std::uint16_t)(1u << (3 * part + 1));
+			if (tile->isUfoDoorOpen((TilePart)part)) r.doorBits |= (std::uint16_t)(1u << (3 * part + 2));
+		}
+		r.explosive = tile->getExplosive();
+		r.explosiveType = tile->getExplosiveType();
+		out.push_back(r);
+		if (onlyIndex >= 0) break;
+	}
+}
+
+static void terrainVecToJson(const std::vector<TerrainTileRec>& v, Json::Value& out)
+{
+	out = Json::Value(Json::arrayValue);
+	for (const auto& r : v)
+	{
+		Json::Value t(Json::objectValue);
+		t["i"] = r.index;
+		for (int p = 0; p < O_MAX; ++p)
+		{
+			t["m" + std::to_string(p)] = r.m[p];
+			t["s" + std::to_string(p)] = r.s[p];
+		}
+		t["expl"] = r.explosive;
+		t["explType"] = r.explosiveType;
+		t["door"] = (int)r.doorBits;
+		out.append(t);
+	}
+}
+
+void tileTerrainFullJson(Game* game, Json::Value& out, int onlyIndex)
+{
+	out = Json::Value(Json::arrayValue);
+	if (!game || !game->getSavedGame()) return;
+	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
+	if (!battle) return;
+	std::vector<TerrainTileRec> v;
+	buildTerrainVec(battle, v, onlyIndex);
+	terrainVecToJson(v, out);
+}
+
+// Capture this machine's full terrain vector for a recorded seq. Called from
+// syncCheckRecord (host ring point) and syncCheckAttach (client emit point) so both
+// sides stash the SAME sample their bucket hash was computed from. No-op unless armed.
+static void terrainCaptureRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
+								 bool boundary, const std::string& kind)
+{
+	if (!g_syncTerrainCapture) return;
+	if (!game || !game->getSavedGame()) return;
+	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
+	if (!battle) return;
+	TerrainCaptureEntry e;
+	e.boundary = boundary;
+	e.seq = seq;
+	e.sideSeq = boundary ? 0 : sideSeq;
+	e.kind = kind;
+	buildTerrainVec(battle, e.tiles, -1);
+	while (g_terrainCaptureRing.size() >= TERRAIN_CAPTURE_MAX)
+		g_terrainCaptureRing.pop_front();
+	g_terrainCaptureRing.push_back(std::move(e));
+}
+
+bool terrainCaptureDumpJson(std::uint32_t seq, bool boundary, int sideSeq, Json::Value& out)
+{
+	// Newest match wins: a per-side action seq recycles every side, and the newest
+	// entry with this seq belongs to the current side (the one a live mismatch is on).
+	for (auto it = g_terrainCaptureRing.rbegin(); it != g_terrainCaptureRing.rend(); ++it)
+	{
+		if (it->boundary != boundary || it->seq != seq) continue;
+		if (sideSeq >= 0 && !boundary && it->sideSeq != (std::uint32_t)sideSeq) continue;
+		out["seq"] = (Json::UInt)it->seq;
+		out["side_seq"] = (Json::UInt)it->sideSeq;
+		out["boundary"] = it->boundary;
+		out["kind"] = it->kind;
+		out["tileCount"] = (Json::UInt)it->tiles.size();
+		terrainVecToJson(it->tiles, out["tiles"]);
+		return true;
+	}
+	return false;
+}
+
+void terrainCaptureSeqsJson(Json::Value& out)
+{
+	out = Json::Value(Json::arrayValue);
+	for (const auto& e : g_terrainCaptureRing)
+	{
+		Json::Value j(Json::objectValue);
+		j["seq"] = (Json::UInt)e.seq;
+		j["side_seq"] = (Json::UInt)e.sideSeq;
+		j["boundary"] = e.boundary;
+		j["kind"] = e.kind;
+		j["tileCount"] = (Json::UInt)e.tiles.size();
+		out.append(j);
+	}
+}
+
 /**
  * PRD-I2: the save-derived boundary hash - the coverage backstop.
  *
@@ -5014,6 +5183,8 @@ void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
 	// PRD-I3 SEAM-7: stash this machine's full unitsStats field vector (opt-in), the
 	// SAME sample e.h was computed from, for a field-by-field mismatch diff later.
 	if (g_syncFieldCapture) unitStatsFullJson(game, e.statVec, -1);
+	// PRD-I3 SEAM-3: HOST-side terrain vector capture (opt-in), same sample as e.h.
+	terrainCaptureRecord(game, seq, sideSeq, boundary, kind);
 
 	while (g_syncRing.size() >= SYNC_RING_MAX)
 	{
@@ -5051,6 +5222,19 @@ void syncCheckAttach(Game* game, Json::Value& msg)
 	// the capture toggle is armed (zero wire delta by default; an old/normal peer never
 	// sends it, and the host presence-gates on it).
 	if (g_syncFieldCapture) unitStatsFullJson(game, msg["uv"], -1);
+	// PRD-I3 SEAM-3: CLIENT-side terrain vector capture (opt-in, introspection only - NOT
+	// shipped in msg). Same sample as `h`, stashed in this machine's local ring keyed by
+	// the seq the outgoing action_done carries, so the harness can pull it back and diff
+	// it against the host's ring entry for the same seq. Boundary reports carry `bseq`.
+	if (g_syncTerrainCapture)
+	{
+		const bool boundary = msg.get("boundary", false).asBool();
+		const std::uint32_t seq = boundary
+			? static_cast<std::uint32_t>(msg.get("bseq", 0).asUInt())
+			: static_cast<std::uint32_t>(msg.get("seq", 0).asUInt());
+		const std::uint32_t sideSeq = static_cast<std::uint32_t>(msg.get("side_seq", 0).asUInt());
+		terrainCaptureRecord(game, seq, sideSeq, boundary, std::string());
+	}
 }
 
 void syncCheckAttachBoundary(Game* game, Json::Value& msg)
@@ -5484,6 +5668,9 @@ void resetSyncCheck()
 	// PRD-I3 SEAM-7: per-episode field-diff diagnostics reset with the ring; the
 	// capture TOGGLE is deliberately NOT reset here (the harness arms it once per run).
 	g_syncFieldDiffs.clear();
+	// PRD-I3 SEAM-3: per-episode terrain capture ring resets with the sync ring; the
+	// terrain capture TOGGLE, like the SEAM-7 one, is armed once per run and kept.
+	g_terrainCaptureRing.clear();
 }
 
 void attachWorldChecksum(Game* game, Json::Value& msg)
