@@ -799,7 +799,7 @@ def scenario_smoke(host, client, hmover, cmover):
           f"sidestartHazardCompares={sc.get('sidestartHazardCompares')} "
           f"smoke.compares={sc['buckets']['smoke'].get('compares')} "
           f"fire.compares={sc['buckets']['fire'].get('compares')}")
-    print(f"    ai/player-seq residuals: smoke_ai={len(smoke_ai)} (allowed: explosion) "
+    print(f"    ai/player-seq residuals: smoke_ai={len(smoke_ai)} (STRICT 0 - SEAM-3 (a) closed) "
           f"us_ai(unitsCombat)={len(us_ai)} (STRICT: must be 0 - SEAM-7 (i) closed)")
     if SMOKE_STRICT:
         assert not saturated, (
@@ -849,17 +849,22 @@ def scenario_smoke(host, client, hmover, cmover):
             f"interleave before any health demotion.\n    {session._sync_mismatch_lines(sc)}")
         # Decay smoke_ai is structurally 0 (HALF 2 gates the decay set_smoke_tile behind
         # the ordered gate, so it applies in FIFO AFTER the ai chains, never at an ai
-        # seq). A residual here is the whitelisted MID-SIDE EXPLOSION smoke - a separate
-        # open question (characterize whether it is I1-seq-stamped and defers during ai
-        # chains). Annotated allowance until then.
-        if smoke_ai:
-            print(f"    explosion-smoke allowance: smoke diverged at ai/player seq(s) "
-                  f"{smoke_ai} - whitelisted mid-side explosion path, NOT decay (decay "
-                  f"is gated).\n    {session._sync_mismatch_lines(sc)}")
+        # seq). The remaining source WAS the whitelisted MID-SIDE EXPLOSION smoke on the
+        # out-of-chain (seq-0) path - an explosion running with no open admitted chain
+        # shipped its set_smoke_tile unstamped. SEAM-3 (a) closed that: a loose explosion
+        # now opens its own "expl" chain (coopStampLooseOutcomeChain), so its set_smoke_tile
+        # inherits that seq exactly like its destroy_tile and defers on the I1 gate. So
+        # smoke_ai is now STRICT 0 - the annotated allowance is retired.
+        assert not smoke_ai, (
+            f"SEAM-3 (a) / SEAM-7 smoke: smoke diverged at ai/player seq(s) {smoke_ai} - a "
+            f"mid-side explosion shipped set_smoke_tile out-of-chain (seq-0) and a lagging "
+            f"client folded it into an ai-seq hash. The loose-explosion 'expl' chain stamp "
+            f"should have carried the seq; capture whether the explosion ran with "
+            f"_openChainSeq==0 past ExplosionBState::init.\n    {session._sync_mismatch_lines(sc)}")
     print(f"PASS 5: SEAM-2 re-scoped GREEN - boundary smoke/fire host-authoritative "
           f"(endturn EXCLUDED, sidestart compared and EQUAL) over a smoke-heavy side "
           f"(smokeTiles={smoke_tiles}); ai-seq unitsCombat={len(us_ai)} (STRICT 0), "
-          f"allowed explosion smoke={len(smoke_ai)}")
+          f"ai-seq explosion smoke={len(smoke_ai)} (STRICT 0 - SEAM-3 a)")
     return sc
 
 
