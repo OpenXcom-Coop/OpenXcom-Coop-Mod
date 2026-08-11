@@ -2469,6 +2469,12 @@ int SavedGame::getBaseMaintenance() const
 	int total = 0;
 	for (const auto* xbase : _bases)
 	{
+		// coop
+		// In separate campaigns, monthly maintenance costs only include bases owned by the current player, not bases owned by other players. This is a temporary fix until the separate campaign rework.
+		if (connectionTCP::getCoopStatic() == true && connectionTCP::isSharedCampaignStatic() == false && xbase->_coopBase == true)
+		{
+			continue;
+		}
 		total += xbase->getMonthlyMaintenace();
 	}
 	return total;
