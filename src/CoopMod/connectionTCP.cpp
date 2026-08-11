@@ -264,6 +264,7 @@ std::uint32_t connectionTCP::_heldActionDones = 0;
 // coop (PRD-P9 3): stuck-chain diagnostic, reset wherever _openChainSeq is.
 std::uint32_t connectionTCP::_openChainTicks = 0;
 bool connectionTCP::_openChainWarned = false;
+bool connectionTCP::_openChainInstantPending = false;  // PRD-I3 SEAM-7 ii
 // coop (PRD-P8): the end-turn readiness tally. Reset with the arbiter.
 std::vector<bool> connectionTCP::_endTurnReady;
 std::vector<bool> connectionTCP::_endTurnAuto;
@@ -12610,6 +12611,10 @@ std::uint32_t connectionTCP::stampAdmittedAction(const std::string& kind)
 	_openChainSeq = ++_actionSeq;
 	// coop (PRD-I0): the label this chain's sync-check ring entry carries.
 	_openChainKind = kind;
+	// coop (PRD-I3 SEAM-7 ii): kneel/prime/medikit emit their replay packet from
+	// executeAction AFTER the actor settles; hold this chain's action_end until then
+	// (coopCloseActionChain), so the packet reaches the wire first (and stamped).
+	_openChainInstantPending = (kind == "kneel" || kind == "prime" || kind == "medikit");
 	// coop (PRD-P9 3): restart the stuck-chain clock with the chain itself.
 	_openChainTicks = SDL_GetTicks();
 	_openChainWarned = false;
@@ -12681,6 +12686,7 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 	_openChainKind.clear();
 	_openChainTicks = 0;
 	_openChainWarned = false;
+	_openChainInstantPending = false;
 	_pendingAdmits.clear();
 	_sideCommitInProgress = false;
 	_intentSlotReqId = 0;
@@ -13035,6 +13041,13 @@ void connectionTCP::coopAdmitPendingIntents()
  * needs, rides the ordinary receive gate (so the client consumes it only once its
  * display of that chain has finished), and costs no per-packet work.
  */
+void connectionTCP::coopNoteInstantExecuted()
+{
+	// coop (PRD-I3 SEAM-7 ii): executeAction has just emitted the instant kind's
+	// replay packet, so the action_end hold can lift (see coopCloseActionChain).
+	_openChainInstantPending = false;
+}
+
 void connectionTCP::coopCloseActionChain()
 {
 	if (_openChainSeq == 0 || !parallelTurnActive() || !getHost() || !_staticGame)
@@ -13054,6 +13067,14 @@ void connectionTCP::coopCloseActionChain()
 		return; // the chain is still running
 	}
 	if (!coop->coopTaskCompleted())
+	{
+		return;
+	}
+	// coop (PRD-I3 SEAM-7 ii): an instant-kind chain whose replay packet is still
+	// owed - hold the marker so the packet reaches the wire first. executeAction
+	// clears this (coopNoteInstantExecuted) the instant it has sent the packet, so
+	// the hold lasts at most until the next tick and never strands the chain.
+	if (_openChainInstantPending)
 	{
 		return;
 	}

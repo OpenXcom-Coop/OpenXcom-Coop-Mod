@@ -2172,6 +2172,12 @@ void BattlescapeGame::executeAction(BattleAction &action, bool calculatePath)
 	default:
 		break;
 	}
+	// coop (PRD-I3 SEAM-7 ii): the instant kinds (kneel/prime/medikit) have now
+	// emitted their replay packet above, so release the coopCloseActionChain hold
+	// that kept this chain's action_end behind it. A no-op for the state-pushing
+	// kinds (walk/turn/shoot - the flag was never set for them). Reaction fire does
+	// NOT re-enter executeAction, so this cannot clear a sibling chain's hold.
+	connectionTCP::coopNoteInstantExecuted();
 }
 
 /**

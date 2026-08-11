@@ -805,6 +805,14 @@ class connectionTCP
 	/// with the arbiter state a bug report would otherwise have to guess at.
 	static std::uint32_t _openChainTicks;
 	static bool _openChainWarned;
+	/// HOST (PRD-I3 SEAM-7 ii): an instant-kind chain (kneel/prime/medikit) whose
+	/// replay packet has NOT been emitted yet. executeAction sends it AFTER the actor
+	/// state settles; kneel()'s reaction-fire/FOV can fire coopChainChanged ->
+	/// coopCloseActionChain in between, which would send the chain's action_end BEFORE
+	/// the packet (and unstamped). While set, coopCloseActionChain holds off so the
+	/// packet always precedes its own action_end on the wire. Cleared the moment the
+	/// executor has emitted it (coopNoteInstantExecuted, from executeAction's tail).
+	static bool _openChainInstantPending;
 	/// HOST-owned, +1 per side transition; the staleness token an intent
 	/// carries. The client adopts the value stamped on the `endTurn` packet.
 	static std::uint32_t _sideSeq;
@@ -867,6 +875,9 @@ class connectionTCP
 	/// HOST: ship the `action_end` marker for the chain that has just drained, so
 	/// the client can say when it has finished DISPLAYING it. Idempotent.
 	static void coopCloseActionChain();
+	/// HOST (PRD-I3 SEAM-7 ii): executeAction has emitted the current instant kind's
+	/// replay packet - release the coopCloseActionChain hold (a no-op otherwise).
+	static void coopNoteInstantExecuted();
 	/// HOST (PRD-P9 3): log ONCE if the open chain has been running for over two
 	/// minutes. Purely diagnostic; it frees nothing.
 	static void coopCheckStuckChain();
