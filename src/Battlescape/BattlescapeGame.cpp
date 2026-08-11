@@ -1536,6 +1536,7 @@ void BattlescapeGame::endTurn()
 				ExplosionBState* expl = std::get<ExplosionBState*>(p);
 				if (expl)
 				{
+					expl->coopSetBoundaryExpl(true); // coop (PRD-I3 SEAM-3 a)
 					statePushNext(expl);
 				}
 				else if (item->isSpecialWeapon())
@@ -1588,7 +1589,9 @@ void BattlescapeGame::endTurn()
 	if (t)
 	{
 		Position p = t->getPosition().toVoxel();
-		statePushNext(new ExplosionBState(this, p, BattleActionAttack{}, t));
+		ExplosionBState* bexpl = new ExplosionBState(this, p, BattleActionAttack{}, t); // coop (PRD-I3 SEAM-3 a)
+		bexpl->coopSetBoundaryExpl(true);
+		statePushNext(bexpl);
 		statePushBack(0);
 		return;
 	}
@@ -1613,7 +1616,9 @@ void BattlescapeGame::endTurn()
 		if (t)
 		{
 			Position p = t->getPosition().toVoxel();
-			statePushNext(new ExplosionBState(this, p, BattleActionAttack{}, t));
+			ExplosionBState* bexpl = new ExplosionBState(this, p, BattleActionAttack{}, t); // coop (PRD-I3 SEAM-3 a)
+			bexpl->coopSetBoundaryExpl(true);
+			statePushNext(bexpl);
 			statePushBack(0);
 			return;
 		}

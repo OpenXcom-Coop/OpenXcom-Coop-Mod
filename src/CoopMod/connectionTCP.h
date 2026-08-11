@@ -936,6 +936,12 @@ class connectionTCP
 	/// locally instead of letting it overtake its own opener. No-op outside an
 	/// admitted/AI chain on the parallel host (_openChainSeq == 0).
 	static void coopStampChainSeq(Json::Value& root);
+	/// coop (PRD-I3 SEAM-3 a): if the parallel host is running an explosion with
+	/// NO open admitted chain, open one (kind @a kind) so its destroy_tile/hazard
+	/// outcome carries a seq and the client holds it on the I1 apply-before-hash
+	/// gate instead of applying it immediately (the loose-destroy terrain straddle).
+	/// No-op off the parallel host or when a chain is already open.
+	static void coopStampLooseOutcomeChain(const char* kind);
 	/// coop (PRD-I3 SEAM-2 HALF 2): open/close the boundary-decay scope around the
 	/// neutral->player prepareNewTurn call. While open, coopStampBoundaryOrigin()
 	/// tags a host tile-hazard send with `bnd:true`.

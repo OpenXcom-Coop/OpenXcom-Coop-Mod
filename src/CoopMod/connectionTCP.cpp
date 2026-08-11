@@ -12662,6 +12662,33 @@ void connectionTCP::coopStampChainSeq(Json::Value& root)
 }
 
 /**
+ * coop (PRD-I3 SEAM-3 a): give a host explosion that begins OUTSIDE any admitted
+ * chain its own seq. A shot/grenade whose triggering action already drained (queue
+ * momentarily empty -> coopCloseActionChain zeroed _openChainSeq), or a spontaneous
+ * detonation, runs its ExplosionBState with _openChainSeq == 0, so coopStampChainSeq
+ * ships its destroy_tile (and hit_tile / set_smoke_tile / ...) UNSTAMPED = seq-0
+ * legacy always-consume. A lagging client then applies that outcome immediately and
+ * can fold it into a neighbouring chain's post-N sync-check hash - the transient
+ * terrain mapDataID straddle at ai/boundary seqs (SEAM-3 a; heals by sidestart).
+ * Opening an admitted chain here makes those outcomes carry a seq, so the client
+ * defers them on the same I1 gate an in-chain destroy uses (Ordering invariant 6,
+ * apply-before-hash), and both machines hash the explosion at its own action_end.
+ * No-op unless the parallel host is between chains; the chain closes normally when
+ * the explosion and any terrain-chain consequence drain (coopCloseActionChain).
+ * The boundary phase is excluded by the caller (ExplosionBState::_coopBoundaryExpl):
+ * a boundary explosion's destroys are already applied before the endturn/sidestart
+ * marker's ordered hash, and a mid-phase action_end there would race the markers.
+ */
+void connectionTCP::coopStampLooseOutcomeChain(const char* kind)
+{
+	if (!parallelTurnActive() || !getHost() || _openChainSeq != 0)
+	{
+		return;
+	}
+	stampAdmittedAction(kind ? kind : "expl");
+}
+
+/**
  * coop (PRD-I3 SEAM-2 HALF 2): open/close the boundary-decay scope around the ONE
  * neutral->player SavedBattleGame::prepareNewTurn call (its sole caller). A host
  * tile-hazard send made inside the scope is tagged `bnd:true`, which routes it

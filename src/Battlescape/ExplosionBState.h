@@ -47,12 +47,23 @@ private:
 	int _radius;
 	int _range;
 	bool _areaOfEffect, _lowerWeapon, _hit, _psi;
+	// coop (PRD-I3 SEAM-3 a): set on an explosion that ORIGINATES in the endTurn
+	// boundary phase (a fuse detonation or a boundary terrain explosion), and
+	// inherited by any terrain-chain consequence it spawns. A boundary explosion is
+	// deliberately NOT given its own admitted chain - its destroys are applied before
+	// the endturn/sidestart boundary marker's hash on both machines, so the ordered
+	// boundary compare already covers them; opening a mid-phase chain there would
+	// interleave an action_end with the boundary markers.
+	bool _coopBoundaryExpl = false;
 
 	/// Calculates the effects of the explosion.
 	void explode();
 	/// Set new value to reference if new value is not equal -1.
 	void optValue(int &oldValue, int newValue) const;
 public:
+	/// coop (PRD-I3 SEAM-3 a): flag/read this explosion as a boundary-phase origin.
+	void coopSetBoundaryExpl(bool b) { _coopBoundaryExpl = b; }
+	bool coopBoundaryExpl() const { return _coopBoundaryExpl; }
 	/// Creates a new ExplosionBState class.
 	ExplosionBState(BattlescapeGame *parent, LastPositions center, BattleActionAttack attack, Tile *tile = 0, bool lowerWeapon = false, int range = 0, int explosionCounter = 0, int terrainMeleeTilePart = 0);
 	/// Cleans up the ExplosionBState.

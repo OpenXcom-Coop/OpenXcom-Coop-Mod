@@ -218,6 +218,16 @@ void ExplosionBState::init()
 
 	bool range = !(_hit || (_attack.weapon_item && _attack.weapon_item->getRules()->getBattleType() == BT_PSIAMP));
 
+	// coop (PRD-I3 SEAM-3 a): a mid-side explosion running with no open admitted chain
+	// (a shot/grenade whose action already drained, or a spontaneous detonation) owns its
+	// own seq so the destroy_tile/hazard outcome it is about to emit rides the I1 gate
+	// instead of shipping seq-0 always-consume. Boundary-phase explosions are excluded -
+	// their destroys ride the ordered endturn/sidestart boundary compare already.
+	if (!_coopBoundaryExpl)
+	{
+		connectionTCP::coopStampLooseOutcomeChain("expl");
+	}
+
 	if (_areaOfEffect)
 	{
 		if (_power > 0)
@@ -510,7 +520,12 @@ void ExplosionBState::explode()
 	{
 		Position p = t->getPosition().toVoxel();
 		p += Position(8,8,0);
-		_parent->statePushFront(new ExplosionBState(_parent, p, BattleActionAttack{ BA_NONE, _attack.attacker, }, t, false, 0, _explosionCounter + 1));
+		// coop (PRD-I3 SEAM-3 a): a terrain-chain consequence inherits this explosion's
+		// origin - a boundary chain stays boundary (excluded from the loose stamp); a
+		// mid-side chain stays inside the seq this explosion opened, so it never re-stamps.
+		ExplosionBState *chained = new ExplosionBState(_parent, p, BattleActionAttack{ BA_NONE, _attack.attacker, }, t, false, 0, _explosionCounter + 1);
+		chained->coopSetBoundaryExpl(_coopBoundaryExpl);
+		_parent->statePushFront(chained);
 	}
 
 	// Spawn a unit if the item does that
