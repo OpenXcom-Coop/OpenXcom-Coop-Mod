@@ -85,6 +85,7 @@
 #include "../Savegame/EquipmentLayoutItem.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Tile.h"
+#include "../Mod/MapData.h"
 #include "../Savegame/Ufo.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/Target.h"
@@ -3481,6 +3482,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "sync_capture"
 		&& cmd != "terrain_capture"
 		&& cmd != "tile_terrain_full"
+		&& cmd != "find_explosive_parts"
 		&& cmd != "parallel_state"
 		&& cmd != "save_blob")
 	{
@@ -4602,6 +4604,38 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["tileCount"] = static_cast<Json::UInt>(tiles.size());
 			resp["ok"] = true;
 		}
+	}
+	else if (cmd == "find_explosive_parts")
+	{
+		// SEAM-3 (b) locator: every tile whose MCD part carries a non-zero explosive
+		// property (UFO power sources et al.) - the terrain parts whose destruction
+		// exercises the destroy_tile explosive path. Read-only.
+		Json::Value hits(Json::arrayValue);
+		const int tileCount = sbg->getMapSizeXYZ();
+		for (int i = 0; i < tileCount; ++i)
+		{
+			Tile* tl = sbg->getTile(i);
+			if (!tl) continue;
+			for (int p = 0; p <= O_OBJECT; ++p)
+			{
+				MapData* md = tl->getMapData((TilePart)p);
+				if (md && md->getExplosive() > 0)
+				{
+					Json::Value h;
+					h["x"] = tl->getPosition().x;
+					h["y"] = tl->getPosition().y;
+					h["z"] = tl->getPosition().z;
+					h["index"] = i;
+					h["part"] = p;
+					h["explosive"] = md->getExplosive();
+					h["explosiveType"] = md->getExplosiveType();
+					hits.append(h);
+				}
+			}
+		}
+		resp["hits"] = hits;
+		resp["count"] = static_cast<Json::UInt>(hits.size());
+		resp["ok"] = true;
 	}
 	else if (cmd == "hold_action_done")
 	{
