@@ -31,11 +31,43 @@ EXE = os.environ.get("OXC_TEST_EXE") or os.path.join(REPO, "bin", "x64", "Releas
 TEMP_ROOT = os.environ.get("TEMP") or os.environ.get("TMPDIR") or tempfile.gettempdir()
 TEST_ROOT = os.path.join(TEMP_ROOT, "oxc-coop-test")
 
-# Machine-wide harness lock: suites are stateful (fixed TCP ports per test,
-# shared TEST_ROOT under %TEMP%), so concurrent runs — e.g. from two git
-# worktrees — would collide. First spawn in a process takes the lock; the OS
-# releases it when the process exits (including on crash).
-_LOCK_PATH = os.path.join(TEMP_ROOT, "oxc-coop-harness.lock")
+# --- K-slot parallel harness ------------------------------------------------
+# OXC_HARNESS_SLOT=k opens an independent, non-colliding harness lane so K test
+# processes can run at once (tools/coop_test/run_parallel.py drives them). A
+# lane shifts every TCP port it binds - the TestServer control ports (this
+# GameClient's own `port`) AND the coop game-to-game ports carried in
+# host_tcp/join_tcp/host_udp/join_udp - by slot*PORT_BLOCK, keys its machine
+# lock per slot, and prefixes its user dirs with s{slot}_. Slot 0 is the legacy
+# lane: it uses the ORIGINAL lock name and unshifted ports, so a non-slotted
+# caller and an old (pre-slot) harness checked out in another worktree still
+# mutually exclude on the same lock file. PORT_BLOCK=4000 exceeds the measured
+# ~3900-wide base-port span (45999..49901 across the whole suite), so adjacent
+# lanes' port bands are disjoint (lane s spans base+s*4000): lane 1 starts at
+# 49999 above lane 0's 49901 top, and lane 3 tops out at 61901. A 5th lane
+# would clear the 65535 ceiling, so the safe maximum is K=4 (also the
+# run_parallel default). See run_parallel.py for the assignment/pin model.
+HARNESS_SLOT = int(os.environ.get("OXC_HARNESS_SLOT", "0"))
+PORT_BLOCK = 4000
+# Commands whose `port` (and, for UDP, `localport`) name the coop game-to-game
+# socket rather than the TestServer control socket; GameClient.cmd shifts these
+# by the lane offset transparently, so every caller - the classic 47900 default,
+# the module-global PORT reassigners, session.new_campaign - lands in-lane with
+# no per-test edits. This is the COMPLETE set of port-reading commands in
+# TestServer.cpp (host_tcp/host_udp/join_tcp/join_udp + host_menu_host, the
+# NEW BATTLE > COOP skirmish-host path); a host_menu_host with no port (the
+# UDP-public variant) is left untouched by the `port in obj` guard below.
+_PORT_SHIFT_CMDS = frozenset(("host_tcp", "join_tcp", "host_udp", "join_udp",
+                              "host_menu_host"))
+
+# Per-slot harness lock: suites are stateful (fixed TCP ports per test, shared
+# TEST_ROOT under %TEMP%), so two runs on the SAME slot would collide. First
+# spawn in a process takes its slot's lock; the OS releases it when the process
+# exits (including on crash). Slot 0 keeps the historical lock name so it still
+# serialises against a non-slotted / old-harness run — e.g. two git worktrees.
+_LOCK_PATH = os.path.join(
+    TEMP_ROOT,
+    "oxc-coop-harness.lock" if HARNESS_SLOT == 0
+    else "oxc-coop-harness.slot%d.lock" % HARNESS_SLOT)
 _lock_handle = None
 
 
@@ -54,7 +86,7 @@ def _acquire_machine_lock(timeout=3600):
                 fcntl.flock(h.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             _lock_handle = h  # held for process lifetime
             if waited:
-                print("[harness] machine lock acquired")
+                print("[harness] slot-%d lock acquired" % HARNESS_SLOT)
             return
         except OSError as exc:
             if os.name != "nt" and exc.errno not in (errno.EACCES, errno.EAGAIN):
@@ -65,8 +97,8 @@ def _acquire_machine_lock(timeout=3600):
                 raise TimeoutError(
                     "another coop harness run holds " + _LOCK_PATH)
             if not waited:
-                print("[harness] waiting for machine-wide harness lock "
-                      "(another suite is running)...")
+                print("[harness] waiting for slot-%d harness lock "
+                      "(another run holds it)..." % HARNESS_SLOT)
                 waited = True
             time.sleep(5)
 
@@ -101,7 +133,10 @@ class GameClient:
 
     def __init__(self, name, port, user_dir):
         self.name = name
-        self.port = port
+        # Lane offset (0 for the legacy slot). Applied here to the TestServer
+        # control port and, in cmd(), to the coop game-to-game port.
+        self._port_shift = HARNESS_SLOT * PORT_BLOCK
+        self.port = int(port) + self._port_shift
         self.user_dir = user_dir
         self.proc = None
         self.sock = None
@@ -111,6 +146,18 @@ class GameClient:
         _acquire_machine_lock()
         env = os.environ.copy()
         env["OXC_TEST_PORT"] = str(self.port)
+        # Headless under the parallel runner (any lane sets OXC_HARNESS_SLOT) or
+        # on demand (OXC_HARNESS_HEADLESS): no on-screen window, so no vsync cap,
+        # window-focus fights or audio-device contention between K concurrent
+        # game processes. OXC_HARNESS_WINDOWED=1 forces the window back for
+        # interactive debugging even under the runner; a caller that already
+        # exported an SDL driver wins (setdefault). A plain single-test dev run
+        # (no slot, no headless flag) keeps its window, unchanged.
+        if ((os.environ.get("OXC_HARNESS_SLOT") is not None
+             or os.environ.get("OXC_HARNESS_HEADLESS"))
+                and not os.environ.get("OXC_HARNESS_WINDOWED")):
+            env.setdefault("SDL_VIDEODRIVER", "dummy")
+            env.setdefault("SDL_AUDIODRIVER", "dummy")
         # tuck the window into a corner (host left, client right of it)
         env["SDL_VIDEO_WINDOW_POS"] = "0,40" if "host" in self.name else "660,40"
         exe_dir = os.path.dirname(EXE) or "."
@@ -148,6 +195,17 @@ class GameClient:
         raise TimeoutError(f"{self.name}: test server not reachable on :{self.port}")
 
     def cmd(self, obj):
+        # Lane offset for the coop game-to-game port. Rewrites a COPY so a
+        # caller that reuses the same dict (a retry loop) is not double-shifted.
+        # Accepts int or str port values and preserves the type on the wire.
+        if self._port_shift and obj.get("cmd") in _PORT_SHIFT_CMDS:
+            obj = dict(obj)
+            for key in ("port", "localport"):
+                if key in obj:
+                    v = obj[key]
+                    obj[key] = (str(int(v) + self._port_shift)
+                                if isinstance(v, str)
+                                else int(v) + self._port_shift)
         self.sock.sendall((json.dumps(obj) + "\n").encode())
         while b"\n" not in self.buf:
             chunk = self.sock.recv(65536)
@@ -203,6 +261,12 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     (which flips a value mid-test) these are in force from the instance's very
     first frame, and they are PER INSTANCE - a test can start the host slow and
     the client fast. Booleans are written as YAML true/false."""
+    # Lane prefix: two runs on different slots must never share a user dir, since
+    # this rmtree's `d` on entry (accidental concurrency would silently destroy
+    # the other lane's run). Slot 0 is prefixed s0_ too, so every live instance
+    # is tagged by lane in %TEMP%\oxc-coop-test — the marker the parallel runner
+    # uses to identify its own processes and never touch a foreign session's.
+    name = "s%d_%s" % (HARNESS_SLOT, name)
     d = os.path.join(TEST_ROOT, name)
     if os.path.exists(d):
         shutil.rmtree(d)
