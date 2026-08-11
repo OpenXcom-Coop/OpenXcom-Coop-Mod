@@ -546,31 +546,10 @@ bool Tile::destroy(TilePart part, SpecialTileType type)
 		return true;
 	}
 
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
-	{
-
-		Json::Value root;
-		root["state"] = "destroy_tile";
-		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
-		// holds this outcome for its own chain's opener instead of contaminating
-		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
-		connectionTCP::coopStampChainSeq(root);
-
-		root["tile_pos_x"] = _pos.x;
-		root["tile_pos_y"] = _pos.y;
-		root["tile_pos_z"] = _pos.z;
-
-		root["tile_part"] = (int)part;
-		root["special_tile_type"] = (int)type;
-
-		root["explosive"] = _explosive;
-		root["explosive_type"] = _explosiveType;
-		
-
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-
-	}
+	// coop (SEAM-3 b): the destroy_tile packet is built and SENT below, AFTER the
+	// destruction has run, so root["explosive"]/["explosive_type"] carry the
+	// POST-destroy state (the die-MCD explosive property the client must mirror)
+	// instead of the stale pre-destroy value.
 
 	bool _objective = false;
 	if (_objects[part])
@@ -597,6 +576,33 @@ bool Tile::destroy(TilePart part, SpecialTileType type)
 		/* replace with scorched earth */
 		setMapData(MapDataSet::getScorchedEarthTile(), 1, 0, O_FLOOR);
 	}
+
+	// coop (SEAM-3 b): ship destroy_tile AFTER destruction so _explosive/_explosiveType
+	// reflect the POST-destroy state. Emission order is unchanged: nothing between the
+	// old send site and here emits a coop packet (setMapData/setExplosive do not send),
+	// and coopStampChainSeq reads the open-chain seq, which the destruction does not touch.
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
+	{
+		Json::Value root;
+		root["state"] = "destroy_tile";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(root);
+
+		root["tile_pos_x"] = _pos.x;
+		root["tile_pos_y"] = _pos.y;
+		root["tile_pos_z"] = _pos.z;
+
+		root["tile_part"] = (int)part;
+		root["special_tile_type"] = (int)type;
+
+		root["explosive"] = _explosive;
+		root["explosive_type"] = _explosiveType;
+
+		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+	}
+
 	return _objective;
 }
 
