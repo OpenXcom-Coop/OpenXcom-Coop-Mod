@@ -4471,7 +4471,7 @@ int TileEngine::blockage(Tile *tile, const TilePart part, ItemDamageType type, i
  *		  4 not enough TUs
  *		  5 would contravene fire reserve
  */
-int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
+int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir, bool costFree)
 {
 	int door = -1;
 	int TUCost = 0;
@@ -4575,7 +4575,7 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
 				tile = _save->getTile(unit->getPosition() + Position(x,y,z) + pair.first);
 				if (tile)
 				{
-					door = tile->openDoor(pair.second, unit, _save->getBattleGame()->getReservedAction(), rClick);
+					door = tile->openDoor(pair.second, unit, _save->getBattleGame()->getReservedAction(), rClick, costFree);
 					if (door != -1)
 					{
 						part = pair.second;
@@ -4614,7 +4614,14 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
 
 	if (door == 0 || door == 1)
 	{
-		if (_save->getBattleGame()->checkReservedTU(unit, TUCost, 0))
+		if (costFree)
+		{
+			// coop (SEAM-3 door): a replayed host walk applies the door-open without
+			// charging the peer's TU (host-authoritative); still refresh lighting/FOV.
+			calculateLighting(LL_FIRE, doorCentre, doorsOpened, true);
+			calculateFOV(doorCentre, doorsOpened, true, true);
+		}
+		else if (_save->getBattleGame()->checkReservedTU(unit, TUCost, 0))
 		{
 			if (unit->spendTimeUnits(TUCost))
 			{

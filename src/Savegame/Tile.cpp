@@ -359,7 +359,7 @@ int Tile::getFootstepSound(Tile *tileBelow) const
  * @param rClick
  * @return a value: 0(normal door), 1(ufo door) or -1 if no door opened or 3 if ufo door(=animated) is still opening 4 if not enough TUs
  */
-int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bool rClick)
+int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bool rClick, bool costFree)
 {
 	if (!_objects[part]) return -1;
 
@@ -380,9 +380,13 @@ int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bo
 	{
 		if (unit && unit->isBigUnit()) // don't allow double-wide units to open swinging doors due to engine limitations
 			return -1;
-		if (unit && cost.Time && !cost.haveTU())
+		// coop (SEAM-3 door): a co-op REPLAY of a host walk (costFree) must not bail on
+		// the replaying unit's transient local TU/reserve - the host already validated
+		// the open; the peer mirrors it. Without this the peer keeps a door the host
+		// walked through CLOSED, permanently (nothing re-opens a hinged door).
+		if (unit && cost.Time && !cost.haveTU() && !costFree)
 			return 4;
-		if (_unit && _unit != unit && _unit->getPosition() != getPosition())
+		if (_unit && _unit != unit && _unit->getPosition() != getPosition() && !costFree)
 			return -1;
 		setMapData(_objects[part]->getDataset()->getObject(_objects[part]->getAltMCD()), _objects[part]->getAltMCD(), _mapData->SetID[part],
 				   _objects[part]->getDataset()->getObject(_objects[part]->getAltMCD())->getObjectType());

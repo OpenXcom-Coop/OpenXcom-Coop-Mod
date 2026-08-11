@@ -540,7 +540,12 @@ void UnitWalkBState::think()
 			// now open doors (if any)
 			if (dir < Pathfinding::DIR_UP)
 			{
-				int door = _terrain->unitOpensDoor(_unit, false, dir);
+				// coop (SEAM-3 door): on a co-op REPLAY of a host walk (peer, not the active
+			// sync player) open the door cost-free, so a transient local TU/reserve
+			// shortfall from the peer's independent re-path cannot leave a door the host
+			// walked through permanently closed on the peer.
+			bool coopReplayDoor = _parent->isCoop() && !_parent->getCoopMod()->_isActivePlayerSync;
+			int door = _terrain->unitOpensDoor(_unit, false, dir, coopReplayDoor);
 				if (door == 3)
 				{
 					return; // don't start walking yet, wait for the ufo door to open
