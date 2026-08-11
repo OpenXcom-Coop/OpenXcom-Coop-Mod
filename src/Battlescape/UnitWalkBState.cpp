@@ -419,6 +419,11 @@ void UnitWalkBState::think()
 				_unit->getTile()->ignite(1);
 				Position posHere = _unit->getPosition();
 				Position voxelHere = posHere.toVoxel() + Position(8,8,-(_unit->getTile()->getTerrainLevel()));
+				// coop (PRD-I3 SEAM-3 close): as UnitFallBState - own a seq if the in-walk
+				// burn-floor destruction runs loose. In-chain (the normal admitted walk /
+				// "ai" chain) this is a no-op and the destroy inherits the walk's seq. Walks
+				// are strictly mid-side, so no boundary exclusion applies.
+				connectionTCP::coopStampLooseOutcomeChain("burn");
 				_parent->getTileEngine()->hit(BattleActionAttack{ BA_NONE, _unit, }, voxelHere, _unit->getBaseStats()->strength, _parent->getMod()->getDamageType(DT_IN), false);
 
 				if (_unit->getStatus() != STATUS_STANDING) // ie: we burned a hole in the floor and fell through it

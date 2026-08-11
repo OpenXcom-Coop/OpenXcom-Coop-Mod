@@ -28,6 +28,7 @@
 #include "../Engine/Options.h"
 #include "../Mod/Armor.h"
 #include "../Mod/Mod.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -148,6 +149,15 @@ void UnitFallBState::think()
 				{
 					unit->getTile()->ignite(1);
 					Position groundVoxel = (unit->getPosition().toVoxel()) + Position(8,8,-(unit->getTile()->getTerrainLevel()));
+					// coop (PRD-I3 SEAM-3 close): a burn-floor tile destruction that runs
+					// OUTSIDE any admitted chain (the fall is pushed from think() with the
+					// state queue empty) would ship its destroy_tile / set_fire_tile UNSTAMPED
+					// = seq-0 always-consume, and a lagging client can fold that terrain change
+					// into a neighbouring chain's post-N hash (the SEAM-3 residual class the
+					// ExplosionBState "expl" stamp misses). Own a seq so the outcome rides the
+					// I1 apply-before-hash gate. No-op unless the parallel host is between
+					// chains; the chain closes when the fall drains (coopCloseActionChain).
+					connectionTCP::coopStampLooseOutcomeChain("burn");
 					_parent->getTileEngine()->hit(BattleActionAttack{ BA_NONE, unit, }, groundVoxel, unit->getBaseStats()->strength, _parent->getMod()->getDamageType(DT_IN), false);
 
 					if (unit->getStatus() != STATUS_STANDING) // ie: we burned a hole in the floor and fell through it

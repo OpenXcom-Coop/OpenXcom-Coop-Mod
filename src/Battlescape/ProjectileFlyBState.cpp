@@ -1127,6 +1127,10 @@ void ProjectileFlyBState::think()
 										power = _ammo->getRules()->getPowerBonus(attack) - _ammo->getRules()->getPowerRangeReduction(proj->getDistance());
 									}
 									_parent->getMap()->getExplosions()->push_back(explosion);
+									// coop (PRD-I3 SEAM-3 close): a shotgun pellet's direct terrain hit owns a
+									// seq if the shot chain has already drained (loose); in-chain it is a no-op
+									// and the destroy inherits the shot's seq. Shots are mid-side, no boundary.
+									connectionTCP::coopStampLooseOutcomeChain("pellet");
 									_parent->getSave()->getTileEngine()->hit(attack, proj->getPosition(offset), power, _ammo->getRules()->getDamageType());
 
 									//do not work yet
