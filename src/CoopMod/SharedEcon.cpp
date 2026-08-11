@@ -4843,16 +4843,25 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 		}
 		out.unitsStats += s;
 
-		// PRD-I3 SEAM-7: the SAME field set, SPLIT BY AUTHORSHIP into two independent
-		// FNV sums so the compare can hold each field where its author makes it
-		// well-defined - unitsCombat (chain-authored) strict everywhere; unitsRegen
-		// (turn-machine-authored) at player action seqs + sidestart only. The combined
+		// PRD-I3 SEAM-7/SEAM-8: the SAME field set, SPLIT BY AUTHORSHIP into two
+		// independent FNV sums so the compare can hold each field where its author makes
+		// it well-defined - unitsCombat (chain-authored: health/stun/fire/kneel/mc/wounds)
+		// strict everywhere; unitsRegen (the turn-machine/DEFERRED-authored set:
+		// tu/energy/mana AND morale) at player action seqs + sidestart only. The combined
 		// unitsStats above is kept verbatim purely for the OLD-peer wire fallback.
+		// MORALE joined the deferred set in SEAM-8: it is DUAL-authored - casualty-cascade
+		// absolutes (bystander_morale/hit_unit, chain-delivered) PLUS turn-machine recovery
+		// the client defers under D-lite/Option B and only next_turn carries - so its
+		// per-seq compare at ai-kind seqs + endturn boundaries is ill-defined (host
+		// recovered/gained, client deferred). The client-side re-roll that raced those
+		// absolutes was gated in checkForCasualties (9dadcb160); what remains is the
+		// deferred-recovery straddle, held here to player seqs + sidestart where morale's
+		// author (the chain, then next_turn) has made it well-defined. HEALTH STAYS in
+		// unitsCombat (chain-authored via hit_unit absolute, strict per-seq).
 		std::uint64_t comb = FNV_OFFSET;
 		comb = mix(comb, unit->getId());
 		comb = mix(comb, unit->getHealth());
 		comb = mix(comb, unit->getStunlevel());
-		comb = mix(comb, unit->getMorale());
 		comb = mix(comb, unit->getFire());
 		comb = mix(comb, unit->isKneeled() ? 1 : 0);
 		comb = mix(comb, unit->getMindControllerId());
@@ -4867,6 +4876,7 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 		regen = mix(regen, unit->getTimeUnits());
 		regen = mix(regen, unit->getEnergy());
 		regen = mix(regen, unit->getMana());
+		regen = mix(regen, unit->getMorale()); // SEAM-8: morale is deferred-authored (see above)
 		out.unitsRegen += regen;
 	}
 
@@ -5177,11 +5187,13 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 			++g_syncEndturnHazardSkips;
 			continue;
 		}
-		// PRD-I3 SEAM-7: unitsRegen straddles the turn transition, so EXCLUDE it at an
-		// ai-kind action seq and at an endturn boundary (host advanced toward the next
-		// side's regen, the client defers to next_turn) - the same principle as the
-		// endturn hazard skip. Compared everywhere else (player seqs + sidestart).
-		// unitsCombat is chain-authored and is NEVER excluded.
+		// PRD-I3 SEAM-7/SEAM-8: the unitsRegen (turn-machine/DEFERRED-authored) bucket -
+		// tu/energy/mana AND morale (SEAM-8) - straddles the turn transition, so EXCLUDE it
+		// at an ai-kind action seq and at an endturn boundary (host advanced toward the next
+		// side's regen/recovery, the client defers to next_turn) - the same principle as the
+		// endturn hazard skip. Compared everywhere else (player seqs + sidestart), where the
+		// chain has delivered morale's casualty absolutes and next_turn its recovery.
+		// unitsCombat is chain-authored (health/stun/fire/kneel/mc/wounds) and NEVER excluded.
 		if (std::strcmp(name, "unitsRegen") == 0)
 		{
 			if (!boundary && entry->kind == "ai") { ++g_syncRegenAiSkips; continue; }
