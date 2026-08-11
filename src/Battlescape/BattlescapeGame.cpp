@@ -1724,6 +1724,19 @@ void BattlescapeGame::endTurn()
  */
 void BattlescapeGame::checkForCasualties(const RuleDamageType* damageType, BattleActionAttack attack, bool hiddenExplosion, bool terrainExplosion)
 {
+	// coop (PRD-I3 SEAM-8): on the parallel non-host client this function runs from a
+	// REPLAYED attack/explosion (ExplosionBState) purely for DISPLAY - the client is a
+	// thin client and must not RE-DECIDE any combat outcome. The victim's post-hit
+	// stats are host absolutes (hit_unit: health/stun/fatalWounds/morale/energy/mana/
+	// tu; BattleUnit::damage() itself already early-returns on any coop client), the
+	// squad-wide bystander morale rides the death packets (bystander_morale, SEAM-4),
+	// and the death is displayed by coopDeath (the UnitDieBState pushed below is a
+	// no-op ctor on the client). So the morale RE-ROLL here (murderer bonus, bystander
+	// loss/gain loop, stun morale) would race those host absolutes and diverge the
+	// per-unit unitsCombat hash. Suppress the morale writes on the parallel client
+	// only; a CLASSIC client replays the attack + runs its own damage(), so it is
+	// untouched and stays byte-identical.
+	const bool coopThinClientNoReroll = connectionTCP::parallelTurnActive() && !getHost();
 	BattleUnit* origMurderer = attack.attacker;
 	// If the victim was killed by the murderer's death explosion, fetch who killed the murderer and make HIM the murderer!
 	if (origMurderer && (origMurderer->getSpecialAbility() == SPECAB_EXPLODEONDEATH || origMurderer->getSpecialAbility() == SPECAB_BURN_AND_EXPLODE) && origMurderer->getStatus() == STATUS_DEAD && origMurderer->getMurdererId() != 0)
@@ -1875,29 +1888,29 @@ void BattlescapeGame::checkForCasualties(const RuleDamageType* damageType, Battl
 					if ((victim->getOriginalFaction() == FACTION_PLAYER && murderer->getFaction() == FACTION_HOSTILE) ||
 						(victim->getOriginalFaction() == FACTION_HOSTILE && murderer->getFaction() == FACTION_PLAYER))
 					{
-						murderer->moraleChange(20 * modifier / 100);
+						if (!coopThinClientNoReroll) murderer->moraleChange(20 * modifier / 100);
 					}
 					// murderer will get a penalty with friendly fire
 					if (victim->getOriginalFaction() == murderer->getOriginalFaction())
 					{
 						// morale loss by friendly fire
-						murderer->moraleChange(-(2000 * moraleLossModifierWhenKilled / modifier / 100));
+						if (!coopThinClientNoReroll) murderer->moraleChange(-(2000 * moraleLossModifierWhenKilled / modifier / 100));
 					}
 					if (victim->getOriginalFaction() == FACTION_NEUTRAL)
 					{
 						if (murderer->getOriginalFaction() == FACTION_PLAYER)
 						{
 							// morale loss by xcom killing civilians
-							murderer->moraleChange(-(1000 * moraleLossModifierWhenKilled / modifier / 100));
+							if (!coopThinClientNoReroll) murderer->moraleChange(-(1000 * moraleLossModifierWhenKilled / modifier / 100));
 						}
 						else
 						{
-							murderer->moraleChange(10);
+							if (!coopThinClientNoReroll) murderer->moraleChange(10);
 						}
 					}
 				}
 
-				if (victim->getFaction() != FACTION_NEUTRAL)
+				if (victim->getFaction() != FACTION_NEUTRAL && !coopThinClientNoReroll)
 				{
 					int modifier = _save->getUnitMoraleModifier(victim);
 					int loserMod = _save->getFactionMoraleModifier(victim->getOriginalFaction() != FACTION_HOSTILE);
@@ -1968,7 +1981,7 @@ void BattlescapeGame::checkForCasualties(const RuleDamageType* damageType, Battl
 			else if (victim->getStunlevel() >= victim->getHealth() && victim->getStatus() != STATUS_UNCONSCIOUS)
 			{
 				// morale change when an enemy is stunned (only for the first time!)
-				if (getMod()->getStunningImprovesMorale() && murderer && !victim->getStatistics()->wasUnconcious)
+				if (getMod()->getStunningImprovesMorale() && murderer && !victim->getStatistics()->wasUnconcious && !coopThinClientNoReroll)
 				{
 					if ((victim->getOriginalFaction() == FACTION_PLAYER && murderer->getFaction() == FACTION_HOSTILE) ||
 						(victim->getOriginalFaction() == FACTION_HOSTILE && murderer->getFaction() == FACTION_PLAYER))
