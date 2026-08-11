@@ -2959,7 +2959,7 @@
     <ResourceCompile Include="OpenXcom.rc" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\res\windows\openxcom.ico" />
+    <None Include="..\res\windows\openxcom_coop.ico" />
     <None Include="CoopMod\clipboard\ClipboardMac.m">
       <Filter>CoopMod\clipboard</Filter>
     </None>
