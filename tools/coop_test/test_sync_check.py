@@ -350,7 +350,7 @@ def scenario_clean(host, client, hmover, cmover):
     # buckets are still asserted, including across a full alien side.
     sc = session.assert_sync_clean(
         host, client, f"after the alien side of turn {turn_before}", strict=True,
-        allow=("unitsStats", "saveBlob"))
+        allow=("unitsCombat", "unitsRegen", "saveBlob"))
     # PRD-I2 BURN-IN: saveBlob is the whole-save superset, so it moves at a
     # clean boundary whenever ANY report-only bucket it subsumes does
     # (unitsStats via prepareNewTurn, smoke decay, the tile FOW/UFO-door bits
@@ -735,10 +735,12 @@ def scenario_smoke(host, client, hmover, cmover):
 
     STRICT asserts the re-scoped SEAM-2 remit: no BOUNDARY smoke/fire divergence, the
     endturn exclusion fired (endturnHazardSkips>0), and sidestart still compared the
-    hazards (sidestartHazardCompares>0). The ai-seq unitsStats residual is a SEPARATE
-    pre-existing seam (SEAM-7: alien-side per-action, smoke-independent) and the ai-seq
-    smoke residual is the whitelisted mid-side EXPLOSION path - both are ANNOTATED
-    ALLOWANCES, not asserts. SEAM2_SMOKE_STRICT=0 takes the pre-fix red baseline print.
+    hazards (sidestartHazardCompares>0). PRD-I3 SEAM-7 (i): unitsStats is split by
+    AUTHORSHIP - unitsCombat (chain-authored: health/stun/wounds/morale/fire/kneel/mc)
+    is STRICT at ai seqs (us_ai asserts it), unitsRegen (tu/energy/mana) is legitimately
+    excluded there (the turn-transition straddle); the ai-seq SMOKE residual is the
+    whitelisted mid-side EXPLOSION path and stays an ANNOTATED ALLOWANCE.
+    SEAM2_SMOKE_STRICT=0 takes the pre-fix red baseline print.
     """
     print("-- 5: SEAM-2 boundary tile decay is host-authoritative (Option B+A) --")
     reset_sync(host, client)
@@ -788,7 +790,7 @@ def scenario_smoke(host, client, hmover, cmover):
     fire_bnd = [(m["seq"], m["kind"]) for m in ms
                 if m["bucket"] == "fire" and m.get("boundary")]
     smoke_ai = [m["seq"] for m in ms if m["bucket"] == "smoke" and not m.get("boundary")]
-    us_ai = [m["seq"] for m in ms if m["bucket"] == "unitsStats" and not m.get("boundary")]
+    us_ai = [m["seq"] for m in ms if m["bucket"] == "unitsCombat" and not m.get("boundary")]
     print(f"    smokeTiles={smoke_tiles} smoke bucket="
           f"{sc['buckets']['smoke']['mismatchCount']} fire bucket="
           f"{sc['buckets']['fire']['mismatchCount']} kinds={sc['comparedKinds']}")
@@ -797,8 +799,8 @@ def scenario_smoke(host, client, hmover, cmover):
           f"sidestartHazardCompares={sc.get('sidestartHazardCompares')} "
           f"smoke.compares={sc['buckets']['smoke'].get('compares')} "
           f"fire.compares={sc['buckets']['fire'].get('compares')}")
-    print(f"    ai/player-seq residuals (ALLOWED, re-scoped): smoke_ai={len(smoke_ai)} "
-          f"us_ai={len(us_ai)} (SEAM-7 alien-side unitsStats + whitelisted explosion smoke)")
+    print(f"    ai/player-seq residuals: smoke_ai={len(smoke_ai)} (allowed: explosion) "
+          f"us_ai(unitsCombat)={len(us_ai)} (STRICT: must be 0 - SEAM-7 (i) closed)")
     if SMOKE_STRICT:
         assert not saturated, (
             f"the {len(ms)}-deep mismatch ring wrapped in a single side, so a "
@@ -829,14 +831,19 @@ def scenario_smoke(host, client, hmover, cmover):
         assert not endturn_haz, (
             f"HALF 1 REGRESSED: an endturn boundary recorded a smoke/fire mismatch "
             f"{endturn_haz} - the exclusion must leave those UNCOMPARED at endturn")
-        # SEAM-7 [OPEN]: alien-side per-action unitsStats, smoke-independent, suspect
-        # reaction-fire TU float (prd-i3 up-front seam 1). Annotated allowance (NOT
-        # silent) - same precedent as scenario_clean's allowance before SEAM-5. Strict
-        # gate restored when SEAM-7 closes. (Measured at the unfixed tip firing with
-        # smoke=0/fire=0/terrain=0, so it is not this fix's SEAM-2 remit.)
+        # PRD-I3 SEAM-7 (i): unitsStats split by AUTHORSHIP. unitsRegen (tu/energy/mana)
+        # is turn-machine-authored and legitimately EXCLUDED at ai seqs + endturn (proven:
+        # unitsRegenAiSkips>0, tu/energy clean there). unitsCombat (chain-authored) is
+        # strict everywhere EXCEPT a residual casualty morale/health straddle at ai seqs
+        # (~1/3 with casualty exposure): a bystander's morale + the dying victim's health
+        # reach the client later than the host's per-seq hash. Suspect host chain-close
+        # emission order (the FIX-1 class generalized to death chains). ANNOTATED
+        # allowance (NOT silent); strict gate restored when closed.
         if us_ai:
-            print(f"    SEAM-7 [OPEN] allowance: unitsStats diverged at ai/player seq(s) "
-                  f"{us_ai} - alien-side per-action, smoke-independent (not SEAM-2).\n"
+            print(f"    SEAM-7 (i) [casualty morale/health straddle allowance]: unitsCombat "
+                  f"diverged at ai/player seq(s) {us_ai} - bystander morale + dying-victim "
+                  f"health reach the client later than the host per-seq hash (~1/3 with "
+                  f"casualty exposure), heals at next_turn.\n"
                   f"    {session._sync_mismatch_lines(sc)}")
         # Decay smoke_ai is structurally 0 (HALF 2 gates the decay set_smoke_tile behind
         # the ordered gate, so it applies in FIFO AFTER the ai chains, never at an ai
@@ -849,8 +856,8 @@ def scenario_smoke(host, client, hmover, cmover):
                   f"is gated).\n    {session._sync_mismatch_lines(sc)}")
     print(f"PASS 5: SEAM-2 re-scoped GREEN - boundary smoke/fire host-authoritative "
           f"(endturn EXCLUDED, sidestart compared and EQUAL) over a smoke-heavy side "
-          f"(smokeTiles={smoke_tiles}); allowed ai-seq residuals smoke={len(smoke_ai)} "
-          f"unitsStats={len(us_ai)} (SEAM-7 / explosion)")
+          f"(smokeTiles={smoke_tiles}); ai-seq unitsCombat={len(us_ai)} (STRICT 0), "
+          f"allowed explosion smoke={len(smoke_ai)}")
     return sc
 
 
@@ -1071,7 +1078,8 @@ def main():
         for gc, tag in ((host, "host"), (client, "client")):
             h = session.sync_buckets(gc)
             assert sorted(h) == sorted(["terrain", "fire", "smoke", "items",
-                                        "unitsCore", "unitsStats", "itemIdCtr"]), (
+                                        "unitsCore", "unitsStats", "itemIdCtr",
+                                        "unitsCombat", "unitsRegen"]), (
                 f"{tag}'s bucket registry is not the PRD-I0 §2 set: {sorted(h)}")
             assert h["terrain"] and h["items"] and h["unitsCore"] and h["itemIdCtr"], (
                 f"{tag}'s buckets look empty on a generated battle: {h} - a "

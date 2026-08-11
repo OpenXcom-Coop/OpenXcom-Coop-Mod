@@ -467,12 +467,14 @@ struct BattleHashSet
 	std::uint64_t smoke;       ///< per tile: turns of smoke remaining (+ overlaps)
 	std::uint64_t items;       ///< id, type, owner, slot, tile pos, fuse - the strict census
 	std::uint64_t unitsCore;   ///< id, faction, liveness, position (the chkBattleUnits set)
-	std::uint64_t unitsStats;  ///< TU, energy, health, stun, morale, wounds, kneel, MC id
+	std::uint64_t unitsStats;  ///< legacy COMBINED unit stats (old-peer wire compat)
+	std::uint64_t unitsCombat; ///< PRD-I3 SEAM-7: chain-authored: health,stun,w0-5,morale,fire,kneel,mc
+	std::uint64_t unitsRegen;  ///< PRD-I3 SEAM-7: turn-machine-authored: tu,energy,mana
 	std::uint64_t itemIdCtr;   ///< SavedBattleGame::getCurrentItemIdValue()
 };
 
 /// How many buckets a BattleHashSet holds.
-const int BATTLE_HASH_BUCKETS = 7;
+const int BATTLE_HASH_BUCKETS = 9;
 /// Wire/introspection name of bucket @a i (0..BATTLE_HASH_BUCKETS-1).
 const char* battleHashBucketName(int i);
 /// Value of bucket @a i.

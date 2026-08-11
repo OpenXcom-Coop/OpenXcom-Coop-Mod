@@ -4304,10 +4304,13 @@ const bool BATTLE_HASH_ALARM[BATTLE_HASH_BUCKETS] = {
 	false,  // unitsCore
 	false,  // unitsStats  (PRD-I0 names this one explicitly: expected noisy)
 	false,  // itemIdCtr
+	false,  // unitsCombat (PRD-I3 SEAM-7: report-only at birth, inherits unitsStats)
+	false,  // unitsRegen  (PRD-I3 SEAM-7: report-only at birth, inherits unitsStats)
 };
 
 const char* const BATTLE_HASH_NAMES[BATTLE_HASH_BUCKETS] = {
 	"terrain", "fire", "smoke", "items", "unitsCore", "unitsStats", "itemIdCtr",
+	"unitsCombat", "unitsRegen",
 };
 
 const std::uint64_t FNV_OFFSET = 1469598103934665603ULL;
@@ -4388,6 +4391,13 @@ std::uint64_t g_syncBucketCompares[BATTLE_HASH_BUCKETS] = { 0 };
 // assert the split: endturn skipped, sidestart still compared.
 std::uint64_t g_syncEndturnHazardSkips = 0;
 std::uint64_t g_syncSidestartHazardCompares = 0;
+// PRD-I3 SEAM-7: unitsRegen (tu/energy/mana) is turn-machine-authored, so its ai-seq
+// and endturn-boundary samples straddle the transition (host committed toward the next
+// side's regen while the client defers to next_turn). It is EXCLUDED there and compared
+// only where its author makes it well-defined (player action seqs + sidestart). These
+// count the two straddle exclusions so a test can assert exactly where they fired.
+std::uint64_t g_syncRegenAiSkips = 0;
+std::uint64_t g_syncRegenEndturnSkips = 0;
 // The two namespaces are tracked apart: `action_seq` restarts at 0 every side, so
 // a shared watermark would be dragged forwards by the battle-monotonic boundary
 // counter and "the deferred loop closed" would read true for ever after.
@@ -4661,6 +4671,8 @@ std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i)
 	case 4: return h.unitsCore;
 	case 5: return h.unitsStats;
 	case 6: return h.itemIdCtr;
+	case 7: return h.unitsCombat;
+	case 8: return h.unitsRegen;
 	default: return 0;
 	}
 }
@@ -4691,6 +4703,7 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 {
 	out.terrain = out.fire = out.smoke = out.items = 0;
 	out.unitsCore = out.unitsStats = out.itemIdCtr = 0;
+	out.unitsCombat = out.unitsRegen = 0;
 	if (!game || !game->getSavedGame()) return false;
 	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
 	if (!battle) return false;
@@ -4829,6 +4842,32 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 			s = mix(s, wounds ? wounds[part] : 0);
 		}
 		out.unitsStats += s;
+
+		// PRD-I3 SEAM-7: the SAME field set, SPLIT BY AUTHORSHIP into two independent
+		// FNV sums so the compare can hold each field where its author makes it
+		// well-defined - unitsCombat (chain-authored) strict everywhere; unitsRegen
+		// (turn-machine-authored) at player action seqs + sidestart only. The combined
+		// unitsStats above is kept verbatim purely for the OLD-peer wire fallback.
+		std::uint64_t comb = FNV_OFFSET;
+		comb = mix(comb, unit->getId());
+		comb = mix(comb, unit->getHealth());
+		comb = mix(comb, unit->getStunlevel());
+		comb = mix(comb, unit->getMorale());
+		comb = mix(comb, unit->getFire());
+		comb = mix(comb, unit->isKneeled() ? 1 : 0);
+		comb = mix(comb, unit->getMindControllerId());
+		for (int part = 0; part < BODYPART_MAX; ++part)
+		{
+			comb = mix(comb, wounds ? wounds[part] : 0);
+		}
+		out.unitsCombat += comb;
+
+		std::uint64_t regen = FNV_OFFSET;
+		regen = mix(regen, unit->getId());
+		regen = mix(regen, unit->getTimeUnits());
+		regen = mix(regen, unit->getEnergy());
+		regen = mix(regen, unit->getMana());
+		out.unitsRegen += regen;
 	}
 
 	out.itemIdCtr = (std::uint64_t)(std::int64_t)battle->getCurrentItemIdValue();
@@ -5110,11 +5149,19 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 	if (boundary) g_syncLastComparedBoundarySeq = seq;
 	else g_syncLastComparedSeq = seq;
 
+	// PRD-I3 SEAM-7: a peer that shipped the SPLIT buckets supersedes the combined
+	// unitsStats - compare the split, skip the combined (which still carries the
+	// straddle the split legitimately excludes). Absent split = OLD peer = fall back
+	// to the combined below (presence-gated, bidirectional).
+	const bool hasSplit = node.isMember("unitsCombat") || node.isMember("unitsRegen");
+	bool seam7Recorded = false;
 	bool alarm = false;
 	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i)
 	{
 		const char* name = BATTLE_HASH_NAMES[i];
 		if (!node.isMember(name)) continue; // a peer that predates this bucket
+		if (std::strcmp(name, "unitsStats") == 0 && hasSplit)
+			continue; // superseded by unitsCombat/unitsRegen (this peer shipped the split)
 		// PRD-I3 SEAM-2 HALF 1: EXCLUDE the smoke/fire hazard buckets from an ENDTURN
 		// boundary comparison - the endturn hazard sample is ill-defined (all decay
 		// runs once per cycle at neutral->player, AFTER both endturn boundaries are
@@ -5129,6 +5176,16 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		{
 			++g_syncEndturnHazardSkips;
 			continue;
+		}
+		// PRD-I3 SEAM-7: unitsRegen straddles the turn transition, so EXCLUDE it at an
+		// ai-kind action seq and at an endturn boundary (host advanced toward the next
+		// side's regen, the client defers to next_turn) - the same principle as the
+		// endturn hazard skip. Compared everywhere else (player seqs + sidestart).
+		// unitsCombat is chain-authored and is NEVER excluded.
+		if (std::strcmp(name, "unitsRegen") == 0)
+		{
+			if (!boundary && entry->kind == "ai") { ++g_syncRegenAiSkips; continue; }
+			if (boundary && entry->kind == "endturn") { ++g_syncRegenEndturnSkips; continue; }
 		}
 		++g_syncBucketCompares[i];
 		if (boundary && hazardBucket && entry->kind == "sidestart")
@@ -5154,12 +5211,17 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 					   << (battleHashBucketAlarms(i) ? " [ALARM]" : " [report-only]");
 		if (battleHashBucketAlarms(i)) alarm = true;
 
-		// PRD-I3 SEAM-7: name the exact field(s) behind a unitsStats bucket mismatch,
-		// when the opt-in capture rode both this report (`uv`) and this ring entry.
-		if (std::strcmp(name, "unitsStats") == 0 && entry->statVec.isArray()
+		// PRD-I3 SEAM-7: name the exact field(s) behind a unit-stats mismatch (combined
+		// OR either split bucket), once per compare, when the opt-in capture rode both
+		// this report (`uv`) and this ring entry.
+		const bool unitFamily = std::strcmp(name, "unitsStats") == 0
+			|| std::strcmp(name, "unitsCombat") == 0
+			|| std::strcmp(name, "unitsRegen") == 0;
+		if (unitFamily && !seam7Recorded && entry->statVec.isArray()
 			&& msg.isMember("uv") && msg["uv"].isArray())
 		{
 			recordSeam7FieldDiffs(entry->statVec, msg["uv"], seq, boundary, entry->kind);
+			seam7Recorded = true;
 		}
 	}
 
@@ -5242,6 +5304,10 @@ void syncCheckReport(Json::Value& out)
 	// compared (and equal) at sidestart.
 	node["endturnHazardSkips"] = static_cast<Json::UInt64>(g_syncEndturnHazardSkips);
 	node["sidestartHazardCompares"] = static_cast<Json::UInt64>(g_syncSidestartHazardCompares);
+	// PRD-I3 SEAM-7: unitsRegen straddle exclusions (ai-seq + endturn boundary), so a
+	// test can assert unitsRegen was skipped exactly at the straddle window.
+	node["unitsRegenAiSkips"] = static_cast<Json::UInt64>(g_syncRegenAiSkips);
+	node["unitsRegenEndturnSkips"] = static_cast<Json::UInt64>(g_syncRegenEndturnSkips);
 
 	Json::Value buckets(Json::objectValue);
 	std::uint64_t total = 0;
@@ -5392,6 +5458,8 @@ void resetSyncCheck()
 	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i) { g_syncBucketMismatches[i] = 0; g_syncBucketCompares[i] = 0; }
 	g_syncEndturnHazardSkips = 0;
 	g_syncSidestartHazardCompares = 0;
+	g_syncRegenAiSkips = 0;
+	g_syncRegenEndturnSkips = 0;
 	g_syncSaveBlobMismatches = 0;
 	g_syncLastSeq = 0;
 	g_syncLastComparedSeq = 0;
