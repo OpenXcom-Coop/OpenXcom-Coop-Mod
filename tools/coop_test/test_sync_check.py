@@ -831,20 +831,22 @@ def scenario_smoke(host, client, hmover, cmover):
         assert not endturn_haz, (
             f"HALF 1 REGRESSED: an endturn boundary recorded a smoke/fire mismatch "
             f"{endturn_haz} - the exclusion must leave those UNCOMPARED at endturn")
-        # PRD-I3 SEAM-7 (i): unitsStats split by AUTHORSHIP. unitsRegen (tu/energy/mana)
-        # is turn-machine-authored and legitimately EXCLUDED at ai seqs + endturn (proven:
-        # unitsRegenAiSkips>0, tu/energy clean there). unitsCombat (chain-authored) is
-        # strict everywhere EXCEPT a residual casualty morale/health straddle at ai seqs
-        # (~1/3 with casualty exposure): a bystander's morale + the dying victim's health
-        # reach the client later than the host's per-seq hash. Suspect host chain-close
-        # emission order (the FIX-1 class generalized to death chains). ANNOTATED
-        # allowance (NOT silent); strict gate restored when closed.
-        if us_ai:
-            print(f"    SEAM-7 (i) [casualty morale/health straddle allowance]: unitsCombat "
-                  f"diverged at ai/player seq(s) {us_ai} - bystander morale + dying-victim "
-                  f"health reach the client later than the host per-seq hash (~1/3 with "
-                  f"casualty exposure), heals at next_turn.\n"
-                  f"    {session._sync_mismatch_lines(sc)}")
+        # PRD-I3 SEAM-7 (i)/SEAM-8: unitsStats split by AUTHORSHIP. unitsRegen - the
+        # turn-machine/DEFERRED-authored set (tu/energy/mana AND morale; morale DEMOTED in
+        # SEAM-8) - is legitimately EXCLUDED at ai seqs + endturn (proven unitsRegenAiSkips
+        # > 0). unitsCombat is now health/stun/fire/kneel/mc/wounds ONLY, all chain-authored
+        # (hit_unit absolutes), so it is STRICT at every seq incl. ai. SEAM-8 landed the
+        # checkForCasualties morale re-roll gate (9dadcb160) AND moved morale into the
+        # deferred set, so the casualty morale re-roll is gone and the residual
+        # deferred-recovery morale straddle now lives in unitsRegen where the compare holds
+        # it at player seqs + sidestart. So us_ai MUST be 0.
+        assert not us_ai, (
+            f"SEAM-8 NOT CLOSED: unitsCombat (health/stun/fire/kneel/mc/wounds - all "
+            f"chain-authored) diverged at ai/player seq(s) {us_ai}. Morale now lives in the "
+            f"deferred unitsRegen set, so this is NOT the morale straddle - it is a "
+            f"chain-authored field (most likely dying-victim HEALTH via late hit_unit "
+            f"delivery) reaching the client later than its per-seq hash. Capture the "
+            f"interleave before any health demotion.\n    {session._sync_mismatch_lines(sc)}")
         # Decay smoke_ai is structurally 0 (HALF 2 gates the decay set_smoke_tile behind
         # the ordered gate, so it applies in FIFO AFTER the ai chains, never at an ai
         # seq). A residual here is the whitelisted MID-SIDE EXPLOSION smoke - a separate
