@@ -60,6 +60,14 @@ FUSED = "STR_ELECTRO_FLARE"
 FUSED_CHANCE = 50
 FUSED_COUNT = 8
 
+# Pin the fixture. The host generates and ships the map, so its seed fixes the
+# map, the alien deployment and the soldiers' stats; the client gets a different
+# seed (bring_up_battle), so a regressed outcome-ship still diverges. Without this
+# the battle is fresh-random every run and the flake was pure fixture roulette:
+# whether the part-1b rocket happened to land clear of the squad, whether a live
+# alien sat in psi range, whether the sweep had a valid tile.
+SEED = 424242
+
 METADATA = """\
 name: "Coop outcome-gap test"
 version: 1.0
@@ -139,6 +147,23 @@ def alive_enemy(gc, own_coop):
     return None
 
 
+def live_actor(driver, own_coop, fallback=None):
+    """A currently living, selectable, own-seat soldier with TU to spend. Re-picked
+    after a blast lever so a shooter caught in its own rocket's radius does not
+    strand the resolution-authority parts (psi/melee need a live attacker)."""
+    mine = TW.movers(TW.battle(driver), own_coop)
+    return mine[0]["id"] if mine else fallback
+
+
+def dist_to_squad(gc, tile):
+    """Chebyshev distance from `tile` to the NEAREST living player soldier - used
+    to keep the spawn-blast lever clear of the squad so it does not injure the
+    shooter (or diverge the two machines' unit lists) on its way to minting a unit."""
+    us = [u for u in TW.battle(gc)["units"]
+          if u.get("faction") == 0 and not u.get("isOut")]
+    return min((max(abs(tile[0]-u["x"]), abs(tile[1]-u["y"])) for u in us), default=99)
+
+
 def assert_hits_paired(gc, tag, what):
     """GAP-4a: every host `hit_tile` must have found the attack THIS machine parked
     for it. The receiver logs and drops an unmatched one rather than applying it to
@@ -201,14 +226,28 @@ def part1_spawn(host, client, driver, watcher, dtag, shooter_id):
     origin = (shooter["x"], shooter["y"], shooter["z"])
 
     # Empty floor first (kills nobody). A rocket needs line of fire AND an impact
-    # whose two-steps-back tile can hold a unit, so several directions get tried;
-    # the alien's own tile is the last resort, because it always detonates.
+    # whose two-steps-back tile can hold a unit, so several directions get tried,
+    # FARTHEST FROM THE SQUAD FIRST: a rocket that detonates on top of its own
+    # soldiers injures them and leaves the two machines' unit lists diverged (the
+    # blast's terrain/gravity is host-authoritative and repairs only at next_turn),
+    # and a dead/relocated shooter then strands the psi and melee parts below.
+    # The alien's own tile is the last resort, because it always detonates.
     alien = alive_enemy(driver, None)
-    candidates = [(origin[0] + dx, origin[1] + dy, origin[2]) for dx, dy in
-                  ((6, 0), (-6, 0), (0, 6), (0, -6), (5, 5), (-5, -5), (5, -5), (-5, 5),
-                   (8, 0), (-8, 0), (0, 8), (0, -8), (4, 4), (-4, 4), (4, -4), (-4, -4))]
+    offsets = [(origin[0] + dx, origin[1] + dy, origin[2]) for dx, dy in
+               ((6, 0), (-6, 0), (0, 6), (0, -6), (5, 5), (-5, -5), (5, -5), (-5, 5),
+                (8, 0), (-8, 0), (0, 8), (0, -8), (4, 4), (-4, 4), (4, -4), (-4, -4))]
+    ordered = sorted(offsets, key=lambda t: dist_to_squad(driver, t), reverse=True)
     if alien:
-        candidates.append((alien["x"], alien["y"], alien["z"]))
+        ordered.append((alien["x"], alien["y"], alien["z"]))
+    # Re-fire the whole sweep several times. Whether a rocket that REACHES a tile
+    # actually mints a unit depends on there being a free placement tile at the
+    # impact, and that hinges on where the aliens have wandered (timing-sensitive
+    # across the two machines) and on the snap shot's own accuracy spread - so a
+    # tile that produced nothing on one pass frequently does on the next. Firing
+    # each tile once made the lever a ~1/3 coin flip even with the fixture pinned;
+    # the shot returns the moment ANY tile mints a unit, so a lucky first pass
+    # still costs nothing.
+    candidates = ordered * 3
 
     for tile in candidates:
         before_h, before_c = unit_ids(host), unit_ids(client)
@@ -383,6 +422,13 @@ def part2_psi(host, client, driver, watcher, dtag, wtag, mover_id, attempts=3):
             f"unit {target['id']} ended up owned by different players "
             f"({hv.get('coop')} vs {cv.get('coop')})")
         session.assert_battle_synced(host, client, "after the psi attack")
+        # One replicated psi outcome is all GAP-2 needs to verify. The `attempts`
+        # loop only exists to RETRY when an attempt cannot run (out of range, the
+        # target moved); stop the moment one runs, so a SUCCESSFUL mind control -
+        # which flips its victim to faction 0 - does not go on to convert every
+        # remaining alien and leave part2_melee below with no hostile to swing at
+        # (the roll's success is timing-sensitive, so this must not depend on it).
+        break
 
     assert tried, ("no psi attack ever ran, so the replication assertion never "
                    "executed")
@@ -508,8 +554,8 @@ def main():
                             make_user_dir("p3_gaps_client", mods=[mod], options=opts))
         host.spawn(); host.connect()
         client.spawn(); client.connect()
-        TW.bring_up_battle(host, client)
-        print("battle up on both machines (with the test ruleset active)")
+        TW.bring_up_battle(host, client, seed=SEED)
+        print(f"battle up on both machines (with the test ruleset active, seed={SEED})")
 
         # Part 3b runs FIRST because it is the one step that needs a TURN BOUNDARY,
         # and the attacks in parts 1 and 2 (a rocket, a psi amp, a stun rod) tend to
@@ -531,6 +577,11 @@ def main():
 
         part1_pellets(host, client, driver, watcher, dtag, shooter_id, target)
         part1_spawn(host, client, driver, watcher, dtag, shooter_id)
+        # The spawn blast can still catch the shooter (or shuffle the squad); the
+        # resolution-authority parts need a LIVE attacker, so re-pick a survivor
+        # rather than assume the part-1 shooter is still standing.
+        settle(host, client, seconds=4)
+        shooter_id = live_actor(driver, own_coop, fallback=shooter_id)
         # psi first: a stun rod tends to take the target out of the fight.
         part2_psi(host, client, driver, watcher, dtag, wtag, shooter_id)
         part2_melee(host, client, driver, watcher, dtag, wtag, shooter_id)

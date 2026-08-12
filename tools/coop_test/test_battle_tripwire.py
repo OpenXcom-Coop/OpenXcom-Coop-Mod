@@ -246,7 +246,20 @@ def drain_to_tactical(host, client, rounds=12):
             return
 
 
-def bring_up_battle(host, client):
+def bring_up_battle(host, client, seed=None):
+    """Drive NEW BATTLE > COOP to a live tactical map on both machines. Pass
+    `seed` to pin RNG::setSeed right before the host generates the map
+    (newbattle_ok), so the fixture - the map, the alien deployment and the
+    soldiers' rolled stats - is reproducible run to run rather than a fresh random
+    battle every time (a test whose outcome hinges on the fixture, e.g. a rocket
+    not landing on its own squad, needs that determinism to be reliable).
+
+    The host gets `seed` (it is the only machine that generates the battle - the
+    client receives the host's world blob), and the client gets a DIFFERENT seed
+    (`seed + 1`). Both are pinned, so both machines are reproducible; but they roll
+    from DIFFERENT streams, so an outcome-shipping regression that makes the client
+    roll its own result cannot coincidentally match the host's and slip past a
+    same-seed comparison - the GAP tests exist precisely to catch that."""
     SK.skirmish_host(host, PORT)
     SK.skirmish_client_at_browser(client)
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": PORT,
@@ -260,6 +273,9 @@ def bring_up_battle(host, client):
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
                   lambda: (not session.has_state(host, "LobbyMenu")) or None, timeout=60)
+    if seed is not None:
+        host.ok({"cmd": "set_seed", "seed": seed})
+        client.ok({"cmd": "set_seed", "seed": seed + 1})
     host.ok({"cmd": "newbattle_ok"})
 
     for gc, tag in ((host, "host"), (client, "client")):
