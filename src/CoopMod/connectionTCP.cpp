@@ -718,13 +718,24 @@ bool rxPassDeferred()
 // That exemption is right for a MID-chain packet and wrong for the chain's own
 // OPENER - and the two are told apart here.
 //
-// `unit_death` is deliberately absent. It is a closer too, but of the SHOT
-// chain, whose opener (`ProjectileFlyBState`) is keyed on the shooter while
-// `unit_death` is keyed on the victim - two different subjects, so the ordering
-// rule can never pair them anyway.
+// `unit_death` pairs with `hit_unit`, NOT with its shot-chain opener
+// (`ProjectileFlyBState`, keyed on the shooter - a different subject the ordering
+// rule could never pair anyway). `hit_unit` carries the victim's post-damage
+// health/stun/wounds and is keyed on the SAME victim as `unit_death`; the host
+// emits hit_unit BEFORE unit_death (the death animation starts from the hit's
+// result), but hit_unit is a gate-parked outcome packet (not whitelisted) while
+// unit_death is a closer, so without this pairing the closer overtook the parked
+// hit_unit and the client applied the death from the PRE-hit health - leaving the
+// victim host-UNCONSCIOUS / peer-DEAD (or vice versa) until next_turn, the
+// unitsCombat health/stun straddle the PRD-I3 casualty burn-in kept surfacing at
+// ai/expl seqs (wire trace: client applied unit_death 3 s before the parked
+// hit_unit). No deadlock: the chain holding the gate is the shooter-keyed shot
+// replay, which unit_death does not end, so hit_unit still drains and applies
+// first, then unit_death (`after_unit_death` chains behind unit_death as before).
 static const char* coopChainOpener(const std::string& closer)
 {
 	if (closer == "abortPath") return "BattleScapeMove";
+	if (closer == "unit_death") return "hit_unit";
 	if (closer == "after_unit_death") return "unit_death";
 	return 0;
 }
