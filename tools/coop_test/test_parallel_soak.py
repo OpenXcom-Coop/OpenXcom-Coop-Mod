@@ -1287,6 +1287,25 @@ def main():
             foes = [u["id"] for u in battle(host)["units"]
                     if u.get("faction") == 1 and not u.get("isOut")]
             if len(foes) >= MIN_HOSTILES:
+                # De-flake (2026-08-12): a map with enough hostiles can still BOX A
+                # SEAT IN so pick_driver finds no spot near an alien - a ~1/8 placement
+                # flake that breaks a 10-streak. The map is per-bring-up (set_seed pins
+                # the RNG stream only AFTER generation), so re-rolling the battle is the
+                # only lever. Fold driver placement into fixture acceptance and reuse the
+                # movers below.
+                try:
+                    _hseat0 = parallel(host)["localSeat"]
+                    _cseat0 = parallel(client)["localSeat"]
+                    hmover0 = PI.pick_driver(host, client, _hseat0, "host")
+                    cmover0 = PI.pick_driver(host, client, _cseat0, "client")
+                except AssertionError as pe:
+                    print(f"    fixture PLACEMENT short on attempt {attempt}: {pe} "
+                          f"- re-rolling the battle")
+                    assert attempt < FIXTURE_TRIES, (
+                        f"{FIXTURE_TRIES} bring-ups could not place a driver of each "
+                        f"seat near a hostile (every map boxed a seat in)")
+                    host.shutdown(); client.shutdown(); host = client = None
+                    continue
                 print(f"    fixture: {len(foes)} hostiles {foes}")
                 break
             all_hostiles = [u["id"] for u in battle(host)["units"]
@@ -1309,8 +1328,10 @@ def main():
         hseat = parallel(host)["localSeat"]
         cseat = parallel(client)["localSeat"]
         assert hseat != cseat, f"both machines report seat {hseat}"
-        cmover = PI.pick_driver(host, client, cseat, "client")
-        hmover = PI.pick_driver(host, client, hseat, "host")
+        # movers were placed + validated in the fixture-acceptance loop (de-flake) -
+        # reuse them rather than re-placing (which could box on a second draw).
+        cmover = cmover0
+        hmover = hmover0
         base = assert_census(host, client, "at battle start")
         print(f"seats host={hseat} client={cseat}; drivers host={hmover} "
               f"client={cmover}; hazards {base} ({time.time() - started:.0f}s)")

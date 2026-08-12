@@ -777,10 +777,11 @@ def scenario_smoke(host, client, hmover, cmover):
 
     STRICT asserts the re-scoped SEAM-2 remit: no BOUNDARY smoke/fire divergence, the
     endturn exclusion fired (endturnHazardSkips>0), and sidestart still compared the
-    hazards (sidestartHazardCompares>0). PRD-I3 SEAM-7 (i): unitsStats is split by
-    AUTHORSHIP - unitsCombat (chain-authored: health/stun/wounds/morale/fire/kneel/mc)
-    is STRICT at ai seqs (us_ai asserts it), unitsRegen (tu/energy/mana) is legitimately
-    excluded there (the turn-transition straddle); the ai-seq SMOKE residual is the
+    hazards (sidestartHazardCompares>0). PRD-I3 SEAM-7/8/9: unitsStats is split by
+    AUTHORSHIP - unitsCombat (CHAIN-authored ONLY: fire/kneel/mc/w0..w5) is STRICT at ai
+    seqs (us_ai asserts it), unitsRegen (the DEFERRED/turn-machine set: tu/energy/mana/
+    morale AND health/stun since SEAM-9) is compared at SIDESTART only (the per-action +
+    endturn straddle); the ai-seq SMOKE residual is the
     whitelisted mid-side EXPLOSION path and stays an ANNOTATED ALLOWANCE.
     SEAM2_SMOKE_STRICT=0 takes the pre-fix red baseline print.
     """
@@ -873,22 +874,21 @@ def scenario_smoke(host, client, hmover, cmover):
         assert not endturn_haz, (
             f"HALF 1 REGRESSED: an endturn boundary recorded a smoke/fire mismatch "
             f"{endturn_haz} - the exclusion must leave those UNCOMPARED at endturn")
-        # PRD-I3 SEAM-7 (i)/SEAM-8: unitsStats split by AUTHORSHIP. unitsRegen - the
-        # turn-machine/DEFERRED-authored set (tu/energy/mana AND morale; morale DEMOTED in
-        # SEAM-8) - is legitimately EXCLUDED at ai seqs + endturn (proven unitsRegenAiSkips
-        # > 0). unitsCombat is now health/stun/fire/kneel/mc/wounds ONLY, all chain-authored
-        # (hit_unit absolutes), so it is STRICT at every seq incl. ai. SEAM-8 landed the
-        # checkForCasualties morale re-roll gate (9dadcb160) AND moved morale into the
-        # deferred set, so the casualty morale re-roll is gone and the residual
-        # deferred-recovery morale straddle now lives in unitsRegen where the compare holds
-        # it at player seqs + sidestart. So us_ai MUST be 0.
+        # PRD-I3 SEAM-7/8/9: unitsStats split by AUTHORSHIP. unitsRegen - the
+        # turn-machine/DEFERRED-authored set (tu/energy/mana/morale AND health/stun since
+        # SEAM-9) - is compared at SIDESTART only (proven unitsRegenAiSkips > 0 for the
+        # per-action skips). unitsCombat is now CHAIN-authored ONLY (fire/kneel/mc/w0..w5),
+        # each an executor absolute (unit_fire / kneel packet / mind-control / hit_unit's
+        # fatal-wound COUNTERS), so it is STRICT at every seq incl. ai. The SEAM-9 move took
+        # the dying-victim HEALTH bleed and the STUN recovery straddle out of unitsCombat
+        # into the deferred set. So us_ai MUST be 0.
         assert not us_ai, (
-            f"SEAM-8 NOT CLOSED: unitsCombat (health/stun/fire/kneel/mc/wounds - all "
-            f"chain-authored) diverged at ai/player seq(s) {us_ai}. Morale now lives in the "
-            f"deferred unitsRegen set, so this is NOT the morale straddle - it is a "
-            f"chain-authored field (most likely dying-victim HEALTH via late hit_unit "
-            f"delivery) reaching the client later than its per-seq hash. Capture the "
-            f"interleave before any health demotion.\n    {session._sync_mismatch_lines(sc)}")
+            f"SEAM-9 REGRESSED: unitsCombat (fire/kneel/mc/w0..w5 - all CHAIN-authored) "
+            f"diverged at ai/player seq(s) {us_ai}. health/stun/morale live in the deferred "
+            f"unitsRegen set (sidestart-only), so this is NOT the bleed/recovery/morale "
+            f"straddle - it is a genuinely chain-authored field (a wound counter, a "
+            f"mind-control flip, a fire/kneel bit) reaching the client later than its "
+            f"per-seq hash. Capture the interleave.\n    {session._sync_mismatch_lines(sc)}")
         # Decay smoke_ai is structurally 0 (HALF 2 gates the decay set_smoke_tile behind
         # the ordered gate, so it applies in FIFO AFTER the ai chains, never at an ai
         # seq). The remaining source WAS the whitelisted MID-SIDE EXPLOSION smoke on the
