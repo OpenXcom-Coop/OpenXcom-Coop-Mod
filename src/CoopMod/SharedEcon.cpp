@@ -4423,6 +4423,16 @@ const bool SAVEBLOB_ALARM = false;   // REPORT-ONLY at birth (instrumentation ru
                                      // also the bucket most likely to need
                                      // exclusion-list iteration (PRD-I2 4).
 std::uint64_t g_syncSaveBlobMismatches = 0;
+// PRD-I3 saveBlob endturn straddle: the saveBlob bucket is computed ONLY at
+// boundaries, and (like the smoke/fire hazard buckets in SEAM-2 HALF 1) the
+// ENDTURN boundary sample is ill-defined - the whole-save hash straddles the
+// deferred turn-machine state the D-lite client only resolves at next_turn. So
+// the host compare EXCLUDES saveBlob at an endturn boundary and keeps it at
+// SIDESTART (hash-after-apply of next_turn = well-defined). Compare-site only;
+// the client still ships saveBlob in every boundary `h`, so the wire is unchanged
+// and old/new peers stay symmetric. These count the two so a test can assert it.
+std::uint64_t g_syncSaveBlobEndturnSkips = 0;
+std::uint64_t g_syncSaveBlobSidestartCompares = 0;
 
 // The nodes stripped BEFORE hashing (exclusion by NODE PATH on the parsed tree,
 // robust to emit formatting). Two scopes, both SHORT and each entry justified.
@@ -5469,9 +5479,17 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 	// `saveBlob`, and the host recorded entry->saveBlob only for boundary entries.
 	if (node.isMember("saveBlob"))
 	{
+		// PRD-I3 saveBlob endturn straddle: SIDESTART-only compare. At an endturn
+		// boundary the whole-save hash straddles the deferred turn-machine state the
+		// D-lite client resolves only at next_turn, so the endturn saveBlob sample is
+		// ill-defined; SIDESTART (hash-after-apply of next_turn) is the well-defined
+		// point. Mirrors the SEAM-2 HALF-1 smoke/fire endturn skip - compare-site only.
+		const bool saveBlobEndturn = boundary && entry->kind == "endturn";
+		if (saveBlobEndturn) ++g_syncSaveBlobEndturnSkips;
+		else if (boundary && entry->kind == "sidestart") ++g_syncSaveBlobSidestartCompares;
 		const std::uint64_t peer = static_cast<std::uint64_t>(node["saveBlob"].asUInt64());
 		const std::uint64_t mine = entry->saveBlob;
-		if (peer != mine)
+		if (!saveBlobEndturn && peer != mine)
 		{
 			++g_syncSaveBlobMismatches;
 			if (g_syncMismatches.size() >= SYNC_MISMATCH_MAX) g_syncMismatches.pop_front();
@@ -5547,6 +5565,11 @@ void syncCheckReport(Json::Value& out)
 	// test can assert unitsRegen was skipped exactly at the straddle window.
 	node["unitsRegenAiSkips"] = static_cast<Json::UInt64>(g_syncRegenAiSkips);
 	node["unitsRegenEndturnSkips"] = static_cast<Json::UInt64>(g_syncRegenEndturnSkips);
+	// PRD-I3 saveBlob endturn straddle: the endturn saveBlob exclusion + the sidestart
+	// saveBlob compares (mirrors the hazard split above), so a test can assert saveBlob
+	// rides SIDESTART only - endturn skipped, sidestart compared.
+	node["saveBlobEndturnSkips"] = static_cast<Json::UInt64>(g_syncSaveBlobEndturnSkips);
+	node["saveBlobSidestartCompares"] = static_cast<Json::UInt64>(g_syncSaveBlobSidestartCompares);
 
 	Json::Value buckets(Json::objectValue);
 	std::uint64_t total = 0;
@@ -5566,6 +5589,7 @@ void syncCheckReport(Json::Value& out)
 		Json::Value sb(Json::objectValue);
 		sb["alarm"] = SAVEBLOB_ALARM;
 		sb["mismatchCount"] = static_cast<Json::UInt64>(g_syncSaveBlobMismatches);
+		sb["compares"] = static_cast<Json::UInt64>(g_syncSaveBlobSidestartCompares);
 		buckets["saveBlob"] = sb;
 		total += g_syncSaveBlobMismatches;
 	}
@@ -5700,6 +5724,8 @@ void resetSyncCheck()
 	g_syncRegenAiSkips = 0;
 	g_syncRegenEndturnSkips = 0;
 	g_syncSaveBlobMismatches = 0;
+	g_syncSaveBlobEndturnSkips = 0;
+	g_syncSaveBlobSidestartCompares = 0;
 	g_syncLastSeq = 0;
 	g_syncLastComparedSeq = 0;
 	g_syncLastBoundarySeq = 0;
