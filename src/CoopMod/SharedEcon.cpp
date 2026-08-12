@@ -4444,24 +4444,31 @@ bool saveBlobExcludedTopKey(std::string_view k)
 	// battle document ONLY excludes all three for free.
 }
 
-// ANY DEPTH - host-authoritative AI bookkeeping the thin client never simulates.
-// In the coop/parallel authority model the host runs ALL alien AI and the client
-// only DISPLAYS the results; it never populates these fields, and the host save is
-// the single authority (a resume restreams over the client's copy), so there is no
-// counterpart on the client that could meaningfully agree. This is the
-// "authority-local" exclusion category the initiative's architecture argues for
-// (instrumentation/README.md). Measured, not guessed: the PRD-I2 burn-in diff of a
-// clean boundary showed these were the ONLY battle-document divergences left once
-// the top-level display keys were excluded. PRD-I3 should ratify (or instead choose
-// to REPLICATE this state); recorded in the SEAM LOG.
+// ANY DEPTH - host-authoritative bookkeeping the thin client never derives, plus two
+// vanilla-clean mod-reader keys (exclude-for-vanilla with a caveat). The host save is
+// the single authority (a resume restreams over the client's copy). Every entry was
+// reader-audited (client-side mid-battle readers) for PRD-I3 SEAM-TAIL CLOSE
+// 2026-08-12: a key with a gameplay-relevant CLIENT reader is SHIPPED on a death
+// packet, not excluded here. Categories:
+// (a) AI bookkeeping - PRD-I3 RATIFIED (closes the I2-era "must ratify" note): read
+//     ONLY by the host's handleAI / pathfinding; the client runs no AI
+//     (_isActivePlayerSync-gated), so no client counterpart can agree.
+// (b) FOW / spotting (Option B rider) - presentation, per-machine calculateFOV.
+// (c) casualty kill-bookkeeping (PRD-I3 SEAM-8 consequence): the client no longer
+//     runs checkForCasualties (gate 9dadcb160), so the murderer's kill diary and the
+//     victim's death record never populate there; read ONLY by checkForCasualties and
+//     the host-authoritative debriefing (kills.clear()+refill per PROTOCOL), and
+//     next_turn does not re-ship them, so they persist past the boundary. Zero-disk
+//     client + host-replaced debrief = authority-local, safe to exclude.
 bool saveBlobExcludedAnyKey(std::string_view k)
 {
+	// --- (a) AI bookkeeping (RATIFIED) ---
 	// AI: a BattleUnit's whole AIModule sub-map (fromNode/toNode/AIMode/wasHitBy) -
 	//   host-only; the client's alien units keep the defaults (toNode -1, AIMode 0).
 	// aiMedikitUsed: an AI behaviour flag set only when the host's AI heals a unit.
 	// allocated: a pathfinding Node claimed by the host's AI for a patrol/spawn; the
 	//   client never allocates nodes.
-	// --- per-unit FOV / spotting (PRD-I3 FOW Option B rider) ---
+	// --- (b) per-unit FOV / spotting (PRD-I3 FOW Option B rider) ---
 	// The visibility/spotting fields BattleUnit::save writes. Under the Option B
 	// contract FOW is PRESENTATION - derived locally from replicated positions,
 	// never promised identical between machines - so these are a permanent
@@ -4469,9 +4476,34 @@ bool saveBlobExcludedAnyKey(std::string_view k)
 	// visible: whether THIS machine currently sees the unit (per-machine FOV).
 	// turnsSinceSpotted* / turnsLeftSpottedForSnipers* (the HOSTILE key plus the
 	//   ByXcom / ByCivilian faction variants): per-faction spotting timers driven
-	//   by each machine's own calculateFOV - FOW-class bookkeeping, not shared
-	//   state. turnsSinceStunned is deliberately NOT here: it is a stun-recovery
-	//   stat, part of the real unitsStats, not FOV.
+	//   by each machine's own calculateFOV - FOW-class bookkeeping, not shared state.
+	// --- (c) casualty kill-bookkeeping (PRD-I3 SEAM-TAIL, reader-audited) ---
+	// fatalShotSide / fatalShotBodyPart / murdererWeapon / murdererWeaponAmmo /
+	//   murdererId: the victim's death record (murdererId = attributed killer, set
+	//   host-only in hitUnit/checkForCasualties, both coop-client early-returns; a
+	//   wounded survivor's is never shipped). kills: the murderer's kill counter AND,
+	//   at any depth,
+	//   its tempUnitStatistics.kills diary sub-tree (excluding the map key drops the
+	//   whole list). All read ONLY in checkForCasualties (host) + DebriefingState
+	//   (host debrief) - no mid-battle client gameplay reader.
+	// notificationShown: gates the death-notice popup + death-anim skip/speed; its
+	//   writes are host/classic-gated (UnitDieBState), so on the parallel client it
+	//   stays 0 - a presentation field, not gameplay state.
+	// droppedOnAlienTurn (a BattleItem flag): read ONLY by surveyItems (host AI weapon
+	//   pickup); the client runs no AI, so no client gameplay reader.
+	// turnsSinceStunned: MOVED here from KEEP (was called "a real stun-recovery stat").
+	//   The audit corrects that: recovery is stunlevel-driven; turnsSinceStunned's ONLY
+	//   gameplay reader is handleAI's just-woke check (BattlescapeGame.cpp:1213,
+	//   host-only). startFalling resets it to 0 on a collapse (host), which the gated
+	//   client CFC never mirrors, so it diverges on a casualty. Exclude-for-vanilla; MOD
+	//   CAVEAT: a ruleset script can read it (getTurnsSinceStunned binding) - the shared
+	//   script-reader mod caveat (see the ledger with GAP-10 / wantsToSurrender).
+	// --- (d) two decided vanilla-clean keys ---
+	// expBravery: consumed ONLY at BattleUnit::postMissionProcedures (host debrief);
+	//   diverges only on a host-panicked unit; no mid-battle client reader -> exclude.
+	// wantsToSurrender: vanilla NEVER reads it; a MOD reader exists
+	//   (endTurn->tallyUnits->isSurrendering, gated getSurrenderMode()>=2). Exclude-for-
+	//   vanilla; MOD CAVEAT recorded in the ledger next to GAP-10 / turnsSinceStunned.
 	return k == "AI" || k == "aiMedikitUsed" || k == "allocated"
 		|| k == "visible"
 		|| k == "turnsSinceSpotted"
@@ -4479,7 +4511,18 @@ bool saveBlobExcludedAnyKey(std::string_view k)
 		|| k == "turnsSinceSpottedByCivilian"
 		|| k == "turnsLeftSpottedForSnipers"
 		|| k == "turnsLeftSpottedForSnipersByXcom"
-		|| k == "turnsLeftSpottedForSnipersByCivilian";
+		|| k == "turnsLeftSpottedForSnipersByCivilian"
+		|| k == "fatalShotSide"
+		|| k == "fatalShotBodyPart"
+		|| k == "murdererWeapon"
+		|| k == "murdererWeaponAmmo"
+		|| k == "murdererId"
+		|| k == "kills"
+		|| k == "notificationShown"
+		|| k == "droppedOnAlienTurn"
+		|| k == "turnsSinceStunned"
+		|| k == "expBravery"
+		|| k == "wantsToSurrender";
 }
 
 // PRD-I3 FOW contract (Option B, decided 2026-08-09): the per-tile
