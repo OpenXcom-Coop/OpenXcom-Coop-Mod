@@ -1078,7 +1078,7 @@ def run_campaign_profile(args):
         # debrief + return: the only way a player ends a live co-op mission
         print("-- campaign: voted ABORT -> debriefing -> geoscape --")
         session.coop_abort_battle(host, client)
-        for gc, tag in (("host", host), ("client", client)):
+        for tag, gc in (("host", host), ("client", client)):
             top = TW.top(gc)
             assert top in ("GeoscapeState",), (
                 f"{tag} did not return to the geoscape after the mission "
