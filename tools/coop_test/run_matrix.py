@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -247,9 +248,9 @@ def main():
     ap.add_argument("--turns", type=int, default=None)
     ap.add_argument("--actions", type=int, default=None)
     ap.add_argument("--seed", type=int, default=None)
-    ap.add_argument("--board", default=os.path.join(HERE, "..", "..",
-                    "matrix_scoreboard.json"),
-                    help="scoreboard JSON path (persisted across chunks)")
+    ap.add_argument("--board", default=os.path.join(tempfile.gettempdir(),
+                    "coop_matrix_scoreboard.json"),
+                    help="scoreboard JSON path (persisted across chunks; default = temp)")
     ap.add_argument("--resume", action="store_true",
                     help="append to the persisted board instead of starting fresh")
     args = ap.parse_args()
