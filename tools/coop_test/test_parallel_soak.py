@@ -42,6 +42,7 @@ The acceptance bar is THREE consecutive clean runs.
 import argparse
 import os
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -50,13 +51,19 @@ import session
 import test_battle_tripwire as TW
 import test_parallel_intents as PI
 import test_parallel_endturn as PE
+import test_coop_outcome_gaps as OG
+import test_coop_resume_battle_control as CRBC
 
 PORT = "47991"
+RESUME_PORT = "47992"
 
 SLOW_SPEED = 1000  # ms/frame on the client - the same lever PRD-P7/P8 use
 FAST_SPEED = 2
 SLOW_FIRE = 1500   # ms/projectile-frame: what actually slows a SHOT (see D)
 FAST_FIRE = 1
+# The speed-skew profile's bounded client draw speed (see profile_bringup): slow
+# enough for a real display lag, fast enough that a ~100-action soak still matrixes.
+SKEW_SPEED = 40
 
 DEFAULT_TURNS = 5
 DEFAULT_MIN_ACTIONS = 100
@@ -727,14 +734,503 @@ def close_side(host, client, hseat, cseat, turn_before):
     return turn
 
 
+# ==== VALIDATION L2 soak profiles (PRD-I3 burn-in matrix) ====================
+#
+# The baseline soak IS one profile; --profile selects a scenario that reuses the
+# same fixture + per-side census but layers a different stress on top, per the L2
+# table. Seven ride the skirmish fixture (baseline/speed-skew/backlog/incendiary/
+# psi/spawn-blast/gifting) - the profile only changes the bring-up options/mods and
+# a per-turn injection. Two need the CAMPAIGN fixture (campaign/resume) and take a
+# dedicated flow. Every profile keeps the SAME acceptance: assert_census after every
+# side (units/items/hazards + tripwire + sync-check + zero desync bundles).
+
+SKIRMISH_PROFILES = ("baseline", "speed-skew", "backlog", "incendiary", "psi",
+                     "spawn-blast", "gifting")
+SPECIAL_PROFILES = ("campaign", "resume")
+PROFILES = SKIRMISH_PROFILES + SPECIAL_PROFILES
+
+# An incendiary throwaway ruleset: STR_GRENADE re-typed to INCENDIARY (damageType 2)
+# so a primed throw makes FIRE tiles (with battleInstantGrenade it detonates on
+# landing). Isolated to the test's own user dir, exactly like the outcome_gaps mod.
+INCENDIARY_METADATA = """\
+name: "Coop incendiary soak"
+version: 1.0
+description: "Test-only: an incendiary grenade for the fire/smoke soak profile."
+author: coop harness
+
+master: xcom1
+"""
+INCENDIARY_RULESET = """\
+items:
+  - type: STR_GRENADE
+    damageType: 2
+    power: 40
+    blastRadius: 2
+"""
+
+
+def make_incendiary_mod(root):
+    mod = os.path.join(root, "Coop_Incendiary_Soak")
+    os.makedirs(os.path.join(mod, "Ruleset"))
+    with open(os.path.join(mod, "metadata.yml"), "w", encoding="utf-8") as f:
+        f.write(INCENDIARY_METADATA)
+    with open(os.path.join(mod, "Ruleset", "incendiary.rul"), "w", encoding="utf-8") as f:
+        f.write(INCENDIARY_RULESET)
+    return mod
+
+
+def profile_bringup(profile, tmp):
+    """Return (host_opts, client_opts, mods, seed) for a skirmish profile.
+
+    tmp is a scratch root for any generated mod (None if the profile needs none).
+    """
+    host_opts = {"battleXcomSpeed": FAST_SPEED, "battleAlienSpeed": FAST_SPEED,
+                 "skipNextTurnScreen": True, "EnableCoopParallelTurns": True}
+    client_opts = {"battleXcomSpeed": FAST_SPEED, "battleAlienSpeed": FAST_SPEED,
+                   "EnableCoopParallelTurns": False}
+    mods = []
+    seed = DEFAULT_SEED
+    if profile == "speed-skew":
+        # P10/P11 display-lag class: the CLIENT draws at SKEW_SPEED while the host
+        # runs FAST, so every chain leaves the peer well behind on display - the
+        # "host finished action N" vs "peer displayed it" window the P10/P11 bugs
+        # live in. Bounded (not the backlog cap's SLOW_SPEED=1000) so a whole soak of
+        # ~100 actions still matrixes in ~5 min rather than crawling for 20.
+        client_opts["battleXcomSpeed"] = SKEW_SPEED
+        client_opts["battleAlienSpeed"] = SKEW_SPEED
+    elif profile in ("psi", "spawn-blast"):
+        # The outcome_gaps ruleset: STR_SMALL_ROCKET gains spawnUnit (GAP-1) and the
+        # deterministic seed pins the fixture so the spawn/psi levers are not fixture
+        # roulette. battleInstantGrenade makes a fuse-0 blast happen on demand.
+        mods = [OG.make_mod(tmp)]
+        seed = OG.SEED
+        host_opts["battleInstantGrenade"] = True
+        client_opts["battleInstantGrenade"] = True
+    elif profile == "incendiary":
+        mods = [make_incendiary_mod(tmp)]
+        host_opts["battleInstantGrenade"] = True
+        client_opts["battleInstantGrenade"] = True
+    return host_opts, client_opts, mods, seed
+
+
+def unit_owner(gc, uid):
+    for u in battle(gc)["units"]:
+        if u["id"] == uid:
+            return u.get("coop")
+    return None
+
+
+def spare_unit(gc, seat, exclude):
+    """A living own-seat soldier other than the drivers, for a lever that would
+    disrupt driver selection if it moved the driver itself."""
+    for u in battle(gc)["units"]:
+        if (u.get("faction") == 0 and not u.get("isOut")
+                and u.get("coop") == seat and u["id"] not in exclude):
+            return u["id"]
+    return None
+
+
+# ---- per-turn profile injections (each returns admitted-action count) -------
+
+def inject_incendiary(host, client, hmover, cmover, turn):
+    """Fire + smoke heavy: smoke from both seats plus a primed incendiary grenade,
+    so the fire AND smoke hazard buckets (and the peer fire-damage seam) are live
+    every turn. Thrown two tiles off the actor, away from the fixture's hostiles."""
+    n = smoke_block(host, client, cmover)
+    n += smoke_block(host, client, hmover)
+    for gc, uid in ((client, cmover), (host, hmover)):
+        if not idle(host):
+            break
+        top_up(host, client, uid)
+        wid = PI.give_both(host, client, uid, "STR_GRENADE")
+        if not wid:
+            continue
+        n += act(host, client, gc, "prime incendiary", action="prime",
+                 unit=uid, fuse=0, weapon_id=wid)
+        here = PI.pos(battle(host), uid)
+        if here:
+            n += act(host, client, gc, "throw incendiary", action="throw",
+                     unit=uid, weapon_id=wid, x=here[0] + 2, y=here[1] + 2, z=here[2])
+    idle(host, 60)
+    drain(host, client)
+    return n
+
+
+def inject_psi(host, client, hmover, cmover, turn):
+    """A host-executed psi attack on a live hostile (GAP-2/psi_result replication).
+    Host-driven: the host is the executor, so battle_fire runs host-authoritative
+    and the outcome must reach the thin client (faction/owner)."""
+    if not idle(host):
+        return 0
+    aliens = [u for u in battle(host)["units"]
+              if u.get("faction") == 1 and not u.get("isOut")]
+    if not aliens:
+        return 0
+    target = aliens[0]
+    tpos = (target["x"], target["y"], target["z"])
+    gave = [gc.cmd({"cmd": "battle_give", "unit": hmover, "item": "STR_PSI_AMP",
+                    "slot": "right", "clear_hands": True}) for gc in (host, client)]
+    if not all(g.get("ok") for g in gave):
+        return 0
+    time.sleep(1.5)
+    if not PI.place_adjacent(host, client, hmover, tpos):
+        return 0
+    seq0 = parallel(host)["actionSeq"]
+    r = host.cmd({"cmd": "battle_fire", "unit": hmover, "mode": "psi",
+                  "weapon_id": gave[0].get("weaponId"), "tu": 100,
+                  "x": tpos[0], "y": tpos[1], "z": tpos[2]})
+    if not r.get("ok"):
+        return 0
+    idle(host, 60)
+    drain(host, client)
+    return max(0, parallel(host)["actionSeq"] - seq0)
+
+
+def inject_spawn_blast(host, client, hmover, cmover, turn):
+    """A host-fired rocket into empty floor away from the squad: the deterministic
+    blast lever (GAP-1 spawn-on-blast, explode_items, terrain/id-manifest under
+    per-action hashing). A spawn is a bonus; the blast itself is the coverage."""
+    if not idle(host):
+        return 0
+    shooter = None
+    for u in battle(host)["units"]:
+        if u["id"] == hmover and u.get("faction") == 0 and not u.get("isOut"):
+            shooter = u
+            break
+    if not shooter:
+        return 0
+    origin = (shooter["x"], shooter["y"], shooter["z"])
+    for gc in (host, client):
+        gc.cmd({"cmd": "battle_give", "unit": hmover, "item": OG.LAUNCHER,
+                "ammo": OG.SPAWNER, "slot": "right", "clear_hands": True})
+    time.sleep(1.5)
+    seq0 = parallel(host)["actionSeq"]
+    foes = [(u["x"], u["y"], u["z"]) for u in battle(host)["units"]
+            if u.get("faction") == 1 and not u.get("isOut")]
+
+    def clearance(t):
+        return min((max(abs(t[0] - f[0]), abs(t[1] - f[1])) for f in foes), default=99)
+
+    for dx, dy in ((6, 0), (-6, 0), (0, 6), (0, -6), (5, 5), (-5, -5), (8, 0), (0, 8)):
+        tile = (origin[0] + dx, origin[1] + dy, origin[2])
+        if foes and clearance(tile) < 4:
+            continue
+        r = host.cmd({"cmd": "battle_fire", "unit": hmover, "mode": "snap",
+                      "tu": 200, "x": tile[0], "y": tile[1], "z": tile[2]})
+        if r.get("ok"):
+            idle(host, 60)
+            drain(host, client)
+            break
+    return max(0, parallel(host)["actionSeq"] - seq0)
+
+
+def inject_gifting(host, client, hmover, cmover, turn):
+    """Mid-battle battle_gift both directions on a SPARE unit (ownership flip vs
+    auto-ready vs hashing). Not the drivers - moving a driver's ownership would
+    confuse ensure_driver; the spare is flipped seat->seat and back."""
+    settle_display(host, client)
+    hseat = parallel(host)["localSeat"]
+    cseat = parallel(client)["localSeat"]
+    victim = spare_unit(client, cseat, exclude={hmover, cmover})
+    if victim is None:
+        print(f"    (gifting: no spare client-owned unit to flip)")
+        return 0
+    for giver, gseat, tseat, tag in ((client, cseat, hseat, "client->host"),
+                                     (host, hseat, cseat, "host->client")):
+        sel = giver.cmd({"cmd": "battle_gift_select", "unit_id": victim})
+        if not sel.get("ok"):
+            print(f"    (gifting {tag}: select refused: {sel})")
+            break
+        giver.cmd({"cmd": "battle_gift", "owner": tseat})
+        ok = poll(lambda: unit_owner(host, victim) == tseat
+                  and unit_owner(client, victim) == tseat, 20)
+        drain(host, client)
+        if not ok:
+            print(f"    (gifting {tag}: ownership never flipped to seat {tseat})")
+            break
+        print(f"    gifted unit {victim} {tag} (owner now seat {tseat} on both)")
+    settle_display(host, client)
+    return 0
+
+
+def inject_backlog(host, client, hmover, cmover, turn):
+    """Pump ordering under pressure (P11): park the client's action_done reports
+    with hold_action_done so the executor runs into the display-backlog cap, then
+    release and let it drain. Reuses the endturn hold lever."""
+    if not idle(host):
+        return 0
+    fired = 0
+    try:
+        PE.hold_done(client, True)
+        # Drive stateless chains (kneels) from the host: they complete in-frame, so
+        # _actionSeq climbs while the peer's parked reports keep peerDisplayAckedSeq
+        # pinned - the cap is (_actionSeq - peerDisplayAckedSeq) >= 2.
+        seen = 0
+        for _ in range(6):
+            ps = parallel(host)
+            seen = max(seen, ps.get("displayBacklog", 0))
+            if ps.get("admitBlocked") == "display_backlog":
+                break
+            if ps.get("canAdmit") is not True:
+                time.sleep(0.05)
+                continue
+            PI.intent(host, action="kneel", unit=hmover)
+            fired += 1
+            time.sleep(0.05)
+        print(f"    backlog: parked the peer, drove {fired} kneel(s), "
+              f"displayBacklog seen {seen}, admitBlocked={parallel(host).get('admitBlocked')}")
+    finally:
+        PE.hold_done(client, False)
+    # the cap must clear once the peer catches up
+    poll(lambda: parallel(host).get("admitBlocked") != "display_backlog"
+         and parallel(host).get("canAdmit") is True, 120, 0.2)
+    drain(host, client)
+    idle(host)
+    settle_display(host, client)
+    top_up(host, client, hmover)
+    return fired
+
+
+def profile_inject(profile, host, client, hmover, cmover, turn):
+    if profile == "incendiary":
+        return inject_incendiary(host, client, hmover, cmover, turn)
+    if profile == "psi":
+        return inject_psi(host, client, hmover, cmover, turn)
+    if profile == "spawn-blast":
+        return inject_spawn_blast(host, client, hmover, cmover, turn)
+    if profile == "gifting":
+        return inject_gifting(host, client, hmover, cmover, turn)
+    if profile == "backlog":
+        return inject_backlog(host, client, hmover, cmover, turn)
+    return 0
+
+
+
+# ---- special profiles: the CAMPAIGN fixture (campaign, resume) --------------
+
+def _campaign_bringup(host, client, tag, timeout=180):
+    CRBC.PORT = PORT
+    PI.PORT = PORT
+    PE.PORT = PORT
+    TW.PORT = PORT
+    CRBC.bring_up_mixed_battle(host, client)
+    CRBC.drain_to_tactical(host, client)
+    for gc, t in ((host, "host"), (client, "client")):
+        gc.wait_for(f"{t} co-op battle init {tag}",
+                    lambda gc=gc: battle(gc).get("battleInit") or None,
+                    timeout=timeout, interval=1.0)
+    assert battle(host)["activeSync"] is True and battle(client)["activeSync"] is False, (
+        f"[{tag}] the PRD-P5 executor invariant does not hold: "
+        f"host activeSync={battle(host).get('activeSync')} "
+        f"client activeSync={battle(client).get('activeSync')}")
+
+
+def run_campaign_profile(args):
+    """L2 campaign: one real campaign mission end-to-end - geoscape entry, the
+    battle played in parallel with per-side census, then a voted ABORT that drains
+    debriefing -> geoscape (the debrief + return the skirmish fixture cannot see).
+    Reuses the SEPARATE mixed-ownership terror battle (test_coop_resume_battle_control)."""
+    started = time.time()
+    fail = None
+    host = client = None
+    try:
+        host = GameClient("host", 48880,
+                          make_user_dir("p9_soakcamp_host",
+                                        options={"battleXcomSpeed": FAST_SPEED,
+                                                 "battleAlienSpeed": FAST_SPEED,
+                                                 "skipNextTurnScreen": True,
+                                                 "EnableCoopParallelTurns": True}))
+        client = GameClient("client", 48881,
+                            make_user_dir("p9_soakcamp_client",
+                                          options={"battleXcomSpeed": FAST_SPEED,
+                                                   "battleAlienSpeed": FAST_SPEED,
+                                                   "EnableCoopParallelTurns": False}))
+        host.spawn(); host.connect()
+        client.spawn(); client.connect()
+        _campaign_bringup(host, client, "campaign")
+        for gc, tag in ((host, "host"), (client, "client")):
+            gc.ok({"cmd": "set_seed", "seed": args.seed})
+        print(f"campaign battle up ({time.time() - started:.0f}s)")
+
+        hseat = parallel(host)["localSeat"]
+        cseat = parallel(client)["localSeat"]
+        cmover = PI.pick_driver(host, client, cseat, "client")
+        hmover = PI.pick_driver(host, client, hseat, "host")
+        assert_census(host, client, "at campaign battle start")
+
+        total = 0
+        turns = max(2, min(args.turns, 3))
+        for turn in range(1, turns + 1):
+            turn_before = battle(host).get("turn")
+            cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
+            hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
+            n = locomotion_block(host, client, hmover, cmover)
+            n += support_block(host, client, cmover)
+            total += n
+            assert_census(host, client, f"after campaign actions turn {turn}")
+            got = close_side(host, client, hseat, cseat, turn_before)
+            assert_census(host, client, f"after campaign alien side turn {turn}")
+            assert battle(host).get("inBattle"), (
+                f"the campaign mission ended during turn {turn} before the abort")
+            print(f"CAMPAIGN TURN {turn}: {n} action(s) (running {total}); "
+                  f"side closed to {got} ({time.time() - started:.0f}s)")
+
+        # debrief + return: the only way a player ends a live co-op mission
+        print("-- campaign: voted ABORT -> debriefing -> geoscape --")
+        session.coop_abort_battle(host, client)
+        for gc, tag in (("host", host), ("client", client)):
+            top = TW.top(gc)
+            assert top in ("GeoscapeState",), (
+                f"{tag} did not return to the geoscape after the mission "
+                f"(top={top}) - debrief/return did not complete on both machines")
+        print("    both machines returned to the geoscape after debrief")
+        session.assert_client_zero_disk(client.user_dir)
+        print(f"\nCAMPAIGN SOAK CLEAN: {total} admitted actions, {turns} parallel "
+              f"turns, census equal after every side, debrief+return synced. "
+              f"{time.time() - started:.0f}s")
+        print("ALL PARALLEL SOAK TESTS PASSED")
+    except Exception as e:
+        fail = e
+        print(f"[FAIL] {e}")
+        for tag, gc in (("host", host), ("client", client)):
+            try:
+                if gc is None:
+                    continue
+                print(f"  DBG {tag} parallel: {parallel(gc)}")
+                print(f"  DBG {tag} top:      {TW.top(gc)}")
+            except Exception as de:
+                print(f"  DBG {tag} dump failed: {de}")
+    finally:
+        for gc in (host, client):
+            if gc is not None:
+                gc.shutdown()
+    sys.exit(2 if fail else 0)
+
+
+def run_resume_profile(args):
+    """L2 resume: save mid-side, replace BOTH processes, resume, continue 2+ turns
+    with per-side census - the re-arm path must reset all instrumentation + arbiter
+    state. Reuses the SEPARATE campaign battle + the P9 resume flow."""
+    SAVE = "soak_resume_battle.sav"
+    started = time.time()
+    fail = None
+    host = client = None
+    host_dir = make_user_dir("p9_soakresume_host",
+                             options={"battleXcomSpeed": FAST_SPEED,
+                                      "battleAlienSpeed": FAST_SPEED,
+                                      "skipNextTurnScreen": True,
+                                      "EnableCoopParallelTurns": True})
+    try:
+        host = GameClient("host", 48880, host_dir)
+        client = GameClient("client", 48881,
+                            make_user_dir("p9_soakresume_client",
+                                          options={"battleXcomSpeed": FAST_SPEED,
+                                                   "battleAlienSpeed": FAST_SPEED,
+                                                   "EnableCoopParallelTurns": False}))
+        host.spawn(); host.connect()
+        client.spawn(); client.connect()
+        _campaign_bringup(host, client, "resume-fixture")
+        hseat = parallel(host)["localSeat"]
+        cseat = parallel(client)["localSeat"]
+        cmover = PI.pick_driver(host, client, cseat, "client")
+        hmover = PI.pick_driver(host, client, hseat, "host")
+        assert_census(host, client, "at resume-fixture start")
+
+        cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
+        hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
+        locomotion_block(host, client, hmover, cmover)
+        assert parallel(host)["actionSeq"] > 0, (
+            "nothing was admitted before the save, so the arbiter-reset check is vacuous")
+        assert_census(host, client, "before the mid-battle save")
+
+        host.ok({"cmd": "save_game", "file": SAVE})
+        assert os.path.exists(os.path.join(host_dir, "xcom1", SAVE)), \
+            "the mid-battle save is not on disk"
+        print(f"saved mid-side -> {SAVE} ({time.time() - started:.0f}s)")
+        host.shutdown(); client.shutdown()
+
+        host = GameClient("host", 48882, host_dir)
+        client = GameClient("client", 48883,
+                            make_user_dir("p9_soakresume_client2",
+                                          options={"battleXcomSpeed": FAST_SPEED,
+                                                   "battleAlienSpeed": FAST_SPEED,
+                                                   "EnableCoopParallelTurns": False}))
+        host.spawn(); host.connect()
+        client.spawn(); client.connect()
+        session.resume_campaign_battle(host, client, SAVE, port=RESUME_PORT)
+        CRBC.drain_to_tactical(host, client)
+        for gc, tag in ((host, "host"), (client, "client")):
+            gc.wait_for(f"{tag} co-op battle init (resumed)",
+                        lambda gc=gc: battle(gc).get("battleInit") or None,
+                        timeout=180, interval=1.0)
+        assert battle(host)["activeSync"] is True and battle(client)["activeSync"] is False, (
+            "the executor invariant `_isActivePlayerSync == getHost()` did not "
+            "survive the resume")
+        assert parallel(host)["actionSeq"] == 0, (
+            f"the arbiter did not come back RESET: host actionSeq="
+            f"{parallel(host)['actionSeq']} (want 0)")
+        assert_census(host, client, "after resume")
+        print(f"resumed, arbiter reset ({time.time() - started:.0f}s)")
+
+        cmover = PI.pick_driver(host, client, cseat, "client")
+        hmover = PI.pick_driver(host, client, hseat, "host")
+        for turn in range(1, 3):
+            turn_before = battle(host).get("turn")
+            cmover = PE.ensure_driver(host, client, cseat, "client", cmover)
+            hmover = PE.ensure_driver(host, client, hseat, "host", hmover)
+            locomotion_block(host, client, hmover, cmover)
+            support_block(host, client, cmover)
+            assert_census(host, client, f"after resumed actions turn {turn}")
+            close_side(host, client, hseat, cseat, turn_before)
+            assert_census(host, client, f"after resumed alien side turn {turn}")
+        session.assert_client_zero_disk(client.user_dir)
+        print(f"\nRESUME SOAK CLEAN: resumed mid-side, arbiter reset, 2 turns "
+              f"continued clean. {time.time() - started:.0f}s")
+        print("ALL PARALLEL SOAK TESTS PASSED")
+    except Exception as e:
+        fail = e
+        print(f"[FAIL] {e}")
+        for tag, gc in (("host", host), ("client", client)):
+            try:
+                if gc is None:
+                    continue
+                print(f"  DBG {tag} parallel: {parallel(gc)}")
+                print(f"  DBG {tag} top:      {TW.top(gc)}")
+            except Exception as de:
+                print(f"  DBG {tag} dump failed: {de}")
+    finally:
+        for gc in (host, client):
+            if gc is not None:
+                gc.shutdown()
+    sys.exit(2 if fail else 0)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--turns", type=int, default=DEFAULT_TURNS)
     ap.add_argument("--actions", type=int, default=DEFAULT_MIN_ACTIONS)
-    ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--trace", action="store_true",
                     help="report the per-unit diff after every block (diagnosis)")
+    ap.add_argument("--profile", default="baseline", choices=PROFILES,
+                    help="soak scenario profile (VALIDATION L2 matrix)")
     args = ap.parse_args()
+
+    # Two profiles need the CAMPAIGN fixture, not the skirmish one - they take a
+    # dedicated flow (each does its own sys.exit).
+    if args.profile in SPECIAL_PROFILES:
+        if args.seed is None:
+            args.seed = DEFAULT_SEED
+        (run_campaign_profile if args.profile == "campaign"
+         else run_resume_profile)(args)
+        return
+
+    # Skirmish profiles: the profile only changes the bring-up options/mods and a
+    # per-turn injection; the fixture + per-side census are the baseline's.
+    prof_tmp = tempfile.mkdtemp(prefix="coop_soak_%s_" % args.profile.replace("-", "_"))
+    host_opts_x, client_opts_x, prof_mods, prof_seed = profile_bringup(args.profile, prof_tmp)
+    if args.seed is None:
+        args.seed = prof_seed
 
     started = time.time()
     fail = None
@@ -752,16 +1248,11 @@ def main():
         # `set_seed` only pins the stream AFTER it.
         for attempt in range(1, FIXTURE_TRIES + 1):
             host = GameClient("host", 48880,
-                              make_user_dir("p9_soak_host",
-                                            options={"battleXcomSpeed": FAST_SPEED,
-                                                     "battleAlienSpeed": FAST_SPEED,
-                                                     "skipNextTurnScreen": True,
-                                                     "EnableCoopParallelTurns": True}))
+                              make_user_dir("p9_soak_host", mods=prof_mods,
+                                            options=host_opts_x))
             client = GameClient("client", 48881,
-                                make_user_dir("p9_soak_client",
-                                              options={"battleXcomSpeed": FAST_SPEED,
-                                                       "battleAlienSpeed": FAST_SPEED,
-                                                       "EnableCoopParallelTurns": False}))
+                                make_user_dir("p9_soak_client", mods=prof_mods,
+                                              options=client_opts_x))
             for gc in (host, client):
                 write_battle_fixture(gc.user_dir)
             host.spawn(); host.connect()
@@ -846,9 +1337,13 @@ def main():
             if args.trace:
                 settle_display(host, client)
                 trace_units(host, client, f"turn {turn} support")
+            n += profile_inject(args.profile, host, client, hmover, cmover, turn)
+            if args.trace:
+                settle_display(host, client)
+                trace_units(host, client, f"turn {turn} profile {args.profile}")
             if turn == 2:
                 n += smoke_block(host, client, cmover)
-            if turn == 3:
+            if turn == 3 and args.profile == "baseline":
                 backlog_fired = scenario_backlog_cap(host, client, hmover, cmover)
                 n += backlog_fired
             total += n
@@ -868,16 +1363,17 @@ def main():
             f"the soak only drove {total} admitted actions, below the "
             f"{args.actions} PRD-P9 asks for - the fixture refused too many "
             f"(a boxed-in driver, a shot with no line of fire)")
-        assert backlog_fired, "the rider-R3 backlog phase never ran"
+        if args.profile == "baseline":
+            assert backlog_fired, "the rider-R3 backlog phase never ran"
 
         # zero-disk holds even after a long battle
         session.assert_client_zero_disk(client.user_dir)
 
         # (the desync-report silence criterion rides assert_census, so it has
         # already been checked after every side of every turn)
-        print(f"\nSOAK CLEAN: {total} admitted actions over {args.turns} full "
-              f"turns, seed {args.seed}, census equal after every side, tripwire "
-              f"silent, backlog cap exercised. {time.time() - started:.0f}s")
+        print(f"\nSOAK CLEAN [{args.profile}]: {total} admitted actions over "
+              f"{args.turns} full turns, seed {args.seed}, census equal after every "
+              f"side, tripwire silent. {time.time() - started:.0f}s")
         print("ALL PARALLEL SOAK TESTS PASSED")
     except Exception as e:
         fail = e
