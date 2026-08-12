@@ -104,14 +104,16 @@ def run_one(profile, slot, turns, actions, seed):
             "tail": "\n".join((p.stdout or "").splitlines()[-25:])}
 
 
-def run_batch(jobs, k, turns, actions, seed):
-    """jobs = list of profile names; run up to k concurrently across slots 0..k-1."""
+def run_batch(jobs, k, turns, actions, seed, slot_base=0):
+    """jobs = list of profile names; run up to k concurrently across
+    slots slot_base..slot_base+k-1 (slot_base lets a chunk dodge a busy slot)."""
     results = []
     i = 0
     while i < len(jobs):
         chunk = jobs[i:i + k]
         procs = []
-        for slot, profile in enumerate(chunk):
+        for off, profile in enumerate(chunk):
+            slot = slot_base + off
             env = dict(os.environ)
             env["OXC_HARNESS_SLOT"] = str(slot)
             cmd = [sys.executable, SOAK, "--profile", profile]
@@ -139,6 +141,7 @@ def run_batch(jobs, k, turns, actions, seed):
             print(f"  [{flag}] {profile:12s} slot{slot} {dt:5.0f}s "
                   f"hits={r['hits'] or '-'}"
                   + (f"  FAIL: {fail[:80]}" if fail else ""))
+        i += k
     return results
 
 
