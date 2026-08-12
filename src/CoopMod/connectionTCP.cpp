@@ -8312,6 +8312,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							if (obj.isMember("energy")) unit->setCoopEnergy(obj["energy"].asInt());
 							if (obj.isMember("mana")) unit->setCoopMana(obj["mana"].asInt());
 							if (obj.isMember("tu")) unit->setTimeUnits(obj["tu"].asInt());
+							// coop (PRD-I3 saveBlob close): the victim's post-damage per-side armor
+							// (hit_unit is the sole carrier; classic replays damage() and never diverges).
+							if (obj.isMember("armor"))
+							{
+								const Json::Value& armorArr = obj["armor"];
+								for (int side = 0; side < SIDE_MAX && side < (int)armorArr.size(); ++side)
+								{
+									unit->setArmor(armorArr[side].asInt(), (UnitSide)side);
+								}
+							}
 						}
 						break;
 

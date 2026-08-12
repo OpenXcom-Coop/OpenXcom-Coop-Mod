@@ -3324,6 +3324,18 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 
 			root["fatalWounds"] = fatalArray;
 
+			// coop (PRD-I3 saveBlob close): the victim's post-damage per-side armor.
+			// damage() degrades _currentArmor and NO other packet carries it (next_turn
+			// does not re-ship armor), so a parallel thin client - which does not replay
+			// damage() - keeps full armor forever, a permanent saveBlob divergence.
+			// Additive; classic replays damage() and stays byte-identical.
+			Json::Value armorArray(Json::arrayValue);
+			for (int i = 0; i < SIDE_MAX; ++i)
+			{
+				armorArray.append(target->getArmor((UnitSide)i));
+			}
+			root["armor"] = armorArray;
+
 			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 		}
 	}
