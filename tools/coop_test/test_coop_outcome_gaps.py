@@ -287,20 +287,18 @@ def part1_spawn(host, client, driver, watcher, dtag, shooter_id):
             f"or the manifest never crossed.")
         for uid in new_h:
             ht, ct = units(host)[uid], units(client)[uid]
-            # x/y is the spawn DECISION and must match. z is not asserted: the level
-            # a unit settles on is applyGravity's answer to the floor the blast just
-            # destroyed, and terrain destruction is host-authoritative on its own
-            # packet, so the two can sit a level apart until the per-turn bulk unit
-            # dump (`next_turn`) repairs positions. The manifest ships the host's
-            # landing tile, which fixes the case where the levels differ AT SPAWN;
-            # a later chain explosion dropping the host's copy again is transient.
-            assert (ht["x"], ht["y"]) == (ct["x"], ct["y"]), (
-                f"spawned unit {uid} landed at {(ht['x'], ht['y'], ht['z'])} on the "
-                f"host and {(ct['x'], ct['y'], ct['z'])} on the client")
-            if ht["z"] != ct["z"]:
-                print(f"    NOTE: unit {uid} sits on z={ht['z']} (host) vs "
-                      f"z={ct['z']} (client) - gravity follows host-authoritative "
-                      f"terrain; next_turn repairs it")
+            # x/y is the spawn DECISION; z is applyGravity's answer to the floor the
+            # blast just destroyed. Both must match STRICTLY (PRD-I3 z-gravity close):
+            # the manifest's final_pos covers the SPAWN instant, and the `unit_fall`
+            # packet (UnitFallBState, host-only) now ships the landed tile when the
+            # ONGOING blast destroys the floor under the just-spawned unit and the host
+            # re-drops it a level - so the peer no longer floats its copy a level up
+            # until next_turn. unitsCore position is strict through the spawn/blast.
+            assert (ht["x"], ht["y"], ht["z"]) == (ct["x"], ct["y"], ct["z"]), (
+                f"z-gravity: spawned unit {uid} landed at "
+                f"{(ht['x'], ht['y'], ht['z'])} on the host and "
+                f"{(ct['x'], ct['y'], ct['z'])} on the client - the host's post-blast "
+                f"fall did not replicate (unit_fall). unitsCore position must be strict.")
         session.assert_battle_synced(host, client, "after the spawn blast")
         assert not TW.desync_seen(host) and not TW.desync_seen(client), \
             "the drift tripwire fired on a replicated spawn"
