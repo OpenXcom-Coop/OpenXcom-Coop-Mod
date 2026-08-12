@@ -172,6 +172,26 @@ void UnitFallBState::think()
 				_terrain->calculateFOV(unit, true, false); //update tiles
 				if (unit->getStatus() == STATUS_STANDING)
 				{
+					// coop (PRD-I3 z-gravity close): the unit finished falling and is
+					// standing on its landed tile. The host's applyGravity re-dropped it
+					// after a mid-side blast destroyed the floor under it, and
+					// UnitFallBState runs only on the EXECUTOR (_isActivePlayerSync-gated in
+					// BattlescapeGame::think) in BOTH modes, so the NON-acting peer never falls
+					// its copy (a classic peer as well as the parallel client) until next_turn: a
+					// unitsCore z-divergence for the whole side (test_coop_outcome_gaps).
+					// Ship the absolute landed tile so the peer applies it AT the fall; a
+					// position, never a decision. gate on the EXECUTOR, not parallelTurnActive() - the fall is pushed on an EMPTY
+					// queue (no action chain) so that is false here; classic crosses too (additive).
+					if (_parent->getCoopMod()->getCoopStatic() && _parent->getCoopMod()->_isActivePlayerSync && !unit->isOut())
+					{
+						Json::Value fallRoot;
+						fallRoot["state"] = "unit_fall";
+						fallRoot["unit_id"] = unit->getId();
+						fallRoot["x"] = unit->getPosition().x;
+						fallRoot["y"] = unit->getPosition().y;
+						fallRoot["z"] = unit->getPosition().z;
+						_parent->sendPacketData(fallRoot.toStyledString());
+					}
 					BattleAction fall;
 					fall.type = BA_WALK;
 					fall.actor = unit;

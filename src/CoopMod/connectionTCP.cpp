@@ -672,7 +672,7 @@ static int coopPacketSubject(const std::string& state, const Json::Value& obj)
 	else if (state == "abortPath" || state == "afterBattlescapeUnitTurn"
 			 || state == "psi_attack" || state == "melee_attack"
 			 || state == "unit_death" || state == "after_unit_death"
-			 || state == "hit_unit"
+			 || state == "hit_unit" || state == "unit_fall"
 			 || state == "convertUnit" || state == "selfDestruct"
 			 || state == "panic_action" || state == "psi_result"
 			 || state == "checkForProximityGrenades" || state == "motion_scan")
@@ -8322,6 +8322,47 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
+	}
+
+	// coop (PRD-I3 z-gravity close): the host's UnitFallBState landed a unit whose
+	// floor a mid-side blast destroyed. The parallel thin client never runs the fall
+	// (UnitFallBState is _isActivePlayerSync-gated = host-only in
+	// BattlescapeGame::think), so its copy floats a level up until next_turn re-ships
+	// positions - a unitsCore z-divergence for the whole side (test_coop_outcome_gaps)
+	// and the saveBlob `floating` bit. Apply the host's landed tile as an ABSOLUTE
+	// position (position only, never-resurrect) and clear the floating bit the vanished
+	// floor set, mirroring keepWalking's end (setTile refreshes _haveNoFloorBelow but
+	// leaves _floating). Sent host-only in parallel so classic/old peers never see it;
+	// gated non-host and present-checked here for safety. Rides the ORDERED gate (not
+	// the always-consume whitelist) and is subject-keyed on the fallen unit, so it
+	// applies in FIFO after the spawn/blast that minted and dropped it.
+	if (stateString == "unit_fall")
+	{
+		SavedBattleGame* fallBattle = (getCoopStatic() && !_isActivePlayerSync && _game && _game->getSavedGame())
+									  ? _game->getSavedGame()->getSavedBattle() : nullptr;
+		if (fallBattle)
+		{
+			const int fallUnitId = obj["unit_id"].asInt();
+			const Position fallPos(obj["x"].asInt(), obj["y"].asInt(), obj["z"].asInt());
+			for (auto* unit : *fallBattle->getUnits())
+			{
+				if (unit->getId() != fallUnitId)
+				{
+					continue;
+				}
+				// Never RESURRECT: unit_death owns a dead/knocked-out unit's state.
+				if (!unit->isOut() && unit->getPosition() != fallPos)
+				{
+					unit->setTile(fallBattle->getTile(fallPos), fallBattle);
+					unit->setPosition(fallPos);
+					if (unit->isFloating() && !unit->haveNoFloorBelow())
+					{
+						unit->setFloatingCoop(false);
+					}
+				}
+				break;
+			}
+		}
 	}
 
 	// coop (PRD-P3 GAP-9): the host's end-of-side fuse outcome. A client makes no

@@ -328,6 +328,10 @@ public:
 	bool isKneeled() const;
 	/// Is floating?
 	bool isFloating() const;
+	/// coop (PRD-I3 z-gravity close): clear/set the floating bit when the peer applies
+	/// the host's landed fall position (the vanished floor left the thin client's copy
+	/// floating; setTile refreshes _haveNoFloorBelow but never touches _floating).
+	void setFloatingCoop(bool floating) { _floating = floating; }
 	/// Have unit floor below?
 	bool haveNoFloorBelow() const { return _haveNoFloorBelow; }
 
