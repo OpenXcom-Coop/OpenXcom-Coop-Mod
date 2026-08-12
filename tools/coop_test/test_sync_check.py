@@ -597,19 +597,28 @@ def scenario_ai_and_boundary(host, client, hmover, cmover):
     print(f"PASS 3 (boundary attribution): named at boundary seq "
           f"{bnd[0]['seq']} (kind={bnd[0]['kind']})")
 
-    # PRD-I2 BACKSTOP: the same carried-over skew that named `unitsCore` at a
-    # boundary MUST also flip `saveBlob` at a boundary - the save-derived hash is a
-    # superset of every per-action bucket, so a divergence a fast bucket catches
-    # can never slip past it. This is the proof the backstop actually backstops.
-    sblob = [m for m in ms if m["bucket"] == "saveBlob" and m["boundary"]]
-    assert sblob, (
-        f"the skew flipped unitsCore at a boundary but NOT saveBlob "
-        f"({sorted({m['bucket'] for m in ms})}) - the save-derived backstop missed "
-        f"a divergence a fast bucket caught, which defeats its whole purpose")
+    # PRD-I3 saveBlob endturn straddle: saveBlob now compares at SIDESTART ONLY (the
+    # endturn whole-save sample straddles the deferred turn-machine state). This
+    # carried-over unit-down skew is a BARE status write that `next_turn` REPAIRS
+    # (proven by the poll below), so it is live only across the ENDTURN boundaries and
+    # gone by sidestart - exactly the window saveBlob no longer compares. So it must
+    # NOT surface a saveBlob boundary mismatch here, and the endturn exclusion must
+    # have fired. The superset backstop (a PERSISTENT divergence saveBlob catches at
+    # sidestart) moved to scenario_red_bucket, whose item mint survives next_turn.
+    assert sc.get("saveBlobEndturnSkips", 0) > 0, (
+        f"saveBlobEndturnSkips=0 - the endturn saveBlob exclusion never fired over "
+        f"this side boundary, so the sidestart-only behaviour is not engaged: "
+        f"kinds={sc.get('comparedKinds')}")
+    sblob_bnd = [m for m in ms if m["bucket"] == "saveBlob" and m["boundary"]]
+    assert not sblob_bnd, (
+        f"the next_turn-repaired unit-down skew still surfaced a saveBlob boundary "
+        f"mismatch {sblob_bnd} - with saveBlob endturn-excluded and the skew healed "
+        f"by sidestart, saveBlob must be clean at this boundary")
     assert sc["buckets"]["saveBlob"]["alarm"] is False, (
         "saveBlob is ALARM-promoted; PRD-I2 ships it REPORT-ONLY")
-    print(f"PASS I2 backstop: saveBlob also named at boundary seq "
-          f"{sblob[0]['seq']} (kind={sblob[0]['kind']}), report-only")
+    print(f"PASS I2 (sidestart-only): saveBlob endturn-excluded "
+          f"(saveBlobEndturnSkips={sc.get('saveBlobEndturnSkips')}) and clean at "
+          f"sidestart for the next_turn-repaired skew; persistent backstop in scenario 4")
 
     # REPORT-ONLY at birth: a red must NOT latch the PRD-P2 desync flag, because
     # nothing in the promotion table is armed yet. This is the routing proof.
@@ -711,6 +720,39 @@ def scenario_red_bucket(host, client, hmover, cmover):
     kind = [m["kind"] for m in named if m["seq"] == seq][0]
     print(f"PASS 4b: named at seq {seq} (kind={kind!r}), which is exactly the "
           f"chain admitted after the skew")
+
+    # PRD-I3 saveBlob SIDESTART BACKSTOP: saveBlob now compares at SIDESTART only, so
+    # its superset guarantee must be proven THERE. Unlike the next_turn-repaired
+    # unit-down skew in scenario 2+3, this minted ground item is PERSISTENT (nothing
+    # re-ships item state across next_turn), so it is still diverged at the sidestart
+    # boundary. Close a full side and assert the fast `items` bucket AND the
+    # save-derived `saveBlob` BOTH name it at sidestart - the proof that a divergence
+    # a fast bucket catches at sidestart can never slip past the boundary superset.
+    reset_sync(host, client)
+    turn_before = battle(host).get("turn")
+    close_side(host, client, turn_before)
+    settle_display(host, client)
+    scb = sync(host)
+    assert scb.get("saveBlobSidestartCompares", 0) > 0, (
+        f"saveBlobSidestartCompares=0 - saveBlob never compared at a sidestart "
+        f"boundary over this side close, so the backstop below is vacuous: "
+        f"kinds={scb.get('comparedKinds')}")
+    side_items = [m for m in scb["mismatches"]
+                  if m["bucket"] == "items" and m["boundary"] and m["kind"] == "sidestart"]
+    side_blob = [m for m in scb["mismatches"]
+                 if m["bucket"] == "saveBlob" and m["boundary"] and m["kind"] == "sidestart"]
+    assert side_items, (
+        f"the persistent item skew did not surface `items` at the sidestart boundary "
+        f"- the fast-bucket premise of the sidestart backstop is missing: "
+        f"{sorted({(m['bucket'], m['kind']) for m in scb['mismatches'] if m['boundary']})}")
+    assert side_blob, (
+        f"the persistent item skew flipped `items` at sidestart but NOT `saveBlob` - "
+        f"the save-derived backstop missed a divergence a fast bucket caught at "
+        f"sidestart, which defeats its whole purpose: {scb['mismatches']}")
+    assert scb["buckets"]["saveBlob"]["alarm"] is False, (
+        "saveBlob is ALARM-promoted; PRD-I2 ships it REPORT-ONLY")
+    print(f"PASS I2 sidestart backstop: `items` and `saveBlob` both named at the "
+          f"sidestart boundary seq {side_blob[0]['seq']} (report-only)")
     return sc
 
 
