@@ -61,6 +61,14 @@ import test_parallel_intents as PI
 
 NALIENS = 5
 
+# Pin the fixture (outcome_gaps recipe): a fresh-random battle made both mid-battle
+# levers below flake ~2/3 - the mop-up needs a reachable killable alien and the
+# alien-side reaction kill needs an alien to walk into the armed squad's line of
+# fire. The host generates + ships the world, so its seed fixes the map, deployment
+# and stats; the client gets seed+1 (a DIFFERENT stream, so an attribution-ship
+# regression still diverges). Overridable for a seed search.
+SEED = int(os.environ.get("DEBRIEF_SEED", "424242"))
+
 # STATUS_DEAD / FACTION_PLAYER as battle_state reports them.
 STATUS_DEAD = 6
 FACTION_PLAYER = 0
@@ -238,7 +246,7 @@ def rearm_squad(host, client, seat_units, tu=200):
         PI.top_up(host, client, uid, tu)
 
 
-def force_alien_side_kill(host, client, known, turns=8):
+def force_alien_side_kill(host, client, known, turns=15):
     """Hand the turn over until an alien dies during the ALIEN side.
 
     This is the flavour the bug lived in: the peer never replays an alien-side
@@ -377,7 +385,7 @@ def run(ending, ports, tmp):
         client.spawn(); client.connect()
         TW.PORT = str(coop_port)
         PI.PORT = str(coop_port)
-        TW.bring_up_battle(host, client)
+        TW.bring_up_battle(host, client, seed=SEED)
 
         for gc, tag in ((host, "host"), (client, "client")):
             b = battle(gc)
