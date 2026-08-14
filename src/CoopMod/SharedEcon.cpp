@@ -4398,6 +4398,9 @@ std::uint64_t g_syncSidestartHazardCompares = 0;
 // count the two straddle exclusions so a test can assert exactly where they fired.
 std::uint64_t g_syncRegenAiSkips = 0;
 std::uint64_t g_syncRegenEndturnSkips = 0;
+// PRD-I3 unitsCore side-gate (2026-08-14, Session C): alien-side + endturn skips.
+std::uint64_t g_syncCoreAlienSkips = 0;
+std::uint64_t g_syncCoreEndturnSkips = 0;
 // The two namespaces are tracked apart: `action_seq` restarts at 0 every side, so
 // a shared watermark would be dragged forwards by the battle-monotonic boundary
 // counter and "the deferred loop closed" would read true for ever after.
@@ -5449,6 +5452,31 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 				continue;
 			}
 		}
+		// PRD-I3 unitsCore side-gate (2026-08-14, Session C, manager sign-off after the
+		// field-level trace): the core bucket (id/faction/liveness/position) is well-
+		// defined at PLAYER-side per-action seqs and at SIDESTART, but NOT during the
+		// ALIEN side. There the D-lite client replays the host's alien turn one step
+		// behind its authoritative resolution, so a unit mid death/knockback/stun-
+		// collapse (ai/expl per-action seqs) and at the alien-side ENDTURN boundary
+		// transiently diverges in liveness/position - traced 2026-08-14: a full multi-
+		// packet explosion/casualty resolution differs (e.g. host health 33 / peer 0,
+		// direction varying, several units at once), always healing by sidestart/
+		// next_turn. Skip the alien per-action seqs AND the endturn boundary; keep
+		// player-side per-action (strict) + sidestart, where a PERSISTENT alien-side
+		// desync still surfaces. Mirrors the SEAM-9 unitsRegen sidestart discipline but
+		// keeps the player-side coverage that is the point of a strict liveness/position
+		// bucket. A skipped bucket is NOT counted as compared.
+		if (std::strcmp(name, "unitsCore") == 0)
+		{
+			const bool alienSeq = !boundary && (entry->kind == "ai" || entry->kind == "expl");
+			const bool endturnBnd = boundary && entry->kind == "endturn";
+			if (alienSeq || endturnBnd)
+			{
+				if (endturnBnd) ++g_syncCoreEndturnSkips;
+				else ++g_syncCoreAlienSkips;
+				continue;
+			}
+		}
 		++g_syncBucketCompares[i];
 		if (boundary && hazardBucket && entry->kind == "sidestart")
 			++g_syncSidestartHazardCompares;
@@ -5578,6 +5606,8 @@ void syncCheckReport(Json::Value& out)
 	// test can assert unitsRegen was skipped exactly at the straddle window.
 	node["unitsRegenAiSkips"] = static_cast<Json::UInt64>(g_syncRegenAiSkips);
 	node["unitsRegenEndturnSkips"] = static_cast<Json::UInt64>(g_syncRegenEndturnSkips);
+	node["unitsCoreAlienSkips"] = static_cast<Json::UInt64>(g_syncCoreAlienSkips);
+	node["unitsCoreEndturnSkips"] = static_cast<Json::UInt64>(g_syncCoreEndturnSkips);
 	// PRD-I3 saveBlob endturn straddle: the endturn saveBlob exclusion + the sidestart
 	// saveBlob compares (mirrors the hazard split above), so a test can assert saveBlob
 	// rides SIDESTART only - endturn skipped, sidestart compared.
@@ -5736,6 +5766,8 @@ void resetSyncCheck()
 	g_syncSidestartHazardCompares = 0;
 	g_syncRegenAiSkips = 0;
 	g_syncRegenEndturnSkips = 0;
+	g_syncCoreAlienSkips = 0;
+	g_syncCoreEndturnSkips = 0;
 	g_syncSaveBlobMismatches = 0;
 	g_syncSaveBlobEndturnSkips = 0;
 	g_syncSaveBlobSidestartCompares = 0;
