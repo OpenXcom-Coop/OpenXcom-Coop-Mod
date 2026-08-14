@@ -869,12 +869,27 @@ def inject_incendiary(host, client, hmover, cmover, turn):
 def inject_psi(host, client, hmover, cmover, turn):
     """A host-executed psi attack on a live hostile (GAP-2/psi_result replication).
     Host-driven: the host is the executor, so battle_fire runs host-authoritative
-    and the outcome must reach the thin client (faction/owner)."""
+    and the outcome must reach the thin client (faction/owner).
+
+    SEAM-10 (PRD-I3): the payload of this profile is the MIND-CONTROL FACTION
+    lifecycle, not merely psi_result. A stock skirmish rookie has psiSkill 0, so
+    an un-forced roll almost never MCs - the lever was fixture roulette (observed:
+    clean soaks that never converted a single alien, so the dead-MC-alien faction
+    revert this profile is meant to catch was never exercised). Force the driver's
+    psi stats + the target visible (the same determinism the F5 psi test uses) so
+    every psi turn actually flips a hostile to the player side - which then reverts
+    to its original faction at the next NEUTRAL->PLAYER boundary (dead OR alive),
+    the exact divergence SEAM-10 fixed. Keep a floor of hostiles so the conversions
+    never empty the alien side and end the mission mid-soak."""
     if not idle(host):
         return 0
     aliens = [u for u in battle(host)["units"]
               if u.get("faction") == 1 and not u.get("isOut")]
-    if not aliens:
+    # Never convert the last two hostiles - the per-side census needs the mission
+    # to keep running (a converted alien leaves the hostile tally, and Options::
+    # allowPsionicCapture auto-ends the battle if the alien side is emptied by MC).
+    # A floor of 2 still exercises >=1 conversion even on a minimal 3-alien fixture.
+    if len(aliens) <= 2:
         return 0
     target = aliens[0]
     tpos = (target["x"], target["y"], target["z"])
@@ -885,6 +900,15 @@ def inject_psi(host, client, hmover, cmover, turn):
     time.sleep(1.5)
     if not PI.place_adjacent(host, client, hmover, tpos):
         return 0
+    # Force the MC to deterministically succeed on BOTH machines (each simulates
+    # independently) - psiSkill/psiStrength high on the driver, target visible (the
+    # psiAttackMessage/send guard). Without this the roll misses and the profile is
+    # a vacuous pass.
+    for gc in (host, client):
+        gc.ok({"cmd": "battle_action", "action": "set_stat", "unit": hmover,
+               "psiSkill": 100, "psiStrength": 100, "tu": 120, "refill": True})
+        gc.ok({"cmd": "battle_action", "action": "set_stat", "unit": target["id"],
+               "visible": True})
     seq0 = parallel(host)["actionSeq"]
     r = host.cmd({"cmd": "battle_fire", "unit": hmover, "mode": "psi",
                   "weapon_id": gave[0].get("weaponId"), "tu": 100,
@@ -893,6 +917,17 @@ def inject_psi(host, client, hmover, cmover, turn):
         return 0
     idle(host, 60)
     drain(host, client)
+    # Confirm the conversion actually landed (both machines) so the profile is not
+    # a vacuous pass - this is the SEAM-10 payload being armed.
+    hf = next((u["faction"] for u in battle(host)["units"]
+               if u["id"] == target["id"]), None)
+    cf = next((u["faction"] for u in battle(client)["units"]
+               if u["id"] == target["id"]), None)
+    if hf == 0 and cf == 0:
+        print(f"    psi: MIND-CONTROLLED alien {target['id']} -> player on both "
+              f"(SEAM-10 armed; faction reverts at the next player boundary)")
+    else:
+        print(f"    psi: MC did not converge (host fac={hf} client fac={cf})")
     return max(0, parallel(host)["actionSeq"] - seq0)
 
 
