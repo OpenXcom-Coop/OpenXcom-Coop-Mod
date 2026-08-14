@@ -8547,6 +8547,38 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				// would find the two machines agreeing every single time - a detector
 				// silent by construction. The item terms do not care (nothing below
 				// touches an item), so all three move together.
+				// coop (PRD-I3 SEAM-10): converge each unit's ABSOLUTE faction from the
+				// host snapshot BEFORE the tripwire samples it. A mind-controlled unit
+				// reverts to its original faction at the host's NEUTRAL->PLAYER boundary
+				// (SavedBattleGame::endTurn -> prepareNewTurn), which the parallel client
+				// DEFERS to this packet - so its dead/expired MC victim keeps the player
+				// faction until now. verifyBattleChecksum below hashes faction in its
+				// battleUnits term and samples PRE-apply, and next_turn's bulk apply does
+				// not carry faction, so the revert has to land here or the detector fires
+				// on a divergence next_turn is about to repair (and the persistent unitsCore
+				// census drift would survive too). Host-authoritative absolute; PVE only
+				// (the PVP _coop_mindcontrolled path is an inverted per-machine flip);
+				// present-gated (absent = old host).
+				if (getCoopGamemode() != 2 && getCoopGamemode() != 3 && obj.isMember("units"))
+				{
+					for (Json::ArrayIndex ui = 0; ui < obj["units"].size(); ++ui)
+					{
+						if (!obj["units"][ui].isMember("faction")) continue;
+						int fid = obj["units"][ui]["unit_id"].asInt();
+						int nf = obj["units"][ui]["faction"].asInt();
+						if (nf < 0) continue;
+						for (auto& fu : *_game->getSavedGame()->getSavedBattle()->getUnits())
+						{
+							if (fu->getId() == fid)
+							{
+								if ((int)fu->getFaction() != nf)
+									fu->convertToFaction((UnitFaction)nf);
+								break;
+							}
+						}
+					}
+				}
+
 				SharedEcon::verifyBattleChecksum(_game, obj, "next_turn");
 
 				_game->getSavedGame()->getSavedBattle()->abortPathCoop();

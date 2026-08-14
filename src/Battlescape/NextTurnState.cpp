@@ -669,6 +669,15 @@ void NextTurnState::close()
 
 						root["units"][index]["fire"] = unit->getFire();
 
+						// coop (PRD-I3 SEAM-10): the unit's ABSOLUTE faction. A mind-controlled
+						// unit reverts to its original faction at the NEUTRAL->PLAYER boundary in
+						// SavedBattleGame::endTurn's prepareNewTurn loop - which the HOST runs but
+						// the parallel client DEFERS to this packet (connectionTCP side==2), so a
+						// dead/MC-expired victim would otherwise keep the player faction forever.
+						// next_turn is built AFTER that revert, so getFaction() is the post-revert
+						// absolute. Additive/present-gated; the client applies it PVE-only.
+						root["units"][index]["faction"] = (int)unit->getFaction();
+
 						// mind control (host)
 						if (unit->_coop_mindcontrolled == true)
 						{
