@@ -105,9 +105,15 @@ def run_one(profile, slot, turns, actions, seed):
             "tail": "\n".join((p.stdout or "").splitlines()[-25:])}
 
 
-def run_batch(jobs, k, turns, actions, seed, slot_base=0):
+def run_batch(jobs, k, turns, actions, seed, slot_base=0, seed_vary=False):
     """jobs = list of profile names; run up to k concurrently across
-    slots slot_base..slot_base+k-1 (slot_base lets a chunk dodge a busy slot)."""
+    slots slot_base..slot_base+k-1 (slot_base lets a chunk dodge a busy slot).
+
+    seed_vary (needs seed set): each job gets a DISTINCT seed = seed + its global
+    index in this batch, so 4-wide lanes are INDEPENDENT samples rather than the
+    deterministic-identical clones same-seed lanes produce (the MATRIX-PREP A/B
+    caveat). Use it only for baseline; the psi/spawn-blast profiles pin their own
+    fixture seed, so leave --seed unset for those and this flag off."""
     results = []
     i = 0
     while i < len(jobs):
@@ -122,13 +128,14 @@ def run_batch(jobs, k, turns, actions, seed, slot_base=0):
                 cmd += ["--turns", str(turns)]
             if actions:
                 cmd += ["--actions", str(actions)]
-            if seed is not None:
-                cmd += ["--seed", str(seed)]
+            job_seed = (seed + i + off) if (seed_vary and seed is not None) else seed
+            if job_seed is not None:
+                cmd += ["--seed", str(job_seed)]
             t0 = time.time()
             p = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, universal_newlines=True)
-            procs.append((profile, slot, p, t0))
-        for profile, slot, p, t0 in procs:
+            procs.append((profile, slot, p, t0, job_seed))
+        for profile, slot, p, t0, job_seed in procs:
             out, _ = p.communicate()
             dt = time.time() - t0
             clean, fail, hits = parse_run(out or "")
@@ -136,10 +143,11 @@ def run_batch(jobs, k, turns, actions, seed, slot_base=0):
                 fail = "no ALL-PASSED and no [FAIL] (rc=%d)" % p.returncode
             r = {"profile": profile, "slot": slot, "clean": clean, "fail": fail,
                  "hits": hits, "rc": p.returncode, "secs": round(dt, 1),
+                 "seed": job_seed,
                  "tail": "\n".join((out or "").splitlines()[-25:])}
             results.append(r)
             flag = "CLEAN" if clean else "FAIL "
-            print(f"  [{flag}] {profile:12s} slot{slot} {dt:5.0f}s "
+            print(f"  [{flag}] {profile:12s} slot{slot} seed={job_seed} {dt:5.0f}s "
                   f"hits={r['hits'] or '-'}"
                   + (f"  FAIL: {fail[:80]}" if fail else ""))
         i += k
@@ -248,6 +256,10 @@ def main():
     ap.add_argument("--turns", type=int, default=None)
     ap.add_argument("--actions", type=int, default=None)
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--seed-vary", action="store_true",
+                    help="per-run distinct seed = seed + global run index (4-wide "
+                         "INDEPENDENT baseline samples; the MATRIX-PREP A/B caveat). "
+                         "Use for baseline only; leave --seed unset for psi/spawn-blast.")
     ap.add_argument("--board", default=os.path.join(tempfile.gettempdir(),
                     "coop_matrix_scoreboard.json"),
                     help="scoreboard JSON path (persisted across chunks; default = temp)")
@@ -305,8 +317,10 @@ def main():
     else:
         ap.error("one of --ab / --full / --jobs is required")
 
-    print(f"== matrix batch: {len(jobs)} runs, K={args.k}, build {sha[:9]} ==")
-    runs = prior + run_batch(jobs, args.k, args.turns, args.actions, args.seed)
+    print(f"== matrix batch: {len(jobs)} runs, K={args.k}, build {sha[:9]}"
+          f"{' seed-vary from %d' % args.seed if args.seed_vary else ''} ==")
+    runs = prior + run_batch(jobs, args.k, args.turns, args.actions, args.seed,
+                             seed_vary=args.seed_vary)
     board = scoreboard(runs)
     ready = promotion_ready(board, runs)
     save_board(args.board, runs, board, ready, sha)
