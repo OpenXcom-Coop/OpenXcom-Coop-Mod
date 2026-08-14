@@ -4301,7 +4301,7 @@ const bool BATTLE_HASH_ALARM[BATTLE_HASH_BUCKETS] = {
 	true,   // fire         (PRD-I3 PROMOTED 2026-08-14 @4a15f7bd4: L3 clean incl. incendiary x2)
 	false,  // smoke        (report-only: SEAM-3 smoke_ai mid-side explosion class)
 	false,  // items        (report-only: SEAM-7/8 casualty item-drop straddle)
-	false,  // unitsCore    (report-only: SEAM-10 psi-MC dead-alien faction desync)
+	true,   // unitsCore    (PRD-I3 PROMOTED 2026-08-14 Session C: side-gated to player-side+sidestart; L3 clean)
 	true,   // unitsStats   (PRD-I3 PROMOTED 2026-08-14: superseded=0 old-peer fallback, L3 clean)
 	false,  // itemIdCtr    (report-only: SEAM-3/7 blast item-id counter straddle)
 	true,   // unitsCombat  (PRD-I3 PROMOTED 2026-08-14: CHAIN-authored kneel/mc/w0..w5; fire moved out)
