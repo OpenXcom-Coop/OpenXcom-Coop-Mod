@@ -4297,15 +4297,15 @@ namespace {
 //
 // PRD-I3 flips these one at a time, each with its burn-in evidence.
 const bool BATTLE_HASH_ALARM[BATTLE_HASH_BUCKETS] = {
-	false,  // terrain
-	false,  // fire
-	false,  // smoke
-	false,  // items
-	false,  // unitsCore
-	false,  // unitsStats  (PRD-I0 names this one explicitly: expected noisy)
-	false,  // itemIdCtr
-	false,  // unitsCombat (PRD-I3 SEAM-7: report-only at birth, inherits unitsStats)
-	false,  // unitsRegen  (PRD-I3 SEAM-7: report-only at birth, inherits unitsStats)
+	false,  // terrain      (report-only: SEAM-3 destroy_tile delivery straddle)
+	true,   // fire         (PRD-I3 PROMOTED 2026-08-14 @4a15f7bd4: L3 clean incl. incendiary x2)
+	false,  // smoke        (report-only: SEAM-3 smoke_ai mid-side explosion class)
+	false,  // items        (report-only: SEAM-7/8 casualty item-drop straddle)
+	false,  // unitsCore    (report-only: SEAM-10 psi-MC dead-alien faction desync)
+	true,   // unitsStats   (PRD-I3 PROMOTED 2026-08-14: superseded=0 old-peer fallback, L3 clean)
+	false,  // itemIdCtr    (report-only: SEAM-3/7 blast item-id counter straddle)
+	true,   // unitsCombat  (PRD-I3 PROMOTED 2026-08-14: CHAIN-authored kneel/mc/w0..w5; fire moved out)
+	true,   // unitsRegen   (PRD-I3 PROMOTED 2026-08-14: DEFERRED set, sidestart-only, L3 clean)
 };
 
 const char* const BATTLE_HASH_NAMES[BATTLE_HASH_BUCKETS] = {

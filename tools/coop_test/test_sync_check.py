@@ -620,8 +620,9 @@ def scenario_ai_and_boundary(host, client, hmover, cmover):
           f"(saveBlobEndturnSkips={sc.get('saveBlobEndturnSkips')}) and clean at "
           f"sidestart for the next_turn-repaired skew; persistent backstop in scenario 4")
 
-    # REPORT-ONLY at birth: a red must NOT latch the PRD-P2 desync flag, because
-    # nothing in the promotion table is armed yet. This is the routing proof.
+    # unitsCore is REPORT-ONLY (SEAM-10, unpromoted), so its red must NOT latch the
+    # PRD-P2 desync flag - the routing proof that report-only buckets are honoured
+    # even with fire/unitsStats/unitsCombat/unitsRegen now ARMED (PRD-I3 promotions).
     for name in ("unitsCore",):
         assert sc["buckets"][name]["alarm"] is False, (
             f"the promotion table has {name} armed; this build's routing "
@@ -630,8 +631,8 @@ def scenario_ai_and_boundary(host, client, hmover, cmover):
         "a REPORT-ONLY bucket fired the battleDesyncSeen ALARM path - the "
         "promotion table is not being honoured, and every test that asserts "
         "`desyncSeen` is False would now fail on known-open seams")
-    print("PASS routing: the red was logged and counted, and did NOT latch "
-          "battleDesyncSeen (every bucket is REPORT-ONLY at I0 birth)")
+    print("PASS routing: the unitsCore red was logged and counted, and did NOT "
+          "latch battleDesyncSeen (unitsCore is REPORT-ONLY; promoted buckets route)")
 
     # `next_turn` repairs a bare status write, so the battle is left clean for
     # the item scenario. Prove it rather than assume it.
@@ -1161,9 +1162,16 @@ def main():
         # the time a test can look. That it has is the first proof the loop works.
         assert sc0["mismatchCount"] == 0, (
             f"the two machines already disagree before anything was driven: {sc0}")
-        assert all(not b["alarm"] for b in sc0["buckets"].values()), (
-            f"a bucket is ALARM-promoted in this build; the report-only routing "
-            f"assertions in scenario 2 are written against the I0 birth policy: "
+        # PRD-I3 promotions (2026-08-14 @4a15f7bd4): fire/unitsStats/unitsCombat/
+        # unitsRegen are ARMED; the rest stay REPORT-ONLY. This guard catches an
+        # accidental change to the promotion table and forces a conscious re-prove
+        # of no-false-alarm + correct routing (the scenario-2 routing proof below).
+        EXPECTED_ALARM = {"fire", "unitsStats", "unitsCombat", "unitsRegen"}
+        armed = {n for n, b in sc0["buckets"].items() if b["alarm"]}
+        assert armed == EXPECTED_ALARM, (
+            f"the ALARM promotion table changed: armed={sorted(armed)} but this "
+            f"build expects {sorted(EXPECTED_ALARM)}. Update the expected set and "
+            f"re-prove no-false-alarm + routing before trusting the tests below: "
             f"{ {n: b['alarm'] for n, b in sc0['buckets'].items()} }")
 
         cseat = parallel(client)["localSeat"]
