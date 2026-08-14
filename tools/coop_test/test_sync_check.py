@@ -778,9 +778,9 @@ def scenario_smoke(host, client, hmover, cmover):
     STRICT asserts the re-scoped SEAM-2 remit: no BOUNDARY smoke/fire divergence, the
     endturn exclusion fired (endturnHazardSkips>0), and sidestart still compared the
     hazards (sidestartHazardCompares>0). PRD-I3 SEAM-7/8/9: unitsStats is split by
-    AUTHORSHIP - unitsCombat (CHAIN-authored ONLY: fire/kneel/mc/w0..w5) is STRICT at ai
+    AUTHORSHIP - unitsCombat (CHAIN-authored ONLY: kneel/mc/w0..w5) is STRICT at ai
     seqs (us_ai asserts it), unitsRegen (the DEFERRED/turn-machine set: tu/energy/mana/
-    morale AND health/stun since SEAM-9) is compared at SIDESTART only (the per-action +
+    morale AND health/stun/fire) is compared at SIDESTART only (the per-action +
     endturn straddle); the ai-seq SMOKE residual is the
     whitelisted mid-side EXPLOSION path and stays an ANNOTATED ALLOWANCE.
     SEAM2_SMOKE_STRICT=0 takes the pre-fix red baseline print.
@@ -875,19 +875,19 @@ def scenario_smoke(host, client, hmover, cmover):
             f"HALF 1 REGRESSED: an endturn boundary recorded a smoke/fire mismatch "
             f"{endturn_haz} - the exclusion must leave those UNCOMPARED at endturn")
         # PRD-I3 SEAM-7/8/9: unitsStats split by AUTHORSHIP. unitsRegen - the
-        # turn-machine/DEFERRED-authored set (tu/energy/mana/morale AND health/stun since
-        # SEAM-9) - is compared at SIDESTART only (proven unitsRegenAiSkips > 0 for the
-        # per-action skips). unitsCombat is now CHAIN-authored ONLY (fire/kneel/mc/w0..w5),
-        # each an executor absolute (unit_fire / kneel packet / mind-control / hit_unit's
+        # turn-machine/DEFERRED-authored set (tu/energy/mana/morale/health/stun AND fire
+        # since SEAM-9) - is compared at SIDESTART only (proven unitsRegenAiSkips > 0 for the
+        # per-action skips). unitsCombat is now CHAIN-authored ONLY (kneel/mc/w0..w5),
+        # each an executor absolute (kneel packet / mind-control / hit_unit's
         # fatal-wound COUNTERS), so it is STRICT at every seq incl. ai. The SEAM-9 move took
-        # the dying-victim HEALTH bleed and the STUN recovery straddle out of unitsCombat
-        # into the deferred set. So us_ai MUST be 0.
+        # the dying-victim HEALTH bleed, the STUN recovery straddle, and (fire follow-up) the
+        # turn-decremented FIRE bit out of unitsCombat into the deferred set. So us_ai MUST be 0.
         assert not us_ai, (
-            f"SEAM-9 REGRESSED: unitsCombat (fire/kneel/mc/w0..w5 - all CHAIN-authored) "
+            f"SEAM-9 REGRESSED: unitsCombat (kneel/mc/w0..w5 - all CHAIN-authored) "
             f"diverged at ai/player seq(s) {us_ai}. health/stun/morale live in the deferred "
             f"unitsRegen set (sidestart-only), so this is NOT the bleed/recovery/morale "
             f"straddle - it is a genuinely chain-authored field (a wound counter, a "
-            f"mind-control flip, a fire/kneel bit) reaching the client later than its "
+            f"mind-control flip, a kneel bit) reaching the client later than its "
             f"per-seq hash. Capture the interleave.\n    {session._sync_mismatch_lines(sc)}")
         # Decay smoke_ai is structurally 0 (HALF 2 gates the decay set_smoke_tile behind
         # the ordered gate, so it applies in FIFO AFTER the ai chains, never at an ai

@@ -4899,23 +4899,27 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 		// PRD-I3 SEAM-7/8/9: the SAME field set, SPLIT BY AUTHORSHIP into two independent
 		// FNV sums so the compare can hold each field where its author makes it
 		// well-defined:
-		//   unitsCombat = CHAIN-authored ONLY (fire, kneeled, mind-controller, w0..w5) -
-		//     each written by an absolute the executor ships (unit_fire / kneel packet /
+		//   unitsCombat = CHAIN-authored ONLY (kneeled, mind-controller, w0..w5) -
+		//     each written by an absolute the executor ships (kneel packet /
 		//     mind-control / hit_unit's fatal-wound COUNTERS), so it is STRICT at every
 		//     seq incl. ai/expl.
-		//   unitsRegen = TURN-MACHINE / DEFERRED-authored (tu, energy, mana, morale AND
-		//     health, stun) - compared at SIDESTART only (syncCheckCompare).
+		//   unitsRegen = TURN-MACHINE / DEFERRED-authored (tu, energy, mana, morale, health,
+		//     stun AND fire) - compared at SIDESTART only (syncCheckCompare).
 		// SEAM-9 (manager sign-off 2026-08-12) moved HEALTH and STUN out of unitsCombat:
 		// both machines bleed fatal wounds and recover stun in their OWN prepareNewTurn
 		// (see the unitsStats note above), so health/stun straddle every per-action + endturn
 		// sample exactly like tu/energy/mana/morale (trace: stun off-by-1 at ai/expl, health
 		// bleed on downed units, all healed by next_turn). The wound COUNTERS stay in
 		// unitsCombat - they are chain-authored (hit/medikit); only their BLEED CONSEQUENCE
-		// on the health VALUE defers, and that value now rides unitsRegen. The combined
+		// on the health VALUE defers, and that value now rides unitsRegen.
+		// FIRE (manager sign-off 2026-08-12) likewise moved to unitsRegen: getFire() is
+		// chain-SET (unit_fire absolute) but turn-DECREMENTED in each machine's own
+		// prepareNewTurn, so it straddles every per-action + endturn sample (incendiary
+		// soak: unitsCombat 31-36 at ai/expl) and is well-defined only at sidestart -
+		// identical dual authorship to health/stun/morale. The combined
 		// unitsStats above is kept verbatim purely for the OLD-peer wire fallback.
 		std::uint64_t comb = FNV_OFFSET;
 		comb = mix(comb, unit->getId());
-		comb = mix(comb, unit->getFire());
 		comb = mix(comb, unit->isKneeled() ? 1 : 0);
 		comb = mix(comb, unit->getMindControllerId());
 		for (int part = 0; part < BODYPART_MAX; ++part)
@@ -4932,6 +4936,7 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 		regen = mix(regen, unit->getMorale()); // SEAM-8: morale is deferred-authored
 		regen = mix(regen, unit->getHealth());     // SEAM-9: fatal-wound bleed defers
 		regen = mix(regen, unit->getStunlevel());  // SEAM-9: stun recovery defers
+		regen = mix(regen, unit->getFire());       // fire: chain-SET, turn-decremented (deferred)
 		out.unitsRegen += regen;
 	}
 
