@@ -537,107 +537,171 @@ def scenario_kneel_burst(host, client, hmover, cmover):
 # ---- 2 + 3. AI-side and boundary attribution -------------------------------
 
 def scenario_ai_and_boundary(host, client, hmover, cmover):
-    """One skew, two attributions.
+    """PRD-I3 Session C: unitsCore is ALARM-promoted AND side-gated - compared at
+    player-side per-action seqs + sidestart, SKIPPED at the alien ai/expl seqs and
+    the alien-side endturn boundary (where the D-lite client replay of the host
+    alien turn legitimately lags the host authoritative death/damage resolution).
+    Two proofs from one one-sided liveness skew:
 
-    The skew is injected while the player side is idle and then carried ACROSS a
-    side boundary, so the very next things to report are, in order, the side-close
-    boundary marker, the alien side's own chains, and the side-start marker. That
-    is the only arrangement in which both attributions can be observed from a
-    single divergence - and injecting two separate ones would mean the second was
-    measured on a battle the first had already moved."""
-    print("-- 2+3: AI-chain and boundary attribution of one carried-over skew --")
+      (A) ALARM ROUTE. The skew, present at a PLAYER-side action seq the gate keeps
+          strict, is compared - and because unitsCore is now ARMED it latches
+          battleDesyncSeen and writes one PRD-I4 bundle (the P2 tripwire path).
+      (B) SIDE-GATE. The same skew carried across a WHOLE alien side records NO
+          unitsCore mismatch at the ai/expl seqs or the endturn boundary (the skips
+          fired) and next_turn repairs it by sidestart - so the promotion never
+          false-alarms on the alien-side display window that kept unitsCore report-only.
+    """
+    print("-- 2: unitsCore ALARM route (player seq) + alien-side side-gate --")
+
+    # (A) POSITIVE ALARM ROUTE at a player-side seq --------------------------
     reset_sync(host, client)
-
+    assert sync(host)["buckets"]["unitsCore"]["alarm"] is True, (
+        "unitsCore is not ARMED; this positive alarm-route proof is written "
+        "against the PRD-I3 Session-C promotion")
     victim = skew_unit_down(host, client)
     assert victim, (
         "could not put a unit down on the client alone - the lever is dead, so "
-        "both attribution assertions below would be vacuous")
+        "the alarm-route proof would be vacuous")
     hb = session.sync_buckets(host)["unitsCore"]
     cb = session.sync_buckets(client)["unitsCore"]
     assert hb != cb, (
-        f"the one-sided status write left the two machines agreeing on unitsCore "
+        f"the one-sided status write left the machines agreeing on unitsCore "
         f"({hb} vs {cb}) - it replicated, so there is nothing to detect")
     print(f"    unit {victim} put down on the client alone (unitsCore host={hb} "
           f"client={cb})")
+    # Drive ONE host player action while the skew is live: a walk seq is a
+    # PLAYER-side per-action seq the side-gate KEEPS, so the compare names unitsCore
+    # and - now ARMED - latches the desync flag.
+    PI.top_up(host, client, hmover)
+    dest = PI.step_dest(host, client, hmover)
+    assert dest, f"the host driver {hmover} cannot step to carry the compare"
+    assert act(host, client, host, action="move", unit=hmover,
+               x=dest[0], y=dest[1], z=dest[2]), \
+        "the host walk was not admitted, so no player seq carries the skew"
+    settle_display(host, client)
+    assert poll(lambda: TW.desync_seen(host), 30), (
+        "the ARMED unitsCore skew at a PLAYER-side seq did NOT latch "
+        "battleDesyncSeen - either the promotion is inert or the side-gate wrongly "
+        "skipped a player seq")
+    assert battle(host).get("desyncReportWritten") is True, (
+        "the unitsCore alarm latched but wrote no PRD-I4 bundle (one per battle)")
+    scp = sync(host)
+    core_player = [m for m in scp["mismatches"] if m["bucket"] == "unitsCore"
+                   and not m["boundary"] and m["kind"] not in ("ai", "expl")]
+    core_named = [(m["seq"], m["kind"]) for m in scp["mismatches"] if m["bucket"] == "unitsCore"]
+    assert core_player, (
+        f"the unitsCore alarm did not name a player-side per-action seq: {core_named}")
+    print(f"PASS alarm route: ARMED unitsCore skew at player seq "
+          f"{core_player[0]['seq']} (kind={core_player[0]['kind']!r}) LATCHED "
+          f"battleDesyncSeen and wrote one PRD-I4 bundle")
 
+    # LATCH-POLLUTION: the desync latch + one-per-battle bundle flag are sticky for
+    # the whole battle, so clear them RIGHT HERE - otherwise every later sequential
+    # scenario runs pre-latched (scenario 4 report-only negative control reads it).
+    reset_sync(host, client)
+
+    # (B) SIDE-GATE across a whole alien side --------------------------------
+    # The unit is still down on the client (reset_sync clears counters, not state).
+    # Carry it across the alien side: the ai/expl seqs and the endturn boundary must
+    # SKIP unitsCore (the skips move, no alarm), and next_turn heals it by sidestart.
     turn_before = battle(host).get("turn")
     turn = close_side(host, client, turn_before)
     settle_display(host, client)
     sc = sync(host)
     ms = sc["mismatches"]
-    assert ms, (
-        f"the carried-over unit skew produced no mismatch at all over a whole "
-        f"side boundary: {sc}. Either the client stopped attaching hashes or the "
-        f"host stopped comparing.")
 
-    core = [m for m in ms if m["bucket"] == "unitsCore"]
-    assert core, (
-        f"the skew was detected but never attributed to `unitsCore` - the bucket "
-        f"that hashes exactly (id, faction, liveness, position): "
-        f"{sorted({m['bucket'] for m in ms})}")
+    assert (sc.get("unitsCoreAlienSkips", 0) > 0
+            or sc.get("unitsCoreEndturnSkips", 0) > 0), (
+        f"neither unitsCore side-gate counter moved over a whole side - the gate "
+        f"never engaged: alienSkips={sc.get('unitsCoreAlienSkips')} "
+        f"endturnSkips={sc.get('unitsCoreEndturnSkips')} kinds={sc.get('comparedKinds')}")
+    gated = [m for m in ms if m["bucket"] == "unitsCore"
+             and (m["kind"] in ("ai", "expl")
+                  or (m["boundary"] and m["kind"] == "endturn"))]
+    assert not gated, (
+        f"a unitsCore mismatch was recorded at an alien ai/expl/endturn seq despite "
+        f"the side-gate - the skip did not hold: {gated}")
+    assert not TW.desync_seen(host), (
+        "the side-gated alien-side liveness skew latched the ALARM - the ai/expl/"
+        "endturn skip did not hold, so the promotion would false-alarm on the "
+        "alien-side death/damage display window")
+    print(f"PASS side-gate: the alien-side liveness skew took "
+          f"{sc.get('unitsCoreAlienSkips')} ai/expl + {sc.get('unitsCoreEndturnSkips')} "
+          f"endturn unitsCore skips, recorded NO unitsCore alarm, and did not latch")
 
-    ai = [m for m in core if not m["boundary"] and m["kind"] == "ai"]
-    assert ai, (
-        f"no AI-CHAIN seq was named. The alien side ran (turn is now {turn}) and "
-        f"the client held a unit the host does not, so at least one alien chain's "
-        f"report had to disagree. Named instead: "
-        f"{[(m['seq'], m['kind'], m['boundary']) for m in core[:8]]}")
-    print(f"PASS 2 (AI attribution): named at AI seq {ai[0]['seq']} "
-          f"(kind={ai[0]['kind']}, bucket={ai[0]['bucket']})")
-
-    bnd = [m for m in core if m["boundary"]]
-    assert bnd, (
-        f"no BOUNDARY pseudo-seq was named. The skew was in place across the "
-        f"side-close phase group and the side start, which is precisely the "
-        f"window no admitted chain covers. Named instead: "
-        f"{[(m['seq'], m['kind'], m['boundary']) for m in core[:8]]}")
-    assert bnd[0]["kind"] in ("endturn", "sidestart"), (
-        f"a boundary mismatch carries an unexpected kind {bnd[0]['kind']!r} - the "
-        f"two boundary groups are 'endturn' and 'sidestart'")
-    print(f"PASS 3 (boundary attribution): named at boundary seq "
-          f"{bnd[0]['seq']} (kind={bnd[0]['kind']})")
-
-    # PRD-I3 saveBlob endturn straddle: saveBlob now compares at SIDESTART ONLY (the
-    # endturn whole-save sample straddles the deferred turn-machine state). This
-    # carried-over unit-down skew is a BARE status write that `next_turn` REPAIRS
-    # (proven by the poll below), so it is live only across the ENDTURN boundaries and
-    # gone by sidestart - exactly the window saveBlob no longer compares. So it must
-    # NOT surface a saveBlob boundary mismatch here, and the endturn exclusion must
-    # have fired. The superset backstop (a PERSISTENT divergence saveBlob catches at
-    # sidestart) moved to scenario_red_bucket, whose item mint survives next_turn.
+    # PRD-I3 saveBlob endturn straddle (unchanged): the same next_turn-repaired
+    # unit-down skew is live only across the ENDTURN boundaries and gone by sidestart,
+    # so saveBlob (SIDESTART-only) must not surface a boundary mismatch, and the
+    # endturn exclusion must have fired. Independent of the unitsCore side-gate.
+    # PRD-I3 saveBlob endturn straddle: saveBlob is SIDESTART-only; the endturn
+    # exclusion must have fired over this side close. The SIDESTART sample itself can
+    # carry a report-only casualty-diary residual from an alien-side kill (PRD-I2 known
+    # saveBlob straddle), so the proof is the ENDTURN exclusion, not strict sidestart-
+    # clean; the unit-down skew own healing is proven by the unitsCore poll above.
     assert sc.get("saveBlobEndturnSkips", 0) > 0, (
         f"saveBlobEndturnSkips=0 - the endturn saveBlob exclusion never fired over "
-        f"this side boundary, so the sidestart-only behaviour is not engaged: "
-        f"kinds={sc.get('comparedKinds')}")
-    sblob_bnd = [m for m in ms if m["bucket"] == "saveBlob" and m["boundary"]]
-    assert not sblob_bnd, (
-        f"the next_turn-repaired unit-down skew still surfaced a saveBlob boundary "
-        f"mismatch {sblob_bnd} - with saveBlob endturn-excluded and the skew healed "
-        f"by sidestart, saveBlob must be clean at this boundary")
+        f"this side boundary: kinds={sc.get('comparedKinds')}")
+    sblob_endturn = [m for m in ms if m["bucket"] == "saveBlob"
+                     and m["boundary"] and m["kind"] == "endturn"]
+    assert not sblob_endturn, (
+        f"saveBlob surfaced an ENDTURN boundary mismatch {sblob_endturn} despite the "
+        f"endturn exclusion - the SIDESTART-only compare is not engaged")
     assert sc["buckets"]["saveBlob"]["alarm"] is False, (
         "saveBlob is ALARM-promoted; PRD-I2 ships it REPORT-ONLY")
     print(f"PASS I2 (sidestart-only): saveBlob endturn-excluded "
-          f"(saveBlobEndturnSkips={sc.get('saveBlobEndturnSkips')}) and clean at "
-          f"sidestart for the next_turn-repaired skew; persistent backstop in scenario 4")
+          f"(saveBlobEndturnSkips={sc.get('saveBlobEndturnSkips')}); the endturn "
+          f"boundary carried no saveBlob mismatch")
 
-    # unitsCore is REPORT-ONLY (SEAM-10, unpromoted), so its red must NOT latch the
-    # PRD-P2 desync flag - the routing proof that report-only buckets are honoured
-    # even with fire/unitsStats/unitsCombat/unitsRegen now ARMED (PRD-I3 promotions).
-    for name in ("unitsCore",):
-        assert sc["buckets"][name]["alarm"] is False, (
-            f"the promotion table has {name} armed; this build's routing "
-            f"assertion below is written against the birth policy")
-    assert not TW.desync_seen(host), (
-        "a REPORT-ONLY bucket fired the battleDesyncSeen ALARM path - the "
-        "promotion table is not being honoured, and every test that asserts "
-        "`desyncSeen` is False would now fail on known-open seams")
-    print("PASS routing: the unitsCore red was logged and counted, and did NOT "
-          "latch battleDesyncSeen (unitsCore is REPORT-ONLY; promoted buckets route)")
-
-    # `next_turn` repairs a bare status write, so the battle is left clean for
-    # the item scenario. Prove it rather than assume it.
+    # `next_turn` repairs the bare status write, so the battle is left clean for the
+    # item scenario. Prove it rather than assume it.
     poll(lambda: session.sync_buckets(host)["unitsCore"]
          == session.sync_buckets(client)["unitsCore"], 30)
+
+    # (C) REPORT-ONLY NEGATIVE CONTROL (re-pointed to items) -----------------
+    # A REPORT-ONLY bucket red must NOT route to the alarm - the isAlarm gate
+    # discriminates. unitsCore can no longer serve this (now PROMOTED), so use items:
+    # mint an item on the client alone, drive a host KNEEL (a player-side seq the gate
+    # keeps; SEAM-1 mirrors the kneel so it adds no promoted-bucket divergence), and
+    # prove the items red is logged + counted but leaves battleDesyncSeen FALSE. Done
+    # here in the clean pre-casualty context - scenario_red_bucket carries the
+    # kill_unit_real victim-artifact (a promoted unitsCombat fatalWounds divergence)
+    # that would pollute a global desyncSeen check there.
+    reset_sync(host, client)
+    settle_display(host, client)
+    ilive = [u["id"] for u in battle(client)["units"]
+             if not u.get("isOut") and u.get("faction") == 0]
+    assert ilive, "no live X-Com unit is left for the items negative control"
+    before_i = session.sync_buckets(client)["items"]
+    give = client.cmd({"cmd": "battle_give", "unit": ilive[0],
+                       "item": "STR_STUN_ROD", "slot": "ground"})
+    assert give.get("ok"), f"could not mint the items skew: {give}"
+    assert session.sync_buckets(client)["items"] != before_i, (
+        "the item mint did not move the client items bucket - the lever is dead")
+    PI.top_up(host, client, hmover)
+    assert act(host, client, host, action="kneel", unit=hmover), (
+        "the host kneel was not admitted, so no player seq carries the items compare")
+    settle_display(host, client)
+    sci = sync(host)
+    assert sci["buckets"]["items"]["alarm"] is False, (
+        "items is ALARM-promoted; the negative control assumes it is REPORT-ONLY")
+    items_named = [m for m in sci["mismatches"] if m["bucket"] == "items"]
+    assert items_named, (
+        f"the items skew produced no items mismatch to route-test: {sci['mismatches']}")
+    assert not TW.desync_seen(host), (
+        f"the REPORT-ONLY items red routed to the ALARM (battleDesyncSeen latched) - "
+        f"the isAlarm gate is not discriminating: {session._sync_mismatch_lines(sci)}")
+    print(f"PASS routing (report-only): the items red at seq {items_named[0]['seq']} "
+          f"(kind={items_named[0]['kind']!r}) was logged + counted but did NOT latch "
+          f"battleDesyncSeen (report-only buckets never route)")
+    # HEAL: mint the SAME item on the HOST so both item-id counters advance in step -
+    # a lone client mint left itemIdCtr client-ahead, which desyncs a later both-
+    # machines battle_give (STR_SMOKE_GRENADE). battle_give is a local test lever (not
+    # replicated), so host id N == client id N and the items skew closes as well.
+    hgive = host.cmd({"cmd": "battle_give", "unit": ilive[0],
+                      "item": "STR_STUN_ROD", "slot": "ground"})
+    assert hgive.get("ok"), f"could not re-sync the item counter on the host: {hgive}"
+    settle_display(host, client)
+    reset_sync(host, client)
     return sc
 
 
@@ -1162,11 +1226,12 @@ def main():
         # the time a test can look. That it has is the first proof the loop works.
         assert sc0["mismatchCount"] == 0, (
             f"the two machines already disagree before anything was driven: {sc0}")
-        # PRD-I3 promotions (2026-08-14 @4a15f7bd4): fire/unitsStats/unitsCombat/
-        # unitsRegen are ARMED; the rest stay REPORT-ONLY. This guard catches an
-        # accidental change to the promotion table and forces a conscious re-prove
-        # of no-false-alarm + correct routing (the scenario-2 routing proof below).
-        EXPECTED_ALARM = {"fire", "unitsStats", "unitsCombat", "unitsRegen"}
+        # PRD-I3 promotions: fire/unitsStats/unitsCombat/unitsRegen (@4a15f7bd4) +
+        # unitsCore (Session C, side-gated to player-side+sidestart) are ARMED; the
+        # rest stay REPORT-ONLY. This guard catches an accidental promotion-table
+        # change and forces a conscious re-prove of no-false-alarm + routing (the
+        # scenario-2 positive alarm route + the scenario-4 items negative control).
+        EXPECTED_ALARM = {"fire", "unitsStats", "unitsCombat", "unitsRegen", "unitsCore"}
         armed = {n for n, b in sc0["buckets"].items() if b["alarm"]}
         assert armed == EXPECTED_ALARM, (
             f"the ALARM promotion table changed: armed={sorted(armed)} but this "
