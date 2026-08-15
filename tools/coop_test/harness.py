@@ -271,6 +271,15 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     if os.path.exists(d):
         shutil.rmtree(d)
     os.makedirs(os.path.join(d, "xcom1"))
+    # OXC_TEST_EXTRA_MOD (mod-loaded regression, GAP-10): a path - or an os.pathsep-
+    # joined list of paths - to mod folder(s) appended to EVERY instance's mod set,
+    # so any existing test can be run with an extra mod active without editing it.
+    # The env is process-wide, so both machines in a pair get the same mods (their
+    # rulesets must match). Used to prove the promoted battle-hash buckets do not
+    # false-alarm when a battle script is loaded.
+    env_mod = os.environ.get("OXC_TEST_EXTRA_MOD")
+    if env_mod:
+        mods = list(mods) + [p for p in env_mod.split(os.pathsep) if p]
     extra = ""
     for src in mods:
         mod_id = os.path.basename(os.path.normpath(src))
