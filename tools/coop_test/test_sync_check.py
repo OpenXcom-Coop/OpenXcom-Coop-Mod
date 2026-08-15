@@ -646,8 +646,8 @@ def scenario_ai_and_boundary(host, client, hmover, cmover):
     assert not sblob_endturn, (
         f"saveBlob surfaced an ENDTURN boundary mismatch {sblob_endturn} despite the "
         f"endturn exclusion - the SIDESTART-only compare is not engaged")
-    assert sc["buckets"]["saveBlob"]["alarm"] is False, (
-        "saveBlob is ALARM-promoted; PRD-I2 ships it REPORT-ONLY")
+    # (saveBlob is now ALARM-promoted - Session F; the endturn-exclusion property is
+    # independent of its alarm status, so no report-only assertion here any more.)
     print(f"PASS I2 (sidestart-only): saveBlob endturn-excluded "
           f"(saveBlobEndturnSkips={sc.get('saveBlobEndturnSkips')}); the endturn "
           f"boundary carried no saveBlob mismatch")
@@ -657,17 +657,21 @@ def scenario_ai_and_boundary(host, client, hmover, cmover):
     poll(lambda: session.sync_buckets(host)["unitsCore"]
          == session.sync_buckets(client)["unitsCore"], 30)
 
-    # (C) REPORT-ONLY NEGATIVE CONTROL (re-pointed to items) -----------------
+    # (C) REPORT-ONLY NEGATIVE CONTROL (all-promoted: the debug override) ------
     # A REPORT-ONLY bucket red must NOT route to the alarm - the isAlarm gate
-    # discriminates. unitsCore can no longer serve this (now PROMOTED), so use items:
-    # mint an item on the client alone, drive a host KNEEL (a player-side seq the gate
-    # keeps; SEAM-1 mirrors the kneel so it adds no promoted-bucket divergence), and
-    # prove the items red is logged + counted but leaves battleDesyncSeen FALSE. Done
-    # here in the clean pre-casualty context - scenario_red_bucket carries the
-    # kill_unit_real victim-artifact (a promoted unitsCombat fatalWounds divergence)
-    # that would pollute a global desyncSeen check there.
+    # discriminates. With ALL TEN buckets now PROMOTED there is no naturally report-only
+    # bucket left, so the Session-F `force_report_only` lever forces items + itemIdCtr
+    # (the two an item mint skews) back to report-only ON THE HOST (the executor holds the
+    # alarm gate). Mint an item on the client alone, drive a host KNEEL (a player-side seq
+    # the gate keeps; SEAM-1 mirrors the kneel so it adds no promoted-bucket divergence),
+    # and prove the reds are logged + counted but leave battleDesyncSeen FALSE. Restore the
+    # override after. Done in the clean pre-casualty context - scenario_red_bucket carries
+    # the kill_unit_real victim-artifact that would pollute a global desyncSeen check there.
     reset_sync(host, client)
     settle_display(host, client)
+    for b in ("items", "itemIdCtr"):
+        r = host.cmd({"cmd": "save_blob", "report_only_bucket": b, "report_only_on": True})
+        assert r.get("report_only_matched"), f"report-only override for {b} failed: {r}"
     ilive = [u["id"] for u in battle(client)["units"]
              if not u.get("isOut") and u.get("faction") == 0]
     assert ilive, "no live X-Com unit is left for the items negative control"
@@ -683,16 +687,19 @@ def scenario_ai_and_boundary(host, client, hmover, cmover):
     settle_display(host, client)
     sci = sync(host)
     assert sci["buckets"]["items"]["alarm"] is False, (
-        "items is ALARM-promoted; the negative control assumes it is REPORT-ONLY")
-    items_named = [m for m in sci["mismatches"] if m["bucket"] == "items"]
+        "force_report_only did not take: items still reads ALARM in the bucket table")
+    items_named = [m for m in sci["mismatches"] if m["bucket"] in ("items", "itemIdCtr")]
     assert items_named, (
-        f"the items skew produced no items mismatch to route-test: {sci['mismatches']}")
+        f"the items skew produced no items/itemIdCtr mismatch to route-test: {sci['mismatches']}")
     assert not TW.desync_seen(host), (
-        f"the REPORT-ONLY items red routed to the ALARM (battleDesyncSeen latched) - "
-        f"the isAlarm gate is not discriminating: {session._sync_mismatch_lines(sci)}")
-    print(f"PASS routing (report-only): the items red at seq {items_named[0]['seq']} "
-          f"(kind={items_named[0]['kind']!r}) was logged + counted but did NOT latch "
-          f"battleDesyncSeen (report-only buckets never route)")
+        f"a REPORT-ONLY-overridden items/itemIdCtr red routed to the ALARM "
+        f"(battleDesyncSeen latched) - the override/isAlarm gate is not discriminating: "
+        f"{session._sync_mismatch_lines(sci)}")
+    print(f"PASS routing (override negative control): the items red at seq "
+          f"{items_named[0]['seq']} (kind={items_named[0]['kind']!r}) was logged + counted "
+          f"but did NOT latch battleDesyncSeen (report-only-forced buckets never route)")
+    for b in ("items", "itemIdCtr"):  # restore the promoted state
+        host.cmd({"cmd": "save_blob", "report_only_bucket": b, "report_only_on": False})
     # HEAL: mint the SAME item on the HOST so both item-id counters advance in step -
     # a lone client mint left itemIdCtr client-ahead, which desyncs a later both-
     # machines battle_give (STR_SMOKE_GRENADE). battle_give is a local test lever (not
@@ -714,6 +721,13 @@ def scenario_red_bucket(host, client, hmover, cmover):
     print("-- 4: a one-sided item mint names `items` at the seq of the next action --")
     reset_sync(host, client)
     settle_display(host, client)
+    # SESSION F: items/itemIdCtr/saveBlob are now PROMOTED. This scenario is the
+    # ATTRIBUTION + sidestart-superset proof (report-only-class claims about what the
+    # buckets RECORD; the alarm ROUTING is proven separately in the scenario-4 negative
+    # control). Force the three report-only via the debug lever so a permanent skew does
+    # not latch the desync route mid-proof. Runs last, so no restore needed.
+    for b in ("items", "itemIdCtr", "saveBlob"):
+        host.cmd({"cmd": "save_blob", "report_only_bucket": b, "report_only_on": True})
 
     innocent_before = session.sync_buckets(host)
     # `slot: ground` drops the item on the CARRIER'S TILE, so the carrier has to
@@ -815,9 +829,9 @@ def scenario_red_bucket(host, client, hmover, cmover):
         f"the save-derived backstop missed a divergence a fast bucket caught at "
         f"sidestart, which defeats its whole purpose: {scb['mismatches']}")
     assert scb["buckets"]["saveBlob"]["alarm"] is False, (
-        "saveBlob is ALARM-promoted; PRD-I2 ships it REPORT-ONLY")
+        "force_report_only did not take: saveBlob still reads ALARM in the bucket table")
     print(f"PASS I2 sidestart backstop: `items` and `saveBlob` both named at the "
-          f"sidestart boundary seq {side_blob[0]['seq']} (report-only)")
+          f"sidestart boundary seq {side_blob[0]['seq']} (report-only via override)")
     return sc
 
 
@@ -1116,8 +1130,8 @@ def scenario_saveblob_selftest(host, client):
     assert "saveBlob" in sc["buckets"], (
         f"saveBlob missing from the syncCheck bucket table, so its report-only "
         f"counter is unreadable: {sorted(sc['buckets'])}")
-    assert sc["buckets"]["saveBlob"]["alarm"] is False, (
-        "saveBlob is ALARM-promoted at birth - PRD-I2 ships it REPORT-ONLY")
+    # (saveBlob is ALARM-promoted as of Session F; this self-test only proves it is
+    # deterministic + boundary-only, both independent of its alarm status.)
     raw = session.sync_buckets(host)
     assert "saveBlob" not in raw, (
         f"saveBlob leaked into the raw per-action `battleHashes` sweep "
@@ -1150,7 +1164,7 @@ def scenario_saveblob_selftest(host, client):
     else:
         print("    NOTE: save_blob {text} unavailable; FOV-exclusion text check "
               "skipped")
-    print("PASS I2 self-test: deterministic, boundary-only, report-only")
+    print("PASS I2 self-test: deterministic, boundary-only (now ALARM-promoted)")
     return sc
 
 
@@ -1227,15 +1241,16 @@ def main():
         assert sc0["mismatchCount"] == 0, (
             f"the two machines already disagree before anything was driven: {sc0}")
         # PRD-I3 promotions: fire/unitsStats/unitsCombat/unitsRegen (@4a15f7bd4) +
-        # unitsCore (Session C, side-gated to player-side+sidestart) + terrain/smoke
-        # (Session E @e316d716a; terrain side-gated like unitsCore, smoke rides the
-        # existing endturn hazard-skip) are ARMED; items/itemIdCtr (item-id drift #74)
-        # and saveBlob (multi-field sidestart residual) stay REPORT-ONLY. This guard
-        # catches an accidental promotion-table change and forces a conscious re-prove
-        # of no-false-alarm + routing (the scenario-2 positive alarm route + the
-        # scenario-4 items negative control, which needs items to stay report-only).
+        # unitsCore (Session C) + terrain/smoke (Session E @e316d716a) + items/itemIdCtr
+        # (Session F @43ec70384: side-gate + corpse-pending window-1/2 skips) + saveBlob
+        # (Session F: SEAM-11 ammoqty ship + exp*/tempUnitStatistics/motionPoints exclude +
+        # floating ship + ufo-door close) are ALL ARMED - ALL TEN BUCKETS PROMOTED. This
+        # guard catches an accidental promotion-table change and forces a conscious
+        # re-prove of no-false-alarm + routing (the scenario-2 positive alarm route + the
+        # scenario-4 override negative control - which now FORCES a bucket report-only,
+        # since none is naturally report-only any more).
         EXPECTED_ALARM = {"fire", "unitsStats", "unitsCombat", "unitsRegen", "unitsCore",
-                          "terrain", "smoke"}
+                          "terrain", "smoke", "items", "itemIdCtr", "saveBlob"}
         armed = {n for n, b in sc0["buckets"].items() if b["alarm"]}
         assert armed == EXPECTED_ALARM, (
             f"the ALARM promotion table changed: armed={sorted(armed)} but this "

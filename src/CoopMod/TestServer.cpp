@@ -3653,6 +3653,22 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// deterministic, and read the serialization cost.
 		std::uint64_t blob = 0;
 		bool okBlob = SharedEcon::computeSaveBlobHash(_game, blob);
+		// coop (PRD-I3 Session F test levers, carried on save_blob because a fresh top-level
+		// cmd branch did not dispatch in this toolchain): (a) force a named hash bucket back
+		// to REPORT-ONLY for the all-promoted negative control; (b) read/align
+		// SavedBattleGame::_itemId so give-based levers inject no id-counter offset. Test-only.
+		if (req.isMember("report_only_bucket"))
+			resp["report_only_matched"] = SharedEcon::setBattleHashReportOnlyOverride(
+				req["report_only_bucket"].asString(), req.get("report_only_on", true).asBool());
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			int* ctr = _game->getSavedGame()->getSavedBattle()->getCurrentItemId();
+			if (ctr)
+			{
+				if (req.isMember("set_item_counter")) *ctr = req["set_item_counter"].asInt();
+				resp["itemCounter"] = *ctr;
+			}
+		}
 		resp["hash"] = static_cast<Json::UInt64>(blob);
 		resp["us"] = static_cast<Json::UInt>(SharedEcon::battleHashLastSaveBlobUs());
 		resp["ok"] = okBlob;
@@ -3764,25 +3780,6 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				}
 			}
 			resp["ok"] = true;
-		}
-	}
-	else if (cmd == "set_item_counter")
-	{
-		// coop (PRD-I3 Session F): mint-alignment de-flake for the give-based levers.
-		// battle_give mints off the LOCAL SavedBattleGame::_itemId, so a give issued on two
-		// machines whose counters have already drifted (a real casualty straddle) mints
-		// divergent ids and injects a HARNESS offset into a product measurement. Read + set
-		// the counter directly so the harness can pre-sync both machines to max(host, client)
-		// BEFORE a give. Test-only; no wire, no BattleItem created.
-		if (!sbg)
-			resp["error"] = "no battle";
-		else
-		{
-			int* ctr = sbg->getCurrentItemId();
-			if (ctr && req.isMember("value"))
-				*ctr = req["value"].asInt();
-			resp["itemCounter"] = ctr ? *ctr : -1;
-			resp["ok"] = (ctr != nullptr);
 		}
 	}
 	else if (cmd == "battle_open_inventory")

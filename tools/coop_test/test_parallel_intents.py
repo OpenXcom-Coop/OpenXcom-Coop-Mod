@@ -608,12 +608,12 @@ def give_both(host, client, uid, item, ammo=None):
     # divergent ids and injects a HARNESS offset into the product measurement. Pre-sync
     # both machines to max(host, client) via the host-authoritative set_item_counter lever
     # so the give itself never drifts the counter.
-    hc = host.cmd({"cmd": "set_item_counter"}).get("itemCounter", -1)
-    cc = client.cmd({"cmd": "set_item_counter"}).get("itemCounter", -1)
+    hc = host.cmd({"cmd": "save_blob"}).get("itemCounter", -1)
+    cc = client.cmd({"cmd": "save_blob"}).get("itemCounter", -1)
     if hc >= 0 and cc >= 0 and hc != cc:
         m = max(hc, cc)
-        host.cmd({"cmd": "set_item_counter", "value": m})
-        client.cmd({"cmd": "set_item_counter", "value": m})
+        host.cmd({"cmd": "save_blob", "set_item_counter": m})
+        client.cmd({"cmd": "save_blob", "set_item_counter": m})
     req = {"cmd": "battle_give", "unit": uid, "item": item,
            "slot": "right", "clear_hands": True}
     if ammo:
