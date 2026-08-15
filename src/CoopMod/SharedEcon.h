@@ -482,6 +482,12 @@ std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i);
 /// PROMOTION TABLE. true = a mismatch in this bucket fires battleDesyncSeen()
 /// (banner + the I4 bundle); false = REPORT-ONLY, logged and counted.
 bool battleHashBucketAlarms(int i);
+/// PRD-I3 Session F: the effective saveBlob alarm (SAVEBLOB_ALARM minus the override).
+bool saveBlobAlarms();
+/// PRD-I3 Session F (test-only): force a named bucket ("terrain".."unitsRegen" or
+/// "saveBlob") back to REPORT-ONLY (true) or restore it (false), so the all-promoted
+/// build still has a discriminating negative control. Returns true if the name matched.
+bool setBattleHashReportOnlyOverride(const std::string& name, bool on);
 
 /// ONE sweep of the live battle filling every bucket. Returns false (and zeroes
 /// @a out) when no battle is live, which is what makes every caller geoscape-safe.

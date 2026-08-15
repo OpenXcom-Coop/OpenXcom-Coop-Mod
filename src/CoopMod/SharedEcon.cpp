@@ -4302,12 +4302,12 @@ const bool BATTLE_HASH_ALARM[BATTLE_HASH_BUCKETS] = {
 	true,   // fire         (PRD-I3 PROMOTED 2026-08-14 @4a15f7bd4: L3 clean incl. incendiary x2)
 	true,   // smoke        (PRD-I3 PROMOTED 2026-08-14 Session E @e316d716a: L3 0/36; twin of fire,
 	        //               endturn hazard-skip + SEAM-3 expl stamp already closed the mid-side class)
-	false,  // items        (report-only: SEAM-7/8 casualty drop + item-id drift #74 boundary-death
-	        //               corpse-mint straddles even the sidestart hash; blocked pending the id-drift fix)
+	true,   // items        (PRD-I3 PROMOTED 2026-08-15 Session F @43ec70384: SIDE-GATE (player+sidestart)
+	        //               + corpse-pending window-1/window-2 skips; #74 boundary path proven covered; L3 0)
 	true,   // unitsCore    (PRD-I3 PROMOTED 2026-08-14 Session C: side-gated to player-side+sidestart; L3 clean)
 	true,   // unitsStats   (PRD-I3 PROMOTED 2026-08-14: superseded=0 old-peer fallback, L3 clean)
-	false,  // itemIdCtr    (report-only: item-id drift #74 - the id counter straddles every in-flight
-	        //               mint incl. the boundary-death corpse mint at sidestart; blocked pending the fix)
+	true,   // itemIdCtr    (PRD-I3 PROMOTED 2026-08-15 Session F @43ec70384: same side-gate + corpse-pending
+	        //               skips as items; the id counter re-slaves per the P4 manifest; L3 0 everywhere)
 	true,   // unitsCombat  (PRD-I3 PROMOTED 2026-08-14: CHAIN-authored kneel/mc/w0..w5; fire moved out)
 	true,   // unitsRegen   (PRD-I3 PROMOTED 2026-08-14: DEFERRED set, sidestart-only, L3 clean)
 };
@@ -4460,9 +4460,12 @@ std::map<std::string, std::uint64_t> g_syncKindCompares;
 // bucket BattleHashSet on purpose: computed ONLY at boundaries (a 5-20 ms
 // serialization, never per action), so it must not appear in the raw per-action
 // `battleHashes` sweep the harness polls. Its own report-only flag + counter.
-const bool SAVEBLOB_ALARM = false;   // REPORT-ONLY at birth (instrumentation rule);
-                                     // also the bucket most likely to need
-                                     // exclusion-list iteration (PRD-I2 4).
+const bool SAVEBLOB_ALARM = true;    // PRD-I3 PROMOTED 2026-08-15 Session F @43ec70384:
+                                     // the whole-save superset. SEAM-11 shipped ammoqty
+                                     // (next_turn absolute + -1/255) + closed the ufo-door
+                                     // boundary; exp*/tempUnitStatistics/motionPoints
+                                     // excluded, floating shipped. L3 0 everywhere incl.
+                                     // campaign. ALL TEN BUCKETS NOW ALARM.
 std::uint64_t g_syncSaveBlobMismatches = 0;
 // PRD-I3 saveBlob endturn straddle: the saveBlob bucket is computed ONLY at
 // boundaries, and (like the smoke/fire hazard buckets in SEAM-2 HALF 1) the
@@ -4803,8 +4806,30 @@ std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i)
 	}
 }
 
+// PRD-I3 Session F: a debug-toggled REPORT-ONLY override. With all ten buckets promoted
+// to ALARM there is no naturally report-only bucket left to carry test_sync_check's
+// negative control (the proof that a report-only mismatch is logged + counted but does
+// NOT latch the desync route). The TestServer `force_report_only` lever sets one of these
+// true, forcing that bucket's alarm gate open for the control scenario. Index
+// BATTLE_HASH_BUCKETS is saveBlob. Test-only; production never sets it, so it is inert.
+bool g_battleHashReportOnlyOverride[BATTLE_HASH_BUCKETS + 1] = { false };
+
+bool saveBlobAlarms()
+{
+	return SAVEBLOB_ALARM && !g_battleHashReportOnlyOverride[BATTLE_HASH_BUCKETS];
+}
+
+bool setBattleHashReportOnlyOverride(const std::string& name, bool on)
+{
+	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i)
+		if (name == BATTLE_HASH_NAMES[i]) { g_battleHashReportOnlyOverride[i] = on; return true; }
+	if (name == "saveBlob") { g_battleHashReportOnlyOverride[BATTLE_HASH_BUCKETS] = on; return true; }
+	return false;
+}
+
 bool battleHashBucketAlarms(int i)
 {
+	if (i >= 0 && i < BATTLE_HASH_BUCKETS && g_battleHashReportOnlyOverride[i]) return false;
 	return (i >= 0 && i < BATTLE_HASH_BUCKETS) && BATTLE_HASH_ALARM[i];
 }
 
@@ -5681,8 +5706,8 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 						   << (boundary ? " (boundary)" : "")
 						   << " kind=" << (entry->kind.empty() ? "?" : entry->kind)
 						   << " bucket=saveBlob host=" << mine << " peer=" << peer
-						   << (SAVEBLOB_ALARM ? " [ALARM]" : " [report-only]");
-			if (SAVEBLOB_ALARM) alarm = true;
+						   << (saveBlobAlarms() ? " [ALARM]" : " [report-only]");
+			if (saveBlobAlarms()) alarm = true;
 		}
 	}
 
@@ -5768,7 +5793,7 @@ void syncCheckReport(Json::Value& out)
 	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i)
 	{
 		Json::Value b(Json::objectValue);
-		b["alarm"] = BATTLE_HASH_ALARM[i];
+		b["alarm"] = battleHashBucketAlarms(i); // EFFECTIVE (report-only override applies)
 		b["mismatchCount"] = static_cast<Json::UInt64>(g_syncBucketMismatches[i]);
 		b["compares"] = static_cast<Json::UInt64>(g_syncBucketCompares[i]);
 		buckets[BATTLE_HASH_NAMES[i]] = b;
@@ -5779,7 +5804,7 @@ void syncCheckReport(Json::Value& out)
 	// harness can read its report-only counter and the cost of the last serialize.
 	{
 		Json::Value sb(Json::objectValue);
-		sb["alarm"] = SAVEBLOB_ALARM;
+		sb["alarm"] = saveBlobAlarms(); // EFFECTIVE (report-only override applies)
 		sb["mismatchCount"] = static_cast<Json::UInt64>(g_syncSaveBlobMismatches);
 		sb["compares"] = static_cast<Json::UInt64>(g_syncSaveBlobSidestartCompares);
 		buckets["saveBlob"] = sb;
@@ -5842,8 +5867,8 @@ Json::Value desyncComputeAttribution(Game* game, const DesyncTerms& terms)
 		lastAny = &m;
 		bool isAlarm = false;
 		for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i)
-			if (m.bucket == BATTLE_HASH_NAMES[i]) isAlarm = BATTLE_HASH_ALARM[i];
-		if (m.bucket == "saveBlob") isAlarm = SAVEBLOB_ALARM;
+			if (m.bucket == BATTLE_HASH_NAMES[i]) isAlarm = battleHashBucketAlarms(i);
+		if (m.bucket == "saveBlob") isAlarm = saveBlobAlarms();
 		if (isAlarm) lastAlarm = &m;
 	}
 	const SyncMismatch* pick = lastAlarm ? lastAlarm : lastAny;
