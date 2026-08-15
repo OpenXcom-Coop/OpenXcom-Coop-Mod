@@ -603,6 +603,17 @@ def drive(host, client, what, **kw):
 
 
 def give_both(host, client, uid, item, ammo=None):
+    # coop (PRD-I3 Session F de-flake): battle_give mints off the LOCAL _itemId, so a
+    # give issued while the two counters have drifted (a real casualty straddle) mints
+    # divergent ids and injects a HARNESS offset into the product measurement. Pre-sync
+    # both machines to max(host, client) via the host-authoritative set_item_counter lever
+    # so the give itself never drifts the counter.
+    hc = host.cmd({"cmd": "set_item_counter"}).get("itemCounter", -1)
+    cc = client.cmd({"cmd": "set_item_counter"}).get("itemCounter", -1)
+    if hc >= 0 and cc >= 0 and hc != cc:
+        m = max(hc, cc)
+        host.cmd({"cmd": "set_item_counter", "value": m})
+        client.cmd({"cmd": "set_item_counter", "value": m})
     req = {"cmd": "battle_give", "unit": uid, "item": item,
            "slot": "right", "clear_hands": True}
     if ammo:

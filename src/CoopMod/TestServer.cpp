@@ -3766,6 +3766,25 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "set_item_counter")
+	{
+		// coop (PRD-I3 Session F): mint-alignment de-flake for the give-based levers.
+		// battle_give mints off the LOCAL SavedBattleGame::_itemId, so a give issued on two
+		// machines whose counters have already drifted (a real casualty straddle) mints
+		// divergent ids and injects a HARNESS offset into a product measurement. Read + set
+		// the counter directly so the harness can pre-sync both machines to max(host, client)
+		// BEFORE a give. Test-only; no wire, no BattleItem created.
+		if (!sbg)
+			resp["error"] = "no battle";
+		else
+		{
+			int* ctr = sbg->getCurrentItemId();
+			if (ctr && req.isMember("value"))
+				*ctr = req["value"].asInt();
+			resp["itemCounter"] = ctr ? *ctr : -1;
+			resp["ok"] = (ctr != nullptr);
+		}
+	}
 	else if (cmd == "battle_open_inventory")
 	{
 		// Open <unit>'s inventory MID-BATTLE through the real button handler, so
@@ -6108,12 +6127,26 @@ std::string TestServer::execute(const std::string& line)
 					if (req.isMember("psiStrength")) setStat("psiStrength", req["psiStrength"].asInt());
 					if (req.isMember("stat"))        setStat(req["stat"].asString(), req.get("value", 0).asInt());
 					if (req.isMember("visible"))     unit->setVisible(req["visible"].asBool());
+					// coop (PRD-I3 SESSION F): mint-FREE lethal-condition levers for the
+					// boundary-death repro. setHealth/setFire/setFatalWound create NO
+					// BattleItem, so an end_turn that bleeds/burns the unit to death in
+					// prepareNewTurn makes the boundary corpse mint the SOLE mint in flight.
+					if (req.isMember("health"))      unit->setHealth(req["health"].asInt());
+					if (req.isMember("fire"))        unit->setFire(req["fire"].asInt());
+					if (req.isMember("fatalWounds"))
+					{
+						int fw = req["fatalWounds"].asInt();
+						for (int p = 0; p < BODYPART_MAX; ++p)
+							unit->setFatalWound(fw, (UnitBodyPart)p);
+					}
 					if (req.get("refill", false).asBool())
 						unit->setTimeUnits(bs->tu);
 					resp["psiSkill"] = bs->psiSkill;
 					resp["psiStrength"] = bs->psiStrength;
 					resp["visible"] = unit->getVisible();
 					resp["tu"] = unit->getTimeUnits();
+					resp["health"] = unit->getHealth();
+					resp["fatalWounds"] = unit->getFatalWounds();
 					resp["ok"] = true;
 				}
 				else if (act == "door")
