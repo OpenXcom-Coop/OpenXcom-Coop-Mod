@@ -816,6 +816,12 @@ class connectionTCP
 	/// HOST-owned, +1 per side transition; the staleness token an intent
 	/// carries. The client adopts the value stamped on the `endTurn` packet.
 	static std::uint32_t _sideSeq;
+	/// coop (PRD-P3 GAP-10 script-RNG seed-replay): the side-boundary RNG seed
+	/// the host stamps on `endTurn` and the client adopts. newTurnUpdateScripts
+	/// reseeds the global RNG to this around the mod newTurnUnit/newTurnItem script
+	/// loops so both machines' randomChance/randomRange draw the same sequence.
+	/// Defaults to the fixed coop base seed so turn-1 (pre-first-boundary) is defined.
+	static std::uint64_t _scriptRngSeed;
 	/// HOST: true from the END TURN press until the next player side opens.
 	static bool _sideCommitInProgress;
 	/// HOST: the one-slot pending intent (per seat; P6 executes on admission,

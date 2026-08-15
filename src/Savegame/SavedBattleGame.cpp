@@ -1300,6 +1300,28 @@ void SavedBattleGame::newTurnUpdateScripts()
 		return;
 	}
 
+	// coop (PRD-P3 GAP-10, mods first-class): the mod newTurnUnit/newTurnItem script
+	// hooks below can draw randomChance/randomRange from the GLOBAL RNG stream, and
+	// BOTH machines run this loop - the parallel client reaches it via
+	// BattlescapeGame::endTurn -> _save->endTurn on every side close (empirically
+	// proven: with a per-turn newTurnUnit script every unit's rolled tag diverged
+	// host vs client). The two machines' streams diverge, so without help every
+	// per-turn script roll differs. Seed-replay fix (the spawn_units B2 pattern
+	// applied to the whole loop): reseed the global RNG to the side-boundary seed the
+	// host stamps on `endTurn` and the client adopts, so both draw the SAME sequence
+	// over the SAME units/items in the SAME order - a balanced-by-construction relay
+	// (no FIFO to unbalance, unlike GAP-7). Save+restore leaves every other RNG
+	// consumer byte-identical, and is a strict no-op when no script draws (vanilla and
+	// non-scripted mods, so the existing parallel battles are unchanged). Parallel
+	// only; classic ships its seed on a different packet and is out of the parallel
+	// merge scope (recorded finding).
+	const bool coopScriptRng = connectionTCP::parallelTurnActive();
+	const uint64_t savedRngSeed = RNG::getSeed();
+	if (coopScriptRng)
+	{
+		RNG::setSeed(connectionTCP::_scriptRngSeed);
+	}
+
 	for (auto* bu : _units)
 	{
 		if (bu->isIgnored())
@@ -1318,6 +1340,11 @@ void SavedBattleGame::newTurnUpdateScripts()
 		}
 
 		ModScript::scriptCallback<ModScript::NewTurnItem>(item->getRules(), item, this, this->getTurn(), _side);
+	}
+
+	if (coopScriptRng)
+	{
+		RNG::setSeed(savedRngSeed);
 	}
 
 	reviveUnconsciousUnits(false);

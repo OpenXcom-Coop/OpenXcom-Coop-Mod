@@ -1435,6 +1435,9 @@ void BattlescapeGame::endTurn()
 		if (connectionTCP::parallelTurnActive())
 		{
 			root["seed"] = static_cast<Json::UInt64>(RNG::getSeed());
+			// coop (GAP-10): mirror the boundary seed into the script-RNG relay so
+			// this host's newTurnUpdateScripts reseeds to the same value it shipped.
+			connectionTCP::_scriptRngSeed = RNG::getSeed();
 
 			// coop (PRD-P6): this packet is the side transition, so it is where
 			// the host advances the staleness token the client stamps on its

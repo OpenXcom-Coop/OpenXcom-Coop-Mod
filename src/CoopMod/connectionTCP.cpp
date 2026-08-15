@@ -233,6 +233,9 @@ bool connectionTCP::_enable_parallel_turns = false;
 std::uint32_t connectionTCP::_actionSeq = 0;
 std::uint32_t connectionTCP::peerDisplayAckedSeq = 0;
 std::uint32_t connectionTCP::_sideSeq = 0;
+// coop (GAP-10): defaults to the fixed coop base seed so a script draw before
+// the first side boundary (turn 1) still uses a defined, shared value.
+std::uint64_t connectionTCP::_scriptRngSeed = RNG::g_randomCoopSeed;
 bool connectionTCP::_sideCommitInProgress = false;
 std::uint32_t connectionTCP::_intentSlotReqId = 0;
 int connectionTCP::_intentSlotSeat = -1;
@@ -10069,6 +10072,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (obj.isMember("seed"))
 				{
 					RNG::setSeed(obj["seed"].asUInt64());
+					// coop (GAP-10): adopt the boundary seed for the mod script-RNG
+					// seed-replay. Set from `endTurn` only (all three side closes),
+					// NOT from `next_turn` - the deferred neutral->player scripts must
+					// still see the side-2 `endTurn` seed when next_turn runs them.
+					_scriptRngSeed = obj["seed"].asUInt64();
 				}
 
 				// coop (PRD-P6): the side token every intent is validated against.
