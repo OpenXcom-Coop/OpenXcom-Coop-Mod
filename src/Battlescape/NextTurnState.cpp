@@ -685,6 +685,15 @@ void NextTurnState::close()
 
 						root["units"][index]["fire"] = unit->getFire();
 
+						// coop (PRD-I3 Session F saveBlob close): the unit's ABSOLUTE floating
+						// bit. Real kneel-eligibility reader (BattlescapeGame.cpp:1394 /
+						// UnitTurnBState.cpp:220); a unit_fall coverage gap left it diverging on
+						// the parallel client at SIDESTART (saveBlob `floating`). next_turn is the
+						// boundary carrier for the host's post-turn state, so it ships the absolute
+						// here (faction/fire precedent). Additive/present-gated; client applies
+						// PVE-only via setFloatingCoop.
+						root["units"][index]["floating"] = unit->isFloating();
+
 						// coop (PRD-I3 SEAM-10): the unit's ABSOLUTE faction. A mind-controlled
 						// unit reverts to its original faction at the NEUTRAL->PLAYER boundary in
 						// SavedBattleGame::endTurn's prepareNewTurn loop - which the HOST runs but

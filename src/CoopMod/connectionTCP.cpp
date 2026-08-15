@@ -7639,6 +7639,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 					SharedEcon::remapCorpseIds(coopBattle, coopDeadUnitId);
 				}
+				// coop (PRD-I3 Session F window 2): the host ids for this death have now
+				// arrived, so any local-id corpse minted for it is reconciled - the
+				// items/itemIdCtr sync-check may compare it again.
+				SharedEcon::clearCorpseRemapPending(coopDeadUnitId);
 
 				// coop (PRD-I3 SEAM-4): apply the host's post-casualty bystander morale
 				// on the parallel client only; absolute overwrite, idempotent.
@@ -8656,6 +8660,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 							int fire = obj["units"][i]["fire"].asInt();
 							unit->setFireCoop(fire);
+
+							// coop (PRD-I3 Session F saveBlob close): the host's ABSOLUTE floating bit.
+							// PARALLEL client only - classic replays the fall itself; present-gated for
+							// old hosts. Real kneel-eligibility reader; a unit_fall coverage gap left it
+							// diverging on the parallel client at sidestart (saveBlob `floating`).
+							if (parallelTurnActive() && !getHost() && obj["units"][i].isMember("floating"))
+								unit->setFloatingCoop(obj["units"][i]["floating"].asBool());
 
 							unit->setRespawn(respawn);
 

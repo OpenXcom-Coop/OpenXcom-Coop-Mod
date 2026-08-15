@@ -4412,13 +4412,33 @@ std::uint64_t g_syncCoreEndturnSkips = 0;
 // keep player-side per-action (strict) + sidestart. These count the two skips.
 std::uint64_t g_syncTerrainAlienSkips = 0;
 std::uint64_t g_syncTerrainEndturnSkips = 0;
-// NOTE (PRD-I3 Session E): items/itemIdCtr were NOT gated/promoted. A sidestart-only
-// gate (unitsRegen discipline) was trialled but the L3 showed a residual survives even
-// at the sidestart - a boundary-DEATH corpse mint (a unit bleeding/burning to death in
-// prepareNewTurn) allocates item ids during the deferred next_turn apply, so the mint
-// straddles the sidestart hash (the item-id drift, issue #74). With no clean per-action
-// or boundary compare point, both stay REPORT-ONLY and STRICT pending the id-drift fix;
-// the recommended future gate (sidestart-only) is recorded in the prd-i3 SEAM LOG.
+// PRD-I3 Session F items/itemIdCtr side-gate (2026-08-15, manager sign-off after the
+// boundary-death trace): SAME discipline as terrain/unitsCore. The boundary-death corpse
+// mint is COVERED by the after_unit_death P4 manifest and is CLEAN in isolation (proven
+// lockstep across player/alien, single/multi, bleed/fire, and a lagging slow client - the
+// counter and corpse ids match on both machines). The residual items/itemIdCtr drift is an
+// ALIEN-side display window: the D-lite client's gated alien replay mints/re-stamps a corpse
+// one step behind the host's authoritative death resolution (ai/expl per-action seqs) and at
+// the alien-side ENDTURN boundary, healing by sidestart (traced Session F seed 501: fires at
+// alien ai seqs only, transient, count 2, healed before the turn's sidestart). Session E's
+// "boundary sidestart" attribution was a saveBlob firing (seq 10), a conflation. Skip the
+// alien per-action seqs + endturn; KEEP player-side per-action (strict) + sidestart, where a
+// PERSISTENT item drift still surfaces AND the items player-seq negative control
+// (test_sync_check scenario 4) still sees its mint. A skipped bucket is NOT counted as compared.
+std::uint64_t g_syncItemsAlienSkips = 0;
+std::uint64_t g_syncItemsEndturnSkips = 0;
+// PRD-I3 Session F corpse-replay-pending skip (2026-08-15, manager belt-and-suspenders
+// trigger): a report whose hash was sampled while the REPORTING machine's death replay
+// has not minted its corpse yet is legitimately one death behind the executor's ring
+// entry - the corpse exists on the host but not here - so its item terms (items/itemIdCtr)
+// and the saveBlob superset would false-fire even at a SIDESTART (Session F seed 8003 seq
+// 16: items+itemIdCtr fired at sidestart while the P2 tripwire correctly stayed quiet,
+// because verifyBattleChecksum ALREADY skips on corpseReplayPendingAny - the per-action
+// sync-check did not). Mirror that skip here. Transient by construction (the next report,
+// after the replay drains, compares the same two machines caught up); a PERSISTENT item
+// drift has no pending replay and still compares.
+std::uint64_t g_syncItemsCorpsePendingSkips = 0;
+std::uint64_t g_syncSaveBlobCorpsePendingSkips = 0;
 // The two namespaces are tracked apart: `action_seq` restarts at 0 every side, so
 // a shared watermark would be dragged forwards by the battle-monotonic boundary
 // counter and "the deferred loop closed" would read true for ever after.
@@ -4530,11 +4550,34 @@ bool saveBlobExcludedAnyKey(std::string_view k)
 	//   CAVEAT: a ruleset script can read it (getTurnsSinceStunned binding) - the shared
 	//   script-reader mod caveat (see the ledger with GAP-10 / wantsToSurrender).
 	// --- (d) two decided vanilla-clean keys ---
-	// expBravery: consumed ONLY at BattleUnit::postMissionProcedures (host debrief);
-	//   diverges only on a host-panicked unit; no mid-battle client reader -> exclude.
+	// exp* (expBravery/expReactions/expFiring/expThrowing/expPsiSkill/expPsiStrength/
+	//   expMana/expMelee): the per-unit combat-EXPERIENCE counters (_exp.*). Accrued on
+	//   the executor as a unit acts (a shot bumps expFiring, etc.), consumed ONLY at
+	//   BattleUnit::postMissionProcedures (host debrief -> improveStat rolls). The parallel
+	//   thin client REPLAYS the action for display without accruing the experience, so
+	//   e.g. expFiring host=1 / client=0 on any firer - the DOMINANT clean-run saveBlob
+	//   residual (Session F seed 8013 named it). No mid-battle client gameplay reader; the
+	//   debrief stat gains are host-authoritative under the whole-world restream, exactly
+	//   like the excluded kills/tempUnitStatistics diary -> exclude the whole family
+	//   (expBravery was already carved out; Session F extends it to all eight).
 	// wantsToSurrender: vanilla NEVER reads it; a MOD reader exists
 	//   (endTurn->tallyUnits->isSurrendering, gated getSurrenderMode()>=2). Exclude-for-
 	//   vanilla; MOD CAVEAT recorded in the ledger next to GAP-10 / turnsSinceStunned.
+	// --- (e) Session F saveBlob dispositions (2026-08-15, manager sign-off) ---
+	// tempUnitStatistics: the per-unit combat diary sub-tree (shotAtCounter / hitCounter /
+	//   shotsFiredCounter / shotsLandedCounter / appliedStimulant + the already-excluded
+	//   kills list). Read ONLY by DebriefingState (host-authoritative coop debrief) and the
+	//   host-only-gated wasUnconcious (BattlescapeGame.cpp:1992, behind !coopThinClientNoReroll
+	//   && getStunningImprovesMorale). No parallel-client mid-battle reader - the SAME class as
+	//   the excluded `kills`. Excluding the parent map key drops the whole diary sub-tree.
+	// motionPoints: the motion-scanner display accumulator (reset in prepareNewTurn:2942,
+	//   accumulated per-machine during movement). next_turn DOES re-ship it
+	//   (NextTurnState.cpp:681 -> setMotionPointsCoop), yet it still diverges at SIDESTART: the
+	//   D-lite client's still-draining gated alien replay legitimately accumulates
+	//   `_motionPoints` AFTER the next_turn overwrite. Serializing replay-before-apply is
+	//   disproportionate for a motion-scanner DISPLAY value with no other reader -> the FOW /
+	//   Option-B presentation carve-out class. PRESENTATION-EXCLUDE (manager sign-off, trace
+	//   in prd-i3 ledger).
 	return k == "AI" || k == "aiMedikitUsed" || k == "allocated"
 		|| k == "visible"
 		|| k == "turnsSinceSpotted"
@@ -4553,7 +4596,16 @@ bool saveBlobExcludedAnyKey(std::string_view k)
 		|| k == "droppedOnAlienTurn"
 		|| k == "turnsSinceStunned"
 		|| k == "expBravery"
-		|| k == "wantsToSurrender";
+		|| k == "expReactions"
+		|| k == "expFiring"
+		|| k == "expThrowing"
+		|| k == "expPsiSkill"
+		|| k == "expPsiStrength"
+		|| k == "expMana"
+		|| k == "expMelee"
+		|| k == "wantsToSurrender"
+		|| k == "tempUnitStatistics"
+		|| k == "motionPoints";
 }
 
 // PRD-I3 FOW contract (Option B, decided 2026-08-09): the per-tile
@@ -5298,6 +5350,12 @@ void syncCheckAttach(Game* game, Json::Value& msg)
 		node[BATTLE_HASH_NAMES[i]] = static_cast<Json::UInt64>(battleHashBucketValue(h, i));
 	}
 	msg["h"] = node;
+	// PRD-I3 Session F: flag a report whose hash was sampled while THIS machine's death
+	// replay has not converted its corpse yet. The item terms + saveBlob are then one
+	// death behind the executor's ring entry (the corpse exists on the host, not here),
+	// so the host skips those buckets for this report - the SAME rule verifyBattleChecksum
+	// applies to the P2 tripwire (corpseReplayPendingAny). Additive; an old host ignores it.
+	if (corpseReplayPendingAny() || corpseRemapPendingAny()) msg["corpsePending"] = true;
 	// PRD-I3 SEAM-7 (opt-in): the full per-unit field vector, sampled in the SAME pass
 	// as `h`, so the host can diff a unitsStats mismatch field-by-field. Absent unless
 	// the capture toggle is armed (zero wire delta by default; an old/normal peer never
@@ -5382,6 +5440,10 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		: static_cast<std::uint32_t>(msg.get("seq", 0).asUInt());
 	const std::uint32_t sideSeq = static_cast<std::uint32_t>(msg.get("side_seq", 0).asUInt());
 	if (seq == 0) return;
+	// PRD-I3 Session F: the reporting machine's death replay had not minted its corpse when
+	// it sampled this hash, so the item terms + saveBlob are one death behind here. Mirrors
+	// verifyBattleChecksum's corpseReplayPendingAny skip. Present-gated (old peer never sets it).
+	const bool corpsePending = msg.get("corpsePending", false).asBool();
 
 	SyncRingEntry* entry = nullptr;
 	for (auto& e : g_syncRing)
@@ -5514,9 +5576,32 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 				continue;
 			}
 		}
-		// items/itemIdCtr: NOT gated (see the note by g_syncTerrainAlienSkips) - they stay
-		// report-only + strict, so the items negative control (test_sync_check scenario 4)
-		// still sees the mint at its player seq.
+		// PRD-I3 Session F items/itemIdCtr side-gate (2026-08-15, manager sign-off): SAME
+		// discipline as terrain/unitsCore (see the note by g_syncItemsAlienSkips). The residual
+		// drift is the ALIEN-side display window - the D-lite client's gated alien replay lags
+		// the host's authoritative corpse resolution (ai/expl seqs + alien-side endturn),
+		// healing by sidestart. The BOUNDARY-death corpse mint is covered by the P4
+		// after_unit_death manifest (proven lockstep). Skip alien per-action + endturn; keep
+		// player-side per-action (strict) + sidestart, where a persistent drift still surfaces
+		// AND the items player-seq negative control still sees its mint. NOT counted as compared.
+		if (std::strcmp(name, "items") == 0 || std::strcmp(name, "itemIdCtr") == 0)
+		{
+			const bool alienSeq = !boundary && (entry->kind == "ai" || entry->kind == "expl");
+			const bool endturnBnd = boundary && entry->kind == "endturn";
+			if (alienSeq || endturnBnd)
+			{
+				if (endturnBnd) ++g_syncItemsEndturnSkips;
+				else ++g_syncItemsAlienSkips;
+				continue;
+			}
+			// The reporting machine's corpse mint was still in flight (mirrors the P2
+			// tripwire): the item terms are one death behind, heal on the next report.
+			if (corpsePending)
+			{
+				++g_syncItemsCorpsePendingSkips;
+				continue;
+			}
+		}
 		++g_syncBucketCompares[i];
 		if (boundary && hazardBucket && entry->kind == "sidestart")
 			++g_syncSidestartHazardCompares;
@@ -5566,11 +5651,15 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		// ill-defined; SIDESTART (hash-after-apply of next_turn) is the well-defined
 		// point. Mirrors the SEAM-2 HALF-1 smoke/fire endturn skip - compare-site only.
 		const bool saveBlobEndturn = boundary && entry->kind == "endturn";
+		// PRD-I3 Session F: the whole-save superset includes the item census, so a corpse
+		// mint still in flight on the reporting machine straddles saveBlob too - skip it the
+		// same way (mirrors verifyBattleChecksum). Heals on the next boundary.
 		if (saveBlobEndturn) ++g_syncSaveBlobEndturnSkips;
+		else if (corpsePending) ++g_syncSaveBlobCorpsePendingSkips;
 		else if (boundary && entry->kind == "sidestart") ++g_syncSaveBlobSidestartCompares;
 		const std::uint64_t peer = static_cast<std::uint64_t>(node["saveBlob"].asUInt64());
 		const std::uint64_t mine = entry->saveBlob;
-		if (!saveBlobEndturn && peer != mine)
+		if (!saveBlobEndturn && !corpsePending && peer != mine)
 		{
 			++g_syncSaveBlobMismatches;
 			if (g_syncMismatches.size() >= SYNC_MISMATCH_MAX) g_syncMismatches.pop_front();
@@ -5652,6 +5741,14 @@ void syncCheckReport(Json::Value& out)
 	// can assert exactly where the promoted terrain bucket was skipped.
 	node["terrainAlienSkips"] = static_cast<Json::UInt64>(g_syncTerrainAlienSkips);
 	node["terrainEndturnSkips"] = static_cast<Json::UInt64>(g_syncTerrainEndturnSkips);
+	// PRD-I3 Session F: items/itemIdCtr alien/endturn skips (terrain/unitsCore discipline),
+	// so a test can assert exactly where the promoted item buckets were skipped.
+	node["itemsAlienSkips"] = static_cast<Json::UInt64>(g_syncItemsAlienSkips);
+	node["itemsEndturnSkips"] = static_cast<Json::UInt64>(g_syncItemsEndturnSkips);
+	// PRD-I3 Session F: corpse-replay-pending skips (items/itemIdCtr + saveBlob), so a test
+	// can assert the sidestart straddle was a mid-flight corpse, not a persistent drift.
+	node["itemsCorpsePendingSkips"] = static_cast<Json::UInt64>(g_syncItemsCorpsePendingSkips);
+	node["saveBlobCorpsePendingSkips"] = static_cast<Json::UInt64>(g_syncSaveBlobCorpsePendingSkips);
 	// PRD-I3 saveBlob endturn straddle: the endturn saveBlob exclusion + the sidestart
 	// saveBlob compares (mirrors the hazard split above), so a test can assert saveBlob
 	// rides SIDESTART only - endturn skipped, sidestart compared.
@@ -6085,6 +6182,15 @@ const size_t kMaxParkedManifests = 64;
 /// SharedEcon.h's noteCorpseReplayPending for the double-death shape.
 std::set<int> g_corpseReplayPending;
 
+/// PRD-I3 Session F: units whose corpse this CLIENT minted with LOCAL ids (no host
+/// manifest was available at mint, so path a could not adopt) and whose host ids have
+/// not yet arrived on `after_unit_death`. The corpse id/counter is drifted in this
+/// window (when the counter was already off), so the per-action sync-check would fire
+/// items/itemIdCtr at a PLAYER-side casualty seq (window 2, complementing the
+/// corpseReplayPending window 1 which is cleared just BEFORE the mint). Cleared when
+/// `after_unit_death` reconciles the unit (remapCorpseIds) or at the turn boundary.
+std::set<int> g_corpseRemapPending;
+
 } // namespace
 
 CoopSpawnRecord::CoopSpawnRecord(const char* action, int subject) : _open(false)
@@ -6145,6 +6251,16 @@ CoopSubjectGuard::~CoopSubjectGuard()
 		}
 		reslaveItemCounter(_battle, it->second.maxHostId, _action, _subject);
 		g_spawnManifest.erase(it);
+	}
+
+	// PRD-I3 Session F window 2: a corpse this replay minted with NO host manifest in
+	// hand (adopted == 0) carries LOCAL ids until `after_unit_death` remaps them - so a
+	// per-action items/itemIdCtr compare in that window would false-fire on a PLAYER-side
+	// casualty. Mark the unit; the after_unit_death handler clears it. (adopted > 0 means
+	// path a already stamped the host's ids at mint, so there is no drift and no mark.)
+	if (_action == "corpse" && adopted == 0)
+	{
+		g_corpseRemapPending.insert(_subject);
 	}
 }
 
@@ -6269,6 +6385,16 @@ bool corpseReplayPendingAny()
 	return !g_corpseReplayPending.empty();
 }
 
+void clearCorpseRemapPending(int unitId)
+{
+	g_corpseRemapPending.erase(unitId);
+}
+
+bool corpseRemapPendingAny()
+{
+	return !g_corpseRemapPending.empty();
+}
+
 int remapCorpseIds(SavedBattleGame* battle, int unitId)
 {
 	if (!battle) return 0;
@@ -6379,6 +6505,11 @@ void clearSpawnManifests()
 			it = g_corpseReplayPending.erase(it);
 		}
 	}
+	// PRD-I3 Session F window 2 (safety): by a turn boundary every death's
+	// `after_unit_death` has crossed (it is sent at the death's deinit, within the side),
+	// so any lingering remap-pending mark is stale - clear it so items/itemIdCtr are never
+	// skipped past the death that set it.
+	g_corpseRemapPending.clear();
 }
 
 } // namespace SharedEcon

@@ -788,6 +788,13 @@ bool corpseReplayPending(int unitId);
 /// so a stamp that lands in that window is not comparable.
 bool corpseReplayPendingAny();
 
+/// PRD-I3 Session F: the COMPLEMENTARY window - a corpse this peer already minted with
+/// LOCAL ids (no host manifest in hand) whose host ids have not yet arrived on
+/// `after_unit_death`. corpseReplayPending covers push->mint; this covers
+/// mint->reconcile. Cleared by the after_unit_death handler and at the turn boundary.
+void clearCorpseRemapPending(int unitId);
+bool corpseRemapPendingAny();
+
 /// Factory hook: a BattleItem was just minted. Appends to an open host record or
 /// consumes an id from an open peer guard; does nothing at all when neither is
 /// open, which is every mint outside a Tier-A spawn (and every non-co-op game).
