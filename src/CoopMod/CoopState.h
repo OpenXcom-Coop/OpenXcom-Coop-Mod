@@ -206,4 +206,42 @@ class CoopDesyncNoticeState : public State
 	static int s_raiseCount;
 };
 
+/**
+ * PRD-I5: next-launch crash-report consent dialog. Raised once over the main menu
+ * when crash-pending.json names a dump + log that still exist. Three outcomes:
+ *  - BUNDLE:  zip the crash artifacts (SharedEcon::bundleCrashReportFromMarker),
+ *             which deletes the marker and raises the CoopDesyncNoticeState result;
+ *  - NOT NOW: keep the marker (asks again next launch);
+ *  - NEVER:   delete the marker for this crash without bundling.
+ * Palette handling mirrors CoopDesyncNoticeState: adopt the screen underneath (the
+ * main menu). It only ever fires at the boot main-menu altitude, never in battle.
+ */
+class CoopCrashPromptState : public State
+{
+  private:
+	Window *_window;
+	Text *_txtHeadline;
+	Text *_txtMessage;
+	TextButton *_btnBundle;
+	TextButton *_btnNotNow;
+	TextButton *_btnNever;
+	std::string _headline;
+	std::string _message;
+	std::string _markerPath; ///< full path to crash-pending.json
+	void buildLayout();
+  public:
+	CoopCrashPromptState(const std::string &message, const std::string &headline,
+						 const std::string &markerPath);
+	/// Harness introspection: what this prompt says.
+	std::string getMessageText() const;
+	std::string getHeadlineText() const { return _headline; }
+	void btnBundleClick(Action *);
+	void btnNotNowClick(Action *);
+	void btnNeverClick(Action *);
+	/// Harness introspection: how many prompts were raised this process, and the
+	/// choice the last-dismissed prompt took ("bundle" / "not_now" / "never").
+	static int s_raiseCount;
+	static std::string s_lastChoice;
+};
+
 }

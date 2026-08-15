@@ -36,6 +36,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Engine/FileMap.h"
 #include "../Engine/SDL2Helpers.h"
+#include "../CoopMod/SharedEcon.h" // PRD-I5: next-launch crash reporter
 #include <fstream>
 
 namespace OpenXcom
@@ -181,6 +182,17 @@ void GoToMainMenuState::init()
 	Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
 	_game->getScreen()->resetDisplay(false);
 	_game->setState(new MainMenuState(_updateCheck));
+
+	// PRD-I5: next-launch crash reporter. Fires only on the fresh-boot transition
+	// (StartState -> GoToMainMenuState(true)), i.e. once per launch, at the main-menu
+	// altitude (world already torn down by setSavedGame(0) above) - the same
+	// "before the main menu" altitude the save-upgrade flow lives at. Best-effort
+	// and O(one stat call) when no marker exists; pushed AFTER setState so it lands
+	// on top of the freshly-set MainMenuState. Never blocks startup.
+	if (_updateCheck)
+	{
+		SharedEcon::maybeReportPreviousCrash(_game);
+	}
 }
 
 /**

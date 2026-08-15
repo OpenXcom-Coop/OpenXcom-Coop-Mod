@@ -37,6 +37,7 @@
 #include "../Geoscape/GeoscapeState.h"
 #include "../Engine/CrossPlatform.h"
 #include "CoopState.h"
+#include "SharedEcon.h" // PRD-I5: crash-report bundle handlers
 
 #include "../Basescape/BasescapeState.h"
 
@@ -2021,6 +2022,97 @@ void CoopDesyncNoticeState::btnReportClick(Action *)
 	{
 		CrossPlatform::openExplorer(_reportUrl);
 	}
+}
+
+// ---- CoopCrashPromptState (PRD-I5) ------------------------------------------
+
+int CoopCrashPromptState::s_raiseCount = 0;
+std::string CoopCrashPromptState::s_lastChoice;
+
+CoopCrashPromptState::CoopCrashPromptState(const std::string &message,
+	const std::string &headline, const std::string &markerPath)
+	: _headline(headline), _message(message), _markerPath(markerPath)
+{
+	++s_raiseCount;
+	buildLayout();
+}
+
+void CoopCrashPromptState::buildLayout()
+{
+	_screen = false;
+
+	// Same roomy geometry as CoopDesyncNoticeState (headline + wrapped body + a row
+	// of buttons). This one always sits over the main menu, so it takes the menu's
+	// interface + palette directly rather than adopting whatever is underneath.
+	_window = new Window(this, 300, 172, 10, 14, POPUP_BOTH);
+	_txtHeadline = new Text(284, 18, 18, 22);
+	_txtMessage = new Text(284, 104, 18, 42);
+	_btnBundle = new TextButton(84, 16, 20, 152);
+	_btnNotNow = new TextButton(94, 16, 112, 152);
+	_btnNever = new TextButton(88, 16, 214, 152);
+
+	setInterface("mainMenu");
+
+	add(_window, "window", "mainMenu");
+	add(_txtHeadline, "text", "mainMenu");
+	add(_txtMessage, "text", "mainMenu");
+	add(_btnBundle, "button", "mainMenu");
+	add(_btnNotNow, "button", "mainMenu");
+	add(_btnNever, "button", "mainMenu");
+
+	centerAllSurfaces();
+	setWindowBackground(_window, "mainMenu");
+
+	_txtHeadline->setAlign(ALIGN_CENTER);
+	_txtHeadline->setWordWrap(true);
+	_txtHeadline->setText(_headline);
+
+	_txtMessage->setAlign(ALIGN_CENTER);
+	_txtMessage->setWordWrap(true);
+	_txtMessage->setText(_message);
+
+	_btnBundle->setText(tr("STR_COOP_CRASH_REPORT_BUNDLE"));
+	_btnBundle->onMouseClick((ActionHandler)&CoopCrashPromptState::btnBundleClick);
+	_btnBundle->onKeyboardPress((ActionHandler)&CoopCrashPromptState::btnBundleClick, Options::keyOk);
+
+	_btnNotNow->setText(tr("STR_COOP_CRASH_REPORT_NOT_NOW"));
+	_btnNotNow->onMouseClick((ActionHandler)&CoopCrashPromptState::btnNotNowClick);
+	_btnNotNow->onKeyboardPress((ActionHandler)&CoopCrashPromptState::btnNotNowClick, Options::keyCancel);
+
+	_btnNever->setText(tr("STR_COOP_CRASH_REPORT_NEVER"));
+	_btnNever->onMouseClick((ActionHandler)&CoopCrashPromptState::btnNeverClick);
+}
+
+std::string CoopCrashPromptState::getMessageText() const
+{
+	return _txtMessage ? _txtMessage->getText() : std::string();
+}
+
+void CoopCrashPromptState::btnBundleClick(Action *)
+{
+	// BUNDLE: pop the prompt FIRST so the result notice lands over the menu (not
+	// over a dying prompt), THEN build the zip. bundleCrashReportFromMarker deletes
+	// the marker on success and raises the CoopDesyncNoticeState result dialog.
+	s_lastChoice = "bundle";
+	Game* g = _game;
+	std::string marker = _markerPath;
+	_game->popState();
+	SharedEcon::bundleCrashReportFromMarker(g, marker);
+}
+
+void CoopCrashPromptState::btnNotNowClick(Action *)
+{
+	// NOT NOW: keep the marker so the next launch asks again.
+	s_lastChoice = "not_now";
+	_game->popState();
+}
+
+void CoopCrashPromptState::btnNeverClick(Action *)
+{
+	// NEVER (this crash): drop the marker without bundling.
+	s_lastChoice = "never";
+	SharedEcon::deleteCrashMarkerFile(_markerPath);
+	_game->popState();
 }
 
 }

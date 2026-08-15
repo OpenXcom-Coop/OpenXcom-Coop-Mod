@@ -622,6 +622,25 @@ Json::Value desyncComputeAttribution(Game* game, const DesyncTerms& terms);
 /// (out["sync_check"]) and a snapshot of the last ~16 ring seqs (out["sync_ring"]).
 void desyncEmbedSyncState(Json::Value& out);
 
+/// PRD-I5: next-launch crash reporter (Pattern A). The dying process only writes a
+/// marker (CrossPlatform::crashDump drops crash-pending.json next to the dump);
+/// these run at the NEXT launch, from the main-menu altitude, to offer a one-click
+/// bundle of the previous crash. All best-effort: a broken reporter must never
+/// block startup, so every failure logs and continues. Reuses the I4 bundle
+/// plumbing (miniz heap zip writer, log tail reader, CoopDesyncNoticeState).
+///
+/// Reads <user folder>/crash-pending.json and, if it names a dump + log that both
+/// still exist, pushes the consent dialog over the main menu. A missing, corrupt,
+/// or stale marker (its files gone) is deleted and ignored. Never throws.
+void maybeReportPreviousCrash(Game* game);
+/// BUNDLE handler: re-reads + validates the marker at @a markerPath, zips the dump,
+/// the openxcom.log tail and a system-info json into <user folder>/crash-reports/
+/// crash-<ts>.zip, deletes the marker, and raises the result notice (path + OPEN
+/// FOLDER + REPORT ON GITHUB). Returns false and KEEPS the marker on any failure.
+bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath);
+/// NEVER (this crash) handler: delete the marker so this crash is never raised again.
+void deleteCrashMarkerFile(const std::string& markerPath);
+
 /// Game-minute cooldown between automatic resyncs (see verifyWorldChecksum).
 extern const int RESYNC_COOLDOWN_MINUTES;
 /// Wall-clock ms a checksum mismatch must SURVIVE before it counts as a desync.

@@ -47,6 +47,15 @@ en-US:
   STR_COOP_DESYNC_HEADLINE_ACTION: "{0} diverged at action {1}: {2}"
   # {0}=diverged checksum term(s), used when the per-action sync-check is inert
   STR_COOP_DESYNC_HEADLINE_TERM: "battle state diverged: {0}"
+  # coop (PRD-I5): next-launch crash reporter. The consent prompt reuses the desync
+  # result notice (STR_COOP_DESYNC_OPEN_FOLDER / STR_COOP_DESYNC_REPORT_GITHUB) once
+  # a bundle is written. {0} in _SAVED is the zip path, pre-wrapped by the caller.
+  STR_COOP_CRASH_REPORT_PROMPT: "OpenXcom crashed the last time it ran.{NEWLINE}Bundle the crash details (dump, log, system info) for the developers?"
+  STR_COOP_CRASH_REPORT_HEADLINE: "Previous crash detected"
+  STR_COOP_CRASH_REPORT_BUNDLE: "BUNDLE"
+  STR_COOP_CRASH_REPORT_NOT_NOW: "NOT NOW"
+  STR_COOP_CRASH_REPORT_NEVER: "NEVER"
+  STR_COOP_CRASH_REPORT_SAVED: "CRASH REPORT BUNDLED{NEWLINE}A crash report (dump, log and system info) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can diagnose it."
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

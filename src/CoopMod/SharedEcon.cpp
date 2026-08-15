@@ -4160,6 +4160,68 @@ std::string desyncIssueBody(const DesyncTerms& terms, const Json::Value& attribu
 	return b.str();
 }
 
+/// PRD-I5: the crash bundle's system-info json. Mirrors buildDesyncInfo's build +
+/// mods block (the I4 json builder the PRD asks us to reuse), plus the marker echo
+/// (crash timestamp, exception code, the version recorded AT crash time, and the
+/// dump/log the crash wrote). 'build.version' is the version NOW; 'crash.crash_version'
+/// is the version the crash was written under - normally identical, but distinct if
+/// the player updated between the crash and the next launch.
+std::string buildCrashInfo(Game* game, const std::string& dump, const std::string& log,
+						   const std::string& version, const std::string& exception,
+						   const std::string& timestamp)
+{
+	(void)game;
+	Json::Value root;
+	root["schema"] = 1;
+	root["report"] = "crash";
+	root["generated"] = desyncTimeString("%Y-%m-%d %H:%M:%S");
+
+	Json::Value c;
+	c["timestamp"] = timestamp;
+	c["exception"] = exception;
+	c["crash_version"] = version;
+	c["dump"] = dump;
+	c["log"] = log;
+	root["crash"] = c;
+
+	Json::Value v;
+	v["version"] = std::string(OPENXCOM_VERSION_SHORT) + OPENXCOM_VERSION_GIT;
+	v["engine"] = OPENXCOM_VERSION_ENGINE;
+	v["oxce"] = OPENXCOM_VERSION_OXCE;
+	v["platform"] = desyncPlatform();
+	root["build"] = v;
+
+	Json::Value mods(Json::arrayValue);
+	for (const ModInfo* mi : Options::getActiveMods())
+	{
+		if (mi) mods.append(mi->getId() + " ver: " + mi->getVersion());
+	}
+	root["mods"] = mods;
+	return root.toStyledString();
+}
+
+/// PRD-I5: parse + validate the crash marker. Read through readTailBinary (the
+/// UTF-8-safe SDL reader, not std::ifstream) so a user folder with non-ASCII in
+/// the path still opens on Windows. Never throws; a missing/corrupt marker returns
+/// false and the caller deletes it.
+bool parseCrashMarker(const std::string& markerPath, std::string& dump, std::string& log,
+					  std::string& version, std::string& exception, std::string& timestamp)
+{
+	std::string blob;
+	if (!readTailBinary(markerPath, 0, blob) || blob.empty()) return false;
+	std::istringstream ss(blob);
+	Json::CharReaderBuilder b;
+	Json::Value root;
+	std::string errs;
+	if (!Json::parseFromStream(b, ss, &root, &errs) || !root.isObject()) return false;
+	dump      = root.get("dump", "").asString();
+	log       = root.get("log", "").asString();
+	version   = root.get("version", "").asString();
+	exception = root.get("exception", "").asString();
+	timestamp = root.get("timestamp", "").asString();
+	return true;
+}
+
 } // namespace
 
 bool desyncReportWritten()
@@ -4275,6 +4337,148 @@ void captureDesyncReport(Game* game, const DesyncTerms& terms)
 	catch (...)
 	{
 		Log(LOG_ERROR) << "[COOP] desync report failed";
+	}
+}
+
+// ---- PRD-I5: next-launch crash reporter (Pattern A) -------------------------
+// The dying process wrote only a marker (CrossPlatform::crashDump). These run at
+// the NEXT launch from the main-menu altitude. Best-effort by contract: every
+// path logs and continues, and only a SUCCESSFUL bundle deletes the marker.
+
+void deleteCrashMarkerFile(const std::string& markerPath)
+{
+	try
+	{
+		if (!markerPath.empty() && CrossPlatform::fileExists(markerPath))
+			CrossPlatform::deleteFile(markerPath);
+	}
+	catch (...) {}
+}
+
+bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath)
+{
+	try
+	{
+		std::string dump, log, version, exception, timestamp;
+		if (!parseCrashMarker(markerPath, dump, log, version, exception, timestamp))
+		{
+			Log(LOG_WARNING) << "[COOP] crash report: marker unreadable, ignoring: " << markerPath;
+			deleteCrashMarkerFile(markerPath);
+			return false;
+		}
+		// Same gate as maybeReportPreviousCrash: only bundle files that still exist.
+		if (dump.empty() || !CrossPlatform::fileExists(dump) ||
+			log.empty()  || !CrossPlatform::fileExists(log))
+		{
+			Log(LOG_WARNING) << "[COOP] crash report: marker names missing files, ignoring";
+			deleteCrashMarkerFile(markerPath);
+			return false;
+		}
+
+		std::vector<std::pair<std::string, std::string> > members;
+		// The json first - the one member that cannot fail to be produced.
+		members.push_back(std::make_pair(std::string("crash-info.json"),
+										 buildCrashInfo(game, dump, log, version, exception, timestamp)));
+		std::string blob;
+		// The whole dump (maxBytes 0). A MiniDumpNormal-class dump is small.
+		if (readTailBinary(dump, 0, blob))
+			members.push_back(std::make_pair(std::string("crash.dmp"), blob));
+		else
+			Log(LOG_WARNING) << "[COOP] crash report: could not read dump " << dump;
+		// The log tail. OXC appends to ONE persistent openxcom.log (never truncated at
+		// startup), so this file still carries the crash's stack trace - 'crash log'
+		// and 'openxcom.log tail' are the same member here. 4 MiB cap keeps it small.
+		if (readTailBinary(log, DESYNC_LOG_TAIL_BYTES, blob))
+			members.push_back(std::make_pair(std::string("openxcom.log"), blob));
+		else
+			Log(LOG_WARNING) << "[COOP] crash report: could not read log " << log;
+
+		const std::string dir = Options::getUserFolder() + "crash-reports/";
+		if (!CrossPlatform::folderExists(dir)) CrossPlatform::createFolder(dir);
+		if (!CrossPlatform::folderExists(dir))
+		{
+			Log(LOG_ERROR) << "[COOP] crash report: cannot create " << dir;
+			return false; // keep the marker; retry next launch
+		}
+		const std::string tsFile = timestamp.empty() ? desyncTimeString("%Y%m%d-%H%M%S") : timestamp;
+		const std::string path = dir + "crash-" + tsFile + ".zip";
+		if (!writeZipArchive(path, members))
+		{
+			Log(LOG_ERROR) << "[COOP] crash report: failed to write " << path;
+			return false; // keep the marker
+		}
+		Log(LOG_INFO) << "[COOP] crash report written to " << path
+					  << " (" << (int)members.size() << " members)";
+		// SUCCESS: the marker is spent.
+		deleteCrashMarkerFile(markerPath);
+
+		if (game && game->getLanguage())
+		{
+			const std::string issueBase =
+				"https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new";
+			const std::string title = "[coop crash] " + exception + " " + version;
+			std::ostringstream body;
+			body << "OpenXcom crashed and the next launch bundled the details.\n\n";
+			body << "  version:   " << version << "\n";
+			body << "  exception: " << exception << "\n";
+			body << "  timestamp: " << timestamp << "\n\n";
+			body << "Please ATTACH the crash zip (do not paste it) to this issue:\n";
+			body << "  " << path << "\n\n";
+			body << "(auto-generated by the co-op crash reporter; dump, log + system info are in the zip)\n";
+			const std::string reportUrl = issueBase + "?title=" + desyncUrlEncode(title) +
+				"&body=" + desyncUrlEncode(body.str());
+			game->pushState(new CoopDesyncNoticeState(
+				game->getLanguage()->getString("STR_COOP_CRASH_REPORT_SAVED").arg(wrapPathForDialog(path)),
+				game->getLanguage()->getString("STR_COOP_CRASH_REPORT_HEADLINE"),
+				path, reportUrl));
+		}
+		return true;
+	}
+	catch (const std::exception& e)
+	{
+		Log(LOG_ERROR) << "[COOP] crash report failed: " << e.what();
+	}
+	catch (...)
+	{
+		Log(LOG_ERROR) << "[COOP] crash report failed";
+	}
+	return false;
+}
+
+void maybeReportPreviousCrash(Game* game)
+{
+	try
+	{
+		const std::string markerPath = Options::getUserFolder() + "crash-pending.json";
+		if (!CrossPlatform::fileExists(markerPath)) return; // the O(1)-stat fast path
+		std::string dump, log, version, exception, timestamp;
+		if (!parseCrashMarker(markerPath, dump, log, version, exception, timestamp))
+		{
+			Log(LOG_WARNING) << "[COOP] crash marker unreadable, deleting: " << markerPath;
+			deleteCrashMarkerFile(markerPath);
+			return;
+		}
+		if (dump.empty() || !CrossPlatform::fileExists(dump) ||
+			log.empty()  || !CrossPlatform::fileExists(log))
+		{
+			Log(LOG_INFO) << "[COOP] crash marker names missing files, deleting";
+			deleteCrashMarkerFile(markerPath);
+			return;
+		}
+		if (!game || !game->getLanguage()) return; // no UI possible; leave the marker
+		Log(LOG_INFO) << "[COOP] previous crash detected (" << exception << "), offering report";
+		game->pushState(new CoopCrashPromptState(
+			game->getLanguage()->getString("STR_COOP_CRASH_REPORT_PROMPT"),
+			game->getLanguage()->getString("STR_COOP_CRASH_REPORT_HEADLINE"),
+			markerPath));
+	}
+	catch (const std::exception& e)
+	{
+		Log(LOG_ERROR) << "[COOP] crash reporter startup check failed: " << e.what();
+	}
+	catch (...)
+	{
+		Log(LOG_ERROR) << "[COOP] crash reporter startup check failed";
 	}
 }
 
