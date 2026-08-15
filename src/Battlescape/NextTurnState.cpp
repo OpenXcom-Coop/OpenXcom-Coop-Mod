@@ -599,8 +599,24 @@ void NextTurnState::close()
 	// not "escort the VIPs" missions, not the final mission and all aliens dead.
 	bool killingAllAliensIsNotEnough = _battleGame->getObjectiveType() == MUST_DESTROY || (_battleGame->getVIPSurvivalPercentage() > 0 && _battleGame->getVIPEscapeType() != ESCAPE_NONE);
 
-	// coop
-	if ((!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0)
+	// coop (SESSION D): battle end is HOST-AUTHORITATIVE in parallel mode. The
+	// parallel client must not decide the battle is over from its OWN tallyUnits()
+	// - its tally can diverge from the host's whenever a battle-end input is
+	// deferred/host-only (e.g. a mod with surrenderMode>=2 reads the panic
+	// wantsToSurrender the client DEFERS at BattleUnit::prepareNewTurn, so a
+	// surrendered alien still counts as a live alien here). Ending on the local
+	// tally would either quiesce the client early (host still fighting -> the
+	// client waits for a debrief that never comes) or make the two machines
+	// disagree on when the battle ends. The host announces the end with the
+	// "DebriefingState" packet (the single trigger in PVE/SHARED; BattlescapeState::
+	// finishBattle already no-ops on the non-host PVE client), so on the parallel
+	// client never take the local-tally end branch - follow the host's turn
+	// machinery and end only on the host's packet. The host and classic co-op keep
+	// their own tally (the guard is false there), so both stay byte-identical.
+	// Abort is a separate, explicitly host-announced vote (finishBattle(true), which
+	// is NOT gated here and still crosses on the client).
+	const bool coopHostAuthoritativeEnd = connectionTCP::parallelTurnActive() && !_game->getCoopMod()->getHost();
+	if (!coopHostAuthoritativeEnd && ((!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0))
 	{
 		_state->finishBattle(false, tally.liveSoldiers);
 	}
