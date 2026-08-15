@@ -30,6 +30,7 @@
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -120,6 +121,7 @@
 
 #include "connectionTCP.h"
 #include "CoopState.h"
+#include "CrashHandler.h"
 
 // Desync auto-report bundle. miniz is already vendored (libs/miniz) and already
 // compiled into both build systems for FileMap's zip-mod reader, so the zip
@@ -4166,14 +4168,15 @@ std::string desyncIssueBody(const DesyncTerms& terms, const Json::Value& attribu
 /// dump/log the crash wrote). 'build.version' is the version NOW; 'crash.crash_version'
 /// is the version the crash was written under - normally identical, but distinct if
 /// the player updated between the crash and the next launch.
-std::string buildCrashInfo(Game* game, const std::string& dump, const std::string& log,
-						   const std::string& version, const std::string& exception,
-						   const std::string& timestamp)
+std::string buildCrashInfo(Game* game, const std::string& source, const std::string& dump,
+						   const std::string& log, const std::string& version,
+						   const std::string& exception, const std::string& timestamp)
 {
 	(void)game;
 	Json::Value root;
 	root["schema"] = 1;
 	root["report"] = "crash";
+	root["source"] = source; // "crashdump-marker" (classic) or "veh-crashlog" (issue #124)
 	root["generated"] = desyncTimeString("%Y-%m-%d %H:%M:%S");
 
 	Json::Value c;
@@ -4219,6 +4222,183 @@ bool parseCrashMarker(const std::string& markerPath, std::string& dump, std::str
 	version   = root.get("version", "").asString();
 	exception = root.get("exception", "").asString();
 	timestamp = root.get("timestamp", "").asString();
+	return true;
+}
+
+// ---- PRD-I5 dual-source discovery: crashlogs scan + seen-ledger -------------
+// The crashed process ALREADY writes crash_<ts>_<seq>.{dmp,log} + mod list to
+// <exe>/crashlogs (issue #124 CrashHandler VEH - the robust catch-all that fires
+// even when the fault unwinds through a noexcept frame into std::terminate and so
+// NEVER reaches CrossPlatform::crashDump). The next launch therefore discovers a
+// crash from EITHER the crashDump marker (classic, rich) OR an unseen crashlogs
+// entry (the VEH path). A per-user-folder seen-ledger (crash-seen.json) dedups:
+// BUNDLE and NEVER mark seen, NOT NOW leaves it unseen. First-run rule (least-
+// surprising): the ledger stamps its creation time as a baseline and only entries
+// NEWER than it are ever offered, so pre-existing / pre-feature crashlogs never
+// retro-nag.
+
+std::string crashSeenLedgerPath() { return Options::getUserFolder() + "crash-seen.json"; }
+
+// Load the ledger; CREATE it (baseline = now, empty seen) if absent. Never throws.
+void loadOrCreateSeenLedger(time_t& baseline, std::set<std::string>& seen)
+{
+	baseline = 0; seen.clear();
+	std::string blob;
+	if (readTailBinary(crashSeenLedgerPath(), 0, blob) && !blob.empty())
+	{
+		std::istringstream ss(blob);
+		Json::CharReaderBuilder b; Json::Value root; std::string errs;
+		if (Json::parseFromStream(b, ss, &root, &errs) && root.isObject())
+		{
+			baseline = (time_t)root.get("baseline", 0).asInt64();
+			const Json::Value& arr = root["seen"];
+			if (arr.isArray())
+				for (const auto& v : arr) seen.insert(v.asString());
+			return;
+		}
+	}
+	baseline = time(nullptr); // fresh: pre-existing crashlogs (older) are never offered
+	Json::Value root;
+	root["baseline"] = Json::Value::Int64((int64_t)baseline);
+	root["seen"] = Json::Value(Json::arrayValue);
+	CrossPlatform::writeFile(crashSeenLedgerPath(), root.toStyledString());
+}
+
+void crashlogAddSeen(const std::string& dmpBasename)
+{
+	if (dmpBasename.empty()) return;
+	time_t baseline; std::set<std::string> seen;
+	loadOrCreateSeenLedger(baseline, seen);
+	seen.insert(dmpBasename);
+	Json::Value root;
+	root["baseline"] = Json::Value::Int64((int64_t)baseline);
+	Json::Value arr(Json::arrayValue);
+	for (const auto& s : seen) arr.append(s);
+	root["seen"] = arr;
+	CrossPlatform::writeFile(crashSeenLedgerPath(), root.toStyledString());
+}
+
+std::string crashBasename(const std::string& path)
+{
+	size_t s = path.find_last_of("/\\");
+	return (s == std::string::npos) ? path : path.substr(s + 1);
+}
+
+// The shared seq token = the last '_'-delimited field before the extension (the
+// .dmp and its .log share it; they differ only in the ms part of the timestamp).
+std::string crashlogSeq(const std::string& name)
+{
+	size_t dot = name.find_last_of('.');
+	std::string stem = (dot == std::string::npos) ? name : name.substr(0, dot);
+	size_t us = stem.find_last_of('_');
+	return (us == std::string::npos) ? std::string() : stem.substr(us + 1);
+}
+
+// crash_YYYYMMDD_HHMMSS_mmm_seq.ext -> "YYYYMMDD_HHMMSS" (zip name / info ts).
+std::string crashlogTsToken(const std::string& name)
+{
+	static const std::string pre = "crash_";
+	if (name.compare(0, pre.size(), pre) != 0 || name.size() < pre.size() + 15) return std::string();
+	return name.substr(pre.size(), 15);
+}
+
+// Newest crash_*.dmp basename by mtime (or empty) - used to dedup the marker's pair.
+std::string crashlogNewestDmp()
+{
+	const std::string dir = ::CrashHandler::logDirectory();
+	if (dir.empty()) return std::string();
+	std::string best; time_t bestT = 0;
+	for (const auto& e : CrossPlatform::getFolderContents(dir, "dmp"))
+	{
+		if (std::get<1>(e)) continue;
+		const std::string& nm = std::get<0>(e);
+		if (nm.compare(0, 6, "crash_") != 0) continue;
+		time_t tm = std::get<2>(e);
+		if (best.empty() || tm > bestT) { best = nm; bestT = tm; }
+	}
+	return best;
+}
+
+// Newest crash_*.dmp with mtime > baseline and basename NOT in seen; pair its .log
+// by matching seq + nearest mtime. Fills paths + ts token. Never throws here.
+bool findNewestUnseenCrashlog(std::string& dmpPath, std::string& logPath, std::string& tsToken)
+{
+	dmpPath.clear(); logPath.clear(); tsToken.clear();
+	const std::string dir = ::CrashHandler::logDirectory();
+	if (dir.empty()) return false;
+	time_t baseline; std::set<std::string> seen;
+	loadOrCreateSeenLedger(baseline, seen);
+	std::string bestName; time_t bestT = 0;
+	for (const auto& e : CrossPlatform::getFolderContents(dir, "dmp"))
+	{
+		if (std::get<1>(e)) continue;
+		const std::string& nm = std::get<0>(e);
+		if (nm.compare(0, 6, "crash_") != 0) continue;
+		time_t tm = std::get<2>(e);
+		if (tm <= baseline) continue;   // first-run / pre-feature guard
+		if (seen.count(nm)) continue;   // already handled
+		if (bestName.empty() || tm > bestT) { bestName = nm; bestT = tm; }
+	}
+	if (bestName.empty()) return false;
+	dmpPath = dir + "/" + bestName;
+	tsToken = crashlogTsToken(bestName);
+	const std::string seqWanted = crashlogSeq(bestName);
+	std::string bestLog; time_t bestDiff = 0; bool haveLog = false;
+	for (const auto& e : CrossPlatform::getFolderContents(dir, "log"))
+	{
+		if (std::get<1>(e)) continue;
+		const std::string& nm = std::get<0>(e);
+		if (nm.compare(0, 6, "crash_") != 0) continue;
+		if (crashlogSeq(nm) != seqWanted) continue;
+		time_t tm = std::get<2>(e);
+		time_t diff = (tm > bestT) ? (tm - bestT) : (bestT - tm);
+		if (!haveLog || diff < bestDiff) { bestLog = nm; bestDiff = diff; haveLog = true; }
+	}
+	if (haveLog) logPath = dir + "/" + bestLog;
+	return true;
+}
+
+// Shared tail of both bundle paths: write the zip + raise the I4 result notice.
+bool emitCrashBundle(Game* game, const std::vector<std::pair<std::string, std::string> >& members,
+					 const std::string& tsFile, const std::string& exception,
+					 const std::string& version, const std::string& timestamp)
+{
+	const std::string dir = Options::getUserFolder() + "crash-reports/";
+	if (!CrossPlatform::folderExists(dir)) CrossPlatform::createFolder(dir);
+	if (!CrossPlatform::folderExists(dir))
+	{
+		Log(LOG_ERROR) << "[COOP] crash report: cannot create " << dir;
+		return false;
+	}
+	const std::string tsF = tsFile.empty() ? desyncTimeString("%Y%m%d-%H%M%S") : tsFile;
+	const std::string path = dir + "crash-" + tsF + ".zip";
+	if (!writeZipArchive(path, members))
+	{
+		Log(LOG_ERROR) << "[COOP] crash report: failed to write " << path;
+		return false;
+	}
+	Log(LOG_INFO) << "[COOP] crash report written to " << path
+				  << " (" << (int)members.size() << " members)";
+	if (game && game->getLanguage())
+	{
+		const std::string issueBase =
+			"https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new";
+		const std::string title = "[coop crash] " + exception + " " + version;
+		std::ostringstream body;
+		body << "OpenXcom crashed and the next launch bundled the details.\n\n";
+		body << "  version:   " << version << "\n";
+		body << "  exception: " << exception << "\n";
+		body << "  timestamp: " << timestamp << "\n\n";
+		body << "Please ATTACH the crash zip (do not paste it) to this issue:\n";
+		body << "  " << path << "\n\n";
+		body << "(auto-generated by the co-op crash reporter; dump, log + system info are in the zip)\n";
+		const std::string reportUrl = issueBase + "?title=" + desyncUrlEncode(title) +
+			"&body=" + desyncUrlEncode(body.str());
+		game->pushState(new CoopDesyncNoticeState(
+			game->getLanguage()->getString("STR_COOP_CRASH_REPORT_SAVED").arg(wrapPathForDialog(path)),
+			game->getLanguage()->getString("STR_COOP_CRASH_REPORT_HEADLINE"),
+			path, reportUrl));
+	}
 	return true;
 }
 
@@ -4355,6 +4535,26 @@ void deleteCrashMarkerFile(const std::string& markerPath)
 	catch (...) {}
 }
 
+void markCrashlogSeenPath(const std::string& dmpPath)
+{
+	try { crashlogAddSeen(crashBasename(dmpPath)); } catch (...) {}
+}
+
+// NEVER on the classic MARKER: delete it AND mark its paired VEH crashlog (the
+// newest crash_*.dmp, written microseconds earlier by the first-chance handler)
+// seen, so the scan does not re-offer the same crash next launch. Single-crash-
+// since-launch assumption; a rare stale-marker + newer-VEH-crash edge could
+// suppress one prompt - acceptable, documented in prd-i5.
+void declineCrashMarker(const std::string& markerPath)
+{
+	try
+	{
+		deleteCrashMarkerFile(markerPath);
+		crashlogAddSeen(crashlogNewestDmp());
+	}
+	catch (...) {}
+}
+
 bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath)
 {
 	try
@@ -4366,7 +4566,6 @@ bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath)
 			deleteCrashMarkerFile(markerPath);
 			return false;
 		}
-		// Same gate as maybeReportPreviousCrash: only bundle files that still exist.
 		if (dump.empty() || !CrossPlatform::fileExists(dump) ||
 			log.empty()  || !CrossPlatform::fileExists(log))
 		{
@@ -4374,74 +4573,66 @@ bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath)
 			deleteCrashMarkerFile(markerPath);
 			return false;
 		}
-
 		std::vector<std::pair<std::string, std::string> > members;
-		// The json first - the one member that cannot fail to be produced.
 		members.push_back(std::make_pair(std::string("crash-info.json"),
-										 buildCrashInfo(game, dump, log, version, exception, timestamp)));
+			buildCrashInfo(game, "crashdump-marker", dump, log, version, exception, timestamp)));
 		std::string blob;
-		// The whole dump (maxBytes 0). A MiniDumpNormal-class dump is small.
 		if (readTailBinary(dump, 0, blob))
 			members.push_back(std::make_pair(std::string("crash.dmp"), blob));
-		else
-			Log(LOG_WARNING) << "[COOP] crash report: could not read dump " << dump;
-		// The log tail. OXC appends to ONE persistent openxcom.log (never truncated at
-		// startup), so this file still carries the crash's stack trace - 'crash log'
-		// and 'openxcom.log tail' are the same member here. 4 MiB cap keeps it small.
+		else Log(LOG_WARNING) << "[COOP] crash report: could not read dump " << dump;
+		// One persistent openxcom.log (never truncated) carries the crash's own trace.
 		if (readTailBinary(log, DESYNC_LOG_TAIL_BYTES, blob))
 			members.push_back(std::make_pair(std::string("openxcom.log"), blob));
-		else
-			Log(LOG_WARNING) << "[COOP] crash report: could not read log " << log;
+		else Log(LOG_WARNING) << "[COOP] crash report: could not read log " << log;
 
-		const std::string dir = Options::getUserFolder() + "crash-reports/";
-		if (!CrossPlatform::folderExists(dir)) CrossPlatform::createFolder(dir);
-		if (!CrossPlatform::folderExists(dir))
-		{
-			Log(LOG_ERROR) << "[COOP] crash report: cannot create " << dir;
+		const std::string tsFile = timestamp.empty() ? std::string() : timestamp;
+		if (!emitCrashBundle(game, members, tsFile, exception, version, timestamp))
 			return false; // keep the marker; retry next launch
-		}
-		const std::string tsFile = timestamp.empty() ? desyncTimeString("%Y%m%d-%H%M%S") : timestamp;
-		const std::string path = dir + "crash-" + tsFile + ".zip";
-		if (!writeZipArchive(path, members))
-		{
-			Log(LOG_ERROR) << "[COOP] crash report: failed to write " << path;
-			return false; // keep the marker
-		}
-		Log(LOG_INFO) << "[COOP] crash report written to " << path
-					  << " (" << (int)members.size() << " members)";
-		// SUCCESS: the marker is spent.
-		deleteCrashMarkerFile(markerPath);
-
-		if (game && game->getLanguage())
-		{
-			const std::string issueBase =
-				"https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new";
-			const std::string title = "[coop crash] " + exception + " " + version;
-			std::ostringstream body;
-			body << "OpenXcom crashed and the next launch bundled the details.\n\n";
-			body << "  version:   " << version << "\n";
-			body << "  exception: " << exception << "\n";
-			body << "  timestamp: " << timestamp << "\n\n";
-			body << "Please ATTACH the crash zip (do not paste it) to this issue:\n";
-			body << "  " << path << "\n\n";
-			body << "(auto-generated by the co-op crash reporter; dump, log + system info are in the zip)\n";
-			const std::string reportUrl = issueBase + "?title=" + desyncUrlEncode(title) +
-				"&body=" + desyncUrlEncode(body.str());
-			game->pushState(new CoopDesyncNoticeState(
-				game->getLanguage()->getString("STR_COOP_CRASH_REPORT_SAVED").arg(wrapPathForDialog(path)),
-				game->getLanguage()->getString("STR_COOP_CRASH_REPORT_HEADLINE"),
-				path, reportUrl));
-		}
+		deleteCrashMarkerFile(markerPath);   // SUCCESS: the marker is spent
+		crashlogAddSeen(crashlogNewestDmp()); // and dedup its paired VEH crashlog
 		return true;
 	}
-	catch (const std::exception& e)
+	catch (const std::exception& e) { Log(LOG_ERROR) << "[COOP] crash report failed: " << e.what(); }
+	catch (...) { Log(LOG_ERROR) << "[COOP] crash report failed"; }
+	return false;
+}
+
+// BUNDLE on a VEH crashlog (issue #124): the crash artifacts already exist on
+// disk - zip the dump + the #124 crash-log (stack + mod list) + the openxcom.log
+// tail + a system-info json (source=veh-crashlog, ts from the filename; the exact
+// exception code is inside crash-log.txt). Marks the .dmp basename seen on success.
+bool bundleCrashReportFromCrashlog(Game* game, const std::string& dmpPath, const std::string& logPath)
+{
+	try
 	{
-		Log(LOG_ERROR) << "[COOP] crash report failed: " << e.what();
+		if (dmpPath.empty() || !CrossPlatform::fileExists(dmpPath))
+		{
+			Log(LOG_WARNING) << "[COOP] crash report: crashlog dump gone, marking seen: " << dmpPath;
+			markCrashlogSeenPath(dmpPath);
+			return false;
+		}
+		const std::string version = std::string(OPENXCOM_VERSION_SHORT) + OPENXCOM_VERSION_GIT;
+		const std::string exception = "(see crash-log.txt)";
+		const std::string tsToken = crashlogTsToken(crashBasename(dmpPath));
+		std::vector<std::pair<std::string, std::string> > members;
+		members.push_back(std::make_pair(std::string("crash-info.json"),
+			buildCrashInfo(game, "veh-crashlog", dmpPath, logPath, version, exception, tsToken)));
+		std::string blob;
+		if (readTailBinary(dmpPath, 0, blob))
+			members.push_back(std::make_pair(std::string("crash.dmp"), blob));
+		else Log(LOG_WARNING) << "[COOP] crash report: could not read dump " << dmpPath;
+		if (!logPath.empty() && readTailBinary(logPath, DESYNC_LOG_TAIL_BYTES, blob))
+			members.push_back(std::make_pair(std::string("crash-log.txt"), blob));
+		if (readTailBinary(CrossPlatform::getLogFileName(), DESYNC_LOG_TAIL_BYTES, blob))
+			members.push_back(std::make_pair(std::string("openxcom.log"), blob));
+
+		if (!emitCrashBundle(game, members, tsToken, exception, version, tsToken))
+			return false; // leave it unseen -> retry next launch
+		markCrashlogSeenPath(dmpPath);
+		return true;
 	}
-	catch (...)
-	{
-		Log(LOG_ERROR) << "[COOP] crash report failed";
-	}
+	catch (const std::exception& e) { Log(LOG_ERROR) << "[COOP] crash report failed: " << e.what(); }
+	catch (...) { Log(LOG_ERROR) << "[COOP] crash report failed"; }
 	return false;
 }
 
@@ -4449,28 +4640,45 @@ void maybeReportPreviousCrash(Game* game)
 {
 	try
 	{
+		// Source 1 (preferred, rich): the classic crashDump marker.
 		const std::string markerPath = Options::getUserFolder() + "crash-pending.json";
-		if (!CrossPlatform::fileExists(markerPath)) return; // the O(1)-stat fast path
-		std::string dump, log, version, exception, timestamp;
-		if (!parseCrashMarker(markerPath, dump, log, version, exception, timestamp))
+		if (CrossPlatform::fileExists(markerPath))
 		{
-			Log(LOG_WARNING) << "[COOP] crash marker unreadable, deleting: " << markerPath;
-			deleteCrashMarkerFile(markerPath);
-			return;
+			std::string dump, log, version, exception, timestamp;
+			if (!parseCrashMarker(markerPath, dump, log, version, exception, timestamp))
+			{
+				Log(LOG_WARNING) << "[COOP] crash marker unreadable, deleting: " << markerPath;
+				deleteCrashMarkerFile(markerPath); // then fall through to the crashlogs scan
+			}
+			else if (!dump.empty() && CrossPlatform::fileExists(dump) &&
+					 !log.empty()  && CrossPlatform::fileExists(log))
+			{
+				if (!game || !game->getLanguage()) return; // no UI; leave the marker
+				Log(LOG_INFO) << "[COOP] previous crash detected (marker, " << exception << ")";
+				game->pushState(new CoopCrashPromptState(
+					game->getLanguage()->getString("STR_COOP_CRASH_REPORT_PROMPT"),
+					game->getLanguage()->getString("STR_COOP_CRASH_REPORT_HEADLINE"),
+					markerPath, std::string(), std::string()));
+				return;
+			}
+			else
+			{
+				Log(LOG_INFO) << "[COOP] crash marker names missing files, deleting";
+				deleteCrashMarkerFile(markerPath); // fall through to the scan
+			}
 		}
-		if (dump.empty() || !CrossPlatform::fileExists(dump) ||
-			log.empty()  || !CrossPlatform::fileExists(log))
+		// Source 2 (robust catch-all): an unseen issue-#124 VEH crashlog. The
+		// ledger's baseline keeps this O(small) and never retro-nags about old ones.
+		std::string dmpPath, logPath, tsToken;
+		if (findNewestUnseenCrashlog(dmpPath, logPath, tsToken))
 		{
-			Log(LOG_INFO) << "[COOP] crash marker names missing files, deleting";
-			deleteCrashMarkerFile(markerPath);
-			return;
+			if (!game || !game->getLanguage()) return;
+			Log(LOG_INFO) << "[COOP] previous crash detected (crashlog " << dmpPath << ")";
+			game->pushState(new CoopCrashPromptState(
+				game->getLanguage()->getString("STR_COOP_CRASH_REPORT_PROMPT"),
+				game->getLanguage()->getString("STR_COOP_CRASH_REPORT_HEADLINE"),
+				std::string(), dmpPath, logPath));
 		}
-		if (!game || !game->getLanguage()) return; // no UI possible; leave the marker
-		Log(LOG_INFO) << "[COOP] previous crash detected (" << exception << "), offering report";
-		game->pushState(new CoopCrashPromptState(
-			game->getLanguage()->getString("STR_COOP_CRASH_REPORT_PROMPT"),
-			game->getLanguage()->getString("STR_COOP_CRASH_REPORT_HEADLINE"),
-			markerPath));
 	}
 	catch (const std::exception& e)
 	{
@@ -4481,6 +4689,7 @@ void maybeReportPreviousCrash(Game* game)
 		Log(LOG_ERROR) << "[COOP] crash reporter startup check failed";
 	}
 }
+
 
 // ---- PRD-I0: per-action sequenced sync-check --------------------------------
 namespace {

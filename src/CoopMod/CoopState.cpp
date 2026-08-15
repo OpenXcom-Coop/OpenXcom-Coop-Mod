@@ -2030,8 +2030,10 @@ int CoopCrashPromptState::s_raiseCount = 0;
 std::string CoopCrashPromptState::s_lastChoice;
 
 CoopCrashPromptState::CoopCrashPromptState(const std::string &message,
-	const std::string &headline, const std::string &markerPath)
-	: _headline(headline), _message(message), _markerPath(markerPath)
+	const std::string &headline, const std::string &markerPath,
+	const std::string &dmpPath, const std::string &logPath)
+	: _headline(headline), _message(message), _markerPath(markerPath),
+	  _dmpPath(dmpPath), _logPath(logPath)
 {
 	++s_raiseCount;
 	buildLayout();
@@ -2091,27 +2093,34 @@ std::string CoopCrashPromptState::getMessageText() const
 void CoopCrashPromptState::btnBundleClick(Action *)
 {
 	// BUNDLE: pop the prompt FIRST so the result notice lands over the menu (not
-	// over a dying prompt), THEN build the zip. bundleCrashReportFromMarker deletes
-	// the marker on success and raises the CoopDesyncNoticeState result dialog.
+	// over a dying prompt), THEN build the zip. Either bundler deletes/marks its
+	// source on success and raises the CoopDesyncNoticeState result dialog.
 	s_lastChoice = "bundle";
 	Game* g = _game;
-	std::string marker = _markerPath;
+	std::string marker = _markerPath, dmp = _dmpPath, log = _logPath;
 	_game->popState();
-	SharedEcon::bundleCrashReportFromMarker(g, marker);
+	if (!marker.empty())
+		SharedEcon::bundleCrashReportFromMarker(g, marker);
+	else
+		SharedEcon::bundleCrashReportFromCrashlog(g, dmp, log);
 }
 
 void CoopCrashPromptState::btnNotNowClick(Action *)
 {
-	// NOT NOW: keep the marker so the next launch asks again.
+	// NOT NOW: leave the source untouched so the next launch asks again.
 	s_lastChoice = "not_now";
 	_game->popState();
 }
 
 void CoopCrashPromptState::btnNeverClick(Action *)
 {
-	// NEVER (this crash): drop the marker without bundling.
+	// NEVER (this crash): drop the marker (+ dedup its VEH pair), or mark the
+	// crashlog seen - without bundling.
 	s_lastChoice = "never";
-	SharedEcon::deleteCrashMarkerFile(_markerPath);
+	if (!_markerPath.empty())
+		SharedEcon::declineCrashMarker(_markerPath);
+	else
+		SharedEcon::markCrashlogSeenPath(_dmpPath);
 	_game->popState();
 }
 

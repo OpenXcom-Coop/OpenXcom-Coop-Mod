@@ -227,11 +227,15 @@ class CoopCrashPromptState : public State
 	TextButton *_btnNever;
 	std::string _headline;
 	std::string _message;
-	std::string _markerPath; ///< full path to crash-pending.json
+	std::string _markerPath; ///< classic crashDump marker (source 1); empty for a crashlog
+	std::string _dmpPath;    ///< issue #124 VEH crashlog dump (source 2); empty for a marker
+	std::string _logPath;    ///< the paired VEH crash log
 	void buildLayout();
   public:
+	/// One of {markerPath} (classic) or {dmpPath,logPath} (VEH crashlog) is set.
 	CoopCrashPromptState(const std::string &message, const std::string &headline,
-						 const std::string &markerPath);
+						 const std::string &markerPath, const std::string &dmpPath,
+						 const std::string &logPath);
 	/// Harness introspection: what this prompt says.
 	std::string getMessageText() const;
 	std::string getHeadlineText() const { return _headline; }

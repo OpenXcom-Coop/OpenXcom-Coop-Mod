@@ -640,6 +640,16 @@ void maybeReportPreviousCrash(Game* game);
 bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath);
 /// NEVER (this crash) handler: delete the marker so this crash is never raised again.
 void deleteCrashMarkerFile(const std::string& markerPath);
+/// Option (b) dual-source discovery: the crashed process already writes
+/// crash_<ts>_<seq>.{dmp,log} to <exe>/crashlogs (issue #124 VEH, the robust
+/// catch-all crashDump misses). maybeReportPreviousCrash also scans that dir for
+/// an unseen entry (per-user crash-seen.json ledger dedups). These are the
+/// crashlog-source handlers the consent dialog dispatches to.
+bool bundleCrashReportFromCrashlog(Game* game, const std::string& dmpPath, const std::string& logPath);
+/// NEVER on the classic marker: delete it + mark its paired VEH crashlog seen.
+void declineCrashMarker(const std::string& markerPath);
+/// NEVER on a crashlog: record its .dmp basename in the seen ledger (no zip).
+void markCrashlogSeenPath(const std::string& dmpPath);
 
 /// Game-minute cooldown between automatic resyncs (see verifyWorldChecksum).
 extern const int RESYNC_COOLDOWN_MINUTES;
