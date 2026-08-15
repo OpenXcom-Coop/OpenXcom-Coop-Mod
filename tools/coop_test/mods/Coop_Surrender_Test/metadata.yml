@@ -1,0 +1,13 @@
+name: "Coop surrender probe"
+version: 1.0
+description: "Test-only fixture for SESSION D (battle-end host authority). Sets the
+  mod ruleset key surrenderMode: 2 (the reader endTurn->tallyUnits->isSurrendering
+  gate that reads the panic wantsToSurrender the parallel client DEFERS) and marks
+  the vanilla Sectoid alien types canSurrender: true, so a panicked Sectoid on the
+  host reduces tally.liveAliens while the parallel client keeps counting it. Used
+  to prove the promoted battle-hash buckets do not false-alarm with the surrender
+  reader active, and that battle end stays host-authoritative (no hang, no state
+  divergence) when a surrender-capable alien is on the map."
+author: coop harness
+
+master: xcom1
