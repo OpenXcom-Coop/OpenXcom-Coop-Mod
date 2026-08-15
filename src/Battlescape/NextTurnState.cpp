@@ -804,6 +804,25 @@ void NextTurnState::close()
 						++tile_index;
 					}
 
+					// coop (PRD-I3 SEAM-11): every item's ammo absolute. The parallel client
+					// replays shots for DISPLAY and runs its own spendAmmoForAction, which
+					// drifts on a diverging autoshot/abort count (saveBlob ammoqty, e.g. 17 vs
+					// 14); a chain-close absolute is clobbered by the still-running replay's
+					// later spend, so ship it here - next_turn applies AFTER every replay has
+					// drained, and mid-turn drift heals by the SIDESTART where saveBlob compares.
+					// RAW qty (not getAmmoQuantity()'s clipSize==-1 -> 255) so a self-powered
+					// weapon reads -1 on both; only non-zero, matching BattleItem::save's gate.
+					{
+						int ammoIndex = 0;
+						for (BattleItem* bi : *_game->getSavedGame()->getSavedBattle()->getItems())
+						{
+							if (!bi || bi->getAmmoQuantityRaw() == 0) continue;
+							root["itemAmmo"][ammoIndex]["id"] = bi->getId();
+							root["itemAmmo"][ammoIndex]["qty"] = bi->getAmmoQuantityRaw();
+							ammoIndex++;
+						}
+					}
+
 					// PRD-P2 3b: the battle drift tripwire rides the per-turn packet -
 					// the one packet guaranteed to cross once a turn, and already a
 					// full-state stamp. The client compares and REPORTS; it never

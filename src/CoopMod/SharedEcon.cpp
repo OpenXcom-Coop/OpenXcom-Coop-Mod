@@ -5355,7 +5355,15 @@ void syncCheckAttach(Game* game, Json::Value& msg)
 	// death behind the executor's ring entry (the corpse exists on the host, not here),
 	// so the host skips those buckets for this report - the SAME rule verifyBattleChecksum
 	// applies to the P2 tripwire (corpseReplayPendingAny). Additive; an old host ignores it.
-	if (corpseReplayPendingAny() || corpseRemapPendingAny()) msg["corpsePending"] = true;
+	// PRD-I3 SEAM-11: a projectile replay in flight (_coopInitDeath) means this machine's
+	// DISPLAY replay is still running spendAmmoForAction, so a fired clip's ammoqty is
+	// transiently below the next_turn absolute (the display animation lags past the turn
+	// boundary on a backlogged client) - the SAME display-lag class as a pending corpse.
+	// Reuse the flag: the host skips items/itemIdCtr (harmless - a plain shot mints nothing)
+	// and, the point here, saveBlob, for this report; the next boundary compares them
+	// settled once the replay drains and next_turn re-ships the ammo absolute.
+	const bool coopDisplayReplay = game->getCoopMod() && game->getCoopMod()->_coopInitDeath;
+	if (corpseReplayPendingAny() || corpseRemapPendingAny() || coopDisplayReplay) msg["corpsePending"] = true;
 	// PRD-I3 SEAM-7 (opt-in): the full per-unit field vector, sampled in the SAME pass
 	// as `h`, so the host can diff a unitsStats mismatch field-by-field. Absent unless
 	// the capture toggle is armed (zero wire delta by default; an old/normal peer never

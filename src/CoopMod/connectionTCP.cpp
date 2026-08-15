@@ -8586,6 +8586,27 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					}
 				}
 
+				// coop (PRD-I3 SEAM-11): every item's ammo absolute. The parallel client replayed
+				// shots for display and ran its own spendAmmoForAction (drifts on a diverging
+				// autoshot/abort count); a chain-close absolute is clobbered by the still-running
+				// replay's later spend, so next_turn ships it - applied AFTER every replay drained,
+				// mid-turn drift heals by the SIDESTART where saveBlob compares. PVE parallel only
+				// (classic replays authoritatively -> byte-identical); present-gated for old hosts.
+				if (parallelTurnActive() && !getHost() && obj.isMember("itemAmmo")
+					&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+				{
+					SavedBattleGame* ammoBattle = _game->getSavedGame()->getSavedBattle();
+					for (Json::ArrayIndex ai = 0; ai < obj["itemAmmo"].size(); ++ai)
+					{
+						int aid = obj["itemAmmo"][ai]["id"].asInt();
+						int aqty = obj["itemAmmo"][ai]["qty"].asInt();
+						for (BattleItem* bi : *ammoBattle->getItems())
+						{
+							if (bi && bi->getId() == aid) { bi->setAmmoQuantity(aqty); break; }
+						}
+					}
+				}
+
 				SharedEcon::verifyBattleChecksum(_game, obj, "next_turn");
 
 				_game->getSavedGame()->getSavedBattle()->abortPathCoop();

@@ -5059,7 +5059,11 @@ void BattlescapeState::moveCoopInventory(std::string ammos_str, std::string item
 		currentItem->setXCOMProperty(getXCOMProperty);
 		currentItem->setIsAmmo(isAmmo);
 		currentItem->setFuseEnabled(isFuseEnabled);
-		currentItem->setAmmoQuantity(getAmmoQuantity);
+		// coop (PRD-I3 SEAM-11): the wire carries the SENDER's getAmmoQuantity(), which
+		// returns 255 for a clipSize==-1 (self-powered/infinite) item - but the raw field
+		// the save serializes is -1 there, so storing 255 leaves a permanent saveBlob
+		// ammoqty divergence (host -1 / peer 255). Restore the raw sentinel for those.
+		currentItem->setAmmoQuantity(currentItem->getRules()->getClipSize() == -1 ? -1 : getAmmoQuantity);
 
 		// weapon reload
 		if (isWeaponWithAmmo == true && ammos_str != "")
