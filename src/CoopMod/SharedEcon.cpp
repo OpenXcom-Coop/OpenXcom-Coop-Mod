@@ -4401,6 +4401,26 @@ std::uint64_t g_syncRegenEndturnSkips = 0;
 // PRD-I3 unitsCore side-gate (2026-08-14, Session C): alien-side + endturn skips.
 std::uint64_t g_syncCoreAlienSkips = 0;
 std::uint64_t g_syncCoreEndturnSkips = 0;
+// PRD-I3 terrain side-gate (2026-08-14, Session E): the SEAM-3 residual is a
+// destroy_tile mapDataID that lands one step behind the host during the alien-side
+// AI/explosion replay (ai/expl per-action seqs) and at the alien-side ENDTURN
+// boundary, healing by sidestart. Mirrors unitsCore: skip alien per-action + endturn,
+// keep player-side per-action (strict) + sidestart. These count the two skips.
+std::uint64_t g_syncTerrainAlienSkips = 0;
+std::uint64_t g_syncTerrainEndturnSkips = 0;
+// PRD-I3 items/itemIdCtr side-gate (2026-08-14, Session E): the item ledger
+// (ids/owners/slots/positions/fuse + the id counter) is authored across MULTIPLE
+// packets during a casualty drop / corpse+blast mint / projectile transient, so a
+// per-action sample straddles the in-flight window - and the seq it is ATTRIBUTED to
+// is TIMING-DEPENDENT (proven: identical seed -> different seq/kind across runs, and
+// it can land on a PLAYER 'shoot' as well as alien 'ai'/'expl'). The item CENSUS is
+// equal at every quiescence (the soak's direct assert), so the residual is purely the
+// in-flight sampling; a PERSISTENT item divergence still surfaces at SIDESTART. So
+// compare at SIDESTART only (skip every per-action + endturn), mirroring unitsRegen.
+std::uint64_t g_syncItemsAiSkips = 0;
+std::uint64_t g_syncItemsEndturnSkips = 0;
+std::uint64_t g_syncItemIdCtrAiSkips = 0;
+std::uint64_t g_syncItemIdCtrEndturnSkips = 0;
 // The two namespaces are tracked apart: `action_seq` restarts at 0 every side, so
 // a shared watermark would be dragged forwards by the battle-monotonic boundary
 // counter and "the deferred loop closed" would read true for ever after.
@@ -5477,6 +5497,52 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 				continue;
 			}
 		}
+		// PRD-I3 terrain side-gate (2026-08-14, Session E): SAME discipline as unitsCore.
+		// The SEAM-3 loose-destroy chokepoint closed the in-chain leak, but a residual
+		// destroy_tile mapDataID still lands one step behind the host's authoritative
+		// destruction during the alien-side AI/explosion replay (kind ai/expl) and at the
+		// alien-side ENDTURN boundary, healing by sidestart (traced Session E: terrain
+		// ai/endturn only, never a player seq, never sidestart). Skip the alien per-action
+		// seqs + endturn; keep player-side per-action (strict) + sidestart, where a
+		// PERSISTENT terrain divergence still surfaces. A skipped bucket is NOT compared.
+		if (std::strcmp(name, "terrain") == 0)
+		{
+			const bool alienSeq = !boundary && (entry->kind == "ai" || entry->kind == "expl");
+			const bool endturnBnd = boundary && entry->kind == "endturn";
+			if (alienSeq || endturnBnd)
+			{
+				if (endturnBnd) ++g_syncTerrainEndturnSkips;
+				else ++g_syncTerrainAlienSkips;
+				continue;
+			}
+		}
+		// PRD-I3 items/itemIdCtr side-gate (2026-08-14, Session E): SIDESTART-only, like
+		// unitsRegen. The item ledger is authored across multiple packets during a
+		// casualty drop / corpse+blast mint / projectile transient; a per-action sample
+		// straddles that in-flight window and the seq it is attributed to is
+		// timing-dependent (identical seed -> different seq/kind, and it can land on a
+		// PLAYER 'shoot' as well as alien 'ai'/'expl'), so per-action strict is ill-defined
+		// at EVERY seq. The item CENSUS is equal at quiescence (the soak's direct assert);
+		// a PERSISTENT item divergence still surfaces at SIDESTART (hash-after-apply of
+		// next_turn). Compare at sidestart only; skip every per-action + endturn.
+		if (std::strcmp(name, "items") == 0)
+		{
+			if (!(boundary && entry->kind == "sidestart"))
+			{
+				if (boundary && entry->kind == "endturn") ++g_syncItemsEndturnSkips;
+				else ++g_syncItemsAiSkips;
+				continue;
+			}
+		}
+		if (std::strcmp(name, "itemIdCtr") == 0)
+		{
+			if (!(boundary && entry->kind == "sidestart"))
+			{
+				if (boundary && entry->kind == "endturn") ++g_syncItemIdCtrEndturnSkips;
+				else ++g_syncItemIdCtrAiSkips;
+				continue;
+			}
+		}
 		++g_syncBucketCompares[i];
 		if (boundary && hazardBucket && entry->kind == "sidestart")
 			++g_syncSidestartHazardCompares;
@@ -5608,6 +5674,15 @@ void syncCheckReport(Json::Value& out)
 	node["unitsRegenEndturnSkips"] = static_cast<Json::UInt64>(g_syncRegenEndturnSkips);
 	node["unitsCoreAlienSkips"] = static_cast<Json::UInt64>(g_syncCoreAlienSkips);
 	node["unitsCoreEndturnSkips"] = static_cast<Json::UInt64>(g_syncCoreEndturnSkips);
+	// PRD-I3 Session E: terrain alien/endturn skips (unitsCore discipline) + the
+	// items/itemIdCtr sidestart-only skips (unitsRegen discipline), so a test can
+	// assert exactly where each was skipped.
+	node["terrainAlienSkips"] = static_cast<Json::UInt64>(g_syncTerrainAlienSkips);
+	node["terrainEndturnSkips"] = static_cast<Json::UInt64>(g_syncTerrainEndturnSkips);
+	node["itemsAiSkips"] = static_cast<Json::UInt64>(g_syncItemsAiSkips);
+	node["itemsEndturnSkips"] = static_cast<Json::UInt64>(g_syncItemsEndturnSkips);
+	node["itemIdCtrAiSkips"] = static_cast<Json::UInt64>(g_syncItemIdCtrAiSkips);
+	node["itemIdCtrEndturnSkips"] = static_cast<Json::UInt64>(g_syncItemIdCtrEndturnSkips);
 	// PRD-I3 saveBlob endturn straddle: the endturn saveBlob exclusion + the sidestart
 	// saveBlob compares (mirrors the hazard split above), so a test can assert saveBlob
 	// rides SIDESTART only - endturn skipped, sidestart compared.
@@ -5768,6 +5843,12 @@ void resetSyncCheck()
 	g_syncRegenEndturnSkips = 0;
 	g_syncCoreAlienSkips = 0;
 	g_syncCoreEndturnSkips = 0;
+	g_syncTerrainAlienSkips = 0;
+	g_syncTerrainEndturnSkips = 0;
+	g_syncItemsAiSkips = 0;
+	g_syncItemsEndturnSkips = 0;
+	g_syncItemIdCtrAiSkips = 0;
+	g_syncItemIdCtrEndturnSkips = 0;
 	g_syncSaveBlobMismatches = 0;
 	g_syncSaveBlobEndturnSkips = 0;
 	g_syncSaveBlobSidestartCompares = 0;
