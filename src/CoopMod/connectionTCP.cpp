@@ -38,6 +38,7 @@
 #include "../Mod/UfoTrajectory.h"
 #include "../Savegame/Ufo.h"
 #include "../Battlescape/AIModule.h"
+#include "../Battlescape/TileEngine.h" // coop (SEAM-11): closeUfoDoors on the client deferred boundary
 #include "../Battlescape/DebriefingState.h"
 #include "../Battlescape/BattlescapeState.h"
 
@@ -8839,6 +8840,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						}
 						_turnAdvanceDeferred = 0;
 					}
+
+					// coop (PRD-I3 SEAM-11): the host closes sliding (ufo) doors at every
+					// endTurn (BattlescapeGame::endTurn -> closeUfoDoors), but the parallel
+					// client DEFERS the neutral->player boundary, so a door a NEUTRAL unit
+					// (terror-site civilian) left open never closes here - the isUfoDoorOpen
+					// bit then diverges permanently in the saveBlob binTiles blob. Mirror the
+					// host: close them at the deferred apply (idempotent, keeps a door with a
+					// unit in it open on both). Before the sidestart hash, so it heals there.
+					if (battle->getTileEngine()) battle->getTileEngine()->closeUfoDoors();
 				}
 
 			}
