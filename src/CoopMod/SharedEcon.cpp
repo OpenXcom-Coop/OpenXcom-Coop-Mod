@@ -4297,13 +4297,17 @@ namespace {
 //
 // PRD-I3 flips these one at a time, each with its burn-in evidence.
 const bool BATTLE_HASH_ALARM[BATTLE_HASH_BUCKETS] = {
-	false,  // terrain      (report-only: SEAM-3 destroy_tile delivery straddle)
+	true,   // terrain      (PRD-I3 PROMOTED 2026-08-14 Session E @e316d716a: side-gated to
+	        //               player-side+sidestart like unitsCore; L3 0/36 incl. incendiary/spawn-blast/casualty)
 	true,   // fire         (PRD-I3 PROMOTED 2026-08-14 @4a15f7bd4: L3 clean incl. incendiary x2)
-	false,  // smoke        (report-only: SEAM-3 smoke_ai mid-side explosion class)
-	false,  // items        (report-only: SEAM-7/8 casualty item-drop straddle)
+	true,   // smoke        (PRD-I3 PROMOTED 2026-08-14 Session E @e316d716a: L3 0/36; twin of fire,
+	        //               endturn hazard-skip + SEAM-3 expl stamp already closed the mid-side class)
+	false,  // items        (report-only: SEAM-7/8 casualty drop + item-id drift #74 boundary-death
+	        //               corpse-mint straddles even the sidestart hash; blocked pending the id-drift fix)
 	true,   // unitsCore    (PRD-I3 PROMOTED 2026-08-14 Session C: side-gated to player-side+sidestart; L3 clean)
 	true,   // unitsStats   (PRD-I3 PROMOTED 2026-08-14: superseded=0 old-peer fallback, L3 clean)
-	false,  // itemIdCtr    (report-only: SEAM-3/7 blast item-id counter straddle)
+	false,  // itemIdCtr    (report-only: item-id drift #74 - the id counter straddles every in-flight
+	        //               mint incl. the boundary-death corpse mint at sidestart; blocked pending the fix)
 	true,   // unitsCombat  (PRD-I3 PROMOTED 2026-08-14: CHAIN-authored kneel/mc/w0..w5; fire moved out)
 	true,   // unitsRegen   (PRD-I3 PROMOTED 2026-08-14: DEFERRED set, sidestart-only, L3 clean)
 };
@@ -4408,19 +4412,13 @@ std::uint64_t g_syncCoreEndturnSkips = 0;
 // keep player-side per-action (strict) + sidestart. These count the two skips.
 std::uint64_t g_syncTerrainAlienSkips = 0;
 std::uint64_t g_syncTerrainEndturnSkips = 0;
-// PRD-I3 items/itemIdCtr side-gate (2026-08-14, Session E): the item ledger
-// (ids/owners/slots/positions/fuse + the id counter) is authored across MULTIPLE
-// packets during a casualty drop / corpse+blast mint / projectile transient, so a
-// per-action sample straddles the in-flight window - and the seq it is ATTRIBUTED to
-// is TIMING-DEPENDENT (proven: identical seed -> different seq/kind across runs, and
-// it can land on a PLAYER 'shoot' as well as alien 'ai'/'expl'). The item CENSUS is
-// equal at every quiescence (the soak's direct assert), so the residual is purely the
-// in-flight sampling; a PERSISTENT item divergence still surfaces at SIDESTART. So
-// compare at SIDESTART only (skip every per-action + endturn), mirroring unitsRegen.
-std::uint64_t g_syncItemsAiSkips = 0;
-std::uint64_t g_syncItemsEndturnSkips = 0;
-std::uint64_t g_syncItemIdCtrAiSkips = 0;
-std::uint64_t g_syncItemIdCtrEndturnSkips = 0;
+// NOTE (PRD-I3 Session E): items/itemIdCtr were NOT gated/promoted. A sidestart-only
+// gate (unitsRegen discipline) was trialled but the L3 showed a residual survives even
+// at the sidestart - a boundary-DEATH corpse mint (a unit bleeding/burning to death in
+// prepareNewTurn) allocates item ids during the deferred next_turn apply, so the mint
+// straddles the sidestart hash (the item-id drift, issue #74). With no clean per-action
+// or boundary compare point, both stay REPORT-ONLY and STRICT pending the id-drift fix;
+// the recommended future gate (sidestart-only) is recorded in the prd-i3 SEAM LOG.
 // The two namespaces are tracked apart: `action_seq` restarts at 0 every side, so
 // a shared watermark would be dragged forwards by the battle-monotonic boundary
 // counter and "the deferred loop closed" would read true for ever after.
@@ -5516,33 +5514,9 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 				continue;
 			}
 		}
-		// PRD-I3 items/itemIdCtr side-gate (2026-08-14, Session E): SIDESTART-only, like
-		// unitsRegen. The item ledger is authored across multiple packets during a
-		// casualty drop / corpse+blast mint / projectile transient; a per-action sample
-		// straddles that in-flight window and the seq it is attributed to is
-		// timing-dependent (identical seed -> different seq/kind, and it can land on a
-		// PLAYER 'shoot' as well as alien 'ai'/'expl'), so per-action strict is ill-defined
-		// at EVERY seq. The item CENSUS is equal at quiescence (the soak's direct assert);
-		// a PERSISTENT item divergence still surfaces at SIDESTART (hash-after-apply of
-		// next_turn). Compare at sidestart only; skip every per-action + endturn.
-		if (std::strcmp(name, "items") == 0)
-		{
-			if (!(boundary && entry->kind == "sidestart"))
-			{
-				if (boundary && entry->kind == "endturn") ++g_syncItemsEndturnSkips;
-				else ++g_syncItemsAiSkips;
-				continue;
-			}
-		}
-		if (std::strcmp(name, "itemIdCtr") == 0)
-		{
-			if (!(boundary && entry->kind == "sidestart"))
-			{
-				if (boundary && entry->kind == "endturn") ++g_syncItemIdCtrEndturnSkips;
-				else ++g_syncItemIdCtrAiSkips;
-				continue;
-			}
-		}
+		// items/itemIdCtr: NOT gated (see the note by g_syncTerrainAlienSkips) - they stay
+		// report-only + strict, so the items negative control (test_sync_check scenario 4)
+		// still sees the mint at its player seq.
 		++g_syncBucketCompares[i];
 		if (boundary && hazardBucket && entry->kind == "sidestart")
 			++g_syncSidestartHazardCompares;
@@ -5674,15 +5648,10 @@ void syncCheckReport(Json::Value& out)
 	node["unitsRegenEndturnSkips"] = static_cast<Json::UInt64>(g_syncRegenEndturnSkips);
 	node["unitsCoreAlienSkips"] = static_cast<Json::UInt64>(g_syncCoreAlienSkips);
 	node["unitsCoreEndturnSkips"] = static_cast<Json::UInt64>(g_syncCoreEndturnSkips);
-	// PRD-I3 Session E: terrain alien/endturn skips (unitsCore discipline) + the
-	// items/itemIdCtr sidestart-only skips (unitsRegen discipline), so a test can
-	// assert exactly where each was skipped.
+	// PRD-I3 Session E: terrain alien/endturn skips (unitsCore discipline), so a test
+	// can assert exactly where the promoted terrain bucket was skipped.
 	node["terrainAlienSkips"] = static_cast<Json::UInt64>(g_syncTerrainAlienSkips);
 	node["terrainEndturnSkips"] = static_cast<Json::UInt64>(g_syncTerrainEndturnSkips);
-	node["itemsAiSkips"] = static_cast<Json::UInt64>(g_syncItemsAiSkips);
-	node["itemsEndturnSkips"] = static_cast<Json::UInt64>(g_syncItemsEndturnSkips);
-	node["itemIdCtrAiSkips"] = static_cast<Json::UInt64>(g_syncItemIdCtrAiSkips);
-	node["itemIdCtrEndturnSkips"] = static_cast<Json::UInt64>(g_syncItemIdCtrEndturnSkips);
 	// PRD-I3 saveBlob endturn straddle: the endturn saveBlob exclusion + the sidestart
 	// saveBlob compares (mirrors the hazard split above), so a test can assert saveBlob
 	// rides SIDESTART only - endturn skipped, sidestart compared.
@@ -5845,10 +5814,6 @@ void resetSyncCheck()
 	g_syncCoreEndturnSkips = 0;
 	g_syncTerrainAlienSkips = 0;
 	g_syncTerrainEndturnSkips = 0;
-	g_syncItemsAiSkips = 0;
-	g_syncItemsEndturnSkips = 0;
-	g_syncItemIdCtrAiSkips = 0;
-	g_syncItemIdCtrEndturnSkips = 0;
 	g_syncSaveBlobMismatches = 0;
 	g_syncSaveBlobEndturnSkips = 0;
 	g_syncSaveBlobSidestartCompares = 0;

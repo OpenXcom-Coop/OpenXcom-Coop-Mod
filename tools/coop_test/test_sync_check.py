@@ -1227,11 +1227,15 @@ def main():
         assert sc0["mismatchCount"] == 0, (
             f"the two machines already disagree before anything was driven: {sc0}")
         # PRD-I3 promotions: fire/unitsStats/unitsCombat/unitsRegen (@4a15f7bd4) +
-        # unitsCore (Session C, side-gated to player-side+sidestart) are ARMED; the
-        # rest stay REPORT-ONLY. This guard catches an accidental promotion-table
-        # change and forces a conscious re-prove of no-false-alarm + routing (the
-        # scenario-2 positive alarm route + the scenario-4 items negative control).
-        EXPECTED_ALARM = {"fire", "unitsStats", "unitsCombat", "unitsRegen", "unitsCore"}
+        # unitsCore (Session C, side-gated to player-side+sidestart) + terrain/smoke
+        # (Session E @e316d716a; terrain side-gated like unitsCore, smoke rides the
+        # existing endturn hazard-skip) are ARMED; items/itemIdCtr (item-id drift #74)
+        # and saveBlob (multi-field sidestart residual) stay REPORT-ONLY. This guard
+        # catches an accidental promotion-table change and forces a conscious re-prove
+        # of no-false-alarm + routing (the scenario-2 positive alarm route + the
+        # scenario-4 items negative control, which needs items to stay report-only).
+        EXPECTED_ALARM = {"fire", "unitsStats", "unitsCombat", "unitsRegen", "unitsCore",
+                          "terrain", "smoke"}
         armed = {n for n, b in sc0["buckets"].items() if b["alarm"]}
         assert armed == EXPECTED_ALARM, (
             f"the ALARM promotion table changed: armed={sorted(armed)} but this "
