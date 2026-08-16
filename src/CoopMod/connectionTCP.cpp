@@ -6796,45 +6796,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	if (stateString == "GamePausedON")
-	{
-
-		if (gamePaused == 0)
-		{
-			gamePaused = 2;
-			setPlayerTurn(1);
-		}
-
-		if (onTcpHost == true)
-		{
-
-			_waitBC = false;
-		}
-		else
-		{
-
-			_waitBH = false;
-		}
-	}
-
-	if (stateString == "GamePausedOFF")
-	{
-
-		if (onTcpHost == true)
-		{
-
-			_waitBC = true;
-		}
-		else
-		{
-
-			_waitBH = true;
-		}
-
-		setPlayerTurn(gamePaused);
-		gamePaused = 0;
-	}
-
 	// coop (PRD-P8 §5): the reserve mirror is a CLASSIC-mode packet. In parallel
 	// mode reserve is a per-machine setting - both players are acting at once, so
 	// one player's reserve has no business gating the other's soldiers - and the
@@ -14741,7 +14702,6 @@ void connectionTCP::hostTCPServer(std::string servername, std::string str_port)
 {
 
 	sendTcpServerName = servername;
-	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
 	_battleWindow = false;
@@ -14782,7 +14742,6 @@ void connectionTCP::hostTCPServer(std::string servername, std::string str_port)
 void connectionTCP::connectTCPServer(std::string ipaddress, std::string str_port)
 {
 	ipAddress = ipaddress;
-	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
 	_battleWindow = false;
@@ -14827,7 +14786,6 @@ void connectionTCP::connectTCPServer(std::string ipaddress, std::string str_port
 // the transport start. Session is derived from the shared password (both peers).
 void connectionTCP::hostDirectLanUDP(std::string str_port, std::string player, std::string password)
 {
-	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
 	_battleWindow = false;
@@ -14849,7 +14807,6 @@ void connectionTCP::joinDirectLanUDP(std::string ipaddress, std::string str_port
 									 std::string str_localport, std::string player, std::string password)
 {
 	ipAddress = ipaddress;
-	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
 	_battleWindow = false;
@@ -15179,7 +15136,6 @@ void connectionTCP::disconnectTCP(bool isMain)
 		connectionTCP::no_bases = false;
 		connectionTCP::isCoopBaseLoading = false;
 
-		gamePaused = 0;
 		playerInsideCoopBase = false;
 
 		resetCoopTaskDepth();

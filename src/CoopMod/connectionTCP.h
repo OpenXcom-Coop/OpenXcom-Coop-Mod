@@ -590,7 +590,6 @@ class connectionTCP
 	/// issue #93: stream the RUNNING skirmish battle to a rejoining client.
 	void streamSkirmishBattleToClient();
 	void sendSaveProgressFile();
-	int gamePaused = 0; // 0 = no set, 1 = team, 2 = your
 	bool cancel_connect = false;
 	int getCurrentTurn();
 	void loadHostMap();

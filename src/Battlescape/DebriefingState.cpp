@@ -331,7 +331,6 @@ DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _countr
 		_game->getCoopMod()->_isActiveAISync = false;
 		_game->getCoopMod()->_isActivePlayerSync = false;
 		_game->getCoopMod()->_battleInit = false;
-		_game->getCoopMod()->gamePaused = 0;
 		_game->getCoopMod()->_clientPanicHandle = false;
 		_game->getCoopMod()->_onClickClose = false;
 

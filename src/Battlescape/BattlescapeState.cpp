@@ -853,14 +853,7 @@ BattlescapeState::BattlescapeState() :
 			if (_game->getCoopMod()->_waitBH == true)
 			{
 
-				if (_game->getCoopMod()->gamePaused == 2)
-				{
-					_game->getCoopMod()->setPlayerTurn(1);
-				}
-				else
-				{
-					_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
-				}
+				_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
 
 			}
 
@@ -872,14 +865,7 @@ BattlescapeState::BattlescapeState() :
 			if (_game->getCoopMod()->_waitBC == true)
 			{
 
-				if (_game->getCoopMod()->gamePaused == 2)
-				{
-					_game->getCoopMod()->setPlayerTurn(1);
-				}
-				else
-				{
-					_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
-				}
+				_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
 
 			}
 
@@ -1442,15 +1428,10 @@ void BattlescapeState::think()
 			// the deny/ready flashes P6/P8 put through the same widget).
 			const bool coopParallel = _game->getCoopMod()->parallelTurnActive();
 
-			// game paused
-			// The `isYourTurn != 2` term is dead in parallel mode; the pause banner
-			// is not, so it keys on gamePaused alone there.
-			if (_game->getCoopMod()->gamePaused != 0 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && (_battleGame->isYourTurn != 2 || coopParallel) && _game->getCoopMod()->_battleInit == true)
-			{
-				showCoopWarning("Multiplayer Paused");
-
-			}
-			else if (_battleGame->isYourTurn == 1 && coopParallel == false && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true)
+			// coop: off-turn "<peer>'s Turn" banner. Classic mode only - parallel mode
+			// has no off-turn side (both machines hold isYourTurn == 2), so coopParallel
+			// gates it out.
+			if (_battleGame->isYourTurn == 1 && coopParallel == false && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true)
 			{
 				showCoopWarning(_game->getCoopMod()->getCurrentClientName() + "'s Turn");
 			}
@@ -1689,7 +1670,6 @@ void BattlescapeState::think()
 						else
 						{
 							showCoopLongWarning("Your Turn");
-							_game->getCoopMod()->gamePaused = 0;
 
 							if (mine)
 							{
@@ -1730,7 +1710,6 @@ void BattlescapeState::think()
 						{
 
 							showCoopLongWarning("Your Turn");
-							_game->getCoopMod()->gamePaused = 0;
 
 							if (_save->getSelectedUnit())
 							{
@@ -1783,7 +1762,6 @@ void BattlescapeState::think()
 						else
 						{
 							showCoopLongWarning("Your Turn");
-							_game->getCoopMod()->gamePaused = 0;
 
 							if (_save->getSelectedUnit())
 							{
@@ -1806,7 +1784,7 @@ void BattlescapeState::think()
 			}
 
 			// coop
-			if (_game->getCoopMod()->_waitBC == true && _game->getCoopMod()->_waitBH == true && _game->getCoopMod()->gamePaused == 0 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true && _battleGame->isBusy() == false && _save->getBattleGame()->getCoopMod()->_clientPanicHandle == false)
+			if (_game->getCoopMod()->_waitBC == true && _game->getCoopMod()->_waitBH == true && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true && _battleGame->isBusy() == false && _save->getBattleGame()->getCoopMod()->_clientPanicHandle == false)
 			{
 
 				_game->getCoopMod()->_waitBC = false;
