@@ -12008,6 +12008,23 @@ void connectionTCP::setConnected(int state)
 // disconnect the connection
 void connectionTCP::disconnectTCP(bool isMain)
 {
+		// A finished custom battle has already left the tactical world, so
+		// coopBattleLive() is false while its DebriefingState is still open.
+		// Remember that exact state before teardown resets the session: a client
+		// leaving at the results screen must not send the host back to the lobby.
+		bool customBattleDebriefing = false;
+		if (_game && _game->getSavedGame()
+			&& _game->getSavedGame()->getMonthsPassed() == -1)
+		{
+			for (State* st : _game->getStates())
+			{
+				if (dynamic_cast<DebriefingState*>(st) != nullptr)
+				{
+					customBattleDebriefing = true;
+					break;
+				}
+			}
+		}
 
 		_waitBC = false;
 		_waitBH = false;
@@ -12145,9 +12162,15 @@ void connectionTCP::disconnectTCP(bool isMain)
 						"wait dialog (freeze/resume-ack) is already on the stack";
 				}
 			}
-			else if (connectionTCP::session.lobbyClosed == true)
+			else if (connectionTCP::session.lobbyClosed == true
+				&& !customBattleDebriefing)
 			{
 				_game->pushState(new LobbyMenu);
+			}
+			else if (customBattleDebriefing)
+			{
+				Log(LOG_INFO) << "[coop] lobby suppressed: client disconnected "
+					"while the host was viewing custom-battle debriefing";
 			}
 
 		}

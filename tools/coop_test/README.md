@@ -74,6 +74,9 @@ campaign each run.
   the client's time-sync cache, a later Skirmish in the same process must retain
   its `monthsPassed == -1` marker and leave debriefing for the main menu rather
   than the geoscape.
+- `test_skirmish_debrief_disconnect.py` - after a Custom Battle has reached its
+  debriefing screen, a client disconnect must leave the host on that debriefing
+  and must not reopen `LobbyMenu` underneath the disconnect notice.
 - `test_ufo_notice.py` - when one player detects a UFO, the peer gets the notice
   too (both `UfoDetectedState` popups); checks both directions.
 - `test_client_zero_disk.py` - host-save authority: after a full session with
