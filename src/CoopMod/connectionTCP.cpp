@@ -351,6 +351,23 @@ void CoopSession::resetSession()
 	// its stale world blobs (fixes C1/C2). This is the ONLY teardown path;
 	// onClientDrop deliberately keeps both so the host can serve a rejoin (D5).
 	connectionTCP::saveID = 0;
+
+	// The client-side time mirror is process-static and is applied to every live
+	// SavedGame while time sync is enabled. If a campaign is followed by a
+	// skirmish in the same process, retaining the campaign year makes think()
+	// overwrite the skirmish's monthsPassed == -1 with the old campaign value.
+	// DebriefingState then mistakes the skirmish for a campaign and returns to
+	// the geoscape. A full teardown must discard the old world's clock too.
+	connectionTCP::_weekday = 0;
+	connectionTCP::_day = 0;
+	connectionTCP::_month = 0;
+	connectionTCP::_year = 0;
+	connectionTCP::_hour = 0;
+	connectionTCP::_minute = 0;
+	connectionTCP::_second = 0;
+	connectionTCP::monthsPassed = 0;
+	connectionTCP::daysPassed = 0;
+
 	{
 		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
 		connectionTCP::coopFilesHost.clear();
