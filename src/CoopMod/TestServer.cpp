@@ -5577,6 +5577,17 @@ std::string TestServer::execute(const std::string& line)
 				resp["pathLock"] = coop->_pathLock;
 				resp["coopWalkInit"] = coop->_coopWalkInit;
 				resp["coopInitDeath"] = coop->_coopInitDeath;
+				// PRD-I3 Session F straddle: this machine's death-replay windows folded
+				// into one gate - the SAME predicate the in-game sync-check reports on at
+				// SharedEcon.cpp:5817 (corpseReplayPendingAny window-1 + corpseRemapPendingAny
+				// window-2 + this machine's _coopInitDeath display replay). A strict
+				// cross-machine item census (test_parallel_soak) sampled while this is true
+				// straddles a boundary death: the executor already minted the corpse and
+				// spilled its kit to the floor, this peer has not converted yet - kit still
+				// on the body here. The soak fixture waits for it to drain before comparing.
+				// Additive read only; no effect on the compare/tripwire semantics.
+				resp["corpsePending"] = SharedEcon::corpseReplayPendingAny()
+					|| SharedEcon::corpseRemapPendingAny() || coop->_coopInitDeath;
 				resp["coopEnd"] = coop->_coopEnd;
 				resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
 				resp["rxPark"] = static_cast<Json::UInt>(rxParkSize());

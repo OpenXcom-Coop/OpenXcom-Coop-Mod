@@ -256,6 +256,24 @@ def settle_display(host, client, timeout=90):
     # already on the floor there.
     poll(lambda: battle(host).get("isBusy") is False
          and battle(client).get("isBusy") is False, timeout, 0.1)
+    # ...and until the CLIENT's death-replay windows have drained. `isBusy` is the
+    # EXECUTOR's animation flag; it does not cover the peer's corpse-replication
+    # state. `corpsePending` (battle_state, additive) folds the exact predicate the
+    # in-game sync-check gates on at SharedEcon.cpp:5817 - corpseReplayPendingAny()
+    # (window 1: push -> convertUnitToCorpse) OR corpseRemapPendingAny() (window 2:
+    # local-id mint -> host-id reconcile) OR _coopInitDeath (a projectile/death
+    # display replay still running). `turnAdvanceDeferred` is the neutral->player
+    # advance that has not applied its next_turn yet. A boundary death has the host
+    # one corpse ahead while the client is mid-drain: host items on the floor + a
+    # corpse, client kit still in BELT/RIGHT_HAND - the straddle the strict id census
+    # in assert_census would flag as drift. Bounded, and on TIMEOUT this PROCEEDS to
+    # the census anyway (poll returns None and is ignored): a persistent divergence
+    # drains the predicate and stays different, so the assert still fires on real
+    # drift - only the transient straddle is waited out, never masked.
+    poll(lambda: battle(host).get("corpsePending") is not True
+         and battle(client).get("corpsePending") is not True
+         and parallel(host).get("turnAdvanceDeferred", 0) == 0
+         and parallel(client).get("turnAdvanceDeferred", 0) == 0, timeout, 0.1)
     drain(host, client, rounds=1)
 
 
