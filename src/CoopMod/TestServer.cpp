@@ -17,6 +17,31 @@
  * You should have received a copy of the GNU General Public License
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
+// Ephemeral-port probe (bring-up plumbing, test-only): bind an OS-assigned port
+// on loopback and read it back via getsockname, so the harness never hardcodes a
+// coop/control port. Winsock must precede any windows.h that SDL later pulls in,
+// so these come first, before every other include. NOMINMAX keeps windows.h from
+// defining the min/max macros that would clobber std::numeric_limits<>::min() in
+// the Engine/Mod headers below; WIN32_LEAN_AND_MEAN keeps it from dragging in the
+// legacy winsock.h that conflicts with winsock2.h.
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#endif
+#include <cstdio>
+#include <cstring>
 #include "TestServer.h"
 
 #include <algorithm>
@@ -197,6 +222,60 @@ TestServer& TestServer::instance()
 	return s;
 }
 
+// Bind an OS-assigned ephemeral port on loopback (sockType = SOCK_STREAM or
+// SOCK_DGRAM), read the assigned port back, and release the socket. Returns the
+// port (1..65535) or 0 on failure. This is how both socket kinds go ephemeral
+// without the harness guessing: the game asks the OS for a free port and reports
+// what it got. There is a tiny bind->close->reopen window before the real
+// listener/host binds the same number, but the OS does not immediately recycle a
+// just-released loopback ephemeral port, so a same-port collision is not observed
+// in practice - and this categorically removes the fixed-port linger/collision
+// class (a prior scenario's instance still holding :NNNNN) that motivated the
+// change. Requires winsock to be up (SDLNet_Init / SDL have already done
+// WSAStartup by every call site here).
+static int probeEphemeralPort(int sockType)
+{
+#ifdef _WIN32
+	SOCKET s = socket(AF_INET, sockType, 0);
+	if (s == INVALID_SOCKET) return 0;
+#else
+	int s = socket(AF_INET, sockType, 0);
+	if (s < 0) return 0;
+#endif
+	sockaddr_in addr;
+	std::memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	addr.sin_port = 0; // OS assigns
+	int port = 0;
+	if (bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0)
+	{
+		sockaddr_in bound;
+		std::memset(&bound, 0, sizeof(bound));
+#ifdef _WIN32
+		int len = sizeof(bound);
+#else
+		socklen_t len = sizeof(bound);
+#endif
+		if (getsockname(s, reinterpret_cast<sockaddr*>(&bound), &len) == 0)
+			port = ntohs(bound.sin_port);
+	}
+#ifdef _WIN32
+	closesocket(s);
+#else
+	close(s);
+#endif
+	return port;
+}
+
+// The per-instance file the harness polls to learn the TestServer control port
+// when it was bound ephemeral (OXC_TEST_PORT=0). Lives in the instance's own
+// -user folder, which the harness owns and creates per instance.
+static std::string testServerPortFilePath()
+{
+	return Options::getUserFolder() + "testserver_port.txt";
+}
+
 void TestServer::startFromEnvironment(Game* game)
 {
 	if (_running.load())
@@ -209,14 +288,18 @@ void TestServer::startFromEnvironment(Game* game)
 		return;
 	}
 	int port = std::atoi(portStr);
-	if (port <= 0 || port > 65535)
+	// OXC_TEST_PORT=0 means "OS-assigned ephemeral": ioThread probes a free port
+	// and reports it to the harness via <userfolder>/testserver_port.txt. A fixed
+	// port still works (manual debugging). Reject only out-of-range values.
+	if (port < 0 || port > 65535)
 	{
 		return;
 	}
 	_game = game;
 	_running.store(true);
 	_thread = std::thread(&TestServer::ioThread, this, port);
-	Log(LOG_INFO) << "[testserver] listening on 127.0.0.1:" << port;
+	Log(LOG_INFO) << "[testserver] starting (requested port "
+		<< (port == 0 ? "0 = ephemeral" : std::to_string(port)) << ")";
 }
 
 void TestServer::stop()
@@ -230,10 +313,26 @@ void TestServer::stop()
 
 void TestServer::ioThread(int port)
 {
+	// Clear any stale port file before binding, so the harness never reads a port
+	// left over from a previous run in a reused -user folder.
+	std::remove(testServerPortFilePath().c_str());
+
 	if (SDLNet_Init() != 0)
 	{
 		Log(LOG_ERROR) << "[testserver] SDLNet_Init failed: " << SDLNet_GetError();
 		return;
+	}
+	// Ephemeral control socket (OXC_TEST_PORT=0): ask the OS for a free port now
+	// that winsock is up, then bind SDL_net on that concrete port so we know it.
+	if (port == 0)
+	{
+		port = probeEphemeralPort(SOCK_STREAM);
+		if (port <= 0)
+		{
+			Log(LOG_ERROR) << "[testserver] could not probe an ephemeral port";
+			SDLNet_Quit();
+			return;
+		}
 	}
 	IPaddress ip;
 	// NULL host = listen (SDL_net semantics; a concrete address would mean
@@ -251,6 +350,22 @@ void TestServer::ioThread(int port)
 	}
 	SDLNet_SocketSet set = SDLNet_AllocSocketSet(2);
 	SDLNet_TCP_AddSocket(set, listening);
+
+	// The listener is up on `port`. Report it to the harness atomically: write a
+	// temp file then rename over the final name, so a poller never reads a
+	// half-written value. The log line below is the stdout/log fallback report.
+	{
+		const std::string finalPath = testServerPortFilePath();
+		const std::string tmpPath = finalPath + ".tmp";
+		std::ofstream pf(tmpPath.c_str(), std::ios::out | std::ios::trunc);
+		if (pf)
+		{
+			pf << port << "\n";
+			pf.close();
+			std::rename(tmpPath.c_str(), finalPath.c_str());
+		}
+	}
+	Log(LOG_INFO) << "[testserver] listening on 127.0.0.1:" << port;
 
 	TCPsocket client = nullptr;
 	std::string recvBuf;
@@ -6773,6 +6888,14 @@ std::string TestServer::execute(const std::string& line)
 				{
 					connectionTCP::_coopGamemode = 1; // PVE
 				}
+				// Ephemeral coop host port (port "0"): bind an OS-assigned TCP
+				// port and report it back so the peer's join_tcp dials the right
+				// one. A concrete port still works (manual debugging).
+				if (port == "0")
+				{
+					int p = probeEphemeralPort(SOCK_STREAM);
+					if (p > 0) port = std::to_string(p);
+				}
 				coop->setCoopSession(false);
 				coop->setPlayerTurn(3);
 				coop->setHostName(player);
@@ -6790,6 +6913,7 @@ std::string TestServer::execute(const std::string& line)
 					_game->pushState(new LobbyMenu());
 				}
 				resp["campaign"] = campaign;
+				resp["port"] = port;
 				resp["ok"] = true;
 			}
 		}
@@ -6809,6 +6933,13 @@ std::string TestServer::execute(const std::string& line)
 			connectionTCP::password = password;
 			connectionTCP::isPasswordRequired = !password.empty();
 			connectionTCP::_coopGamemode = 1; // PVE
+			// Ephemeral coop host port (port "0"): bind an OS-assigned UDP port
+			// and report it so the peer's join_udp dials the right one.
+			if (port == "0")
+			{
+				int p = probeEphemeralPort(SOCK_DGRAM);
+				if (p > 0) port = std::to_string(p);
+			}
 			coop->setCoopSession(false);
 			coop->setPlayerTurn(3);
 			coop->setHostName(player);
@@ -6824,6 +6955,7 @@ std::string TestServer::execute(const std::string& line)
 				_game->pushState(new LobbyMenu());
 			}
 			resp["campaign"] = campaign;
+			resp["port"] = port;
 			resp["ok"] = true;
 		}
 		else if (cmd == "host_menu_host")
@@ -6845,10 +6977,24 @@ std::string TestServer::execute(const std::string& line)
 				}
 				// server/port/password are optional: omitted means "leave the
 				// window's own defaults alone" (old callers behave unchanged).
-				hm->testHostWithFields(req.get("visibility", 0).asInt(),
+				int visibility = req.get("visibility", 0).asInt();
+				std::string hmPort = req.get("port", "").asString();
+				// Ephemeral coop host port (port "0"): bind an OS-assigned port of
+				// the right kind (0=TCP, 1/2=UDP; 3 hotseat has no socket) and
+				// report it so the peer's join dials the right one.
+				if (hmPort == "0" && visibility != 3)
+				{
+					int p = probeEphemeralPort(visibility == 0 ? SOCK_STREAM : SOCK_DGRAM);
+					if (p > 0) hmPort = std::to_string(p);
+				}
+				hm->testHostWithFields(visibility,
 									   req.get("server", "").asString(),
-									   req.get("port", "").asString(),
+									   hmPort,
 									   req.get("password", "").asString());
+				if (!hmPort.empty())
+				{
+					resp["port"] = hmPort;
+				}
 				resp["ok"] = true;
 			}
 		}
@@ -7113,6 +7259,15 @@ std::string TestServer::execute(const std::string& line)
 			std::string localport = req.get("localport", "3001").asString();
 			std::string player = req.get("player", "ClientPlayer").asString();
 			std::string password = req.get("password", "lan").asString();
+			// Ephemeral local UDP bind (localport "0"): let the OS assign this
+			// client's own port so two clients on the same loopback host never
+			// collide. Reported back for information; the host learns the client
+			// address from the incoming datagram, so it needs no fixed value.
+			if (localport == "0")
+			{
+				int p = probeEphemeralPort(SOCK_DGRAM);
+				if (p > 0) localport = std::to_string(p);
+			}
 			connectionTCP::password = password;
 			connectionTCP::isPasswordRequired = !password.empty();
 			coop->setCoopSession(false);
@@ -7121,6 +7276,7 @@ std::string TestServer::execute(const std::string& line)
 			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
 			coop->setCoopCampaign(campaign);
 			coop->joinDirectLanUDP(ipaddr, port, localport, player, password);
+			resp["localport"] = localport;
 			resp["ok"] = true;
 		}
 		else if (cmd == "crashlog_probe")

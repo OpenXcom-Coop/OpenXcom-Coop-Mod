@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Run the coop test suite across K non-colliding harness lanes at once.
 
-Each lane is a slot (OXC_HARNESS_SLOT=k) that harness.py isolates: shifted TCP
-ports (control + coop game-to-game), a per-slot machine lock, and s{slot}_-
-prefixed user dirs (see harness.py, "K-slot parallel harness"). This runner owns
-all K slots for the duration of a run; another session on the same machine can
-still run its own lane(s) because a different slot never shares ports, user dirs
-or lock with this one, and slot 0 keeps the legacy lock so it serialises against
-a non-slotted / old-harness run.
+Each lane is a slot (OXC_HARNESS_SLOT=k) that harness.py isolates: a per-slot
+machine lock and s{slot}_-prefixed user dirs (see harness.py). Ports are now
+OS-assigned ephemeral for every instance, so lanes no longer need disjoint port
+bands - the isolation is purely the lock + user dirs. This runner owns all K
+slots for the duration of a run; another session on the same machine can still
+run its own lane(s) because a different slot never shares user dirs or lock with
+this one, and slot 0 keeps the legacy lock so it serialises against a
+non-slotted / old-harness run.
 
     python tools/coop_test/run_parallel.py                 # whole suite, K=4
     python tools/coop_test/run_parallel.py -k 4 test_shared_battle test_geoscape_sync
@@ -81,7 +82,11 @@ PINNED = frozenset((
     "test_shared_resync",       # audit's test_joint_resync (renamed)
 ))
 
-MAX_SAFE_SLOTS = 4  # PORT_BLOCK=4000 over a 45999..49901 base span; see harness.py
+# Ports are ephemeral now, so there is no port-band ceiling on K. The default
+# cap stays 4 as a machine-resource guard: each lane runs a live host+client
+# game pair, so K lanes = 2K game processes contending for CPU. Raise it if the
+# host has the cores/RAM to spare.
+MAX_SAFE_SLOTS = 4
 
 
 def discover():
@@ -236,8 +241,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("tests", nargs="*", help="test names/paths; default = whole suite")
     ap.add_argument("-k", "--slots", type=int, default=MAX_SAFE_SLOTS,
-                    help="number of lanes (default %d; >%d overlaps port bands)"
-                         % (MAX_SAFE_SLOTS, MAX_SAFE_SLOTS))
+                    help="number of lanes (default %d; >%d is CPU-bound, not "
+                         "port-bound)" % (MAX_SAFE_SLOTS, MAX_SAFE_SLOTS))
     ap.add_argument("--file", help="read test names from this file, one per line")
     ap.add_argument("--json", help="write machine-readable results here")
     ap.add_argument("--list-only", action="store_true", help="print the plan and exit")
@@ -247,8 +252,9 @@ def main():
     if args.slots < 1:
         ap.error("--slots must be >= 1")
     if args.slots > MAX_SAFE_SLOTS:
-        print("WARNING: K=%d exceeds the safe %d lanes (port bands overlap / "
-              "clear 65535); proceeding as asked." % (args.slots, MAX_SAFE_SLOTS),
+        print("WARNING: K=%d exceeds the default %d lanes; ports are ephemeral so "
+              "this is a CPU/RAM concern (2K game processes), not a port limit - "
+              "proceeding as asked." % (args.slots, MAX_SAFE_SLOTS),
               file=sys.stderr)
 
     names = []

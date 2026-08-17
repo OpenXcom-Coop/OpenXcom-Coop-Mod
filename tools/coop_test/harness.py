@@ -31,36 +31,51 @@ EXE = os.environ.get("OXC_TEST_EXE") or os.path.join(REPO, "bin", "x64", "Releas
 TEMP_ROOT = os.environ.get("TEMP") or os.environ.get("TMPDIR") or tempfile.gettempdir()
 TEST_ROOT = os.path.join(TEMP_ROOT, "oxc-coop-test")
 
-# --- K-slot parallel harness ------------------------------------------------
-# OXC_HARNESS_SLOT=k opens an independent, non-colliding harness lane so K test
-# processes can run at once (tools/coop_test/run_parallel.py drives them). A
-# lane shifts every TCP port it binds - the TestServer control ports (this
-# GameClient's own `port`) AND the coop game-to-game ports carried in
-# host_tcp/join_tcp/host_udp/join_udp - by slot*PORT_BLOCK, keys its machine
-# lock per slot, and prefixes its user dirs with s{slot}_. Slot 0 is the legacy
-# lane: it uses the ORIGINAL lock name and unshifted ports, so a non-slotted
-# caller and an old (pre-slot) harness checked out in another worktree still
-# mutually exclude on the same lock file. PORT_BLOCK=4000 exceeds the measured
-# ~3900-wide base-port span (45999..49901 across the whole suite), so adjacent
-# lanes' port bands are disjoint (lane s spans base+s*4000): lane 1 starts at
-# 49999 above lane 0's 49901 top, and lane 3 tops out at 61901. A 5th lane
-# would clear the 65535 ceiling, so the safe maximum is K=4 (also the
-# run_parallel default). See run_parallel.py for the assignment/pin model.
+# --- Ephemeral-port model (both socket kinds are OS-assigned) ----------------
+# There are NO fixed ports any more. Two socket kinds, both ephemeral:
+#
+#   1. TestServer control socket. The game is always spawned with
+#      OXC_TEST_PORT=0, so it binds an OS-assigned port and writes the actual
+#      value to <user_dir>/testserver_port.txt (atomic write+rename). connect()
+#      polls that file, then dials the reported port - it never guesses. The
+#      integer still passed positionally to GameClient(name, N, dir) is now just
+#      a label; it does NOT bind (see GameClient.__init__). A GameClient built
+#      with user_dir=None keeps the old fixed-port behaviour so a repro tool can
+#      attach to a pre-spawned instance on a known port.
+#
+#   2. Coop game-to-game sockets (TCP + UDP). The host binds ephemeral and the
+#      EXISTING TestServer responses report the actual bound port; cmd() below
+#      does this transparently: a host_tcp/host_udp/host_menu_host is rewritten
+#      to ask for port "0", and the actual port from the response is stashed
+#      under the ORIGINAL port value the test passed (which the paired
+#      join_tcp/join_udp reuses as a rendezvous KEY, not a socket). So every
+#      caller - session.new_campaign, the module-global PORT constants, the
+#      pvp/shared/skirmish fixtures - migrates to ephemeral with no per-test
+#      edits: the literal they pass is only an in-process key linking a host to
+#      its client. UDP `localport` is forced to "0" too (OS-assigned client bind).
+#
+# This kills the fixed-port collision/linger class outright (CI 31999655291:
+# "test server not reachable on :49900" was a prior scenario's instance still
+# holding the port). The lane machinery below keeps only what still names
+# shared state: the per-slot machine lock and the s{slot}_ user-dir prefix. No
+# port bands, so K is no longer capped by the 65535 ceiling.
 HARNESS_SLOT = int(os.environ.get("OXC_HARNESS_SLOT", "0"))
-PORT_BLOCK = 4000
-# Commands whose `port` (and, for UDP, `localport`) name the coop game-to-game
-# socket rather than the TestServer control socket; GameClient.cmd shifts these
-# by the lane offset transparently, so every caller - the classic 47900 default,
-# the module-global PORT reassigners, session.new_campaign - lands in-lane with
-# no per-test edits. This is the COMPLETE set of port-reading commands in
-# TestServer.cpp (host_tcp/host_udp/join_tcp/join_udp + host_menu_host, the
-# NEW BATTLE > COOP skirmish-host path); a host_menu_host with no port (the
-# UDP-public variant) is left untouched by the `port in obj` guard below.
-_PORT_SHIFT_CMDS = frozenset(("host_tcp", "join_tcp", "host_udp", "join_udp",
-                              "host_menu_host"))
 
-# Per-slot harness lock: suites are stateful (fixed TCP ports per test, shared
-# TEST_ROOT under %TEMP%), so two runs on the SAME slot would collide. First
+# Coop bring-up commands whose response carries the host's actual (ephemeral)
+# bound port, and the join commands that must reuse it. cmd() bridges the two,
+# keyed on the (now inert) port literal the test passes to both sides.
+_COOP_HOST_CMDS = frozenset(("host_tcp", "host_udp", "host_menu_host"))
+_COOP_JOIN_CMDS = frozenset(("join_tcp", "join_udp"))
+# {rendezvous_key -> actual ephemeral coop port}. Process-global: a test's host
+# and client GameClients share it; run_parallel gives each test its own process,
+# so keys never cross runs. Distinct live pairs must use distinct keys (the same
+# invariant the old per-port model relied on).
+_EPHEMERAL_COOP_PORTS = {}
+PORT_FILE_NAME = "testserver_port.txt"
+
+# Per-slot harness lock: suites are stateful (shared TEST_ROOT under %TEMP%, one
+# game instance per s{slot}_ user dir), so two runs on the SAME slot would
+# collide on those user dirs even though ports are now ephemeral. First
 # spawn in a process takes its slot's lock; the OS releases it when the process
 # exits (including on crash). Slot 0 keeps the historical lock name so it still
 # serialises against a non-slotted / old-harness run — e.g. two git worktrees.
@@ -131,21 +146,42 @@ options:
 class GameClient:
     """One running game instance + its command socket."""
 
-    def __init__(self, name, port, user_dir):
+    def __init__(self, name, port=None, user_dir=None):
         self.name = name
-        # Lane offset (0 for the legacy slot). Applied here to the TestServer
-        # control port and, in cmd(), to the coop game-to-game port.
-        self._port_shift = HARNESS_SLOT * PORT_BLOCK
-        self.port = int(port) + self._port_shift
         self.user_dir = user_dir
+        # Control socket is OS-assigned ephemeral: the game binds port 0 and
+        # writes the actual port to <user_dir>/PORT_FILE_NAME, which connect()
+        # reads back. The positional `port` is now only a label and does NOT
+        # bind - EXCEPT for the attach-to-a-running-instance case (user_dir is
+        # None), where there is no file to read so the caller's port is used
+        # directly (repro tooling). self.port is the resolved port, filled in by
+        # connect().
+        self._fixed_port = int(port) if (user_dir is None and port) else None
+        self.port = self._fixed_port
         self.proc = None
         self.sock = None
         self.buf = b""
 
+    @property
+    def _port_file(self):
+        return os.path.join(self.user_dir, PORT_FILE_NAME) if self.user_dir else None
+
     def spawn(self, extra_args=()):
         _acquire_machine_lock()
         env = os.environ.copy()
-        env["OXC_TEST_PORT"] = str(self.port)
+        # Ephemeral by default (OXC_TEST_PORT=0 -> the game picks a free control
+        # port and reports it via PORT_FILE_NAME). Remove any stale port file
+        # first so connect() cannot read a value from a previous spawn. A
+        # fixed-port GameClient (user_dir=None) keeps its explicit port.
+        if self._fixed_port is None:
+            env["OXC_TEST_PORT"] = "0"
+            if self._port_file and os.path.exists(self._port_file):
+                try:
+                    os.remove(self._port_file)
+                except OSError:
+                    pass
+        else:
+            env["OXC_TEST_PORT"] = str(self._fixed_port)
         # Headless under the parallel runner (any lane sets OXC_HARNESS_SLOT) or
         # on demand (OXC_HARNESS_HEADLESS): no on-screen window, so no vsync cap,
         # window-focus fights or audio-device contention between K concurrent
@@ -178,8 +214,34 @@ class GameClient:
         self.proc = subprocess.Popen(
             args, env=env, cwd=exe_dir, **popen_kwargs)
 
+    def _resolve_port(self, deadline):
+        """The control port to dial: the fixed one, or the ephemeral port the
+        game reported by writing PORT_FILE_NAME. Polls the file within the same
+        boot budget (no port-guessing)."""
+        if self._fixed_port is not None:
+            return self._fixed_port
+        while time.time() < deadline:
+            if self.proc and self.proc.poll() is not None:
+                raise RuntimeError(f"{self.name}: game exited early rc={self.proc.returncode}")
+            try:
+                with open(self._port_file, encoding="utf-8") as f:
+                    txt = f.read().strip()
+                if txt:
+                    p = int(txt)
+                    if p > 0:
+                        return p
+            except (FileNotFoundError, ValueError):
+                pass
+            time.sleep(0.2)
+        raise TimeoutError(
+            f"{self.name}: game never reported its test-server port "
+            f"(no {self._port_file})")
+
     def connect(self, timeout=60):
         deadline = time.time() + timeout
+        # Boot budget is now spent purely on the game coming up and reporting its
+        # port, then on the socket accepting - never on guessing a port.
+        self.port = self._resolve_port(deadline)
         while time.time() < deadline:
             if self.proc and self.proc.poll() is not None:
                 raise RuntimeError(f"{self.name}: game exited early rc={self.proc.returncode}")
@@ -194,18 +256,7 @@ class GameClient:
                 time.sleep(1)
         raise TimeoutError(f"{self.name}: test server not reachable on :{self.port}")
 
-    def cmd(self, obj):
-        # Lane offset for the coop game-to-game port. Rewrites a COPY so a
-        # caller that reuses the same dict (a retry loop) is not double-shifted.
-        # Accepts int or str port values and preserves the type on the wire.
-        if self._port_shift and obj.get("cmd") in _PORT_SHIFT_CMDS:
-            obj = dict(obj)
-            for key in ("port", "localport"):
-                if key in obj:
-                    v = obj[key]
-                    obj[key] = (str(int(v) + self._port_shift)
-                                if isinstance(v, str)
-                                else int(v) + self._port_shift)
+    def _send(self, obj):
         self.sock.sendall((json.dumps(obj) + "\n").encode())
         while b"\n" not in self.buf:
             chunk = self.sock.recv(65536)
@@ -214,6 +265,35 @@ class GameClient:
             self.buf += chunk
         line, self.buf = self.buf.split(b"\n", 1)
         return json.loads(line)
+
+    def cmd(self, obj):
+        # Ephemeral coop ports (see the module header). A coop HOST command is
+        # rewritten to ask for an OS-assigned port ("0"); the actual port from
+        # the response is stashed under the ORIGINAL literal so the paired JOIN
+        # command (given the same literal by the test) dials the real one. The
+        # literal is thus an in-process rendezvous key, never a bound port. A
+        # COPY is rewritten so a caller reusing the dict in a retry loop is
+        # unaffected.
+        name = obj.get("cmd")
+        if name in _COOP_HOST_CMDS and str(obj.get("port", "")) != "":
+            key = str(obj["port"])
+            obj = dict(obj)
+            obj["port"] = "0"
+            if "localport" in obj:
+                obj["localport"] = "0"
+            resp = self._send(obj)
+            actual = resp.get("port")
+            if actual:
+                _EPHEMERAL_COOP_PORTS[key] = str(actual)
+            return resp
+        if name in _COOP_JOIN_CMDS and str(obj.get("port", "")) != "":
+            key = str(obj["port"])
+            obj = dict(obj)
+            obj["port"] = _EPHEMERAL_COOP_PORTS.get(key, obj["port"])
+            if "localport" in obj:
+                obj["localport"] = "0"
+            return self._send(obj)
+        return self._send(obj)
 
     def ok(self, obj):
         r = self.cmd(obj)
