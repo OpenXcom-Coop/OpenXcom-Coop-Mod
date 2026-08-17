@@ -1109,6 +1109,14 @@ class connectionTCP
 
 	static bool _isActivePlayerSync;
 
+	// coop (#162 / 056b500db reconciliation): set true when the peer sent a
+	// `coop_leaving` before its socket closed - i.e. it pressed OK on a skirmish
+	// debriefing and left gracefully, which is NOT a drop. The disconnect-notice
+	// gate reads it so a graceful leave stays silent while an ABRUPT drop (no
+	// `coop_leaving`) still raises the notice. One-shot per session; reset at
+	// every disconnectTCP teardown and on a fresh client attach.
+	static bool _peerLeftCleanly;
+
 	bool _onClickClose = false;
 
 	int _currentAmmoID = -1;
@@ -1351,6 +1359,12 @@ class connectionTCP
 	// save), so a peer leaving now is EXPECTED - they closed theirs first - not a
 	// drop to report or to re-open a lobby for.
 	static bool skirmishMissionOver();
+	// coop (#162): is a skirmish DebriefingState open right now (monthsPassed == -1
+	// + a DebriefingState on the state stack)? skirmishMissionOver() stays true
+	// through the post-OK menu transition too, so this narrower predicate is what
+	// separates "the peer dropped while I am reading results" (show the notice)
+	// from "I already dismissed my debrief and am on my way to the menu" (silent).
+	static bool debriefOpen();
 	// PRD-08 C7: may this machine LOAD a local save RIGHT NOW? False whenever a
 	// live coop session is attached (host OR client) - loading mid-session forks
 	// the served world silently. True when solo / after the session ends (the

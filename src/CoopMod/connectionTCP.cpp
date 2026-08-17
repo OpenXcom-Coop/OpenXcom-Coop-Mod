@@ -179,7 +179,11 @@ bool connectionTCP::_isChatActiveStatic = false;
 
 bool connectionTCP::_isActiveAISync = false;
 
-bool connectionTCP::_isActivePlayerSync = false; 
+bool connectionTCP::_isActivePlayerSync = false;
+
+// coop (#162 / 056b500db reconciliation): false at session start; set true only
+// by the coop_leaving handler when the peer leaves a skirmish debrief gracefully.
+bool connectionTCP::_peerLeftCleanly = false; 
 
 /**
  * coop (PRD-P3 GAP-4a): stable identity of a deferred attack.
@@ -1121,6 +1125,25 @@ bool connectionTCP::skirmishMissionOver()
 	if (coopBattleLive(_staticGame))
 		return false;
 	return _staticGame->getCoopMod()->coopMissionEnd;
+}
+
+// coop (#162): narrower than skirmishMissionOver() - a skirmish debrief is actually
+// ON SCREEN right now (monthsPassed == -1 + a DebriefingState on the stack). The
+// disconnect-notice gate uses it to separate "the peer dropped while I am reading
+// my results" (raise the notice) from "I already dismissed my debrief and am in the
+// post-OK transition to the menu" (stay silent - 056b500db's window).
+bool connectionTCP::debriefOpen()
+{
+	if (!_staticGame || !_staticGame->getSavedGame())
+		return false;
+	if (_staticGame->getSavedGame()->getMonthsPassed() != -1)
+		return false;
+	for (State* st : _staticGame->getStates())
+	{
+		if (dynamic_cast<DebriefingState*>(st) != nullptr)
+			return true;
+	}
+	return false;
 }
 
 bool connectionTCP::localLoadsAllowed()
@@ -2662,7 +2685,7 @@ void connectionTCP::updateCoopTask()
 		// first leaves through GoToMainMenuState, and that ordinary exit must
 		// not throw a "has left the server" / "connection lost" popup over the
 		// other player's debriefing (skirmishMissionOver).
-		if (allow_cutscene == true && !campaignEnded() && !skirmishMissionOver())
+		if (allow_cutscene == true && !campaignEnded() && (!skirmishMissionOver() || (debriefOpen() && !_peerLeftCleanly)))
 		{
 			// Make sure it calls disconnectTCP, otherwise it may get stuck.
 			if (getServerOwner() == true)
@@ -2881,7 +2904,7 @@ void connectionTCP::updateCoopTask()
 
 				const bool gateAllows =
 						 (coopTaskCompleted() || chainCloser ||
-					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
+					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving") &&
 					!endTurnExcluded;
 
 				// coop (PRD-P11): the unit this packet is about, and whether an
@@ -4736,6 +4759,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		_game->pushState(new CoopState(123456));
 
+	}
+
+	// coop (#162 / 056b500db reconciliation): the peer pressed OK on its skirmish
+	// debriefing and is leaving gracefully (sent just before its socket closes). Latch
+	// it so the onConnect==-2 disconnect-notice gate stays silent for this clean exit,
+	// while an ABRUPT drop - which sends no coop_leaving - still raises the notice.
+	// Whitelisted in the receive gate so it is never parked past the FIN; the latch is
+	// reset at disconnectTCP teardown and on a fresh client attach.
+	if (stateString == "coop_leaving")
+	{
+		_peerLeftCleanly = true;
 	}
 
 	// refused by the campaign roster gate (flow-redesign F3)
@@ -11270,6 +11304,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		// past every gate: a real client is now attached to the session
+		// coop (#162): fresh session - a stale graceful-leave latch from a previous
+		// client must never suppress this one's crash notice.
+		_peerLeftCleanly = false;
 		connectionTCP::session.clientAttached();
 
 		// issue #93: a joiner arriving while a SKIRMISH battle is already running is
@@ -15193,6 +15230,11 @@ void connectionTCP::disconnectTCP(bool isMain)
 		_isActiveAISync = false;
 
 		_isActivePlayerSync = false;
+
+		// coop (#162): the graceful-leave latch is per-session - clear it here so a
+		// clean leave in one session can never suppress a real crash notice in the
+		// next. The onConnect==-2 gate has already read it by the time teardown runs.
+		_peerLeftCleanly = false;
 
 		_clientPanicHandle = false;
 

@@ -1553,6 +1553,21 @@ void DebriefingState::btnOkClick(Action *)
 	_game->popState();
 	if (_game->getSavedGame()->getMonthsPassed() == -1)
 	{
+		// coop (#162 / 056b500db reconciliation): a skirmish OK-exit is a GRACEFUL
+		// leave, not a drop. Tell the peer BEFORE our own teardown closes the socket
+		// so it can suppress the "<player> has left the server" notice over its own
+		// debriefing (056b500db's intent) while still raising it for an ABRUPT drop
+		// (#162). Sent from here - the one clean chokepoint for the skirmish exit;
+		// GoToMainMenuState carries no coop code. Queued ahead of the teardown, and
+		// TCP in-order delivery lands it before the FIN. Additive: an old peer just
+		// ignores the message (and a new peer then shows the notice on this clean
+		// exit too - acceptable version-mixing degradation, see PROTOCOL.md).
+		if (_game->getCoopMod()->getCoopStatic() == true)
+		{
+			Json::Value leaving;
+			leaving["state"] = "coop_leaving";
+			_game->getCoopMod()->sendTCPPacketData(leaving.toStyledString());
+		}
 		// issue #82: a skirmish ends the world - GoToMainMenuState drops the SavedGame
 		// instead of leaving it live (and leaking) for the rest of the process.
 		_game->setState(new GoToMainMenuState(false));
