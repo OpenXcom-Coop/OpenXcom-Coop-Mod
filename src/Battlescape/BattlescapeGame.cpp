@@ -2242,7 +2242,11 @@ bool BattlescapeGame::coopRouteAction(BattleAction &action, const std::string &k
 		{
 			return true;
 		}
-		_parentState->warning("STR_COOP_PLAYER_BUSY");
+		// coop: the peer-busy message no longer flashes the toolbar warning widget.
+		// The executor is mid non-skippable chain here, so isBusy() is true and
+		// BattlescapeState::updateCoopWaitBanner() shows the persistent
+		// "Please wait for <player>'s action to finish" banner (suppressed when the
+		// chain is this seat's own action).
 		return true;
 	}
 	// coop (PRD-P8): the executor's own action clears its own END TURN readiness
@@ -3660,6 +3664,32 @@ BattleAction* BattlescapeGame::getCurrentAction()
 bool BattlescapeGame::isBusy() const
 {
 	return !_states.empty();
+}
+
+/**
+ * coop: the OWNER unit of the action chain currently running, ignoring the
+ * consequence states (UnitDieBState / UnitFallBState / ExplosionBState) that get
+ * pushed to the FRONT of the queue mid-chain - their actor is the victim, not the
+ * unit whose action this is. Scans front-to-back for the first non-consequence
+ * state with a player actor. Works on both machines (replay pushes real states).
+ * @return the acting player unit, or 0 when idle / only consequence states remain.
+ */
+BattleUnit *BattlescapeGame::getPrimaryBusyActor() const
+{
+	for (BattleState *bs : _states)
+	{
+		if (dynamic_cast<UnitDieBState*>(bs) || dynamic_cast<UnitFallBState*>(bs)
+			|| dynamic_cast<ExplosionBState*>(bs))
+		{
+			continue;
+		}
+		BattleUnit *actor = bs->getAction().actor;
+		if (actor && actor->getFaction() == FACTION_PLAYER)
+		{
+			return actor;
+		}
+	}
+	return 0;
 }
 
 /**

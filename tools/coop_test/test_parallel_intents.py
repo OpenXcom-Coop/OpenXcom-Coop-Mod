@@ -21,8 +21,9 @@ What this test asserts (PRD-P6 acceptance, in order):
      the same position and TU. And the client's own selection, camera and
      singleton `_currentAction` are untouched while its own action is replayed
      back at it (the PRD-P1 decoupling, which the intent loop leans on entirely).
-  2. Host mid-chain: the client's intent is denied `busy`, the client flashes
-     STR_COOP_PLAYER_BUSY and drops its pending slot, and the same intent
+  2. Host mid-chain: the client's intent is denied `busy`, the client latches the
+     STR_COOP_PLAYER_BUSY deny (now surfaced via the persistent wait banner, not
+     the toolbar flash) and drops its pending slot, and the same intent
      succeeds once the chain ends. The chain used is a SHOT: from PRD-P7 on, a
      chain that is nothing but locomotion is deferred rather than refused
      (test_parallel_skip.py owns that half), so only a non-skippable chain still
@@ -73,7 +74,6 @@ import test_parallel_replay_decouple as RD
 
 PORT = "47986"
 
-BUSY_TEXT = "Another action"
 NOT_YOURS_TEXT = "Not one of your soldiers"
 NO_TU_TEXT = "Time Units"          # STR_NOT_ENOUGH_TIME_UNITS, translated
 REFUSED_TEXT = "Action refused"
@@ -128,6 +128,13 @@ def alive_enemy(b):
 
 def warning_of(gc):
     return parallel(gc).get("warning", "") or ""
+
+
+def last_deny(gc):
+    # coop (parallel turns): the latched wire key of the last action_deny this
+    # machine received. Unlike the fading warning widget / the click-sync banner
+    # it is NOT frame-timing-sensitive, so it is the deterministic deny signal.
+    return parallel(gc).get("lastDenyWarning", "") or ""
 
 
 def intent(gc, **kw):
@@ -450,22 +457,26 @@ def scenario_busy(host, client, host_mover, client_mover):
     assert r.get("routed") is True, f"the client executed locally: {r}"
 
     seq_at_send = parallel(host)["actionSeq"]
-    seen = wait_for_text(client, BUSY_TEXT, timeout=25)
-    if not seen:
+    # coop (parallel turns): the peer-busy message moved OFF the fading toolbar
+    # warning widget onto the persistent "Please wait for <player>'s action" map
+    # banner (test_coop_wait_banner.py owns the banner's own behaviour). The banner
+    # is transient here (click-sync ticks) and frame-timing-sensitive, so assert the
+    # DENY itself: _clientLastDenyWarning latches the wire key deterministically.
+    got = wait_until(lambda: last_deny(client) == "STR_COOP_PLAYER_BUSY", 25)
+    if not got:
         host.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": 2})
-    assert seen, (
-        f"no STR_COOP_PLAYER_BUSY flash on the client after an intent sent into "
-        f"a running host chain (widget shows {warning_of(client)!r}; host "
-        f"actionSeq was {seq_at_send}, now {parallel(host)['actionSeq']} - if it "
-        f"MOVED the intent was admitted, not denied). The deny UX rides the "
-        f"battlescape warning widget, which PRD-P5 cleared of the persistent "
-        f"off-turn banners precisely so this could get through.")
+    assert got, (
+        f"no STR_COOP_PLAYER_BUSY deny on the client after an intent sent into a "
+        f"running host chain (lastDenyWarning={last_deny(client)!r}, banner="
+        f"{parallel(client).get('coopWaitBanner')!r}; host actionSeq was "
+        f"{seq_at_send}, now {parallel(host)['actionSeq']} - if it MOVED the intent "
+        f"was admitted, not denied).")
     assert wait_until(lambda: parallel(client)["pendingReqId"] == 0, 15), \
         "the denied intent left the client's pending slot occupied"
     assert pos(battle(host), client_mover) == was, (
         f"a DENIED intent still moved unit {client_mover} on the host "
         f"({was} -> {pos(battle(host), client_mover)})")
-    print(f"PASS 2a: intent denied busy, flashed {seen}, nothing executed")
+    print(f"PASS 2a: intent denied busy (lastDeny={last_deny(client)!r}), nothing executed")
 
     host.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": 2})
     assert idle(host), f"the host's chain never finished: {parallel(host)}"

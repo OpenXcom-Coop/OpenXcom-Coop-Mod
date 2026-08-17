@@ -375,6 +375,8 @@ public:
 	BattleAction *getCurrentAction();
 	/// Determines whether there is an action currently going on.
 	bool isBusy() const;
+	/// coop: owner unit of the running action chain, skipping consequence states.
+	BattleUnit *getPrimaryBusyActor() const;
 	/// Activates primary action (left click).
 	void primaryAction(Position pos);
 	/// Activates secondary action (right click).

@@ -6960,7 +6960,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// swallows it outright - so the reason is remembered here as well.
 			_clientLastDenyReason = obj.get("reason", "").asString();
 			_clientLastDenyWarning = warning;
-			if (!warning.empty())
+			if (warning == "STR_COOP_PLAYER_BUSY")
+			{
+				// coop (parallel turns): peer-busy no longer flashes the toolbar
+				// widget - it drives the persistent map banner instead. The banner
+				// keys on isBusy(), so arm a short click-sync window here in case a
+				// mirror-packet gap left us momentarily not-busy at deny receipt.
+				_coopWaitDenyTicks = 30;
+			}
+			else if (!warning.empty())
 			{
 				flashBattleWarning(warning);
 			}

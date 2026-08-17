@@ -267,6 +267,11 @@ BattlescapeState::BattlescapeState() :
 	_coopTallyReady = -1;
 	_coopTallySeats = -1;
 	_coopTallyLocalReady = false;
+	// coop (parallel turns): the "Please wait for <player>'s action" banner. Full
+	// map width, centered, one row above the END TURN tally (y - 10) so the two
+	// never overlap. In the map strip just above the toolbar.
+	_txtCoopWait = new Text(screenWidth, 9, 0, y - 20);
+	_coopBusyOwnerSeat = -1;
 
 	// Palette transformations
 	auto* enviro = _save->getEnviroEffects();
@@ -418,6 +423,19 @@ BattlescapeState::BattlescapeState() :
 	// as a literal, so a mod that re-colours the indicators re-colours this too.
 	_txtCoopEndTurn->setColor(_indicatorGreen);
 	_txtCoopEndTurn->setVisible(false);
+	// coop (parallel turns): the "Please wait for <player>'s action" banner. Same
+	// borrow-the-tooltip-element trick as the tally above; geometry re-applied so
+	// add() does not park it on top of the tooltip. Same yellow + font as the
+	// toolbar warning widget (interface battlescape/warning color), centered.
+	add(_txtCoopWait, "textTooltip", "battlescape", _icons);
+	_txtCoopWait->setWidth(screenWidth);
+	_txtCoopWait->setHeight(9);
+	_txtCoopWait->setX(0);
+	_txtCoopWait->setY(y - 20);
+	_txtCoopWait->setAlign(ALIGN_CENTER);
+	_txtCoopWait->setHighContrast(true);
+	_txtCoopWait->setColor(_game->getMod()->getInterface("battlescape")->getElement("warning")->color);
+	_txtCoopWait->setVisible(false);
 	add(_btnLaunch);
 	_game->getMod()->getSurfaceSet("SPICONS.DAT")->getFrame(0)->blitNShade(_btnLaunch, 0, 0);
 	add(_btnPsi);
@@ -1359,6 +1377,10 @@ void BattlescapeState::think()
 					battle_init_coop = false;
 
 					_game->getCoopMod()->_battleInit = true;
+					// coop (parallel turns): a BUSY deny in the last ~30 frames of the
+					// previous battle could otherwise leak a half-second wait banner
+					// into this one; clear the click-sync window on battle init.
+					_game->getCoopMod()->_coopWaitDenyTicks = 0;
 					_game->getCoopMod()->coopInventory = true;
 					_game->getCoopMod()->playerInsideCoopBase = false;
 					_game->getCoopMod()->_battleWindow = false;
@@ -1931,6 +1953,9 @@ void BattlescapeState::think()
 			// coop (PRD-P8): the readiness lamp + tally. Cheap - it early-outs
 			// unless the counts actually moved.
 			updateCoopEndTurnTally();
+
+			// coop (parallel turns): the "Please wait for <player>'s action" banner.
+			updateCoopWaitBanner();
 
 			_animTimer->think(this, 0);
 			_gameTimer->think(this, 0);
@@ -5261,6 +5286,93 @@ void BattlescapeState::coopSendReserveState(bool kneel)
 std::string BattlescapeState::getCoopWarningText() const
 {
 	return _warning ? _warning->getMessage() : std::string();
+}
+
+/**
+ * coop (parallel turns): drive the persistent "Please wait for <player>'s action
+ * to finish" banner in the map strip above the toolbar. Shown while another
+ * seat's action blocks this machine's input; suppressed when the running chain is
+ * this seat's own action (you are not waiting on anyone) or when idle.
+ */
+void BattlescapeState::updateCoopWaitBanner()
+{
+	connectionTCP *coop = _game->getCoopMod();
+	std::string text;
+	if (connectionTCP::parallelTurnActive() && _save->isPreview() == false
+		&& connectionTCP::_battleInit == true)
+	{
+		const int me = connectionTCP::localSeat();
+		int owner = -1;
+		if (_battleGame->isBusy())
+		{
+			// Latch the owner for the whole busy window. Consequence states (a
+			// death/fall/explosion) are pushed to the FRONT of the queue mid-chain,
+			// so re-deriving the owner every frame from the front state would
+			// mis-attribute a kill to the victim's side (my grenade killing a peer
+			// soldier would flash "wait for <peer>" during my OWN action's aftermath,
+			// and the symmetric case would wrongly suppress the banner). Resolve once
+			// - skipping consequence states - then reuse until isBusy() clears.
+			if (_coopBusyOwnerSeat == -1)
+			{
+				BattleUnit *actor = _battleGame->getPrimaryBusyActor();
+				if (actor)
+				{
+					_coopBusyOwnerSeat = actor->getCoop();
+				}
+			}
+			owner = _coopBusyOwnerSeat;
+		}
+		else
+		{
+			_coopBusyOwnerSeat = -1;   // busy window ended - drop the latch
+		}
+		if (owner >= 0 && owner != me && owner < connectionTCP::seatCount())
+		{
+			// The action currently executing belongs to another seat. This is
+			// SEAT-INDEXED and therefore already N-player-ready: seatName() reads the
+			// seat-ordered coop roster (SavedGame::getCoopPlayers()), so the day real
+			// >2-player coop exists - i.e. the transport accepts more than one client
+			// (today it does not: connectionTCP.cpp "Only 1 client supported"),
+			// getCoop() returns a seat > 1, and getCoopPlayers() carries that seat's
+			// name - this line names seats 2/3 with NO change here.
+			//
+			// The getCurrentClientName() fallback is a 2-player-only bridge for the
+			// ONE gap today: a SKIRMISH battle never populates getCoopPlayers() (only
+			// the campaign start path does, LobbyMenu::startCampaign), so seatName()
+			// is empty there. With coop hard-wired to host + one client
+			// (coop_save_owner_player_id is only ever 0/1), the "other seat" is
+			// unambiguously the peer, so getCurrentClientName() is correct. When
+			// N-player transport is added it MUST populate the seat roster (for votes,
+			// end-turn tally, etc.); once it does, seatName() wins and this fallback
+			// is never reached for owner != me. Do NOT extend this fallback to guess
+			// names for seats 2/3 - there is no data behind them yet.
+			std::string name = connectionTCP::seatName(owner);
+			if (name.empty()) name = coop->getCurrentClientName();
+			text = tr("STR_COOP_WAIT_FOR_PLAYER_ACTION").arg(name);
+		}
+		else if (owner < 0 && coop->_coopWaitDenyTicks > 0)
+		{
+			// click-sync: a BUSY deny just arrived while a mirror-packet gap left us
+			// momentarily not-busy, so no busy owner is latched. Name the peer (the
+			// executor running the non-skippable chain).
+			text = tr("STR_COOP_WAIT_FOR_PLAYER_ACTION").arg(coop->getCurrentClientName());
+		}
+	}
+	else
+	{
+		_coopBusyOwnerSeat = -1;   // not in a live parallel battle - drop the latch
+	}
+	if (coop->_coopWaitDenyTicks > 0)
+	{
+		coop->_coopWaitDenyTicks--;
+	}
+	_txtCoopWait->setText(text);
+	_txtCoopWait->setVisible(!text.empty());
+}
+
+std::string BattlescapeState::getCoopWaitText() const
+{
+	return (_txtCoopWait && _txtCoopWait->getVisible()) ? _txtCoopWait->getText() : std::string();
 }
 
 void BattlescapeState::doAbortPath()

@@ -35,6 +35,8 @@ en-US:
   STR_COOP_NOT_YOUR_SOLDIER: "Not one of your soldiers"
   STR_COOP_ACTION_REFUSED: "Action refused"
   STR_COOP_ACTION_TIMEOUT: "No answer from the host - action dropped"
+  # coop (parallel turns): persistent map banner shown while another player's action blocks your input.
+  STR_COOP_WAIT_FOR_PLAYER_ACTION: "Please wait for {0}'s action to finish"
   # coop (PRD-P8): end-turn readiness gate.
   STR_COOP_END_TURN_TALLY: "END TURN {0}/{1}"
   # coop (PRD-P2 rider): battle desync auto-report bundle. {0} is the full path

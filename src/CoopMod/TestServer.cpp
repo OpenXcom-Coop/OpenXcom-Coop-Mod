@@ -4387,12 +4387,20 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["clientInputBlocked"] = connectionTCP::parallelInputBlocked();
 		{
 			std::string warn;
+			std::string waitBanner;
 			if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle()
 				&& _game->getSavedGame()->getSavedBattle()->getBattleState())
 			{
-				warn = _game->getSavedGame()->getSavedBattle()->getBattleState()->getCoopWarningText();
+				BattlescapeState* pbs = _game->getSavedGame()->getSavedBattle()->getBattleState();
+				warn = pbs->getCoopWarningText();
+				// coop (parallel turns): the persistent "Please wait for <player>'s
+				// action" banner text ("" when hidden). Separate field from `warning`
+				// because it lives on its own widget, not the fading _warning one.
+				waitBanner = pbs->getCoopWaitText();
 			}
 			resp["warning"] = warn;
+			resp["coopWaitBanner"] = waitBanner;
+			resp["lastDenyWarning"] = pcoop ? pcoop->_clientLastDenyWarning : std::string();
 		}
 		resp["taskCompleted"] = pcoop ? pcoop->coopTaskCompleted() : true;
 		// PRD-P6 pre-task: the gate is a depth counter now. A chain that leaks a

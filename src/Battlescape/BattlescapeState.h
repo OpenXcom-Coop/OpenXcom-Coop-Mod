@@ -87,6 +87,14 @@ private:
 	Text *_txtCoopEndTurn;
 	int _coopTallyReady, _coopTallySeats;
 	bool _coopTallyLocalReady;
+	// coop (parallel turns): persistent "Please wait for <player>'s action to
+	// finish" banner, in the map strip just above the toolbar. Shown while another
+	// seat's action blocks this machine's input; off the fading _warning surface.
+	Text *_txtCoopWait;
+	// Owner seat latched for the current busy window (-1 = idle/unresolved). Latched
+	// once per window so a consequence state (death/fall/explosion) pushed to the
+	// front of the queue mid-chain cannot re-attribute the banner to the victim.
+	int _coopBusyOwnerSeat;
 	Uint8 _tooltipDefaultColor;
 	Uint8 _medikitRed, _medikitGreen, _medikitBlue, _medikitOrange;
 	std::vector<State*> _popups;
@@ -120,6 +128,8 @@ private:
 	/// coop (PRD-P8): repaints the END TURN readiness lamp + tally from the
 	/// connectionTCP tally. No-op (and hidden) outside a parallel side.
 	void updateCoopEndTurnTally();
+	/// coop: refresh the "Please wait for <player>'s action" banner (per frame).
+	void updateCoopWaitBanner();
   public:
 	/// coop (PRD-P8 §5): the classic reserve mirror packet (`TU_COOP` /
 	/// `kneel_reserved`). Suppressed in parallel mode, where reserve is a
@@ -155,6 +165,8 @@ private:
 	void showCoopWarning(const std::string &message);
 	/// coop (PRD-P5): the banner currently on the warning widget ("" = none).
 	std::string getCoopWarningText() const;
+	/// coop: the visible "Please wait..." banner text ("" when hidden), for tests.
+	std::string getCoopWaitText() const;
 	void showCoopLongWarning(const std::string &message);
 	void doAbortPath();
 	/// Selects the next soldier.

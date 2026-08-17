@@ -1099,6 +1099,12 @@ class connectionTCP
 
 	bool _clientPanicHandle = false;
 
+	// coop (parallel turns): click-sync window for the "Please wait for <player>'s
+	// action" banner. A BUSY action_deny arms this to N frames so the banner is up
+	// on the exact deny even if a mirror-packet gap left this machine momentarily
+	// not-busy; BattlescapeState::updateCoopWaitBanner() reads and decrements it.
+	int _coopWaitDenyTicks = 0;
+
 	static bool _isActiveAISync;
 
 	static bool _isActivePlayerSync;
