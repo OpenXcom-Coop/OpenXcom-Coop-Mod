@@ -51,6 +51,10 @@
     "test_parallel_speed_skew": {
       "budget_s": 300,
       "reason": "CI 31.0s (run 31999655291, shard 1) but local weight 240s -- deliberately paces two game clocks against each other (pinned to the serial lane locally). Provisioned to the local weight."
+    },
+    "test_sync_check": {
+      "budget_s": 360,
+      "reason": "CI 222.9s single attempt (run 32062804444, shard 2); ~207s local contended. Full ten-bucket sync-check scenario battery. Tracked for re-engineering under issue #169."
     }
   }
 }
