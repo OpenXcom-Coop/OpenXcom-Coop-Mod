@@ -4,6 +4,7 @@
   "test_bug_fixes": 7.8,
   "test_client_zero_disk": 15.5,
   "test_coop_base_equip_visibility": 8.8,
+  "test_coop_debrief_sync": 530.0,
   "test_coop_guest_craft_seat": 17.5,
   "test_coop_id_manifest": 122.0,
   "test_coop_outcome_gaps": 230.0,
