@@ -159,7 +159,13 @@ jobs:
   coop-shard:
     needs: [build, shard-plan]
     runs-on: windows-latest
-    timeout-minutes: 30
+    # No per-shard wall-clock timeout any more: enforcement is per-TEST instead
+    # (tools/coop_test/slow_test_exceptions.json, applied by run_coop_suite.ps1) - a
+    # test over its budget fails the suite and a hung test is hard-killed at 2x its
+    # budget, so the suite can grow without a fixed wall that goes stale. This job cap
+    # (raised from 30) is only a coarse runaway backstop for the case where the
+    # per-test kill itself fails; it is NOT the primary bound.
+    timeout-minutes: 60
     strategy:
       fail-fast: false          # one shard's failure must not hide the others' results
       matrix: { shard: [1, 2, 3, 4] }
@@ -187,7 +193,9 @@ jobs:
         run: ./tools/ci/stage_data.ps1
 
       - name: Coop test suite (headless, shard ${{ matrix.shard }}/4)
-        timeout-minutes: 25
+        # No step wall-clock timeout: run_coop_suite.ps1 enforces a per-test budget +
+        # per-test hard-kill (slow_test_exceptions.json), which replaced the 25-minute
+        # shard wall that used to spuriously kill a shard as the suite grew.
         shell: pwsh
         env:
           SDL_VIDEODRIVER: dummy
