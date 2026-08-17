@@ -1,0 +1,56 @@
+{
+  "_README": [
+    "Per-test wall-clock time budgets for the coop suite, in seconds. Read verbatim",
+    "by BOTH runners: tools/ci/run_coop_suite.ps1 (the CI shard runner) and",
+    "tools/coop_test/run_parallel.py (the local K-lane runner). This file is the",
+    "single source of truth -- keep the two parsers agreeing by editing only here.",
+    "",
+    "Semantics:",
+    "  * Every test gets default_budget_s unless it is listed under 'exceptions'.",
+    "  * A test that FINISHES over its budget FAILS the suite even if it passed",
+    "    ('BUDGET EXCEEDED') -- re-engineer the test or add a justified exception.",
+    "  * A test still running at hard_kill_multiplier x its budget is killed (with",
+    "    the game subtree it spawned) and failed ('BUDGET HARD-KILL'), so a hung",
+    "    test can never wedge a shard now that the CI step wall-clock timeout is gone.",
+    "  * No exception may exceed max_budget_s. There are no unlimited budgets; the",
+    "    runners hard-error on load if an exception is over the cap.",
+    "",
+    "Each exception carries the observed CI duration in its 'reason'. Seeded from CI",
+    "run 31999655291 (4 shard jobs 95300140003/032/045/091) and last green main run",
+    "31974405109, cross-checked against tools/ci/test_weights.json local weights.",
+    "Give exceptions headroom: CI runners are slower and contended vs local."
+  ],
+  "default_budget_s": 180,
+  "hard_kill_multiplier": 2.0,
+  "max_budget_s": 900,
+  "exceptions": {
+    "test_coop_debrief_sync": {
+      "budget_s": 700,
+      "reason": "CI 529.8s (run 31999655291, shard 2) -- heaviest test; full both-machine debrief handshake. Not in test_weights.json (new), so the shard planner under-weighted it and its shard hit the 25min wall."
+    },
+    "test_parallel_soak": {
+      "budget_s": 450,
+      "reason": "CI 305.8s (run 31999655291, shard 4, retried) -- long multi-turn parallel soak by design. Local weight 345s."
+    },
+    "test_parallel_endturn": {
+      "budget_s": 540,
+      "reason": "CI 135.7s (run 31999655291, shard 4) but local weight 420s (highest in test_weights.json) -- end-turn readiness/reserve matrix. Provisioned above the local weight so a slow run can't spuriously hard-kill it."
+    },
+    "test_parallel_intents": {
+      "budget_s": 360,
+      "reason": "CI 170.1s (run 31999655291, shard 2, retried) -- near the 180s default; local weight 300s. Intent round-trip matrix; would breach the default on a slower/contended runner."
+    },
+    "test_parallel_skip": {
+      "budget_s": 360,
+      "reason": "CI 157.8s (run 31999655291, shard 3) -- near the 180s default; local weight 300s. Skip/fast-forward flow matrix."
+    },
+    "test_coop_outcome_gaps": {
+      "budget_s": 360,
+      "reason": "CI 183.2s (run 31999655291, shard 3) -- over the 180s default; local weight 230s. AUDIT-rng GAP battery (spawns/psi/melee/pellets/ignite/panic/proximity)."
+    },
+    "test_parallel_speed_skew": {
+      "budget_s": 300,
+      "reason": "CI 31.0s (run 31999655291, shard 1) but local weight 240s -- deliberately paces two game clocks against each other (pinned to the serial lane locally). Provisioned to the local weight."
+    }
+  }
+}

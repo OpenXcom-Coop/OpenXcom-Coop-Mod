@@ -65,33 +65,116 @@ if ($ListOnly) { $tests; exit 0 }   # to stdout, so callers can diff the shard s
 # again. Empty = the whole suite gates (all green as of 2026-07-15).
 $quarantine = @()
 
+# --- Per-test time budgets ------------------------------------------------------
+# There is no shard wall-clock timeout any more (the CI step used to cap the whole
+# shard at 25 min; removed because the suite only grows). Enforcement is per-test
+# instead: a test that FINISHES over its budget fails the suite even if it passed,
+# and a test still running at hard_kill_multiplier x its budget is killed (with the
+# game subtree it spawned) and failed, so a hang can never wedge a shard. Budgets +
+# exceptions live in tools/coop_test/slow_test_exceptions.json and are shared
+# verbatim with tools/coop_test/run_parallel.py (same JSON, two parsers).
+$budgetFile    = Join-Path $testDir "slow_test_exceptions.json"
+$defaultBudget = 180.0
+$hardKillMult  = 2.0
+$maxBudget     = 900.0
+$budgetMap     = @{}
+if (Test-Path $budgetFile) {
+  $bc = Get-Content $budgetFile -Raw | ConvertFrom-Json
+  if ($null -ne $bc.default_budget_s)     { $defaultBudget = [double]$bc.default_budget_s }
+  if ($null -ne $bc.hard_kill_multiplier) { $hardKillMult  = [double]$bc.hard_kill_multiplier }
+  if ($null -ne $bc.max_budget_s)         { $maxBudget     = [double]$bc.max_budget_s }
+  if ($bc.exceptions) {
+    foreach ($p in $bc.exceptions.PSObject.Properties) {
+      $b = [double]$p.Value.budget_s
+      if ($b -gt $maxBudget) {
+        throw "${budgetFile}: '$($p.Name)' budget ${b}s exceeds max_budget_s ${maxBudget}s (no unlimited budgets)"
+      }
+      $budgetMap[$p.Name] = $b
+    }
+  }
+  Write-Host "budgets: default ${defaultBudget}s, hard-kill ${hardKillMult}x, $($budgetMap.Count) exception(s), cap ${maxBudget}s"
+} else {
+  Write-Host "WARNING: $budgetFile not found; every test uses the ${defaultBudget}s default budget"
+}
+# Resolve python to a full path so the .NET process launcher below does not depend
+# on PATH search semantics.
+$pythonExe = (Get-Command $python).Source
+
+# Run one test with a hard-kill ceiling. Returns Rc / Seconds / TimedOut. The child
+# inherits our stdout/stderr (UseShellExecute=$false, no redirection) so test output
+# still streams into the CI log. On the ceiling we kill the whole process tree - on
+# Windows via taskkill /T (the python test spawns the game exe), elsewhere best-effort.
+function Invoke-BudgetedTest {
+  param([string]$Exe, [string]$TestPath, [int]$HardKillMs)
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName        = $Exe
+  $psi.Arguments       = '"' + $TestPath + '"'
+  $psi.UseShellExecute = $false
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  $p  = [System.Diagnostics.Process]::Start($psi)
+  if ($p.WaitForExit($HardKillMs)) {
+    $sw.Stop()
+    return [pscustomobject]@{ Rc = $p.ExitCode; Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1); TimedOut = $false }
+  }
+  $sw.Stop()
+  if ($env:OS -eq "Windows_NT") {
+    & taskkill /F /T /PID $p.Id > $null 2>&1
+  } else {
+    try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch {}
+  }
+  try { $p.WaitForExit(15000) | Out-Null } catch {}
+  return [pscustomobject]@{ Rc = 124; Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1); TimedOut = $true }
+}
+
 $results = @()
 $fail = 0
 foreach ($t in $tests) {
-  $sw = [System.Diagnostics.Stopwatch]::StartNew()
-  & $python (Join-Path $testDir "$t.py"); $rc = $LASTEXITCODE
-  $attempts = 1
-  $secs = [math]::Round($sw.Elapsed.TotalSeconds, 1)
-  if ($rc -ne 0) {
-    $sw.Restart()
-    & $python (Join-Path $testDir "$t.py"); $rc = $LASTEXITCODE   # retry once (flake tolerance)
-    $attempts = 2
-    $secs = [math]::Round($sw.Elapsed.TotalSeconds, 1)    # time the LAST attempt only:
-  }                                                       # a retry must not inflate the
-  $sw.Stop()                                              # weight the next plan uses
+  $testPath = Join-Path $testDir "$t.py"
+  $budget   = if ($budgetMap.ContainsKey($t)) { $budgetMap[$t] } else { $defaultBudget }
+  $hardMs   = [int][math]::Ceiling($budget * $hardKillMult * 1000.0)
 
-  if ($rc -eq 0)                    { $status = "PASS" }
+  $r = Invoke-BudgetedTest $pythonExe $testPath $hardMs
+  $attempts = 1
+  if ($r.Rc -ne 0 -and -not $r.TimedOut) {        # retry a real failure once (flake tolerance)
+    $r = Invoke-BudgetedTest $pythonExe $testPath $hardMs   # never retry a hang - it just hangs again
+    $attempts = 2
+  }
+  $rc         = $r.Rc            # the LAST attempt's result/duration (a retry must
+  $secs       = $r.Seconds       # not inflate the weight the next plan uses)
+  $timedOut   = $r.TimedOut
+  $overBudget = ($rc -eq 0 -and -not $timedOut -and $secs -gt $budget)
+
+  # Classify. Precedence: hang > real failure > over-budget > pass. Quarantine
+  # downgrades any of the failure kinds to a non-gating KNOWN-FAIL.
+  $reason = $null
+  if ($timedOut) {
+    $hardS  = [math]::Round($budget * $hardKillMult, 1)
+    $reason = "BUDGET HARD-KILL: $t still running after ${hardS}s ($($hardKillMult)x its $($budget)s budget) - killed as a hung test"
+    $isFail = $true
+  } elseif ($rc -ne 0) {
+    $isFail = $true
+  } elseif ($overBudget) {
+    $reason = "BUDGET EXCEEDED: $t took ${secs}s > $($budget)s budget - re-engineer the test or add a justified exception"
+    $isFail = $true
+  } else {
+    $isFail = $false
+  }
+
+  if (-not $isFail)                 { $status = "PASS" }
   elseif ($quarantine -contains $t) { $status = "KNOWN-FAIL" }
   else                              { $status = "FAIL"; $fail++ }
 
   $note = @()
-  if ($attempts -gt 1)              { $note += "retried" }
-  if ($status -eq "KNOWN-FAIL")     { $note += "quarantined" }
-  if ($rc -ne 0)                    { $note += "rc=$rc" }
+  if ($attempts -gt 1)          { $note += "retried" }
+  if ($status -eq "KNOWN-FAIL") { $note += "quarantined" }
+  if ($timedOut)                { $note += "HANG rc=124" }
+  elseif ($rc -ne 0)            { $note += "rc=$rc" }
+  elseif ($overBudget)          { $note += "over ${budget}s budget" }
   $suffix = if ($note) { " ($($note -join ', '))" } else { "" }
   Write-Host ("{0,-11} {1,8:N1}s  {2}{3}" -f $status, $secs, $t, $suffix)
+  if ($reason -and $status -eq "FAIL") { Write-Host "::error::$reason" }
 
-  $results += [pscustomobject]@{ Test = $t; Status = $status; Seconds = $secs; Attempts = $attempts; Rc = $rc }
+  $results += [pscustomobject]@{ Test = $t; Status = $status; Seconds = $secs; Attempts = $attempts; Rc = $rc; Budget = $budget; OverBudget = $overBudget; TimedOut = $timedOut }
 }
 
 # Feeds the next run's plan. PASSes only: a failing test bails out early and its
@@ -109,9 +192,9 @@ if ($env:GITHUB_STEP_SUMMARY) {
   $total = [math]::Round(($results | Measure-Object Seconds -Sum).Sum, 1)
   $title = if ($PlanFile) { "Coop test durations - shard $Shard (total $($total)s)" } else { "Coop test durations (total $($total)s)" }
   $md = @("## $title", "",
-          "| Test | Status | Duration | Attempts |", "| --- | --- | ---: | ---: |")
+          "| Test | Status | Duration | Budget | Attempts |", "| --- | --- | ---: | ---: | ---: |")
   foreach ($r in ($results | Sort-Object Seconds -Descending)) {
-    $md += "| $($r.Test) | $($r.Status) | $($r.Seconds)s | $($r.Attempts) |"
+    $md += "| $($r.Test) | $($r.Status) | $($r.Seconds)s | $($r.Budget)s | $($r.Attempts) |"
   }
   $md -join "`n" | Add-Content $env:GITHUB_STEP_SUMMARY
 }
