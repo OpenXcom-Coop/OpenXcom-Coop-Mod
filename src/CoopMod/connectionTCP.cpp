@@ -436,6 +436,23 @@ void CoopSession::resetSession()
 	// its stale world blobs (fixes C1/C2). This is the ONLY teardown path;
 	// onClientDrop deliberately keeps both so the host can serve a rejoin (D5).
 	connectionTCP::saveID = 0;
+
+	// The client-side time mirror is process-static and is applied to every live
+	// SavedGame while time sync is enabled. If a campaign is followed by a
+	// skirmish in the same process, retaining the campaign year makes think()
+	// overwrite the skirmish's monthsPassed == -1 with the old campaign value.
+	// DebriefingState then mistakes the skirmish for a campaign and returns to
+	// the geoscape. A full teardown must discard the old world's clock too.
+	connectionTCP::_weekday = 0;
+	connectionTCP::_day = 0;
+	connectionTCP::_month = 0;
+	connectionTCP::_year = 0;
+	connectionTCP::_hour = 0;
+	connectionTCP::_minute = 0;
+	connectionTCP::_second = 0;
+	connectionTCP::monthsPassed = 0;
+	connectionTCP::daysPassed = 0;
+
 	{
 		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
 		connectionTCP::coopFilesHost.clear();
@@ -14946,6 +14963,23 @@ void connectionTCP::setConnected(int state)
 // disconnect the connection
 void connectionTCP::disconnectTCP(bool isMain)
 {
+		// A finished custom battle has already left the tactical world, so
+		// coopBattleLive() is false while its DebriefingState is still open.
+		// Remember that exact state before teardown resets the session: a client
+		// leaving at the results screen must not send the host back to the lobby.
+		bool customBattleDebriefing = false;
+		if (_game && _game->getSavedGame()
+			&& _game->getSavedGame()->getMonthsPassed() == -1)
+		{
+			for (State* st : _game->getStates())
+			{
+				if (dynamic_cast<DebriefingState*>(st) != nullptr)
+				{
+					customBattleDebriefing = true;
+					break;
+				}
+			}
+		}
 
 		_waitBC = false;
 		_waitBH = false;
@@ -15083,7 +15117,8 @@ void connectionTCP::disconnectTCP(bool isMain)
 						"wait dialog (freeze/resume-ack) is already on the stack";
 				}
 			}
-			else if (connectionTCP::session.lobbyClosed == true)
+			else if (connectionTCP::session.lobbyClosed == true
+				&& !customBattleDebriefing)
 			{
 				// ...but NOT once the skirmish mission is over. The peer left
 				// because they closed their debriefing; the host is still
@@ -15101,6 +15136,11 @@ void connectionTCP::disconnectTCP(bool isMain)
 				{
 					_game->pushState(new LobbyMenu);
 				}
+			}
+			else if (customBattleDebriefing)
+			{
+				Log(LOG_INFO) << "[coop] lobby suppressed: client disconnected "
+					"while the host was viewing custom-battle debriefing";
 			}
 
 		}
