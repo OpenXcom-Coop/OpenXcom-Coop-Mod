@@ -20,8 +20,32 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
   TU settings are now per-player rather than mirrored. If either player is on an
   older build, or the mission is PVP, the session falls back to the classic
   alternating turns with no change in behaviour.
+- **"Please wait for <player>'s action to finish."** In parallel turns, a
+  banner above the toolbar now names the player whose action is running while
+  your own input is blocked, so a busy moment no longer looks like a bug. It
+  clears the instant their action ends and never shows for your own actions.
+- **Desync detection with one-click reporting.** The two machines now verify
+  the entire battle state against each other after every single action. If
+  they ever disagree, both players get a dialog naming exactly what diverged
+  ("items diverged at action 242: grenade"), a diagnostic zip is saved
+  automatically, and the dialog offers OPEN FOLDER and REPORT ON GITHUB
+  (pre-filled issue) buttons. Nothing is uploaded without you.
+- **Crash reporter.** If the game crashed last time, the next launch offers to
+  bundle the crash details (dump, log, system info) into a zip for reporting -
+  BUNDLE / NOT NOW / NEVER, your choice each time. Works for hard crashes the
+  classic crash dialog never sees.
+- **Mods work in parallel turns.** Battle scripts that roll random numbers
+  (randomChance/randomRange) now stay in lockstep between the two machines, so
+  scripted mods no longer carry a "may desync in co-op" caveat.
 
 ### Fixed
+- Co-op battles: a long tail of subtle desyncs between the two machines has
+  been eliminated - kneeling state after walking, squad morale after
+  casualties, doors one player walked through staying closed for the other,
+  destroyed terrain and fire/smoke drifting apart, item ids diverging after
+  explosions, a dead mind-controlled alien ending up on different sides, ammo
+  counts, and the battle ending on one machine but not the other under
+  surrender-mode mods. The per-action verification above now guards all of it.
 - Co-op SHARED campaigns: a soldier gifted between players during a battle no
   longer duplicates after the mission ends. Transferring a soldier back and forth
   in the battlescape used to leave a second copy of it in the shared roster once
