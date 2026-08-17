@@ -37,10 +37,16 @@ import time
 TESTDIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(TESTDIR))
 WEIGHTS_FILE = os.path.join(REPO, "tools", "ci", "test_weights.json")
+BUDGET_FILE = os.path.join(TESTDIR, "slow_test_exceptions.json")
 
-# Per-test subprocess ceiling. Matches the harness's 600 s foreground-test rule;
-# a test that blows past it is killed (with its game subtree) and retried once.
-SUBPROC_TIMEOUT = 600.0
+# Per-test time budgets (seconds), the same ones tools/ci/run_coop_suite.ps1 enforces
+# in CI (both read slow_test_exceptions.json). A test that FINISHES over its budget
+# fails even if it passed; a test still running at hard-kill x its budget is killed
+# (with its game subtree) and failed, so a hang is always bounded. These are the
+# fallbacks if the JSON is missing.
+DEFAULT_BUDGET = 180.0
+HARD_KILL_MULT = 2.0
+MAX_BUDGET = 900.0
 
 # --- PINNED: timing-sensitive families locked to slot 0 (the serial lane) ----
 # These either deliberately measure timing (speed_skew), drive a real-time
@@ -99,6 +105,29 @@ def load_weights():
         return {}
 
 
+def load_budget():
+    """Read slow_test_exceptions.json -> (default_budget, hard_kill_mult, {test: budget}).
+    Shared verbatim with tools/ci/run_coop_suite.ps1. Errors out if any exception
+    exceeds max_budget_s - there are no unlimited budgets."""
+    default_budget, hard_mult, max_budget = DEFAULT_BUDGET, HARD_KILL_MULT, MAX_BUDGET
+    exceptions = {}
+    try:
+        with open(BUDGET_FILE, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        return default_budget, hard_mult, exceptions
+    default_budget = float(cfg.get("default_budget_s", default_budget))
+    hard_mult = float(cfg.get("hard_kill_multiplier", hard_mult))
+    max_budget = float(cfg.get("max_budget_s", max_budget))
+    for name, spec in (cfg.get("exceptions") or {}).items():
+        b = float(spec["budget_s"])
+        if b > max_budget:
+            raise SystemExit("slow_test_exceptions.json: %s budget %gs exceeds "
+                             "max_budget_s %gs (no unlimited budgets)" % (name, b, max_budget))
+        exceptions[name] = b
+    return default_budget, hard_mult, exceptions
+
+
 def assign(tests, slots, weights):
     """Pinned tests -> slot 0 (serial lane); the rest greedy-LPT across all K
     lanes by weight. Returns a list of K queues (each a list of test names)."""
@@ -141,14 +170,14 @@ def _kill_tree(proc):
         proc.kill()
 
 
-def _run_once(name, slot, base_env):
+def _run_once(name, slot, base_env, hard_timeout):
     path = os.path.join(TESTDIR, name + ".py")
     env = dict(base_env)
     env["OXC_HARNESS_SLOT"] = str(slot)
     t0 = time.time()
     proc = subprocess.Popen([sys.executable, path], env=env)
     try:
-        rc = proc.wait(timeout=SUBPROC_TIMEOUT)
+        rc = proc.wait(timeout=hard_timeout)
         timed_out = False
     except subprocess.TimeoutExpired:
         _kill_tree(proc)
@@ -157,18 +186,31 @@ def _run_once(name, slot, base_env):
     return rc, round(time.time() - t0, 1), timed_out
 
 
-def _run_lane(slot, queue, base_env, results, lock, run_start, quiet):
+def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg):
+    default_budget, hard_mult, exceptions = budget_cfg
     for name in queue:
+        budget = exceptions.get(name, default_budget)
+        hard = max(1.0, budget * hard_mult)
         s0 = round(time.time() - run_start, 1)
-        rc, secs, timed_out = _run_once(name, slot, base_env)
+        rc, secs, timed_out = _run_once(name, slot, base_env, hard)
         attempts = 1
-        if rc != 0:                     # retry once (flake tolerance)
-            rc, secs, timed_out = _run_once(name, slot, base_env)
+        if rc != 0 and not timed_out:   # retry a real failure once; never retry a hang
+            rc, secs, timed_out = _run_once(name, slot, base_env, hard)
             attempts = 2
         e0 = round(time.time() - run_start, 1)
-        status = "PASS" if rc == 0 else "FAIL"
+        over_budget = (rc == 0 and not timed_out and secs > budget)
+        status = "FAIL" if (timed_out or rc != 0 or over_budget) else "PASS"
+        reason = None
+        if timed_out:
+            reason = ("BUDGET HARD-KILL: %s still running after %.1fs (%gx its %gs "
+                      "budget) - killed as a hung test"
+                      % (name, budget * hard_mult, hard_mult, budget))
+        elif over_budget:
+            reason = ("BUDGET EXCEEDED: %s took %.1fs > %gs budget - re-engineer the "
+                      "test or add a justified exception" % (name, secs, budget))
         rec = {"test": name, "slot": slot, "status": status, "seconds": secs,
                "attempts": attempts, "rc": rc, "timed_out": timed_out,
+               "budget": budget, "over_budget": over_budget, "reason": reason,
                "start": s0, "end": e0}
         with lock:
             results.append(rec)
@@ -176,11 +218,17 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet):
                 note = []
                 if attempts > 1:
                     note.append("retried")
-                if rc != 0:
-                    note.append("rc=%d%s" % (rc, " TIMEOUT" if timed_out else ""))
+                if timed_out:
+                    note.append("HANG rc=124")
+                elif rc != 0:
+                    note.append("rc=%d" % rc)
+                elif over_budget:
+                    note.append("over %gs budget" % budget)
                 suffix = " (%s)" % ", ".join(note) if note else ""
                 print("[slot %d] %-11s %8.1fs  %s%s"
                       % (slot, status, secs, name, suffix), flush=True)
+                if reason:
+                    print("  !! %s" % reason, flush=True)
 
 
 def main():
@@ -220,11 +268,16 @@ def main():
         ap.error("no such test(s): %s" % ", ".join(missing))
 
     weights = load_weights()
+    budget_cfg = load_budget()
+    default_budget, hard_mult, exceptions = budget_cfg
     queues, load, median = assign(tests, args.slots, weights)
 
     print("plan: %d test(s) -> %d lane(s), weights from %s (median %.0fs)"
           % (len(tests), args.slots,
              os.path.relpath(WEIGHTS_FILE, REPO) if weights else "none", median))
+    print("budgets: default %gs, hard-kill %gx, %d exception(s) from %s"
+          % (default_budget, hard_mult, len(exceptions),
+             os.path.relpath(BUDGET_FILE, REPO) if exceptions else "defaults"))
     for k in range(args.slots):
         pinned_here = sum(1 for t in queues[k] if t in PINNED)
         print("  slot %d: %2d test(s), ~%6.0fs%s"
@@ -247,7 +300,7 @@ def main():
     run_start = time.time()
     threads = [threading.Thread(target=_run_lane,
                                 args=(k, queues[k], base_env, results, lock,
-                                      run_start, args.quiet))
+                                      run_start, args.quiet, budget_cfg))
                for k in range(args.slots) if queues[k]]
     for t in threads:
         t.start()
@@ -261,11 +314,12 @@ def main():
     lane_busy = [round(sum(r["seconds"] for r in results if r["slot"] == k), 1)
                  for k in range(args.slots)]
 
-    print("\n%-30s %-6s %8s %4s %s" % ("TEST", "VERD", "SECS", "ATT", "SLOT"))
+    print("\n%-30s %-6s %8s %8s %4s %s"
+          % ("TEST", "VERD", "SECS", "BUDGET", "ATT", "SLOT"))
     for r in results:
-        print("%-30s %-6s %8.1f %4d   %d%s"
-              % (r["test"], r["status"], r["seconds"], r["attempts"], r["slot"],
-                 "  <-- FAIL" if r["status"] != "PASS" else ""))
+        print("%-30s %-6s %8.1f %8g %4d   %d%s"
+              % (r["test"], r["status"], r["seconds"], r["budget"], r["attempts"],
+                 r["slot"], "  <-- FAIL" if r["status"] != "PASS" else ""))
 
     print("\n%d test(s): %d passed, %d failed" % (len(results),
           len(results) - len(fails), len(fails)))
@@ -274,6 +328,9 @@ def main():
              "/".join("%.0f" % b for b in lane_busy)))
     if fails:
         print("FAILED: %s" % ", ".join(r["test"] for r in fails))
+        for r in fails:
+            if r.get("reason"):
+                print("  !! %s" % r["reason"])
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
