@@ -3694,6 +3694,14 @@ bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census,
 
 void attachBattleChecksum(Game* game, Json::Value& msg)
 {
+	// coop (#151): PvP (gamemodes 2/3) runs a ROLE-AWARE sim where the two machines
+	// diverge BY DESIGN - PvP is outside all parallel + I0 sync machinery, so the
+	// battle drift tripwire must not stamp the battle terms there. An unstamped peer
+	// reads back as the -1 "agree" sentinel in verifyBattleChecksum, so a mixed
+	// old/new-version session stays compatible. The SHARED-economy world checksum
+	// (chkFunds/chkBases/... in attachWorldChecksum) is a DIFFERENT mechanism that
+	// PvP campaigns still use, and is left unconditional.
+	if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) return;
 	int64_t itemIdCounter, census, units;
 	if (!battleChecksumTerms(game, itemIdCounter, census, units)) return; // no battle
 	msg["chkBattleItemId"] = Json::Value::Int64(itemIdCounter);
@@ -3703,6 +3711,12 @@ void attachBattleChecksum(Game* game, Json::Value& msg)
 
 void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string& context)
 {
+	// coop (#151): symmetric with attachBattleChecksum - PvP (gamemodes 2/3) diverges
+	// by design, so this machine must never compare the battle terms or fire the
+	// desync capture in PvP. Belt-and-braces on the receive side: even a mixed-version
+	// peer that still stamped chkBattle* must not trip the tripwire here. (The I0
+	// per-action sync-check is already inert in PvP via parallelTurnActive() == gm 1/4.)
+	if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) return;
 	const int64_t peerItemId = msg.get("chkBattleItemId", -1).asInt64();
 	const int64_t peerCensus = msg.get("chkBattleCensus", -1).asInt64();
 	// Additive: a peer that predates the unit term stamps nothing here, which reads
