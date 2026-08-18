@@ -29,8 +29,8 @@
       "reason": "CI 529.8s (run 31999655291, shard 2) -- heaviest test; full both-machine debrief handshake. Not in test_weights.json (new), so the shard planner under-weighted it and its shard hit the 25min wall."
     },
     "test_parallel_soak": {
-      "budget_s": 450,
-      "reason": "CI 305.8s (run 31999655291, shard 4, retried) -- long multi-turn parallel soak by design. Local weight 345s."
+      "budget_s": 750,
+      "reason": "CI 305.8s normal but 683.2s observed on a ~6x-slow runner window (run 32086393722, shard 2 retry) -- 5-turn parallel battle cycle; headroom for runner jitter until re-engineered under issue #169."
     },
     "test_parallel_endturn": {
       "budget_s": 540,
