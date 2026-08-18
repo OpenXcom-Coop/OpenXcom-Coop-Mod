@@ -564,20 +564,23 @@ void UnitWalkBState::think()
 			// now open doors (if any)
 			if (dir < Pathfinding::DIR_UP)
 			{
-				// coop (SEAM-3 door B): the peer's REPLAY walk is door-state-neutral - it never
-			// swaps a hinged door. The EXECUTOR records the hinged doors it opens and ships
-			// them on the abortPath closer (deinit), applied cost-free on the peer. So
-			// neither a TU/reserve/re-path shortfall (peer misses a host open) nor a
-			// divergent re-path (peer opens one the host never crossed) can drift hinged-
-			// door state. UFO doors are unaffected (replayNeutral only gates the hinged
-			// branch; their frame animation still runs on the peer).
+				// coop (SEAM-3 door B + UFO-door authority): the peer's REPLAY walk is
+			// door-state-neutral for BOTH hinged and UFO doors - it never swaps one. The
+			// EXECUTOR records the doors it opens (hinged door==0, ufo door==1) and ships
+			// them on the abortPath closer (deinit), applied on the peer. So neither a
+			// TU/reserve/re-path shortfall (peer misses a host open) nor a divergent re-path
+			// (peer opens one the host never crossed) can drift door state. UFO doors used to
+			// be exempt (their frame animation ran on the peer's independently re-pathfound
+			// walk), which left a UFO door the host never crossed open until the side boundary
+			// (isUfoDoorOpen divergence, host closed / peer open); recording them here closes
+			// that seam. Their adjacent-tile run is re-derived on apply via checkAdjacentDoors.
 			bool coopReplayDoor = _parent->isCoop() && !_parent->getCoopMod()->_isActivePlayerSync;
 			Position openedPos;
 			int openedPart = -1;
 			int door = _terrain->unitOpensDoor(_unit, false, dir, false, coopReplayDoor,
 											   coopReplayDoor ? 0 : &openedPos,
 											   coopReplayDoor ? 0 : &openedPart);
-			if (!coopReplayDoor && door == 0 && _parent->isCoop()
+			if (!coopReplayDoor && (door == 0 || door == 1) && _parent->isCoop()
 				&& _parent->getCoopMod()->_isActivePlayerSync)
 			{
 				_coopWalkDoors.push_back(std::make_pair(openedPos, openedPart));

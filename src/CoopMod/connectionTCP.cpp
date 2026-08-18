@@ -6033,11 +6033,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					const Json::Value& doorsArr = obj["doors_opened"];
 					for (Json::ArrayIndex di = 0; di < doorsArr.size(); ++di)
 					{
-						Tile* dt = sbgDoors->getTile(Position(doorsArr[di]["x"].asInt(),
-													 doorsArr[di]["y"].asInt(),
-													 doorsArr[di]["z"].asInt()));
+						Position dpos(doorsArr[di]["x"].asInt(),
+									  doorsArr[di]["y"].asInt(),
+									  doorsArr[di]["z"].asInt());
+						Tile* dt = sbgDoors->getTile(dpos);
 						if (dt)
-							dt->openDoor((TilePart)doorsArr[di]["part"].asInt(), 0, BA_NONE, false, true);
+						{
+							TilePart dpart = (TilePart)doorsArr[di]["part"].asInt();
+							dt->openDoor(dpart, 0, BA_NONE, false, true);
+							// coop (UFO-door authority): a UFO door can span several tiles; mirror the
+							// executor's checkAdjacentDoors so the peer opens the whole run, not just the
+							// primary. Hinged doors are single-tile (isUfoDoor false), so this is skipped.
+							if (dt->isUfoDoor(dpart) && sbgDoors->getTileEngine())
+								sbgDoors->getTileEngine()->checkAdjacentDoors(dpos, dpart);
+						}
 					}
 				}
 

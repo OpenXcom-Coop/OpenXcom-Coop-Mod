@@ -4605,6 +4605,11 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir, bool costF
 							std::pair<int, Position> adjacentDoors = checkAdjacentDoors(unit->getPosition() + Position(x,y,z) + pair.first, pair.second);
 							doorsOpened += adjacentDoors.first + 1;
 							doorCentre = adjacentDoors.second;
+							// coop (UFO-door authority): report the primary UFO-door tile+part so the
+							// executor's UnitWalkBState ships it on the walk closer (doors_opened); the
+							// peer re-derives the adjacent run via checkAdjacentDoors on apply.
+							if (openedPos) *openedPos = unit->getPosition() + Position(x, y, z) + pair.first;
+							if (openedPart) *openedPart = (int)pair.second;
 						}
 					}
 				}

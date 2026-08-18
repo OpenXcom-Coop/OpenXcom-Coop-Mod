@@ -400,6 +400,17 @@ int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bo
 		setMapData(0, -1, -1, part);
 		return 0;
 	}
+	// coop (UFO-door authority): the peer's REPLAY walk is door-state-neutral for UFO
+	// doors too, matching the hinged branch above. The peer re-pathfinds each replayed
+	// walk independently (BattlescapeGame::abortCoopPath -> Pathfinding::calculate), so a
+	// route that crosses a UFO door the host's route never touched used to open it locally;
+	// nothing closes a UFO door until the side boundary, so isUfoDoorOpen diverged (host
+	// closed, peer open) for the rest of the turn. The EXECUTOR now records the UFO doors
+	// it opens (UnitWalkBState) and ships them on the abortPath closer (doors_opened),
+	// applied on the peer with adjacency - so UFO-door state is host-authoritative in both
+	// directions, exactly like hinged doors. replayNeutral is set only by the replay walk.
+	if (replayNeutral && _objectsCache[part].isUfoDoor)
+		return -1;
 	if (_objectsCache[part].isUfoDoor && _objectsCache[part].currentFrame == 0) // ufo door part 0 - door is closed
 	{
 		if (unit && cost.Time && !cost.haveTU())
