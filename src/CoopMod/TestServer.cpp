@@ -4537,6 +4537,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["pathLock"] = pcoop ? pcoop->_pathLock : -1;
 		resp["coopWalkInit"] = pcoop ? pcoop->_coopWalkInit : false;
 		resp["coopInitDeath"] = pcoop ? pcoop->_coopInitDeath : false;
+		// coop (Class-A soak wedge fix, A1): the auto-shot pacing wait + its liveness
+		// escape. `coopPacingWait` is 1 while a multi-shot replay is parked on the
+		// host's flip packet (the state that, unrescued, holds the receive gate for the
+		// whole rest of the battle); `forceDrainCount` is the monotonic number of times
+		// the RX pump's stall floor had to force that wait to end - 0 across a clean
+		// run, non-zero only when a real wedge was broken.
+		resp["coopPacingWait"] = pcoop ? pcoop->_coopPacingWait : false;
+		resp["forceDrainReplay"] = pcoop ? pcoop->_coopForceDrainReplay : false;
+		resp["forceDrainCount"] = static_cast<Json::UInt>(pcoop ? pcoop->_coopForceDrainCount : 0);
 		resp["coopEnd"] = pcoop ? pcoop->_coopEnd : 0;
 		// coop (PRD-I3 Option D-lite): the pending deferred turn-machine advance
 		// (1 while a neutral->player advance waits for its next_turn, else 0).
@@ -4589,6 +4598,26 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		if (req.get("clear_deny", false).asBool())
 		{
 			connectionTCP::clearClientLastDeny();
+		}
+		// coop (Class-A soak wedge fix, A3 test lever): override the peer-liveness
+		// firing bar so the red-capability test fires in seconds rather than the shipped
+		// tens of seconds. setLivenessGap 0 / setLivenessStallMs < 0 restore the defaults.
+		if (req.isMember("setLivenessGap") || req.isMember("setLivenessStallMs"))
+		{
+			SharedEcon::setPeerLivenessThresholds(
+				static_cast<std::uint32_t>(req.get("setLivenessGap", 0).asUInt()),
+				static_cast<std::int64_t>(req.get("setLivenessStallMs", -1).asInt64()));
+		}
+		// coop (Class-A soak wedge fix, A1 test lever): arm the auto-shot pacing wait
+		// directly on this (client) machine so the RX pump's force-drain floor can be
+		// exercised deterministically - a real ExplosionBState wait requires a shot that
+		// hits a unit mid-multi-shot with the host's flip withheld, which no fixture can
+		// stage reliably. `false` clears the wait AND any raised drain flag, so a stale
+		// escape can never leak onto a subsequent real shot.
+		if (req.isMember("armPacingWait") && pcoop)
+		{
+			pcoop->_coopPacingWait = req.get("armPacingWait", false).asBool();
+			if (!pcoop->_coopPacingWait) pcoop->_coopForceDrainReplay = false;
 		}
 		// PRD-P7: walk fast-forward + display flow control.
 		//   fastForward     - is the walk/turn/fall interval pinned to 0 right now
@@ -4803,8 +4832,18 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// instead: `{hold:true}` parks it, `{hold:false}` ships the newest parked
 		// seq immediately (main thread, same emit point as the live path).
 		const bool want = req.get("hold", true).asBool();
+		// coop (Class-A soak wedge fix, A3): `{boundary:true}` parks ONLY the boundary
+		// answer (coopEmitBoundaryDone), leaving the per-chain report flowing - so the
+		// host keeps committing and crossing boundaries while its
+		// g_syncLastComparedBoundarySeq freezes, the exact peer-went-dark-on-boundaries
+		// condition the liveness tripwire detects, forced deterministically.
+		const bool boundaryOnly = req.get("boundary", false).asBool();
 		connectionTCP* hcoop = _game->getCoopMod();
-		if (want)
+		if (boundaryOnly)
+		{
+			connectionTCP::_testHoldBoundaryDone = want;
+		}
+		else if (want)
 		{
 			connectionTCP::_heldActionDones = 0;
 			connectionTCP::_testHoldActionDone = true;
@@ -4815,6 +4854,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			if (hcoop) hcoop->coopEmitActionDone();
 		}
 		resp["hold"] = connectionTCP::_testHoldActionDone;
+		resp["holdBoundary"] = connectionTCP::_testHoldBoundaryDone;
 		resp["heldActionDones"] = static_cast<Json::UInt>(connectionTCP::_heldActionDones);
 		resp["displaySeq"] = static_cast<Json::UInt>(connectionTCP::_clientDisplaySeq);
 		resp["peerDisplayAckedSeq"] = static_cast<Json::UInt>(connectionTCP::peerDisplayAckedSeq);
@@ -5705,6 +5745,13 @@ std::string TestServer::execute(const std::string& line)
 				resp["pathLock"] = coop->_pathLock;
 				resp["coopWalkInit"] = coop->_coopWalkInit;
 				resp["coopInitDeath"] = coop->_coopInitDeath;
+				// coop (Class-A soak wedge fix, A1): the auto-shot pacing wait + its
+				// force-drain escape (see parallel_state for the full note). The forensic
+				// wedge showed coopInitDeath=true + taskDepth stuck; coopPacingWait names
+				// the exact display state holding the gate, forceDrainCount the rescues.
+				resp["coopPacingWait"] = coop->_coopPacingWait;
+				resp["forceDrainReplay"] = coop->_coopForceDrainReplay;
+				resp["forceDrainCount"] = static_cast<Json::UInt>(coop->_coopForceDrainCount);
 				// PRD-I3 Session F straddle: this machine's death-replay windows folded
 				// into one gate - the SAME predicate the in-game sync-check reports on at
 				// SharedEcon.cpp:5817 (corpseReplayPendingAny window-1 + corpseRemapPendingAny
