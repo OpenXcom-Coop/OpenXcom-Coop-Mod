@@ -185,37 +185,6 @@ bool connectionTCP::_isActivePlayerSync = false;
 // by the coop_leaving handler when the peer leaves a skirmish debrief gracefully.
 bool connectionTCP::_peerLeftCleanly = false; 
 
-/**
- * coop (PRD-P3 GAP-4a): stable identity of a deferred attack.
- *
- * TileEngine::hit is host-authoritative, so a peer parks the BattleActionAttack it
- * would have resolved and applies it when the host's matching "hit_tile" arrives.
- * Pairing those two streams by QUEUE POSITION silently mis-attributes every hit
- * once they disagree about how many hits an action produced.
- *
- * A host-side counter cannot key them either: the host sends hit_tile from inside
- * its own TileEngine::hit, which runs BEFORE the peer has even started the replay
- * chain that parks the matching attack - measured, the peer is permanently one
- * behind - so two separately-kept counters never line up. The key therefore has to
- * be DERIVED from the attack, identically on both machines: FNV-1a over exactly the
- * fields hitCoop consumes. Two hits of the same attack (an autoshot's bullets, a
- * shotgun's pellets) hash the same, which is correct - their parked entries are
- * interchangeable.
- */
-int connectionTCP::coopAttackKey(const BattleActionAttack& attack)
-{
-	uint32_t h = 2166136261u;
-	auto mix = [&h](int v)
-	{
-		h ^= (uint32_t)v;
-		h *= 16777619u;
-	};
-	mix((int)attack.type);
-	mix(attack.attacker ? attack.attacker->getId() : -1);
-	mix(attack.weapon_item ? attack.weapon_item->getId() : -1);
-	mix(attack.damage_item ? attack.damage_item->getId() : -1);
-	return (int)(h & 0x7fffffffu);
-}
 
 bool connectionTCP::_enable_time_sync = true;
 
@@ -675,9 +644,9 @@ Json::Value rxAppliedTrace(size_t limit)
  * Deliberately absent:
  *  - tile-only hazards (`set_smoke_tile`, `set_fire_tile`, `destroy_tile`) and
  *    `hit_tile` / `calc_explode_fov` / `hasHitUnit`: no unit subject at all.
- *    `hit_tile` carries `attack_id`, but that is an FNV hash of the attack (see
- *    coopAttackKey) and the peer already pairs it with its own parked attack by
- *    that key - pump order is not what orders it.
+ *    `hit_tile` names its attacker/weapon ids directly (PHASE D.2) for
+ *    reconstructing the hitCoop call, not for pump ordering - the chain seq it
+ *    carries (coopStampChainSeq / I1) is what holds it for its own chain.
  *  - arbitration and flow control (`action_intent`, `action_ack`, `action_deny`,
  *    `action_done`, `action_end`, `end_turn_*`, votes): sequenced by their own
  *    req_id/seq fields, and delaying them would stall the arbiter, not order it.
@@ -7990,67 +7959,39 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					dmg->ToTile = ToTile;
 					dmg->ToWound = ToWound;
 
-					// coop (PRD-P3 GAP-4a): pair this hit with the attack THIS machine parked
-					// for it, by the attack's own identity. FIFO position is not identity:
-					// the moment the two machines disagree about how many hits an action
-					// produced (a CQB block, a shotgun pellet that terminated early) every
-					// later hit was applied to the wrong attacker for the rest of the battle.
-					// Entries BEFORE the match are local hits the host never made, and are
-					// dropped with them. An absent attack_id means an older peer - keep the
-					// historic FIFO behaviour.
-					int attackId = obj.get("attack_id", -1).asInt();
-					bool haveAttack = false;
+					// coop (PHASE D.2 / chain-atomicity): reconstruct the attack DIRECTLY
+					// from the packet's identity fields - no parked-attack FIFO, no
+					// attack_id match, no drop path. The host ships exactly the fields
+					// hitCoop consumes. `attacker` is load-bearing: voxelCheck excludes it
+					// from the raycast that picks which tile part the hit lands on, so a
+					// wrong/absent attacker could pick a different part and diverge the
+					// terrain outcome. The item pointers feed the reconstructed
+					// BattleActionAttack that hitCoop forwards to hitUnit (which early-returns
+					// on a coop client, so a null item is harmless); ids are looked up here,
+					// never fabricated (issue #74).
+					SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
 					BattleActionAttack oldest{};
-
-					if (attackId >= 0)
+					oldest.type = (BattleActionType)obj.get("ba_type", 0).asInt();
+					int attackerId = obj.get("attacker_id", -1).asInt();
+					if (attackerId >= 0)
 					{
-						for (size_t i = 0; i < _battleActionKeys.size(); ++i)
+						for (auto* u : *sbg->getUnits())
 						{
-							if (_battleActionKeys[i] != attackId)
-							{
-								continue;
-							}
-							oldest = _battleActions[i];
-							haveAttack = true;
-							if (i > 0)
-							{
-								Log(LOG_WARNING) << "coop: hit_tile " << attackId << " skipped " << i
-												 << " parked attack(s) of a different attack";
-							}
-							_battleActions.erase(_battleActions.begin(), _battleActions.begin() + i + 1);
-							_battleActionKeys.erase(_battleActionKeys.begin(), _battleActionKeys.begin() + i + 1);
-							break;
-						}
-						if (!haveAttack)
-						{
-							// Empty is the ordinary case for the FIRST hit of a chain (the
-							// host's packet outruns the peer's replay), and was silently
-							// ignored before this commit too. Non-empty means the parked
-							// attacks belong to something else entirely - applying one of
-							// those is exactly the mis-attribution this keying exists to stop.
-							if (!_battleActions.empty())
-							{
-								Log(LOG_ERROR) << "coop: hit_tile attack " << attackId
-											   << " matches none of the " << _battleActions.size()
-											   << " parked here - dropped rather than mis-attributed";
-							}
+							if (u->getId() == attackerId) { oldest.attacker = u; break; }
 						}
 					}
-					else if (!_battleActions.empty())
+					int weaponItemId = obj.get("weapon_item_id", -1).asInt();
+					int damageItemId = obj.get("damage_item_id", -1).asInt();
+					if (weaponItemId >= 0 || damageItemId >= 0)
 					{
-						oldest = _battleActions.front();
-						haveAttack = true;
-						_battleActions.erase(_battleActions.begin());
-						if (!_battleActionKeys.empty())
+						for (auto* bi : *sbg->getItems())
 						{
-							_battleActionKeys.erase(_battleActionKeys.begin());
+							if (weaponItemId >= 0 && bi->getId() == weaponItemId) oldest.weapon_item = bi;
+							if (damageItemId >= 0 && bi->getId() == damageItemId) oldest.damage_item = bi;
 						}
 					}
 
-					if (haveAttack)
-					{
-						_game->getSavedGame()->getSavedBattle()->getBattleGame()->hitCoop(oldest, Position(center_x, center_y, center_z), power, dmg, rangeAtack, terrainMeleeTilePart, seed);
-					}
+					sbg->getBattleGame()->hitCoop(oldest, Position(center_x, center_y, center_z), power, dmg, rangeAtack, terrainMeleeTilePart, seed);
 
 				}
 
@@ -8596,12 +8537,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		_hasHitUnit = -1;
 
-		// coop (PRD-P3 GAP-4a): hygiene at the one boundary guaranteed to cross once a
-		// turn. Leftovers are the normal tail of the arrival race (the host's hit
-		// outruns the peer's replay by one, so the last parked entry is never claimed);
-		// clearing them keeps the queue from growing for the whole battle.
-		_battleActions.clear();
-		_battleActionKeys.clear();
 		// PRD-P3 GAP-4b: a parked melee/self-destruct outcome that was never consumed
 		// (its replay was skipped) must not poison the next turn's attack.
 		_meleeResults.clear();

@@ -3299,9 +3299,9 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 
 			Json::Value root;
 			root["state"] = "hit_unit";
-			// coop (PRD-P3 GAP-4a): correlation only - a hit_unit is keyed by unit id,
-			// not by the peer's parked-attack queue, so nothing consumes this.
-			root["attack_id"] = connectionTCP::coopAttackKey(attack);
+			// coop (PHASE D.2 / chain-atomicity): the hit_unit "attack_id" was
+			// correlation only (this packet is keyed by unit id and nothing consumed
+			// the field); removed with the attack_id keying it belonged to.
 			root["unit_id"] = target->getId();
 			root["health"] = target->getHealth();
 			root["stunlevel"] = target->getStunlevel();
@@ -3473,12 +3473,14 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false)
 		{
 
-			// coop (PRD-P3 GAP-4a): park the attack under its own identity, which is
-			// the same key the host stamps on the matching "hit_tile", so the two
-			// streams pair by WHAT the attack is instead of by queue position.
-			_save->getBattleGame()->getCoopMod()->_battleActions.push_back(attack);
-			_save->getBattleGame()->getCoopMod()->_battleActionKeys.push_back(connectionTCP::coopAttackKey(attack));
-
+			// coop (PHASE D.2 / chain-atomicity): the client resolves NO hit locally.
+			// It used to park this BattleActionAttack and wait for the host's
+			// "hit_tile" to pair it by identity (attack_id) - a match that DROPPED the
+			// whole hit whenever the two machines disagreed on shot count (autoshot,
+			// pellet, CQB), a permanent terrain divergence since next_turn never
+			// re-ships map-data destruction. The host now ships the attack's identity
+			// directly on hit_tile and the client's handler reconstructs the call, so
+			// there is nothing to park here.
 			return;
 		}
 
@@ -3498,8 +3500,21 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 			// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
 			connectionTCP::coopStampChainSeq(root);
 
-			// coop (PRD-P3 GAP-4a): identity of the attack, for the peer's parked copy.
-			root["attack_id"] = connectionTCP::coopAttackKey(attack);
+			// coop (PHASE D.2 / chain-atomicity): ship the attack's identity DIRECTLY
+			// so the peer reconstructs the hitCoop call from the packet, with no
+			// parked-attack FIFO to drift and no drop path. These are exactly the
+			// fields hitCoop consumes: attacker feeds voxelCheck (excludes the shooter
+			// from the raycast that picks the tile part - load-bearing for the terrain
+			// outcome); type/weapon/damage_item rebuild the BattleActionAttack hitCoop
+			// forwards to hitUnit. The chain seq stamped above (coopStampChainSeq / I1)
+			// carries the CHAIN attribution; these carry the ATTACK parameters. Ids are
+			// looked up on the peer, never fabricated (issue #74). Hard cutover: an old
+			// peer sending the pre-D.2 shape is unsupported (both ends ship together on
+			// this pre-merge branch - see PROTOCOL.md).
+			root["attacker_id"] = attack.attacker ? attack.attacker->getId() : -1;
+			root["weapon_item_id"] = attack.weapon_item ? attack.weapon_item->getId() : -1;
+			root["damage_item_id"] = attack.damage_item ? attack.damage_item->getId() : -1;
+			root["ba_type"] = (int)attack.type;
 
 			root["center_x"] = center.x;
 			root["center_y"] = center.y;

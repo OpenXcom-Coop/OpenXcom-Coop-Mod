@@ -1197,22 +1197,6 @@ class connectionTCP
 	int _melee_target_id = -1;
 	int _melee_hit_number = -1;
 
-	std::vector<BattleActionAttack> _battleActions;
-	// coop (PRD-P3 GAP-4a): TileEngine::hit() is host-authoritative, so a peer only
-	// parks the BattleActionAttack it would have resolved and waits for the host's
-	// "hit_tile". Pairing that stream with these parked entries by FIFO position
-	// silently mis-attributes every hit after the two machines disagree about how
-	// many hits happened (a CQB block, a shotgun pellet that missed on one side).
-	// Each parked entry now carries the attack's IDENTITY, and hit_tile carries the
-	// same one, so the pairing survives however far apart the two streams drift.
-	std::vector<int> _battleActionKeys;
-	// coop (PRD-P3 GAP-4a): identity of a deferred attack, derived from the fields
-	// hitCoop actually consumes. DETERMINISTIC on purpose - a host-side counter is
-	// unusable here, because the host sends hit_tile from inside its own
-	// TileEngine::hit while the peer has not even started the replay chain that will
-	// park the matching attack, so the peer is permanently one behind and no
-	// counter the two machines keep separately can ever line up.
-	static int coopAttackKey(const BattleActionAttack& attack);
 	// coop (PRD-P3 GAP-4b): parked hit/miss decisions, FIFO. The melee sender rolls
 	// in MeleeAttackBState::init (before the ExplosionBState it pushes can roll it)
 	// and ships the boolean on the SAME packet, so the receiver has the answer
