@@ -181,10 +181,19 @@ def idle(host, timeout=90):
     return wait_until(lambda: parallel(host).get("canAdmit") is True, timeout)
 
 
-def top_up(host, client, uid, amount=200):
-    """Same TU on BOTH machines. The HOST validates an intent against its own
-    copy, so a client-side-only top-up would be denied STR_NOT_ENOUGH_TIME_UNITS
-    (and would put the two machines' stats out of step into the bargain)."""
+def top_up(host, client, uid, amount=None):
+    """Restore `uid` to full TU on BOTH machines. amount=None (default) reads the
+    unit's real TU ceiling from battle_state (`tuMax`) and tops up to exactly
+    that: BattleUnit::setTimeUnits clamps to _stats.tu (~66 for a rookie), so the
+    old literal 200 silently became the clamp - the helper claimed to top up to
+    200 but never could. Pass an explicit amount (e.g. 0) to force a value.
+
+    The HOST validates an intent against its OWN copy, so a client-side-only
+    top-up would be denied STR_NOT_ENOUGH_TIME_UNITS (and would drift the two
+    machines' stats into the bargain), hence both machines."""
+    if amount is None:
+        u = unit(battle(host), uid)
+        amount = u.get("tuMax", 200) if u else 200
     for gc in (host, client):
         gc.ok({"cmd": "battle_intent", "unit": uid, "action": "turn",
                "tu": amount, "dry": True})
@@ -229,20 +238,51 @@ def common_steps(host, client, uid, radius=2):
     return [s for s in steps_of(host, uid, radius) if s in cs]
 
 
-def free_step_both(host, client, uid, radius=2):
-    """One tile BOTH machines agree `uid` can path to.
+def single_steps_of(gc, uid, radius=1):
+    """Tiles `uid` can reach in ONE clean step: pathLen == 1 (a direct
+    Chebyshev step, NOT a terrain-forced detour) AND a floored destination tile
+    (no z-level fall at the end). probe_step reports pathLen + floorSafe per
+    candidate (additive fields).
 
-    PRD-P9 rider R6: widened. The skirmish fixture packs 14 soldiers into the
-    Skyranger's 2x7 interior, so a driver whose immediate ring is boxed in by its
-    own squadmates has nothing at radius 2 while a tile two rings out is wide
-    open - and the caller only ever asked "can it step at all". Falling back to a
-    larger radius costs one extra probe_step RPC in the rare case and nothing at
-    all in the common one; it never widens a search that already succeeded."""
-    for r in (radius, radius + 1, radius + 2):
-        got = common_steps(host, client, uid, r)
-        if got:
-            return got[0]
-    return None
+    This is the walk-destination filter the position asserts (`ph in (start,
+    dest)`) depend on. A vouched Chebyshev-adjacent tile whose DIRECT step is
+    terrain-blocked resolves to a 6-29 step detour; a TU-clamped unit then stops
+    partway or falls a z-level at the detour's end, and the assert misreads that
+    landing as the action having run more than once. Kept SEPARATE from
+    steps_of/common_steps, which other suites (test_parallel_skip,
+    test_parallel_soak) use to find the FURTHEST reachable tile on purpose.
+
+    pathLen == 1 lives entirely in ring 1, so radius 1 is sufficient; a wider
+    radius only adds detour tiles this very filter would drop."""
+    r = intent(gc, action="probe_step", unit=uid, radius=radius, max=400)
+    steps = r.get("steps", []) if r.get("ok") else []
+    if steps and "pathLen" not in steps[0]:
+        raise AssertionError(
+            "probe_step returned no pathLen field - bin/x64/Release/OpenXcom.exe "
+            "predates the single-step de-flake; rebuild it (serial, MP=false).")
+    return [(s["x"], s["y"], s["z"]) for s in steps
+            if s.get("pathLen") == 1 and s.get("floorSafe") is True]
+
+
+def single_common(host, client, uid, radius=1):
+    """Tiles BOTH machines agree `uid` can reach in one clean step (pathLen == 1,
+    floored). Verified on EACH machine independently, because a client intent
+    EXECUTES on the host: the single-step vouch has to hold on the host executor
+    (where the walk actually runs) AND the client has to be able to display that
+    same one tile. A tile that is a clean step on the client but a detour on the
+    host is exactly the mismatch this intersection removes."""
+    cs = set(single_steps_of(client, uid, radius))
+    return [s for s in single_steps_of(host, uid, radius) if s in cs]
+
+
+def free_step_both(host, client, uid, radius=1):
+    """One tile BOTH machines agree `uid` can reach in a CLEAN SINGLE STEP, or
+    None. Filtered to pathLen == 1 + floor-safe on both machines (single_common),
+    so every destination this returns lands exactly on `dest` (or, if reaction
+    fire interrupts, stays at `start`) - never partway down a detour. The bounded
+    re-roll for a boxed-in driver lives in step_dest (it re-places the unit)."""
+    both = single_common(host, client, uid, radius)
+    return both[0] if both else None
 
 
 def teleport_both(host, client, uid, spot):
@@ -261,7 +301,12 @@ def place_near(host, client, uid, tpos, ring=NEAR_RING, want=2):
     that fails the moment a squadmate, a corpse or a dropped weapon lands on it -
     which is what made the walk scenarios flaky. The second pass restores the old
     "any step at all" bar, so a cramped fixture still yields a driver rather than
-    an assertion."""
+    an assertion.
+
+    The exits counted are CLEAN SINGLE STEPS (single_common), not any reachable
+    tile: the driver's whole job is to take a one-tile step the position asserts
+    can read, so a spot whose only "exits" are terrain-forced detours is not a
+    viable spot even though a unit could eventually path out of it."""
     landed = stuck = 0
     for need in (want, 1):
         for dx, dy in ring:
@@ -272,7 +317,7 @@ def place_near(host, client, uid, tpos, ring=NEAR_RING, want=2):
                 landed += 1
             # BOTH machines: a driver the client can move but the host cannot is
             # useless, because the host is where every action actually runs.
-            if len(common_steps(host, client, uid, 2)) >= need or (
+            if len(single_common(host, client, uid)) >= need or (
                     need == 1 and free_step_both(host, client, uid)):
                 return spot
             if need == want:
@@ -291,10 +336,13 @@ def place_adjacent(host, client, uid, tpos):
 
 
 def step_dest(host, client, uid):
-    """A tile `uid` can walk to, re-placing it if it has been boxed in.
+    """A CLEAN SINGLE-STEP tile `uid` can walk to, re-placing it if it has been
+    boxed in. This is the bounded re-roll: one re-placement attempt next to a
+    hostile before giving up.
 
-    PRD-P9 rider R6. `free_step_both` answers "where can it go from here"; over a
-    long scenario the answer legitimately becomes "nowhere" - the squad shuffles,
+    PRD-P9 rider R6. `free_step_both` answers "where can it take a clean one-tile
+    step from here" (pathLen == 1, floored, on both machines); over a long
+    scenario the answer legitimately becomes "nowhere" - the squad shuffles,
     somebody dies on the only exit, a thrown crate lands next door - and every
     caller turned that into a hard assertion failure that read like an intent bug.
     Re-placing the driver next to a hostile (the same thing `pick_driver` does at
@@ -307,7 +355,7 @@ def step_dest(host, client, uid):
     enemy = alive_enemy(battle(host))
     if not enemy:
         return None
-    print(f"    (unit {uid} is boxed in - re-placing it before the walk)")
+    print(f"    (unit {uid} has no clean single step - re-placing it before the walk)")
     if not place_near(host, client, uid, (enemy["x"], enemy["y"], enemy["z"])):
         return None
     top_up(host, client, uid)
@@ -334,7 +382,7 @@ def pick_driver(host, client, seat, tag):
 def scenario_walk(host, client, mover_id):
     print("-- 1: client walk intent -> host executes -> both converge --")
     dest = step_dest(host, client, mover_id)
-    assert dest, f"client soldier {mover_id} cannot step anywhere"
+    assert dest, f"client soldier {mover_id} has no clean single-step destination"
 
     before_h = pos(battle(host), mover_id)
     before_c = pos(battle(client), mover_id)
@@ -356,11 +404,24 @@ def scenario_walk(host, client, mover_id):
         f"reach the arbiter, or it was denied. host parallel_state="
         f"{parallel(host)} client={parallel(client)} warning="
         f"{warning_of(client)!r}")
-    landed = pos(battle(host), mover_id)
-    assert wait_until(lambda: pos(battle(client), mover_id) == landed, 45), (
-        f"the client never displayed its OWN action: the host walked {mover_id} "
-        f"to {landed}, the client still has it at {pos(battle(client), mover_id)}")
+    # Do NOT snapshot a mid-walk tile here. The old `landed = pos(host)` capture
+    # fired one frame after the host started moving and latched an INTERMEDIATE
+    # tile, then waited for the client to match that stale snapshot - which it
+    # never does once the host walks on past it. Instead: let the host chain
+    # finish, settle BOTH machines, then read the settled-final position. With
+    # step_dest yielding clean single steps the host lands exactly on `dest`;
+    # the assertion below proves the client displayed its OWN forwarded action
+    # by CONVERGING on that same final tile.
+    assert idle(host, timeout=45), (
+        f"the host's forwarded walk chain never finished: {parallel(host)}")
     settle(host, client)
+    final = pos(battle(host), mover_id)
+    assert wait_until(lambda: pos(battle(client), mover_id) == final, 45), (
+        f"the client never displayed its OWN action: the host walked {mover_id} "
+        f"to {final}, the client still has it at {pos(battle(client), mover_id)}")
+    assert final != before_h, (
+        f"unit {mover_id} never left {before_h} - the forwarded walk resolved to "
+        f"a no-op (start == final), so nothing was actually tested")
 
     assert tu(battle(host), mover_id) == tu(battle(client), mover_id), (
         f"the two machines charged different TU for the same walk: host "
@@ -380,7 +441,7 @@ def scenario_walk(host, client, mover_id):
                            RD.watcher_state(client), watch_before["selectedId"],
                            mover_id)
     session.assert_battle_synced(host, client, "after the client's walk intent")
-    print(f"PASS 1: a client intent walked {mover_id} {before_h} -> {landed} on "
+    print(f"PASS 1: a client intent walked {mover_id} {before_h} -> {final} on "
           f"BOTH machines (actionSeq {seq_before} -> {seq_after}, TU "
           f"{tu(battle(host), mover_id)} on both)")
 
@@ -484,15 +545,29 @@ def scenario_busy(host, client, host_mover, client_mover):
     dest = step_dest(host, client, client_mover)
     assert dest, "the client soldier cannot step after the host's chain"
     before = pos(battle(host), client_mover)
+    seq_before = parallel(host)["actionSeq"]
     assert intent(client, action="move", unit=client_mover,
                   x=dest[0], y=dest[1], z=dest[2]).get("routed") is True
-    assert wait_until(lambda: pos(battle(host), client_mover) != before, 45), (
-        f"the retry after the host's chain was never admitted either: "
-        f"{parallel(host)} warning={warning_of(client)!r}")
+    # "Succeeded" here means the retry is ADMITTED now (the transient busy deny
+    # is gone), NOT that the unit physically travels. This driver was placed next
+    # to a live hostile, so the walk the host admits and runs can be reaction-
+    # interrupted at its start tile and never leave `before` - the exact case
+    # test_battle_tripwire.drive_walk and scenario 6 below already tolerate. The
+    # deterministic admission signal is the arbiter stamping action_seq (the deny
+    # path never stamps it); polling the physical position instead hinges on the
+    # aliens' reaction roll and flakes. (Unmasked once scenario 1's stale-snapshot
+    # fix stopped the run from usually dying before it reached this retry.)
+    admitted = wait_until(lambda: parallel(host)["actionSeq"] > seq_before, 45)
+    assert admitted, (
+        f"the retry after the host's chain was never admitted (action_seq still "
+        f"{seq_before}, last client deny {last_deny(client)!r}): {parallel(host)} "
+        f"warning={warning_of(client)!r}")
+    assert idle(host, timeout=120), f"the retry chain never drained: {parallel(host)}"
     settle(host, client)
     session.assert_battle_synced(host, client, "after the busy retry")
-    print(f"PASS 2b: the same intent succeeded once the chain ended "
-          f"({before} -> {pos(battle(host), client_mover)})")
+    print(f"PASS 2b: the same intent was ADMITTED once the chain ended (actionSeq "
+          f"{seq_before} -> {parallel(host)['actionSeq']}, unit {before} -> "
+          f"{pos(battle(host), client_mover)})")
 
 
 # ---- 3. deny invalid -------------------------------------------------------
@@ -714,13 +789,19 @@ def scenario_race(host, client, host_mover, client_mover):
     for uid in (host_mover, client_mover):
         top_up(host, client, uid)
 
+    # Both dests are guaranteed CLEAN SINGLE STEPS (step_dest -> free_step_both
+    # filters pathLen == 1 + floor-safe on both machines), so the position
+    # asserts below read a definite outcome: a mover is at its dest (admitted +
+    # ran, exactly once) or back at its start (denied / deferred), never partway
+    # down a terrain-forced detour that the old picker let through.
     h_dest = step_dest(host, client, host_mover)
     c_dest = step_dest(host, client, client_mover)
     assert h_dest and c_dest, (
-        f"both drivers must be able to step for the race "
+        f"both drivers need a clean single-step destination for the race "
         f"(host {h_dest}, client {c_dest})")
     h_from = pos(battle(host), host_mover)
     c_from = pos(battle(host), client_mover)
+    seq_before = parallel(host)["actionSeq"]
 
     # client first, host immediately after: whichever reaches the arbiter first
     # wins; the other meets a non-empty _states / a held receive gate.
@@ -734,13 +815,22 @@ def scenario_race(host, client, host_mover, client_mover):
     assert idle(host, timeout=120), "the host never went idle again"
     settle(host, client, seconds=8)
 
+    # exactly-one-admitted: the arbiter stamps action_seq per admitted chain, so
+    # two intents racing into one RTT must move it by at least one (one admit) -
+    # and the per-unit position asserts below prove the other did NOT also run in
+    # the same frame (no overlap / double-admit) and that neither drifted.
+    seq_after = parallel(host)["actionSeq"]
+    assert seq_after > seq_before, (
+        f"the race admitted nothing (action_seq {seq_before} -> {seq_after}); at "
+        f"least one of the two raced intents must reach the arbiter")
+
     hb, cb = battle(host), battle(client)
     for uid, start, dest in ((host_mover, h_from, h_dest),
                              (client_mover, c_from, c_dest)):
         ph, pc = pos(hb, uid), pos(cb, uid)
         assert ph == pc, (
-            f"DOUBLE EXECUTION / drift: unit {uid} is at {ph} on the host and "
-            f"{pc} on the client after the race")
+            f"DOUBLE EXECUTION / drift: unit {uid} final position is {ph} on the "
+            f"host and {pc} on the client after the race (host != client)")
         assert ph in (start, tuple(dest)), (
             f"unit {uid} ended at {ph}, which is neither where it started "
             f"({start}) nor the single step it was asked for ({tuple(dest)}) - "
