@@ -689,6 +689,19 @@ def drive(host, client, what, **kw):
 
 
 def give_both(host, client, uid, item, ammo=None):
+    # coop (2026-08-18 soak fix): battle_give mints an item OUT OF BAND - it is an
+    # immediate TestServer RPC, not a chain that flows through the action_end marker
+    # pipeline the client's per-action sync-check sample rides. If a prior chain's
+    # marker is still parked on a backlogged client, the give's mint bleeds into that
+    # chain's DEFERRED itemIdCtr/items sample (the client reads the post-give counter
+    # while the executor's ring snapshot for the same seq was taken pre-give) - the
+    # dominant residual items/itemIdCtr player-seq drift flake. It is a TEST artifact,
+    # not a product bug (the ids the give mints are identical on both machines - see
+    # the assert below - and production never mints out of band; every real mint is a
+    # sequenced corpse/respawn/deathtrap the corpsePending window already covers).
+    # Drain the executor's sync-check loop first so no parked marker can pick up the
+    # mint. Best-effort + bounded: a persistent open loop is caught by assert_sync_clean.
+    session.wait_sync_loop_closed(host)
     # coop (PRD-I3 Session F de-flake): battle_give mints off the LOCAL _itemId, so a
     # give issued while the two counters have drifted (a real casualty straddle) mints
     # divergent ids and injects a HARNESS offset into the product measurement. Pre-sync

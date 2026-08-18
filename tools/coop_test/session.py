@@ -414,6 +414,42 @@ def sync_buckets(gc):
     return h
 
 
+def wait_sync_loop_closed(host, timeout=20, interval=0.2):
+    """Block until the EXECUTOR's per-action sync-check loop has caught up: every
+    action seq (and boundary seq) it recorded has been answered by the peer.
+
+    Why a harness helper for this: the sync-check samples the client's per-action
+    hash LATE - at the moment the client consumes that chain's gated `action_end`
+    marker (coopEmitActionDone), which lags the executor by whatever display is
+    still in flight. A harness lever that mints an item OUT OF BAND (battle_give is
+    an immediate TestServer RPC, NOT a chain that flows through the marker pipeline)
+    bumps BOTH machines' `_itemId`, but if the client still has an earlier chain's
+    marker parked, that earlier chain's DEFERRED sample now reads the post-give
+    counter while the executor's ring snapshot for the same seq was taken pre-give -
+    a transient items/itemIdCtr divergence with no product cause (the ids the give
+    minted are identical on both machines; only the sample INSTANTS straddle the
+    mint). Draining the loop before the give closes that straddle: with no parked
+    marker, the give cannot bleed into a prior chain's report.
+
+    Bounded and BEST-EFFORT: returns True if the loop closed, False on timeout (the
+    caller proceeds either way - a persistent open loop is a real fault the later
+    assert_sync_clean will catch, this only waits out the transient). Tolerant of a
+    machine with no live sync ring (classic mode, pre-battle): returns True at once.
+    """
+    deadline = time.time() + timeout
+    while True:
+        try:
+            sc = sync_check(host)
+        except Exception:
+            return True  # no live sync ring to wait on
+        if (sc["lastComparedSeq"] >= sc["lastSeq"]
+                and sc["lastComparedBoundarySeq"] >= sc["lastBoundarySeq"]):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(interval)
+
+
 def assert_sync_clean(host, client, what="", strict=False, allow=(), timeout=30,
                       interval=0.5, quiet=False):
     """PRD-I0's invariant, read off the EXECUTOR: every action seq the host
