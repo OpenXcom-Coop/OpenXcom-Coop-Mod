@@ -873,6 +873,10 @@ void ProjectileFlyBState::deinit()
 	// coop
 	_parent->getCoopMod()->setCoopTaskCompleted(true);
 	_parent->getCoopMod()->_coopInitDeath = false;
+	// coop (Class-A soak wedge fix): the shot chain is over, so no pacing wait can
+	// still be outstanding on it - clear the flag defensively (a force-drain or a
+	// normal release already cleared it; this guards the paths that popped early).
+	_parent->getCoopMod()->_coopPacingWait = false;
 	// coop fix
 	_parent->getCoopMod()->_trajectoryCoop.clear();
 

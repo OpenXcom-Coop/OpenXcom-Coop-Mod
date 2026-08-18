@@ -1095,6 +1095,29 @@ class connectionTCP
 	bool _coopWalkInit = false;
 	bool _coopAllow = true;
 
+	// coop (Class-A soak wedge fix): the auto-shot pacing wait in
+	// ExplosionBState::think() (the non-host client parking a multi-shot replay on
+	// `_hasHitUnit == 1` until the host's flip packet lands). Set true while that
+	// state is waiting, false the instant it is released. It is the ONE display
+	// state that can hold the receive gate (via the ProjectileFlyBState beneath it,
+	// _coopInitDeath) for the whole rest of the battle when the flip never arrives -
+	// a client/host shot-count divergence, likeliest on hazard-heavy turns where a
+	// terrain-chain ExplosionBState reads the same shared pacing flag. updateCoopTask
+	// counts consecutive game-loop ticks it stays set (g_rxPacingStallTicks) and,
+	// past kRxPacingForceDrainTicks, raises _coopForceDrainReplay so the state can
+	// advance instead of starving forever. Counted at the game-loop rate, NOT the
+	// setStateInterval-throttled think() rate, so the escape is wall-time bounded
+	// regardless of the client's draw speed.
+	bool _coopPacingWait = false;
+	/// Set by updateCoopTask when _coopPacingWait has been held past the stall
+	/// floor; consumed (and cleared) by ExplosionBState::think(), which force-releases
+	/// the pacing wait. A last-resort liveness escape, never armed under normal lag.
+	bool _coopForceDrainReplay = false;
+	/// Monotonic count of force-drains (introspection / regression guard). Expected
+	/// 0 across a clean soak; a non-zero value in the field means a real wedge was
+	/// broken, which A3's peer-liveness tripwire would have surfaced too.
+	std::uint32_t _coopForceDrainCount = 0;
+
 	int _coopPVPwin = 0; // 0 = not set, 1 = xcom, 2 = ufo
 
 	bool _clientPanicHandle = false;

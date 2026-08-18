@@ -406,10 +406,30 @@ void ExplosionBState::init()
 void ExplosionBState::think()
 {
 
+	// coop (Class-A soak wedge fix): this auto-shot pacing wait (below) is the ONE
+	// display state that can hold the receive gate for the rest of the battle - via
+	// the ProjectileFlyBState beneath it - when its flip packet never lands (a
+	// host/client multi-shot count divergence, likeliest on hazard-heavy turns).
+	// updateCoopTask watches _coopPacingWait and, once it has been held past the
+	// stall floor, raises _coopForceDrainReplay so the wait can end instead of
+	// starving the gate forever. Release AS IF the flip had landed: -2 also stops
+	// projectileHitUnit re-arming this wait for the remaining shots (it only arms on
+	// -1), so a wedged multi-shot drains in one pass rather than one escape per shot.
+	if (coopTaskCompleted && _parent->getCoopMod()->_coopForceDrainReplay)
+	{
+		_parent->getCoopMod()->_coopForceDrainReplay = false;
+		_parent->getCoopMod()->_coopPacingWait = false;
+		_parent->getCoopMod()->_hasHitUnit = -2;
+		coopTaskCompleted = false;
+		_parent->popState();
+		return;
+	}
+
 	//  coop
 	if (coopTaskCompleted && (_parent->getCoopMod()->_hasHitUnit == -1 || _parent->getCoopMod()->_hasHitUnit == -2))
 	{
 		coopTaskCompleted = false;
+		_parent->getCoopMod()->_coopPacingWait = false;
 		_parent->popState();
 		return;
 	}
@@ -508,9 +528,13 @@ void ExplosionBState::explode()
 	if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == false && _parent->getCoopMod()->_hasHitUnit == 1)
 	{
 		coopTaskCompleted = true;
+		// coop (Class-A soak wedge fix): flag the pacing wait live so the RX pump's
+		// stall floor (updateCoopTask) can force-drain it if the flip never comes.
+		_parent->getCoopMod()->_coopPacingWait = true;
 	}
 	else
 	{
+		_parent->getCoopMod()->_coopPacingWait = false;
 		_parent->popState();
 	}
 

@@ -605,6 +605,14 @@ static uint32_t g_rxHoldGen = 0;
 static uint32_t g_rxBlockedStallTicks = 0;
 static const uint32_t kRxBlockedStallTicks = 600;   // ~10 s at 60 ticks/s
 
+// coop (Class-A soak wedge fix): consecutive main-loop ticks the non-host client's
+// auto-shot pacing wait (_coopPacingWait) has been held with no release. Counted at
+// the game-loop rate (updateCoopTask, ~60/s), so the force-drain escape is bounded
+// in WALL TIME whatever the client's setStateInterval draw speed. Reset the instant
+// the wait clears.
+static uint32_t g_rxPacingStallTicks = 0;
+static const uint32_t kRxPacingForceDrainTicks = 600;   // ~10 s at 60 ticks/s
+
 // coop (PRD-P11, test introspection): the packets the pump actually handed to
 // onTCPMessage(), in application order. The defect this PRD fixes had no visible
 // symptom other than ORDER (a unit walked from a stale position two seconds
@@ -995,6 +1003,9 @@ void clearNetworkSessionQueues()
 		// belongs to a session that is over.
 		++g_rxHoldGen;
 	}
+
+	// coop (Class-A soak wedge fix): a new session starts with no pacing-wait stall.
+	g_rxPacingStallTicks = 0;
 
 	clearSnapshotSlots();
 }
@@ -3131,6 +3142,32 @@ void connectionTCP::updateCoopTask()
 		{
 			pgGame->setCoopFastForward(true);
 		}
+	}
+
+	// coop (Class-A soak wedge fix): liveness floor for the auto-shot pacing wait.
+	// ExplosionBState parks a multi-shot replay on _coopPacingWait until the host's
+	// flip packet lands; if that packet never comes (a host/client shot-count
+	// divergence, likeliest on hazard-heavy turns), the ProjectileFlyBState beneath
+	// it holds the receive gate for the rest of the battle and this machine falls
+	// arbitrarily far behind. The existing per-subject/seq floor (kRxBlockedStallTicks)
+	// does NOT cover it: a gate held with only gate-rotated (non-whitelisted) traffic
+	// leaves `blockedSomething` false, so it never counts. Count the pacing wait
+	// itself here and, past the floor, raise _coopForceDrainReplay, which
+	// ExplosionBState::think() consumes to end the wait. Reset the moment the wait
+	// clears, so a normal sub-second wait never nears the floor and speed-skew (which
+	// enters/exits the wait per shot) never accumulates.
+	if (parallelTurnActive() && !getHost() && _coopPacingWait)
+	{
+		if (++g_rxPacingStallTicks >= kRxPacingForceDrainTicks)
+		{
+			_coopForceDrainReplay = true;
+			++_coopForceDrainCount;
+			g_rxPacingStallTicks = 0;
+		}
+	}
+	else
+	{
+		g_rxPacingStallTicks = 0;
 	}
 
 	// coop
