@@ -4569,6 +4569,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// PRD-I1: whitelisted outcome packets held for their own chain's opener
 		// (chain isolation). Expected > 0 on a lagging client, 0 on the executor.
 		resp["rxSeqDeferred"] = static_cast<Json::UInt>(g_rxSeqDeferred.load());
+		resp["barrierBlocks"] = static_cast<Json::UInt>(g_barrierBlocks.load()); // PHASE D.1
 		if (req.get("trace", false).asBool())
 		{
 			resp["rxTrace"] = rxAppliedTrace(
@@ -4723,9 +4724,22 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// each action_done (`uv`) and the host stashes its own into the sync ring, so a
 		// unitsStats mismatch is diffed field-by-field into syncCheck.fieldDiffs. OFF
 		// by default = zero wire delta. `{"on": bool}` (omitted = true).
-		bool on = req.get("on", true).asBool();
-		SharedEcon::setSyncFieldCapture(on);
+		// coop (PHASE D.1, block-edit into an existing command - NO new top-level branch):
+		// {"strict": bool} toggles the strict-compare BURN-IN lever, disabling the
+		// terrain/unitsCore/items/itemIdCtr alien+endturn side-gates AND the items/saveBlob
+		// corpsePending skips so those buckets compare STRICTLY at every seq. Independent of
+		// the SEAM-7 field-capture toggle; a request may carry either key or both. The legacy
+		// shapes (`sync_capture` / `{on:...}`) keep their exact behaviour.
+		if (req.isMember("strict"))
+		{
+			SharedEcon::setStrictBurnIn(req["strict"].asBool());
+		}
+		if (req.isMember("on") || !req.isMember("strict"))
+		{
+			SharedEcon::setSyncFieldCapture(req.get("on", true).asBool());
+		}
 		resp["fieldCapture"] = SharedEcon::syncFieldCapture();
+		resp["strictBurnIn"] = SharedEcon::strictBurnIn();
 		resp["ok"] = true;
 	}
 	else if (cmd == "terrain_capture")
@@ -5773,6 +5787,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["rxLegacyPasses"] = static_cast<Json::UInt>(g_rxLegacyPasses.load());
 				// PRD-I1: see the parallel_state readout.
 				resp["rxSeqDeferred"] = static_cast<Json::UInt>(g_rxSeqDeferred.load());
+				resp["barrierBlocks"] = static_cast<Json::UInt>(g_barrierBlocks.load()); // PHASE D.1
 				// Parallel-turns mode (PRD-P5), carried on battle_state (as well as
 				// parallel_state) so the harness' session.can_drive() decides from a
 				// single query.

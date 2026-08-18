@@ -544,6 +544,12 @@ void resetSyncCheck();
 /// default = zero wire delta.
 void setSyncFieldCapture(bool on);
 bool syncFieldCapture();
+// coop (PHASE D.1 chain-atomicity, test-only): strict-compare BURN-IN lever. When ON,
+// syncCheckCompare disables the terrain/unitsCore/items/itemIdCtr alien+endturn side-gates
+// and the items/saveBlob corpsePending skips, so those buckets compare at EVERY seq. Set
+// via TestServer `sync_capture {strict:bool}`. Not cleared by resetSyncCheck (a manual lever).
+void setStrictBurnIn(bool on);
+bool strictBurnIn();
 /// PRD-I3 SEAM-7: the FULL unitsStats bucket field vector per battle unit - EXACTLY
 /// the fields computeBattleHashes() mixes into the unitsStats sum (tu, energy, health,
 /// stun, morale, mana, fire, kneeled, mind-controller id, the six per-part fatal-wound

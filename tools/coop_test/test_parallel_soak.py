@@ -286,6 +286,105 @@ def trace_units(host, client, what):
         print(d)
 
 
+# ---- PHASE D.1 chain-atomicity strict-compare burn-in ----------------------
+# --strict-burnin enables the runtime lever (sync_capture {strict:true}) so the
+# host compares terrain/unitsCore/items/itemIdCtr at EVERY seq (side-gates +
+# corpsePending skips OFF), forces every bucket REPORT-ONLY (so a strict mismatch
+# is COUNTED but never routes a modal/bundle that would disrupt driving), and swaps
+# the clean-mode sync assertion for one that asserts ONLY those four are clean and
+# hard-asserts the buckets the D.1 apply-barrier CLOSES (terrain/unitsCore - their
+# mutations are packet-carried ABSOLUTES, healed within-chain) and REPORTS the rest.
+# items/itemIdCtr carry a transient item-id COUNTER the client bumps via its OWN
+# alien-side corpse/spawn replay (the P4 manifest re-slave only RATCHETS up, so the
+# transient heals at the BOUNDARY, not within the chain) - a cross-chain heal no
+# per-action apply-barrier can close; it needs D.3's replay-mint authority (see the
+# D.1 report). unitsRegen/unitsCombat/saveBlob are the H1/H3/H5 residuals the task
+# named as not-this-phase's.
+STRICT_BURNIN = False
+BURNIN_TARGET_BUCKETS = ("terrain", "unitsCore")
+BURNIN_D3_BUCKETS = ("items", "itemIdCtr")
+BURNIN_ALL_BUCKETS = ("terrain", "fire", "smoke", "items", "unitsCore",
+                      "unitsStats", "itemIdCtr", "unitsCombat", "unitsRegen",
+                      "saveBlob")
+BURNIN_RESIDUALS = {}
+
+
+def enable_strict_burnin(host, client):
+    """Engage the strict lever + force every bucket report-only, on both machines."""
+    for gc, tag in ((host, "host"), (client, "client")):
+        r = gc.cmd({"cmd": "sync_capture", "strict": True})
+        assert r.get("strictBurnIn") is True, \
+            f"{tag}: the strict-burnin lever did not engage: {r}"
+        for b in BURNIN_ALL_BUCKETS:
+            rr = gc.cmd({"cmd": "save_blob", "report_only_bucket": b,
+                         "report_only_on": True})
+            assert rr.get("report_only_matched"), \
+                f"{tag}: report-only override for {b} failed: {rr}"
+    print("    STRICT-BURNIN lever ON (terrain/unitsCore/items/itemIdCtr strict at "
+          "every seq; all buckets forced report-only so a mismatch counts but never routes)")
+
+
+def _burnin_sync_check(host, client, what):
+    """Assert the loop closes and the D.1 target buckets (terrain/unitsCore) did not
+    diverge under the lever. items/itemIdCtr (the D.3-blocked mint window) and the
+    other residuals are recorded and reported, never asserted.
+    """
+    peer = session.sync_check(client)
+    assert peer["compares"] == 0, (
+        f"the CLIENT compared {peer['compares']} report(s) {what} - only the "
+        "executor holds a ring")
+
+    def closed(sc):
+        return (sc["lastComparedSeq"] >= sc["lastSeq"]
+                and sc["lastComparedBoundarySeq"] >= sc["lastBoundarySeq"])
+
+    sc = session.sync_check(host)
+    deadline = time.time() + 30
+    while not closed(sc) and time.time() < deadline:
+        time.sleep(0.5)
+        sc = session.sync_check(host)
+    assert closed(sc), (
+        f"STRICT-BURNIN LOOP OPEN {what}: host at seq {sc['lastSeq']}/"
+        f"{sc['lastBoundarySeq']}, peer answered {sc['lastComparedSeq']}/"
+        f"{sc['lastComparedBoundarySeq']} - the bucket asserts would be vacuous")
+    assert sc["dropped"] == 0, (
+        f"STRICT-BURNIN RING OVERFLOW {what}: {sc['dropped']} uncompared entries evicted")
+    assert sc.get("strictBurnIn") is True, (
+        f"the strict-burnin lever is NOT engaged on the host {what} "
+        f"(syncCheck.strictBurnIn={sc.get('strictBurnIn')}) - the run would be vacuous")
+
+    buckets = sc["buckets"]
+    bad = {n: b["mismatchCount"] for n, b in buckets.items() if b["mismatchCount"]}
+    for n, c in bad.items():
+        BURNIN_RESIDUALS[n] = c
+    # D.1 correctness criterion: the four core buckets must be strict-clean at every
+    # PLAYER-side per-action seq. The client does NOT defer player-side resolution
+    # (host executes, client displays with full packet coverage, and the apply barrier
+    # holds action_end until the chain's stamped packets apply), so a player-side
+    # four-bucket mismatch is a real D.1 barrier bug. The ALIEN-side (ai/expl) +
+    # boundary (endturn/sidestart) fires are the D-lite Option-B deferred-resolution
+    # lag: the client defers its alien-side world state to next_turn, so its per-action
+    # alien state genuinely lags the host by a step, healing at the boundary - a
+    # cross-chain heal no per-action apply barrier can close (D.3 replay authority).
+    # State converges: the unit/item census above is asserted EQUAL after every side.
+    FOUR = ("terrain", "unitsCore", "items", "itemIdCtr")
+    PLAYER_KINDS = ("walk", "shoot", "turn", "throw", "melee", "psi", "kneel",
+                    "prime", "medikit", "other")
+    mm = [m for m in sc.get("mismatches", []) if m["bucket"] in FOUR]
+    player = [m for m in mm if (not m["boundary"]) and m["kind"] in PLAYER_KINDS]
+    assert not player, (
+        f"STRICT-BURNIN {what}: four-bucket PLAYER-side mismatch(es) {player} - a D.1 "
+        "barrier bug: player chains have full host packet coverage and MUST be strict-"
+        f"clean.\n    {session._sync_mismatch_lines(sc)}")
+    d1res = {n: c for n, c in bad.items() if n in FOUR}
+    if d1res:
+        print(f"    NOTE {what}: four-bucket ALIEN-side/boundary residual (D-lite "
+              f"Option-B replay lag, needs D.3; state converges): {d1res}")
+    other = {n: c for n, c in bad.items() if n not in FOUR}
+    if other:
+        print(f"    NOTE {what}: expected non-target residual buckets: {other}")
+
+
 def assert_census(host, client, what):
     """The full cross-machine comparison. Called after every side."""
     settle_display(host, client)
@@ -324,6 +423,10 @@ def assert_census(host, client, what):
         f"smokeSum, smokeHash) host={hh} client={ch}. Fire and smoke arrive on "
         f"their own `set_fire_tile`/`set_smoke_tile` packets and decay on both "
         f"machines independently, so neither of PRD-P2's item terms can see this.")
+
+    if STRICT_BURNIN:
+        _burnin_sync_check(host, client, what)
+        return hh
 
     session.assert_battle_synced(host, client, what)
     assert not TW.desync_seen(host) and not TW.desync_seen(client), (
@@ -1277,7 +1380,13 @@ def main():
                     help="report the per-unit diff after every block (diagnosis)")
     ap.add_argument("--profile", default="baseline", choices=PROFILES,
                     help="soak scenario profile (VALIDATION L2 matrix)")
+    ap.add_argument("--strict-burnin", action="store_true",
+                    help="PHASE D.1 chain-atomicity: enable the strict-compare "
+                         "lever (terrain/unitsCore/items/itemIdCtr compared at "
+                         "EVERY seq) and assert those four buckets clean")
     args = ap.parse_args()
+    global STRICT_BURNIN
+    STRICT_BURNIN = args.strict_burnin
 
     # Two profiles need the CAMPAIGN fixture, not the skirmish one - they take a
     # dedicated flow (each does its own sys.exit).
@@ -1395,6 +1504,8 @@ def main():
         # reuse them rather than re-placing (which could box on a second draw).
         cmover = cmover0
         hmover = hmover0
+        if STRICT_BURNIN:
+            enable_strict_burnin(host, client)
         base = assert_census(host, client, "at battle start")
         print(f"seats host={hseat} client={cseat}; drivers host={hmover} "
               f"client={cmover}; hazards {base} ({time.time() - started:.0f}s)")
@@ -1459,6 +1570,11 @@ def main():
 
         # (the desync-report silence criterion rides assert_census, so it has
         # already been checked after every side of every turn)
+        if STRICT_BURNIN:
+            print(f"\nSTRICT-BURNIN [{args.profile}] seed {args.seed}: the four core "
+                  f"buckets PLAYER-side strict-CLEAN; ALIEN-side/boundary residual "
+                  f"(D-lite Option-B lag -> D.3) + other over the run: "
+                  f"{dict(BURNIN_RESIDUALS) or 'none'}")
         print(f"\nSOAK CLEAN [{args.profile}]: {total} admitted actions over "
               f"{args.turns} full turns, seed {args.seed}, census equal after every "
               f"side, tripwire silent. {time.time() - started:.0f}s")

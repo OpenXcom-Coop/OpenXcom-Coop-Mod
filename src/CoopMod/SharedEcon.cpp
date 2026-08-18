@@ -5519,6 +5519,10 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 bool g_syncFieldCapture = false;
 void setSyncFieldCapture(bool on) { g_syncFieldCapture = on; }
 bool syncFieldCapture() { return g_syncFieldCapture; }
+// coop (PHASE D.1 chain-atomicity): the strict-compare burn-in lever (see SharedEcon.h).
+bool g_strictBurnIn = false;
+void setStrictBurnIn(bool on) { g_strictBurnIn = on; }
+bool strictBurnIn() { return g_strictBurnIn; }
 
 void unitStatsFullJson(Game* game, Json::Value& out, int onlyId)
 {
@@ -6041,7 +6045,7 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		// desync still surfaces. Mirrors the SEAM-9 unitsRegen sidestart discipline but
 		// keeps the player-side coverage that is the point of a strict liveness/position
 		// bucket. A skipped bucket is NOT counted as compared.
-		if (std::strcmp(name, "unitsCore") == 0)
+		if (std::strcmp(name, "unitsCore") == 0 && !g_strictBurnIn) // PHASE D.1 lever: strict when ON
 		{
 			const bool alienSeq = !boundary && (entry->kind == "ai" || entry->kind == "expl");
 			const bool endturnBnd = boundary && entry->kind == "endturn";
@@ -6060,7 +6064,7 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		// ai/endturn only, never a player seq, never sidestart). Skip the alien per-action
 		// seqs + endturn; keep player-side per-action (strict) + sidestart, where a
 		// PERSISTENT terrain divergence still surfaces. A skipped bucket is NOT compared.
-		if (std::strcmp(name, "terrain") == 0)
+		if (std::strcmp(name, "terrain") == 0 && !g_strictBurnIn) // PHASE D.1 lever: strict when ON
 		{
 			const bool alienSeq = !boundary && (entry->kind == "ai" || entry->kind == "expl");
 			const bool endturnBnd = boundary && entry->kind == "endturn";
@@ -6079,7 +6083,7 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		// after_unit_death manifest (proven lockstep). Skip alien per-action + endturn; keep
 		// player-side per-action (strict) + sidestart, where a persistent drift still surfaces
 		// AND the items player-seq negative control still sees its mint. NOT counted as compared.
-		if (std::strcmp(name, "items") == 0 || std::strcmp(name, "itemIdCtr") == 0)
+		if ((std::strcmp(name, "items") == 0 || std::strcmp(name, "itemIdCtr") == 0) && !g_strictBurnIn) // PHASE D.1 lever
 		{
 			const bool alienSeq = !boundary && (entry->kind == "ai" || entry->kind == "expl");
 			const bool endturnBnd = boundary && entry->kind == "endturn";
@@ -6150,11 +6154,11 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		// mint still in flight on the reporting machine straddles saveBlob too - skip it the
 		// same way (mirrors verifyBattleChecksum). Heals on the next boundary.
 		if (saveBlobEndturn) ++g_syncSaveBlobEndturnSkips;
-		else if (corpsePending) ++g_syncSaveBlobCorpsePendingSkips;
+		else if (corpsePending && !g_strictBurnIn) ++g_syncSaveBlobCorpsePendingSkips; // PHASE D.1 lever
 		else if (boundary && entry->kind == "sidestart") ++g_syncSaveBlobSidestartCompares;
 		const std::uint64_t peer = static_cast<std::uint64_t>(node["saveBlob"].asUInt64());
 		const std::uint64_t mine = entry->saveBlob;
-		if (!saveBlobEndturn && !corpsePending && peer != mine)
+		if (!saveBlobEndturn && (!corpsePending || g_strictBurnIn) && peer != mine) // PHASE D.1 lever
 		{
 			++g_syncSaveBlobMismatches;
 			if (g_syncMismatches.size() >= SYNC_MISMATCH_MAX) g_syncMismatches.pop_front();
@@ -6405,6 +6409,7 @@ void syncCheckReport(Json::Value& out)
 	}
 	node["fieldDiffs"] = fdiffs;
 	node["fieldCapture"] = g_syncFieldCapture;
+	node["strictBurnIn"] = g_strictBurnIn; // PHASE D.1 chain-atomicity burn-in lever
 
 	out["syncCheck"] = node;
 }
