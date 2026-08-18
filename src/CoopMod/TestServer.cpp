@@ -4297,6 +4297,19 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 						entry["x"] = want.x;
 						entry["y"] = want.y;
 						entry["z"] = want.z;
+						// De-flake additive fields (existing consumers ignore
+						// them): the RESOLVED path length from the unit's current
+						// tile to this candidate, and whether the candidate tile
+						// has a floor under it. A Chebyshev-adjacent tile whose
+						// DIRECT step is terrain-blocked resolves to a multi-step
+						// DETOUR (pathLen > 1); a TU-clamped unit then stops
+						// partway or falls a z-level at the detour's end, which
+						// the walk/race position asserts misread as a double
+						// execution. `pathLen == 1 && floorSafe` selects the
+						// clean single steps those asserts assume.
+						entry["pathLen"] = (int)bg->getPathfinding()->getPath().size();
+						const Tile* dt = sbg->getTile(want);
+						entry["floorSafe"] = (dt != nullptr) && !dt->hasNoFloor(sbg);
 						found.append(entry);
 						if (found.size() >= (Json::ArrayIndex)req.get("max", 1).asUInt())
 						{
@@ -5823,6 +5836,11 @@ std::string TestServer::execute(const std::string& line)
 					ju["isOut"] = u->isOut();
 					ju["health"] = u->getHealth();
 					ju["tu"] = u->getTimeUnits();
+					// De-flake additive field: the unit's TU ceiling. setTimeUnits
+					// clamps to _stats.tu (BattleUnit.cpp), so the harness's old
+					// literal top-up of 200 silently became ~66 - top_up() reads
+					// this instead so its "topped up" contract is honest.
+					ju["tuMax"] = u->getBaseStats()->tu;
 					ju["stun"] = u->getStunlevel();
 					// PRD-I3 SEAM-4 diagnostic: per-unit morale, so a bystander-morale
 					// casualty divergence is visible per unit (not only in the unitsStats
