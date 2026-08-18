@@ -415,6 +415,16 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 bool battleDesyncSeen();
 void resetBattleDesyncSeen();
 
+/// coop (Class-A soak wedge fix, A3): the peer-liveness tripwire. Called every tick
+/// from the host's updateCoopTask; latches the shared desync path when the peer stops
+/// answering boundary markers for a sustained window (a wedged-mid-replay peer goes
+/// silent, so no per-term detector fires). Host-only / PVE-only / self-guarded.
+void checkPeerLiveness(Game* game);
+/// Test lever: override the peer-liveness firing bar (boundaryGap 0 / stallMs < 0
+/// restore the shipped defaults). Set from the TestServer so the red-capability test
+/// fires in seconds rather than the shipped tens of seconds.
+void setPeerLivenessThresholds(std::uint32_t boundaryGap, std::int64_t stallMs);
+
 // ---- PRD-I0: per-action sequenced sync-check ---------------------------------
 //
 // The tripwire above is a TURN-grained detector: three terms, stamped once per

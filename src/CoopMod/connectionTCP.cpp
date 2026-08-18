@@ -269,6 +269,7 @@ int connectionTCP::_turnAdvanceDeferredCount = 0;
 bool connectionTCP::_hostShipsNextTurnFields = false;
 bool connectionTCP::_testHoldActionDone = false;
 std::uint32_t connectionTCP::_heldActionDones = 0;
+bool connectionTCP::_testHoldBoundaryDone = false;
 // coop (PRD-P9 3): stuck-chain diagnostic, reset wherever _openChainSeq is.
 std::uint32_t connectionTCP::_openChainTicks = 0;
 bool connectionTCP::_openChainWarned = false;
@@ -3169,6 +3170,13 @@ void connectionTCP::updateCoopTask()
 	{
 		g_rxPacingStallTicks = 0;
 	}
+
+	// coop (Class-A soak wedge fix, A3): host-side peer-liveness tripwire. A peer that
+	// wedges mid-replay goes silent - it never diverges, so no per-term detector fires,
+	// yet it stops answering boundary markers while this machine keeps crossing them.
+	// checkPeerLiveness latches the shared desync path on a sustained boundary-answer
+	// gap (host-only, PVE-only, self-guarded).
+	SharedEcon::checkPeerLiveness(_game);
 
 	// coop
 	// UNABLE TO CONNECT TO SERVER
@@ -13576,6 +13584,14 @@ void connectionTCP::coopEmitStaleActionDone(std::uint32_t seq, std::uint32_t sid
 void connectionTCP::coopEmitBoundaryDone(std::uint32_t bseq)
 {
 	if (!parallelTurnActive() || getHost() || bseq == 0)
+	{
+		return;
+	}
+	// coop (Class-A soak wedge fix, A3 test lever): park only the BOUNDARY answer so
+	// the host's g_syncLastComparedBoundarySeq freezes while per-chain acks keep
+	// flowing - the peer-went-dark-on-boundaries condition the liveness tripwire
+	// detects, forced deterministically without stalling the host's commit.
+	if (_testHoldBoundaryDone)
 	{
 		return;
 	}

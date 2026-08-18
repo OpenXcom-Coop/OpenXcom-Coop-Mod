@@ -3589,6 +3589,35 @@ int64_t g_lastBattleNotifyMs = -1;    // player notify throttle (RESYNC_DEBOUNCE
 bool g_desyncReportWritten = false;   // ONE diagnostic bundle per battle per machine
 std::string g_desyncReportPath;       // ... and where it went
 
+// coop (Class-A soak wedge fix, A3): peer-liveness tripwire state. A peer that
+// wedges mid-replay does not DIVERGE - it goes SILENT, so no per-term detector
+// fires. But it stops answering boundary markers while this (host) machine keeps
+// crossing them, so g_syncLastBoundarySeq climbs and g_syncLastComparedBoundarySeq
+// freezes. Latch the SAME shared desync path (one banner, one bundle) so a
+// gone-dark peer is detected in the field instead of the players sitting through a
+// frozen session.
+//
+// Signal = "NO boundary progress while behind", NOT "gap sustained". A peer can fall
+// FAR behind (a soak client dropped 13 boundaries) and then recover slowly - the
+// existing P11 liveness floor / P7 fast-forward / the A1 escape all pull it back.
+// Such a peer is answering boundaries the whole time, just late; the gap stays >= 2
+// for MINUTES while it catches up. Firing on the gap alone flags that recoverable lag
+// as a wedge (measured: soak seed 11100011, a ~175 s stall the P11 floor recovered,
+// zero term drift). So the clock is reset by ANY boundary answer (a change in
+// g_syncLastComparedBoundarySeq): only a peer that answers NOTHING for the whole
+// window is "gone dark". The stall window is set ABOVE the longest legitimate
+// no-progress span - a single slow alien side freezes boundary progress for its whole
+// display (~100 s observed on a loaded soak client) - with margin, so a slow side
+// never trips it while a permanent wedge (the 40-min forensic) does. Overridable by a
+// test lever (setPeerLivenessThresholds) so the red-capability test fires in seconds.
+const std::uint32_t kPeerLivenessBoundaryGap = 2;      // >= this many boundaries behind ...
+const std::int64_t  kPeerLivenessStallMs     = 240000; // ... with ZERO boundary progress for this long (wall ms)
+std::uint32_t g_peerLivenessBoundaryGap = kPeerLivenessBoundaryGap;
+std::int64_t  g_peerLivenessStallMs     = kPeerLivenessStallMs;
+std::int64_t  g_peerLivenessProgressMs  = -1;   // wall time the peer last answered a boundary (-1 = not yet)
+std::uint32_t g_peerLivenessLastCompared = 0;   // last g_syncLastComparedBoundarySeq seen (progress edge)
+std::uint32_t g_peerLivenessLatched     = 0;    // introspection: 1 once it has fired this battle
+
 // FNV-1a. std::hash is implementation-defined and the two machines are not
 // necessarily the same build (Windows .exe vs the Linux AppImage), so the census
 // mix has to be spelled out to be comparable ACROSS the wire.
@@ -3864,6 +3893,12 @@ void resetBattleDesyncSeen()
 	// that clears the tripwire itself.
 	g_desyncReportWritten = false;
 	g_desyncReportPath.clear();
+	// coop (Class-A soak wedge fix, A3): the peer-liveness clock is battle-scoped, so
+	// clear it on the same "reset the diagnostics" request. Thresholds are left as the
+	// test set them (restored explicitly via setPeerLivenessThresholds(0, -1)).
+	g_peerLivenessProgressMs = -1;
+	g_peerLivenessLastCompared = 0;
+	g_peerLivenessLatched = 0;
 }
 
 // ---- Desync auto-report bundle -----------------------------------------------
@@ -6168,6 +6203,97 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 	}
 }
 
+// coop (Class-A soak wedge fix, A3): the peer-liveness tripwire. Runs every tick on
+// the parallel host. A peer wedged mid-replay stops answering boundary markers, so
+// the host's boundary count (g_syncLastBoundarySeq) climbs while the last boundary
+// the peer answered (g_syncLastComparedBoundarySeq) freezes. When that gap has been
+// >= the bar continuously for the stall window, latch the SAME shared desync path the
+// drift tripwire uses (banner + one bundle) - the wedge is otherwise invisible to
+// every per-term detector, because a gone-dark peer never diverges, it just stops.
+//
+// False-fire discipline: the gap opens transiently during normal alien-side lead and
+// under speed-skew (the host runs hostile/neutral sides while a slow peer is still
+// answering), but the peer keeps answering, so the gap re-closes and the clock resets
+// every time it drops below the bar. Only a peer that genuinely stops answering holds
+// the gap for the whole window. A single slow chain cannot trip it: one chain does not
+// cross a boundary, so a slow display never grows the boundary gap (unlike a raw
+// action-backlog clock, which this deliberately is not).
+void checkPeerLiveness(Game* game)
+{
+	if (!game || !game->getSavedGame()) return;
+	connectionTCP* coop = game->getCoopMod();
+	if (!coop || !coop->getHost()) return;
+	// Parallel PVE only - the scope the wedge lives in and the scope the boundary
+	// sync-check is active in. PvP (gm 2/3) diverges by design and has no ring.
+	if (!connectionTCP::parallelTurnActive()) return;
+	if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) return;
+	if (!game->getSavedGame()->getSavedBattle()) return;
+	// This machine's one bundle per battle is already spent (the drift tripwire or an
+	// earlier liveness latch fired): nothing more to add.
+	if (g_battleDesyncSeen) return;
+
+	const std::uint32_t hostB = g_syncLastBoundarySeq;
+	const std::uint32_t peerB = g_syncLastComparedBoundarySeq;
+	const std::uint32_t gap = hostB > peerB ? hostB - peerB : 0;
+	const std::int64_t nowMs = steadyMs();
+
+	// The peer answered a NEW boundary since last tick: it is making progress (even a
+	// far-behind peer that is slowly catching up), so reset the stall clock. Only a
+	// peer that answers NOTHING for the whole window is "gone dark".
+	if (peerB != g_peerLivenessLastCompared || g_peerLivenessProgressMs < 0)
+	{
+		g_peerLivenessLastCompared = peerB;
+		g_peerLivenessProgressMs = nowMs;
+	}
+
+	if (gap < g_peerLivenessBoundaryGap)
+	{
+		g_peerLivenessProgressMs = nowMs;   // caught up - not behind, keep the clock fresh
+		return;
+	}
+	if (nowMs - g_peerLivenessProgressMs < g_peerLivenessStallMs)
+	{
+		return;   // behind, but the peer has answered a boundary within the window
+	}
+
+	// The peer is >= the bar behind AND has answered NO boundary for the whole stall
+	// window: it has gone dark (a permanent wedge, not a recoverable lag).
+	g_battleDesyncSeen = true;
+	g_peerLivenessLatched = 1;
+	Log(LOG_ERROR) << "[COOP] PEER LIVENESS LOST: the peer is " << gap
+		<< " boundaries behind (host boundary " << hostB << ", peer answered "
+		<< peerB << ") and has answered NO boundary for over "
+		<< (g_peerLivenessStallMs / 1000)
+		<< " s - it has stopped answering boundary markers (wedged mid-replay?). "
+		<< "Auto-report bundle written.";
+	{
+		DesyncTerms report;
+		battleChecksumTerms(game, report.localItemId, report.localCensus, report.localUnits);
+		report.context = "peer_liveness";
+		captureDesyncReport(game, report);
+	}
+	if (g_lastBattleNotifyMs >= 0 && nowMs - g_lastBattleNotifyMs < RESYNC_DEBOUNCE_MS) return;
+	g_lastBattleNotifyMs = nowMs;
+	if (SavedBattleGame* battle = game->getSavedGame()->getSavedBattle())
+	{
+		if (BattlescapeState* bs = battle->getBattleState())
+		{
+			bs->warningLongRaw("CO-OP PEER NOT RESPONDING - SEE openxcom.log");
+		}
+	}
+}
+
+// coop (Class-A soak wedge fix, A3 test lever): override the peer-liveness thresholds
+// so the red-capability test fires in ~seconds. boundaryGap 0 / stallMs < 0 restore
+// the shipped defaults (test teardown). Always resets the running clock.
+void setPeerLivenessThresholds(std::uint32_t boundaryGap, std::int64_t stallMs)
+{
+	g_peerLivenessBoundaryGap = boundaryGap > 0 ? boundaryGap : kPeerLivenessBoundaryGap;
+	g_peerLivenessStallMs = stallMs >= 0 ? stallMs : kPeerLivenessStallMs;
+	g_peerLivenessProgressMs = -1;
+	g_peerLivenessLastCompared = 0;
+}
+
 void syncCheckReport(Json::Value& out)
 {
 	Json::Value node(Json::objectValue);
@@ -6175,6 +6301,15 @@ void syncCheckReport(Json::Value& out)
 	node["lastComparedSeq"] = static_cast<Json::UInt>(g_syncLastComparedSeq);
 	node["lastBoundarySeq"] = static_cast<Json::UInt>(g_syncLastBoundarySeq);
 	node["lastComparedBoundarySeq"] = static_cast<Json::UInt>(g_syncLastComparedBoundarySeq);
+	// coop (Class-A soak wedge fix, A3): the peer-liveness tripwire readout. `gap` is
+	// the live boundary-answer gap the host watches; `latched` is 1 once it fired this
+	// battle; the two thresholds echo the (possibly test-overridden) firing bar.
+	node["peerLivenessGap"] = static_cast<Json::UInt>(
+		g_syncLastBoundarySeq > g_syncLastComparedBoundarySeq
+			? g_syncLastBoundarySeq - g_syncLastComparedBoundarySeq : 0);
+	node["peerLivenessLatched"] = static_cast<Json::UInt>(g_peerLivenessLatched);
+	node["peerLivenessBoundaryGap"] = static_cast<Json::UInt>(g_peerLivenessBoundaryGap);
+	node["peerLivenessStallMs"] = static_cast<Json::Int64>(g_peerLivenessStallMs);
 	node["ringDepth"] = static_cast<Json::UInt>(g_syncRing.size());
 	node["compares"] = static_cast<Json::UInt64>(g_syncCompares);
 	node["staleReports"] = static_cast<Json::UInt64>(g_syncStaleReports);
@@ -6378,6 +6513,13 @@ void resetSyncCheck()
 	g_syncLastComparedSeq = 0;
 	g_syncLastBoundarySeq = 0;
 	g_syncLastComparedBoundarySeq = 0;
+	// coop (Class-A soak wedge fix, A3): clear the running peer-liveness clock and its
+	// latch, and restore the shipped thresholds so a prior test's override cannot leak.
+	g_peerLivenessProgressMs = -1;
+	g_peerLivenessLastCompared = 0;
+	g_peerLivenessLatched = 0;
+	g_peerLivenessBoundaryGap = kPeerLivenessBoundaryGap;
+	g_peerLivenessStallMs = kPeerLivenessStallMs;
 	g_syncCompares = 0;
 	g_syncStaleReports = 0;
 	g_syncDropped = 0;

@@ -798,6 +798,13 @@ class connectionTCP
 	/// it would be vacuous.
 	static bool _testHoldActionDone;
 	static std::uint32_t _heldActionDones;
+	/// TEST-ONLY lever (`hold_action_done {boundary:true}`), default false. While
+	/// true the client PARKS only its BOUNDARY `action_done` (coopEmitBoundaryDone),
+	/// leaving the per-chain report flowing. That freezes the host's
+	/// g_syncLastComparedBoundarySeq while per-chain acks keep the host committing
+	/// and crossing boundaries - the exact "peer went dark on boundaries" condition
+	/// A3's peer-liveness tripwire detects, forced deterministically.
+	static bool _testHoldBoundaryDone;
 	/// HOST (PRD-P9 3): the SDL tick `_openChainSeq` was stamped at, and whether
 	/// the stuck-chain warning has already been logged for it. Diagnostic only -
 	/// there is no distributed lock to break, so all this can do is say so once,
