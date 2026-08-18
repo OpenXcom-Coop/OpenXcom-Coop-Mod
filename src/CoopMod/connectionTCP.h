@@ -168,6 +168,7 @@ extern std::atomic<uint32_t> g_rxHoldMaxSeen;   // hold-queue high-water mark
 extern std::atomic<uint32_t> g_rxSkipBlocked;   // held back: an earlier packet names the same unit
 extern std::atomic<uint32_t> g_rxLegacyPasses;  // liveness-floor engagements (expected 0)
 extern std::atomic<uint32_t> g_rxSeqDeferred;   // PRD-I1: outcome packet held for its own chain's opener
+extern std::atomic<uint32_t> g_barrierBlocks;   // PHASE D.1: action_end held until its chain's stamped packets applied
 // The last `limit` packets the pump applied, oldest first: [{seq,state,unit}].
 // Test-only introspection; `unit` is -1 for a packet that names no single unit.
 Json::Value rxAppliedTrace(size_t limit);

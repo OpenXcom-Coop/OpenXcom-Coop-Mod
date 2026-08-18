@@ -3299,6 +3299,10 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 
 			Json::Value root;
 			root["state"] = "hit_unit";
+			// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+			// client's action_end apply-barrier waits for this damage before sampling the
+			// chain's post-N sync-check hash (no-op off the parallel host, _openChainSeq==0).
+			connectionTCP::coopStampChainSeq(root);
 			// coop (PHASE D.2 / chain-atomicity): the hit_unit "attack_id" was
 			// correlation only (this packet is keyed by unit id and nothing consumed
 			// the field); removed with the attack_id keying it belonged to.
@@ -3917,6 +3921,10 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 		{
 			Json::Value root;
 			root["state"] = "explode_items";
+			// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+			// client's action_end apply-barrier waits for these blast item deletions
+			// (no-op off the parallel host, _openChainSeq==0).
+			connectionTCP::coopStampChainSeq(root);
 			root["items"] = coopRemoved;
 			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 		}
@@ -5320,6 +5328,10 @@ void TileEngine::coopShipPsiResult(BattleActionAttack attack, BattleUnit* victim
 
 	Json::Value root;
 	root["state"] = "psi_result";
+	// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the client's
+	// action_end apply-barrier waits for this mind-control outcome before sampling the
+	// chain's post-N sync-check hash (no-op off the parallel host, _openChainSeq==0).
+	connectionTCP::coopStampChainSeq(root);
 	root["pvp"] = false;
 	root["unit_id"] = victim->getId();
 	root["success"] = success;
@@ -5703,6 +5715,10 @@ void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 
 			Json::Value obj;
 			obj["state"] = "Inventory";
+			// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+			// client's action_end apply-barrier waits for this in-chain item drop/move
+			// (no-op off the parallel host, _openChainSeq==0).
+			connectionTCP::coopStampChainSeq(obj);
 			obj["item_name"] = item->getRules()->getName();
 			obj["inv_id"] = "";
 			obj["inv_x"] = 0;

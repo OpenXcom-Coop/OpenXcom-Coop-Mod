@@ -302,6 +302,10 @@ void MeleeAttackBState::init()
 	{
 		Json::Value obj;
 		obj["state"] = "melee_attack";
+		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+		// client's action_end apply-barrier accounts for this parked melee hit/miss
+		// result (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(obj);
 		obj["hit"] = coopMeleeHit;
 
 		int index = 0;

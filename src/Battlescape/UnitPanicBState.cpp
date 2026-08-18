@@ -172,6 +172,10 @@ void UnitPanicBState::think()
 		{
 			Json::Value root;
 			root["state"] = "panic_action";
+			// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+			// client's action_end apply-barrier waits for this panic outcome before
+			// sampling the chain's post-N sync-check hash (no-op off the parallel host).
+			connectionTCP::coopStampChainSeq(root);
 			root["unit_id"] = _unit->getId();
 			root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
 			root["time"] = _unit->getTimeUnits();

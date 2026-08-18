@@ -2039,6 +2039,10 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 				Json::Value root;
 				root["state"] = "selfDestruct";
+				// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+				// client's action_end apply-barrier accounts for this parked self-destruct
+				// pre-roll (no-op off the parallel host, _openChainSeq==0).
+				connectionTCP::coopStampChainSeq(root);
 				root["unit_id"] = _id;
 				root["triggered"] = triggered;
 

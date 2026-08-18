@@ -2370,6 +2370,10 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 
 		Json::Value root;
 		root["state"] = "convertUnit";
+		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+		// client's action_end apply-barrier waits for this respawn/convert before
+		// sampling the chain's post-N sync-check hash (no-op off the parallel host).
+		connectionTCP::coopStampChainSeq(root);
 
 		root["unit_id"] = unit->getId();
 		root["respawn"] = unit->getRespawn();

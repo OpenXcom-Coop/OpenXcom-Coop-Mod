@@ -4743,6 +4743,10 @@ void BattlescapeGame::sendCoopSpawnManifest(const char* kind, const RuleItem* ca
 {
 	Json::Value root;
 	root["state"] = "spawn_units";
+	// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+	// client's action_end apply-barrier waits for this spawn/id-manifest (no-op off the
+	// parallel host, _openChainSeq==0).
+	connectionTCP::coopStampChainSeq(root);
 	root["seed"] = (Json::UInt64)seed;
 
 	Json::Value entry(Json::objectValue);
@@ -5776,6 +5780,10 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit* unit)
 
 						Json::Value root;
 						root["state"] = "checkForProximityGrenades";
+						// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+						// client's action_end apply-barrier waits for this death-trap mint (no-op off the
+						// parallel host, _openChainSeq==0).
+						connectionTCP::coopStampChainSeq(root);
 						root["unit_id"] = unit->getId();
 						// coop (PRD-P4): absent when the trap item was already on the
 						// tile (a second unit stepping on the same trap mints nothing).
@@ -5801,6 +5809,10 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit* unit)
 
 						Json::Value root;
 						root["state"] = "checkForProximityGrenades";
+						// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+						// client's action_end apply-barrier waits for this death-trap mint (no-op off the
+						// parallel host, _openChainSeq==0).
+						connectionTCP::coopStampChainSeq(root);
 						root["unit_id"] = unit->getId();
 						SharedEcon::flushSpawnRecord(root, "death_trap", unit->getId()); // coop (PRD-P4)
 
@@ -5847,6 +5859,10 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit* unit)
 
 									Json::Value root;
 									root["state"] = "checkForProximityGrenades";
+									// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+									// client's action_end apply-barrier waits for this proximity trigger (no-op off the
+									// parallel host, _openChainSeq==0).
+									connectionTCP::coopStampChainSeq(root);
 									root["unit_id"] = unit->getId();
 
 									_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
@@ -5895,6 +5911,10 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit* unit)
 	{
 		Json::Value root;
 		root["state"] = "checkForProximityGrenades";
+		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+		// client's action_end apply-barrier waits for these swept-item deletions (no-op off the
+		// parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(root);
 		root["unit_id"] = unit->getId();
 		root["removed_items"] = coopRemoved;
 		getCoopMod()->sendTCPPacketData(root.toStyledString());

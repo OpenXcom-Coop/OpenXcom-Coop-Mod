@@ -563,6 +563,14 @@ std::atomic<uint32_t> g_rxLegacyPasses{0};
 // isolation that keeps a client's post-N sync-check state pure. Like the two
 // counters above it feeds the liveness floor and is process-monotonic.
 std::atomic<uint32_t> g_rxSeqDeferred{0};
+// coop (PHASE D.1 chain-atomicity): times the client's action_end APPLY BARRIER held
+// a marker because a packet stamped with that marker's chain had not applied yet.
+// Process-monotonic; feeds the same liveness floor as the seq/subject holds.
+std::atomic<uint32_t> g_barrierBlocks{0};
+// consecutive ticks a marker has been barrier-held with no progress, plus a one-shot
+// warn latch, for the loud sustained-stall diagnostic in updateCoopTask().
+static uint32_t g_barrierStallTicks = 0;
+static bool g_barrierStallWarned = false;
 
 // coop (PRD-P11): bumped by clearNetworkSessionQueues() so a pass holding packets
 // when the session is torn down drops them instead of splicing them back into a
@@ -2771,6 +2779,9 @@ void connectionTCP::updateCoopTask()
 	const bool legacyOrder = (g_rxBlockedStallTicks >= kRxBlockedStallTicks);
 	bool blockedSomething = false;
 	size_t consumedThisTick = 0;
+	// coop (PHASE D.1): set in any pass where the apply-barrier held a marker, read
+	// after the passes for the sustained-stall diagnostic.
+	bool barrierHeldThisTick = false;
 
 	for (;;)
 	{
@@ -2800,6 +2811,9 @@ void connectionTCP::updateCoopTask()
 		// deadlock the carve-out exists for) from the chain's own opener (wait for
 		// it - see coopChainOpener). Parallel to blockedSubjects.
 		std::vector<std::string> blockedBy;
+		// coop (PHASE D.1): lowest current-side chain seq DEFERRED in this pass; the
+		// action_end apply-barrier reads it (0 = none deferred). Per-pass by construction.
+		std::uint32_t minDeferredChainSeqThisPass = 0;
 
 		for (size_t i = 0; i < passCount; ++i)
 		{
@@ -2980,7 +2994,34 @@ void connectionTCP::updateCoopTask()
 					}
 				}
 
-				if (gateAllows && !subjectHeld && !closerOvertakesOpener && !seqDeferred)
+				// coop (PHASE D.1 chain-atomicity): the action_end APPLY BARRIER. A marker must
+				// not be consumed - its chain's post-N hash must not be sampled - until every
+				// packet the host stamped with this marker's (side_seq, action_seq) has applied.
+				// The host sends all of a chain's stamped packets BEFORE its action_end on the
+				// ordered stream, so any unapplied one is a packet THIS pass has already stepped
+				// over and DEFERRED (it sits ahead of the marker in FIFO): if this pass deferred a
+				// current-side stamped packet whose seq is <= this marker's (a boundary marker
+				// follows every chain, so ANY deferred current-side chain packet blocks it), hold
+				// the marker. Never a spin - the blocker already arrived and drains on its own
+				// gate; the 600-tick legacy floor (legacyOrder) disables this like the seq gate.
+				bool barrierBlocked = false;
+				if (!getHost() && !legacyOrder && stateString == "action_end"
+					&& minDeferredChainSeqThisPass != 0)
+				{
+					const std::uint32_t mSide = static_cast<std::uint32_t>(
+						obj.get("side_seq", _sideSeq).asUInt());
+					if (mSide == _sideSeq)
+					{
+						const bool mBoundary = obj.get("boundary", false).asBool();
+						const std::uint32_t mSeq = static_cast<std::uint32_t>(
+							obj.get("action_seq", 0).asUInt());
+						if (mBoundary || minDeferredChainSeqThisPass <= mSeq)
+						{
+							barrierBlocked = true;
+						}
+					}
+				}
+				if (gateAllows && !subjectHeld && !closerOvertakesOpener && !seqDeferred && !barrierBlocked)
 				{
 					// See rxPassDeferred(): anything already deferred in this pass
 					// precedes this packet on the wire and has NOT been applied yet.
@@ -3000,6 +3041,27 @@ void connectionTCP::updateCoopTask()
 				}
 				else
 				{
+					// coop (PHASE D.1 chain-atomicity): remember the lowest current-side chain seq
+					// this pass DEFERS, so a later action_end for that chain (and any boundary marker,
+					// which follows every chain) waits for it. Reads the stamp off the deferred packet
+					// itself, so it is carrier-agnostic: it accounts for every stamped carrier
+					// (hit_unit, unit_death, Inventory, explode_items, spawn_units, ...) whether it
+					// rides the ordered gate or the always-consume whitelist. The marker excludes itself.
+					if (stateString != "action_end")
+					{
+						const std::uint32_t pSeq = static_cast<std::uint32_t>(
+							obj.get("action_seq", 0).asUInt());
+						if (pSeq != 0)
+						{
+							const std::uint32_t pSide = static_cast<std::uint32_t>(
+								obj.get("side_seq", _sideSeq).asUInt());
+							if (pSide == _sideSeq
+								&& (minDeferredChainSeqThisPass == 0 || pSeq < minDeferredChainSeqThisPass))
+							{
+								minDeferredChainSeqThisPass = pSeq;
+							}
+						}
+					}
 					// coop (PRD-P11): keep the packet's PLACE. Everything behind it
 					// that names the same unit waits with it (a chain closer is
 					// never blocked, but it still SEEDS the block - a packet that
@@ -3013,7 +3075,15 @@ void connectionTCP::updateCoopTask()
 						blockedSubjects.push_back(subject);
 						blockedBy.push_back(stateString);
 					}
-					if (seqDeferred)
+					if (barrierBlocked)
+					{
+						// coop (PHASE D.1): the apply-barrier held this marker. Feeds the liveness
+						// floor like every other hold, so it can never outlast the 600-tick floor.
+						blockedSomething = true;
+						barrierHeldThisTick = true;
+						++g_barrierBlocks;
+					}
+					else if (seqDeferred)
 					{
 						// coop (PRD-I1): a chain-isolation hold. Counted on its own, and -
 						// like a subject hold - it feeds the liveness floor so a wedged seq
@@ -3096,6 +3166,28 @@ void connectionTCP::updateCoopTask()
 	else
 	{
 		g_rxBlockedStallTicks = 0;
+	}
+
+	// coop (PHASE D.1 chain-atomicity): loud, bounded introspection for a SUSTAINED
+	// apply-barrier stall. The barrier only holds a marker while a stamped packet of
+	// its chain has ARRIVED but not applied; that drains on its own gate, so a long
+	// stall is a real ordering/attribution bug (or a peer far behind). Warn once past
+	// ~3 s; the legacy floor above then forces the marker through, so it never wedges.
+	if (barrierHeldThisTick && consumedThisTick == 0)
+	{
+		if (++g_barrierStallTicks == 180 && !g_barrierStallWarned)
+		{
+			g_barrierStallWarned = true;
+			Log(LOG_WARNING) << "coop: action_end apply-barrier stalled ~3s - side_seq="
+							 << _sideSeq << " clientDisplaySeq=" << _clientDisplaySeq
+							 << " rxHold=" << rxHoldSize() << " barrierBlocks="
+							 << g_barrierBlocks.load();
+		}
+	}
+	else
+	{
+		g_barrierStallTicks = 0;
+		g_barrierStallWarned = false;
 	}
 
 	// coop (PRD-P7): client display fast-forward. A packet still sitting in the
