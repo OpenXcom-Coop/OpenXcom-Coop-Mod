@@ -38,6 +38,21 @@ namespace OpenXcom
 // coop
 bool coopTaskCompleted = false;
 
+// coop (chain-atomicity D.3b fixture instrumentation): the chained-terrain pacing race,
+// counted at the bug site. A chained-terrain consequence (checkForTerrainExplosions,
+// _explosionCounter > 0, BA_NONE) must NEVER touch the shot-pacing signal. These monotonic
+// counters make the race observable through parallel_state (TestServer extern-reads them):
+//   g_coopTerrainPacingParks    = a chained-terrain that PARKED on the shot-pacing flag
+//   g_coopTerrainPacingConsumes = a chained-terrain whose think() release CONSUMED the flip
+//   g_coopTerrainPacingDiverted = a chained-terrain that reached the pacing decision while
+//                                 the shot-pacing condition was live and was DIVERTED off
+//                                 the park path by the _explosionCounter == 0 gate (the fix)
+// Parks/consumes are the BUG (non-zero only before the fix); diverted proves the fix engaged
+// on the same opportunity. All three are parallel-client only and inert (0) otherwise.
+std::uint32_t g_coopTerrainPacingParks = 0;
+std::uint32_t g_coopTerrainPacingConsumes = 0;
+std::uint32_t g_coopTerrainPacingDiverted = 0;
+
 /**
  * Sets up an ExplosionBState.
  * @param parent Pointer to the BattleScape.
@@ -428,6 +443,9 @@ void ExplosionBState::think()
 	//  coop
 	if (coopTaskCompleted && (_parent->getCoopMod()->_hasHitUnit == -1 || _parent->getCoopMod()->_hasHitUnit == -2))
 	{
+		// D.3b fixture: a chained-terrain consequence firing this release consumed the
+		// shot's flip off the shared flag (the bug).
+		if (_explosionCounter > 0) ++g_coopTerrainPacingConsumes;
 		coopTaskCompleted = false;
 		_parent->getCoopMod()->_coopPacingWait = false;
 		_parent->popState();
@@ -527,6 +545,9 @@ void ExplosionBState::explode()
 	// coop
 	if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == false && _parent->getCoopMod()->_hasHitUnit == 1)
 	{
+		// D.3b fixture: a chained-terrain consequence (_explosionCounter > 0) reaching this
+		// shot-pacing park is the bug - it parks on the shared flag the shot owns.
+		if (_explosionCounter > 0) ++g_coopTerrainPacingParks;
 		coopTaskCompleted = true;
 		// coop (Class-A soak wedge fix): flag the pacing wait live so the RX pump's
 		// stall floor (updateCoopTask) can force-drain it if the flip never comes.

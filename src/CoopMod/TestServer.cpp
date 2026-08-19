@@ -193,6 +193,14 @@
 namespace OpenXcom
 {
 
+// coop (chain-atomicity D.3b fixture): the chained-terrain pacing race counters,
+// defined as file-scope globals in ExplosionBState.cpp. Extern-declared here so
+// parallel_state can surface them without a connectionTCP.h class-layout change (a
+// wide recompile).
+extern std::uint32_t g_coopTerrainPacingParks;
+extern std::uint32_t g_coopTerrainPacingConsumes;
+extern std::uint32_t g_coopTerrainPacingDiverted;
+
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
 // t = dynamic_cast<T*>(s)) found = t;` was pasted ~20x. These file-local helpers
@@ -3723,6 +3731,22 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "battle_tiles")
 	{
+		// coop (chain-atomicity D.3b fixture lever): pre-set a tile's explosive so the next
+		// HE blast's ExplosionBState::explode -> checkForTerrainExplosions spawns a chained-
+		// terrain explosion deterministically, arming the shot-pacing race on any map (the
+		// default skirmish carries no explosive terrain). Test-only; call on the client before
+		// firing so its shot replay spawns a local chained-terrain ExplosionBState.
+		if (req.isMember("set_explosive"))
+		{
+			Tile* et = sbg->getTile(Position(req.get("x", 0).asInt(),
+				req.get("y", 0).asInt(), req.get("z", 0).asInt()));
+			if (et)
+			{
+				et->setExplosive(req.get("set_explosive", 0).asInt(),
+					req.get("explosiveType", 0).asInt(), true);
+				resp["explosiveSet"] = et->getExplosive();
+			}
+		}
 		// PRD-P9 soak: the per-tile HAZARD census. Fire and smoke are the two
 		// pieces of battle state that can drift without touching a unit or an
 		// item (they arrive on their own `set_fire_tile` / `set_smoke_tile`
@@ -4566,6 +4590,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// is the only way to assert ORDER rather than end state.
 		resp["rxSkippedBlocked"] = static_cast<Json::UInt>(g_rxSkipBlocked.load());
 		resp["rxLegacyPasses"] = static_cast<Json::UInt>(g_rxLegacyPasses.load());
+		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
+		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
+		// diverted proves the fix engaged on a real opportunity.
+		resp["terrainPacingParks"] = static_cast<Json::UInt>(g_coopTerrainPacingParks);
+		resp["terrainPacingConsumes"] = static_cast<Json::UInt>(g_coopTerrainPacingConsumes);
+		resp["terrainPacingDiverted"] = static_cast<Json::UInt>(g_coopTerrainPacingDiverted);
 		// PRD-I1: whitelisted outcome packets held for their own chain's opener
 		// (chain isolation). Expected > 0 on a lagging client, 0 on the executor.
 		resp["rxSeqDeferred"] = static_cast<Json::UInt>(g_rxSeqDeferred.load());
