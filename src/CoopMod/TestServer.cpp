@@ -3755,6 +3755,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// is one cheap equality per side.
 		long long fireHash = 0, smokeHash = 0;
 		int fireTiles = 0, smokeTiles = 0, fireSum = 0, smokeSum = 0;
+		// coop (chain-atomicity item-2 fixture lever): per-tile EXPLOSIVE-charge census,
+		// the term the host-authoritative set_explosive_tile carrier keeps in sync. Order-
+		// independent sum+hash over value AND type, so the fixture can diff the two
+		// machines' armed-tile state after an HE shot into explosive terrain.
+		long long explosiveHash = 0;
+		int explosiveTiles = 0, explosiveSum = 0;
 		const int tileCount = sbg->getMapSizeXYZ();
 		for (int i = 0; i < tileCount; ++i)
 		{
@@ -3774,6 +3780,13 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				smokeSum += sm;
 				smokeHash += (long long)(i + 1) * 1000003LL + sm;
 			}
+			const int ex = tl->getExplosive();
+			if (ex != 0)
+			{
+				++explosiveTiles;
+				explosiveSum += ex;
+				explosiveHash += (long long)(i + 1) * 1000003LL + (long long)ex * 31 + tl->getExplosiveType();
+			}
 		}
 		resp["fireTiles"] = fireTiles;
 		resp["smokeTiles"] = smokeTiles;
@@ -3781,6 +3794,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["smokeSum"] = smokeSum;
 		resp["fireHash"] = Json::Value::Int64(fireHash);
 		resp["smokeHash"] = Json::Value::Int64(smokeHash);
+		resp["explosiveTiles"] = explosiveTiles;
+		resp["explosiveSum"] = explosiveSum;
+		resp["explosiveHash"] = Json::Value::Int64(explosiveHash);
 		resp["tileCount"] = tileCount;
 		resp["ok"] = true;
 	}
