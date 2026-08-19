@@ -55,6 +55,14 @@ private:
 	// boundary compare already covers them; opening a mid-phase chain there would
 	// interleave an action_end with the boundary markers.
 	bool _coopBoundaryExpl = false;
+	// coop (chain-atomicity D.3b): the auto-shot pacing "parked, awaiting the host's
+	// flip" flag, now PER-INSTANCE (it was a file-scope global shared by every
+	// ExplosionBState). Only a shot-origin explosion (_explosionCounter == 0) ever
+	// parks on it; a chained-terrain consequence (_explosionCounter > 0) can neither
+	// set nor clear another instance's, so it can never consume this shot's flip nor
+	// starve its wait. The host flip channel (_hasHitUnit, on the CoopMod) stays
+	// shared - the per-instance flag is what routes a release to the parked shot.
+	bool _coopTaskCompleted = false;
 
 	/// Calculates the effects of the explosion.
 	void explode();

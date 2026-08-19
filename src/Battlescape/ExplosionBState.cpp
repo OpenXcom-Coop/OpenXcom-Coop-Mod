@@ -35,8 +35,12 @@
 namespace OpenXcom
 {
 
-// coop
-bool coopTaskCompleted = false;
+// coop (chain-atomicity D.3b): the auto-shot pacing "parked, awaiting the host's flip"
+// flag is now a PER-INSTANCE member (ExplosionBState::_coopTaskCompleted), not a file-scope
+// global. A file-scope global was shared by every live ExplosionBState, so a chained-terrain
+// explosion (checkForTerrainExplosions, _explosionCounter > 0) could park on it or consume
+// the shot's host flip - the D.3b wedge. The member confines the pacing flag to the one shot
+// that parked it.
 
 // coop (chain-atomicity D.3b fixture instrumentation): the chained-terrain pacing race,
 // counted at the bug site. A chained-terrain consequence (checkForTerrainExplosions,
@@ -430,23 +434,25 @@ void ExplosionBState::think()
 	// starving the gate forever. Release AS IF the flip had landed: -2 also stops
 	// projectileHitUnit re-arming this wait for the remaining shots (it only arms on
 	// -1), so a wedged multi-shot drains in one pass rather than one escape per shot.
-	if (coopTaskCompleted && _parent->getCoopMod()->_coopForceDrainReplay)
+	if (_coopTaskCompleted && _parent->getCoopMod()->_coopForceDrainReplay)
 	{
 		_parent->getCoopMod()->_coopForceDrainReplay = false;
 		_parent->getCoopMod()->_coopPacingWait = false;
 		_parent->getCoopMod()->_hasHitUnit = -2;
-		coopTaskCompleted = false;
+		_coopTaskCompleted = false;
 		_parent->popState();
 		return;
 	}
 
 	//  coop
-	if (coopTaskCompleted && (_parent->getCoopMod()->_hasHitUnit == -1 || _parent->getCoopMod()->_hasHitUnit == -2))
+	if (_coopTaskCompleted && (_parent->getCoopMod()->_hasHitUnit == -1 || _parent->getCoopMod()->_hasHitUnit == -2))
 	{
-		// D.3b fixture: a chained-terrain consequence firing this release consumed the
-		// shot's flip off the shared flag (the bug).
+		// D.3b guard: with the per-instance flag a chained-terrain (_explosionCounter > 0)
+		// never has its OWN _coopTaskCompleted set, so it can never reach this release and
+		// consume the shot's flip. Post-fix this stays 0; a non-zero value means a chained-
+		// terrain leaked onto the pacing path again.
 		if (_explosionCounter > 0) ++g_coopTerrainPacingConsumes;
-		coopTaskCompleted = false;
+		_coopTaskCompleted = false;
 		_parent->getCoopMod()->_coopPacingWait = false;
 		_parent->popState();
 		return;
@@ -542,20 +548,49 @@ void ExplosionBState::explode()
 		_parent->getSave()->removeItem(_attack.damage_item);
 	}
 
-	// coop
-	if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == false && _parent->getCoopMod()->_hasHitUnit == 1)
+	// coop (chain-atomicity D.3b): only a SHOT-origin explosion (_explosionCounter == 0)
+	// may park on the auto-shot pacing path. The park flag is per-instance
+	// (_coopTaskCompleted), and the extra _explosionCounter == 0 gate keeps a
+	// chained-terrain consequence (spawned below by checkForTerrainExplosions, with
+	// _explosionCounter > 0 and BA_NONE) off this path entirely: it never parks on the
+	// shared host flip and never clears the shot's _coopPacingWait. Before the fix a
+	// terrain-chain ExplosionBState read the same file-scope flag and could park on or
+	// consume the shot's flip (or, once gated to the else, reset the RX pump's stall floor
+	// mid-chain), starving the shot's pacing wait - the ~10 s client wedge bounded only by
+	// the force-drain watchdog.
+	const bool coopPacingCandidate =
+		_parent->getCoopMod()->getCoopStatic() == true
+		&& _parent->getCoopMod()->getHost() == false
+		&& _parent->getCoopMod()->_hasHitUnit == 1;
+	if (_explosionCounter == 0 && coopPacingCandidate)
 	{
-		// D.3b fixture: a chained-terrain consequence (_explosionCounter > 0) reaching this
-		// shot-pacing park is the bug - it parks on the shared flag the shot owns.
-		if (_explosionCounter > 0) ++g_coopTerrainPacingParks;
-		coopTaskCompleted = true;
+		_coopTaskCompleted = true;
 		// coop (Class-A soak wedge fix): flag the pacing wait live so the RX pump's
 		// stall floor (updateCoopTask) can force-drain it if the flip never comes.
 		_parent->getCoopMod()->_coopPacingWait = true;
 	}
+	else if (_explosionCounter == 0)
+	{
+		// a shot-origin explosion that is NOT pacing (host side, single shot, or the
+		// flip already landed): clear the wait and finish, exactly as before.
+		_parent->getCoopMod()->_coopPacingWait = false;
+		_parent->popState();
+	}
 	else
 	{
-		_parent->getCoopMod()->_coopPacingWait = false;
+		// a chained-terrain consequence: it must never touch the shot-pacing signal, so
+		// leave _coopPacingWait owned by whatever shot parked it and just finish. D.3b: it
+		// is DIVERTED off the park path here - count it while a shot's pacing wait is live
+		// (the same race window that PARKED it before the fix), so the regression test can
+		// prove the fix engaged on a real race rather than on a vacuous run. _coopPacingWait
+		// (not _hasHitUnit==1) is the window: it stays set for the whole wait, whereas
+		// _hasHitUnit flips to -2 the moment the now-uncontested flip lands.
+		if (_parent->getCoopMod()->getCoopStatic() == true
+			&& _parent->getCoopMod()->getHost() == false
+			&& _parent->getCoopMod()->_coopPacingWait)
+		{
+			++g_coopTerrainPacingDiverted;
+		}
 		_parent->popState();
 	}
 
