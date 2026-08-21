@@ -222,7 +222,21 @@ void ExplosionBState::init()
 			break;
 		}
 		_power = _tile->getExplosive();
-		_tile->setExplosive(0, 0, true);
+		// coop (chain-atomicity item-2): the tile's explosive-charge CONSUMPTION is
+		// host-authoritative terrain bookkeeping, not display. On the parallel replay
+		// client this zero used to run LOCALLY off the display loop, racing the
+		// destroy_tile ARM carrier - so the charge (a saveBlob/terrain hash term) could
+		// diverge between machines and drive a chained explosion one machine never ran.
+		// The client now applies the host's stamped set_explosive_tile(0) instead (shipped
+		// below), keeping the charge purely packet-driven. Host / classic co-op / PvP /
+		// single-player zero exactly as before; the _power read above still feeds the
+		// animation radius on every machine.
+		const bool coopExplReplayClient =
+			_parent->getCoopMod()->parallelTurnActive() && !_parent->getCoopMod()->getHost();
+		if (!coopExplReplayClient)
+		{
+			_tile->setExplosive(0, 0, true);
+		}
 		_damageType = _parent->getMod()->getDamageType(DT);
 		_radius = _power /10;
 		_areaOfEffect = true;
@@ -245,6 +259,31 @@ void ExplosionBState::init()
 	if (!_coopBoundaryExpl)
 	{
 		connectionTCP::coopStampLooseOutcomeChain("expl");
+	}
+
+	// coop (chain-atomicity item-2): ship the host's explosive-charge CONSUMPTION as a
+	// stamped set_explosive_tile carrier so the parallel replay client mirrors the zero
+	// at the bookkeeping clock - ordered behind this tile's destroy_tile ARM and drained
+	// ahead of the chain's action_end (D.1 barrier), exactly like destroy_tile.
+	// coopStampChainSeq tags it with the loose chain opened just above (mid-side) or
+	// leaves it seq-0 for a boundary explosion (applied before the boundary hash, as
+	// boundary destroy_tile already is). Host-only + parallel-PvE-only: classic co-op,
+	// PvP and single-player never ship it and the replay client's suppression above is
+	// likewise parallel-gated, so those paths stay byte-identical. Only a real
+	// consumption (_power > 0) ships; the tile is already zeroed on the host above.
+	if (_tile && _power > 0
+		&& _parent->getCoopMod()->parallelTurnActive() && _parent->getCoopMod()->getHost())
+	{
+		Json::Value root;
+		root["state"] = "set_explosive_tile";
+		connectionTCP::coopStampChainSeq(root);
+		const Position tpos = _tile->getPosition();
+		root["tile_pos_x"] = tpos.x;
+		root["tile_pos_y"] = tpos.y;
+		root["tile_pos_z"] = tpos.z;
+		root["explosive"] = _tile->getExplosive();
+		root["explosive_type"] = _tile->getExplosiveType();
+		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 	}
 
 	if (_areaOfEffect)
@@ -596,7 +635,31 @@ void ExplosionBState::explode()
 
 	// check for terrain explosions
 	Tile *t = save->getTileEngine()->checkForTerrainExplosions();
-	if (t)
+	// coop (chain-atomicity item-2 blocker): on the parallel replay client the tile's
+	// explosive-charge CONSUMPTION is host-authoritative (suppressed locally in init above,
+	// applied from the host's stamped set_explosive_tile carrier). This chained-terrain loop
+	// re-derives its work from checkForTerrainExplosions' whole-map scan, so if the scan
+	// returns THIS explosion's OWN tile still armed - the client suppressed its zero and no
+	// host set_explosive_tile / destroy_tile carrier cleared it during this explosion's run -
+	// the host is not resolving that tile this cycle and re-chaining would spin forever on it.
+	// A self-revisit is keyed off host resolution: a host-resolved tile is cleared by its
+	// carrier before it can self-revisit, so this fires only on a tile the host is not
+	// resolving. When it does fire the host has PROVABLY already consumed that tile to 0 -
+	// either it ran its own chained explosion for it at sim time (real play: client-armed is a
+	// subset of host-armed) or, in the impossible client-only case, it never armed it - so
+	// converging the client's copy to 0 cannot diverge from the host, and it lets the scan
+	// terminate instead of spinning. The item-2 packet-rate tracking is untouched (never
+	// fires in real play). Host / classic co-op / PvP / single-player are gated out entirely.
+	// Full carrier-driven chained display is item 5.
+	const bool coopChainedTerrainStranded =
+		t && t == _tile
+		&& _parent->getCoopMod()->parallelTurnActive()
+		&& !_parent->getCoopMod()->getHost();
+	if (coopChainedTerrainStranded)
+	{
+		t->setExplosive(0, 0, true);
+	}
+	if (t && !coopChainedTerrainStranded)
 	{
 		Position p = t->getPosition().toVoxel();
 		p += Position(8,8,0);

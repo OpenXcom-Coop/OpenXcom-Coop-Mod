@@ -792,6 +792,7 @@ static void coopApplyBystanderMorale(SavedBattleGame* battle, const Json::Value&
 static bool coopIsChainOutcomePacket(const std::string& state)
 {
 	return state == "hit_tile" || state == "destroy_tile"
+		|| state == "set_explosive_tile"
 		|| state == "set_fire_tile" || state == "set_smoke_tile"
 		|| state == "unit_fire" || state == "calc_explode_fov"
 		|| state == "hasHitUnit";
@@ -2899,7 +2900,7 @@ void connectionTCP::updateCoopTask()
 
 				const bool gateAllows =
 						 (coopTaskCompleted() || chainCloser ||
-					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving") &&
+					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_explosive_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving") &&
 					!endTurnExcluded;
 
 				// coop (PRD-P11): the unit this packet is about, and whether an
@@ -8358,6 +8359,31 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		}
 
+	}
+
+	// set explosive tile (coop chain-atomicity item-2): host-shipped explosive-charge
+	// consumption. Mirrors the host's ExplosionBState zero so the parallel replay client
+	// stops deriving the charge from its own display loop. Stamped -> rides the ordered
+	// gate and the D.1 action_end apply barrier exactly like destroy_tile (an absent/seq-0
+	// action_seq = boundary explosion / classic / old peer = legacy always-consume).
+	if (stateString == "set_explosive_tile")
+	{
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			int tile_pos_x = obj["tile_pos_x"].asInt();
+			int tile_pos_y = obj["tile_pos_y"].asInt();
+			int tile_pos_z = obj["tile_pos_z"].asInt();
+
+			int explosive = obj["explosive"].asInt();
+			int explosive_type = obj["explosive_type"].asInt();
+
+			Tile *selected_tile = _game->getSavedGame()->getSavedBattle()->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
+
+			if (selected_tile)
+			{
+				selected_tile->setExplosive(explosive, explosive_type, true);
+			}
+		}
 	}
 
 	if (stateString == "unit_fire")
