@@ -1832,6 +1832,29 @@ void BattlescapeGame::checkForCasualties(const RuleDamageType* damageType, Battl
 	// per-unit unitsCombat hash. Suppress the morale writes on the parallel client
 	// only; a CLASSIC client replays the attack + runs its own damage(), so it is
 	// untouched and stays byte-identical.
+	//
+	// coop (chain-atomicity item 4, no-reroll authority - dead-vs-live map): MORALE is
+	// the ONLY checkForCasualties write that needs suppressing here. Every other combat
+	// outcome the client could re-decide is already dead on a non-host coop client BEFORE
+	// it can write victim state, so hit_unit / unit_death / after_unit_death are the sole
+	// authority for the strict unitsCombat bucket (kneeled / mind-controller id / w0..w5):
+	//   * health / stun / fatal-wounds / armor : BattleUnit::damage()  early-returns
+	//         (BattleUnit.cpp, `getCoopStatic() && !getHost()`), and TileEngine::hitUnit()
+	//         early-returns ahead of it (TileEngine.cpp) - which also kills the whole
+	//         TileEngine::explode() unit-damage loop and the melee / reaction-fire paths,
+	//         since they ALL reach a unit only through hitUnit(). hit_unit ships the
+	//         victim's post-hit absolutes instead.
+	//   * mind-controller id                   : TileEngine::psiAttack() early-returns
+	//         (non-PvP coop client); the flip rides its own host packet.
+	//   * the kill / knockout DISPOSITION       : the UnitDieBState this function pushes
+	//         below is a no-op ctor on the client (UnitDieBState.cpp, !getHost() &&
+	//         !_coop_death); the death is driven only by unit_death -> coopDeath.
+	// So the audit's "health/stun/wounds re-roll latent" premise does not hold as-built:
+	// that family needs no code, and item 4 is the morale gate below plus this record.
+	// (The residual casualty divergence a mass-casualty soak still shows is unitsCore
+	// liveness + items/itemIdCtr corpse-mint - the death-DISPLAY replay lag, chain-
+	// atomicity item 5 - NOT a re-decide of any unitsCombat value. Regression-locked by
+	// tools/coop_test/test_parallel_no_reroll.py.)
 	const bool coopThinClientNoReroll = connectionTCP::parallelTurnActive() && !getHost();
 	BattleUnit* origMurderer = attack.attacker;
 	// If the victim was killed by the murderer's death explosion, fetch who killed the murderer and make HIM the murderer!
