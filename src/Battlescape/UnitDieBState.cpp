@@ -538,84 +538,32 @@ void UnitDieBState::cancel()
  */
 void UnitDieBState::convertUnitToCorpse()
 {
-	Position lastPosition = _unit->getPosition();
-	int size = _unit->getArmor()->getSize();
-	bool dropItems = (_unit->hasInventory() &&
-		(!Options::weaponSelfDestruction ||
-		(_unit->getOriginalFaction() != FACTION_HOSTILE || _unit->getStatus() == STATUS_UNCONSCIOUS)));
-
-	// coop (PRD-P10): the replay has reached its corpse creation, so the parked
-	// manifest is now unambiguously about the corpse the loop below mints. Cleared
-	// BEFORE removeUnconsciousBodyItem so the two can never be confused again.
-	SharedEcon::clearCorpseReplayPending(_unit->getId());
-
+	// presentation (all machines): hide the per-unit action buttons. Kept on the
+	// animation clock even for the parallel replay client below - it is a pure UI
+	// effect, not a world mutation.
 	if (!_noSound)
 	{
 		_parent->getSave()->getBattleState()->resetUiButton();
 	}
-	// remove the unconscious body item corresponding to this unit, and if it was being carried, keep track of what slot it was in
-	if (lastPosition != TileEngine::invalid)
+
+	// coop (item 3, mint-at-apply): on the parallel replay client the corpse item
+	// creation, the inventory spill to the ground and the unit-tile unlink are all
+	// performed by the after_unit_death packet apply (connectionTCP.cpp), on the
+	// ordered bookkeeping clock and with the host's manifest ids adopted at create -
+	// NOT here on this machine's animation clock, where the mint bumped the item-id
+	// counter a beat out of step with the host and straddled the chain's action_end
+	// sync-check hash (the alien-side items/itemIdCtr burn-in residual). This branch
+	// leaves the world untouched: display only (the collapse/vanish visual is driven
+	// by think()'s falling animation, not by this function). Gated strictly on the
+	// parallel replay client - the host, a classic co-op client, PvP and single
+	// player all fall through to the shared mint below and stay byte-identical.
+	if (_parent->isCoop() && _parent->getCoopMod()->parallelTurnActive()
+		&& !_parent->getCoopMod()->getHost())
 	{
-		_parent->getSave()->removeUnconsciousBodyItem(_unit);
+		return;
 	}
 
-	// move inventory from unit to the ground
-	if (dropItems && _unit->getTile())
-	{
-		_parent->getTileEngine()->itemDropInventory(_unit->getTile(), _unit);
-	}
-
-	// remove unit-tile link
-	_unit->setTile(nullptr, _parent->getSave());
-
-	if (lastPosition == TileEngine::invalid) // we're being carried
-	{
-		if (_overKill)
-		{
-			_parent->getSave()->removeUnconsciousBodyItem(_unit);
-		}
-		else
-		{
-			// replace the unconscious body item with a corpse in the carrying unit's inventory
-			for (auto* bi : *_parent->getSave()->getItems())
-			{
-				if (bi->getUnit() == _unit)
-				{
-					auto* corpseRules = _unit->getArmor()->getCorpseBattlescape()[0]; // we're in an inventory, so we must be a 1x1 unit
-					bi->convertToCorpse(corpseRules);
-					break;
-				}
-			}
-		}
-	}
-	else
-	{
-		if (!_overKill)
-		{
-			// coop (PRD-P4): a Tier-A spawn. The corpse SET is deterministic (the
-			// armor's corpse list, size^2 of them) so both machines create the same
-			// items - but each mints its own ids off its own counter, and once those
-			// disagree every later id-keyed packet lands on the wrong instance. Only
-			// one of these two is ever live: the record on the host (its ids ride
-			// `after_unit_death`), the guard on the peer.
-			SharedEcon::CoopSpawnRecord coopRec("corpse", _unit->getId());
-			SharedEcon::CoopSubjectGuard coopGuard(_parent->getSave(), "corpse", _unit->getId());
-			int i = size * size - 1;
-			for (int y = size - 1; y >= 0; --y)
-			{
-				for (int x = size - 1; x >= 0; --x)
-				{
-					BattleItem *corpse = _parent->getSave()->createItemForTile(_unit->getArmor()->getCorpseBattlescape()[i], nullptr, _unit);
-					_parent->dropItem(lastPosition + Position(x,y,0), corpse, false);
-					--i;
-				}
-			}
-		}
-		else
-		{
-			_parent->getSave()->getTileEngine()->applyGravity(_parent->getSave()->getTile(lastPosition));
-		}
-	}
+	_parent->coopMintCorpse(_unit, _overKill);
 }
 
 /**

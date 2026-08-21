@@ -5823,6 +5823,15 @@ std::string TestServer::execute(const std::string& line)
 				// Additive read only; no effect on the compare/tripwire semantics.
 				resp["corpsePending"] = SharedEcon::corpseReplayPendingAny()
 					|| SharedEcon::corpseRemapPendingAny() || coop->_coopInitDeath;
+				// coop (item 3, mint-at-apply introspection): the two corpse drift windows split
+				// out of the folded corpsePending flag above. corpseRemapArmed is the window
+				// mint-at-apply structurally empties (must stay 0 on the parallel replay client
+				// through every death); the live *Now bools show whether a window is armed right
+				// at this sample. Additive read-only.
+				resp["corpseReplayPendingNow"] = SharedEcon::corpseReplayPendingAny();
+				resp["corpseRemapPendingNow"] = SharedEcon::corpseRemapPendingAny();
+				resp["corpseReplayArmed"] = static_cast<Json::UInt>(SharedEcon::corpseReplayArmedCount());
+				resp["corpseRemapArmed"] = static_cast<Json::UInt>(SharedEcon::corpseRemapArmedCount());
 				resp["coopEnd"] = coop->_coopEnd;
 				resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
 				resp["rxPark"] = static_cast<Json::UInt>(rxParkSize());

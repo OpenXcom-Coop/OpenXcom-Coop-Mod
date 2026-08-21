@@ -6798,6 +6798,13 @@ std::set<int> g_corpseReplayPending;
 /// `after_unit_death` reconciles the unit (remapCorpseIds) or at the turn boundary.
 std::set<int> g_corpseRemapPending;
 
+/// coop (item 3, mint-at-apply introspection): how many times each window armed this
+/// battle. See SharedEcon.h corpseReplayArmedCount/corpseRemapArmedCount. Reset with
+/// the pending sets at battle teardown (clearSpawnManifests does NOT touch them - they
+/// are cumulative evidence, cleared only when a fresh battle re-zeroes statics).
+std::uint32_t g_corpseReplayArmed = 0;
+std::uint32_t g_corpseRemapArmed = 0;
+
 } // namespace
 
 CoopSpawnRecord::CoopSpawnRecord(const char* action, int subject) : _open(false)
@@ -6867,7 +6874,12 @@ CoopSubjectGuard::~CoopSubjectGuard()
 	// path a already stamped the host's ids at mint, so there is no drift and no mark.)
 	if (_action == "corpse" && adopted == 0)
 	{
-		g_corpseRemapPending.insert(_subject);
+		// coop (item 3, mint-at-apply introspection): window 2 armed - this peer minted
+		// the corpse with LOCAL ids (no host manifest at create). On the parallel replay
+		// client the mint-at-apply path parks the manifest before this guard runs, so
+		// adopted>0 and this branch is never taken; a non-zero count is the OLD animation-
+		// clock mint (a classic client, or a pre-item-3 build).
+		if (g_corpseRemapPending.insert(_subject).second) ++g_corpseRemapArmed;
 	}
 }
 
@@ -6974,7 +6986,7 @@ bool storeSpawnManifest(SavedBattleGame* battle, const char* action, int subject
 void noteCorpseReplayPending(int unitId)
 {
 	if (!connectionTCP::getCoopStatic() || connectionTCP::getHost()) return;
-	g_corpseReplayPending.insert(unitId);
+	if (g_corpseReplayPending.insert(unitId).second) ++g_corpseReplayArmed;
 }
 
 void clearCorpseReplayPending(int unitId)
@@ -7000,6 +7012,16 @@ void clearCorpseRemapPending(int unitId)
 bool corpseRemapPendingAny()
 {
 	return !g_corpseRemapPending.empty();
+}
+
+std::uint32_t corpseReplayArmedCount()
+{
+	return g_corpseReplayArmed;
+}
+
+std::uint32_t corpseRemapArmedCount()
+{
+	return g_corpseRemapArmed;
 }
 
 int remapCorpseIds(SavedBattleGame* battle, int unitId)

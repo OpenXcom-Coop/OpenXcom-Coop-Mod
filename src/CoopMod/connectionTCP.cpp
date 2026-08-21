@@ -7772,18 +7772,45 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				// manifest is dropped, so the pair is idempotent.
 				SavedBattleGame* coopBattle = _game->getSavedGame()->getSavedBattle();
 				const int coopDeadUnitId = obj["unit_id"].asInt();
-				if (SharedEcon::storeSpawnManifest(coopBattle, "corpse", coopDeadUnitId, obj))
+				const bool coopParallelClient = parallelTurnActive() && !getHost();
+				// coop (item 3, mint-at-apply): park the host's minted corpse ids for this death.
+				// On the parallel replay client the mint below consumes them at CREATE; on a classic
+				// client the corpse already exists (animation clock) and remapCorpseIds re-stamps it.
+				const bool coopHaveCorpseManifest =
+					SharedEcon::storeSpawnManifest(coopBattle, "corpse", coopDeadUnitId, obj);
+				if (coopParallelClient)
+				{
+					// coop (item 3, mint-at-apply): the parallel replay client did NOT mint this
+					// death's corpse on its animation clock - UnitDieBState::convertUnitToCorpse is
+					// display-only there. Create it HERE, on the ordered bookkeeping clock, adopting
+					// the host's manifest ids at CREATE (the CoopSubjectGuard inside coopMintCorpse
+					// consumes the manifest parked just above), so the corpse exists with the host's
+					// exact ids by the time this chain's action_end sync-check hash samples. Runs
+					// while the victim still holds its tile (unit_death shipped isTile=true and the
+					// display-only convert left the link intact), so itemDropInventory still spills
+					// the kit to the floor. overKill is derived from the synced health exactly as
+					// UnitDieBState's ctor does, so this machine takes the host's corpse/no-corpse branch.
+					for (auto* coopVictim : *coopBattle->getUnits())
+					{
+						if (coopVictim->getId() == coopDeadUnitId)
+						{
+							coopBattle->getBattleGame()->coopMintCorpse(coopVictim, coopVictim->getOverKillDamage() != 0);
+							break;
+						}
+					}
+				}
+				else if (coopHaveCorpseManifest)
 				{
 					SharedEcon::remapCorpseIds(coopBattle, coopDeadUnitId);
 				}
-				// coop (PRD-I3 Session F window 2): the host ids for this death have now
-				// arrived, so any local-id corpse minted for it is reconciled - the
-				// items/itemIdCtr sync-check may compare it again.
+				// coop (PRD-I3 Session F window 2): the host ids for this death have now arrived
+				// (and on the parallel client the mint above adopted them at create), so any
+				// local-id corpse minted for it is reconciled - items/itemIdCtr may compare it again.
 				SharedEcon::clearCorpseRemapPending(coopDeadUnitId);
 
 				// coop (PRD-I3 SEAM-4): apply the host's post-casualty bystander morale
 				// on the parallel client only; absolute overwrite, idempotent.
-				if (parallelTurnActive() && !getHost())
+				if (coopParallelClient)
 				{
 					coopApplyBystanderMorale(coopBattle, obj);
 				}

@@ -846,6 +846,19 @@ bool corpseReplayPendingAny();
 void clearCorpseRemapPending(int unitId);
 bool corpseRemapPendingAny();
 
+/// coop (item 3, mint-at-apply introspection): cumulative count of how many times
+/// each corpse drift window has ARMED this battle. Window 1 (corpseReplayPending)
+/// arms once per death push (noteCorpseReplayPending) and is expected to keep arming
+/// on any path - it just marks "a death replay is queued". Window 2
+/// (corpseRemapPending) is the one mint-at-apply STRUCTURALLY EMPTIES: it arms only
+/// when this peer minted a corpse with LOCAL ids because no host manifest was in hand
+/// at create (CoopSubjectGuard adopted==0). On the parallel replay client the mint
+/// now runs at the after_unit_death apply with the manifest already parked, so the
+/// guard always adopts at create and this counter must stay 0 through every death.
+/// Additive, read-only; introspection for the harness, no effect on any compare.
+std::uint32_t corpseReplayArmedCount();
+std::uint32_t corpseRemapArmedCount();
+
 /// Factory hook: a BattleItem was just minted. Appends to an open host record or
 /// consumes an id from an open peer guard; does nothing at all when neither is
 /// open, which is every mint outside a Tier-A spawn (and every non-co-op game).

@@ -252,6 +252,12 @@ public:
 	void abortCoopPath2();
 	void sendPacketData(std::string data);
 	void coopDeath(BattleUnit *unit, const RuleDamageType *damageType, bool noSound);
+	/// coop (item 3, mint-at-apply): the world-mutating half of a death - corpse
+	/// item creation, inventory spill to the ground, and the unit-tile unlink -
+	/// extracted from UnitDieBState::convertUnitToCorpse so the parallel replay
+	/// client can run it at the after_unit_death packet apply (bookkeeping clock,
+	/// host manifest ids) instead of on its animation clock.
+	void coopMintCorpse(BattleUnit *unit, bool overKill);
 	// coop
 	void teleport(int x, int y, int z, BattleUnit* unit);
 	void setTileCoop(Position pos, BattleUnit &unit);

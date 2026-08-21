@@ -954,6 +954,94 @@ void BattlescapeGame::coopDeath(BattleUnit* unit, const RuleDamageType* damageTy
 	statePushNext(new UnitDieBState(this, unit, damageType, noSound, true));
 }
 
+/**
+ * coop (item 3, mint-at-apply): the world-mutating half of turning a dead unit into
+ * a corpse - identical to the body of UnitDieBState::convertUnitToCorpse minus the
+ * resetUiButton() presentation call (which stays on the animation clock). Extracted
+ * so the parallel replay client can run it at the after_unit_death packet apply
+ * (host manifest ids adopted at create by the CoopSubjectGuard below) rather than on
+ * its own animation clock, where the corpse mint straddled the chain's action_end
+ * sync-check hash. On the host and a classic client this runs from the animation as
+ * before, byte-identical.
+ */
+void BattlescapeGame::coopMintCorpse(BattleUnit* unit, bool overKill)
+{
+	Position lastPosition = unit->getPosition();
+	int size = unit->getArmor()->getSize();
+	bool dropItems = (unit->hasInventory() &&
+		(!Options::weaponSelfDestruction ||
+		(unit->getOriginalFaction() != FACTION_HOSTILE || unit->getStatus() == STATUS_UNCONSCIOUS)));
+
+	// coop (PRD-P10): the replay has reached its corpse creation, so the parked
+	// manifest is now unambiguously about the corpse the loop below mints. Cleared
+	// BEFORE removeUnconsciousBodyItem so the two can never be confused again.
+	SharedEcon::clearCorpseReplayPending(unit->getId());
+
+	// remove the unconscious body item corresponding to this unit, and if it was being carried, keep track of what slot it was in
+	if (lastPosition != TileEngine::invalid)
+	{
+		getSave()->removeUnconsciousBodyItem(unit);
+	}
+
+	// move inventory from unit to the ground
+	if (dropItems && unit->getTile())
+	{
+		getTileEngine()->itemDropInventory(unit->getTile(), unit);
+	}
+
+	// remove unit-tile link
+	unit->setTile(nullptr, getSave());
+
+	if (lastPosition == TileEngine::invalid) // we're being carried
+	{
+		if (overKill)
+		{
+			getSave()->removeUnconsciousBodyItem(unit);
+		}
+		else
+		{
+			// replace the unconscious body item with a corpse in the carrying unit's inventory
+			for (auto* bi : *getSave()->getItems())
+			{
+				if (bi->getUnit() == unit)
+				{
+					auto* corpseRules = unit->getArmor()->getCorpseBattlescape()[0]; // we're in an inventory, so we must be a 1x1 unit
+					bi->convertToCorpse(corpseRules);
+					break;
+				}
+			}
+		}
+	}
+	else
+	{
+		if (!overKill)
+		{
+			// coop (PRD-P4): a Tier-A spawn. The corpse SET is deterministic (the
+			// armor's corpse list, size^2 of them) so both machines create the same
+			// items - but each mints its own ids off its own counter, and once those
+			// disagree every later id-keyed packet lands on the wrong instance. Only
+			// one of these two is ever live: the record on the host (its ids ride
+			// `after_unit_death`), the guard on the peer.
+			SharedEcon::CoopSpawnRecord coopRec("corpse", unit->getId());
+			SharedEcon::CoopSubjectGuard coopGuard(getSave(), "corpse", unit->getId());
+			int i = size * size - 1;
+			for (int y = size - 1; y >= 0; --y)
+			{
+				for (int x = size - 1; x >= 0; --x)
+				{
+					BattleItem *corpse = getSave()->createItemForTile(unit->getArmor()->getCorpseBattlescape()[i], nullptr, unit);
+					dropItem(lastPosition + Position(x,y,0), corpse, false);
+					--i;
+				}
+			}
+		}
+		else
+		{
+			getSave()->getTileEngine()->applyGravity(getSave()->getTile(lastPosition));
+		}
+	}
+}
+
 void BattlescapeGame::teleport(int x, int y, int z, BattleUnit* unit)
 {
 
