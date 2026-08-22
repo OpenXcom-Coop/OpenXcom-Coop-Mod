@@ -795,7 +795,13 @@ static bool coopIsChainOutcomePacket(const std::string& state)
 		|| state == "set_explosive_tile"
 		|| state == "set_fire_tile" || state == "set_smoke_tile"
 		|| state == "unit_fire" || state == "calc_explode_fov"
-		|| state == "hasHitUnit";
+		|| state == "hasHitUnit"
+		// coop (item 5 B, alien-replay decoupling): the death-chain victim carriers. Pure
+		// host absolutes (hit_unit damage/wounds; unit_death status/pos; after_unit_death
+		// corpse mint on the ordered clock, item 3), display-only on the parallel client.
+		// Seq-gate them so each folds into the exact chain it belongs to, in order - the
+		// prerequisite for applying them while the display is busy (gateAllows below).
+		|| state == "hit_unit" || state == "unit_death" || state == "after_unit_death";
 }
 
 size_t rxHoldSize()
@@ -2898,8 +2904,15 @@ void connectionTCP::updateCoopTask()
 						(stateString == "set_fire_tile" || stateString == "set_smoke_tile")
 						&& obj.get("bnd", false).asBool();
 
+				const bool coopDecoupledWorldCarrier =
+						 parallelTurnActive() && !getHost()
+						 && (stateString == "hit_unit" || stateString == "unit_death"
+							 || stateString == "after_unit_death")
+						 && _game && _game->getSavedGame()
+						 && _game->getSavedGame()->getSavedBattle()
+						 && _game->getSavedGame()->getSavedBattle()->getSide() != FACTION_PLAYER;
 				const bool gateAllows =
-						 (coopTaskCompleted() || chainCloser ||
+						 (coopTaskCompleted() || chainCloser || coopDecoupledWorldCarrier ||
 					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_explosive_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving") &&
 					!endTurnExcluded;
 
