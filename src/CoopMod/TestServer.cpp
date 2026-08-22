@@ -200,9 +200,17 @@ namespace OpenXcom
 extern std::uint32_t g_coopTerrainPacingParks;
 extern std::uint32_t g_coopTerrainPacingConsumes;
 extern std::uint32_t g_coopTerrainPacingDiverted;
+// coop (chain-atomicity Strand B): the side-barrier counters, file-scope in
+// connectionTCP.cpp. Extern-declared here (not in connectionTCP.h) so parallel_state can
+// surface them without a wide recompile, matching the terrain-pacing counters above.
+extern std::atomic<uint32_t> g_sideBarrierHolds;
+extern std::atomic<uint32_t> g_sideBarrierReleases;
+extern std::atomic<uint32_t> g_sideBarrierHardReleases;
 // coop (chain-atomicity Strand A): mid-side host deaths and how many shipped unstamped.
 extern std::atomic<uint32_t> g_coopMidSideDeaths;
 extern std::atomic<uint32_t> g_coopMidSideDeathsUnstamped;
+// coop (chain-atomicity Strand B, TEST-ONLY lever): disable just the side barrier.
+extern std::atomic<bool> g_rxSideBarrierDisable;
 
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
@@ -4616,6 +4624,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["rxTestHold"] = g_rxTestHold.load();
 		resp["rxDrainDisable"] = g_rxDrainDisable.load();
 		resp["rxForceFloor"] = g_rxForceFloor.load();
+		resp["rxSideBarrierDisable"] = g_rxSideBarrierDisable.load();
 		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
 		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
 		// diverted proves the fix engaged on a real opportunity.
@@ -4626,6 +4635,14 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// (chain isolation). Expected > 0 on a lagging client, 0 on the executor.
 		resp["rxSeqDeferred"] = static_cast<Json::UInt>(g_rxSeqDeferred.load());
 		resp["barrierBlocks"] = static_cast<Json::UInt>(g_barrierBlocks.load()); // PHASE D.1
+		// coop (chain-atomicity Strand B): side-barrier introspection. holds = passes the
+		// whitelisted endTurn was held for a still-deferred current-side stamped packet;
+		// releases = held endTurns that consumed once side S drained (liveness proof);
+		// hardReleases = held endTurns forced through by the kRxDrainHardFloorMs escape
+		// (0 = the ordered drain always released the token in time).
+		resp["sideBarrierHolds"] = static_cast<Json::UInt>(g_sideBarrierHolds.load());
+		resp["sideBarrierReleases"] = static_cast<Json::UInt>(g_sideBarrierReleases.load());
+		resp["sideBarrierHardReleases"] = static_cast<Json::UInt>(g_sideBarrierHardReleases.load());
 		// coop (chain-atomicity Strand A): midSideDeaths = mid-side (non-boundary) host
 		// deaths seen; midSideDeathsUnstamped = how many shipped _openChainSeq==0 (the
 		// Strand-A bug; must be 0 post-fix, boundary deaths excluded).
@@ -4705,6 +4722,13 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		if (req.isMember("rx_force_floor"))
 		{
 			g_rxForceFloor.store(req.get("rx_force_floor", false).asBool(),
+				std::memory_order_relaxed);
+		}
+		// coop (chain-atomicity Strand B, TEST-ONLY): disable just the side barrier so the
+		// same build measures the pre-fix stale-side straddle (red) vs barrier-held (green).
+		if (req.isMember("rx_side_barrier_disable"))
+		{
+			g_rxSideBarrierDisable.store(req.get("rx_side_barrier_disable", false).asBool(),
 				std::memory_order_relaxed);
 		}
 		// PRD-P7: walk fast-forward + display flow control.

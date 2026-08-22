@@ -571,6 +571,19 @@ std::atomic<uint32_t> g_barrierBlocks{0};
 // the stage-2 hard-floor escape hatch reverted the parallel client to the legacy
 // full-disable (0 across a run = the ordering-preserving drain carried the whole load).
 std::atomic<uint32_t> g_rxHardFloorPasses{0};
+// coop (chain-atomicity Strand B): the SIDE BARRIER introspection. g_sideBarrierHolds
+// counts passes where the whitelisted `endTurn` was HELD because a stamped packet of the
+// current side was still deferred ahead of it (the client must finish side S before
+// retiring its side token). g_sideBarrierReleases / g_sideBarrierHardReleases count how a
+// held endTurn finally consumed: the ordered drain of side S (normal, liveness proof) vs
+// the legacy hard-floor escape (the documented kRxDrainHardFloorMs last-resort release).
+// Externed in TestServer for parallel_state; file-scope here to avoid a connectionTCP.h
+// wide recompile. g_sideBarrierHeldThisSide is a pump-internal latch: this side saw a hold,
+// so the eventual consume is a release. Process-monotonic like the other pump counters.
+std::atomic<uint32_t> g_sideBarrierHolds{0};
+std::atomic<uint32_t> g_sideBarrierReleases{0};
+std::atomic<uint32_t> g_sideBarrierHardReleases{0};
+static bool g_sideBarrierHeldThisSide = false;
 // coop (chain-atomicity Strand A introspection): mid-side (non-boundary) host deaths and how
 // many still shipped UNSTAMPED (_openChainSeq==0 at send = the Strand-A seq-0 legacy-consume
 // straddle). Post-fix the loose-death chain stamp opens a chain for every mid-side death, so
@@ -583,6 +596,11 @@ std::atomic<uint32_t> g_coopMidSideDeathsUnstamped{0};
 std::atomic<bool> g_rxTestHold{false};
 std::atomic<bool> g_rxDrainDisable{false};
 std::atomic<bool> g_rxForceFloor{false};
+// coop (chain-atomicity Strand B, TEST-ONLY): disables JUST the side barrier (leaves the
+// I1 seq-gate + D.1 barrier + floor drain intact) so the SAME build measures the pre-fix
+// stale-side straddle (red: endTurn overtakes a still-deferred current-side death) against
+// the barrier-held ordering (green). Externed in TestServer; never set outside the harness.
+std::atomic<bool> g_rxSideBarrierDisable{false};
 // consecutive ticks a marker has been barrier-held with no progress, plus a one-shot
 // warn latch, for the loud sustained-stall diagnostic in updateCoopTask().
 static uint32_t g_barrierStallTicks = 0;
@@ -3140,7 +3158,31 @@ void connectionTCP::updateCoopTask()
 						}
 					}
 				}
-				if (gateAllows && !subjectHeld && !closerOvertakesOpener && !seqDeferred && !barrierBlocked)
+				// coop (chain-atomicity Strand B): the SIDE BARRIER. `endTurn` is whitelisted,
+				// so it would consume the instant the gate allows - advancing _sideSeq and
+				// zeroing _clientDisplaySeq (resetActionArbiter) - even while a STAMPED packet
+				// of the CURRENT side is still deferred ahead of it this pass
+				// (minDeferredChainSeqThisPass != 0, which is same-side by construction).
+				// Retiring the side token then strands that straggler: next pass its
+				// pktSide != _sideSeq, so seqDeferred no longer holds it (that gate is
+				// same-side only) and it legacy-consumes out of order, straddling the boundary
+				// hash. Hold endTurn until side S has drained so the client finishes side S
+				// before retiring its token. The host already blocks at the boundary for the
+				// client's boundary ack (P8), and the boundary marker sits BEHIND this endTurn
+				// on the wire, so this only reorders client-local consumption - it adds no host
+				// wait it was not already doing. LIVENESS: the deferred side-S packets drain as
+				// _clientDisplaySeq advances off their own chain markers (ahead of endTurn,
+				// never held here), so the hold cannot starve; and it is disabled under the
+				// legacy hard floor exactly like seqDeferred/barrierBlocked, so the
+				// kRxDrainHardFloorMs backstop is the documented last-resort release.
+				bool sideBarrierBlocked = false;
+				if (!getHost() && parallelTurnActive() && (!legacyOrder || drainFloor)
+					&& !g_rxSideBarrierDisable.load(std::memory_order_relaxed)
+					&& stateString == "endTurn" && minDeferredChainSeqThisPass != 0)
+				{
+					sideBarrierBlocked = true;
+				}
+				if (gateAllows && !subjectHeld && !closerOvertakesOpener && !seqDeferred && !barrierBlocked && !sideBarrierBlocked)
 				{
 					// See rxPassDeferred(): anything already deferred in this pass
 					// precedes this packet on the wire and has NOT been applied yet.
@@ -3148,6 +3190,16 @@ void connectionTCP::updateCoopTask()
 					rxTraceRecord(stateString, subject);
 					onTCPMessage(stateString, obj);
 					++consumedThisPass;
+					// coop (Strand B): a HELD endTurn has now consumed. Attribute the release:
+					// the ordered side-S drain (normal) vs the legacy hard-floor escape.
+					if (stateString == "endTurn" && g_sideBarrierHeldThisSide)
+					{
+						if (hardFloorThisTick)
+							g_sideBarrierHardReleases.fetch_add(1, std::memory_order_relaxed);
+						else
+							g_sideBarrierReleases.fetch_add(1, std::memory_order_relaxed);
+						g_sideBarrierHeldThisSide = false;
+					}
 				}
 				else if (endTurnExcluded)
 				{
@@ -3210,6 +3262,16 @@ void connectionTCP::updateCoopTask()
 						// disables this gate too, see legacyOrder above).
 						blockedSomething = true;
 						++g_rxSeqDeferred;
+					}
+					else if (sideBarrierBlocked)
+					{
+						// coop (Strand B): the side barrier held endTurn. Latch that this side
+						// saw a hold (so the eventual consume counts as a release) and feed the
+						// liveness floor like every other hold, so the barrier can never outlast
+						// the 600-tick floor / hard-floor backstop.
+						blockedSomething = true;
+						g_sideBarrierHeldThisSide = true;
+						g_sideBarrierHolds.fetch_add(1, std::memory_order_relaxed);
 					}
 					else if (gateAllows)
 					{
