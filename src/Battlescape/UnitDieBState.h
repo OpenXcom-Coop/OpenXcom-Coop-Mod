@@ -41,6 +41,14 @@ private:
 	int _extraFrame;
 	bool _overKill;
 	bool _coop_death;
+	// coop (chain-atomicity Strand A): latched at CONSTRUCTION - this death was
+	// pushed inside a BOUNDARY-phase checkForCasualties pass (side-close / side-start
+	// fuse+terrain+environmental+bleed-out), so its unit_death/after_unit_death must
+	// stay seq-0 and ride the ordered boundary marker's hash rather than opening a
+	// loose mid-side chain. Mirrors ExplosionBState::_coopBoundaryExpl. init() runs a
+	// think() later - after the synchronous boundary bracket has closed - so the phase
+	// MUST be captured now, not read live at send time.
+	bool _coopBoundaryDeath = false;
   public:
 	/// Creates a new UnitDieBState class
 	UnitDieBState(BattlescapeGame* parent, BattleUnit* unit, const RuleDamageType* damageType, bool noSound, bool coop_death = false);

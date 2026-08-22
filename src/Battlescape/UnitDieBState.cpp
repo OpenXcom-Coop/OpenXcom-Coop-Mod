@@ -40,6 +40,11 @@
 namespace OpenXcom
 {
 
+// coop (chain-atomicity Strand A introspection): defined in connectionTCP.cpp. Counts
+// mid-side (non-boundary) host deaths and how many shipped unstamped (the Strand-A bug).
+extern std::atomic<uint32_t> g_coopMidSideDeaths;
+extern std::atomic<uint32_t> g_coopMidSideDeathsUnstamped;
+
 /**
  * Sets up an UnitDieBState.
  * @param parent Pointer to the Battlescape.
@@ -51,7 +56,14 @@ UnitDieBState::UnitDieBState(BattlescapeGame* parent, BattleUnit* unit, const Ru
 	_unit(unit), _damageType(damageType), _noSound(noSound), _coop_death(coop_death), _extraFrame(0), _overKill(unit->getOverKillDamage())
 {
 
-	// coop 
+	// coop (chain-atomicity Strand A): capture the boundary-casualty phase NOW, at
+	// construction, while the boundary checkForCasualties bracket is still open on the
+	// parent - init() runs a think() later, after it has closed. A boundary-phase death
+	// keeps its unit_death/after_unit_death seq-0 (covered by the ordered endturn/
+	// sidestart marker) instead of opening a loose mid-side chain. See _coopBoundaryDeath.
+	_coopBoundaryDeath = _parent->coopBoundaryCasualty();
+
+	// coop
 	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && _coop_death == false)
 	{
 		return;
@@ -286,6 +298,46 @@ void UnitDieBState::init()
 		Json::Value root;
 
 		root["state"] = "unit_death";
+
+		// coop (chain-atomicity Strand A - loose mid-side death, SEAM-3a doctrine): a unit
+		// that dies AFTER its killing chain already drained runs its UnitDieBState with
+		// _openChainSeq == 0, so unit_death/after_unit_death would ship seq-0 unstamped and
+		// bypass the client's I1 seq-gate + D.1 apply barrier (legacy always-consume). The
+		// death then straddles a neighbouring chain's post-N sync-check hash - the residual
+		// items/itemIdCtr/unitsCore drift at ai/expl seqs. Open a loose chain so BOTH death
+		// carriers carry a seq and defer on the ordered gate exactly like an in-chain death.
+		// Boundary-phase deaths are EXCLUDED (already covered by the ordered endturn/
+		// sidestart marker): _coopBoundaryDeath latches the construction-time boundary
+		// bracket (side-close fuse/terrain/environmental + neutral->player bleed-out), and
+		// the live decay / armed-marker flags catch the armed side-closes. coopStampChainSeq
+		// then tags both carriers with the chain opened here. No-op unless the parallel host
+		// is between chains; the chain closes normally when the death drains
+		// (coopCloseActionChain), mid-side deaths in one drain batch sharing the one chain.
+		if (connectionTCP::parallelTurnActive() && connectionTCP::getHost()
+			&& connectionTCP::_openChainSeq == 0
+			&& !_coopBoundaryDeath
+			&& !connectionTCP::_coopBoundaryDecay
+			&& connectionTCP::_pendingBoundaries.empty())
+		{
+			connectionTCP::coopStampLooseOutcomeChain("death");
+		}
+
+		// coop (chain-atomicity Strand A introspection): a mid-side (non-boundary) death that
+		// STILL ships _openChainSeq==0 here is the Strand-A bug (seq-0 legacy consume). Post-
+		// fix the loose stamp above always opens a chain for mid-side deaths, so the unstamped
+		// counter stays 0; boundary deaths are intentionally seq-0 and excluded from the count.
+		if (connectionTCP::parallelTurnActive() && connectionTCP::getHost())
+		{
+			const bool coopBoundaryPhase = _coopBoundaryDeath
+				|| connectionTCP::_coopBoundaryDecay
+				|| !connectionTCP::_pendingBoundaries.empty();
+			if (!coopBoundaryPhase)
+			{
+				++g_coopMidSideDeaths;
+				if (connectionTCP::_openChainSeq == 0)
+					++g_coopMidSideDeathsUnstamped;
+			}
+		}
 
 		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
 		// client's action_end apply-barrier waits for this death before sampling the

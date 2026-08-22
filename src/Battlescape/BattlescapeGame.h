@@ -198,6 +198,14 @@ private:
 	// drains or the chain stops being skippable. Only the walk/turn/fall think
 	// intervals read it - never a projectile, explosion, death or melee state.
 	bool _coopFastForward = false;
+	// coop (chain-atomicity Strand A): true while a BOUNDARY-phase checkForCasualties
+	// pass is running (endTurn side-close, neutral->player side-start, boundary fuse/
+	// terrain explosion, battle-start hidden explosion). A UnitDieBState constructed
+	// inside the bracket latches it into _coopBoundaryDeath and keeps its death carriers
+	// seq-0 (covered by the ordered boundary marker) instead of opening a loose chain.
+	// Set/cleared tightly around each boundary casualty pass; mid-side casualty passes
+	// (reaction fire, mid-side explosion, falls) leave it false so those deaths stamp.
+	bool _coopBoundaryCasualty = false;
 	// coop (PRD-P8 §5): the reserve mode the CURRENTLY RUNNING intent was sent
 	// with. Reserve is per-machine in parallel mode, so a client's chain must be
 	// judged against the client's reserve - and the walk/turn per-step checks run
@@ -316,6 +324,11 @@ public:
 	/// Arms/disarms the fast-forward. Arming is refused outside parallel mode, so
 	/// classic co-op and single player can never take the interval-0 branch.
 	void setCoopFastForward(bool on);
+	/// coop (chain-atomicity Strand A): boundary-casualty phase bracket. A UnitDieBState
+	/// reads coopBoundaryCasualty() at construction to decide whether its death is a
+	/// boundary death (stays seq-0) or a loose mid-side death (opens a stamped chain).
+	void coopSetBoundaryCasualty(bool b) { _coopBoundaryCasualty = b; }
+	bool coopBoundaryCasualty() const { return _coopBoundaryCasualty; }
 	/// Re-evaluates the fast-forward after the state queue changed (a push, a pop).
 	/// On a drain it also closes the host's action chain (PROTOCOL.md `action_end`).
 	void coopChainChanged();

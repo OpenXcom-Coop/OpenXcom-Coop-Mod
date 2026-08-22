@@ -492,7 +492,13 @@ bool NextTurnState::applyEnvironmentalConditionToFaction(UnitFaction faction, En
 	if (showMessage)
 	{
 		// now check for new casualties
+		// coop (chain-atomicity Strand A): environmental-condition (fire/EMP/etc.) turn-start
+		// casualties are a side-start boundary pass (the sidestart marker is armed later in
+		// NextTurnState::close), so flag the phase to keep these deaths seq-0 instead of
+		// opening a loose mid-side chain during the next-turn screen.
+		_battleGame->getBattleGame()->coopSetBoundaryCasualty(true);
 		_battleGame->getBattleGame()->checkForCasualties(nullptr, BattleActionAttack{ }, true, false);
+		_battleGame->getBattleGame()->coopSetBoundaryCasualty(false);
 		// revive units if damage could give hp or reduce stun
 		//_battleGame->reviveUnconsciousUnits(true);
 	}

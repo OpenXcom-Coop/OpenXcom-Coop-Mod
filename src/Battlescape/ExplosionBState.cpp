@@ -570,7 +570,15 @@ void ExplosionBState::explode()
 	}
 
 	// now check for new casualties
+	// coop (chain-atomicity Strand A): a BOUNDARY explosion (side-close fuse/terrain, run
+	// BEFORE coopArmSyncBoundary arms its marker) is excluded from the loose-chain stamp
+	// above, so it dies with _openChainSeq == 0; without this bracket the UnitDieBState it
+	// pushes would latch _coopBoundaryDeath == false and open a mid-side chain. Flag the
+	// phase so those deaths stay seq-0 (covered by the ordered boundary marker). A mid-side
+	// explosion (opened a loose chain above) passes false, so its deaths ride that chain.
+	_parent->coopSetBoundaryCasualty(_coopBoundaryExpl);
 	_parent->checkForCasualties(_attack.damage_item ? _damageType : nullptr, _attack, false, terrainExplosion);
+	_parent->coopSetBoundaryCasualty(false);
 	// revive units if damage could give hp or reduce stun
 	_parent->getSave()->reviveUnconsciousUnits(true);
 	// if any unit get infected turn it to zombie

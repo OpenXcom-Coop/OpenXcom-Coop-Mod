@@ -200,6 +200,9 @@ namespace OpenXcom
 extern std::uint32_t g_coopTerrainPacingParks;
 extern std::uint32_t g_coopTerrainPacingConsumes;
 extern std::uint32_t g_coopTerrainPacingDiverted;
+// coop (chain-atomicity Strand A): mid-side host deaths and how many shipped unstamped.
+extern std::atomic<uint32_t> g_coopMidSideDeaths;
+extern std::atomic<uint32_t> g_coopMidSideDeathsUnstamped;
 
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
@@ -4623,6 +4626,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// (chain isolation). Expected > 0 on a lagging client, 0 on the executor.
 		resp["rxSeqDeferred"] = static_cast<Json::UInt>(g_rxSeqDeferred.load());
 		resp["barrierBlocks"] = static_cast<Json::UInt>(g_barrierBlocks.load()); // PHASE D.1
+		// coop (chain-atomicity Strand A): midSideDeaths = mid-side (non-boundary) host
+		// deaths seen; midSideDeathsUnstamped = how many shipped _openChainSeq==0 (the
+		// Strand-A bug; must be 0 post-fix, boundary deaths excluded).
+		resp["midSideDeaths"] = static_cast<Json::UInt>(g_coopMidSideDeaths.load());
+		resp["midSideDeathsUnstamped"] = static_cast<Json::UInt>(g_coopMidSideDeathsUnstamped.load());
 		if (req.get("trace", false).asBool())
 		{
 			resp["rxTrace"] = rxAppliedTrace(

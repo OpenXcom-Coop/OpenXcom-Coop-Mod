@@ -571,6 +571,14 @@ std::atomic<uint32_t> g_barrierBlocks{0};
 // the stage-2 hard-floor escape hatch reverted the parallel client to the legacy
 // full-disable (0 across a run = the ordering-preserving drain carried the whole load).
 std::atomic<uint32_t> g_rxHardFloorPasses{0};
+// coop (chain-atomicity Strand A introspection): mid-side (non-boundary) host deaths and how
+// many still shipped UNSTAMPED (_openChainSeq==0 at send = the Strand-A seq-0 legacy-consume
+// straddle). Post-fix the loose-death chain stamp opens a chain for every mid-side death, so
+// g_coopMidSideDeathsUnstamped stays 0 while g_coopMidSideDeaths proves the path ran.
+// Incremented in UnitDieBState::init (parallel host only); externed in TestServer for
+// parallel_state. Process-monotonic like the pump counters; boundary deaths are excluded.
+std::atomic<uint32_t> g_coopMidSideDeaths{0};
+std::atomic<uint32_t> g_coopMidSideDeathsUnstamped{0};
 // TEST-ONLY levers (see connectionTCP.h). Never set outside the coop test harness.
 std::atomic<bool> g_rxTestHold{false};
 std::atomic<bool> g_rxDrainDisable{false};

@@ -1095,7 +1095,12 @@ BattlescapeGame::BattlescapeGame(SavedBattleGame* save, BattlescapeState* parent
 	// at 0 on both machines, no pending intent left over from the last one.
 	connectionTCP::resetActionArbiter(true);
 
+	// coop (chain-atomicity Strand A): battle-start hidden-explosion casualties (UFO power
+	// source etc.) are a boundary-style pass with no admitted chain - keep any death here
+	// seq-0 rather than opening a loose chain at battle init (the arbiter was just reset).
+	coopSetBoundaryCasualty(true);
 	checkForCasualties(nullptr, BattleActionAttack{}, true);
+	coopSetBoundaryCasualty(false);
 	cancelCurrentAction();
 }
 
@@ -1748,7 +1753,16 @@ void BattlescapeGame::endTurn()
 		getMap()->setCursorType(CT_NONE);
 	}
 
+	// coop (chain-atomicity Strand A): the side-close / side-start casualty pass. Deaths
+	// here (bleed-out, decay, fuse/terrain fallout picked up after the explosions) belong
+	// to the boundary, not to a mid-side chain - flag the phase so each UnitDieBState
+	// latches _coopBoundaryDeath and keeps its carriers seq-0 under the ordered endturn/
+	// sidestart marker. For an alien side-close the endturn marker is already armed above
+	// (_pendingBoundaries), but the neutral->player pass suppresses that marker, so the
+	// bracket is what keeps those bleed-out deaths off a loose chain.
+	coopSetBoundaryCasualty(true);
 	checkForCasualties(nullptr, BattleActionAttack{}, false, false);
+	coopSetBoundaryCasualty(false);
 
 	// fires could have been started, stopped or smoke could reveal/conceal units.
 	_save->getTileEngine()->calculateLighting(LL_FIRE, TileEngine::invalid, 0, true);
