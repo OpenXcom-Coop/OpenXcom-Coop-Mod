@@ -567,6 +567,14 @@ std::atomic<uint32_t> g_rxSeqDeferred{0};
 // a marker because a packet stamped with that marker's chain had not applied yet.
 // Process-monotonic; feeds the same liveness floor as the seq/subject holds.
 std::atomic<uint32_t> g_barrierBlocks{0};
+// coop (LIVENESS FLOOR ordering-preserving drain): see connectionTCP.h. Bumped each tick
+// the stage-2 hard-floor escape hatch reverted the parallel client to the legacy
+// full-disable (0 across a run = the ordering-preserving drain carried the whole load).
+std::atomic<uint32_t> g_rxHardFloorPasses{0};
+// TEST-ONLY levers (see connectionTCP.h). Never set outside the coop test harness.
+std::atomic<bool> g_rxTestHold{false};
+std::atomic<bool> g_rxDrainDisable{false};
+std::atomic<bool> g_rxForceFloor{false};
 // consecutive ticks a marker has been barrier-held with no progress, plus a one-shot
 // warn latch, for the loud sustained-stall diagnostic in updateCoopTask().
 static uint32_t g_barrierStallTicks = 0;
@@ -582,6 +590,17 @@ static uint32_t g_rxHoldGen = 0;
 // Main thread only (updateCoopTask is called from Game::run).
 static uint32_t g_rxBlockedStallTicks = 0;
 static const uint32_t kRxBlockedStallTicks = 600;   // ~10 s at 60 ticks/s
+
+// coop (LIVENESS FLOOR stage-2 backstop): the SDL tick the parallel client last stopped
+// making progress at (0 = it is making progress now). Wall-clock, not a loop-tick count, so
+// it is FPS-independent: a legitimate long animation idles between chains and never nears the
+// window, while a queue that consumes NOTHING for kRxDrainHardFloorMs (the seed-11100011-class
+// gate-hold the floor exists for) trips it. Past the window the ordering-preserving drain is
+// switched off for that pass and the floor reverts to its legacy full-disable, so the floor
+// still guarantees liveness even if the ordered drain cannot make progress (a deadlock is
+// worse than a straddle). Any consumption resets it. Main thread only.
+static uint32_t g_rxFloorStallStartMs = 0;
+static const uint32_t kRxDrainHardFloorMs = 20000;  // 20 s of ZERO consumption = a true wedge
 
 // coop (Class-A soak wedge fix): consecutive main-loop ticks the non-host client's
 // auto-shot pacing wait (_coopPacingWait) has been held with no release. Counted at
@@ -633,6 +652,40 @@ Json::Value rxAppliedTrace(size_t limit)
 		e["seq"] = static_cast<Json::UInt>(g_rxTrace[i].seq);
 		e["state"] = g_rxTrace[i].state;
 		e["unit"] = g_rxTrace[i].subject;
+		out.append(e);
+	}
+	return out;
+}
+
+// coop (test introspection): the FRONT of the receive hold queue, oldest first, each
+// packet's state + its chain stamp (action_seq/side_seq, 0/absent = unstamped legacy).
+// Read-only peek under the hold lock; the strings are re-parsed, not consumed. Lets a
+// fixture see whether a backlog is stamped (seq-gated) or legacy, and in what order.
+Json::Value rxHoldDump(size_t limit)
+{
+	Json::Value out(Json::arrayValue);
+	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+	Json::CharReaderBuilder rb;
+	std::unique_ptr<Json::CharReader> reader(rb.newCharReader());
+	size_t n = 0;
+	for (const std::string& s : g_rxHold)
+	{
+		if (limit > 0 && n >= limit) break;
+		++n;
+		Json::Value obj;
+		std::string errs;
+		Json::Value e(Json::objectValue);
+		if (reader->parse(s.data(), s.data() + s.size(), &obj, &errs))
+		{
+			e["state"] = obj.get("state", "?").asString();
+			e["action_seq"] = static_cast<Json::UInt>(obj.get("action_seq", 0).asUInt());
+			e["side_seq"] = static_cast<Json::Int>(obj.get("side_seq", -1).asInt());
+			e["boundary"] = obj.get("boundary", false).asBool();
+		}
+		else
+		{
+			e["state"] = "<parse-error>";
+		}
 		out.append(e);
 	}
 	return out;
@@ -2783,7 +2836,51 @@ void connectionTCP::updateCoopTask()
 	// that repeats for kRxBlockedStallTicks ticks, the next tick runs with blocking
 	// disabled (counted in g_rxLegacyPasses) so this pump can never be stuck longer
 	// than the old one would have been. It is expected never to fire.
-	const bool legacyOrder = (g_rxBlockedStallTicks >= kRxBlockedStallTicks);
+	const bool legacyOrder = (g_rxBlockedStallTicks >= kRxBlockedStallTicks)
+		|| g_rxForceFloor.load(std::memory_order_relaxed);
+	// coop (LIVENESS FLOOR, ordering-preserving drain): the floor is the last-resort
+	// backstop that must never wedge, but wholesale-disabling ordering when it fires
+	// reorders a long alien display's death-chain carriers - the client applies hit_unit /
+	// unit_death / after_unit_death out of order relative to the chain markers that sample
+	// the per-action sync hash, and the four buckets straddle (terrain / unitsCore /
+	// unitsCombat / items / itemIdCtr) at the ai/expl seqs. Measured red on
+	// test_parallel_floor_drain: with the floor engaged and this drain OFF, unitsCore 11
+	// unitsCombat 9 items 6 itemIdCtr 6; with it ON, all zero.
+	//
+	// On the parallel REPLAY CLIENT the floor no longer disorders: it KEEPS the I1 seq-gate
+	// and the D.1 apply barrier intact, so the death-chain carriers stay held to their own
+	// chain and the pump consumes exactly what it could when the floor was not engaged, in
+	// order - the per-action hash is never polluted. (Per-subject ordering stays disabled as
+	// in the legacy floor: the durable straddle the collapse causes is the seq-gate/barrier
+	// one - proven by test_parallel_floor_drain, strict-clean with only those two restored -
+	// and the death carriers are decoupled/apply-immediately by item 5B, which per-subject
+	// FIFO holding would undo.) It also deliberately does NOT force the gated markers through
+	// the display-depth gate: forcing one advances _clientDisplaySeq and samples the chain
+	// hash while the display animation is still mid-flight, which itself straddles unitsCore
+	// (measured: forcing regressed unitsCore 0->24). Progress instead comes from the display
+	// idling normally (marker applies, cursor advances) or, failing that, the hard-floor
+	// escape hatch below.
+	//
+	// LIVENESS: the floor's job is to break a genuine wedge, so keeping ordering intact
+	// cannot be the whole story. If the ordered drain makes NO progress while it is holding
+	// work back for kRxDrainHardFloorMs of wall clock (g_rxFloorStallStartMs), drainFloor
+	// goes false and the floor reverts to its legacy full-disable for that pass - a deadlock is
+	// worse than a straddle. A healthy display idle resets the run, so the backstop never fires
+	// in normal play. Off the parallel client (classic co-op, PvP, host) the floor is unchanged,
+	// byte-identical (there the stamps are absent so the seq-gate/barrier are inert anyway and
+	// only per-subject ordering was ever disabled). g_rxDrainDisable (test-only) forces the
+	// legacy path from the start so red (burst) and green (ordered) share a build.
+	const bool drainFloor = legacyOrder
+		&& !g_rxDrainDisable.load(std::memory_order_relaxed)
+		&& parallelTurnActive() && !getHost()
+		&& !(g_rxFloorStallStartMs != 0
+			&& (SDL_GetTicks() - g_rxFloorStallStartMs) >= kRxDrainHardFloorMs);
+	// coop (LIVENESS FLOOR stage-2): this tick reverts to the legacy full-disable because the
+	// ordered drain could not make progress (or the drain is test-disabled) - counted so a
+	// fixture can prove the ordered path carried the load (0 = the backstop never fired).
+	const bool hardFloorThisTick = legacyOrder && parallelTurnActive() && !getHost()
+		&& !g_rxDrainDisable.load(std::memory_order_relaxed) && !drainFloor;
+	if (hardFloorThisTick) g_rxHardFloorPasses.fetch_add(1, std::memory_order_relaxed);
 	bool blockedSomething = false;
 	size_t consumedThisTick = 0;
 	// coop (PHASE D.1): set in any pass where the apply-barrier held a marker, read
@@ -2912,7 +3009,7 @@ void connectionTCP::updateCoopTask()
 						 && _game->getSavedGame()->getSavedBattle()
 						 && _game->getSavedGame()->getSavedBattle()->getSide() != FACTION_PLAYER;
 				const bool gateAllows =
-						 (coopTaskCompleted() || chainCloser || coopDecoupledWorldCarrier ||
+						 ((coopTaskCompleted() && !g_rxTestHold.load(std::memory_order_relaxed)) || chainCloser || coopDecoupledWorldCarrier ||
 					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_explosive_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving") &&
 					!endTurnExcluded;
 
@@ -2993,7 +3090,7 @@ void connectionTCP::updateCoopTask()
 				// explosions, old peer): always-consume, bidirectionally. Disabled while
 				// the liveness floor is engaged, exactly like per-subject ordering.
 				bool seqDeferred = false;
-				if (!getHost() && !legacyOrder && coopIsChainOutcomePacket(stateString) && !boundaryHazardPacket)
+				if (!getHost() && (!legacyOrder || drainFloor) && coopIsChainOutcomePacket(stateString) && !boundaryHazardPacket)
 				{
 					const std::uint32_t pktSeq =
 						static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
@@ -3019,7 +3116,7 @@ void connectionTCP::updateCoopTask()
 				// the marker. Never a spin - the blocker already arrived and drains on its own
 				// gate; the 600-tick legacy floor (legacyOrder) disables this like the seq gate.
 				bool barrierBlocked = false;
-				if (!getHost() && !legacyOrder && stateString == "action_end"
+				if (!getHost() && (!legacyOrder || drainFloor) && stateString == "action_end"
 					&& minDeferredChainSeqThisPass != 0)
 				{
 					const std::uint32_t mSide = static_cast<std::uint32_t>(
@@ -3116,6 +3213,13 @@ void connectionTCP::updateCoopTask()
 					else
 					{
 						++g_rxRotateCount;   // PRD-P0: gate-hold counter (test introspection)
+						// TEST-ONLY (rx_hold): the lever gates markers + non-whitelisted packets
+						// (display-busy emulation) so a backlog of seq-deferred STAMPED chains builds
+						// with their markers held - the exact state a long real display leaves - and the
+						// liveness floor trips ON DEMAND. Feeding it here engages the floor even before a
+						// seq-gate hold would. Never set outside the harness -> production identical.
+						if (g_rxTestHold.load(std::memory_order_relaxed))
+							blockedSomething = true;
 					}
 					deferred.emplace_back(std::move(jsonStr));
 				}
@@ -3166,6 +3270,30 @@ void connectionTCP::updateCoopTask()
 		if (sessionReset || consumedThisPass == 0)
 			break;
 	}
+
+	// coop (LIVENESS FLOOR stage-2 backstop): the WALL-CLOCK stall run - consecutive
+	// parallel-client ticks that consumed nothing WHILE the ordering machinery was holding
+	// work back (blockedSomething) - a genuine can't-make-progress wedge. Counted independent
+	// of legacyOrder (unlike g_rxBlockedStallTicks, which the floor resets), because the
+	// ordered drain may keep the floor engaged for a long time and the backstop's job is to
+	// measure how long real progress has actually stalled. ANY consumption (an ordinary
+	// display idle draining the next chain, an arbiter packet) resets it, so a legitimate long
+	// animation - which idles between chains - never approaches the threshold; only a queue
+	// that consumes NOTHING for kRxDrainHardFloorMs (the seed-11100011-class gate-hold
+	// the floor exists for) does. Immune to the rx_force_floor test lever, which forces
+	// legacyOrder but does not change what the pump consumes.
+	if (parallelTurnActive() && !getHost() && consumedThisTick == 0 && blockedSomething)
+	{
+		if (g_rxFloorStallStartMs == 0)
+		{
+			g_rxFloorStallStartMs = SDL_GetTicks();
+			// SDL_GetTicks() can return 0 at startup; a sentinel of 0 means "not stalling", so
+			// bump a genuine 0 to 1 (1 ms of error, harmless).
+			if (g_rxFloorStallStartMs == 0) g_rxFloorStallStartMs = 1;
+		}
+	}
+	else
+		g_rxFloorStallStartMs = 0;
 
 	// coop (PRD-P11): the liveness floor (see the pump's header comment).
 	if (legacyOrder)

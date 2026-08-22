@@ -4606,6 +4606,13 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// is the only way to assert ORDER rather than end state.
 		resp["rxSkippedBlocked"] = static_cast<Json::UInt>(g_rxSkipBlocked.load());
 		resp["rxLegacyPasses"] = static_cast<Json::UInt>(g_rxLegacyPasses.load());
+		// coop (LIVENESS FLOOR ordering-preserving drain): stage-2 hard-floor engagements
+		// (the legacy full-disable backstop). 0 with rxLegacyPasses > 0 AND zero four-bucket
+		// mismatch = the ordering-preserving drain carried the whole load = the fix working.
+		resp["rxHardFloorPasses"] = static_cast<Json::UInt>(g_rxHardFloorPasses.load());
+		resp["rxTestHold"] = g_rxTestHold.load();
+		resp["rxDrainDisable"] = g_rxDrainDisable.load();
+		resp["rxForceFloor"] = g_rxForceFloor.load();
 		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
 		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
 		// diverted proves the fix engaged on a real opportunity.
@@ -4620,6 +4627,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		{
 			resp["rxTrace"] = rxAppliedTrace(
 				static_cast<size_t>(req.get("traceLimit", 64).asUInt()));
+		}
+		if (req.get("dump_hold", false).asBool())
+		{
+			resp["holdDump"] = rxHoldDump(
+				static_cast<size_t>(req.get("dumpLimit", 40).asUInt()));
 		}
 		// PRD-P6: the action-intent arbiter. `actionSeq`/`sideSeq` are the host's
 		// counters (the client mirrors what it is told), `admitBlocked` names the
@@ -4665,6 +4677,27 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		{
 			pcoop->_coopPacingWait = req.get("armPacingWait", false).asBool();
 			if (!pcoop->_coopPacingWait) pcoop->_coopForceDrainReplay = false;
+		}
+		// coop (LIVENESS FLOOR ordering-preserving drain, TEST-ONLY levers): park the
+		// receive pump's consumption by emulating a permanently-busy display for the gate
+		// only (whitelisted carriers keep flowing, action_end markers hold), so the
+		// 600-tick liveness floor can be tripped ON DEMAND mid-alien-side with a backlog of
+		// death/terrain carriers queued. `rx_drain_disable` forces the floor back to its
+		// legacy full-disable path so the SAME build measures the pre-fix out-of-order burst
+		// (red) against the ordering-preserving drain (green).
+		if (req.isMember("rx_hold"))
+		{
+			g_rxTestHold.store(req.get("rx_hold", false).asBool(), std::memory_order_relaxed);
+		}
+		if (req.isMember("rx_drain_disable"))
+		{
+			g_rxDrainDisable.store(req.get("rx_drain_disable", false).asBool(),
+				std::memory_order_relaxed);
+		}
+		if (req.isMember("rx_force_floor"))
+		{
+			g_rxForceFloor.store(req.get("rx_force_floor", false).asBool(),
+				std::memory_order_relaxed);
 		}
 		// PRD-P7: walk fast-forward + display flow control.
 		//   fastForward     - is the walk/turn/fall interval pinned to 0 right now

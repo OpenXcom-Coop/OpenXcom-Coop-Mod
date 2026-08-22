@@ -169,9 +169,33 @@ extern std::atomic<uint32_t> g_rxSkipBlocked;   // held back: an earlier packet 
 extern std::atomic<uint32_t> g_rxLegacyPasses;  // liveness-floor engagements (expected 0)
 extern std::atomic<uint32_t> g_rxSeqDeferred;   // PRD-I1: outcome packet held for its own chain's opener
 extern std::atomic<uint32_t> g_barrierBlocks;   // PHASE D.1: action_end held until its chain's stamped packets applied
+// coop (LIVENESS FLOOR ordering-preserving drain): times the stage-2 hard-floor escape
+// hatch reverted the parallel replay client to the legacy full-disable (the ordered drain
+// could not make progress). Process-monotonic; 0 across a run means the ordering-preserving
+// drain carried the whole load and the backstop never fired.
+extern std::atomic<uint32_t> g_rxHardFloorPasses;
+// TEST-ONLY levers (default false, set ONLY by the test server via
+// parallel_state {rx_hold} / {rx_drain_disable}). g_rxTestHold parks the pump's
+// consumption by emulating a permanently-busy display FOR THE GATE ONLY (whitelisted
+// carriers still flow, action_end markers hold) and feeds the stall count, so the
+// 600-tick liveness floor trips on demand and (markers never idling) stays engaged - the
+// genuine wedge the stage-2 hard-floor backstop must drain. g_rxDrainDisable forces the
+// floor back to its legacy full-disable so the SAME build measures the pre-fix
+// out-of-order burst (red) against the ordering-preserving drain (green). Never set
+// outside the coop test harness -> production identical.
+extern std::atomic<bool> g_rxTestHold;
+extern std::atomic<bool> g_rxDrainDisable;
+// TEST-ONLY: force the liveness floor to engage every tick regardless of the stall count,
+// WITHOUT gating any packet - so a naturally-slow client (whose real display gates its
+// action_end markers and idles between chains) runs under the engaged floor, the exact
+// state the rare real stall produces. Lets the fixture measure the pre-fix out-of-order
+// burst (rx_drain_disable) vs the ordered drain deterministically. Never set in production.
+extern std::atomic<bool> g_rxForceFloor;
 // The last `limit` packets the pump applied, oldest first: [{seq,state,unit}].
 // Test-only introspection; `unit` is -1 for a packet that names no single unit.
 Json::Value rxAppliedTrace(size_t limit);
+// Test introspection: the front of the receive hold queue with each packet's chain stamp.
+Json::Value rxHoldDump(size_t limit);
 // Append a packet to the hold queue as if it had just arrived (TestServer only).
 void rxInjectForTest(std::string&& payload);
 
