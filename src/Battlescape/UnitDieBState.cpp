@@ -244,6 +244,20 @@ void UnitDieBState::deinit()
 		root["mana"] = _unit->getMana();
 		root["stunlevel"] = _unit->getStunlevel();
 
+		// coop (chain-atomicity, fatalWounds gap): the death carrier is the authoritative
+		// final word on the victim's combat state but shipped only health/stun, never the
+		// fatal wounds. A next_turn bulk snapshot that reorders in AHEAD of this death
+		// (carrying the unit's pre-hit wounds) then survived, because neither death carrier
+		// re-shipped the wounds to correct it - the client's post-death fatalWounds stuck at
+		// the resurrected value. Ship the wounds array exactly like hit_unit; the parallel
+		// client applies it (present- + parallel-gated so classic/PvP stay byte-identical).
+		Json::Value fatalArray(Json::arrayValue);
+		for (int i = 0; i < BODYPART_MAX; ++i)
+		{
+			fatalArray.append(_unit->getFatalWoundsCoop()[i]);
+		}
+		root["fatalWounds"] = fatalArray;
+
 		root["setDirection"] = _unit->getDirection();
 		root["setFaceDirection"] = _unit->getFaceDirection();
 
@@ -357,6 +371,18 @@ void UnitDieBState::init()
 		root["morale"] = _unit->getMorale();
 		root["mana"] = _unit->getMana();
 		root["stunlevel"] = _unit->getStunlevel();
+
+		// coop (chain-atomicity, fatalWounds gap): as in deinit() below - unit_death is the
+		// first authoritative death carrier and must also carry the fatal wounds, so a
+		// next_turn snapshot that reorders in ahead of the death cannot leave the client's
+		// post-death wounds at a resurrected pre-hit value. Mirrors hit_unit's wound array;
+		// applied present- + parallel-gated on the client (classic/PvP byte-identical).
+		Json::Value fatalArray(Json::arrayValue);
+		for (int i = 0; i < BODYPART_MAX; ++i)
+		{
+			fatalArray.append(_unit->getFatalWoundsCoop()[i]);
+		}
+		root["fatalWounds"] = fatalArray;
 
 		root["setDirection"] = _unit->getDirection();
 		root["setFaceDirection"] = _unit->getFaceDirection();

@@ -8061,6 +8061,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						unit->setStunlevelCoop(stunlevel);
 						
+						// coop (chain-atomicity, fatalWounds gap): apply the death carrier's fatal
+						// wounds so a reordered next_turn bulk snapshot that resurrected the dying
+						// unit's pre-hit wounds cannot leave the client's post-death wounds stale.
+						// Parallel client only (classic replays damage(), byte-identical); present-
+						// gated for old hosts that never shipped the field.
+						if (parallelTurnActive() && !getHost() && obj.isMember("fatalWounds"))
+						{
+							const Json::Value& deathFatalArray = obj["fatalWounds"];
+							for (int part = 0; part < BODYPART_MAX && part < deathFatalArray.size(); ++part)
+							{
+								unit->setFatalWoundCoop(part, deathFatalArray[part].asInt());
+							}
+						}
+						
 						int status_int = obj["status"].asInt();
 						UnitStatus unitStatus = intToUnitstatus(status_int);
 						unit->setCoopStatus(unitStatus);
@@ -8387,6 +8401,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setCoopMana(mana);
 
 							unit->setStunlevelCoop(stunlevel);
+							
+							// coop (chain-atomicity, fatalWounds gap): apply the death carrier's fatal
+							// wounds so a reordered next_turn bulk snapshot that resurrected the dying
+							// unit's pre-hit wounds cannot leave the client's post-death wounds stale.
+							// Parallel client only (classic replays damage(), byte-identical); present-
+							// gated for old hosts that never shipped the field.
+							if (parallelTurnActive() && !getHost() && obj.isMember("fatalWounds"))
+							{
+								const Json::Value& deathFatalArray = obj["fatalWounds"];
+								for (int part = 0; part < BODYPART_MAX && part < deathFatalArray.size(); ++part)
+								{
+									unit->setFatalWoundCoop(part, deathFatalArray[part].asInt());
+								}
+							}
 
 							int pos_x = obj["pos_x"].asInt();
 							int pos_y = obj["pos_y"].asInt();
