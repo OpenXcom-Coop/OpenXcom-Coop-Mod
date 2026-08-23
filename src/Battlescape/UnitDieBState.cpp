@@ -44,6 +44,10 @@ namespace OpenXcom
 // mid-side (non-boundary) host deaths and how many shipped unstamped (the Strand-A bug).
 extern std::atomic<uint32_t> g_coopMidSideDeaths;
 extern std::atomic<uint32_t> g_coopMidSideDeathsUnstamped;
+// coop (parallel battlescape Phase 2b - atomic unit death, TEST-ONLY RED lever):
+// defined in connectionTCP.cpp. ON = fall back to the legacy unit_death/
+// after_unit_death trio instead of `unit_casualty` (see init()/deinit() below).
+extern std::atomic<bool> g_atomicDeathDisable;
 
 /**
  * Sets up an UnitDieBState.
@@ -222,14 +226,17 @@ void UnitDieBState::deinit()
 	// coop
 	if ((_parent->isCoop() == true && _coop_death == false && _parent->getCoopMod()->getHost() == true))
 	{
-		// coop (Phase 2a unit_casualty, host-send only): on the PARALLEL host this
-		// ships ONE `unit_casualty` packet instead of the legacy `after_unit_death` -
-		// the client-side apply for it does not exist yet (Phase 2b), so this send is
-		// additive-only and does not change what the parallel client does with it.
-		// Classic co-op (parallelTurnActive() == false), a classic/PvP client, and a
-		// `_coop_death` animation state (excluded by the outer condition above) all
-		// keep the exact `after_unit_death` send below - byte-identical.
-		if (connectionTCP::parallelTurnActive() && connectionTCP::getHost())
+		// coop (Phase 2b unit_casualty): on the PARALLEL host this ships ONE
+		// `unit_casualty` packet instead of the legacy `after_unit_death` - the
+		// client now applies it atomically (BattlescapeGame::coopApplyCasualty).
+		// Classic co-op (parallelTurnActive() == false), a classic/PvP client, a
+		// `_coop_death` animation state (excluded by the outer condition above),
+		// and the TEST-ONLY `atomic_death_disable` RED lever (which stands the
+		// atomic path down so the SAME build can reproduce the pre-atomic
+		// transient straddle) all keep the exact `after_unit_death` send below -
+		// byte-identical.
+		if (connectionTCP::parallelTurnActive() && connectionTCP::getHost()
+			&& !g_atomicDeathDisable.load(std::memory_order_relaxed))
 		{
 			// coop (Phase 2a unit_casualty)
 			Json::Value root;
@@ -477,13 +484,16 @@ void UnitDieBState::init()
 			}
 		}
 
-		// coop (Phase 2a unit_casualty): on the PARALLEL host, `unit_casualty` - built
+		// coop (Phase 2b unit_casualty): on the PARALLEL host, `unit_casualty` - built
 		// once from UnitDieBState::deinit() - replaces this legacy `unit_death` send
 		// entirely; the loose-chain-open and midSideDeaths bookkeeping above stay
 		// unconditional (they are about the CHAIN, not this packet). Classic co-op
-		// (parallelTurnActive() == false) and a classic/PvP client keep sending
+		// (parallelTurnActive() == false), a classic/PvP client, and the TEST-ONLY
+		// `atomic_death_disable` RED lever (which sends this legacy carrier again so
+		// the SAME build can reproduce the pre-atomic straddle) keep sending
 		// unit_death exactly as before - byte-identical.
-		if (!(connectionTCP::parallelTurnActive() && connectionTCP::getHost()))
+		if (!(connectionTCP::parallelTurnActive() && connectionTCP::getHost()
+			  && !g_atomicDeathDisable.load(std::memory_order_relaxed)))
 		{
 			// coop
 			Json::Value root;

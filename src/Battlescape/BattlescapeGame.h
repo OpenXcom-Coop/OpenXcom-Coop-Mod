@@ -19,10 +19,13 @@
  */
 #include "Position.h"
 #include "../Mod/RuleItem.h"
+#include "../Mod/Unit.h" // coop (Phase 2b atomic unit death): UnitStatus/UnitFaction for CoopDeathGhost
 #include "../Engine/HelperMeta.h"
+#include <cstdint>
 #include <string>
 #include <list>
 #include <vector>
+#include <json/json.h> // coop (Phase 2b atomic unit death): coopApplyCasualty(const Json::Value&)
 
 namespace OpenXcom
 {
@@ -141,6 +144,34 @@ struct BattlescapeTally
 };
 
 /**
+ * coop (parallel battlescape Phase 2b - atomic unit death): the death-ghost entry
+ * queued by BattlescapeGame::coopApplyCasualty once a `unit_casualty` packet's
+ * apply has run - the world is ALREADY final at that point (host absolutes), so
+ * this is the record the display-side death ANIMATION will replay against
+ * (Phase 2c). Phase 2b only queues a STUB entry (`started` flips true and the
+ * entry completes immediately, no BattleState, no animation) - the fields below
+ * are captured now so 2c can add the animation without touching the apply path.
+ */
+struct CoopDeathGhost
+{
+	BattleUnit* unit;
+	Position pos;
+	int size;
+	UnitFaction faction;
+	UnitStatus finalStatus;
+	bool direct;
+	bool noSound;
+	int dirBeforeApply;
+	bool wasUnconsciousBefore;
+	bool visibleAtApply;
+	std::vector<int> hiddenItemIds;
+	uint32_t sideSeq;
+	uint32_t actionSeq;
+	bool bnd;
+	bool started = false;
+};
+
+/**
  * Battlescape game - the core game engine of the battlescape game.
  */
 class BattlescapeGame
@@ -229,6 +260,12 @@ private:
 	int _coopCorpseMintMode = 3;
 	int _coopCorpseMintCarrierId = -1;
 	bool _coopCorpseMintSpill = false;
+	// coop (parallel battlescape Phase 2b - atomic unit death): the death-ghost
+	// queue coopQueueDeathGhost() appends to. Phase 2b's queue is a STUB (every
+	// entry completes immediately - see coopQueueDeathGhost); Phase 2c drives the
+	// actual death animation off it. Cleared in the destructor.
+	std::vector<CoopDeathGhost> _coopPendingGhosts;
+	uint32_t _coopDeathGhostsCompleted = 0;
 	/// The reserve settings checkReservedTU/kneel must judge `bu` by: the running
 	/// intent's when it owns this actor, otherwise this machine's own.
 	BattleActionType coopReserveModeFor(const BattleUnit* bu) const;
@@ -279,6 +316,23 @@ public:
 	/// client can run it at the after_unit_death packet apply (bookkeeping clock,
 	/// host manifest ids) instead of on its animation clock.
 	void coopMintCorpse(BattleUnit *unit, bool overKill);
+	/// coop (parallel battlescape Phase 2b - atomic unit death): the CLIENT-side
+	/// atomic apply of a `unit_casualty` packet - stats/position/attribution/status/
+	/// corpse-world absolutes, all host-derived, applied on the ordered bookkeeping
+	/// clock (see connectionTCP.cpp's `unit_casualty` handler for the watermark +
+	/// bystander-morale half of the split). Queues a CoopDeathGhost stub at the end
+	/// (Phase 2c wires the actual death animation off it).
+	void coopApplyCasualty(const Json::Value& obj);
+	/// coop (parallel battlescape Phase 2b - atomic unit death, STUB): records a
+	/// completed death-ghost entry. Phase 2b's world state is ALREADY final at
+	/// apply, so this stub marks the entry done immediately - no UnitDieBState, no
+	/// animation. Phase 2c replaces this body with the queued+started ghost.
+	void coopQueueDeathGhost(const CoopDeathGhost& g);
+	/// coop (Phase 2c placeholder): the ghost currently animating, or null. Always
+	/// null in Phase 2b (nothing is ever left "started").
+	const CoopDeathGhost* coopActiveGhost() const { return nullptr; }
+	/// coop (Phase 2b introspection): death-ghost entries completed so far.
+	uint32_t coopDeathGhostsCompleted() const { return _coopDeathGhostsCompleted; }
 	// coop
 	void teleport(int x, int y, int z, BattleUnit* unit);
 	void setTileCoop(Position pos, BattleUnit &unit);

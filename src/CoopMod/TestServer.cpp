@@ -219,6 +219,13 @@ extern std::atomic<uint32_t> g_stateWatermarkRejectsRank0;
 extern std::atomic<uint32_t> g_stateWatermarkRejectsRank1;
 extern std::atomic<uint32_t> g_stateWatermarkRejectsRank2;
 extern std::atomic<bool> g_deathWatermarkDisable;
+// coop (parallel battlescape Phase 2b - atomic unit death): the `unit_casualty`
+// apply counters + the TEST-ONLY RED lever that falls back to the legacy unit_
+// death/after_unit_death trio. File-scope in connectionTCP.cpp; extern-declared
+// here to avoid a wide recompile, matching the Phase 1 watermark counters above.
+extern std::atomic<uint32_t> g_casualtiesApplied;
+extern std::atomic<uint32_t> g_casualtiesRejected;
+extern std::atomic<bool> g_atomicDeathDisable;
 
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
@@ -4643,6 +4650,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["stateWatermarkRejectsRank1"] = static_cast<Json::UInt>(g_stateWatermarkRejectsRank1.load());
 		resp["stateWatermarkRejectsRank2"] = static_cast<Json::UInt>(g_stateWatermarkRejectsRank2.load());
 		resp["deathWatermarkDisable"] = g_deathWatermarkDisable.load();
+		// coop (parallel battlescape Phase 2b - atomic unit death): `unit_casualty`
+		// apply/reject counts (the reject path is the SAME rank-2 watermark as
+		// above, just its own counter) and the TEST-ONLY RED lever that falls back
+		// to the legacy unit_death/after_unit_death trio (corpseReplayArmed/
+		// corpseRemapArmed, emitted elsewhere in this response, MUST stay at their
+		// pre-battle value on the atomic path - it never arms those windows).
+		resp["casualtiesApplied"] = static_cast<Json::UInt>(g_casualtiesApplied.load());
+		resp["casualtiesRejected"] = static_cast<Json::UInt>(g_casualtiesRejected.load());
+		resp["atomicDeathDisable"] = g_atomicDeathDisable.load();
 		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
 		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
 		// diverted proves the fix engaged on a real opportunity.
@@ -4755,6 +4771,16 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		if (req.isMember("death_watermark_disable"))
 		{
 			g_deathWatermarkDisable.store(req.get("death_watermark_disable", false).asBool(),
+				std::memory_order_relaxed);
+		}
+		// coop (parallel battlescape Phase 2b, TEST-ONLY): disable the atomic
+		// `unit_casualty` path so the SAME build measures the pre-atomic legacy
+		// unit_death/after_unit_death transient straddle (red) against the atomic
+		// apply (green). HOST: falls back to sending the legacy trio. CLIENT: the
+		// legacy handlers' early-returns stand down, so it processes the trio again.
+		if (req.isMember("atomic_death_disable"))
+		{
+			g_atomicDeathDisable.store(req.get("atomic_death_disable", false).asBool(),
 				std::memory_order_relaxed);
 		}
 		// coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): re-run

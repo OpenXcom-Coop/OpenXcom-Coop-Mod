@@ -614,6 +614,19 @@ std::atomic<uint32_t> g_stateWatermarkRejectsRank2{0};
 // state watermark check entirely (writes always apply, no reject). Parallel-client-
 // only, test-only lever; never set outside the coop test harness.
 std::atomic<bool> g_deathWatermarkDisable{false};
+// coop (parallel battlescape Phase 2b - atomic unit death): counts `unit_casualty`
+// packets the parallel client APPLIED (BattlescapeGame::coopApplyCasualty ran) and
+// how many were REJECTED by the rank-2 state watermark (a stamp < the unit's
+// recorded watermark - BattleUnit::coopStateAccept returned false). Parallel client
+// only; externed in TestServer for parallel_state introspection.
+std::atomic<uint32_t> g_casualtiesApplied{0};
+std::atomic<uint32_t> g_casualtiesRejected{0};
+// coop (parallel battlescape Phase 2b, TEST-ONLY RED lever): when true, the
+// atomic `unit_casualty` path is disabled - the HOST falls back to the legacy
+// unit_death/after_unit_death trio (UnitDieBState::init/deinit) and the CLIENT's
+// legacy-handler early-returns below stand down, so the SAME build reproduces the
+// pre-atomic transient straddle. Never set outside the coop test harness.
+std::atomic<bool> g_atomicDeathDisable{false};
 
 // coop (parallel battlescape Phase 1 - per-unit state watermark): reads the
 // (side_seq, action_seq) stamp off an apply-side packet, if present. `stamped`
@@ -810,6 +823,7 @@ static int coopPacketSubject(const std::string& state, const Json::Value& obj)
 	else if (state == "abortPath" || state == "afterBattlescapeUnitTurn"
 			 || state == "psi_attack" || state == "melee_attack"
 			 || state == "unit_death" || state == "after_unit_death"
+			 || state == "unit_casualty"
 			 || state == "hit_unit" || state == "unit_fall"
 			 || state == "convertUnit" || state == "selfDestruct"
 			 || state == "panic_action" || state == "psi_result"
@@ -928,7 +942,12 @@ static bool coopIsChainOutcomePacket(const std::string& state)
 		// corpse mint on the ordered clock, item 3), display-only on the parallel client.
 		// Seq-gate them so each folds into the exact chain it belongs to, in order - the
 		// prerequisite for applying them while the display is busy (gateAllows below).
-		|| state == "hit_unit" || state == "unit_death" || state == "after_unit_death";
+		|| state == "hit_unit" || state == "unit_death" || state == "after_unit_death"
+		// coop (parallel battlescape Phase 2b - atomic unit death): `unit_casualty`
+		// replaces the unit_death/after_unit_death pair on the parallel host and carries
+		// the SAME chain stamp (or bnd:true+side_seq at a boundary) - seq-gate it exactly
+		// like its legacy predecessors.
+		|| state == "unit_casualty";
 }
 
 size_t rxHoldSize()
@@ -3078,7 +3097,13 @@ void connectionTCP::updateCoopTask()
 				const bool coopDecoupledWorldCarrier =
 						 parallelTurnActive() && !getHost()
 						 && (stateString == "hit_unit" || stateString == "unit_death"
-							 || stateString == "after_unit_death")
+							 || stateString == "after_unit_death"
+							 // coop (Phase 2b atomic unit death): unit_casualty replaces the
+							 // legacy trio on the parallel host and carries the same alien/
+							 // neutral-side world-mutation - decouple it identically, INCLUDING
+							 // a bnd:true boundary casualty (the existing seq-0 boundary trio
+							 // takes this same branch today).
+							 || stateString == "unit_casualty")
 						 && _game && _game->getSavedGame()
 						 && _game->getSavedGame()->getSavedBattle()
 						 && _game->getSavedGame()->getSavedBattle()->getSide() != FACTION_PLAYER;
@@ -8014,6 +8039,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "after_unit_death")
 	{
+		// coop (parallel battlescape Phase 2b - atomic unit death, DEFENSIVE): on the
+		// parallel client with the atomic path ON, the host never sends this legacy
+		// carrier - `unit_casualty` replaces it - so this should be unreachable there.
+		// Guard it anyway rather than silently double-applying if something upstream
+		// regresses. `g_atomicDeathDisable` (TEST-ONLY RED lever) stands this down: with
+		// the atomic path OFF the host falls back to sending the legacy trio, and the
+		// client must process it exactly as before to reproduce the pre-atomic straddle.
+		if (parallelTurnActive() && !getHost() && !g_atomicDeathDisable.load(std::memory_order_relaxed))
+		{
+			return;
+		}
 
 		if (_game->getSavedGame())
 		{
@@ -8397,6 +8433,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// unit_death
 	if (stateString == "unit_death")
 	{
+		// coop (parallel battlescape Phase 2b - atomic unit death, DEFENSIVE): see the
+		// matching guard on `after_unit_death` above - unreachable on the parallel
+		// client with the atomic path ON (the host sends `unit_casualty` instead), and
+		// stood down under `g_atomicDeathDisable` (TEST-ONLY RED lever) so the legacy
+		// trio still applies when the host falls back to sending it.
+		if (parallelTurnActive() && !getHost() && !g_atomicDeathDisable.load(std::memory_order_relaxed))
+		{
+			return;
+		}
 
 		if (_game->getSavedGame())
 		{
@@ -8537,6 +8582,66 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// Make sure the Battlescape does not get stuck...
 		_hasHitUnit = -1;
 
+	}
+
+	// coop (parallel battlescape Phase 2b - atomic unit death): `unit_casualty`,
+	// the parallel HOST's single atomic carrier for a casualty - replaces the
+	// unit_death/after_unit_death pair (still sent under `atomic_death_disable`,
+	// see the legacy handlers' early-returns above). This handler does ONLY the
+	// unit lookup, the rank-2 state watermark, abortPathCoop, and the bystander-
+	// morale apply; the actual per-unit/world apply is
+	// BattlescapeGame::coopApplyCasualty (BattlescapeGame.cpp) - split so the
+	// watermark reject can bail out before any world mutation runs.
+	if (stateString == "unit_casualty")
+	{
+		BattleUnit* coopCasualtyUnit = nullptr;
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			const int coopCasualtyUnitId = obj.get("unit_id", -1).asInt();
+			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+				if (unit->getId() == coopCasualtyUnitId)
+				{
+					coopCasualtyUnit = unit;
+					break;
+				}
+			}
+		}
+
+		if (!coopCasualtyUnit)
+		{
+			Log(LOG_INFO) << "coop (Phase 2b unit_casualty): no local unit "
+						  << obj.get("unit_id", -1).asInt() << " - packet dropped";
+			return;
+		}
+
+		// coop (parallel battlescape Phase 1 - per-unit state watermark, rank 2):
+		// a stamp older than the unit's recorded watermark is dropped instead of
+		// clobbering a newer absolute. `coopStateAccept` both checks AND records,
+		// so a re-delivered exact duplicate (>=) is idempotently accepted.
+		bool stateStamped = false;
+		uint32_t stateSide = 0, stateSeq = 0;
+		coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+		if (parallelTurnActive() && !getHost() && !g_deathWatermarkDisable.load(std::memory_order_relaxed)
+			&& stateStamped && !coopCasualtyUnit->coopStateAccept(stateSide, stateSeq, 2))
+		{
+			++g_casualtiesRejected;
+			return;
+		}
+
+		_game->getSavedGame()->getSavedBattle()->abortPathCoop();
+
+		// coop (PRD-I3 SEAM-4): see the unit_death/after_unit_death handlers above -
+		// same absolute overwrite, same idempotence, same parallel-client-only scope
+		// (the caller already established this handler only ever runs there).
+		coopApplyBystanderMorale(_game->getSavedGame()->getSavedBattle(), obj);
+
+		_game->getSavedGame()->getSavedBattle()->getBattleGame()->coopApplyCasualty(obj);
+
+		// Make sure the Battlescape does not get stuck...
+		_hasHitUnit = -1;
+
+		++g_casualtiesApplied;
 	}
 
 	// coop (PRD-P10): the panic OUTCOME (UnitPanicBState, host-resolved).
@@ -8817,6 +8922,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 										unit->setArmor(armorArr[side].asInt(), (UnitSide)side);
 									}
 								}
+								// coop (kill-credit fix): murdererId/killedBy can change on the
+								// host AFTER a unit is down (e.g. a later blast catches the downed
+								// body's tile, TileEngine.cpp:3281), but the thin client never runs
+								// damage() itself, so without this hit_unit is silent on it and the
+								// client's credit drifts from the host's. Watermark-accepted like
+								// the other per-unit fields above; parallel-client-only so host/
+								// classic (which already have the correct value locally) stay
+								// byte-identical. Present-gated for older peers.
+								if (obj.isMember("murdererId")) unit->setMurdererId(obj["murdererId"].asInt());
+								if (obj.isMember("killedBy")) unit->killedBy((UnitFaction)obj["killedBy"].asInt());
 							}
 						}
 						else

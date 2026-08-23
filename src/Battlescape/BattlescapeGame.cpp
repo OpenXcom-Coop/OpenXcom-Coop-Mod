@@ -33,6 +33,7 @@
 #include "../Savegame/BattleItem.h"
 #include "../Savegame/BattleUnit.h"
 #include "../Savegame/BattleUnitStatistics.h"
+#include "../Savegame/Node.h" // coop (Phase 2b atomic unit death): node danger marking
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Tile.h"
@@ -58,6 +59,7 @@
 #include "UnitPanicBState.h"
 #include "UnitTurnBState.h"
 #include "UnitWalkBState.h"
+#include <algorithm> // coop (Phase 2b atomic unit death): hiddenItemIds diff
 #include <sstream>
 
 #include "../CoopMod/connectionTCP.h"
@@ -1064,6 +1066,217 @@ void BattlescapeGame::coopMintCorpse(BattleUnit* unit, bool overKill)
 	}
 }
 
+/**
+ * coop (parallel battlescape Phase 2b - atomic unit death): the CLIENT-side
+ * atomic apply of a `unit_casualty` packet - the world-mutating half of the split
+ * with connectionTCP.cpp's `unit_casualty` handler (which owns the unit lookup for
+ * the rank-2 state watermark, abortPathCoop, and the bystander-morale apply).
+ *
+ * Every field applied here is either a host absolute (carried on @a obj) or a
+ * deterministic local the host's UnitDieBState ctor/think already ran (node
+ * danger marking, resetTurnsSince/clearVisibleTiles/clearVisibleUnits/
+ * freePatrolTarget, the FOV/lighting recalc) - nothing rolls dice, and nothing
+ * here reads the death ANIMATION (Phase 2c; this phase only queues a STUB ghost
+ * entry that completes immediately - see coopQueueDeathGhost).
+ */
+void BattlescapeGame::coopApplyCasualty(const Json::Value& obj)
+{
+	BattleUnit* unit = nullptr;
+	const int unitId = obj.get("unit_id", -1).asInt();
+	for (auto* candidate : *getSave()->getUnits())
+	{
+		if (candidate->getId() == unitId)
+		{
+			unit = candidate;
+			break;
+		}
+	}
+	if (!unit)
+	{
+		Log(LOG_INFO) << "coop (Phase 2b unit_casualty): apply skipped, no local unit " << unitId;
+		return;
+	}
+
+	CoopDeathGhost g{};
+	g.unit = unit;
+
+	// step 2: the pre-death facing, captured BEFORE it is overwritten below - the
+	// (Phase 2c) death pirouette starts from here.
+	g.dirBeforeApply = unit->getDirection();
+
+	// step 4: host-absolute stats.
+	unit->setHealth(obj.get("health", 0).asInt());
+	unit->setStunlevelCoop(obj.get("stunlevel", 0).asInt());
+	unit->setCoopEnergy(obj.get("energy", 0).asInt());
+	unit->setCoopMorale(obj.get("morale", 0).asInt());
+	unit->setCoopMana(obj.get("mana", 0).asInt());
+	unit->setTimeUnits(obj.get("tu", 0).asInt());
+
+	if (obj.isMember("fatalWounds"))
+	{
+		const Json::Value& fatalArray = obj["fatalWounds"];
+		for (int part = 0; part < BODYPART_MAX && part < (int)fatalArray.size(); ++part)
+		{
+			unit->setFatalWoundCoop(part, fatalArray[part].asInt());
+		}
+	}
+	if (obj.isMember("armor"))
+	{
+		// coop (PRD-I3 saveBlob close): mirrors the hit_unit apply (connectionTCP.cpp).
+		const Json::Value& armorArr = obj["armor"];
+		for (int side = 0; side < SIDE_MAX && side < (int)armorArr.size(); ++side)
+		{
+			unit->setArmor(armorArr[side].asInt(), (UnitSide)side);
+		}
+	}
+
+	unit->setMotionPointsCoop(obj.get("motionpoints", 0).asInt());
+	unit->setRespawn(obj.get("respawn", false).asBool());
+	unit->setDirection(obj.get("dir", unit->getDirection()).asInt());
+	unit->setFaceDirection(obj.get("faceDir", unit->getFaceDirection()).asInt());
+
+	if (obj.isMember("pos") && obj["pos"].size() >= 3)
+	{
+		const Json::Value& posArr = obj["pos"];
+		const int px = posArr[0].asInt();
+		const int py = posArr[1].asInt();
+		const int pz = posArr[2].asInt();
+		if (unit->getPosition().x != px || unit->getPosition().y != py || unit->getPosition().z != pz)
+		{
+			teleport(px, py, pz, unit);
+		}
+	}
+
+	// step 5: the host's kill ATTRIBUTION - mirrors the legacy unit_death handler
+	// (connectionTCP.cpp) exactly: additive, present-gated, never re-derived here.
+	if (obj.isMember("killedBy"))
+	{
+		unit->killedBy((UnitFaction)obj["killedBy"].asInt());
+	}
+	if (obj.isMember("murdererId"))
+	{
+		unit->setMurdererId(obj["murdererId"].asInt());
+	}
+
+	// step 6: the deterministic locals UnitDieBState's ctor ran.
+	unit->resetTurnsSince();
+	unit->clearVisibleTiles();
+	unit->clearVisibleUnits();
+	unit->freePatrolTarget();
+
+	// step 6b: node danger marking (UnitDieBState ctor, host-side) - hashed via the
+	// save blob, so the parallel client must reproduce it exactly. Uses the unit's
+	// position AFTER the teleport above (= the host's ctor position).
+	if (!getSave()->isBeforeGame() && unit->getFaction() == FACTION_HOSTILE)
+	{
+		std::vector<Node*>* nodes = getSave()->getNodes();
+		if (nodes)
+		{
+			for (auto* node : *nodes)
+			{
+				if (!node->isDummy() && Position::distanceSq(node->getPosition(), unit->getPosition()) < 4)
+				{
+					node->setType(node->getType() | Node::TYPE_DANGEROUS);
+				}
+			}
+		}
+	}
+
+	// step 7: capture the PRE-death status, THEN set the final one. Must precede
+	// step 8 - coopMintCorpse's dropItems test reads getStatus()==STATUS_UNCONSCIOUS.
+	// The host's final health/status already folds in instaKill; never re-derived.
+	g.wasUnconsciousBefore = (unit->getStatus() == STATUS_UNCONSCIOUS);
+	const UnitStatus finalStatus = getCoopMod()->intToUnitstatus(obj.get("status", 0).asInt());
+	unit->setCoopStatus(finalStatus);
+
+	// step 8: the corpse/world mutation, keyed on the host's corpse-mint mode.
+	// mode: 0 = on-tile mint, 1 = carried convert, 2 = overKill/no corpse,
+	// 3 = none (respawn/convert - convertUnit ships its own manifest separately).
+	const int corpseMode = obj["corpse"].get("mode", 3).asInt();
+	switch (corpseMode)
+	{
+	case 0:
+	{
+		Tile* mintTile = unit->getTile();
+		std::vector<int> beforeIds;
+		if (mintTile)
+		{
+			for (auto* bi : *mintTile->getInventory())
+			{
+				beforeIds.push_back(bi->getId());
+			}
+		}
+		SharedEcon::storeSpawnManifest(getSave(), "corpse", unit->getId(), obj);
+		coopMintCorpse(unit, false);
+		if (mintTile)
+		{
+			for (auto* bi : *mintTile->getInventory())
+			{
+				if (std::find(beforeIds.begin(), beforeIds.end(), bi->getId()) == beforeIds.end())
+				{
+					g.hiddenItemIds.push_back(bi->getId());
+				}
+			}
+		}
+		break;
+	}
+	case 1:
+	{
+		coopMintCorpse(unit, false);
+		const int expectedCarrierId = obj["corpse"].get("carrier_item_id", -1).asInt();
+		if (expectedCarrierId >= 0 && coopGetCorpseMintCarrierId() != expectedCarrierId)
+		{
+			Log(LOG_INFO) << "coop (Phase 2b unit_casualty): carried-body carrier id mismatch for unit "
+						  << unit->getId() << " - host " << expectedCarrierId
+						  << " local " << coopGetCorpseMintCarrierId();
+		}
+		break;
+	}
+	case 2:
+		coopMintCorpse(unit, true);
+		break;
+	case 3:
+	default:
+		break;
+	}
+
+	// step 9: the FOV/lighting recalc the host's think() _extraFrame==2 branch ran.
+	g.visibleAtApply = unit->getVisible();
+	getTileEngine()->calculateLighting(LL_ITEMS, unit->getPosition(), unit->getArmor()->getSize());
+	getTileEngine()->calculateFOV(unit->getPosition(), unit->getArmor()->getSize(), false);
+
+	// step 11: clear selection - mirrors UnitDieBState::think()'s clearUnitSelection.
+	getSave()->clearUnitSelection(unit);
+
+	// step 12: finish the ghost entry and queue it (STUB in this phase).
+	g.pos = unit->getPosition();
+	g.size = unit->getArmor()->getSize();
+	g.faction = unit->getFaction();
+	g.finalStatus = finalStatus;
+	g.direct = obj.get("direct", false).asBool();
+	g.noSound = obj.get("noSound", false).asBool();
+	g.bnd = obj.get("bnd", false).asBool();
+	g.sideSeq = static_cast<uint32_t>(obj.get("side_seq", 0).asUInt());
+	g.actionSeq = g.bnd ? UINT32_MAX : static_cast<uint32_t>(obj.get("action_seq", 0).asUInt());
+
+	coopQueueDeathGhost(g);
+}
+
+/**
+ * coop (parallel battlescape Phase 2b - atomic unit death, STUB): records @a g as
+ * a completed death-ghost entry immediately. The world is ALREADY final by the
+ * time coopApplyCasualty calls this (every step above ran), so there is nothing
+ * left to animate in this phase - no UnitDieBState push, no death pirouette; the
+ * corpse/kit are simply visible at apply. Phase 2c replaces this body with the
+ * real queued+started ghost that coopActiveGhost() then reads.
+ */
+void BattlescapeGame::coopQueueDeathGhost(const CoopDeathGhost& g)
+{
+	_coopPendingGhosts.push_back(g);
+	_coopPendingGhosts.back().started = true;
+	++_coopDeathGhostsCompleted;
+}
+
 void BattlescapeGame::teleport(int x, int y, int z, BattleUnit* unit)
 {
 
@@ -1136,6 +1349,11 @@ BattlescapeGame::~BattlescapeGame()
 		delete bs;
 	}
 	cleanupDeleted();
+	// coop (parallel battlescape Phase 2b - atomic unit death): drop any queued
+	// death-ghost entries with the battle. Phase 2b's stub completes every entry
+	// immediately, so this is normally already empty; defensive for Phase 2c,
+	// where an entry can still be "started" when the battle ends.
+	_coopPendingGhosts.clear();
 }
 
 /**

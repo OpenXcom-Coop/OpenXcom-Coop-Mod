@@ -3340,6 +3340,14 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 			}
 			root["armor"] = armorArray;
 
+			// coop (kill-credit fix): murdererId/killedBy can change on the host AFTER a
+			// unit is down (e.g. a later blast catches the downed body's tile, see
+			// setMurdererId above), but the thin client never runs damage() itself - ship
+			// the current attribution on every hit_unit so the client's credit does not
+			// drift from the host's. Additive; classic/PvP/single-player unaffected.
+			root["murdererId"] = target->getMurdererId();
+			root["killedBy"] = (int)target->killedBy();
+
 			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 		}
 	}
