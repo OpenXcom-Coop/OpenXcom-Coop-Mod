@@ -601,6 +601,54 @@ std::atomic<bool> g_rxForceFloor{false};
 // stale-side straddle (red: endTurn overtakes a still-deferred current-side death) against
 // the barrier-held ordering (green). Externed in TestServer; never set outside the harness.
 std::atomic<bool> g_rxSideBarrierDisable{false};
+// coop (parallel battlescape Phase 1 - per-unit state watermark): counts stamped
+// per-unit state writes rejected because their stamp was < the unit's recorded
+// watermark (BattleUnit::coopStateAccept returned false). Total plus a per-rank
+// breakdown (0=snapshot, 1=chain carrier, 2=casualty, unused until Phase 2).
+// Parallel client only; externed in TestServer for parallel_state introspection.
+std::atomic<uint32_t> g_stateWatermarkRejects{0};
+std::atomic<uint32_t> g_stateWatermarkRejectsRank0{0};
+std::atomic<uint32_t> g_stateWatermarkRejectsRank1{0};
+std::atomic<uint32_t> g_stateWatermarkRejectsRank2{0};
+// coop (parallel battlescape Phase 1, TEST-ONLY): when true, skips the per-unit
+// state watermark check entirely (writes always apply, no reject). Parallel-client-
+// only, test-only lever; never set outside the coop test harness.
+std::atomic<bool> g_deathWatermarkDisable{false};
+
+// coop (parallel battlescape Phase 1 - per-unit state watermark): reads the
+// (side_seq, action_seq) stamp off an apply-side packet, if present. `stamped`
+// is false for every carrier not yet promoted to stamped (unit_fall until
+// Phase 3, psi_result's MC-revert variant, medkit, boundary/environmental
+// hit_unit, classic co-op, ...) - an unstamped write BYPASSES the watermark
+// entirely (see BattleUnit::coopStateAccept); this helper never invents a
+// fallback stamp for that case. `bnd:true` (a boundary-phase send) maxes the
+// action_seq so it always wins ties as the most recent write.
+static void coopReadStateStamp(const Json::Value& obj, bool& stamped, uint32_t& side, uint32_t& seq)
+{
+	stamped = obj.isMember("side_seq");
+	if (!stamped)
+	{
+		side = 0;
+		seq = 0;
+		return;
+	}
+	side = obj["side_seq"].asUInt();
+	seq = obj.get("action_seq", 0).asUInt();
+	if (obj.get("bnd", false).asBool())
+	{
+		seq = UINT32_MAX;
+	}
+}
+
+// coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): the last
+// next_turn packet actually applied by coopApplyNextTurnUnitStates(). Read by
+// connectionTCP::coopDebugReplayLastNextTurn() (parallel_state
+// {replay_last_next_turn:true}) to re-run the per-unit loop on a stale copy -
+// with the watermark ON every already-hit unit is rejected (no-op); with
+// g_deathWatermarkDisable ON the stale snapshot overwrites (the RED case).
+// Never read outside that TEST-ONLY lever.
+static Json::Value g_lastNextTurnJson = Json::nullValue;
+
 // consecutive ticks a marker has been barrier-held with no progress, plus a one-shot
 // warn latch, for the loud sustained-stall diagnostic in updateCoopTask().
 static uint32_t g_barrierStallTicks = 0;
@@ -8520,27 +8568,44 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					continue;
 				}
 
-				unit->setTimeUnits(obj["time"].asInt());
-				unit->setCoopEnergy(obj["energy"].asInt());
-				unit->setHealth(obj["health"].asInt());
-				unit->setCoopMorale(obj["morale"].asInt());
-				unit->setCoopMana(obj["mana"].asInt());
-				unit->setStunlevelCoop(obj["stunlevel"].asInt());
-				unit->setDirection(obj["setDirection"].asInt());
-				unit->setFaceDirection(obj["setFaceDirection"].asInt());
-
-				// Never RESURRECT: the same rule UnitDieBState's replay follows.
-				// A unit that died while panicking (a berserker walking into
-				// reaction fire) is already STATUS_DEAD here, and the host's
-				// outcome - captured before the death - must not undo that.
-				if (!unit->isOut())
+				// coop (parallel battlescape Phase 1 - per-unit state watermark):
+				// panic_action is a rank-1 chain carrier (stamped via
+				// UnitPanicBState.cpp:178). A stamp older than the unit's recorded
+				// watermark is dropped instead of clobbering a newer absolute.
+				bool stateStamped = false;
+				uint32_t stateSide = 0, stateSeq = 0;
+				coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+				if (!parallelTurnActive() || getHost() || !stateStamped
+					|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+					|| unit->coopStateAccept(stateSide, stateSeq, 1))
 				{
-					unit->setCoopStatus(intToUnitstatus(obj["status"].asInt()));
-				}
+					unit->setTimeUnits(obj["time"].asInt());
+					unit->setCoopEnergy(obj["energy"].asInt());
+					unit->setHealth(obj["health"].asInt());
+					unit->setCoopMorale(obj["morale"].asInt());
+					unit->setCoopMana(obj["mana"].asInt());
+					unit->setStunlevelCoop(obj["stunlevel"].asInt());
+					unit->setDirection(obj["setDirection"].asInt());
+					unit->setFaceDirection(obj["setFaceDirection"].asInt());
 
-				Log(LOG_INFO) << "coop (PRD-P10): panic outcome applied to unit "
-							  << panicUnitId << " - tu " << unit->getTimeUnits()
-							  << ", morale " << unit->getMorale();
+					// Never RESURRECT: the same rule UnitDieBState's replay follows.
+					// A unit that died while panicking (a berserker walking into
+					// reaction fire) is already STATUS_DEAD here, and the host's
+					// outcome - captured before the death - must not undo that.
+					if (!unit->isOut())
+					{
+						unit->setCoopStatus(intToUnitstatus(obj["status"].asInt()));
+					}
+
+					Log(LOG_INFO) << "coop (PRD-P10): panic outcome applied to unit "
+								  << panicUnitId << " - tu " << unit->getTimeUnits()
+								  << ", morale " << unit->getMorale();
+				}
+				else
+				{
+					++g_stateWatermarkRejects;
+					++g_stateWatermarkRejectsRank1;
+				}
 				break;
 			}
 		}
@@ -8709,37 +8774,55 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						const Json::Value& fatalArray = obj["fatalWounds"];
 
-						for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
+						// coop (parallel battlescape Phase 1 - per-unit state watermark):
+						// hit_unit is a rank-1 chain carrier, stamped via coopStampChainSeq
+						// (TileEngine.cpp:3305) EXCEPT boundary/environmental hits
+						// (_openChainSeq==0 -> unstamped -> bypasses the watermark, same
+						// as classic co-op below).
+						bool stateStamped = false;
+						uint32_t stateSide = 0, stateSeq = 0;
+						coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+						if (!parallelTurnActive() || getHost() || !stateStamped
+							|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+							|| unit->coopStateAccept(stateSide, stateSeq, 1))
 						{
-							unit->setFatalWoundCoop(part, fatalArray[part].asInt());
-						}
-
-						unit->setHealth(health);
-						unit->setStunlevelCoop(stunlevel);
-						// coop (PRD-I3): a parallel thin client does NOT replay the attack,
-						// so hit_unit is the ONLY carrier of the victim's post-damage combat
-						// stats. Apply the additive fields the executor now ships (morale/
-						// energy/mana/tu, all written by BattleUnit::damage()) so the
-						// per-action unitsStats hash matches AT the hit instead of only after
-						// next_turn's bulk repair. Parallel-scoped so classic replay (which
-						// runs its own damage()) stays byte-identical; present-gated for old
-						// peers.
-						if (parallelTurnActive() && !getHost())
-						{
-							if (obj.isMember("morale")) unit->setCoopMorale(obj["morale"].asInt());
-							if (obj.isMember("energy")) unit->setCoopEnergy(obj["energy"].asInt());
-							if (obj.isMember("mana")) unit->setCoopMana(obj["mana"].asInt());
-							if (obj.isMember("tu")) unit->setTimeUnits(obj["tu"].asInt());
-							// coop (PRD-I3 saveBlob close): the victim's post-damage per-side armor
-							// (hit_unit is the sole carrier; classic replays damage() and never diverges).
-							if (obj.isMember("armor"))
+							for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
 							{
-								const Json::Value& armorArr = obj["armor"];
-								for (int side = 0; side < SIDE_MAX && side < (int)armorArr.size(); ++side)
+								unit->setFatalWoundCoop(part, fatalArray[part].asInt());
+							}
+
+							unit->setHealth(health);
+							unit->setStunlevelCoop(stunlevel);
+							// coop (PRD-I3): a parallel thin client does NOT replay the attack,
+							// so hit_unit is the ONLY carrier of the victim's post-damage combat
+							// stats. Apply the additive fields the executor now ships (morale/
+							// energy/mana/tu, all written by BattleUnit::damage()) so the
+							// per-action unitsStats hash matches AT the hit instead of only after
+							// next_turn's bulk repair. Parallel-scoped so classic replay (which
+							// runs its own damage()) stays byte-identical; present-gated for old
+							// peers.
+							if (parallelTurnActive() && !getHost())
+							{
+								if (obj.isMember("morale")) unit->setCoopMorale(obj["morale"].asInt());
+								if (obj.isMember("energy")) unit->setCoopEnergy(obj["energy"].asInt());
+								if (obj.isMember("mana")) unit->setCoopMana(obj["mana"].asInt());
+								if (obj.isMember("tu")) unit->setTimeUnits(obj["tu"].asInt());
+								// coop (PRD-I3 saveBlob close): the victim's post-damage per-side armor
+								// (hit_unit is the sole carrier; classic replays damage() and never diverges).
+								if (obj.isMember("armor"))
 								{
-									unit->setArmor(armorArr[side].asInt(), (UnitSide)side);
+									const Json::Value& armorArr = obj["armor"];
+									for (int side = 0; side < SIDE_MAX && side < (int)armorArr.size(); ++side)
+									{
+										unit->setArmor(armorArr[side].asInt(), (UnitSide)side);
+									}
 								}
 							}
+						}
+						else
+						{
+							++g_stateWatermarkRejects;
+							++g_stateWatermarkRejectsRank1;
 						}
 						break;
 
@@ -8778,15 +8861,32 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 					continue;
 				}
-				// Never RESURRECT: unit_death owns a dead/knocked-out unit's state.
-				if (!unit->isOut() && unit->getPosition() != fallPos)
+				// coop (parallel battlescape Phase 1 - per-unit state watermark):
+				// unit_fall is not stamped yet (Phase 3 will flip it on) - wrapped
+				// now so that flip is additive. `stateStamped` is false today, so
+				// this always takes the accept branch (bypass), byte-identical.
+				bool stateStamped = false;
+				uint32_t stateSide = 0, stateSeq = 0;
+				coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+				if (!parallelTurnActive() || getHost() || !stateStamped
+					|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+					|| unit->coopStateAccept(stateSide, stateSeq, 1))
 				{
-					unit->setTile(fallBattle->getTile(fallPos), fallBattle);
-					unit->setPosition(fallPos);
-					if (unit->isFloating() && !unit->haveNoFloorBelow())
+					// Never RESURRECT: unit_death owns a dead/knocked-out unit's state.
+					if (!unit->isOut() && unit->getPosition() != fallPos)
 					{
-						unit->setFloatingCoop(false);
+						unit->setTile(fallBattle->getTile(fallPos), fallBattle);
+						unit->setPosition(fallPos);
+						if (unit->isFloating() && !unit->haveNoFloorBelow())
+						{
+							unit->setFloatingCoop(false);
+						}
 					}
+				}
+				else
+				{
+					++g_stateWatermarkRejects;
+					++g_stateWatermarkRejectsRank1;
 				}
 				break;
 			}
@@ -9044,162 +9144,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					tile->setSmokeCoop(getSmoke, animation_offset, overlaps);
 				}
 
-				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-				{
-
-					for (int i = 0; i < obj["units"].size(); i++)
-					{
-
-						int json_id = obj["units"][i]["unit_id"].asInt();
-
-						// Check if the same unit
-						if (unit->getId() == json_id)
-						{
-
-							int time = obj["units"][i]["time"].asInt();
-							int health = obj["units"][i]["health"].asInt();
-							int energy = obj["units"][i]["energy"].asInt();
-							int morale = obj["units"][i]["morale"].asInt();
-							int mana = obj["units"][i]["mana"].asInt();
-							int stunlevel = obj["units"][i]["stunlevel"].asInt();
-
-							int motionpoints = obj["units"][i]["motionpoints"].asInt();
-
-							int setDirection = obj["units"][i]["setDirection"].asInt();
-							int setFaceDirection = obj["units"][i]["setFaceDirection"].asInt();
-
-							int setTurretDirection = obj["units"][i]["setTurretDirection"].asInt();
-							int setTurretToDirection = obj["units"][i]["setTurretToDirection"].asInt();
-
-							bool respawn = obj["units"][i]["respawn"].asBool();
-
-							int fire = obj["units"][i]["fire"].asInt();
-							unit->setFireCoop(fire);
-
-							// coop (PRD-I3 Session F saveBlob close): the host's ABSOLUTE floating bit.
-							// PARALLEL client only - classic replays the fall itself; present-gated for
-							// old hosts. Real kneel-eligibility reader; a unit_fall coverage gap left it
-							// diverging on the parallel client at sidestart (saveBlob `floating`).
-							if (parallelTurnActive() && !getHost() && obj["units"][i].isMember("floating"))
-								unit->setFloatingCoop(obj["units"][i]["floating"].asBool());
-
-							unit->setRespawn(respawn);
-
-							unit->setDirection(setDirection);
-							unit->setFaceDirection(setFaceDirection);
-
-							unit->setDirectionTurretCoop(setTurretDirection);
-							unit->setTurretToDirectionCoop(setTurretToDirection);
-
-							unit->setMotionPointsCoop(motionpoints);
-
-							unit->setCoopEnergy(energy);
-							unit->setTimeUnits(time);
-							
-							unit->setHealth(health);
-							unit->setCoopMorale(morale);
-				
-							unit->setCoopMana(mana);
-							unit->setStunlevelCoop(stunlevel);
-
-							const Json::Value& fatalArray = obj["units"][i]["fatalWounds"];
-
-							for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
-							{
-								unit->setFatalWoundCoop(part, fatalArray[part].asInt());
-							}
-
-
-							int pos_x = obj["units"][i]["pos_x"].asInt();
-							int pos_y = obj["units"][i]["pos_y"].asInt();
-							int pos_z = obj["units"][i]["pos_z"].asInt();
-
-							// mind control (client)
-							if (unit->_coop_mindcontrolled == true)
-							{
-
-								unit->_coop_mindcontrolled = false;
-
-								if (unit->getCoop() == 0)
-								{
-		
-									unit->setCoop(1);
-
-									if (_game->getCoopMod()->getHost() == false)
-									{
-										unit->convertToFaction(FACTION_PLAYER);
-										unit->setOriginalFaction(FACTION_PLAYER);
-									}
-									else
-									{
-										unit->convertToFaction(FACTION_HOSTILE);
-										unit->setOriginalFaction(FACTION_HOSTILE);
-									}
-
-								}
-								else if (unit->getCoop() == 1)
-								{
-									
-									unit->setCoop(0);
-
-									if (_game->getCoopMod()->getHost() == true)
-									{
-										unit->convertToFaction(FACTION_PLAYER);
-										unit->setOriginalFaction(FACTION_PLAYER);
-									}
-									else
-									{
-										unit->convertToFaction(FACTION_HOSTILE);
-										unit->setOriginalFaction(FACTION_HOSTILE);
-									}
-
-								}
-							}
-
-							// Check if positions do not match
-							if (unit->getPosition().x != pos_x || unit->getPosition().y != pos_y || unit->getPosition().z != pos_z)
-							{
-
-								_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(pos_x, pos_y, pos_z, unit);
-							}
-
-							int status_int = obj["units"][i]["status"].asInt();
-							UnitStatus unitStatus = intToUnitstatus(status_int);
-
-							unit->setCoopStatus(unitStatus);
-
-							// TILE
-							bool isTile = obj["units"][i]["isTile"].asBool();
-
-							// coop (PRD-P10): the same exemption `after_unit_death` takes,
-							// for the same reason and at the harder moment. The last
-							// casualty of an alien side dies a frame or two before the
-							// side closes, so this per-turn stamp routinely arrives while
-							// the peer's UnitDieBState is still queued - and unlinking
-							// here cost that replay its itemDropInventory, leaving the
-							// dead soldier's whole kit on the body while it lay on the
-							// floor on the executor.
-							if (!isTile && !SharedEcon::corpseReplayPending(unit->getId()))
-							{
-
-								if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
-								{
-									unit->setCoopStatus(STATUS_DEAD);
-								}
-
-								unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
-							}
-
-							if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
-							{
-								unit->setCoopStatus(STATUS_DEAD);
-							}
-
-							break;
-
-						}
-					}
-				}
+				// coop (parallel battlescape Phase 1 - per-unit state watermark): stash
+				// this applied snapshot for the TEST-ONLY synthetic replay lever
+				// (parallel_state {replay_last_next_turn:true}), then run the per-unit
+				// bulk-apply loop (factored into coopApplyNextTurnUnitStates so the live
+				// path and the replay lever share one copy - see connectionTCP.h). Units
+				// whose stamped write is rejected also skip their
+				// coopApplyDeferredTurnStart() further down (the later absolute that
+				// caused the reject already includes the turn-start regen).
+				g_lastNextTurnJson = obj;
+				std::unordered_set<int> stateWatermarkRejectedUnits = coopApplyNextTurnUnitStates(obj);
 
 				// coop (PRD-I3 Option D-lite): the parallel client's turn machine follows
 				// next_turn. The host stamps the authoritative turn/side on it (additive: an
@@ -9228,7 +9182,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							if (bu->getFaction() == FACTION_PLAYER
 								|| (bu->getFaction() == FACTION_NEUTRAL && bu->getOriginalFaction() == FACTION_HOSTILE))
 							{
-								bu->coopApplyDeferredTurnStart();
+								// coop (parallel battlescape Phase 1 - per-unit state watermark):
+								// a unit whose stamped next_turn snapshot was rejected above
+								// already has a newer absolute in place - that absolute already
+								// includes the turn-start regen, so do not re-run it here.
+								if (stateWatermarkRejectedUnits.count(bu->getId()) == 0)
+								{
+									bu->coopApplyDeferredTurnStart();
+								}
 							}
 						}
 						_turnAdvanceDeferred = 0;
@@ -10857,24 +10818,42 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					{
 						continue;
 					}
-					int newFaction = obj.get("faction", -1).asInt();
-					if (newFaction >= 0 && (int)unit->getFaction() != newFaction)
+					// coop (parallel battlescape Phase 1 - per-unit state watermark):
+					// this is the state-copy psi_result flavour, stamped via
+					// coopStampChainSeq (TileEngine.cpp:5334) - rank 1 chain carrier.
+					// The legacy PVP inverted-flip flavour (pvp:true, below) is never
+					// stamped and always bypasses.
+					bool stateStamped = false;
+					uint32_t stateSide = 0, stateSeq = 0;
+					coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+					if (!parallelTurnActive() || getHost() || !stateStamped
+						|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+						|| unit->coopStateAccept(stateSide, stateSeq, 1))
 					{
-						unit->convertToFaction((UnitFaction)newFaction);
-						if (newFaction == (int)FACTION_NEUTRAL && unit->getAIModule())
+						int newFaction = obj.get("faction", -1).asInt();
+						if (newFaction >= 0 && (int)unit->getFaction() != newFaction)
 						{
-							unit->getAIModule()->setTargetFaction(FACTION_HOSTILE);
+							unit->convertToFaction((UnitFaction)newFaction);
+							if (newFaction == (int)FACTION_NEUTRAL && unit->getAIModule())
+							{
+								unit->getAIModule()->setTargetFaction(FACTION_HOSTILE);
+							}
+							unit->allowReselect();
+							unit->abortTurn();
 						}
-						unit->allowReselect();
-						unit->abortTurn();
+						unit->setMindControllerId(obj.get("mindControllerId", 0).asInt());
+						unit->setCoopMorale(obj.get("morale", unit->getMorale()).asInt());
+						unit->setTimeUnits(obj.get("tu", unit->getTimeUnits()).asInt());
+						// coop: the host's recoverTimeUnits() restored ENERGY as well as TU.
+						// Additive - absent means an older peer, so leave energy alone.
+						unit->setCoopEnergy(obj.get("energy", unit->getEnergy()).asInt());
+						unit->setCoop(obj.get("coop", unit->getCoop()).asInt());
 					}
-					unit->setMindControllerId(obj.get("mindControllerId", 0).asInt());
-					unit->setCoopMorale(obj.get("morale", unit->getMorale()).asInt());
-					unit->setTimeUnits(obj.get("tu", unit->getTimeUnits()).asInt());
-					// coop: the host's recoverTimeUnits() restored ENERGY as well as TU.
-					// Additive - absent means an older peer, so leave energy alone.
-					unit->setCoopEnergy(obj.get("energy", unit->getEnergy()).asInt());
-					unit->setCoop(obj.get("coop", unit->getCoop()).asInt());
+					else
+					{
+						++g_stateWatermarkRejects;
+						++g_stateWatermarkRejectsRank1;
+					}
 					break;
 				}
 			}
@@ -12889,6 +12868,220 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		coopWindow->loadWorld();
 
 	}
+}
+
+/**
+ * coop (parallel battlescape Phase 1 - per-unit state watermark): next_turn's
+ * per-unit bulk-apply loop. The stamp lives at the packet ROOT (not per-unit,
+ * unlike hit_unit/panic_action/psi_result) - read once and reused for every
+ * unit's tie-break. Factored out of onTCPMessage so the TEST-ONLY synthetic
+ * replay lever (coopDebugReplayLastNextTurn) can re-run exactly this loop
+ * against a stashed snapshot without re-running the rest of the handler
+ * (melee/manifest hygiene, the SEAM-10 faction pass, tiles, the checksum
+ * tripwire, or the turn/side advance). Caller must ensure
+ * _game->getSavedGame()->getSavedBattle() is non-null.
+ */
+std::unordered_set<int> connectionTCP::coopApplyNextTurnUnitStates(Json::Value& obj)
+{
+	bool stateStamped = false;
+	uint32_t stateSide = 0, stateSeq = 0;
+	coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+	std::unordered_set<int> stateWatermarkRejectedUnits;
+
+	for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+	{
+
+		for (int i = 0; i < obj["units"].size(); i++)
+		{
+
+			int json_id = obj["units"][i]["unit_id"].asInt();
+
+			// Check if the same unit
+			if (unit->getId() == json_id)
+			{
+
+				// coop (parallel battlescape Phase 1 - per-unit state watermark):
+				// rank 0 (snapshot); stateStamped/stateSide/stateSeq are read once above.
+				if (!parallelTurnActive() || getHost() || !stateStamped
+					|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+					|| unit->coopStateAccept(stateSide, stateSeq, 0))
+				{
+
+				int time = obj["units"][i]["time"].asInt();
+				int health = obj["units"][i]["health"].asInt();
+				int energy = obj["units"][i]["energy"].asInt();
+				int morale = obj["units"][i]["morale"].asInt();
+				int mana = obj["units"][i]["mana"].asInt();
+				int stunlevel = obj["units"][i]["stunlevel"].asInt();
+
+				int motionpoints = obj["units"][i]["motionpoints"].asInt();
+
+				int setDirection = obj["units"][i]["setDirection"].asInt();
+				int setFaceDirection = obj["units"][i]["setFaceDirection"].asInt();
+
+				int setTurretDirection = obj["units"][i]["setTurretDirection"].asInt();
+				int setTurretToDirection = obj["units"][i]["setTurretToDirection"].asInt();
+
+				bool respawn = obj["units"][i]["respawn"].asBool();
+
+				int fire = obj["units"][i]["fire"].asInt();
+				unit->setFireCoop(fire);
+
+				// coop (PRD-I3 Session F saveBlob close): the host's ABSOLUTE floating bit.
+				// PARALLEL client only - classic replays the fall itself; present-gated for
+				// old hosts. Real kneel-eligibility reader; a unit_fall coverage gap left it
+				// diverging on the parallel client at sidestart (saveBlob `floating`).
+				if (parallelTurnActive() && !getHost() && obj["units"][i].isMember("floating"))
+					unit->setFloatingCoop(obj["units"][i]["floating"].asBool());
+
+				unit->setRespawn(respawn);
+
+				unit->setDirection(setDirection);
+				unit->setFaceDirection(setFaceDirection);
+
+				unit->setDirectionTurretCoop(setTurretDirection);
+				unit->setTurretToDirectionCoop(setTurretToDirection);
+
+				unit->setMotionPointsCoop(motionpoints);
+
+				unit->setCoopEnergy(energy);
+				unit->setTimeUnits(time);
+
+				unit->setHealth(health);
+				unit->setCoopMorale(morale);
+
+				unit->setCoopMana(mana);
+				unit->setStunlevelCoop(stunlevel);
+
+				const Json::Value& fatalArray = obj["units"][i]["fatalWounds"];
+
+				for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
+				{
+					unit->setFatalWoundCoop(part, fatalArray[part].asInt());
+				}
+
+
+				int pos_x = obj["units"][i]["pos_x"].asInt();
+				int pos_y = obj["units"][i]["pos_y"].asInt();
+				int pos_z = obj["units"][i]["pos_z"].asInt();
+
+				// mind control (client)
+				if (unit->_coop_mindcontrolled == true)
+				{
+
+					unit->_coop_mindcontrolled = false;
+
+					if (unit->getCoop() == 0)
+					{
+
+						unit->setCoop(1);
+
+						if (_game->getCoopMod()->getHost() == false)
+						{
+							unit->convertToFaction(FACTION_PLAYER);
+							unit->setOriginalFaction(FACTION_PLAYER);
+						}
+						else
+						{
+							unit->convertToFaction(FACTION_HOSTILE);
+							unit->setOriginalFaction(FACTION_HOSTILE);
+						}
+
+					}
+					else if (unit->getCoop() == 1)
+					{
+
+						unit->setCoop(0);
+
+						if (_game->getCoopMod()->getHost() == true)
+						{
+							unit->convertToFaction(FACTION_PLAYER);
+							unit->setOriginalFaction(FACTION_PLAYER);
+						}
+						else
+						{
+							unit->convertToFaction(FACTION_HOSTILE);
+							unit->setOriginalFaction(FACTION_HOSTILE);
+						}
+
+					}
+				}
+
+				// Check if positions do not match
+				if (unit->getPosition().x != pos_x || unit->getPosition().y != pos_y || unit->getPosition().z != pos_z)
+				{
+
+					_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(pos_x, pos_y, pos_z, unit);
+				}
+
+				int status_int = obj["units"][i]["status"].asInt();
+				UnitStatus unitStatus = intToUnitstatus(status_int);
+
+				unit->setCoopStatus(unitStatus);
+
+				// TILE
+				bool isTile = obj["units"][i]["isTile"].asBool();
+
+				// coop (PRD-P10): the same exemption `after_unit_death` takes,
+				// for the same reason and at the harder moment. The last
+				// casualty of an alien side dies a frame or two before the
+				// side closes, so this per-turn stamp routinely arrives while
+				// the peer's UnitDieBState is still queued - and unlinking
+				// here cost that replay its itemDropInventory, leaving the
+				// dead soldier's whole kit on the body while it lay on the
+				// floor on the executor.
+				if (!isTile && !SharedEcon::corpseReplayPending(unit->getId()))
+				{
+
+					if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+					{
+						unit->setCoopStatus(STATUS_DEAD);
+					}
+
+					unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
+				}
+
+				if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+				{
+					unit->setCoopStatus(STATUS_DEAD);
+				}
+
+				}
+				else
+				{
+					++g_stateWatermarkRejects;
+					++g_stateWatermarkRejectsRank0;
+					stateWatermarkRejectedUnits.insert(unit->getId());
+				}
+
+				break;
+
+			}
+		}
+	}
+
+	return stateWatermarkRejectedUnits;
+}
+
+/**
+ * coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): re-runs
+ * coopApplyNextTurnUnitStates on the last applied next_turn snapshot
+ * (g_lastNextTurnJson). Only reachable via the parallel_state TestServer
+ * command ({"replay_last_next_turn": true}); never fires in shipped mode. A
+ * no-op if no next_turn has applied yet (g_lastNextTurnJson still null) or the
+ * battle is gone.
+ */
+void connectionTCP::coopDebugReplayLastNextTurn()
+{
+	if (g_lastNextTurnJson.isNull())
+	{
+		return;
+	}
+	if (!(_game && _game->getSavedGame() && _game->getSavedGame()->getSavedBattle()))
+	{
+		return;
+	}
+	coopApplyNextTurnUnitStates(g_lastNextTurnJson);
 }
 
 void connectionTCP::sendBaseFile()

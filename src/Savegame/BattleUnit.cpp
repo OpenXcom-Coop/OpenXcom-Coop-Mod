@@ -2397,6 +2397,24 @@ int BattleUnit::getCoop() const
 }
 
 /**
+ * Accepts a stamped coop per-unit state write only if its stamp is >= the
+ * unit's recorded watermark (lexicographic compare on side_seq, action_seq,
+ * rank). On accept, records the new stamp. Equal stamps accept (idempotent
+ * re-delivery of the same chain link).
+ */
+bool BattleUnit::coopStateAccept(uint32_t side, uint32_t seq, uint8_t rank)
+{
+	if (std::tie(side, seq, rank) >= std::tie(_coopStateSideSeq, _coopStateActionSeq, _coopStateRank))
+	{
+		_coopStateSideSeq = side;
+		_coopStateActionSeq = seq;
+		_coopStateRank = rank;
+		return true;
+	}
+	return false;
+}
+
+/**
  * Spend time units if it can. Return false if it can't.
  * @param tu
  * @return flag if it could spend the time units or not.

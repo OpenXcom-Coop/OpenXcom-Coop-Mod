@@ -662,6 +662,17 @@ void NextTurnState::close()
 					root["turn"] = _battleGame->getTurn();
 					root["side"] = (int)_battleGame->getSide();
 
+					// coop (parallel battlescape Phase 1 - per-unit state watermark): stamp
+					// this next_turn snapshot with the side that just started (BattlescapeGame::
+					// endTurn already incremented connectionTCP::_sideSeq before sending endTurn,
+					// so it is the new side's token by the time we get here). Rank 0 (snapshot).
+					// Additive - an old peer ignores these fields.
+					if (connectionTCP::parallelTurnActive())
+					{
+						root["side_seq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
+						root["action_seq"] = 0;
+					}
+
 					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 					{
 

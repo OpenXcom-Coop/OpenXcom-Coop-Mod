@@ -211,6 +211,14 @@ extern std::atomic<uint32_t> g_coopMidSideDeaths;
 extern std::atomic<uint32_t> g_coopMidSideDeathsUnstamped;
 // coop (chain-atomicity Strand B, TEST-ONLY lever): disable just the side barrier.
 extern std::atomic<bool> g_rxSideBarrierDisable;
+// coop (parallel battlescape Phase 1 - per-unit state watermark): reject counters
+// (total + per-rank) and the TEST-ONLY lever that disables the watermark check.
+// File-scope in connectionTCP.cpp; extern-declared here to avoid a wide recompile.
+extern std::atomic<uint32_t> g_stateWatermarkRejects;
+extern std::atomic<uint32_t> g_stateWatermarkRejectsRank0;
+extern std::atomic<uint32_t> g_stateWatermarkRejectsRank1;
+extern std::atomic<uint32_t> g_stateWatermarkRejectsRank2;
+extern std::atomic<bool> g_deathWatermarkDisable;
 
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
@@ -4625,6 +4633,16 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["rxDrainDisable"] = g_rxDrainDisable.load();
 		resp["rxForceFloor"] = g_rxForceFloor.load();
 		resp["rxSideBarrierDisable"] = g_rxSideBarrierDisable.load();
+		// coop (parallel battlescape Phase 1 - per-unit state watermark): stamped
+		// per-unit writes dropped because their stamp was < the unit's recorded
+		// watermark. Total + per-rank (0=snapshot/next_turn, 1=chain carrier,
+		// 2=casualty, unused until Phase 2). `deathWatermarkDisable` is the
+		// TEST-ONLY lever that skips the check entirely (writes always apply).
+		resp["stateWatermarkRejects"] = static_cast<Json::UInt>(g_stateWatermarkRejects.load());
+		resp["stateWatermarkRejectsRank0"] = static_cast<Json::UInt>(g_stateWatermarkRejectsRank0.load());
+		resp["stateWatermarkRejectsRank1"] = static_cast<Json::UInt>(g_stateWatermarkRejectsRank1.load());
+		resp["stateWatermarkRejectsRank2"] = static_cast<Json::UInt>(g_stateWatermarkRejectsRank2.load());
+		resp["deathWatermarkDisable"] = g_deathWatermarkDisable.load();
 		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
 		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
 		// diverted proves the fix engaged on a real opportunity.
@@ -4730,6 +4748,24 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		{
 			g_rxSideBarrierDisable.store(req.get("rx_side_barrier_disable", false).asBool(),
 				std::memory_order_relaxed);
+		}
+		// coop (parallel battlescape Phase 1, TEST-ONLY): disable the per-unit state
+		// watermark check so the SAME build measures the pre-fix stale-snapshot
+		// overwrite (red) against the watermark-held ordering (green).
+		if (req.isMember("death_watermark_disable"))
+		{
+			g_deathWatermarkDisable.store(req.get("death_watermark_disable", false).asBool(),
+				std::memory_order_relaxed);
+		}
+		// coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): re-run
+		// the last applied next_turn snapshot's per-unit loop once, immediately. With
+		// the watermark ON, every unit that has since taken a stamped hit is rejected
+		// (stateWatermarkRejects > 0, state unchanged). With death_watermark_disable
+		// ON, the stale snapshot overwrites - the divergence this whole phase exists
+		// to prevent. Never reachable outside this command.
+		if (req.get("replay_last_next_turn", false).asBool() && pcoop)
+		{
+			pcoop->coopDebugReplayLastNextTurn();
 		}
 		// PRD-P7: walk fast-forward + display flow control.
 		//   fastForward     - is the walk/turn/fall interval pinned to 0 right now

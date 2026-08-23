@@ -5552,6 +5552,12 @@ void unitStatsFullJson(Game* game, Json::Value& out, int onlyId)
 		{
 			u["w" + std::to_string(part)] = wounds ? wounds[part] : 0;
 		}
+		// coop (parallel battlescape Phase 1 - per-unit state watermark): the unit's
+		// recorded (side_seq, action_seq, rank) watermark, so a fixture can poll for
+		// "this unit has taken a stamped rank>=1 write" without a wire probe.
+		u["coopStateSide"] = static_cast<Json::UInt>(unit->_coopStateSideSeq);
+		u["coopStateSeq"] = static_cast<Json::UInt>(unit->_coopStateActionSeq);
+		u["coopStateRank"] = static_cast<int>(unit->_coopStateRank);
 		out.append(u);
 	}
 }

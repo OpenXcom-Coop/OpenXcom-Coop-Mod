@@ -610,6 +610,19 @@ class connectionTCP
 	void joinDirectLanUDP(std::string ipaddress, std::string port, std::string localport,
 	                      std::string player, std::string password);
 	void onTCPMessage(std::string data, Json::Value obj);
+	/// coop (parallel battlescape Phase 1 - per-unit state watermark): next_turn's
+	/// per-unit bulk-apply loop, factored out of onTCPMessage so the TEST-ONLY
+	/// synthetic replay lever (parallel_state {replay_last_next_turn:true}) can
+	/// re-run exactly this loop against a stashed snapshot. Returns the unit ids
+	/// whose stamped write was rejected by the watermark (the live caller uses
+	/// this to also skip their coopApplyDeferredTurnStart()). Caller must ensure
+	/// _game->getSavedGame()->getSavedBattle() is non-null.
+	std::unordered_set<int> coopApplyNextTurnUnitStates(Json::Value& obj);
+	/// coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): re-runs
+	/// coopApplyNextTurnUnitStates on the last applied next_turn snapshot
+	/// (g_lastNextTurnJson). Only reachable via the parallel_state TestServer
+	/// command; never fires in shipped mode. No-op if no next_turn has applied yet.
+	void coopDebugReplayLastNextTurn();
 	void sendBaseFile();
 	void sendMissionFile();
 	/// issue #93: stream the RUNNING skirmish battle to a rejoining client.

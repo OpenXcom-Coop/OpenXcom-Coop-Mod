@@ -20,6 +20,8 @@
 #include <vector>
 #include <string>
 #include <unordered_set>
+#include <cstdint>
+#include <tuple>
 #include "../Battlescape/Position.h"
 #include "../Mod/Armor.h"
 #include "../Mod/RuleItem.h"
@@ -227,6 +229,12 @@ public:
 	void setHealth(int health);
 	int _coopDamage = 0;
 	int _coopHealth = 0;
+	// coop: per-unit state watermark (plan v3 Phase 1) - stamped writes only apply if >= recorded stamp
+	uint32_t _coopStateSideSeq = 0;
+	uint32_t _coopStateActionSeq = 0;
+	uint8_t _coopStateRank = 0;
+	/// Accepts a stamped coop state write if it is >= the recorded watermark; records and returns true on accept.
+	bool coopStateAccept(uint32_t side, uint32_t seq, uint8_t rank);
 	static const int MAX_SOLDIER_ID = 1000000;
 	static const int BUBBLES_FIRST_FRAME = 3;
 	static const int BUBBLES_LAST_FRAME = BUBBLES_FIRST_FRAME + 15;
