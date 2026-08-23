@@ -216,6 +216,19 @@ private:
 	int _coopChainReserveUnit = -1;
 	BattleActionType _coopChainReserve = BA_NONE;
 	bool _coopChainKneelReserve = false;
+	// coop (Phase 2a unit_casualty): the corpse-mint OUTCOME captured at the mint
+	// decision - coopMintCorpse()'s branches, or the respawn/neither-branch edge
+	// case in UnitDieBState::think() which never calls coopMintCorpse - and read
+	// back by UnitDieBState::deinit() when it builds the parallel-host
+	// `unit_casualty` packet's "corpse"/"spill" fields. think() resets this to the
+	// mode-3 default immediately before every mint decision, so a respawn casualty
+	// can never read a stale mode left over from a PRIOR casualty's mint. Transient
+	// bookkeeping only - never serialized directly.
+	// mode: 0 = on-tile mint, 1 = carried convert, 2 = overKill/no corpse,
+	// 3 = none (respawn/convert, or the neither-branch edge case).
+	int _coopCorpseMintMode = 3;
+	int _coopCorpseMintCarrierId = -1;
+	bool _coopCorpseMintSpill = false;
 	/// The reserve settings checkReservedTU/kneel must judge `bu` by: the running
 	/// intent's when it owns this actor, otherwise this machine's own.
 	BattleActionType coopReserveModeFor(const BattleUnit* bu) const;
@@ -329,6 +342,17 @@ public:
 	/// boundary death (stays seq-0) or a loose mid-side death (opens a stamped chain).
 	void coopSetBoundaryCasualty(bool b) { _coopBoundaryCasualty = b; }
 	bool coopBoundaryCasualty() const { return _coopBoundaryCasualty; }
+	/// coop (Phase 2a unit_casualty): resets the corpse-mint bookkeeping. Called
+	/// from UnitDieBState::think() immediately before its mint decision (the
+	/// respawn/convertUnit branch never calls coopMintCorpse, so this is the only
+	/// place that clears a stale mode); coopMintCorpse() then overwrites it with the
+	/// real mode/carrier/spill when it runs.
+	void coopSetCorpseMintResult(int mode, int carrierItemId, bool spill) { _coopCorpseMintMode = mode; _coopCorpseMintCarrierId = carrierItemId; _coopCorpseMintSpill = spill; }
+	/// coop (Phase 2a unit_casualty): the corpse-mint outcome of the most recent
+	/// coopMintCorpse() call (or the think() reset) - see _coopCorpseMintMode.
+	int coopGetCorpseMintMode() const { return _coopCorpseMintMode; }
+	int coopGetCorpseMintCarrierId() const { return _coopCorpseMintCarrierId; }
+	bool coopGetCorpseMintSpill() const { return _coopCorpseMintSpill; }
 	/// Re-evaluates the fast-forward after the state queue changed (a push, a pop).
 	/// On a drain it also closes the host's action chain (PROTOCOL.md `action_end`).
 	void coopChainChanged();

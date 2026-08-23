@@ -222,75 +222,204 @@ void UnitDieBState::deinit()
 	// coop
 	if ((_parent->isCoop() == true && _coop_death == false && _parent->getCoopMod()->getHost() == true))
 	{
-
-		// coop
-		Json::Value root;
-
-		root["state"] = "after_unit_death";
-
-		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
-		// client's action_end apply-barrier waits for this death's final state before
-		// sampling the chain's post-N sync-check hash (no-op off the parallel host).
-		connectionTCP::coopStampChainSeq(root);
-
-		root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
-
-		root["unit_id"] = _unit->getId();
-
-		root["time"] = _unit->getTimeUnits();
-		root["health"] = _unit->getHealth();
-		root["energy"] = _unit->getEnergy();
-		root["morale"] = _unit->getMorale();
-		root["mana"] = _unit->getMana();
-		root["stunlevel"] = _unit->getStunlevel();
-
-		// coop (chain-atomicity, fatalWounds gap): the death carrier is the authoritative
-		// final word on the victim's combat state but shipped only health/stun, never the
-		// fatal wounds. A next_turn bulk snapshot that reorders in AHEAD of this death
-		// (carrying the unit's pre-hit wounds) then survived, because neither death carrier
-		// re-shipped the wounds to correct it - the client's post-death fatalWounds stuck at
-		// the resurrected value. Ship the wounds array exactly like hit_unit; the parallel
-		// client applies it (present- + parallel-gated so classic/PvP stay byte-identical).
-		Json::Value fatalArray(Json::arrayValue);
-		for (int i = 0; i < BODYPART_MAX; ++i)
+		// coop (Phase 2a unit_casualty, host-send only): on the PARALLEL host this
+		// ships ONE `unit_casualty` packet instead of the legacy `after_unit_death` -
+		// the client-side apply for it does not exist yet (Phase 2b), so this send is
+		// additive-only and does not change what the parallel client does with it.
+		// Classic co-op (parallelTurnActive() == false), a classic/PvP client, and a
+		// `_coop_death` animation state (excluded by the outer condition above) all
+		// keep the exact `after_unit_death` send below - byte-identical.
+		if (connectionTCP::parallelTurnActive() && connectionTCP::getHost())
 		{
-			fatalArray.append(_unit->getFatalWoundsCoop()[i]);
+			// coop (Phase 2a unit_casualty)
+			Json::Value root;
+
+			root["state"] = "unit_casualty";
+
+			// coop (chain-atomicity): mid-side deaths always have an open chain here
+			// (Strand A guarantees init() opened one), so coopStampChainSeq writes
+			// action_seq+side_seq normally. A BOUNDARY-phase death runs with
+			// _openChainSeq == 0 (intentionally - it rides the ordered endturn/
+			// sidestart marker instead), so the stamp is a no-op there; write bnd:true
+			// and side_seq explicitly in that case and do NOT write action_seq.
+			connectionTCP::coopStampChainSeq(root);
+			const bool coopBoundaryPhase = _coopBoundaryDeath
+				|| connectionTCP::_coopBoundaryDecay
+				|| !connectionTCP::_pendingBoundaries.empty();
+			root["bnd"] = coopBoundaryPhase;
+			if (coopBoundaryPhase)
+			{
+				root["side_seq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
+			}
+
+			root["unit_id"] = _unit->getId();
+
+			// coop (Phase 2a unit_casualty): the outcome this casualty resolved to.
+			// Mirrors the think() branch that already ran: convertUnit (respawn) took
+			// priority over convertUnitToCorpse whenever getSpawnUnit() && !_overKill
+			// && !getAlreadyRespawned(); otherwise the unit is either UNCONSCIOUS or
+			// DEAD per its final status.
+			const bool coopConverted = (_unit->getSpawnUnit() != nullptr) && !_overKill && !_unit->getAlreadyRespawned();
+			int coopOutcome;
+			if (coopConverted)
+			{
+				coopOutcome = 2; // CONVERTED (respawn)
+			}
+			else if (_unit->getStatus() == STATUS_UNCONSCIOUS)
+			{
+				coopOutcome = 1; // UNCONSCIOUS
+			}
+			else
+			{
+				coopOutcome = 0; // DEAD
+			}
+			root["outcome"] = coopOutcome;
+
+			root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
+
+			Json::Value posArray(Json::arrayValue);
+			posArray.append(_unit->getPosition().x);
+			posArray.append(_unit->getPosition().y);
+			posArray.append(_unit->getPosition().z);
+			root["pos"] = posArray;
+
+			root["dir"] = _unit->getDirection();
+			root["faceDir"] = _unit->getFaceDirection();
+
+			root["tu"] = _unit->getTimeUnits();
+			root["health"] = _unit->getHealth();
+			root["energy"] = _unit->getEnergy();
+			root["morale"] = _unit->getMorale();
+			root["mana"] = _unit->getMana();
+			root["stunlevel"] = _unit->getStunlevel();
+
+			// coop (chain-atomicity, fatalWounds gap): mirrors hit_unit / the legacy
+			// after_unit_death wound array - the death carrier is the authoritative
+			// final word on the victim's combat state.
+			Json::Value fatalArray(Json::arrayValue);
+			for (int i = 0; i < BODYPART_MAX; ++i)
+			{
+				fatalArray.append(_unit->getFatalWound((UnitBodyPart)i));
+			}
+			root["fatalWounds"] = fatalArray;
+
+			// coop (PRD-I3 saveBlob close): the victim's post-damage per-side armor -
+			// mirrors the hit_unit armor array (TileEngine.cpp damage()).
+			Json::Value armorArray(Json::arrayValue);
+			for (int i = 0; i < SIDE_MAX; ++i)
+			{
+				armorArray.append(_unit->getArmor((UnitSide)i));
+			}
+			root["armor"] = armorArray;
+
+			root["motionpoints"] = _unit->getMotionPoints();
+			root["respawn"] = _unit->getRespawn();
+
+			// coop (PRESENTATION ONLY): whether the death was a direct hit, for the
+			// client's death animation choice. Never ship _damageType itself.
+			root["direct"] = _damageType ? _damageType->isDirect() : false;
+			root["noSound"] = _noSound;
+
+			// coop: the kill ATTRIBUTION, the host's final word on it.
+			coopWriteKillAttribution(root);
+
+			// coop (PRD-I3 SEAM-4): every living unit's absolute post-casualty morale.
+			coopWriteBystanderMorale(root);
+
+			// coop (PRD-P4): the ids this death's corpses were minted with (root
+			// level - storeSpawnManifest reads root["minted_ids"], not nested).
+			// Writes nothing when the death produced no corpse (an overkill, a
+			// carried body, or a respawn - which ships its own manifest on
+			// `convertUnit`).
+			SharedEcon::flushSpawnRecord(root, "corpse", _unit->getId());
+
+			// coop (Phase 2a unit_casualty): the corpse-mint outcome captured by
+			// coopMintCorpse() / the think() reset - see BattlescapeGame's
+			// _coopCorpseMintMode. mode: 0 = on-tile mint, 1 = carried convert,
+			// 2 = overKill/no corpse, 3 = none (respawn/convert).
+			Json::Value corpseObj;
+			corpseObj["mode"] = _parent->coopGetCorpseMintMode();
+			corpseObj["carrier_item_id"] = _parent->coopGetCorpseMintCarrierId();
+			root["corpse"] = corpseObj;
+
+			// coop (Phase 2a unit_casualty): whether itemDropInventory actually ran
+			// on the host's mint - see BattlescapeGame::coopMintCorpse's coopSpill
+			// capture. Deterministic given the unit's final on-tile/carried state.
+			root["spill"] = _parent->coopGetCorpseMintSpill();
+
+			_parent->sendPacketData(root.toStyledString());
 		}
-		root["fatalWounds"] = fatalArray;
-
-		root["setDirection"] = _unit->getDirection();
-		root["setFaceDirection"] = _unit->getFaceDirection();
-
-		// motions point
-		root["motionpoints"] = _unit->getMotionPoints();
-
-		// new
-		root["respawn"] = _unit->getRespawn();
-
-		bool isTile = false;
-
-		if (_unit->getTile())
+		else
 		{
+			// coop
+			Json::Value root;
 
-			isTile = true;
+			root["state"] = "after_unit_death";
+
+			// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+			// client's action_end apply-barrier waits for this death's final state before
+			// sampling the chain's post-N sync-check hash (no-op off the parallel host).
+			connectionTCP::coopStampChainSeq(root);
+
+			root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
+
+			root["unit_id"] = _unit->getId();
+
+			root["time"] = _unit->getTimeUnits();
+			root["health"] = _unit->getHealth();
+			root["energy"] = _unit->getEnergy();
+			root["morale"] = _unit->getMorale();
+			root["mana"] = _unit->getMana();
+			root["stunlevel"] = _unit->getStunlevel();
+
+			// coop (chain-atomicity, fatalWounds gap): the death carrier is the authoritative
+			// final word on the victim's combat state but shipped only health/stun, never the
+			// fatal wounds. A next_turn bulk snapshot that reorders in AHEAD of this death
+			// (carrying the unit's pre-hit wounds) then survived, because neither death carrier
+			// re-shipped the wounds to correct it - the client's post-death fatalWounds stuck at
+			// the resurrected value. Ship the wounds array exactly like hit_unit; the parallel
+			// client applies it (present- + parallel-gated so classic/PvP stay byte-identical).
+			Json::Value fatalArray(Json::arrayValue);
+			for (int i = 0; i < BODYPART_MAX; ++i)
+			{
+				fatalArray.append(_unit->getFatalWoundsCoop()[i]);
+			}
+			root["fatalWounds"] = fatalArray;
+
+			root["setDirection"] = _unit->getDirection();
+			root["setFaceDirection"] = _unit->getFaceDirection();
+
+			// motions point
+			root["motionpoints"] = _unit->getMotionPoints();
+
+			// new
+			root["respawn"] = _unit->getRespawn();
+
+			bool isTile = false;
+
+			if (_unit->getTile())
+			{
+
+				isTile = true;
+			}
+
+			root["isTile"] = isTile;
+
+			// coop: the kill ATTRIBUTION, the host's final word on it.
+			coopWriteKillAttribution(root);
+
+			// coop (PRD-I3 SEAM-4): every living unit's absolute post-casualty morale.
+			coopWriteBystanderMorale(root);
+
+			// coop (PRD-P4): the ids this death's corpses were minted with. This is the
+			// FIRST packet after convertUnitToCorpse() has run, so it is where the
+			// manifest belongs; writes nothing when the death produced no corpse (an
+			// overkill, a carried body - convertToCorpse() reuses the body item's id -
+			// or a respawn, which ships its own manifest on `convertUnit`).
+			SharedEcon::flushSpawnRecord(root, "corpse", _unit->getId());
+
+			_parent->sendPacketData(root.toStyledString());
 		}
-
-		root["isTile"] = isTile;
-
-		// coop: the kill ATTRIBUTION, the host's final word on it.
-		coopWriteKillAttribution(root);
-
-		// coop (PRD-I3 SEAM-4): every living unit's absolute post-casualty morale.
-		coopWriteBystanderMorale(root);
-
-		// coop (PRD-P4): the ids this death's corpses were minted with. This is the
-		// FIRST packet after convertUnitToCorpse() has run, so it is where the
-		// manifest belongs; writes nothing when the death produced no corpse (an
-		// overkill, a carried body - convertToCorpse() reuses the body item's id -
-		// or a respawn, which ships its own manifest on `convertUnit`).
-		SharedEcon::flushSpawnRecord(root, "corpse", _unit->getId());
-
-		_parent->sendPacketData(root.toStyledString());
 	}
 
 }
@@ -307,11 +436,6 @@ void UnitDieBState::init()
 	// coop
 	if ((_parent->isCoop() == true && _coop_death == false && _parent->getCoopMod()->getHost() == true))
 	{
-
-		// coop
-		Json::Value root;
-
-		root["state"] = "unit_death";
 
 		// coop (chain-atomicity Strand A - loose mid-side death, SEAM-3a doctrine): a unit
 		// that dies AFTER its killing chain already drained runs its UnitDieBState with
@@ -353,79 +477,93 @@ void UnitDieBState::init()
 			}
 		}
 
-		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
-		// client's action_end apply-barrier waits for this death before sampling the
-		// chain's post-N sync-check hash (no-op off the parallel host).
-		connectionTCP::coopStampChainSeq(root);
-
-		root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
-
-		root["unit_id"] = _unit->getId();
-		root["pos_x"] = _unit->getPosition().x;
-		root["pos_y"] = _unit->getPosition().y;
-		root["pos_z"] = _unit->getPosition().z;
-
-		root["time"] = _unit->getTimeUnits();
-		root["health"] = _unit->getHealth();
-		root["energy"] = _unit->getEnergy();
-		root["morale"] = _unit->getMorale();
-		root["mana"] = _unit->getMana();
-		root["stunlevel"] = _unit->getStunlevel();
-
-		// coop (chain-atomicity, fatalWounds gap): as in deinit() below - unit_death is the
-		// first authoritative death carrier and must also carry the fatal wounds, so a
-		// next_turn snapshot that reorders in ahead of the death cannot leave the client's
-		// post-death wounds at a resurrected pre-hit value. Mirrors hit_unit's wound array;
-		// applied present- + parallel-gated on the client (classic/PvP byte-identical).
-		Json::Value fatalArray(Json::arrayValue);
-		for (int i = 0; i < BODYPART_MAX; ++i)
+		// coop (Phase 2a unit_casualty): on the PARALLEL host, `unit_casualty` - built
+		// once from UnitDieBState::deinit() - replaces this legacy `unit_death` send
+		// entirely; the loose-chain-open and midSideDeaths bookkeeping above stay
+		// unconditional (they are about the CHAIN, not this packet). Classic co-op
+		// (parallelTurnActive() == false) and a classic/PvP client keep sending
+		// unit_death exactly as before - byte-identical.
+		if (!(connectionTCP::parallelTurnActive() && connectionTCP::getHost()))
 		{
-			fatalArray.append(_unit->getFatalWoundsCoop()[i]);
+			// coop
+			Json::Value root;
+
+			root["state"] = "unit_death";
+
+			// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+			// client's action_end apply-barrier waits for this death before sampling the
+			// chain's post-N sync-check hash (no-op off the parallel host).
+			connectionTCP::coopStampChainSeq(root);
+
+			root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
+
+			root["unit_id"] = _unit->getId();
+			root["pos_x"] = _unit->getPosition().x;
+			root["pos_y"] = _unit->getPosition().y;
+			root["pos_z"] = _unit->getPosition().z;
+
+			root["time"] = _unit->getTimeUnits();
+			root["health"] = _unit->getHealth();
+			root["energy"] = _unit->getEnergy();
+			root["morale"] = _unit->getMorale();
+			root["mana"] = _unit->getMana();
+			root["stunlevel"] = _unit->getStunlevel();
+
+			// coop (chain-atomicity, fatalWounds gap): as in deinit() below - unit_death is the
+			// first authoritative death carrier and must also carry the fatal wounds, so a
+			// next_turn snapshot that reorders in ahead of the death cannot leave the client's
+			// post-death wounds at a resurrected pre-hit value. Mirrors hit_unit's wound array;
+			// applied present- + parallel-gated on the client (classic/PvP byte-identical).
+			Json::Value fatalArray(Json::arrayValue);
+			for (int i = 0; i < BODYPART_MAX; ++i)
+			{
+				fatalArray.append(_unit->getFatalWoundsCoop()[i]);
+			}
+			root["fatalWounds"] = fatalArray;
+
+			root["setDirection"] = _unit->getDirection();
+			root["setFaceDirection"] = _unit->getFaceDirection();
+
+			// motions points (fix)
+			root["motionpoints"] = _unit->getMotionPoints();
+
+			root["damageType"] = _parent->getCoopMod()->ItemDamageTypeToInt(_damageType->ResistType);
+			root["noSound"] = _noSound;
+
+			// coop (PRD-P9 soak finding): whether the dying unit still stands on a
+			// tile. Only `after_unit_death` used to carry this, and the peer read the
+			// MISSING key here as false - so it unlinked the tile before its own
+			// UnitDieBState ran, and convertUnitToCorpse's `dropItems && getTile()`
+			// test then skipped itemDropInventory. The dead soldier's whole kit
+			// stayed in its inventory on the peer while it lay on the ground on the
+			// executor - a strict-census divergence on every equipped casualty.
+			root["isTile"] = (_unit->getTile() != nullptr);
+
+			// new
+			root["respawn"] = _unit->getRespawn();
+
+			bool isTile = false;
+
+			if (_unit->getTile())
+			{
+
+				isTile = true;
+			}
+
+			root["isTile"] = isTile;
+
+			// coop: the kill ATTRIBUTION - see coopWriteKillAttribution(). Both
+			// killedBy and murdererId are already final here: checkForCasualties
+			// stamps them and only then pushes this state.
+			coopWriteKillAttribution(root);
+
+			// coop (PRD-I3 SEAM-4): every living unit's absolute post-casualty morale -
+			// see coopWriteBystanderMorale(). checkForCasualties applied the bystander
+			// morale change before pushing this state, so getMorale() is final here.
+			coopWriteBystanderMorale(root);
+
+			_parent->sendPacketData(root.toStyledString());
 		}
-		root["fatalWounds"] = fatalArray;
-
-		root["setDirection"] = _unit->getDirection();
-		root["setFaceDirection"] = _unit->getFaceDirection();
-
-		// motions points (fix)
-		root["motionpoints"] = _unit->getMotionPoints();
-
-		root["damageType"] = _parent->getCoopMod()->ItemDamageTypeToInt(_damageType->ResistType);
-		root["noSound"] = _noSound;
-
-		// coop (PRD-P9 soak finding): whether the dying unit still stands on a
-		// tile. Only `after_unit_death` used to carry this, and the peer read the
-		// MISSING key here as false - so it unlinked the tile before its own
-		// UnitDieBState ran, and convertUnitToCorpse's `dropItems && getTile()`
-		// test then skipped itemDropInventory. The dead soldier's whole kit
-		// stayed in its inventory on the peer while it lay on the ground on the
-		// executor - a strict-census divergence on every equipped casualty.
-		root["isTile"] = (_unit->getTile() != nullptr);
-
-		// new
-		root["respawn"] = _unit->getRespawn();
-
-		bool isTile = false;
-
-		if (_unit->getTile())
-		{
-
-			isTile = true;
-		}
-
-		root["isTile"] = isTile;
-
-		// coop: the kill ATTRIBUTION - see coopWriteKillAttribution(). Both
-		// killedBy and murdererId are already final here: checkForCasualties
-		// stamps them and only then pushes this state.
-		coopWriteKillAttribution(root);
-
-		// coop (PRD-I3 SEAM-4): every living unit's absolute post-casualty morale -
-		// see coopWriteBystanderMorale(). checkForCasualties applied the bystander
-		// morale change before pushing this state, so getMorale() is final here.
-		coopWriteBystanderMorale(root);
-
-		_parent->sendPacketData(root.toStyledString());
 
 	}
 
@@ -586,6 +724,17 @@ void UnitDieBState::think()
 			_unit->instaKill();
 		}
 		_unit->resetTurnsSince();
+
+		// coop (Phase 2a unit_casualty): reset the corpse-mint bookkeeping BEFORE the
+		// mint decision below. The respawn branch (convertUnit) never calls
+		// coopMintCorpse - and neither does the corner case where getSpawnUnit() &&
+		// !_overKill but getAlreadyRespawned() is already true, which takes NEITHER
+		// branch - so without this reset a respawn/no-mint casualty's packet would
+		// read a STALE mode/carrier/spill left over from a previous casualty's mint.
+		// coopMintCorpse() (reached via convertUnitToCorpse() below, host + non-
+		// parallel-client only) overwrites this with the real mode 0/1/2 when it runs.
+		_parent->coopSetCorpseMintResult(3, -1, false);
+
 		if (_unit->getSpawnUnit() && !_overKill)
 		{
 			if (!_unit->getAlreadyRespawned())

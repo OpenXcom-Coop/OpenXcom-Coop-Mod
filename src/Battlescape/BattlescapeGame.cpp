@@ -984,10 +984,17 @@ void BattlescapeGame::coopMintCorpse(BattleUnit* unit, bool overKill)
 	}
 
 	// move inventory from unit to the ground
-	if (dropItems && unit->getTile())
+	// coop (Phase 2a unit_casualty): capture whether itemDropInventory actually ran
+	// - this is the literal "spill" fact, NOT a mode-derived guess. It can be true
+	// even on an overKill-on-tile mint (mode 2, applyGravity below): dropItems &&
+	// getTile() does not consult overKill, so the inventory can still spill before
+	// the corpse decision runs.
+	bool coopSpill = (dropItems && unit->getTile());
+	if (coopSpill)
 	{
 		getTileEngine()->itemDropInventory(unit->getTile(), unit);
 	}
+	_coopCorpseMintSpill = coopSpill;
 
 	// remove unit-tile link
 	unit->setTile(nullptr, getSave());
@@ -997,6 +1004,9 @@ void BattlescapeGame::coopMintCorpse(BattleUnit* unit, bool overKill)
 		if (overKill)
 		{
 			getSave()->removeUnconsciousBodyItem(unit);
+			// coop (Phase 2a unit_casualty): carried + overKill -> no corpse.
+			_coopCorpseMintMode = 2;
+			_coopCorpseMintCarrierId = -1;
 		}
 		else
 		{
@@ -1007,6 +1017,11 @@ void BattlescapeGame::coopMintCorpse(BattleUnit* unit, bool overKill)
 				{
 					auto* corpseRules = unit->getArmor()->getCorpseBattlescape()[0]; // we're in an inventory, so we must be a 1x1 unit
 					bi->convertToCorpse(corpseRules);
+					// coop (Phase 2a unit_casualty): carried convert - the body item
+					// id that was converted in place is the "corpse" this casualty
+					// produced (convertToCorpse reuses the existing item's id).
+					_coopCorpseMintMode = 1;
+					_coopCorpseMintCarrierId = bi->getId();
 					break;
 				}
 			}
@@ -1034,10 +1049,17 @@ void BattlescapeGame::coopMintCorpse(BattleUnit* unit, bool overKill)
 					--i;
 				}
 			}
+			// coop (Phase 2a unit_casualty): on-tile mint - the minted-ids manifest
+			// (SharedEcon::flushSpawnRecord) is the id list; this is just the mode tag.
+			_coopCorpseMintMode = 0;
+			_coopCorpseMintCarrierId = -1;
 		}
 		else
 		{
 			getSave()->getTileEngine()->applyGravity(getSave()->getTile(lastPosition));
+			// coop (Phase 2a unit_casualty): on-tile + overKill -> no corpse.
+			_coopCorpseMintMode = 2;
+			_coopCorpseMintCarrierId = -1;
 		}
 	}
 }
