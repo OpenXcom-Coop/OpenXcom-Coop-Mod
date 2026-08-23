@@ -305,24 +305,35 @@ def main():
                   f"tripwire_fired={tw_fired} (expected: item 3-5 casualty residual)")
         else:
             assert valid >= 1, "no valid burst staged - fixture failure, not a result"
+            # coop (owner decision 2026-08-23, thin-client divergence audit rec 5 +
+            # END-STATE A step 4): clientAtHostZero is REPORT-ONLY. It is an acceptance
+            # test for the FUTURE explosion ordered-replay rewrite (client stops running
+            # explode()+checkForTerrainExplosions and replays a host event log), NOT a
+            # Phase-2 gate. Today the client still SIMULATES the blast on its animation
+            # clock while the host's ordered set_explosive_tile carrier arrives on the
+            # bookkeeping clock, so a mid-transient trail is expected (item-2) and is
+            # CI-runner-speed sensitive. It causes NO hash/save divergence (settleMatch
+            # below is the correctness guard and STAYS asserting). RE-ARM this assert
+            # when the explosion ordered-replay lands (END-STATE A step 4).
             bad = [(r, m) for (r, m) in rows if m["clientAtHostZero"] > REMAIN_TOL]
-            assert not bad, (
-                f"{len(bad)}/{valid} bursts left the client holding > {REMAIN_TOL} armed tiles "
-                f"at the instant the host had consumed the whole cluster - the client is still "
-                f"zeroing explosive charge off its own display loop (item-2 bug), not the "
-                f"host's ordered set_explosive_tile carrier. Rows:\n    "
-                + "\n    ".join(r for r, _ in bad))
+            if bad:
+                print(f"REPORT-ONLY (item-2, not asserted - see END-STATE A step 4): "
+                      f"{len(bad)}/{valid} bursts left the client holding > {REMAIN_TOL} "
+                      f"armed tiles at the instant the host reached zero - the client is "
+                      f"still zeroing explosive charge off its own display loop, not the "
+                      f"host's ordered set_explosive_tile carrier. Rows:\n    "
+                      + "\n    ".join(r for r, _ in bad))
             settle_bad = [r for (r, m) in rows if not m["settledMatch"]]
             assert not settle_bad, (
                 "explosive-charge state did not converge IDENTICAL at quiescence (the tile "
                 "term the carrier owns must match even though casualty/item terms may drift):"
                 "\n    " + "\n    ".join(settle_bad))
-            print(f"PASS: {valid} HE bursts into an armed cluster; the client held <= "
-                  f"{REMAIN_TOL} armed tiles when the host finished (worst {worst}) and "
-                  f"converged identical at quiescence - the explosive consumption is "
-                  f"host-shipped set_explosive_tile data applied at the bookkeeping clock, "
-                  f"not a client display mutation. (drift tripwire fired={tw_fired}: the "
-                  f"orthogonal item 3-5 casualty residual, not the explosive carrier)")
+            print(f"PASS: {valid} HE bursts into an armed cluster; explosive charge "
+                  f"CONVERGED IDENTICAL at quiescence on both machines (the asserted "
+                  f"correctness guard). Mid-transient worst clientAtHostZero {worst} "
+                  f"(REMAIN_TOL {REMAIN_TOL}, report-only until the explosion "
+                  f"ordered-replay lands - END-STATE A step 4). (drift tripwire "
+                  f"fired={tw_fired}: the orthogonal item 3-5 casualty residual)")
     except Exception as e:
         fail = e
         print(f"[FAIL] {e}")
