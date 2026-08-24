@@ -41,6 +41,7 @@
 #include "../Battlescape/TileEngine.h" // coop (SEAM-11): closeUfoDoors on the client deferred boundary
 #include "../Battlescape/DebriefingState.h"
 #include "../Battlescape/BattlescapeState.h"
+#include "../Battlescape/ExplosionBState.h" // coop (explosion ordered-replay E2): chain_detonation handler constructs the display-only chained state
 
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -649,6 +650,14 @@ std::atomic<bool> g_explosionReplayDisable{false};
 // ExplosionBState.cpp (where they are incremented).
 std::atomic<uint32_t> g_explosionsDisplayOnly{0};
 std::atomic<uint32_t> g_explodeCallsSuppressed{0};
+// coop (explosion ordered-replay E2): chain_detonation send/apply counters. Sent is
+// incremented by the parallel host at the chained-spawn site in ExplosionBState.cpp
+// (one per host-scan hit - the host's successive scans ARE the order); Applied is
+// incremented below in the chain_detonation handler when the parallel client replays
+// one. The two must match at side close - a mismatch means the ordered chain stream
+// dropped or duplicated a secondary. Externed in TestServer and ExplosionBState.cpp.
+std::atomic<uint32_t> g_chainDetonationsSent{0};
+std::atomic<uint32_t> g_chainDetonationsApplied{0};
 
 // coop (parallel battlescape Phase 1 - per-unit state watermark): reads the
 // (side_seq, action_seq) stamp off an apply-side packet, if present. `stamped`
@@ -796,6 +805,46 @@ Json::Value rxHoldDump(size_t limit)
 			e["state"] = "<parse-error>";
 		}
 		out.append(e);
+	}
+	return out;
+}
+
+// coop (explosion ordered-replay E2, test introspection): the last few chain_detonation
+// tile positions this process has SENT (parallel host, ExplosionBState.cpp's chained-spawn
+// site) or APPLIED (parallel client, the chain_detonation handler below), as [x,y,z]
+// tuples oldest-first. Process-local, mirrors g_rxTrace's mutex+deque ring above; the
+// fixture compares the host's list (its send/scan order) against the client's list (its
+// apply order) for exact positional equality - the count-only sent/applied atomics cannot
+// distinguish "right count, wrong order" from a genuinely matching replay.
+struct ChainDetonationEntry { int x; int y; int z; };
+static std::mutex g_chainDetonationListMutex;
+static std::deque<ChainDetonationEntry> g_chainDetonationList;
+static const size_t kChainDetonationListMax = 64;
+
+void chainDetonationListRecord(int x, int y, int z)
+{
+	std::lock_guard<std::mutex> lock(g_chainDetonationListMutex);
+	g_chainDetonationList.push_back({ x, y, z });
+	while (g_chainDetonationList.size() > kChainDetonationListMax)
+	{
+		g_chainDetonationList.pop_front();
+	}
+}
+
+Json::Value chainDetonationListDump(size_t limit)
+{
+	Json::Value out(Json::arrayValue);
+	std::lock_guard<std::mutex> lock(g_chainDetonationListMutex);
+	const size_t skip = (limit > 0 && g_chainDetonationList.size() > limit)
+							? g_chainDetonationList.size() - limit
+							: 0;
+	size_t i = 0;
+	for (const auto& e : g_chainDetonationList)
+	{
+		if (i++ < skip) continue;
+		Json::Value t(Json::arrayValue);
+		t.append(e.x); t.append(e.y); t.append(e.z);
+		out.append(t);
 	}
 	return out;
 }
@@ -969,7 +1018,14 @@ static bool coopIsChainOutcomePacket(const std::string& state)
 		// replaces the unit_death/after_unit_death pair on the parallel host and carries
 		// the SAME chain stamp (or bnd:true+side_seq at a boundary) - seq-gate it exactly
 		// like its legacy predecessors.
-		|| state == "unit_casualty";
+		|| state == "unit_casualty"
+		// coop (explosion ordered-replay E2): the parallel host's per-secondary chain
+		// carrier - one per checkForTerrainExplosions scan hit, in the host's scan order.
+		// Seq-gated like destroy_tile/set_explosive_tile so it folds into the exact chain
+		// it belongs to, in order; NOT whitelisted, NOT subject-keyed (coopPacketSubject
+		// returns -1 for it, same as destroy_tile - there is no per-unit/per-actor id to
+		// key on), NOT a chainCloser/opener pairing.
+		|| state == "chain_detonation";
 }
 
 size_t rxHoldSize()
@@ -8869,6 +8925,36 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (selected_tile)
 			{
 				selected_tile->setExplosive(explosive, explosive_type, true);
+			}
+		}
+	}
+
+	// coop (explosion ordered-replay E2): the parallel client replays the host's
+	// chain in the host's order. Ordered/stamped (coopIsChainOutcomePacket) so it
+	// applies in wire = host-scan order. E2 spawns the display-only chained
+	// ExplosionBState at apply (bookkeeping clock; rough timing OK - E3 moves the
+	// start to the display moment via the ghost queue). The chained state is itself
+	// display-only (_coopReplayDisplay true -> E1/E2 gates suppress its sim).
+	if (stateString == "chain_detonation")
+	{
+		if (parallelTurnActive() && !getHost()
+			&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+			int cx = obj["tile_pos_x"].asInt();
+			int cy = obj["tile_pos_y"].asInt();
+			int cz = obj["tile_pos_z"].asInt();
+			Tile* ct = sbg->getTile(Position(cx, cy, cz));
+			BattlescapeGame* cbg = sbg->getBattleGame();
+			if (ct && cbg)
+			{
+				Position cp = ct->getPosition().toVoxel();
+				cp += Position(8, 8, 0);
+				ExplosionBState* chained = new ExplosionBState(
+					cbg, cp, BattleActionAttack{ BA_NONE, nullptr }, ct, false, 0, 1);
+				cbg->statePushBack(chained);
+				++OpenXcom::g_chainDetonationsApplied;
+				chainDetonationListRecord(cx, cy, cz);
 			}
 		}
 	}

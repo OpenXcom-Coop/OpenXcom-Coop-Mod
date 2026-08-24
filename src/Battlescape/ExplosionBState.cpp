@@ -72,6 +72,16 @@ extern std::atomic<bool> g_explosionReplayDisable;
 extern std::atomic<uint32_t> g_explosionsDisplayOnly;
 extern std::atomic<uint32_t> g_explodeCallsSuppressed;
 
+// coop (explosion ordered-replay E2): the chain_detonation send/apply counters, file-scope
+// in connectionTCP.cpp alongside the E1 counters above; extern-declared here so this file's
+// parallel-host send site can increment the sent side. g_chainDetonationsSent counts every
+// chain_detonation the parallel host ships (its successive checkForTerrainExplosions scan
+// hits); g_chainDetonationsApplied (incremented in connectionTCP.cpp's handler) counts every
+// one the parallel client replays. The two must match at side close - a mismatch means the
+// ordered chain stream dropped or duplicated a secondary.
+extern std::atomic<uint32_t> g_chainDetonationsSent;
+extern std::atomic<uint32_t> g_chainDetonationsApplied;
+
 /**
  * Sets up an ExplosionBState.
  * @param parent Pointer to the BattleScape.
@@ -695,42 +705,50 @@ void ExplosionBState::explode()
 		_parent->popState();
 	}
 
-	// check for terrain explosions
-	Tile *t = save->getTileEngine()->checkForTerrainExplosions();
-	// coop (chain-atomicity item-2 blocker): on the parallel replay client the tile's
-	// explosive-charge CONSUMPTION is host-authoritative (suppressed locally in init above,
-	// applied from the host's stamped set_explosive_tile carrier). This chained-terrain loop
-	// re-derives its work from checkForTerrainExplosions' whole-map scan, so if the scan
-	// returns THIS explosion's OWN tile still armed - the client suppressed its zero and no
-	// host set_explosive_tile / destroy_tile carrier cleared it during this explosion's run -
-	// the host is not resolving that tile this cycle and re-chaining would spin forever on it.
-	// A self-revisit is keyed off host resolution: a host-resolved tile is cleared by its
-	// carrier before it can self-revisit, so this fires only on a tile the host is not
-	// resolving. When it does fire the host has PROVABLY already consumed that tile to 0 -
-	// either it ran its own chained explosion for it at sim time (real play: client-armed is a
-	// subset of host-armed) or, in the impossible client-only case, it never armed it - so
-	// converging the client's copy to 0 cannot diverge from the host, and it lets the scan
-	// terminate instead of spinning. The item-2 packet-rate tracking is untouched (never
-	// fires in real play). Host / classic co-op / PvP / single-player are gated out entirely.
-	// Full carrier-driven chained display is item 5.
-	const bool coopChainedTerrainStranded =
-		t && t == _tile
-		&& _parent->getCoopMod()->parallelTurnActive()
-		&& !_parent->getCoopMod()->getHost();
-	if (coopChainedTerrainStranded)
+	// coop (explosion ordered-replay E2): the whole chained-terrain scan+spawn block is
+	// host/classic/PvP/SP only now. On the parallel client (_coopReplayDisplay) this whole-
+	// map checkForTerrainExplosions scan raced independently on both machines (each machine's
+	// scan order could differ), so a parallel client no longer scans or spawns chained
+	// secondaries locally - it replays them in the host's scan order from the chain_detonation
+	// stream instead (handler in connectionTCP.cpp). This also removes the item-2 "stranded"
+	// tile problem entirely: that hack existed only to converge a parallel CLIENT's own
+	// (independently-ordered) scan hitting its own explosion's tile; a client that never scans
+	// can never strand on it.
+	if (!_coopReplayDisplay)
 	{
-		t->setExplosive(0, 0, true);
-	}
-	if (t && !coopChainedTerrainStranded)
-	{
-		Position p = t->getPosition().toVoxel();
-		p += Position(8,8,0);
-		// coop (PRD-I3 SEAM-3 a): a terrain-chain consequence inherits this explosion's
-		// origin - a boundary chain stays boundary (excluded from the loose stamp); a
-		// mid-side chain stays inside the seq this explosion opened, so it never re-stamps.
-		ExplosionBState *chained = new ExplosionBState(_parent, p, BattleActionAttack{ BA_NONE, _attack.attacker, }, t, false, 0, _explosionCounter + 1);
-		chained->coopSetBoundaryExpl(_coopBoundaryExpl);
-		_parent->statePushFront(chained);
+		// check for terrain explosions
+		Tile *t = save->getTileEngine()->checkForTerrainExplosions();
+		if (t)
+		{
+			Position p = t->getPosition().toVoxel();
+			p += Position(8,8,0);
+			// coop (explosion ordered-replay E2): the parallel host ships one chain_detonation
+			// per secondary it spawns so the client detonates them in THIS host's scan order
+			// (its successive scans are the order). explosive/type ride the packet - by the time
+			// the client displays this the tile's charge may already be zeroed by a
+			// set_explosive_tile carrier. coopStampChainSeq tags it with the triggering chain
+			// (mid-side) or leaves it seq-0 for a boundary explosion, exactly like the item-2
+			// set_explosive_tile carrier above. Parallel-host-only; classic/PvP/SP ship nothing.
+			if (_parent->getCoopMod()->parallelTurnActive() && _parent->getCoopMod()->getHost())
+			{
+				Json::Value root;
+				root["state"] = "chain_detonation";
+				connectionTCP::coopStampChainSeq(root);
+				const Position tp = t->getPosition();
+				root["tile_pos_x"] = tp.x; root["tile_pos_y"] = tp.y; root["tile_pos_z"] = tp.z;
+				root["explosive"] = t->getExplosive();
+				root["explosive_type"] = t->getExplosiveType();
+				connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+				++OpenXcom::g_chainDetonationsSent;
+				OpenXcom::chainDetonationListRecord(tp.x, tp.y, tp.z);
+			}
+			// coop (PRD-I3 SEAM-3 a): a terrain-chain consequence inherits this explosion's
+			// origin - a boundary chain stays boundary (excluded from the loose stamp); a
+			// mid-side chain stays inside the seq this explosion opened, so it never re-stamps.
+			ExplosionBState *chained = new ExplosionBState(_parent, p, BattleActionAttack{ BA_NONE, _attack.attacker, }, t, false, 0, _explosionCounter + 1);
+			chained->coopSetBoundaryExpl(_coopBoundaryExpl);
+			_parent->statePushFront(chained);
+		}
 	}
 
 	// Spawn a unit if the item does that

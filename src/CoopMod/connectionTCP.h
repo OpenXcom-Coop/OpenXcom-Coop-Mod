@@ -199,6 +199,17 @@ Json::Value rxHoldDump(size_t limit);
 // Append a packet to the hold queue as if it had just arrived (TestServer only).
 void rxInjectForTest(std::string&& payload);
 
+// coop (explosion ordered-replay E2, test introspection): the last few chain_detonation
+// tile positions THIS process has either SENT (parallel host, ExplosionBState.cpp's
+// chained-spawn send site - its scan order) or APPLIED (parallel client, the
+// chain_detonation handler below), as [x,y,z] tuples oldest-first. Process-local (each
+// side is its own OpenXcom.exe/port in the test harness), so a fixture reads the host's
+// list as its send order and the client's list as its receive order and diffs the two for
+// exact positional equality - the count-only g_chainDetonationsSent/Applied above cannot
+// distinguish "right count, wrong order" from a genuinely matching replay.
+void chainDetonationListRecord(int x, int y, int z);
+Json::Value chainDetonationListDump(size_t limit);
+
 // ===== Geoscape sync conflation slot =====
 // The two GeoscapeState::think() heartbeats are full-state, last-write-wins
 // snapshots. Instead of FIFO-queuing every per-frame copy onto g_txQ (which

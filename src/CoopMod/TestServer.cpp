@@ -238,6 +238,12 @@ extern std::atomic<bool> g_explosionReplayDisable;
 // avoid a wide recompile, matching the counters above.
 extern std::atomic<uint32_t> g_explosionsDisplayOnly;
 extern std::atomic<uint32_t> g_explodeCallsSuppressed;
+// coop (explosion ordered-replay E2): the chain_detonation send/apply counters. File-scope
+// in connectionTCP.cpp, incremented from ExplosionBState.cpp (sent) and connectionTCP.cpp's
+// handler (applied); extern-declared here to avoid a wide recompile, matching the counters
+// above.
+extern std::atomic<uint32_t> g_chainDetonationsSent;
+extern std::atomic<uint32_t> g_chainDetonationsApplied;
 
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
@@ -4685,6 +4691,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// Both climb only while explosionReplayDisable is off.
 		resp["explosionsDisplayOnly"] = static_cast<Json::UInt>(g_explosionsDisplayOnly.load());
 		resp["explodeCallsSuppressed"] = static_cast<Json::UInt>(g_explodeCallsSuppressed.load());
+		// coop (explosion ordered-replay E2): chainDetonationsSent/Applied are process-local
+		// counters - a parallel host counts the chain_detonation packets it SHIPPED (its own
+		// checkForTerrainExplosions scan order), a parallel client counts the ones it APPLIED.
+		// They should match at side close on the sending/receiving pair. chainDetonationList
+		// is the same data as [x,y,z] tuples (host = send order, client = apply order) so a
+		// fixture can assert ORDER, not just count.
+		resp["chainDetonationsSent"] = static_cast<Json::UInt>(g_chainDetonationsSent.load());
+		resp["chainDetonationsApplied"] = static_cast<Json::UInt>(g_chainDetonationsApplied.load());
+		resp["chainDetonationList"] = chainDetonationListDump(0);
 		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
 		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
 		// diverted proves the fix engaged on a real opportunity.
