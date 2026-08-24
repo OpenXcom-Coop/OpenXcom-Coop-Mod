@@ -187,6 +187,28 @@ void UnitFallBState::think()
 						Json::Value fallRoot;
 						fallRoot["state"] = "unit_fall";
 						fallRoot["unit_id"] = unit->getId();
+						// E4 (explosion ordered-replay / atomic-death Phase 3): stamp the fall so it orders
+						// in its chain and the parallel client applies it under the rank-1 per-unit watermark.
+						// The stamp helpers no-op outside the parallel host, so classic co-op ships this
+						// UNSTAMPED exactly as before (byte-identical). Boundary-phase falls carry bnd:true+
+						// side_seq (no action_seq); mid-side falls ride the burn chain opened at :160 if any,
+						// else open a "fall" loose chain (coopStampLooseOutcomeChain no-ops if a chain is open).
+						if (_parent->getCoopMod()->parallelTurnActive() && _parent->getCoopMod()->getHost())
+						{
+							const bool coopBoundaryPhase = _parent->coopBoundaryCasualty()
+								|| connectionTCP::_coopBoundaryDecay
+								|| !connectionTCP::_pendingBoundaries.empty();
+							if (coopBoundaryPhase)
+							{
+								fallRoot["bnd"] = true;
+								fallRoot["side_seq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
+							}
+							else
+							{
+								connectionTCP::coopStampLooseOutcomeChain("fall");
+								connectionTCP::coopStampChainSeq(fallRoot);
+							}
+						}
 						fallRoot["x"] = unit->getPosition().x;
 						fallRoot["y"] = unit->getPosition().y;
 						fallRoot["z"] = unit->getPosition().z;

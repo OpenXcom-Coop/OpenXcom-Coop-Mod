@@ -244,6 +244,11 @@ extern std::atomic<uint32_t> g_explodeCallsSuppressed;
 // above.
 extern std::atomic<uint32_t> g_chainDetonationsSent;
 extern std::atomic<uint32_t> g_chainDetonationsApplied;
+// coop (explosion ordered-replay E4, TEST-ONLY RED lever): disables the LEAK-GRAV
+// derive so the SAME build measures the pre-derive hover (red) against the gated
+// (green) behavior. File-scope in connectionTCP.cpp; extern-declared here to avoid
+// a wide recompile, matching the counters above.
+extern std::atomic<bool> g_gravityDeriveDisable;
 
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
@@ -4700,6 +4705,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["chainDetonationsSent"] = static_cast<Json::UInt>(g_chainDetonationsSent.load());
 		resp["chainDetonationsApplied"] = static_cast<Json::UInt>(g_chainDetonationsApplied.load());
 		resp["chainDetonationList"] = chainDetonationListDump(0);
+		// coop (explosion ordered-replay E4): TEST-ONLY RED lever for the LEAK-GRAV
+		// derive (parallel_state.gravityDeriveDisable).
+		resp["gravityDeriveDisable"] = g_gravityDeriveDisable.load();
 		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
 		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
 		// diverted proves the fix engaged on a real opportunity.
@@ -4838,6 +4846,14 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		if (req.isMember("explosion_replay_disable"))
 		{
 			g_explosionReplayDisable.store(req.get("explosion_replay_disable", false).asBool(),
+				std::memory_order_relaxed);
+		}
+		// coop (explosion ordered-replay E4, TEST-ONLY RED lever): disables the
+		// LEAK-GRAV derive so the SAME build measures the pre-derive hover (red)
+		// against the gated (green) behavior.
+		if (req.isMember("gravity_derive_disable"))
+		{
+			g_gravityDeriveDisable.store(req.get("gravity_derive_disable", false).asBool(),
 				std::memory_order_relaxed);
 		}
 		// coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): re-run

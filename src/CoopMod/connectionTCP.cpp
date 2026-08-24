@@ -658,6 +658,12 @@ std::atomic<uint32_t> g_explodeCallsSuppressed{0};
 // dropped or duplicated a secondary. Externed in TestServer and ExplosionBState.cpp.
 std::atomic<uint32_t> g_chainDetonationsSent{0};
 std::atomic<uint32_t> g_chainDetonationsApplied{0};
+// coop (explosion ordered-replay E4, TEST-ONLY RED lever): disables the LEAK-GRAV
+// derive (the applyGravity(selected_tile)/applyGravity(aboveT) pair below, on every
+// destroy_tile the parallel client receives) so the SAME build measures the pre-
+// derive behavior - a client item/unit HOVERS where the host dropped it - against
+// the gated (green) behavior. Never set outside the coop test harness.
+std::atomic<bool> g_gravityDeriveDisable{false};
 
 // coop (parallel battlescape Phase 1 - per-unit state watermark): reads the
 // (side_seq, action_seq) stamp off an apply-side packet, if present. `stamped`
@@ -1025,7 +1031,14 @@ static bool coopIsChainOutcomePacket(const std::string& state)
 		// it belongs to, in order; NOT whitelisted, NOT subject-keyed (coopPacketSubject
 		// returns -1 for it, same as destroy_tile - there is no per-unit/per-actor id to
 		// key on), NOT a chainCloser/opener pairing.
-		|| state == "chain_detonation";
+		|| state == "chain_detonation"
+		// coop (explosion ordered-replay E4 / atomic-death Phase 3): the host's
+		// UnitFallBState landed-tile carrier, now stamped (or bnd:true+side_seq at a
+		// boundary) like its chain-mates. Subject-keyed on the fallen unit
+		// (coopPacketSubject's unit_id case, unchanged) so it folds in FIFO after the
+		// spawn/blast that dropped it; seq-gated so a lagging client does not apply it
+		// ahead of its own chain's opener.
+		|| state == "unit_fall";
 }
 
 size_t rxHoldSize()
@@ -8886,7 +8899,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				// gravity via the gated explode() call above). Classic co-op / PvP / host /
 				// single-player untouched.
 				if (parallelTurnActive() && !getHost()
-					&& !OpenXcom::g_explosionReplayDisable.load(std::memory_order_relaxed))
+					&& !OpenXcom::g_explosionReplayDisable.load(std::memory_order_relaxed)
+					&& !OpenXcom::g_gravityDeriveDisable.load(std::memory_order_relaxed))
 				{
 					TileEngine* te = _game->getSavedGame()->getSavedBattle()->getTileEngine();
 					if (te)
