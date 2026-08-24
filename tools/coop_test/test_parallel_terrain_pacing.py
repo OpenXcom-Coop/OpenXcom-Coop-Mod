@@ -19,7 +19,21 @@ global) so no ExplosionBState can consume another's flip; (b) gate the park addi
 on `_explosionCounter==0` so a chained-terrain explosion NEVER parks on the shot-pacing
 path. The force-drain watchdog stays as belt-and-suspenders.
 
-WHY THIS IS A STATISTICAL PROBE, NOT A .sav-DETERMINISTIC FIXTURE: the manifestation is a
+POST-E2 UPDATE (explosion ordered-replay): the parallel client no longer runs
+checkForTerrainExplosions or spawns chained-terrain explosions locally - it replays the
+host's chain in the host's scan order via chain_detonation packets. So the client's
+chained-terrain explosion is now DECOUPLED from its own shot replay: by the time the
+chain_detonation-spawned ExplosionBState runs, the shot's coopPacingWait has already
+resolved, so a chained-terrain can no longer even reach a live shot-pacing flag - the
+D.3b race is closed STRUCTURALLY by the decoupling, on top of the original per-instance +
+_explosionCounter==0 fix. This fixture is therefore reframed: it arms the chain on the
+HOST (so the host chains the armed tile and ships chain_detonation), and its non-vacuous
+signal is chainDetonationsApplied climbing on the client (a host-ordered chain actually
+replayed), not the old terrainPacingDiverted. The wedge assertion (parks/consumes/
+forceDrain == 0) is unchanged and is the real invariant. The legacy divert/park signals
+stay in the OR so the fixture still arms + asserts on a pre-E2 build.
+
+WHY THIS WAS A STATISTICAL PROBE, NOT A .sav-DETERMINISTIC FIXTURE (pre-E2): the manifestation is a
 packet-timing race, not a map-setup condition. Whether a chained-terrain parks/consumes
 depends on whether the host's flip lands before or after the chained-terrain's explode()
 reaches the pacing decision - a fixed .sav pins the SETUP (explosive terrain + a scripted
@@ -116,6 +130,10 @@ def sample_client(client, seconds, base):
            "parks": base.get("terrainPacingParks", 0),
            "consumes": base.get("terrainPacingConsumes", 0),
            "diverted": base.get("terrainPacingDiverted", 0),
+           # coop (explosion ordered-replay E2): the count of host-ordered chained
+           # secondaries this client replayed. Post-E2 THIS is the non-vacuous signal
+           # (a terrain chain actually reached the client), replacing the old divert race.
+           "chainApplied": base.get("chainDetonationsApplied", 0),
            "maxInitRun": 0.0, "maxPacingRun": 0.0,
            "maxTaskDepth": 0, "pacingSeen": 0, "samples": 0}
     while time.time() < end:
@@ -130,6 +148,7 @@ def sample_client(client, seconds, base):
         out["parks"] = max(out["parks"], pc.get("terrainPacingParks", 0))
         out["consumes"] = max(out["consumes"], pc.get("terrainPacingConsumes", 0))
         out["diverted"] = max(out["diverted"], pc.get("terrainPacingDiverted", 0))
+        out["chainApplied"] = max(out["chainApplied"], pc.get("chainDetonationsApplied", 0))
         if pc.get("coopInitDeath"):
             if init_start is None:
                 init_start = time.time()
@@ -189,14 +208,17 @@ def one_burst(host, client, tag):
     except AssertionError as e:
         print(f"  [{tag}] give skipped: {e}")
         return None, None
-    # Arm the terrain chain deterministically: pre-set explosive on the target tile on the
-    # CLIENT only (the machine that wedges). Its HE-blast REPLAY then runs
-    # checkForTerrainExplosions -> spawns a local chained-terrain ExplosionBState
-    # (_explosionCounter == 1) into the shot's pacing window - the race, on any map. Client
-    # only, so nothing clears it before the client's own shot explode() finds it, and no
-    # turn boundary is crossed so the terrain asymmetry never reaches a tripwire compare.
-    client.cmd({"cmd": "battle_tiles", "set_explosive": EXPL_POWER, "explosiveType": 0,
-                "x": epos[0], "y": epos[1], "z": epos[2]})
+    # Arm the terrain chain deterministically. POST-E2 the parallel client no longer runs
+    # checkForTerrainExplosions locally (it replays the host's chain via chain_detonation),
+    # so the arming tile must be on the HOST: the host's HE blast finds the armed tile,
+    # spawns a chained-terrain ExplosionBState (_explosionCounter == 1), and ships one
+    # chain_detonation. The client spawns the display-only chained state from that packet and
+    # runs the SAME pacing decision (_explosionCounter > 0 -> DIVERT, never park) while the
+    # shot's pacing wait is still live. The host destroys the armed terrain and ships the
+    # destroy_tile / set_explosive_tile carriers, so the client's terrain converges - no
+    # host/client asymmetry, no tripwire compare crossed.
+    host.cmd({"cmd": "battle_tiles", "set_explosive": EXPL_POWER, "explosiveType": 0,
+              "x": epos[0], "y": epos[1], "z": epos[2]})
     base = dict(parallel(client))
     r = PI.intent(host, action="shoot", unit=shooter, mode=MODE, weapon_id=wid,
                   x=epos[0], y=epos[1], z=epos[2])
@@ -221,11 +243,17 @@ def is_wedged(base, stats):
 
 
 def armed_opportunity(base, stats):
-    """Did the chained-terrain pacing race ARM this burst at all? Pre-fix it arms as a
-    park/consume; post-fix the _explosionCounter==0 gate diverts it (terrainPacingDiverted
-    climbs). Either way a chained-terrain reached the shot-pacing decision, so the burst is
-    a valid trial rather than a vacuous one where no terrain chain ever raced a shot."""
+    """Did a terrain chain actually reach the client this burst (i.e. is this a non-vacuous
+    trial)? POST-E2 the parallel client no longer scans/spawns chained secondaries locally,
+    so the old divert race (a client-scan chained state hitting the live shot-pacing flag)
+    no longer arms - the host-ordered chain is decoupled from the client's shot replay
+    (coopPacingWait is already resolved by the time the chain_detonation-spawned state runs,
+    which is exactly why the D.3b wedge can no longer happen this way). The post-E2 non-
+    vacuous signal is chainDetonationsApplied climbing: the host chained the armed terrain,
+    shipped chain_detonation, and the client replayed it. The legacy park/consume/divert
+    signals stay in the OR so this fixture still arms on a pre-E2 build."""
     return (is_wedged(base, stats)
+            or stats["chainApplied"] > base.get("chainDetonationsApplied", 0)
             or stats["diverted"] > base.get("terrainPacingDiverted", 0))
 
 
@@ -318,18 +346,22 @@ def main():
         else:
             assert valid >= 1, "no valid burst staged - fixture failure, not a result"
             assert armed >= 1, (
-                f"the chained-terrain pacing race never armed across {valid} bursts "
-                f"(no park/consume/divert) - the fixture did not exercise the path, so a "
-                f"green result would be vacuous. Re-run (the terrain chain is map/RNG "
-                f"dependent) or use --seed on a map with adjacent explosive terrain.")
+                f"no terrain chain reached the client across {valid} bursts "
+                f"(chainDetonationsApplied never climbed, no legacy park/consume/divert) - "
+                f"the fixture did not exercise the path, so a green result would be vacuous. "
+                f"The host's HE blast must land on/adjacent to the armed explosive tile so it "
+                f"chains and ships chain_detonation. Re-run (map/RNG dependent) or use --seed "
+                f"on a map with adjacent explosive terrain.")
             assert wedged == 0, (
                 f"{wedged}/{valid} bursts WEDGED the auto-shot pacing wait - a chained-"
                 f"terrain explosion is still parking on or consuming the shot's pacing "
                 f"flip (the D.3b bug). Rows:\n    " + "\n    ".join(wedge_rows))
             assert not tw_fired, "the drift tripwire fired during the pacing probe"
-            print(f"PASS: {valid} HE-auto-cannon bursts, {armed} armed the terrain-"
-                  f"pacing race, zero wedges - a chained-terrain explosion never parks on "
-                  f"or consumes the shot-pacing flip")
+            print(f"PASS: {valid} HE-auto-cannon bursts, {armed} replayed a host-ordered "
+                  f"terrain chain on the client, zero wedges - the chain_detonation replay "
+                  f"never parks on, consumes, or force-drains the shot-pacing flip (post-E2 "
+                  f"the chain is decoupled from the shot's pacing window, so the D.3b race "
+                  f"can no longer form)")
     except Exception as e:
         fail = e
         print(f"[FAIL] {e}")
