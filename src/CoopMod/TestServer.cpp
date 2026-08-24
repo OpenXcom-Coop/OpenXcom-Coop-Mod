@@ -233,6 +233,11 @@ extern std::atomic<bool> g_atomicDeathDisable;
 extern std::atomic<uint32_t> g_objectiveLeakBlocked;
 extern std::atomic<bool> g_objectiveGateDisable;
 extern std::atomic<bool> g_explosionReplayDisable;
+// coop (explosion ordered-replay E1): the display-only-path counters. File-scope in
+// connectionTCP.cpp, incremented from ExplosionBState.cpp; extern-declared here to
+// avoid a wide recompile, matching the counters above.
+extern std::atomic<uint32_t> g_explosionsDisplayOnly;
+extern std::atomic<uint32_t> g_explodeCallsSuppressed;
 
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
@@ -4674,6 +4679,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["objectiveLeakBlocked"] = static_cast<Json::UInt>(g_objectiveLeakBlocked.load());
 		resp["objectiveGateDisable"] = g_objectiveGateDisable.load();
 		resp["explosionReplayDisable"] = g_explosionReplayDisable.load();
+		// coop (explosion ordered-replay E1): explosionsDisplayOnly counts ExplosionBState
+		// instances that ran display-only on the parallel client; explodeCallsSuppressed
+		// counts how many of those suppressed the single explode() ray-trace call (init()).
+		// Both climb only while explosionReplayDisable is off.
+		resp["explosionsDisplayOnly"] = static_cast<Json::UInt>(g_explosionsDisplayOnly.load());
+		resp["explodeCallsSuppressed"] = static_cast<Json::UInt>(g_explodeCallsSuppressed.load());
 		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
 		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
 		// diverted proves the fix engaged on a real opportunity.

@@ -642,6 +642,13 @@ std::atomic<bool> g_objectiveGateDisable{false};
 // has to exist and be introspectable. Wired to force the legacy (non-ordered)
 // explosion sim path in E1.
 std::atomic<bool> g_explosionReplayDisable{false};
+// coop (explosion ordered-replay E1): counts ExplosionBState instances that took
+// the display-only path (latched once per state, ExplosionBState::init) and how
+// many times that path SUPPRESSED the single explode() ray-trace call. Parallel-
+// client-only, 0 everywhere else. Externed in TestServer for introspection and in
+// ExplosionBState.cpp (where they are incremented).
+std::atomic<uint32_t> g_explosionsDisplayOnly{0};
+std::atomic<uint32_t> g_explodeCallsSuppressed{0};
 
 // coop (parallel battlescape Phase 1 - per-unit state watermark): reads the
 // (side_seq, action_seq) stamp off an apply-side packet, if present. `stamped`
@@ -8805,6 +8812,35 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				selected_tile->destroyCoop((TilePart)tile_part, (SpecialTileType)special_tile_type);
 
 				selected_tile->setExplosive(explosive, explosive_type, true);
+
+				// coop (explosion ordered-replay E1, LEAK-GRAV derive): the parallel client no
+				// longer runs explode()'s per-affected-tile applyGravity (TileEngine.cpp
+				// :3914-3917 - gated off by ExplosionBState::_coopReplayDisplay). Derive it
+				// here instead: contents settle only when the floor under them changed this
+				// blast, and the host ships a destroy_tile for exactly the tile(s) whose part
+				// it actually destroyed (Tile::destroy sends unconditionally on every
+				// successful destroy, any part - Tile.cpp:606-626), so applying gravity to
+				// this tile PLUS the tile above it, on every destroy_tile receipt, covers both
+				// of the host's own per-affected-tile applyGravity targets (the tile itself and
+				// its ceiling) whenever the relevant O_FLOOR destroy actually happened; when it
+				// did not, applyGravity is a no-op (TileEngine::applyGravity reads only the
+				// CURRENT hasNoFloor/haveNoFloorBelow state, so an extra or non-matching call
+				// changes nothing - verified against TileEngine.cpp:5641-5695). Parallel-client
+				// only + off when the replay lever forces the old sim (which runs its own
+				// gravity via the gated explode() call above). Classic co-op / PvP / host /
+				// single-player untouched.
+				if (parallelTurnActive() && !getHost()
+					&& !OpenXcom::g_explosionReplayDisable.load(std::memory_order_relaxed))
+				{
+					TileEngine* te = _game->getSavedGame()->getSavedBattle()->getTileEngine();
+					if (te)
+					{
+						te->applyGravity(selected_tile);
+						Tile* aboveT = _game->getSavedGame()->getSavedBattle()->getTile(
+							Position(tile_pos_x, tile_pos_y, tile_pos_z + 1));
+						if (aboveT) te->applyGravity(aboveT);
+					}
+				}
 
 			}
 

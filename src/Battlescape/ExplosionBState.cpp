@@ -31,6 +31,7 @@
 #include "../Mod/RuleItem.h"
 #include "../Mod/Armor.h"
 #include "../Engine/RNG.h"
+#include <atomic>
 
 namespace OpenXcom
 {
@@ -56,6 +57,20 @@ namespace OpenXcom
 std::uint32_t g_coopTerrainPacingParks = 0;
 std::uint32_t g_coopTerrainPacingConsumes = 0;
 std::uint32_t g_coopTerrainPacingDiverted = 0;
+
+// coop (explosion ordered-replay E1): the replay-lever + display-only counters are
+// file-scope in connectionTCP.cpp (alongside the E0 objective-leak counters); extern-
+// declared here so this file can read/increment them without a wide recompile, matching
+// the pattern the D.3b counters above use in reverse (defined here, extern-read by
+// TestServer.cpp). g_explosionReplayDisable is the E0-introduced TEST-ONLY lever
+// (E0 only stored + surfaced it; E1 is what actually wires it to force the legacy
+// racing-sim path). g_explosionsDisplayOnly / g_explodeCallsSuppressed are new this
+// phase: the former counts ExplosionBState instances that took the display-only path
+// (latched once per state, right after _coopReplayDisplay), the latter counts how many
+// times the single explode() call at init() was suppressed by it.
+extern std::atomic<bool> g_explosionReplayDisable;
+extern std::atomic<uint32_t> g_explosionsDisplayOnly;
+extern std::atomic<uint32_t> g_explodeCallsSuppressed;
 
 /**
  * Sets up an ExplosionBState.
@@ -104,6 +119,20 @@ void ExplosionBState::optValue(int& oldValue, int newValue) const
  */
 void ExplosionBState::init()
 {
+	// coop (explosion ordered-replay E1): latch ONCE, near the top, so the value
+	// persists into think()/member explode() for the whole life of this state. True
+	// only on a parallel client whose replay lever has not been forced off - see the
+	// member declaration in ExplosionBState.h. g_explosionReplayDisable is the E0-
+	// introduced lever E1 now actually wires (RED: forces the client back onto the
+	// old racing explode()/checkForCasualties path, same build).
+	_coopReplayDisplay = _parent->getCoopMod()->parallelTurnActive()
+		&& !_parent->getCoopMod()->getHost()
+		&& !OpenXcom::g_explosionReplayDisable.load(std::memory_order_relaxed);
+	if (_coopReplayDisplay)
+	{
+		++OpenXcom::g_explosionsDisplayOnly;
+	}
+
 	BattleType type = BT_NONE;
 	BattleActionType action = _attack.type;
 	const RuleItem* itemRule = 0;
@@ -290,7 +319,23 @@ void ExplosionBState::init()
 	{
 		if (_power > 0)
 		{
-			_parent->getSave()->getTileEngine()->explode(_attack, _center, _power, _damageType, _radius, range);
+			// coop (explosion ordered-replay E1): the authoritative ray-trace. On a
+			// display-only parallel client this is SUPPRESSED - terrain/charge/fire/
+			// smoke/item/FOV outcomes arrive as carriers (destroy_tile, set_explosive_tile,
+			// set_fire_tile, set_smoke_tile, explode_items, calc_explode_fov), unit damage
+			// as hit_unit - and the explode-path gravity/objective/module writes simply
+			// stop happening at the source instead of racing the carriers. The ANIMATION
+			// below is UNCONDITIONAL - only this one call is gated. Host / classic co-op /
+			// PvP / single-player: _coopReplayDisplay is always false, so this call is
+			// unchanged (byte-identical to pre-E1).
+			if (!_coopReplayDisplay)
+			{
+				_parent->getSave()->getTileEngine()->explode(_attack, _center, _power, _damageType, _radius, range);
+			}
+			else
+			{
+				++OpenXcom::g_explodeCallsSuppressed;
+			}
 
 			int powerForAnimation = _power;
 			if (itemRule && itemRule->getPowerForAnimation() > 0)
@@ -577,7 +622,16 @@ void ExplosionBState::explode()
 	// phase so those deaths stay seq-0 (covered by the ordered boundary marker). A mid-side
 	// explosion (opened a loose chain above) passes false, so its deaths ride that chain.
 	_parent->coopSetBoundaryCasualty(_coopBoundaryExpl);
-	_parent->checkForCasualties(_attack.damage_item ? _damageType : nullptr, _attack, false, terrainExplosion);
+	// coop (explosion ordered-replay E1): on a display-only parallel client, casualty
+	// resolution is SUPPRESSED here - death/knockout arrive as unit_casualty (atomic-death
+	// Phase 2) instead of being computed locally. The coopSetBoundaryCasualty bracket
+	// above/below keeps running unconditionally (cheap chain bookkeeping, harmless even
+	// when the call it brackets is skipped). Host / classic co-op / PvP / single-player
+	// unchanged.
+	if (!_coopReplayDisplay)
+	{
+		_parent->checkForCasualties(_attack.damage_item ? _damageType : nullptr, _attack, false, terrainExplosion);
+	}
 	_parent->coopSetBoundaryCasualty(false);
 	// revive units if damage could give hp or reduce stun
 	_parent->getSave()->reviveUnconsciousUnits(true);

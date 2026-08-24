@@ -63,6 +63,15 @@ private:
 	// starve its wait. The host flip channel (_hasHitUnit, on the CoopMod) stays
 	// shared - the per-instance flag is what routes a release to the parked shot.
 	bool _coopTaskCompleted = false;
+	// coop (explosion ordered-replay E1): latched ONCE near the top of init() so it
+	// persists into think()/member explode(). True only on a parallel client that has
+	// not had the replay lever forced off (parallelTurnActive() && !getHost() &&
+	// !g_explosionReplayDisable) - on that machine this ExplosionBState becomes
+	// DISPLAY-ONLY: the authoritative explode() ray-trace (init, single call) and
+	// checkForCasualties (member explode()) are gated on it. The blast ANIMATION is
+	// unaffected - only those two sim calls. Host / classic co-op / PvP / single-player
+	// always compute this false, so they are byte-identical to pre-E1.
+	bool _coopReplayDisplay = false;
 
 	/// Calculates the effects of the explosion.
 	void explode();
