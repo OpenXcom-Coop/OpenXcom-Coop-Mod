@@ -226,6 +226,13 @@ extern std::atomic<bool> g_deathWatermarkDisable;
 extern std::atomic<uint32_t> g_casualtiesApplied;
 extern std::atomic<uint32_t> g_casualtiesRejected;
 extern std::atomic<bool> g_atomicDeathDisable;
+// coop (explosion ordered-replay E0 - LEAK-OBJ): the objective-counter leak
+// block counter + its TEST-ONLY RED lever, and the E0 introspection-only lever
+// for the (E1-enforcing) explosion-replay path. File-scope in connectionTCP.cpp;
+// extern-declared here to avoid a wide recompile, matching the counters above.
+extern std::atomic<uint32_t> g_objectiveLeakBlocked;
+extern std::atomic<bool> g_objectiveGateDisable;
+extern std::atomic<bool> g_explosionReplayDisable;
 
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
@@ -4659,6 +4666,14 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["casualtiesApplied"] = static_cast<Json::UInt>(g_casualtiesApplied.load());
 		resp["casualtiesRejected"] = static_cast<Json::UInt>(g_casualtiesRejected.load());
 		resp["atomicDeathDisable"] = g_atomicDeathDisable.load();
+		// coop (explosion ordered-replay E0 - LEAK-OBJ): objectiveLeakBlocked counts
+		// addDestroyedObjective() calls the client's coop gate refused (see
+		// SavedBattleGame.cpp); objectiveGateDisable is the TEST-ONLY RED lever that
+		// reverts the gate; explosionReplayDisable is the E0 introspection-only lever
+		// for the (E1-enforcing) ordered-explosion-sim path.
+		resp["objectiveLeakBlocked"] = static_cast<Json::UInt>(g_objectiveLeakBlocked.load());
+		resp["objectiveGateDisable"] = g_objectiveGateDisable.load();
+		resp["explosionReplayDisable"] = g_explosionReplayDisable.load();
 		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
 		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
 		// diverted proves the fix engaged on a real opportunity.
@@ -4781,6 +4796,22 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		if (req.isMember("atomic_death_disable"))
 		{
 			g_atomicDeathDisable.store(req.get("atomic_death_disable", false).asBool(),
+				std::memory_order_relaxed);
+		}
+		// coop (explosion ordered-replay E0, TEST-ONLY RED lever): reverts the
+		// LEAK-OBJ gate so the SAME build measures the pre-fix client-side
+		// objective-counter inflation (red) against the gated behavior (green).
+		if (req.isMember("objective_gate_disable"))
+		{
+			g_objectiveGateDisable.store(req.get("objective_gate_disable", false).asBool(),
+				std::memory_order_relaxed);
+		}
+		// coop (explosion ordered-replay E0, TEST-ONLY): E0 only stores + surfaces
+		// this lever (parallel_state.explosionReplayDisable); it is wired to force
+		// the legacy (non-ordered) explosion sim path in E1.
+		if (req.isMember("explosion_replay_disable"))
+		{
+			g_explosionReplayDisable.store(req.get("explosion_replay_disable", false).asBool(),
 				std::memory_order_relaxed);
 		}
 		// coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): re-run
@@ -5859,6 +5890,11 @@ std::string TestServer::execute(const std::string& line)
 				resp["turn"] = bg->getTurn();
 				resp["side"] = (int)bg->getSide();
 				resp["missionType"] = bg->getMissionType();
+				// coop (explosion ordered-replay E0 - LEAK-OBJ): the objective-counter
+				// parity readout. host==client on a fixed build; a red run
+				// (objective_gate_disable on the client) shows client > host.
+				resp["objectivesDestroyed"] = bg->getObjectivesDestroyed();
+				resp["objectivesNeeded"] = bg->getObjectivesNeeded();
 				// Map fingerprint: a cheap content hash + object-tile count so a test can
 				// tell whether host and client loaded the SAME battle map (e.g. whether the
 				// player's craft mapblock actually spawned on both).

@@ -627,6 +627,21 @@ std::atomic<uint32_t> g_casualtiesRejected{0};
 // legacy-handler early-returns below stand down, so the SAME build reproduces the
 // pre-atomic transient straddle. Never set outside the coop test harness.
 std::atomic<bool> g_atomicDeathDisable{false};
+// coop (explosion ordered-replay E0, LEAK-OBJ): counts calls to
+// SavedBattleGame::addDestroyedObjective() blocked because the client (parallel
+// AND classic) would otherwise self-count objective destruction from its
+// neutered explode()/Tile::destroy `return true` stubs and independently drive
+// autoEndBattle/missionComplete. Host is authoritative; see NextTurnState's
+// `objectivesDestroyed` parity field. Externed in TestServer for introspection.
+std::atomic<uint32_t> g_objectiveLeakBlocked{0};
+// coop (explosion ordered-replay E0, TEST-ONLY RED lever): reverts the LEAK-OBJ
+// gate so the SAME build measures the pre-fix client-side objective inflation
+// (red) against the gated behavior (green). Never set outside the harness.
+std::atomic<bool> g_objectiveGateDisable{false};
+// coop (explosion ordered-replay E0, TEST-ONLY): does nothing yet in E0 - it only
+// has to exist and be introspectable. Wired to force the legacy (non-ordered)
+// explosion sim path in E1.
+std::atomic<bool> g_explosionReplayDisable{false};
 
 // coop (parallel battlescape Phase 1 - per-unit state watermark): reads the
 // (side_seq, action_seq) stamp off an apply-side packet, if present. `stamped`
@@ -9215,6 +9230,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						}
 					}
 				}
+
+				// coop (explosion ordered-replay E0): host-authoritative objective counter. The client
+				// no longer self-counts (LEAK-OBJ gate), so converge to the host's absolute here.
+				// Parallel only (classic client already byte-identical apart from the gate); present-gated.
+				if (connectionTCP::parallelTurnActive() && obj.isMember("objectivesDestroyed"))
+					_game->getSavedGame()->getSavedBattle()->setObjectivesDestroyed(obj["objectivesDestroyed"].asInt());
 
 				SharedEcon::verifyBattleChecksum(_game, obj, "next_turn");
 

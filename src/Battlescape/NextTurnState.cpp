@@ -673,6 +673,13 @@ void NextTurnState::close()
 						root["action_seq"] = 0;
 					}
 
+					// coop (explosion ordered-replay E0): host->client objective-counter
+					// parity. The client no longer self-counts (LEAK-OBJ gate in
+					// SavedBattleGame::addDestroyedObjective), so it converges to this
+					// absolute on next_turn (applied in connectionTCP's next_turn handler).
+					if (connectionTCP::parallelTurnActive())
+						root["objectivesDestroyed"] = static_cast<Json::UInt>(_battleGame->getObjectivesDestroyed());
+
 					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 					{
 

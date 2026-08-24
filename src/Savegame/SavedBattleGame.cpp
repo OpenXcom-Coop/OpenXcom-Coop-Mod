@@ -59,6 +59,12 @@
 
 namespace OpenXcom
 {
+// coop (explosion ordered-replay E0, LEAK-OBJ): file-scope in connectionTCP.cpp;
+// extern-declared here so addDestroyedObjective() can gate on them without a
+// connectionTCP.h class-layout change.
+extern std::atomic<uint32_t> g_objectiveLeakBlocked;
+extern std::atomic<bool> g_objectiveGateDisable;
+
 /**
  * Initializes a brand new battlescape saved game.
  */
@@ -2477,6 +2483,19 @@ void SavedBattleGame::setObjectiveCount(int counter)
  */
 void SavedBattleGame::addDestroyedObjective()
 {
+	// coop (explosion ordered-replay E0, LEAK-OBJ): the client (parallel AND classic)
+	// inflates _objectivesDestroyed via the neutered explode()/Tile::destroy `return true`
+	// stubs -> it must NOT count objective destruction or drive autoEndBattle/missionComplete.
+	// Host is authoritative; it ships the count on next_turn. Classic idiom on purpose
+	// (owner Q4 = fix classic too). TEST lever objective_gate_disable reverts it (same-build red).
+	if (getBattleGame()
+		&& getBattleGame()->getCoopMod()->getCoopStatic() == true
+		&& getBattleGame()->getCoopMod()->getHost() == false
+		&& !OpenXcom::g_objectiveGateDisable.load(std::memory_order_relaxed))
+	{
+		++OpenXcom::g_objectiveLeakBlocked;
+		return;
+	}
 	if (!allObjectivesDestroyed())
 	{
 		_objectivesDestroyed++;
