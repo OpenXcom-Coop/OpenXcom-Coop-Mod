@@ -602,6 +602,13 @@ std::atomic<bool> g_rxForceFloor{false};
 // stale-side straddle (red: endTurn overtakes a still-deferred current-side death) against
 // the barrier-held ordering (green). Externed in TestServer; never set outside the harness.
 std::atomic<bool> g_rxSideBarrierDisable{false};
+// coop (wire-order report alignment, Phase 2): master lever for the wire-order
+// state-apply timeline. Default OFF (today's behavior). When ON, carriers in the
+// TYPE-membership state-carrier set (coopIsWireOrderStateCarrier) apply their state
+// at RX arrival in stream order instead of being display-deferred. Set via the
+// TestServer `wire_order_state` command; read back in parallel_state. Introduced as
+// a test-style lever (rx_force_floor is the template); Phase 6 decides the default.
+std::atomic<bool> g_wireOrderState{false};
 // coop (parallel battlescape Phase 1 - per-unit state watermark): counts stamped
 // per-unit state writes rejected because their stamp was < the unit's recorded
 // watermark (BattleUnit::coopStateAccept returned false). Total plus a per-rank
@@ -1086,6 +1093,18 @@ static bool coopIsChainOutcomePacket(const std::string& state)
 		// for it, same as destroy_tile/chain_detonation - there is no per-unit/
 		// per-actor id to key on).
 		|| state == "module_destroyed";
+}
+
+// coop (wire-order report alignment, Phase 2): the TYPE-membership state-carrier set.
+// Owner ruling (2026-08-25): wire-order routing is by wire `state` string, NOT by the
+// coopStampChainSeq stamp - do not add stamps to migrate a carrier. When g_wireOrderState
+// is ON, a carrier named here applies its canonical state at RX arrival in stream order
+// (stripped from the display-cursor seq-deferral below); lever-off it is never consulted.
+// Increment A: the flagship alien-death wound/casualty carriers (already decoupled, so
+// only the seq-deferral strip is needed). Later increments extend this set.
+static bool coopIsWireOrderStateCarrier(const std::string& state)
+{
+	return state == "hit_unit" || state == "unit_casualty";
 }
 
 size_t rxHoldSize()
@@ -3335,7 +3354,11 @@ void connectionTCP::updateCoopTask()
 				// explosions, old peer): always-consume, bidirectionally. Disabled while
 				// the liveness floor is engaged, exactly like per-subject ordering.
 				bool seqDeferred = false;
-				if (!getHost() && (!legacyOrder || drainFloor) && coopIsChainOutcomePacket(stateString) && !boundaryHazardPacket)
+				// coop (wire-order report alignment, Phase 2): under the lever, a
+				// wire-order-set carrier is never seq-deferred - it applies at RX
+				// arrival in stream order instead of waiting on the display cursor.
+				if (!getHost() && (!legacyOrder || drainFloor) && coopIsChainOutcomePacket(stateString) && !boundaryHazardPacket
+					&& !(g_wireOrderState.load(std::memory_order_relaxed) && coopIsWireOrderStateCarrier(stateString)))
 				{
 					const std::uint32_t pktSeq =
 						static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());

@@ -211,6 +211,10 @@ extern std::atomic<uint32_t> g_coopMidSideDeaths;
 extern std::atomic<uint32_t> g_coopMidSideDeathsUnstamped;
 // coop (chain-atomicity Strand B, TEST-ONLY lever): disable just the side barrier.
 extern std::atomic<bool> g_rxSideBarrierDisable;
+// coop (wire-order report alignment, Phase 2): master lever, file-scope in
+// connectionTCP.cpp; extern-declared here so the TestServer command handler and
+// parallel_state can reach it without a connectionTCP.h class-layout recompile.
+extern std::atomic<bool> g_wireOrderState;
 // coop (parallel battlescape Phase 1 - per-unit state watermark): reject counters
 // (total + per-rank) and the TEST-ONLY lever that disables the watermark check.
 // File-scope in connectionTCP.cpp; extern-declared here to avoid a wide recompile.
@@ -4671,6 +4675,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["rxDrainDisable"] = g_rxDrainDisable.load();
 		resp["rxForceFloor"] = g_rxForceFloor.load();
 		resp["rxSideBarrierDisable"] = g_rxSideBarrierDisable.load();
+		// coop (wire-order report alignment, Phase 2): the master lever readback.
+		resp["wireOrderState"] = g_wireOrderState.load();
 		// coop (parallel battlescape Phase 1 - per-unit state watermark): stamped
 		// per-unit writes dropped because their stamp was < the unit's recorded
 		// watermark. Total + per-rank (0=snapshot/next_turn, 1=chain carrier,
@@ -4828,6 +4834,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		if (req.isMember("rx_side_barrier_disable"))
 		{
 			g_rxSideBarrierDisable.store(req.get("rx_side_barrier_disable", false).asBool(),
+				std::memory_order_relaxed);
+		}
+		// coop (wire-order report alignment, Phase 2): flip the wire-order state-apply lever.
+		if (req.isMember("wire_order_state"))
+		{
+			g_wireOrderState.store(req.get("wire_order_state", false).asBool(),
 				std::memory_order_relaxed);
 		}
 		// coop (parallel battlescape Phase 1, TEST-ONLY): disable the per-unit state
