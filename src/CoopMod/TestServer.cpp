@@ -6207,6 +6207,22 @@ std::string TestServer::execute(const std::string& line)
 					// kill attribution (for coop outcome cross-validation)
 					ju["murdererId"] = u->getMurdererId();
 					ju["killedBy"] = (int)u->killedBy();
+					// coop (explosion ordered-replay E5a GAP-XP introspection): the unit's
+					// gained-experience counters (BattleUnit::_exp, mutated by awardExperience/
+					// addManaExp). A parallel client-owned attacker only trains these via the
+					// hit_unit carrier (TileEngine.cpp) - exposed here so a fixture can read
+					// host==client without waiting for a full debrief.
+					{
+						const UnitStats* exp = u->getExpStats();
+						ju["expFiring"] = exp->firing;
+						ju["expThrowing"] = exp->throwing;
+						ju["expMelee"] = exp->melee;
+						ju["expReactions"] = exp->reactions;
+						ju["expBravery"] = exp->bravery;
+						ju["expPsiSkill"] = exp->psiSkill;
+						ju["expPsiStrength"] = exp->psiStrength;
+						ju["expMana"] = exp->mana;
+					}
 					ju["direction"] = u->getDirection();
 					Position p = u->getPosition();
 					ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;
