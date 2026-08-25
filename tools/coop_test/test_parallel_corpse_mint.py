@@ -24,6 +24,10 @@ boundary bleed-out). A slow client makes its replay lag past the host, which is 
 armed the drift window. Under the strict-burnin lever (side-gates + corpsePending
 skips OFF, so items/itemIdCtr compare at EVERY seq) it asserts, after the run:
 
+  * corpseReplayArmed == 0           (window 1 - the atomic apply adopts host ids AT
+                                      CREATE, so it never queues a corpse for legacy
+                                      replay. Phase 4: this is now an INVARIANT, not a
+                                      non-vacuity signal - see below)
   * corpseRemapArmed == 0            (window 2 - the corpseRemapPending mint->reconcile
                                       drift - NEVER arms on the new path: every corpse
                                       adopted the host ids AT CREATE)
@@ -31,9 +35,11 @@ skips OFF, so items/itemIdCtr compare at EVERY seq) it asserts, after the run:
   * corpse (id, type) census identical on both machines
   * _itemId counters equal, full battle census equal
 
-Non-vacuity: it asserts the alien AI actually minted several corpses during the
-alien side (window 1 corpseReplayArmed grew, corpse count grew) - otherwise the
-clean asserts would be trivially true.
+Non-vacuity: it asserts the alien AI actually minted several CORPSES during the
+alien side (corpse count grew) - otherwise the clean asserts would be trivially true.
+(It does NOT gate on corpseReplayArmed growing: the Phase-2b atomic apply mints at
+apply without ever arming the legacy replay queue, so that counter stays 0 by design -
+that 0 is the invariant asserted above.)
 
 RED (pre-item-3, same build's introspection): corpseRemapArmed>0 and items/itemIdCtr
 mismatchCount>0 at kind ai/expl (measured: corpseRemapArmed=1, items=6, itemIdCtr=6).
@@ -188,7 +194,7 @@ def main():
         core_mm = buckets.get("unitsCore", {}).get("mismatchCount", 0)
 
         print("\n== VERDICT ==")
-        print(f"  window-1 corpseReplayArmed = {replay_arm} (deaths queued this battle)")
+        print(f"  window-1 corpseReplayArmed = {replay_arm} (MUST be 0: atomic apply adopts at create, no replay queue)")
         print(f"  window-2 corpseRemapArmed  = {remap_arm} (MUST be 0: mint adopts at create)")
         print(f"  items mismatchCount        = {items_mm}")
         print(f"  itemIdCtr mismatchCount    = {idctr_mm}")
@@ -200,13 +206,24 @@ def main():
         assert sc.get("strictBurnIn") is True, "strict-burnin lever not engaged - run vacuous"
 
         # NON-VACUITY: the alien AI has to have actually minted corpses during the
-        # alien side, or the clean asserts below are trivially true.
-        if corpses_now - corpses0 < 3 or replay_arm < 3:
-            fails.append(f"VACUOUS: only {corpses_now - corpses0} corpse(s) minted / "
-                         f"{replay_arm} death(s) queued - the alien AI did not kill enough "
-                         f"ambushed soldiers to exercise the mint (try --seed / --hp)")
+        # alien side, or the clean asserts below are trivially true. (Phase 4: the
+        # non-vacuity is CORPSES MINTED, not "deaths queued" - the Phase-2b atomic
+        # apply mints at apply and adopts the host ids AT CREATE, so it never arms the
+        # legacy corpse-replay QUEUE. corpseReplayArmed staying 0 is the atomic
+        # invariant asserted below, not a vacuity signal.)
+        if corpses_now - corpses0 < 3:
+            fails.append(f"VACUOUS: only {corpses_now - corpses0} corpse(s) minted - the "
+                         f"alien AI did not kill enough ambushed soldiers to exercise the "
+                         f"mint (try --seed / --hp)")
 
-        # THE FIX: window 2 never arms + no ai/expl straddle.
+        # THE FIX (atomic path): NEITHER corpse window arms - the atomic apply adopts
+        # the host's manifest ids at create, so it never queues a corpse replay (window
+        # 1) and never reconciles ids a beat late (window 2) - and there is no ai/expl
+        # straddle in the host's sync ring.
+        if replay_arm != 0:
+            fails.append(f"corpseReplayArmed={replay_arm} (expected 0 on the atomic path): "
+                         f"a corpse death was queued for legacy replay - mint-at-apply did "
+                         f"not run (the atomic apply must adopt ids at create, not queue)")
         if remap_arm != 0:
             fails.append(f"corpseRemapArmed={remap_arm} (expected 0): a corpse was minted "
                          f"with LOCAL ids on the parallel client - mint-at-apply did not run")
