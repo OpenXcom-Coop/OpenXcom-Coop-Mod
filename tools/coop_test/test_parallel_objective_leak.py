@@ -1,63 +1,58 @@
 """Explosion ordered-replay E0, LEAK-OBJ: the coop client must NOT self-count
 objective destruction.
 
-THE BUG: `TileEngine::detonate` (explode()'s per-tile callback) and
-`TileEngine::destroy`/`hitCoop` all carry a coop-client stub of the shape
+THE BUG: the coop-client stubs in `Tile::destroy` / `TileEngine::detonate` /
+`hitCoop` return `true` for every tile part the client destroys locally, not only
+for a genuine objective tile. That `true` flows into
+`SavedBattleGame::addDestroyedObjective()`, which had NO coop gate and increments
+`_objectivesDestroyed` whenever `!allObjectivesDestroyed()` - true forever on a
+`_objectivesNeeded == 0` map. So a coop CLIENT inflated its own objective counter
+off ordinary terrain destruction, while the HOST - which checks the tile's REAL
+special type - correctly stays at 0. On a MUST_DESTROY mission this let the
+joining player end the battle unilaterally.
 
-    if (getCoopStatic() && !getHost()) return true;
+THE FIX (E0): a chokepoint at the top of `addDestroyedObjective()`
+(`getCoopStatic()==true && getHost()==false`) refuses to increment on a coop
+client, counts the block in `objectiveLeakBlocked`, and a `next_turn` parity field
+(`objectivesDestroyed`) reconverges the client's readout to the host's real count.
 
-`Tile::destroy`'s stub in particular returns `true` UNCONDITIONALLY - not just
-for a genuinely-destroyed objective tile, but for every tile part the client's
-own local explode()/hit-replay touches (`detonate`'s stub fires even earlier,
-before its `explosive == 0` no-op check). That `true` flows straight into
-`SavedBattleGame::addDestroyedObjective()`, which has NO coop gate and
-increments `_objectivesDestroyed` unconditionally whenever
-`!allObjectivesDestroyed()` - true forever on a `_objectivesNeeded == 0` map,
-since `allObjectivesDestroyed()` requires `_objectivesNeeded > 0`. So a
-parallel (or classic) coop CLIENT inflates its own objective counter off of
-ordinary terrain destruction, with no bound, while the HOST's copy - which
-checks the tile's REAL special type against the mission's objective type -
-correctly stays at 0 on a non-MUST_DESTROY map. On an actual MUST_DESTROY
-mission this lets the joining player end the battle unilaterally.
-
-THE FIX (E0, LEAK-OBJ): a single chokepoint at the top of
-`SavedBattleGame::addDestroyedObjective()` (the classic coop idiom
-`getCoopStatic()==true && getHost()==false`, applied to classic coop too per
-owner decision) refuses to increment on a coop client, counts the block
-(`objectiveLeakBlocked`), and a `next_turn` parity field
-(`objectivesDestroyed`) keeps the client's readout converged to the host's
-real count for any UI/mission-complete check that reads it directly.
+WHAT EXERCISES THE GATE (post-E1 reality - read this before touching the fixture):
+the E1 fix `fb2996741` ("parallel client stops simulating explosions") gated the
+client's `TileEngine::explode()` behind `if(!_coopReplayDisplay)`
+(ExplosionBState.cpp:341). On a parallel client `explode()`/`detonate()` therefore
+NEVER run - an HE blast is display-only and drives the gate ZERO times. The ONLY
+surviving in-battle client path into `addDestroyedObjective` is `hitCoop()`
+(TileEngine.cpp:3447) replaying a host hit whose seeded damage roll clears a
+terrain tile's armor. That is terrain- and roll-dependent, so on a FRESH RANDOM
+map it fired only ~1 run in 6 -> the historical "objectiveLeakBlocked==0, GREEN
+would be vacuous" flake (see parallel/BUG-objective-leak-vacuous.md). This fixture
+kills the flake by PINNING the seed (E0_SEED, default 4) so the nearest breakable
+wall - hence the hitCoop clear - is reproducible; a `==0` outcome now means the
+pinned map stopped breaking a wall (a SEED issue, pick another), never a silent
+vacuous pass and never a product regression.
 
 MECHANISM ASSERTED: counter PARITY, not a MUST_DESTROY map (none is needed -
-`_objectivesNeeded == 0` on the default skirmish fixture, so the host's own
-count never leaves 0; the bug was ever letting the CLIENT's count leave 0).
+`_objectivesNeeded == 0` on the default skirmish fixture, so the host's own count
+never leaves 0; the bug was ever letting the CLIENT's count leave 0).
 
-  (a) fire ONE HE auto-cannon burst at a live hostile. `detonate()` runs for
-      every tile the blast touches (`tilesAffected`), and its stub fires
-      before the `explosive == 0` check - so this alone guarantees the client
-      calls `addDestroyedObjective()` at least once, gate or no gate.
-  (b) fire kinetic (non-explosive) rounds at nearby wall tiles to trigger
-      `TileEngine::hit()` (host) / `hitCoop()` (client replay of the host's
-      seeded roll) - the OTHER leak site, distinct code path from (a). Unlike
-      detonate()'s stub, hitCoop's replay only reaches `Tile::destroy` if the
-      shot's (seeded, so host/client-identical) damage roll actually clears
-      the target tile's armor, so this path is opportunistic: it tries a
-      spiral of adjacent tiles with a decently powerful kinetic weapon and
-      reports whether a wall gave, but does not gate pass/fail on it (the
-      parity assertions below already cover the mechanism via (a), and the RED
-      run re-confirms it independent of whichever tile(s) (b) managed to
-      break). If your build/seed never lands a hitCoop destroy, the summary
-      says so plainly - see the printed NOTE.
+  path (a)  ONE HE auto-cannon burst at the hostile - kept as coverage that the
+            DISPLAY-ONLY blast stays parity-safe (host==client) and exercises the
+            suppressed-explode path. It is NO LONGER a gate trigger (see above).
+  GREEN     the deterministic gate trigger: a kinetic AIMED shot spiral clears the
+            nearest wall via hitCoop; with the gate ON the client's block is counted
+            (`objectiveLeakBlocked` moves) and `_objectivesDestroyed` stays == host.
+  RED       same kinetic driver on a FRESH wall with `objective_gate_disable:true`
+            on the CLIENT: the block is reverted, so the client's
+            `_objectivesDestroyed` climbs past the host's - proving GREEN's parity
+            is held BY the gate, not vacuously. Runs before the side close, whose
+            next_turn parity field then heals the client's inflated count.
 
-GREEN (E0 build, gate ON): host == client `battle_state.objectivesDestroyed`
-after settling the burst(s) AND after one side close (next_turn parity path);
-`parallel_state.objectiveLeakBlocked > 0` on the client.
-
-RED (same build, `parallel_state {objective_gate_disable:true}` on the
-CLIENT only): client counter > host counter after one more HE burst - proves
-the assertions above are not vacuously true.
+GREEN (gate ON): host == client `objectivesDestroyed` after the burst, the GREEN
+wall clear, AND one side close; `objectiveLeakBlocked > 0` on the client.
+RED (same build, gate lever reverted on the client only): client counter > host.
 
 Run:  python tools/coop_test/test_parallel_objective_leak.py
+      E0_SEED=<n> python .../test_parallel_objective_leak.py   # re-pin the map
 Exit 0 = pass; 2 = failure.
 """
 
@@ -73,14 +68,26 @@ import test_parallel_endturn as ET
 
 PORT = "47993"
 
+# The fixture is PINNED (bring_up_battle(seed=SEED) + a host RNG re-pin right
+# before the shots) so the SINGLE surviving client leak path - a hitCoop terrain
+# clear (see module docstring) - fires DETERMINISTICALLY instead of by luck. On a
+# fresh random map the wall shots cleared no tile ~83% of runs, leaving the gate
+# un-exercised -> the historical "objectiveLeakBlocked==0, GREEN would be vacuous"
+# flake. E0_SEED=4 is a known-good value: it deterministically breaks 5 distinct
+# wall tiles within the shooter's reach (enough to feed BOTH the GREEN gate-fire
+# and the RED over-count on separate tiles). Override E0_SEED to re-pin if a map
+# or map-gen change ever stops it breaking a wall (the test says so loudly - it is
+# a fixture/seed issue, never a product regression).
+SEED = int(os.environ.get("E0_SEED", "4"))
+
 HE_WEAPON = os.environ.get("E0_HE_WEAPON", "STR_AUTO_CANNON")
 HE_AMMO = os.environ.get("E0_HE_AMMO", "STR_AC_HE_AMMO")
 KINETIC_WEAPON = os.environ.get("E0_KINETIC_WEAPON", "STR_HEAVY_CANNON")
 KINETIC_AMMO = os.environ.get("E0_KINETIC_AMMO", "STR_HC_AP_AMMO")
 
-# Spiral of candidate wall-hit offsets around the shooter, nearest first: path
-# (b) is opportunistic (see docstring), so this just maximises the odds of one
-# candidate tile having low enough armor for a kinetic round to clear it.
+# Spiral of candidate wall-hit offsets around the shooter, nearest first. With the
+# seed pinned the FIRST offset that clears a tile is reproducible run-to-run, so
+# this is a deterministic search for "the nearest breakable tile", not a lucky dip.
 RING_OFFSETS = sorted(
     [(dx, dy) for dx in range(-3, 4) for dy in range(-3, 4) if 1 <= max(abs(dx), abs(dy)) <= 3],
     key=lambda d: (max(abs(d[0]), abs(d[1])), abs(d[0]) + abs(d[1])))
@@ -111,20 +118,34 @@ def fire_he(host, client, shooter, tgt, tag):
     time.sleep(1.5)
 
 
-def try_wall_shots(host, client, shooter):
-    """Best-effort path (b): spiral kinetic snap shots around the shooter,
-    watching the CLIENT's objectiveLeakBlocked counter for a hitCoop-driven
-    increment. Returns True on the first candidate that moves it."""
+def wall_spiral(host, client, shooter, metric, label, skip=()):
+    """Fire kinetic AIMED shots in a nearest-first spiral around `shooter` until
+    the CLIENT counter read by `metric(client)` moves (a hitCoop terrain clear on
+    the client), or the candidates run out. Returns (broke, tile, delta): `broke`
+    is True on the first clearing shot, `tile` the (x,y,z) it cleared. `skip` is a
+    set of tiles a previous call already consumed, so a second spiral (RED after
+    GREEN) targets a FRESH wall rather than a spent one.
+
+    This is the DETERMINISTIC gate driver post-E1: the parallel client no longer
+    simulates the HE blast (E1 fb2996741), so detonate() never runs there and the
+    ONLY way to make the client destroy a tile - and thus reach the E0 gate at
+    SavedBattleGame::addDestroyedObjective - is to have the host land a hit whose
+    seeded roll clears terrain and let the client replay it via hitCoop. With the
+    seed pinned this is reproducible; `metric` decides which side of the gate we
+    watch (objectiveLeakBlocked for GREEN, client objectivesDestroyed for RED)."""
     wid = PI.give_both(host, client, shooter, KINETIC_WEAPON, KINETIC_AMMO)
     spos = PI.pos(battle(host), shooter)
     tried = 0
     for dx, dy in RING_OFFSETS:
         if tried >= 14:
             break
+        tx, ty, tz = spos[0] + dx, spos[1] + dy, spos[2]
+        if (tx, ty, tz) in skip:
+            continue
         if not PI.idle(host, 20):
             continue
-        tx, ty, tz = spos[0] + dx, spos[1] + dy, spos[2]
-        leak_before = parallel(client)["objectiveLeakBlocked"]
+        PI.top_up(host, client, shooter)
+        before = metric(client)
         r = PI.intent(host, action="shoot", unit=shooter, mode="aimed", weapon_id=wid,
                       tu=200, x=tx, y=ty, z=tz)
         if not r.get("ok"):
@@ -133,23 +154,29 @@ def try_wall_shots(host, client, shooter):
         PI.settle(host, client, seconds=4)
         PI.idle(host, 30)
         time.sleep(0.5)
-        leak_after = parallel(client)["objectiveLeakBlocked"]
-        if leak_after > leak_before:
-            print(f"       path b: shot at ({tx},{ty},{tz}) [offset {(dx, dy)}] broke a "
-                  f"wall part via hitCoop (client objectiveLeakBlocked "
-                  f"{leak_before}->{leak_after}), {tried} attempt(s) tried")
-            return True
-    print(f"       path b NOTE: {tried} candidate tile(s) tried around the shooter, "
-          f"none cleared a wall's armor on this map/seed - opportunistic coverage only "
-          f"(see docstring); the parity mechanism is still proven by path (a) below")
-    return False
+        after = metric(client)
+        if after > before:
+            print(f"       {label}: shot at ({tx},{ty},{tz}) [offset {(dx, dy)}] cleared a "
+                  f"wall part via hitCoop (client counter {before}->{after}), "
+                  f"{tried} attempt(s) tried")
+            return True, (tx, ty, tz), after - before
+    print(f"       {label} NOTE: {tried} candidate tile(s) tried, none cleared a wall "
+          f"(seed E0_SEED={SEED} - pick another if this map stopped breaking)")
+    return False, None, 0
+
+
+def leak_metric(client):
+    return parallel(client)["objectiveLeakBlocked"]
+
+
+def objdestroyed_metric(client):
+    return objectives(client)[0]
 
 
 def live_shooter(host, client, hseat, fallback):
-    """A live own unit to fire the RED burst with. Point-blank HE (path a and
-    path b's own bursts can each incidentally splash their firer) may have
-    downed the original `shooter`; this re-picks any survivor rather than
-    letting a dead actor silently no-op the RED burst."""
+    """A live own unit to fire with. Point-blank HE / kinetic bursts can splash
+    their own firer; this re-picks any survivor rather than letting a dead actor
+    silently no-op a later burst."""
     u = PI.unit(battle(host), fallback)
     if u and not u.get("isOut"):
         return fallback
@@ -174,7 +201,9 @@ def main():
         client.spawn(); client.connect()
         TW.PORT = PORT
         PI.PORT = PORT
-        TW.bring_up_battle(host, client)
+        # PIN the fixture (map / deployment / rolls) so the surviving hitCoop leak
+        # path fires deterministically - see the SEED comment at module top.
+        TW.bring_up_battle(host, client, seed=SEED)
         gm = battle(host).get("coopGamemode")
         assert gm in (1, 4), (
             f"skirmish fixture came up gamemode {gm}; parallel turns only cover PVE "
@@ -220,63 +249,84 @@ def main():
               f"leakBlocked(client) {pre_leak}")
         assert pre_h == pre_c, "objective counters diverged before any shot was fired"
 
-        # ---- path (a): ONE HE blast into/near destructible terrain -----------
+        # Re-pin the host RNG so THIS run's shot rolls (host-seeded, client-replayed
+        # via the hit packet) are reproducible independent of whatever RNG bring-up
+        # consumed - the second half of the determinism the SEED comment describes.
+        host.ok({"cmd": "set_seed", "seed": SEED})
+
+        # ---- path (a): the HE blast is DISPLAY-ONLY on the parallel client -----
+        # Post-E1 (fb2996741) the client no longer simulates the blast: explode()/
+        # detonate() are gated off (ExplosionBState.cpp:341), so the burst does NOT
+        # drive the client's objective gate. It is kept here as coverage that the
+        # blast stays parity-safe (host==client objectivesDestroyed) and to exercise
+        # the display-only path; the DELIBERATE gate trigger is the kinetic wall shot
+        # (GREEN below), the only client leak path that survived E1.
         fire_he(host, client, shooter, epos, "path a")
         a_h, _ = objectives(host)
         a_c, _ = objectives(client)
         leak_a = parallel(client)["objectiveLeakBlocked"]
-        print(f"post path-a (HE burst): host {a_h}  client {a_c}  "
-              f"leakBlocked(client) {leak_a}")
+        print(f"post path-a (HE burst, display-only on client): host {a_h}  "
+              f"client {a_c}  leakBlocked(client) {leak_a}")
         assert a_h == a_c, (
             f"[LEAK-OBJ] objective counters diverged after the HE burst: "
             f"host={a_h} client={a_c}")
 
-        # ---- path (b): best-effort kinetic wall shot(s) (hitCoop replay) -----
-        try_wall_shots(host, client, shooter)
+        # ---- GREEN: DETERMINISTIC gate-fire via a kinetic hitCoop wall clear -----
+        # The pinned seed makes the nearest breakable wall reproducible: the client
+        # replays the host's seeded hit, clears the tile, and its Tile::destroy stub
+        # feeds addDestroyedObjective - which the E0 gate refuses, counting the block
+        # in objectiveLeakBlocked while _objectivesDestroyed stays put (host==client).
+        broke, green_tile, _ = wall_spiral(host, client, shooter, leak_metric, "GREEN")
         b_h, _ = objectives(host)
         b_c, _ = objectives(client)
         leak_b = parallel(client)["objectiveLeakBlocked"]
-        print(f"post path-b (wall shots): host {b_h}  client {b_c}  "
+        print(f"post GREEN (kinetic wall clear): host {b_h}  client {b_c}  "
               f"leakBlocked(client) {leak_b}")
         assert b_h == b_c, (
-            f"[LEAK-OBJ] objective counters diverged after the wall-shot spiral: "
+            f"[LEAK-OBJ] objective counters diverged after the GREEN wall clear: "
             f"host={b_h} client={b_c}")
-        assert leak_b > 0, (
-            f"objectiveLeakBlocked never incremented on the client ({leak_b}) - the "
-            f"gate was never exercised by path (a) or (b), so GREEN would be vacuous")
+        assert leak_b > pre_leak, (
+            f"objectiveLeakBlocked did not move ({pre_leak}->{leak_b}) - the pinned "
+            f"fixture (E0_SEED={SEED}) never cleared a client wall via hitCoop, so the "
+            f"gate had nothing to gate. This is a FIXTURE/SEED issue (pick another "
+            f"E0_SEED), NOT a product regression - the gate itself is untested here, "
+            f"not broken.")
 
         print(f"GREEN: gate ON - host/client objectivesDestroyed stayed IDENTICAL "
-              f"through both paths ({pre_h}->{b_h} host, {pre_c}->{b_c} client), "
-              f"objectiveLeakBlocked(client) = {leak_b} > 0")
+              f"({pre_h}->{b_h} host, {pre_c}->{b_c} client), "
+              f"objectiveLeakBlocked(client) = {leak_b} > {pre_leak}")
 
         # ---- RED: same build, objective_gate_disable=true on the CLIENT only --
-        # Run BEFORE the (bonus) side-close check below: the default skirmish
-        # fixture spawns few hostiles, an HE burst can end the mission outright,
-        # and the RED demonstration is the one result that must not be skipped.
+        # Same DETERMINISTIC kinetic driver as GREEN, but with the gate reverted:
+        # now the client's hitCoop wall clear is NOT blocked, so its
+        # _objectivesDestroyed climbs past the host's (which stays 0 - the host only
+        # counts genuine objective tiles, none on this map). Proves the GREEN parity
+        # is held BY the gate, not vacuously. Fires a FRESH wall (skip the tile GREEN
+        # already spent), and runs BEFORE the side-close (whose next_turn parity field
+        # then heals the client's inflated count back to the host's).
         if not battle(host).get("inBattle"):
-            print("       SKIP RED: the mission ended during path (a)/(b) - no "
-                  "battle left to fire the RED burst into")
+            print("       SKIP RED: the mission ended during path (a)/GREEN - no "
+                  "battle left to fire the RED shots into")
         else:
             client.ok({"cmd": "parallel_state", "objective_gate_disable": True})
             assert parallel(client)["objectiveGateDisable"] is True, \
                 "objective_gate_disable lever did not latch on the client"
 
-            # Fresh live shooter (point-blank HE in path a/b can splash its own
-            # firer) and a FIXED, already-proven-safe target: the original
-            # hostile's tile (epos), never the shooter's OWN tile (self-detonating
-            # an HE auto-cannon burst at point-blank range can down the shooter
-            # before it finishes the burst, and independently is not what this
-            # run is trying to measure).
+            # Reuse the (surviving) shooter, or re-pick+replace a live one if a burst
+            # splashed it. Re-pin the seed so the RED wall clear is reproducible too.
             red_shooter = live_shooter(host, client, hseat, shooter)
-            enemy2 = PI.alive_enemy(battle(host))
-            red_tgt = (enemy2["x"], enemy2["y"], enemy2["z"]) if enemy2 else epos
             if red_shooter != shooter:
+                enemy2 = PI.alive_enemy(battle(host))
+                red_tgt = (enemy2["x"], enemy2["y"], enemy2["z"]) if enemy2 else epos
                 PI.place_adjacent(host, client, red_shooter, red_tgt)
                 print(f"       RED run: original shooter {shooter} is down - "
                       f"using {red_shooter} instead (re-placed near the target)")
+            host.ok({"cmd": "set_seed", "seed": SEED})
             pre_red_h, _ = objectives(host)
             pre_red_c, _ = objectives(client)
-            fire_he(host, client, red_shooter, red_tgt, "RED run")
+            skip = {green_tile} if green_tile else set()
+            broke_red, _, _ = wall_spiral(host, client, red_shooter,
+                                          objdestroyed_metric, "RED", skip=skip)
             red_h, _ = objectives(host)
             red_c, _ = objectives(client)
             print(f"RED run (objective_gate_disable=true on client): "
@@ -287,9 +337,10 @@ def main():
 
             assert red_c > red_h, (
                 f"RED run did not reproduce the leak: expected client ({red_c}) > "
-                f"host ({red_h}) once objective_gate_disable reverted the LEAK-OBJ "
-                f"gate on the client - either the gate is not wired to the lever, or "
-                f"the HE burst did not touch enough tiles this time (re-run)")
+                f"host ({red_h}) once objective_gate_disable reverted the LEAK-OBJ gate. "
+                f"Either the gate is not wired to the lever, or the pinned fixture "
+                f"(E0_SEED={SEED}) cleared no FRESH client wall this time (broke_red="
+                f"{broke_red}; GREEN spent {green_tile}) - the latter is a seed issue.")
             print(f"RED confirmed: client counter ({red_c}) > host counter ({red_h}) "
                   f"with the LEAK-OBJ gate reverted on the SAME build")
 
@@ -303,7 +354,7 @@ def main():
         # delivered the required result, and the default skirmish fixture's
         # handful of hostiles makes a mission-ending side close common.
         if not battle(host).get("inBattle"):
-            print("       NOTE: no battle left after path (a)/(b)/RED - skipping the "
+            print("       NOTE: no battle left after path (a)/GREEN/RED - skipping the "
                   "post-side-close parity re-check; the action_end checkpoints above "
                   "already cover the mechanism")
         else:
