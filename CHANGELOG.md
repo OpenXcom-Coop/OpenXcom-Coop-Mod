@@ -46,6 +46,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
   explosions, a dead mind-controlled alien ending up on different sides, ammo
   counts, and the battle ending on one machine but not the other under
   surrender-mode mods. The per-action verification above now guards all of it.
+- Co-op parallel turns: explosions are now shown to the joining player in
+  the same order the host resolves them, instead of in whatever order they
+  arrive. This fixes a bug where the joining player's count of destroyed
+  mission objectives could run ahead of the host's, ending a mission early
+  before the host had actually finished it. The same objective-count fix
+  also applies to classic (non-parallel) co-op.
+- Co-op: a joining player's soldiers now earn experience for kills that
+  happen on the host's turn and are replayed to their machine, instead of
+  missing out on the experience the host's own soldiers receive for the
+  same kills.
 - Co-op SHARED campaigns: a soldier gifted between players during a battle no
   longer duplicates after the mission ends. Transferring a soldier back and forth
   in the battlescape used to leave a second copy of it in the shared roster once
