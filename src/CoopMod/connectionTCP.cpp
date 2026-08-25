@@ -628,6 +628,13 @@ std::atomic<uint32_t> g_casualtiesRejected{0};
 // legacy-handler early-returns below stand down, so the SAME build reproduces the
 // pre-atomic transient straddle. Never set outside the coop test harness.
 std::atomic<bool> g_atomicDeathDisable{false};
+// coop (parallel battlescape Phase 2c - death ghost, TEST-ONLY RED lever): when set,
+// BattlescapeGame::coopQueueDeathGhost reverts to the Phase-2b STUB - it completes the
+// ghost immediately (no collapse animation, corpse/kit visible at apply) instead of
+// queueing it for the display-side pirouette+fall. GREEN (default) animates; RED skips,
+// so the SAME build reproduces the pre-ghost "corpse just appears" behaviour. Never set
+// outside the coop test harness.
+std::atomic<bool> g_deathGhostDisable{false};
 // coop (explosion ordered-replay E0, LEAK-OBJ): counts calls to
 // SavedBattleGame::addDestroyedObjective() blocked because the client (parallel
 // AND classic) would otherwise self-count objective destruction from its

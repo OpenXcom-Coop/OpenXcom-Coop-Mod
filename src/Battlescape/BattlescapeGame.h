@@ -266,6 +266,15 @@ private:
 	// actual death animation off it. Cleared in the destructor.
 	std::vector<CoopDeathGhost> _coopPendingGhosts;
 	uint32_t _coopDeathGhostsCompleted = 0;
+	// coop (Phase 2c): the ghost currently animating (a copy the running ghost-mode
+	// UnitDieBState points at), and whether one is live. coopPollDeathGhosts() starts
+	// the head of _coopPendingGhosts when the state queue is idle and the display has
+	// caught up to that death's chain seq; coopFinishActiveGhost() clears it on pop.
+	CoopDeathGhost _coopActiveGhost{};
+	bool _coopGhostActive = false;
+	/// coop (Phase 2c): when idle, start the next queued death ghost if its display
+	/// gate is met. Called from handleState(); a cheap no-op off the parallel client.
+	void coopPollDeathGhosts();
 	/// The reserve settings checkReservedTU/kneel must judge `bu` by: the running
 	/// intent's when it owns this actor, otherwise this machine's own.
 	BattleActionType coopReserveModeFor(const BattleUnit* bu) const;
@@ -328,11 +337,32 @@ public:
 	/// apply, so this stub marks the entry done immediately - no UnitDieBState, no
 	/// animation. Phase 2c replaces this body with the queued+started ghost.
 	void coopQueueDeathGhost(const CoopDeathGhost& g);
-	/// coop (Phase 2c placeholder): the ghost currently animating, or null. Always
-	/// null in Phase 2b (nothing is ever left "started").
-	const CoopDeathGhost* coopActiveGhost() const { return nullptr; }
+	/// coop (Phase 2c): the ghost currently animating, or null when none is live.
+	const CoopDeathGhost* coopActiveGhost() const { return _coopGhostActive ? &_coopActiveGhost : nullptr; }
+	/// coop (Phase 2c): finish the active ghost - the ghost-mode UnitDieBState calls
+	/// this on its last frame (override already cleared). Advances the completed count.
+	void coopFinishActiveGhost();
+	/// coop (Phase 2c): the active-or-pending ghost whose footprint covers @a pos, or
+	/// null. Map draws a pending ghost's unit STANDING (its override was seeded so) and
+	/// the active ghost mid-collapse, so a dying unit never blinks out before its turn.
+	const CoopDeathGhost* coopGhostCoveringTile(Position pos) const;
+	/// coop (Phase 2c): true if any active/pending ghost has hidden corpse/kit ids -
+	/// the Map item-draw fast path stays on stock getTopItem() when this is false.
+	bool coopHasHiddenGhostItems() const;
+	/// coop (Phase 2c): true if @a itemId belongs to any active/pending ghost's hidden
+	/// set (the minted corpse + spilled kit stay invisible until the collapse ends).
+	bool coopIsGhostHiddenItem(int itemId) const;
 	/// coop (Phase 2b introspection): death-ghost entries completed so far.
 	uint32_t coopDeathGhostsCompleted() const { return _coopDeathGhostsCompleted; }
+	/// coop (Phase 2c introspection): queued-but-not-yet-completed ghosts (pending +
+	/// the one active).
+	uint32_t coopDeathGhostsPending() const { return static_cast<uint32_t>(_coopPendingGhosts.size()) + (_coopGhostActive ? 1u : 0u); }
+	/// coop (Phase 2c introspection): the per-ghost display state (pending + active),
+	/// for the harness (parallel_state.deathGhosts). Non-const: maps status via getCoopMod().
+	Json::Value coopDeathGhostsJson();
+	/// coop (Phase 2c introspection): the active ghost's hidden corpse/kit ids (union
+	/// with pending), for the harness (battle_state.hiddenItemIds).
+	Json::Value coopHiddenItemIdsJson() const;
 	// coop
 	void teleport(int x, int y, int z, BattleUnit* unit);
 	void setTileCoop(Position pos, BattleUnit &unit);

@@ -235,6 +235,28 @@ public:
 	uint8_t _coopStateRank = 0;
 	/// Accepts a stamped coop state write if it is >= the recorded watermark; records and returns true on accept.
 	bool coopStateAccept(uint32_t side, uint32_t seq, uint8_t rank);
+	// coop (parallel battlescape Phase 2c - death ghost): PRESENTATION-ONLY display
+	// overrides driven by the client-side death ghost (UnitDieBState ghost mode). The
+	// unit's real _status/_direction/_fallPhase are ALREADY the host's final values
+	// after coopApplyCasualty ran (dead + tile-unlinked); the ghost replays the vanilla
+	// collapse animation on these override fields so the sprite still shows the unit
+	// falling while the world state stays final underneath. NEVER serialized
+	// (BattleUnit::save untouched), never hashed, read ONLY by UnitSprite (via the
+	// display*() accessors) and Map (the ghost draw). Zero cost when the override is off
+	// - display*() returns the real getter, so every non-ghost draw is byte-identical.
+	bool _coopDisplayOverride = false;
+	UnitStatus _coopDisplayStatus = STATUS_STANDING;
+	int _coopDisplayDir = 0;
+	int _coopDisplayFallPhase = 0;
+	void setCoopDisplayOverride(bool on) { _coopDisplayOverride = on; }
+	void clearCoopDisplayOverride() { _coopDisplayOverride = false; }
+	void setCoopDisplayStatus(UnitStatus s) { _coopDisplayStatus = s; }
+	void setCoopDisplayDir(int d) { _coopDisplayDir = d; }
+	void setCoopDisplayFallPhase(int p) { _coopDisplayFallPhase = p; }
+	bool coopDisplayOverride() const { return _coopDisplayOverride; }
+	UnitStatus displayStatus() const { return _coopDisplayOverride ? _coopDisplayStatus : getStatus(); }
+	int displayDirection() const { return _coopDisplayOverride ? _coopDisplayDir : getDirection(); }
+	int displayFallingPhase() const { return _coopDisplayOverride ? _coopDisplayFallPhase : getFallingPhase(); }
 	static const int MAX_SOLDIER_ID = 1000000;
 	static const int BUBBLES_FIRST_FRAME = 3;
 	static const int BUBBLES_LAST_FRAME = BUBBLES_FIRST_FRAME + 15;

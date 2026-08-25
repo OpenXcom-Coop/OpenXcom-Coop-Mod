@@ -64,9 +64,15 @@
 
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h" // coop (PRD-P4): Tier-A spawn id-manifest
+#include <atomic> // coop (Phase 2c): g_deathGhostDisable RED lever
 
 namespace OpenXcom
 {
+
+// coop (parallel battlescape Phase 2c - death ghost, TEST-ONLY RED lever): defined in
+// connectionTCP.cpp. ON = coopQueueDeathGhost reverts to the Phase-2b stub (instant
+// complete, no animation) so the same build can reproduce the pre-ghost behaviour.
+extern std::atomic<bool> g_deathGhostDisable;
 
 bool BattlescapeGame::_debugPlay = false;
 
@@ -1263,18 +1269,203 @@ void BattlescapeGame::coopApplyCasualty(const Json::Value& obj)
 }
 
 /**
- * coop (parallel battlescape Phase 2b - atomic unit death, STUB): records @a g as
- * a completed death-ghost entry immediately. The world is ALREADY final by the
- * time coopApplyCasualty calls this (every step above ran), so there is nothing
- * left to animate in this phase - no UnitDieBState push, no death pirouette; the
- * corpse/kit are simply visible at apply. Phase 2c replaces this body with the
- * real queued+started ghost that coopActiveGhost() then reads.
+ * coop (parallel battlescape Phase 2c - death ghost): queues @a g for the display-only
+ * collapse animation. The world is ALREADY final by the time coopApplyCasualty calls
+ * this (dead, tile-unlinked, corpse minted), so this only records the ghost and seeds
+ * the victim's display OVERRIDE to the pre-death STANDING pose. The unit therefore
+ * keeps drawing standing (via the Map ghost draw, since it is tile-unlinked) until
+ * coopPollDeathGhosts() starts its animation - no blink-out between the atomic apply
+ * and the collapse, and the minted corpse/kit stay hidden (coopIsGhostHiddenItem)
+ * meanwhile. The real _status/_direction/_fallPhase are untouched (only UnitSprite/Map
+ * read the override); completion is counted in coopFinishActiveGhost(), not here.
  */
 void BattlescapeGame::coopQueueDeathGhost(const CoopDeathGhost& g)
 {
+	// TEST-ONLY RED lever: revert to the Phase-2b stub - complete the ghost at once,
+	// no animation, corpse/kit visible immediately at apply (no override seeded).
+	if (g_deathGhostDisable.load(std::memory_order_relaxed))
+	{
+		++_coopDeathGhostsCompleted;
+		return;
+	}
 	_coopPendingGhosts.push_back(g);
-	_coopPendingGhosts.back().started = true;
+	if (g.unit)
+	{
+		g.unit->setCoopDisplayOverride(true);
+		g.unit->setCoopDisplayStatus(STATUS_STANDING);
+		g.unit->setCoopDisplayDir(g.dirBeforeApply);
+		g.unit->setCoopDisplayFallPhase(0);
+	}
+}
+
+/**
+ * coop (Phase 2c): start the next queued death ghost when the state queue is idle and
+ * the display has caught up to that death's chain. Boundary (bnd) casualties and ghosts
+ * from a previous side start as soon as the queue drains; a mid-side ghost waits until
+ * the client's display seq reaches the death's action_seq, so the collapse never plays
+ * before the killing shot's animation. One ghost at a time (they serialise like vanilla
+ * UnitDieBStates). A cheap no-op off the parallel client - the queue is only ever
+ * filled by coopApplyCasualty.
+ */
+void BattlescapeGame::coopPollDeathGhosts()
+{
+	if (_coopGhostActive || _coopPendingGhosts.empty() || isBusy())
+	{
+		return;
+	}
+	const CoopDeathGhost& head = _coopPendingGhosts.front();
+	const bool ready = head.bnd
+		|| head.sideSeq != connectionTCP::_sideSeq
+		|| connectionTCP::_clientDisplaySeq >= head.actionSeq;
+	if (!ready)
+	{
+		return;
+	}
+	_coopActiveGhost = head;
+	_coopActiveGhost.started = true;
+	_coopPendingGhosts.erase(_coopPendingGhosts.begin());
+	_coopGhostActive = true;
+	statePushBack(new UnitDieBState(this, &_coopActiveGhost));
+}
+
+/**
+ * coop (Phase 2c): the ghost-mode UnitDieBState calls this on its final frame (the
+ * display override is already cleared by then). Marks the active ghost done so
+ * coopPollDeathGhosts() can start the next one.
+ */
+void BattlescapeGame::coopFinishActiveGhost()
+{
+	_coopGhostActive = false;
 	++_coopDeathGhostsCompleted;
+}
+
+/**
+ * coop (Phase 2c): the active-or-pending ghost whose size-square footprint covers
+ * @a pos, or null. Map draws pending ghosts standing and the active ghost collapsing.
+ */
+const CoopDeathGhost* BattlescapeGame::coopGhostCoveringTile(Position pos) const
+{
+	auto covers = [&](const CoopDeathGhost& g) -> bool
+	{
+		return g.unit
+			&& pos.z == g.pos.z
+			&& pos.x >= g.pos.x && pos.x < g.pos.x + g.size
+			&& pos.y >= g.pos.y && pos.y < g.pos.y + g.size;
+	};
+	if (_coopGhostActive && covers(_coopActiveGhost))
+	{
+		return &_coopActiveGhost;
+	}
+	for (const auto& g : _coopPendingGhosts)
+	{
+		if (covers(g))
+		{
+			return &g;
+		}
+	}
+	return nullptr;
+}
+
+/**
+ * coop (Phase 2c): true if any active/pending ghost hides corpse/kit ids (Map's
+ * item-draw fast path stays on stock getTopItem() otherwise).
+ */
+bool BattlescapeGame::coopHasHiddenGhostItems() const
+{
+	if (_coopGhostActive && !_coopActiveGhost.hiddenItemIds.empty())
+	{
+		return true;
+	}
+	for (const auto& g : _coopPendingGhosts)
+	{
+		if (!g.hiddenItemIds.empty())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * coop (Phase 2c): true if @a itemId is a corpse/kit id hidden by any active/pending
+ * ghost (invisible until that unit finishes its collapse).
+ */
+bool BattlescapeGame::coopIsGhostHiddenItem(int itemId) const
+{
+	if (_coopGhostActive)
+	{
+		for (int id : _coopActiveGhost.hiddenItemIds)
+		{
+			if (id == itemId) return true;
+		}
+	}
+	for (const auto& g : _coopPendingGhosts)
+	{
+		for (int id : g.hiddenItemIds)
+		{
+			if (id == itemId) return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * coop (Phase 2c introspection): per-ghost display state (active first, then pending),
+ * for the harness (parallel_state.deathGhosts). status/dir/fallPhase are the DISPLAY
+ * values - so a fixture can assert the exact collapse sequence against getDeathFrames().
+ */
+Json::Value BattlescapeGame::coopDeathGhostsJson()
+{
+	Json::Value arr(Json::arrayValue);
+	auto emit = [&](const CoopDeathGhost& g, bool active)
+	{
+		if (!g.unit) return;
+		Json::Value e;
+		e["unit_id"] = g.unit->getId();
+		e["started"] = g.started;
+		e["active"] = active;
+		e["status"] = getCoopMod()->unitstatusToInt(g.unit->displayStatus());
+		e["dir"] = g.unit->displayDirection();
+		e["fallPhase"] = g.unit->displayFallingPhase();
+		e["direct"] = g.direct;
+		e["bnd"] = g.bnd;
+		e["sideSeq"] = static_cast<Json::UInt>(g.sideSeq);
+		e["actionSeq"] = static_cast<Json::UInt>(g.actionSeq);
+		arr.append(e);
+	};
+	if (_coopGhostActive)
+	{
+		emit(_coopActiveGhost, true);
+	}
+	for (const auto& g : _coopPendingGhosts)
+	{
+		emit(g, false);
+	}
+	return arr;
+}
+
+/**
+ * coop (Phase 2c introspection): the corpse/kit ids currently hidden (active + pending
+ * ghosts), for the harness (battle_state.hiddenItemIds).
+ */
+Json::Value BattlescapeGame::coopHiddenItemIdsJson() const
+{
+	Json::Value arr(Json::arrayValue);
+	if (_coopGhostActive)
+	{
+		for (int id : _coopActiveGhost.hiddenItemIds)
+		{
+			arr.append(id);
+		}
+	}
+	for (const auto& g : _coopPendingGhosts)
+	{
+		for (int id : g.hiddenItemIds)
+		{
+			arr.append(id);
+		}
+	}
+	return arr;
 }
 
 void BattlescapeGame::teleport(int x, int y, int z, BattleUnit* unit)
@@ -1349,11 +1540,13 @@ BattlescapeGame::~BattlescapeGame()
 		delete bs;
 	}
 	cleanupDeleted();
-	// coop (parallel battlescape Phase 2b - atomic unit death): drop any queued
-	// death-ghost entries with the battle. Phase 2b's stub completes every entry
-	// immediately, so this is normally already empty; defensive for Phase 2c,
-	// where an entry can still be "started" when the battle ends.
+	// coop (parallel battlescape Phase 2c - atomic unit death): drop any queued death
+	// ghosts with the battle. An entry can still be pending/active if a battle ends
+	// mid-collapse (debrief/abort); the units live until SavedBattleGame is destroyed
+	// (outlives this), and the display-override fields are never serialized, so nothing
+	// else needs undoing here.
 	_coopPendingGhosts.clear();
+	_coopGhostActive = false;
 }
 
 /**
@@ -3305,6 +3498,14 @@ void BattlescapeGame::handleState()
 			_states.front()->think();
 		}
 		getMap()->invalidate(); // redraw map
+	}
+	else
+	{
+		// coop (Phase 2c death ghost): the queue is idle - start the next queued
+		// death ghost if its display gate is met. Pushed via statePushBack (init now,
+		// think next tick), so the collapse begins on the following tick, matching
+		// vanilla cadence. No-op unless the parallel client has a pending ghost.
+		coopPollDeathGhosts();
 	}
 }
 

@@ -27,6 +27,7 @@ namespace OpenXcom
 
 class BattlescapeGame;
 class BattleUnit;
+struct CoopDeathGhost;
 
 /* Refactoring tip : UnitDieBState */
 /**
@@ -49,9 +50,22 @@ private:
 	// think() later - after the synchronous boundary bracket has closed - so the phase
 	// MUST be captured now, not read live at send time.
 	bool _coopBoundaryDeath = false;
+	// coop (parallel battlescape Phase 2c - death ghost): non-null in GHOST MODE only.
+	// A ghost is a display-only UnitDieBState the parallel replay client pushes AFTER
+	// coopApplyCasualty already applied the death atomically (state is final: dead,
+	// tile-unlinked, corpse minted). Ghost mode replays the vanilla collapse animation
+	// on the victim's BattleUnit display-override fields (never its real state) and
+	// SKIPS every world mutation + every host-only send/notify. nullptr in every
+	// existing path - so no existing behaviour changes.
+	const CoopDeathGhost* _ghost = nullptr;
+	/// coop (Phase 2c): the ghost-mode per-tick animation (display overrides only).
+	void coopGhostThink();
   public:
 	/// Creates a new UnitDieBState class
 	UnitDieBState(BattlescapeGame* parent, BattleUnit* unit, const RuleDamageType* damageType, bool noSound, bool coop_death = false);
+	/// coop (Phase 2c - death ghost): the display-only ctor. Drives the collapse
+	/// animation off @a ghost's captured pose while the real unit stays final.
+	UnitDieBState(BattlescapeGame* parent, const CoopDeathGhost* ghost);
 	/// Cleans up the UnitDieBState.
 	~UnitDieBState();
 	/// Initializes the state.

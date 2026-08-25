@@ -18,6 +18,7 @@
  */
 
 #include "UnitDieBState.h"
+#include "BattlescapeGame.h" // coop (Phase 2c death ghost): full CoopDeathGhost definition
 #include "TileEngine.h"
 #include "BattlescapeState.h"
 #include "Map.h"
@@ -130,6 +131,53 @@ UnitDieBState::UnitDieBState(BattlescapeGame* parent, BattleUnit* unit, const Ru
 }
 
 /**
+ * coop (parallel battlescape Phase 2c - death ghost): the display-only ctor.
+ *
+ * The parallel replay client pushes this AFTER coopApplyCasualty already applied the
+ * death atomically (the unit is dead, tile-unlinked, corpse minted with the host's
+ * ids). This state reproduces the vanilla collapse animation on the victim's
+ * BattleUnit display-OVERRIDE fields (never its real state, which stays final) and
+ * SKIPS every world mutation and every host-only send/notify. The override was seeded
+ * to the pre-death STANDING pose at queue time (so the unit drew standing while this
+ * ghost waited its turn); here we set the animation cadence exactly as the vanilla
+ * ctor did, off the ghost's captured pose.
+ */
+UnitDieBState::UnitDieBState(BattlescapeGame* parent, const CoopDeathGhost* ghost) : BattleState(parent),
+	_unit(ghost->unit), _damageType(nullptr), _noSound(ghost->noSound), _extraFrame(0),
+	_overKill(false), _coop_death(true), _ghost(ghost)
+{
+	_coopBoundaryDeath = false;
+
+	_unit->setCoopDisplayOverride(true);
+	_unit->setCoopDisplayStatus(STATUS_STANDING);
+	_unit->setCoopDisplayDir(ghost->dirBeforeApply);
+	_unit->setCoopDisplayFallPhase(0);
+
+	// don't show the "fall to death" pirouette when the unit was blasted (indirect)
+	// or was already unconscious - jump straight to the final frame (vanilla ctor's
+	// setDirection(3) + instaFalling), rendered on the override fields.
+	if (!ghost->direct || ghost->wasUnconsciousBefore)
+	{
+		_unit->setCoopDisplayDir(3);
+		const int frames = _unit->getArmor()->getDeathFrames();
+		_unit->setCoopDisplayFallPhase(frames > 0 ? frames - 1 : 0);
+		_unit->setCoopDisplayStatus(ghost->finalStatus);
+	}
+	else
+	{
+		if (ghost->faction == FACTION_PLAYER)
+		{
+			_parent->getMap()->setUnitDying(true);
+		}
+		_parent->setStateInterval(BattlescapeState::DEFAULT_ANIM_SPEED);
+		if (ghost->dirBeforeApply != 3)
+		{
+			_parent->setStateInterval(BattlescapeState::DEFAULT_ANIM_SPEED / 3);
+		}
+	}
+}
+
+/**
  * Deletes the UnitDieBState.
  */
 UnitDieBState::~UnitDieBState()
@@ -222,6 +270,11 @@ void UnitDieBState::coopWriteBystanderMorale(Json::Value& root) const
  */
 void UnitDieBState::deinit()
 {
+	// coop (Phase 2c - death ghost): display-only, never a wire sender.
+	if (_ghost)
+	{
+		return;
+	}
 
 	// coop
 	if ((_parent->isCoop() == true && _coop_death == false && _parent->getCoopMod()->getHost() == true))
@@ -433,8 +486,13 @@ void UnitDieBState::deinit()
 
 void UnitDieBState::init()
 {
+	// coop (Phase 2c - death ghost): display-only, nothing to send/decide/notify.
+	if (_ghost)
+	{
+		return;
+	}
 
-	// coop 
+	// coop
 	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && _coop_death == false)
 	{
 		return;
@@ -608,6 +666,12 @@ void UnitDieBState::init()
  */
 void UnitDieBState::think()
 {
+	// coop (Phase 2c - death ghost): the display-only animation path.
+	if (_ghost)
+	{
+		coopGhostThink();
+		return;
+	}
 
 	// coop
 	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && _coop_death == false)
@@ -761,6 +825,108 @@ void UnitDieBState::think()
 		_parent->getSave()->clearUnitSelection(_unit);
 	}
 
+}
+
+/**
+ * coop (parallel battlescape Phase 2c - death ghost): the display-only collapse
+ * animation, a frame-for-frame replay of vanilla think() driven entirely on the
+ * victim's display-OVERRIDE fields. The real unit is ALREADY final (dead,
+ * tile-unlinked, corpse minted) from coopApplyCasualty, so this touches NO world
+ * state, rolls no sim dice (playDeathSound's sound-pick is the only RNG, exactly as
+ * the pre-2b _coop_death path did) and sends nothing. On the last frame it drops the
+ * override so the real dead unit + the now-unhidden corpse/kit draw at the vanilla
+ * instant, then finishes the ghost and pops.
+ */
+void UnitDieBState::coopGhostThink()
+{
+	const CoopDeathGhost* g = _ghost;
+	BattleUnit* u = _unit;
+	const int frames = u->getArmor()->getDeathFrames();
+
+	auto ghostKeepFalling = [&]()
+	{
+		int phase = u->displayFallingPhase() + 1;
+		if (frames > 0 && phase == frames)
+		{
+			phase = frames - 1;
+			u->setCoopDisplayStatus(g->finalStatus);
+		}
+		u->setCoopDisplayFallPhase(phase < 0 ? 0 : phase);
+	};
+	auto ghostIsOut = [&]()
+	{
+		const UnitStatus s = u->displayStatus();
+		return s == STATUS_DEAD || s == STATUS_UNCONSCIOUS;
+	};
+
+	if (u->displayDirection() != 3 && g->direct)
+	{
+		// the pirouette: turn one step toward direction 3.
+		int dir = u->displayDirection() + 1;
+		if (dir == 8)
+		{
+			dir = 0;
+		}
+		u->setCoopDisplayDir(dir);
+		if (dir == 3)
+		{
+			_parent->setStateInterval(BattlescapeState::DEFAULT_ANIM_SPEED);
+		}
+	}
+	else if (u->displayStatus() == STATUS_COLLAPSING)
+	{
+		ghostKeepFalling();
+	}
+	else if (!ghostIsOut())
+	{
+		// startFalling (display): begin the collapse; death sound at this instant.
+		u->setCoopDisplayStatus(STATUS_COLLAPSING);
+		u->setCoopDisplayFallPhase(0);
+		if (!_noSound)
+		{
+			playDeathSound();
+		}
+		if (u->getRespawn())
+		{
+			while (u->displayStatus() == STATUS_COLLAPSING)
+			{
+				ghostKeepFalling();
+			}
+		}
+	}
+
+	if (_extraFrame == 2)
+	{
+		if (g->faction == FACTION_PLAYER)
+		{
+			_parent->getMap()->setUnitDying(false);
+		}
+		// reveal: drop the override so the real dead unit + the now-unhidden corpse
+		// and spilled kit draw, exactly as vanilla mints them at this instant.
+		u->clearCoopDisplayOverride();
+		if (!_noSound)
+		{
+			_parent->getSave()->getBattleState()->resetUiButton();
+		}
+		_parent->getTileEngine()->calculateLighting(LL_ITEMS, g->pos, g->size);
+		_parent->getTileEngine()->calculateFOV(g->pos, g->size, false);
+		_parent->coopFinishActiveGhost();
+		_parent->popState();
+	}
+	else if (_extraFrame == 1)
+	{
+		_extraFrame++;
+	}
+	else if (ghostIsOut())
+	{
+		_extraFrame = 1;
+		// the indirect-death sound plays here (vanilla isOut branch), never for a
+		// unit that went unconscious.
+		if (!_noSound && !g->direct && g->finalStatus != STATUS_UNCONSCIOUS)
+		{
+			playDeathSound();
+		}
+	}
 }
 
 /**

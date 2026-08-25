@@ -226,6 +226,8 @@ extern std::atomic<bool> g_deathWatermarkDisable;
 extern std::atomic<uint32_t> g_casualtiesApplied;
 extern std::atomic<uint32_t> g_casualtiesRejected;
 extern std::atomic<bool> g_atomicDeathDisable;
+// coop (parallel battlescape Phase 2c - death ghost, TEST-ONLY RED lever).
+extern std::atomic<bool> g_deathGhostDisable;
 // coop (explosion ordered-replay E0 - LEAK-OBJ): the objective-counter leak
 // block counter + its TEST-ONLY RED lever, and the E0 introspection-only lever
 // for the (E1-enforcing) explosion-replay path. File-scope in connectionTCP.cpp;
@@ -4688,6 +4690,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["casualtiesApplied"] = static_cast<Json::UInt>(g_casualtiesApplied.load());
 		resp["casualtiesRejected"] = static_cast<Json::UInt>(g_casualtiesRejected.load());
 		resp["atomicDeathDisable"] = g_atomicDeathDisable.load();
+		resp["deathGhostDisable"] = g_deathGhostDisable.load();
 		// coop (explosion ordered-replay E0 - LEAK-OBJ): objectiveLeakBlocked counts
 		// addDestroyedObjective() calls the client's coop gate refused (see
 		// SavedBattleGame.cpp); objectiveGateDisable is the TEST-ONLY RED lever that
@@ -4848,6 +4851,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// coop (explosion ordered-replay E0, TEST-ONLY RED lever): reverts the
 		// LEAK-OBJ gate so the SAME build measures the pre-fix client-side
 		// objective-counter inflation (red) against the gated behavior (green).
+		// coop (parallel battlescape Phase 2c, TEST-ONLY RED lever): disable the
+		// death-ghost animation so coopQueueDeathGhost reverts to the Phase-2b stub
+		// (instant complete, corpse visible at apply) - the SAME build reproduces the
+		// pre-ghost "corpse just appears" behaviour (red) against the collapse (green).
+		if (req.isMember("death_ghost_disable"))
+		{
+			g_deathGhostDisable.store(req.get("death_ghost_disable", false).asBool(),
+				std::memory_order_relaxed);
+		}
 		if (req.isMember("objective_gate_disable"))
 		{
 			g_objectiveGateDisable.store(req.get("objective_gate_disable", false).asBool(),
@@ -4892,6 +4904,14 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			BattlescapeGame* pbg = pbattle ? pbattle->getBattleGame() : nullptr;
 			resp["fastForward"] = pbg ? pbg->getCoopFastForward() : false;
 			resp["chainSkippable"] = pbg ? pbg->chainIsSkippable() : false;
+			// coop (parallel battlescape Phase 2c - death ghost): the client-side death
+			// animation queue. deathGhosts = per-ghost DISPLAY state (active first, then
+			// pending) so a fixture can assert the collapse sequence against the armor's
+			// getDeathFrames(); deathGhostsPending = still-animating count; completed =
+			// finished so far (== kills once the battle's animations drain).
+			resp["deathGhosts"] = pbg ? pbg->coopDeathGhostsJson() : Json::Value(Json::arrayValue);
+			resp["deathGhostsPending"] = static_cast<Json::UInt>(pbg ? pbg->coopDeathGhostsPending() : 0);
+			resp["deathGhostsCompleted"] = static_cast<Json::UInt>(pbg ? pbg->coopDeathGhostsCompleted() : 0);
 		}
 		resp["pendBlocked"] = connectionTCP::_pendBlocked;
 		resp["openChainSeq"] = static_cast<Json::UInt>(connectionTCP::_openChainSeq);
@@ -6009,6 +6029,10 @@ std::string TestServer::execute(const std::string& line)
 				// test can see exactly which one blocks _battleInit from ever being set.
 				resp["isBusy"] = bg->getBattleGame() ? bg->getBattleGame()->isBusy() : false;
 				resp["panicHandled"] = bg->getBattleGame() ? bg->getBattleGame()->getPanicHandled() : false;
+				// coop (parallel battlescape Phase 2c - death ghost): the corpse/kit item
+				// ids currently hidden from the map (a death ghost's minted items stay
+				// invisible until its collapse ends). Empty except during a client ghost.
+				resp["hiddenItemIds"] = bg->getBattleGame() ? bg->getBattleGame()->coopHiddenItemIdsJson() : Json::Value(Json::arrayValue);
 				resp["isPreview"] = bg->isPreview();
 				resp["clientPanicHandle"] = _game->getCoopMod()->_clientPanicHandle;
 				resp["serverOwner"] = connectionTCP::getServerOwner();
@@ -6480,7 +6504,13 @@ std::string TestServer::execute(const std::string& line)
 				int coopSide = req.get("coop_side", -1).asInt();
 				int killId = req.get("unit", -1).asInt();
 				int killFaction = req.get("faction", -1).asInt();
-				const RuleDamageType* dt = _game->getMod()->getDamageType(DT_AP);
+				// coop (Phase 2c death ghost): optional nested lever to pick the damage
+				// type, so a fixture can stage a deterministic INDIRECT death (DT_HE:
+				// FixRadius -1 -> isDirect() false -> the ghost's instant-frame path)
+				// as well as the default DIRECT one. Defaults to DT_AP - existing callers
+				// are byte-identical.
+				const int dtInt = req.get("damage_type", (int)DT_AP).asInt();
+				const RuleDamageType* dt = _game->getMod()->getDamageType((ItemDamageType)dtInt);
 				Json::Value killed(Json::arrayValue);
 				for (auto* u : *sbg->getUnits())
 				{
