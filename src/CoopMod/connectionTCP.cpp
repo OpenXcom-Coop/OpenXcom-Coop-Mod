@@ -664,6 +664,15 @@ std::atomic<uint32_t> g_chainDetonationsApplied{0};
 // derive behavior - a client item/unit HOVERS where the host dropped it - against
 // the gated (green) behavior. Never set outside the coop test harness.
 std::atomic<bool> g_gravityDeriveDisable{false};
+// coop (explosion ordered-replay E5a GAP-MODULE): module_destroyed send/apply
+// counters. Sent is incremented by the parallel host at the detonate-path
+// base-module decrement (TileEngine.cpp, per decrement); Applied is incremented
+// below in the module_destroyed handler when the parallel client replays one.
+// The two must match - a mismatch means the carrier dropped or duplicated a
+// base-defense module decrement. Externed in TestServer.cpp and TileEngine.cpp
+// (sent side only).
+std::atomic<uint32_t> g_moduleDestroyedSent{0};
+std::atomic<uint32_t> g_moduleDestroyedApplied{0};
 
 // coop (parallel battlescape Phase 1 - per-unit state watermark): reads the
 // (side_seq, action_seq) stamp off an apply-side packet, if present. `stamped`
@@ -1038,7 +1047,14 @@ static bool coopIsChainOutcomePacket(const std::string& state)
 		// (coopPacketSubject's unit_id case, unchanged) so it folds in FIFO after the
 		// spawn/blast that dropped it; seq-gated so a lagging client does not apply it
 		// ahead of its own chain's opener.
-		|| state == "unit_fall";
+		|| state == "unit_fall"
+		// coop (explosion ordered-replay E5a GAP-MODULE): the parallel host's
+		// detonate-path base-module decrement carrier. Seq-gated like
+		// chain_detonation so it folds into the exact chain it belongs to, in
+		// order; NOT whitelisted, NOT subject-keyed (coopPacketSubject returns -1
+		// for it, same as destroy_tile/chain_detonation - there is no per-unit/
+		// per-actor id to key on).
+		|| state == "module_destroyed";
 }
 
 size_t rxHoldSize()
@@ -8973,6 +8989,31 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 	}
 
+	// coop (explosion ordered-replay E5a GAP-MODULE): the base-module decrement in
+	// detonate() (TileEngine.cpp) is host-only for coop (client early-return, classic
+	// idiom) with no carrier - DebriefingState scores base defense from getModuleMap(),
+	// so a parallel client's base-defense result silently drifts from the host's. Apply
+	// the host's decrement here. Not subject-keyed / not stamped (like destroy_tile /
+	// chain_detonation) - see coopIsChainOutcomePacket. Parallel-client-only; the
+	// hit-path decrements are already machine-symmetric and are NOT carriered.
+	if (stateString == "module_destroyed")
+	{
+		if (parallelTurnActive() && !getHost()
+			&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+			int gx = obj["gx"].asInt();
+			int gy = obj["gy"].asInt();
+			auto& moduleMap = sbg->getModuleMap();
+			if (gx >= 0 && gx < (int)moduleMap.size()
+				&& gy >= 0 && gy < (int)moduleMap[gx].size())
+			{
+				moduleMap[gx][gy].second--;
+				++OpenXcom::g_moduleDestroyedApplied;
+			}
+		}
+	}
+
 	if (stateString == "unit_fire")
 	{
 
@@ -9094,6 +9135,42 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					}
 
+				}
+
+				// coop (E5a GAP-XP): the parallel thin client never replays
+				// awardExperience (TileEngine.cpp:3264 is dead behind hitUnit's own
+				// client early-return, :3222-3230), so a client-owned soldier's
+				// combat XP from a replayed shot/melee/psi hit is never trained -
+				// debrief shows no stat improvement. hit_unit already fires per-hit;
+				// the host additionally ships the ATTACKER's post-award absolute exp
+				// counters (TileEngine.cpp hit_unit send, after killedBy) so the
+				// client can apply them without re-running awardExperience itself.
+				// Present-gated (older peer / non-attack hits omit the fields);
+				// parallel-client-only so classic/PvP/host (which compute this
+				// locally) stay byte-identical.
+				if (parallelTurnActive() && !getHost()
+					&& obj.isMember("attacker_id") && obj.isMember("exp_firing"))
+				{
+					const int attackerId = obj["attacker_id"].asInt();
+					for (auto& atkUnit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					{
+						if (atkUnit->getId() != attackerId)
+						{
+							continue;
+						}
+
+						UnitStats expStats;
+						expStats.bravery = (Sint16)obj["exp_bravery"].asInt();
+						expStats.reactions = (Sint16)obj["exp_reactions"].asInt();
+						expStats.firing = (Sint16)obj["exp_firing"].asInt();
+						expStats.throwing = (Sint16)obj["exp_throwing"].asInt();
+						expStats.psiSkill = (Sint16)obj["exp_psi_skill"].asInt();
+						expStats.psiStrength = (Sint16)obj["exp_psi_strength"].asInt();
+						expStats.melee = (Sint16)obj["exp_melee"].asInt();
+						expStats.mana = (Sint16)obj["exp_mana"].asInt();
+						atkUnit->setExpStatsCoop(expStats);
+						break;
+					}
 				}
 
 			}

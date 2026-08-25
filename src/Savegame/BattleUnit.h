@@ -611,6 +611,11 @@ public:
 	std::string getName(Language *lang, bool debugAppendId = false) const;
 	/// Gets the unit's gained experience points.
 	const UnitStats* getExpStats() const { return &_exp; }
+	// coop
+	/// Sets the unit's gained experience points (E5a GAP-XP: parallel thin
+	/// client apply of the host's post-award absolutes shipped on hit_unit -
+	/// see TileEngine.cpp hitUnit send + connectionTCP.cpp hit_unit handler).
+	void setExpStatsCoop(const UnitStats& e) { _exp = e; }
 	/// Gets the unit's stats.
 	UnitStats *getBaseStats();
 	/// Gets the unit's stats.

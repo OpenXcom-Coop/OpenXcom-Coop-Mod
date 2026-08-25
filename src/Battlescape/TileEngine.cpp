@@ -17,6 +17,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <assert.h>
+#include <atomic>
 #include <set>
 #include "TileEngine.h"
 #include "AIModule.h"
@@ -878,6 +879,16 @@ void iterateTilesLightMaxBound(SavedBattleGame* save, Position position, int eve
 }
 
 } // namespace
+
+// coop (explosion ordered-replay E5a GAP-MODULE): the module_destroyed send/apply
+// counters are file-scope in connectionTCP.cpp (alongside the E1-E4 counters);
+// extern-declared here so this file's parallel-host send site (detonate(), the
+// base-module decrement) can increment the sent side. g_moduleDestroyedSent counts
+// every module_destroyed the parallel host ships; g_moduleDestroyedApplied
+// (incremented in connectionTCP.cpp's handler) counts every one the parallel client
+// replays. The two must match - a mismatch means the carrier dropped or duplicated
+// a base-defense module decrement. Parallel-only, 0 everywhere else.
+extern std::atomic<uint32_t> g_moduleDestroyedSent;
 
 constexpr int TileEngine::heightFromCenter[11];
 
@@ -3348,6 +3359,30 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 			root["murdererId"] = target->getMurdererId();
 			root["killedBy"] = (int)target->killedBy();
 
+			// coop (E5a GAP-XP): awardExperience (:3264 above) is dead on the
+			// parallel client - this function's own client early-return
+			// (:3222-3230) means the client never replays the attack, so its
+			// copy of the attacker never trains combat XP and debrief shows no
+			// stat improvement. hit_unit already fires per-hit, stamped +
+			// subject-keyed; ship the ATTACKER's post-award exp absolutes
+			// alongside the victim state (exact field set = every counter
+			// awardExperience/addManaExp mutate, BattleUnit.cpp:4204-4270) so
+			// the client can apply them without re-running awardExperience
+			// itself. Additive/present-gated; classic/PvP/host unaffected (they
+			// compute this locally via their own awardExperience call).
+			if (attack.attacker)
+			{
+				root["attacker_id"] = attack.attacker->getId();
+				root["exp_bravery"] = attack.attacker->getExpStats()->bravery;
+				root["exp_reactions"] = attack.attacker->getExpStats()->reactions;
+				root["exp_firing"] = attack.attacker->getExpStats()->firing;
+				root["exp_throwing"] = attack.attacker->getExpStats()->throwing;
+				root["exp_psi_skill"] = attack.attacker->getExpStats()->psiSkill;
+				root["exp_psi_strength"] = attack.attacker->getExpStats()->psiStrength;
+				root["exp_melee"] = attack.attacker->getExpStats()->melee;
+				root["exp_mana"] = attack.attacker->getExpStats()->mana;
+			}
+
 			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 		}
 	}
@@ -4054,6 +4089,27 @@ bool TileEngine::detonate(Tile* tile, int explosive)
 				tiles[i]->getMapData(currentpart)->isBaseModule())
 			{
 				_save->getModuleMap()[tile->getPosition().x/10][tile->getPosition().y/10].second--;
+				// coop (E5a GAP-MODULE): this decrement runs inside detonate(), which
+				// early-returns for every non-host coop client (:4012-4015 above,
+				// classic idiom) - host-only with no carrier. DebriefingState scores
+				// base defense from getModuleMap(), so a parallel client's
+				// base-defense result silently drifts from the host's. The hit-path
+				// decrements (hitCoop / hit()) are already machine-symmetric (same
+				// seeded damage replayed on both machines) - do NOT carrier those,
+				// only this detonate-path one (carriering both double-decrements).
+				// Parallel-host-only send + parallel-client-only apply
+				// (connectionTCP.cpp's module_destroyed handler) so classic/PvP/host
+				// stay byte-identical.
+				if (connectionTCP::parallelTurnActive() && connectionTCP::getHost())
+				{
+					Json::Value root;
+					root["state"] = "module_destroyed";
+					connectionTCP::coopStampChainSeq(root);
+					root["gx"] = tile->getPosition().x / 10;
+					root["gy"] = tile->getPosition().y / 10;
+					connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+					++OpenXcom::g_moduleDestroyedSent;
+				}
 			}
 			//this trick is to follow transformed object parts (object can become a ground)
 			diemcd = tiles[i]->getMapData(currentpart)->getDieMCD();

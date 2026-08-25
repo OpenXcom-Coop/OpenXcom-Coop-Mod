@@ -249,6 +249,12 @@ extern std::atomic<uint32_t> g_chainDetonationsApplied;
 // (green) behavior. File-scope in connectionTCP.cpp; extern-declared here to avoid
 // a wide recompile, matching the counters above.
 extern std::atomic<bool> g_gravityDeriveDisable;
+// coop (explosion ordered-replay E5a GAP-MODULE): the module_destroyed send/apply
+// counters. File-scope in connectionTCP.cpp, incremented from TileEngine.cpp (sent)
+// and connectionTCP.cpp's handler (applied); extern-declared here to avoid a wide
+// recompile, matching the counters above.
+extern std::atomic<uint32_t> g_moduleDestroyedSent;
+extern std::atomic<uint32_t> g_moduleDestroyedApplied;
 
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
@@ -4708,6 +4714,13 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// coop (explosion ordered-replay E4): TEST-ONLY RED lever for the LEAK-GRAV
 		// derive (parallel_state.gravityDeriveDisable).
 		resp["gravityDeriveDisable"] = g_gravityDeriveDisable.load();
+		// coop (explosion ordered-replay E5a GAP-MODULE): moduleDestroyedSent/Applied
+		// are process-local counters, same shape as chainDetonationsSent/Applied above -
+		// a parallel host counts the module_destroyed packets it SHIPPED (one per
+		// detonate-path base-module decrement), a parallel client counts the ones it
+		// APPLIED. Should match at side close.
+		resp["moduleDestroyedSent"] = static_cast<Json::UInt>(g_moduleDestroyedSent.load());
+		resp["moduleDestroyedApplied"] = static_cast<Json::UInt>(g_moduleDestroyedApplied.load());
 		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
 		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
 		// diverted proves the fix engaged on a real opportunity.
