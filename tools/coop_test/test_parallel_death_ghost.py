@@ -224,7 +224,9 @@ def main():
         assert "hiddenItemIds" in bstate(client), \
             "battle_state carries no hiddenItemIds - the Phase 2c introspection is missing"
 
-        SOAK.enable_strict_burnin(host, client)
+        # disable_ghost=False: THIS test measures the ghost, so it must stay ON. (Other
+        # strict-burnin tests are state-focused and disable it - see enable_strict_burnin.)
+        SOAK.enable_strict_burnin(host, client, disable_ghost=False)
 
         if args.red:
             client.cmd({"cmd": "parallel_state", "death_ghost_disable": True})

@@ -309,19 +309,34 @@ BURNIN_ALL_BUCKETS = ("terrain", "fire", "smoke", "items", "unitsCore",
 BURNIN_RESIDUALS = {}
 
 
-def enable_strict_burnin(host, client):
-    """Engage the strict lever + force every bucket report-only, on both machines."""
+def enable_strict_burnin(host, client, disable_ghost=True):
+    """Engage the strict lever + force every bucket report-only, on both machines.
+
+    coop (Phase 2c): strict-burnin measures RAW per-seq STATE (it strips the shipped
+    alien-side compare gates). The Phase-2c death GHOST is display-only - it never
+    writes hashed state (grep-gated) - but it holds the client DISPLAY through the
+    collapse, so on the decoupled ALIEN side _clientDisplaySeq lags while the state has
+    already advanced; the client then reports an older seq LABEL than its (correct)
+    state and unitsCore "straddles" at ai/endturn seqs (benign display-lag, side-gated
+    in shipped mode, heals by sidestart - see seq-aware-strict-compare-decision doc).
+    That confounds a raw-STATE measurement, so strict-burnin disables the ghost by
+    default to isolate the state. The ONE test that measures the ghost itself
+    (test_parallel_death_ghost) passes disable_ghost=False. Host has no ghosts; setting
+    the lever there is a harmless no-op."""
     for gc, tag in ((host, "host"), (client, "client")):
         r = gc.cmd({"cmd": "sync_capture", "strict": True})
         assert r.get("strictBurnIn") is True, \
             f"{tag}: the strict-burnin lever did not engage: {r}"
+        if disable_ghost:
+            gc.cmd({"cmd": "parallel_state", "death_ghost_disable": True})
         for b in BURNIN_ALL_BUCKETS:
             rr = gc.cmd({"cmd": "save_blob", "report_only_bucket": b,
                          "report_only_on": True})
             assert rr.get("report_only_matched"), \
                 f"{tag}: report-only override for {b} failed: {rr}"
     print("    STRICT-BURNIN lever ON (terrain/unitsCore/items/itemIdCtr strict at "
-          "every seq; all buckets forced report-only so a mismatch counts but never routes)")
+          "every seq; all buckets forced report-only so a mismatch counts but never "
+          f"routes; death ghost {'DISABLED (state isolation)' if disable_ghost else 'ON'})")
 
 
 def _burnin_sync_check(host, client, what):

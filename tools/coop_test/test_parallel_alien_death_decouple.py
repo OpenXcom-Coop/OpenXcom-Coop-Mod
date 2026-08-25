@@ -129,20 +129,10 @@ def main():
             gc.ok({"cmd": "set_seed", "seed": args.seed})
         assert bstate(host)["activeSync"] is True and bstate(client)["activeSync"] is False, \
             "host must own the battle simulation, client must be the replay peer"
+        # coop (Phase 2c): enable_strict_burnin disables the display-only death ghost by
+        # default so this STATE-decoupling test measures raw per-seq state without the
+        # ghost's display-lag confound (see enable_strict_burnin).
         SOAK.enable_strict_burnin(host, client)
-
-        # coop (Phase 2c reconciliation): this is a STATE-decoupling test - it asserts the
-        # host absolutes (liveness/pos/wounds) LAND at packet-apply, so unitsCore/unitsCombat
-        # stay strict-0 at every alien seq. The Phase-2c death GHOST is display-only (it never
-        # writes hashed state - grep-gated - and its fidelity is covered by
-        # test_parallel_death_ghost.py), but it holds the client's DISPLAY through the collapse,
-        # which delays _clientDisplaySeq while the decoupled state has already advanced. Under
-        # --strict-burnin that makes the client report an older seq LABEL than its (correct)
-        # state, so the per-seq compare pairs current state against an older host-ring entry and
-        # unitsCore "straddles" - a benign display-lag artifact, not a state desync (it heals by
-        # sidestart and is side-gated in shipped mode). Disable the ghost here to measure the
-        # STATE decoupling this test owns, free of the orthogonal display-lag confound.
-        client.cmd({"cmd": "parallel_state", "death_ghost_disable": True})
 
         corpses0 = len(corpses(client))
         for side in range(args.sides):
