@@ -777,7 +777,14 @@ void NextTurnState::close()
 
 
 						// coop fix
-						if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+						// coop (parallel Phase 3, Sub-task B): host send-side tile-less
+						// DEAD-status inference - classic only. In parallel the atomic
+						// unit_casualty already carried each casualty's explicit final
+						// status when it died, so re-inferring DEAD from tile-lessness
+						// here (ahead of building this next_turn snapshot's `isTile`
+						// field below, which stays ungated) is unneeded and could
+						// misfire.
+						if (!connectionTCP::parallelTurnActive() && !unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 						{
 							unit->setCoopStatus(STATUS_DEAD);
 						}

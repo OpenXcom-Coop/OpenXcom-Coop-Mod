@@ -950,6 +950,16 @@ void BattlescapeGame::sendPacketData(std::string data)
 
 void BattlescapeGame::coopDeath(BattleUnit* unit, const RuleDamageType* damageType, bool noSound)
 {
+	// coop (parallel Phase 3, Sub-task D): coopDeath is only ever reached from the
+	// legacy unit_death packet handler (connectionTCP.cpp), which never runs in
+	// parallel mode - the host ships unit_casualty instead and the client applies
+	// it atomically (BattlescapeGame::coopApplyCasualty). Should be unreachable
+	// here; warn defensively if it is ever entered anyway. Behaviour unchanged.
+	if (connectionTCP::parallelTurnActive() && !getCoopMod()->getHost())
+	{
+		Log(LOG_WARNING) << "coop: coopDeath entered in parallel mode (should be unreachable - unit_casualty path owns death)";
+	}
+
 	// coop (PRD-P10): from here until convertUnitToCorpse runs, any BT_CORPSE item
 	// this unit owns is an OLDER one (the body item of a knockout), so the
 	// id-manifest's remap-in-place path must not claim it. See

@@ -759,19 +759,41 @@ struct RxTraceEntry
 	uint32_t seq;
 	std::string state;
 	int subject;
+	// coop (parallel Phase 3, Sub-task C test introspection): whether the
+	// packet carried a boundary marker (`action_end`'s `boundary` flag) or a
+	// boundary-phase casualty (`unit_casualty`'s `bnd` flag). Neither key
+	// exists on the same field name, but at most one is ever present on a
+	// given packet, so a single bool captures either. Lets a fixture tell a
+	// TRUE boundary `action_end`/`endTurn` apart from an ordinary mid-side
+	// chain closer of the same state name - the trace alone (state+subject)
+	// cannot, and a side that has already cycled player->alien->neutral by
+	// the time a fixture reads the trace back has several of the latter.
+	bool boundary;
+	// coop (Sub-task C test introspection): a TRUE boundary marker's `kind`
+	// (connectionTCP::coopArmSyncBoundary's two callers: "endturn" - the
+	// side-close phase group, BattlescapeGame.cpp - or "sidestart" -
+	// prepareNewTurn, NextTurnState.cpp, where fatal-wound bleed-out runs and
+	// so where a `bnd` casualty's OWN boundary hash point actually is). Empty
+	// on every non-marker packet. Distinguishes the boundary a `bnd` casualty
+	// belongs to from an unrelated earlier/later one of the same state name -
+	// a full side cycle ships one of EACH kind, not one boundary total.
+	std::string kind;
 };
 static std::mutex g_rxTraceMutex;
 static std::deque<RxTraceEntry> g_rxTrace;
 static uint32_t g_rxTraceSeq = 0;
 static const size_t kRxTraceMax = 256;
 
-static void rxTraceRecord(const std::string& state, int subject)
+static void rxTraceRecord(const std::string& state, int subject, bool boundary,
+						   const std::string& kind)
 {
 	std::lock_guard<std::mutex> lock(g_rxTraceMutex);
 	RxTraceEntry e;
 	e.seq = ++g_rxTraceSeq;
 	e.state = state;
 	e.subject = subject;
+	e.boundary = boundary;
+	e.kind = kind;
 	g_rxTrace.push_back(std::move(e));
 	while (g_rxTrace.size() > kRxTraceMax)
 	{
@@ -792,6 +814,8 @@ Json::Value rxAppliedTrace(size_t limit)
 		e["seq"] = static_cast<Json::UInt>(g_rxTrace[i].seq);
 		e["state"] = g_rxTrace[i].state;
 		e["unit"] = g_rxTrace[i].subject;
+		e["boundary"] = g_rxTrace[i].boundary;
+		e["kind"] = g_rxTrace[i].kind;
 		out.append(e);
 	}
 	return out;
@@ -3192,10 +3216,17 @@ void connectionTCP::updateCoopTask()
 				// through one of these is the CLOSER of the chain currently holding
 				// the gate, and must never be held back by the ordering rule - see
 				// the carve-out where `subjectHeld` is computed.
+				// coop (parallel Phase 3, Sub-task A): the unit_death/after_unit_death
+				// disjuncts only ever qualify in classic - the parallel host ships
+				// unit_casualty instead (Phase 2a/2b), so the legacy trio never arrives
+				// on a parallel client's wire and these two clauses are permanently
+				// false there. Gated for clarity/hardening; classic keeps both,
+				// byte-identical. `abortPath` is unaffected (walk chains exist in both
+				// modes).
 				const bool chainCloser =
 						((stateString == "abortPath" && _coopWalkInit) ||
-						 (stateString == "unit_death" && _coopInitDeath) ||
-						 (stateString == "after_unit_death" && _coopInitDeath));
+						 (!parallelTurnActive() && stateString == "unit_death" && _coopInitDeath) ||
+						 (!parallelTurnActive() && stateString == "after_unit_death" && _coopInitDeath));
 
 				// coop (PRD-I3 SEAM-2 HALF 2): a set_smoke_tile/set_fire_tile carrying
 				// `bnd:true` is the neutral->player boundary decay. It belongs to NO chain
@@ -3210,14 +3241,15 @@ void connectionTCP::updateCoopTask()
 
 				const bool coopDecoupledWorldCarrier =
 						 parallelTurnActive() && !getHost()
-						 && (stateString == "hit_unit" || stateString == "unit_death"
-							 || stateString == "after_unit_death"
-							 // coop (Phase 2b atomic unit death): unit_casualty replaces the
-							 // legacy trio on the parallel host and carries the same alien/
-							 // neutral-side world-mutation - decouple it identically, INCLUDING
-							 // a bnd:true boundary casualty (the existing seq-0 boundary trio
-							 // takes this same branch today).
-							 || stateString == "unit_casualty")
+						 // coop (parallel Phase 3, Sub-task A): unit_death/after_unit_death
+						 // REMOVED - this whole block only ever fires in parallel
+						 // (parallelTurnActive() && !getHost() above), and the legacy trio
+						 // never arrives on a parallel client's wire (Phase 2a/2b ship
+						 // unit_casualty instead), so the two disjuncts were permanently
+						 // dead. hit_unit (still sent every hit) and unit_casualty (its
+						 // Phase 2b replacement, INCLUDING a bnd:true boundary casualty -
+						 // the legacy boundary trio took this same branch before) remain.
+						 && (stateString == "hit_unit" || stateString == "unit_casualty")
 						 && _game && _game->getSavedGame()
 						 && _game->getSavedGame()->getSavedBattle()
 						 && _game->getSavedGame()->getSavedBattle()->getSide() != FACTION_PLAYER;
@@ -3374,7 +3406,9 @@ void connectionTCP::updateCoopTask()
 					// See rxPassDeferred(): anything already deferred in this pass
 					// precedes this packet on the wire and has NOT been applied yet.
 					g_rxPassDeferred.store(!deferred.empty(), std::memory_order_relaxed);
-					rxTraceRecord(stateString, subject);
+					rxTraceRecord(stateString, subject,
+								   obj.get("boundary", false).asBool() || obj.get("bnd", false).asBool(),
+								   obj.get("kind", "").asString());
 					onTCPMessage(stateString, obj);
 					++consumedThisPass;
 					// coop (Strand B): a HELD endTurn has now consumed. Attribute the release:
@@ -8310,7 +8344,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						if (!isTile && !SharedEcon::corpseReplayPending(unit->getId()))
 						{
 
-							if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+							// coop (parallel Phase 3, Sub-task B): in parallel the atomic
+							// unit_casualty already carried the explicit final status above
+							// (this handler is legacy-trio-only and never runs in parallel -
+							// see Sub-task A - but gate the INFERENCE anyway, defense in
+							// depth). The tile unlink itself stays ungated: classic still
+							// reads it.
+							if (!parallelTurnActive() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 							{
 								unit->setCoopStatus(STATUS_DEAD);
 							}
@@ -8318,7 +8358,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
 						}
 
-						if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+						if (!parallelTurnActive() && !unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 						{
 							unit->setCoopStatus(STATUS_DEAD);
 						}
@@ -8673,7 +8713,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							if (!isTile)
 							{
 
-								if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+								// coop (parallel Phase 3, Sub-task B): gate the tile-less
+								// DEAD-status inference - unneeded and could misfire in
+								// parallel now that unit_casualty carries the explicit final
+								// status (this whole handler is legacy-trio-only and never
+								// runs in parallel - see Sub-task A). Keep the tile unlink
+								// itself ungated: classic still reads it.
+								if (!parallelTurnActive() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 								{
 									unit->setCoopStatus(STATUS_DEAD);
 								}
@@ -8681,7 +8727,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
 							}
 
-							if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+							if (!parallelTurnActive() && !unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 							{
 								unit->setCoopStatus(STATUS_DEAD);
 							}
@@ -13389,7 +13435,12 @@ std::unordered_set<int> connectionTCP::coopApplyNextTurnUnitStates(Json::Value& 
 				if (!isTile && !SharedEcon::corpseReplayPending(unit->getId()))
 				{
 
-					if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+					// coop (parallel Phase 3, Sub-task B): gate the tile-less DEAD-status
+					// inference - unneeded and could misfire in parallel now that
+					// unit_casualty already carried the explicit final status when the
+					// death applied. Keep the tile unlink itself ungated: classic still
+					// reads it.
+					if (!parallelTurnActive() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 					{
 						unit->setCoopStatus(STATUS_DEAD);
 					}
@@ -13397,7 +13448,7 @@ std::unordered_set<int> connectionTCP::coopApplyNextTurnUnitStates(Json::Value& 
 					unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
 				}
 
-				if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+				if (!parallelTurnActive() && !unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 				{
 					unit->setCoopStatus(STATUS_DEAD);
 				}

@@ -31,6 +31,7 @@
 #include "../Engine/Sound.h"
 #include "../Engine/RNG.h"
 #include "../Engine/Options.h"
+#include "../Engine/Logger.h" // coop (parallel Phase 3, Sub-task D): defensive Log(LOG_WARNING)
 #include "../Engine/Language.h"
 #include "../Mod/Armor.h"
 #include "InfoboxOKState.h"
@@ -671,6 +672,16 @@ void UnitDieBState::think()
 	{
 		coopGhostThink();
 		return;
+	}
+
+	// coop (parallel Phase 3, Sub-task D): a non-ghost `_coop_death == true` state
+	// only exists via BattlescapeGame::coopDeath(), itself only reached from the
+	// legacy unit_death packet handler - dead in parallel mode (unit_casualty owns
+	// death there; the trio never arrives). Should be unreachable here; warn
+	// defensively if it is ever entered anyway. Behaviour unchanged.
+	if (_coop_death && connectionTCP::parallelTurnActive() && !_parent->getCoopMod()->getHost())
+	{
+		Log(LOG_WARNING) << "coop: UnitDieBState(_coop_death=true)::think() entered in parallel mode (should be unreachable - unit_casualty path owns death)";
 	}
 
 	// coop
