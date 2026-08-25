@@ -91,6 +91,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
   with a line-of-sight blackout in between. The earlier menu redesign had buried
   the toggle inside the network host dialog with no way to actually begin a battle.
   An optional REACT FIRE toggle appears while hotseat is armed.
+- Co-op parallel turns: a unit's death is now applied as one atomic update on the
+  joining player's machine instead of being pieced together from several packets
+  that could arrive out of order. This removes intermittent disagreements between
+  the two players after a death - mismatched kill counts and scores at the
+  debriefing, a corpse or its dropped gear appearing with different item ids, or a
+  bystander's morale lagging a turn behind. The collapse animation still plays for
+  the watching player exactly as before; only the bookkeeping changed.
 
 <!-- Template for the next release section (keep this comment ABOVE the newest
      released section: the notes extractor reads from "## [<v>]" until the next
