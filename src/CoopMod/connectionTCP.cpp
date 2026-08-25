@@ -1100,11 +1100,37 @@ static bool coopIsChainOutcomePacket(const std::string& state)
 // coopStampChainSeq stamp - do not add stamps to migrate a carrier. When g_wireOrderState
 // is ON, a carrier named here applies its canonical state at RX arrival in stream order
 // (stripped from the display-cursor seq-deferral below); lever-off it is never consulted.
-// Increment A: the flagship alien-death wound/casualty carriers (already decoupled, so
-// only the seq-deferral strip is needed). Later increments extend this set.
+// Increments A+B+C: Increment A is the flagship alien-death wound/casualty carriers
+// (already decoupled, so only the seq-deferral strip was needed). Increment B adds the
+// per-actor instant-effect replay packets and the fall carrier. Increment C adds the
+// items/terrain chain-outcome carriers already whitelisted in coopIsChainOutcomePacket
+// above.
 static bool coopIsWireOrderStateCarrier(const std::string& state)
 {
-	return state == "hit_unit" || state == "unit_casualty";
+	return
+		// order-1 (unitsCombat): flagship alien-death carriers (Increment A) plus the
+		// per-actor instant-effect carriers (Increment B) - panic resolution, kneel,
+		// grenade/mine prime (BA_PRIME and BA_UNPRIME both ship "active_grenade" -
+		// see coopSendPrimePacket), medikit use, and the mind-control state carrier.
+		// Each mutates synchronously with no BattleState/animation of its own, so there
+		// is no display timeline to preserve by holding it on the cursor. NOTE psi_result:
+		// the PVE flavour (pvp:false, connectionTCP.cpp:11260) is the host-resolved
+		// victim-state copy we migrate; the legacy PVP inverted-flip flavour (pvp:true)
+		// shares this wire string but is only reachable in PvP gamemodes, which never run
+		// with the lever on in the Phase-2..5 validation matrix (lever-off both are
+		// untouched). Phase 6's default-on decision revisits PvP explicitly.
+		state == "hit_unit" || state == "unit_casualty"
+		|| state == "panic_action" || state == "kneel" || state == "active_grenade" || state == "medkit"
+		|| state == "psi_result"
+		// order-2 (unitsCore): the fall-resolution carrier (Increment B).
+		|| state == "unit_fall"
+		// order-3 (items/terrain, Increment C): the chain-outcome carriers - these
+		// resolve terrain/items, not units, so they carry no per-unit display timeline
+		// to preserve either. Reuses the exact strings coopIsChainOutcomePacket and the
+		// gateAllows whitelist already match on.
+		|| state == "hit_tile" || state == "destroy_tile"
+		|| state == "set_explosive_tile" || state == "set_fire_tile" || state == "set_smoke_tile"
+		|| state == "module_destroyed" || state == "explode_items";
 }
 
 size_t rxHoldSize()
@@ -3274,7 +3300,16 @@ void connectionTCP::updateCoopTask()
 						 && _game->getSavedGame()->getSavedBattle()->getSide() != FACTION_PLAYER;
 				const bool gateAllows =
 						 ((coopTaskCompleted() && !g_rxTestHold.load(std::memory_order_relaxed)) || chainCloser || coopDecoupledWorldCarrier ||
-					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_explosive_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving") &&
+					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_explosive_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving"
+					// coop (wire-order report alignment, Phase 2): under the lever, a
+					// wire-order-set carrier is admitted at RX arrival regardless of
+					// task-busy, same as the whitelist above - it no longer waits on
+					// coopTaskCompleted(). Boundary-decay hazards are excluded
+					// (!boundaryHazardPacket) so set_fire_tile/set_smoke_tile `bnd:true`
+					// packets keep riding their existing task-gated timeline; boundary
+					// semantics are out of Phase 2 scope. Lever-off this disjunct is
+					// `(false && ...)`, so the OR-group's truth is unchanged.
+					|| (g_wireOrderState.load(std::memory_order_relaxed) && coopIsWireOrderStateCarrier(stateString) && !boundaryHazardPacket)) &&
 					!endTurnExcluded;
 
 				// coop (PRD-P11): the unit this packet is about, and whether an
