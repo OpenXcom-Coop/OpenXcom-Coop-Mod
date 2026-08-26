@@ -230,20 +230,25 @@ def _wireorder_unit_drift(hb, cb):
         "spent by executor AI, the peer applies the outcome" - identical to the non-player
         -TU rationale unit_census already excludes. (Player-turn TU is still strict; this
         repro only censuses at the ALIEN boundary.)
-      * a DEAD unit's residual health/stun: for a unit that is isOut on BOTH machines, the
-        exact leftover health/stun is a corpse number the protocol does not re-slave. The
-        machines AGREE it is out (isOut is asserted); only the residual number differs.
+      * a TRULY-DEAD unit's residual health/stun: EXCLUDED ONLY when the unit is dead -
+        health <= 0 - on BOTH machines (owner ruling 2026-08-26). A corpse's exact leftover
+        health/stun is a number the protocol does not re-slave, and both machines already
+        agree it is dead. A STUNNED-OUT unit (isOut but health > 0) stays FULLY asserted:
+        it can WAKE, so a health/stun divergence there is a real future desync, not a
+        residual. A host-dead / client-stunned split (health<=0 vs >0) also stays asserted
+        and STILL fails - only both-dead is dropped.
 
-    ALWAYS asserted (the real desync surface): position (x,y,z), wounds, isOut, and - for
-    any unit NOT out on both machines - health/stun. So a live-unit health drift, a
-    position drift, a wound drift, or an isOut (dead-vs-alive) disagreement STILL fails.
-    Returns {id: (host_key, client_key)} for drifting units, or {} when clean."""
+    ALWAYS asserted (the real desync surface): position (x,y,z), wounds, isOut, and - unless
+    the unit is dead (health<=0) on BOTH machines - health/stun. So a live-unit health drift,
+    a stunned-out health/stun drift, a position drift, a wound drift, or an isOut
+    (dead-vs-alive) disagreement STILL fails. Returns {id: (host_key, client_key)} for
+    drifting units, or {} when clean."""
     hu = {u["id"]: u for u in hb["units"]}
     cu = {u["id"]: u for u in cb["units"]}
 
-    def key(u, both_out):
+    def key(u, both_dead):
         base = [u["x"], u["y"], u["z"], u.get("wounds"), bool(u["isOut"])]
-        if not both_out:                 # a live/one-sided unit: health & stun are strict
+        if not both_dead:                # live / stunned-out / one-sided: health & stun strict
             base += [u["health"], u["stun"]]
         return tuple(base)
 
@@ -253,9 +258,9 @@ def _wireorder_unit_drift(hb, cb):
         if h is None or c is None:
             drift[uid] = (h, c)
             continue
-        both_out = bool(h["isOut"]) and bool(c["isOut"])
-        if key(h, both_out) != key(c, both_out):
-            drift[uid] = (key(h, both_out), key(c, both_out))
+        both_dead = (h["health"] <= 0 and c["health"] <= 0)   # truly-dead on BOTH (ruling)
+        if key(h, both_dead) != key(c, both_dead):
+            drift[uid] = (key(h, both_dead), key(c, both_dead))
     return drift
 
 
@@ -341,6 +346,13 @@ def main():
                     help="ORACLE-VALIDITY: use the scoped alien-side-boundary census WITHOUT engaging "
                          "the fix lever. Proves the scoped census still catches the real bug (position/"
                          "tripwire/hazard/live-unit health) lever-off: expect it to STILL fire (exit 0).")
+    ap.add_argument("--strict-burnin", action="store_true",
+                    help="INVESTIGATION (task D): engage strict capture on both machines (report-only "
+                         "ALL buckets, alien-side skips stripped, ghost off) so a per-action mismatch is "
+                         "COUNTED but never routes to the tripwire. Combined with --wire-order it proves "
+                         "the per-action report is genuinely clean (not merely hidden behind the "
+                         "report-only gate). Prints the host sync-check per-action vs boundary mismatch "
+                         "breakdown at the end.")
     args = ap.parse_args()
 
     host_opts = {"battleXcomSpeed": SOAK.FAST_SPEED, "battleAlienSpeed": SOAK.FAST_SPEED,
@@ -396,6 +408,11 @@ def main():
             for gc in (host, client):
                 gc.cmd({"cmd": "parallel_state", "wire_order_state": True})
                 assert parallel(gc).get("wireOrderState") is True, "wire_order_state lever did not engage"
+        if args.strict_burnin:
+            # INVESTIGATION task D: strict capture, report-only ALL buckets, ghost off - so a
+            # per-action mismatch is counted but never routes. Proves the per-action report is
+            # clean rather than hidden behind the SharedEcon.cpp:6186 report-only gate.
+            SOAK.enable_strict_burnin(host, client)
         if args.drain_disable:
             for gc in (host, client):
                 gc.cmd({"cmd": "parallel_state", "rx_drain_disable": True})
@@ -493,6 +510,39 @@ def main():
         setup_error = f"{e}\n{traceback.format_exc()}"
     finally:
         try:
+            # Owner policy (2026-08-26): FLAG any natural liveness-floor engagement every run -
+            # fail-loud beats silent out-of-order healing. Captured before the sockets close.
+            floor = {}
+            for _n, _gc in (("host", host), ("client", client)):
+                try:
+                    _p = parallel(_gc)
+                    floor[_n] = (_p.get("rxLegacyPasses"), _p.get("rxHardFloorPasses"))
+                except Exception:
+                    floor[_n] = None
+            _engaged = any(v and (v[0] or v[1]) for v in floor.values() if v)
+            print(f"floor engagement (rxLegacyPasses, rxHardFloorPasses): host={floor.get('host')} "
+                  f"client={floor.get('client')}  "
+                  f"{'<<< FLOOR ENGAGED - a liveness heal occurred this run' if _engaged else '(none - clean)'}")
+            if args.strict_burnin:
+                try:
+                    sc = parallel(host).get("syncCheck", {})
+                    mm = sc.get("mismatches", [])
+                    per_action = [m for m in mm if not m.get("boundary")]
+                    boundary = [m for m in mm if m.get("boundary")]
+                    def _brk(lst):
+                        d = {}
+                        for m in lst:
+                            k = f"{m.get('bucket')}/{m.get('kind')}"
+                            d[k] = d.get(k, 0) + 1
+                        return d
+                    print(f"STRICT-BURNIN (task D): host sync-check breakdown "
+                          f"(strictBurnIn={sc.get('strictBurnIn')}, compares={sc.get('compares')}):")
+                    print(f"  PER-ACTION (non-boundary) mismatches = {len(per_action)}  {_brk(per_action)}")
+                    print(f"  BOUNDARY mismatches                  = {len(boundary)}  {_brk(boundary)}")
+                    print("  => PER-ACTION CLEAN (report not hidden by report-only gate)"
+                          if not per_action else "  => PER-ACTION NOT CLEAN - investigate")
+                except Exception as se:
+                    print(f"  STRICT-BURNIN dump failed: {se}")
             if scenario_digest:
                 print(f"\nscenario digest (identical across deterministic runs): {scenario_digest}")
             print(f"non-vacuity: corpses minted this run = {corpses_grew}, "
