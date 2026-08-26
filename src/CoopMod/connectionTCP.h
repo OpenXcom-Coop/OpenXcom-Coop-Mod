@@ -1257,6 +1257,15 @@ class connectionTCP
 	// selfDestruct packet, because ExplosionBState::init - where the roll used to
 	// live - runs after that packet has already gone out.
 	std::vector<int> _selfDestructResults;
+	// coop (wire-order report alignment, Increment 3 / A2): display-side copies of the
+	// two parked-outcome queues above. Lever-on, the parallel CLIENT's receiver-park
+	// writes HERE (not the canonical vectors) and its display replay consumes from here,
+	// so next_turn's state-half clear of the canonical queue (increment 5, at RX arrival)
+	// cannot starve a still-queued melee / self-destruct replay. Empty lever-off and on
+	// the host, so the display-first consume (TileEngine::meleeAttack, ExplosionBState)
+	// falls through to the canonical queue byte-identically.
+	std::vector<int> _meleeResultsDisplay;
+	std::vector<int> _selfDestructResultsDisplay;
 	// coop (PRD-P3 GAP-4b): close-quarters outcome shipped with the shot packet.
 	// The peer does not run the CQB check at all (its redirect already rides the
 	// packet's target coords); it only applies the defender's cost.

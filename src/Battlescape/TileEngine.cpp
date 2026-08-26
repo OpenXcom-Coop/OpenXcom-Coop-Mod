@@ -5481,6 +5481,16 @@ bool TileEngine::meleeAttack(BattleActionAttack attack, BattleUnit *victim, int 
 		// excluded - close-quarters checks are a different stream and must not eat
 		// a real melee's answer; ProjectileFlyBState skips them on the peer instead.
 		auto* coop = _save->getBattleGame() ? _save->getBattleGame()->getCoopMod() : nullptr;
+		// coop (wire-order Increment 3 / A2): the parallel client's display replay reads its
+		// display-side copy first (populated at the melee receiver-park lever-on), so
+		// next_turn's state-half clear of the canonical queue cannot starve it. Empty
+		// lever-off / on the host, so this falls through to the canonical queue below.
+		if (coop && coop->getCoopStatic() && !coop->_meleeResultsDisplay.empty())
+		{
+			bool hit = coop->_meleeResultsDisplay.front() != 0;
+			coop->_meleeResultsDisplay.erase(coop->_meleeResultsDisplay.begin());
+			return hit;
+		}
 		if (coop && coop->getCoopStatic() && !coop->_meleeResults.empty())
 		{
 			bool hit = coop->_meleeResults.front() != 0;

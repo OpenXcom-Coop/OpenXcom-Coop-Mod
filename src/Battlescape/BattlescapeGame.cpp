@@ -73,6 +73,10 @@ namespace OpenXcom
 // connectionTCP.cpp. ON = coopQueueDeathGhost reverts to the Phase-2b stub (instant
 // complete, no animation) so the same build can reproduce the pre-ghost behaviour.
 extern std::atomic<bool> g_deathGhostDisable;
+// coop (wire-order report alignment, Increment 3 / A2): the master lever, file-scope in
+// connectionTCP.cpp; extern-declared here (matching TestServer) to route the parallel
+// client's melee receiver-park into the display-side copy without a connectionTCP.h churn.
+extern std::atomic<bool> g_wireOrderState;
 
 bool BattlescapeGame::_debugPlay = false;
 
@@ -760,7 +764,15 @@ void BattlescapeGame::melee_attack(std::string obj_str)
 		// replay cannot leave an orphan entry to poison the next melee.
 		if (obj.isMember("hit"))
 		{
-			getCoopMod()->_meleeResults.push_back(obj["hit"].asBool() ? 1 : 0);
+			// coop (wire-order Increment 3 / A2): lever-on the parallel client parks into
+			// the display-side copy (consumed by its display replay) so next_turn's
+			// state-half clear of the canonical queue cannot starve a still-queued replay.
+			// Lever-off / host: canonical queue, byte-identical.
+			if (g_wireOrderState.load(std::memory_order_relaxed)
+				&& connectionTCP::parallelTurnActive() && !connectionTCP::getHost())
+				getCoopMod()->_meleeResultsDisplay.push_back(obj["hit"].asBool() ? 1 : 0);
+			else
+				getCoopMod()->_meleeResults.push_back(obj["hit"].asBool() ? 1 : 0);
 		}
 
 		statePushBack(new MeleeAttackBState(this, action));

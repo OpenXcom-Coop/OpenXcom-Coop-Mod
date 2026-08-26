@@ -192,7 +192,16 @@ void ExplosionBState::init()
 			// the selfDestruct packet went out, and parked the answer here.
 			auto* coopSD = _parent->getCoopMod();
 			bool triggered;
-			if (coopSD && coopSD->getCoopStatic() && !coopSD->_selfDestructResults.empty())
+			// coop (wire-order Increment 3 / A2): prefer the parallel client's display-side
+			// copy (populated at the selfDestruct receiver-park lever-on) so next_turn's
+			// state-half clear cannot starve this replay. Empty lever-off / on the host, so
+			// it falls through to the canonical queue, then the RNG roll, byte-identically.
+			if (coopSD && coopSD->getCoopStatic() && !coopSD->_selfDestructResultsDisplay.empty())
+			{
+				triggered = coopSD->_selfDestructResultsDisplay.front() != 0;
+				coopSD->_selfDestructResultsDisplay.erase(coopSD->_selfDestructResultsDisplay.begin());
+			}
+			else if (coopSD && coopSD->getCoopStatic() && !coopSD->_selfDestructResults.empty())
 			{
 				triggered = coopSD->_selfDestructResults.front() != 0;
 				coopSD->_selfDestructResults.erase(coopSD->_selfDestructResults.begin());

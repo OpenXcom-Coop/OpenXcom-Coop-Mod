@@ -8503,7 +8503,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// push. Absent = older peer: fall back to this machine's own roll, as before.
 		if (obj.isMember("triggered"))
 		{
-			_selfDestructResults.push_back(obj["triggered"].asBool() ? 1 : 0);
+			// coop (wire-order Increment 3 / A2): lever-on the parallel client parks into
+			// the display-side copy so next_turn's state-half clear cannot starve the
+			// still-queued ExplosionBState self-destruct replay. Lever-off / host: canonical.
+			if (g_wireOrderState.load(std::memory_order_relaxed)
+				&& parallelTurnActive() && !getHost())
+				_selfDestructResultsDisplay.push_back(obj["triggered"].asBool() ? 1 : 0);
+			else
+				_selfDestructResults.push_back(obj["triggered"].asBool() ? 1 : 0);
 		}
 
 		if (_game->getSavedGame())
@@ -9544,6 +9551,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// (its replay was skipped) must not poison the next turn's attack.
 		_meleeResults.clear();
 		_selfDestructResults.clear();
+		// coop (wire-order Increment 3 / A2): the display-side copies share this GAP-4b
+		// orphan-hygiene clear for now. Increment 5 SPLITS it - the canonical clear above
+		// rides next_turn's state-half (RX arrival) while THIS display-copy clear stays on
+		// the display timeline, so a still-queued replay is not starved. Lever-off the
+		// copies are always empty, so clearing them is a no-op (byte-identical).
+		_meleeResultsDisplay.clear();
+		_selfDestructResultsDisplay.clear();
 		// PRD-P4: same hygiene for a Tier-A id-manifest whose replay never happened
 		// (the host minted corpses for a death this machine did not corpse-ify).
 		SharedEcon::clearSpawnManifests();
