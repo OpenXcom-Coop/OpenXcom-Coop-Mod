@@ -3679,6 +3679,22 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 
 	SavedGame* sg = _game->getSavedGame();
 	SavedBattleGame* sbg = sg ? sg->getSavedBattle() : nullptr;
+	// coop (wire-order report alignment): the wire_order_state lever is a global
+	// atomic, NOT battle-scoped. The harness engages it on every booted instance in
+	// connect() (at the main menu, before any battle), so a parallel_state set/read of
+	// JUST this lever must be serviceable ahead of the battle gate below. Scoped
+	// narrowly - only parallel_state, only when there is no battle: every OTHER field
+	// stays battle-scoped exactly as today (a pre-battle caller gets only the lever
+	// readback, never the battle state).
+	if (cmd == "parallel_state" && !sbg)
+	{
+		if (req.isMember("wire_order_state"))
+			g_wireOrderState.store(req.get("wire_order_state", false).asBool(),
+				std::memory_order_relaxed);
+		resp["wireOrderState"] = g_wireOrderState.load(std::memory_order_relaxed);
+		resp["ok"] = true;
+		return true;
+	}
 	if (!sbg)
 	{
 		resp["error"] = "not in battlescape";
