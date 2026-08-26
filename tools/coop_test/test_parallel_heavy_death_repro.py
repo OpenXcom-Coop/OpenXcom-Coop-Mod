@@ -533,6 +533,15 @@ def main():
             print(f"floor engagement (rxLegacyPasses, rxHardFloorPasses): host={floor.get('host')} "
                   f"client={floor.get('client')}  "
                   f"{'<<< FLOOR ENGAGED - a liveness heal occurred this run' if _engaged else '(none - clean)'}")
+            # Boundary epoch-reset gate (owner ruling 2026-08-26): print the client's
+            # rank-0 (next_turn snapshot) watermark-reject counter every run - the fix
+            # gate demands it be 0 lever-on in all gate runs.
+            try:
+                _r0 = parallel(client).get("stateWatermarkRejectsRank0")
+                print(f"rank0 next_turn watermark rejects (client): {_r0}  "
+                      f"{'(gate: must be 0 lever-on)' if args.wire_order else '(lever-off, informational)'}")
+            except Exception:
+                print("rank0 next_turn watermark rejects (client): <unavailable>")
             if args.strict_burnin:
                 try:
                     sc = parallel(host).get("syncCheck", {})

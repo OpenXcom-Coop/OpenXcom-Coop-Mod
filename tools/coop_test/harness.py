@@ -250,6 +250,19 @@ class GameClient:
                 self.sock.settimeout(30)
                 if self.cmd({"cmd": "ping"}).get("pong"):
                     print(f"[{self.name}] connected on :{self.port}")
+                    # Wire-order lever matrix hook (boundary epoch-reset ruling
+                    # 2026-08-26): OXC_WIRE_ORDER=1 engages the wire_order_state
+                    # lever on EVERY instance the harness boots, so the whole
+                    # targeted suite runs lever-on unmodified (the Phase 5/6
+                    # both-lever matrix). Unset/0 = lever-off default, untouched.
+                    if os.environ.get("OXC_WIRE_ORDER", "").lower() in ("1", "true"):
+                        self.cmd({"cmd": "parallel_state", "wire_order_state": True})
+                        got = self.cmd({"cmd": "parallel_state"}).get("wireOrderState")
+                        if got is not True:
+                            raise RuntimeError(
+                                f"{self.name}: OXC_WIRE_ORDER=1 but wire_order_state "
+                                f"lever did not engage (readback={got!r})")
+                        print(f"[{self.name}] wire_order_state lever ON (OXC_WIRE_ORDER)")
                     return
             except (ConnectionRefusedError, socket.timeout, OSError):
                 self.sock = None

@@ -13431,6 +13431,28 @@ std::unordered_set<int> connectionTCP::coopApplyNextTurnUnitStates(Json::Value& 
 
 				// coop (parallel battlescape Phase 1 - per-unit state watermark):
 				// rank 0 (snapshot); stateStamped/stateSide/stateSeq are read once above.
+				//
+				// coop (boundary epoch reset, owner ruling 2026-08-26): lever-on,
+				// next_turn is the host's authoritative new-side opener - it must WIN
+				// the watermark race. Without the reset, a spurious same-side rank-1
+				// mid-side carrier (a hit_unit/unit_casualty entangled with the
+				// alien-death census drift) leaves the unit at (S, 1+, 1) and this
+				// rank-0 snapshot (S, 0, 0) is REJECTED - the client keeps the stale
+				// dead/drained value and diverges at sidestart. Reset the watermark to
+				// (stateSide, 0, 0) so the accept below records the snapshot stamp as
+				// the side's new epoch baseline; genuine later same-side carriers
+				// (action_seq > 0, rank >= 1 - e.g. panic_action, boundary unit_fall)
+				// still beat it. LEVER-OFF: the rank-0 reject defect is PRE-EXISTING
+				// and deliberately kept bug-for-bug until Phase 6 defaults the lever
+				// on - see docs repo parallel/boundary-residual-investigation-2026-08-26.md.
+				if (g_wireOrderState.load(std::memory_order_relaxed)
+					&& parallelTurnActive() && !getHost() && stateStamped
+					&& !g_deathWatermarkDisable.load(std::memory_order_relaxed))
+				{
+					unit->_coopStateSideSeq = stateSide;
+					unit->_coopStateActionSeq = 0;
+					unit->_coopStateRank = 0;
+				}
 				if (!parallelTurnActive() || getHost() || !stateStamped
 					|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
 					|| unit->coopStateAccept(stateSide, stateSeq, 0))
