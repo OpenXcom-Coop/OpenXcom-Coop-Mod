@@ -191,6 +191,15 @@ def capture_mechanism(host, client, tag):
         "client_rxSeqDeferred": cp.get("rxSeqDeferred"),
         "client_rxLegacyPasses": cp.get("rxLegacyPasses"),
         "client_rxHardFloorPasses": cp.get("rxHardFloorPasses"),
+        # Task-A precondition disambiguator (owner 2026-08-26): rank-0 = the next_turn
+        # snapshot. Rank0==0 => the panic-spent unit's next_turn TU write was APPLIED, so
+        # the client's stale TU == the next_turn payload (pre-regen) => host-emit-order
+        # branch. Rank0>0 (unit rejected) => payload was post-regen but dropped => watermark
+        # branch. (coopApplyNextTurnUnitStates rank-0 watermark, connectionTCP.cpp:13426.)
+        "client_stateWatermarkRejects": cp.get("stateWatermarkRejects"),
+        "client_stateWatermarkRejectsRank0": cp.get("stateWatermarkRejectsRank0"),
+        "client_stateWatermarkRejectsRank1": cp.get("stateWatermarkRejectsRank1"),
+        "client_stateWatermarkRejectsRank2": cp.get("stateWatermarkRejectsRank2"),
         "divergent_units": sorted(x for x in diverg if isinstance(x, int)),
         "unit_stats_full": stats,
     }
