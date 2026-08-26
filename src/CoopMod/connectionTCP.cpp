@@ -1005,6 +1005,11 @@ static std::uint32_t g_clientApplySideSeq = 0;
 // consumed it - a leak). Reset to 0 per battle in resetActionArbiter(fullReset); real side_seqs
 // start at 1 (bumped before send).
 static std::uint32_t g_endTurnArrivalSideSeq = 0;
+// coop (wire-order report alignment, Increment 5): the HIGH-WATER boundary pseudo-seq (bseq)
+// whose boundary sync sample has been emitted at the boundary marker's first sight, so the
+// sample fires exactly once per boundary. bseq is monotonic across the whole battle; reset to
+// 0 per battle in resetActionArbiter(fullReset).
+static std::uint32_t g_clientApplyBoundarySeq = 0;
 
 // coop (PRD-P10 follow-up): the packet that OPENS the replay chain a given
 // CLOSER ends, or 0 when there is no such pairing.
@@ -1152,7 +1157,16 @@ static bool coopIsWireOrderStateCarrier(const std::string& state)
 		// gateAllows whitelist already match on.
 		|| state == "hit_tile" || state == "destroy_tile"
 		|| state == "set_explosive_tile" || state == "set_fire_tile" || state == "set_smoke_tile"
-		|| state == "module_destroyed" || state == "explode_items";
+		|| state == "module_destroyed" || state == "explode_items"
+		// order-boundary (Increment 5): the two boundary-phase state movers. next_turn is the
+		// sidestart snapshot (bulk unit apply + teleport-on-mismatch + tile reset + turn-machine
+		// advance); admitting it at RX arrival - BEFORE the new side's rank-1 carriers, matching
+		// wire order - keeps the rank-0 watermark from rejecting the snapshot (no epoch reset
+		// needed), and puts it ahead of the boundary sample's wire position. fuse_events (fuse
+		// timers + removeItem) precedes next_turn in the boundary emit and rides along. Their
+		// display-halves stay task-gated: next_turn's parked-outcome display-copy clear (A2)
+		// moves to the boundary marker's display consumption in the action_end handler.
+		|| state == "next_turn" || state == "fuse_events";
 }
 
 size_t rxHoldSize()
@@ -3284,8 +3298,9 @@ void connectionTCP::updateCoopTask()
 				// on the FIFO and (Phase 2) applies at arrival, so state here is exactly
 				// N-complete and <=N-only. Fires ONCE per marker: the monotonic guard
 				// (seq > cursor, cursor reset on a new side) rejects the re-examinations a
-				// deferred marker gets on later passes. Boundary markers keep the
-				// consumption-timed coopEmitBoundaryDone path (unchanged this phase).
+				// deferred marker gets on later passes. Boundary markers are handled by the
+				// SEPARATE first-sight block below (Increment 5) - excluded here so the two
+				// samplers (per-action sync_report vs boundary action_done) do not overlap.
 				if (g_wireOrderState.load(std::memory_order_relaxed) && !getHost()
 					&& parallelTurnActive() && stateString == "action_end"
 					&& !obj.get("boundary", false).asBool())
@@ -3315,6 +3330,35 @@ void connectionTCP::updateCoopTask()
 							SharedEcon::syncCheckAttach(_game, rep);
 							sendTCPPacketData(rep.toStyledString());
 						}
+					}
+				}
+
+				// coop (wire-order report alignment, Increment 5): the BOUNDARY sync sample,
+				// moved from consumption (coopEmitBoundaryDone) to the boundary marker's FIRST
+				// SIGHT in the wire stream. By this point next_turn (a wire-order carrier) has
+				// applied its state-half at RX arrival, and the marker precedes the NEXT side's
+				// carriers on the wire, so the sample is post-next_turn and un-contaminated by
+				// the next side. Fires ONCE per boundary via the bseq high-water mark; emits the
+				// same payload coopEmitBoundaryDone did (syncCheckAttachBoundary). Consumption
+				// still advances the display cursor and clears the A2 copies (action_end
+				// handler); only the SAMPLE moved. Honors _testHoldBoundaryDone like the emit.
+				if (g_wireOrderState.load(std::memory_order_relaxed) && !getHost()
+					&& parallelTurnActive() && stateString == "action_end"
+					&& obj.get("boundary", false).asBool() && !_testHoldBoundaryDone)
+				{
+					const std::uint32_t bSeq =
+						static_cast<std::uint32_t>(obj.get("bseq", 0).asUInt());
+					if (bSeq != 0 && bSeq > g_clientApplyBoundarySeq)
+					{
+						g_clientApplyBoundarySeq = bSeq;
+						Json::Value rep;
+						rep["state"] = "action_done";
+						rep["seq"] = 0;
+						rep["seat"] = localSeat();
+						rep["boundary"] = true;
+						rep["bseq"] = static_cast<Json::UInt>(bSeq);
+						SharedEcon::syncCheckAttachBoundary(_game, rep);
+						sendTCPPacketData(rep.toStyledString());
 					}
 				}
 
@@ -7741,7 +7785,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			if (!getHost())
 			{
-				coopEmitBoundaryDone(static_cast<std::uint32_t>(obj.get("bseq", 0).asUInt()));
+				// coop (wire-order Increment 5 / A2): the parked-outcome display copies'
+				// GAP-4b orphan-hygiene clear rides the DISPLAY timeline here (boundary marker
+				// consumption - the gate is at depth 0, so this side's melee/self-destruct
+				// replays have drained), so next_turn's carrier apply at RX arrival does not
+				// starve a still-queued replay. Lever-off the copies are empty (no-op).
+				_meleeResultsDisplay.clear();
+				_selfDestructResultsDisplay.clear();
+				// coop (wire-order Increment 5): the boundary sync sample moved to the boundary
+				// marker's FIRST SIGHT (wire position, mirroring the per-action sync_report) -
+				// see the first-sight hook in updateCoopTask. Skip the consumption-timed emit
+				// lever-on; lever-off keep it here, byte-identical.
+				if (!g_wireOrderState.load(std::memory_order_relaxed))
+					coopEmitBoundaryDone(static_cast<std::uint32_t>(obj.get("bseq", 0).asUInt()));
 			}
 		}
 		const std::uint32_t seq = static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
@@ -9593,13 +9649,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// (its replay was skipped) must not poison the next turn's attack.
 		_meleeResults.clear();
 		_selfDestructResults.clear();
-		// coop (wire-order Increment 3 / A2): the display-side copies share this GAP-4b
-		// orphan-hygiene clear for now. Increment 5 SPLITS it - the canonical clear above
-		// rides next_turn's state-half (RX arrival) while THIS display-copy clear stays on
-		// the display timeline, so a still-queued replay is not starved. Lever-off the
-		// copies are always empty, so clearing them is a no-op (byte-identical).
-		_meleeResultsDisplay.clear();
-		_selfDestructResultsDisplay.clear();
+		// coop (wire-order Increment 5 / A2): the parked-outcome DISPLAY copies' GAP-4b
+		// orphan-hygiene clear moved OUT of here to the boundary marker's display consumption
+		// (the action_end handler). Lever-on next_turn's state-half applies at RX arrival
+		// (it is now a wire-order carrier) while this side's melee/self-destruct display
+		// replays are still draining - clearing the copies here would starve a still-queued
+		// replay. Lever-off the copies are always empty, so the relocation is a no-op
+		// (byte-identical). The CANONICAL clear above stays (state-half, at arrival - the
+		// display reads the copies, not these vectors).
 		// PRD-P4: same hygiene for a Tier-A id-manifest whose replay never happened
 		// (the host minted corpses for a death this machine did not corpse-ify).
 		SharedEcon::clearSpawnManifests();
@@ -14104,6 +14161,8 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 		// battle, so a new battle's low side_seqs are above the mark and their endTurn
 		// first-sight applies fire again (side_seq restarts near 0 each battle).
 		g_endTurnArrivalSideSeq = 0;
+		// coop (wire-order Increment 5): same for the boundary sample's bseq high-water mark.
+		g_clientApplyBoundarySeq = 0;
 		clearClientPendingIntent();
 		clearClientLastDeny();
 		// coop (PRD-I0): the boundary namespace and the sync-check ring are scoped
