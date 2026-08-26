@@ -609,6 +609,10 @@ std::atomic<bool> g_rxSideBarrierDisable{false};
 // TestServer `wire_order_state` command; read back in parallel_state. Introduced as
 // a test-style lever (rx_force_floor is the template); Phase 6 decides the default.
 std::atomic<bool> g_wireOrderState{false};
+// coop DIAGNOSTIC (reject-set audit): defined in BattleUnit.cpp; armed/cleared per
+// next_turn boundary from coopApplyNextTurnUnitStates, read back in parallel_state.
+void coopWmDbgArm(bool on);
+void coopWmDbgClear();
 // coop (parallel battlescape Phase 1 - per-unit state watermark): counts stamped
 // per-unit state writes rejected because their stamp was < the unit's recorded
 // watermark (BattleUnit::coopStateAccept returned false). Total plus a per-rank
@@ -13404,6 +13408,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
  */
 std::unordered_set<int> connectionTCP::coopApplyNextTurnUnitStates(Json::Value& obj)
 {
+	// coop DIAGNOSTIC (reject-set audit): fresh capture for THIS boundary, armed only
+	// when SEAM-7 field capture is on (inert otherwise - no behavior change).
+	coopWmDbgClear();
+	coopWmDbgArm(SharedEcon::syncFieldCapture());
 	bool stateStamped = false;
 	uint32_t stateSide = 0, stateSeq = 0;
 	coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);

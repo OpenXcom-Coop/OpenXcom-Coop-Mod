@@ -20,6 +20,7 @@
 #include "BattleItem.h"
 #include <sstream>
 #include <algorithm>
+#include <array>
 #include "../Engine/Collections.h"
 #include "../Engine/Surface.h"
 #include "../Engine/Script.h"
@@ -2402,6 +2403,19 @@ int BattleUnit::getCoop() const
  * rank). On accept, records the new stamp. Equal stamps accept (idempotent
  * re-delivery of the same chain link).
  */
+// coop DIAGNOSTIC (reject-set audit, 2026-08-26): capture-gated, counters-only, NO state
+// effect - inert unless armed by the SEAM-7 field capture (arm/clear driven from
+// coopApplyNextTurnUnitStates). Records rank-0 (next_turn snapshot) watermark REJECTIONS:
+// the rejected unit id + incoming next_turn stamp (side_seq, action_seq) vs the beating
+// recorded watermark (side_seq, action_seq, rank).
+namespace {
+	bool g_coopWmDbgArmed = false;
+	std::vector<std::array<std::uint32_t, 6> > g_coopWmDbgRejects; // {unitId, inSide, inSeq, recSide, recSeq, recRank}
+}
+void coopWmDbgArm(bool on) { g_coopWmDbgArmed = on; }
+void coopWmDbgClear() { g_coopWmDbgRejects.clear(); }
+const std::vector<std::array<std::uint32_t, 6> >& coopWmDbgRejects() { return g_coopWmDbgRejects; }
+
 bool BattleUnit::coopStateAccept(uint32_t side, uint32_t seq, uint8_t rank)
 {
 	if (std::tie(side, seq, rank) >= std::tie(_coopStateSideSeq, _coopStateActionSeq, _coopStateRank))
@@ -2410,6 +2424,12 @@ bool BattleUnit::coopStateAccept(uint32_t side, uint32_t seq, uint8_t rank)
 		_coopStateActionSeq = seq;
 		_coopStateRank = rank;
 		return true;
+	}
+	if (g_coopWmDbgArmed && rank == 0 && g_coopWmDbgRejects.size() < 128)
+	{
+		std::array<std::uint32_t, 6> rec = { static_cast<std::uint32_t>(getId()), side, seq,
+			_coopStateSideSeq, _coopStateActionSeq, static_cast<std::uint32_t>(_coopStateRank) };
+		g_coopWmDbgRejects.push_back(rec);
 	}
 	return false;
 }

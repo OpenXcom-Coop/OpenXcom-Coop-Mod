@@ -45,6 +45,7 @@
 #include "TestServer.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <fstream>
 #include <set>
@@ -215,6 +216,9 @@ extern std::atomic<bool> g_rxSideBarrierDisable;
 // connectionTCP.cpp; extern-declared here so the TestServer command handler and
 // parallel_state can reach it without a connectionTCP.h class-layout recompile.
 extern std::atomic<bool> g_wireOrderState;
+// coop DIAGNOSTIC (reject-set audit): next_turn rank-0 watermark rejections captured in
+// BattleUnit.cpp; surfaced here for the harness. Empty unless SEAM-7 capture was armed.
+extern const std::vector<std::array<std::uint32_t, 6> >& coopWmDbgRejects();
 // coop (parallel battlescape Phase 1 - per-unit state watermark): reject counters
 // (total + per-rank) and the TEST-ONLY lever that disables the watermark check.
 // File-scope in connectionTCP.cpp; extern-declared here to avoid a wide recompile.
@@ -4677,6 +4681,17 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["rxSideBarrierDisable"] = g_rxSideBarrierDisable.load();
 		// coop (wire-order report alignment, Phase 2): the master lever readback.
 		resp["wireOrderState"] = g_wireOrderState.load();
+		// coop DIAGNOSTIC (reject-set audit): [unitId, inSide, inSeq, recSide, recSeq, recRank] per rejected next_turn write.
+		{
+			Json::Value ntr(Json::arrayValue);
+			for (const auto& r : coopWmDbgRejects())
+			{
+				Json::Value row(Json::arrayValue);
+				for (int k = 0; k < 6; ++k) row.append(static_cast<Json::UInt>(r[k]));
+				ntr.append(row);
+			}
+			resp["nextTurnRejects"] = ntr;
+		}
 		// coop (parallel battlescape Phase 1 - per-unit state watermark): stamped
 		// per-unit writes dropped because their stamp was < the unit's recorded
 		// watermark. Total + per-rank (0=snapshot/next_turn, 1=chain carrier,

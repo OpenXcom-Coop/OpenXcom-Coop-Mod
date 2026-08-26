@@ -198,6 +198,7 @@ def capture_mechanism(host, client, tag):
         # branch. (coopApplyNextTurnUnitStates rank-0 watermark, connectionTCP.cpp:13426.)
         "client_stateWatermarkRejects": cp.get("stateWatermarkRejects"),
         "client_stateWatermarkRejectsRank0": cp.get("stateWatermarkRejectsRank0"),
+        "client_nextTurnRejects": cp.get("nextTurnRejects"),
         "client_stateWatermarkRejectsRank1": cp.get("stateWatermarkRejectsRank1"),
         "client_stateWatermarkRejectsRank2": cp.get("stateWatermarkRejectsRank2"),
         "divergent_units": sorted(x for x in diverg if isinstance(x, int)),
