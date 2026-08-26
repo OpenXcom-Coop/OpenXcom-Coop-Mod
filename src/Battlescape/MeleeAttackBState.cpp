@@ -36,6 +36,20 @@
 namespace OpenXcom
 {
 
+// coop (wire-order report alignment, Increment 2 / A1): the master lever, file-scope in
+// connectionTCP.cpp; extern-declared here (matching TestServer.cpp) to fence the display-
+// replay ammo spend without a connectionTCP.h recompile.
+extern std::atomic<bool> g_wireOrderState;
+// True only when THIS machine is the parallel CLIENT with the wire-order lever on - the one
+// case where a display replay's spendAmmoForAction would clobber the host's SEAM-11 itemAmmo
+// absolute (docs carrier-census A1). Lever-off / host / classic -> false -> ammo is spent
+// exactly as before (byte-identical).
+static bool coopFenceReplayAmmoSpend()
+{
+	return g_wireOrderState.load(std::memory_order_relaxed)
+		&& connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
+}
+
 /**
  * Sets up a MeleeAttackBState.
  */
@@ -438,7 +452,10 @@ void MeleeAttackBState::performMeleeAttack(int terrainMeleeTilePart)
 	_unit->aim(true);
 
 	// use up ammo if applicable
-	_action.weapon->spendAmmoForAction(BA_HIT, _parent->getSave());
+	// coop (wire-order Increment 2 / A1): fence the parallel client's display-replay ammo
+	// spend lever-on; the host's SEAM-11 itemAmmo absolute authors canonical ammo.
+	if (!coopFenceReplayAmmoSpend())
+		_action.weapon->spendAmmoForAction(BA_HIT, _parent->getSave());
 	_parent->getMap()->setCursorType(CT_NONE);
 
 	// offset the damage voxel ever so slightly so that the target knows which side the attack came from
