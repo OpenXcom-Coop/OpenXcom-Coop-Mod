@@ -217,6 +217,87 @@ def diag(host, client, tag):
             print(f"    {name} desync-reports on disk: {wrote} in {d}")
 
 
+def _wireorder_unit_drift(hb, cb):
+    """Alien-side-boundary unit census, SCOPED to what the protocol replicates there.
+
+    Same principle SOAK.unit_census (test_parallel_soak.py:184-196) already applies to
+    NON-PLAYER TU: "asserting a term the protocol does not replicate makes a permanent red
+    rather than a detector." Two terms are not replicated AT THE ALIEN-SIDE BOUNDARY and
+    so are NOT asserted here (they reconcile at the next sidestart, and the in-game
+    sync-check gates them until then):
+
+      * a unit's TU: when it is spent by host-resolved PANIC during the alien side it is
+        "spent by executor AI, the peer applies the outcome" - identical to the non-player
+        -TU rationale unit_census already excludes. (Player-turn TU is still strict; this
+        repro only censuses at the ALIEN boundary.)
+      * a DEAD unit's residual health/stun: for a unit that is isOut on BOTH machines, the
+        exact leftover health/stun is a corpse number the protocol does not re-slave. The
+        machines AGREE it is out (isOut is asserted); only the residual number differs.
+
+    ALWAYS asserted (the real desync surface): position (x,y,z), wounds, isOut, and - for
+    any unit NOT out on both machines - health/stun. So a live-unit health drift, a
+    position drift, a wound drift, or an isOut (dead-vs-alive) disagreement STILL fails.
+    Returns {id: (host_key, client_key)} for drifting units, or {} when clean."""
+    hu = {u["id"]: u for u in hb["units"]}
+    cu = {u["id"]: u for u in cb["units"]}
+
+    def key(u, both_out):
+        base = [u["x"], u["y"], u["z"], u.get("wounds"), bool(u["isOut"])]
+        if not both_out:                 # a live/one-sided unit: health & stun are strict
+            base += [u["health"], u["stun"]]
+        return tuple(base)
+
+    drift = {}
+    for uid in set(hu) | set(cu):
+        h, c = hu.get(uid), cu.get(uid)
+        if h is None or c is None:
+            drift[uid] = (h, c)
+            continue
+        both_out = bool(h["isOut"]) and bool(c["isOut"])
+        if key(h, both_out) != key(c, both_out):
+            drift[uid] = (key(h, both_out), key(c, both_out))
+    return drift
+
+
+def assert_census_wireorder(host, client, what):
+    """The --wire-order acceptance: the scoped unit census (above) PLUS every strict
+    detector SOAK.assert_census runs unchanged (item id census, tile hazards, the PRD-P2
+    tripwire, the in-game sync-check, and the on-disk desync-report silence check). Only
+    the unit-tuple's two protocol-non-replicated terms are dropped; a real desync in any
+    other term - or the tripwire firing - still fails exactly as in shipped mode."""
+    SOAK.settle_display(host, client)
+    hb, cb = SOAK.battle(host), SOAK.battle(client)
+    assert hb.get("inBattle") and cb.get("inBattle"), (
+        f"the fixture's mission ENDED before the census {what}")
+    drift = _wireorder_unit_drift(hb, cb)
+    if drift:
+        hs = {u["id"]: (u["status"], u.get("energy"), u.get("tu")) for u in hb["units"]}
+        cs = {u["id"]: (u["status"], u.get("energy"), u.get("tu")) for u in cb["units"]}
+        lines = "\n".join(
+            f"      {k}: host={drift[k][0]} client={drift[k][1]}  "
+            f"(status/energy/tu host={hs.get(k)} client={cs.get(k)})"
+            for k in sorted(drift))
+        raise AssertionError(
+            f"SCOPED UNIT CENSUS DRIFT {what}: the two machines disagree on a replicated "
+            f"term\n    (x, y, z, wounds, isOut [, health, stun if not both-out])\n{lines}")
+    hi, ci = SOAK.item_census(host), SOAK.item_census(client)
+    assert hi == ci, (
+        f"ITEM CENSUS DRIFT {what}: strict id census differs "
+        f"(host {len(hi)} items, client {len(ci)})\n{SOAK.first_diff(hi, ci)}")
+    hh, ch = SOAK.hazard_census(host), SOAK.hazard_census(client)
+    assert hh == ch, (
+        f"TILE HAZARD DRIFT {what}: host={hh} client={ch}")
+    session.assert_battle_synced(host, client, what)
+    assert not TW.desync_seen(host) and not TW.desync_seen(client), (
+        f"the PRD-P2 drift tripwire FIRED {what} - a release blocker")
+    session.assert_sync_clean(host, client, what)
+    for tag, gc in (("host", host), ("client", client)):
+        d = os.path.join(gc.user_dir, "desync-reports")
+        wrote = sorted(os.listdir(d)) if os.path.isdir(d) else []
+        assert not wrote, (
+            f"{tag} wrote a desync diagnostic bundle {what} in a CLEAN battle: {wrote}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=20260802,
@@ -250,6 +331,16 @@ def main():
                     help="RCA: arm SEAM-7 field capture, and on tripwire fire dump the exact "
                          "(unit, field, host, peer) diffs + client apply-order trace + per-unit "
                          "stats to <scratch>/mechanism_trace.json (pins which micro-mechanism)")
+    ap.add_argument("--wire-order", action="store_true",
+                    help="FIX LEVER: engage wire_order_state on both machines - the client applies "
+                         "hash-relevant state at RX arrival in stream order and samples the per-action "
+                         "sync-check at the marker's wire-order first sight (sync_report). Uses the "
+                         "scoped alien-side-boundary census (drops the two protocol-non-replicated "
+                         "residuals). Expect the repro to STOP firing (exit 3) with the lever on.")
+    ap.add_argument("--scoped-census", action="store_true",
+                    help="ORACLE-VALIDITY: use the scoped alien-side-boundary census WITHOUT engaging "
+                         "the fix lever. Proves the scoped census still catches the real bug (position/"
+                         "tripwire/hazard/live-unit health) lever-off: expect it to STILL fire (exit 0).")
     args = ap.parse_args()
 
     host_opts = {"battleXcomSpeed": SOAK.FAST_SPEED, "battleAlienSpeed": SOAK.FAST_SPEED,
@@ -300,6 +391,11 @@ def main():
         if not args.no_force_floor:
             client.cmd({"cmd": "parallel_state", "rx_force_floor": True})
             assert parallel(client).get("rxForceFloor") is True, "rx_force_floor lever did not engage"
+        if args.wire_order:
+            # FIX LEVER: wire-order state-apply + report on both machines (the fix under test).
+            for gc in (host, client):
+                gc.cmd({"cmd": "parallel_state", "wire_order_state": True})
+                assert parallel(gc).get("wireOrderState") is True, "wire_order_state lever did not engage"
         if args.drain_disable:
             for gc in (host, client):
                 gc.cmd({"cmd": "parallel_state", "rx_drain_disable": True})
@@ -310,6 +406,7 @@ def main():
             print("    SEAM-7 field capture ARMED on both (mechanism trace)")
         knobs = (f"slow-client={args.slow_client} force-floor={not args.no_force_floor} "
                  f"ghost-off={args.ghost_off} rx-hold={args.rx_hold} drain-disable={args.drain_disable} "
+                 f"wire-order={args.wire_order} "
                  f"pairs={args.pairs} sides={args.sides} hp={args.hp}")
         print(f"knobs: {knobs}")
 
@@ -367,7 +464,13 @@ def main():
             # THE RAW FIELD CHECK - settle then compare (unit/item census + battle-synced +
             # tripwire + sync-clean + on-disk desync-report). This is what fires in the field.
             try:
-                SOAK.assert_census(host, client, f"after the alien side of turn {turn0}")
+                # --wire-order: the fix aligns the sync-check REPORT; the two protocol-
+                # non-replicated residuals (panic-spent TU, dead-unit residual health)
+                # reconcile at the next sidestart and are dropped from the unit tuple only
+                # (every strict detector stays). Shipped/baseline runs keep the full census.
+                census = (assert_census_wireorder
+                          if (args.wire_order or args.scoped_census) else SOAK.assert_census)
+                census(host, client, f"after the alien side of turn {turn0}")
             except AssertionError as ae:
                 repro_fired = str(ae)
                 print(f"\n  *** REPRO FIRED after alien side {side} (turn {turn0}) ***")

@@ -984,6 +984,14 @@ bool rxPassDeferred()
 	return g_rxPassDeferred.load(std::memory_order_relaxed);
 }
 
+// coop (wire-order report alignment, Phase 3): the client's WIRE-ORDER report cursors,
+// advanced at an action_end marker's FIRST SIGHT in the RX stream (not at display
+// consumption like _clientDisplaySeq). Under g_wireOrderState the per-action sync-check
+// report (sync_report) is sampled here, so client@N == host-ring@N by construction.
+// Per-side: g_clientApplySeq restarts when a marker names a new side (g_clientApplySideSeq).
+static std::uint32_t g_clientApplySeq = 0;
+static std::uint32_t g_clientApplySideSeq = 0;
+
 // coop (PRD-P10 follow-up): the packet that OPENS the replay chain a given
 // CLOSER ends, or 0 when there is no such pairing.
 //
@@ -3255,6 +3263,46 @@ void connectionTCP::updateCoopTask()
 				const bool endTurnExcluded =
 					(stateString == "endPlayerTurn"
 					 && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
+
+				// coop (wire-order report alignment, Phase 3): sample the per-action
+				// sync-check at the marker's FIRST SIGHT in the wire stream, not at
+				// display consumption. Every chain-<=N state carrier precedes marker N
+				// on the FIFO and (Phase 2) applies at arrival, so state here is exactly
+				// N-complete and <=N-only. Fires ONCE per marker: the monotonic guard
+				// (seq > cursor, cursor reset on a new side) rejects the re-examinations a
+				// deferred marker gets on later passes. Boundary markers keep the
+				// consumption-timed coopEmitBoundaryDone path (unchanged this phase).
+				if (g_wireOrderState.load(std::memory_order_relaxed) && !getHost()
+					&& parallelTurnActive() && stateString == "action_end"
+					&& !obj.get("boundary", false).asBool())
+				{
+					const std::uint32_t aSeq =
+						static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+					const std::uint32_t aSide =
+						static_cast<std::uint32_t>(obj.get("side_seq", _sideSeq).asUInt());
+					if (aSeq != 0)
+					{
+						if (aSide != g_clientApplySideSeq)
+						{
+							// a new side's markers have begun arriving - reset the
+							// per-side apply cursor at WIRE-ORDER time (not at the
+							// display-timed resetActionArbiter, which may lag).
+							g_clientApplySideSeq = aSide;
+							g_clientApplySeq = 0;
+						}
+						if (aSeq > g_clientApplySeq)
+						{
+							g_clientApplySeq = aSeq;
+							Json::Value rep;
+							rep["state"] = "sync_report";
+							rep["seq"] = static_cast<Json::UInt>(aSeq);
+							rep["side_seq"] = static_cast<Json::UInt>(aSide);
+							rep["seat"] = localSeat();
+							SharedEcon::syncCheckAttach(_game, rep);
+							sendTCPPacketData(rep.toStyledString());
+						}
+					}
+				}
 
 				// coop (PRD-P11): the three per-action exemptions, hoisted so the
 				// ordering rule below can see them. A packet that qualifies ONLY
@@ -7712,6 +7760,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			// coop (PRD-I0): the deferred half of the sync-check. Additive - a
 			// report with no "h" is an older peer and is skipped silently.
+			SharedEcon::syncCheckCompare(_game, obj);
+		}
+	}
+
+	// coop (wire-order report alignment, Phase 3): the per-action sync-check report,
+	// sampled at the client's wire-order marker first-sight. Mirrors the action_done
+	// deferred-compare leg; present-gated by syncCheckCompare itself (a report with no
+	// "h" is silently skipped). Host-only. Under the lever this REPLACES action_done as
+	// the per-action hash pairing; the boundary hash still rides action_done (boundary:true).
+	if (stateString == "sync_report")
+	{
+		if (getHost())
+		{
 			SharedEcon::syncCheckCompare(_game, obj);
 		}
 	}
@@ -14520,7 +14581,13 @@ void connectionTCP::coopEmitActionDone()
 	// compared against a brand-new chain carrying the same low number. It is the
 	// value the MARKER carried, never this machine's live `_sideSeq`.
 	root["side_seq"] = static_cast<Json::UInt>(_clientDisplaySideSeq);
-	SharedEcon::syncCheckAttach(_game, root);
+	// coop (wire-order report alignment, Phase 3): under the lever the per-action
+	// hash ships via sync_report (sampled at the marker's wire-order first sight);
+	// this action_done keeps its display-ack role only. Lever-off: attach as before.
+	if (!g_wireOrderState.load(std::memory_order_relaxed))
+	{
+		SharedEcon::syncCheckAttach(_game, root);
+	}
 	sendTCPPacketData(root.toStyledString());
 }
 
@@ -14546,7 +14613,13 @@ void connectionTCP::coopEmitStaleActionDone(std::uint32_t seq, std::uint32_t sid
 	root["seq"] = static_cast<Json::UInt>(seq);
 	root["seat"] = localSeat();
 	root["side_seq"] = static_cast<Json::UInt>(sideSeq);
-	SharedEcon::syncCheckAttach(_game, root);
+	// coop (wire-order report alignment, Phase 3): under the lever this ring entry
+	// was already answered by sync_report at the marker's wire-order first sight;
+	// do not re-sample the hash here. Lever-off: attach as before.
+	if (!g_wireOrderState.load(std::memory_order_relaxed))
+	{
+		SharedEcon::syncCheckAttach(_game, root);
+	}
 	sendTCPPacketData(root.toStyledString());
 }
 
