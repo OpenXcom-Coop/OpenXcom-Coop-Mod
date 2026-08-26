@@ -995,6 +995,16 @@ bool rxPassDeferred()
 // Per-side: g_clientApplySeq restarts when a marker names a new side (g_clientApplySideSeq).
 static std::uint32_t g_clientApplySeq = 0;
 static std::uint32_t g_clientApplySideSeq = 0;
+// coop (wire-order report alignment, Increment 4 / A4): the HIGH-WATER side_seq whose endTurn
+// REQUIRED-AT-ARRIVAL half (_scriptRngSeed adoption + the deferred neutral->player regen arm)
+// has been applied at the endTurn marker's first sight. The arrival hook fires for any side_seq
+// strictly ABOVE this mark; the endTurn handler skips the two items for any side_seq AT OR BELOW
+// it. A high-water mark (not a fire-once !=) is RACE-FREE when two endTurns are queued together
+// under backlog: both correctly skip because side_seq is monotonic (a fire-once cursor would let
+// the earlier endTurn's handler re-apply, and under increment 5 that re-arms AFTER next_turn
+// consumed it - a leak). Reset to 0 per battle in resetActionArbiter(fullReset); real side_seqs
+// start at 1 (bumped before send).
+static std::uint32_t g_endTurnArrivalSideSeq = 0;
 
 // coop (PRD-P10 follow-up): the packet that OPENS the replay chain a given
 // CLOSER ends, or 0 when there is no such pairing.
@@ -3304,6 +3314,38 @@ void connectionTCP::updateCoopTask()
 							rep["seat"] = localSeat();
 							SharedEcon::syncCheckAttach(_game, rep);
 							sendTCPPacketData(rep.toStyledString());
+						}
+					}
+				}
+
+				// coop (wire-order report alignment, Increment 4 / A4): apply endTurn's
+				// REQUIRED-AT-ARRIVAL half at the endTurn marker's FIRST SIGHT in the wire
+				// stream, before next_turn (which consumes both). Only two items qualify
+				// (census A4 classification): the script-RNG seed (GAP-10 - endTurn-timed,
+				// read by next_turn's deferred scripts via
+				// SavedBattleGame::newTurnUpdateScripts) and the deferred neutral->player
+				// regen arm (consumed by next_turn's state-half). Everything else in the
+				// endTurn handler - the side token, clearClientPendingIntent,
+				// resetActionArbiter, the active-sync flags, the global RNG::setSeed, the
+				// ALIENS banner - is display-flow bookkeeping and stays at consumption
+				// (moving resetActionArbiter early would let an in-flight action_done observe
+				// a reset arbiter). Fires ONCE per endTurn via g_endTurnArrivalSideSeq; the
+				// handler skips these two items when the cursor covers the marker.
+				if (g_wireOrderState.load(std::memory_order_relaxed) && !getHost()
+					&& parallelTurnActive() && stateString == "endTurn"
+					&& obj.isMember("side_seq"))
+				{
+					const std::uint32_t etSide =
+						static_cast<std::uint32_t>(obj["side_seq"].asUInt());
+					if (etSide > g_endTurnArrivalSideSeq)
+					{
+						g_endTurnArrivalSideSeq = etSide;
+						if (obj.isMember("seed"))
+							_scriptRngSeed = obj["seed"].asUInt64();
+						if (_hostShipsNextTurnFields && obj.get("side", -1).asInt() == 2)
+						{
+							_turnAdvanceDeferred = 1;
+							++_turnAdvanceDeferredCount;
 						}
 					}
 				}
@@ -10992,6 +11034,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (_game->getSavedGame()->getSavedBattle())
 			{
 
+				// coop (wire-order Increment 4 / A4): lever-on, this endTurn's
+				// required-at-arrival half (_scriptRngSeed + defer-arm) was applied at the
+				// marker's first sight (see the endTurn hook in updateCoopTask). Skip
+				// re-applying those two here; the rest of the handler runs at consumption as
+				// today. Cursor-matched so a marker the arrival hook did not cover still
+				// applies here; lever-off / host the flag is false (byte-identical).
+				const bool etArrivalApplied =
+					g_wireOrderState.load(std::memory_order_relaxed) && parallelTurnActive()
+					&& !getHost() && obj.isMember("side_seq")
+					&& static_cast<std::uint32_t>(obj["side_seq"].asUInt()) <= g_endTurnArrivalSideSeq;
+
 				pve2_init = true;
 
 				_battleInit = false;
@@ -11011,7 +11064,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					// seed-replay. Set from `endTurn` only (all three side closes),
 					// NOT from `next_turn` - the deferred neutral->player scripts must
 					// still see the side-2 `endTurn` seed when next_turn runs them.
-					_scriptRngSeed = obj["seed"].asUInt64();
+					// coop (wire-order Increment 4 / A4): _scriptRngSeed adoption moved to the
+					// endTurn marker's FIRST SIGHT lever-on (before next_turn's deferred scripts
+					// read it); skip here when the arrival hook covered this marker. RNG::setSeed
+					// above stays at consumption (category ii - re-set at the script pass via
+					// SavedBattleGame::newTurnUpdateScripts, not needed at arrival).
+					if (!etArrivalApplied)
+						_scriptRngSeed = obj["seed"].asUInt64();
 				}
 
 				// coop (PRD-P6): the side token every intent is validated against.
@@ -11044,8 +11103,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (connectionTCP::parallelTurnActive() && !getHost()
 					&& _hostShipsNextTurnFields && side == 2)
 				{
-					_turnAdvanceDeferred = 1;
-					++_turnAdvanceDeferredCount; // coop (PRD-I3 rider): monotonic arm count
+					// coop (wire-order Increment 4 / A4): the deferred neutral->player regen
+					// arm moved to the endTurn marker's FIRST SIGHT lever-on (before next_turn's
+					// state-half consumes it); skip the re-arm here when the arrival hook covered
+					// this marker. The else branch (side 0/1 setSideCoop + ALIENS banner) is
+					// display-half and always runs at consumption.
+					if (!etArrivalApplied)
+					{
+						_turnAdvanceDeferred = 1;
+						++_turnAdvanceDeferredCount; // coop (PRD-I3 rider): monotonic arm count
+					}
 				}
 				else
 				{
@@ -14033,6 +14100,10 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 	{
 		_sideSeq = 0;
 		_clientReqSeq = 0;
+		// coop (wire-order Increment 4 / A4): re-arm the endTurn arrival high-water mark per
+		// battle, so a new battle's low side_seqs are above the mark and their endTurn
+		// first-sight applies fire again (side_seq restarts near 0 each battle).
+		g_endTurnArrivalSideSeq = 0;
 		clearClientPendingIntent();
 		clearClientLastDeny();
 		// coop (PRD-I0): the boundary namespace and the sync-check ring are scoped
