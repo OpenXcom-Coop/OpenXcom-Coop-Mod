@@ -555,6 +555,13 @@ def main():
             print(f"floor engagement (rxLegacyPasses, rxHardFloorPasses): host={floor.get('host')} "
                   f"client={floor.get('client')}  "
                   f"{'<<< FLOOR ENGAGED - a liveness heal occurred this run' if _engaged else '(none - clean)'}")
+            # coop (wire-order Increment 7, SHAPE A diagnostic): host regen-carry emitted
+            # vs client applied. emitted>0 & applied>0 => the carry mechanism runs.
+            try:
+                print(f"SHAPE-A regen carry: host emitted={parallel(host).get('regenEmitted')} "
+                      f"client applied={parallel(client).get('regenApplied')}")
+            except Exception as _re:
+                print(f"SHAPE-A regen carry: <unavailable: {_re}>")
             # Boundary epoch-reset gate (owner ruling 2026-08-26): print the client's
             # rank-0 (next_turn snapshot) watermark-reject counter every run - the fix
             # gate demands it be 0 lever-on in all gate runs.

@@ -4691,6 +4691,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// (the legacy full-disable backstop). 0 with rxLegacyPasses > 0 AND zero four-bucket
 		// mismatch = the ordering-preserving drain carried the whole load = the fix working.
 		resp["rxHardFloorPasses"] = static_cast<Json::UInt>(g_rxHardFloorPasses.load());
+		// coop (wire-order Increment 7, SHAPE A diagnostic): host regen-carry elements
+		// emitted vs client elements applied. On a firing run, emitted>0 & applied>0 =>
+		// mechanism runs (residual is timing); applied==0 => not reaching the sampler.
+		resp["regenEmitted"] = static_cast<Json::UInt>(g_regenEmitted.load());
+		resp["regenApplied"] = static_cast<Json::UInt>(g_regenApplied.load());
 		resp["rxTestHold"] = g_rxTestHold.load();
 		resp["rxDrainDisable"] = g_rxDrainDisable.load();
 		resp["rxForceFloor"] = g_rxForceFloor.load();

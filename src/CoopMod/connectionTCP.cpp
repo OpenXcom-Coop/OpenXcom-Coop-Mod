@@ -244,6 +244,8 @@ bool connectionTCP::_testHoldBoundaryDone = false;
 std::uint32_t connectionTCP::_openChainTicks = 0;
 bool connectionTCP::_openChainWarned = false;
 bool connectionTCP::_openChainInstantPending = false;  // PRD-I3 SEAM-7 ii
+// coop (wire-order Increment 7, SHAPE A): chain-open (tu,energy) snapshot; see the header.
+std::unordered_map<int, std::pair<int, int>> connectionTCP::_openChainRegenSnap;
 // coop (PRD-P8): the end-turn readiness tally. Reset with the arbiter.
 std::vector<bool> connectionTCP::_endTurnReady;
 std::vector<bool> connectionTCP::_endTurnAuto;
@@ -572,6 +574,10 @@ std::atomic<uint32_t> g_barrierBlocks{0};
 // the stage-2 hard-floor escape hatch reverted the parallel client to the legacy
 // full-disable (0 across a run = the ordering-preserving drain carried the whole load).
 std::atomic<uint32_t> g_rxHardFloorPasses{0};
+// coop (wire-order Increment 7, SHAPE A diagnostic): host regen-carry elements emitted
+// on action_end markers; client elements applied at first-sight. Process-monotonic.
+std::atomic<uint32_t> g_regenEmitted{0};
+std::atomic<uint32_t> g_regenApplied{0};
 // coop (chain-atomicity Strand B): the SIDE BARRIER introspection. g_sideBarrierHolds
 // counts passes where the whitelisted `endTurn` was HELD because a stamped packet of the
 // current side was still deferred ahead of it (the client must finish side S before
@@ -3322,6 +3328,25 @@ void connectionTCP::updateCoopTask()
 						if (aSeq > g_clientApplySeq)
 						{
 							g_clientApplySeq = aSeq;
+							// coop (wire-order Increment 7, SHAPE A): apply this chain's
+							// changed-units (tu,energy) ABSOLUTES at first-sight, BEFORE
+							// sampling (arrival timeline), so the client's still-draining
+							// unitsRegen is corrected at wire position N and the later
+							// sidestart boundary sample (unitsRegen is sidestart-only
+							// compared) reads the host's post-chain value instead of a
+							// replay that has not caught up. Present-gated (absent = older
+							// peer / lever-off); reuses coopApplyActorCost, the abortPath
+							// PRD-P9 walk-end carry. Once per marker via this same cursor.
+							if (obj.isMember("regen") && _game->getSavedGame()
+								&& _game->getSavedGame()->getSavedBattle())
+							{
+								SavedBattleGame* rb = _game->getSavedGame()->getSavedBattle();
+								const Json::Value& regen = obj["regen"];
+								for (Json::ArrayIndex ri = 0; ri < regen.size(); ++ri)
+									coopApplyActorCost(regen[ri],
+										regen[ri].get("unit_id", -1).asInt(), rb);
+								g_regenApplied.fetch_add(regen.size(), std::memory_order_relaxed);
+							}
 							Json::Value rep;
 							rep["state"] = "sync_report";
 							rep["seq"] = static_cast<Json::UInt>(aSeq);
@@ -14051,6 +14076,25 @@ std::uint32_t connectionTCP::stampAdmittedAction(const std::string& kind)
 	// coop (PRD-P9 3): restart the stuck-chain clock with the chain itself.
 	_openChainTicks = SDL_GetTicks();
 	_openChainWarned = false;
+	// coop (wire-order Increment 7, SHAPE A): snapshot every unit's (tu, energy) at
+	// chain OPEN so coopCloseActionChain can diff and ship ONLY the units this chain
+	// changed as the action_end marker's `regen` array (the actor plus any in-chain
+	// reaction-firer, and actor-less expl chains, by construction). Lever-gated; the
+	// map stays empty lever-off so the marker is byte-identical. A stateless kind that
+	// overwrites an un-drained chain (see above) simply re-snapshots here - the lost
+	// chain's carry self-heals at next_turn exactly as it did pre-Increment-7.
+	if (g_wireOrderState.load(std::memory_order_relaxed) && _staticGame)
+	{
+		_openChainRegenSnap.clear();
+		SavedGame* sg = _staticGame->getSavedGame();
+		SavedBattleGame* sb = sg ? sg->getSavedBattle() : nullptr;
+		if (sb)
+		{
+			for (auto* u : *sb->getUnits())
+				_openChainRegenSnap[u->getId()] =
+					std::make_pair(u->getTimeUnits(), u->getEnergy());
+		}
+	}
 	return _actionSeq;
 }
 
@@ -14147,6 +14191,11 @@ void connectionTCP::resetActionArbiter(bool fullReset)
 	_openChainTicks = 0;
 	_openChainWarned = false;
 	_openChainInstantPending = false;
+	// coop (wire-order Increment 7, SHAPE A): the chain-open (tu,energy) snapshot is
+	// scoped to the open chain; drop it with the rest of the _openChain* state so a
+	// side boundary / battle reset never diffs against a stale baseline. Empty (no-op)
+	// lever-off and on the client, which never populates it.
+	_openChainRegenSnap.clear();
 	_pendingAdmits.clear();
 	_sideCommitInProgress = false;
 	_intentSlotReqId = 0;
@@ -14562,6 +14611,45 @@ void connectionTCP::coopCloseActionChain()
 	// without this: two of the alien side's last chains reported under the NEXT
 	// side's token, found no ring entry and were silently dropped as stale.
 	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+	// coop (wire-order Increment 7, SHAPE A): diff the chain-open (tu,energy) snapshot
+	// against the now-quiescent state (this is the ONE provably-quiescent point per
+	// chain, same guarantee the syncCheckRecord ring above relies on) and ship ONLY the
+	// units this chain changed as `regen`. The client applies these ABSOLUTES at the
+	// marker's first-sight, BEFORE it samples, so a slow client's still-draining tu/
+	// energy is corrected at wire position N rather than waiting on its own replay -
+	// which is exactly why the sidestart unitsRegen(tu) straddle heals a compare early
+	// (see docs parallel/boundary-residual-investigation-2026-08-26.md). Generalizes
+	// coopApplyActorCost (abortPath's PRD-P9 walk-end tu/energy carry) to every chain.
+	// Present-gated (absent = older peer / lever-off => byte-identical marker).
+	// DO-NOT-ADD morale: it is boundary-authored (endTurn death-morale cascade) and
+	// already covered by next_turn + hit_unit's bystander-morale carrier; a straddling
+	// pre-cascade morale absolute applied wire-after next_turn would MINT a new
+	// unitsRegen(morale) divergence. A future session must not add it here.
+	if (g_wireOrderState.load(std::memory_order_relaxed) && battle && !_openChainRegenSnap.empty())
+	{
+		Json::Value regen(Json::arrayValue);
+		for (auto* u : *battle->getUnits())
+		{
+			auto it = _openChainRegenSnap.find(u->getId());
+			if (it == _openChainRegenSnap.end())
+				continue; // spawned mid-chain: no baseline, leave it to next_turn's snapshot
+			const int tu = u->getTimeUnits();
+			const int en = u->getEnergy();
+			if (tu == it->second.first && en == it->second.second)
+				continue; // unchanged during this chain
+			Json::Value ru;
+			ru["unit_id"] = u->getId();
+			ru["tu"] = tu;
+			ru["energy"] = en;
+			regen.append(ru);
+		}
+		if (!regen.empty())
+		{
+			root["regen"] = regen;
+			g_regenEmitted.fetch_add(regen.size(), std::memory_order_relaxed);
+		}
+		_openChainRegenSnap.clear();
+	}
 	_openChainSeq = 0;
 	_openChainKind.clear();
 	_openChainTicks = 0;

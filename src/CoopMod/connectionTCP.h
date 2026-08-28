@@ -174,6 +174,10 @@ extern std::atomic<uint32_t> g_barrierBlocks;   // PHASE D.1: action_end held un
 // could not make progress). Process-monotonic; 0 across a run means the ordering-preserving
 // drain carried the whole load and the backstop never fired.
 extern std::atomic<uint32_t> g_rxHardFloorPasses;
+// coop (wire-order Increment 7, SHAPE A diagnostic): regen-carry elements the HOST
+// emitted on action_end markers, and elements the CLIENT applied at first-sight.
+extern std::atomic<uint32_t> g_regenEmitted;
+extern std::atomic<uint32_t> g_regenApplied;
 // TEST-ONLY levers (default false, set ONLY by the test server via
 // parallel_state {rx_hold} / {rx_drain_disable}). g_rxTestHold parks the pump's
 // consumption by emulating a permanently-busy display FOR THE GATE ONLY (whitelisted
@@ -868,6 +872,17 @@ class connectionTCP
 	/// packet always precedes its own action_end on the wire. Cleared the moment the
 	/// executor has emitted it (coopNoteInstantExecuted, from executeAction's tail).
 	static bool _openChainInstantPending;
+	/// HOST (wire-order Increment 7, SHAPE A): per-unit (tu, energy) captured at
+	/// stampAdmittedAction (chain open), diffed at coopCloseActionChain to ship ONLY
+	/// the units whose tu/energy changed during the chain as the marker's `regen`
+	/// array. Generalizes abortPath's PRD-P9 walk-end tu/energy carry to every chain
+	/// (incl. actor-less expl chains and in-chain multi-actor spend). unitId -> (tu,
+	/// energy). Lever-gated (g_wireOrderState); empty/unused lever-off so the
+	/// action_end packet stays byte-identical. DO-NOT-ADD morale: it is boundary-
+	/// authored (endTurn death-morale cascade) and already covered by next_turn + the
+	/// hit_unit bystander-morale carrier; a straddling pre-cascade morale absolute
+	/// applied wire-after next_turn would MINT a new unitsRegen(morale) divergence.
+	static std::unordered_map<int, std::pair<int, int>> _openChainRegenSnap;
 	/// HOST-owned, +1 per side transition; the staleness token an intent
 	/// carries. The client adopts the value stamped on the `endTurn` packet.
 	static std::uint32_t _sideSeq;
