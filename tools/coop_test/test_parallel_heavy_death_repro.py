@@ -187,6 +187,8 @@ def capture_mechanism(host, client, tag):
         "host_turn_side": (SOAK.battle(host).get("turn"), SOAK.battle(host).get("side")),
         "client_turn_side": (SOAK.battle(client).get("turn"), SOAK.battle(client).get("side")),
         "client_rxTrace": cp.get("rxTrace", []),
+        "client_diagTrace": cp.get("diagTrace", []),  # three-class RCA: tagged write log
+        "host_diagTrace": hp.get("diagTrace", []),    # three-class RCA: host-side lifecycle
         "client_holdDump": cp.get("holdDump", []),
         "client_rxSeqDeferred": cp.get("rxSeqDeferred"),
         "client_rxLegacyPasses": cp.get("rxLegacyPasses"),
@@ -430,7 +432,12 @@ def main():
             for gc in (host, client):
                 r = gc.cmd({"cmd": "sync_capture", "on": True})
                 assert r.get("fieldCapture") is True, f"SEAM-7 field capture did not arm: {r}"
-            print("    SEAM-7 field capture ARMED on both (mechanism trace)")
+            # coop (three-class RCA DIAGNOSTIC): arm the capture-gated tagged write log on
+            # BOTH machines (item lifecycle needs the host vs client compare). Lever-off inert.
+            for gc in (host, client):
+                gc.cmd({"cmd": "parallel_state", "diag_capture": True})
+                assert parallel(gc).get("diagCapture") is True, "diag_capture did not arm"
+            print("    SEAM-7 field capture + diag write-log ARMED both (mechanism trace)")
         knobs = (f"slow-client={args.slow_client} force-floor={not args.no_force_floor} "
                  f"ghost-off={args.ghost_off} rx-hold={args.rx_hold} drain-disable={args.drain_disable} "
                  f"wire-order={args.wire_order} "

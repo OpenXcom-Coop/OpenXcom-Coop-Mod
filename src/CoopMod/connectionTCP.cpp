@@ -578,6 +578,28 @@ std::atomic<uint32_t> g_rxHardFloorPasses{0};
 // on action_end markers; client elements applied at first-sight. Process-monotonic.
 std::atomic<uint32_t> g_regenEmitted{0};
 std::atomic<uint32_t> g_regenApplied{0};
+// coop (three-class RCA DIAGNOSTIC, 2026-08-28): capture-gated, lever-off INERT. When
+// g_diagCapture is armed (parallel_state {"diag_capture":true}) the client logs tagged,
+// position-ordered writes so a firing-run trace names the exact clobber writer (file:line
+// tag) for each residual class. No behavior change; the log is read back via parallel_state.
+std::atomic<bool> g_diagCapture{false};
+std::vector<std::string> g_diagTrace;
+std::mutex g_diagTraceMutex;
+std::atomic<uint32_t> g_diagPos{0};
+void coopDiagS(std::string s)
+{
+	if (!g_diagCapture.load(std::memory_order_relaxed)) return;
+	std::uint32_t pos = g_diagPos.fetch_add(1, std::memory_order_relaxed);
+	std::lock_guard<std::mutex> lk(g_diagTraceMutex);
+	g_diagTrace.push_back("p" + std::to_string(pos) + " " + std::move(s));
+	if (g_diagTrace.size() > 1200) g_diagTrace.erase(g_diagTrace.begin());
+}
+// unit-scoped tu/energy/position write, ALIEN probe only (id>=1000000) to keep the trace focused.
+void coopDiagUnit(const char* tag, int unitId, long v)
+{
+	if (!g_diagCapture.load(std::memory_order_relaxed) || unitId < 1000000) return;
+	coopDiagS(std::string(tag) + " u=" + std::to_string(unitId) + " =" + std::to_string(v));
+}
 // coop (chain-atomicity Strand B): the SIDE BARRIER introspection. g_sideBarrierHolds
 // counts passes where the whitelisted `endTurn` was HELD because a stamped packet of the
 // current side was still deferred ahead of it (the client must finish side S before
@@ -3343,8 +3365,12 @@ void connectionTCP::updateCoopTask()
 								SavedBattleGame* rb = _game->getSavedGame()->getSavedBattle();
 								const Json::Value& regen = obj["regen"];
 								for (Json::ArrayIndex ri = 0; ri < regen.size(); ++ri)
+								{
 									coopApplyActorCost(regen[ri],
 										regen[ri].get("unit_id", -1).asInt(), rb);
+									coopDiagUnit("regen.tu@3368", regen[ri].get("unit_id", -1).asInt(),
+										regen[ri].get("tu", -1).asInt());
+								}
 								g_regenApplied.fetch_add(regen.size(), std::memory_order_relaxed);
 							}
 							Json::Value rep;
@@ -3376,6 +3402,22 @@ void connectionTCP::updateCoopTask()
 					if (bSeq != 0 && bSeq > g_clientApplyBoundarySeq)
 					{
 						g_clientApplyBoundarySeq = bSeq;
+						if (g_diagCapture.load(std::memory_order_relaxed)
+							&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+							for (auto* du : *_game->getSavedGame()->getSavedBattle()->getUnits())
+							{
+								coopDiagUnit("SAMPLE.tu", du->getId(), du->getTimeUnits());
+								if (du->getId() >= 1000000)
+								{
+									const Position dp = du->getPosition();
+									coopDiagS("SAMPLE.core bseq=" + std::to_string(bSeq)
+										+ " u=" + std::to_string(du->getId())
+										+ " live=" + std::to_string((int)du->getStatus())
+										+ " fac=" + std::to_string((int)du->getFaction())
+										+ " x=" + std::to_string(dp.x) + " y=" + std::to_string(dp.y)
+										+ " z=" + std::to_string(dp.z));
+								}
+							}
 						Json::Value rep;
 						rep["state"] = "action_done";
 						rep["seq"] = 0;
@@ -6834,6 +6876,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						if (obj.isMember("tu"))
 						{
 							unit->setTimeUnits(obj["tu"].asInt());
+							coopDiagUnit("abortPath.tu@6858", unit->getId(), obj["tu"].asInt());
 						}
 						if (obj.isMember("energy"))
 						{
@@ -8532,6 +8575,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						unit->setMotionPointsCoop(motionpoints);
 						unit->setTimeUnits(time);
+						coopDiagUnit("after_unit_death.tu@8557", unit->getId(), time);
 						unit->setHealth(health);
 						unit->setCoopMorale(morale);
 						unit->setCoopEnergy(energy);
@@ -8895,6 +8939,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 							unit->setMotionPointsCoop(motionpoints);
 							unit->setTimeUnits(time);
+							coopDiagUnit("unit_death.tu@8920", unit->getId(), time);
 							unit->setHealth(health);
 							unit->setCoopMorale(morale);
 							unit->setCoopEnergy(energy);
@@ -9098,6 +9143,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					|| unit->coopStateAccept(stateSide, stateSeq, 1))
 				{
 					unit->setTimeUnits(obj["time"].asInt());
+					coopDiagUnit("panic_action.tu@9125", unit->getId(), obj["time"].asInt());
 					unit->setCoopEnergy(obj["energy"].asInt());
 					unit->setHealth(obj["health"].asInt());
 					unit->setCoopMorale(obj["morale"].asInt());
@@ -9409,7 +9455,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								if (obj.isMember("morale")) unit->setCoopMorale(obj["morale"].asInt());
 								if (obj.isMember("energy")) unit->setCoopEnergy(obj["energy"].asInt());
 								if (obj.isMember("mana")) unit->setCoopMana(obj["mana"].asInt());
-								if (obj.isMember("tu")) unit->setTimeUnits(obj["tu"].asInt());
+								if (obj.isMember("tu")) { unit->setTimeUnits(obj["tu"].asInt()); coopDiagUnit("hit_unit.tu@9438", unit->getId(), obj["tu"].asInt()); }
 								// coop (PRD-I3 saveBlob close): the victim's post-damage per-side armor
 								// (hit_unit is the sole carrier; classic replays damage() and never diverges).
 								if (obj.isMember("armor"))
@@ -11532,6 +11578,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						unit->setMindControllerId(obj.get("mindControllerId", 0).asInt());
 						unit->setCoopMorale(obj.get("morale", unit->getMorale()).asInt());
 						unit->setTimeUnits(obj.get("tu", unit->getTimeUnits()).asInt());
+						coopDiagUnit("psi_result.tu@11560", unit->getId(), obj.get("tu", unit->getTimeUnits()).asInt());
 						// coop: the host's recoverTimeUnits() restored ENERGY as well as TU.
 						// Additive - absent means an older peer, so leave energy alone.
 						unit->setCoopEnergy(obj.get("energy", unit->getEnergy()).asInt());
@@ -11712,6 +11759,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 								unit->setMotionPointsCoop(motionpoints);
 								unit->setTimeUnits(time);
+								coopDiagUnit("PlayerTurnYour.tu@11749", unit->getId(), time);
 								unit->setHealth(health);
 								unit->setCoopMorale(morale);
 								unit->setCoopEnergy(energy);
@@ -13649,6 +13697,7 @@ std::unordered_set<int> connectionTCP::coopApplyNextTurnUnitStates(Json::Value& 
 
 				unit->setCoopEnergy(energy);
 				unit->setTimeUnits(time);
+				coopDiagUnit("nextturn.tu@13682", unit->getId(), time);
 
 				unit->setHealth(health);
 				unit->setCoopMorale(morale);
@@ -14769,6 +14818,19 @@ void connectionTCP::coopSendSyncBoundary(const char* kind)
 	}
 	const std::uint32_t seq = ++_boundarySeq;
 	SharedEcon::syncCheckRecord(_staticGame, seq, 0, true, kind ? kind : "boundary");
+	// coop (three-class RCA DIAGNOSTIC, class 3): the HOST's authoritative alien core at
+	// the boundary ring-record point (pre-panic per Increment 6), to compare against the
+	// client's SAMPLE.core. Capture-gated, boundary-only (bounded).
+	if (g_diagCapture.load(std::memory_order_relaxed))
+		for (auto* hu : *save->getSavedBattle()->getUnits())
+			if (hu->getId() >= 1000000)
+			{
+				const Position hp = hu->getPosition();
+				coopDiagS("HOSTCORE bseq=" + std::to_string(seq) + " u=" + std::to_string(hu->getId())
+					+ " live=" + std::to_string((int)hu->getStatus())
+					+ " x=" + std::to_string(hp.x) + " y=" + std::to_string(hp.y)
+					+ " z=" + std::to_string(hp.z) + " tu=" + std::to_string(hu->getTimeUnits()));
+			}
 
 	Json::Value root;
 	root["state"] = "action_end";

@@ -4696,6 +4696,13 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// mechanism runs (residual is timing); applied==0 => not reaching the sampler.
 		resp["regenEmitted"] = static_cast<Json::UInt>(g_regenEmitted.load());
 		resp["regenApplied"] = static_cast<Json::UInt>(g_regenApplied.load());
+		resp["diagCapture"] = g_diagCapture.load(std::memory_order_relaxed);
+		{
+			Json::Value dt(Json::arrayValue);
+			std::lock_guard<std::mutex> lk(g_diagTraceMutex);
+			for (const auto& s : g_diagTrace) dt.append(s);
+			resp["diagTrace"] = dt;
+		}
 		resp["rxTestHold"] = g_rxTestHold.load();
 		resp["rxDrainDisable"] = g_rxDrainDisable.load();
 		resp["rxForceFloor"] = g_rxForceFloor.load();
@@ -4907,6 +4914,17 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		{
 			g_deathGhostDisable.store(req.get("death_ghost_disable", false).asBool(),
 				std::memory_order_relaxed);
+		}
+		// coop (three-class RCA DIAGNOSTIC): arm/disarm the capture-gated tagged write log.
+		if (req.isMember("diag_capture"))
+		{
+			g_diagCapture.store(req.get("diag_capture", false).asBool(),
+				std::memory_order_relaxed);
+			if (!g_diagCapture.load(std::memory_order_relaxed))
+			{
+				std::lock_guard<std::mutex> lk(g_diagTraceMutex);
+				g_diagTrace.clear();
+			}
 		}
 		if (req.isMember("objective_gate_disable"))
 		{

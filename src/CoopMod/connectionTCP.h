@@ -178,6 +178,12 @@ extern std::atomic<uint32_t> g_rxHardFloorPasses;
 // emitted on action_end markers, and elements the CLIENT applied at first-sight.
 extern std::atomic<uint32_t> g_regenEmitted;
 extern std::atomic<uint32_t> g_regenApplied;
+// coop (three-class RCA DIAGNOSTIC): capture-gated tagged write log; lever-off inert.
+extern std::atomic<bool> g_diagCapture;
+extern std::vector<std::string> g_diagTrace;
+extern std::mutex g_diagTraceMutex;
+void coopDiagS(std::string s);
+void coopDiagUnit(const char* tag, int unitId, long v);
 // TEST-ONLY levers (default false, set ONLY by the test server via
 // parallel_state {rx_hold} / {rx_drain_disable}). g_rxTestHold parks the pump's
 // consumption by emulating a permanently-busy display FOR THE GATE ONLY (whitelisted

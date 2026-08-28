@@ -2002,6 +2002,9 @@ void SavedBattleGame::removeItem(BattleItem *item)
 	{
 		return;
 	}
+	// coop (three-class RCA DIAGNOSTIC, items): tag the actual removal, capture-gated.
+	coopDiagS("item.remove cid=" + std::to_string(item->getCoopID())
+		+ " t=" + (item->getRules() ? item->getRules()->getType() : std::string("?")));
 
 	// due to strange design, the item has to be removed from the tile it is on too (if it is on a tile)
 	item->moveToOwner(nullptr);
@@ -2200,6 +2203,10 @@ BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile,
 	item->setUnit(corpseFor);
 	_items.push_back(item);
 	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
+	// coop (three-class RCA DIAGNOSTIC, items): tag the mint, capture-gated.
+	coopDiagS("item.mint cid=" + std::to_string(item->getCoopID())
+		+ " t=" + (rule ? rule->getType() : std::string("?"))
+		+ (corpseFor ? " corpse" : ""));
 	initItem(item);
 	return item;
 }
