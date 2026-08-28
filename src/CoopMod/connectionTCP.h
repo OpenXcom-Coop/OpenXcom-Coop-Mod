@@ -959,6 +959,13 @@ class connectionTCP
 	static void coopArmSyncBoundary(const char* kind);
 	/// HOST (PRD-I0), main-thread tick: send one armed boundary marker if idle.
 	static void coopFlushSyncBoundary();
+	/// HOST (wire-order Increment 6): flush a pending SIDESTART boundary EARLY - at the
+	/// player-turn-start point BEFORE handlePanickingPlayer runs - so the ring captures the
+	/// boundary STATE (post-side-close-drain, pre-start-of-turn panic/berserk), matching
+	/// next_turn's snapshot and the client's wire-first-sight sample. Lever-gated
+	/// (g_wireOrderState) and scoped to the sidestart kind; endturn boundaries keep the
+	/// deferred !isBusy flush. Lever-off: no-op (the normal tick flush is unchanged).
+	static void coopFlushSidestartBoundaryEarly();
 	/// HOST (PRD-I0): boundary markers armed but not yet shipped.
 	static std::vector<std::string> _pendingBoundaries;
 	/// coop (PRD-I3 Option D-lite): the parallel client defers its NEUTRAL->PLAYER

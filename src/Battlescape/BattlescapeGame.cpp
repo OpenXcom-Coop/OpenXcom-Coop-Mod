@@ -1662,6 +1662,13 @@ int BattlescapeGame::think()
 				// it's a player side && we have not handled all panicking units
 				if (!_playerPanicHandled)
 				{
+					// coop (wire-order Increment 6): flush the pending SIDESTART boundary ring +
+					// marker HERE - post-side-close-drain (_states is empty at this think point),
+					// pre-start-of-turn panic/berserk - so the host ring captures the boundary
+					// state, not a post-boundary panic TU spend. Lever-gated + sidestart-scoped
+					// inside coopFlushSidestartBoundaryEarly; lever-off it is a no-op (the normal
+					// deferred tick flush still ships the marker, byte-identical).
+					connectionTCP::coopFlushSidestartBoundaryEarly();
 
 					_playerPanicHandled = handlePanickingPlayer();
 					_save->getBattleState()->updateSoldierInfo();

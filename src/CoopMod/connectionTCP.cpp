@@ -14634,6 +14634,35 @@ void connectionTCP::coopFlushSyncBoundary()
 	coopSendSyncBoundary(kind.c_str());
 }
 
+// coop (wire-order Increment 6): flush a pending SIDESTART boundary at the player-turn-start
+// point - called from BattlescapeGame::think() right before handlePanickingPlayer, where
+// _states is empty (the side-close explosion/death chains have drained) and the start-of-turn
+// panic/berserk has NOT yet run. Records the ring + emits the marker at the boundary STATE
+// (post-side-close, pre-panic), so the host ring equals next_turn's snapshot and the client's
+// wire-first-sight sample, and the panic carriers land AFTER the marker on both timelines. This
+// fixes the sidestart unitsRegen residual (host ring was previously recorded post-panic-drain
+// because coopFlushSyncBoundary's !isBusy wait overshoots next_turn into the start-of-turn
+// panic). Scoped to the sidestart kind; an endturn boundary at the front is left for the normal
+// deferred tick flush. Lever-off: no-op (the tick flush is unchanged, byte-identical).
+void connectionTCP::coopFlushSidestartBoundaryEarly()
+{
+	if (!g_wireOrderState.load(std::memory_order_relaxed))
+	{
+		return;
+	}
+	if (!parallelTurnActive() || !getHost())
+	{
+		return;
+	}
+	if (_pendingBoundaries.empty() || _pendingBoundaries.front() != "sidestart")
+	{
+		return;
+	}
+	// coopFlushSyncBoundary flushes the front (the sidestart here) after its own
+	// !isBusy && coopTaskCompleted() guard, which is satisfied at this quiescent point.
+	coopFlushSyncBoundary();
+}
+
 void connectionTCP::coopSendSyncBoundary(const char* kind)
 {
 	if (!parallelTurnActive() || !getHost() || !_staticGame)
