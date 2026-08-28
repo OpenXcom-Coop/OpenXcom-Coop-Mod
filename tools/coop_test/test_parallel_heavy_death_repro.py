@@ -461,6 +461,28 @@ def main():
                     time.sleep(0.5)
                 client.cmd({"cmd": "parallel_state", "rx_hold": False})
                 PE.wait_side(host, client, turn0, timeout=180)
+                # coop (Investigation B, executor 2026-08-26): the sidestart boundary residual
+                # fires HERE (client released deeply behind at the boundary). Grab the SEAM-7
+                # fieldDiff immediately - deterministic and non-wedging (rx-hold uses wait_side,
+                # not close_side), so the unitsRegen polarity is captured before any heal.
+                if args.trace_mechanism and mechanism_capture is None:
+                    for _ in range(40):
+                        sc = parallel(host).get("syncCheck", {})
+                        if sc.get("mismatches") or sc.get("fieldDiffs") \
+                                or TW.desync_seen(host) or TW.desync_seen(client):
+                            mechanism_capture = capture_mechanism(host, client,
+                                                                  f"rx-hold fire on alien side {side}")
+                            mm = mechanism_capture.get("mismatches", [])
+                            fd = mechanism_capture.get("fieldDiffs", [])
+                            print(f"    *** INVESTIGATION-B rx-hold capture: "
+                                  f"{len(fd)} fieldDiffs, mismatches={mm} ***")
+                            for d in fd:
+                                print(f"      fieldDiff: unit={d.get('unitId', d.get('unit'))} "
+                                      f"field={d.get('field')} host={d.get('host')} client={d.get('client')}")
+                            for uid, st in (mechanism_capture.get("unit_stats_full") or {}).items():
+                                print(f"      unit {uid} host={st.get('host')} client={st.get('client')}")
+                            break
+                        time.sleep(0.2)
             else:
                 # sample the client's backlog while the alien side replays (the lag the bug needs).
                 SOAK.close_side(host, client, 0, 1, turn0)
