@@ -353,6 +353,45 @@ def assert_census_wireorder(host, client, what):
             f"{tag} wrote a desync diagnostic bundle {what} in a CLEAN battle: {wrote}")
 
 
+# ---- bleed-out discrimination experiment (owner ruling 2026-08-29) ------------------
+def _bleed_candidates(gc):
+    """{uid: (health, stun, wounds, isOut, status)} for units that are bleed-out
+    candidates on THIS machine - a fatal wound present (wounds>0) or already down
+    (isOut). getFatalWounds() is host-resolved damage; both machines then bleed it in
+    their OWN prepareNewTurn, so a per-turn host-vs-client read tells a heal from a freeze."""
+    out = {}
+    for u in SOAK.battle(gc)["units"]:
+        if (u.get("wounds") or 0) > 0 or u.get("isOut"):
+            out[u["id"]] = (u.get("health"), u.get("stun"), u.get("wounds"),
+                            bool(u.get("isOut")), u.get("status"))
+    return out
+
+
+def _bleed_snapshot(host, client):
+    hc, cc = _bleed_candidates(host), _bleed_candidates(client)
+    return {uid: (hc.get(uid), cc.get(uid)) for uid in sorted(set(hc) | set(cc))}
+
+
+def _print_bleed(label, snap):
+    print(f"    [bleed-out] {label}: (health, stun, wounds, isOut, status)")
+    if not snap:
+        print("      (no bleed-out candidates)")
+    for uid, (h, c) in snap.items():
+        print(f"      unit {uid}: host={h} client={c}" + ("" if h == c else "   <<< DIFF"))
+
+
+def _regen_latch(gc):
+    """Non-diag unitsRegen latch view from parallel_state: the aggregate pending/heal/
+    promote counters plus whether unitsRegen currently appears in the mismatch ring."""
+    p = parallel(gc)
+    sc = p.get("syncCheck", {}) or {}
+    regen_mm = [m for m in (sc.get("mismatches", []) or []) if m.get("bucket") == "unitsRegen"]
+    return (f"pending={p.get('syncBoundaryPending')} healed={p.get('syncBoundaryHealed')} "
+            f"persistAlarms={p.get('syncBoundaryPersistAlarms')} "
+            f"unitsRegenMismatches={len(regen_mm)}"
+            + (f" last={regen_mm[-1]}" if regen_mm else ""))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=20260802,
@@ -407,6 +446,15 @@ def main():
                          "the per-action report is genuinely clean (not merely hidden behind the "
                          "report-only gate). Prints the host sync-check per-action vs boundary mismatch "
                          "breakdown at the end.")
+    ap.add_argument("--quiet-sides", type=int, default=1,
+                    help="BLEED-OUT DISCRIMINATION experiment (owner ruling 2026-08-29): drive N "
+                         "consecutive quiet sides after the last ambush side (default 1 = committed "
+                         "behaviour, byte-identical). With N>1 it arms the lightweight diag write-log, "
+                         "censuses after EACH quiet boundary (diagnostic - only the FIRST still gates "
+                         "the exit code, committed semantics unchanged), and captures every bleed-out "
+                         "candidate (wounds>0 or isOut) host vs client plus the unitsRegen latch state "
+                         "per boundary - so a FROZEN (persistent, missed alarm) face can be told apart "
+                         "from a CONVERGING (transient, census sampled before the bleed tick settled).")
     args = ap.parse_args()
 
     host_opts = {"battleXcomSpeed": SOAK.FAST_SPEED, "battleAlienSpeed": SOAK.FAST_SPEED,
@@ -618,6 +666,19 @@ def main():
             if not bstate(host).get("inBattle"):
                 setup_error = "mission ended before the quiet reconciliation side"
             else:
+                # coop (bleed-out discrimination experiment, owner ruling 2026-08-29): in
+                # multi-quiet-side mode arm the lightweight diag write-log (unitsRegen is
+                # diag-robust) and snapshot the bleed-out candidates at the LAST AMBUSH SIDE,
+                # before ANY quiet reconciliation - the tick-0 ground truth. Default
+                # (--quiet-sides 1) skips all of this and is byte-identical.
+                if args.quiet_sides > 1:
+                    if not (args.trace_mechanism or args.rca_trace):
+                        for gc in (host, client):
+                            gc.cmd({"cmd": "parallel_state", "diag_capture": True})
+                        print("    [experiment] diag write-log ARMED (bleed-out discrimination)")
+                    _print_bleed(f"last ambush side, pre-quiet (turn {bstate(host)['turn']})",
+                                 _bleed_snapshot(host, client))
+                    print(f"      unitsRegen latch(host) {_regen_latch(host)}")
                 qturn = bstate(host)["turn"]
                 print(f"\n  -- OPTION A: driving ONE QUIET side (turn {qturn}, no ambush) for "
                       f"next_turn reconciliation, then the FINAL strict census --")
@@ -664,6 +725,51 @@ def main():
                             "client_diagTrace": parallel(client).get("diagTrace", []),
                         }, _f, indent=1, default=str)
                     print(f"    RCA diag traces written -> {rca_out}")
+
+        # coop (bleed-out discrimination experiment): the committed block above drove +
+        # gated the FIRST quiet side. Drive the REMAINING quiet sides (diagnostic only -
+        # they do NOT set repro_fired, so the exit code / committed gating is unchanged) and
+        # capture, per boundary: bleed-out candidates host vs client, the unitsRegen latch
+        # state, and census-vs-desyncSeen. DISCRIMINATION: a candidate whose host value
+        # CONVERGES to the client's (or both converge) by boundary 2/3 => TRANSIENT (the
+        # one-quiet-side census sampled before the bleed tick settled). A candidate FROZEN
+        # apart across >=2 quiet boundaries at true drain => PERSISTENT (missed alarm).
+        if args.wire_order and setup_error is None and args.quiet_sides > 1:
+            _print_bleed(f"after quiet boundary 1 (turn {qturn})",
+                         _bleed_snapshot(host, client))
+            print(f"      unitsRegen latch(host) {_regen_latch(host)}")
+            for _qi in range(2, args.quiet_sides + 1):
+                if not bstate(host).get("inBattle"):
+                    print(f"  [experiment] mission ended before quiet side {_qi} - stopping")
+                    break
+                _qt = bstate(host)["turn"]
+                print(f"\n  -- quiet side {_qi}/{args.quiet_sides} (turn {_qt}, no ambush) --")
+                SOAK.close_side(host, client, 0, 1, _qt)
+                settle_wire_order(host, client, timeout=60.0)
+                _hi2, _ci2 = len(SOAK.item_census(host)), len(SOAK.item_census(client))
+                print(f"    [item-census] after quiet side {_qi}: host={_hi2} client={_ci2}"
+                      + (f"  <<< DIFF {_ci2 - _hi2}" if _hi2 != _ci2 else "  (agree)"))
+                _print_bleed(f"after quiet boundary {_qi} (turn {_qt})",
+                             _bleed_snapshot(host, client))
+                print(f"      unitsRegen latch(host) {_regen_latch(host)}")
+                try:
+                    assert_census_wireorder(host, client, f"quiet boundary {_qi} (turn {_qt})")
+                    _cf = False
+                    print(f"    [census] quiet boundary {_qi}: CLEAN")
+                except AssertionError as _ae:
+                    _cf = True
+                    print(f"    [census] quiet boundary {_qi}: DRIFT:\n      {_ae}")
+                _dh = TW.desync_seen(host)
+                print(f"    [detector-fidelity] quiet boundary {_qi}: "
+                      f"census={'FIRED' if _cf else 'CLEAN'} desyncSeen={_dh} => "
+                      f"{'AGREE' if bool(_cf) == bool(_dh) else 'DISAGREE'}")
+            # full unitsRegen latch transition history (diag TRACEB), laid beside ground truth
+            _tb = [l.split('TRACEB', 1)[-1].strip()
+                   for l in (parallel(host).get("diagTrace", []) or [])
+                   if "TRACEB pending" in l and "unitsRegen" in l]
+            print(f"\n  == unitsRegen latch TRACEB transition history (host, {len(_tb)} entries) ==")
+            for _l in _tb:
+                print(f"    {_l}")
 
         try:
             corpses_grew = len(corpses(client)) - corpses0
