@@ -6221,7 +6221,8 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 			if (coopDiagCap() && boundary && std::strcmp(name, "items") == 0)
 			{
 				const char* decision = endturnBnd ? "SKIP-endturn"
-					: corpsePending ? "SKIP-corpsePending" : "COMPARE";
+					: corpsePending ? (coopWireOn() && boundary ? "PEND-corpsePending" : "SKIP-corpsePending")
+					: "COMPARE";
 				coopDiagS("TRACEB items bseq=" + std::to_string(seq)
 					+ " kind=" + entry->kind + " corpsePending=" + std::to_string(corpsePending ? 1 : 0)
 					+ " -> " + decision);
@@ -6236,8 +6237,20 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 			// tripwire): the item terms are one death behind, heal on the next report.
 			if (corpsePending)
 			{
-				++g_syncItemsCorpsePendingSkips;
-				continue;
+				++g_syncItemsCorpsePendingSkips; // pend-instead-of-skip lever-on (renamed semantics)
+				// coop (alarm-unmask, owner ruling 2026-08-29): the Increment-8 persistence latch
+				// SUPERSEDES this corpse-pending skip's rationale AT A SIDESTART BOUNDARY. The skip
+				// predates the latch; its job was to hide a one-death-behind straddle that heals
+				// next boundary. The latch does that better: a straddle pends on first sight and
+				// HEALS on the next boundary (no alarm), while a PERSISTENT item divergence inside
+				// the corpse-mint window now correctly promotes. TRACE B (2026-08-29 RCA, docs
+				// parallel/boundary-residual-investigation-2026-08-26.md): EVERY live-drift sidestart
+				// in the heavy-death repro carried corpsePending=1, so the frozen weapon-tile drift
+				// was never even COMPARED. Lever-on + boundary: fall through to compare (the mismatch
+				// enters the latch, report-only 1st boundary). Lever-off, OR a per-action
+				// (non-boundary) report: skip byte-identically (per-action keeps immediate alarm).
+				if (!(coopWireOn() && boundary))
+					continue;
 			}
 		}
 		++g_syncBucketCompares[i];
@@ -6319,7 +6332,12 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		else if (boundary && entry->kind == "sidestart") ++g_syncSaveBlobSidestartCompares;
 		const std::uint64_t peer = static_cast<std::uint64_t>(node["saveBlob"].asUInt64());
 		const std::uint64_t mine = entry->saveBlob;
-		const bool saveBlobCompared = !saveBlobEndturn && (!corpsePending || g_strictBurnIn); // PHASE D.1 lever
+		// coop (alarm-unmask, owner ruling 2026-08-29): lever-on at a SIDESTART boundary the
+		// corpse-pending straddle is handled by the persistence latch (pend-then-heal), not by
+		// hiding the compare - so compare here too. Lever-off / endturn / strict-burnin
+		// unchanged; the corpsePending SKIP counter above still counts (pend-instead-of-skip).
+		const bool saveBlobCompared = !saveBlobEndturn
+			&& (!corpsePending || g_strictBurnIn || (coopWireOn() && boundary)); // PHASE D.1 lever + alarm-unmask
 		// coop (TRACE B DIAGNOSTIC, RCA silent-alarm): the saveBlob (whole-save superset,
 		// includes the item census) per-boundary gate decision.
 		if (coopDiagCap() && boundary)

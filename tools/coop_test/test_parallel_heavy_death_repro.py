@@ -638,6 +638,20 @@ def main():
                     if args.trace_mechanism and mechanism_capture is None:
                         mechanism_capture = capture_mechanism(host, client, "quiet-side final census")
                     diag(host, client, "quiet-side final census")
+                # coop (G3 DETECTOR FIDELITY, owner ruling 2026-08-29): the in-game
+                # tripwire (desyncSeen) must AGREE with the quiet-side census verdict -
+                # census FIRES on a persistent divergence => desyncSeen True (the unmasked
+                # alarm caught it, a TRUE positive); census CLEAN => desyncSeen False (no
+                # false alarm from an unmasked pend-and-heal transient). A census-fires /
+                # desyncSeen-False split (or the reverse) is the gate failure. Measured
+                # independently of WHICH term the census raised on.
+                qs_desync_host = TW.desync_seen(host)
+                qs_desync_client = TW.desync_seen(client)
+                _g3_verdict = "FIRED" if repro_fired else "CLEAN"
+                _g3_agree = (bool(repro_fired) == bool(qs_desync_host))
+                print(f"    [G3 detector-fidelity] quiet-side census={_g3_verdict}  "
+                      f"desyncSeen host={qs_desync_host} client={qs_desync_client}  "
+                      f"=> {'AGREE' if _g3_agree else 'DISAGREE <<< GATE FAILURE'}")
                 if args.rca_trace:
                     rca_out = os.environ.get("MECH_TRACE_OUT") or os.path.join(
                         os.path.dirname(os.path.abspath(__file__)), "rca_trace.json")
