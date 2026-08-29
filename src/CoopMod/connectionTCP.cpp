@@ -1324,6 +1324,17 @@ static void clearSnapshotSlots()
 	}
 }
 
+// coop (option 3B): conflation slots still holding an un-applied (dirty) snapshot - part of
+// the LIVE drain gauge that proves "nothing left to apply". Read-only, production-inert.
+size_t snapshotPendingCount()
+{
+	std::lock_guard<std::mutex> lk(g_snapMx);
+	size_t n = 0;
+	for (int i = 0; i < SNAP_COUNT; ++i)
+		if (g_snapDirty[i]) ++n;
+	return n;
+}
+
 // ===== Time helper =====
 static inline uint64_t now_ms()
 {

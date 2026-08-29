@@ -129,6 +129,13 @@ struct SPSCQueue
 		return tail == head;
 	}
 
+	// coop (option 3B): current occupancy - for the live drain gauge.
+	size_t size() const
+	{
+		std::lock_guard<std::mutex> lk(m);
+		return (head + N - tail) % N;
+	}
+
 	bool full() const
 	{
 		std::lock_guard<std::mutex> lk(m);
@@ -160,6 +167,7 @@ extern std::atomic<uint64_t> g_txDropCount;
 bool rxPassDeferred();             // PRD-P2: this dispatch overtook a deferred packet
 size_t rxHoldSize();               // current hold-queue depth
 size_t rxParkSize();               // PRD-P9 R7: packets parked, not rotated
+size_t snapshotPendingCount();     // option 3B: dirty conflation slots (live drain gauge)
 extern std::atomic<uint32_t> g_rxRotateCount;   // PRD-P11: gate holds (nothing rotates now)
 extern std::atomic<uint32_t> g_rxHoldMaxSeen;   // hold-queue high-water mark
 // coop (PRD-P11): the in-order pump. The queue is consumed IN PLACE and a packet

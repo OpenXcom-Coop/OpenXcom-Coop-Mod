@@ -4678,6 +4678,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// PRD-P9 R7: packets set aside by a permanent exclusion instead of being
 		// rotated forever. Nothing is lost - they re-enter g_rxHold at the front.
 		resp["rxPark"] = static_cast<Json::UInt>(rxParkSize());
+		// coop (option 3B): the remaining LIVE pending-to-apply depths, so the repro
+		// settle can prove "nothing left to apply" (NOT the cumulative counters).
+		// rxQDepth = already-parsed messages waiting for the game thread; snapPending =
+		// conflation slots still holding an un-applied last-write-wins snapshot.
+		resp["rxQDepth"] = static_cast<Json::UInt>(g_rxQ.size());
+		resp["snapPending"] = static_cast<Json::UInt>(snapshotPendingCount());
 		resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
 		resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
 		// PRD-P11: the in-order pump. `rxSkippedBlocked` counts packets the gate
