@@ -534,6 +534,12 @@ void syncCheckAttachBoundary(Game* game, Json::Value& msg);
 void syncCheckCompare(Game* game, const Json::Value& msg);
 /// Harness: the `syncCheck` introspection block (see PRD-I0 §4).
 void syncCheckReport(Json::Value& out);
+/// coop (option 3): boundary-persistence-alarm introspection (2d). Pending-store size,
+/// heals, persistent alarms, and unresolved-at-end - exposed in `parallel_state`.
+size_t syncBoundaryPendingSize();
+std::uint64_t syncBoundaryHealed();
+std::uint64_t syncBoundaryPersistAlarms();
+std::uint64_t syncBoundaryUnresolved();
 /// Clears the ring, the latches and the mismatch log. Called from
 /// resetResyncStats() (harness `shared_reset_resync_stats`) and at battle teardown.
 void resetSyncCheck();

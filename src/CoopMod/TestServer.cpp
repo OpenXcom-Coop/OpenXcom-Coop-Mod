@@ -4709,6 +4709,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["rxSideBarrierDisable"] = g_rxSideBarrierDisable.load();
 		// coop (wire-order report alignment, Phase 2): the master lever readback.
 		resp["wireOrderState"] = g_wireOrderState.load();
+		// coop (option 3, 2d): boundary-persistence-alarm introspection.
+		resp["syncBoundaryPending"] = static_cast<Json::UInt64>(SharedEcon::syncBoundaryPendingSize());
+		resp["syncBoundaryHealed"] = static_cast<Json::UInt64>(SharedEcon::syncBoundaryHealed());
+		resp["syncBoundaryPersistAlarms"] = static_cast<Json::UInt64>(SharedEcon::syncBoundaryPersistAlarms());
+		resp["syncBoundaryUnresolved"] = static_cast<Json::UInt64>(SharedEcon::syncBoundaryUnresolved());
 		// coop DIAGNOSTIC (reject-set audit): [unitId, inSide, inSeq, recSide, recSeq, recRank] per rejected next_turn write.
 		{
 			Json::Value ntr(Json::arrayValue);

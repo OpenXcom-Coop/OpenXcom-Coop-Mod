@@ -78,6 +78,25 @@ def parallel(gc):
     return SOAK.parallel(gc)
 
 
+def settle_wire_order(host, client, timeout=30.0):
+    """coop (option 3, §4): wait until BOTH machines are display-drained
+    (displayBacklog == 0 and rxHold == 0) so the census measures the HEALED steady
+    state. Bounded: on timeout print a loud SETTLE TIMEOUT and return (the census then
+    runs anyway, so a genuinely wedged client still fails the run rather than hanging)."""
+    end = time.time() + timeout
+    while time.time() < end:
+        hp, cp = parallel(host), parallel(client)
+        if (hp.get("displayBacklog", 0) == 0 and hp.get("rxHold", 0) == 0
+                and cp.get("displayBacklog", 0) == 0 and cp.get("rxHold", 0) == 0):
+            return True
+        time.sleep(0.25)
+    hp, cp = parallel(host), parallel(client)
+    print(f"    *** SETTLE TIMEOUT ({timeout:.0f}s): host displayBacklog={hp.get('displayBacklog')} "
+          f"rxHold={hp.get('rxHold')}, client displayBacklog={cp.get('displayBacklog')} "
+          f"rxHold={cp.get('rxHold')} - proceeding to census anyway ***")
+    return False
+
+
 def corpses(gc):
     return sorted((i["id"], i["type"]) for i in gc.ok({"cmd": "battle_items"})["items"]
                   if "CORPSE" in i["type"].upper())
@@ -524,6 +543,13 @@ def main():
                 # non-replicated residuals (panic-spent TU, dead-unit residual health)
                 # reconcile at the next sidestart and are dropped from the unit tuple only
                 # (every strict detector stays). Shipped/baseline runs keep the full census.
+                # coop (option 3, §4 harness settle): under --wire-order the census must
+                # measure the HEALED steady state (transient display-lane lag heals within
+                # a boundary). Wait until BOTH machines are display-drained before comparing;
+                # on timeout print a loud SETTLE TIMEOUT and proceed anyway (a genuinely
+                # wedged client must still FAIL the run, not hang the harness).
+                if args.wire_order:
+                    settle_wire_order(host, client, timeout=30.0)
                 census = (assert_census_wireorder
                           if (args.wire_order or args.scoped_census) else SOAK.assert_census)
                 census(host, client, f"after the alien side of turn {turn0}")

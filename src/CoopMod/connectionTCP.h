@@ -184,6 +184,10 @@ extern std::vector<std::string> g_diagTrace;
 extern std::mutex g_diagTraceMutex;
 void coopDiagS(std::string s);
 void coopDiagUnit(const char* tag, int unitId, long v);
+// coop (option 3): the wire-order master lever (defined connectionTCP.cpp:639), exposed so
+// SharedEcon.cpp's syncCheckCompare/verifyBattleChecksum can gate the boundary persistence
+// alarm on it (lever-off = byte-identical). Standard g_ atomic extern pattern.
+extern std::atomic<bool> g_wireOrderState;
 // TEST-ONLY levers (default false, set ONLY by the test server via
 // parallel_state {rx_hold} / {rx_drain_disable}). g_rxTestHold parks the pump's
 // consumption by emulating a permanently-busy display FOR THE GATE ONLY (whitelisted

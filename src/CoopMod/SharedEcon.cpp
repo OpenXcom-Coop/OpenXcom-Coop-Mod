@@ -3721,6 +3721,13 @@ bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census,
 	return true;
 }
 
+// coop (option 3): boundary persistence helpers - DEFINED just before syncCheckCompare
+// (their bodies touch g_syncBoundaryPending, declared further down), FORWARD-declared here
+// so verifyBattleChecksum (2c) can route through the same store.
+static bool coopWireOn();
+static bool coopBoundaryPersistShouldAlarm(const char* bucket, const std::string& kind, std::uint32_t bseq);
+static void coopBoundaryPersistHeal(const char* bucket, const std::string& kind, std::uint32_t bseq);
+
 void attachBattleChecksum(Game* game, Json::Value& msg)
 {
 	// coop (#151): PvP (gamemodes 2/3) runs a ROLE-AWARE sim where the two machines
@@ -3782,23 +3789,61 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 	// The ITEM terms keep comparing unconditionally: an item id minted on one
 	// machine only is not a state a late chain can heal.
 	const bool unitsComparable = !rxPassDeferred();
-	if ((peerItemId < 0 || peerItemId == myItemId)
-		&& (peerCensus < 0 || peerCensus == myCensus)
-		&& (peerUnits < 0 || !unitsComparable || peerUnits == myUnits))
+	// coop (option 3, 2c lever-on): the ITEM terms also get the behind-at-boundary guard
+	// (a corpse mint / item removal still replaying here is a late chain that heals) - the
+	// same rxPassDeferred() guard `units` already uses. Lever-off keeps the item terms
+	// unconditional (byte-identical: itemsComparable == true).
+	const bool itemsComparable = coopWireOn() ? unitsComparable : true;
+	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
+	const std::uint32_t turnKey = static_cast<std::uint32_t>(battle->getTurn());
+	const bool dItem   = peerItemId >= 0 && itemsComparable && peerItemId != myItemId;
+	const bool dCensus = peerCensus >= 0 && itemsComparable && peerCensus != myCensus;
+	const bool dUnits  = peerUnits  >= 0 && unitsComparable && peerUnits  != myUnits;
+	if (!dItem && !dCensus && !dUnits)
 	{
 		if (g_battleMismatchLogged)
 		{
 			Log(LOG_INFO) << "[COOP] battle checksum back in agreement with the peer";
 			g_battleMismatchLogged = false;
 		}
+		// coop (option 3, 2c): every comparable term agrees - heal any pending next_turn entries.
+		if (coopWireOn())
+		{
+			coopBoundaryPersistHeal("itemId", "next_turn", turnKey);
+			coopBoundaryPersistHeal("census", "next_turn", turnKey);
+			coopBoundaryPersistHeal("units",  "next_turn", turnKey);
+		}
 		return;
+	}
+
+	// coop (option 3, 2c lever-on): route the divergence through the SAME persistence store
+	// (kind="next_turn", monotonic key = the battle turn number - increments once per
+	// next_turn on both machines). Heal the terms that are clean; pend the ones that
+	// diverge; ALARM only when a diverged term is confirmed again at a LATER turn. The
+	// detection-only contract (report + let the players finish) is unchanged; lever-off
+	// keeps the immediate P2 alarm below (byte-identical).
+	if (coopWireOn())
+	{
+		if (!dItem)   coopBoundaryPersistHeal("itemId", "next_turn", turnKey);
+		if (!dCensus) coopBoundaryPersistHeal("census", "next_turn", turnKey);
+		if (!dUnits)  coopBoundaryPersistHeal("units",  "next_turn", turnKey);
+		bool persist = false;
+		if (dItem   && coopBoundaryPersistShouldAlarm("itemId", "next_turn", turnKey)) persist = true;
+		if (dCensus && coopBoundaryPersistShouldAlarm("census", "next_turn", turnKey)) persist = true;
+		if (dUnits  && coopBoundaryPersistShouldAlarm("units",  "next_turn", turnKey)) persist = true;
+		if (!persist)
+		{
+			Log(LOG_INFO) << "[COOP] BATTLE DESYNC on " << context << " term(s) "
+				<< (dItem ? "itemId " : "") << (dCensus ? "census " : "") << (dUnits ? "units " : "")
+				<< "[pending-1st-boundary turn=" << turnKey << "] - awaiting confirmation next turn";
+			return; // pending, NOT alarmed
+		}
 	}
 
 	// DETECTION ONLY. Whatever diverged, the battle cannot be repaired in place:
 	// sharedResyncStream replaces this machine's entire state stack, which mid-battle
 	// means destroying the running battle. Report and let the players finish.
 	g_battleDesyncSeen = true;
-	SavedBattleGame* battle = game->getSavedGame()->getSavedBattle();
 	if (!g_battleMismatchLogged)
 	{
 		g_battleMismatchLogged = true;
@@ -3808,9 +3853,9 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 		// different things (item identity, item-id minting, unit position/liveness)
 		// and point at completely different families of bug.
 		std::string which;
-		if (peerItemId >= 0 && peerItemId != myItemId) which += "itemId ";
-		if (peerCensus >= 0 && peerCensus != myCensus) which += "census ";
-		if (peerUnits >= 0 && unitsComparable && peerUnits != myUnits) which += "units ";
+		if (dItem) which += "itemId ";
+		if (dCensus) which += "census ";
+		if (dUnits) which += "units ";
 		// "Last action context" is what exists pre-PRD-P6: the packet that carried
 		// the stamp, the turn, and this machine's live action/selection. P6's
 		// action_seq replaces the last two once intents are numbered.
@@ -3830,7 +3875,7 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 		// to run. So the unit term dumps its own inputs, once, bounded by the unit
 		// count (a battle has tens): diffing the two machines' log lines then names
 		// the unit in one step. Same fields the term hashes, in the same order.
-		if (peerUnits >= 0 && unitsComparable && peerUnits != myUnits)
+		if (dUnits)
 		{
 			std::ostringstream dump;
 			for (BattleUnit* u : *battle->getUnits())
@@ -4827,6 +4872,26 @@ struct SyncMismatch
 // the introspection block is read by a test on every poll.
 const size_t SYNC_MISMATCH_MAX = 32;
 std::deque<SyncMismatch> g_syncMismatches;
+
+// coop (option 3, boundary persistence alarm): a boundary bucket mismatch is PENDING on
+// first sight and only ALARMS if the SAME (bucket, kind) is still mismatched at a LATER
+// boundary (compare bseq; for verifyBattleChecksum's next_turn-kind entries the monotonic
+// key is the battle turn number). The RCA proved the canonical boundary residuals are
+// display-lane replay lag that heals within one boundary; pending-then-confirm stops crying
+// wolf while keeping fail-loud (persistent divergence still alarms, one-boundary latency).
+// Lever-on (g_wireOrderState) ONLY; per-action compares keep IMMEDIATE alarm. g_strictBurnIn
+// is unaffected by construction: strict mode is report-only CAPTURE; persistence changes ONLY
+// the ALARM latch, never the mismatch RECORDING (g_syncMismatches / counters / LOG lines).
+struct SyncBoundaryPending { std::uint32_t bseq; std::uint32_t seq; bool firstMismatchLogged; };
+std::map<std::pair<std::string, std::string>, SyncBoundaryPending> g_syncBoundaryPending;
+std::uint64_t g_syncBoundaryHealed = 0;
+std::uint64_t g_syncBoundaryPersistAlarms = 0;
+std::uint64_t g_syncBoundaryUnresolved = 0;
+// The pending (first-sight) record behind the most recent PERSISTENT alarm, carried into the
+// desync report attribution so the bundle shows BOTH boundaries (2a).
+bool g_syncPersistPendingSet = false;
+std::string g_syncPersistPendingBucket, g_syncPersistPendingKind;
+std::uint32_t g_syncPersistPendingBseq = 0;
 
 // PRD-I3 SEAM-7: the exact per-unit field(s) behind a unitsStats bucket mismatch,
 // recorded when the opt-in field capture rode both the ring entry and the peer report.
@@ -5933,6 +5998,49 @@ static void recordSeam7FieldDiffs(const Json::Value& hostUv, const Json::Value& 
 	}
 }
 
+// coop (option 3): the wire-order master lever, exposed from connectionTCP.cpp.
+static bool coopWireOn() { return g_wireOrderState.load(std::memory_order_relaxed); }
+
+// coop (option 3): record/refresh a boundary (bucket,kind) mismatch as PENDING, or return
+// true (=> ALARM NOW) if the same (bucket,kind) was already pending at an EARLIER bseq -
+// a persistent divergence confirmed at a later boundary. On alarm, stash the pending
+// (first-sight) record for the desync attribution (both records).
+static bool coopBoundaryPersistShouldAlarm(const char* bucket, const std::string& kind,
+										   std::uint32_t bseq)
+{
+	auto key = std::make_pair(std::string(bucket), kind);
+	auto it = g_syncBoundaryPending.find(key);
+	if (it == g_syncBoundaryPending.end())
+	{
+		g_syncBoundaryPending[key] = SyncBoundaryPending{ bseq, bseq, true };
+		return false; // first sight -> pending, do NOT alarm
+	}
+	if (bseq > it->second.bseq)
+	{
+		++g_syncBoundaryPersistAlarms;
+		g_syncPersistPendingSet = true;
+		g_syncPersistPendingBucket = key.first;
+		g_syncPersistPendingKind = key.second;
+		g_syncPersistPendingBseq = it->second.bseq;
+		return true; // still mismatched at a LATER boundary -> persistent -> alarm
+	}
+	return false; // same bseq re-seen (a compare runs once per boundary) -> stay pending
+}
+
+// coop (option 3): a boundary (bucket,kind) that just compared CLEAN heals its pending
+// entry, if one exists. Logs the heal for the owner's fail-loud visibility.
+static void coopBoundaryPersistHeal(const char* bucket, const std::string& kind,
+									std::uint32_t bseq)
+{
+	auto key = std::make_pair(std::string(bucket), kind);
+	auto it = g_syncBoundaryPending.find(key);
+	if (it == g_syncBoundaryPending.end()) return;
+	Log(LOG_INFO) << "[COOP] SYNC-CHECK HEALED bucket=" << bucket << " kind=" << kind
+				  << " bseq=" << it->second.bseq << "->" << bseq;
+	g_syncBoundaryPending.erase(it);
+	++g_syncBoundaryHealed;
+}
+
 void syncCheckCompare(Game* game, const Json::Value& msg)
 {
 	if (!msg.isMember("h")) return; // older peer: additive field absent = skip
@@ -6112,7 +6220,13 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 			++g_syncSidestartHazardCompares;
 		const std::uint64_t peer = static_cast<std::uint64_t>(node[name].asUInt64());
 		const std::uint64_t mine = battleHashBucketValue(entry->h, i);
-		if (peer == mine) continue;
+		if (peer == mine)
+		{
+			// coop (option 3): a boundary (bucket,kind) that was pending and now compares
+			// clean has HEALED (lever-on). Nothing else changes on a clean compare.
+			if (coopWireOn() && boundary) coopBoundaryPersistHeal(name, entry->kind, seq);
+			continue;
+		}
 
 		++g_syncBucketMismatches[i];
 		if (g_syncMismatches.size() >= SYNC_MISMATCH_MAX) g_syncMismatches.pop_front();
@@ -6123,13 +6237,29 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		m.bucket = name;
 		g_syncMismatches.push_back(m);
 
+		// coop (option 3): a BOUNDARY mismatch that would alarm becomes PENDING on first
+		// sight and alarms only on persistence at a later boundary (lever-on). Per-action
+		// mismatches and the lever-off path keep IMMEDIATE alarm. Mismatch RECORDING above
+		// is untouched; only the ALARM latch + the log SUFFIX change.
+		const bool bucketAlarms = battleHashBucketAlarms(i);
+		const char* suffix;
+		if (bucketAlarms && coopWireOn() && boundary)
+		{
+			if (coopBoundaryPersistShouldAlarm(name, entry->kind, seq))
+			{ alarm = true; suffix = " [ALARM persistent]"; }
+			else suffix = " [pending-1st-boundary]";
+		}
+		else
+		{
+			if (bucketAlarms) alarm = true;
+			suffix = bucketAlarms ? " [ALARM]" : " [report-only]";
+		}
 		Log(LOG_ERROR) << "[COOP] SYNC-CHECK MISMATCH seq=" << seq
 					   << (boundary ? " (boundary)" : "")
 					   << " kind=" << (entry->kind.empty() ? "?" : entry->kind)
 					   << " bucket=" << name
 					   << " host=" << mine << " peer=" << peer
-					   << (battleHashBucketAlarms(i) ? " [ALARM]" : " [report-only]");
-		if (battleHashBucketAlarms(i)) alarm = true;
+					   << suffix;
 
 		// PRD-I3 SEAM-7: name the exact field(s) behind a unit-stats mismatch (combined
 		// OR either split bucket), once per compare, when the opt-in capture rode both
@@ -6164,7 +6294,13 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		else if (boundary && entry->kind == "sidestart") ++g_syncSaveBlobSidestartCompares;
 		const std::uint64_t peer = static_cast<std::uint64_t>(node["saveBlob"].asUInt64());
 		const std::uint64_t mine = entry->saveBlob;
-		if (!saveBlobEndturn && (!corpsePending || g_strictBurnIn) && peer != mine) // PHASE D.1 lever
+		const bool saveBlobCompared = !saveBlobEndturn && (!corpsePending || g_strictBurnIn); // PHASE D.1 lever
+		if (saveBlobCompared && peer == mine)
+		{
+			// coop (option 3): a boundary saveBlob that was pending and now compares clean has HEALED.
+			if (coopWireOn() && boundary) coopBoundaryPersistHeal("saveBlob", entry->kind, seq);
+		}
+		else if (saveBlobCompared && peer != mine)
 		{
 			++g_syncSaveBlobMismatches;
 			if (g_syncMismatches.size() >= SYNC_MISMATCH_MAX) g_syncMismatches.pop_front();
@@ -6174,12 +6310,25 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 			m.kind = entry->kind;
 			m.bucket = "saveBlob";
 			g_syncMismatches.push_back(m);
+			// coop (option 3): boundary saveBlob mismatch -> pending-then-persist (lever-on).
+			const bool sbAlarms = saveBlobAlarms();
+			const char* suffix;
+			if (sbAlarms && coopWireOn() && boundary)
+			{
+				if (coopBoundaryPersistShouldAlarm("saveBlob", entry->kind, seq))
+				{ alarm = true; suffix = " [ALARM persistent]"; }
+				else suffix = " [pending-1st-boundary]";
+			}
+			else
+			{
+				if (sbAlarms) alarm = true;
+				suffix = sbAlarms ? " [ALARM]" : " [report-only]";
+			}
 			Log(LOG_ERROR) << "[COOP] SYNC-CHECK MISMATCH seq=" << seq
 						   << (boundary ? " (boundary)" : "")
 						   << " kind=" << (entry->kind.empty() ? "?" : entry->kind)
 						   << " bucket=saveBlob host=" << mine << " peer=" << peer
-						   << (saveBlobAlarms() ? " [ALARM]" : " [report-only]");
-			if (saveBlobAlarms()) alarm = true;
+						   << suffix;
 		}
 	}
 
@@ -6452,6 +6601,16 @@ Json::Value desyncComputeAttribution(Game* game, const DesyncTerms& terms)
 		a["boundary"] = pick->boundary;
 		a["kind"] = pick->kind;
 		a["bucket"] = pick->bucket;
+		// coop (option 3, 2a): if this alarm was a PERSISTENT boundary confirmation, carry the
+		// first-sight (pending) record too, so the bundle names BOTH boundaries.
+		if (g_syncPersistPendingSet)
+		{
+			Json::Value pend(Json::objectValue);
+			pend["bucket"] = g_syncPersistPendingBucket;
+			pend["kind"] = g_syncPersistPendingKind;
+			pend["bseq"] = (Json::UInt)g_syncPersistPendingBseq;
+			a["pending"] = pend;
+		}
 		std::string headline;
 		if (lang)
 			headline = lang->getString("STR_COOP_DESYNC_HEADLINE_ACTION")
@@ -6504,8 +6663,35 @@ void desyncEmbedSyncState(Json::Value& out)
 	out["sync_ring"] = ring;
 }
 
+// coop (option 3, 2d): boundary-persistence introspection accessors for parallel_state.
+size_t syncBoundaryPendingSize() { return g_syncBoundaryPending.size(); }
+std::uint64_t syncBoundaryHealed() { return g_syncBoundaryHealed; }
+std::uint64_t syncBoundaryPersistAlarms() { return g_syncBoundaryPersistAlarms; }
+std::uint64_t syncBoundaryUnresolved() { return g_syncBoundaryUnresolved; }
+
 void resetSyncCheck()
 {
+	// coop (option 3, 2b): battle teardown. Any pending boundary mismatch that never got
+	// its confirmation boundary (the battle ended first) is logged ONCE and counted, but
+	// NOT alarmed - a final-boundary divergence that matters materializes in post-battle
+	// WORLD state (recovered items, soldier stats), which the geoscape world checksum still
+	// covers; one that does not materialize is discarded with the battle. This keeps the
+	// residual fail-loud-visible without inventing a new battle-end wire exchange.
+	for (const auto& kv : g_syncBoundaryPending)
+	{
+		Log(LOG_INFO) << "[COOP] SYNC-CHECK UNRESOLVED-AT-END bucket=" << kv.first.first
+					  << " kind=" << kv.first.second << " bseq=" << kv.second.bseq
+					  << " (battle ended before confirmation boundary)";
+		++g_syncBoundaryUnresolved;
+	}
+	g_syncBoundaryPending.clear();
+	g_syncBoundaryHealed = 0;
+	g_syncBoundaryPersistAlarms = 0;
+	g_syncPersistPendingSet = false;
+	g_syncPersistPendingBucket.clear();
+	g_syncPersistPendingKind.clear();
+	g_syncPersistPendingBseq = 0;
+	// g_syncBoundaryUnresolved is session-cumulative (visibility counter); not reset here.
 	g_syncRing.clear();
 	g_syncMismatches.clear();
 	for (int i = 0; i < BATTLE_HASH_BUCKETS; ++i) { g_syncBucketMismatches[i] = 0; g_syncBucketCompares[i] = 0; }
