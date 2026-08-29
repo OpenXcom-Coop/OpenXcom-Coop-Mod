@@ -569,17 +569,64 @@ def main():
                 # wedged client must still FAIL the run, not hang the harness).
                 if args.wire_order:
                     settle_wire_order(host, client, timeout=60.0)
+                    _hi, _ci = len(SOAK.item_census(host)), len(SOAK.item_census(client))
+                    print(f"    [item-census] after side {side}: host={_hi} client={_ci}"
+                          + (f"  <<< DIFF {_ci - _hi}" if _hi != _ci else "  (agree)"))
                 census = (assert_census_wireorder
                           if (args.wire_order or args.scoped_census) else SOAK.assert_census)
                 census(host, client, f"after the alien side of turn {turn0}")
             except AssertionError as ae:
-                repro_fired = str(ae)
-                print(f"\n  *** REPRO FIRED after alien side {side} (turn {turn0}) ***")
-                print(f"  {repro_fired}")
-                if args.trace_mechanism and mechanism_capture is None:
-                    mechanism_capture = capture_mechanism(host, client, f"post-settle side {side}")
-                diag(host, client, f"alien side {side}")
-                break
+                if args.wire_order:
+                    # coop (option A, owner ruling 2026-08-29): during the AMBUSH sides the
+                    # per-side census is DIAGNOSTIC ONLY - the deferred-authored residuals
+                    # (stun/position/item-removal) reconcile over the NEXT side (each ambush
+                    # side injects fresh ones the client is still replaying), so an alien-
+                    # boundary census is a mid-flight snapshot, not a verdict. Print it, keep
+                    # driving; the QUIET-SIDE census after the last ambush side is the gate.
+                    # Lever-off (scoped/shipped) still GATES per-side (baseline preserved).
+                    print(f"\n  [diagnostic] per-side census drift after alien side {side} "
+                          f"(turn {turn0}) - NOT gating (reconciles over the next side):\n  {ae}")
+                else:
+                    repro_fired = str(ae)
+                    print(f"\n  *** REPRO FIRED after alien side {side} (turn {turn0}) ***")
+                    print(f"  {repro_fired}")
+                    if args.trace_mechanism and mechanism_capture is None:
+                        mechanism_capture = capture_mechanism(host, client, f"post-settle side {side}")
+                    diag(host, client, f"alien side {side}")
+                    break
+
+        # coop (option A, owner ruling 2026-08-29): after the LAST ambush side, drive ONE
+        # QUIET side - no ambush, no set_stat, no interference - so the next sidestart's
+        # next_turn reconciles the deferred-authored residuals the ambush sides left in
+        # flight. THEN run the FINAL census: FULLY STRICT (assert_census_wireorder keeps
+        # every existing term - raw unit census incl. live-unit stun/position, strict item-id
+        # census, assert_battle_synced, tripwire, sync-clean, on-disk report check; only the
+        # two prior-ruled protocol-non-replicated drops remain, NO new exclusions). This is
+        # the GATING assertion under --wire-order. The Option-B drain-wait runs before it.
+        if args.wire_order and repro_fired is None and setup_error is None:
+            if not bstate(host).get("inBattle"):
+                setup_error = "mission ended before the quiet reconciliation side"
+            else:
+                qturn = bstate(host)["turn"]
+                print(f"\n  -- OPTION A: driving ONE QUIET side (turn {qturn}, no ambush) for "
+                      f"next_turn reconciliation, then the FINAL strict census --")
+                SOAK.close_side(host, client, 0, 1, qturn)
+                settle_wire_order(host, client, timeout=60.0)
+                _hi, _ci = len(SOAK.item_census(host)), len(SOAK.item_census(client))
+                print(f"    [item-census] after QUIET side: host={_hi} client={_ci}"
+                      + (f"  <<< DIFF {_ci - _hi}" if _hi != _ci else "  (agree)"))
+                try:
+                    assert_census_wireorder(host, client,
+                                            f"QUIET-SIDE FINAL census (after quiet turn {qturn})")
+                    print("  -- QUIET-SIDE FINAL census CLEAN - the residuals reconciled --")
+                except AssertionError as ae:
+                    repro_fired = str(ae)
+                    print(f"\n  *** REPRO FIRED at the QUIET-SIDE FINAL census (turn {qturn}) - "
+                          f"a GENUINE unhealed divergence after a quiet reconciliation side ***")
+                    print(f"  {repro_fired}")
+                    if args.trace_mechanism and mechanism_capture is None:
+                        mechanism_capture = capture_mechanism(host, client, "quiet-side final census")
+                    diag(host, client, "quiet-side final census")
 
         try:
             corpses_grew = len(corpses(client)) - corpses0
