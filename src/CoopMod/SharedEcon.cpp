@@ -6000,6 +6000,9 @@ static void recordSeam7FieldDiffs(const Json::Value& hostUv, const Json::Value& 
 
 // coop (option 3): the wire-order master lever, exposed from connectionTCP.cpp.
 static bool coopWireOn() { return g_wireOrderState.load(std::memory_order_relaxed); }
+// coop (RCA TRACE B): the capture-gate, exposed from connectionTCP.cpp - so the boundary
+// compare can log its decisions capture-gated (production-inert).
+static bool coopDiagCap() { return g_diagCapture.load(std::memory_order_relaxed); }
 
 // coop (option 3): record/refresh a boundary (bucket,kind) mismatch as PENDING, or return
 // true (=> ALARM NOW) if the same (bucket,kind) was already pending at an EARLIER bseq -
@@ -6013,6 +6016,8 @@ static bool coopBoundaryPersistShouldAlarm(const char* bucket, const std::string
 	if (it == g_syncBoundaryPending.end())
 	{
 		g_syncBoundaryPending[key] = SyncBoundaryPending{ bseq, bseq, true };
+		if (coopDiagCap()) coopDiagS(std::string("TRACEB pending CREATED bucket=") + bucket
+			+ " kind=" + kind + " bseq=" + std::to_string(bseq));
 		return false; // first sight -> pending, do NOT alarm
 	}
 	if (bseq > it->second.bseq)
@@ -6022,8 +6027,13 @@ static bool coopBoundaryPersistShouldAlarm(const char* bucket, const std::string
 		g_syncPersistPendingBucket = key.first;
 		g_syncPersistPendingKind = key.second;
 		g_syncPersistPendingBseq = it->second.bseq;
+		if (coopDiagCap()) coopDiagS(std::string("TRACEB pending PROMOTE->ALARM bucket=") + bucket
+			+ " kind=" + kind + " firstBseq=" + std::to_string(it->second.bseq)
+			+ " confirmBseq=" + std::to_string(bseq));
 		return true; // still mismatched at a LATER boundary -> persistent -> alarm
 	}
+	if (coopDiagCap()) coopDiagS(std::string("TRACEB pending REFRESH-same-bseq bucket=") + bucket
+		+ " kind=" + kind + " bseq=" + std::to_string(bseq));
 	return false; // same bseq re-seen (a compare runs once per boundary) -> stay pending
 }
 
@@ -6037,6 +6047,9 @@ static void coopBoundaryPersistHeal(const char* bucket, const std::string& kind,
 	if (it == g_syncBoundaryPending.end()) return;
 	Log(LOG_INFO) << "[COOP] SYNC-CHECK HEALED bucket=" << bucket << " kind=" << kind
 				  << " bseq=" << it->second.bseq << "->" << bseq;
+	if (coopDiagCap()) coopDiagS(std::string("TRACEB pending HEALED bucket=") + bucket
+		+ " kind=" + kind + " firstBseq=" + std::to_string(it->second.bseq)
+		+ " cleanBseq=" + std::to_string(bseq));
 	g_syncBoundaryPending.erase(it);
 	++g_syncBoundaryHealed;
 }
@@ -6201,6 +6214,18 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		{
 			const bool alienSeq = !boundary && (entry->kind == "ai" || entry->kind == "expl");
 			const bool endturnBnd = boundary && entry->kind == "endturn";
+			// coop (TRACE B DIAGNOSTIC, RCA silent-alarm): log the per-boundary items-bucket
+			// gate decision - the reason a frozen items mismatch is never even COMPARED
+			// (and thus never pends/promotes). corpsePending :6212 is the prime suspect.
+			// Capture-gated, production-inert.
+			if (coopDiagCap() && boundary && std::strcmp(name, "items") == 0)
+			{
+				const char* decision = endturnBnd ? "SKIP-endturn"
+					: corpsePending ? "SKIP-corpsePending" : "COMPARE";
+				coopDiagS("TRACEB items bseq=" + std::to_string(seq)
+					+ " kind=" + entry->kind + " corpsePending=" + std::to_string(corpsePending ? 1 : 0)
+					+ " -> " + decision);
+			}
 			if (alienSeq || endturnBnd)
 			{
 				if (endturnBnd) ++g_syncItemsEndturnSkips;
@@ -6295,6 +6320,14 @@ void syncCheckCompare(Game* game, const Json::Value& msg)
 		const std::uint64_t peer = static_cast<std::uint64_t>(node["saveBlob"].asUInt64());
 		const std::uint64_t mine = entry->saveBlob;
 		const bool saveBlobCompared = !saveBlobEndturn && (!corpsePending || g_strictBurnIn); // PHASE D.1 lever
+		// coop (TRACE B DIAGNOSTIC, RCA silent-alarm): the saveBlob (whole-save superset,
+		// includes the item census) per-boundary gate decision.
+		if (coopDiagCap() && boundary)
+			coopDiagS("TRACEB saveBlob bseq=" + std::to_string(seq) + " kind=" + entry->kind
+				+ " corpsePending=" + std::to_string(corpsePending ? 1 : 0)
+				+ " -> " + (saveBlobEndturn ? "SKIP-endturn"
+					: (!saveBlobCompared ? "SKIP-corpsePending"
+						: (peer == mine ? "COMPARE-clean" : "COMPARE-mismatch"))));
 		if (saveBlobCompared && peer == mine)
 		{
 			// coop (option 3): a boundary saveBlob that was pending and now compares clean has HEALED.

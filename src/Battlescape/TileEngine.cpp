@@ -3876,6 +3876,12 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 							e["id"] = bi->getId();
 							e["type"] = bi->getRules()->getType();
 							coopRemoved.append(e);
+							// coop (TRACE A DIAGNOSTIC, RCA lost-removal): the HOST's emission of
+							// the removal for this item - the "was it ever sent" leg. Capture-gated.
+							if (g_diagCapture.load(std::memory_order_relaxed)
+								&& bi->getRules() && bi->getRules()->getType() == "STR_STUN_BOMB")
+								coopDiagS("EXPL_TX id=" + std::to_string(bi->getId())
+									+ " cid=" + std::to_string(bi->getCoopID()) + " t=STR_STUN_BOMB");
 							_save->removeItem(bi);
 						}
 

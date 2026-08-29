@@ -665,6 +665,20 @@ void ExplosionBState::explode()
 
 	if (_attack.damage_item && (_attack.damage_item->getRules()->getBattleType() == BT_GRENADE || _attack.damage_item->getRules()->getBattleType() == BT_PROXIMITYGRENADE))
 	{
+		// coop (TRACE A DIAGNOSTIC, RCA lost-removal): the ACTUAL removal of a detonated
+		// grenade is CLIENT-SIM here (runs on BOTH machines, NOT coop-replicated). If this
+		// line runs on the HOST for a STR_STUN_BOMB but NOT on the CLIENT, the client's
+		// detonation ExplosionBState never fired for it => the grenade is never removed =>
+		// the frozen +1. Log both sides, capture-gated, production-inert.
+		if (g_diagCapture.load(std::memory_order_relaxed)
+			&& _attack.damage_item->getRules()->getType() == "STR_STUN_BOMB")
+		{
+			const bool isHost = _parent->getCoopMod() && _parent->getCoopMod()->getHost();
+			coopDiagS(std::string("GREM_REMOVE ") + (isHost ? "HOST" : "CLIENT")
+				+ " id=" + std::to_string(_attack.damage_item->getId())
+				+ " cid=" + std::to_string(_attack.damage_item->getCoopID())
+				+ " replayDisplay=" + std::to_string(_coopReplayDisplay ? 1 : 0));
+		}
 		_parent->getSave()->removeItem(_attack.damage_item);
 	}
 

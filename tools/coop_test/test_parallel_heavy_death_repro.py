@@ -373,6 +373,10 @@ def main():
                          "boundary (stages the hard RX-wedge form of the bug)")
     ap.add_argument("--drain-disable", action="store_true",
                     help="ESCALATION: legacy full-disable drain (the pre-fix out-of-order burst)")
+    ap.add_argument("--rca-trace", action="store_true",
+                    help="RCA: arm ONLY the lightweight diag write-log (diag_capture) on both "
+                         "machines (NOT the heavy SEAM-7 sync_capture, so the quiet side still "
+                         "closes) and dump both diagTraces at the final census -> MECH_TRACE_OUT")
     ap.add_argument("--mission", type=int, default=1,
                     help="new-battle mission index (1=MEDIUM_SCOUT 3-6 aliens; 5=TERROR_SHIP "
                          "~10-18; 6=BATTLESHIP ~9-22 - a HEAVY single-side death cluster)")
@@ -473,9 +477,16 @@ def main():
             # coop (three-class RCA DIAGNOSTIC): arm the capture-gated tagged write log on
             # BOTH machines (item lifecycle needs the host vs client compare). Lever-off inert.
             for gc in (host, client):
+                gc.cmd({"cmd": "parallel_state", "diag_capture": True, "diag_heavy": True})
+                assert parallel(gc).get("diagCapture") is True, "diag_capture did not arm"
+            print("    SEAM-7 field capture + diag write-log (heavy) ARMED both (mechanism trace)")
+        if args.rca_trace and not args.trace_mechanism:
+            # RCA (TRACE A/B): arm ONLY the lightweight diag write-log (no heavy sync_capture),
+            # so the quiet side still closes and the EXPL_TX/RX + TRACEB lifecycle is captured.
+            for gc in (host, client):
                 gc.cmd({"cmd": "parallel_state", "diag_capture": True})
                 assert parallel(gc).get("diagCapture") is True, "diag_capture did not arm"
-            print("    SEAM-7 field capture + diag write-log ARMED both (mechanism trace)")
+            print("    RCA diag write-log ARMED both (lightweight, no sync_capture)")
         knobs = (f"slow-client={args.slow_client} force-floor={not args.no_force_floor} "
                  f"ghost-off={args.ghost_off} rx-hold={args.rx_hold} drain-disable={args.drain_disable} "
                  f"wire-order={args.wire_order} "
@@ -627,6 +638,18 @@ def main():
                     if args.trace_mechanism and mechanism_capture is None:
                         mechanism_capture = capture_mechanism(host, client, "quiet-side final census")
                     diag(host, client, "quiet-side final census")
+                if args.rca_trace:
+                    rca_out = os.environ.get("MECH_TRACE_OUT") or os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)), "rca_trace.json")
+                    with open(rca_out, "w", encoding="utf-8") as _f:
+                        json.dump({
+                            "quiet_turn": qturn,
+                            "repro_fired": repro_fired,
+                            "item_census_after_quiet": {"host": _hi, "client": _ci},
+                            "host_diagTrace": parallel(host).get("diagTrace", []),
+                            "client_diagTrace": parallel(client).get("diagTrace", []),
+                        }, _f, indent=1, default=str)
+                    print(f"    RCA diag traces written -> {rca_out}")
 
         try:
             corpses_grew = len(corpses(client)) - corpses0

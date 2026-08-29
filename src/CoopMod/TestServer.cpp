@@ -4937,6 +4937,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				g_diagTrace.clear();
 			}
 		}
+		if (req.isMember("diag_heavy"))
+			g_diagHeavy.store(req.get("diag_heavy", false).asBool(), std::memory_order_relaxed);
 		if (req.isMember("objective_gate_disable"))
 		{
 			g_objectiveGateDisable.store(req.get("objective_gate_disable", false).asBool(),

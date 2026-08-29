@@ -188,6 +188,9 @@ extern std::atomic<uint32_t> g_regenEmitted;
 extern std::atomic<uint32_t> g_regenApplied;
 // coop (three-class RCA DIAGNOSTIC): capture-gated tagged write log; lever-off inert.
 extern std::atomic<bool> g_diagCapture;
+// coop (RCA): gates the HIGH-frequency per-write tu/position log (coopDiagUnit) separately,
+// so a lightweight capture avoids the per-write mutex overhead. See connectionTCP.cpp.
+extern std::atomic<bool> g_diagHeavy;
 extern std::vector<std::string> g_diagTrace;
 extern std::mutex g_diagTraceMutex;
 void coopDiagS(std::string s);

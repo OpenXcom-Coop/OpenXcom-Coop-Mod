@@ -583,6 +583,11 @@ std::atomic<uint32_t> g_regenApplied{0};
 // position-ordered writes so a firing-run trace names the exact clobber writer (file:line
 // tag) for each residual class. No behavior change; the log is read back via parallel_state.
 std::atomic<bool> g_diagCapture{false};
+// coop (RCA): the HIGH-FREQUENCY tu/position write log (coopDiagUnit) is gated separately so
+// a lightweight capture (EXPL/GREM/TRACEB/item.mint-remove on g_diagCapture only) can run
+// WITHOUT the per-write mutex overhead that shifts the client's wall-clock timing enough to
+// mask the flaky lost-removal. --trace-mechanism arms both; --rca-trace arms g_diagCapture only.
+std::atomic<bool> g_diagHeavy{false};
 std::vector<std::string> g_diagTrace;
 std::mutex g_diagTraceMutex;
 std::atomic<uint32_t> g_diagPos{0};
@@ -592,12 +597,14 @@ void coopDiagS(std::string s)
 	std::uint32_t pos = g_diagPos.fetch_add(1, std::memory_order_relaxed);
 	std::lock_guard<std::mutex> lk(g_diagTraceMutex);
 	g_diagTrace.push_back("p" + std::to_string(pos) + " " + std::move(s));
-	if (g_diagTrace.size() > 1200) g_diagTrace.erase(g_diagTrace.begin());
+	if (g_diagTrace.size() > 6000) g_diagTrace.erase(g_diagTrace.begin()); // option-3B/RCA: hold the full lifecycle
 }
-// unit-scoped tu/energy/position write, ALIEN probe only (id>=1000000) to keep the trace focused.
+// unit-scoped tu/energy/position write, ALIEN probe only (id>=1000000). HIGH-frequency -
+// gated on g_diagHeavy so --rca-trace stays light.
 void coopDiagUnit(const char* tag, int unitId, long v)
 {
-	if (!g_diagCapture.load(std::memory_order_relaxed) || unitId < 1000000) return;
+	if (!g_diagHeavy.load(std::memory_order_relaxed) || unitId < 1000000) return;
+	if (!g_diagCapture.load(std::memory_order_relaxed)) return;
 	coopDiagS(std::string(tag) + " u=" + std::to_string(unitId) + " =" + std::to_string(v));
 }
 // coop (chain-atomicity Strand B): the SIDE BARRIER introspection. g_sideBarrierHolds
@@ -8730,6 +8737,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
 			const Json::Value& arr = obj["items"];
+			// coop (TRACE A DIAGNOSTIC, RCA lost-removal): log the explode_items ARRIVAL
+			// (this is a wire-order carrier, so reaching here means it was NOT dropped-in-RX
+			// for these ids), and per item the LOOKUP RESULT + whether an item of that TYPE
+			// exists at all on the client - discriminates arrived-but-lookup-missed
+			// (id-mismatch: type present, other ids) from item-absent (mint still pending /
+			// never existed). Capture-gated (g_diagCapture), production-inert.
+			if (g_diagCapture.load(std::memory_order_relaxed))
+				coopDiagS("EXPL_RX explode_items n=" + std::to_string(arr.size())
+					+ " clientItems=" + std::to_string(sbg->getItems()->size()));
 			for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
 			{
 				int itemId = arr[i]["id"].asInt();
@@ -8742,6 +8758,22 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						victim = bi;
 						break;
 					}
+				}
+				if (g_diagCapture.load(std::memory_order_relaxed) && itemType == "STR_STUN_BOMB")
+				{
+					std::string idsOfType;
+					int typeCount = 0;
+					for (auto* bi : *sbg->getItems())
+						if (bi->getRules() && bi->getRules()->getType() == itemType)
+						{
+							++typeCount;
+							idsOfType += " id" + std::to_string(bi->getId())
+								+ "/cid" + std::to_string(bi->getCoopID());
+						}
+					coopDiagS("EXPL_RX.item id=" + std::to_string(itemId) + " t=" + itemType
+						+ " found=" + std::to_string(victim ? 1 : 0)
+						+ " typeCountOnClient=" + std::to_string(typeCount)
+						+ " present:[" + idsOfType + " ]");
 				}
 				if (victim)
 				{
