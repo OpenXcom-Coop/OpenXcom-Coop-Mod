@@ -1,0 +1,11 @@
+name: "Coop script-RNG probe"
+version: 1.0
+description: "Test-only fixture for PRD-P3 GAP-10: a battle script that rolls both
+  script-RNG bindings (randomChance/randomRange) on the newTurnUnit hook and writes
+  the results into per-unit scriptTags. Used by test_coop_script_rng.py to prove the
+  parallel client's per-turn script draws match the host (seed-replay), and, when
+  activated over an existing test via OXC_TEST_EXTRA_MOD, to prove the promoted
+  battle-hash buckets do not false-alarm with a battle script loaded."
+author: coop harness
+
+master: xcom1

@@ -578,11 +578,21 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "UnbalancedCraftSoldiersLimit", &UnbalancedCraftSoldiersLimit, false, "Unbalanced Craft Soldiers Limit", "STR_BASESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableReactionFirePvp", &EnableReactionFirePvp, true, "Enable Reaction Fire in PvP", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableOtherPlayerFootsteps", &EnableOtherPlayerFootsteps, true,"Enable Other Player Footstep Sounds", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopFollowPeerActions", &coopFollowPeerActions, true, "Follow Teammate Actions with Camera", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableXcomEquipmentAliensPVP", &EnableXcomEquipmentAliensPVP, true, "Enable XCOM Equipment for Aliens in PVP", "STR_BATTLESCAPE"));
+	// coop (PRD-P5): both players act during the same player side. Read by the HOST
+	// only - it ships the value on COOP_READY_HOST and the client mirrors it into
+	// connectionTCP::_enable_parallel_turns, so the session mode is decided once.
+	_info.push_back(OptionInfo(OPTION_OTHER, "EnableCoopParallelTurns", &EnableCoopParallelTurns, false, "Parallel Battlescape Turns", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "debugMode", &debugMode, true, "Enable Debug Mode (requires restart)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logInfoToFile", &logInfoToFile, false, "Write INFO messages to log file", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logPacketMessages", &logPacketMessages, false, "Write packet messages to log files (heavy logging)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHotseatDebugMode", &EnableHotseatDebugMode, false, "Enable Hotseat Debug Mode", "STR_AI"));
+	// coop (PRD-P5 §4): TEMPORARY dev plumbing, deleted by PRD-P6. With it on the
+	// co-op client's input executes LOCALLY and replicates NOTHING (every executor
+	// send site is _isActivePlayerSync-gated and the client permanently holds
+	// false), so the two machines intentionally diverge. Smoke-testing the input
+	// path only - never a play mode.
 
 }
 

@@ -20,6 +20,8 @@
 #include <vector>
 #include <string>
 #include <unordered_set>
+#include <cstdint>
+#include <tuple>
 #include "../Battlescape/Position.h"
 #include "../Mod/Armor.h"
 #include "../Mod/RuleItem.h"
@@ -227,6 +229,34 @@ public:
 	void setHealth(int health);
 	int _coopDamage = 0;
 	int _coopHealth = 0;
+	// coop: per-unit state watermark (plan v3 Phase 1) - stamped writes only apply if >= recorded stamp
+	uint32_t _coopStateSideSeq = 0;
+	uint32_t _coopStateActionSeq = 0;
+	uint8_t _coopStateRank = 0;
+	/// Accepts a stamped coop state write if it is >= the recorded watermark; records and returns true on accept.
+	bool coopStateAccept(uint32_t side, uint32_t seq, uint8_t rank);
+	// coop (parallel battlescape Phase 2c - death ghost): PRESENTATION-ONLY display
+	// overrides driven by the client-side death ghost (UnitDieBState ghost mode). The
+	// unit's real _status/_direction/_fallPhase are ALREADY the host's final values
+	// after coopApplyCasualty ran (dead + tile-unlinked); the ghost replays the vanilla
+	// collapse animation on these override fields so the sprite still shows the unit
+	// falling while the world state stays final underneath. NEVER serialized
+	// (BattleUnit::save untouched), never hashed, read ONLY by UnitSprite (via the
+	// display*() accessors) and Map (the ghost draw). Zero cost when the override is off
+	// - display*() returns the real getter, so every non-ghost draw is byte-identical.
+	bool _coopDisplayOverride = false;
+	UnitStatus _coopDisplayStatus = STATUS_STANDING;
+	int _coopDisplayDir = 0;
+	int _coopDisplayFallPhase = 0;
+	void setCoopDisplayOverride(bool on) { _coopDisplayOverride = on; }
+	void clearCoopDisplayOverride() { _coopDisplayOverride = false; }
+	void setCoopDisplayStatus(UnitStatus s) { _coopDisplayStatus = s; }
+	void setCoopDisplayDir(int d) { _coopDisplayDir = d; }
+	void setCoopDisplayFallPhase(int p) { _coopDisplayFallPhase = p; }
+	bool coopDisplayOverride() const { return _coopDisplayOverride; }
+	UnitStatus displayStatus() const { return _coopDisplayOverride ? _coopDisplayStatus : getStatus(); }
+	int displayDirection() const { return _coopDisplayOverride ? _coopDisplayDir : getDirection(); }
+	int displayFallingPhase() const { return _coopDisplayOverride ? _coopDisplayFallPhase : getFallingPhase(); }
 	static const int MAX_SOLDIER_ID = 1000000;
 	static const int BUBBLES_FIRST_FRAME = 3;
 	static const int BUBBLES_LAST_FRAME = BUBBLES_FIRST_FRAME + 15;
@@ -328,6 +358,10 @@ public:
 	bool isKneeled() const;
 	/// Is floating?
 	bool isFloating() const;
+	/// coop (PRD-I3 z-gravity close): clear/set the floating bit when the peer applies
+	/// the host's landed fall position (the vanished floor left the thin client's copy
+	/// floating; setTile refreshes _haveNoFloorBelow but never touches _floating).
+	void setFloatingCoop(bool floating) { _floating = floating; }
 	/// Have unit floor below?
 	bool haveNoFloorBelow() const { return _haveNoFloorBelow; }
 
@@ -599,6 +633,11 @@ public:
 	std::string getName(Language *lang, bool debugAppendId = false) const;
 	/// Gets the unit's gained experience points.
 	const UnitStats* getExpStats() const { return &_exp; }
+	// coop
+	/// Sets the unit's gained experience points (E5a GAP-XP: parallel thin
+	/// client apply of the host's post-award absolutes shipped on hit_unit -
+	/// see TileEngine.cpp hitUnit send + connectionTCP.cpp hit_unit handler).
+	void setExpStatsCoop(const UnitStats& e) { _exp = e; }
 	/// Gets the unit's stats.
 	UnitStats *getBaseStats();
 	/// Gets the unit's stats.
@@ -737,6 +776,10 @@ public:
 	void incTurnsSinceStunned() { _turnsSinceStunned = std::min(255, _turnsSinceStunned + 1); }
 	/// Return how many turns passed since stunned last time.
 	int getTurnsSinceStunned() const { return _turnsSinceStunned; }
+	/// coop (PRD-I3 Option D-lite): run only the DETERMINISTIC per-unit terms that
+	/// prepareNewTurn advances and next_turn does NOT re-ship, at the deferred
+	/// neutral->player apply point on the parallel client.
+	void coopApplyDeferredTurnStart();
 
 	/// Get this unit's original faction
 	UnitFaction getOriginalFaction() const;

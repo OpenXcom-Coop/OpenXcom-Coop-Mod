@@ -29,8 +29,8 @@
       "reason": "CI 529.8s (run 31999655291, shard 2) -- heaviest test; full both-machine debrief handshake. Not in test_weights.json (new), so the shard planner under-weighted it and its shard hit the 25min wall."
     },
     "test_parallel_soak": {
-      "budget_s": 450,
-      "reason": "CI 305.8s (run 31999655291, shard 4, retried) -- long multi-turn parallel soak by design. Local weight 345s."
+      "budget_s": 750,
+      "reason": "CI 305.8s normal but 683.2s observed on a ~6x-slow runner window (run 32086393722, shard 2 retry) -- 5-turn parallel battle cycle; headroom for runner jitter until re-engineered under issue #169."
     },
     "test_parallel_endturn": {
       "budget_s": 540,
@@ -51,6 +51,30 @@
     "test_parallel_speed_skew": {
       "budget_s": 300,
       "reason": "CI 31.0s (run 31999655291, shard 1) but local weight 240s -- deliberately paces two game clocks against each other (pinned to the serial lane locally). Provisioned to the local weight."
+    },
+    "test_sync_check": {
+      "budget_s": 360,
+      "reason": "CI 222.9s single attempt (run 32062804444, shard 2); ~207s local contended. Full ten-bucket sync-check scenario battery. Tracked for re-engineering under issue #169."
+    },
+    "test_parallel_corpse_mint": {
+      "budget_s": 300,
+      "reason": "CI 204.5s (run 32593562429, shard 3) -- strict per-seq burn-in across 4 alien turns; functionally PASS. Tracked for re-engineering under issue #169."
+    },
+    "test_parallel_no_reroll": {
+      "budget_s": 420,
+      "reason": "CI 328.0s BUDGET EXCEEDED > 300s (run 32724667370, shard 3) -- test PASSES functionally but the strict per-seq burn-in across 4 alien turns overran the 300s budget on a slow/contended runner (other runs pass ~90s: high variance). Bumped to 420 for headroom (matches test_parallel_floor_drain; legal under max_budget_s=900). Do not re-engineer -- pure budget bump. Tracked under issue #169."
+    },
+    "test_parallel_loose_death": {
+      "budget_s": 300,
+      "reason": "CI 208.3s passing attempt (run 32593562429, shard 2; attempt range 144-208s) -- loose-death stamp + side-barrier fixture w/ liveness scenario. Tracked under issue #169."
+    },
+    "test_parallel_floor_drain": {
+      "budget_s": 420,
+      "reason": "CI 268.5s passing attempt (run 32593562429, shard 4; attempt-1 ~198s, high variance) -- forced-floor red/green + liveness across 5 casualty-heavy alien sides. Tracked under issue #169."
+    },
+    "test_parallel_alien_death_decouple": {
+      "budget_s": 300,
+      "reason": "CI 179.4s (run 32593562429, shard 2) -- 0.6s under the 180s default; death-chain decoupling fixture under backlog. Tracked under issue #169."
     }
   }
 }

@@ -19,10 +19,13 @@
  */
 #include "Position.h"
 #include "../Mod/RuleItem.h"
+#include "../Mod/Unit.h" // coop (Phase 2b atomic unit death): UnitStatus/UnitFaction for CoopDeathGhost
 #include "../Engine/HelperMeta.h"
+#include <cstdint>
 #include <string>
 #include <list>
 #include <vector>
+#include <json/json.h> // coop (Phase 2b atomic unit death): coopApplyCasualty(const Json::Value&)
 
 namespace OpenXcom
 {
@@ -91,6 +94,18 @@ struct BattleAction : BattleActionCost
 	bool sprayTargeting; // Used to separate waypoint checks between confirm firing mode and the "spray" autoshot
 	BattleActionOrigin relativeOrigin = BattleActionOrigin::CENTRE; // preferred origin voxel (centre, left or right)
 	int terrainMeleeTilePart = 0; // terrain melee
+	// coop (PRD-P5): true only on the stack-local action a REPLAYED (peer- or
+	// AI-originated) chain runs on - see BattlescapeGame::makeReplayAction. The
+	// BStates copy the action they are given, so this rides the whole chain and
+	// lets display-only code tell "the local player did this" from "I am watching
+	// my teammate". Used to stop a peer action yanking the local camera.
+	bool coopReplay = false;
+	// coop (PRD-P6): the medikit operands an `action_intent` carries that have no
+	// home in BattleAction's normal fields, so ONE executeAction() can dispatch
+	// every kind. -1 = "this is not a medikit action".
+	int coopTargetUnit = -1;
+	int coopMedikitMode = -1;   // BattleMediKitAction
+	int coopBodyPart = 0;       // UnitBodyPart
 
 	/// Default constructor
 	BattleAction() : target(-1, -1, -1), targeting(false), value(0), diff(0), autoShotCounter(0), cameraPosition(0, 0, -1), desperate(false), finalFacing(-1), finalAction(false), number(0), sprayTargeting(false) { }
@@ -129,6 +144,34 @@ struct BattlescapeTally
 };
 
 /**
+ * coop (parallel battlescape Phase 2b - atomic unit death): the death-ghost entry
+ * queued by BattlescapeGame::coopApplyCasualty once a `unit_casualty` packet's
+ * apply has run - the world is ALREADY final at that point (host absolutes), so
+ * this is the record the display-side death ANIMATION will replay against
+ * (Phase 2c). Phase 2b only queues a STUB entry (`started` flips true and the
+ * entry completes immediately, no BattleState, no animation) - the fields below
+ * are captured now so 2c can add the animation without touching the apply path.
+ */
+struct CoopDeathGhost
+{
+	BattleUnit* unit;
+	Position pos;
+	int size;
+	UnitFaction faction;
+	UnitStatus finalStatus;
+	bool direct;
+	bool noSound;
+	int dirBeforeApply;
+	bool wasUnconsciousBefore;
+	bool visibleAtApply;
+	std::vector<int> hiddenItemIds;
+	uint32_t sideSeq;
+	uint32_t actionSeq;
+	bool bnd;
+	bool started = false;
+};
+
+/**
  * Battlescape game - the core game engine of the battlescape game.
  */
 class BattlescapeGame
@@ -140,6 +183,12 @@ private:
 	bool _playerPanicHandled;
 	int _AIActionCounter;
 	BattleAction _currentAction;
+	// coop (PRD-P1): turnPlayerTarget's "the unit already faces there, so this is
+	// a door-open" test used to compare against _currentAction.target, which only
+	// worked because the replay wrote the singleton action. The replay now builds
+	// a stack-local action, so it keeps its own last-target here instead of
+	// reading (and clobbering) the local player's action.
+	Position _replayTurnTarget = Position(-1, -1, -1);
 	bool _endTurnRequested;
 	bool _endConfirmationHandled;
 	bool _allEnemiesNeutralized;
@@ -157,6 +206,86 @@ private:
 	std::vector<InfoboxOKState*> _infoboxQueue;
 	/// Shows the infoboxes in the queue (if any).
 	void showInfoBoxQueue();
+	// coop (PRD-P3 GAP-1): set only while spawn_units() replays a host manifest.
+	// While it is false a co-op peer refuses to spawn anything at all - the spawn
+	// chance, the spawn direction, the built-in-weapon item level and every id the
+	// spawn mints come from the host, never from this machine's RNG stream.
+	struct CoopSpawnReplay
+	{
+		bool active = false;
+		const RuleItem* carrierRule = nullptr;
+		int faction = -1;
+		int ownerId = -1;
+		int direction = -1;
+		int itemLevel = -1;
+		int unitId = -1;
+		int firstItemId = -1;
+		Position finalPos = Position(-1, -1, -1);
+	};
+	CoopSpawnReplay _coopSpawnReplay;
+	// coop (PRD-P7): "do not wait for this walk". Set by the arbiter when an input
+	// arrives while a SKIPPABLE chain is running (host) or while an action packet
+	// sits deferred behind the receive gate (client); cleared the moment _states
+	// drains or the chain stops being skippable. Only the walk/turn/fall think
+	// intervals read it - never a projectile, explosion, death or melee state.
+	bool _coopFastForward = false;
+	// coop (chain-atomicity Strand A): true while a BOUNDARY-phase checkForCasualties
+	// pass is running (endTurn side-close, neutral->player side-start, boundary fuse/
+	// terrain explosion, battle-start hidden explosion). A UnitDieBState constructed
+	// inside the bracket latches it into _coopBoundaryDeath and keeps its death carriers
+	// seq-0 (covered by the ordered boundary marker) instead of opening a loose chain.
+	// Set/cleared tightly around each boundary casualty pass; mid-side casualty passes
+	// (reaction fire, mid-side explosion, falls) leave it false so those deaths stamp.
+	bool _coopBoundaryCasualty = false;
+	// coop (PRD-P8 §5): the reserve mode the CURRENTLY RUNNING intent was sent
+	// with. Reserve is per-machine in parallel mode, so a client's chain must be
+	// judged against the client's reserve - and the walk/turn per-step checks run
+	// long after coopExecuteIntent has returned, which is why this is a chain-
+	// scoped override rather than a swap around the synchronous call.
+	// Keyed on the ACTOR so a leaked override can never reach another unit.
+	bool _coopChainReserveActive = false;
+	int _coopChainReserveUnit = -1;
+	BattleActionType _coopChainReserve = BA_NONE;
+	bool _coopChainKneelReserve = false;
+	// coop (Phase 2a unit_casualty): the corpse-mint OUTCOME captured at the mint
+	// decision - coopMintCorpse()'s branches, or the respawn/neither-branch edge
+	// case in UnitDieBState::think() which never calls coopMintCorpse - and read
+	// back by UnitDieBState::deinit() when it builds the parallel-host
+	// `unit_casualty` packet's "corpse"/"spill" fields. think() resets this to the
+	// mode-3 default immediately before every mint decision, so a respawn casualty
+	// can never read a stale mode left over from a PRIOR casualty's mint. Transient
+	// bookkeeping only - never serialized directly.
+	// mode: 0 = on-tile mint, 1 = carried convert, 2 = overKill/no corpse,
+	// 3 = none (respawn/convert, or the neither-branch edge case).
+	int _coopCorpseMintMode = 3;
+	int _coopCorpseMintCarrierId = -1;
+	bool _coopCorpseMintSpill = false;
+	// coop (parallel battlescape Phase 2b - atomic unit death): the death-ghost
+	// queue coopQueueDeathGhost() appends to. Phase 2b's queue is a STUB (every
+	// entry completes immediately - see coopQueueDeathGhost); Phase 2c drives the
+	// actual death animation off it. Cleared in the destructor.
+	std::vector<CoopDeathGhost> _coopPendingGhosts;
+	uint32_t _coopDeathGhostsCompleted = 0;
+	// coop (Phase 2c): the ghost currently animating (a copy the running ghost-mode
+	// UnitDieBState points at), and whether one is live. coopPollDeathGhosts() starts
+	// the head of _coopPendingGhosts when the state queue is idle and the display has
+	// caught up to that death's chain seq; coopFinishActiveGhost() clears it on pop.
+	CoopDeathGhost _coopActiveGhost{};
+	bool _coopGhostActive = false;
+	/// coop (Phase 2c): when idle, start the next queued death ghost if its display
+	/// gate is met. Called from handleState(); a cheap no-op off the parallel client.
+	void coopPollDeathGhosts();
+	/// The reserve settings checkReservedTU/kneel must judge `bu` by: the running
+	/// intent's when it owns this actor, otherwise this machine's own.
+	BattleActionType coopReserveModeFor(const BattleUnit* bu) const;
+	bool coopKneelReserveFor(const BattleUnit* bu) const;
+	/// Drops the chain-scoped reserve override (chain drained, or a local action
+	/// is about to run instead).
+	void coopClearChainReserve();
+	/// coop: id -> live BattleUnit (null when absent). Never fabricates.
+	BattleUnit* coopFindUnit(int unitId) const;
+	/// coop: ships one spawn manifest entry to the peer (host only).
+	void sendCoopSpawnManifest(const char* kind, const RuleItem* carrierRule, const std::string& rule, uint64_t seed, Position position, Position finalPos, const BattleUnit* attacker, const BattleUnit* owner, int faction, int direction, int itemLevel, int unitId, int firstItemId, int lastItemId);
 public:
 	bool _AISecondMove, _playedAggroSound;
 	/// is debug mode enabled in the battlescape?
@@ -171,17 +300,69 @@ public:
 	int getCoopActorID();
 	int getCoopGamemode();
 	std::string getCoopWeaponHand();
+	/// Builds the stack-local BattleAction a replayed peer/AI action runs on, so
+	/// replaying never writes the singleton _currentAction (which belongs to the
+	/// LOCAL player's UI) - PRD-P1.
+	static BattleAction makeReplayAction(BattleUnit* actor);
 	void movePlayerTarget(std::string obj);
 	void turnPlayerTarget(std::string str_obj);
 	void turnPlayerTargetAfter(std::string str_obj);
 	void psi_attack(std::string str_obj);
 	void melee_attack(std::string str_obj);
+	/// coop (PRD-P3 GAP-1): applies a host "spawn_units" manifest - re-runs the very
+	/// same spawn code from the host's RNG seed, with the host's direction/itemLevel,
+	/// so the peer mints identical unit and item ids instead of rolling its own.
+	void spawn_units(std::string str_obj);
 	bool getHost();
 	bool isCoop();
 	void abortCoopPath(int x, int y, int z, int unit_id, int setDirection, int setFaceDirection);
 	void abortCoopPath2();
 	void sendPacketData(std::string data);
 	void coopDeath(BattleUnit *unit, const RuleDamageType *damageType, bool noSound);
+	/// coop (item 3, mint-at-apply): the world-mutating half of a death - corpse
+	/// item creation, inventory spill to the ground, and the unit-tile unlink -
+	/// extracted from UnitDieBState::convertUnitToCorpse so the parallel replay
+	/// client can run it at the after_unit_death packet apply (bookkeeping clock,
+	/// host manifest ids) instead of on its animation clock.
+	void coopMintCorpse(BattleUnit *unit, bool overKill);
+	/// coop (parallel battlescape Phase 2b - atomic unit death): the CLIENT-side
+	/// atomic apply of a `unit_casualty` packet - stats/position/attribution/status/
+	/// corpse-world absolutes, all host-derived, applied on the ordered bookkeeping
+	/// clock (see connectionTCP.cpp's `unit_casualty` handler for the watermark +
+	/// bystander-morale half of the split). Queues a CoopDeathGhost stub at the end
+	/// (Phase 2c wires the actual death animation off it).
+	void coopApplyCasualty(const Json::Value& obj);
+	/// coop (parallel battlescape Phase 2b - atomic unit death, STUB): records a
+	/// completed death-ghost entry. Phase 2b's world state is ALREADY final at
+	/// apply, so this stub marks the entry done immediately - no UnitDieBState, no
+	/// animation. Phase 2c replaces this body with the queued+started ghost.
+	void coopQueueDeathGhost(const CoopDeathGhost& g);
+	/// coop (Phase 2c): the ghost currently animating, or null when none is live.
+	const CoopDeathGhost* coopActiveGhost() const { return _coopGhostActive ? &_coopActiveGhost : nullptr; }
+	/// coop (Phase 2c): finish the active ghost - the ghost-mode UnitDieBState calls
+	/// this on its last frame (override already cleared). Advances the completed count.
+	void coopFinishActiveGhost();
+	/// coop (Phase 2c): the active-or-pending ghost whose footprint covers @a pos, or
+	/// null. Map draws a pending ghost's unit STANDING (its override was seeded so) and
+	/// the active ghost mid-collapse, so a dying unit never blinks out before its turn.
+	const CoopDeathGhost* coopGhostCoveringTile(Position pos) const;
+	/// coop (Phase 2c): true if any active/pending ghost has hidden corpse/kit ids -
+	/// the Map item-draw fast path stays on stock getTopItem() when this is false.
+	bool coopHasHiddenGhostItems() const;
+	/// coop (Phase 2c): true if @a itemId belongs to any active/pending ghost's hidden
+	/// set (the minted corpse + spilled kit stay invisible until the collapse ends).
+	bool coopIsGhostHiddenItem(int itemId) const;
+	/// coop (Phase 2b introspection): death-ghost entries completed so far.
+	uint32_t coopDeathGhostsCompleted() const { return _coopDeathGhostsCompleted; }
+	/// coop (Phase 2c introspection): queued-but-not-yet-completed ghosts (pending +
+	/// the one active).
+	uint32_t coopDeathGhostsPending() const { return static_cast<uint32_t>(_coopPendingGhosts.size()) + (_coopGhostActive ? 1u : 0u); }
+	/// coop (Phase 2c introspection): the per-ghost display state (pending + active),
+	/// for the harness (parallel_state.deathGhosts). Non-const: maps status via getCoopMod().
+	Json::Value coopDeathGhostsJson();
+	/// coop (Phase 2c introspection): the active ghost's hidden corpse/kit ids (union
+	/// with pending), for the harness (battle_state.hiddenItemIds).
+	Json::Value coopHiddenItemIdsJson() const;
 	// coop
 	void teleport(int x, int y, int z, BattleUnit* unit);
 	void setTileCoop(Position pos, BattleUnit &unit);
@@ -205,8 +386,77 @@ public:
 	void statePushNext(BattleState *bs);
 	/// Pushes a state to the back of the list.
 	void statePushBack(BattleState *bs);
+	// ---- coop (PRD-P6): action intents ------------------------------------
+	/// THE executor's single entry point for a player-initiated action. Factored
+	/// out of the local-input tails so the host's own clicks and a client's
+	/// `action_intent` run exactly the same code. `calculatePath` is false when
+	/// the caller has already run Pathfinding::calculate for this move (the
+	/// mapClick tail has, an intent has not).
+	void executeAction(BattleAction& action, bool calculatePath = true);
+	/// The door every player-initiated action passes through. Returns TRUE when
+	/// the caller must NOT execute anything locally:
+	///  - parallel CLIENT: the action was shipped as an `action_intent`;
+	///  - parallel HOST: admission was refused, and the busy flash is up.
+	/// Classic co-op and single player always return false - untouched.
+	bool coopRouteAction(BattleAction& action, const std::string& kind);
+	/// Same door for a medikit press (the operands do not fit a BattleAction).
+	bool coopRouteMedikit(BattleAction* action, BattleUnit* target, int medikitMode, int bodyPart);
+	/// Host: "" when the intent may run, otherwise a short cause; `warning` gets
+	/// the translatable key the client is told to flash. Takes the serialized
+	/// packet (like every sibling replay handler) so jsoncpp stays out of the
+	/// battlescape headers.
+	std::string coopValidateIntent(const std::string& intentJson, int seat, std::string& warning);
+	/// Host: rebuild the intent as a BattleAction and run it through executeAction.
+	/// `localOrigin` = this machine's own deferred click (PRD-P7 pending-admit), so
+	/// the action is NOT flagged coopReplay and the camera still follows it.
+	void coopExecuteIntent(const std::string& intentJson, bool localOrigin = false);
+	// ---- coop (PRD-P7): walk fast-forward ---------------------------------
+	/// True iff EVERY queued state is a walk / turn / fall of a FACTION_PLAYER
+	/// unit - i.e. the whole chain is animation nobody has to watch. A shot, an
+	/// explosion, a death, a melee or psi state, the end-turn sentinel, or a
+	/// non-player actor all make it false. Empty queue = false (nothing to skip).
+	bool chainIsSkippable() const;
+	/// Is the current chain being fast-forwarded (walk/turn/fall interval 0)?
+	bool getCoopFastForward() const { return _coopFastForward; }
+	/// Arms/disarms the fast-forward. Arming is refused outside parallel mode, so
+	/// classic co-op and single player can never take the interval-0 branch.
+	void setCoopFastForward(bool on);
+	/// coop (chain-atomicity Strand A): boundary-casualty phase bracket. A UnitDieBState
+	/// reads coopBoundaryCasualty() at construction to decide whether its death is a
+	/// boundary death (stays seq-0) or a loose mid-side death (opens a stamped chain).
+	void coopSetBoundaryCasualty(bool b) { _coopBoundaryCasualty = b; }
+	bool coopBoundaryCasualty() const { return _coopBoundaryCasualty; }
+	/// coop (Phase 2a unit_casualty): resets the corpse-mint bookkeeping. Called
+	/// from UnitDieBState::think() immediately before its mint decision (the
+	/// respawn/convertUnit branch never calls coopMintCorpse, so this is the only
+	/// place that clears a stale mode); coopMintCorpse() then overwrites it with the
+	/// real mode/carrier/spill when it runs.
+	void coopSetCorpseMintResult(int mode, int carrierItemId, bool spill) { _coopCorpseMintMode = mode; _coopCorpseMintCarrierId = carrierItemId; _coopCorpseMintSpill = spill; }
+	/// coop (Phase 2a unit_casualty): the corpse-mint outcome of the most recent
+	/// coopMintCorpse() call (or the think() reset) - see _coopCorpseMintMode.
+	int coopGetCorpseMintMode() const { return _coopCorpseMintMode; }
+	int coopGetCorpseMintCarrierId() const { return _coopCorpseMintCarrierId; }
+	bool coopGetCorpseMintSpill() const { return _coopCorpseMintSpill; }
+	/// Re-evaluates the fast-forward after the state queue changed (a push, a pop).
+	/// On a drain it also closes the host's action chain (PROTOCOL.md `action_end`).
+	void coopChainChanged();
+	// ---- coop (PRD-P8): the running intent's reserve override (introspection) --
+	/// The reserve mode the running client intent installed, or -1 when none is.
+	int coopChainReserveMode() const { return _coopChainReserveActive ? (int)_coopChainReserve : -1; }
+	/// The actor that override is keyed on, or -1.
+	int coopChainReserveUnit() const { return _coopChainReserveActive ? _coopChainReserveUnit : -1; }
+	/// Ships the classic replay packet for a mutation that has no BattleState of
+	/// its own, so the peer still sees it. (BState-driven kinds broadcast through
+	/// their own send sites.)
+	void coopSendKneelPacket(BattleUnit* bu);
+	void coopSendPrimePacket(const BattleAction& action, BattleActionType primeType);
+	void coopSendMedikitPacket(const BattleAction& action, BattleUnit* target, int medikitMode, int bodyPart, const std::string& medkitState);
+
 	/// Handles the result of non target actions, like priming a grenade.
 	void handleNonTargetAction();
+	/// Same, on an explicit action - lets a replayed peer action (coopActionClick)
+	/// run without writing the local player's _currentAction (PRD-P1).
+	void handleNonTargetAction(BattleAction& action);
 	// coop
 	void endTurnCoop();
 	void endBattleTurnCoop();
@@ -220,6 +470,11 @@ public:
 	bool checkReservedTU(BattleUnit *bu, int tu, int energy, bool justChecking = false);
 	/// Handles unit AI.
 	void handleAI(BattleUnit *unit);
+	/// coop (PRD-I0): stamps an AI chain with an `action_seq` at the moment the AI
+	/// commits to an action - the alien-side analogue of the arbiter admitting an
+	/// intent. Host + parallel mode only; see the definition for why it sits at the
+	/// push sites rather than around the handleAI call.
+	void coopStampAiChain();
 	/// Drops an item and affects it with gravity.
 	void dropItem(Position position, BattleItem *item, bool removeItem = false, bool updateLight = true);
 	/// Converts a unit into a unit of another type.
@@ -247,6 +502,8 @@ public:
 	BattleAction *getCurrentAction();
 	/// Determines whether there is an action currently going on.
 	bool isBusy() const;
+	/// coop: owner unit of the running action chain, skipping consequence states.
+	BattleUnit *getPrimaryBusyActor() const;
 	/// Activates primary action (left click).
 	void primaryAction(Position pos);
 	/// Activates secondary action (right click).
@@ -340,7 +597,7 @@ public:
 	// coop
 	void setWaypointCoop(int x, int y, int z);
 	void clearWaypointsCoop();
-	void CoopShoot();
+	void CoopShoot(const BattleAction& action);
 	void hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack = true, int terrainMeleeTilePart = 0, uint64_t seed = 0);
 	void centerOnPositionCoop(Position pos);
 };

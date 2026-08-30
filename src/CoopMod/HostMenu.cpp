@@ -51,7 +51,9 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	int x = 20;
 	
 	// Create objects
-	_window = new Window(this, 260, 160, x, 20, POPUP_BOTH);
+	// coop (PRD-P5): 18px taller than stock - the PARALLEL TURNS toggle takes the
+	// old button row (152) and START HOST / CANCEL move down to 172.
+	_window = new Window(this, 260, 178, x, 20, POPUP_BOTH);
 	_lstSaves = new TextList(224, 18, x + 18, 60);
 
 	_lblServerName = new Text(108, 18, x + 18, 72);
@@ -60,12 +62,13 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	_port = new TextEdit(this, 116, 18, x + 126, 92);
 	_serverName = new TextEdit(this, 116, 18, x + 126, 72);
-	_tcpButtonHost = new TextButton(112, 18, x + 18, 152);
+	_tcpButtonHost = new TextButton(112, 18, x + 18, 172);
+	_btnParallelTurns = new TextButton(224, 18, x + 18, 152);
 	_cbxVisibility = new ComboBox(this, 224, 18, x + 18, 50);
 	_cbxRegions = new ComboBox(this, 112, 18, x + 18, 112); 
 	_cbxMaxPlayers = new ComboBox(this, 112, 18, x + 130, 112); 
 	_password = new TextEdit(this, 116, 18, x + 126, 132);
-	_btnCancel = new TextButton(112, 18, x + 130, 152);
+	_btnCancel = new TextButton(112, 18, x + 130, 172);
 	_txtTitle = new Text(250, 17, x + 5, 32);
 
 	int screenWidth = Options::baseXGeoscape;
@@ -84,6 +87,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	add(_serverName, "text", "pauseMenu");
 	add(_password, "text", "pauseMenu");
 	add(_tcpButtonHost, "button", "pauseMenu");
+	add(_btnParallelTurns, "button", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_cbxVisibility, "button", "pauseMenu");
 	add(_cbxRegions, "button", "pauseMenu");
@@ -155,6 +159,11 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_tcpButtonHost->setText("START HOST");
 	_tcpButtonHost->onMouseClick((ActionHandler)&HostMenu::hostTCPGame);
 	_tcpButtonHost->setVisible(true);
+
+	// coop (PRD-P5)
+	updateParallelTurnsButton();
+	_btnParallelTurns->onMouseClick((ActionHandler)&HostMenu::btnParallelTurnsClick);
+	_btnParallelTurns->setVisible(true);
 
 	_btnCancel->setText(tr("CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&HostMenu::btnCancelClick);
@@ -352,6 +361,11 @@ void HostMenu::init()
 		_cbxRegions->setVisible(true);
 
 	}
+
+	// coop (PRD-P5): the toggle lives and dies with the hosting controls - it is a
+	// pre-session switch, and once the session is live the handshake has already
+	// frozen the mode.
+	updateParallelTurnsButton();
 }
 
 void HostMenu::convertUnits()
@@ -551,6 +565,9 @@ void HostMenu::cbxVisibilityChange(Action* action)
 	{
 		_isUDPconnection = false;
 	}
+
+	// coop (PRD-P5)
+	updateParallelTurnsButton();
 
 }
 
@@ -790,6 +807,30 @@ bool HostMenu::hostControlsVisible() const
 	// connection-type combo can be interacted with
 	return _tcpButtonHost->getVisible()
 		|| _cbxVisibility->getVisible();
+}
+
+/**
+ * coop (PRD-P5): PARALLEL TURNS toggle. Flips the HOST's option; the value is
+ * shipped to the client on COOP_READY_HOST, so only the host's setting matters
+ * and only before the session goes live.
+ */
+void HostMenu::btnParallelTurnsClick(Action*)
+{
+	Options::EnableCoopParallelTurns = !Options::EnableCoopParallelTurns;
+	updateParallelTurnsButton();
+}
+
+/**
+ * coop (PRD-P5): keeps the toggle's label in sync with the option and its
+ * visibility in sync with the rest of the hosting controls (hidden in hotseat
+ * mode, which has a single machine, and once a session is live).
+ */
+void HostMenu::updateParallelTurnsButton()
+{
+	_btnParallelTurns->setText(Options::EnableCoopParallelTurns
+		? "PARALLEL TURNS: ON"
+		: "PARALLEL TURNS: OFF");
+	_btnParallelTurns->setVisible(_tcpButtonHost->getVisible());
 }
 
 /**

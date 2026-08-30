@@ -20,6 +20,7 @@
 #include "BattleItem.h"
 #include <sstream>
 #include <algorithm>
+#include <array>
 #include "../Engine/Collections.h"
 #include "../Engine/Surface.h"
 #include "../Engine/Script.h"
@@ -2017,16 +2018,34 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 			&& !hasAlreadyExploded() && selfDestructItem)
 		{
 			setAlreadyExploded(true);
+			// coop (PRD-P3 GAP-4b): ExplosionBState::init rolls
+			// RNG::percent(getSpecialChance()) for a BA_SELF_DESTRUCT, and it does so
+			// AFTER this packet has already gone out - so the two machines could
+			// disagree about whether the corpse actually detonates. Roll it here
+			// instead (this whole function is host-only) and park it for the local
+			// ExplosionBState while the peer gets it on the packet.
+			bool triggered = true;
+			const bool coopHostSD = connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true;
+			if (coopHostSD)
+			{
+				triggered = RNG::percent(selfDestructItem->getRules()->getSpecialChance());
+				save->getBattleGame()->getCoopMod()->_selfDestructResults.push_back(triggered ? 1 : 0);
+			}
 			Position p = getPosition().toVoxel();
 			save->getBattleGame()->statePushNext(new ExplosionBState(save->getBattleGame(), p, BattleActionAttack{ BA_SELF_DESTRUCT, this, selfDestructItem, selfDestructItem }, 0));
 
 			// coop
-			if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
+			if (coopHostSD)
 			{
 
 				Json::Value root;
 				root["state"] = "selfDestruct";
+				// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+				// client's action_end apply-barrier accounts for this parked self-destruct
+				// pre-roll (no-op off the parallel host, _openChainSeq==0).
+				connectionTCP::coopStampChainSeq(root);
 				root["unit_id"] = _id;
+				root["triggered"] = triggered;
 
 				connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 
@@ -2376,6 +2395,43 @@ void BattleUnit::setCoop(int coop)
 int BattleUnit::getCoop() const
 {
 	return _coop;
+}
+
+/**
+ * Accepts a stamped coop per-unit state write only if its stamp is >= the
+ * unit's recorded watermark (lexicographic compare on side_seq, action_seq,
+ * rank). On accept, records the new stamp. Equal stamps accept (idempotent
+ * re-delivery of the same chain link).
+ */
+// coop DIAGNOSTIC (reject-set audit, 2026-08-26): capture-gated, counters-only, NO state
+// effect - inert unless armed by the SEAM-7 field capture (arm/clear driven from
+// coopApplyNextTurnUnitStates). Records rank-0 (next_turn snapshot) watermark REJECTIONS:
+// the rejected unit id + incoming next_turn stamp (side_seq, action_seq) vs the beating
+// recorded watermark (side_seq, action_seq, rank).
+namespace {
+	bool g_coopWmDbgArmed = false;
+	std::vector<std::array<std::uint32_t, 6> > g_coopWmDbgRejects; // {unitId, inSide, inSeq, recSide, recSeq, recRank}
+}
+void coopWmDbgArm(bool on) { g_coopWmDbgArmed = on; }
+void coopWmDbgClear() { g_coopWmDbgRejects.clear(); }
+const std::vector<std::array<std::uint32_t, 6> >& coopWmDbgRejects() { return g_coopWmDbgRejects; }
+
+bool BattleUnit::coopStateAccept(uint32_t side, uint32_t seq, uint8_t rank)
+{
+	if (std::tie(side, seq, rank) >= std::tie(_coopStateSideSeq, _coopStateActionSeq, _coopStateRank))
+	{
+		_coopStateSideSeq = side;
+		_coopStateActionSeq = seq;
+		_coopStateRank = rank;
+		return true;
+	}
+	if (g_coopWmDbgArmed && rank == 0 && g_coopWmDbgRejects.size() < 128)
+	{
+		std::array<std::uint32_t, 6> rec = { static_cast<std::uint32_t>(getId()), side, seq,
+			_coopStateSideSeq, _coopStateActionSeq, static_cast<std::uint32_t>(_coopStateRank) };
+		g_coopWmDbgRejects.push_back(rec);
+	}
+	return false;
 }
 
 /**
@@ -2815,7 +2871,13 @@ void BattleUnit::prepareHealth(int health)
 	health -= getFatalWounds();
 
 	// suffer from fire
-	if (!_hitByFire && _fire > 0)
+	// coop (PRD-I3 straddle): fire regen damage is an RNG draw the host owns; its
+	// result (health + the unit `fire` counter) is re-shipped on `next_turn`. On a
+	// PARALLEL client the local draw would diverge from the host's, so defer it -
+	// the deterministic fatal-wound subtraction above still runs on both machines.
+	// Classic/option-off: parallelTurnActive() false, byte-identical.
+	const bool coopClientDefer = connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
+	if (!coopClientDefer && !_hitByFire && _fire > 0)
 	{
 		health -= reduceByResistance(RNG::generate(Mod::FIRE_DAMAGE_RANGE[0], Mod::FIRE_DAMAGE_RANGE[1]), DT_IN);
 		_fire--;
@@ -2865,7 +2927,14 @@ void BattleUnit::prepareMorale(int morale)
 	{
 		moraleChange(morale);
 		int chance = 100 - (2 * getMorale());
-		if (RNG::percent(chance))
+		// coop (PRD-I3 straddle): the panic/berserk decision is an RNG draw the host
+		// owns; its outcome (the unit `status`) is re-shipped on `next_turn` (and the
+		// resolved panic on `panic_action`). A PARALLEL client must not roll it
+		// locally or the two RNG streams diverge - it takes the deterministic
+		// no-panic path instead, so the bravery-exp increment below still runs and a
+		// no-panic turn keeps expBravery synced. Classic/option-off: byte-identical.
+		const bool coopClientDefer = connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
+		if (!coopClientDefer && RNG::percent(chance))
 		{
 			int berserkChance = _unitRules ? _unitRules->getBerserkChance() : -1; // -1 represents true 1/3 (33.33333...%)
 			bool berserk = false;
@@ -2948,6 +3017,39 @@ void BattleUnit::prepareNewTurn(bool fullProcess)
 	}
 
 	updateUnitStats(false, true);
+}
+
+/**
+ * coop (PRD-I3 Option D-lite): the DETERMINISTIC per-unit terms of prepareNewTurn
+ * that `next_turn` does NOT re-ship, run at the deferred neutral->player apply point
+ * on the parallel client (whose whitelisted `endTurn` no longer runs the turn machine
+ * for that transition). It is the strict subset of prepareNewTurn(true) left over
+ * once next_turn's bulk apply has authored the re-shipped stats (tu/energy/health/
+ * stun/morale/mana/fire/fatalWounds/status/position/motionPoints) and once the RNG
+ * regen terms (prepareHealth fire draw, prepareMorale panic/berserk) are gated off on
+ * the client (the SEAM-2 straddle fix). What is left is exactly the audit's set:
+ * turnsSinceStunned (kept in saveBlob), dontReselect and meleeAttackedBy - plus the
+ * unhashed housekeeping resets prepareNewTurn also makes here so the client's live
+ * state matches. Called for PLAYER-faction units only, mirroring endTurn()'s
+ * `bu->getFaction() == _side` at neutral->player; isOut() is checked exactly as
+ * incTurnsSinceStunned's own guard does, so a soldier who fell during the alien side
+ * is skipped on both machines (it is already out when the host reaches player-start).
+ */
+void BattleUnit::coopApplyDeferredTurnStart()
+{
+	if (isIgnored())
+	{
+		return;
+	}
+	_isSurrendering = false;
+	_unitsSpottedThisTurn.clear();
+	_meleeAttackedBy.clear();
+	_hitByFire = false;
+	_dontReselect = false;
+	if (!isOut())
+	{
+		incTurnsSinceStunned();
+	}
 }
 
 /**
@@ -3101,6 +3203,10 @@ void BattleUnit::setFire(int fire)
 
 		Json::Value root;
 		root["state"] = "unit_fire";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(root);
 
 		root["unit_id"] = _id;
 		root["fire"] = _fire;

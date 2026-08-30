@@ -471,8 +471,18 @@ public:
 	void addDestroyedObjective();
 	/// Checks if all the objectives are destroyed.
 	bool allObjectivesDestroyed() const;
+	/// coop (explosion ordered-replay E0): host->client parity readout for the
+	/// objective counter (LEAK-OBJ gates the client's own increment, so it
+	/// converges to the host's absolute instead - see NextTurnState/connectionTCP).
+	int getObjectivesDestroyed() const { return _objectivesDestroyed; }
+	/// coop (explosion ordered-replay E0): counterpart readout, for parity assertions.
+	int getObjectivesNeeded() const { return _objectivesNeeded; }
+	/// coop (explosion ordered-replay E0): client-side apply of the host's absolute.
+	void setObjectivesDestroyed(int n) { _objectivesDestroyed = n; }
 	/// Gets the current item ID.
 	int *getCurrentItemId();
+	/// Gets the current item ID value (const read; the co-op drift tripwire).
+	int getCurrentItemIdValue() const;
 	/// Gets a spawn node.
 	Node *getSpawnNode(int nodeRank, BattleUnit *unit);
 	/// Gets a patrol node.

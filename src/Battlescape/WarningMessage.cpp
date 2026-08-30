@@ -151,6 +151,14 @@ void WarningMessage::fade()
 /**
  * Draws the warning message.
  */
+/**
+ * coop (PRD-P5): the text currently displayed, or "" when the widget is hidden.
+ */
+std::string WarningMessage::getMessage() const
+{
+	return getVisible() ? _text->getText() : std::string();
+}
+
 void WarningMessage::draw()
 {
 	Surface::draw();

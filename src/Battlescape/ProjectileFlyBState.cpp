@@ -37,11 +37,26 @@
 #include "Camera.h"
 #include "Explosion.h"
 #include "BattlescapeState.h"
+#include "../CoopMod/connectionTCP.h"
 #include "../Savegame/BattleUnitStatistics.h"
 #include "../fmath.h"
 
 namespace OpenXcom
 {
+
+// coop (wire-order report alignment, Increment 2 / A1): the master lever, file-scope in
+// connectionTCP.cpp; extern-declared here (matching TestServer.cpp) to fence the display-
+// replay ammo spend without a connectionTCP.h recompile.
+extern std::atomic<bool> g_wireOrderState;
+// True only when THIS machine is the parallel CLIENT with the wire-order lever on - the one
+// case where a display replay's spendAmmoForAction would clobber the host's SEAM-11 itemAmmo
+// absolute (docs carrier-census A1). Lever-off / host / classic -> false -> ammo is spent
+// exactly as before (byte-identical).
+static bool coopFenceReplayAmmoSpend()
+{
+	return g_wireOrderState.load(std::memory_order_relaxed)
+		&& connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
+}
 
 /**
  * Sets up an ProjectileFlyBState.
@@ -72,8 +87,11 @@ void ProjectileFlyBState::init()
 	if (_initialized) return;
 	_initialized = true;
 
-	// coop
-	_parent->getCoopMod()->_coop_task_completed = false;
+	// coop: acquire the receive gate for the whole shot. Safe to do unguarded -
+	// init() returns early above when it has already run, which is what keeps this
+	// paired with the single deinit() release even though popState() re-init()s the
+	// state every time an ExplosionBState pushed in front of it pops.
+	_parent->getCoopMod()->setCoopTaskCompleted(false);
 	_parent->getCoopMod()->_coopInitDeath = true;
 	_parent->getCoopMod()->_hasHitUnit = -1;
 
@@ -294,8 +312,37 @@ void ProjectileFlyBState::init()
 		return;
 	}
 
+	// coop (PRD-P3 GAP-4b): the close-quarters check is three independent RNG draws
+	// (the sneak-up percent, the to-hit roll, and the redirect direction) that both
+	// machines used to make for the same shot. The SENDER runs it; the peer applies
+	// the outcome, which mostly rides this packet already - the redirected aim IS
+	// the target the packet carries, because the block below rewrites _action.target
+	// before the send at the end of init().
+	bool coopCqbBlocked = false;
+	int coopCqbDefender = -1;
+	const bool coopCqbReplay = _parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == false;
+	if (coopCqbReplay)
+	{
+		coopCqbBlocked = _parent->getCoopMod()->_cqbBlocked;
+		coopCqbDefender = _parent->getCoopMod()->_cqbDefenderId;
+		_parent->getCoopMod()->_cqbBlocked = false;
+		_parent->getCoopMod()->_cqbDefenderId = -1;
+		if (coopCqbBlocked && coopCqbDefender != -1)
+		{
+			for (auto* bu : *_parent->getSave()->getUnits())
+			{
+				if (bu->getId() == coopCqbDefender)
+				{
+					bu->spendTimeUnits(_parent->getMod()->getCloseQuartersTuCostGlobal());
+					bu->spendEnergy(_parent->getMod()->getCloseQuartersEnergyCostGlobal());
+					break;
+				}
+			}
+		}
+	}
+
 	// Check for close quarters combat
-	if (_parent->getMod()->getEnableCloseQuartersCombat() && _action.type != BA_THROW && _action.type != BA_LAUNCH && _unit->getTurretType() == -1 && !_unit->getArmor()->getIgnoresMeleeThreat())
+	if (!coopCqbReplay && _parent->getMod()->getEnableCloseQuartersCombat() && _action.type != BA_THROW && _action.type != BA_LAUNCH && _unit->getTurretType() == -1 && !_unit->getArmor()->getIgnoresMeleeThreat())
 	{
 		// Start by finding 'targets' for the check
 		std::vector<BattleUnit*> closeQuartersTargetList;
@@ -406,6 +453,9 @@ void ProjectileFlyBState::init()
 					// We're done, spend TUs and Energy; and don't check remaining CQB candidates anymore
 					bu->spendTimeUnits(_parent->getMod()->getCloseQuartersTuCostGlobal());
 					bu->spendEnergy(_parent->getMod()->getCloseQuartersEnergyCostGlobal());
+					// coop: report the outcome with the shot packet at the end of init()
+					coopCqbBlocked = true;
+					coopCqbDefender = bu->getId();
 					break;
 				}
 			}
@@ -526,6 +576,17 @@ void ProjectileFlyBState::init()
 			// temporarily turn off camera following projectiles to prevent annoying flashing effects (e.g. on minigun-like weapons)
 			_parent->getMap()->setFollowProjectile(false);
 		}
+		// coop (PRD-P5): a teammate's replayed shot must not drag the local camera
+		// during a parallel player side - the local player is aiming their own shot
+		// at the same time. Map::draw()'s projectile follow is the one that would do
+		// it. deinit() turns following back on unconditionally, so this is scoped to
+		// the replayed chain. The AI phase keeps the follow (nobody is acting
+		// locally), and classic co-op is untouched.
+		if (_action.coopReplay && connectionTCP::parallelTurnActive()
+			&& _parent->getCoopMod()->_isActiveAISync == false)
+		{
+			_parent->getMap()->setFollowProjectile(false);
+		}
 		if (_range == 0) _action.spendTU();
 		_parent->getMap()->setCursorType(CT_NONE);
 		_parent->getMap()->getCamera()->stopMouseScrolling();
@@ -572,6 +633,11 @@ void ProjectileFlyBState::init()
 		obj["targeting"] = _action.targeting;
 		// fix!
 		obj["weapon_type"] = _action.weapon->getRules()->getType();
+
+		// coop (PRD-P3 GAP-4b): close-quarters outcome. The redirected aim needs no
+		// field of its own - the coords above already carry it.
+		obj["cqb_blocked"] = coopCqbBlocked;
+		obj["cqb_defender"] = coopCqbDefender;
 
 		obj["projectiles"] = _parent->getCoopMod()->_coopProjectilesClient;
 
@@ -730,7 +796,10 @@ bool ProjectileFlyBState::createNewProjectile()
 			}
 			if (_action.type != BA_LAUNCH)
 			{
-				_action.weapon->spendAmmoForAction(_action.type, _parent->getSave());
+				// coop (wire-order Increment 2 / A1): fence the parallel client's
+				// display-replay ammo spend lever-on; SEAM-11 itemAmmo authors canonical ammo.
+				if (!coopFenceReplayAmmoSpend())
+					_action.weapon->spendAmmoForAction(_action.type, _parent->getSave());
 			}
 		}
 		else
@@ -778,7 +847,10 @@ bool ProjectileFlyBState::createNewProjectile()
 			}
 			if (_action.type != BA_LAUNCH)
 			{
-				_action.weapon->spendAmmoForAction(_action.type, _parent->getSave());
+				// coop (wire-order Increment 2 / A1): fence the parallel client's
+				// display-replay ammo spend lever-on; SEAM-11 itemAmmo authors canonical ammo.
+				if (!coopFenceReplayAmmoSpend())
+					_action.weapon->spendAmmoForAction(_action.type, _parent->getSave());
 			}
 		}
 		else
@@ -819,8 +891,12 @@ void ProjectileFlyBState::deinit()
 {
 
 	// coop
-	_parent->getCoopMod()->_coop_task_completed = true;
+	_parent->getCoopMod()->setCoopTaskCompleted(true);
 	_parent->getCoopMod()->_coopInitDeath = false;
+	// coop (Class-A soak wedge fix): the shot chain is over, so no pacing wait can
+	// still be outstanding on it - clear the flag defensively (a force-drain or a
+	// normal release already cleared it; this guards the paths that popped early).
+	_parent->getCoopMod()->_coopPacingWait = false;
 	// coop fix
 	_parent->getCoopMod()->_trajectoryCoop.clear();
 
@@ -832,6 +908,10 @@ void ProjectileFlyBState::deinit()
 
 		Json::Value obj;
 		obj["state"] = "hasHitUnit";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(obj);
 
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
@@ -873,6 +953,10 @@ void ProjectileFlyBState::think()
 
 				Json::Value obj;
 				obj["state"] = "hasHitUnit";
+				// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+				// holds this outcome for its own chain's opener instead of contaminating
+				// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+				connectionTCP::coopStampChainSeq(obj);
 
 				_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 
@@ -974,7 +1058,10 @@ void ProjectileFlyBState::think()
 				_parent->getMap()->resetCameraSmoothing();
 				if (_action.type == BA_LAUNCH)
 				{
-					_action.weapon->spendAmmoForAction(_action.type, _parent->getSave());
+					// coop (wire-order Increment 2 / A1): fence the parallel client's
+					// display-replay ammo spend lever-on; SEAM-11 itemAmmo authors canonical ammo.
+					if (!coopFenceReplayAmmoSpend())
+						_action.weapon->spendAmmoForAction(_action.type, _parent->getSave());
 				}
 
 				if (_projectileImpact != V_OUTOFBOUNDS)
@@ -1067,6 +1154,10 @@ void ProjectileFlyBState::think()
 										power = _ammo->getRules()->getPowerBonus(attack) - _ammo->getRules()->getPowerRangeReduction(proj->getDistance());
 									}
 									_parent->getMap()->getExplosions()->push_back(explosion);
+									// coop (PRD-I3 SEAM-3 close): a shotgun pellet's direct terrain hit owns a
+									// seq if the shot chain has already drained (loose); in-chain it is a no-op
+									// and the destroy inherits the shot's seq. Shots are mid-side, no boundary.
+									connectionTCP::coopStampLooseOutcomeChain("pellet");
 									_parent->getSave()->getTileEngine()->hit(attack, proj->getPosition(offset), power, _ammo->getRules()->getDamageType());
 
 									//do not work yet

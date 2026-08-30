@@ -1236,8 +1236,6 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->inventory_battle_window = true;
 
-		_game->getCoopMod()->gamePaused = 0;
-
 		_game->getCoopMod()->_battleWindow = false;
 		_game->getCoopMod()->_battleInit = false;
 

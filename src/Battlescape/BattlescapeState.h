@@ -80,6 +80,21 @@ private:
 	Timer *_animTimer, *_gameTimer;
 	SavedBattleGame *_save;
 	Text *_txtDebug, *_txtTooltip;
+	// coop (PRD-P8): the end-turn readiness tally ("END TURN 1/2"), shown next to
+	// the END TURN button while a parallel side has at least one seat armed.
+	// Deliberately NOT on the _warning surface - that one fades, and the tally has
+	// to stay up for as long as somebody is waiting.
+	Text *_txtCoopEndTurn;
+	int _coopTallyReady, _coopTallySeats;
+	bool _coopTallyLocalReady;
+	// coop (parallel turns): persistent "Please wait for <player>'s action to
+	// finish" banner, in the map strip just above the toolbar. Shown while another
+	// seat's action blocks this machine's input; off the fading _warning surface.
+	Text *_txtCoopWait;
+	// Owner seat latched for the current busy window (-1 = idle/unresolved). Latched
+	// once per window so a consequence state (death/fall/explosion) pushed to the
+	// front of the queue mid-chain cannot re-attribute the banner to the victim.
+	int _coopBusyOwnerSeat;
 	Uint8 _tooltipDefaultColor;
 	Uint8 _medikitRed, _medikitGreen, _medikitBlue, _medikitOrange;
 	std::vector<State*> _popups;
@@ -110,10 +125,22 @@ private:
 	void blinkHealthBar();
 	/// Shows the unit kneel state.
 	void toggleKneelButton(BattleUnit* unit);
+	/// coop (PRD-P8): repaints the END TURN readiness lamp + tally from the
+	/// connectionTCP tally. No-op (and hidden) outside a parallel side.
+	void updateCoopEndTurnTally();
+	/// coop: refresh the "Please wait for <player>'s action" banner (per frame).
+	void updateCoopWaitBanner();
   public:
+	/// coop (PRD-P8 §5): the classic reserve mirror packet (`TU_COOP` /
+	/// `kneel_reserved`). Suppressed in parallel mode, where reserve is a
+	/// per-machine setting and travels per-action on `action_intent` instead.
+	void coopSendReserveState(bool kneel);
 	// coop
 	void setSelectedCoopUnit(int actor_id);
-	void coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time);
+	// coop (PRD-P6): healer_id/weapon_* are additive - an older peer omits them
+	// and the classic branch (which reads the local _currentAction) still runs.
+	void coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time,
+					 int healer_id = -1, int weapon_id = -1, std::string weapon_type = "", std::string hand = "");
 	void coopActiveGranade(int actor_id, int type, std::string hand, int fusetimer, int item_id);
 	void coopActionClick(int actor_id, std::string hand, int type, bool fuse, int fusetimer, int target_x, int target_y, int target_z, int time, std::string weapon_type, int weapon_id);
 	// This should end the co-op battle.
@@ -136,6 +163,10 @@ private:
 	void melee_attack(std::string str_obj);
 	void shootPlayerTarget(std::string str_obj);
 	void showCoopWarning(const std::string &message);
+	/// coop (PRD-P5): the banner currently on the warning widget ("" = none).
+	std::string getCoopWarningText() const;
+	/// coop: the visible "Please wait..." banner text ("" when hidden), for tests.
+	std::string getCoopWaitText() const;
 	void showCoopLongWarning(const std::string &message);
 	void doAbortPath();
 	/// Selects the next soldier.

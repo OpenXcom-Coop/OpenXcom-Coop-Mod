@@ -216,6 +216,25 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 			max_shots = conf->shots;
 		}
 
+		// coop (PRD-P3 GAP-5): a shotgun fires ONE queued shot and then traces
+		// getShotgunPellets()-1 extra trajectories per shot. Only the shots were
+		// pre-rolled, so the peer ran dry mid-pellet and started rolling aim points
+		// off its own RNG stream: different pellet endpoints, a different number of
+		// TileEngine::hit() calls, and from there a permanently mis-paired hit
+		// stream. Pre-roll the pellets too, interleaved in the exact order both
+		// machines consume them (shot, its pellets, next shot, its pellets, ...).
+		int pellets = 1;
+		if (_ammo && _ammo->getRules()->getShotgunPellets() != 0 && _ammo->getRules()->getDamageType()->isDirect())
+		{
+			pellets = _ammo->getRules()->getShotgunPellets();
+		}
+		const int shotgunSpread = pellets > 1 ? _ammo->getRules()->getShotgunSpread() : 0;
+		const int shotgunBehavior = pellets > 1 ? _ammo->getRules()->getShotgunBehaviorType() : 0;
+		const int shotgunChoke = pellets > 1 ? _action.weapon->getRules()->getShotgunChoke() : 0;
+		// The pellet rolls must not walk _targetVoxel forward the way the shot rolls
+		// deliberately do, so they run off a saved copy of the original aim.
+		const Position pelletBaseTarget = _targetVoxel;
+
 		bool accuracyLossCoop = false;
 		double accuracyLossCoopValue = 0;
 
@@ -241,6 +260,29 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 
 			_coopProjectilesClient.append(projectile);
 			_coopProjectilesHost.append(projectile);
+
+			for (int p = 1; p < pellets; ++p)
+			{
+				double pelletAccuracy = shotgunBehavior == 1
+											? std::max(0.0, (1.0 - shotgunSpread / 100.0) * shotgunChoke / 100.0)
+											: std::max(0.0, accuracy - p * 5.0 * shotgunSpread / 100.0);
+
+				Position pelletTarget = pelletBaseTarget;
+				applyAccuracy(originVoxel, &pelletTarget, pelletAccuracy, false, extendLine);
+
+				Json::Value pelletShot(Json::objectValue);
+
+				pelletShot["rng_x"] = pelletTarget.x;
+				pelletShot["rng_y"] = pelletTarget.y;
+				pelletShot["rng_z"] = pelletTarget.z;
+				pelletShot["seed"] = RNG::getSeedCoop();
+				pelletShot["origin_x"] = originVoxel.x;
+				pelletShot["origin_y"] = originVoxel.y;
+				pelletShot["origin_z"] = originVoxel.z;
+
+				_coopProjectilesClient.append(pelletShot);
+				_coopProjectilesHost.append(pelletShot);
+			}
 
 		}
 

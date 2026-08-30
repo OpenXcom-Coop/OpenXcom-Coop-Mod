@@ -37,8 +37,11 @@
 #include "../Savegame/AlienMission.h"
 #include "../Mod/UfoTrajectory.h"
 #include "../Savegame/Ufo.h"
+#include "../Battlescape/AIModule.h"
+#include "../Battlescape/TileEngine.h" // coop (SEAM-11): closeUfoDoors on the client deferred boundary
 #include "../Battlescape/DebriefingState.h"
 #include "../Battlescape/BattlescapeState.h"
+#include "../Battlescape/ExplosionBState.h" // coop (explosion ordered-replay E2): chain_detonation handler constructs the display-only chained state
 
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -179,7 +182,12 @@ bool connectionTCP::_isChatActiveStatic = false;
 
 bool connectionTCP::_isActiveAISync = false;
 
-bool connectionTCP::_isActivePlayerSync = false; 
+bool connectionTCP::_isActivePlayerSync = false;
+
+// coop (#162 / 056b500db reconciliation): false at session start; set true only
+// by the coop_leaving handler when the peer leaves a skirmish debrief gracefully.
+bool connectionTCP::_peerLeftCleanly = false; 
+
 
 bool connectionTCP::_enable_time_sync = true;
 
@@ -192,6 +200,60 @@ bool connectionTCP::_enable_host_only_time_speed = false;
 bool connectionTCP::_enable_xcom_equipment_aliens_pvp = true;
 
 bool connectionTCP::_unbalanced_craft_soldiers_limit = false;
+
+// coop (PRD-P5): default OFF = classic alternating sub-turns. Only the
+// COOP_READY_HOST handshake (and a save load) ever writes it.
+bool connectionTCP::_enable_parallel_turns = false;
+
+// coop (PRD-P6): action-intent arbitration. All per-battle, all reset by
+// resetActionArbiter().
+std::uint32_t connectionTCP::_actionSeq = 0;
+std::uint32_t connectionTCP::peerDisplayAckedSeq = 0;
+std::uint32_t connectionTCP::_sideSeq = 0;
+// coop (GAP-10): defaults to the fixed coop base seed so a script draw before
+// the first side boundary (turn 1) still uses a defined, shared value.
+std::uint64_t connectionTCP::_scriptRngSeed = RNG::g_randomCoopSeed;
+bool connectionTCP::_sideCommitInProgress = false;
+std::uint32_t connectionTCP::_intentSlotReqId = 0;
+int connectionTCP::_intentSlotSeat = -1;
+std::string connectionTCP::_intentSlotKind;
+std::string connectionTCP::_admitBlocked;
+std::string connectionTCP::_pendBlocked;
+std::uint32_t connectionTCP::_clientReqSeq = 0;
+std::uint32_t connectionTCP::_clientPendingReqId = 0;
+std::string connectionTCP::_clientPendingKind;
+std::uint32_t connectionTCP::_clientPendingSentTicks = 0;
+std::string connectionTCP::_clientLastDenyReason;
+std::string connectionTCP::_clientLastDenyWarning;
+// coop (PRD-P7): pending-admit slots and the two display-flow counters.
+std::vector<connectionTCP::CoopPendingIntent> connectionTCP::_pendingAdmits;
+std::uint32_t connectionTCP::_openChainSeq = 0;
+std::uint32_t connectionTCP::_clientDisplaySeq = 0;
+// coop (PRD-I0): the sync-check label + the boundary pseudo-seq namespace.
+std::string connectionTCP::_openChainKind;
+std::uint32_t connectionTCP::_clientDisplaySideSeq = 0;
+std::uint32_t connectionTCP::_boundarySeq = 0;
+// coop (PRD-I3 SEAM-2 HALF 2): scoped only around the neutral->player decay call.
+bool connectionTCP::_coopBoundaryDecay = false;
+std::vector<std::string> connectionTCP::_pendingBoundaries;
+int connectionTCP::_turnAdvanceDeferred = 0;
+int connectionTCP::_turnAdvanceDeferredCount = 0;
+bool connectionTCP::_hostShipsNextTurnFields = false;
+bool connectionTCP::_testHoldActionDone = false;
+std::uint32_t connectionTCP::_heldActionDones = 0;
+bool connectionTCP::_testHoldBoundaryDone = false;
+// coop (PRD-P9 3): stuck-chain diagnostic, reset wherever _openChainSeq is.
+std::uint32_t connectionTCP::_openChainTicks = 0;
+bool connectionTCP::_openChainWarned = false;
+bool connectionTCP::_openChainInstantPending = false;  // PRD-I3 SEAM-7 ii
+// coop (wire-order Increment 7, SHAPE A): chain-open (tu,energy) snapshot; see the header.
+std::unordered_map<int, std::pair<int, int>> connectionTCP::_openChainRegenSnap;
+// coop (PRD-P8): the end-turn readiness tally. Reset with the arbiter.
+std::vector<bool> connectionTCP::_endTurnReady;
+std::vector<bool> connectionTCP::_endTurnAuto;
+std::uint32_t connectionTCP::_endTurnTallySideSeq = 0;
+std::string connectionTCP::_endTurnTallySent;
+std::string connectionTCP::_commitBlocked;
 
 bool connectionTCP::_coopCampaign = false;
 
@@ -477,6 +539,725 @@ SPSCQueue<1024> g_rxQ{};
 // function so disconnect/reconnect cleanup can reset it fully between sessions.
 static std::mutex g_rxHoldMutex;
 static std::deque<std::string> g_rxHold;
+// coop (PRD-P9 rider R7): packets excluded by a condition this pump can never
+// change itself (the `endPlayerTurn` term in updateCoopTask). Rotating one of
+// those re-examines it on every tick for the rest of the session, so it is
+// parked here instead and spliced back to the FRONT of g_rxHold the moment the
+// exclusion lifts. Guarded by g_rxHoldMutex, like g_rxHold.
+static std::deque<std::string> g_rxPark;
+
+// PRD-P0: hold-queue introspection for the harness (see connectionTCP.h).
+// coop (PRD-P11): nothing is physically rotated any more - the pump consumes in
+// place - so this now counts GATE HOLDS: packets the receive gate refused, which
+// keep their position in the queue and are re-examined next pass. The name and
+// the reading ("packets the gate would not let through") are unchanged.
+std::atomic<uint32_t> g_rxRotateCount{0};
+std::atomic<uint32_t> g_rxHoldMaxSeen{0};
+
+// coop (PRD-P11): packets the GATE WOULD HAVE LET THROUGH but that were held back
+// because an earlier, still-unconsumed packet in the queue names the same unit.
+// This is the price of ordering, and the only counter that distinguishes the new
+// pump from the old one.
+std::atomic<uint32_t> g_rxSkipBlocked{0};
+// coop (PRD-P11): passes that ran with per-subject blocking DISABLED because the
+// liveness floor fired (see updateCoopTask()). Expected to stay 0 for the life of
+// a session; anything else means ordering was traded away to keep a queue moving.
+std::atomic<uint32_t> g_rxLegacyPasses{0};
+// coop (PRD-I1): whitelisted outcome packets held back because they carry the
+// seq of a chain that has not opened on this (client) machine yet - the chain
+// isolation that keeps a client's post-N sync-check state pure. Like the two
+// counters above it feeds the liveness floor and is process-monotonic.
+std::atomic<uint32_t> g_rxSeqDeferred{0};
+// coop (PHASE D.1 chain-atomicity): times the client's action_end APPLY BARRIER held
+// a marker because a packet stamped with that marker's chain had not applied yet.
+// Process-monotonic; feeds the same liveness floor as the seq/subject holds.
+std::atomic<uint32_t> g_barrierBlocks{0};
+// coop (LIVENESS FLOOR ordering-preserving drain): see connectionTCP.h. Bumped each tick
+// the stage-2 hard-floor escape hatch reverted the parallel client to the legacy
+// full-disable (0 across a run = the ordering-preserving drain carried the whole load).
+std::atomic<uint32_t> g_rxHardFloorPasses{0};
+// coop (wire-order Increment 7, SHAPE A diagnostic): host regen-carry elements emitted
+// on action_end markers; client elements applied at first-sight. Process-monotonic.
+std::atomic<uint32_t> g_regenEmitted{0};
+std::atomic<uint32_t> g_regenApplied{0};
+// coop (three-class RCA DIAGNOSTIC, 2026-08-28): capture-gated, lever-off INERT. When
+// g_diagCapture is armed (parallel_state {"diag_capture":true}) the client logs tagged,
+// position-ordered writes so a firing-run trace names the exact clobber writer (file:line
+// tag) for each residual class. No behavior change; the log is read back via parallel_state.
+std::atomic<bool> g_diagCapture{false};
+// coop (RCA): the HIGH-FREQUENCY tu/position write log (coopDiagUnit) is gated separately so
+// a lightweight capture (EXPL/GREM/TRACEB/item.mint-remove on g_diagCapture only) can run
+// WITHOUT the per-write mutex overhead that shifts the client's wall-clock timing enough to
+// mask the flaky lost-removal. --trace-mechanism arms both; --rca-trace arms g_diagCapture only.
+std::atomic<bool> g_diagHeavy{false};
+std::vector<std::string> g_diagTrace;
+std::mutex g_diagTraceMutex;
+std::atomic<uint32_t> g_diagPos{0};
+void coopDiagS(std::string s)
+{
+	if (!g_diagCapture.load(std::memory_order_relaxed)) return;
+	std::uint32_t pos = g_diagPos.fetch_add(1, std::memory_order_relaxed);
+	std::lock_guard<std::mutex> lk(g_diagTraceMutex);
+	g_diagTrace.push_back("p" + std::to_string(pos) + " " + std::move(s));
+	if (g_diagTrace.size() > 6000) g_diagTrace.erase(g_diagTrace.begin()); // option-3B/RCA: hold the full lifecycle
+}
+// unit-scoped tu/energy/position write, ALIEN probe only (id>=1000000). HIGH-frequency -
+// gated on g_diagHeavy so --rca-trace stays light.
+void coopDiagUnit(const char* tag, int unitId, long v)
+{
+	if (!g_diagHeavy.load(std::memory_order_relaxed) || unitId < 1000000) return;
+	if (!g_diagCapture.load(std::memory_order_relaxed)) return;
+	coopDiagS(std::string(tag) + " u=" + std::to_string(unitId) + " =" + std::to_string(v));
+}
+// coop (chain-atomicity Strand B): the SIDE BARRIER introspection. g_sideBarrierHolds
+// counts passes where the whitelisted `endTurn` was HELD because a stamped packet of the
+// current side was still deferred ahead of it (the client must finish side S before
+// retiring its side token). g_sideBarrierReleases / g_sideBarrierHardReleases count how a
+// held endTurn finally consumed: the ordered drain of side S (normal, liveness proof) vs
+// the legacy hard-floor escape (the documented kRxDrainHardFloorMs last-resort release).
+// Externed in TestServer for parallel_state; file-scope here to avoid a connectionTCP.h
+// wide recompile. g_sideBarrierHeldThisSide is a pump-internal latch: this side saw a hold,
+// so the eventual consume is a release. Process-monotonic like the other pump counters.
+std::atomic<uint32_t> g_sideBarrierHolds{0};
+std::atomic<uint32_t> g_sideBarrierReleases{0};
+std::atomic<uint32_t> g_sideBarrierHardReleases{0};
+static bool g_sideBarrierHeldThisSide = false;
+// coop (chain-atomicity Strand A introspection): mid-side (non-boundary) host deaths and how
+// many still shipped UNSTAMPED (_openChainSeq==0 at send = the Strand-A seq-0 legacy-consume
+// straddle). Post-fix the loose-death chain stamp opens a chain for every mid-side death, so
+// g_coopMidSideDeathsUnstamped stays 0 while g_coopMidSideDeaths proves the path ran.
+// Incremented in UnitDieBState::init (parallel host only); externed in TestServer for
+// parallel_state. Process-monotonic like the pump counters; boundary deaths are excluded.
+std::atomic<uint32_t> g_coopMidSideDeaths{0};
+std::atomic<uint32_t> g_coopMidSideDeathsUnstamped{0};
+// TEST-ONLY levers (see connectionTCP.h). Never set outside the coop test harness.
+std::atomic<bool> g_rxTestHold{false};
+std::atomic<bool> g_rxDrainDisable{false};
+std::atomic<bool> g_rxForceFloor{false};
+// coop (chain-atomicity Strand B, TEST-ONLY): disables JUST the side barrier (leaves the
+// I1 seq-gate + D.1 barrier + floor drain intact) so the SAME build measures the pre-fix
+// stale-side straddle (red: endTurn overtakes a still-deferred current-side death) against
+// the barrier-held ordering (green). Externed in TestServer; never set outside the harness.
+std::atomic<bool> g_rxSideBarrierDisable{false};
+// coop (wire-order report alignment, Phase 2): master lever for the wire-order
+// state-apply timeline. Default OFF (today's behavior). When ON, carriers in the
+// TYPE-membership state-carrier set (coopIsWireOrderStateCarrier) apply their state
+// at RX arrival in stream order instead of being display-deferred. Set via the
+// TestServer `wire_order_state` command; read back in parallel_state. Introduced as
+// a test-style lever (rx_force_floor is the template); Phase 6 decides the default.
+std::atomic<bool> g_wireOrderState{false};
+// coop DIAGNOSTIC (reject-set audit): defined in BattleUnit.cpp; armed/cleared per
+// next_turn boundary from coopApplyNextTurnUnitStates, read back in parallel_state.
+void coopWmDbgArm(bool on);
+void coopWmDbgClear();
+// coop (parallel battlescape Phase 1 - per-unit state watermark): counts stamped
+// per-unit state writes rejected because their stamp was < the unit's recorded
+// watermark (BattleUnit::coopStateAccept returned false). Total plus a per-rank
+// breakdown (0=snapshot, 1=chain carrier, 2=casualty, unused until Phase 2).
+// Parallel client only; externed in TestServer for parallel_state introspection.
+std::atomic<uint32_t> g_stateWatermarkRejects{0};
+std::atomic<uint32_t> g_stateWatermarkRejectsRank0{0};
+std::atomic<uint32_t> g_stateWatermarkRejectsRank1{0};
+std::atomic<uint32_t> g_stateWatermarkRejectsRank2{0};
+// coop (parallel battlescape Phase 1, TEST-ONLY): when true, skips the per-unit
+// state watermark check entirely (writes always apply, no reject). Parallel-client-
+// only, test-only lever; never set outside the coop test harness.
+std::atomic<bool> g_deathWatermarkDisable{false};
+// coop (parallel battlescape Phase 2b - atomic unit death): counts `unit_casualty`
+// packets the parallel client APPLIED (BattlescapeGame::coopApplyCasualty ran) and
+// how many were REJECTED by the rank-2 state watermark (a stamp < the unit's
+// recorded watermark - BattleUnit::coopStateAccept returned false). Parallel client
+// only; externed in TestServer for parallel_state introspection.
+std::atomic<uint32_t> g_casualtiesApplied{0};
+std::atomic<uint32_t> g_casualtiesRejected{0};
+// coop (parallel battlescape Phase 2b, TEST-ONLY RED lever): when true, the
+// atomic `unit_casualty` path is disabled - the HOST falls back to the legacy
+// unit_death/after_unit_death trio (UnitDieBState::init/deinit) and the CLIENT's
+// legacy-handler early-returns below stand down, so the SAME build reproduces the
+// pre-atomic transient straddle. Never set outside the coop test harness.
+std::atomic<bool> g_atomicDeathDisable{false};
+// coop (parallel battlescape Phase 2c - death ghost, TEST-ONLY RED lever): when set,
+// BattlescapeGame::coopQueueDeathGhost reverts to the Phase-2b STUB - it completes the
+// ghost immediately (no collapse animation, corpse/kit visible at apply) instead of
+// queueing it for the display-side pirouette+fall. GREEN (default) animates; RED skips,
+// so the SAME build reproduces the pre-ghost "corpse just appears" behaviour. Never set
+// outside the coop test harness.
+std::atomic<bool> g_deathGhostDisable{false};
+// coop (explosion ordered-replay E0, LEAK-OBJ): counts calls to
+// SavedBattleGame::addDestroyedObjective() blocked because the client (parallel
+// AND classic) would otherwise self-count objective destruction from its
+// neutered explode()/Tile::destroy `return true` stubs and independently drive
+// autoEndBattle/missionComplete. Host is authoritative; see NextTurnState's
+// `objectivesDestroyed` parity field. Externed in TestServer for introspection.
+std::atomic<uint32_t> g_objectiveLeakBlocked{0};
+// coop (explosion ordered-replay E0, TEST-ONLY RED lever): reverts the LEAK-OBJ
+// gate so the SAME build measures the pre-fix client-side objective inflation
+// (red) against the gated behavior (green). Never set outside the harness.
+std::atomic<bool> g_objectiveGateDisable{false};
+// coop (explosion ordered-replay E0, TEST-ONLY): does nothing yet in E0 - it only
+// has to exist and be introspectable. Wired to force the legacy (non-ordered)
+// explosion sim path in E1.
+std::atomic<bool> g_explosionReplayDisable{false};
+// coop (explosion ordered-replay E1): counts ExplosionBState instances that took
+// the display-only path (latched once per state, ExplosionBState::init) and how
+// many times that path SUPPRESSED the single explode() ray-trace call. Parallel-
+// client-only, 0 everywhere else. Externed in TestServer for introspection and in
+// ExplosionBState.cpp (where they are incremented).
+std::atomic<uint32_t> g_explosionsDisplayOnly{0};
+std::atomic<uint32_t> g_explodeCallsSuppressed{0};
+// coop (explosion ordered-replay E2): chain_detonation send/apply counters. Sent is
+// incremented by the parallel host at the chained-spawn site in ExplosionBState.cpp
+// (one per host-scan hit - the host's successive scans ARE the order); Applied is
+// incremented below in the chain_detonation handler when the parallel client replays
+// one. The two must match at side close - a mismatch means the ordered chain stream
+// dropped or duplicated a secondary. Externed in TestServer and ExplosionBState.cpp.
+std::atomic<uint32_t> g_chainDetonationsSent{0};
+std::atomic<uint32_t> g_chainDetonationsApplied{0};
+// coop (explosion ordered-replay E4, TEST-ONLY RED lever): disables the LEAK-GRAV
+// derive (the applyGravity(selected_tile)/applyGravity(aboveT) pair below, on every
+// destroy_tile the parallel client receives) so the SAME build measures the pre-
+// derive behavior - a client item/unit HOVERS where the host dropped it - against
+// the gated (green) behavior. Never set outside the coop test harness.
+std::atomic<bool> g_gravityDeriveDisable{false};
+// coop (explosion ordered-replay E5a GAP-MODULE): module_destroyed send/apply
+// counters. Sent is incremented by the parallel host at the detonate-path
+// base-module decrement (TileEngine.cpp, per decrement); Applied is incremented
+// below in the module_destroyed handler when the parallel client replays one.
+// The two must match - a mismatch means the carrier dropped or duplicated a
+// base-defense module decrement. Externed in TestServer.cpp and TileEngine.cpp
+// (sent side only).
+std::atomic<uint32_t> g_moduleDestroyedSent{0};
+std::atomic<uint32_t> g_moduleDestroyedApplied{0};
+
+// coop (parallel battlescape Phase 1 - per-unit state watermark): reads the
+// (side_seq, action_seq) stamp off an apply-side packet, if present. `stamped`
+// is false for every carrier not yet promoted to stamped (unit_fall until
+// Phase 3, psi_result's MC-revert variant, medkit, boundary/environmental
+// hit_unit, classic co-op, ...) - an unstamped write BYPASSES the watermark
+// entirely (see BattleUnit::coopStateAccept); this helper never invents a
+// fallback stamp for that case. `bnd:true` (a boundary-phase send) maxes the
+// action_seq so it always wins ties as the most recent write.
+static void coopReadStateStamp(const Json::Value& obj, bool& stamped, uint32_t& side, uint32_t& seq)
+{
+	stamped = obj.isMember("side_seq");
+	if (!stamped)
+	{
+		side = 0;
+		seq = 0;
+		return;
+	}
+	side = obj["side_seq"].asUInt();
+	seq = obj.get("action_seq", 0).asUInt();
+	if (obj.get("bnd", false).asBool())
+	{
+		seq = UINT32_MAX;
+	}
+}
+
+// coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): the last
+// next_turn packet actually applied by coopApplyNextTurnUnitStates(). Read by
+// connectionTCP::coopDebugReplayLastNextTurn() (parallel_state
+// {replay_last_next_turn:true}) to re-run the per-unit loop on a stale copy -
+// with the watermark ON every already-hit unit is rejected (no-op); with
+// g_deathWatermarkDisable ON the stale snapshot overwrites (the RED case).
+// Never read outside that TEST-ONLY lever.
+static Json::Value g_lastNextTurnJson = Json::nullValue;
+
+// consecutive ticks a marker has been barrier-held with no progress, plus a one-shot
+// warn latch, for the loud sustained-stall diagnostic in updateCoopTask().
+static uint32_t g_barrierStallTicks = 0;
+static bool g_barrierStallWarned = false;
+
+// coop (PRD-P11): bumped by clearNetworkSessionQueues() so a pass holding packets
+// when the session is torn down drops them instead of splicing them back into a
+// queue that was deliberately emptied. Guarded by g_rxHoldMutex.
+static uint32_t g_rxHoldGen = 0;
+
+// coop (PRD-P11): consecutive main-loop ticks that consumed NOTHING while
+// per-subject blocking was holding back at least one otherwise-consumable packet.
+// Main thread only (updateCoopTask is called from Game::run).
+static uint32_t g_rxBlockedStallTicks = 0;
+static const uint32_t kRxBlockedStallTicks = 600;   // ~10 s at 60 ticks/s
+
+// coop (LIVENESS FLOOR stage-2 backstop): the SDL tick the parallel client last stopped
+// making progress at (0 = it is making progress now). Wall-clock, not a loop-tick count, so
+// it is FPS-independent: a legitimate long animation idles between chains and never nears the
+// window, while a queue that consumes NOTHING for kRxDrainHardFloorMs (the seed-11100011-class
+// gate-hold the floor exists for) trips it. Past the window the ordering-preserving drain is
+// switched off for that pass and the floor reverts to its legacy full-disable, so the floor
+// still guarantees liveness even if the ordered drain cannot make progress (a deadlock is
+// worse than a straddle). Any consumption resets it. Main thread only.
+static uint32_t g_rxFloorStallStartMs = 0;
+static const uint32_t kRxDrainHardFloorMs = 20000;  // 20 s of ZERO consumption = a true wedge
+
+// coop (Class-A soak wedge fix): consecutive main-loop ticks the non-host client's
+// auto-shot pacing wait (_coopPacingWait) has been held with no release. Counted at
+// the game-loop rate (updateCoopTask, ~60/s), so the force-drain escape is bounded
+// in WALL TIME whatever the client's setStateInterval draw speed. Reset the instant
+// the wait clears.
+static uint32_t g_rxPacingStallTicks = 0;
+static const uint32_t kRxPacingForceDrainTicks = 600;   // ~10 s at 60 ticks/s
+
+// coop (PRD-P11, test introspection): the packets the pump actually handed to
+// onTCPMessage(), in application order. The defect this PRD fixes had no visible
+// symptom other than ORDER (a unit walked from a stale position two seconds
+// late), so a test needs to read the order back, not just the end state.
+struct RxTraceEntry
+{
+	uint32_t seq;
+	std::string state;
+	int subject;
+	// coop (parallel Phase 3, Sub-task C test introspection): whether the
+	// packet carried a boundary marker (`action_end`'s `boundary` flag) or a
+	// boundary-phase casualty (`unit_casualty`'s `bnd` flag). Neither key
+	// exists on the same field name, but at most one is ever present on a
+	// given packet, so a single bool captures either. Lets a fixture tell a
+	// TRUE boundary `action_end`/`endTurn` apart from an ordinary mid-side
+	// chain closer of the same state name - the trace alone (state+subject)
+	// cannot, and a side that has already cycled player->alien->neutral by
+	// the time a fixture reads the trace back has several of the latter.
+	bool boundary;
+	// coop (Sub-task C test introspection): a TRUE boundary marker's `kind`
+	// (connectionTCP::coopArmSyncBoundary's two callers: "endturn" - the
+	// side-close phase group, BattlescapeGame.cpp - or "sidestart" -
+	// prepareNewTurn, NextTurnState.cpp, where fatal-wound bleed-out runs and
+	// so where a `bnd` casualty's OWN boundary hash point actually is). Empty
+	// on every non-marker packet. Distinguishes the boundary a `bnd` casualty
+	// belongs to from an unrelated earlier/later one of the same state name -
+	// a full side cycle ships one of EACH kind, not one boundary total.
+	std::string kind;
+};
+static std::mutex g_rxTraceMutex;
+static std::deque<RxTraceEntry> g_rxTrace;
+static uint32_t g_rxTraceSeq = 0;
+static const size_t kRxTraceMax = 256;
+
+static void rxTraceRecord(const std::string& state, int subject, bool boundary,
+						   const std::string& kind)
+{
+	std::lock_guard<std::mutex> lock(g_rxTraceMutex);
+	RxTraceEntry e;
+	e.seq = ++g_rxTraceSeq;
+	e.state = state;
+	e.subject = subject;
+	e.boundary = boundary;
+	e.kind = kind;
+	g_rxTrace.push_back(std::move(e));
+	while (g_rxTrace.size() > kRxTraceMax)
+	{
+		g_rxTrace.pop_front();
+	}
+}
+
+Json::Value rxAppliedTrace(size_t limit)
+{
+	Json::Value out(Json::arrayValue);
+	std::lock_guard<std::mutex> lock(g_rxTraceMutex);
+	const size_t skip = (limit > 0 && g_rxTrace.size() > limit)
+							? g_rxTrace.size() - limit
+							: 0;
+	for (size_t i = skip; i < g_rxTrace.size(); ++i)
+	{
+		Json::Value e(Json::objectValue);
+		e["seq"] = static_cast<Json::UInt>(g_rxTrace[i].seq);
+		e["state"] = g_rxTrace[i].state;
+		e["unit"] = g_rxTrace[i].subject;
+		e["boundary"] = g_rxTrace[i].boundary;
+		e["kind"] = g_rxTrace[i].kind;
+		out.append(e);
+	}
+	return out;
+}
+
+// coop (test introspection): the FRONT of the receive hold queue, oldest first, each
+// packet's state + its chain stamp (action_seq/side_seq, 0/absent = unstamped legacy).
+// Read-only peek under the hold lock; the strings are re-parsed, not consumed. Lets a
+// fixture see whether a backlog is stamped (seq-gated) or legacy, and in what order.
+Json::Value rxHoldDump(size_t limit)
+{
+	Json::Value out(Json::arrayValue);
+	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+	Json::CharReaderBuilder rb;
+	std::unique_ptr<Json::CharReader> reader(rb.newCharReader());
+	size_t n = 0;
+	for (const std::string& s : g_rxHold)
+	{
+		if (limit > 0 && n >= limit) break;
+		++n;
+		Json::Value obj;
+		std::string errs;
+		Json::Value e(Json::objectValue);
+		if (reader->parse(s.data(), s.data() + s.size(), &obj, &errs))
+		{
+			e["state"] = obj.get("state", "?").asString();
+			e["action_seq"] = static_cast<Json::UInt>(obj.get("action_seq", 0).asUInt());
+			e["side_seq"] = static_cast<Json::Int>(obj.get("side_seq", -1).asInt());
+			e["boundary"] = obj.get("boundary", false).asBool();
+		}
+		else
+		{
+			e["state"] = "<parse-error>";
+		}
+		out.append(e);
+	}
+	return out;
+}
+
+// coop (explosion ordered-replay E2, test introspection): the last few chain_detonation
+// tile positions this process has SENT (parallel host, ExplosionBState.cpp's chained-spawn
+// site) or APPLIED (parallel client, the chain_detonation handler below), as [x,y,z]
+// tuples oldest-first. Process-local, mirrors g_rxTrace's mutex+deque ring above; the
+// fixture compares the host's list (its send/scan order) against the client's list (its
+// apply order) for exact positional equality - the count-only sent/applied atomics cannot
+// distinguish "right count, wrong order" from a genuinely matching replay.
+struct ChainDetonationEntry { int x; int y; int z; };
+static std::mutex g_chainDetonationListMutex;
+static std::deque<ChainDetonationEntry> g_chainDetonationList;
+static const size_t kChainDetonationListMax = 64;
+
+void chainDetonationListRecord(int x, int y, int z)
+{
+	std::lock_guard<std::mutex> lock(g_chainDetonationListMutex);
+	g_chainDetonationList.push_back({ x, y, z });
+	while (g_chainDetonationList.size() > kChainDetonationListMax)
+	{
+		g_chainDetonationList.pop_front();
+	}
+}
+
+Json::Value chainDetonationListDump(size_t limit)
+{
+	Json::Value out(Json::arrayValue);
+	std::lock_guard<std::mutex> lock(g_chainDetonationListMutex);
+	const size_t skip = (limit > 0 && g_chainDetonationList.size() > limit)
+							? g_chainDetonationList.size() - limit
+							: 0;
+	size_t i = 0;
+	for (const auto& e : g_chainDetonationList)
+	{
+		if (i++ < skip) continue;
+		Json::Value t(Json::arrayValue);
+		t.append(e.x); t.append(e.y); t.append(e.z);
+		out.append(t);
+	}
+	return out;
+}
+
+/**
+ * coop (PRD-P11): the unit a battle packet is ABOUT, or -1 for "no single unit".
+ *
+ * The pump uses this to keep a unit's packets in the order they were sent even
+ * when it cannot consume all of them in one pass (see updateCoopTask()). The
+ * field name is per-packet - the wire has three spellings for the same thing
+ * (`id`, `unit_id`, `actor_id`) - so this is a whitelist keyed on the state
+ * string, NOT a generic "look for an id field" probe: `id` alone means a base, a
+ * craft, a vote or an item in a dozen other packets, and a namespace collision
+ * here would hold back traffic for no reason.
+ *
+ * Deliberately absent:
+ *  - tile-only hazards (`set_smoke_tile`, `set_fire_tile`, `destroy_tile`) and
+ *    `hit_tile` / `calc_explode_fov` / `hasHitUnit`: no unit subject at all.
+ *    `hit_tile` names its attacker/weapon ids directly (PHASE D.2) for
+ *    reconstructing the hitCoop call, not for pump ordering - the chain seq it
+ *    carries (coopStampChainSeq / I1) is what holds it for its own chain.
+ *  - arbitration and flow control (`action_intent`, `action_ack`, `action_deny`,
+ *    `action_done`, `action_end`, `end_turn_*`, votes): sequenced by their own
+ *    req_id/seq fields, and delaying them would stall the arbiter, not order it.
+ *  - selection/UI (`selected_unit`, `update_progress`, `AIProgress`): they name a
+ *    unit but do not act on one.
+ *  - `unit_fire`. MEASURED, and the reason this table is a whitelist rather than
+ *    "any packet with a unit id": it is the only always-consume packet that
+ *    names a unit and is not a chain closer, so it is the only one ordering could
+ *    actually DELAY - and delaying it is worse than applying it early. The peer
+ *    burns its own units: `BattleUnit::prepareHealth` subtracts fire damage and
+ *    decrements `_fire` at every turn tick, and on a peer `_fire` is written by
+ *    nothing but this packet (`setFire` early-returns off-host). A `unit_fire`
+ *    held behind an earlier packet while a turn boundary crossed therefore
+ *    burned the host's unit and not the peer's - measured as a one-item census
+ *    drift (a corpse the host had and the peer did not) in a five-turn soak.
+ */
+static int coopPacketSubject(const std::string& state, const Json::Value& obj)
+{
+	const char* field = 0;
+
+	if (state == "BattleScapeMove" || state == "turnBattlescapeUnit"
+		|| state == "kneel")
+	{
+		field = "id";
+	}
+	else if (state == "abortPath" || state == "afterBattlescapeUnitTurn"
+			 || state == "psi_attack" || state == "melee_attack"
+			 || state == "unit_death" || state == "after_unit_death"
+			 || state == "unit_casualty"
+			 || state == "hit_unit" || state == "unit_fall"
+			 || state == "convertUnit" || state == "selfDestruct"
+			 || state == "panic_action" || state == "psi_result"
+			 || state == "checkForProximityGrenades" || state == "motion_scan")
+	{
+		field = "unit_id";
+	}
+	else if (state == "ProjectileFlyBState" || state == "unit_action"
+			 || state == "action_click" || state == "medkit"
+			 || state == "active_grenade")
+	{
+		field = "actor_id";
+	}
+
+	if (!field || !obj.isMember(field) || !obj[field].isNumeric())
+	{
+		return -1;
+	}
+	const int id = obj[field].asInt();
+	return id >= 0 ? id : -1;
+}
+
+// coop (PRD-P2 unit term): was the packet the pump is dispatching applied
+// AHEAD of packets that precede it on the wire but could not be consumed in
+// this pass? A full-state snapshot like `next_turn` is not subject-keyed, so it
+// legitimately overtakes a deferred per-unit chain - and while it does, this
+// machine's unit positions are one chain behind the peer's through no fault of
+// anybody's. Read by SharedEcon::verifyBattleChecksum, which then leaves the
+// unit term alone until a stamp lands on an in-order pass.
+static std::atomic<bool> g_rxPassDeferred{false};
+
+bool rxPassDeferred()
+{
+	return g_rxPassDeferred.load(std::memory_order_relaxed);
+}
+
+// coop (wire-order report alignment, Phase 3): the client's WIRE-ORDER report cursors,
+// advanced at an action_end marker's FIRST SIGHT in the RX stream (not at display
+// consumption like _clientDisplaySeq). Under g_wireOrderState the per-action sync-check
+// report (sync_report) is sampled here, so client@N == host-ring@N by construction.
+// Per-side: g_clientApplySeq restarts when a marker names a new side (g_clientApplySideSeq).
+static std::uint32_t g_clientApplySeq = 0;
+static std::uint32_t g_clientApplySideSeq = 0;
+// coop (wire-order report alignment, Increment 4 / A4): the HIGH-WATER side_seq whose endTurn
+// REQUIRED-AT-ARRIVAL half (_scriptRngSeed adoption + the deferred neutral->player regen arm)
+// has been applied at the endTurn marker's first sight. The arrival hook fires for any side_seq
+// strictly ABOVE this mark; the endTurn handler skips the two items for any side_seq AT OR BELOW
+// it. A high-water mark (not a fire-once !=) is RACE-FREE when two endTurns are queued together
+// under backlog: both correctly skip because side_seq is monotonic (a fire-once cursor would let
+// the earlier endTurn's handler re-apply, and under increment 5 that re-arms AFTER next_turn
+// consumed it - a leak). Reset to 0 per battle in resetActionArbiter(fullReset); real side_seqs
+// start at 1 (bumped before send).
+static std::uint32_t g_endTurnArrivalSideSeq = 0;
+// coop (wire-order report alignment, Increment 5): the HIGH-WATER boundary pseudo-seq (bseq)
+// whose boundary sync sample has been emitted at the boundary marker's first sight, so the
+// sample fires exactly once per boundary. bseq is monotonic across the whole battle; reset to
+// 0 per battle in resetActionArbiter(fullReset).
+static std::uint32_t g_clientApplyBoundarySeq = 0;
+
+// coop (PRD-P10 follow-up): the packet that OPENS the replay chain a given
+// CLOSER ends, or 0 when there is no such pairing.
+//
+// The receive pump exempts closers from the per-subject ordering rule (see
+// `chainCloser` below) because holding one back can deadlock: a closer ends the
+// chain that is holding the receive gate, so making it wait for a mid-chain
+// packet of the same unit would leave nothing able to open the gate again.
+// That exemption is right for a MID-chain packet and wrong for the chain's own
+// OPENER - and the two are told apart here.
+//
+// `unit_death` pairs with `hit_unit`, NOT with its shot-chain opener
+// (`ProjectileFlyBState`, keyed on the shooter - a different subject the ordering
+// rule could never pair anyway). `hit_unit` carries the victim's post-damage
+// health/stun/wounds and is keyed on the SAME victim as `unit_death`; the host
+// emits hit_unit BEFORE unit_death (the death animation starts from the hit's
+// result), but hit_unit is a gate-parked outcome packet (not whitelisted) while
+// unit_death is a closer, so without this pairing the closer overtook the parked
+// hit_unit and the client applied the death from the PRE-hit health - leaving the
+// victim host-UNCONSCIOUS / peer-DEAD (or vice versa) until next_turn, the
+// unitsCombat health/stun straddle the PRD-I3 casualty burn-in kept surfacing at
+// ai/expl seqs (wire trace: client applied unit_death 3 s before the parked
+// hit_unit). No deadlock: the chain holding the gate is the shooter-keyed shot
+// replay, which unit_death does not end, so hit_unit still drains and applies
+// first, then unit_death (`after_unit_death` chains behind unit_death as before).
+static const char* coopChainOpener(const std::string& closer)
+{
+	if (closer == "abortPath") return "BattleScapeMove";
+	if (closer == "unit_death") return "hit_unit";
+	if (closer == "after_unit_death") return "unit_death";
+	return 0;
+}
+
+// coop (PRD-I3 SEAM-4): apply the host's post-casualty absolute morale to every
+// living unit named in a death packet's `bystander_morale` array.
+// BattlescapeGame::checkForCasualties changes the morale of EVERY living unit on
+// any death/stun (losing squad loses, winning squad gains, murderer kill bonus); a
+// parallel thin client never runs it for a kill it only DISPLAYS (coopDeath just
+// animates the death), so this array is its sole carrier of that squad-wide change.
+// ABSOLUTE overwrite -> idempotent: safe on both death packets and against
+// next_turn's later bulk re-ship. Present-gated (absent = older peer). The CALLER
+// gates on parallelTurnActive() && !getHost() so a classic client - which replays
+// the attack and runs its own checkForCasualties - stays byte-identical.
+static void coopApplyBystanderMorale(SavedBattleGame* battle, const Json::Value& obj)
+{
+	if (!battle || !obj.isMember("bystander_morale"))
+		return;
+	const Json::Value& arr = obj["bystander_morale"];
+	for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
+	{
+		int id = arr[i]["id"].asInt();
+		int morale = arr[i]["morale"].asInt();
+		for (auto* bu : *battle->getUnits())
+		{
+			if (bu->getId() == id)
+			{
+				bu->setCoopMorale(morale);
+				break;
+			}
+		}
+	}
+}
+
+// coop (PRD-I1): the whitelisted always-consume packets that carry a per-chain
+// `action_seq` (stamped at their send sites by connectionTCP::coopStampChainSeq).
+// These are the ones that can leak a FUTURE chain's mutation into the client's
+// post-N sync-check state, so the pump defers one whose chain has not opened
+// locally yet. Kept in lockstep with the always-consume list in updateCoopTask()
+// and with coopStampChainSeq's callers; a packet named here that carries no seq
+// simply never trips the gate (seq 0 = legacy always-consume: old peer, classic
+// co-op, boundary explosion).
+static bool coopIsChainOutcomePacket(const std::string& state)
+{
+	return state == "hit_tile" || state == "destroy_tile"
+		|| state == "set_explosive_tile"
+		|| state == "set_fire_tile" || state == "set_smoke_tile"
+		|| state == "unit_fire" || state == "calc_explode_fov"
+		|| state == "hasHitUnit"
+		// coop (item 5 B, alien-replay decoupling): the death-chain victim carriers. Pure
+		// host absolutes (hit_unit damage/wounds; unit_death status/pos; after_unit_death
+		// corpse mint on the ordered clock, item 3), display-only on the parallel client.
+		// Seq-gate them so each folds into the exact chain it belongs to, in order - the
+		// prerequisite for applying them while the display is busy (gateAllows below).
+		|| state == "hit_unit" || state == "unit_death" || state == "after_unit_death"
+		// coop (parallel battlescape Phase 2b - atomic unit death): `unit_casualty`
+		// replaces the unit_death/after_unit_death pair on the parallel host and carries
+		// the SAME chain stamp (or bnd:true+side_seq at a boundary) - seq-gate it exactly
+		// like its legacy predecessors.
+		|| state == "unit_casualty"
+		// coop (explosion ordered-replay E2): the parallel host's per-secondary chain
+		// carrier - one per checkForTerrainExplosions scan hit, in the host's scan order.
+		// Seq-gated like destroy_tile/set_explosive_tile so it folds into the exact chain
+		// it belongs to, in order; NOT whitelisted, NOT subject-keyed (coopPacketSubject
+		// returns -1 for it, same as destroy_tile - there is no per-unit/per-actor id to
+		// key on), NOT a chainCloser/opener pairing.
+		|| state == "chain_detonation"
+		// coop (explosion ordered-replay E4 / atomic-death Phase 3): the host's
+		// UnitFallBState landed-tile carrier, now stamped (or bnd:true+side_seq at a
+		// boundary) like its chain-mates. Subject-keyed on the fallen unit
+		// (coopPacketSubject's unit_id case, unchanged) so it folds in FIFO after the
+		// spawn/blast that dropped it; seq-gated so a lagging client does not apply it
+		// ahead of its own chain's opener.
+		|| state == "unit_fall"
+		// coop (explosion ordered-replay E5a GAP-MODULE): the parallel host's
+		// detonate-path base-module decrement carrier. Seq-gated like
+		// chain_detonation so it folds into the exact chain it belongs to, in
+		// order; NOT whitelisted, NOT subject-keyed (coopPacketSubject returns -1
+		// for it, same as destroy_tile/chain_detonation - there is no per-unit/
+		// per-actor id to key on).
+		|| state == "module_destroyed";
+}
+
+// coop (wire-order report alignment, Phase 2): the TYPE-membership state-carrier set.
+// Owner ruling (2026-08-25): wire-order routing is by wire `state` string, NOT by the
+// coopStampChainSeq stamp - do not add stamps to migrate a carrier. When g_wireOrderState
+// is ON, a carrier named here applies its canonical state at RX arrival in stream order
+// (stripped from the display-cursor seq-deferral below); lever-off it is never consulted.
+// Increments A+B+C: Increment A is the flagship alien-death wound/casualty carriers
+// (already decoupled, so only the seq-deferral strip was needed). Increment B adds the
+// per-actor instant-effect replay packets and the fall carrier. Increment C adds the
+// items/terrain chain-outcome carriers already whitelisted in coopIsChainOutcomePacket
+// above.
+static bool coopIsWireOrderStateCarrier(const std::string& state)
+{
+	return
+		// order-1 (unitsCombat): flagship alien-death carriers (Increment A) plus the
+		// per-actor instant-effect carriers (Increment B) - panic resolution, kneel,
+		// grenade/mine prime (BA_PRIME and BA_UNPRIME both ship "active_grenade" -
+		// see coopSendPrimePacket), medikit use, and the mind-control state carrier.
+		// Each mutates synchronously with no BattleState/animation of its own, so there
+		// is no display timeline to preserve by holding it on the cursor. NOTE psi_result:
+		// the PVE flavour (pvp:false, connectionTCP.cpp:11260) is the host-resolved
+		// victim-state copy we migrate; the legacy PVP inverted-flip flavour (pvp:true)
+		// shares this wire string but is only reachable in PvP gamemodes, which never run
+		// with the lever on in the Phase-2..5 validation matrix (lever-off both are
+		// untouched). Phase 6's default-on decision revisits PvP explicitly.
+		state == "hit_unit" || state == "unit_casualty"
+		|| state == "panic_action" || state == "kneel" || state == "active_grenade" || state == "medkit"
+		|| state == "psi_result"
+		// order-2 (unitsCore): the fall-resolution carrier (Increment B).
+		|| state == "unit_fall"
+		// order-3 (items/terrain, Increment C): the chain-outcome carriers - these
+		// resolve terrain/items, not units, so they carry no per-unit display timeline
+		// to preserve either. Reuses the exact strings coopIsChainOutcomePacket and the
+		// gateAllows whitelist already match on.
+		|| state == "hit_tile" || state == "destroy_tile"
+		|| state == "set_explosive_tile" || state == "set_fire_tile" || state == "set_smoke_tile"
+		|| state == "module_destroyed" || state == "explode_items"
+		// order-boundary (Increment 5): the two boundary-phase state movers. next_turn is the
+		// sidestart snapshot (bulk unit apply + teleport-on-mismatch + tile reset + turn-machine
+		// advance); admitting it at RX arrival - BEFORE the new side's rank-1 carriers, matching
+		// wire order - keeps the rank-0 watermark from rejecting the snapshot (no epoch reset
+		// needed), and puts it ahead of the boundary sample's wire position. fuse_events (fuse
+		// timers + removeItem) precedes next_turn in the boundary emit and rides along. Their
+		// display-halves stay task-gated: next_turn's parked-outcome display-copy clear (A2)
+		// moves to the boundary marker's display consumption in the action_end handler.
+		|| state == "next_turn" || state == "fuse_events";
+}
+
+size_t rxHoldSize()
+{
+	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+	return g_rxHold.size();
+}
+
+// coop (PRD-P9 soak finding): apply an actor's post-action TU/energy from a
+// replay packet that carries them. Presence-gated on BOTH fields, so a packet
+// from an older build (or one whose sender had no actor in scope) is applied
+// exactly as it always was.
+static void coopApplyActorCost(const Json::Value& obj, int unitId,
+							   SavedBattleGame* battle);
+
+size_t rxParkSize()
+{
+	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+	return g_rxPark.size();
+}
+
+// coop (PRD-P11, test-only): append a packet to the hold queue exactly as the
+// transport drain would. The ordering property this PRD fixes depends on the
+// STATE OF THE QUEUE at the moment a packet lands - gate closed, an earlier
+// packet about the same unit still unconsumed - and reproducing that from the
+// game side is a timing race. Called from TestServer's `rx_inject` (main thread,
+// between two updateCoopTask() ticks) and from nowhere else.
+void rxInjectForTest(std::string&& payload)
+{
+	std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+	g_rxHold.emplace_back(std::move(payload));
+}
+
+static void coopApplyActorCost(const Json::Value& obj, int unitId,
+							   SavedBattleGame* battle)
+{
+	if (unitId < 0 || !battle || !obj.isMember("tu"))
+	{
+		return;
+	}
+	for (auto* unit : *battle->getUnits())
+	{
+		if (unit->getId() != unitId)
+		{
+			continue;
+		}
+		unit->setTimeUnits(obj["tu"].asInt());
+		if (obj.isMember("energy"))
+		{
+			unit->setCoopEnergy(obj["energy"].asInt());
+		}
+		return;
+	}
+}
 
 // TX-queue drop counter (test harness diagnostic; see connectionTCP.h).
 std::atomic<uint64_t> g_txDropCount{0};
@@ -552,6 +1333,17 @@ static void clearSnapshotSlots()
 	}
 }
 
+// coop (option 3B): conflation slots still holding an un-applied (dirty) snapshot - part of
+// the LIVE drain gauge that proves "nothing left to apply". Read-only, production-inert.
+size_t snapshotPendingCount()
+{
+	std::lock_guard<std::mutex> lk(g_snapMx);
+	size_t n = 0;
+	for (int i = 0; i < SNAP_COUNT; ++i)
+		if (g_snapDirty[i]) ++n;
+	return n;
+}
+
 // ===== Time helper =====
 static inline uint64_t now_ms()
 {
@@ -604,7 +1396,14 @@ void clearNetworkSessionQueues()
 	{
 		std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 		g_rxHold.clear();
+		g_rxPark.clear();
+		// coop (PRD-P11): tell an in-flight pump pass that what it is holding
+		// belongs to a session that is over.
+		++g_rxHoldGen;
 	}
+
+	// coop (Class-A soak wedge fix): a new session starts with no pacing-wait stall.
+	g_rxPacingStallTicks = 0;
 
 	clearSnapshotSlots();
 }
@@ -704,6 +1503,58 @@ bool connectionTCP::campaignEnded()
 	return save && save->getEnding() != END_NONE;
 }
 
+// The skirmish twin of campaignEnded(): has the NEW BATTLE > COOP mission run
+// its course on this machine? A skirmish session exists only to play one
+// mission, so once the debriefing is up the session is spent: closing that
+// screen drops the whole world (DebriefingState::btnOkClick sees
+// monthsPassed == -1 and goes through GoToMainMenuState).
+//
+// Terms, all three needed:
+//   lobbyMode == 0   - a skirmish session, not a campaign one (a campaign's
+//                      post-mission life continues on the geoscape, so its
+//                      drops keep taking the freeze/wait route).
+//   no live battle   - a drop DURING the mission is a real drop; that is the
+//                      rejoin/freeze case and must keep its dialogs.
+//   coopMissionEnd   - set by the DebriefingState constructor for every co-op
+//                      session, i.e. the mission actually reached its scoring
+//                      screen. Without it, the pre-battle lobby (host still on
+//                      the NEW BATTLE setup screen) would look identical.
+//
+// Why it matters: a skirmish leaves a GeoscapeState buried under the battle
+// (the world arrives through LoadGameState on BOTH machines), so anything that
+// re-opens the lobby after the mission hands the player a RESUME GAME button
+// that pops straight down to that dead geoscape - a half-torn world of exactly
+// the shape issue #82 exists to prevent.
+bool connectionTCP::skirmishMissionOver()
+{
+	if (connectionTCP::session.lobbyMode != 0)
+		return false;
+	if (!_staticGame || !_staticGame->getSavedGame())
+		return false;
+	if (coopBattleLive(_staticGame))
+		return false;
+	return _staticGame->getCoopMod()->coopMissionEnd;
+}
+
+// coop (#162): narrower than skirmishMissionOver() - a skirmish debrief is actually
+// ON SCREEN right now (monthsPassed == -1 + a DebriefingState on the stack). The
+// disconnect-notice gate uses it to separate "the peer dropped while I am reading
+// my results" (raise the notice) from "I already dismissed my debrief and am in the
+// post-OK transition to the menu" (stay silent - 056b500db's window).
+bool connectionTCP::debriefOpen()
+{
+	if (!_staticGame || !_staticGame->getSavedGame())
+		return false;
+	if (_staticGame->getSavedGame()->getMonthsPassed() != -1)
+		return false;
+	for (State* st : _staticGame->getStates())
+	{
+		if (dynamic_cast<DebriefingState*>(st) != nullptr)
+			return true;
+	}
+	return false;
+}
+
 bool connectionTCP::localLoadsAllowed()
 {
 	// Same liveness terms the save gate uses, WITHOUT the host escape: a live
@@ -763,6 +1614,9 @@ Json::Value connectionTCP::buildCampaignStartPacket(const SavedGame* save)
 	root["saveID"] = static_cast<Json::Int64>(connectionTCP::saveID);
 	// PRD-J01: propagate the campaign economy model so the client adopts it.
 	root["campaignType"] = static_cast<int>(save->getCampaignType());
+	// PRD-P5: and the parallel-turns session mode, so a client that started its
+	// world from this packet (rather than from a streamed save) still agrees.
+	root["enable_parallel_turns"] = connectionTCP::_enable_parallel_turns;
 	int idx = 0;
 	for (const auto& p : save->getCoopPlayers())
 	{
@@ -1271,7 +2125,12 @@ void connectionTCP::refreshBattleGiftControlState()
 
 	if (battleState && localWasSpectator)
 	{
-		const int restoredTurn = _isActivePlayerSync ? 2 : 1;
+		// coop (PRD-P5): in parallel mode there is no off-turn state to come back
+		// to - both machines hold 2 for the whole player side, so a player who
+		// receives a soldier while in commanding-spectator mode is simply active
+		// again. `_isActivePlayerSync` must NOT be read here: it is the EXECUTOR
+		// role in parallel (host true / client false), not "is it my turn".
+		const int restoredTurn = parallelTurnActive() ? 2 : (_isActivePlayerSync ? 2 : 1);
 		setPlayerTurn(restoredTurn);
 		battleState->setCurrentTurn(restoredTurn);
 		if (restoredTurn == 2)
@@ -1280,6 +2139,9 @@ void connectionTCP::refreshBattleGiftControlState()
 		}
 		else
 		{
+			// Unreachable in parallel mode (restoredTurn is always 2). The
+			// persistent "X's Turn" banner (showMessage(msg, -1), repainted every
+			// frame) would otherwise sit on top of every later warning.
 			battleState->showCoopWarning(getCurrentClientName() + "'s Turn");
 		}
 	}
@@ -2003,6 +2865,39 @@ void connectionTCP::updateCoopTask()
 	// coopMissionEnd path in GeoscapeState).
 	processPendingSoldierGifts();
 
+	// coop (PRD-P6): the client's 10 s pending-intent watchdog. On the main
+	// thread, so the warning flash it may raise touches the battlescape safely.
+	tickActionIntents();
+
+	// coop (PRD-P7): the executor's two main-thread duties.
+	//  - close the admitted chain that has drained, so the client can report it
+	//    displayed. Needed here as well as at the popState() drain point because
+	//    three admitted kinds (kneel, prime, medikit) push no BattleState at all
+	//    and therefore never reach a pop.
+	//  - admit ONE deferred input. Not done from popState(): executing an action
+	//    pushes states back onto the queue the pop is still walking.
+	if (parallelTurnActive() && getHost())
+	{
+		coopCloseActionChain();
+		// coop (PRD-I0): and one armed boundary marker, on the same "the executor
+		// is idle" terms. Before coopAdmitPendingIntents() so the boundary hash is
+		// taken ahead of whatever action the new side admits first.
+		coopFlushSyncBoundary();
+		// coop (PRD-P9 3): after the close attempt, so a chain that has just
+		// drained is never reported stuck.
+		coopCheckStuckChain();
+		coopAdmitPendingIntents();
+		// coop (PRD-P8): the readiness tally and the side commit, in that order.
+		// Auto readiness is re-derived first (a seat whose last unit just died is
+		// ready NOW), the echo goes out only when the tally actually moved, and
+		// the commit is re-evaluated LAST - after coopAdmitPendingIntents(), so an
+		// intent admitted this same tick has already cleared its seat's ready bit
+		// and the commit it was racing (E14) simply does not fire.
+		recomputeEndTurnAuto();
+		coopCheckSideCommit();
+		sendEndTurnTallyIfChanged();
+	}
+
 	// COOP living quarters: re-report our guest headcount whenever it changes.
 	// Driven from here rather than from each mutation site (transfer, gift,
 	// sack, base loss) so no path can forget it; sendGuestCensus is a cheap
@@ -2193,7 +3088,13 @@ void connectionTCP::updateCoopTask()
 		// lost". Either player may close a finished game first, and neither
 		// exit is allowed to interrupt the other's end-of-game screens. The
 		// plain teardown below still runs, so nothing is left half-attached.
-		if (allow_cutscene == true && !campaignEnded())
+		//
+		// A finished SKIRMISH is the same story with a different end screen:
+		// once both players are reading their debriefing, whoever presses OK
+		// first leaves through GoToMainMenuState, and that ordinary exit must
+		// not throw a "has left the server" / "connection lost" popup over the
+		// other player's debriefing (skirmishMissionOver).
+		if (allow_cutscene == true && !campaignEnded() && (!skirmishMissionOver() || (debriefOpen() && !_peerLeftCleanly)))
 		{
 			// Make sure it calls disconnectTCP, otherwise it may get stuck.
 			if (getServerOwner() == true)
@@ -2246,17 +3147,137 @@ void connectionTCP::updateCoopTask()
 		}
 	}
 
+	// coop (PRD-P9 rider R7): un-park anything the `endPlayerTurn` exclusion put
+	// aside, as soon as that exclusion no longer holds. Restored to the FRONT,
+	// because a parked packet arrived before everything queued behind it - which
+	// is strictly closer to FIFO than the rotate this replaced.
+	{
+		std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+		if (!g_rxPark.empty() && _coopEnd != 1
+			&& !(_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()))
+		{
+			while (!g_rxPark.empty())
+			{
+				g_rxHold.emplace_front(std::move(g_rxPark.back()));
+				g_rxPark.pop_back();
+			}
+		}
+	}
+
+	// coop (PRD-P11): the pump walks the hold queue IN ORDER and consumes IN
+	// PLACE. It used to rotate a packet it could not consume to the BACK of
+	// g_rxHold and carry on, which reordered the stream against itself: the
+	// always-consume packets sitting behind the blocked one were applied as the
+	// pass continued, so a `BattleScapeMove` blocked once could end up permanently
+	// behind its own follow-ups. Measured on a badly backed-up client
+	// (rxRotates > 200k): the host sent Move(47) abortPath(37) Move(37)
+	// abortPath(27); the peer applied abortPath(37) Move(37) abortPath(27) and only
+	// then Move(47), two seconds later - walking unit 47 from a stale position with
+	// nothing left to correct it.
+	//
+	// So nothing is rotated. A packet that cannot be consumed keeps its place in
+	// the queue; the pass steps over it, remembers the unit it names in
+	// `blockedSubjects`, and consumes no later packet about that unit - not even
+	// one on the always-consume list. Only four always-consume packets carry a unit
+	// subject at all (`unit_fire` plus the three chain-closing exemptions
+	// `abortPath` / `unit_death` / `after_unit_death`), so tile hazards, votes and
+	// flow control are completely unaffected and still consume the moment the gate
+	// allows.
+	//
+	// Preserved exactly: the gate itself (depth 0 or the whitelist), the three
+	// per-action exemptions, `action_end`'s gated consumption (PRD-P7 - it must not
+	// jump the line), g_rxPark (PRD-P9 R7), and the pass-consumed-nothing exit that
+	// keeps the pump from busy-waiting.
+	//
+	// LIVENESS FLOOR: holding `abortPath` behind an unconsumed packet for the same
+	// unit is the one case that could in principle wedge - that exemption exists so
+	// a walk the peer cannot finish can be closed from outside. If a whole tick
+	// consumes nothing while per-subject blocking is holding something back, and
+	// that repeats for kRxBlockedStallTicks ticks, the next tick runs with blocking
+	// disabled (counted in g_rxLegacyPasses) so this pump can never be stuck longer
+	// than the old one would have been. It is expected never to fire.
+	const bool legacyOrder = (g_rxBlockedStallTicks >= kRxBlockedStallTicks)
+		|| g_rxForceFloor.load(std::memory_order_relaxed);
+	// coop (LIVENESS FLOOR, ordering-preserving drain): the floor is the last-resort
+	// backstop that must never wedge, but wholesale-disabling ordering when it fires
+	// reorders a long alien display's death-chain carriers - the client applies hit_unit /
+	// unit_death / after_unit_death out of order relative to the chain markers that sample
+	// the per-action sync hash, and the four buckets straddle (terrain / unitsCore /
+	// unitsCombat / items / itemIdCtr) at the ai/expl seqs. Measured red on
+	// test_parallel_floor_drain: with the floor engaged and this drain OFF, unitsCore 11
+	// unitsCombat 9 items 6 itemIdCtr 6; with it ON, all zero.
+	//
+	// On the parallel REPLAY CLIENT the floor no longer disorders: it KEEPS the I1 seq-gate
+	// and the D.1 apply barrier intact, so the death-chain carriers stay held to their own
+	// chain and the pump consumes exactly what it could when the floor was not engaged, in
+	// order - the per-action hash is never polluted. (Per-subject ordering stays disabled as
+	// in the legacy floor: the durable straddle the collapse causes is the seq-gate/barrier
+	// one - proven by test_parallel_floor_drain, strict-clean with only those two restored -
+	// and the death carriers are decoupled/apply-immediately by item 5B, which per-subject
+	// FIFO holding would undo.) It also deliberately does NOT force the gated markers through
+	// the display-depth gate: forcing one advances _clientDisplaySeq and samples the chain
+	// hash while the display animation is still mid-flight, which itself straddles unitsCore
+	// (measured: forcing regressed unitsCore 0->24). Progress instead comes from the display
+	// idling normally (marker applies, cursor advances) or, failing that, the hard-floor
+	// escape hatch below.
+	//
+	// LIVENESS: the floor's job is to break a genuine wedge, so keeping ordering intact
+	// cannot be the whole story. If the ordered drain makes NO progress while it is holding
+	// work back for kRxDrainHardFloorMs of wall clock (g_rxFloorStallStartMs), drainFloor
+	// goes false and the floor reverts to its legacy full-disable for that pass - a deadlock is
+	// worse than a straddle. A healthy display idle resets the run, so the backstop never fires
+	// in normal play. Off the parallel client (classic co-op, PvP, host) the floor is unchanged,
+	// byte-identical (there the stamps are absent so the seq-gate/barrier are inert anyway and
+	// only per-subject ordering was ever disabled). g_rxDrainDisable (test-only) forces the
+	// legacy path from the start so red (burst) and green (ordered) share a build.
+	const bool drainFloor = legacyOrder
+		&& !g_rxDrainDisable.load(std::memory_order_relaxed)
+		&& parallelTurnActive() && !getHost()
+		&& !(g_rxFloorStallStartMs != 0
+			&& (SDL_GetTicks() - g_rxFloorStallStartMs) >= kRxDrainHardFloorMs);
+	// coop (LIVENESS FLOOR stage-2): this tick reverts to the legacy full-disable because the
+	// ordered drain could not make progress (or the drain is test-disabled) - counted so a
+	// fixture can prove the ordered path carried the load (0 = the backstop never fired).
+	const bool hardFloorThisTick = legacyOrder && parallelTurnActive() && !getHost()
+		&& !g_rxDrainDisable.load(std::memory_order_relaxed) && !drainFloor;
+	if (hardFloorThisTick) g_rxHardFloorPasses.fetch_add(1, std::memory_order_relaxed);
+	bool blockedSomething = false;
+	size_t consumedThisTick = 0;
+	// coop (PHASE D.1): set in any pass where the apply-barrier held a marker, read
+	// after the passes for the sustained-stall diagnostic.
+	bool barrierHeldThisTick = false;
+
 	for (;;)
 	{
 		size_t passCount = 0;
+		uint32_t holdGen = 0;
 		{
 			std::lock_guard<std::mutex> lock(g_rxHoldMutex);
 			if (g_rxHold.empty())
 				break;
 			passCount = g_rxHold.size();
+			holdGen = g_rxHoldGen;
+			// PRD-P0: hold-queue high-water mark (test introspection only).
+			if ((uint32_t)passCount > g_rxHoldMaxSeen.load(std::memory_order_relaxed))
+				g_rxHoldMaxSeen.store((uint32_t)passCount, std::memory_order_relaxed);
 		}
 
 		size_t consumedThisPass = 0;
+		// Packets this pass could not consume, in their original relative order.
+		// Spliced back onto the FRONT of g_rxHold when the pass ends, so the queue
+		// is exactly what it was minus what was applied.
+		std::deque<std::string> deferred;
+		// The units named by `deferred`. Bounded by the unit count, so a linear
+		// scan is cheaper than any container with an allocation in it.
+		std::vector<int> blockedSubjects;
+		// coop (PRD-P10 follow-up): and WHICH packet seeded each of them, so the
+		// closer carve-out can tell a mid-chain blocker (jump it - that is the
+		// deadlock the carve-out exists for) from the chain's own opener (wait for
+		// it - see coopChainOpener). Parallel to blockedSubjects.
+		std::vector<std::string> blockedBy;
+		// coop (PHASE D.1): lowest current-side chain seq DEFERRED in this pass; the
+		// action_end apply-barrier reads it (0 = none deferred). Per-pass by construction.
+		std::uint32_t minDeferredChainSeqThisPass = 0;
 
 		for (size_t i = 0; i < passCount; ++i)
 		{
@@ -2294,7 +3315,7 @@ void connectionTCP::updateCoopTask()
 				if (Options::logPacketMessages == true && Options::logInfoToFile == true)
 				{			
 					std::string str_debug =
-						std::string("task completed: ") + (_coop_task_completed ? "true" : "false") +
+						std::string("task completed: ") + (coopTaskCompleted() ? "true" : "false") +
 						"   connection status: " + std::to_string(onConnect) + 
 						"   packet name: " + stateString +
 						"   packet data: " + obj.toStyledString();
@@ -2303,25 +3324,478 @@ void connectionTCP::updateCoopTask()
 				}
 
 				// Make operator precedence explicit:
-				const bool consumeNow =
-						 (_coop_task_completed || ((stateString == "abortPath" && _coopWalkInit) ||
-						 (stateString == "unit_death" && _coopInitDeath) ||
-						 (stateString == "after_unit_death" && _coopInitDeath)) ||
-					 stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
-					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
+				//
+				// coop (PRD-P6 pre-task): `coopTaskCompleted()` is now "gate depth
+				// 0" rather than a bool. The three per-action exemptions after it
+				// are unchanged and still needed - each names a packet that CLOSES
+				// the very chain currently holding the gate (`abortPath` ends the
+				// walk that took it; the two death packets end the shot that took
+				// it), so waiting for depth 0 would deadlock them.
+				// coop (PRD-P9 rider R7): hoisted out of the expression below so the
+				// pump can tell "not yet" (rotate and try again next pass) from "not
+				// while this holds" (park). `_coopEnd` only ever moves inside the
+				// endPlayerTurn handler - the very handler this term excludes - so a
+				// rotated one is re-examined every tick for the rest of the session.
+				const bool endTurnExcluded =
+					(stateString == "endPlayerTurn"
+					 && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
 
-				if (consumeNow)
+				// coop (wire-order report alignment, Phase 3): sample the per-action
+				// sync-check at the marker's FIRST SIGHT in the wire stream, not at
+				// display consumption. Every chain-<=N state carrier precedes marker N
+				// on the FIFO and (Phase 2) applies at arrival, so state here is exactly
+				// N-complete and <=N-only. Fires ONCE per marker: the monotonic guard
+				// (seq > cursor, cursor reset on a new side) rejects the re-examinations a
+				// deferred marker gets on later passes. Boundary markers are handled by the
+				// SEPARATE first-sight block below (Increment 5) - excluded here so the two
+				// samplers (per-action sync_report vs boundary action_done) do not overlap.
+				if (g_wireOrderState.load(std::memory_order_relaxed) && !getHost()
+					&& parallelTurnActive() && stateString == "action_end"
+					&& !obj.get("boundary", false).asBool())
 				{
+					const std::uint32_t aSeq =
+						static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+					const std::uint32_t aSide =
+						static_cast<std::uint32_t>(obj.get("side_seq", _sideSeq).asUInt());
+					if (aSeq != 0)
+					{
+						if (aSide != g_clientApplySideSeq)
+						{
+							// a new side's markers have begun arriving - reset the
+							// per-side apply cursor at WIRE-ORDER time (not at the
+							// display-timed resetActionArbiter, which may lag).
+							g_clientApplySideSeq = aSide;
+							g_clientApplySeq = 0;
+						}
+						if (aSeq > g_clientApplySeq)
+						{
+							g_clientApplySeq = aSeq;
+							// coop (wire-order Increment 7, SHAPE A): apply this chain's
+							// changed-units (tu,energy) ABSOLUTES at first-sight, BEFORE
+							// sampling (arrival timeline), so the client's still-draining
+							// unitsRegen is corrected at wire position N and the later
+							// sidestart boundary sample (unitsRegen is sidestart-only
+							// compared) reads the host's post-chain value instead of a
+							// replay that has not caught up. Present-gated (absent = older
+							// peer / lever-off); reuses coopApplyActorCost, the abortPath
+							// PRD-P9 walk-end carry. Once per marker via this same cursor.
+							if (obj.isMember("regen") && _game->getSavedGame()
+								&& _game->getSavedGame()->getSavedBattle())
+							{
+								SavedBattleGame* rb = _game->getSavedGame()->getSavedBattle();
+								const Json::Value& regen = obj["regen"];
+								for (Json::ArrayIndex ri = 0; ri < regen.size(); ++ri)
+								{
+									coopApplyActorCost(regen[ri],
+										regen[ri].get("unit_id", -1).asInt(), rb);
+									coopDiagUnit("regen.tu@3368", regen[ri].get("unit_id", -1).asInt(),
+										regen[ri].get("tu", -1).asInt());
+								}
+								g_regenApplied.fetch_add(regen.size(), std::memory_order_relaxed);
+							}
+							Json::Value rep;
+							rep["state"] = "sync_report";
+							rep["seq"] = static_cast<Json::UInt>(aSeq);
+							rep["side_seq"] = static_cast<Json::UInt>(aSide);
+							rep["seat"] = localSeat();
+							SharedEcon::syncCheckAttach(_game, rep);
+							sendTCPPacketData(rep.toStyledString());
+						}
+					}
+				}
+
+				// coop (wire-order report alignment, Increment 5): the BOUNDARY sync sample,
+				// moved from consumption (coopEmitBoundaryDone) to the boundary marker's FIRST
+				// SIGHT in the wire stream. By this point next_turn (a wire-order carrier) has
+				// applied its state-half at RX arrival, and the marker precedes the NEXT side's
+				// carriers on the wire, so the sample is post-next_turn and un-contaminated by
+				// the next side. Fires ONCE per boundary via the bseq high-water mark; emits the
+				// same payload coopEmitBoundaryDone did (syncCheckAttachBoundary). Consumption
+				// still advances the display cursor and clears the A2 copies (action_end
+				// handler); only the SAMPLE moved. Honors _testHoldBoundaryDone like the emit.
+				if (g_wireOrderState.load(std::memory_order_relaxed) && !getHost()
+					&& parallelTurnActive() && stateString == "action_end"
+					&& obj.get("boundary", false).asBool() && !_testHoldBoundaryDone)
+				{
+					const std::uint32_t bSeq =
+						static_cast<std::uint32_t>(obj.get("bseq", 0).asUInt());
+					if (bSeq != 0 && bSeq > g_clientApplyBoundarySeq)
+					{
+						g_clientApplyBoundarySeq = bSeq;
+						if (g_diagCapture.load(std::memory_order_relaxed)
+							&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+							for (auto* du : *_game->getSavedGame()->getSavedBattle()->getUnits())
+							{
+								coopDiagUnit("SAMPLE.tu", du->getId(), du->getTimeUnits());
+								if (du->getId() >= 1000000)
+								{
+									const Position dp = du->getPosition();
+									coopDiagS("SAMPLE.core bseq=" + std::to_string(bSeq)
+										+ " u=" + std::to_string(du->getId())
+										+ " live=" + std::to_string((int)du->getStatus())
+										+ " fac=" + std::to_string((int)du->getFaction())
+										+ " x=" + std::to_string(dp.x) + " y=" + std::to_string(dp.y)
+										+ " z=" + std::to_string(dp.z));
+								}
+							}
+						Json::Value rep;
+						rep["state"] = "action_done";
+						rep["seq"] = 0;
+						rep["seat"] = localSeat();
+						rep["boundary"] = true;
+						rep["bseq"] = static_cast<Json::UInt>(bSeq);
+						SharedEcon::syncCheckAttachBoundary(_game, rep);
+						sendTCPPacketData(rep.toStyledString());
+					}
+				}
+
+				// coop (wire-order report alignment, Increment 4 / A4): apply endTurn's
+				// REQUIRED-AT-ARRIVAL half at the endTurn marker's FIRST SIGHT in the wire
+				// stream, before next_turn (which consumes both). Only two items qualify
+				// (census A4 classification): the script-RNG seed (GAP-10 - endTurn-timed,
+				// read by next_turn's deferred scripts via
+				// SavedBattleGame::newTurnUpdateScripts) and the deferred neutral->player
+				// regen arm (consumed by next_turn's state-half). Everything else in the
+				// endTurn handler - the side token, clearClientPendingIntent,
+				// resetActionArbiter, the active-sync flags, the global RNG::setSeed, the
+				// ALIENS banner - is display-flow bookkeeping and stays at consumption
+				// (moving resetActionArbiter early would let an in-flight action_done observe
+				// a reset arbiter). Fires ONCE per endTurn via g_endTurnArrivalSideSeq; the
+				// handler skips these two items when the cursor covers the marker.
+				if (g_wireOrderState.load(std::memory_order_relaxed) && !getHost()
+					&& parallelTurnActive() && stateString == "endTurn"
+					&& obj.isMember("side_seq"))
+				{
+					const std::uint32_t etSide =
+						static_cast<std::uint32_t>(obj["side_seq"].asUInt());
+					if (etSide > g_endTurnArrivalSideSeq)
+					{
+						g_endTurnArrivalSideSeq = etSide;
+						if (obj.isMember("seed"))
+							_scriptRngSeed = obj["seed"].asUInt64();
+						if (_hostShipsNextTurnFields && obj.get("side", -1).asInt() == 2)
+						{
+							_turnAdvanceDeferred = 1;
+							++_turnAdvanceDeferredCount;
+						}
+					}
+				}
+
+				// coop (PRD-P11): the three per-action exemptions, hoisted so the
+				// ordering rule below can see them. A packet that qualifies ONLY
+				// through one of these is the CLOSER of the chain currently holding
+				// the gate, and must never be held back by the ordering rule - see
+				// the carve-out where `subjectHeld` is computed.
+				// coop (parallel Phase 3, Sub-task A): the unit_death/after_unit_death
+				// disjuncts only ever qualify in classic - the parallel host ships
+				// unit_casualty instead (Phase 2a/2b), so the legacy trio never arrives
+				// on a parallel client's wire and these two clauses are permanently
+				// false there. Gated for clarity/hardening; classic keeps both,
+				// byte-identical. `abortPath` is unaffected (walk chains exist in both
+				// modes).
+				const bool chainCloser =
+						((stateString == "abortPath" && _coopWalkInit) ||
+						 (!parallelTurnActive() && stateString == "unit_death" && _coopInitDeath) ||
+						 (!parallelTurnActive() && stateString == "after_unit_death" && _coopInitDeath));
+
+				// coop (PRD-I3 SEAM-2 HALF 2): a set_smoke_tile/set_fire_tile carrying
+				// `bnd:true` is the neutral->player boundary decay. It belongs to NO chain
+				// (the whitelist exists for mid-chain outcome resolution), so it must ride
+				// the ordered gate: it fails the whitelist and the chain-outcome seq test
+				// below and queues like ordinary gated traffic, applying in FIFO after the
+				// ai-chain replay and before next_turn. Absent flag = old host / mid-side
+				// hazard = the current whitelist behaviour (presence-gated compat).
+				const bool boundaryHazardPacket =
+						(stateString == "set_fire_tile" || stateString == "set_smoke_tile")
+						&& obj.get("bnd", false).asBool();
+
+				const bool coopDecoupledWorldCarrier =
+						 parallelTurnActive() && !getHost()
+						 // coop (parallel Phase 3, Sub-task A): unit_death/after_unit_death
+						 // REMOVED - this whole block only ever fires in parallel
+						 // (parallelTurnActive() && !getHost() above), and the legacy trio
+						 // never arrives on a parallel client's wire (Phase 2a/2b ship
+						 // unit_casualty instead), so the two disjuncts were permanently
+						 // dead. hit_unit (still sent every hit) and unit_casualty (its
+						 // Phase 2b replacement, INCLUDING a bnd:true boundary casualty -
+						 // the legacy boundary trio took this same branch before) remain.
+						 && (stateString == "hit_unit" || stateString == "unit_casualty")
+						 && _game && _game->getSavedGame()
+						 && _game->getSavedGame()->getSavedBattle()
+						 && _game->getSavedGame()->getSavedBattle()->getSide() != FACTION_PLAYER;
+				const bool gateAllows =
+						 ((coopTaskCompleted() && !g_rxTestHold.load(std::memory_order_relaxed)) || chainCloser || coopDecoupledWorldCarrier ||
+					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_explosive_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving"
+					// coop (wire-order report alignment, Phase 2): under the lever, a
+					// wire-order-set carrier is admitted at RX arrival regardless of
+					// task-busy, same as the whitelist above - it no longer waits on
+					// coopTaskCompleted(). Boundary-decay hazards are excluded
+					// (!boundaryHazardPacket) so set_fire_tile/set_smoke_tile `bnd:true`
+					// packets keep riding their existing task-gated timeline; boundary
+					// semantics are out of Phase 2 scope. Lever-off this disjunct is
+					// `(false && ...)`, so the OR-group's truth is unchanged.
+					|| (g_wireOrderState.load(std::memory_order_relaxed) && coopIsWireOrderStateCarrier(stateString) && !boundaryHazardPacket)) &&
+					!endTurnExcluded;
+
+				// coop (PRD-P11): the unit this packet is about, and whether an
+				// earlier packet still in the queue already names it.
+				//
+				// CARVE-OUT (measured, PRD-P11 soak): a chain closer is exempt.
+				// Holding one back is not a delay, it is a deadlock - `abortPath`
+				// ends the walk that holds the gate, so anything queued between
+				// that walk's `BattleScapeMove` (already consumed) and its
+				// `abortPath` - a mid-walk reaction hit, say - would block the
+				// only packet that can open the gate again. Measured with the
+				// carve-out missing: the liveness floor below fired twice in a
+				// five-turn soak, i.e. two ten-second stalls. The closers are also
+				// the packets whose ordering matters least: each one ENDS a chain
+				// this machine has already started, so there is nothing of that
+				// unit's left to overtake.
+				const int subject = coopPacketSubject(stateString, obj);
+				bool subjectHeld = false;
+				if (subject >= 0 && !legacyOrder && !chainCloser)
+				{
+					for (size_t b = 0; b < blockedSubjects.size(); ++b)
+					{
+						if (blockedSubjects[b] == subject)
+						{
+							subjectHeld = true;
+							break;
+						}
+					}
+				}
+
+				// coop (PRD-P10 follow-up; root-caused off a PRD-P9 soak failure):
+				// `_coopWalkInit` / `_coopInitDeath` are GLOBAL "a replay chain is
+				// running here" flags, not per unit. So while ANY unit's walk replay
+				// was running, an `abortPath` for a DIFFERENT unit counted as a chain
+				// closer, skipped the ordering rule above and overtook that unit's own
+				// still-queued `BattleScapeMove`. The peer then teleport-corrected the
+				// unit, replayed the walk on top - `movePlayerTarget` starts by putting
+				// the unit back on the packet's start tile and re-pathing locally - and
+				// had no closer left to correct the result, so it kept whatever its own
+				// truncated path spent. Measured: an alien a tile off with 2 energy of
+				// skew that survived the side, i.e. the residual UNIT CENSUS DRIFT.
+				// The death pair inverts the same way and is worse: `unit_death` carries
+				// the victim's status AT THE START of the death (STANDING), so applying
+				// it after `after_unit_death` puts a corpse back on its feet on 0 HP.
+				//
+				// A closer may still jump a MID-chain packet - that is the exemption the
+				// carve-out was written for and it stays. It may not jump the OPENER of
+				// the chain it closes: the wire is FIFO, so an opener still queued ahead
+				// of its closer means this machine has not started that chain at all and
+				// there is nothing yet for the closer to close.
+				bool closerOvertakesOpener = false;
+				if (chainCloser && subject >= 0 && !legacyOrder)
+				{
+					if (const char* opener = coopChainOpener(stateString))
+					{
+						for (size_t b = 0; b < blockedSubjects.size(); ++b)
+						{
+							if (blockedSubjects[b] == subject && blockedBy[b] == opener)
+							{
+								closerOvertakesOpener = true;
+								break;
+							}
+						}
+					}
+				}
+
+				// coop (PRD-I1): a whitelisted outcome packet carries the seq of the
+				// chain it belongs to (connectionTCP::coopStampChainSeq). If that chain
+				// has not opened locally yet - its seq is beyond the chain the client is
+				// currently displaying (_clientDisplaySeq + 1) - applying it now would
+				// jump ahead of its own opener and contaminate the client's post-N
+				// sync-check state, so it is held IN PLACE (P11-style, no rotation) until
+				// the client catches up. Same side only: a packet from a side that has
+				// already closed here takes the legacy always-consume path, mirroring
+				// I0's stale action_end marker rule, so a boundary arbiter reset cannot
+				// strand it. An absent/zero action_seq is legacy (classic co-op, boundary
+				// explosions, old peer): always-consume, bidirectionally. Disabled while
+				// the liveness floor is engaged, exactly like per-subject ordering.
+				bool seqDeferred = false;
+				// coop (wire-order report alignment, Phase 2): under the lever, a
+				// wire-order-set carrier is never seq-deferred - it applies at RX
+				// arrival in stream order instead of waiting on the display cursor.
+				if (!getHost() && (!legacyOrder || drainFloor) && coopIsChainOutcomePacket(stateString) && !boundaryHazardPacket
+					&& !(g_wireOrderState.load(std::memory_order_relaxed) && coopIsWireOrderStateCarrier(stateString)))
+				{
+					const std::uint32_t pktSeq =
+						static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+					if (pktSeq != 0)
+					{
+						const std::uint32_t pktSide = static_cast<std::uint32_t>(
+							obj.get("side_seq", _sideSeq).asUInt());
+						if (pktSide == _sideSeq && pktSeq > _clientDisplaySeq + 1)
+						{
+							seqDeferred = true;
+						}
+					}
+				}
+
+				// coop (PHASE D.1 chain-atomicity): the action_end APPLY BARRIER. A marker must
+				// not be consumed - its chain's post-N hash must not be sampled - until every
+				// packet the host stamped with this marker's (side_seq, action_seq) has applied.
+				// The host sends all of a chain's stamped packets BEFORE its action_end on the
+				// ordered stream, so any unapplied one is a packet THIS pass has already stepped
+				// over and DEFERRED (it sits ahead of the marker in FIFO): if this pass deferred a
+				// current-side stamped packet whose seq is <= this marker's (a boundary marker
+				// follows every chain, so ANY deferred current-side chain packet blocks it), hold
+				// the marker. Never a spin - the blocker already arrived and drains on its own
+				// gate; the 600-tick legacy floor (legacyOrder) disables this like the seq gate.
+				bool barrierBlocked = false;
+				if (!getHost() && (!legacyOrder || drainFloor) && stateString == "action_end"
+					&& minDeferredChainSeqThisPass != 0)
+				{
+					const std::uint32_t mSide = static_cast<std::uint32_t>(
+						obj.get("side_seq", _sideSeq).asUInt());
+					if (mSide == _sideSeq)
+					{
+						const bool mBoundary = obj.get("boundary", false).asBool();
+						const std::uint32_t mSeq = static_cast<std::uint32_t>(
+							obj.get("action_seq", 0).asUInt());
+						if (mBoundary || minDeferredChainSeqThisPass <= mSeq)
+						{
+							barrierBlocked = true;
+						}
+					}
+				}
+				// coop (chain-atomicity Strand B): the SIDE BARRIER. `endTurn` is whitelisted,
+				// so it would consume the instant the gate allows - advancing _sideSeq and
+				// zeroing _clientDisplaySeq (resetActionArbiter) - even while a STAMPED packet
+				// of the CURRENT side is still deferred ahead of it this pass
+				// (minDeferredChainSeqThisPass != 0, which is same-side by construction).
+				// Retiring the side token then strands that straggler: next pass its
+				// pktSide != _sideSeq, so seqDeferred no longer holds it (that gate is
+				// same-side only) and it legacy-consumes out of order, straddling the boundary
+				// hash. Hold endTurn until side S has drained so the client finishes side S
+				// before retiring its token. The host already blocks at the boundary for the
+				// client's boundary ack (P8), and the boundary marker sits BEHIND this endTurn
+				// on the wire, so this only reorders client-local consumption - it adds no host
+				// wait it was not already doing. LIVENESS: the deferred side-S packets drain as
+				// _clientDisplaySeq advances off their own chain markers (ahead of endTurn,
+				// never held here), so the hold cannot starve; and it is disabled under the
+				// legacy hard floor exactly like seqDeferred/barrierBlocked, so the
+				// kRxDrainHardFloorMs backstop is the documented last-resort release.
+				bool sideBarrierBlocked = false;
+				if (!getHost() && parallelTurnActive() && (!legacyOrder || drainFloor)
+					&& !g_rxSideBarrierDisable.load(std::memory_order_relaxed)
+					&& stateString == "endTurn" && minDeferredChainSeqThisPass != 0)
+				{
+					sideBarrierBlocked = true;
+				}
+				if (gateAllows && !subjectHeld && !closerOvertakesOpener && !seqDeferred && !barrierBlocked && !sideBarrierBlocked)
+				{
+					// See rxPassDeferred(): anything already deferred in this pass
+					// precedes this packet on the wire and has NOT been applied yet.
+					g_rxPassDeferred.store(!deferred.empty(), std::memory_order_relaxed);
+					rxTraceRecord(stateString, subject,
+								   obj.get("boundary", false).asBool() || obj.get("bnd", false).asBool(),
+								   obj.get("kind", "").asString());
 					onTCPMessage(stateString, obj);
 					++consumedThisPass;
+					// coop (Strand B): a HELD endTurn has now consumed. Attribute the release:
+					// the ordered side-S drain (normal) vs the legacy hard-floor escape.
+					if (stateString == "endTurn" && g_sideBarrierHeldThisSide)
+					{
+						if (hardFloorThisTick)
+							g_sideBarrierHardReleases.fetch_add(1, std::memory_order_relaxed);
+						else
+							g_sideBarrierReleases.fetch_add(1, std::memory_order_relaxed);
+						g_sideBarrierHeldThisSide = false;
+					}
+				}
+				else if (endTurnExcluded)
+				{
+					// PRD-P9 rider R7: park, do not rotate. Nothing this loop does can
+					// lift the exclusion, so rotating burns a queue traversal every tick
+					// forever (measured: five-figure rxRotates on an otherwise idle
+					// battle). The un-park above puts it back the moment it can apply.
+					std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+					g_rxPark.emplace_back(std::move(jsonStr));
 				}
 				else
 				{
-					// Rotate to the back so we can try the next message.
+					// coop (PHASE D.1 chain-atomicity): remember the lowest current-side chain seq
+					// this pass DEFERS, so a later action_end for that chain (and any boundary marker,
+					// which follows every chain) waits for it. Reads the stamp off the deferred packet
+					// itself, so it is carrier-agnostic: it accounts for every stamped carrier
+					// (hit_unit, unit_death, Inventory, explode_items, spawn_units, ...) whether it
+					// rides the ordered gate or the always-consume whitelist. The marker excludes itself.
+					if (stateString != "action_end")
 					{
-						std::lock_guard<std::mutex> lock(g_rxHoldMutex);
-						g_rxHold.emplace_back(std::move(jsonStr));
+						const std::uint32_t pSeq = static_cast<std::uint32_t>(
+							obj.get("action_seq", 0).asUInt());
+						if (pSeq != 0)
+						{
+							const std::uint32_t pSide = static_cast<std::uint32_t>(
+								obj.get("side_seq", _sideSeq).asUInt());
+							if (pSide == _sideSeq
+								&& (minDeferredChainSeqThisPass == 0 || pSeq < minDeferredChainSeqThisPass))
+							{
+								minDeferredChainSeqThisPass = pSeq;
+							}
+						}
 					}
+					// coop (PRD-P11): keep the packet's PLACE. Everything behind it
+					// that names the same unit waits with it (a chain closer is
+					// never blocked, but it still SEEDS the block - a packet that
+					// arrived after it must not be applied before it).
+					// coop (PRD-I1): a seq-deferred packet must NOT seed a per-subject
+					// block - it is held on its own chain seq, and blocking its subject
+					// would wrongly hold a same-unit packet of the CURRENT chain (only
+					// unit_fire among the outcome packets carries a subject at all).
+					if (subject >= 0 && !legacyOrder && !subjectHeld && !seqDeferred)
+					{
+						blockedSubjects.push_back(subject);
+						blockedBy.push_back(stateString);
+					}
+					if (barrierBlocked)
+					{
+						// coop (PHASE D.1): the apply-barrier held this marker. Feeds the liveness
+						// floor like every other hold, so it can never outlast the 600-tick floor.
+						blockedSomething = true;
+						barrierHeldThisTick = true;
+						++g_barrierBlocks;
+					}
+					else if (seqDeferred)
+					{
+						// coop (PRD-I1): a chain-isolation hold. Counted on its own, and -
+						// like a subject hold - it feeds the liveness floor so a wedged seq
+						// gate can never outlast the 600-tick legacy-pass floor (which
+						// disables this gate too, see legacyOrder above).
+						blockedSomething = true;
+						++g_rxSeqDeferred;
+					}
+					else if (sideBarrierBlocked)
+					{
+						// coop (Strand B): the side barrier held endTurn. Latch that this side
+						// saw a hold (so the eventual consume counts as a release) and feed the
+						// liveness floor like every other hold, so the barrier can never outlast
+						// the 600-tick floor / hard-floor backstop.
+						blockedSomething = true;
+						g_sideBarrierHeldThisSide = true;
+						g_sideBarrierHolds.fetch_add(1, std::memory_order_relaxed);
+					}
+					else if (gateAllows)
+					{
+						// The gate said yes and ordering said no: the one case the old
+						// pump got wrong.
+						blockedSomething = true;
+						++g_rxSkipBlocked;
+					}
+					else
+					{
+						++g_rxRotateCount;   // PRD-P0: gate-hold counter (test introspection)
+						// TEST-ONLY (rx_hold): the lever gates markers + non-whitelisted packets
+						// (display-busy emulation) so a backlog of seq-deferred STAMPED chains builds
+						// with their markers held - the exact state a long real display leaves - and the
+						// liveness floor trips ON DEMAND. Feeding it here engages the floor even before a
+						// seq-gate hold would. Never set outside the harness -> production identical.
+						if (g_rxTestHold.load(std::memory_order_relaxed))
+							blockedSomething = true;
+					}
+					deferred.emplace_back(std::move(jsonStr));
 				}
 			}
 			catch (const std::exception& e)
@@ -2335,20 +3809,151 @@ void connectionTCP::updateCoopTask()
 				// Write a crash-style log file into user/logs/crash_YYYY-MM-DD_HH-MM-SS.log
 				CRASH_LOG(msg);
 
-				// Put back to the *back* to avoid pinning the head.
-				{
-					std::lock_guard<std::mutex> lock(g_rxHoldMutex);
-					g_rxHold.emplace_back(std::move(jsonStr));
-				}
+				// coop (PRD-P11): keep its place like any other unconsumed packet
+				// (it used to go to the back, which is the reordering this PRD
+				// removes). The session is being torn down anyway.
+				deferred.emplace_back(std::move(jsonStr));
 				onConnect = -3;
 				break;
 			}
 		}
 
+		// coop (PRD-P11): put the untouched packets back, in order, AHEAD of
+		// everything the pass did not reach.
+		bool sessionReset = false;
+		{
+			std::lock_guard<std::mutex> lock(g_rxHoldMutex);
+			if (g_rxHoldGen != holdGen)
+			{
+				// clearNetworkSessionQueues() ran while this pass was inside
+				// onTCPMessage(): the queue was deliberately emptied, so what we
+				// are holding belongs to a session that is over.
+				sessionReset = true;
+				deferred.clear();
+			}
+			while (!deferred.empty())
+			{
+				g_rxHold.emplace_front(std::move(deferred.back()));
+				deferred.pop_back();
+			}
+		}
+
+		consumedThisTick += consumedThisPass;
+
 		// If nothing progressed this pass, stop to avoid busy-waiting
-		if (consumedThisPass == 0)
+		if (sessionReset || consumedThisPass == 0)
 			break;
 	}
+
+	// coop (LIVENESS FLOOR stage-2 backstop): the WALL-CLOCK stall run - consecutive
+	// parallel-client ticks that consumed nothing WHILE the ordering machinery was holding
+	// work back (blockedSomething) - a genuine can't-make-progress wedge. Counted independent
+	// of legacyOrder (unlike g_rxBlockedStallTicks, which the floor resets), because the
+	// ordered drain may keep the floor engaged for a long time and the backstop's job is to
+	// measure how long real progress has actually stalled. ANY consumption (an ordinary
+	// display idle draining the next chain, an arbiter packet) resets it, so a legitimate long
+	// animation - which idles between chains - never approaches the threshold; only a queue
+	// that consumes NOTHING for kRxDrainHardFloorMs (the seed-11100011-class gate-hold
+	// the floor exists for) does. Immune to the rx_force_floor test lever, which forces
+	// legacyOrder but does not change what the pump consumes.
+	if (parallelTurnActive() && !getHost() && consumedThisTick == 0 && blockedSomething)
+	{
+		if (g_rxFloorStallStartMs == 0)
+		{
+			g_rxFloorStallStartMs = SDL_GetTicks();
+			// SDL_GetTicks() can return 0 at startup; a sentinel of 0 means "not stalling", so
+			// bump a genuine 0 to 1 (1 ms of error, harmless).
+			if (g_rxFloorStallStartMs == 0) g_rxFloorStallStartMs = 1;
+		}
+	}
+	else
+		g_rxFloorStallStartMs = 0;
+
+	// coop (PRD-P11): the liveness floor (see the pump's header comment).
+	if (legacyOrder)
+	{
+		++g_rxLegacyPasses;
+		g_rxBlockedStallTicks = 0;
+	}
+	else if (consumedThisTick == 0 && blockedSomething)
+	{
+		++g_rxBlockedStallTicks;
+	}
+	else
+	{
+		g_rxBlockedStallTicks = 0;
+	}
+
+	// coop (PHASE D.1 chain-atomicity): loud, bounded introspection for a SUSTAINED
+	// apply-barrier stall. The barrier only holds a marker while a stamped packet of
+	// its chain has ARRIVED but not applied; that drains on its own gate, so a long
+	// stall is a real ordering/attribution bug (or a peer far behind). Warn once past
+	// ~3 s; the legacy floor above then forces the marker through, so it never wedges.
+	if (barrierHeldThisTick && consumedThisTick == 0)
+	{
+		if (++g_barrierStallTicks == 180 && !g_barrierStallWarned)
+		{
+			g_barrierStallWarned = true;
+			Log(LOG_WARNING) << "coop: action_end apply-barrier stalled ~3s - side_seq="
+							 << _sideSeq << " clientDisplaySeq=" << _clientDisplaySeq
+							 << " rxHold=" << rxHoldSize() << " barrierBlocks="
+							 << g_barrierBlocks.load();
+		}
+	}
+	else
+	{
+		g_barrierStallTicks = 0;
+		g_barrierStallWarned = false;
+	}
+
+	// coop (PRD-P7): client display fast-forward. A packet still sitting in the
+	// hold queue behind a closed receive gate means the executor has already moved
+	// on while this machine is still animating. If what it is animating is nothing
+	// but locomotion, there is nothing to wait for: `abortPath`'s teleport-correct
+	// fixes the endpoint exactly either way, so only the animation length changes.
+	if (parallelTurnActive() && !getHost() && !coopTaskCompleted() && rxHoldSize() > 0)
+	{
+		SavedGame* pgSave = _game ? _game->getSavedGame() : nullptr;
+		SavedBattleGame* pgBattle = pgSave ? pgSave->getSavedBattle() : nullptr;
+		BattlescapeGame* pgGame = pgBattle ? pgBattle->getBattleGame() : nullptr;
+		if (pgGame && pgGame->chainIsSkippable())
+		{
+			pgGame->setCoopFastForward(true);
+		}
+	}
+
+	// coop (Class-A soak wedge fix): liveness floor for the auto-shot pacing wait.
+	// ExplosionBState parks a multi-shot replay on _coopPacingWait until the host's
+	// flip packet lands; if that packet never comes (a host/client shot-count
+	// divergence, likeliest on hazard-heavy turns), the ProjectileFlyBState beneath
+	// it holds the receive gate for the rest of the battle and this machine falls
+	// arbitrarily far behind. The existing per-subject/seq floor (kRxBlockedStallTicks)
+	// does NOT cover it: a gate held with only gate-rotated (non-whitelisted) traffic
+	// leaves `blockedSomething` false, so it never counts. Count the pacing wait
+	// itself here and, past the floor, raise _coopForceDrainReplay, which
+	// ExplosionBState::think() consumes to end the wait. Reset the moment the wait
+	// clears, so a normal sub-second wait never nears the floor and speed-skew (which
+	// enters/exits the wait per shot) never accumulates.
+	if (parallelTurnActive() && !getHost() && _coopPacingWait)
+	{
+		if (++g_rxPacingStallTicks >= kRxPacingForceDrainTicks)
+		{
+			_coopForceDrainReplay = true;
+			++_coopForceDrainCount;
+			g_rxPacingStallTicks = 0;
+		}
+	}
+	else
+	{
+		g_rxPacingStallTicks = 0;
+	}
+
+	// coop (Class-A soak wedge fix, A3): host-side peer-liveness tripwire. A peer that
+	// wedges mid-replay goes silent - it never diverges, so no per-term detector fires,
+	// yet it stops answering boundary markers while this machine keeps crossing them.
+	// checkPeerLiveness latches the shared desync path on a sustained boundary-answer
+	// gap (host-only, PVE-only, self-guarded).
+	SharedEcon::checkPeerLiveness(_game);
 
 	// coop
 	// UNABLE TO CONNECT TO SERVER
@@ -3827,7 +5432,6 @@ void connectionTCP::executeVoteAction(const std::string& action)
 
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
-
 	// PRD-J03: single early hook routing the shared_* economy protocol into the
 	// SharedEcon dispatch table (the anti-if-chain requirement). If SharedEcon
 	// consumes the message, it never falls through to the if-chain below.
@@ -3977,6 +5581,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		_game->pushState(new CoopState(123456));
 
+	}
+
+	// coop (#162 / 056b500db reconciliation): the peer pressed OK on its skirmish
+	// debriefing and is leaving gracefully (sent just before its socket closes). Latch
+	// it so the onConnect==-2 disconnect-notice gate stays silent for this clean exit,
+	// while an ABRUPT drop - which sends no coop_leaving - still raises the notice.
+	// Whitelisted in the receive gate so it is never parked past the FIN; the latch is
+	// reset at disconnectTCP teardown and on a fresh client attach.
+	if (stateString == "coop_leaving")
+	{
+		_peerLeftCleanly = true;
 	}
 
 	// refused by the campaign roster gate (flow-redesign F3)
@@ -4129,6 +5744,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		CoopCampaignType campaignType =
 			static_cast<CoopCampaignType>(obj.get("campaignType", 0).asInt());
+
+		// PRD-P5: the host's parallel-turns mode rides the campaign start too
+		// (COOP_READY_HOST already set it; this keeps the two in step for a
+		// client whose world is built from this packet). Missing key = classic.
+		connectionTCP::_enable_parallel_turns = obj.get("enable_parallel_turns", false).asBool();
 
 		if (campaignType == CoopCampaignType::Shared)
 		{
@@ -5225,6 +6845,32 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				AbortCoopWalk = true;
 
 				_game->getSavedGame()->getSavedBattle()->getBattleGame()->abortCoopPath(x, y, z, unit_id, setDirection, setFaceDirection);
+				// coop (SEAM-3 door B): apply the hinged doors the executor opened during the
+				// walk, cost-free (MCD swap + lighting/FOV, no TU) via the fix-A costFree path.
+				// The peer's own replay walk left hinged doors state-neutral, so this is the
+				// sole authority for them. Additive + presence-gated (old host omits it).
+				if (obj.isMember("doors_opened"))
+				{
+					SavedBattleGame* sbgDoors = _game->getSavedGame()->getSavedBattle();
+					const Json::Value& doorsArr = obj["doors_opened"];
+					for (Json::ArrayIndex di = 0; di < doorsArr.size(); ++di)
+					{
+						Position dpos(doorsArr[di]["x"].asInt(),
+									  doorsArr[di]["y"].asInt(),
+									  doorsArr[di]["z"].asInt());
+						Tile* dt = sbgDoors->getTile(dpos);
+						if (dt)
+						{
+							TilePart dpart = (TilePart)doorsArr[di]["part"].asInt();
+							dt->openDoor(dpart, 0, BA_NONE, false, true);
+							// coop (UFO-door authority): a UFO door can span several tiles; mirror the
+							// executor's checkAdjacentDoors so the peer opens the whole run, not just the
+							// primary. Hinged doors are single-tile (isUfoDoor false), so this is skipped.
+							if (dt->isUfoDoor(dpart) && sbgDoors->getTileEngine())
+								sbgDoors->getTileEngine()->checkAdjacentDoors(dpos, dpart);
+						}
+					}
+				}
 
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
@@ -5238,6 +6884,35 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						unit->setDirectionTurretCoop(setTurretDirection);
 						unit->setTurretToDirectionCoop(setTurretToDirection);
+
+						// coop (PRD-P9 rider R2): the walk's END STATE, not just where it
+						// stopped. `abortPath` closes every replayed walk, and it used to
+						// correct position and facing only - so a peer whose animation had
+						// been truncated (a slow machine, an interrupted fast-forward) kept
+						// whatever TU its own truncated walk had spent. Measured drift: 2 TU
+						// on the executor against 44 on the peer at a 1:300 speed skew. Both
+						// fields are additive and presence-gated, so an older peer ignores
+						// them and behaves exactly as before.
+						if (obj.isMember("tu"))
+						{
+							unit->setTimeUnits(obj["tu"].asInt());
+							coopDiagUnit("abortPath.tu@6858", unit->getId(), obj["tu"].asInt());
+						}
+						if (obj.isMember("energy"))
+						{
+							unit->setCoopEnergy(obj["energy"].asInt());
+						}
+
+						// coop (PRD-I3): the walk's END kneel state. UnitWalkBState stands a kneeled
+						// unit up on its first step (BattlescapeGame::kneel), a kneel-bit mutation that
+						// ships on no packet of its own; abortPath is the walk closer that now carries
+						// it. Applied on the PARALLEL NON-HOST machine only - the classic peer runs its
+						// own walk replay and stands the unit up itself, so gating here keeps classic
+						// byte-identical (L4 criterion 6). Presence-gated: an older executor omits it.
+						if (parallelTurnActive() && !getHost() && obj.isMember("kneeled"))
+						{
+							unit->kneel(obj["kneeled"].asBool());
+						}
 
 						_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(x, y, z, unit);
 
@@ -5593,8 +7268,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 				_game->getSavedGame()->getSavedBattle()->getBattleState()->setSelectedCoopUnit(actor_id);
 
-				_game->getSavedGame()->getSavedBattle()->setKneelReserved(kneel);
-				_game->getSavedGame()->getSavedBattle()->setTUReserved((BattleActionType)reverse);
+				// coop (PRD-P8 §5): the reserve fields piggybacked on this packet
+				// are classic-only. PRD-P5 already stopped SENDING `selected_unit`
+				// in parallel mode (the peer's selection is its own there), so this
+				// is dead code in parallel today - guarded anyway, because it is a
+				// second door into the same per-machine setting.
+				if (!parallelTurnActive())
+				{
+					_game->getSavedGame()->getSavedBattle()->setKneelReserved(kneel);
+					_game->getSavedGame()->getSavedBattle()->setTUReserved((BattleActionType)reverse);
+				}
 			}
 		}
 	}
@@ -5996,57 +7679,356 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	if (stateString == "GamePausedON")
-	{
-
-		if (gamePaused == 0)
-		{
-			gamePaused = 2;
-			setPlayerTurn(1);
-		}
-
-		if (onTcpHost == true)
-		{
-
-			_waitBC = false;
-		}
-		else
-		{
-
-			_waitBH = false;
-		}
-	}
-
-	if (stateString == "GamePausedOFF")
-	{
-
-		if (onTcpHost == true)
-		{
-
-			_waitBC = true;
-		}
-		else
-		{
-
-			_waitBH = true;
-		}
-
-		setPlayerTurn(gamePaused);
-		gamePaused = 0;
-	}
-
+	// coop (PRD-P8 §5): the reserve mirror is a CLASSIC-mode packet. In parallel
+	// mode reserve is a per-machine setting - both players are acting at once, so
+	// one player's reserve has no business gating the other's soldiers - and the
+	// setting that matters travels per-action on `action_intent` instead. The
+	// senders are suppressed there (BattlescapeState::coopSendReserveState); these
+	// two guards are belt-and-braces for a peer that suppressed neither.
 	if (stateString == "TU_COOP")
 	{
-		int reverse = obj["reverse"].asInt();
+		if (!parallelTurnActive())
+		{
+			int reverse = obj["reverse"].asInt();
 
-		_game->getSavedGame()->getSavedBattle()->setTUReserved((BattleActionType)reverse);
+			_game->getSavedGame()->getSavedBattle()->setTUReserved((BattleActionType)reverse);
+		}
 	}
 
 	if (stateString == "kneel_reserved")
 	{
-		bool battle_action = obj["battle_action"].asBool();
+		if (!parallelTurnActive())
+		{
+			bool battle_action = obj["battle_action"].asBool();
 
-		_game->getSavedGame()->getSavedBattle()->setKneelReserved(battle_action);
+			_game->getSavedGame()->getSavedBattle()->setKneelReserved(battle_action);
+		}
+	}
+
+	// coop (PRD-P6): the client asks, the host decides and executes. All three
+	// are whitelisted in the hold queue (PROTOCOL.md "Interrupt whitelist
+	// additions") because none of them carries a peer-side sim mutation - the
+	// ACTION they lead to rides the normal broadcast packets, which stay behind
+	// the receive gate and therefore still apply in chain order.
+	if (stateString == "action_intent")
+	{
+		// only the executor arbitrates; anybody else silently ignores it.
+		if (getHost() && parallelTurnActive())
+		{
+			const std::uint32_t reqId = static_cast<std::uint32_t>(obj.get("req_id", 0).asUInt());
+			const int seat = obj.get("seat", -1).asInt();
+			const std::uint32_t sideSeq = static_cast<std::uint32_t>(obj.get("side_seq", 0).asUInt());
+
+			SavedBattleGame* battle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+			BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+
+			std::string denyReason;
+			std::string denyWarning;
+			// the validator's short cause, for the log only - "invalid" alone
+			// names five different branches and is useless in a bug report.
+			std::string denyDetail;
+			// coop (PRD-P7): true = the intent was DEFERRED, not answered. The ack
+			// is owed when the pending slot is admitted, so nothing travels now.
+			bool pended = false;
+
+			if (!bg || sideSeq != _sideSeq || battle->getSide() != FACTION_PLAYER
+				|| _sideCommitInProgress)
+			{
+				// a stale side token, the AI already holds the field, or (PRD-P8
+				// E14) the side commit won the race and this intent lost it
+				denyReason = "turn_over";
+				denyWarning = "STR_COOP_TURN_OVER";
+			}
+			else
+			{
+				const std::string bad = bg->coopValidateIntent(obj.toStyledString(), seat, denyWarning);
+				if (!bad.empty())
+				{
+					denyReason = "invalid";
+					denyDetail = bad;
+				}
+				else if (!canAdmitAction())
+				{
+					// coop (PRD-P7): a chain of pure locomotion in the way is a WAIT,
+					// not a refusal - defer the intent and stop watching the walk.
+					// Anything else keeps PRD-P6's `busy`.
+					pended = coopPendIntent(seat, reqId, obj.get("kind", "").asString(),
+											obj.toStyledString(), false);
+					if (!pended)
+					{
+						denyReason = "busy";
+						denyWarning = "STR_COOP_PLAYER_BUSY";
+					}
+				}
+			}
+
+			if (pended)
+			{
+				// deliberately silent: coopAdmitPendingIntents() acks on admission
+			}
+			else if (!denyReason.empty())
+			{
+				Log(LOG_INFO) << "coop: action_intent req " << reqId << " (seat "
+							  << seat << ", " << obj.get("kind", "").asString()
+							  << " unit " << obj.get("unit_id", -1).asInt()
+							  << ") denied " << denyReason
+							  << (denyDetail.empty() ? "" : "/" + denyDetail);
+				Json::Value root;
+				root["state"] = "action_deny";
+				root["req_id"] = static_cast<Json::UInt>(reqId);
+				root["reason"] = denyReason;
+				root["warning"] = denyWarning;
+				root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+				sendTCPPacketData(root.toStyledString());
+			}
+			else
+			{
+				_intentSlotReqId = reqId;
+				_intentSlotSeat = seat;
+				_intentSlotKind = obj.get("kind", "").asString();
+
+				// coop (PRD-P8): a seat that is still acting is not done. This is
+				// the E14 abort: the commit condition is re-evaluated on the next
+				// tick and no longer holds.
+				noteSeatActed(seat);
+
+				Json::Value ack;
+				ack["state"] = "action_ack";
+				ack["req_id"] = static_cast<Json::UInt>(reqId);
+				ack["action_seq"] = static_cast<Json::UInt>(stampAdmittedAction(_intentSlotKind));
+				sendTCPPacketData(ack.toStyledString());
+
+				// From here on it is an ordinary HOST action: every existing send
+				// site fires because the host holds _isActivePlayerSync (the
+				// PRD-P5 executor invariant), so the client displays this chain
+				// exactly as it displays a host action in classic co-op.
+				bg->coopExecuteIntent(obj.toStyledString());
+			}
+		}
+	}
+
+	if (stateString == "action_ack")
+	{
+		const std::uint32_t reqId = static_cast<std::uint32_t>(obj.get("req_id", 0).asUInt());
+		// PROTOCOL.md: the slot clears on ACK RECEIPT. Not on the broadcast - the
+		// action packets carry no action_seq until PRD-P7, so a broadcast-based
+		// clear would leave the slot stuck until the 10 s timeout after EVERY
+		// intent. A stale ack (the slot was already replaced by a newer input)
+		// matches no req_id and clears nothing.
+		if (reqId != 0 && reqId == _clientPendingReqId)
+		{
+			clearClientPendingIntent();
+		}
+		// coop (PRD-P7): never move the watermark BACKWARDS - `action_end` may
+		// already have carried the client past this ack's value.
+		const std::uint32_t acked = static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+		if (acked > _actionSeq)
+		{
+			_actionSeq = acked;
+		}
+	}
+
+	if (stateString == "action_deny")
+	{
+		const std::uint32_t reqId = static_cast<std::uint32_t>(obj.get("req_id", 0).asUInt());
+		if (obj.isMember("side_seq"))
+		{
+			_sideSeq = static_cast<std::uint32_t>(obj["side_seq"].asUInt());
+		}
+		if (reqId == 0 || reqId == _clientPendingReqId)
+		{
+			clearClientPendingIntent();
+			const std::string warning = obj.get("warning", "").asString();
+			// The flash fades, and off the player side BattlescapeState::warning
+			// swallows it outright - so the reason is remembered here as well.
+			_clientLastDenyReason = obj.get("reason", "").asString();
+			_clientLastDenyWarning = warning;
+			if (warning == "STR_COOP_PLAYER_BUSY")
+			{
+				// coop (parallel turns): peer-busy no longer flashes the toolbar
+				// widget - it drives the persistent map banner instead. The banner
+				// keys on isBusy(), so arm a short click-sync window here in case a
+				// mirror-packet gap left us momentarily not-busy at deny receipt.
+				_coopWaitDenyTicks = 30;
+			}
+			else if (!warning.empty())
+			{
+				flashBattleWarning(warning);
+			}
+			Log(LOG_INFO) << "coop: action_intent req " << reqId << " denied ("
+						  << _clientLastDenyReason << ")";
+		}
+	}
+
+	// coop (PRD-P7): "chain N has no more packets coming" - the host's drain
+	// marker. NOT whitelisted, so the client consumes it only at receive-gate
+	// depth 0, which is precisely when it has finished DISPLAYING that chain.
+	if (stateString == "action_end")
+	{
+		// coop (PRD-I0): a BOUNDARY marker allocates nothing in the action
+		// namespace - it only asks this machine to hash. Consuming it here means
+		// the gate was at depth 0, so the boundary's own packets (`fuse_events`,
+		// `next_turn`) are already applied.
+		if (obj.get("boundary", false).asBool())
+		{
+			if (!getHost())
+			{
+				// coop (wire-order Increment 5 / A2): the parked-outcome display copies'
+				// GAP-4b orphan-hygiene clear rides the DISPLAY timeline here (boundary marker
+				// consumption - the gate is at depth 0, so this side's melee/self-destruct
+				// replays have drained), so next_turn's carrier apply at RX arrival does not
+				// starve a still-queued replay. Lever-off the copies are empty (no-op).
+				_meleeResultsDisplay.clear();
+				_selfDestructResultsDisplay.clear();
+				// coop (wire-order Increment 5): the boundary sync sample moved to the boundary
+				// marker's FIRST SIGHT (wire position, mirroring the per-action sync_report) -
+				// see the first-sight hook in updateCoopTask. Skip the consumption-timed emit
+				// lever-on; lever-off keep it here, byte-identical.
+				if (!g_wireOrderState.load(std::memory_order_relaxed))
+					coopEmitBoundaryDone(static_cast<std::uint32_t>(obj.get("bseq", 0).asUInt()));
+			}
+		}
+		const std::uint32_t seq = static_cast<std::uint32_t>(obj.get("action_seq", 0).asUInt());
+		const std::uint32_t markerSide =
+			static_cast<std::uint32_t>(obj.get("side_seq", _sideSeq).asUInt());
+		// coop (PRD-I0): a marker from a side that has ALREADY CLOSED here.
+		//
+		// This is a wedge, not a curiosity, and PRD-I0's AI-side stamping is what
+		// created it. `endTurn` is whitelisted, `action_end` is not, so the boundary
+		// resets this machine's arbiter (`_clientDisplaySeq` back to 0) while the tail
+		// of the previous side's markers is still queued behind the receive gate.
+		// Before I0 the alien side stamped nothing, so no such marker existed; now it
+		// does, and adopting its HIGH seq after the reset freezes `_clientDisplaySeq`
+		// above every seq the new side will ever stamp - after which
+		// `seq > _clientDisplaySeq` is false for the rest of the battle, the client
+		// never reports again, and the executor's display-backlog term refuses every
+		// action with `busy`. Measured: a soak wedged solid at the turn-3 boundary and
+		// spent 40 minutes denying intents.
+		//
+		// The report still goes out (the sync-check ring is keyed on (side_seq, seq),
+		// so the entry can still be answered) - it just must not move a watermark.
+		if (!getHost() && obj.isMember("side_seq") && markerSide != _sideSeq)
+		{
+			coopEmitStaleActionDone(seq, markerSide);
+		}
+		else if (!getHost() && seq > _clientDisplaySeq)
+		{
+			// coop (PRD-I0): remember the side the MARKER named, not this machine's
+			// current `_sideSeq` - see the send site for why they differ.
+			_clientDisplaySideSeq = markerSide;
+			_clientDisplaySeq = seq;
+			if (seq > _actionSeq)
+			{
+				// the host's own actions carry no ack, so this is where the client
+				// learns how far the executor has got.
+				_actionSeq = seq;
+			}
+			coopEmitActionDone();
+		}
+	}
+
+	// coop (PRD-P7): the display flow-control return leg. Whitelisted (it carries
+	// no sim mutation), so it reaches the arbiter even while the host is mid-chain.
+	// The `<= _actionSeq` guard drops a report that crossed a side boundary in
+	// flight - without it the uint32 backlog term would underflow and block
+	// admission for the rest of the battle.
+	if (stateString == "action_done")
+	{
+		if (getHost())
+		{
+			const std::uint32_t seq = static_cast<std::uint32_t>(obj.get("seq", 0).asUInt());
+			// coop (PRD-I0): and only when the report belongs to the side that is
+			// running. The seq namespace restarts every side, so a report from the
+			// previous one carries a number that is perfectly valid for THIS side and
+			// would credit chains the peer has not displayed. Presence-gated: an older
+			// peer stamps no `side_seq` and keeps the P7 behaviour exactly.
+			const bool sameSide = !obj.isMember("side_seq")
+				|| static_cast<std::uint32_t>(obj["side_seq"].asUInt()) == _sideSeq;
+			if (sameSide && seq > peerDisplayAckedSeq && seq <= _actionSeq)
+			{
+				peerDisplayAckedSeq = seq;
+			}
+			// coop (PRD-I0): the deferred half of the sync-check. Additive - a
+			// report with no "h" is an older peer and is skipped silently.
+			SharedEcon::syncCheckCompare(_game, obj);
+		}
+	}
+
+	// coop (wire-order report alignment, Phase 3): the per-action sync-check report,
+	// sampled at the client's wire-order marker first-sight. Mirrors the action_done
+	// deferred-compare leg; present-gated by syncCheckCompare itself (a report with no
+	// "h" is silently skipped). Host-only. Under the lever this REPLACES action_done as
+	// the per-action hash pairing; the boundary hash still rides action_done (boundary:true).
+	if (stateString == "sync_report")
+	{
+		if (getHost())
+		{
+			SharedEcon::syncCheckCompare(_game, obj);
+		}
+	}
+
+	// coop (PRD-P8): a seat arming or disarming its END TURN. Host-only - the
+	// tally is the executor's, and the echo (`end_turn_tally`) is what every
+	// other machine reads. Whitelisted like the rest of the arbiter traffic: it
+	// carries no sim mutation and must reach the host even mid-chain, otherwise a
+	// player could not answer while the other one was walking.
+	if (stateString == "end_turn_ready")
+	{
+		if (getHost() && parallelTurnActive())
+		{
+			const int seat = obj.get("seat", -1).asInt();
+			const bool want = obj.get("ready", false).asBool();
+			const std::uint32_t sideSeq = static_cast<std::uint32_t>(obj.get("side_seq", 0).asUInt());
+			ensureEndTurnSeats();
+			if (sideSeq != _sideSeq)
+			{
+				// a toggle aimed at a side that has already closed
+				Log(LOG_INFO) << "coop: end_turn_ready from seat " << seat
+							  << " dropped (side_seq " << sideSeq << " != " << _sideSeq << ")";
+			}
+			else if (seat >= 0 && static_cast<size_t>(seat) < _endTurnReady.size())
+			{
+				_endTurnReady[static_cast<size_t>(seat)] = want;
+			}
+		}
+	}
+
+	// coop (PRD-P8): the executor's tally echo. A machine that is not the host
+	// adopts it wholesale - including its OWN bit, which confirms (or quietly
+	// undoes) the optimistic flip its button press made.
+	if (stateString == "end_turn_tally")
+	{
+		if (!getHost())
+		{
+			const std::uint32_t sideSeq = static_cast<std::uint32_t>(obj.get("side_seq", 0).asUInt());
+			// `end_turn_tally` is whitelisted and `endTurn` is not, so a tally can
+			// overtake the boundary packet that would have advanced _sideSeq here.
+			// Accepting >= (rather than ==) is what keeps the two orders equivalent;
+			// a tally from a side already closed is the only thing dropped.
+			if (sideSeq + 1 > _endTurnTallySideSeq)
+			{
+				ensureEndTurnSeats();
+				std::vector<bool> ready(_endTurnReady.size(), false);
+				std::vector<bool> autos(_endTurnAuto.size(), false);
+				const Json::Value& rs = obj["ready_seats"];
+				for (Json::ArrayIndex i = 0; i < rs.size(); ++i)
+				{
+					const int s = rs[i].asInt();
+					if (s >= 0 && static_cast<size_t>(s) < ready.size())
+						ready[static_cast<size_t>(s)] = true;
+				}
+				const Json::Value& as = obj["auto_seats"];
+				for (Json::ArrayIndex i = 0; i < as.size(); ++i)
+				{
+					const int s = as[i].asInt();
+					if (s >= 0 && static_cast<size_t>(s) < autos.size())
+						autos[static_cast<size_t>(s)] = true;
+				}
+				_endTurnReady = ready;
+				_endTurnAuto = autos;
+				_endTurnTallySideSeq = sideSeq;
+			}
+		}
 	}
 
 	if (stateString == "kneel")
@@ -6055,6 +8037,30 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		int id = obj["id"].asInt();
 		BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 		battlestate->toggeCoopKneel(id);
+		// coop (PRD-I3 SEAM-1): mirror the executor's post-action kneel instead of
+		// trusting the peer's own re-decide. toggeCoopKneel re-ran kneel(), whose
+		// reserve gate can refuse a kneel the executor performed (the peer's local
+		// reserve is not replicated in parallel mode), leaving the kneeler off by the
+		// kneel cost AND on the wrong kneeling bit. Force the shipped final tu/energy
+		// (the same P9 cost-replication helper as active_grenade / medkit) and the
+		// kneeling bit so the two copies agree. Presence-gated: an older sender omits
+		// them and the legacy re-decide above stands (bidirectional compat).
+		if (obj.isMember("tu"))
+		{
+			SavedBattleGame* battleForKneel = _game->getSavedGame()->getSavedBattle();
+			coopApplyActorCost(obj, id, battleForKneel);
+			if (obj.isMember("kneeled"))
+			{
+				for (auto* u : *battleForKneel->getUnits())
+				{
+					if (u->getId() == id)
+					{
+						u->kneel(obj["kneeled"].asBool());
+						break;
+					}
+				}
+			}
+		}
 	}
 
 	if (stateString == "BattleScapeMove")
@@ -6101,6 +8107,27 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
+
+	}
+
+	// coop (PRD-P3 GAP-1): mid-battle spawns are host decisions. The peer re-runs
+	// the very same spawn code from the host's seed and manifest so it mints the
+	// same unit and item ids instead of rolling (and creating) its own.
+	if (stateString == "spawn_units")
+	{
+
+		if (_game->getSavedGame())
+		{
+			if (_game->getSavedGame()->getSavedBattle())
+			{
+				if (_game->getSavedGame()->getSavedBattle()->getBattleGame())
+				{
+
+					_game->getSavedGame()->getSavedBattle()->getBattleGame()->spawn_units(obj.toStyledString());
+
+				}
+			}
+		}
 
 	}
 
@@ -6246,11 +8273,25 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					int type = obj["type"].asInt();
 					std::string hand = obj["hand"].asString();
 
-					bool fusetimer = obj["fusetimer"].asInt();
+					// coop: the fuse the item ACTUALLY ended on, and it is an int.
+					// Reading it into a bool clipped every fuse to 1 (and turned the
+					// -1 a failed prime / an unprime ships into 1, arming a grenade
+					// the executor never armed) before handing it to
+					// coopActiveGranade(..., int fusetimer, ...). Pre-existing in
+					// classic co-op; PRD-P6's re-broadcast made it clip a parallel
+					// client's intent-primed fuses too.
+					int fusetimer = obj["fusetimer"].asInt();
 
 					int item_id = obj["item_id"].asInt();
 
 					_game->getSavedGame()->getSavedBattle()->getBattleState()->coopActiveGranade(actor_id, type, hand, fusetimer, item_id);
+
+					// coop (PRD-P9 soak finding): charge the actor the way the executor
+					// did. Presence-gated, so an older peer's packet behaves exactly as
+					// before. Without it the two copies of the soldier drift apart by the
+					// action's cost on every use - this kind pushes no BattleState, so
+					// nothing else on the peer would ever charge it.
+					coopApplyActorCost(obj, actor_id, _game->getSavedGame()->getSavedBattle());
 
 				}
 			}
@@ -6273,7 +8314,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					std::string hand = obj["hand"].asString();
 
 					bool fuse = obj["fuse"].asBool();
-					bool fusetimer = obj["fusetimer"].asInt();
+					// coop (PRD-P9 rider R1): the fuse is an INT and coopActionClick takes
+					// an int. Reading it into a bool clipped every fuse above 1 to 1 and
+					// turned the -1 an unprime ships into 1, arming a grenade the sender
+					// had just disarmed - the same defect PRD-P7 fixed on the
+					// `active_grenade` receive. This path is classic-only (a parallel
+					// client suppresses `action_click` outright), so it is a classic
+					// co-op fix rather than a parallel-mode one.
+					int fusetimer = obj["fusetimer"].asInt();
 
 					int target_x = obj["target_x"].asInt();
 					int target_y = obj["target_y"].asInt();
@@ -6337,7 +8385,23 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
 
-					battlestate->coopHealing(actor_id, type, part, medkit_state, action_result, time);
+					// coop (PRD-P6): additive identification of the healer and the
+					// medikit that acted; absent from an older peer's packet, in
+					// which case the classic branch runs unchanged.
+					battlestate->coopHealing(actor_id, type, part, medkit_state, action_result, time,
+											 obj.get("healer_id", -1).asInt(),
+											 obj.get("weapon_id", -1).asInt(),
+											 obj.get("weapon_type", "").asString(),
+											 obj.get("hand", "").asString());
+
+					// coop (PRD-P9 soak finding): charge the actor the way the executor
+					// did. Presence-gated, so an older peer's packet behaves exactly as
+					// before. Without it the two copies of the soldier drift apart by the
+					// action's cost on every use - this kind pushes no BattleState, so
+					// nothing else on the peer would ever charge it.
+					// keyed on the HEALER, not `actor_id` (which is the patient here).
+					coopApplyActorCost(obj, obj.get("healer_id", -1).asInt(),
+									   _game->getSavedGame()->getSavedBattle());
 
 				}
 			}
@@ -6415,6 +8479,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						auto* spawnType = _game->getSavedGame()->getSavedBattle()->getMod()->getUnit(spawnUnitType);
 						unit->setSpawnUnit(spawnType);
 
+						// coop (PRD-P4): park the built-in ids before the respawn
+						// runs; the guard inside convertUnit adopts them.
+						SharedEcon::storeSpawnManifest(_game->getSavedGame()->getSavedBattle(),
+													   "convert", unit_id, obj);
+
 						_game->getSavedGame()->getSavedBattle()->convertUnit(unit);
 
 						break;
@@ -6427,12 +8496,76 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "after_unit_death")
 	{
+		// coop (parallel battlescape Phase 2b - atomic unit death, DEFENSIVE): on the
+		// parallel client with the atomic path ON, the host never sends this legacy
+		// carrier - `unit_casualty` replaces it - so this should be unreachable there.
+		// Guard it anyway rather than silently double-applying if something upstream
+		// regresses. `g_atomicDeathDisable` (TEST-ONLY RED lever) stands this down: with
+		// the atomic path OFF the host falls back to sending the legacy trio, and the
+		// client must process it exactly as before to reproduce the pre-atomic straddle.
+		if (parallelTurnActive() && !getHost() && !g_atomicDeathDisable.load(std::memory_order_relaxed))
+		{
+			return;
+		}
 
 		if (_game->getSavedGame())
 		{
 
 			if (_game->getSavedGame()->getSavedBattle())
 			{
+
+				// coop (PRD-P4): the corpse id-manifest. This packet POST-dates the
+				// peer's own corpse creation - that was triggered by the earlier
+				// `unit_death`, and this one only reaches the handler once that replay
+				// has completed - so the manifest is applied by REMAPPING the corpses
+				// that already exist (path b, hole H3). Path (a), the guard around
+				// UnitDieBState's creation loop, is what would consume it if the two
+				// ever crossed the other way round; whichever fires first wins and the
+				// manifest is dropped, so the pair is idempotent.
+				SavedBattleGame* coopBattle = _game->getSavedGame()->getSavedBattle();
+				const int coopDeadUnitId = obj["unit_id"].asInt();
+				const bool coopParallelClient = parallelTurnActive() && !getHost();
+				// coop (item 3, mint-at-apply): park the host's minted corpse ids for this death.
+				// On the parallel replay client the mint below consumes them at CREATE; on a classic
+				// client the corpse already exists (animation clock) and remapCorpseIds re-stamps it.
+				const bool coopHaveCorpseManifest =
+					SharedEcon::storeSpawnManifest(coopBattle, "corpse", coopDeadUnitId, obj);
+				if (coopParallelClient)
+				{
+					// coop (item 3, mint-at-apply): the parallel replay client did NOT mint this
+					// death's corpse on its animation clock - UnitDieBState::convertUnitToCorpse is
+					// display-only there. Create it HERE, on the ordered bookkeeping clock, adopting
+					// the host's manifest ids at CREATE (the CoopSubjectGuard inside coopMintCorpse
+					// consumes the manifest parked just above), so the corpse exists with the host's
+					// exact ids by the time this chain's action_end sync-check hash samples. Runs
+					// while the victim still holds its tile (unit_death shipped isTile=true and the
+					// display-only convert left the link intact), so itemDropInventory still spills
+					// the kit to the floor. overKill is derived from the synced health exactly as
+					// UnitDieBState's ctor does, so this machine takes the host's corpse/no-corpse branch.
+					for (auto* coopVictim : *coopBattle->getUnits())
+					{
+						if (coopVictim->getId() == coopDeadUnitId)
+						{
+							coopBattle->getBattleGame()->coopMintCorpse(coopVictim, coopVictim->getOverKillDamage() != 0);
+							break;
+						}
+					}
+				}
+				else if (coopHaveCorpseManifest)
+				{
+					SharedEcon::remapCorpseIds(coopBattle, coopDeadUnitId);
+				}
+				// coop (PRD-I3 Session F window 2): the host ids for this death have now arrived
+				// (and on the parallel client the mint above adopted them at create), so any
+				// local-id corpse minted for it is reconciled - items/itemIdCtr may compare it again.
+				SharedEcon::clearCorpseRemapPending(coopDeadUnitId);
+
+				// coop (PRD-I3 SEAM-4): apply the host's post-casualty bystander morale
+				// on the parallel client only; absolute overwrite, idempotent.
+				if (coopParallelClient)
+				{
+					coopApplyBystanderMorale(coopBattle, obj);
+				}
 
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
@@ -6462,6 +8595,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						unit->setMotionPointsCoop(motionpoints);
 						unit->setTimeUnits(time);
+						coopDiagUnit("after_unit_death.tu@8557", unit->getId(), time);
 						unit->setHealth(health);
 						unit->setCoopMorale(morale);
 						unit->setCoopEnergy(energy);
@@ -6469,17 +8603,64 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						unit->setStunlevelCoop(stunlevel);
 						
+						// coop (chain-atomicity, fatalWounds gap): apply the death carrier's fatal
+						// wounds so a reordered next_turn bulk snapshot that resurrected the dying
+						// unit's pre-hit wounds cannot leave the client's post-death wounds stale.
+						// Parallel client only (classic replays damage(), byte-identical); present-
+						// gated for old hosts that never shipped the field.
+						if (parallelTurnActive() && !getHost() && obj.isMember("fatalWounds"))
+						{
+							const Json::Value& deathFatalArray = obj["fatalWounds"];
+							for (int part = 0; part < BODYPART_MAX && part < deathFatalArray.size(); ++part)
+							{
+								unit->setFatalWoundCoop(part, deathFatalArray[part].asInt());
+							}
+						}
+						
 						int status_int = obj["status"].asInt();
 						UnitStatus unitStatus = intToUnitstatus(status_int);
 						unit->setCoopStatus(unitStatus);
 
+						// coop: the host's kill ATTRIBUTION (UnitDieBState::coopWriteKillAttribution).
+						// This machine derives killedBy/murdererId for itself only when it happens to
+						// run its own checkForCasualties over the same victim - which it does for a
+						// death caused by an action it is replaying, and NOT for one it never replays
+						// as a local attack chain (a reaction-fire kill during the alien side). There
+						// the alien kept the ctor default `_killedBy = its own faction` and
+						// DebriefingState scored it as no kill at all, so the two players saw
+						// different alien-kill counts and different mission scores.
+						//
+						// Additive: absent means an older peer, so keep whatever was derived locally.
+						// Never re-derived here - the executor decides who killed whom, always.
+						if (obj.isMember("killedBy"))
+						{
+							unit->killedBy((UnitFaction)obj["killedBy"].asInt());
+						}
+						if (obj.isMember("murdererId"))
+						{
+							unit->setMurdererId(obj["murdererId"].asInt());
+						}
+
 						// TILE
 						bool isTile = obj["isTile"].asBool();
 
-						if (!isTile)
+						// coop (PRD-P10): NOT while this machine's own death replay is
+						// still queued. See SharedEcon::corpseReplayPending - unlinking
+						// here is what made the executor drop a casualty's kit on the
+						// floor while the peer kept it on the body, and what made an
+						// ALIEN casualty lose its corpse and its drop entirely
+						// (UnitDieBState::init pops a tile-less non-PLAYER unit). The
+						// replay unlinks the tile itself, immediately after the drop.
+						if (!isTile && !SharedEcon::corpseReplayPending(unit->getId()))
 						{
 
-							if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+							// coop (parallel Phase 3, Sub-task B): in parallel the atomic
+							// unit_casualty already carried the explicit final status above
+							// (this handler is legacy-trio-only and never runs in parallel -
+							// see Sub-task A - but gate the INFERENCE anyway, defense in
+							// depth). The tile unlink itself stays ungated: classic still
+							// reads it.
+							if (!parallelTurnActive() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 							{
 								unit->setCoopStatus(STATUS_DEAD);
 							}
@@ -6487,7 +8668,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
 						}
 
-						if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+						if (!parallelTurnActive() && !unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 						{
 							unit->setCoopStatus(STATUS_DEAD);
 						}
@@ -6504,7 +8685,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "selfDestruct")
 	{
 
-		
+		// coop (PRD-P3 GAP-4b): the host rolled the BA_SELF_DESTRUCT chance before it
+		// sent this, so park the answer for the ExplosionBState damageCoop is about to
+		// push. Absent = older peer: fall back to this machine's own roll, as before.
+		if (obj.isMember("triggered"))
+		{
+			// coop (wire-order Increment 3 / A2): lever-on the parallel client parks into
+			// the display-side copy so next_turn's state-half clear cannot starve the
+			// still-queued ExplosionBState self-destruct replay. Lever-off / host: canonical.
+			if (g_wireOrderState.load(std::memory_order_relaxed)
+				&& parallelTurnActive() && !getHost())
+				_selfDestructResultsDisplay.push_back(obj["triggered"].asBool() ? 1 : 0);
+			else
+				_selfDestructResults.push_back(obj["triggered"].asBool() ? 1 : 0);
+		}
+
 		if (_game->getSavedGame())
 		{
 
@@ -6544,6 +8739,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
 			const Json::Value& arr = obj["items"];
+			// coop (TRACE A DIAGNOSTIC, RCA lost-removal): log the explode_items ARRIVAL
+			// (this is a wire-order carrier, so reaching here means it was NOT dropped-in-RX
+			// for these ids), and per item the LOOKUP RESULT + whether an item of that TYPE
+			// exists at all on the client - discriminates arrived-but-lookup-missed
+			// (id-mismatch: type present, other ids) from item-absent (mint still pending /
+			// never existed). Capture-gated (g_diagCapture), production-inert.
+			if (g_diagCapture.load(std::memory_order_relaxed))
+				coopDiagS("EXPL_RX explode_items n=" + std::to_string(arr.size())
+					+ " clientItems=" + std::to_string(sbg->getItems()->size()));
 			for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
 			{
 				int itemId = arr[i]["id"].asInt();
@@ -6556,6 +8760,22 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						victim = bi;
 						break;
 					}
+				}
+				if (g_diagCapture.load(std::memory_order_relaxed) && itemType == "STR_STUN_BOMB")
+				{
+					std::string idsOfType;
+					int typeCount = 0;
+					for (auto* bi : *sbg->getItems())
+						if (bi->getRules() && bi->getRules()->getType() == itemType)
+						{
+							++typeCount;
+							idsOfType += " id" + std::to_string(bi->getId())
+								+ "/cid" + std::to_string(bi->getCoopID());
+						}
+					coopDiagS("EXPL_RX.item id=" + std::to_string(itemId) + " t=" + itemType
+						+ " found=" + std::to_string(victim ? 1 : 0)
+						+ " typeCountOnClient=" + std::to_string(typeCount)
+						+ " present:[" + idsOfType + " ]");
 				}
 				if (victim)
 				{
@@ -6583,13 +8803,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					int center_z = obj["center_z"].asInt();
 
 					int power = obj["power"].asInt();
-					int damageType_int = obj["damageType"].asInt();
 					bool rangeAtack = obj["rangeAtack"].asBool();
 					int terrainMeleeTilePart = obj["terrainMeleeTilePart"].asInt();
 
 					uint64_t seed = obj["seed"].asUInt64();
-					int smokeRNG = obj["smokeRNG"].asInt();
-					_smokeRNGs.push_back(smokeRNG);
 
 					float ArmorEffectiveness = obj["ArmorEffectiveness"].asFloat();
 					bool FireBlastCalc = obj["FireBlastCalc"].asBool();
@@ -6667,15 +8884,39 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					dmg->ToTile = ToTile;
 					dmg->ToWound = ToWound;
 
-					if (!_battleActions.empty())
+					// coop (PHASE D.2 / chain-atomicity): reconstruct the attack DIRECTLY
+					// from the packet's identity fields - no parked-attack FIFO, no
+					// attack_id match, no drop path. The host ships exactly the fields
+					// hitCoop consumes. `attacker` is load-bearing: voxelCheck excludes it
+					// from the raycast that picks which tile part the hit lands on, so a
+					// wrong/absent attacker could pick a different part and diverge the
+					// terrain outcome. The item pointers feed the reconstructed
+					// BattleActionAttack that hitCoop forwards to hitUnit (which early-returns
+					// on a coop client, so a null item is harmless); ids are looked up here,
+					// never fabricated (issue #74).
+					SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+					BattleActionAttack oldest{};
+					oldest.type = (BattleActionType)obj.get("ba_type", 0).asInt();
+					int attackerId = obj.get("attacker_id", -1).asInt();
+					if (attackerId >= 0)
 					{
-						BattleActionAttack oldest = _battleActions.front();  
-				
-						_game->getSavedGame()->getSavedBattle()->getBattleGame()->hitCoop(oldest, Position(center_x, center_y, center_z), power, dmg, rangeAtack, terrainMeleeTilePart, seed);
-
-						_battleActions.erase(_battleActions.begin()); 
-				
+						for (auto* u : *sbg->getUnits())
+						{
+							if (u->getId() == attackerId) { oldest.attacker = u; break; }
+						}
 					}
+					int weaponItemId = obj.get("weapon_item_id", -1).asInt();
+					int damageItemId = obj.get("damage_item_id", -1).asInt();
+					if (weaponItemId >= 0 || damageItemId >= 0)
+					{
+						for (auto* bi : *sbg->getItems())
+						{
+							if (weaponItemId >= 0 && bi->getId() == weaponItemId) oldest.weapon_item = bi;
+							if (damageItemId >= 0 && bi->getId() == damageItemId) oldest.damage_item = bi;
+						}
+					}
+
+					sbg->getBattleGame()->hitCoop(oldest, Position(center_x, center_y, center_z), power, dmg, rangeAtack, terrainMeleeTilePart, seed);
 
 				}
 
@@ -6688,6 +8929,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// unit_death
 	if (stateString == "unit_death")
 	{
+		// coop (parallel battlescape Phase 2b - atomic unit death, DEFENSIVE): see the
+		// matching guard on `after_unit_death` above - unreachable on the parallel
+		// client with the atomic path ON (the host sends `unit_casualty` instead), and
+		// stood down under `g_atomicDeathDisable` (TEST-ONLY RED lever) so the legacy
+		// trio still applies when the host falls back to sending it.
+		if (parallelTurnActive() && !getHost() && !g_atomicDeathDisable.load(std::memory_order_relaxed))
+		{
+			return;
+		}
 
 		if (_game->getSavedGame())
 		{
@@ -6696,6 +8946,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 
 				_game->getSavedGame()->getSavedBattle()->abortPathCoop();
+
+				// coop (PRD-I3 SEAM-4): apply the host's post-casualty bystander morale
+				// on the parallel client only (a classic client replays checkForCasualties
+				// itself, so it stays byte-identical); absolute overwrite, idempotent.
+				if (parallelTurnActive() && !getHost())
+				{
+					coopApplyBystanderMorale(_game->getSavedGame()->getSavedBattle(), obj);
+				}
 
 				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 				{
@@ -6726,12 +8984,27 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 							unit->setMotionPointsCoop(motionpoints);
 							unit->setTimeUnits(time);
+							coopDiagUnit("unit_death.tu@8920", unit->getId(), time);
 							unit->setHealth(health);
 							unit->setCoopMorale(morale);
 							unit->setCoopEnergy(energy);
 							unit->setCoopMana(mana);
 
 							unit->setStunlevelCoop(stunlevel);
+							
+							// coop (chain-atomicity, fatalWounds gap): apply the death carrier's fatal
+							// wounds so a reordered next_turn bulk snapshot that resurrected the dying
+							// unit's pre-hit wounds cannot leave the client's post-death wounds stale.
+							// Parallel client only (classic replays damage(), byte-identical); present-
+							// gated for old hosts that never shipped the field.
+							if (parallelTurnActive() && !getHost() && obj.isMember("fatalWounds"))
+							{
+								const Json::Value& deathFatalArray = obj["fatalWounds"];
+								for (int part = 0; part < BODYPART_MAX && part < deathFatalArray.size(); ++part)
+								{
+									unit->setFatalWoundCoop(part, deathFatalArray[part].asInt());
+								}
+							}
 
 							int pos_x = obj["pos_x"].asInt();
 							int pos_y = obj["pos_y"].asInt();
@@ -6747,19 +9020,49 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							UnitStatus unitStatus = intToUnitstatus(status_int);
 							unit->setCoopStatus(unitStatus);
 
+							// coop: the host's kill ATTRIBUTION (UnitDieBState::coopWriteKillAttribution).
+							// This machine derives killedBy/murdererId for itself only when it happens to
+							// run its own checkForCasualties over the same victim - which it does for a
+							// death caused by an action it is replaying, and NOT for one it never replays
+							// as a local attack chain (a reaction-fire kill during the alien side). There
+							// the alien kept the ctor default `_killedBy = its own faction` and
+							// DebriefingState scored it as no kill at all, so the two players saw
+							// different alien-kill counts and different mission scores.
+							//
+							// Additive: absent means an older peer, so keep whatever was derived locally.
+							// Never re-derived here - the executor decides who killed whom, always.
+							if (obj.isMember("killedBy"))
+							{
+								unit->killedBy((UnitFaction)obj["killedBy"].asInt());
+							}
+							if (obj.isMember("murdererId"))
+							{
+								unit->setMurdererId(obj["murdererId"].asInt());
+							}
+
 							int damageType_int = obj["damageType"].asInt();
 							bool noSound = obj["noSound"].asBool();
 							const RuleDamageType* damageType = _game->getMod()->getDamageType(intToItemDamageType(damageType_int));
 
 							_game->getSavedGame()->getSavedBattle()->getBattleGame()->coopDeath(unit, damageType, noSound);
 
-							// TILE
-							bool isTile = obj["isTile"].asBool();
+							// TILE. coop (PRD-P9 soak finding): DEFAULT TRUE. `unit_death` did
+							// not carry the field at all, and Json::Value::asBool() on a
+							// missing key is false - so every death unlinked the peer's unit
+							// from its tile before the die state ran, and the inventory it
+							// should have dropped stayed on the corpse.
+							bool isTile = obj.get("isTile", true).asBool();
 
 							if (!isTile)
 							{
 
-								if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+								// coop (parallel Phase 3, Sub-task B): gate the tile-less
+								// DEAD-status inference - unneeded and could misfire in
+								// parallel now that unit_casualty carries the explicit final
+								// status (this whole handler is legacy-trio-only and never
+								// runs in parallel - see Sub-task A). Keep the tile unlink
+								// itself ungated: classic still reads it.
+								if (!parallelTurnActive() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 								{
 									unit->setCoopStatus(STATUS_DEAD);
 								}
@@ -6767,7 +9070,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 								unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
 							}
 
-							if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+							if (!parallelTurnActive() && !unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
 							{
 								unit->setCoopStatus(STATUS_DEAD);
 							}
@@ -6782,6 +9085,139 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// Make sure the Battlescape does not get stuck...
 		_hasHitUnit = -1;
 
+	}
+
+	// coop (parallel battlescape Phase 2b - atomic unit death): `unit_casualty`,
+	// the parallel HOST's single atomic carrier for a casualty - replaces the
+	// unit_death/after_unit_death pair (still sent under `atomic_death_disable`,
+	// see the legacy handlers' early-returns above). This handler does ONLY the
+	// unit lookup, the rank-2 state watermark, abortPathCoop, and the bystander-
+	// morale apply; the actual per-unit/world apply is
+	// BattlescapeGame::coopApplyCasualty (BattlescapeGame.cpp) - split so the
+	// watermark reject can bail out before any world mutation runs.
+	if (stateString == "unit_casualty")
+	{
+		BattleUnit* coopCasualtyUnit = nullptr;
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			const int coopCasualtyUnitId = obj.get("unit_id", -1).asInt();
+			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+			{
+				if (unit->getId() == coopCasualtyUnitId)
+				{
+					coopCasualtyUnit = unit;
+					break;
+				}
+			}
+		}
+
+		if (!coopCasualtyUnit)
+		{
+			Log(LOG_INFO) << "coop (Phase 2b unit_casualty): no local unit "
+						  << obj.get("unit_id", -1).asInt() << " - packet dropped";
+			return;
+		}
+
+		// coop (parallel battlescape Phase 1 - per-unit state watermark, rank 2):
+		// a stamp older than the unit's recorded watermark is dropped instead of
+		// clobbering a newer absolute. `coopStateAccept` both checks AND records,
+		// so a re-delivered exact duplicate (>=) is idempotently accepted.
+		bool stateStamped = false;
+		uint32_t stateSide = 0, stateSeq = 0;
+		coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+		if (parallelTurnActive() && !getHost() && !g_deathWatermarkDisable.load(std::memory_order_relaxed)
+			&& stateStamped && !coopCasualtyUnit->coopStateAccept(stateSide, stateSeq, 2))
+		{
+			++g_casualtiesRejected;
+			return;
+		}
+
+		_game->getSavedGame()->getSavedBattle()->abortPathCoop();
+
+		// coop (PRD-I3 SEAM-4): see the unit_death/after_unit_death handlers above -
+		// same absolute overwrite, same idempotence, same parallel-client-only scope
+		// (the caller already established this handler only ever runs there).
+		coopApplyBystanderMorale(_game->getSavedGame()->getSavedBattle(), obj);
+
+		_game->getSavedGame()->getSavedBattle()->getBattleGame()->coopApplyCasualty(obj);
+
+		// Make sure the Battlescape does not get stuck...
+		_hasHitUnit = -1;
+
+		++g_casualtiesApplied;
+	}
+
+	// coop (PRD-P10): the panic OUTCOME (UnitPanicBState, host-resolved).
+	//
+	// Everything a panic DOES already crossed on its own packet - the dropped
+	// hand weapons on `Inventory`, the flee walk on the walk packet, a
+	// berserker's shots on `ProjectileFlyBState`. What did not was the state
+	// UnitPanicBState itself writes when the panic ends: status back to
+	// STANDING, TU cleared, +15 morale. The peer had adopted the PANICKING
+	// status from `next_turn` (sent before the host resolves anything) and kept
+	// it, with a full turn's TU, for the rest of the battle.
+	//
+	// Deliberately NOT in the always-consume list above: it must stay behind
+	// the same receive gate as `next_turn` so the two cannot swap places (a
+	// rotated `next_turn` would otherwise re-stamp the pre-panic TU on top of
+	// this outcome).
+	if (stateString == "panic_action")
+	{
+		SavedBattleGame* panicBattle = _game && _game->getSavedGame()
+										   ? _game->getSavedGame()->getSavedBattle()
+										   : nullptr;
+		if (panicBattle)
+		{
+			const int panicUnitId = obj["unit_id"].asInt();
+			for (auto* unit : *panicBattle->getUnits())
+			{
+				if (unit->getId() != panicUnitId)
+				{
+					continue;
+				}
+
+				// coop (parallel battlescape Phase 1 - per-unit state watermark):
+				// panic_action is a rank-1 chain carrier (stamped via
+				// UnitPanicBState.cpp:178). A stamp older than the unit's recorded
+				// watermark is dropped instead of clobbering a newer absolute.
+				bool stateStamped = false;
+				uint32_t stateSide = 0, stateSeq = 0;
+				coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+				if (!parallelTurnActive() || getHost() || !stateStamped
+					|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+					|| unit->coopStateAccept(stateSide, stateSeq, 1))
+				{
+					unit->setTimeUnits(obj["time"].asInt());
+					coopDiagUnit("panic_action.tu@9125", unit->getId(), obj["time"].asInt());
+					unit->setCoopEnergy(obj["energy"].asInt());
+					unit->setHealth(obj["health"].asInt());
+					unit->setCoopMorale(obj["morale"].asInt());
+					unit->setCoopMana(obj["mana"].asInt());
+					unit->setStunlevelCoop(obj["stunlevel"].asInt());
+					unit->setDirection(obj["setDirection"].asInt());
+					unit->setFaceDirection(obj["setFaceDirection"].asInt());
+
+					// Never RESURRECT: the same rule UnitDieBState's replay follows.
+					// A unit that died while panicking (a berserker walking into
+					// reaction fire) is already STATUS_DEAD here, and the host's
+					// outcome - captured before the death - must not undo that.
+					if (!unit->isOut())
+					{
+						unit->setCoopStatus(intToUnitstatus(obj["status"].asInt()));
+					}
+
+					Log(LOG_INFO) << "coop (PRD-P10): panic outcome applied to unit "
+								  << panicUnitId << " - tu " << unit->getTimeUnits()
+								  << ", morale " << unit->getMorale();
+				}
+				else
+				{
+					++g_stateWatermarkRejects;
+					++g_stateWatermarkRejectsRank1;
+				}
+				break;
+			}
+		}
 	}
 
 	if (stateString == "set_smoke_tile")
@@ -6859,10 +9295,120 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				selected_tile->setExplosive(explosive, explosive_type, true);
 
+				// coop (explosion ordered-replay E1, LEAK-GRAV derive): the parallel client no
+				// longer runs explode()'s per-affected-tile applyGravity (TileEngine.cpp
+				// :3914-3917 - gated off by ExplosionBState::_coopReplayDisplay). Derive it
+				// here instead: contents settle only when the floor under them changed this
+				// blast, and the host ships a destroy_tile for exactly the tile(s) whose part
+				// it actually destroyed (Tile::destroy sends unconditionally on every
+				// successful destroy, any part - Tile.cpp:606-626), so applying gravity to
+				// this tile PLUS the tile above it, on every destroy_tile receipt, covers both
+				// of the host's own per-affected-tile applyGravity targets (the tile itself and
+				// its ceiling) whenever the relevant O_FLOOR destroy actually happened; when it
+				// did not, applyGravity is a no-op (TileEngine::applyGravity reads only the
+				// CURRENT hasNoFloor/haveNoFloorBelow state, so an extra or non-matching call
+				// changes nothing - verified against TileEngine.cpp:5641-5695). Parallel-client
+				// only + off when the replay lever forces the old sim (which runs its own
+				// gravity via the gated explode() call above). Classic co-op / PvP / host /
+				// single-player untouched.
+				if (parallelTurnActive() && !getHost()
+					&& !OpenXcom::g_explosionReplayDisable.load(std::memory_order_relaxed)
+					&& !OpenXcom::g_gravityDeriveDisable.load(std::memory_order_relaxed))
+				{
+					TileEngine* te = _game->getSavedGame()->getSavedBattle()->getTileEngine();
+					if (te)
+					{
+						te->applyGravity(selected_tile);
+						Tile* aboveT = _game->getSavedGame()->getSavedBattle()->getTile(
+							Position(tile_pos_x, tile_pos_y, tile_pos_z + 1));
+						if (aboveT) te->applyGravity(aboveT);
+					}
+				}
+
 			}
 
 		}
 
+	}
+
+	// set explosive tile (coop chain-atomicity item-2): host-shipped explosive-charge
+	// consumption. Mirrors the host's ExplosionBState zero so the parallel replay client
+	// stops deriving the charge from its own display loop. Stamped -> rides the ordered
+	// gate and the D.1 action_end apply barrier exactly like destroy_tile (an absent/seq-0
+	// action_seq = boundary explosion / classic / old peer = legacy always-consume).
+	if (stateString == "set_explosive_tile")
+	{
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			int tile_pos_x = obj["tile_pos_x"].asInt();
+			int tile_pos_y = obj["tile_pos_y"].asInt();
+			int tile_pos_z = obj["tile_pos_z"].asInt();
+
+			int explosive = obj["explosive"].asInt();
+			int explosive_type = obj["explosive_type"].asInt();
+
+			Tile *selected_tile = _game->getSavedGame()->getSavedBattle()->getTile(Position(tile_pos_x, tile_pos_y, tile_pos_z));
+
+			if (selected_tile)
+			{
+				selected_tile->setExplosive(explosive, explosive_type, true);
+			}
+		}
+	}
+
+	// coop (explosion ordered-replay E2): the parallel client replays the host's
+	// chain in the host's order. Ordered/stamped (coopIsChainOutcomePacket) so it
+	// applies in wire = host-scan order. E2 spawns the display-only chained
+	// ExplosionBState at apply (bookkeeping clock; rough timing OK - E3 moves the
+	// start to the display moment via the ghost queue). The chained state is itself
+	// display-only (_coopReplayDisplay true -> E1/E2 gates suppress its sim).
+	if (stateString == "chain_detonation")
+	{
+		if (parallelTurnActive() && !getHost()
+			&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+			int cx = obj["tile_pos_x"].asInt();
+			int cy = obj["tile_pos_y"].asInt();
+			int cz = obj["tile_pos_z"].asInt();
+			Tile* ct = sbg->getTile(Position(cx, cy, cz));
+			BattlescapeGame* cbg = sbg->getBattleGame();
+			if (ct && cbg)
+			{
+				Position cp = ct->getPosition().toVoxel();
+				cp += Position(8, 8, 0);
+				ExplosionBState* chained = new ExplosionBState(
+					cbg, cp, BattleActionAttack{ BA_NONE, nullptr }, ct, false, 0, 1);
+				cbg->statePushBack(chained);
+				++OpenXcom::g_chainDetonationsApplied;
+				chainDetonationListRecord(cx, cy, cz);
+			}
+		}
+	}
+
+	// coop (explosion ordered-replay E5a GAP-MODULE): the base-module decrement in
+	// detonate() (TileEngine.cpp) is host-only for coop (client early-return, classic
+	// idiom) with no carrier - DebriefingState scores base defense from getModuleMap(),
+	// so a parallel client's base-defense result silently drifts from the host's. Apply
+	// the host's decrement here. Not subject-keyed / not stamped (like destroy_tile /
+	// chain_detonation) - see coopIsChainOutcomePacket. Parallel-client-only; the
+	// hit-path decrements are already machine-symmetric and are NOT carriered.
+	if (stateString == "module_destroyed")
+	{
+		if (parallelTurnActive() && !getHost()
+			&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+			int gx = obj["gx"].asInt();
+			int gy = obj["gy"].asInt();
+			auto& moduleMap = sbg->getModuleMap();
+			if (gx >= 0 && gx < (int)moduleMap.size()
+				&& gy >= 0 && gy < (int)moduleMap[gx].size())
+			{
+				moduleMap[gx][gy].second--;
+				++OpenXcom::g_moduleDestroyedApplied;
+			}
+		}
 	}
 
 	if (stateString == "unit_fire")
@@ -6922,22 +9468,222 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 						const Json::Value& fatalArray = obj["fatalWounds"];
 
-						for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
+						// coop (parallel battlescape Phase 1 - per-unit state watermark):
+						// hit_unit is a rank-1 chain carrier, stamped via coopStampChainSeq
+						// (TileEngine.cpp:3305) EXCEPT boundary/environmental hits
+						// (_openChainSeq==0 -> unstamped -> bypasses the watermark, same
+						// as classic co-op below).
+						bool stateStamped = false;
+						uint32_t stateSide = 0, stateSeq = 0;
+						coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+						if (!parallelTurnActive() || getHost() || !stateStamped
+							|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+							|| unit->coopStateAccept(stateSide, stateSeq, 1))
 						{
-							unit->setFatalWoundCoop(part, fatalArray[part].asInt());
-						}
+							for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
+							{
+								unit->setFatalWoundCoop(part, fatalArray[part].asInt());
+							}
 
-						unit->setHealth(health);
-						unit->setStunlevelCoop(stunlevel);
+							unit->setHealth(health);
+							unit->setStunlevelCoop(stunlevel);
+							// coop (PRD-I3): a parallel thin client does NOT replay the attack,
+							// so hit_unit is the ONLY carrier of the victim's post-damage combat
+							// stats. Apply the additive fields the executor now ships (morale/
+							// energy/mana/tu, all written by BattleUnit::damage()) so the
+							// per-action unitsStats hash matches AT the hit instead of only after
+							// next_turn's bulk repair. Parallel-scoped so classic replay (which
+							// runs its own damage()) stays byte-identical; present-gated for old
+							// peers.
+							if (parallelTurnActive() && !getHost())
+							{
+								if (obj.isMember("morale")) unit->setCoopMorale(obj["morale"].asInt());
+								if (obj.isMember("energy")) unit->setCoopEnergy(obj["energy"].asInt());
+								if (obj.isMember("mana")) unit->setCoopMana(obj["mana"].asInt());
+								if (obj.isMember("tu")) { unit->setTimeUnits(obj["tu"].asInt()); coopDiagUnit("hit_unit.tu@9438", unit->getId(), obj["tu"].asInt()); }
+								// coop (PRD-I3 saveBlob close): the victim's post-damage per-side armor
+								// (hit_unit is the sole carrier; classic replays damage() and never diverges).
+								if (obj.isMember("armor"))
+								{
+									const Json::Value& armorArr = obj["armor"];
+									for (int side = 0; side < SIDE_MAX && side < (int)armorArr.size(); ++side)
+									{
+										unit->setArmor(armorArr[side].asInt(), (UnitSide)side);
+									}
+								}
+								// coop (kill-credit fix): murdererId/killedBy can change on the
+								// host AFTER a unit is down (e.g. a later blast catches the downed
+								// body's tile, TileEngine.cpp:3281), but the thin client never runs
+								// damage() itself, so without this hit_unit is silent on it and the
+								// client's credit drifts from the host's. Watermark-accepted like
+								// the other per-unit fields above; parallel-client-only so host/
+								// classic (which already have the correct value locally) stay
+								// byte-identical. Present-gated for older peers.
+								if (obj.isMember("murdererId")) unit->setMurdererId(obj["murdererId"].asInt());
+								if (obj.isMember("killedBy")) unit->killedBy((UnitFaction)obj["killedBy"].asInt());
+							}
+						}
+						else
+						{
+							++g_stateWatermarkRejects;
+							++g_stateWatermarkRejectsRank1;
+						}
 						break;
 
 					}
 
 				}
 
+				// coop (E5a GAP-XP): the parallel thin client never replays
+				// awardExperience (TileEngine.cpp:3264 is dead behind hitUnit's own
+				// client early-return, :3222-3230), so a client-owned soldier's
+				// combat XP from a replayed shot/melee/psi hit is never trained -
+				// debrief shows no stat improvement. hit_unit already fires per-hit;
+				// the host additionally ships the ATTACKER's post-award absolute exp
+				// counters (TileEngine.cpp hit_unit send, after killedBy) so the
+				// client can apply them without re-running awardExperience itself.
+				// Present-gated (older peer / non-attack hits omit the fields);
+				// parallel-client-only so classic/PvP/host (which compute this
+				// locally) stay byte-identical.
+				if (parallelTurnActive() && !getHost()
+					&& obj.isMember("attacker_id") && obj.isMember("exp_firing"))
+				{
+					const int attackerId = obj["attacker_id"].asInt();
+					for (auto& atkUnit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					{
+						if (atkUnit->getId() != attackerId)
+						{
+							continue;
+						}
+
+						UnitStats expStats;
+						expStats.bravery = (Sint16)obj["exp_bravery"].asInt();
+						expStats.reactions = (Sint16)obj["exp_reactions"].asInt();
+						expStats.firing = (Sint16)obj["exp_firing"].asInt();
+						expStats.throwing = (Sint16)obj["exp_throwing"].asInt();
+						expStats.psiSkill = (Sint16)obj["exp_psi_skill"].asInt();
+						expStats.psiStrength = (Sint16)obj["exp_psi_strength"].asInt();
+						expStats.melee = (Sint16)obj["exp_melee"].asInt();
+						expStats.mana = (Sint16)obj["exp_mana"].asInt();
+						atkUnit->setExpStatsCoop(expStats);
+						break;
+					}
+				}
+
 			}
 		}
 
+	}
+
+	// coop (PRD-I3 z-gravity close): the host's UnitFallBState landed a unit whose
+	// floor a mid-side blast destroyed. The parallel thin client never runs the fall
+	// (UnitFallBState is _isActivePlayerSync-gated = host-only in
+	// BattlescapeGame::think), so its copy floats a level up until next_turn re-ships
+	// positions - a unitsCore z-divergence for the whole side (test_coop_outcome_gaps)
+	// and the saveBlob `floating` bit. Apply the host's landed tile as an ABSOLUTE
+	// position (position only, never-resurrect) and clear the floating bit the vanished
+	// floor set, mirroring keepWalking's end (setTile refreshes _haveNoFloorBelow but
+	// leaves _floating). Sent host-only in parallel so classic/old peers never see it;
+	// gated non-host and present-checked here for safety. Rides the ORDERED gate (not
+	// the always-consume whitelist) and is subject-keyed on the fallen unit, so it
+	// applies in FIFO after the spawn/blast that minted and dropped it.
+	if (stateString == "unit_fall")
+	{
+		SavedBattleGame* fallBattle = (getCoopStatic() && !_isActivePlayerSync && _game && _game->getSavedGame())
+									  ? _game->getSavedGame()->getSavedBattle() : nullptr;
+		if (fallBattle)
+		{
+			const int fallUnitId = obj["unit_id"].asInt();
+			const Position fallPos(obj["x"].asInt(), obj["y"].asInt(), obj["z"].asInt());
+			for (auto* unit : *fallBattle->getUnits())
+			{
+				if (unit->getId() != fallUnitId)
+				{
+					continue;
+				}
+				// coop (parallel battlescape Phase 1 - per-unit state watermark):
+				// unit_fall is not stamped yet (Phase 3 will flip it on) - wrapped
+				// now so that flip is additive. `stateStamped` is false today, so
+				// this always takes the accept branch (bypass), byte-identical.
+				bool stateStamped = false;
+				uint32_t stateSide = 0, stateSeq = 0;
+				coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+				if (!parallelTurnActive() || getHost() || !stateStamped
+					|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+					|| unit->coopStateAccept(stateSide, stateSeq, 1))
+				{
+					// Never RESURRECT: unit_death owns a dead/knocked-out unit's state.
+					if (!unit->isOut() && unit->getPosition() != fallPos)
+					{
+						unit->setTile(fallBattle->getTile(fallPos), fallBattle);
+						unit->setPosition(fallPos);
+						if (unit->isFloating() && !unit->haveNoFloorBelow())
+						{
+							unit->setFloatingCoop(false);
+						}
+					}
+				}
+				else
+				{
+					++g_stateWatermarkRejects;
+					++g_stateWatermarkRejectsRank1;
+				}
+				break;
+			}
+		}
+	}
+
+	// coop (PRD-P3 GAP-9): the host's end-of-side fuse outcome. A client makes no
+	// BattleItem::fuseTimeEvent() rolls of its own, so this is the ONLY thing that
+	// detonates or removes a timed item there.
+	//
+	// Deviation from PROTOCOL's first sketch (which hung this off `next_turn`):
+	// next_turn only crosses at the START of the player's turn, so a fuse decided
+	// when the PLAYER side ended would not reach the peer until an entire alien
+	// side had run - a whole side of the peer holding items the host had destroyed.
+	// Its own state string is additive and silently ignored by an older peer.
+	if (stateString == "fuse_events")
+	{
+		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+		{
+			SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+
+			// A failed roll re-arms or disables the fuse instead of detonating.
+			const Json::Value& fuses = obj["fuses"];
+			for (Json::ArrayIndex i = 0; i < fuses.size(); ++i)
+			{
+				int itemId = fuses[i]["id"].asInt();
+				for (auto* bi : *sbg->getItems())
+				{
+					if (bi->getId() == itemId)
+					{
+						bi->setFuseTimer(fuses[i]["timer"].asInt());
+						break;
+					}
+				}
+			}
+
+			// Exploded grenades and swept items alike: the blast CONSEQUENCES already
+			// reached this machine on the host's explosion packets (hit_unit,
+			// explode_items, set_fire_tile, destroy_tile) - what never crossed was the
+			// disappearance of the item itself.
+			for (const char* key : { "exploded", "removed" })
+			{
+				const Json::Value& arr = obj[key];
+				for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
+				{
+					int itemId = arr[i].asInt();
+					for (auto* bi : *sbg->getItems())
+					{
+						if (bi->getId() == itemId)
+						{
+							sbg->removeItem(bi);
+							break;
+						}
+					}
+				}
+			}
+		}
 	}
 
 	if (stateString == "checkForProximityGrenades")
@@ -6954,18 +9700,51 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 					int unit_id = obj["unit_id"].asInt();
 
-					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+					// coop (PRD-P3 GAP-8): a sweep packet carrying `removed_items` is
+					// the HOST's removal list, not an invitation to re-scan. The peer
+					// used to decide for itself which non-grenade items a proximity
+					// fuse had swept away, off its own RNG::percent(specialChance)
+					// roll inside fuseProximityEvent().
+					if (obj.isMember("removed_items"))
 					{
-
-						if (unit->getId() == unit_id)
+						SavedBattleGame* sbg = _game->getSavedGame()->getSavedBattle();
+						const Json::Value& gone = obj["removed_items"];
+						for (Json::ArrayIndex i = 0; i < gone.size(); ++i)
 						{
-		
-							_game->getSavedGame()->getSavedBattle()->getBattleGame()->checkForProximityCoop(unit);
+							int itemId = gone[i]["id"].asInt();
+							std::string itemType = gone[i]["type"].asString();
+							for (auto* bi : *sbg->getItems())
+							{
+								if (bi->getId() == itemId && bi->getRules()->getType() == itemType)
+								{
+									sbg->removeItem(bi);
+									break;
+								}
+							}
+						}
+					}
+					else
+					{
+						// coop (PRD-P4): a death trap the host had to CREATE names the
+						// id it minted. Park it before the replay runs - the peer's
+						// checkForProximityGrenadesCoop creates its own copy inside a
+						// guard, which is where the id is adopted.
+						SharedEcon::storeSpawnManifest(_game->getSavedGame()->getSavedBattle(),
+													   "death_trap", unit_id, obj);
 
-							break;
+						for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+						{
+
+							if (unit->getId() == unit_id)
+							{
+
+								_game->getSavedGame()->getSavedBattle()->getBattleGame()->checkForProximityCoop(unit);
+
+								break;
+
+							}
 
 						}
-
 					}
 
 
@@ -6982,6 +9761,22 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		_hasHitUnit = -1;
 
+		// PRD-P3 GAP-4b: a parked melee/self-destruct outcome that was never consumed
+		// (its replay was skipped) must not poison the next turn's attack.
+		_meleeResults.clear();
+		_selfDestructResults.clear();
+		// coop (wire-order Increment 5 / A2): the parked-outcome DISPLAY copies' GAP-4b
+		// orphan-hygiene clear moved OUT of here to the boundary marker's display consumption
+		// (the action_end handler). Lever-on next_turn's state-half applies at RX arrival
+		// (it is now a wire-order carrier) while this side's melee/self-destruct display
+		// replays are still draining - clearing the copies here would starve a still-queued
+		// replay. Lever-off the copies are always empty, so the relocation is a no-op
+		// (byte-identical). The CANONICAL clear above stays (state-half, at arrival - the
+		// display reads the copies, not these vectors).
+		// PRD-P4: same hygiene for a Tier-A id-manifest whose replay never happened
+		// (the host minted corpses for a death this machine did not corpse-ify).
+		SharedEcon::clearSpawnManifests();
+
 		if (_game->getSavedGame())
 		{
 
@@ -6989,6 +9784,78 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 
 				bool end = obj["end"].asBool();
+
+				// PRD-P2 3b: the host stamped its three battle terms on this packet.
+				// Compare them against ours: a mismatch means the two battles have
+				// drifted apart. Detection only - logs, notifies once and raises the
+				// harness flag; it must NEVER restream the world mid-battle.
+				//
+				// BEFORE the bulk apply below, and that placement is the whole reason
+				// the unit term can see anything: `next_turn` REPAIRS unit position and
+				// status wholesale from the host's snapshot, so a compare made after it
+				// would find the two machines agreeing every single time - a detector
+				// silent by construction. The item terms do not care (nothing below
+				// touches an item), so all three move together.
+				// coop (PRD-I3 SEAM-10): converge each unit's ABSOLUTE faction from the
+				// host snapshot BEFORE the tripwire samples it. A mind-controlled unit
+				// reverts to its original faction at the host's NEUTRAL->PLAYER boundary
+				// (SavedBattleGame::endTurn -> prepareNewTurn), which the parallel client
+				// DEFERS to this packet - so its dead/expired MC victim keeps the player
+				// faction until now. verifyBattleChecksum below hashes faction in its
+				// battleUnits term and samples PRE-apply, and next_turn's bulk apply does
+				// not carry faction, so the revert has to land here or the detector fires
+				// on a divergence next_turn is about to repair (and the persistent unitsCore
+				// census drift would survive too). Host-authoritative absolute; PVE only
+				// (the PVP _coop_mindcontrolled path is an inverted per-machine flip);
+				// present-gated (absent = old host).
+				if (getCoopGamemode() != 2 && getCoopGamemode() != 3 && obj.isMember("units"))
+				{
+					for (Json::ArrayIndex ui = 0; ui < obj["units"].size(); ++ui)
+					{
+						if (!obj["units"][ui].isMember("faction")) continue;
+						int fid = obj["units"][ui]["unit_id"].asInt();
+						int nf = obj["units"][ui]["faction"].asInt();
+						if (nf < 0) continue;
+						for (auto& fu : *_game->getSavedGame()->getSavedBattle()->getUnits())
+						{
+							if (fu->getId() == fid)
+							{
+								if ((int)fu->getFaction() != nf)
+									fu->convertToFaction((UnitFaction)nf);
+								break;
+							}
+						}
+					}
+				}
+
+				// coop (PRD-I3 SEAM-11): every item's ammo absolute. The parallel client replayed
+				// shots for display and ran its own spendAmmoForAction (drifts on a diverging
+				// autoshot/abort count); a chain-close absolute is clobbered by the still-running
+				// replay's later spend, so next_turn ships it - applied AFTER every replay drained,
+				// mid-turn drift heals by the SIDESTART where saveBlob compares. PVE parallel only
+				// (classic replays authoritatively -> byte-identical); present-gated for old hosts.
+				if (parallelTurnActive() && !getHost() && obj.isMember("itemAmmo")
+					&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+				{
+					SavedBattleGame* ammoBattle = _game->getSavedGame()->getSavedBattle();
+					for (Json::ArrayIndex ai = 0; ai < obj["itemAmmo"].size(); ++ai)
+					{
+						int aid = obj["itemAmmo"][ai]["id"].asInt();
+						int aqty = obj["itemAmmo"][ai]["qty"].asInt();
+						for (BattleItem* bi : *ammoBattle->getItems())
+						{
+							if (bi && bi->getId() == aid) { bi->setAmmoQuantity(aqty); break; }
+						}
+					}
+				}
+
+				// coop (explosion ordered-replay E0): host-authoritative objective counter. The client
+				// no longer self-counts (LEAK-OBJ gate), so converge to the host's absolute here.
+				// Parallel only (classic client already byte-identical apart from the gate); present-gated.
+				if (connectionTCP::parallelTurnActive() && obj.isMember("objectivesDestroyed"))
+					_game->getSavedGame()->getSavedBattle()->setObjectivesDestroyed(obj["objectivesDestroyed"].asInt());
+
+				SharedEcon::verifyBattleChecksum(_game, obj, "next_turn");
 
 				_game->getSavedGame()->getSavedBattle()->abortPathCoop();
 
@@ -7031,150 +9898,92 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					tile->setSmokeCoop(getSmoke, animation_offset, overlaps);
 				}
 
-				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				// coop (parallel battlescape Phase 1 - per-unit state watermark): stash
+				// this applied snapshot for the TEST-ONLY synthetic replay lever
+				// (parallel_state {replay_last_next_turn:true}), then run the per-unit
+				// bulk-apply loop (factored into coopApplyNextTurnUnitStates so the live
+				// path and the replay lever share one copy - see connectionTCP.h). Units
+				// whose stamped write is rejected also skip their
+				// coopApplyDeferredTurnStart() further down (the later absolute that
+				// caused the reject already includes the turn-start regen).
+				g_lastNextTurnJson = obj;
+				std::unordered_set<int> stateWatermarkRejectedUnits = coopApplyNextTurnUnitStates(obj);
+
+				// coop (PRD-I3 Option D-lite): the parallel client's turn machine follows
+				// next_turn. The host stamps the authoritative turn/side on it (additive: an
+				// old host omits them and the client keeps its legacy inline advance). Authored
+				// AFTER the bulk apply above has settled every unit's faction/status, so the
+				// deterministic-increment pass sees the same PLAYER-faction / isOut view the
+				// host had at neutral->player (a soldier that fell during the alien side is out
+				// on both machines by then and skipped identically).
+				if (obj.isMember("turn") && obj.isMember("side")
+					&& connectionTCP::parallelTurnActive() && !getHost())
 				{
-
-					for (int i = 0; i < obj["units"].size(); i++)
+					_hostShipsNextTurnFields = true;
+					battle->setTurnCoop(obj["turn"].asInt());
+					battle->setSideCoop(obj["side"].asInt());
+					if (_turnAdvanceDeferred)
 					{
-
-						int json_id = obj["units"][i]["unit_id"].asInt();
-
-						// Check if the same unit
-						if (unit->getId() == json_id)
+						// run only the deterministic per-unit terms the deferred neutral->player
+						// advance would have run and next_turn does NOT re-ship (turnsSinceStunned,
+						// dontReselect, meleeAttackedBy); the re-shipped stats are already applied.
+						for (auto* bu : *battle->getUnits())
 						{
-
-							int time = obj["units"][i]["time"].asInt();
-							int health = obj["units"][i]["health"].asInt();
-							int energy = obj["units"][i]["energy"].asInt();
-							int morale = obj["units"][i]["morale"].asInt();
-							int mana = obj["units"][i]["mana"].asInt();
-							int stunlevel = obj["units"][i]["stunlevel"].asInt();
-
-							int motionpoints = obj["units"][i]["motionpoints"].asInt();
-
-							int setDirection = obj["units"][i]["setDirection"].asInt();
-							int setFaceDirection = obj["units"][i]["setFaceDirection"].asInt();
-
-							int setTurretDirection = obj["units"][i]["setTurretDirection"].asInt();
-							int setTurretToDirection = obj["units"][i]["setTurretToDirection"].asInt();
-
-							bool respawn = obj["units"][i]["respawn"].asBool();
-
-							int fire = obj["units"][i]["fire"].asInt();
-							unit->setFireCoop(fire);
-
-							unit->setRespawn(respawn);
-
-							unit->setDirection(setDirection);
-							unit->setFaceDirection(setFaceDirection);
-
-							unit->setDirectionTurretCoop(setTurretDirection);
-							unit->setTurretToDirectionCoop(setTurretToDirection);
-
-							unit->setMotionPointsCoop(motionpoints);
-
-							unit->setCoopEnergy(energy);
-							unit->setTimeUnits(time);
-							
-							unit->setHealth(health);
-							unit->setCoopMorale(morale);
-				
-							unit->setCoopMana(mana);
-							unit->setStunlevelCoop(stunlevel);
-
-							const Json::Value& fatalArray = obj["units"][i]["fatalWounds"];
-
-							for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
+							// exactly the units SavedBattleGame::endTurn prepareNewTurn's at
+							// neutral->player: PLAYER-faction, plus a hostile converted to neutral
+							// during the player turn (SavedBattleGame.cpp:1637). HOSTILE/NEUTRAL
+							// units already took their increment at the kept side 0 / side 1.
+							if (bu->getFaction() == FACTION_PLAYER
+								|| (bu->getFaction() == FACTION_NEUTRAL && bu->getOriginalFaction() == FACTION_HOSTILE))
 							{
-								unit->setFatalWoundCoop(part, fatalArray[part].asInt());
-							}
-
-
-							int pos_x = obj["units"][i]["pos_x"].asInt();
-							int pos_y = obj["units"][i]["pos_y"].asInt();
-							int pos_z = obj["units"][i]["pos_z"].asInt();
-
-							// mind control (client)
-							if (unit->_coop_mindcontrolled == true)
-							{
-
-								unit->_coop_mindcontrolled = false;
-
-								if (unit->getCoop() == 0)
+								// coop (parallel battlescape Phase 1 - per-unit state watermark):
+								// a unit whose stamped next_turn snapshot was rejected above
+								// already has a newer absolute in place - that absolute already
+								// includes the turn-start regen, so do not re-run it here.
+								if (stateWatermarkRejectedUnits.count(bu->getId()) == 0)
 								{
-		
-									unit->setCoop(1);
-
-									if (_game->getCoopMod()->getHost() == false)
-									{
-										unit->convertToFaction(FACTION_PLAYER);
-										unit->setOriginalFaction(FACTION_PLAYER);
-									}
-									else
-									{
-										unit->convertToFaction(FACTION_HOSTILE);
-										unit->setOriginalFaction(FACTION_HOSTILE);
-									}
-
-								}
-								else if (unit->getCoop() == 1)
-								{
-									
-									unit->setCoop(0);
-
-									if (_game->getCoopMod()->getHost() == true)
-									{
-										unit->convertToFaction(FACTION_PLAYER);
-										unit->setOriginalFaction(FACTION_PLAYER);
-									}
-									else
-									{
-										unit->convertToFaction(FACTION_HOSTILE);
-										unit->setOriginalFaction(FACTION_HOSTILE);
-									}
-
+									bu->coopApplyDeferredTurnStart();
 								}
 							}
-
-							// Check if positions do not match
-							if (unit->getPosition().x != pos_x || unit->getPosition().y != pos_y || unit->getPosition().z != pos_z)
-							{
-
-								_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(pos_x, pos_y, pos_z, unit);
-							}
-
-							int status_int = obj["units"][i]["status"].asInt();
-							UnitStatus unitStatus = intToUnitstatus(status_int);
-
-							unit->setCoopStatus(unitStatus);
-
-							// TILE
-							bool isTile = obj["units"][i]["isTile"].asBool();
-
-							if (!isTile)
-							{
-
-								if (unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
-								{
-									unit->setCoopStatus(STATUS_DEAD);
-								}
-
-								unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
-							}
-
-							if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
-							{
-								unit->setCoopStatus(STATUS_DEAD);
-							}
-
-							break;
-
 						}
+						_turnAdvanceDeferred = 0;
 					}
+
+					// coop (PRD-I3 SEAM-11): the host closes sliding (ufo) doors at every
+					// endTurn (BattlescapeGame::endTurn -> closeUfoDoors), but the parallel
+					// client DEFERS the neutral->player boundary, so a door a NEUTRAL unit
+					// (terror-site civilian) left open never closes here - the isUfoDoorOpen
+					// bit then diverges permanently in the saveBlob binTiles blob. Mirror the
+					// host: close them at the deferred apply (idempotent, keeps a door with a
+					// unit in it open on both). Before the sidestart hash, so it heals there.
+					if (battle->getTileEngine()) battle->getTileEngine()->closeUfoDoors();
 				}
+
 			}
 		}
 
+	}
+
+	// coop: the PEER's battle drift tripwire fired and it has written a diagnostic
+	// bundle. Write ours too - one side of a disagreement proves nothing, and the
+	// pair is only comparable if both halves are captured at nearly the same
+	// instant. Symmetric on purpose (either machine can be the detector), and
+	// captureDesyncReport never re-sends when it was itself told, so there is no
+	// ping-pong. An older peer simply drops an unknown state string, which is the
+	// additive contract.
+	if (stateString == "desync_report")
+	{
+		SharedEcon::DesyncTerms report;
+		report.peerItemId = obj.get("peer_itemId", -1).asInt64();
+		report.peerCensus = obj.get("peer_census", -1).asInt64();
+		report.peerUnits = obj.get("peer_units", -1).asInt64();
+		SharedEcon::battleChecksumTerms(_game, report.localItemId, report.localCensus, report.localUnits);
+		report.context = obj.get("context", "next_turn").asString();
+		// PRD-I4: carry the detector's attribution so this peer's bundle is equally
+		// attributed (additive; an older detector simply omits it).
+		if (obj.isMember("attribution")) report.attribution = obj["attribution"];
+		report.viaPeerReport = true;
+		SharedEcon::captureDesyncReport(_game, report);
 	}
 
 	// ufo damage
@@ -8398,6 +11207,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (_game->getSavedGame()->getSavedBattle())
 			{
 
+				// coop (wire-order Increment 4 / A4): lever-on, this endTurn's
+				// required-at-arrival half (_scriptRngSeed + defer-arm) was applied at the
+				// marker's first sight (see the endTurn hook in updateCoopTask). Skip
+				// re-applying those two here; the rest of the handler runs at consumption as
+				// today. Cursor-matched so a marker the arrival hook did not cover still
+				// applies here; lever-off / host the flag is false (byte-identical).
+				const bool etArrivalApplied =
+					g_wireOrderState.load(std::memory_order_relaxed) && parallelTurnActive()
+					&& !getHost() && obj.isMember("side_seq")
+					&& static_cast<std::uint32_t>(obj["side_seq"].asUInt()) <= g_endTurnArrivalSideSeq;
+
 				pve2_init = true;
 
 				_battleInit = false;
@@ -8407,20 +11227,79 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_waitBC = false;
 				_waitBH = false;
 
+				// coop (PRD-P5 §5): side-boundary reseed. Only the parallel host
+				// stamps it (classic still ships the seed on `PlayerTurnYour`), so
+				// an absent key means "classic packet, do not touch the stream".
+				if (obj.isMember("seed"))
+				{
+					RNG::setSeed(obj["seed"].asUInt64());
+					// coop (GAP-10): adopt the boundary seed for the mod script-RNG
+					// seed-replay. Set from `endTurn` only (all three side closes),
+					// NOT from `next_turn` - the deferred neutral->player scripts must
+					// still see the side-2 `endTurn` seed when next_turn runs them.
+					// coop (wire-order Increment 4 / A4): _scriptRngSeed adoption moved to the
+					// endTurn marker's FIRST SIGHT lever-on (before next_turn's deferred scripts
+					// read it); skip here when the arrival hook covered this marker. RNG::setSeed
+					// above stays at consumption (category ii - re-set at the script pass via
+					// SavedBattleGame::newTurnUpdateScripts, not needed at arrival).
+					if (!etArrivalApplied)
+						_scriptRngSeed = obj["seed"].asUInt64();
+				}
+
+				// coop (PRD-P6): the side token every intent is validated against.
+				// The host owns it and stamps it on the one packet that crosses at
+				// every side transition; a client acting into a side that has
+				// already closed is denied `turn_over` instead.
+				if (obj.isMember("side_seq"))
+				{
+					_sideSeq = static_cast<std::uint32_t>(obj["side_seq"].asUInt());
+					clearClientPendingIntent();
+					// coop (PRD-P7): the host zeroed _actionSeq/peerDisplayAckedSeq
+					// on its side of this very packet (BattlescapeGame::endTurn).
+					// A client that kept its old display watermark would never
+					// report `action_done` against the new, lower sequence again and
+					// the executor's backlog term would wedge shut for good.
+					resetActionArbiter(false);
+				}
+
 				int side = obj["side"].asInt();
 
-				_game->getSavedGame()->getSavedBattle()->setSideCoop(side);
-
-				if (side == 0)
+				// coop (PRD-I3 Option D-lite): defer the NEUTRAL->PLAYER advance (its _turn++
+				// and player-side regen) on the parallel client so _turn/_side follow the gated
+				// next_turn instead of racing ahead of the display. PLAYER->HOSTILE (side 0)
+				// and HOSTILE->NEUTRAL (side 1) stay prompt: the host ships this packet AT its
+				// own transition, so consuming them cannot lead it, and side 0 is the ONE that
+				// pushes the ALIENS banner (endBattleTurnCoop never sets _endTurnRequested) and
+				// gives the hostile/neutral units their per-side increments before they can die
+				// mid-side. Only kept when the host authors turn/side on next_turn; an old host
+				// (no fields learned) keeps the legacy inline advance - bidirectional compat.
+				if (connectionTCP::parallelTurnActive() && !getHost()
+					&& _hostShipsNextTurnFields && side == 2)
 				{
-
-					BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
-					battlestate->endTurnCoop();
-
+					// coop (wire-order Increment 4 / A4): the deferred neutral->player regen
+					// arm moved to the endTurn marker's FIRST SIGHT lever-on (before next_turn's
+					// state-half consumes it); skip the re-arm here when the arrival hook covered
+					// this marker. The else branch (side 0/1 setSideCoop + ALIENS banner) is
+					// display-half and always runs at consumption.
+					if (!etArrivalApplied)
+					{
+						_turnAdvanceDeferred = 1;
+						++_turnAdvanceDeferredCount; // coop (PRD-I3 rider): monotonic arm count
+					}
 				}
 				else
 				{
-					_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
+					_game->getSavedGame()->getSavedBattle()->setSideCoop(side);
+
+					if (side == 0)
+					{
+						BattlescapeState* battlestate = _game->getSavedGame()->getSavedBattle()->getBattleState();
+						battlestate->endTurnCoop();
+					}
+					else
+					{
+						_game->getSavedGame()->getSavedBattle()->getBattleGame()->endBattleTurnCoop();
+					}
 				}
 
 			}
@@ -8531,17 +11410,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (ret == 0 && _game->getSavedGame()->getSavedBattle()->getBattleGame())
 				{
 
+					// coop (PRD-I3 Option D-lite): keep the _coopEnd state transitions (the rx
+					// pump gates on _coopEnd), but on the parallel client do NOT let this AI-done
+					// heuristic flip _side to NEUTRAL/PLAYER ahead of the host - the side is
+					// tracked from the host-authored setSideCoop(side) above and from next_turn.
+					const bool dliteClient = connectionTCP::parallelTurnActive() && !getHost();
 					if (_coopEnd == 0)
 					{
 				
-						_game->getSavedGame()->getSavedBattle()->setSideCoop(2);
+						if (!dliteClient)
+							_game->getSavedGame()->getSavedBattle()->setSideCoop(2);
 						_coopEnd = 1;
 					
 					}
 					else if (_coopEnd == 1)
 					{
 
-						_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
+						if (!dliteClient)
+							_game->getSavedGame()->getSavedBattle()->setSideCoop(0);
 						_coopEnd = 0;
 
 					}
@@ -8692,8 +11578,67 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		int unit_id = obj["unit_id"].asInt();
+		// coop (PRD-P3 GAP-2): "pvp" absent means an older peer, which only ever sent
+		// the PVP flavour - so the legacy inverted flip stays the default.
+		bool psiPvp = obj.get("pvp", true).asBool();
 
-		if (_game->getSavedGame())
+		if (!psiPvp)
+		{
+			// PVE/PVE2: the host RESOLVED the attack (TileEngine::psiAttack
+			// early-returns false here) and ships the victim's post-state. Copy it;
+			// nothing is re-derived, because reduceByBravery / convertToFaction /
+			// recoverTimeUnits all read state only the host has changed.
+			if (obj.get("success", false).asBool()
+				&& _game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+			{
+				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+				{
+					if (unit->getId() != unit_id)
+					{
+						continue;
+					}
+					// coop (parallel battlescape Phase 1 - per-unit state watermark):
+					// this is the state-copy psi_result flavour, stamped via
+					// coopStampChainSeq (TileEngine.cpp:5334) - rank 1 chain carrier.
+					// The legacy PVP inverted-flip flavour (pvp:true, below) is never
+					// stamped and always bypasses.
+					bool stateStamped = false;
+					uint32_t stateSide = 0, stateSeq = 0;
+					coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+					if (!parallelTurnActive() || getHost() || !stateStamped
+						|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+						|| unit->coopStateAccept(stateSide, stateSeq, 1))
+					{
+						int newFaction = obj.get("faction", -1).asInt();
+						if (newFaction >= 0 && (int)unit->getFaction() != newFaction)
+						{
+							unit->convertToFaction((UnitFaction)newFaction);
+							if (newFaction == (int)FACTION_NEUTRAL && unit->getAIModule())
+							{
+								unit->getAIModule()->setTargetFaction(FACTION_HOSTILE);
+							}
+							unit->allowReselect();
+							unit->abortTurn();
+						}
+						unit->setMindControllerId(obj.get("mindControllerId", 0).asInt());
+						unit->setCoopMorale(obj.get("morale", unit->getMorale()).asInt());
+						unit->setTimeUnits(obj.get("tu", unit->getTimeUnits()).asInt());
+						coopDiagUnit("psi_result.tu@11560", unit->getId(), obj.get("tu", unit->getTimeUnits()).asInt());
+						// coop: the host's recoverTimeUnits() restored ENERGY as well as TU.
+						// Additive - absent means an older peer, so leave energy alone.
+						unit->setCoopEnergy(obj.get("energy", unit->getEnergy()).asInt());
+						unit->setCoop(obj.get("coop", unit->getCoop()).asInt());
+					}
+					else
+					{
+						++g_stateWatermarkRejects;
+						++g_stateWatermarkRejectsRank1;
+					}
+					break;
+				}
+			}
+		}
+		else if (_game->getSavedGame())
 		{
 
 			if (_game->getSavedGame()->getSavedBattle())
@@ -8859,6 +11804,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 								unit->setMotionPointsCoop(motionpoints);
 								unit->setTimeUnits(time);
+								coopDiagUnit("PlayerTurnYour.tu@11749", unit->getId(), time);
 								unit->setHealth(health);
 								unit->setCoopMorale(morale);
 								unit->setCoopEnergy(energy);
@@ -9491,6 +12437,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		// past every gate: a real client is now attached to the session
+		// coop (#162): fresh session - a stale graceful-leave latch from a previous
+		// client must never suppress this one's crash notice.
+		_peerLeftCleanly = false;
 		connectionTCP::session.clientAttached();
 
 		// issue #93: a joiner arriving while a SKIRMISH battle is already running is
@@ -9621,6 +12570,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// other player footsteps sounds
 		connectionTCP::_enable_other_player_footsteps = Options::EnableOtherPlayerFootsteps;
 		root["enable_other_player_footsteps"] = connectionTCP::_enable_other_player_footsteps;
+
+		// parallel battlescape turns (PRD-P5). The HOST's option decides the mode
+		// for the whole session; a client's own setting is irrelevant. A peer that
+		// does not know the key reads false = classic (old-build degrade).
+		connectionTCP::_enable_parallel_turns = Options::EnableCoopParallelTurns;
+		root["enable_parallel_turns"] = connectionTCP::_enable_parallel_turns;
 
 		// enable host only time speed
 		connectionTCP::_enable_host_only_time_speed = Options::EnableHostOnlyTimeSpeed;
@@ -9755,6 +12710,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// other player footsteps sounds
 		bool enable_other_player_footsteps = obj["enable_other_player_footsteps"].asBool();
 		connectionTCP::_enable_other_player_footsteps = enable_other_player_footsteps;
+
+		// parallel battlescape turns (PRD-P5). get(..., false): an older host does
+		// not send the key at all, and the missing key must mean classic mode.
+		connectionTCP::_enable_parallel_turns = obj.get("enable_parallel_turns", false).asBool();
 
 		// enable host only time speed
 		bool enable_host_only_time_speed = obj["enable_host_only_time_speed"].asBool();
@@ -10692,6 +13651,270 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	}
 }
 
+/**
+ * coop (parallel battlescape Phase 1 - per-unit state watermark): next_turn's
+ * per-unit bulk-apply loop. The stamp lives at the packet ROOT (not per-unit,
+ * unlike hit_unit/panic_action/psi_result) - read once and reused for every
+ * unit's tie-break. Factored out of onTCPMessage so the TEST-ONLY synthetic
+ * replay lever (coopDebugReplayLastNextTurn) can re-run exactly this loop
+ * against a stashed snapshot without re-running the rest of the handler
+ * (melee/manifest hygiene, the SEAM-10 faction pass, tiles, the checksum
+ * tripwire, or the turn/side advance). Caller must ensure
+ * _game->getSavedGame()->getSavedBattle() is non-null.
+ */
+std::unordered_set<int> connectionTCP::coopApplyNextTurnUnitStates(Json::Value& obj)
+{
+	// coop DIAGNOSTIC (reject-set audit): fresh capture for THIS boundary, armed only
+	// when SEAM-7 field capture is on (inert otherwise - no behavior change).
+	coopWmDbgClear();
+	coopWmDbgArm(SharedEcon::syncFieldCapture());
+	bool stateStamped = false;
+	uint32_t stateSide = 0, stateSeq = 0;
+	coopReadStateStamp(obj, stateStamped, stateSide, stateSeq);
+	std::unordered_set<int> stateWatermarkRejectedUnits;
+
+	for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+	{
+
+		for (int i = 0; i < obj["units"].size(); i++)
+		{
+
+			int json_id = obj["units"][i]["unit_id"].asInt();
+
+			// Check if the same unit
+			if (unit->getId() == json_id)
+			{
+
+				// coop (parallel battlescape Phase 1 - per-unit state watermark):
+				// rank 0 (snapshot); stateStamped/stateSide/stateSeq are read once above.
+				//
+				// coop (Phase 3b, owner re-ruling 2026-08-26): a watermark EPOCH RESET
+				// here was tried and REVERTED - lever-on, decoupled same-side carriers
+				// apply at RX arrival BEFORE this gate-held snapshot, so the rank-0
+				// reject below is the watermark PROTECTING the later outcome from a
+				// late-applying next_turn (the rotated-next_turn hazard, see the
+				// panic_action comment near connectionTCP.cpp:8940). The 3b fix is to
+				// apply next_turn's STATE-half at RX arrival (wire position) instead,
+				// leaving this precedence logic untouched; the rank-0 rejects then
+				// vanish because the snapshot is no longer late. See docs repo
+				// parallel/boundary-residual-investigation-2026-08-26.md.
+				if (!parallelTurnActive() || getHost() || !stateStamped
+					|| g_deathWatermarkDisable.load(std::memory_order_relaxed)
+					|| unit->coopStateAccept(stateSide, stateSeq, 0))
+				{
+
+				int time = obj["units"][i]["time"].asInt();
+				int health = obj["units"][i]["health"].asInt();
+				int energy = obj["units"][i]["energy"].asInt();
+				int morale = obj["units"][i]["morale"].asInt();
+				int mana = obj["units"][i]["mana"].asInt();
+				int stunlevel = obj["units"][i]["stunlevel"].asInt();
+
+				int motionpoints = obj["units"][i]["motionpoints"].asInt();
+
+				int setDirection = obj["units"][i]["setDirection"].asInt();
+				int setFaceDirection = obj["units"][i]["setFaceDirection"].asInt();
+
+				int setTurretDirection = obj["units"][i]["setTurretDirection"].asInt();
+				int setTurretToDirection = obj["units"][i]["setTurretToDirection"].asInt();
+
+				bool respawn = obj["units"][i]["respawn"].asBool();
+
+				int fire = obj["units"][i]["fire"].asInt();
+				unit->setFireCoop(fire);
+
+				// coop (PRD-I3 Session F saveBlob close): the host's ABSOLUTE floating bit.
+				// PARALLEL client only - classic replays the fall itself; present-gated for
+				// old hosts. Real kneel-eligibility reader; a unit_fall coverage gap left it
+				// diverging on the parallel client at sidestart (saveBlob `floating`).
+				if (parallelTurnActive() && !getHost() && obj["units"][i].isMember("floating"))
+					unit->setFloatingCoop(obj["units"][i]["floating"].asBool());
+
+				unit->setRespawn(respawn);
+
+				unit->setDirection(setDirection);
+				unit->setFaceDirection(setFaceDirection);
+
+				unit->setDirectionTurretCoop(setTurretDirection);
+				unit->setTurretToDirectionCoop(setTurretToDirection);
+
+				unit->setMotionPointsCoop(motionpoints);
+
+				unit->setCoopEnergy(energy);
+				unit->setTimeUnits(time);
+				coopDiagUnit("nextturn.tu@13682", unit->getId(), time);
+
+				unit->setHealth(health);
+				unit->setCoopMorale(morale);
+
+				unit->setCoopMana(mana);
+				unit->setStunlevelCoop(stunlevel);
+
+				const Json::Value& fatalArray = obj["units"][i]["fatalWounds"];
+
+				for (int part = 0; part < BODYPART_MAX && part < fatalArray.size(); ++part)
+				{
+					unit->setFatalWoundCoop(part, fatalArray[part].asInt());
+				}
+
+
+				int pos_x = obj["units"][i]["pos_x"].asInt();
+				int pos_y = obj["units"][i]["pos_y"].asInt();
+				int pos_z = obj["units"][i]["pos_z"].asInt();
+
+				// mind control (client)
+				if (unit->_coop_mindcontrolled == true)
+				{
+
+					unit->_coop_mindcontrolled = false;
+
+					if (unit->getCoop() == 0)
+					{
+
+						unit->setCoop(1);
+
+						if (_game->getCoopMod()->getHost() == false)
+						{
+							unit->convertToFaction(FACTION_PLAYER);
+							unit->setOriginalFaction(FACTION_PLAYER);
+						}
+						else
+						{
+							unit->convertToFaction(FACTION_HOSTILE);
+							unit->setOriginalFaction(FACTION_HOSTILE);
+						}
+
+					}
+					else if (unit->getCoop() == 1)
+					{
+
+						unit->setCoop(0);
+
+						if (_game->getCoopMod()->getHost() == true)
+						{
+							unit->convertToFaction(FACTION_PLAYER);
+							unit->setOriginalFaction(FACTION_PLAYER);
+						}
+						else
+						{
+							unit->convertToFaction(FACTION_HOSTILE);
+							unit->setOriginalFaction(FACTION_HOSTILE);
+						}
+
+					}
+				}
+
+				// Check if positions do not match
+				if (unit->getPosition().x != pos_x || unit->getPosition().y != pos_y || unit->getPosition().z != pos_z)
+				{
+
+					_game->getSavedGame()->getSavedBattle()->getBattleGame()->teleport(pos_x, pos_y, pos_z, unit);
+				}
+
+				int status_int = obj["units"][i]["status"].asInt();
+				UnitStatus unitStatus = intToUnitstatus(status_int);
+
+				unit->setCoopStatus(unitStatus);
+
+				// TILE
+				bool isTile = obj["units"][i]["isTile"].asBool();
+
+				// coop (PRD-P10): the same exemption `after_unit_death` takes,
+				// for the same reason and at the harder moment. The last
+				// casualty of an alien side dies a frame or two before the
+				// side closes, so this per-turn stamp routinely arrives while
+				// the peer's UnitDieBState is still queued - and unlinking
+				// here cost that replay its itemDropInventory, leaving the
+				// dead soldier's whole kit on the body while it lay on the
+				// floor on the executor.
+				if (!isTile && !SharedEcon::corpseReplayPending(unit->getId()))
+				{
+
+					// coop (parallel Phase 3, Sub-task B): gate the tile-less DEAD-status
+					// inference - unneeded and could misfire in parallel now that
+					// unit_casualty already carried the explicit final status when the
+					// death applied. Keep the tile unlink itself ungated: classic still
+					// reads it.
+					if (!parallelTurnActive() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+					{
+						unit->setCoopStatus(STATUS_DEAD);
+					}
+
+					unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
+				}
+
+				if (!parallelTurnActive() && !unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
+				{
+					unit->setCoopStatus(STATUS_DEAD);
+				}
+
+				}
+				else
+				{
+					++g_stateWatermarkRejects;
+					++g_stateWatermarkRejectsRank0;
+					stateWatermarkRejectedUnits.insert(unit->getId());
+					// coop (rank0 reject trace, owner ruling 2026-08-30): capture-gated persistent
+					// trace of THIS next_turn rank-0 watermark reject - the unit, the incoming next_turn
+					// stamp (side,seq,0) vs the recorded (beating) stamp (side,seq,rank), the battle turn
+					// (=> run phase: ambush turns 1-5 vs quiet turns 6+), and the rejected snapshot payload
+					// vs the value the watermark PROTECTED (the client's current value, set by the newer
+					// write). Lets a reject be classified STALE-benign (protected value newer/authoritative)
+					// vs FRESH-lost (a needed next_turn value dropped). Logged to BOTH the diag ring and
+					// openxcom.log (ring-eviction-proof) so heavy-diag runs still keep it. Inert unless
+					// diag_capture armed; NO state effect.
+					if (g_diagCapture.load(std::memory_order_relaxed))
+					{
+						SavedBattleGame* sbgWm = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+						int turnWm = sbgWm ? sbgWm->getTurn() : -1;
+						std::string wm = "WMREJECT u=" + std::to_string(unit->getId())
+							+ " turn=" + std::to_string(turnWm)
+							+ " in=(" + std::to_string(stateSide) + "," + std::to_string(stateSeq) + ",0)"
+							+ " rec=(" + std::to_string(unit->_coopStateSideSeq) + "," + std::to_string(unit->_coopStateActionSeq)
+							+ "," + std::to_string((unsigned)unit->_coopStateRank) + ")"
+							+ " snapHP=" + std::to_string(obj["units"][i]["health"].asInt())
+							+ " curHP=" + std::to_string(unit->getHealth())
+							+ " snapTU=" + std::to_string(obj["units"][i]["time"].asInt())
+							+ " curTU=" + std::to_string(unit->getTimeUnits())
+							+ " snapStun=" + std::to_string(obj["units"][i]["stunlevel"].asInt())
+							+ " curStun=" + std::to_string(unit->getStunlevel())
+							+ " snapStatus=" + std::to_string(obj["units"][i]["status"].asInt())
+							+ " curStatus=" + std::to_string((int)unit->getStatus());
+						coopDiagS(wm);
+						Log(LOG_INFO) << "[COOP] " << wm;
+					}
+				}
+
+				break;
+
+			}
+		}
+	}
+
+	return stateWatermarkRejectedUnits;
+}
+
+/**
+ * coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): re-runs
+ * coopApplyNextTurnUnitStates on the last applied next_turn snapshot
+ * (g_lastNextTurnJson). Only reachable via the parallel_state TestServer
+ * command ({"replay_last_next_turn": true}); never fires in shipped mode. A
+ * no-op if no next_turn has applied yet (g_lastNextTurnJson still null) or the
+ * battle is gone.
+ */
+void connectionTCP::coopDebugReplayLastNextTurn()
+{
+	if (g_lastNextTurnJson.isNull())
+	{
+		return;
+	}
+	if (!(_game && _game->getSavedGame() && _game->getSavedGame()->getSavedBattle()))
+	{
+		return;
+	}
+	coopApplyNextTurnUnitStates(g_lastNextTurnJson);
+}
+
 void connectionTCP::sendBaseFile()
 {
 
@@ -10856,6 +14079,1305 @@ int connectionTCP::localSeat()
 	if (getServerOwner())
 		return 0;
 	return coop_save_owner_player_id > 0 ? coop_save_owner_player_id : 1;
+}
+
+// coop (PRD-P6 pre-task): the receive gate's acquire/release. `completed` keeps
+// the pre-P6 bool call shape: false = "a chain started here" (acquire), true =
+// "that chain finished" (release). Depth 0 is the only state in which the hold
+// queue may hand a peer packet to onTCPMessage().
+//
+// Clamped at zero because releases outnumber acquires in practice: the two
+// teardown sites reset the depth outright, and a BState that was still holding
+// the gate when the battle ended releases afterwards.
+void connectionTCP::setCoopTaskCompleted(bool completed)
+{
+	if (completed)
+	{
+		if (_coopTaskDepth > 0)
+		{
+			--_coopTaskDepth;
+		}
+	}
+	else
+	{
+		++_coopTaskDepth;
+	}
+}
+
+// coop (PRD-P5): the parallel shared player side. See PROTOCOL.md "Core
+// invariant". PVP/PVP2 (gamemode 2/3) are adversarial by construction - the two
+// sides must not act at once - and hotseat has only one machine, so both are
+// excluded. Static so the battle-side guards (BattleUnit, the BStates) can ask
+// without a connectionTCP instance.
+bool connectionTCP::parallelTurnActive()
+{
+	if (!_enable_parallel_turns)
+		return false;
+	if (!getCoopStatic() || _isHotseatActive)
+		return false;
+	const int gamemode = getCoopGamemode();
+	return gamemode == 1 || gamemode == 4;
+}
+
+// coop: "am I the non-executor machine during a parallel player side?" PRD-P5
+// used this as a blanket input gate; PRD-P6 replaced that with action intents
+// and PRD-P8 replaced its last gate (END TURN) with the readiness toggle. What
+// is left are the two classic UI-mirror packets a client must not send, because
+// they are commands to the peer and `action_intent` is what replaced them
+// (PROTOCOL.md: `action_click` / `active_grenade`).
+bool connectionTCP::parallelInputBlocked()
+{
+	return parallelTurnActive() && !getHost();
+}
+
+// coop (PRD-P6): may the executor start a new action chain right now?
+// PROTOCOL.md "Ordering invariants" 3. Deliberately conservative: the peer
+// applies action packets one at a time behind the receive gate, so admitting a
+// second chain while the first is still running would interleave two chains on
+// the client's display. PRD-P7 adds the display-backlog term.
+bool connectionTCP::canAdmitAction()
+{
+	_admitBlocked.clear();
+	// static: reach the running game through the static mirror, not `_game`.
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	if (!bg)
+	{
+		_admitBlocked = "no_battle";
+		return false;
+	}
+	if (battle->getSide() != FACTION_PLAYER)
+	{
+		_admitBlocked = "ai_side";
+		return false;
+	}
+	if (_sideCommitInProgress)
+	{
+		_admitBlocked = "side_commit";
+		return false;
+	}
+	if (bg->isBusy())
+	{
+		_admitBlocked = "states";
+		return false;
+	}
+	connectionTCP* coop = _staticGame->getCoopMod();
+	if (coop && !coop->coopTaskCompleted())
+	{
+		_admitBlocked = "gate_depth";
+		return false;
+	}
+	// coop (PRD-P7): display flow control. The peer applies action packets one
+	// chain at a time, so running more than one chain ahead of what it has
+	// finished DISPLAYING just piles up lag it can never see through. Host-only:
+	// on a client `_actionSeq` is a mirror of what it has been told and
+	// peerDisplayAckedSeq is its own display watermark, so the subtraction would
+	// mean something different there. The `>` guard keeps the uint32 term safe if
+	// a stale `action_done` ever outruns the counter across a side boundary.
+	if (getHost() && _actionSeq > peerDisplayAckedSeq && (_actionSeq - peerDisplayAckedSeq) >= 2)
+	{
+		_admitBlocked = "display_backlog";
+		return false;
+	}
+	return true;
+}
+
+std::uint32_t connectionTCP::stampAdmittedAction(const std::string& kind)
+{
+	// coop (PRD-P7): the chain that is now running owes the client an `action_end`.
+	// If the previous chain never got its marker out (a stateless kind admitted and
+	// completed inside one frame), this overwrites it - the client's watermark then
+	// jumps straight to the newer seq, which is exactly as correct and self-heals.
+	_openChainSeq = ++_actionSeq;
+	// coop (PRD-I0): the label this chain's sync-check ring entry carries.
+	_openChainKind = kind;
+	// coop (PRD-I3 SEAM-7 ii): kneel/prime/medikit emit their replay packet from
+	// executeAction AFTER the actor settles; hold this chain's action_end until then
+	// (coopCloseActionChain), so the packet reaches the wire first (and stamped).
+	_openChainInstantPending = (kind == "kneel" || kind == "prime" || kind == "medikit");
+	// coop (PRD-P9 3): restart the stuck-chain clock with the chain itself.
+	_openChainTicks = SDL_GetTicks();
+	_openChainWarned = false;
+	// coop (wire-order Increment 7, SHAPE A): snapshot every unit's (tu, energy) at
+	// chain OPEN so coopCloseActionChain can diff and ship ONLY the units this chain
+	// changed as the action_end marker's `regen` array (the actor plus any in-chain
+	// reaction-firer, and actor-less expl chains, by construction). Lever-gated; the
+	// map stays empty lever-off so the marker is byte-identical. A stateless kind that
+	// overwrites an un-drained chain (see above) simply re-snapshots here - the lost
+	// chain's carry self-heals at next_turn exactly as it did pre-Increment-7.
+	if (g_wireOrderState.load(std::memory_order_relaxed) && _staticGame)
+	{
+		_openChainRegenSnap.clear();
+		SavedGame* sg = _staticGame->getSavedGame();
+		SavedBattleGame* sb = sg ? sg->getSavedBattle() : nullptr;
+		if (sb)
+		{
+			for (auto* u : *sb->getUnits())
+				_openChainRegenSnap[u->getId()] =
+					std::make_pair(u->getTimeUnits(), u->getEnergy());
+		}
+	}
+	return _actionSeq;
+}
+
+/**
+ * coop (PRD-I1): tag a whitelisted outcome packet with the chain and side it
+ * belongs to, so the client can hold it until that chain opens locally instead
+ * of letting it jump ahead of its own opener (which contaminates the client's
+ * post-N sync-check state - the exact false-mismatch class PRD-I1 removes).
+ *
+ * Stamps ONLY inside an admitted or AI chain on the parallel host: `_openChainSeq`
+ * is non-zero there and nowhere else (set by stampAdmittedAction, which only the
+ * parallel executor reaches, and cleared at the chain drain and every arbiter
+ * reset). So classic co-op, boundary explosions (chain closed, _openChainSeq == 0)
+ * and every non-parallel send carry no seq and keep the legacy always-consume
+ * behaviour on both machines - the field is additive and an older peer ignores it.
+ */
+void connectionTCP::coopStampChainSeq(Json::Value& root)
+{
+	if (_openChainSeq == 0)
+	{
+		return;
+	}
+	root["action_seq"] = static_cast<Json::UInt>(_openChainSeq);
+	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+}
+
+/**
+ * coop (PRD-I3 SEAM-3 a): give a host explosion that begins OUTSIDE any admitted
+ * chain its own seq. A shot/grenade whose triggering action already drained (queue
+ * momentarily empty -> coopCloseActionChain zeroed _openChainSeq), or a spontaneous
+ * detonation, runs its ExplosionBState with _openChainSeq == 0, so coopStampChainSeq
+ * ships its destroy_tile (and hit_tile / set_smoke_tile / ...) UNSTAMPED = seq-0
+ * legacy always-consume. A lagging client then applies that outcome immediately and
+ * can fold it into a neighbouring chain's post-N sync-check hash - the transient
+ * terrain mapDataID straddle at ai/boundary seqs (SEAM-3 a; heals by sidestart).
+ * Opening an admitted chain here makes those outcomes carry a seq, so the client
+ * defers them on the same I1 gate an in-chain destroy uses (Ordering invariant 6,
+ * apply-before-hash), and both machines hash the explosion at its own action_end.
+ * No-op unless the parallel host is between chains; the chain closes normally when
+ * the explosion and any terrain-chain consequence drain (coopCloseActionChain).
+ * The boundary phase is excluded by the caller (ExplosionBState::_coopBoundaryExpl):
+ * a boundary explosion's destroys are already applied before the endturn/sidestart
+ * marker's ordered hash, and a mid-phase action_end there would race the markers.
+ */
+void connectionTCP::coopStampLooseOutcomeChain(const char* kind)
+{
+	if (!parallelTurnActive() || !getHost() || _openChainSeq != 0)
+	{
+		return;
+	}
+	stampAdmittedAction(kind ? kind : "expl");
+}
+
+/**
+ * coop (PRD-I3 SEAM-2 HALF 2): open/close the boundary-decay scope around the ONE
+ * neutral->player SavedBattleGame::prepareNewTurn call (its sole caller). A host
+ * tile-hazard send made inside the scope is tagged `bnd:true`, which routes it
+ * onto the ordered receive gate instead of the always-consume whitelist.
+ */
+void connectionTCP::coopSetBoundaryDecay(bool active)
+{
+	_coopBoundaryDecay = active;
+}
+
+/**
+ * coop (PRD-I3 SEAM-2 HALF 2): stamp `bnd:true` on a host set_smoke_tile /
+ * set_fire_tile send that is part of the boundary-phase decay. Additive and
+ * presence-gated: absent = the mid-side / classic / old-host case, which keeps
+ * the whitelist behaviour on both machines.
+ */
+void connectionTCP::coopStampBoundaryOrigin(Json::Value& root)
+{
+	if (_coopBoundaryDecay)
+	{
+		root["bnd"] = true;
+	}
+}
+
+// coop (PRD-P6): `fullReset` = a new battle or a session teardown (everything,
+// including the side and request sequences). Otherwise a side boundary: the
+// action sequence and PRD-P7's display term, which MUST move together.
+void connectionTCP::resetActionArbiter(bool fullReset)
+{
+	_actionSeq = 0;
+	peerDisplayAckedSeq = 0;
+	// coop (PRD-P7): the two display-flow terms reset with _actionSeq, for exactly
+	// the reason peerDisplayAckedSeq does - a client left holding a watermark from
+	// the previous side would never report `action_done` against the new, lower
+	// sequence and the executor's backlog term would wedge shut.
+	_openChainSeq = 0;
+	_clientDisplaySeq = 0;
+	_clientDisplaySideSeq = 0;
+	_openChainKind.clear();
+	_openChainTicks = 0;
+	_openChainWarned = false;
+	_openChainInstantPending = false;
+	// coop (wire-order Increment 7, SHAPE A): the chain-open (tu,energy) snapshot is
+	// scoped to the open chain; drop it with the rest of the _openChain* state so a
+	// side boundary / battle reset never diffs against a stale baseline. Empty (no-op)
+	// lever-off and on the client, which never populates it.
+	_openChainRegenSnap.clear();
+	_pendingAdmits.clear();
+	_sideCommitInProgress = false;
+	_intentSlotReqId = 0;
+	_intentSlotSeat = -1;
+	_intentSlotKind.clear();
+	_admitBlocked.clear();
+	if (fullReset)
+	{
+		_sideSeq = 0;
+		_clientReqSeq = 0;
+		// coop (wire-order Increment 4 / A4): re-arm the endTurn arrival high-water mark per
+		// battle, so a new battle's low side_seqs are above the mark and their endTurn
+		// first-sight applies fire again (side_seq restarts near 0 each battle).
+		g_endTurnArrivalSideSeq = 0;
+		// coop (wire-order Increment 5): same for the boundary sample's bseq high-water mark.
+		g_clientApplyBoundarySeq = 0;
+		clearClientPendingIntent();
+		clearClientLastDeny();
+		// coop (PRD-I0): the boundary namespace and the sync-check ring are scoped
+		// to a BATTLE, not to a side - the ring's action entries are keyed on
+		// (side_seq, seq) so they survive a boundary safely, and the boundary seqs
+		// must stay monotonic across every side of the battle.
+		_boundarySeq = 0;
+		_pendingBoundaries.clear();
+		// coop (PRD-I3 Option D-lite): a deferred turn advance is battle-scoped; discard
+		// it (and re-learn the host's next_turn capability) on a full reset - battle init
+		// and CoopState teardown both land here, so a stale flag can never cross battles.
+		_turnAdvanceDeferred = 0;
+		_turnAdvanceDeferredCount = 0;
+		_hostShipsNextTurnFields = false;
+		SharedEcon::resetSyncCheck();
+	}
+	// coop (PRD-P8): readiness is scoped to a side exactly the way _actionSeq is,
+	// so it is reset from the same call - a seat carrying "I am done" across a
+	// boundary would close the next side the instant it opened.
+	resetEndTurnReady();
+}
+
+void connectionTCP::clearClientPendingIntent()
+{
+	_clientPendingReqId = 0;
+	_clientPendingKind.clear();
+	_clientPendingSentTicks = 0;
+}
+
+void connectionTCP::clearClientLastDeny()
+{
+	_clientLastDenyReason.clear();
+	_clientLastDenyWarning.clear();
+}
+
+// coop (PRD-P6): the client's send half. ONE pending slot - a second input
+// simply replaces it, and the ack/deny of the replaced intent is dropped on
+// arrival because its req_id no longer matches.
+bool connectionTCP::sendActionIntent(Json::Value intent, const std::string& kind)
+{
+	intent["state"] = "action_intent";
+	intent["req_id"] = static_cast<Json::UInt>(++_clientReqSeq);
+	intent["seat"] = localSeat();
+	intent["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+	intent["kind"] = kind;
+
+	_clientPendingReqId = _clientReqSeq;
+	_clientPendingKind = kind;
+	_clientPendingSentTicks = SDL_GetTicks();
+
+	sendTCPPacketData(intent.toStyledString());
+	return true;
+}
+
+// coop (PRD-P6): PROTOCOL.md "Timeouts" - no ack/deny inside 10 s means the
+// intent is gone. A transport failure is already PING/PONG's business, so all
+// this has to do is stop the one-slot pending from wedging shut.
+void connectionTCP::tickActionIntents()
+{
+	if (_clientPendingReqId == 0)
+	{
+		return;
+	}
+	const std::uint32_t now = SDL_GetTicks();
+	if (now - _clientPendingSentTicks < 10000)
+	{
+		return;
+	}
+	Log(LOG_INFO) << "coop: action_intent req " << _clientPendingReqId << " ("
+				  << _clientPendingKind << ") timed out with no ack/deny";
+	clearClientPendingIntent();
+	flashBattleWarning("STR_COOP_ACTION_TIMEOUT");
+}
+
+// coop (PRD-P6): the deny/timeout flash. BattlescapeState::warning() translates
+// the key and posts it with the widget's normal fade - PRD-P5 dropped the
+// persistent off-turn banners that used to squat on that same widget.
+void connectionTCP::flashBattleWarning(const std::string& key)
+{
+	if (_game && _game->getSavedGame() && _game->getSavedGame()->getSavedBattle()
+		&& _game->getSavedGame()->getSavedBattle()->getBattleState())
+	{
+		_game->getSavedGame()->getSavedBattle()->getBattleState()->warning(key);
+	}
+}
+
+// ---- coop (PRD-P7): pending-admit + display flow control --------------------
+
+// coop (PRD-P9 rider R4): how long the executor may sit on a DEFERRED input.
+// Deliberately inside the client's 10 s pending-intent watchdog
+// (tickActionIntents), so a slot that cannot be admitted in time comes back as
+// a real `action_deny` the player can read, instead of the client timing out
+// locally and the host running the action afterwards into an ack whose req_id
+// no longer matches anything.
+static const std::uint32_t COOP_PEND_TIMEOUT_MS = 8000;
+
+// coop (PRD-P9 3): a chain open this long is a bug, not a slow animation.
+static const std::uint32_t COOP_STUCK_CHAIN_MS = 120000;
+
+/// Refuses one deferred input. A remote seat gets the ordinary `action_deny`; the
+/// executor's own deferred click never travelled, so it just flashes locally.
+static void coopRefusePendingIntent(connectionTCP* coop,
+									const connectionTCP::CoopPendingIntent& slot,
+									const std::string& reason)
+{
+	if (!coop)
+	{
+		return;
+	}
+	const std::string warning = (reason == "turn_over") ? "STR_COOP_TURN_OVER"
+														: "STR_COOP_PLAYER_BUSY";
+	if (slot.local)
+	{
+		coop->flashBattleWarning(warning);
+		return;
+	}
+	Json::Value root;
+	root["state"] = "action_deny";
+	root["req_id"] = static_cast<Json::UInt>(slot.reqId);
+	root["reason"] = reason;
+	root["warning"] = warning;
+	root["side_seq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
+	coop->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P7): take an input the arbiter cannot admit YET, instead of refusing
+ * it outright.
+ *
+ * The only chain worth deferring behind is one that is pure locomotion: it has no
+ * outcome to wait for, so the arbiter can stop watching it (the fast-forward) and
+ * run the deferred input the moment the queue drains. Anything else - a shot in
+ * flight, an explosion, a side commit - keeps PRD-P6's `busy` refusal, because the
+ * world the player clicked against is about to change.
+ */
+bool connectionTCP::coopPendIntent(int seat, std::uint32_t reqId, const std::string& kind,
+								   const std::string& intentJson, bool localOrigin)
+{
+	_pendBlocked.clear();
+	if (!parallelTurnActive() || !getHost() || !_staticGame)
+	{
+		_pendBlocked = "not_executor";
+		return false;
+	}
+	SavedGame* save = _staticGame->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	if (!bg || battle->getSide() != FACTION_PLAYER || _sideCommitInProgress)
+	{
+		_pendBlocked = "side";
+		return false;
+	}
+	if (!bg->chainIsSkippable())
+	{
+		// the two cases read very differently in a log: an EMPTY queue means the
+		// chain drained between the admission check and here (nothing to defer
+		// behind), a non-empty one means the chain is doing something that must be
+		// watched.
+		_pendBlocked = bg->isBusy() ? "not_skippable" : "chain_drained";
+		return false;
+	}
+
+	// One slot per seat, newest wins: the player changed their mind, so the older
+	// click is the one that is refused.
+	for (auto it = _pendingAdmits.begin(); it != _pendingAdmits.end(); ++it)
+	{
+		if (it->seat == seat)
+		{
+			CoopPendingIntent replaced = *it;
+			_pendingAdmits.erase(it);
+			coopRefusePendingIntent(_staticGame->getCoopMod(), replaced, "busy");
+			break;
+		}
+	}
+
+	CoopPendingIntent slot;
+	slot.reqId = reqId;
+	slot.seat = seat;
+	slot.kind = kind;
+	slot.json = intentJson;
+	slot.local = localOrigin;
+	// PRD-P9 rider R4: the expiry clock starts when the input is taken.
+	slot.deferTicks = SDL_GetTicks();
+	_pendingAdmits.push_back(slot);
+
+	bg->setCoopFastForward(true);
+	return true;
+}
+
+/**
+ * coop (PRD-P7): drop every deferred input.
+ *
+ * Called when a fast-forwarded chain stops being skippable - reaction fire is the
+ * case that matters. The player aimed their deferred click at a battlefield that
+ * has just been shot up, so re-clicking is the honest answer.
+ */
+void connectionTCP::coopDenyPendingIntents(const std::string& reason)
+{
+	if (_pendingAdmits.empty())
+	{
+		return;
+	}
+	std::vector<CoopPendingIntent> dropped;
+	dropped.swap(_pendingAdmits);
+	connectionTCP* coop = _staticGame ? _staticGame->getCoopMod() : nullptr;
+	for (const auto& slot : dropped)
+	{
+		coopRefusePendingIntent(coop, slot, reason);
+	}
+}
+
+/**
+ * coop (PRD-P7): admit ONE deferred input, from the main-thread tick.
+ *
+ * Not called from popState(): executing an action pushes states back onto the
+ * queue that the pop is still walking. One per tick is deliberate too - the
+ * admitted chain has to start before the next slot can be judged, and any slot
+ * left over keeps the fast-forward armed so the queue keeps compressing.
+ */
+void connectionTCP::coopAdmitPendingIntents()
+{
+	if (_pendingAdmits.empty() || !parallelTurnActive() || !getHost())
+	{
+		return;
+	}
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	if (!bg)
+	{
+		coopDenyPendingIntents("turn_over");
+		return;
+	}
+	if (battle->getSide() != FACTION_PLAYER || _sideCommitInProgress)
+	{
+		coopDenyPendingIntents("turn_over");
+		return;
+	}
+
+	// coop (PRD-P9 rider R4): expire before admitting. A deferred slot had no
+	// bound of its own - PRD-P7 relied on the chain in front draining - so a
+	// wedged chain (or a peer that stops reporting its display) could hold an
+	// input past the CLIENT's 10 s watchdog and then run it for a seat that had
+	// already given up on it. Refusing at 8 s keeps the answer inside the
+	// client's window, so the player is told rather than surprised.
+	{
+		const std::uint32_t nowTicks = SDL_GetTicks();
+		for (auto it = _pendingAdmits.begin(); it != _pendingAdmits.end(); )
+		{
+			if (it->deferTicks != 0 && nowTicks - it->deferTicks >= COOP_PEND_TIMEOUT_MS)
+			{
+				CoopPendingIntent expired = *it;
+				it = _pendingAdmits.erase(it);
+				Log(LOG_INFO) << "coop: deferred intent req " << expired.reqId
+							  << " (seat " << expired.seat << ", " << expired.kind
+							  << ") expired after " << COOP_PEND_TIMEOUT_MS
+							  << " ms without an admission; refusing it";
+				coopRefusePendingIntent(_game ? _game->getCoopMod() : nullptr,
+										expired, "busy");
+			}
+			else
+			{
+				++it;
+			}
+		}
+		if (_pendingAdmits.empty())
+		{
+			return;
+		}
+	}
+
+	if (!canAdmitAction())
+	{
+		return;
+	}
+
+	CoopPendingIntent slot = _pendingAdmits.front();
+	_pendingAdmits.erase(_pendingAdmits.begin());
+
+	// Re-validated at ADMIT time, not at defer time: TU, ownership and the actor's
+	// own health may all have moved while the chain in front was running.
+	std::string warning;
+	const std::string bad = bg->coopValidateIntent(slot.json, slot.seat, warning);
+	if (!bad.empty())
+	{
+		if (slot.local)
+		{
+			flashBattleWarning(warning.empty() ? "STR_COOP_ACTION_REFUSED" : warning);
+		}
+		else
+		{
+			Json::Value root;
+			root["state"] = "action_deny";
+			root["req_id"] = static_cast<Json::UInt>(slot.reqId);
+			root["reason"] = "invalid";
+			root["warning"] = warning;
+			root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+			sendTCPPacketData(root.toStyledString());
+		}
+	}
+	else
+	{
+		_intentSlotReqId = slot.reqId;
+		_intentSlotSeat = slot.seat;
+		_intentSlotKind = slot.kind;
+
+		// coop (PRD-P8): same rule as an immediately-admitted intent - a seat
+		// whose deferred input has just started is not done with the side.
+		noteSeatActed(slot.seat);
+
+		const std::uint32_t seq = stampAdmittedAction(slot.kind);
+		if (!slot.local)
+		{
+			// PROTOCOL.md: the ack goes out at ADMIT time, which for a deferred
+			// intent is now rather than when it arrived.
+			Json::Value ack;
+			ack["state"] = "action_ack";
+			ack["req_id"] = static_cast<Json::UInt>(slot.reqId);
+			ack["action_seq"] = static_cast<Json::UInt>(seq);
+			sendTCPPacketData(ack.toStyledString());
+		}
+		bg->coopExecuteIntent(slot.json, slot.local);
+	}
+
+	// Somebody is still waiting: keep skipping past whatever just started.
+	if (!_pendingAdmits.empty() && bg->chainIsSkippable())
+	{
+		bg->setCoopFastForward(true);
+	}
+}
+
+/**
+ * coop (PRD-P7): "chain N has no more packets coming".
+ *
+ * PROTOCOL.md deviation, documented there: the frozen sketch stamped `action_seq`
+ * on every broadcast packet of the chain. A stamp can only say "chain N STARTED",
+ * and three admitted kinds (kneel, prime, medikit) push no BattleState and may
+ * ship a single packet or - a turn that turns nothing, a walk with no path - none
+ * at all. The client would then never learn that chain N existed, never report it
+ * displayed, and the backlog term would wedge the arbiter for the rest of the
+ * side. One marker at the drain point says exactly the thing the flow control
+ * needs, rides the ordinary receive gate (so the client consumes it only once its
+ * display of that chain has finished), and costs no per-packet work.
+ */
+void connectionTCP::coopNoteInstantExecuted()
+{
+	// coop (PRD-I3 SEAM-7 ii): executeAction has just emitted the instant kind's
+	// replay packet, so the action_end hold can lift (see coopCloseActionChain).
+	_openChainInstantPending = false;
+}
+
+void connectionTCP::coopCloseActionChain()
+{
+	if (_openChainSeq == 0 || !parallelTurnActive() || !getHost() || !_staticGame)
+	{
+		return;
+	}
+	connectionTCP* coop = _staticGame->getCoopMod();
+	if (!coop)
+	{
+		return;
+	}
+	SavedGame* save = _staticGame->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	if (bg && bg->isBusy())
+	{
+		return; // the chain is still running
+	}
+	if (!coop->coopTaskCompleted())
+	{
+		return;
+	}
+	// coop (PRD-I3 SEAM-7 ii): an instant-kind chain whose replay packet is still
+	// owed - hold the marker so the packet reaches the wire first. executeAction
+	// clears this (coopNoteInstantExecuted) the instant it has sent the packet, so
+	// the hold lasts at most until the next tick and never strands the chain.
+	if (_openChainInstantPending)
+	{
+		return;
+	}
+	// coop (PRD-I0): the executor's hash point. This is the ONE place per admitted
+	// chain where the host is provably quiescent (isBusy false, receive gate at
+	// depth 0), so "the state after chain N" is well defined here and nowhere else.
+	// Recorded BEFORE the marker goes out, so the peer's answer can never arrive
+	// before the entry it will be matched against exists.
+	SharedEcon::syncCheckRecord(_staticGame, _openChainSeq, _sideSeq, false,
+								_openChainKind);
+
+	Json::Value root;
+	root["state"] = "action_end";
+	root["action_seq"] = static_cast<Json::UInt>(_openChainSeq);
+	// coop (PRD-I0): the side this seq belongs to, echoed back on `action_done`.
+	// The client CANNOT derive it: `endTurn` is on the interrupt whitelist while
+	// `action_end` deliberately is not, so the client's own `_sideSeq` routinely
+	// runs ahead of the markers still queued behind the receive gate. Measured
+	// without this: two of the alien side's last chains reported under the NEXT
+	// side's token, found no ring entry and were silently dropped as stale.
+	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+	// coop (wire-order Increment 7, SHAPE A): diff the chain-open (tu,energy) snapshot
+	// against the now-quiescent state (this is the ONE provably-quiescent point per
+	// chain, same guarantee the syncCheckRecord ring above relies on) and ship ONLY the
+	// units this chain changed as `regen`. The client applies these ABSOLUTES at the
+	// marker's first-sight, BEFORE it samples, so a slow client's still-draining tu/
+	// energy is corrected at wire position N rather than waiting on its own replay -
+	// which is exactly why the sidestart unitsRegen(tu) straddle heals a compare early
+	// (see docs parallel/boundary-residual-investigation-2026-08-26.md). Generalizes
+	// coopApplyActorCost (abortPath's PRD-P9 walk-end tu/energy carry) to every chain.
+	// Present-gated (absent = older peer / lever-off => byte-identical marker).
+	// DO-NOT-ADD morale: it is boundary-authored (endTurn death-morale cascade) and
+	// already covered by next_turn + hit_unit's bystander-morale carrier; a straddling
+	// pre-cascade morale absolute applied wire-after next_turn would MINT a new
+	// unitsRegen(morale) divergence. A future session must not add it here.
+	if (g_wireOrderState.load(std::memory_order_relaxed) && battle && !_openChainRegenSnap.empty())
+	{
+		Json::Value regen(Json::arrayValue);
+		for (auto* u : *battle->getUnits())
+		{
+			auto it = _openChainRegenSnap.find(u->getId());
+			if (it == _openChainRegenSnap.end())
+				continue; // spawned mid-chain: no baseline, leave it to next_turn's snapshot
+			const int tu = u->getTimeUnits();
+			const int en = u->getEnergy();
+			if (tu == it->second.first && en == it->second.second)
+				continue; // unchanged during this chain
+			Json::Value ru;
+			ru["unit_id"] = u->getId();
+			ru["tu"] = tu;
+			ru["energy"] = en;
+			regen.append(ru);
+		}
+		if (!regen.empty())
+		{
+			root["regen"] = regen;
+			g_regenEmitted.fetch_add(regen.size(), std::memory_order_relaxed);
+		}
+		_openChainRegenSnap.clear();
+	}
+	_openChainSeq = 0;
+	_openChainKind.clear();
+	_openChainTicks = 0;
+	_openChainWarned = false;
+	coop->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-I0): the boundary pseudo-seq marker.
+ *
+ * The side-close phase group (fuses, terrain explosions, SavedBattleGame::endTurn)
+ * and the side start (`next_turn` / prepareNewTurn) are the two places state moves
+ * WITHOUT any admitted chain to hang a hash on - they are also where several known
+ * seams live, so leaving them unhashed would mean every divergence introduced at a
+ * boundary got attributed to the first action of the next side.
+ *
+ * The marker rides `action_end` with `"boundary": true` rather than a new state
+ * string. That is not a saving, it is the mechanism: `action_end` is deliberately
+ * NOT on the interrupt whitelist, so the client consumes it only at receive-gate
+ * depth 0 - i.e. once every packet the host sent before it (the boundary's
+ * `fuse_events` / `next_turn`) has been APPLIED. Hash-after-apply on the client is
+ * what the boundary comparison needs, and it is the opposite of the legacy
+ * tripwire's compare-before-apply, which stays exactly as it is.
+ */
+void connectionTCP::coopArmSyncBoundary(const char* kind)
+{
+	if (!parallelTurnActive() || !getHost() || !kind)
+	{
+		return;
+	}
+	_pendingBoundaries.push_back(kind);
+}
+
+/**
+ * coop (PRD-I0): ship at most one armed boundary marker, once the executor is
+ * quiescent - the same two terms `coopCloseActionChain` waits on.
+ *
+ * Arming and sending are separate because the side-close phases run INSIDE
+ * BattlescapeGame::endTurn(), which can still have explosion or death chains
+ * queued behind it. Hashing there would compare the host mid-chain against a
+ * client that has applied those chains' packets. Waiting costs nothing: the host
+ * hashes at SEND time and the client hashes at CONSUME time, so both are the
+ * state "at this marker's position in the stream" whenever that turns out to be.
+ * The label ("endturn" / "sidestart") is a diagnostic, not part of the compare.
+ */
+void connectionTCP::coopFlushSyncBoundary()
+{
+	if (_pendingBoundaries.empty() || !parallelTurnActive() || !getHost() || !_staticGame)
+	{
+		return;
+	}
+	connectionTCP* coop = _staticGame->getCoopMod();
+	SavedGame* save = _staticGame->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	if (!coop || !battle)
+	{
+		// The battle ended under an armed marker: there is nothing to hash and
+		// nobody to answer, so drop the whole queue rather than carry it into the
+		// next battle.
+		_pendingBoundaries.clear();
+		return;
+	}
+	BattlescapeGame* bg = battle->getBattleGame();
+	if ((bg && bg->isBusy()) || !coop->coopTaskCompleted())
+	{
+		return;
+	}
+	const std::string kind = _pendingBoundaries.front();
+	_pendingBoundaries.erase(_pendingBoundaries.begin());
+	coopSendSyncBoundary(kind.c_str());
+}
+
+// coop (wire-order Increment 6): flush a pending SIDESTART boundary at the player-turn-start
+// point - called from BattlescapeGame::think() right before handlePanickingPlayer, where
+// _states is empty (the side-close explosion/death chains have drained) and the start-of-turn
+// panic/berserk has NOT yet run. Records the ring + emits the marker at the boundary STATE
+// (post-side-close, pre-panic), so the host ring equals next_turn's snapshot and the client's
+// wire-first-sight sample, and the panic carriers land AFTER the marker on both timelines. This
+// fixes the sidestart unitsRegen residual (host ring was previously recorded post-panic-drain
+// because coopFlushSyncBoundary's !isBusy wait overshoots next_turn into the start-of-turn
+// panic). Scoped to the sidestart kind; an endturn boundary at the front is left for the normal
+// deferred tick flush. Lever-off: no-op (the tick flush is unchanged, byte-identical).
+void connectionTCP::coopFlushSidestartBoundaryEarly()
+{
+	if (!g_wireOrderState.load(std::memory_order_relaxed))
+	{
+		return;
+	}
+	if (!parallelTurnActive() || !getHost())
+	{
+		return;
+	}
+	if (_pendingBoundaries.empty() || _pendingBoundaries.front() != "sidestart")
+	{
+		return;
+	}
+	// coopFlushSyncBoundary flushes the front (the sidestart here) after its own
+	// !isBusy && coopTaskCompleted() guard, which is satisfied at this quiescent point.
+	coopFlushSyncBoundary();
+}
+
+void connectionTCP::coopSendSyncBoundary(const char* kind)
+{
+	if (!parallelTurnActive() || !getHost() || !_staticGame)
+	{
+		return;
+	}
+	connectionTCP* coop = _staticGame->getCoopMod();
+	if (!coop)
+	{
+		return;
+	}
+	SavedGame* save = _staticGame->getSavedGame();
+	if (!save || !save->getSavedBattle())
+	{
+		return;
+	}
+	const std::uint32_t seq = ++_boundarySeq;
+	SharedEcon::syncCheckRecord(_staticGame, seq, 0, true, kind ? kind : "boundary");
+	// coop (three-class RCA DIAGNOSTIC, class 3): the HOST's authoritative alien core at
+	// the boundary ring-record point (pre-panic per Increment 6), to compare against the
+	// client's SAMPLE.core. Capture-gated, boundary-only (bounded).
+	if (g_diagCapture.load(std::memory_order_relaxed))
+		for (auto* hu : *save->getSavedBattle()->getUnits())
+			if (hu->getId() >= 1000000)
+			{
+				const Position hp = hu->getPosition();
+				coopDiagS("HOSTCORE bseq=" + std::to_string(seq) + " u=" + std::to_string(hu->getId())
+					+ " live=" + std::to_string((int)hu->getStatus())
+					+ " x=" + std::to_string(hp.x) + " y=" + std::to_string(hp.y)
+					+ " z=" + std::to_string(hp.z) + " tu=" + std::to_string(hu->getTimeUnits()));
+			}
+
+	Json::Value root;
+	root["state"] = "action_end";
+	// action_seq 0: the marker allocates nothing in the per-side action namespace,
+	// so PRD-P7's `_clientDisplaySeq` watermark and the display-backlog term are
+	// untouched by it (see connectionTCP::_boundarySeq for why that matters).
+	root["action_seq"] = 0;
+	root["boundary"] = true;
+	root["bseq"] = static_cast<Json::UInt>(seq);
+	root["kind"] = kind ? kind : "boundary";
+	coop->sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P9 3): the stuck-chain diagnostic.
+ *
+ * There is no distributed lock in this design, so there is nothing to break open
+ * when a chain stops draining - but a chain that has been "running" for two
+ * minutes is always a bug (a BattleState that never pops, a receive gate whose
+ * depth never returns to 0, a peer that stopped reporting `action_done`), and
+ * the arbiter state that says WHICH is gone by the time anyone looks. So this
+ * logs it exactly once per chain, with every term the admission check reads.
+ */
+void connectionTCP::coopCheckStuckChain()
+{
+	if (_openChainSeq == 0 || _openChainTicks == 0 || _openChainWarned)
+	{
+		return;
+	}
+	if (SDL_GetTicks() - _openChainTicks < COOP_STUCK_CHAIN_MS)
+	{
+		return;
+	}
+	_openChainWarned = true;
+
+	SavedGame* stuckSave = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	SavedBattleGame* stuckBattle = stuckSave ? stuckSave->getSavedBattle() : nullptr;
+	BattlescapeGame* stuckBg = stuckBattle ? stuckBattle->getBattleGame() : nullptr;
+	connectionTCP* stuckCoop = _staticGame ? _staticGame->getCoopMod() : nullptr;
+	const std::uint32_t backlog =
+		_actionSeq > peerDisplayAckedSeq ? _actionSeq - peerDisplayAckedSeq : 0;
+	canAdmitAction();   // refreshes _admitBlocked for the line below
+	Log(LOG_WARNING) << "coop: action chain " << _openChainSeq
+					 << " has been open for over " << (COOP_STUCK_CHAIN_MS / 1000)
+					 << " s - seat " << _intentSlotSeat << " req " << _intentSlotReqId
+					 << " (" << _intentSlotKind << "); isBusy="
+					 << (stuckBg && stuckBg->isBusy() ? 1 : 0)
+					 << " gateDepth=" << (stuckCoop ? stuckCoop->coopTaskDepth() : -1)
+					 << " rxHold=" << rxHoldSize() << " rxPark=" << rxParkSize()
+					 << " displayBacklog=" << backlog
+					 << " pendingAdmits=" << _pendingAdmits.size()
+					 << " admitBlocked=" << (_admitBlocked.empty() ? "-" : _admitBlocked)
+					 << " sideCommit=" << (_sideCommitInProgress ? 1 : 0);
+}
+
+/**
+ * coop (PRD-P7): the client's single `action_done` emit point.
+ *
+ * `_clientDisplaySeq` is written only when the gated `action_end` marker is
+ * CONSUMED, and a gated consume by definition happens at receive-gate depth 0 -
+ * i.e. the moment the display of that chain finished. So there is exactly one
+ * place this can fire from, and it cannot fire early.
+ */
+void connectionTCP::coopEmitActionDone()
+{
+	if (!parallelTurnActive() || getHost())
+	{
+		return;
+	}
+	if (_clientDisplaySeq == 0 || _clientDisplaySeq <= peerDisplayAckedSeq)
+	{
+		return;
+	}
+	// TEST-ONLY (TestServer `hold_action_done`), default off: park the report
+	// rather than ship it. peerDisplayAckedSeq stays put, so the release path
+	// re-enters here and emits the newest seq - which subsumes every parked one.
+	if (_testHoldActionDone)
+	{
+		++_heldActionDones;
+		return;
+	}
+	peerDisplayAckedSeq = _clientDisplaySeq;
+	Json::Value root;
+	root["state"] = "action_done";
+	root["seq"] = static_cast<Json::UInt>(peerDisplayAckedSeq);
+	root["seat"] = localSeat();
+	// coop (PRD-I0): the client's hash point, riding the report it was sending
+	// anyway. `side_seq` disambiguates the seq - `_actionSeq` restarts at 0 every
+	// side, so without it a report that crossed a boundary in flight would be
+	// compared against a brand-new chain carrying the same low number. It is the
+	// value the MARKER carried, never this machine's live `_sideSeq`.
+	root["side_seq"] = static_cast<Json::UInt>(_clientDisplaySideSeq);
+	// coop (wire-order report alignment, Phase 3): under the lever the per-action
+	// hash ships via sync_report (sampled at the marker's wire-order first sight);
+	// this action_done keeps its display-ack role only. Lever-off: attach as before.
+	if (!g_wireOrderState.load(std::memory_order_relaxed))
+	{
+		SharedEcon::syncCheckAttach(_game, root);
+	}
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-I0): answer a marker whose side has already closed here.
+ *
+ * Same message, deliberately none of the bookkeeping: `_clientDisplaySeq` and
+ * `peerDisplayAckedSeq` belong to the side that is running now, and a seq from
+ * the previous one is a larger number in a namespace that has restarted. Moving
+ * either of them with it is the wedge documented at the call site. The host
+ * likewise refuses to credit it (its `action_done` handler compares `side_seq`),
+ * so this exists purely so the sync-check ring entry gets its answer instead of
+ * ageing out as "the peer stopped reporting".
+ */
+void connectionTCP::coopEmitStaleActionDone(std::uint32_t seq, std::uint32_t sideSeq)
+{
+	if (!parallelTurnActive() || getHost() || seq == 0)
+	{
+		return;
+	}
+	Json::Value root;
+	root["state"] = "action_done";
+	root["seq"] = static_cast<Json::UInt>(seq);
+	root["seat"] = localSeat();
+	root["side_seq"] = static_cast<Json::UInt>(sideSeq);
+	// coop (wire-order report alignment, Phase 3): under the lever this ring entry
+	// was already answered by sync_report at the marker's wire-order first sight;
+	// do not re-sample the hash here. Lever-off: attach as before.
+	if (!g_wireOrderState.load(std::memory_order_relaxed))
+	{
+		SharedEcon::syncCheckAttach(_game, root);
+	}
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-I0): the client's BOUNDARY hash point.
+ *
+ * Called from the `action_end` handler when the marker carries `boundary: true`.
+ * That handler runs at receive-gate depth 0, so everything the host sent before
+ * the marker has already been applied here - which is exactly the state the host
+ * hashed on its side of the boundary.
+ */
+void connectionTCP::coopEmitBoundaryDone(std::uint32_t bseq)
+{
+	if (!parallelTurnActive() || getHost() || bseq == 0)
+	{
+		return;
+	}
+	// coop (Class-A soak wedge fix, A3 test lever): park only the BOUNDARY answer so
+	// the host's g_syncLastComparedBoundarySeq freezes while per-chain acks keep
+	// flowing - the peer-went-dark-on-boundaries condition the liveness tripwire
+	// detects, forced deterministically without stalling the host's commit.
+	if (_testHoldBoundaryDone)
+	{
+		return;
+	}
+	Json::Value root;
+	root["state"] = "action_done";
+	// No `seq`: the boundary namespace is separate and must not move PRD-P7's
+	// display watermark. The host's `action_done` handler reads seq 0 as a no-op.
+	root["seq"] = 0;
+	root["seat"] = localSeat();
+	root["boundary"] = true;
+	root["bseq"] = static_cast<Json::UInt>(bseq);
+	SharedEcon::syncCheckAttachBoundary(_game, root);
+	sendTCPPacketData(root.toStyledString());
+}
+
+// ---- coop (PRD-P8): end-turn readiness gate ---------------------------------
+
+void connectionTCP::ensureEndTurnSeats()
+{
+	const size_t want = static_cast<size_t>(std::max(1, seatCount()));
+	if (_endTurnReady.size() < want)
+	{
+		_endTurnReady.resize(want, false);
+	}
+	if (_endTurnAuto.size() < want)
+	{
+		_endTurnAuto.resize(want, false);
+	}
+}
+
+/**
+ * coop (PRD-P8): everything a side boundary must forget.
+ *
+ * Deliberately co-located with the arbiter reset (resetActionArbiter calls this)
+ * rather than owning its own reset site: readiness is scoped to a side exactly
+ * the way `_actionSeq` is, and the two drifting apart is what would let a seat
+ * carry a stale "I am done" across a boundary and close the NEXT side instantly.
+ */
+void connectionTCP::resetEndTurnReady()
+{
+	_endTurnReady.assign(_endTurnReady.size(), false);
+	_endTurnAuto.assign(_endTurnAuto.size(), false);
+	_endTurnTallySideSeq = _sideSeq;
+	_endTurnTallySent.clear();
+	_commitBlocked.clear();
+}
+
+bool connectionTCP::endTurnSeatReady(int seat)
+{
+	if (seat < 0)
+	{
+		return false;
+	}
+	const size_t i = static_cast<size_t>(seat);
+	return (i < _endTurnReady.size() && _endTurnReady[i])
+		|| (i < _endTurnAuto.size() && _endTurnAuto[i]);
+}
+
+int connectionTCP::endTurnReadyCount()
+{
+	int n = 0;
+	const int seats = std::max(1, seatCount());
+	for (int s = 0; s < seats; ++s)
+	{
+		if (endTurnSeatReady(s))
+		{
+			++n;
+		}
+	}
+	return n;
+}
+
+bool connectionTCP::endTurnAllReady()
+{
+	const int seats = std::max(1, seatCount());
+	return endTurnReadyCount() >= seats;
+}
+
+/**
+ * coop (PRD-P8): auto readiness is DERIVED, not remembered.
+ *
+ * PRD-P8 §1 names three events that have to move it - a unit dying, a
+ * mind-control `setCoop` flip, an in-battle gift - and hooking each one is three
+ * chances to miss a fourth (a unit going unconscious, a stun wearing off, a
+ * spawned reinforcement). Re-deriving the whole thing from the live roster on
+ * the executor's tick is cheaper than any of those hooks and cannot miss a site:
+ * a seat is auto-ready exactly while it commands no live FACTION_PLAYER unit, so
+ * gaining one clears it for free. Explicit readiness is a separate bit and is
+ * never touched here.
+ */
+void connectionTCP::recomputeEndTurnAuto()
+{
+	ensureEndTurnSeats();
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	if (!battle)
+	{
+		return;
+	}
+	const int seats = std::max(1, seatCount());
+	std::vector<int> live(static_cast<size_t>(seats), 0);
+	for (auto* u : *battle->getUnits())
+	{
+		if (!u || u->getFaction() != FACTION_PLAYER || u->isOut())
+		{
+			continue;
+		}
+		const int seat = u->getCoop();
+		if (seat >= 0 && seat < seats)
+		{
+			++live[static_cast<size_t>(seat)];
+		}
+	}
+	for (int s = 0; s < seats; ++s)
+	{
+		_endTurnAuto[static_cast<size_t>(s)] = (live[static_cast<size_t>(s)] == 0);
+	}
+}
+
+/**
+ * coop (PRD-P8): the tally echo.
+ *
+ * PRD-P8 §1 asks for an echo "after EVERY change (incl. auto)". Sending it from
+ * the tick against a remembered signature is that, with one frame of latency and
+ * without a send call at every mutation site - the auto half in particular has no
+ * single site to hang one on (see recomputeEndTurnAuto).
+ */
+void connectionTCP::sendEndTurnTallyIfChanged()
+{
+	if (!parallelTurnActive() || !getHost())
+	{
+		return;
+	}
+	ensureEndTurnSeats();
+	const int seats = std::max(1, seatCount());
+
+	// A cheap character signature first: this runs on EVERY main-thread tick, and
+	// building a Json::Value + toStyledString() just to compare it would allocate
+	// per frame for a message that changes a handful of times per side.
+	std::string sig = std::to_string(_sideSeq) + ":" + std::to_string(seats) + ":";
+	for (int s = 0; s < seats; ++s)
+	{
+		sig += _endTurnReady[static_cast<size_t>(s)] ? 'R'
+			 : (_endTurnAuto[static_cast<size_t>(s)] ? 'A' : '.');
+	}
+	if (sig == _endTurnTallySent)
+	{
+		return;
+	}
+	_endTurnTallySent = sig;
+	_endTurnTallySideSeq = _sideSeq;
+
+	Json::Value root;
+	root["state"] = "end_turn_tally";
+	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+	root["ready_seats"] = Json::Value(Json::arrayValue);
+	root["auto_seats"] = Json::Value(Json::arrayValue);
+	for (int s = 0; s < seats; ++s)
+	{
+		if (_endTurnReady[static_cast<size_t>(s)])
+		{
+			root["ready_seats"].append(s);
+		}
+		if (_endTurnAuto[static_cast<size_t>(s)])
+		{
+			root["auto_seats"].append(s);
+		}
+	}
+	root["total"] = seats;
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P8): a seat that just had an action admitted did not mean "I am
+ * done". Only the EXPLICIT bit is cleared - auto readiness is derived from the
+ * roster and a seat with no units left cannot have had an action admitted.
+ */
+void connectionTCP::noteSeatActed(int seat)
+{
+	if (!parallelTurnActive() || !getHost() || seat < 0)
+	{
+		return;
+	}
+	ensureEndTurnSeats();
+	const size_t i = static_cast<size_t>(seat);
+	if (i < _endTurnReady.size() && _endTurnReady[i])
+	{
+		_endTurnReady[i] = false;
+		// the tick's echo picks the change up; nothing else has to remember to.
+	}
+}
+
+/**
+ * coop (PRD-P8): the END TURN button during a parallel side.
+ *
+ * There is no side owner any more, so the press cannot close anything: it arms
+ * (or disarms) THIS machine's readiness. The host owns the tally outright, a
+ * client ships `end_turn_ready` and shows its own bit optimistically until the
+ * echo confirms it.
+ */
+void connectionTCP::toggleEndTurnReady()
+{
+	if (!parallelTurnActive())
+	{
+		return;
+	}
+	ensureEndTurnSeats();
+	const int seat = localSeat();
+	if (seat < 0 || static_cast<size_t>(seat) >= _endTurnReady.size())
+	{
+		return;
+	}
+	const bool want = !_endTurnReady[static_cast<size_t>(seat)];
+	_endTurnReady[static_cast<size_t>(seat)] = want;
+
+	if (getHost())
+	{
+		// the tick echoes the new tally; the commit is re-evaluated there too.
+		return;
+	}
+	Json::Value root;
+	root["state"] = "end_turn_ready";
+	root["seat"] = seat;
+	root["ready"] = want;
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	root["turn"] = battle ? battle->getTurn() : 0;
+	root["side_seq"] = static_cast<Json::UInt>(_sideSeq);
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * coop (PRD-P8): the side commit.
+ *
+ * Four terms, in the order PROTOCOL.md "Ordering invariants" 4 lists them: every
+ * seat ready, the arbiter idle (no chain, receive gate open, no commit already
+ * running), and the peer's DISPLAY drained - the last one is why this lives on
+ * the tick rather than inside the toggle handler. The client can be several
+ * chains behind when the last seat arms, and closing the side then would tear
+ * down the very state it is still drawing.
+ *
+ * Everything after the barrier is PRD-P5's verified boundary flow, moved here
+ * wholesale from btnEndTurnClick: `_sideSeq` is NOT bumped here, because
+ * BattlescapeGame::endTurn() - which endTurnCoop() ultimately reaches - is the
+ * site that both bumps it and stamps it on the `endTurn` packet the client reads
+ * (PRD-P6 as-built). Bumping it twice would leave every client intent stale for
+ * the whole next side.
+ */
+void connectionTCP::coopCheckSideCommit()
+{
+	_commitBlocked.clear();
+	if (!parallelTurnActive() || !getHost() || !_game)
+	{
+		_commitBlocked = "not_executor";
+		return;
+	}
+	if (_sideCommitInProgress)
+	{
+		_commitBlocked = "side_commit";
+		return;
+	}
+	SavedGame* save = _game->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
+	BattlescapeState* bstate = battle ? battle->getBattleState() : nullptr;
+	if (!bg || !bstate || battle->isPreview() || battle->getSide() != FACTION_PLAYER)
+	{
+		_commitBlocked = "no_side";
+		return;
+	}
+	if (!_battleInit)
+	{
+		// the per-turn co-op handshake has not re-armed yet
+		_commitBlocked = "battle_init";
+		return;
+	}
+	if (!_game->isState(bstate))
+	{
+		// a modal is up (inventory, pause, a vote): the player is not looking at
+		// the battle, so do not pull it out from under them.
+		_commitBlocked = "not_top_state";
+		return;
+	}
+	ensureEndTurnSeats();
+	if (!endTurnAllReady())
+	{
+		_commitBlocked = "not_ready";
+		return;
+	}
+	if (!canAdmitAction())
+	{
+		_commitBlocked = _admitBlocked.empty() ? "admit" : _admitBlocked;
+		return;
+	}
+	if (peerDisplayAckedSeq < _actionSeq)
+	{
+		// PROTOCOL.md `action_done`: the end-turn display drain barrier.
+		_commitBlocked = "display_backlog";
+		return;
+	}
+
+	Log(LOG_INFO) << "coop (PRD-P8): all " << seatCount() << " seat(s) ready - "
+				  << "committing the parallel player side (turn "
+				  << battle->getTurn() << ", side_seq " << _sideSeq << ")";
+
+	// From here nothing may be admitted: a client intent that arrives now is
+	// denied `turn_over`, and so is anything still deferred (E14).
+	_sideCommitInProgress = true;
+	coopDenyPendingIntents("turn_over");
+
+	// PRD-P5's verified boundary flow. The host stays the executor for the AI
+	// side that follows; the per-turn co-op init handshake re-arms from scratch,
+	// exactly as it does on the classic path.
+	_isActivePlayerSync = true;
+	_isActiveAISync = true;
+	_battleInit = false;
+	_waitBH = false;
+	_waitBC = false;
+
+	bstate->endTurnCoop();
 }
 
 // PRD-J01: active roster size (host + clients). Falls back to the legacy
@@ -11776,7 +16298,6 @@ void connectionTCP::hostTCPServer(std::string servername, std::string str_port)
 {
 
 	sendTcpServerName = servername;
-	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
 	_battleWindow = false;
@@ -11817,7 +16338,6 @@ void connectionTCP::hostTCPServer(std::string servername, std::string str_port)
 void connectionTCP::connectTCPServer(std::string ipaddress, std::string str_port)
 {
 	ipAddress = ipaddress;
-	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
 	_battleWindow = false;
@@ -11862,7 +16382,6 @@ void connectionTCP::connectTCPServer(std::string ipaddress, std::string str_port
 // the transport start. Session is derived from the shared password (both peers).
 void connectionTCP::hostDirectLanUDP(std::string str_port, std::string player, std::string password)
 {
-	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
 	_battleWindow = false;
@@ -11884,7 +16403,6 @@ void connectionTCP::joinDirectLanUDP(std::string ipaddress, std::string str_port
 									 std::string str_localport, std::string player, std::string password)
 {
 	ipAddress = ipaddress;
-	gamePaused = 0;
 	_waitBC = false;
 	_waitBH = false;
 	_battleWindow = false;
@@ -12180,7 +16698,22 @@ void connectionTCP::disconnectTCP(bool isMain)
 			else if (connectionTCP::session.lobbyClosed == true
 				&& !customBattleDebriefing)
 			{
-				_game->pushState(new LobbyMenu);
+				// ...but NOT once the skirmish mission is over. The peer left
+				// because they closed their debriefing; the host is still
+				// reading its own, and a lobby dropped on top of it offers
+				// RESUME GAME - which pops the debriefing away and lands the
+				// host on the dead geoscape the skirmish world was loaded onto
+				// (issue #82's half-torn world). The host's own debriefing OK
+				// is the exit, and it goes through GoToMainMenuState.
+				if (skirmishMissionOver())
+				{
+					Log(LOG_INFO) << "[coop] lobby re-open suppressed: the skirmish "
+						"mission is over; the debriefing owns the trip to the main menu";
+				}
+				else
+				{
+					_game->pushState(new LobbyMenu);
+				}
 			}
 			else if (customBattleDebriefing)
 			{
@@ -12229,14 +16762,20 @@ void connectionTCP::disconnectTCP(bool isMain)
 		connectionTCP::no_bases = false;
 		connectionTCP::isCoopBaseLoading = false;
 
-		gamePaused = 0;
 		playerInsideCoopBase = false;
 
-		_coop_task_completed = true;
+		resetCoopTaskDepth();
+		// PRD-P6: no arbiter state may survive a session teardown.
+		resetActionArbiter(true);
 
 		_isActiveAISync = false;
 
 		_isActivePlayerSync = false;
+
+		// coop (#162): the graceful-leave latch is per-session - clear it here so a
+		// clean leave in one session can never suppress a real crash notice in the
+		// next. The onConnect==-2 gate has already read it by the time teardown runs.
+		_peerLeftCleanly = false;
 
 		_clientPanicHandle = false;
 

@@ -17,6 +17,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <assert.h>
+#include <atomic>
 #include <set>
 #include "TileEngine.h"
 #include "AIModule.h"
@@ -878,6 +879,16 @@ void iterateTilesLightMaxBound(SavedBattleGame* save, Position position, int eve
 }
 
 } // namespace
+
+// coop (explosion ordered-replay E5a GAP-MODULE): the module_destroyed send/apply
+// counters are file-scope in connectionTCP.cpp (alongside the E1-E4 counters);
+// extern-declared here so this file's parallel-host send site (detonate(), the
+// base-module decrement) can increment the sent side. g_moduleDestroyedSent counts
+// every module_destroyed the parallel host ships; g_moduleDestroyedApplied
+// (incremented in connectionTCP.cpp's handler) counts every one the parallel client
+// replays. The two must match - a mismatch means the carrier dropped or duplicated
+// a base-defense module decrement. Parallel-only, 0 everywhere else.
+extern std::atomic<uint32_t> g_moduleDestroyedSent;
 
 constexpr int TileEngine::heightFromCenter[11];
 
@@ -2970,37 +2981,19 @@ int TileEngine::hitTile(Tile* tile, int damage, const RuleDamageType* type)
 		if (tile->getSmoke() < _save->getBattleGame()->getMod()->getTooMuchSmokeThreshold() && tile->getTerrainLevel() > -24)
 		{
 			tile->setFire(0);
+			// coop (PRD-P3 GAP-7): the _smokeRNGs relay is gone. It was unbalanced -
+			// pushed once per hit(), popped only down this smoke branch, and popped
+			// again by explode()'s hitTile with no matching push - and vestigial: the
+			// value it carried only ever reached setSmoke(), which is host-gated and
+			// ships set_smoke_tile. That packet is the single source of the peer's
+			// smoke, so the roll below runs on the host and nowhere else.
 			if (damage >= type->SmokeThreshold * 2)
 			{
-
-				if (_save->getBattleGame()->getCoopMod()->_smokeRNGs.empty())
-				{
-					tile->setSmoke(RNG::generate(7, 15)); // for SmokeThreshold == 0
-				}
-				else
-				{
-
-					int oldest = _save->getBattleGame()->getCoopMod()->_smokeRNGs.front();
-					tile->setSmoke(oldest); // for SmokeThreshold == 0
-					_save->getBattleGame()->getCoopMod()->_smokeRNGs.erase(_save->getBattleGame()->getCoopMod()->_smokeRNGs.begin());
-				}
-
+				tile->setSmoke(RNG::generate(7, 15)); // for SmokeThreshold == 0
 			}
 			else
 			{
-
-				if (_save->getBattleGame()->getCoopMod()->_smokeRNGs.empty())
-				{
-					tile->setSmoke(RNG::generate(7, 15) * (damage - type->SmokeThreshold) / type->SmokeThreshold);
-				}
-				else
-				{
-
-					int oldest2 = _save->getBattleGame()->getCoopMod()->_smokeRNGs.front();
-					tile->setSmoke(oldest2 * (damage - type->SmokeThreshold) / type->SmokeThreshold);
-					_save->getBattleGame()->getCoopMod()->_smokeRNGs.erase(_save->getBattleGame()->getCoopMod()->_smokeRNGs.begin());
-				}
-
+				tile->setSmoke(RNG::generate(7, 15) * (damage - type->SmokeThreshold) / type->SmokeThreshold);
 			}
 
 			return 1;
@@ -3317,9 +3310,26 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 
 			Json::Value root;
 			root["state"] = "hit_unit";
+			// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+			// client's action_end apply-barrier waits for this damage before sampling the
+			// chain's post-N sync-check hash (no-op off the parallel host, _openChainSeq==0).
+			connectionTCP::coopStampChainSeq(root);
+			// coop (PHASE D.2 / chain-atomicity): the hit_unit "attack_id" was
+			// correlation only (this packet is keyed by unit id and nothing consumed
+			// the field); removed with the attack_id keying it belonged to.
 			root["unit_id"] = target->getId();
 			root["health"] = target->getHealth();
 			root["stunlevel"] = target->getStunlevel();
+			// coop (PRD-I3): the remaining combat stats BattleUnit::damage() writes.
+			// A parallel thin client applies hit_unit WITHOUT replaying the attack, so
+			// without these the victim's morale/energy/mana/tu keep their pre-hit value
+			// until next_turn's bulk apply repairs them - a per-action unitsStats seam
+			// (morale is what a vanilla rifle shot exposes). Additive: an older peer
+			// ignores the fields.
+			root["morale"] = target->getMorale();
+			root["energy"] = target->getEnergy();
+			root["mana"] = target->getMana();
+			root["tu"] = target->getTimeUnits();
 
 			Json::Value fatalArray(Json::arrayValue);
 			for (int i = 0; i < BODYPART_MAX; ++i)
@@ -3328,6 +3338,50 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 			}
 
 			root["fatalWounds"] = fatalArray;
+
+			// coop (PRD-I3 saveBlob close): the victim's post-damage per-side armor.
+			// damage() degrades _currentArmor and NO other packet carries it (next_turn
+			// does not re-ship armor), so a parallel thin client - which does not replay
+			// damage() - keeps full armor forever, a permanent saveBlob divergence.
+			// Additive; classic replays damage() and stays byte-identical.
+			Json::Value armorArray(Json::arrayValue);
+			for (int i = 0; i < SIDE_MAX; ++i)
+			{
+				armorArray.append(target->getArmor((UnitSide)i));
+			}
+			root["armor"] = armorArray;
+
+			// coop (kill-credit fix): murdererId/killedBy can change on the host AFTER a
+			// unit is down (e.g. a later blast catches the downed body's tile, see
+			// setMurdererId above), but the thin client never runs damage() itself - ship
+			// the current attribution on every hit_unit so the client's credit does not
+			// drift from the host's. Additive; classic/PvP/single-player unaffected.
+			root["murdererId"] = target->getMurdererId();
+			root["killedBy"] = (int)target->killedBy();
+
+			// coop (E5a GAP-XP): awardExperience (:3264 above) is dead on the
+			// parallel client - this function's own client early-return
+			// (:3222-3230) means the client never replays the attack, so its
+			// copy of the attacker never trains combat XP and debrief shows no
+			// stat improvement. hit_unit already fires per-hit, stamped +
+			// subject-keyed; ship the ATTACKER's post-award exp absolutes
+			// alongside the victim state (exact field set = every counter
+			// awardExperience/addManaExp mutate, BattleUnit.cpp:4204-4270) so
+			// the client can apply them without re-running awardExperience
+			// itself. Additive/present-gated; classic/PvP/host unaffected (they
+			// compute this locally via their own awardExperience call).
+			if (attack.attacker)
+			{
+				root["attacker_id"] = attack.attacker->getId();
+				root["exp_bravery"] = attack.attacker->getExpStats()->bravery;
+				root["exp_reactions"] = attack.attacker->getExpStats()->reactions;
+				root["exp_firing"] = attack.attacker->getExpStats()->firing;
+				root["exp_throwing"] = attack.attacker->getExpStats()->throwing;
+				root["exp_psi_skill"] = attack.attacker->getExpStats()->psiSkill;
+				root["exp_psi_strength"] = attack.attacker->getExpStats()->psiStrength;
+				root["exp_melee"] = attack.attacker->getExpStats()->melee;
+				root["exp_mana"] = attack.attacker->getExpStats()->mana;
+			}
 
 			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 		}
@@ -3466,8 +3520,14 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false)
 		{
 
-			_save->getBattleGame()->getCoopMod()->_battleActions.push_back(attack);
-
+			// coop (PHASE D.2 / chain-atomicity): the client resolves NO hit locally.
+			// It used to park this BattleActionAttack and wait for the host's
+			// "hit_tile" to pair it by identity (attack_id) - a match that DROPPED the
+			// whole hit whenever the two machines disagreed on shot count (autoshot,
+			// pellet, CQB), a permanent terrain divergence since next_turn never
+			// re-ships map-data destruction. The host now ships the attack's identity
+			// directly on hit_tile and the client's handler reconstructs the call, so
+			// there is nothing to park here.
 			return;
 		}
 
@@ -3480,12 +3540,28 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 			damage = current_damage;
 			tileFinalDamage = current_damage;
 
-			uint64_t _smokeRNG = RNG::generate(7, 15);
-
-			_save->getBattleGame()->getCoopMod()->_smokeRNGs.push_back(_smokeRNG);
-
 			Json::Value root;
 			root["state"] = "hit_tile";
+			// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+			// holds this outcome for its own chain's opener instead of contaminating
+			// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+			connectionTCP::coopStampChainSeq(root);
+
+			// coop (PHASE D.2 / chain-atomicity): ship the attack's identity DIRECTLY
+			// so the peer reconstructs the hitCoop call from the packet, with no
+			// parked-attack FIFO to drift and no drop path. These are exactly the
+			// fields hitCoop consumes: attacker feeds voxelCheck (excludes the shooter
+			// from the raycast that picks the tile part - load-bearing for the terrain
+			// outcome); type/weapon/damage_item rebuild the BattleActionAttack hitCoop
+			// forwards to hitUnit. The chain seq stamped above (coopStampChainSeq / I1)
+			// carries the CHAIN attribution; these carry the ATTACK parameters. Ids are
+			// looked up on the peer, never fabricated (issue #74). Hard cutover: an old
+			// peer sending the pre-D.2 shape is unsupported (both ends ship together on
+			// this pre-merge branch - see PROTOCOL.md).
+			root["attacker_id"] = attack.attacker ? attack.attacker->getId() : -1;
+			root["weapon_item_id"] = attack.weapon_item ? attack.weapon_item->getId() : -1;
+			root["damage_item_id"] = attack.damage_item ? attack.damage_item->getId() : -1;
+			root["ba_type"] = (int)attack.type;
 
 			root["center_x"] = center.x;
 			root["center_y"] = center.y;
@@ -3496,7 +3572,6 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 			root["terrainMeleeTilePart"] = terrainMeleeTilePart;
 
 			root["seed"] = seed;
-			root["smokeRNG"] = _smokeRNG;
 
 			// new!!!
 			root["ArmorEffectiveness"] = type->ArmorEffectiveness;
@@ -3801,6 +3876,12 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 							e["id"] = bi->getId();
 							e["type"] = bi->getRules()->getType();
 							coopRemoved.append(e);
+							// coop (TRACE A DIAGNOSTIC, RCA lost-removal): the HOST's emission of
+							// the removal for this item - the "was it ever sent" leg. Capture-gated.
+							if (g_diagCapture.load(std::memory_order_relaxed)
+								&& bi->getRules() && bi->getRules()->getType() == "STR_STUN_BOMB")
+								coopDiagS("EXPL_TX id=" + std::to_string(bi->getId())
+									+ " cid=" + std::to_string(bi->getCoopID()) + " t=STR_STUN_BOMB");
 							_save->removeItem(bi);
 						}
 
@@ -3889,6 +3970,10 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 		{
 			Json::Value root;
 			root["state"] = "explode_items";
+			// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+			// client's action_end apply-barrier waits for these blast item deletions
+			// (no-op off the parallel host, _openChainSeq==0).
+			connectionTCP::coopStampChainSeq(root);
 			root["items"] = coopRemoved;
 			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
 		}
@@ -3913,6 +3998,10 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 
 		Json::Value root;
 		root["state"] = "calc_explode_fov";
+		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
+		// holds this outcome for its own chain's opener instead of contaminating
+		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
+		connectionTCP::coopStampChainSeq(root);
 
 		root["maxRadius"] = maxRadius;
 		root["coop_is_second_fov"] = coop_is_second_fov;
@@ -4006,6 +4095,27 @@ bool TileEngine::detonate(Tile* tile, int explosive)
 				tiles[i]->getMapData(currentpart)->isBaseModule())
 			{
 				_save->getModuleMap()[tile->getPosition().x/10][tile->getPosition().y/10].second--;
+				// coop (E5a GAP-MODULE): this decrement runs inside detonate(), which
+				// early-returns for every non-host coop client (:4012-4015 above,
+				// classic idiom) - host-only with no carrier. DebriefingState scores
+				// base defense from getModuleMap(), so a parallel client's
+				// base-defense result silently drifts from the host's. The hit-path
+				// decrements (hitCoop / hit()) are already machine-symmetric (same
+				// seeded damage replayed on both machines) - do NOT carrier those,
+				// only this detonate-path one (carriering both double-decrements).
+				// Parallel-host-only send + parallel-client-only apply
+				// (connectionTCP.cpp's module_destroyed handler) so classic/PvP/host
+				// stay byte-identical.
+				if (connectionTCP::parallelTurnActive() && connectionTCP::getHost())
+				{
+					Json::Value root;
+					root["state"] = "module_destroyed";
+					connectionTCP::coopStampChainSeq(root);
+					root["gx"] = tile->getPosition().x / 10;
+					root["gy"] = tile->getPosition().y / 10;
+					connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
+					++OpenXcom::g_moduleDestroyedSent;
+				}
 			}
 			//this trick is to follow transformed object parts (object can become a ground)
 			diemcd = tiles[i]->getMapData(currentpart)->getDieMCD();
@@ -4466,7 +4576,7 @@ int TileEngine::blockage(Tile *tile, const TilePart part, ItemDamageType type, i
  *		  4 not enough TUs
  *		  5 would contravene fire reserve
  */
-int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
+int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir, bool costFree, bool replayNeutral, Position *openedPos, int *openedPart)
 {
 	int door = -1;
 	int TUCost = 0;
@@ -4570,7 +4680,7 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
 				tile = _save->getTile(unit->getPosition() + Position(x,y,z) + pair.first);
 				if (tile)
 				{
-					door = tile->openDoor(pair.second, unit, _save->getBattleGame()->getReservedAction(), rClick);
+					door = tile->openDoor(pair.second, unit, _save->getBattleGame()->getReservedAction(), rClick, costFree, replayNeutral);
 					if (door != -1)
 					{
 						part = pair.second;
@@ -4578,12 +4688,21 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
 						{
 							++doorsOpened;
 							doorCentre = unit->getPosition() + Position(x, y, z) + pair.first;
+							// coop (SEAM-3 door B): report the hinged door the executor just
+							// opened, so UnitWalkBState can ship it on the walk closer.
+							if (openedPos) *openedPos = unit->getPosition() + Position(x, y, z) + pair.first;
+							if (openedPart) *openedPart = (int)pair.second;
 						}
 						else if (door == 1)
 						{
 							std::pair<int, Position> adjacentDoors = checkAdjacentDoors(unit->getPosition() + Position(x,y,z) + pair.first, pair.second);
 							doorsOpened += adjacentDoors.first + 1;
 							doorCentre = adjacentDoors.second;
+							// coop (UFO-door authority): report the primary UFO-door tile+part so the
+							// executor's UnitWalkBState ships it on the walk closer (doors_opened); the
+							// peer re-derives the adjacent run via checkAdjacentDoors on apply.
+							if (openedPos) *openedPos = unit->getPosition() + Position(x, y, z) + pair.first;
+							if (openedPart) *openedPart = (int)pair.second;
 						}
 					}
 				}
@@ -4609,7 +4728,14 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
 
 	if (door == 0 || door == 1)
 	{
-		if (_save->getBattleGame()->checkReservedTU(unit, TUCost, 0))
+		if (costFree)
+		{
+			// coop (SEAM-3 door): a replayed host walk applies the door-open without
+			// charging the peer's TU (host-authoritative); still refresh lighting/FOV.
+			calculateLighting(LL_FIRE, doorCentre, doorsOpened, true);
+			calculateFOV(doorCentre, doorsOpened, true, true);
+		}
+		else if (_save->getBattleGame()->checkReservedTU(unit, TUCost, 0))
 		{
 			if (unit->spendTimeUnits(TUCost))
 			{
@@ -5119,6 +5245,23 @@ bool TileEngine::psiAttack(BattleActionAttack attack, BattleUnit *victim)
 	if (!victim)
 		return false;
 
+	// coop (PRD-P3 GAP-2): psi is host-authoritative in the co-operative modes,
+	// mirroring hitUnit(). Both machines used to roll psiAttackCalculate and apply
+	// the whole outcome - faction flip, panic morale, mind-controller id - and
+	// `psi_result` was only ever sent in PVP, so a PVE mind control that succeeded
+	// on one machine and failed on the other was permanent (next_turn repairs
+	// stats and tiles, never faction).
+	//
+	// PVP/PVP2 keep the old executor-decides mirror below untouched: there the
+	// packet is an INVERTED flip ("mine now" / "yours no more"), not a state copy,
+	// and the executor may be either machine.
+	auto* coopPsi = _save->getBattleGame() ? _save->getBattleGame()->getCoopMod() : nullptr;
+	const bool coopPvp = coopPsi && (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3);
+	if (coopPsi && coopPsi->getCoopStatic() && !coopPsi->getHost() && !coopPvp)
+	{
+		return false;
+	}
+
 	// Mana experience - this is a temporary/experimental approach, can be improved later after modder feedback
 	attack.attacker->addManaExp(attack.weapon_item->getRules()->getManaExperience());
 
@@ -5220,6 +5363,7 @@ bool TileEngine::psiAttack(BattleActionAttack attack, BattleUnit *victim)
 				_save->getBattleGame()->autoEndBattle();
 			}
 		}
+		coopShipPsiResult(attack, victim, true);
 		return true;
 	}
 	else
@@ -5228,8 +5372,51 @@ bool TileEngine::psiAttack(BattleActionAttack attack, BattleUnit *victim)
 		{
 			victim->addPsiStrengthExp(); // experience for the victim, not the attacker
 		}
+		coopShipPsiResult(attack, victim, false);
 		return false;
 	}
+}
+
+/**
+ * coop (PRD-P3 GAP-2): host-authoritative psi outcome for the co-operative modes.
+ * Ships the victim's POST-state rather than the inputs, so the peer never re-derives
+ * anything (reduceByBravery, convertToFaction and recoverTimeUnits all read state
+ * this machine has already changed). `pvp: false` tells the handler this is the new
+ * state-copy flavour and not the legacy PVP inverted flip.
+ */
+void TileEngine::coopShipPsiResult(BattleActionAttack attack, BattleUnit* victim, bool success)
+{
+	auto* coop = _save->getBattleGame() ? _save->getBattleGame()->getCoopMod() : nullptr;
+	if (!coop || !coop->getCoopStatic() || !coop->getHost())
+	{
+		return;
+	}
+	if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3)
+	{
+		return; // PVP keeps its own psi_result, sent from psiAttackMessage
+	}
+
+	Json::Value root;
+	root["state"] = "psi_result";
+	// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the client's
+	// action_end apply-barrier waits for this mind-control outcome before sampling the
+	// chain's post-N sync-check hash (no-op off the parallel host, _openChainSeq==0).
+	connectionTCP::coopStampChainSeq(root);
+	root["pvp"] = false;
+	root["unit_id"] = victim->getId();
+	root["success"] = success;
+	root["ba_type"] = (int)attack.type;
+	root["mindControllerId"] = victim->getMindControllerId();
+	root["faction"] = (int)victim->getFaction();
+	root["morale"] = victim->getMorale();
+	root["tu"] = victim->getTimeUnits();
+	// coop: ENERGY too. A successful mind control runs recoverTimeUnits(), which
+	// restores BOTH tu and energy; shipping only tu left the peer's copy of a
+	// mind-controlled victim on whatever energy it had when the attack landed.
+	root["energy"] = victim->getEnergy();
+	root["coop"] = victim->getCoop();
+
+	coop->sendTCPPacketData(root.toStyledString());
 }
 
 /**
@@ -5292,6 +5479,29 @@ bool TileEngine::meleeAttack(BattleActionAttack attack, BattleUnit *victim, int 
 		if (victim && Mod::EXTENDED_MELEE_REACTIONS == 2)
 		{
 			victim->setMeleeAttackedBy(attack.attacker->getId());
+		}
+
+		// coop (PRD-P3 GAP-4b): replay the sender's to-hit decision (parked by
+		// MeleeAttackBState::init locally, or by the melee_attack handler on the
+		// receiver) instead of rolling an independent one. BA_CQB is deliberately
+		// excluded - close-quarters checks are a different stream and must not eat
+		// a real melee's answer; ProjectileFlyBState skips them on the peer instead.
+		auto* coop = _save->getBattleGame() ? _save->getBattleGame()->getCoopMod() : nullptr;
+		// coop (wire-order Increment 3 / A2): the parallel client's display replay reads its
+		// display-side copy first (populated at the melee receiver-park lever-on), so
+		// next_turn's state-half clear of the canonical queue cannot starve it. Empty
+		// lever-off / on the host, so this falls through to the canonical queue below.
+		if (coop && coop->getCoopStatic() && !coop->_meleeResultsDisplay.empty())
+		{
+			bool hit = coop->_meleeResultsDisplay.front() != 0;
+			coop->_meleeResultsDisplay.erase(coop->_meleeResultsDisplay.begin());
+			return hit;
+		}
+		if (coop && coop->getCoopStatic() && !coop->_meleeResults.empty())
+		{
+			bool hit = coop->_meleeResults.front() != 0;
+			coop->_meleeResults.erase(coop->_meleeResults.begin());
+			return hit;
 		}
 	}
 
@@ -5585,6 +5795,10 @@ void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 
 			Json::Value obj;
 			obj["state"] = "Inventory";
+			// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
+			// client's action_end apply-barrier waits for this in-chain item drop/move
+			// (no-op off the parallel host, _openChainSeq==0).
+			connectionTCP::coopStampChainSeq(obj);
 			obj["item_name"] = item->getRules()->getName();
 			obj["inv_id"] = "";
 			obj["inv_x"] = 0;

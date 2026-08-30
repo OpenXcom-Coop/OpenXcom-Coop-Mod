@@ -28,6 +28,7 @@
 #include "../Engine/Options.h"
 #include "../Mod/Armor.h"
 #include "../Mod/Mod.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -59,7 +60,12 @@ UnitFallBState::~UnitFallBState()
 void UnitFallBState::init()
 {
 	_terrain = _parent->getTileEngine();
-	if (_parent->getSave()->getSide() == FACTION_PLAYER)
+	// coop (PRD-P7): fast-forwarded chains run their fall animation at frame rate
+	// too - a fall is locomotion, and the peer is told the landing tile explicitly.
+	// Parallel mode only; classic keeps the original two lines.
+	if (_parent->getCoopFastForward())
+		_parent->setStateInterval(0);
+	else if (_parent->getSave()->getSide() == FACTION_PLAYER)
 		_parent->setStateInterval(Options::battleXcomSpeed);
 	else
 		_parent->setStateInterval(Options::battleAlienSpeed);
@@ -143,6 +149,15 @@ void UnitFallBState::think()
 				{
 					unit->getTile()->ignite(1);
 					Position groundVoxel = (unit->getPosition().toVoxel()) + Position(8,8,-(unit->getTile()->getTerrainLevel()));
+					// coop (PRD-I3 SEAM-3 close): a burn-floor tile destruction that runs
+					// OUTSIDE any admitted chain (the fall is pushed from think() with the
+					// state queue empty) would ship its destroy_tile / set_fire_tile UNSTAMPED
+					// = seq-0 always-consume, and a lagging client can fold that terrain change
+					// into a neighbouring chain's post-N hash (the SEAM-3 residual class the
+					// ExplosionBState "expl" stamp misses). Own a seq so the outcome rides the
+					// I1 apply-before-hash gate. No-op unless the parallel host is between
+					// chains; the chain closes when the fall drains (coopCloseActionChain).
+					connectionTCP::coopStampLooseOutcomeChain("burn");
 					_parent->getTileEngine()->hit(BattleActionAttack{ BA_NONE, unit, }, groundVoxel, unit->getBaseStats()->strength, _parent->getMod()->getDamageType(DT_IN), false);
 
 					if (unit->getStatus() != STATUS_STANDING) // ie: we burned a hole in the floor and fell through it
@@ -157,6 +172,48 @@ void UnitFallBState::think()
 				_terrain->calculateFOV(unit, true, false); //update tiles
 				if (unit->getStatus() == STATUS_STANDING)
 				{
+					// coop (PRD-I3 z-gravity close): the unit finished falling and is
+					// standing on its landed tile. The host's applyGravity re-dropped it
+					// after a mid-side blast destroyed the floor under it, and
+					// UnitFallBState runs only on the EXECUTOR (_isActivePlayerSync-gated in
+					// BattlescapeGame::think) in BOTH modes, so the NON-acting peer never falls
+					// its copy (a classic peer as well as the parallel client) until next_turn: a
+					// unitsCore z-divergence for the whole side (test_coop_outcome_gaps).
+					// Ship the absolute landed tile so the peer applies it AT the fall; a
+					// position, never a decision. gate on the EXECUTOR, not parallelTurnActive() - the fall is pushed on an EMPTY
+					// queue (no action chain) so that is false here; classic crosses too (additive).
+					if (_parent->getCoopMod()->getCoopStatic() && _parent->getCoopMod()->_isActivePlayerSync && !unit->isOut())
+					{
+						Json::Value fallRoot;
+						fallRoot["state"] = "unit_fall";
+						fallRoot["unit_id"] = unit->getId();
+						// E4 (explosion ordered-replay / atomic-death Phase 3): stamp the fall so it orders
+						// in its chain and the parallel client applies it under the rank-1 per-unit watermark.
+						// The stamp helpers no-op outside the parallel host, so classic co-op ships this
+						// UNSTAMPED exactly as before (byte-identical). Boundary-phase falls carry bnd:true+
+						// side_seq (no action_seq); mid-side falls ride the burn chain opened at :160 if any,
+						// else open a "fall" loose chain (coopStampLooseOutcomeChain no-ops if a chain is open).
+						if (_parent->getCoopMod()->parallelTurnActive() && _parent->getCoopMod()->getHost())
+						{
+							const bool coopBoundaryPhase = _parent->coopBoundaryCasualty()
+								|| connectionTCP::_coopBoundaryDecay
+								|| !connectionTCP::_pendingBoundaries.empty();
+							if (coopBoundaryPhase)
+							{
+								fallRoot["bnd"] = true;
+								fallRoot["side_seq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
+							}
+							else
+							{
+								connectionTCP::coopStampLooseOutcomeChain("fall");
+								connectionTCP::coopStampChainSeq(fallRoot);
+							}
+						}
+						fallRoot["x"] = unit->getPosition().x;
+						fallRoot["y"] = unit->getPosition().y;
+						fallRoot["z"] = unit->getPosition().z;
+						_parent->sendPacketData(fallRoot.toStyledString());
+					}
 					BattleAction fall;
 					fall.type = BA_WALK;
 					fall.actor = unit;

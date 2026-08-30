@@ -59,5 +59,9 @@ public:
 	/// Handler for right-clicking anything.
 	void handle(Action *action) override;
 	void coopHandle(std::string state, int part);
+	/// coop (PRD-P6): ships this press as an `action_intent` on a parallel
+	/// client (and gates the parallel host on the same admission check).
+	bool coopForwardMedikit(int medikitMode, int bodyPart);
+
 };
 }

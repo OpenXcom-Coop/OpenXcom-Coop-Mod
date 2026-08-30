@@ -43,7 +43,9 @@ DETACHED = 0x00000008 | 0x00000200
 def spawn_visible(gc, window_pos):
     """Like GameClient.spawn, but visible, detached, and without the lock."""
     env = os.environ.copy()
-    env["OXC_TEST_PORT"] = str(gc.port)
+    # Ephemeral control port (the game reports it via the port file; connect()
+    # reads it back). --host-port/--client-port are now only user-dir labels.
+    env["OXC_TEST_PORT"] = "0"
     env["SDL_VIDEO_WINDOW_POS"] = window_pos
     gc.proc = subprocess.Popen(
         [harness.EXE, "-user", gc.user_dir],
@@ -84,9 +86,9 @@ def main():
 
     print()
     print(f"READY - {args.mode.upper()} campaign, both players live on the geoscape.")
-    print(f"  host    pid {host.proc.pid:<6} test port {args.host_port}  {host.user_dir}")
-    print(f"  client  pid {client.proc.pid:<6} test port {args.client_port}  {client.user_dir}")
-    print(f"  coop session port {args.coop_port}")
+    print(f"  host    pid {host.proc.pid:<6} test port {host.port}  {host.user_dir}")
+    print(f"  client  pid {client.proc.pid:<6} test port {client.port}  {client.user_dir}")
+    print(f"  coop session (ephemeral; --coop-port {args.coop_port} is only a key)")
 
 
 if __name__ == "__main__":

@@ -28,6 +28,13 @@ with. Two consequences:
 Scenarios: the alien's launcher sits in the hand the packet claims
 (`right_hand`) and in the other one (`left_hand`, the AI case).
 
+PRD-P4 keeps the census assertion strict and adds the two drift-tripwire terms
+to it: the blast kills the firing alien, and its CORPSES are a Tier-A spawn
+whose ids the host now names on `after_unit_death`. A corpse id that differs
+between the machines is a real divergence, so it is asserted rather than
+filtered; the item-id counter is asserted too, because a census comparison
+cannot see it.
+
 Run:  python tools/coop_test/test_coop_alien_launcher_item_loss.py
 Exit 0 = pass; 2 = failure.
 """
@@ -37,6 +44,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import session
 import shared_fixture
 import test_shared_battle as B
 
@@ -201,12 +209,14 @@ def run_scenario(label, alien_slot, ports, fails):
             f"censuses diverged BEFORE the shot: {diff_census(pre_h, pre_c)}"
         print(f"PASS pre-shot: {len(pre_h)} item instances, identical on both machines")
 
-        # The shot must be driven from the machine that owns the simulation: the
-        # coop battle states only emit their packet when _isActivePlayerSync is
-        # true, so firing from the passive side would never reach the peer.
+        # The shot must be driven from a machine that may drive it: in classic
+        # coop the battle states only emit their packet when _isActivePlayerSync
+        # is true, so firing from the passive side would never reach the peer.
+        # session.can_drive() also covers parallel turns (PRD-P5+), where both
+        # machines may drive.
         def _sim_owner():
             for gc, tag in ((host, "host"), (client, "client")):
-                if battle(gc).get("activeSync"):
+                if session.can_drive(battle(gc)):
                     return (gc, tag)
             return None
 
@@ -230,6 +240,21 @@ def run_scenario(label, alien_slot, ports, fails):
             for line in d:
                 print(f"  [DIVERGE] {line}")
             fails.append(f"{label}: host/client item census diverged ({len(d)} items)")
+        # PRD-P4: the census stays STRICT - no per-type filter and no "ignore the
+        # corpses" escape hatch. The blast kills the firing alien, and a corpse is a
+        # Tier-A spawn (a deterministic set each machine creates for itself), so a
+        # corpse whose id differs between the two machines is precisely the drift the
+        # id-manifest removes - not noise to filter out. The two tripwire terms go
+        # with it: the item-id COUNTER is invisible to a census comparison, and two
+        # machines can hold identical item sets while one is primed to mint the next
+        # id differently.
+        try:
+            session.assert_battle_synced(host, client, f"after the {label} shot")
+        except AssertionError as e:
+            fails.append(f"{label}: {e}")
+        for gc, tag in ((host, "host"), (client, "client")):
+            if battle(gc).get("desyncSeen"):
+                fails.append(f"{label}: the PRD-P2 drift tripwire fired on the {tag}")
         for tag, cen in (("host", h), ("client", c)):
             if soldier_launcher not in cen:
                 fails.append(f"{label}/{tag}: the soldier's blaster launcher (item "

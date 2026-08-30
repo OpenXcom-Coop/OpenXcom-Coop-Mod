@@ -26,6 +26,13 @@ The test asserts the symptom directly: after the alien's shot and one ordinary
 inventory move, the victim soldier must still be holding the launcher instance
 it started with, on BOTH machines.
 
+PRD-P4 additionally makes the census assertion STRICT and un-filtered, at both
+the shot and the move: the blast kills the firing alien, and a corpse is a Tier-A
+spawn (a deterministic set each machine creates for itself), so a corpse id that
+differs between the two machines is exactly the drift the id-manifest removes -
+not noise to be filtered out. The fixed `time.sleep` that used to precede the
+comparison is a `wait_quiesced()` symmetric-poll barrier instead.
+
 Run:  python tools/coop_test/test_coop_inventory_item_theft.py
 Exit 0 = pass; 2 = failure.
 """
@@ -35,6 +42,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import session
 import shared_fixture
 import test_shared_battle as B
 import test_coop_alien_launcher_item_loss as I74
@@ -65,6 +73,53 @@ def soldier_name(gc, unit_id):
     raise AssertionError(f"no unit {unit_id}")
 
 
+def wait_quiesced(host, client, stable_samples=4, max_wait=60, settle=2.0):
+    """Symmetric-poll barrier: block until BOTH machines' item censuses have held
+    still for `stable_samples` consecutive samples.
+
+    The assertions below compare REAL ids with no filtering, so they must not run
+    in the middle of a replay. The alien's blaster shot kills the firing alien, and
+    the death/corpse/drop sequence has pauses longer than one sample, so a fixed
+    `time.sleep` either flakes (too short - a corpse lands between the two reads)
+    or burns a minute on every run. Poll both sides and wait for quiet instead.
+    """
+    time.sleep(settle)
+    prev, same = None, 0
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        now = (I74.census(host), I74.census(client))
+        same = same + 1 if now == prev else 0
+        if same >= stable_samples:
+            return True
+        prev = now
+        time.sleep(1.0)
+    return False
+
+
+def assert_census_strict(host, client, what, fails):
+    """PRD-P4: full-census equality on real ids - no per-type filter, no "ignore
+    the corpses" escape hatch. A corpse whose id differs between the two machines
+    IS the drift this PRD removes (the host now names the ids it minted on
+    `after_unit_death` and the peer re-stamps its own copies), so hiding it here
+    would hide the only symptom the pilot has.
+    """
+    d = I74.diff_census(I74.census(host), I74.census(client))
+    if d:
+        for line in d:
+            print(f"  [DIVERGE] {line}")
+        fails.append(f"host/client item census diverged {what} ({len(d)} items)")
+        return False
+    # ... and the counter, which a census comparison cannot see: two machines can
+    # hold identical item sets while one is primed to mint the next id differently.
+    try:
+        session.assert_battle_synced(host, client, what)
+    except AssertionError as e:
+        fails.append(str(e))
+        return False
+    print(f"       census + item-id counter identical {what}")
+    return True
+
+
 def main():
     fails = []
     js = shared_fixture.bring_up("i74t", (48800, 48801, 48200))
@@ -91,7 +146,7 @@ def main():
 
         def _sim_owner():
             for gc, tag in ((host, "host"), (client, "client")):
-                if I74.battle(gc).get("activeSync"):
+                if session.can_drive(I74.battle(gc)):
                     return (gc, tag)
             return None
 
@@ -103,6 +158,11 @@ def main():
         print(f"       alien launches from the {shooter_tag} with its launcher in the "
               f"LEFT hand (the packet says 'right')")
         I74.settle(host, client)
+        # The blast kills the firing alien, so this is where its corpses are minted
+        # on each machine independently - PRD-P4's Tier-A case. Assert here as well
+        # as at the end, so a corpse-id drift is attributed to the shot rather than
+        # to the inventory move that follows.
+        assert_census_strict(host, client, "after the alien's shot", fails)
 
         # ---- step 2: two launchers, created in the same order on both -------
         # If step 1 drifted the id spaces, the SAME logical launcher now carries
@@ -147,7 +207,9 @@ def main():
         print(f"       host DROPPED the MOVER's own launcher "
               f"(landed {moved.get('landedSlot')}, onUnit={moved.get('landedOnUnit')})")
         host.ok({"cmd": "battle_close_inventory"})
-        time.sleep(6)
+        if not wait_quiesced(host, client):
+            print("       NOTE: the two machines never went quiet within 60s; "
+                  "asserting on the last reading")
 
         # ---- the symptom ----------------------------------------------------
         for gc, tag, vid in ((host, "host", h_victim), (client, "client", c_victim)):
@@ -163,11 +225,7 @@ def main():
                 fails.append(f"{tag}: the VICTIM soldier {victim['id']} should still hold "
                              f"launcher {vid}, but holds {got}")
 
-        d = I74.diff_census(I74.census(host), I74.census(client))
-        if d:
-            for line in d:
-                print(f"  [DIVERGE] {line}")
-            fails.append(f"host/client item census diverged ({len(d)} items)")
+        assert_census_strict(host, client, "after the inventory move", fails)
     except Exception as e:
         print(f"[ERROR] {e}")
         fails.append(str(e))
