@@ -451,7 +451,7 @@ def wait_sync_loop_closed(host, timeout=20, interval=0.2):
 
 
 def assert_sync_clean(host, client, what="", strict=False, allow=(), timeout=30,
-                      interval=0.5, quiet=False):
+                      interval=0.5, quiet=False, latch_aware=False):
     """PRD-I0's invariant, read off the EXECUTOR: every action seq the host
     recorded has been answered by the peer, and no bucket disagreed.
 
@@ -507,6 +507,32 @@ def assert_sync_clean(host, client, what="", strict=False, allow=(), timeout=30,
 
     buckets = sc["buckets"]
     bad = {n: b["mismatchCount"] for n, b in buckets.items() if b["mismatchCount"]}
+    if latch_aware:
+        # coop (harness alignment, owner ruling 2026-08-30): in the wire-order/latch-aware
+        # path the persistence latch (Increment 8 + the alarm-unmask) is the detector of
+        # record - a boundary bucket mismatch PENDS on first sight and only promotes to an
+        # alarm on persistence. So here the alarm condition is the LATCH state (desyncSeen OR
+        # syncBoundaryPersistAlarms>0), NOT the lifetime cumulative `mismatchCount`
+        # (g_syncBucketMismatches, SharedEcon.cpp:6569, increment-only), which flags every
+        # pend-and-heal transient forever. The cumulative alarm-bucket counts and any still-
+        # pending latch entries are REPORTED for diagnostics, never asserted. Classic/lever-off
+        # callers keep the cumulative semantics below untouched (other suites depend on them).
+        ps = host.cmd({"cmd": "parallel_state"})
+        persist_alarms = int(ps.get("syncBoundaryPersistAlarms") or 0)
+        pending = int(ps.get("syncBoundaryPending") or 0)
+        desync = bool(host.cmd({"cmd": "battle_state"}).get("desyncSeen"))
+        alarmed = {n: c for n, c in bad.items() if buckets[n]["alarm"]}
+        if (alarmed or pending) and not quiet:
+            print(f"    NOTE{tag}: latch-aware sync-clean (report-only) - cumulative "
+                  f"alarm-bucket mismatches {alarmed}; still-pending latch entries={pending}; "
+                  f"persistAlarms={persist_alarms} desyncSeen={desync}\n"
+                  f"    {_sync_mismatch_lines(sc)}")
+        assert not (desync or persist_alarms > 0), (
+            f"SYNC-CHECK ALARM{tag} (latch): the persistence latch promoted a boundary "
+            f"divergence - desyncSeen={desync} syncBoundaryPersistAlarms={persist_alarms} "
+            f"(cumulative alarm-bucket mismatches {alarmed}, still-pending {pending}).\n"
+            f"    {_sync_mismatch_lines(sc)}")
+        return sc
     alarmed = {n: c for n, c in bad.items() if buckets[n]["alarm"]}
     assert not alarmed, (
         f"SYNC-CHECK ALARM{tag}: promoted bucket(s) {alarmed} disagreed.\n"

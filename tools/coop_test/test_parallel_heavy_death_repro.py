@@ -314,12 +314,17 @@ def _wireorder_unit_drift(hb, cb):
     return drift
 
 
-def assert_census_wireorder(host, client, what):
+def assert_census_wireorder(host, client, what, latch_aware=False):
     """The --wire-order acceptance: the scoped unit census (above) PLUS every strict
     detector SOAK.assert_census runs unchanged (item id census, tile hazards, the PRD-P2
     tripwire, the in-game sync-check, and the on-disk desync-report silence check). Only
     the unit-tuple's two protocol-non-replicated terms are dropped; a real desync in any
-    other term - or the tripwire firing - still fails exactly as in shipped mode."""
+    other term - or the tripwire firing - still fails exactly as in shipped mode.
+
+    latch_aware (owner ruling 2026-08-30): route the in-game sync-check sub-assertion
+    through the persistence latch (desyncSeen OR syncBoundaryPersistAlarms>0) instead of
+    the lifetime cumulative bucket counters, so a pended-then-healed transient no longer
+    counts as a divergence. The live item/unit/hazard/battle-synced terms stay strict."""
     SOAK.settle_display(host, client)
     hb, cb = SOAK.battle(host), SOAK.battle(client)
     assert hb.get("inBattle") and cb.get("inBattle"), (
@@ -345,7 +350,7 @@ def assert_census_wireorder(host, client, what):
     session.assert_battle_synced(host, client, what)
     assert not TW.desync_seen(host) and not TW.desync_seen(client), (
         f"the PRD-P2 drift tripwire FIRED {what} - a release blocker")
-    session.assert_sync_clean(host, client, what)
+    session.assert_sync_clean(host, client, what, latch_aware=latch_aware)
     for tag, gc in (("host", host), ("client", client)):
         d = os.path.join(gc.user_dir, "desync-reports")
         wrote = sorted(os.listdir(d)) if os.path.isdir(d) else []
@@ -446,16 +451,19 @@ def main():
                          "the per-action report is genuinely clean (not merely hidden behind the "
                          "report-only gate). Prints the host sync-check per-action vs boundary mismatch "
                          "breakdown at the end.")
-    ap.add_argument("--quiet-sides", type=int, default=1,
-                    help="BLEED-OUT DISCRIMINATION experiment (owner ruling 2026-08-29): drive N "
-                         "consecutive quiet sides after the last ambush side (default 1 = committed "
-                         "behaviour, byte-identical). With N>1 it arms the lightweight diag write-log, "
-                         "censuses after EACH quiet boundary (diagnostic - only the FIRST still gates "
-                         "the exit code, committed semantics unchanged), and captures every bleed-out "
-                         "candidate (wounds>0 or isOut) host vs client plus the unitsRegen latch state "
-                         "per boundary - so a FROZEN (persistent, missed alarm) face can be told apart "
-                         "from a CONVERGING (transient, census sampled before the bleed tick settled).")
+    ap.add_argument("--quiet-sides", type=int, default=None,
+                    help="Number of consecutive quiet sides driven after the last ambush side; the "
+                         "census after the LAST (Nth) quiet boundary is the GATE, the earlier ones are "
+                         "diagnostic. Default (owner ruling 2026-08-30): 2 under --wire-order (the "
+                         "canonical latch-aware readout - one boundary to PEND, the next to PROMOTE), "
+                         "1 otherwise. Every quiet boundary prints the bleed-out candidates (wounds>0 "
+                         "or isOut) host vs client and the unitsRegen latch state, so a FROZEN "
+                         "(persistent) face is told apart from a CONVERGING (transient) one.")
     args = ap.parse_args()
+    # coop (owner ruling 2026-08-30): --quiet-sides 2 is the canonical --wire-order default
+    # (the latch needs a boundary to pend and the next to promote); 1 elsewhere.
+    if args.quiet_sides is None:
+        args.quiet_sides = 2 if args.wire_order else 1
 
     host_opts = {"battleXcomSpeed": SOAK.FAST_SPEED, "battleAlienSpeed": SOAK.FAST_SPEED,
                  "skipNextTurnScreen": True, "EnableCoopParallelTurns": True}
@@ -663,113 +671,74 @@ def main():
         # two prior-ruled protocol-non-replicated drops remain, NO new exclusions). This is
         # the GATING assertion under --wire-order. The Option-B drain-wait runs before it.
         if args.wire_order and repro_fired is None and setup_error is None:
+            # coop (harness alignment + bleed-out discrimination, owner rulings 2026-08-29/30):
+            # drive N quiet sides after the last ambush side (default 2 under --wire-order), census
+            # after EACH quiet boundary (per-boundary diagnostic prints), the LAST/Nth quiet-boundary
+            # census is the GATE that sets repro_fired. The census is LATCH-AWARE under --wire-order:
+            # its in-game sync-check sub-assertion consults the persistence latch (desyncSeen OR
+            # syncBoundaryPersistAlarms>0) instead of the lifetime cumulative bucket counters, so a
+            # pended-then-healed transient no longer counts (the live item/unit/hazard/battle-synced
+            # terms stay strict). One quiet boundary PENDS a frozen divergence, the next PROMOTES it.
+            nqs = max(1, args.quiet_sides)
             if not bstate(host).get("inBattle"):
                 setup_error = "mission ended before the quiet reconciliation side"
             else:
-                # coop (bleed-out discrimination experiment, owner ruling 2026-08-29): in
-                # multi-quiet-side mode arm the lightweight diag write-log (unitsRegen is
-                # diag-robust) and snapshot the bleed-out candidates at the LAST AMBUSH SIDE,
-                # before ANY quiet reconciliation - the tick-0 ground truth. Default
-                # (--quiet-sides 1) skips all of this and is byte-identical.
-                if args.quiet_sides > 1:
-                    if not (args.trace_mechanism or args.rca_trace):
-                        for gc in (host, client):
-                            gc.cmd({"cmd": "parallel_state", "diag_capture": True})
-                        print("    [experiment] diag write-log ARMED (bleed-out discrimination)")
-                    _print_bleed(f"last ambush side, pre-quiet (turn {bstate(host)['turn']})",
-                                 _bleed_snapshot(host, client))
-                    print(f"      unitsRegen latch(host) {_regen_latch(host)}")
+                _print_bleed(f"last ambush side, pre-quiet (turn {bstate(host)['turn']})",
+                             _bleed_snapshot(host, client))
+                print(f"      unitsRegen latch(host) {_regen_latch(host)}")
+            for _qi in range(1, nqs + 1):
+                if setup_error is not None:
+                    break
+                if not bstate(host).get("inBattle"):
+                    setup_error = f"mission ended before quiet side {_qi}"
+                    break
+                _is_gate = (_qi == nqs)
                 qturn = bstate(host)["turn"]
-                print(f"\n  -- OPTION A: driving ONE QUIET side (turn {qturn}, no ambush) for "
-                      f"next_turn reconciliation, then the FINAL strict census --")
+                print(f"\n  -- quiet side {_qi}/{nqs} (turn {qturn}, no ambush) - "
+                      f"{'GATING' if _is_gate else 'diagnostic'} census --")
                 SOAK.close_side(host, client, 0, 1, qturn)
                 settle_wire_order(host, client, timeout=60.0)
                 _hi, _ci = len(SOAK.item_census(host)), len(SOAK.item_census(client))
-                print(f"    [item-census] after QUIET side: host={_hi} client={_ci}"
+                print(f"    [item-census] after quiet side {_qi}: host={_hi} client={_ci}"
                       + (f"  <<< DIFF {_ci - _hi}" if _hi != _ci else "  (agree)"))
-                try:
-                    assert_census_wireorder(host, client,
-                                            f"QUIET-SIDE FINAL census (after quiet turn {qturn})")
-                    print("  -- QUIET-SIDE FINAL census CLEAN - the residuals reconciled --")
-                except AssertionError as ae:
-                    repro_fired = str(ae)
-                    print(f"\n  *** REPRO FIRED at the QUIET-SIDE FINAL census (turn {qturn}) - "
-                          f"a GENUINE unhealed divergence after a quiet reconciliation side ***")
-                    print(f"  {repro_fired}")
-                    if args.trace_mechanism and mechanism_capture is None:
-                        mechanism_capture = capture_mechanism(host, client, "quiet-side final census")
-                    diag(host, client, "quiet-side final census")
-                # coop (G3 DETECTOR FIDELITY, owner ruling 2026-08-29): the in-game
-                # tripwire (desyncSeen) must AGREE with the quiet-side census verdict -
-                # census FIRES on a persistent divergence => desyncSeen True (the unmasked
-                # alarm caught it, a TRUE positive); census CLEAN => desyncSeen False (no
-                # false alarm from an unmasked pend-and-heal transient). A census-fires /
-                # desyncSeen-False split (or the reverse) is the gate failure. Measured
-                # independently of WHICH term the census raised on.
-                qs_desync_host = TW.desync_seen(host)
-                qs_desync_client = TW.desync_seen(client)
-                _g3_verdict = "FIRED" if repro_fired else "CLEAN"
-                _g3_agree = (bool(repro_fired) == bool(qs_desync_host))
-                print(f"    [G3 detector-fidelity] quiet-side census={_g3_verdict}  "
-                      f"desyncSeen host={qs_desync_host} client={qs_desync_client}  "
-                      f"=> {'AGREE' if _g3_agree else 'DISAGREE <<< GATE FAILURE'}")
-                if args.rca_trace:
-                    rca_out = os.environ.get("MECH_TRACE_OUT") or os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)), "rca_trace.json")
-                    with open(rca_out, "w", encoding="utf-8") as _f:
-                        json.dump({
-                            "quiet_turn": qturn,
-                            "repro_fired": repro_fired,
-                            "item_census_after_quiet": {"host": _hi, "client": _ci},
-                            "host_diagTrace": parallel(host).get("diagTrace", []),
-                            "client_diagTrace": parallel(client).get("diagTrace", []),
-                        }, _f, indent=1, default=str)
-                    print(f"    RCA diag traces written -> {rca_out}")
-
-        # coop (bleed-out discrimination experiment): the committed block above drove +
-        # gated the FIRST quiet side. Drive the REMAINING quiet sides (diagnostic only -
-        # they do NOT set repro_fired, so the exit code / committed gating is unchanged) and
-        # capture, per boundary: bleed-out candidates host vs client, the unitsRegen latch
-        # state, and census-vs-desyncSeen. DISCRIMINATION: a candidate whose host value
-        # CONVERGES to the client's (or both converge) by boundary 2/3 => TRANSIENT (the
-        # one-quiet-side census sampled before the bleed tick settled). A candidate FROZEN
-        # apart across >=2 quiet boundaries at true drain => PERSISTENT (missed alarm).
-        if args.wire_order and setup_error is None and args.quiet_sides > 1:
-            _print_bleed(f"after quiet boundary 1 (turn {qturn})",
-                         _bleed_snapshot(host, client))
-            print(f"      unitsRegen latch(host) {_regen_latch(host)}")
-            for _qi in range(2, args.quiet_sides + 1):
-                if not bstate(host).get("inBattle"):
-                    print(f"  [experiment] mission ended before quiet side {_qi} - stopping")
-                    break
-                _qt = bstate(host)["turn"]
-                print(f"\n  -- quiet side {_qi}/{args.quiet_sides} (turn {_qt}, no ambush) --")
-                SOAK.close_side(host, client, 0, 1, _qt)
-                settle_wire_order(host, client, timeout=60.0)
-                _hi2, _ci2 = len(SOAK.item_census(host)), len(SOAK.item_census(client))
-                print(f"    [item-census] after quiet side {_qi}: host={_hi2} client={_ci2}"
-                      + (f"  <<< DIFF {_ci2 - _hi2}" if _hi2 != _ci2 else "  (agree)"))
-                _print_bleed(f"after quiet boundary {_qi} (turn {_qt})",
+                _print_bleed(f"after quiet boundary {_qi} (turn {qturn})",
                              _bleed_snapshot(host, client))
                 print(f"      unitsRegen latch(host) {_regen_latch(host)}")
                 try:
-                    assert_census_wireorder(host, client, f"quiet boundary {_qi} (turn {_qt})")
-                    _cf = False
-                    print(f"    [census] quiet boundary {_qi}: CLEAN")
-                except AssertionError as _ae:
-                    _cf = True
-                    print(f"    [census] quiet boundary {_qi}: DRIFT:\n      {_ae}")
+                    assert_census_wireorder(host, client,
+                        f"quiet boundary {_qi}/{nqs} (turn {qturn})", latch_aware=True)
+                    _fired = None
+                    print(f"    [census] quiet boundary {_qi}: CLEAN"
+                          + ("  - the residuals reconciled" if _is_gate else ""))
+                except AssertionError as ae:
+                    _fired = str(ae)
+                    print("    [census] quiet boundary %d: %s" % (
+                        _qi, "*** REPRO FIRED (GATE) ***" if _is_gate else "DRIFT (diagnostic)"))
+                    print(f"      {_fired}")
+                    if _is_gate:
+                        if args.trace_mechanism and mechanism_capture is None:
+                            mechanism_capture = capture_mechanism(host, client, "quiet-side final census")
+                        diag(host, client, "quiet-side final census")
                 _dh = TW.desync_seen(host)
-                print(f"    [detector-fidelity] quiet boundary {_qi}: "
-                      f"census={'FIRED' if _cf else 'CLEAN'} desyncSeen={_dh} => "
-                      f"{'AGREE' if bool(_cf) == bool(_dh) else 'DISAGREE'}")
-            # full unitsRegen latch transition history (diag TRACEB), laid beside ground truth
-            _tb = [l.split('TRACEB', 1)[-1].strip()
-                   for l in (parallel(host).get("diagTrace", []) or [])
-                   if "TRACEB pending" in l and "unitsRegen" in l]
-            print(f"\n  == unitsRegen latch TRACEB transition history (host, {len(_tb)} entries) ==")
-            for _l in _tb:
-                print(f"    {_l}")
+                _agree = (bool(_fired) == bool(_dh))
+                print(f"    [detector-fidelity] quiet boundary {_qi}"
+                      + (" (GATE)" if _is_gate else "")
+                      + f": census={'FIRED' if _fired else 'CLEAN'} desyncSeen={_dh} => "
+                      + ("AGREE" if _agree else "DISAGREE <<< GATE FAILURE"))
+                if _is_gate:
+                    repro_fired = _fired
+                    if args.rca_trace:
+                        rca_out = os.environ.get("MECH_TRACE_OUT") or os.path.join(
+                            os.path.dirname(os.path.abspath(__file__)), "rca_trace.json")
+                        with open(rca_out, "w", encoding="utf-8") as _f:
+                            json.dump({
+                                "quiet_turn": qturn,
+                                "repro_fired": repro_fired,
+                                "item_census_after_quiet": {"host": _hi, "client": _ci},
+                                "host_diagTrace": parallel(host).get("diagTrace", []),
+                                "client_diagTrace": parallel(client).get("diagTrace", []),
+                            }, _f, indent=1, default=str)
+                        print(f"    RCA diag traces written -> {rca_out}")
 
         try:
             corpses_grew = len(corpses(client)) - corpses0
