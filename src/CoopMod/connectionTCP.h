@@ -186,6 +186,7 @@ class SavedGame;
 class BattleUnit;
 class VoteMenu;
 class ConfirmLandingState;
+class ConfirmCydoniaState;
 class NewBattleState;
 class GeoscapeState;
 class MissionSite;
@@ -546,6 +547,7 @@ class connectionTCP
 	// coop
 	// battle states
 	void setConfirmLandingState(ConfirmLandingState* landing);
+	void setConfirmCydoniaState(ConfirmCydoniaState* cydonia);
 	void setNewBattleState(NewBattleState* battlesate);
 	void setGeoscapeState(GeoscapeState* base_geo);
 	NewBattleState* getNewBattleState();

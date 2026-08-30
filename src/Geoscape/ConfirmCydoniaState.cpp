@@ -26,8 +26,14 @@
 #include "../Battlescape/BriefingState.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/SavedGame.h"
+#include "../Savegame/Craft.h"
+#include "../Savegame/Base.h"
+#include "../Savegame/Soldier.h"
+#include "../Savegame/Vehicle.h"
 #include "../Mod/AlienDeployment.h"
 #include "../Engine/Options.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/CoopState.h"
 
 namespace OpenXcom
 {
@@ -82,8 +88,66 @@ ConfirmCydoniaState::~ConfirmCydoniaState()
  */
 void ConfirmCydoniaState::btnYesClick(Action *)
 {
+	if (connectionTCP::getCoopStatic())
+	{
+		_game->getCoopMod()->setSelectedCraft(_craft);
+		_game->getCoopMod()->setConfirmCydoniaState(this);
+
+		if (_game->getCoopMod()->isSharedCampaign())
+		{
+			// SHARED owns one world, so generate Cydonia once on the host and stream
+			// that authoritative battle instead of running the separate-world merge.
+			_game->getCoopMod()->setHost(true);
+			for (auto* soldier : *_craft->getBase()->getSoldiers())
+			{
+				if (soldier->getCraft() != _craft)
+					continue;
+				int owner = soldier->getOwnerPlayerId();
+				soldier->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+				soldier->setCoopBase(-1);
+			}
+			for (auto* vehicle : *_craft->getVehicles())
+			{
+				vehicle->setCoop(0);
+				vehicle->setCoopBase(-1);
+			}
+			startCoopMission();
+			return;
+		}
+
+		if (!_game->getCoopMod()->getHost())
+		{
+			// The existing separate-campaign merge is host-authoritative, so hand
+			// authority to the player who selected Cydonia before starting it.
+			Json::Value root;
+			root["state"] = "changeHost";
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+			_game->getCoopMod()->setHost(true);
+		}
+
+		_game->pushState(new CoopState(88));
+		return;
+	}
+
 	_game->popState();
 	_game->popState();
+	startCoopMission();
+}
+
+void ConfirmCydoniaState::startCoopMission()
+{
+	// The shared path can be re-entered by delayed network callbacks. Never
+	// replace an already-streamed Mars map with a second random generation.
+	if (_game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()
+		&& _game->getSavedGame()->getSavedBattle())
+	{
+		return;
+	}
+
+	if (connectionTCP::getCoopStatic())
+	{
+		_game->getCoopMod()->coopInventory = true;
+	}
 
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
 	_game->getSavedGame()->setBattleGame(bgame);
@@ -101,8 +165,15 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 	bgen.setCraft(_craft);
 	bgen.run();
 
-	_game->pushState(new BriefingState(_craft));
-
+	if (connectionTCP::getCoopStatic())
+	{
+		BriefingState* briefing = new BriefingState(_craft);
+		briefing->setupCoop();
+	}
+	else
+	{
+		_game->pushState(new BriefingState(_craft));
+	}
 }
 
 /**
