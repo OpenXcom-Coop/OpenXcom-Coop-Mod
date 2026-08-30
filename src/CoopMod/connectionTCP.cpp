@@ -13852,6 +13852,35 @@ std::unordered_set<int> connectionTCP::coopApplyNextTurnUnitStates(Json::Value& 
 					++g_stateWatermarkRejects;
 					++g_stateWatermarkRejectsRank0;
 					stateWatermarkRejectedUnits.insert(unit->getId());
+					// coop (rank0 reject trace, owner ruling 2026-08-30): capture-gated persistent
+					// trace of THIS next_turn rank-0 watermark reject - the unit, the incoming next_turn
+					// stamp (side,seq,0) vs the recorded (beating) stamp (side,seq,rank), the battle turn
+					// (=> run phase: ambush turns 1-5 vs quiet turns 6+), and the rejected snapshot payload
+					// vs the value the watermark PROTECTED (the client's current value, set by the newer
+					// write). Lets a reject be classified STALE-benign (protected value newer/authoritative)
+					// vs FRESH-lost (a needed next_turn value dropped). Logged to BOTH the diag ring and
+					// openxcom.log (ring-eviction-proof) so heavy-diag runs still keep it. Inert unless
+					// diag_capture armed; NO state effect.
+					if (g_diagCapture.load(std::memory_order_relaxed))
+					{
+						SavedBattleGame* sbgWm = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+						int turnWm = sbgWm ? sbgWm->getTurn() : -1;
+						std::string wm = "WMREJECT u=" + std::to_string(unit->getId())
+							+ " turn=" + std::to_string(turnWm)
+							+ " in=(" + std::to_string(stateSide) + "," + std::to_string(stateSeq) + ",0)"
+							+ " rec=(" + std::to_string(unit->_coopStateSideSeq) + "," + std::to_string(unit->_coopStateActionSeq)
+							+ "," + std::to_string((unsigned)unit->_coopStateRank) + ")"
+							+ " snapHP=" + std::to_string(obj["units"][i]["health"].asInt())
+							+ " curHP=" + std::to_string(unit->getHealth())
+							+ " snapTU=" + std::to_string(obj["units"][i]["time"].asInt())
+							+ " curTU=" + std::to_string(unit->getTimeUnits())
+							+ " snapStun=" + std::to_string(obj["units"][i]["stunlevel"].asInt())
+							+ " curStun=" + std::to_string(unit->getStunlevel())
+							+ " snapStatus=" + std::to_string(obj["units"][i]["status"].asInt())
+							+ " curStatus=" + std::to_string((int)unit->getStatus());
+						coopDiagS(wm);
+						Log(LOG_INFO) << "[COOP] " << wm;
+					}
 				}
 
 				break;
