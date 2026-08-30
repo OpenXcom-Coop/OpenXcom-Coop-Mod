@@ -41,6 +41,7 @@
 #include "../Geoscape/MonthlyReportState.h"
 #include "../Geoscape/MissionDetectedState.h"
 #include "../Geoscape/ConfirmLandingState.h"
+#include "../Geoscape/ConfirmCydoniaState.h"
 #include "../Geoscape/CraftPatrolState.h"
 #include "../Savegame/AlienBase.h"
 #include "../Ufopaedia/ArticleState.h"
@@ -4507,6 +4508,48 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				cl->btnYesClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "open_cydonia")
+		{
+			// Exercise the real final-mission confirmation state without requiring a
+			// months-long research setup. The requested craft still supplies the real
+			// campaign roster, equipment and BattlescapeGenerator input.
+			int craftId = req.get("craft_id", -1).asInt();
+			Craft* craft = nullptr;
+			SavedGame* sg = _game->getSavedGame();
+			if (sg)
+			{
+				for (auto* base : *sg->getBases())
+				{
+					for (auto* candidate : *base->getCrafts())
+					{
+						if (candidate->getId() == craftId)
+						{
+							craft = candidate;
+							break;
+						}
+					}
+					if (craft) break;
+				}
+			}
+			if (!craft)
+				resp["error"] = "craft id not found";
+			else
+			{
+				_game->pushState(new ConfirmCydoniaState(craft));
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "confirm_cydonia")
+		{
+			ConfirmCydoniaState* cc = findState<ConfirmCydoniaState>(_game);
+			if (!cc)
+				resp["error"] = "no ConfirmCydoniaState on stack";
+			else
+			{
+				cc->btnYesClick(nullptr);
 				resp["ok"] = true;
 			}
 		}

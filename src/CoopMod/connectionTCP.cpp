@@ -52,6 +52,7 @@
 #include "../Menu/NewGameState.h"
 #include "../Menu/LoadGameState.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/ConfirmCydoniaState.h"
 #include "../Geoscape/Globe.h"
 #include "../Geoscape/BaseNameState.h"
 #include "../Geoscape/BuildNewBaseState.h"
@@ -119,6 +120,7 @@ std::string mapData = "";
 int _hostSpace;
 
 ConfirmLandingState* _landing;
+ConfirmCydoniaState* _cydonia;
 NewBattleState* _battleState;
 GeoscapeState* _geo;
 Craft* _selectedCraft;
@@ -11538,6 +11540,12 @@ void connectionTCP::setClientSoldiers()
 	{
 		_landing->startCoopMission();
 	}
+	// Cydonia has its own confirmation state and never visits ConfirmLandingState.
+	// Resume the final-mission generator after the normal SEPARATE craft merge.
+	else if (_cydonia && getCoopCampaign() == true)
+	{
+		_cydonia->startCoopMission();
+	}
 	// coop battle (pve)
 	else if (_battleState)
 	{
@@ -11903,6 +11911,13 @@ void connectionTCP::joinDirectLanUDP(std::string ipaddress, std::string str_port
 void connectionTCP::setConfirmLandingState(ConfirmLandingState* landing)
 {
 	_landing = landing;
+	_cydonia = nullptr;
+}
+
+void connectionTCP::setConfirmCydoniaState(ConfirmCydoniaState* cydonia)
+{
+	_cydonia = cydonia;
+	_landing = nullptr;
 }
 
 // coop

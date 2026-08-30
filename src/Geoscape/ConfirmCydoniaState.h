@@ -47,6 +47,8 @@ public:
 	void btnNoClick(Action *action);
 	/// Handler for clicking the Cydonia mission button.
 	void btnYesClick(Action *action);
+	/// Generates Cydonia after the separate-campaign craft merge has completed.
+	void startCoopMission();
 
 };
 
