@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <sstream>
@@ -64,6 +65,7 @@
 #include "ModCheckMenu.h"
 #include "GiftNoticeState.h"
 #include "SharedEcon.h"
+#include "BattleWire.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -450,6 +452,50 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 	_staticGame = game;
 	// PRD-J03: register the SHARED economy command handlers (idempotent).
 	SharedEcon::init();
+
+	// R2-P1 self-test (SPIKE-RUNBOOK.md IR-16b): round-trip every CoopWire
+	// maker plus the two routing predicates. Gated on OXC_TEST_PORT (same
+	// env var TestServer::startFromEnvironment reads) so it is inert outside
+	// the harness; connectionTCP's ctor runs well before Game::run() starts
+	// TestServer, so this is the earliest coop-side hook that can see it.
+	if (std::getenv("OXC_TEST_PORT"))
+	{
+		auto fail = [](const char* what) { Log(LOG_ERROR) << "[coopwire-selftest] FAIL: " << what; };
+		bool ok = true;
+		Json::Value v;
+
+		v = CoopWire::makeIntent(7u, 2, 42, "turn");
+		if (!(v["state"] == "bt_intent" && v["iseq"].asUInt() == 7u && v["seat"].asInt() == 2 &&
+			v["actorId"].asInt() == 42 && v["kind"] == "turn")) { fail("makeIntent"); ok = false; }
+
+		v = CoopWire::makeAck(9u, 100u);
+		if (!(v["state"] == "bt_ack" && v["iseq"].asUInt() == 9u && v["actionId"].asUInt() == 100u))
+		{ fail("makeAck"); ok = false; }
+
+		v = CoopWire::makeDeny(11u, "busy");
+		if (!(v["state"] == "bt_deny" && v["iseq"].asUInt() == 11u && v["reason"] == "busy"))
+		{ fail("makeDeny"); ok = false; }
+
+		v = CoopWire::makeEv(3u, 55u, "turn");
+		if (!(v["state"] == "bt_ev" && v["seq"].asUInt() == 3u && v["actionId"].asUInt() == 55u &&
+			v["kind"] == "turn" && v["payload"].isObject() && v["payload"].empty()))
+		{ fail("makeEv"); ok = false; }
+
+		v = CoopWire::makeActionEnd(4u, 56u);
+		if (!(v["state"] == "bt_action_end" && v["seq"].asUInt() == 4u && v["actionId"].asUInt() == 56u))
+		{ fail("makeActionEnd"); ok = false; }
+
+		if (!(CoopWire::isBattleKind("bt_intent") && CoopWire::isBattleKind("bt_ev") &&
+			CoopWire::isBattleKind("battle_offer") && CoopWire::isBattleKind("battle_ready") &&
+			!CoopWire::isBattleKind("chat_message") && !CoopWire::isBattleKind("time") &&
+			!CoopWire::isBattleKind("vote_cast"))) { fail("isBattleKind"); ok = false; }
+
+		if (!(CoopWire::isSeqOrdered("bt_ev") && CoopWire::isSeqOrdered("bt_action_end") &&
+			!CoopWire::isSeqOrdered("bt_intent"))) { fail("isSeqOrdered"); ok = false; }
+
+		if (ok)
+			Log(LOG_INFO) << "CoopWire self-test OK";
+	}
 }
 
 connectionTCP::~connectionTCP()
@@ -2289,16 +2335,26 @@ void connectionTCP::updateCoopTask()
 					DebugLog(str_debug);
 				}
 
+				// R2-P1: battle-lane traffic is diverted before it can ever reach the
+				// legacy allowlist/g_rxHold rotation logic below - "battle traffic
+				// must never touch g_rxHold rotation" (inventory-wire-protocol.md
+				// transport fact #4). isBattleKind() states are therefore always
+				// consumeNow, straight into onTCPMessage's battle-lane branch (SS2.1).
 				// Make operator precedence explicit:
 				const bool consumeNow =
-						 (_coop_task_completed || ((stateString == "abortPath" && _coopWalkInit) ||
+					CoopWire::isBattleKind(stateString) ||
+					((_coop_task_completed || ((stateString == "abortPath" && _coopWalkInit) ||
 						 (stateString == "unit_death" && _coopInitDeath) ||
 						 (stateString == "after_unit_death" && _coopInitDeath)) ||
-					 stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "click_close" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_fire_tile" || stateString == "set_smoke_tile" || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit") &&
+					 stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked") &&
 					// R1-P3 IR-8 prune: "close_event" and "minimap_data" removed from this
 					// allowlist - dead ids with no sender/handler anywhere (inventory-wire-
-					// protocol.md "Dead ids delete outright").
-					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle())));
+					// protocol.md "Dead ids delete outright"). R2-P1 hygiene: click_close,
+					// AIProgress, update_progress, DebriefingState, endTurn, hit_tile,
+					// destroy_tile, set_fire_tile, set_smoke_tile, unit_fire,
+					// calc_explode_fov, hasHitUnit removed here too - R1-P3 quarantined
+					// every one of their senders+handlers, so these ids can never arrive.
+					!(stateString == "endPlayerTurn" && (_coopEnd == 1 || (_game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()))));
 
 				if (consumeNow)
 				{
@@ -3894,6 +3950,30 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// consumes the message, it never falls through to the if-chain below.
 	if (SharedEcon::onMessage(_game, stateString, obj))
 		return;
+
+	// R2-P1 (SPIKE-RUNBOOK.md SS2.1): battle-lane routing. Battle kinds are
+	// diverted HERE, at the top of onTCPMessage - before the R1-P3 legacy
+	// quarantine catch-all just below and before the legacy vanilla if-chain -
+	// so a battle-lane message can never be mistaken for a quarantined legacy
+	// id nor fall into vanilla dispatch. (updateCoopTask() also keeps these
+	// states out of the g_rxHold hold/rotate logic entirely, so this is the
+	// first and only place a battle message is examined.) No consumers yet:
+	// R2-P2 wires the seq-ordered apply queue, R2-P5/P6/P9 wire the direct
+	// battle-lane handlers (admission, handshake, desync report). Still runs
+	// on the pump thread (updateCoopTask), never the socket thread.
+	if (CoopWire::isBattleKind(stateString))
+	{
+		if (CoopWire::isSeqOrdered(stateString))
+		{
+			// R2-P2 will enqueue here (bt_ev / bt_action_end -> CoopPump apply queue).
+		}
+		else
+		{
+			// R2-P5/P6/P9 will handle directly here (bt_intent/bt_ack/bt_deny/
+			// battle_offer/battle_accept/battle_refuse/battle_ready/bt_desync).
+		}
+		return;
+	}
 
 	// R1-P3 quarantine catch-all (inventory-wire-protocol.md sections A-E) -
 	// EARLY, before the legacy if-chain, so no quarantined battle-sim message can
