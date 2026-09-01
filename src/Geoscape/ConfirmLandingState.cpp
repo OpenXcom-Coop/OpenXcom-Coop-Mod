@@ -47,6 +47,8 @@
 #include "../Basescape/CraftSoldiersState.h"
 
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/CoopHandshake.h"
 
 namespace OpenXcom
 {
@@ -274,19 +276,23 @@ void ConfirmLandingState::btnYesClick(Action *)
 		return;
 	}
 
-	if (connectionTCP::getCoopStatic() == true)
-	{
-		// R1-P5/R4-REWIRE: coop landing battle-start choreography (SHARED
-		// host-authoritative stream + the SEPARATE two-world changeHost merge, both
-		// ending in BriefingState::setupCoop() and per-soldier seat mutation) is
-		// quarantined pending the r4/r5 atomic-bundle rebuild (RB-D9) - those symbols
-		// died with the vanilla restore (911ca487f). SP path below is untouched.
-		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
-		return;
-	}
-	else
-	{
+	// R4-P1/R4-REWIRE (SPIKE-RUNBOOK.md SS2.7): the R1-P5 stub (a
+	// pre-generation early-return) is replaced by the SS2.7 handshake -
+	// classic/SHARED campaign co-op now runs the SAME vanilla generation as
+	// SP below and hands the result to CoopHandshake::offerBattle() instead
+	// of a dead-end popup ("connectionTCP.cpp:10128-10131" confirms this is
+	// the SINGLE generation+offer point for SHARED - setClientSoldiers()
+	// explicitly skips the SEPARATE two-world startCoopMission() dance for a
+	// SHARED campaign so the battle is never regenerated). The PvP/PvE2
+	// changeHost merge and BriefingState::setupCoop() dispatch this comment
+	// used to describe stay quarantined (RB-D9) - real gm2/gm3/gm4 seat/
+	// faction assignment is R5-P1's job; offerBattle()'s own client-side
+	// gamemode check refuses those until then (RB-D18). This guard is false
+	// on every SP click, so the SP battle-generation path below is
+	// byte-for-byte untouched.
+	const bool coopLanding = connectionTCP::getCoopStatic() == true;
 
+	{
 		std::string message = checkStartingCondition();
 		if (!message.empty())
 		{
@@ -349,9 +355,20 @@ void ConfirmLandingState::btnYesClick(Action *)
 		}
 
 		bgen.run();
+
+		// R4-P1 (SS2.7): offerBattle() is a pure network side effect - it
+		// never touches the state stack (see CoopHandshake.h's top doc
+		// comment for why a first attempt that deferred this push crashed
+		// Game::run() with an empty state stack). BriefingState is pushed
+		// exactly like vanilla SP, unconditionally; a refused/corrupt
+		// handshake unwinds it via coopUnwindToSafeState() instead
+		// (connectionTCP.cpp) - GeoscapeState is still on the stack
+		// underneath, so that unwind lands the host back on the geoscape.
+		if (coopLanding)
+		{
+			CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
+		}
 		_game->pushState(new BriefingState(_craft));
-
-
 	}
 
 }

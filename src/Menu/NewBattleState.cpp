@@ -60,6 +60,8 @@
 
 #include "../Savegame/Waypoint.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/CoopHandshake.h"
 
 namespace OpenXcom
 {
@@ -693,17 +695,17 @@ void NewBattleState::btnOkClick(Action *)
 
 	}
 
-	// R1-P5/R4-REWIRE: coop battle-entry choreography (skirmish co-op lobby release,
-	// PvP/PvE2 changeHost4 handoff, and the BriefingState::setupCoop() dispatch that
-	// used to follow bgen.run() below) is quarantined pending the r4/r5 atomic-bundle
-	// rebuild (RB-D9) - those coop-only BattleUnit/BriefingState symbols died with the
-	// vanilla restore (911ca487f). This guard is false on every SP click, so the SP
-	// battle-generation path below is untouched.
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
-		return;
-	}
+	// R4-P1/R4-REWIRE (SPIKE-RUNBOOK.md SS2.7): the R1-P5 stub above (a
+	// pre-generation early-return) is replaced by the SS2.7 handshake -
+	// classic/SHARED skirmish co-op now runs the SAME vanilla generation as
+	// SP below and hands the result to CoopHandshake::offerBattle() instead
+	// of a dead-end popup. The PvP/PvE2 changeHost4 handoff and
+	// BriefingState::setupCoop() dispatch this comment used to describe stay
+	// quarantined (RB-D9) - real gm2/gm3/gm4 seat/faction assignment is
+	// R5-P1's job; offerBattle()'s own client-side gamemode check refuses
+	// those until then (RB-D18). This guard is false on every SP click, so
+	// the SP battle-generation path below is byte-for-byte untouched.
+	const bool coopSkirmish = _game->getCoopMod()->getCoopStatic() == true;
 
 	if (_craft)
 	{
@@ -795,6 +797,17 @@ void NewBattleState::btnOkClick(Action *)
 
 	_game->popState();
 	_game->popState();
+
+	// R4-P1 (SS2.7): offerBattle() is a pure network side effect - it never
+	// touches the state stack (see CoopHandshake.h's top doc comment for why
+	// a first attempt that deferred this push crashed Game::run() with an
+	// empty state stack). BriefingState is pushed exactly like vanilla SP,
+	// unconditionally; a refused/corrupt handshake unwinds it via
+	// coopUnwindToSafeState() instead (connectionTCP.cpp).
+	if (coopSkirmish)
+	{
+		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
+	}
 	_game->pushState(new BriefingState(_craft, base));
 
 	_craft = 0;

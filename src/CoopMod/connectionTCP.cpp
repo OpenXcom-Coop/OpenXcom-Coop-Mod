@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -76,6 +77,7 @@
 #include "CoopIdMaps.h"
 #include "CoopArbiter.h"
 #include "CoopBattleUi.h"
+#include "CoopHandshake.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -90,6 +92,17 @@
 #include "../Savegame/BattleUnit.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
+
+// R4-P1 (SPIKE-RUNBOOK.md SS2.7/IR-6): CoopHandshake needs the full SavedGame
+// (loadCoopSaveFromMemory/saveCoopToMemory), Options/Screen (battlescape
+// resolution switch, matching LoadGameState.cpp's own load-with-live-battle
+// precedent), and libsodium crypto_hash_sha256 - never a hand-rolled hash
+// (IR-6). sodium.h is already linked (connectionUDP uses it, e.g.
+// connectionUDP.h:19).
+#include "../Savegame/SavedGame.h"
+#include "../Engine/Options.h"
+#include "../Engine/Screen.h"
+#include <sodium.h>
 
 namespace OpenXcom
 {
@@ -933,6 +946,16 @@ bool isCoopBattle()
 // singletons (BattleAuthority above, CoopPump/CoopEmit further up) - file-
 // scope globals, same reasoning as g_battleApplyQueue etc: CoopIdMaps::reset()
 // (R2-P8 teardown wiring) needs to clear them from outside this TU's ctor.
+//
+// R4-P1 cross-thread fix (see BattleAuthority.h's note above CoopBattlePhase):
+// handleUdpRemotePeerLost() can call CoopIdMaps::reset() from the UDP-monitor
+// thread while the main/pump thread reads/writes these maps (rebuildFrom() at
+// battle-blob load, forget()/registerUnit() etc. once R3's appliers land).
+// g_coopIdMapsMutex guards every CoopIdMaps:: function body below - since
+// g_coopUnitById/g_coopItemById are `static` (this TU only) and reached ONLY
+// through these functions, this closes the race for every existing and future
+// call site without any call site needing to change.
+static std::mutex g_coopIdMapsMutex;
 static std::unordered_map<int, BattleUnit*> g_coopUnitById;
 static std::unordered_map<int, BattleItem*> g_coopItemById;
 
@@ -943,11 +966,13 @@ namespace CoopIdMaps
 // load path (SPIKE-RUNBOOK.md SS2.7 battle_ready sequence, after sha verify
 // and the blob is loaded into a live SavedBattleGame) where the client's
 // SavedBattleGame first becomes valid, immediately before the authority
-// {hostSim:false, localSeat, phase:Active} stamp. No such call site exists
-// yet in this tree (R4-P1 is not landed) - this comment is the marker R2-P4
-// leaves for it, per SPIKE-RUNBOOK.md R2-P4 packet text.
+// {hostSim:false, localSeat, phase:Active} stamp. Landed this packet -
+// CoopHandshake::onBlobChunkAppended()'s finishLoad step (connectionTCP.cpp,
+// CoopHandshake implementation below) is that call site.
 void rebuildFrom(SavedBattleGame* save)
 {
+	std::lock_guard<std::mutex> lock(g_coopIdMapsMutex);
+
 	g_coopUnitById.clear();
 	g_coopItemById.clear();
 
@@ -994,40 +1019,47 @@ void rebuildFrom(SavedBattleGame* save)
 
 BattleUnit* unit(int id)
 {
+	std::lock_guard<std::mutex> lock(g_coopIdMapsMutex);
 	auto it = g_coopUnitById.find(id);
 	return it != g_coopUnitById.end() ? it->second : nullptr;
 }
 
 BattleItem* item(int id)
 {
+	std::lock_guard<std::mutex> lock(g_coopIdMapsMutex);
 	auto it = g_coopItemById.find(id);
 	return it != g_coopItemById.end() ? it->second : nullptr;
 }
 
 void registerItem(BattleItem* i)
 {
+	std::lock_guard<std::mutex> lock(g_coopIdMapsMutex);
 	if (i)
 		g_coopItemById[i->getId()] = i;
 }
 
 void registerUnit(BattleUnit* u)
 {
+	std::lock_guard<std::mutex> lock(g_coopIdMapsMutex);
 	if (u)
 		g_coopUnitById[u->getId()] = u;
 }
 
 void forget(int itemId)
 {
+	std::lock_guard<std::mutex> lock(g_coopIdMapsMutex);
 	g_coopItemById.erase(itemId);
 }
 
 void forgetUnit(int unitId)
 {
+	std::lock_guard<std::mutex> lock(g_coopIdMapsMutex);
 	g_coopUnitById.erase(unitId);
 }
 
 void reset()
 {
+	std::lock_guard<std::mutex> lock(g_coopIdMapsMutex);
 	g_coopUnitById.clear();
 	g_coopItemById.clear();
 }
@@ -1710,7 +1742,552 @@ void clearNetworkSessionQueues()
 	CoopPump::reset();
 	CoopIdMaps::reset();
 	resetBattleAuthority();
+	// R4-P1: clear this packet's own pending-handshake statics (client
+	// in-flight blob expectation, host pending briefing/saveBlob-hash state)
+	// at the SAME chokepoint - see CoopHandshake::resetPendingState()'s doc
+	// comment.
+	CoopHandshake::resetPendingState();
 }
+
+// ===== R4-P1: battle-start handshake (CoopHandshake.h) =====
+// SPIKE-RUNBOOK.md SS2.7/RB-D18/RB-D23/IR-5/IR-6. Storage/helpers live here,
+// next to BattleAuthority/CoopArbiter/CoopIdMaps/CoopPump/CoopEmit above -
+// the established home for this scaffolding (R2-P1..P8). All four handshake
+// sends go through CoopEmit::sendBattle() (matching CoopArbiter's own
+// deny()/ack() sends), so they get the MN-8 TX-drain bypass.
+namespace CoopHandshake
+{
+
+// ----- internal helpers (file-scope; not part of the CoopHandshake.h API) -----
+
+// IR-6: sha256 = libsodium crypto_hash_sha256, never hand-rolled. sodium_init()
+// is idempotent (matches the connectionUDP idiom, e.g. connection_udp_glue.cpp:83).
+static std::string coopSha256Hex(const std::string& data)
+{
+	if (sodium_init() < 0)
+	{
+		Log(LOG_ERROR) << "[coop-handshake] sodium_init() failed - cannot hash the battle blob";
+		return std::string();
+	}
+	unsigned char digest[crypto_hash_sha256_BYTES];
+	crypto_hash_sha256(digest, reinterpret_cast<const unsigned char*>(data.data()),
+		(unsigned long long)data.size());
+
+	static const char* hex = "0123456789abcdef";
+	std::string out;
+	out.reserve(sizeof(digest) * 2);
+	for (unsigned char b : digest)
+	{
+		out += hex[(b >> 4) & 0xF];
+		out += hex[b & 0xF];
+	}
+	return out;
+}
+
+// RW-TODO(R2-P9): minimal single-bucket port of donor cbff7951d's
+// computeSaveBlobHash/saveBlobHashTree (SharedEcon.cpp ~5804-5840, SharedEcon.h
+// ~504 computeSaveBlobHash declaration) - plain FNV-1a (SAME constants as the
+// donor) over the canonical SavedBattleGame::save() YAML text, WITHOUT the
+// donor's exclusion list (legacy kills/exp/tempUnitStatistics, the D4 per-unit
+// FOV fields, MJ-7 ground x/y) or its FOW-masked binTiles handling. Safe at
+// handshake time ONLY because no turn has run yet - a freshly generated (host)
+// or just-loaded (client) battle has nothing transient/excludable in it yet.
+// R2-P9 replaces this with the real SS2.8 sweep (the full BattleHashSet,
+// including a proper computeSaveBlobHash with its exclusions).
+static std::string coopComputeSaveBlobBucketHex(SavedBattleGame* battle)
+{
+	if (!battle)
+		return std::string(16, '0');
+
+	YAML::YamlRootNodeWriter writer(1000000);
+	writer.setAsMap();
+	battle->save(writer["battleGame"]);
+	YAML::YamlString text = writer.emit();
+
+	static const std::uint64_t FNV_OFFSET = 1469598103934665603ULL;
+	static const std::uint64_t FNV_PRIME = 1099511628211ULL;
+	std::uint64_t h = FNV_OFFSET;
+	for (char ch : text.yaml)
+	{
+		h ^= (std::uint64_t)(unsigned char)ch;
+		h *= FNV_PRIME;
+	}
+
+	char buf[17];
+	std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)h);
+	return std::string(buf);
+}
+
+// RB-D18 interim seatMap (classic/SHARED only): {"0":"player","1":"player"},
+// built inline. Sent verbatim in the offer regardless of gamemode - it is the
+// RECEIVING client that evaluates @a gamemode and refuses {reason:
+// "unsupported"} for gm2/gm3/gm4 (SS2.1: battle_refuse is client->host only,
+// so the host cannot itself emit one - see this packet's final report).
+static Json::Value coopBuildInterimSeatMap()
+{
+	Json::Value m(Json::objectValue);
+	m["0"] = "player";
+	m["1"] = "player";
+	return m;
+}
+
+// RB-D31: faction wire encoding is strings ("player"/"hostile"/"neutral").
+static int coopWireStringToFaction(const std::string& s)
+{
+	if (s == "hostile")
+		return (int)FACTION_HOSTILE;
+	if (s == "neutral")
+		return (int)FACTION_NEUTRAL;
+	return (int)FACTION_PLAYER;
+}
+
+static void coopApplySeatMap(const Json::Value& seatMap)
+{
+	if (!seatMap.isObject())
+		return;
+	for (const auto& key : seatMap.getMemberNames())
+	{
+		const int seat = std::atoi(key.c_str());
+		coopBattleAuthority().setSeatFaction(seat, coopWireStringToFaction(seatMap[key].asString()));
+	}
+}
+
+// ----- HOST pending state: set by offerBattle(), consumed by onReady()/onRefuse() -----
+struct PendingHost
+{
+	bool active = false;
+	std::uint32_t battleId = 0;
+	std::string saveBlobHex; // this machine's own saveBlob bucket (offerBattle() computes it once)
+};
+static PendingHost g_pendingHost;
+
+// R4-P1 (see CoopHandshake.h's top doc comment for the crash this fixes):
+// bounded unwind back to a safe state, used ONLY on the onRefuse()/onReady()
+// mismatch teardown paths - the host's BriefingState/BattlescapeState
+// navigation runs independently of the handshake (the caller pushes
+// BriefingState immediately and unconditionally, matching vanilla), so by
+// the time a refusal/mismatch arrives the host may be sitting anywhere from
+// BriefingState to mid-BattlescapeState. Mirrors the bounded popState() loop
+// connectionTCP.cpp's own close_load_progress "inBattleResume" handler
+// already uses for the same reason - see the function body for why it can
+// legitimately empty the stack down to zero (and what it does about that).
+static void coopUnwindToSafeState(Game* game)
+{
+	// RW-TRIAGE finding (this packet's corrupt-blob acceptance run): the
+	// skirmish path's OWN vanilla popState() pair (NewBattleState::
+	// btnOkClick, unmodified) already discards everything below
+	// BriefingState before pushing it - so BriefingState is BOTH the bottom
+	// AND the top of the stack there, and a "stop once size()==1" guard
+	// never finds a safe state to land on (verified: it left the host
+	// stranded on a bare BriefingState with the confirm-corrupt-refuse
+	// evidence still needing a real teardown). Pop everything (never
+	// stopping at 1 remaining) looking for Geoscape/MainMenu; if the stack
+	// empties without finding either (the skirmish shape), push a fresh
+	// MainMenuState so Game::_states is never left empty (see this header's
+	// top doc comment for the crash that already taught this lesson once).
+	int guard = 0;
+	while (guard++ < 32 && !game->getStates().empty())
+	{
+		State* top = game->getStates().back();
+		if (dynamic_cast<GeoscapeState*>(top) || dynamic_cast<MainMenuState*>(top))
+			return;
+		game->popState();
+	}
+	game->pushState(new MainMenuState());
+}
+
+// ----- CLIENT pending state: set by onOffer() on accept, consumed by onBlobChunkAppended() -----
+struct PendingClient
+{
+	bool awaitingBlob = false;
+	std::uint32_t battleId = 0;
+	std::uint64_t blobBytes = 0;
+	std::string blobSha;
+};
+static PendingClient g_pendingClient;
+
+// ----- CoopHandshake.h API -----
+
+void offerBattle(Game* game, int gamemode)
+{
+	if (!game || !connectionTCP::getServerOwner())
+	{
+		Log(LOG_WARNING) << "[coop-handshake] offerBattle() called on a non-host machine - ignoring";
+		return;
+	}
+	if (coopBattleAuthority().phase != CoopBattlePhase::Idle)
+	{
+		Log(LOG_WARNING) << "[coop-handshake] offerBattle() called while phase != Idle "
+			"- a handshake/battle is already in flight, ignoring the double-offer";
+		return;
+	}
+	SavedBattleGame* battle = game->getSavedGame() ? game->getSavedGame()->getSavedBattle() : nullptr;
+	if (!battle)
+	{
+		Log(LOG_ERROR) << "[coop-handshake] offerBattle() called with no live SavedBattleGame - nothing to offer";
+		return;
+	}
+
+	static std::uint32_t s_nextBattleId = 1; // SS2.2: battleId, host-minted, session-monotonic
+	const std::uint32_t battleId = s_nextBattleId++;
+
+	initBattleAuthority(battleId); // -> hostSim=true, localSeat, phase=Handshake, seat-faction store cleared
+	coopApplySeatMap(coopBuildInterimSeatMap());
+
+	// Snapshot (donor call shape CoopState.cpp:~1667 @1e0f9276f) - the whole
+	// generated SavedGame blob, which contains the active SavedBattleGame.
+	game->getSavedGame()->saveCoopToMemory("battlehost", game->getMod(), "battlehost");
+
+	std::string blob;
+	{
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		auto it = connectionTCP::coopFilesHost.find("battlehost");
+		if (it == connectionTCP::coopFilesHost.end())
+		{
+			Log(LOG_ERROR) << "[coop-handshake] offerBattle(): saveCoopToMemory did not "
+				"populate coopFilesHost[\"battlehost\"]";
+			resetBattleAuthority();
+			return;
+		}
+		blob = it->second;
+	}
+
+	const std::string sha = coopSha256Hex(blob); // IR-6
+
+	// RB-D26/G3: R4-P1's temporary corrupt-blob test env-var lever (packet
+	// acceptance item 5 - flip one byte of coopFilesHost["battlehost"] AFTER
+	// this sha, so the client's post-stream sha check catches a deterministic
+	// corruption) lived here. Exercised and removed in this same packet -
+	// see the R4-P1 packet report for the captured refuse{corrupt} log +
+	// clean-teardown evidence. R2-P11's corrupt_next_blob TestServer command
+	// is the permanent replacement, post-G3.
+
+	g_pendingHost = PendingHost();
+	g_pendingHost.active = true;
+	g_pendingHost.battleId = battleId;
+	g_pendingHost.saveBlobHex = coopComputeSaveBlobBucketHex(battle);
+
+	Json::Value offer(Json::objectValue);
+	offer["state"] = "battle_offer";
+	offer["protocolVersion"] = 1;
+	offer["battleId"] = battleId;
+	offer["gamemode"] = gamemode;
+	offer["seatMap"] = coopBuildInterimSeatMap();
+	offer["blobBytes"] = Json::UInt64(blob.size());
+	offer["blobSha"] = sha;
+
+	CoopEmit::sendBattle(offer);
+
+	Log(LOG_INFO) << "[coop-handshake] battle_offer sent (battleId=" << battleId
+		<< ", gamemode=" << gamemode << ", blobBytes=" << blob.size()
+		<< ", saveBlob=" << g_pendingHost.saveBlobHex << ")";
+}
+
+void onOffer(Game* game, const Json::Value& offer)
+{
+	if (!game || connectionTCP::getServerOwner())
+		return; // only a CLIENT (never the host) receives an offer
+
+	const std::uint32_t battleId = offer.get("battleId", 0u).asUInt();
+
+	auto refuse = [&](const char* reason)
+	{
+		Json::Value r(Json::objectValue);
+		r["state"] = "battle_refuse";
+		r["battleId"] = battleId;
+		r["reason"] = reason;
+		CoopEmit::sendBattle(r);
+		Log(LOG_WARNING) << "[coop-handshake] battle_offer (battleId=" << battleId
+			<< ") refused: " << reason;
+	};
+
+	const int protocolVersion = offer.get("protocolVersion", 0).asInt();
+	if (protocolVersion != 1)
+	{
+		refuse("version");
+		return;
+	}
+
+	if (coopBattleAuthority().phase != CoopBattlePhase::Idle)
+	{
+		refuse("busy");
+		return;
+	}
+
+	const int gamemode = offer.get("gamemode", 0).asInt();
+	if (gamemode >= 2) // RB-D18: classic/SHARED only; gm2/gm3/gm4 deferred to R5-P1
+	{
+		refuse("unsupported");
+		return;
+	}
+
+	initBattleAuthority(battleId); // -> hostSim=false, localSeat, phase=Handshake, seat-faction store cleared
+	coopApplySeatMap(offer["seatMap"]);
+
+	g_pendingClient = PendingClient();
+	g_pendingClient.awaitingBlob = true;
+	g_pendingClient.battleId = battleId;
+	g_pendingClient.blobBytes = offer.get("blobBytes", Json::UInt64(0)).asUInt64();
+	g_pendingClient.blobSha = offer.get("blobSha", "").asString();
+
+	// Fresh accumulation buffer for THIS transfer - defensive against any
+	// stale leftover (resetPendingState() also clears this at the teardown
+	// chokepoint, but a belt-and-braces clear here costs nothing).
+	mapData.clear();
+
+	Json::Value accept(Json::objectValue);
+	accept["state"] = "battle_accept";
+	accept["protocolVersion"] = 1;
+	accept["battleId"] = battleId;
+	CoopEmit::sendBattle(accept);
+
+	Log(LOG_INFO) << "[coop-handshake] battle_offer accepted (battleId=" << battleId
+		<< ", expecting " << g_pendingClient.blobBytes << " bytes)";
+}
+
+void onBlobChunkAppended(Game* game)
+{
+	if (!game || !g_pendingClient.awaitingBlob)
+		return;
+
+	// RW-TRIAGE finding (this packet's first harness run): the legacy
+	// map_result_data/getline carrier drops the source blob's trailing
+	// newline on reconstruction - std::getline() splits on '\n' and discards
+	// it, and the sender's rejoin loop (loopData()'s sendFileClient branch)
+	// re-inserts '\n' only BETWEEN lines, never after the last one. Every
+	// blob here is a YAML::YamlRootNodeWriter::emit() document, which always
+	// ends in '\n' - so the client always arrives exactly ONE byte short of
+	// blobBytes. Tolerate exactly that (never more - a bigger shortfall is
+	// still "still receiving") and restore the byte before hashing: blobSha
+	// was computed HOST-side over the true, un-truncated bytes.
+	if (mapData.size() < g_pendingClient.blobBytes)
+	{
+		if (mapData.size() + 1 != g_pendingClient.blobBytes)
+			return; // still receiving
+		mapData += '\n';
+	}
+
+	g_pendingClient.awaitingBlob = false; // one-shot: never re-enter on a later, unrelated chunk
+
+	const std::uint32_t battleId = g_pendingClient.battleId;
+	const std::string expectedSha = g_pendingClient.blobSha;
+
+	// Take ownership of the accumulated blob BEFORE any sha/parse work, so a
+	// stray extra chunk arriving late cannot corrupt a second read of mapData.
+	std::string blob;
+	blob.swap(mapData);
+
+	const std::string actualSha = coopSha256Hex(blob); // IR-6
+
+	if (expectedSha.empty() || actualSha != expectedSha)
+	{
+		Log(LOG_ERROR) << "[coop-handshake] battle blob sha MISMATCH (battleId=" << battleId
+			<< ", expected=" << expectedSha << ", got=" << actualSha
+			<< ") - refusing (corrupt), returning to geoscape/lobby cleanly (nothing was loaded)";
+
+		Json::Value r(Json::objectValue);
+		r["state"] = "battle_refuse";
+		r["battleId"] = battleId;
+		r["reason"] = "corrupt";
+		CoopEmit::sendBattle(r);
+
+		resetBattleAuthority(); // back to Idle - nothing was ever loaded, nothing to unwind
+		return;
+	}
+
+	static const std::string kKey = "coop_battle_handshake";
+	{
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		connectionTCP::coopFilesClient[kKey] = blob;
+	}
+
+	// The client_save->loadCoopSaveFromMemory precedent (connectionTCP.cpp's
+	// writeHostMapFile(), ~:10926 region before this packet's edits).
+	SavedGame* newSave = new SavedGame();
+	newSave->loadCoopSaveFromMemory(kKey, game->getMod(), game->getLanguage(), kKey);
+
+	SavedBattleGame* battle = newSave->getSavedBattle();
+	if (!battle)
+	{
+		Log(LOG_ERROR) << "[coop-handshake] loaded battle blob (battleId=" << battleId
+			<< ") has no SavedBattleGame - refusing (corrupt)";
+		delete newSave;
+
+		Json::Value r(Json::objectValue);
+		r["state"] = "battle_refuse";
+		r["battleId"] = battleId;
+		r["reason"] = "corrupt";
+		CoopEmit::sendBattle(r);
+
+		resetBattleAuthority();
+		return;
+	}
+
+	// PRD-J02 precedent (LoadGameState.cpp): a SHARED client adopts the
+	// host's streamed world as its own replica, then re-asserts its own seat
+	// (the streamed save carries the HOST's coop_save_owner_player_id, 0).
+	game->setSavedGame(newSave);
+	if (newSave->getCampaignType() == CoopCampaignType::Shared && !connectionTCP::getServerOwner())
+	{
+		connectionTCP::coop_save_owner_player_id = 1;
+	}
+
+	CoopIdMaps::rebuildFrom(battle); // R4-P1 calls rebuildFrom here (CoopIdMaps.h/:942 marker)
+
+	initBattleAuthority(battleId); // hostSim=false here (getServerOwner()==false on a client), localSeat
+	coopApplySeatMap(coopBuildInterimSeatMap()); // same interim map onOffer() already validated
+	coopBattleAuthority().phase = CoopBattlePhase::Active;
+
+	const std::string saveBlobHex = coopComputeSaveBlobBucketHex(battle);
+
+	// LoadGameState.cpp's "loaded save with a live battle -> BattlescapeState"
+	// precedent (:334-344 region) - no client-side BriefingState, this
+	// machine did not generate the mission.
+	battle->loadMapResources(game->getMod());
+	Options::baseXResolution = Options::baseXBattlescape;
+	Options::baseYResolution = Options::baseYBattlescape;
+	game->getScreen()->resetDisplay(false);
+	BattlescapeState* bs = new BattlescapeState;
+	game->pushState(bs);
+	battle->setBattleState(bs);
+	bs->toggleTouchButtons(false, true);
+
+	Json::Value ready(Json::objectValue);
+	ready["state"] = "battle_ready";
+	ready["battleId"] = battleId;
+	ready["h"] = Json::Value(Json::objectValue); // IR-5: presence-gated, empty until R2-P9
+	ready["saveBlob"] = saveBlobHex;
+	CoopEmit::sendBattle(ready);
+
+	Log(LOG_INFO) << "[coop-handshake] CLIENT phase Active (battleId=" << battleId
+		<< ", saveBlob=" << saveBlobHex << ") - BattlescapeState pushed, battle_ready sent";
+}
+
+void onAccept(Game* game, const Json::Value& accept)
+{
+	if (!game || !connectionTCP::getServerOwner())
+		return;
+
+	if (!g_pendingHost.active || coopBattleAuthority().phase != CoopBattlePhase::Handshake)
+	{
+		Log(LOG_WARNING) << "[coop-handshake] battle_accept received with no matching pending offer - ignoring";
+		return;
+	}
+
+	const std::uint32_t battleId = accept.get("battleId", 0u).asUInt();
+	if (battleId != g_pendingHost.battleId)
+	{
+		Log(LOG_WARNING) << "[coop-handshake] battle_accept battleId mismatch (" << battleId
+			<< " != " << g_pendingHost.battleId << ") - ignoring";
+		return;
+	}
+
+	// Trigger the KEPT sendMissionFile carrier: loopData() (already running on
+	// its own thread) watches sendFileClient/sendFileBase and streams whatever
+	// is in coopFilesHost["battlehost"] (offerBattle() just populated it) as
+	// map_result_data 3KB chunks, gated on WAIT_MAP_SENDER acks.
+	isWaitMap = true;
+	sendFileBase = false;
+	sendFileClient = true;
+
+	Log(LOG_INFO) << "[coop-handshake] battle_accept received (battleId=" << battleId
+		<< ") - streaming the battle blob";
+}
+
+void onRefuse(Game* game, const Json::Value& refuse)
+{
+	if (!game || !connectionTCP::getServerOwner())
+		return;
+
+	const std::uint32_t battleId = refuse.get("battleId", 0u).asUInt();
+	const std::string reason = refuse.get("reason", "").asString();
+
+	if (!g_pendingHost.active || battleId != g_pendingHost.battleId)
+	{
+		Log(LOG_WARNING) << "[coop-handshake] battle_refuse for an unknown/stale battleId ("
+			<< battleId << ", reason=" << reason << ") - ignoring";
+		return;
+	}
+
+	Log(LOG_ERROR) << "[coop-handshake] battle_refuse received (battleId=" << battleId
+		<< ", reason=" << reason << ") - tearing down and returning to geoscape/lobby cleanly";
+
+	// Unwind the host's UI BEFORE dropping the battle - the caller already
+	// pushed BriefingState unconditionally (see CoopHandshake.h's top doc
+	// comment), so the host may be sitting anywhere from BriefingState to
+	// mid-BattlescapeState by the time a refusal arrives.
+	coopUnwindToSafeState(game);
+	if (game->getSavedGame())
+		game->getSavedGame()->setBattleGame(0);
+
+	resetBattleAuthority();
+	g_pendingHost = PendingHost();
+}
+
+void onReady(Game* game, const Json::Value& ready)
+{
+	if (!game || !connectionTCP::getServerOwner())
+		return;
+
+	const std::uint32_t battleId = ready.get("battleId", 0u).asUInt();
+
+	if (!g_pendingHost.active || battleId != g_pendingHost.battleId)
+	{
+		Log(LOG_WARNING) << "[coop-handshake] battle_ready for an unknown/stale battleId ("
+			<< battleId << ") - ignoring";
+		return;
+	}
+
+	const std::string clientSaveBlob = ready.get("saveBlob", "").asString();
+	const bool hPresent = ready.isMember("h") && ready["h"].isObject() && ready["h"].size() > 0;
+
+	// IR-5 plan of record: R2-P9/P11 land AFTER G3, so this packet ships/
+	// compares ONLY the saveBlob field (SS2.7's presence-gating - clients ship
+	// "h":{} until R2-P9). A populated "h" from a future/upgraded peer is
+	// logged, never compared, here.
+	if (hPresent)
+	{
+		Log(LOG_INFO) << "[coop-handshake] battle_ready carried a non-empty h bucket set ("
+			<< ready["h"].size() << " buckets) - not compared this packet (RW-TODO(R2-P9))";
+	}
+
+	if (clientSaveBlob.empty() || clientSaveBlob != g_pendingHost.saveBlobHex)
+	{
+		Log(LOG_ERROR) << "[coop-handshake] battle_ready saveBlob MISMATCH (battleId=" << battleId
+			<< ", host=" << g_pendingHost.saveBlobHex << ", client=" << clientSaveBlob
+			<< ") - refusing to start an unequal battle; tearing down and returning "
+			"to geoscape/lobby cleanly";
+
+		// Same unwind-before-drop ordering as onRefuse() (CoopHandshake.h's
+		// top doc comment): the host may already be past BriefingState.
+		coopUnwindToSafeState(game);
+		if (game->getSavedGame())
+			game->getSavedGame()->setBattleGame(0);
+		resetBattleAuthority();
+		g_pendingHost = PendingHost();
+		return;
+	}
+
+	Log(LOG_INFO) << "[coop-handshake] battle_ready saveBlob EQUAL (" << clientSaveBlob
+		<< ", battleId=" << battleId << ")";
+
+	// The caller already pushed BriefingState unconditionally, right after
+	// bgen.run() (CoopHandshake.h's top doc comment) - this flips the ONE
+	// thing battle admission actually gates (CoopArbiter::onIntent's
+	// isCoopBattle() check) and does not touch the state stack at all.
+	coopBattleAuthority().phase = CoopBattlePhase::Active;
+	g_pendingHost = PendingHost();
+
+	Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId << ")";
+}
+
+void resetPendingState()
+{
+	g_pendingHost = PendingHost();
+	g_pendingClient = PendingClient();
+}
+
+} // namespace CoopHandshake
 
 // HOST: emit PING once per second (independent from client)
 static uint64_t h_nextPingAt = 0;
@@ -1966,7 +2543,7 @@ void connectionTCP::loopData()
 				{
 					filepath = "battlehost";
 				}
-	
+
 				std::istringstream memoryStream;
 				std::istream* myfile = nullptr;
 
@@ -5046,20 +5623,38 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 		else if (stateString == "bt_intent")
 		{
-			// R2-P5 (SS2.1/SS2.5): the ONLY battle-lane kind this packet
-			// wires - host-side admission. bt_ack/bt_deny are client-inbound
-			// (handled by R3-P1's client intent tracker, not here); the
-			// handshake set + bt_desync stay unwired (R2-P6/R2-P9/R4-P1).
+			// R2-P5 (SS2.1/SS2.5): host-side admission. bt_ack/bt_deny are
+			// client-inbound (handled by R3-P1's client intent tracker, not
+			// here); bt_desync stays unwired (R2-P9).
 			CoopArbiter::onIntent(obj);
+		}
+		else if (stateString == "battle_offer")
+		{
+			// R4-P1 (SS2.7): client-inbound.
+			CoopHandshake::onOffer(_game, obj);
+		}
+		else if (stateString == "battle_accept")
+		{
+			// R4-P1 (SS2.7): host-inbound.
+			CoopHandshake::onAccept(_game, obj);
+		}
+		else if (stateString == "battle_refuse")
+		{
+			// R4-P1 (SS2.7): host-inbound.
+			CoopHandshake::onRefuse(_game, obj);
+		}
+		else if (stateString == "battle_ready")
+		{
+			// R4-P1 (SS2.7): host-inbound.
+			CoopHandshake::onReady(_game, obj);
 		}
 		else
 		{
 			// R3-P1 client bt_deny -> CoopBattleUi::showDeny (the presenter
 			// itself is built this packet, R2-P6 - see CoopBattleUi.h - but
 			// the client intent tracker that would call it here lands in
-			// R3-P1). bt_ack is client-inbound too (also R3-P1). R4-P1/R2-P9
-			// wire the rest (battle_offer/battle_accept/battle_refuse/
-			// battle_ready/bt_desync).
+			// R3-P1). bt_ack is client-inbound too (also R3-P1). bt_desync
+			// stays unwired (R2-P9).
 		}
 		return;
 	}
@@ -7920,6 +8515,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				std::string jsonData2 = "{\"state\" : \"WAIT_MAP_SENDER\"}";
 				sendTCPPacketData(jsonData2);
+
+				// R4-P1 (SS2.7): if a battle-handshake blob transfer is in
+				// flight (CoopHandshake::onOffer() armed it after sending
+				// battle_accept), check whether the accumulated bytes now
+				// cover the offered blobBytes - a no-op otherwise. The
+				// quarantined MAP_RESULT_HOST/MAP_RESULT_CLIENT terminal
+				// markers this carrier used to end on are never relied on
+				// here (SS2.7's blobBytes field is the completion signal).
+				CoopHandshake::onBlobChunkAppended(_game);
 			}
 			else
 			{

@@ -19,6 +19,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <atomic>
 #include <cstdint>
 
 namespace OpenXcom
@@ -43,6 +44,33 @@ class SavedBattleGame;
  * net layer (connectionTCP.h/Game.h/BattlescapeGame.h) in - the same
  * "BattleUnit.h drags net layer" disease RB-D17 already refuses for the
  * seat tag.
+ *
+ * R4-P1 CROSS-THREAD FIX (SPIKE-RUNBOOK.md R4-P1 packet text, "cross-thread
+ * safety" watch item): handleUdpRemotePeerLost() (connectionUDP\
+ * connection_rendezvous_glue.cpp) can call clearNetworkSessionQueues() -> ...
+ * -> resetBattleAuthority() from the UDP-monitor thread (its own doc comment:
+ * "may run from the UDP monitor thread"), while the main/pump thread reads
+ * and writes these same fields throughout CoopArbiter/CoopHandshake. Before
+ * R4-P1 this was latent (nothing populated the fields mid-battle from the
+ * main thread while a peer-lost teardown could race it); offerBattle()/
+ * finishLoad() now do, making it a live data race. Fix: every field below
+ * that crosses threads (hostSim/localSeat/phase/battleId, and the
+ * _seatFaction store) is std::atomic. This is a mutex-free guard rather than
+ * RB-D6's literal "add a mutex" suggestion because every existing read/write
+ * call site (CoopArbiter, the R2-P3 self-test, this header's own doc
+ * examples) already uses plain `a.field = x` / `a.field == y` - std::atomic's
+ * implicit conversion operator and operator= keep every one of those call
+ * sites source-compatible (verified: no call site copies or value-assigns a
+ * BattleAuthority - always accessed through the coopBattleAuthority()
+ * reference), so no call site anywhere in the tree needed to change. The one
+ * piece that CANNOT be made atomic - CoopIdMaps' std::unordered_map<int,
+ * BattleUnit*>/<int, BattleItem*> storage in connectionTCP.cpp - gets an
+ * actual std::mutex instead (see CoopIdMaps.h's forward-declared functions'
+ * .cpp bodies): every CoopIdMaps:: function now takes the SAME
+ * g_coopIdMapsMutex internally, closing the identical race for the id maps
+ * (their storage is `static` file-scope in connectionTCP.cpp and reached
+ * ONLY through these functions, so locking inside each function body closes
+ * every call site with zero call-site changes there too).
  */
 
 enum class CoopBattlePhase
@@ -58,12 +86,13 @@ struct BattleAuthority
 	/// IMMUTABLE per battle: set once by initBattleAuthority() below (R2-P3)
 	/// from connectionTCP::getServerOwner() (RB-D6). The mutable getHost()/
 	/// onTcpHost token is legacy-dead for battle logic - never branch battle
-	/// code on getHost().
-	bool hostSim = false;
+	/// code on getHost(). std::atomic: see the R4-P1 cross-thread fix note
+	/// above the enum.
+	std::atomic<bool> hostSim{false};
 
 	/// This machine's seat. Set once by initBattleAuthority() from
 	/// connectionTCP::localSeat(). -1 (unset) at Idle.
-	int localSeat = -1;
+	std::atomic<int> localSeat{-1};
 
 	/// Battle lifecycle phase. Idle until R4-P1's handshake calls
 	/// initBattleAuthority() (-> Handshake) and later stamps Active on a
@@ -71,10 +100,10 @@ struct BattleAuthority
 	/// Idle transition at the teardown chokepoint (resetBattleAuthority()
 	/// below provides the reset itself). Public field, not a setter: R4-P1/
 	/// R2-P8 transition it with a plain assignment.
-	CoopBattlePhase phase = CoopBattlePhase::Idle;
+	std::atomic<CoopBattlePhase> phase{CoopBattlePhase::Idle};
 
 	/// Host-minted at battle_offer (SS2.2); 0 = none yet.
-	std::uint32_t battleId = 0;
+	std::atomic<std::uint32_t> battleId{0};
 
 	/// Seat -> FACTION_* lookup, backed by the private store below. R2-P3
 	/// interim (RB-D18): the store starts empty and factionOf() falls back
@@ -120,7 +149,11 @@ struct BattleAuthority
 private:
 	static const int kMaxSeats = 4; // COOP_SEAT_0..COOP_SEAT_3, RB-D17
 	static const int kUnmapped = -1;
-	int _seatFaction[kMaxSeats] = { kUnmapped, kUnmapped, kUnmapped, kUnmapped };
+	// R4-P1 cross-thread fix (see the note above the enum): std::atomic, same
+	// reasoning as hostSim/localSeat/phase/battleId above - resetSeatFactions()
+	// is reachable from resetBattleAuthority(), which the UDP-monitor thread
+	// can call via handleUdpRemotePeerLost().
+	std::atomic<int> _seatFaction[kMaxSeats] = { kUnmapped, kUnmapped, kUnmapped, kUnmapped };
 };
 
 /// The one global BattleAuthority instance (RB-D6). Defined in
