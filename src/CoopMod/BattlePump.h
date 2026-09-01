@@ -20,6 +20,7 @@
  */
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 
 #include <json/json.h>
@@ -100,6 +101,12 @@ namespace CoopEmit
 /// all reached from the main thread in this codebase, RB-D5).
 std::uint32_t nextSeq();
 
+/// R2-P11: the highest seq nextSeq() has minted this battle (0 = none yet,
+/// same "0 reserved" convention as CoopPump::lastSeqApplied()) - a read-only
+/// peek, unlike nextSeq() itself (which mints on every call). event_state's
+/// "lastSeqEmitted" field.
+std::uint32_t lastSeqEmitted();
+
 /// Ships @a msg as-is (stamps nothing) - for the non-seq battle-lane kinds
 /// (bt_ack/bt_deny/bt_intent/the handshake set). The caller has already set
 /// every field (iseq/seat/reason/etc.) via CoopWire's makers.
@@ -112,6 +119,12 @@ void sendBattle(Json::Value& msg);
 /// packet decides whether action_end reuses it or gets its own thin
 /// wrapper.
 void sendEv(Json::Value ev);
+
+/// R2-P11: how many battle-lane sends have hit the MN-8 g_txQ-overflow
+/// blocking-wait bypass at least once, this battle (event_state's
+/// "txDrains" field). 0 in the overwhelmingly common case (a battle-lane
+/// message only blocks when the socket thread falls behind).
+std::uint32_t txDrainEvents();
 
 } // namespace CoopEmit
 
@@ -167,5 +180,66 @@ namespace CoopHashCheck
 void verify(const Json::Value& evOrEnd);
 
 } // namespace CoopHashCheck
+
+/**
+ * R2-P11 (SPIKE-RUNBOOK.md RB-D32, DESIGN sec 6 journaling guardrail 6): the
+ * flat preallocated event ring TestServer's `event_log` command reads from -
+ * "crash-handler-dumpable" by construction (a fixed-size C array of a POD
+ * struct, never a std::vector that could be mid-reallocation or a std::string
+ * that could be mid-heap-op at crash time). Populated on BOTH machines, but
+ * at different call sites per role (there is no wire loopback - the host
+ * never receives its own broadcast back): the HOST records at CoopEmit::
+ * sendEv() (connectionTCP.cpp), right after seq is stamped - the one choke
+ * point every host-side emit (CoopArbiter's kneel/onChainQuiesced's
+ * action_end) already goes through; the CLIENT records at CoopPump::
+ * drainApplyQueue() (connectionTCP.cpp), right after an envelope clears the
+ * strict-seq-order check - so a battle with no desync ends up with matching
+ * ring content on both machines despite the different population points.
+ * Storage lives in connectionTCP.cpp, next to CoopPump/CoopEmit's own queue
+ * globals - this header only declares the API + the Entry shape.
+ */
+namespace CoopEventLog
+{
+
+/// One ring slot. Fixed-size throughout (no heap-backed members) so the ring
+/// itself never allocates past its initial static storage.
+struct Entry
+{
+	std::uint32_t seq = 0;
+	std::uint32_t actionId = 0;
+	/// bt_ev's own "kind" (turn/kneel/...) when present; otherwise the
+	/// envelope's "state" (e.g. "bt_action_end", which carries no "kind" of
+	/// its own, SS2.3) - always non-empty for anything record() was ever
+	/// called with. Fixed-size, truncated if longer (spike kinds are short).
+	char kind[24] = { 0 };
+	/// Whether this envelope carried a non-empty "h" object (SS2.8/RB-D14) -
+	/// event_log's own "h" field is this bool, not the hash values themselves
+	/// (use hash_now for actual bucket values).
+	bool hasHash = false;
+};
+
+/// Ring capacity (preallocated, never resized).
+const std::size_t kCapacity = 256;
+
+/// Record one bt_ev / bt_action_end envelope (see this namespace's doc
+/// comment above for which role calls this from where). Oldest entry is
+/// silently overwritten once the ring is full - "tail" semantics, not a
+/// complete-history log.
+void record(const Json::Value& evOrEnd);
+
+/// Number of entries currently held (0..kCapacity).
+std::size_t size();
+
+/// The entry @a indexFromOldest slots after the oldest one currently held
+/// (0 = oldest, size()-1 = newest). Undefined for indexFromOldest >= size()
+/// (callers are expected to bound their own loop against size()).
+const Entry& at(std::size_t indexFromOldest);
+
+/// Teardown chokepoint: clears the ring back to empty. R2-P8's
+/// CoopPump::reset() (this same header) is the established single
+/// battle-teardown reset chokepoint; R2-P11 extends its body to call this too.
+void reset();
+
+} // namespace CoopEventLog
 
 } // namespace OpenXcom

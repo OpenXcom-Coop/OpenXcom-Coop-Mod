@@ -675,3 +675,74 @@ def save_files(user_dir):
 def assert_client_zero_disk(client_dir):
     files = save_files(client_dir)
     assert files == [], f"CLIENT WROTE SAVE DATA TO DISK: {files}"
+
+
+# ===== R2-P11 (rewrite spike, SPIKE-RUNBOOK.md RB-D32): the new pump/hash
+# introspection surface's harness helpers. `assert_sync_clean` above (and
+# `sync_check`/`sync_buckets`/`wait_sync_loop_closed`/`battle_checksum`/
+# `assert_battle_synced`, all reading the OLD parallel-architecture
+# `parallel_state`/`sync_check` commands) are LEFT IN PLACE per this packet's
+# own instructions - they still back whatever SKIP-PENDING tests eventually
+# resume against the pre-rewrite build. These two are their rewrite-era
+# successors, reading the NEW TestServer commands (event_log/event_state/
+# hash_now) this packet adds.
+
+def assert_events(gc, kinds):
+    """Assert `gc`'s event_log (CoopEventLog, BattlePump.h) tail contains at
+    least one entry of each kind in `kinds`, in some order - NOT a strict
+    ordering/count assertion, just "did this event actually get logged" for a
+    repro that just drove an action. Returns the raw event_log entries list
+    (oldest-first) so a caller that DOES care about order/count can inspect it
+    further.
+    """
+    log = gc.cmd({"cmd": "event_log", "tail": 200})
+    assert log.get("ok"), f"event_log failed: {log}"
+    events = log.get("events", [])
+    seen = {e.get("kind") for e in events}
+    missing = [k for k in kinds if k not in seen]
+    assert not missing, (
+        f"event_log missing kind(s) {missing} - saw {sorted(seen)} "
+        f"({len(events)} entries): {events}")
+    return events
+
+
+def assert_hash_clean(host, client, buckets=None, full=False, what=""):
+    """Successor of `assert_sync_clean` (above) for the rewrite spike's
+    one-way compare model (SS2.8: "host ships h in evs; CLIENT hashes
+    post-apply, compares... host never compares"). Unlike assert_sync_clean,
+    there is no host-side ring to poll for a compare-catches-up loop - this is
+    a direct, synchronous `hash_now` snapshot on BOTH machines, bucket-for-
+    bucket equal. Correct for a t=0 (pre-first-event) call (SS2.8's own
+    boundary-sweep language); a caller comparing AFTER live actions have run
+    is responsible for its own settle/quiescence wait first (e.g.
+    `event_state.queueDepth == 0` on both machines) - this helper does not
+    wait on anything itself.
+
+    `buckets`: explicit bucket-name list (matches `hash_now`'s own "buckets"
+    field); ignored when `full=True` (every SharedEcon.BATTLE_HASH_BUCKETS
+    name plus "saveBlob"). Returns (host_h, client_h) so a caller wants to
+    print/log the raw per-bucket hex can do so.
+    """
+    tag = f" {what}" if what else ""
+    req = {"cmd": "hash_now", "full": full}
+    if buckets is not None:
+        req["buckets"] = list(buckets)
+
+    hr = host.cmd(req)
+    cr = client.cmd(req)
+    assert hr.get("ok"), f"hash_now failed on host{tag}: {hr}"
+    assert cr.get("ok"), f"hash_now failed on client{tag}: {cr}"
+
+    hh = hr.get("h", {})
+    ch = cr.get("h", {})
+    assert hh, f"hash_now returned an empty 'h' object on host{tag} (no live battle?): {hr}"
+    assert set(hh.keys()) == set(ch.keys()), (
+        f"hash_now bucket SETS differ{tag}: host={sorted(hh.keys())} "
+        f"client={sorted(ch.keys())}")
+
+    mismatched = {k: (hh[k], ch[k]) for k in hh if hh[k] != ch[k]}
+    assert not mismatched, (
+        f"HASH MISMATCH{tag}: {len(mismatched)}/{len(hh)} bucket(s) differ - "
+        f"{mismatched}\n  host:   {hh}\n  client: {ch}")
+
+    return hh, ch

@@ -94,6 +94,36 @@ const char* validateTurn(const BattleUnit* unit, int toDir, bool turret, int tuB
 /// SS2.5 kneel validator, same contract/caveat as validateTurn().
 const char* validateKneel(const BattleUnit* unit, bool kneel, int tuBasis);
 
+// ----- CLIENT section (RB-D32) -----
+
+/// CLIENT: the shared intent-builder - "one function, two callers" (RB-D32).
+/// Builds a bt_intent envelope (CoopWire::makeIntent, SS2.3) from EXPLICIT
+/// plan fields, mints this machine's client-local iseq (this namespace's own
+/// counter - separate from the HOST-side actionId mint above; reset at the
+/// same battle-teardown chokepoint), computes @a kind's tuBasis the same way
+/// the client preview would (turn: Sigma per-tick getTurnCost/1-per-tick-if-
+/// turret over the shortest-arc tick count, mirroring validateTurn()'s own
+/// recompute; kneel: getKneelChangeCost()) UNLESS @a tuBasisOverride is >= 0,
+/// in which case it REPLACES the recomputed basis (the G5 stale-basis lever,
+/// RB-D32's own text). Ships via CoopEmit::sendBattle - never touches the
+/// host-side action-context stack or executes anything locally (RB-D32: "do
+/// NOT build turn EXECUTION here; just build+send the intent envelope" - the
+/// admitted intent's real execution happens on the HOST machine, inside
+/// onIntent() above, exactly like any other bt_intent sender).
+///
+/// Caller #1 (R2-P11): TestServer's battle_intent command. Caller #2 (R3-P1):
+/// the RB-D10 UI intercepts (BattlescapeGame::secondaryAction /
+/// BattlescapeState::btnKneelClick) - PLACE new callers here, never a second
+/// copy of the envelope-building logic.
+///
+/// @a kind is "turn" or "kneel" (SS2.3's spike intent kinds, RB-D9). @a toDir/
+/// @a turret apply to "turn"; @a kneel applies to "kneel". Returns the minted
+/// iseq, or 0 on failure (SS2.2: 0 is never a valid iseq a caller should treat
+/// as sent) - outside an active coop battle, with no live SavedBattleGame,
+/// if @a actorId does not resolve on THIS machine, or for an unknown @a kind.
+std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir = -1,
+	bool turret = false, bool kneel = false, int tuBasisOverride = -1);
+
 } // namespace CoopArbiter
 
 /// RB-D11: the free-function forwarder the vanilla BattlescapeGame::popState

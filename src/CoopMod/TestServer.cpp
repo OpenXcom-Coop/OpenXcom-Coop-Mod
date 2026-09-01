@@ -83,6 +83,11 @@
 #include "../Savegame/EquipmentLayoutItem.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Tile.h"
+// R2-P11: corrupt_bucket's terrain-bucket poke needs a MapData* to install
+// via Tile::setMapData - the same SavedBattleGame::load()-precedent lookup
+// (getMapDataSets()->at(setId)->getObject(id)).
+#include "../Mod/MapData.h"
+#include "../Mod/MapDataSet.h"
 #include "../Savegame/Ufo.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/Target.h"
@@ -154,6 +159,13 @@
 #include "../Mod/Armor.h"
 #include "SharedEcon.h"
 #include "CoopState.h"
+// R2-P11 (SPIKE-RUNBOOK.md RB-D26/RB-D32): the rewrite-spike battle-lane
+// introspection surface below needs the real APIs it reports on.
+#include "BattleAuthority.h"
+#include "BattlePump.h"
+#include "BattleWire.h"
+#include "CoopArbiter.h"
+#include "CoopHandshake.h"
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -3819,6 +3831,344 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	return true;
 }
 
+// ===== R2-P11: rewrite-spike battle-lane introspection (SPIKE-RUNBOOK.md
+// RB-D26/RB-D32) - event_log/event_state/hash_now/corrupt_bucket/
+// corrupt_next_blob/battle_intent/inject_ev. Own sub-dispatcher, same reason
+// as executeShared10/11/executeBattle12 above (MSVC C1061 nested-block limit)
+// and the same convention (a cmd whitelist gate up front, real bodies below).
+
+static std::string coopTestHex64(std::uint64_t v)
+{
+	char buf[17];
+	std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)v);
+	return std::string(buf);
+}
+
+static const char* coopTestPhaseName(CoopBattlePhase p)
+{
+	switch (p)
+	{
+	case CoopBattlePhase::Idle:      return "Idle";
+	case CoopBattlePhase::Handshake: return "Handshake";
+	case CoopBattlePhase::Active:    return "Active";
+	case CoopBattlePhase::Ended:     return "Ended";
+	}
+	return "?";
+}
+
+static Tile* coopTestFirstTile(SavedBattleGame* battle)
+{
+	const int n = battle->getMapSizeXYZ();
+	for (int i = 0; i < n; ++i)
+	{
+		Tile* t = battle->getTile(i);
+		if (t) return t;
+	}
+	return nullptr;
+}
+
+// ----- RB-D26 corrupt_bucket: one minimal, deterministic, test-only poke per
+// bucket, bypassing emit entirely (a raw field mutation, exactly like the
+// spec's own "unitsStats: +1 TU to first live unit"). Each returns false
+// (nothing to corrupt - e.g. no items/units in the battle) rather than
+// touching anything. Deliberately AVOID Tile::_explosive for the terrain
+// bucket: TileEngine::checkForTerrainExplosions() (called from
+// BattlescapeGame's own endTurn machinery) sweeps for nonzero explosive and
+// triggers a REAL chain detonation - not a safe poke for a lever meant to
+// leave everything else undisturbed. Terrain is corrupted instead by cloning
+// an existing (already-loaded, already-valid) floor MapData* onto that same
+// tile's currently-empty O_OBJECT slot - the exact getMapDataSets()->
+// at(setId)->getObject(id) lookup SavedBattleGame::load() itself uses
+// (SavedBattleGame.cpp:465), so nothing invalid is ever installed.
+
+static bool coopCorruptUnitsStatsBucket(SavedBattleGame* battle)
+{
+	for (BattleUnit* u : *battle->getUnits())
+	{
+		if (!u || u->isOut()) continue;
+		// RB-D26's own example poke is "+1 TU", but BattleUnit::setTimeUnits()
+		// clamps to [0, max] (BattleUnit.cpp:4735-4738) and a fresh battle's
+		// units sit at full TU - a blind "+1" silently no-ops (clamped right
+		// back to the same max), which would make this lever undetectable at
+		// the exact moment (right after handshake) a test is most likely to
+		// reach for it. Subtract instead when already at/above max TU (i.e.
+		// whenever a plain +1 would be absorbed by the clamp) so the poke is
+		// GUARANTEED to change the value; add when there is TU headroom.
+		const int cur = u->getTimeUnits();
+		const int next = (cur < u->getBaseStats()->tu) ? (cur + 1) : (cur - 1);
+		u->setTimeUnits(next);
+		return true;
+	}
+	return false;
+}
+
+static bool coopCorruptUnitsCoreBucket(SavedBattleGame* battle)
+{
+	for (BattleUnit* u : *battle->getUnits())
+	{
+		if (!u || u->isOut()) continue;
+		const Position p = u->getPosition();
+		Position np = p;
+		if (p.x + 1 < battle->getMapSizeX()) np.x = p.x + 1;
+		else if (p.x - 1 >= 0) np.x = p.x - 1;
+		else continue; // degenerate 1-wide map fixture - try the next unit
+		// Raw field mutation, bypassing the real move pipeline entirely (no
+		// tile-occupancy bookkeeping) - deliberate, same "bypassing emit"
+		// spirit as the unitsStats poke above; test-only and short-lived.
+		u->setPosition(np);
+		return true;
+	}
+	return false;
+}
+
+static bool coopCorruptItemsBucket(SavedBattleGame* battle)
+{
+	for (BattleItem* it : *battle->getItems())
+	{
+		if (!it) continue;
+		it->setAmmoQuantity(it->getAmmoQuantity() + 1); // D5 bucket field
+		return true;
+	}
+	return false;
+}
+
+static bool coopCorruptFireBucket(SavedBattleGame* battle)
+{
+	Tile* t = coopTestFirstTile(battle);
+	if (!t) return false;
+	t->setFire(t->getFire() + 1);
+	return true;
+}
+
+static bool coopCorruptSmokeBucket(SavedBattleGame* battle)
+{
+	Tile* t = coopTestFirstTile(battle);
+	if (!t) return false;
+	t->setSmoke(t->getSmoke() + 1);
+	return true;
+}
+
+static bool coopCorruptTerrainBucket(SavedBattleGame* battle)
+{
+	std::vector<MapDataSet*>* sets = battle->getMapDataSets();
+	if (!sets) return false;
+	const int n = battle->getMapSizeXYZ();
+	for (int i = 0; i < n; ++i)
+	{
+		Tile* t = battle->getTile(i);
+		if (!t) continue;
+		int floorId = -1, floorSet = -1;
+		t->getMapData(&floorId, &floorSet, O_FLOOR);
+		if (floorId < 0 || floorSet < 0 || floorSet >= (int)sets->size())
+			continue;
+		int objId = -1, objSet = -1;
+		t->getMapData(&objId, &objSet, O_OBJECT);
+		if (objId >= 0)
+			continue; // slot already occupied - try the next tile
+		MapData* floorData = (*sets)[floorSet]->getObject(floorId);
+		if (!floorData)
+			continue;
+		t->setMapData(floorData, floorId, floorSet, O_OBJECT);
+		return true;
+	}
+	return false;
+}
+
+static bool coopCorruptItemIdCtrBucket(SavedBattleGame* battle)
+{
+	int* ctr = battle->getCurrentItemId();
+	if (!ctr) return false;
+	++(*ctr);
+	return true;
+}
+
+static bool coopCorruptBucket(SavedBattleGame* battle, const std::string& name)
+{
+	if (!battle) return false;
+	if (name == "unitsStats") return coopCorruptUnitsStatsBucket(battle);
+	if (name == "unitsCore")  return coopCorruptUnitsCoreBucket(battle);
+	if (name == "items")      return coopCorruptItemsBucket(battle);
+	if (name == "fire")       return coopCorruptFireBucket(battle);
+	if (name == "smoke")      return coopCorruptSmokeBucket(battle);
+	if (name == "terrain")    return coopCorruptTerrainBucket(battle);
+	if (name == "itemIdCtr")  return coopCorruptItemIdCtrBucket(battle);
+	return false;
+}
+
+bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
+		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob"
+		&& cmd != "battle_intent" && cmd != "inject_ev")
+	{
+		return false;
+	}
+
+	if (cmd == "event_log")
+	{
+		const std::uint32_t tailCount = req.get("tail", 50u).asUInt();
+		const std::size_t held = CoopEventLog::size();
+		const std::size_t want = std::min<std::size_t>(held, tailCount);
+		Json::Value events(Json::arrayValue);
+		for (std::size_t i = held - want; i < held; ++i)
+		{
+			const CoopEventLog::Entry& e = CoopEventLog::at(i);
+			Json::Value je;
+			je["seq"] = e.seq;
+			je["actionId"] = e.actionId;
+			je["kind"] = std::string(e.kind);
+			je["h"] = e.hasHash;
+			events.append(je);
+		}
+		resp["events"] = events;
+		resp["ok"] = true;
+	}
+	else if (cmd == "event_state")
+	{
+		BattleAuthority& a = coopBattleAuthority();
+		resp["lastSeqEmitted"] = CoopEmit::lastSeqEmitted();
+		resp["lastSeqApplied"] = CoopPump::lastSeqApplied();
+		resp["queueDepth"] = CoopPump::queueDepth();
+		resp["phase"] = coopTestPhaseName(a.phase.load());
+		resp["hostSim"] = a.hostSim.load();
+		resp["localSeat"] = a.localSeat.load();
+		resp["battleId"] = a.battleId.load();
+		// RW-TODO(R3-P1): lastDeny is the client intent tracker's own state
+		// (ClientIntentState.lastDeny) - that tracker does not exist yet (this
+		// packet only builds+sends bt_intent, RB-D32; R3-P1 owns the client
+		// half of the intent lifecycle, incl. handling the bt_ack/bt_deny this
+		// packet's battle_intent-sent intents can provoke). Always null until
+		// then - the field is present now (schema stability), R3-P1 fills it.
+		resp["lastDeny"] = Json::Value();
+		resp["desyncSeen"] = a.desyncFrozen.load();
+		resp["txDrains"] = CoopEmit::txDrainEvents();
+		resp["ok"] = true;
+	}
+	else if (cmd == "hash_now")
+	{
+		SavedGame* sg = _game->getSavedGame();
+		SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+		if (!bg)
+		{
+			resp["error"] = "hash_now: no live battle";
+		}
+		else
+		{
+			const bool full = req.get("full", false).asBool();
+			std::set<std::string> want;
+			if (full)
+			{
+				for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+					want.insert(SharedEcon::battleHashBucketName(i));
+				want.insert("saveBlob");
+			}
+			else if (req.isMember("buckets") && req["buckets"].isArray())
+			{
+				for (const auto& b : req["buckets"])
+					want.insert(b.asString());
+			}
+
+			Json::Value h(Json::objectValue);
+
+			bool needCore = false;
+			for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS && !needCore; ++i)
+				needCore = (want.count(SharedEcon::battleHashBucketName(i)) != 0);
+
+			if (needCore)
+			{
+				SharedEcon::BattleHashSet hs;
+				if (SharedEcon::computeBattleHashes(bg, hs))
+				{
+					for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+					{
+						const char* name = SharedEcon::battleHashBucketName(i);
+						if (want.count(name))
+							h[name] = coopTestHex64(SharedEcon::battleHashBucketValue(hs, i));
+					}
+				}
+			}
+			if (want.count("saveBlob"))
+			{
+				std::uint64_t sb = 0;
+				if (SharedEcon::computeSaveBlobHash(bg, sb))
+					h["saveBlob"] = coopTestHex64(sb);
+			}
+
+			resp["h"] = h;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "corrupt_bucket")
+	{
+		SavedGame* sg = _game->getSavedGame();
+		SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+		std::string name = req.get("name", "").asString();
+		if (!bg)
+			resp["error"] = "corrupt_bucket: no live battle";
+		else if (!coopCorruptBucket(bg, name))
+			resp["error"] = "corrupt_bucket: unknown bucket, or nothing to corrupt: '" + name + "'";
+		else
+			resp["ok"] = true;
+	}
+	else if (cmd == "corrupt_next_blob")
+	{
+		// RB-D26: test-only, one-shot; consumed by the NEXT offerBattle() call
+		// on the HOST machine (CoopHandshake.h's own doc comment). Harmless
+		// (silently cleared at the next teardown) if called with no offer ever
+		// following, or on a client (there is no outgoing blob there).
+		CoopHandshake::requestCorruptNextBlob();
+		resp["ok"] = true;
+	}
+	else if (cmd == "battle_intent")
+	{
+		const std::string kind = req.get("kind", "").asString();
+		const int actor = req.get("actor", -1).asInt();
+		const int toDir = req.get("toDir", -1).asInt();
+		const bool turret = req.get("turret", false).asBool();
+		const bool kneel = req.get("kneel", false).asBool();
+		const int tuBasisOverride = req.isMember("tuBasisOverride") ? req["tuBasisOverride"].asInt() : -1;
+
+		const std::uint32_t iseq = CoopArbiter::sendClientIntent(
+			kind.c_str(), actor, toDir, turret, kneel, tuBasisOverride);
+		if (iseq == 0u)
+		{
+			resp["error"] = "battle_intent: not sent (see log - outside an active coop "
+				"battle, actorId does not resolve on this machine, or unknown kind)";
+		}
+		else
+		{
+			resp["ok"] = true;
+			resp["iseq"] = iseq;
+		}
+	}
+	else if (cmd == "inject_ev")
+	{
+		// RB-D32: HOST-side spike test lever. actionId 0 (SS2.2: never a
+		// minted actionId, so 0 doubles as "not part of any action chain") -
+		// correct here, since a synthetic spot/etc. ev is not admitted through
+		// CoopArbiter and belongs to no turn/kneel action context. The RB-D32
+		// corollary makes this legal: the client applies an unknown ev kind as
+		// a state-no-op (seq consumed, RW-UNSUPPORTED logged) precisely
+		// because inject_ev's spike payloads are state-less.
+		if (!isCoopBattle())
+		{
+			resp["error"] = "inject_ev: not in an active coop battle";
+		}
+		else
+		{
+			const std::string kind = req.get("kind", "spot").asString();
+			Json::Value ev = CoopWire::makeEv(0u, 0u, kind.c_str());
+			if (req.isMember("unit"))
+				ev["payload"]["unit"] = req["unit"].asInt();
+			CoopEmit::sendEv(ev); // stamps + mints the real next seq
+			resp["ok"] = true;
+			resp["seq"] = CoopEmit::lastSeqEmitted(); // the seq sendEv() just minted
+		}
+	}
+
+	return true;
+}
+
 std::string TestServer::execute(const std::string& line)
 {
 	Json::Value req;
@@ -3840,6 +4190,10 @@ std::string TestServer::execute(const std::string& line)
 		if (executeBattle12(cmd, req, resp))
 		{
 			// handled by the battlescape item/fire dispatcher (issue #74)
+		}
+		else if (executeIntrospect13(cmd, req, resp))
+		{
+			// handled by the R2-P11 rewrite-spike introspection dispatcher
 		}
 		else if (executeShared10(cmd, req, resp))
 		{
@@ -4626,6 +4980,25 @@ std::string TestServer::execute(const std::string& line)
 		{
 			SavedGame* sg = _game->getSavedGame();
 			SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+			// R2-P11 (SPIKE-RUNBOOK.md's own text for this packet: "report phase
+			// + authority instead of the stubbed legacy fields"): added
+			// additively in both branches below rather than replacing anything -
+			// every existing battle_state consumer is currently SKIP-PENDING
+			// (r3/r4/r5 per W1_TRIAGE.md), so nothing reads these fields yet, but
+			// nothing already there needed removing either. Deeper re-targets
+			// (e.g. "selectable" via BattleAuthority::commandsUnit()) ride r3/r4.
+			{
+				BattleAuthority& a = coopBattleAuthority();
+				resp["phase"] = coopTestPhaseName(a.phase.load());
+				Json::Value authority(Json::objectValue);
+				authority["hostSim"] = a.hostSim.load();
+				authority["localSeat"] = a.localSeat.load();
+				authority["battleId"] = a.battleId.load();
+				authority["desyncFrozen"] = a.desyncFrozen.load();
+				resp["authority"] = authority;
+				resp["queueDepth"] = CoopPump::queueDepth();
+				resp["txDrains"] = CoopEmit::txDrainEvents();
+			}
 			if (!bg)
 			{
 				resp["inBattle"] = false;
@@ -5243,14 +5616,21 @@ std::string TestServer::execute(const std::string& line)
 			{
 				int x = req.get("x", 160).asInt();
 				int y = req.get("y", 100).asInt();
+				// RB-D32 (R2-P11): optional "button" (default "left") - "right"
+				// drives SDL_BUTTON_RIGHT, needed by the RB-D10 secondaryAction
+				// intercept's faithful-UI repro variant (right-click = turn/door
+				// in vanilla battlescape input). The surviving @1e0f9276f body
+				// this extends was left-only.
+				std::string buttonName = req.get("button", "left").asString();
+				Uint8 button = (buttonName == "right") ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT;
 				ev.type = SDL_MOUSEBUTTONDOWN;
-				ev.button.button = SDL_BUTTON_LEFT;
+				ev.button.button = button;
 				ev.button.state = SDL_PRESSED;
 				ev.button.x = (Uint16)x; ev.button.y = (Uint16)y;
 				SDL_PushEvent(&ev);
 				memset(&ev, 0, sizeof(ev));
 				ev.type = SDL_MOUSEBUTTONUP;
-				ev.button.button = SDL_BUTTON_LEFT;
+				ev.button.button = button;
 				ev.button.state = SDL_RELEASED;
 				ev.button.x = (Uint16)x; ev.button.y = (Uint16)y;
 				SDL_PushEvent(&ev);

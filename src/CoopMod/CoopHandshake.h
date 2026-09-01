@@ -151,6 +151,18 @@ void onReady(Game* game, const Json::Value& ready);
 /// disconnect cannot leak into the next session.
 void resetPendingState();
 
+/// R2-P11 (RB-D26): test-only, one-shot corrupt-next-blob lever. HOST: sets a
+/// flag offerBattle() checks (and clears) right after it computes blobSha -
+/// flips byte 0 of the persisted coopFilesHost["battlehost"] blob AFTER that
+/// sha, so the client's post-stream blobSha verify (not offerBattle's own
+/// hashing) is what is expected to catch it and refuse {reason:"corrupt"}.
+/// Permanent replacement for the R4-P1 packet's temporary OXC_RW_CORRUPT_BLOB
+/// env-var lever (removed in that same packet, see its packet report). A
+/// request made with no offer in flight, or on a client (there is nothing to
+/// corrupt there), is silently consumed by the next offerBattle() call or
+/// cleared at teardown (resetPendingState()) - never carries across battles.
+void requestCorruptNextBlob();
+
 } // namespace CoopHandshake
 
 } // namespace OpenXcom

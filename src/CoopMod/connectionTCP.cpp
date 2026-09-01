@@ -682,6 +682,16 @@ static std::deque<Json::Value> g_battleApplyQueue;
 static std::atomic<uint32_t> g_battleLastSeqApplied{0}; // 0 = none applied yet (SS2.2)
 static uint32_t g_battleNextSeqMint = 1; // host mint counter (SS2.2: starts at 1 per battle)
 
+// R2-P11: MN-8 backpressure counter - how many battle-lane sends have hit the
+// g_txQ-overflow blocking-wait bypass (coopEmitBlockingPush() below) at least
+// once, this battle. event_state's "txDrains" field (the re-labeled successor
+// of the pre-rewrite battle_state's rxHold/rxRotates counters, per this
+// packet's own runbook text). Atomic: coopEmitBlockingPush() runs on whatever
+// thread calls CoopEmit::sendBattle()/sendEv() - main/pump thread for every
+// real call site today, but TestServer's introspection reads it from the same
+// thread anyway; kept atomic defensively, same reasoning as g_battleFrozen.
+std::atomic<uint32_t> g_battleTxDrainEvents{0};
+
 // R2-P2/IR-16c: seq-gap freeze flag (BattlePump.h). Extern linkage so a
 // later packet (R2-P9's desync report, or R2-P3's BattleAuthority) can read
 // (and eventually clear) it without going through a function call.
@@ -750,6 +760,12 @@ void drainApplyQueue()
 
 		g_battleLastSeqApplied.store(seq);
 
+		// R2-P11 (RB-D32): CLIENT-side event-ring record point - see
+		// BattlePump.h's CoopEventLog doc comment for why this call site
+		// (post seq-order-check, pre-apply) is the client's half of the
+		// ring's "populated at emit/apply" split.
+		CoopEventLog::record(ev);
+
 		// R3-P1 applies payload here.
 		CoopDisplayQueue::onApplied(ev);
 
@@ -779,7 +795,9 @@ void reset()
 	g_battleLastSeqApplied.store(0u);
 	g_battleFrozen.store(false);
 	g_battleNextSeqMint = 1; // CoopEmit's host mint counter (SS2.2: reset by a new battle)
+	g_battleTxDrainEvents.store(0); // R2-P11
 	resetCoopArbiterState(); // R2-P5: action-context stack, actionId mint, deny-tick map
+	CoopEventLog::reset(); // R2-P11
 }
 
 } // namespace CoopPump
@@ -790,6 +808,19 @@ namespace CoopEmit
 uint32_t nextSeq()
 {
 	return g_battleNextSeqMint++;
+}
+
+uint32_t lastSeqEmitted()
+{
+	// g_battleNextSeqMint starts at 1 (SS2.2) and is the NEXT value nextSeq()
+	// will hand out - so "the last one it actually handed out" is one less,
+	// which is also 0 (SS2.2's "none yet") exactly when nothing has minted.
+	return g_battleNextSeqMint - 1;
+}
+
+uint32_t txDrainEvents()
+{
+	return g_battleTxDrainEvents.load();
 }
 
 // MN-8: on g_txQ overflow for a battle message, BLOCK (bounded wait +
@@ -803,9 +834,15 @@ static void coopEmitBlockingPush(std::string payload)
 	using namespace std::chrono;
 	const auto start = steady_clock::now();
 	bool warned = false;
+	bool drained = false;
 
 	while (!g_txQ.push(std::move(payload)))
 	{
+		if (!drained)
+		{
+			drained = true;
+			g_battleTxDrainEvents.fetch_add(1); // R2-P11: event_state's "txDrains"
+		}
 		if (onConnect < 0)
 		{
 			// Genuine transport death (connect lost / disconnect / server
@@ -842,6 +879,12 @@ void sendEv(Json::Value ev)
 {
 	ev["seq"] = nextSeq();
 
+	// R2-P11 (RB-D32): HOST-side event-ring record point - see BattlePump.h's
+	// CoopEventLog doc comment for why this (post seq-mint, every host emit
+	// path already funnels through this one function) is the host's half of
+	// the "populated at emit/apply" split.
+	CoopEventLog::record(ev);
+
 	Json::StreamWriterBuilder wb;
 	wb["indentation"] = "";
 	std::string s = Json::writeString(wb, ev);
@@ -860,6 +903,63 @@ void onApplied(const Json::Value& /*ev*/)
 }
 
 } // namespace CoopDisplayQueue
+
+// ===== R2-P11: flat event ring (BattlePump.h's CoopEventLog) =====
+// SPIKE-RUNBOOK.md RB-D32/DESIGN sec 6 journaling guardrail 6. Storage is a
+// plain fixed-size C array (never a std::vector/std::string) - see
+// BattlePump.h's CoopEventLog doc comment for the "crash-handler-dumpable"
+// rationale and which machine calls record() from where.
+
+namespace CoopEventLog
+{
+
+namespace
+{
+Entry g_ring[kCapacity];
+std::size_t g_head = 0;  // next write index
+std::size_t g_count = 0; // entries currently held, capped at kCapacity
+}
+
+void record(const Json::Value& evOrEnd)
+{
+	Entry& e = g_ring[g_head];
+	e.seq = evOrEnd.get("seq", 0u).asUInt();
+	e.actionId = evOrEnd.get("actionId", 0u).asUInt();
+
+	// bt_ev carries its own "kind" (turn/kneel/...); bt_action_end carries no
+	// "kind" of its own (SS2.3) - fall back to "state" (e.g. "bt_action_end")
+	// so every ring entry still has SOME distinguishing label.
+	const std::string kindStr = evOrEnd.isMember("kind")
+		? evOrEnd.get("kind", "").asString()
+		: evOrEnd.get("state", "?").asString();
+	std::strncpy(e.kind, kindStr.c_str(), sizeof(e.kind) - 1);
+	e.kind[sizeof(e.kind) - 1] = '\0';
+
+	e.hasHash = evOrEnd.isMember("h") && evOrEnd["h"].isObject() && evOrEnd["h"].size() > 0;
+
+	g_head = (g_head + 1) % kCapacity;
+	if (g_count < kCapacity)
+		++g_count;
+}
+
+std::size_t size()
+{
+	return g_count;
+}
+
+const Entry& at(std::size_t indexFromOldest)
+{
+	const std::size_t oldest = (g_head + kCapacity - g_count) % kCapacity;
+	return g_ring[(oldest + indexFromOldest) % kCapacity];
+}
+
+void reset()
+{
+	g_head = 0;
+	g_count = 0;
+}
+
+} // namespace CoopEventLog
 
 // ===== R2-P3: BattleAuthority (BattleAuthority.h) =====
 // SPIKE-RUNBOOK.md RB-D6/RB-D17. The single global instance is defined here
@@ -1111,6 +1211,13 @@ static int g_coopPendingChainActorId = -1;
 // today.
 static std::map<int, std::uint32_t> g_coopLastDenyTick;
 
+// R2-P11 (RB-D32): the CLIENT-side iseq mint sendClientIntent() uses - a
+// DEDICATED counter, separate from the HOST-side actionId mint above (SS2.2:
+// iseq is "client-local monotonic per battle", a different id space than
+// actionId's host-minted one). Main/pump-thread only, same as every other
+// CoopArbiter static here.
+static std::uint32_t g_coopClientNextIseq = 1;
+
 // CoopPump::reset() (BattlePump.h/R2-P2) is the established single
 // battle-teardown reset chokepoint (R2-P8 wires its call site); extending
 // its body here keeps CoopArbiter's own battle-scoped statics from leaking
@@ -1121,6 +1228,7 @@ static void resetCoopArbiterState()
 	g_coopActionIdMint = 1;
 	g_coopPendingChainActorId = -1;
 	g_coopLastDenyTick.clear();
+	g_coopClientNextIseq = 1;
 }
 
 // R2-P9 (SPIKE-RUNBOOK.md SS2.8): render a bucket's uint64 as the 16-
@@ -1498,6 +1606,80 @@ void onChainQuiesced()
 		Log(LOG_INFO) << "[coop-arbiter] quiesce: oldest-denied seat=" << oldest->first
 			<< " (tick=" << oldest->second << ")";
 	}
+}
+
+std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
+	bool turret, bool kneel, int tuBasisOverride)
+{
+	const std::string kindStr = kind ? kind : "";
+
+	if (!isCoopBattle())
+	{
+		Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent('" << kindStr
+			<< "') outside an active coop battle - dropped";
+		return 0u;
+	}
+
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!save)
+	{
+		Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent('" << kindStr
+			<< "') with no live battle - dropped";
+		return 0u;
+	}
+
+	BattleUnit* actor = findUnitById(save, actorId);
+	if (!actor)
+	{
+		Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent: actorId " << actorId
+			<< " does not resolve on this machine - dropped";
+		return 0u;
+	}
+
+	int tuBasis = tuBasisOverride;
+
+	if (kindStr == "turn")
+	{
+		if (tuBasis < 0)
+		{
+			// Same recompute validateTurn() does (this file, above): the
+			// per-tick UnitTurnBState::think() cost over the shortest-arc tick
+			// count BattleUnit::turn() walks - the client's OWN preview of
+			// what the host is about to charge, not a copy of host state.
+			const int fromDir = turret ? actor->getTurretDirection() : actor->getDirection();
+			const int perTick = turret ? 1 : actor->getTurnCost();
+			const int delta = ((toDir - fromDir) % 8 + 8) % 8;
+			const int ticks = (delta <= 4) ? delta : (8 - delta);
+			tuBasis = ticks * perTick;
+		}
+	}
+	else if (kindStr == "kneel")
+	{
+		if (tuBasis < 0)
+			tuBasis = actor->getKneelChangeCost(); // BattleUnit.h:788
+	}
+	else
+	{
+		Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent: unknown kind '" << kindStr << "' - dropped";
+		return 0u;
+	}
+
+	const std::uint32_t iseq = g_coopClientNextIseq++;
+	Json::Value intent = CoopWire::makeIntent(iseq, coopBattleAuthority().localSeat, actorId, kind);
+	if (kindStr == "turn")
+	{
+		intent["toDir"] = toDir;
+		intent["turret"] = turret;
+		intent["tuBasis"] = tuBasis;
+	}
+	else // "kneel"
+	{
+		intent["kneel"] = kneel;
+		intent["tuBasis"] = tuBasis;
+	}
+
+	CoopEmit::sendBattle(intent);
+	return iseq;
 }
 
 } // namespace CoopArbiter
@@ -1931,7 +2113,20 @@ struct PendingClient
 };
 static PendingClient g_pendingClient;
 
+// R2-P11 (RB-D26): test-only, one-shot corrupt-next-blob lever. Set by
+// requestCorruptNextBlob() (TestServer's corrupt_next_blob command); consumed
+// and cleared by offerBattle() right after it computes blobSha, so the flip
+// lands AFTER the sha the offer advertises - the client's own post-stream
+// blobSha verify is what is meant to catch it, not offerBattle's own hashing.
+// Main/pump-thread only, same as every other CoopHandshake static here.
+static bool g_coopCorruptNextBlobRequested = false;
+
 // ----- CoopHandshake.h API -----
+
+void requestCorruptNextBlob()
+{
+	g_coopCorruptNextBlobRequested = true;
+}
 
 void offerBattle(Game* game, int gamemode)
 {
@@ -1979,13 +2174,34 @@ void offerBattle(Game* game, int gamemode)
 
 	const std::string sha = coopSha256Hex(blob); // IR-6
 
-	// RB-D26/G3: R4-P1's temporary corrupt-blob test env-var lever (packet
-	// acceptance item 5 - flip one byte of coopFilesHost["battlehost"] AFTER
-	// this sha, so the client's post-stream sha check catches a deterministic
-	// corruption) lived here. Exercised and removed in this same packet -
-	// see the R4-P1 packet report for the captured refuse{corrupt} log +
-	// clean-teardown evidence. R2-P11's corrupt_next_blob TestServer command
-	// is the permanent replacement, post-G3.
+	// RB-D26: the permanent corrupt_next_blob lever (R2-P11's TestServer
+	// command sets the one-shot flag; consumed+cleared here). Flips byte 0 of
+	// coopFilesHost["battlehost"] itself - the persisted entry onAccept()'s
+	// stream carrier reads from (comment at this function's onAccept()
+	// sibling: "streams whatever is in coopFilesHost[\"battlehost\"]") - AFTER
+	// blobSha above was computed from the (now stale) local blob copy, so the
+	// bytes that actually stream no longer match the sha the offer advertises.
+	// The R4-P1 packet's own temporary env-var version of this lever was
+	// exercised once and removed in that same packet; this is its permanent
+	// replacement (G3's plan of record).
+	if (g_coopCorruptNextBlobRequested)
+	{
+		g_coopCorruptNextBlobRequested = false;
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		auto corruptIt = connectionTCP::coopFilesHost.find("battlehost");
+		if (corruptIt != connectionTCP::coopFilesHost.end() && !corruptIt->second.empty())
+		{
+			corruptIt->second[0] = (char)((unsigned char)corruptIt->second[0] ^ 0xFF);
+			Log(LOG_WARNING) << "[coop-handshake] corrupt_next_blob lever fired: flipped byte 0 of "
+				"the battlehost blob after sha computation - the client's blobSha verify is expected "
+				"to refuse {corrupt}";
+		}
+		else
+		{
+			Log(LOG_WARNING) << "[coop-handshake] corrupt_next_blob lever requested but "
+				"coopFilesHost[\"battlehost\"] was missing/empty - nothing to flip";
+		}
+	}
 
 	g_pendingHost = PendingHost();
 	g_pendingHost.active = true;
@@ -2329,6 +2545,7 @@ void resetPendingState()
 {
 	g_pendingHost = PendingHost();
 	g_pendingClient = PendingClient();
+	g_coopCorruptNextBlobRequested = false; // R2-P11: don't leak a stale request into the next battle
 }
 
 } // namespace CoopHandshake

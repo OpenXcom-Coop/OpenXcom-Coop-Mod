@@ -67,6 +67,11 @@ private:
 	/// Third sub-dispatcher: battlescape item/fire introspection + drivers (issue #74).
 	/// execute() tries this FIRST, so it never grows execute()'s own if/else chain.
 	bool executeBattle12(const std::string& cmd, const Json::Value& req, Json::Value& resp);
+	/// Fourth sub-dispatcher: R2-P11 rewrite-spike battle-lane introspection
+	/// (event_log/event_state/hash_now/corrupt_bucket/corrupt_next_blob/
+	/// battle_intent/inject_ev, SPIKE-RUNBOOK.md RB-D26/RB-D32). Same
+	/// C1061-avoidance reason as the three dispatchers above.
+	bool executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 
 	Game* _game = nullptr;
 	std::thread _thread;
