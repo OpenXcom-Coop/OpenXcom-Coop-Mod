@@ -969,6 +969,18 @@ void reset()
 // function-local static gives the same one-instance guarantee with
 // guaranteed zero-init ordering relative to other TUs' static init.
 
+// Forward declaration: CoopArbiter::findUnitById() is R2-P5's internal
+// actorId-resolution helper, defined further down inside `namespace
+// CoopArbiter` (this file's CoopArbiter section) as a static (internal-
+// linkage) function - reopening the namespace here only forward-declares
+// it, it is NOT redefined. R5-P2's commandsUnit() MC override (below)
+// reuses it (fully qualified as CoopArbiter::findUnitById, since this
+// section sits at OpenXcom scope, outside namespace CoopArbiter) rather
+// than duplicating a second unit-by-id linear scan - it already works
+// identically on host and client (both own a live SavedBattleGame with
+// every unit pointer), unlike CoopIdMaps.h's client-only id maps (RB-D7).
+namespace CoopArbiter { static BattleUnit* findUnitById(SavedBattleGame* save, int id); }
+
 BattleAuthority& coopBattleAuthority()
 {
 	static BattleAuthority instance;
@@ -998,8 +1010,20 @@ bool BattleAuthority::commandsUnit(const BattleUnit* u) const
 	if (!u)
 		return false;
 
-	// R5-T2 mcId override (see BattleAuthority.h): stubbed to "no override"
-	// in the spike, so the seat-tag check below is always the whole answer.
+	// R5-P2 mcId override (see BattleAuthority.h doc comment, ADDENDUM MJ-8/
+	// R2-M4): "controlled" is faction != originalFaction, not a raw mcId
+	// check. When controlled, resolve the mcId unit (CoopArbiter::
+	// findUnitById works on both host and client, unlike CoopIdMaps.h's
+	// client-only maps) and use ITS seat tag; if it doesn't resolve,
+	// ownership falls to host/AI (seat 0 only).
+	if (u->getFaction() != u->getOriginalFaction())
+	{
+		BattleUnit* controller = CoopArbiter::findUnitById(connectionTCP::getStaticBattle(), u->getMindControllerId());
+		if (controller)
+			return (int)controller->getCoopSeat() == localSeat;
+		return localSeat == 0; // host/AI fallback (seat 0 = host, SS2.2)
+	}
+
 	return (int)u->getCoopSeat() == localSeat;
 }
 
@@ -1048,6 +1072,23 @@ void resetBattleAuthority()
 bool isCoopBattle()
 {
 	return connectionTCP::getCoopStatic() && coopBattleAuthority().phase == CoopBattlePhase::Active;
+}
+
+// R5-P2 (SPIKE-RUNBOOK.md R5-P2 packet text): the input-gating combinators.
+// Self-guarded (permissive outside an active coop battle) so every vanilla
+// thin-hook call site stays a single unconditional call.
+bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s)
+{
+	if (!isCoopBattle())
+		return true;
+	return coopBattleAuthority().commandsUnit(u) && coopBattleAuthority().mySideActive(s);
+}
+
+bool coopMaySelectUnit(const BattleUnit* u)
+{
+	if (!isCoopBattle())
+		return true;
+	return coopBattleAuthority().commandsUnit(u);
 }
 
 // ===== R2-P4: CLIENT-side id -> pointer maps (CoopIdMaps.h) =====

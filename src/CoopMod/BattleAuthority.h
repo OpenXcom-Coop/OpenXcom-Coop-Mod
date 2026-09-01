@@ -136,11 +136,15 @@ struct BattleAuthority
 
 	/// True iff this machine currently commands @a u: the unit's seat tag
 	/// (BattleUnit::getCoopSeat()) equals localSeat. False if @a u is null.
-	// R5-T2 mcId override: a real mind-control override would let the
-	// controlling seat command a unit despite its own seat tag when
-	// u->getFaction() != u->getOriginalFaction(). The spike stub always
-	// resolves "no override" - kneel/turn (the only spike intents) never MC
-	// a unit, so falling straight through to the seat-tag check is safe.
+	// R5-P2 mcId override (SPIKE-RUNBOOK.md ADDENDUM MJ-8, formula corrected
+	// by R2-M4): "controlled" is faction != originalFaction (NOT a raw mcId
+	// check - mcId also gets set by a successful panic with no control
+	// transfer, TileEngine.cpp:4774, and is never cleared on revert). When
+	// controlled, the commanding seat is the seat of the getMindControllerId()
+	// unit; if that unit no longer resolves (dead/gone), ownership falls to
+	// host/AI (MJ-8's own "none/dead -> host/AI" fallback) - only seat 0
+	// commands it. A non-MC unit falls straight through to its own seat tag.
+	// Body in connectionTCP.cpp (RB-D6 pattern).
 	bool commandsUnit(const BattleUnit* u) const;
 
 	/// True iff this seat commands no player-side faction right now:
@@ -196,5 +200,33 @@ void resetBattleAuthority();
 /// above) - defined instead in connectionTCP.cpp next to
 /// coopBattleAuthority().
 bool isCoopBattle();
+
+/// R5-P2 input-gating combinator (SPIKE-RUNBOOK.md R5-P2 packet text: "ONE
+/// predicate for 'I may command this unit': my seat commands it AND my
+/// faction side is active"). Self-guarded like isCoopBattle() - returns
+/// true (permissive) outside an active coop battle, so every thin vanilla
+/// hook site is a single unconditional call:
+/// `if (!coopMayCommand(unit, save)) return;`
+/// Inside a coop battle: coopBattleAuthority().commandsUnit(unit) &&
+/// coopBattleAuthority().mySideActive(save). Used by the THIN action-gating
+/// hooks (BattlescapeGame::primaryAction/secondaryAction,
+/// BattlescapeState::btnKneelClick) - never by the selection-cycle filter
+/// below, which only needs the commandsUnit half (see coopMaySelectUnit()).
+/// Defined in connectionTCP.cpp next to isCoopBattle().
+bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s);
+
+/// R5-P2 selection-cycle predicate: the CoopMod half of the
+/// SavedBattleGame::selectPlayerUnit() filter call (RB-D10/R5-P2's
+/// "pass a CoopMod predicate through ONE guarded filter call so the
+/// selection cycle SKIPS units this machine's seat does not command").
+/// Self-guarded (true outside an active coop battle); inside one, equals
+/// coopBattleAuthority().commandsUnit(u). Deliberately does NOT also check
+/// mySideActive() - selectPlayerUnit() already restricts candidates to
+/// SavedBattleGame::_side via BattleUnit::isSelectable(), so a candidate
+/// reaching this predicate is already on the currently active side; the
+/// active-side check belongs to the action-gating hooks (coopMayCommand()
+/// above), not to cycling among already-active-side candidates. Defined in
+/// connectionTCP.cpp next to isCoopBattle().
+bool coopMaySelectUnit(const BattleUnit* u);
 
 } // namespace OpenXcom

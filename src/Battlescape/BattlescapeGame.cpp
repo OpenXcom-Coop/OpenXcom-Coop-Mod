@@ -60,6 +60,7 @@
 #include "ConfirmEndMissionState.h"
 #include "../fmath.h"
 #include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -1736,6 +1737,16 @@ bool BattlescapeGame::isBusy() const
  */
 void BattlescapeGame::primaryAction(Position pos)
 {
+	// R5-P2 (SPIKE-RUNBOOK.md RB-D10, generalized): entry guard - suppress a
+	// coop client's primary-click handling for its currently-selected unit
+	// when this machine's seat does not command it, or this machine's side
+	// isn't the one currently active. One guarded call, self-contained
+	// (BattleAuthority.h::coopMayCommand), permissive outside coop.
+	if (!coopMayCommand(_save->getSelectedUnit(), _save))
+	{
+		return;
+	}
+
 	bool bPreviewed = Options::battleNewPreviewPath != PATH_NONE;
 
 	getMap()->resetObstacles();
@@ -2022,6 +2033,18 @@ void BattlescapeGame::primaryAction(Position pos)
  */
 void BattlescapeGame::secondaryAction(Position pos)
 {
+	// R5-P2 (SPIKE-RUNBOOK.md RB-D10, generalized to the full commandsUnit/
+	// mySideActive gate): suppress a coop client's secondary-click (turn/
+	// door) on a unit this machine's seat does not command, or when this
+	// machine's side isn't currently active. One guarded call, permissive
+	// outside coop. (The real client-intent send for this site lands with
+	// R3-P1, post-G4 - see CoopArbiter.h's "PLACE new callers here" note;
+	// this packet's own PRE-R3-P1 scope is suppression only.)
+	if (!coopMayCommand(_save->getSelectedUnit(), _save))
+	{
+		return;
+	}
+
 	//  -= turn to or open door =-
 	_currentAction.target = pos;
 	_currentAction.actor = _save->getSelectedUnit();

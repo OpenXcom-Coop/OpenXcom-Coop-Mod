@@ -89,6 +89,8 @@
 #include "../Mod/RuleSoldier.h"
 #include "../Mod/RuleVideo.h"
 #include <algorithm>
+#include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopBattleUi.h"
 
 namespace OpenXcom
 {
@@ -1231,6 +1233,16 @@ void BattlescapeState::btnKneelClick(Action *)
 		BattleUnit *bu = _save->getSelectedUnit();
 		if (bu)
 		{
+			// R5-P2 (SPIKE-RUNBOOK.md RB-D10, generalized to the full
+			// commandsUnit/mySideActive gate): suppress a coop client's
+			// kneel on a unit this machine's seat does not command, or
+			// when this machine's side isn't currently active. One
+			// guarded call, permissive outside coop.
+			if (!coopMayCommand(bu, _save))
+			{
+				return;
+			}
+
 			_battleGame->kneel(bu);
 			toggleKneelButton(bu);
 
@@ -1473,6 +1485,17 @@ void BattlescapeState::btnEndTurnClick(Action *)
 {
 	if (allowButtons())
 	{
+		// R5-P2 (SPIKE-RUNBOOK.md REVIEW4 IR-13): a coop CLIENT's End Turn
+		// button must never run vanilla endTurn locally - it would mint
+		// state and guarantee a desync (the real end-turn readiness flow
+		// lands with r3b/r4, post-spike). No-op guard: only this battle's
+		// host machine may run requestEndTurn() locally.
+		if (isCoopBattle() && !coopBattleAuthority().hostSim)
+		{
+			CoopBattleUi::showDeny("turn_over");
+			return;
+		}
+
 		// Temporarily deactivate the touch buttons at the end of the player's turn
 		toggleTouchButtons(true, false);
 

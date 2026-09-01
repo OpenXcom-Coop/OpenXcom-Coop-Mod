@@ -54,6 +54,7 @@
 #include "../fallthrough.h"
 #include "../fmath.h"
 #include "../Engine/Language.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -982,7 +983,12 @@ BattleUnit *SavedBattleGame::selectPlayerUnit(int dir, bool checkReselect, bool 
 			return _selectedUnit;
 		}
 	}
-	while (!(*i)->isSelectable(_side, checkReselect, checkInventory));
+	// R5-P2 (SPIKE-RUNBOOK.md RB-D10/R5-P2 packet text): ONE guarded filter
+	// call so the selection cycle SKIPS units this machine's seat does not
+	// command (coopMaySelectUnit() is permissive outside an active coop
+	// battle - BattleAuthority.h). All coop logic lives in CoopMod; this is
+	// the only line SavedBattleGame gains for it.
+	while (!(*i)->isSelectable(_side, checkReselect, checkInventory) || !coopMaySelectUnit(*i));
 
 	_selectedUnit = (*i);
 	return _selectedUnit;
