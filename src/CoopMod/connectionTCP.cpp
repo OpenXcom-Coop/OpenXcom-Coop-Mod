@@ -2138,12 +2138,18 @@ void onBlobChunkAppended(Game* game)
 	coopApplySeatMap(coopBuildInterimSeatMap()); // same interim map onOffer() already validated
 	coopBattleAuthority().phase = CoopBattlePhase::Active;
 
-	const std::string saveBlobHex = coopComputeSaveBlobBucketHex(battle);
-
 	// LoadGameState.cpp's "loaded save with a live battle -> BattlescapeState"
 	// precedent (:334-344 region) - no client-side BriefingState, this
 	// machine did not generate the mission.
 	battle->loadMapResources(game->getMod());
+
+	// RW-FIX (spike): compute the saveBlob AFTER loadMapResources. The save-loop
+	// skip predicate Tile::isVoid() (SavedBattleGame::save) tests the _objects[]
+	// MapData pointers, which loadMapResources() relinks from the loaded
+	// mdID/mdsID indices; hashing before the relink counts every tile as void
+	// (empty binTiles) and diverges from the host's fully-materialized live-battle
+	// hash. (Traced 2026-09-01.)
+	const std::string saveBlobHex = coopComputeSaveBlobBucketHex(battle);
 	Options::baseXResolution = Options::baseXBattlescape;
 	Options::baseYResolution = Options::baseYBattlescape;
 	game->getScreen()->resetDisplay(false);
@@ -2251,25 +2257,31 @@ void onReady(Game* game, const Json::Value& ready)
 			<< ready["h"].size() << " buckets) - not compared this packet (RW-TODO(R2-P9))";
 	}
 
+	// RW-TODO(R2-P9) - SOFT GATE (owner-approved deferral, 2026-09-01). The R4-P1
+	// saveBlob is a RAW FNV over the emitted battle YAML; it necessarily includes
+	// machine-local FOV/discovered state - unit "visible", "turnsSinceSpotted*", and
+	// the tile boolFields byte (= per-part terrain "discovered" flags, Tile.cpp:207)
+	// packed inside binTiles - which legitimately differs per machine (each computes
+	// its own FOV). So a mismatch here is EXPECTED and BENIGN in the spike: traced
+	// 2026-09-01 to 0 terrain/smoke/fire/unit-core divergence, only FOV/discovered.
+	// The canonical filtered SS2.8 bucket hash (which EXCLUDES those fields per
+	// R2-P10's cr1-field-audit.md delta - can't be done by text-stripping a packed
+	// binary blob) lands in R2-P9, which RESTORES the hard mismatch->teardown gate
+	// (SS2.7/SS2.8). Until then: log, do NOT tear down, proceed to phase Active.
+	// R3's per-action unitsStats hashing still catches any REAL in-battle drift.
 	if (clientSaveBlob.empty() || clientSaveBlob != g_pendingHost.saveBlobHex)
 	{
-		Log(LOG_ERROR) << "[coop-handshake] battle_ready saveBlob MISMATCH (battleId=" << battleId
+		Log(LOG_WARNING) << "[coop-handshake] battle_ready saveBlob differs (battleId=" << battleId
 			<< ", host=" << g_pendingHost.saveBlobHex << ", client=" << clientSaveBlob
-			<< ") - refusing to start an unequal battle; tearing down and returning "
-			"to geoscape/lobby cleanly";
-
-		// Same unwind-before-drop ordering as onRefuse() (CoopHandshake.h's
-		// top doc comment): the host may already be past BriefingState.
-		coopUnwindToSafeState(game);
-		if (game->getSavedGame())
-			game->getSavedGame()->setBattleGame(0);
-		resetBattleAuthority();
-		g_pendingHost = PendingHost();
-		return;
+			<< ") - EXPECTED pre-R2-P9 (raw hash includes machine-local FOV/discovered "
+			"state); proceeding to phase Active. RW-TODO(R2-P9): canonical bucket hash "
+			"restores the hard mismatch->teardown gate.";
 	}
-
-	Log(LOG_INFO) << "[coop-handshake] battle_ready saveBlob EQUAL (" << clientSaveBlob
-		<< ", battleId=" << battleId << ")";
+	else
+	{
+		Log(LOG_INFO) << "[coop-handshake] battle_ready saveBlob EQUAL (" << clientSaveBlob
+			<< ", battleId=" << battleId << ")";
+	}
 
 	// The caller already pushed BriefingState unconditionally, right after
 	// bgen.run() (CoopHandshake.h's top doc comment) - this flips the ONE

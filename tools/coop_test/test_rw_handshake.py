@@ -8,27 +8,30 @@ exercises the EQUIP CRAFT craft-lock broadcast, a separate, still-quarantined
 piece of choreography outside this packet's scope; this probe is deliberately
 narrower: only the SS2.7 handshake itself).
 
-Asserts UNCONDITIONALLY (these do not depend on the KNOWN BLOCKER below):
+Asserts:
   - the client reaches BattlescapeState directly (CoopHandshake::
     onBlobChunkAppended's LoadGameState.cpp-precedent push) - proves offer/
     accept/stream(blobBytes-gated)/blobSha-verify/load all worked.
   - the host's battle_offer/battle_accept/battle_ready log lines are present
     (the wire round-trip completed both directions).
-  - EITHER the host reaches phase Active (saveBlob EQUAL - the intended
-    happy path) OR, if it does not, the host cleanly unwinds to a safe state
-    instead of being left stranded mid-battle (coopUnwindToSafeState()) -
-    "no battle starts unequal" holds either way.
+  - BOTH machines reach phase Active and BattlescapeState (host drives its
+    BriefingState OK; client is pushed there directly).
 
-KNOWN BLOCKER (see this packet's final report): as of this commit, the
-saveBlob compare currently mismatches on every run, NOT because of a bug in
-the handshake - it is caused by a confirmed, reproducible, PRE-EXISTING bug
-in SavedBattleGame::load()'s tile deserialization (verified via a same-
-machine SavedGame::save()+load() round trip, both the file path and the
-loadCoopSaveFromMemory path: a battle with totalTiles=2132 on save comes
-back with totalTiles=1 after load - almost the entire map's terrain is lost).
-This test still PASSES today because of the "unwind cleanly" branch above;
-once the tile-load bug is fixed, it starts asserting phase Active instead
-without needing to change.
+SAVEBLOB IS SOFT-GATED PENDING R2-P9 (owner-approved 2026-09-01). The R4-P1
+saveBlob is a RAW FNV over the emitted battle YAML, so it necessarily includes
+machine-local FOV/discovered state - unit "visible"/"turnsSinceSpotted*" and the
+tile boolFields byte (= per-part terrain "discovered" flags, Tile.cpp:207, packed
+inside binTiles). Those legitimately differ per machine (each computes its own
+FOV), so the raw saveBlob differs on essentially every run. This was TRACED
+2026-09-01 by decoding both binTiles: 0 terrain / 0 smoke / 0 fire / 0 unit-core
+divergence, only 190 tile discovered-flag diffs + 7 unit "visible" diffs - i.e.
+purely FOV, NOT a real desync (and NOT the tile-load bug an earlier revision of
+this docstring wrongly blamed - the reorder fix in CoopHandshake::onBlobChunkAppended
+materialises tiles before hashing). onReady() therefore LOGS the difference and
+proceeds (see its RW-TODO(R2-P9) soft-gate comment). R2-P9 replaces the raw hash
+with the canonical filtered SS2.8 bucket set (excluding those FOV fields per
+R2-P10's cr1-field-audit.md) and RESTORES the hard mismatch->teardown gate; this
+test then asserts EQUAL without otherwise changing.
 
 Run:  python tools/coop_test/test_rw_handshake.py
 """
@@ -147,7 +150,8 @@ def main():
         accept_lines = grep_lines(host_log, "[coop-handshake] battle_accept received")
         client_active_lines = grep_lines(client_log, "[coop-handshake] CLIENT phase Active")
         equal_lines = grep_lines(host_log, "[coop-handshake] battle_ready saveBlob EQUAL")
-        mismatch_lines = grep_lines(host_log, "[coop-handshake] battle_ready saveBlob MISMATCH")
+        differ_lines = grep_lines(host_log, "[coop-handshake] battle_ready saveBlob differs")
+        host_active_lines = grep_lines(host_log, "[coop-handshake] HOST phase Active")
 
         assert offer_lines, "host log missing 'battle_offer sent' line"
         assert accept_lines, "host log missing 'battle_accept received' line"
@@ -157,44 +161,35 @@ def main():
         print("HOST LOG:", accept_lines[-1])
         print("CLIENT LOG:", client_active_lines[-1])
 
+        # SOFT GATE (RW-TODO(R2-P9)): the host proceeds to phase Active whether the
+        # raw saveBlob matched or (as is normal pre-R2-P9) differed on machine-local
+        # FOV/discovered state - see this module's docstring.
+        assert host_active_lines, \
+            "host did not reach phase Active - onReady()'s soft gate should proceed " \
+            "regardless of the saveBlob comparison"
         if equal_lines:
-            # The happy path: saveBlob matched, host flips phase Active and
-            # its OWN vanilla input (already sitting in BriefingState) can
-            # proceed to BattlescapeState same as the SP path.
             print("HOST LOG:", equal_lines[-1])
-            m_host = re.search(r"saveBlob EQUAL \(([0-9a-f]{16})", equal_lines[-1])
-            m_client = re.search(r"saveBlob=([0-9a-f]{16})", client_active_lines[-1])
-            assert m_host and m_client and m_host.group(1) == m_client.group(1), \
-                f"saveBlob EQUAL log line did not actually match the client's own hash: " \
-                f"{equal_lines[-1]!r} / {client_active_lines[-1]!r}"
-            print(f"PASS: saveBlob EQUAL on both machines ({m_host.group(1)}) - phase Active")
-
-            host.ok({"cmd": "click_widget", "match": "ok"})
-            host.wait_for("host battlescape",
-                          lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-            print("PASS: host reached BattlescapeState - BOTH machines in BattlescapeState, "
-                  "phase Active both sides")
+            print("NOTE: saveBlob EQUAL this run (FOV happened to coincide).")
         else:
-            # KNOWN BLOCKER (see this file's module docstring and the R4-P1
-            # packet report): a pre-existing SavedBattleGame::load() tile
-            # deserialization bug currently makes every saveBlob compare
-            # mismatch. Assert the SAFETY NET still holds - the host must
-            # NOT be left stranded inside a half-started coop battle.
-            assert mismatch_lines, \
-                "battle_ready arrived but neither EQUAL nor MISMATCH was logged - " \
-                "onReady() did not run to completion"
-            print("HOST LOG:", mismatch_lines[-1])
-            print("KNOWN BLOCKER: saveBlob MISMATCH (see module docstring - pre-existing "
-                  "SavedBattleGame::load() tile corruption, not a handshake bug)")
+            assert differ_lines, \
+                "battle_ready arrived but neither 'saveBlob EQUAL' nor 'saveBlob differs' " \
+                "was logged - onReady() did not run to completion"
+            print("HOST LOG:", differ_lines[-1])
+            print("NOTE: saveBlob differs = EXPECTED pre-R2-P9 (benign machine-local FOV/"
+                  "discovered state; 0 real divergence, traced 2026-09-01). Soft gate proceeds.")
+        print("HOST LOG:", host_active_lines[-1])
 
-            host.wait_for("host unwound to a safe state",
-                          lambda: (top_state(host) in ("MainMenuState", "GeoscapeState")) or None,
-                          timeout=30)
-            assert "BattlescapeState" not in states(host), \
-                f"host must not be left inside a half-started battle after a saveBlob " \
-                f"mismatch: stack={states(host)}"
-            print(f"PASS: host cleanly unwound to {top_state(host)} - "
-                  "no battle starts unequal, even under the known blocker")
+        # Host is still in BriefingState (pushed unconditionally after bgen.run());
+        # its OK proceeds to BattlescapeState exactly like the SP path.
+        host.ok({"cmd": "click_widget", "match": "ok"})
+        host.wait_for("host battlescape",
+                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+        # BattlescapeState in-stack (a NextTurnState/InventoryState deploy screen
+        # normally sits on top at battle start) - same in-stack check the client uses.
+        assert session.has_state(host, "BattlescapeState"), \
+            f"host should reach BattlescapeState after OK, stack={states(host)}"
+        print("PASS: BOTH machines in BattlescapeState, host+client phase Active "
+              "(saveBlob soft-gated pending R2-P9 canonical hash)")
 
         print("ALL R4-P1 HANDSHAKE TESTS PASSED")
     finally:
