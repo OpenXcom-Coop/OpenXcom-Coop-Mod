@@ -28,7 +28,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient
-import session
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE_PATH = os.path.join(HERE, "repro74_state.json")
@@ -103,7 +102,7 @@ def cmd_state(state, host, client):
 def cmd_fire(state, host, client):
     shooter = None
     for gc, tag in ((host, "host"), (client, "client")):
-        if session.can_drive(gc.cmd({"cmd": "battle_state"})):
+        if gc.cmd({"cmd": "battle_state"}).get("activeSync"):
             shooter, shooter_tag = gc, tag
     if not shooter:
         sys.exit("neither machine owns the simulation right now (activeSync false on "

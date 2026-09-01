@@ -6,12 +6,10 @@ gated it behind `if (turned)`. A right-click door-open (BA_NONE action) where
 the soldier already faces the door never changes direction, so `turned` is
 false and the packet is never sent. The client never learns the door opened.
 
-The test uses a SHARED campaign alien-terror battle (STR_ALIEN_TERROR / a city
-map, whose buildings supply the doors - hinged, not UFO):
+The test uses a SHARED campaign UFO crash-site battle (guaranteed UFO doors):
   1. Brings up a SHARED campaign.
-  2. Enters an alien-terror battle (real `confirm_landing` path).
-  3. Finds a door tile (a hinged building door here; `door_on_tile` handles a
-     UFO door too) and positions a soldier facing it.
+  2. Enters a UFO crash-site battle (real `confirm_landing` path).
+  3. Finds a UFO door tile and positions a soldier facing it.
   4. Opens the door via battle_action door (UnitTurnBState with BA_NONE).
   5. Asserts both machines see the door as open.
 

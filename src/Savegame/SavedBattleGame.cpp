@@ -55,16 +55,9 @@
 #include "../fmath.h"
 #include "../Engine/Language.h"
 #include "../CoopMod/connectionTCP.h"
-#include "../CoopMod/SharedEcon.h" // coop (PRD-P4): Tier-A spawn id-manifest
 
 namespace OpenXcom
 {
-// coop (explosion ordered-replay E0, LEAK-OBJ): file-scope in connectionTCP.cpp;
-// extern-declared here so addDestroyedObjective() can gate on them without a
-// connectionTCP.h class-layout change.
-extern std::atomic<uint32_t> g_objectiveLeakBlocked;
-extern std::atomic<bool> g_objectiveGateDisable;
-
 /**
  * Initializes a brand new battlescape saved game.
  */
@@ -1306,28 +1299,6 @@ void SavedBattleGame::newTurnUpdateScripts()
 		return;
 	}
 
-	// coop (PRD-P3 GAP-10, mods first-class): the mod newTurnUnit/newTurnItem script
-	// hooks below can draw randomChance/randomRange from the GLOBAL RNG stream, and
-	// BOTH machines run this loop - the parallel client reaches it via
-	// BattlescapeGame::endTurn -> _save->endTurn on every side close (empirically
-	// proven: with a per-turn newTurnUnit script every unit's rolled tag diverged
-	// host vs client). The two machines' streams diverge, so without help every
-	// per-turn script roll differs. Seed-replay fix (the spawn_units B2 pattern
-	// applied to the whole loop): reseed the global RNG to the side-boundary seed the
-	// host stamps on `endTurn` and the client adopts, so both draw the SAME sequence
-	// over the SAME units/items in the SAME order - a balanced-by-construction relay
-	// (no FIFO to unbalance, unlike GAP-7). Save+restore leaves every other RNG
-	// consumer byte-identical, and is a strict no-op when no script draws (vanilla and
-	// non-scripted mods, so the existing parallel battles are unchanged). Parallel
-	// only; classic ships its seed on a different packet and is out of the parallel
-	// merge scope (recorded finding).
-	const bool coopScriptRng = connectionTCP::parallelTurnActive();
-	const uint64_t savedRngSeed = RNG::getSeed();
-	if (coopScriptRng)
-	{
-		RNG::setSeed(connectionTCP::_scriptRngSeed);
-	}
-
 	for (auto* bu : _units)
 	{
 		if (bu->isIgnored())
@@ -1346,11 +1317,6 @@ void SavedBattleGame::newTurnUpdateScripts()
 		}
 
 		ModScript::scriptCallback<ModScript::NewTurnItem>(item->getRules(), item, this, this->getTurn(), _side);
-	}
-
-	if (coopScriptRng)
-	{
-		RNG::setSeed(savedRngSeed);
 	}
 
 	reviveUnconsciousUnits(false);
@@ -1601,18 +1567,7 @@ void SavedBattleGame::endTurn()
 	}
 	else if (_side == FACTION_NEUTRAL)
 	{
-		// coop (PRD-I3 SEAM-2 HALF 2): this is the ONE hazard-decay boundary of the
-		// turn cycle (the sole SavedBattleGame::prepareNewTurn caller). Mark it so the
-		// host's set_smoke_tile/set_fire_tile decay sends carry `bnd:true`; the client
-		// then applies them through the ORDERED gate (in FIFO after the ai-chain
-		// replay, before next_turn) instead of the always-consume whitelist, so its
-		// ai-seq hazard hashes sample PRE-decay state matching the host's pre-decay
-		// ring entries. Set/clear tightly around the call (prepareNewTurn does not
-		// throw); harmless on the non-host machine, where the call early-returns and
-		// the tile setters are host-gated no-ops.
-		connectionTCP::coopSetBoundaryDecay(true);
 		prepareNewTurn();
-		connectionTCP::coopSetBoundaryDecay(false);
 		_turn++;
 		_side = FACTION_PLAYER;
 		if (_lastSelectedUnit && _lastSelectedUnit->isSelectable(FACTION_PLAYER, false, false))
@@ -2002,9 +1957,6 @@ void SavedBattleGame::removeItem(BattleItem *item)
 	{
 		return;
 	}
-	// coop (three-class RCA DIAGNOSTIC, items): tag the actual removal, capture-gated.
-	coopDiagS("item.remove cid=" + std::to_string(item->getCoopID())
-		+ " t=" + (item->getRules() ? item->getRules()->getType() : std::string("?")));
 
 	// due to strange design, the item has to be removed from the tile it is on too (if it is on a tile)
 	item->moveToOwner(nullptr);
@@ -2151,9 +2103,6 @@ BattleItem *SavedBattleGame::createItemForUnit(const RuleItem *rule, BattleUnit 
 	else
 	{
 		_items.push_back(item);
-		// coop (PRD-P4): only after the item is actually KEPT - an item the unit
-		// refused never existed, so it must not consume a host id either.
-		SharedEcon::noteMintedItem(item);
 		initItem(item, unit);
 	}
 	return item;
@@ -2173,7 +2122,6 @@ BattleItem *SavedBattleGame::createItemForUnitSpecialBuiltin(const RuleItem *rul
 	item->setOwner(unit);
 	item->setSlot(nullptr);
 	_items.push_back(item);
-	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
 	initItem(item, unit);
 	return item;
 }
@@ -2202,11 +2150,6 @@ BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile,
 	}
 	item->setUnit(corpseFor);
 	_items.push_back(item);
-	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
-	// coop (three-class RCA DIAGNOSTIC, items): tag the mint, capture-gated.
-	coopDiagS("item.mint cid=" + std::to_string(item->getCoopID())
-		+ " t=" + (rule ? rule->getType() : std::string("?"))
-		+ (corpseFor ? " corpse" : ""));
 	initItem(item);
 	return item;
 }
@@ -2218,9 +2161,7 @@ BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile,
  */
 BattleItem *SavedBattleGame::createTempItem(const RuleItem *rule)
 {
-	BattleItem *item = new BattleItem(rule, getCurrentItemId());
-	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
-	return item;
+	return new BattleItem(rule, getCurrentItemId());
 }
 
 /**
@@ -2318,15 +2259,7 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 	newUnit->setPosition(unit->getPosition());
 	newUnit->setDirection(unit->getDirection());
 	getUnits()->push_back(newUnit);
-	{
-		// coop (PRD-P4): Tier-A spawn. initUnit() mints the respawn's fixed built-in
-		// weapons - a set fixed by getSpawnUnit()'s rules, so both machines create
-		// the same items and only the ids can drift. Keyed on the DYING unit's id,
-		// which is what the `convertUnit` packet carries.
-		SharedEcon::CoopSpawnRecord coopRec("convert", unit->getId());
-		SharedEcon::CoopSubjectGuard coopGuard(this, "convert", unit->getId());
-		initUnit(newUnit);
-	}
+	initUnit(newUnit);
 
 	getTileEngine()->calculateFOV(newUnit->getPosition());  //happens fairly rarely, so do a full recalc for units in range to handle the potential unit visible cache issues.
 	getTileEngine()->applyGravity(newUnit->getTile());
@@ -2359,17 +2292,20 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 		else if (connectionTCP::getCoopGamemode() == 4)
 		{
 
-			// coop (PRD-P3, AUDIT-guards top break): this used to read
-			// _isActivePlayerSync and the host branch below assigned the OPPOSITE
-			// value, so the pair only agreed while exactly one machine held the flag.
-			// The respawn now inherits the DYING unit's owner - a value both machines
-			// already hold and compute identically, with no dependence on whose turn
-			// it is.
-			newUnit->setCoop(unit->getCoop());
+			if (connectionTCP::_isActivePlayerSync == true)
+			{
+				unit->setCoop(1);
+				newUnit->setCoop(1);
+			}
+			else
+			{
+				unit->setCoop(0);
+				newUnit->setCoop(0);
+			}
 
 			unit->convertToFaction(FACTION_PLAYER);
 			unit->setOriginalFaction(FACTION_PLAYER);
-
+	
 			newUnit->convertToFaction(FACTION_PLAYER);
 			newUnit->setOriginalFaction(FACTION_PLAYER);
 
@@ -2383,17 +2319,11 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 
 		Json::Value root;
 		root["state"] = "convertUnit";
-		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
-		// client's action_end apply-barrier waits for this respawn/convert before
-		// sampling the chain's post-N sync-check hash (no-op off the parallel host).
-		connectionTCP::coopStampChainSeq(root);
 
 		root["unit_id"] = unit->getId();
 		root["respawn"] = unit->getRespawn();
 		root["spawn_unit_faction"] = (int)unit->getSpawnUnitFaction();
 		root["spawn_unit_type"] = unit->getSpawnUnit()->getType();
-		// coop (PRD-P4): the ids initUnit() just minted for the respawn's built-ins.
-		SharedEcon::flushSpawnRecord(root, "convert", unit->getId());
 
 		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 
@@ -2421,10 +2351,16 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 		else if (connectionTCP::getCoopGamemode() == 4)
 		{
 
-			// coop (PRD-P3): same seat-deterministic rule as the client branch above
-			// - the respawn inherits the dying unit's owner, so both machines reach
-			// the same answer without consulting _isActivePlayerSync.
-			newUnit->setCoop(unit->getCoop());
+			if (connectionTCP::_isActivePlayerSync == true)
+			{
+				unit->setCoop(0);
+				newUnit->setCoop(0);
+			}
+			else
+			{
+				unit->setCoop(1);
+				newUnit->setCoop(1);
+			}
 
 			unit->convertToFaction(FACTION_PLAYER);
 			unit->setOriginalFaction(FACTION_PLAYER);
@@ -2490,19 +2426,6 @@ void SavedBattleGame::setObjectiveCount(int counter)
  */
 void SavedBattleGame::addDestroyedObjective()
 {
-	// coop (explosion ordered-replay E0, LEAK-OBJ): the client (parallel AND classic)
-	// inflates _objectivesDestroyed via the neutered explode()/Tile::destroy `return true`
-	// stubs -> it must NOT count objective destruction or drive autoEndBattle/missionComplete.
-	// Host is authoritative; it ships the count on next_turn. Classic idiom on purpose
-	// (owner Q4 = fix classic too). TEST lever objective_gate_disable reverts it (same-build red).
-	if (getBattleGame()
-		&& getBattleGame()->getCoopMod()->getCoopStatic() == true
-		&& getBattleGame()->getCoopMod()->getHost() == false
-		&& !OpenXcom::g_objectiveGateDisable.load(std::memory_order_relaxed))
-	{
-		++OpenXcom::g_objectiveLeakBlocked;
-		return;
-	}
 	if (!allObjectivesDestroyed())
 	{
 		_objectivesDestroyed++;
@@ -2536,18 +2459,6 @@ bool SavedBattleGame::allObjectivesDestroyed() const
 int *SavedBattleGame::getCurrentItemId()
 {
 	return &_itemId;
-}
-
-/**
- * Gets the current item ID without handing out the counter itself.
- * PRD-P2: the co-op drift tripwire stamps this on the wire. EVERY `new BattleItem`
- * advances it (BattleItem's ctor post-increments), even a transient one that is
- * never added to _items, so an uneven mint on one machine shows up here at once.
- * @return Current item ID value.
- */
-int SavedBattleGame::getCurrentItemIdValue() const
-{
-	return _itemId;
 }
 
 /**
@@ -2679,21 +2590,6 @@ Node *SavedBattleGame::getPatrolNode(bool scout, BattleUnit *unit, Node *fromNod
  */
 void SavedBattleGame::prepareNewTurn()
 {
-	// coop (PRD-I3 SEAM-2 + straddle): in a PARALLEL player side the boundary-phase
-	// tile decay is host-authoritative and re-shipped wholesale on `next_turn`
-	// (connectionTCP.cpp resets every tile's fire/smoke/dangerous then re-applies the
-	// host's snapshot), so the non-host machine must NOT run its own decay. Left
-	// ungated, the client's smoke SPREADS (Tile::addSmoke) and AVERAGES
-	// (Tile::prepareNewTurn) while its DECREMENT (Tile::setSmoke/setFire) is a
-	// host-gated no-op - "spread-without-decrement" that mangles the client's smoke
-	// (SEAM-2), and calculateEnviDamage below rolls fire/smoke RNG the host owns
-	// (the straddle). Gating the whole call-site is cleaner than per-setter gates and
-	// covers calculateEnviDamage in one place. Classic and option-off paths are
-	// untouched (parallelTurnActive() is false), so classic stays byte-identical.
-	if (connectionTCP::parallelTurnActive() && !connectionTCP::getHost())
-	{
-		return;
-	}
 
 	std::vector<Tile*> tilesOnFire;
 	std::vector<Tile*> tilesOnSmoke;
@@ -4234,33 +4130,10 @@ void flashLongMessageVariadicScriptImpl(SavedBattleGame* sbg, ScriptText message
 
 
 
-/**
- * coop (PRD-P3 GAP-10): the two mod-script RNG bindings below draw from the GLOBAL
- * stream on whichever machine happens to run the script, and nothing captures or
- * ships the result - so any modded battle behaviour built on them diverges silently
- * between host and peer. Fixing that properly needs a host-decides channel for
- * arbitrary script calls, which is out of scope here; V1 is to say so, once, so a
- * modder who hits it can see it in the log instead of chasing a phantom desync.
- */
-static void coopWarnScriptRng(const SavedBattleGame* sbg, const char* which)
-{
-	static bool warned = false;
-	if (warned || !connectionTCP::getCoopStatic())
-	{
-		return;
-	}
-	warned = true;
-	Log(LOG_WARNING) << "coop: mod script called " << which << " during a co-op battle. "
-					 << "Script RNG is UNSUPPORTED in co-op: each machine draws from its own "
-					 << "stream and the result is not replicated, so anything it decides can "
-					 << "differ between the two players (turn " << (sbg ? sbg->getTurn() : -1) << ").";
-}
-
 void randomChanceScript(SavedBattleGame* sbg, int& val)
 {
 	if (sbg)
 	{
-		coopWarnScriptRng(sbg, "randomChance");
 		val = RNG::percent(val);
 	}
 	else
@@ -4273,7 +4146,6 @@ void randomRangeScript(SavedBattleGame* sbg, int& val, int min, int max)
 {
 	if (sbg && max >= min)
 	{
-		coopWarnScriptRng(sbg, "randomRange");
 		val = RNG::generate(min, max);
 	}
 	else

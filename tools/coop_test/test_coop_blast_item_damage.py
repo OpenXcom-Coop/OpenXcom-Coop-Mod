@@ -40,7 +40,6 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import session
 import shared_fixture
 import test_coop_alien_launcher_item_loss as I74
 
@@ -135,7 +134,7 @@ def main():
 
         def _sim_owner():
             for gc, tag in ((host, "host"), (client, "client")):
-                if session.can_drive(I74.battle(gc)):
+                if I74.battle(gc).get("activeSync"):
                     return (gc, tag)
             return None
 

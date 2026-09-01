@@ -190,11 +190,7 @@ def assert_replication(host, client, r):
     A walk is used rather than a shot because a shot can legitimately miss -
     a position is unambiguous.
     """
-    # Driver selection (not the invariant check below): session.can_drive() so
-    # this keeps picking a legal driver once parallel turns (PRD-P5+) make both
-    # machines drivable. Step 2's assertion still reads activeSync directly -
-    # that one IS about the executor invariant.
-    owner_tag = "host" if session.can_drive(r["host"]["raw"]) else "client"
+    owner_tag = "host" if r["host"]["activeSync"] else "client"
     owner = host if owner_tag == "host" else client
     peer = client if owner_tag == "host" else host
 

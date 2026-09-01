@@ -160,7 +160,7 @@ def main():
 
         def _sim_owner():
             for gc, tag in ((host, "host"), (client, "client")):
-                if session.can_drive(I74.battle(gc)):
+                if I74.battle(gc).get("activeSync"):
                     return (gc, tag)
             return None
 

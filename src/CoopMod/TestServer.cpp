@@ -17,35 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
-// Ephemeral-port probe (bring-up plumbing, test-only): bind an OS-assigned port
-// on loopback and read it back via getsockname, so the harness never hardcodes a
-// coop/control port. Winsock must precede any windows.h that SDL later pulls in,
-// so these come first, before every other include. NOMINMAX keeps windows.h from
-// defining the min/max macros that would clobber std::numeric_limits<>::min() in
-// the Engine/Mod headers below; WIN32_LEAN_AND_MEAN keeps it from dragging in the
-// legacy winsock.h that conflicts with winsock2.h.
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
-#else
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#endif
-#include <cstdio>
-#include <cstring>
 #include "TestServer.h"
 
 #include <algorithm>
-#include <array>
 #include <cstdlib>
 #include <fstream>
 #include <set>
@@ -84,11 +58,8 @@
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/ProjectileFlyBState.h"
-#include "../Battlescape/MeleeAttackBState.h"
 #include "../Battlescape/PsiAttackBState.h"
 #include "../Battlescape/Position.h"
-#include "../Battlescape/Map.h"
-#include "../Battlescape/Camera.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleInventory.h"
@@ -112,7 +83,6 @@
 #include "../Savegame/EquipmentLayoutItem.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Tile.h"
-#include "../Mod/MapData.h"
 #include "../Savegame/Ufo.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/Target.h"
@@ -195,78 +165,6 @@
 namespace OpenXcom
 {
 
-// coop (chain-atomicity D.3b fixture): the chained-terrain pacing race counters,
-// defined as file-scope globals in ExplosionBState.cpp. Extern-declared here so
-// parallel_state can surface them without a connectionTCP.h class-layout change (a
-// wide recompile).
-extern std::uint32_t g_coopTerrainPacingParks;
-extern std::uint32_t g_coopTerrainPacingConsumes;
-extern std::uint32_t g_coopTerrainPacingDiverted;
-// coop (chain-atomicity Strand B): the side-barrier counters, file-scope in
-// connectionTCP.cpp. Extern-declared here (not in connectionTCP.h) so parallel_state can
-// surface them without a wide recompile, matching the terrain-pacing counters above.
-extern std::atomic<uint32_t> g_sideBarrierHolds;
-extern std::atomic<uint32_t> g_sideBarrierReleases;
-extern std::atomic<uint32_t> g_sideBarrierHardReleases;
-// coop (chain-atomicity Strand A): mid-side host deaths and how many shipped unstamped.
-extern std::atomic<uint32_t> g_coopMidSideDeaths;
-extern std::atomic<uint32_t> g_coopMidSideDeathsUnstamped;
-// coop (chain-atomicity Strand B, TEST-ONLY lever): disable just the side barrier.
-extern std::atomic<bool> g_rxSideBarrierDisable;
-// coop (wire-order report alignment, Phase 2): master lever, file-scope in
-// connectionTCP.cpp; extern-declared here so the TestServer command handler and
-// parallel_state can reach it without a connectionTCP.h class-layout recompile.
-extern std::atomic<bool> g_wireOrderState;
-// coop DIAGNOSTIC (reject-set audit): next_turn rank-0 watermark rejections captured in
-// BattleUnit.cpp; surfaced here for the harness. Empty unless SEAM-7 capture was armed.
-extern const std::vector<std::array<std::uint32_t, 6> >& coopWmDbgRejects();
-// coop (parallel battlescape Phase 1 - per-unit state watermark): reject counters
-// (total + per-rank) and the TEST-ONLY lever that disables the watermark check.
-// File-scope in connectionTCP.cpp; extern-declared here to avoid a wide recompile.
-extern std::atomic<uint32_t> g_stateWatermarkRejects;
-extern std::atomic<uint32_t> g_stateWatermarkRejectsRank0;
-extern std::atomic<uint32_t> g_stateWatermarkRejectsRank1;
-extern std::atomic<uint32_t> g_stateWatermarkRejectsRank2;
-extern std::atomic<bool> g_deathWatermarkDisable;
-// coop (parallel battlescape Phase 2b - atomic unit death): the `unit_casualty`
-// apply counters + the TEST-ONLY RED lever that falls back to the legacy unit_
-// death/after_unit_death trio. File-scope in connectionTCP.cpp; extern-declared
-// here to avoid a wide recompile, matching the Phase 1 watermark counters above.
-extern std::atomic<uint32_t> g_casualtiesApplied;
-extern std::atomic<uint32_t> g_casualtiesRejected;
-extern std::atomic<bool> g_atomicDeathDisable;
-// coop (parallel battlescape Phase 2c - death ghost, TEST-ONLY RED lever).
-extern std::atomic<bool> g_deathGhostDisable;
-// coop (explosion ordered-replay E0 - LEAK-OBJ): the objective-counter leak
-// block counter + its TEST-ONLY RED lever, and the E0 introspection-only lever
-// for the (E1-enforcing) explosion-replay path. File-scope in connectionTCP.cpp;
-// extern-declared here to avoid a wide recompile, matching the counters above.
-extern std::atomic<uint32_t> g_objectiveLeakBlocked;
-extern std::atomic<bool> g_objectiveGateDisable;
-extern std::atomic<bool> g_explosionReplayDisable;
-// coop (explosion ordered-replay E1): the display-only-path counters. File-scope in
-// connectionTCP.cpp, incremented from ExplosionBState.cpp; extern-declared here to
-// avoid a wide recompile, matching the counters above.
-extern std::atomic<uint32_t> g_explosionsDisplayOnly;
-extern std::atomic<uint32_t> g_explodeCallsSuppressed;
-// coop (explosion ordered-replay E2): the chain_detonation send/apply counters. File-scope
-// in connectionTCP.cpp, incremented from ExplosionBState.cpp (sent) and connectionTCP.cpp's
-// handler (applied); extern-declared here to avoid a wide recompile, matching the counters
-// above.
-extern std::atomic<uint32_t> g_chainDetonationsSent;
-extern std::atomic<uint32_t> g_chainDetonationsApplied;
-// coop (explosion ordered-replay E4, TEST-ONLY RED lever): disables the LEAK-GRAV
-// derive so the SAME build measures the pre-derive hover (red) against the gated
-// (green) behavior. File-scope in connectionTCP.cpp; extern-declared here to avoid
-// a wide recompile, matching the counters above.
-extern std::atomic<bool> g_gravityDeriveDisable;
-// coop (explosion ordered-replay E5a GAP-MODULE): the module_destroyed send/apply
-// counters. File-scope in connectionTCP.cpp, incremented from TileEngine.cpp (sent)
-// and connectionTCP.cpp's handler (applied); extern-declared here to avoid a wide
-// recompile, matching the counters above.
-extern std::atomic<uint32_t> g_moduleDestroyedSent;
-extern std::atomic<uint32_t> g_moduleDestroyedApplied;
-
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
 // t = dynamic_cast<T*>(s)) found = t;` was pasted ~20x. These file-local helpers
@@ -296,60 +194,6 @@ TestServer& TestServer::instance()
 	return s;
 }
 
-// Bind an OS-assigned ephemeral port on loopback (sockType = SOCK_STREAM or
-// SOCK_DGRAM), read the assigned port back, and release the socket. Returns the
-// port (1..65535) or 0 on failure. This is how both socket kinds go ephemeral
-// without the harness guessing: the game asks the OS for a free port and reports
-// what it got. There is a tiny bind->close->reopen window before the real
-// listener/host binds the same number, but the OS does not immediately recycle a
-// just-released loopback ephemeral port, so a same-port collision is not observed
-// in practice - and this categorically removes the fixed-port linger/collision
-// class (a prior scenario's instance still holding :NNNNN) that motivated the
-// change. Requires winsock to be up (SDLNet_Init / SDL have already done
-// WSAStartup by every call site here).
-static int probeEphemeralPort(int sockType)
-{
-#ifdef _WIN32
-	SOCKET s = socket(AF_INET, sockType, 0);
-	if (s == INVALID_SOCKET) return 0;
-#else
-	int s = socket(AF_INET, sockType, 0);
-	if (s < 0) return 0;
-#endif
-	sockaddr_in addr;
-	std::memset(&addr, 0, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	addr.sin_port = 0; // OS assigns
-	int port = 0;
-	if (bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0)
-	{
-		sockaddr_in bound;
-		std::memset(&bound, 0, sizeof(bound));
-#ifdef _WIN32
-		int len = sizeof(bound);
-#else
-		socklen_t len = sizeof(bound);
-#endif
-		if (getsockname(s, reinterpret_cast<sockaddr*>(&bound), &len) == 0)
-			port = ntohs(bound.sin_port);
-	}
-#ifdef _WIN32
-	closesocket(s);
-#else
-	close(s);
-#endif
-	return port;
-}
-
-// The per-instance file the harness polls to learn the TestServer control port
-// when it was bound ephemeral (OXC_TEST_PORT=0). Lives in the instance's own
-// -user folder, which the harness owns and creates per instance.
-static std::string testServerPortFilePath()
-{
-	return Options::getUserFolder() + "testserver_port.txt";
-}
-
 void TestServer::startFromEnvironment(Game* game)
 {
 	if (_running.load())
@@ -362,18 +206,14 @@ void TestServer::startFromEnvironment(Game* game)
 		return;
 	}
 	int port = std::atoi(portStr);
-	// OXC_TEST_PORT=0 means "OS-assigned ephemeral": ioThread probes a free port
-	// and reports it to the harness via <userfolder>/testserver_port.txt. A fixed
-	// port still works (manual debugging). Reject only out-of-range values.
-	if (port < 0 || port > 65535)
+	if (port <= 0 || port > 65535)
 	{
 		return;
 	}
 	_game = game;
 	_running.store(true);
 	_thread = std::thread(&TestServer::ioThread, this, port);
-	Log(LOG_INFO) << "[testserver] starting (requested port "
-		<< (port == 0 ? "0 = ephemeral" : std::to_string(port)) << ")";
+	Log(LOG_INFO) << "[testserver] listening on 127.0.0.1:" << port;
 }
 
 void TestServer::stop()
@@ -387,26 +227,10 @@ void TestServer::stop()
 
 void TestServer::ioThread(int port)
 {
-	// Clear any stale port file before binding, so the harness never reads a port
-	// left over from a previous run in a reused -user folder.
-	std::remove(testServerPortFilePath().c_str());
-
 	if (SDLNet_Init() != 0)
 	{
 		Log(LOG_ERROR) << "[testserver] SDLNet_Init failed: " << SDLNet_GetError();
 		return;
-	}
-	// Ephemeral control socket (OXC_TEST_PORT=0): ask the OS for a free port now
-	// that winsock is up, then bind SDL_net on that concrete port so we know it.
-	if (port == 0)
-	{
-		port = probeEphemeralPort(SOCK_STREAM);
-		if (port <= 0)
-		{
-			Log(LOG_ERROR) << "[testserver] could not probe an ephemeral port";
-			SDLNet_Quit();
-			return;
-		}
 	}
 	IPaddress ip;
 	// NULL host = listen (SDL_net semantics; a concrete address would mean
@@ -424,22 +248,6 @@ void TestServer::ioThread(int port)
 	}
 	SDLNet_SocketSet set = SDLNet_AllocSocketSet(2);
 	SDLNet_TCP_AddSocket(set, listening);
-
-	// The listener is up on `port`. Report it to the harness atomically: write a
-	// temp file then rename over the final name, so a poller never reads a
-	// half-written value. The log line below is the stdout/log fallback report.
-	{
-		const std::string finalPath = testServerPortFilePath();
-		const std::string tmpPath = finalPath + ".tmp";
-		std::ofstream pf(tmpPath.c_str(), std::ios::out | std::ios::trunc);
-		if (pf)
-		{
-			pf << port << "\n";
-			pf.close();
-			std::rename(tmpPath.c_str(), finalPath.c_str());
-		}
-	}
-	Log(LOG_INFO) << "[testserver] listening on 127.0.0.1:" << port;
 
 	TCPsocket client = nullptr;
 	std::string recvBuf;
@@ -527,34 +335,11 @@ void TestServer::ioThread(int port)
 	SDLNet_FreeSocketSet(set);
 }
 
-// PRD-P11 (test-only): packets armed by `rx_inject {awaitGate: true}`, held
-// until a tick where the receive gate is SHUT. Flushed from pump(), which runs
-// immediately before updateCoopTask() in Game::run, so "the gate was shut when
-// they landed" is exact rather than a round-trip race the test has to win.
-static std::vector<std::string> g_rxArmed;
-static bool g_rxArmedFired = false;
-static int g_rxArmedCount = 0;
-
 void TestServer::pump()
 {
 	if (!_running.load())
 	{
 		return;
-	}
-
-	if (!g_rxArmed.empty())
-	{
-		connectionTCP* armCoop = _game->getCoopMod();
-		if (armCoop && !armCoop->coopTaskCompleted())
-		{
-			for (auto& payload : g_rxArmed)
-			{
-				rxInjectForTest(std::string(payload));
-			}
-			g_rxArmedCount = static_cast<int>(g_rxArmed.size());
-			g_rxArmed.clear();
-			g_rxArmedFired = true;
-		}
 	}
 	// While StartState is on the stack the mod is still being loaded on its
 	// worker thread; executing commands now races it (e.g. GeoscapeState
@@ -2804,43 +2589,6 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			Options::battleInstantGrenade = req.get("value", false).asBool();
 			resp["ok"] = true;
 		}
-		else if (name == "battleXcomSpeed")
-		{
-			// Per-unit walk animation delay in ms (lower = faster). Tests use it to
-			// make one machine walk slowly while the other races ahead.
-			// battleXcomSpeedOrig is the saved value of the ctrl-s "quick mode"
-			// speed swap (BattlescapeState::handle): while a swap is armed the
-			// next toggle restores that OLD speed over the one set here, so
-			// disarm it too.
-			Options::battleXcomSpeed = req.get("value", 30).asInt();
-			Options::battleXcomSpeedOrig = -1;
-			resp["value"] = Options::battleXcomSpeed;
-			resp["ok"] = true;
-		}
-		else if (name == "battleFireSpeed")
-		{
-			// Projectile animation delay in ms. PRD-P9 needs it: battleXcomSpeed
-			// only slows walk/turn animation, and PRD-P7 fast-forwards exactly
-			// those on a lagging client - so a SHOT is the only chain that can
-			// build the display backlog `canAdmitAction()` caps at 2.
-			Options::battleFireSpeed = req.get("value", 6).asInt();
-			resp["value"] = Options::battleFireSpeed;
-			resp["ok"] = true;
-		}
-		else if (name == "battleAlienSpeed")
-		{
-			Options::battleAlienSpeed = req.get("value", 30).asInt();
-			resp["value"] = Options::battleAlienSpeed;
-			resp["ok"] = true;
-		}
-		else if (name == "EnableCoopParallelTurns")
-		{
-			// PRD-P5's option, declared inert by P0 (Options.inc.h) so the harness
-			// can set it before anything reads it.
-			Options::EnableCoopParallelTurns = req.get("value", false).asBool();
-			resp["value"] = Options::EnableCoopParallelTurns;
-			resp["ok"] = true;
-		}
 		else
 		{
 			resp["error"] = "unknown option: " + name;
@@ -3658,44 +3406,16 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	// arm an arbitrary unit and make it fire a specific weapon (incl. BA_LAUNCH,
 	// which the generic battle_action shoot cannot express). Kept in its own
 	// dispatcher so execute()'s if/else chain does not grow (MSVC C1061).
-	if (cmd != "battle_items" && cmd != "battle_tiles"
-		&& cmd != "battle_give" && cmd != "battle_fire"
+	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
-		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "battle_intent"
-		&& cmd != "battle_camera"
-		&& cmd != "battle_reserve"
-		&& cmd != "rx_inject"
-		&& cmd != "hold_action_done"
-		&& cmd != "unit_stats_full"
-		&& cmd != "sync_capture"
-		&& cmd != "terrain_capture"
-		&& cmd != "tile_terrain_full"
-		&& cmd != "find_explosive_parts"
-		&& cmd != "parallel_state"
-		&& cmd != "save_blob")
+		&& cmd != "battle_prox" && cmd != "tile_info")
 	{
 		return false;
 	}
 
 	SavedGame* sg = _game->getSavedGame();
 	SavedBattleGame* sbg = sg ? sg->getSavedBattle() : nullptr;
-	// coop (wire-order report alignment): the wire_order_state lever is a global
-	// atomic, NOT battle-scoped. The harness engages it on every booted instance in
-	// connect() (at the main menu, before any battle), so a parallel_state set/read of
-	// JUST this lever must be serviceable ahead of the battle gate below. Scoped
-	// narrowly - only parallel_state, only when there is no battle: every OTHER field
-	// stays battle-scoped exactly as today (a pre-battle caller gets only the lever
-	// readback, never the battle state).
-	if (cmd == "parallel_state" && !sbg)
-	{
-		if (req.isMember("wire_order_state"))
-			g_wireOrderState.store(req.get("wire_order_state", false).asBool(),
-				std::memory_order_relaxed);
-		resp["wireOrderState"] = g_wireOrderState.load(std::memory_order_relaxed);
-		resp["ok"] = true;
-		return true;
-	}
 	if (!sbg)
 	{
 		resp["error"] = "not in battlescape";
@@ -3710,60 +3430,6 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			if (u->getId() == id) return u;
 		return nullptr;
 	};
-
-	if (cmd == "rx_inject")
-	{
-		// PRD-P11 (test-only): put packets straight into the receive hold queue,
-		// in order, and report the state of the receive gate AT THAT MOMENT. The
-		// pump's ordering guarantee is about what happens to a packet that lands
-		// while the gate is shut and an earlier packet about the same unit is
-		// still queued; waiting for that window from the game side is a race, and
-		// `gateClosed` here is what lets a test know it actually hit it.
-		const Json::Value& packets = req["packets"];
-		Json::StreamWriterBuilder wb;
-		wb["indentation"] = "";
-		connectionTCP* rxCoop = _game->getCoopMod();
-		resp["gateClosed"] = rxCoop ? !rxCoop->coopTaskCompleted() : false;
-		resp["taskDepth"] = rxCoop ? rxCoop->coopTaskDepth() : 0;
-		resp["walkInit"] = rxCoop ? rxCoop->_coopWalkInit : false;
-		resp["armedPending"] = static_cast<Json::UInt>(g_rxArmed.size());
-		resp["fired"] = g_rxArmedFired;
-		resp["firedCount"] = g_rxArmedCount;
-		if (req.get("status", false).asBool())
-		{
-			// read-only: how the armed batch got on
-			resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
-			resp["ok"] = true;
-		}
-		else if (req.get("awaitGate", false).asBool())
-		{
-			// Arm, do not inject. pump() lands them on the first tick whose gate
-			// is shut - the window this PRD's ordering rule is about.
-			g_rxArmed.clear();
-			g_rxArmedFired = false;
-			g_rxArmedCount = 0;
-			for (Json::ArrayIndex i = 0; i < packets.size(); ++i)
-			{
-				g_rxArmed.push_back(Json::writeString(wb, packets[i]));
-			}
-			resp["armed"] = static_cast<Json::UInt>(g_rxArmed.size());
-			resp["fired"] = false;
-			resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
-			resp["ok"] = true;
-		}
-		else
-		{
-			int injected = 0;
-			for (Json::ArrayIndex i = 0; i < packets.size(); ++i)
-			{
-				rxInjectForTest(Json::writeString(wb, packets[i]));
-				++injected;
-			}
-			resp["injected"] = injected;
-			resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
-			resp["ok"] = true;
-		}
-	}
 
 	if (cmd == "battle_items")
 	{
@@ -3810,114 +3476,6 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["counts"] = jc;
 		resp["total"] = (int)sbg->getItems()->size();
 		resp["ok"] = true;
-	}
-	else if (cmd == "battle_tiles")
-	{
-		// coop (chain-atomicity D.3b fixture lever): pre-set a tile's explosive so the next
-		// HE blast's ExplosionBState::explode -> checkForTerrainExplosions spawns a chained-
-		// terrain explosion deterministically, arming the shot-pacing race on any map (the
-		// default skirmish carries no explosive terrain). Test-only; call on the client before
-		// firing so its shot replay spawns a local chained-terrain ExplosionBState.
-		if (req.isMember("set_explosive"))
-		{
-			Tile* et = sbg->getTile(Position(req.get("x", 0).asInt(),
-				req.get("y", 0).asInt(), req.get("z", 0).asInt()));
-			if (et)
-			{
-				et->setExplosive(req.get("set_explosive", 0).asInt(),
-					req.get("explosiveType", 0).asInt(), true);
-				resp["explosiveSet"] = et->getExplosive();
-			}
-		}
-		// PRD-P9 soak: the per-tile HAZARD census. Fire and smoke are the two
-		// pieces of battle state that can drift without touching a unit or an
-		// item (they arrive on their own `set_fire_tile` / `set_smoke_tile`
-		// packets and decay on their own schedule), so the drift tripwire's two
-		// item terms cannot see them. Order-independent sums, so the comparison
-		// is one cheap equality per side.
-		long long fireHash = 0, smokeHash = 0;
-		int fireTiles = 0, smokeTiles = 0, fireSum = 0, smokeSum = 0;
-		// coop (chain-atomicity item-2 fixture lever): per-tile EXPLOSIVE-charge census,
-		// the term the host-authoritative set_explosive_tile carrier keeps in sync. Order-
-		// independent sum+hash over value AND type, so the fixture can diff the two
-		// machines' armed-tile state after an HE shot into explosive terrain.
-		long long explosiveHash = 0;
-		int explosiveTiles = 0, explosiveSum = 0;
-		const int tileCount = sbg->getMapSizeXYZ();
-		for (int i = 0; i < tileCount; ++i)
-		{
-			Tile* tl = sbg->getTile(i);
-			if (!tl) continue;
-			const int f = tl->getFire();
-			const int sm = tl->getSmoke();
-			if (f > 0)
-			{
-				++fireTiles;
-				fireSum += f;
-				fireHash += (long long)(i + 1) * 1000003LL + f;
-			}
-			if (sm > 0)
-			{
-				++smokeTiles;
-				smokeSum += sm;
-				smokeHash += (long long)(i + 1) * 1000003LL + sm;
-			}
-			const int ex = tl->getExplosive();
-			if (ex != 0)
-			{
-				++explosiveTiles;
-				explosiveSum += ex;
-				explosiveHash += (long long)(i + 1) * 1000003LL + (long long)ex * 31 + tl->getExplosiveType();
-			}
-		}
-		resp["fireTiles"] = fireTiles;
-		resp["smokeTiles"] = smokeTiles;
-		resp["fireSum"] = fireSum;
-		resp["smokeSum"] = smokeSum;
-		resp["fireHash"] = Json::Value::Int64(fireHash);
-		resp["smokeHash"] = Json::Value::Int64(smokeHash);
-		resp["explosiveTiles"] = explosiveTiles;
-		resp["explosiveSum"] = explosiveSum;
-		resp["explosiveHash"] = Json::Value::Int64(explosiveHash);
-		resp["tileCount"] = tileCount;
-		resp["ok"] = true;
-	}
-	else if (cmd == "save_blob")
-	{
-		// PRD-I2 determinism self-test + cost probe: the save-derived boundary hash
-		// computed on demand (the same machinery the boundary ring uses), so a test
-		// can hash the same quiescent battle twice and prove the emitter is
-		// deterministic, and read the serialization cost.
-		std::uint64_t blob = 0;
-		bool okBlob = SharedEcon::computeSaveBlobHash(_game, blob);
-		// coop (PRD-I3 Session F test levers, carried on save_blob because a fresh top-level
-		// cmd branch did not dispatch in this toolchain): (a) force a named hash bucket back
-		// to REPORT-ONLY for the all-promoted negative control; (b) read/align
-		// SavedBattleGame::_itemId so give-based levers inject no id-counter offset. Test-only.
-		if (req.isMember("report_only_bucket"))
-			resp["report_only_matched"] = SharedEcon::setBattleHashReportOnlyOverride(
-				req["report_only_bucket"].asString(), req.get("report_only_on", true).asBool());
-		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
-		{
-			int* ctr = _game->getSavedGame()->getSavedBattle()->getCurrentItemId();
-			if (ctr)
-			{
-				if (req.isMember("set_item_counter")) *ctr = req["set_item_counter"].asInt();
-				resp["itemCounter"] = *ctr;
-			}
-		}
-		resp["hash"] = static_cast<Json::UInt64>(blob);
-		resp["us"] = static_cast<Json::UInt>(SharedEcon::battleHashLastSaveBlobUs());
-		resp["ok"] = okBlob;
-		// PRD-I4 authorized extra: the canonical, exclusion-stripped battle-document
-		// text the hash is taken over, so a saveBlob mismatch diagnosis = a diff of the
-		// two machines' dumps. Test-only; no wire change beyond this command.
-		if (req.get("text", false).asBool())
-		{
-			std::string dump;
-			resp["textOk"] = SharedEcon::computeSaveBlobText(_game, dump);
-			resp["text"] = dump;
-		}
 	}
 	else if (cmd == "battle_give")
 	{
@@ -4155,67 +3713,13 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				part["mapDataSetID"] = dsid;
 				resp["parts"][partNames[p]] = part;
 			}
-			// coop (PRD-I1 test): per-tile hazard read, so the seq-gate red/green
-			// can assert whether an injected set_fire_tile applied to THIS tile.
-			resp["fire"] = t->getFire();
-			resp["smoke"] = t->getSmoke();
-			resp["ok"] = true;
-		}
-	}
-	else if (cmd == "battle_camera")
-	{
-		// Point the map camera at <unit> (or an explicit x/y/z) and report whether
-		// it is on screen afterwards.
-		//
-		// PRD-P7 needs this: UnitWalkBState ALREADY runs an off-screen walk at
-		// interval 0 (nobody can see it), so a test that means to observe a slow
-		// walk - the fast-forward contention scenarios, and the client display lag
-		// the flow-control cap bounds - has to put the walker in view first.
-		// Nothing in the game replicates the camera, so each machine is aimed
-		// independently, which is exactly what a test of two players watching
-		// different things wants.
-		BattlescapeState* pbs = bstate;
-		Map* map = pbs ? pbs->getMap() : nullptr;
-		Camera* cam = map ? map->getCamera() : nullptr;
-		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
-		if (!cam)
-		{
-			resp["error"] = "no battlescape map";
-		}
-		else
-		{
-			Position at = unit ? unit->getPosition()
-							   : Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
-										  req.get("z", 0).asInt());
-			cam->centerOnPosition(at);
-			cam->setViewLevel(at.z);
-			// "visible": UnitWalkBState's on-screen test is
-			// `getVisible() && isOnScreen(...)`, and BattleUnit::_visible is only
-			// raised for a PLAYER unit that some player unit can actually SEE
-			// (TileEngine.cpp:1493). A driver the fixture teleported away from the
-			// squad is therefore invisible on the machine that does not own it,
-			// which silently puts its walk back on the interval-0 seam. The flag is
-			// display-only (Map drawing and the UI panels) and TileEngine raises it
-			// on its own the moment anybody sees the unit.
-			if (unit && req.get("visible", false).asBool())
-			{
-				unit->setVisible(true);
-			}
-			const int size = unit ? unit->getArmor()->getSize() - 1 : 0;
-			resp["x"] = at.x; resp["y"] = at.y; resp["z"] = at.z;
-			resp["visible"] = unit ? unit->getVisible() : false;
-			resp["onScreen"] = cam->isOnScreen(at, true, size, false);
 			resp["ok"] = true;
 		}
 	}
 	else if (cmd == "battle_fire")
 	{
 		// Fire <weapon_id> (or the main hand weapon) from <unit>. mode =
-		// snap|aimed|auto|launch|throw|hit|psi|panic. `hit` runs MeleeAttackBState
-		// and `psi`/`panic` run PsiAttackBState, so a test can drive the melee and
-		// psi coop packets (the only other producers of the replay handlers) -
-		// both need a unit standing ON the target tile. launch takes <waypoints>
-		// (a list of x/y/z) -
+		// snap|aimed|auto|launch. launch takes <waypoints> (a list of x/y/z) -
 		// exactly what a blaster launcher does. <hand> stamps
 		// BattlescapeState::_hand, which is what the coop packet reports as the
 		// firing hand. <tu> tops the actor's TU up first so the shot is never
@@ -4268,16 +3772,13 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		else if (mode == "auto") bt = BA_AUTOSHOT;
 		else if (mode == "launch") bt = BA_LAUNCH;
 		else if (mode == "throw") bt = BA_THROW;
-		else if (mode == "hit") bt = BA_HIT;
-		else if (mode == "psi") bt = BA_MINDCONTROL;
-		else if (mode == "panic") bt = BA_PANIC;
 
 		sbg->setSelectedUnit(unit);
 		BattleAction* a = bg->getCurrentAction();
 		a->actor = unit;
 		a->weapon = w;
 		a->type = bt;
-		a->targeting = (bt != BA_HIT);
+		a->targeting = true;
 		a->waypoints.clear();
 		Position target(req.get("x", 0).asInt(), req.get("y", 0).asInt(), req.get("z", 0).asInt());
 		int tid = req.get("target", -1).asInt();
@@ -4310,955 +3811,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["tuHave"] = unit->getTimeUnits();
 		resp["weaponId"] = w->getId();
 		resp["ammoId"] = w->getAmmoForAction(bt) ? w->getAmmoForAction(bt)->getId() : -1;
-		if (bt == BA_HIT)
-		{
-			// MeleeAttackBState dereferences the unit standing on the target tile;
-			// refuse rather than throw when there is nobody there.
-			Tile* tt = sbg->getTile(a->target);
-			if (!tt || !tt->getUnit())
-			{
-				resp["error"] = "melee target tile holds no unit";
-				return true;
-			}
-			bg->statePushBack(new UnitTurnBState(bg, *a));
-			bg->statePushBack(new MeleeAttackBState(bg, *a));
-		}
-		else if (bt == BA_MINDCONTROL || bt == BA_PANIC)
-		{
-			Tile* tt = sbg->getTile(a->target);
-			if (!tt || !tt->getUnit())
-			{
-				resp["error"] = "psi target tile holds no unit";
-				return true;
-			}
-			bg->statePushBack(new PsiAttackBState(bg, *a));
-		}
-		else
-		{
-			bg->statePushBack(new UnitTurnBState(bg, *a));
-			bg->statePushBack(new ProjectileFlyBState(bg, *a));
-		}
-		resp["ok"] = true;
-	}
-	else if (cmd == "battle_intent")
-	{
-		// PRD-P6: drive an action through the SAME door a UI confirm site uses -
-		// BattlescapeGame::coopRouteAction, then executeAction when it is not
-		// routed. On a parallel client that ships an `action_intent`; on the
-		// parallel host it runs the admission check and executes; in classic it
-		// just executes. `battle_action`/`battle_fire` deliberately still push
-		// BattleStates directly - they are the raw local-execution lever, which
-		// is what test_parallel_sharedturn's no-replication assertion needs.
-		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
-		if (!unit || !bg)
-		{
-			resp["error"] = "no unit id / no battle game";
-			return true;
-		}
-		const std::string what = req.get("action", "move").asString();
-		if (req.isMember("tu"))
-		{
-			unit->setTimeUnits(req["tu"].asInt());
-		}
-		// PRD-P9: energy too. A soak drives hundreds of walks, and a soldier out
-		// of ENERGY refuses to move just as surely as one out of TU - which made a
-		// scenario that meant to time a long walk quietly measure a walk that
-		// never happened.
-		if (req.isMember("energy"))
-		{
-			unit->setCoopEnergy(req["energy"].asInt());
-		}
-		// PRD-P2 (unit term): a TEST-ONLY one-sided status write, in the wire
-		// encoding (connectionTCP::unitstatusToInt). Nothing in the co-op protocol
-		// replicates a bare status assignment, so setting it on ONE machine moves
-		// that machine's `chkBattleUnits` and NOTHING else - which is precisely the
-		// bug shape the unit term exists to catch (a peer holding a unit on its
-		// feet that the executor has already killed). Pairs with `dry`.
-		if (req.isMember("status") && _game->getCoopMod())
-		{
-			unit->setCoopStatus(_game->getCoopMod()->intToUnitstatus(req["status"].asInt()));
-			resp["status"] = _game->getCoopMod()->unitstatusToInt(unit->getStatus());
-		}
-		if (bstate && req.isMember("hand"))
-		{
-			bstate->_hand = req["hand"].asString();
-		}
-
-		if (what == "probe_step")
-		{
-			// One RPC for "where can this unit actually walk?". The skirmish
-			// fixture packs the squad into the Skyranger, so a driver has to be
-			// found by trial - and probing tile by tile over the wire was slow
-			// enough to look like a hang.
-			//
-			// Refused while a chain is running: Pathfinding is a SINGLETON that
-			// the running UnitWalkBState dequeues from, so calculating a probe
-			// path mid-walk re-routes the unit that is already walking. The real
-			// capture site cannot hit this - mapClick returns early on isBusy().
-			if (bg->isBusy())
-			{
-				resp["error"] = "busy - probing would re-route the running walk";
-				return true;
-			}
-			const Position from = unit->getPosition();
-			const int radius = req.get("radius", 1).asInt();
-			Json::Value found(Json::arrayValue);
-			for (int r = 1; r <= radius; ++r)
-			{
-				for (int dx = -r; dx <= r; ++dx)
-				{
-					for (int dy = -r; dy <= r; ++dy)
-					{
-						if (std::max(std::abs(dx), std::abs(dy)) != r)
-							continue;
-						Position want(from.x + dx, from.y + dy, from.z);
-						bg->getPathfinding()->calculate(unit, want, BAM_NORMAL);
-						if (bg->getPathfinding()->getStartDirection() == -1)
-							continue;
-						Json::Value entry;
-						entry["x"] = want.x;
-						entry["y"] = want.y;
-						entry["z"] = want.z;
-						// De-flake additive fields (existing consumers ignore
-						// them): the RESOLVED path length from the unit's current
-						// tile to this candidate, and whether the candidate tile
-						// has a floor under it. A Chebyshev-adjacent tile whose
-						// DIRECT step is terrain-blocked resolves to a multi-step
-						// DETOUR (pathLen > 1); a TU-clamped unit then stops
-						// partway or falls a z-level at the detour's end, which
-						// the walk/race position asserts misread as a double
-						// execution. `pathLen == 1 && floorSafe` selects the
-						// clean single steps those asserts assume.
-						entry["pathLen"] = (int)bg->getPathfinding()->getPath().size();
-						const Tile* dt = sbg->getTile(want);
-						entry["floorSafe"] = (dt != nullptr) && !dt->hasNoFloor(sbg);
-						found.append(entry);
-						if (found.size() >= (Json::ArrayIndex)req.get("max", 1).asUInt())
-						{
-							resp["steps"] = found;
-							resp["ok"] = true;
-							return true;
-						}
-					}
-				}
-			}
-			resp["steps"] = found;
-			resp["ok"] = !found.empty();
-			if (found.empty())
-			{
-				resp["error"] = "unit can path nowhere";
-			}
-			return true;
-		}
-
-		BattleAction a;
-		a.actor = unit;
-		a.targeting = false;
-		a.target = Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(), req.get("z", 0).asInt());
-		int tid = req.get("target", -1).asInt();
-		if (tid != -1)
-		{
-			BattleUnit* tgt = findUnit(tid);
-			if (!tgt)
-			{
-				resp["error"] = "no target id";
-				return true;
-			}
-			a.target = tgt->getPosition();
-		}
-
-		BattleItem* w = nullptr;
-		int wid = req.get("weapon_id", -1).asInt();
-		if (wid != -1)
-		{
-			for (auto* bi : *sbg->getItems())
-				if (bi->getId() == wid) w = bi;
-		}
-		else
-		{
-			w = unit->getMainHandWeapon(false);
-			if (!w)
-			{
-				for (auto* bi : *unit->getInventory())
-				{
-					if (bi->getSlot() && (bi->getSlot()->getId() == "STR_RIGHT_HAND"
-						|| bi->getSlot()->getId() == "STR_LEFT_HAND"))
-					{
-						w = bi;
-						break;
-					}
-				}
-			}
-		}
-		a.weapon = w;
-
-		std::string kind = "other";
-		if (what == "move")
-		{
-			a.type = BA_WALK;
-			kind = "walk";
-			a.run = req.get("run", false).asBool();
-			a.strafe = req.get("strafe", false).asBool();
-			a.sneak = req.get("sneak", false).asBool();
-		}
-		else if (what == "turn")
-		{
-			a.type = BA_TURN;
-			kind = "turn";
-		}
-		else if (what == "kneel")
-		{
-			a.type = BA_KNEEL;
-			kind = "kneel";
-			a.weapon = nullptr;
-		}
-		else if (what == "throw")
-		{
-			a.type = BA_THROW;
-			kind = "throw";
-		}
-		else if (what == "melee")
-		{
-			a.type = BA_HIT;
-			kind = "melee";
-		}
-		else if (what == "psi")
-		{
-			a.type = req.get("mode", "").asString() == "panic" ? BA_PANIC : BA_MINDCONTROL;
-			kind = "psi";
-		}
-		else if (what == "prime")
-		{
-			a.type = req.get("unprime", false).asBool() ? BA_UNPRIME : BA_PRIME;
-			a.value = req.get("fuse", 0).asInt();
-			kind = "prime";
-		}
-		else if (what == "medikit")
-		{
-			a.type = BA_USE;
-			kind = "medikit";
-		}
-		else
-		{
-			const std::string mode = req.get("mode", "snap").asString();
-			a.type = mode == "aimed" ? BA_AIMEDSHOT : mode == "auto" ? BA_AUTOSHOT
-					 : mode == "launch" ? BA_LAUNCH : BA_SNAPSHOT;
-			kind = "shoot";
-			if (a.type == BA_LAUNCH)
-			{
-				a.waypoints.push_back(a.target);
-			}
-		}
-
-		if (kind != "walk" && kind != "turn" && kind != "kneel")
-		{
-			a.updateTU();
-		}
-		resp["tuCost"] = a.Time;
-		resp["tuHave"] = unit->getTimeUnits();
-		resp["weaponId"] = a.weapon ? a.weapon->getId() : -1;
-
-		if (kind == "walk" && !bg->isBusy())
-		{
-			// mapClick only reaches its capture site when a path exists, so this
-			// lever refuses the same way rather than shipping an unwalkable intent.
-			// Skipped while a chain runs, for the same singleton-Pathfinding reason
-			// probe_step refuses outright: mapClick cannot reach this code while
-			// busy either (it returns early on isBusy()), and the intent that
-			// follows is about to be denied `busy` by the arbiter anyway.
-			bg->getPathfinding()->calculate(a.actor, a.target, a.getMoveType());
-			if (bg->getPathfinding()->getStartDirection() == -1)
-			{
-				resp["error"] = "no path to target";
-				return true;
-			}
-		}
-
-		// dry: set the state up (notably <tu>) and report, route nothing. The only
-		// way a test can put the EXECUTOR's copy of a unit out of time units.
-		if (req.get("dry", false).asBool())
-		{
-			resp["routed"] = false;
-			resp["dry"] = true;
-			resp["ok"] = true;
-			return true;
-		}
-
-		bool routed = false;
-		if (kind == "medikit")
-		{
-			BattleUnit* patient = findUnit(req.get("patient", req.get("unit", -1).asInt()).asInt());
-			if (!patient)
-			{
-				resp["error"] = "no patient id";
-				return true;
-			}
-			const std::string mode = req.get("medikit", "heal").asString();
-			const int mmode = mode == "stim" ? BMA_STIMULANT
-							: mode == "pain" ? BMA_PAINKILLER : BMA_HEAL;
-			routed = bg->coopRouteMedikit(&a, patient, mmode, req.get("part", 0).asInt());
-			if (!routed)
-			{
-				a.coopTargetUnit = patient->getId();
-				a.coopMedikitMode = mmode;
-				a.coopBodyPart = req.get("part", 0).asInt();
-				bg->executeAction(a);
-			}
-		}
-		else
-		{
-			routed = bg->coopRouteAction(a, kind);
-			if (!routed)
-			{
-				bg->executeAction(a);
-			}
-		}
-		// true  = shipped as an intent (client) or refused admission (host)
-		// false = executed right here
-		resp["routed"] = routed;
-		resp["pendingReqId"] = static_cast<Json::UInt>(connectionTCP::_clientPendingReqId);
-		resp["ok"] = true;
-	}
-	else if (cmd == "parallel_state")
-	{
-		// PRD-P0 skeleton: the receive-gate readout plus the parallel-turns mode
-		// flag in one cheap query (battle_state also carries them, but it dumps
-		// every unit as well, which a per-frame poll should not pay for).
-		// Later PRDs append their own fields here: P6 actionSeq/pendingIntent/
-		// admitBlocked/pendingReqId, P7 fastForward/peerDisplayAckedSeq,
-		// P8 readySeats/autoSeats/sideSeq.
-		connectionTCP* pcoop = _game->getCoopMod();
-		// PRD-P5: the real predicate. `parallelEnabled` is the handshake mirror
-		// (connectionTCP::_enable_parallel_turns) and `clientInputBlocked` the
-		// temporary §4 input gate, so a test can tell "the mode is on" from "the
-		// mode is on AND this machine is the one that may not act".
-		resp["parallelActive"] = connectionTCP::parallelTurnActive();
-		resp["parallelEnabled"] = connectionTCP::_enable_parallel_turns;
-		resp["clientInputBlocked"] = connectionTCP::parallelInputBlocked();
-		{
-			std::string warn;
-			std::string waitBanner;
-			if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle()
-				&& _game->getSavedGame()->getSavedBattle()->getBattleState())
-			{
-				BattlescapeState* pbs = _game->getSavedGame()->getSavedBattle()->getBattleState();
-				warn = pbs->getCoopWarningText();
-				// coop (parallel turns): the persistent "Please wait for <player>'s
-				// action" banner text ("" when hidden). Separate field from `warning`
-				// because it lives on its own widget, not the fading _warning one.
-				waitBanner = pbs->getCoopWaitText();
-			}
-			resp["warning"] = warn;
-			resp["coopWaitBanner"] = waitBanner;
-			resp["lastDenyWarning"] = pcoop ? pcoop->_clientLastDenyWarning : std::string();
-		}
-		resp["taskCompleted"] = pcoop ? pcoop->coopTaskCompleted() : true;
-		// PRD-P6 pre-task: the gate is a depth counter now. A chain that leaks a
-		// hold shows up here as a depth that never returns to 0.
-		resp["taskDepth"] = pcoop ? pcoop->coopTaskDepth() : 0;
-		resp["pathLock"] = pcoop ? pcoop->_pathLock : -1;
-		resp["coopWalkInit"] = pcoop ? pcoop->_coopWalkInit : false;
-		resp["coopInitDeath"] = pcoop ? pcoop->_coopInitDeath : false;
-		// coop (Class-A soak wedge fix, A1): the auto-shot pacing wait + its liveness
-		// escape. `coopPacingWait` is 1 while a multi-shot replay is parked on the
-		// host's flip packet (the state that, unrescued, holds the receive gate for the
-		// whole rest of the battle); `forceDrainCount` is the monotonic number of times
-		// the RX pump's stall floor had to force that wait to end - 0 across a clean
-		// run, non-zero only when a real wedge was broken.
-		resp["coopPacingWait"] = pcoop ? pcoop->_coopPacingWait : false;
-		resp["forceDrainReplay"] = pcoop ? pcoop->_coopForceDrainReplay : false;
-		resp["forceDrainCount"] = static_cast<Json::UInt>(pcoop ? pcoop->_coopForceDrainCount : 0);
-		resp["coopEnd"] = pcoop ? pcoop->_coopEnd : 0;
-		// coop (PRD-I3 Option D-lite): the pending deferred turn-machine advance
-		// (1 while a neutral->player advance waits for its next_turn, else 0).
-		resp["turnAdvanceDeferred"] = connectionTCP::_turnAdvanceDeferred;
-		// coop (PRD-I3 rider): monotonic arm count - poll-timing-robust (the bool above
-		// can arm and clear inside one next_turn window a test poll misses).
-		resp["turnAdvanceDeferredCount"] = connectionTCP::_turnAdvanceDeferredCount;
-		resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
-		// PRD-P9 R7: packets set aside by a permanent exclusion instead of being
-		// rotated forever. Nothing is lost - they re-enter g_rxHold at the front.
-		resp["rxPark"] = static_cast<Json::UInt>(rxParkSize());
-		// coop (option 3B): the remaining LIVE pending-to-apply depths, so the repro
-		// settle can prove "nothing left to apply" (NOT the cumulative counters).
-		// rxQDepth = already-parsed messages waiting for the game thread; snapPending =
-		// conflation slots still holding an un-applied last-write-wins snapshot.
-		resp["rxQDepth"] = static_cast<Json::UInt>(g_rxQ.size());
-		resp["snapPending"] = static_cast<Json::UInt>(snapshotPendingCount());
-		resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
-		resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
-		// PRD-P11: the in-order pump. `rxSkippedBlocked` counts packets the gate
-		// would have let through but that waited for an earlier packet about the
-		// same unit; `rxLegacyPasses` counts liveness-floor engagements and is
-		// expected to stay 0. `trace: true` returns the applied-packet ring, which
-		// is the only way to assert ORDER rather than end state.
-		resp["rxSkippedBlocked"] = static_cast<Json::UInt>(g_rxSkipBlocked.load());
-		resp["rxLegacyPasses"] = static_cast<Json::UInt>(g_rxLegacyPasses.load());
-		// coop (LIVENESS FLOOR ordering-preserving drain): stage-2 hard-floor engagements
-		// (the legacy full-disable backstop). 0 with rxLegacyPasses > 0 AND zero four-bucket
-		// mismatch = the ordering-preserving drain carried the whole load = the fix working.
-		resp["rxHardFloorPasses"] = static_cast<Json::UInt>(g_rxHardFloorPasses.load());
-		// coop (wire-order Increment 7, SHAPE A diagnostic): host regen-carry elements
-		// emitted vs client elements applied. On a firing run, emitted>0 & applied>0 =>
-		// mechanism runs (residual is timing); applied==0 => not reaching the sampler.
-		resp["regenEmitted"] = static_cast<Json::UInt>(g_regenEmitted.load());
-		resp["regenApplied"] = static_cast<Json::UInt>(g_regenApplied.load());
-		resp["diagCapture"] = g_diagCapture.load(std::memory_order_relaxed);
-		{
-			Json::Value dt(Json::arrayValue);
-			std::lock_guard<std::mutex> lk(g_diagTraceMutex);
-			for (const auto& s : g_diagTrace) dt.append(s);
-			resp["diagTrace"] = dt;
-		}
-		resp["rxTestHold"] = g_rxTestHold.load();
-		resp["rxDrainDisable"] = g_rxDrainDisable.load();
-		resp["rxForceFloor"] = g_rxForceFloor.load();
-		resp["rxSideBarrierDisable"] = g_rxSideBarrierDisable.load();
-		// coop (wire-order report alignment, Phase 2): the master lever readback.
-		resp["wireOrderState"] = g_wireOrderState.load();
-		// coop (option 3, 2d): boundary-persistence-alarm introspection.
-		resp["syncBoundaryPending"] = static_cast<Json::UInt64>(SharedEcon::syncBoundaryPendingSize());
-		resp["syncBoundaryHealed"] = static_cast<Json::UInt64>(SharedEcon::syncBoundaryHealed());
-		resp["syncBoundaryPersistAlarms"] = static_cast<Json::UInt64>(SharedEcon::syncBoundaryPersistAlarms());
-		resp["syncBoundaryUnresolved"] = static_cast<Json::UInt64>(SharedEcon::syncBoundaryUnresolved());
-		// coop DIAGNOSTIC (reject-set audit): [unitId, inSide, inSeq, recSide, recSeq, recRank] per rejected next_turn write.
-		{
-			Json::Value ntr(Json::arrayValue);
-			for (const auto& r : coopWmDbgRejects())
-			{
-				Json::Value row(Json::arrayValue);
-				for (int k = 0; k < 6; ++k) row.append(static_cast<Json::UInt>(r[k]));
-				ntr.append(row);
-			}
-			resp["nextTurnRejects"] = ntr;
-		}
-		// coop (parallel battlescape Phase 1 - per-unit state watermark): stamped
-		// per-unit writes dropped because their stamp was < the unit's recorded
-		// watermark. Total + per-rank (0=snapshot/next_turn, 1=chain carrier,
-		// 2=casualty, unused until Phase 2). `deathWatermarkDisable` is the
-		// TEST-ONLY lever that skips the check entirely (writes always apply).
-		resp["stateWatermarkRejects"] = static_cast<Json::UInt>(g_stateWatermarkRejects.load());
-		resp["stateWatermarkRejectsRank0"] = static_cast<Json::UInt>(g_stateWatermarkRejectsRank0.load());
-		resp["stateWatermarkRejectsRank1"] = static_cast<Json::UInt>(g_stateWatermarkRejectsRank1.load());
-		resp["stateWatermarkRejectsRank2"] = static_cast<Json::UInt>(g_stateWatermarkRejectsRank2.load());
-		resp["deathWatermarkDisable"] = g_deathWatermarkDisable.load();
-		// coop (parallel battlescape Phase 2b - atomic unit death): `unit_casualty`
-		// apply/reject counts (the reject path is the SAME rank-2 watermark as
-		// above, just its own counter) and the TEST-ONLY RED lever that falls back
-		// to the legacy unit_death/after_unit_death trio (corpseReplayArmed/
-		// corpseRemapArmed, emitted elsewhere in this response, MUST stay at their
-		// pre-battle value on the atomic path - it never arms those windows).
-		resp["casualtiesApplied"] = static_cast<Json::UInt>(g_casualtiesApplied.load());
-		resp["casualtiesRejected"] = static_cast<Json::UInt>(g_casualtiesRejected.load());
-		resp["atomicDeathDisable"] = g_atomicDeathDisable.load();
-		resp["deathGhostDisable"] = g_deathGhostDisable.load();
-		// coop (explosion ordered-replay E0 - LEAK-OBJ): objectiveLeakBlocked counts
-		// addDestroyedObjective() calls the client's coop gate refused (see
-		// SavedBattleGame.cpp); objectiveGateDisable is the TEST-ONLY RED lever that
-		// reverts the gate; explosionReplayDisable is the E0 introspection-only lever
-		// for the (E1-enforcing) ordered-explosion-sim path.
-		resp["objectiveLeakBlocked"] = static_cast<Json::UInt>(g_objectiveLeakBlocked.load());
-		resp["objectiveGateDisable"] = g_objectiveGateDisable.load();
-		resp["explosionReplayDisable"] = g_explosionReplayDisable.load();
-		// coop (explosion ordered-replay E1): explosionsDisplayOnly counts ExplosionBState
-		// instances that ran display-only on the parallel client; explodeCallsSuppressed
-		// counts how many of those suppressed the single explode() ray-trace call (init()).
-		// Both climb only while explosionReplayDisable is off.
-		resp["explosionsDisplayOnly"] = static_cast<Json::UInt>(g_explosionsDisplayOnly.load());
-		resp["explodeCallsSuppressed"] = static_cast<Json::UInt>(g_explodeCallsSuppressed.load());
-		// coop (explosion ordered-replay E2): chainDetonationsSent/Applied are process-local
-		// counters - a parallel host counts the chain_detonation packets it SHIPPED (its own
-		// checkForTerrainExplosions scan order), a parallel client counts the ones it APPLIED.
-		// They should match at side close on the sending/receiving pair. chainDetonationList
-		// is the same data as [x,y,z] tuples (host = send order, client = apply order) so a
-		// fixture can assert ORDER, not just count.
-		resp["chainDetonationsSent"] = static_cast<Json::UInt>(g_chainDetonationsSent.load());
-		resp["chainDetonationsApplied"] = static_cast<Json::UInt>(g_chainDetonationsApplied.load());
-		resp["chainDetonationList"] = chainDetonationListDump(0);
-		// coop (explosion ordered-replay E4): TEST-ONLY RED lever for the LEAK-GRAV
-		// derive (parallel_state.gravityDeriveDisable).
-		resp["gravityDeriveDisable"] = g_gravityDeriveDisable.load();
-		// coop (explosion ordered-replay E5a GAP-MODULE): moduleDestroyedSent/Applied
-		// are process-local counters, same shape as chainDetonationsSent/Applied above -
-		// a parallel host counts the module_destroyed packets it SHIPPED (one per
-		// detonate-path base-module decrement), a parallel client counts the ones it
-		// APPLIED. Should match at side close.
-		resp["moduleDestroyedSent"] = static_cast<Json::UInt>(g_moduleDestroyedSent.load());
-		resp["moduleDestroyedApplied"] = static_cast<Json::UInt>(g_moduleDestroyedApplied.load());
-		// coop (chain-atomicity D.3b): the chained-terrain pacing race counters. Parks +
-		// consumes are the bug (0 after the _explosionCounter==0 gate + per-instance flag);
-		// diverted proves the fix engaged on a real opportunity.
-		resp["terrainPacingParks"] = static_cast<Json::UInt>(g_coopTerrainPacingParks);
-		resp["terrainPacingConsumes"] = static_cast<Json::UInt>(g_coopTerrainPacingConsumes);
-		resp["terrainPacingDiverted"] = static_cast<Json::UInt>(g_coopTerrainPacingDiverted);
-		// PRD-I1: whitelisted outcome packets held for their own chain's opener
-		// (chain isolation). Expected > 0 on a lagging client, 0 on the executor.
-		resp["rxSeqDeferred"] = static_cast<Json::UInt>(g_rxSeqDeferred.load());
-		resp["barrierBlocks"] = static_cast<Json::UInt>(g_barrierBlocks.load()); // PHASE D.1
-		// coop (chain-atomicity Strand B): side-barrier introspection. holds = passes the
-		// whitelisted endTurn was held for a still-deferred current-side stamped packet;
-		// releases = held endTurns that consumed once side S drained (liveness proof);
-		// hardReleases = held endTurns forced through by the kRxDrainHardFloorMs escape
-		// (0 = the ordered drain always released the token in time).
-		resp["sideBarrierHolds"] = static_cast<Json::UInt>(g_sideBarrierHolds.load());
-		resp["sideBarrierReleases"] = static_cast<Json::UInt>(g_sideBarrierReleases.load());
-		resp["sideBarrierHardReleases"] = static_cast<Json::UInt>(g_sideBarrierHardReleases.load());
-		// coop (chain-atomicity Strand A): midSideDeaths = mid-side (non-boundary) host
-		// deaths seen; midSideDeathsUnstamped = how many shipped _openChainSeq==0 (the
-		// Strand-A bug; must be 0 post-fix, boundary deaths excluded).
-		resp["midSideDeaths"] = static_cast<Json::UInt>(g_coopMidSideDeaths.load());
-		resp["midSideDeathsUnstamped"] = static_cast<Json::UInt>(g_coopMidSideDeathsUnstamped.load());
-		if (req.get("trace", false).asBool())
-		{
-			resp["rxTrace"] = rxAppliedTrace(
-				static_cast<size_t>(req.get("traceLimit", 64).asUInt()));
-		}
-		if (req.get("dump_hold", false).asBool())
-		{
-			resp["holdDump"] = rxHoldDump(
-				static_cast<size_t>(req.get("dumpLimit", 40).asUInt()));
-		}
-		// PRD-P6: the action-intent arbiter. `actionSeq`/`sideSeq` are the host's
-		// counters (the client mirrors what it is told), `admitBlocked` names the
-		// first canAdmitAction() term that said no ("" = it said yes), and the two
-		// pending readouts are the host's admitted slot and the client's
-		// outstanding request.
-		resp["actionSeq"] = static_cast<Json::UInt>(connectionTCP::_actionSeq);
-		resp["sideSeq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
-		resp["peerDisplayAckedSeq"] = static_cast<Json::UInt>(connectionTCP::peerDisplayAckedSeq);
-		resp["sideCommit"] = connectionTCP::_sideCommitInProgress;
-		resp["canAdmit"] = connectionTCP::canAdmitAction();
-		resp["admitBlocked"] = connectionTCP::_admitBlocked;
-		resp["pendingIntent"]["reqId"] = static_cast<Json::UInt>(connectionTCP::_intentSlotReqId);
-		resp["pendingIntent"]["seat"] = connectionTCP::_intentSlotSeat;
-		resp["pendingIntent"]["kind"] = connectionTCP::_intentSlotKind;
-		resp["pendingReqId"] = static_cast<Json::UInt>(connectionTCP::_clientPendingReqId);
-		resp["pendingKind"] = connectionTCP::_clientPendingKind;
-		// CLIENT: why its last intent was refused. The flash fades (and is
-		// swallowed outright off the player side), so this is the only stable
-		// readout of a deny REASON. `clear_deny` resets it.
-		resp["lastDenyReason"] = connectionTCP::_clientLastDenyReason;
-		resp["lastDenyWarning"] = connectionTCP::_clientLastDenyWarning;
-		if (req.get("clear_deny", false).asBool())
-		{
-			connectionTCP::clearClientLastDeny();
-		}
-		// coop (Class-A soak wedge fix, A3 test lever): override the peer-liveness
-		// firing bar so the red-capability test fires in seconds rather than the shipped
-		// tens of seconds. setLivenessGap 0 / setLivenessStallMs < 0 restore the defaults.
-		if (req.isMember("setLivenessGap") || req.isMember("setLivenessStallMs"))
-		{
-			SharedEcon::setPeerLivenessThresholds(
-				static_cast<std::uint32_t>(req.get("setLivenessGap", 0).asUInt()),
-				static_cast<std::int64_t>(req.get("setLivenessStallMs", -1).asInt64()));
-		}
-		// coop (Class-A soak wedge fix, A1 test lever): arm the auto-shot pacing wait
-		// directly on this (client) machine so the RX pump's force-drain floor can be
-		// exercised deterministically - a real ExplosionBState wait requires a shot that
-		// hits a unit mid-multi-shot with the host's flip withheld, which no fixture can
-		// stage reliably. `false` clears the wait AND any raised drain flag, so a stale
-		// escape can never leak onto a subsequent real shot.
-		if (req.isMember("armPacingWait") && pcoop)
-		{
-			pcoop->_coopPacingWait = req.get("armPacingWait", false).asBool();
-			if (!pcoop->_coopPacingWait) pcoop->_coopForceDrainReplay = false;
-		}
-		// coop (LIVENESS FLOOR ordering-preserving drain, TEST-ONLY levers): park the
-		// receive pump's consumption by emulating a permanently-busy display for the gate
-		// only (whitelisted carriers keep flowing, action_end markers hold), so the
-		// 600-tick liveness floor can be tripped ON DEMAND mid-alien-side with a backlog of
-		// death/terrain carriers queued. `rx_drain_disable` forces the floor back to its
-		// legacy full-disable path so the SAME build measures the pre-fix out-of-order burst
-		// (red) against the ordering-preserving drain (green).
-		if (req.isMember("rx_hold"))
-		{
-			g_rxTestHold.store(req.get("rx_hold", false).asBool(), std::memory_order_relaxed);
-		}
-		if (req.isMember("rx_drain_disable"))
-		{
-			g_rxDrainDisable.store(req.get("rx_drain_disable", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		if (req.isMember("rx_force_floor"))
-		{
-			g_rxForceFloor.store(req.get("rx_force_floor", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		// coop (chain-atomicity Strand B, TEST-ONLY): disable just the side barrier so the
-		// same build measures the pre-fix stale-side straddle (red) vs barrier-held (green).
-		if (req.isMember("rx_side_barrier_disable"))
-		{
-			g_rxSideBarrierDisable.store(req.get("rx_side_barrier_disable", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		// coop (wire-order report alignment, Phase 2): flip the wire-order state-apply lever.
-		if (req.isMember("wire_order_state"))
-		{
-			g_wireOrderState.store(req.get("wire_order_state", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		// coop (parallel battlescape Phase 1, TEST-ONLY): disable the per-unit state
-		// watermark check so the SAME build measures the pre-fix stale-snapshot
-		// overwrite (red) against the watermark-held ordering (green).
-		if (req.isMember("death_watermark_disable"))
-		{
-			g_deathWatermarkDisable.store(req.get("death_watermark_disable", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		// coop (parallel battlescape Phase 2b, TEST-ONLY): disable the atomic
-		// `unit_casualty` path so the SAME build measures the pre-atomic legacy
-		// unit_death/after_unit_death transient straddle (red) against the atomic
-		// apply (green). HOST: falls back to sending the legacy trio. CLIENT: the
-		// legacy handlers' early-returns stand down, so it processes the trio again.
-		if (req.isMember("atomic_death_disable"))
-		{
-			g_atomicDeathDisable.store(req.get("atomic_death_disable", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		// coop (explosion ordered-replay E0, TEST-ONLY RED lever): reverts the
-		// LEAK-OBJ gate so the SAME build measures the pre-fix client-side
-		// objective-counter inflation (red) against the gated behavior (green).
-		// coop (parallel battlescape Phase 2c, TEST-ONLY RED lever): disable the
-		// death-ghost animation so coopQueueDeathGhost reverts to the Phase-2b stub
-		// (instant complete, corpse visible at apply) - the SAME build reproduces the
-		// pre-ghost "corpse just appears" behaviour (red) against the collapse (green).
-		if (req.isMember("death_ghost_disable"))
-		{
-			g_deathGhostDisable.store(req.get("death_ghost_disable", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		// coop (three-class RCA DIAGNOSTIC): arm/disarm the capture-gated tagged write log.
-		if (req.isMember("diag_capture"))
-		{
-			g_diagCapture.store(req.get("diag_capture", false).asBool(),
-				std::memory_order_relaxed);
-			if (!g_diagCapture.load(std::memory_order_relaxed))
-			{
-				std::lock_guard<std::mutex> lk(g_diagTraceMutex);
-				g_diagTrace.clear();
-			}
-		}
-		if (req.isMember("diag_heavy"))
-			g_diagHeavy.store(req.get("diag_heavy", false).asBool(), std::memory_order_relaxed);
-		if (req.isMember("objective_gate_disable"))
-		{
-			g_objectiveGateDisable.store(req.get("objective_gate_disable", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		// coop (explosion ordered-replay E0, TEST-ONLY): E0 only stores + surfaces
-		// this lever (parallel_state.explosionReplayDisable); it is wired to force
-		// the legacy (non-ordered) explosion sim path in E1.
-		if (req.isMember("explosion_replay_disable"))
-		{
-			g_explosionReplayDisable.store(req.get("explosion_replay_disable", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		// coop (explosion ordered-replay E4, TEST-ONLY RED lever): disables the
-		// LEAK-GRAV derive so the SAME build measures the pre-derive hover (red)
-		// against the gated (green) behavior.
-		if (req.isMember("gravity_derive_disable"))
-		{
-			g_gravityDeriveDisable.store(req.get("gravity_derive_disable", false).asBool(),
-				std::memory_order_relaxed);
-		}
-		// coop (parallel battlescape Phase 1, TEST-ONLY SYNTHETIC RED lever): re-run
-		// the last applied next_turn snapshot's per-unit loop once, immediately. With
-		// the watermark ON, every unit that has since taken a stamped hit is rejected
-		// (stateWatermarkRejects > 0, state unchanged). With death_watermark_disable
-		// ON, the stale snapshot overwrites - the divergence this whole phase exists
-		// to prevent. Never reachable outside this command.
-		if (req.get("replay_last_next_turn", false).asBool() && pcoop)
-		{
-			pcoop->coopDebugReplayLastNextTurn();
-		}
-		// PRD-P7: walk fast-forward + display flow control.
-		//   fastForward     - is the walk/turn/fall interval pinned to 0 right now
-		//   chainSkippable  - would a new input be DEFERRED rather than refused
-		//   openChainSeq    - HOST: the admitted chain still owing an `action_end`
-		//   displaySeq      - CLIENT: the chain it has finished displaying
-		//   displayBacklog  - HOST: admitted-but-undisplayed chains; the arbiter
-		//                     refuses at 2, so this is the bound the skew test reads
-		//   pendingAdmits   - the deferred inputs, one slot per seat
-		{
-			SavedBattleGame* pbattle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
-			BattlescapeGame* pbg = pbattle ? pbattle->getBattleGame() : nullptr;
-			resp["fastForward"] = pbg ? pbg->getCoopFastForward() : false;
-			resp["chainSkippable"] = pbg ? pbg->chainIsSkippable() : false;
-			// coop (parallel battlescape Phase 2c - death ghost): the client-side death
-			// animation queue. deathGhosts = per-ghost DISPLAY state (active first, then
-			// pending) so a fixture can assert the collapse sequence against the armor's
-			// getDeathFrames(); deathGhostsPending = still-animating count; completed =
-			// finished so far (== kills once the battle's animations drain).
-			resp["deathGhosts"] = pbg ? pbg->coopDeathGhostsJson() : Json::Value(Json::arrayValue);
-			resp["deathGhostsPending"] = static_cast<Json::UInt>(pbg ? pbg->coopDeathGhostsPending() : 0);
-			resp["deathGhostsCompleted"] = static_cast<Json::UInt>(pbg ? pbg->coopDeathGhostsCompleted() : 0);
-		}
-		resp["pendBlocked"] = connectionTCP::_pendBlocked;
-		resp["openChainSeq"] = static_cast<Json::UInt>(connectionTCP::_openChainSeq);
-		resp["displaySeq"] = static_cast<Json::UInt>(connectionTCP::_clientDisplaySeq);
-		resp["displayBacklog"] = static_cast<Json::UInt>(
-			connectionTCP::_actionSeq > connectionTCP::peerDisplayAckedSeq
-				? connectionTCP::_actionSeq - connectionTCP::peerDisplayAckedSeq : 0);
-		// TEST-ONLY `hold_action_done` lever: is this machine parking its
-		// `action_done` reports, and how many it has parked since the hold was
-		// engaged. A held count of 0 means nothing finished displaying, so a
-		// drain-barrier assertion resting on it would be vacuous.
-		resp["holdActionDone"] = connectionTCP::_testHoldActionDone;
-		resp["heldActionDones"] = static_cast<Json::UInt>(connectionTCP::_heldActionDones);
-		Json::Value pend(Json::arrayValue);
-		for (const auto& slot : connectionTCP::_pendingAdmits)
-		{
-			Json::Value js;
-			js["reqId"] = static_cast<Json::UInt>(slot.reqId);
-			js["seat"] = slot.seat;
-			js["kind"] = slot.kind;
-			js["local"] = slot.local;
-			pend.append(js);
-		}
-		resp["pendingAdmits"] = pend;
-		// PRD-P8: the end-turn readiness tally.
-		//   readySeats / autoSeats - the two seat-indexed bits, as seat lists
-		//   readyCount / seatCount - the tally the UI renders ("END TURN r/n")
-		//   commitBlocked          - why coopCheckSideCommit() last refused
-		//                            ("" = it did not, or it committed)
-		//   reserve / kneelReserve - this machine's OWN reserve, which parallel
-		//                            mode stops mirroring across the wire
-		//   chainReserve*          - the reserve override the running client
-		//                            intent installed (-1 = none)
-		connectionTCP::ensureEndTurnSeats();
-		{
-			const int seats = std::max(1, connectionTCP::seatCount());
-			Json::Value ready(Json::arrayValue), autos(Json::arrayValue);
-			for (int s = 0; s < seats; ++s)
-			{
-				if (connectionTCP::_endTurnReady[(size_t)s]) ready.append(s);
-				if (connectionTCP::_endTurnAuto[(size_t)s]) autos.append(s);
-			}
-			resp["readySeats"] = ready;
-			resp["autoSeats"] = autos;
-			resp["readyCount"] = connectionTCP::endTurnReadyCount();
-			resp["seatCount"] = seats;
-			resp["allReady"] = connectionTCP::endTurnAllReady();
-			resp["localSeat"] = connectionTCP::localSeat();
-			resp["localReady"] = connectionTCP::endTurnSeatReady(connectionTCP::localSeat());
-		}
-		resp["commitBlocked"] = connectionTCP::_commitBlocked;
-		// PRD-I0: the per-action sync-check.
-		//   lastSeq / lastComparedSeq - the deferred loop. On the HOST these close
-		//                     on each other as the peer's `action_done` reports come
-		//                     back; a lastComparedSeq that stops chasing lastSeq
-		//                     means the reports stopped.
-		//   ringDepth       - remembered "state after N" entries (max 64)
-		//   buckets         - {alarm, mismatchCount} per bucket; `alarm` is the
-		//                     compile-time promotion table (all false at I0 birth)
-		//   mismatches      - the last 32, each naming seq + kind + bucket
-		//   sweepUs         - cost of the last computeBattleHashes() sweep
-		SharedEcon::syncCheckReport(resp);
-		resp["boundarySeq"] = static_cast<Json::UInt>(connectionTCP::_boundarySeq);
-		resp["reserve"] = (int)sbg->getTUReserved();
-		resp["kneelReserve"] = sbg->getKneelReserved();
-		resp["chainReserve"] = bg ? bg->coopChainReserveMode() : -1;
-		resp["chainReserveUnit"] = bg ? bg->coopChainReserveUnit() : -1;
-		resp["ok"] = true;
-	}
-	else if (cmd == "unit_stats_full")
-	{
-		// PRD-I3 SEAM-7 probe: the FULL unitsStats bucket field vector per unit
-		// (tu/energy/health/stun/morale/mana/fire/kneeled/mind-controller id + the
-		// six per-part fatal-wound counters w0..w5) - every field
-		// computeBattleHashes() mixes into the unitsStats sum, so a live cross-machine
-		// diff at a settle point names the field the bucket hash only counts. The
-		// existing battle_state.units probe omits fire/kneeled/mana/MC/per-part wounds.
-		// Introspection only; `{"id": N}` narrows to one unit.
-		int onlyId = req.get("id", -1).asInt();
-		Json::Value units;
-		SharedEcon::unitStatsFullJson(_game, units, onlyId);
-		resp["units"] = units;
-		resp["ok"] = true;
-	}
-	else if (cmd == "sync_capture")
-	{
-		// PRD-I3 SEAM-7: arm/disarm the opt-in per-mismatch field capture. When ON
-		// (set on BOTH machines), the client attaches its full unit-field vector to
-		// each action_done (`uv`) and the host stashes its own into the sync ring, so a
-		// unitsStats mismatch is diffed field-by-field into syncCheck.fieldDiffs. OFF
-		// by default = zero wire delta. `{"on": bool}` (omitted = true).
-		// coop (PHASE D.1, block-edit into an existing command - NO new top-level branch):
-		// {"strict": bool} toggles the strict-compare BURN-IN lever, disabling the
-		// terrain/unitsCore/items/itemIdCtr alien+endturn side-gates AND the items/saveBlob
-		// corpsePending skips so those buckets compare STRICTLY at every seq. Independent of
-		// the SEAM-7 field-capture toggle; a request may carry either key or both. The legacy
-		// shapes (`sync_capture` / `{on:...}`) keep their exact behaviour.
-		if (req.isMember("strict"))
-		{
-			SharedEcon::setStrictBurnIn(req["strict"].asBool());
-		}
-		if (req.isMember("on") || !req.isMember("strict"))
-		{
-			SharedEcon::setSyncFieldCapture(req.get("on", true).asBool());
-		}
-		resp["fieldCapture"] = SharedEcon::syncFieldCapture();
-		resp["strictBurnIn"] = SharedEcon::strictBurnIn();
-		resp["ok"] = true;
-	}
-	else if (cmd == "terrain_capture")
-	{
-		// PRD-I3 SEAM-3: arm/disarm the opt-in terrain vector capture. When ON (set on
-		// BOTH machines) each machine stashes its FULL non-void tile vector at every
-		// hash point (host ring entry + client emit) into a bounded local ring. Unlike
-		// sync_capture there is NO wire delta - the vector is too big to ship, so the
-		// harness pulls BOTH machines' vectors back via tile_terrain_full {seq} and
-		// diffs them offline. OFF by default. `{"on": bool}` (omitted = true).
-		bool on = req.get("on", true).asBool();
-		SharedEcon::setSyncTerrainCapture(on);
-		resp["terrainCapture"] = SharedEcon::syncTerrainCapture();
-		resp["ok"] = true;
-	}
-	else if (cmd == "tile_terrain_full")
-	{
-		// PRD-I3 SEAM-3 probe/dump. Three modes:
-		//   {}                     -> LIVE full non-void tile vector (the current terrain
-		//                             bucket field set per tile + a diagnostic UFO-door
-		//                             bitmask the bucket is blind to - answers VERIFY-1).
-		//   {"index": N}           -> LIVE, narrowed to one tile.
-		//   {"seq": N[, "boundary": b][, "side_seq": s]}
-		//                          -> the CAPTURED vector for that recorded seq from the
-		//                             local ring (armed capture only), for the offline diff.
-		//   {"list": true}         -> the seqs currently held in the capture ring.
-		if (req.get("list", false).asBool())
-		{
-			Json::Value seqs;
-			SharedEcon::terrainCaptureSeqsJson(seqs);
-			resp["captured"] = seqs;
-			resp["ok"] = true;
-		}
-		else if (req.isMember("seq"))
-		{
-			std::uint32_t seq = static_cast<std::uint32_t>(req["seq"].asUInt());
-			bool boundary = req.get("boundary", false).asBool();
-			int sideSeq = req.get("side_seq", -1).asInt();
-			Json::Value dump;
-			if (SharedEcon::terrainCaptureDumpJson(seq, boundary, sideSeq, dump))
-			{
-				resp["dump"] = dump;
-				resp["ok"] = true;
-			}
-			else
-			{
-				resp["error"] = "no captured terrain vector for that seq";
-				resp["ok"] = false;
-			}
-		}
-		else
-		{
-			int onlyIndex = req.get("index", -1).asInt();
-			Json::Value tiles;
-			SharedEcon::tileTerrainFullJson(_game, tiles, onlyIndex);
-			resp["tiles"] = tiles;
-			resp["tileCount"] = static_cast<Json::UInt>(tiles.size());
-			resp["ok"] = true;
-		}
-	}
-	else if (cmd == "find_explosive_parts")
-	{
-		// SEAM-3 (b) locator: every tile whose MCD part carries a non-zero explosive
-		// property (UFO power sources et al.) - the terrain parts whose destruction
-		// exercises the destroy_tile explosive path. Read-only.
-		Json::Value hits(Json::arrayValue);
-		const int tileCount = sbg->getMapSizeXYZ();
-		for (int i = 0; i < tileCount; ++i)
-		{
-			Tile* tl = sbg->getTile(i);
-			if (!tl) continue;
-			for (int p = 0; p <= O_OBJECT; ++p)
-			{
-				MapData* md = tl->getMapData((TilePart)p);
-				if (md && md->getExplosive() > 0)
-				{
-					Json::Value h;
-					h["x"] = tl->getPosition().x;
-					h["y"] = tl->getPosition().y;
-					h["z"] = tl->getPosition().z;
-					h["index"] = i;
-					h["part"] = p;
-					h["explosive"] = md->getExplosive();
-					h["explosiveType"] = md->getExplosiveType();
-					hits.append(h);
-				}
-			}
-		}
-		resp["hits"] = hits;
-		resp["count"] = static_cast<Json::UInt>(hits.size());
-		resp["ok"] = true;
-	}
-	else if (cmd == "hold_action_done")
-	{
-		// TEST-ONLY observability lever for PRD-P8's end-turn drain barrier.
-		//
-		// The barrier holds the side commit until the peer reports every admitted
-		// chain DISPLAYED (`action_done`). Producing an undisplayed backlog by
-		// making the client slow does not work: battleXcomSpeed paces only
-		// UnitWalk/UnitTurn/UnitFall, which PRD-P7's client fast-forward pins to
-		// interval 0 anyway, and ProjectileFlyBState uses its own fixed interval
-		// and never reads the option - so the real window is one network round
-		// trip (~200 ms) and no fixture can widen it. This holds the report
-		// instead: `{hold:true}` parks it, `{hold:false}` ships the newest parked
-		// seq immediately (main thread, same emit point as the live path).
-		const bool want = req.get("hold", true).asBool();
-		// coop (Class-A soak wedge fix, A3): `{boundary:true}` parks ONLY the boundary
-		// answer (coopEmitBoundaryDone), leaving the per-chain report flowing - so the
-		// host keeps committing and crossing boundaries while its
-		// g_syncLastComparedBoundarySeq freezes, the exact peer-went-dark-on-boundaries
-		// condition the liveness tripwire detects, forced deterministically.
-		const bool boundaryOnly = req.get("boundary", false).asBool();
-		connectionTCP* hcoop = _game->getCoopMod();
-		if (boundaryOnly)
-		{
-			connectionTCP::_testHoldBoundaryDone = want;
-		}
-		else if (want)
-		{
-			connectionTCP::_heldActionDones = 0;
-			connectionTCP::_testHoldActionDone = true;
-		}
-		else
-		{
-			connectionTCP::_testHoldActionDone = false;
-			if (hcoop) hcoop->coopEmitActionDone();
-		}
-		resp["hold"] = connectionTCP::_testHoldActionDone;
-		resp["holdBoundary"] = connectionTCP::_testHoldBoundaryDone;
-		resp["heldActionDones"] = static_cast<Json::UInt>(connectionTCP::_heldActionDones);
-		resp["displaySeq"] = static_cast<Json::UInt>(connectionTCP::_clientDisplaySeq);
-		resp["peerDisplayAckedSeq"] = static_cast<Json::UInt>(connectionTCP::peerDisplayAckedSeq);
-		resp["ok"] = true;
-	}
-	else if (cmd == "battle_reserve")
-	{
-		// PRD-P8 §5: read / set THIS machine's reserve mode, through the very
-		// send path the reserve buttons use (BattlescapeState::coopSendReserveState)
-		// - so a test proves the SUPPRESSION, not just the local setting.
-		if (!bg)
-		{
-			resp["error"] = "no battle game";
-			return true;
-		}
-		if (req.isMember("mode"))
-		{
-			const std::string m = req["mode"].asString();
-			const BattleActionType bt = m == "snap" ? BA_SNAPSHOT
-									  : m == "aimed" ? BA_AIMEDSHOT
-									  : m == "auto" ? BA_AUTOSHOT : BA_NONE;
-			bg->setTUReserved(bt);
-			if (bstate) bstate->coopSendReserveState(false);
-		}
-		if (req.isMember("kneel"))
-		{
-			bg->setKneelReserved(req["kneel"].asBool());
-			if (bstate) bstate->coopSendReserveState(true);
-		}
-		resp["reserve"] = (int)sbg->getTUReserved();
-		resp["kneelReserve"] = sbg->getKneelReserved();
+		bg->statePushBack(new UnitTurnBState(bg, *a));
+		bg->statePushBack(new ProjectileFlyBState(bg, *a));
 		resp["ok"] = true;
 	}
 	return true;
@@ -6087,11 +4641,6 @@ std::string TestServer::execute(const std::string& line)
 				resp["turn"] = bg->getTurn();
 				resp["side"] = (int)bg->getSide();
 				resp["missionType"] = bg->getMissionType();
-				// coop (explosion ordered-replay E0 - LEAK-OBJ): the objective-counter
-				// parity readout. host==client on a fixed build; a red run
-				// (objective_gate_disable on the client) shows client > host.
-				resp["objectivesDestroyed"] = bg->getObjectivesDestroyed();
-				resp["objectivesNeeded"] = bg->getObjectivesNeeded();
 				// Map fingerprint: a cheap content hash + object-tile count so a test can
 				// tell whether host and client loaded the SAME battle map (e.g. whether the
 				// player's craft mapblock actually spawned on both).
@@ -6151,160 +4700,12 @@ std::string TestServer::execute(const std::string& line)
 				// test can see exactly which one blocks _battleInit from ever being set.
 				resp["isBusy"] = bg->getBattleGame() ? bg->getBattleGame()->isBusy() : false;
 				resp["panicHandled"] = bg->getBattleGame() ? bg->getBattleGame()->getPanicHandled() : false;
-				// coop (parallel battlescape Phase 2c - death ghost): the corpse/kit item
-				// ids currently hidden from the map (a death ghost's minted items stay
-				// invisible until its collapse ends). Empty except during a client ghost.
-				resp["hiddenItemIds"] = bg->getBattleGame() ? bg->getBattleGame()->coopHiddenItemIdsJson() : Json::Value(Json::arrayValue);
 				resp["isPreview"] = bg->isPreview();
 				resp["clientPanicHandle"] = _game->getCoopMod()->_clientPanicHandle;
 				resp["serverOwner"] = connectionTCP::getServerOwner();
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
-				// PRD-P0: the receive gate. updateCoopTask() will only hand a packet to
-				// onTCPMessage() once _coop_task_completed (or one of the per-action
-				// exemptions) says this machine is idle; everything else is parked in the
-				// hold queue and rotated. Without these a test can only see that the peer
-				// did not react, not WHY.
-				resp["taskCompleted"] = coop->coopTaskCompleted();
-				resp["taskDepth"] = coop->coopTaskDepth();
-				resp["pathLock"] = coop->_pathLock;
-				resp["coopWalkInit"] = coop->_coopWalkInit;
-				resp["coopInitDeath"] = coop->_coopInitDeath;
-				// coop (Class-A soak wedge fix, A1): the auto-shot pacing wait + its
-				// force-drain escape (see parallel_state for the full note). The forensic
-				// wedge showed coopInitDeath=true + taskDepth stuck; coopPacingWait names
-				// the exact display state holding the gate, forceDrainCount the rescues.
-				resp["coopPacingWait"] = coop->_coopPacingWait;
-				resp["forceDrainReplay"] = coop->_coopForceDrainReplay;
-				resp["forceDrainCount"] = static_cast<Json::UInt>(coop->_coopForceDrainCount);
-				// PRD-I3 Session F straddle: this machine's death-replay windows folded
-				// into one gate - the SAME predicate the in-game sync-check reports on at
-				// SharedEcon.cpp:5817 (corpseReplayPendingAny window-1 + corpseRemapPendingAny
-				// window-2 + this machine's _coopInitDeath display replay). A strict
-				// cross-machine item census (test_parallel_soak) sampled while this is true
-				// straddles a boundary death: the executor already minted the corpse and
-				// spilled its kit to the floor, this peer has not converted yet - kit still
-				// on the body here. The soak fixture waits for it to drain before comparing.
-				// Additive read only; no effect on the compare/tripwire semantics.
-				resp["corpsePending"] = SharedEcon::corpseReplayPendingAny()
-					|| SharedEcon::corpseRemapPendingAny() || coop->_coopInitDeath;
-				// coop (item 3, mint-at-apply introspection): the two corpse drift windows split
-				// out of the folded corpsePending flag above. corpseRemapArmed is the window
-				// mint-at-apply structurally empties (must stay 0 on the parallel replay client
-				// through every death); the live *Now bools show whether a window is armed right
-				// at this sample. Additive read-only.
-				resp["corpseReplayPendingNow"] = SharedEcon::corpseReplayPendingAny();
-				resp["corpseRemapPendingNow"] = SharedEcon::corpseRemapPendingAny();
-				resp["corpseReplayArmed"] = static_cast<Json::UInt>(SharedEcon::corpseReplayArmedCount());
-				resp["corpseRemapArmed"] = static_cast<Json::UInt>(SharedEcon::corpseRemapArmedCount());
-				resp["coopEnd"] = coop->_coopEnd;
-				resp["rxHold"] = static_cast<Json::UInt>(rxHoldSize());
-				resp["rxPark"] = static_cast<Json::UInt>(rxParkSize());
-				resp["rxRotates"] = static_cast<Json::UInt>(g_rxRotateCount.load());
-				resp["rxHoldMax"] = static_cast<Json::UInt>(g_rxHoldMaxSeen.load());
-				// PRD-P11: see the parallel_state readout for what these mean.
-				resp["rxSkippedBlocked"] = static_cast<Json::UInt>(g_rxSkipBlocked.load());
-				resp["rxLegacyPasses"] = static_cast<Json::UInt>(g_rxLegacyPasses.load());
-				// PRD-I1: see the parallel_state readout.
-				resp["rxSeqDeferred"] = static_cast<Json::UInt>(g_rxSeqDeferred.load());
-				resp["barrierBlocks"] = static_cast<Json::UInt>(g_barrierBlocks.load()); // PHASE D.1
-				// Parallel-turns mode (PRD-P5), carried on battle_state (as well as
-				// parallel_state) so the harness' session.can_drive() decides from a
-				// single query.
-				resp["parallelActive"] = connectionTCP::parallelTurnActive();
-				resp["parallelEnabled"] = connectionTCP::_enable_parallel_turns;
-				resp["clientInputBlocked"] = connectionTCP::parallelInputBlocked();
-				// PRD-P6 arbiter, on battle_state too so a driver needs one query
-				resp["actionSeq"] = static_cast<Json::UInt>(connectionTCP::_actionSeq);
-				resp["sideSeq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
-				resp["canAdmit"] = connectionTCP::canAdmitAction();
-				resp["admitBlocked"] = connectionTCP::_admitBlocked;
-				resp["pendingReqId"] = static_cast<Json::UInt>(connectionTCP::_clientPendingReqId);
-				// PRD-P5: the banner currently squatting on the in-battle warning widget
-				// ("" = none). The persistent off-turn banners have no meaning in
-				// parallel mode and would block P6/P8's deny/ready flashes, so a test
-				// has to be able to see them.
-				resp["warning"] = bg->getBattleState() ? bg->getBattleState()->getCoopWarningText() : std::string();
-				// PRD-P2: the three battle drift terms this machine would stamp onto
-				// the next_turn packet, plus whether the tripwire has fired here.
-				// Comparing the triple across the two machines is
-				// session.assert_battle_synced(); `desyncSeen` is the 3b flag (set by
-				// SharedEcon::verifyBattleChecksum, cleared at co-op battle init).
-				{
-					int64_t chkBattleItemId = -1, chkBattleCensus = -1, chkBattleUnits = -1;
-					SharedEcon::battleChecksumTerms(_game, chkBattleItemId, chkBattleCensus,
-													chkBattleUnits);
-					resp["itemIdCounter"] = Json::Value::Int64(chkBattleItemId);
-					resp["battleCensus"] = Json::Value::Int64(chkBattleCensus);
-					// The unit term (id + faction + liveness + position) on its own
-					// key rather than widening a pair, so a harness failure names
-					// WHICH of the three families moved.
-					resp["battleUnitsChecksum"] = Json::Value::Int64(chkBattleUnits);
-					resp["desyncSeen"] = SharedEcon::battleDesyncSeen();
-					// The auto-report bundle: latched to one per battle per machine,
-					// so a test can assert both that it appeared and that a SECOND
-					// divergence produced no second file.
-					resp["desyncReportWritten"] = SharedEcon::desyncReportWritten();
-					resp["desyncReportPath"] = SharedEcon::desyncReportPath();
-				}
-				// PRD-I0, OPT-IN (`{"cmd":"battle_state","sync":true}`). Deliberately
-				// not unconditional: `battle_state` is the harness' hot poll - every
-				// wait_until in every test hits it several times a second - and
-				// hanging a full-map hash sweep plus a nested report off it would
-				// change the size and cost of a response 130 tests already depend on.
-				// The sync-check readout has exactly two callers (session.sync_check
-				// and session.sync_buckets), so they ask for it; everything else sees
-				// the response byte-for-byte as before.
-				if (req.get("sync", false).asBool())
-				{
-					// The raw bucket values THIS machine would report right now: a
-					// test proving a lever moved a specific bucket cannot wait a round
-					// trip for a deferred compare that may never come. The sweep also
-					// refreshes `syncCheck.sweepUs`, which is the cost measurement.
-					SharedEcon::BattleHashSet hs;
-					if (SharedEcon::computeBattleHashes(_game, hs))
-					{
-						Json::Value h(Json::objectValue);
-						for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
-						{
-							h[SharedEcon::battleHashBucketName(i)] =
-								static_cast<Json::UInt64>(SharedEcon::battleHashBucketValue(hs, i));
-						}
-						resp["battleHashes"] = h;
-						resp["battleHashSweepUs"] =
-							static_cast<Json::UInt>(SharedEcon::battleHashLastSweepUs());
-					}
-					SharedEcon::syncCheckReport(resp);
-					resp["boundarySeq"] = static_cast<Json::UInt>(connectionTCP::_boundarySeq);
-				}
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
-				// PRD-P1: the two other things a replayed peer action used to steal
-				// from the local player - the camera and the singleton
-				// BattlescapeGame::_currentAction. Read-only; a decoupling test
-				// cannot see either of them from selectedId alone.
-				if (BattlescapeState* pbs = bg->getBattleState())
-				{
-					if (Camera* cam = pbs->getMap() ? pbs->getMap()->getCamera() : nullptr)
-					{
-						Position off = cam->getMapOffset();
-						resp["cameraX"] = off.x;
-						resp["cameraY"] = off.y;
-						resp["cameraZ"] = off.z;
-						resp["viewLevel"] = cam->getViewLevel();
-					}
-				}
-				if (BattlescapeGame* pbg = bg->getBattleGame())
-				{
-					BattleAction* ca = pbg->getCurrentAction();
-					resp["actionType"] = (int)ca->type;
-					resp["actionActorId"] = ca->actor ? ca->actor->getId() : -1;
-					resp["actionWeaponId"] = ca->weapon ? ca->weapon->getId() : -1;
-					resp["actionTargeting"] = ca->targeting;
-					resp["actionTargetX"] = ca->target.x;
-					resp["actionTargetY"] = ca->target.y;
-					resp["actionTargetZ"] = ca->target.z;
-					resp["actionWaypoints"] = (int)ca->waypoints.size();
-				}
 				const BattleUnit* giftSel = coop->getGiftSelectedBattleUnit();
 				resp["giftSelectedId"] = giftSel ? giftSel->getId() : -1;
 				Json::Value units(Json::arrayValue);
@@ -6317,22 +4718,7 @@ std::string TestServer::execute(const std::string& line)
 					ju["isOut"] = u->isOut();
 					ju["health"] = u->getHealth();
 					ju["tu"] = u->getTimeUnits();
-					// De-flake additive field: the unit's TU ceiling. setTimeUnits
-					// clamps to _stats.tu (BattleUnit.cpp), so the harness's old
-					// literal top-up of 200 silently became ~66 - top_up() reads
-					// this instead so its "topped up" contract is honest.
-					ju["tuMax"] = u->getBaseStats()->tu;
 					ju["stun"] = u->getStunlevel();
-					// PRD-I3 SEAM-4 diagnostic: per-unit morale, so a bystander-morale
-					// casualty divergence is visible per unit (not only in the unitsStats
-					// bucket). Harness-only.
-					ju["morale"] = u->getMorale();
-					// PRD-P9 soak: the two per-unit terms the census was missing.
-					// Fatal wounds only ever move through host-resolved damage, and
-					// energy is what a walk spends alongside TU - both are drift the
-					// item-census tripwire cannot see.
-					ju["wounds"] = u->getFatalWounds();
-					ju["energy"] = u->getEnergy();
 					ju["name"] = u->getName(_game->getLanguage());
 					ju["isPlayerSoldier"] = (u->getGeoscapeSoldier() != nullptr);
 					// PRD-J09: in-battle control split. _coop 0 = host-controlled,
@@ -6353,22 +4739,6 @@ std::string TestServer::execute(const std::string& line)
 					// kill attribution (for coop outcome cross-validation)
 					ju["murdererId"] = u->getMurdererId();
 					ju["killedBy"] = (int)u->killedBy();
-					// coop (explosion ordered-replay E5a GAP-XP introspection): the unit's
-					// gained-experience counters (BattleUnit::_exp, mutated by awardExperience/
-					// addManaExp). A parallel client-owned attacker only trains these via the
-					// hit_unit carrier (TileEngine.cpp) - exposed here so a fixture can read
-					// host==client without waiting for a full debrief.
-					{
-						const UnitStats* exp = u->getExpStats();
-						ju["expFiring"] = exp->firing;
-						ju["expThrowing"] = exp->throwing;
-						ju["expMelee"] = exp->melee;
-						ju["expReactions"] = exp->reactions;
-						ju["expBravery"] = exp->bravery;
-						ju["expPsiSkill"] = exp->psiSkill;
-						ju["expPsiStrength"] = exp->psiStrength;
-						ju["expMana"] = exp->mana;
-					}
 					ju["direction"] = u->getDirection();
 					Position p = u->getPosition();
 					ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;
@@ -6540,8 +4910,8 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "battle_action")
 		{
 			// Unified battlescape action driver. action = select|move|shoot|
-			// end_turn|end_turn_button|abort. Reaches the BattlescapeGame via the
-			// top BattlescapeState. All ops are on the main thread (race-free).
+			// end_turn|abort. Reaches the BattlescapeGame via the top
+			// BattlescapeState. All ops are on the main thread (race-free).
 			BattlescapeGame* bg = nullptr;
 			BattlescapeState* bstate = nullptr;
 			// PRD-13: left inline - assigns two vars + calls getBattleGame() per match, not pure find-last
@@ -6560,10 +4930,6 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else if (act == "end_turn_button")
 			{
-				// The REAL END TURN button. requestEndTurn() above is the VANILLA
-				// end turn and never ships the co-op `PlayerTurnYour` handoff -
-				// only btnEndTurnClick does, so a test about the handoff has to
-				// press the button a player presses.
 				if (bstate)
 				{
 					bstate->btnEndTurnClick(nullptr);
@@ -6626,13 +4992,7 @@ std::string TestServer::execute(const std::string& line)
 				int coopSide = req.get("coop_side", -1).asInt();
 				int killId = req.get("unit", -1).asInt();
 				int killFaction = req.get("faction", -1).asInt();
-				// coop (Phase 2c death ghost): optional nested lever to pick the damage
-				// type, so a fixture can stage a deterministic INDIRECT death (DT_HE:
-				// FixRadius -1 -> isDirect() false -> the ghost's instant-frame path)
-				// as well as the default DIRECT one. Defaults to DT_AP - existing callers
-				// are byte-identical.
-				const int dtInt = req.get("damage_type", (int)DT_AP).asInt();
-				const RuleDamageType* dt = _game->getMod()->getDamageType((ItemDamageType)dtInt);
+				const RuleDamageType* dt = _game->getMod()->getDamageType(DT_AP);
 				Json::Value killed(Json::arrayValue);
 				for (auto* u : *sbg->getUnits())
 				{
@@ -6779,26 +5139,12 @@ std::string TestServer::execute(const std::string& line)
 					if (req.isMember("psiStrength")) setStat("psiStrength", req["psiStrength"].asInt());
 					if (req.isMember("stat"))        setStat(req["stat"].asString(), req.get("value", 0).asInt());
 					if (req.isMember("visible"))     unit->setVisible(req["visible"].asBool());
-					// coop (PRD-I3 SESSION F): mint-FREE lethal-condition levers for the
-					// boundary-death repro. setHealth/setFire/setFatalWound create NO
-					// BattleItem, so an end_turn that bleeds/burns the unit to death in
-					// prepareNewTurn makes the boundary corpse mint the SOLE mint in flight.
-					if (req.isMember("health"))      unit->setHealth(req["health"].asInt());
-					if (req.isMember("fire"))        unit->setFire(req["fire"].asInt());
-					if (req.isMember("fatalWounds"))
-					{
-						int fw = req["fatalWounds"].asInt();
-						for (int p = 0; p < BODYPART_MAX; ++p)
-							unit->setFatalWound(fw, (UnitBodyPart)p);
-					}
 					if (req.get("refill", false).asBool())
 						unit->setTimeUnits(bs->tu);
 					resp["psiSkill"] = bs->psiSkill;
 					resp["psiStrength"] = bs->psiStrength;
 					resp["visible"] = unit->getVisible();
 					resp["tu"] = unit->getTimeUnits();
-					resp["health"] = unit->getHealth();
-					resp["fatalWounds"] = unit->getFatalWounds();
 					resp["ok"] = true;
 				}
 				else if (act == "door")
@@ -6993,59 +5339,6 @@ std::string TestServer::execute(const std::string& line)
 				}
 			}
 		}
-		else if (cmd == "desync_dialog")
-		{
-			// PRD-I4 dialog introspection: the CoopDesyncNoticeState's headline and the
-			// URL/path its buttons WOULD open, plus its buttons when it is live. The
-			// statics survive the modal's dismissal by the turn cycle, so a test can read
-			// what the last-raised notice would open even after it is gone.
-			resp["ok"] = true;
-			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
-			CoopDesyncNoticeState* dlg = dynamic_cast<CoopDesyncNoticeState*>(top);
-			resp["live"] = (dlg != nullptr);
-			if (dlg)
-			{
-				resp["headline"] = dlg->getHeadlineText();
-				resp["message"] = dlg->getMessageText();
-				resp["reportUrl"] = dlg->getReportUrl();
-				resp["openFolderTarget"] = dlg->getOpenFolderTarget();
-				resp["zipPath"] = dlg->getZipPath();
-				Json::Value btns(Json::arrayValue);
-				for (auto* s : dlg->getSurfaces())
-				{
-					if (auto* tb = dynamic_cast<TextButton*>(s))
-					{
-						Json::Value e;
-						e["text"] = tb->getText();
-						e["visible"] = tb->getVisible();
-						e["interactive"] = (dynamic_cast<InteractiveSurface*>(s) != nullptr);
-						btns.append(e);
-					}
-				}
-				resp["buttons"] = btns;
-			}
-			Json::Value st;
-			st["headline"] = CoopDesyncNoticeState::s_lastHeadline;
-			st["message"] = CoopDesyncNoticeState::s_lastMessage;
-			st["reportUrl"] = CoopDesyncNoticeState::s_lastReportUrl;
-			st["openFolderTarget"] = CoopDesyncNoticeState::s_lastOpenTarget;
-			st["zipPath"] = CoopDesyncNoticeState::s_lastZipPath;
-			st["raiseCount"] = CoopDesyncNoticeState::s_raiseCount;
-			resp["last"] = st;
-		}
-		else if (cmd == "desync_probe_dialog")
-		{
-			// TEST-ONLY: push a real CoopDesyncNoticeState with sentinel content, so a
-			// test can assert the dialog's widget layout (three buttons, correct labels)
-			// and getters deterministically - the real fire's notice is dismissed by the
-			// turn cycle within a poll or two. Nothing here launches a browser or writes.
-			std::string zip = req.get("zip", "C:/probe/desync-reports/desync-probe.zip").asString();
-			std::string url = req.get("url", "https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new?title=probe&body=probe").asString();
-			std::string headline = req.get("headline", "probe: items diverged at action 1: walk").asString();
-			std::string msg = req.get("message", "probe message").asString();
-			_game->pushState(new CoopDesyncNoticeState(msg, headline, zip, url));
-			resp["ok"] = true;
-		}
 		else if (cmd == "close_nextturn")
 		{
 			// Invoke the REAL end-of-turn close (NextTurnState::close), which the
@@ -7088,42 +5381,6 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 				resp["liveAliens"] = before.liveAliens;
 				resp["pushed"] = "NextTurnState";
-			}
-		}
-		else if (cmd == "debrief_state")
-		{
-			// The debriefing SCORE page, as this machine displays it.
-			//
-			// DebriefingState::prepareDebriefing() runs on BOTH machines and builds
-			// _stats from the local save - the host's debriefing packet only carries
-			// the soldier-stats and diary pages - so these rows are the direct
-			// readout for "did the two players see the same mission result". The
-			// rows are the ones the score list actually shows (qty != 0) and the
-			// total is the same sum the STR_TOTAL_UC row prints.
-			DebriefingState* db = findState<DebriefingState>(_game);
-			if (!db)
-			{
-				resp["error"] = "no DebriefingState in state stack";
-			}
-			else
-			{
-				Json::Value rows(Json::objectValue);
-				Json::Value scores(Json::objectValue);
-				int total = 0;
-				for (const auto* ds : db->harnessStats())
-				{
-					if (ds->qty == 0)
-					{
-						continue;
-					}
-					rows[ds->item] = ds->qty;
-					scores[ds->item] = ds->score;
-					total += ds->score;
-				}
-				resp["rows"] = rows;
-				resp["scores"] = scores;
-				resp["total"] = total;
-				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "dismiss_popup")
@@ -7329,13 +5586,6 @@ std::string TestServer::execute(const std::string& line)
 			resp["isLoadProgress"] = coop->_isLoadProgress;
 			resp["shared"] = coop->isSharedCampaign();
 			resp["gamemode"] = connectionTCP::getCoopGamemode();
-			// PRD-P5: the parallel-turns session mode. On get_coop (not only
-			// battle_state/parallel_state) because it is a SESSION property, frozen by
-			// the COOP_READY_HOST handshake at join time - a test must be able to read
-			// it from the lobby, long before a battle exists.
-			resp["parallelEnabled"] = connectionTCP::_enable_parallel_turns;
-			resp["parallelActive"] = connectionTCP::parallelTurnActive();
-			resp["clientInputBlocked"] = connectionTCP::parallelInputBlocked();
 			{
 				CoopState* top = findState<CoopState>(_game);
 				resp["coopDialog"] = top ? top->getStateCode() : -1;
@@ -7396,26 +5646,15 @@ std::string TestServer::execute(const std::string& line)
 				connectionTCP::password = req.get("password", "").asString();
 				connectionTCP::isPasswordRequired = !connectionTCP::password.empty();
 				// Preserve the gamemode from a loaded save (resume lobbies
-				// need the original PvP/PvE mode).  Only keep it on a genuine
-				// resume (lobbyMode 2); a fresh coop campaign (lobbyMode 1)
-				// carries no coop_gamemode key and must default to PVE.
-				// isCoopSave() is also true for a fresh campaign, so it cannot
-				// be the discriminator (mirrors LobbyMenu::setPlayerTeam).
-				if (campaign && connectionTCP::session.lobbyMode == 2)
+				// need the original PvP/PvE mode).  Only default to PVE
+				// when starting a fresh campaign.
+				if (campaign && _game->getSavedGame() && _game->getSavedGame()->isCoopSave())
 				{
-					// keep the gamemode from the loaded save (genuine resume)
+					// keep the gamemode from the loaded save
 				}
 				else
 				{
 					connectionTCP::_coopGamemode = 1; // PVE
-				}
-				// Ephemeral coop host port (port "0"): bind an OS-assigned TCP
-				// port and report it back so the peer's join_tcp dials the right
-				// one. A concrete port still works (manual debugging).
-				if (port == "0")
-				{
-					int p = probeEphemeralPort(SOCK_STREAM);
-					if (p > 0) port = std::to_string(p);
 				}
 				coop->setCoopSession(false);
 				coop->setPlayerTurn(3);
@@ -7434,7 +5673,6 @@ std::string TestServer::execute(const std::string& line)
 					_game->pushState(new LobbyMenu());
 				}
 				resp["campaign"] = campaign;
-				resp["port"] = port;
 				resp["ok"] = true;
 			}
 		}
@@ -7454,13 +5692,6 @@ std::string TestServer::execute(const std::string& line)
 			connectionTCP::password = password;
 			connectionTCP::isPasswordRequired = !password.empty();
 			connectionTCP::_coopGamemode = 1; // PVE
-			// Ephemeral coop host port (port "0"): bind an OS-assigned UDP port
-			// and report it so the peer's join_udp dials the right one.
-			if (port == "0")
-			{
-				int p = probeEphemeralPort(SOCK_DGRAM);
-				if (p > 0) port = std::to_string(p);
-			}
 			coop->setCoopSession(false);
 			coop->setPlayerTurn(3);
 			coop->setHostName(player);
@@ -7476,7 +5707,6 @@ std::string TestServer::execute(const std::string& line)
 				_game->pushState(new LobbyMenu());
 			}
 			resp["campaign"] = campaign;
-			resp["port"] = port;
 			resp["ok"] = true;
 		}
 		else if (cmd == "host_menu_host")
@@ -7498,24 +5728,10 @@ std::string TestServer::execute(const std::string& line)
 				}
 				// server/port/password are optional: omitted means "leave the
 				// window's own defaults alone" (old callers behave unchanged).
-				int visibility = req.get("visibility", 0).asInt();
-				std::string hmPort = req.get("port", "").asString();
-				// Ephemeral coop host port (port "0"): bind an OS-assigned port of
-				// the right kind (0=TCP, 1/2=UDP; 3 hotseat has no socket) and
-				// report it so the peer's join dials the right one.
-				if (hmPort == "0" && visibility != 3)
-				{
-					int p = probeEphemeralPort(visibility == 0 ? SOCK_STREAM : SOCK_DGRAM);
-					if (p > 0) hmPort = std::to_string(p);
-				}
-				hm->testHostWithFields(visibility,
+				hm->testHostWithFields(req.get("visibility", 0).asInt(),
 									   req.get("server", "").asString(),
-									   hmPort,
+									   req.get("port", "").asString(),
 									   req.get("password", "").asString());
-				if (!hmPort.empty())
-				{
-					resp["port"] = hmPort;
-				}
 				resp["ok"] = true;
 			}
 		}
@@ -7780,15 +5996,6 @@ std::string TestServer::execute(const std::string& line)
 			std::string localport = req.get("localport", "3001").asString();
 			std::string player = req.get("player", "ClientPlayer").asString();
 			std::string password = req.get("password", "lan").asString();
-			// Ephemeral local UDP bind (localport "0"): let the OS assign this
-			// client's own port so two clients on the same loopback host never
-			// collide. Reported back for information; the host learns the client
-			// address from the incoming datagram, so it needs no fixed value.
-			if (localport == "0")
-			{
-				int p = probeEphemeralPort(SOCK_DGRAM);
-				if (p > 0) localport = std::to_string(p);
-			}
 			connectionTCP::password = password;
 			connectionTCP::isPasswordRequired = !password.empty();
 			coop->setCoopSession(false);
@@ -7797,7 +6004,6 @@ std::string TestServer::execute(const std::string& line)
 			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
 			coop->setCoopCampaign(campaign);
 			coop->joinDirectLanUDP(ipaddr, port, localport, player, password);
-			resp["localport"] = localport;
 			resp["ok"] = true;
 		}
 		else if (cmd == "crashlog_probe")

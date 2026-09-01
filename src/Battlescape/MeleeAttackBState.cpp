@@ -36,20 +36,6 @@
 namespace OpenXcom
 {
 
-// coop (wire-order report alignment, Increment 2 / A1): the master lever, file-scope in
-// connectionTCP.cpp; extern-declared here (matching TestServer.cpp) to fence the display-
-// replay ammo spend without a connectionTCP.h recompile.
-extern std::atomic<bool> g_wireOrderState;
-// True only when THIS machine is the parallel CLIENT with the wire-order lever on - the one
-// case where a display replay's spendAmmoForAction would clobber the host's SEAM-11 itemAmmo
-// absolute (docs carrier-census A1). Lever-off / host / classic -> false -> ammo is spent
-// exactly as before (byte-identical).
-static bool coopFenceReplayAmmoSpend()
-{
-	return g_wireOrderState.load(std::memory_order_relaxed)
-		&& connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
-}
-
 /**
  * Sets up a MeleeAttackBState.
  */
@@ -72,16 +58,6 @@ void MeleeAttackBState::init()
 {
 	if (_initialized) return;
 	_initialized = true;
-
-	// coop (PRD-P6 pre-task): melee had no receive-gate coverage - the peer could
-	// apply an unrelated packet halfway through a melee chain. Mirrors
-	// UnitTurnBState. Guarded: popState() re-init()s this state when the
-	// ExplosionBState it pushes in front of itself pops.
-	if (!_coopGateHeld)
-	{
-		_coopGateHeld = true;
-		_parent->setCoopTaskCompleted(false);
-	}
 
 	
 	// coop
@@ -224,11 +200,7 @@ void MeleeAttackBState::init()
 	}
 
 	//spend TU
-	// coop: spendTU() was the LEFT operand, so a replayed melee spent the TU
-	// AGAIN on top of the authoritative value the packet had just written
-	// (measured 49 vs 29). The guard has to short-circuit, not just suppress the
-	// popState.
-	if (!coop_action && !_action.spendTU(&_action.result))
+	if (!_action.spendTU(&_action.result) && !coop_action)
 	{
 		_parent->popState();
 		return;
@@ -292,23 +264,6 @@ void MeleeAttackBState::init()
 
 	}
 
-	// coop (PRD-P3 GAP-4b): decide hit/miss HERE, before the ExplosionBState this
-	// pushes can roll it, and park the answer for TileEngine::meleeAttack to
-	// replay. The sender is the machine that already owns every other pre-roll
-	// for this action (the aim/trajectory queue), and deciding it now is what
-	// lets the boolean ride the SAME packet - a follow-up would race the peer's
-	// own ExplosionBState, which starts one frame after its MeleeAttackBState.
-	bool coopMeleeHit = false;
-	const bool coopMeleeSender = _parent->getCoopMod()->getCoopStatic() == true
-								 && _parent->getCoopMod()->_isActivePlayerSync == true;
-	if (coopMeleeSender)
-	{
-		coopMeleeHit = (terrainMeleeTilePart > 0) // terrain melee never misses
-					   || (_parent->getTileEngine()->meleeAttackCalculate(
-							   BattleActionAttack::GetAferShoot(_action, _ammo), _target) > 0);
-		_parent->getCoopMod()->_meleeResults.push_back(coopMeleeHit ? 1 : 0);
-	}
-
 	performMeleeAttack();
 
 	// coop
@@ -316,11 +271,6 @@ void MeleeAttackBState::init()
 	{
 		Json::Value obj;
 		obj["state"] = "melee_attack";
-		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
-		// client's action_end apply-barrier accounts for this parked melee hit/miss
-		// result (no-op off the parallel host, _openChainSeq==0).
-		connectionTCP::coopStampChainSeq(obj);
-		obj["hit"] = coopMeleeHit;
 
 		int index = 0;
 
@@ -374,18 +324,6 @@ void MeleeAttackBState::init()
 		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
 	}
 
-}
-
-/**
- * Deinitializes the state - releases the co-op receive gate init() took.
- */
-void MeleeAttackBState::deinit()
-{
-	if (_coopGateHeld)
-	{
-		_coopGateHeld = false;
-		_parent->setCoopTaskCompleted(true);
-	}
 }
 
 /**
@@ -452,10 +390,7 @@ void MeleeAttackBState::performMeleeAttack(int terrainMeleeTilePart)
 	_unit->aim(true);
 
 	// use up ammo if applicable
-	// coop (wire-order Increment 2 / A1): fence the parallel client's display-replay ammo
-	// spend lever-on; the host's SEAM-11 itemAmmo absolute authors canonical ammo.
-	if (!coopFenceReplayAmmoSpend())
-		_action.weapon->spendAmmoForAction(BA_HIT, _parent->getSave());
+	_action.weapon->spendAmmoForAction(BA_HIT, _parent->getSave());
 	_parent->getMap()->setCursorType(CT_NONE);
 
 	// offset the damage voxel ever so slightly so that the target knows which side the attack came from

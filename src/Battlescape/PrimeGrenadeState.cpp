@@ -25,7 +25,6 @@
 #include "../Interface/Frame.h"
 #include "../Engine/InteractiveSurface.h"
 #include "../Savegame/BattleItem.h"
-#include "../Savegame/BattleUnit.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "../Mod/Mod.h"
@@ -177,11 +176,8 @@ void PrimeGrenadeState::btnClick(Action *action)
 	if (btnID != -1)
 	{
 
-		// coop. A parallel CLIENT never sends it: the prime is confirmed in
-		// BattlescapeGame::handleNonTargetAction(), which ships an `action_intent`,
-		// and the host re-broadcasts `active_grenade` once it has actually primed.
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() != 1
-			&& !connectionTCP::parallelInputBlocked())
+		// coop
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() != 1)
 		{
 
 			Json::Value root;
@@ -201,18 +197,6 @@ void PrimeGrenadeState::btnClick(Action *action)
 
 	
 			root["actor_id"] = _game->getSavedGame()->getSavedBattle()->getBattleGame()->getCoopActorID();
-
-			if (_action && _action->actor)
-			{
-			// coop (PRD-P9 soak finding, same shape as rider R2): the ACTOR's cost.
-			// Prime, unprime and medikit mutate synchronously inside a UI handler, so
-			// they push no BattleState and the peer has nothing that would charge them
-			// - it mirrored the EFFECT (fuse, wounds) but never the price, and the two
-			// copies of the soldier drifted apart by the action's TU on every use
-			// (measured: 31 vs 62 after one prime). Additive and presence-gated.
-				root["tu"] = _action->actor->getTimeUnits();
-				root["energy"] = _action->actor->getEnergy();
-			}
 
 			if (_grenadeInInventory)
 			{

@@ -101,10 +101,6 @@ OPT bool debugMode;
 OPT bool logInfoToFile;
 OPT bool logPacketMessages;
 OPT bool EnableHotseatDebugMode;
-// PRD-P1: follow a replayed teammate action with the camera (classic coop).
-// Default true = the pre-P1 behaviour. PRD-P5 suppresses camera-follow during a
-// parallel player side regardless of this option.
-OPT bool coopFollowPeerActions;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;
@@ -198,9 +194,3 @@ OPT std::vector< std::pair<std::string, bool> > mods; // ordered list of availab
 OPT SoundFormat currentSound;
 
 OPT int battleXcomSpeedOrig;
-
-// PRD-P0/P5 parallel battlescape turns. Declared here (no OptionInfo yet) so
-// the test harness can set them before PRD-P5 lands the toggle that reads
-// them; P5 registers them in createAdvancedOptionsOTHER() for the UI +
-// options.cfg persistence and drops the default-init in Options.cpp.
-OPT bool EnableCoopParallelTurns;

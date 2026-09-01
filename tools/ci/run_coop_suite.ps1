@@ -63,10 +63,7 @@ if ($ListOnly) { $tests; exit 0 }   # to stdout, so callers can diff the shard s
 # Known-broken on main (real failures, not flakes) - run but do not gate.
 # Add entries here if a test regresses; remove them as they are fixed so they gate
 # again. Empty = the whole suite gates (all green as of 2026-07-15).
-$quarantine = @(
-  "test_pvp_campaign_month",  # issue #171: month-roll geoscape assert can't drain MissionDetectedState/SaveGameState
-  "test_crash_reporter"       # issue #172: marker-bundle 60s timeout, intermittent
-)
+$quarantine = @()
 
 # --- Per-test time budgets ------------------------------------------------------
 # There is no shard wall-clock timeout any more (the CI step used to cap the whole

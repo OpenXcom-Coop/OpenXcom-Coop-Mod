@@ -34,7 +34,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness
-import session
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE_PATH = os.path.join(HERE, "repro74_state.json")
@@ -103,7 +102,7 @@ def main():
 
     owner = None
     for gc, tag in ((host, "host"), (client, "client")):
-        if session.can_drive(T.battle(gc)):
+        if T.battle(gc).get("activeSync"):
             owner = tag
     census = {"host": T.census(host), "client": T.census(client)}
     diff = T.diff_census(census["host"], census["client"])

@@ -40,10 +40,6 @@ private:
 	int _hitNumber;
 	bool _initialized;
 	bool _reaction;
-	/// coop (PRD-P6 pre-task): does this state hold the receive gate? The melee
-	/// chain had NO gate coverage at all before P6 (AUDIT-rng caution 1), so a
-	/// peer packet could interleave into the middle of one.
-	bool _coopGateHeld = false;
 public:
 	/// Creates a new MeleeAttackBState class
 	MeleeAttackBState(BattlescapeGame *parent, BattleAction action);
@@ -51,8 +47,6 @@ public:
 	~MeleeAttackBState();
 	/// Initializes the state.
 	void init() override;
-	/// Deinitializes the state.
-	void deinit() override;
 	/// Runs state functionality every cycle.
 	void think() override;
 	/// Performs a melee attack

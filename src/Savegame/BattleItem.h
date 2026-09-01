@@ -89,11 +89,6 @@ public:
 	const RuleItem *getRules() const;
 	/// Gets the item's ammo quantity
 	int getAmmoQuantity() const;
-	/// coop (PRD-I3 SEAM-11): the RAW _ammoQuantity field, NOT getAmmoQuantity()'s
-	/// clipSize==-1 special (which returns 255). The save serializes the raw field, so
-	/// the coop ammo-sync must ship the raw value or a self-powered weapon reads -1 on
-	/// the host but 255 on a peer that adopted getAmmoQuantity().
-	int getAmmoQuantityRaw() const { return _ammoQuantity; }
 	/// Sets the item's ammo quantity.
 	void setAmmoQuantity(int qty);
 
@@ -202,15 +197,6 @@ public:
 	void setTile(Tile *tile);
 	/// Gets it's unique id.
 	int getId() const;
-	/// coop (PRD-P4): re-stamps this item's unique id with the HOST's.
-	///
-	/// The id is normally minted once, from SavedBattleGame::_itemId, and is the
-	/// identity every co-op packet keys on. For a Tier-A spawn (a deterministic set
-	/// created independently on both machines - corpses, death traps, convertUnit
-	/// built-ins) the host ships the ids it minted and the peer re-stamps its own
-	/// copies with them, so the two machines keep denoting the same instance.
-	/// NOT a general-purpose setter: only the id-manifest apply path may call it.
-	void setIdCoop(int id);
 	/// Gets the corpse's unit.
 	BattleUnit *getUnit();
 	/// Gets the corpse's unit.

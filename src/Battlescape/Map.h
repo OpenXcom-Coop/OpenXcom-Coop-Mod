@@ -40,8 +40,6 @@ class Timer;
 class Text;
 class Tile;
 class UnitSprite;
-class BattleItem;
-struct CoopDeathGhost;
 
 enum CursorType { CT_NONE, CT_NORMAL, CT_AIM, CT_PSI, CT_WAYPOINT, CT_THROW };
 enum TilePart : int;
@@ -107,13 +105,6 @@ private:
 	SurfaceSet *_projectileSet;
 
 	void drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Position tileScreenPosition, bool topLayer, BattleUnit* movingUnit = nullptr);
-	/// coop (Phase 2c death ghost): the body of drawUnit after the unit is resolved,
-	/// reused by the ghost draw (which supplies its captured apply-time visibility).
-	void drawUnitResolved(UnitSprite &unitSprite, BattleUnit* bu, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer, bool unitFromBelow, bool unitFromAbove, bool useVisibleOverride, bool visibleOverride);
-	/// coop (Phase 2c death ghost): draw a client-side death ghost covering @a unitTile.
-	void coopMaybeDrawGhost(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer);
-	/// coop (Phase 2c death ghost): getTopItem() skipping a ghost's hidden corpse/kit.
-	BattleItem* coopTopItemExcluding(Tile* tile);
 	void drawTerrain(Surface *surface);
 	int getTerrainLevel(const Position& pos, int size) const;
 	int getWallShade(TilePart part, Tile* tileFrot);

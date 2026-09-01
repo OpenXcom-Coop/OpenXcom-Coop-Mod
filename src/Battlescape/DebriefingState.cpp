@@ -320,9 +320,7 @@ DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _countr
 		_game->getCoopMod()->coopInventory = false;
 
 		// fix
-		// PRD-P6 pre-task: teardown forces the gate open whatever depth it is at -
-		// a BState that never got to deinit() must not jam the queue for good.
-		_game->getCoopMod()->resetCoopTaskDepth();
+		_game->getCoopMod()->_coop_task_completed = true;
 		_game->getCoopMod()->playerInsideCoopBase = false;
 		_game->getCoopMod()->_battleWindow = false;
 		_game->getCoopMod()->_isMainCampaignBaseDefense = false;
@@ -331,6 +329,7 @@ DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _countr
 		_game->getCoopMod()->_isActiveAISync = false;
 		_game->getCoopMod()->_isActivePlayerSync = false;
 		_game->getCoopMod()->_battleInit = false;
+		_game->getCoopMod()->gamePaused = 0;
 		_game->getCoopMod()->_clientPanicHandle = false;
 		_game->getCoopMod()->_onClickClose = false;
 
@@ -1553,21 +1552,6 @@ void DebriefingState::btnOkClick(Action *)
 	_game->popState();
 	if (_game->getSavedGame()->getMonthsPassed() == -1)
 	{
-		// coop (#162 / 056b500db reconciliation): a skirmish OK-exit is a GRACEFUL
-		// leave, not a drop. Tell the peer BEFORE our own teardown closes the socket
-		// so it can suppress the "<player> has left the server" notice over its own
-		// debriefing (056b500db's intent) while still raising it for an ABRUPT drop
-		// (#162). Sent from here - the one clean chokepoint for the skirmish exit;
-		// GoToMainMenuState carries no coop code. Queued ahead of the teardown, and
-		// TCP in-order delivery lands it before the FIN. Additive: an old peer just
-		// ignores the message (and a new peer then shows the notice on this clean
-		// exit too - acceptable version-mixing degradation, see PROTOCOL.md).
-		if (_game->getCoopMod()->getCoopStatic() == true)
-		{
-			Json::Value leaving;
-			leaving["state"] = "coop_leaving";
-			_game->getCoopMod()->sendTCPPacketData(leaving.toStyledString());
-		}
 		// issue #82: a skirmish ends the world - GoToMainMenuState drops the SavedGame
 		// instead of leaving it live (and leaking) for the rest of the process.
 		_game->setState(new GoToMainMenuState(false));

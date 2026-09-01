@@ -37,8 +37,6 @@
 #include "../Savegame/HitLog.h"
 #include "Pathfinding.h"
 #include "TileEngine.h"
-#include "BattlescapeGame.h"
-#include "../CoopMod/connectionTCP.h"
 #include "../Interface/Text.h"
 
 namespace OpenXcom
@@ -191,12 +189,8 @@ ActionMenuState::ActionMenuState(BattleAction *action, int x, int y) : _action(a
 		addItem(BA_USE, weapon->getPsiAttackName().empty() ? "STR_USE_MIND_PROBE" : weapon->getPsiAttackName(), &id, Options::keyBattleActionItem1);
 	}
 
-	// COOP. Not in parallel mode: `unit_action` exists only to drag the PEER's
-	// selected unit around, and in parallel both players are selecting their own
-	// soldiers at the same time (PRD-P5 already dropped the `selected_unit`
-	// follow for the same reason).
-	if (_game->getSavedGame()->getSavedBattle()->getBattleGame() && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()
-		&& !connectionTCP::parallelTurnActive())
+	// COOP
+	if (_game->getSavedGame()->getSavedBattle()->getBattleGame() && _game->getSavedGame()->getSavedBattle()->getSelectedUnit())
 	{
 		if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame()->getSavedBattle()->getBattleGame()->isYourTurn == 2)
 		{
@@ -423,33 +417,6 @@ void ActionMenuState::handleAction()
 						(type == BMT_STIMULANT && _action->weapon->getStimulantQuantity() > 0) ||
 						(type == BMT_PAINKILLER && _action->weapon->getPainKillerQuantity() > 0))
 					{
-						// coop (PRD-P6): a single-purpose medikit is used right here,
-						// with no MedikitState in between - so this is the confirm
-						// site the parallel client turns into an intent. The body
-						// part is picked from state both machines share.
-						int coopPart = BODYPART_TORSO;
-						if (type == BMT_HEAL && targetUnit->getFatalWounds())
-						{
-							for (int i = 0; i < BODYPART_MAX; ++i)
-							{
-								if (targetUnit->getFatalWound((UnitBodyPart)i))
-								{
-									coopPart = i;
-									break;
-								}
-							}
-						}
-						const int coopMode = type == BMT_STIMULANT ? BMA_STIMULANT
-										   : type == BMT_PAINKILLER ? BMA_PAINKILLER
-																	: BMA_HEAL;
-						BattlescapeGame* coopBg = _game->getSavedGame()->getSavedBattle()->getBattleGame();
-						if (coopBg && coopBg->coopRouteMedikit(_action, targetUnit, coopMode, coopPart))
-						{
-							// the host will heal and broadcast; nothing local runs
-							_action->type = BA_NONE;
-							return;
-						}
-
 						if (_action->spendTU(&_action->result))
 						{
 							switch (type)
@@ -576,12 +543,8 @@ void ActionMenuState::handleAction()
 		}
 	}
 
-	// COOP. A parallel CLIENT never sends it: `action_click` is a command to the
-	// peer ("run this action"), which is exactly what `action_intent` replaced -
-	// the client's melee/prime confirm ships an intent from
-	// BattlescapeGame::handleNonTargetAction() instead.
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2
-		&& !connectionTCP::parallelInputBlocked())
+	// COOP
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
 	{
 		Json::Value obj;
 		obj["state"] = "action_click";

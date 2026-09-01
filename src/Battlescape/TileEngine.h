@@ -202,7 +202,7 @@ public:
 	/// Checks if a destroyed tile starts an explosion.
 	Tile *checkForTerrainExplosions();
 	/// Unit opens door?
-	int unitOpensDoor(BattleUnit *unit, bool rClick = false, int dir = -1, bool costFree = false, bool replayNeutral = false, Position *openedPos = 0, int *openedPart = 0);
+	int unitOpensDoor(BattleUnit *unit, bool rClick = false, int dir = -1);
 	/// Closes ufo doors.
 	int closeUfoDoors();
 	/// Calculates a line trajectory in tile space.
@@ -228,8 +228,6 @@ public:
 	int psiAttackCalculate(BattleActionAttack::ReadOnly attack, const BattleUnit *victim);
 	/// Attempts a panic or mind control action.
 	bool psiAttack(BattleActionAttack attack, BattleUnit *victim);
-	/// coop (PRD-P3 GAP-2): ships the host's psi outcome to the peer (PVE modes).
-	void coopShipPsiResult(BattleActionAttack attack, BattleUnit* victim, bool success);
 	/// Calculate success rate of melee attack action.
 	int meleeAttackCalculate(BattleActionAttack::ReadOnly attack, const BattleUnit *victim);
 	/// Attempts a melee attack action.

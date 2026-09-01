@@ -82,10 +82,6 @@ class HostMenu : public State
 {
   private:
 	TextButton *_btnCancel, *_tcpButtonHost;
-	// coop (PRD-P5): session-scoped PARALLEL TURNS toggle, next to the other
-	// pre-session switches. Locks once the session is live (the hosting controls
-	// are hidden then), which matches the COOP_READY_HOST handshake timing.
-	TextButton *_btnParallelTurns;
 	TextList *_lstSaves;
 	TextEdit *_serverName, *_port, *_password;
 	ComboBox *_cbxVisibility, *_cbxMaxPlayers, *_cbxRegions;
@@ -111,9 +107,6 @@ class HostMenu : public State
 	/// Handler for clicking the OK button
 	void btnCancelClick(Action *action);
 	void hostTCPGame(Action *action);
-	void btnParallelTurnsClick(Action* action);
-	/// coop (PRD-P5): label + visibility of the PARALLEL TURNS toggle.
-	void updateParallelTurnsButton();
 	void btnChatClick(Action* action);
 	void cbxVisibilityChange(Action* action);
 	void cbxMaxPlayersChange(Action* action);

@@ -152,12 +152,8 @@ def main():
         assert not r.get("ok"), f"BUG4: a different name hosted the campaign save: {r}"
         print("PASS bug4: campaign save refuses a different host name")
 
-        # correct name hosts fine. The harness rewrites the literal port to an
-        # OS-assigned ephemeral one and the response carries the actual bound
-        # port (5e5ce50ce); that is the port the lobby's waiting text renders,
-        # so assert against it rather than the now-inert literal.
-        resume = host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": "47903", "player": "HostPlayer"})
-        actual_port = str(resume.get("port"))
+        # correct name hosts fine
+        host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": "47903", "player": "HostPlayer"})
         host.wait_for("resume lobby", lambda: session._has_state(host, "LobbyMenu"))
 
         # ---------- Bug 5: waiting text merges names + port ----------
@@ -166,7 +162,7 @@ def main():
         # Poll for the merged form rather than reading that transient default.
         details = host.wait_for(
             "resume waiting text merged (names + port)",
-            lambda: (lambda d: d if ("ClientPlayer" in d and actual_port in d) else None)(
+            lambda: (lambda d: d if ("ClientPlayer" in d and "47903" in d) else None)(
                 host.cmd({"cmd": "lobby_state"}).get("detailsText", "")),
             timeout=15,
         )

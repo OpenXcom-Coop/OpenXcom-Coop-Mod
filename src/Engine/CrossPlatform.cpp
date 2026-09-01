@@ -1485,64 +1485,6 @@ std::string now()
 }
 
 /**
- * I5 next-launch crash reporter: after the dying process has written its dump and
- * log, drop a marker naming those files so a HEALTHY next launch can offer to
- * bundle them for the developers. Best-effort and self-contained on purpose - the
- * JSON is hand-rolled (no allocations through jsoncpp inside a crashing process)
- * and every failure is swallowed, so this can never disturb the crash dialog.
- * Windows paths carry backslashes, so JSON-escape the values.
- */
-static void writeCrashPendingMarker(const std::string &timestamp,
-	const std::string &dumpPath, const std::string &logPath,
-	const std::string &version, const std::string &exceptionCode)
-{
-	auto esc = [](const std::string &in) {
-		std::string o;
-		o.reserve(in.size() + 8);
-		for (char c : in)
-		{
-			switch (c)
-			{
-			case '"':  o += "\\\""; break;
-			case '\\': o += "\\\\"; break;
-			case '\n': o += "\\n";  break;
-			case '\r': o += "\\r";  break;
-			case '\t': o += "\\t";  break;
-			default:
-				if ((unsigned char)c < 0x20)
-				{
-					char b[8];
-					sprintf(b, "\\u%04x", (unsigned char)c);
-					o += b;
-				}
-				else
-				{
-					o += c;
-				}
-			}
-		}
-		return o;
-	};
-	std::ostringstream j;
-	j << "{\n";
-	j << "  \"timestamp\": \"" << esc(timestamp) << "\",\n";
-	j << "  \"dump\": \"" << esc(dumpPath) << "\",\n";
-	j << "  \"log\": \"" << esc(logPath) << "\",\n";
-	j << "  \"version\": \"" << esc(version) << "\",\n";
-	j << "  \"exception\": \"" << esc(exceptionCode) << "\"\n";
-	j << "}\n";
-	const std::string marker = Options::getUserFolder() + "crash-pending.json";
-	const std::string data = j.str();
-	SDL_RWops *rw = SDL_RWFromFile(marker.c_str(), "w");
-	if (rw)
-	{
-		SDL_RWwrite(rw, data.c_str(), data.size(), 1);
-		SDL_RWclose(rw);
-		Log(LOG_FATAL) << "Crash reporter marker written to " << marker;
-	}
-}
-
-/**
  * Logs the details of this crash and shows an error.
  * @param ex Pointer to exception data (PEXCEPTION_POINTERS on Windows, signal int on Unix)
  * @param err Exception message, if any.
@@ -1550,10 +1492,6 @@ static void writeCrashPendingMarker(const std::string &timestamp,
 void crashDump(void *ex, const std::string &err)
 {
 	std::ostringstream error;
-	// I5 crash reporter fields, filled by whichever platform branch runs below.
-	std::string crashDumpPath;      // full path to the .dmp (empty if none written)
-	std::string crashExceptionCode; // human-readable exception code / signal
-	std::string crashTimestamp;     // the dump's timestamp, reused for the marker
 #ifdef _MSC_VER
 	PEXCEPTION_POINTERS exception = (PEXCEPTION_POINTERS)ex;
 	std::exception *cppException = 0;
@@ -1570,19 +1508,13 @@ void crashDump(void *ex, const std::string &err)
 		error << "code 0x" << std::hex << exception->ExceptionRecord->ExceptionCode;
 		break;
 	}
-	{
-		std::ostringstream ec;
-		ec << "0x" << std::hex << exception->ExceptionRecord->ExceptionCode;
-		crashExceptionCode = ec.str();
-	}
 	Log(LOG_FATAL) << "A fatal error has occurred: " << error.str();
 	if (ex)
 	{
 		stackTrace(exception->ContextRecord);
 	}
-	crashTimestamp = now();
 	std::string dumpName = Options::getUserFolder();
-	dumpName += crashTimestamp + ".dmp";
+	dumpName += now() + ".dmp";
 	HANDLE dumpFile = CreateFileA(dumpName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	MINIDUMP_EXCEPTION_INFORMATION exceptionInformation;
 	exceptionInformation.ThreadId = GetCurrentThreadId();
@@ -1591,7 +1523,6 @@ void crashDump(void *ex, const std::string &err)
 	if (MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), dumpFile, MiniDumpNormal, exception ? &exceptionInformation : NULL, NULL, NULL))
 	{
 		Log(LOG_FATAL) << "Crash dump generated at " << dumpName;
-		crashDumpPath = dumpName; // I5: only mark a dump that was actually written
 	}
 	else
 	{
@@ -1617,21 +1548,7 @@ void crashDump(void *ex, const std::string &err)
 	}
 	Log(LOG_FATAL) << "A fatal error has occurred: " << error.str();
 	stackTrace(0);
-	{
-		std::ostringstream ec;
-		if (ex) ec << "signal " << *((int*)ex); else ec << "std::exception";
-		crashExceptionCode = ec.str();
-	}
 #endif
-	// I5: next-launch crash reporter marker - written LAST, after the dump and log,
-	// so a failure here can never cost us the crash artifacts. Only fired when a
-	// dump was actually written (the POSIX handler writes none, so the reporter is
-	// a Windows path today); a healthy next launch reads this and offers to bundle.
-	if (!crashDumpPath.empty())
-	{
-		writeCrashPendingMarker(crashTimestamp, crashDumpPath, getLogFileName(),
-			std::string(OPENXCOM_VERSION_SHORT) + OPENXCOM_VERSION_GIT, crashExceptionCode);
-	}
 	std::ostringstream msg;
 	msg << "OpenXcom has crashed: " << error.str() << std::endl;
 	msg << "Log file: " << getLogFileName() << std::endl;

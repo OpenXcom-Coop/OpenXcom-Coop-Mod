@@ -54,11 +54,6 @@ resolves data (`UFO`/`TFTD`/`standard`/`common`) from the exe's own directory.
 No local config is read and no save is needed: the tests bootstrap a brand-new
 campaign each run.
 
-`make_user_dir(..., options={...})` splices extra keys into that `options:`
-block, PER INSTANCE, so a test can start the host with `battleXcomSpeed: 1` and
-the client with `40` from the very first frame. Use the `set_option` command
-for mid-test flips instead.
-
 ## Tests
 
 - `boot_check.py` - single-instance install smoke test.
@@ -248,17 +243,17 @@ for mid-test flips instead.
   upgraded save loads through the menu -> resume lobby and a fresh client rejoins
   with the exact name and is served its world (roster intact, zero-disk).
 
-### SHARED campaign tests (PRD-J01..J11)
+### JOINT campaign tests (PRD-J01..J11)
 
-A SHARED campaign is ONE host-authoritative world shared by both players (bases,
+A JOINT campaign is ONE host-authoritative world shared by both players (bases,
 funds, research, manufacture, crafts), each player keeping control of their own
 soldiers in battle. SEPARATE (the classic two-mirrored-economies mode) is
 unchanged and is what every test above still exercises.
 
-**Use `shared_fixture.py`** - do not hand-roll the bring-up:
+**Use `joint_fixture.py`** - do not hand-roll the bring-up:
 
 ```python
-js = shared_fixture.bring_up("jbuy", (48670, 48671, 47970))  # host/client/coop ports
+js = joint_fixture.bring_up("jbuy", (48670, 48671, 47970))  # host/client/coop ports
 host, client = js.host, js.client
 try:
     ...
@@ -267,39 +262,39 @@ finally:
     js.shutdown()
 ```
 
-- `bring_up(tag, ports)` - host creates a SHARED campaign, client joins, the host
+- `bring_up(tag, ports)` - host creates a JOINT campaign, client joins, the host
   streams the authoritative world, both settle on the geoscape. Cleans up its own
   processes if bring-up throws.
-- `assert_world_equal(host, client, tag)` - **the SHARED promise, asserted**: a
+- `assert_world_equal(host, client, tag)` - **the JOINT promise, asserted**: a
   deep compare of both machines' introspection dumps (funds, tech, and per base
   in INDEX order: coords/coopBaseId/facilities/stores/transfers/research/
   productions/craft identity+status/free personnel/roster with `ownerPlayerId`).
-  Wired into every SHARED test's final state. Polls, because an in-flight
-  `shared_apply` is a legitimate transient skew. Known-volatile fields are excluded
+  Wired into every JOINT test's final state. Polls, because an in-flight
+  `joint_apply` is a legitimate transient skew. Known-volatile fields are excluded
   **with reasons** - see the module docstring before adding to it.
 
 | test | proves |
 |---|---|
-| `test_shared_flag.py` | campaignType SHARED end-to-end + save YAML round-trip |
-| `test_shared_bootstrap.py` | the client adopts the streamed replica; no mirror bases; replica saves refused |
-| `test_shared_resume.py` | save -> reload -> rejoin re-streams the world |
-| `test_shared_purchase.py` | the `shared_cmd`/`shared_apply` protocol + funds authority |
-| `test_shared_sim.py` | host-only simulation; the replica's sim is frozen; month-end sync |
-| `test_shared_commerce.py` | sell / hire / cross-base transfer / containment |
-| `test_shared_research.py`, `test_shared_manufacture.py` | research + manufacture start/allocate/cancel, incl. the two-players-one-project race |
-| `test_shared_facilities.py`, `test_shared_newbase.py` | facilities, dismantle, sack; atomic new-base creation + base-index lock-step |
-| `test_shared_craft.py` | shared craft command + interception; the host sims the dogfight, both machines spectate the same fight |
-| `test_shared_deploy.py`, `test_shared_battle.py` | mixed-owner squads: control split follows soldier ownership; post-battle worlds identical |
-| `test_shared_landing.py` | the landing broker asks the seat that gave the order |
-| `test_shared_refresh.py`, `test_shared_resync.py` | live screen refresh on apply; desync detect -> auto-repair |
+| `test_joint_flag.py` | campaignType JOINT end-to-end + save YAML round-trip |
+| `test_joint_bootstrap.py` | the client adopts the streamed replica; no mirror bases; replica saves refused |
+| `test_joint_resume.py` | save -> reload -> rejoin re-streams the world |
+| `test_joint_purchase.py` | the `joint_cmd`/`joint_apply` protocol + funds authority |
+| `test_joint_sim.py` | host-only simulation; the replica's sim is frozen; month-end sync |
+| `test_joint_commerce.py` | sell / hire / cross-base transfer / containment |
+| `test_joint_research.py`, `test_joint_manufacture.py` | research + manufacture start/allocate/cancel, incl. the two-players-one-project race |
+| `test_joint_facilities.py`, `test_joint_newbase.py` | facilities, dismantle, sack; atomic new-base creation + base-index lock-step |
+| `test_joint_craft.py` | shared craft command + interception; the host sims the dogfight, both machines spectate the same fight |
+| `test_joint_deploy.py`, `test_joint_battle.py` | mixed-owner squads: control split follows soldier ownership; post-battle worlds identical |
+| `test_joint_landing.py` | the landing broker asks the seat that gave the order |
+| `test_joint_refresh.py`, `test_joint_resync.py` | live screen refresh on apply; desync detect -> auto-repair |
 | `test_shared_equip_transfer.py` | equipping + moving soldiers around a SHARED world: real drag-drop equipping, both equip screens agree, a craft seat sticks when cleared, a second base built, then an intra-world `transfer` shared_cmd - the soldier arrives at the right base **unassigned from any craft**, with its layout intact and its **owner unchanged** (only a gift changes ownership), identically on both machines |
-| `test_shared_world_equal.py` | the equality helper itself, **including a negative control** |
-| `test_shared_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
-| `test_shared_month_run.py` | the long run: 2 month ends + a battle in one campaign |
+| `test_joint_world_equal.py` | the equality helper itself, **including a negative control** |
+| `test_joint_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
+| `test_joint_month_run.py` | the long run: 2 month ends + a battle in one campaign |
 
-#### Replicated SHARED dogfights (PRD-DF01..DF03)
+#### Shared / replicated JOINT dogfights (PRD-DF01..DF03)
 
-The host simulates EVERY SHARED dogfight and streams a per-tick state frame
+The host simulates EVERY JOINT dogfight and streams a per-tick state frame
 (`df_state`); every player opens a render-only `DogfightState` and can issue
 stance / weapon / disengage commands (`df_cmd`, arbitrated host-side in
 receive-order). Membership rides `df_open` with a monotonic `membershipEpoch`
@@ -310,15 +305,15 @@ early-returns before any sim/award code).
 
 | test | proves |
 |---|---|
-| `test_shared_hk_dogfight.py` | GAP-2: an HK attack on a client-commanded craft opens the SAME fight on both machines (no host-only routing); outcome mirrored |
-| `test_shared_intercept_spectate.py` | a regular (non-HK) intercept is spectated on both machines; ONE authoritative crash (status + crashId), world-equal |
-| `test_shared_dogfight_control.py` | any player commands a shared fight: stance/weapon/disengage via `df_cmd`, host arbitrates receive-order (last-received-wins); synced UFO-stance marker; client-local minimize |
-| `test_shared_dogfight_present.py` | presentation policy: a host-commanded fight opens FULL on the host / a minimized icon on the client, and a minimized client still commands the host |
-| `test_shared_dogfight_xp.py` | GAP-7: pilot dogfight XP is host-authoritative - EQUAL on both machines, lands on the host `Soldier`, rides the roster stream; a replica is refused the award and never accrues XP locally |
-| `test_shared_dogfight_dest.py` | GAP-8: after a dogfight ends in auto-return, the replica craft's `_dest`/status match the host - no lag, no orphan waypoint to the downed UFO (the replica never sets `_dest` locally) |
-| `test_shared_dogfight_concurrent.py` | up to 4 concurrent interceptions hold ONE membership set on both machines; an HK interrupt-all-and-restart converges both to the new set atomically (epoch lock-step, no stale window, no old-epoch `df_state`); exercises per-(craft,ufo) command targeting |
+| `test_joint_hk_dogfight.py` | GAP-2: an HK attack on a client-commanded craft opens the SAME fight on both machines (no host-only routing); outcome mirrored |
+| `test_joint_intercept_spectate.py` | a regular (non-HK) intercept is spectated on both machines; ONE authoritative crash (status + crashId), world-equal |
+| `test_joint_dogfight_control.py` | any player commands a shared fight: stance/weapon/disengage via `df_cmd`, host arbitrates receive-order (last-received-wins); synced UFO-stance marker; client-local minimize |
+| `test_joint_dogfight_present.py` | presentation policy: a host-commanded fight opens FULL on the host / a minimized icon on the client, and a minimized client still commands the host |
+| `test_joint_dogfight_xp.py` | GAP-7: pilot dogfight XP is host-authoritative - EQUAL on both machines, lands on the host `Soldier`, rides the roster stream; a replica is refused the award and never accrues XP locally |
+| `test_joint_dogfight_dest.py` | GAP-8: after a dogfight ends in auto-return, the replica craft's `_dest`/status match the host - no lag, no orphan waypoint to the downed UFO (the replica never sets `_dest` locally) |
+| `test_joint_dogfight_concurrent.py` | up to 4 concurrent interceptions hold ONE membership set on both machines; an HK interrupt-all-and-restart converges both to the new set atomically (epoch lock-step, no stale window, no old-epoch `df_state`); exercises per-(craft,ufo) command targeting |
 
-Traps worth knowing before you write a SHARED test:
+Traps worth knowing before you write a JOINT test:
 
 - Per-machine scaffolding (`give_items`, `add_base`, `spawn_craft`,
   `set_soldier_owner`, `discover_research`, `set_funds`) must be called on **both**
@@ -340,9 +335,8 @@ Traps worth knowing before you write a SHARED test:
   hourly step can fire inside the setup window - then let the next `skip_*`
   re-apply the fast speed. Asserting the host/client baseline is equal before you
   wait on a delta turns any residual straddle into an instant, readable failure.
-- New TestServer hooks go in the newest `TestServer::executeSharedNN` split
-  (currently `executeShared11`); the old `execute` if/else chain is at MSVC's
-  128-block nesting limit (C1061).
+- New TestServer hooks go in `TestServer::executeJoint10`; the old `execute`
+  if/else chain is at MSVC's 128-block nesting limit (C1061).
 
 Traps worth knowing before you write a BATTLESCAPE test:
 
@@ -362,23 +356,17 @@ Traps worth knowing before you write a BATTLESCAPE test:
   `activeSync == true`. Driving a unit from the passive side proves nothing -
   the coop battle states (`UnitWalkBState`, `ProjectileFlyBState`,
   `MeleeAttackBState`, `PsiAttackBState`, ...) gate their packet send on it.
-  It is not simply "the host". Ask **`session.can_drive(battle_state)`** rather
-  than reading `activeSync` yourself (PRD-P0): under parallel turns (PRD-P5+)
-  `activeSync` becomes the executor invariant - host true / client false,
-  permanently - and a client-side action is forwarded to the host as an intent
-  instead of executed locally, so both machines may drive. `can_drive()` is
-  exactly `activeSync` until then. A test that asserts *exactly one machine
-  owns the simulation* is asking about `activeSync` itself and keeps reading it.
+  It is not simply "the host": read `activeSync` and drive from that side.
 - Prefer a walk over a shot when asserting replication: a shot can legitimately
   miss, so an unchanged victim is ambiguous, while a position is not.
 
 Full suite (serial) is ~20 min; no test exceeds ~2 min. Known flakes, retry once:
-`test_ufo_notice`, `test_shared_manufacture`, `test_shared_commerce`,
-`test_shared_disconnect`, `test_shared_resync`.
+`test_ufo_notice`, `test_joint_manufacture`, `test_joint_commerce`,
+`test_joint_disconnect`, `test_joint_resync`.
 
 `session.py` is the shared campaign dance (`new_campaign` / `resume_campaign`
-/ `assert_client_zero_disk`) used by every test; `shared_fixture.py` builds the
-SHARED bring-up + world equality on top of it.
+/ `assert_client_zero_disk`) used by every test; `joint_fixture.py` builds the
+JOINT bring-up + world equality on top of it.
 
 `harness.py` is the shared library (not a test). Set `OXC_TEST_EXE` to point the
 whole suite at another build - e.g. `bin/x64/Release-nofix/OpenXcom.exe` - to
@@ -388,10 +376,7 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
 ## Command catalog (TestServer::execute)
 
 - Introspection: `ping`, `get_state`, `get_coop`, `get_soldiers`,
-  `get_mirror_soldiers`, `has_coop_file`, `coop_stats`, `set_option`
-  (the four PRD-P0 additions - `battleXcomSpeed`, `battleAlienSpeed`,
-  `EnableCoopParallelTurns`, `coopParallelDebugClientInput` - echo the applied
-  value back as `value`), `parallel_state` (battlescape only).
+  `get_mirror_soldiers`, `has_coop_file`, `coop_stats`, `set_option`.
 - Session flow: `load_save`, `load_save_menu` (real LoadGameState routing),
   `save_game`, `save_game_ui` (through the real SaveGameState funnel: `type` =
   `quick` | `auto_geoscape`), `open_new_game` (`mode`: `solo` | `coop`),
@@ -425,7 +410,7 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
   `get_palettes`.
 - Geoscape: `geo_state`, `geo_set_speed`, `dismiss_popup`, `craft_dispatch`,
   `confirm_landing`, `craft_order` (`target`/`return`/`patrol`), `intercept_list`.
-- Dogfights (SHARED): `dogfight_state` (per-open-fight introspection on each
+- Dogfights (shared JOINT): `dogfight_state` (per-open-fight introspection on each
   machine: `craftId/ufoId/currentDist/targetDist/mode/ufoIsAttacking/minimized/
   ended/isReplicaView/epoch/ufoStance/weaponEnabled[]/projectileCount`, plus the
   machine's membership `epoch`), `dogfight_action` (drive a fight's stance / weapon
@@ -468,16 +453,6 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
   coop-init gate field by field too - `battleInit`, `coopSession`, `coopStatic`,
   `coopCampaign`, `isBusy`, `panicHandled`, `isPreview`, `clientPanicHandle`,
   `side` - plus `coopTurn`, `playerTurn`, `waitBC`/`waitBH`.
-
-  PRD-P0 adds the RECEIVE GATE to `battle_state`, and a cheaper
-  `parallel_state` (battlescape only) carrying the same fields without the unit
-  dump: `taskCompleted` (`_coop_task_completed`), `pathLock`, `coopWalkInit`,
-  `coopInitDeath`, `coopEnd`, plus `rxHold` / `rxRotates` / `rxHoldMax` - the
-  depth, rotate count and high-water mark of `updateCoopTask()`'s hold queue.
-  A peer that "does not react" is usually a packet parked behind that gate, not
-  a dropped one; the two `rx*` counters are process-monotonic (never reset).
-  Both commands also carry `parallelActive`, false until PRD-P5 lands the
-  parallel-turns mode.
 - Lobby: `lobby_set_team` (host-only; puts lobby row <row> on `XCOM`/`Alien`
   through the real `LobbyMenu::setPlayerTeam`, which is what selects the co-op
   game mode - both XCOM = PVE (1), client Alien = PVP (2), host Alien = PVP2 (3),

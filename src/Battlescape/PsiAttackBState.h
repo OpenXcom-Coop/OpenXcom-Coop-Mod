@@ -36,9 +36,6 @@ private:
 	BattleUnit *_unit, *_target;
 	BattleItem *_item;
 	bool _initialized;
-	/// coop (PRD-P6 pre-task): does this state hold the receive gate? Psi had NO
-	/// gate coverage at all before P6 (AUDIT-rng caution 1).
-	bool _coopGateHeld = false;
 public:
 	/// Creates a new PsiAttack state.
 	PsiAttackBState(BattlescapeGame *parent, BattleAction action);
@@ -46,8 +43,6 @@ public:
 	~PsiAttackBState();
 	/// Initializes the state.
 	void init() override;
-	/// Deinitializes the state.
-	void deinit() override;
 	/// Runs state functionality every cycle.
 	void think() override;
 };

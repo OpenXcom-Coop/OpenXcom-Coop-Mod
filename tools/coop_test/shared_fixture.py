@@ -200,19 +200,13 @@ def assert_world_equal(host, client, tag="", timeout=45, interval=1.0):
 class SharedSession:
     """A live SHARED campaign: host + client, world streamed, both on geoscape."""
 
-    def __init__(self, tag, ports, mods=(), transport="tcp",
-                 host_options=None, client_options=None):
+    def __init__(self, tag, ports, mods=(), transport="tcp"):
         self.tag = tag
         self.host_port, self.client_port, self.coop_port = ports
         self.transport = transport
         # Both machines get the SAME mods, or their rulesets diverge.
-        # host_options/client_options are per-instance options.cfg keys (in force
-        # from the very first frame), so a SHARED test can bring the campaign up
-        # with the host on a feature the client must not set itself - e.g.
-        # EnableCoopParallelTurns, whose host option decides the mode for both
-        # (test_shared_parallel_campaign). Both default None = the old behaviour.
-        self.host_dir = make_user_dir(f"{tag}_host", mods=mods, options=host_options)
-        self.client_dir = make_user_dir(f"{tag}_client", mods=mods, options=client_options)
+        self.host_dir = make_user_dir(f"{tag}_host", mods=mods)
+        self.client_dir = make_user_dir(f"{tag}_client", mods=mods)
         self.host = GameClient("host", self.host_port, self.host_dir)
         self.client = GameClient("client", self.client_port, self.client_dir)
 
@@ -253,7 +247,7 @@ class SharedSession:
 
 def bring_up(tag, ports, wait_ready=True,
              host_base="HostBase", client_base="ClientBase", mods=(),
-             transport="tcp", host_options=None, client_options=None):
+             transport="tcp"):
     """Stand up a SHARED campaign: host creates it, client joins, the host streams
     the authoritative world, both settle on the geoscape.
 
@@ -262,14 +256,11 @@ def bring_up(tag, ports, wait_ready=True,
     transport - "tcp" (default) or "udp". UDP runs the real direct-LAN
                 connectionUDP transport on 127.0.0.1 (host binds coop_port, client
                 binds coop_port+1); opt in only for a repro that needs it.
-    host_options / client_options - per-instance options.cfg overrides (dict), in
-                force from the first frame. Default None = the old behaviour.
 
     Cleans up its own processes if bring-up fails, so the caller's try/finally
     only has to cover the body.
     """
-    js = SharedSession(tag, ports, mods=mods, transport=transport,
-                       host_options=host_options, client_options=client_options)
+    js = SharedSession(tag, ports, mods=mods, transport=transport)
     try:
         js._start(wait_ready, host_base, client_base)
     except BaseException:

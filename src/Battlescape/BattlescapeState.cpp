@@ -260,18 +260,6 @@ BattlescapeState::BattlescapeState() :
 
 	_txtDebug = new Text(300, 10, 20, 0);
 	_txtTooltip = new Text(300, 10, x + 2, y - 10);
-	// coop (PRD-P8): the readiness tally, right-aligned so it ends flush with the
-	// END TURN button (x + 240 .. x + 272) it belongs to. Same row as the tooltip,
-	// which is left-aligned from x + 2 and only visible on hover.
-	_txtCoopEndTurn = new Text(120, 9, x + 152, y - 10);
-	_coopTallyReady = -1;
-	_coopTallySeats = -1;
-	_coopTallyLocalReady = false;
-	// coop (parallel turns): the "Please wait for <player>'s action" banner. Full
-	// map width, centered, one row above the END TURN tally (y - 10) so the two
-	// never overlap. In the map strip just above the toolbar.
-	_txtCoopWait = new Text(screenWidth, 9, 0, y - 20);
-	_coopBusyOwnerSeat = -1;
 
 	// Palette transformations
 	auto* enviro = _save->getEnviroEffects();
@@ -405,37 +393,6 @@ BattlescapeState::BattlescapeState() :
 	add(_warning, "warning", "battlescape", _icons);
 	add(_txtDebug);
 	add(_txtTooltip, "textTooltip", "battlescape", _icons);
-	// coop (PRD-P8): borrows the tooltip's interface element to get wired up at
-	// all - geometry is re-applied afterwards, because add() would otherwise move
-	// this text on top of the tooltip (the element carries x/y/w/h). Right-aligned
-	// so it ends flush with the END TURN button; hidden until a seat arms.
-	add(_txtCoopEndTurn, "textTooltip", "battlescape", _icons);
-	_txtCoopEndTurn->setWidth(120);
-	_txtCoopEndTurn->setHeight(9);
-	_txtCoopEndTurn->setX(x + 152);
-	_txtCoopEndTurn->setY(y - 10);
-	_txtCoopEndTurn->setAlign(ALIGN_RIGHT);
-	_txtCoopEndTurn->setHighContrast(true);
-	// ...and painted the SAME green the numbered enemy indicators use for their
-	// green state: `_indicatorGreen` is the `squadsightUnits` interface element,
-	// which is the exact index blinkVisibleUnitButtons() fills those buttons with
-	// (54 in xcom1, 86 in xcom2). Read off that same member rather than written
-	// as a literal, so a mod that re-colours the indicators re-colours this too.
-	_txtCoopEndTurn->setColor(_indicatorGreen);
-	_txtCoopEndTurn->setVisible(false);
-	// coop (parallel turns): the "Please wait for <player>'s action" banner. Same
-	// borrow-the-tooltip-element trick as the tally above; geometry re-applied so
-	// add() does not park it on top of the tooltip. Same yellow + font as the
-	// toolbar warning widget (interface battlescape/warning color), centered.
-	add(_txtCoopWait, "textTooltip", "battlescape", _icons);
-	_txtCoopWait->setWidth(screenWidth);
-	_txtCoopWait->setHeight(9);
-	_txtCoopWait->setX(0);
-	_txtCoopWait->setY(y - 20);
-	_txtCoopWait->setAlign(ALIGN_CENTER);
-	_txtCoopWait->setHighContrast(true);
-	_txtCoopWait->setColor(_game->getMod()->getInterface("battlescape")->getElement("warning")->color);
-	_txtCoopWait->setVisible(false);
 	add(_btnLaunch);
 	_game->getMod()->getSurfaceSet("SPICONS.DAT")->getFrame(0)->blitNShade(_btnLaunch, 0, 0);
 	add(_btnPsi);
@@ -610,12 +567,6 @@ BattlescapeState::BattlescapeState() :
 	_btnEndTurn->setTooltip("STR_END_TURN");
 	_btnEndTurn->onMouseIn((ActionHandler)&BattlescapeState::txtTooltipInEndTurn);
 	_btnEndTurn->onMouseOut((ActionHandler)&BattlescapeState::txtTooltipOut);
-	// coop (PRD-P8): the parallel END TURN is a latching readiness toggle, so the
-	// button has to be able to SHOW that it is armed. INVERT_TOGGLE only enables
-	// the explicit toggle() call updateCoopEndTurnTally() makes - mousePress and
-	// mouseRelease both look for INVERT_CLICK, so click behaviour (and therefore
-	// classic co-op and single player) is byte-identical.
-	_btnEndTurn->allowToggleInversion();
 
 	_btnAbort->onMouseClick((ActionHandler)&BattlescapeState::btnAbortClick);
 	_btnAbort->onKeyboardPress((ActionHandler)&BattlescapeState::btnAbortClick, Options::keyBattleAbort);
@@ -871,7 +822,14 @@ BattlescapeState::BattlescapeState() :
 			if (_game->getCoopMod()->_waitBH == true)
 			{
 
-				_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
+				if (_game->getCoopMod()->gamePaused == 2)
+				{
+					_game->getCoopMod()->setPlayerTurn(1);
+				}
+				else
+				{
+					_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
+				}
 
 			}
 
@@ -883,7 +841,14 @@ BattlescapeState::BattlescapeState() :
 			if (_game->getCoopMod()->_waitBC == true)
 			{
 
-				_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
+				if (_game->getCoopMod()->gamePaused == 2)
+				{
+					_game->getCoopMod()->setPlayerTurn(1);
+				}
+				else
+				{
+					_game->getCoopMod()->setPlayerTurn(_battleGame->isYourTurn);
+				}
 
 			}
 
@@ -1377,10 +1342,6 @@ void BattlescapeState::think()
 					battle_init_coop = false;
 
 					_game->getCoopMod()->_battleInit = true;
-					// coop (parallel turns): a BUSY deny in the last ~30 frames of the
-					// previous battle could otherwise leak a half-second wait banner
-					// into this one; clear the click-sync window on battle init.
-					_game->getCoopMod()->_coopWaitDenyTicks = 0;
 					_game->getCoopMod()->coopInventory = true;
 					_game->getCoopMod()->playerInsideCoopBase = false;
 					_game->getCoopMod()->_battleWindow = false;
@@ -1442,18 +1403,13 @@ void BattlescapeState::think()
 				_save->getBattleGame()->getCoopMod()->_clientPanicHandle = false;
 			}
 
-			// coop (PRD-P5): is the parallel shared player side live? Both machines
-			// then hold isYourTurn == 2 for the whole side, which kills every
-			// "is it my turn" term below - the off-turn banners have nothing left to
-			// describe and would only squat on the warning widget (showCoopWarning
-			// posts a PERSISTENT message that is repainted every frame, so it blocks
-			// the deny/ready flashes P6/P8 put through the same widget).
-			const bool coopParallel = _game->getCoopMod()->parallelTurnActive();
+			// game paused
+			if (_game->getCoopMod()->gamePaused != 0 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _battleGame->isYourTurn != 2 && _game->getCoopMod()->_battleInit == true)
+			{
+				showCoopWarning("Multiplayer Paused");
 
-			// coop: off-turn "<peer>'s Turn" banner. Classic mode only - parallel mode
-			// has no off-turn side (both machines hold isYourTurn == 2), so coopParallel
-			// gates it out.
-			if (_battleGame->isYourTurn == 1 && coopParallel == false && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true)
+			}
+			else if (_battleGame->isYourTurn == 1 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true)
 			{
 				showCoopWarning(_game->getCoopMod()->getCurrentClientName() + "'s Turn");
 			}
@@ -1548,27 +1504,16 @@ void BattlescapeState::think()
 					_btnEndTurn->setVisible(false);
 
 					// waiting
-					// coop (PRD-P5): the three states still exist in parallel mode -
-					// 3 is the pre-_battleInit wait every turn starts in, 1 only
-					// happens while the session is paused, and 4 is the commanding
-					// spectator the gift flow keys on. Only their PERSISTENT banners
-					// are dropped (see the coopParallel comment above).
 					if (_game->getCoopMod()->_playerTurn == 3)
 					{
-						if (!coopParallel)
-						{
-							showCoopWarning("Waiting for " + _game->getCoopMod()->getCurrentClientName());
-						}
+						showCoopWarning("Waiting for " + _game->getCoopMod()->getCurrentClientName());
 						_battleGame->isYourTurn = 3;
 					}
 					// other turn
 					else if (_game->getCoopMod()->_playerTurn == 1)
 					{
 
-						if (!coopParallel)
-						{
-							showCoopWarning(_game->getCoopMod()->getCurrentClientName() + "'s Turn");
-						}
+						showCoopWarning(_game->getCoopMod()->getCurrentClientName() + "'s Turn");
 
 						_battleGame->isYourTurn = 1;
 					}
@@ -1577,10 +1522,7 @@ void BattlescapeState::think()
 					{
 						_btnEndTurn->setVisible(true);
 						_battleGame->isYourTurn = 4;
-						if (!coopParallel)
-						{
-							showCoopWarning("You are in spectator mode");
-						}
+						showCoopWarning("You are in spectator mode");
 					}
 
 
@@ -1660,49 +1602,8 @@ void BattlescapeState::think()
 
 					_battleGame->isYourTurn = 2;
 
-					// coop (PRD-P5): PARALLEL UNIT SELECTOR.
-					// Both machines run the same ownership-only scan over their own
-					// seat's soldiers - there is no active/passive split left to
-					// branch on, and neither machine ships a `selected_unit` follow
-					// packet: in parallel that packet would hijack the peer's live
-					// selection, cursor and stat panel while the peer is acting.
-					if (coopParallel)
-					{
-						const int mySeat = connectionTCP::localSeat();
-						BattleUnit* mine = nullptr;
-
-						for (auto unit : *_save->getUnits())
-						{
-							if (unit->getCoop() == mySeat && unit->getHealth() > 0
-								&& unit->isOut() == false && unit->getFaction() == FACTION_PLAYER)
-							{
-								mine = unit;
-								break;
-							}
-						}
-
-						// No soldiers left to command: commanding spectator. The
-						// state survives (connectionTCP::refreshBattleGiftControlState
-						// and the gift flow read _playerTurn == 4); only the
-						// persistent banner is dropped.
-						if (mine == nullptr && _game->getCoopMod()->isCoopSession() == true)
-						{
-							_game->getCoopMod()->setPlayerTurn(4);
-						}
-						else
-						{
-							showCoopLongWarning("Your Turn");
-
-							if (mine)
-							{
-								_save->setSelectedUnit(mine);
-								updateSoldierInfo();
-								_battleGame->getCurrentAction()->actor = mine;
-							}
-						}
-					}
 					// CLIENT UNIT SELECTOR
-					else if (_game->getCoopMod()->getHost() == false)
+					if (_game->getCoopMod()->getHost() == false)
 					{
 
 						bool found = false;
@@ -1732,6 +1633,7 @@ void BattlescapeState::think()
 						{
 
 							showCoopLongWarning("Your Turn");
+							_game->getCoopMod()->gamePaused = 0;
 
 							if (_save->getSelectedUnit())
 							{
@@ -1752,9 +1654,7 @@ void BattlescapeState::think()
 					
 
 					// HOST UNIT SELECTOR
-					// (classic only - the parallel branch above already handled both
-					// machines with one ownership scan)
-					if (coopParallel == false && _game->getCoopMod()->getHost() == true)
+					if (_game->getCoopMod()->getHost() == true)
 					{
 
 						bool found = false;
@@ -1784,6 +1684,7 @@ void BattlescapeState::think()
 						else
 						{
 							showCoopLongWarning("Your Turn");
+							_game->getCoopMod()->gamePaused = 0;
 
 							if (_save->getSelectedUnit())
 							{
@@ -1806,7 +1707,7 @@ void BattlescapeState::think()
 			}
 
 			// coop
-			if (_game->getCoopMod()->_waitBC == true && _game->getCoopMod()->_waitBH == true && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true && _battleGame->isBusy() == false && _save->getBattleGame()->getCoopMod()->_clientPanicHandle == false)
+			if (_game->getCoopMod()->_waitBC == true && _game->getCoopMod()->_waitBH == true && _game->getCoopMod()->gamePaused == 0 && _save->isPreview() == false && _game->getCoopMod()->_battleWindow == false && _game->getCoopMod()->_battleInit == true && _battleGame->isBusy() == false && _save->getBattleGame()->getCoopMod()->_clientPanicHandle == false)
 			{
 
 				_game->getCoopMod()->_waitBC = false;
@@ -1882,27 +1783,11 @@ void BattlescapeState::think()
 						_game->getCoopMod()->_isActiveAISync = true;
 
 					}
-					// PVE / PVE2 (after the first hand-off to the AI)
 					else
 					{
 
-						// coop (PRD-P5): the executor invariant. In parallel mode the
-						// client holds the SAME turn state as the host (both 2, full
-						// UI, both players act) but is never the executor - every
-						// send/RNG guard in the battle states reads
-						// _isActivePlayerSync, so leaving it false here is what keeps
-						// the host the single simulation authority. PRD-P6 routes the
-						// client's input to the host as intents.
-						if (_game->getCoopMod()->parallelTurnActive())
-						{
-							_game->getCoopMod()->setPlayerTurn(2);
-							_game->getCoopMod()->_isActivePlayerSync = false;
-						}
-						else
-						{
-							_game->getCoopMod()->setPlayerTurn(1);
-							_game->getCoopMod()->_isActivePlayerSync = false;
-						}
+						_game->getCoopMod()->setPlayerTurn(1);
+						_game->getCoopMod()->_isActivePlayerSync = false;
 
 					}
 
@@ -1934,10 +1819,6 @@ void BattlescapeState::think()
 						endTurnCoop();
 
 					}
-					// PVE / PVE2 (after the first hand-off to the AI). coop (PRD-P5):
-					// this branch already IS the parallel invariant on the host side
-					// (turn 2, executor true) - the client branch above is the one
-					// that changes.
 					else
 					{
 
@@ -1946,16 +1827,21 @@ void BattlescapeState::think()
 					}
 
 				}
-
+		
+				// PVP
+				// This only runs in PvP mode. The XCOM player�s time units are reset here. The alien player�s time units are reset elsewhere, after the XCOM player�s turn has ended
+				/*
+				if ((_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _game->getCoopMod()->_isActivePlayerSync == true)
+				{
+					for (auto& unit : *_save->getUnits())
+					{
+						unit->resetTimeUnitsAndEnergy();
+					}
+				}
+				*/
+			
 			}
 
-
-			// coop (PRD-P8): the readiness lamp + tally. Cheap - it early-outs
-			// unless the counts actually moved.
-			updateCoopEndTurnTally();
-
-			// coop (parallel turns): the "Please wait for <player>'s action" banner.
-			updateCoopWaitBanner();
 
 			_animTimer->think(this, 0);
 			_gameTimer->think(this, 0);
@@ -2217,9 +2103,7 @@ void BattlescapeState::mapClick(Action *action)
 		if (_game->isRightClick(action, true) && playableUnitSelected())
 		{
 
-			// coop: PRD-P5's temporary parallel input gate is gone from here -
-			// PRD-P6 lets the click through and BattlescapeGame::secondaryAction
-			// turns it into an `action_intent` on the client instead of a turn.
+			// coop
 			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
 			{
 				return;
@@ -2232,7 +2116,7 @@ void BattlescapeState::mapClick(Action *action)
 			// Off-turn left clicks must not call primaryAction, but the local gift
 			// selection above has still been updated. On our own turn the same click
 			// also proceeds through the normal unit/action selection path.
-			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
+			if ((_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
 			{
 				return;
 			}
@@ -2306,8 +2190,7 @@ void BattlescapeState::setSelectedCoopUnit(int actor_id)
 
 }
 
-void BattlescapeState::coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time,
-								   int healer_id, int weapon_id, std::string weapon_type, std::string hand)
+void BattlescapeState::coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time)
 {
 
 	BattleUnit *unit = 0;
@@ -2324,49 +2207,6 @@ void BattlescapeState::coopHealing(int actor_id, int type, int part, std::string
 
 	if (!unit)
 		return;
-
-	// coop (PRD-P1 rule, applied here by PRD-P6): replay on a stack-local action
-	// carrying the HEALER's own medikit. The classic branch below runs on
-	// _currentAction, whose weapon is whatever the receiving player happens to be
-	// holding - in parallel mode that is the other player's business entirely,
-	// and medikitUse() dereferences it.
-	if (connectionTCP::parallelTurnActive())
-	{
-		BattleUnit* healer = unit;
-		if (healer_id != -1)
-		{
-			for (auto u : *_save->getUnits())
-			{
-				if (u->getId() == healer_id)
-				{
-					healer = u;
-					break;
-				}
-			}
-		}
-
-		BattleAction action = BattlescapeGame::makeReplayAction(healer);
-		action.type = (BattleActionType)type;
-		action.Time = time;
-		action.weapon = BattlescapeGame::coopResolveWeapon(_save, healer, weapon_id, weapon_type, hand);
-		if (!action.weapon)
-		{
-			Log(LOG_INFO) << "coop: medkit replay skipped, healer " << healer->getId()
-						  << " has no '" << weapon_type << "' (id " << weapon_id << ")";
-			return;
-		}
-
-		BattleMediKitAction mode = medkit_state == "stimulant" ? BMA_STIMULANT
-								 : medkit_state == "painkiller" ? BMA_PAINKILLER
-																: BMA_HEAL;
-		UnitBodyPart bodyPart = mode == BMA_HEAL ? (UnitBodyPart)part : BODYPART_TORSO;
-		_battleGame->getTileEngine()->medikitUse(&action, unit, mode, bodyPart);
-		// both machines now hold the same charge counts, so this reaches the same
-		// answer on both and the item census stays equal.
-		_battleGame->getTileEngine()->medikitRemoveIfEmpty(&action);
-		updateSoldierInfo();
-		return;
-	}
 
 	_save->setSelectedUnit(unit);
 	_battleGame->getCurrentAction()->actor = unit;
@@ -2417,40 +2257,6 @@ void BattlescapeState::coopActiveGranade(int actor_id, int type, std::string han
 		return;
 
 	
-	// coop (PRD-P1 rule, applied here by PRD-P6): a replayed prime must not hand
-	// THIS player's selection and _currentAction to the peer's actor. In parallel
-	// mode both players are acting at once, so doing it yanked the receiver's
-	// hands panel and stat panel mid-click. Classic keeps the old writes: its
-	// hand branches below read _currentAction->actor.
-	if (connectionTCP::parallelTurnActive())
-	{
-		BattleItem* primed = nullptr;
-		if (item_id != 0)
-		{
-			for (auto* item : *unit->getInventory())
-			{
-				if (item->getId() == item_id)
-				{
-					primed = item;
-					break;
-				}
-			}
-		}
-		else if (hand == "left")
-		{
-			primed = unit->getLeftHandWeapon();
-		}
-		else
-		{
-			primed = unit->getRightHandWeapon();
-		}
-		if (primed)
-		{
-			primed->setFuseTimer(fusetimer);
-		}
-		return;
-	}
-
 	_save->setSelectedUnit(unit);
 	_battleGame->getCurrentAction()->actor = unit;
 
@@ -2522,10 +2328,8 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 	if (!unit)
 		return;
 
-	// coop (PRD-P1): replay on a stack-local action - selecting the peer's actor
-	// and writing _currentAction used to hand this player's cursor, hands panel
-	// and stat panel to whatever the teammate clicked.
-	BattleAction action = BattlescapeGame::makeReplayAction(unit);
+	_save->setSelectedUnit(unit);
+	_battleGame->getCurrentAction()->actor = unit;
 
 
 	if (target_x != -1 && target_y != -1 && target_z != -1)
@@ -2533,17 +2337,17 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 
 		Position current_target = Position(target_x, target_y, target_z);
 
-		action.target = current_target;
+		_battleGame->getCurrentAction()->target = current_target;
 
 	}
 
 
-	action.type = (BattleActionType)type;
+	_battleGame->getCurrentAction()->type = (BattleActionType)type;
 
 	// coop (issue #74): same resolution rule as shootPlayerTarget - the actor's
 	// own weapon, never a fabricated one.
 	BattleItem* acted = BattlescapeGame::coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
-	action.weapon = acted;
+	_battleGame->getCurrentAction()->weapon = acted;
 
 	if (acted && acted == unit->getLeftHandWeapon())
 	{
@@ -2555,33 +2359,33 @@ void BattlescapeState::coopActionClick(int actor_id, std::string hand, int type,
 	}
 
 
-	if (action.type == BA_HIT)
+	if (_battleGame->getCurrentAction()->type == BA_HIT)
 	{
 
-		action.skillRules = nullptr;
-		action.updateTU();
+		_battleGame->getCurrentAction()->skillRules = nullptr;
+		_battleGame->getCurrentAction()->updateTU();
 
 		// after update...
-		//action.Time = time;
+		//_battleGame->getCurrentAction()->Time = time;
 
 		// check beforehand if we have enough time units
-		if (!action.haveTU(&action.result))
+		if (!_battleGame->getCurrentAction()->haveTU(&_battleGame->getCurrentAction()->result))
 		{
 			// nothing
 		}
 		else if (!_game->getSavedGame()->getSavedBattle()->getTileEngine()->validMeleeRange(
-					 action.actor->getPosition(),
-					 action.actor->getDirection(),
-					 action.actor,
-					 0, &action.target))
+					 _battleGame->getCurrentAction()->actor->getPosition(),
+					 _battleGame->getCurrentAction()->actor->getDirection(),
+					 _battleGame->getCurrentAction()->actor,
+					 0, &_battleGame->getCurrentAction()->target))
 		{
-			if (!_game->getSavedGame()->getSavedBattle()->getTileEngine()->validTerrainMeleeRange(&action))
+			if (!_game->getSavedGame()->getSavedBattle()->getTileEngine()->validTerrainMeleeRange(_battleGame->getCurrentAction()))
 			{
-				action.result = "STR_THERE_IS_NO_ONE_THERE";
+				_battleGame->getCurrentAction()->result = "STR_THERE_IS_NO_ONE_THERE";
 			}
 		}
 
-		_battleGame->handleNonTargetAction(action);
+		_battleGame->handleNonTargetAction();
 
 	}
 
@@ -2784,22 +2588,7 @@ void BattlescapeState::btnKneelClick(Action *)
 		BattleUnit *bu = _save->getSelectedUnit();
 		if (bu)
 		{
-			// coop (PRD-P6): kneeling is a sim mutation, so the parallel client
-			// asks instead of doing it. The button/preview refresh below is
-			// display and stays local either way - it re-reads the unit, which
-			// the host's `kneel` broadcast will have updated by then.
-			BattleAction action;
-			action.type = BA_KNEEL;
-			action.actor = bu;
-			if (_battleGame->coopRouteAction(action, "kneel"))
-			{
-				return;
-			}
-
-			// kneel() + the classic `kneel` packet, in one place both this button
-			// and an admitted client intent go through.
-			_battleGame->executeAction(action);
-
+			_battleGame->kneel(bu);
 			toggleKneelButton(bu);
 
 			// update any path preview when unit kneels
@@ -2807,6 +2596,17 @@ void BattlescapeState::btnKneelClick(Action *)
 			{
 				_battleGame->getPathfinding()->refreshPath();
 			}
+
+			// coop
+			if (_game->getCoopMod()->getCoopStatic() == true)
+			{
+				Json::Value obj;
+				obj["state"] = "kneel";
+				obj["id"] = bu->getId();
+
+				_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+			}
+
 		}
 	}
 }
@@ -3150,24 +2950,10 @@ void BattlescapeState::btnEndTurnClick(Action *)
 
 	}
 
-	// coop (PRD-P8): parallel mode has NO mid-side hand-off AND no side owner.
-	// BOTH machines reach this handler now (PRD-P5's client swallow is gone), and
-	// on either one the press does exactly one thing: arm or disarm THIS seat's
-	// readiness. The side is closed by connectionTCP::coopCheckSideCommit() on the
-	// executor's tick, once every seat is ready, the arbiter is idle and the
-	// peer's display has drained - PRD-P5's direct close from here (which only the
-	// host could reach, and which could not wait for the peer) moved there whole.
-	if (_game->getCoopMod()->parallelTurnActive() && _game->getCoopMod()->getCoopStatic() == true && !_save->isPreview())
-	{
-		_game->getCoopMod()->toggleEndTurnReady();
-		updateCoopEndTurnTally();
-		return;
-	}
-
 	_game->getCoopMod()->_isActivePlayerSync = false;
 
 	bool is_return = false;
-
+	
 	if (_game->getCoopMod()->getCoopStatic() == true && !_save->isPreview())
 	{
 
@@ -3913,7 +3699,14 @@ void BattlescapeState::btnReserveClick(Action *action)
 	}
 
 	// COOP
-	coopSendReserveState(false);
+	if (_game->getCoopMod()->getCoopStatic() == true && _battleGame->isYourTurn == 2)
+	{
+		Json::Value obj;
+		obj["state"] = "TU_COOP";
+		obj["reverse"] = (int)_save->getTUReserved();
+
+		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+	}
 
 }
 
@@ -3987,17 +3780,6 @@ bool BattlescapeState::playableUnitSelected()
 	// coop
 	if (_save->getSelectedUnit())
 	{
-
-		// coop (PRD-P5): in parallel mode `_isActivePlayerSync` names the EXECUTOR
-		// role (host true / client FALSE, permanently) instead of "is it my turn",
-		// so the classic test below would leave every action button, stats popup
-		// and right-click permanently dead on the client. The question that
-		// survives is ownership: is the selected soldier one of mine.
-		if (connectionTCP::parallelTurnActive())
-		{
-			return _save->getSelectedUnit()->getCoop() == connectionTCP::localSeat()
-				&& allowButtons();
-		}
 
 		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 1)
 			return true;
@@ -4822,17 +4604,7 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	_battleGame->getCoopMod()->_coopProjectilesHost.clear();
 	_battleGame->getCoopMod()->_coopProjectilesClient = arr;
 
-	// coop (PRD-P3 GAP-4b): the sender's close-quarters outcome. The peer does not
-	// run the CQB check at all - the redirected aim already rides this packet's
-	// target coords - it only applies the defender's TU/energy cost, which is the
-	// one piece of state the redirect leaves behind.
-	_battleGame->getCoopMod()->_cqbBlocked = obj.get("cqb_blocked", false).asBool();
-	_battleGame->getCoopMod()->_cqbDefenderId = obj.get("cqb_defender", -1).asInt();
-
-	// coop (PRD-P1): the replayed shot carries its OWN waypoint list. Clearing
-	// and refilling _currentAction.waypoints threw away the local player's
-	// in-progress blaster waypoints every time a teammate fired.
-	std::list<Position> replayWaypoints;
+	_battleGame->getCurrentAction()->waypoints.clear();
 
 	// waypoints
 	for (int i = 0; i < obj["waypoints"].size(); i++)
@@ -4844,7 +4616,7 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 
 		Position new_waypoint = Position(pos_x, pos_y, pos_z);
 
-		replayWaypoints.push_back(new_waypoint);
+		_battleGame->getCurrentAction()->waypoints.push_back(new_waypoint);
 
 	}
 
@@ -4898,11 +4670,7 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	unit->coop_no_line_fire = actor_no_line_fire;
 	unit->coop_unable_to_throw_here = actor_unable_to_throw_here;
 
-	// coop (PRD-P1): replay on a stack-local action - the peer's shot no longer
-	// lands in the local player's _currentAction (which is what made the watching
-	// player's next map click fire instead of walk).
-	BattleAction action = BattlescapeGame::makeReplayAction(unit);
-	action.waypoints = replayWaypoints;
+	_battleGame->getCurrentAction()->actor = unit;
 
 	// coop (issue #74): resolve the SHOOTER'S OWN weapon. Reading a hand blindly
 	// and then inventing a BattleItem when it was empty (a stale `hand` string,
@@ -4910,7 +4678,7 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 	// machine's item-id counter, drifting the two id spaces apart until the
 	// protocol's other id lookups started matching other players' gear by type.
 	BattleItem* firing = BattlescapeGame::coopResolveWeapon(_save, unit, weapon_id, weapon_type, hand);
-	action.weapon = firing;
+	_battleGame->getCurrentAction()->weapon = firing;
 
 	if (firing && firing == unit->getLeftHandWeapon())
 	{
@@ -4929,35 +4697,27 @@ void BattlescapeState::shootPlayerTarget(std::string obj_str)
 
 
 	// if weapon is not null
-	if (action.weapon)
+	if (_battleGame->getCurrentAction()->weapon)
 	{
 
-		action.weapon->setFuseEnabled(fuse);
+		_battleGame->getCurrentAction()->weapon->setFuseEnabled(fuse);
 
 		if (fusetimer != -1)
 		{
-			action.weapon->setFuseTimer(fusetimer);
+			_battleGame->getCurrentAction()->weapon->setFuseTimer(fusetimer);
 		}
 
 		
-		action.targeting = targeting;
+		_battleGame->getCurrentAction()->targeting = targeting;
 
-		action.target = targetPos;
+		_battleGame->getCurrentAction()->target = targetPos;
 
-		action.type = (BattleActionType)type;
+		_battleGame->getCurrentAction()->type = (BattleActionType)type;
 
-		action.updateTU();
+		_battleGame->getCurrentAction()->updateTU();
 
-		_battleGame->CoopShoot(action);
+		_battleGame->CoopShoot();
 
-	}
-	else
-	{
-		// coop (issue #74): no weapon resolved => skip the shot entirely. Never
-		// fabricate a BattleItem on a receiver.
-		Log(LOG_INFO) << "coop: shot replay skipped, unit " << actor_id
-					  << " has no '" << weapon_type << "' (id " << weapon_id
-					  << ") - never fabricating one (issue #74)";
 	}
 
 
@@ -5062,11 +4822,7 @@ void BattlescapeState::moveCoopInventory(std::string ammos_str, std::string item
 		currentItem->setXCOMProperty(getXCOMProperty);
 		currentItem->setIsAmmo(isAmmo);
 		currentItem->setFuseEnabled(isFuseEnabled);
-		// coop (PRD-I3 SEAM-11): the wire carries the SENDER's getAmmoQuantity(), which
-		// returns 255 for a clipSize==-1 (self-powered/infinite) item - but the raw field
-		// the save serializes is -1 there, so storing 255 leaves a permanent saveBlob
-		// ammoqty divergence (host -1 / peer 255). Restore the raw sentinel for those.
-		currentItem->setAmmoQuantity(currentItem->getRules()->getClipSize() == -1 ? -1 : getAmmoQuantity);
+		currentItem->setAmmoQuantity(getAmmoQuantity);
 
 		// weapon reload
 		if (isWeaponWithAmmo == true && ammos_str != "")
@@ -5192,187 +4948,7 @@ void BattlescapeState::moveCoopInventory(std::string ammos_str, std::string item
 void BattlescapeState::showCoopWarning(const std::string &message)
 {
 	_warning->showMessage(message, -1);
-
-}
-
-/**
- * coop (PRD-P8): repaints the END TURN readiness lamp and the tally.
- *
- * Two surfaces, both driven from connectionTCP's seat-indexed tally:
- *  - the END TURN button is INVERTED while THIS machine is armed, which is the
- *    only "my press did something" feedback a latching toggle can give;
- *  - a small right-aligned "END TURN 1/2" above the button, visible while at
- *    least one seat is armed. Deliberately NOT on the _warning widget (PRD-P8
- *    §4): that one fades after a few seconds, and a player who is waiting needs
- *    the count to stay on screen.
- *
- * The local seat's bit is whatever this machine last set, so a client shows its
- * own press optimistically and the host's echoed tally confirms (or quietly
- * undoes) it.
- */
-void BattlescapeState::updateCoopEndTurnTally()
-{
-	if (!connectionTCP::parallelTurnActive() || _save->isPreview())
-	{
-		if (_coopTallySeats != -1)
-		{
-			_txtCoopEndTurn->setVisible(false);
-			_btnEndTurn->toggle(false);
-			_coopTallyReady = _coopTallySeats = -1;
-			_coopTallyLocalReady = false;
-		}
-		return;
-	}
-
-	connectionTCP::ensureEndTurnSeats();
-	const int seats = std::max(1, connectionTCP::seatCount());
-	const int ready = connectionTCP::endTurnReadyCount();
-	const bool mine = connectionTCP::endTurnSeatReady(connectionTCP::localSeat());
-	if (ready == _coopTallyReady && seats == _coopTallySeats && mine == _coopTallyLocalReady)
-	{
-		return;
-	}
-	_coopTallyReady = ready;
-	_coopTallySeats = seats;
-	_coopTallyLocalReady = mine;
-
-	_btnEndTurn->toggle(mine);
-	if (ready > 0)
-	{
-		_txtCoopEndTurn->setText(tr("STR_COOP_END_TURN_TALLY")
-			.arg(ready).arg(seats));
-		_txtCoopEndTurn->setVisible(true);
-	}
-	else
-	{
-		_txtCoopEndTurn->setVisible(false);
-	}
-}
-
-/**
- * coop (PRD-P8 §5): the classic reserve mirror.
- *
- * Classic co-op keeps ONE reserve setting across both machines, because only one
- * of them is acting at a time. In parallel mode both are, so one player's reserve
- * gating the other's soldiers is simply wrong - the setting becomes per-machine
- * and the value that matters rides `action_intent` per action instead
- * (PROTOCOL.md). Factored out of the two button handlers so the suppression is
- * decided in exactly one place.
- */
-void BattlescapeState::coopSendReserveState(bool kneel)
-{
-	if (_game->getCoopMod()->getCoopStatic() != true || _battleGame->isYourTurn != 2)
-	{
-		return;
-	}
-	if (connectionTCP::parallelTurnActive())
-	{
-		return;
-	}
-	Json::Value obj;
-	if (kneel)
-	{
-		obj["state"] = "kneel_reserved";
-		obj["battle_action"] = _save->getKneelReserved();
-	}
-	else
-	{
-		obj["state"] = "TU_COOP";
-		obj["reverse"] = (int)_save->getTUReserved();
-	}
-	_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-}
-
-std::string BattlescapeState::getCoopWarningText() const
-{
-	return _warning ? _warning->getMessage() : std::string();
-}
-
-/**
- * coop (parallel turns): drive the persistent "Please wait for <player>'s action
- * to finish" banner in the map strip above the toolbar. Shown while another
- * seat's action blocks this machine's input; suppressed when the running chain is
- * this seat's own action (you are not waiting on anyone) or when idle.
- */
-void BattlescapeState::updateCoopWaitBanner()
-{
-	connectionTCP *coop = _game->getCoopMod();
-	std::string text;
-	if (connectionTCP::parallelTurnActive() && _save->isPreview() == false
-		&& connectionTCP::_battleInit == true)
-	{
-		const int me = connectionTCP::localSeat();
-		int owner = -1;
-		if (_battleGame->isBusy())
-		{
-			// Latch the owner for the whole busy window. Consequence states (a
-			// death/fall/explosion) are pushed to the FRONT of the queue mid-chain,
-			// so re-deriving the owner every frame from the front state would
-			// mis-attribute a kill to the victim's side (my grenade killing a peer
-			// soldier would flash "wait for <peer>" during my OWN action's aftermath,
-			// and the symmetric case would wrongly suppress the banner). Resolve once
-			// - skipping consequence states - then reuse until isBusy() clears.
-			if (_coopBusyOwnerSeat == -1)
-			{
-				BattleUnit *actor = _battleGame->getPrimaryBusyActor();
-				if (actor)
-				{
-					_coopBusyOwnerSeat = actor->getCoop();
-				}
-			}
-			owner = _coopBusyOwnerSeat;
-		}
-		else
-		{
-			_coopBusyOwnerSeat = -1;   // busy window ended - drop the latch
-		}
-		if (owner >= 0 && owner != me && owner < connectionTCP::seatCount())
-		{
-			// The action currently executing belongs to another seat. This is
-			// SEAT-INDEXED and therefore already N-player-ready: seatName() reads the
-			// seat-ordered coop roster (SavedGame::getCoopPlayers()), so the day real
-			// >2-player coop exists - i.e. the transport accepts more than one client
-			// (today it does not: connectionTCP.cpp "Only 1 client supported"),
-			// getCoop() returns a seat > 1, and getCoopPlayers() carries that seat's
-			// name - this line names seats 2/3 with NO change here.
-			//
-			// The getCurrentClientName() fallback is a 2-player-only bridge for the
-			// ONE gap today: a SKIRMISH battle never populates getCoopPlayers() (only
-			// the campaign start path does, LobbyMenu::startCampaign), so seatName()
-			// is empty there. With coop hard-wired to host + one client
-			// (coop_save_owner_player_id is only ever 0/1), the "other seat" is
-			// unambiguously the peer, so getCurrentClientName() is correct. When
-			// N-player transport is added it MUST populate the seat roster (for votes,
-			// end-turn tally, etc.); once it does, seatName() wins and this fallback
-			// is never reached for owner != me. Do NOT extend this fallback to guess
-			// names for seats 2/3 - there is no data behind them yet.
-			std::string name = connectionTCP::seatName(owner);
-			if (name.empty()) name = coop->getCurrentClientName();
-			text = tr("STR_COOP_WAIT_FOR_PLAYER_ACTION").arg(name);
-		}
-		else if (owner < 0 && coop->_coopWaitDenyTicks > 0)
-		{
-			// click-sync: a BUSY deny just arrived while a mirror-packet gap left us
-			// momentarily not-busy, so no busy owner is latched. Name the peer (the
-			// executor running the non-skippable chain).
-			text = tr("STR_COOP_WAIT_FOR_PLAYER_ACTION").arg(coop->getCurrentClientName());
-		}
-	}
-	else
-	{
-		_coopBusyOwnerSeat = -1;   // not in a live parallel battle - drop the latch
-	}
-	if (coop->_coopWaitDenyTicks > 0)
-	{
-		coop->_coopWaitDenyTicks--;
-	}
-	_txtCoopWait->setText(text);
-	_txtCoopWait->setVisible(!text.empty());
-}
-
-std::string BattlescapeState::getCoopWaitText() const
-{
-	return (_txtCoopWait && _txtCoopWait->getVisible()) ? _txtCoopWait->getText() : std::string();
+	
 }
 
 void BattlescapeState::doAbortPath()
@@ -6593,7 +6169,14 @@ void BattlescapeState::btnReserveKneelClick(Action *action)
 		}
 
 		// COOP
-		coopSendReserveState(true);
+		if (_game->getCoopMod()->getCoopStatic() == true && _battleGame->isYourTurn == 2)
+		{
+			Json::Value obj;
+			obj["state"] = "kneel_reserved";
+			obj["battle_action"] = _save->getKneelReserved();
+
+			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
+		}
 
 	}
 }

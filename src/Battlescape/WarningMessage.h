@@ -51,10 +51,6 @@ public:
 	void setPalette(const SDL_Color *colors, int firstcolor = 0, int ncolors = 256) override;
 	/// Shows the warning message.
 	void showMessage(const std::string &msg, int time = 2);
-	/// coop (PRD-P5): the message currently on screen, "" when hidden. Read-only
-	/// introspection - the co-op harness asserts WHICH banners a turn mode posts
-	/// (the persistent showCoopWarning(msg, -1) ones squat on this widget).
-	std::string getMessage() const;
 	/// Handles the timers.
 	void think() override;
 	/// Fades the message.

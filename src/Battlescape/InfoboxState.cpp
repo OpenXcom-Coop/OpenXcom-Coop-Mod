@@ -36,10 +36,8 @@ namespace OpenXcom
 InfoboxState::InfoboxState(const std::string &msg)
 {
 
-	// coop: hold the receive gate for as long as the box is up. PRD-P6 pre-task
-	// made this a depth counter - a modal opening INSIDE a shot no longer releases
-	// the projectile's own hold when it closes.
-	_game->getCoopMod()->setCoopTaskCompleted(false);
+	// coop
+	_game->getCoopMod()->_coop_task_completed = false;
 	connectionTCP::isInfoboxClosed = false;
 
 	_screen = false;
@@ -103,7 +101,7 @@ InfoboxState::~InfoboxState()
 {
 
 	// coop
-	_game->getCoopMod()->setCoopTaskCompleted(true);
+	_game->getCoopMod()->_coop_task_completed = true;
 	connectionTCP::isInfoboxClosed = true;
 
 	delete _timer;

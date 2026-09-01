@@ -17,7 +17,6 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "Map.h"
-#include "BattlescapeGame.h" // coop (Phase 2c death ghost): CoopDeathGhost + coopActiveGhost()
 #include "Camera.h"
 #include "UnitSprite.h"
 #include "ItemSprite.h"
@@ -489,11 +488,16 @@ int getShadePulseForFrame(int shade, int frame)
  */
 void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer, BattleUnit* movingUnit)
 {
+	const int tileFoorWidth = 32;
+	const int tileFoorHeight = 16;
+	const int tileHeight = 40;
+
 	if (!unitTile)
 	{
 		return;
 	}
 	BattleUnit* bu = unitTile->getOverlappingUnit(_save, TUO_ALWAYS);
+	Position unitOffset;
 	bool unitFromBelow = false;
 	bool unitFromAbove = false;
 	if (bu)
@@ -518,51 +522,10 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	}
 	else
 	{
-		// coop (Phase 2c death ghost): no live unit occupies this tile - a client-side
-		// death ghost (a unit already tile-unlinked by coopApplyCasualty) may cover it.
-		coopMaybeDrawGhost(unitSprite, unitTile, currTile, currTileScreenPosition, topLayer);
 		return;
 	}
-	drawUnitResolved(unitSprite, bu, unitTile, currTile, currTileScreenPosition, topLayer, unitFromBelow, unitFromAbove, false, false);
-}
 
-/**
- * coop (Phase 2c death ghost): draw the death-collapse animation for a client-side
- * ghost whose footprint covers @a unitTile. The ghost's unit was tile-unlinked by
- * coopApplyCasualty so it never resolves through getOverlappingUnit; draw it here with
- * its captured apply-time visibility standing in for getVisible(). A fast null-check
- * no-op when no ghost covers this tile (host / classic / single-player).
- */
-void Map::coopMaybeDrawGhost(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer)
-{
-	BattlescapeGame* bg = _save->getBattleGame();
-	if (!bg)
-	{
-		return;
-	}
-	const CoopDeathGhost* g = bg->coopGhostCoveringTile(unitTile->getPosition());
-	if (!g || !g->unit)
-	{
-		return;
-	}
-	drawUnitResolved(unitSprite, g->unit, unitTile, currTile, currTileScreenPosition, topLayer, false, false, true, g->visibleAtApply);
-}
-
-/**
- * Draws a resolved unit (or a Phase 2c death ghost) at its tile. Factored out of
- * drawUnit so the ghost path reuses the exact multi-tile offset / mask / shade logic;
- * @a useVisibleOverride lets the ghost supply its captured apply-time visibility
- * instead of the (now tile-less) unit's live getVisible().
- */
-void Map::drawUnitResolved(UnitSprite &unitSprite, BattleUnit* bu, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer, bool unitFromBelow, bool unitFromAbove, bool useVisibleOverride, bool visibleOverride)
-{
-	const int tileFoorWidth = 32;
-	const int tileFoorHeight = 16;
-	const int tileHeight = 40;
-
-	Position unitOffset;
-
-	if (!((useVisibleOverride ? visibleOverride : bu->getVisible()) || _save->getDebugMode()))
+	if (!(bu->getVisible() || _save->getDebugMode()))
 	{
 		return;
 	}
@@ -769,55 +732,6 @@ void Map::drawUnitResolved(UnitSprite &unitSprite, BattleUnit* bu, Tile *unitTil
 	// forced _isAltPressed/_isCtrlPressed false when it wasn't our turn).
 
 	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed);
-}
-
-/**
- * coop (Phase 2c death ghost): Tile::getTopItem() but skipping any item id an
- * active/pending death ghost is hiding (its freshly minted corpse + spilled kit),
- * so those stay invisible until the collapse animation reveals them. Replicates
- * Tile::getTopItem's selection (>100 items -> front; any item carrying a unit wins;
- * else max total weight). A fast passthrough to the stock getter whenever no ghost
- * is hiding anything (host / classic / single-player, and most parallel frames).
- */
-BattleItem* Map::coopTopItemExcluding(Tile* tile)
-{
-	BattlescapeGame* bg = _save->getBattleGame();
-	if (!bg || !bg->coopHasHiddenGhostItems())
-	{
-		return tile->getTopItem();
-	}
-	std::vector<BattleItem*>* inv = tile->getInventory();
-	if (inv->size() > 100)
-	{
-		for (auto* bi : *inv)
-		{
-			if (!bg->coopIsGhostHiddenItem(bi->getId()))
-			{
-				return bi;
-			}
-		}
-		return nullptr;
-	}
-	int biggestWeight = -999;
-	BattleItem* biggestItem = nullptr;
-	for (auto* bi : *inv)
-	{
-		if (bg->coopIsGhostHiddenItem(bi->getId()))
-		{
-			continue;
-		}
-		if (bi->getUnit())
-		{
-			return bi;
-		}
-		int temp = bi->getTotalWeight();
-		if (temp > biggestWeight)
-		{
-			biggestWeight = temp;
-			biggestItem = bi;
-		}
-	}
-	return biggestItem;
 }
 
 /**
@@ -1119,7 +1033,7 @@ void Map::drawTerrain(Surface *surface)
 							}
 						}
 						// draw an item on top of the floor (if any)
-						BattleItem* item = coopTopItemExcluding(tile); // coop (Phase 2c): hide a death ghost's corpse/kit until its collapse ends
+						BattleItem* item = tile->getTopItem();
 						if (item)
 						{
 							itemSprite.draw(item,
