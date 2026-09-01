@@ -60,6 +60,7 @@
 #include "../Engine/Logger.h"
 #include "../Engine/Options.h"
 #include "../Engine/State.h"
+#include "../Menu/PauseState.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ItemsArrivingState.h"
 #include "../Geoscape/GeoscapeCraftState.h"
@@ -2587,6 +2588,15 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		// co-op -> (connected) ServerList redirects to the LobbyMenu. Opened over
 		// a running campaign it must offer RESUME GAME, not only Disconnect.
 		_game->pushState(new LobbyMenu());
+		resp["ok"] = true;
+	}
+	else if (cmd == "open_pause_coop")
+	{
+		// Drive the real Battlescape pause-menu COOP action. In particular, a
+		// freshly loaded Custom Battle must open HostMenu rather than ServerList.
+		PauseState* pause = new PauseState(OPT_BATTLESCAPE);
+		_game->pushState(pause);
+		pause->btnCoopClick(nullptr);
 		resp["ok"] = true;
 	}
 	else if (cmd == "lobby_set_team")
@@ -7308,6 +7318,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["lobbyClosed"] = connectionTCP::session.lobbyClosed;
 			resp["lobbyFileStatus"] = connectionTCP::LobbyFileStatus;
 			resp["lobbyMode"] = connectionTCP::session.lobbyMode;
+			resp["customBattleResumePending"] = connectionTCP::session.customBattleResumePending;
 			resp["resumeAck"] = connectionTCP::session.resumeAck;
 			resp["coopSession"] = coop->isCoopSession();
 			resp["hasSave"] = _game->getSavedGame() != nullptr;

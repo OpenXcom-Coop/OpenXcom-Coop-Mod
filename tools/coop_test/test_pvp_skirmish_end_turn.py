@@ -196,6 +196,39 @@ def test_end_turn_gamemode_3(fails):
         else:
             print(f"PASS gm3: host now commands {len(hs2)} alien unit(s)")
 
+        # ---- end the alien turn (complete the first full round) ------------
+        # This second boundary is the saved-PvP2 regression: after displaying
+        # NextTurnState, its vanilla faction tally used to call finishBattle
+        # even though both PvP seats still had living units.
+        end_turn(host)
+        time.sleep(1)
+        if PVP._top(host) == "NextTurnState":
+            host.ok({"cmd": "dismiss_popup"})
+        time.sleep(3)
+
+        hb = battle(host)
+        cb = battle(client)
+        if not hb.get("inBattle") or not cb.get("inBattle"):
+            _fail(fails,
+                  "gm3: battle ended after one complete XCOM+alien round")
+            return
+        if hb.get("pvpWin", 0) or cb.get("pvpWin", 0):
+            _fail(fails,
+                  f"gm3: false PvP verdict after full round: "
+                  f"host={hb.get('pvpWin')} client={cb.get('pvpWin')}")
+            return
+
+        hs3, host_exec3 = selectable(host)
+        cs3, client_exec3 = selectable(client)
+        if not cs3:
+            _fail(fails,
+                  "gm3: client (XCOM) did not regain control after alien turn")
+        elif hs3:
+            _fail(fails,
+                  f"gm3: host still has selectable alien units on XCOM turn: {hs3}")
+        else:
+            print("PASS gm3 full round: battle continues and control returns to XCOM")
+
     except Exception as e:
         print(f"[ERROR] gm3: {e}")
         _fail(fails, str(e))

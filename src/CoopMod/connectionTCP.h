@@ -331,6 +331,14 @@ struct CoopSession
 	// authoritative for the lifetime of this multiplayer session.
 	bool customBattleCraftLocked = false;
 	int customBattleCraftId = -1;
+	// A loaded Custom Battle is being re-hosted through a campaign-style lobby.
+	// The existing tactical world stays paused on the host and is streamed only
+	// after the host presses CONTINUE BATTLE.
+	bool customBattleResumePending = false;
+	// CONTINUE BATTLE was pressed and the saved battle is being adopted by the
+	// client. The host stays behind WAIT_PLAYERS until the post-load COOP_READY
+	// handshake re-arms battlescape roles/turns on both machines.
+	bool customBattleResumeLoading = false;
 	// issue #93: this client is rejoining a SKIRMISH (lobbyMode 0) session whose
 	// battle is already running, so the battle blob it is about to load is a
 	// REJOIN, not the start of a mission. One-shot: the load consumes it to send
@@ -353,6 +361,10 @@ struct CoopSession
 
 	// --- multi-field / cross-file lifecycle writes funnelled here (PRD-12) ---
 	void adoptResumeSave();          // a co-op save is loaded for resume (lobbyMode=2, unlock, clear ack)
+	void adoptCustomBattleResume();  // loaded Custom Battle -> HostMenu/lobby, wait for CONTINUE BATTLE
+	void finishCustomBattleResume(); // CONTINUE BATTLE accepted; future joins are live reconnects
+	void beginCustomBattleResumeLoad(); // map transfer begun; post-load COOP_READY is owed
+	void completeCustomBattleResumeLoad(); // post-load handshake reached its completion point
 	void armResumeHandshake(bool hasBattle); // resume/rejoin: clear ack, arm battle phase-two if a battle is loaded
 	void markLobbyOpen();            // the lobby UI opened (lobbyClosed=false)
 	void markLobbyClosed();          // the lobby UI dismissed (lobbyClosed=true)

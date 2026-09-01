@@ -622,7 +622,19 @@ void NextTurnState::close()
 	// Abort is a separate, explicitly host-announced vote (finishBattle(true), which
 	// is NOT gated here and still crosses on the client).
 	const bool coopHostAuthoritativeEnd = connectionTCP::parallelTurnActive() && !_game->getCoopMod()->getHost();
-	if (!coopHostAuthoritativeEnd && ((!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0))
+	// PvP has its own seat-based elimination check in
+	// BattlescapeState::btnEndTurnClick.  The ordinary mission tally cannot be
+	// used here: each PvP process presents its locally controlled side as the
+	// player faction, so after the alien half of a round tallyUnits() may report
+	// zero soldiers or zero aliens even though both network seats still have
+	// living units.  That used to end a resumed gm2/gm3 battle as soon as the
+	// Next Turn screen was closed.  Campaign and Custom Battle PvP now share the
+	// same authoritative seat-based end path.
+	const int coopGamemode = _game->getCoopMod()->getCoopGamemode();
+	const bool coopPvpBattle = _game->getCoopMod()->getCoopStatic()
+		&& (coopGamemode == 2 || coopGamemode == 3);
+	if (!coopHostAuthoritativeEnd && !coopPvpBattle
+		&& ((!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0))
 	{
 		_state->finishBattle(false, tally.liveSoldiers);
 	}
