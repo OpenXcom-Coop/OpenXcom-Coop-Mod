@@ -78,6 +78,7 @@
 #include "CoopArbiter.h"
 #include "CoopBattleUi.h"
 #include "CoopHandshake.h"
+#include "CoopBattleSetup.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -2025,19 +2026,6 @@ static std::string coopComputeSaveBlobBucketHex(SavedBattleGame* battle)
 	return coopHex64(h);
 }
 
-// RB-D18 interim seatMap (classic/SHARED only): {"0":"player","1":"player"},
-// built inline. Sent verbatim in the offer regardless of gamemode - it is the
-// RECEIVING client that evaluates @a gamemode and refuses {reason:
-// "unsupported"} for gm2/gm3/gm4 (SS2.1: battle_refuse is client->host only,
-// so the host cannot itself emit one - see this packet's final report).
-static Json::Value coopBuildInterimSeatMap()
-{
-	Json::Value m(Json::objectValue);
-	m["0"] = "player";
-	m["1"] = "player";
-	return m;
-}
-
 // RB-D31: faction wire encoding is strings ("player"/"hostile"/"neutral").
 static int coopWireStringToFaction(const std::string& s)
 {
@@ -2046,6 +2034,16 @@ static int coopWireStringToFaction(const std::string& s)
 	if (s == "neutral")
 		return (int)FACTION_NEUTRAL;
 	return (int)FACTION_PLAYER;
+}
+
+// RB-D31 inverse: BattleAuthority faction int -> wire string.
+static std::string coopFactionToWireString(int faction)
+{
+	if (faction == (int)FACTION_HOSTILE)
+		return "hostile";
+	if (faction == (int)FACTION_NEUTRAL)
+		return "neutral";
+	return "player";
 }
 
 static void coopApplySeatMap(const Json::Value& seatMap)
@@ -2057,6 +2055,23 @@ static void coopApplySeatMap(const Json::Value& seatMap)
 		const int seat = std::atoi(key.c_str());
 		coopBattleAuthority().setSeatFaction(seat, coopWireStringToFaction(seatMap[key].asString()));
 	}
+}
+
+// R5-P1 (RB-D23): the REAL seatMap for battle_offer, built from
+// coopBattleAuthority()'s seat->faction store AFTER assignSeatsAndFactions()
+// (CoopState.cpp) has populated it for every seat in @a seats - REPLACES the
+// R4-P1 interim coopBuildInterimSeatMap() (a flat {"0":"player","1":"player"}
+// placeholder that never touched a BattleUnit or reflected gm2/gm3). HOST-only
+// (only offerBattle() calls this); the client applies whatever this produces
+// via the existing coopApplySeatMap() above, unmodified.
+static Json::Value coopBuildRealSeatMap(const std::vector<int>& seats)
+{
+	Json::Value m(Json::objectValue);
+	for (int seat : seats)
+	{
+		m[std::to_string(seat)] = coopFactionToWireString(coopBattleAuthority().factionOf(seat));
+	}
+	return m;
 }
 
 // ----- HOST pending state: set by offerBattle(), consumed by onReady()/onRefuse() -----
@@ -2110,6 +2125,10 @@ struct PendingClient
 	std::uint32_t battleId = 0;
 	std::uint64_t blobBytes = 0;
 	std::string blobSha;
+	// R5-P1: the real battle_offer seatMap onOffer() already validated -
+	// onBlobChunkAppended() re-applies it (its own initBattleAuthority() call
+	// clears the seat->faction store a second time) rather than recomputing.
+	Json::Value seatMap;
 };
 static PendingClient g_pendingClient;
 
@@ -2152,7 +2171,24 @@ void offerBattle(Game* game, int gamemode)
 	const std::uint32_t battleId = s_nextBattleId++;
 
 	initBattleAuthority(battleId); // -> hostSim=true, localSeat, phase=Handshake, seat-faction store cleared
-	coopApplySeatMap(coopBuildInterimSeatMap());
+
+	// R5-P1 (RB-D23): the ONE generation-time canonical-faction/seat pass -
+	// REPLACES the R4-P1 interim coopApplySeatMap(coopBuildInterimSeatMap())
+	// call that used to sit here. @a seats is every currently-connected seat
+	// (host + clients); the spike is 2-seat only (host=0, client=1,
+	// connectionTCP::localSeat()'s own transport convention) but this reads
+	// the live roster size rather than hardcoding {0,1} (RB-D17 N-player
+	// guardrail). Populates BOTH coopBattleAuthority()'s seat->faction store
+	// (read below by coopBuildRealSeatMap() for the offer) AND every
+	// generated BattleUnit's RB-D17 seat tag + canonical faction - see
+	// CoopBattleSetup.h for the full per-gamemode contract.
+	std::vector<int> seats;
+	seats.reserve(connectionTCP::seatCount());
+	for (int s = 0; s < connectionTCP::seatCount(); ++s)
+	{
+		seats.push_back(s);
+	}
+	assignSeatsAndFactions(battle, gamemode, seats);
 
 	// Snapshot (donor call shape CoopState.cpp:~1667 @1e0f9276f) - the whole
 	// generated SavedGame blob, which contains the active SavedBattleGame.
@@ -2213,7 +2249,7 @@ void offerBattle(Game* game, int gamemode)
 	offer["protocolVersion"] = 1;
 	offer["battleId"] = battleId;
 	offer["gamemode"] = gamemode;
-	offer["seatMap"] = coopBuildInterimSeatMap();
+	offer["seatMap"] = coopBuildRealSeatMap(seats); // R5-P1 (RB-D23/RB-D31): real per-unit-derived factions
 	offer["blobBytes"] = Json::UInt64(blob.size());
 	offer["blobSha"] = sha;
 
@@ -2256,7 +2292,7 @@ void onOffer(Game* game, const Json::Value& offer)
 	}
 
 	const int gamemode = offer.get("gamemode", 0).asInt();
-	if (gamemode >= 2) // RB-D18: classic/SHARED only; gm2/gm3/gm4 deferred to R5-P1
+	if (gamemode >= 4) // R5-P1 (RB-D23): gm2/gm3 now supported; gm4 (PvE2) stays deferred (RB-D16)
 	{
 		refuse("unsupported");
 		return;
@@ -2270,6 +2306,13 @@ void onOffer(Game* game, const Json::Value& offer)
 	g_pendingClient.battleId = battleId;
 	g_pendingClient.blobBytes = offer.get("blobBytes", Json::UInt64(0)).asUInt64();
 	g_pendingClient.blobSha = offer.get("blobSha", "").asString();
+	// R5-P1: the REAL per-battle seatMap (RB-D31 strings), stashed so
+	// onBlobChunkAppended() can re-apply it after its own initBattleAuthority()
+	// call clears coopBattleAuthority()'s seat->faction store a second time -
+	// this machine never regenerates the battle, so there is nothing to
+	// recompute it FROM at that point except what onOffer() already validated
+	// here.
+	g_pendingClient.seatMap = offer["seatMap"];
 
 	// Fresh accumulation buffer for THIS transfer - defensive against any
 	// stale leftover (resetPendingState() also clears this at the teardown
@@ -2376,7 +2419,7 @@ void onBlobChunkAppended(Game* game)
 	CoopIdMaps::rebuildFrom(battle); // R4-P1 calls rebuildFrom here (CoopIdMaps.h/:942 marker)
 
 	initBattleAuthority(battleId); // hostSim=false here (getServerOwner()==false on a client), localSeat
-	coopApplySeatMap(coopBuildInterimSeatMap()); // same interim map onOffer() already validated
+	coopApplySeatMap(g_pendingClient.seatMap); // R5-P1: re-apply the REAL seatMap onOffer() already validated
 	coopBattleAuthority().phase = CoopBattlePhase::Active;
 
 	// LoadGameState.cpp's "loaded save with a live battle -> BattlescapeState"

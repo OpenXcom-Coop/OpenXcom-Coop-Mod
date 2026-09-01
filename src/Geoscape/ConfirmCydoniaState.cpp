@@ -150,6 +150,16 @@ void ConfirmCydoniaState::startCoopMission()
 		// Soldier::getCoop() ownership btnYesClick just refreshed - the
 		// admission arbiter's not_your_unit check (connectionTCP.cpp) reads
 		// BattleUnit::getCoopSeat(), not the geoscape Soldier.
+		// R5-P1 NOTE (RB-D23): CoopHandshake::offerBattle() below now runs
+		// assignSeatsAndFactions() (CoopState.cpp) on the HOST machine, which
+		// does this exact stamp itself (plus the canonical-faction funnel and
+		// the out-of-roster validity check) - this loop is redundant on the
+		// host path since that call. Left in place rather than removed
+		// (RB-D23 packet text's "else leave it and note it" - no dedicated
+		// Cydonia coverage rode with this packet's acceptance to verify a
+		// removal is safe here). Harmless: assignSeatsAndFactions()
+		// overwrites whatever this loop set, with the identical value, a few
+		// lines later.
 		for (auto* unit : *bgame->getUnits())
 		{
 			Soldier* soldier = unit->getGeoscapeSoldier();

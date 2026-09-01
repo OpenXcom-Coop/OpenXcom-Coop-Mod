@@ -670,6 +670,15 @@ public:
 	const std::string& getType() const;
 	/// Convert's unit to a faction
 	void convertToFaction(UnitFaction f);
+	/// R5-P1 (rewrite spike, RB-D23): sets the unit's ORIGINAL faction. Thin
+	/// setter, no logic - convertToFaction() alone is not enough for a
+	/// generation-time canonical-faction assignment, because
+	/// prepareNewTurn() (BattleUnit.cpp) snaps _faction back to
+	/// _originalFaction every turn whenever they differ (the MC-revert
+	/// mechanic) - CoopMod's CoopState.cpp::assignSeatsAndFactions() is the
+	/// ONE caller (RB-D23's "setOriginalFaction writes funneled through this
+	/// ONE pass").
+	void setOriginalFaction(UnitFaction f) { _originalFaction = f; }
 	/// Set health to 0
 	void kill();
 	/// Set health to 0 and set status dead

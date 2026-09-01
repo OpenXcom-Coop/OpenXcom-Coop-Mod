@@ -44,6 +44,9 @@
 #include "../Savegame/ItemContainer.h"
 #include "../Mod/RuleItem.h"
 #include "../Savegame/Vehicle.h"
+#include "../Savegame/BattleUnit.h"
+#include "CoopBattleSetup.h"
+#include "BattleAuthority.h"
 
 #include "../Menu/SaveGameState.h"
 #include "../Menu/LoadGameState.h"
@@ -1892,6 +1895,125 @@ void CoopState::loadCoop(Action *)
 
 	loadWorld();
 
+}
+
+namespace
+{
+// RB-D23: canonical seat -> faction mapping, by gamemode. Single source of
+// truth for BOTH the per-unit assignment loop in assignSeatsAndFactions()
+// below AND (via coopBattleAuthority().setSeatFaction()) the seat->faction
+// store that the real battle_offer seatMap (connectionTCP.cpp) and
+// BattleAuthority::factionOf()/mySideActive()/commandsUnit()/isSpectator()
+// all read - replaces the RB-D18 interim map's flat "every seat is player"
+// template.
+UnitFaction coopSeatCanonicalFaction(int gamemode, int seat)
+{
+	switch (gamemode)
+	{
+	case 2: // PvP: seat0 = the vanilla FACTION_PLAYER group, seat1 = hostile
+		return (seat == (int)COOP_SEAT_0) ? FACTION_PLAYER : FACTION_HOSTILE;
+	case 3: // PvP inverted
+		return (seat == (int)COOP_SEAT_0) ? FACTION_HOSTILE : FACTION_PLAYER;
+	default: // 0/1 classic/SHARED: every seated unit is player-side (RB-D18's
+		// interim invariant, carried forward unchanged by R5-P1)
+		return FACTION_PLAYER;
+	}
+}
+}
+
+// R5-P1 (SPIKE-RUNBOOK.md RB-D23): see CoopBattleSetup.h for the full
+// gamemode-by-gamemode contract this implements. HOST-ONLY, called once by
+// CoopHandshake::offerBattle() (connectionTCP.cpp) right after
+// BattlescapeGenerator::run() has produced @a save, before it is snapshotted
+// into the battle_offer blob - every write here streams to the client inside
+// that blob, so the client never needs to (and never does) call this itself.
+void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vector<int>& seats)
+{
+	if (!save)
+		return;
+
+	if (gamemode == 4)
+	{
+		// RB-D16: PvE2 deferred to the r3 fan-out wave. Callers (connectionTCP.
+		// cpp's onOffer()) must keep refusing gm4 {reason:"unsupported"} at the
+		// handshake instead of reaching this function for it - this is a
+		// defensive fallback, not the refusal path itself.
+		Log(LOG_WARNING) << "[coop-battle-setup] assignSeatsAndFactions() called with "
+			"gamemode 4 (PvE2) - deferred (RB-D16), no-op";
+		return;
+	}
+
+	// Populate the BattleAuthority seat->faction store for every active seat -
+	// this REPLACES coopBuildInterimSeatMap()'s role (RB-D18's flat "every
+	// seat is player" placeholder) as of this packet.
+	coopBattleAuthority().resetSeatFactions();
+	for (int seat : seats)
+	{
+		coopBattleAuthority().setSeatFaction(seat, (int)coopSeatCanonicalFaction(gamemode, seat));
+	}
+
+	for (auto* unit : *save->getUnits())
+	{
+		if (!unit)
+			continue;
+
+		if (gamemode == 0 || gamemode == 1) // classic / SHARED
+		{
+			if (unit->getOriginalFaction() != FACTION_PLAYER)
+			{
+				// Real mission aliens / civilians were never generated as
+				// PLAYER - nobody commands them.
+				unit->setCoopSeat(COOP_SEAT_NONE);
+				continue;
+			}
+
+			// Funnel (RB-D23) - reasserts FACTION_PLAYER; a no-op value-wise
+			// for every classic/SHARED unit (vanilla generation already set
+			// it), but every real-faction write goes through the funnel.
+			unit->setOriginalFaction(FACTION_PLAYER);
+			unit->convertToFaction(FACTION_PLAYER);
+
+			Soldier* soldier = unit->getGeoscapeSoldier();
+			const int owner = soldier ? soldier->getCoop() : -1;
+			bool ownerValid = false;
+			for (int s : seats)
+			{
+				if (s == owner) { ownerValid = true; break; }
+			}
+			// HWPs (no Soldier owner to read - the "craft owner rule" this
+			// packet's spec text mentions is not wired to any
+			// BattleUnit-reachable API in the spike), civilians/aliens
+			// (already continued above), and stale/out-of-roster ownership
+			// all fall back to COOP_SEAT_NONE: nobody commands them.
+			unit->setCoopSeat(ownerValid ? (CoopSeat)owner : COOP_SEAT_NONE);
+		}
+		else // gamemode 2/3 (PvP)
+		{
+			const UnitFaction orig = unit->getOriginalFaction();
+			if (orig != FACTION_PLAYER && orig != FACTION_HOSTILE)
+			{
+				unit->setCoopSeat(COOP_SEAT_NONE); // civilians never seated
+				continue;
+			}
+
+			const int seat = (gamemode == 2)
+				? (orig == FACTION_PLAYER ? (int)COOP_SEAT_0 : (int)COOP_SEAT_1)
+				: (orig == FACTION_PLAYER ? (int)COOP_SEAT_1 : (int)COOP_SEAT_0);
+			const UnitFaction faction = coopSeatCanonicalFaction(gamemode, seat);
+
+			unit->setOriginalFaction(faction); // funnel (RB-D23)
+			unit->convertToFaction(faction);
+			unit->setCoopSeat((CoopSeat)seat);
+
+			if (faction == FACTION_HOSTILE)
+			{
+				// The human-commanded hostile side: stop vanilla's alien-turn
+				// AI from double-driving these units now that a seat commands
+				// them directly.
+				unit->setAIModule(nullptr);
+			}
+		}
+	}
 }
 
 }
