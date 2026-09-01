@@ -3951,7 +3951,7 @@ enum class SbScope { Other, Unit, Item };
 
 // TOP-LEVEL of the battle document only (SavedBattleGame-scoped, per-seat UI/
 // display/audio-transient/battle-end-adjacent fields) - cr1-field-audit.md
-// sec 6 items 16-23.
+// sec 6 items 16-23, PLUS the two BriefingState display labels (see below).
 bool saveBlobExcludedTopKey(std::string_view k)
 {
 	return k == "nameDisplay"
@@ -3962,7 +3962,16 @@ bool saveBlobExcludedTopKey(std::string_view k)
 		|| k == "currentAmbienceDelay"
 		|| k == "vipsSaved" || k == "vipsSavedScore"
 		|| k == "vipsLost" || k == "vipsLostScore"
-		|| k == "vipsWaitingOutside" || k == "vipsWaitingOutsideScore";
+		|| k == "vipsWaitingOutside" || k == "vipsWaitingOutsideScore"
+		// R2-P11 divergence hunt (orchestrator): the ONLY unexcluded saveBlob
+		// divergence in a live coop battle. Both are DISPLAY-ONLY briefing/HUD
+		// labels ("LANDING SITE-0", "CRAFT> SKYRANGER-1") set EXCLUSIVELY by
+		// BriefingState (BriefingState.cpp:159-185). The host runs BriefingState;
+		// the thin client loads the streamed blob straight to BattlescapeState
+		// (no briefing), so they stay empty on the client. No sim effect - same
+		// per-battle display class as the audit's sec-6 fields. (Client HUD shows
+		// an empty mission/craft name: a cosmetic real-play gap, r3/r4 polish.)
+		|| k == "strTarget" || k == "strCraftOrBase";
 }
 
 // ANY DEPTH, but only meaningful (and only ever reached) inside a "units"
