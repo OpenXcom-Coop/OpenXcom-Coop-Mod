@@ -26,6 +26,7 @@
 #include "../Battlescape/BriefingState.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/SavedGame.h"
+#include "../Savegame/BattleUnit.h"
 #include "../Savegame/Craft.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/Soldier.h"
@@ -34,6 +35,7 @@
 #include "../Engine/Options.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/CoopHandshake.h"
 
 namespace OpenXcom
 {
@@ -90,14 +92,33 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 {
 	if (connectionTCP::getCoopStatic())
 	{
-		// R1-P5/R4-REWIRE: coop Cydonia battle-start choreography (the SEPARATE
-		// two-world merge + SHARED host-authoritative stream, both of which end in
-		// BriefingState::setupCoop() and per-soldier seat/faction mutation) is
-		// quarantined pending the r4/r5 atomic-bundle rebuild (RB-D9) - those symbols
-		// died with the vanilla restore (911ca487f). SP path below is untouched
-		// (ADDENDUM MJ-3).
-		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
-		return;
+		// R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18, RB-D23): Cydonia now rides the
+		// SAME battle-start handshake R4-P1 built for the skirmish and mission-
+		// confirm entry points (NewBattleState::btnOkClick, ConfirmLandingState::
+		// btnYesClick) - vanilla generates the battle exactly like SP below, then
+		// CoopHandshake::offerBattle() ships it. The per-soldier/vehicle seat-tag
+		// pass this branch already ran (donor cbff7951d:96-102, PRD-J09 SHARED
+		// path) is PRESERVED so Soldier::getCoop() carries fresh ownership before
+		// generation; startCoopMission() below reads it back off each generated
+		// BattleUnit's geoscape soldier to stamp the RB-D17 battle-time tag
+		// (BattleUnit::setCoopSeat()) offerBattle()/the admission arbiter expect.
+		// The legacy SEPARATE-campaign changeHost hand-off + CoopState(88) wait-
+		// dialog choreography (donor :113-128) is DELETED - it predates the
+		// handshake, has no restored carrier, and (RB-D18) the interim handshake
+		// already covers both campaign types under gamemode 0/1.
+		for (auto* soldier : *_craft->getBase()->getSoldiers())
+		{
+			if (soldier->getCraft() != _craft)
+				continue;
+			int owner = soldier->getOwnerPlayerId();
+			soldier->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+			soldier->setCoopBase(-1);
+		}
+		for (auto* vehicle : *_craft->getVehicles())
+		{
+			vehicle->setCoop(0);
+			vehicle->setCoopBase(-1);
+		}
 	}
 
 	_game->popState();
@@ -107,16 +128,6 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 
 void ConfirmCydoniaState::startCoopMission()
 {
-	// R1-P5/R4-REWIRE: also reachable asynchronously from
-	// connectionTCP::setClientSoldiers() on the coop host after a changeHost
-	// round-trip - RB-D9's quarantine covers this entry path too. SP branch below
-	// is untouched.
-	if (connectionTCP::getCoopStatic())
-	{
-		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
-		return;
-	}
-
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
 	_game->getSavedGame()->setBattleGame(bgame);
 	BattlescapeGenerator bgen = BattlescapeGenerator(_game);
@@ -132,6 +143,31 @@ void ConfirmCydoniaState::startCoopMission()
 	}
 	bgen.setCraft(_craft);
 	bgen.run();
+
+	if (connectionTCP::getCoopStatic())
+	{
+		// R4-P2: stamp each generated BattleUnit's RB-D17 seat tag from the
+		// Soldier::getCoop() ownership btnYesClick just refreshed - the
+		// admission arbiter's not_your_unit check (connectionTCP.cpp) reads
+		// BattleUnit::getCoopSeat(), not the geoscape Soldier.
+		for (auto* unit : *bgame->getUnits())
+		{
+			Soldier* soldier = unit->getGeoscapeSoldier();
+			if (soldier)
+			{
+				unit->setCoopSeat((CoopSeat)soldier->getCoop());
+			}
+		}
+
+		// R4-P2 (SS2.7): offerBattle() is a pure network side effect - it never
+		// touches the state stack (see CoopHandshake.h's top doc comment for
+		// the crash that taught this). BriefingState is pushed exactly like
+		// vanilla SP, unconditionally; a refused/corrupt handshake unwinds it
+		// via coopUnwindToSafeState() instead (connectionTCP.cpp). offerBattle()
+		// itself no-ops (logs) on a non-host machine (RB-D18 interim: only the
+		// coop-session's server owner drives Cydonia generation).
+		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
+	}
 
 	_game->pushState(new BriefingState(_craft));
 }

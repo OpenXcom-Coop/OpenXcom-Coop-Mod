@@ -138,6 +138,7 @@
 #include "../fallthrough.h"
 
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/CoopHandshake.h"
 #include "../CoopMod/SharedEcon.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
@@ -591,14 +592,42 @@ void GeoscapeState::startCoopMission()
 	{
 		g_coopBaseDefense.pending = false; // one-shot; never re-fire on a stale snapshot
 
-		// R1-P5/R4-REWIRE: BriefingState::setupCoop() died with the vanilla restore
-		// (911ca487f) - coop battle-start choreography is quarantined pending the
-		// r4/r5 atomic-bundle rebuild (RB-D9). Tell the player and leave the
-		// SavedGame's battle state untouched (no BattlescapeGenerator::run(), no
-		// half-built SavedBattleGame) rather than starting a battle nothing can
-		// finish setting up. The CoopBaseDefense snapshot struct + UAF fix above
-		// (R2-M5) survive; only the deferred battle-start itself is stubbed.
-		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
+		// Get the shade and texture for the globe at the location of the base, using the ufo position
+		int texture, shade;
+		double baseLon = g_coopBaseDefense.lon;
+		double baseLat = g_coopBaseDefense.lat;
+		_globe->getPolygonTextureAndShade(baseLon, baseLat, &texture, &shade);
+
+		int ufoDamagePercentage = 0;
+		if (_game->getMod()->getLessAliensDuringBaseDefense())
+		{
+			ufoDamagePercentage = g_coopBaseDefense.damagePercentage;
+		}
+
+		SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+		_game->getSavedGame()->setBattleGame(bgame);
+		bgame->setMissionType("STR_BASE_DEFENSE");
+		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
+		bgen.setBase(_game->getSavedGame()->getSelectedBase());
+		bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(g_coopBaseDefense.missionCustomDeploy));
+		bgen.setAlienRace(g_coopBaseDefense.alienRace);
+		bgen.setWorldShade(shade);
+		Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
+		bgen.setWorldTexture(globeTexture, globeTexture);
+		bgen.setUfoDamagePercentage(ufoDamagePercentage);
+		bgen.run();
+		_pause = true;
+
+		// R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18, RB-D23): BriefingState::
+		// setupCoop() died with the vanilla restore (911ca487f) - the deferred
+		// base-defense battle now rides the SAME offer/accept/stream/ready
+		// handshake R4-P1 built for the skirmish and mission-confirm entry
+		// points. BriefingState is pushed exactly like vanilla SP immediately
+		// after generation (see CoopHandshake.h's top doc comment for why this
+		// push may never be deferred past this point); offerBattle() itself
+		// never touches the state stack.
+		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
+		_game->pushState(new BriefingState(0, _game->getSavedGame()->getSelectedBase()));
 	}
 
 
@@ -6057,26 +6086,41 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 					return;
 				}
 
-				if (_game->getCoopMod()->getHost() == true)
+				// R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18, RB-D23): SEPARATE-campaign
+				// base defense now rides the SAME host-builds-and-ships handshake as
+				// every other battle entry (skirmish/mission/Cydonia). Only the coop
+				// server owner (the immutable battle host) generates and offers the
+				// battle; the peer must NOT generate a local copy (that would be a
+				// divergent second battle) - it receives the host's offer via
+				// CoopHandshake::onOffer and lands straight in BattlescapeState. The
+				// attacked base already holds BOTH players' garrison soldiers, so the
+				// host generates the full battle with no soldier-transfer step. The
+				// legacy changeHost + CoopState(77) two-machine assembly dance is
+				// DELETED - its wire messages (changeHost/craftSoldiers) are
+				// quarantined by R1-P3 so the old CoopState(77) wait never completed;
+				// RB-D18's interim handshake covers both campaign types (gamemode 0/1).
+				if (connectionTCP::getServerOwner() == true)
 				{
-					CoopState* coopWindow = new CoopState(77);
-					_game->pushState(coopWindow);
+					_game->getCoopMod()->setHost(true);
+					for (auto* s : *base->getSoldiers())
+					{
+						int owner = s->getOwnerPlayerId();
+						s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+						s->setCoopBase(-1);
+					}
+					for (auto* v : *base->getVehicles())
+					{
+						v->setCoop(0);
+						v->setCoopBase(-1);
+					}
+					startCoopMission();
 				}
-				// The client wants to start a COOP mission!!! Transferring them to HOST!!!
 				else
 				{
-
-					Json::Value root;
-
-					root["state"] = "changeHost";
-
-					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-					_game->getCoopMod()->setHost(true);
-
-					// fix
-					CoopState* coopWindow = new CoopState(77);
-					_game->pushState(coopWindow);
+					// Peer: never build a local base-defense battle. Clear the
+					// one-shot so the deferred startCoopMission() can never fire
+					// here, and await the host's offer (onOffer -> BattlescapeState).
+					g_coopBaseDefense.pending = false;
 				}
 
 			}

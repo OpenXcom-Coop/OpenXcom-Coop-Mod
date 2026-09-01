@@ -4,27 +4,55 @@ ConfirmCydoniaState is a separate final-mission entry point; it does not pass
 through ConfirmLandingState. Cover both campaign models so this path cannot
 silently fall back to a host-only battle again.
 
+R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18): re-pointed onto the SAME battle-start
+handshake R4-P1 built (CoopHandshake::offerBattle) - ConfirmCydoniaState no
+longer runs the legacy SEPARATE changeHost hand-off / CoopState(88) wait
+dialog (deleted, no restored carrier); vanilla generates the battle exactly
+like SP, then offerBattle() ships it, for BOTH "coop" (SEPARATE) and "shared"
+campaigns alike (both are gamemode 0/1 "classic" under RB-D18 - PvP/PvE2 are
+the only gamemodes the interim handshake refuses).
+
+TRIM (RW-TRIAGE, this packet): the pre-rewrite version of this test waited for
+BriefingState on BOTH machines. Under the R4-P1 handshake the CLIENT never
+gets a BriefingState - CoopHandshake::onBlobChunkAppended pushes
+BattlescapeState directly once the streamed blob is verified+loaded (the
+LoadGameState.cpp "loaded save with a live battle" precedent), so only the
+HOST still sees BriefingState (pushed unconditionally, exactly like vanilla
+SP) and must click OK to reach BattlescapeState. Assertions below mirror
+test_rw_handshake.py: phase-Active log lines on both machines + BattlescapeState
+in the state stack on both machines. The saveBlob hash comparison itself is
+SOFT-GATED pending R2-P9 (owner-approved 2026-09-01, see test_rw_handshake.py's
+docstring for why) - this test does not assert saveBlob equality, only that
+onReady() ran to completion and phase reached Active regardless of outcome.
+The missionType/mapSizeXYZ/mapFingerprint equality checks are KEPT (not an
+in-battle atom - a pure read-only query against the vanilla-restored
+SavedBattleGame/Tile that proves both machines loaded the SAME streamed map,
+squarely inside "entry + battle_ready parity").
+
 Run:  python tools/coop_test/test_cydonia_coop_start.py
 Exit 0 = pass; 2 = failure.
 """
 
 import os
 import sys
-
-# RW-TRIAGE: SKIP-PENDING(R4-P2)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 
 
-def _states(gc):
-    return gc.cmd({"cmd": "get_state"})["states"]
+def states(gc):
+    return [s.replace("class OpenXcom::", "") for s in session.states(gc)]
+
+
+def top_state(gc):
+    st = states(gc)
+    return st[-1] if st else None
 
 
 def _has(gc, name):
-    return any(name in state for state in _states(gc))
+    return session.has_state(gc, name)
 
 
 def _base(gc):
@@ -55,10 +83,24 @@ def _aboard(gc, craft_id):
                   for s in b["soldiers"] if s["craftId"] == craft_id)
 
 
+def log_lines(user_dir):
+    log = os.path.join(user_dir, "openxcom.log")
+    if not os.path.exists(log):
+        return []
+    with open(log, encoding="utf-8", errors="replace") as f:
+        return f.readlines()
+
+
+def grep_lines(lines, needle):
+    return [l.rstrip("\n") for l in lines if needle in l]
+
+
 def run_mode(mode, test_ports, coop_port):
     print(f"\n===== Cydonia {mode.upper()} =====")
-    host = GameClient("host", test_ports[0], make_user_dir(f"cydonia_{mode}_host"))
-    client = GameClient("client", test_ports[1], make_user_dir(f"cydonia_{mode}_client"))
+    host_dir = make_user_dir(f"cydonia_{mode}_host")
+    client_dir = make_user_dir(f"cydonia_{mode}_client")
+    host = GameClient("host", test_ports[0], host_dir)
+    client = GameClient("client", test_ports[1], client_dir)
     try:
         host.spawn(); host.connect()
         client.spawn(); client.connect()
@@ -84,17 +126,59 @@ def run_mode(mode, test_ports, coop_port):
                       lambda: _has(host, "ConfirmCydoniaState") or None)
         host.ok({"cmd": "confirm_cydonia"})
 
-        battles = []
-        for gc in (host, client):
-            battles.append(gc.wait_for(
-                f"{gc.name} loaded Cydonia",
-                lambda gc=gc: (lambda b: b if b.get("inBattle") else None)(
-                    gc.cmd({"cmd": "battle_state"})),
-                timeout=180, interval=1.0))
-            gc.wait_for(f"{gc.name} briefing",
-                        lambda gc=gc: _has(gc, "BriefingState") or None,
-                        timeout=120, interval=0.5)
+        # R4-P2: host pushes BriefingState unconditionally right after vanilla
+        # generation (exactly like SP - offerBattle() is a pure network side
+        # effect and never touches the state stack, see CoopHandshake.h).
+        host.wait_for("host briefing", lambda: _has(host, "BriefingState"), timeout=60)
+        print("PASS: host reached BriefingState (vanilla push, unconditional)")
 
+        # client: CoopHandshake::onBlobChunkAppended() pushes BattlescapeState
+        # directly once the blob is received+verified+loaded - no client-side
+        # BriefingState (LoadGameState.cpp precedent).
+        client.wait_for("client battlescape",
+                        lambda: _has(client, "BattlescapeState"), timeout=180)
+        print("PASS: client reached BattlescapeState directly (offer/accept/"
+              "stream/blobSha-verify/load all succeeded)")
+
+        time.sleep(3)  # let both logs flush the handshake lines
+
+        host_log = log_lines(host_dir)
+        client_log = log_lines(client_dir)
+
+        offer_lines = grep_lines(host_log, "[coop-handshake] battle_offer sent")
+        accept_lines = grep_lines(host_log, "[coop-handshake] battle_accept received")
+        client_active_lines = grep_lines(client_log, "[coop-handshake] CLIENT phase Active")
+        host_active_lines = grep_lines(host_log, "[coop-handshake] HOST phase Active")
+        equal_lines = grep_lines(host_log, "[coop-handshake] battle_ready saveBlob EQUAL")
+        differ_lines = grep_lines(host_log, "[coop-handshake] battle_ready saveBlob differs")
+
+        assert offer_lines, "host log missing 'battle_offer sent' line"
+        assert accept_lines, "host log missing 'battle_accept received' line"
+        assert client_active_lines, "client log missing 'CLIENT phase Active' line"
+        # SOFT GATE (RW-TODO(R2-P9)): onReady() proceeds to phase Active whether
+        # the raw saveBlob matched or (as is normal pre-R2-P9) differed on
+        # machine-local FOV/discovered state - see test_rw_handshake.py's
+        # docstring for the full trace. Only require ONE of the two outcome
+        # lines to prove onReady() ran to completion.
+        assert host_active_lines, \
+            "host did not reach phase Active - onReady()'s soft gate should " \
+            "proceed regardless of the saveBlob comparison"
+        assert equal_lines or differ_lines, \
+            "battle_ready arrived but neither 'saveBlob EQUAL' nor 'saveBlob " \
+            "differs' was logged - onReady() did not run to completion"
+        print("PASS: handshake log lines present on both machines "
+              "(offer/accept/ready, host+client phase Active)")
+
+        # Host is still in BriefingState (pushed unconditionally); OK proceeds
+        # to BattlescapeState exactly like the SP path.
+        host.ok({"cmd": "click_widget", "match": "ok"})
+        host.wait_for("host battlescape",
+                      lambda: _has(host, "BattlescapeState"), timeout=60)
+        assert _has(host, "BattlescapeState"), \
+            f"host should reach BattlescapeState after OK, stack={states(host)}"
+        print("PASS: BOTH machines in BattlescapeState, host+client phase Active")
+
+        battles = [gc.ok({"cmd": "battle_state"}) for gc in (host, client)]
         assert battles[0]["missionType"] == battles[1]["missionType"], battles
         assert battles[0]["mapSizeXYZ"] == battles[1]["mapSizeXYZ"], battles
         assert battles[0]["mapFingerprint"] == battles[1]["mapFingerprint"], battles

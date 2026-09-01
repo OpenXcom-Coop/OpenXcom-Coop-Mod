@@ -9,14 +9,40 @@ GeoscapeState.cpp:169 / :6009 / :565 and .agents/repro/coop-basedef-uaf/.
 
 Scenario: host resumes the fixture coop save (a retaliation is inbound to a base),
 the registered client joins, then time advances until the base defense fires.
+The fixture is a SEPARATE campaign attack on the HOST's own base (donor commit
+0b0daeafb: "Host-side only (the client receives the streamed battle)").
 
   * PASS (exit 0): base-defense flow reaches the briefing/battle on both machines
-    with NO process crash -> the `temp_ufo` read is safe.
+    (via the R4-P2 handshake) with NO process crash -> the `temp_ufo` read is safe.
   * FAIL (exit 2): a game process crashes (the UAF) -> bug present.
   * FAIL (exit 3): the base defense never fired within the budget -> fixture/flow
     regressed; the test proved nothing (do not treat as green).
+  * FAIL (exit 4): the base defense fired and neither machine crashed (the UAF
+    fix holds), but the R4-P2 handshake did not complete on both machines.
 
 RED before the fix (crashes ~every run, verified), GREEN after.
+
+R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18): GeoscapeState::startCoopMission() (the
+deferred battle-start this snapshot feeds) now rides the SAME handshake R4-P1
+built (CoopHandshake::offerBattle) instead of the R1-P5 "coop battles
+unavailable" popup - the CoopBaseDefense snapshot struct + the UAF fix itself
+are UNTOUCHED (R2-M5, kept exactly). TRIM (RW-TRIAGE, this packet): the
+pre-rewrite version of this test only required in_battle() to fire once (the
+FIRST of host/client to leave the geoscape) via geo.skip_ingame_time's
+early-exit, then read `in_battle(host) or in_battle(client)` a second time as a
+soft "close enough" check on the other side. Since offerBattle()'s host push of
+BriefingState is unconditional (exactly like vanilla SP, see CoopHandshake.h's
+top doc comment) while the client is pushed straight into BattlescapeState by
+CoopHandshake::onBlobChunkAppended (no client-side BriefingState - the
+LoadGameState.cpp "loaded save with a live battle" precedent), a single
+interest-fire no longer proves both sides actually completed the handshake.
+Assertions below explicitly wait for BOTH machines (mirroring
+test_rw_handshake.py / test_cydonia_coop_start.py): host reaches BriefingState
+then BattlescapeState after an OK click, client reaches BattlescapeState
+directly, and the host+client "[coop-handshake] ... phase Active" log lines are
+both present. The saveBlob hash comparison itself stays SOFT-GATED pending
+R2-P9 (see test_rw_handshake.py's docstring) - only that onReady() ran to
+completion is asserted, not saveBlob equality.
 """
 import glob
 import os
@@ -29,8 +55,6 @@ FIXTURE_PATH = os.path.join(HERE, "fixtures", FIXTURE)
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
-# RW-TRIAGE: SKIP-PENDING(R4-P2)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, HERE)
 import harness  # noqa: E402
@@ -55,6 +79,18 @@ def in_battle(gc):
     return any(s in geo.top_state(gc) for s in BATTLE_STATES) or None
 
 
+def log_lines(user_dir):
+    log = os.path.join(user_dir, "openxcom.log")
+    if not os.path.exists(log):
+        return []
+    with open(log, encoding="utf-8", errors="replace") as f:
+        return f.readlines()
+
+
+def grep_lines(lines, needle):
+    return [l.rstrip("\n") for l in lines if needle in l]
+
+
 def main():
     assert os.path.isfile(harness.EXE), "no exe (set OXC_TEST_EXE): " + harness.EXE
     assert os.path.isfile(FIXTURE_PATH), "missing fixture: " + FIXTURE_PATH
@@ -68,6 +104,7 @@ def main():
     client.spawn(); client.connect()
 
     battle_reached = False
+    handshake_ok = False
     note = None
     try:
         host.ok({"cmd": "load_save_menu", "file": FIXTURE})
@@ -91,7 +128,38 @@ def main():
             host, client, minutes=12 * 24 * 60,
             interest=lambda gc: in_battle(gc),
             dismiss=True, real_timeout=180, stuck_timeout=None)
+        print("skip_ingame_time result:", res)
         battle_reached = res.get("hit") is not None or in_battle(host) or in_battle(client)
+
+        # R4-P2: the interest above only proves ONE machine left the geoscape
+        # first - GeoscapeState::startCoopMission() now offers the battle over
+        # the SAME handshake R4-P1 built (CoopHandshake::offerBattle), so both
+        # machines are expected to complete it. Wait for both explicitly.
+        if battle_reached:
+            host.wait_for("host briefing", lambda: session._has_state(host, "BriefingState"),
+                          timeout=60)
+            print("PASS: host reached BriefingState (vanilla push, unconditional)")
+
+            client.wait_for("client battlescape",
+                            lambda: session._has_state(client, "BattlescapeState"),
+                            timeout=120)
+            print("PASS: client reached BattlescapeState directly (offer/accept/"
+                  "stream/blobSha-verify/load all succeeded)")
+
+            host.ok({"cmd": "click_widget", "match": "ok"})
+            host.wait_for("host battlescape",
+                          lambda: session._has_state(host, "BattlescapeState"), timeout=60)
+            print("PASS: BOTH machines in BattlescapeState")
+
+            host_log = log_lines(host_dir)
+            client_log = log_lines(client_dir)
+            host_active = grep_lines(host_log, "[coop-handshake] HOST phase Active")
+            client_active = grep_lines(client_log, "[coop-handshake] CLIENT phase Active")
+            if host_active:
+                print("HOST LOG:", host_active[-1])
+            if client_active:
+                print("CLIENT LOG:", client_active[-1])
+            handshake_ok = bool(host_active) and bool(client_active)
     except (ConnectionError, OSError) as e:
         note = f"{type(e).__name__}: {e}"   # socket dropped mid-command == a crash
     except Exception as e:
@@ -103,8 +171,9 @@ def main():
     crashed = (rc_host is not None) or (rc_client is not None) or bool(new_logs)
 
     print("==== RESULT ====")
-    print("battle_reached:", bool(battle_reached), "| crashed:", crashed,
-          "| host rc:", rc_host, "client rc:", rc_client, "| note:", note)
+    print("battle_reached:", bool(battle_reached), "| handshake_ok:", handshake_ok,
+          "| crashed:", crashed, "| host rc:", rc_host, "client rc:", rc_client,
+          "| note:", note)
     if new_logs:
         print("crash logs:", [os.path.basename(x) for x in new_logs])
         with open(new_logs[0], "r", errors="replace") as f:
@@ -122,7 +191,13 @@ def main():
     if not battle_reached:
         print("INCONCLUSIVE: base defense never fired within budget")
         sys.exit(3)
-    print("PASS: coop base-defense reached the battle with no crash")
+    if not handshake_ok:
+        print("FAIL: base defense reached the battle (no crash - the UAF fix "
+              "holds) but the R4-P2 handshake did not complete on both "
+              "machines - see note/log lines above")
+        sys.exit(4)
+    print("PASS: coop base-defense reached the battle on both machines via "
+          "the handshake with no crash")
     sys.exit(0)
 
 
