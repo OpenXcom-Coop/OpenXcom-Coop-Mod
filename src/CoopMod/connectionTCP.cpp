@@ -68,6 +68,7 @@
 #include "BattleWire.h"
 #include "BattlePump.h"
 #include "BattleAuthority.h"
+#include "CoopIdMaps.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -587,6 +588,40 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 		if (ok)
 			Log(LOG_INFO) << "BattleAuthority self-test OK";
 	}
+
+	// R2-P4 self-test (SPIKE-RUNBOOK.md RB-D7): prove the id-map lookups and
+	// the nullptr/unmapped-id edge cases behave as spec'd. Same OXC_TEST_PORT
+	// gate as the blocks above. Deliberately does NOT exercise the real
+	// full-scan path in rebuildFrom(save) (registerItem/registerUnit either)
+	// - that needs a live SavedBattleGame with real BattleUnit/BattleItem
+	// objects, which do not exist this early (connectionTCP's ctor runs
+	// before any battle is loaded); it covers every path reachable without
+	// one: rebuildFrom(nullptr), empty-map lookups, no-op forget on unmapped
+	// ids, and reset().
+	if (std::getenv("OXC_TEST_PORT"))
+	{
+		auto fail = [](const char* what) { Log(LOG_ERROR) << "[coopidmaps-selftest] FAIL: " << what; };
+		bool ok = true;
+
+		CoopIdMaps::reset(); // isolate from anything else that ran this session
+
+		if (CoopIdMaps::unit(1) != nullptr) { fail("unit() on empty map"); ok = false; }
+		if (CoopIdMaps::item(1) != nullptr) { fail("item() on empty map"); ok = false; }
+
+		CoopIdMaps::rebuildFrom(nullptr); // must not crash; leaves both maps empty
+		if (CoopIdMaps::unit(1) != nullptr) { fail("rebuildFrom(nullptr) left a unit"); ok = false; }
+		if (CoopIdMaps::item(1) != nullptr) { fail("rebuildFrom(nullptr) left an item"); ok = false; }
+
+		CoopIdMaps::forget(1);     // no-op on an unmapped id - must not crash
+		CoopIdMaps::forgetUnit(1); // same
+		if (CoopIdMaps::unit(1) != nullptr) { fail("forgetUnit no-op corrupted map"); ok = false; }
+		if (CoopIdMaps::item(1) != nullptr) { fail("forget no-op corrupted map"); ok = false; }
+
+		CoopIdMaps::reset(); // leave a clean slate for real play in this process
+
+		if (ok)
+			Log(LOG_INFO) << "CoopIdMaps self-test OK";
+	}
 }
 
 connectionTCP::~connectionTCP()
@@ -879,6 +914,112 @@ bool isCoopBattle()
 	return connectionTCP::getCoopStatic() && coopBattleAuthority().phase == CoopBattlePhase::Active;
 }
 
+// ===== R2-P4: CLIENT-side id -> pointer maps (CoopIdMaps.h) =====
+// SPIKE-RUNBOOK.md RB-D7. Storage lives here, next to the other coop
+// singletons (BattleAuthority above, CoopPump/CoopEmit further up) - file-
+// scope globals, same reasoning as g_battleApplyQueue etc: CoopIdMaps::reset()
+// (R2-P8 teardown wiring) needs to clear them from outside this TU's ctor.
+static std::unordered_map<int, BattleUnit*> g_coopUnitById;
+static std::unordered_map<int, BattleItem*> g_coopItemById;
+
+namespace CoopIdMaps
+{
+
+// R4-P1 calls rebuildFrom here: at the point in the new client battle-blob
+// load path (SPIKE-RUNBOOK.md SS2.7 battle_ready sequence, after sha verify
+// and the blob is loaded into a live SavedBattleGame) where the client's
+// SavedBattleGame first becomes valid, immediately before the authority
+// {hostSim:false, localSeat, phase:Active} stamp. No such call site exists
+// yet in this tree (R4-P1 is not landed) - this comment is the marker R2-P4
+// leaves for it, per SPIKE-RUNBOOK.md R2-P4 packet text.
+void rebuildFrom(SavedBattleGame* save)
+{
+	g_coopUnitById.clear();
+	g_coopItemById.clear();
+
+	if (!save)
+		return; // matches reset() - callable defensively before a battle exists
+
+	// RB-D24 counter-parity finding (R2-P4, verified against
+	// SavedBattleGame.cpp @911ca487f): vanilla SavedBattleGame::load() does
+	// NOT persist _itemId as a document field at all (BattleItem::save only
+	// ever writes the per-item "id", BattleItem.cpp:139) - instead load()
+	// RE-DERIVES it unconditionally, every time, as it scans the loaded
+	// items: "_itemId = std::max(_itemId, item->getId())" per item
+	// (SavedBattleGame.cpp:342) followed by a single "_itemId++"
+	// (SavedBattleGame.cpp:347). That derivation already equals exactly the
+	// max(item id)+1 RB-D24 would otherwise ask this function to compute.
+	// So: for any SavedBattleGame that reached this point via vanilla
+	// load() (the only battle-load path that will exist once R4-P1 lands -
+	// see the file-level "R4-P1 calls rebuildFrom here" marker below),
+	// _itemId is ALREADY correct by construction and this function does not
+	// need to touch it. No CoopMod-side re-derivation is added here (and
+	// per RB-D24, none would ever be added to the vanilla load() itself) -
+	// this comment IS the disposition, not a placeholder for one.
+
+	std::vector<BattleUnit*>* units = save->getUnits();
+	if (units)
+	{
+		for (BattleUnit* u : *units)
+		{
+			if (u)
+				g_coopUnitById[u->getId()] = u;
+		}
+	}
+
+	std::vector<BattleItem*>* items = save->getItems();
+	if (items)
+	{
+		for (BattleItem* i : *items)
+		{
+			if (i)
+				g_coopItemById[i->getId()] = i;
+		}
+	}
+}
+
+BattleUnit* unit(int id)
+{
+	auto it = g_coopUnitById.find(id);
+	return it != g_coopUnitById.end() ? it->second : nullptr;
+}
+
+BattleItem* item(int id)
+{
+	auto it = g_coopItemById.find(id);
+	return it != g_coopItemById.end() ? it->second : nullptr;
+}
+
+void registerItem(BattleItem* i)
+{
+	if (i)
+		g_coopItemById[i->getId()] = i;
+}
+
+void registerUnit(BattleUnit* u)
+{
+	if (u)
+		g_coopUnitById[u->getId()] = u;
+}
+
+void forget(int itemId)
+{
+	g_coopItemById.erase(itemId);
+}
+
+void forgetUnit(int unitId)
+{
+	g_coopUnitById.erase(unitId);
+}
+
+void reset()
+{
+	g_coopUnitById.clear();
+	g_coopItemById.clear();
+}
+
+} // namespace CoopIdMaps
+
 // ===== Geoscape sync conflation slot =====
 // One overwrite slot per snapshot channel (see CoopSnapSlot). The main thread
 // (GeoscapeState::think) overwrites; the send drain reads the freshest value and
@@ -1005,6 +1146,12 @@ void clearNetworkSessionQueues()
 	}
 
 	clearSnapshotSlots();
+
+	// R2-P8 teardown calls reset: extends this chokepoint with
+	// CoopPump::reset(), CoopIdMaps::reset(), authority -> Idle, and the
+	// action-context clear (SPIKE-RUNBOOK.md R2-P8 packet text, ":586
+	// family"). Not wired here - R2-P4 only provides CoopIdMaps::reset()
+	// itself.
 }
 
 // HOST: emit PING once per second (independent from client)

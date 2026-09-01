@@ -3544,7 +3544,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			else if (!slotId.empty() && slotId != "right")
 				dest = _game->getMod()->getInventory(slotId, false) ? _game->getMod()->getInventory(slotId, false) : dest;
 
+			// RW-MINT-WHITELIST-BEGIN: sanctioned test-harness mint (RB-D25).
+			// battle_give is a TestServer-only debug/test command that hands a
+			// weapon directly to a unit for repro/fixture setup on BOTH
+			// machines (test harness convenience, never real gameplay) - it is
+			// not an S2 applier and never runs outside OXC_TEST_PORT test
+			// sessions. tools/ci/lint_no_client_mint.py whitelists everything
+			// between this marker and its matching END below.
 			BattleItem* w = new BattleItem(wrule, sbg->getCurrentItemId());
+			// RW-MINT-WHITELIST-END
 			w->moveToOwner(unit);
 			w->setSlot(dest);
 			w->setSlotX(req.get("slotX", 0).asInt());
@@ -3566,7 +3574,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				const RuleItem* arule = _game->getMod()->getItem(ammoType);
 				if (arule)
 				{
+					// RW-MINT-WHITELIST-BEGIN: sanctioned test-harness mint
+					// (RB-D25) - same battle_give command as above, minting the
+					// requested ammo item for the just-given weapon.
 					BattleItem* a = new BattleItem(arule, sbg->getCurrentItemId());
+					// RW-MINT-WHITELIST-END
 					a->setXCOMProperty(unit->getFaction() == FACTION_PLAYER);
 					sbg->getItems()->push_back(a);
 					sbg->initItem(a, unit);
