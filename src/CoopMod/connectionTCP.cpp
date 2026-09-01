@@ -66,6 +66,7 @@
 #include "GiftNoticeState.h"
 #include "SharedEcon.h"
 #include "BattleWire.h"
+#include "BattlePump.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -496,6 +497,52 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 		if (ok)
 			Log(LOG_INFO) << "CoopWire self-test OK";
 	}
+
+	// R2-P2 self-test (SPIKE-RUNBOOK.md acceptance item 4): prove the client
+	// apply queue detects an out-of-order seq and freezes instead of silently
+	// applying it. Same OXC_TEST_PORT gate as the CoopWire self-test above
+	// (kept as a separate block per the packet's "add a second gated block"
+	// option, so a failure here is unambiguous about which layer broke).
+	if (std::getenv("OXC_TEST_PORT"))
+	{
+		auto fail = [](const char* what) { Log(LOG_ERROR) << "[cooppump-selftest] FAIL: " << what; };
+		bool ok = true;
+
+		CoopPump::reset(); // isolate from anything else that ran this session
+
+		// nextSeq()/reset() sanity: mint 1, 2, then reset should rewind to 1.
+		uint32_t s1 = CoopEmit::nextSeq();
+		uint32_t s2 = CoopEmit::nextSeq();
+		if (!(s1 == 1u && s2 == 2u)) { fail("nextSeq sequence"); ok = false; }
+		CoopPump::reset();
+		uint32_t s3 = CoopEmit::nextSeq();
+		if (s3 != 1u) { fail("nextSeq reset"); ok = false; }
+		CoopPump::reset(); // also rewinds the mint counter back to 1 for the enqueue test below
+
+		// Enqueue OUT OF ORDER: seq 1, then 3, then 2 (acceptance item 4's exact case).
+		CoopPump::enqueue(CoopWire::makeEv(1u, 201u, "turn"));
+		CoopPump::enqueue(CoopWire::makeEv(3u, 203u, "turn"));
+		CoopPump::enqueue(CoopWire::makeEv(2u, 202u, "turn"));
+
+		// Drain once: seq 1 applies, then seq 3 (expected 2) is a gap - the
+		// drain must log it and freeze, leaving both unresolved entries queued.
+		CoopPump::drainApplyQueue();
+
+		if (CoopPump::lastSeqApplied() != 1u) { fail("lastSeqApplied after gap"); ok = false; }
+		if (CoopPump::queueDepth() != 2u) { fail("queueDepth after gap"); ok = false; }
+		if (!g_battleFrozen.load()) { fail("g_battleFrozen not set"); ok = false; }
+
+		// A frozen queue must not silently resume even though the very next
+		// entry (seq 2) would now be resolvable - draining again must be a no-op.
+		CoopPump::drainApplyQueue();
+		if (CoopPump::queueDepth() != 2u || CoopPump::lastSeqApplied() != 1u)
+		{ fail("drain resumed while frozen"); ok = false; }
+
+		CoopPump::reset(); // leave a clean slate for real play in this process
+
+		if (ok)
+			Log(LOG_INFO) << "CoopPump self-test OK";
+	}
 }
 
 connectionTCP::~connectionTCP()
@@ -526,6 +573,181 @@ static std::deque<std::string> g_rxHold;
 
 // TX-queue drop counter (test harness diagnostic; see connectionTCP.h).
 std::atomic<uint64_t> g_txDropCount{0};
+
+// ===== R2-P2: battle seq-ordered apply queue + seq mint (BattlePump.h) =====
+// SPIKE-RUNBOOK.md RB-D5/SS2.2. Storage lives here, next to the other coop
+// queue globals, exactly like g_rxHold above; CoopPump/CoopEmit (declared in
+// BattlePump.h) are implemented directly below.
+static std::mutex g_battleApplyQueueMutex;
+static std::deque<Json::Value> g_battleApplyQueue;
+static std::atomic<uint32_t> g_battleLastSeqApplied{0}; // 0 = none applied yet (SS2.2)
+static uint32_t g_battleNextSeqMint = 1; // host mint counter (SS2.2: starts at 1 per battle)
+
+// R2-P2/IR-16c: seq-gap freeze flag (BattlePump.h). Extern linkage so a
+// later packet (R2-P9's desync report, or R2-P3's BattleAuthority) can read
+// (and eventually clear) it without going through a function call.
+std::atomic<bool> g_battleFrozen{false};
+
+namespace CoopPump
+{
+
+void enqueue(const Json::Value& evOrEnd)
+{
+	std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
+	g_battleApplyQueue.push_back(evOrEnd);
+}
+
+void drainApplyQueue()
+{
+	for (;;)
+	{
+		Json::Value ev;
+		bool gap = false;
+		uint32_t seq = 0;
+		uint32_t expected = 0;
+
+		{
+			std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
+
+			if (g_battleFrozen.load())
+				return; // frozen: a later packet (R2-P9/BattleAuthority) clears this
+
+			if (g_battleApplyQueue.empty())
+				return;
+
+			seq = g_battleApplyQueue.front().get("seq", 0u).asUInt();
+			expected = g_battleLastSeqApplied.load() + 1;
+
+			if (seq != expected)
+			{
+				// Leave the offending entry queued (peek, not pop) - a later
+				// packet's desync report may want its payload. Never applied.
+				// Copy (not move) it into ev purely so the log line below can
+				// report its kind.
+				gap = true;
+				ev = g_battleApplyQueue.front();
+				g_battleFrozen.store(true);
+			}
+			else
+			{
+				ev = std::move(g_battleApplyQueue.front());
+				g_battleApplyQueue.pop_front();
+			}
+		}
+
+		if (gap)
+		{
+			Log(LOG_ERROR) << "[coop-pump] SEQ GAP: expected " << expected << " got " << seq
+				<< " (kind=" << ev.get("kind", "?").asString()
+				<< ") - freezing battle input (protocol bug; RB-D5/SS2.2 strict in-order apply)";
+			return;
+		}
+
+		g_battleLastSeqApplied.store(seq);
+
+		// R3-P1 applies payload here.
+		CoopDisplayQueue::onApplied(ev);
+	}
+}
+
+uint32_t lastSeqApplied()
+{
+	return g_battleLastSeqApplied.load();
+}
+
+uint32_t queueDepth()
+{
+	std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
+	return static_cast<uint32_t>(g_battleApplyQueue.size());
+}
+
+void reset()
+{
+	std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
+	g_battleApplyQueue.clear();
+	g_battleLastSeqApplied.store(0u);
+	g_battleFrozen.store(false);
+	g_battleNextSeqMint = 1; // CoopEmit's host mint counter (SS2.2: reset by a new battle)
+}
+
+} // namespace CoopPump
+
+namespace CoopEmit
+{
+
+uint32_t nextSeq()
+{
+	return g_battleNextSeqMint++;
+}
+
+// MN-8: on g_txQ overflow for a battle message, BLOCK (bounded wait +
+// watchdog log) instead of dropping - bypasses enqueueTx()'s drop-newest
+// behavior (defined further below). Only ever pushes the raw (unframed)
+// payload into the SAME g_txQ the socket threads already drain via their
+// own g_txQ.pop + sendAll loops, so framing/sending stays exactly where it
+// already lives (REVIEW3 F3: never call sendAll from the pump/emit thread).
+static void coopEmitBlockingPush(std::string payload)
+{
+	using namespace std::chrono;
+	const auto start = steady_clock::now();
+	bool warned = false;
+
+	while (!g_txQ.push(std::move(payload)))
+	{
+		if (onConnect < 0)
+		{
+			// Genuine transport death (connect lost / disconnect / server
+			// error) - nothing will ever drain g_txQ again. Drop and log
+			// instead of blocking the pump thread forever.
+			Log(LOG_ERROR) << "[coop-emit] battle message dropped: transport is down"
+				" (onConnect=" << onConnect << ")";
+			return;
+		}
+
+		const auto elapsedMs = duration_cast<milliseconds>(steady_clock::now() - start).count();
+		if (!warned && elapsedMs >= 250)
+		{
+			Log(LOG_WARNING) << "[coop-emit] TX queue full, battle emitter blocking"
+				" (MN-8 bypass) - waited " << elapsedMs << "ms so far";
+			warned = true;
+		}
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(2));
+	}
+}
+
+void sendBattle(Json::Value& msg)
+{
+	// Stamps nothing (SS2.2): the caller already set iseq/reason/etc. via
+	// CoopWire's makers.
+	Json::StreamWriterBuilder wb;
+	wb["indentation"] = "";
+	std::string s = Json::writeString(wb, msg);
+	coopEmitBlockingPush(std::move(s));
+}
+
+void sendEv(Json::Value ev)
+{
+	ev["seq"] = nextSeq();
+
+	Json::StreamWriterBuilder wb;
+	wb["indentation"] = "";
+	std::string s = Json::writeString(wb, ev);
+	coopEmitBlockingPush(std::move(s));
+}
+
+} // namespace CoopEmit
+
+namespace CoopDisplayQueue
+{
+
+// IR-16c: no-op until R3-P1. Kept here (not in the header) so this .cpp is
+// the single place battle-lane queue code lives, matching CoopPump/CoopEmit.
+void onApplied(const Json::Value& /*ev*/)
+{
+}
+
+} // namespace CoopDisplayQueue
 
 // ===== Geoscape sync conflation slot =====
 // One overwrite slot per snapshot channel (see CoopSnapSlot). The main thread
@@ -2396,6 +2618,18 @@ void connectionTCP::updateCoopTask()
 			break;
 	}
 
+	// R2-P2 (RB-D5 pump point): drain the battle apply-queue in strict seq
+	// order, right after the loop above that may have just enqueued this
+	// tick's incoming bt_ev/bt_action_end. Appliers set flags only - see
+	// CoopPump::drainApplyQueue()'s "R3-P1 applies payload here" marker.
+	// R2-P3 phase gate: BattleAuthority::phase (Active/Ended) lands in
+	// R2-P3; until then gate on the world itself (a live SavedBattleGame)
+	// rather than a phase enum that does not exist yet.
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle() != nullptr)
+	{
+		CoopPump::drainApplyQueue();
+	}
+
 	// coop
 	// UNABLE TO CONNECT TO SERVER
 	if (onConnect == 0)
@@ -3965,7 +4199,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 		if (CoopWire::isSeqOrdered(stateString))
 		{
-			// R2-P2 will enqueue here (bt_ev / bt_action_end -> CoopPump apply queue).
+			// R2-P2 (RB-D5): bt_ev / bt_action_end go into the client-side
+			// ordered apply queue. drainApplyQueue() (called from this same
+			// updateCoopTask() below) applies them in strict seq order.
+			CoopPump::enqueue(obj);
 		}
 		else
 		{
