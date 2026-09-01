@@ -22,7 +22,7 @@ import os, sys, time, json, glob, zipfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, EXE
 
-# RW-TRIAGE: SKIP-PENDING(G1)
+# RW-TRIAGE: SKIP-PENDING(R2-P9)
 print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 BASE_PORT = 45999  # single control port; GameClient applies the per-slot shift
