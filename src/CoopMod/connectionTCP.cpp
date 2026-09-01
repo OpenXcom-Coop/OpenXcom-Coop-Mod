@@ -1691,11 +1691,25 @@ void clearNetworkSessionQueues()
 
 	clearSnapshotSlots();
 
-	// R2-P8 teardown calls reset: extends this chokepoint with
-	// CoopPump::reset(), CoopIdMaps::reset(), authority -> Idle, and the
-	// action-context clear (SPIKE-RUNBOOK.md R2-P8 packet text, ":586
-	// family"). Not wired here - R2-P4 only provides CoopIdMaps::reset()
-	// itself.
+	// R2-P8 (SPIKE-RUNBOOK.md RB-D7/RB-D30, #82 GoToMainMenuState invariant):
+	// this is the single teardown chokepoint for BOTH transports (the TCP
+	// disconnect call below at the old :586 family site, plus UDP's own
+	// session-start/stop calls in connection_udp_glue.cpp and
+	// connection_rendezvous_glue.cpp) - extending it here, once, resets battle
+	// state for every caller instead of duplicating the reset at each site.
+	//
+	// CoopPump::reset() already clears g_coopActionContextStack/
+	// g_coopActionIdMint/g_coopPendingChainActorId/g_coopLastDenyTick itself
+	// (it calls the file-local resetCoopArbiterState() - see that function's
+	// call site a few lines above CoopPump::reset()'s own definition), so
+	// there is nothing left for a separate CoopArbiter::resetBattleState() to
+	// do; adding one here would just double-reset the same statics. Ordering
+	// is not load-bearing (each call only touches its own state), but battle
+	// authority is reset last so isCoopBattle()/coopBattleAuthority().phase
+	// read Idle immediately after every other battle store is already empty.
+	CoopPump::reset();
+	CoopIdMaps::reset();
+	resetBattleAuthority();
 }
 
 // HOST: emit PING once per second (independent from client)
