@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <unordered_set>
@@ -40,6 +41,9 @@
 #include "../Savegame/Ufo.h"
 #include "../Battlescape/DebriefingState.h"
 #include "../Battlescape/BattlescapeState.h"
+#include "../Battlescape/BattlescapeGame.h"
+#include "../Battlescape/UnitTurnBState.h"
+#include "../Battlescape/Pathfinding.h"
 
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -69,6 +73,7 @@
 #include "BattlePump.h"
 #include "BattleAuthority.h"
 #include "CoopIdMaps.h"
+#include "CoopArbiter.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -667,6 +672,12 @@ static uint32_t g_battleNextSeqMint = 1; // host mint counter (SS2.2: starts at 
 // (and eventually clear) it without going through a function call.
 std::atomic<bool> g_battleFrozen{false};
 
+// R2-P5 forward declaration: CoopPump::reset() below (RB-D5's established
+// single battle-teardown chokepoint, R2-P8 wires its call site) also clears
+// CoopArbiter's own battle-scoped statics (defined further down this file,
+// after CoopIdMaps) - see resetCoopArbiterState()'s own doc comment.
+static void resetCoopArbiterState();
+
 namespace CoopPump
 {
 
@@ -747,6 +758,7 @@ void reset()
 	g_battleLastSeqApplied.store(0u);
 	g_battleFrozen.store(false);
 	g_battleNextSeqMint = 1; // CoopEmit's host mint counter (SS2.2: reset by a new battle)
+	resetCoopArbiterState(); // R2-P5: action-context stack, actionId mint, deny-tick map
 }
 
 } // namespace CoopPump
@@ -1019,6 +1031,413 @@ void reset()
 }
 
 } // namespace CoopIdMaps
+
+// ===== R2-P5: admission arbiter (CoopArbiter.h) =====
+// SPIKE-RUNBOOK.md RB-D9/RB-D10/RB-D11/RB-D12/RB-D13/RB-D19, SS2.3/SS2.5/
+// SS2.6. Storage lives here, next to BattleAuthority/CoopIdMaps/CoopPump/
+// CoopEmit above - same file-scope-global pattern (RB-D6/RB-D7).
+
+// RB-D12: the action-context stack. In spike scope at most one entry is ever
+// on it at a time (the "busy" check below denies everything else while an
+// entry is present) - a real vector-backed stack anyway, matching the given
+// push/current API shape, so a later packet admitting overlapping actions
+// does not need a new data structure.
+struct CoopActionContextEntry
+{
+	std::uint32_t actionId;
+	std::string origin;
+};
+static std::vector<CoopActionContextEntry> g_coopActionContextStack;
+
+// Host mint counter for actionId (SS2.2: uint32, starts at 1 per battle,
+// monotonic, never reused - a DEDICATED counter, separate from CoopEmit's
+// own seq mint, per the R2-P5 packet text).
+static std::uint32_t g_coopActionIdMint = 1;
+
+// Which actor a chain-ful (turn) action in flight belongs to, so
+// CoopArbiter::onChainQuiesced() can read its post-chain state for
+// bt_action_end.final. NOT part of the public {actionId, origin} stack
+// above (RB-D12's shape has no room for an actor id) - CoopArbiter's own
+// internal bookkeeping only, maintained 1:1 alongside the stack's top entry.
+static int g_coopPendingChainActorId = -1;
+
+// Oldest-denied-seat-first bookkeeping (SS2.5): per-seat tick of the most
+// recent deny, written by CoopArbiter's deny() helper and consulted (read,
+// never reordered - the spike is deny-only, no host-side queue, SS2.5/the
+// SEAM note in CoopArbiter.h) at CoopArbiter::onChainQuiesced(). A
+// ready-made fairness signal for a future post-v1 host-side queue; inert
+// today.
+static std::map<int, std::uint32_t> g_coopLastDenyTick;
+
+// CoopPump::reset() (BattlePump.h/R2-P2) is the established single
+// battle-teardown reset chokepoint (R2-P8 wires its call site); extending
+// its body here keeps CoopArbiter's own battle-scoped statics from leaking
+// into a following battle without adding new public API surface.
+static void resetCoopArbiterState()
+{
+	g_coopActionContextStack.clear();
+	g_coopActionIdMint = 1;
+	g_coopPendingChainActorId = -1;
+	g_coopLastDenyTick.clear();
+}
+
+namespace CoopArbiter
+{
+
+// ----- internal helpers (file-scope; not part of the CoopArbiter.h API) -----
+
+static BattleUnit* findUnitById(SavedBattleGame* save, int id)
+{
+	if (!save || id < 0)
+		return nullptr;
+	std::vector<BattleUnit*>* units = save->getUnits();
+	if (!units)
+		return nullptr;
+	for (BattleUnit* u : *units)
+	{
+		if (u && u->getId() == id)
+			return u;
+	}
+	return nullptr;
+}
+
+// UnitFallBState.cpp:96-99's own "falling" predicate, reproduced purely from
+// BattleUnit accessors (no SavedBattleGame needed) so it fits inside
+// validateTurn()/validateKneel()'s frozen (no-save-param) signatures.
+static bool isUnitFalling(const BattleUnit* u)
+{
+	return u->haveNoFloorBelow()
+		&& u->getPosition().z != 0
+		&& u->getMovementType() != MT_FLY
+		&& u->getWalkingPhase() == 0;
+}
+
+static void popActionContext()
+{
+	if (!g_coopActionContextStack.empty())
+		g_coopActionContextStack.pop_back();
+}
+
+static std::uint32_t mintActionId()
+{
+	return g_coopActionIdMint++;
+}
+
+static void recordDeny(int seat)
+{
+	if (seat >= 0)
+		g_coopLastDenyTick[seat] = SDL_GetTicks();
+}
+
+static void clearDeny(int seat)
+{
+	g_coopLastDenyTick.erase(seat);
+}
+
+static void deny(std::uint32_t iseq, const char* reason, int seat)
+{
+	Json::Value msg = CoopWire::makeDeny(iseq, reason);
+	CoopEmit::sendBattle(msg);
+	recordDeny(seat);
+}
+
+static Json::Value buildFinal(const BattleUnit* u)
+{
+	Json::Value pos(Json::objectValue);
+	pos["x"] = u->getPosition().x;
+	pos["y"] = u->getPosition().y;
+	pos["z"] = u->getPosition().z;
+
+	Json::Value final(Json::objectValue);
+	final["pos"] = pos;
+	final["dir"] = u->getDirection();
+	final["tu"] = u->getTimeUnits();
+	final["energy"] = u->getEnergy();
+	final["kneeled"] = u->isKneeled();
+	return final;
+}
+
+// ----- CoopArbiter.h API -----
+
+void pushActionContext(std::uint32_t actionId, const char* origin)
+{
+	g_coopActionContextStack.push_back(CoopActionContextEntry{ actionId, origin ? origin : "" });
+}
+
+std::uint32_t currentActionId()
+{
+	return g_coopActionContextStack.empty() ? 0u : g_coopActionContextStack.back().actionId;
+}
+
+const char* validateTurn(const BattleUnit* unit, int toDir, bool turret, int tuBasis)
+{
+	// Well-formedness (SS2.5's "turn well-formedness" bullet: actor exists,
+	// alive, not falling; toDir in 0..7). None of these has a dedicated
+	// SS2.2 deny reason of its own - mapped to cost_changed, the closest
+	// existing enum meaning ("the intent's basis no longer matches host
+	// reality") - see this packet's final report for the gap.
+	if (!unit)
+		return "cost_changed";
+	if (unit->isOut())
+		return "cost_changed";
+	if (isUnitFalling(unit))
+		return "cost_changed";
+	if (toDir < 0 || toDir > 7)
+		return "cost_changed";
+
+	// cost_changed (SS2.3): recompute the SAME per-tick cost
+	// UnitTurnBState::think() charges (UnitTurnBState.cpp:100:
+	// "turret ? 1 : _unit->getTurnCost()") over the shortest-arc tick count
+	// BattleUnit::turn() actually walks (BattleUnit.cpp:1286-1358's a<=4
+	// branch - circular distance; the a==4 tie costs the same either way).
+	const int fromDir = turret ? unit->getTurretDirection() : unit->getDirection();
+	const int perTick = turret ? 1 : unit->getTurnCost();
+	const int delta = ((toDir - fromDir) % 8 + 8) % 8;
+	const int ticks = (delta <= 4) ? delta : (8 - delta);
+	const int recomputed = ticks * perTick;
+
+	if (recomputed != tuBasis)
+		return "cost_changed";
+	if (unit->getTimeUnits() < recomputed)
+		return "cost_changed"; // basis matched but TU are short (SS2.3)
+
+	return nullptr;
+}
+
+const char* validateKneel(const BattleUnit* unit, bool kneel, int tuBasis)
+{
+	if (!unit)
+		return "cost_changed";
+	if (unit->isOut())
+		return "cost_changed";
+	if (isUnitFalling(unit))
+		return "cost_changed";
+
+	// Kneel-capable precondition, replicated (not reimplemented) from
+	// BattlescapeGame::kneel()'s own gate (BattlescapeGame.cpp:485) - only
+	// the "can this unit kneel at all" half. The TU-reservation half of that
+	// same vanilla condition ((!isKneeled && kneelReserved) ||
+	// checkReservedTU(...)) is deliberately NOT replicated (see this
+	// packet's final report): tuBasis/getTimeUnits() below already cover
+	// the TU-sufficiency question this packet's validators own.
+	if (!unit->getArmor()->allowsKneeling(unit->getType() == "SOLDIER") || unit->isFloating())
+		return "cost_changed";
+
+	// The requested end-state already holds - the client's basis was built
+	// against a state that has since moved (someone else toggled this unit).
+	if (kneel == unit->isKneeled())
+		return "cost_changed";
+
+	const int recomputed = unit->getKneelChangeCost(); // BattleUnit.h:788
+	if (recomputed != tuBasis)
+		return "cost_changed";
+	if (unit->getTimeUnits() < recomputed)
+		return "cost_changed";
+
+	return nullptr;
+}
+
+void onIntent(const Json::Value& intent)
+{
+	if (!isCoopBattle())
+	{
+		Log(LOG_WARNING) << "[coop-arbiter] bt_intent received outside an active coop battle - dropped";
+		return;
+	}
+
+	const std::uint32_t iseq = intent.get("iseq", 0u).asUInt();
+	const int seat = intent.get("seat", -1).asInt();
+	const int actorId = intent.get("actorId", -1).asInt();
+	const std::string kind = intent.get("kind", "").asString();
+
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	BattlescapeGame* bg = save ? save->getBattleGame() : nullptr;
+	if (!save || !bg)
+	{
+		Log(LOG_WARNING) << "[coop-arbiter] bt_intent with no live battle - dropped";
+		return;
+	}
+
+	BattleUnit* actor = findUnitById(save, actorId);
+
+	// not_your_unit (SS2.3/SS2.5: "seat tag != intent seat"). Deliberately a
+	// direct comparison, NOT coopBattleAuthority().commandsUnit(actor) - see
+	// this packet's final report for why commandsUnit() (which compares
+	// against THIS machine's own localSeat) is the wrong check for the host
+	// validating a REMOTE seat's intent.
+	if (!actor || (int)actor->getCoopSeat() != seat)
+	{
+		deny(iseq, "not_your_unit", seat);
+		return;
+	}
+
+	// turn_over (SS2.3/SS2.5). Safe to use mySideActive() as-is (unlike
+	// commandsUnit() above): RB-D16/RB-D18 mean every valid seat maps to
+	// FACTION_PLAYER in the spike's classic/SHARED fixtures, so
+	// factionOf(localSeat) == factionOf(seat) for any seat - the check is
+	// seat-invariant in spike scope.
+	if (!coopBattleAuthority().mySideActive(save))
+	{
+		deny(iseq, "turn_over", seat);
+		return;
+	}
+
+	// busy (SS2.5): a BState chain active, OR this arbiter's own action
+	// context is still on the stack awaiting its bt_action_end (covers the
+	// same-tick edge where _states has just emptied but onChainQuiesced()
+	// has not run yet).
+	if (bg->isBusy() || currentActionId() != 0)
+	{
+		deny(iseq, "busy", seat);
+		return;
+	}
+
+	if (kind == "turn")
+	{
+		const int toDir = intent.get("toDir", -1).asInt();
+		const bool turret = intent.get("turret", false).asBool();
+		const int tuBasis = intent.get("tuBasis", -1).asInt();
+
+		const char* reason = validateTurn(actor, toDir, turret, tuBasis);
+		if (reason)
+		{
+			deny(iseq, reason, seat);
+			return;
+		}
+
+		const std::uint32_t actionId = mintActionId();
+		Json::Value ack = CoopWire::makeAck(iseq, actionId);
+		CoopEmit::sendBattle(ack);
+		clearDeny(seat);
+		pushActionContext(actionId, "intent");
+		g_coopPendingChainActorId = actor->getId();
+
+		// RB-D10 donor reproduction of BattlescapeGame::secondaryAction()
+		// (BattlescapeGame.cpp:2011-2018) - NOT a call to secondaryAction
+		// itself, which reads the LOCAL click cursor/ctrl-key state. A local
+		// BattleAction is built here instead of touching bg's own
+		// _currentAction (that member is the HOST's own live UI click state
+		// - an admitted REMOTE intent must never alias it). The wire gives a
+		// direction, not a click position, so a synthetic one-tile-away
+		// target is built with Pathfinding::directionToVector() (the same
+		// vector table BattleUnit::directionTo() itself decodes a Position
+		// back out of, BattleUnit.cpp:1445-1487) so
+		// UnitTurnBState::init()'s _unit->lookAt(_action.target, _turret)
+		// resolves to exactly @a toDir. @a turret is honored directly (via
+		// action.strafe) rather than rederived from Options::strafe/
+		// isCtrlPressed() - those reflect the HOST's own local input, not
+		// the validated wire intent.
+		Position vec;
+		Pathfinding::directionToVector(toDir, &vec);
+
+		BattleAction action;
+		action.actor = actor;
+		action.target = actor->getPosition() + vec;
+		action.strafe = turret;
+
+		bg->statePushBack(new UnitTurnBState(bg, action));
+		return;
+	}
+
+	if (kind == "kneel")
+	{
+		const bool wantKneel = intent.get("kneel", false).asBool();
+		const int tuBasis = intent.get("tuBasis", -1).asInt();
+
+		const char* reason = validateKneel(actor, wantKneel, tuBasis);
+		if (reason)
+		{
+			deny(iseq, reason, seat);
+			return;
+		}
+
+		const std::uint32_t actionId = mintActionId();
+		Json::Value ack = CoopWire::makeAck(iseq, actionId);
+		CoopEmit::sendBattle(ack);
+		clearDeny(seat);
+		pushActionContext(actionId, "intent");
+
+		// RB-D13: kneel is chain-less - direct wrap of
+		// BattlescapeGame::kneel() (BattlescapeGame.cpp:482), not a BState.
+		// admit -> push context (above) -> call -> emit ev+action_end -> pop
+		// context, all synchronously in this one call - no popState/
+		// quiescence involved.
+		bg->kneel(actor);
+
+		Json::Value ev = CoopWire::makeEv(0, actionId, "kneel");
+		ev["payload"]["unit"] = actor->getId();
+		ev["payload"]["kneeled"] = actor->isKneeled();
+		ev["payload"]["tuAfter"] = actor->getTimeUnits();
+		// RB-D14: spike evs always carry h (presence), but the hash fn
+		// itself arrives in R2-P9 (SS2.8 - computeBattleHashes/
+		// battleHashBucketValue are ported there). Ship an empty h until
+		// then - the same transitional treatment SS2.7 already specifies
+		// for battle_ready.h.
+		ev["h"] = Json::Value(Json::objectValue); // RW-TODO(R2-P9): real unitsStats hash
+		CoopEmit::sendEv(ev);
+
+		Json::Value end = CoopWire::makeActionEnd(0, actionId);
+		end["final"] = buildFinal(actor);
+		end["h"] = Json::Value(Json::objectValue); // RW-TODO(R2-P9): real hash bucket sweep
+		CoopEmit::sendEv(end);
+
+		popActionContext();
+		return;
+	}
+
+	Log(LOG_WARNING) << "[coop-arbiter] bt_intent unknown kind '" << kind
+		<< "' - dropped (RB-D9: only turn/kneel validators exist in the spike)";
+}
+
+void onChainQuiesced()
+{
+	if (!isCoopBattle())
+		return;
+
+	if (g_coopActionContextStack.empty())
+		return; // no coop action in flight - a foreign/AI popState, not ours
+
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	const std::uint32_t actionId = currentActionId();
+	BattleUnit* actor = findUnitById(save, g_coopPendingChainActorId);
+
+	popActionContext();
+	g_coopPendingChainActorId = -1;
+
+	if (!actor)
+	{
+		Log(LOG_WARNING) << "[coop-arbiter] chain quiesced for actionId " << actionId
+			<< " but its actor no longer resolves - bt_action_end skipped";
+	}
+	else
+	{
+		Json::Value end = CoopWire::makeActionEnd(0, actionId);
+		end["final"] = buildFinal(actor);
+		end["h"] = Json::Value(Json::objectValue); // RW-TODO(R2-P9): real hash bucket sweep
+		CoopEmit::sendEv(end);
+	}
+
+	// Oldest-denied-seat-first bookkeeping (SS2.5): consulted here (read-only
+	// - the spike is deny-only, see the SEAM note in CoopArbiter.h) so a
+	// future host-side queue has a ready-made fairness signal.
+	if (!g_coopLastDenyTick.empty())
+	{
+		auto oldest = std::min_element(g_coopLastDenyTick.begin(), g_coopLastDenyTick.end(),
+			[](const std::pair<const int, std::uint32_t>& a, const std::pair<const int, std::uint32_t>& b)
+			{
+				return a.second < b.second;
+			});
+		Log(LOG_INFO) << "[coop-arbiter] quiesce: oldest-denied seat=" << oldest->first
+			<< " (tick=" << oldest->second << ")";
+	}
+}
+
+} // namespace CoopArbiter
+
+void coopOnChainQuiesced()
+{
+	CoopArbiter::onChainQuiesced();
+}
 
 // ===== Geoscape sync conflation slot =====
 // One overwrite slot per snapshot channel (see CoopSnapSlot). The main thread
@@ -4486,10 +4905,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// updateCoopTask() below) applies them in strict seq order.
 			CoopPump::enqueue(obj);
 		}
+		else if (stateString == "bt_intent")
+		{
+			// R2-P5 (SS2.1/SS2.5): the ONLY battle-lane kind this packet
+			// wires - host-side admission. bt_ack/bt_deny are client-inbound
+			// (handled by R3-P1's client intent tracker, not here); the
+			// handshake set + bt_desync stay unwired (R2-P6/R2-P9/R4-P1).
+			CoopArbiter::onIntent(obj);
+		}
 		else
 		{
-			// R2-P5/P6/P9 will handle directly here (bt_intent/bt_ack/bt_deny/
-			// battle_offer/battle_accept/battle_refuse/battle_ready/bt_desync).
+			// R3-P1 client ack/deny (bt_ack/bt_deny). R2-P6/R4-P1/R2-P9 wire
+			// the rest (battle_offer/battle_accept/battle_refuse/
+			// battle_ready/bt_desync).
 		}
 		return;
 	}
@@ -9525,6 +9953,18 @@ void connectionTCP::generateCraftSoldiers()
 bool connectionTCP::getServerOwner()
 {
 	return session.role == CoopRole::Host;
+}
+
+// R2-P5 (rewrite spike, RB-D6 pattern): see the declaration's doc comment in
+// connectionTCP.h. Mirrors _staticGame's other static-accessor call sites
+// (e.g. connectionTCP::localSeat(), :1248/:8767 above) rather than adding a
+// new one - this is just the first one exposed as a public API surface for
+// CoopMod code outside the connectionTCP class (CoopArbiter::onIntent()).
+SavedBattleGame* connectionTCP::getStaticBattle()
+{
+	return (_staticGame && _staticGame->getSavedGame())
+		? _staticGame->getSavedGame()->getSavedBattle()
+		: nullptr;
 }
 
 void connectionTCP::setPathLock(int lock)

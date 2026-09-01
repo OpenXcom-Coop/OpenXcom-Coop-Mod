@@ -184,6 +184,7 @@ class Game;
 class Ufo;
 class SavedGame;
 class BattleUnit;
+class SavedBattleGame;
 class VoteMenu;
 class ConfirmLandingState;
 class ConfirmCydoniaState;
@@ -687,6 +688,13 @@ class connectionTCP
 	void writePendingHostSave();
 	bool inventory_battle_window = true; // Do not use inventory if another player joins a saved game
 	static bool getServerOwner();
+	// R2-P5 (rewrite spike, RB-D6 pattern): minimal static accessor to the
+	// live SavedBattleGame, mirroring localSeat()/getServerOwner()'s existing
+	// static-accessor shape. CoopArbiter::onIntent() has no save/game
+	// parameter in its frozen signature (SPIKE-RUNBOOK.md ss5, R2-P5), so it
+	// needs this to reach the battle without touching the private _staticGame
+	// directly. Returns nullptr if no battle (or no game) is live.
+	static SavedBattleGame* getStaticBattle();
 	bool ready_coop_battle = false; // notify the other player that the co-op mission is starting
 	bool ready_coop_save_progress = false; // Notify the other player that progress saving is starting
 	std::vector<Soldier*> coopSoldiers;

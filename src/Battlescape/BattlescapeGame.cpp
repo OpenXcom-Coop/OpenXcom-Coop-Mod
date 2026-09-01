@@ -59,6 +59,7 @@
 #include "../Savegame/BattleUnitStatistics.h"
 #include "ConfirmEndMissionState.h"
 #include "../fmath.h"
+#include "../CoopMod/CoopArbiter.h"
 
 namespace OpenXcom
 {
@@ -1337,6 +1338,17 @@ void BattlescapeGame::popState()
 			_save->selectNextPlayerUnit(true, true);
 	}
 	_parentState->updateSoldierInfo();
+
+	// R2-P5 (rewrite spike, SPIKE-RUNBOOK.md RB-D11): thin coop admission
+	// hook, at the exact point the just-popped chain leaves _states empty.
+	// Guarded internally (coopOnChainQuiesced() no-ops outside an active
+	// coop battle) - this is the only logic this vanilla file gains for the
+	// spike (src/Battlescape is no longer byte-identical to vanilla from r2
+	// on, by design).
+	if (_states.empty())
+	{
+		coopOnChainQuiesced();
+	}
 }
 
 /**
