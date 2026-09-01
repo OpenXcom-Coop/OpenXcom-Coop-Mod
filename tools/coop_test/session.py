@@ -43,6 +43,31 @@ _states = states
 _has_state = has_state
 
 
+def can_drive(state):
+    """May THIS machine drive a battlescape action? `state` is a battle_state
+    (or parallel_state) response dict.
+
+    Classic co-op: only the machine that owns the simulation may drive, and
+    `activeSync` (connectionTCP::_isActivePlayerSync) is that flag - every coop
+    battle state gates its packet send on it, so an action driven from the
+    passive side runs locally and never reaches the peer.
+
+    Parallel turns (PRD-P5+): `activeSync` stops being the driver predicate and
+    becomes the EXECUTOR invariant (`_isActivePlayerSync == getHost()`, so host
+    true / client false, permanently). A client-side action is forwarded to the
+    host as an intent (PRD-P6) rather than executed locally, so BOTH machines
+    may drive. `parallelActive` says whether that mode is live.
+
+    `parallelActive` is false until P5 lands, so this is exactly `activeSync`
+    today - use it instead of reading `activeSync` directly wherever the
+    question is "which machine should I drive this action from".
+
+    NOT for invariant assertions: a test that asserts exactly one machine owns
+    the simulation is asking about `activeSync` itself and must keep reading it.
+    """
+    return bool(state.get("activeSync") or state.get("parallelActive", False))
+
+
 def start_campaign_via_button(host):
     """Press the REAL START CAMPAIGN button the way a player does: btnCancelClick
     (which opens ConfirmStartCampaignState) then the dialog's OK
@@ -265,6 +290,274 @@ def resume_campaign_battle(host, client, save_file, port="47900",
         f"battle resume: both machines did not enter the battle within {timeout}s\n"
         f"  host:   {_detail(host)}\n"
         f"  client: {_detail(client)}")
+
+
+# ---- PRD-P2: the battlescape drift terms -----------------------------------
+
+def battle_checksum(gc):
+    """One machine's three battle drift terms, read off `battle_state`.
+
+    Returns (itemIdCounter, battleCensus, battleUnitsChecksum) - exactly what
+    SharedEcon stamps on the per-turn `next_turn` packet as chkBattleItemId /
+    chkBattleCensus / chkBattleUnits:
+
+      itemIdCounter  SavedBattleGame::_itemId, the next id this machine will mint.
+                     EVERY `new BattleItem` advances it, so a mint that happens on
+                     one machine only shows up here immediately.
+      battleCensus   an order-independent sum over getItems() of the item identity
+                     the wire protocol matches on (id + type + owner unit id).
+      battleUnits    the same shape over getUnits(): id + faction + LIVENESS
+                     (on its feet / dead / unconscious - not the raw animation
+                     status, which legitimately differs frame to frame) +
+                     position. Deliberately carries no TU, energy, health, stun,
+                     wounds, morale or mana; see SharedEcon::battleChecksumTerms
+                     for why each of those would be a permanent red rather than a
+                     detector.
+
+    All three are -1 when no battle is live.
+    """
+    b = gc.cmd({"cmd": "battle_state"})
+    for key in ("itemIdCounter", "battleCensus", "battleUnitsChecksum"):
+        assert key in b, (
+            f"battle_state carries no {key!r} - PRD-P2's harness exposure is "
+            f"missing, so this assertion would be vacuous: {sorted(b)}")
+    return b["itemIdCounter"], b["battleCensus"], b["battleUnitsChecksum"]
+
+
+def assert_battle_synced(host, client, what=""):
+    """PRD-P2's invariant: after every replicated action the two machines hold the
+    same item-id counter and the same item census.
+
+    This is the harness-side reading of the terms the in-game tripwire compares on
+    `next_turn` - direct, so a test can check it after a single action instead of
+    waiting for a turn to roll over. Returns the (agreed) triple.
+
+    The UNIT term is READ and REPORTED here, never asserted, and the difference is
+    deliberate rather than timid:
+
+    * The two ITEM terms are permanent facts. An id minted on one machine only, or
+      an item that exists on one machine only, never heals - so wherever a test
+      calls this, an inequality is a bug.
+    * The UNIT term is a SETTLING quantity. It hashes where every unit is and
+      whether it is down, and the peer is a display that lags the executor by
+      whatever is still in flight. Worse, some of its inputs differ LEGITIMATELY
+      for a whole side: `test_coop_outcome_gaps` documents (and deliberately does
+      not assert) a spawned unit sitting a z-level apart after a blast, because
+      gravity follows host-authoritative terrain destruction and `next_turn` is
+      what repairs it.
+
+    So the unit term is asserted where it IS an invariant - by the in-game tripwire
+    at the turn boundary (SharedEcon::verifyBattleChecksum, which also skips itself
+    when the receive pump applied that stamp out of order), and by
+    test_parallel_soak's own per-unit census, which is taken only after both
+    machines are provably quiescent. Here it is a signal, printed with the term
+    named so a failure elsewhere has a breadcrumb.
+    """
+    h = battle_checksum(host)
+    c = battle_checksum(client)
+    tag = f" {what}" if what else ""
+    assert h[0] >= 0 and c[0] >= 0, (
+        f"battle drift terms{tag}: no live battle to compare "
+        f"(host={h}, client={c})")
+    assert h[:2] == c[:2], (
+        f"BATTLE DRIFT{tag}: the two machines no longer agree.\n"
+        f"    itemIdCounter host={h[0]} client={c[0]}"
+        f"{'  <-- an item was minted on one machine only' if h[0] != c[0] else ''}\n"
+        f"    battleCensus  host={h[1]} client={c[1]}"
+        f"{'  <-- the (id, type, owner) item sets differ' if h[1] != c[1] else ''}\n"
+        f"    battleUnits   host={h[2]} client={c[2]}\n"
+        f"  `battle_items` / `battle_state` units on both machines shows which.")
+    if h[2] != c[2]:
+        print(f"    NOTE{tag}: battleUnits differs (host={h[2]} client={c[2]}) - a "
+              f"unit is in a different place, faction or liveness state. Reported, "
+              f"not asserted; see assert_battle_synced.__doc__.")
+    return h
+
+
+# ---- PRD-I0: the per-action sync-check -------------------------------------
+
+def sync_check(gc):
+    """One machine's PRD-I0 `syncCheck` block, read off `battle_state`.
+
+    Keys: lastSeq / lastComparedSeq (the ACTION namespace, which restarts at 0 at
+    every side boundary), lastBoundarySeq / lastComparedBoundarySeq (the boundary
+    pseudo-seq namespace, monotonic for the whole battle), ringDepth, compares,
+    staleReports, dropped, sweepUs, buckets {name: {alarm, mismatchCount}} and the
+    last 32 mismatches as {seq, boundary, kind, bucket}.
+
+    Only the EXECUTOR compares (the client ships hashes on `action_done` and the
+    host looks them up in its ring), so on a client every counter here stays 0.
+
+    OPT-IN on the wire (`"sync": true`): the block costs a full-map hash sweep,
+    and `battle_state` is the harness' hot poll. Without the flag the response is
+    byte-for-byte what it was before PRD-I0.
+    """
+    b = gc.cmd({"cmd": "battle_state", "sync": True})
+    sc = b.get("syncCheck")
+    assert sc is not None, (
+        f"battle_state carries no 'syncCheck' - PRD-I0's introspection is missing, "
+        f"so this assertion would be vacuous: {sorted(b)}")
+    return sc
+
+
+def sync_buckets(gc):
+    """This machine's RAW bucket values right now (`battle_state.battleHashes`).
+
+    The deferred comparison is what the game does; this is what a test uses to
+    prove a lever moved the bucket it was supposed to move, without waiting a
+    round trip for a report that may never come."""
+    b = gc.cmd({"cmd": "battle_state", "sync": True})
+    h = b.get("battleHashes")
+    assert h is not None, (
+        f"battle_state carries no 'battleHashes' - PRD-I0's bucket sweep is not "
+        f"exposed: {sorted(b)}")
+    return h
+
+
+def wait_sync_loop_closed(host, timeout=20, interval=0.2):
+    """Block until the EXECUTOR's per-action sync-check loop has caught up: every
+    action seq (and boundary seq) it recorded has been answered by the peer.
+
+    Why a harness helper for this: the sync-check samples the client's per-action
+    hash LATE - at the moment the client consumes that chain's gated `action_end`
+    marker (coopEmitActionDone), which lags the executor by whatever display is
+    still in flight. A harness lever that mints an item OUT OF BAND (battle_give is
+    an immediate TestServer RPC, NOT a chain that flows through the marker pipeline)
+    bumps BOTH machines' `_itemId`, but if the client still has an earlier chain's
+    marker parked, that earlier chain's DEFERRED sample now reads the post-give
+    counter while the executor's ring snapshot for the same seq was taken pre-give -
+    a transient items/itemIdCtr divergence with no product cause (the ids the give
+    minted are identical on both machines; only the sample INSTANTS straddle the
+    mint). Draining the loop before the give closes that straddle: with no parked
+    marker, the give cannot bleed into a prior chain's report.
+
+    Bounded and BEST-EFFORT: returns True if the loop closed, False on timeout (the
+    caller proceeds either way - a persistent open loop is a real fault the later
+    assert_sync_clean will catch, this only waits out the transient). Tolerant of a
+    machine with no live sync ring (classic mode, pre-battle): returns True at once.
+    """
+    deadline = time.time() + timeout
+    while True:
+        try:
+            sc = sync_check(host)
+        except Exception:
+            return True  # no live sync ring to wait on
+        if (sc["lastComparedSeq"] >= sc["lastSeq"]
+                and sc["lastComparedBoundarySeq"] >= sc["lastBoundarySeq"]):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(interval)
+
+
+def assert_sync_clean(host, client, what="", strict=False, allow=(), timeout=30,
+                      interval=0.5, quiet=False, latch_aware=False):
+    """PRD-I0's invariant, read off the EXECUTOR: every action seq the host
+    recorded has been answered by the peer, and no bucket disagreed.
+
+    Two halves, and the difference between them is the whole onboarding
+    programme:
+
+    * THE LOOP CLOSES. `lastComparedSeq` must catch `lastSeq` (and the boundary
+      pair likewise), `dropped` must stay 0, and the ring must not have run away.
+      This is asserted unconditionally - it says the detector is alive. A silent
+      detector is worse than no detector, and the only way to tell the two apart
+      is to watch the reports come back.
+    * THE BUCKETS AGREE. Asserted for every bucket the build has PROMOTED to
+      ALARM (`buckets[name].alarm`), and only reported for the rest. At I0 birth
+      every bucket is report-only (SharedEcon.cpp BATTLE_HASH_ALARM says why), so
+      by default this prints the counts and asserts nothing about them. Pass
+      strict=True where the caller genuinely expects a clean battle - which is
+      exactly the burn-in evidence PRD-I3 promotes a bucket on - and name the
+      buckets that are NOT clean yet in `allow`, so the exception is written down
+      instead of hidden behind a blanket non-strict call.
+
+    `client` is accepted (and its own block sanity-checked) so callers read as the
+    cross-machine assertion they are, and so a future two-way comparison does not
+    change every call site.
+    """
+    tag = f" {what}" if what else ""
+    peer = sync_check(client)
+    assert peer["compares"] == 0, (
+        f"the CLIENT compared {peer['compares']} report(s){tag} - only the executor "
+        f"holds a ring, so a client that compares is comparing against nothing")
+
+    def closed(sc):
+        return (sc["lastComparedSeq"] >= sc["lastSeq"]
+                and sc["lastComparedBoundarySeq"] >= sc["lastBoundarySeq"])
+
+    sc = sync_check(host)
+    deadline = time.time() + timeout
+    while not closed(sc) and time.time() < deadline:
+        time.sleep(interval)
+        sc = sync_check(host)
+
+    assert closed(sc), (
+        f"SYNC-CHECK LOOP OPEN{tag}: the host recorded up to action seq "
+        f"{sc['lastSeq']} / boundary seq {sc['lastBoundarySeq']} but the peer has "
+        f"only answered {sc['lastComparedSeq']} / {sc['lastComparedBoundarySeq']} "
+        f"after {timeout}s. The peer has stopped attaching hashes to its "
+        f"`action_done` reports, so every bucket assertion below is vacuous. "
+        f"ringDepth={sc['ringDepth']} compares={sc['compares']} "
+        f"stale={sc['staleReports']} dropped={sc['dropped']}")
+    assert sc["dropped"] == 0, (
+        f"SYNC-CHECK RING OVERFLOW{tag}: {sc['dropped']} uncompared entries were "
+        f"evicted (ring is 64 deep, the display backlog cap is 2) - the peer is "
+        f"not reporting: {sc}")
+
+    buckets = sc["buckets"]
+    bad = {n: b["mismatchCount"] for n, b in buckets.items() if b["mismatchCount"]}
+    if latch_aware:
+        # coop (harness alignment, owner ruling 2026-08-30): in the wire-order/latch-aware
+        # path the persistence latch (Increment 8 + the alarm-unmask) is the detector of
+        # record - a boundary bucket mismatch PENDS on first sight and only promotes to an
+        # alarm on persistence. So here the alarm condition is the LATCH state (desyncSeen OR
+        # syncBoundaryPersistAlarms>0), NOT the lifetime cumulative `mismatchCount`
+        # (g_syncBucketMismatches, SharedEcon.cpp:6569, increment-only), which flags every
+        # pend-and-heal transient forever. The cumulative alarm-bucket counts and any still-
+        # pending latch entries are REPORTED for diagnostics, never asserted. Classic/lever-off
+        # callers keep the cumulative semantics below untouched (other suites depend on them).
+        ps = host.cmd({"cmd": "parallel_state"})
+        persist_alarms = int(ps.get("syncBoundaryPersistAlarms") or 0)
+        pending = int(ps.get("syncBoundaryPending") or 0)
+        desync = bool(host.cmd({"cmd": "battle_state"}).get("desyncSeen"))
+        alarmed = {n: c for n, c in bad.items() if buckets[n]["alarm"]}
+        if (alarmed or pending) and not quiet:
+            print(f"    NOTE{tag}: latch-aware sync-clean (report-only) - cumulative "
+                  f"alarm-bucket mismatches {alarmed}; still-pending latch entries={pending}; "
+                  f"persistAlarms={persist_alarms} desyncSeen={desync}\n"
+                  f"    {_sync_mismatch_lines(sc)}")
+        assert not (desync or persist_alarms > 0), (
+            f"SYNC-CHECK ALARM{tag} (latch): the persistence latch promoted a boundary "
+            f"divergence - desyncSeen={desync} syncBoundaryPersistAlarms={persist_alarms} "
+            f"(cumulative alarm-bucket mismatches {alarmed}, still-pending {pending}).\n"
+            f"    {_sync_mismatch_lines(sc)}")
+        return sc
+    alarmed = {n: c for n, c in bad.items() if buckets[n]["alarm"]}
+    assert not alarmed, (
+        f"SYNC-CHECK ALARM{tag}: promoted bucket(s) {alarmed} disagreed.\n"
+        f"    {_sync_mismatch_lines(sc)}")
+    if strict:
+        hard = {n: c for n, c in bad.items() if n not in allow}
+        assert not hard, (
+            f"SYNC-CHECK MISMATCH{tag}: bucket(s) {hard} disagreed (strict, "
+            f"allowing {list(allow)}).\n    {_sync_mismatch_lines(sc)}")
+        if bad and not quiet:
+            print(f"    NOTE{tag}: allowed report-only buckets differ: "
+                  f"{ {n: c for n, c in bad.items() if n in allow} }")
+    elif bad and not quiet:
+        print(f"    NOTE{tag}: report-only sync-check buckets differ: {bad}\n"
+              f"    {_sync_mismatch_lines(sc)}")
+    return sc
+
+
+def _sync_mismatch_lines(sc, limit=6):
+    ms = sc.get("mismatches", [])
+    if not ms:
+        return "(no per-seq detail retained)"
+    out = [f"seq={m['seq']}{' boundary' if m.get('boundary') else ''} "
+           f"kind={m['kind']} bucket={m['bucket']}" for m in ms[-limit:]]
+    return "\n    ".join(out)
 
 
 # ---- ending a co-op battle ------------------------------------------------

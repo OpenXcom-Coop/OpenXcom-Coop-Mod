@@ -29,6 +29,35 @@ en-GB:
   STR_SAVE_UPGRADE_REJOIN_FRESH: "No other-player world was included. That player will start fresh when they rejoin."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "The other player's save file you selected is no longer needed and can be archived."
   STR_SAVE_UPGRADE_LOAD_BTN: "Load upgraded save"
+  # coop (PRD-P6): action-intent deny / timeout flashes.
+  STR_COOP_PLAYER_BUSY: "Another action is running - try again"
+  STR_COOP_TURN_OVER: "The turn has already ended"
+  STR_COOP_NOT_YOUR_SOLDIER: "Not one of your soldiers"
+  STR_COOP_ACTION_REFUSED: "Action refused"
+  STR_COOP_ACTION_TIMEOUT: "No answer from the host - action dropped"
+  # coop (parallel turns): persistent map banner shown while another player's action blocks your input.
+  STR_COOP_WAIT_FOR_PLAYER_ACTION: "Please wait for {0}'s action to finish"
+  # coop (PRD-P8): end-turn readiness gate.
+  STR_COOP_END_TURN_TALLY: "END TURN {0}/{1}"
+  # coop (PRD-P2 rider): battle desync auto-report bundle. {0} is the full path
+  # of the zip, pre-wrapped onto dialog-width lines by the caller.
+  STR_COOP_DESYNC_REPORT_SAVED: "CO-OP DESYNC DETECTED{NEWLINE}The two games no longer agree. A diagnostic report (log, save and context) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can reproduce and fix it."
+  # coop (PRD-I4): desync auto-report one-click UX + attribution headline.
+  STR_COOP_DESYNC_OPEN_FOLDER: "OPEN FOLDER"
+  STR_COOP_DESYNC_REPORT_GITHUB: "REPORT ON GITHUB"
+  # {0}=bucket, {1}=action seq, {2}=action kind
+  STR_COOP_DESYNC_HEADLINE_ACTION: "{0} diverged at action {1}: {2}"
+  # {0}=diverged checksum term(s), used when the per-action sync-check is inert
+  STR_COOP_DESYNC_HEADLINE_TERM: "battle state diverged: {0}"
+  # coop (PRD-I5): next-launch crash reporter. The consent prompt reuses the desync
+  # result notice (STR_COOP_DESYNC_OPEN_FOLDER / STR_COOP_DESYNC_REPORT_GITHUB) once
+  # a bundle is written. {0} in _SAVED is the zip path, pre-wrapped by the caller.
+  STR_COOP_CRASH_REPORT_PROMPT: "OpenXcom crashed the last time it ran.{NEWLINE}Bundle the crash details (dump, log, system info) for the developers?"
+  STR_COOP_CRASH_REPORT_HEADLINE: "Previous crash detected"
+  STR_COOP_CRASH_REPORT_BUNDLE: "BUNDLE"
+  STR_COOP_CRASH_REPORT_NOT_NOW: "NOT NOW"
+  STR_COOP_CRASH_REPORT_NEVER: "NEVER"
+  STR_COOP_CRASH_REPORT_SAVED: "CRASH REPORT BUNDLED{NEWLINE}A crash report (dump, log and system info) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can diagnose it."
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"
