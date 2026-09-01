@@ -30,6 +30,7 @@
 #include <unordered_set>
 
 #include "../Engine/Game.h"
+#include "../Engine/Language.h"
 #include "../Menu/MainMenuState.h"
 
 #include "../Basescape/CraftSoldiersState.h"
@@ -74,6 +75,7 @@
 #include "BattleAuthority.h"
 #include "CoopIdMaps.h"
 #include "CoopArbiter.h"
+#include "CoopBattleUi.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -1438,6 +1440,129 @@ void coopOnChainQuiesced()
 {
 	CoopArbiter::onChainQuiesced();
 }
+
+// ===== R2-P6: admission-model banner presenter (CoopBattleUi.h) =====
+// SPIKE-RUNBOOK.md sec 2.6, ADDENDUM 2026-08-31 sec 1.3(f). Bodies live here,
+// next to BattleAuthority/CoopIdMaps/CoopArbiter above - same established
+// home for CoopMod scaffolding. Unwired in this packet (see CoopBattleUi.h's
+// doc comment); R3-P1 adds the client bt_deny caller, R2-P7 the pending/
+// cancel callers.
+
+namespace CoopBattleUi
+{
+
+namespace
+{
+
+/// The ONE enum->STR table (sec 2.6): every deny reason (sec 2.2's 8-value
+/// wire enum) and every known auto-cancel cause (ADDENDUM 1.3(d)) in one
+/// place. STR_COOP_CANCEL_EVENT (the {0}-templated unknown-kind fallback) is
+/// deliberately NOT in this table - showCancel() applies it directly when a
+/// lookup here misses, since it needs the evKind argument substituted in.
+struct ReasonStrEntry
+{
+	const char* enumStr;
+	const char* strKey;
+};
+
+const ReasonStrEntry kReasonStrTable[] =
+{
+	// deny reasons (sec 2.2)
+	{ "busy",              "STR_COOP_DENY_BUSY" },
+	{ "path_changed",      "STR_COOP_DENY_PATH_CHANGED" },
+	{ "cost_changed",      "STR_COOP_DENY_COST_CHANGED" },
+	{ "target_moved",      "STR_COOP_DENY_TARGET_MOVED" },
+	{ "target_dead",       "STR_COOP_DENY_TARGET_DEAD" },
+	{ "weapon_missing",    "STR_COOP_DENY_WEAPON_MISSING" },
+	{ "not_your_unit",     "STR_COOP_DENY_NOT_YOUR_UNIT" },
+	{ "turn_over",         "STR_COOP_DENY_TURN_OVER" },
+	// auto-cancel causes (ADDENDUM 1.3(d))
+	{ "enemy_spotted",     "STR_COOP_CANCEL_ENEMY_SPOTTED" },
+	{ "unit_under_fire",   "STR_COOP_CANCEL_UNIT_UNDER_FIRE" },
+	{ "unit_down",         "STR_COOP_CANCEL_UNIT_DOWN" },
+	{ "new_contact",       "STR_COOP_CANCEL_NEW_CONTACT" },
+};
+
+const char* lookupStrKey(const char* enumStr)
+{
+	if (!enumStr)
+		return nullptr;
+	for (const auto& e : kReasonStrTable)
+	{
+		if (std::strcmp(e.enumStr, enumStr) == 0)
+			return e.strKey;
+	}
+	return nullptr;
+}
+
+/// Same reach-the-live-battle pattern CoopArbiter::onIntent() already uses.
+/// Returns nullptr outside an active coop battle or with no live
+/// BattlescapeState (e.g. mid-teardown).
+BattlescapeState* activeBattlescapeState()
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	return save ? save->getBattleState() : nullptr;
+}
+
+} // namespace
+
+void showDeny(const char* reason)
+{
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs)
+		return;
+	const char* key = lookupStrKey(reason);
+	if (!key)
+	{
+		// Unknown/future reason (no sec 2.6 entry): never guess a string -
+		// leave the banner as-is and log for diagnosis.
+		Log(LOG_WARNING) << "[coop-battle-ui] showDeny: unrecognized reason '"
+			<< (reason ? reason : "<null>") << "'";
+		return;
+	}
+	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString(key));
+}
+
+void showPending(const char* /*context*/)
+{
+	// R2-P7 (ADDENDUM 1.3(d) auto-retry + pending indicator) will pass real
+	// context through this call and may add its own STR_ key/wording; until
+	// then the pending state is presented with the same busy-wait text an
+	// outright busy deny already uses (the client is waiting on the same
+	// admission gate either way).
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs)
+		return;
+	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_DENY_BUSY"));
+}
+
+void clearPending()
+{
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs)
+		return;
+	bs->setCoopWaitText(std::string());
+}
+
+void showCancel(const char* cause, const char* evKind)
+{
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs)
+		return;
+	const char* key = lookupStrKey(cause);
+	if (key)
+	{
+		bs->setCoopWaitText(bs->getGame()->getLanguage()->getString(key));
+	}
+	else
+	{
+		// sec 2.6 "(cancel) unknown kind" row: {0} = the event kind name.
+		std::string kind = evKind ? evKind : std::string();
+		bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_CANCEL_EVENT").arg(kind));
+	}
+}
+
+} // namespace CoopBattleUi
 
 // ===== Geoscape sync conflation slot =====
 // One overwrite slot per snapshot channel (see CoopSnapSlot). The main thread
@@ -4915,8 +5040,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 		else
 		{
-			// R3-P1 client ack/deny (bt_ack/bt_deny). R2-P6/R4-P1/R2-P9 wire
-			// the rest (battle_offer/battle_accept/battle_refuse/
+			// R3-P1 client bt_deny -> CoopBattleUi::showDeny (the presenter
+			// itself is built this packet, R2-P6 - see CoopBattleUi.h - but
+			// the client intent tracker that would call it here lands in
+			// R3-P1). bt_ack is client-inbound too (also R3-P1). R4-P1/R2-P9
+			// wire the rest (battle_offer/battle_accept/battle_refuse/
 			// battle_ready/bt_desync).
 		}
 		return;

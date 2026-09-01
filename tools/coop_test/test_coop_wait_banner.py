@@ -26,7 +26,15 @@ import re
 import sys
 import time
 
-# RW-TRIAGE: SKIP-PENDING(R2-P6)
+# RW-TRIAGE: SKIP-PENDING(R3-P1)
+# R2-P6 built the STR table + _txtCoopWait widget + CoopBattleUi deny/cancel
+# presenter, but the 5 scenarios below drive the OLD P5 busy-owner banner
+# (getPrimaryBusyActor()/isBusy() owner-latch, TestServer parallel()
+# coopWaitBanner field, STR_COOP_WAIT_FOR_PLAYER_ACTION) - that driving logic
+# is explicitly dead (ADDENDUM 1.3(f): "COPY NONE of the driving logic ...
+# all of that is dead"), not the new deny/cancel presenter. Needs the R3-P1
+# client bt_deny wiring (and likely a scenario rewrite against the new
+# admission model) before it can run. Relabeled from SKIP-PENDING(R2-P6).
 print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

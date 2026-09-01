@@ -123,7 +123,7 @@ Each file carries a 2-line header guard (RB-D21): `# RW-TRIAGE: SKIP-PENDING(<un
 | test | unlock phase | reason |
 |---|---|---|
 | `test_coop_debrief_sync.py` | r4 T2 | C2 keeper guard, verified correct (killedBy/murdererId debrief parity needs battle+debrief machinery) |
-| `test_coop_wait_banner.py` | R2-P6 | C2 keeper guard, verified correct (wait-banner presenter lands in R2-P6) |
+| `test_coop_wait_banner.py` | R3-P1 | RELABELED this packet from SKIP-PENDING(R2-P6): R2-P6 built the STR table + `_txtCoopWait` widget + `CoopBattleUi` deny/cancel presenter, but this test's 5 scenarios drive the OLD P5 busy-owner banner (`getPrimaryBusyActor()`/`isBusy()` owner-latch, TestServer `parallel()` `coopWaitBanner` field, `STR_COOP_WAIT_FOR_PLAYER_ACTION`) which ADDENDUM (f) explicitly kills as dead driving logic, not the new deny/cancel presenter this packet built; needs the R3-P1 client `bt_deny` wiring (and likely a scenario rewrite against the new admission model) before it can run |
 | `test_skirmish_end_main_menu.py` | r4 T6 | C2 keeper guard, verified correct (skirmish debrief/teardown routing) |
 | `test_crash_reporter.py` | R2-P9 | RELABELED this packet from SKIP-PENDING(G1) [wrong - cannot run at G1] to SKIP-PENDING(R2-P9): needs the crash-bundle/CoopCrashPromptState machinery RB-D20 rebuilds in SharedEcon.cpp at R2-P9 |
 | `test_battlescape_exit_palette.py` | R4-P2 | mid-battle co-op save load + exit teardown (battle bring-up + resume) |

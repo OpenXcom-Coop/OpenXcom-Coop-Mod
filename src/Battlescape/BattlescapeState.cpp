@@ -248,6 +248,9 @@ BattlescapeState::BattlescapeState() :
 
 	_txtDebug = new Text(300, 10, 20, 0);
 	_txtTooltip = new Text(300, 10, x + 2, y - 10);
+	// coop (R2-P6, ADDENDUM 1.3(f)): the deny/cancel banner. Full map width,
+	// centered, one row above the toolbar (y - 20), in the map strip.
+	_txtCoopWait = new Text(screenWidth, 9, 0, y - 20);
 
 	// Palette transformations
 	auto* enviro = _save->getEnviroEffects();
@@ -381,6 +384,19 @@ BattlescapeState::BattlescapeState() :
 	add(_warning, "warning", "battlescape", _icons);
 	add(_txtDebug);
 	add(_txtTooltip, "textTooltip", "battlescape", _icons);
+	// coop (R2-P6, ADDENDUM 1.3(f)): borrow the tooltip element for font/skin, then
+	// re-apply this widget's own geometry so add() does not park it on top of the
+	// tooltip. Same yellow + font as the toolbar warning widget (interface
+	// battlescape/warning color), centered; _warning itself is untouched.
+	add(_txtCoopWait, "textTooltip", "battlescape", _icons);
+	_txtCoopWait->setWidth(screenWidth);
+	_txtCoopWait->setHeight(9);
+	_txtCoopWait->setX(0);
+	_txtCoopWait->setY(y - 20);
+	_txtCoopWait->setAlign(ALIGN_CENTER);
+	_txtCoopWait->setHighContrast(true);
+	_txtCoopWait->setColor(_game->getMod()->getInterface("battlescape")->getElement("warning")->color);
+	_txtCoopWait->setVisible(false);
 	add(_btnLaunch);
 	_game->getMod()->getSurfaceSet("SPICONS.DAT")->getFrame(0)->blitNShade(_btnLaunch, 0, 0);
 	add(_btnPsi);
@@ -2628,6 +2644,19 @@ void BattlescapeState::warningRaw(const std::string &message)
 void BattlescapeState::warningLongRaw(const std::string &message)
 {
 	_warning->showMessage(message, 8);
+}
+
+/**
+ * coop (R2-P6, ADDENDUM 1.3(f)): show/hide setter for the persistent
+ * deny/cancel banner. Thin - sets text + visibility only; all admission-model
+ * driving logic (reason/cause -> STR_ lookup) lives in CoopBattleUi, never here.
+ * Empty text hides the banner.
+ * @param text Already-translated banner text (empty = hide).
+ */
+void BattlescapeState::setCoopWaitText(const std::string &text)
+{
+	_txtCoopWait->setText(text);
+	_txtCoopWait->setVisible(!text.empty());
 }
 
 /**

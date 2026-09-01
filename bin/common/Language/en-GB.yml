@@ -58,6 +58,24 @@ en-GB:
   STR_COOP_CRASH_REPORT_NOT_NOW: "NOT NOW"
   STR_COOP_CRASH_REPORT_NEVER: "NEVER"
   STR_COOP_CRASH_REPORT_SAVED: "CRASH REPORT BUNDLED{NEWLINE}A crash report (dump, log and system info) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can diagnose it."
+  # coop (R2-P6, RB-D3/spike-runbook 2.6): admission-model deny/cancel string table.
+  # Wire carries a machine reason/cause enum only; this is the single client-side
+  # enum->STR table, routed through the _txtCoopWait presenter (CoopBattleUi),
+  # never through vanilla _warning.
+  STR_COOP_DENY_BUSY: "Waiting - another action is in progress"
+  STR_COOP_DENY_PATH_CHANGED: "Order cancelled - path blocked"
+  STR_COOP_DENY_COST_CHANGED: "Order cancelled - cost changed"
+  STR_COOP_DENY_TARGET_MOVED: "Order cancelled - target moved"
+  STR_COOP_DENY_TARGET_DEAD: "Order cancelled - target is down"
+  STR_COOP_DENY_WEAPON_MISSING: "Order cancelled - weapon unavailable"
+  STR_COOP_DENY_NOT_YOUR_UNIT: "Not one of your soldiers"
+  STR_COOP_DENY_TURN_OVER: "The turn has already ended"
+  STR_COOP_CANCEL_ENEMY_SPOTTED: "Order cancelled - enemy spotted"
+  STR_COOP_CANCEL_UNIT_UNDER_FIRE: "Order cancelled - unit under fire"
+  STR_COOP_CANCEL_UNIT_DOWN: "Order cancelled - unit down"
+  STR_COOP_CANCEL_NEW_CONTACT: "Order cancelled - new contact"
+  # {0}=event kind name, used only for unrecognized cancel-cause kinds
+  STR_COOP_CANCEL_EVENT: "Order cancelled - {0}"
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

@@ -80,6 +80,11 @@ private:
 	Timer *_animTimer, *_gameTimer;
 	SavedBattleGame *_save;
 	Text *_txtDebug, *_txtTooltip;
+	// coop (R2-P6, ADDENDUM 1.3(f)): persistent deny/cancel banner in the map strip
+	// above the toolbar, driven by the CoopBattleUi presenter (src/CoopMod/
+	// CoopBattleUi.h). Deliberately off the fading _warning surface - a deny/cancel
+	// message needs to stay up for as long as the presenter keeps it live.
+	Text *_txtCoopWait;
 	Uint8 _tooltipDefaultColor;
 	Uint8 _medikitRed, _medikitGreen, _medikitBlue, _medikitOrange;
 	std::vector<State*> _popups;
@@ -236,6 +241,9 @@ public:
 	void warningRaw(const std::string &message);
 	/// Show warning message that stay longer on screen, no translation.
 	void warningLongRaw(const std::string &message);
+	/// coop (R2-P6): show/hide setter for the _txtCoopWait deny/cancel banner.
+	/// Thin - just sets text + visibility. Driven only by CoopBattleUi.
+	void setCoopWaitText(const std::string &text);
 	/// Gets melee damage preview.
 	std::string getMeleeDamagePreview(BattleUnit *actor, BattleItem *weapon) const;
 	/// Handles keypresses.
