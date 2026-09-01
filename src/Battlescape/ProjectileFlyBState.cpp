@@ -50,7 +50,7 @@ ProjectileFlyBState::ProjectileFlyBState(BattlescapeGame *parent, BattleAction a
 {
 }
 
-ProjectileFlyBState::ProjectileFlyBState(BattlescapeGame* parent, BattleAction action) : BattleState(parent, action), _unit(0), _ammo(0), _origin(action.actor->getPosition()), _originVoxel(-1, -1, -1), _projectileImpact(0), _range(0), _initialized(false), _targetFloor(false)
+ProjectileFlyBState::ProjectileFlyBState(BattlescapeGame *parent, BattleAction action) : BattleState(parent, action), _unit(0), _ammo(0), _origin(action.actor->getPosition()), _originVoxel(-1,-1,-1), _projectileImpact(0), _range(0), _initialized(false), _targetFloor(false)
 {
 }
 
@@ -68,14 +68,8 @@ ProjectileFlyBState::~ProjectileFlyBState()
  */
 void ProjectileFlyBState::init()
 {
-
 	if (_initialized) return;
 	_initialized = true;
-
-	// coop
-	_parent->getCoopMod()->_coop_task_completed = false;
-	_parent->getCoopMod()->_coopInitDeath = true;
-	_parent->getCoopMod()->_hasHitUnit = -1;
 
 	BattleItem *weapon = _action.weapon;
 
@@ -85,127 +79,14 @@ void ProjectileFlyBState::init()
 		return;
 	}
 
-	_action.actor->coop_action = false;
-
-	// coop
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
-	{
-		_parent->getCoopMod()->_coopProjectilesHost.clear();
-		_parent->getCoopMod()->_coopProjectilesClient.clear();
-		_action.actor->coop_no_line_fire = false;
-		_action.actor->coop_unable_to_throw_here = false;
-
-
-		_action.actor->coop_tu = _action.actor->getTimeUnits();
-		_action.actor->coop_energy = _action.actor->getEnergy();
-		_action.actor->coop_morale = _action.actor->getMorale();
-		_action.actor->coop_health = _action.actor->getHealth();
-		_action.actor->coop_mana = _action.actor->getMana();
-		_action.actor->coop_stun = _action.actor->getStunlevel();
-
-	}
-
-	// coop
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == false)
-	{
-
-		_action.actor->coop_action = true;
-
-		if (_action.actor->coop_unable_to_throw_here == true)
-		{
-
-			_action.actor->coop_unable_to_throw_here = false;
-
-			_action.result = "STR_UNABLE_TO_THROW_HERE";
-
-			_parent->popState();
-			return;
-
-		}
-
-		// no line fire
-		if (_action.actor->coop_no_line_fire == true)
-		{
-
-			_action.actor->coop_no_line_fire = false;
-
-			if (_parent->getPanicHandled())
-			{
-				_action.result = "STR_NO_LINE_OF_FIRE";
-			}
-
-			_parent->popState();
-			return;
-
-		}
-
-		if (_parent->getCoopMod()->_currentAmmoID != -1 && _parent->getCoopMod()->currentAmmoType != "")
-		{
-
-			bool found = false;
-
-			for (auto ammo_item : *_parent->getSave()->getItems())
-			{
-
-				if (ammo_item->getId() == _parent->getCoopMod()->_currentAmmoID && ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
-				{
-
-					found = true;
-					_ammo = ammo_item;
-					break;
-				}
-
-			}
-
-			// coop (issue #74): the exact instance is gone (or the two machines'
-			// item-id spaces have drifted). Fall back ONLY to ammo this actor is
-			// carrying. The old code scanned every item in the battle for a type
-			// match, which happily picked the clip loaded in some other soldier's
-			// identical weapon, and then fabricated a BattleItem if even that
-			// failed - silently advancing this machine's item-id counter.
-			if (found == false && _action.weapon)
-			{
-				BattleItem* own = _action.weapon->getAmmoForAction(_action.type);
-				if (own && own->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
-				{
-					found = true;
-					_ammo = own;
-				}
-			}
-
-			if (found == false && _action.actor)
-			{
-				for (auto ammo_item : *_action.actor->getInventory())
-				{
-
-					if (ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
-					{
-
-						found = true;
-						_ammo = ammo_item;
-						break;
-					}
-				}
-
-			}
-
-			_parent->getCoopMod()->currentAmmoType = "";
-			_parent->getCoopMod()->_currentAmmoID = -1;
-
-		}
-
-	}
-
-
-	if (!_parent->getSave()->getTile(_action.target) && !_action.actor->coop_action) // invalid target position
+	if (!_parent->getSave()->getTile(_action.target)) // invalid target position
 	{
 		_parent->popState();
 		return;
 	}
 
 	//test TU only on first lunch waypoint or normal shoot
-	// coop
-	if (_range == 0 && !_action.haveTU(&_action.result) && !_action.actor->coop_action)
+	if (_range == 0 && !_action.haveTU(&_action.result))
 	{
 		_parent->popState();
 		return;
@@ -214,16 +95,9 @@ void ProjectileFlyBState::init()
 	_unit = _action.actor;
 
 	bool reactionShoot = _unit->getFaction() != _parent->getSave()->getSide();
-
 	if (_action.type != BA_THROW)
 	{
-
-		// coop
-		if (!_ammo)
-		{
-			_ammo = _action.weapon->getAmmoForAction(_action.type, reactionShoot ? nullptr : &_action.result);
-		}
-
+		_ammo = _action.weapon->getAmmoForAction(_action.type, reactionShoot ? nullptr : &_action.result);
 		if (!_ammo)
 		{
 			_parent->popState();
@@ -231,7 +105,7 @@ void ProjectileFlyBState::init()
 		}
 	}
 
-	if (((_unit->isOut() || _unit->isOutThresholdExceed())) && !_action.actor->coop_action)
+	if (_unit->isOut() || _unit->isOutThresholdExceed())
 	{
 		// something went wrong - we can't shoot when dead or unconscious, or if we're about to fall over.
 		_parent->popState();
@@ -242,9 +116,8 @@ void ProjectileFlyBState::init()
 	if (reactionShoot)
 	{
 		BattleUnit* target = _parent->getSave()->getTile(_action.target)->getUnit();
-
 		// target is dead: cancel the shot.
-		if ((!target || target->isOut() || target->isOutThresholdExceed() || target != _parent->getSave()->getSelectedUnit()) && !_action.actor->coop_action)
+		if (!target || target->isOut() || target->isOutThresholdExceed() || target != _parent->getSave()->getSelectedUnit())
 		{
 			_parent->popState();
 			return;
@@ -535,85 +408,6 @@ void ProjectileFlyBState::init()
 	{
 		_parent->getMap()->enableObstacles();
 	}
-
-	
-	// COOP
-	// Shoot projectiles inc...
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true && _action.autoShotCounter <= 1)
-	{
-
-		Json::Value obj;
-
-		obj["state"] = "ProjectileFlyBState";
-		obj["actor_id"] = _action.actor->getId();
-		obj["actor_tu"] = _action.actor->coop_tu;
-		obj["actor_energy"] = _action.actor->coop_energy;
-		obj["actor_morale"] = _action.actor->coop_morale;
-		obj["actor_health"] = _action.actor->coop_health;
-		obj["actor_mana"] = _action.actor->coop_mana;
-		obj["actor_stun"] = _action.actor->coop_stun;
-		obj["actor_no_line_fire"] = _action.actor->coop_no_line_fire;
-		obj["actor_unable_to_throw_here"] = _action.actor->coop_unable_to_throw_here;
-		obj["type"] = (int)_action.type;
-		// coop (issue #74): describe the weapon that actually fired - the hand it
-		// is really in, plus its instance id - instead of the sender's last
-		// hand-button click and a bare type name. An AI actor never clicks
-		// anything, so the old hand string belonged to some earlier player action.
-		obj["hand"] = BattlescapeGame::coopHandOf(_action.actor, _action.weapon, _parent->getCoopWeaponHand());
-		obj["weapon_id"] = _action.weapon->getId();
-		obj["fusetimer"] = _action.weapon->getFuseTimer();
-		obj["fuse"] = _action.weapon->isFuseEnabled();
-		obj["coords"]["target"]["x"] = _action.target.x;
-		obj["coords"]["target"]["y"] = _action.target.y;
-		obj["coords"]["target"]["z"] = _action.target.z;
-		obj["coords"]["start"]["x"] = _action.actor->getPosition().x;
-		obj["coords"]["start"]["y"] = _action.actor->getPosition().y;
-		obj["coords"]["start"]["z"] = _action.actor->getPosition().z;
-		obj["targeting"] = _action.targeting;
-		// fix!
-		obj["weapon_type"] = _action.weapon->getRules()->getType();
-
-		obj["projectiles"] = _parent->getCoopMod()->_coopProjectilesClient;
-
-		obj["ammo_type"] = "";
-		obj["ammo_id"] = -1;
-
-		if (_ammo)
-		{
-
-			obj["ammo_type"] = _ammo->getRules()->getType();
-			obj["ammo_id"] = _ammo->getId();
-
-		}
-
-		int pos_index = 0;
-		for (Position pos : _action.waypoints)
-		{
-
-			obj["waypoints"][pos_index]["pos_x"] = pos.x;
-			obj["waypoints"][pos_index]["pos_y"] = pos.y;
-			obj["waypoints"][pos_index]["pos_z"] = pos.z;
-			
-			pos_index++;
-		}
-
-		int trajectory_index = 0;
-		for (Position &trajectory_pos : _parent->getCoopMod()->_trajectoryCoop)
-		{
-
-			obj["trajectory"][trajectory_index]["pos_x"] = trajectory_pos.x;
-			obj["trajectory"][trajectory_index]["pos_y"] = trajectory_pos.y;
-			obj["trajectory"][trajectory_index]["pos_z"] = trajectory_pos.z;
-
-			trajectory_index++;
-
-		}
-
-		_parent->getCoopMod()->_trajectoryCoop.clear();
-
-		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-	}
-
 }
 
 /**
@@ -698,10 +492,6 @@ bool ProjectileFlyBState::createNewProjectile()
 		}
 		else
 		{
-
-			// coop
-			_unit->coop_unable_to_throw_here = true;
-
 			// unable to throw here
 			delete projectile;
 			_parent->getMap()->setProjectile(0);
@@ -714,7 +504,6 @@ bool ProjectileFlyBState::createNewProjectile()
 	else if (_action.weapon->getArcingShot(_action.type)) // special code for the "spit" trajectory
 	{
 		_projectileImpact = projectile->calculateThrow(BattleUnit::getFiringAccuracy(attack, _parent->getMod()) / accuracyDivider);
-
 		if (_projectileImpact != V_EMPTY && _projectileImpact != V_OUTOFBOUNDS)
 		{
 			// set the soldier in an aiming position
@@ -735,10 +524,6 @@ bool ProjectileFlyBState::createNewProjectile()
 		}
 		else
 		{
-		
-			// coop
-			_unit->coop_no_line_fire = true;
-
 			// no line of fire
 			delete projectile;
 			_parent->getMap()->setProjectile(0);
@@ -761,9 +546,7 @@ bool ProjectileFlyBState::createNewProjectile()
 		{
 			_projectileImpact = projectile->calculateTrajectory(BattleUnit::getFiringAccuracy(attack, _parent->getMod()) / accuracyDivider);
 		}
-
-		// coop
-		if ((_targetVoxel != TileEngine::invalid.toVoxel() || _action.actor->coop_action) && (_projectileImpact != V_EMPTY || _action.type == BA_LAUNCH))
+		if (_targetVoxel != TileEngine::invalid.toVoxel() && (_projectileImpact != V_EMPTY || _action.type == BA_LAUNCH))
 		{
 			// set the soldier in an aiming position
 			_unit->aim(true);
@@ -783,10 +566,6 @@ bool ProjectileFlyBState::createNewProjectile()
 		}
 		else
 		{
-
-			// coop
-			_unit->coop_no_line_fire = true;
-
 			// no line of fire
 			delete projectile;
 			_parent->getMap()->setProjectile(0);
@@ -817,25 +596,7 @@ bool ProjectileFlyBState::createNewProjectile()
  */
 void ProjectileFlyBState::deinit()
 {
-
-	// coop
-	_parent->getCoopMod()->_coop_task_completed = true;
-	_parent->getCoopMod()->_coopInitDeath = false;
-	// coop fix
-	_parent->getCoopMod()->_trajectoryCoop.clear();
-
 	_parent->getMap()->setFollowProjectile(true); // turn back on when done shooting
-
-	// coop
-	if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == true)
-	{
-
-		Json::Value obj;
-		obj["state"] = "hasHitUnit";
-
-		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-	}
-
 }
 
 /**
@@ -866,18 +627,6 @@ void ProjectileFlyBState::think()
 				_parent->getMap()->getCamera()->setMapOffset(_action.cameraPosition);
 				_parent->getMap()->invalidate();
 			}
-
-			// coop
-			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == true)
-			{
-
-				Json::Value obj;
-				obj["state"] = "hasHitUnit";
-
-				_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-
-			}
-
 		}
 		else
 		{
@@ -1219,25 +968,6 @@ void ProjectileFlyBState::projectileHitUnit(Position pos)
 {
 	BattleUnit *victim = _parent->getSave()->getTile(pos.toTile())->getOverlappingUnit(_parent->getSave());
 	BattleUnit *targetVictim = _parent->getSave()->getTile(_action.target)->getUnit(); // Who we were aiming at (not necessarily who we hit)
-
-	// coop
-	if (victim && !victim->isOut() && _parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == false && _parent->getCoopMod()->_hasHitUnit == -1)
-	{
-
-		if (_action.weapon && _action.type)
-		{
-
-			auto* conf = _action.weapon->getActionConf(_action.type);
-
-			if (conf->shots > 1 && conf->shots != _action.autoShotCounter)
-			{
-				_parent->getCoopMod()->_hasHitUnit = 1;
-			}
-
-		}
-
-	}
-
 	if (victim && !victim->isOut())
 	{
 		victim->getStatistics()->hitCounter++;

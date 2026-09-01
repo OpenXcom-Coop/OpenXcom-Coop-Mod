@@ -1,6 +1,7 @@
 #pragma once
 /*
  * Copyright 2010-2016 OpenXcom Developers.
+ * Copyright 2023-2026 XComCoopTeam (https://www.moddb.com/mods/openxcom-coop-mod)
  *
  * This file is part of OpenXcom.
  *
@@ -17,33 +18,24 @@
  * You should have received a copy of the GNU General Public License
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "BattleState.h"
+#include <cstdint>
 
 namespace OpenXcom
 {
 
-class BattleUnit;
-
 /**
- * State for panicking units.
+ * The battle-time seat a BattleUnit is currently controlled by (RB-D17).
+ * Deliberately a small, dependency-free header: BattleUnit.h includes ONLY
+ * this file for the coop seat tag, no Game.h/BattlescapeGame.h pollution.
+ * NEVER a bool - N-player guardrail (see the runbook decisions ledger).
  */
-class UnitPanicBState : public BattleState
+enum CoopSeat : int8_t
 {
-private:
-	BattleUnit *_unit;
-	bool _berserking;
-	int _shotsFired;
-public:
-	/// Creates a new UnitPanicBState class
-	UnitPanicBState(BattlescapeGame *parent, BattleUnit *unit);
-	/// Cleans up the UnitPanicBState.
-	~UnitPanicBState();
-	/// Initializes the state.
-	void init() override;
-	/// Handles a cancels request.
-	void cancel() override;
-	/// Runs state functionality every cycle.
-	void think() override;
+	COOP_SEAT_NONE = -1,
+	COOP_SEAT_0 = 0,
+	COOP_SEAT_1 = 1,
+	COOP_SEAT_2 = 2,
+	COOP_SEAT_3 = 3
 };
 
 }

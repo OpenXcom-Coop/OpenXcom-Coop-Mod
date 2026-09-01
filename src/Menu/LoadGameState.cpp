@@ -315,205 +315,33 @@ void LoadGameState::think()
 
 				if (_game->getSavedGame()->getSavedBattle() != 0)
 				{
-					_game->getSavedGame()->getSavedBattle()->loadMapResources(_game->getMod());
-					Options::baseXResolution = Options::baseXBattlescape;
-					Options::baseYResolution = Options::baseYBattlescape;
-					_game->getScreen()->resetDisplay(false);
-					BattlescapeState *bs = new BattlescapeState;
-	
-					// COOP
-					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->inventory_battle_window == true))
+					// R1-P5/R4-REWIRE: coop mid-battle resume - both the
+					// "inventory_battle_window" briefing-based rejoin (BriefingState::
+					// loadCoop()) and the pvp2 seat/faction-flip resume
+					// (BattleUnit::setOriginalFaction/setUnitRulesCoop,
+					// SavedBattleGame::resetCoopTiles), plus the resume_ack/
+					// close_load_progress handshake that used to follow - is
+					// quarantined pending the r4/r5 atomic-bundle rebuild (RB-D9);
+					// those symbols died with the vanilla restore (911ca487f). SP
+					// mid-battle resume (the else branch) is untouched.
+					if (_game->getCoopMod()->getCoopStatic() == true)
 					{
-		
-						Base *selected_base = _game->getSavedGame()->getSelectedBase();
-
-						if (!selected_base)
-						{
-							selected_base = _game->getSavedGame()->getBases()->front();
-						}
-						BriefingState *bri = new BriefingState(0, selected_base);
-
-						bri->loadCoop();
-
-						_game->pushState(bri);
-			
+						_game->getSavedGame()->setBattleGame(0);
+						_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
 					}
 					else
 					{
-
-						// coop
-						// if pvp gamemode
-						if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-						{
-
-							if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3)
-							{
-
-								for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-								{
-
-									if (unit->getCoop() == 1)
-									{
-										unit->convertToFaction(FACTION_PLAYER);
-										unit->setOriginalFaction(FACTION_PLAYER);
-									}
-									else if (unit->getFaction() != FACTION_NEUTRAL)
-									{
-										unit->convertToFaction(FACTION_HOSTILE);
-										unit->setOriginalFaction(FACTION_HOSTILE);
-
-										std::string alienName = "MALE_CIVILIAN";
-
-										if (unit->getGeoscapeSoldier())
-										{
-
-											if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-											{
-												alienName = "FEMALE_CIVILIAN";
-											}
-										}
-
-										Unit* rule = _game->getMod()->getUnit(alienName, true);
-										unit->setUnitRulesCoop(rule);
-									}
-								}
-							}
-						}
-						// HOST PVP2
-						else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && connectionTCP::getCoopGamemode() == 3)
-						{
-
-							for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-							{
-
-								if (unit->getCoop() == 1)
-								{
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-
-									std::string alienName = "MALE_CIVILIAN";
-
-									if (unit->getGeoscapeSoldier())
-									{
-
-										if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-										{
-											alienName = "FEMALE_CIVILIAN";
-										}
-									}
-
-									Unit* rule = _game->getMod()->getUnit(alienName, true);
-									unit->setUnitRulesCoop(rule);
-								}
-								else if (unit->getCoop() == 0)
-								{
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-								}
-							}
-						}
-						// CLIENT PVP2
-						else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && connectionTCP::getCoopGamemode() == 3)
-						{
-
-							for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-							{
-
-								if (unit->getCoop() == 1)
-								{
-
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-								}
-								else if (unit->getCoop() == 0)
-								{
-
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-
-									std::string alienName = "MALE_CIVILIAN";
-
-									if (unit->getGeoscapeSoldier())
-									{
-
-										if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-										{
-											alienName = "FEMALE_CIVILIAN";
-										}
-									}
-
-									Unit* rule = _game->getMod()->getUnit(alienName, true);
-									unit->setUnitRulesCoop(rule);
-								}
-							}
-						}
-
-						// coop
-						// reset tiles (PVP)
-						if (_game->getCoopMod()->getCoopStatic() == true)
-						{
-
-							if ((_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true) || (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false))
-							{
-
-								_game->getSavedGame()->getSavedBattle()->resetCoopTiles();
-							}
-						}
+						_game->getSavedGame()->getSavedBattle()->loadMapResources(_game->getMod());
+						Options::baseXResolution = Options::baseXBattlescape;
+						Options::baseYResolution = Options::baseYBattlescape;
+						_game->getScreen()->resetDisplay(false);
+						BattlescapeState *bs = new BattlescapeState;
 
 						_game->pushState(bs);
 
-					}
-
-					_game->getSavedGame()->getSavedBattle()->setBattleState(bs);
-					// Try to reactivate the touch buttons
-					bs->toggleTouchButtons(false, true);
-
-					// battle-save resume / mid-battle rejoin, phase two
-					// complete: report the loaded battle to the host (F3/F4).
-					//
-					// issue #93: a SKIRMISH (lobbyMode 0) rejoin arrives here too,
-					// but only when session.skirmishRejoinPending says this blob is
-					// a rejoin - the FIRST battle of a skirmish loads the same
-					// "battleclient" key through its own handshake and must not ack.
-					const bool skirmishRejoin = connectionTCP::session.lobbyMode == 0
-						&& connectionTCP::session.skirmishRejoinPending;
-					if ((connectionTCP::session.lobbyMode != 0 || skirmishRejoin)
-						&& _game->getCoopMod()->getServerOwner() == false && _coopKey == "battleclient")
-					{
-						if (skirmishRejoin)
-						{
-							connectionTCP::session.skirmishRejoinPending = false;
-
-							// The host is still frozen behind its reconnect dialog and
-							// only its RESUME releases the battle. Hold BEFORE acking:
-							// the ack is what makes RESUME appear, and the release flag
-							// it broadcasts is one-shot (issue #91) - a hold pushed
-							// after the ack can miss its own release and strand the
-							// client on a live battle it may not touch.
-							connectionTCP::session.consumeCampaignBegun();
-							_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
-						}
-
-						Json::Value root;
-						root["state"] = "resume_ack";
-						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-						// P2/F1: a battle resume lands straight in the battlescape, so
-						// GeoscapeState::init (which normally fires close_load_progress
-						// on a geoscape resume) never runs - the COOP_READY handshake
-						// that sets coopSession never completes, and the battlescape
-						// coop-init block (BattlescapeState:1284, which sets _battleInit
-						// and re-arms role/turn) never fires: both machines fall through
-						// to the vanilla "all units selectable" split. Complete the
-						// handshake here, where the "battleclient" load just finished:
-						// close_load_progress -> host COOP_READY_CLIENT_REQUEST -> chain
-						// -> coopSession true on both. Clear the load-progress latch so
-						// GeoscapeState::init cannot emit a second, spurious one when the
-						// client later returns to the geoscape (mission end).
-						_game->getCoopMod()->_isLoadProgress = false;
-						Json::Value done;
-						done["state"] = "close_load_progress";
-						_game->getCoopMod()->sendTCPPacketData(done.toStyledString());
+						_game->getSavedGame()->getSavedBattle()->setBattleState(bs);
+						// Try to reactivate the touch buttons
+						bs->toggleTouchButtons(false, true);
 					}
 				}
 

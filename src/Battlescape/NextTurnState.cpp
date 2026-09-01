@@ -60,26 +60,6 @@ namespace OpenXcom
  */
 NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *state) : _battleGame(battleGame), _state(state), _timer(0), _currentTurn(0), _showBriefing(false)
 {
-
-	// coop
-	/*
-	if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _battleGame->isPreview() == false && _game->getCoopMod()->_isActiveAISync == true && _battleGame->getSide() == FACTION_HOSTILE)
-	{
-
-		battleGame->setSideCoop(2);
-
-	}
-	*/
-	
-	//coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-
-		_game->getCoopMod()->_battleWindow = true;
-		_game->getCoopMod()->_onClickClose = false;
-
-	}
-	
 	if (_battleGame->isPreview())
 	{
 		// skip everything, go straight to init()
@@ -101,6 +81,16 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 		{
 			_battleGame->setRandomHiddenMovementBackground(_game->getMod());
 			state->getMap()->refreshHiddenMovementBackground();
+		}
+	}
+
+	// reset alien/civilian quick mode
+	if (_battleGame->getSide() == FACTION_PLAYER)
+	{
+		if (Options::battleAlienSpeedOrig != -1)
+		{
+			Options::battleAlienSpeed = Options::battleAlienSpeedOrig;
+			Options::battleAlienSpeedOrig = -1;
 		}
 	}
 
@@ -297,19 +287,6 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 
 	if (_battleGame->getSide() == FACTION_PLAYER)
 	{
-
-		// coop
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getCoopMod()->_isActiveAISync == true && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 2)
-		{
-
-			Json::Value root;
-			root["state"] = "endPlayerTurn";
-			root["data"] = false;
-
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-		}	
-
-
 		checkBugHuntMode();
 		_state->bugHuntMessage();
 	}
@@ -343,7 +320,6 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
  */
 NextTurnState::~NextTurnState()
 {
-
 	delete _timer;
 }
 
@@ -535,14 +511,6 @@ void NextTurnState::handle(Action *action)
  */
 void NextTurnState::think()
 {
-
-	// coop
-	if (_game->getCoopMod()->_onClickClose == true)
-	{
-		close();
-		_game->getCoopMod()->_onClickClose = false;
-	}
-
 	if (_timer)
 	{
 		_timer->think(this, 0);
@@ -554,18 +522,6 @@ void NextTurnState::think()
  */
 void NextTurnState::close()
 {
-
-	// coop
-	if (_battleGame->getSide() == FACTION_HOSTILE && _game->getCoopMod()->getCoopStatic() == true && _battleGame->getTurn() >= 1 && _game->getCoopMod()->getHost() == true && _battleGame->isPreview() == false)
-	{
-
-		Json::Value root;
-		root["state"] = "click_close";
-		root["data"] = false;
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-	}	
-
 	_battleGame->getBattleGame()->cleanupDeleted();
 	_game->popState();
 
@@ -591,8 +547,6 @@ void NextTurnState::close()
 
 	// not "escort the VIPs" missions, not the final mission and all aliens dead.
 	bool killingAllAliensIsNotEnough = _battleGame->getObjectiveType() == MUST_DESTROY || (_battleGame->getVIPSurvivalPercentage() > 0 && _battleGame->getVIPEscapeType() != ESCAPE_NONE);
-
-	// coop
 	if ((!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0)
 	{
 		_state->finishBattle(false, tally.liveSoldiers);
@@ -604,165 +558,6 @@ void NextTurnState::close()
 		// Try to reactivate the touch buttons at the start of the player's turn
 		if (_battleGame->getSide() == FACTION_PLAYER)
 		{
-
-			// coop resets
-			if (_game->getCoopMod()->getCoopStatic() == true)
-			{
-
-				_game->getCoopMod()->_battleInit = false;
-
-				_game->getCoopMod()->_isActiveAISync = false;
-
-			}
-
-			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
-			{
-
-				if (_battleGame->getTurn() >= 1)
-				{
-
-					Json::Value root;
-					root["state"] = "next_turn";
-					int index = 0;
-
-					root["end"] = true;
-
-					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-					{
-
-						root["units"][index]["unit_id"] = unit->getId();
-						root["units"][index]["pos_x"] = unit->getPosition().x;
-						root["units"][index]["pos_y"] = unit->getPosition().y;
-						root["units"][index]["pos_z"] = unit->getPosition().z;
-
-						root["units"][index]["time"] = unit->getTimeUnits();
-						root["units"][index]["health"] = unit->getHealth();
-						root["units"][index]["energy"] = unit->getEnergy();
-						root["units"][index]["morale"] = unit->getMorale();
-						root["units"][index]["mana"] = unit->getMana();
-						root["units"][index]["stunlevel"] = unit->getStunlevel();
-
-						root["units"][index]["setDirection"] = unit->getDirection();
-						root["units"][index]["setFaceDirection"] = unit->getFaceDirection();
-
-						root["units"][index]["setTurretDirection"] = unit->getTurretDirection();
-						root["units"][index]["setTurretToDirection"] = unit->getTurretToDirection();
-
-						// motions points (fix)
-						root["units"][index]["motionpoints"] = unit->getMotionPoints();
-
-						// new
-						root["units"][index]["respawn"] = unit->getRespawn();
-
-						root["units"][index]["fire"] = unit->getFire();
-
-						// mind control (host)
-						if (unit->_coop_mindcontrolled == true)
-						{
-
-							unit->_coop_mindcontrolled = false;
-
-							if (unit->getCoop() == 0)
-							{
-
-								unit->setCoop(1);
-
-								if (_game->getCoopMod()->getHost() == false)
-								{
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-								}
-								else
-								{
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-								}
-							}
-							else if (unit->getCoop() == 1)
-							{
-
-								unit->setCoop(0);
-
-								if (_game->getCoopMod()->getHost() == true)
-								{
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-								}
-								else
-								{
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-								}
-							}
-						}
-
-						Json::Value fatalArray(Json::arrayValue);
-						for (int i = 0; i < BODYPART_MAX; ++i)
-						{
-							fatalArray.append(unit->getFatalWoundsCoop()[i]);
-						}
-
-						root["units"][index]["fatalWounds"] = fatalArray;
-
-
-						// coop fix
-						if (!unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
-						{
-							unit->setCoopStatus(STATUS_DEAD);
-						}
-
-						if (unit->getTile() && (unit->getStatus() == STATUS_DEAD || unit->getStatus() == STATUS_UNCONSCIOUS))
-						{
-
-							unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
-						}
-
-						bool isTile = false;
-
-						if (unit->getTile())
-						{
-
-							isTile = true;
-						}
-
-						root["units"][index]["isTile"] = isTile;
-						root["units"][index]["status"] = _game->getCoopMod()->unitstatusToInt(unit->getStatus());
-
-						index++;
-					}
-
-					// tiles
-					int json_index = 0;
-					for (int tile_index = 0; tile_index < _battleGame->getMapSizeXYZ();)
-					{
-
-						// only specific tiles (fire, smoke)
-						if (_battleGame->getTile(tile_index)->getSmoke() != 0 || _battleGame->getTile(tile_index)->getFire() != 0)
-						{
-
-							root["tiles"][json_index]["tile_pos_x"] = _battleGame->getTile(tile_index)->getPosition().x;
-							root["tiles"][json_index]["tile_pos_y"] = _battleGame->getTile(tile_index)->getPosition().y;
-							root["tiles"][json_index]["tile_pos_z"] = _battleGame->getTile(tile_index)->getPosition().z;
-
-							root["tiles"][json_index]["getDangerous"] = _battleGame->getTile(tile_index)->getDangerous();
-							root["tiles"][json_index]["getFire"] = _battleGame->getTile(tile_index)->getFire();
-							root["tiles"][json_index]["getSmoke"] = _battleGame->getTile(tile_index)->getSmoke();
-
-							root["tiles"][json_index]["animation_offset"] = _battleGame->getTile(tile_index)->getAnimationOffset();
-							root["tiles"][json_index]["overlaps"] = _battleGame->getTile(tile_index)->getOverlaps();
-
-							json_index++;
-						}
-
-						++tile_index;
-					}
-
-					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-				}
-
-			}
-
 			_state->toggleTouchButtons(false, true);
 		}
 

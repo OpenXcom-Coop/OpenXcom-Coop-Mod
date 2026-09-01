@@ -591,37 +591,14 @@ void GeoscapeState::startCoopMission()
 	{
 		g_coopBaseDefense.pending = false; // one-shot; never re-fire on a stale snapshot
 
-		// Get the shade and texture for the globe at the location of the base, using the ufo position
-		int texture, shade;
-		double baseLon = g_coopBaseDefense.lon;
-		double baseLat = g_coopBaseDefense.lat;
-		_globe->getPolygonTextureAndShade(baseLon, baseLat, &texture, &shade);
-
-		int ufoDamagePercentage = 0;
-		if (_game->getMod()->getLessAliensDuringBaseDefense())
-		{
-			ufoDamagePercentage = g_coopBaseDefense.damagePercentage;
-		}
-
-		SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
-		_game->getSavedGame()->setBattleGame(bgame);
-		bgame->setMissionType("STR_BASE_DEFENSE");
-		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
-		bgen.setBase(_game->getSavedGame()->getSelectedBase());
-		bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(g_coopBaseDefense.missionCustomDeploy));
-		bgen.setAlienRace(g_coopBaseDefense.alienRace);
-		bgen.setWorldShade(shade);
-		Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
-		bgen.setWorldTexture(globeTexture, globeTexture);
-		bgen.setUfoDamagePercentage(ufoDamagePercentage);
-		bgen.run();
-		_pause = true;
-
-		//_game->pushState(new BriefingState(0, temp_base));
-
-		BriefingState* bri = new BriefingState(0, _game->getSavedGame()->getSelectedBase());
-		bri->setupCoop();
-
+		// R1-P5/R4-REWIRE: BriefingState::setupCoop() died with the vanilla restore
+		// (911ca487f) - coop battle-start choreography is quarantined pending the
+		// r4/r5 atomic-bundle rebuild (RB-D9). Tell the player and leave the
+		// SavedGame's battle state untouched (no BattlescapeGenerator::run(), no
+		// half-built SavedBattleGame) rather than starting a battle nothing can
+		// finish setting up. The CoopBaseDefense snapshot struct + UAF fix above
+		// (R2-M5) survive; only the deferred battle-start itself is stubbed.
+		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
 	}
 
 

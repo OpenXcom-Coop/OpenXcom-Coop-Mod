@@ -74,20 +74,10 @@ BattleUnit::BattleUnit(const Mod *mod, Soldier *soldier, int depth, const RuleSt
 	_isLeeroyJenkins(false), _summonedPlayerUnit(false), _resummonedFakeCivilian(false), _pickUpWeaponsMoreActively(false), _disableIndicators(false),
 	_capturable(true), _vip(false), _bannedInNextStage(false), _skillMenuCheck(false)
 {
-
-	// coop
-	_coop = soldier->getCoop();
 	_name = soldier->getName(true);
 	_id = soldier->getId();
 
 	_type = "SOLDIER";
-
-	// coop
-	if (soldier->_cooptype != "none")
-	{
-		_type = soldier->_cooptype;
-	}
-
 	_rank = soldier->getRankString();
 	_gender = soldier->getGender();
 	_intelligence = 2;
@@ -148,7 +138,7 @@ BattleUnit::BattleUnit(const Mod *mod, Soldier *soldier, int depth, const RuleSt
  * @param ruleArmor Pointer to the new Armor ruleset.
  * @param depth The depth of the battlefield.
  */
-void BattleUnit::updateArmorFromSoldier(const Mod *mod, Soldier *soldier, Armor *ruleArmor, int depth, bool nextStage, const RuleStartingCondition* sc)
+void BattleUnit::updateArmorFromSoldier(const Mod *mod, Soldier *soldier, const Armor *ruleArmor, int depth, bool nextStage, const RuleStartingCondition* sc)
 {
 	_armor = ruleArmor;
 
@@ -421,7 +411,7 @@ void BattleUnit::prepareBannedFlag(const RuleStartingCondition* sc)
  * @param diff difficulty level (for stat adjustment).
  * @param depth the depth of the battlefield (used to determine movement type in case of MT_FLOAT).
  */
-BattleUnit::BattleUnit(const Mod *mod, Unit *unit, UnitFaction faction, int id, const RuleEnviroEffects* enviro, Armor *armor, StatAdjustment *adjustment, int depth, const RuleStartingCondition* sc) :
+BattleUnit::BattleUnit(const Mod *mod, const Unit *unit, UnitFaction faction, int id, const RuleEnviroEffects* enviro, const Armor *armor, StatAdjustment *adjustment, int depth, const RuleStartingCondition* sc) :
 	_faction(faction), _originalFaction(faction), _killedBy(faction), _id(id),
 	_tile(0), _lastPos(Position()), _direction(0), _toDirection(0), _directionTurret(0),
 	_toDirectionTurret(0), _verticalDirection(0), _status(STATUS_STANDING), _wantsToSurrender(false), _isSurrendering(false), _walkPhase(0),
@@ -435,7 +425,6 @@ BattleUnit::BattleUnit(const Mod *mod, Unit *unit, UnitFaction faction, int id, 
 	_isLeeroyJenkins(false), _summonedPlayerUnit(false), _resummonedFakeCivilian(false), _pickUpWeaponsMoreActively(false), _disableIndicators(false),
 	_vip(false), _bannedInNextStage(false), _skillMenuCheck(false)
 {
-
 	if (enviro)
 	{
 		auto newArmor = enviro->getArmorTransformation(_armor);
@@ -513,7 +502,7 @@ BattleUnit::BattleUnit(const Mod *mod, Unit *unit, UnitFaction faction, int id, 
 /**
  * Updates BattleUnit's armor and related attributes (after a change/transformation of armor).
  */
-void BattleUnit::updateArmorFromNonSoldier(const Mod* mod, Armor* newArmor, int depth, bool nextStage, const RuleStartingCondition* sc)
+void BattleUnit::updateArmorFromNonSoldier(const Mod* mod, const Armor* newArmor, int depth, bool nextStage, const RuleStartingCondition* sc)
 {
 	_armor = newArmor;
 
@@ -609,7 +598,6 @@ BattleUnit::~BattleUnit()
 void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const ScriptGlobal *shared)
 {
 	const auto& reader = node.useIndex();
-	reader.tryRead("coop", _coop);
 	reader.tryRead("id", _id);
 	reader.tryRead("faction", _faction);
 	reader.tryRead("status", _status);
@@ -689,6 +677,7 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 			_recolor.push_back(std::make_pair(recolor[i][0].readVal<Uint8>(), recolor[i][1].readVal<Uint8>()));
 	}
 	reader.tryRead("mindControllerID", _mindControllerID);
+	reader.tryRead("coop", _coopSeat);
 	reader.tryRead("summonedPlayerUnit", _summonedPlayerUnit);
 	reader.tryRead("resummonedFakeCivilian", _resummonedFakeCivilian);
 	reader.tryRead("pickUpWeaponsMoreActively", _pickUpWeaponsMoreActively);
@@ -714,7 +703,6 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 {
 	writer.setAsMap();
-	writer.write("coop", _coop);
 	writer.write("id", _id);
 	writer.write("genUnitType", _type);
 	writer.write("genUnitArmor", _armor->getType());
@@ -828,6 +816,8 @@ void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) c
 		});
 	if (_mindControllerID)
 		writer.write("mindControllerID", _mindControllerID);
+	if (_coopSeat != COOP_SEAT_NONE)
+		writer.write("coop", (int)_coopSeat);
 	if (_summonedPlayerUnit)
 		writer.write("summonedPlayerUnit", _summonedPlayerUnit);
 	if (_resummonedFakeCivilian)
@@ -1013,16 +1003,6 @@ void BattleUnit::setFaceDirection(int direction)
 	_faceDirection = direction;
 }
 
-void BattleUnit::setDirectionTurretCoop(int direction)
-{
-	_directionTurret = direction;
-}
-
-void BattleUnit::setTurretToDirectionCoop(int direction)
-{
-	_toDirectionTurret = direction;
-}
-
 /**
  * Gets the BattleUnit's (horizontal) direction.
  * @return horizontal direction
@@ -1067,11 +1047,6 @@ int BattleUnit::getTurretToDirection() const
 int BattleUnit::getVerticalDirection() const
 {
 	return _verticalDirection;
-}
-
-void BattleUnit::setVerticalDirectionCoop(int dir)
-{
-	_verticalDirection = dir;
 }
 
 /**
@@ -1232,11 +1207,6 @@ void BattleUnit::keepWalking(SavedBattleGame *savedBattleGame, bool fullWalkCycl
 				_motionPoints += 3;
 		}
 	}
-}
-
-void BattleUnit::setwalkPhaseCoop(int phase)
-{
-	_walkPhase = phase;
 }
 
 /**
@@ -1543,11 +1513,6 @@ int BattleUnit::getHealth() const
 	return _health;
 }
 
-void BattleUnit::setHealth(int health)
-{
-	_health = health;
-}
-
 /**
  * Returns the soldier's amount of mana.
  * @return Mana.
@@ -1556,17 +1521,6 @@ int BattleUnit::getMana() const
 {
 	return _mana;
 }
-
-void BattleUnit::setCoopMana(int mana)
-{
-	_mana = mana;
-}
-
-void BattleUnit::setCoopMorale(int morale)
-{
-	_morale = morale;
-}
-
 
 /**
  * Returns the soldier's amount of morale.
@@ -1586,16 +1540,6 @@ int BattleUnit::getOverKillDamage() const
 	return std::max(-_health - (int)(_stats.health * _armor->getOverKill()), 0);
 }
 
-void BattleUnit::damageCoop(SavedBattleGame* save)
-{
-
-	auto* selfDestructItem = getSpecialWeapon(getArmor()->getSelfDestructItem());
-	setAlreadyExploded(true);
-	Position p = getPosition().toVoxel();
-	save->getBattleGame()->statePushNext(new ExplosionBState(save->getBattleGame(), p, BattleActionAttack{BA_SELF_DESTRUCT, this, selfDestructItem, selfDestructItem}, 0));
-
-}
-
 /**
  * Helper function for setting value with max bound.
  */
@@ -1613,13 +1557,6 @@ static inline void setValueMax(int& value, int diff, int min, int max)
  */
 int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type, SavedBattleGame *save, BattleActionAttack attack, UnitSide sideOverride, UnitBodyPart bodypartOverride)
 {
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-		return 1;
-	}
-
 	if (save->isPreview())
 	{
 		return 0;
@@ -2019,19 +1956,6 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 			setAlreadyExploded(true);
 			Position p = getPosition().toVoxel();
 			save->getBattleGame()->statePushNext(new ExplosionBState(save->getBattleGame(), p, BattleActionAttack{ BA_SELF_DESTRUCT, this, selfDestructItem, selfDestructItem }, 0));
-
-			// coop
-			if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
-			{
-
-				Json::Value root;
-				root["state"] = "selfDestruct";
-				root["unit_id"] = _id;
-
-				connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-
-			}
-
 		}
 
 		if (attack.attacker)
@@ -2057,11 +1981,6 @@ void BattleUnit::healStun(int power)
 int BattleUnit::getStunlevel() const
 {
 	return _stunlevel;
-}
-
-void BattleUnit::setStunlevelCoop(int stunlevel)
-{
-	_stunlevel = stunlevel;
 }
 
 bool BattleUnit::hasNegativeHealthRegen() const
@@ -2327,57 +2246,6 @@ void BattleUnit::applyPercentages(RuleItemUseCost &cost, const RuleItemUseFlat &
 	}
 }
 
-void BattleUnit::setDestinationCoop(Position pos)
-{
-	_destination = pos;
-}
-
-void BattleUnit::setLastPosCoop(Position pos)
-{
-	_lastPos = pos;
-}
-
-Position BattleUnit::getLastPosCoop()
-{
-	return _lastPos;
-}
-
-void BattleUnit::setCoopStatus(UnitStatus status)
-{
-	_status = status;
-}
-
-void BattleUnit::stopCoopWalk()
-{
-	_status = STATUS_STANDING;
-	_walkPhase = 0;
-}
-
-const int* BattleUnit::getFatalWoundsCoop() const
-{
-	return _fatalWounds;
-}
-
-void BattleUnit::setFatalWoundCoop(int bodyPart, int value)
-{
-	_fatalWounds[bodyPart] = value;
-}
-
-void BattleUnit::setOriginalFaction(UnitFaction faction)
-{
-	_originalFaction = faction;
-}
-
-void BattleUnit::setCoop(int coop)
-{
-	_coop = coop;
-}
-
-int BattleUnit::getCoop() const
-{
-	return _coop;
-}
-
 /**
  * Spend time units if it can. Return false if it can't.
  * @param tu
@@ -2452,11 +2320,6 @@ void BattleUnit::resetTimeUnitsAndEnergy()
  */
 bool BattleUnit::addToVisibleUnits(BattleUnit *unit)
 {
-
-	// coop fix
-	if (!unit)
-		return false;
-
 	bool add = true;
 	for (auto* bu : _unitsSpottedThisTurn)
 	{
@@ -2541,11 +2404,6 @@ void BattleUnit::clearVisibleUnits()
  */
 bool BattleUnit::addToVisibleTiles(Tile *tile)
 {
-
-	// coop fix
-	if (!tile)
-		return false;
-
 	//Only add once, otherwise we're going to mess up the visibility value and make trouble for the AI (if sneaky).
 	if (_visibleTilesLookup.insert(tile).second)
 	{
@@ -2731,6 +2589,18 @@ int BattleUnit::getArmor(UnitSide side) const
 {
 	return _currentArmor[side];
 }
+
+/**
+ * Set the max armor value of a certain armor side.
+ * @param armor Amount of armor.
+ * @param side The side of the armor.
+ */
+void BattleUnit::setMaxArmor(int armor, UnitSide side)
+{
+	_maxArmor[side] = Clamp(armor, 0, UnitStats::BaseStatLimit);
+	_currentArmor[side] = Clamp(_currentArmor[side], 0, _maxArmor[side]);
+}
+
 
 /**
  * Get the max armor value of a certain armor side.
@@ -2957,17 +2827,6 @@ void BattleUnit::prepareNewTurn(bool fullProcess)
  */
 void BattleUnit::updateUnitStats(bool tuAndEnergy, bool rest)
 {
-
-	// In PvP mode, do not reset time units or energy if the player is an alien
-	if (connectionTCP::getCoopStatic() == true && _coop == 1 && connectionTCP::getCoopGamemode() == 2)
-	{
-		tuAndEnergy = false;
-	}
-	else if (connectionTCP::getCoopStatic() == true && _coop == 0 && connectionTCP::getCoopGamemode() == 3)
-	{
-		tuAndEnergy = false;
-	}
-
 	// snapshot of current stats
 	int TURecovery = 0;
 	int ENRecovery = 0;
@@ -3085,34 +2944,8 @@ bool BattleUnit::reselectAllowed() const
  */
 void BattleUnit::setFire(int fire)
 {
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-		return;
-	}
-
 	if (_specab != SPECAB_BURNFLOOR && _specab != SPECAB_BURN_AND_EXPLODE)
 		_fire = fire;
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
-	{
-
-		Json::Value root;
-		root["state"] = "unit_fire";
-
-		root["unit_id"] = _id;
-		root["fire"] = _fire;
-
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-	}
-
-}
-
-void BattleUnit::setFireCoop(int fire)
-{
-	_fire = fire;
 }
 
 /**
@@ -4334,11 +4167,6 @@ bool BattleUnit::postMissionProcedures(const Mod *mod, SavedGame *geoscape, Save
 	return hasImproved;
 }
 
-std::string BattleUnit::getCoopName()
-{
-	return _name;
-}
-
 /**
  * Converts the number of experience to the stat increase.
  * @param Experience counter.
@@ -4489,12 +4317,6 @@ void BattleUnit::stimulant(int energy, int stun, int mana)
 int BattleUnit::getMotionPoints() const
 {
 	return _motionPoints;
-}
-
-// coop
-void BattleUnit::setMotionPointsCoop(int points)
-{
-	_motionPoints = points;
 }
 
 /**
@@ -4906,20 +4728,10 @@ int BattleUnit::getRandomAggroSound() const
 	return -1;
 }
 
-// coop
-void BattleUnit::setCoopEnergy(int energy)
-{
-	_energy = energy;
-}
-
 /**
  * Set a specific amount of time units.
  * @param tu time units.
  */
-void BattleUnit::setCoopTimeUnits(int tu)
-{
-	_tu = tu;
-}
 void BattleUnit::setTimeUnits(int tu)
 {
 	_tu = Clamp(tu, 0, (int)_stats.tu);
@@ -5322,29 +5134,6 @@ void BattleUnit::toggleFireDamage()
  */
 bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool checkInventory) const
 {
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn == 2 && _faction == faction && !isOut() && connectionTCP::coopInventory == true && connectionTCP::_battleInit == true)
-	{
-
-		if (getHealth() <= 0)
-			return false;
-
-		if (getCoop() != 0 && connectionTCP::getHost() == false)
-			return true;
-
-		if (getCoop() == 0 && connectionTCP::getHost() == true)
-			return true;
-
-		return false;
-	}
-
-	// coop fix
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::_isActivePlayerSync == false && connectionTCP::_isActiveAISync == false && connectionTCP::coopInventory == true && connectionTCP::show_inactive_player_inventory == false)
-	{
-		return false;
-	}
-			
 	return (_faction == faction && !isOut() && (!checkReselect || reselectAllowed()) && (!checkInventory || hasInventory()));
 }
 
@@ -5971,48 +5760,6 @@ void BattleUnit::disableIndicators()
 	_disableIndicators = true;
 }
 
-void BattleUnit::setUnitRulesCoop(Unit* unitRules)
-{
-	_unitRules = unitRules;
-}
-
-bool BattleUnit::hasCoopItem(const BattleItem* item)
-{
-	if (connectionTCP::getCoopStatic() == false)
-		return false;
-
-	if (!item)
-		return false;
-
-	if (connectionTCP::coopInventory != false)
-		return false;
-
-	if (connectionTCP::_coopCampaign != true)
-		return false;
-
-	auto* geo = getGeoscapeSoldier();
-	if (!geo)
-		return false;
-
-	auto* craft = geo->getCraft();
-	if (!craft)
-		return false;
-
-	auto* base = craft->getBase();
-	if (!base)
-		return false;
-
-	for (const auto& ci : craft->getCoopItems())
-	{
-
-		if (ci.id == item->getCoopID() && ci.type == item->getRules()->getType() && ci.owner == base->_coopBase)
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
 
 ////////////////////////////////////////////////////////////
 //					Script binding
@@ -6045,6 +5792,13 @@ void getArmorValueScript(const BattleUnit *bu, int &ret, int side)
 		return;
 	}
 	ret = 0;
+}
+void setArmorValueMaxScript(BattleUnit *bu, int side, int value)
+{
+	if (bu && 0 <= side && side < SIDE_MAX)
+	{
+		bu->setMaxArmor(value, (UnitSide)side);
+	}
 }
 void getArmorValueMaxScript(const BattleUnit *bu, int &ret, int side)
 {
@@ -6963,6 +6717,7 @@ void BattleUnit::ScriptRegister(ScriptParserBase* parser)
 	bu.add<&setArmorValueScript>("setArmor", "first arg is side, second one is new value of armor");
 	bu.add<&addArmorValueScript>("addArmor", "first arg is side, second one is value to add to armor");
 	bu.add<&getArmorValueScript>("getArmor", "first arg return armor value, second arg is side");
+	bu.add<&setArmorValueMaxScript>("setArmorMax", "first arg is side, second one is new value of max armor");
 	bu.add<&getArmorValueMaxScript>("getArmorMax", "first arg return max armor value, second arg is side");
 
 	bu.add<&BattleUnit::getFatalWounds>("getFatalwoundsTotal", "sum for every body part");

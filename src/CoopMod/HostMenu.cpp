@@ -356,154 +356,20 @@ void HostMenu::init()
 
 void HostMenu::convertUnits()
 {
-
-	// Convert single-player save to multiplayer save (PvE)
-	if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1)
+	// R1-P5/R4-REWIRE: legacy per-machine conversion of an already-in-progress
+	// SavedBattleGame into coop/PvP/PvE2 (BattleUnit::setCoop/setOriginalFaction,
+	// BattlescapeState::setCurrentTurn) died with the vanilla restore (911ca487f) -
+	// those coop-only battle-sim symbols no longer exist on vanilla BattleUnit/
+	// BattlescapeState. Mid-battle coop convert-and-host is quarantined pending the
+	// r4/r5 atomic-bundle rebuild (RB-D9). Every branch this used to run only ever
+	// fired when a battle was already in progress (see the getSavedBattle() guards
+	// below), so tell the player and bail instead of mutating a battle nothing can
+	// finish setting up. Identical stub to DirectConnect::convertUnits() (same
+	// dead-code shape on both call paths).
+	if (_game->getSavedGame()->getSavedBattle())
 	{
-
-		_game->getCoopMod()->setPlayerTurn(3);
-
-		connectionTCP::_coopGamemode = 1;
-
-		// Split the soldiers in half
-		if (_game->getSavedGame()->getSavedBattle())
-		{
-
-			_game->getSavedGame()->getSavedBattle()->getBattleState()->setCurrentTurn(3);
-
-			int soldier_total_count = 0;
-
-			// check soldiers count
-			for (auto entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (entity->getFaction() == FACTION_PLAYER)
-				{
-					soldier_total_count++;
-				}
-			}
-
-			int soldier_used = (soldier_total_count / 2);
-
-			// make coop soldiers
-			for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_PLAYER)
-				{
-
-					unit->setCoop(1);
-
-					if (soldier_used <= 0)
-					{
-						break;
-					}
-
-					soldier_used--;
-				}
-			}
-		}
+		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
 	}
-
-	// if pve2 gamemode
-	if (_game->getCoopMod()->getCoopGamemode() == 4)
-	{
-		// swapper
-		for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_HOSTILE)
-			{
-
-				unit->convertToFaction(FACTION_PLAYER);
-				unit->setOriginalFaction(FACTION_PLAYER);
-				_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
-				unit->setAIModule(0);
-			}
-			else if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				unit->convertToFaction(FACTION_HOSTILE);
-				unit->setOriginalFaction(FACTION_HOSTILE);
-			}
-		}
-
-		// Split the soldiers in half
-		if (_game->getSavedGame()->getSavedBattle())
-		{
-
-			int soldier_total_count = 0;
-
-			// check soldiers count
-			for (auto& entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (entity->getFaction() == FACTION_PLAYER)
-				{
-					soldier_total_count++;
-				}
-			}
-
-			int soldier_used = (soldier_total_count / 2);
-
-			// make coop soldiers
-			for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_PLAYER)
-				{
-
-					unit->setCoop(1);
-
-					if (soldier_used <= 0)
-					{
-						break;
-					}
-
-					soldier_used--;
-				}
-			}
-		}
-	}
-	// if pvp gamemode
-	else if (_game->getCoopMod()->getCoopGamemode() == 2)
-	{
-
-		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_HOSTILE)
-			{
-				unit->setCoop(1);
-			}
-			else if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				unit->setCoop(0);
-			}
-		}
-	}
-	// pvp2
-	else if (_game->getCoopMod()->getCoopGamemode() == 3)
-	{
-
-		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_HOSTILE)
-			{
-
-				unit->setCoop(0);
-			}
-			else if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				unit->setCoop(1);
-			}
-		}
-
-	}
-
 }
 
 void HostMenu::btnChatClick(Action* action)
@@ -668,7 +534,7 @@ void HostMenu::hostTCPGame(Action* action)
 		for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 		{
 
-			if (unit->getCoop() == 1)
+			if ((int)unit->getCoopSeat() == 1)
 			{
 
 				convert = false;

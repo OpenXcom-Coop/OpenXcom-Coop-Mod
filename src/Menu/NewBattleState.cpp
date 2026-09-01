@@ -693,63 +693,16 @@ void NewBattleState::btnOkClick(Action *)
 
 	}
 
-	// coop
-	// if not pvp
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 4)
+	// R1-P5/R4-REWIRE: coop battle-entry choreography (skirmish co-op lobby release,
+	// PvP/PvE2 changeHost4 handoff, and the BriefingState::setupCoop() dispatch that
+	// used to follow bgen.run() below) is quarantined pending the r4/r5 atomic-bundle
+	// rebuild (RB-D9) - those coop-only BattleUnit/BriefingState symbols died with the
+	// vanilla restore (911ca487f). This guard is false on every SP click, so the SP
+	// battle-generation path below is untouched.
+	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
-
-		// Skirmish co-op: OK here is the real START. The client is still sitting
-		// in the lobby (the host stepped out to these settings via the lobby's
-		// BATTLE SETTINGS button), so release it to follow us into the battle and
-		// lock the roster/teams now that the session is actually starting.
-		if (_game->getCoopMod()->getServerOwner() == true && connectionTCP::session.lobbyMode == 0)
-		{
-			connectionTCP::session.campaignStarted();
-
-			Json::Value lobbyDone;
-			lobbyDone["state"] = "lobby_ready";
-			_game->getCoopMod()->sendTCPPacketData(lobbyDone.toStyledString());
-		}
-
-		if (_game->getCoopMod()->getHost() == true)
-		{
-			_game->getCoopMod()->setSelectedCraft(_craft);
-			_game->getCoopMod()->setNewBattleState(this);
-			CoopState* coopWindow = new CoopState(88);
-			_game->pushState(coopWindow);
-		}
-		// The client wants to start a COOP mission!!! Transferring them to HOST!!!
-		else
-		{
-
-			_game->getCoopMod()->setHost(true);
-
-			_game->getCoopMod()->setSelectedCraft(_craft);
-
-			_game->getCoopMod()->setNewBattleState(this);
-
-			CoopState* coopWindow = new CoopState(88);
-			_game->pushState(coopWindow);
-
-		}
-
-		save();
-
+		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
 		return;
-
-	}
-	// coop
-	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-	{
-
-		// cahnge host
-		_game->getCoopMod()->setHost(true);
-
-		Json::Value root;
-
-		root["state"] = "changeHost4";
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 	}
 
 	if (_craft)
@@ -758,15 +711,6 @@ void NewBattleState::btnOkClick(Action *)
 		_craft->resetCustomDeployment();
 	}
 	save();
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-
-		_game->getCoopMod()->setSelectedCraft(_craft);
-		_game->getCoopMod()->setNewBattleState(this);
-
-	}
 
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
 	_game->getSavedGame()->setBattleGame(bgame);
@@ -849,25 +793,9 @@ void NewBattleState::btnOkClick(Action *)
 
 	bgen.run();
 
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == false)
-	{
-		_game->popState();
-		_game->popState();
-		_game->pushState(new BriefingState(_craft, base));
-	}
-	else
-	{
-
-		// please wait message
-		CoopState* coopWindow = new CoopState(4);
-		_game->pushState(coopWindow);
-
-		// start  coop mission
-		BriefingState* b = new BriefingState(_craft, base);
-		b->setupCoop();
-
-	}
+	_game->popState();
+	_game->popState();
+	_game->pushState(new BriefingState(_craft, base));
 
 	_craft = 0;
 
@@ -1490,116 +1418,14 @@ void NewBattleState::btnQuickSearchApply(Action *)
 // coop pve
 void NewBattleState::startCoopMission()
 {
-
-	// coop
-	Base* base = 0;
-
-	// fix
-	if (_game->getSavedGame()->getSelectedBase())
-	{
-
-		base = _game->getSavedGame()->getSelectedBase();
-	}
-	else
-	{
-
-		base = _game->getCoopMod()->getSelectedCraft()->getBase();
-	}
-
-	if (_game->getCoopMod()->getSelectedCraft())
-	{
-		_craft = _game->getCoopMod()->getSelectedCraft();
-	}
-
-	// orig
-	if (_missionTypes[_cbxMission->getSelected()] != "STR_BASE_DEFENSE" && _craft->getNumTotalUnits() == 0)
-	{
-		return;
-	}
-
-	SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
-	_game->getSavedGame()->setBattleGame(bgame);
-	bgame->setMissionType(_missionTypes[_cbxMission->getSelected()]);
-	BattlescapeGenerator bgen = BattlescapeGenerator(_game);
-
-	bgen.setTerrain(_game->getMod()->getTerrain(_terrainTypes[_cbxTerrain->getSelected()]));
-
-	if (_globeTextureVisible)
-	{
-		int textureId = _globeTextureIDs[_selectedGlobeTexture];
-		auto* globeTexture = _game->getMod()->getGlobe()->getTexture(textureId);
-		bgen.setWorldTexture(nullptr, globeTexture);
-	}
-
-	// base defense
-	if (_missionTypes[_cbxMission->getSelected()] == "STR_BASE_DEFENSE")
-	{
-		base = _craft->getBase();
-		bgen.setBase(base);
-		_craft = 0;
-	}
-	// alien base
-	else if (_game->getMod()->getDeployment(bgame->getMissionType())->isAlienBase())
-	{
-		AlienBase* b = new AlienBase(_game->getMod()->getDeployment(bgame->getMissionType()), -1);
-		b->setId(1);
-		b->setAlienRace(_alienRaces[_cbxAlienRace->getSelected()]);
-		_craft->setDestination(b);
-		bgen.setAlienBase(b);
-		_game->getSavedGame()->getAlienBases()->push_back(b);
-	}
-	// ufo assault
-	else if (_craft && _game->getMod()->getUfo(_missionTypes[_cbxMission->getSelected()]))
-	{
-		Ufo* u = new Ufo(_game->getMod()->getUfo(_missionTypes[_cbxMission->getSelected()]), 1);
-		u->setId(1);
-		_craft->setDestination(u);
-		bgen.setUfo(u);
-		// either ground assault or ufo crash
-		bool ufoLanded = _btnUfoLanded->getVisible() ? _btnUfoLanded->getPressed() : RNG::generate(0, 1) == 1;
-		if (ufoLanded)
-		{
-			u->setStatus(Ufo::LANDED);
-			bgame->setMissionType("STR_UFO_GROUND_ASSAULT");
-		}
-		else
-		{
-			u->setStatus(Ufo::CRASHED);
-			bgame->setMissionType("STR_UFO_CRASH_RECOVERY");
-		}
-		_game->getSavedGame()->getUfos()->push_back(u);
-	}
-	// mission site
-	else
-	{
-		const AlienDeployment* deployment = _game->getMod()->getDeployment(bgame->getMissionType());
-		const RuleAlienMission* mission = _game->getMod()->getAlienMission(_game->getMod()->getAlienMissionList().front()); // doesn't matter
-		MissionSite* m = new MissionSite(mission, deployment, nullptr);
-		m->setId(1);
-		m->setAlienRace(_alienRaces[_cbxAlienRace->getSelected()]);
-		_craft->setDestination(m);
-		bgen.setMissionSite(m);
-		_game->getSavedGame()->getMissionSites()->push_back(m);
-	}
-
-	if (_craft)
-	{
-		_craft->setSpeed(0);
-		bgen.setCraft(_craft);
-	}
-
-	_game->getSavedGame()->setDifficulty((GameDifficulty)_cbxDifficulty->getSelected());
-
-	bgen.setWorldShade(_slrDarkness->getValue());
-	bgen.setAlienRace(_alienRaces[_cbxAlienRace->getSelected()]);
-	bgen.setAlienItemlevel(_slrAlienTech->getValue());
-	bgame->setDepth(_slrDepth->getValue());
-
-	bgen.run();
-
-	BriefingState* b = new BriefingState(_craft, base);
-
-	b->setupCoop();
+	// R1-P5/R4-REWIRE: skirmish coop battle-start choreography, reached
+	// asynchronously from connectionTCP::setClientSoldiers() ("coop battle (pve)"
+	// branch) once the host-transfer handshake finishes. Quarantined pending the
+	// r4/r5 atomic-bundle rebuild (RB-D9) - BriefingState::setupCoop() died with
+	// the vanilla restore (911ca487f). btnOkClick's coop branch already popups and
+	// returns before setting up the callback target this drives from, so this body
+	// is defense in depth for any caller that still reaches it.
+	_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
 
 	_craft = 0;
 

@@ -49,9 +49,6 @@ namespace OpenXcom
  */
 UnitInfoState::UnitInfoState(BattleUnit *unit, BattlescapeState *parent, bool fromInventory, bool mindProbe) : _unit(unit), _parent(parent), _fromInventory(fromInventory), _mindProbe(mindProbe)
 {
-
-	// coop
-
 	if (Options::maximizeInfoScreens)
 	{
 		Options::baseXResolution = Screen::ORIGINAL_WIDTH;
@@ -482,8 +479,6 @@ UnitInfoState::UnitInfoState(BattleUnit *unit, BattlescapeState *parent, bool fr
  */
 UnitInfoState::~UnitInfoState()
 {
-
-	// coop
 
 }
 

@@ -110,34 +110,7 @@ private:
 	void blinkHealthBar();
 	/// Shows the unit kneel state.
 	void toggleKneelButton(BattleUnit* unit);
-  public:
-	// coop
-	void setSelectedCoopUnit(int actor_id);
-	void coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time);
-	void coopActiveGranade(int actor_id, int type, std::string hand, int fusetimer, int item_id);
-	void coopActionClick(int actor_id, std::string hand, int type, bool fuse, int fusetimer, int target_x, int target_y, int target_z, int time, std::string weapon_type, int weapon_id);
-	// This should end the co-op battle.
-	void EndCoopBattle();
-	// This should end the co-op turn.
-	void EndCoopTurn();
-	std::string _hand = "right";
-	void coopPsiButtonAction();
-	void coopLaunchPress();
-	void coopCancelAction();
-	int getCurrentTurn();
-	void setCurrentTurn(int turn);
-	void moveCoopInventory(std::string ammos, std::string item_name, std::string inv_id, int inv_x, int inv_y, int unit_id, int item_id, int move_cost, int slot_x, int slot_y, int getHealQuantity, int getPainKillerQuantity, int getStimulantQuantity, int getFuseTimer, bool getXCOMProperty, bool isAmmo, bool isWeaponWithAmmo, bool isFuseEnabled, int getAmmoQuantity, int tile_x, int tile_y, int tile_z, bool tu, int sel_item_id, std::string sel_item_type, bool unload_weapon);
-	void toggeCoopKneel(int id);
-	void endTurnCoop();
-	void movePlayerTarget(std::string obj);
-	void turnPlayerTarget(std::string str_obj);
-	void turnPlayerTargetAfter(std::string str_obj);
-	void psi_attack(std::string str_obj);
-	void melee_attack(std::string str_obj);
-	void shootPlayerTarget(std::string str_obj);
-	void showCoopWarning(const std::string &message);
-	void showCoopLongWarning(const std::string &message);
-	void doAbortPath();
+public:
 	/// Selects the next soldier.
 	void selectNextPlayerUnit(bool checkReselect = false, bool setReselect = false, bool checkInventory = false, bool checkFOV = true, bool byDistance = false);
 	/// Selects the previous soldier.
@@ -195,8 +168,6 @@ private:
 	void btnEndTurnClick(Action *action);
 	/// Handler for clicking the Abort button.
 	void btnAbortClick(Action *action);
-	/// Executes a host-approved multiplayer abandon vote on this machine.
-	void abortMissionByVote();
 	/// Handler for clicking the stats.
 	void btnStatsClick(Action *action);
 	/// Handler for clicking the left hand item button.
@@ -318,8 +289,6 @@ private:
 	void autosave(int currentTurn);
 	/// Is busy?
 	bool isBusy() const;
-	// coop
-	std::string obj_shoot = "";
 };
 
 }

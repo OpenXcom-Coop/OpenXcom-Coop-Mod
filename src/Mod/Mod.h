@@ -453,6 +453,7 @@ public:
 	static int EXTENDED_UNDERWATER_THROW_FACTOR;
 	static bool EXTENDED_EXPERIENCE_AWARD_SYSTEM;
 	static bool EXTENDED_FORCE_SPAWN;
+	static int EXTENDED_SMOKE_OFFSET;
 
 
 	/// Return `true` when given string is empty or pseudo null value.

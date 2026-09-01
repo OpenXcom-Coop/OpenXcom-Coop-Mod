@@ -111,13 +111,6 @@ Inventory::Inventory(Game *game, int width, int height, int x, int y, bool base)
 	_groundSlotsY = (Screen::ORIGINAL_HEIGHT - _inventorySlotGround->getY()) / RuleInventory::SLOT_H;
 	_xMax = 0;
 	_occupiedSlotsCache.resize(_groundSlotsY, std::vector<char>(_groundSlotsX * 2, false));
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-		_game->getCoopMod()->syncCoopInventory();
-	}
-
 }
 
 /**
@@ -241,31 +234,23 @@ void Inventory::drawGrid()
 		}
 		else if (ruleInv->getType() == INV_GROUND)
 		{
-
-			// coop
-			if (_game->getSavedGame()->getSavedBattle()->getSelectedUnit())
+			for (int x = ruleInv->getX(); x <= 320; x += RuleInventory::SLOT_W)
 			{
-
-				for (int x = ruleInv->getX(); x <= 320; x += RuleInventory::SLOT_W)
+				for (int y = ruleInv->getY(); y <= 200; y += RuleInventory::SLOT_H)
 				{
-					for (int y = ruleInv->getY(); y <= 200; y += RuleInventory::SLOT_H)
-					{
-						SDL_Rect r;
-						r.x = x;
-						r.y = y;
-						r.w = RuleInventory::SLOT_W + 1;
-						r.h = RuleInventory::SLOT_H + 1;
-						_grid->drawRect(&r, color);
-						r.x++;
-						r.y++;
-						r.w -= 2;
-						r.h -= 2;
-						_grid->drawRect(&r, 0);
-					}
+					SDL_Rect r;
+					r.x = x;
+					r.y = y;
+					r.w = RuleInventory::SLOT_W + 1;
+					r.h = RuleInventory::SLOT_H + 1;
+					_grid->drawRect(&r, color);
+					r.x++;
+					r.y++;
+					r.w -= 2;
+					r.h -= 2;
+					_grid->drawRect(&r, 0);
 				}
-
 			}
-			
 		}
 	}
 	drawGridLabels();
@@ -389,99 +374,93 @@ void Inventory::drawItems()
 		// Ground items
 		int fatalWounds = 0;
 		auto& occupiedSlots = *clearOccupiedSlotsCache();
-
-		// coop fix
-		if (_selUnit->getTile())
+		for (auto* groundItem : *_selUnit->getTile()->getInventory())
 		{
-			for (auto* groundItem : *_selUnit->getTile()->getInventory())
+			const Surface *frame = groundItem->getBigSprite(texture, save, _animFrame);
+			// note that you can make items invisible by setting their width or height to 0 (for example used with tank corpse items)
+			if (groundItem == _selItem || groundItem->getRules()->getInventoryHeight() == 0 || groundItem->getRules()->getInventoryWidth() == 0 || !frame)
+				continue;
+
+			// check if item is in visible range
+			if (groundItem->getSlotX() < _groundOffset || groundItem->getSlotX() >= _groundOffset + _groundSlotsX)
+				continue;
+
+			// check if something was draw here before
+			auto& pos = occupiedSlots[groundItem->getSlotY()][groundItem->getSlotX() - _groundOffset];
+			if (pos)
 			{
+				continue;
+			}
+			else
+			{
+				pos = true;
+			}
 
-				const Surface* frame = groundItem->getBigSprite(texture, save, _animFrame);
-				// note that you can make items invisible by setting their width or height to 0 (for example used with tank corpse items)
-				if (groundItem == _selItem || groundItem->getRules()->getInventoryHeight() == 0 || groundItem->getRules()->getInventoryWidth() == 0 || !frame)
-					continue;
+			int x, y;
+			x = (groundItem->getSlot()->getX() + (groundItem->getSlotX() - _groundOffset) * RuleInventory::SLOT_W);
+			y = (groundItem->getSlot()->getY() + groundItem->getSlotY() * RuleInventory::SLOT_H);
+			BattleItem::ScriptFill(&work, groundItem, save, BODYPART_ITEM_INVENTORY, _animFrame, 0);
+			work.executeBlit(frame, _items, x, y, 0);
 
-				// check if item is in visible range
-				if (groundItem->getSlotX() < _groundOffset || groundItem->getSlotX() >= _groundOffset + _groundSlotsX)
-					continue;
+			// grenade primer indicators
+			if (groundItem->getFuseTimer() >= 0 && groundItem->getRules()->getInventoryWidth() > 0)
+			{
+				primers(x, y, groundItem->isFuseEnabled());
+			}
 
-				// check if something was draw here before
-				auto& pos = occupiedSlots[groundItem->getSlotY()][groundItem->getSlotX() - _groundOffset];
-				if (pos)
+			// fatal wounds
+			fatalWounds = 0;
+			if (groundItem->getUnit())
+			{
+				// don't show on dead units
+				if (groundItem->getUnit()->getStatus() == STATUS_UNCONSCIOUS && groundItem->getUnit()->indicatorsAreEnabled())
 				{
-					continue;
-				}
-				else
-				{
-					pos = true;
-				}
-
-				int x, y;
-				x = (groundItem->getSlot()->getX() + (groundItem->getSlotX() - _groundOffset) * RuleInventory::SLOT_W);
-				y = (groundItem->getSlot()->getY() + groundItem->getSlotY() * RuleInventory::SLOT_H);
-				BattleItem::ScriptFill(&work, groundItem, save, BODYPART_ITEM_INVENTORY, _animFrame, 0);
-				work.executeBlit(frame, _items, x, y, 0);
-
-				// grenade primer indicators
-				if (groundItem->getFuseTimer() >= 0 && groundItem->getRules()->getInventoryWidth() > 0)
-				{
-					primers(x, y, groundItem->isFuseEnabled());
-				}
-
-				// fatal wounds
-				fatalWounds = 0;
-				if (groundItem->getUnit())
-				{
-					// don't show on dead units
-					if (groundItem->getUnit()->getStatus() == STATUS_UNCONSCIOUS && groundItem->getUnit()->indicatorsAreEnabled())
+					fatalWounds = groundItem->getUnit()->getFatalWounds();
+					if (_burnIndicator && groundItem->getUnit()->getFire() > 0)
 					{
-						fatalWounds = groundItem->getUnit()->getFatalWounds();
-						if (_burnIndicator && groundItem->getUnit()->getFire() > 0)
-						{
-							indicators(_burnIndicator, x, y);
-						}
-						else if (_woundIndicator && fatalWounds > 0)
-						{
-							indicators(_woundIndicator, x, y);
-						}
-						else if (_shockIndicator && groundItem->getUnit()->hasNegativeHealthRegen())
-						{
-							indicators(_shockIndicator, x, y);
-						}
-						else if (_stunIndicator)
-						{
-							indicators(_stunIndicator, x, y);
-						}
+						indicators(_burnIndicator, x, y);
+					}
+					else if (_woundIndicator && fatalWounds > 0)
+					{
+						indicators(_woundIndicator, x, y);
+					}
+					else if (_shockIndicator && groundItem->getUnit()->hasNegativeHealthRegen())
+					{
+						indicators(_shockIndicator, x, y);
+					}
+					else if (_stunIndicator)
+					{
+						indicators(_stunIndicator, x, y);
 					}
 				}
-				if (fatalWounds > 0)
+			}
+			if (fatalWounds > 0)
+			{
+				_stackNumber->setX((groundItem->getSlot()->getX() + ((groundItem->getSlotX() + groundItem->getRules()->getInventoryWidth()) - _groundOffset) * RuleInventory::SLOT_W)-4);
+				if (fatalWounds > 9)
 				{
-					_stackNumber->setX((groundItem->getSlot()->getX() + ((groundItem->getSlotX() + groundItem->getRules()->getInventoryWidth()) - _groundOffset) * RuleInventory::SLOT_W) - 4);
-					if (fatalWounds > 9)
-					{
-						_stackNumber->setX(_stackNumber->getX() - 4);
-					}
-					_stackNumber->setY((groundItem->getSlot()->getY() + (groundItem->getSlotY() + groundItem->getRules()->getInventoryHeight()) * RuleInventory::SLOT_H) - 6);
-					_stackNumber->setValue(fatalWounds);
-					_stackNumber->draw();
-					_stackNumber->setColor(color2);
-					_stackNumber->blit(stackLayer.getSurface());
+					_stackNumber->setX(_stackNumber->getX()-4);
 				}
+				_stackNumber->setY((groundItem->getSlot()->getY() + (groundItem->getSlotY() + groundItem->getRules()->getInventoryHeight()) * RuleInventory::SLOT_H)-6);
+				_stackNumber->setValue(fatalWounds);
+				_stackNumber->draw();
+				_stackNumber->setColor(color2);
+				_stackNumber->blit(stackLayer.getSurface());
+			}
 
-				// item stacking
-				if (_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()] > 1)
+			// item stacking
+			if (_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()] > 1)
+			{
+				_stackNumber->setX((groundItem->getSlot()->getX() + ((groundItem->getSlotX() + groundItem->getRules()->getInventoryWidth()) - _groundOffset) * RuleInventory::SLOT_W)-4);
+				if (_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()] > 9)
 				{
-					_stackNumber->setX((groundItem->getSlot()->getX() + ((groundItem->getSlotX() + groundItem->getRules()->getInventoryWidth()) - _groundOffset) * RuleInventory::SLOT_W) - 4);
-					if (_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()] > 9)
-					{
-						_stackNumber->setX(_stackNumber->getX() - 4);
-					}
-					_stackNumber->setY((groundItem->getSlot()->getY() + (groundItem->getSlotY() + groundItem->getRules()->getInventoryHeight()) * RuleInventory::SLOT_H) - 6);
-					_stackNumber->setValue(_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()]);
-					_stackNumber->draw();
-					_stackNumber->setColor(color);
-					_stackNumber->blit(stackLayer.getSurface());
+					_stackNumber->setX(_stackNumber->getX()-4);
 				}
+				_stackNumber->setY((groundItem->getSlot()->getY() + (groundItem->getSlotY() + groundItem->getRules()->getInventoryHeight()) * RuleInventory::SLOT_H)-6);
+				_stackNumber->setValue(_stackLevel[groundItem->getSlotX()][groundItem->getSlotY()]);
+				_stackNumber->draw();
+				_stackNumber->setColor(color);
+				_stackNumber->blit(stackLayer.getSurface());
 			}
 		}
 
@@ -524,173 +503,8 @@ std::vector<std::vector<char>>* Inventory::clearOccupiedSlotsCache()
  * @param x X position in slot.
  * @param y Y position in slot.
  */
-void Inventory::moveItem(BattleItem* item, const RuleInventory* slot, int x, int y, bool unloadWeaponCoop)
+void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int y)
 {
-	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-
-		if (!_selUnit)
-		{
-			return;
-		}
-
-		// check coop unit
-		if ((_selUnit->getCoop() != 0 && _game->getCoopMod()->getHost() == true) || (_selUnit->getCoop() == 0 && _game->getCoopMod()->getHost() == false) && _game->getCoopMod()->coopInventory == true)
-		{
-			return;
-		}
-
-		// coop fix
-		if (!_selUnit->getTile())
-		{
-			return;
-		}
-
-		bool send = true;
-
-		// coop fix
-		if (item && slot && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->getCoopCampaign() == true)
-		{
-
-			// item->getSlot() can be null here: ammo just unloaded from a weapon has
-			// its inventory slot cleared (setAmmoForSlot -> setSlot(nullptr)) before
-			// being handed to moveItem. Treat "no slot" as "not a ground->ground move"
-			// so we don't deref null (issue #29: unload crash, 0xC0000005).
-			if (item->getSlot() && item->getSlot()->getType() == INV_GROUND && slot->getType() == INV_GROUND)
-			{
-				send = false;
-			}
-			else
-			{
-
-				bool coopItem = hasCoopItem(_selUnit, item);
-
-				if (coopItem && _game->getCoopMod()->playerInsideCoopBase == true)
-				{
-					return;
-				}
-
-			}
-
-		}
-
-		// send packet message
-		if (send)
-		{
-			
-			Json::Value obj;
-			obj["state"] = "Inventory";
-			obj["item_name"] = item->getRules()->getName();
-			obj["inv_id"] = slot->getId();
-			obj["inv_x"] = x;
-			obj["inv_y"] = y;
-			obj["slot_x"] = item->getSlotX();
-			obj["slot_y"] = item->getSlotY();
-			obj["unit_id"] = _selUnit->getId();
-			obj["item_id"] = item->getId();
-
-			obj["move_cost"] = 0;
-
-			obj["getHealQuantity"] = item->getHealQuantity();
-			obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
-			obj["getStimulantQuantity"] = item->getStimulantQuantity();
-			obj["getFuseTimer"] = item->getFuseTimer();
-			obj["getXCOMProperty"] = item->getXCOMProperty();
-			obj["isAmmo"] = item->isAmmo();
-			obj["isWeaponWithAmmo"] = item->isWeaponWithAmmo();
-			obj["isFuseEnabled"] = item->isFuseEnabled();
-			obj["getAmmoQuantity"] = item->getAmmoQuantity();
-
-			// new!!!
-			obj["coopbase"] = _game->getCoopMod()->playerInsideCoopBase;
-			obj["slot_type"] = _game->getCoopMod()->InventoryTypeToInt(slot->getType());
-			obj["other_coop_inventory"] = _game->getCoopMod()->coopInventory;
-			obj["item_type"] = item->getRules()->getType();
-
-			obj["item_slot_type"] = 2;
-			if (item->getSlot())
-			{
-				obj["item_slot_type"] = _game->getCoopMod()->InventoryTypeToInt(item->getSlot()->getType());
-				obj["move_cost"] = item->getMoveToCost(slot);
-			}
-
-			obj["coopbase_id"] = -1;
-			obj["craft_id"] = -1;
-			obj["craft_type"] = "";
-			obj["coopItems"] = Json::nullValue;
-			obj["coop_item_id"] = item->getCoopID();
-
-			if (_selUnit->getGeoscapeSoldier() && _game->getCoopMod()->getCoopCampaign() == true  && _game->getCoopMod()->coopInventory == false)
-			{
-
-				if (_selUnit->getGeoscapeSoldier()->getCraft())
-				{
-
-					if (_selUnit->getGeoscapeSoldier()->getCraft()->getBase())
-					{
-
-						obj["coopbase_id"] = _selUnit->getGeoscapeSoldier()->getCraft()->getBase()->_coop_base_id;
-
-						//  save items
-						_game->getSavedGame()->getSavedBattle()->moveBaseCoopInventorySave(_selUnit->getGeoscapeSoldier()->getCraft()->getBase(), _selUnit->getGeoscapeSoldier()->getCraft(), item, _game->getCoopMod()->InventoryTypeToInt(slot->getType()));
-
-						int item_index = 0;
-						for (auto& coopItem : _selUnit->getGeoscapeSoldier()->getCraft()->getCoopItems())
-						{
-
-							obj["coopItems"][item_index]["id"] = coopItem.id;
-							obj["coopItems"][item_index]["type"] = coopItem.type;
-							obj["coopItems"][item_index]["owner"] = coopItem.owner;
-
-							item_index++;
-						}
-
-					}
-
-					obj["craft_id"] = _selUnit->getGeoscapeSoldier()->getCraft()->getId();
-					obj["craft_type"] = _selUnit->getGeoscapeSoldier()->getCraft()->getType();
-				}
-			}
-
-			obj["ammos"] = Json::nullValue;
-			obj["tu"] = _tu;
-
-			obj["unload_weapon"] = unloadWeaponCoop;
-			obj["sel_item_id"] = -1;
-			obj["sel_item_type"] = "";
-			if (_selItem)
-			{
-				obj["sel_item_id"] = _selItem->getId();
-				obj["sel_item_type"] = _selItem->getRules()->getType();
-			}
-
-			for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
-			{
-
-				BattleItem* ammo = item->getAmmoForSlot(slot);
-
-				if (ammo)
-				{
-					obj["ammos"][slot]["ammo_id"] = ammo->getId();
-					obj["ammos"][slot]["ammo_type"] = ammo->getRules()->getType();
-				}
-				else
-				{
-					obj["ammos"][slot]["ammo_id"] = -1;
-					obj["ammos"][slot]["ammo_type"] = "";
-				}
-			}
-
-			obj["tile_x"] = -1;
-			obj["tile_y"] = -1;
-			obj["tile_z"] = -1;
-
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
-
-	}
-
 	_game->getSavedGame()->getSavedBattle()->getTileEngine()->itemMoveInventory(_selUnit->getTile(), _selUnit, item, slot, x, y);
 }
 
@@ -818,39 +632,6 @@ void Inventory::think()
 {
 	_warning->think();
 	_animTimer->think(0,this);
-
-	// coop
-	if ((_game->getCoopMod()->getCoopStatic() == true && getSelectedItem() == nullptr))
-	{
-
-		for (size_t x = 0; x < _stackLevel.size(); ++x)
-		{
-			for (size_t y = 0; y < _stackLevel[x].size(); ++y)
-			{
-				int itemCount = 0;
-				int item_id = 0;
-
-				for (auto &item : *(_selUnit->getTile()->getInventory()))
-				{
-
-					if (item->getSlotX() == x && item->getSlotY() == y && item->getSlot()->getType() == INV_GROUND && item->getId() != item_id)
-					{
-						itemCount++;
-						item_id = item->getId();
-					}
-
-				}
-
-				_stackLevel[x][y] = itemCount;
-				
-
-			}
-		}
-
-
-	}
-	
-
 }
 
 /**
@@ -909,24 +690,8 @@ void Inventory::mouseOver(Action *action, State *state)
  */
 void Inventory::mouseClick(Action *action, State *state)
 {
-
-	// coop fix
-	// If the Inventory selected unit is different from the Battlescape selected unit, set the Inventory selected unit to the Battlescape selected unit
-	if (_game->getCoopMod()->getCoopStatic() == true && _selUnit && _game->getSavedGame() && _game->getSavedGame()->getSavedBattle() && _game->getSavedGame()->getSavedBattle()->getSelectedUnit() != _selUnit)
-	{
-		_game->getSavedGame()->getSavedBattle()->setSelectedUnit(_selUnit);
-	}
-
 	if (_game->isLeftClick(action))
 	{
-
-		// coop
-		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
-		{
-			setSelectedItem(0);
-			return;
-		}
-
 		if (_selUnit == 0)
 			return;
 		// Pickup item
@@ -944,7 +709,6 @@ void Inventory::mouseClick(Action *action, State *state)
 				BattleItem *item = _selUnit->getItem(slot, x, y);
 				if (item != 0)
 				{
-
 					if (_game->isShiftPressed())
 					{
 						bool quickUnload = false;
@@ -1150,7 +914,7 @@ void Inventory::mouseClick(Action *action, State *state)
 					x += _groundOffset;
 				}
 				BattleItem *item = _selUnit->getItem(slot, x, y);
-			
+
 				bool canStack = slot->getType() == INV_GROUND && canBeStacked(item, _selItem);
 
 				// Check if this inventory section supports the item
@@ -1276,107 +1040,6 @@ void Inventory::mouseClick(Action *action, State *state)
 										arrangeFloor = true;
 									}
 								}
-								else
-								{
-									// coop
-									// reload
-									if (_game->getCoopMod()->getCoopStatic() == true)
-									{
-										
-										Json::Value obj;
-										obj["state"] = "Inventory";
-										obj["inv_id"] = slot->getId();
-										obj["item_name"] = item->getRules()->getName();
-					
-										obj["inv_x"] = x;
-										obj["inv_y"] = y;
-										obj["slot_x"] = item->getSlotX();
-										obj["slot_y"] = item->getSlotY();
-										obj["unit_id"] = _selUnit->getId();
-										obj["item_id"] = item->getId();
-										obj["move_cost"] = 0;
-
-										obj["getHealQuantity"] = item->getHealQuantity();
-										obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
-										obj["getStimulantQuantity"] = item->getStimulantQuantity();
-										obj["getFuseTimer"] = item->getFuseTimer();
-										obj["getXCOMProperty"] = item->getXCOMProperty();
-										obj["isAmmo"] = item->isAmmo();
-										obj["isWeaponWithAmmo"] = item->isWeaponWithAmmo();
-										obj["isFuseEnabled"] = item->isFuseEnabled();
-										obj["getAmmoQuantity"] = item->getAmmoQuantity();
-
-										// new!!!
-										obj["coopbase"] = _game->getCoopMod()->playerInsideCoopBase;
-										obj["slot_type"] = _game->getCoopMod()->InventoryTypeToInt(slot->getType());
-										obj["other_coop_inventory"] = _game->getCoopMod()->coopInventory;
-										obj["item_type"] = item->getRules()->getType();
-				
-										obj["item_slot_type"] = 2;
-										if (item->getSlot())
-										{
-											obj["item_slot_type"] = _game->getCoopMod()->InventoryTypeToInt(item->getSlot()->getType());
-											obj["move_cost"] = tuCost;
-										}
-
-										obj["coopbase_id"] = -1;
-										obj["craft_id"] = -1;
-										obj["craft_type"] = "";
-										obj["coopItems"] = Json::nullValue;
-										obj["coop_item_id"] = item->getCoopID();
-
-										if (_selUnit->getGeoscapeSoldier())
-										{
-
-											if (_selUnit->getGeoscapeSoldier()->getCraft())
-											{
-
-												if (_selUnit->getGeoscapeSoldier()->getCraft()->getBase())
-												{
-
-													obj["coopbase_id"] = _selUnit->getGeoscapeSoldier()->getCraft()->getBase()->_coop_base_id;
-					
-												}
-
-												obj["craft_id"] = _selUnit->getGeoscapeSoldier()->getCraft()->getId();
-												obj["craft_type"] = _selUnit->getGeoscapeSoldier()->getCraft()->getType();
-											}
-										}
-
-										obj["ammos"] = Json::nullValue;
-										obj["tu"] = _tu;
-
-										obj["unload_weapon"] = false;
-										obj["sel_item_id"] = -1;
-										obj["sel_item_type"] = "";
-										if (_selItem)
-										{
-											obj["sel_item_id"] = _selItem->getId();
-											obj["sel_item_type"] = _selItem->getRules()->getType();
-										}
-
-										for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
-										{
-
-											BattleItem* ammo = item->getAmmoForSlot(slot);
-
-											if (ammo)
-											{
-												obj["ammos"][slot]["ammo_id"] = ammo->getId();
-												obj["ammos"][slot]["ammo_type"] = ammo->getRules()->getType();
-											}
-											else
-											{
-												obj["ammos"][slot]["ammo_id"] = -1;
-												obj["ammos"][slot]["ammo_type"] = "";
-											}
-										}
-
-										_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-
-
-									}
-								}
 
 								int sound = _selItem->getRules()->getReloadSound();
 								if (sound == Mod::NO_SOUND)
@@ -1414,7 +1077,6 @@ void Inventory::mouseClick(Action *action, State *state)
 				{
 					x += _groundOffset;
 					BattleItem *item = _selUnit->getItem(slot, x, y);
-	
 					if (canBeStacked(item, _selItem))
 					{
 						if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
@@ -1435,11 +1097,6 @@ void Inventory::mouseClick(Action *action, State *state)
 	}
 	else if (_game->isRightClick(action))
 	{
-
-		// coop
-		if ((_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 1) || (_game->getCoopMod()->getHost() == false && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getCoop() == 0) && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->playerInsideCoopBase == false && _game->getCoopMod()->coopInventory == true)
-			return;
-
 		if (_selItem == 0)
 		{
 			if (!_base || Options::includePrimeStateInSavedLayout)
@@ -1458,7 +1115,6 @@ void Inventory::mouseClick(Action *action, State *state)
 						BattleItem *item = _selUnit->getItem(slot, x, y);
 						if (item != 0)
 						{
-			
 							const BattleFuseType fuseType = item->getRules()->getFuseTimerType();
 							if (fuseType != BFT_NONE)
 							{
@@ -1571,6 +1227,25 @@ bool Inventory::unload(bool quickUnload)
 	// Must be holding an item
 	if (_selItem == 0)
 	{
+		// mobile support: https://openxcom.org/forum/index.php?topic=12880.0
+		if (Options::oxceInventoryUnloadFixedWeapons)
+		{
+			if (!_selUnit) return false;
+			auto weapons = { _selUnit->getRightHandWeapon(), _selUnit->getLeftHandWeapon()};
+			for (auto* item : weapons)
+			{
+				if (!item) continue;
+				if (!item->getRules()->isFixed()) continue;
+				if (!item->haveAnyAmmo()) continue;
+				{
+					_selItem = item; // don't worry, we'll unselect it later!
+					bool success = unload(!_tu);
+					_selItem = 0; // see, I told you!
+					if (success) return true;
+				}
+			}
+		}
+
 		return false;
 	}
 
@@ -1663,14 +1338,15 @@ bool Inventory::unload(bool quickUnload)
 			_selItem->setFuseTimer(-1);
 			_warning->showMessage(_game->getLanguage()->getString(_selItem->getRules()->getUnprimeActionMessage()));
 			playSound(_selItem->getRules()->getUnprimeSound()); // unprime sound
+			setSelectedItem(0);
 		}
 		else
 		{
 			auto* oldAmmo = _selItem->setAmmoForSlot(slotForAmmoUnload, nullptr);
 			moveItem(oldAmmo, _inventorySlotGround, 0, 0); // 2. + 3. always drop the ammo on the ground
+			setSelectedItem(0); // calling before arrangeGround() to prevent undesired drawing of TU costs
 			arrangeGround();
 		}
-		setSelectedItem(0);
 		return true;
 	}
 
@@ -1743,11 +1419,11 @@ bool Inventory::unload(bool quickUnload)
 			auto* oldAmmo = _selItem->setAmmoForSlot(slotForAmmoUnload, nullptr);
 			if (SecondFreeHand != nullptr)
 			{
-				moveItem(oldAmmo, SecondFreeHand, 0, 0, true); // 2. (coop)
+				moveItem(oldAmmo, SecondFreeHand, 0, 0); // 2.
 			}
 			else
 			{
-				moveItem(oldAmmo, _inventorySlotGround, 0, 0, true); // 2. + 3.  // (coop)
+				moveItem(oldAmmo, _inventorySlotGround, 0, 0); // 2. + 3.
 				arrangeGround();
 			}
 		}
@@ -1848,8 +1524,7 @@ void Inventory::arrangeGround(int alterOffset)
 	_xMax = 0;
 	_stackLevel.clear();
 
-	// coop fix
-	if (_selUnit != 0 && _selUnit->getTile())
+	if (_selUnit != 0)
 	{
 		std::unordered_map< std::string, std::vector< std::vector<BattleItem*> > > typeItemLists; // Lists of items of the same type
 		std::vector<BattleItem*> itemListOrder; // Placement order of item type stacks.
@@ -2074,17 +1749,6 @@ bool Inventory::fitItem(const RuleInventory *newSlot, BattleItem *item, std::str
 }
 
 /**
- * Test-harness hook: drop @a item into @a slot at (@a x, @a y) through the same
- * moveItem a mouse drop calls, so the co-op hooks inside it (the coopItems
- * manifest update and the peer mirror) run exactly as they do for a real drag.
- */
-void Inventory::harnessMoveItem(BattleItem *item, const RuleInventory *slot, int x, int y)
-{
-	moveItem(item, slot, x, y);
-	drawItems();
-}
-
-/**
  * Checks if two items can be stacked on one another.
  * @param itemA First item.
  * @param itemB Second item.
@@ -2156,11 +1820,6 @@ void Inventory::animate()
 	drawSelectedItem();
 }
 
-RuleInventory* Inventory::getInventorySlotGroundCoop()
-{
-	return _inventorySlotGround;
-}
-
 /**
  * Play a sound.
  */
@@ -2170,46 +1829,6 @@ void Inventory::playSound(int sound)
 	{
 		_game->getMod()->getSoundByDepth(_depth, sound)->play();
 	}
-}
-
-bool Inventory::hasCoopItem(BattleUnit* unit, const BattleItem* item)
-{
-
-	if (_game->getCoopMod()->getCoopStatic() == false)
-		return false;
-
-	if (!unit || !item)
-		return false;
-
-	if (_game->getCoopMod()->coopInventory != false)
-		return false;
-
-	if (_game->getCoopMod()->getCoopCampaign() != true)
-		return false;
-
-	auto* geo = unit->getGeoscapeSoldier();
-	if (!geo)
-		return false;
-
-	auto* craft = geo->getCraft();
-	if (!craft)
-		return false;
-
-	auto* base = craft->getBase();
-	if (!base)
-		return false;
-
-	for (const auto& ci : craft->getCoopItems())
-	{
-
-		if (ci.id == item->getCoopID() && ci.type == item->getRules()->getType() && ci.owner == base->_coopBase)
-		{
-			return true;
-		}
-
-	}
-
-	return false;
 }
 
 }

@@ -56,6 +56,11 @@ enum CoopDialogCode {
 	COOP_DLG_SHARED_FAIL       = 556, // PRD-J10: the host rejected a SHARED command
 	COOP_DLG_CONFIRM_EQUIP_CRAFT = 557, // lock the Custom Battle craft before equipment
 	COOP_DLG_VOTE_COOLDOWN = 558, // a seat tried to start another vote too soon
+	// R1-P5/R4-REWIRE: the battlescape rewrite (911ca487f restore) quarantined
+	// every coop battle-entry/battle-resume choreography path pending the r4/r5
+	// atomic-bundle rebuild (RB-D9). Every stubbed site pushes this instead of
+	// starting/resuming a coop battle; OK just pops back to geoscape/lobby.
+	COOP_DLG_BATTLE_UNAVAILABLE = 559,
 };
 
 /**

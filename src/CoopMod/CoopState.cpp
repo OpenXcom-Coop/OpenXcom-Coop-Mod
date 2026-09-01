@@ -297,6 +297,22 @@ CoopState::CoopState(int state, int value) : _value(value)
 		_btnBack->setVisible(true);
 	}
 
+	// R1-P5/R4-REWIRE: coop battle-entry/battle-resume choreography is quarantined
+	// pending the r4/r5 atomic-bundle rebuild (RB-D9) - every stub site pushes this
+	// instead of starting/resuming a coop battle. OK falls through to the default
+	// _game->popState() in previous(), so the caller's own return (to geoscape or
+	// lobby) is what the player sees underneath.
+	if (state == COOP_DLG_BATTLE_UNAVAILABLE)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setWordWrap(true);
+		_txtTitle->setAlign(ALIGN_CENTER);
+		_txtTitle->setText("Coop battles are unavailable in this build.");
+
+		_btnBack->setText(tr("OK"));
+		_btnBack->setVisible(true);
+	}
+
 	// Transfer or purchase failed
 	if (state == 551)
 	{

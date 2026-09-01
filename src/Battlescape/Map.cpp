@@ -726,11 +726,6 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	{
 		shade = std::min(+NIGHT_VISION_SHADE, shade);
 	}
-
-	// coop: ALT facing-indicator and motion-scanner arrows are read-only observer
-	// visuals, so allow them during the off-turn player's view too (previously this
-	// forced _isAltPressed/_isCtrlPressed false when it wasn't our turn).
-
 	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed);
 }
 
@@ -1240,7 +1235,18 @@ void Map::drawTerrain(Surface *surface)
 							{
 								frameNumber += Mod::SMOKE_OFFSET;
 							}
-							frameNumber += int(floor((tile->getSmoke() / 6.0) - 0.1)); // see http://www.ufopaedia.org/images/c/cb/Smoke.gif
+							if (Mod::EXTENDED_SMOKE_OFFSET == 0)
+							{
+								frameNumber += int(floor((tile->getSmoke() / 6.0) - 0.1)); // see http://www.ufopaedia.org/images/c/cb/Smoke.gif
+							}
+							else if (Mod::EXTENDED_SMOKE_OFFSET == 1)
+							{
+								frameNumber += int(floor((tile->getSmoke() / 6.0) - 0.1)) * 4;
+							}
+							else // if (Mod::EXTENDED_SMOKE_OFFSET == 2)
+							{
+								frameNumber += (tile->getSmoke() - 1) / 5 * 4;
+							}
 							shade = tileShade;
 						}
 
@@ -1574,10 +1580,11 @@ void Map::drawTerrain(Surface *surface)
 							if (_save->getBattleGame()->getCurrentAction()->type == BA_LAUNCH || _save->getBattleGame()->getCurrentAction()->sprayTargeting)
 							{
 								_numWaypid->setValue(waypid);
+								_numWaypid->setBordered(true); // OXCE, not configurable
 								_numWaypid->draw();
 								_numWaypid->blitNShade(surface, screenPosition.x + waypXOff, screenPosition.y + waypYOff, 0);
 
-								waypXOff += waypid > 9 ? 8 : 6;
+								waypXOff += waypid > 9 ? 10 : 6; // OXCE
 								if (waypXOff >= 26)
 								{
 									waypXOff = 2;
@@ -1704,17 +1711,7 @@ void Map::drawTerrain(Surface *surface)
 		}
 		if (this->getCursorType() != CT_NONE)
 		{
-
-			// coop
-			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 1)
-			{
-				// do nothing
-			}
-			else
-			{
-				_arrow->blitNShade(surface, screenPosition.x + offset.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2), screenPosition.y + offset.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame), 0);
-			}
-	
+			_arrow->blitNShade(surface, screenPosition.x + offset.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2), screenPosition.y + offset.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame), 0);
 		}
 	}
 
@@ -1783,23 +1780,11 @@ void Map::drawTerrain(Surface *surface)
 				_camera->convertMapToScreen(pos, &screenPosition);
 				screenPosition += _camera->getMapOffset();
 				screenPosition.y += 2; // based on vanilla soldier standHeight
-
-				// coop
-				if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 1)
-				{
-					// do nothing
-				}
-				else
-				{
-
-					_arrow->blitNShade(
-						surface,
-						screenPosition.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2),
-						screenPosition.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame),
-						0);
-
-				}
-
+				_arrow->blitNShade(
+					surface,
+					screenPosition.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2),
+					screenPosition.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame),
+					0);
 			}
 		}
 	}
@@ -2428,20 +2413,10 @@ void Map::scrollKey()
  */
 void Map::fadeShade()
 {
-
-	// coop
-	if (_game->getCoopMod()->getChatMenu())
-	{
-		if (_game->getCoopMod()->getChatMenu()->isActive() == true)
-		{
-			return;
-		}
-	}
-
 	bool hold = SDL_GetKeyState(NULL)[Options::keyNightVisionHold];
 	if ((_nightVisionOn && !hold) || (!_nightVisionOn && hold))
 	{
- 		_nvColor = Options::oxceNightVisionColor;
+		_nvColor = Options::oxceNightVisionColor;
 		_save->setToggleNightVisionTemp(true);
 		_save->setToggleNightVisionColorTemp(_nvColor);
 		if (_fadeShade > NIGHT_VISION_SHADE) // 0 = max brightness

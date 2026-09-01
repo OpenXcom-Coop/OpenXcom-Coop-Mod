@@ -1552,39 +1552,7 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 	{
 		direction = unit->getDirection();
 	}
-
-	bool firstAlienInitTemp = false;
-
-	// coop (pvp)
-	if (_save->getBattleGame())
-	{
-
-		if (_save->getBattleGame()->getCoopMod()->_firstAlienInit)
-		{
-			_save->getBattleGame()->getCoopMod()->_firstAlienInit = false;
-			firstAlienInitTemp = true;
-		}
-
-		if (_save->getBattleGame()->isCoop() == false && (_save->getBattleGame()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopGamemode() == 3))
-		{
-			return;
-		}
-
-		// coop (pvp)
-		if (_save->getBattleGame()->isCoop() == true && (_save->getBattleGame()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopGamemode() == 3) && _save->getBattleGame()->getHost() == true && unit->getCoop() == 1)
-		{
-			return;
-		}
-
-		// coop (pvp)
-		if (_save->getBattleGame()->isCoop() == true && (_save->getBattleGame()->getCoopGamemode() == 2 || _save->getBattleGame()->getCoopGamemode() == 3) && _save->getBattleGame()->getHost() == false && unit->getCoop() != 1)
-		{
-			return;
-		}
-
-	}
-
-	if (unit->getFaction() != FACTION_PLAYER || (eventRadius == 1 && !unit->checkViewSector(eventPos, useTurretDirection)) && firstAlienInitTemp == false)
+	if (unit->getFaction() != FACTION_PLAYER || (eventRadius == 1 && !unit->checkViewSector(eventPos, useTurretDirection)))
 	{
 		//The event wasn't meant for us and/or visible for us.
 		return;
@@ -1716,15 +1684,6 @@ Position TileEngine::getSightOriginVoxel(BattleUnit *currentUnit)
 {
 	const Position pos = currentUnit->getPosition();
 	auto* tile = currentUnit->getTile();
-
-	// coop fix
-	if (!tile)
-	{
-
-		currentUnit->setCoopStatus(STATUS_DEAD);
-		return currentUnit->getPosition();
-
-	}
 
 	// determine the origin and target voxels for the raytrace
 	Position originVoxel;
@@ -1983,12 +1942,6 @@ bool TileEngine::isTileInLOS(BattleAction *action, Tile *tile, bool drawing)
 	tempAction.actor = currentUnit;
 	tempAction.type = action->type;
 	tempAction.target = tile->getPosition();
-
-	// coop fix
-	if (!currentUnit->getTile())
-	{
-		return false;
-	}
 
 	Position originVoxel = getOriginVoxel(tempAction, currentUnit->getTile());
 	Position scanVoxel;
@@ -2538,25 +2491,11 @@ void TileEngine::calculateFOV(Position position, int eventRadius, const bool upd
  */
 bool TileEngine::checkReactionFire(BattleUnit *unit, const BattleAction &originalAction)
 {
-
 	if (_save->isPreview())
 	{
 		return false;
 	}
 
-	// coop
-	if (_save->getBattleGame())
-	{
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == false)
-		{
-			return false;
-		}
-	}
-
-	// COOP FIX
-	if (!unit)
-		return false;
-	
 	// reaction fire only triggered when the actioning unit is of the currently playing side, and is still on the map (alive)
 	if (unit->getFaction() != _save->getSide() || unit->getTile() == 0)
 	{
@@ -2612,8 +2551,7 @@ std::vector<TileEngine::ReactionScore> TileEngine::getSpottingUnits(BattleUnit* 
 	Tile *tile = unit->getTile();
 	int threshold = unit->getReactionScore();
 	// no reaction on civilian turn.
-	// reaction is allowed during the civilian turn in coop PvP mode.
-	if (_save->getSide() != FACTION_NEUTRAL || (((connectionTCP::_isHotseatActive == true && connectionTCP::_isHotseatReactionFireEnabled == true) || connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && _save->getSide() == FACTION_NEUTRAL))
+	if (_save->getSide() != FACTION_NEUTRAL)
 	{
 		for (auto* bu : *_save->getUnits())
 		{
@@ -2628,9 +2566,7 @@ std::vector<TileEngine::ReactionScore> TileEngine::getSpottingUnits(BattleUnit* 
 				// not a civilian, or a civilian shooting at bad non-ignored guys
 				(bu->getFaction() != FACTION_NEUTRAL || (unit->getFaction() == FACTION_HOSTILE && !unit->isIgnoredByAI())) &&
 				// closer than 20 tiles
-				Position::distance2dSq(unit->getPosition(), bu->getPosition()) <= getMaxViewDistanceSq() &&
-				// coop (PVP)
-					((((connectionTCP::_isHotseatActive == true && connectionTCP::_isHotseatReactionFireEnabled == true) || connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3) && bu->getFaction() != FACTION_PLAYER) || (_save->getSide() != FACTION_NEUTRAL))) 
+				Position::distance2dSq(unit->getPosition(), bu->getPosition()) <= getMaxViewDistanceSq())
 			{
 				BattleAction falseAction;
 				falseAction.type = BA_SNAPSHOT;
@@ -2971,38 +2907,9 @@ int TileEngine::hitTile(Tile* tile, int damage, const RuleDamageType* type)
 		{
 			tile->setFire(0);
 			if (damage >= type->SmokeThreshold * 2)
-			{
-
-				if (_save->getBattleGame()->getCoopMod()->_smokeRNGs.empty())
-				{
-					tile->setSmoke(RNG::generate(7, 15)); // for SmokeThreshold == 0
-				}
-				else
-				{
-
-					int oldest = _save->getBattleGame()->getCoopMod()->_smokeRNGs.front();
-					tile->setSmoke(oldest); // for SmokeThreshold == 0
-					_save->getBattleGame()->getCoopMod()->_smokeRNGs.erase(_save->getBattleGame()->getCoopMod()->_smokeRNGs.begin());
-				}
-
-			}
+				tile->setSmoke(RNG::generate(7, 15)); // for SmokeThreshold == 0
 			else
-			{
-
-				if (_save->getBattleGame()->getCoopMod()->_smokeRNGs.empty())
-				{
-					tile->setSmoke(RNG::generate(7, 15) * (damage - type->SmokeThreshold) / type->SmokeThreshold);
-				}
-				else
-				{
-
-					int oldest2 = _save->getBattleGame()->getCoopMod()->_smokeRNGs.front();
-					tile->setSmoke(oldest2 * (damage - type->SmokeThreshold) / type->SmokeThreshold);
-					_save->getBattleGame()->getCoopMod()->_smokeRNGs.erase(_save->getBattleGame()->getCoopMod()->_smokeRNGs.begin());
-				}
-
-			}
-
+				tile->setSmoke(RNG::generate(7, 15) * (damage - type->SmokeThreshold) / type->SmokeThreshold);
 			return 1;
 		}
 	}
@@ -3226,7 +3133,6 @@ bool TileEngine::awardExperience(BattleActionAttack attack, BattleUnit *target, 
  */
 bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Position &relative, int damage, const RuleDamageType *type, bool rangeAtack)
 {
-
 	if (_save->isPreview())
 	{
 		return false;
@@ -3234,17 +3140,6 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 	if (!target || target->getHealth() <= 0)
 	{
 		return false;
-	}
-
-	// COOP
-	if (_save->getBattleGame())
-	{
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false)
-		{
-
-			return true;
-
-		}
 	}
 
 	const int healthOrig = target->getHealth();
@@ -3309,137 +3204,7 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 		}
 	}
 
-	// COOP
-	if (_save->getBattleGame())
-	{
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == true)
-		{
-
-			Json::Value root;
-			root["state"] = "hit_unit";
-			root["unit_id"] = target->getId();
-			root["health"] = target->getHealth();
-			root["stunlevel"] = target->getStunlevel();
-
-			Json::Value fatalArray(Json::arrayValue);
-			for (int i = 0; i < BODYPART_MAX; ++i)
-			{
-				fatalArray.append(target->getFatalWoundsCoop()[i]);
-			}
-
-			root["fatalWounds"] = fatalArray;
-
-			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
-		}
-	}
-
 	return true;
-}
-
-// coop
-void TileEngine::hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack, int terrainMeleeTilePart, uint64_t seed)
-{
-
-	int current_damage = type->getRandomDamageForTileCoop(power, seed);
-	int damage = current_damage;
-	int tileFinalDamage = current_damage;
-
-	bool terrainChanged = false; // did the hit destroy a tile thereby changing line of sight?
-	int effectGenerated = 0;     // did the hit produce smoke (1), fire/light (2) or disabled a unit (3) ?
-	Position tilePos = center.toTile();
-	Tile* tile = _save->getTile(tilePos);
-	if (!tile || power <= 0)
-	{
-		return;
-	}
-
-	voxelCheckFlush();
-	const VoxelType part = (terrainMeleeTilePart > 0) ? (VoxelType)terrainMeleeTilePart : voxelCheck(center, attack.attacker);
-
-	if (part >= V_FLOOR && part <= V_OBJECT)
-	{
-		bool nothing = true;
-		if (terrainMeleeTilePart == 0 && (part == V_FLOOR || part == V_OBJECT))
-		{
-			for (auto* bi : *tile->getInventory())
-			{
-				if (hitUnit(attack, bi->getUnit(), Position(0, 0, 0), damage, type, rangeAtack))
-				{
-					if (bi->getGlow())
-						effectGenerated = 2; // Any glowing corpses?
-					nothing = false;
-					break;
-				}
-			}
-		}
-		if (nothing)
-		{
-			const TilePart tp = static_cast<TilePart>(part);
-			// Do we need to update the visibility of units due to smoke/fire?
-			effectGenerated = hitTile(tile, damage, type);
-			// If a tile was destroyed we may have revealed new areas for one or more observers
-			if (tileFinalDamage >= tile->getMapData(tp)->getArmor())
-				terrainChanged = true;
-
-			if (part == V_OBJECT && _save->getMissionType() == "STR_BASE_DEFENSE")
-			{
-				if (tileFinalDamage >= tile->getMapData(O_OBJECT)->getArmor() && tile->getMapData(O_OBJECT)->isBaseModule())
-				{
-					_save->getModuleMap()[(center.x / 16) / 10][(center.y / 16) / 10].second--;
-				}
-			}
-			if (tile->damage(tp, tileFinalDamage, _save->getObjectiveType()))
-			{
-				_save->addDestroyedObjective();
-			}
-		}
-	}
-	else if (part == V_UNIT)
-	{
-		BattleUnit* bu = tile->getOverlappingUnit(_save);
-		if (bu && bu->getHealth() > 0)
-		{
-			int verticaloffset = 0;
-			if (bu != tile->getUnit())
-			{
-				verticaloffset = 24;
-			}
-			const int sz = bu->getArmor()->getSize() * 8;
-			const Position target = bu->getPosition().toVoxel() + Position(sz, sz, bu->getFloatHeight() - tile->getTerrainLevel());
-			const Position relative = (center - target) - Position(0, 0, verticaloffset);
-
-			hitUnit(attack, bu, relative, damage, type, rangeAtack);
-			if (bu->getFire())
-			{
-				effectGenerated = 2;
-			}
-		}
-	}
-
-	// Recalculate relevant item/unit locations and visibility depending on what happened during the hit
-	if (terrainChanged || effectGenerated)
-	{
-		applyGravity(tile);
-		LightLayers layer = LL_ITEMS;
-		if (part == V_FLOOR && _save->getTile(tilePos - Position(0, 0, 1)))
-		{
-			layer = LL_AMBIENT; // roof destroyed, update sunlight in this tile column
-		}
-		else if (terrainChanged || effectGenerated)
-		{
-			layer = LL_FIRE; // spawned fire or smoke that can block light.
-		}
-		calculateLighting(layer, tilePos, 1, true);
-		calculateFOV(tilePos, 1, true, terrainChanged); // append any new units or tiles revealed by the terrain change
-	}
-	else
-	{
-		// script could affect visibility of units, fast check if something is changed.
-		calculateFOV(tilePos, 1, false); // skip updating of tiles
-	}
-	// Note: If bu was knocked out this will have no effect on unit visibility quite yet, as it is not marked as out
-	// and will continue to block visibility at this point in time.
-
 }
 
 /**
@@ -3454,94 +3219,6 @@ void TileEngine::hitCoop(BattleActionAttack attack, Position center, int power, 
  */
 void TileEngine::hit(BattleActionAttack attack, Position center, int power, const RuleDamageType *type, bool rangeAtack, int terrainMeleeTilePart)
 {
-
-	// coop
-	int damage = 0;
-	int tileFinalDamage = 0;
-
-	if (_save->getBattleGame())
-	{
-
-		// COOP
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == false)
-		{
-
-			_save->getBattleGame()->getCoopMod()->_battleActions.push_back(attack);
-
-			return;
-		}
-
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == true)
-		{
-
-			uint64_t seed = RNG::getSeedCoop();
-
-			int current_damage = type->getRandomDamageForTileCoop(power, seed);
-			damage = current_damage;
-			tileFinalDamage = current_damage;
-
-			uint64_t _smokeRNG = RNG::generate(7, 15);
-
-			_save->getBattleGame()->getCoopMod()->_smokeRNGs.push_back(_smokeRNG);
-
-			Json::Value root;
-			root["state"] = "hit_tile";
-
-			root["center_x"] = center.x;
-			root["center_y"] = center.y;
-			root["center_z"] = center.z;
-
-			root["power"] = power;
-			root["rangeAtack"] = rangeAtack;
-			root["terrainMeleeTilePart"] = terrainMeleeTilePart;
-
-			root["seed"] = seed;
-			root["smokeRNG"] = _smokeRNG;
-
-			// new!!!
-			root["ArmorEffectiveness"] = type->ArmorEffectiveness;
-			root["FireBlastCalc"] = type->FireBlastCalc;
-			root["FireThreshold"] = type->FireThreshold;
-			root["FixRadius"] = type->FixRadius;
-			root["IgnoreDirection"] = type->IgnoreDirection;
-			root["IgnoreNormalMoraleLose"] = type->IgnoreNormalMoraleLose;
-			root["IgnoreOverKill"] = type->IgnoreOverKill;
-			root["IgnorePainImmunity"] = type->IgnorePainImmunity;
-			root["IgnoreSelfDestruct"] = type->IgnoreSelfDestruct;
-			root["RadiusEffectiveness"] = type->RadiusEffectiveness;
-			root["RadiusReduction"] = type->RadiusReduction;
-			root["RandomArmor"] = type->RandomArmor;
-			root["RandomArmorPre"] = type->RandomArmorPre;
-			root["RandomEnergy"] = type->RandomEnergy;
-			root["RandomHealth"] = type->RandomHealth;
-			root["RandomItem"] = type->RandomItem;
-			root["RandomMana"] = type->RandomMana;
-			root["RandomMorale"] = type->RandomMorale;
-			root["RandomStun"] = type->RandomStun;
-			root["RandomTile"] = type->RandomTile;
-			root["RandomTime"] = type->RandomTime;
-			root["RandomType"] = _save->getBattleGame()->getCoopMod()->ItemDamageRandomTypeToInt(type->RandomType);
-			root["RandomWound"] = type->RandomWound;
-			root["ResistType"] = _save->getBattleGame()->getCoopMod()->ItemDamageTypeToInt(type->ResistType);
-			root["SmokeThreshold"] = type->SmokeThreshold;
-			root["TileDamageMethod"] = type->TileDamageMethod;
-			root["ToArmor"] = type->ToArmor;
-			root["ToArmorPre"] = type->ToArmorPre;
-			root["ToEnergy"] = type->ToEnergy;
-			root["ToHealth"] = type->ToHealth;
-			root["ToItem"] = type->ToItem;
-			root["ToMana"] = type->ToMana;
-			root["ToMorale"] = type->ToMorale;
-			root["ToStun"] = type->ToStun;
-			root["ToTile"] = type->ToTile;
-			root["ToWound"] = type->ToWound;
-
-			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-		}
-
-	}
-
 	bool terrainChanged = false; //did the hit destroy a tile thereby changing line of sight?
 	int effectGenerated = 0; //did the hit produce smoke (1), fire/light (2) or disabled a unit (3) ?
 	Position tilePos = center.toTile();
@@ -3553,14 +3230,8 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 
 	voxelCheckFlush();
 	const VoxelType part = (terrainMeleeTilePart > 0) ? (VoxelType)terrainMeleeTilePart : voxelCheck(center, attack.attacker);
-
-	// coop
-	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == false)
-	{
-		damage = type->getRandomDamage(power);
-		tileFinalDamage = type->getTileFinalDamage(type->getRandomDamageForTile(power, damage));
-	}
-
+	const int damage = type->getRandomDamage(power);
+	const int tileFinalDamage = type->getTileFinalDamage(type->getRandomDamageForTile(power, damage));
 	if (part >= V_FLOOR && part <= V_OBJECT)
 	{
 		bool nothing = true;
@@ -3618,7 +3289,6 @@ void TileEngine::hit(BattleActionAttack attack, Position center, int power, cons
 			}
 		}
 	}
-
 	//Recalculate relevant item/unit locations and visibility depending on what happened during the hit
 	if (terrainChanged || effectGenerated)
 	{
@@ -3666,21 +3336,6 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 	std::map<Tile*, int> tilesAffected;
 	std::vector<BattleItem*> toRemove;
 	std::pair<std::map<Tile*, int>::iterator, bool> ret;
-	// coop (issue #74): every item this blast destroys, for the host to ship to
-	// the peer. A client must not decide this for itself. For CARRIED items it
-	// cannot - hitUnit() returns early with `true` on a client (it applies no
-	// damage; the host mirrors the result via "hit_unit"), short-circuiting the
-	// `!hitUnit(...) && ...` test below. For items on the GROUND it half can,
-	// because hitUnit() returns false for a non-corpse before reaching that
-	// early return - but it would judge them against its OWN
-	// type->getRandomDamage() roll, which is a different number from the host's.
-	// So the client removes nothing here and applies the host's list instead.
-	Json::Value coopRemoved(Json::arrayValue);
-	bool coopClient = false;
-	if (_save->getBattleGame() && _save->getBattleGame()->getCoopMod()->getCoopStatic() == true)
-	{
-		coopClient = (_save->getBattleGame()->getCoopMod()->getHost() == false);
-	}
 
 	if (type->FireBlastCalc)
 	{
@@ -3793,14 +3448,6 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 						}
 						for (auto* bi : toRemove)
 						{
-							if (coopClient)
-							{
-								continue; // the host's "explode_items" decides
-							}
-							Json::Value e;
-							e["id"] = bi->getId();
-							e["type"] = bi->getRules()->getType();
-							coopRemoved.append(e);
 							_save->removeItem(bi);
 						}
 
@@ -3877,54 +3524,13 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
 				applyGravity(j);
 		}
 	}
-	// coop (issue #74): hand the peer the exact set of items this blast destroyed.
-	// Outcome replication, not input replication - the per-tile damage roll
-	// (type->getRandomDamage) is drawn from each machine's own RNG stream, so
-	// asking the client to recompute the set would only trade "one side destroys"
-	// for "both destroy, disagreeing about which".
-	if (_save->getBattleGame() && !coopRemoved.empty())
-	{
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true
-			&& _save->getBattleGame()->getCoopMod()->getHost() == true)
-		{
-			Json::Value root;
-			root["state"] = "explode_items";
-			root["items"] = coopRemoved;
-			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(root.toStyledString());
-		}
-	}
-
-	// coop
-	bool coop_is_second_fov = false;
 	calculateLighting(LL_AMBIENT, centetTile, maxRadius + 1, true); // roofs could have been destroyed and fires could have been started
 	calculateFOV(centetTile, maxRadius + 1, true, true);
 	if (attack.attacker && Position::distance2d(centetTile, attack.attacker->getPosition()) > maxRadius + 1)
 	{
 		// unit is away from blast but its visibility can be affected by scripts.
 		calculateFOV(centetTile, 1, false);
-
-		// coop
-		coop_is_second_fov = true;
 	}
-
-	// COOP
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true && connectionTCP::getCoopGamemode() != 2 && connectionTCP::getCoopGamemode() != 3)
-	{
-
-		Json::Value root;
-		root["state"] = "calc_explode_fov";
-
-		root["maxRadius"] = maxRadius;
-		root["coop_is_second_fov"] = coop_is_second_fov;
-
-		root["center_tile_x"] = centetTile.x;
-		root["center_tile_y"] = centetTile.y;
-		root["center_tile_z"] = centetTile.z;
-
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-
-	}
-
 }
 
 /**
@@ -3935,13 +3541,6 @@ void TileEngine::explode(BattleActionAttack attack, Position center, int power, 
  */
 bool TileEngine::detonate(Tile* tile, int explosive)
 {
-
-	// coop fix
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-		return true;
-	}
-
 	if (explosive == 0) return false; // no damage applied for this tile
 	bool objective = false;
 	Tile* tiles[9];
@@ -5576,73 +5175,6 @@ void TileEngine::itemDrop(Tile *t, BattleItem *item, bool updateLight)
 		item->setTurnFlag(true);
 	}
 
-	// COOP
-	if (_save->getBattleGame())
-	{
-
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->getHost() == true)
-		{
-
-			Json::Value obj;
-			obj["state"] = "Inventory";
-			obj["item_name"] = item->getRules()->getName();
-			obj["inv_id"] = "";
-			obj["inv_x"] = 0;
-			obj["inv_y"] = 0;
-			obj["slot_x"] = item->getSlotX();
-			obj["slot_y"] = item->getSlotY();
-			obj["unit_id"] = -1;
-			obj["item_id"] = item->getId();
-			obj["move_cost"] = -1;
-
-			obj["getHealQuantity"] = item->getHealQuantity();
-			obj["getPainKillerQuantity"] = item->getPainKillerQuantity();
-			obj["getStimulantQuantity"] = item->getStimulantQuantity();
-			obj["getFuseTimer"] = item->getFuseTimer();
-			obj["getXCOMProperty"] = item->getXCOMProperty();
-			obj["isAmmo"] = item->isAmmo();
-			obj["isWeaponWithAmmo"] = item->isWeaponWithAmmo();
-			obj["isFuseEnabled"] = item->isFuseEnabled();
-			obj["getAmmoQuantity"] = item->getAmmoQuantity();
-
-			// new!!!
-			obj["coopbase"] = _save->getBattleGame()->getCoopMod()->playerInsideCoopBase;
-			obj["slot_type"] = _save->getBattleGame()->getCoopMod()->InventoryTypeToInt(INV_GROUND);
-			obj["other_coop_inventory"] = _save->getBattleGame()->getCoopMod()->coopInventory;
-			obj["item_type"] = item->getRules()->getType();
-
-
-			obj["item_slot_type"] = 2;
-			if (item->getSlot())
-			{
-				obj["item_slot_type"] = _save->getBattleGame()->getCoopMod()->InventoryTypeToInt(item->getSlot()->getType());
-				obj["move_cost"] = 0;
-			}
-
-			obj["coopItems"] = Json::nullValue;
-			obj["coop_item_id"] = item->getCoopID();
-
-			obj["coopbase_id"] = -1;
-			obj["craft_id"] = -1;
-			obj["craft_type"] = "";
-
-			obj["sel_item_id"] = -1;
-			obj["sel_item_type"] = "";
-
-			obj["ammos"] = Json::nullValue;
-			obj["unload_weapon"] = false;
-			obj["tu"] = false;
-
-			// new
-			obj["tile_x"] = p.x;
-			obj["tile_y"] = p.y;
-			obj["tile_z"] = p.z;
-
-			_save->getBattleGame()->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
-
-	}
-
 	itemMoveInventory(t, nullptr, item, _inventorySlotGround, 0, 0);
 
 	applyGravity(t);
@@ -6515,11 +6047,6 @@ void TileEngine::updateGameStateAfterScript(BattleActionAttack battleActionAttac
 		calculateLighting(LL_ITEMS, pos, 2, true);
 		calculateFOV(pos, 1, false);
 	}
-}
-
-const RuleInventory* TileEngine::getInventorySlotGround()
-{
-	return _inventorySlotGround;
 }
 
 }

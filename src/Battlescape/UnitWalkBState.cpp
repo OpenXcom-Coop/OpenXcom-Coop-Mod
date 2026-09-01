@@ -42,7 +42,7 @@ namespace OpenXcom
  * @param parent Pointer to the Battlescape.
  * @param action Pointer to an action.
  */
-UnitWalkBState::UnitWalkBState(BattlescapeGame* parent, BattleAction action) : BattleState(parent, action), _unit(0), _pf(0), _terrain(0), _beforeFirstStep(false), _numUnitsSpotted(0), _preMovementCost(0)
+UnitWalkBState::UnitWalkBState(BattlescapeGame *parent, BattleAction action) : BattleState(parent, action), _unit(0), _pf(0), _terrain(0), _beforeFirstStep(false), _numUnitsSpotted(0), _preMovementCost(0)
 {
 
 }
@@ -52,6 +52,7 @@ UnitWalkBState::UnitWalkBState(BattlescapeGame* parent, BattleAction action) : B
  */
 UnitWalkBState::~UnitWalkBState()
 {
+
 }
 
 /**
@@ -59,11 +60,6 @@ UnitWalkBState::~UnitWalkBState()
  */
 void UnitWalkBState::init()
 {
-
-	// coop
-	_parent->setCoopTaskCompleted(false);
-	_parent->getCoopMod()->_coopWalkInit = true;
-
 	_unit = _action.actor;
 	_numUnitsSpotted = _unit->getUnitsSpottedThisTurn().size();
 	setNormalWalkSpeed();
@@ -77,51 +73,6 @@ void UnitWalkBState::init()
 		_beforeFirstStep = true;
 	}
 	_terrain->addMovingUnit(_unit);
-	
-	// coop
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
-	{
-		Json::Value obj;
-		obj["state"] = "BattleScapeMove";
-
-		int index = 0;
-
-		obj["id"] = _unit->getId();
-
-		int startx = _unit->getPosition().x;
-		int starty = _unit->getPosition().y;
-		int startz = _unit->getPosition().z;
-
-		obj["coords"]["start"]["x"] = startx;
-		obj["coords"]["start"]["y"] = starty;
-		obj["coords"]["start"]["z"] = startz;
-
-		obj["coords"]["end"]["x"] = _target.x;
-		obj["coords"]["end"]["y"] = _target.y;
-		obj["coords"]["end"]["z"] = _target.z;
-
-		obj["tu"] = _unit->getTimeUnits();
-		obj["energy"] = _unit->getEnergy();
-		obj["health"] = _unit->getHealth();
-		obj["morale"] = _unit->getMorale();
-		obj["stunlevel"] = _unit->getStunlevel();
-		obj["mana"] = _unit->getMana();
-
-		obj["strafe"] = _action.strafe;
-		obj["run"] = _action.run;
-		obj["sneak"] = _action.sneak;
-
-		// new
-		obj["visible"] = _unit->getVisible();
-		obj["hiding"] = _unit->isHiding();
-
-		obj["setDirection"] = _unit->getDirection();
-		obj["setFaceDirection"] = _unit->getFaceDirection();
-
-		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-
-	}
-
 }
 
 /**
@@ -129,51 +80,7 @@ void UnitWalkBState::init()
  */
 void UnitWalkBState::deinit()
 {
-
-	_parent->getCoopMod()->_coopWalkInit = false;
-
-	// coop
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
-	{
-
-		Json::Value root;
-
-		root["state"] = "abortPath";
-
-		root["unit_id"] = _unit->getId();
-
-		root["x"] = _unit->getPosition().x;
-		root["y"] = _unit->getPosition().y;
-		root["z"] = _unit->getPosition().z;
-
-		root["setDirection"] = _unit->getDirection();
-		root["setFaceDirection"] = _unit->getFaceDirection();
-
-		root["setTurretDirection"] = _unit->getTurretDirection();
-		root["setTurretToDirection"] = _unit->getTurretToDirection();
-
-		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
-		{
-			int j = 0;
-			for (auto* bu : *_unit->getVisibleUnits())
-			{
-
-				root["visible_units"][j]["unit_id"] = _unit->getId();
-
-				j++;
-			}
-		}
-	
-		_parent->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-	}
-
-	// coop
-	_parent->setCoopTaskCompleted(true);
-
 	_terrain->removeMovingUnit(_unit);
-
-
 }
 
 /**
@@ -181,22 +88,6 @@ void UnitWalkBState::deinit()
  */
 void UnitWalkBState::think()
 {
-
-	// coop
-	if (_parent->getCoopMod()->AbortCoopWalk == true)
-	{
-
-		_parent->getCoopMod()->AbortCoopWalk = false;
-
-		_unit->setCoopStatus(STATUS_STANDING);
-		_unit->setwalkPhaseCoop(0);
-
-		_pf->abortPath();
-		_parent->popState();
-		return;
-
-	}
-
 	if (!_unit->getArmor()->allowsMoving())
 	{
 		_pf->abortPath();
@@ -252,41 +143,8 @@ void UnitWalkBState::think()
 			(_parent->getSave()->getTile(_unit->getDestination())->getUnit() == _unit))
 		{
 			bool onScreenBoundary = (_unit->getVisible() && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true));
-
-			// coop
-			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActiveAISync == false)
-			{
-				onScreenBoundary = true;
-			}
-
 			_unit->keepWalking(_parent->getSave(), onScreenBoundary); // advances the phase
-
-			// coop
-			bool sound = true;
-
-			// Do not play walking sounds while multiplayer is paused
-			if (connectionTCP::pauseSound == true)
-			{
-				sound = false;
-			}
-
-			// PVP
-			if (_parent->getCoopMod()->getCoopGamemode() == 2 || _parent->getCoopMod()->getCoopGamemode() == 3)
-			{
-
-				if (_parent->getCurrentAction()->sneak == true)
-				{
-					sound = false;
-				}
-
-			}
-
-			// coop
-			if ((sound == true && connectionTCP::_enable_other_player_footsteps == true && _parent->getCoopMod()->_isActivePlayerSync == false) || _parent->getCoopMod()->getCoopStatic() == false || _parent->getCoopMod()->_isActivePlayerSync == true || (_unit->getFaction() != FACTION_PLAYER && _parent->getCoopMod()->getCoopGamemode() != 2 && _parent->getCoopMod()->getCoopGamemode() != 3))
-			{
-				playMovementSound();
-			}
-
+			playMovementSound();
 			if (_parent->getSave()->isPreview())
 			{
 				_unit->resetTimeUnitsAndEnergy();
@@ -367,12 +225,6 @@ void UnitWalkBState::think()
 			//tile visibility for this unit is handled later.
 			unitSpotted = (!_action.ignoreSpottedEnemies && !_falling && !_action.desperate && _parent->getPanicHandled() && _numUnitsSpotted != _unit->getUnitsSpottedThisTurn().size());
 
-			// coop
-			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false)
-			{
-				unitSpotted = false;
-			}
-
 			if (change > 1)
 			{
 				_parent->popState();
@@ -383,8 +235,7 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 			// check for reaction fire
-			// coop
-			if (!_falling && !_fallingWhenStopped && ((connectionTCP::_enable_reaction_shoot == true && connectionTCP::_isHotseatActive == false) || (connectionTCP::_isHotseatActive == true && connectionTCP::_isHotseatReactionFireEnabled == true)))
+			if (!_falling && !_fallingWhenStopped)
 			{
 				if (_terrain->checkReactionFire(_unit, _action))
 				{
@@ -571,12 +422,6 @@ void UnitWalkBState::think()
 		_terrain->calculateFOV(_unit);
 		unitSpotted = (!_action.ignoreSpottedEnemies && !_falling && !_action.desperate && _parent->getPanicHandled() && _numUnitsSpotted != _unit->getUnitsSpottedThisTurn().size());
 
-		// coop
-		if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false)
-		{
-			unitSpotted = false;
-		}
-
 		if (unitSpotted && !_action.desperate && !_unit->getCharging() && !_falling)
 		{
 			if (_beforeFirstStep)
@@ -590,7 +435,6 @@ void UnitWalkBState::think()
 			return cancelCurentMove();
 		}
 	}
-
 }
 
 /**
@@ -687,8 +531,7 @@ void UnitWalkBState::setNormalWalkSpeed()
 void UnitWalkBState::playMovementSound()
 {
 	int size = _unit->getArmor()->getSize() - 1;
-	if ((!_unit->getVisible() && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false))
-		return;
+	if ((!_unit->getVisible() && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)) return;
 
 	Tile *tile = _unit->getTile();
 	int sound = -1;

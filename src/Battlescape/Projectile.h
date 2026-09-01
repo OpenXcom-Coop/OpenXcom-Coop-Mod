@@ -59,7 +59,8 @@ private:
 	int _bulletSprite;
 	bool _reversed;
 	int _vaporColor, _vaporDensity, _vaporProbability;
-  public:
+	void applyAccuracy(Position origin, Position *target, double accuracy, bool keepRange, bool extendLine);
+public:
 	/// Creates a new Projectile.
 	Projectile(Mod *mod, SavedBattleGame *save, BattleAction action, Position origin, Position target, BattleItem *ammo);
 	/// Cleans up the Projectile.
@@ -91,7 +92,6 @@ private:
 	bool isReversed() const;
 	/// adds a cloud of particles at the projectile's location
 	void addVaporCloud();
-	void applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine, bool accuracyLossCoop = false, double* accuracyLossCoopValue = 0);
 };
 
 }

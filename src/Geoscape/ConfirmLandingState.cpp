@@ -276,69 +276,13 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 	if (connectionTCP::getCoopStatic() == true)
 	{
-
-		// PRD-J09: SHARED battle entry. The world is shared - the craft already
-		// carries the full mixed-owner squad - and the HOST (which ran the
-		// geoscape sim that popped this dialog) is the battle authority. Stamp the
-		// in-battle control split from soldier ownership (seat 0/unknown -> host
-		// control, any other seat -> client), then generate the battle host-side
-		// and ship "battlehost" to the client via the existing coop path. This
-		// SKIPS the SEPARATE two-world merge (CoopState(88)/sendCraft), which in
-		// SHARED would duplicate the already-shared soldiers.
-		if (_game->getCoopMod()->isSharedCampaign())
-		{
-			_game->getCoopMod()->setSelectedCraft(_craft);
-			_game->getCoopMod()->setConfirmLandingState(this);
-			_game->getCoopMod()->setHost(true);
-			for (auto* s : *_craft->getBase()->getSoldiers())
-			{
-				if (s->getCraft() != _craft)
-					continue;
-				int owner = s->getOwnerPlayerId();
-				s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
-				s->setCoopBase(-1);
-			}
-			for (auto* v : *_craft->getVehicles())
-			{
-				v->setCoop(0);
-				v->setCoopBase(-1);
-			}
-			startCoopMission();
-			_game->popState();
-			return;
-		}
-
-		if (_game->getCoopMod()->getHost() == true)
-		{
-			_game->getCoopMod()->setSelectedCraft(_craft);
-			_game->getCoopMod()->setConfirmLandingState(this);
-			CoopState *coopWindow = new CoopState(88);
-			_game->pushState(coopWindow);
-
-		}
-		// The client wants to start a COOP mission!!! Transferring them to HOST!!!
-		else
-		{
-
-			Json::Value root;
-
-			root["state"] = "changeHost";
-
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-			_game->getCoopMod()->setHost(true);
-
-			_game->getCoopMod()->setSelectedCraft(_craft);
-			_game->getCoopMod()->setConfirmLandingState(this);
-
-			// fix
-			CoopState* coopWindow = new CoopState(88);
-			_game->pushState(coopWindow);
-			
-
-		}
-
-
+		// R1-P5/R4-REWIRE: coop landing battle-start choreography (SHARED
+		// host-authoritative stream + the SEPARATE two-world changeHost merge, both
+		// ending in BriefingState::setupCoop() and per-soldier seat mutation) is
+		// quarantined pending the r4/r5 atomic-bundle rebuild (RB-D9) - those symbols
+		// died with the vanilla restore (911ca487f). SP path below is untouched.
+		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
+		return;
 	}
 	else
 	{
@@ -414,13 +358,12 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 void ConfirmLandingState::startCoopMission()
 {
-	// SHARED: the host generates the authoritative battle exactly ONCE and ships it. A
-	// second call here would run bgen.run() again and replace the world with a NEW random
-	// map, stranding the client (which already loaded the first) on a different map. If a
-	// battle already exists, this is a re-entry - do nothing.
-	if (_game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()
-		&& _game->getSavedGame()->getSavedBattle())
+	// R1-P5/R4-REWIRE: also reachable asynchronously from
+	// connectionTCP::setClientSoldiers() on the coop host after a changeHost
+	// round-trip - RB-D9's quarantine covers this entry path too.
+	if (connectionTCP::getCoopStatic())
 	{
+		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
 		return;
 	}
 
@@ -487,11 +430,7 @@ void ConfirmLandingState::startCoopMission()
 		throw Exception("No mission available!");
 	}
 	bgen.run();
-	//_game->pushState(new BriefingState(_craft));
-
-	BriefingState* bri = new BriefingState(_craft);
-	bri->setupCoop();
-
+	_game->pushState(new BriefingState(_craft));
 }
 
 /**

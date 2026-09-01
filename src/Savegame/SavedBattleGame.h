@@ -64,7 +64,8 @@ public:
 	static void ScriptRegister(ScriptParserBase* parser);
 	/// Register useful function used by graphic scripts.
 	static void ScriptRegisterUnitAnimations(ScriptParserBase* parser);
-  private:
+
+private:
 	bool _isPreview;
 	SDL_Rect _craftPos;
 	int _craftZ;
@@ -367,7 +368,9 @@ public:
 	}
 
 	/// Gets the currently selected unit.
-	BattleUnit *getSelectedUnit() const;
+	BattleUnit *getSelectedUnit();
+	/// Gets the currently selected unit.
+	const BattleUnit *getSelectedUnit() const;
 	/// Sets the currently selected unit.
 	void setSelectedUnit(BattleUnit *unit);
 	/// Gets the "undo" unit.
@@ -389,15 +392,10 @@ public:
 	TileEngine *getTileEngine() const;
 	/// Gets the playing side.
 	UnitFaction getSide() const;
-	// coop
-	void setSideCoop(int side);
-	void itemDropInventoryCoop(Tile* t, BattleUnit* unit, bool unprimeItems, bool deleteFixedItems);
 	/// Can unit use that weapon?
 	bool canUseWeapon(const BattleItem *weapon, const BattleUnit *unit, bool isBerserking, BattleActionType actionType, std::string* message = nullptr) const;
 	/// Gets the turn number.
 	int getTurn() const;
-	// coop
-	void setTurnCoop(int turn);
 	/// Sets the bug hunt turn number.
 	void setBughuntMinTurn(int bughuntMinTurn);
 	/// Gets the bug hunt turn number.
@@ -433,8 +431,6 @@ public:
 	void loadMapResources(Mod *mod);
 	/// Resets tiles units are standing on
 	void resetUnitTiles();
-	// coop pvp
-	void resetCoopTiles();
 	/// Add item to delete list.
 	void deleteList(BattleItem *item);
 	/// Removes an item from the game.
@@ -451,7 +447,7 @@ public:
 	/// Create new special built-in item for unit.
 	BattleItem *createItemForUnitSpecialBuiltin(const RuleItem *rule, BattleUnit *unit);
 	/// Create new item for tile.
-	BattleItem *createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor = nullptr, int coopID = 0);
+	BattleItem *createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor = nullptr);
 	/// Create new item for tile.
 	BattleItem *createItemForTile(const std::string& type, Tile *tile);
 	/// Create new temporary item.
@@ -672,12 +668,6 @@ public:
 	const HitLog *getHitLog() const;
 	/// Reset all the unit hit state flags.
 	void resetUnitHitStates();
-
-	// coop
-	void abortPathCoop();
-	void coopExplosionCalc(Position centetTile, int maxRadius, bool coop_is_second_fov);
-	bool moveBaseCoopInventory(std::string item_type, int coop_item_id, int coopbase_id, int craft_id, std::string craft_type, int slot_type, int item_slot_type, std::string str_coop_items);
-	void moveBaseCoopInventorySave(Base* base, Craft* craft, BattleItem* item, int slot_type_int);
 };
 
 }

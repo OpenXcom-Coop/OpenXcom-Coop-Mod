@@ -201,6 +201,7 @@ int Mod::EXTENDED_TERRAIN_MELEE;
 int Mod::EXTENDED_UNDERWATER_THROW_FACTOR;
 bool Mod::EXTENDED_EXPERIENCE_AWARD_SYSTEM;
 bool Mod::EXTENDED_FORCE_SPAWN;
+int Mod::EXTENDED_SMOKE_OFFSET;
 
 extern std::string OXCE_CURRENCY_SYMBOL;
 
@@ -317,6 +318,7 @@ void Mod::resetGlobalStatics()
 	EXTENDED_UNDERWATER_THROW_FACTOR = 0;
 	EXTENDED_EXPERIENCE_AWARD_SYSTEM = false;
 	EXTENDED_FORCE_SPAWN = false;
+	EXTENDED_SMOKE_OFFSET = 0;
 
 	OXCE_CURRENCY_SYMBOL = "$";
 }
@@ -2713,6 +2715,7 @@ void Mod::loadConstants(const YAML::YamlNodeReader &reader)
 	reader.tryRead("extendedUnderwaterThrowFactor", EXTENDED_UNDERWATER_THROW_FACTOR);
 	reader.tryRead("extendedExperienceAwardSystem", EXTENDED_EXPERIENCE_AWARD_SYSTEM);
 	reader.tryRead("extendedForceSpawn", EXTENDED_FORCE_SPAWN);
+	reader.tryRead("extendedSmokeOffset", EXTENDED_SMOKE_OFFSET);
 
 	reader.tryRead("extendedCurrencySymbol", OXCE_CURRENCY_SYMBOL);
 }

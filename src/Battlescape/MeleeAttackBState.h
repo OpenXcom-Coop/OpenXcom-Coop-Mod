@@ -51,8 +51,6 @@ public:
 	void think() override;
 	/// Performs a melee attack
 	void performMeleeAttack(int terrainMeleeTilePart = 0);
-	// coop
-	bool coop_action = false;
 
 };
 

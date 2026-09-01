@@ -53,42 +53,8 @@ PsiAttackBState::~PsiAttackBState()
  */
 void PsiAttackBState::init()
 {
-
 	if (_initialized) return;
 	_initialized = true;
-
-	// coop
-	if (_parent->getCoopMod()->_isActivePlayerSync == false && _parent->getCoopMod()->_psi_target_id != -1)
-	{
-
-		// unit
-		for (auto u : *_parent->getSave()->getUnits())
-		{
-
-			if (u->getId() == _parent->getCoopMod()->_psi_target_id)
-			{
-				_target = u;
-				_parent->getCoopMod()->_psi_target_id = -1;
-				_action.target = u->getPosition();
-				break;
-			}
-		}
-
-		_item = _action.weapon;
-		_unit = _action.actor;
-
-		if (_parent->getSave()->getTile(_action.target))
-		{
-
-			int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
-			Position voxel = _action.target.toVoxel() + Position(8, 8, height);
-			_parent->statePushFront(new ExplosionBState(_parent, voxel, BattleActionAttack::GetAferShoot(_action, _action.weapon)));
-
-		}
-
-		return;
-	}
-
 
 	_item = _action.weapon;
 
@@ -132,54 +98,8 @@ void PsiAttackBState::init()
 	int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
 	Position voxel = _action.target.toVoxel() + Position(8, 8, height);
 	_parent->statePushFront(new ExplosionBState(_parent, voxel, BattleActionAttack::GetAferShoot(_action, _action.weapon)));
-
-	// coop
-	if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
-	{
-		Json::Value obj;
-		obj["state"] = "psi_attack";
-
-		int index = 0;
-
-		obj["unit_id"] = _unit->getId();
-		obj["target_id"] = _target->getId();
-
-		int startx = _unit->getPosition().x;
-		int starty = _unit->getPosition().y;
-		int startz = _unit->getPosition().z;
-
-		obj["coords"]["start"]["x"] = startx;
-		obj["coords"]["start"]["y"] = starty;
-		obj["coords"]["start"]["z"] = startz;
-
-		int endx = _parent->getCurrentAction()->target.x;
-		int endy = _parent->getCurrentAction()->target.y;
-		int endz = _parent->getCurrentAction()->target.z;
-
-		obj["coords"]["end"]["x"] = endx;
-		obj["coords"]["end"]["y"] = endy;
-		obj["coords"]["end"]["z"] = endz;
-
-		obj["tu"] = _unit->getTimeUnits();
-		obj["energy"] = _unit->getEnergy();
-		obj["health"] = _unit->getHealth();
-		obj["morale"] = _unit->getMorale();
-		obj["stunlevel"] = _unit->getStunlevel();
-		obj["mana"] = _unit->getMana();
-
-		// new!
-		obj["weapon_type"] = _action.weapon->getRules()->getType();
-		obj["type"] = (int)_action.type;
-		// coop (issue #74): the weapon that actually acted, and the hand it is
-		// really in - not the sender's last hand-button click.
-		obj["weapon_id"] = _action.weapon->getId();
-		obj["hand"] = BattlescapeGame::coopHandOf(_action.actor, _action.weapon, _parent->getCoopWeaponHand());
-
-		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-	}
-
-
 }
+
 
 /**
  * After the explosion animation is done doing its thing,

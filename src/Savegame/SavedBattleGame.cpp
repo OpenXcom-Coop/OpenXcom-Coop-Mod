@@ -54,10 +54,10 @@
 #include "../fallthrough.h"
 #include "../fmath.h"
 #include "../Engine/Language.h"
-#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
+
 /**
  * Initializes a brand new battlescape saved game.
  */
@@ -472,7 +472,6 @@ void SavedBattleGame::loadMapResources(Mod *mod)
 	}
 
 	initUtilities(mod);
-
 	// matches up tiles and units
 	resetUnitTiles();
 	getTileEngine()->calculateLighting(LL_AMBIENT, TileEngine::invalid, 0, true);
@@ -854,7 +853,16 @@ Position SavedBattleGame::getTileCoords(int index) const
  * Gets the currently selected unit
  * @return Pointer to BattleUnit.
  */
-BattleUnit *SavedBattleGame::getSelectedUnit() const
+BattleUnit *SavedBattleGame::getSelectedUnit()
+{
+	return _selectedUnit;
+}
+
+/**
+ * Gets the currently selected unit
+ * @return Pointer to BattleUnit.
+ */
+const BattleUnit *SavedBattleGame::getSelectedUnit() const
 {
 	return _selectedUnit;
 }
@@ -866,21 +874,6 @@ BattleUnit *SavedBattleGame::getSelectedUnit() const
 void SavedBattleGame::setSelectedUnit(BattleUnit *unit)
 {
 	_selectedUnit = unit;
-
-	// The first local gift target may be initialized before Battlescape finishes
-	// choosing the unit shown in the HUD. Keep the gift target synchronized when
-	// the normal selection later changes to another locally owned soldier, so the
-	// GiftSoldierMenu cannot display or transfer an older fallback unit.
-	//
-	// setGiftSelectedBattleUnit() validates local ownership. On a waiting peer,
-	// selectedUnit may describe the remote active player's soldier; that invalid
-	// unit is ignored and the waiting player's separate local gift selection is
-	// preserved.
-	if (unit && _battleState && _battleState->getGame()
-		&& _battleState->getGame()->getCoopMod())
-	{
-		_battleState->getGame()->getCoopMod()->setGiftSelectedBattleUnit(unit);
-	}
 }
 
 /**
@@ -992,15 +985,6 @@ BattleUnit *SavedBattleGame::selectPlayerUnit(int dir, bool checkReselect, bool 
 	while (!(*i)->isSelectable(_side, checkReselect, checkInventory));
 
 	_selectedUnit = (*i);
-
-	// Keep the local gift selection synchronized with normal next/previous
-	// soldier selection. connectionTCP revalidates ownership, so selecting a
-	// unit controlled by another seat cannot make it giftable.
-	if (_battleState && _battleState->getGame() && _battleState->getGame()->getCoopMod())
-	{
-		_battleState->getGame()->getCoopMod()->setGiftSelectedBattleUnit(_selectedUnit);
-	}
-
 	return _selectedUnit;
 }
 
@@ -1038,17 +1022,6 @@ BattleUnit* SavedBattleGame::selectNextPlayerUnitByDistance(bool checkReselect, 
 
 		_selectedUnit = candidates.front().second;
 	}
-
-	// This path changes the HUD selection without calling setSelectedUnit().
-	// Keep the same active-player gift target synchronization as the regular
-	// next/previous-unit path. Local ownership validation prevents a remote
-	// active unit from replacing an off-turn player's private gift selection.
-	if (_selectedUnit && _battleState && _battleState->getGame()
-		&& _battleState->getGame()->getCoopMod())
-	{
-		_battleState->getGame()->getCoopMod()->setGiftSelectedBattleUnit(_selectedUnit);
-	}
-
 	return _selectedUnit;
 }
 
@@ -1134,19 +1107,6 @@ UnitFaction SavedBattleGame::getSide() const
 	return _side;
 }
 
-void SavedBattleGame::setSideCoop(int side)
-{
-	_side = (UnitFaction)side;
-}
-
-void SavedBattleGame::itemDropInventoryCoop(Tile* t, BattleUnit* unit, bool unprimeItems, bool deleteFixedItems)
-{
-	if (_tileEngine)
-	{
-		_tileEngine->itemDropInventory(t, unit, unprimeItems, deleteFixedItems);
-	}
-}
-
 /**
  * Test if weapon is usable by unit.
  * @param weapon
@@ -1228,11 +1188,6 @@ int SavedBattleGame::getTurn() const
 	return _turn;
 }
 
-void SavedBattleGame::setTurnCoop(int turn)
-{
-	_turn = turn;
-}
-
 /**
 * Sets the bug hunt turn number.
 */
@@ -1263,15 +1218,12 @@ void SavedBattleGame::startFirstTurn()
 	resetUnitTiles();
 
 	// check what unit is still on this tile after reset.
-	// coop fix
-	if (inventoryTile)
+	if (inventoryTile->getUnit())
 	{
-		if (inventoryTile->getUnit())
-		{
-			// make sure we select the unit closest to the ramp.
-			setSelectedUnit(inventoryTile->getUnit());
-		}
+		// make sure we select the unit closest to the ramp.
+		setSelectedUnit(inventoryTile->getUnit());
 	}
+
 
 	// initialize xcom units for battle
 	for (auto* bu : *getUnits())
@@ -1526,7 +1478,6 @@ const RuleCraftDeployment& SavedBattleGame::getCustomDeployment(const RuleCraft*
  */
 void SavedBattleGame::endTurn()
 {
-
 	// reset turret direction for all hostile and neutral units (as it may have been changed during reaction fire)
 	for (auto* bu : _units)
 	{
@@ -1753,12 +1704,7 @@ const BattlescapeState *SavedBattleGame::getBattleState() const
  */
 BattlescapeGame *SavedBattleGame::getBattleGame()
 {
-	// coop fix
-	if (_battleState)
-	{
-		return _battleState->getBattleGame();
-	}
-	return nullptr;
+	return _battleState->getBattleGame();
 }
 
 /**
@@ -1767,12 +1713,7 @@ BattlescapeGame *SavedBattleGame::getBattleGame()
  */
 const BattlescapeGame *SavedBattleGame::getBattleGame() const
 {
-	// coop fix
-	if (_battleState)
-	{
-		return _battleState->getBattleGame();
-	}
-	return nullptr;
+	return _battleState->getBattleGame();
 }
 
 /**
@@ -1850,35 +1791,6 @@ void SavedBattleGame::resetUnitTiles()
 		}
 	}
 	_beforeGame = false;
-}
-
-void SavedBattleGame::resetCoopTiles()
-{
-
-	resetTiles();
-
-	if (getTileEngine())
-	{
-
-		for (auto& unit : *getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				getTileEngine()->calculateLighting(LL_UNITS, unit->getPosition(), 2);
-				getTileEngine()->calculateFOV(unit->getPosition(), 1, true);
-			}
-			else if (unit->getFaction() == FACTION_HOSTILE)
-			{
-				unit->setVisible(false);
-			}
-
-			unit->clearVisibleUnits();
-
-		}
-	}
-
 }
 
 /**
@@ -2017,7 +1929,7 @@ void SavedBattleGame::initUnit(BattleUnit *unit, size_t itemLevel)
 	}
 
 	unit->setSpecialWeapon(this, false);
-	Unit* rule = unit->getUnitRules();
+	const Unit* rule = unit->getUnitRules();
 	const Armor* armor = unit->getArmor();
 	// Built in weapons: the unit has this weapon regardless of loadout or what have you.
 	addFixedItems(unit, armor->getBuiltInWeapons());
@@ -2136,13 +2048,11 @@ BattleItem *SavedBattleGame::createItemForTile(const std::string& type, Tile *ti
 /**
  * Create new item for tile;
  */
-BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor, int coopID)
+BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor)
 {
 	// Note: this is allowed also in preview mode; for items spawned from map blocks (and friendly units spawned from such items)
 
 	BattleItem *item = new BattleItem(rule, getCurrentItemId());
-	// coop
-	item->setCoopID(coopID);
 	if (tile)
 	{
 		RuleInventory *ground = _rule->getInventoryGround();
@@ -2207,15 +2117,7 @@ BattleUnit *SavedBattleGame::createTempUnit(const Unit *rules, UnitFaction facti
  */
 BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 {
-	// only ever respawn once. The guard normally lives at the callers, but in
-	// coop the convertUnit network packet handler and the local (coop_death)
-	// UnitDieBState both call this for the same zombie and can race, spawning
-	// two chrysalids on the observing player. Enforce it here too so the loser
-	// of that race is a no-op instead of an orphan unit that stands frozen.
-	if (unit->getAlreadyRespawned())
-	{
-		return nullptr;
-	}
+	// only ever respawn once
 	unit->setAlreadyRespawned(true);
 
 	bool visible = unit->getVisible();
@@ -2264,113 +2166,6 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 	getTileEngine()->calculateFOV(newUnit->getPosition());  //happens fairly rarely, so do a full recalc for units in range to handle the potential unit visible cache issues.
 	getTileEngine()->applyGravity(newUnit->getTile());
 	newUnit->dontReselect();
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-
-		// PVP
-		if (connectionTCP::getCoopGamemode() == 2)
-		{
-			unit->setCoop(1);
-			unit->convertToFaction(FACTION_PLAYER);
-			unit->setOriginalFaction(FACTION_PLAYER);
-
-			newUnit->setCoop(1);
-			newUnit->convertToFaction(FACTION_PLAYER);
-			newUnit->setOriginalFaction(FACTION_PLAYER);
-
-		}
-		// PVP2
-		else if (connectionTCP::getCoopGamemode() == 3)
-		{
-
-			unit->setCoop(0);
-			newUnit->setCoop(0);
-		}
-		// PVE2
-		else if (connectionTCP::getCoopGamemode() == 4)
-		{
-
-			if (connectionTCP::_isActivePlayerSync == true)
-			{
-				unit->setCoop(1);
-				newUnit->setCoop(1);
-			}
-			else
-			{
-				unit->setCoop(0);
-				newUnit->setCoop(0);
-			}
-
-			unit->convertToFaction(FACTION_PLAYER);
-			unit->setOriginalFaction(FACTION_PLAYER);
-	
-			newUnit->convertToFaction(FACTION_PLAYER);
-			newUnit->setOriginalFaction(FACTION_PLAYER);
-
-		}
-
-	}
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
-	{
-
-		Json::Value root;
-		root["state"] = "convertUnit";
-
-		root["unit_id"] = unit->getId();
-		root["respawn"] = unit->getRespawn();
-		root["spawn_unit_faction"] = (int)unit->getSpawnUnitFaction();
-		root["spawn_unit_type"] = unit->getSpawnUnit()->getType();
-
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-
-		// PVP
-		if (connectionTCP::getCoopGamemode() == 2)
-		{
-			unit->setCoop(1);
-			newUnit->setCoop(1);
-
-		}
-		// PVP2
-		else if (connectionTCP::getCoopGamemode() == 3)
-		{
-
-			unit->setCoop(0);
-			unit->convertToFaction(FACTION_PLAYER);
-			unit->setOriginalFaction(FACTION_PLAYER);
-
-			newUnit->setCoop(0);
-			newUnit->convertToFaction(FACTION_PLAYER);
-			newUnit->setOriginalFaction(FACTION_PLAYER);
-
-		}
-		// PVE2
-		else if (connectionTCP::getCoopGamemode() == 4)
-		{
-
-			if (connectionTCP::_isActivePlayerSync == true)
-			{
-				unit->setCoop(0);
-				newUnit->setCoop(0);
-			}
-			else
-			{
-				unit->setCoop(1);
-				newUnit->setCoop(1);
-			}
-
-			unit->convertToFaction(FACTION_PLAYER);
-			unit->setOriginalFaction(FACTION_PLAYER);
-
-			newUnit->convertToFaction(FACTION_PLAYER);
-			newUnit->setOriginalFaction(FACTION_PLAYER);
-		}
-
-	}
-
 	return newUnit;
 }
 
@@ -2590,7 +2385,6 @@ Node *SavedBattleGame::getPatrolNode(bool scout, BattleUnit *unit, Node *fromNod
  */
 void SavedBattleGame::prepareNewTurn()
 {
-
 	std::vector<Tile*> tilesOnFire;
 	std::vector<Tile*> tilesOnSmoke;
 
@@ -3632,469 +3426,6 @@ void SavedBattleGame::resetUnitHitStates()
 	}
 }
 
-void SavedBattleGame::abortPathCoop()
-{
-	getPathfinding()->abortPathCoop();
-
-}
-
-void SavedBattleGame::coopExplosionCalc(Position centetTile, int maxRadius, bool coop_is_second_fov)
-{
-
-	getTileEngine()->calculateLighting(LL_AMBIENT, centetTile, maxRadius + 1, true); // roofs could have been destroyed and fires could have been started
-	getTileEngine()->calculateFOV(centetTile, maxRadius + 1, true, true);
-
-	if (coop_is_second_fov == true)
-	{
-
-		// unit is away from blast but its visibility can be affected by scripts.
-		getTileEngine()->calculateFOV(centetTile, 1, false);
-
-	}
-
-}
-
-bool SavedBattleGame::moveBaseCoopInventory(std::string item_type, int coop_item_id, int coopbase_id, int craft_id, std::string craft_type, int slot_type_int, int item_slot_type_int, std::string str_coop_items)
-{
-
-	if (connectionTCP::_coopCampaign == false)
-	{
-		return true;
-	}
-
-	auto* save = getGeoscapeSave();
-
-	if (!save)
-		return false;
-
-
-	Craft* current_craft = 0;
-	Base* current_base = 0;
-
-	// BASE
-	for (auto& base : *save->getBases())
-	{
-
-		if (base->_coop_base_id == coopbase_id)
-		{
-
-			current_base = base;
-
-			for (auto& craft : *base->getCrafts())
-			{
-
-				if (craft->getId() == craft_id && craft->getRules()->getType() == craft_type)
-				{
-					current_craft = craft;
-					break;
-				}
-			}
-
-			break;
-
-		}
-	}
-
-	if (current_craft && current_base)
-	{
-
-		if (current_base->_coopBase == true)
-		{
-
-			auto& coopItems = current_craft->getCoopItems();
-
-			if (str_coop_items != "")
-			{
-
-				Json::Reader reader;
-				Json::Value arr;
-
-				reader.parse(str_coop_items, arr);
-
-				std::vector<CoopItem> newItems;
-
-				newItems.reserve(arr.size());
-
-				for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
-				{
-					const auto& it = arr[i];
-
-					int item_id = it["id"].asInt();
-					std::string item_type = it["type"].asString();
-					bool item_owner = it["owner"].asBool();
-
-					newItems.push_back({item_id, item_type, item_owner});
-				}
-
-				// overwrite
-				coopItems.swap(newItems);
-
-			}
-			else
-			{
-
-				coopItems.clear();
-
-			}
-
-			connectionTCP::moveCoopItems = true;
-
-			return true;
-
-
-		}
-		else
-		{
-
-			InventoryType slot_type = INV_GROUND;
-
-			if (slot_type_int == 0)
-			{
-				slot_type = INV_SLOT;
-			}
-			else if (slot_type_int == 1)
-			{
-				slot_type = INV_HAND;
-			}
-			else if (slot_type_int == 2)
-			{
-				slot_type = INV_GROUND;
-			}
-			else
-			{
-				slot_type = INV_GROUND;
-			}
-
-			
-			InventoryType item_slot_type = INV_GROUND;
-
-			if (item_slot_type_int == 0)
-			{
-				item_slot_type = INV_SLOT;
-			}
-			else if (item_slot_type_int == 1)
-			{
-				item_slot_type = INV_HAND;
-			}
-			else if (item_slot_type_int == 2)
-			{
-				item_slot_type = INV_GROUND;
-			}
-			else
-			{
-				item_slot_type_int = INV_GROUND;
-			}
-
-			if (slot_type == INV_GROUND && item_slot_type == INV_GROUND)
-			{
-				return true;
-			}
-
-			BattleItem *current_item = 0;
-
-			for (auto& item : *getItems())
-			{
-
-				if (item->getCoopID() == coop_item_id && item->getRules()->getType() == item_type)
-				{
-
-					current_item = item;
-					break;
-				}
-
-			}
-
-			if (!current_item)
-				return true;
-
-			auto& coopItems = current_craft->getCoopItems();
-
-			// show item
-			if (slot_type == INV_GROUND)
-			{
-
-				auto it = std::find_if(coopItems.begin(), coopItems.end(),
-									   [&](const CoopItem& x)
-									   { return x.id == current_item->getCoopID() && x.type == current_item->getRules()->getType() && x.owner == false; });
-
-				if (it != coopItems.end())
-					coopItems.erase(it);
-			}
-			// hide item
-			else
-			{
-
-				// delete ONE matching item where owner == true
-				for (auto it = coopItems.begin(); it != coopItems.end(); ++it)
-				{
-					if (it->id == current_item->getCoopID() &&
-						it->type == current_item->getRules()->getType() &&
-						it->owner == true)
-					{
-						coopItems.erase(it);
-						break;
-					}
-				}
-
-				// exists?
-				bool item_exists = false;
-				for (const auto& ci : coopItems)
-				{
-					if (ci.id == current_item->getCoopID() &&
-						ci.type == current_item->getRules()->getType() &&
-						ci.owner == true)
-					{
-						item_exists = true;
-						break;
-					}
-				}
-
-				if (!item_exists)
-				{
-					coopItems.push_back({current_item->getCoopID(), current_item->getRules()->getType(), false});
-				}
-			}
-
-			auto* items = getItems();
-
-			// Count how many items of this type actually exist in 'items'
-			int allowed = 0;
-			for (auto* it : *items)
-			{
-				if (it && it->getRules()->getType() == current_item->getRules()->getType())
-					++allowed;
-			}
-
-			// Count how many coopItems of this type we currently have
-			int have = 0;
-			for (const auto& x : coopItems)
-			{
-				if (x.type == current_item->getRules()->getType())
-					++have;
-			}
-
-			int extra = have - allowed;
-			if (extra > 0)
-			{
-
-					// Remove extras by prioritizing owner == true
-					coopItems.erase(
-						std::remove_if(coopItems.begin(), coopItems.end(),
-									   [&](const CoopItem& x)
-									   {
-										   if (extra <= 0)
-											   return false;
-
-										   if (x.type == current_item->getRules()->getType() && x.owner == true)
-										   {
-											   --extra;
-											   return true; // remove
-										   }
-										   return false; // keep
-									   }),
-						coopItems.end());
-
-					// If still extra left, remove remaining extras regardless of owner
-					if (extra > 0)
-					{
-						coopItems.erase(
-							std::remove_if(coopItems.begin(), coopItems.end(),
-										   [&](const CoopItem& x)
-										   {
-											   if (extra <= 0)
-												   return false;
-
-											   if (x.type == current_item->getRules()->getType())
-											   {
-												   --extra;
-												   return true; // remove
-											   }
-											   return false; // keep
-										   }),
-							coopItems.end());
-					}
-
-				}
-
-				// save
-				Json::Value obj;
-				obj["state"] = "save_coop_items";
-
-				obj["coopbase_id"] = coopbase_id;
-				obj["craft_id"] = craft_id;
-				obj["craft_type"] = craft_type;
-
-				int item_index = 0;
-				for (auto& coopItem : coopItems)
-				{
-
-					obj["coopItems"][item_index]["id"] = coopItem.id;
-					obj["coopItems"][item_index]["type"] = coopItem.type;
-					obj["coopItems"][item_index]["owner"] = coopItem.owner;
-
-					item_index++;
-				}
-
-				connectionTCP::sendTCPPacketStaticData2(obj.toStyledString());
-
-				return true;
-
-		}
-
-	}
-
-	return false;
-	
-}
-
-void SavedBattleGame::moveBaseCoopInventorySave(Base* base, Craft* craft, BattleItem *item, int slot_type_int)
-{
-
-	if (base && craft && item)
-	{
-
-		if (connectionTCP::_coopCampaign == false)
-		{
-			return;
-		}
-
-		if (base->_coopBase == true)
-		{
-			return;
-		}
-
-		InventoryType slot_type = INV_GROUND;
-
-		if (slot_type_int == 0)
-		{
-			slot_type = INV_SLOT;
-		}
-		else if (slot_type_int == 1)
-		{
-			slot_type = INV_HAND;
-		}
-		else if (slot_type_int == 2)
-		{
-			slot_type = INV_GROUND;
-		}
-		else
-		{
-			slot_type = INV_GROUND;
-		}
-
-		auto& coopItems = craft->getCoopItems();
-
-		// show item
-		if (slot_type == INV_GROUND)
-		{
-
-			auto it = std::find_if(coopItems.begin(), coopItems.end(),
-									[&](const CoopItem& x)
-								   { return x.id == item->getCoopID() && x.type == item->getRules()->getType() && x.owner == true; });
-
-			if (it != coopItems.end())
-				coopItems.erase(it);
-		}
-		// hide item
-		else
-		{
-
-			// delete ONE matching item where owner == false
-			for (auto it = coopItems.begin(); it != coopItems.end(); ++it)
-			{
-				if (it->id == item->getCoopID() &&
-					it->type == item->getRules()->getType() &&
-					it->owner == false)
-				{
-					coopItems.erase(it);
-					break;
-				}
-			}
-
-			// exists?
-			bool item_exists = false;
-			for (const auto& ci : coopItems)
-			{
-				if (ci.id == item->getCoopID() &&
-					ci.type == item->getRules()->getType() &&
-					ci.owner == true)
-				{
-					item_exists = true;
-					break;
-				}
-			}
-
-			if (!item_exists)
-			{
-				coopItems.push_back({item->getCoopID(), item->getRules()->getType(), true});
-			}
-
-	
-		}
-
-		auto* items = getItems();
-
-		// Count how many items of this type actually exist in 'items'
-		int allowed = 0;
-		for (auto* it : *items)
-		{
-			if (it && it->getRules()->getType() == item->getRules()->getType())
-				++allowed;
-		}
-
-		// Count how many coopItems of this type we currently have
-		int have = 0;
-		for (const auto& x : coopItems)
-		{
-			if (x.type == item->getRules()->getType())
-				++have;
-		}
-
-		int extra = have - allowed;
-		if (extra <= 0)
-			return;
-
-		// Remove extras by prioritizing owner == true
-		coopItems.erase(
-			std::remove_if(coopItems.begin(), coopItems.end(),
-							[&](const CoopItem& x)
-							{
-								if (extra <= 0)
-									return false;
-
-								if (x.type == item->getRules()->getType() && x.owner == true)
-								{
-									--extra;
-									return true; // remove
-								}
-								return false; // keep
-							}),
-			coopItems.end());
-
-		// If still extra left, remove remaining extras regardless of owner
-		if (extra > 0)
-		{
-			coopItems.erase(
-				std::remove_if(coopItems.begin(), coopItems.end(),
-								[&](const CoopItem& x)
-								{
-									if (extra <= 0)
-										return false;
-
-									if (x.type == item->getRules()->getType())
-									{
-										--extra;
-										return true; // remove
-									}
-									return false; // keep
-								}),
-				coopItems.end());
-		}
-		
-	}
-
-}
-
 ////////////////////////////////////////////////////////////
 //					Script binding
 ////////////////////////////////////////////////////////////
@@ -4308,6 +3639,18 @@ void isShiftPressedScript(const SavedBattleGame* sbg, int& val)
 	}
 }
 
+void getSelectedUnitScript(const SavedBattleGame* sbg, const BattleUnit*& val)
+{
+	if (sbg)
+	{
+		val = sbg->getSelectedUnit();
+	}
+	else
+	{
+		val = nullptr;
+	}
+}
+
 
 
 std::string debugDisplayScript(const SavedBattleGame* p)
@@ -4376,7 +3719,11 @@ void SavedBattleGame::ScriptRegister(ScriptParserBase* parser)
 
 	sbg.add<&randomChanceScript>("randomChance", "first argument is percent in range 0 - 100, then return in that argument random 1 or 0 based on percent");
 	sbg.add<&randomRangeScript>("randomRange", "set in first argument random value from range given in two last arguments");
+
 	sbg.add<&turnSideScript>("getTurnSide", "Return the faction whose turn it is.");
+	sbg.add<&SavedBattleGame::getDepth>("getDepth", "Return the depth of the battlescape.");
+	sbg.add<&SavedBattleGame::getGlobalShade>("getGlobalShade", "Return the global shade of the battlescape.");
+
 	sbg.addCustomConst("FACTION_PLAYER", FACTION_PLAYER);
 	sbg.addCustomConst("FACTION_HOSTILE", FACTION_HOSTILE);
 	sbg.addCustomConst("FACTION_NEUTRAL", FACTION_NEUTRAL);
@@ -4410,6 +3757,7 @@ void SavedBattleGame::ScriptRegisterUnitAnimations(ScriptParserBase* parser)
 	sbg.addField<&SavedBattleGame::_toggleNightVisionTemp>("isNightVisionEnabled");
 	sbg.addField<&SavedBattleGame::_togglePersonalLightTemp>("isPersonalLightEnabled");
 	sbg.addField<&SavedBattleGame::_toggleNightVisionColorTemp>("getNightVisionColor");
+	sbg.add<&getSelectedUnitScript>("getSelectedUnit");
 }
 
 }

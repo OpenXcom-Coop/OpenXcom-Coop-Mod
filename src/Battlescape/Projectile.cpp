@@ -142,10 +142,8 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 			hitPos = Position(hitPos.x, hitPos.y, hitPos.z-1);
 		}
 
-		// coop fix
-		if (hitPos != _action.target && _action.result.empty() && _action.actor->coop_action == false)
+		if (hitPos != _action.target && _action.result.empty())
 		{
-
 			if (test == V_NORTHWALL)
 			{
 				if (hitPos.y - 1 != _action.target.y)
@@ -196,56 +194,6 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 			accuracy = 0.55;
 		}
 		extendLine = _action.waypoints.size() <= 1;
-	}
-
-	// only host!
-	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
-	{
-
-		_save->getBattleGame()->getCoopMod()->_coopAllow = false;
-
-		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
-		auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
-
-		auto* conf = _action.weapon->getActionConf(_action.type);
-
-		int max_shots = 1;
-
-		if (conf)
-		{
-			max_shots = conf->shots;
-		}
-
-		bool accuracyLossCoop = false;
-		double accuracyLossCoopValue = 0;
-
-		for (int i = 0; i < max_shots; ++i)
-		{
-
-			if (i > 0)
-			{
-				accuracyLossCoop = true;
-			}
-
-			applyAccuracy(originVoxel, &_targetVoxel, accuracy, false, extendLine, accuracyLossCoop, &accuracyLossCoopValue);
-
-			Json::Value projectile(Json::objectValue);
-
-			projectile["rng_x"] = _targetVoxel.x;
-			projectile["rng_y"] = _targetVoxel.y;
-			projectile["rng_z"] = _targetVoxel.z;
-			projectile["seed"] = RNG::getSeedCoop();
-			projectile["origin_x"] = originVoxel.x;
-			projectile["origin_y"] = originVoxel.y;
-			projectile["origin_z"] = originVoxel.z;
-
-			_coopProjectilesClient.append(projectile);
-			_coopProjectilesHost.append(projectile);
-
-		}
-
-		_save->getBattleGame()->getCoopMod()->_coopAllow = true;
-
 	}
 
 	// apply some accuracy modifiers.
@@ -355,49 +303,8 @@ int Projectile::calculateThrow(double accuracy)
 			deltas = Position(0,0,0);
 		}
 
-		// coop
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
-		{
-
-			_save->getBattleGame()->getCoopMod()->_coopAllow = false;
-
-			auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
-			auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
-
-			Json::Value projectile(Json::objectValue);
-
-			projectile["rng_x"] = targetVoxel.x;
-			projectile["rng_y"] = targetVoxel.y;
-			projectile["rng_z"] = targetVoxel.z;
-			projectile["seed"] = RNG::getSeedCoop();
-			projectile["origin_x"] = originVoxel.x;
-			projectile["origin_y"] = originVoxel.y;
-			projectile["origin_z"] = originVoxel.z;
-
-			_coopProjectilesClient.append(projectile);
-			_coopProjectilesHost.append(projectile);
-			
-			_save->getBattleGame()->getCoopMod()->_coopAllow = true;
-		}
 
 		test = _save->getTileEngine()->calculateParabolaVoxel(originVoxel, targetVoxel, true, &_trajectory, _action.actor, curvature, deltas);
-
-		// coop
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
-		{
-
-			_save->getBattleGame()->getCoopMod()->_trajectoryCoop = _trajectory;
-
-		}
-
-		// coop
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == false)
-		{
-
-			_trajectory = _save->getBattleGame()->getCoopMod()->_trajectoryCoop;
-
-		}
-
 		if (forced) return O_OBJECT; //fake hit
 		Position endPoint = getPositionFromEnd(_trajectory, ItemDropVoxelOffset).toTile();
 		Tile *endTile = _save->getTile(endPoint);
@@ -422,104 +329,8 @@ int Projectile::calculateThrow(double accuracy)
  * @param keepRange Whether range affects accuracy.
  * @param extendLine should this line get extended to maximum distance?
  */
-void Projectile::applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine, bool accuracyLossCoop, double *accuracyLossCoopValue)
+void Projectile::applyAccuracy(Position origin, Position *target, double accuracy, bool keepRange, bool extendLine)
 {
-
-	// coop
-	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_coopAllow == true)
-	{
-
-		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
-
-		if (!_coopProjectilesHost.empty())
-		{
-
-			Json::Value first;
-			bool found = _coopProjectilesHost.removeIndex(0, &first);
-			if (found)
-			{
-
-				if (first.isObject() &&
-					first.isMember("rng_x") &&
-					first.isMember("rng_y") &&
-					first.isMember("rng_z"))
-				{
-					int rng_target_x = first["rng_x"].asInt();
-					int rng_target_y = first["rng_y"].asInt();
-					int rng_target_z = first["rng_z"].asInt();
-
-					target->x = rng_target_x;
-					target->y = rng_target_y;
-					target->z = rng_target_z;
-
-				}
-
-				if (first.isObject() &&
-					first.isMember("origin_x") &&
-					first.isMember("origin_y") &&
-					first.isMember("origin_z"))
-				{
-					int origin_target_x = first["origin_x"].asInt();
-					int origin_target_y = first["origin_y"].asInt();
-					int origin_target_z = first["origin_z"].asInt();
-
-					origin.x = origin_target_x;
-					origin.y = origin_target_y;
-					origin.z = origin_target_z;
-
-				}
-
-				return;
-
-			}
-		}
-		else
-		{
-
-			auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
-
-			if (!_coopProjectilesClient.empty())
-			{
-
-				Json::Value first;
-				bool found = _coopProjectilesClient.removeIndex(0, &first);
-				if (found)
-				{
-
-					if (first.isObject() &&
-						first.isMember("rng_x") &&
-						first.isMember("rng_y") &&
-						first.isMember("rng_z"))
-					{
-						int rng_target_x = first["rng_x"].asInt();
-						int rng_target_y = first["rng_y"].asInt();
-						int rng_target_z = first["rng_z"].asInt();
-
-						target->x = rng_target_x;
-						target->y = rng_target_y;
-						target->z = rng_target_z;
-					}
-
-					if (first.isObject() &&
-						first.isMember("origin_x") &&
-						first.isMember("origin_y") &&
-						first.isMember("origin_z"))
-					{
-						int origin_target_x = first["origin_x"].asInt();
-						int origin_target_y = first["origin_y"].asInt();
-						int origin_target_z = first["origin_z"].asInt();
-
-						origin.x = origin_target_x;
-						origin.y = origin_target_y;
-						origin.z = origin_target_z;
-					}
-
-					return;
-				}
-			}
-		}
-	}
-
 	int xdiff = origin.x - target->x;
 	int ydiff = origin.y - target->y;
 	int zdiff = origin.z - target->z;
@@ -535,7 +346,6 @@ void Projectile::applyAccuracy(Position origin, Position* target, double accurac
 
 		double distance = realDistance / 16; // distance in tiles, but still fractional
 		double accuracyLoss = 0.0;
-
 		if (distance > upperLimit)
 		{
 			accuracyLoss = (dropoff * (distance - upperLimit)) / 100;
@@ -544,18 +354,7 @@ void Projectile::applyAccuracy(Position origin, Position* target, double accurac
 		{
 			accuracyLoss = (dropoff * (lowerLimit - distance)) / 100;
 		}
-
-		// coop fix
-		if (accuracyLossCoopValue)
-		{
-			if (accuracyLossCoop)
-				accuracyLoss = *accuracyLossCoopValue;
-			else
-				*accuracyLossCoopValue = accuracyLoss;
-		}
-
 		accuracy = std::max(0.0, accuracy - accuracyLoss);
-
 	}
 
 	int xDist = abs(origin.x - target->x);
@@ -721,11 +520,6 @@ bool Projectile::move()
  */
 Position Projectile::getPositionFromStart(const std::vector<Position>& trajectory, int pos)
 {
-	// coop fix
-	if (trajectory.empty())
-	{
-		return Position(0,0,0);
-	}
 	if (pos >= 0 && pos < (int)trajectory.size())
 		return trajectory.at(pos);
 	else if (pos < 0)
@@ -752,11 +546,6 @@ Position Projectile::getPositionFromEnd(const std::vector<Position>& trajectory,
  */
 Position Projectile::getPosition(int offset) const
 {
-	// coop fix
-	if (_trajectory.empty())
-	{
-		return _origin;
-	}
 	return getPositionFromStart(_trajectory, (int)_position + offset);
 }
 

@@ -3658,23 +3658,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "battle_teleport")
 	{
-		BattleUnit* unit = findUnit(req.get("unit", -1).asInt());
-		if (!unit || !bg)
-			resp["error"] = "no unit id / no battle game";
-		else
-		{
-			// teleport() silently refuses a tile that fails
-			// isPositionValidForUnit (wall, occupied, no floor), so report where
-			// the unit actually ended up - a caller probing for a free tile needs
-			// to know which attempt took.
-			bg->teleport(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
-						 req.get("z", 0).asInt(), unit);
-			Position p = unit->getPosition();
-			resp["x"] = p.x; resp["y"] = p.y; resp["z"] = p.z;
-			resp["moved"] = (p == Position(req.get("x", 0).asInt(), req.get("y", 0).asInt(),
-										   req.get("z", 0).asInt()));
-			resp["ok"] = true;
-		}
+		// R1-P4 stub: BattlescapeGame::teleport() was removed by the r1
+		// vanilla restore (911ca487f). The command name stays registered
+		// (harness compatibility) but its body is dead until r4/r5 rebuild an
+		// equivalent hook.
+		resp["error"] = "rewrite-pending";
 	}
 	else if (cmd == "tile_info")
 	{
@@ -3764,8 +3752,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		{
 			unit->setTimeUnits(req["tu"].asInt());
 		}
-		if (bstate && req.isMember("hand"))
-			bstate->_hand = req["hand"].asString();
+		// R1-P4 stub: BattlescapeState::_hand (the coop firing-hand stamp) was
+		// removed by the r1 vanilla restore. The <hand> param is accepted but
+		// no longer has anywhere to land until r4/r5 rebuild the hook.
 
 		BattleActionType bt = BA_SNAPSHOT;
 		if (mode == "aimed") bt = BA_AIMEDSHOT;
@@ -4669,7 +4658,10 @@ std::string TestServer::execute(const std::string& line)
 					resp["mapDiscoveredFloor"] = discFloor;
 					resp["mapSizeXYZ"] = n;
 				}
-				resp["coopTurn"] = BattlescapeGame::isYourTurn;  // 2 = my active turn
+				// R1-P4 stub: BattlescapeGame::isYourTurn was removed by the r1
+				// vanilla restore; the real turn-machine returns with r2
+				// (RB-D9/RB-D11). Field kept for response-shape stability.
+				resp["coopTurn"] = -1;
 				// This machine's battle role: host controls coop==0 units, client coop==1
 				// (BattlescapeGame.cpp select gate). Exposed so a test can prove the two
 				// machines control DISJOINT unit sets - the real "both command same team"
@@ -4724,14 +4716,19 @@ std::string TestServer::execute(const std::string& line)
 					// PRD-J09: in-battle control split. _coop 0 = host-controlled,
 					// 1 = client-controlled; in SHARED it is derived from the owning
 					// soldier's ownerPlayerId (seat) at mission start.
-					ju["coop"] = u->getCoop();
+					ju["coop"] = (int)u->getCoopSeat();
 					// The REAL in-battle control gate this machine applies (coop + getHost
 					// + isYourTurn), so a test sees exactly which units THIS player can
 					// command right now - not a Python re-derivation of the rule.
 					ju["selectable"] = u->isSelectable(FACTION_PLAYER, false, false);
 					// F5: mind-control markers for the PvP psi convergence test.
 					ju["mindControllerId"] = u->getMindControllerId();
-					ju["mindControlled"] = u->_coop_mindcontrolled;
+					// R1-P4: _coop_mindcontrolled (a stored flag) was removed by the
+					// r1 vanilla restore - ADDENDUM MJ-8/R2-M4 already calls MC
+					// derived, not stored. Vanilla's own save-condition treats
+					// mindControllerID 0 as "no controller" (BattleUnit.cpp save()),
+					// so derive the boolean the same way rather than re-adding a field.
+					ju["mindControlled"] = (u->getMindControllerId() != 0);
 					ju["soldierId"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getId() : -1;
 					ju["owner"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getOwnerPlayerId() : -1;
 					BattleItem* w = u->getMainHandWeapon(false);
@@ -4800,7 +4797,9 @@ std::string TestServer::execute(const std::string& line)
 				resp["selectedBeforeId"] = normalSelectedBefore ? normalSelectedBefore->getId() : -1;
 				resp["selectedAfterId"] = normalSelectedAfter ? normalSelectedAfter->getId() : -1;
 				resp["giftSelectedId"] = giftSelected ? giftSelected->getId() : -1;
-				resp["coopTurn"] = BattlescapeGame::isYourTurn;
+				// R1-P4 stub: BattlescapeGame::isYourTurn removed by the r1
+				// vanilla restore; real turn-machine returns with r2 (RB-D9/RB-D11).
+				resp["coopTurn"] = -1;
 				resp["ok"] = true;
 			}
 		}
@@ -4823,7 +4822,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 			{
-				GiftSoldierMenu* menu = new GiftSoldierMenu(found, found->getCoop());
+				GiftSoldierMenu* menu = new GiftSoldierMenu(found, (int)found->getCoopSeat());
 				_game->pushState(menu);
 
 				Json::Value targets(Json::arrayValue);
@@ -4877,9 +4876,11 @@ std::string TestServer::execute(const std::string& line)
 				resp["soldierId"] = found->getGeoscapeSoldier()
 					? found->getGeoscapeSoldier()->getId() : -1;
 				resp["name"] = found->getName(_game->getLanguage());
-				resp["beforeOwner"] = found->getCoop();
+				resp["beforeOwner"] = (int)found->getCoopSeat();
 				resp["localSeat"] = connectionTCP::localSeat();
-				resp["coopTurn"] = BattlescapeGame::isYourTurn;
+				// R1-P4 stub: BattlescapeGame::isYourTurn removed by the r1
+				// vanilla restore; real turn-machine returns with r2 (RB-D9/RB-D11).
+				resp["coopTurn"] = -1;
 				resp["canGift"] = coop->canGiftBattleUnit(found);
 
 				if (execute)
@@ -4896,7 +4897,7 @@ std::string TestServer::execute(const std::string& line)
 					else
 					{
 						coop->giftBattleUnit(found, newOwner, true);
-						resp["afterOwner"] = found->getCoop();
+						resp["afterOwner"] = (int)found->getCoopSeat();
 						resp["playerTurnAfter"] = coop->getPlayerTurn();
 						resp["ok"] = true;
 					}
@@ -4967,7 +4968,7 @@ std::string TestServer::execute(const std::string& line)
 				for (auto* u : *sbg->getUnits())
 				{
 					if (u->isOut() || u->getFaction() == FACTION_NEUTRAL) continue;
-					bool match = (coopSide >= 0 && u->getCoop() == coopSide)
+					bool match = (coopSide >= 0 && (int)u->getCoopSeat() == coopSide)
 						|| (killId >= 0 && u->getId() == killId);
 					if (match)
 					{
@@ -4997,7 +4998,7 @@ std::string TestServer::execute(const std::string& line)
 				for (auto* u : *sbg->getUnits())
 				{
 					if (u->isOut() || u->getFaction() == FACTION_NEUTRAL) continue;
-					bool match = (coopSide >= 0 && u->getCoop() == coopSide)
+					bool match = (coopSide >= 0 && (int)u->getCoopSeat() == coopSide)
 						|| (killId >= 0 && u->getId() == killId)
 						|| (killFaction >= 0 && (int)u->getFaction() == killFaction);
 					if (match)
@@ -5434,11 +5435,13 @@ std::string TestServer::execute(const std::string& line)
 			else if (auto* nt = dynamic_cast<NextTurnState*>(top))
 			{
 				// "Turn N" screen. Press the real close handler a player triggers
-				// (any key/click -> NextTurnState::close, public). close() runs the
-				// full turn-close - coop click_close packet, unit tally,
-				// finishBattle/recenter - not a raw pop, so it reaches the tactical
-				// map exactly as a player would.
-				nt->testConfirm();
+				// (any key/click -> NextTurnState::close, public in vanilla - the
+				// #166-era testConfirm() forwarder this used to go through is gone
+				// post r1 vanilla restore, but close() itself was never private,
+				// so call it directly). close() runs the full turn-close - unit
+				// tally, finishBattle/recenter - not a raw pop, so it reaches the
+				// tactical map exactly as a player would.
+				nt->close();
 				resp["handled"] = "NextTurnState->close";
 				resp["ok"] = true;
 			}
@@ -6464,190 +6467,22 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "inventory_move")
 		{
-			// Drag-and-drop one item inside an OPEN inventory screen, through the
-			// real Inventory::moveItem a mouse drop calls - which is where the
-			// co-op hooks live (moveBaseCoopInventorySave populates the craft's
-			// coopItems manifest, and the move is mirrored to the peer).
-			// Params: name (soldier substring; default = the selected unit),
-			//         item (rule type), slot (right|left|backpack|belt|ground),
-			//         from (ground|unit, default ground).
-			InventoryState* inv = findState<InventoryState>(_game);
-			SavedGame* invSg = _game->getSavedGame();
-			SavedBattleGame* bg = invSg ? invSg->getSavedBattle() : nullptr;
-			Inventory* inventory = inv ? inv->getInventoryForTest() : nullptr;
-			Tile* ground = bg ? bg->getTile(0) : nullptr;
-			if (!inv || !bg || !inventory || !ground)
-			{
-				resp["error"] = "no open inventory (call soldiers_inventory / craft_inventory first)";
-			}
-			else
-			{
-				std::string who = req.get("name", "").asString();
-				BattleUnit* unit = nullptr;
-				for (auto* u : *bg->getUnits())
-				{
-					if (u->getFaction() != FACTION_PLAYER) continue;
-					Soldier* gs = u->getGeoscapeSoldier();
-					if (who.empty() || (gs && gs->getName().find(who) != std::string::npos))
-					{ unit = u; break; }
-				}
-				std::string itemType = req.get("item", "").asString();
-				std::string slotName = req.get("slot", "right").asString();
-				bool fromUnit = (req.get("from", "ground").asString() == "unit");
-				RuleInventory* slot = _game->getMod()->getInventoryRightHand();
-				if (slotName == "left") slot = _game->getMod()->getInventoryLeftHand();
-				else if (slotName == "belt") slot = _game->getMod()->getInventoryBelt();
-				else if (slotName == "backpack" || slotName == "back") slot = _game->getMod()->getInventoryBackpack();
-				else if (slotName == "ground") slot = _game->getMod()->getInventoryGround();
-
-				BattleItem* found = nullptr;
-				if (fromUnit && unit)
-				{
-					for (auto* bi : *unit->getInventory())
-						if (bi->getRules()->getType() == itemType) { found = bi; break; }
-				}
-				else
-				{
-					for (auto* bi : *ground->getInventory())
-						if (bi->getRules()->getType() == itemType) { found = bi; break; }
-				}
-
-				if (!unit)
-					resp["error"] = "no player unit matching name: " + who;
-				else if (!found)
-					resp["error"] = "no " + itemType + (fromUnit ? " on that soldier" : " on the ground");
-				else
-				{
-					// select the unit exactly as clicking the soldier arrows does,
-					// so moveItem's co-op ownership checks see the right _selUnit
-					bg->setSelectedUnit(unit);
-					inventory->setSelectedUnit(unit, true);
-					inventory->setSelectedItem(found);
-					// fitItem is the normal drop path: it walks the slot's cells,
-					// checks overlap, and calls moveItem for the first free one. A
-					// hand has no cell list, so it lands at 0,0. The GROUND has no
-					// cell list either but is never "full", so fitItem would refuse
-					// it - drop straight through instead, as a real drag does.
-					std::string warning;
-					bool moved;
-					if (slot->getType() == INV_GROUND)
-					{
-						inventory->harnessMoveItem(found, slot, 0, 0);
-						moved = true;
-					}
-					else
-					{
-						moved = inventory->fitItem(slot, found, warning);
-					}
-					inventory->setSelectedItem(nullptr);
-					resp["moved"] = moved;
-					// where the item ACTUALLY ended up - moveItem is a no-op under
-					// several co-op guards (foreign unit, no tile), and it reports
-					// nothing, so read the result back instead of trusting the call.
-					resp["landedSlot"] = found->getSlot() ? found->getSlot()->getId() : std::string("");
-					resp["landedOnUnit"] = (found->getOwner() == unit);
-					if (!warning.empty()) resp["warning"] = warning;
-					resp["ok"] = moved;
-				}
-			}
+			// R1-P4 stub: InventoryState::getInventoryForTest() and
+			// Inventory::harnessMoveItem() were removed by the r1 vanilla
+			// restore (911ca487f) - both were coop/harness-only accessors onto
+			// the private Inventory*, and this packet is not authorized to
+			// re-add methods to vanilla files (only BattleUnit::CoopSeat,
+			// RB-D17). The command name stays registered (harness
+			// compatibility) but its body is dead until r4/r5 rebuild an
+			// equivalent hook.
+			resp["error"] = "rewrite-pending";
 		}
 		else if (cmd == "inventory_unload")
 		{
-			// Reproduce issue #29: unloading a loaded weapon from the base soldier
-			// equip screen. Drives Inventory::unload() exactly like btnUnloadClick,
-			// which is where the co-op moveItem() path deref'd the just-unloaded
-			// ammo's (null) inventory slot and crashed (0xC0000005).
-			//
-			// Requires an open base inventory (call soldiers_inventory first). If the
-			// currently selected soldier has no loaded firearm, one is built and
-			// loaded so the unload path is always exercised.
-			InventoryState* inv = findState<InventoryState>(_game);
-			SavedGame* sg = _game->getSavedGame();
-			SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
-			if (!inv || !bg)
-			{
-				resp["error"] = "no InventoryState/battle active (call soldiers_inventory first)";
-			}
-			else
-			{
-				Inventory* inventory = inv->getInventoryForTest();
-				BattleUnit* unit = inventory ? inventory->getSelectedUnit() : nullptr;
-				Tile* ground = bg->getTile(0);
-				if (!unit)
-				{
-					resp["error"] = "no selected unit in inventory";
-				}
-				else if (!ground)
-				{
-					resp["error"] = "no ground tile in inventory battle";
-				}
-				else
-				{
-					// Deterministic setup: clear the selected soldier's hands to the
-					// ground so unload(false) always has the free hand it needs and
-					// actually reaches the (previously crashing) moveItem() path -
-					// independent of any state a prior unload left on this soldier.
-					RuleInventory* groundRule = _game->getMod()->getInventoryGround();
-					auto* uinv = unit->getInventory();
-					for (auto it = uinv->begin(); it != uinv->end(); )
-					{
-						BattleItem* bi = *it;
-						if (bi->getSlot() && bi->getSlot()->getType() == INV_HAND)
-						{
-							it = uinv->erase(it);
-							ground->addItem(bi, groundRule);
-						}
-						else
-						{
-							++it;
-						}
-					}
-
-					// Build + load a firearm on the (now empty-handed) soldier.
-					const RuleItem* wRule = nullptr;
-					const RuleItem* aRule = nullptr;
-					for (auto& name : _game->getMod()->getItemsList())
-					{
-						const RuleItem* r = _game->getMod()->getItem(name, false);
-						if (!r || r->getBattleType() != BT_FIREARM) continue;
-						if (r->isFixed()) continue;  // skip tank/vehicle-mounted weapons - not hand-holdable
-						if (r->getInventoryWidth() == 0 || r->getInventoryHeight() == 0) continue;
-						auto* ammos = r->getPrimaryCompatibleAmmo();
-						if (ammos && !ammos->empty()) { wRule = r; aRule = ammos->front(); break; }
-					}
-					if (!wRule)
-					{
-						resp["error"] = "no firearm+ammo rule available in mod";
-					}
-					else
-					{
-						// Place the weapon straight into the (now free) right hand,
-						// bypassing addItem()'s weight/placement heuristics which can
-						// refuse an off-craft base soldier.
-						BattleItem* weapon = bg->createItemForTile(wRule, ground);
-						weapon->moveToOwner(unit);
-						weapon->setSlot(_game->getMod()->getInventoryRightHand());
-						weapon->setSlotX(0);
-						weapon->setSlotY(0);
-
-						BattleItem* ammo = bg->createItemForTile(aRule, ground);
-						ground->removeItem(ammo);
-						if (!weapon->setAmmoPreMission(ammo))
-						{
-							resp["error"] = "could not load ammo into weapon";
-						}
-						else
-						{
-							resp["weapon"] = weapon->getRules()->getType();
-							inventory->setSelectedItem(weapon);
-							// This is the call that crashed pre-fix (issue #29).
-							bool unloaded = inventory->unload(false);
-							resp["unloaded"] = unloaded;
-							resp["ok"] = true;
-						}
-					}
-				}
-			}
+			// R1-P4 stub: same InventoryState::getInventoryForTest() removal as
+			// inventory_move above. The command name stays registered but its
+			// body is dead until r4/r5 rebuild an equivalent hook.
+			resp["error"] = "rewrite-pending";
 		}
 		else if (cmd == "incoming_transfers")
 		{

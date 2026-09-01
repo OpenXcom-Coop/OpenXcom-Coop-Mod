@@ -46,16 +46,9 @@ namespace OpenXcom
  * @param damageType Type of damage that caused the death.
  * @param noSound Whether to disable the death sound.
  */
-UnitDieBState::UnitDieBState(BattlescapeGame* parent, BattleUnit* unit, const RuleDamageType* damageType, bool noSound, bool coop_death) : BattleState(parent),
-	_unit(unit), _damageType(damageType), _noSound(noSound), _coop_death(coop_death), _extraFrame(0), _overKill(unit->getOverKillDamage())
+UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const RuleDamageType* damageType, bool noSound) : BattleState(parent),
+	_unit(unit), _damageType(damageType), _noSound(noSound), _extraFrame(0), _overKill(unit->getOverKillDamage())
 {
-
-	// coop 
-	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && _coop_death == false)
-	{
-		return;
-	}
-
 	// don't show the "fall to death" animation when a unit is blasted with explosives or he is already unconscious
 	if (!_damageType->isDirect() || _unit->getStatus() == STATUS_UNCONSCIOUS)
 	{
@@ -118,108 +111,10 @@ UnitDieBState::UnitDieBState(BattlescapeGame* parent, BattleUnit* unit, const Ru
 UnitDieBState::~UnitDieBState()
 {
 
-	// coop
-	if ((_parent->isCoop() == true && _coop_death == false && _parent->getCoopMod()->getHost() == true))
-	{
-
-		// coop
-		Json::Value root;
-
-		root["state"] = "after_unit_death";
-
-		root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
-
-		root["unit_id"] = _unit->getId();
-
-		root["time"] = _unit->getTimeUnits();
-		root["health"] = _unit->getHealth();
-		root["energy"] = _unit->getEnergy();
-		root["morale"] = _unit->getMorale();
-		root["mana"] = _unit->getMana();
-		root["stunlevel"] = _unit->getStunlevel();
-
-		root["setDirection"] = _unit->getDirection();
-		root["setFaceDirection"] = _unit->getFaceDirection();
-
-		// motions point
-		root["motionpoints"] = _unit->getMotionPoints();
-
-		// new
-		root["respawn"] = _unit->getRespawn();
-
-		bool isTile = false;
-
-		if (_unit->getTile())
-		{
-
-			isTile = true;
-		}
-
-		root["isTile"] = isTile;
-
-		_parent->sendPacketData(root.toStyledString());
-	}
-
 }
 
 void UnitDieBState::init()
 {
-
-	// coop 
-	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && _coop_death == false)
-	{
-		return;
-	}
-
-	// coop
-	if ((_parent->isCoop() == true && _coop_death == false && _parent->getCoopMod()->getHost() == true))
-	{
-
-		// coop
-		Json::Value root;
-
-		root["state"] = "unit_death";
-
-		root["status"] = _parent->getCoopMod()->unitstatusToInt(_unit->getStatus());
-
-		root["unit_id"] = _unit->getId();
-		root["pos_x"] = _unit->getPosition().x;
-		root["pos_y"] = _unit->getPosition().y;
-		root["pos_z"] = _unit->getPosition().z;
-
-		root["time"] = _unit->getTimeUnits();
-		root["health"] = _unit->getHealth();
-		root["energy"] = _unit->getEnergy();
-		root["morale"] = _unit->getMorale();
-		root["mana"] = _unit->getMana();
-		root["stunlevel"] = _unit->getStunlevel();
-
-		root["setDirection"] = _unit->getDirection();
-		root["setFaceDirection"] = _unit->getFaceDirection();
-
-		// motions points (fix)
-		root["motionpoints"] = _unit->getMotionPoints();
-
-		root["damageType"] = _parent->getCoopMod()->ItemDamageTypeToInt(_damageType->ResistType);
-		root["noSound"] = _noSound;
-
-		// new
-		root["respawn"] = _unit->getRespawn();
-
-		bool isTile = false;
-
-		if (_unit->getTile())
-		{
-
-			isTile = true;
-		}
-
-		root["isTile"] = isTile;
-
-		_parent->sendPacketData(root.toStyledString());
-
-	}
-
 	// check for presence of battlestate to ensure that we're not pre-battle
 	// check for the unit's tile to make sure we're not trying to kill a dead guy
 	if (_parent->getSave()->getBattleState() && !_unit->getTile())
@@ -242,7 +137,6 @@ void UnitDieBState::init()
 			_parent->popState();
 		}
 	}
-
 }
 
 /**
@@ -251,15 +145,6 @@ void UnitDieBState::init()
  */
 void UnitDieBState::think()
 {
-
-	// coop
-	if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == false && _coop_death == false)
-	{
-		_unit->setCoopStatus(STATUS_STANDING);
-		_parent->popState();
-		return;
-	}
-
 	if (_extraFrame == 3)
 	{
 		_parent->popState();
@@ -305,8 +190,7 @@ void UnitDieBState::think()
 		_parent->getTileEngine()->calculateLighting(LL_ITEMS, _unit->getPosition(), _unit->getArmor()->getSize());
 		_parent->getTileEngine()->calculateFOV(_unit->getPosition(), _unit->getArmor()->getSize(), false); //Update FOV for anyone that can see me
 		_parent->popState();
-		// coop
-		if (_unit->getOriginalFaction() == FACTION_PLAYER && ((_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->getHost() == true) || _parent->getCoopMod()->getCoopStatic() == false))
+		if (_unit->getOriginalFaction() == FACTION_PLAYER)
 		{
 			Game *game = _parent->getSave()->getBattleState()->getGame();
 			if (_unit->getStatus() == STATUS_DEAD)
@@ -339,17 +223,11 @@ void UnitDieBState::think()
 				}
 			}
 		}
-
-		// coop
-		if (_parent->isCoop() == true && _parent->getCoopMod()->getHost() == true)
+		// if all units from either faction are killed - auto-end the mission.
+		if (_parent->getSave()->getSide() == FACTION_PLAYER)
 		{
-			// if all units from either faction are killed - auto-end the mission.
-			if (_parent->getSave()->getSide() == FACTION_PLAYER)
-			{
-				_parent->autoEndBattle();
-			}
+			_parent->autoEndBattle();
 		}
-
 	}
 	else if (_extraFrame == 1)
 	{

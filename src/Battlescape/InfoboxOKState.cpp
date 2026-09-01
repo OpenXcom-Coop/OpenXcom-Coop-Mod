@@ -36,9 +36,6 @@ namespace OpenXcom
  */
 InfoboxOKState::InfoboxOKState(const std::string &msg)
 {
-
-	// coop
-
 	_screen = false;
 
 	// Create objects
@@ -73,20 +70,6 @@ InfoboxOKState::InfoboxOKState(const std::string &msg)
 	_txtTitle->setText(msg);
 
 	_game->getCursor()->setVisible(true);
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
-	{
-
-		Json::Value root;
-
-		root["state"] = "info_box_ok";
-
-		root["msg"] = msg;
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-	}
-
 }
 
 /**
@@ -94,7 +77,7 @@ InfoboxOKState::InfoboxOKState(const std::string &msg)
  */
 InfoboxOKState::~InfoboxOKState()
 {
-	// coop
+
 }
 
 /**

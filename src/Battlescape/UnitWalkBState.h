@@ -66,8 +66,6 @@ public:
 	void cancel() override;
 	/// Runs state functionality every cycle.
 	void think() override;
-	// coop
-	bool is_minimap_walk = false;
 };
 
 }

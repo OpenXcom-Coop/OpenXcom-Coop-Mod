@@ -25,12 +25,23 @@
 #include "../Mod/RuleItem.h"
 #include "Soldier.h"
 #include "BattleItem.h"
-
-#include "../Engine/Game.h"
-#include "../Battlescape/BattlescapeGame.h"
+#include "../CoopMod/CoopSeat.h"
 
 namespace OpenXcom
 {
+/**
+ * User interface string identifier of body parts.
+ */
+const std::string PARTS_STRING[6] =
+{
+	"STR_HEAD",
+	"STR_TORSO",
+	"STR_RIGHT_ARM",
+	"STR_LEFT_ARM",
+	"STR_RIGHT_LEG",
+	"STR_LEFT_LEG"
+};
+
 
 class Tile;
 class BattleItem;
@@ -81,7 +92,6 @@ private:
 	UnitFaction _faction, _originalFaction;
 	UnitFaction _killedBy;
 	UnitFaction _spawnUnitFaction = FACTION_HOSTILE;
-	int _coop = 0;
 	int _id;
 	Position _pos;
 	Tile *_tile;
@@ -125,7 +135,6 @@ private:
 	Uint8 _turnsSinceStunned = 255;
 
 	BattleUnit* _previousOwner = nullptr;
-
 	const Unit *_spawnUnit = nullptr;
 	std::string _activeHand;
 	std::string _preferredHandForReactions;
@@ -134,6 +143,7 @@ private:
 	BattleUnitStatistics* _statistics;
 	int _murdererId;	// used to credit the murderer with the kills that this unit got by blowing up on death
 	int _mindControllerID;	// used to credit the mind controller with the kills of the mind controllee
+	CoopSeat _coopSeat = COOP_SEAT_NONE;	// RB-D17: the battle seat currently controlling this unit
 	UnitSide _fatalShotSide;
 	UnitBodyPart _fatalShotBodyPart;
 	std::string _murdererWeapon, _murdererWeaponAmmo;
@@ -156,11 +166,11 @@ private:
 	int _visibilityThroughSmoke = 0;
 	int _visibilityThroughFire = 100;
 	SpecialAbility _specab;
-	Armor *_armor;
+	const Armor *_armor;
 	SoldierGender _gender;
 	Soldier *_geoscapeSoldier;
 	std::vector<int> _loftempsSet;
-	Unit *_unitRules;
+	const Unit *_unitRules;
 	int _rankInt;
 	int _rankIntUnified = 0;
 	int _turretType;
@@ -209,28 +219,10 @@ private:
 	/// Applies percentual and/or flat adjustments to the use costs.
 	void applyPercentages(RuleItemUseCost &cost, const RuleItemUseFlat &flat) const;
 public:
-	// coop
-	void setDestinationCoop(Position pos);
-	void setLastPosCoop(Position pos);
-	Position getLastPosCoop();
-	void setCoopStatus(UnitStatus status);
-	void stopCoopWalk();
-	const int* getFatalWoundsCoop() const;
-	void setFatalWoundCoop(int bodyPart, int value);
-	bool _coop_mindcontrolled = false;
-	void setOriginalFaction(UnitFaction faction);
-	void setCoop(int coop);
-	int getCoop() const;
-	void setCoopMana(int mana);
-	void setCoopMorale(int morale);
-	void setCoopEnergy(int energy);
-	void setHealth(int health);
-	int _coopDamage = 0;
-	int _coopHealth = 0;
 	static const int MAX_SOLDIER_ID = 1000000;
 	static const int BUBBLES_FIRST_FRAME = 3;
 	static const int BUBBLES_LAST_FRAME = BUBBLES_FIRST_FRAME + 15;
-	std::string getCoopName();
+
 	/// Name of class used in script.
 	static constexpr const char *ScriptName = "BattleUnit";
 	/// Register all useful function used by script.
@@ -241,11 +233,11 @@ public:
 	/// Creates a BattleUnit from solder.
 	BattleUnit(const Mod *mod, Soldier *soldier, int depth, const RuleStartingCondition* sc);
 	/// Creates a BattleUnit from unit.
-	BattleUnit(const Mod *mod, Unit *unit, UnitFaction faction, int id, const RuleEnviroEffects* enviro, Armor *armor, StatAdjustment *adjustment, int depth, const RuleStartingCondition* sc);
+	BattleUnit(const Mod *mod, const Unit *unit, UnitFaction faction, int id, const RuleEnviroEffects* enviro, const Armor *armor, StatAdjustment *adjustment, int depth, const RuleStartingCondition* sc);
 	/// Updates BattleUnit's armor and related attributes (after a change/transformation of armor).
-	void updateArmorFromSoldier(const Mod *mod, Soldier *soldier, Armor *ruleArmor, int depth, bool nextStage, const RuleStartingCondition* sc);
+	void updateArmorFromSoldier(const Mod *mod, Soldier *soldier, const Armor *ruleArmor, int depth, bool nextStage, const RuleStartingCondition* sc);
 	/// Updates BattleUnit's armor and related attributes (after a change/transformation of armor).
-	void updateArmorFromNonSoldier(const Mod* mod, Armor* newArmor, int depth, bool nextStage, const RuleStartingCondition* sc);
+	void updateArmorFromNonSoldier(const Mod* mod, const Armor* newArmor, int depth, bool nextStage, const RuleStartingCondition* sc);
 	/// Cleans up the BattleUnit.
 	~BattleUnit();
 	/// Loads the unit from YAML.
@@ -270,10 +262,6 @@ public:
 	void setDirection(int direction);
 	/// Sets the unit's face direction (only used by strafing moves)
 	void setFaceDirection(int direction);
-	// coop
-	void setDirectionTurretCoop(int direction);
-	// coop
-	void setTurretToDirectionCoop(int direction);
 	/// Gets the unit's direction.
 	int getDirection() const;
 	/// Gets the unit's face direction (only used by strafing moves)
@@ -284,8 +272,6 @@ public:
 	int getTurretToDirection() const;
 	/// Gets the unit's vertical direction.
 	int getVerticalDirection() const;
-	// coop
-	void setVerticalDirectionCoop(int dir);
 	/// Gets the unit's status.
 	UnitStatus getStatus() const;
 	/// Does the unit want to surrender?
@@ -298,10 +284,6 @@ public:
 	void startWalking(int direction, Position destination, SavedBattleGame *savedBattleGame);
 	/// Increase the walkingPhase
 	void keepWalking(SavedBattleGame *savedBattleGame, bool fullWalkCycle);
-	// coop
-	void setwalkPhaseCoop(int phase);
-	/// Increase the walkingPhase
-	void keepWalkingCoop(SavedBattleGame* savedBattleGame, bool fullWalkCycle);
 	/// Gets the walking phase for animation and sound
 	int getWalkingPhase() const;
 	/// Gets the walking phase for diagonal walking
@@ -320,6 +302,10 @@ public:
 	SoldierGender getGender() const;
 	/// Gets the unit's faction.
 	UnitFaction getFaction() const;
+	/// Gets the coop seat currently controlling this unit (RB-D17).
+	CoopSeat getCoopSeat() const { return _coopSeat; }
+	/// Sets the coop seat currently controlling this unit (RB-D17).
+	void setCoopSeat(CoopSeat s) { _coopSeat = s; }
 	/// Gets unit sprite recolors values.
 	const std::vector<std::pair<Uint8, Uint8> > &getRecolor() const;
 	/// Kneel down.
@@ -347,15 +333,12 @@ public:
 	int getMorale() const;
 	/// Get overkill damage to unit.
 	int getOverKillDamage() const;
-	//  coop
-	void damageCoop(SavedBattleGame* save);
 	/// Do damage to the unit.
 	int damage(Position relative, int power, const RuleDamageType *type, SavedBattleGame *save, BattleActionAttack attack, UnitSide sideOverride = SIDE_MAX, UnitBodyPart bodypartOverride = BODYPART_MAX);
 	/// Heal stun level of the unit.
 	void healStun(int power);
 	/// Gets the unit's stun level.
 	int getStunlevel() const;
-	void setStunlevelCoop(int stunlevel);
 	/// Is the unit losing HP (due to negative health regeneration)?
 	bool hasNegativeHealthRegen() const;
 	/// Knocks the unit out instantly.
@@ -440,7 +423,6 @@ public:
 	bool reselectAllowed() const;
 	/// Set fire.
 	void setFire(int fire);
-	void setFireCoop(int fire);
 	/// Get fire.
 	int getFire() const;
 
@@ -564,6 +546,8 @@ public:
 	void setArmor(int armor, UnitSide side);
 	/// Get armor value.
 	int getArmor(UnitSide side) const;
+	/// Set max armor value.
+	void setMaxArmor(int armor, UnitSide side);
 	/// Get max armor value.
 	int getMaxArmor(UnitSide side) const;
 	/// Set fatal wound amount of a body part
@@ -581,8 +565,6 @@ public:
 	void stimulant (int energy, int stun, int mana);
 	/// Get motion points for the motion scanner.
 	int getMotionPoints() const;
-	// coop
-	void setMotionPointsCoop(int points);
 	/// Get turn when unit was scanned by the motion scanner.
 	int getScannedTurn() const { return _scannedTurn; }
 	/// Set turn when unit was scanned by the motion scanner.
@@ -698,7 +680,6 @@ public:
 	/// Gets a unit's random aggro sound.
 	int getRandomAggroSound() const;
 	/// Sets the unit's time units.
-	void setCoopTimeUnits(int tu);
 	void setTimeUnits(int tu);
 	/// Get the faction that killed this unit.
 	UnitFaction killedBy() const;
@@ -741,7 +722,7 @@ public:
 	/// Get this unit's original faction
 	UnitFaction getOriginalFaction() const;
 	/// Get alien/HWP unit.
-	Unit *getUnitRules() const { return _unitRules; }
+	const Unit *getUnitRules() const { return _unitRules; }
 	Position lastCover;
 	/// get the vector of units we've seen this turn.
 	std::vector<BattleUnit *> &getUnitsSpottedThisTurn();
@@ -916,23 +897,6 @@ public:
 	ArmorMoveCost getMoveCostBaseClimb() const { return _moveCostBaseClimb; }
 	/// Multiplier of normal move cost.
 	ArmorMoveCost getMoveCostBaseNormal() const { return _moveCostBaseNormal; }
-
-	// coop
-	int coop_tu = 0;
-	int coop_energy = 0;
-	int coop_morale = 0;
-	int coop_health = 0;
-	int coop_mana = 0;
-	int coop_stun = 0;
-	bool coop_no_line_fire = false;
-	bool coop_unable_to_throw_here = false;
-	bool coop_action = false;
-
-	// coop
-	void setUnitRulesCoop(Unit *unitRules);
-	// coop
-	bool hasCoopItem(const BattleItem* item);
-
 };
 
 } //namespace OpenXcom

@@ -39,7 +39,6 @@ class Mod;
 class InfoboxOKState;
 class SoldierDiary;
 class RuleSkill;
-class connectionTCP; 
 
 enum BattleActionMove : char { BAM_NORMAL = 0, BAM_RUN = 1, BAM_STRAFE = 2, BAM_SNEAK = 3, BAM_MISSILE = 4 };
 
@@ -140,12 +139,14 @@ private:
 	bool _playerPanicHandled;
 	int _AIActionCounter;
 	BattleAction _currentAction;
+	bool _AISecondMove, _playedAggroSound;
 	bool _endTurnRequested;
 	bool _endConfirmationHandled;
 	bool _allEnemiesNeutralized;
 
 	helper::SingleRun _endTurnProcessed;
 	helper::SingleRun _triggerProcessed;
+
 	/// Ends the turn.
 	void endTurn();
 	/// Picks the first soldier that is panicking.
@@ -158,33 +159,9 @@ private:
 	/// Shows the infoboxes in the queue (if any).
 	void showInfoBoxQueue();
 public:
-	bool _AISecondMove, _playedAggroSound;
 	/// is debug mode enabled in the battlescape?
 	static bool _debugPlay;
-	static int isYourTurn;
-	// coop
-	connectionTCP* getCoopMod();
-	void handlePanickUnitCoop(BattleUnit* unit);
-	void infoboxCoop(std::string msg);
-	void infoboxOkCoop(std::string msg);
-	void setCoopTaskCompleted(bool task);
-	int getCoopActorID();
-	int getCoopGamemode();
-	std::string getCoopWeaponHand();
-	void movePlayerTarget(std::string obj);
-	void turnPlayerTarget(std::string str_obj);
-	void turnPlayerTargetAfter(std::string str_obj);
-	void psi_attack(std::string str_obj);
-	void melee_attack(std::string str_obj);
-	bool getHost();
-	bool isCoop();
-	void abortCoopPath(int x, int y, int z, int unit_id, int setDirection, int setFaceDirection);
-	void abortCoopPath2();
-	void sendPacketData(std::string data);
-	void coopDeath(BattleUnit *unit, const RuleDamageType *damageType, bool noSound);
-	// coop
-	void teleport(int x, int y, int z, BattleUnit* unit);
-	void setTileCoop(Position pos, BattleUnit &unit);
+
 	/// Creates the BattlescapeGame state.
 	BattlescapeGame(SavedBattleGame *save, BattlescapeState *parentState);
 	/// Cleans up the BattlescapeGame state.
@@ -197,8 +174,6 @@ public:
 	bool playableUnitSelected() const;
 	/// Handles states timer.
 	void handleState();
-	// coop
-	void handleStateCoop();
 	/// Pushes a state to the front of the list.
 	void statePushFront(BattleState *bs);
 	/// Pushes a state to second on the list.
@@ -207,9 +182,6 @@ public:
 	void statePushBack(BattleState *bs);
 	/// Handles the result of non target actions, like priming a grenade.
 	void handleNonTargetAction();
-	// coop
-	void endTurnCoop();
-	void endBattleTurnCoop();
 	/// Removes current state.
 	void popState();
 	/// Sets state think interval.
@@ -240,7 +212,6 @@ public:
 	bool kneel(BattleUnit *bu);
 	/// Cancels the current action.
 	bool cancelCurrentAction(bool bForce = false);
-	bool cancelCurrentActionCoop(bool bForce = false);
 	/// Cancels all actions.
 	void cancelAllActions();
 	/// Gets a pointer to access action members directly.
@@ -298,23 +269,6 @@ public:
 	void setKneelReserved(bool reserved);
 	/// Checks the kneel reservation setting.
 	bool getKneelReserved() const;
-	/// Names the hand a weapon is actually held in ("right"/"left"), falling back
-	/// to @a uiHand. The co-op packets used to report BattlescapeGame::
-	/// getCoopWeaponHand() alone, which is only ever written when the LOCAL player
-	/// clicks a hand button - so an AI actor's shot carried somebody else's stale
-	/// hand. (coop, issue #74)
-	static std::string coopHandOf(BattleUnit* actor, const BattleItem* weapon, const std::string& uiHand);
-	/// Resolves the weapon a replayed co-op action was fired with, WITHOUT ever
-	/// fabricating a BattleItem: exact (id,type) on the actor, then the named
-	/// hand, then the actor's own inventory by type, then the identified instance
-	/// anywhere. Returns nullptr when the peer genuinely does not have it - the
-	/// caller must then skip the action rather than invent an item, because every
-	/// `new BattleItem` on a receiver silently advances that machine's item-id
-	/// counter and permanently desynchronises the two id spaces. (coop, issue #74)
-	static BattleItem* coopResolveWeapon(SavedBattleGame* save, BattleUnit* actor, int weaponId, const std::string& weaponType, const std::string& hand);
-	/// Checks for and triggers proximity grenades. (coop)
-	void checkForProximityCoop(BattleUnit* unit);
-	int checkForProximityGrenadesCoop(BattleUnit* unit);
 	/// Checks for and triggers proximity grenades.
 	int checkForProximityGrenades(BattleUnit *unit);
 	/// Cleans up all the deleted states.
@@ -336,13 +290,6 @@ public:
 	bool areAllEnemiesNeutralized() const { return _allEnemiesNeutralized; }
 	/// Resets the flag.
 	void resetAllEnemiesNeutralized() { _allEnemiesNeutralized = false; }
-
-	// coop
-	void setWaypointCoop(int x, int y, int z);
-	void clearWaypointsCoop();
-	void CoopShoot();
-	void hitCoop(BattleActionAttack attack, Position center, int power, const RuleDamageType* type, bool rangeAtack = true, int terrainMeleeTilePart = 0, uint64_t seed = 0);
-	void centerOnPositionCoop(Position pos);
 };
 
 }

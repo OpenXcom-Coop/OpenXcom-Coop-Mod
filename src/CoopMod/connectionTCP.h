@@ -562,6 +562,10 @@ class connectionTCP
 	void joinDirectLanUDP(std::string ipaddress, std::string port, std::string localport,
 	                      std::string player, std::string password);
 	void onTCPMessage(std::string data, Json::Value obj);
+	/// R1-P3 quarantine catch-all: true (and drops/logs) if `state` names one of
+	/// the battle-sim wire messages deleted by the vanilla restore
+	/// (inventory-wire-protocol.md sections A-E). See connectionTCP.cpp.
+	static bool legacyBattleMessageDropped(const std::string& state);
 	void sendBaseFile();
 	void sendMissionFile();
 	/// issue #93: stream the RUNNING skirmish battle to a rejoining client.

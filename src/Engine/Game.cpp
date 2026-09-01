@@ -369,7 +369,7 @@ void Game::run()
 									// Battle. The menu calls giftBattleUnit(), which delegates to the
 									// persistent Soldier transfer path when the BattleUnit belongs to
 									// a campaign soldier. This also remains valid for 3-4 players.
-									pushState(new GiftSoldierMenu(giftUnit, giftUnit->getCoop()));
+									pushState(new GiftSoldierMenu(giftUnit, (int)giftUnit->getCoopSeat()));
 								}
 							}
 

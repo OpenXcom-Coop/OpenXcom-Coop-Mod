@@ -65,7 +65,7 @@ public:
  * @param y The title's y origin.
  * @param title The title.
  */
-MedikitTitle::MedikitTitle (int y, const std::string & title) : Text (73, 9, 186, y)
+MedikitTitle::MedikitTitle (int y, const std::string & title) : Text (73 + 60, 9, 186 - 30, y)
 {
 	this->setText(title);
 	this->setHighContrast(true);
@@ -151,9 +151,9 @@ MedikitState::MedikitState (BattleUnit *targetUnit, BattleAction *action, TileEn
 	add(_bg);
 	add(_medikitView, "body", "medikit", _bg);
 	add(_endButton, "buttonEnd", "medikit", _bg);
-	add(new MedikitTitle (37, tr("STR_PAIN_KILLER")), "textPK", "medikit", _bg);
-	add(new MedikitTitle (73, tr("STR_STIMULANT")), "textStim", "medikit", _bg);
-	add(new MedikitTitle (109, tr("STR_HEAL")), "textHeal", "medikit", _bg);
+	add(new MedikitTitle (37, tr(_item->getRules()->getPainKillerActionName())), "textPK", "medikit", _bg);
+	add(new MedikitTitle (73, tr(_item->getRules()->getStimulantActionName())), "textStim", "medikit", _bg);
+	add(new MedikitTitle (109, tr(_item->getRules()->getHealActionName())), "textHeal", "medikit", _bg);
 	add(_healButton, "buttonHeal", "medikit", _bg);
 	add(_stimulantButton, "buttonStim", "medikit", _bg);
 	add(_pkButton, "buttonPK", "medikit", _bg);
@@ -205,26 +205,6 @@ void MedikitState::handle(Action *action)
 	}
 }
 
-void MedikitState::coopHandle(std::string state, int part)
-{
-
-	if (_item->getHealQuantity() == 0)
-	{
-		return;
-	}
-
-	if (_action->spendTU(&_action->result))
-	{
-		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_HEAL, (UnitBodyPart)part);
-
-		_medikitView->updateSelectedPart();
-		_medikitView->invalidate();
-		update();
-	
-	}
-
-}
-
 /**
  * Returns to the previous screen.
  * @param action Pointer to an action.
@@ -254,22 +234,6 @@ void MedikitState::onHealClick(Action *)
 	if (_action->spendTU(&_action->result))
 	{
 		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_HEAL, (UnitBodyPart)_medikitView->getSelectedPart());
-
-		// COOP healing
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
-		{
-			Json::Value obj;
-			obj["state"] = "medkit";
-			obj["actor_id"] = _targetUnit->getId();
-			obj["type"] = (int)_action->type;
-			obj["part"] = _medikitView->getSelectedPart();
-			obj["medkit_state"] = "heal";
-			obj["action_result"] = &_action->result;
-			obj["time"] = _action->Time;
-
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
-
 		_medikitView->updateSelectedPart();
 		_medikitView->invalidate();
 		update();
@@ -303,21 +267,6 @@ void MedikitState::onStimulantClick(Action *)
 		{
 			onEndClick(0);
 		}
-
-		// COOP stimulant
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
-		{
-			Json::Value obj;
-			obj["state"] = "medkit";
-			obj["actor_id"] = _targetUnit->getId();
-			obj["type"] = (int)_action->type;
-			obj["part"] = _medikitView->getSelectedPart();
-			obj["medkit_state"] = "stimulant";
-			obj["action_result"] = &_action->result;
-
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
-
 	}
 	else
 	{
@@ -344,23 +293,6 @@ void MedikitState::onPainKillerClick(Action *)
 		{
 			onEndClick(0);
 		}
-
-		
-		// COOP painkiller
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
-		{
-			Json::Value obj;
-			obj["state"] = "medkit";
-			obj["actor_id"] = _targetUnit->getId();
-			obj["type"] = (int)_action->type;
-			obj["part"] = _medikitView->getSelectedPart();
-			obj["medkit_state"] = "painkiller";
-			obj["action_result"] = &_action->result;
-
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-
-		}
-
 	}
 	else
 	{

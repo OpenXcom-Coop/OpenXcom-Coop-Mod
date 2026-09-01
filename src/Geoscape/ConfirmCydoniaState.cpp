@@ -90,42 +90,13 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 {
 	if (connectionTCP::getCoopStatic())
 	{
-		_game->getCoopMod()->setSelectedCraft(_craft);
-		_game->getCoopMod()->setConfirmCydoniaState(this);
-
-		if (_game->getCoopMod()->isSharedCampaign())
-		{
-			// SHARED owns one world, so generate Cydonia once on the host and stream
-			// that authoritative battle instead of running the separate-world merge.
-			_game->getCoopMod()->setHost(true);
-			for (auto* soldier : *_craft->getBase()->getSoldiers())
-			{
-				if (soldier->getCraft() != _craft)
-					continue;
-				int owner = soldier->getOwnerPlayerId();
-				soldier->setCoop((owner == 0 || owner == 999) ? 0 : 1);
-				soldier->setCoopBase(-1);
-			}
-			for (auto* vehicle : *_craft->getVehicles())
-			{
-				vehicle->setCoop(0);
-				vehicle->setCoopBase(-1);
-			}
-			startCoopMission();
-			return;
-		}
-
-		if (!_game->getCoopMod()->getHost())
-		{
-			// The existing separate-campaign merge is host-authoritative, so hand
-			// authority to the player who selected Cydonia before starting it.
-			Json::Value root;
-			root["state"] = "changeHost";
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-			_game->getCoopMod()->setHost(true);
-		}
-
-		_game->pushState(new CoopState(88));
+		// R1-P5/R4-REWIRE: coop Cydonia battle-start choreography (the SEPARATE
+		// two-world merge + SHARED host-authoritative stream, both of which end in
+		// BriefingState::setupCoop() and per-soldier seat/faction mutation) is
+		// quarantined pending the r4/r5 atomic-bundle rebuild (RB-D9) - those symbols
+		// died with the vanilla restore (911ca487f). SP path below is untouched
+		// (ADDENDUM MJ-3).
+		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
 		return;
 	}
 
@@ -136,17 +107,14 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 
 void ConfirmCydoniaState::startCoopMission()
 {
-	// The shared path can be re-entered by delayed network callbacks. Never
-	// replace an already-streamed Mars map with a second random generation.
-	if (_game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()
-		&& _game->getSavedGame()->getSavedBattle())
-	{
-		return;
-	}
-
+	// R1-P5/R4-REWIRE: also reachable asynchronously from
+	// connectionTCP::setClientSoldiers() on the coop host after a changeHost
+	// round-trip - RB-D9's quarantine covers this entry path too. SP branch below
+	// is untouched.
 	if (connectionTCP::getCoopStatic())
 	{
-		_game->getCoopMod()->coopInventory = true;
+		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
+		return;
 	}
 
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
@@ -165,15 +133,7 @@ void ConfirmCydoniaState::startCoopMission()
 	bgen.setCraft(_craft);
 	bgen.run();
 
-	if (connectionTCP::getCoopStatic())
-	{
-		BriefingState* briefing = new BriefingState(_craft);
-		briefing->setupCoop();
-	}
-	else
-	{
-		_game->pushState(new BriefingState(_craft));
-	}
+	_game->pushState(new BriefingState(_craft));
 }
 
 /**

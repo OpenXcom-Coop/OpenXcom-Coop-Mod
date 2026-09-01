@@ -38,10 +38,9 @@ private:
 	bool _noSound;
 	int _extraFrame;
 	bool _overKill;
-	bool _coop_death;
-  public:
+public:
 	/// Creates a new UnitDieBState class
-	UnitDieBState(BattlescapeGame* parent, BattleUnit* unit, const RuleDamageType* damageType, bool noSound, bool coop_death = false);
+	UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const RuleDamageType *damageType, bool noSound);
 	/// Cleans up the UnitDieBState.
 	~UnitDieBState();
 	/// Initializes the state.

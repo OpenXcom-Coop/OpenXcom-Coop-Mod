@@ -117,7 +117,7 @@ SavedGame::SavedGame() :
 	_difficulty(DIFF_BEGINNER), _end(END_NONE), _ironman(false), _coop(false), _campaignType(CoopCampaignType::Separate), _globeLon(0.0), _globeLat(0.0), _globeZoom(0),
 	_battleGame(0), _previewBase(nullptr), _debug(false), _warned(false),
 	_togglePersonalLight(true), _toggleNightVision(false), _toggleBrightness(0),
-	_monthsPassed(-1), _daysPassed(0), _vehiclesLost(0), _selectedBase(0), _autosales(), _disableSoldierEquipment(false), _alienContainmentChecked(false)
+	_monthsPassed(-1), _daysPassed(0), _vehiclesLost(0), _craftLostMission(0), _selectedBase(0), _autosales(), _disableSoldierEquipment(false), _alienContainmentChecked(false)
 {
 	_time = new GameTime(6, 1, 1, 1999, 12, 0, 0);
 	_alienStrategy = new AlienStrategy();
@@ -355,6 +355,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 
 	reader.tryRead("daysPassed", _daysPassed);
 	reader.tryRead("vehiclesLost", _vehiclesLost);
+	reader.tryRead("craftLostMission", _craftLostMission);
 	reader.tryRead("graphRegionToggles", _graphRegionToggles);
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
@@ -893,6 +894,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 
 	reader.tryRead("daysPassed", _daysPassed);
 	reader.tryRead("vehiclesLost", _vehiclesLost);
+	reader.tryRead("craftLostMission", _craftLostMission);
 	reader.tryRead("graphRegionToggles", _graphRegionToggles);
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
@@ -1329,6 +1331,7 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);
 	writer.write("vehiclesLost", _vehiclesLost);
+	writer.write("craftLostMission", _craftLostMission);
 	writer.write("graphRegionToggles", _graphRegionToggles);
 	writer.write("graphCountryToggles", _graphCountryToggles);
 	writer.write("graphFinanceToggles", _graphFinanceToggles);
@@ -1583,6 +1586,7 @@ std::string SavedGame::buildCoopStub(Mod* mod) const
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);
 	writer.write("vehiclesLost", _vehiclesLost);
+	writer.write("craftLostMission", _craftLostMission);
 	writer.write("graphRegionToggles", _graphRegionToggles);
 	writer.write("graphCountryToggles", _graphCountryToggles);
 	writer.write("graphFinanceToggles", _graphFinanceToggles);
@@ -1865,6 +1869,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);
 	writer.write("vehiclesLost", _vehiclesLost);
+	writer.write("craftLostMission", _craftLostMission);
 	writer.write("graphRegionToggles", _graphRegionToggles);
 	writer.write("graphCountryToggles", _graphCountryToggles);
 	writer.write("graphFinanceToggles", _graphFinanceToggles);

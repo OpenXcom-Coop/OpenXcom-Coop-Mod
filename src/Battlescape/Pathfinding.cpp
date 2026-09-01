@@ -786,18 +786,6 @@ int Pathfinding::dequeuePath()
  */
 void Pathfinding::abortPath()
 {
-
-	// coop
-	if ((_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true) || (_save->getBattleGame()->getCoopMod()->getCoopStatic() == false))
-	{
-		_totalTUCost = {};
-		_path.clear();
-	}
-
-}
-
-void Pathfinding::abortPathCoop()
-{
 	_totalTUCost = {};
 	_path.clear();
 }
