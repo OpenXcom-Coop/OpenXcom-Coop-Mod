@@ -105,6 +105,20 @@ struct BattleAuthority
 	/// Host-minted at battle_offer (SS2.2); 0 = none yet.
 	std::atomic<std::uint32_t> battleId{0};
 
+	/// R2-P9 (SPIKE-RUNBOOK.md SS2.8): set the moment this machine's own
+	/// hash-mismatch detector (CoopHashCheck::verify, BattlePump.h) latches a
+	/// desync - "freeze battle input" per SS2.8's mismatch-behavior note.
+	/// Distinct from BattlePump.h's g_battleFrozen (the R2-P2 seq-gap apply-
+	/// queue halt, a low-level plumbing flag): this one is the
+	/// BattleAuthority-level signal higher gating code (the R3-P1 client
+	/// intent tracker/intercept sites) is meant to read. A hash mismatch
+	/// ALSO sets g_battleFrozen (halting the apply queue too) - the two flags
+	/// are set together on a mismatch, never independently, but kept
+	/// separate because they answer different questions ("is the low-level
+	/// apply queue paused" vs "has this battle desynced"). NO partial
+	/// repair, never cleared mid-battle (SS2.8): rejoin is post-spike.
+	std::atomic<bool> desyncFrozen{false};
+
 	/// Seat -> FACTION_* lookup, backed by the private store below. R2-P3
 	/// interim (RB-D18): the store starts empty and factionOf() falls back
 	/// to FACTION_PLAYER for any unmapped/out-of-range seat - correct for

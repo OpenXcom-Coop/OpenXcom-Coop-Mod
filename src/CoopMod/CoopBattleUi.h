@@ -88,6 +88,15 @@ void clearPending();
 /// No-op outside an active coop battle.
 void showCancel(const char* cause, const char* evKind);
 
+/// R2-P9 (SPIKE-RUNBOOK.md SS2.8 mismatch-behavior note): the STICKY desync
+/// banner - "desync detected - battle halted (rejoin arrives in a later
+/// build)" (STR_COOP_DESYNC_HALTED). Called once, from CoopHashCheck::verify
+/// (BattlePump.h) on the first hash mismatch, AFTER battle input is already
+/// frozen - unlike showDeny/showPending/showCancel this is never cleared by
+/// clearPending() (there is nothing to auto-retry into once a battle has
+/// desynced; NO partial repair, SS2.8). No-op outside an active coop battle.
+void showDesyncHalted();
+
 } // namespace CoopBattleUi
 
 } // namespace OpenXcom

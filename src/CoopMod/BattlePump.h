@@ -137,4 +137,35 @@ void onApplied(const Json::Value& ev);
 /// intended readers/clearers of this flag; R2-P2 only sets it and logs.
 extern std::atomic<bool> g_battleFrozen;
 
+/**
+ * R2-P9 (rewrite spike, SPIKE-RUNBOOK.md SS2.8): the client-side post-apply
+ * hash verify. SS2.8's compare direction is one-way in the spike - "host
+ * ships h in evs; CLIENT hashes post-apply, compares, hard-fails" (host
+ * never compares) - so this is the ONE call site for the whole mismatch
+ * path (bucket compare -> freeze -> bt_desync -> bundle -> banner).
+ *
+ * Body lives in connectionTCP.cpp, next to BattleAuthority/CoopArbiter/
+ * CoopPump/CoopEmit/CoopHandshake/CoopBattleUi - the established home for
+ * this scaffolding (R2-P1..P9).
+ */
+namespace CoopHashCheck
+{
+
+/// Called from CoopPump::drainApplyQueue() immediately after
+/// CoopDisplayQueue::onApplied() for each bt_ev/bt_action_end, in strict seq
+/// order. Presence-gated (SS2.8, same as battle_ready.h pre-R2-P9): a no-op
+/// if @a evOrEnd carries no non-empty "h" object. Otherwise recomputes every
+/// bucket @a evOrEnd names via SharedEcon::computeBattleHashes() against
+/// this machine's own live battle and compares hex-for-hex, in the order the
+/// carried buckets appear. On the FIRST mismatch: logs, sets
+/// BattleAuthority::desyncFrozen (+ g_battleFrozen, halting the apply queue
+/// too), sends bt_desync, writes SharedEcon::writeDesyncBundle(), and shows
+/// the sticky CoopBattleUi banner - then stops comparing (SS2.8: "NO partial
+/// repair"). Latches: a battle that already desynced does not re-report on
+/// every later envelope. No-op outside an active coop battle or with no
+/// live SavedBattleGame.
+void verify(const Json::Value& evOrEnd);
+
+} // namespace CoopHashCheck
+
 } // namespace OpenXcom

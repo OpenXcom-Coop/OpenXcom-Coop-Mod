@@ -76,6 +76,9 @@ en-US:
   STR_COOP_CANCEL_NEW_CONTACT: "Order cancelled - new contact"
   # {0}=event kind name, used only for unrecognized cancel-cause kinds
   STR_COOP_CANCEL_EVENT: "Order cancelled - {0}"
+  # coop (R2-P9, spike-runbook 2.8 mismatch-behavior note): sticky banner shown
+  # once on a client-side hash-mismatch desync - never auto-cleared.
+  STR_COOP_DESYNC_HALTED: "Desync detected - battle halted (rejoin arrives in a later build)"
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

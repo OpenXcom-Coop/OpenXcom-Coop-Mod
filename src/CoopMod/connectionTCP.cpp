@@ -752,6 +752,12 @@ void drainApplyQueue()
 
 		// R3-P1 applies payload here.
 		CoopDisplayQueue::onApplied(ev);
+
+		// R2-P9 (SS2.8): post-apply hash verify - the correct call site
+		// whether or not R3-P1's applier above has landed yet (its body is
+		// currently a no-op; BattlePump.h's own doc comment on verify()
+		// covers why this positioning is still correct once it does).
+		CoopHashCheck::verify(ev);
 	}
 }
 
@@ -923,6 +929,7 @@ void initBattleAuthority(std::uint32_t battleId)
 	a.localSeat = connectionTCP::localSeat();
 	a.phase = CoopBattlePhase::Handshake;
 	a.battleId = battleId;
+	a.desyncFrozen = false; // R2-P9: a fresh battle always starts unfrozen
 	a.resetSeatFactions();
 }
 
@@ -933,6 +940,7 @@ void resetBattleAuthority()
 	a.localSeat = -1;
 	a.phase = CoopBattlePhase::Idle;
 	a.battleId = 0;
+	a.desyncFrozen = false; // R2-P9
 	a.resetSeatFactions();
 }
 
@@ -1113,6 +1121,35 @@ static void resetCoopArbiterState()
 	g_coopActionIdMint = 1;
 	g_coopPendingChainActorId = -1;
 	g_coopLastDenyTick.clear();
+}
+
+// R2-P9 (SPIKE-RUNBOOK.md SS2.8): render a bucket's uint64 as the 16-
+// lowercase-hex-char string the wire's "h" object carries (SS2.2's `h` type:
+// "JSON cannot carry uint64"). File-scope (not CoopArbiter-internal): also
+// used by CoopHandshake's saveBlob field and by CoopHashCheck::verify's own
+// recompute-and-compare below.
+static std::string coopHex64(std::uint64_t v)
+{
+	char buf[17];
+	std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)v);
+	return std::string(buf);
+}
+
+// R2-P9 (RB-D14): the `h:{unitsStats}` bucket every spike turn/kneel ev and
+// action_end carries. One bucket only (RB-D14's own rationale: "one cheap
+// bucket buys per-event divergence attribution during the calibration
+// spike" - walk/shot/etc. atoms are post-spike and may carry more). Built
+// via SharedEcon::computeBattleHashes() - the ported SS2.8 sweep - never a
+// second hand-rolled hasher.
+static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save)
+{
+	Json::Value h(Json::objectValue);
+	SharedEcon::BattleHashSet buckets;
+	if (SharedEcon::computeBattleHashes(save, buckets))
+	{
+		h["unitsStats"] = coopHex64(buckets.unitsStats);
+	}
+	return h;
 }
 
 namespace CoopArbiter
@@ -1402,17 +1439,14 @@ void onIntent(const Json::Value& intent)
 		ev["payload"]["unit"] = actor->getId();
 		ev["payload"]["kneeled"] = actor->isKneeled();
 		ev["payload"]["tuAfter"] = actor->getTimeUnits();
-		// RB-D14: spike evs always carry h (presence), but the hash fn
-		// itself arrives in R2-P9 (SS2.8 - computeBattleHashes/
-		// battleHashBucketValue are ported there). Ship an empty h until
-		// then - the same transitional treatment SS2.7 already specifies
-		// for battle_ready.h.
-		ev["h"] = Json::Value(Json::objectValue); // RW-TODO(R2-P9): real unitsStats hash
+		// RB-D14: spike evs always carry h:{unitsStats} - the real bucket
+		// hash, via SharedEcon's ported SS2.8 sweep (R2-P9).
+		ev["h"] = coopBuildUnitsStatsHash(save);
 		CoopEmit::sendEv(ev);
 
 		Json::Value end = CoopWire::makeActionEnd(0, actionId);
 		end["final"] = buildFinal(actor);
-		end["h"] = Json::Value(Json::objectValue); // RW-TODO(R2-P9): real hash bucket sweep
+		end["h"] = coopBuildUnitsStatsHash(save);
 		CoopEmit::sendEv(end);
 
 		popActionContext();
@@ -1447,7 +1481,7 @@ void onChainQuiesced()
 	{
 		Json::Value end = CoopWire::makeActionEnd(0, actionId);
 		end["final"] = buildFinal(actor);
-		end["h"] = Json::Value(Json::objectValue); // RW-TODO(R2-P9): real hash bucket sweep
+		end["h"] = coopBuildUnitsStatsHash(save); // RB-D14
 		CoopEmit::sendEv(end);
 	}
 
@@ -1592,6 +1626,17 @@ void showCancel(const char* cause, const char* evKind)
 		std::string kind = evKind ? evKind : std::string();
 		bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_CANCEL_EVENT").arg(kind));
 	}
+}
+
+void showDesyncHalted()
+{
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs)
+		return;
+	// R2-P9 (SS2.8 mismatch-behavior note): sticky - unlike showDeny/
+	// showCancel/showPending, nothing ever calls clearPending() after this
+	// (there is nothing left to auto-retry into once a battle has desynced).
+	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_DESYNC_HALTED"));
 }
 
 } // namespace CoopBattleUi
@@ -1784,38 +1829,18 @@ static std::string coopSha256Hex(const std::string& data)
 	return out;
 }
 
-// RW-TODO(R2-P9): minimal single-bucket port of donor cbff7951d's
-// computeSaveBlobHash/saveBlobHashTree (SharedEcon.cpp ~5804-5840, SharedEcon.h
-// ~504 computeSaveBlobHash declaration) - plain FNV-1a (SAME constants as the
-// donor) over the canonical SavedBattleGame::save() YAML text, WITHOUT the
-// donor's exclusion list (legacy kills/exp/tempUnitStatistics, the D4 per-unit
-// FOV fields, MJ-7 ground x/y) or its FOW-masked binTiles handling. Safe at
-// handshake time ONLY because no turn has run yet - a freshly generated (host)
-// or just-loaded (client) battle has nothing transient/excludable in it yet.
-// R2-P9 replaces this with the real SS2.8 sweep (the full BattleHashSet,
-// including a proper computeSaveBlobHash with its exclusions).
+// R2-P9 (SPIKE-RUNBOOK.md SS2.8, RB-D20 hand-off item 1): REPLACES the R4-P1
+// raw-FNV placeholder with the canonical SS2.8 saveBlob bucket - excludes
+// the packed per-tile FOW "discovered" bits, the D4 per-unit FOV fields and
+// the full cr1-field-audit.md sec 6 delta, via SharedEcon::
+// computeSaveBlobHash() (the ported SharedEcon bucket function - "don't
+// hand-roll a second hasher"). Unlike the R4-P1 placeholder this stays
+// correct at any point in the battle, not just t=0 handshake.
 static std::string coopComputeSaveBlobBucketHex(SavedBattleGame* battle)
 {
-	if (!battle)
-		return std::string(16, '0');
-
-	YAML::YamlRootNodeWriter writer(1000000);
-	writer.setAsMap();
-	battle->save(writer["battleGame"]);
-	YAML::YamlString text = writer.emit();
-
-	static const std::uint64_t FNV_OFFSET = 1469598103934665603ULL;
-	static const std::uint64_t FNV_PRIME = 1099511628211ULL;
-	std::uint64_t h = FNV_OFFSET;
-	for (char ch : text.yaml)
-	{
-		h ^= (std::uint64_t)(unsigned char)ch;
-		h *= FNV_PRIME;
-	}
-
-	char buf[17];
-	std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)h);
-	return std::string(buf);
+	std::uint64_t h = 0;
+	SharedEcon::computeSaveBlobHash(battle, h); // false (battle==null): h stays 0
+	return coopHex64(h);
 }
 
 // RB-D18 interim seatMap (classic/SHARED only): {"0":"player","1":"player"},
@@ -2247,41 +2272,48 @@ void onReady(Game* game, const Json::Value& ready)
 	const std::string clientSaveBlob = ready.get("saveBlob", "").asString();
 	const bool hPresent = ready.isMember("h") && ready["h"].isObject() && ready["h"].size() > 0;
 
-	// IR-5 plan of record: R2-P9/P11 land AFTER G3, so this packet ships/
-	// compares ONLY the saveBlob field (SS2.7's presence-gating - clients ship
-	// "h":{} until R2-P9). A populated "h" from a future/upgraded peer is
-	// logged, never compared, here.
+	// SS2.8's handshake-boundary compare is the saveBlob field alone - the
+	// wire-carried per-bucket boundary hash (RB-D8) lands with r3b's
+	// side_transition, post-spike. A populated "h" from a peer is logged
+	// only, never compared, here.
 	if (hPresent)
 	{
 		Log(LOG_INFO) << "[coop-handshake] battle_ready carried a non-empty h bucket set ("
-			<< ready["h"].size() << " buckets) - not compared this packet (RW-TODO(R2-P9))";
+			<< ready["h"].size() << " buckets) - not compared at handshake (RB-D8: the "
+			"wire-carried boundary hash is post-spike)";
 	}
 
-	// RW-TODO(R2-P9) - SOFT GATE (owner-approved deferral, 2026-09-01). The R4-P1
-	// saveBlob is a RAW FNV over the emitted battle YAML; it necessarily includes
-	// machine-local FOV/discovered state - unit "visible", "turnsSinceSpotted*", and
-	// the tile boolFields byte (= per-part terrain "discovered" flags, Tile.cpp:207)
-	// packed inside binTiles - which legitimately differs per machine (each computes
-	// its own FOV). So a mismatch here is EXPECTED and BENIGN in the spike: traced
-	// 2026-09-01 to 0 terrain/smoke/fire/unit-core divergence, only FOV/discovered.
-	// The canonical filtered SS2.8 bucket hash (which EXCLUDES those fields per
-	// R2-P10's cr1-field-audit.md delta - can't be done by text-stripping a packed
-	// binary blob) lands in R2-P9, which RESTORES the hard mismatch->teardown gate
-	// (SS2.7/SS2.8). Until then: log, do NOT tear down, proceed to phase Active.
-	// R3's per-action unitsStats hashing still catches any REAL in-battle drift.
+	// R2-P9 (SS2.7/SS2.8): HARD GATE RESTORED. saveBlob is now the canonical
+	// SS2.8-filtered hash (coopComputeSaveBlobBucketHex ->
+	// SharedEcon::computeSaveBlobHash): the machine-local FOV/discovered
+	// state that made the R4-P1 raw hash EXPECTEDLY differ is excluded, so a
+	// mismatch here is a REAL divergence. "battle_ready hash mismatch on the
+	// host => refuse/teardown + log; no battle starts unequal" (SS2.7).
+	// NOTE (flagged in this packet's report, not a silent deviation): SS2.1's
+	// battle_refuse is client->host ONLY - the frozen wire has no
+	// host->client refusal message, so the host cannot notify the client
+	// wire-wise. It tears down its OWN side the same way onRefuse() above
+	// does (coopUnwindToSafeState + drop the battle + resetBattleAuthority)
+	// and simply never advances phase to Active; a paired client-side
+	// notification is post-spike (rejoin territory).
 	if (clientSaveBlob.empty() || clientSaveBlob != g_pendingHost.saveBlobHex)
 	{
-		Log(LOG_WARNING) << "[coop-handshake] battle_ready saveBlob differs (battleId=" << battleId
+		Log(LOG_ERROR) << "[coop-handshake] battle_ready saveBlob MISMATCH (battleId=" << battleId
 			<< ", host=" << g_pendingHost.saveBlobHex << ", client=" << clientSaveBlob
-			<< ") - EXPECTED pre-R2-P9 (raw hash includes machine-local FOV/discovered "
-			"state); proceeding to phase Active. RW-TODO(R2-P9): canonical bucket hash "
-			"restores the hard mismatch->teardown gate.";
+			<< ") - real divergence under the SS2.8 canonical bucket hash; refusing/"
+			"tearing down - no battle starts unequal";
+
+		coopUnwindToSafeState(game);
+		if (game->getSavedGame())
+			game->getSavedGame()->setBattleGame(0);
+
+		resetBattleAuthority();
+		g_pendingHost = PendingHost();
+		return;
 	}
-	else
-	{
-		Log(LOG_INFO) << "[coop-handshake] battle_ready saveBlob EQUAL (" << clientSaveBlob
-			<< ", battleId=" << battleId << ")";
-	}
+
+	Log(LOG_INFO) << "[coop-handshake] battle_ready saveBlob EQUAL (" << clientSaveBlob
+		<< ", battleId=" << battleId << ")";
 
 	// The caller already pushed BriefingState unconditionally, right after
 	// bgen.run() (CoopHandshake.h's top doc comment) - this flips the ONE
@@ -2300,6 +2332,87 @@ void resetPendingState()
 }
 
 } // namespace CoopHandshake
+
+// ===== R2-P9: client-side post-apply hash verify (BattlePump.h) =====
+// SPIKE-RUNBOOK.md SS2.8. The ONE call site for the whole mismatch path
+// (bucket compare -> freeze -> bt_desync -> bundle -> banner) - wired from
+// CoopPump::drainApplyQueue() right after CoopDisplayQueue::onApplied()
+// (BattlePump.h's own doc comment). Body lives here, next to CoopHandshake/
+// CoopBattleUi above - the established home for this scaffolding.
+namespace CoopHashCheck
+{
+
+void verify(const Json::Value& evOrEnd)
+{
+	if (!isCoopBattle())
+		return;
+	if (!evOrEnd.isMember("h") || !evOrEnd["h"].isObject() || evOrEnd["h"].empty())
+		return; // presence-gated (SS2.8/RB-D14): nothing carried, nothing to check
+	if (coopBattleAuthority().desyncFrozen.load())
+		return; // already latched - SS2.8 "NO partial repair", one report only
+
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!battle)
+		return;
+
+	SharedEcon::BattleHashSet mine;
+	if (!SharedEcon::computeBattleHashes(battle, mine))
+		return;
+
+	const Json::Value& carried = evOrEnd["h"];
+	for (const auto& bucketName : carried.getMemberNames())
+	{
+		int idx = -1;
+		for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+		{
+			if (bucketName == SharedEcon::battleHashBucketName(i))
+			{
+				idx = i;
+				break;
+			}
+		}
+		if (idx < 0)
+		{
+			// A future/upgraded peer's bucket this build does not know -
+			// SS2.8 presence-gating: ignore, never guess.
+			Log(LOG_WARNING) << "[coop-hash] ev/action_end carried unknown bucket '"
+				<< bucketName << "' - ignored";
+			continue;
+		}
+
+		const std::string expect = carried[bucketName].asString();
+		const std::string got = coopHex64(SharedEcon::battleHashBucketValue(mine, idx));
+		if (expect == got)
+			continue;
+
+		// SS2.8 hard-fail: freeze, report, NO partial repair - stop comparing
+		// (even other carried buckets) at the FIRST mismatch.
+		if (coopBattleAuthority().desyncFrozen.exchange(true))
+			return; // lost a race with another envelope on this same tick - already latched
+
+		const std::uint32_t battleId = coopBattleAuthority().battleId.load();
+		const std::uint32_t seq = evOrEnd.get("seq", 0u).asUInt();
+		const std::string kind = evOrEnd.get("kind", "?").asString();
+
+		Log(LOG_ERROR) << "[coop-hash] DESYNC: bucket=" << bucketName << " seq=" << seq
+			<< " kind=" << kind << " expect=" << expect << " got=" << got
+			<< " - freezing battle input (SS2.8, no partial repair)";
+
+		g_battleFrozen.store(true); // halts the R2-P2 apply queue too (BattlePump.h)
+
+		const std::string bundlePath = SharedEcon::writeDesyncBundle(bucketName, expect, got, seq, kind);
+
+		Json::Value rep = CoopWire::makeDesync(battleId, seq, bucketName.c_str(), expect, got);
+		if (!bundlePath.empty())
+			rep["bundlePath"] = bundlePath;
+		CoopEmit::sendBattle(rep);
+
+		CoopBattleUi::showDesyncHalted();
+		return;
+	}
+}
+
+} // namespace CoopHashCheck
 
 // HOST: emit PING once per second (independent from client)
 static uint64_t h_nextPingAt = 0;
@@ -5660,13 +5773,27 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// R4-P1 (SS2.7): host-inbound.
 			CoopHandshake::onReady(_game, obj);
 		}
+		else if (stateString == "bt_desync")
+		{
+			// R2-P9 (SS2.3): host-inbound. CoopHashCheck::verify() on the
+			// REPORTING client has already frozen its own input, sent this,
+			// and shown its own sticky banner - the host side of the spike's
+			// mismatch behavior is "log it" (SS2.8 "NO partial repair", no
+			// host-side repair/rejoin exists yet; rejoin is post-spike). The
+			// host is not otherwise gated by receiving this.
+			Log(LOG_ERROR) << "[coop-hash] peer bt_desync report: battleId="
+				<< obj.get("battleId", 0u).asUInt() << " seq=" << obj.get("seq", 0u).asUInt()
+				<< " bucket=" << obj.get("bucket", "?").asString()
+				<< " expect=" << obj.get("expect", "").asString()
+				<< " got=" << obj.get("got", "").asString()
+				<< " bundlePath=" << obj.get("bundlePath", "").asString();
+		}
 		else
 		{
 			// R3-P1 client bt_deny -> CoopBattleUi::showDeny (the presenter
 			// itself is built this packet, R2-P6 - see CoopBattleUi.h - but
 			// the client intent tracker that would call it here lands in
-			// R3-P1). bt_ack is client-inbound too (also R3-P1). bt_desync
-			// stays unwired (R2-P9).
+			// R3-P1). bt_ack is client-inbound too (also R3-P1).
 		}
 		return;
 	}

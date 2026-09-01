@@ -35,6 +35,7 @@ class Ufo;
 class Target;
 class Soldier;
 class AlienBase;
+class SavedBattleGame;
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -407,6 +408,73 @@ struct Stats
 Stats stats();
 std::string lastFailReason();
 void resetStats();
+
+/**
+ * R2-P9 (rewrite spike, SPIKE-RUNBOOK.md SS2.8, RB-D20): the battle hash
+ * buckets. Minimal, spike-scoped port of donor cbff7951d's battle-hash
+ * region (SharedEcon.h ~473-504's BattleHashSet/battleHashBucketValue/
+ * computeBattleHashes + the sweep/saveBlob-hash-tree bodies in the donor
+ * .cpp) - DEFINITIONS ONLY (RB-D20): none of the donor's ring/compare/
+ * side-gate/promotion-table/boundary-persistence machinery is ported (SS2.8:
+ * "host never compares... CLIENT hashes post-apply, compares" - the spike
+ * has no host-side ring to compare against).
+ *
+ * Spike bucket set is 7 buckets, NOT donor's 9: unitsCombat/unitsRegen are
+ * RE-MERGED back into a single unitsStats (SS2.8), which also gains
+ * motionPoints (OFF the saveBlob exclusion list per the same decision).
+ * saveBlob is its OWN function (computeSaveBlobHash) exactly like the donor's
+ * own split - a whole-battle-document hash, not a BattleHashSet member.
+ */
+struct BattleHashSet
+{
+	std::uint64_t terrain;    ///< per tile: the four TilePart map-data ids + explosive
+	std::uint64_t fire;       ///< per tile: turns of fire remaining
+	std::uint64_t smoke;      ///< per tile: turns of smoke remaining
+	std::uint64_t items;      ///< id, type, owner, slot, tile pos, fuse, ammoQty (D5)
+	std::uint64_t unitsCore;  ///< id, faction, liveness, position
+	std::uint64_t unitsStats; ///< tu, energy, health, stun, morale, mana, fire,
+	                          ///< kneeling, mcId, wounds, motionPoints (SS2.8)
+	std::uint64_t itemIdCtr;  ///< SavedBattleGame::getCurrentItemId()
+};
+
+/// How many buckets a BattleHashSet holds.
+const int BATTLE_HASH_BUCKETS = 7;
+/// Wire/introspection name of bucket @a i (0..BATTLE_HASH_BUCKETS-1) - the
+/// same strings SS2.8 names (terrain/fire/smoke/items/unitsCore/unitsStats/
+/// itemIdCtr), used verbatim as the `h` JSON object's keys.
+const char* battleHashBucketName(int i);
+/// Value of bucket @a i.
+std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i);
+
+/// ONE sweep of @a battle filling every bucket. Returns false (and zeroes
+/// @a out) when @a battle is null.
+bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out);
+
+/// SS2.8/R2-P10 cr1-field-audit.md: the canonical, exclusion-stripped
+/// whole-battle-document hash (the saveBlob bucket/field). Serializes
+/// @a battle exactly as a save would (SavedBattleGame::save, in memory,
+/// never disk), re-parses the emitted YAML and FNV-1a hashes the node tree
+/// with a short exclusion list applied by node path (legacy kills/exp*/
+/// tempUnitStatistics, the D4 per-unit FOV fields visible/turnsSinceSpotted*,
+/// and the R2-P10 cr1-field-audit.md SS2.6 23-item delta), plus the per-tile
+/// FOW "discovered" bits masked out of the packed binTiles blob (the same
+/// carve-out the fast `terrain` bucket above already applies). Returns false
+/// (and zeroes @a out) when @a battle is null.
+bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out);
+
+/// R2-P9 (RB-D20): minimal desync diagnostic bundle - a zip with
+/// desync-info.json (bucket/expect/got/seq/kind + timestamp) and a best-
+/// effort tail of openxcom.log, written to
+/// <user folder>/desync-reports/desync-<timestamp>.zip. REBUILT SMALL from
+/// donor cbff7951d's emitCrashBundle/writeZipArchive/captureDesyncReport as
+/// a FORMAT reference only (RB-D20: SharedEcon is not cherry-picked
+/// wholesale) - none of the donor's GitHub-issue-prefill UI, next-launch
+/// crash-marker machinery, or forced-save capture is ported. Best-effort:
+/// never throws, returns an empty string on any failure (a full disk, a
+/// read-only user folder) rather than compounding the desync with a second
+/// failure.
+std::string writeDesyncBundle(const std::string& bucket, const std::string& expect,
+	const std::string& got, std::uint32_t seq, const std::string& kind);
 
 } // namespace SharedEcon
 

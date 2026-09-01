@@ -23,7 +23,10 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstring>
+#include <ctime>
 #include <deque>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <set>
@@ -76,6 +79,18 @@
 #include "../Mod/RuleCountry.h"
 #include "../Mod/RuleAlienMission.h"
 #include "../Mod/AlienRace.h"
+
+// R2-P9 (SPIKE-RUNBOOK.md SS2.8/RB-D20): battle hash region needs the four
+// battle serializers plus RuleInventory (item slot-type check, MJ-7) and the
+// diagnostic-bundle helpers (CrossPlatform file I/O, miniz zip writer -
+// already a project dependency via Engine/FileMap.cpp, no new library).
+#include "../Savegame/BattleUnit.h"
+#include "../Savegame/BattleItem.h"
+#include "../Savegame/Tile.h"
+#include "../Savegame/SavedBattleGame.h"
+#include "../Mod/RuleInventory.h"
+#include "../Engine/CrossPlatform.h"
+#include "../../libs/miniz/miniz.h"
 
 #include <cmath>
 #include "../Basescape/BaseView.h"
@@ -3725,6 +3740,499 @@ void resetResyncStats()
 	g_mismatchLogged = false;
 	g_mismatchSinceMs = -1;
 	g_lastResyncGameMin = -1;
+}
+
+// ===== R2-P9 (SPIKE-RUNBOOK.md SS2.8, RB-D20): battle hash buckets =====
+// Minimal, spike-scoped port of donor cbff7951d's battle-hash region -
+// DEFINITIONS ONLY (RB-D20): mechanism (the FNV mixer, the tile-inclusion
+// test, the saveBlob node-tree walk + FOW bin-tiles masking) is reproduced
+// from the donor as a format reference; none of its ring/compare/side-gate/
+// promotion-table/boundary-persistence machinery is ported - this spike has
+// no host-side ring to compare against (host never compares, SS2.8).
+
+namespace
+{
+
+const std::uint64_t FNV_OFFSET = 1469598103934665603ULL;
+const std::uint64_t FNV_PRIME = 1099511628211ULL;
+
+inline std::uint64_t mix(std::uint64_t h, std::int64_t v)
+{
+	return (h ^ (std::uint64_t)v) * FNV_PRIME;
+}
+
+std::uint64_t fnv1a(const std::string& s)
+{
+	std::uint64_t h = FNV_OFFSET;
+	for (char c : s)
+	{
+		h ^= (std::uint64_t)(unsigned char)c;
+		h *= FNV_PRIME;
+	}
+	return h;
+}
+
+// donor SharedEcon.cpp's unitLiveness(): STANDING/WALKING/FLYING/... are
+// animation phases the two machines are never on the same frame of - what
+// must agree is on-feet / dead / unconscious / ignored.
+int unitLiveness(const BattleUnit* unit)
+{
+	switch (unit->getStatus())
+	{
+	case STATUS_DEAD:        return 1;
+	case STATUS_UNCONSCIOUS: return 2;
+	case STATUS_IGNORE_ME:   return 3;
+	default:                 return 0;
+	}
+}
+
+} // namespace
+
+const char* battleHashBucketName(int i)
+{
+	static const char* const kNames[BATTLE_HASH_BUCKETS] =
+	{
+		"terrain", "fire", "smoke", "items", "unitsCore", "unitsStats", "itemIdCtr",
+	};
+	return (i >= 0 && i < BATTLE_HASH_BUCKETS) ? kNames[i] : "?";
+}
+
+std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i)
+{
+	switch (i)
+	{
+	case 0: return h.terrain;
+	case 1: return h.fire;
+	case 2: return h.smoke;
+	case 3: return h.items;
+	case 4: return h.unitsCore;
+	case 5: return h.unitsStats;
+	case 6: return h.itemIdCtr;
+	default: return 0;
+	}
+}
+
+bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
+{
+	out.terrain = out.fire = out.smoke = out.items = 0;
+	out.unitsCore = out.unitsStats = out.itemIdCtr = 0;
+	if (!battle)
+		return false;
+
+	// --- tiles: terrain, fire, smoke ---------------------------------------
+	// A VOID tile (no map-data part AND no explosive accumulator) contributes
+	// nothing - the skip is a pure function of the tile's own state, so a
+	// tile that went void on one machine only is skipped there and mixed
+	// here, and the sums differ (the detection we want).
+	const int tileCount = battle->getMapSizeXYZ();
+	for (int i = 0; i < tileCount; ++i)
+	{
+		Tile* tile = battle->getTile(i);
+		if (!tile)
+			continue;
+
+		bool hasPart = false;
+		for (int part = 0; part < O_MAX && !hasPart; ++part)
+			hasPart = tile->getMapData((TilePart)part) != nullptr;
+		if (hasPart || tile->getExplosive() != 0)
+		{
+			std::uint64_t h = FNV_OFFSET;
+			h = mix(h, i);
+			for (int part = 0; part < O_MAX; ++part)
+			{
+				int mapDataID = -1, mapDataSetID = -1;
+				tile->getMapData(&mapDataID, &mapDataSetID, (TilePart)part);
+				h = mix(h, mapDataID);
+				h = mix(h, mapDataSetID);
+			}
+			h = mix(h, tile->getExplosive());
+			h = mix(h, tile->getExplosiveType());
+			out.terrain += h;
+		}
+
+		const int f = tile->getFire();
+		if (f > 0)
+		{
+			std::uint64_t h = FNV_OFFSET;
+			h = mix(h, i);
+			h = mix(h, f);
+			out.fire += h;
+		}
+		const int sm = tile->getSmoke();
+		if (sm > 0)
+		{
+			std::uint64_t h = FNV_OFFSET;
+			h = mix(h, i);
+			h = mix(h, sm);
+			out.smoke += h;
+		}
+	}
+
+	// --- items: the strict census -------------------------------------------
+	// D5 (SS2.8): adds ammoQty + fuse (fuse was already carried via
+	// getFuseTimer()). MJ-7 (SS2.8/cr1-field-audit.md sec 2b): ground-strip
+	// x/y is a pure client-local Inventory::arrangeGround() display recompute
+	// (never replicated) - only INV_SLOT items carry a meaningful x/y,
+	// exactly the guard vanilla's own BattleItem::save() already applies.
+	for (BattleItem* item : *battle->getItems())
+	{
+		if (!item)
+			continue;
+		std::uint64_t h = FNV_OFFSET;
+		h = mix(h, item->getId());
+		h ^= fnv1a(item->getRules() ? item->getRules()->getType() : std::string("?"));
+		h *= FNV_PRIME;
+		h = mix(h, item->getOwner() ? item->getOwner()->getId() : -1);
+		const RuleInventory* slot = item->getSlot();
+		h ^= fnv1a(slot ? slot->getId() : std::string("-"));
+		h *= FNV_PRIME;
+		if (slot && slot->getType() == INV_SLOT) // MJ-7: ground/hand carry no x/y
+		{
+			h = mix(h, item->getSlotX());
+			h = mix(h, item->getSlotY());
+		}
+		const Tile* t = item->getTile();
+		h = mix(h, t ? t->getPosition().x : -1);
+		h = mix(h, t ? t->getPosition().y : -1);
+		h = mix(h, t ? t->getPosition().z : -1);
+		h = mix(h, item->getFuseTimer());
+		h = mix(h, item->getAmmoQuantity()); // D5
+		out.items += h;
+	}
+
+	// --- units: core identity/liveness/position, then unitsStats ------------
+	// SS2.8: unitsStats is the RE-MERGED single bucket (legacy unitsCombat/
+	// unitsRegen fold back in) - tu, energy, health, stun, morale, mana,
+	// fire, kneeling, mcId, wounds, motionPoints.
+	for (BattleUnit* unit : *battle->getUnits())
+	{
+		if (!unit)
+			continue;
+		const Position p = unit->getPosition();
+
+		std::uint64_t c = FNV_OFFSET;
+		c = mix(c, unit->getId());
+		c = mix(c, (int)unit->getFaction());
+		c = mix(c, unitLiveness(unit));
+		c = mix(c, p.x);
+		c = mix(c, p.y);
+		c = mix(c, p.z);
+		out.unitsCore += c;
+
+		std::uint64_t s = FNV_OFFSET;
+		s = mix(s, unit->getId());
+		s = mix(s, unit->getTimeUnits());
+		s = mix(s, unit->getEnergy());
+		s = mix(s, unit->getHealth());
+		s = mix(s, unit->getStunlevel());
+		s = mix(s, unit->getMorale());
+		s = mix(s, unit->getMana());
+		s = mix(s, unit->getFire());
+		s = mix(s, unit->isKneeled() ? 1 : 0);
+		s = mix(s, unit->getMindControllerId());
+		for (int part = 0; part < BODYPART_MAX; ++part)
+			s = mix(s, unit->getFatalWound((UnitBodyPart)part));
+		s = mix(s, unit->getMotionPoints());
+		out.unitsStats += s;
+	}
+
+	out.itemIdCtr = (std::uint64_t)(std::int64_t)*battle->getCurrentItemId();
+	return true;
+}
+
+// ----- SS2.8/cr1-field-audit.md: the saveBlob (whole-document) hash --------
+
+namespace
+{
+
+// Which top-level array (if any) the current node-tree walk descended from -
+// needed for exactly one scope-gated exclusion (previousOwner, see below).
+enum class SbScope { Other, Unit, Item };
+
+// TOP-LEVEL of the battle document only (SavedBattleGame-scoped, per-seat UI/
+// display/audio-transient/battle-end-adjacent fields) - cr1-field-audit.md
+// sec 6 items 16-23.
+bool saveBlobExcludedTopKey(std::string_view k)
+{
+	return k == "nameDisplay"
+		|| k == "selectedUnit" || k == "undoUnit"
+		|| k == "tuReserved" || k == "kneelReserved"
+		|| k == "togglePersonalLight" || k == "toggleNightVision" || k == "toggleBrightness"
+		|| k == "animFrame"
+		|| k == "currentAmbienceDelay"
+		|| k == "vipsSaved" || k == "vipsSavedScore"
+		|| k == "vipsLost" || k == "vipsLostScore"
+		|| k == "vipsWaitingOutside" || k == "vipsWaitingOutsideScore";
+}
+
+// ANY DEPTH, but only meaningful (and only ever reached) inside a "units"
+// array element (see the SbScope::Unit gate at the call site): legacy
+// kills/exp*/tempUnitStatistics, D4's visible/turnsSinceSpotted*, and
+// cr1-field-audit.md sec 6 items 1-12/14/15. Item 13 (previousOwner)
+// collides with BattleItem's OWN previousOwner field (which must stay
+// hashed per the CR-1 items disposition) - it is scope-gated separately at
+// the call site instead of listed here, so this function alone is never
+// depth-ambiguous.
+bool saveBlobExcludedUnitKey(std::string_view k)
+{
+	return k == "kills"
+		|| k == "expBravery" || k == "expReactions" || k == "expFiring" || k == "expThrowing"
+		|| k == "expPsiSkill" || k == "expPsiStrength" || k == "expMana" || k == "expMelee"
+		|| k == "tempUnitStatistics"
+		|| k == "visible"
+		|| k == "turnsSinceSpotted" || k == "turnsSinceSpottedByXcom" || k == "turnsSinceSpottedByCivilian"
+		|| k == "turnsLeftSpottedForSnipers" || k == "turnsLeftSpottedForSnipersByXcom"
+		|| k == "turnsLeftSpottedForSnipersByCivilian"
+		|| k == "turnsSinceStunned"
+		|| k == "dontReselect"
+		|| k == "aiMedikitUsed"
+		|| k == "activeHand"
+		|| k == "notificationShown"
+		|| k == "killedBy"
+		|| k == "customMarker"
+		|| k == "murdererId"
+		|| k == "fatalShotSide" || k == "fatalShotBodyPart"
+		|| k == "murdererWeapon" || k == "murdererWeaponAmmo"
+		|| k == "resummonedFakeCivilian"
+		|| k == "meleeAttackedBy"
+		|| k == "summonedPlayerUnit";
+}
+
+// The per-tile "discovered" FOW bits are presentation - derived locally from
+// replicated positions, per-machine calculateFOV, never promised identical -
+// so they are a permanent carve-out, exactly like the fast `terrain` bucket
+// above already excludes them. They live PACKED inside the opaque binTiles
+// base64 blob (Tile::saveBinary's boolFields byte, Tile.cpp:207), which
+// cannot be stripped by YAML node path: decode the blob, zero the three
+// discovered bits (mask 0x07) in every tile's boolFields byte while KEEPING
+// the two ufo-door-open bits (0x18), hash the masked bytes. Layout anchored
+// to Tile::serializationKey (index, then mapDataID x4, mapDataSetID x4,
+// smoke, fire, boolFields last) + the index prefix SavedBattleGame::save
+// serializes ahead of each Tile::saveBinary record (SavedBattleGame.cpp
+// :571-572) - both unchanged vanilla, verified this packet against the
+// restored 911ca487f source (donor mechanism, re-verified not re-derived).
+bool saveBlobMaskFowBinTiles(const YAML::YamlNodeReader& node, std::vector<char>& out)
+{
+	out.clear();
+	if (node.isMap() || node.isSeq())
+		return false;
+	std::vector<char> bytes;
+	try { bytes = node.readValBase64(); }
+	catch (...) { return false; }
+	const size_t stride = Tile::serializationKey.totalBytes;
+	const size_t boolOff = (size_t)Tile::serializationKey.index
+		+ 4u * (size_t)Tile::serializationKey._mapDataID
+		+ 4u * (size_t)Tile::serializationKey._mapDataSetID
+		+ (size_t)Tile::serializationKey._smoke
+		+ (size_t)Tile::serializationKey._fire;
+	if (stride == 0 || boolOff >= stride)
+		return false;
+	const size_t records = bytes.size() / stride;
+	for (size_t r = 0; r < records; ++r)
+	{
+		unsigned char& bf = reinterpret_cast<unsigned char&>(bytes[r * stride + boolOff]);
+		bf = (unsigned char)(bf & (unsigned char)~0x07u);
+	}
+	out.swap(bytes);
+	return true;
+}
+
+// Deterministic FNV-1a over the re-parsed node tree (keys + scalar values in
+// document order, recursing maps/seqs) - hashing the STRUCTURE, not raw emit
+// bytes, so a whitespace/quoting difference between the two builds cannot
+// register as a divergence. @a top marks the battle document's own direct
+// children (where the top-level-only exclusions apply); @a scope tracks
+// whether the walk is inside "units" (only place the scope-gated
+// previousOwner exclusion fires) or "items"/other (where BattleItem's own
+// previousOwner field stays hashed).
+void saveBlobHashTree(const YAML::YamlNodeReader& node, std::uint64_t& h, bool top, SbScope scope)
+{
+	if (node.isMap())
+	{
+		for (const auto& child : node.children())
+		{
+			std::string_view key = child.key();
+			if (top && saveBlobExcludedTopKey(key))
+				continue;
+			if (scope == SbScope::Unit && (saveBlobExcludedUnitKey(key) || key == "previousOwner"))
+				continue;
+
+			SbScope childScope = scope;
+			if (top)
+			{
+				if (key == "units") childScope = SbScope::Unit;
+				else if (key == "items" || key == "itemsSpecial") childScope = SbScope::Item;
+				else childScope = SbScope::Other;
+			}
+
+			for (char ch : key) { h ^= (std::uint64_t)(unsigned char)ch; h *= FNV_PRIME; }
+
+			std::vector<char> maskedTiles;
+			if (key == "binTiles" && saveBlobMaskFowBinTiles(child, maskedTiles))
+			{
+				for (char b : maskedTiles) { h ^= (std::uint64_t)(unsigned char)b; h *= FNV_PRIME; }
+				continue;
+			}
+			saveBlobHashTree(child, h, false, childScope);
+		}
+	}
+	else if (node.isSeq())
+	{
+		for (const auto& child : node.children())
+			saveBlobHashTree(child, h, false, scope);
+	}
+	else
+	{
+		std::string_view val = node.val();
+		for (char ch : val) { h ^= (std::uint64_t)(unsigned char)ch; h *= FNV_PRIME; }
+	}
+}
+
+} // namespace
+
+bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out)
+{
+	out = 0;
+	if (!battle)
+		return false;
+
+	// Battle document ONLY (SavedBattleGame::save is self-contained), so none
+	// of the geoscape/session/RNG state a full SavedGame::save would drag in
+	// is ever hashed.
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	battle->save(writer["battle"]);
+	YAML::YamlString text = writer.emit();
+
+	// Re-parse and hash the STRUCTURE, so emit-formatting differences between
+	// the two builds cannot register as a divergence.
+	YAML::YamlRootNodeReader reader(text, "saveBlob");
+	std::uint64_t h = FNV_OFFSET;
+	saveBlobHashTree(reader["battle"], h, true, SbScope::Other);
+	out = h;
+	return true;
+}
+
+// ----- R2-P9/RB-D20: minimal desync diagnostic bundle -----------------------
+
+namespace
+{
+
+std::string desyncTimeString()
+{
+	std::time_t t = std::time(nullptr);
+	std::tm local{};
+	if (const std::tm* p = std::localtime(&t))
+		local = *p;
+	char buf[32] = { 0 };
+	std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &local);
+	return std::string(buf);
+}
+
+// Best-effort, never throws: a capped tail of the log file, or an empty
+// string if unreadable. Plain ifstream (binary) - no new SDL dependency for
+// a 2-3 member bundle.
+std::string readLogTail(size_t maxBytes)
+{
+	std::ifstream f(CrossPlatform::getLogFileName(), std::ios::binary | std::ios::ate);
+	if (!f)
+		return std::string();
+	const std::streamoff size = f.tellg();
+	if (size < 0)
+		return std::string();
+	const std::streamoff from = (maxBytes != 0 && (size_t)size > maxBytes)
+		? (size - (std::streamoff)maxBytes) : 0;
+	f.seekg(from);
+	std::string out((size_t)(size - from), '\0');
+	f.read(&out[0], (std::streamsize)out.size());
+	return out;
+}
+
+// One zip from in-memory members (donor cbff7951d's writeZipArchive, format
+// reference only - RB-D20). Heap writer only.
+bool writeZipArchive(const std::string& path,
+	const std::vector<std::pair<std::string, std::string>>& members)
+{
+	if (members.empty())
+		return false;
+	mz_zip_archive zip;
+	std::memset(&zip, 0, sizeof(zip));
+	if (!mz_zip_writer_init_heap(&zip, 0, 256 * 1024))
+		return false;
+
+	bool ok = true;
+	for (size_t i = 0; ok && i < members.size(); ++i)
+	{
+		ok = (mz_zip_writer_add_mem(&zip, members[i].first.c_str(),
+			members[i].second.data(), members[i].second.size(),
+			MZ_DEFAULT_COMPRESSION) != MZ_FALSE);
+	}
+
+	void* buf = nullptr;
+	size_t size = 0;
+	if (ok)
+		ok = (mz_zip_writer_finalize_heap_archive(&zip, &buf, &size) != MZ_FALSE);
+	if (ok && buf != nullptr && size != 0)
+	{
+		const unsigned char* first = (const unsigned char*)buf;
+		std::vector<unsigned char> bytes(first, first + size);
+		ok = CrossPlatform::writeFile(path, bytes);
+	}
+	if (buf)
+		mz_free(buf);
+	mz_zip_writer_end(&zip);
+	return ok;
+}
+
+} // namespace
+
+std::string writeDesyncBundle(const std::string& bucket, const std::string& expect,
+	const std::string& got, std::uint32_t seq, const std::string& kind)
+{
+	try
+	{
+		const std::string dir = Options::getUserFolder() + "desync-reports/";
+		if (!CrossPlatform::folderExists(dir))
+			CrossPlatform::createFolder(dir);
+		if (!CrossPlatform::folderExists(dir))
+		{
+			Log(LOG_ERROR) << "[coop-hash] desync bundle: cannot create " << dir;
+			return std::string();
+		}
+		const std::string path = dir + "desync-" + desyncTimeString() + ".zip";
+
+		Json::Value info(Json::objectValue);
+		info["bucket"] = bucket;
+		info["expect"] = expect;
+		info["got"] = got;
+		info["seq"] = seq;
+		info["kind"] = kind;
+		info["timestamp"] = desyncTimeString();
+
+		std::vector<std::pair<std::string, std::string>> members;
+		members.push_back(std::make_pair(std::string("desync-info.json"), info.toStyledString()));
+		const std::string logTail = readLogTail(256 * 1024);
+		if (!logTail.empty())
+			members.push_back(std::make_pair(std::string("openxcom.log"), logTail));
+
+		if (!writeZipArchive(path, members))
+		{
+			Log(LOG_ERROR) << "[coop-hash] desync bundle: failed to write " << path;
+			return std::string();
+		}
+		Log(LOG_ERROR) << "[coop-hash] desync diagnostic bundle written to " << path;
+		return path;
+	}
+	catch (const std::exception& e)
+	{
+		Log(LOG_ERROR) << "[coop-hash] desync bundle failed: " << e.what();
+		return std::string();
+	}
+	catch (...)
+	{
+		Log(LOG_ERROR) << "[coop-hash] desync bundle failed";
+		return std::string();
+	}
 }
 
 } // namespace SharedEcon

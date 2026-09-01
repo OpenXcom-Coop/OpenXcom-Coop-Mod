@@ -131,6 +131,26 @@ inline Json::Value makeActionEnd(uint32_t seq, uint32_t actionId)
 	return obj;
 }
 
+/// bt_desync {state, battleId, seq, bucket, expect, got, bundlePath?}
+/// (SS2.3, client->host). R2-P9: sent once per battle (CoopHashCheck::
+/// verify latches on the first mismatch, SS2.8 "NO partial repair") when the
+/// client's post-apply hash compare disagrees with a bucket the host
+/// carried in @a seq's ev/action_end. @a bundlePath is set by the caller
+/// only when SharedEcon::writeDesyncBundle() succeeded (best-effort, may be
+/// empty).
+inline Json::Value makeDesync(uint32_t battleId, uint32_t seq, const char* bucket,
+	const std::string& expect, const std::string& got)
+{
+	Json::Value obj(Json::objectValue);
+	obj["state"] = "bt_desync";
+	obj["battleId"] = battleId;
+	obj["seq"] = seq;
+	obj["bucket"] = bucket;
+	obj["expect"] = expect;
+	obj["got"] = got;
+	return obj;
+}
+
 } // namespace CoopWire
 
 } // namespace OpenXcom

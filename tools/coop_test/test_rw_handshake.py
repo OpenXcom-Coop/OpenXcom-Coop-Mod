@@ -17,21 +17,26 @@ Asserts:
   - BOTH machines reach phase Active and BattlescapeState (host drives its
     BriefingState OK; client is pushed there directly).
 
-SAVEBLOB IS SOFT-GATED PENDING R2-P9 (owner-approved 2026-09-01). The R4-P1
-saveBlob is a RAW FNV over the emitted battle YAML, so it necessarily includes
-machine-local FOV/discovered state - unit "visible"/"turnsSinceSpotted*" and the
-tile boolFields byte (= per-part terrain "discovered" flags, Tile.cpp:207, packed
-inside binTiles). Those legitimately differ per machine (each computes its own
-FOV), so the raw saveBlob differs on essentially every run. This was TRACED
+SAVEBLOB IS HARD-GATED AS OF R2-P9. The R4-P1 saveBlob was a RAW FNV over the
+emitted battle YAML, so it necessarily included machine-local FOV/discovered
+state - unit "visible"/"turnsSinceSpotted*" and the tile boolFields byte
+(= per-part terrain "discovered" flags, Tile.cpp:207, packed inside binTiles).
+Those legitimately differ per machine (each computes its own FOV), so the raw
+saveBlob differed on essentially every run pre-R2-P9. This was TRACED
 2026-09-01 by decoding both binTiles: 0 terrain / 0 smoke / 0 fire / 0 unit-core
 divergence, only 190 tile discovered-flag diffs + 7 unit "visible" diffs - i.e.
 purely FOV, NOT a real desync (and NOT the tile-load bug an earlier revision of
-this docstring wrongly blamed - the reorder fix in CoopHandshake::onBlobChunkAppended
-materialises tiles before hashing). onReady() therefore LOGS the difference and
-proceeds (see its RW-TODO(R2-P9) soft-gate comment). R2-P9 replaces the raw hash
-with the canonical filtered SS2.8 bucket set (excluding those FOV fields per
-R2-P10's cr1-field-audit.md) and RESTORES the hard mismatch->teardown gate; this
-test then asserts EQUAL without otherwise changing.
+this docstring wrongly blamed - the R4-P1 reorder fix in CoopHandshake::
+onBlobChunkAppended materialises tiles before hashing, and stays correct here).
+
+R2-P9 replaced coopComputeSaveBlobBucketHex's raw hash with the canonical
+filtered SS2.8 bucket set (SharedEcon::computeSaveBlobHash - excludes the D4
+FOV fields, the per-tile FOW bits packed in binTiles, and the R2-P10
+cr1-field-audit.md sec 6 23-item delta) and RESTORED onReady()'s hard
+mismatch -> refuse/teardown gate (SS2.7: "no battle starts unequal"). This
+test now asserts EQUAL: at t=0 (before the first event), both machines are
+hashing the SAME streamed blob content minus only the excluded machine-local
+fields, so EQUAL is the expected, not merely possible, outcome.
 
 Run:  python tools/coop_test/test_rw_handshake.py
 """
@@ -150,7 +155,7 @@ def main():
         accept_lines = grep_lines(host_log, "[coop-handshake] battle_accept received")
         client_active_lines = grep_lines(client_log, "[coop-handshake] CLIENT phase Active")
         equal_lines = grep_lines(host_log, "[coop-handshake] battle_ready saveBlob EQUAL")
-        differ_lines = grep_lines(host_log, "[coop-handshake] battle_ready saveBlob differs")
+        mismatch_lines = grep_lines(host_log, "[coop-handshake] battle_ready saveBlob MISMATCH")
         host_active_lines = grep_lines(host_log, "[coop-handshake] HOST phase Active")
 
         assert offer_lines, "host log missing 'battle_offer sent' line"
@@ -161,22 +166,24 @@ def main():
         print("HOST LOG:", accept_lines[-1])
         print("CLIENT LOG:", client_active_lines[-1])
 
-        # SOFT GATE (RW-TODO(R2-P9)): the host proceeds to phase Active whether the
-        # raw saveBlob matched or (as is normal pre-R2-P9) differed on machine-local
-        # FOV/discovered state - see this module's docstring.
+        # HARD GATE (R2-P9): onReady() now REFUSES/tears down on a mismatch and
+        # never reaches phase Active - see this module's docstring. EQUAL is the
+        # expected outcome at t=0 under the canonical SS2.8-filtered hash; a
+        # MISMATCH here means the canonical bucket hash is not filtering the
+        # machine-local FOV/discovered state correctly - fail loudly, do not
+        # loosen the gate.
+        assert not mismatch_lines, \
+            "battle_ready saveBlob MISMATCH under the canonical SS2.8 hash - " \
+            f"the R2-P9 exclusion list is not filtering correctly: {mismatch_lines[-1]}"
+        assert equal_lines, \
+            "battle_ready arrived but 'saveBlob EQUAL' was never logged - onReady() " \
+            "did not run to completion (or a mismatch fired without matching the " \
+            "'saveBlob MISMATCH' log-line prefix this assertion greps for)"
+        print("HOST LOG:", equal_lines[-1])
+
         assert host_active_lines, \
-            "host did not reach phase Active - onReady()'s soft gate should proceed " \
-            "regardless of the saveBlob comparison"
-        if equal_lines:
-            print("HOST LOG:", equal_lines[-1])
-            print("NOTE: saveBlob EQUAL this run (FOV happened to coincide).")
-        else:
-            assert differ_lines, \
-                "battle_ready arrived but neither 'saveBlob EQUAL' nor 'saveBlob differs' " \
-                "was logged - onReady() did not run to completion"
-            print("HOST LOG:", differ_lines[-1])
-            print("NOTE: saveBlob differs = EXPECTED pre-R2-P9 (benign machine-local FOV/"
-                  "discovered state; 0 real divergence, traced 2026-09-01). Soft gate proceeds.")
+            "host did not reach phase Active after an EQUAL saveBlob - onReady()'s " \
+            "hard gate should proceed once the comparison matches"
         print("HOST LOG:", host_active_lines[-1])
 
         # Host is still in BriefingState (pushed unconditionally after bgen.run());
@@ -188,8 +195,8 @@ def main():
         # normally sits on top at battle start) - same in-stack check the client uses.
         assert session.has_state(host, "BattlescapeState"), \
             f"host should reach BattlescapeState after OK, stack={states(host)}"
-        print("PASS: BOTH machines in BattlescapeState, host+client phase Active "
-              "(saveBlob soft-gated pending R2-P9 canonical hash)")
+        print("PASS: BOTH machines in BattlescapeState, host+client phase Active, "
+              "saveBlob EQUAL under the canonical R2-P9 hash")
 
         print("ALL R4-P1 HANDSHAKE TESTS PASSED")
     finally:
