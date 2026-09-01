@@ -67,6 +67,7 @@
 #include "SharedEcon.h"
 #include "BattleWire.h"
 #include "BattlePump.h"
+#include "BattleAuthority.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -543,6 +544,49 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 		if (ok)
 			Log(LOG_INFO) << "CoopPump self-test OK";
 	}
+
+	// R2-P3 self-test (SPIKE-RUNBOOK.md RB-D6): prove the BattleAuthority
+	// singleton's init/reset round-trip and the interim seat->faction store
+	// behave as spec'd, without needing a live battle. Same OXC_TEST_PORT
+	// gate, kept as its own block for the same reason as the CoopWire/
+	// CoopPump blocks above - an unambiguous failure signal per layer.
+	if (std::getenv("OXC_TEST_PORT"))
+	{
+		auto fail = [](const char* what) { Log(LOG_ERROR) << "[battleauthority-selftest] FAIL: " << what; };
+		bool ok = true;
+
+		resetBattleAuthority();
+		BattleAuthority& a = coopBattleAuthority();
+
+		if (!(a.hostSim == false && a.localSeat == -1 && a.phase == CoopBattlePhase::Idle
+			&& a.battleId == 0u)) { fail("reset defaults"); ok = false; }
+		if (a.factionOf(0) != (int)FACTION_PLAYER) { fail("factionOf default"); ok = false; }
+		if (a.commandsUnit(nullptr) != false) { fail("commandsUnit(null)"); ok = false; }
+		if (a.mySideActive(nullptr) != false) { fail("mySideActive(null)"); ok = false; }
+
+		initBattleAuthority(777u);
+		if (!(a.hostSim == connectionTCP::getServerOwner()
+			&& a.localSeat == connectionTCP::localSeat()
+			&& a.phase == CoopBattlePhase::Handshake
+			&& a.battleId == 777u)) { fail("initBattleAuthority sets hostSim/localSeat/phase/battleId"); ok = false; }
+
+		a.setSeatFaction(0, (int)FACTION_HOSTILE);
+		if (a.factionOf(0) != (int)FACTION_HOSTILE) { fail("setSeatFaction"); ok = false; }
+		if (a.factionOf(1) != (int)FACTION_PLAYER) { fail("factionOf still-unmapped seat"); ok = false; }
+		if (a.factionOf(99) != (int)FACTION_PLAYER) { fail("factionOf out-of-range seat"); ok = false; }
+
+		a.resetSeatFactions();
+		if (a.factionOf(0) != (int)FACTION_PLAYER) { fail("resetSeatFactions"); ok = false; }
+
+		if (isCoopBattle()) { fail("isCoopBattle true outside Active phase"); ok = false; }
+
+		resetBattleAuthority(); // leave a clean slate for real play in this process
+		if (!(a.phase == CoopBattlePhase::Idle && a.localSeat == -1))
+		{ fail("final reset"); ok = false; }
+
+		if (ok)
+			Log(LOG_INFO) << "BattleAuthority self-test OK";
+	}
 }
 
 connectionTCP::~connectionTCP()
@@ -748,6 +792,92 @@ void onApplied(const Json::Value& /*ev*/)
 }
 
 } // namespace CoopDisplayQueue
+
+// ===== R2-P3: BattleAuthority (BattleAuthority.h) =====
+// SPIKE-RUNBOOK.md RB-D6/RB-D17. The single global instance is defined here
+// (function-local static, RB-D6) - not a file-scope global like the queues
+// above, since coopBattleAuthority() is its only accessor and a
+// function-local static gives the same one-instance guarantee with
+// guaranteed zero-init ordering relative to other TUs' static init.
+
+BattleAuthority& coopBattleAuthority()
+{
+	static BattleAuthority instance;
+	return instance;
+}
+
+int BattleAuthority::factionOf(int seat) const
+{
+	if (seat >= 0 && seat < kMaxSeats && _seatFaction[seat] != kUnmapped)
+		return _seatFaction[seat];
+
+	// R5-P1 real seatMap: RB-D18's interim classic/SHARED map has no
+	// non-player seats, so every unmapped/out-of-range seat safely defaults
+	// to FACTION_PLAYER in the spike; gm2/gm3/gm4 land their own map here.
+	return (int)FACTION_PLAYER;
+}
+
+bool BattleAuthority::mySideActive(const SavedBattleGame* s) const
+{
+	if (!s)
+		return false;
+	return (int)s->getSide() == factionOf(localSeat);
+}
+
+bool BattleAuthority::commandsUnit(const BattleUnit* u) const
+{
+	if (!u)
+		return false;
+
+	// R5-T2 mcId override (see BattleAuthority.h): stubbed to "no override"
+	// in the spike, so the seat-tag check below is always the whole answer.
+	return (int)u->getCoopSeat() == localSeat;
+}
+
+bool BattleAuthority::isSpectator() const
+{
+	return localSeat < 0 || factionOf(localSeat) != (int)FACTION_PLAYER;
+}
+
+void BattleAuthority::setSeatFaction(int seat, int faction)
+{
+	if (seat >= 0 && seat < kMaxSeats)
+		_seatFaction[seat] = faction;
+}
+
+void BattleAuthority::resetSeatFactions()
+{
+	for (int i = 0; i < kMaxSeats; ++i)
+		_seatFaction[i] = kUnmapped;
+}
+
+void initBattleAuthority(std::uint32_t battleId)
+{
+	BattleAuthority& a = coopBattleAuthority();
+	// RB-D6: hostSim is a ONE-TIME read of getServerOwner() here - immutable
+	// for the rest of the battle after this call. Never read getServerOwner()
+	// (or getHost()) again for battle-logic decisions; read a.hostSim.
+	a.hostSim = connectionTCP::getServerOwner();
+	a.localSeat = connectionTCP::localSeat();
+	a.phase = CoopBattlePhase::Handshake;
+	a.battleId = battleId;
+	a.resetSeatFactions();
+}
+
+void resetBattleAuthority()
+{
+	BattleAuthority& a = coopBattleAuthority();
+	a.hostSim = false;
+	a.localSeat = -1;
+	a.phase = CoopBattlePhase::Idle;
+	a.battleId = 0;
+	a.resetSeatFactions();
+}
+
+bool isCoopBattle()
+{
+	return connectionTCP::getCoopStatic() && coopBattleAuthority().phase == CoopBattlePhase::Active;
+}
 
 // ===== Geoscape sync conflation slot =====
 // One overwrite slot per snapshot channel (see CoopSnapSlot). The main thread
@@ -2622,10 +2752,15 @@ void connectionTCP::updateCoopTask()
 	// order, right after the loop above that may have just enqueued this
 	// tick's incoming bt_ev/bt_action_end. Appliers set flags only - see
 	// CoopPump::drainApplyQueue()'s "R3-P1 applies payload here" marker.
-	// R2-P3 phase gate: BattleAuthority::phase (Active/Ended) lands in
-	// R2-P3; until then gate on the world itself (a live SavedBattleGame)
-	// rather than a phase enum that does not exist yet.
-	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle() != nullptr)
+	// R2-P3 phase gate (tightened, RB-D5/RB-D6): now also requires
+	// BattleAuthority::phase to be Active or Ended, on top of the live-
+	// SavedBattleGame check this marker used before BattleAuthority existed.
+	// phase stays Idle until R4-P1's handshake sets it, so this makes the
+	// drain inert until R4-P1 lands - correct, since there is no real battle
+	// (and therefore nothing legitimate to drain) before the handshake.
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle() != nullptr
+		&& (coopBattleAuthority().phase == CoopBattlePhase::Active
+			|| coopBattleAuthority().phase == CoopBattlePhase::Ended))
 	{
 		CoopPump::drainApplyQueue();
 	}

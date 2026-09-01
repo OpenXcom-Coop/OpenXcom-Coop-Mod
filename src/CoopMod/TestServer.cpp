@@ -4717,9 +4717,12 @@ std::string TestServer::execute(const std::string& line)
 					// 1 = client-controlled; in SHARED it is derived from the owning
 					// soldier's ownerPlayerId (seat) at mission start.
 					ju["coop"] = (int)u->getCoopSeat();
-					// The REAL in-battle control gate this machine applies (coop + getHost
-					// + isYourTurn), so a test sees exactly which units THIS player can
-					// command right now - not a Python re-derivation of the rule.
+					// R1-P4: the coop+getHost()+isYourTurn control gate this comment used
+					// to describe was removed by the r1 vanilla restore along with
+					// isYourTurn itself. This is now plain vanilla isSelectable(FACTION_
+					// PLAYER, ...) - no coop gating at all. The real per-seat control gate
+					// is BattleAuthority::commandsUnit() (R2-P3+, RB-D6); it lands in the
+					// test response once R2-P5's arbiter wires it up.
 					ju["selectable"] = u->isSelectable(FACTION_PLAYER, false, false);
 					// F5: mind-control markers for the PvP psi convergence test.
 					ju["mindControllerId"] = u->getMindControllerId();
