@@ -60,6 +60,8 @@
 #include "../Battlescape/ProjectileFlyBState.h"
 #include "../Battlescape/PsiAttackBState.h"
 #include "../Battlescape/Position.h"
+#include "../Battlescape/Map.h"
+#include "../Battlescape/Camera.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleInventory.h"
@@ -3421,7 +3423,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
-		&& cmd != "battle_prox" && cmd != "tile_info")
+		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "map_tile_screen_pos")
 	{
 		return false;
 	}
@@ -3725,6 +3727,34 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				part["mapDataSetID"] = dsid;
 				resp["parts"][partNames[p]] = part;
 			}
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "map_tile_screen_pos")
+	{
+		// R3-P1 (SPIKE-RUNBOOK.md R3-P1 packet text): the faithful-UI repro
+		// variant needs a REAL on-screen pixel to feed inject_input's
+		// kind="click" - this converts a tile position to the actual
+		// window-pixel coordinate the live Camera would place it at right
+		// now, via the same Camera::convertVoxelToScreen() a real mouse
+		// click's own hit-testing uses in reverse (Camera::
+		// convertScreenToMap()). Screen coords are relative to the Map
+		// surface's own origin, which BattlescapeState constructs at (0,0)
+		// - i.e. already raw window pixel coordinates, usable as-is.
+		if (!bstate)
+		{
+			resp["error"] = "no BattlescapeState";
+		}
+		else
+		{
+			Position tilePos(req.get("x", 0).asInt(), req.get("y", 0).asInt(), req.get("z", 0).asInt());
+			Position voxelPos = tilePos.toVoxel() + Position(8, 8, 0); // tile center, per BattleUnit::getPositionVexels()
+			Position screenPos;
+			bstate->getMap()->getCamera()->convertVoxelToScreen(voxelPos, &screenPos);
+			resp["screenX"] = screenPos.x;
+			resp["screenY"] = screenPos.y;
+			resp["mapWidth"] = bstate->getMap()->getWidth();
+			resp["mapHeight"] = bstate->getMap()->getHeight();
 			resp["ok"] = true;
 		}
 	}
@@ -4033,13 +4063,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["hostSim"] = a.hostSim.load();
 		resp["localSeat"] = a.localSeat.load();
 		resp["battleId"] = a.battleId.load();
-		// RW-TODO(R3-P1): lastDeny is the client intent tracker's own state
-		// (ClientIntentState.lastDeny) - that tracker does not exist yet (this
-		// packet only builds+sends bt_intent, RB-D32; R3-P1 owns the client
-		// half of the intent lifecycle, incl. handling the bt_ack/bt_deny this
-		// packet's battle_intent-sent intents can provoke). Always null until
-		// then - the field is present now (schema stability), R3-P1 fills it.
-		resp["lastDeny"] = Json::Value();
+		// R3-P1: the client intent tracker's own state (ClientIntentState.
+		// lastDeny, IR-2) - the {iseq,reason} object from the most recent
+		// bt_deny this machine received this battle, or null if none yet.
+		resp["lastDeny"] = CoopArbiter::lastDeny();
 		resp["desyncSeen"] = a.desyncFrozen.load();
 		resp["txDrains"] = CoopEmit::txDrainEvents();
 		resp["ok"] = true;
@@ -4308,6 +4335,34 @@ std::string TestServer::execute(const std::string& line)
 				nb->harnessSetHotseat(req.get("on", true).asBool());
 				resp["hotseat"] = connectionTCP::_isHotseatActive;
 				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "newbattle_seat_soldier")
+		{
+			// R3-P1 (SPIKE-RUNBOOK.md R3-P1 packet text): stamp one soldier
+			// assigned to the New Battle screen's currently selected craft
+			// with a coop seat, BEFORE newbattle_ok generates the battle -
+			// see NewBattleState::harnessSeatOneSoldier()'s own doc comment
+			// for why a plain classic skirmish otherwise leaves every
+			// soldier at seat 0 (host).
+			NewBattleState* nb = findState<NewBattleState>(_game);
+			if (!nb)
+			{
+				resp["error"] = "no NewBattleState in state stack";
+			}
+			else
+			{
+				const int seat = req.get("seat", 1).asInt();
+				const int soldierId = nb->harnessSeatOneSoldier(seat);
+				if (soldierId < 0)
+				{
+					resp["error"] = "newbattle_seat_soldier: craft has no soldiers";
+				}
+				else
+				{
+					resp["soldierId"] = soldierId;
+					resp["ok"] = true;
+				}
 			}
 		}
 		else if (cmd == "coop_connecting_dialogs")

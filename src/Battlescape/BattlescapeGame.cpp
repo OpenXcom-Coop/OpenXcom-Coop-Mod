@@ -2037,18 +2037,43 @@ void BattlescapeGame::secondaryAction(Position pos)
 	// mySideActive gate): suppress a coop client's secondary-click (turn/
 	// door) on a unit this machine's seat does not command, or when this
 	// machine's side isn't currently active. One guarded call, permissive
-	// outside coop. (The real client-intent send for this site lands with
-	// R3-P1, post-G4 - see CoopArbiter.h's "PLACE new callers here" note;
-	// this packet's own PRE-R3-P1 scope is suppression only.)
-	if (!coopMayCommand(_save->getSelectedUnit(), _save))
+	// outside coop.
+	BattleUnit* selected = _save->getSelectedUnit();
+	if (!coopMayCommand(selected, _save))
 	{
 		return;
 	}
 
+	// R3-P1 (RB-D10 generalized): a coop CLIENT commanding its own unit
+	// SENDS an intent instead of running vanilla locally - SS2.5's "host-
+	// local player input never enters the intent path" means only the HOST
+	// ever runs vanilla directly. coopMayCommand() above already proved this
+	// machine commands `selected` and its side is active; the only question
+	// left is which role this machine has.
+	if (isCoopBattle() && !coopBattleAuthority().hostSim)
+	{
+		const bool turretTurn = Options::strafe && _save->isCtrlPressed(true) && selected->getTurretType() > -1;
+		const int toDir = selected->directionTo(pos);
+		CoopArbiter::sendClientIntent("turn", selected->getId(), toDir, turretTurn);
+		return;
+	}
+
+	// The host's own local turn in a coop battle (RB-D19): mint+push this
+	// chain's coop action context BEFORE the vanilla push below, so
+	// UnitTurnBState::think()'s completion hook and the popState quiescence
+	// hook's bt_action_end emit both fire for it exactly as they already do
+	// for an admitted remote intent. No-op (and therefore free) outside an
+	// active coop battle - true on every SP click.
+	if (isCoopBattle())
+	{
+		const bool turretTurn = Options::strafe && _save->isCtrlPressed(true) && selected->getTurretType() > -1;
+		CoopArbiter::beginHostLocalTurn(selected, turretTurn);
+	}
+
 	//  -= turn to or open door =-
 	_currentAction.target = pos;
-	_currentAction.actor = _save->getSelectedUnit();
-	_currentAction.strafe = Options::strafe && _save->isCtrlPressed(true) && _save->getSelectedUnit()->getTurretType() > -1;
+	_currentAction.actor = selected;
+	_currentAction.strafe = Options::strafe && _save->isCtrlPressed(true) && selected->getTurretType() > -1;
 	statePushBack(new UnitTurnBState(this, _currentAction));
 }
 

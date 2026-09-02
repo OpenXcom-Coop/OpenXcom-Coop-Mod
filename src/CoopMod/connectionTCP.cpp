@@ -46,6 +46,7 @@
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/Pathfinding.h"
+#include "../Battlescape/TileEngine.h"
 
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -79,6 +80,7 @@
 #include "CoopBattleUi.h"
 #include "CoopHandshake.h"
 #include "CoopBattleSetup.h"
+#include "CoopApply.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -894,16 +896,10 @@ void sendEv(Json::Value ev)
 
 } // namespace CoopEmit
 
-namespace CoopDisplayQueue
-{
-
-// IR-16c: no-op until R3-P1. Kept here (not in the header) so this .cpp is
-// the single place battle-lane queue code lives, matching CoopPump/CoopEmit.
-void onApplied(const Json::Value& /*ev*/)
-{
-}
-
-} // namespace CoopDisplayQueue
+// R3-P1 fills CoopDisplayQueue::onApplied() below, after CoopApply/
+// CoopArbiter (it needs CoopArbiter::onActionEndApplied() and the
+// actionId->actorId correlation map, both defined further down this file) -
+// see the "===== R3-P1: CoopApply" section near coopOnUnitTurnFinished.
 
 // ===== R2-P11: flat event ring (BattlePump.h's CoopEventLog) =====
 // SPIKE-RUNBOOK.md RB-D32/DESIGN sec 6 journaling guardrail 6. Storage is a
@@ -1260,6 +1256,59 @@ static std::map<int, std::uint32_t> g_coopLastDenyTick;
 // CoopArbiter static here.
 static std::uint32_t g_coopClientNextIseq = 1;
 
+// R3-P1: the turn atom's "before" state, captured at admission
+// (CoopArbiter::onIntent()'s turn branch) or at a host-local turn's begin
+// (CoopArbiter::beginHostLocalTurn()), read back by the THIN
+// UnitTurnBState::think() completion/abort hook (coopOnUnitTurnFinished,
+// below) to build the bt_ev turn payload's fromDir/turretFrom/turretOnly
+// fields. Not part of the public {actionId, origin} action-context stack
+// above (RB-D12's shape has no room for it) - valid only while
+// g_coopPendingChainActorId (above) names the SAME unit; at most one coop
+// turn/kneel chain is ever in flight at a time (SS2.5 deny-only
+// serialization), so a single slot (never cleared explicitly - always
+// overwritten by the next chain's begin before its own read) is correct.
+struct CoopPendingTurnInfo
+{
+	int fromDir = -1;
+	int fromTurretDir = -1;
+	bool turretOnly = false;
+};
+static CoopPendingTurnInfo g_coopPendingTurnInfo;
+
+// R3-P1 (REVIEW4 IR-2): this CLIENT's own intent lifecycle tracker. The
+// packet text's ClientIntentState.inFlight shape, given its own struct/
+// counter here rather than a second, redundant iseq mint - nextIseq is
+// already g_coopClientNextIseq above (sendClientIntent()'s own counter);
+// actionId is added to the given shape (needed so onActionEndApplied() can
+// recognize "my own" bt_action_end, which carries no iseq of its own,
+// SS2.3 - the packet text's "bt_ack records actionId" line requires
+// somewhere to put it).
+struct CoopClientInFlight
+{
+	std::uint32_t iseq = 0;
+	std::string kind;
+	int actorId = -1;
+	std::uint32_t actionId = 0;
+	bool active = false;
+};
+static CoopClientInFlight g_coopClientInFlight;
+
+// R3-P1 (IR-2): ClientIntentState.lastDeny - the {iseq,reason} object from
+// the most recent bt_deny this CLIENT received, or null (Json::Value()'s
+// default) if none yet this battle. event_state's own field (R2-P11's
+// RW-TODO(R3-P1) marker in TestServer.cpp).
+static Json::Value g_coopClientLastDeny;
+
+// R3-P1: purely client-side actionId -> actorId correlation. Neither
+// bt_ev's "unit" field nor bt_action_end carry both together on the wire
+// (SS2.3/SS2.4 - bt_action_end has no "unit" field at all), so a client
+// that is not the acting seat still needs a way to know which unit a later
+// bt_action_end (same actionId) belongs to. Populated by
+// CoopDisplayQueue::onApplied() when it applies a bt_ev carrying a "unit"
+// payload field; consumed (and erased) when the matching bt_action_end
+// applies.
+static std::map<std::uint32_t, int> g_coopClientActionActor;
+
 // CoopPump::reset() (BattlePump.h/R2-P2) is the established single
 // battle-teardown reset chokepoint (R2-P8 wires its call site); extending
 // its body here keeps CoopArbiter's own battle-scoped statics from leaking
@@ -1271,6 +1320,10 @@ static void resetCoopArbiterState()
 	g_coopPendingChainActorId = -1;
 	g_coopLastDenyTick.clear();
 	g_coopClientNextIseq = 1;
+	g_coopPendingTurnInfo = CoopPendingTurnInfo();
+	g_coopClientInFlight = CoopClientInFlight();
+	g_coopClientLastDeny = Json::Value();
+	g_coopClientActionActor.clear();
 }
 
 // R2-P9 (SPIKE-RUNBOOK.md SS2.8): render a bucket's uint64 as the 16-
@@ -1532,6 +1585,13 @@ void onIntent(const Json::Value& intent)
 		clearDeny(seat);
 		pushActionContext(actionId, "intent");
 		g_coopPendingChainActorId = actor->getId();
+		// R3-P1: capture the "before" state UnitTurnBState::think()'s
+		// completion/abort hook (coopOnUnitTurnFinished) needs to build the
+		// bt_ev turn payload's fromDir/turretFrom/turretOnly fields - BEFORE
+		// the statePushBack() below runs lookAt()/turn() and mutates it.
+		g_coopPendingTurnInfo.fromDir = actor->getDirection();
+		g_coopPendingTurnInfo.fromTurretDir = actor->getTurretDirection();
+		g_coopPendingTurnInfo.turretOnly = turret;
 
 		// RB-D10 donor reproduction of BattlescapeGame::secondaryAction()
 		// (BattlescapeGame.cpp:2011-2018) - NOT a call to secondaryAction
@@ -1650,6 +1710,24 @@ void onChainQuiesced()
 	}
 }
 
+void beginHostLocalTurn(BattleUnit* actor, bool turret)
+{
+	if (!isCoopBattle() || !actor)
+		return;
+
+	// SS2.5: "host-local player input never enters the intent path" - this
+	// runs on the HOST for its OWN click, never through onIntent(). Mirrors
+	// onIntent()'s turn-branch bookkeeping exactly (mint, push, record
+	// pending actor + "before" state) so coopOnUnitTurnFinished() and
+	// onChainQuiesced() fire identically regardless of origin.
+	const std::uint32_t actionId = mintActionId();
+	pushActionContext(actionId, "host"); // RB-D19
+	g_coopPendingChainActorId = actor->getId();
+	g_coopPendingTurnInfo.fromDir = actor->getDirection();
+	g_coopPendingTurnInfo.fromTurretDir = actor->getTurretDirection();
+	g_coopPendingTurnInfo.turretOnly = turret;
+}
+
 std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	bool turret, bool kneel, int tuBasisOverride)
 {
@@ -1659,6 +1737,21 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	{
 		Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent('" << kindStr
 			<< "') outside an active coop battle - dropped";
+		return 0u;
+	}
+
+	// R3-P1 (REVIEW4 IR-2): "while active, input is locked for THE ACTING
+	// UNIT ONLY" - refuse a second intent for the SAME unit while its first
+	// one is still outstanding (unresolved bt_ack/bt_deny/bt_action_end). A
+	// DIFFERENT unit's intent is not blocked here (deny-only serialization
+	// means the host will just answer busy if it collides, which the packet
+	// text calls "fine to send") - g_coopClientInFlight's single slot simply
+	// gets overwritten below once this send actually goes out.
+	if (g_coopClientInFlight.active && g_coopClientInFlight.actorId == actorId)
+	{
+		Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent: actor " << actorId
+			<< " already has an in-flight intent (iseq " << g_coopClientInFlight.iseq
+			<< ") - input locked for this unit until its bt_action_end (IR-2) - dropped";
 		return 0u;
 	}
 
@@ -1721,7 +1814,64 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	}
 
 	CoopEmit::sendBattle(intent);
+
+	// R3-P1 (IR-2): this is now the one tracked in-flight intent (single
+	// slot, overwriting whatever a DIFFERENT unit's still-unresolved intent
+	// left behind - see the actor-lock check above for why that is safe).
+	g_coopClientInFlight.iseq = iseq;
+	g_coopClientInFlight.kind = kindStr;
+	g_coopClientInFlight.actorId = actorId;
+	g_coopClientInFlight.actionId = 0; // filled by onAck() below
+	g_coopClientInFlight.active = true;
+
 	return iseq;
+}
+
+void onAck(const Json::Value& ack)
+{
+	if (!isCoopBattle())
+		return;
+
+	const std::uint32_t iseq = ack.get("iseq", 0u).asUInt();
+	if (g_coopClientInFlight.active && g_coopClientInFlight.iseq == iseq)
+	{
+		g_coopClientInFlight.actionId = ack.get("actionId", 0u).asUInt();
+	}
+}
+
+void onDeny(const Json::Value& deny)
+{
+	if (!isCoopBattle())
+		return;
+
+	const std::uint32_t iseq = deny.get("iseq", 0u).asUInt();
+	const std::string reason = deny.get("reason", "").asString();
+
+	Json::Value ld(Json::objectValue);
+	ld["iseq"] = iseq;
+	ld["reason"] = reason;
+	g_coopClientLastDeny = ld;
+
+	if (g_coopClientInFlight.active && g_coopClientInFlight.iseq == iseq)
+	{
+		// Pre-R2-P7 policy (packet text): banner + DROP, no retry.
+		g_coopClientInFlight = CoopClientInFlight();
+	}
+
+	CoopBattleUi::showDeny(reason.c_str());
+}
+
+void onActionEndApplied(std::uint32_t actionId)
+{
+	if (g_coopClientInFlight.active && g_coopClientInFlight.actionId == actionId)
+	{
+		g_coopClientInFlight = CoopClientInFlight();
+	}
+}
+
+Json::Value lastDeny()
+{
+	return g_coopClientLastDeny;
 }
 
 } // namespace CoopArbiter
@@ -1730,6 +1880,238 @@ void coopOnChainQuiesced()
 {
 	CoopArbiter::onChainQuiesced();
 }
+
+// R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104/:116/:142 @911ca487f - see
+// CoopArbiter.h's own doc comment on this function for the full contract).
+// Kept outside namespace CoopArbiter for the same call-site-simplicity
+// reason as coopOnChainQuiesced() above.
+void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted)
+{
+	if (!isCoopBattle() || !unit)
+		return;
+	if (g_coopPendingChainActorId != unit->getId())
+		return; // a foreign/AI/SP turn - not coop's to report
+
+	const std::uint32_t actionId = CoopArbiter::currentActionId();
+	if (actionId == 0)
+		return; // defensive: no action context even though the pending actor matched
+
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+
+	Json::Value ev = CoopWire::makeEv(0u, actionId, "turn");
+	ev["payload"]["unit"] = unit->getId();
+	ev["payload"]["fromDir"] = g_coopPendingTurnInfo.fromDir;
+	ev["payload"]["toDir"] = unit->getDirection();
+	ev["payload"]["turretOnly"] = g_coopPendingTurnInfo.turretOnly;
+	if (g_coopPendingTurnInfo.turretOnly)
+	{
+		ev["payload"]["turretFrom"] = g_coopPendingTurnInfo.fromTurretDir;
+		ev["payload"]["turretTo"] = unit->getTurretDirection();
+	}
+	ev["payload"]["tuAfter"] = unit->getTimeUnits();
+	// "door" is deliberately never set here: R3-P1 does not hook
+	// UnitTurnBState::init()'s immediate zero-tick door-open branch
+	// (UnitTurnBState.cpp:77 @911ca487f) - RB-D15's spike fixtures are
+	// door-free by construction (REVIEW4 IR-4's own no-door-within-2-tiles
+	// selection rule), so this packet's own repro never exercises it.
+	// Door-in-turn rides the door atom, post-spike, per RB-D15's own text.
+	ev["h"] = coopBuildUnitsStatsHash(save); // RB-D14
+	CoopEmit::sendEv(ev);
+
+	if (aborted)
+	{
+		Log(LOG_WARNING) << "[coop-turn] unit " << unit->getId()
+			<< "'s coop-admitted turn ABORTED mid-chain - the RB-D15/REVIEW4 IR-4 "
+			"fixture guards (empty spotted-set, no door within 2 tiles) should "
+			"have prevented this in the spike's own repro";
+	}
+}
+
+// ===== R3-P1: CoopApply (CoopApply.h) - the S2-minimal client-side state
+// applier =====
+// SPIKE-RUNBOOK.md R3-P1 packet text. Resolution is EXCLUSIVELY via
+// CoopIdMaps (RB-D7) - nothing here mints a BattleUnit/BattleItem (RB-D25),
+// but the region is marked per the packet text's own instruction anyway.
+// RW-MINT-WHITELIST-BEGIN
+namespace CoopApply
+{
+
+void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
+{
+	if (!save)
+		return;
+
+	const std::string kind = ev.get("kind", "").asString();
+
+	if (kind != "turn" && kind != "kneel")
+	{
+		// RB-D32 corollary: an unknown ev kind (inject_ev's own spike test
+		// payloads, e.g. "spot") is a legal state-no-op - seq is consumed by
+		// the caller (CoopPump::drainApplyQueue()) regardless of what
+		// happens here.
+		Log(LOG_WARNING) << "[coop-apply] RW-UNSUPPORTED ev kind '" << kind << "'";
+		return;
+	}
+
+	const Json::Value& payload = ev["payload"];
+	if (!payload.isMember("unit"))
+	{
+		Log(LOG_WARNING) << "[coop-apply] ev kind '" << kind << "' payload missing 'unit' - dropped";
+		return;
+	}
+
+	BattleUnit* unit = CoopIdMaps::unit(payload["unit"].asInt());
+	if (!unit)
+	{
+		Log(LOG_WARNING) << "[coop-apply] ev kind '" << kind << "' unit "
+			<< payload["unit"].asInt() << " does not resolve on this machine - dropped";
+		return;
+	}
+
+	if (kind == "turn")
+	{
+		if (payload.isMember("door"))
+		{
+			// SS2.4: spike fixtures are door-free by construction (RB-D15);
+			// the client does not apply a door result here (terrain apply is
+			// the door atom's job) - correctly treated as a future desync at
+			// the next hash compare (the state HAS diverged).
+			Log(LOG_WARNING) << "[coop-apply] RW-UNSUPPORTED door-in-turn (unit "
+				<< unit->getId() << ") - not applied";
+		}
+
+		const bool turretOnly = payload.get("turretOnly", false).asBool();
+		if (turretOnly)
+		{
+			if (payload.isMember("turretTo"))
+				unit->setTurretDirection(payload["turretTo"].asInt());
+		}
+		else if (payload.isMember("toDir"))
+		{
+			unit->setDirection(payload["toDir"].asInt());
+		}
+		if (payload.isMember("tuAfter"))
+			unit->setTimeUnits(payload["tuAfter"].asInt());
+	}
+	else // "kneel"
+	{
+		if (payload.isMember("kneeled"))
+		{
+			const bool wantKneel = payload["kneeled"].asBool();
+			if (unit->isKneeled() != wantKneel)
+				unit->kneel(wantKneel);
+		}
+		if (payload.isMember("tuAfter"))
+			unit->setTimeUnits(payload["tuAfter"].asInt());
+	}
+}
+
+void applyActionEndFinal(BattleUnit* unit, const Json::Value& final)
+{
+	if (!unit)
+		return;
+
+	// "pos" is intentionally never read here - turn/kneel never move a unit;
+	// syncing position is the walk atom's job, not this packet's (see
+	// CoopApply.h's own doc comment).
+	if (final.isMember("dir"))
+		unit->setDirection(final["dir"].asInt());
+	if (final.isMember("tu"))
+		unit->setTimeUnits(final["tu"].asInt());
+	if (final.isMember("energy"))
+		unit->setEnergy(final["energy"].asInt());
+	if (final.isMember("kneeled"))
+	{
+		const bool wantKneel = final["kneeled"].asBool();
+		if (unit->isKneeled() != wantKneel)
+			unit->kneel(wantKneel);
+	}
+}
+
+} // namespace CoopApply
+// RW-MINT-WHITELIST-END
+
+namespace CoopDisplayQueue
+{
+
+// R3-P1 (IR-16c's own "body is a no-op until R3-P1" marker, BattlePump.h):
+// the S3-instant display hook. Applies state (CoopApply.h) then "displays"
+// it - CoopApply::applyEvPayload()/applyActionEndFinal() write the unit's
+// live direction/turret-direction fields directly
+// (BattleUnit::setDirection()/setTurretDirection()), and this codebase's
+// map/unit-sprite rendering reads those fields fresh every frame (no
+// separate cache/dirty flag exists on BattleUnit to invalidate - grepped),
+// so the facing sweep is already "instant" the moment the write lands; there
+// is nothing further to trigger. Ghost-sweep polish (an actual ANIMATED
+// turn) is r3a S3's job, explicitly NOT required here (packet text).
+//
+// Called from CoopPump::drainApplyQueue() (BattlePump.h/RB-D5), in strict
+// seq order, for every bt_ev/bt_action_end AFTER the gap check and BEFORE
+// CoopHashCheck::verify()'s post-apply hash compare.
+void onApplied(const Json::Value& ev)
+{
+	if (!isCoopBattle())
+		return;
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!save)
+		return;
+
+	const std::string state = ev.get("state", "").asString();
+
+	if (state == "bt_ev")
+	{
+		const std::uint32_t actionId = ev.get("actionId", 0u).asUInt();
+		const Json::Value& payload = ev["payload"];
+		if (actionId != 0 && payload.isMember("unit"))
+		{
+			// Purely client-side bookkeeping (never on the wire - SS2.3/
+			// SS2.4 have no "unit" field on bt_action_end) so a LATER
+			// bt_action_end (same actionId) can be resolved to a unit on
+			// this machine, whether or not this machine is the one that
+			// sent the original intent.
+			g_coopClientActionActor[actionId] = payload["unit"].asInt();
+		}
+		CoopApply::applyEvPayload(save, ev);
+	}
+	else if (state == "bt_action_end")
+	{
+		const std::uint32_t actionId = ev.get("actionId", 0u).asUInt();
+		auto it = g_coopClientActionActor.find(actionId);
+		if (it != g_coopClientActionActor.end())
+		{
+			BattleUnit* unit = CoopIdMaps::unit(it->second);
+			CoopApply::applyActionEndFinal(unit, ev["final"]);
+			if (unit)
+				save->getTileEngine()->calculateFOV(unit); // A5: targeted FOV refresh
+			g_coopClientActionActor.erase(it);
+		}
+		else
+		{
+			Log(LOG_WARNING) << "[coop-apply] bt_action_end actionId " << actionId
+				<< " has no known actor on this machine (no preceding bt_ev carried "
+				"its 'unit' field) - final not applied";
+		}
+		CoopArbiter::onActionEndApplied(actionId); // IR-2: clears this client's own lock
+		return; // A5's FOV refresh above already covers the action_end path
+	}
+	else
+	{
+		Log(LOG_WARNING) << "[coop-apply] RW-UNSUPPORTED envelope state '" << state << "'";
+		return;
+	}
+
+	// A5 (turn/kneel bt_ev path): targeted per-unit FOV refresh - turning or
+	// kneeling can reveal/hide terrain or units for THIS unit specifically,
+	// never a wider sweep.
+	if (ev["payload"].isMember("unit"))
+	{
+		BattleUnit* unit = CoopIdMaps::unit(ev["payload"]["unit"].asInt());
+		if (unit)
+			save->getTileEngine()->calculateFOV(unit);
+	}
+}
+
+} // namespace CoopDisplayQueue
 
 // ===== R2-P6: admission-model banner presenter (CoopBattleUi.h) =====
 // SPIKE-RUNBOOK.md sec 2.6, ADDENDUM 2026-08-31 sec 1.3(f). Bodies live here,
@@ -6089,12 +6471,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				<< " got=" << obj.get("got", "").asString()
 				<< " bundlePath=" << obj.get("bundlePath", "").asString();
 		}
-		else
+		else if (stateString == "bt_ack")
 		{
-			// R3-P1 client bt_deny -> CoopBattleUi::showDeny (the presenter
-			// itself is built this packet, R2-P6 - see CoopBattleUi.h - but
-			// the client intent tracker that would call it here lands in
-			// R3-P1). bt_ack is client-inbound too (also R3-P1).
+			// R3-P1 (IR-2): client-inbound - records the actionId for this
+			// client's own in-flight intent, if this ack matches it.
+			CoopArbiter::onAck(obj);
+		}
+		else if (stateString == "bt_deny")
+		{
+			// R3-P1 (IR-2): client-inbound - clears the in-flight lock if
+			// this matches it, stores lastDeny (event_state's own field),
+			// and shows the CoopBattleUi::showDeny() banner (R2-P6's
+			// presenter, unwired until now).
+			CoopArbiter::onDeny(obj);
 		}
 		return;
 	}

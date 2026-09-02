@@ -134,6 +134,16 @@ public:
 	void startCoopMission();
 	/// Test hook: arm/disarm local hotseat exactly as the on-screen toggle would.
 	void harnessSetHotseat(bool on);
+	/// R3-P1 (rewrite spike, SPIKE-RUNBOOK.md R3-P1 packet text, "FIXTURE-
+	/// COVERAGE NOTE" in tools/coop_test/test_rw_input_gating.py): test hook -
+	/// stamp ONE soldier assigned to the currently selected craft with a coop
+	/// seat (Soldier::setCoop()), BEFORE OK generates the battle. A plain
+	/// NEW BATTLE > COOP classic skirmish never calls Soldier::setCoop(), so
+	/// every soldier defaults to seat 0 (host); this gives a non-host seat a
+	/// real, commandable unit to drive R3-P1's client-intent repro with, the
+	/// same gap that test file's own FIXTURE-COVERAGE NOTE names. Returns
+	/// the stamped soldier's id, or -1 if the craft has no soldiers.
+	int harnessSeatOneSoldier(int seat);
 };
 
 }

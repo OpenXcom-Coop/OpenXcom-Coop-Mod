@@ -260,6 +260,12 @@ public:
 	Position getPositionVexels() const;
 	/// Sets the unit's direction 0-7.
 	void setDirection(int direction);
+	/// R3-P1 (rewrite spike, SPIKE-RUNBOOK.md CoopApply.h): instant
+	/// turret-only direction set - the coop client-apply counterpart of
+	/// setDirection() above, for a turretOnly bt_ev turn. Never touches the
+	/// body's own _direction/_toDirection. No animation, same discipline as
+	/// setDirection().
+	void setTurretDirection(int direction);
 	/// Sets the unit's face direction (only used by strafing moves)
 	void setFaceDirection(int direction);
 	/// Gets the unit's direction.
@@ -325,6 +331,11 @@ public:
 	int getTimeUnits() const;
 	/// Gets the unit's stamina.
 	int getEnergy() const;
+	/// R3-P1 (rewrite spike, SPIKE-RUNBOOK.md CoopApply.h): absolute energy
+	/// set - the coop client-apply counterpart of setTimeUnits() below.
+	/// Clamped to [0, stamina] the same way vanilla's own internal energy
+	/// mutations are.
+	void setEnergy(int energy);
 	/// Gets the unit's health.
 	int getHealth() const;
 	/// Gets the unit's mana.

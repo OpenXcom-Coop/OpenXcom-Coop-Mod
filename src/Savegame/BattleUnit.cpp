@@ -994,6 +994,19 @@ void BattleUnit::setDirection(int direction)
 }
 
 /**
+ * R3-P1 (rewrite spike, SPIKE-RUNBOOK.md CoopApply.h): instant turret-only
+ * direction set. Mirrors setDirection() above but never touches the body's
+ * own _direction/_toDirection - used by the coop client applier for a
+ * turretOnly bt_ev turn, where the body facing did not change.
+ * @param direction new turret direction
+ */
+void BattleUnit::setTurretDirection(int direction)
+{
+	_directionTurret = direction;
+	_toDirectionTurret = direction;
+}
+
+/**
  * Changes the BattleUnit's (horizontal) face direction.
  * Only used for strafing moves.
  * @param direction new face direction
@@ -4735,6 +4748,20 @@ int BattleUnit::getRandomAggroSound() const
 void BattleUnit::setTimeUnits(int tu)
 {
 	_tu = Clamp(tu, 0, (int)_stats.tu);
+}
+
+/**
+ * R3-P1 (rewrite spike, SPIKE-RUNBOOK.md CoopApply.h): absolute energy set -
+ * the coop client-apply counterpart of setTimeUnits() above. Turn/kneel
+ * never actually change energy in vanilla, but SS2.4's action_end.final
+ * carries it unconditionally as part of the unit's full post-action state;
+ * clamped to [0, stamina] via the same setValueMax() delta-to-target trick
+ * vanilla's own internal energy mutations use.
+ * @param energy new energy value
+ */
+void BattleUnit::setEnergy(int energy)
+{
+	setValueMax(_energy, energy - _energy, 0, getBaseStats()->stamina);
 }
 
 /**

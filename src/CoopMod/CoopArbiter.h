@@ -68,6 +68,21 @@ void onIntent(const Json::Value& intent);
 /// battle.
 void onChainQuiesced();
 
+/// Host: RB-D19 origin stamping for a coop HOST's own local turn (SS2.5:
+/// "host-local player input never enters the intent path" - it always runs
+/// vanilla directly, never onIntent()). Called from the THIN
+/// BattlescapeGame::secondaryAction hook site's own-input branch (R3-P1),
+/// BEFORE it pushes UnitTurnBState, mirroring onIntent()'s turn-branch
+/// bookkeeping (mint actionId, push {actionId,"host"} action context, record
+/// @a actor as this chain's pending actor plus its pre-turn direction/
+/// turret-direction) so UnitTurnBState::think()'s completion hook
+/// (coopOnUnitTurnFinished below) and onChainQuiesced()'s bt_action_end emit
+/// both fire correctly for the host's OWN turns too, exactly as they already
+/// do for an admitted remote intent. No-op outside an active coop battle (the
+/// vanilla call site stays a single unconditional call, like
+/// coopOnChainQuiesced()).
+void beginHostLocalTurn(BattleUnit* actor, bool turret);
+
 /// Pushes {actionId, origin} onto CoopMod's own action-context stack
 /// (RB-D12 - no BState code stores coop state). @a origin is one of SS2.2's
 /// origin enum strings; RB-D19's "host" is reserved for the host-seat's own
@@ -124,6 +139,39 @@ const char* validateKneel(const BattleUnit* unit, bool kneel, int tuBasis);
 std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir = -1,
 	bool turret = false, bool kneel = false, int tuBasisOverride = -1);
 
+/// CLIENT (R3-P1, REVIEW4 IR-2): host bt_ack{iseq,actionId} receipt - if
+/// @a ack's iseq matches this client's own in-flight intent (set by a prior
+/// sendClientIntent() call that actually shipped), records the actionId so a
+/// later bt_action_end (which carries no unit/iseq of its own, only
+/// actionId, SS2.3) can be recognized as "mine" by onActionEndApplied()
+/// below. No-op if the iseq does not match (a stale/foreign ack, or nothing
+/// in flight) or outside an active coop battle.
+void onAck(const Json::Value& ack);
+
+/// CLIENT (R3-P1, IR-2): host bt_deny{iseq,reason} receipt - always updates
+/// lastDeny() below (event_state's own field, R2-P11) and shows the
+/// CoopBattleUi::showDeny() banner; additionally clears this client's own
+/// in-flight lock if @a deny's iseq matches it. Pre-R2-P7 policy (packet
+/// text): banner + DROP, no retry - R2-P7 adds the pending/auto-resubmit
+/// behavior later. No-op (does not even update lastDeny) outside an active
+/// coop battle.
+void onDeny(const Json::Value& deny);
+
+/// CLIENT (R3-P1, IR-2): called by CoopDisplayQueue::onApplied()
+/// (BattlePump.h/connectionTCP.cpp) once a bt_action_end has been applied -
+/// clears this client's own in-flight lock if @a actionId matches it (the
+/// acted-upon unit becomes send-able again via sendClientIntent()). No-op
+/// for a foreign actionId (this client did not initiate it, e.g. it belongs
+/// to another seat or to the host's own local input) or if nothing is in
+/// flight.
+void onActionEndApplied(std::uint32_t actionId);
+
+/// event_state's lastDeny field (R2-P11's own RW-TODO(R3-P1) marker in
+/// TestServer.cpp, now filled): the {iseq,reason} object from the most
+/// recent onDeny() this CLIENT machine received this battle, or
+/// Json::Value() (null) if none yet.
+Json::Value lastDeny();
+
 } // namespace CoopArbiter
 
 /// RB-D11: the free-function forwarder the vanilla BattlescapeGame::popState
@@ -133,5 +181,25 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir = -1,
 /// body no-ops outside an active coop battle) so the vanilla call site stays
 /// a single unconditional call.
 void coopOnChainQuiesced();
+
+/// R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104/:116/:142 @911ca487f): the
+/// THIN completion/abort hook UnitTurnBState::think() calls, once, at
+/// whichever branch actually pops its own state - never per 45-degree tick
+/// (the intermediate think() calls that keep turning take neither exit
+/// branch). Builds and sends bt_ev{kind:"turn"} (RB-D14: always carrying
+/// h:{unitsStats}) from @a unit's CURRENT (post-turn) direction/turret-
+/// direction/TU plus the "before" values CoopArbiter captured when this
+/// chain began - either onIntent()'s turn branch (an admitted remote intent)
+/// or beginHostLocalTurn() above (the host's own local click). No-op outside
+/// an active coop battle, or if @a unit is not the actor CoopArbiter is
+/// currently tracking a turn chain for (a foreign/AI/SP turn is never coop's
+/// to report - kept outside namespace CoopArbiter for the same
+/// call-site-simplicity reason as coopOnChainQuiesced()). @a aborted is
+/// accepted for a diagnostic log line only: SPIKE-RUNBOOK.md RB-D15/REVIEW4
+/// IR-4's fixture guards are constructed so a coop-admitted turn's abort
+/// branches never fire in the spike's own repro - if one ever does anyway,
+/// this still reports the actor's true post-abort state rather than
+/// silently dropping the ev.
+void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted);
 
 } // namespace OpenXcom

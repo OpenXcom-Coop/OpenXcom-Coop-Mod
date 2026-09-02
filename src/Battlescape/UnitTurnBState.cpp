@@ -25,6 +25,7 @@
 #include "../Mod/Mod.h"
 #include "../Engine/Sound.h"
 #include "../Engine/Options.h"
+#include "../CoopMod/CoopArbiter.h"
 
 namespace OpenXcom
 {
@@ -102,6 +103,11 @@ void UnitTurnBState::think()
 	if (_chargeTUs && _unit->getFaction() == _parent->getSave()->getSide() && _parent->getPanicHandled() && !_action.targeting && !_parent->checkReservedTU(_unit, tu, 0))
 	{
 		_unit->abortTurn();
+		// R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104 @911ca487f): THIN
+		// completion/abort hook - see CoopArbiter.h's coopOnUnitTurnFinished()
+		// doc comment for the full contract. No-op outside an active coop
+		// battle / a foreign unit's turn.
+		coopOnUnitTurnFinished(_unit, true);
 		_parent->popState();
 		return;
 	}
@@ -114,10 +120,17 @@ void UnitTurnBState::think()
 		if (_chargeTUs && _unit->getFaction() == _parent->getSave()->getSide() && _parent->getPanicHandled() && _action.type == BA_NONE && _unit->getUnitsSpottedThisTurn().size() > unitSpotted)
 		{
 			_unit->abortTurn();
+			// R3-P1 (UnitTurnBState.cpp:116 @911ca487f): see the :104 hook above.
+			coopOnUnitTurnFinished(_unit, true);
 			_parent->popState();
 		}
 		else if (_unit->getStatus() == STATUS_STANDING)
 		{
+			// R3-P1 (UnitTurnBState.cpp:116 @911ca487f, natural completion
+			// branch): ONE ev at completion, never per 45-degree tick - this
+			// branch only executes once the FULL rotation has finished
+			// (getStatus() != STATUS_TURNING on every intermediate tick).
+			coopOnUnitTurnFinished(_unit, false);
 			_parent->popState();
 
 			if (_action.kneel && !_unit->isFloating() && !_unit->isKneeled())
@@ -140,6 +153,8 @@ void UnitTurnBState::think()
 	{
 		_action.result = "STR_NOT_ENOUGH_TIME_UNITS";
 		_unit->abortTurn();
+		// R3-P1 (UnitTurnBState.cpp:142 @911ca487f): see the :104 hook above.
+		coopOnUnitTurnFinished(_unit, true);
 		_parent->popState();
 	}
 }

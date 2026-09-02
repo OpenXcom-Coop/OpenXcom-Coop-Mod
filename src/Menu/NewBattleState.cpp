@@ -854,6 +854,30 @@ void NewBattleState::harnessSetHotseat(bool on)
 }
 
 /**
+ * R3-P1 (rewrite spike, SPIKE-RUNBOOK.md R3-P1 packet text): stamp the first
+ * soldier assigned to the currently selected craft with a coop seat, before
+ * OK generates the battle. See this method's own header doc comment for why
+ * a plain classic skirmish otherwise leaves the harness with no non-host-
+ * owned unit to drive a client-intent repro against.
+ */
+int NewBattleState::harnessSeatOneSoldier(int seat)
+{
+	if (!_craft)
+	{
+		return -1;
+	}
+	for (auto* soldier : *_craft->getBase()->getSoldiers())
+	{
+		if (soldier->getCraft() == _craft)
+		{
+			soldier->setCoop(seat);
+			return soldier->getId();
+		}
+	}
+	return -1;
+}
+
+/**
  * Returns to the previous screen.
  * @param action Pointer to an action.
  */
