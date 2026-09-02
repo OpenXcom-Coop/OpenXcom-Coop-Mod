@@ -176,6 +176,10 @@ void ConfirmCydoniaState::startCoopMission()
 		// via coopUnwindToSafeState() instead (connectionTCP.cpp). offerBattle()
 		// itself no-ops (logs) on a non-host machine (RB-D18 interim: only the
 		// coop-session's server owner drives Cydonia generation).
+		// W1-P2 (SS2.W1 / WV-D42): labels + deployment BEFORE the offer builds its
+		// blob snapshot (the SS2.W1 ORDERING TRAP). One of FOUR identical call
+		// sites; no-op off the coop host.
+		CoopHandshake::mintMissionLabels(_game, _craft, nullptr);
 		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
 	}
 

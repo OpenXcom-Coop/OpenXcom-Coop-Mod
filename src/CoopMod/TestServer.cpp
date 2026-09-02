@@ -5187,6 +5187,20 @@ std::string TestServer::execute(const std::string& line)
 				resp["turn"] = bg->getTurn();
 				resp["side"] = (int)bg->getSide();
 				resp["missionType"] = bg->getMissionType();
+				// W1-P2 (WR-23, WAVE1-RUNBOOK.md SS2.W1): mission IDENTITY, added
+				// ADDITIVELY - the branch reported missionType but neither display
+				// label, so "do the two machines agree on what mission this is?" was
+				// undrivable. strTarget/strCraftOrBase are the two BriefingState labels
+				// (saveBlob-hash-EXCLUDED, SharedEcon.cpp:3974) - on the HOST they are
+				// what CoopHandshake::mintMissionLabels() minted before the offer, on a
+				// CLIENT what battle_offer.missionLabel carried. `deployment` is the
+				// RESOLVED AlienDeployment type the offer carried (a thin client has no
+				// Craft/Ufo to re-derive it from). All three are plain getters - safe
+				// under a machine parked in BriefingState, which this wave puts on the
+				// client (D3); the getBattleGame() hazard is guarded separately below.
+				resp["strTarget"] = bg->getMissionTarget();
+				resp["strCraftOrBase"] = bg->getMissionCraftOrBase();
+				resp["deployment"] = CoopHandshake::carriedDeploymentType();
 				// Map fingerprint: a cheap content hash + object-tile count so a test can
 				// tell whether host and client loaded the SAME battle map (e.g. whether the
 				// player's craft mapblock actually spawned on both).
@@ -5801,8 +5815,29 @@ std::string TestServer::execute(const std::string& line)
 			// state re-init at Game.cpp:426) exactly like a player's key/click -
 			// NOT a direct handler call. Runs on the main thread (pump()), so
 			// SDL_PushEvent is safe. kind=key (default, sym via "key", default
-			// keyOk) or kind=click (at x/y).
+			// keyOk) or kind=click (at x/y) or kind=modstate (W1-P2: latch/clear the
+			// modifier only, push nothing). Optional "mod" latches SDL's modifier
+			// state first (W1-P2 - see the block below for why it is not restored).
 			std::string kind = req.get("kind", "key").asString();
+			// W1-P2: optional MODIFIER state ("ctrl"|"shift"|"alt"|"none"). The
+			// battlescape's ctrl-chords read Game::isCtrlPressed(), which is
+			// SDL_GetModState() (Game.cpp:845-852) - SDL's own latched modifier
+			// state, which SDL_PushEvent does NOT update, so a pushed KEYDOWN alone
+			// can never drive ctrl-B (WAVE1-RUNBOOK.md SS2.W1's "ctrl-B on the
+			// client" acceptance). SDL_SetModState LATCHES: the pushed events are
+			// consumed later, on Game::run's next SDL_PollEvent pass, so the state
+			// deliberately is NOT restored here - the caller clears it with a
+			// follow-up {"mod":"none"} once the chord has been consumed.
+			if (req.isMember("mod"))
+			{
+				const std::string modName = req.get("mod", "none").asString();
+				int mods = KMOD_NONE;
+				if (modName == "ctrl") mods = KMOD_LCTRL;
+				else if (modName == "shift") mods = KMOD_LSHIFT;
+				else if (modName == "alt") mods = KMOD_LALT;
+				SDL_SetModState((SDLMod)mods);
+				resp["modState"] = modName;
+			}
 			SDL_Event ev;
 			memset(&ev, 0, sizeof(ev));
 			if (kind == "key")
@@ -5811,12 +5846,14 @@ std::string TestServer::execute(const std::string& line)
 				ev.type = SDL_KEYDOWN;
 				ev.key.state = SDL_PRESSED;
 				ev.key.keysym.sym = (SDLKey)sym;
+				ev.key.keysym.mod = SDL_GetModState();
 				ev.key.keysym.unicode = (sym < 128) ? (Uint16)sym : 0;
 				SDL_PushEvent(&ev);
 				memset(&ev, 0, sizeof(ev));
 				ev.type = SDL_KEYUP;
 				ev.key.state = SDL_RELEASED;
 				ev.key.keysym.sym = (SDLKey)sym;
+				ev.key.keysym.mod = SDL_GetModState();
 				SDL_PushEvent(&ev);
 				resp["ok"] = true;
 			}
@@ -5842,6 +5879,14 @@ std::string TestServer::execute(const std::string& line)
 				ev.button.state = SDL_RELEASED;
 				ev.button.x = (Uint16)x; ev.button.y = (Uint16)y;
 				SDL_PushEvent(&ev);
+				resp["ok"] = true;
+			}
+			else if (kind == "modstate")
+			{
+				// W1-P2: latch/clear the modifier ONLY, push no event. The CLEARING
+				// call must not push a key, or it lands on whatever state the chord
+				// just opened - an ESC clearing the ctrl latch closed the very
+				// BriefingState ctrl-B had just pushed (observed 2026-09-02).
 				resp["ok"] = true;
 			}
 			else
@@ -5870,6 +5915,11 @@ std::string TestServer::execute(const std::string& line)
 					e["x"] = s->getX(); e["y"] = s->getY();
 					e["w"] = s->getWidth(); e["h"] = s->getHeight();
 					if (auto* tb = dynamic_cast<TextButton*>(s)) e["text"] = tb->getText();
+					// W1-P2: plain Text captions too (additive - a TextButton IS not a
+					// Text, the two dynamic_casts are disjoint). Needed to read what a
+					// BriefingState actually rendered, e.g. the carried mission labels
+					// after ctrl-B on a thin client (WAVE1-RUNBOOK.md SS2.W1).
+					else if (auto* tx = dynamic_cast<Text*>(s)) e["text"] = tx->getText();
 					arr.append(e);
 				}
 			}

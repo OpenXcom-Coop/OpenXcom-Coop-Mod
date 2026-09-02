@@ -32,6 +32,7 @@
 
 #include "../Engine/Game.h"
 #include "../Engine/Language.h"
+#include "../Engine/RNG.h"
 #include "../Menu/MainMenuState.h"
 
 #include "../Basescape/CraftSoldiersState.h"
@@ -3478,6 +3479,10 @@ struct PendingClient
 	// onBlobChunkAppended() re-applies it (its own initBattleAuthority() call
 	// clears the seat->faction store a second time) rather than recomputing.
 	Json::Value seatMap;
+	// W1-P2 (SS2.W1): battle_offer.missionLabel, stashed by onOffer() so
+	// onBlobChunkAppended() can apply it once the blob has actually loaded
+	// (and BEFORE it pushes any state). Null when the offer carried none.
+	Json::Value missionLabel;
 };
 static PendingClient g_pendingClient;
 
@@ -3489,11 +3494,216 @@ static PendingClient g_pendingClient;
 // Main/pump-thread only, same as every other CoopHandshake static here.
 static bool g_coopCorruptNextBlobRequested = false;
 
+// W1-P2 (WAVE1-RUNBOOK.md SS2.W1, WV-D28 shape (d) / WV-D42): this battle's
+// mission identity. The HOST fills it in mintMissionLabels(), called one line
+// above each of offerBattle()'s four call sites - i.e. BEFORE offerBattle()
+// snapshots the blob (the SS2.W1 ORDERING TRAP: the CALLER pushes BriefingState
+// only afterwards, so vanilla's own labels do not exist yet at offer-build
+// time). The CLIENT fills it from the received offer in onBlobChunkAppended(),
+// before it pushes any state. Cleared at the teardown chokepoint
+// (resetPendingState()). Main/pump-thread only, like every other CoopHandshake
+// static here.
+//
+// `deployment` is the RESOLVED AlienDeployment type. It is carried because a
+// thin client has no Craft and no Ufo to re-derive it from: BriefingState.cpp:
+// 73-99 falls back to the craft's UFO destination when getDeployment(missionType)
+// misses, which is the NORMAL case for STR_UFO_CRASH_RECOVERY.
+//
+// `missionType` is an ECHO ONLY (WR-10). It is a serialized top-level key
+// (SavedBattleGame::save) and is NOT in saveBlobExcludedTopKey
+// (SharedEcon.cpp:3955-3975), i.e. it IS hashed - the client must never write
+// it. strTarget/strCraftOrBase by contrast ARE hash-excluded
+// (SharedEcon.cpp:3974, applied by the tree-walker saveBlobHashTree :4033), so
+// carrying and applying the two labels is hash-neutral by construction.
+struct MissionLabels
+{
+	bool carried = false;
+	std::string target;
+	std::string craftOrBase;
+	std::string deployment;
+	std::string missionType; // echo only - NEVER written into the save (WR-10)
+};
+static MissionLabels g_missionLabels;
+
 // ----- CoopHandshake.h API -----
 
 void requestCorruptNextBlob()
 {
 	g_coopCorruptNextBlobRequested = true;
+}
+
+void mintMissionLabels(Game* game, Craft* craft, Base* base)
+{
+	// SELF-GUARDING (WV-D42). All four offerBattle() call sites are vanilla
+	// battle-generation paths that also run in SP; a no-op off the coop host
+	// keeps every one of them byte-identical (vanilla BriefingState still
+	// mints, and operationNameAlreadyMinted() below stays false).
+	if (!game || !connectionTCP::getServerOwner() || !connectionTCP::getCoopStatic())
+		return;
+	SavedGame* saved = game->getSavedGame();
+	SavedBattleGame* battle = saved ? saved->getSavedBattle() : nullptr;
+	if (!battle)
+	{
+		Log(LOG_WARNING) << "[coop-handshake] mintMissionLabels() called with no live "
+			"SavedBattleGame - nothing to label";
+		return;
+	}
+
+	g_missionLabels = MissionLabels();
+
+	// --- deployment resolution: BriefingState.cpp:73-99, replicated exactly ---
+	const std::string mission = battle->getMissionType();
+	AlienDeployment* deployment = game->getMod()->getDeployment(mission);
+	if (mission == "STR_BASE_DEFENSE")
+	{
+		AlienDeployment* customDeployment = game->getMod()->getDeployment(battle->getAlienCustomDeploy());
+		if (customDeployment && !customDeployment->getBriefingData().desc.empty())
+		{
+			deployment = customDeployment;
+		}
+	}
+	else if (!deployment && craft)
+	{
+		Ufo* ufo = dynamic_cast<Ufo*>(craft->getDestination());
+		if (ufo) // landing site or crash site
+		{
+			std::string ufoMissionName = ufo->getRules()->getType();
+			if (!battle->getAlienCustomMission().empty())
+			{
+				// fake underwater UFO
+				ufoMissionName = battle->getAlienCustomMission();
+			}
+			deployment = game->getMod()->getDeployment(ufoMissionName);
+		}
+	}
+
+	// --- label mint: BriefingState.cpp:151-188's !_infoOnly body, replicated
+	// exactly. RNG::seedless does not touch the synced RNG stream, so this is
+	// RNG-neutral and cannot shift the generated battle. ---
+	std::string s;
+	if (craft)
+	{
+		if (craft->getDestination())
+		{
+			s = craft->getDestination()->getName(game->getLanguage());
+			battle->setMissionTarget(s);
+		}
+
+		s = game->getLanguage()->getString("STR_CRAFT_").arg(craft->getName(game->getLanguage()));
+		battle->setMissionCraftOrBase(s);
+	}
+	else if (base)
+	{
+		s = game->getLanguage()->getString("STR_BASE_UC_").arg(base->getName());
+		battle->setMissionCraftOrBase(s);
+	}
+
+	// random operation names. IR2-10 (binding): this block's condition is
+	// `craft || base`, so it covers the BASE path too - base defense is NOT
+	// unconditionally target-less; strTarget stays empty there ONLY when the
+	// loaded mod defines no operationNames.
+	if (craft || base)
+	{
+		if (!game->getMod()->getOperationNamesFirst().empty())
+		{
+			std::ostringstream ss;
+			int pickFirst = RNG::seedless(0, game->getMod()->getOperationNamesFirst().size() - 1);
+			ss << game->getMod()->getOperationNamesFirst().at(pickFirst);
+			if (!game->getMod()->getOperationNamesLast().empty())
+			{
+				int pickLast = RNG::seedless(0, game->getMod()->getOperationNamesLast().size() - 1);
+				ss << " " << game->getMod()->getOperationNamesLast().at(pickLast);
+			}
+			s = ss.str();
+			battle->setMissionTarget(s);
+		}
+	}
+
+	g_missionLabels.carried = true;
+	g_missionLabels.target = battle->getMissionTarget();
+	g_missionLabels.craftOrBase = battle->getMissionCraftOrBase();
+	g_missionLabels.deployment = deployment ? deployment->getType() : std::string();
+	g_missionLabels.missionType = mission;
+
+	Log(LOG_INFO) << "[coop-handshake] mission labels minted pre-offer: target=\""
+		<< g_missionLabels.target << "\", craftOrBase=\"" << g_missionLabels.craftOrBase
+		<< "\", deployment=\"" << g_missionLabels.deployment
+		<< "\", missionType=\"" << g_missionLabels.missionType << "\"";
+}
+
+bool missionLabelsCarried()
+{
+	return g_missionLabels.carried;
+}
+
+const std::string& carriedDeploymentType()
+{
+	return g_missionLabels.deployment;
+}
+
+AlienDeployment* resolveBriefingDeployment(Game* game, AlienDeployment* vanillaResolved)
+{
+	// Outside a coop battle this is a pure pass-through and says nothing - the
+	// SP briefing keeps vanilla's own outcome, byte-identical.
+	const bool coopBattle = game && coopBattleAuthority().phase != CoopBattlePhase::Idle;
+	if (!coopBattle || !game->getMod())
+		return vanillaResolved;
+
+	if (vanillaResolved)
+	{
+		Log(LOG_INFO) << "[coop-handshake] BriefingState deployment: VANILLA \""
+			<< vanillaResolved->getType() << "\" (this machine re-derived it itself)";
+		return vanillaResolved;
+	}
+
+	AlienDeployment* carried = g_missionLabels.carried && !g_missionLabels.deployment.empty()
+		? game->getMod()->getDeployment(g_missionLabels.deployment)
+		: nullptr;
+	if (carried)
+	{
+		Log(LOG_INFO) << "[coop-handshake] BriefingState deployment: CARRIED \""
+			<< g_missionLabels.deployment << "\" (from battle_offer - this machine has "
+			"no Craft/Ufo to re-derive it from, SS2.W1)";
+		return carried;
+	}
+
+	Log(LOG_WARNING) << "[coop-handshake] BriefingState deployment: NONE - this briefing "
+		"will render the generic \"should never happen\" fallback "
+		"(BriefingState.cpp:104-108) with whatever labels the save carries (SS2.W1)";
+	return nullptr;
+}
+
+bool missionLabelsAlreadyMinted(const SavedBattleGame* battle)
+{
+	if (!battle || !g_missionLabels.carried)
+		return false; // SP and every non-coop battle: vanilla mints, byte-identical
+	if (coopBattleAuthority().phase == CoopBattlePhase::Idle)
+		return false; // stale flag from a torn-down battle - never suppress an SP mint
+	if (battle->getMissionTarget().empty())
+		return false; // nothing was actually minted for this battle - let vanilla run
+
+	Log(LOG_INFO) << "[coop-handshake] BriefingState label re-mint SUPPRESSED "
+		"(SS2.W1 RE-MINT SUPPRESSION; pre-offer labels kept: target=\""
+		<< battle->getMissionTarget() << "\", craftOrBase=\""
+		<< battle->getMissionCraftOrBase() << "\")";
+	return true;
+}
+
+bool mayReopenBriefing(Game* game)
+{
+	if (!game)
+		return false;
+	if (coopBattleAuthority().phase == CoopBattlePhase::Idle)
+		return true; // SP / no coop battle in flight: vanilla ctrl-B, byte-identical
+	if (coopBattleAuthority().hostSim)
+		return true; // the host generated this mission and still owns the Craft
+	if (g_missionLabels.carried)
+		return true;
+
+	Log(LOG_WARNING) << "[coop-handshake] ctrl-B refused: this battle carried no mission "
+		"identity, so a thin client's BriefingState would render the generic "
+		"\"should never happen\" fallback with empty labels (SS2.W1)";
+	return false;
 }
 
 void offerBattle(Game* game, int gamemode)
@@ -3612,6 +3822,21 @@ void offerBattle(Game* game, int gamemode)
 	offer["blobBytes"] = Json::UInt64(blob.size());
 	offer["blobSha"] = sha;
 
+	// W1-P2 (SS2.W1 / WV-D28 shape (d)): mission identity. Presence-gated on the
+	// envelope for protocol tolerance, but a wave-1 host ALWAYS sends it; when
+	// present, target / craftOrBase / deployment are all REQUIRED KEYS - and
+	// REQUIRED means the key is PRESENT, not that the value is non-empty (WR-9).
+	// mintMissionLabels() ran at the call site one line above offerBattle(), i.e.
+	// BEFORE the saveCoopToMemory() snapshot above, so these are the same labels
+	// the blob carries AND the ones this host will keep - BriefingState's own
+	// re-mint is suppressed by operationNameAlreadyMinted() (SS2.W1).
+	Json::Value missionLabel(Json::objectValue);
+	missionLabel["target"] = battle->getMissionTarget();
+	missionLabel["craftOrBase"] = battle->getMissionCraftOrBase();
+	missionLabel["deployment"] = g_missionLabels.deployment;
+	missionLabel["missionType"] = battle->getMissionType(); // echo only (WR-10)
+	offer["missionLabel"] = missionLabel;
+
 	CoopEmit::sendBattle(offer);
 
 	Log(LOG_INFO) << "[coop-handshake] battle_offer sent (battleId=" << battleId
@@ -3672,6 +3897,10 @@ void onOffer(Game* game, const Json::Value& offer)
 	// recompute it FROM at that point except what onOffer() already validated
 	// here.
 	g_pendingClient.seatMap = offer["seatMap"];
+	// W1-P2 (SS2.W1): the offer's mission identity, applied by
+	// onBlobChunkAppended() once the blob has loaded. Presence-gated: a null
+	// value here simply means the offer carried no labels.
+	g_pendingClient.missionLabel = offer["missionLabel"];
 
 	// Fresh accumulation buffer for THIS transfer - defensive against any
 	// stale leftover (resetPendingState() also clears this at the teardown
@@ -3774,6 +4003,7 @@ void onBlobChunkAppended(Game* game)
 
 	const std::uint32_t battleId = g_pendingClient.battleId;
 	const std::string expectedSha = g_pendingClient.blobSha;
+	const Json::Value missionLabel = g_pendingClient.missionLabel; // W1-P2 (SS2.W1)
 
 	// Take ownership of the accumulated blob BEFORE any sha/parse work, so a
 	// stray extra chunk arriving late cannot corrupt a second read of mapData.
@@ -3840,6 +4070,36 @@ void onBlobChunkAppended(Game* game)
 	initBattleAuthority(battleId); // hostSim=false here (getServerOwner()==false on a client), localSeat
 	coopApplySeatMap(g_pendingClient.seatMap); // R5-P1: re-apply the REAL seatMap onOffer() already validated
 	coopBattleAuthority().phase = CoopBattlePhase::Active;
+
+	// W1-P2 (SS2.W1 / WV-D9 / WV-D28 / WV-D42): apply the offer's mission
+	// identity BEFORE any state is pushed. strTarget/strCraftOrBase are the two
+	// BriefingState display labels and are saveBlob-HASH-excluded
+	// (SharedEcon.cpp:3974), so writing them here is hash-neutral by
+	// construction - which is exactly what test_rw_hash_now.py's all-buckets-
+	// EQUAL at t=0 proves. The client NEVER writes missionType (WR-10): it is a
+	// serialized top-level key that is NOT excluded, i.e. it IS hashed, and
+	// `deployment` is carried precisely so the client never has to touch it.
+	g_missionLabels = MissionLabels();
+	if (missionLabel.isObject())
+	{
+		g_missionLabels.carried = true;
+		g_missionLabels.target = missionLabel.get("target", "").asString();
+		g_missionLabels.craftOrBase = missionLabel.get("craftOrBase", "").asString();
+		g_missionLabels.deployment = missionLabel.get("deployment", "").asString();
+		g_missionLabels.missionType = missionLabel.get("missionType", "").asString();
+		battle->setMissionTarget(g_missionLabels.target);
+		battle->setMissionCraftOrBase(g_missionLabels.craftOrBase);
+		Log(LOG_INFO) << "[coop-handshake] mission labels applied from battle_offer: "
+			"target=\"" << g_missionLabels.target << "\", craftOrBase=\""
+			<< g_missionLabels.craftOrBase << "\", deployment=\""
+			<< g_missionLabels.deployment << "\"";
+	}
+	else
+	{
+		Log(LOG_WARNING) << "[coop-handshake] battle_offer carried no missionLabel object "
+			"- this client has no mission identity: its briefing/ctrl-B would render the "
+			"generic fallback, so ctrl-B stays gated (SS2.W1)";
+	}
 
 	// LoadGameState.cpp's "loaded save with a live battle -> BattlescapeState"
 	// precedent (:334-344 region) - no client-side BriefingState, this
@@ -4013,6 +4273,10 @@ void resetPendingState()
 	g_pendingHost = PendingHost();
 	g_pendingClient = PendingClient();
 	g_coopCorruptNextBlobRequested = false; // R2-P11: don't leak a stale request into the next battle
+	// W1-P2 (SS2.W1): the mission identity is per-battle. Leaving it set would
+	// let operationNameAlreadyMinted()/carriedDeployment() steer a LATER,
+	// unrelated (possibly single-player) BriefingState.
+	g_missionLabels = MissionLabels();
 }
 
 } // namespace CoopHandshake

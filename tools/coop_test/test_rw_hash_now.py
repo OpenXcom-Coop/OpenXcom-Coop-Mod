@@ -38,13 +38,19 @@ EQUAL from the start; only `saveBlob` reproducibly mismatched. Root-caused by
 dumping+diffing the two machines' emitted battle YAML: the SOLE unexcluded
 divergence was `strTarget` + `strCraftOrBase` - two DISPLAY-ONLY briefing/HUD
 labels ("LANDING SITE-0", "CRAFT> SKYRANGER-1") set EXCLUSIVELY by BriefingState
-(BriefingState.cpp:159-185). The host runs BriefingState; the thin client loads
+(BriefingState.cpp:151-188). The host runs BriefingState; the thin client loads
 the streamed blob straight to BattlescapeState (no briefing), so they stay empty
 on the client. No sim effect. Fixed by adding both keys to
 SharedEcon::saveBlobExcludedTopKey (same per-battle display class as the CR-1
-sec-6 fields). Client HUD showing an empty mission/craft name is a cosmetic
-real-play gap (r3/r4 polish), not a determinism defect. With that exclusion this
-check is 8/8-bucket EQUAL.
+sec-6 fields). With that exclusion this check is 8/8-bucket EQUAL.
+
+SUPERSEDED IN PART BY W1-P2 (WAVE1-RUNBOOK.md SS2.W1). The "empty mission/craft
+name on the client" half of that finding is CLOSED: battle_offer now carries the
+two labels (the host mints them before the offer) and the client applies them on
+blob load, so both machines agree on them in real play - see
+test_rw_mission_labels.py. The EXCLUSION above is unchanged and is now what makes
+carrying them hash-neutral by construction, which is why this file's 8/8 stayed
+green across that packet.
 """
 
 import json

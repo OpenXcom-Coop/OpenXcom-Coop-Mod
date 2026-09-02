@@ -92,6 +92,7 @@
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopBattleUi.h"
 #include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/CoopHandshake.h"
 
 namespace OpenXcom
 {
@@ -2852,7 +2853,17 @@ inline void BattlescapeState::handle(Action *action)
 						if (ycraft) break;
 					}
 
-					_game->pushState(new BriefingState(ycraft, 0, true));
+					// W1-P2 (WAVE1-RUNBOOK.md SS2.W1, WV-D9/WV-D28): on a coop THIN
+					// CLIENT the scan above finds nothing (it never generated the
+					// mission, so no craft of its own isInBattlescape()), ycraft stays
+					// null, and the pushed BriefingState renders the generic "should
+					// never happen" fallback with two empty labels. Gated until the
+					// battle_offer's mission identity exists; true in SP, outside a
+					// coop battle, and on the host, so vanilla is byte-identical.
+					if (CoopHandshake::mayReopenBriefing(_game))
+					{
+						_game->pushState(new BriefingState(ycraft, 0, true));
+					}
 				}
 				// "ctrl-c" - camera: toggle show single map level
 				else if (key == SDLK_c && ctrlPressed)

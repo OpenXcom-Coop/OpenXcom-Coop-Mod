@@ -20,11 +20,16 @@
  */
 
 #include <json/json.h>
+#include <string>
 
 namespace OpenXcom
 {
 
 class Game;
+class Craft;
+class Base;
+class SavedBattleGame;
+class AlienDeployment;
 
 /**
  * R4-P1 (rewrite spike, SPIKE-RUNBOOK.md SS2.7, RB-D18, IR-5, IR-6): the
@@ -108,6 +113,106 @@ namespace CoopHandshake
 /// (SS2.1: battle_refuse is client->host only; a receiving CLIENT is what
 /// evaluates and sends "busy").
 void offerBattle(Game* game, int gamemode);
+
+// ----- W1-P2: battle_offer mission identity (WAVE1-RUNBOOK.md SS2.W1, ruling
+// D-4 = shape (d); WV-D9 / WV-D28 / WV-D42; WR-8/WR-9/WR-10/WR-23/WR-27,
+// IR2-10) -----
+//
+// THE PROBLEM. A thin client never runs BriefingState, so it never learns what
+// mission it is in: the two display labels vanilla mints inside BriefingState
+// (strTarget "LANDING SITE-0" / strCraftOrBase "CRAFT> SKYRANGER-1",
+// BriefingState.cpp:151-188) stay empty on the client, and ctrl-B - which
+// scans getBases() for a craft with isInBattlescape() (BattlescapeState.cpp:
+// 2841-2854) - finds nothing there either, so its BriefingState would drop into
+// the "should never happen" generic branch (BriefingState.cpp:104-108).
+//
+// THE ORDERING TRAP (SS2.W1, binding). offerBattle() snapshots the blob at
+// generation time and the CALLER pushes BriefingState only AFTERWARDS
+// (ConfirmLandingState.cpp:369 vs :371). At offer-build time the labels are
+// therefore STILL EMPTY, and the operation name is minted later by RNG::seedless
+// inside BriefingState. So the host must mint the labels BEFORE it builds the
+// offer, and must not re-mint a DIFFERENT operation name afterwards - the
+// re-mint divergence is invisible to the hash, because strTarget/strCraftOrBase
+// are saveBlob-hash-EXCLUDED (SharedEcon.cpp:3974).
+//
+// FOUR CALL SITES, ONE HELPER (WV-D42). mintMissionLabels() is called one line
+// above EACH of offerBattle()'s four call sites - Menu/NewBattleState.cpp:809,
+// Geoscape/ConfirmLandingState.cpp:369, Geoscape/ConfirmCydoniaState.cpp:179,
+// Geoscape/GeoscapeState.cpp:629 - never as a one-site fix.
+
+/// HOST: mint the two BriefingState display labels into the live
+/// SavedBattleGame and resolve+remember this battle's AlienDeployment type,
+/// BEFORE offerBattle() snapshots the blob. Replicates BriefingState.cpp:73-99
+/// (deployment resolution, including the craft->getDestination() Ufo fallback)
+/// and BriefingState.cpp:151-188's !_infoOnly body (craft ->
+/// getDestination()->getName() + STR_CRAFT_; base -> STR_BASE_UC_; then the
+/// RNG::seedless operation name when the mod defines operationNames - which
+/// covers the BASE path too, IR2-10). RNG::seedless does not touch the synced
+/// stream, so this is RNG-neutral. Self-guarding: a no-op unless this machine
+/// is the coop host with a live SavedBattleGame, so every SP path through the
+/// four call sites stays byte-identical (vanilla BriefingState still mints).
+void mintMissionLabels(Game* game, Craft* craft, Base* base);
+
+/// True once this battle's mission identity exists on this machine - minted by
+/// mintMissionLabels() on the host, applied from battle_offer.missionLabel on
+/// the client. Cleared at the teardown chokepoint (resetPendingState()).
+bool missionLabelsCarried();
+
+/// The RESOLVED AlienDeployment TYPE carried by battle_offer.missionLabel
+/// (empty when none resolved). Test/introspection accessor - TestServer's
+/// battle_state probe reports it (WR-23).
+const std::string& carriedDeploymentType();
+
+/// BriefingState hook: the ONE guarded coop call on its deployment-resolution
+/// site. Pass whatever vanilla resolved (BriefingState.cpp:73-99) and use the
+/// return value.
+///  - vanilla resolved something  -> returned UNCHANGED (this is the normal
+///    path on the host, and also on a client whose streamed world happens to
+///    still contain the in-battlescape Craft).
+///  - vanilla resolved nothing and this battle carries a deployment -> the
+///    CARRIED one. A machine with no Craft and no Ufo cannot run vanilla's
+///    craft->getDestination() fallback, so `deployment` stays null for every
+///    mission whose type is not itself a deployment name (the normal case for
+///    STR_UFO_CRASH_RECOVERY) and the briefing would render the generic
+///    "should never happen" branch (BriefingState.cpp:104-108).
+///  - neither -> nullptr, i.e. vanilla's own outcome, unchanged.
+/// In a coop battle the outcome is LOGGED (VANILLA / CARRIED / NONE) - that
+/// line is how test_rw_mission_labels.py proves the generic fallback was not
+/// taken, independently of which of the two resolutions happened to win on the
+/// fixture. Silent and inert in SP.
+AlienDeployment* resolveBriefingDeployment(Game* game, AlienDeployment* vanillaResolved);
+
+/// BriefingState hook (SS2.W1 RE-MINT SUPPRESSION): true when this machine
+/// already minted the mission labels before the offer, so BriefingState's own
+/// UNCONDITIONAL `if (!_infoOnly)` label-write body (BriefingState.cpp:151-188)
+/// must be a no-op - mintMissionLabels() is a line-for-line replica of it and
+/// already ran, and the offer already told the client what it produced.
+///
+/// WHY THE WHOLE BODY AND NOT JUST THE OPERATION-NAME BLOCK (traced by
+/// test_rw_mission_labels.py, 2026-09-02 - the packet text's narrower
+/// "operation-name mint" wording does NOT achieve its own stated goal): the
+/// body writes strTarget TWICE. The craft branch at :156-160 writes
+/// craft->getDestination()->getName() ("LANDING SITE-0"), and the
+/// operation-name block at :171-187 then OVERWRITES it with the random name
+/// ("Dauntless Rampart") whenever the mod defines operationNames. Guarding only
+/// the second half leaves the first half free to clobber the operation name the
+/// offer already shipped, so the host ends up on "LANDING SITE-0" while the
+/// client shows "Dauntless Rampart" - the exact two-different-mission-names bug
+/// D-4 was ruled to fix, merely reached from the other direction. The frozen
+/// TRIGGER is unchanged (SS2.W1: "a no-op when battleSave->getMissionTarget()
+/// is already non-empty"); only the guarded EXTENT is the whole block.
+///
+/// False in SP and for any battle with no coop mission identity, so vanilla is
+/// byte-identical.
+bool missionLabelsAlreadyMinted(const SavedBattleGame* battle);
+
+/// BattlescapeState hook: may ctrl-B open an info-only BriefingState here?
+/// True in SP, outside a coop battle, and on the host (which owns the Craft the
+/// ctrl-B scan looks for). On a thin client: only once the offer's mission
+/// identity has arrived - without it the pushed BriefingState renders the
+/// generic fallback with empty labels (SS2.W1's "ctrl-B gated until labels
+/// exist").
+bool mayReopenBriefing(Game* game);
 
 // ----- client-inbound handlers (battle_offer, and the blob-complete check
 // wired into the existing generic map_result_data handler) -----

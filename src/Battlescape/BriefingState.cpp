@@ -41,6 +41,7 @@
 #include "../Menu/CutsceneState.h"
 #include "../Savegame/AlienMission.h"
 #include "../Mod/RuleAlienMission.h"
+#include "../CoopMod/CoopHandshake.h"
 
 namespace OpenXcom
 {
@@ -99,6 +100,17 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 		}
 	}
 
+	// W1-P2 (WAVE1-RUNBOOK.md SS2.W1, WV-D9/WV-D28): a coop machine that did not
+	// GENERATE this mission may have no Craft and no Ufo, so the
+	// craft->getDestination() fallback above cannot run and `deployment` stays
+	// null for every mission whose type is not itself a deployment name (the
+	// normal case for STR_UFO_CRASH_RECOVERY) - which would drop this briefing
+	// into the "should never happen" generic branch below. battle_offer carries
+	// the HOST's already-resolved AlienDeployment type precisely for this. ONE
+	// guarded coop call: a pure pass-through (and silent) in SP and outside a
+	// coop battle, so vanilla is byte-identical.
+	deployment = CoopHandshake::resolveBriefingDeployment(_game, deployment);
+
 	std::string title = mission;
 	std::string desc = title + "_BRIEFING";
 	if (!deployment && !customBriefing) // none defined - should never happen, but better safe than sorry i guess.
@@ -148,7 +160,21 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 	_txtTarget->setBig();
 	_txtCraft->setBig();
 
-	if (!_infoOnly)
+	// W1-P2 (SS2.W1 RE-MINT SUPPRESSION, WV-D28/WV-D42): on a coop host this
+	// whole body already ran BEFORE the battle_offer was built -
+	// CoopHandshake::mintMissionLabels() is a line-for-line replica of it - and
+	// the offer told the client exactly what it produced. Re-running it here
+	// would give the host DIFFERENT labels seconds later, so the two players
+	// would read different mission names; the divergence is invisible to the
+	// hash because strTarget/strCraftOrBase are saveBlob-hash-excluded
+	// (SharedEcon.cpp:3974). The guard covers the FULL body, not just the
+	// operation-name block, because the craft branch below writes strTarget
+	// FIRST (the destination name) and the operation-name block then overwrites
+	// it - guarding only the second half lets the first half clobber the name
+	// the offer already shipped (traced by test_rw_mission_labels.py).
+	// ONE guarded coop call; false in SP and for any battle with no coop
+	// mission identity, so vanilla is byte-identical.
+	if (!_infoOnly && !CoopHandshake::missionLabelsAlreadyMinted(battleSave))
 	{
 		std::string s;
 		if (craft)

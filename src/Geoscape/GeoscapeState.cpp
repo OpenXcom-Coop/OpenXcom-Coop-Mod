@@ -626,6 +626,12 @@ void GeoscapeState::startCoopMission()
 		// after generation (see CoopHandshake.h's top doc comment for why this
 		// push may never be deferred past this point); offerBattle() itself
 		// never touches the state stack.
+		// W1-P2 (SS2.W1 / WV-D42): labels + deployment BEFORE the offer builds its
+		// blob snapshot (the SS2.W1 ORDERING TRAP). The BASE-DEFENSE call site -
+		// IR2-10: base defense still gets an operation-name target whenever the
+		// loaded mod defines operationNames, so this is not a target-less path by
+		// construction. One of FOUR identical call sites; no-op off the coop host.
+		CoopHandshake::mintMissionLabels(_game, nullptr, _game->getSavedGame()->getSelectedBase());
 		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
 		_game->pushState(new BriefingState(0, _game->getSavedGame()->getSelectedBase()));
 	}

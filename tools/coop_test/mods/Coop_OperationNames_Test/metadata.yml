@@ -1,0 +1,14 @@
+name: "Coop operation-names probe"
+version: 1.0
+description: "Test-only fixture for W1-P2 (WAVE1-RUNBOOK.md SS2.W1, battle_offer
+  mission identity). The shipped xcom1 ruleset defines NO operationNamesFirst/
+  operationNamesLast, so BriefingState's random operation-name mint
+  (BriefingState.cpp:172-186) never fires on the stock skirmish fixture - which
+  would make the SS2.W1 RE-MINT SUPPRESSION assertion vacuous (the only other
+  writer on that path, the craft-destination name, is deterministic and would
+  re-derive the identical string with or without the guard). This mod supplies a
+  large enough name pool that an UNSUPPRESSED re-mint reproducibly produces a
+  DIFFERENT operation name from the one the battle_offer already carried."
+author: coop harness
+
+master: xcom1

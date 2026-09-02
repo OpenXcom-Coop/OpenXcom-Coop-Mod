@@ -806,6 +806,11 @@ void NewBattleState::btnOkClick(Action *)
 	// coopUnwindToSafeState() instead (connectionTCP.cpp).
 	if (coopSkirmish)
 	{
+		// W1-P2 (SS2.W1 / WV-D42): mint the two BriefingState display labels and
+		// resolve this battle's deployment BEFORE offerBattle() snapshots the blob
+		// and builds the offer - the SS2.W1 ORDERING TRAP. One of FOUR identical
+		// call sites; no-op off the coop host.
+		CoopHandshake::mintMissionLabels(_game, _craft, base);
 		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
 	}
 	_game->pushState(new BriefingState(_craft, base));

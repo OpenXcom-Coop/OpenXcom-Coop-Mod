@@ -3963,14 +3963,21 @@ bool saveBlobExcludedTopKey(std::string_view k)
 		|| k == "vipsSaved" || k == "vipsSavedScore"
 		|| k == "vipsLost" || k == "vipsLostScore"
 		|| k == "vipsWaitingOutside" || k == "vipsWaitingOutsideScore"
-		// R2-P11 divergence hunt (orchestrator): the ONLY unexcluded saveBlob
-		// divergence in a live coop battle. Both are DISPLAY-ONLY briefing/HUD
-		// labels ("LANDING SITE-0", "CRAFT> SKYRANGER-1") set EXCLUSIVELY by
-		// BriefingState (BriefingState.cpp:159-185). The host runs BriefingState;
-		// the thin client loads the streamed blob straight to BattlescapeState
-		// (no briefing), so they stay empty on the client. No sim effect - same
-		// per-battle display class as the audit's sec-6 fields. (Client HUD shows
-		// an empty mission/craft name: a cosmetic real-play gap, r3/r4 polish.)
+		// R2-P11 divergence hunt (orchestrator): at the time, the ONLY unexcluded
+		// saveBlob divergence in a live coop battle. Both are DISPLAY-ONLY
+		// briefing/HUD labels ("LANDING SITE-0", "CRAFT> SKYRANGER-1"), written by
+		// BriefingState (BriefingState.cpp:151-188). The host ran BriefingState;
+		// the thin client loaded the streamed blob straight to BattlescapeState
+		// (no briefing), so they stayed empty on the client. No sim effect - same
+		// per-battle display class as the audit's sec-6 fields.
+		//
+		// W1-P2 (WAVE1-RUNBOOK.md SS2.W1 / WV-D28) CLOSED the underlying gap: the
+		// host now mints both labels BEFORE the offer and battle_offer.missionLabel
+		// carries them, so the two machines agree on them in real play. THE
+		// EXCLUSION STAYS, and is now load-bearing in the other direction: it is
+		// what makes carrying the labels hash-neutral by construction, so a future
+		// label change can never red a bucket. Do not "clean it up" now that the
+		// values happen to match.
 		|| k == "strTarget" || k == "strCraftOrBase";
 }
 

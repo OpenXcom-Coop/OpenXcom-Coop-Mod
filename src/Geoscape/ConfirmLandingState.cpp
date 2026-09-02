@@ -366,6 +366,11 @@ void ConfirmLandingState::btnYesClick(Action *)
 		// underneath, so that unwind lands the host back on the geoscape.
 		if (coopLanding)
 		{
+			// W1-P2 (SS2.W1 / WV-D42): labels + deployment BEFORE the offer builds
+			// its blob snapshot (the SS2.W1 ORDERING TRAP - the BriefingState push
+			// two lines below is what mints them in vanilla). One of FOUR identical
+			// call sites; no-op off the coop host.
+			CoopHandshake::mintMissionLabels(_game, _craft, nullptr);
 			CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
 		}
 		_game->pushState(new BriefingState(_craft));
