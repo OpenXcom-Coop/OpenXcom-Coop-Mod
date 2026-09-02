@@ -1637,29 +1637,25 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		pushActionContext(actionId, "intent");
+		// R3-P2: record @a actor as this kneel's pending chain actor BEFORE
+		// calling kneel() below, so the THIN emit hook inside
+		// BattlescapeGame::kneel() itself (coopOnKneelFinished) recognizes
+		// it - mirrors onIntent()'s "turn" branch's own
+		// g_coopPendingChainActorId bookkeeping above.
+		g_coopPendingChainActorId = actor->getId();
 
 		// RB-D13: kneel is chain-less - direct wrap of
 		// BattlescapeGame::kneel() (BattlescapeGame.cpp:482), not a BState.
-		// admit -> push context (above) -> call -> emit ev+action_end -> pop
-		// context, all synchronously in this one call - no popState/
-		// quiescence involved.
+		// admit -> push context (above) -> call -> [THIN hook inside
+		// kneel() itself: emit ev+action_end -> pop context]. R3-P2
+		// generalizes the emit into that shared hook (coopOnKneelFinished,
+		// this file, near coopOnUnitTurnFinished) so it fires identically
+		// for this admitted-intent origin AND the host's own local kneel
+		// click (beginHostLocalKneel + BattlescapeState::btnKneelClick,
+		// RB-D10) - see this packet's final report for why the R2-P5
+		// inline version this replaces could not also cover that second
+		// origin.
 		bg->kneel(actor);
-
-		Json::Value ev = CoopWire::makeEv(0, actionId, "kneel");
-		ev["payload"]["unit"] = actor->getId();
-		ev["payload"]["kneeled"] = actor->isKneeled();
-		ev["payload"]["tuAfter"] = actor->getTimeUnits();
-		// RB-D14: spike evs always carry h:{unitsStats} - the real bucket
-		// hash, via SharedEcon's ported SS2.8 sweep (R2-P9).
-		ev["h"] = coopBuildUnitsStatsHash(save);
-		CoopEmit::sendEv(ev);
-
-		Json::Value end = CoopWire::makeActionEnd(0, actionId);
-		end["final"] = buildFinal(actor);
-		end["h"] = coopBuildUnitsStatsHash(save);
-		CoopEmit::sendEv(end);
-
-		popActionContext();
 		return;
 	}
 
@@ -1726,6 +1722,23 @@ void beginHostLocalTurn(BattleUnit* actor, bool turret)
 	g_coopPendingTurnInfo.fromDir = actor->getDirection();
 	g_coopPendingTurnInfo.fromTurretDir = actor->getTurretDirection();
 	g_coopPendingTurnInfo.turretOnly = turret;
+}
+
+void beginHostLocalKneel(BattleUnit* actor)
+{
+	if (!isCoopBattle() || !actor)
+		return;
+
+	// R3-P2: chain-less (RB-D13) counterpart to beginHostLocalTurn() above -
+	// mirrors onIntent()'s "kneel" branch bookkeeping (mint, push, record
+	// pending actor) so the THIN emit hook inside BattlescapeGame::kneel()
+	// itself (coopOnKneelFinished) fires identically regardless of origin.
+	// No "before" state to capture (unlike turn): the kneel ev only ever
+	// carries the POST-kneel "kneeled" bool, trivially read back off @a
+	// actor by the hook once kneel() returns.
+	const std::uint32_t actionId = mintActionId();
+	pushActionContext(actionId, "host"); // RB-D19
+	g_coopPendingChainActorId = actor->getId();
 }
 
 std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
@@ -1925,6 +1938,57 @@ void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted)
 			"fixture guards (empty spotted-set, no door within 2 tiles) should "
 			"have prevented this in the spike's own repro";
 	}
+}
+
+// R3-P2 (SPIKE-RUNBOOK.md RB-D13 - see CoopArbiter.h's own doc comment on
+// this function for the full contract). Kept outside namespace CoopArbiter
+// for the same call-site-simplicity reason as coopOnChainQuiesced()/
+// coopOnUnitTurnFinished() above.
+void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
+{
+	if (!isCoopBattle() || !unit)
+		return;
+	if (g_coopPendingChainActorId != unit->getId())
+		return; // a foreign/AI/SP kneel - not coop's to report
+
+	const std::uint32_t actionId = CoopArbiter::currentActionId();
+	if (actionId == 0)
+		return; // defensive: no action context even though the pending actor matched
+
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+
+	if (succeeded)
+	{
+		Json::Value ev = CoopWire::makeEv(0u, actionId, "kneel");
+		ev["payload"]["unit"] = unit->getId();
+		ev["payload"]["kneeled"] = unit->isKneeled();
+		ev["payload"]["tuAfter"] = unit->getTimeUnits();
+		ev["h"] = coopBuildUnitsStatsHash(save); // RB-D14
+		CoopEmit::sendEv(ev);
+	}
+	else
+	{
+		// validateKneel()'s own documented gap (its doc comment, this file):
+		// the TU-RESERVATION half of vanilla kneel()'s precondition is not
+		// replicated, so an admitted intent can rarely still fail here. The
+		// halted-only action_end below still resolves the initiating
+		// client's in-flight lock instead of leaving the whole battle
+		// permanently "busy" (currentActionId() never clearing).
+		Log(LOG_WARNING) << "[coop-kneel] unit " << unit->getId()
+			<< "'s coop-admitted kneel FAILED post-validation (validateKneel's "
+			   "own documented TU-reservation gap) - no ev emitted, halted "
+			   "action_end only";
+	}
+
+	Json::Value end = CoopWire::makeActionEnd(0u, actionId);
+	end["final"] = CoopArbiter::buildFinal(unit);
+	end["h"] = coopBuildUnitsStatsHash(save);
+	if (!succeeded)
+		end["halted"] = true;
+	CoopEmit::sendEv(end);
+
+	CoopArbiter::popActionContext();
+	g_coopPendingChainActorId = -1;
 }
 
 // ===== R3-P1: CoopApply (CoopApply.h) - the S2-minimal client-side state

@@ -497,6 +497,12 @@ bool BattlescapeGame::kneel(BattleUnit *bu)
 			getTileEngine()->calculateFOV(bu->getPosition(), 1, false); //Update unit FOV for everyone through this position, skip tiles.
 			_parentState->updateSoldierInfo(); //This also updates the tile FOV of the unit, hence why it's skipped above.
 			getTileEngine()->checkReactionFire(bu, kneel);
+			// R3-P2 (SPIKE-RUNBOOK.md RB-D13): THIN hook - see CoopArbiter.h's
+			// coopOnKneelFinished() doc comment for the full contract. Fires
+			// for BOTH a coop HOST's own local kneel click and an admitted
+			// remote kneel intent (same call site, either origin) - no-op
+			// outside an active coop battle / a foreign unit's kneel.
+			coopOnKneelFinished(bu, true);
 			return true;
 		}
 		else
@@ -504,6 +510,11 @@ bool BattlescapeGame::kneel(BattleUnit *bu)
 			_parentState->warning("STR_NOT_ENOUGH_TIME_UNITS");
 		}
 	}
+	// R3-P2 (SPIKE-RUNBOOK.md RB-D13): see the hook above - this exit covers
+	// both the outer precondition failing and kneel.spendTU() failing above;
+	// see coopOnKneelFinished()'s own doc comment for why a coop-admitted
+	// kneel can rarely still take this branch.
+	coopOnKneelFinished(bu, false);
 	return false;
 }
 

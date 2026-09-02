@@ -859,17 +859,31 @@ void NewBattleState::harnessSetHotseat(bool on)
  * OK generates the battle. See this method's own header doc comment for why
  * a plain classic skirmish otherwise leaves the harness with no non-host-
  * owned unit to drive a client-intent repro against.
+ *
+ * R3-P2 extension: @a index (default 0, R3-P1's original behavior unchanged)
+ * selects the Nth soldier assigned to the craft instead of always the first,
+ * so a second call with a different index can stamp a SECOND, DIFFERENT
+ * soldier to the same seat - needed by repro_atom_kneel.py's burst/drain
+ * proof, which drives two real client-owned units through a mixed turn+
+ * kneel burst (a live host-side "busy" admission race was ATTEMPTED with
+ * this same two-unit setup but could not be made to land - see that repro's
+ * own run_burst_drain_proof() doc comment for the diagnostic finding).
  */
-int NewBattleState::harnessSeatOneSoldier(int seat)
+int NewBattleState::harnessSeatOneSoldier(int seat, int index)
 {
 	if (!_craft)
 	{
 		return -1;
 	}
+	int seen = 0;
 	for (auto* soldier : *_craft->getBase()->getSoldiers())
 	{
 		if (soldier->getCraft() == _craft)
 		{
+			if (seen++ < index)
+			{
+				continue;
+			}
 			soldier->setCoop(seat);
 			return soldier->getId();
 		}

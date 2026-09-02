@@ -143,7 +143,11 @@ public:
 	/// real, commandable unit to drive R3-P1's client-intent repro with, the
 	/// same gap that test file's own FIXTURE-COVERAGE NOTE names. Returns
 	/// the stamped soldier's id, or -1 if the craft has no soldiers.
-	int harnessSeatOneSoldier(int seat);
+	/// R3-P2: @a index (default 0) selects the Nth soldier on the craft
+	/// instead of always the first, so a second call can stamp a SECOND,
+	/// different soldier to the same seat (repro_atom_kneel.py's burst/
+	/// drain proof needs two real client-owned units).
+	int harnessSeatOneSoldier(int seat, int index = 0);
 };
 
 }

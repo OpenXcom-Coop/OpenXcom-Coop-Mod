@@ -4344,7 +4344,10 @@ std::string TestServer::execute(const std::string& line)
 			// with a coop seat, BEFORE newbattle_ok generates the battle -
 			// see NewBattleState::harnessSeatOneSoldier()'s own doc comment
 			// for why a plain classic skirmish otherwise leaves every
-			// soldier at seat 0 (host).
+			// soldier at seat 0 (host). R3-P2: optional "index" (default 0)
+			// selects the Nth soldier on the craft, so a second call with a
+			// different index stamps a SECOND, different soldier to the
+			// same seat.
 			NewBattleState* nb = findState<NewBattleState>(_game);
 			if (!nb)
 			{
@@ -4353,10 +4356,11 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				const int seat = req.get("seat", 1).asInt();
-				const int soldierId = nb->harnessSeatOneSoldier(seat);
+				const int index = req.get("index", 0).asInt();
+				const int soldierId = nb->harnessSeatOneSoldier(seat, index);
 				if (soldierId < 0)
 				{
-					resp["error"] = "newbattle_seat_soldier: craft has no soldiers";
+					resp["error"] = "newbattle_seat_soldier: craft has no soldier at that index";
 				}
 				else
 				{
@@ -5138,6 +5142,14 @@ std::string TestServer::execute(const std::string& line)
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
+				// R3-P2: the _txtCoopWait deny/cancel/desync banner's current
+				// text (empty = hidden) - test introspection only, proves
+				// "banner shown" for the forced-mismatch repro (CoopBattleUi::
+				// showDesyncHalted() -> BattlescapeState::setCoopWaitText()).
+				{
+					BattlescapeState* bsForBanner = bg->getBattleState();
+					resp["coopWaitText"] = bsForBanner ? bsForBanner->getCoopWaitText() : "";
+				}
 				const BattleUnit* giftSel = coop->getGiftSelectedBattleUnit();
 				resp["giftSelectedId"] = giftSel ? giftSel->getId() : -1;
 				Json::Value units(Json::arrayValue);
@@ -5180,6 +5192,9 @@ std::string TestServer::execute(const std::string& line)
 					ju["murdererId"] = u->getMurdererId();
 					ju["killedBy"] = (int)u->killedBy();
 					ju["direction"] = u->getDirection();
+					// R3-P2: the kneel atom's own observable - no test consumer
+					// needed this before now (turn/direction only).
+					ju["kneeled"] = u->isKneeled();
 					Position p = u->getPosition();
 					ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;
 					units.append(ju);

@@ -83,6 +83,21 @@ void onChainQuiesced();
 /// coopOnChainQuiesced()).
 void beginHostLocalTurn(BattleUnit* actor, bool turret);
 
+/// Host: RB-D19 origin stamping for a coop HOST's own local kneel - the
+/// chain-less (RB-D13) counterpart to beginHostLocalTurn() above. Called
+/// from the THIN BattlescapeState::btnKneelClick hook site's own-input
+/// branch (R3-P2), BEFORE it calls BattlescapeGame::kneel(bu), mirroring
+/// onIntent()'s "kneel" branch bookkeeping (mint actionId, push
+/// {actionId,"host"} action context, record @a actor as this kneel's
+/// pending actor) so the THIN emit hook inside BattlescapeGame::kneel()
+/// itself (coopOnKneelFinished below) fires correctly for the host's OWN
+/// kneel too, exactly as it already does for an admitted remote intent. No
+/// BState/quiescence involved (RB-D13 - kneel resolves synchronously inside
+/// the single kneel() call this begins). No-op outside an active coop
+/// battle (the vanilla call site stays a single unconditional call, like
+/// beginHostLocalTurn()).
+void beginHostLocalKneel(BattleUnit* actor);
+
 /// Pushes {actionId, origin} onto CoopMod's own action-context stack
 /// (RB-D12 - no BState code stores coop state). @a origin is one of SS2.2's
 /// origin enum strings; RB-D19's "host" is reserved for the host-seat's own
@@ -201,5 +216,36 @@ void coopOnChainQuiesced();
 /// this still reports the actor's true post-abort state rather than
 /// silently dropping the ev.
 void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted);
+
+/// R3-P2 (SPIKE-RUNBOOK.md RB-D13 - "the arbiter wraps BattlescapeGame::
+/// kneel(bu) directly: admit -> push context -> call -> emit bt_ev kneel +
+/// bt_action_end -> pop context"): the THIN hook BattlescapeGame::kneel()
+/// calls at BOTH of its own return points (the successful branch, right
+/// before its own `return true`, and the shared `return false` exit) -
+/// generalizes R2-P5's own inline admitted-intent-only kneel emit (which
+/// this packet removes from CoopArbiter::onIntent()'s "kneel" branch) into
+/// ONE shared completion point so it fires identically for BOTH origins the
+/// packet text names: an admitted remote intent (onIntent()'s "kneel"
+/// branch, which pushes {actionId,"intent"} + records @a unit as the
+/// pending chain actor BEFORE calling kneel()) and the host's own local
+/// click (beginHostLocalKneel() above, called from the RB-D10
+/// BattlescapeState::btnKneelClick intercept). No-op outside an active coop
+/// battle, or if @a unit is not the actor CoopArbiter is currently tracking
+/// a kneel for (a foreign/AI/SP kneel is never coop's to report - kept
+/// outside namespace CoopArbiter for the same call-site-simplicity reason
+/// as coopOnChainQuiesced()/coopOnUnitTurnFinished()).
+///
+/// @a succeeded is kneel()'s own return value. validateKneel()'s own doc
+/// comment (connectionTCP.cpp) names a deliberate gap: it does not
+/// replicate vanilla kneel()'s TU-RESERVATION half of its precondition
+/// (`(!isKneeled && getKneelReserved()) || checkReservedTU(...)`), so an
+/// admitted intent can rarely still fail here even though this packet
+/// otherwise treats validateKneel() as authoritative. When @a succeeded is
+/// false this still emits a `halted:true` bt_action_end (no ev - nothing
+/// changed) and still pops the action context, so the initiating client's
+/// in-flight lock resolves instead of leaving the whole battle permanently
+/// "busy" (the pushed context must be popped exactly once regardless of
+/// which branch kneel() took).
+void coopOnKneelFinished(BattleUnit* unit, bool succeeded);
 
 } // namespace OpenXcom

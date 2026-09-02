@@ -91,6 +91,7 @@
 #include <algorithm>
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopBattleUi.h"
+#include "../CoopMod/CoopArbiter.h"
 
 namespace OpenXcom
 {
@@ -1241,6 +1242,30 @@ void BattlescapeState::btnKneelClick(Action *)
 			if (!coopMayCommand(bu, _save))
 			{
 				return;
+			}
+
+			// R3-P2 (SPIKE-RUNBOOK.md RB-D10, generalized to kneel): a coop
+			// CLIENT sends an intent instead of running vanilla locally
+			// (SS2.5 "host-local player input never enters the intent
+			// path" - only the HOST ever calls BattlescapeGame::kneel()
+			// directly). coopMayCommand() above already proved this
+			// machine commands `bu` and its side is active.
+			if (isCoopBattle() && !coopBattleAuthority().hostSim)
+			{
+				CoopArbiter::sendClientIntent("kneel", bu->getId(), -1, false, !bu->isKneeled());
+				return;
+			}
+
+			// The host's own local kneel in a coop battle (RB-D19): mint+
+			// push this action's coop context BEFORE the vanilla call
+			// below, so the THIN emit hook inside BattlescapeGame::kneel()
+			// (coopOnKneelFinished) fires for it exactly as it already
+			// does for an admitted remote intent. No-op (and therefore
+			// free) outside an active coop battle - true on every SP
+			// click.
+			if (isCoopBattle())
+			{
+				CoopArbiter::beginHostLocalKneel(bu);
 			}
 
 			_battleGame->kneel(bu);
@@ -2680,6 +2705,18 @@ void BattlescapeState::setCoopWaitText(const std::string &text)
 {
 	_txtCoopWait->setText(text);
 	_txtCoopWait->setVisible(!text.empty());
+}
+
+/**
+ * coop (R3-P2): read-only companion to setCoopWaitText() above, added for
+ * test introspection only (TestServer's "battle_state" command reads this
+ * to prove the forced-mismatch desync banner is shown) - no production code
+ * calls this. Empty string means the banner is hidden (setCoopWaitText's
+ * own convention).
+ */
+std::string BattlescapeState::getCoopWaitText() const
+{
+	return _txtCoopWait->getText();
 }
 
 /**

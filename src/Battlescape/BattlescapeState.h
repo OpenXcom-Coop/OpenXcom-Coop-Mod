@@ -244,6 +244,10 @@ public:
 	/// coop (R2-P6): show/hide setter for the _txtCoopWait deny/cancel banner.
 	/// Thin - just sets text + visibility. Driven only by CoopBattleUi.
 	void setCoopWaitText(const std::string &text);
+	/// coop (R3-P2): read-only getter for the _txtCoopWait banner's current
+	/// text - test-only introspection (TestServer's "battle_state" command);
+	/// no production caller. Empty string means the banner is hidden.
+	std::string getCoopWaitText() const;
 	/// Gets melee damage preview.
 	std::string getMeleeDamagePreview(BattleUnit *actor, BattleItem *weapon) const;
 	/// Handles keypresses.
