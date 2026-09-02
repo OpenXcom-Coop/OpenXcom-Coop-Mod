@@ -1195,6 +1195,19 @@ int SavedBattleGame::getTurn() const
 }
 
 /**
+ * RW-FIX-TURN (rewrite spike, SPIKE-RUNBOOK.md SS2.7/SS2.8): sets the turn
+ * counter directly - the coop thin client's mirror of startFirstTurn()'s
+ * `_turn = 1` write, without any of that function's other work. See the
+ * declaration in SavedBattleGame.h for the full contract; the only caller is
+ * CoopHandshake::onBlobChunkAppended() in src/CoopMod/connectionTCP.cpp.
+ * @param turn The turn number.
+ */
+void SavedBattleGame::setTurn(int turn)
+{
+	_turn = turn;
+}
+
+/**
 * Sets the bug hunt turn number.
 */
 void SavedBattleGame::setBughuntMinTurn(int bughuntMinTurn)

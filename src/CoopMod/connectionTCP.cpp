@@ -2816,6 +2816,66 @@ void onOffer(Game* game, const Json::Value& offer)
 		<< ", expecting " << g_pendingClient.blobBytes << " bytes)";
 }
 
+/**
+ * RW-FIX-TURN (owner-approved fix packet 2026-09-01, recorded in the docs
+ * repo's spike-log "OWNER DECISION - saveBlob post-overlay divergence RCA";
+ * outside the SS5 packet list, not an RB-D deviation): mirror the turn
+ * counter that vanilla's host-only battle-start chain sets.
+ *
+ * RCA: the host's pre-battle equip screen (InventoryState::btnOkClick,
+ * InventoryState.cpp:1174 - or BriefingState.cpp:290 on the preview path)
+ * calls SavedBattleGame::startFirstTurn(), which ends with `_turn = 1`
+ * (SavedBattleGame.cpp). The coop thin client never runs the Briefing/
+ * NextTurn/Inventory chain, and the snapshot blob it loaded was streamed
+ * while the host was still at turn 0. "turn" is serialized unconditionally
+ * (SavedBattleGame::save), is NOT in saveBlobExcludedTopKey (SharedEcon.cpp),
+ * and no structured SS2.8 bucket reads getTurn() - so with nothing to correct
+ * it the two machines sit at host=1/client=0 forever, diverging in the
+ * saveBlob bucket alone (this is what breaks G5 item 5's
+ * `hash_now {full:true}` equality).
+ *
+ * COUNTER ONLY (owner decision): none of startFirstTurn()'s other work runs
+ * here - not randomizeItemLocations(), not resetUnitTiles(), not the
+ * per-unit prepareNewTurn(), not newTurnUpdateScripts(). Those are host-side
+ * sim; every bit of state they touch reaches the thin client as bt_ev/
+ * bt_action_end (SS2.4) or was already in the blob.
+ *
+ * SEQUENCING (why the call site is the LAST statement of the client
+ * handshake, after battle_ready has been sent): onReady()'s SS2.7 hard gate
+ * compares the client's saveBlob against the hash the HOST computed at offer
+ * time - i.e. against a turn-0 host. The client's own saveBlob is likewise
+ * computed at turn 0, a few lines above the call site. Bumping any earlier
+ * (at blob load, or before coopComputeSaveBlobBucketHex(), or before the
+ * battle_ready send) would put a turn-1 client hash against a turn-0 host
+ * hash and tear the handshake down. Bumping here leaves a transient
+ * client=1/host=0 window that closes the moment the host dismisses its equip
+ * screen - and the host cannot take ANY action before dismissing it, so no
+ * bt_ev/bt_action_end can be produced inside that window; the per-event `h`
+ * (RB-D14) carries unitsStats only and is blind to the turn counter either
+ * way.
+ *
+ * No wire/schema change whatsoever: nothing here is transmitted.
+ */
+static void coopClientMirrorFirstTurnCounter(SavedBattleGame* battle)
+{
+	if (!battle || !isCoopBattle())
+		return;
+
+	// Thin client only. The host owns _turn through vanilla startFirstTurn().
+	if (coopBattleAuthority().hostSim)
+		return;
+
+	// Idempotent, and correct for a future mid-battle resume blob: such a
+	// blob already carries turn >= 1 and must never be rewound to 1.
+	if (battle->getTurn() != 0)
+		return;
+
+	battle->setTurn(1);
+
+	Log(LOG_INFO) << "[coop-handshake] RW-FIX-TURN: client turn counter 0 -> 1 "
+		"(mirrors the host's startFirstTurn(); counter only, no wire field)";
+}
+
 void onBlobChunkAppended(Game* game)
 {
 	if (!game || !g_pendingClient.awaitingBlob)
@@ -2935,6 +2995,11 @@ void onBlobChunkAppended(Game* game)
 	ready["h"] = Json::Value(Json::objectValue); // IR-5: presence-gated, empty until R2-P9
 	ready["saveBlob"] = saveBlobHex;
 	CoopEmit::sendBattle(ready);
+
+	// RW-FIX-TURN: LAST statement of the client handshake, strictly after the
+	// battle_ready hashes are computed AND sent - see the function's own doc
+	// comment above for the sequencing constraint this placement satisfies.
+	coopClientMirrorFirstTurnCounter(battle);
 
 	Log(LOG_INFO) << "[coop-handshake] CLIENT phase Active (battleId=" << battleId
 		<< ", saveBlob=" << saveBlobHex << ") - BattlescapeState pushed, battle_ready sent";

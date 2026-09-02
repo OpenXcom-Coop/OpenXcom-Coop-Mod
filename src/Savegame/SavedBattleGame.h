@@ -396,6 +396,18 @@ public:
 	bool canUseWeapon(const BattleItem *weapon, const BattleUnit *unit, bool isBerserking, BattleActionType actionType, std::string* message = nullptr) const;
 	/// Gets the turn number.
 	int getTurn() const;
+	/// RW-FIX-TURN (rewrite spike, SPIKE-RUNBOOK.md SS2.7/SS2.8): absolute
+	/// turn-counter set - the coop thin client's counterpart of the
+	/// `_turn = 1` line inside startFirstTurn() below, and of NOTHING else
+	/// that function does (no randomizeItemLocations/resetUnitTiles/
+	/// prepareNewTurn/newTurnUpdateScripts). The client never runs the
+	/// Briefing/NextTurn/Inventory chain that calls startFirstTurn(), and its
+	/// streamed snapshot was taken while the host was still at turn 0, so the
+	/// counter is the one thing it has to mirror by hand. Consumer:
+	/// CoopHandshake::onBlobChunkAppended() in src/CoopMod/connectionTCP.cpp.
+	/// Sim code must never call this - vanilla owns _turn through
+	/// startFirstTurn()/endTurn().
+	void setTurn(int turn);
 	/// Sets the bug hunt turn number.
 	void setBughuntMinTurn(int bughuntMinTurn);
 	/// Gets the bug hunt turn number.

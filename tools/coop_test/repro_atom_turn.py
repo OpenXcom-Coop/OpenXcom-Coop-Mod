@@ -244,6 +244,22 @@ def bring_up_qualifying_battle():
     raise RuntimeError(f"repro_atom_turn: no qualifying fixture found in {MAX_REROLLS} boots")
 
 
+def assert_turn_parity(host, client, what):
+    """RW-FIX-TURN: `battle_state.turn` must read 1 on BOTH machines once the
+    host's battle-start overlays are dismissed. The host reaches 1 through
+    vanilla (InventoryState::btnOkClick -> startFirstTurn()); the thin client
+    reaches it through the CoopMod counter mirror at the end of the client
+    handshake (CoopHandshake::onBlobChunkAppended, connectionTCP.cpp) - the
+    counter write ONLY, none of startFirstTurn()'s other work."""
+    ht = host.cmd({"cmd": "battle_state"}).get("turn")
+    ct = client.cmd({"cmd": "battle_state"}).get("turn")
+    assert ht == 1, (f"host battle_state.turn == {ht}, expected 1 {what} - the host's own "
+                     "startFirstTurn() never ran (battle-start overlays still up?)")
+    assert ct == 1, (f"client battle_state.turn == {ct}, expected 1 {what} (host={ht}) - the "
+                     "RW-FIX-TURN client counter mirror did not fire")
+    return ht, ct
+
+
 def event_seq_baseline(client):
     return client.cmd({"cmd": "event_state"}).get("lastSeqApplied", 0)
 
@@ -367,6 +383,22 @@ def test_atom_turn_e2e():
         # --- t=0 hash-clean sanity (SS2.8's own boundary-sweep language) ---
         assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0 (pre-action)")
 
+        # --- RW-FIX-TURN: turn-counter parity + FULL 8-bucket equality ---
+        # bring_up_qualifying_battle() -> drive_to_battlescape() already ran
+        # dismiss_battle_start_overlays(host), so the host has been through
+        # InventoryState::btnOkClick -> SavedBattleGame::startFirstTurn() ->
+        # `_turn = 1` by this point. Before the RW-FIX-TURN client mirror the
+        # client sat at turn 0 FOREVER (its snapshot blob was streamed while
+        # the host was still at turn 0, and nothing on the wire or in CoopMod
+        # ever corrected it) - which is exactly the saveBlob-ONLY `hash_now
+        # full` mismatch recorded as R3-P1 surprise #2 and RCA'd by the owner
+        # on 2026-09-01. These two asserts are that surprise's regression gate.
+        assert_turn_parity(host, client, "at t=0, post-overlay-dismissal")
+        t0_h, _ = assert_hash_clean(host, client, full=True,
+                                    what="at t=0, post-overlay-dismissal (RW-FIX-TURN)")
+        print(f"PASS RW-FIX-TURN: battle_state.turn == 1 on BOTH machines and hash_now "
+              f"full={len(t0_h)}/8 buckets EQUAL post-overlay-dismissal")
+
         # --- drive the client action via battle_intent (RB-D32) ---
         baseline = event_seq_baseline(client)
         intent_resp = client.ok({"cmd": "battle_intent", "kind": "turn",
@@ -417,6 +449,31 @@ def test_atom_turn_e2e():
         assert client_es.get("queueDepth") == 0, f"client queueDepth != 0: {client_es}"
 
         print("PASS test_atom_turn_e2e: queueDepth 0 on both machines after all actions")
+
+        # --- RW-FIX-TURN: the same parity + FULL 8-bucket equality AFTER every
+        # action above (the G5 item-5 shape: `hash_now full` equal once real
+        # actions have run, not only at t=0) ---
+        # NOTE (finding, NOT fixed by RW-FIX-TURN - reported to the
+        # orchestrator, see this packet's commit body): after real actions the
+        # saveBlob bucket diverges AGAIN, for a completely different reason -
+        # per-tile FOV `discovered` bits. They ride inside the binTiles binary
+        # blob (Tile::saveBinary's boolFields: WESTWALL/NORTHWALL/FLOOR
+        # discovered), so no SS2.8 node-path exclusion can reach them, and no
+        # structured bucket hashes them (the terrain bucket covers mapDataID/
+        # mapDataSetID/explosive only). Measured here on a plain turn atom:
+        # battle_state.mapDiscoveredFloor host=1522 vs client=1099 with an
+        # IDENTICAL mapFingerprint - the host recalculates FOV when a unit
+        # rotates, the thin client applies the direction without one. All
+        # SEVEN structured buckets stay equal, which is what this assert
+        # locks down; saveBlob is deliberately left out of it until that
+        # separate gap is triaged.
+        assert_turn_parity(host, client, "after all actions")
+        post_h, _ = assert_hash_clean(
+            host, client,
+            buckets=["terrain", "fire", "smoke", "items", "unitsCore", "unitsStats", "itemIdCtr"],
+            what="after all actions (structured buckets; saveBlob see NOTE above)")
+        print(f"PASS test_atom_turn_e2e: turn 1/1 and {len(post_h)}/7 structured buckets EQUAL "
+              "on both machines after all actions")
     finally:
         host.shutdown()
         client.shutdown()
