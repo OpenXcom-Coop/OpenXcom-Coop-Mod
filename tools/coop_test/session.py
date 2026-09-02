@@ -868,6 +868,51 @@ def host_reveal_emits(host):
         return 0
 
 
+def dismiss_battle_start_overlays(host, timeout=10):
+    """Clear the vanilla battle-start overlays stacked over the HOST's
+    BattlescapeState, so the map screen is on top and its _gameTimer ticks
+    again. Presses ESC (Options::keyCancel) until BattlescapeState is the top
+    state.
+
+    CONSOLIDATED HERE BY W1-P4 (WAVE1-RUNBOOK.md SS4 harness ripple, IR2-1).
+    Five files carried a copy of this helper - repro_atom_turn.py,
+    repro_atom_kneel.py, repro_reveal_sync.py, test_rw_input_gating.py and
+    test_rw_retry_cancel.py - each documenting the same surprise in slightly
+    different words. W1-P4 changed what is actually on that stack, so keeping
+    five copies in sync stopped being free; this follows W1-P3's own precedent
+    (dismiss_client_briefing() below).
+
+    WHY IT EXISTS (the original surprise, found while building repro_atom_turn):
+    a freshly generated battle stacks overlays on top of BattlescapeState, and
+    Game::run() only think()s _states.back() (Game.cpp) - so BattlescapeState's
+    _gameTimer, and with it the whole BState machine including an admitted coop
+    action, never ticks until they are gone. An injected TAB/click would also
+    land on the overlay instead of the map.
+
+    WHAT IS ON THAT STACK NOW (W1-P4, ruling D3 = WV-D9/WV-D34, mechanism
+    WV-D43): in a COOP battle it is ONLY vanilla's "Turn 1 begins"
+    (NextTurnState). The pre-battle equip screen (InventoryState) is FROZEN -
+    BriefingState::btnOkClick skips its push and calls
+    SavedBattleGame::startFirstTurn() itself - so there is no InventoryState to
+    dismiss any more. In a plain SP battle BOTH are still there
+    (['BattlescapeState','NextTurnState','InventoryState']), which is why this
+    stays an ESC LOOP on the top state rather than a fixed number of presses:
+    it is correct for both shapes, and for a stack that is already clean.
+
+    HOST-only. The client loads the streamed blob straight into
+    BattlescapeState with no generation-time popups; its own entry overlay is
+    the read-only BriefingState, which dismiss_client_briefing() below owns.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        st = states(host)
+        if st and "BattlescapeState" in st[-1]:
+            return
+        host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE / Options::keyCancel
+        time.sleep(0.3)
+    raise TimeoutError(f"host: battle-start overlays never cleared, stack={states(host)}")
+
+
 def dismiss_client_briefing(client, timeout=20):
     """W1-P3 (WAVE1-RUNBOOK.md SS4 / ruling D3 = WV-D9, and SS1's WAVE-1
     ADDITIONS trap 2): the coop CLIENT now enters a battle the way the host

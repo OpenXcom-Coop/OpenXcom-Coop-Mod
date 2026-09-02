@@ -105,6 +105,26 @@ void showCancel(const char* cause, const char* evKind);
 /// desynced; NO partial repair, SS2.8). No-op outside an active coop battle.
 void showDesyncHalted();
 
+/// W1-P4 (WAVE1-RUNBOOK.md ruling D3 = WV-D9 + WV-D34, mechanism WV-D43): the
+/// pre-battle equip freeze's player-visible refusal - STR_COOP_EQUIP_FROZEN on
+/// the same _txtCoopWait surface every other coop message uses (SS2.6: never
+/// vanilla _warning).
+///
+/// UNUSUAL TIMING, stated on purpose. Every other entry point here answers
+/// something the player DID; this one explains something that did not happen -
+/// the pre-battle equip screen was never pushed. It is therefore raised at the
+/// moment of the skip, on both machines: on the HOST from
+/// CoopHandshake::freezePreBattleEquip() (called from BriefingState::btnOkClick,
+/// where the InventoryState push is skipped), and on the CLIENT from the battle
+/// entry in CoopHandshake::onBlobChunkAppended(), whose read-only infoOnly
+/// briefing never reaches that push at all. Not sticky in the
+/// showDesyncHalted() sense: the first deny/pending/cancel replaces it, and
+/// clearPending() clears it, which is correct - it is an entry notice, not a
+/// halt.
+///
+/// No-op outside an active coop battle (no live BattlescapeState to reach).
+void showEquipFrozen();
+
 } // namespace CoopBattleUi
 
 } // namespace OpenXcom

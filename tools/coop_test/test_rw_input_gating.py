@@ -144,25 +144,10 @@ def bring_up_lobby(host, client, port):
     host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
 
 
-def dismiss_battle_start_overlays(host, timeout=10):
-    """repro_atom_turn.py:157-161's helper, reused verbatim in shape (WV-D18).
-
-    A freshly generated battle pushes vanilla's own "Turn 1 begins"
-    (NextTurnState, closed by ANY key/click) and the pre-battle equip screen
-    (InventoryState, closed by Options::keyCancel/SDLK_ESCAPE) ON TOP of
-    BattlescapeState. Game::run() only think()s _states.back(), so until they
-    are gone an injected TAB never reaches BattlescapeState's own handlers and
-    the selection cycle this file exists to test silently does nothing.
-    HOST-only: the client loads the streamed blob straight into
-    BattlescapeState with no generation-time popups."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        st = states(host)
-        if st and st[-1] == "BattlescapeState":
-            return
-        host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE
-        time.sleep(0.3)
-    raise TimeoutError(f"host: battle-start overlays never cleared, stack={states(host)}")
+# dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (harness ripple,
+# IR2-1). It is load-bearing for THIS file in particular: until the overlays are
+# gone an injected TAB never reaches BattlescapeState's own handlers and the
+# selection cycle this test exists to check would silently do nothing.
 
 
 def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder):
@@ -206,7 +191,7 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder):
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
 
-    dismiss_battle_start_overlays(host)
+    session.dismiss_battle_start_overlays(host)
     assert top_state(host) == "BattlescapeState", \
         f"host should be sitting ON BattlescapeState, stack={states(host)}"
 

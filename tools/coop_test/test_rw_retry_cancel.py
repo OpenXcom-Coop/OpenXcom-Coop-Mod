@@ -142,19 +142,8 @@ def bring_up_lobby(host, client, port):
     host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
 
 
-def dismiss_battle_start_overlays(host, timeout=10):
-    """repro_atom_turn.py/repro_atom_kneel.py's shared pre-existing surprise: a
-    freshly generated battle stacks NextTurnState + InventoryState over
-    BattlescapeState, and Game::run() only think()s _states.back(), so the
-    host's BState machine never ticks until they are dismissed."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        st = states(host)
-        if st and st[-1] == "BattlescapeState":
-            return
-        host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE
-        time.sleep(0.3)
-    raise TimeoutError(f"host: battle-start overlays never cleared, stack={states(host)}")
+# dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (harness ripple,
+# IR2-1) - see the shared helper's docstring.
 
 
 def drive_to_battlescape(host, client, seated_holder, seat_count=2):
@@ -179,7 +168,7 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=2):
     host.ok({"cmd": "click_widget", "match": "ok"})
     host.wait_for("host battlescape",
                   lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-    dismiss_battle_start_overlays(host)
+    session.dismiss_battle_start_overlays(host)
 
     # W1-P3 (SS1 WAVE-1 ADDITIONS trap 2 / WV-D9): the client now enters the
     # battle through a read-only BriefingState pushed OVER its

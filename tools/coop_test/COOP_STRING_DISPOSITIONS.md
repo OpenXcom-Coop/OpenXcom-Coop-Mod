@@ -53,6 +53,10 @@ Verified at `8c53c2592` (W1-P1). `bin/common/Language/en-GB.yml` and
 `en-US.yml` carry **32** `STR_COOP_*` keys; **14 are WIRED** and **18 are
 ORPHAN**.
 
+**UPDATE (W1-P4, `f360b8f77`+):** **33** keys - `STR_COOP_EQUIP_FROZEN` was
+minted AND wired in the same commit (the equip-freeze notice), so the split is
+now **15 WIRED / 18 ORPHAN**. The orphan set is unchanged.
+
 **DISCREPANCY LOGGED (W1-P1, VERIFY-NEVER-INFER).** `WAVE1-RUNBOOK.md` W1-P1
 item 5 names **7** orphaned keys (the `en-GB.yml:33-41` block). That block is
 correct and its 7 keys are all really orphaned, but it is **not the whole
@@ -103,6 +107,7 @@ or deleted is an OWNER call, flagged in
 | STR_COOP_CANCEL_NEW_CONTACT | WIRED | - | SS2.6 cancel table (connectionTCP.cpp:3081). |
 | STR_COOP_CANCEL_EVENT | WIRED | - | SS2.6 unknown-cause fallback, "Order cancelled - {0}" (connectionTCP.cpp:2624, :2636). NOTE: SS2.W2/WV-D53 forbids reusing this shape for walk HALT reasons - a halted walk is not a cancelled order and must never render a raw wire enum in a `{0}` slot. |
 | STR_COOP_DESYNC_HALTED | WIRED | - | R2-P9 sticky desync banner (connectionTCP.cpp:3171, CoopBattleUi.h:101). |
+| STR_COOP_EQUIP_FROZEN | WIRED | - | MINTED + WIRED by W1-P4 (WAVE1-RUNBOOK.md ruling D3 = WV-D9/WV-D34, mechanism WV-D43). The pre-battle equip FREEZE notice, raised through the `_txtCoopWait` presenter by `CoopBattleUi::showEquipFrozen()` - on the HOST from `CoopHandshake::freezePreBattleEquip()` (the skipped `InventoryState` push in `BriefingState::btnOkClick`) and on the CLIENT from the battle entry in `CoopHandshake::onBlobChunkAppended()`. Unusual for this table: it explains a screen that was SKIPPED, not a button that was refused, so it is raised at the skip. Un-wiring belongs to the synchronized-equip initiative, when `inventory_move` un-freezes equip. |
 
 ## PLANNED KEYS
 
@@ -158,5 +163,5 @@ keys are outside every wave-1 packet's scope):
 
 ---
 
-*W1-P1, wave 1. Baseline verified at `8c53c2592`. Cite WV-D41 / WV-D32 /
-SS2.W8 / WV-D53 when you edit this file.*
+*W1-P1, wave 1; last edited by W1-P4. Baseline verified at `8c53c2592`. Cite
+WV-D41 / WV-D32 / SS2.W8 / WV-D53 when you edit this file.*

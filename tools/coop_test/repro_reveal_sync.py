@@ -69,6 +69,10 @@ SDLK_K = 107    # Options::keyBattleKneel default (SDLK_k, Options.cpp:337)
 
 MIXED_ACTIONS = 10  # packet text: ">= 10 mixed turn/kneel across BOTH seats"
 
+# SS2.6's desync row, verbatim from bin/common/Language/en-US.yml (W1-P4: the
+# banner assert below is EXACT now, not "non-empty").
+STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted (rejoin arrives in a later build)"
+
 
 def states(gc):
     return [s.replace("class OpenXcom::", "") for s in session.states(gc)]
@@ -121,18 +125,8 @@ def bring_up_lobby(host, client, port):
     host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
 
 
-def dismiss_battle_start_overlays(host, timeout=10):
-    """Same pre-existing surprise repro_atom_turn.py documents: a freshly
-    generated battle stacks NextTurnState + InventoryState over BattlescapeState
-    on the HOST, and Game::run() only think()s _states.back(). Host-only."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        st = states(host)
-        if st and st[-1] == "BattlescapeState":
-            return
-        host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE
-        time.sleep(0.3)
-    raise TimeoutError(f"host: battle-start overlays never cleared, stack={states(host)}")
+# dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (harness ripple,
+# IR2-1) - see the shared helper's docstring.
 
 
 def drive_to_battlescape(host, client, seated_holder, seat_count=2):
@@ -157,7 +151,7 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=2):
     host.ok({"cmd": "click_widget", "match": "ok"})
     host.wait_for("host battlescape",
                   lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-    dismiss_battle_start_overlays(host)
+    session.dismiss_battle_start_overlays(host)
 
     # W1-P3 (SS1 WAVE-1 ADDITIONS trap 2 / WV-D9): the client now enters the
     # battle through a read-only BriefingState pushed OVER its
@@ -514,8 +508,13 @@ def test_reveal_base_bad_n():
             f"the host's bt_desync line does not name the `reveal` bucket: {line.strip()}")
         print(f"PASS bad_n: host recorded the peer report: {line.strip()}")
 
+        # EXACT TEXT, not merely non-empty (W1-P4): coop battle ENTRY now raises
+        # its own _txtCoopWait notice (the pre-battle equip freeze), so a
+        # non-emptiness check would no longer prove showDesyncHalted() fired.
         banner = client.cmd({"cmd": "battle_state"}).get("coopWaitText", "")
-        assert banner, "client's coop wait banner is empty - showDesyncHalted() never fired"
+        assert banner == STR_DESYNC_HALTED_TEXT, (
+            f"client banner is {banner!r}, expected STR_COOP_DESYNC_HALTED "
+            f"{STR_DESYNC_HALTED_TEXT!r} - showDesyncHalted() never fired")
         print(f"PASS bad_n: client banner shown: {banner!r}")
     finally:
         # A desync-frozen battle has no path back (SS2.8 "no partial repair").

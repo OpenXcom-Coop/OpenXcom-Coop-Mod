@@ -3173,6 +3173,17 @@ void showDesyncHalted()
 	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_DESYNC_HALTED"));
 }
 
+void showEquipFrozen()
+{
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs)
+		return;
+	// W1-P4 (WV-D34 / WV-D43): see CoopBattleUi.h for why this one is raised at
+	// a SKIP rather than at a refused press. Plain SS2.6 routing otherwise -
+	// _txtCoopWait, translated, never vanilla _warning.
+	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_EQUIP_FROZEN"));
+}
+
 } // namespace CoopBattleUi
 
 // ===== Geoscape sync conflation slot =====
@@ -3707,6 +3718,27 @@ bool mayReopenBriefing(Game* game)
 	return false;
 }
 
+bool freezePreBattleEquip(Game* game)
+{
+	// Deliberately the SAME predicate resolveBriefingDeployment() uses, and NOT
+	// isCoopBattle(): isCoopBattle() requires phase == Active, but the host can
+	// dismiss its briefing while the handshake is still in flight (phase ==
+	// Handshake, before the client's battle_ready hash has matched) - and the
+	// equip screen must be frozen there too, because the blob was snapshotted
+	// even earlier still. Idle == SP or no coop battle => vanilla pushes
+	// InventoryState exactly as before, byte-identical.
+	if (!game || coopBattleAuthority().phase == CoopBattlePhase::Idle)
+		return false;
+
+	Log(LOG_INFO) << "[coop-handshake] W1-P4: pre-battle equip FROZEN (WV-D34) - "
+		"InventoryState push SKIPPED; BriefingState::btnOkClick calls "
+		"SavedBattleGame::startFirstTurn() itself instead (WV-D43), so the host does "
+		"not sit at turn 0 against the client's RW-FIX-TURN mirror";
+
+	CoopBattleUi::showEquipFrozen();
+	return true;
+}
+
 void offerBattle(Game* game, int gamemode)
 {
 	if (!game || !connectionTCP::getServerOwner())
@@ -4210,6 +4242,25 @@ void onBlobChunkAppended(Game* game)
 	Log(LOG_INFO) << "[coop-handshake] W1-P3: read-only BriefingState pushed over the "
 		"client BattlescapeState (infoOnly=true -> no spawnFromPrimedItems/tallyUnits/"
 		"NextTurnState/InventoryState on OK, cutscene+music suppressed)";
+
+	// W1-P4 (WV-D9 / WV-D34): the pre-battle equip freeze applies to BOTH
+	// machines, so BOTH players are told why they never got an equip screen. On
+	// the HOST the notice is raised where the InventoryState push is skipped
+	// (CoopHandshake::freezePreBattleEquip(), from BriefingState::btnOkClick);
+	// on the CLIENT there is no skip to hang it on - the entry briefing above is
+	// infoOnly, so btnOkClick returns at BriefingState.cpp:302 and never reaches
+	// that push - so the notice is raised here, at battle entry, and is the
+	// first thing on the _txtCoopWait strip when the player dismisses the
+	// briefing.
+	//
+	// DISPLAY ONLY, and placed BEFORE the battle_ready build on purpose: it sets
+	// a Text widget on the BattlescapeState pushed a few lines above and touches
+	// NO hashed state, so it cannot perturb the saveBlob this handshake is about
+	// to compute and compare. It also must not disturb the tail of the
+	// handshake: coopClientMirrorFirstTurnCounter() stays the LAST statement
+	// (RW-FIX-TURN's own sequencing constraint), which is why this sits here and
+	// not below.
+	CoopBattleUi::showEquipFrozen();
 
 	Json::Value ready(Json::objectValue);
 	ready["state"] = "battle_ready";

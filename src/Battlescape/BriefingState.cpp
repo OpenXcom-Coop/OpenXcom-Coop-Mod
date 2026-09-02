@@ -316,6 +316,39 @@ void BriefingState::btnOkClick(Action *)
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
 			return;
 		}
+		// W1-P4 (WAVE1-RUNBOOK.md SS4 / ruling D3 = WV-D9 + WV-D34; MECHANISM
+		// PINNED by WV-D43): in a coop battle the PRE-BATTLE EQUIP SCREEN IS
+		// FROZEN on both machines for this wave. The host's equip would run
+		// AFTER CoopHandshake::offerBattle() already snapshotted the blob the
+		// client loads (connectionTCP.cpp:3544), so every item moved on this
+		// screen is a silent items/saveBlob divergence - a gap the harness never
+		// caught because no test ever equipped. Un-freezing belongs to the
+		// synchronized-equip initiative (`inventory_move`), not to this wave.
+		//
+		// THE startFirstTurn() CALL IS NOT OPTIONAL (WV-D43). This push is the
+		// host's ONLY non-preview route into SavedBattleGame::startFirstTurn():
+		// grepping the tree finds exactly two callers, the preview branch three
+		// lines above and InventoryState::btnOkClick (InventoryState.cpp:1174).
+		// Skipping the push WITHOUT replacing that call would leave the host at
+		// `_turn == 0` while the thin client's RW-FIX-TURN mirror forces 1 -
+		// resurrecting the exact saveBlob divergence class that fix was built to
+		// close - and would also skip randomizeItemLocations() / resetUnitTiles()
+		// / the per-unit prepareNewTurn(false) / newTurnUpdateScripts()
+		// (SavedBattleGame.cpp:1235-1260). So this branch is deliberately
+		// byte-for-byte the preview path above; it is not a new mechanism.
+		//
+		// ONE guarded coop call. It is false in SP and outside a coop battle, so
+		// the vanilla push below is byte-identical - proved by the mandatory SP
+		// battle smoke, which must still land on
+		// ['BattlescapeState','NextTurnState','InventoryState']. The
+		// player-visible refusal is raised inside the hook, through the
+		// _txtCoopWait presenter (SPIKE-RUNBOOK.md SS2.6), never vanilla
+		// _warning.
+		if (CoopHandshake::freezePreBattleEquip(_game))
+		{
+			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
+			return;
+		}
 		_game->pushState(new InventoryState(false, bs, 0));
 	}
 	else

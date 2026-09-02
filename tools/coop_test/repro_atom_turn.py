@@ -151,7 +151,7 @@ def drive_to_battlescape(host, client, seated_holder):
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
 
-    dismiss_battle_start_overlays(host)
+    session.dismiss_battle_start_overlays(host)
 
     # W1-P3 (SS1 WAVE-1 ADDITIONS trap 2 / WV-D9): the client now enters the
     # battle through a read-only BriefingState pushed OVER its
@@ -162,28 +162,11 @@ def drive_to_battlescape(host, client, seated_holder):
     session.dismiss_client_briefing(client)
 
 
-def dismiss_battle_start_overlays(host, timeout=10):
-    """SURPRISE (found while building this repro, not in the packet text):
-    a freshly generated battle pushes vanilla's own "Turn 1 begins"
-    (NextTurnState, closed by ANY key/click) and pre-battle equip
-    (InventoryState, closed by Options::keyCancel/SDLK_ESCAPE) screens ON
-    TOP of BattlescapeState - exactly like a normal SP battle start (this is
-    not coop-specific; a plain SP battle_action probe hit the identical
-    freeze while diagnosing this). Game::run() only calls think() on
-    _states.back() (Game.cpp:438) - so BattlescapeState's own _gameTimer
-    (and therefore the whole BState machine, including an admitted coop
-    turn's UnitTurnBState) never ticks until these overlays are dismissed
-    and BattlescapeState becomes the top of the stack again. The CLIENT
-    never sees this (it loads the streamed blob straight into
-    BattlescapeState with no generation-time popups) - HOST-only step."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        st = states(host)
-        if st and st[-1] == "BattlescapeState":
-            return
-        host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE / Options::keyCancel
-        time.sleep(0.3)
-    raise TimeoutError(f"host: battle-start overlays never cleared, stack={states(host)}")
+# dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (WAVE1-RUNBOOK.md
+# SS4 harness ripple, IR2-1): five files carried a copy, and W1-P4 changed what is
+# on that stack (the pre-battle InventoryState is FROZEN in a coop battle, so only
+# NextTurnState is left). The surprise this repro originally documented, and the
+# new stack shape, are both written up in the shared helper's docstring.
 
 
 def has_door_within(gc, x, y, z, radius=2):
@@ -264,11 +247,24 @@ def neighbourhood(unit, radius=1):
 
 def assert_turn_parity(host, client, what):
     """RW-FIX-TURN: `battle_state.turn` must read 1 on BOTH machines once the
-    host's battle-start overlays are dismissed. The host reaches 1 through
-    vanilla (InventoryState::btnOkClick -> startFirstTurn()); the thin client
-    reaches it through the CoopMod counter mirror at the end of the client
-    handshake (CoopHandshake::onBlobChunkAppended, connectionTCP.cpp) - the
-    counter write ONLY, none of startFirstTurn()'s other work."""
+    host has left its briefing. The thin client reaches 1 through the CoopMod
+    counter mirror at the end of the client handshake
+    (CoopHandshake::onBlobChunkAppended, connectionTCP.cpp) - the counter write
+    ONLY, none of startFirstTurn()'s other work.
+
+    HOW THE HOST REACHES 1 CHANGED IN W1-P4 (ruling D3 = WV-D9/WV-D34,
+    mechanism WV-D43). It used to be InventoryState::btnOkClick ->
+    startFirstTurn(), i.e. the host only got to turn 1 when the pre-battle EQUIP
+    screen was dismissed. That screen is now FROZEN in a coop battle, so
+    BriefingState::btnOkClick skips the InventoryState push and calls
+    SavedBattleGame::startFirstTurn() itself, exactly the way the preview branch
+    beside it already did. The host therefore reaches turn 1 one screen EARLIER,
+    at close_briefing - which is also why the overlay dismissal below no longer
+    has an InventoryState to clear. Had the freeze skipped the push WITHOUT
+    replacing the call, the host would sit at turn 0 against a client mirror
+    forcing 1, and this assert is one of the two gates that would catch it (the
+    other is test_rw_equip_freeze.py, which checks it at close_briefing itself).
+    """
     ht = host.cmd({"cmd": "battle_state"}).get("turn")
     ct = client.cmd({"cmd": "battle_state"}).get("turn")
     assert ht == 1, (f"host battle_state.turn == {ht}, expected 1 {what} - the host's own "
@@ -461,10 +457,13 @@ def test_atom_turn_e2e():
         assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0 (pre-action)")
 
         # --- RW-FIX-TURN: turn-counter parity + FULL 8-bucket equality ---
-        # bring_up_qualifying_battle() -> drive_to_battlescape() already ran
-        # dismiss_battle_start_overlays(host), so the host has been through
-        # InventoryState::btnOkClick -> SavedBattleGame::startFirstTurn() ->
-        # `_turn = 1` by this point. Before the RW-FIX-TURN client mirror the
+        # bring_up_qualifying_battle() -> drive_to_battlescape() already closed
+        # the host's briefing, so the host has been through
+        # BriefingState::btnOkClick -> SavedBattleGame::startFirstTurn() ->
+        # `_turn = 1` by this point. (Until W1-P4 that call arrived one screen
+        # later, from InventoryState::btnOkClick; the coop equip freeze moved it
+        # to the briefing's OK - see assert_turn_parity()'s docstring.)
+        # Before the RW-FIX-TURN client mirror the
         # client sat at turn 0 FOREVER (its snapshot blob was streamed while
         # the host was still at turn 0, and nothing on the wire or in CoopMod
         # ever corrected it) - which is exactly the saveBlob-ONLY `hash_now

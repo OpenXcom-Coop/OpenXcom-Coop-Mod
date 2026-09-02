@@ -79,6 +79,11 @@ en-US:
   # coop (R2-P9, spike-runbook 2.8 mismatch-behavior note): sticky banner shown
   # once on a client-side hash-mismatch desync - never auto-cleared.
   STR_COOP_DESYNC_HALTED: "Desync detected - battle halted (rejoin arrives in a later build)"
+  # coop (W1-P4, WAVE1-RUNBOOK.md ruling D3 = WV-D9/WV-D34): the pre-battle equip
+  # freeze notice, raised on BOTH machines at battle entry through the same
+  # _txtCoopWait presenter. Shown because the equip screen is SKIPPED, not because
+  # a button was refused - so it explains an absence rather than naming a trigger.
+  STR_COOP_EQUIP_FROZEN: "Pre-battle equipment is locked in co-op"
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

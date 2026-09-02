@@ -79,6 +79,11 @@ MAX_REROLLS = 5
 SDLK_TAB = 9    # Options::keyBattleNextUnit default (test_rw_input_gating.py precedent)
 SDLK_K = 107    # Options::keyBattleKneel default (SDLK_k, Options.cpp:337)
 
+# SS2.6's desync row, verbatim from bin/common/Language/en-US.yml. W1-P4 made the
+# banner assert below EXACT rather than "non-empty" (coop battle entry now raises
+# its own notice, so non-emptiness no longer proves showDesyncHalted() fired).
+STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted (rejoin arrives in a later build)"
+
 
 def states(gc):
     return [s.replace("class OpenXcom::", "") for s in session.states(gc)]
@@ -165,7 +170,7 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=1):
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
 
-    dismiss_battle_start_overlays(host)
+    session.dismiss_battle_start_overlays(host)
 
     # W1-P3 (SS1 WAVE-1 ADDITIONS trap 2 / WV-D9): the client now enters the
     # battle through a read-only BriefingState pushed OVER its
@@ -176,23 +181,9 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=1):
     session.dismiss_client_briefing(client)
 
 
-def dismiss_battle_start_overlays(host, timeout=10):
-    """Same pre-existing surprise repro_atom_turn.py's own module docstring
-    names (its "NEXT" section carried it forward to this packet): a freshly
-    generated battle stacks vanilla's "Turn 1 begins" (NextTurnState) and
-    pre-battle equip (InventoryState) over BattlescapeState. Game::run()
-    only think()s _states.back(), so the host's whole BState machine (and
-    therefore any admitted coop action, turn OR kneel) never ticks until
-    these are dismissed. Host-only - the client loads the streamed blob
-    straight into BattlescapeState with no generation-time popups."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        st = states(host)
-        if st and st[-1] == "BattlescapeState":
-            return
-        host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE / Options::keyCancel
-        time.sleep(0.3)
-    raise TimeoutError(f"host: battle-start overlays never cleared, stack={states(host)}")
+# dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (harness ripple,
+# IR2-1) - see the shared helper's docstring for the surprise it covers and for
+# the coop stack shape after the pre-battle equip freeze.
 
 
 def has_door_within(gc, x, y, z, radius=2):
@@ -747,8 +738,15 @@ def test_forced_mismatch():
         # banner shown: BattlescapeState::_txtCoopWait (CoopBattleUi::
         # showDesyncHalted() -> setCoopWaitText()), read via this packet's
         # new getCoopWaitText()/TestServer battle_state.coopWaitText.
+        # EXACT TEXT, not merely non-empty (W1-P4): coop battle ENTRY now raises
+        # its own _txtCoopWait notice (STR_COOP_EQUIP_FROZEN, the pre-battle
+        # equip freeze), so "the banner is non-empty" would be true even if
+        # showDesyncHalted() never fired. Compare against SS2.6's desync row.
         client_banner = client.cmd({"cmd": "battle_state"}).get("coopWaitText", "")
-        assert client_banner, "client's coop wait banner is empty - showDesyncHalted() never fired"
+        assert client_banner == STR_DESYNC_HALTED_TEXT, (
+            f"client banner is {client_banner!r}, expected STR_COOP_DESYNC_HALTED "
+            f"{STR_DESYNC_HALTED_TEXT!r} - showDesyncHalted() never fired (a raw STR_ key "
+            "here means the deployed bin/x64/Release/common language copy is stale)")
         print(f"PASS test_forced_mismatch: client banner shown: {client_banner!r}")
 
     finally:

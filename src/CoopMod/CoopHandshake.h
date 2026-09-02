@@ -222,6 +222,48 @@ bool missionLabelsAlreadyMinted(const SavedBattleGame* battle);
 /// exist").
 bool mayReopenBriefing(Game* game);
 
+/// BriefingState hook (W1-P4; WAVE1-RUNBOOK.md ruling D3 = WV-D9 + WV-D34,
+/// MECHANISM PINNED by WV-D43): true when BriefingState::btnOkClick must SKIP
+/// its `pushState(new InventoryState(false, bs, 0))` - i.e. when a coop battle
+/// is in flight on this machine and the pre-battle equip screen is FROZEN.
+///
+/// WHY THE FREEZE. offerBattle() snapshots the blob the client loads at battle
+/// GENERATION time (connectionTCP.cpp:3544) and the caller pushes BriefingState
+/// only afterwards, so the host's pre-battle equip runs strictly AFTER the
+/// client's copy was taken. Anything moved on that screen therefore diverges the
+/// items/saveBlob buckets silently, forever - the "HOST-EQUIP GAP" D3 names.
+/// Wave 1 closes it by freezing equip on BOTH machines rather than by re-staging
+/// the snapshot (the alternative is explicitly REJECTED for this wave); the
+/// client is already frozen by construction, because its entry BriefingState is
+/// infoOnly and returns at BriefingState.cpp:302 before this site is reached.
+///
+/// THE CALLER MUST CALL startFirstTurn() WHEN THIS RETURNS TRUE (WV-D43). The
+/// skipped push is the host's only non-preview route into
+/// SavedBattleGame::startFirstTurn() (the other caller is
+/// InventoryState::btnOkClick, InventoryState.cpp:1174), which is where
+/// `_turn = 1`, randomizeItemLocations(), resetUnitTiles(), the per-unit
+/// prepareNewTurn(false) and newTurnUpdateScripts() happen
+/// (SavedBattleGame.cpp:1230-1260). A freeze without that replacement leaves the
+/// host at turn 0 against the client's RW-FIX-TURN mirror
+/// (coopClientMirrorFirstTurnCounter(), connectionTCP.cpp) and resurrects the
+/// divergence class that fix closed. This function does NOT call it itself: the
+/// vanilla site mirrors the preview branch literally, so the two skip paths read
+/// identically at the call site.
+///
+/// SIDE EFFECT, deliberate: when it returns true it also raises the player-
+/// visible refusal through the _txtCoopWait presenter
+/// (CoopBattleUi::showEquipFrozen(), SPIKE-RUNBOOK.md SS2.6) and logs the skip.
+/// The skip suppresses a screen the player EXPECTED rather than refusing a
+/// button they pressed, so the banner is raised at the moment of the skip -
+/// there is no later user action to hang it on.
+///
+/// The predicate is `phase != Idle`, NOT isCoopBattle(): phase is still
+/// Handshake until the client's battle_ready hash matches, and the host can
+/// dismiss its briefing before that lands. Same predicate
+/// resolveBriefingDeployment() uses, and false in SP, so vanilla is
+/// byte-identical.
+bool freezePreBattleEquip(Game* game);
+
 // ----- client-inbound handlers (battle_offer, and the blob-complete check
 // wired into the existing generic map_result_data handler) -----
 
