@@ -1916,11 +1916,23 @@ void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted)
 	ev["payload"]["fromDir"] = g_coopPendingTurnInfo.fromDir;
 	ev["payload"]["toDir"] = unit->getDirection();
 	ev["payload"]["turretOnly"] = g_coopPendingTurnInfo.turretOnly;
-	if (g_coopPendingTurnInfo.turretOnly)
-	{
-		ev["payload"]["turretFrom"] = g_coopPendingTurnInfo.fromTurretDir;
-		ev["payload"]["turretTo"] = unit->getTurretDirection();
-	}
+	// RW-FIX-TURRET: turretFrom/turretTo now ride EVERY turn ev, not only the
+	// turretOnly ones. SS2.4 marks both fields optional/presence-gated
+	// ("turretFrom?, turretTo?"), so always-present is inside the frozen
+	// schema - no new field is invented here. They are REQUIRED for the client
+	// to reproduce the host's exact post-state: vanilla BattleUnit::turn()
+	// advances _directionTurret in lockstep with the body ONLY when
+	// _turretType > -1 (BattleUnit.cpp:1326-1347 - the `if (_turretType > -1)`
+	// guards inside each body-turn branch), so a turret-less soldier's turret
+	// stays exactly where it was while a turreted unit's tracks the body by
+	// one tick per body tick. The client cannot derive either case from
+	// fromDir/toDir alone; it must be told. (Before this, a plain body turn
+	// carried no turret field at all and the applier fell back to
+	// setDirection(), which drags the turret onto the body facing -
+	// BattleUnit.cpp:988-994 - producing the post-action saveBlob-only
+	// `directionTurret` mismatch RCA'd 2026-09-02.)
+	ev["payload"]["turretFrom"] = g_coopPendingTurnInfo.fromTurretDir;
+	ev["payload"]["turretTo"] = unit->getTurretDirection();
 	ev["payload"]["tuAfter"] = unit->getTimeUnits();
 	// "door" is deliberately never set here: R3-P1 does not hook
 	// UnitTurnBState::init()'s immediate zero-tick door-open branch
@@ -2000,6 +2012,32 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 namespace CoopApply
 {
 
+// RW-FIX-TURRET: write the BODY facing WITHOUT dragging the turret with it.
+//
+// Vanilla BattleUnit::setDirection() (BattleUnit.cpp:988-994) deliberately
+// couples all four facing fields (_direction, _toDirection, _directionTurret,
+// _toDirectionTurret) because vanilla only ever calls it for INITIAL UNIT
+// PLACEMENT ("Only used for initial unit placement", its own doc comment).
+// The host's real rotation never goes through it: UnitTurnBState::think()
+// calls BattleUnit::turn() (UnitTurnBState.cpp:118), which advances
+// _directionTurret only when _turretType > -1 (BattleUnit.cpp:1326-1347).
+// So for a turret-less soldier the host's _directionTurret is UNCHANGED by a
+// body turn, while the client's setDirection() rewrote it to the new body
+// facing. `directionTurret` is serialized unconditionally
+// (BattleUnit.cpp:717), is read by NO structured hash bucket, and is not on
+// saveBlobExcludedUnitKey's list (SharedEcon.cpp) - so the saveBlob catch-all
+// caught the drift as a post-action-only, saveBlob-only mismatch (RCA
+// 2026-09-02). Body write + turret restore through the R3-P1 additive
+// setTurretDirection() accessor keeps the vanilla file untouched; the caller
+// then writes the turret from the ev's own turretTo - the host's real
+// post-state - and never from a local guess.
+static void setBodyDirectionKeepTurret(BattleUnit* unit, int dir)
+{
+	const int turret = unit->getTurretDirection();
+	unit->setDirection(dir);
+	unit->setTurretDirection(turret);
+}
+
 void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 {
 	if (!save)
@@ -2044,16 +2082,15 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 				<< unit->getId() << ") - not applied";
 		}
 
+		// RW-FIX-TURRET: body first (never dragging the turret along - see
+		// setBodyDirectionKeepTurret() above), then the turret EXCLUSIVELY
+		// from the ev's own explicit turret field. A turretOnly turn writes
+		// no body facing at all (the body did not move on the host either).
 		const bool turretOnly = payload.get("turretOnly", false).asBool();
-		if (turretOnly)
-		{
-			if (payload.isMember("turretTo"))
-				unit->setTurretDirection(payload["turretTo"].asInt());
-		}
-		else if (payload.isMember("toDir"))
-		{
-			unit->setDirection(payload["toDir"].asInt());
-		}
+		if (!turretOnly && payload.isMember("toDir"))
+			setBodyDirectionKeepTurret(unit, payload["toDir"].asInt());
+		if (payload.isMember("turretTo"))
+			unit->setTurretDirection(payload["turretTo"].asInt());
 		if (payload.isMember("tuAfter"))
 			unit->setTimeUnits(payload["tuAfter"].asInt());
 	}
@@ -2078,8 +2115,14 @@ void applyActionEndFinal(BattleUnit* unit, const Json::Value& final)
 	// "pos" is intentionally never read here - turn/kneel never move a unit;
 	// syncing position is the walk atom's job, not this packet's (see
 	// CoopApply.h's own doc comment).
+	// RW-FIX-TURRET: SS2.4's `final` is {pos, dir, tu, energy, kneeled} - it
+	// carries NO turret field (buildFinal(), connectionTCP.cpp), so the
+	// turret established by this action's preceding bt_ev (turretTo) is
+	// authoritative and MUST survive this restate. Applying "dir" with plain
+	// setDirection() here would have re-dragged the turret onto the body
+	// facing one seq AFTER the ev had just set it correctly.
 	if (final.isMember("dir"))
-		unit->setDirection(final["dir"].asInt());
+		setBodyDirectionKeepTurret(unit, final["dir"].asInt());
 	if (final.isMember("tu"))
 		unit->setTimeUnits(final["tu"].asInt());
 	if (final.isMember("energy"))

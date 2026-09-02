@@ -63,7 +63,9 @@ namespace CoopApply
 
 /// Applies one in-order bt_ev's payload to the unit it names
 /// (payload["unit"], resolved via CoopIdMaps::unit() - RB-D7). Handles
-/// kind "turn" (toDir/turretTo per turretOnly, tuAfter) and kind "kneel"
+/// kind "turn" (body facing from toDir unless turretOnly, turret facing
+/// ALWAYS and ONLY from turretTo - RW-FIX-TURRET, see the body's own
+/// setBodyDirectionKeepTurret() comment - plus tuAfter) and kind "kneel"
 /// (kneeled, tuAfter) per SS2.4; any other kind (including inject_ev's
 /// RB-D32 test payloads, e.g. "spot") is a state-no-op, logged
 /// "RW-UNSUPPORTED <kind>" - the RB-D32 corollary this is legal under. A

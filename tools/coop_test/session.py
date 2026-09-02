@@ -746,3 +746,47 @@ def assert_hash_clean(host, client, buckets=None, full=False, what=""):
         f"{mismatched}\n  host:   {hh}\n  client: {ch}")
 
     return hh, ch
+
+
+def assert_turret_parity(host, client, what="", unit_ids=None):
+    """RW-FIX-TURRET: `battle_state`'s per-unit `directionTurret` must read
+    the SAME on both machines for every unit they share (or just `unit_ids`).
+
+    Why this needs its own assert instead of riding a bucket: the field is
+    serialized unconditionally (BattleUnit.cpp:717) but NO structured hash
+    bucket reads it, and it is not on `saveBlobExcludedUnitKey`'s list
+    (SharedEcon.cpp) - so its only hash coverage is the saveBlob catch-all,
+    which reports "saveBlob differs" without ever naming a field. This assert
+    names it.
+
+    Regression gate for the 2026-09-02 RCA: the R3-P1 applier wrote a body
+    turn with BattleUnit::setDirection(), which couples the turret to the
+    body (BattleUnit.cpp:988-994, "only used for initial unit placement"),
+    while the host's real rotation runs through BattleUnit::turn() and leaves
+    a turret-less soldier's turret untouched (the `_turretType > -1` guards,
+    BattleUnit.cpp:1326-1347). Two rotations of one soldier were enough to
+    drive host=0 / client=2 and break `hash_now full` on saveBlob alone.
+
+    Lives here (next to assert_hash_clean) rather than inline in one repro:
+    both repro_atom_turn.py and repro_atom_kneel.py drive turns and both need
+    it. Returns the number of units compared."""
+    tag = f" {what}" if what else ""
+    hs = host.cmd({"cmd": "battle_state"})
+    cs = client.cmd({"cmd": "battle_state"})
+    assert hs.get("ok") and hs.get("inBattle"), f"battle_state unusable on host{tag}: {hs}"
+    assert cs.get("ok") and cs.get("inBattle"), f"battle_state unusable on client{tag}: {cs}"
+    hu = {u["id"]: u for u in hs.get("units", [])}
+    cu = {u["id"]: u for u in cs.get("units", [])}
+    ids = sorted(set(hu) & set(cu)) if unit_ids is None else list(unit_ids)
+    assert ids, f"no common units between host and client{tag}"
+    missing = [i for i in ids if "directionTurret" not in hu[i] or "directionTurret" not in cu[i]]
+    assert not missing, (
+        f"battle_state units {missing} carry no 'directionTurret' field{tag} - "
+        "the exe predates the RW-FIX-TURRET TestServer addition (stale build?)")
+    bad = {i: (hu[i]["directionTurret"], cu[i]["directionTurret"])
+           for i in ids if hu[i]["directionTurret"] != cu[i]["directionTurret"]}
+    assert not bad, (
+        f"directionTurret MISMATCH{tag}: {len(bad)}/{len(ids)} unit(s) differ, "
+        f"(host, client) = {bad} - the client applier dragged the turret along "
+        "with the body facing again (RW-FIX-TURRET)")
+    return len(ids)

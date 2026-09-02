@@ -55,7 +55,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
-from session import assert_hash_clean, assert_events
+from session import assert_hash_clean, assert_events, assert_turret_parity
 
 FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
@@ -426,6 +426,7 @@ def test_atom_turn_e2e():
             f"{client_unit['tu']}")
 
         assert_hash_clean(host, client, buckets=["unitsStats"], what="post-turn")
+        assert_turret_parity(host, client, "after the e2e turn")
 
         assert_events(client, ["turn", "bt_action_end"])
 
@@ -450,30 +451,33 @@ def test_atom_turn_e2e():
 
         print("PASS test_atom_turn_e2e: queueDepth 0 on both machines after all actions")
 
-        # --- RW-FIX-TURN: the same parity + FULL 8-bucket equality AFTER every
-        # action above (the G5 item-5 shape: `hash_now full` equal once real
-        # actions have run, not only at t=0) ---
-        # NOTE (finding, NOT fixed by RW-FIX-TURN - reported to the
-        # orchestrator, see this packet's commit body): after real actions the
-        # saveBlob bucket diverges AGAIN, for a completely different reason -
-        # per-tile FOV `discovered` bits. They ride inside the binTiles binary
-        # blob (Tile::saveBinary's boolFields: WESTWALL/NORTHWALL/FLOOR
-        # discovered), so no SS2.8 node-path exclusion can reach them, and no
-        # structured bucket hashes them (the terrain bucket covers mapDataID/
-        # mapDataSetID/explosive only). Measured here on a plain turn atom:
-        # battle_state.mapDiscoveredFloor host=1522 vs client=1099 with an
-        # IDENTICAL mapFingerprint - the host recalculates FOV when a unit
-        # rotates, the thin client applies the direction without one. All
-        # SEVEN structured buckets stay equal, which is what this assert
-        # locks down; saveBlob is deliberately left out of it until that
-        # separate gap is triaged.
+        # --- RW-FIX-TURN + RW-FIX-TURRET: turn-counter parity, turret parity,
+        # and FULL 8-bucket equality AFTER every action above - the G5 item-5
+        # shape (`hash_now full` equal once real actions have run, not only at
+        # t=0) ---
+        # HISTORY (why this assert used to be 7/7): after the RW-FIX-TURN
+        # counter mirror landed, saveBlob still diverged post-action. The
+        # first attribution (per-tile FOV `discovered` bits) was WRONG - the
+        # orchestrator's 2026-09-02 probes showed `hash_now full` 8/8 EQUAL
+        # pre-action while mapDiscoveredFloor already read host=1044 vs
+        # client=538, i.e. saveBlobMaskFowBinTiles (SharedEcon.cpp) already
+        # masks those bits out of the hash. A save_game diff of both machines
+        # then produced exactly ONE non-excluded differing line:
+        # `directionTurret` (host=0, client=2 after two rotations). Fixed in
+        # RW-FIX-TURRET (emit carries turretFrom/turretTo on every turn ev;
+        # the applier writes the body facing without dragging the turret and
+        # takes the turret only from the ev) - so saveBlob is back IN scope
+        # here and this assert is a full 8/8 again.
         assert_turn_parity(host, client, "after all actions")
-        post_h, _ = assert_hash_clean(
-            host, client,
-            buckets=["terrain", "fire", "smoke", "items", "unitsCore", "unitsStats", "itemIdCtr"],
-            what="after all actions (structured buckets; saveBlob see NOTE above)")
-        print(f"PASS test_atom_turn_e2e: turn 1/1 and {len(post_h)}/7 structured buckets EQUAL "
-              "on both machines after all actions")
+        n_units = assert_turret_parity(host, client, "after all actions")
+        post_h, _ = assert_hash_clean(host, client, full=True,
+                                      what="after all actions (RW-FIX-TURRET, full 8/8)")
+        print(f"PASS test_atom_turn_e2e: turn 1/1, directionTurret equal on all {n_units} "
+              f"units, and {len(post_h)}/8 buckets (saveBlob included) EQUAL on both "
+              "machines after all actions")
+        assert len(post_h) == 8, (
+            f"hash_now full returned {len(post_h)} buckets, expected 8 "
+            f"({sorted(post_h)}) - the spike bucket set changed under this test")
     finally:
         host.shutdown()
         client.shutdown()

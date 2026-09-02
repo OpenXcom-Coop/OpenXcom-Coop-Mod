@@ -61,7 +61,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
-from session import assert_hash_clean, assert_events
+from session import assert_hash_clean, assert_events, assert_turret_parity
 
 FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
@@ -536,6 +536,29 @@ def test_atom_kneel_e2e():
         client_state_now = client.cmd({"cmd": "battle_state"})
         actor_b = next(u for u in client_state_now["units"] if u.get("soldierId") == soldier_ids[1])
         run_burst_drain_proof(host, client, actor_id, actor_b["id"])
+
+        # --- RW-FIX-TURRET: FULL 8-bucket equality AFTER every action above
+        # (the G5 item-5 shape). This scope is NEW here - R3-P2 only ever
+        # compared the single `unitsStats` bucket per action - and it is worth
+        # having on this file specifically because run_burst_drain_proof()
+        # mixes TWO body turns of actor A into the burst alongside the kneels,
+        # i.e. it exercises exactly the applier path whose turret coupling
+        # produced the post-action saveBlob-only `directionTurret` mismatch
+        # RCA'd 2026-09-02 (see session.assert_turret_parity's own docstring
+        # for the mechanism and the corrected attribution). The burst also
+        # spans both origins (a host-local kneel via origin="host") and leaves
+        # host/client selections deliberately on different units - `selectedUnit`
+        # is a top-level saveBlob exclusion (saveBlobExcludedTopKey,
+        # SharedEcon.cpp), so that does not weaken the compare.
+        n_units = assert_turret_parity(host, client, "after the whole kneel/turn burst")
+        post_h, _ = assert_hash_clean(host, client, full=True,
+                                      what="after the whole kneel/turn burst (full 8/8)")
+        assert len(post_h) == 8, (
+            f"hash_now full returned {len(post_h)} buckets, expected 8 "
+            f"({sorted(post_h)}) - the spike bucket set changed under this test")
+        print(f"PASS test_atom_kneel_e2e: directionTurret equal on all {n_units} units and "
+              f"{len(post_h)}/8 buckets (saveBlob included) EQUAL on both machines after "
+              "the whole burst")
 
         print("PASS test_atom_kneel_e2e: ALL scenarios (e2e, UI variant, deny paths, "
               "burst/drain) passed in one session")

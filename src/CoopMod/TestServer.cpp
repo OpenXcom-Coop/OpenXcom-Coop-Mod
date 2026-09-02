@@ -5192,6 +5192,13 @@ std::string TestServer::execute(const std::string& line)
 					ju["murdererId"] = u->getMurdererId();
 					ju["killedBy"] = (int)u->killedBy();
 					ju["direction"] = u->getDirection();
+					// RW-FIX-TURRET: the TURRET facing, additively alongside the
+					// body facing above. Serialized per unit
+					// (BattleUnit.cpp:717) but read by NO structured hash bucket
+					// and not excluded from saveBlob, so it was only ever
+					// observable through the saveBlob catch-all - a repro
+					// asserting host/client turret parity needs it directly.
+					ju["directionTurret"] = u->getTurretDirection();
 					// R3-P2: the kneel atom's own observable - no test consumer
 					// needed this before now (turn/direction only).
 					ju["kneeled"] = u->isKneeled();
