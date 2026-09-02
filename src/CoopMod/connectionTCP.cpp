@@ -11893,29 +11893,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				}
 
-				// Reset time units and energy at the start of the alien player's turn
-				// PVP
-				if (getHost() == false && getCoopGamemode() == 2)
-				{
-					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-					{
-						if (unit->getCoop() == 1)
-						{
-							unit->resetTimeUnitsAndEnergy();
-						}
-					}
-				}
-				// PVP2
-				else if (getHost() == true && getCoopGamemode() == 3)
-				{
-					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-					{
-						if (unit->getCoop() == 0)
-						{
-							unit->resetTimeUnitsAndEnergy();
-						}
-					}
-				}
+				// PvP/PvP2 deliberately do not refresh the alien seat here.  Reaction
+				// fire during the XCOM half-round spends that seat's TU, and the cost
+				// must carry into its following active half-round.  The ordinary
+				// NEUTRAL -> PLAYER new-round boundary refreshes both seats after the
+				// alien player has ended the round.
 
 			}
 
@@ -14204,6 +14186,18 @@ bool connectionTCP::canAdmitAction()
 	{
 		_admitBlocked = "no_battle";
 		return false;
+	}
+	if (getCoopGamemode() == 4)
+	{
+		BattlescapeState* bstate = battle ? battle->getBattleState() : nullptr;
+		if (!bstate || !_staticGame->isState(bstate))
+		{
+			// A NextTurnState (or any other modal) is still covering the PVE2
+			// host's battlescape.  The client must not start the shared alien side
+			// before the executor has dismissed the same boundary screen.
+			_admitBlocked = "not_top_state";
+			return false;
+		}
 	}
 	if (battle->getSide() != FACTION_PLAYER)
 	{

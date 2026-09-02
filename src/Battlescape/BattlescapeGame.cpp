@@ -2168,7 +2168,38 @@ void BattlescapeGame::endTurn()
 			}
 		}
 
+		// In PvP both combat factions are controlled by network players.  The
+		// remote-player hand-off is handled by the co-op protocol, so entering the
+		// vanilla HOSTILE phase here would incorrectly give the alien AI a turn.
+		// Advance PLAYER as if HOSTILE had already completed, preserving the normal
+		// NEUTRAL -> PLAYER boundary (including its turn increment and TU refresh).
+		const int coopGamemode = getCoopMod()->getCoopGamemode();
+		if (getCoopMod()->getCoopStatic()
+			&& (coopGamemode == 2 || coopGamemode == 3)
+			&& _save->getSide() == FACTION_PLAYER)
+		{
+			_save->setSideCoop(FACTION_HOSTILE);
+		}
+
 		_save->endTurn();
+
+		// PvP has no vanilla HOSTILE phase, so the opposing network seat does not
+		// pass through the place where that faction would normally receive its
+		// round-start TU/energy.  Refresh both human seats together at the real
+		// NEUTRAL -> PLAYER round boundary.  The host can then carry the current
+		// value (full minus any later reaction-fire cost) in PlayerTurnYour.
+		if (getCoopMod()->getCoopStatic()
+			&& (coopGamemode == 2 || coopGamemode == 3)
+			&& _save->getSide() == FACTION_PLAYER)
+		{
+			for (BattleUnit* unit : *_save->getUnits())
+			{
+				if (!unit->isOut() && unit->getFaction() != FACTION_NEUTRAL)
+				{
+					unit->resetTimeUnitsAndEnergy();
+				}
+			}
+		}
 
 		t = _save->getTileEngine()->checkForTerrainExplosions();
 		if (t)
@@ -2279,7 +2310,12 @@ void BattlescapeGame::endTurn()
 
 	bool battleComplete = (!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0;
 
-	if ((_save->getSide() != FACTION_NEUTRAL || battleComplete) && _endTurnRequested)
+	const int nextTurnGamemode = getCoopMod()->getCoopGamemode();
+	const bool pvpNeutralScreen = getCoopMod()->getCoopStatic()
+		&& (nextTurnGamemode == 2 || nextTurnGamemode == 3)
+		&& _save->getSide() == FACTION_NEUTRAL;
+	if ((_save->getSide() != FACTION_NEUTRAL || pvpNeutralScreen || battleComplete)
+		&& _endTurnRequested)
 	{
 		_parentState->getGame()->pushState(new NextTurnState(_save, _parentState));
 	}

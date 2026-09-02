@@ -92,8 +92,15 @@ def main():
         client.spawn()
         client.connect()
 
-        host.ok({"cmd": "load_save", "file": SAVE})
-        host.wait_for("host loaded saved battle", lambda: in_battle(host), timeout=120)
+        # Use the real load-menu path.  The raw TestServer `load_save` helper
+        # always installs a GeoscapeState after parsing and is therefore invalid
+        # for an `_autobattle_.asav` custom-battle save (it can crash before the
+        # next RPC).  LoadGameState performs the production routing back into
+        # the restored battlescape; the host then uses its real pause-menu COOP
+        # action to open HostMenu.
+        host.ok({"cmd": "load_save_menu", "file": SAVE})
+        host.wait_for("host loaded saved battle", lambda: in_battle(host),
+                      timeout=120, interval=0.5)
         before = host.ok({"cmd": "get_coop"})
         assert not before.get("sessionLocked"), (
             "a freshly loaded custom battle already looks like a live session: "
@@ -200,10 +207,32 @@ def main():
         host.wait_for("alien host received turn",
                       lambda: selectable(host) or None, timeout=30)
         end_turn(host)
-        time.sleep(1)
-        if session.states(host)[-1].endswith("NextTurnState"):
-            host.ok({"cmd": "dismiss_popup"})
-        time.sleep(3)
+
+        for gc, tag in ((host, "host"), (client, "client")):
+            gc.wait_for(
+                f"saved PvP2 {tag} neutral turn screen",
+                lambda gc=gc: (session.states(gc)[-1].endswith("NextTurnState")
+                               and battle(gc).get("side") == 2) or None,
+                timeout=30, interval=0.2)
+
+        # First click starts/runs NEUTRAL.  The client advances to PLAYER
+        # without retaining a second popup; the host displays PLAYER and needs
+        # the normal second click before control is released.
+        host.ok({"cmd": "dismiss_popup"})
+        host.wait_for(
+            "saved PvP2 host player turn screen",
+            lambda: (session.states(host)[-1].endswith("NextTurnState")
+                     and battle(host).get("side") == 0) or None,
+            timeout=30, interval=0.2)
+        client.wait_for(
+            "saved PvP2 client advanced to player side",
+            lambda: (not session.states(client)[-1].endswith("NextTurnState")
+                     and battle(client).get("side") == 0) or None,
+            timeout=30, interval=0.2)
+        host.ok({"cmd": "dismiss_popup"})
+        client.wait_for("saved PvP2 client XCOM control returned",
+                        lambda: selectable(client) or None,
+                        timeout=30, interval=0.2)
 
         hb, cb = battle(host), battle(client)
         assert hb.get("inBattle") and cb.get("inBattle"), (

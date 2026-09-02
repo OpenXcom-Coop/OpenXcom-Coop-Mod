@@ -564,7 +564,15 @@ void NextTurnState::close()
 {
 
 	// coop
-	if (_battleGame->getSide() == FACTION_HOSTILE && _game->getCoopMod()->getCoopStatic() == true && _battleGame->getTurn() >= 1 && _game->getCoopMod()->getHost() == true && _battleGame->isPreview() == false)
+	const int pvpScreenGamemode = _game->getCoopMod()->getCoopGamemode();
+	const bool pvpTurnScreen = (pvpScreenGamemode == 2 || pvpScreenGamemode == 3)
+		&& (_battleGame->getSide() == FACTION_NEUTRAL
+			|| _battleGame->getSide() == FACTION_PLAYER);
+	if ((_battleGame->getSide() == FACTION_HOSTILE || pvpTurnScreen)
+		&& _game->getCoopMod()->getCoopStatic() == true
+		&& _battleGame->getTurn() >= 1
+		&& _game->getCoopMod()->getHost() == true
+		&& _battleGame->isPreview() == false)
 	{
 
 		Json::Value root;
