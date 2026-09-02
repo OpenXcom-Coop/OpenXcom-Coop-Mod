@@ -106,6 +106,26 @@ def main():
             f"host should reach BattlescapeState, stack={session.states(host)}"
         print("PASS: both machines in BattlescapeState (G3-path handshake complete)")
 
+        # RW-FIX-TURN (R1): dismiss the host's battle-start overlays
+        # (NextTurnState + InventoryState, pushed by BriefingState::btnOkClick)
+        # BEFORE the full compare. The client mirrors the first-turn counter
+        # (turn 0->1) right after sending battle_ready; the host reaches 1
+        # only when its equip screen closes (InventoryState::btnOkClick ->
+        # startFirstTurn). Comparing pre-dismissal would red saveBlob on the
+        # turn key alone. Post-dismissal is the STRONGER assertion (8/8 at
+        # the point that was previously known-divergent), and t=0 semantics
+        # survive: dismissal emits no evs, lastSeqEmitted stays 0.
+        def _top(gc):
+            st = session.states(gc)
+            return st[-1].replace("class OpenXcom::", "") if st else ""
+
+        deadline = time.time() + 10
+        while time.time() < deadline and _top(host) != "BattlescapeState":
+            host.ok({"cmd": "inject_input", "kind": "key", "key": 27})
+            time.sleep(0.3)
+        assert _top(host) == "BattlescapeState", \
+            f"host battle-start overlays never cleared, stack={session.states(host)}"
+
         # settle so both sides' battle_ready/onReady bookkeeping (phase -> Active)
         # has landed before the introspection reads below
         time.sleep(2)
