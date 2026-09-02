@@ -16,6 +16,12 @@ fired immediately after with no sleep) but could not be made to land - see
 run_burst_drain_proof()'s own doc comment for the diagnostic finding
 (BState think()-loop resolution in this harness is effectively
 un-throttled, faster than a second TestServer command's own round trip).
+SUPERSEDED (R2-P7, 2026-09-02): the owner-approved `hold_chain {ms}`
+TestServer lever now makes a LIVE deny("busy") deterministic, and
+tools/coop_test/test_rw_retry_cancel.py fires it end-to-end (deny -> pending
+-> auto-resubmit). THIS file is deliberately left as-is: its burst proof is
+about in-order drain across origins, not about busy, and it stays a
+lever-free natural-race regression.
 The "oldest-denied-first observable via lastDeny" clause is instead proven
 via a not_your_unit deny mixed into the same burst (recordDeny()'s
 bookkeeping fires identically for every deny reason, not just "busy" - see
@@ -371,12 +377,17 @@ def run_burst_drain_proof(host, client, actor_a_id, actor_b_id):
     under 100ms - faster than even ONE TestServer command's own round trip
     (~50ms observed) - so by the time actor B's intent could possibly reach
     onIntent()'s busy check, actor A's chain had already fully unwound and
-    admitted normally. This harness has no lever to artificially pause a
-    BState mid-chain (constructing one is a new-surface addition outside
-    this packet's scope - flagged as a candidate for whoever eventually
-    needs a live busy-deny repro). "busy" itself is validated ONLY by
-    R2-P5's own enumerated code-review checklist (item 1), not by a live
-    fire in either R3-P1 or this packet.
+    admitted normally. At the time this file was written the harness had no
+    lever to artificially pause a BState mid-chain, so "busy" was validated
+    ONLY by R2-P5's own enumerated code-review checklist (item 1), not by a
+    live fire in either R3-P1 or R3-P2.
+
+    RESOLVED by R2-P7 (owner-approved 2026-09-02): the TestServer
+    `hold_chain {ms}` lever defers a quiesced chain's bt_action_end +
+    action-context pop on the HOST, which keeps onIntent()'s
+    `currentActionId() != 0` busy arm true for a deterministic window.
+    test_rw_retry_cancel.py owns that live-fire proof now; this function
+    keeps its lever-free natural-race shape on purpose.
 
     Given deny()/recordDeny() (connectionTCP.cpp) updates the SAME
     oldest-denied-first bookkeeping (g_coopLastDenyTick) for EVERY deny

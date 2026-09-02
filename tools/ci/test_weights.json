@@ -57,6 +57,7 @@
   "test_purchase_sync_repro": 5.2,
   "test_rejoin_flow": 8.4,
   "test_resume_flow": 14.3,
+  "test_rw_retry_cancel": 180.0,
   "test_server_browser": 5.4,
   "test_session_hardening": 74.5,
   "test_shared_alert_hazards": 8.1,

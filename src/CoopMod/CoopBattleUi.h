@@ -47,13 +47,13 @@ namespace OpenXcom
  * CoopArbiter::onIntent()) already run on - so touching the widget directly
  * is safe; this presenter must never be called from the socket thread.
  *
- * This packet does NOT wire a live caller: the host-side arbiter (R2-P5)
- * already sends bt_deny{reason} on the wire, but the CLIENT-side bt_deny
- * receipt that would call showDeny() lands in R3-P1 (see the
- * "R3-P1 client bt_deny -> CoopBattleUi::showDeny" marker at the
- * client-inbound seam in connectionTCP.cpp's onTCPMessage). showPending/
- * clearPending are likewise unwired until R2-P7's auto-retry/pending
- * indicator lands.
+ * Wiring history: R2-P6 shipped this API with no live caller; R3-P1 wired
+ * showDeny() at the client-inbound bt_deny seam (connectionTCP.cpp's
+ * onTCPMessage -> CoopArbiter::onDeny); R2-P9 wired showDesyncHalted();
+ * R2-P7 wired showPending()/clearPending() (the busy-held pending state and
+ * its right-click/ESC cancel control) and showCancel() (the four
+ * Options::coopCancelOn* info-cancel toggles). Every entry point now has a
+ * live caller.
  */
 namespace CoopBattleUi
 {
@@ -67,14 +67,22 @@ namespace CoopBattleUi
 /// BattlescapeState to reach).
 void showDeny(const char* reason);
 
-/// R2-P7: shown while a busy-denied intent is held and auto-resubmitted
-/// (ADDENDUM 1.3(d)). @a context is unused in this packet (R2-P6 provides
-/// only the API surface + a minimal busy-text presentation; R2-P7 wires the
-/// real pending indicator/cancel-control behavior and may start using it).
+/// Shown while a busy-denied intent is HELD pending auto-resubmit (R2-P7,
+/// ADDENDUM 1.3(d)). WIRED as of R2-P7: CoopArbiter::onDeny() calls this on
+/// reason=="busy" instead of dropping the intent. @a context is still
+/// unused for presentation - the banner text is sec 2.6's own busy row
+/// (STR_COOP_DENY_BUSY, "Waiting - another action is in progress"), which is
+/// exactly the right message for the held state and keeps R2-P7's "never
+/// generic, never a new ad-hoc string" rule; @a context is retained as the
+/// call-site's self-documentation of WHY the intent is pending.
 void showPending(const char* /*context*/);
 
-/// R2-P7: clears whatever showPending() set (hides the banner). No-op
-/// outside an active coop battle.
+/// R2-P7: clears whatever showPending() set (hides the banner). WIRED as of
+/// R2-P7 by CoopArbiter::cancelPendingIntent() (the user's right-click/ESC
+/// cancel control) and by an auto-resubmit that could not be sent. A
+/// POLICY cancel does not come through here - it goes to showCancel() below,
+/// so the player is told which event killed the order. No-op outside an
+/// active coop battle.
 void clearPending();
 
 /// Client: present an auto-cancel (ADDENDUM 1.3(d)'s four toggles - enemy

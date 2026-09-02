@@ -2604,6 +2604,29 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			Options::battleInstantGrenade = req.get("value", false).asBool();
 			resp["ok"] = true;
 		}
+		else if (name == "coopCancelOnEnemySpotted" || name == "coopCancelOnOwnUnitHit"
+			|| name == "coopCancelOnVisibilityGain" || name == "coopCancelOnAnyPartnerAction")
+		{
+			// R2-P7 (SPIKE-RUNBOOK.md R2-P7, OWNER-1): the four CLIENT-SIDE
+			// auto-cancel toggles. Per-machine, so a test sets them on
+			// whichever instance it is driving. Extending the existing
+			// set_option dispatcher (never a second command).
+			//
+			// ROUND-TRIP shape: "value" is OPTIONAL for these four names -
+			// omit it and this is a pure READ. Either way the response echoes
+			// the LIVE Options:: global read back AFTER the (possible) write,
+			// so `set -> read` proves the value actually landed in the option
+			// rather than just bouncing off the request.
+			bool* opt =
+				(name == "coopCancelOnEnemySpotted")   ? &Options::coopCancelOnEnemySpotted :
+				(name == "coopCancelOnOwnUnitHit")     ? &Options::coopCancelOnOwnUnitHit :
+				(name == "coopCancelOnVisibilityGain") ? &Options::coopCancelOnVisibilityGain :
+				                                         &Options::coopCancelOnAnyPartnerAction;
+			if (req.isMember("value"))
+				*opt = req["value"].asBool();
+			resp["value"] = *opt;
+			resp["ok"] = true;
+		}
 		else
 		{
 			resp["error"] = "unknown option: " + name;
@@ -4037,7 +4060,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob"
 		&& cmd != "battle_intent" && cmd != "inject_ev"
-		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base")
+		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
+		&& cmd != "hold_chain")
 	{
 		return false;
 	}
@@ -4198,6 +4222,28 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			CoopEmit::sendEv(ev); // stamps + mints the real next seq
 			resp["ok"] = true;
 			resp["seq"] = CoopEmit::lastSeqEmitted(); // the seq sendEv() just minted
+		}
+	}
+	else if (cmd == "hold_chain")
+	{
+		// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
+		// R2-P7 (RB-D26/RB-D32 family, owner-approved 2026-09-02): HOST lever.
+		// Holds the next quiesced BState chain open for {ms} so a second
+		// intent deterministically lands mid-chain and gets a LIVE
+		// deny("busy") - the gap R3-P2 could not close (a full 4-tick
+		// UnitTurnBState chain resolves faster than one TestServer round
+		// trip, spike-log R3-P2 GAP). Arming on a client is harmless: the
+		// latch is only ever read by the HOST-side onChainQuiesced().
+		if (!isCoopBattle())
+		{
+			resp["error"] = "hold_chain: not in an active coop battle";
+		}
+		else
+		{
+			const std::uint32_t ms = req.get("ms", 3000u).asUInt();
+			CoopArbiter::requestHoldChain(ms);
+			resp["ok"] = true;
+			resp["ms"] = ms;
 		}
 	}
 	// ----- RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a, RB-D26 discipline) -----
@@ -5228,6 +5274,13 @@ std::string TestServer::execute(const std::string& line)
 					BattlescapeState* bsForBanner = bg->getBattleState();
 					resp["coopWaitText"] = bsForBanner ? bsForBanner->getCoopWaitText() : "";
 				}
+				// R2-P7: the CLIENT's held (busy-denied, awaiting auto-resubmit)
+				// intent as {kind, actorId, iseq}, or null when nothing is
+				// pending. Test introspection only - it makes "pending" an
+				// observable state rather than something a test has to infer
+				// from the banner text (which the busy DENY and the PENDING
+				// hold deliberately share, SS2.6).
+				resp["coopPendingIntent"] = CoopArbiter::pendingIntent();
 				const BattleUnit* giftSel = coop->getGiftSelectedBattleUnit();
 				resp["giftSelectedId"] = giftSel ? giftSel->getId() : -1;
 				Json::Value units(Json::arrayValue);

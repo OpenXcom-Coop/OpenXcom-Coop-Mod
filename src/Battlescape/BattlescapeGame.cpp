@@ -2063,6 +2063,16 @@ void BattlescapeGame::secondaryAction(Position pos)
 	// left is which role this machine has.
 	if (isCoopBattle() && !coopBattleAuthority().hostSim)
 	{
+		// R2-P7 (SPIKE-RUNBOOK.md R2-P7): the right-click half of the
+		// pending-intent CANCEL CONTROL. One guarded call - returns false (and
+		// does nothing) unless a busy-denied intent is actually being held, in
+		// which case this right-click CLEARS it instead of stacking a second
+		// order behind it.
+		if (CoopArbiter::cancelPendingIntent())
+		{
+			return;
+		}
+
 		const bool turretTurn = Options::strafe && _save->isCtrlPressed(true) && selected->getTurretType() > -1;
 		const int toDir = selected->directionTo(pos);
 		CoopArbiter::sendClientIntent("turn", selected->getId(), toDir, turretTurn);

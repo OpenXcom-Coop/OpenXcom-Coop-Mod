@@ -102,6 +102,18 @@ OPT bool logInfoToFile;
 OPT bool logPacketMessages;
 OPT bool EnableHotseatDebugMode;
 
+// R2-P7 (rewrite spike, SPIKE-RUNBOOK.md R2-P7 packet text, OWNER-1 resolved
+// 2026-08-31): the four CLIENT-SIDE auto-cancel toggles for a busy-held
+// pending battle intent. Per-machine, read LIVE at each evaluation, zero
+// wire/hash impact - cancel policy never touches the protocol. REVIEW4 IR-9:
+// real user options with OptionInfo registrations (Options.cpp), never bare
+// statics. All four OFF = pure auto-retry, still safe (plan-validation is not
+// optional).
+OPT bool coopCancelOnEnemySpotted;
+OPT bool coopCancelOnOwnUnitHit;
+OPT bool coopCancelOnVisibilityGain;
+OPT bool coopCancelOnAnyPartnerAction;
+
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;
 OPT int oxceResearchScrollSpeed;

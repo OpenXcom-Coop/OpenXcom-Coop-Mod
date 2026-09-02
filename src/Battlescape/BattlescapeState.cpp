@@ -2809,6 +2809,15 @@ inline void BattlescapeState::handle(Action *action)
 			if (action->getDetails()->type == SDL_KEYDOWN)
 			{
 				SDLKey key = action->getDetails()->key.keysym.sym;
+				// R2-P7 (SPIKE-RUNBOOK.md R2-P7): the ESC half of the
+				// pending-intent CANCEL CONTROL (right-click is the other, at
+				// BattlescapeGame::secondaryAction's coop-client branch). One
+				// guarded call - false, and completely inert, unless a
+				// busy-denied co-op intent is actually being held.
+				if (key == SDLK_ESCAPE && CoopArbiter::cancelPendingIntent())
+				{
+					return;
+				}
 				bool ctrlPressed = _game->isCtrlPressed();
 				bool shiftPressed = _game->isShiftPressed();
 				bool altPressed = _game->isAltPressed();

@@ -1761,8 +1761,42 @@ struct CoopClientInFlight
 	int actorId = -1;
 	std::uint32_t actionId = 0;
 	bool active = false;
+	// R2-P7: the concrete PLAN fields (SS2.3), added so a busy deny can move
+	// this intent into the pending slot below and resubmit it later. Only the
+	// plan is kept - never tuBasis: the packet text requires a resubmit to
+	// RECOMPUTE the preview + basis against current client state, which
+	// sendClientIntent() already does whenever no override is passed.
+	int toDir = -1;
+	bool turret = false;
+	bool kneel = false;
 };
 static CoopClientInFlight g_coopClientInFlight;
+
+// R2-P7 (SPIKE-RUNBOOK.md R2-P7 packet text, "Common core"): the PENDING slot
+// - a busy-denied intent held for auto-resubmit instead of R3-P1's
+// banner-and-drop. One slot, mirroring the single in-flight slot above (the
+// admission model is deny-only serialization, SS2.5: there is never more than
+// one thing this client can usefully be waiting to land). Cleared by an
+// admitted resubmit, by the info-cancel policy, by the user cancel control,
+// or at battle teardown.
+struct CoopClientPending
+{
+	bool active = false;
+	std::string kind;
+	int actorId = -1;
+	int toDir = -1;
+	bool turret = false;
+	bool kneel = false;
+	std::uint32_t deniedIseq = 0; // the iseq whose deny("busy") created this
+};
+static CoopClientPending g_coopClientPending;
+
+// R2-P7 (RB-D26/RB-D32 family, owner-approved 2026-09-02): the hold_chain
+// test lever's state.
+// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
+static std::uint32_t g_coopHoldChainMs = 0;   // armed duration; 0 = disarmed
+static bool g_coopHoldChainHolding = false;   // a chain is currently held open
+static std::chrono::steady_clock::time_point g_coopHoldChainUntil;
 
 // R3-P1 (IR-2): ClientIntentState.lastDeny - the {iseq,reason} object from
 // the most recent bt_deny this CLIENT received, or null (Json::Value()'s
@@ -1795,6 +1829,10 @@ static void resetCoopArbiterState()
 	g_coopClientInFlight = CoopClientInFlight();
 	g_coopClientLastDeny = Json::Value();
 	g_coopClientActionActor.clear();
+	// R2-P7: the pending slot + the hold_chain lever are battle-scoped too.
+	g_coopClientPending = CoopClientPending();
+	g_coopHoldChainMs = 0;
+	g_coopHoldChainHolding = false;
 }
 
 // R2-P9 (SPIKE-RUNBOOK.md SS2.8): render a bucket's uint64 as the 16-
@@ -2142,6 +2180,32 @@ void onChainQuiesced()
 	if (g_coopActionContextStack.empty())
 		return; // no coop action in flight - a foreign/AI popState, not ours
 
+	// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
+	// R2-P7 hold_chain lever (RB-D26/RB-D32 family): keep this chain
+	// artificially OPEN so a second intent deterministically lands mid-chain
+	// and gets a LIVE deny("busy"). Deferring HERE - before the bt_action_end
+	// emit and before popActionContext() - is the minimal intercept: it leaves
+	// currentActionId() != 0, which is exactly the arm of onIntent()'s SS2.5
+	// busy check that a real long chain would trip. releaseHeldChainIfExpired()
+	// (called unconditionally from the RB-D5 pump point) re-enters this
+	// function once the window closes, and it then falls straight through.
+	if (g_coopHoldChainMs > 0)
+	{
+		if (!g_coopHoldChainHolding)
+		{
+			g_coopHoldChainHolding = true;
+			g_coopHoldChainUntil = std::chrono::steady_clock::now()
+				+ std::chrono::milliseconds(g_coopHoldChainMs);
+			Log(LOG_INFO) << "[coop-arbiter] hold_chain: HOLDING actionId " << currentActionId()
+				<< " open for " << g_coopHoldChainMs << " ms - bt_action_end deferred, "
+				"further intents will deny(busy) (TEST-ONLY STOPGAP)";
+		}
+		if (std::chrono::steady_clock::now() < g_coopHoldChainUntil)
+			return; // still held
+		g_coopHoldChainHolding = false;
+		g_coopHoldChainMs = 0; // one-shot
+	}
+
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
 	const std::uint32_t actionId = currentActionId();
 	BattleUnit* actor = findUnitById(save, g_coopPendingChainActorId);
@@ -2307,6 +2371,10 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	g_coopClientInFlight.actorId = actorId;
 	g_coopClientInFlight.actionId = 0; // filled by onAck() below
 	g_coopClientInFlight.active = true;
+	// R2-P7: keep the concrete plan so a deny("busy") can hold and resubmit it.
+	g_coopClientInFlight.toDir = toDir;
+	g_coopClientInFlight.turret = turret;
+	g_coopClientInFlight.kneel = kneel;
 
 	return iseq;
 }
@@ -2336,9 +2404,41 @@ void onDeny(const Json::Value& deny)
 	ld["reason"] = reason;
 	g_coopClientLastDeny = ld;
 
-	if (g_coopClientInFlight.active && g_coopClientInFlight.iseq == iseq)
+	const bool mine = (g_coopClientInFlight.active && g_coopClientInFlight.iseq == iseq);
+
+	if (mine && reason == "busy")
 	{
-		// Pre-R2-P7 policy (packet text): banner + DROP, no retry.
+		// R2-P7 (packet text, "Common core"): HOLD the intent as PENDING and
+		// auto-resubmit at the next event_state-visible quiescence, instead of
+		// R3-P1's banner+drop. The plan (never the basis - the resubmit
+		// recomputes it) moves across; the in-flight slot is released so the
+		// acting unit is not left locked while it waits.
+		g_coopClientPending.active = true;
+		g_coopClientPending.kind = g_coopClientInFlight.kind;
+		g_coopClientPending.actorId = g_coopClientInFlight.actorId;
+		g_coopClientPending.toDir = g_coopClientInFlight.toDir;
+		g_coopClientPending.turret = g_coopClientInFlight.turret;
+		g_coopClientPending.kneel = g_coopClientInFlight.kneel;
+		g_coopClientPending.deniedIseq = iseq;
+		g_coopClientInFlight = CoopClientInFlight();
+
+		Log(LOG_INFO) << "[coop-arbiter] deny(busy) on iseq " << iseq << " ("
+			<< g_coopClientPending.kind << ", actor " << g_coopClientPending.actorId
+			<< ") - HELD pending, auto-resubmit at the next quiescence (R2-P7)";
+		// SS2.6: the pending banner IS the busy row's own string
+		// (STR_COOP_DENY_BUSY, "Waiting - another action is in progress") -
+		// reason-specific, never collapsed into a generic message
+		// (ADDENDUM (e)); showPending() is the presenter entry point the
+		// packet names for this state.
+		CoopBattleUi::showPending("busy");
+		return;
+	}
+
+	if (mine)
+	{
+		// Every other reason keeps R3-P1's banner + DROP behavior: those are
+		// terminal answers about the plan itself (cost/target/ownership), not
+		// a "try again in a moment".
 		g_coopClientInFlight = CoopClientInFlight();
 	}
 
@@ -2350,12 +2450,218 @@ void onActionEndApplied(std::uint32_t actionId)
 	if (g_coopClientInFlight.active && g_coopClientInFlight.actionId == actionId)
 	{
 		g_coopClientInFlight = CoopClientInFlight();
+
+		// R2-P7: THIS client's own action just completed. If nothing else is
+		// being held, the admission banner has served its purpose - drop it.
+		// Without this an auto-retried intent that finally lands would leave
+		// showPending()'s "Waiting - another action is in progress" on screen
+		// forever (nothing else in the spike ever clears the banner). Guarded
+		// on the pending slot so a SECOND unit's still-held order keeps its
+		// own waiting message up.
+		if (!g_coopClientPending.active)
+			CoopBattleUi::clearPending();
 	}
 }
 
 Json::Value lastDeny()
 {
 	return g_coopClientLastDeny;
+}
+
+// ----- R2-P7: CLIENT auto-retry + info-cancel (CoopArbiter.h API) -----
+
+int visibleHostileCount()
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!save)
+		return 0;
+
+	const int mySeat = coopBattleAuthority().localSeat;
+	std::set<int> seen;
+	for (BattleUnit* u : *save->getUnits())
+	{
+		if (!u || u->isOut())
+			continue;
+		if ((int)u->getCoopSeat() != mySeat)
+			continue; // only units THIS machine's seat commands
+		for (const BattleUnit* v : *u->getVisibleUnits())
+		{
+			if (v && v->getFaction() == FACTION_HOSTILE)
+				seen.insert(v->getId());
+		}
+	}
+	return (int)seen.size();
+}
+
+Json::Value pendingIntent()
+{
+	if (!g_coopClientPending.active)
+		return Json::Value();
+	Json::Value p(Json::objectValue);
+	p["kind"] = g_coopClientPending.kind;
+	p["actorId"] = g_coopClientPending.actorId;
+	p["iseq"] = g_coopClientPending.deniedIseq;
+	return p;
+}
+
+bool cancelPendingIntent()
+{
+	if (!isCoopBattle() || !g_coopClientPending.active)
+		return false;
+
+	Log(LOG_INFO) << "[coop-arbiter] pending " << g_coopClientPending.kind
+		<< " intent for actor " << g_coopClientPending.actorId
+		<< " CANCELLED by the user (right-click/ESC cancel control, R2-P7)";
+	g_coopClientPending = CoopClientPending();
+	CoopBattleUi::clearPending();
+	return true;
+}
+
+void onQuiescenceObserved()
+{
+	if (!isCoopBattle() || !g_coopClientPending.active)
+		return;
+
+	// Copy + clear FIRST: sendClientIntent() below re-enters this namespace's
+	// own in-flight bookkeeping, and a failed send (actor gone, battle torn
+	// down) must not leave a zombie pending behind.
+	const CoopClientPending held = g_coopClientPending;
+	g_coopClientPending = CoopClientPending();
+
+	// The resubmit RECOMPUTES preview + tuBasis on CURRENT client state
+	// (packet text): no tuBasisOverride is passed, so sendClientIntent()
+	// re-derives the basis exactly as a fresh UI action would. A basis
+	// captured before the blocker ran would be precisely the stale-basis bug
+	// the cost_changed deny exists to catch.
+	const std::uint32_t iseq = sendClientIntent(held.kind.c_str(), held.actorId,
+		held.toDir, held.turret, held.kneel);
+
+	if (iseq == 0u)
+	{
+		// Could not go out (see sendClientIntent()'s own logged reasons).
+		// Drop the banner rather than leaving a "waiting" message with
+		// nothing behind it.
+		Log(LOG_WARNING) << "[coop-arbiter] auto-resubmit of the pending "
+			<< held.kind << " intent for actor " << held.actorId
+			<< " could not be sent - pending dropped (R2-P7)";
+		CoopBattleUi::clearPending();
+		return;
+	}
+
+	Log(LOG_INFO) << "[coop-arbiter] quiescence observed - auto-resubmitted the pending "
+		<< held.kind << " intent for actor " << held.actorId << " as iseq " << iseq
+		<< " (R2-P7)";
+	// Banner stays up: still waiting, just on a fresh iseq. A deny("busy")
+	// on this one re-enters the pending path above; an ack + bt_action_end
+	// clears it through onActionEndApplied() below.
+}
+
+void onEvAppliedCancelCheck(const Json::Value& ev, int visibleBefore)
+{
+	if (!isCoopBattle() || !g_coopClientPending.active)
+		return;
+
+	const std::string kind = ev.get("kind", "").asString();
+
+	// The four toggles are read LIVE here, per the packet text - never
+	// mirrored into a static (REVIEW4 IR-9) and never consulted on the host
+	// (this whole function only ever runs on a thin client's apply path).
+	const char* cause = nullptr;
+
+	// 1. coopCancelOnEnemySpotted (default ON): a `spot` ev applies.
+	if (!cause && Options::coopCancelOnEnemySpotted && kind == "spot")
+	{
+		cause = "enemy_spotted";
+	}
+
+	// 2. coopCancelOnOwnUnitHit (default ON): a hit/death ev touching MY
+	//    seat's units. The ev's payload `unit` is the SS2.4 unit field every
+	//    unit-scoped ev carries; a hit/death ev without one cannot be
+	//    attributed to a seat and therefore cannot trip this toggle.
+	if (!cause && Options::coopCancelOnOwnUnitHit && (kind == "hit" || kind == "death"))
+	{
+		const Json::Value& payload = ev["payload"];
+		if (payload.isMember("unit"))
+		{
+			const BattleUnit* u = CoopIdMaps::unit(payload["unit"].asInt());
+			if (u && (int)u->getCoopSeat() == coopBattleAuthority().localSeat)
+				cause = (kind == "death") ? "unit_down" : "unit_under_fire";
+		}
+	}
+
+	// 3. coopCancelOnVisibilityGain (default ON): local-FOV visibility-gain
+	//    check on apply (presentation-legal - purely machine-local D4 state,
+	//    never hashed, never on the wire). @a visibleBefore was sampled by
+	//    the caller BEFORE the payload apply + its targeted calculateFOV().
+	if (!cause && Options::coopCancelOnVisibilityGain)
+	{
+		if (visibleHostileCount() > visibleBefore)
+			cause = "new_contact";
+	}
+
+	// 4. coopCancelOnAnyPartnerAction (default OFF): the broad legacy-proposal
+	//    behavior - ANY applied ev whose kind is not in the safe-list. Unknown/
+	//    future ev kinds cancel ONLY here (owner-flagged decision 2026-08-31:
+	//    mechanical plan-validation makes no-cancel safe for unclassified
+	//    kinds), which is exactly what makes the three toggles above
+	//    kind-specific rather than catch-all.
+	//
+	//    SAFE-LIST NOTE (disclosed judgment call, R2-P7 final report): the
+	//    packet's own list is {walk_steps, turn, door, kneel}; "reveal" is
+	//    added here because SS2.4a (the 2026-09-02 addendum, written AFTER
+	//    this packet) defines `ev reveal` as a SYSTEM ev - the host's
+	//    standalone baseline/catch-up fog carrier with no `unit` field and no
+	//    actionId - not a partner ACTION. It is emitted by
+	//    CoopReveal::flushQuiescent() at precisely the quiescence where a
+	//    pending intent is about to be resubmitted, so treating it as a
+	//    partner action would make this toggle cancel every held order it was
+	//    supposed to let through.
+	if (!cause && Options::coopCancelOnAnyPartnerAction)
+	{
+		const bool safeListed = (kind == "walk_steps" || kind == "turn"
+			|| kind == "door" || kind == "kneel" || kind == "reveal");
+		if (!safeListed)
+			cause = ""; // no dedicated STR_ - falls through to STR_COOP_CANCEL_EVENT
+	}
+
+	if (!cause)
+		return;
+
+	Log(LOG_INFO) << "[coop-arbiter] pending " << g_coopClientPending.kind
+		<< " intent for actor " << g_coopClientPending.actorId
+		<< " CANCELLED by policy (cause='" << cause << "', ev kind='" << kind
+		<< "', R2-P7)";
+	g_coopClientPending = CoopClientPending();
+	// SS2.6: a known cause gets its own STR_COOP_CANCEL_* string; the
+	// unknown-kind path gets STR_COOP_CANCEL_EVENT with {0} = the ev kind.
+	// Either way the message NAMES the trigger - never generic.
+	CoopBattleUi::showCancel(cause, kind.c_str());
+}
+
+// ----- R2-P7: hold_chain test lever (HOST) -----
+
+// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
+void requestHoldChain(std::uint32_t ms)
+{
+	g_coopHoldChainMs = ms;
+	g_coopHoldChainHolding = false;
+	Log(LOG_INFO) << "[coop-arbiter] hold_chain armed: the next quiesced BState chain "
+		"will be held open for " << ms << " ms (TEST-ONLY STOPGAP)";
+}
+
+// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
+void releaseHeldChainIfExpired()
+{
+	if (!g_coopHoldChainHolding)
+		return;
+	if (std::chrono::steady_clock::now() < g_coopHoldChainUntil)
+		return;
+
+	Log(LOG_INFO) << "[coop-arbiter] hold_chain window expired - releasing the held chain "
+		"(TEST-ONLY STOPGAP)";
+	g_coopHoldChainHolding = false;
+	g_coopHoldChainMs = 0; // one-shot
+	onChainQuiesced();     // now runs its normal emit + pop
 }
 
 } // namespace CoopArbiter
@@ -2652,6 +2958,15 @@ void onApplied(const Json::Value& ev)
 
 	const std::string state = ev.get("state", "").asString();
 
+	// R2-P7: the toggle-3 basis, sampled BEFORE any payload apply (and before
+	// the A5 targeted calculateFOV() those applies trigger) so
+	// onEvAppliedCancelCheck() below can see whether THIS ev gained this
+	// machine local visibility. Skipped entirely when nothing is pending -
+	// the cancel policy has nothing to act on then, and this is on the
+	// per-event apply path.
+	const int visibleBefore = g_coopClientPending.active
+		? CoopArbiter::visibleHostileCount() : 0;
+
 	if (state == "bt_ev")
 	{
 		const std::uint32_t actionId = ev.get("actionId", 0u).asUInt();
@@ -2686,6 +3001,15 @@ void onApplied(const Json::Value& ev)
 				"its 'unit' field) - final not applied";
 		}
 		CoopArbiter::onActionEndApplied(actionId); // IR-2: clears this client's own lock
+		// R2-P7: THE auto-retry trigger. bt_action_end is emitted ONLY from
+		// the host's onChainQuiesced() (RB-D11), so applying one is the
+		// client-visible "event_state quiescence" the packet text names -
+		// including for the blocker's own chain, which is the case that
+		// matters (the pending intent is by definition the one that lost the
+		// race to it). Deliberately AFTER onActionEndApplied() so the acting
+		// unit's own lock is already released when a resubmit for that same
+		// unit goes out.
+		CoopArbiter::onQuiescenceObserved();
 		return; // A5's FOV refresh above already covers the action_end path
 	}
 	else
@@ -2703,6 +3027,14 @@ void onApplied(const Json::Value& ev)
 		if (unit)
 			save->getTileEngine()->calculateFOV(unit);
 	}
+
+	// R2-P7: info-cancel policy, evaluated LAST on the bt_ev path - after the
+	// payload apply AND after the A5 FOV refresh above, so the visibility-gain
+	// toggle compares post-apply local state against `visibleBefore`. Only
+	// bt_ev reaches here: bt_action_end returns above (it carries no `kind`,
+	// and the packet's policy table is written entirely in terms of applied
+	// EVENTS).
+	CoopArbiter::onEvAppliedCancelCheck(ev, visibleBefore);
 }
 
 } // namespace CoopDisplayQueue
@@ -5519,6 +5851,14 @@ void connectionTCP::updateCoopTask()
 	// parked in BriefingState (battle generated, phase Active, no
 	// BattlescapeState) too.
 	CoopReveal::flushQuiescent();
+
+	// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
+	// R2-P7 hold_chain lever: the release half. Self-guarded (completely inert
+	// with no hold armed), so this stays a single unconditional call at the
+	// same RB-D5 pump point the reveal flush already uses - the only place
+	// that reliably ticks on the HOST while a held chain's window runs down
+	// (popState will not be entered again on its own).
+	CoopArbiter::releaseHeldChainIfExpired();
 
 	// coop
 	// UNABLE TO CONNECT TO SERVER

@@ -166,10 +166,16 @@ void onAck(const Json::Value& ack);
 /// CLIENT (R3-P1, IR-2): host bt_deny{iseq,reason} receipt - always updates
 /// lastDeny() below (event_state's own field, R2-P11) and shows the
 /// CoopBattleUi::showDeny() banner; additionally clears this client's own
-/// in-flight lock if @a deny's iseq matches it. Pre-R2-P7 policy (packet
-/// text): banner + DROP, no retry - R2-P7 adds the pending/auto-resubmit
-/// behavior later. No-op (does not even update lastDeny) outside an active
-/// coop battle.
+/// in-flight lock if @a deny's iseq matches it. No-op (does not even update
+/// lastDeny) outside an active coop battle.
+///
+/// R2-P7 CHANGE (packet text, "Common core"): reason=="busy" on THIS
+/// client's own in-flight intent no longer drops it (R3-P1's explicit
+/// "pre-R2-P7 deny(busy) behavior = banner + DROP" is superseded here).
+/// The plan is moved into the PENDING slot, CoopBattleUi::showPending()
+/// raises the SS2.6 busy banner, and it is auto-resubmitted at the next
+/// event_state-visible quiescence (see onQuiescenceObserved() below). Every
+/// OTHER deny reason keeps R3-P1's banner+drop behavior exactly.
 void onDeny(const Json::Value& deny);
 
 /// CLIENT (R3-P1, IR-2): called by CoopDisplayQueue::onApplied()
@@ -186,6 +192,76 @@ void onActionEndApplied(std::uint32_t actionId);
 /// recent onDeny() this CLIENT machine received this battle, or
 /// Json::Value() (null) if none yet.
 Json::Value lastDeny();
+
+// ----- R2-P7: CLIENT auto-retry + info-cancel -----
+
+/// CLIENT (R2-P7): called by CoopDisplayQueue::onApplied() for every applied
+/// bt_action_end, AFTER onActionEndApplied() has resolved this client's own
+/// in-flight lock. This is the packet text's "event_state-visible
+/// quiescence" signal: the host emits bt_action_end only from
+/// onChainQuiesced() (RB-D11), so applying one is exactly the client-visible
+/// proof that the blocker's chain has unwound. If a PENDING intent is held,
+/// it is resubmitted here through sendClientIntent() - which RECOMPUTES the
+/// preview + tuBasis against CURRENT client state (packet text), never
+/// replays a stale basis. A resubmit that is busy-denied again simply goes
+/// pending again (self-sustaining until it is admitted, cancelled by policy,
+/// or cancelled by the user). No-op outside an active coop battle or with
+/// nothing pending.
+void onQuiescenceObserved();
+
+/// CLIENT (R2-P7): the info-cancel policy evaluation point - called by
+/// CoopDisplayQueue::onApplied() for every applied bt_ev, AFTER the payload
+/// has been applied (so the visibility-gain check reads post-apply state).
+/// Evaluates the four Options:: toggles (coopCancelOnEnemySpotted /
+/// OwnUnitHit / VisibilityGain / AnyPartnerAction), read LIVE per the packet
+/// text, against @a ev and cancels the pending intent via
+/// CoopBattleUi::showCancel() naming the trigger (SS2.6 - never a generic
+/// message). @a visibleBefore is the pre-apply local visible-hostile count
+/// from visibleHostileCount() below (the toggle-3 basis). No-op with nothing
+/// pending, outside an active coop battle, or with every toggle off.
+void onEvAppliedCancelCheck(const Json::Value& ev, int visibleBefore);
+
+/// CLIENT (R2-P7): the toggle-3 basis - how many distinct HOSTILE units are
+/// currently visible to units this machine's seat commands. Purely local FOV
+/// state (D4 machine-local, presentation-legal per the packet's own
+/// "local-FOV visibility-gain check on apply" wording); never hashed, never
+/// on the wire. Returns 0 with no live battle.
+int visibleHostileCount();
+
+/// CLIENT (R2-P7): the user-facing CANCEL CONTROL ("right-click/ESC clears",
+/// packet text). Returns true iff a pending intent existed and was dropped -
+/// the two thin vanilla hook sites use that to CONSUME the input
+/// (BattlescapeGame::secondaryAction's client branch, so a right-click
+/// clears the held order instead of issuing a second one; and
+/// BattlescapeState::handle's SDLK_ESCAPE arm). Clears the banner via
+/// CoopBattleUi::clearPending(). False (and completely inert) outside an
+/// active coop battle or with nothing pending, so both call sites stay a
+/// single guarded call.
+bool cancelPendingIntent();
+
+/// Test/introspection (TestServer battle_state): the held plan as
+/// {kind, actorId, iseq} - iseq being the iseq of the intent whose busy deny
+/// created it - or Json::Value() (null) when nothing is pending.
+Json::Value pendingIntent();
+
+// ----- R2-P7: hold_chain test lever (HOST) -----
+
+// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
+/// HOST (RB-D26/RB-D32 family, owner-approved 2026-09-02): arm a one-shot
+/// latch that keeps the NEXT quiesced BState chain artificially OPEN for
+/// @a ms milliseconds - onChainQuiesced() defers its bt_action_end emit and
+/// its action-context pop, so onIntent()'s `currentActionId() != 0` arm keeps
+/// answering deny("busy") for the whole window. Without it a live busy deny
+/// cannot be landed at all: R3-P2 measured a full 4-tick UnitTurnBState chain
+/// resolving in well under one TestServer round trip (spike-log R3-P2 GAP).
+void requestHoldChain(std::uint32_t ms);
+
+// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
+/// HOST: the release half of requestHoldChain() - ONE unconditional guarded
+/// call at the RB-D5 pump point (next to CoopReveal::flushQuiescent()). Once
+/// the hold window expires this re-enters onChainQuiesced(), which then runs
+/// its normal emit+pop. Completely inert with no hold armed.
+void releaseHeldChainIfExpired();
 
 } // namespace CoopArbiter
 

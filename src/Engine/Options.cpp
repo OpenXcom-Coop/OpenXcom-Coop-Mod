@@ -587,6 +587,14 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "logPacketMessages", &logPacketMessages, false, "Write packet messages to log files (heavy logging)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHotseatDebugMode", &EnableHotseatDebugMode, false, "Enable Hotseat Debug Mode", "STR_AI"));
 
+	// R2-P7 (rewrite spike, SPIKE-RUNBOOK.md R2-P7, OWNER-1 resolved): auto-cancel
+	// policy for a busy-held pending co-op intent. Defaults = the narrowed scope
+	// (first three ON, the broad any-partner-action toggle OFF).
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnEnemySpotted", &coopCancelOnEnemySpotted, true, "Co-op: Cancel Held Order When an Enemy is Spotted", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnOwnUnitHit", &coopCancelOnOwnUnitHit, true, "Co-op: Cancel Held Order When One of My Soldiers is Hit", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnVisibilityGain", &coopCancelOnVisibilityGain, true, "Co-op: Cancel Held Order on New Contact", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnAnyPartnerAction", &coopCancelOnAnyPartnerAction, false, "Co-op: Cancel Held Order on Any Partner Action", "STR_BATTLESCAPE"));
+
 }
 
 void createControlsOTHER()
