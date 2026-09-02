@@ -87,11 +87,19 @@ class AlienDeployment;
  * on a match, load into a fresh SavedGame (the SavedGame::
  * loadCoopSaveFromMemory precedent at connectionTCP.cpp's writeHostMapFile()),
  * rebuild CoopIdMaps, stamp authority {hostSim:false, localSeat, phase:Active},
- * compute its own saveBlob bucket, push BattlescapeState directly (the
- * LoadGameState.cpp "loaded save with a live battle -> BattlescapeState"
- * precedent - no client-side BriefingState, this machine did not generate the
- * mission; the client's own state stack is never left empty either, since
- * this only ever ADDS a state, never pops one), and answer with battle_ready.
+ * compute its own saveBlob bucket, and enter the battle the way W1-P3
+ * (WAVE1-RUNBOOK.md SS4, ruling D3 = WV-D9) pins it: unwind the client's
+ * pre-battle MENU stack to the nearest safe state (coopUnwindToSafeState() -
+ * the host pops its own menu stack at the same point, and setSavedGame() has
+ * just deleted the world those menu states pointed into), push
+ * BattlescapeState, then push a READ-ONLY BriefingState(0, 0, infoOnly=true)
+ * OVER it - rendered from SS2.W1's carried labels + deployment, with
+ * cutscene/music suppressed and every host-sim branch of btnOkClick gated off
+ * by _infoOnly. The client's state stack is never left empty (the unwind
+ * helper is bounded and pushes a MainMenuState rather than return empty).
+ * Finally, answer with battle_ready - whose timing, and the RW-FIX-TURN
+ * counter mirror that is the LAST statement of the handshake, W1-P3
+ * deliberately did not move.
  *
  * Bodies live in connectionTCP.cpp, next to BattleAuthority/CoopArbiter/
  * CoopIdMaps/CoopPump/CoopEmit - the established home for this scaffolding

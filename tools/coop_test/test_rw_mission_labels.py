@@ -198,7 +198,14 @@ def main():
         client.wait_for("client battlescape",
                         lambda: session.has_state(client, "BattlescapeState"), timeout=60)
         time.sleep(2)  # let both logs flush the handshake lines
-        print("PASS bring-up: host in BriefingState, client in BattlescapeState")
+        # W1-P3 (ruling D3 / WV-D9, landed after this test): the client now enters
+        # through a READ-ONLY BriefingState pushed OVER its BattlescapeState, so it
+        # is no longer on the map when it arrives. Dismiss it here - assertion 4
+        # below drives a real ctrl-B chord and needs BattlescapeState on TOP
+        # (Game::run() only think()s _states.back()). No-op on a pre-W1-P3 build.
+        session.dismiss_client_briefing(client)
+        print("PASS bring-up: host in BriefingState, client on the battlescape "
+              "(its own W1-P3 entry briefing dismissed)")
 
         # === 1. the host minted BEFORE the offer ============================
         minted = grep(host_dir, "[coop-handshake] mission labels minted pre-offer")
@@ -341,8 +348,9 @@ def main():
         # taken. The coop hook logs the resolution outcome of every BriefingState
         # built inside a coop battle - VANILLA (this machine re-derived it),
         # CARRIED (from battle_offer, for a machine with no Craft/Ufo) or NONE
-        # (the generic "should never happen" branch). The client builds exactly
-        # one BriefingState here, via ctrl-B, so the last line is that one.
+        # (the generic "should never happen" branch). Post-W1-P3 the client builds
+        # TWO BriefingStates in this run - the read-only entry briefing and this
+        # ctrl-B one - so the assertion reads the LAST line, which is this one.
         resolved = grep(client_dir, "[coop-handshake] BriefingState deployment:")
         assert resolved, (
             "client log has no '[coop-handshake] BriefingState deployment:' line - the "

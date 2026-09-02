@@ -2211,6 +2211,33 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			states.append(e);
 		}
 		resp["states"] = states;
+		// W1-P3 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / WR-24), ADDITIVE - the
+		// per-state "colors" above report each State's OWN stored _palette, which
+		// a BriefingState round trip never touches, so a before/after compare on it
+		// alone is VACUOUS for the trap WR-24 actually names. What BriefingState
+		// really moves is the SCREEN: its ctor sets the GEOSCAPE base resolution +
+		// resetDisplay() and setStandardPalette("PAL_GEOSCAPE", ...)
+		// (BriefingState.cpp:58-60), and btnOkClick sets the BATTLESCAPE values back
+		// (:297-300). W1-P3 pushes that state OVER a live BattlescapeState on the
+		// client, so these three are what make "the map still renders correctly
+		// afterwards" a real assertion instead of "no crash".
+		{
+			Json::Value screen(Json::objectValue);
+			screen["baseXResolution"] = Options::baseXResolution;
+			screen["baseYResolution"] = Options::baseYResolution;
+			screen["baseXBattlescape"] = Options::baseXBattlescape;
+			screen["baseYBattlescape"] = Options::baseYBattlescape;
+			screen["baseXGeoscape"] = Options::baseXGeoscape;
+			screen["baseYGeoscape"] = Options::baseYGeoscape;
+			Json::Value scols(Json::arrayValue);
+			if (SDL_Color* spal = _game->getScreen()->getPalette())
+			{
+				for (int i = 0; i < 16; ++i)
+					scols.append((spal[i].r << 16) | (spal[i].g << 8) | spal[i].b);
+			}
+			screen["colors"] = scols;
+			resp["screen"] = screen;
+		}
 		resp["ok"] = true;
 	}
 	else if (cmd == "gift")

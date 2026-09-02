@@ -167,6 +167,14 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=1):
 
     dismiss_battle_start_overlays(host)
 
+    # W1-P3 (SS1 WAVE-1 ADDITIONS trap 2 / WV-D9): the client now enters the
+    # battle through a read-only BriefingState pushed OVER its
+    # BattlescapeState, so every fixture that DRIVES the client must dismiss
+    # it explicitly - injected input would otherwise land on the briefing and
+    # screen-projection probes would compute against the GEOSCAPE viewport the
+    # briefing holds. No-op on a stack with no BriefingState.
+    session.dismiss_client_briefing(client)
+
 
 def dismiss_battle_start_overlays(host, timeout=10):
     """Same pre-existing surprise repro_atom_turn.py's own module docstring

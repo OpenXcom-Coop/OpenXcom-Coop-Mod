@@ -866,3 +866,44 @@ def host_reveal_emits(host):
             return sum(1 for ln in f if "[coop-reveal] attached reveal delta" in ln)
     except OSError:
         return 0
+
+
+def dismiss_client_briefing(client, timeout=20):
+    """W1-P3 (WAVE1-RUNBOOK.md SS4 / ruling D3 = WV-D9, and SS1's WAVE-1
+    ADDITIONS trap 2): the coop CLIENT now enters a battle the way the host
+    does - BattlescapeState FIRST, then a READ-ONLY BriefingState OVER it
+    (CoopHandshake::onBlobChunkAppended, connectionTCP.cpp). Every fixture that
+    DRIVES the client must dismiss that briefing explicitly instead of assuming
+    the battle screen is on top. Three reasons, all real:
+      * Game::run() only think()s _states.back(), so an injected key/click
+        lands on the BRIEFING, not on the map;
+      * BriefingState's ctor holds the GEOSCAPE base resolution while it is up
+        (BriefingState.cpp:58-60), so any screen-projection probe computes
+        against the wrong viewport - the exact failure repro_atom_turn.py's
+        run_ui_variant hit on W1-P3's first run ("computed click target
+        (-330,350) is off the 320x200 map viewport");
+      * the runbook's own rule: "any repro that drives the client through a
+        briefing must dismiss it explicitly (close_briefing) rather than
+        assuming the battle probes work under it."
+
+    Read-only PROBES (battle_state / event_state / hash_now / get_palettes) do
+    work under it - test_rw_client_briefing.py asserts exactly that - so this
+    helper is about DRIVING, not probing.
+
+    Idempotent and version-tolerant: a no-op when the client has no
+    BriefingState on its stack (a resume entry, or any pre-W1-P3 build), so it
+    is safe to call unconditionally at the end of every drive_to_battlescape().
+    """
+    st = states(client)
+    if not any("BriefingState" in s for s in st):
+        return False
+    client.ok({"cmd": "close_briefing"})
+    client.wait_for(
+        "client dismissed its entry briefing",
+        lambda: (not any("BriefingState" in s for s in states(client))) or None,
+        timeout=timeout)
+    top = states(client)[-1] if states(client) else None
+    assert top and "BattlescapeState" in top, (
+        "closing the client's entry briefing should land it on BattlescapeState "
+        f"(W1-P3 pushes the briefing directly OVER it), got stack={states(client)}")
+    return True

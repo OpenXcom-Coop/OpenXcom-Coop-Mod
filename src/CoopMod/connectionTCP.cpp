@@ -44,6 +44,7 @@
 #include "../Savegame/Ufo.h"
 #include "../Battlescape/DebriefingState.h"
 #include "../Battlescape/BattlescapeState.h"
+#include "../Battlescape/BriefingState.h"
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/Pathfinding.h"
@@ -4101,9 +4102,15 @@ void onBlobChunkAppended(Game* game)
 			"generic fallback, so ctrl-B stays gated (SS2.W1)";
 	}
 
-	// LoadGameState.cpp's "loaded save with a live battle -> BattlescapeState"
-	// precedent (:334-344 region) - no client-side BriefingState, this
-	// machine did not generate the mission.
+	// W1-P3 (WAVE1-RUNBOOK.md SS4 / ruling D3 = WV-D9): this comment used to
+	// read "no client-side BriefingState, this machine did not generate the
+	// mission" and cited LoadGameState.cpp's "loaded save with a live battle ->
+	// BattlescapeState" precedent (:334-344 region). That precedent is right for
+	// a SAVE LOAD and wrong for a coop battle ENTRY: D3 converges the client's
+	// entry flow onto the host's (briefing -> map), and SS2.W1 (W1-P2) gave this
+	// machine the mission identity a briefing needs. The read-only BriefingState
+	// is pushed below, OVER the BattlescapeState, once the map resources are
+	// relinked.
 	battle->loadMapResources(game->getMod());
 
 	// RW-FIX (spike): compute the saveBlob AFTER loadMapResources. The save-loop
@@ -4113,6 +4120,39 @@ void onBlobChunkAppended(Game* game)
 	// (empty binTiles) and diverges from the host's fully-materialized live-battle
 	// hash. (Traced 2026-09-01.)
 	const std::string saveBlobHex = coopComputeSaveBlobBucketHex(battle);
+
+	// W1-P3 (WAVE1-RUNBOOK.md SS4 / WV-D9; the adjacent finding W1-P1 disclosed
+	// and the orchestrator routed to this packet): tear the client's PRE-BATTLE
+	// MENU stack down before the battle states go on, the way the host's own
+	// entry path already does. Until now the client pushed a bare
+	// BattlescapeState over whatever it happened to be holding, so a skirmish
+	// joiner sat on [MainMenuState, NewBattleState, ServerList, LobbyMenu,
+	// BattlescapeState] with a DEAD lobby it could not dismiss - one defect with
+	// two symptoms (test_skirmish_flow.py step 7, and every skirmish repro's
+	// client stack). Two independent reasons this is not cosmetic:
+	//   1. CONVERGENCE (D3). The host's SKIRMISH entry pops its whole menu stack
+	//      (NewBattleState::btnOkClick's popState() pair, NewBattleState.cpp:
+	//      798-799) before pushing BriefingState, while its CAMPAIGN entry keeps
+	//      GeoscapeState underneath (ConfirmLandingState pushes over it).
+	//      coopUnwindToSafeState() reproduces BOTH shapes with one rule: pop
+	//      until a GeoscapeState or a MainMenuState is on top, and stop there.
+	//   2. LIFETIME. game->setSavedGame(newSave) above DELETED the old SavedGame,
+	//      so every menu state still holding pointers into it (NewBattleState::
+	//      _craft / _base) is already dangling - the same shape as the
+	//      ~BasescapeState "borrowed _base freed by a world restream" crash
+	//      (issue #124). Popping them is strictly safer than leaving them, and
+	//      the four destructors involved are empty (NewBattleState.cpp:384,
+	//      ServerList.cpp:407, LobbyMenu.cpp:360, MainMenuState.cpp:441 - ~State
+	//      only frees the state's own surfaces), with no stored LobbyMenu*
+	//      anywhere (every consumer scans Game::getStates()).
+	// Reuses the EXISTING bounded pop-to-safe-state helper rather than minting a
+	// second teardown path; it is bounded at 32 pops and is guaranteed never to
+	// leave Game::_states empty (see CoopHandshake.h's top doc comment for the
+	// crash that already taught that lesson once). This is NOT the
+	// main-menu-no-world teardown: nothing here touches the SavedGame -
+	// GoToMainMenuState remains the one and only world-teardown chokepoint.
+	coopUnwindToSafeState(game);
+
 	Options::baseXResolution = Options::baseXBattlescape;
 	Options::baseYResolution = Options::baseYBattlescape;
 	game->getScreen()->resetDisplay(false);
@@ -4120,6 +4160,56 @@ void onBlobChunkAppended(Game* game)
 	game->pushState(bs);
 	battle->setBattleState(bs);
 	bs->toggleTouchButtons(false, true);
+
+	// W1-P3 (WAVE1-RUNBOOK.md SS4 / ruling D3 = WV-D9): the client's flow now
+	// converges on the host's - briefing -> map. ORDER IS PINNED by the runbook:
+	// BattlescapeState FIRST (above), then a READ-ONLY BriefingState OVER it.
+	// Never inverted - the briefing has to sit on a live battle screen, exactly
+	// like the ctrl-B path (BattlescapeState.cpp:2857) W1-P2 already proved out.
+	//
+	// It renders from state that is ALREADY correct: SS2.W1's carried
+	// strTarget/strCraftOrBase were applied above (before any pushState), and
+	// the ctor's one coop hook, CoopHandshake::resolveBriefingDeployment()
+	// (BriefingState.cpp:100), supplies the carried AlienDeployment when this
+	// machine cannot re-derive it - a thin client has no Craft and no Ufo, so
+	// vanilla's craft->getDestination() fallback (BriefingState.cpp:83-99) is
+	// dead here and the briefing would otherwise render the generic "should
+	// never happen" branch (:104-108). No second hook is added by this packet.
+	//
+	// infoOnly=true IS WHAT MAKES THIS SAFE, and it is why the packet is small:
+	//  - btnOkClick returns at BriefingState.cpp:302 BEFORE spawnFromPrimedItems()
+	//    / tallyUnits() / NextTurnState / InventoryState (:304-330) - all HOST sim
+	//    work a thin client must never run (and InventoryState::btnOkClick is the
+	//    host's only startFirstTurn() caller);
+	//  - the ctor returns at :246 before the base-defense retaliation bookkeeping;
+	//  - the label-write body at :177 is gated on !_infoOnly, so this briefing
+	//    can never re-mint or clobber the labels the offer shipped.
+	// craft/base are 0 deliberately: this machine owns neither, and both branches
+	// of the label body they feed are gated off by _infoOnly anyway.
+	//
+	// CUTSCENE + MUSIC ARE SUPPRESSED BY CONSTRUCTION: customBriefing is null, so
+	// `_disableCutsceneAndMusic = _infoOnly && !customBriefing` (:142) is TRUE
+	// and BriefingState::init() returns at :277 before it can push a CutsceneState
+	// or call playMusic(). Passing a customBriefing to force a deployment would
+	// have inverted that flag - which is exactly why SS2.W1 carries `deployment`
+	// instead.
+	//
+	// WR-24 (palette/resolution): the ctor swaps to PAL_GEOSCAPE and the GEOSCAPE
+	// base resolution (:58-60) and btnOkClick swaps them back and resetDisplay()s
+	// (:297-300); over a live BattlescapeState that is a rendering hazard, not a
+	// no-op. test_rw_client_briefing.py asserts the screen palette, the base
+	// resolution and the map fingerprint after close_briefing, cross-checked
+	// against the host, rather than "no crash".
+	//
+	// RB-D5: Game::run() only think()s the TOP state, but the battle apply queue
+	// drains in connectionTCP::updateCoopTask(), NOT in any State - so bt_ev /
+	// bt_action_end keep applying while this overlay is on top. Asserted, not
+	// assumed (the test drives host emits with the client sitting in the
+	// briefing and requires queueDepth to reach 0).
+	game->pushState(new BriefingState(0, 0, /*infoOnly=*/true));
+	Log(LOG_INFO) << "[coop-handshake] W1-P3: read-only BriefingState pushed over the "
+		"client BattlescapeState (infoOnly=true -> no spawnFromPrimedItems/tallyUnits/"
+		"NextTurnState/InventoryState on OK, cutscene+music suppressed)";
 
 	Json::Value ready(Json::objectValue);
 	ready["state"] = "battle_ready";
