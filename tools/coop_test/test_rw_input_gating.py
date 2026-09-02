@@ -21,27 +21,43 @@ exercised now - this file asserts SELECTION FILTERING (+ the IR-13 end-turn
 no-op) ONLY, exactly as the packet text allows ("if run pre-R3-P1: assert
 selection filtering only").
 
-FIXTURE-COVERAGE NOTE (found during this packet, not a pre-existing given):
-test_rw_faction_setup.py's own test_classic() docstring already establishes
-that a plain "NEW BATTLE > COOP" classic/SHARED skirmish never calls
-Soldier::setCoop() - so EVERY soldier defaults to COOP_SEAT_0 (host-owned;
-Soldier ctor default), and the client (seat 1) owns ZERO real battle units in
-this fixture. Building a genuine mixed-ownership classic fixture would need
-either a real SHARED-campaign mission (persisted per-soldier ownership) or a
-new TestServer debug lever to stamp Soldier::_coop pre-battle - both out of
-this packet's scope (RB-D22: spike fixtures are live-skirmish-through-lobby
-only, no new .sav zoo; R5-P2's Files list does not include TestServer.cpp).
+FIXTURE-COVERAGE NOTE - GAP CLOSED IN W1-P1 (wave 1, EXIT-REPORT-G5 HANDOFF
+item 5). As originally written this file could only prove the SAFETY-CRITICAL
+direction: a plain "NEW BATTLE > COOP" classic skirmish never calls
+Soldier::setCoop(), so EVERY soldier defaulted to COOP_SEAT_0 (host-owned) and
+the client owned ZERO real battle units - which made the complementary "client
+selects only ITS OWN soldiers" half VACUOUSLY true (0 owned, 0 selected)
+rather than actively demonstrated.
 
-Consequently test_classic_selection_gating() below proves the SAFETY-CRITICAL
-direction rigorously and non-vacuously: the client's selection cycle is
-pressed against 7 REAL, LIVE, vanilla-selectable-by-side (FACTION_PLAYER ==
-_save->getSide() at turn 1) host-owned soldiers and must NEVER land on any of
-them (a broken/missing filter WOULD let it - vanilla's own isSelectable() has
-no seat concept). The complementary "client selects only ITS OWN soldiers"
-half is vacuously true here (0 owned, 0 selected) rather than actively
-demonstrated - flagged for the orchestrator; a non-vacuous two-real-owners
-proof needs the fixture work above (candidate for a follow-up packet, not
-done here per scope discipline).
+R3-P1 shipped the lever that closes it - NewBattleState::harnessSeatOneSoldier()
+via TestServer's "newbattle_seat_soldier" (TestServer.cpp:4453), stamping ONE
+soldier on the selected craft to seat 1 BEFORE newbattle_ok generates the
+battle. drive_to_battlescape() below now calls it, exactly the way
+repro_atom_turn.py:137 / repro_atom_kneel.py:149 / test_rw_retry_cancel.py:169
+already do (WV-D18: reuse repro_atom_turn's helper set, do not invent a new
+fixture path). Observed shape at 8c53c2592: units 9..14 coop==0 (host) and
+unit 8 coop==1 (client).
+
+BOTH directions are now non-vacuous, and each has an explicit guard assertion
+in front of it so the test can NEVER pass by having nothing to select:
+  - >= 1 CLIENT-owned unit exists (the W1-P1 acceptance gate), and the
+    client's Tab-cycle actively lands on one and only ever on client-owned
+    ids;
+  - >= 1 HOST-owned unit exists, the host's Tab-cycle stays inside them, and
+    it must NEVER land on the client-owned unit - an exclusion that had
+    nothing to exclude before this packet.
+
+SECOND VACUITY FOUND AND CLOSED HERE (W1-P1, from a probe run, not assumed):
+the host's Tab presses were being swallowed. A freshly generated battle leaves
+NextTurnState + InventoryState stacked ON TOP of BattlescapeState (observed
+host stack after the briefing OK: ['BattlescapeState', 'NextTurnState',
+'InventoryState']) and Game::run() only think()s _states.back(), so
+inject_input TAB never reached BattlescapeState::btnNextSoldierClick and
+selectedId simply never moved. drive_to_battlescape() now dismisses those
+overlays with repro_atom_turn.py:161's own documented ESC helper before any
+assertion runs. (The CLIENT never sees those overlays - it loads the streamed
+blob straight into BattlescapeState - so its half was always really pressing
+keys.)
 
 Run:  python tools/coop_test/test_rw_input_gating.py
 """
@@ -57,6 +73,7 @@ import session
 FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
 COOP_SEAT_0 = 0
+COOP_SEAT_1 = 1
 
 SDLK_BACKSPACE = 8   # Options::keyBattleEndTurn default
 SDLK_TAB = 9         # Options::keyBattleNextUnit default
@@ -127,15 +144,43 @@ def bring_up_lobby(host, client, port):
     host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
 
 
-def drive_to_battlescape(host, client, host_dir, client_dir):
+def dismiss_battle_start_overlays(host, timeout=10):
+    """repro_atom_turn.py:157-161's helper, reused verbatim in shape (WV-D18).
+
+    A freshly generated battle pushes vanilla's own "Turn 1 begins"
+    (NextTurnState, closed by ANY key/click) and the pre-battle equip screen
+    (InventoryState, closed by Options::keyCancel/SDLK_ESCAPE) ON TOP of
+    BattlescapeState. Game::run() only think()s _states.back(), so until they
+    are gone an injected TAB never reaches BattlescapeState's own handlers and
+    the selection cycle this file exists to test silently does nothing.
+    HOST-only: the client loads the streamed blob straight into
+    BattlescapeState with no generation-time popups."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        st = states(host)
+        if st and st[-1] == "BattlescapeState":
+            return
+        host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE
+        time.sleep(0.3)
+    raise TimeoutError(f"host: battle-start overlays never cleared, stack={states(host)}")
+
+
+def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder):
     """Steps 5-7: BATTLE SETTINGS -> OK -> both machines in BattlescapeState.
     Same sequence test_rw_handshake.py (R4-P1) / test_rw_faction_setup.py
-    (R5-P1) already proved out."""
+    (R5-P1) already proved out, extended in W1-P1 with R3-P1's seat-1 stamp
+    (see this file's FIXTURE-COVERAGE NOTE) and the battle-start overlay
+    dismissal."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
                   lambda: (not session.has_state(host, "LobbyMenu")) or None)
     assert top_state(host) == "NewBattleState", \
         f"host should land on the NEW BATTLE setup screen, stack={states(host)}"
+
+    # W1-P1 / WV-D18: stamp ONE soldier on the selected craft to seat 1 BEFORE
+    # generation, so the client really owns a unit (repro_atom_turn.py:137).
+    seat_resp = host.ok({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1})
+    seated_holder["soldierId"] = seat_resp["soldierId"]
 
     host.ok({"cmd": "newbattle_ok"})
 
@@ -160,6 +205,10 @@ def drive_to_battlescape(host, client, host_dir, client_dir):
                   lambda: session.has_state(host, "BattlescapeState"), timeout=30)
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
+
+    dismiss_battle_start_overlays(host)
+    assert top_state(host) == "BattlescapeState", \
+        f"host should be sitting ON BattlescapeState, stack={states(host)}"
 
 
 def cycle_selected_ids(gc, presses, key=SDLK_TAB):
@@ -188,8 +237,9 @@ def test_classic_selection_gating():
     host = GameClient("host", 48794, host_dir)
     client = GameClient("client", 48795, client_dir)
     try:
+        seated = {}
         bring_up_lobby(host, client, port)
-        drive_to_battlescape(host, client, host_dir, client_dir)
+        drive_to_battlescape(host, client, host_dir, client_dir, seated)
 
         host_state = host.cmd({"cmd": "battle_state"})
         client_state = client.cmd({"cmd": "battle_state"})
@@ -207,14 +257,21 @@ def test_classic_selection_gating():
         client_own_ids = {uid for uid, u in host_units.items()
                            if u["coop"] not in (COOP_SEAT_0, COOP_SEAT_NONE)}
         assert host_own_ids, "no COOP_SEAT_0 (host-owned) units - fixture has no soldiers"
-        # See the FIXTURE-COVERAGE NOTE at the top of this file: a plain
-        # NEW BATTLE > COOP classic skirmish stamps every soldier to seat 0
-        # (Soldier::setCoop() is never called), so client_own_ids is
-        # expected to be empty here - asserted explicitly so a future
-        # fixture change that DOES populate it is noticed (this comment
-        # would then be stale) rather than silently changing what's proven.
-        print(f"NOTE: client-owned real units in this fixture: {len(client_own_ids)} "
-              f"(expected 0 - see FIXTURE-COVERAGE NOTE)")
+        # --- W1-P1 NON-VACUITY GATE (the packet's own acceptance criterion) ---
+        # Asserted BEFORE anything is claimed about selecting a client unit,
+        # so this test can never pass by having nothing to select. It is also
+        # what makes the HOST cycle's exclusion below mean something: before
+        # the seat stamp there was no non-host-owned unit to exclude.
+        assert len(client_own_ids) >= 1, \
+            f"fixture is VACUOUS: the client owns no units. The " \
+            f"newbattle_seat_soldier seat-1 stamp (soldierId=" \
+            f"{seated.get('soldierId')}) did not reach the battle - " \
+            f"units(coop)={sorted((u['id'], u['coop']) for u in host_units.values())}"
+        assert not (host_own_ids & client_own_ids), \
+            f"a unit is claimed by both seats: {sorted(host_own_ids & client_own_ids)}"
+        print(f"NON-VACUITY GATE ok: client owns {len(client_own_ids)} unit(s) "
+              f"{sorted(client_own_ids)}, host owns {len(host_own_ids)} "
+              f"{sorted(host_own_ids)}")
 
         # --- initial (pre-keypress) selection ---
         # SavedBattleGame::load() deserializes "selectedUnit" directly off the
@@ -226,12 +283,19 @@ def test_classic_selection_gating():
         # report the SAME initial selectedId below). Only the host's initial
         # selection is asserted against host_own_ids; the client's inherited
         # value is recorded, not asserted, and used as the cycle's baseline.
-        assert host_state.get("selectedId") in host_own_ids, \
-            f"host's initial selectedId={host_state.get('selectedId')} is not one " \
-            f"of its own units {sorted(host_own_ids)}"
+        # W1-P1: the host's INITIAL selection is minted at generation time,
+        # before any seat filter runs, so with a seat-1 soldier in the craft it
+        # can legitimately BE that soldier (observed at 8c53c2592: both
+        # machines start on unit 8, the seat-1 one). Same pre-existing class as
+        # the client's inherited value below (EXIT-REPORT-G5 HANDOFF item 7);
+        # D6/WV-D12's "auto-select your own first unit at entry" is W1-P6's
+        # work, not this packet's. So the initial value is RECORDED, and it is
+        # the Tab CYCLE - the thing coopMaySelectUnit()/commandsUnit() actually
+        # gates - that is asserted, on both machines.
+        host_initial_id = host_state.get("selectedId")
         client_initial_id = client_state.get("selectedId")
-        print(f"NOTE: client's inherited (blob load, pre-filter) initial selectedId="
-              f"{client_initial_id} - see the initial-selection comment above")
+        print(f"NOTE: initial (pre-filter) selectedId - host={host_initial_id}, "
+              f"client={client_initial_id}; asserted via the Tab cycles below")
 
         # --- host's Tab-cycle: never leaves its own 7-ish soldiers ---
         host_seen = cycle_selected_ids(host, len(host_own_ids) + 3)
@@ -241,6 +305,17 @@ def test_classic_selection_gating():
         assert any(sid in host_own_ids for sid in host_seen), \
             f"host's selection cycle never landed on any of its own units - filter is " \
             f"too restrictive (own set={sorted(host_own_ids)}, observed={host_seen})"
+        # W1-P1: the exclusion direction, now with something real to exclude -
+        # a live, vanilla-selectable-by-side soldier the host does NOT command.
+        host_leaked = [sid for sid in host_seen if sid in client_own_ids]
+        assert not host_leaked, \
+            f"host's selection cycle landed on the CLIENT's unit(s) {host_leaked} " \
+            f"(client set={sorted(client_own_ids)}, observed={host_seen})"
+        # It must also actually MOVE - a cycle frozen on its start value would
+        # satisfy every assertion above without exercising the filter at all.
+        assert len(set(host_seen)) > 1 or len(host_own_ids) == 1, \
+            f"host's selection cycle never advanced (observed={host_seen}) - the " \
+            f"TAB presses are not reaching BattlescapeState"
 
         # --- client's Tab-cycle: the safety-critical, non-vacuous check (see
         # the FIXTURE-COVERAGE NOTE at the top of this file). The client owns
@@ -254,19 +329,24 @@ def test_classic_selection_gating():
         # units - coopMaySelectUnit()/commandsUnit() is the ONLY thing vanilla
         # isSelectable() doesn't already provide to stop that.
         client_seen = cycle_selected_ids(client, len(host_own_ids) + 3)
-        leaked = [sid for sid in client_seen if sid in host_own_ids and sid != client_initial_id]
-        assert not leaked, f"client's selection cycle landed on a DIFFERENT host-owned " \
-            f"unit id {leaked} (started at {client_initial_id}) - " \
-            f"coopMaySelectUnit()/commandsUnit() failed to exclude it " \
-            f"(observed sequence={client_seen})"
-        assert all(sid in (client_initial_id, -1) for sid in client_seen), \
-            f"client's selection cycle produced an unexpected id outside " \
-            f"{{{client_initial_id}, -1}}: {client_seen}"
+        leaked = [sid for sid in client_seen if sid in host_own_ids]
+        assert not leaked, f"client's selection cycle landed on host-owned unit id(s) " \
+            f"{leaked} - coopMaySelectUnit()/commandsUnit() failed to exclude them " \
+            f"(host set={sorted(host_own_ids)}, observed sequence={client_seen})"
+        # --- W1-P1: the half that used to be vacuous, now ACTIVE ---
+        assert any(sid in client_own_ids for sid in client_seen), \
+            f"client's selection cycle never landed on one of its OWN units " \
+            f"{sorted(client_own_ids)} - the filter is too restrictive, or the seat " \
+            f"stamp never reached the battle (observed={client_seen})"
+        assert all(sid in client_own_ids or sid == -1 for sid in client_seen), \
+            f"client's selection cycle produced an id outside its own set " \
+            f"{sorted(client_own_ids)} + {{-1}}: {client_seen}"
 
         print(f"PASS test_classic_selection_gating: host cycle stayed within its "
-              f"{len(host_own_ids)} own unit(s) ({host_seen}); client cycle never "
-              f"advanced onto any of the {len(host_own_ids) - 1} OTHER host-owned "
-              f"units ({client_seen})")
+              f"{len(host_own_ids)} own unit(s) ({host_seen}) and never touched the "
+              f"client's {sorted(client_own_ids)}; client cycle landed ONLY on its "
+              f"own {sorted(client_own_ids)} ({client_seen}) and never on any of the "
+              f"{len(host_own_ids)} host-owned units")
 
         # --- REVIEW4 IR-13: client's End Turn button is a local no-op ---
         client_turn_before = client_state.get("turn")

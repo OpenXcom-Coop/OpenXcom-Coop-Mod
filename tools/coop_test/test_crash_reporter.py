@@ -22,7 +22,16 @@ import os, sys, time, json, glob, zipfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, EXE
 
-# RW-TRIAGE: SKIP-PENDING(R2-P9)
+# RW-TRIAGE: SKIP-PENDING(PRD-I5 rebuild)
+# W1-P1 re-point (was SKIP-PENDING(R2-P9), itself a R1-P6 relabel of a wrong
+# SKIP-PENDING(G1)). R2-P9 built the LIVE desync-bundle path; this file needs
+# the separate PRD-I5 NEXT-LAUNCH crash-prompt machinery, and none of it
+# exists at 8c53c2592: grepping src/ for CoopCrashPromptState,
+# maybeReportPreviousCrash and the crash-seen ledger returns ZERO hits (all
+# three were removed by the R1-P3 quarantine). The unlock is therefore the
+# PRD-I5 rebuild - the consent dialog + per-user crash-seen.json ledger +
+# the GoToMainMenuState::init boot hook this file's own docstring drives -
+# and NO packet in wave 1 owns it (EXIT-REPORT-G5 HANDOFF item 3).
 print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 BASE_PORT = 45999  # single control port; GameClient applies the per-slot shift

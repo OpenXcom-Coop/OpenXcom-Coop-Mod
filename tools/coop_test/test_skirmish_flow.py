@@ -38,9 +38,6 @@ import os
 import sys
 import time
 
-# RW-TRIAGE: SKIP-PENDING(R4-P1)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
 import session
@@ -343,11 +340,50 @@ def test_failed_join_clears_connecting():
         client.shutdown()
 
 
+# RW-TRIAGE: SKIP-PENDING(W1-P3) - SCOPED, and deliberately NOT at module
+# scope (W1-P1, wave 1). The old module-level guard - SKIP-PENDING(R4-P1),
+# sitting two lines ABOVE this file's own sys.path.insert - ran sys.exit(0)
+# at IMPORT time, and pvp_fixture.py:19 does "import test_skirmish_flow as
+# SK". Every module that imports pvp_fixture therefore died silently with
+# EXIT CODE 0 before reaching its first assertion - a false green waiting
+# for the first unguarded PvP test to inherit it. WV-D32 is the ruling that
+# made clearing this the wave's LEAD packet.
+#
+# R4-P1 - the phase the stale label named - HAS landed, so W1-P1 re-ran this
+# file at 8c53c2592 to find out what is actually left rather than guessing.
+# Steps 1-6 all PASS. Step 7 fails on exactly one assertion:
+#
+#   AssertionError: client left sitting on a dead lobby it cannot dismiss:
+#   ['MainMenuState', 'NewBattleState', 'ServerList', 'LobbyMenu',
+#    'BattlescapeState']
+#
+# That is NOT a stale test assumption - it is the current client
+# battle-entry shape. CoopHandshake's client entry pushes a bare
+# BattlescapeState on top of whatever stack the client was holding
+# (connectionTCP.cpp:3859-3861: "BattlescapeState* bs = new
+# BattlescapeState; game->pushState(bs);") and never tears the lobby down.
+# Ruling D3 / WV-D9 converges the client's entry flow onto the host's
+# (briefing -> map) and W1-P3 is the packet that builds it, so THAT is the
+# real unlock. The assertion stays exactly as written until then: W1-P1 is
+# hygiene - it re-points labels, it does not weaken assertions and it does
+# not fix client battle entry (scope discipline).
+#
+# The two battle-free scenarios below are blocked by none of that and were
+# confirmed green at 8c53c2592, so they RUN: a scoped skip buys back real
+# coverage the module-level guard was throwing away.
+SKIP_FULL_FLOW = True
+
+
 def main():
-    test_skirmish_full_flow()
+    if SKIP_FULL_FLOW:
+        print("SKIP-PENDING: rewrite "
+              "(test_skirmish_full_flow - W1-P3 client battle entry)")
+    else:
+        test_skirmish_full_flow()
     test_campaign_join_popup_over_lobby()
     test_failed_join_clears_connecting()
-    print("ALL SKIRMISH FLOW TESTS PASSED")
+    print("SKIRMISH FLOW: 2/3 scenarios PASSED "
+          "(test_skirmish_full_flow SKIP-PENDING(W1-P3))")
 
 
 if __name__ == "__main__":

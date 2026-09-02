@@ -2092,7 +2092,7 @@ void onIntent(const Json::Value& intent)
 		Json::Value ack = CoopWire::makeAck(iseq, actionId);
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
-		pushActionContext(actionId, "intent");
+		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		g_coopPendingChainActorId = actor->getId();
 		// R3-P1: capture the "before" state UnitTurnBState::think()'s
 		// completion/abort hook (coopOnUnitTurnFinished) needs to build the
@@ -2145,7 +2145,7 @@ void onIntent(const Json::Value& intent)
 		Json::Value ack = CoopWire::makeAck(iseq, actionId);
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
-		pushActionContext(actionId, "intent");
+		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		// R3-P2: record @a actor as this kneel's pending chain actor BEFORE
 		// calling kneel() below, so the THIN emit hook inside
 		// BattlescapeGame::kneel() itself (coopOnKneelFinished) recognizes

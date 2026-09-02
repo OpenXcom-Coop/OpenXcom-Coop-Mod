@@ -15,6 +15,8 @@ decisions ledger and Section 5 R1-P6 for the packet that produced this file.
 - Total `test_*.py` on disk: 144 (GREEN + SKIP-PENDING)
 - Total test files that existed at cbff7951d (pre-revert): 182
 
+> **AMENDED BY W1-P1 (wave 1).** The counts above are the R1-P6 snapshot and are NOT re-tallied here. Two rows were re-pointed and one file (`test_skirmish_flow.py`) now runs 2 of its 3 scenarios instead of exiting at import - see [Re-points (W1-P1, wave 1)](#re-points-w1-p1-wave-1) at the bottom of this file.
+
 Note: the packet text described the DELETED bucket as "the test_parallel_*" family; the actual accounting also found 6 more #166-introduced test files (test_battle_tripwire.py, test_coop_id_manifest.py, test_coop_outcome_gaps.py, test_coop_script_rng.py, test_shared_parallel_campaign.py, test_sync_check.py) gone for the identical reason (absent at a7106c882, present at cbff7951d, removed by the C1 revert of cbff7951d) - listed below for a complete manifest.
 
 ## GREEN
@@ -125,7 +127,7 @@ Each file carries a 2-line header guard (RB-D21): `# RW-TRIAGE: SKIP-PENDING(<un
 | `test_coop_debrief_sync.py` | r4 T2 | C2 keeper guard, verified correct (killedBy/murdererId debrief parity needs battle+debrief machinery) |
 | `test_coop_wait_banner.py` | R3-P1 | RELABELED this packet from SKIP-PENDING(R2-P6): R2-P6 built the STR table + `_txtCoopWait` widget + `CoopBattleUi` deny/cancel presenter, but this test's 5 scenarios drive the OLD P5 busy-owner banner (`getPrimaryBusyActor()`/`isBusy()` owner-latch, TestServer `parallel()` `coopWaitBanner` field, `STR_COOP_WAIT_FOR_PLAYER_ACTION`) which ADDENDUM (f) explicitly kills as dead driving logic, not the new deny/cancel presenter this packet built; needs the R3-P1 client `bt_deny` wiring (and likely a scenario rewrite against the new admission model) before it can run |
 | `test_skirmish_end_main_menu.py` | r4 T6 | C2 keeper guard, verified correct (skirmish debrief/teardown routing) |
-| `test_crash_reporter.py` | R2-P9 | RELABELED this packet from SKIP-PENDING(G1) [wrong - cannot run at G1] to SKIP-PENDING(R2-P9): needs the crash-bundle/CoopCrashPromptState machinery RB-D20 rebuilds in SharedEcon.cpp at R2-P9 |
+| `test_crash_reporter.py` | PRD-I5 rebuild | **RE-POINTED IN W1-P1** (was SKIP-PENDING(R2-P9), itself an R1-P6 relabel of a wrong SKIP-PENDING(G1)) - EXIT-REPORT-G5 HANDOFF item 3. R2-P9 built the LIVE desync-bundle path; this file drives the SEPARATE PRD-I5 NEXT-LAUNCH crash-prompt machinery, and none of it exists at 8c53c2592: `CoopCrashPromptState`, `maybeReportPreviousCrash` and the crash-seen ledger each return ZERO hits under `src/` (removed by the R1-P3 quarantine). Real unlock = the PRD-I5 rebuild (consent dialog + per-user `crash-seen.json` + the `GoToMainMenuState::init` boot hook). **No wave-1 packet owns it** - see `COOP_STRING_DISPOSITIONS.md` OPEN FOR THE OWNER, where the 6 orphaned `STR_COOP_CRASH_REPORT_*` keys land for the same reason |
 | `test_battlescape_exit_palette.py` | R4-P2 | mid-battle co-op save load + exit teardown (battle bring-up + resume) |
 | `test_battlescape_soldier_gift.py` | r3 | live in-battle soldier gift during active turns (battle-action e2e); shares mid-battle-resume setup |
 | `test_campaign_then_skirmish_debrief.py` | r5/W6 | drives a full PvP skirmish battle (gamemode 2) to debrief; groups with the PvP battle suite |
@@ -170,7 +172,7 @@ Each file carries a 2-line header guard (RB-D21): `# RW-TRIAGE: SKIP-PENDING(<un
 | `test_shared_soldier_ownership_battle.py` | R5 | bootstrap owner split reaching in-battle control (faction/gating) |
 | `test_skirmish_battle_turn_control.py` | R4-P1 | skirmish coop turn-init handshake (battle handshake/entry) |
 | `test_skirmish_debrief_disconnect.py` | r4 T6 | skirmish debrief disconnect routing; sibling of test_skirmish_end_main_menu (r4 T6) |
-| `test_skirmish_flow.py` | R4-P1 | skirmish lobby flow whose step 7 ends inside BattlescapeState (battle handshake/entry) |
+| `test_skirmish_flow.py` | W1-P3 (SCOPED - the file now RUNS) | **RE-POINTED IN W1-P1** - EXIT-REPORT-G5 HANDOFF item 4 / WV-D32. The stale `SKIP-PENDING(R4-P1)` guard sat at MODULE scope, two lines above the file's own `sys.path.insert`, so `sys.exit(0)` fired at IMPORT time - and `pvp_fixture.py:19` does `import test_skirmish_flow as SK`, so every `pvp_fixture` importer died silently with EXIT CODE 0 before its first assertion. W1-P1 removed the module guard and re-ran the file at 8c53c2592: steps 1-6 PASS; step 7 fails on one assertion - `client left sitting on a dead lobby it cannot dismiss:` `['MainMenuState', 'NewBattleState', 'ServerList', 'LobbyMenu', 'BattlescapeState']` - which is the CURRENT client battle-entry shape, not a stale assumption (`connectionTCP.cpp:3859-3861` pushes a bare BattlescapeState over the client's whole stack and never tears the lobby down). D3 / WV-D9 converges the client's entry flow onto the host's, and **W1-P3** builds it. The guard is now FUNCTION-scoped (`SKIP_FULL_FLOW`): the two battle-free scenarios (`test_campaign_join_popup_over_lobby`, `test_failed_join_clears_connecting`) RUN and are green |
 | `test_skirmish_rejoin_battle.py` | r4 T5 | issue #93 rejoin a running skirmish battle; battle_leave/rejoin reserved for r4 T5 per Section 2.1 |
 | `test_unload_weapon_crash.py` | r4/r5 | RECLASSIFIED from GREEN (would have FAILED): drives inventory_unload, stubbed identically to inventory_move at TestServer.cpp:6480 since R1-P4, same r4/r5 rebuild note |
 | `test_vote_abort_battle.py` | r3 | ABANDON MISSION vote inside a live battle (battle-action e2e) |
@@ -242,7 +244,7 @@ Three files were originally bucketed GREEN by content/docstring triage, ran, and
 - **`test_unload_weapon_crash.py`** -> `r4/r5`. Drives `inventory_unload`, stubbed identically at `TestServer.cpp:6480` for the same reason.
 - **`test_shared_landing.py`** -> `R4-P1`. Steps 1-4 (pure UX landing-broker routing) pass cleanly and repeatably; step 5 (CONFIRM) drives a real battle entry (`battle_state.inBattle` wait, both machines) and hangs forever - groups with `test_shared_battle.py`'s battle handshake/entry bucket.
 
-`test_crash_reporter.py`'s pre-existing C2 guard was also relabeled from `SKIP-PENDING(G1)` (wrong - it cannot run at G1) to `SKIP-PENDING(R2-P9)` per this packet's explicit instruction (needs the crash-bundle/CoopCrashPromptState machinery RB-D20 rebuilds in SharedEcon.cpp).
+`test_crash_reporter.py`'s pre-existing C2 guard was also relabeled from `SKIP-PENDING(G1)` (wrong - it cannot run at G1) to `SKIP-PENDING(R2-P9)` per this packet's explicit instruction (needs the crash-bundle/CoopCrashPromptState machinery RB-D20 rebuilds in SharedEcon.cpp). **SUPERSEDED BY W1-P1:** `R2-P9` was also wrong - R2-P9 shipped, the file is still blocked, and the real unlock is the PRD-I5 rebuild. See below.
 
 ## Flakes observed (not reclassified, not a regression)
 
@@ -252,3 +254,56 @@ Two different GREEN-bucket tests each failed in exactly one of the three full se
 - `test_shared_arrival_owner_labels.py` - timed out waiting for `ItemsArrivingState` in the second (92-test) run; passed in the first full run and in an isolated re-run.
 Both are `wait_for(..., timeout=...)` races against a hire/arrival or lobby event under sequential harness load (same class as the pre-existing "harness clock race" pattern behind the old test_shared_manufacture flake) and are unrelated to each other or to any r1 code change - each test's own logic is sound and its failure is not reproducible on retry.
 
+## Re-points (W1-P1, wave 1)
+
+`WAVE1-RUNBOOK.md` W1-P1 items 2 and 3 (WV-D32 makes this the wave's LEAD
+packet). Both re-points are recorded in place in the SKIP-PENDING table above;
+this section is the audit trail. Every claim below was verified at
+`8c53c2592`, not inferred.
+
+### 1. `test_crash_reporter.py`: `R2-P9` -> `PRD-I5 rebuild`
+
+- **Why the old label was wrong:** R2-P9 (hash buckets + client compare +
+  desync freeze/report) LANDED, and this file still cannot run. It does not
+  drive the live desync bundle at all - it drives the next-launch crash
+  reporter: the `GoToMainMenuState::init` boot hook, the consent dialog, and
+  the per-user `crash-seen.json` dedup ledger.
+- **Evidence:** `grep -rn "CoopCrashPromptState" src/` -> 0 hits;
+  `maybeReportPreviousCrash` -> 0 hits; `crash-seen`/`crashSeen` -> 0 hits.
+  All three were removed by the R1-P3 quarantine.
+- **Consequence recorded elsewhere:** the six `STR_COOP_CRASH_REPORT_*` keys
+  are orphaned by the same removal; they are whitelisted with the same unlock
+  in `COOP_STRING_DISPOSITIONS.md` (WV-D41), and flagged there for the owner
+  because NO wave-1 packet rebuilds PRD-I5.
+
+### 2. `test_skirmish_flow.py`: `R4-P1` (module-scope) -> `W1-P3` (scoped)
+
+- **The debt (EXIT-REPORT-G5 HANDOFF item 4):** the guard ran `sys.exit(0)` at
+  IMPORT time, ahead of the file's own `sys.path.insert`. `pvp_fixture.py:19`
+  imports this module, so importing `pvp_fixture` printed
+  `SKIP-PENDING: rewrite` and exited **0** - reproduced directly:
+  `python -c "import pvp_fixture; print('IMPORT OK')"` printed the skip line
+  and never reached the print.
+- **Scope of the blast radius, corrected:** **12** files under
+  `tools/coop_test/` actually `import pvp_fixture` (not 14 - two more,
+  `test_rw_faction_setup.py` and `test_rw_input_gating.py`, only MENTION it in
+  prose and deliberately inline their own lobby helpers). All 12 currently
+  carry their own SKIP-PENDING guard ABOVE their `import pvp_fixture` line, so
+  today the breakage is MASKED: it is a landmine for the first unguarded PvP
+  test, which is exactly why WV-D32 puts this packet first.
+- **What is actually left:** steps 1-6 pass; step 7's client-side lobby
+  teardown does not exist yet (`connectionTCP.cpp:3859-3861`). Unlock =
+  **W1-P3** (D3 / WV-D9 client battle entry).
+- **Shape of the fix:** module guard REMOVED (imports are clean again);
+  a `SKIP_FULL_FLOW` guard added at function scope with the failing stack
+  pasted into the comment. `main()` now runs the two battle-free scenarios,
+  both confirmed green. **No assertion was weakened and no client-entry code
+  was touched** (scope discipline: W1-P1 is hygiene).
+
+### Adjacent finding (NOTE, not fixed here)
+
+The client's `LobbyMenu` surviving underneath `BattlescapeState` after battle
+entry is one defect with two symptoms: it is what fails
+`test_skirmish_flow.py` step 7, and it is visible in every skirmish repro's
+client stack (e.g. `['MainMenuState', 'NewBattleState', 'ServerList',
+'LobbyMenu', 'BattlescapeState']`). W1-P3 owns it.

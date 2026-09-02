@@ -101,11 +101,12 @@ void beginHostLocalKneel(BattleUnit* actor);
 /// Pushes {actionId, origin} onto CoopMod's own action-context stack
 /// (RB-D12 - no BState code stores coop state). @a origin is one of SS2.2's
 /// origin enum strings; RB-D19's "host" is reserved for the host-seat's own
-/// direct input (R3's emit hooks). This packet's own arbiter-admitted-intent
-/// push sites use "intent" - SS2.2's frozen 7-value enum has no entry for
-/// "a validated non-host client intent" yet (see this packet's final report
-/// for the gap and why "intent" was minted as a placeholder pending an
-/// SS2.2 update).
+/// direct input (R3's emit hooks). The arbiter's own admitted-intent push
+/// sites use "intent" - a FIRST-CLASS SS2.2 origin value since WAVE1-RUNBOOK
+/// SS2.W7 / WV-D15 froze the enum as "ai | endturn | reaction | panic |
+/// script | prox | host | intent". R2-P5 minted "intent" as a placeholder
+/// ahead of that freeze (connectionTCP.cpp:2095, :2148); W1-P1 closed the
+/// gap, so the value is no longer provisional.
 void pushActionContext(std::uint32_t actionId, const char* origin);
 
 /// The actionId on top of the action-context stack, or 0 if the stack is
