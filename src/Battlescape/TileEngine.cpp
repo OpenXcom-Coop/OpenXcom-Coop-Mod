@@ -42,6 +42,7 @@
 #include "../Engine/Options.h"
 #include "ProjectileFlyBState.h"
 #include "MeleeAttackBState.h"
+#include "../CoopMod/BattleAuthority.h"
 #include "../fmath.h"
 
 namespace OpenXcom
@@ -1560,6 +1561,23 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 	else if (unit->isOut())
 	{
 		unit->clearVisibleTiles();
+		return;
+	}
+	// RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a client authority rule): per-tile
+	// `discovered` bits are GAME STATE authored EXCLUSIVELY by the host and
+	// shipped as `reveal` deltas - a thin client must never compute them, or its
+	// own sweeps would race the wire and diverge the (now unmasked) saveBlob
+	// hash. This one guarded call kills all three client-side writers below
+	// (:1645/:1649/:1651) and therefore every client entry point into them:
+	// loadMapResources()'s bring-up recalculateFOV, BattlescapeState::init ->
+	// updateSoldierInfo(checkFOV), and CoopDisplayQueue::onApplied's targeted
+	// per-unit refresh. Placed AFTER the isOut() branch above so that branch's
+	// vanilla clearVisibleTiles() bookkeeping still runs unchanged.
+	// calculateUnitsInFOV (unit visibility) is untouched - per-unit `visible`
+	// stays machine-local and is D4-excluded from saveBlob. Permissive outside a
+	// coop battle and on the host sim, so single-player is bit-identical.
+	if (isCoopBattle() && !coopBattleAuthority().hostSim)
+	{
 		return;
 	}
 	Position posSelf = unit->getPosition();

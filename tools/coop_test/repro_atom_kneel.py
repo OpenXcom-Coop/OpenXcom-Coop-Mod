@@ -61,7 +61,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
-from session import assert_hash_clean, assert_events, assert_turret_parity
+from session import (assert_hash_clean, assert_events, assert_turret_parity,
+                     assert_reveal_parity)
 
 FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
@@ -305,6 +306,11 @@ def run_ui_variant(host, client, actor_id, was_kneeled):
     assert client_unit["tu"] < before_tu, "client TU did not decrease after the faithful-UI kneel"
 
     assert_hash_clean(host, client, buckets=["unitsStats"], what="post-UI-variant")
+    # RW-REVEAL-SYNC (SS2.4a): kneeling changes the unit's eye height, so it can
+    # discover (or stop being able to see) tiles - whatever the HOST discovered
+    # must have ridden this action's own ev/action_end.
+    assert_reveal_parity(host, client, "post-UI-variant",
+                         extra_positions=[(host_unit["x"], host_unit["y"], host_unit["z"])])
     print(f"PASS run_ui_variant: real SDLK_k keypress toggled unit {actor_id}'s kneel to "
           f"{client_unit['kneeled']} via the RB-D10 btnKneelClick intercept (client sent the "
           "intent, host executed + emitted, client applied), hash-clean")
@@ -463,6 +469,14 @@ def run_burst_drain_proof(host, client, actor_a_id, actor_b_id):
 def test_atom_kneel_e2e():
     host, client, actor, soldier_ids = bring_up_qualifying_battle(seat_count=2, tag="kneel_e2e")
     try:
+        # RW-REVEAL-SYNC (SS2.4a): the host's bring-up reveals must already be on
+        # the client before the first action runs. Probed BEFORE battle_t0:
+        # assert_reveal_parity makes dozens of tile_info round trips and is TEST
+        # INSTRUMENTATION, not pipeline latency - counting it against the 5s
+        # battle-phase budget below would measure the probe, not the atom.
+        assert_reveal_parity(host, client, "at t=0 (pre-action)",
+                             extra_positions=[(actor["x"], actor["y"], actor["z"])])
+
         battle_t0 = time.time()  # battle-phase wall-clock starts once the battle is live
 
         actor_id = actor["id"]
@@ -499,6 +513,11 @@ def test_atom_kneel_e2e():
             f"{client_unit['tu']}")
 
         assert_hash_clean(host, client, buckets=["unitsStats"], what="post-kneel")
+        assert host_state.get("mapDiscoveredFloor") == client_state.get("mapDiscoveredFloor"), (
+            f"mapDiscoveredFloor differs after the e2e kneel: "
+            f"host={host_state.get('mapDiscoveredFloor')} "
+            f"client={client_state.get('mapDiscoveredFloor')} - a reveal delta this kneel's ev "
+            "should have carried (RW-REVEAL-SYNC SS2.4a) did not land")
         assert_events(client, ["kneel", "bt_action_end"])
 
         elapsed = time.time() - battle_t0
@@ -506,6 +525,13 @@ def test_atom_kneel_e2e():
               f"{client_unit['kneeled']}, TU {before_tu} -> {client_unit['tu']} on both "
               f"machines, hash-clean, battle-phase wall-clock={elapsed:.2f}s")
         assert elapsed < 5.0, f"battle-phase wall-clock {elapsed:.2f}s exceeds the 5s target"
+
+        # RW-REVEAL-SYNC per-tile check for the kneel just measured - deliberately
+        # AFTER the latency gate, same instrumentation-vs-latency reason as the
+        # pre-action probe (the cheap mapDiscoveredFloor equality inside the
+        # window already caught a missing delta).
+        assert_reveal_parity(host, client, "after the e2e kneel",
+                             extra_positions=[(client_unit["x"], client_unit["y"], client_unit["z"])])
 
         # --- kneel back down (needed as a clean baseline for the UI variant
         # and so actor_a's later burst-test state is unsurprising) ---
@@ -550,15 +576,21 @@ def test_atom_kneel_e2e():
         # host/client selections deliberately on different units - `selectedUnit`
         # is a top-level saveBlob exclusion (saveBlobExcludedTopKey,
         # SharedEcon.cpp), so that does not weaken the compare.
+        # RW-REVEAL-SYNC: the same 8 buckets are now a STRICTLY stronger claim -
+        # saveBlobMaskFowBinTiles is gone, so the per-tile `discovered` bits are
+        # inside saveBlob rather than carved out of it. assert_reveal_parity
+        # additionally covers what the hash still cannot see (void tiles, which
+        # SavedBattleGame::save skips entirely).
         n_units = assert_turret_parity(host, client, "after the whole kneel/turn burst")
+        assert_reveal_parity(host, client, "after the whole kneel/turn burst")
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after the whole kneel/turn burst (full 8/8)")
         assert len(post_h) == 8, (
             f"hash_now full returned {len(post_h)} buckets, expected 8 "
             f"({sorted(post_h)}) - the spike bucket set changed under this test")
-        print(f"PASS test_atom_kneel_e2e: directionTurret equal on all {n_units} units and "
-              f"{len(post_h)}/8 buckets (saveBlob included) EQUAL on both machines after "
-              "the whole burst")
+        print(f"PASS test_atom_kneel_e2e: directionTurret equal on all {n_units} units, fog of "
+              f"war in parity, and {len(post_h)}/8 buckets (saveBlob included, binTiles now "
+              "UNMASKED) EQUAL on both machines after the whole burst")
 
         print("PASS test_atom_kneel_e2e: ALL scenarios (e2e, UI variant, deny paths, "
               "burst/drain) passed in one session")

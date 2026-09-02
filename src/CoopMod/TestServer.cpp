@@ -168,6 +168,7 @@
 #include "BattleWire.h"
 #include "CoopArbiter.h"
 #include "CoopHandshake.h"
+#include "CoopReveal.h"
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -3435,8 +3436,14 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["error"] = "not in battlescape";
 		return true;
 	}
-	BattlescapeGame* bg = sbg->getBattleGame();
+	// RW-REVEAL-SYNC: same landmine the battle_state handler carried (see the
+	// note there) - SavedBattleGame::getBattleGame() dereferences _battleState
+	// unconditionally (SavedBattleGame.cpp:1724-1727), so this line hard-killed
+	// the process for a host parked in BriefingState (battle generated,
+	// BattlescapeState not yet pushed). `tile_info`, in particular, is legitimate
+	// introspection at exactly that moment.
 	BattlescapeState* bstate = sbg->getBattleState();
+	BattlescapeGame* bg = bstate ? sbg->getBattleGame() : nullptr;
 
 	auto findUnit = [&](int id) -> BattleUnit*
 	{
@@ -4029,7 +4036,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob"
-		&& cmd != "battle_intent" && cmd != "inject_ev")
+		&& cmd != "battle_intent" && cmd != "inject_ev"
+		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base")
 	{
 		return false;
 	}
@@ -4191,6 +4199,65 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["ok"] = true;
 			resp["seq"] = CoopEmit::lastSeqEmitted(); // the seq sendEv() just minted
 		}
+	}
+	// ----- RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a, RB-D26 discipline) -----
+	else if (cmd == "reveal_state")
+	{
+		// Read-only: how many tiles this machine currently has discovered per
+		// part, plus (host only) whether anything is still unpublished. The
+		// per-part counts are what a joint reveal-parity assert compares;
+		// `unpublished` is what proves the quiescent flush is idempotent
+		// (false once it has run, without having to infer it from seq numbers).
+		SavedGame* sg = _game->getSavedGame();
+		SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+		if (!bg)
+		{
+			resp["error"] = "reveal_state: no live battle";
+		}
+		else
+		{
+			int floor = 0, west = 0, north = 0;
+			const int n = bg->getMapSizeXYZ();
+			for (int i = 0; i < n; ++i)
+			{
+				Tile* t = bg->getTile(i);
+				if (!t) continue;
+				if (t->isDiscovered(O_FLOOR)) ++floor;
+				if (t->isDiscovered(O_WESTWALL)) ++west;
+				if (t->isDiscovered(O_NORTHWALL)) ++north;
+			}
+			resp["mapSizeXYZ"] = n;
+			resp["floor"] = floor;
+			resp["westwall"] = west;
+			resp["northwall"] = north;
+			const bool hostSim = coopBattleAuthority().hostSim.load();
+			resp["hostSim"] = hostSim;
+			// Host-only concept: the published bitmap exists solely on the
+			// authoring side. Reporting it on a client would just say "true"
+			// forever (its bitmap is empty by construction).
+			resp["unpublished"] = hostSim ? CoopReveal::hasUnpublished(bg) : false;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "reveal_drop")
+	{
+		// RB-D26 one-shot: the HOST computes and PUBLISHES its next reveal delta
+		// but does not attach it, so the client is permanently missing those
+		// bits. With the binTiles fog mask removed (SharedEcon.cpp) that is a
+		// real, hash-visible divergence - which is the whole point of the
+		// unmask. Harmless (silently cleared at teardown) if nothing follows.
+		CoopReveal::requestDropNextDelta();
+		resp["ok"] = true;
+	}
+	else if (cmd == "reveal_base")
+	{
+		// RB-D26 one-shot: the HOST's next quiescent flush ships an ABSOLUTE
+		// `base` restate instead of a sparse `add` (SS2.4a). With
+		// {"bad_n":true} it advertises a deliberately wrong n, which the client
+		// must treat as a DESYNC - freeze + bt_desync + bundle + banner - and
+		// never partially apply.
+		CoopReveal::requestBaseRestate(req.get("bad_n", false).asBool());
+		resp["ok"] = true;
 	}
 
 	return true;
@@ -5134,8 +5201,19 @@ std::string TestServer::execute(const std::string& line)
 				resp["waitBH"] = _game->getCoopMod()->_waitBH;
 				// Sub-conditions of the coop-init gate (BattlescapeState.cpp:1284) so a
 				// test can see exactly which one blocks _battleInit from ever being set.
-				resp["isBusy"] = bg->getBattleGame() ? bg->getBattleGame()->isBusy() : false;
-				resp["panicHandled"] = bg->getBattleGame() ? bg->getBattleGame()->getPanicHandled() : false;
+				// RW-REVEAL-SYNC (bug fixed in that packet, repro'd by the
+				// orchestrator 2026-09-02): SavedBattleGame::getBattleGame()
+				// dereferences _battleState UNCONDITIONALLY
+				// (SavedBattleGame.cpp:1724-1727), so the `? :` guards this line
+				// used to carry never ran - the crash happened INSIDE the
+				// condition. A host parked in BriefingState (battle generated,
+				// BattlescapeState not yet pushed) has _battleState == nullptr,
+				// and one `battle_state` probe there hard-killed the process.
+				// The null check belongs on getBattleState(), which really does
+				// return the pointer.
+				BattlescapeGame* bgame = bg->getBattleState() ? bg->getBattleGame() : nullptr;
+				resp["isBusy"] = bgame ? bgame->isBusy() : false;
+				resp["panicHandled"] = bgame ? bgame->getPanicHandled() : false;
 				resp["isPreview"] = bg->isPreview();
 				resp["clientPanicHandle"] = _game->getCoopMod()->_clientPanicHandle;
 				resp["serverOwner"] = connectionTCP::getServerOwner();

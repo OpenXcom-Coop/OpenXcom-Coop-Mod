@@ -4007,45 +4007,21 @@ bool saveBlobExcludedUnitKey(std::string_view k)
 		|| k == "summonedPlayerUnit";
 }
 
-// The per-tile "discovered" FOW bits are presentation - derived locally from
-// replicated positions, per-machine calculateFOV, never promised identical -
-// so they are a permanent carve-out, exactly like the fast `terrain` bucket
-// above already excludes them. They live PACKED inside the opaque binTiles
-// base64 blob (Tile::saveBinary's boolFields byte, Tile.cpp:207), which
-// cannot be stripped by YAML node path: decode the blob, zero the three
-// discovered bits (mask 0x07) in every tile's boolFields byte while KEEPING
-// the two ufo-door-open bits (0x18), hash the masked bytes. Layout anchored
-// to Tile::serializationKey (index, then mapDataID x4, mapDataSetID x4,
-// smoke, fire, boolFields last) + the index prefix SavedBattleGame::save
-// serializes ahead of each Tile::saveBinary record (SavedBattleGame.cpp
-// :571-572) - both unchanged vanilla, verified this packet against the
-// restored 911ca487f source (donor mechanism, re-verified not re-derived).
-bool saveBlobMaskFowBinTiles(const YAML::YamlNodeReader& node, std::vector<char>& out)
-{
-	out.clear();
-	if (node.isMap() || node.isSeq())
-		return false;
-	std::vector<char> bytes;
-	try { bytes = node.readValBase64(); }
-	catch (...) { return false; }
-	const size_t stride = Tile::serializationKey.totalBytes;
-	const size_t boolOff = (size_t)Tile::serializationKey.index
-		+ 4u * (size_t)Tile::serializationKey._mapDataID
-		+ 4u * (size_t)Tile::serializationKey._mapDataSetID
-		+ (size_t)Tile::serializationKey._smoke
-		+ (size_t)Tile::serializationKey._fire;
-	if (stride == 0 || boolOff >= stride)
-		return false;
-	const size_t records = bytes.size() / stride;
-	for (size_t r = 0; r < records; ++r)
-	{
-		unsigned char& bf = reinterpret_cast<unsigned char&>(bytes[r * stride + boolOff]);
-		bf = (unsigned char)(bf & (unsigned char)~0x07u);
-	}
-	out.swap(bytes);
-	return true;
-}
-
+// RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a): the binTiles FOW mask is GONE.
+//
+// It used to live here as saveBlobMaskFowBinTiles() - decode the packed binTiles
+// base64, zero the three `discovered` bits (mask 0x07) of every tile's
+// Tile::saveBinary boolFields byte (Tile.cpp:207) while keeping the two
+// ufo-door-open bits, and hash the masked bytes - on the premise that per-tile
+// FOW was presentation "never promised identical". Owner ruling 2026-09-02
+// reversed that premise: revealed tiles ARE game state. They are now authored
+// exclusively by the host and synced as `reveal` deltas (CoopReveal.h), and a
+// thin client's own tile-FOV sweep is suppressed (TileEngine::
+// calculateTilesInFOV), so the two machines' discovered sets must match exactly.
+// Removing the mask is what makes the saveBlob bucket VERIFY that instead of
+// hiding it: binTiles now falls through to the scalar branch below and its
+// base64 text is hashed whole, discovered bits included.
+//
 // Deterministic FNV-1a over the re-parsed node tree (keys + scalar values in
 // document order, recursing maps/seqs) - hashing the STRUCTURE, not raw emit
 // bytes, so a whitespace/quoting difference between the two builds cannot
@@ -4076,12 +4052,9 @@ void saveBlobHashTree(const YAML::YamlNodeReader& node, std::uint64_t& h, bool t
 
 			for (char ch : key) { h ^= (std::uint64_t)(unsigned char)ch; h *= FNV_PRIME; }
 
-			std::vector<char> maskedTiles;
-			if (key == "binTiles" && saveBlobMaskFowBinTiles(child, maskedTiles))
-			{
-				for (char b : maskedTiles) { h ^= (std::uint64_t)(unsigned char)b; h *= FNV_PRIME; }
-				continue;
-			}
+			// RW-REVEAL-SYNC: the "binTiles" special case (FOW mask) was removed
+			// here - see the note above saveBlobHashTree(). binTiles is now an
+			// ordinary scalar node and its base64 text is hashed whole.
 			saveBlobHashTree(child, h, false, childScope);
 		}
 	}

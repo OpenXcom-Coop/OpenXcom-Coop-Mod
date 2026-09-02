@@ -81,6 +81,7 @@
 #include "CoopHandshake.h"
 #include "CoopBattleSetup.h"
 #include "CoopApply.h"
+#include "CoopReveal.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -706,6 +707,466 @@ std::atomic<bool> g_battleFrozen{false};
 // after CoopIdMaps) - see resetCoopArbiterState()'s own doc comment.
 static void resetCoopArbiterState();
 
+// RW-REVEAL-SYNC forward declaration: defined further down, next to CoopArbiter
+// (its body needs SharedEcon::computeBattleHashes, whose only other callers live
+// there). Declared here so CoopReveal::flushQuiescent() below can stamp RB-D14's
+// h:{unitsStats} on the standalone reveal ev without splitting the CoopReveal
+// namespace across the file.
+static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save);
+
+// SS2.8's mismatch path (freeze -> bt_desync -> bundle -> banner), factored out
+// of CoopHashCheck::verify() (this file) so the SS2.4a reveal `base` n-mismatch
+// raises the IDENTICAL desync through the IDENTICAL code. Latches on
+// BattleAuthority::desyncFrozen: a battle that already desynced never reports a
+// second time (SS2.8 "NO partial repair").
+static void coopRaiseBattleDesync(const char* bucket, const std::string& expect,
+	const std::string& got, std::uint32_t seq, const std::string& kind)
+{
+	if (coopBattleAuthority().desyncFrozen.exchange(true))
+		return; // already latched, or lost a race with another envelope this tick
+
+	Log(LOG_ERROR) << "[coop-hash] DESYNC: bucket=" << bucket << " seq=" << seq
+		<< " kind=" << kind << " expect=" << expect << " got=" << got
+		<< " - freezing battle input (SS2.8, no partial repair)";
+
+	g_battleFrozen.store(true); // halts the R2-P2 apply queue too (BattlePump.h)
+
+	const std::string bundlePath = SharedEcon::writeDesyncBundle(bucket, expect, got, seq, kind);
+
+	Json::Value rep = CoopWire::makeDesync(coopBattleAuthority().battleId.load(), seq,
+		bucket, expect, got);
+	if (!bundlePath.empty())
+		rep["bundlePath"] = bundlePath;
+	CoopEmit::sendBattle(rep);
+
+	CoopBattleUi::showDesyncHalted();
+}
+
+// ===== RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a): host-authored fog of war =====
+// See CoopReveal.h for the full contract (wire shape, monotonicity, the client
+// authority rule, and why attachment lives at the CoopEmit::sendEv choke).
+namespace CoopReveal
+{
+
+namespace
+{
+
+// The HOST's published bitmap: 1 byte per tile, index order =
+// SavedBattleGame::getTileIndex, bits = Tile::saveBinary's boolFields low three
+// (1 = O_WESTWALL, 2 = O_NORTHWALL, 4 = O_FLOOR; Tile.cpp:207 - NOT the
+// makeDiscoveredScript order at Tile.cpp:1183, which is floor=1/west=2/north=4).
+//
+// TODO (RW-REVEAL-SYNC open risk 3 - MULTI-STAGE, POST-SPIKE): reveal is monotone
+// only WITHIN one battle stage. SavedBattleGame::resetTiles() is the only path
+// that CLEARS discovered bits and it runs at a stage transition, after which this
+// bitmap is stale-HIGH and every later sparse `add` would under-report. The stage
+// atom MUST, in this order: (1) reset this bitmap against the new stage's tiles
+// (seedPublished()), and (2) ship a fresh ABSOLUTE `base` restate, because a
+// client NEVER clears a bit on its own (SS2.4a) and would otherwise keep the
+// previous stage's reveals forever.
+std::vector<std::uint8_t> g_publishedReveal;
+
+// RB-D26 one-shot test levers - see CoopReveal.h.
+bool g_revealDropNext = false;
+bool g_revealBaseNext = false;
+bool g_revealBaseBadN = false;
+
+// Guards g_publishedReveal + the lever flags. Same reasoning as CoopIdMaps'
+// own g_coopIdMapsMutex (BattleAuthority.h's R4-P1 cross-thread note): the
+// battle-teardown chokepoint clearNetworkSessionQueues() -> CoopPump::reset()
+// -> CoopReveal::reset() is reachable from the UDP monitor thread, while every
+// other access here is main/pump-thread. The container cannot be made atomic,
+// so it gets a mutex taken INSIDE each public function - zero call-site changes.
+std::mutex g_revealMutex;
+
+inline std::uint8_t liveBits(const Tile* t)
+{
+	return (std::uint8_t)((t->isDiscovered(O_WESTWALL) ? 1 : 0)
+		| (t->isDiscovered(O_NORTHWALL) ? 2 : 0)
+		| (t->isDiscovered(O_FLOOR) ? 4 : 0));
+}
+
+/// Applies @a bits to @a t; returns how many parts actually flipped to
+/// discovered (log/introspection only). Never clears a bit (SS2.4a monotone).
+int applyBitsToTile(Tile* t, std::uint8_t bits)
+{
+	if (!t || !bits)
+		return 0;
+	int changed = 0;
+	if ((bits & 1) && !t->isDiscovered(O_WESTWALL))  { t->setDiscovered(true, O_WESTWALL);  ++changed; }
+	if ((bits & 2) && !t->isDiscovered(O_NORTHWALL)) { t->setDiscovered(true, O_NORTHWALL); ++changed; }
+	// Last on purpose: O_FLOOR cascades WESTWALL+NORTHWALL true (Tile.cpp:433-438),
+	// so doing it last keeps `changed` an honest count of what this delta added.
+	if ((bits & 4) && !t->isDiscovered(O_FLOOR))     { t->setDiscovered(true, O_FLOOR);     ++changed; }
+	return changed;
+}
+
+const char kB64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+std::string b64Encode(const std::vector<std::uint8_t>& in)
+{
+	std::string out;
+	out.reserve(((in.size() + 2u) / 3u) * 4u);
+	std::size_t i = 0;
+	for (; i + 3u <= in.size(); i += 3u)
+	{
+		const std::uint32_t v = ((std::uint32_t)in[i] << 16) | ((std::uint32_t)in[i + 1] << 8) | in[i + 2];
+		out += kB64[(v >> 18) & 63]; out += kB64[(v >> 12) & 63];
+		out += kB64[(v >> 6) & 63];  out += kB64[v & 63];
+	}
+	if (i + 1u == in.size())
+	{
+		const std::uint32_t v = (std::uint32_t)in[i] << 16;
+		out += kB64[(v >> 18) & 63]; out += kB64[(v >> 12) & 63]; out += "==";
+	}
+	else if (i + 2u == in.size())
+	{
+		const std::uint32_t v = ((std::uint32_t)in[i] << 16) | ((std::uint32_t)in[i + 1] << 8);
+		out += kB64[(v >> 18) & 63]; out += kB64[(v >> 12) & 63];
+		out += kB64[(v >> 6) & 63];  out += '=';
+	}
+	return out;
+}
+
+bool b64Decode(const std::string& in, std::vector<std::uint8_t>& out)
+{
+	out.clear();
+	out.reserve((in.size() / 4u) * 3u);
+	std::uint32_t acc = 0;
+	int bits = 0;
+	for (char c : in)
+	{
+		if (c == '=')
+			break;
+		if (c == '\n' || c == '\r' || c == ' ' || c == '\t')
+			continue;
+		const char* p = (c == '\0') ? nullptr : std::strchr(kB64, c);
+		if (!p)
+			return false;
+		acc = (acc << 6) | (std::uint32_t)(p - kB64);
+		bits += 6;
+		if (bits >= 8)
+		{
+			bits -= 8;
+			out.push_back((std::uint8_t)((acc >> bits) & 0xFFu));
+		}
+	}
+	return true;
+}
+
+/// Walks live-vs-published. ASSUMES g_revealMutex is held. With @a out == null
+/// this is a pure probe: it returns on the FIRST difference and publishes
+/// nothing. With @a out non-null it fills out["add"] with SS2.4a's flat
+/// [index, bits, ...] array and marks every reported bit published.
+bool computeDelta(SavedBattleGame* battle, Json::Value* out)
+{
+	if (!battle)
+		return false;
+	const int n = battle->getMapSizeXYZ();
+	if (n <= 0)
+		return false;
+	if (g_publishedReveal.size() != (std::size_t)n)
+	{
+		// Unseeded (or a differently-sized battle): publish nothing, so the very
+		// next delta carries the WHOLE live set. Bigger on the wire, still
+		// correct - reveal is monotone and idempotent (SS2.4a) - and the only
+		// way this fires is a missing seedPublished(), which must not silently
+		// desync the two machines.
+		g_publishedReveal.assign((std::size_t)n, 0u);
+	}
+
+	bool any = false;
+	Json::Value add(Json::arrayValue);
+	for (int i = 0; i < n; ++i)
+	{
+		const std::uint8_t live = liveBits(battle->getTile(i));
+		const std::uint8_t added = (std::uint8_t)(live & (std::uint8_t)~g_publishedReveal[i]);
+		if (!added)
+			continue;
+		any = true;
+		if (!out)
+			return true; // probe: one difference is the whole answer
+		add.append(i);
+		add.append((int)added);
+		g_publishedReveal[i] = (std::uint8_t)(g_publishedReveal[i] | added);
+	}
+	if (out && any)
+		(*out)["add"] = add;
+	return any;
+}
+
+/// HOST: ship an ABSOLUTE `base` restate of the whole live bitmap (SS2.4a).
+/// Test-lever-only in the spike (the stage atom is its future real caller).
+/// MUST be called WITHOUT g_revealMutex held - it goes through CoopEmit::sendEv,
+/// which re-enters attachDelta().
+void emitBaseRestate(SavedBattleGame* battle, bool badN)
+{
+	const int n = battle->getMapSizeXYZ();
+	if (n <= 0)
+		return;
+	std::vector<std::uint8_t> bytes((std::size_t)n, 0u);
+	for (int i = 0; i < n; ++i)
+		bytes[(std::size_t)i] = liveBits(battle->getTile(i));
+
+	Json::Value delta(Json::objectValue);
+	delta["base"] = b64Encode(bytes);
+	delta["n"] = badN ? (n + 1) : n;
+
+	Json::Value ev = CoopWire::makeEv(0u, 0u, "reveal");
+	ev["h"] = coopBuildUnitsStatsHash(battle); // RB-D14
+	// Set BEFORE sendEv: attachDelta() leaves an envelope that already carries
+	// an explicit restate alone.
+	ev["reveal"] = delta;
+	CoopEmit::sendEv(ev);
+
+	Log(LOG_WARNING) << "[coop-reveal] reveal_base lever fired: absolute base restate sent ("
+		<< n << " tiles, advertised n=" << (badN ? (n + 1) : n)
+		<< (badN ? " - DELIBERATELY WRONG, the client must desync" : "") << ")";
+
+	// A restate publishes everything - nothing is outstanding afterwards.
+	{
+		std::lock_guard<std::mutex> lock(g_revealMutex);
+		g_publishedReveal.swap(bytes);
+	}
+}
+
+} // namespace
+
+void seedPublished(SavedBattleGame* battle)
+{
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	g_publishedReveal.clear();
+	if (!battle)
+		return;
+	const int n = battle->getMapSizeXYZ();
+	if (n <= 0)
+		return;
+	g_publishedReveal.resize((std::size_t)n, 0u);
+	int floors = 0;
+	int voidCarried = 0;
+	for (int i = 0; i < n; ++i)
+	{
+		Tile* t = battle->getTile(i);
+		// TRACED 2026-09-02 (first RW-REVEAL-SYNC harness run: host live 1892
+		// discovered floors vs client 1242 after a clean apply): "published"
+		// means "the client already has it", and the client gets its baseline
+		// from the BLOB - which does NOT carry every live bit. SavedBattleGame::
+		// save() SKIPS void tiles entirely (SavedBattleGame.cpp:568-580, guard
+		// `!_tiles[i].isVoid()`), and TileEngine::calculateTilesInFOV happily
+		// marks empty AIR tiles along a line of sight discovered
+		// (TileEngine.cpp:1645). Seeding those as published would strand them
+		// forever: they are not in the blob and no later delta would report
+		// them, because reveal is monotone (a bit already published is never
+		// re-sent). Seed void tiles as ZERO instead - the host's very first
+		// delta then re-ships them, and the two machines' live discovered sets
+		// converge exactly. (Void tiles are also invisible to the saveBlob
+		// hash for the same serialization reason, so this divergence class was
+		// NOT hash-detectable - mapDiscoveredFloor equality is.)
+		const std::uint8_t bits = t->isVoid() ? (std::uint8_t)0 : liveBits(t);
+		g_publishedReveal[i] = bits;
+		if (bits & 4)
+			++floors;
+		if (t->isVoid() && liveBits(t))
+			++voidCarried;
+	}
+	Log(LOG_INFO) << "[coop-reveal] published bitmap seeded at the handshake blob snapshot ("
+		<< n << " tiles, " << floors << " serialized floors already discovered, "
+		<< voidCarried << " discovered VOID tiles deliberately left unpublished - the blob "
+		"does not carry them, so the first delta must)";
+}
+
+bool hasUnpublished(SavedBattleGame* battle)
+{
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	return computeDelta(battle, nullptr);
+}
+
+bool attachDelta(SavedBattleGame* battle, Json::Value& env)
+{
+	if (env.isMember("reveal"))
+		return false; // an explicit restate the caller built (emitBaseRestate)
+
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+
+	Json::Value delta(Json::objectValue);
+	if (!computeDelta(battle, &delta))
+		return false;
+
+	if (g_revealDropNext)
+	{
+		// RB-D26 reveal_drop: the delta was computed AND published (so it is
+		// never re-sent) but deliberately not attached. The client is then
+		// permanently missing those bits - which, with the binTiles fog mask
+		// removed, is exactly what the saveBlob bucket must now catch.
+		g_revealDropNext = false;
+		Log(LOG_WARNING) << "[coop-reveal] reveal_drop lever fired: dropped one reveal delta ("
+			<< (delta["add"].size() / 2) << " tiles) - the client will never receive it";
+		return false;
+	}
+
+	Log(LOG_INFO) << "[coop-reveal] attached reveal delta (" << (delta["add"].size() / 2u)
+		<< " tiles) to " << env.get("state", "?").asString() << " kind="
+		<< env.get("kind", "-").asString();
+
+	env["reveal"] = delta;
+	return true;
+}
+
+void flushQuiescent()
+{
+	if (!isCoopBattle())
+		return;
+	if (!coopBattleAuthority().hostSim)
+		return;
+
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!battle)
+		return;
+
+	// No coop action context open: SS2.4a's standalone ev is the carrier for
+	// reveals OUTSIDE an action; an in-context reveal rides that action's own
+	// ev/action_end through attachDelta() at the emit choke.
+	if (CoopArbiter::currentActionId() != 0)
+		return;
+
+	// Chain quiescent. NOTE the null check is on getBattleState(), never on
+	// getBattleGame(): SavedBattleGame::getBattleGame() dereferences
+	// _battleState unconditionally (SavedBattleGame.cpp:1724-1727), and the HOST
+	// legitimately sits in BriefingState - battle generated, phase already
+	// Active (onReady), NO BattlescapeState - for the whole window between
+	// battle_ready and its own OK click.
+	BattlescapeGame* bg = battle->getBattleState() ? battle->getBattleGame() : nullptr;
+	if (bg && bg->isBusy())
+		return;
+
+	bool wantBase = false;
+	bool badN = false;
+	{
+		std::lock_guard<std::mutex> lock(g_revealMutex);
+		if (g_revealBaseNext)
+		{
+			wantBase = true;
+			badN = g_revealBaseBadN;
+			g_revealBaseNext = false;
+			g_revealBaseBadN = false;
+		}
+	}
+	if (wantBase)
+	{
+		emitBaseRestate(battle, badN); // fires even with nothing unpublished
+		return;
+	}
+
+	if (!hasUnpublished(battle))
+		return; // idempotent: a second quiescent tick emits no second ev
+
+	Json::Value ev = CoopWire::makeEv(0u, 0u, "reveal"); // actionId 0: no action chain
+	ev["h"] = coopBuildUnitsStatsHash(battle); // RB-D14
+	CoopEmit::sendEv(ev); // stamps the real seq AND attaches the delta at the choke
+}
+
+void applyFrom(SavedBattleGame* battle, const Json::Value& env)
+{
+	if (!battle || !env.isMember("reveal") || !env["reveal"].isObject())
+		return;
+
+	const Json::Value& d = env["reveal"];
+	const int n = battle->getMapSizeXYZ();
+	const std::uint32_t seq = env.get("seq", 0u).asUInt();
+	const std::string kind = env.isMember("kind")
+		? env.get("kind", "?").asString()
+		: env.get("state", "?").asString();
+
+	if (d.isMember("base"))
+	{
+		const int advertised = d.get("n", -1).asInt();
+		if (advertised != n)
+		{
+			// SS2.4a: "n MUST equal the receiver's getMapSizeXYZ(); mismatch =
+			// desync (freeze + bt_desync), never partial apply."
+			Log(LOG_ERROR) << "[coop-reveal] base restate advertises n=" << advertised
+				<< " but this machine's map is " << n << " tiles - DESYNC, nothing applied";
+			coopRaiseBattleDesync("reveal", std::to_string(advertised), std::to_string(n), seq, kind);
+			return;
+		}
+		std::vector<std::uint8_t> bytes;
+		if (!b64Decode(d["base"].asString(), bytes) || (int)bytes.size() != n)
+		{
+			Log(LOG_ERROR) << "[coop-reveal] base restate payload decoded to "
+				<< bytes.size() << " bytes, expected " << n << " - DESYNC, nothing applied";
+			coopRaiseBattleDesync("reveal", std::to_string(n),
+				std::to_string((int)bytes.size()), seq, kind);
+			return;
+		}
+		int applied = 0;
+		for (int i = 0; i < n; ++i)
+			applied += applyBitsToTile(battle->getTile(i), bytes[(std::size_t)i]);
+		Log(LOG_INFO) << "[coop-reveal] applied base restate at seq " << seq << " ("
+			<< n << " tiles, " << applied << " parts newly discovered)";
+		return;
+	}
+
+	if (!d.isMember("add") || !d["add"].isArray())
+		return;
+
+	const Json::Value& add = d["add"];
+	if ((add.size() % 2u) != 0u)
+	{
+		Log(LOG_ERROR) << "[coop-reveal] malformed reveal add[] (odd length " << add.size()
+			<< ") at seq " << seq << " - ignored";
+		return;
+	}
+
+	int applied = 0;
+	int skipped = 0;
+	for (Json::ArrayIndex k = 0; k + 1u < add.size(); k += 2u)
+	{
+		const int idx = add[k].asInt();
+		const int bits = add[k + 1u].asInt();
+		if (idx < 0 || idx >= n)
+		{
+			++skipped;
+			continue;
+		}
+		applied += applyBitsToTile(battle->getTile(idx), (std::uint8_t)bits);
+	}
+	if (skipped > 0)
+	{
+		Log(LOG_ERROR) << "[coop-reveal] " << skipped << " reveal index/indices out of range "
+			"(this machine's map is " << n << " tiles) at seq " << seq
+			<< " - the two machines' maps differ";
+	}
+	if (add.size() > 0)
+	{
+		Log(LOG_INFO) << "[coop-reveal] applied add delta at seq " << seq << " ("
+			<< (add.size() / 2u) << " tiles, " << applied << " parts newly discovered)";
+	}
+}
+
+void reset()
+{
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	g_publishedReveal.clear();
+	g_revealDropNext = false;
+	g_revealBaseNext = false;
+	g_revealBaseBadN = false;
+}
+
+void requestDropNextDelta()
+{
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	g_revealDropNext = true;
+}
+
+void requestBaseRestate(bool badN)
+{
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	g_revealBaseNext = true;
+	g_revealBaseBadN = badN;
+}
+
+} // namespace CoopReveal
+
 namespace CoopPump
 {
 
@@ -801,6 +1262,7 @@ void reset()
 	g_battleTxDrainEvents.store(0); // R2-P11
 	resetCoopArbiterState(); // R2-P5: action-context stack, actionId mint, deny-tick map
 	CoopEventLog::reset(); // R2-P11
+	CoopReveal::reset(); // RW-REVEAL-SYNC: published fog bitmap + its one-shot test levers
 }
 
 } // namespace CoopPump
@@ -880,6 +1342,15 @@ void sendBattle(Json::Value& msg)
 
 void sendEv(Json::Value ev)
 {
+	// RW-REVEAL-SYNC (SS2.4a): THE single attachment point for host-authored fog
+	// of war. Because every host emit - bt_ev of ANY kind and bt_action_end
+	// alike - funnels through this one function, diffing here absorbs every
+	// reveal writer (present and future, in-action or not) with zero per-atom
+	// code. Host-only: a client never authors discovered bits (CoopReveal.h's
+	// client authority rule).
+	if (isCoopBattle() && coopBattleAuthority().hostSim)
+		CoopReveal::attachDelta(connectionTCP::getStaticBattle(), ev);
+
 	ev["seq"] = nextSeq();
 
 	// R2-P11 (RB-D32): HOST-side event-ring record point - see BattlePump.h's
@@ -2045,6 +2516,16 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 	const std::string kind = ev.get("kind", "").asString();
 
+	if (kind == "reveal")
+	{
+		// RW-REVEAL-SYNC (SS2.4a): the standalone reveal carrier has NO `unit`
+		// field and no payload of its own - its entire state effect is the
+		// envelope-level `reveal` object, already applied by
+		// CoopDisplayQueue::onApplied() before it reached here. A known kind,
+		// deliberately not an RW-UNSUPPORTED warning.
+		return;
+	}
+
 	if (kind != "turn" && kind != "kneel")
 	{
 		// RB-D32 corollary: an unknown ev kind (inject_ev's own spike test
@@ -2162,6 +2643,12 @@ void onApplied(const Json::Value& ev)
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
 	if (!save)
 		return;
+
+	// RW-REVEAL-SYNC (SS2.4a): the envelope-level `reveal` field rides bt_ev of
+	// ANY kind AND bt_action_end, so it is applied HERE - before the state
+	// branch below, whose bt_action_end arm returns early. Presence-gated: a
+	// no-op for every envelope that carries no reveal.
+	CoopReveal::applyFrom(save, ev);
 
 	const std::string state = ev.get("state", "").asString();
 
@@ -2724,6 +3211,16 @@ void offerBattle(Game* game, int gamemode)
 	// generated SavedGame blob, which contains the active SavedBattleGame.
 	game->getSavedGame()->saveCoopToMemory("battlehost", game->getMod(), "battlehost");
 
+	// RW-REVEAL-SYNC (SS2.4a): seed the published fog bitmap from the very state
+	// the blob just froze, so the host's first `reveal` delta carries exactly
+	// what it discovered AFTER the client's copy was taken (the orchestrator's
+	// 2026-09-02 gap probe measured ~500 floors revealed between this line and
+	// the host's own battlescape bring-up - the standalone quiescent flush is
+	// load-bearing, not a nicety). Called EXPLICITLY rather than behind an
+	// isCoopBattle() guard: phase is still Handshake here (initBattleAuthority()
+	// above), so isCoopBattle() is false at this point (BattleAuthority.h).
+	CoopReveal::seedPublished(battle);
+
 	std::string blob;
 	{
 		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
@@ -3241,28 +3738,14 @@ void verify(const Json::Value& evOrEnd)
 			continue;
 
 		// SS2.8 hard-fail: freeze, report, NO partial repair - stop comparing
-		// (even other carried buckets) at the FIRST mismatch.
-		if (coopBattleAuthority().desyncFrozen.exchange(true))
-			return; // lost a race with another envelope on this same tick - already latched
-
-		const std::uint32_t battleId = coopBattleAuthority().battleId.load();
+		// (even other carried buckets) at the FIRST mismatch. RW-REVEAL-SYNC
+		// moved the freeze/report/bundle/banner body itself into the file-local
+		// coopRaiseBattleDesync() helper (near CoopReveal) so the SS2.4a reveal
+		// `base` n-mismatch raises the IDENTICAL desync; the desyncFrozen latch
+		// (and the lost-race early return) lives inside it now.
 		const std::uint32_t seq = evOrEnd.get("seq", 0u).asUInt();
 		const std::string kind = evOrEnd.get("kind", "?").asString();
-
-		Log(LOG_ERROR) << "[coop-hash] DESYNC: bucket=" << bucketName << " seq=" << seq
-			<< " kind=" << kind << " expect=" << expect << " got=" << got
-			<< " - freezing battle input (SS2.8, no partial repair)";
-
-		g_battleFrozen.store(true); // halts the R2-P2 apply queue too (BattlePump.h)
-
-		const std::string bundlePath = SharedEcon::writeDesyncBundle(bucketName, expect, got, seq, kind);
-
-		Json::Value rep = CoopWire::makeDesync(battleId, seq, bucketName.c_str(), expect, got);
-		if (!bundlePath.empty())
-			rep["bundlePath"] = bundlePath;
-		CoopEmit::sendBattle(rep);
-
-		CoopBattleUi::showDesyncHalted();
+		coopRaiseBattleDesync(bucketName.c_str(), expect, got, seq, kind);
 		return;
 	}
 }
@@ -5026,6 +5509,16 @@ void connectionTCP::updateCoopTask()
 	{
 		CoopPump::drainApplyQueue();
 	}
+
+	// RW-REVEAL-SYNC (SS2.4a): the HOST's standalone quiescent reveal flush.
+	// Self-guarded (host sim + phase Active + no open action context + quiescent
+	// BState chain + something actually unpublished), so this stays a single
+	// unconditional call at RB-D5's own pump point - the same tick that already
+	// drains the client queue above. It is deliberately NOT inside the drain's
+	// SavedBattleGame gate: the flush needs to run on the HOST while it is still
+	// parked in BriefingState (battle generated, phase Active, no
+	// BattlescapeState) too.
+	CoopReveal::flushQuiescent();
 
 	// coop
 	// UNABLE TO CONNECT TO SERVER

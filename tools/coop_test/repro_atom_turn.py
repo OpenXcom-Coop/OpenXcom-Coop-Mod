@@ -55,7 +55,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
-from session import assert_hash_clean, assert_events, assert_turret_parity
+from session import (assert_hash_clean, assert_events, assert_turret_parity,
+                     assert_reveal_parity, host_reveal_emits)
 
 FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
@@ -244,6 +245,15 @@ def bring_up_qualifying_battle():
     raise RuntimeError(f"repro_atom_turn: no qualifying fixture found in {MAX_REROLLS} boots")
 
 
+def neighbourhood(unit, radius=1):
+    """The (x, y, z) tiles around `unit` - handed to assert_reveal_parity as
+    extra probe positions so the per-tile fog check covers exactly the tiles a
+    turn is most likely to have just revealed, not only the even spread."""
+    return [(unit["x"] + dx, unit["y"] + dy, unit["z"])
+            for dx in range(-radius, radius + 1)
+            for dy in range(-radius, radius + 1)]
+
+
 def assert_turn_parity(host, client, what):
     """RW-FIX-TURN: `battle_state.turn` must read 1 on BOTH machines once the
     host's battle-start overlays are dismissed. The host reaches 1 through
@@ -341,9 +351,56 @@ def run_ui_variant(host, client, actor_id, current_dir):
         "client TU did not decrease after the faithful-UI turn"
 
     assert_hash_clean(host, client, buckets=["unitsStats"], what="post-UI-variant")
+    # RW-REVEAL-SYNC: a turn re-aims the FOV cone, so the host discovers tiles -
+    # they must have ridden this very action's ev/action_end (SS2.4a attaches at
+    # the CoopEmit::sendEv choke) and left the two machines identical.
+    assert_reveal_parity(host, client, "post-UI-variant",
+                         extra_positions=neighbourhood(client_unit))
     print(f"PASS run_ui_variant: real right-click turned unit {actor_id} to dir {ui_to_dir} "
           f"via the RB-D10 secondaryAction intercept (client sent the intent, host executed "
-          "+ emitted, client applied), hash-clean")
+          "+ emitted, client applied), hash-clean, fog of war in parity")
+
+
+def run_no_reveal_case(host, client, actor_id, back_to_dir):
+    """RW-REVEAL-SYNC presence-gating (SS2.4a: `reveal` is "omitted when nothing
+    was revealed"): an action that discovers NOTHING must attach no reveal field
+    at all. Driven by turning the actor BACK to a facing it has already held -
+    every tile in that cone is already discovered, and reveal is monotone, so
+    the diff at the CoopEmit::sendEv choke is empty.
+
+    DISCLOSED DEVIATION from the anchor pack's literal recipe (see this
+    packet's report): the pack asks for a TURRET-ONLY turn here, to guard
+    TileEngine.cpp:1547's `Options::strafe && getTurretType() > -1` turret-cone
+    branch. On this fixture that case is vacuous AND risky: every unit is a
+    plain soldier with getTurretType() == -1 (the same fact RW-FIX-TURRET's own
+    applier fix rests on), so :1547 never takes the turret branch, and a
+    turret-only UnitTurnBState on a turret-less unit has no vanilla guarantee of
+    ever reaching its target facing - i.e. a possible non-terminating chain in a
+    test. This variant proves the same property (no reveal traffic when nothing
+    was revealed) on a case the fixture can actually execute.
+
+    Observed through the HOST's own log rather than the event ring: CoopEventLog
+    is a fixed POD struct and deliberately carries no payload (BattlePump.h)."""
+    emits_before = host_reveal_emits(host)
+    baseline = event_seq_baseline(client)
+    client.ok({"cmd": "battle_intent", "kind": "turn", "actor": actor_id, "toDir": back_to_dir})
+    wait_settled(host, client, baseline)
+
+    unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
+    assert unit["direction"] == back_to_dir, (
+        f"the no-reveal turn did not land: unit {actor_id} direction={unit['direction']}, "
+        f"expected {back_to_dir}")
+
+    emits_after = host_reveal_emits(host)
+    assert emits_after == emits_before, (
+        f"a turn back to an ALREADY-FACED direction attached {emits_after - emits_before} "
+        "reveal delta(s) - SS2.4a's presence gating is broken (an empty diff must attach "
+        "nothing at all)")
+    assert_reveal_parity(host, client, "after the no-reveal turn",
+                         extra_positions=neighbourhood(unit))
+    print(f"PASS run_no_reveal_case: turning unit {actor_id} back to dir {back_to_dir} revealed "
+          f"nothing and attached NO reveal field (host reveal-delta count stayed at "
+          f"{emits_after}) - SS2.4a presence gating holds")
 
 
 def run_deny_path(client, host_state, seated_soldier_id):
@@ -373,6 +430,18 @@ def run_deny_path(client, host_state, seated_soldier_id):
 def test_atom_turn_e2e():
     host, client, actor, soldier_id = bring_up_qualifying_battle()
     try:
+        # RW-REVEAL-SYNC (SS2.4a): fog of war is GAME STATE now - the host's
+        # bring-up reveals (several hundred tiles past the handshake snapshot,
+        # plus the void-tile baseline the blob cannot carry at all) must already
+        # be on the client before the first action runs.
+        #
+        # Probed BEFORE battle_t0 on purpose: assert_reveal_parity makes dozens
+        # of tile_info round trips (~2-3s in this harness) and is TEST
+        # INSTRUMENTATION, not pipeline latency - counting it against the 5s
+        # battle-phase budget below would measure the probe, not the atom.
+        assert_reveal_parity(host, client, "at t=0 (pre-action)",
+                             extra_positions=neighbourhood(actor))
+
         battle_t0 = time.time()  # battle-phase wall-clock starts once the battle is live
 
         actor_id = actor["id"]
@@ -427,6 +496,11 @@ def test_atom_turn_e2e():
 
         assert_hash_clean(host, client, buckets=["unitsStats"], what="post-turn")
         assert_turret_parity(host, client, "after the e2e turn")
+        assert host_state.get("mapDiscoveredFloor") == client_state.get("mapDiscoveredFloor"), (
+            f"mapDiscoveredFloor differs after the e2e turn: "
+            f"host={host_state.get('mapDiscoveredFloor')} "
+            f"client={client_state.get('mapDiscoveredFloor')} - the reveal delta this turn's ev "
+            "should have carried (RW-REVEAL-SYNC SS2.4a) did not land")
 
         assert_events(client, ["turn", "bt_action_end"])
 
@@ -436,9 +510,21 @@ def test_atom_turn_e2e():
               f"battle-phase wall-clock={elapsed:.2f}s")
         assert elapsed < 5.0, f"battle-phase wall-clock {elapsed:.2f}s exceeds the 5s target"
 
+        # RW-REVEAL-SYNC per-tile check for the turn just measured - deliberately
+        # AFTER the latency gate above, for the same instrumentation-vs-latency
+        # reason as the pre-action probe (the cheap mapDiscoveredFloor equality
+        # inside the window already caught a missing delta).
+        assert_reveal_parity(host, client, "after the e2e turn",
+                             extra_positions=neighbourhood(client_unit))
+
         # --- ONE faithful-UI variant: proves the RB-D10 secondaryAction
         # intercept end-to-end via a real right-click ---
         run_ui_variant(host, client, actor_id, client_unit["direction"])
+
+        # --- RW-REVEAL-SYNC presence gating: an action that reveals nothing
+        # must attach no `reveal` field (turn back to the actor's ORIGINAL
+        # facing, whose cone is by now fully discovered) ---
+        run_no_reveal_case(host, client, actor_id, from_dir)
 
         # --- deny path: client intents a HOST-owned unit ---
         run_deny_path(client, host_state, soldier_id)
@@ -457,24 +543,31 @@ def test_atom_turn_e2e():
         # t=0) ---
         # HISTORY (why this assert used to be 7/7): after the RW-FIX-TURN
         # counter mirror landed, saveBlob still diverged post-action. The
-        # first attribution (per-tile FOV `discovered` bits) was WRONG - the
-        # orchestrator's 2026-09-02 probes showed `hash_now full` 8/8 EQUAL
-        # pre-action while mapDiscoveredFloor already read host=1044 vs
-        # client=538, i.e. saveBlobMaskFowBinTiles (SharedEcon.cpp) already
-        # masks those bits out of the hash. A save_game diff of both machines
-        # then produced exactly ONE non-excluded differing line:
+        # first attribution (per-tile FOV `discovered` bits) was WRONG at the
+        # time - the orchestrator's 2026-09-02 probes showed `hash_now full`
+        # 8/8 EQUAL pre-action while mapDiscoveredFloor already read host=1044
+        # vs client=538, because saveBlobMaskFowBinTiles (SharedEcon.cpp) was
+        # still masking those bits out of the hash. A save_game diff of both
+        # machines then produced exactly ONE non-excluded differing line:
         # `directionTurret` (host=0, client=2 after two rotations). Fixed in
         # RW-FIX-TURRET (emit carries turretFrom/turretTo on every turn ev;
         # the applier writes the body facing without dragging the turret and
-        # takes the turret only from the ev) - so saveBlob is back IN scope
-        # here and this assert is a full 8/8 again.
+        # takes the turret only from the ev) - so saveBlob came back IN scope
+        # and this assert became a full 8/8 again.
+        # RW-REVEAL-SYNC then REMOVED that mask: the discovered bits are inside
+        # this 8/8 now, not carved out of it, so the same 8 buckets are a
+        # strictly stronger statement than they were an hour ago. (The one thing
+        # the hash still cannot see is a VOID tile's bits - SavedBattleGame::save
+        # skips void tiles entirely - which is why assert_reveal_parity's
+        # aggregate counts run alongside it.)
         assert_turn_parity(host, client, "after all actions")
         n_units = assert_turret_parity(host, client, "after all actions")
+        assert_reveal_parity(host, client, "after all actions")
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after all actions (RW-FIX-TURRET, full 8/8)")
         print(f"PASS test_atom_turn_e2e: turn 1/1, directionTurret equal on all {n_units} "
-              f"units, and {len(post_h)}/8 buckets (saveBlob included) EQUAL on both "
-              "machines after all actions")
+              f"units, fog of war in parity, and {len(post_h)}/8 buckets (saveBlob included, "
+              "binTiles now UNMASKED) EQUAL on both machines after all actions")
         assert len(post_h) == 8, (
             f"hash_now full returned {len(post_h)} buckets, expected 8 "
             f"({sorted(post_h)}) - the spike bucket set changed under this test")

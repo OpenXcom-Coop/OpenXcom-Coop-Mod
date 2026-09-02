@@ -790,3 +790,79 @@ def assert_turret_parity(host, client, what="", unit_ids=None):
         f"(host, client) = {bad} - the client applier dragged the turret along "
         "with the body facing again (RW-FIX-TURRET)")
     return len(ids)
+
+
+def assert_reveal_parity(host, client, what="", samples=24, extra_positions=()):
+    """RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a): the two machines' per-tile
+    fog of war must be IDENTICAL - the host is the sole author of `discovered`
+    bits and a thin client never computes tile FOV of its own
+    (TileEngine::calculateTilesInFOV is suppressed on hostSim==false).
+
+    Three layers, cheapest first:
+      1. aggregate per-part counts (`reveal_state`) - catches any drift,
+         including on VOID tiles, which SavedBattleGame::save skips entirely
+         and which the saveBlob hash therefore CANNOT see;
+      2. the host has nothing left unpublished (its quiescent flush drained);
+      3. per-part `isDiscovered` equality via `tile_info` on a deterministic
+         spread of tile indices plus any caller-supplied `extra_positions`
+         (x, y, z) tuples, e.g. the acting unit's own neighbourhood - per-TILE
+         evidence, not just matching totals.
+
+    Lives here next to assert_hash_clean/assert_turret_parity: every rewrite
+    repro that drives an action needs it. Returns the host's reveal_state dict.
+    """
+    tag = f" {what}" if what else ""
+    hr = host.cmd({"cmd": "reveal_state"})
+    cr = client.cmd({"cmd": "reveal_state"})
+    assert hr.get("ok") and cr.get("ok"), \
+        f"reveal_state unusable{tag}: host={hr} client={cr}"
+    assert hr["mapSizeXYZ"] == cr["mapSizeXYZ"], (
+        f"map size differs{tag}: host={hr['mapSizeXYZ']} client={cr['mapSizeXYZ']}")
+
+    for part in ("floor", "westwall", "northwall"):
+        assert hr[part] == cr[part], (
+            f"discovered {part} count MISMATCH{tag}: host={hr[part]} client={cr[part]} "
+            f"(of {hr['mapSizeXYZ']} tiles) - the host's reveals did not reach the client, "
+            "or the client authored fog of war of its own")
+
+    assert hr["unpublished"] is False, (
+        f"host still has UNPUBLISHED reveal bits{tag}: {hr} - CoopReveal::flushQuiescent "
+        "never drained them, so the client is (silently) behind")
+
+    n = hr["mapSizeXYZ"]
+    probes = [{"index": i}
+              for i in list(range(0, n, max(1, n // max(1, samples))))[:samples]]
+    probes += [{"x": int(p[0]), "y": int(p[1]), "z": int(p[2])} for p in extra_positions]
+    parts = ("floor", "westwall", "northwall")
+    bad = []
+    for probe in probes:
+        req = dict(probe); req["cmd"] = "tile_info"
+        ht = host.cmd(req)
+        ct = client.cmd(req)
+        if not ht.get("ok") or not ct.get("ok"):
+            continue
+        for p in parts:
+            hd = ht["parts"][p]["isDiscovered"]
+            cd = ct["parts"][p]["isDiscovered"]
+            if hd != cd:
+                bad.append((probe, p, hd, cd))
+    assert not bad, (
+        f"tile_info per-part isDiscovered MISMATCH{tag} on {len(bad)} (tile, part) pair(s) "
+        f"out of {len(probes)} probed tiles: {bad[:12]}")
+
+    return hr
+
+
+def host_reveal_emits(host):
+    """How many reveal deltas the HOST has attached to an outgoing envelope so
+    far this process, read straight out of its own log. The event ring
+    (CoopEventLog) is a fixed POD struct and deliberately carries no payload,
+    so this is the only way to assert "this action emitted NO reveal field" -
+    which is exactly what SS2.4a's presence-gating promises for an action that
+    discovered nothing."""
+    path = os.path.join(host.user_dir, "openxcom.log")
+    try:
+        with open(path, "r", errors="replace") as f:
+            return sum(1 for ln in f if "[coop-reveal] attached reveal delta" in ln)
+    except OSError:
+        return 0

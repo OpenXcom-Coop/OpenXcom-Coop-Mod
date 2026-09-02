@@ -1,7 +1,8 @@
 {
   "boot_check": 11.8,
   "repro_atom_kneel": 55.0,
-  "repro_atom_turn": 25.0,
+  "repro_atom_turn": 35.0,
+  "repro_reveal_sync": 80.0,
   "test_battle_tripwire": 24.6,
   "test_bug_fixes": 7.8,
   "test_client_zero_disk": 15.5,
