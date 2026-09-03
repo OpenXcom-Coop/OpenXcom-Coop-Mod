@@ -3475,6 +3475,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
 		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "map_tile_screen_pos"
+		&& cmd != "map_tile_click_pos"
 		&& cmd != "battle_ui_press")
 	{
 		return false;
@@ -3874,6 +3875,147 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "map_tile_click_pos")
+	{
+		// W1-P6 (test-only): the exact WINDOW pixel to feed
+		// `inject_input kind=click` so that BattlescapeState::mapClick lands on
+		// the REQUESTED tile. map_tile_screen_pos alone is not enough, and the
+		// three reasons are all real - each was observed while building W1-P6's
+		// acceptance, and each made a naive click silently hit the wrong tile,
+		// which is exactly the vacuity a "nothing happened" assertion must not
+		// be allowed to inherit:
+		//   1. mapClick does NOT project the click itself - it reads
+		//      Map::getSelectorPosition() (BattlescapeState.cpp:1109), which
+		//      Map::mouseOver set via setSelectorPosition() ->
+		//      convertScreenToMap(mx, my + spriteHeight/4) (Map.cpp:2007). That
+		//      is NOT the inverse of convertVoxelToScreen, so the projected
+		//      point and the point that selects the tile differ.
+		//   2. inject_input pushes WINDOW pixels, while the camera works in the
+		//      Map surface's own base coordinates. Screen::getXScale() is 2 in
+		//      the harness's 640x400 window (proved by click_widget, which
+		//      reports base(160,100) -> win(320,200)).
+		//   3. a point over the icons panel is swallowed by mapClick's
+		//      `if (_mouseOverIcons) return;` (:1102), and after HOME the
+		//      selected unit can sit close to that boundary.
+		// So: SEARCH the neighbourhood of the projected point for a base
+		// coordinate that really round-trips to the requested tile THROUGH THE
+		// PRODUCTION PATH (setSelectorPosition/getSelectorPosition, so the
+		// spriteHeight fudge and the view level are vanilla's own), convert the
+		// winner to window pixels, and re-verify through Action's exact
+		// (win - blackBand) / scale math.
+		// `verified` false = "this tile cannot be clicked right now" (off view,
+		// or under the icons). A caller MUST treat that as a fixture problem,
+		// never as a gate result.
+		if (!bstate)
+		{
+			resp["error"] = "no BattlescapeState";
+		}
+		else
+		{
+			Position tilePos(req.get("x", 0).asInt(), req.get("y", 0).asInt(), req.get("z", 0).asInt());
+			Map* bmap = bstate->getMap();
+			Position voxelPos = tilePos.toVoxel() + Position(8, 8, 0);
+			Position projected;
+			bmap->getCamera()->convertVoxelToScreen(voxelPos, &projected);
+
+			const int baseW = Options::baseXResolution;
+			const int baseH = Options::baseYResolution;
+			const int iconW = bmap->getIconWidth();
+			const int iconH = bmap->getIconHeight();
+			const int iconLeft = baseW / 2 - iconW / 2;
+			const int iconTop = baseH - iconH;
+
+			Position savedSel;
+			bmap->getSelectorPosition(&savedSel);
+
+			int bestX = -1, bestY = -1;
+			bool centered = false;
+			for (int attempt = 0; attempt < 2 && bestX < 0; ++attempt)
+			{
+				if (attempt == 1)
+				{
+					// The tile's whole screen band can sit UNDER the icons panel
+					// (which spans the full width in the stock interface, so no
+					// nearby pixel can substitute), or off view entirely. That is
+					// not a failure: it is what a player fixes by scrolling. Do
+					// exactly that - centre the camera ON the tile - and search
+					// again. Camera-only, no game state touched, and it also puts
+					// the view level on the tile's own z, which is what
+					// getSelectorPosition() reports.
+					bmap->getCamera()->centerOnPosition(tilePos, false);
+					bmap->getCamera()->convertVoxelToScreen(voxelPos, &projected);
+					centered = true;
+				}
+				int bestD = 1 << 30;
+				for (int dy = -28; dy <= 28; ++dy)
+				{
+					for (int dx = -28; dx <= 28; ++dx)
+					{
+						const int mx = projected.x + dx;
+						const int my = projected.y + dy;
+						if (mx < 0 || my < 0 || mx >= baseW || my >= baseH)
+							continue;
+						if (my >= iconTop && mx >= iconLeft && mx < iconLeft + iconW)
+							continue; // mapClick returns early over the icons panel
+						const int d = dx * dx + dy * dy;
+						if (d >= bestD)
+							continue;
+						bmap->setSelectorPosition(mx, my);
+						Position got;
+						bmap->getSelectorPosition(&got);
+						// Z MATTERS: getSelectorPosition() reports the camera's
+						// VIEW LEVEL as z (Map.cpp:2150), and mapClick passes that
+						// whole Position to primaryAction. A hit on the right x/y
+						// at the wrong level is a click on a DIFFERENT tile, which
+						// is how a "verified" click silently reached the wrong
+						// place. Requiring z here makes attempt 1 fail when the
+						// view level is wrong, so attempt 2's centerOnPosition -
+						// which sets _mapOffset.z = tile.z - fixes it.
+						if (got.x == tilePos.x && got.y == tilePos.y && got.z == tilePos.z)
+						{
+							bestD = d; bestX = mx; bestY = my;
+						}
+					}
+				}
+			}
+
+			resp["projectedX"] = projected.x;
+			resp["projectedY"] = projected.y;
+			resp["centered"] = centered;
+			resp["viewLevel"] = bmap->getCamera()->getViewLevel();
+			resp["zMatches"] = (bmap->getCamera()->getViewLevel() == tilePos.z);
+			resp["ok"] = true;
+
+			if (bestX < 0)
+			{
+				bmap->setSelectorPosition(savedSel.x, savedSel.y);
+				resp["verified"] = false;
+				resp["reason"] = "no on-screen base pixel round-trips to that tile";
+			}
+			else
+			{
+				Screen* scr = _game->getScreen();
+				const int wx = (int)(bestX * scr->getXScale() + scr->getCursorLeftBlackBand());
+				const int wy = (int)(bestY * scr->getYScale() + scr->getCursorTopBlackBand());
+				// Action's own math (Action.cpp:71-72, :133-151): the handler
+				// sees (window - blackBand) / scale, truncated to int by
+				// Map::mouseOver. Re-verify through exactly that.
+				const int ax = (int)((wx - scr->getCursorLeftBlackBand()) / scr->getXScale());
+				const int ay = (int)((wy - scr->getCursorTopBlackBand()) / scr->getYScale());
+				bmap->setSelectorPosition(ax, ay);
+				Position got;
+				bmap->getSelectorPosition(&got);
+				resp["baseX"] = bestX;
+				resp["baseY"] = bestY;
+				resp["winX"] = wx;
+				resp["winY"] = wy;
+				resp["hitX"] = got.x;
+				resp["hitY"] = got.y;
+				resp["hitZ"] = got.z;
+				resp["verified"] = (got.x == tilePos.x && got.y == tilePos.y && got.z == tilePos.z);
+			}
+		}
+	}
 	else if (cmd == "battle_fire")
 	{
 		// Fire <weapon_id> (or the main hand weapon) from <unit>. mode =
@@ -4187,6 +4329,18 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["lastDeny"] = CoopArbiter::lastDeny();
 		resp["desyncSeen"] = a.desyncFrozen.load();
 		resp["txDrains"] = CoopEmit::txDrainEvents();
+		// W1-P6 (WAVE1-RUNBOOK.md WV-D40 / WR-2, and W1-G1 criterion 4b): how
+		// many times coopBlockLocalExecution() has refused a LOCAL execution in
+		// BattlescapeGame::primaryAction on this machine. Test introspection
+		// only - never read by game logic.
+		//
+		// It exists so "a client ground-click mints NOTHING" is PROVABLE rather
+		// than inferable. Every other observable of that assertion is an
+		// ABSENCE (no BState, no TU change, buckets still EQUAL), and an absence
+		// is equally consistent with a click that never reached primaryAction at
+		// all - a broken injection recipe, a modal swallowing the event, the
+		// wrong viewport. This counter says the click ARRIVED and was refused.
+		resp["coopLocalExecBlocked"] = coopLocalExecutionBlocks();
 		resp["ok"] = true;
 	}
 	else if (cmd == "hash_now")
@@ -5366,6 +5520,16 @@ std::string TestServer::execute(const std::string& line)
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
+				// W1-P6: the two conditions BattlescapeState::mapClick checks
+				// BEFORE it ever calls primaryAction (:1102, :1106). Without them
+				// a swallowed map click is indistinguishable from a click that
+				// reached primaryAction and was correctly refused - which is the
+				// difference W1-G1 criterion 4b turns on.
+				{
+					BattlescapeState* bsForInput = bg->getBattleState();
+					resp["mouseOverIcons"] = bsForInput ? bsForInput->getMouseOverIcons() : false;
+					resp["cursorType"] = bsForInput ? (int)bsForInput->getMap()->getCursorType() : -1;
+				}
 				// R3-P2: the _txtCoopWait deny/cancel/desync banner's current
 				// text (empty = hidden) - test introspection only, proves
 				// "banner shown" for the forced-mismatch repro (CoopBattleUi::
@@ -5980,8 +6144,14 @@ std::string TestServer::execute(const std::string& line)
 				// intercept's faithful-UI repro variant (right-click = turn/door
 				// in vanilla battlescape input). The surviving @1e0f9276f body
 				// this extends was left-only.
+				// W1-P6: "middle" added (additively) - the NEXT-STOP button's
+				// by-DISTANCE variant (BattlescapeState::btnNextStopMClick ->
+				// SavedBattleGame::selectNextPlayerUnitByDistance) is bound to
+				// SDL_BUTTON_MIDDLE, and it is one of the three selection paths
+				// W1-G1 criterion 4 requires driven through real input.
 				std::string buttonName = req.get("button", "left").asString();
-				Uint8 button = (buttonName == "right") ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT;
+				Uint8 button = (buttonName == "right") ? SDL_BUTTON_RIGHT
+					: (buttonName == "middle") ? SDL_BUTTON_MIDDLE : SDL_BUTTON_LEFT;
 				ev.type = SDL_MOUSEBUTTONDOWN;
 				ev.button.button = button;
 				ev.button.state = SDL_PRESSED;
@@ -6092,15 +6262,28 @@ std::string TestServer::execute(const std::string& line)
 					Screen* scr = _game->getScreen();
 					int wx = (int)(bx * scr->getXScale() + scr->getCursorLeftBlackBand());
 					int wy = (int)(by * scr->getYScale() + scr->getCursorTopBlackBand());
+					// W1-P6: optional "button" (default "left"), same three names
+					// inject_input takes. The battlescape icon row binds three
+					// DIFFERENT handlers to the one NEXT-STOP button - left, middle
+					// (by distance) and right (undo) - and two of them are selection
+					// paths D6 requires driven through real input. It belongs HERE
+					// rather than on inject_input because click_widget is the call
+					// that already converts a widget's BASE rect into WINDOW pixels
+					// (Screen::getXScale() is 2 in the harness's 640x400 window), and
+					// a raw base-coordinate click simply lands somewhere else.
+					const std::string cwButtonName = req.get("button", "left").asString();
+					const Uint8 cwButton = (cwButtonName == "right") ? SDL_BUTTON_RIGHT
+						: (cwButtonName == "middle") ? SDL_BUTTON_MIDDLE : SDL_BUTTON_LEFT;
 					SDL_Event ev; memset(&ev, 0, sizeof(ev));
-					ev.type = SDL_MOUSEBUTTONDOWN; ev.button.button = SDL_BUTTON_LEFT;
+					ev.type = SDL_MOUSEBUTTONDOWN; ev.button.button = cwButton;
 					ev.button.state = SDL_PRESSED; ev.button.x = (Uint16)wx; ev.button.y = (Uint16)wy;
 					SDL_PushEvent(&ev);
 					memset(&ev, 0, sizeof(ev));
-					ev.type = SDL_MOUSEBUTTONUP; ev.button.button = SDL_BUTTON_LEFT;
+					ev.type = SDL_MOUSEBUTTONUP; ev.button.button = cwButton;
 					ev.button.state = SDL_RELEASED; ev.button.x = (Uint16)wx; ev.button.y = (Uint16)wy;
 					SDL_PushEvent(&ev);
 					resp["ok"] = true;
+					resp["button"] = cwButtonName;
 					resp["text"] = chosenText;
 					resp["baseX"] = (int)bx; resp["baseY"] = (int)by;
 					resp["winX"] = wx; resp["winY"] = wy;

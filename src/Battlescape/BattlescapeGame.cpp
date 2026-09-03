@@ -61,6 +61,7 @@
 #include "../fmath.h"
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopBattleUi.h"
 
 namespace OpenXcom
 {
@@ -1748,22 +1749,44 @@ bool BattlescapeGame::isBusy() const
  */
 void BattlescapeGame::primaryAction(Position pos)
 {
-	// R5-P2 (SPIKE-RUNBOOK.md RB-D10, generalized): entry guard - suppress a
-	// coop client's primary-click handling for its currently-selected unit
-	// when this machine's seat does not command it, or this machine's side
-	// isn't the one currently active. One guarded call, self-contained
-	// (BattleAuthority.h::coopMayCommand), permissive outside coop.
-	if (!coopMayCommand(_save->getSelectedUnit(), _save))
-	{
-		return;
-	}
-
+	// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule
+	// WV-D40 / WR-2): R5-P2's single ENTRY guard used to sit HERE, and it made
+	// click-to-select DEAD on a co-op client - the select-unit branch below is
+	// reached through this same function, so gating the whole function gated
+	// selection too, contradicting D6's "a seat ... CAN select what it does
+	// command". The guard has therefore MOVED ONTO THE COMMANDING ARMS: the
+	// targeting/BA_LAUNCH/spray block immediately below, and the walk-confirm
+	// arm further down. Exactly ONE branch is exempt - the select-unit branch -
+	// and that branch carries its OWN seat filter
+	// (CoopBattleUi::refuseSelectUnitClick), because vanilla gates it on
+	// `unit->getFaction() == _save->getSide()` and nothing else.
+	//
+	// WHY IT IS NOT SIMPLY DELETED (the trap this comment exists to keep shut):
+	// the walk arm is `else if (playableUnitSelected())`, and
+	// playableUnitSelected() is `getSelectedUnit() != 0 && (side ==
+	// FACTION_PLAYER || debug)` (:1146) - TRUE on a co-op client during the
+	// player side - and that arm ends in `statePushBack(new
+	// UnitWalkBState(...))`. Moving the guard wholesale would let a client
+	// execute walks LOCALLY until W1-P9's intent path intercepts them: a state
+	// mint and a guaranteed, permanent desync, live across the entire G1 gate.
+	// Nothing above this point mints state: bPreviewed is a local,
+	// Map::resetObstacles() clears the display-only Tile::_obstacle bits (not
+	// serialized, not hashed), and _currentAction is machine-local scratch.
 	bool bPreviewed = Options::battleNewPreviewPath != PATH_NONE;
 
 	getMap()->resetObstacles();
 
 	if (_currentAction.targeting && _save->getSelectedUnit())
 	{
+		// COMMANDING ARM (targeting confirm / BA_LAUNCH + spray waypoints):
+		// stays gated, as the entry guard had it. ONE guarded call, permissive
+		// outside coop; the predicate is hostSim AND coopMayCommand - see
+		// BattleAuthority.h for why coopMayCommand alone is not enough.
+		if (coopBlockLocalExecution(_save->getSelectedUnit(), _save))
+		{
+			return;
+		}
+
 		if (_currentAction.type == BA_LAUNCH)
 		{
 			int maxWaypoints = _currentAction.weapon->getCurrentWaypoints();
@@ -1968,6 +1991,16 @@ void BattlescapeGame::primaryAction(Position pos)
 		//  -= select unit =-
 			if (unit->getFaction() == _save->getSide())
 			{
+				// W1-P6 (D6 = WV-D12): THE seat filter for click-to-select.
+				// Vanilla's condition above is faction-only, so without this a
+				// co-op seat could select a soldier it does not command. One
+				// guarded call; it also puts SS2.6's "Not one of your soldiers"
+				// on the _txtCoopWait banner. Permissive outside coop, so SP
+				// click-to-select is byte-identical.
+				if (CoopBattleUi::refuseSelectUnitClick(unit))
+				{
+					return;
+				}
 				_save->setSelectedUnit(unit);
 				_parentState->updateSoldierInfo();
 				cancelCurrentAction();
@@ -1978,6 +2011,19 @@ void BattlescapeGame::primaryAction(Position pos)
 		}
 		else if (playableUnitSelected())
 		{
+			// COMMANDING ARM (walk confirm). WV-D40 / WR-2: this is the arm the
+			// entry guard existed for - it ends in `statePushBack(new
+			// UnitWalkBState(...))` below, and playableUnitSelected() is TRUE on
+			// a co-op client during the player side - which is also why the
+			// gate's FIRST term is hostSim and not coopMayCommand (that one is
+			// TRUE for a client on its own unit during its own side;
+			// BattleAuthority.h documents the trace). A client ground-click must
+			// mint NOTHING until W1-P9 turns it into a walk INTENT.
+			if (coopBlockLocalExecution(_save->getSelectedUnit(), _save))
+			{
+				return;
+			}
+
 			bool isCtrlPressed = Options::strafe && _save->isCtrlPressed(true);
 			bool isAltPressed = Options::strafe && _save->isAltPressed(true);
 			bool isShiftPressed = _save->isShiftPressed(true);

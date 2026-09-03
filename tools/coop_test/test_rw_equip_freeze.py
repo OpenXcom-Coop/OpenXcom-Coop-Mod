@@ -165,6 +165,19 @@ def main():
         assert top_state(host) == "NewBattleState", \
             f"host should land on the NEW BATTLE setup screen, stack={states(host)}"
 
+        # W1-P6 (WV-D12): stamp ONE soldier to seat 1 before generation
+        # (R3-P1's newbattle_seat_soldier lever, WV-D18's standard fixture
+        # shape). Two reasons, both real:
+        #   1. REPRESENTATIVENESS - without it the joining client owns ZERO
+        #      battle units, which is not what a 2-player battle looks like.
+        #   2. W1-P6's battle-entry auto-select raises the SPECTATOR notice
+        #      (STR_COOP_SPECTATOR_MODE) on a machine that commands nothing,
+        #      and that notice would land on the same _txtCoopWait strip this
+        #      test reads for STR_COOP_EQUIP_FROZEN in (b). With a seat-1
+        #      soldier the client is not a spectator, so both notices keep
+        #      their own machine and (b)'s assertion stays byte-identical.
+        host.ok({"cmd": "newbattle_seat_soldier", "seat": 1})
+
         host.ok({"cmd": "newbattle_ok"})
         host.wait_for("host briefing",
                       lambda: session.has_state(host, "BriefingState"), timeout=30)

@@ -1560,6 +1560,55 @@ bool coopMaySelectUnit(const BattleUnit* u)
 	return coopBattleAuthority().commandsUnit(u);
 }
 
+// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /
+// WR-2): the gate on BattlescapeGame::primaryAction's COMMANDING arms, plus
+// ONE test-only counter. See BattleAuthority.h for the full rationale.
+static std::atomic<int> g_coopLocalExecBlocked{0};
+
+bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s)
+{
+	// Self-guard: SP and every non-co-op battle fall straight through, so
+	// vanilla is byte-identical there.
+	if (!isCoopBattle())
+		return false;
+
+	// TERM 1 - AUTHORITY, and it is the term WV-D40 actually needs.
+	// `coopMayCommand()` ALONE cannot deliver "a client ground-click mints
+	// NOTHING": it is `commandsUnit(u) && mySideActive(s)`, which is TRUE for a
+	// client acting on its OWN unit during its OWN side - precisely the case
+	// the walk arm fires in. (Traced, not assumed: with a coopMayCommand-only
+	// gate the client's ground click sailed straight through to
+	// `statePushBack(new UnitWalkBState(...))`.) The same shorthand and the same
+	// correction are already on the record for W1-P5's D8 gates, whose header
+	// spells it out, and `BattlescapeState::btnKneelClick` is the shipped
+	// two-term house pattern (`coopMayCommand(bu,_save)` at :1243, then
+	// `isCoopBattle() && !hostSim` at :1254). Kneel's second term SENDS AN
+	// INTENT; primaryAction has no wire verb until W1-P9, so its second term
+	// simply refuses.
+	if (!coopBattleAuthority().hostSim)
+	{
+		g_coopLocalExecBlocked.fetch_add(1);
+		return true;
+	}
+
+	// TERM 2 - OWNERSHIP, on the simulating machine. The host may not command a
+	// unit it does not own either (D6's ownership wall is seat-relative, not
+	// client-specific), and its side must be the active one - which is exactly
+	// what R5-P2's entry guard checked and what this packet must not weaken.
+	if (!coopMayCommand(u, s))
+	{
+		g_coopLocalExecBlocked.fetch_add(1);
+		return true;
+	}
+
+	return false;
+}
+
+int coopLocalExecutionBlocks()
+{
+	return g_coopLocalExecBlocked.load();
+}
+
 // ===== R2-P4: CLIENT-side id -> pointer maps (CoopIdMaps.h) =====
 // SPIKE-RUNBOOK.md RB-D7. Storage lives here, next to the other coop
 // singletons (BattleAuthority above, CoopPump/CoopEmit further up) - file-
@@ -3283,6 +3332,34 @@ bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s)
 	return false;
 }
 
+bool refuseSelectUnitClick(const BattleUnit* target)
+{
+	// Self-guard: SP and every non-co-op battle fall straight through, so
+	// vanilla click-to-select is byte-identical there.
+	if (!isCoopBattle())
+		return false;
+	// coopMaySelectUnit(), NOT coopMayCommand(): primaryAction's select branch
+	// has already restricted @a target to the currently ACTIVE side
+	// (`unit->getFaction() == _save->getSide()`), and selecting among
+	// already-active-side candidates must not additionally demand
+	// mySideActive() - the same reasoning the selection-cycle filter carries
+	// (BattleAuthority.h's coopMaySelectUnit doc comment).
+	if (coopMaySelectUnit(target))
+		return false;
+	// SS2.6's EXISTING not_your_unit row, reused rather than duplicated - the
+	// same ownership reason the wire deny carries, and the wording D6's own
+	// acceptance quotes. W1-P5's ownership arm already reuses it this way.
+	showRefusalKey("STR_COOP_DENY_NOT_YOUR_UNIT");
+	return true;
+}
+
+void showSpectatorMode()
+{
+	// SS2.6 routing like every other entry point here - _txtCoopWait, never
+	// vanilla _warning. No-op with no live BattlescapeState.
+	showRefusalKey("STR_COOP_SPECTATOR_MODE");
+}
+
 bool chatIsOpen(Game* g)
 {
 	if (!g)
@@ -3845,6 +3922,100 @@ bool freezePreBattleEquip(Game* game)
 
 	CoopBattleUi::showEquipFrozen();
 	return true;
+}
+
+namespace
+{
+
+/// W1-P6: the battleId this machine has already run its entry selection for
+/// (0 = none). battleId is host-minted and session-monotonic (offerBattle's
+/// s_nextBattleId), so the one-shot latch re-arms by construction for the next
+/// battle and needs no teardown wiring of its own.
+std::uint32_t g_entrySelectDoneBattleId = 0;
+
+} // namespace
+
+void selectOwnUnitAtEntry(Game* game)
+{
+	// Self-guarded (isCoopBattle() == coop static + phase Active), so this is a
+	// single unconditional call at the RB-D5 pump point and is completely inert
+	// in SP and outside a co-op battle.
+	if (!game || !isCoopBattle())
+		return;
+
+	const std::uint32_t battleId = coopBattleAuthority().battleId.load();
+	if (battleId == 0 || battleId == g_entrySelectDoneBattleId)
+		return;
+
+	SavedGame* sg = game->getSavedGame();
+	SavedBattleGame* battle = sg ? sg->getSavedBattle() : nullptr;
+	if (!battle)
+		return;
+
+	// The HOST is still parked in BriefingState here (battle generated,
+	// BattlescapeState not yet pushed, _battleState == nullptr) - and
+	// SavedBattleGame::getBattleGame() dereferences _battleState
+	// unconditionally, so this null check is the same guard TestServer's probes
+	// carry. Not an error: try again on the next pump tick. It also guarantees
+	// we run strictly AFTER BriefingState::btnOkClick's startFirstTurn(), which
+	// rewrites the selection itself (SavedBattleGame.cpp:1240-1244).
+	BattlescapeState* bs = battle->getBattleState();
+	if (!bs)
+		return;
+
+	g_entrySelectDoneBattleId = battleId; // one-shot from here on
+
+	// Already sitting on a unit this seat commands? Keep vanilla's choice - D6
+	// only requires that a seat never STARTS on a unit it cannot command.
+	const BattleUnit* current = battle->getSelectedUnit();
+	if (current && coopMaySelectUnit(current))
+	{
+		Log(LOG_INFO) << "[coop-select] W1-P6 entry selection: already on own unit "
+			<< current->getId() << " (seat " << coopBattleAuthority().localSeat.load()
+			<< ") - left as vanilla selected it";
+		return;
+	}
+
+	BattleUnit* own = nullptr;
+	for (auto* u : *battle->getUnits())
+	{
+		// isSelectable() supplies the vanilla half (right faction, alive, not
+		// out); coopMaySelectUnit() is the seat half - the SAME predicate the
+		// selection cycle and the click-select filter use.
+		if (u->isSelectable(battle->getSide(), false, false) && coopMaySelectUnit(u))
+		{
+			own = u;
+			break;
+		}
+	}
+
+	if (own)
+	{
+		battle->setSelectedUnit(own);
+		// checkFOV=false DELIBERATELY (WV-D10's rule for a co-op-driven HUD
+		// refresh): a machine-local selection change must never author fog.
+		bs->updateSoldierInfo(false);
+		BattlescapeGame* bgame = battle->getBattleGame();
+		if (bgame)
+		{
+			bgame->getCurrentAction()->actor = own;
+			bgame->setupCursor();
+		}
+		Log(LOG_INFO) << "[coop-select] W1-P6 entry selection: seat "
+			<< coopBattleAuthority().localSeat.load() << " auto-selected its own unit "
+			<< own->getId() << " (was "
+			<< (current ? current->getId() : -1) << ")";
+		return;
+	}
+
+	// SPECTATOR. Leave the selection where it is (legacy did the same - it
+	// showed the notice and did not clear it) so no vanilla consumer has to
+	// cope with a suddenly-null selection; every commanding arm is gated
+	// anyway, so nothing can be done with it.
+	CoopBattleUi::showSpectatorMode();
+	Log(LOG_INFO) << "[coop-select] W1-P6 entry selection: seat "
+		<< coopBattleAuthority().localSeat.load()
+		<< " commands NO unit in this battle - spectator notice raised";
 }
 
 void offerBattle(Game* game, int gamemode)
@@ -6364,6 +6535,15 @@ void connectionTCP::updateCoopTask()
 	// parked in BriefingState (battle generated, phase Active, no
 	// BattlescapeState) too.
 	CoopReveal::flushQuiescent();
+
+	// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): battle-entry seat-relative
+	// selection, one-shot per battleId. Self-guarded and inert outside an
+	// Active co-op battle, so it stays a single unconditional call at the same
+	// RB-D5 pump point. It lives HERE rather than in a vanilla hook because the
+	// host's selection is written last by startFirstTurn(), from
+	// BriefingState::btnOkClick, after freezePreBattleEquip() - see
+	// CoopHandshake.h for the full placement argument.
+	CoopHandshake::selectOwnUnitAtEntry(_game);
 
 	// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
 	// R2-P7 hold_chain lever: the release half. Self-guarded (completely inert

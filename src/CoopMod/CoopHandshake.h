@@ -318,6 +318,37 @@ void resetPendingState();
 /// cleared at teardown (resetPendingState()) - never carries across battles.
 void requestCorruptNextBlob();
 
+/// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): battle-entry SEAT-RELATIVE
+/// selection - "the client auto-selects its first owned unit at entry"
+/// (legacy shape `1e0f9276f:BattlescapeState.cpp:1606-1653`), generalized to
+/// BOTH machines because the invariant D6 states is seat-relative, not
+/// client-specific: with a seat-1 soldier in the craft the HOST's own initial
+/// selection is minted at battle-generation time, before any seat tag exists,
+/// and lands on a unit the host does not command just as readily (W1-P1
+/// observed exactly that - both machines starting on unit 8, the client's).
+///
+/// One-shot per battleId. Self-guarded: no-op outside an active co-op battle,
+/// and a no-op when the current selection is ALREADY a unit this seat commands
+/// (vanilla's choice is kept - D6 only requires that a seat never STARTS on a
+/// unit it cannot command). When the seat commands nothing at all it leaves the
+/// selection alone and raises CoopBattleUi::showSpectatorMode() instead.
+///
+/// DRIVEN FROM THE RB-D5 PUMP POINT (connectionTCP::updateCoopTask), not from a
+/// new vanilla hook, and that placement is load-bearing: on the HOST the
+/// selection is written LAST by SavedBattleGame::startFirstTurn()
+/// ("make sure we select the unit closest to the ramp",
+/// SavedBattleGame.cpp:1240-1244), which BriefingState::btnOkClick runs AFTER
+/// freezePreBattleEquip() returns true - so anything hooked earlier would
+/// simply be overwritten. The first pump tick that finds an Active co-op battle
+/// with a live BattlescapeState is strictly after both that call and the
+/// client's own entry push.
+///
+/// HASH-FREE BY CONSTRUCTION: `selectedUnit` and `undoUnit` are
+/// saveBlob-hash-EXCLUDED (SharedEcon.cpp:3958), and the HUD refresh is issued
+/// with checkFOV=false (WV-D10's rule for a co-op-driven refresh) so a
+/// selection change can never author fog.
+void selectOwnUnitAtEntry(Game* game);
+
 } // namespace CoopHandshake
 
 } // namespace OpenXcom

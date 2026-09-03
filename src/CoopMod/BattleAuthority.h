@@ -229,4 +229,50 @@ bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 /// connectionTCP.cpp next to isCoopBattle().
 bool coopMaySelectUnit(const BattleUnit* u);
 
+/// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /
+/// WR-2): the INVERTED form of coopMayCommand() used by
+/// BattlescapeGame::primaryAction's COMMANDING arms, plus a test-only counter.
+///
+/// W1-P6 moved primaryAction's single ENTRY guard off the top of the function
+/// and ONTO the two arms that actually execute something - the
+/// targeting/BA_LAUNCH/spray block and the walk-confirm arm - so that the
+/// SELECT-UNIT branch sitting between them can finally run on a co-op client
+/// for the units its own seat commands (D6's "a seat ... CAN select what it
+/// does command"; click-to-select was dead on a client before this packet).
+/// WV-D40 pins the exemption to exactly that one branch: every commanding arm
+/// stays gated, and a client ground-click must mint NOTHING for the whole of
+/// wave 1 - the walk ORDER arrives with W1-P9's intent path, and until then a
+/// locally-executed UnitWalkBState would be a guaranteed, permanent desync.
+///
+/// THE PREDICATE IS A CONJUNCTION, and NOT `!coopMayCommand(u, s)` alone -
+/// that shorthand provably cannot meet WV-D40's own requirement, and exactly
+/// the same correction is already on the record for W1-P5's D8 gates:
+/// `coopMayCommand(u, s)` is `commandsUnit(u) && mySideActive(s)`, i.e. TRUE
+/// for a client acting on its OWN unit during its OWN side - which is exactly
+/// when the walk arm fires. So the gate is, in this order:
+///   1. `coopBattleAuthority().hostSim` - only the SIMULATING machine may run
+///      an action that has no wire representation yet. THIS is the term that
+///      makes "a client ground-click mints NOTHING" true.
+///   2. `coopMayCommand(u, s)` - on the host, the seat must still command the
+///      unit and its side must be active (R5-P2's original entry-guard
+///      semantics, not weakened by this packet).
+/// `BattlescapeState::btnKneelClick` is the shipped two-term house pattern
+/// (`coopMayCommand` then `isCoopBattle() && !hostSim`); kneel's second term
+/// SENDS an intent, primaryAction has no wire verb until W1-P9 so its second
+/// term simply refuses. Self-guarded exactly like isCoopBattle()/
+/// coopMayCommand(): outside an ACTIVE co-op battle it returns false and
+/// vanilla - SP included - is byte-identical.
+///
+/// The counter is the other half: each refusal bumps a value
+/// coopLocalExecutionBlocks() reports. That is what makes W1-G1 criterion 4b
+/// provable rather than inferable - "the client's ground click minted nothing"
+/// must not be satisfiable by a click that never reached primaryAction at all.
+/// Defined in connectionTCP.cpp next to coopMayCommand().
+bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s);
+
+/// W1-P6: test-only introspection - how many times coopBlockLocalExecution()
+/// has refused a local execution in this process. Reported by TestServer's
+/// `event_state` as `coopLocalExecBlocked`; never read by game logic.
+int coopLocalExecutionBlocks();
+
 } // namespace OpenXcom

@@ -17,7 +17,7 @@ own bring-up (BriefingState OK -> BattlescapeState -> equip-screen dismissal ->
 startFirstTurn's recalculateFOV) discovers several hundred tiles AFTER the
 handshake blob was snapshotted. Those ship as standalone `bt_ev{kind:"reveal"}`
 envelopes from the quiescent flush (CoopReveal::flushQuiescent), so by the time
-this check runs the host has emitted REVEAL_SEQS_AT_T0 of them and the client
+this check runs the host has emitted REVEAL_SEQS_AT_T0_MIN..MAX of them and the client
 has applied every one. What "t=0" still means, and what this file asserts, is:
 no ACTION has run, the two seq counters agree, and the queue is drained on both
 machines. See the constant's own comment for why the count is what it is.
@@ -89,7 +89,27 @@ import session
 # deliberately. The load-bearing invariants (emitted == applied, nothing left
 # unpublished, per-part parity, 8/8 hash) are asserted separately below and do
 # not depend on this count.
-REVEAL_SEQS_AT_T0 = 2
+#
+# W1-P6 MADE IT A RANGE (1..2), and this is the "looked at deliberately" the
+# comment above asks for - MEASURED, not assumed: two consecutive runs of this
+# very file under W1-P6 produced 1 and then 2. D6/WV-D12's battle-entry auto-select
+# (CoopHandshake::selectOwnUnitAtEntry) puts the HOST on a unit its own seat
+# commands, which on this fixture is NOT the unit vanilla's generation-time
+# selection had left it on. `BattlescapeState::init()` then runs
+# updateSoldierInfo(checkFOV=true) -> TileEngine::calculateFOV(selectedUnit) for
+# THAT unit instead, and on this fixture it discovers nothing the seq-1 flush had
+# not already published - so the second burst has no unpublished bits and no
+# second envelope is emitted. The auto-select itself authors NO fog: it refreshes
+# the HUD with checkFOV=false precisely so a selection change can never author
+# reveals (WV-D10's rule).
+# Every load-bearing invariant is unaffected and still asserted below: emitted ==
+# applied, host `unpublished` false, per-part floor/westwall/northwall parity, and
+# all buckets EQUAL - i.e. the two machines' fog is identical, only the host's
+# bring-up trajectory through it changed. W1-P8 (D2/WV-D8, "selection changes
+# must not author shared fog") removes this coupling entirely, at which point
+# this constant should be re-measured again.
+REVEAL_SEQS_AT_T0_MIN = 1
+REVEAL_SEQS_AT_T0_MAX = 2
 
 
 def top_state(gc):
@@ -226,11 +246,12 @@ def main():
               f"{host_rs['westwall']}/{host_rs['northwall']} on BOTH machines, "
               "host has nothing unpublished")
 
-        assert host_es["lastSeqEmitted"] == REVEAL_SEQS_AT_T0, (
-            f"host lastSeqEmitted should be {REVEAL_SEQS_AT_T0} at t=0 (the bring-up reveal "
-            f"flush, RW-REVEAL-SYNC) - see REVEAL_SEQS_AT_T0's comment: {host_es}")
-        assert client_es["lastSeqApplied"] == REVEAL_SEQS_AT_T0, (
-            f"client lastSeqApplied should be {REVEAL_SEQS_AT_T0} at t=0 (every bring-up "
+        assert REVEAL_SEQS_AT_T0_MIN <= host_es["lastSeqEmitted"] <= REVEAL_SEQS_AT_T0_MAX, (
+            f"host lastSeqEmitted should be {REVEAL_SEQS_AT_T0_MIN}..{REVEAL_SEQS_AT_T0_MAX} "
+            f"at t=0 (the bring-up reveal flushes, RW-REVEAL-SYNC) - see the constants' "
+            f"comment: {host_es}")
+        assert client_es["lastSeqApplied"] == host_es["lastSeqEmitted"], (
+            f"client lastSeqApplied should equal the host's {host_es['lastSeqEmitted']} at t=0 (every bring-up "
             f"reveal applied): {client_es}")
         assert host_es["queueDepth"] == 0 and client_es["queueDepth"] == 0, \
             f"queueDepth should be 0 on both at t=0: host={host_es} client={client_es}"

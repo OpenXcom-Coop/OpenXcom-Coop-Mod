@@ -97,6 +97,15 @@ en-US:
   STR_COOP_ZERO_TU_HOST_ONLY: "Only the host can expend a soldier's time units"
   STR_COOP_REACTIONS_HOST_ONLY: "Only the host can change reaction fire settings"
   STR_COOP_LOCAL_LOAD_BLOCKED: "Saved games cannot be loaded during a co-op session"
+  # coop (W1-P6, WAVE1-RUNBOOK.md ruling D6 = WV-D12): battle-entry SPECTATOR
+  # notice - this seat commands no unit in this battle, so the entry auto-select
+  # had nothing to select. Legacy raised the same message from its own client
+  # unit selector (1e0f9276f:BattlescapeState.cpp:1630, "You are in spectator
+  # mode"). A real path, not defensive framing: a plain classic "NEW BATTLE >
+  # COOP" skirmish never calls Soldier::setCoop(), so the joining client owns
+  # zero battle units. The click-select ownership refusal deliberately reuses
+  # STR_COOP_DENY_NOT_YOUR_UNIT above - same reason, same words as the wire deny.
+  STR_COOP_SPECTATOR_MODE: "You command no soldiers - spectator mode"
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

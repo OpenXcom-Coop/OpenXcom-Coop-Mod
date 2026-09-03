@@ -1392,7 +1392,15 @@ void BattlescapeState::btnNextStopRClick(Action *)
 	{
 		// OXCE: previous unit (last marked as don't reselect)
 		BattleUnit* candidate = _save->getUndoUnit();
-		if (candidate && candidate->isSelectable(_save->getSide(), false, false))
+		// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12, NON-NEGOTIABLE): the
+		// FIRST of the three unfiltered selection paths - right-click UNDO
+		// writes _selectedUnit directly from _undoUnit, never going through
+		// selectPlayerUnit()'s seat filter. One guarded call, same predicate as
+		// the cycle (coopMaySelectUnit, permissive outside coop); both
+		// `selectedUnit` and `undoUnit` are saveBlob-hash-excluded
+		// (SharedEcon.cpp:3958), so this is hash-free.
+		if (candidate && candidate->isSelectable(_save->getSide(), false, false)
+			&& coopMaySelectUnit(candidate))
 		{
 			candidate->allowReselect();
 			_save->setSelectedUnit(candidate);

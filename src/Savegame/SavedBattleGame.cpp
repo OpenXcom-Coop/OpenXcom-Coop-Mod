@@ -1013,7 +1013,18 @@ BattleUnit* SavedBattleGame::selectNextPlayerUnitByDistance(bool checkReselect, 
 	std::vector< std::pair<int, BattleUnit*> > candidates;
 	for (auto* unit : _units)
 	{
-		if (unit != _selectedUnit && unit->isSelectable(_side, checkReselect, checkInventory))
+		// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12, NON-NEGOTIABLE): the
+		// SECOND of the three unfiltered selection paths. selectPlayerUnit()
+		// above has carried the seat filter since R5-P2, but this OXCE
+		// by-distance variant - reached by the middle-click NEXT-STOP button
+		// (BattlescapeState::btnNextStopMClick) - built its candidate list from
+		// a BARE isSelectable(), so a seat could land on a unit it does not
+		// command. Same predicate, same one guarded call: coopMaySelectUnit()
+		// is permissive outside an active coop battle (BattleAuthority.h), and
+		// `_selectedUnit` is saveBlob-hash-excluded (SharedEcon.cpp:3958), so
+		// this is hash-free.
+		if (unit != _selectedUnit && unit->isSelectable(_side, checkReselect, checkInventory)
+			&& coopMaySelectUnit(unit))
 		{
 			int distance = backup ? backup->distance3dToUnitSq(unit) : 0;
 			candidates.push_back(std::make_pair(distance, unit));
@@ -1540,7 +1551,22 @@ void SavedBattleGame::endTurn()
 		prepareNewTurn();
 		_turn++;
 		_side = FACTION_PLAYER;
-		if (_lastSelectedUnit && _lastSelectedUnit->isSelectable(FACTION_PLAYER, false, false))
+		// W1-P6 (ruling D6 = WV-D12, NON-NEGOTIABLE): the THIRD unfiltered
+		// selection path. This restore writes _selectedUnit DIRECTLY, bypassing
+		// selectPlayerUnit()'s seat filter entirely, so a seat whose last
+		// selection was somehow a unit it does not command would get it handed
+		// back at the top of every player turn. selectNextPlayerUnit() below is
+		// already filtered (:991) and is the correct fallback.
+		//
+		// NOT DEAD CODE, and not reachable in wave 1 either: the whole endTurn()
+		// side machine only starts running on both machines when W1-P13 ships
+		// side_transition, which is why W1-G1 asserts the OTHER two paths and
+		// W1-G3 asserts this one (WR-18). Filtering it now is what the ruling
+		// requires ("the 3 unfiltered selection paths get seat filters no matter
+		// what"); _selectedUnit is saveBlob-hash-excluded and _lastSelectedUnit
+		// is not serialized at all, so both are machine-local and hash-free.
+		if (_lastSelectedUnit && _lastSelectedUnit->isSelectable(FACTION_PLAYER, false, false)
+			&& coopMaySelectUnit(_lastSelectedUnit))
 			_selectedUnit = _lastSelectedUnit;
 		else
 			selectNextPlayerUnit();

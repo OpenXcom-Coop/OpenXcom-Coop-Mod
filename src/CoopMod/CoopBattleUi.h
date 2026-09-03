@@ -226,6 +226,43 @@ void showDesyncHalted();
 /// No-op outside an active coop battle (no live BattlescapeState to reach).
 void showEquipFrozen();
 
+/// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): the SEAT FILTER on
+/// BattlescapeGame::primaryAction's click-to-select branch. Returns TRUE when
+/// the click must be REFUSED, having already put the refusal on screen.
+/// The thin vanilla hook is therefore a single unconditional call:
+/// `if (CoopBattleUi::refuseSelectUnitClick(unit)) return;`
+///
+/// Vanilla gates that branch on `unit->getFaction() == _save->getSide()` and
+/// nothing else, so without this a co-op seat could click-select a soldier it
+/// does not command - the exact thing D6 forbids ("a seat can NEVER select,
+/// preview, or command units it doesn't own"). The predicate is
+/// coopMaySelectUnit() (BattleAuthority.h), the SAME one the selection cycle
+/// uses, deliberately NOT coopMayCommand(): the branch has already restricted
+/// the candidate to the currently active side, and cycling/selecting among
+/// already-active-side candidates must not additionally demand mySideActive().
+///
+/// The message is SS2.6's EXISTING not_your_unit row
+/// (STR_COOP_DENY_NOT_YOUR_UNIT, "Not one of your soldiers") - the same
+/// ownership reason the wire deny carries and the wording D6's own acceptance
+/// quotes; no duplicate key is minted for it, exactly as W1-P5's ownership arm
+/// already reuses it. Self-guarded: false outside an active co-op battle, so
+/// SP click-to-select is byte-identical.
+bool refuseSelectUnitClick(const BattleUnit* target);
+
+/// W1-P6 (ruling D6 = WV-D12): the SPECTATOR notice - this machine's seat
+/// commands no unit in this battle, so battle entry could not auto-select one
+/// for it (STR_COOP_SPECTATOR_MODE). Legacy raised the same notice from its own
+/// client unit selector (`1e0f9276f:BattlescapeState.cpp:1627-1631`, "You are
+/// in spectator mode"); this is that message, on SS2.6's presenter.
+///
+/// Raised once per battle by CoopHandshake::selectOwnUnitAtEntry(). It is a
+/// real path, not defensive framing: a plain classic "NEW BATTLE > COOP"
+/// skirmish never calls Soldier::setCoop(), so without the harness's
+/// newbattle_seat_soldier lever the joining client owns ZERO battle units.
+/// Like showEquipFrozen() it is an ENTRY notice, not sticky - the first
+/// deny/pending/cancel replaces it.
+void showSpectatorMode();
+
 } // namespace CoopBattleUi
 
 } // namespace OpenXcom

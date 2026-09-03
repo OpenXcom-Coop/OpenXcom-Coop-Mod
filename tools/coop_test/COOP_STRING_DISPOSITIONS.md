@@ -63,6 +63,14 @@ hand-reaction toggles / local load). Split is now **20 WIRED / 18 ORPHAN**;
 the orphan set is again unchanged. W1-P5 deliberately minted new specific keys
 rather than repurposing an orphan - see the note under the new rows.
 
+**UPDATE (W1-P6):** **39** keys - ONE minted AND wired in the same commit
+(`STR_COOP_SPECTATOR_MODE`, the battle-entry spectator notice, ruling D6 =
+WV-D12). Split is now **21 WIRED / 18 ORPHAN**; the orphan set is again
+unchanged. W1-P6's OTHER refusal - a seat click-selecting a soldier it does not
+command - deliberately mints NOTHING and reuses the live SS2.6 key
+`STR_COOP_DENY_NOT_YOUR_UNIT` ("Not one of your soldiers"), the same wording
+W1-P5's ownership arm reuses and the one D6's own acceptance quotes.
+
 **DISCREPANCY LOGGED (W1-P1, VERIFY-NEVER-INFER).** `WAVE1-RUNBOOK.md` W1-P1
 item 5 names **7** orphaned keys (the `en-GB.yml:33-41` block). That block is
 correct and its 7 keys are all really orphaned, but it is **not the whole
@@ -118,6 +126,7 @@ or deleted is an OWNER call, flagged in
 | STR_COOP_INVENTORY_HOST_ONLY | WIRED | - | MINTED + WIRED by W1-P5 (WV-D14). `BattlescapeState::btnInventoryClick` (the MID-battle screen, distinct from W1-P4's pre-battle freeze). Every move inside it writes the hashed `items` bucket with nothing on the wire - `inventory_move` is out of wave 1 (WV-D34). Un-wiring belongs to the synchronized-equip initiative. |
 | STR_COOP_ZERO_TU_HOST_ONLY | WIRED | - | MINTED + WIRED by W1-P5 (WV-D14). `BattlescapeState::btnZeroTUsClick` -> `BattleUnit::clearTimeUnits()`, a local state mint straight into the `unitsStats` bucket. |
 | STR_COOP_REACTIONS_HOST_ONLY | WIRED | - | MINTED + WIRED by W1-P5 (WV-D14). The right-click branch of `BattlescapeState::btn{Left,Right}HandItemClick` -> `toggle{Left,Right}HandForReactions()`. Those fields (`preferredHandForReactions`, `reactionsDisabledFor{Left,Right}Hand`) are serialized (BattleUnit.cpp:791-796) and are NOT on `saveBlobExcludedUnitKey`'s list, so a client toggle diverged saveBlob immediately - proven by `test_rw_client_gates.py`'s phase-3 negative control. These are evidence F2's "open item 9" fields; W1-P15's audit gives them a bucket home. |
+| STR_COOP_SPECTATOR_MODE | WIRED | - | MINTED + WIRED by W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12). The battle-ENTRY spectator notice, raised by `CoopBattleUi::showSpectatorMode()` from `CoopHandshake::selectOwnUnitAtEntry()` when this machine's seat commands no unit at all, so the entry auto-select had nothing to select. Legacy carried the same message in its own client unit selector (`1e0f9276f:BattlescapeState.cpp:1630`). A REAL path, not defensive framing: a plain classic "NEW BATTLE > COOP" skirmish never calls `Soldier::setCoop()`, so without the harness's `newbattle_seat_soldier` lever the joining client owns ZERO battle units - which is exactly the fixture `test_rw_input_gating.py`'s spectator scenario drives. Like `STR_COOP_EQUIP_FROZEN` it explains an absence rather than a refused press, and it is an entry notice, not sticky. |
 | STR_COOP_LOCAL_LOAD_BLOCKED | WIRED | - | MINTED + WIRED by W1-P5 (WV-D14, evidence F1). Two sites: the battlescape quick-load hotkey (`BattlescapeState::handle`, whose `localLoadsAllowed()` wrapper the rewrite had deleted) and `LoadGameState::init`'s own chokepoint, whose refusal was LOG-ONLY. SESSION-scoped, not client-only: `connectionTCP::localLoadsAllowed()` is false for the HOST too while a session is live (PRD-08 C7). Presenter no-ops with no live battle, so a geoscape-side local load stays log-only - stated limit. |
 
 **W1-P5 note on the orphans (owner ruling 2026-09-02 / orchestrator dispatch):**
