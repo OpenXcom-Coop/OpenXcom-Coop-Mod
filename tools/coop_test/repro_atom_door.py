@@ -124,7 +124,34 @@ FACTION_PLAYER = 0
 
 O_FLOOR, O_WESTWALL, O_NORTHWALL, O_OBJECT = 0, 1, 2, 3
 
-MAX_REROLLS = 20
+MAX_REROLLS = 40
+
+# THE PIN THAT MAKES THE CROSSING RELIABLE, and it is a MEASURED number.
+#
+# 12 instrumented boots of this fixture produced these candidate-crossing counts
+# against the nearest closed wall-door: 27, 5, 1, 1, 1, 0, 0, 0, 0 (three boots
+# had no wall-door at all). The 27 and the 5 came from doors 4 and 5 tiles from
+# the squad; every "1" was a door 7 tiles out.
+#
+# Every observed fixture red - four in a ten-run proof, plus the one that opened
+# this investigation - happened on a ONE-CANDIDATE boot: a single marginal
+# crossing, no retry, and the walk either found no route at all or arrived with
+# 7-18 TU of the 22 a crossing costs. The boots with 5+ candidates never failed:
+# a door that close is reachable, and the spare candidates absorb a pathfinder
+# that routes around one of them.
+#
+# So the premise this fixture needs is not "a door exists" (which is what it used
+# to check, and which a 7-tile door satisfies while being uncrossable) - it is
+# "enough crossings that one of them must work". Re-rolling for that is the
+# honest place for the lottery, and MAX_REROLLS is sized for it: ~20% of boots
+# qualify, so 40 boots makes exhaustion a ~0.06% event instead of the ~25-40%
+# red rate this pin replaces.
+MIN_CROSSINGS = 5
+
+# PHASE 2 walks an actor up to a door only to right-click it, so its approach is
+# pure overhead and a long one defeats the phase: traced, four actors walked
+# seven tiles and arrived with 1-3 TU, unable to turn or open anything.
+RIGHT_CLICK_APPROACH_MAX = 4
 
 # THE FIXTURE. Pinned to STR_SMALL_SCOUT rather than left on "whatever the combo
 # box defaults to": NewBattleState::load() takes the mission from `battle.cfg`
@@ -287,40 +314,41 @@ def tile_walkable(gc, t, occupied):
     return ti.get("parts", {}).get("floor", {}).get("mapDataID", -1) >= 0
 
 
-def staging_tile(gc, near, far, occupied):
-    """A tile to stand on so that a walk to @a far is FORCED through the door.
+def staging_tiles(gc, near, far, occupied, self_pos=None):
+    """EVERY tile from which a walk to @a far is a two-step crossing through the
+    door: adjacent to `near`, exactly two steps from `far`, walkable, and free.
 
-    WHY THIS EXISTS (measured): ordering a walk straight at `far` lets
-    Pathfinding pick any route, and on an alien base it did - a 12-step walk
-    round the outside of the module that never touched the door
-    (`routed WITHOUT crossing a door`). From the tile on the far side of
-    `near` the crossing is a TWO-step path, near then far, and every
-    alternative is an order of magnitude longer - which also gives the
-    acceptance the step it needs BEFORE the door ev.
+    A LIST, not a single tile, and that is the point. When this returned only the
+    first match, one actor parking on it made the same door unusable for all six
+    other soldiers - four of the seven rejections in a traced red were "no
+    walkable staging tile", for a tile that existed and was simply occupied by
+    the previous candidate. @a self_pos is excused from the occupancy test for
+    the same reason: an actor standing on a staging tile IS staged.
 
-    Collinear first (near + (near - far)), then any other neighbour of `near`."""
+    The two-step requirement is not decoration either: a neighbour of `near` that
+    is also a DIAGONAL neighbour of `far` lets Pathfinding cut the corner and
+    never touch the wall the door is in (observed as a one-step "routed WITHOUT
+    crossing a door")."""
     dx, dy = near[0] - far[0], near[1] - far[1]
-    cands = [(near[0] + dx, near[1] + dy, near[2])]
+    ordered = [(near[0] + dx, near[1] + dy, near[2])]          # collinear first
     for ox in (-1, 0, 1):
         for oy in (-1, 0, 1):
-            if ox == 0 and oy == 0:
-                continue
-            cands.append((near[0] + ox, near[1] + oy, near[2]))
-    for t in cands:
-        if t == far or t == near:
+            if ox or oy:
+                ordered.append((near[0] + ox, near[1] + oy, near[2]))
+    out = []
+    for t in ordered:
+        if t in (near, far) or t in out:
             continue
-        # It must be TWO steps from `far`, not one. A neighbour of `near` that is
-        # also a DIAGONAL neighbour of `far` lets Pathfinding cut the corner and
-        # never touch the wall the door is in - observed as a one-step "routed
-        # WITHOUT crossing a door".
         if cheb(t, far) != 2:
             continue
-        if tile_walkable(gc, t, occupied):
-            return t
-    return None
+        if t != self_pos and not tile_walkable(gc, t, occupied):
+            continue
+        out.append(t)
+    return out
 
 
-def walk_through_candidates(gc, approach_max, want_ufo=None, min_approach=1):
+def walk_through_candidates(gc, approach_max, want_ufo=None, min_approach=1,
+                            clean_only=False):
     """(actor_id, near, far, door) triples for a walk that must cross a door.
 
     `min_approach >= 1` is the DEFAULT and it is load-bearing: the acceptance is
@@ -368,6 +396,8 @@ def walk_through_candidates(gc, approach_max, want_ufo=None, min_approach=1):
             if far in occupied or near in occupied:
                 continue
             clean = 0 if W.region_is_contact_free(aliens, actor, far, pad=2) else 1
+            if clean_only and clean:
+                continue
             room = W.min_dist_to(aliens, far)
             out.append((clean, approach, -(room if room is not None else 1e9),
                         actor["id"], near, far, d))
@@ -464,21 +494,46 @@ def assert_delivery(host, client, what):
     return he, ca
 
 
+# TU a crossing needs once the actor is standing on the staging tile: two steps
+# (4-8 each) plus the door's own cost. Checked BEFORE the crossing is ordered, so
+# "the actor ran dry mid-crossing" is a retry on the next candidate and never a
+# red - that halt was one of the two mechanisms behind the observed flake.
+CROSSING_TU = 22
+
+
 def phase_walk_through(host, client, want_ufo, approach_max, tag, moving_bucket):
     """A WALK THROUGH A DOOR. @a moving_bucket is the bucket that MUST have moved
     on the host across the crossing - the non-vacuity control that stops every
     "EQUAL" assertion below from being equal-because-nothing-happened. It is
     `terrain` for a NORMAL door (Tile::openDoor rewrites mapDataID/SetID,
-    Tile.cpp:388-390, which is what SharedEcon.cpp:3843-3848 sums) and
-    `saveBlob` for a UFO door (the open bit is a binTiles boolField,
-    Tile.cpp:209-210, and lives in NO BattleHashSet bucket).
+    Tile.cpp:388-390, which is what SharedEcon.cpp:3843-3848 sums).
 
-    Each candidate is tried DIRECT first (order a walk at the far tile and let
-    Pathfinding route) and then STAGED (walk to the tile behind `near` first, so
-    the crossing is a forced two-step path). The staged form exists because the
-    direct one is not sound on a connected map: on an alien base the pathfinder
-    walked twelve steps round the outside of the module and never touched the
-    door."""
+    HOW A CROSSING IS MADE TO HAPPEN, and why the two obvious ways do not work.
+    Ordering a walk AT the far tile and hoping Pathfinding goes through the door
+    is a lottery, and it lost: a traced red had the pathfinder walk EIGHT steps
+    around the module and never touch the door. Shipping an explicit two-tile
+    `path` override instead does not fix it either - the host RECOMPUTES its own
+    route and requires it tile-for-tile (SS2.W2's no-silent-reroute rule,
+    connectionTCP.cpp:3399-3423), so a plan the pathfinder disagrees with is
+    answered `path_changed`, by design.
+
+    So the crossing is STAGED and every precondition is VERIFIED before it is
+    ordered: the actor is walked onto the tile behind `near` (collinear, exactly
+    two steps from `far`), confirmed to BE there, confirmed to still hold
+    CROSSING_TU, the spotted set is confirmed unchanged, and the door is
+    confirmed still CLOSED. Only then is the crossing ordered. Anything that does
+    not hold moves to the NEXT candidate with a freshly derived list - never a
+    failure, because none of it is a statement about the door atom.
+
+    THE ONE THING THIS FILE USED TO DO THAT POISONED ITSELF: it tried the direct
+    (route-and-hope) form FIRST, on the same candidate, which walked the actor
+    eight tiles away and drained it - so the staged retry then ran from the wrong
+    tile with no TU and produced a one-step halt, and the phase reported "no
+    candidate crossing routed through a door". The direct form is gone.
+
+    Every rejection is RECORDED and printed if the phase runs out of candidates,
+    so a fixture red says which test failed and with what numbers instead of
+    having to be reproduced to be understood."""
     print(f"\n== {tag}: a walk THROUGH a "
           f"{'ufo' if want_ufo else 'normal'} door ==")
     spot0 = (spotted(host), spotted(client))
@@ -486,109 +541,135 @@ def phase_walk_through(host, client, want_ufo, approach_max, tag, moving_bucket)
     assert_hash_clean(host, client, full=True, what=f"{tag} t=0")
 
     tried = set()
-    seen_any = False
-    for _ in range(14):
+    rejected = []
+    seen = 0
+    for _ in range(18):
         cands = [c for c in walk_through_candidates(host, approach_max,
                                                     want_ufo=want_ufo)
-                 if (c[0], c[1], c[2]) not in tried]
+                 if (c[0], c[1], c[2],
+                     unit_pos(W.unit_of(host, c[0]))) not in tried]
         if not cands:
             break
-        seen_any = True
         actor_id, near, far, d = cands[0]
-        tried.add((actor_id, near, far))
+        at = unit_pos(W.unit_of(host, actor_id))
+        tried.add((actor_id, near, far, at))
+        seen += 1
+        door_at = (d["x"], d["y"], d["z"], d["part"])
+        tu = W.unit_of(host, actor_id).get("tu", 0)
         occupied = {unit_pos(u) for u in battle_state(host).get("units", [])
                     if not u.get("isOut")}
+        staged = at in staging_tiles(host, near, far, occupied, self_pos=at)
 
-        for staged in (False, True):
-            if staged:
-                pre = staging_tile(host, near, far, occupied)
-                if pre is None:
-                    continue
-                if unit_pos(W.unit_of(host, actor_id)) != pre:
-                    # send_walk_outcome, not send_walk + wait_walk_settled: a
-                    # drained actor is legitimately answered `cost_changed`,
-                    # which opens no walk chain, and waiting for one just times
-                    # out - indistinguishable, in the log, from the desync
-                    # freeze the control build for this test produces.
-                    outcome, _ = W.send_walk_outcome(host, client, actor_id, pre,
-                                                     timeout=25)
-                    if (outcome != "walk"
-                            or unit_pos(W.unit_of(host, actor_id)) != pre):
-                        print(f"    staging walk for actor {actor_id} -> {pre}: "
-                              f"{outcome}, at {unit_pos(W.unit_of(host, actor_id))}")
-                        continue
-                    assert_hash_clean(host, client, full=True,
-                                      what=f"{tag} after a staging walk")
+        # THE ONE WALK. Whether the actor is already staged or not, the order is
+        # the same: walk AT `far`. That is what makes this loop terminate without
+        # wasting TU - a walk that fails to cross has still carried the actor
+        # TOWARDS the door, so the next iteration re-derives from a better
+        # position, and the (actor, door, POSITION) key means the same pair is
+        # never retried from the same tile.
+        #
+        # A SEPARATE staging leg was tried first and was worse on every count: it
+        # spent the TU the crossing then needed (traced: actors arriving on the
+        # staging tile with 7-18 TU of the 22 a crossing costs), it could fail
+        # with no route to one specific tile while the crossing itself was fine
+        # (traced twice), and it parked actors on the very tiles the next
+        # candidate needed.
+        if staged and tu < CROSSING_TU:
+            rejected.append(f"actor {actor_id} door {door_at}: staged at {at} but "
+                            f"only {tu} TU, a crossing needs {CROSSING_TU}")
+            continue
+        if not closed_door_at(host, door_at):
+            rejected.append(f"actor {actor_id} door {door_at}: no longer closed when "
+                            "its crossing was due")
+            continue
 
-            before_census = door_census(host)
-            before_h = host.cmd({"cmd": "hash_now", "full": True})["h"]
-            prev = W.walk_action_id(host)
-            resp = W.send_walk(client, actor_id, far)
-            if not resp.get("iseq"):
-                print(f"    actor {actor_id} -> {far} ({'staged' if staged else 'direct'}"
-                      f"): nothing shipped ({resp.get('error')})")
-                continue
-            try:
-                W.wait_walk_settled(host, client, prev)
-            except Exception as e:
-                # A walk that never settles is almost always a client that
-                # FROZE: CoopHashCheck::verify() raises the SS2.8 desync on the
-                # first bucket mismatch and the pump then stops draining, so
-                # lastSeqApplied never catches up. Say so, with the buckets, or
-                # the control build for this very test reads as a hang.
-                raise AssertionError(
-                    f"{tag}: walk for actor {actor_id} never settled: {e}\n"
-                    f"  host desyncSeen={event_state(host).get('desyncSeen')} "
-                    f"client desyncSeen={event_state(client).get('desyncSeen')}\n"
-                    f"  host   h={host.cmd({'cmd': 'hash_now', 'full': True}).get('h')}\n"
-                    f"  client h={client.cmd({'cmd': 'hash_now', 'full': True}).get('h')}")
-            W.settle_reveal(host, client)
-            hw = W.last_walk(host)
-            spot1 = (spotted(host), spotted(client))
-            if spot1 != spot0:
-                print(f"    actor {actor_id} -> {far}: the walk CHANGED the spotted set "
-                      f"{spot0} -> {spot1} (a `spot` halt is W1-P11's atom, not this "
-                      "one) - discarding this candidate")
-                spot0 = spot1
-                break
-            evs = action_events(host, hw["actionId"])
-            if not any(e["kind"] == "door" for e in evs):
-                print(f"    actor {actor_id} -> {far} "
-                      f"({'staged' if staged else 'direct'}): routed WITHOUT crossing a "
-                      f"door ({[e['kind'] for e in evs]})")
-                continue
+        before_census = door_census(host)
+        before_h = host.cmd({"cmd": "hash_now", "full": True})["h"]
+        prev = W.walk_action_id(host)
+        resp = W.send_walk(client, actor_id, far)
+        if not resp.get("iseq"):
+            rejected.append(f"actor {actor_id} door {door_at}: no intent shipped from "
+                            f"{at} with {tu} TU ({resp.get('error')})")
+            continue
+        try:
+            W.wait_walk_settled(host, client, prev)
+        except Exception as e:
+            # A walk that never settles is almost always a client that FROZE:
+            # CoopHashCheck::verify() raises the SS2.8 desync on the first bucket
+            # mismatch and the pump then stops draining, so lastSeqApplied never
+            # catches up. Say so, with the buckets, or the control build for this
+            # very test reads as a hang.
+            raise AssertionError(
+                f"{tag}: crossing for actor {actor_id} never settled: {e}\n"
+                f"  host desyncSeen={event_state(host).get('desyncSeen')} "
+                f"client desyncSeen={event_state(client).get('desyncSeen')}\n"
+                f"  host   h={host.cmd({'cmd': 'hash_now', 'full': True}).get('h')}\n"
+                f"  client h={client.cmd({'cmd': 'hash_now', 'full': True}).get('h')}")
+        W.settle_reveal(host, client)
+        hw = W.last_walk(host)
+        # EVERY walk this phase orders is hash-checked, not just the one that
+        # ends up crossing a door. The earlier shape only checked the separate
+        # staging leg, so a failed crossing attempt went unchecked before the
+        # next candidate was tried - a walk that diverged the buckets could then
+        # be silently walked away from.
+        assert_hash_clean(host, client, full=True,
+                          what=f"{tag} after a crossing attempt")
 
-            print(f"    crossing door ({d['x']},{d['y']},{d['z']}) part {d['part']} "
-                  f"ufo={d['isUfoDoor']} via actor {actor_id} {near} -> {far}")
-            d0 = assert_door_between_steps(host, hw["actionId"], f"{tag} host")
-            assert_door_between_steps(client, hw["actionId"], f"{tag} client")
+        if (spotted(host), spotted(client)) != spot0:
+            rejected.append(f"actor {actor_id} door {door_at}: the walk CHANGED the "
+                            f"spotted set {spot0} -> "
+                            f"{(spotted(host), spotted(client))} (a `spot` halt is "
+                            "W1-P11's atom, not this one)")
+            spot0 = (spotted(host), spotted(client))
+            continue
+        evs = action_events(host, hw["actionId"])
+        if not any(e["kind"] == "door" for e in evs):
+            restate = hw.get("restate") or {}
+            rejected.append(f"actor {actor_id} door {door_at}: walk from {at} "
+                            f"(staged={staged}, {tu} TU) did not open it - "
+                            f"{len([e for e in evs if e['kind'] == 'walk_step'])} "
+                            f"step(s), halted={restate.get('halted')} "
+                            f"reason={restate.get('reason')}; now at "
+                            f"{unit_pos(W.unit_of(host, actor_id))} with "
+                            f"{W.unit_of(host, actor_id).get('tu')} TU")
+            continue
 
-            after_census = assert_door_parity(host, client, tag)
-            print(f"    census delta: gone={[e for e in before_census if e not in after_census]} "
-                  f"new={[e for e in after_census if e not in before_census]}")
-            assert after_census != before_census, (
-                f"{tag} NON-VACUITY: the door census did not change across the walk - "
-                "no door actually opened, so 'the two machines agree' proves nothing")
-            after_h = host.cmd({"cmd": "hash_now", "full": True})["h"]
-            assert after_h[moving_bucket] != before_h[moving_bucket], (
-                f"{tag} NON-VACUITY: the host's `{moving_bucket}` bucket did not move "
-                "across the door open, although that is the bucket this door kind "
-                "writes - so the EQUAL assertions would be "
-                "equal-because-nothing-happened")
-            assert_hash_clean(host, client, full=True,
-                              what=f"{tag} after the door walk")
-            he, ca = assert_delivery(host, client, tag)
-            print(f"    PASS: door ev seq {d0['seq']} in actionId {hw['actionId']} "
-                  f"({'staged' if staged else 'direct'}); host emitted {he}, client "
-                  f"applied {ca}; `{moving_bucket}` moved {before_h[moving_bucket]} -> "
-                  f"{after_h[moving_bucket]} on the host and the CLIENT matches it; "
-                  f"census identical ({len(after_census)} parts) and CHANGED")
-            return actor_id
+        print(f"    crossing door {door_at} ufo={d['isUfoDoor']} via actor "
+              f"{actor_id} from {at} (staged={staged}, {tu} TU) -> {far}")
+        d0 = assert_door_between_steps(host, hw["actionId"], f"{tag} host")
+        assert_door_between_steps(client, hw["actionId"], f"{tag} client")
 
+        after_census = assert_door_parity(host, client, tag)
+        print(f"    census delta: "
+              f"gone={[e for e in before_census if e not in after_census]} "
+              f"new={[e for e in after_census if e not in before_census]}")
+        assert after_census != before_census, (
+            f"{tag} NON-VACUITY: the door census did not change across the walk - "
+            "no door actually opened, so 'the two machines agree' proves nothing")
+        after_h = host.cmd({"cmd": "hash_now", "full": True})["h"]
+        assert after_h[moving_bucket] != before_h[moving_bucket], (
+            f"{tag} NON-VACUITY: the host's `{moving_bucket}` bucket did not move "
+            "across the door open, although that is the bucket this door kind "
+            "writes - so the EQUAL assertions would be "
+            "equal-because-nothing-happened")
+        assert_hash_clean(host, client, full=True, what=f"{tag} after the door walk")
+        he, ca = assert_delivery(host, client, tag)
+        print(f"    PASS: door ev seq {d0['seq']} in actionId {hw['actionId']}; host "
+              f"emitted {he}, client applied {ca}; `{moving_bucket}` moved "
+              f"{before_h[moving_bucket]} -> {after_h[moving_bucket]} on the host "
+              f"and the CLIENT matches it; census identical "
+              f"({len(after_census)} parts) and CHANGED "
+              f"({len(rejected)} attempt(s) rejected first)")
+        return actor_id
+
+    detail = ("\n      ".join(rejected)) if rejected else "(no candidate at all)"
     raise AssertionError(
-        "FIXTURE: no candidate crossing actually routed through a door "
-        f"(candidates seen: {seen_any}) - fixture failure, not a result about the "
-        "door atom")
+        f"FIXTURE: {seen} crossing attempt(s), none opened a door - fixture "
+        f"failure, not a result about the door atom.\n      {detail}")
+
+
+def closed_door_at(gc, door_at):
+    return any((x["x"], x["y"], x["z"], x["part"]) == door_at
+               for x in closed_doors(gc))
 
 
 def phase_right_click(host, client, approach_max, want_ufo, tag, moving_bucket):
@@ -619,10 +700,22 @@ def phase_right_click(host, client, approach_max, want_ufo, tag, moving_bucket):
 
     pick = adjacent_pick()
     if not pick:
-        approach = walk_through_candidates(host, approach_max, want_ufo=want_ufo)
+        # SHORT APPROACHES FIRST, and the reason is a traced red: at the full
+        # radius this phase walked four actors seven tiles each and every one of
+        # them arrived with 1-3 TU - not enough to turn and open anything - so
+        # the phase failed with a map full of doors and a squad too tired to use
+        # them. MIN_CROSSINGS guarantees a door CLUSTER within a few tiles, so a
+        # short approach almost always exists; the full radius stays as a
+        # fallback rather than a first choice.
+        approach = walk_through_candidates(host, RIGHT_CLICK_APPROACH_MAX,
+                                           want_ufo=want_ufo)
+        if not approach:
+            approach = walk_through_candidates(host, approach_max,
+                                               want_ufo=want_ufo)
         print(f"    no seat-1 soldier is adjacent to a closed "
               f"{'ufo' if want_ufo else 'normal'} door; "
-              f"{len(approach)} approach candidate(s) within {approach_max} tiles")
+              f"{len(approach)} approach candidate(s) "
+              f"(short cap {RIGHT_CLICK_APPROACH_MAX}, full cap {approach_max})")
         # Nothing says a seat-1 soldier must ALREADY stand next to a closed door,
         # so walk one up to a NEAR tile first. That approach walk stops ON the
         # near tile and therefore does not cross the door, so this phase still
@@ -797,6 +890,7 @@ def phase_client_boundary_refused(host, client, tag):
 # ----- fixtures -----------------------------------------------------------
 
 def bring_up(tag, mission, qualifies, base_port, base_probe):
+    why_log = []
     for attempt in range(1, MAX_REROLLS + 1):
         port = str(base_port + attempt)
         host = GameClient("host", base_probe + attempt * 2,
@@ -810,8 +904,9 @@ def bring_up(tag, mission, qualifies, base_port, base_probe):
             why = qualifies(host, client)
             if why is None:
                 print(f"[repro_atom_door] {tag} fixture qualifies on attempt "
-                      f"{attempt}/{MAX_REROLLS}")
+                      f"{attempt}/{MAX_REROLLS} ({attempt - 1} re-roll(s))")
                 return host, client
+            why_log.append(why)
             print(f"[repro_atom_door] {tag} re-roll {attempt}/{MAX_REROLLS}: {why}")
             host.shutdown()
             client.shutdown()
@@ -819,23 +914,36 @@ def bring_up(tag, mission, qualifies, base_port, base_probe):
             host.shutdown()
             client.shutdown()
             raise
+    tally = {}
+    for w in why_log:
+        key = w.split(":")[0].split("(")[0].strip()
+        tally[key] = tally.get(key, 0) + 1
     raise AssertionError(
         f"FIXTURE: no qualifying {tag} fixture in {MAX_REROLLS} boots - this is a "
-        "fixture failure, not a result about the door atom")
+        f"fixture failure, not a result about the door atom.\n      "
+        f"rejection tally: {tally}\n      last: {why_log[-1] if why_log else None}")
 
 
 def make_qualifier(want_ufo, approach_max):
+    """A boot QUALIFIES only if it can actually be driven.
+
+    Every clause here answers a question PHASE 1 would otherwise have to
+    discover the expensive way, and each one reports the NUMBERS it saw. The
+    staging-tile clause is the one this file learned the hard way: a boot whose
+    only candidate has no walkable staging tile qualified, and then the phase
+    failed as a FIXTURE red instead of being re-rolled - which is what turned a
+    map-roll property into a 1-in-4 red on a packet's own acceptance repro."""
     def q(host, client):
         st = battle_state(host)
         if not st.get("inBattle"):
             return "no battle"
-        # (a) NOTHING SPOTTED ON THE HOST - repro_atom_turn's own rule, and it is
-        # a HARD disqualifier, proven the expensive way: a roll whose host set
-        # was already {1000000} desynced on the FIRST door walk (`items`,
+        # (a) NOTHING SPOTTED ON THE HOST - repro_atom_turn's own rule, and a
+        # HARD disqualifier proven the expensive way: a roll whose host set was
+        # already {1000000} desynced on the FIRST door walk (`items`,
         # `unitsStats`, `revealHostile`, `saveBlob` all moved apart while
         # `terrain` stayed EQUAL) - i.e. the host reaction-fired, and no wave-1
-        # wire carries a shot. The HOST's set is the one that matters because the
-        # host is the only machine that simulates.
+        # wire carries a shot. The HOST's set is the one that matters because
+        # the host is the only machine that simulates.
         if spotted(host):
             return f"a hostile is already visible to the host at t=0: {spotted(host)}"
         # The CLIENT's set differing is NOT a re-roll reason: `battle_state.spotted`
@@ -848,16 +956,91 @@ def make_qualifier(want_ufo, approach_max):
         if spotted(client):
             print(f"    note: the client's t=0 spotted set is {spotted(client)} while "
                   "the host's is empty - hash-excluded, and stability is what is pinned")
-        hh = host.cmd({"cmd": "hash_now", "full": True}).get("h", {})
-        ch = client.cmd({"cmd": "hash_now", "full": True}).get("h", {})
-        diff = [k for k in hh if hh[k] != ch.get(k)]
-        if diff:
-            return f"the fixture is ALREADY divergent at t=0 in {diff}"
-        if not walk_through_candidates(host, approach_max, want_ufo=want_ufo):
-            return (f"no closed {'ufo' if want_ufo else 'normal'} door 1..{approach_max}"
-                    " tiles from a seat-1 soldier")
+        if any(hh != ch for hh, ch in _bucket_pairs(host, client)):
+            return ("the fixture is ALREADY divergent at t=0 in "
+                    f"{_divergent_buckets(host, client)}")
+
+        seats = seat_units(host)
+        doors = closed_doors(host)
+        want = "ufo" if want_ufo else "normal"
+        kind = [d for d in doors if bool(d["isUfoDoor"]) == want_ufo]
+        if not kind:
+            return (f"no CLOSED {want} wall-door on the map at all "
+                    f"({len(find_doors(host))} door part(s) found, "
+                    f"{len(doors)} of them closed wall-doors)")
+
+        cands = walk_through_candidates(host, approach_max, want_ufo=want_ufo)
+        if not cands:
+            near = _nearest_door_report(seats, kind)
+            return (f"{len(kind)} closed {want} door(s), but none is 1..{approach_max} "
+                    f"tiles from a seat-1 soldier with the TU to reach it and still "
+                    f"act; nearest side per soldier: {near}")
+
+        # THE CLAUSE THE FLAKE TAUGHT: the phase stages every crossing, so a
+        # candidate without a walkable staging tile is not a candidate.
+        occupied = {unit_pos(u) for u in st.get("units", []) if not u.get("isOut")}
+
+        def _stageable(cs):
+            return [c for c in cs
+                    if staging_tiles(host, c[1], c[2], occupied,
+                                     self_pos=unit_pos(W.unit_of(host, c[0])))]
+
+        # CONTACT-FREE CROSSINGS ARE PREFERRED, WITH A FALLBACK. A crossing walk
+        # that moves INTO view can draw reaction fire, and no wave-1 wire carries
+        # a shot: the one desync this fixture has ever produced on a good build
+        # had `terrain` and `revealHostile` EQUAL while `items`, `unitsCore`,
+        # `unitsStats` and `saveBlob` all moved apart - the shot signature, not a
+        # door one. So when the map can supply MIN_CROSSINGS crossings whose
+        # whole approach box clears session.MAX_VIEW_DISTANCE, this fixture uses
+        # ONLY those. It is a preference and not a filter because on most rolls
+        # of this map class nothing clears that cap at walking distance, and a
+        # hard filter would be a fixture that never runs.
+        clean = _stageable(walk_through_candidates(host, approach_max,
+                                                   want_ufo=want_ufo,
+                                                   clean_only=True))
+        stageable = clean if len(clean) >= MIN_CROSSINGS else _stageable(cands)
+        if len(stageable) < MIN_CROSSINGS:
+            near = _nearest_door_report(seats, kind)
+            return (f"only {len(stageable)} stageable crossing(s) of {len(cands)} "
+                    f"candidate(s) - MIN_CROSSINGS is {MIN_CROSSINGS}, because every "
+                    "observed red was a one-candidate boot whose single marginal "
+                    f"crossing had no route; nearest door side per soldier: {near}")
+        print(f"    fixture: {len(find_doors(host))} door part(s), {len(kind)} closed "
+              f"{want}, {len(cands)} candidate crossing(s), {len(stageable)} of them "
+              f"stageable, {len(clean)} contact-free (MIN_CROSSINGS {MIN_CROSSINGS})")
         return None
     return q
+
+
+def _bucket_pairs(host, client):
+    hh = host.cmd({"cmd": "hash_now", "full": True}).get("h", {})
+    ch = client.cmd({"cmd": "hash_now", "full": True}).get("h", {})
+    return [(hh[k], ch.get(k)) for k in hh]
+
+
+def _divergent_buckets(host, client):
+    hh = host.cmd({"cmd": "hash_now", "full": True}).get("h", {})
+    ch = client.cmd({"cmd": "hash_now", "full": True}).get("h", {})
+    return [k for k in hh if hh[k] != ch.get(k)]
+
+
+def _nearest_door_report(seats, doors):
+    """(soldier id, TU, Chebyshev distance to the nearest door side) - the numbers
+    a fixture rejection has to print so it does not need reproducing."""
+    out = []
+    for u in seats:
+        p = unit_pos(u)
+        best = None
+        for d in doors:
+            sides = door_sides(d)
+            if sides is None:
+                continue
+            for t in sides:
+                c = cheb(p, t)
+                if best is None or c < best:
+                    best = c
+        out.append((u["id"], u.get("tu"), best))
+    return out
 
 
 def main():
