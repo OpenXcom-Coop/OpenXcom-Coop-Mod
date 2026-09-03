@@ -12045,6 +12045,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// its host already clicked RESUME back in the lobby.
 		bool inBattleResume = false;
 		const bool customBattleResume = connectionTCP::session.customBattleResumeLoading;
+		// A loaded PVE2 Custom Battle has already crossed the mode's one-time
+		// new-battle hand-off.  Session teardown deliberately clears pve2_init,
+		// but leaving it false on resume makes BattlescapeState::think treat the
+		// restored PLAYER side as a fresh battle and call endTurnCoop() before
+		// either seat presses END TURN.  Mark it consumed while the resume modal
+		// still covers BattlescapeState, before popping back to the battle.
+		if (customBattleResume && getCoopGamemode() == 4)
+		{
+			pve2_init = true;
+		}
 		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle() != nullptr
 			&& (_game->getCoopMod()->getCoopCampaign() == true || customBattleResume))
 		{

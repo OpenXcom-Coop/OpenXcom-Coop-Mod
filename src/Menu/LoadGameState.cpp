@@ -518,6 +518,13 @@ void LoadGameState::think()
 						_game->getCoopMod()->sendTCPPacketData(done.toStyledString());
 						if (customBattleResume)
 						{
+							// The streamed save is an already-running battle.  Do not let
+							// PVE2's one-time NEW-battle initialization hand it straight
+							// back to the AI when BattlescapeState begins thinking.
+							if (_game->getCoopMod()->getCoopGamemode() == 4)
+							{
+								_game->getCoopMod()->pve2_init = true;
+							}
 							if (_game->getCoopMod()->parallelTurnActive())
 							{
 								connectionTCP::resetActionArbiter(true);
