@@ -1820,6 +1820,9 @@ struct CoopClientInFlight
 	int toDir = -1;
 	bool turret = false;
 	bool kneel = false;
+	// W1-P7 (WV-D24): SDL_GetTicks() at the moment the envelope went out - the
+	// basis of the intent round-trip timeout. Zero while the slot is empty.
+	std::uint32_t sentTick = 0;
 };
 static CoopClientInFlight g_coopClientInFlight;
 
@@ -1841,6 +1844,51 @@ struct CoopClientPending
 	std::uint32_t deniedIseq = 0; // the iseq whose deny("busy") created this
 };
 static CoopClientPending g_coopClientPending;
+
+// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): CLIENT-side order-feedback state.
+//
+// g_coopClientRunningActionId is the actionId of THIS client's own most recent
+// ADMITTED intent whose bt_action_end has not been applied yet - i.e. "my order
+// is executing on the host right now". It is deliberately SEPARATE from
+// g_coopClientInFlight above, which is a single slot that a second unit's send
+// overwrites (and that a busy deny empties into the pending slot): the wait
+// banner must still be able to tell "the host is busy with MY action" from "the
+// host is busy with the OTHER seat's action" after either of those happens.
+// Set by onAck(), cleared by onActionEndApplied() and at teardown.
+static std::uint32_t g_coopClientRunningActionId = 0;
+
+// WV-D24: every iseq this client has GIVEN UP ON. A late bt_ack/bt_deny naming
+// one of these is permanently ignored ("PERMANENTLY IGNORED", exactly); a late
+// bt_action_end is untouched by any of this and still applies - it never reaches
+// here at all, it goes through the seq-ordered apply queue like host truth must.
+static std::set<std::uint32_t> g_coopClientTimedOutIseq;
+static std::uint32_t g_coopIntentTimeouts = 0;      // how many fired this battle
+static std::uint32_t g_coopLastTimedOutIseq = 0;    // the most recent one
+static std::uint32_t g_coopLateAnswersIgnored = 0;  // late ack/deny dropped
+
+// W1-P7 (WV-D13 item 4): the donor's busy-owner LATCH
+// (`cbff7951d:BattlescapeState.cpp:5310-5327`, _coopBusyOwnerSeat), re-homed
+// from a vanilla per-frame method into CoopMod. Resolved ONCE per busy window;
+// dropped the moment the window closes. Latching (rather than re-deriving each
+// tick) is load-bearing for the same reason it was in the donor: consequence
+// states are pushed to the FRONT of the state queue mid-chain, so a per-tick
+// re-derive would mis-attribute a kill to the victim's side.
+static int g_coopBusyOwnerSeat = -1;
+
+// TEST-ONLY (W1-P7, RB-D26/RB-D32 family; delete with hold_chain once real
+// network latency/loss can be injected another way): the defer_intents lever's
+// HOST-side state. A deferred intent is held VERBATIM and re-dispatched into the
+// real onIntent() path when its deadline passes, so the client sees a genuinely
+// unanswered intent first and a genuinely LATE answer afterwards.
+struct CoopDeferredIntent
+{
+	Json::Value intent;
+	std::chrono::steady_clock::time_point due;
+};
+static std::uint32_t g_coopDeferIntentsMs = 0;
+static int g_coopDeferIntentsLeft = 0;
+static std::vector<CoopDeferredIntent> g_coopDeferredIntents;
+static bool g_coopDeferReentry = false;  // true while re-dispatching a deferred one
 
 // R2-P7 (RB-D26/RB-D32 family, owner-approved 2026-09-02): the hold_chain
 // test lever's state.
@@ -1869,6 +1917,12 @@ static std::map<std::uint32_t, int> g_coopClientActionActor;
 // battle-teardown reset chokepoint (R2-P8 wires its call site); extending
 // its body here keeps CoopArbiter's own battle-scoped statics from leaking
 // into a following battle without adding new public API surface.
+// W1-P7: forward declaration of CoopBattleUi's INTERNAL teardown reset. It is
+// not part of CoopBattleUi.h's public API (nothing outside this file needs it);
+// it exists so the one established battle-teardown chokepoint below can drop the
+// banner-class bookkeeping with everything else.
+namespace CoopBattleUi { void resetBannerState(); }
+
 static void resetCoopArbiterState()
 {
 	g_coopActionContextStack.clear();
@@ -1884,6 +1938,20 @@ static void resetCoopArbiterState()
 	g_coopClientPending = CoopClientPending();
 	g_coopHoldChainMs = 0;
 	g_coopHoldChainHolding = false;
+	// W1-P7 (WV-D13/WV-D24): the order-feedback state is battle-scoped too - a
+	// timed-out iseq from a previous battle must never suppress a fresh answer
+	// (iseq restarts at 1 per battle, SS2.2).
+	g_coopClientRunningActionId = 0;
+	g_coopClientTimedOutIseq.clear();
+	g_coopIntentTimeouts = 0;
+	g_coopLastTimedOutIseq = 0;
+	g_coopLateAnswersIgnored = 0;
+	g_coopBusyOwnerSeat = -1;
+	g_coopDeferIntentsMs = 0;
+	g_coopDeferIntentsLeft = 0;
+	g_coopDeferredIntents.clear();
+	g_coopDeferReentry = false;
+	CoopBattleUi::resetBannerState();
 }
 
 // R2-P9 (SPIKE-RUNBOOK.md SS2.8): render a bucket's uint64 as the 16-
@@ -2076,6 +2144,27 @@ void onIntent(const Json::Value& intent)
 	if (!isCoopBattle())
 	{
 		Log(LOG_WARNING) << "[coop-arbiter] bt_intent received outside an active coop battle - dropped";
+		return;
+	}
+
+	// TEST-ONLY (W1-P7, same family and the same removal note as hold_chain):
+	// defer_intents. Holds this envelope verbatim and re-enters here when its
+	// deadline passes (releaseDeferredIntentsIfExpired(), at the RB-D5 pump
+	// point). Nothing is answered in the meantime, which is exactly what
+	// WV-D24's timeout needs to be deterministic - and the answer that finally
+	// goes out is a genuinely LATE one, so the ignore rule is testable too.
+	// Completely inert with nothing armed.
+	if (!g_coopDeferReentry && g_coopDeferIntentsMs > 0 && g_coopDeferIntentsLeft > 0)
+	{
+		--g_coopDeferIntentsLeft;
+		CoopDeferredIntent d;
+		d.intent = intent;
+		d.due = std::chrono::steady_clock::now()
+			+ std::chrono::milliseconds(g_coopDeferIntentsMs);
+		g_coopDeferredIntents.push_back(d);
+		Log(LOG_INFO) << "[coop-arbiter] defer_intents: holding bt_intent iseq "
+			<< intent.get("iseq", 0u).asUInt() << " for " << g_coopDeferIntentsMs
+			<< " ms before answering (TEST-ONLY STOPGAP)";
 		return;
 	}
 
@@ -2426,6 +2515,15 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	g_coopClientInFlight.toDir = toDir;
 	g_coopClientInFlight.turret = turret;
 	g_coopClientInFlight.kneel = kneel;
+	// W1-P7 (WV-D24): the timeout basis. Stamped AFTER the envelope actually
+	// shipped, so a send that never went out cannot arm a timer.
+	g_coopClientInFlight.sentTick = SDL_GetTicks();
+
+	// W1-P7 (WV-D13 item 2): the IN-FLIGHT indicator. Between here and the
+	// bt_action_end the player used to see NOTHING at all - the click looked
+	// like it had been swallowed. Raised on every send, including R2-P7's own
+	// auto-resubmit (which is a fresh order going out and deserves to say so).
+	CoopBattleUi::showOrderSent();
 
 	return iseq;
 }
@@ -2436,9 +2534,28 @@ void onAck(const Json::Value& ack)
 		return;
 
 	const std::uint32_t iseq = ack.get("iseq", 0u).asUInt();
+
+	// W1-P7 (WV-D24, exactly): a late bt_ack for an iseq this client already GAVE
+	// UP ON is PERMANENTLY IGNORED. It must not re-lock the unit, must not
+	// resurrect the in-flight slot and must not touch the banner. The counter is
+	// the only trace it leaves - and it is there on purpose, so a test can prove
+	// the message ARRIVED and was ignored rather than never having come.
+	if (g_coopClientTimedOutIseq.count(iseq) != 0)
+	{
+		++g_coopLateAnswersIgnored;
+		Log(LOG_INFO) << "[coop-arbiter] LATE bt_ack for timed-out iseq " << iseq
+			<< " - permanently ignored (WV-D24)";
+		return;
+	}
+
 	if (g_coopClientInFlight.active && g_coopClientInFlight.iseq == iseq)
 	{
 		g_coopClientInFlight.actionId = ack.get("actionId", 0u).asUInt();
+		// W1-P7 (WV-D13 item 4): admitted - MY action now owns the host's
+		// execution slot. Tracked separately from the in-flight slot because a
+		// second unit's send overwrites that slot while this action is still
+		// running, and the wait banner must not then blame the peer for it.
+		g_coopClientRunningActionId = g_coopClientInFlight.actionId;
 	}
 }
 
@@ -2449,6 +2566,18 @@ void onDeny(const Json::Value& deny)
 
 	const std::uint32_t iseq = deny.get("iseq", 0u).asUInt();
 	const std::string reason = deny.get("reason", "").asString();
+
+	// W1-P7 (WV-D24, exactly): a late bt_deny for an iseq this client already gave
+	// up on is PERMANENTLY IGNORED - it does not even update lastDeny(), because
+	// the player was already told the order was dropped and a second, contradictory
+	// answer to a dead order is noise. Counted so the drop is observable.
+	if (g_coopClientTimedOutIseq.count(iseq) != 0)
+	{
+		++g_coopLateAnswersIgnored;
+		Log(LOG_INFO) << "[coop-arbiter] LATE bt_deny('" << reason << "') for timed-out"
+			" iseq " << iseq << " - permanently ignored (WV-D24)";
+		return;
+	}
 
 	Json::Value ld(Json::objectValue);
 	ld["iseq"] = iseq;
@@ -2498,6 +2627,13 @@ void onDeny(const Json::Value& deny)
 
 void onActionEndApplied(std::uint32_t actionId)
 {
+	// W1-P7: drop the running-action tracker independently of the in-flight slot.
+	// After a timeout the slot is empty but the host may still complete the
+	// action - WV-D24 requires that late bt_action_end to APPLY, and when it does
+	// the host's execution slot really is free again.
+	if (g_coopClientRunningActionId != 0 && g_coopClientRunningActionId == actionId)
+		g_coopClientRunningActionId = 0;
+
 	if (g_coopClientInFlight.active && g_coopClientInFlight.actionId == actionId)
 	{
 		g_coopClientInFlight = CoopClientInFlight();
@@ -2687,6 +2823,169 @@ void onEvAppliedCancelCheck(const Json::Value& ev, int visibleBefore)
 	// unknown-kind path gets STR_COOP_CANCEL_EVENT with {0} = the ev kind.
 	// Either way the message NAMES the trigger - never generic.
 	CoopBattleUi::showCancel(cause, kind.c_str());
+}
+
+// ----- W1-P7: order feedback (WAVE1-RUNBOOK.md ruling D7 = WV-D13) -----
+
+bool hasPendingIntent()
+{
+	return g_coopClientPending.active;
+}
+
+int busyOwnerSeat()
+{
+	if (!isCoopBattle())
+	{
+		g_coopBusyOwnerSeat = -1;
+		return -1;
+	}
+
+	const int me = coopBattleAuthority().localSeat;
+
+	if (coopBattleAuthority().hostSim)
+	{
+		SavedBattleGame* save = connectionTCP::getStaticBattle();
+		// SS1 WAVE-1 ADDITIONS trap: SavedBattleGame::getBattleGame() derefs
+		// _battleState unconditionally, and this runs at the RB-D5 pump point,
+		// where the HOST can legitimately be parked in BriefingState.
+		BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+		BattlescapeGame* bg = bs ? save->getBattleGame() : nullptr;
+
+		// SS2.5's own busy predicate: a live BState chain OR an open action
+		// context (which is also what a held hold_chain window keeps true, and
+		// what onIntent() itself answers deny("busy") on).
+		const bool busy = (bg && bg->isBusy()) || currentActionId() != 0;
+		if (!busy)
+		{
+			g_coopBusyOwnerSeat = -1; // window closed - drop the latch (donor)
+			return -1;
+		}
+
+		if (g_coopBusyOwnerSeat == -1)
+		{
+			// DONOR CALL SITE (`cbff7951d:BattlescapeState.cpp:5317`): the owner of
+			// the running chain, skipping consequence states.
+			BattleUnit* actor = bg ? bg->getPrimaryBusyActor() : nullptr;
+			if (!actor)
+			{
+				// The chain has already unwound but its action context is still
+				// open (a held chain, or the gap between the last popState and
+				// onChainQuiesced). The arbiter's own pending-chain actor is the
+				// rewrite's equivalent answer - the donor had no such state
+				// because it had no admission model.
+				actor = findUnitById(save, g_coopPendingChainActorId);
+			}
+			if (actor)
+				g_coopBusyOwnerSeat = (int)actor->getCoopSeat();
+		}
+		return g_coopBusyOwnerSeat;
+	}
+
+	// CLIENT. A thin client pushes no BStates, so isBusy() is always false here
+	// and the donor predicate does not port as-is; its own intent bookkeeping is
+	// the equivalent knowledge (see CoopArbiter.h for the full argument).
+	if (g_coopClientRunningActionId != 0)
+		return me;  // MY admitted action is what is running - not waiting on anyone
+
+	if (g_coopClientPending.active && connectionTCP::seatCount() == 2)
+	{
+		// 2-seat bridge, exactly the donor's own (`cbff7951d:...:5340-5346`): with
+		// two seats the blocker is unambiguously the other one. Never extended to
+		// guess among 3+ seats - no wire field names a busy owner.
+		return (me == 0) ? 1 : 0;
+	}
+	return -1;
+}
+
+void tickIntentTimeout()
+{
+	if (!isCoopBattle() || !g_coopClientInFlight.active)
+		return;
+
+	const int seconds = Options::coopIntentTimeoutSeconds;
+	if (seconds <= 0)
+		return; // disabled by the user option (WR-25: a real OptionInfo, read live)
+
+	const std::uint32_t now = SDL_GetTicks();
+	const std::uint32_t sent = g_coopClientInFlight.sentTick;
+	if (sent == 0 || now - sent < (std::uint32_t)seconds * 1000u)
+		return;
+
+	const std::uint32_t iseq = g_coopClientInFlight.iseq;
+	const int actorId = g_coopClientInFlight.actorId;
+	const std::string kind = g_coopClientInFlight.kind;
+
+	// WV-D24: remember it forever (this battle), then RELEASE the IR-2 one-slot
+	// lock. That release is the whole point - before this packet a lost intent
+	// locked its unit for the rest of the battle, because nothing but a
+	// bt_ack/bt_deny/bt_action_end ever emptied this slot.
+	g_coopClientTimedOutIseq.insert(iseq);
+	g_coopLastTimedOutIseq = iseq;
+	++g_coopIntentTimeouts;
+	g_coopClientInFlight = CoopClientInFlight();
+
+	Log(LOG_WARNING) << "[coop-arbiter] intent TIMEOUT after " << seconds << " s: iseq "
+		<< iseq << " (" << kind << ", actor " << actorId << ") got no answer - slot"
+		" released, unit commandable again; a late ack/deny for it will be ignored"
+		" (WV-D24)";
+	CoopBattleUi::showIntentTimeout();
+}
+
+Json::Value inFlightIntent()
+{
+	if (!g_coopClientInFlight.active)
+		return Json::Value();
+	Json::Value v(Json::objectValue);
+	v["iseq"] = g_coopClientInFlight.iseq;
+	v["kind"] = g_coopClientInFlight.kind;
+	v["actorId"] = g_coopClientInFlight.actorId;
+	v["actionId"] = g_coopClientInFlight.actionId;
+	v["ageMs"] = (Json::UInt)(SDL_GetTicks() - g_coopClientInFlight.sentTick);
+	return v;
+}
+
+std::uint32_t intentTimeouts()      { return g_coopIntentTimeouts; }
+std::uint32_t lastTimedOutIseq()    { return g_coopLastTimedOutIseq; }
+std::uint32_t lateAnswersIgnored()  { return g_coopLateAnswersIgnored; }
+
+// TEST-ONLY (W1-P7): see CoopArbiter.h.
+void requestDeferIntents(std::uint32_t ms, int count)
+{
+	g_coopDeferIntentsMs = ms;
+	g_coopDeferIntentsLeft = (ms > 0) ? count : 0;
+	Log(LOG_INFO) << "[coop-arbiter] defer_intents armed: the next " << g_coopDeferIntentsLeft
+		<< " incoming bt_intent(s) will be held for " << ms << " ms (TEST-ONLY STOPGAP)";
+}
+
+// TEST-ONLY (W1-P7): see CoopArbiter.h.
+void releaseDeferredIntentsIfExpired()
+{
+	if (g_coopDeferredIntents.empty())
+		return;
+
+	const auto now = std::chrono::steady_clock::now();
+	std::vector<Json::Value> due;
+	for (auto it = g_coopDeferredIntents.begin(); it != g_coopDeferredIntents.end(); )
+	{
+		if (now >= it->due)
+		{
+			due.push_back(it->intent);
+			it = g_coopDeferredIntents.erase(it);
+		}
+		else
+		{
+			++it;
+		}
+	}
+	for (const Json::Value& intent : due)
+	{
+		Log(LOG_INFO) << "[coop-arbiter] defer_intents: releasing held bt_intent iseq "
+			<< intent.get("iseq", 0u).asUInt() << " into the normal admission path"
+			" (TEST-ONLY STOPGAP)";
+		g_coopDeferReentry = true;
+		onIntent(intent);
+		g_coopDeferReentry = false;
+	}
 }
 
 // ----- R2-P7: hold_chain test lever (HOST) -----
@@ -3153,6 +3452,93 @@ BattlescapeState* activeBattlescapeState()
 	return save ? save->getBattleState() : nullptr;
 }
 
+// -------------------------------------------------------------------------
+// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): banner arbitration. See
+// CoopBattleUi.h's BANNER CLASSES block for the rules this implements.
+// -------------------------------------------------------------------------
+enum class BannerClass { None, Sent, Wait, Terminal, Notice, Sticky };
+
+BannerClass g_bannerClass = BannerClass::None;
+std::uint32_t g_bannerTick = 0;   // SDL_GetTicks() when it was raised
+
+/// The ONE writer of BattlescapeState::setCoopWaitText() in this namespace.
+/// Sticky refuses every later write (SS2.8: nothing to retry into once a battle
+/// has desynced). Everything else overwrites freely - the CLASS is what the
+/// per-tick driver and the dwell auto-clear consult, not the arrival order.
+void setBanner(BattlescapeState* bs, const std::string& text, BannerClass cls)
+{
+	if (!bs)
+		return;
+	if (g_bannerClass == BannerClass::Sticky && cls != BannerClass::Sticky)
+		return;
+	bs->setCoopWaitText(text);
+	g_bannerClass = text.empty() ? BannerClass::None : cls;
+	g_bannerTick = SDL_GetTicks();
+}
+
+/// W1-P7 (WV-D13 item 4): the display name for a co-op seat, donor shape
+/// (`cbff7951d:BattlescapeState.cpp:5336-5348`). seatName() reads the
+/// seat-ordered roster and is therefore already N-player-ready; the
+/// getCurrentClientName() fallback is a deliberate 2-PLAYER-ONLY bridge for the
+/// one gap that exists today - a SKIRMISH never populates
+/// SavedGame::getCoopPlayers() (only the campaign start path does), so seatName()
+/// is empty there. getCurrentClientName() is machine-relative and always names
+/// the PEER, which with two seats is exactly @a seat when @a seat is not ours. Do
+/// NOT extend this fallback to guess names for seats 2/3 - there is no data
+/// behind them yet. Empty return = "cannot name it", and every caller then falls
+/// back to the generic SS2.6 busy row rather than rendering an empty {0}.
+std::string seatDisplayName(BattlescapeState* bs, int seat)
+{
+	std::string name = connectionTCP::seatName(seat);
+	if (!name.empty())
+		return name;
+	if (seat == coopBattleAuthority().localSeat || connectionTCP::seatCount() != 2)
+		return std::string();
+	connectionTCP* coop = (bs && bs->getGame()) ? bs->getGame()->getCoopMod() : nullptr;
+	return coop ? coop->getCurrentClientName() : std::string();
+}
+
+/// W1-P7 (WV-D13 item 4): the donor's "Please wait for <player>'s action to
+/// finish" driver (`cbff7951d:BattlescapeState.cpp:5292-5370`), re-homed out of
+/// the vanilla per-frame method into CoopMod. Returns "" when there is nothing
+/// to say. Donor semantics preserved: the message is SUPPRESSED when the running
+/// chain is this seat's own action (you are not waiting on anyone).
+std::string waitBannerText(BattlescapeState* bs)
+{
+	if (!bs || !isCoopBattle())
+		return std::string();
+
+	const int me = coopBattleAuthority().localSeat;
+	const bool host = coopBattleAuthority().hostSim;
+	const int owner = CoopArbiter::busyOwnerSeat();
+
+	if (host)
+	{
+		// The host is only ever "waiting" on a chain it does not own - i.e. on a
+		// client intent it admitted and is now executing on the client's behalf.
+		if (owner < 0 || owner == me)
+			return std::string();
+		const std::string name = seatDisplayName(bs, owner);
+		if (name.empty())
+			return std::string();
+		return bs->getGame()->getLanguage()->getString("STR_COOP_WAIT_FOR_PLAYER_ACTION").arg(name);
+	}
+
+	// CLIENT: it is waiting exactly while it holds a busy-denied order.
+	if (!CoopArbiter::hasPendingIntent())
+		return std::string();
+	if (owner >= 0 && owner != me)
+	{
+		const std::string name = seatDisplayName(bs, owner);
+		if (!name.empty())
+			return bs->getGame()->getLanguage()->getString("STR_COOP_WAIT_FOR_PLAYER_ACTION").arg(name);
+	}
+	// Blocked by our OWN still-running action, or by a seat we cannot name:
+	// SS2.6's busy row, which is exactly the right words for the held state and
+	// keeps ADDENDUM SS1.3(e)'s "never generic, never a new ad-hoc string" rule.
+	return bs->getGame()->getLanguage()->getString("STR_COOP_DENY_BUSY");
+}
+
 } // namespace
 
 void showDeny(const char* reason)
@@ -3169,20 +3555,28 @@ void showDeny(const char* reason)
 			<< (reason ? reason : "<null>") << "'";
 		return;
 	}
-	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString(key));
+	// W1-P7: a busy deny is a WAIT state (something else is running, try again);
+	// every other reason is a terminal ANSWER about the plan itself, and those
+	// now dwell-clear rather than sitting on the map strip until the player's
+	// next successful action (WV-D13 item 1).
+	const BannerClass cls = (std::strcmp(reason ? reason : "", "busy") == 0)
+		? BannerClass::Wait : BannerClass::Terminal;
+	setBanner(bs, bs->getGame()->getLanguage()->getString(key), cls);
 }
 
 void showPending(const char* /*context*/)
 {
-	// R2-P7 (ADDENDUM 1.3(d) auto-retry + pending indicator) will pass real
-	// context through this call and may add its own STR_ key/wording; until
-	// then the pending state is presented with the same busy-wait text an
-	// outright busy deny already uses (the client is waiting on the same
-	// admission gate either way).
+	// R2-P7 held this intent instead of dropping it; W1-P7 makes the message
+	// SEAT-ATTRIBUTED where it can be (WV-D13 item 4's donor driver) and leaves it
+	// as SS2.6's own busy row where it cannot - @a context stays the call site's
+	// self-documentation of WHY the intent is pending.
 	BattlescapeState* bs = activeBattlescapeState();
 	if (!bs)
 		return;
-	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_DENY_BUSY"));
+	std::string text = waitBannerText(bs);
+	if (text.empty())
+		text = bs->getGame()->getLanguage()->getString("STR_COOP_DENY_BUSY");
+	setBanner(bs, text, BannerClass::Wait);
 }
 
 void clearPending()
@@ -3190,7 +3584,7 @@ void clearPending()
 	BattlescapeState* bs = activeBattlescapeState();
 	if (!bs)
 		return;
-	bs->setCoopWaitText(std::string());
+	setBanner(bs, std::string(), BannerClass::None);
 }
 
 void showCancel(const char* cause, const char* evKind)
@@ -3201,13 +3595,14 @@ void showCancel(const char* cause, const char* evKind)
 	const char* key = lookupStrKey(cause);
 	if (key)
 	{
-		bs->setCoopWaitText(bs->getGame()->getLanguage()->getString(key));
+		setBanner(bs, bs->getGame()->getLanguage()->getString(key), BannerClass::Terminal);
 	}
 	else
 	{
 		// sec 2.6 "(cancel) unknown kind" row: {0} = the event kind name.
 		std::string kind = evKind ? evKind : std::string();
-		bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_CANCEL_EVENT").arg(kind));
+		setBanner(bs, bs->getGame()->getLanguage()->getString("STR_COOP_CANCEL_EVENT").arg(kind),
+			BannerClass::Terminal);
 	}
 }
 
@@ -3219,7 +3614,10 @@ void showDesyncHalted()
 	// R2-P9 (SS2.8 mismatch-behavior note): sticky - unlike showDeny/
 	// showCancel/showPending, nothing ever calls clearPending() after this
 	// (there is nothing left to auto-retry into once a battle has desynced).
-	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_DESYNC_HALTED"));
+	// W1-P7 makes that structural rather than conventional: BannerClass::Sticky
+	// refuses every later write and is never dwell-cleared.
+	setBanner(bs, bs->getGame()->getLanguage()->getString("STR_COOP_DESYNC_HALTED"),
+		BannerClass::Sticky);
 }
 
 void showEquipFrozen()
@@ -3229,8 +3627,12 @@ void showEquipFrozen()
 		return;
 	// W1-P4 (WV-D34 / WV-D43): see CoopBattleUi.h for why this one is raised at
 	// a SKIP rather than at a refused press. Plain SS2.6 routing otherwise -
-	// _txtCoopWait, translated, never vanilla _warning.
-	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_EQUIP_FROZEN"));
+	// _txtCoopWait, translated, never vanilla _warning. W1-P7 classes it as a
+	// NOTICE: it explains an absence rather than answering a press, so it keeps
+	// its documented "stays up until the first deny/pending/cancel replaces it"
+	// behavior and is deliberately NOT dwell-cleared.
+	setBanner(bs, bs->getGame()->getLanguage()->getString("STR_COOP_EQUIP_FROZEN"),
+		BannerClass::Notice);
 }
 
 // ---------------------------------------------------------------------------
@@ -3264,12 +3666,14 @@ const char* controlStrKey(Control c)
 
 /// Same _txtCoopWait routing every other entry point in this namespace uses
 /// (SS2.6: never vanilla _warning). No-op with no live BattlescapeState.
-void showRefusalKey(const char* key)
+/// W1-P7: @a cls is the banner class (CoopBattleUi.h) - Terminal for a refused
+/// press, Notice for an entry notice.
+void showRefusalKey(const char* key, BannerClass cls = BannerClass::Terminal)
 {
 	BattlescapeState* bs = activeBattlescapeState();
 	if (!bs || !key)
 		return;
-	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString(key));
+	setBanner(bs, bs->getGame()->getLanguage()->getString(key), cls);
 }
 
 } // namespace
@@ -3356,8 +3760,10 @@ bool refuseSelectUnitClick(const BattleUnit* target)
 void showSpectatorMode()
 {
 	// SS2.6 routing like every other entry point here - _txtCoopWait, never
-	// vanilla _warning. No-op with no live BattlescapeState.
-	showRefusalKey("STR_COOP_SPECTATOR_MODE");
+	// vanilla _warning. No-op with no live BattlescapeState. W1-P7: NOTICE class,
+	// same reasoning as showEquipFrozen() - an entry notice, not an answer, so it
+	// keeps its documented until-replaced lifetime and is not dwell-cleared.
+	showRefusalKey("STR_COOP_SPECTATOR_MODE", BannerClass::Notice);
 }
 
 bool chatIsOpen(Game* g)
@@ -3367,6 +3773,86 @@ bool chatIsOpen(Game* g)
 	connectionTCP* coop = g->getCoopMod();
 	ChatMenu* chat = coop ? coop->getChatMenu() : nullptr;
 	return chat != nullptr && chat->isActive();
+}
+
+// ---------------------------------------------------------------------------
+// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): order feedback. See
+// CoopBattleUi.h for the BANNER CLASSES contract these implement.
+// ---------------------------------------------------------------------------
+
+void showOrderSent()
+{
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs)
+		return;
+	setBanner(bs, bs->getGame()->getLanguage()->getString("STR_COOP_ORDER_SENT"),
+		BannerClass::Sent);
+}
+
+void showIntentTimeout()
+{
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs)
+		return;
+	setBanner(bs, bs->getGame()->getLanguage()->getString("STR_COOP_ACTION_TIMEOUT"),
+		BannerClass::Terminal);
+}
+
+void showEndTurnHostOnly()
+{
+	// SS2.W8 / WV-D23: STR_COOP_TURN_OVER, whose VALUE this packet replaced
+	// ("Only the host can end the turn"). Deliberately NOT routed through
+	// showDeny(): that goes to the SS2.6 WIRE deny table, whose turn_over row is a
+	// different message for a different situation and keeps its own text.
+	showRefusalKey("STR_COOP_TURN_OVER");
+}
+
+void resetBannerState()
+{
+	g_bannerClass = BannerClass::None;
+	g_bannerTick = 0;
+}
+
+void tick()
+{
+	// 1. WV-D24's intent timeout. Self-guarded; runs even with no live
+	//    BattlescapeState so a timeout can never be missed by a UI accident.
+	CoopArbiter::tickIntentTimeout();
+
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs)
+		return;
+
+	// 2. WV-D13 item 1: the AUTO-CLEAR rule for terminal answers. Before this
+	//    packet the only thing that ever cleared one was the player's own next
+	//    successful action, so a refusal could sit on the map strip for the rest
+	//    of the battle. Notice- and Sticky-class messages are exempt by design
+	//    (see the header): they explain an absence / a halt, not a press.
+	if (g_bannerClass == BannerClass::Terminal
+		&& SDL_GetTicks() - g_bannerTick >= kCoopBannerDwellMs)
+	{
+		setBanner(bs, std::string(), BannerClass::None);
+	}
+
+	// 3. WV-D13 item 4: the seat-attributed wait driver. It owns ONLY the Wait
+	//    class - it never overwrites a deny the player has not read yet, nor
+	//    their own 'order sent' indicator, and it CLEARS only what it wrote.
+	//    A NOTICE may be replaced (its own contract is "the first deny / pending /
+	//    cancel replaces it", and a live waiting message is exactly that) but is
+	//    never cleared by an idle driver - so the entry notice survives until
+	//    something real happens.
+	const bool mayWrite = (g_bannerClass == BannerClass::None
+		|| g_bannerClass == BannerClass::Wait
+		|| g_bannerClass == BannerClass::Notice);
+	if (mayWrite)
+	{
+		const std::string want = waitBannerText(bs);
+		const bool clearing = want.empty();
+		if (clearing && g_bannerClass != BannerClass::Wait)
+			return; // nothing to say, and this banner is not ours to clear
+		if (want != bs->getCoopWaitText())
+			setBanner(bs, want, BannerClass::Wait);
+	}
 }
 
 } // namespace CoopBattleUi
@@ -6552,6 +7038,17 @@ void connectionTCP::updateCoopTask()
 	// that reliably ticks on the HOST while a held chain's window runs down
 	// (popState will not be entered again on its own).
 	CoopArbiter::releaseHeldChainIfExpired();
+
+	// TEST-ONLY STOPGAP (W1-P7, same family and the same removal note as
+	// hold_chain above): defer_intents' release half.
+	CoopArbiter::releaseDeferredIntentsIfExpired();
+
+	// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): the order-feedback tick -
+	// WV-D24's intent timeout, the terminal-banner auto-clear, and the
+	// seat-attributed wait driver. Self-guarded and completely inert outside an
+	// active co-op battle, so it stays a single unconditional call at the same
+	// RB-D5 pump point the reveal flush and the entry auto-select already use.
+	CoopBattleUi::tick();
 
 	// coop
 	// UNABLE TO CONNECT TO SERVER

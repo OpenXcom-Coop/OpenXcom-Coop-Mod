@@ -2654,6 +2654,21 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["value"] = *opt;
 			resp["ok"] = true;
 		}
+		else if (name == "coopIntentTimeoutSeconds")
+		{
+			// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13, parameters WV-D24): the
+			// client-side intent round-trip timeout, in SECONDS. A REAL user option
+			// (Options.inc.h + an Options.cpp OptionInfo registration), never a
+			// connectionTCP static - SS1 WAVE-1 ADDITIONS / WR-25 makes that a hard
+			// requirement, precisely so this lever can exist. Same round-trip shape
+			// as the four bool toggles above: "value" is OPTIONAL (omit it for a pure
+			// read) and the response always echoes the LIVE Options:: global read
+			// back AFTER the write.
+			if (req.isMember("value"))
+				Options::coopIntentTimeoutSeconds = req["value"].asInt();
+			resp["value"] = Options::coopIntentTimeoutSeconds;
+			resp["ok"] = true;
+		}
 		else
 		{
 			resp["error"] = "unknown option: " + name;
@@ -4289,7 +4304,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob"
 		&& cmd != "battle_intent" && cmd != "inject_ev"
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
-		&& cmd != "hold_chain")
+		&& cmd != "hold_chain" && cmd != "defer_intents")
 	{
 		return false;
 	}
@@ -4341,6 +4356,21 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// all - a broken injection recipe, a modal swallowing the event, the
 		// wrong viewport. This counter says the click ARRIVED and was refused.
 		resp["coopLocalExecBlocked"] = coopLocalExecutionBlocks();
+		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
+		// order-feedback bookkeeping. `inFlight` null after a timeout is the
+		// observable proof the IR-2 one-slot lock was RELEASED (before this packet
+		// a lost intent locked its unit for the rest of the battle), and
+		// `lateAnswersIgnored` is what makes "a late ack/deny changes nothing" a
+		// DELIVERED-then-ignored assertion instead of an absence - the same
+		// non-vacuity discipline W1-P6's coopLocalExecBlocked counter follows.
+		resp["inFlight"] = CoopArbiter::inFlightIntent();
+		resp["intentTimeouts"] = CoopArbiter::intentTimeouts();
+		resp["lastTimedOutIseq"] = CoopArbiter::lastTimedOutIseq();
+		resp["lateAnswersIgnored"] = CoopArbiter::lateAnswersIgnored();
+		// The seat this machine believes owns the host's execution slot right now
+		// (-1 = idle / cannot attribute) - the input to the seat-attributed wait
+		// banner, exposed so a test can prove the ATTRIBUTION, not just the text.
+		resp["busyOwnerSeat"] = CoopArbiter::busyOwnerSeat();
 		resp["ok"] = true;
 	}
 	else if (cmd == "hash_now")
@@ -4484,6 +4514,33 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			CoopArbiter::requestHoldChain(ms);
 			resp["ok"] = true;
 			resp["ms"] = ms;
+		}
+	}
+	else if (cmd == "defer_intents")
+	{
+		// TEST-ONLY STOPGAP (W1-P7, RB-D26/RB-D32 family; same removal note as
+		// hold_chain above - delete once real network latency/loss can be injected
+		// another way). HOST lever: hold the next {count} incoming bt_intent
+		// messages for {ms} before dispatching them normally.
+		//
+		// This is the ONLY way to make WV-D24's intent timeout deterministic. It
+		// produces a genuinely UNANSWERED intent (so the client's 10 s timer really
+		// runs out), and then a genuinely LATE answer on the wire afterwards - so
+		// the "a late bt_ack/bt_deny is PERMANENTLY IGNORED while a late
+		// bt_action_end still applies" half of the ruling is testable too, rather
+		// than asserted against a message that was never sent.
+		if (!isCoopBattle())
+		{
+			resp["error"] = "defer_intents: not in an active coop battle";
+		}
+		else
+		{
+			const std::uint32_t ms = req.get("ms", 0u).asUInt();
+			const int count = req.get("count", 1).asInt();
+			CoopArbiter::requestDeferIntents(ms, count);
+			resp["ok"] = true;
+			resp["ms"] = ms;
+			resp["count"] = count;
 		}
 	}
 	// ----- RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a, RB-D26 discipline) -----
@@ -5537,6 +5594,12 @@ std::string TestServer::execute(const std::string& line)
 				{
 					BattlescapeState* bsForBanner = bg->getBattleState();
 					resp["coopWaitText"] = bsForBanner ? bsForBanner->getCoopWaitText() : "";
+					// W1-P7 (ruling D7 = WV-D13 item 4): the re-added DONOR END-TURN
+					// surface. DORMANT in this packet - W1-P13's readiness tally is its
+					// driver - so the assertion it supports today is that it EXISTS and
+					// stays HIDDEN (empty), which is what proves the re-add did not put a
+					// stray widget on the map strip.
+					resp["coopEndTurnText"] = bsForBanner ? bsForBanner->getCoopEndTurnText() : "";
 				}
 				// R2-P7: the CLIENT's held (busy-denied, awaiting auto-resubmit)
 				// intent as {kind, actorId, iseq}, or null when nothing is

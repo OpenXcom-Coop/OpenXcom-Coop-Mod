@@ -85,6 +85,19 @@ private:
 	// CoopBattleUi.h). Deliberately off the fading _warning surface - a deny/cancel
 	// message needs to stay up for as long as the presenter keeps it live.
 	Text *_txtCoopWait;
+	// coop (W1-P7, WAVE1-RUNBOOK.md ruling D7 = WV-D13 item 4): the DONOR's
+	// SECOND coop surface, re-added byte-for-byte from
+	// `cbff7951d:BattlescapeState.cpp:266` / `:412-425`. Right-aligned so it ends
+	// flush with the END TURN button, on the tooltip's row (y - 10) - one row
+	// BELOW _txtCoopWait, so the two never overlap.
+	//
+	// DORMANT ON PURPOSE. W1-P7 restores the surface only; the readiness tally
+	// that drives it is D1 / SS2.W3 and lands with W1-P13. It is deliberately a
+	// plain TEXT surface with a text-only setter (setCoopEndTurnText below) and
+	// no policy of its own, so W1-P13 can drive it from EITHER turn model - the
+	// parallel same-side tally OR the traditional sequential baton - without
+	// touching this class (owner ruling 2026-09-02, dual turn models).
+	Text *_txtCoopEndTurn;
 	Uint8 _tooltipDefaultColor;
 	Uint8 _medikitRed, _medikitGreen, _medikitBlue, _medikitOrange;
 	std::vector<State*> _popups;
@@ -248,6 +261,15 @@ public:
 	/// text - test-only introspection (TestServer's "battle_state" command);
 	/// no production caller. Empty string means the banner is hidden.
 	std::string getCoopWaitText() const;
+	/// coop (W1-P7, ruling D7 = WV-D13 item 4): show/hide setter for the DORMANT
+	/// _txtCoopEndTurn surface. Thin and policy-free - sets text + visibility only,
+	/// exactly like setCoopWaitText above. Empty text hides the surface. NO caller
+	/// in W1-P7 by design: W1-P13's readiness tally (D1 / SS2.W3) is its driver, and
+	/// a text-only entry point is what lets W1-P13 drive it from either turn model.
+	void setCoopEndTurnText(const std::string &text);
+	/// coop (W1-P7): read-only companion to setCoopEndTurnText, for test
+	/// introspection only (TestServer's "battle_state"). Empty means hidden.
+	std::string getCoopEndTurnText() const;
 	/// Gets melee damage preview.
 	std::string getMeleeDamagePreview(BattleUnit *actor, BattleItem *weapon) const;
 	/// Handles keypresses.

@@ -9,10 +9,12 @@ a snapshot (IR2-11):** every packet that mints, wires, re-values or deletes a
 
 `WAVE1-RUNBOOK.md` **WV-D41** rules that a CI grep asserts **zero UNACCOUNTED
 `STR_COOP_*` keys** against this table, which is the grep's **whitelist**. The
-grep itself is minted by **W1-P7** (the hard ZERO-ORPHAN assert lands at
-**W1-G3**, not W1-G1, because `STR_COOP_END_TURN_TALLY` is deliberately
-reserved for W1-P13). A key is ACCOUNTED FOR when, and only when, it has a row
-in the [WHITELIST](#whitelist) below.
+grep itself was minted by **W1-P7** and lives at
+**`tools/ci/lint_coop_strings.py`** (run it with no arguments from the repo
+root; exit 0 = clean). The hard ZERO-ORPHAN assert lands at **W1-G3**, not
+W1-G1, because `STR_COOP_END_TURN_TALLY` is deliberately reserved for W1-P13. A
+key is ACCOUNTED FOR when, and only when, it has a row in the
+[WHITELIST](#whitelist) below.
 
 It lives in the GAME repo (not the docs repo) because the CI grep runs here and
 cannot reach `openxcom-coop-agent-docs`. Precedent for a new tooling doc/tool
@@ -63,6 +65,19 @@ hand-reaction toggles / local load). Split is now **20 WIRED / 18 ORPHAN**;
 the orphan set is again unchanged. W1-P5 deliberately minted new specific keys
 rather than repurposing an orphan - see the note under the new rows.
 
+**UPDATE (W1-P7, ruling D7 = WV-D13):** **37** keys - THREE orphans DELETED and
+ONE new key minted AND wired, all in the same commit. Split is now
+**23 WIRED / 14 ORPHAN**, and the orphan set finally MOVES: of the runbook's
+original 7, `STR_COOP_TURN_OVER` (re-valued, SS2.W8), `STR_COOP_ACTION_TIMEOUT`
+(WV-D24) and `STR_COOP_WAIT_FOR_PLAYER_ACTION` (the donor wait driver) are now
+WIRED, `STR_COOP_PLAYER_BUSY` / `STR_COOP_NOT_YOUR_SOLDIER` /
+`STR_COOP_ACTION_REFUSED` are DELETED from both `.yml` files, and only
+`STR_COOP_END_TURN_TALLY` remains - RESERVED for W1-P13, which is exactly why
+WV-D41 puts the hard zero-orphan assert at W1-G3. The 11 RESERVED quarantine
+orphans are untouched (owner ruling 2026-09-02: they are NOT W1-P7's to delete).
+Per-key rationale is in each row below; the deleted keys' rationale is also
+carried as a comment block in both `.yml` files at the point of deletion.
+
 **UPDATE (W1-P6):** **39** keys - ONE minted AND wired in the same commit
 (`STR_COOP_SPECTATOR_MODE`, the battle-entry spectator notice, ruling D6 =
 WV-D12). Split is now **21 WIRED / 18 ORPHAN**; the orphan set is again
@@ -89,12 +104,9 @@ or deleted is an OWNER call, flagged in
 
 | KEY | STATE | OWNER | DISPOSITION |
 |---|---|---|---|
-| STR_COOP_PLAYER_BUSY | ORPHAN | W1-P7 | WIRE-OR-DELETE. Runbook W1-P1 item 5 "the rest wire-or-delete in W1-P7". Overlaps STR_COOP_DENY_BUSY, which is the live SS2.6 admission string. |
-| STR_COOP_TURN_OVER | ORPHAN | W1-P7 | RE-VALUE + WIRE, then retire. SS2.W8 / WV-D23 / D-10: W1-P7 REPLACES the current value (today it literally reads "The turn has already ended", the wrong text) with "Only the host can end the turn" and adds a `(local)` presenter row for the END-TURN client refusal. W1-P13 RETIRES the presenter row once `bt_end_turn_ready` exists; the key then becomes INERT (this row is updated to INERT by W1-P13). DISTINCT from STR_COOP_DENY_TURN_OVER, which keeps its text. |
-| STR_COOP_NOT_YOUR_SOLDIER | ORPHAN | W1-P7 | WIRE-OR-DELETE. Duplicates STR_COOP_DENY_NOT_YOUR_UNIT's text exactly ("Not one of your soldiers"). |
-| STR_COOP_ACTION_REFUSED | ORPHAN | W1-P7 | WIRE-OR-DELETE. Generic; ADDENDUM 1.3(e) forbids collapsing reasons into a generic message, so a wire is unlikely to be right. |
-| STR_COOP_ACTION_TIMEOUT | ORPHAN | W1-P7 | WIRE. D7 / WV-D13 / WV-D24: the intent timeout (10 s, behind a coop OptionInfo per WR-25) fires this string and unlocks the IR-2 slot. NON-NEGOTIABLE before any real-network play. |
-| STR_COOP_WAIT_FOR_PLAYER_ACTION | ORPHAN | W1-P7 | WIRE-OR-DELETE. D7's donor two-surface model names a seat-attributed "Please wait for {0}'s action to finish" driver; ADDENDUM (f) killed the OLD P5 busy-owner driving logic that used to feed it (see `W1_TRIAGE.md`'s `test_coop_wait_banner.py` row). W1-P7 decides. |
+| STR_COOP_TURN_OVER | WIRED | W1-P13 | RE-VALUED + WIRED by W1-P7 (SS2.W8 / WV-D23 / ruling D-10). Value REPLACED - it used to read "The turn has already ended", which is factually wrong at the only place it is reachable - and is now "Only the host can end the turn". Raised by `CoopBattleUi::showEndTurnHostOnly()` from `BattlescapeState::btnEndTurnClick`, which previously routed this refusal through `showDeny("turn_over")`, i.e. through the SS2.6 WIRE deny table. Client-side only: NO `not_your_turn` reason was added to the SS2.2 enum. REACHABILITY (WR-3): `allowButtons()` requires `_save->getSide() == FACTION_PLAYER`, so an off-turn press never reaches the handler - the state this covers is a co-op CLIENT pressing END TURN during ITS OWN side. LIFETIME: **W1-P13 RETIRES the presenter entry** once `bt_end_turn_ready` exists and flips this row to INERT (RB-D3's "unused keys are inert"). DISTINCT from STR_COOP_DENY_TURN_OVER, which keeps its own text. |
+| STR_COOP_ACTION_TIMEOUT | WIRED | - | WIRED by W1-P7 (D7 / WV-D13 item 3 / WV-D24 = D-11). `CoopBattleUi::showIntentTimeout()`, raised by `CoopArbiter::tickIntentTimeout()` at the RB-D5 pump point when an intent goes unanswered for `Options::coopIntentTimeoutSeconds` (default 10, a real `Options.inc.h` + `Options.cpp` OptionInfo per WR-25, never a `connectionTCP` static). Firing it RELEASES the IR-2 one-slot input lock - before this a lost intent locked its unit for the rest of the battle. A late `bt_ack`/`bt_deny` for that iseq is then permanently ignored; a late `bt_action_end` still applies. |
+| STR_COOP_WAIT_FOR_PLAYER_ACTION | WIRED | - | **WIRED** by W1-P7 (D7 / WV-D13 item 4) - the decision its old row left open. The donor's seat-attributed wait driver (`cbff7951d:BattlescapeState.cpp:5292-5370`, whose `getPrimaryBusyActor()` call site is `:5317`) is re-homed out of the vanilla per-frame method into CoopMod: `CoopBattleUi::tick()` + `waitBannerText()`, fed by `CoopArbiter::busyOwnerSeat()`. Shown when the seat blocking this machine is NOT this machine's own (donor semantics: suppressed when the running chain is your own action) and the seat can be NAMED; otherwise the generic SS2.6 `STR_COOP_DENY_BUSY` row is used, so an empty `{0}` can never render. |
 | STR_COOP_END_TURN_TALLY | ORPHAN | W1-P13 | WIRE. D1 / WV-D7 / SS2.W3: the "END TURN {0}/{1}" readiness counter on the re-added `_txtCoopEndTurn` surface. RESERVED until then - this is why WV-D41 puts the hard zero-orphan assert at W1-G3 and not W1-G1. |
 | STR_COOP_DESYNC_REPORT_SAVED | ORPHAN | RESERVED (owner 2026-09-02) | ACCOUNTED PLACEHOLDER, ruling (a). PRD-P2 rider desync auto-report bundle dialog; its state was removed by the R1-P3 quarantine. See OPEN FOR THE OWNER. |
 | STR_COOP_DESYNC_OPEN_FOLDER | ORPHAN | RESERVED (owner 2026-09-02) | ACCOUNTED PLACEHOLDER, ruling (a). PRD-I4 one-click desync report UX. See OPEN FOR THE OWNER. |
@@ -107,7 +119,8 @@ or deleted is an OWNER call, flagged in
 | STR_COOP_CRASH_REPORT_NOT_NOW | ORPHAN | RESERVED (owner 2026-09-02) | ACCOUNTED PLACEHOLDER, ruling (a). PRD-I5, as above. |
 | STR_COOP_CRASH_REPORT_NEVER | ORPHAN | RESERVED (owner 2026-09-02) | ACCOUNTED PLACEHOLDER, ruling (a). PRD-I5, as above. |
 | STR_COOP_CRASH_REPORT_SAVED | ORPHAN | RESERVED (owner 2026-09-02) | ACCOUNTED PLACEHOLDER, ruling (a). PRD-I5, as above. |
-| STR_COOP_DENY_BUSY | WIRED | - | SS2.6 deny table, `kReasonStrTable` (connectionTCP.cpp:3069). |
+| STR_COOP_ORDER_SENT | WIRED | - | MINTED + WIRED by W1-P7 (D7 / WV-D13 item 2). The "order sent" IN-FLIGHT indicator: `CoopBattleUi::showOrderSent()`, raised by `CoopArbiter::sendClientIntent()` the moment the `bt_intent` envelope ships and cleared when the round trip ends (an applied `bt_action_end`, or replaced by a deny/pending/timeout). Before this packet the window between the click and the host's answer showed NOTHING, which is the gap D7 opens with. A NEW key rather than a repurposed orphan: `STR_COOP_PLAYER_BUSY` ("Another action is running - try again") describes the host being busy, not this machine's order being in flight. |
+| STR_COOP_DENY_BUSY | WIRED | - | SS2.6 deny table, `kReasonStrTable` (connectionTCP.cpp:3069). Also the fallback wording of W1-P7's wait driver when the blocking seat cannot be named. |
 | STR_COOP_DENY_PATH_CHANGED | WIRED | - | SS2.6 deny table (connectionTCP.cpp:3070). |
 | STR_COOP_DENY_COST_CHANGED | WIRED | - | SS2.6 deny table (connectionTCP.cpp:3071). |
 | STR_COOP_DENY_TARGET_MOVED | WIRED | - | SS2.6 deny table (connectionTCP.cpp:3072). |
@@ -138,6 +151,30 @@ and `STR_COOP_NOT_YOUR_SOLDIER` duplicates `STR_COOP_DENY_NOT_YOUR_UNIT`'s text
 word for word - W1-P5's ownership term therefore REUSES the live SS2.6 key
 (`STR_COOP_DENY_NOT_YOUR_UNIT`) and mints no sixth key, leaving the duplicate's
 wire-or-delete call where it belongs.
+
+**W1-P7's answer to that call (ruling D7 = WV-D13 item 5), one line each:**
+
+- `STR_COOP_ACTION_REFUSED` ("Action refused") - **DELETED.** It is *verbatim*
+  the shape ADDENDUM SS1.3(e) forbids ("Action refused" is the example the rule
+  names). Keeping it in the table would be keeping a loaded gun: every future
+  packet that needs a refusal string would find a generic one already there.
+  Deleting it makes the next builder mint a reason-specific key, which is the
+  rule.
+- `STR_COOP_NOT_YOUR_SOLDIER` ("Not one of your soldiers") - **DELETED.** It is
+  word-for-word identical to the live SS2.6 `STR_COOP_DENY_NOT_YOUR_UNIT`, which
+  BOTH ownership refusals in the tree already reuse (W1-P5's `refuseControl`
+  term 2 and W1-P6's `refuseSelectUnitClick`). Two keys for one sentence is a
+  translation-drift bug waiting to happen: a translator can make the wire deny
+  and the local refusal disagree about the same fact.
+- `STR_COOP_PLAYER_BUSY` ("Another action is running - try again") - **DELETED.**
+  It overlaps the live SS2.6 `STR_COOP_DENY_BUSY` ("Waiting - another action is
+  in progress"), which is the admission model's own busy row and is what both
+  the deny and the pending hold already show. Its "try again" wording is also
+  now actively WRONG: R2-P7's auto-retry means the client retries by itself, so
+  telling the player to try again describes behaviour the build no longer has.
+  W1-P7's own in-flight indicator is a NEW key (`STR_COOP_ORDER_SENT`) because
+  it says something different - *your* order is in flight, not *the host* is
+  busy.
 
 ## PLANNED KEYS
 
@@ -199,5 +236,6 @@ keys are outside every wave-1 packet's scope):
 
 ---
 
-*W1-P1, wave 1; last edited by W1-P5. Baseline verified at `8c53c2592`. Cite
-WV-D41 / WV-D32 / SS2.W8 / WV-D53 when you edit this file.*
+*W1-P1, wave 1; last edited by W1-P7. Baseline verified at `8c53c2592`. Cite
+WV-D41 / WV-D32 / SS2.W8 / WV-D53 when you edit this file. The CI grep that
+reads this table is `tools/ci/lint_coop_strings.py` (W1-P7).*

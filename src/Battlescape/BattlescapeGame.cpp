@@ -1744,6 +1744,40 @@ bool BattlescapeGame::isBusy() const
 }
 
 /**
+ * coop (W1-P7, WAVE1-RUNBOOK.md ruling D7 = WV-D13): the OWNER unit of the
+ * action chain currently running, ignoring the consequence states
+ * (UnitDieBState / UnitFallBState / ExplosionBState) that get pushed to the
+ * FRONT of the queue mid-chain - their actor is the victim, not the unit whose
+ * action this is. Scans front-to-back for the first non-consequence state with a
+ * player actor.
+ *
+ * DONOR RESTORE, byte-for-byte from `cbff7951d:BattlescapeGame.cpp:4272`. It is a
+ * read-only accessor, not a hook: it mints nothing, changes no state and is never
+ * called outside a co-op battle. The one caller is the seat-attributed
+ * "Please wait for {0}'s action to finish" driver, whose logic lives in
+ * src/CoopMod (CoopBattleUi / CoopArbiter) exactly as the vanilla-file rule
+ * requires - only the _states scan, which needs the private member, is here.
+ * @return the acting player unit, or 0 when idle / only consequence states remain.
+ */
+BattleUnit *BattlescapeGame::getPrimaryBusyActor() const
+{
+	for (BattleState *bs : _states)
+	{
+		if (dynamic_cast<UnitDieBState*>(bs) || dynamic_cast<UnitFallBState*>(bs)
+			|| dynamic_cast<ExplosionBState*>(bs))
+		{
+			continue;
+		}
+		BattleUnit *actor = bs->getAction().actor;
+		if (actor && actor->getFaction() == FACTION_PLAYER)
+		{
+			return actor;
+		}
+	}
+	return 0;
+}
+
+/**
  * Activates primary action (left click).
  * @param pos Position on the map.
  */

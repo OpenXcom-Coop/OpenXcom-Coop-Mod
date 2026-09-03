@@ -595,6 +595,12 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnVisibilityGain", &coopCancelOnVisibilityGain, true, "Co-op: Cancel Held Order on New Contact", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnAnyPartnerAction", &coopCancelOnAnyPartnerAction, false, "Co-op: Cancel Held Order on Any Partner Action", "STR_BATTLESCAPE"));
 
+	// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13; parameters WV-D24 = D-11): the
+	// client-side intent round-trip timeout, in SECONDS. WV-D24 fixes the DEFAULT
+	// at 10 s; the option exists so real-network play can tune it (and so the
+	// harness can shorten it) without a rebuild. <= 0 disables the timeout.
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopIntentTimeoutSeconds", &coopIntentTimeoutSeconds, 10, "Co-op: Seconds Before an Unanswered Order Times Out", "STR_BATTLESCAPE"));
+
 }
 
 void createControlsOTHER()

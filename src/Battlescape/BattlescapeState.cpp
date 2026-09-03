@@ -252,6 +252,12 @@ BattlescapeState::BattlescapeState() :
 
 	_txtDebug = new Text(300, 10, 20, 0);
 	_txtTooltip = new Text(300, 10, x + 2, y - 10);
+	// coop (W1-P7, WAVE1-RUNBOOK.md ruling D7 = WV-D13 item 4): the DONOR's
+	// readiness-tally surface, re-added byte-for-byte from
+	// `cbff7951d:BattlescapeState.cpp:266`. Right-aligned so it ends flush with
+	// the END TURN button (x + 240 .. x + 272). Same row as the tooltip, which is
+	// left-aligned from x + 2 and only visible on hover. DORMANT until W1-P13.
+	_txtCoopEndTurn = new Text(120, 9, x + 152, y - 10);
 	// coop (R2-P6, ADDENDUM 1.3(f)): the deny/cancel banner. Full map width,
 	// centered, one row above the toolbar (y - 20), in the map strip.
 	_txtCoopWait = new Text(screenWidth, 9, 0, y - 20);
@@ -392,6 +398,25 @@ BattlescapeState::BattlescapeState() :
 	// re-apply this widget's own geometry so add() does not park it on top of the
 	// tooltip. Same yellow + font as the toolbar warning widget (interface
 	// battlescape/warning color), centered; _warning itself is untouched.
+	// coop (W1-P7, ruling D7 = WV-D13 item 4): donor geometry, byte-for-byte from
+	// `cbff7951d:BattlescapeState.cpp:412-425`. Borrows the tooltip's interface
+	// element to get wired up at all - geometry is re-applied afterwards, because
+	// add() would otherwise move this text on top of the tooltip (the element
+	// carries x/y/w/h). Hidden until W1-P13's tally arms a seat.
+	add(_txtCoopEndTurn, "textTooltip", "battlescape", _icons);
+	_txtCoopEndTurn->setWidth(120);
+	_txtCoopEndTurn->setHeight(9);
+	_txtCoopEndTurn->setX(x + 152);
+	_txtCoopEndTurn->setY(y - 10);
+	_txtCoopEndTurn->setAlign(ALIGN_RIGHT);
+	_txtCoopEndTurn->setHighContrast(true);
+	// ...and painted the SAME green the numbered enemy indicators use for their
+	// green state: `_indicatorGreen` is the `squadsightUnits` interface element,
+	// which is the exact index blinkVisibleUnitButtons() fills those buttons with
+	// (54 in xcom1, 86 in xcom2). Read off that same member rather than written
+	// as a literal, so a mod that re-colours the indicators re-colours this too.
+	_txtCoopEndTurn->setColor(_indicatorGreen);
+	_txtCoopEndTurn->setVisible(false);
 	add(_txtCoopWait, "textTooltip", "battlescape", _icons);
 	_txtCoopWait->setWidth(screenWidth);
 	_txtCoopWait->setHeight(9);
@@ -1533,11 +1558,20 @@ void BattlescapeState::btnEndTurnClick(Action *)
 		// R5-P2 (SPIKE-RUNBOOK.md REVIEW4 IR-13): a coop CLIENT's End Turn
 		// button must never run vanilla endTurn locally - it would mint
 		// state and guarantee a desync (the real end-turn readiness flow
-		// lands with r3b/r4, post-spike). No-op guard: only this battle's
-		// host machine may run requestEndTurn() locally.
+		// lands with W1-P13). No-op guard: only this battle's host machine
+		// may run requestEndTurn() locally.
+		//
+		// W1-P7 (SS2.W8 / WV-D23 / ruling D-10) fixed the MESSAGE. R5-P2 raised
+		// this refusal through showDeny("turn_over"), i.e. through the SS2.6 WIRE
+		// deny table - so the player was told "The turn has already ended", which
+		// is factually wrong here: this branch is only ever reached DURING the
+		// presser's own side (allowButtons() above requires
+		// _save->getSide() == FACTION_PLAYER, so an off-turn press never arrives).
+		// SS2.W8 rules the fix client-side only: its own presenter entry, its own
+		// string, and NO new wire deny reason - the SS2.2 enum is unchanged.
 		if (isCoopBattle() && !coopBattleAuthority().hostSim)
 		{
-			CoopBattleUi::showDeny("turn_over");
+			CoopBattleUi::showEndTurnHostOnly();
 			return;
 		}
 
@@ -2775,6 +2809,35 @@ void BattlescapeState::setCoopWaitText(const std::string &text)
 std::string BattlescapeState::getCoopWaitText() const
 {
 	return _txtCoopWait->getText();
+}
+
+/**
+ * coop (W1-P7, WAVE1-RUNBOOK.md ruling D7 = WV-D13 item 4): show/hide setter for
+ * the DORMANT donor END-TURN surface. Thin - text + visibility only, exactly like
+ * setCoopWaitText() above; all policy lives in src/CoopMod.
+ *
+ * W1-P7 restores the SURFACE, not a driver: the readiness tally that fills it is
+ * D1 / SS2.W3 and lands with W1-P13. Keeping the entry point text-only (rather
+ * than, say, a setTally(ready, needed) that bakes in "all seats on the side") is
+ * deliberate - the owner's 2026-09-02 dual-turn-model ruling requires W1-P13 to
+ * be able to drive this same surface from a TRADITIONAL sequential baton as well
+ * as from the parallel same-side tally, and a plain string forecloses neither.
+ * @param text Already-translated text (empty = hide).
+ */
+void BattlescapeState::setCoopEndTurnText(const std::string &text)
+{
+	_txtCoopEndTurn->setText(text);
+	_txtCoopEndTurn->setVisible(!text.empty());
+}
+
+/**
+ * coop (W1-P7): read-only companion to setCoopEndTurnText() above, for test
+ * introspection only (TestServer's "battle_state" command proves the surface
+ * exists and is hidden). Empty string means the surface is hidden.
+ */
+std::string BattlescapeState::getCoopEndTurnText() const
+{
+	return _txtCoopEndTurn->getVisible() ? _txtCoopEndTurn->getText() : std::string();
 }
 
 /**

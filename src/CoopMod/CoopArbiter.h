@@ -264,6 +264,88 @@ void requestHoldChain(std::uint32_t ms);
 /// its normal emit+pop. Completely inert with no hold armed.
 void releaseHeldChainIfExpired();
 
+// ----- W1-P7: order feedback (WAVE1-RUNBOOK.md ruling D7 = WV-D13) -----
+
+/// MACHINE-RELATIVE: the co-op SEAT that owns the action currently occupying
+/// the HOST's single execution slot, or -1 when nothing is running / this
+/// machine cannot attribute it. The seat-attributed
+/// STR_COOP_WAIT_FOR_PLAYER_ACTION driver (WV-D13 item 4) reads it.
+///
+/// HOST arm: the SS2.5 busy predicate - `BattlescapeGame::isBusy()` OR an open
+/// action context (`currentActionId() != 0`, which is also what a held
+/// hold_chain window keeps true). The owner is LATCHED once per busy window,
+/// donor semantics (`cbff7951d:BattlescapeState.cpp:5310-5327`): consequence
+/// states (death/fall/explosion) are pushed to the FRONT of the queue mid-chain,
+/// so re-deriving the owner every tick would mis-attribute a kill to the victim's
+/// side. Resolved from `BattlescapeGame::getPrimaryBusyActor()` (the donor call
+/// site, restored this packet) and, when the chain has already unwound but its
+/// action context is still open, from the arbiter's own pending-chain actor.
+///
+/// CLIENT arm: a thin client pushes NO BStates (BattlePump.h: "appliers set flags
+/// only"), so `isBusy()` is always false there and the donor predicate cannot be
+/// used as-is. The client's equivalent knowledge is its own intent bookkeeping:
+/// its OWN admitted-and-unfinished action (a bt_ack recorded, its bt_action_end
+/// not yet applied) means the blocker is ITSELF; otherwise, while a busy-denied
+/// intent is held, the blocker is the only OTHER seat there can be. The
+/// other-seat branch is deliberately gated on `seatCount() == 2` - the same
+/// 2-player bridge the donor's own name fallback carries, and for the same
+/// reason: there is no wire field that names a busy owner, so with 3+ seats this
+/// returns -1 and the presenter falls back to the generic SS2.6 busy row rather
+/// than guessing. NO new wire field is added for this (SS2.2/SS2.3 unchanged).
+int busyOwnerSeat();
+
+/// CLIENT: is a busy-denied intent currently HELD in the pending slot? Read by
+/// the wait-banner driver (a client is only 'waiting' while it holds one).
+bool hasPendingIntent();
+
+/// CLIENT (WV-D24 = ruling D-11): the intent round-trip TIMEOUT tick. ONE
+/// unconditional guarded call from the RB-D5 pump point (CoopBattleUi::tick()).
+/// Fires `Options::coopIntentTimeoutSeconds` after the in-flight intent was sent
+/// (default 10 s; <= 0 disables): raises STR_COOP_ACTION_TIMEOUT and RELEASES the
+/// IR-2 one-slot input lock, which is the bug it exists to fix - before this, a
+/// lost intent locked its unit for the rest of the battle.
+///
+/// The timed-out iseq is remembered for the rest of the battle and a late
+/// `bt_ack` / `bt_deny` carrying it is PERMANENTLY IGNORED (WV-D24, exactly): it
+/// updates no lastDeny, raises no banner and re-locks nothing - it only bumps
+/// lateAnswersIgnored() below so a test can prove the message ARRIVED and was
+/// ignored rather than never came. A late `bt_action_end` still APPLIES
+/// untouched: it is host truth and carries state, and nothing here is on the
+/// apply path at all.
+void tickIntentTimeout();
+
+/// Test/introspection (TestServer event_state / battle_state): this CLIENT's
+/// in-flight intent as {iseq, kind, actorId, actionId, ageMs}, or null when the
+/// slot is empty. `actionId` is 0 until the host's bt_ack lands. The slot being
+/// null after a timeout is the observable proof the IR-2 lock was released.
+Json::Value inFlightIntent();
+
+/// Test/introspection: how many intents have TIMED OUT on this machine this
+/// battle, and the iseq of the most recent one (0 = none yet).
+std::uint32_t intentTimeouts();
+std::uint32_t lastTimedOutIseq();
+
+/// Test/introspection: how many late bt_ack / bt_deny messages were ignored
+/// because their iseq had already timed out. Makes WV-D24's "a late ack/deny
+/// changes nothing" a DELIVERED-then-ignored assertion instead of an absence.
+std::uint32_t lateAnswersIgnored();
+
+// TEST-ONLY (W1-P7, RB-D26/RB-D32 discipline; same family and the same removal
+// note as hold_chain above): delete once real-network latency/loss can be
+// injected another way.
+/// HOST: hold the next @a count incoming bt_intent messages for @a ms
+/// milliseconds before dispatching them normally. This is the only way to make
+/// WV-D24's timeout deterministic: it produces a real UNANSWERED intent (the
+/// client times out), and then a real LATE answer on the wire (the host's ack or
+/// deny, arriving after the client gave up) so the ignore rule is testable too.
+/// @a ms 0 disarms.
+void requestDeferIntents(std::uint32_t ms, int count);
+
+// TEST-ONLY (W1-P7): the release half of requestDeferIntents() - ONE
+// unconditional guarded call at the RB-D5 pump point, next to
+// releaseHeldChainIfExpired(). Inert with nothing deferred.
+void releaseDeferredIntentsIfExpired();
+
 } // namespace CoopArbiter
 
 /// RB-D11: the free-function forwarder the vanilla BattlescapeGame::popState

@@ -39,6 +39,24 @@ Three sessions:
                              same sequence at all-OFF -> pending SURVIVES and
                              resubmits at quiescence (packet acceptance (b)).
 
+W1-P7 EXTENSIONS (WAVE1-RUNBOOK.md ruling D7 = WV-D13; its own acceptance says
+"extend test_rw_retry_cancel.py"):
+
+  * the option round-trip now also covers `coopIntentTimeoutSeconds` (WV-D24's
+    10 s intent timeout), which is a real Options.inc.h + Options.cpp OptionInfo
+    like the four cancel toggles and never a connectionTCP static (WR-25);
+  * the busy-live-fire pass now asserts the "order sent" IN-FLIGHT indicator
+    (STR_COOP_ORDER_SENT) between the send and the host's answer;
+  * ...and it asserts the donor wait driver's SUPPRESSION rule POSITIVELY. The
+    blocker in this file is the CLIENT'S OWN admitted turn, so the seat that
+    owns the host's execution slot is the client's own - and the donor rule
+    (`cbff7951d:BattlescapeState.cpp:5292-5370`) says a machine must NOT be told
+    to "wait for {someone}" when it is waiting on ITSELF. The generic SS2.6 busy
+    row is therefore the CORRECT text here, and `event_state.busyOwnerSeat` is
+    asserted to be this machine's own seat so that is a proven rule rather than
+    a coincidence. The peer-attributed case (a HOST-local blocker naming the
+    host) lives in test_rw_feedback.py PHASE 3.
+
 FIXTURE: same recipe/precedent as repro_atom_kneel.py (R3-P2) / repro_atom_turn
 .py (R3-P1) - a live 2-player skirmish through the harness lobby flow with the
 REVIEW4 IR-4 SELECTION RULE and a bounded re-roll loop, two client-owned
@@ -61,6 +79,9 @@ COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 MAX_REROLLS = 5
 
+# W1-P7 (WV-D13 item 2): the in-flight indicator's exact text.
+STR_ORDER_SENT_TEXT = "Order sent - waiting for the host"
+
 # SPIKE-RUNBOOK.md sec 2.6, verbatim (bin/common/Language/en-US.yml:65,73).
 # Asserted as TEXT, not as an STR_ key: Language::getString() returns the KEY
 # itself when the key is missing, so a key-shaped assert would silently pass
@@ -75,6 +96,10 @@ CANCEL_OPTIONS = (
     "coopCancelOnVisibilityGain",
     "coopCancelOnAnyPartnerAction",
 )
+# W1-P7 (WV-D13 / WV-D24): the fifth co-op battle option, and the only INT one.
+# Its ruled default is 10 s.
+TIMEOUT_OPTION = "coopIntentTimeoutSeconds"
+TIMEOUT_DEFAULT = 10
 # Options.cpp createAdvancedOptionsOTHER() registrations (R2-P7): the packet
 # table's "narrowed scope" defaults.
 CANCEL_DEFAULTS = {
@@ -380,6 +405,24 @@ def test_option_round_trip():
                     f"{name} did not stay {want} on a separate read: {readback}"
         print(f"PASS test_option_round_trip: all four names round-trip through set_option "
               f"({', '.join(CANCEL_OPTIONS)})")
+
+        # 3. W1-P7 (WV-D24 = ruling D-11): the intent timeout is behind the SAME
+        #    kind of real user option, not a static. WR-25 makes that a hard
+        #    requirement - a static would be unpersisted, invisible to the player
+        #    and untouchable from this lever.
+        d = g.ok({"cmd": "set_option", "name": TIMEOUT_OPTION})
+        assert d.get("value") == TIMEOUT_DEFAULT, (
+            f"{TIMEOUT_OPTION} default is {d.get('value')}, expected WV-D24's ruled "
+            f"{TIMEOUT_DEFAULT} s - check the Options.cpp OptionInfo registration")
+        for want in (3, 25, TIMEOUT_DEFAULT):
+            resp = g.ok({"cmd": "set_option", "name": TIMEOUT_OPTION, "value": want})
+            assert resp.get("value") == want, \
+                f"set_option {TIMEOUT_OPTION}={want} did not round-trip: {resp}"
+            readback = g.ok({"cmd": "set_option", "name": TIMEOUT_OPTION})
+            assert readback.get("value") == want, \
+                f"{TIMEOUT_OPTION} did not stay {want} on a separate read: {readback}"
+        print(f"PASS test_option_round_trip: {TIMEOUT_OPTION} defaults to "
+              f"{TIMEOUT_DEFAULT} (WV-D24) and round-trips - a real OptionInfo (WR-25)")
     finally:
         g.shutdown()
 
@@ -457,6 +500,23 @@ def test_busy_live_fire():
                               "actor": actor_b, "kneel": want_kneeled})
         iseq_b = intent_b["iseq"]
 
+        # W1-P7 (WV-D13 item 2): the IN-FLIGHT indicator. Between the send and
+        # the host's answer the player used to see nothing at all. The blocker is
+        # held open for HOLD_MS, so this window is wide and deterministic.
+        sent_banner = banner_of(client)
+        assert sent_banner in (STR_ORDER_SENT_TEXT, STR_BUSY_TEXT), (
+            f"banner right after the send is {sent_banner!r}, expected either the "
+            f"in-flight indicator {STR_ORDER_SENT_TEXT!r} or - if the busy deny had "
+            f"already landed - {STR_BUSY_TEXT!r}. A raw STR_ key means the WV-D17 "
+            "robocopy was skipped.")
+        if sent_banner == STR_ORDER_SENT_TEXT:
+            print(f"PASS test_busy_live_fire: in-flight indicator {sent_banner!r} shown "
+                  f"while iseq {iseq_b} is unanswered (W1-P7 / WV-D13 item 2)")
+        else:
+            print("NOTE test_busy_live_fire: the busy deny beat the banner read - the "
+                  "in-flight indicator is proven deterministically in "
+                  "test_rw_feedback.py PHASE 1a, which defers the host's answer")
+
         def denied_busy():
             ld = event_state(client).get("lastDeny")
             return ld if ld and ld.get("iseq") == iseq_b else None
@@ -476,12 +536,27 @@ def test_busy_live_fire():
         assert pending.get("kind") == "kneel" and pending.get("actorId") == actor_b \
             and pending.get("iseq") == iseq_b, \
             f"pending slot holds the wrong plan: {pending}"
+        # W1-P7 (WV-D13 item 4): the donor wait driver's SUPPRESSION rule, proven
+        # positively rather than assumed. The blocker here is the CLIENT'S OWN
+        # admitted turn, so this machine is waiting on ITSELF - the donor
+        # explicitly does not name anybody in that case, and SS2.6's generic busy
+        # row is the correct text. Asserting busyOwnerSeat first makes that a
+        # tested rule instead of a coincidence: if the attribution were wrong the
+        # banner would read "Please wait for HostPlayer's action to finish".
+        my_seat = event_state(client).get("localSeat")
+        owner = event_state(client).get("busyOwnerSeat")
+        assert owner == my_seat, (
+            f"client attributes the busy window to seat {owner} but its own seat is "
+            f"{my_seat} - the blocker IS this client's own admitted turn, so the "
+            "donor rule must suppress any peer attribution here")
         banner = banner_of(client)
         assert banner == STR_BUSY_TEXT, (
             f"the pending banner is {banner!r}, expected SS2.6's busy row {STR_BUSY_TEXT!r} - "
-            "either showPending() did not fire, or the string table did not resolve (a raw "
-            "STR_ key here means the deployed bin/x64/Release/common/Language/en-US.yml is "
-            "stale relative to bin/common/)")
+            "either showPending() did not fire, the seat-attribution suppression rule "
+            "regressed (a peer name here would be wrong: the client is waiting on its "
+            "OWN action), or the string table did not resolve (a raw STR_ key here means "
+            "the deployed bin/x64/Release/common/Language/en-US.yml is stale relative to "
+            "bin/common/)")
         print(f"PASS test_busy_live_fire: intent HELD pending (slot={pending}) with the "
               f"SS2.6 busy banner {banner!r}")
 

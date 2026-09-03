@@ -114,6 +114,14 @@ OPT bool coopCancelOnOwnUnitHit;
 OPT bool coopCancelOnVisibilityGain;
 OPT bool coopCancelOnAnyPartnerAction;
 
+// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13, parameters WV-D24 / D-11): how
+// long a co-op CLIENT waits for the host's answer to a battle intent before it
+// gives up, shows STR_COOP_ACTION_TIMEOUT and releases the IR-2 one-slot input
+// lock. SECONDS; <= 0 disables the timeout entirely. Behind a real user option
+// (SS1 WAVE-1 ADDITIONS / WR-25: an OptionInfo registration, never a
+// connectionTCP static) so real-network play can tune it without a rebuild.
+OPT int coopIntentTimeoutSeconds;
+
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;
 OPT int oxceResearchScrollSpeed;

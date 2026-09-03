@@ -263,6 +263,95 @@ bool refuseSelectUnitClick(const BattleUnit* target);
 /// deny/pending/cancel replaces it.
 void showSpectatorMode();
 
+// ---------------------------------------------------------------------------
+// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): order feedback.
+//
+// BANNER CLASSES. Every entry point above and below writes the ONE _txtCoopWait
+// surface, so this packet gives each message a CLASS and one arbitration rule,
+// rather than letting the newest writer always win:
+//
+//   Sticky   showDesyncHalted() only. Never overwritten, never auto-cleared -
+//            there is nothing to retry into once a battle has desynced (SS2.8).
+//   Terminal an ANSWER to something the player just did: a non-busy deny, a
+//            policy cancel, an intent timeout, and every local refusal (D8's five
+//            controls, D6's select refusal, SS2.W8's END TURN refusal). These now
+//            AUTO-CLEAR after kCoopBannerDwellMs - see clearStaleBanner() below.
+//   Sent     showOrderSent() - this machine's own order is in flight. Cleared by
+//            whatever resolves the round trip (an applied bt_action_end, a deny,
+//            a timeout); never dwell-cleared.
+//   Wait     showPending() and the per-tick wait driver - 'another action is in
+//            progress' / 'Please wait for {0}'s action to finish'. Owned by the
+//            driver, which re-evaluates and clears it every tick.
+//   Notice   the two ENTRY notices, showEquipFrozen() and showSpectatorMode().
+//            They explain an ABSENCE rather than answering a press, are raised
+//            once at battle entry, and their own doc comments above already
+//            define them as 'not sticky - the first deny/pending/cancel replaces
+//            it'. They are deliberately NOT dwell-cleared, so that contract (and
+//            every test written against it) is unchanged by this packet.
+//
+// Only Sticky blocks an overwrite. The per-tick WAIT driver additionally writes
+// only when the current class is Wait, Notice or nothing (a Notice's own
+// contract is that the first deny/pending/cancel replaces it, and a live waiting
+// message is exactly that), and it CLEARS only what it itself wrote - so neither
+// a deny the player has not read yet, nor their own 'order sent' indicator, nor
+// an entry notice is stomped by an idle driver.
+// ---------------------------------------------------------------------------
+
+/// CLIENT (WV-D13 item 2): the 'order sent' IN-FLIGHT indicator, raised by
+/// CoopArbiter::sendClientIntent() the moment the bt_intent envelope goes out
+/// and cleared when the round trip ends (bt_action_end applied, or replaced by a
+/// deny/pending/timeout). STR_COOP_ORDER_SENT. Before this packet the window
+/// between the click and the host's answer showed NOTHING at all, which is the
+/// gap D7 opens with ("the player always knows what the network did with the
+/// click"). No-op outside an active coop battle.
+void showOrderSent();
+
+/// CLIENT (WV-D13 item 3 / WV-D24): the intent TIMEOUT banner
+/// (STR_COOP_ACTION_TIMEOUT, "No answer from the host - action dropped"). Raised
+/// by CoopArbiter::tickIntentTimeout() at the moment it releases the IR-2 slot.
+/// Terminal class, so it dwell-clears like any other answer.
+void showIntentTimeout();
+
+/// CLIENT (SS2.W8 / WV-D23 / ruling D-10): the LOCAL end-turn refusal,
+/// STR_COOP_TURN_OVER = "Only the host can end the turn".
+///
+/// Its own presenter entry ON PURPOSE. BattlescapeState::btnEndTurnClick used to
+/// raise this through showDeny("turn_over"), i.e. through the SS2.6 WIRE deny
+/// table, and therefore told the player "The turn has already ended" - which is
+/// factually wrong at the only place that branch is reachable. allowButtons()
+/// requires `_save->getSide() == FACTION_PLAYER`, so an off-turn press never
+/// reaches the handler at all; the state this message actually covers, for its
+/// whole lifetime, is a co-op CLIENT pressing END TURN during ITS OWN side before
+/// the readiness wire exists. SS2.W8 rules the fix client-side only: no
+/// `not_your_turn` reason is added to the SS2.2 wire enum, and the SS2.6
+/// STR_COOP_DENY_TURN_OVER row keeps its own (correct, for a wire deny) text.
+///
+/// LIFETIME: W1-P13 RETIRES this entry - once bt_end_turn_ready exists the client
+/// press ARMS instead of refusing, and the key goes INERT (RB-D3 precedent).
+void showEndTurnHostOnly();
+
+/// The per-tick driver: ONE unconditional guarded call from the RB-D5 pump point
+/// (connectionTCP::updateCoopTask, beside CoopReveal::flushQuiescent()). Three
+/// jobs, all self-guarded and completely inert outside an active co-op battle:
+///   1. CoopArbiter::tickIntentTimeout() - WV-D24's 10 s intent timeout.
+///   2. the Terminal-class AUTO-CLEAR (WV-D13 item 1). Before this packet the
+///      ONLY thing that ever cleared a terminal deny was the player's own next
+///      successful action, so a refusal sat on the map strip indefinitely.
+///      RULED RULE (this packet, the ruling leaves the shape to the builder): a
+///      Terminal banner clears itself kCoopBannerDwellMs after it was raised,
+///      and is of course still replaced early by the next message or cleared by
+///      the player's own next successful action, exactly as before.
+///   3. the seat-attributed WAIT banner (WV-D13 item 4) - the donor's
+///      "Please wait for {0}'s action to finish" driver
+///      (`cbff7951d:BattlescapeState.cpp:5292-5370`), re-homed from a vanilla
+///      per-frame method into CoopMod and fed by CoopArbiter::busyOwnerSeat().
+void tick();
+
+/// The Terminal-class dwell, in milliseconds (rule 2 above). Long enough to read
+/// a one-line banner comfortably, short enough that the map strip does not carry
+/// a stale answer into the next exchange.
+static const unsigned int kCoopBannerDwellMs = 6000u;
+
 } // namespace CoopBattleUi
 
 } // namespace OpenXcom
