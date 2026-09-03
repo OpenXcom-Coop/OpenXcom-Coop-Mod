@@ -77,7 +77,10 @@ from session import assert_hash_clean
 
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
-MAX_REROLLS = 5
+# Raised from 5 by the WV-D5 fixture-pinning sweep: SELECTION RULE (c)
+# rejects more generations than (a)+(b) did, and a re-roll is the CORRECT
+# response to a fixture that cannot prove the property.
+MAX_REROLLS = 15
 
 # W1-P7 (WV-D13 item 2): the in-flight indicator's exact text.
 STR_ORDER_SENT_TEXT = "Order sent - waiting for the host"
@@ -219,7 +222,16 @@ def has_door_within(gc, x, y, z, radius=2):
 def qualifying_actor(host, soldier_id):
     """REVIEW4 IR-4 SELECTION RULE, reused verbatim from repro_atom_turn.py:
     (a) nothing spotted yet (an alien in LOS aborts a BA_NONE rotation,
-    UnitTurnBState.cpp:114-118), (b) no door within 2 tiles."""
+    UnitTurnBState.cpp:114-118), (b) no door within 2 tiles.
+
+    RULE (c) - added by the WV-D5 fixture-pinning sweep (2026-09-03). RB-D15 and
+    WV-D18 require an "open-ground, no-door, NO-ENEMY-LOS" actor, and (a)+(b)
+    cover only the first two: (a) asks whether a hostile is ALREADY spotted at
+    t=0, which is silent on whether this actor's ROTATION will bring one into
+    view. Vanilla aborts a BA_NONE turn mid-chain the moment
+    getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
+    session.actor_is_contact_free() - THE one shared copy (session.py).
+    """
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
         return None
@@ -228,7 +240,9 @@ def qualifying_actor(host, soldier_id):
     for u in units_by_id(st).values():
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
-                return None
+                return None  # rule (b)
+            if not session.actor_is_contact_free(st, u, "retry_cancel"):
+                return None  # rule (c)
             return u
     return None
 

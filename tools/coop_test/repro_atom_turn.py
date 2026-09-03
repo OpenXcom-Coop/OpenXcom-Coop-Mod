@@ -127,16 +127,11 @@ MAX_REROLLS = 15
 SDLK_TAB = 9  # Options::keyBattleNextUnit default (test_rw_input_gating.py precedent)
 SDLK_HOME = 278  # Options::keyBattleCenterUnit default
 
-FACTION_PLAYER = 0
-
-# Mod::_maxViewDistance's default, `src/Mod/Mod.cpp:424` - and stock xcom1
-# does not override it (no `maxViewDistance` key in bin/standard/xcom1/*.rul),
-# which is the ruleset this harness runs. It is a HARD CAP: darkness and
-# `maxDarknessToSeeUnits` only ever REDUCE effective view range, never extend
-# it, so "no non-player unit within this many tiles" is a strict superset of
-# "this actor's rotation cannot spot anybody" - which is what fixture rule (c)
-# needs to be sound rather than merely likely.
-MAX_VIEW_DISTANCE = 20
+# SELECTION RULE (c)'s constants and predicate moved to session.py by the WV-D5
+# fixture-pinning sweep (2026-09-03) - four separate files were caught carrying
+# an unpinned copy of the same premise, so there is now exactly ONE
+# (session.actor_is_contact_free / session.MAX_VIEW_DISTANCE). The rule itself is
+# unchanged; this file's module docstring still carries its full trace.
 
 # run_ui_variant's bounded retry (signature C). W1-P6's own `tile_click_until`
 # note: "the battlescape camera can shift between the probe's round-trip check
@@ -258,21 +253,6 @@ def has_door_within(gc, x, y, z, radius=2):
     return False
 
 
-def nearest_non_player_distance(battle_state_resp, unit):
-    """Straight-line tile distance from `unit` to the closest LIVING non-player
-    unit, or None if there are none. 3D, because vanilla's own view-distance
-    test is a 3D squared-distance compare."""
-    best = None
-    for u in battle_state_resp.get("units", []):
-        if u.get("faction") == FACTION_PLAYER or u.get("isOut"):
-            continue
-        d2 = ((u["x"] - unit["x"]) ** 2 + (u["y"] - unit["y"]) ** 2
-              + (u["z"] - unit["z"]) ** 2)
-        if best is None or d2 < best:
-            best = d2
-    return None if best is None else best ** 0.5
-
-
 def qualifying_actor(host, soldier_id):
     """REVIEW4 IR-4 SELECTION RULE - see this file's own module docstring for
     the exact predicates and the documented approximation for (a). Returns the
@@ -308,15 +288,8 @@ def qualifying_actor(host, soldier_id):
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
                 return None  # rule (b)
-            d = nearest_non_player_distance(st, u)
-            if d is not None and d <= MAX_VIEW_DISTANCE:
-                print(f"[repro_atom_turn] rule (c): nearest non-player unit is "
-                      f"{d:.2f} tiles from the actor (cap {MAX_VIEW_DISTANCE}) - "
-                      "its rotation could spot one and abort mid-chain")
+            if not session.actor_is_contact_free(st, u, "repro_atom_turn"):
                 return None  # rule (c)
-            print(f"[repro_atom_turn] rule (c) ok: nearest non-player unit is "
-                  f"{'none at all' if d is None else format(d, '.2f') + ' tiles'} "
-                  f"away (cap {MAX_VIEW_DISTANCE})")
             return u
     return None
 

@@ -74,7 +74,10 @@ FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
-MAX_REROLLS = 5
+# Raised from 5 by the WV-D5 fixture-pinning sweep: SELECTION RULE (c)
+# rejects more generations than (a)+(b) did, and a re-roll is the CORRECT
+# response to a fixture that cannot prove the property.
+MAX_REROLLS = 15
 
 SDLK_TAB = 9    # Options::keyBattleNextUnit default (test_rw_input_gating.py precedent)
 SDLK_K = 107    # Options::keyBattleKneel default (SDLK_k, Options.cpp:337)
@@ -203,7 +206,15 @@ def qualifying_actor(host, soldier_id):
     (RB-D15's own text calls out this file's kneel reaction-fire branch by
     name, so the same empty-spotted-set guard applies even though the
     no-door clause is really only a turn/door concern) - see that file's own
-    module docstring for the exact (a)/(b) predicates."""
+    module docstring for the exact (a)/(b) predicates.
+
+    RULE (c) - added by the WV-D5 fixture-pinning sweep (2026-09-03). RB-D15 and
+    WV-D18 require an "open-ground, no-door, NO-ENEMY-LOS" actor, and (a)+(b)
+    cover only the first two: (a) asks whether a hostile is ALREADY spotted at
+    t=0, which is silent on whether this actor's ROTATION will bring one into
+    view. Vanilla aborts a BA_NONE turn mid-chain the moment
+    getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
+    session.actor_is_contact_free() - THE one shared copy (session.py)."""
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
         return None
@@ -214,6 +225,8 @@ def qualifying_actor(host, soldier_id):
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
                 return None  # rule (b)
+            if not session.actor_is_contact_free(st, u, "kneel"):
+                return None  # rule (c)
             return u
     return None
 

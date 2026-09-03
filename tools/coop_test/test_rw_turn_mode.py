@@ -270,58 +270,6 @@ def has_door_within(gc, x, y, z, radius=2):
     return False
 
 
-FACTION_PLAYER = 0
-
-# RB-D15 / REVIEW4 IR-4 SELECTION RULE (c), ported from repro_atom_turn.py's
-# 2026-09-03 fixture-robustness pass - see that file's module docstring for the
-# full trace. Mod::_maxViewDistance's default (`src/Mod/Mod.cpp:424`), which
-# stock xcom1 does not override; a HARD CAP, because darkness only ever REDUCES
-# effective view range.
-MAX_VIEW_DISTANCE = 20
-
-
-def nearest_non_player_distance(battle_state_resp, unit):
-    """Straight-line 3D tile distance from `unit` to the closest LIVING
-    non-player unit, or None if there are none."""
-    best = None
-    for u in battle_state_resp.get("units", []):
-        if u.get("faction") == FACTION_PLAYER or u.get("isOut"):
-            continue
-        d2 = ((u["x"] - unit["x"]) ** 2 + (u["y"] - unit["y"]) ** 2
-              + (u["z"] - unit["z"]) ** 2)
-        if best is None or d2 < best:
-            best = d2
-    return None if best is None else best ** 0.5
-
-
-def actor_is_contact_free(host, battle_state_resp, unit):
-    """SELECTION RULE (c): reject an actor with any LIVING NON-PLAYER unit
-    within MAX_VIEW_DISTANCE.
-
-    WHY (RB-D15, WV-D18, REVIEW4 IR-4). RB-D15 requires an "open-ground,
-    no-door, NO-ENEMY-LOS" actor. Asking whether a hostile is ALREADY spotted at
-    t=0 covers none of the third requirement: vanilla aborts a BA_NONE turn
-    mid-chain the moment `getUnitsSpottedThisTurn()` grows
-    (UnitTurnBState.cpp:117), leaving the unit on an intermediate facing - and
-    the engine itself calls that a FIXTURE failure ("[coop-turn] ... ABORTED
-    mid-chain - the RB-D15/REVIEW4 IR-4 fixture guards ... should have prevented
-    this"). Observed live in this very test on 2026-09-03.
-
-    A conservative SUPERSET of vanilla's predicate: a unit beyond the view-
-    distance cap can never be spotted by any rotation, so a fixture that passes
-    this cannot take the abort branch. A PIN on the selection rule, never a
-    relaxation of anything asserted."""
-    d = nearest_non_player_distance(battle_state_resp, unit)
-    if d is not None and d <= MAX_VIEW_DISTANCE:
-        print(f"[test_rw_turn_mode] rule (c): nearest non-player unit is {d:.2f} tiles from "
-              f"the actor (cap {MAX_VIEW_DISTANCE}) - its rotation could spot one "
-              "and abort mid-chain")
-        return False
-    print(f"[test_rw_turn_mode] rule (c) ok: nearest non-player unit is "
-          f"{'none at all' if d is None else format(d, '.2f') + ' tiles'} away "
-          f"(cap {MAX_VIEW_DISTANCE})")
-    return True
-
 
 def qualifying_actor(host, soldier_id):
     """REVIEW4 IR-4 SELECTION RULE, verbatim from repro_atom_turn.py."""
@@ -332,7 +280,7 @@ def qualifying_actor(host, soldier_id):
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
                 return None  # rule (b)
-            if not actor_is_contact_free(host, st, u):
+            if not session.actor_is_contact_free(st, u, "turn_mode"):
                 return None  # rule (c)
             return u
     return None

@@ -952,3 +952,76 @@ def dismiss_client_briefing(client, timeout=20):
         "closing the client's entry briefing should land it on BattlescapeState "
         f"(W1-P3 pushes the briefing directly OVER it), got stack={states(client)}")
     return True
+
+
+# ---------------------------------------------------------------------------
+# FIXTURE PINNING (WV-D5 sweep, 2026-09-03; RB-D15, WV-D18, REVIEW4 IR-4).
+#
+# THE ONE shared copy of SELECTION RULE (c). It lived inline in three repros
+# before this sweep; four separate files were caught in three days carrying an
+# UNPINNED version of the same premise, each costing a red run to discover, so
+# it is hoisted here where every coop test already imports from.
+#
+# WHAT IT PINS. RB-D15 and WV-D18 both require an "open-ground, no-door,
+# NO-ENEMY-LOS" fixture actor. Rules (a) "no hostile ALREADY spotted at t=0"
+# and (b) "no door within 2 tiles" cover the first two; NEITHER says anything
+# about whether the actor's ROTATION will bring a unit into view. Vanilla
+# aborts a BA_NONE turn mid-chain the moment getUnitsSpottedThisTurn() grows
+# (UnitTurnBState.cpp:117), leaving the unit on an intermediate facing - and
+# the engine itself calls that a FIXTURE failure, logging "[coop-turn] ...
+# ABORTED mid-chain - the RB-D15/REVIEW4 IR-4 fixture guards ... should have
+# prevented this".
+#
+# It is a PIN on the selection rule (the IR-4 treatment), never a relaxation of
+# anything a test asserts: a fixture that fails it is RE-ROLLED, and the
+# assertions that run afterwards are unchanged.
+# ---------------------------------------------------------------------------
+
+FACTION_PLAYER_ID = 0
+
+# Mod::_maxViewDistance's default (src/Mod/Mod.cpp:424), which stock xcom1 does
+# not override (no `maxViewDistance` key in bin/standard/xcom1/*.rul). A HARD
+# CAP: darkness and maxDarknessToSeeUnits only ever REDUCE effective view
+# range, never extend it - which is what makes "nobody within this many tiles"
+# a sound superset of "this actor's rotation cannot spot anybody" rather than
+# merely a likely one.
+MAX_VIEW_DISTANCE = 20
+
+
+def nearest_non_player_distance(battle_state_resp, unit):
+    """Straight-line 3D tile distance from @a unit to the closest LIVING
+    non-player unit in @a battle_state_resp, or None when there are none.
+
+    3D because vanilla's own view-distance test is a 3D squared-distance
+    compare. Hostile AND neutral both count: the harness cannot cheaply tell
+    which factions a given observer adds to its spotted set, so it excludes
+    both - deliberately conservative."""
+    best = None
+    for u in battle_state_resp.get("units", []):
+        if u.get("faction") == FACTION_PLAYER_ID or u.get("isOut"):
+            continue
+        d2 = ((u["x"] - unit["x"]) ** 2 + (u["y"] - unit["y"]) ** 2
+              + (u["z"] - unit["z"]) ** 2)
+        if best is None or d2 < best:
+            best = d2
+    return None if best is None else best ** 0.5
+
+
+def actor_is_contact_free(battle_state_resp, unit, tag):
+    """SELECTION RULE (c): True iff no LIVING NON-PLAYER unit is within
+    MAX_VIEW_DISTANCE of @a unit - i.e. no rotation of this actor can spot
+    anybody, so vanilla's unitSpotted abort branch is unreachable for it.
+
+    @a tag is the calling test's name, for the log line. Callers use this as
+    the third arm of their own qualifying_actor(): fail it -> return None ->
+    the bounded re-roll loop boots a fresh generation."""
+    d = nearest_non_player_distance(battle_state_resp, unit)
+    if d is not None and d <= MAX_VIEW_DISTANCE:
+        print("[%s] rule (c): nearest non-player unit is %.2f tiles from the actor "
+              "(cap %d) - its rotation could spot one and abort mid-chain"
+              % (tag, d, MAX_VIEW_DISTANCE))
+        return False
+    print("[%s] rule (c) ok: nearest non-player unit is %s away (cap %d)"
+          % (tag, "none at all" if d is None else "%.2f tiles" % d,
+             MAX_VIEW_DISTANCE))
+    return True

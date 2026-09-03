@@ -337,16 +337,38 @@ def tile_click(gc, tx, ty, tz, button="left"):
     return pr
 
 
-def tile_click_until(gc, tx, ty, tz, ok_fn, what, button="left", tries=5, settle=0.6):
-    """tile_click() with a bounded retry on the ONE residual harness effect the
-    probe cannot remove: the battlescape camera can shift between the probe's
-    round-trip check and the injected click arriving, so a click occasionally
-    lands one tile off. Each attempt is independently verified, and the loop
-    stops the moment @a ok_fn observes the intended effect."""
+def tile_click_until(gc, tx, ty, tz, ok_fn, what, button="left", tries=5, settle=0.6,
+                     alt_tiles=()):
+    """tile_click() with a bounded retry on the residual harness effects the
+    probe cannot remove. Each attempt is independently verified by the probe,
+    and the loop stops the moment @a ok_fn observes the intended effect.
+
+    TWO effects, not one (WV-D5 fixture-pinning sweep, 2026-09-03):
+      * "the battlescape camera can shift between the probe's round-trip check
+        and the injected click arriving, so a click occasionally lands one tile
+        off" (W1-P6's original note) - a re-CLICK fixes that, because the shift
+        is transient; and
+      * a particular target tile can be systematically unproductive on a given
+        map roll - it verifies every time and still never reaches the arm under
+        test. Re-clicking THE SAME TILE five times then fails five times
+        identically, which is exactly how this helper failed W1-G1 run 2
+        ("5 verified clicks on tile (40,9,1) never produced the expected
+        effect", every pre-gate healthy). A re-AIM is what fixes that.
+
+    @a alt_tiles are further (x, y, z) candidates; attempts rotate through
+    [(tx,ty,tz)] + alt_tiles. Callers that pass none keep the previous
+    behaviour exactly. NOTHING about what the caller asserts changes - a
+    re-aimed click still has to produce the same observed effect."""
+    targets = [(tx, ty, tz)] + [tuple(a) for a in alt_tiles]
     last = None
     for attempt in range(1, tries + 1):
+        ax, ay, az = targets[(attempt - 1) % len(targets)]
+        if (ax, ay, az) != (tx, ty, tz):
+            print(f"    [{what}] attempt {attempt}: re-aiming at tile "
+                  f"({ax},{ay},{az}) - the primary target has not produced the "
+                  "expected effect yet")
         pre_blocked = event_state(gc).get("coopLocalExecBlocked")
-        last = tile_click(gc, tx, ty, tz, button)
+        last = tile_click(gc, ax, ay, az, button)
         time.sleep(settle)
         if ok_fn():
             last = dict(last)
@@ -360,7 +382,7 @@ def tile_click_until(gc, tx, ty, tz, ok_fn, what, button="left", tries=5, settle
             return last
     st = battle_state(gc)
     raise AssertionError(
-        f"{what}: {tries} verified clicks on tile ({tx},{ty},{tz}) never produced the "
+        f"{what}: {tries} verified clicks across tiles {targets} never produced the "
         f"expected effect (last probe={last}; mapClick's own pre-gates: "
         f"mouseOverIcons={st.get('mouseOverIcons')} cursorType={st.get('cursorType')} "
         f"isBusy={st.get('isBusy')} selectedId={st.get('selectedId')} "
@@ -379,7 +401,8 @@ def select_via_tab(gc, want_ids, tries=10):
                          f"(last selectedId={sel})")
 
 
-def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label):
+def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
+                                      alt_tiles=()):
     """W1-G1 criterion 4b / WV-D40 / WR-2. A client ground-click must mint
     NOTHING - and the click must be PROVEN to have arrived, which is what
     event_state.coopLocalExecBlocked is for (see this file's header)."""
@@ -408,8 +431,13 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label)
             return True
         return event_state(client).get("coopLocalExecBlocked", blocked0) > blocked0
 
+    # Two full passes over the rotation, so a target still gets the re-CLICK
+    # benefit for the transient camera shift as well as the re-AIM benefit for
+    # an unproductive tile. Unchanged (5) for a caller with no alternates.
     pr = tile_click_until(client, tx, ty, tz, blocked_and_idle,
-                          f"client ground click [{label}]", settle=0.35)
+                          f"client ground click [{label}]", settle=0.35,
+                          tries=max(5, 2 * (1 + len(alt_tiles))),
+                          alt_tiles=alt_tiles)
     sx, sy = pr["winX"], pr["winY"]
 
     # Sample isBusy hard for a second: a locally-minted UnitWalkBState is
@@ -623,8 +651,20 @@ def test_classic_selection_gating():
         assert walk_tile is not None, (
             "no EMPTY, clickable adjacent tile for the client's actor - the "
             "ground-click gate cannot be exercised")
+        # WV-D5 sweep: hand the OTHER clickable adjacent tiles over as re-aim
+        # candidates. Which single tile is productive on a given map roll is a
+        # camera/geometry fact; the gate under test is the same for all of them.
+        walk_alts = []
+        for dx2, dy2 in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+            tx2, ty2 = au["x"] + dx2, au["y"] + dy2
+            if (tx2, ty2) == walk_tile or (tx2, ty2, au["z"]) in occupied:
+                continue
+            pr2 = client.cmd({"cmd": "map_tile_click_pos", "x": tx2, "y": ty2, "z": au["z"]})
+            if pr2.get("ok") and pr2.get("verified"):
+                walk_alts.append((tx2, ty2, au["z"]))
         assert_ground_click_mints_nothing(host, client, actor, walk_tile[0], walk_tile[1],
-                                          au["z"], "walkable adjacent tile")
+                                          au["z"], "walkable adjacent tile",
+                                          alt_tiles=walk_alts)
 
         # (5b) NO ROUTE: the actor's OWN tile. selectUnit(pos) returns the
         # already-selected unit, so the select branch's `unit != selected` test
@@ -636,7 +676,11 @@ def test_classic_selection_gating():
 
         # (5c) DISTANT: a far tile on the same level. Whether the pathfinder can
         # reach it or not, nothing may happen on the client.
+        # WV-D5 sweep: collect EVERY verified distant candidate, not just the
+        # first. W1-G1 run 2 died here because the first one happened to be
+        # unproductive on that map roll and all five retries re-clicked it.
         far = None
+        far_alts = []
         for step in (5, 4, 3):
             for dxs, dys in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1)):
                 tx, ty = au["x"] + dxs * step, au["y"] + dys * step
@@ -644,13 +688,15 @@ def test_classic_selection_gating():
                     continue
                 pr = client.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": au["z"]})
                 if pr.get("ok") and pr.get("verified"):
-                    far = (tx, ty)
-                    break
-            if far:
-                break
+                    if far is None:
+                        far = (tx, ty)
+                    else:
+                        far_alts.append((tx, ty, au["z"]))
         assert far, "no distant clickable empty tile found for the third ground-click variant"
+        print(f"  distant ground-click candidates: primary {far}, "
+              f"{len(far_alts)} re-aim alternate(s)")
         assert_ground_click_mints_nothing(host, client, actor, far[0], far[1], au["z"],
-                                          f"distant tile {far}")
+                                          f"distant tile {far}", alt_tiles=far_alts)
 
         assert not battle_state(client)["authority"]["desyncFrozen"], \
             "client desync-frozen after the ground-click phase"
