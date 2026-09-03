@@ -3972,6 +3972,13 @@ bool saveBlobExcludedTopKey(std::string_view k)
 		// only COLOURS tiles (Pathfinding.cpp:1269 -> :1303), it never refuses.
 		// Do not remove these two entries.
 		|| k == "tuReserved" || k == "kneelReserved"
+		// W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D, owner rulings D-20/D-21
+		// revision "D.1" = WV-D55, and SS2.W1's HASH paragraph): the battle's
+		// TURN MODE. Session CONFIGURATION, not simulated state - both machines
+		// already agree on it because the host stamps it on battle_offer and the
+		// client mirrors it, so it must never ride the saveBlob hash. Same
+		// treatment, and the same reason, as the two BriefingState labels below.
+		|| k == "coopTurnMode"
 		|| k == "togglePersonalLight" || k == "toggleNightVision" || k == "toggleBrightness"
 		|| k == "animFrame"
 		|| k == "currentAmbienceDelay"

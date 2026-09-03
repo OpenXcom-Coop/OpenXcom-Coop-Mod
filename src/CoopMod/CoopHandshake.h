@@ -318,6 +318,18 @@ void resetPendingState();
 /// cleared at teardown (resetPendingState()) - never carries across battles.
 void requestCorruptNextBlob();
 
+// TEST-ONLY STOPGAP (W1-P7 deliverable 6, WAVE1-RUNBOOK.md REV D / WV-D55;
+// RB-D26 family, same discipline and the same removal expectation as
+// requestCorruptNextBlob() above): build the NEXT battle_offer WITHOUT the
+// SS2.W1 `turnMode` key. One-shot - the offer after it is normal again.
+//
+// It exists so ruling D-26's degrade ("an ABSENT `turnMode` means parallel") is
+// proven OVER THE REAL WIRE rather than by unit-testing the parser: a wave-1
+// host ALWAYS sends the key, so the only real producer of an absent key is a
+// peer older than REV D, which nothing in this repo can be. Delete this lever
+// when an older-protocol peer can be simulated some other way.
+void requestOmitTurnMode(bool on);
+
 /// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): battle-entry SEAT-RELATIVE
 /// selection - "the client auto-selects its first owned unit at entry"
 /// (legacy shape `1e0f9276f:BattlescapeState.cpp:1606-1653`), generalized to

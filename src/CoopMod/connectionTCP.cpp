@@ -1535,7 +1535,66 @@ void resetBattleAuthority()
 	a.phase = CoopBattlePhase::Idle;
 	a.battleId = 0;
 	a.desyncFrozen = false; // R2-P9
+	// W1-P7 deliverable 6 (REV D / WV-D55): back to the D-26 default. The mode
+	// is per-BATTLE session state, re-established from the offer (or, on the
+	// host, from Options::CoopTurnMode) every time a battle starts.
+	a.turnMode = CoopTurnMode::Parallel;
 	a.resetSeatFactions();
+}
+
+// ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
+
+const char* coopTurnModeName(CoopTurnMode m)
+{
+	return (m == CoopTurnMode::Traditional) ? "traditional" : "parallel";
+}
+
+CoopTurnMode coopTurnModeFromString(const std::string& s)
+{
+	// D-26: ANY other value - including the empty string an ABSENT key yields -
+	// is parallel. That is the free backwards-compatible degrade (an older host
+	// sends no key at all), and it also means a hand-edited options.cfg can never
+	// put a garbage mode on the wire.
+	return (s == "traditional") ? CoopTurnMode::Traditional : CoopTurnMode::Parallel;
+}
+
+CoopTurnMode coopSessionTurnModeFromOptions()
+{
+	return coopTurnModeFromString(Options::CoopTurnMode);
+}
+
+void coopSaveTurnMode(YAML::YamlNodeWriter& writer)
+{
+	// D.1 (owner revision to D-20/D-21): the BATTLE save block carries the mode
+	// the battle was PLAYED in, so a mid-battle save resumes in that mode even
+	// after a full host restart. SP and every non-coop battle write NOTHING - the
+	// key is simply ABSENT there and the SP save stays byte-identical.
+	//
+	// The value is the SESSION's mirror, never this machine's own
+	// Options::CoopTurnMode: a client's preference is irrelevant (D-19b) and
+	// writing it would make the two machines' battle blocks differ.
+	if (!isCoopBattle())
+		return;
+	writer.write("coopTurnMode", std::string(coopTurnModeName(coopBattleAuthority().turnMode)));
+}
+
+void coopLoadTurnMode(const YAML::YamlNodeReader& reader)
+{
+	// Presence-gated both ways: a save written before REV D has no key, and
+	// tryRead leaves the string empty, which coopTurnModeFromString() maps to
+	// PARALLEL (D-26 - "a battle whose block LACKS the key resumes as parallel").
+	// An SP load reads nothing and touches nothing.
+	//
+	// W1-P7 only READS the key here. CONSUMING it on resume - stamping it onto a
+	// `resumed:true` offer instead of Options::CoopTurnMode (D-22) - is r4 T4's
+	// and is OUT OF WAVE.
+	std::string mode;
+	reader.tryRead("coopTurnMode", mode);
+	if (mode.empty())
+		return;
+	coopBattleAuthority().turnMode = coopTurnModeFromString(mode);
+	Log(LOG_INFO) << "[coop-turnmode] battle save carried turnMode=\"" << mode
+		<< "\" (W1-P7 / D.1) - stored; CONSUMPTION on resume is r4 T4";
 }
 
 bool isCoopBattle()
@@ -4166,8 +4225,18 @@ struct PendingClient
 	// onBlobChunkAppended() can apply it once the blob has actually loaded
 	// (and BEFORE it pushes any state). Null when the offer carried none.
 	Json::Value missionLabel;
+	// W1-P7 deliverable 6 (SS2.W1 `turnMode`, REV D): the RAW offer value,
+	// stashed for the same reason seatMap above is - onBlobChunkAppended() calls
+	// initBattleAuthority() a second time and that resets the live mirror.
+	// Empty string = the offer carried no key (D-26: parallel).
+	std::string turnMode;
 };
 static PendingClient g_pendingClient;
+
+// TEST-ONLY STOPGAP (W1-P7 deliverable 6, RB-D26 family): when set, the NEXT
+// battle_offer is built WITHOUT the SS2.W1 `turnMode` key, so D-26's
+// "absent = parallel" degrade can be exercised over the real wire. One-shot.
+static bool g_coopOmitTurnMode = false;
 
 // R2-P11 (RB-D26): test-only, one-shot corrupt-next-blob lever. Set by
 // requestCorruptNextBlob() (TestServer's corrupt_next_blob command); consumed
@@ -4209,6 +4278,14 @@ struct MissionLabels
 static MissionLabels g_missionLabels;
 
 // ----- CoopHandshake.h API -----
+
+// TEST-ONLY STOPGAP (W1-P7 deliverable 6): see CoopHandshake.h.
+void requestOmitTurnMode(bool on)
+{
+	g_coopOmitTurnMode = on;
+	Log(LOG_INFO) << "[coop-handshake] omit_turn_mode lever " << (on ? "ARMED" : "disarmed")
+		<< " (TEST-ONLY STOPGAP)";
+}
 
 void requestCorruptNextBlob()
 {
@@ -4529,6 +4606,14 @@ void offerBattle(Game* game, int gamemode)
 
 	initBattleAuthority(battleId); // -> hostSim=true, localSeat, phase=Handshake, seat-faction store cleared
 
+	// W1-P7 deliverable 6 (REV D / WV-D55 / D-19b): resolve the session's turn
+	// mode HERE, before the blob snapshot below, not down at the offer-building
+	// block - a battle save taken later must carry the mode the battle is being
+	// PLAYED in (D.1), and the mirror is what coopSaveTurnMode() reads.
+	// initBattleAuthority() above does not touch this field; only
+	// resetBattleAuthority() (teardown) does.
+	coopBattleAuthority().turnMode = coopSessionTurnModeFromOptions();
+
 	// R5-P1 (RB-D23): the ONE generation-time canonical-faction/seat pass -
 	// REPLACES the R4-P1 interim coopApplySeatMap(coopBuildInterimSeatMap())
 	// call that used to sit here. @a seats is every currently-connected seat
@@ -4620,6 +4705,35 @@ void offerBattle(Game* game, int gamemode)
 	offer["blobBytes"] = Json::UInt64(blob.size());
 	offer["blobSha"] = sha;
 
+	// W1-P7 deliverable 6 (SS2.W1 `turnMode`, REV D / WV-D55 / D-19b): the
+	// session's turn mode, stamped by the HOST onto EVERY battle it offers.
+	// REQUIRED from W1-P7 on - a wave-1 host ALWAYS sends it - but the READER is
+	// presence-gated (absent = parallel, D-26).
+	//
+	// Stamped HERE rather than at the four vanilla call sites: offerBattle() is
+	// the single host-side choke every one of them funnels through, so all FOUR
+	// are covered (WR-8) with no vanilla edit at all - the same argument SS2.4a
+	// makes for attaching `reveal` at the CoopEmit::sendEv choke.
+	//
+	// The value is the HOST's remembered preference; a client's own setting is
+	// irrelevant. D-22's resumed-battle rule (read the mode from the BATTLE SAVE
+	// BLOCK instead, for a `resumed:true` offer) is r4 T4's - W1-P7 writes and
+	// reads that key but does not consume it.
+	const CoopTurnMode mode = coopBattleAuthority().turnMode;
+	if (!g_coopOmitTurnMode)
+	{
+		offer["turnMode"] = coopTurnModeName(mode);
+	}
+	else
+	{
+		// TEST-ONLY STOPGAP (W1-P7 deliverable 6): the omit_turn_mode lever - see
+		// TestServer's own note. One-shot, so the next offer is normal again.
+		g_coopOmitTurnMode = false;
+		Log(LOG_WARNING) << "[coop-handshake] omit_turn_mode lever: battle_offer built "
+			"WITHOUT turnMode - the client must degrade to parallel (D-26) "
+			"(TEST-ONLY STOPGAP)";
+	}
+
 	// W1-P2 (SS2.W1 / WV-D28 shape (d)): mission identity. Presence-gated on the
 	// envelope for protocol tolerance, but a wave-1 host ALWAYS sends it; when
 	// present, target / craftOrBase / deployment are all REQUIRED KEYS - and
@@ -4639,6 +4753,7 @@ void offerBattle(Game* game, int gamemode)
 
 	Log(LOG_INFO) << "[coop-handshake] battle_offer sent (battleId=" << battleId
 		<< ", gamemode=" << gamemode << ", blobBytes=" << blob.size()
+		<< ", turnMode=" << coopTurnModeName(mode)
 		<< ", saveBlob=" << g_pendingHost.saveBlobHex << ")";
 }
 
@@ -4695,6 +4810,14 @@ void onOffer(Game* game, const Json::Value& offer)
 	// recompute it FROM at that point except what onOffer() already validated
 	// here.
 	g_pendingClient.seatMap = offer["seatMap"];
+	// W1-P7 deliverable 6 (SS2.W1 / D-19b): MIRROR the host's turn mode. Stashed
+	// as well as applied, because onBlobChunkAppended() calls
+	// initBattleAuthority() a SECOND time and that resets the mirror to the D-26
+	// default - exactly the reason the seatMap above is stashed and re-applied.
+	// Presence-gated: an offer WITHOUT the key yields the empty string, which
+	// coopTurnModeFromString() maps to parallel (D-26's degrade).
+	g_pendingClient.turnMode = offer.get("turnMode", "").asString();
+	coopBattleAuthority().turnMode = coopTurnModeFromString(g_pendingClient.turnMode);
 	// W1-P2 (SS2.W1): the offer's mission identity, applied by
 	// onBlobChunkAppended() once the blob has loaded. Presence-gated: a null
 	// value here simply means the offer carried no labels.
@@ -4712,6 +4835,8 @@ void onOffer(Game* game, const Json::Value& offer)
 	CoopEmit::sendBattle(accept);
 
 	Log(LOG_INFO) << "[coop-handshake] battle_offer accepted (battleId=" << battleId
+		<< ", turnMode=" << coopTurnModeName(coopBattleAuthority().turnMode)
+		<< (g_pendingClient.turnMode.empty() ? " [key ABSENT - D-26 degrade]" : "")
 		<< ", expecting " << g_pendingClient.blobBytes << " bytes)";
 }
 
@@ -4867,6 +4992,9 @@ void onBlobChunkAppended(Game* game)
 
 	initBattleAuthority(battleId); // hostSim=false here (getServerOwner()==false on a client), localSeat
 	coopApplySeatMap(g_pendingClient.seatMap); // R5-P1: re-apply the REAL seatMap onOffer() already validated
+	// W1-P7 deliverable 6: same re-apply, same reason - the initBattleAuthority()
+	// call above reset the mirror to the D-26 default.
+	coopBattleAuthority().turnMode = coopTurnModeFromString(g_pendingClient.turnMode);
 	coopBattleAuthority().phase = CoopBattlePhase::Active;
 
 	// W1-P2 (SS2.W1 / WV-D9 / WV-D28 / WV-D42): apply the offer's mission

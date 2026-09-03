@@ -21,12 +21,76 @@
 
 #include <atomic>
 #include <cstdint>
+#include <string>
+
+// W1-P7 deliverable 6 (REV D / WV-D55): the battle-save hook pair below takes
+// YAML nodes. Forward-declared, never included - this header is deliberately
+// dependency-light (see the class comment) and the only two call sites
+// (SavedBattleGame::save/::load) already have the complete types.
+namespace YAML { class YamlNodeReader; class YamlNodeWriter; }
 
 namespace OpenXcom
 {
 
 class BattleUnit;
 class SavedBattleGame;
+
+/**
+ * W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D, owner rulings D-19..D-27 =
+ * WV-D55): the session's TURN MODE. Chosen by the HOST, stamped onto every
+ * battle_offer (SS2.W1) and MIRRORED by the client - a client's own setting is
+ * irrelevant, exactly like the donor's session-decided-once shape.
+ *
+ * Parallel    - all seats on the active side act simultaneously, individual
+ *               actions serialized through host admission (SS2.5). Everything
+ *               REV A-C describes, and THE DEFAULT (D-26).
+ * Traditional - one seat commands at a time; END TURN passes the baton to the
+ *               next seat; the last pass closes the side.
+ *
+ * W1-P7 CARRIES, STORES AND REPORTS the mode and NOTHING ELSE. **No code may
+ * branch behaviour on it in this packet** (REV D, binding) - the baton logic and
+ * the off-baton presentation are W1-P13's, and hard-coding the parallel rule into
+ * `needed` or into coopMayCommand() is exactly what that rule forbids.
+ */
+enum class CoopTurnMode { Parallel, Traditional };
+
+/// The SS2.W1 wire spelling of @a m: "parallel" or "traditional". Never any
+/// other string - this is what goes on battle_offer.
+const char* coopTurnModeName(CoopTurnMode m);
+
+/// Parse an SS2.W1 wire value. ANY value other than "traditional" - including
+/// an empty string, i.e. an ABSENT key - is PARALLEL. That is D-26's free
+/// backwards-compatible degrade, not leniency: an older host sends no key at all
+/// and must be understood as the classic model (donor precedent
+/// `cbff7951d:connectionTCP.cpp:12716` [V], `get(..., false)` for the same
+/// reason).
+CoopTurnMode coopTurnModeFromString(const std::string& s);
+
+/// The HOST's remembered preference, normalized: Options::CoopTurnMode run
+/// through coopTurnModeFromString(). Read ONLY by the host, and only when it
+/// builds an offer - never by a client, and never to decide behaviour.
+CoopTurnMode coopSessionTurnModeFromOptions();
+
+/// D.1 BATTLE-SAVE HOOK (owner revision to D-20/D-21, binding). The thin
+/// coop-gated pair `SavedBattleGame::save`/`::load` calls, so a battle save
+/// carries the mode it was PLAYED in and a mid-battle resume comes back in that
+/// mode even after a full host restart - which is why the engine never has to
+/// support a parallel->traditional transition through save/load.
+///
+/// SP AND NON-COOP STAY BYTE-IDENTICAL: coopSaveTurnMode() writes NOTHING unless
+/// this is an active co-op battle, so the key is simply ABSENT from every SP
+/// save. The CAMPAIGN save block is deliberately untouched - the donor's
+/// `SavedGame.cpp:1334`/`:1814` shape is NOT ported (D-21).
+///
+/// The key is on `SharedEcon.cpp`'s saveBlobExcludedTopKey list so session
+/// configuration never rides the saveBlob hash; both machines agree on the value
+/// via the offer anyway.
+///
+/// W1-P7 only WRITES and READS the key. CONSUMING it on resume - putting it on a
+/// `resumed:true` offer instead of Options::CoopTurnMode (D-22) - is r4 T4's and
+/// is OUT OF WAVE.
+void coopSaveTurnMode(YAML::YamlNodeWriter& writer);
+void coopLoadTurnMode(const YAML::YamlNodeReader& reader);
 
 /**
  * R2-P3 (rewrite spike, SPIKE-RUNBOOK.md RB-D6): the ONE battle-authority
@@ -104,6 +168,20 @@ struct BattleAuthority
 
 	/// Host-minted at battle_offer (SS2.2); 0 = none yet.
 	std::atomic<std::uint32_t> battleId{0};
+
+	/// W1-P7 deliverable 6 (REV D / WV-D55): THIS BATTLE's turn mode - the
+	/// runtime mirror of the session choice, the same role the donor's
+	/// `connectionTCP::_enable_parallel_turns` played
+	/// (`cbff7951d:connectionTCP.cpp:12716` [V]). Set on the HOST when it builds
+	/// the offer and on the CLIENT from `battle_offer.turnMode`; reset to the
+	/// D-26 default by resetBattleAuthority(). It lives HERE rather than in a
+	/// bare static because it is battle-scoped state with a teardown reset, and
+	/// because every future reader (W1-P13's baton) already reads this object.
+	///
+	/// **NOTHING IN W1-P7 BRANCHES ON IT** (REV D, binding): it is carried,
+	/// stored and reported only. std::atomic for the same cross-thread reason as
+	/// the four fields above.
+	std::atomic<CoopTurnMode> turnMode{CoopTurnMode::Parallel};
 
 	/// R2-P9 (SPIKE-RUNBOOK.md SS2.8): set the moment this machine's own
 	/// hash-mismatch detector (CoopHashCheck::verify, BattlePump.h) latches a
@@ -190,7 +268,7 @@ void initBattleAuthority(std::uint32_t battleId);
 /// R2-P8 will wire this at the real battle-teardown chokepoint; R2-P3 only
 /// provides the function. Resets the singleton back to its Idle default
 /// (hostSim=false, localSeat=-1, phase=Idle, battleId=0, seat->faction
-/// store cleared).
+/// store cleared, turnMode=Parallel per D-26).
 void resetBattleAuthority();
 
 /// connectionTCP::getCoopStatic() && phase == Active. Deliberately NOT

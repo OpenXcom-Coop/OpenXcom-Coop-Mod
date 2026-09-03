@@ -144,6 +144,14 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 	reader.tryRead("missionType", _missionType);
 	reader.tryRead("strTarget", _strTarget);
 	reader.tryRead("strCraftOrBase", _strCraftOrBase);
+	// coop (W1-P7 deliverable 6, WAVE1-RUNBOOK.md REV D owner rulings
+	// D-20/D-21 revision "D.1" = WV-D55): the BATTLE save block carries the turn
+	// mode this battle was PLAYED in, so a mid-battle resume comes back in that
+	// mode even after a full host restart. ONE thin guarded coop call; all logic
+	// lives in src/CoopMod (BattleAuthority.h). Presence-gated, so an SP load and
+	// any save written before REV D read nothing and change nothing (D-26: no key
+	// = parallel). W1-P7 only READS the key - CONSUMING it on resume is r4 T4.
+	coopLoadTurnMode(reader);
 	if (reader["startingConditionType"])
 	{
 		std::string startingConditionType = reader["startingConditionType"].readVal<std::string>();
@@ -509,6 +517,13 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	writer.write("missionType", _missionType);
 	writer.write("strTarget", _strTarget);
 	writer.write("strCraftOrBase", _strCraftOrBase).setAsQuotedAndEscaped();
+	// coop (W1-P7 deliverable 6, REV D "D.1" = WV-D55): see the matching call in
+	// load() above. Self-guarded - it writes NOTHING outside an active co-op
+	// battle, so an SP save is byte-identical and the key is simply ABSENT there.
+	// The CAMPAIGN save block is deliberately untouched (D-21: the donor's
+	// SavedGame.cpp:1334/:1814 shape is NOT ported), and the key is on
+	// SharedEcon's saveBlobExcludedTopKey list so it never rides the hash.
+	coopSaveTurnMode(writer);
 	if (_startingCondition)
 	{
 		writer.write("startingConditionType", _startingCondition->getType());

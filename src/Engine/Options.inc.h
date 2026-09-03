@@ -122,6 +122,23 @@ OPT bool coopCancelOnAnyPartnerAction;
 // connectionTCP static) so real-network play can tune it without a rebuild.
 OPT int coopIntentTimeoutSeconds;
 
+// W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D, owner rulings D-19..D-27 =
+// WV-D55): the HOST's remembered TURN MODE for co-op battles.
+//   "parallel"    - all seats on the active side act simultaneously, actions
+//                   serialized through host admission (SS2.5). THE DEFAULT (D-26).
+//   "traditional" - one seat commands at a time; END TURN passes the baton.
+// A STRING so it maps 1:1 onto the SS2.W1 wire value with no translation layer.
+// Anything other than "traditional" is normalized to parallel, so a hand-edited
+// options.cfg can never put a garbage value on the wire
+// (coopSessionTurnModeFromOptions(), CoopMod/BattleAuthority.h).
+//
+// HOST-ONLY by design: a client's own setting is irrelevant - the host stamps the
+// session's mode onto every battle_offer and the client MIRRORS it (D-19b), the
+// donor's session-decided-once shape. Its user-facing control is the HOST/lobby
+// toggle (D-19), NOT the advanced-options list, which is why the registration
+// below carries no description or category.
+OPT std::string CoopTurnMode;
+
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;
 OPT int oxceResearchScrollSpeed;

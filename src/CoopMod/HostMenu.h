@@ -82,6 +82,12 @@ class HostMenu : public State
 {
   private:
 	TextButton *_btnCancel, *_tcpButtonHost;
+	// coop (W1-P7 deliverable 6, WAVE1-RUNBOOK.md REV D owner ruling D-19 =
+	// WV-D55): the HOST/lobby TURN MODE toggle, restoring the donor's shape
+	// (`cbff7951d:HostMenu.cpp:812-834`). Flips Options::CoopTurnMode between
+	// "parallel" and "traditional"; the label reflects it; visible only while the
+	// rest of the hosting controls are.
+	TextButton *_btnTurnMode;
 	TextList *_lstSaves;
 	TextEdit *_serverName, *_port, *_password;
 	ComboBox *_cbxVisibility, *_cbxMaxPlayers, *_cbxRegions;
@@ -117,6 +123,15 @@ class HostMenu : public State
 	void testHostWithFields(int comboIndex, const std::string& server,
 							const std::string& port, const std::string& password);
 	bool hostControlsVisible() const;
+	/// coop (W1-P7 deliverable 6, D-19): flips the HOST's remembered turn mode.
+	/// The choice is per-MACHINE and per-SESSION - it is stamped onto every
+	/// battle_offer this host sends (SS2.W1) and the client MIRRORS it, so only
+	/// the host's setting ever matters and it only matters before a battle starts.
+	void btnTurnModeClick(Action* action);
+	/// coop (W1-P7 deliverable 6): keeps the toggle's label in sync with
+	/// Options::CoopTurnMode and its visibility in sync with the rest of the
+	/// hosting controls (hidden once a session is live).
+	void updateTurnModeButton();
 };
 
 }

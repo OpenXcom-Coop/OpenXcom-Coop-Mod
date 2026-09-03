@@ -28,6 +28,7 @@
 #include "Profile.h"
 #include "ChatMenu.h"
 #include "connectionUDP/connection_rendezvous_glue.h"
+#include "BattleAuthority.h" // W1-P7 deliverable 6: coopTurnMode* helpers (D-19)
 
 namespace OpenXcom
 {
@@ -51,7 +52,11 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	int x = 20;
 	
 	// Create objects
-	_window = new Window(this, 260, 160, x, 20, POPUP_BOTH);
+	// coop (W1-P7 deliverable 6, D-19): DONOR GEOMETRY, byte-for-byte from
+	// `cbff7951d:HostMenu.cpp:54-71` - the window is 18px taller than stock, the
+	// TURN MODE toggle takes the old button row (152) and START HOST / CANCEL
+	// move down to 172.
+	_window = new Window(this, 260, 178, x, 20, POPUP_BOTH);
 	_lstSaves = new TextList(224, 18, x + 18, 60);
 
 	_lblServerName = new Text(108, 18, x + 18, 72);
@@ -60,12 +65,13 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	_port = new TextEdit(this, 116, 18, x + 126, 92);
 	_serverName = new TextEdit(this, 116, 18, x + 126, 72);
-	_tcpButtonHost = new TextButton(112, 18, x + 18, 152);
+	_tcpButtonHost = new TextButton(112, 18, x + 18, 172);
+	_btnTurnMode = new TextButton(224, 18, x + 18, 152);
 	_cbxVisibility = new ComboBox(this, 224, 18, x + 18, 50);
 	_cbxRegions = new ComboBox(this, 112, 18, x + 18, 112); 
 	_cbxMaxPlayers = new ComboBox(this, 112, 18, x + 130, 112); 
 	_password = new TextEdit(this, 116, 18, x + 126, 132);
-	_btnCancel = new TextButton(112, 18, x + 130, 152);
+	_btnCancel = new TextButton(112, 18, x + 130, 172);
 	_txtTitle = new Text(250, 17, x + 5, 32);
 
 	int screenWidth = Options::baseXGeoscape;
@@ -84,6 +90,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	add(_serverName, "text", "pauseMenu");
 	add(_password, "text", "pauseMenu");
 	add(_tcpButtonHost, "button", "pauseMenu");
+	add(_btnTurnMode, "button", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_cbxVisibility, "button", "pauseMenu");
 	add(_cbxRegions, "button", "pauseMenu");
@@ -155,6 +162,13 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_tcpButtonHost->setText("START HOST");
 	_tcpButtonHost->onMouseClick((ActionHandler)&HostMenu::hostTCPGame);
 	_tcpButtonHost->setVisible(true);
+
+	// coop (W1-P7 deliverable 6, D-19): the TURN MODE toggle. Label + visibility
+	// are driven by updateTurnModeButton() - called here and after every one of
+	// the three places that flip the hosting controls' visibility, the same four
+	// call points the donor used.
+	_btnTurnMode->onMouseClick((ActionHandler)&HostMenu::btnTurnModeClick);
+	updateTurnModeButton();
 
 	_btnCancel->setText(tr("CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&HostMenu::btnCancelClick);
@@ -242,6 +256,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_cbxRegions->setVisible(true);
 
 	}
+	updateTurnModeButton(); // coop (W1-P7 deliverable 6, D-19)
 
 	// READ HOST ADDRESS
 
@@ -352,6 +367,7 @@ void HostMenu::init()
 		_cbxRegions->setVisible(true);
 
 	}
+	updateTurnModeButton(); // coop (W1-P7 deliverable 6, D-19)
 }
 
 void HostMenu::convertUnits()
@@ -418,6 +434,7 @@ void HostMenu::cbxVisibilityChange(Action* action)
 		_isUDPconnection = false;
 	}
 
+	updateTurnModeButton(); // coop (W1-P7 deliverable 6, D-19)
 }
 
 void HostMenu::cbxMaxPlayersChange(Action* action)
@@ -648,6 +665,48 @@ void HostMenu::testHostWithFields(int comboIndex, const std::string& server,
 	if (!port.empty()) _port->setText(port);
 	_password->setText(password);
 	testHostWithVisibility(comboIndex);
+}
+
+/**
+ * coop (W1-P7 deliverable 6, WAVE1-RUNBOOK.md REV D owner ruling D-19 = WV-D55):
+ * the TURN MODE toggle. Flips the HOST's remembered preference between the two
+ * models; the value is shipped to the client on every battle_offer (SS2.W1),
+ * so only the host's setting matters and only before a battle starts.
+ *
+ * Donor shape, `cbff7951d:HostMenu.cpp:812-834` (which flipped the old boolean
+ * Options::EnableCoopParallelTurns). W1-P7 keeps the shape and changes the
+ * value: REV D's option is a STRING carrying the SS2.W1 wire spelling, so there
+ * is no bool->enum->string translation anywhere in the path.
+ *
+ * NOTHING HERE BRANCHES BEHAVIOUR (REV D, binding): this writes a preference.
+ * The baton logic that consumes it is W1-P13's.
+ */
+void HostMenu::btnTurnModeClick(Action*)
+{
+	Options::CoopTurnMode =
+		(coopSessionTurnModeFromOptions() == CoopTurnMode::Traditional)
+			? coopTurnModeName(CoopTurnMode::Parallel)
+			: coopTurnModeName(CoopTurnMode::Traditional);
+	updateTurnModeButton();
+}
+
+/**
+ * coop (W1-P7 deliverable 6, D-19): keeps the toggle's label in sync with the
+ * option and its visibility in sync with the rest of the hosting controls -
+ * hidden once a session is live, exactly like START HOST. Donor shape
+ * (`cbff7951d:HostMenu.cpp:826-834`).
+ *
+ * The label is read back through coopSessionTurnModeFromOptions() rather than
+ * from the raw string, so a hand-edited options.cfg shows what the game will
+ * ACTUALLY send (anything but "traditional" is parallel, D-26) instead of
+ * echoing a value that would never reach the wire.
+ */
+void HostMenu::updateTurnModeButton()
+{
+	_btnTurnMode->setText(coopSessionTurnModeFromOptions() == CoopTurnMode::Traditional
+		? "TURNS: TRADITIONAL"
+		: "TURNS: PARALLEL");
+	_btnTurnMode->setVisible(_tcpButtonHost->getVisible());
 }
 
 bool HostMenu::hostControlsVisible() const

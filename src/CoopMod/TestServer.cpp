@@ -2323,6 +2323,48 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "turn_mode_save_roundtrip")
+	{
+		// W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D owner rulings D-20/D-21
+		// revision "D.1" = WV-D55): prove the BATTLE-SAVE hook pair END TO END -
+		// SavedBattleGame::save writes the key, SavedBattleGame::load reads it back
+		// to the same value - without disturbing the live co-op session. Exactly the
+		// shape reload_save_roundtrip above already uses for the ownership
+		// migration: save the world, load it into a THROWAWAY SavedGame (the real
+		// load path, so the real reader runs), report, discard.
+		//
+		// coopLoadTurnMode() writes the ONE global BattleAuthority mirror, so the
+		// throwaway load would otherwise clobber the live session's mode. The live
+		// value is snapshotted and RESTORED around the load, and both values are
+		// reported, so the test asserts what the READER produced rather than what
+		// was already there.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg)
+		{
+			resp["error"] = "turn_mode_save_roundtrip: no save";
+		}
+		else
+		{
+			const CoopTurnMode before = coopBattleAuthority().turnMode;
+			resp["written"] = coopTurnModeName(before);
+			std::string f = req.get("file", "harness_turnmode_roundtrip.sav").asString();
+			sg->save(f, _game->getMod());
+			// Poison the mirror first: if load() read NOTHING, the reported value
+			// would otherwise be indistinguishable from the live one and this
+			// assertion would be vacuous.
+			coopBattleAuthority().turnMode = (before == CoopTurnMode::Traditional)
+				? CoopTurnMode::Parallel : CoopTurnMode::Traditional;
+			resp["poisoned"] = coopTurnModeName(coopBattleAuthority().turnMode);
+			SavedGame* fresh = new SavedGame();
+			fresh->load(f, _game->getMod(), _game->getLanguage());
+			resp["readBack"] = coopTurnModeName(coopBattleAuthority().turnMode);
+			resp["hadBattle"] = (fresh->getSavedBattle() != nullptr);
+			delete fresh;
+			coopBattleAuthority().turnMode = before; // restore the live session
+			resp["file"] = f;
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "save_game_ui")
 	{
 		// Save through the real SaveGameState funnel (same path as the
@@ -2652,6 +2694,26 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			if (req.isMember("value"))
 				*opt = req["value"].asBool();
 			resp["value"] = *opt;
+			resp["ok"] = true;
+		}
+		else if (name == "CoopTurnMode")
+		{
+			// W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D, owner rulings
+			// D-19..D-21/D-26 = WV-D55): the HOST's remembered TURN MODE. A real
+			// OptionInfo in options.cfg (WR-25), which is precisely what lets this
+			// lever exist - and it EXTENDS this dispatcher rather than adding a
+			// second command (R2-P7 shape).
+			//
+			// Same round-trip contract as the toggles above: "value" is OPTIONAL
+			// (omit it for a pure read) and the response echoes the LIVE
+			// Options:: global AFTER the write. `normalized` is what the game will
+			// ACTUALLY put on the wire - anything but "traditional" is parallel
+			// (D-26) - so a test can tell a stored garbage value apart from the
+			// mode it degrades to.
+			if (req.isMember("value"))
+				Options::CoopTurnMode = req["value"].asString();
+			resp["value"] = Options::CoopTurnMode;
+			resp["normalized"] = coopTurnModeName(coopSessionTurnModeFromOptions());
 			resp["ok"] = true;
 		}
 		else if (name == "coopIntentTimeoutSeconds")
@@ -4304,7 +4366,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob"
 		&& cmd != "battle_intent" && cmd != "inject_ev"
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
-		&& cmd != "hold_chain" && cmd != "defer_intents")
+		&& cmd != "hold_chain" && cmd != "defer_intents"
+		&& cmd != "omit_turn_mode")
 	{
 		return false;
 	}
@@ -4371,6 +4434,16 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// (-1 = idle / cannot attribute) - the input to the seat-attributed wait
 		// banner, exposed so a test can prove the ATTRIBUTION, not just the text.
 		resp["busyOwnerSeat"] = CoopArbiter::busyOwnerSeat();
+		// W1-P7 deliverable 6 (REV D / WV-D55): THIS BATTLE's turn mode - the live
+		// BattleAuthority mirror, i.e. what the host stamped on battle_offer and
+		// the client mirrored. Reported so a test can prove the TRANSPORT (host
+		// stamps -> client mirrors) rather than inferring it from behaviour, which
+		// would be impossible anyway: NOTHING in this packet branches on the mode.
+		resp["turnMode"] = coopTurnModeName(coopBattleAuthority().turnMode);
+		// ...and this machine's own remembered preference, which on a CLIENT is
+		// deliberately IRRELEVANT (D-19b) - asserting that the two can differ is
+		// how the mirror is proven to come off the wire.
+		resp["optionTurnMode"] = Options::CoopTurnMode;
 		resp["ok"] = true;
 	}
 	else if (cmd == "hash_now")
@@ -4515,6 +4588,19 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["ok"] = true;
 			resp["ms"] = ms;
 		}
+	}
+	else if (cmd == "omit_turn_mode")
+	{
+		// TEST-ONLY STOPGAP (W1-P7 deliverable 6, RB-D26/RB-D32 family; delete when
+		// an older-protocol peer can be simulated another way). HOST lever: build
+		// the next battle_offer WITHOUT the SS2.W1 `turnMode` key.
+		//
+		// It exists so D-26's degrade - "an ABSENT key means parallel" - is proven
+		// OVER THE REAL WIRE rather than by unit-testing the parser. A wave-1 host
+		// ALWAYS sends the key; the only real producer of an absent key is a peer
+		// older than REV D, which nothing in this repo can be.
+		CoopHandshake::requestOmitTurnMode(req.get("on", true).asBool());
+		resp["ok"] = true;
 	}
 	else if (cmd == "defer_intents")
 	{

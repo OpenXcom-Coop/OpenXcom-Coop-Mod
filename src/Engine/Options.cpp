@@ -601,6 +601,16 @@ void createAdvancedOptionsOTHER()
 	// harness can shorten it) without a rebuild. <= 0 disables the timeout.
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopIntentTimeoutSeconds", &coopIntentTimeoutSeconds, 10, "Co-op: Seconds Before an Unanswered Order Times Out", "STR_BATTLESCAPE"));
 
+	// W1-P7 deliverable 6 (REV D, owner rulings D-19..D-21/D-26 = WV-D55): the
+	// HOST's remembered turn mode, default PARALLEL (D-26). A real OptionInfo, so
+	// it is persisted in options.cfg and survives a restart (WR-25 forbids a
+	// connectionTCP static here). Deliberately NO description and NO category: the
+	// advanced-options list only renders OPTION_BOOL and OPTION_INT
+	// (OptionsAdvancedState.cpp:254-262) and only picks up the five named
+	// categories (:123-141), so a described STRING option would show as a dead row
+	// with an empty value. Its control is the HOST/lobby toggle (D-19).
+	_info.push_back(OptionInfo(OPTION_OTHER, "CoopTurnMode", &CoopTurnMode, "parallel"));
+
 }
 
 void createControlsOTHER()
