@@ -153,6 +153,16 @@ MIN_CROSSINGS = 5
 # seven tiles and arrived with 1-3 TU, unable to turn or open anything.
 RIGHT_CLICK_APPROACH_MAX = 4
 
+# TU an actor must still hold to RIGHT-CLICK a door open. Tile::openDoor charges
+# the part's own getTUCost PLUS a kneel-reserve term and returns 4 - mutating
+# NOTHING and emitting NOTHING - when the actor cannot afford it, which is what
+# two traced runs hung on. Raising this to the door's true cost (16) was tried
+# and MEASURED WORSE (2/9 green against 6/10): it starved the pick list on a
+# squad this fixture has already partly spent. It stays at the permissive value,
+# because the fix that mattered was making the wait BOUNDED - a too-poor actor is
+# now diagnosed and skipped rather than hung on.
+RIGHT_CLICK_TU = 8
+
 # THE FIXTURE. Pinned to STR_SMALL_SCOUT rather than left on "whatever the combo
 # box defaults to": NewBattleState::load() takes the mission from `battle.cfg`
 # (NewBattleState.cpp:479), so an unpinned fixture's door population depends on a
@@ -688,7 +698,7 @@ def phase_right_click(host, client, approach_max, want_ufo, tag, moving_bucket):
                 # tile->getTUCost(part, movementType) (TileEngine.cpp:4225), i.e.
                 # 4-8 on foot, and the facing turn is skipped when the actor
                 # already faces the door.
-                if u.get("tu", 0) < 8:
+                if u.get("tu", 0) < RIGHT_CLICK_TU:
                     continue
                 for stand, through in ((a, b), (b, a)):
                     if p != stand or through in occupied or p[2] != through[2]:
@@ -786,12 +796,30 @@ def phase_right_click(host, client, approach_max, want_ufo, tag, moving_bucket):
     ra = host.cmd({"cmd": "battle_action", "action": "door", "unit": actor_id,
                    "x": through[0], "y": through[1], "z": through[2]})
     assert ra.get("ok"), f"{tag}: battle_action door failed: {ra}"
-    client.wait_for("the right-click door ev crossed and was applied",
-                    lambda: (event_state(host)["coopDoorEvsEmitted"] > before
-                             and event_state(client).get("lastSeqApplied", 0)
-                             == event_state(host).get("lastSeqEmitted", 0)
-                             and event_state(client).get("queueDepth") == 0) or None,
-                    timeout=30)
+    # BOUNDED, and it REPORTS rather than hanging. `unitOpensDoor` mutates
+    # nothing and emits nothing when the actor cannot pay the door's TU
+    # (Tile::openDoor returns 4) or when the geometry does not match, and the
+    # unbounded wait this replaces then ran to a TimeoutError that escaped
+    # main()'s AssertionError handler entirely - exit 1 with a traceback, twice,
+    # instead of a diagnosis. A HARNESS defect, not a product one: both
+    # processes were alive and neither machine was desync-frozen.
+    deadline = time.time() + 30
+    fired = False
+    while time.time() < deadline:
+        hs, cs = event_state(host), event_state(client)
+        if (hs["coopDoorEvsEmitted"] > before
+                and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
+                and cs.get("queueDepth") == 0):
+            fired = True
+            break
+        time.sleep(0.1)
+    assert fired, (
+        f"{tag}: the right-click on door ({d['x']},{d['y']},{d['z']}) part {d['part']} "
+        f"by actor {actor_id} at {stand} facing {facing} emitted NO door ev within 30s"
+        f" - host emitted {event_state(host)['coopDoorEvsEmitted']} (was {before}), "
+        f"actor TU {W.unit_of(host, actor_id).get('tu')}, battle_action said {ra}. "
+        "Either the actor could not pay the door's TU (Tile::openDoor returns 4 and "
+        "mutates nothing) or it faced the wrong wall")
     W.settle_reveal(host, client)
 
     wait_host_idle(host, client)
@@ -1049,6 +1077,13 @@ def main():
     host, client = bring_up("door", DOOR_MISSION,
                             make_qualifier(False, NORMAL_APPROACH_MAX), 48820, 49820)
     try:
+        # PHASE ORDER: walk first. Wave 1 has no side transition, so TU never
+        # regenerate and whichever phase runs second inherits a spent squad -
+        # running the right-click first was tried and MEASURED WORSE (1/7 green
+        # against 6/10), because its approach loop walks several actors before
+        # it finds one it can use and the walk phase was then left with no
+        # candidate at all. The coupling is real in both directions; this is the
+        # cheaper end of it.
         phase_walk_through(host, client, want_ufo=False,
                            approach_max=NORMAL_APPROACH_MAX,
                            tag="PHASE 1", moving_bucket="terrain")
@@ -1065,6 +1100,9 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except AssertionError as e:
-        print(f"\nrepro_atom_door: FAIL\n{e}")
+    except (AssertionError, TimeoutError) as e:
+        # TimeoutError too: a bare `wait_for` timeout is still a FAILED RUN
+        # and must be reported as one (exit 2, with the message), not as an
+        # exit-1 traceback that reads like a crash.
+        print(f"\nrepro_atom_door: FAIL\n{type(e).__name__}: {e}")
         sys.exit(2)
