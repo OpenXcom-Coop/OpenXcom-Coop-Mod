@@ -1292,6 +1292,17 @@ void BattlescapeState::btnInventoryClick(Action *)
 	{
 		return;
 	}
+	// W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14, evidence F2): the MID-battle
+	// inventory writes the hashed `items` bucket with nothing on the wire
+	// (`inventory_move` is not in wave 1, WV-D34), so a co-op client may not
+	// open it. One guarded coop call; false and inert outside a coop battle.
+	// W1-P4 froze the PRE-battle screen, which is a different site
+	// (BriefingState::btnOkClick) and a different mechanism (a skipped push).
+	if (CoopBattleUi::refuseControl(CoopBattleUi::Control::Inventory,
+			_save->getSelectedUnit(), _save))
+	{
+		return;
+	}
 #if 0
 	if (_save->getDebugMode())
 	{
@@ -1558,6 +1569,16 @@ void BattlescapeState::btnAbortClick(Action *)
 		}
 	}
 
+	// W1-P5 (ruling D8 = WV-D14, evidence F1): ABORT MISSION ends in
+	// setAborted() + finishBattle() - a battle-wide, host-authoritative
+	// decision. The multiplayer VOTE that used to arbitrate it is r4 T3
+	// (executeVoteAction("abandon_mission") is still a logging stub), so until
+	// then a client may not even open the dialog. One guarded coop call.
+	if (CoopBattleUi::refuseControl(CoopBattleUi::Control::Abort, nullptr, _save))
+	{
+		return;
+	}
+
 	if (allowButtons())
 		_game->pushState(new AbortMissionState(_save, this));
 }
@@ -1625,6 +1646,20 @@ void BattlescapeState::btnLeftHandItemClick(Action *action)
 		bool rightClick = _game->isRightClick(action, true);
 		if (rightClick)
 		{
+			// W1-P5 (ruling D8 = WV-D14, evidence F2 "open-item-9 fields"):
+			// toggleLeftHandForReactions writes preferredHandForReactions /
+			// reactionsDisabledForLeftHand, both SERIALIZED (BattleUnit.cpp:791-796)
+			// and both ABSENT from saveBlobExcludedUnitKey (SharedEcon.cpp), so a
+			// client toggle diverges the saveBlob bucket on the spot. One guarded
+			// coop call. NOT gated above this point on purpose: setActiveLeftHand()
+			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
+			// - machine-local display state, same class as the reserve settings
+			// ratified there.
+			if (CoopBattleUi::refuseControl(CoopBattleUi::Control::HandReaction,
+					_save->getSelectedUnit(), _save))
+			{
+				return;
+			}
 			bool isCtrl = _game->isCtrlPressed(true);
 			_save->getSelectedUnit()->toggleLeftHandForReactions(isCtrl);
 			return;
@@ -1674,6 +1709,20 @@ void BattlescapeState::btnRightHandItemClick(Action *action)
 		bool rightClick = _game->isRightClick(action, true);
 		if (rightClick)
 		{
+			// W1-P5 (ruling D8 = WV-D14, evidence F2 "open-item-9 fields"):
+			// toggleRightHandForReactions writes preferredHandForReactions /
+			// reactionsDisabledForRightHand, both SERIALIZED (BattleUnit.cpp:791-796)
+			// and both ABSENT from saveBlobExcludedUnitKey (SharedEcon.cpp), so a
+			// client toggle diverges the saveBlob bucket on the spot. One guarded
+			// coop call. NOT gated above this point on purpose: setActiveRightHand()
+			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
+			// - machine-local display state, same class as the reserve settings
+			// ratified there.
+			if (CoopBattleUi::refuseControl(CoopBattleUi::Control::HandReaction,
+					_save->getSelectedUnit(), _save))
+			{
+				return;
+			}
 			bool isCtrl = _game->isCtrlPressed(true);
 			_save->getSelectedUnit()->toggleRightHandForReactions(isCtrl);
 			return;
@@ -3250,7 +3299,19 @@ inline void BattlescapeState::handle(Action *action)
 					}
 					else if (key == Options::keyQuickLoad)
 					{
-						_game->pushState(new LoadGameState(OPT_BATTLESCAPE, SAVE_QUICK, _palette));
+						// W1-P5 (ruling D8 = WV-D14, evidence F1): the
+						// localLoadsAllowed() wrapper legacy carried here
+						// (1e0f9276f:BattlescapeState.cpp:5429-5435) was deleted by
+						// the rewrite - LoadGameState was pushed unconditionally and
+						// its own chokepoint refused SILENTLY (log-only,
+						// LoadGameState.cpp:159). Gate restored, refusal now visible.
+						// Session-scoped, so it refuses on the HOST too: a local load
+						// mid-session forks the served world (PRD-08 C7).
+						if (!CoopBattleUi::refuseControl(CoopBattleUi::Control::QuickLoad,
+								nullptr, _save))
+						{
+							_game->pushState(new LoadGameState(OPT_BATTLESCAPE, SAVE_QUICK, _palette));
+						}
 					}
 				}
 
@@ -3830,12 +3891,38 @@ bool BattlescapeState::getMouseOverIcons() const
  */
 bool BattlescapeState::allowButtons(bool allowSaving) const
 {
+	// W1-P5 (ruling D8 = WV-D14, evidence F1 "Chat-active suppression" / F-4):
+	// Game::run() feeds a keystroke to ChatMenu::handleEvent() AND still calls
+	// _states.back()->handle() afterwards, so text typed into the co-op chat
+	// also fires battlescape hotkeys. Legacy suppressed that from exactly here
+	// (1e0f9276f:BattlescapeState.cpp:6132-6141); restored as one guarded coop
+	// call, false in SP and in any session with no chat menu. The `allowSaving`
+	// escape deliberately does NOT bypass it - legacy's early return did not
+	// either, and a stray keystroke must not open a save dialog mid-sentence.
+	if (CoopBattleUi::chatIsOpen(_game))
+	{
+		return false;
+	}
+
 	return ((allowSaving || _save->getSide() == FACTION_PLAYER || _save->getDebugMode())
 		&& (_battleGame->getPanicHandled() || _firstInit )
 		&& (allowSaving || !_battleGame->isBusy() || _firstInit)
 		&& (_map->getProjectile() == 0));
 }
 
+// W1-P5 RATIFICATION (WAVE1-RUNBOOK.md ruling D8 = WV-D14's "RATIFY per-machine
+// reserve settings"; see also WV-D38/WV-D48 and SS2.W2's RESERVE block).
+// The reserve buttons in this region - btnReserveNone/Snap/Aimed/Auto/Kneel -
+// are deliberately NOT coop-gated, and that is a CONTRACT, not an oversight:
+// SavedBattleGame's `tuReserved` / `kneelReserved` are saveBlob-hash-EXCLUDED
+// (SharedEcon.cpp:3959), i.e. PER-MACHINE by design. Each player's reserve is
+// their own; it can never diverge the two machines because no bucket reads it.
+// The consequences are already ruled and live elsewhere: the host does NOT
+// apply its own reserve to a CLIENT-origin walk, and the client's own intent
+// builder enforces its reserve itself, because vanilla's only enforcement
+// point (UnitWalkBState.cpp:324) runs on the host (W1-P9 builds that half -
+// Pathfinding::previewPath only COLOURS tiles, it never truncates).
+// Do not "fix" this by gating these buttons or by putting reserve on the wire.
 /**
  * Reserves time units for kneeling.
  * @param action Pointer to an action.
@@ -3867,6 +3954,15 @@ void BattlescapeState::btnReserveKneelClick(Action *action)
  */
 void BattlescapeState::btnZeroTUsClick(Action *action)
 {
+	// W1-P5 (ruling D8 = WV-D14, evidence F2): clearTimeUnits() is a LOCAL
+	// STATE MINT straight into the hashed `unitsStats` bucket, with nothing on
+	// the wire. One guarded coop call, above the button's own press animation
+	// so a refused press does not look like an accepted one.
+	if (CoopBattleUi::refuseControl(CoopBattleUi::Control::ZeroTu,
+			_save->getSelectedUnit(), _save))
+	{
+		return;
+	}
 	if (allowButtons())
 	{
 		SDL_Event ev;

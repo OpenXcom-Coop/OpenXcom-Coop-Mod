@@ -84,6 +84,19 @@ en-GB:
   # _txtCoopWait presenter. Shown because the equip screen is SKIPPED, not because
   # a button was refused - so it explains an absence rather than naming a trigger.
   STR_COOP_EQUIP_FROZEN: "Pre-battle equipment is locked in co-op"
+  # coop (W1-P5, WAVE1-RUNBOOK.md ruling D8 = WV-D14): the client HARD GATES.
+  # Four battlescape controls that were pure vanilla in the rewrite plus the
+  # quick-load hotkey. One key per control on purpose - ADDENDUM 2026-08-31
+  # SS1.3(e) forbids collapsing distinct refusals into one generic message, so
+  # there is deliberately no shared "Action refused" here. All five route
+  # through the _txtCoopWait presenter (SS2.6), never vanilla _warning. The
+  # "not one of your soldiers" case reuses STR_COOP_DENY_NOT_YOUR_UNIT above
+  # rather than minting a sixth key for a reason that already has one.
+  STR_COOP_ABORT_HOST_ONLY: "Only the host can abort the mission"
+  STR_COOP_INVENTORY_HOST_ONLY: "Only the host can open the inventory"
+  STR_COOP_ZERO_TU_HOST_ONLY: "Only the host can expend a soldier's time units"
+  STR_COOP_REACTIONS_HOST_ONLY: "Only the host can change reaction fire settings"
+  STR_COOP_LOCAL_LOAD_BLOCKED: "Saved games cannot be loaded during a co-op session"
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

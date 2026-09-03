@@ -57,6 +57,12 @@ ORPHAN**.
 minted AND wired in the same commit (the equip-freeze notice), so the split is
 now **15 WIRED / 18 ORPHAN**. The orphan set is unchanged.
 
+**UPDATE (W1-P5):** **38** keys - five minted AND wired in the same commit
+(the D8 client hard gates: abort / mid-battle inventory / zero-TU /
+hand-reaction toggles / local load). Split is now **20 WIRED / 18 ORPHAN**;
+the orphan set is again unchanged. W1-P5 deliberately minted new specific keys
+rather than repurposing an orphan - see the note under the new rows.
+
 **DISCREPANCY LOGGED (W1-P1, VERIFY-NEVER-INFER).** `WAVE1-RUNBOOK.md` W1-P1
 item 5 names **7** orphaned keys (the `en-GB.yml:33-41` block). That block is
 correct and its 7 keys are all really orphaned, but it is **not the whole
@@ -108,6 +114,21 @@ or deleted is an OWNER call, flagged in
 | STR_COOP_CANCEL_EVENT | WIRED | - | SS2.6 unknown-cause fallback, "Order cancelled - {0}" (connectionTCP.cpp:2624, :2636). NOTE: SS2.W2/WV-D53 forbids reusing this shape for walk HALT reasons - a halted walk is not a cancelled order and must never render a raw wire enum in a `{0}` slot. |
 | STR_COOP_DESYNC_HALTED | WIRED | - | R2-P9 sticky desync banner (connectionTCP.cpp:3171, CoopBattleUi.h:101). |
 | STR_COOP_EQUIP_FROZEN | WIRED | - | MINTED + WIRED by W1-P4 (WAVE1-RUNBOOK.md ruling D3 = WV-D9/WV-D34, mechanism WV-D43). The pre-battle equip FREEZE notice, raised through the `_txtCoopWait` presenter by `CoopBattleUi::showEquipFrozen()` - on the HOST from `CoopHandshake::freezePreBattleEquip()` (the skipped `InventoryState` push in `BriefingState::btnOkClick`) and on the CLIENT from the battle entry in `CoopHandshake::onBlobChunkAppended()`. Unusual for this table: it explains a screen that was SKIPPED, not a button that was refused, so it is raised at the skip. Un-wiring belongs to the synchronized-equip initiative, when `inventory_move` un-freezes equip. |
+| STR_COOP_ABORT_HOST_ONLY | WIRED | - | MINTED + WIRED by W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14). `BattlescapeState::btnAbortClick` -> `CoopBattleUi::refuseControl(Control::Abort)`. Aborting ends in `setAborted()` + `finishBattle()` - battle-wide and host-authoritative - and the strict-majority VOTE legacy used for it is r4 T3 (`executeVoteAction("abandon_mission")` is still a logging stub), so until then a client may not open the dialog at all. |
+| STR_COOP_INVENTORY_HOST_ONLY | WIRED | - | MINTED + WIRED by W1-P5 (WV-D14). `BattlescapeState::btnInventoryClick` (the MID-battle screen, distinct from W1-P4's pre-battle freeze). Every move inside it writes the hashed `items` bucket with nothing on the wire - `inventory_move` is out of wave 1 (WV-D34). Un-wiring belongs to the synchronized-equip initiative. |
+| STR_COOP_ZERO_TU_HOST_ONLY | WIRED | - | MINTED + WIRED by W1-P5 (WV-D14). `BattlescapeState::btnZeroTUsClick` -> `BattleUnit::clearTimeUnits()`, a local state mint straight into the `unitsStats` bucket. |
+| STR_COOP_REACTIONS_HOST_ONLY | WIRED | - | MINTED + WIRED by W1-P5 (WV-D14). The right-click branch of `BattlescapeState::btn{Left,Right}HandItemClick` -> `toggle{Left,Right}HandForReactions()`. Those fields (`preferredHandForReactions`, `reactionsDisabledFor{Left,Right}Hand`) are serialized (BattleUnit.cpp:791-796) and are NOT on `saveBlobExcludedUnitKey`'s list, so a client toggle diverged saveBlob immediately - proven by `test_rw_client_gates.py`'s phase-3 negative control. These are evidence F2's "open item 9" fields; W1-P15's audit gives them a bucket home. |
+| STR_COOP_LOCAL_LOAD_BLOCKED | WIRED | - | MINTED + WIRED by W1-P5 (WV-D14, evidence F1). Two sites: the battlescape quick-load hotkey (`BattlescapeState::handle`, whose `localLoadsAllowed()` wrapper the rewrite had deleted) and `LoadGameState::init`'s own chokepoint, whose refusal was LOG-ONLY. SESSION-scoped, not client-only: `connectionTCP::localLoadsAllowed()` is false for the HOST too while a session is live (PRD-08 C7). Presenter no-ops with no live battle, so a geoscape-side local load stays log-only - stated limit. |
+
+**W1-P5 note on the orphans (owner ruling 2026-09-02 / orchestrator dispatch):**
+the five rows above are NEW keys, not repurposed orphans, and that was
+deliberate. Two orphans looked close and were both left for **W1-P7**, whose
+row they already have: `STR_COOP_ACTION_REFUSED` ("Action refused") is exactly
+the generic shape ADDENDUM SS1.3(e) forbids, so no gate may collapse into it;
+and `STR_COOP_NOT_YOUR_SOLDIER` duplicates `STR_COOP_DENY_NOT_YOUR_UNIT`'s text
+word for word - W1-P5's ownership term therefore REUSES the live SS2.6 key
+(`STR_COOP_DENY_NOT_YOUR_UNIT`) and mints no sixth key, leaving the duplicate's
+wire-or-delete call where it belongs.
 
 ## PLANNED KEYS
 
@@ -169,5 +190,5 @@ keys are outside every wave-1 packet's scope):
 
 ---
 
-*W1-P1, wave 1; last edited by W1-P4. Baseline verified at `8c53c2592`. Cite
+*W1-P1, wave 1; last edited by W1-P5. Baseline verified at `8c53c2592`. Cite
 WV-D41 / WV-D32 / SS2.W8 / WV-D53 when you edit this file.*

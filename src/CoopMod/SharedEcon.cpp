@@ -3956,6 +3956,21 @@ bool saveBlobExcludedTopKey(std::string_view k)
 {
 	return k == "nameDisplay"
 		|| k == "selectedUnit" || k == "undoUnit"
+		// W1-P5 RATIFICATION (WAVE1-RUNBOOK.md ruling D8 = WV-D14: "RATIFY
+		// per-machine reserve settings ... contract, not code"; see also
+		// WV-D38/WV-D48 and SS2.W2's RESERVE block). These two exclusions are
+		// LOAD-BEARING, not housekeeping: they are what makes each player's TU/
+		// kneel reserve THEIR OWN. Because no bucket reads them, two machines
+		// may legitimately hold different values forever, which is why the
+		// reserve buttons are deliberately NOT coop-gated
+		// (BattlescapeState::btnReserveKneelClick carries the other half of this
+		// note) and why no `reserve` field goes on the wire. The knock-on rules
+		// are already ruled: the host does NOT apply its own reserve to a
+		// CLIENT-origin walk, and the client's intent builder enforces its own
+		// per step, because vanilla's sole enforcement point
+		// (UnitWalkBState.cpp:324) runs on the host - Pathfinding::previewPath
+		// only COLOURS tiles (Pathfinding.cpp:1269 -> :1303), it never refuses.
+		// Do not remove these two entries.
 		|| k == "tuReserved" || k == "kneelReserved"
 		|| k == "togglePersonalLight" || k == "toggleNightVision" || k == "toggleBrightness"
 		|| k == "animFrame"

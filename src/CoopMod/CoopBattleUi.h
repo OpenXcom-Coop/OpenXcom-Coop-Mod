@@ -22,6 +22,10 @@
 namespace OpenXcom
 {
 
+class BattleUnit;
+class Game;
+class SavedBattleGame;
+
 /**
  * R2-P6 (rewrite spike, SPIKE-RUNBOOK.md sec 2.6, ADDENDUM 2026-08-31 sec
  * 1.3(f)): the single presenter every admission-model message (deny reason,
@@ -57,6 +61,103 @@ namespace OpenXcom
  */
 namespace CoopBattleUi
 {
+
+/**
+ * W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14): the LOCAL battlescape controls
+ * that a co-op CLIENT must never run. Each control is its OWN enum value
+ * because ADDENDUM 2026-08-31 SS1.3(e) forbids collapsing distinct refusals
+ * into one generic message ("Action refused" is exactly the shape it names) -
+ * every value below has its own STR_COOP_* string in the SS2.6 table.
+ *
+ * The four battlescape controls are the ungated-client set evidence F2
+ * inventoried; QuickLoad is evidence F1's deleted gate.
+ */
+enum class Control
+{
+	/// BattlescapeState::btnAbortClick -> AbortMissionState. Aborting is a
+	/// BATTLE-WIDE, host-authoritative decision (it ends in setAborted() +
+	/// finishBattle()); the multiplayer VOTE that used to arbitrate it is r4
+	/// T3, so until then only the simulating machine may open the dialog.
+	Abort,
+	/// BattlescapeState::btnInventoryClick -> the MID-battle InventoryState.
+	/// Every move inside it writes the hashed `items` bucket with nothing on
+	/// the wire (`inventory_move` is not in wave 1, WV-D34). Distinct from
+	/// W1-P4's PRE-battle freeze, which is a skipped push, not a refusal.
+	Inventory,
+	/// BattlescapeState::btnZeroTUsClick -> BattleUnit::clearTimeUnits(): a
+	/// LOCAL STATE MINT straight into the `unitsStats` bucket.
+	ZeroTu,
+	/// The right-click branch of BattlescapeState::btn{Left,Right}HandItemClick
+	/// -> BattleUnit::toggle{Left,Right}HandForReactions(). Writes
+	/// `preferredHandForReactions` / `reactionsDisabledFor{Left,Right}Hand`,
+	/// which are serialized (BattleUnit.cpp:791-796) and are NOT on
+	/// saveBlobExcludedUnitKey's list (SharedEcon.cpp:3992-4014) - so a client
+	/// toggle diverges the saveBlob bucket immediately. These are the
+	/// "open item 9" fields W1-P15's audit gives a bucket home to.
+	HandReaction,
+	/// The battlescape quick-load hotkey (BattlescapeState::handle) and
+	/// LoadGameState's own chokepoint. NOT battle-scoped and NOT
+	/// client-only: connectionTCP::localLoadsAllowed() forbids a local load
+	/// for EVERY machine in a live co-op session (PRD-08 C7), host included -
+	/// loading mid-session forks the served world silently.
+	QuickLoad
+};
+
+/// W1-P5: the ONE gate every hard-gated control calls. Returns TRUE when @a c
+/// must be REFUSED on this machine right now, having already put the refusal
+/// on screen (SS2.6's _txtCoopWait presenter); FALSE means "carry on, vanilla".
+/// The thin vanilla hook is therefore a single unconditional call:
+/// `if (CoopBattleUi::refuseControl(Control::ZeroTu, unit, save)) return;`
+///
+/// PREDICATE, and why it is not `coopMayCommand()` alone. The packet's goal is
+/// "no CLIENT control can mint local state or push an unsynced modal", and
+/// `coopMayCommand(u, s)` is TRUE for a client acting on its OWN unit during
+/// its OWN side - which is precisely when a player presses these buttons. The
+/// gate is therefore a conjunction of two reason-specific terms, checked in
+/// this order so each refusal names its own cause (SS1.3(e)):
+///   1. `coopBattleAuthority().hostSim` - only the simulating machine may run
+///      an unsynced local control at all. Failing it shows @a c's own "Only
+///      the host can ..." string. The two-term shape is the shipped house
+///      pattern: `BattlescapeState::btnKneelClick` already runs
+///      `coopMayCommand(bu, _save)` and then `isCoopBattle() && !hostSim`
+///      (:1244 / :1254), and the R5-P2 END TURN client gate is the same
+///      authority term (:1530). Kneel's second term SENDS an intent; these
+///      five controls have no wire verb, so theirs REFUSES.
+///   2. `coopMayCommand(u, s)` - when a UNIT is in scope, the pressing seat
+///      must also command it. Failing it shows SS2.6's existing
+///      STR_COOP_DENY_NOT_YOUR_UNIT (same reason, same words as the wire deny;
+///      no duplicate key is minted for it).
+/// @a u may be null for the side-level controls (Abort, QuickLoad), which skip
+/// term 2 entirely.
+///
+/// SELF-GUARDED, exactly like isCoopBattle()/coopMayCommand(): outside an
+/// ACTIVE co-op battle every battlescape control returns false and vanilla is
+/// byte-identical (SP included). QuickLoad is the deliberate exception - it is
+/// scoped to the co-op SESSION, not to the battle, because that is what
+/// connectionTCP::localLoadsAllowed() answers.
+bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s);
+
+/// W1-P5: the presenter half of refuseControl(), for the ONE site that has
+/// already decided the refusal for itself - LoadGameState::init's local-load
+/// chokepoint, whose refusal was log-only before this packet (evidence F1).
+/// No predicate, no return value: just puts @a c's string on the banner.
+/// No-op outside an active co-op battle (no live BattlescapeState to reach),
+/// which is why a geoscape-side local load stays log-only.
+void showControlRefused(Control c);
+
+/// W1-P5 (D8's chat-open `allowButtons` guard - legacy parity, F-4): is the
+/// co-op chat overlay currently capturing the keyboard on THIS machine?
+///
+/// Game::run() routes key events to ChatMenu::handleEvent() while the chat is
+/// active but STILL calls `_states.back()->handle(&action)` afterwards
+/// (Game.cpp:325-423), so every keystroke a player types into chat also
+/// reaches BattlescapeState as a hotkey. Legacy closed that by returning false
+/// from allowButtons() while the chat was up
+/// (`1e0f9276f:BattlescapeState.cpp:6132-6141`); this is that guard, as one
+/// call. Takes the Game rather than reaching for connectionTCP's private
+/// _staticGame, and is false whenever no chat menu exists (SP, and any
+/// non-co-op session).
+bool chatIsOpen(Game* g);
 
 /// Client: present a host bt_deny{reason} (sec 2.2's 8-value machine enum -
 /// busy|path_changed|cost_changed|target_moved|target_dead|weapon_missing|

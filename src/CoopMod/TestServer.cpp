@@ -3474,7 +3474,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	if (cmd != "battle_items" && cmd != "battle_give" && cmd != "battle_fire"
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
-		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "map_tile_screen_pos")
+		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "map_tile_screen_pos"
+		&& cmd != "battle_ui_press")
 	{
 		return false;
 	}
@@ -3676,6 +3677,64 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["opened"] = (inv != nullptr);
 			resp["ok"] = (inv != nullptr);
 			if (!inv) resp["error"] = "inventory did not open (unit not playable here?)";
+		}
+	}
+	else if (cmd == "battle_ui_press")
+	{
+		// W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14): press one of the
+		// battlescape controls this packet hard-gates, THROUGH ITS REAL HANDLER -
+		// the same shape battle_open_inventory above already uses for
+		// btnInventoryClick, so the gate under test is the one a mouse click
+		// would hit, not a synthetic shortcut. Test-only (RB-D26 discipline).
+		//
+		// Two of the three handlers dereference their Action, which is why this
+		// synthesizes a real one instead of passing nullptr:
+		//   * btnZeroTUsClick calls action->getSender()->mousePress() for the
+		//     button's own press animation - a throwaway InteractiveSurface with
+		//     no handlers makes that an inert no-op
+		//     (InteractiveSurface.cpp:250-264);
+		//   * btn{Left,Right}HandItemClick asks Game::isRightClick(action), which
+		//     reads action->getDetails()->button.button - so "hand_reaction"
+		//     builds a RIGHT-button event, which is the branch that actually
+		//     reaches toggle*HandForReactions().
+		const std::string control = req.get("control", "").asString();
+		if (!bstate)
+		{
+			resp["error"] = "battle_ui_press: no BattlescapeState";
+		}
+		else
+		{
+			SDL_Event ev;
+			memset(&ev, 0, sizeof(ev));
+			ev.type = SDL_MOUSEBUTTONDOWN;
+			ev.button.state = SDL_PRESSED;
+			ev.button.button = (control == "hand_reaction") ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT;
+			Action a(&ev, 1.0, 1.0, 0, 0);
+			InteractiveSurface sender(1, 1, 0, 0);
+			a.setSender(&sender);
+			if (control == "abort")
+			{
+				bstate->btnAbortClick(&a);
+				resp["ok"] = true;
+			}
+			else if (control == "zero_tu")
+			{
+				bstate->btnZeroTUsClick(&a);
+				resp["ok"] = true;
+			}
+			else if (control == "hand_reaction")
+			{
+				if (req.get("hand", "right").asString() == "left")
+					bstate->btnLeftHandItemClick(&a);
+				else
+					bstate->btnRightHandItemClick(&a);
+				resp["ok"] = true;
+			}
+			else
+			{
+				resp["error"] = "battle_ui_press: unknown control (abort|zero_tu|hand_reaction)";
+			}
+			resp["control"] = control;
 		}
 	}
 	else if (cmd == "battle_close_inventory")
@@ -5322,6 +5381,23 @@ std::string TestServer::execute(const std::string& line)
 				// from the banner text (which the busy DENY and the PENDING
 				// hold deliberately share, SS2.6).
 				resp["coopPendingIntent"] = CoopArbiter::pendingIntent();
+				// W1-P5: is the co-op chat overlay capturing the keyboard right
+				// now? Game::run() feeds keys to ChatMenu AND still calls
+				// _states.back()->handle(), so BattlescapeState::allowButtons()
+				// carries a chat guard (ruling D8, legacy parity). Without this
+				// probe a test could only observe the guard's EFFECT and could not
+				// prove the chat was ever open - i.e. it could pass vacuously.
+				{
+					ChatMenu* chatUi = coop ? coop->getChatMenu() : nullptr;
+					resp["chatActive"] = (chatUi != nullptr && chatUi->isActive());
+					resp["chatMenuExists"] = (chatUi != nullptr);
+					// W1-P5: the two OptionInfo-backed keys a gate test has to
+					// PRESS. Reported rather than hardcoded in the test, because a
+					// wrong constant would make a gate assertion fail for a reason
+					// that has nothing to do with the gate.
+					resp["keyChat"] = (int)Options::keyChat;
+					resp["keyQuickLoad"] = (int)Options::keyQuickLoad;
+				}
 				const BattleUnit* giftSel = coop->getGiftSelectedBattleUnit();
 				resp["giftSelectedId"] = giftSel ? giftSel->getId() : -1;
 				Json::Value units(Json::arrayValue);
@@ -5374,6 +5450,17 @@ std::string TestServer::execute(const std::string& line)
 					// R3-P2: the kneel atom's own observable - no test consumer
 					// needed this before now (turn/direction only).
 					ju["kneeled"] = u->isKneeled();
+					// W1-P5 (ruling D8 = WV-D14, evidence F2's "open-item-9 fields"):
+					// the reaction-hand state btn{Left,Right}HandItemClick's
+					// right-click branch writes. Serialized (BattleUnit.cpp:791-796)
+					// and NOT on saveBlobExcludedUnitKey's list, so a client toggle
+					// diverges the saveBlob bucket - but saveBlob only ever reports
+					// "the document differs" without naming a field. These three
+					// name it, the same reason directionTurret above is exposed.
+					ju["reactOffLeft"] = u->isLeftHandDisabledForReactions();
+					ju["reactOffRight"] = u->isRightHandDisabledForReactions();
+					ju["reactPrefLeft"] = u->isLeftHandPreferredForReactions();
+					ju["reactPrefRight"] = u->isRightHandPreferredForReactions();
 					Position p = u->getPosition();
 					ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;
 					units.append(ju);

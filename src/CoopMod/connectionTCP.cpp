@@ -3184,6 +3184,114 @@ void showEquipFrozen()
 	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString("STR_COOP_EQUIP_FROZEN"));
 }
 
+// ---------------------------------------------------------------------------
+// W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14): client hard gates.
+//
+// Four battlescape controls (evidence F2) plus the quick-load hotkey
+// (evidence F1) were PURE VANILLA in the rewrite - a co-op client could open
+// the abort dialog, re-equip a soldier mid-battle, zero a unit's TU or flip
+// its reaction-fire hands, all locally, with nothing on the wire. Three of
+// those write HASHED state (`unitsStats`, `items`, and the saveBlob catch-all
+// via the reaction fields), so each press was a silent, permanent divergence.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// One row per Control. Kept as a table rather than a switch for the same
+/// reason kReasonStrTable above is one: the SS2.6 string set is data.
+const char* controlStrKey(Control c)
+{
+	switch (c)
+	{
+	case Control::Abort:        return "STR_COOP_ABORT_HOST_ONLY";
+	case Control::Inventory:    return "STR_COOP_INVENTORY_HOST_ONLY";
+	case Control::ZeroTu:       return "STR_COOP_ZERO_TU_HOST_ONLY";
+	case Control::HandReaction: return "STR_COOP_REACTIONS_HOST_ONLY";
+	case Control::QuickLoad:    return "STR_COOP_LOCAL_LOAD_BLOCKED";
+	}
+	return nullptr;
+}
+
+/// Same _txtCoopWait routing every other entry point in this namespace uses
+/// (SS2.6: never vanilla _warning). No-op with no live BattlescapeState.
+void showRefusalKey(const char* key)
+{
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs || !key)
+		return;
+	bs->setCoopWaitText(bs->getGame()->getLanguage()->getString(key));
+}
+
+} // namespace
+
+void showControlRefused(Control c)
+{
+	showRefusalKey(controlStrKey(c));
+}
+
+bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s)
+{
+	if (c == Control::QuickLoad)
+	{
+		// SESSION-scoped, not battle-scoped, and not client-only: the single
+		// authority is connectionTCP::localLoadsAllowed() (PRD-08 C7), which is
+		// false for the HOST too while a session is live. This restores the
+		// gate legacy carried at 1e0f9276f:BattlescapeState.cpp:5429-5435 and
+		// adds the VISIBLE half the design session asked for - LoadGameState's
+		// own chokepoint refusal was log-only (LoadGameState.cpp:159).
+		if (connectionTCP::localLoadsAllowed())
+			return false;
+		showControlRefused(c);
+		return true;
+	}
+
+	// Self-guard: SP and every non-co-op battle fall straight through, so
+	// vanilla is byte-identical there (same shape as isCoopBattle()/
+	// coopMayCommand()).
+	if (!isCoopBattle())
+		return false;
+
+	// Term 1 - AUTHORITY. Only the simulating machine may run a control whose
+	// effect has no wire representation. coopMayCommand() alone cannot carry
+	// this: it is TRUE for a client acting on its own unit during its own
+	// side, which is exactly when these buttons get pressed. The two-term
+	// shape below is the shipped house pattern, not a new invention:
+	// BattlescapeState::btnKneelClick already reads coopMayCommand(bu, _save)
+	// and then `isCoopBattle() && !hostSim` (:1244 and :1254), and the R5-P2
+	// END TURN client gate is the same authority term (:1530). The difference
+	// is only what the second term does - kneel has a wire verb to send, these
+	// five controls have none, so they refuse.
+	if (!coopBattleAuthority().hostSim)
+	{
+		showControlRefused(c);
+		return true;
+	}
+
+	// Term 2 - OWNERSHIP, for the unit-scoped controls only. A seat may not
+	// command a unit it does not own even when it IS the host (the initial
+	// selection is minted before any seat filter, so a host CAN be sitting on
+	// a client-owned soldier today - W1-P1 observed exactly that). Its own
+	// reason, its own message: SS2.6's existing not_your_unit row, reused
+	// rather than duplicated.
+	if (u && !coopMayCommand(u, s))
+	{
+		showRefusalKey("STR_COOP_DENY_NOT_YOUR_UNIT");
+		return true;
+	}
+
+	return false;
+}
+
+bool chatIsOpen(Game* g)
+{
+	if (!g)
+		return false;
+	connectionTCP* coop = g->getCoopMod();
+	ChatMenu* chat = coop ? coop->getChatMenu() : nullptr;
+	return chat != nullptr && chat->isActive();
+}
+
 } // namespace CoopBattleUi
 
 // ===== Geoscape sync conflation slot =====

@@ -39,6 +39,7 @@
 #include "../CoopMod/HostMenu.h"
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/CoopBattleUi.h"
 #include "../Savegame/Upgrade/SaveUpgrade.h"
 #include "SaveUpgradeDialogState.h"
 #include "SaveUpgradeMessageState.h"
@@ -158,6 +159,15 @@ void LoadGameState::init()
 	// the plain local load.
 	if (!_game->getCoopMod()->localLoadsAllowed() && _coopKey.empty() && !_loadCoopProgress)
 	{
+		// W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14, evidence F1): this refusal
+		// used to be LOG-ONLY - the state popped and the player saw nothing at
+		// all. One guarded coop call gives it a face, on the same _txtCoopWait
+		// surface every other coop message uses (SS2.6). Presenter only: the
+		// decision was already taken by the line above, and this call takes none.
+		// It no-ops when no battle is live, so a GEOSCAPE-side local load stays
+		// log-only for now (that surface does not exist there) - stated as a
+		// known limit rather than papered over.
+		CoopBattleUi::showControlRefused(CoopBattleUi::Control::QuickLoad);
 		Log(LOG_INFO) << "[coop] local load refused: no local loads during a live coop session (PRD-08)";
 		_game->popState();
 		return;
