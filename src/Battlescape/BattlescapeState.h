@@ -261,6 +261,22 @@ public:
 	/// text - test-only introspection (TestServer's "battle_state" command);
 	/// no production caller. Empty string means the banner is hidden.
 	std::string getCoopWaitText() const;
+	/// W1-P9 (test introspection only): the VANILLA warning surface's current
+	/// text. Distinct from getCoopWaitText() above on purpose - SS2.6 routes
+	/// every co-op message through _txtCoopWait and never through _warning, so
+	/// the two surfaces answer different questions. The one thing wave 1 needs
+	/// to read off _warning is the LOCAL VANILLA reserve refusal SS2.W2/WV-D48
+	/// requires when a client's own TU reserve stops a walk at step 1.
+	std::string getWarningText() const;
+	/// W1-P9 (test introspection only, WAVE1-RUNBOOK.md WV-D33): the four HUD
+	/// NUMBERS currently PAINTED on the map strip - the values the
+	/// NumberText widgets hold, not the values the model holds. The distinction
+	/// is the whole point of D4's client-HUD-refresh item: before W1-P9 nothing
+	/// on a thin client repainted them when an applied event changed the
+	/// selected unit's stats, so model and paint could disagree indefinitely.
+	/// Reading the widgets is what makes "the HUD moved" an assertion rather
+	/// than an inference. Never read by game logic.
+	void getHudNumbers(int& tu, int& energy, int& health, int& morale) const;
 	/// coop (W1-P7, ruling D7 = WV-D13 item 4): show/hide setter for the DORMANT
 	/// _txtCoopEndTurn surface. Thin and policy-free - sets text + visibility only,
 	/// exactly like setCoopWaitText above. Empty text hides the surface. NO caller

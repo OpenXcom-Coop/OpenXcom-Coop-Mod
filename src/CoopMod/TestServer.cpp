@@ -4418,6 +4418,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
 		&& cmd != "reveal_hostile_pass"
 		&& cmd != "hold_chain" && cmd != "defer_intents"
+		&& cmd != "battle_halt_walk" && cmd != "battle_reserve"
 		&& cmd != "omit_turn_mode")
 	{
 		return false;
@@ -4495,6 +4496,38 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// deliberately IRRELEVANT (D-19b) - asserting that the two can differ is
 		// how the mirror is proven to come off the wire.
 		resp["optionTurnMode"] = Options::CoopTurnMode;
+		// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30 / WV-D48): walk-atom
+		// introspection.
+		//
+		// `lastWalk` is the ONLY window a test has onto SS2.W2's per-step
+		// PAYLOAD - CoopEventLog is a fixed POD ring and deliberately carries
+		// none (BattlePump.h), so `event_log` can prove the KINDS and the seq
+		// order but never that stepIndex increases or that the completion
+		// restate's path matches the steps. Populated on BOTH machines (host at
+		// emit, client at apply), so a test compares the two views of the SAME
+		// walk instead of trusting one.
+		resp["lastWalk"] = CoopArbiter::lastWalk();
+		// The two walk-arm counters. `coopWalkArmEntered` is the DELIVERY PROOF
+		// W1-G1 criterion 4b needs now that a client ground click can legitimately
+		// be FORWARDED instead of refused (so coopLocalExecBlocked above no longer
+		// moves for it), and `coopWalkIntentsSent` separates "the click became an
+		// ORDER" from "the click reached the arm and the pathfinder found no route".
+		resp["coopWalkArmEntered"] = coopWalkArmEntries();
+		resp["coopWalkIntentsSent"] = coopWalkIntentsFromClick();
+		// WV-D48: this CLIENT's own reserve rule. Without these two the step-1
+		// case could only be asserted as an ABSENCE ("nothing left the client"),
+		// which any unrelated failure also produces.
+		resp["coopWalkReserveRefusals"] = CoopArbiter::walkReserveRefusals();
+		resp["coopWalkReserveTruncations"] = CoopArbiter::walkReserveTruncations();
+		// This machine's own (machine-local, saveBlob-EXCLUDED) reserve settings -
+		// the values WV-D14 ratifies as per-machine and WV-D48 makes the client
+		// enforce for itself.
+		{
+			SavedGame* sgR = _game->getSavedGame();
+			SavedBattleGame* bgR = sgR ? sgR->getSavedBattle() : nullptr;
+			resp["tuReserved"] = bgR ? (int)bgR->getTUReserved() : -1;
+			resp["kneelReserved"] = bgR ? bgR->getKneelReserved() : false;
+		}
 		resp["ok"] = true;
 	}
 	else if (cmd == "hash_now")
@@ -4598,8 +4631,34 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		const bool kneel = req.get("kneel", false).asBool();
 		const int tuBasisOverride = req.isMember("tuBasisOverride") ? req["tuBasisOverride"].asInt() : -1;
 
+		// W1-P9 (WR-11, RB-D32's "extend the signature, never fork it"): the WALK
+		// plan. `dest` is the tile the ordering seat would have clicked; `path` is
+		// an OPTIONAL explicit override that ships a literal plan the client would
+		// never build itself - the only way to drive SS2.W2's `path_changed` deny
+		// (a path through an occupied tile). The three movement-mode bools ride the
+		// intent exactly as the real UI path's do.
+		CoopWalkIntentArgs walkArgs;
+		if (req.isMember("dest"))
+		{
+			walkArgs.dest = Position(req["dest"].get("x", 0).asInt(),
+				req["dest"].get("y", 0).asInt(), req["dest"].get("z", 0).asInt());
+		}
+		walkArgs.run = req.get("run", false).asBool();
+		walkArgs.strafe = req.get("strafe", false).asBool();
+		walkArgs.sneak = req.get("sneak", false).asBool();
+		walkArgs.ignoreSpotted = req.get("ignoreSpotted", false).asBool();
+		if (req.isMember("path") && req["path"].isArray())
+		{
+			for (const Json::Value& t : req["path"])
+			{
+				walkArgs.pathOverride.push_back(Position(t.get("x", 0).asInt(),
+					t.get("y", 0).asInt(), t.get("z", 0).asInt()));
+			}
+		}
+
 		const std::uint32_t iseq = CoopArbiter::sendClientIntent(
-			kind.c_str(), actor, toDir, turret, kneel, tuBasisOverride);
+			kind.c_str(), actor, toDir, turret, kneel, tuBasisOverride,
+			kind == "walk" ? &walkArgs : nullptr);
 		if (iseq == 0u)
 		{
 			resp["error"] = "battle_intent: not sent (see log - outside an active coop "
@@ -4633,6 +4692,61 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			CoopEmit::sendEv(ev); // stamps + mints the real next seq
 			resp["ok"] = true;
 			resp["seq"] = CoopEmit::lastSeqEmitted(); // the seq sendEv() just minted
+		}
+	}
+	else if (cmd == "battle_halt_walk")
+	{
+		// TEST-ONLY (W1-P9, RB-D26 discipline: minimal, deterministic, test-only).
+		// HOST lever: arm a ONE-SHOT latch consumed at the next completed walk
+		// step, halting the walk through vanilla's own cancel path. Without it a
+		// mid-walk halt is not drivable at all - walk-core's fixtures are door-
+		// and contact-free by construction (WV-D18) and its own TU/energy halts
+		// need a unit engineered to run out mid-path.
+		CoopArbiter::requestHaltWalk();
+		resp["ok"] = true;
+	}
+	else if (cmd == "battle_reserve")
+	{
+		// TEST-ONLY (W1-P9, RB-D26 discipline). Sets THIS machine's own TU
+		// reserve, which WV-D14 ratifies as PER-MACHINE (tuReserved/kneelReserved
+		// are saveBlob-EXCLUDED) and WV-D48 makes the client enforce for itself.
+		// The acceptance needs it on BOTH machines: on the client to drive the
+		// step-1 refusal and the k-1 truncation, and on the HOST to prove the same
+		// client-built prefix is admitted IDENTICALLY under two different host
+		// reserve settings (WV-D38).
+		SavedGame* sgR = _game->getSavedGame();
+		SavedBattleGame* bgR = sgR ? sgR->getSavedBattle() : nullptr;
+		if (!bgR)
+		{
+			resp["error"] = "battle_reserve: no live battle";
+		}
+		else
+		{
+			bool bad = false;
+			const std::string mode = req.get("mode", "").asString();
+			if (!mode.empty())
+			{
+				BattleActionType t = BA_NONE;
+				if (mode == "none")        t = BA_NONE;
+				else if (mode == "snap")   t = BA_SNAPSHOT;
+				else if (mode == "auto")   t = BA_AUTOSHOT;
+				else if (mode == "aimed")  t = BA_AIMEDSHOT;
+				else                       bad = true;
+				if (!bad)
+					bgR->setTUReserved(t);
+			}
+			if (bad)
+			{
+				resp["error"] = "battle_reserve: unknown mode '" + mode + "'";
+			}
+			else
+			{
+				if (req.isMember("kneel"))
+					bgR->setKneelReserved(req["kneel"].asBool());
+				resp["tuReserved"] = (int)bgR->getTUReserved();
+				resp["kneelReserved"] = bgR->getKneelReserved();
+				resp["ok"] = true;
+			}
 		}
 	}
 	else if (cmd == "hold_chain")
@@ -5869,6 +5983,29 @@ std::string TestServer::execute(const std::string& line)
 					// stays HIDDEN (empty), which is what proves the re-add did not put a
 					// stray widget on the map strip.
 					resp["coopEndTurnText"] = bsForBanner ? bsForBanner->getCoopEndTurnText() : "";
+					// W1-P9 (SS2.W2 / WV-D48): the VANILLA warning surface's text.
+					// SS2.6 keeps every CO-OP message off _warning, so this asks a
+					// different question from coopWaitText above - and the one
+					// wave-1 answer it has to give is the LOCAL VANILLA reserve
+					// refusal shown when a client's own TU reserve stops a walk at
+					// step 1 ("Time Units reserved for Snap Shot").
+					resp["warningText"] = bsForBanner ? bsForBanner->getWarningText() : "";
+					// W1-P9 (WV-D33): the PAINTED HUD numbers, so the client-HUD-refresh
+					// acceptance asserts what is on the map strip rather than what the
+					// model holds - the two are exactly what could disagree before this
+					// packet, because nothing on a thin client repainted them from the
+					// apply path.
+					if (bsForBanner)
+					{
+						int hTu = -1, hEn = -1, hHp = -1, hMo = -1;
+						bsForBanner->getHudNumbers(hTu, hEn, hHp, hMo);
+						Json::Value hud(Json::objectValue);
+						hud["tu"] = hTu;
+						hud["energy"] = hEn;
+						hud["health"] = hHp;
+						hud["morale"] = hMo;
+						resp["hud"] = hud;
+					}
 				}
 				// R2-P7: the CLIENT's held (busy-denied, awaiting auto-resubmit)
 				// intent as {kind, actorId, iseq}, or null when nothing is
@@ -5936,6 +6073,14 @@ std::string TestServer::execute(const std::string& line)
 					ju["murdererId"] = u->getMurdererId();
 					ju["killedBy"] = (int)u->killedBy();
 					ju["direction"] = u->getDirection();
+					// W1-P9 (SS2.W2): the walk ev's `enAfter`, and the HASHED
+					// `motionPoints` (SS2.8's unitsStats member that
+					// BattleUnit::keepWalking() bumps at every completed step).
+					// Both are plain getters; without them a walk test could only
+					// assert TU and would be blind to the two fields most likely
+					// to drift on a mirrored step.
+					ju["energy"] = u->getEnergy();
+					ju["motionPoints"] = u->getMotionPoints();
 					// RW-FIX-TURRET: the TURRET facing, additively alongside the
 					// body facing above. Serialized per unit
 					// (BattleUnit.cpp:717) but read by NO structured hash bucket

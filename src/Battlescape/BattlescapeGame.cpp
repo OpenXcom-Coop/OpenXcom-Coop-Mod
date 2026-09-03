@@ -2056,15 +2056,25 @@ void BattlescapeGame::primaryAction(Position pos)
 		}
 		else if (playableUnitSelected())
 		{
-			// COMMANDING ARM (walk confirm). WV-D40 / WR-2: this is the arm the
-			// entry guard existed for - it ends in `statePushBack(new
-			// UnitWalkBState(...))` below, and playableUnitSelected() is TRUE on
-			// a co-op client during the player side - which is also why the
-			// gate's FIRST term is hostSim and not coopMayCommand (that one is
-			// TRUE for a client on its own unit during its own side;
-			// BattleAuthority.h documents the trace). A client ground-click must
-			// mint NOTHING until W1-P9 turns it into a walk INTENT.
-			if (coopBlockLocalExecution(_save->getSelectedUnit(), _save))
+			// COMMANDING ARM (walk confirm). W1-P9 (WAVE1-RUNBOOK.md SS2.W2 /
+			// WV-D30) is the packet W1-P6's own note here pointed at ("a client
+			// ground-click must mint NOTHING until W1-P9 turns it into a walk
+			// INTENT"), so the gate SPLITS - it is not weakened. ONE guarded
+			// call here keeps W1-P6's OWNERSHIP + active-side term, ahead of any
+			// preview, because D6's ownership wall forbids a seat even PREVIEWING
+			// a unit it does not command; refusals still bump the same
+			// coopLocalExecBlocked counter. The hostSim ("only the simulating
+			// machine may EXECUTE") term moves DOWN to coopInterceptWalkConfirm()
+			// immediately before the statePushBack below, where a co-op CLIENT
+			// now ships the previewed plan as a bt_intent instead of refusing -
+			// and still never reaches that push (WV-D40 intact, a G1 criterion).
+			// Everything between here and there is machine-local display scratch:
+			// Pathfinding's `_path`/`_totalTUCost` and the preview's
+			// Tile::_preview/_markerColor/_tuMarker are not serialized and not
+			// hashed, and `_tuReserved` (which previewPath toggles and restores)
+			// is saveBlob-EXCLUDED. Permissive outside co-op, so SP is
+			// byte-identical.
+			if (coopBlockWalkArm(_save->getSelectedUnit(), _save))
 			{
 				return;
 			}
@@ -2120,6 +2130,19 @@ void BattlescapeGame::primaryAction(Position pos)
 			if (!bPreviewed && _save->getPathfinding()->getStartDirection() != -1)
 			{
 				//  -= start walking =-
+				// W1-P9 (SS2.W2 / WV-D30 / WV-D40): ONE guarded coop call at the
+				// EXECUTION point. On a co-op CLIENT it ships the plan
+				// Pathfinding is holding as a `bt_intent walk` (through RB-D32's
+				// one intent builder) and returns true, so the push below never
+				// runs on a thin client. On the co-op HOST it stamps this walk's
+				// action context (RB-D19) and returns false so vanilla executes
+				// exactly as before. False in single player.
+				if (coopInterceptWalkConfirm(_currentAction.actor, _currentAction.target,
+					_currentAction.run, _currentAction.strafe, _currentAction.sneak,
+					_currentAction.ignoreSpottedEnemies, _save))
+				{
+					return;
+				}
 				getMap()->setCursorType(CT_NONE);
 				_parentState->getGame()->getCursor()->setVisible(false);
 				statePushBack(new UnitWalkBState(this, _currentAction));

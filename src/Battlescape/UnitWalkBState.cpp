@@ -33,6 +33,7 @@
 #include "../Mod/Armor.h"
 #include "../Mod/Mod.h"
 #include "UnitFallBState.h"
+#include "../CoopMod/CoopArbiter.h"
 
 namespace OpenXcom
 {
@@ -126,6 +127,13 @@ void UnitWalkBState::think()
 
 	auto cancelCurentMove = [&]
 	{
+		// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30): ONE guarded coop call, at THE
+		// cancel path every mid-walk abort funnels through. Latches the halt
+		// `reason` the completion bt_action_end will carry, mapping vanilla's own
+		// `_action.result` classification. First reason wins, so the reserve
+		// branch below (and W1-P11's spot halt later) can record ahead of it.
+		// No-op outside an active co-op battle, so SP is byte-identical.
+		coopNoteWalkHalt(_unit, _action.result);
 		if (_fallingWhenStopped && !_falling)
 		{
 			_falling = true;
@@ -196,6 +204,19 @@ void UnitWalkBState::think()
 		// is the step finished?
 		if (_unit->getStatus() == STATUS_STANDING)
 		{
+			// W1-P9 (SS2.W2 / WV-D30 / WV-D37): ONE guarded coop call, at the
+			// natural per-step hook. Authors the ACTING unit's own tile FOV
+			// (SS2.W5 - the updateSoldierInfo() below no longer does the tile
+			// half in a co-op battle, and it would recalculate for the SELECTED
+			// unit, which an admitted remote walk's actor is not), then emits
+			// this step's own `bt_ev walk_step` with h:{unitsStats}. Returns
+			// true ONLY for the test-only battle_halt_walk latch, which stops
+			// the walk here through vanilla's own cancel path. No-op outside an
+			// active co-op battle and off the host sim, so SP is byte-identical.
+			if (coopOnWalkStepFinished(_unit))
+			{
+				return cancelCurentMove();
+			}
 			// update the TU display
 			_parent->getSave()->getBattleState()->updateSoldierInfo();
 			// if the unit burns floor tiles, burn floor tiles as long as we're not falling
@@ -321,7 +342,17 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 
-			if (_parent->getPanicHandled() && !_falling && _parent->checkReservedTU(_unit, tu, energy) == false)
+			// W1-P9 (SS2.W2 / WV-D38 / WV-D48): ONE guarded coop call REPLACING
+			// the `_parent->checkReservedTU(_unit, tu, energy) == false`
+			// sub-expression. It is the vanilla predicate, with the vanilla
+			// arguments and the vanilla warning surface, EXCEPT for a
+			// CLIENT-ORIGIN walk in a co-op battle - where the host must not
+			// apply ITS OWN (machine-local, saveBlob-excluded) reserve to
+			// another seat's order; the ordering client enforces its own before
+			// the intent is even built. It also records SS2.W2's `no_tu` halt
+			// reason, which this branch's empty `_action.result` cannot carry.
+			if (_parent->getPanicHandled() && !_falling
+				&& coopWalkReserveRefuses(_parent, _unit, tu, energy))
 			{
 				return cancelCurentMove();
 			}

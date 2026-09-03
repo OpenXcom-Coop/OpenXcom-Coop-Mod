@@ -2775,6 +2775,28 @@ void BattlescapeState::bugHuntMessage()
  * Shows a warning message.
  * @param message Warning message.
  */
+/**
+ * W1-P9: the four HUD numbers as currently PAINTED (test introspection - see
+ * the header). Never read by game logic.
+ */
+void BattlescapeState::getHudNumbers(int& tu, int& energy, int& health, int& morale) const
+{
+	tu = _numTimeUnits ? (int)_numTimeUnits->getValue() : -1;
+	energy = _numEnergy ? (int)_numEnergy->getValue() : -1;
+	health = _numHealth ? (int)_numHealth->getValue() : -1;
+	morale = _numMorale ? (int)_numMorale->getValue() : -1;
+}
+
+/**
+ * W1-P9: the vanilla warning surface's current text (test introspection - see
+ * the header). Never read by game logic.
+ * @return The last vanilla warning shown, or "" if none.
+ */
+std::string BattlescapeState::getWarningText() const
+{
+	return _warning ? _warning->getMessageText() : std::string();
+}
+
 void BattlescapeState::warning(const std::string &message)
 {
 	_warning->showMessage(tr(message));

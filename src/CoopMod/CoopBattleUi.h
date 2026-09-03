@@ -197,6 +197,44 @@ void clearPending();
 /// No-op outside an active coop battle.
 void showCancel(const char* cause, const char* evKind);
 
+/// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D53 / IR2-11): the WALK HALT presenter -
+/// "your unit MOVED and then stopped", which is a different statement from
+/// "your order was refused" and gets its own table.
+///
+/// @a reason is one of SS2.W2's frozen halt enum values
+/// (spot|reaction|blocked|no_tu|no_energy|prox|fall|unit_down), which is a
+/// DISTINCT enum from SS2.2's deny reasons - one answers "why did the executed
+/// action stop", the other "why was your order refused". Three binding rules
+/// come with it:
+///   * ONE KEY PER REASON, and NO `{0}` catch-all. REV B's "everything else ->
+///     STR_COOP_CANCEL_EVENT with the reason as {0}" is DEAD (IR2-11): it would
+///     render an untranslated protocol token to the player and it violates
+///     ADDENDUM SS1.3(e)'s reason-specific rule. An UNKNOWN reason therefore
+///     shows NOTHING and logs, exactly like showDeny()'s unknown-reason arm -
+///     never a guess.
+///   * `no_tu` and `no_energy` REUSE VANILLA's own STR_NOT_ENOUGH_TIME_UNITS /
+///     STR_NOT_ENOUGH_ENERGY - the exact strings vanilla writes to
+///     `_action.result` at the two UnitWalkBState guards - so the client reads
+///     what a solo player reads. `spot`/`reaction`/`unit_down` reuse the three
+///     live SS2.6 `_CANCEL_` rows as-is (renaming shipped keys is out of scope).
+///     Only `blocked` needs a new key, STR_COOP_HALT_PATH_BLOCKED, minted here.
+///     `prox` (W1-P11) and `fall` (walk-FULL) are RESERVED and deliberately not
+///     minted by this packet - walk-core cannot produce either.
+///   * A HALTED WALK IS NOT "CANCELLED". The unit moved and the emitted step evs
+///     are truth (SS2.W2 rule 5), so the new key is worded as
+///     stop-after-partial-execution, never as "Order cancelled - ...", which
+///     SS2.6 reserves for orders that never executed.
+/// Terminal banner class (it answers something the player did), so it
+/// dwell-clears like any other answer. No-op outside an active coop battle.
+///
+/// SHOWN ONLY ON THE ORDERING SEAT (SS2.W2, same rule as the deny presenter):
+/// the sole caller is the CLIENT apply path, and only for an actionId this
+/// client itself owns. The observing machine ANIMATES the halt (W1-P12); it
+/// never prints another player's message. A HOST-origin walk keeps vanilla's own
+/// surface - BattlescapeGame::popState() already shows `_action.result` for the
+/// TU and energy halts, and vanilla shows nothing at all for a blocked one.
+void showWalkHalt(const char* reason);
+
 /// R2-P9 (SPIKE-RUNBOOK.md SS2.8 mismatch-behavior note): the STICKY desync
 /// banner - "desync detected - battle halted (rejoin arrives in a later
 /// build)" (STR_COOP_DESYNC_HALTED). Called once, from CoopHashCheck::verify

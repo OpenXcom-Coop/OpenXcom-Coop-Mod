@@ -11,6 +11,13 @@ test_rw_faction_setup.py (R5-P1) already proved out):
      battle-ENTRY auto-select, click-to-select, the TAB cycle, the middle-click
      NEXT-STOP by-distance variant, and the right-click NEXT-STOP undo.
   B. WV-D40 / WR-2 - a co-op CLIENT ground-click mints NOTHING. This is a G1
+     UPDATED BY W1-P9 (SS2.W2 / WV-D30). The walk arm now has a WIRE VERB, so a
+     client ground click on a unit it commands is FORWARDED as a `bt_intent walk`
+     instead of being refused. WV-D40 is unchanged and still asserted - the client
+     mints nothing locally and never reaches `statePushBack(new UnitWalkBState)` -
+     but the DELIVERY PROOF moved from the refusal counter to
+     `event_state.coopWalkArmEntered`; see assert_ground_click_mints_nothing().
+
      STOP-LINE criterion (W1-G1 4b): W1-P6 moved primaryAction's entry guard
      onto its commanding arms so the select branch could run, and the walk arm
      is `else if (playableUnitSelected())`, which is TRUE on a client during the
@@ -37,11 +44,14 @@ explicit instruction for this packet):
     the same run, on the same machine, DOES select a unit (own soldier) and DOES
     raise the ownership banner (host soldier). A recipe that could not reach
     primaryAction could do neither.
-  * PHASE Z is a NEGATIVE CONTROL that deliberately diverges the two machines:
-    the HOST performs the identical ground click on its own soldier and really
-    walks, and the buckets then DIFFER. That is what proves the client half's
-    "all buckets EQUAL" was not true by construction. It runs LAST; no equality
-    assertion follows it (the W1-P5 phase-3 pattern).
+  * PHASE Z is the SENSITIVITY control: the HOST performs the identical ground
+    click on its own soldier and really walks, and the HOST's OWN buckets then
+    MOVE. That is what proves the client half's "all buckets EQUAL" was not true
+    by construction. (Before W1-P9 it was a DIVERGENCE control - the client's
+    copy could not follow a host-local walk because walk was not on the wire.
+    W1-P9 put it there and made step events ORIGIN-INDEPENDENT, WV-D37, so the
+    control now measures the host's own before/after hash and additionally
+    asserts the client tracked the walk exactly.)
   * The SPECTATOR path gets its own scenario with NO seat stamp at all, which
     is the shape a plain "NEW BATTLE > COOP" skirmish really produces (it never
     calls Soldier::setCoop(), so the joining client owns ZERO battle units).
@@ -367,18 +377,21 @@ def tile_click_until(gc, tx, ty, tz, ok_fn, what, button="left", tries=5, settle
             print(f"    [{what}] attempt {attempt}: re-aiming at tile "
                   f"({ax},{ay},{az}) - the primary target has not produced the "
                   "expected effect yet")
-        pre_blocked = event_state(gc).get("coopLocalExecBlocked")
+        pre_ev = event_state(gc)
+        pre_blocked = pre_ev.get("coopLocalExecBlocked")
+        pre_arm = pre_ev.get("coopWalkArmEntered")
         last = tile_click(gc, ax, ay, az, button)
         time.sleep(settle)
         if ok_fn():
             last = dict(last)
             last["attempts"] = attempt
-            # The counter as it stood immediately BEFORE the click that worked -
-            # so a caller can still assert "this click did not go through a
+            # The counters as they stood immediately BEFORE the click that worked
+            # - so a caller can still assert "this click did not go through a
             # commanding arm" without an earlier, MISSED attempt (which lands on
             # a neighbouring ground tile, i.e. legitimately in the walk arm)
             # poisoning the comparison.
             last["blockedBeforeThisClick"] = pre_blocked
+            last["armBeforeThisClick"] = pre_arm
             return last
     st = battle_state(gc)
     raise AssertionError(
@@ -404,14 +417,41 @@ def select_via_tab(gc, want_ids, tries=10):
 def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
                                       alt_tiles=()):
     """W1-G1 criterion 4b / WV-D40 / WR-2. A client ground-click must mint
-    NOTHING - and the click must be PROVEN to have arrived, which is what
-    event_state.coopLocalExecBlocked is for (see this file's header)."""
+    NOTHING LOCALLY - and the click must be PROVEN to have arrived.
+
+    REWRITTEN BY W1-P9 (SS2.W2 / WV-D30), which is the packet W1-P6's own code
+    comment at that call site pointed at: "a client ground-click must mint
+    NOTHING until W1-P9 turns it into a walk INTENT". It now does exactly that,
+    so what this function can assert - and what it uses as its delivery proof -
+    both change. WV-D40 is NOT relaxed: an intent is not a mint, the client still
+    never reaches `statePushBack(new UnitWalkBState(...))`, and every "nothing was
+    minted" observable below is retained.
+
+    THE DELIVERY PROOF MOVES from `coopLocalExecBlocked` (the refusal counter) to
+    `coopWalkArmEntered`. It has to: after W1-P9 a click on a unit the client DOES
+    command is FORWARDED, not refused, so the refusal counter no longer moves for
+    it - and a click whose pathfinder finds no route reaches the arm and
+    legitimately does nothing at all. Counting arm ENTRY covers all three cases
+    and is strictly the better proof, because it says the click reached the arm
+    whatever the arm then decided.
+
+    WHAT IS ASSERTED NOW:
+      * DELIVERY - `coopWalkArmEntered` moved (the click reached the walk arm);
+      * NO LOCAL BSTATE - the client's `isBusy` never goes true, sampled hard.
+        A locally-minted UnitWalkBState is visible in BattlescapeGame::_states
+        while it runs, and a thin client must never have one;
+      * NO LOCAL DIVERGENCE - all buckets EQUAL afterwards, and host and client
+        agree on the actor's position and TU. If the click became an INTENT the
+        unit legitimately MOVED (the host executed it); what must never happen is
+        the two machines disagreeing about it;
+      * NO SILENT SECOND ORDER - nothing is left pending.
+    """
     ev0 = event_state(client)
-    blocked0 = ev0.get("coopLocalExecBlocked")
-    assert isinstance(blocked0, int), (
-        "event_state carries no coopLocalExecBlocked counter - this build predates "
-        "W1-P6, and without it the assertions below are only absences")
-    seq0 = ev0.get("lastSeqEmitted")
+    arm0 = ev0.get("coopWalkArmEntered")
+    assert isinstance(arm0, int), (
+        "event_state carries no coopWalkArmEntered counter - this build predates "
+        "W1-P9, and without it the assertions below are only absences")
+    sent0 = ev0.get("coopWalkIntentsSent")
     cb0 = battle_state(client)
     hb0 = battle_state(host)
     c_before = units_by_id(cb0)[actor_id]
@@ -419,22 +459,22 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
 
     # The retry predicate IS the delivery proof: keep clicking (each click
     # independently verified by the probe) until primaryAction's walk arm has
-    # actually refused one. A click that lands one tile off - the residual
+    # actually been entered. A click that lands one tile off - the residual
     # camera-shift effect tile_click_until() exists for - would land in the
     # SELECT branch instead and leave the counter alone, so this can never
     # "pass" by never arriving.
     busy_seen = [False]
 
-    def blocked_and_idle():
+    def arm_entered():
         if battle_state(client).get("isBusy"):
             busy_seen[0] = True  # recorded, then asserted below as a FAILURE
             return True
-        return event_state(client).get("coopLocalExecBlocked", blocked0) > blocked0
+        return event_state(client).get("coopWalkArmEntered", arm0) > arm0
 
     # Two full passes over the rotation, so a target still gets the re-CLICK
     # benefit for the transient camera shift as well as the re-AIM benefit for
     # an unproductive tile. Unchanged (5) for a caller with no alternates.
-    pr = tile_click_until(client, tx, ty, tz, blocked_and_idle,
+    pr = tile_click_until(client, tx, ty, tz, arm_entered,
                           f"client ground click [{label}]", settle=0.35,
                           tries=max(5, 2 * (1 + len(alt_tiles))),
                           alt_tiles=alt_tiles)
@@ -448,45 +488,63 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
             busy_seen[0] = True
             break
         time.sleep(0.1)
-    time.sleep(0.6)
+    time.sleep(1.2)
 
     ev1 = event_state(client)
     cb1 = battle_state(client)
     hb1 = battle_state(host)
     c_after = units_by_id(cb1)[actor_id]
     h_after = units_by_id(hb1)[actor_id]
+    became_intent = ev1.get("coopWalkIntentsSent", sent0) > sent0
 
     # --- DELIVERY PROOF (this is what stops the rest being vacuous) ---
-    assert ev1.get("coopLocalExecBlocked") > blocked0, (
+    assert ev1.get("coopWalkArmEntered") > arm0, (
         f"[{label}] the click at ({sx},{sy}) for tile ({tx},{ty},{tz}) never reached "
-        f"BattlescapeGame::primaryAction's walk arm - coopLocalExecBlocked stayed at "
-        f"{blocked0}. Everything below would then pass for the wrong reason.")
+        f"BattlescapeGame::primaryAction's walk arm - coopWalkArmEntered stayed at "
+        f"{arm0}. Everything below would then pass for the wrong reason.")
 
-    # --- NOTHING WAS MINTED ---
+    # --- NOTHING WAS MINTED LOCALLY ---
     assert not busy_seen[0], \
         f"[{label}] the client pushed a local BState after a ground click (isBusy went true)"
     assert cb1.get("isBusy") is False, f"[{label}] client left busy after a ground click"
-    for who, before, after in (("client", c_before, c_after), ("host", h_before, h_after)):
-        assert (after["x"], after["y"], after["z"]) == (before["x"], before["y"], before["z"]), (
-            f"[{label}] {who}'s view of unit {actor_id} MOVED "
-            f"{(before['x'], before['y'], before['z'])} -> {(after['x'], after['y'], after['z'])}")
-        assert after["tu"] == before["tu"], (
-            f"[{label}] {who}'s view of unit {actor_id} spent TU "
-            f"{before['tu']} -> {after['tu']}")
-    assert ev1.get("lastSeqEmitted") == seq0, \
-        f"[{label}] the client EMITTED something ({seq0} -> {ev1.get('lastSeqEmitted')})"
-    assert ev1.get("queueDepth") == 0, f"[{label}] client apply queue not drained: {ev1}"
-    assert ev1.get("lastDeny") in (None, {}), \
-        f"[{label}] a deny arrived - an intent was sent, which W1-P9 owns, not W1-P6: " \
-        f"{ev1.get('lastDeny')}"
     assert cb1.get("coopPendingIntent") in (None, {}), \
         f"[{label}] the client is holding a pending intent: {cb1.get('coopPendingIntent')}"
+    # Retained from the pre-W1-P9 version: whatever the click became, the client
+    # must have DRAINED it. (Its two siblings there - "the client emitted
+    # nothing" and "no deny arrived" - are the two assertions W1-P9 makes false
+    # BY DESIGN: a click on a commanded unit now ships an intent, and the host
+    # may legitimately answer it. What replaces them is stronger, not weaker -
+    # the two machines must AGREE about whatever happened, asserted below.)
+    assert ev1.get("queueDepth") == 0, f"[{label}] client apply queue not drained: {ev1}"
+
+    if became_intent:
+        # W1-P9's path: the click became an ORDER. The unit may legitimately have
+        # moved - on BOTH machines, identically, because the HOST executed it.
+        for field in ("x", "y", "z", "tu", "energy"):
+            assert c_after[field] == h_after[field], (
+                f"[{label}] after the click became an intent, host and client "
+                f"disagree on unit {actor_id}'s {field}: client={c_after[field]} "
+                f"host={h_after[field]}")
+    else:
+        # The arm was entered and did nothing (no route, or a refusal). Then
+        # neither machine may have moved anything.
+        for who, before, after in (("client", c_before, c_after),
+                                   ("host", h_before, h_after)):
+            assert (after["x"], after["y"], after["z"]) == \
+                   (before["x"], before["y"], before["z"]), (
+                f"[{label}] {who}'s view of unit {actor_id} MOVED "
+                f"{(before['x'], before['y'], before['z'])} -> "
+                f"{(after['x'], after['y'], after['z'])} without an intent")
+            assert after["tu"] == before["tu"], (
+                f"[{label}] {who}'s view of unit {actor_id} spent TU "
+                f"{before['tu']} -> {after['tu']} without an intent")
 
     hh, ch = session.assert_hash_clean(host, client, full=True,
                                        what=f"after a client ground click ({label})")
     print(f"  PASS ground-click [{label}] tile ({tx},{ty},{tz}) @ screen ({sx},{sy}): "
-          f"coopLocalExecBlocked {blocked0} -> {ev1['coopLocalExecBlocked']} (DELIVERED + "
-          f"blocked), no BState, no move, no emit, ALL {len(hh)} buckets EQUAL")
+          f"walk arm ENTERED {arm0} -> {ev1['coopWalkArmEntered']}, "
+          f"{'forwarded as an INTENT' if became_intent else 'no order minted'}, "
+          f"no local BState, ALL {len(hh)} buckets EQUAL")
 
 
 def test_classic_selection_gating():
@@ -595,6 +653,12 @@ def test_classic_selection_gating():
             "click-selecting an OWN unit went through a COMMANDING arm "
             "(coopLocalExecBlocked moved) - the select branch is the only exemption "
             "WV-D40 allows, and it must not be reached through the walk arm")
+        # W1-P9: ...and the WALK ARM itself was not entered either. Since W1-P9 the
+        # walk arm can FORWARD a click as an intent instead of refusing it, so the
+        # refusal counter alone no longer proves a click stayed out of it.
+        assert event_state(client)["coopWalkArmEntered"] == res3["armBeforeThisClick"], (
+            "click-selecting an OWN unit ENTERED the walk arm (coopWalkArmEntered "
+            "moved) - the select branch must not fall through into it")
         print(f"PASS (3) click-select OWN: client selected its own soldier {target_id} "
               f"by left-clicking its tile ({t['x']},{t['y']},{t['z']})")
 
@@ -625,6 +689,9 @@ def test_classic_selection_gating():
         assert event_state(client)["coopLocalExecBlocked"] == res4["blockedBeforeThisClick"], (
             "a refused click-select went through a COMMANDING arm - the refusal must "
             "come from the select branch's own filter, not from the walk arm")
+        assert event_state(client)["coopWalkArmEntered"] == res4["armBeforeThisClick"], (
+            "a refused click-select ENTERED the walk arm (W1-P9's coopWalkArmEntered "
+            "moved) - the refusal must come from the select branch's own filter")
         print(f"PASS (4) click-select PEER: client's click on host soldier {hid} was "
               f"refused with {TXT_NOT_YOUR_UNIT!r}, selection unchanged ({before_sel})")
 
@@ -830,18 +897,31 @@ def test_classic_selection_gating():
         print("PASS (9) IR-13: client's End Turn key was a local no-op")
 
         # =====================================================================
-        # PHASE Z - NEGATIVE CONTROL. This DELIBERATELY diverges the machines.
+        # PHASE Z - the SENSITIVITY control for (5).
+        #
+        # REWRITTEN BY W1-P9. It used to diverge the two machines deliberately:
+        # the host performed the identical ground click, its own unit walked, and
+        # the client's copy could NOT follow because "walk is not on the wire
+        # until W1-P9". W1-P9 put it on the wire (SS2.W2, and WV-D37 makes step
+        # events ORIGIN-INDEPENDENT), so that divergence no longer exists and
+        # asserting it would now be asserting a bug.
+        #
+        # What (5) still needs from this phase is unchanged and is kept: proof
+        # that a walk is something the HASH BUCKETS CAN SEE, so that "the buckets
+        # stayed EQUAL" is a real statement. That is now measured on the HOST's
+        # OWN before/after hash rather than on a host/client difference - and the
+        # two machines staying EQUAL through it is a bonus assertion W1-P9 earns.
         # =====================================================================
-        print("\n--- PHASE Z: negative control (deliberate divergence) ------")
-        print("    (5) proved 'the buckets stayed EQUAL and the unit did not move'.")
-        print("    That is only worth something if the SAME click CAN move a unit,")
-        print("    so the host now performs it for real. No equality assertion runs")
-        print("    after this point (WR-27 / the W1-P5 phase-3 pattern).")
+        print("\n--- PHASE Z: the sensitivity control for (5) ------")
+        print("    (5) proved 'the buckets stayed EQUAL and nothing was minted'.")
+        print("    That is only worth something if a real walk MOVES those buckets,")
+        print("    so the host now performs the identical click for real.")
         h_actor = select_via_tab(host, host_own_ids)
         center_on_selection(host)
         hu2 = units_by_id(battle_state(host))[h_actor]
         before = dict(hu2)
         h_occupied = {(u["x"], u["y"], u["z"]) for u in battle_state(host)["units"]}
+        host_hash_before = host.cmd({"cmd": "hash_now", "full": True})["h"]
 
         def host_unit_acted():
             now = units_by_id(battle_state(host))[h_actor]
@@ -867,23 +947,30 @@ def test_classic_selection_gating():
             "so (5)'s 'the client did not move' proves nothing about the gate. Either "
             "the injection recipe is broken or every adjacent tile is impassable.")
         h_final = units_by_id(battle_state(host))[h_actor]
+        hfull = host.cmd({"cmd": "hash_now", "full": True})["h"]
+        moved_buckets = sorted(k for k in hfull if hfull[k] != host_hash_before.get(k))
+        assert moved_buckets, (
+            "the host really walked but EVERY hash bucket on the HOST stayed the "
+            "same as before the walk - the buckets cannot see a walk at all, which "
+            "would make (5), (6) and (8)'s equality assertions worthless")
+        # W1-P9 (SS2.W2 / WV-D37): a HOST-ORIGIN walk streams its own step events,
+        # so the client's copy MUST have followed it and the two machines must
+        # still agree. Before W1-P9 this was the divergence this phase asserted.
         c_view = units_by_id(battle_state(client))[h_actor]
         assert (c_view["x"], c_view["y"], c_view["z"], c_view["tu"]) == \
-               (before["x"], before["y"], before["z"], before["tu"]), (
-            "the client's view of the host's unit tracked the host's LOCAL walk - "
-            "walk is not on the wire until W1-P9, so this should be impossible")
-        hfull = host.cmd({"cmd": "hash_now", "full": True})["h"]
-        cfull = client.cmd({"cmd": "hash_now", "full": True})["h"]
-        differing = sorted(k for k in hfull if hfull[k] != cfull.get(k))
-        assert differing, (
-            "the host really walked but EVERY hash bucket stayed equal - the buckets "
-            "cannot see a walk at all, which would make (5), (6) and (8)'s equality "
-            "assertions worthless")
-        print(f"PASS PHASE Z negative control: the host's identical click walked unit "
-              f"{h_actor} {(before['x'], before['y'], before['z'])} -> "
+               (h_final["x"], h_final["y"], h_final["z"], h_final["tu"]), (
+            f"the client's view of unit {h_actor} is "
+            f"{(c_view['x'], c_view['y'], c_view['z'], c_view['tu'])} but the host "
+            f"has it at {(h_final['x'], h_final['y'], h_final['z'], h_final['tu'])} - "
+            "a HOST-ORIGIN walk emits step events like any other (WV-D37) and the "
+            "client must apply them")
+        session.assert_hash_clean(host, client, full=True,
+                                  what="after PHASE Z's host-origin walk")
+        print(f"PASS PHASE Z sensitivity control: the host's identical click walked "
+              f"unit {h_actor} {(before['x'], before['y'], before['z'])} -> "
               f"{(h_final['x'], h_final['y'], h_final['z'])}, TU {before['tu']} -> "
-              f"{h_final['tu']}, while the client's copy did NOT move and buckets "
-              f"{differing} now DIFFER")
+              f"{h_final['tu']}, MOVING the host's own buckets {moved_buckets} - and "
+              f"the client tracked it exactly, so all buckets are still EQUAL")
 
     finally:
         host.shutdown()

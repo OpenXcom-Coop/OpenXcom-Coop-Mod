@@ -20,13 +20,48 @@
  */
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 #include <json/json.h>
+
+#include "../Battlescape/Position.h"
 
 namespace OpenXcom
 {
 
 class BattleUnit;
+class BattlescapeGame;
+class SavedBattleGame;
+
+/**
+ * W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / rulings D4+D-6 = WV-D29/WV-D30/WV-D38/
+ * WV-D48): the walk intent's plan fields, handed to sendClientIntent() below.
+ *
+ * Kept as a struct rather than six more scalar defaults on that signature
+ * because RB-D32's rule is "one function, two callers - EXTEND the signature,
+ * never fork it", and a struct is how the signature grows without turning into
+ * a positional-argument minefield for the turn/kneel callers that pass none of
+ * it.
+ *
+ * `dest` is the tile the ordering seat CLICKED (the value it handed to
+ * Pathfinding::calculate), NOT necessarily the last tile of `path`: a reserve
+ * truncation (SS2.W2 / WV-D48) ships a shorter prefix, and the wire's `dest`
+ * then names that prefix's own endpoint so the plan stays self-consistent.
+ * `pathOverride`, when non-empty, REPLACES the client's own previewed path -
+ * it exists only for the `battle_intent` lever's `path` argument, which is how
+ * the acceptance ships a deliberately-blocked plan for the `path_changed`
+ * deny (WR-11). Nothing in the game ever sets it.
+ */
+struct CoopWalkIntentArgs
+{
+	Position dest;
+	bool run = false;
+	bool strafe = false;
+	bool sneak = false;
+	bool ignoreSpotted = false;
+	std::vector<Position> pathOverride;
+};
 
 /**
  * R2-P5 (rewrite spike, SPIKE-RUNBOOK.md RB-D9/RB-D10/RB-D11/RB-D12/RB-D13/
@@ -98,6 +133,48 @@ void beginHostLocalTurn(BattleUnit* actor, bool turret);
 /// beginHostLocalTurn()).
 void beginHostLocalKneel(BattleUnit* actor);
 
+/// W1-P9 (SS2.W2): RB-D19 origin stamping for a coop HOST's own local walk -
+/// the chain-ful counterpart of beginHostLocalTurn() above, called from the
+/// THIN BattlescapeGame::primaryAction walk-confirm hook site's own-input
+/// branch BEFORE it pushes UnitWalkBState. Mints an actionId, pushes
+/// {actionId,"host"}, records @a actor as this chain's pending actor and
+/// @a path as the plan the step hook and the completion restate report
+/// against. No-op outside an active coop battle.
+void beginHostLocalWalk(BattleUnit* actor, const std::vector<Position>& path);
+
+/// Test/introspection (TestServer event_state `lastWalk`): the most recent walk
+/// this machine EMITTED (host) or APPLIED (client), as
+/// {actionId, unit, steps:[{stepIndex, from, dir, to, tuAfter, enAfter, seq}],
+///  path:[{x,y,z}], halted, reason, final}. `path`/`halted`/`reason`/`final`
+/// appear once the completion bt_action_end has been emitted/applied. Null
+/// before the first walk of a battle. The ONLY way a test can see SS2.W2's
+/// per-step payload at all: CoopEventLog is a fixed POD ring and deliberately
+/// carries no payload (BattlePump.h).
+Json::Value lastWalk();
+
+// TEST-ONLY (W1-P9, RB-D26/RB-D32 discipline - minimal, deterministic,
+// test-only; same family and the same removal note as hold_chain above).
+/// HOST: arm a ONE-SHOT latch that halts the next walk at its NEXT completed
+/// step boundary, exactly as if vanilla had taken one of its own
+/// cancelCurentMove() branches. The step evs already emitted STAND (SS2.W2
+/// rule 5) and the completion bt_action_end carries the executed prefix plus
+/// `halted:true` + `reason`. Without it a halt mid-walk is not drivable at all:
+/// walk-core's fixtures are door- and contact-free by construction (WV-D18) and
+/// its own TU/energy guards need a unit engineered to run out mid-path.
+void requestHaltWalk();
+
+/// Test/introspection (TestServer `event_state`): WV-D48's client-side reserve
+/// rule, counted. `walkReserveRefusals()` is how many walk intents THIS
+/// machine's own TU reserve stopped at step 1 - nothing went on the wire, and
+/// vanilla's own reserve warning was raised by the very checkReservedTU() call
+/// that returned false. `walkReserveTruncations()` is how many plans it
+/// SHORTENED to a k-1 prefix before shipping. Both exist so the step-1 case is
+/// a POSITIVE assertion about the reserve rule instead of an absence that any
+/// unrelated failure would also produce. Battle-scoped, like the rest of this
+/// namespace's state.
+int walkReserveRefusals();
+int walkReserveTruncations();
+
 /// Pushes {actionId, origin} onto CoopMod's own action-context stack
 /// (RB-D12 - no BState code stores coop state). @a origin is one of SS2.2's
 /// origin enum strings; RB-D19's "host" is reserved for the host-seat's own
@@ -124,6 +201,30 @@ const char* validateTurn(const BattleUnit* unit, int toDir, bool turret, int tuB
 
 /// SS2.5 kneel validator, same contract/caveat as validateTurn().
 const char* validateKneel(const BattleUnit* unit, bool kneel, int tuBasis);
+
+/// W1-P9 (SS2.W2 walk validator, the r3 half of RB-D9). Same contract as
+/// validateTurn()/validateKneel(): returns nullptr when @a intent admits
+/// cleanly, else one of SS2.2's deny reason enum strings - here only
+/// `path_changed` or `cost_changed`, the two SS2.W2 names for "this concrete
+/// plan is no longer the plan the host would execute".
+///
+/// UNLIKE the other two it needs the LIVE battle, so it takes the parsed
+/// envelope instead of scalar plan fields: SS2.W2's `path` is a CONCRETE PLAN,
+/// and validating it means walking it tile-by-tile against CANONICAL occupancy
+/// through the host's own Pathfinding::getTUCost - which is also where the
+/// recomputed `tuBasis` (Sigma per-step getTUCost(bam), never the A* route
+/// cost) and the energy total come from. It ALSO re-runs
+/// Pathfinding::calculate() for @a unit and proves the host's own route is
+/// tile-for-tile the shipped one, which is what lets the caller execute
+/// through vanilla's UnitWalkBState with NO silent reroute: the path the host
+/// walks has been proven equal to the path the wire carried, or the intent was
+/// denied (SS2.W2: "No silent reroute / truncation / no-op - ever").
+///
+/// On a clean pass @a outPath receives the validated tile list, @a outTuCost /
+/// @a outEnergyCost the recomputed totals, and the host's Pathfinding is left
+/// holding exactly that route, ready for UnitWalkBState.
+const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
+	std::vector<Position>& outPath, int& outTuCost, int& outEnergyCost);
 
 // ----- CLIENT section (RB-D32) -----
 
@@ -152,8 +253,22 @@ const char* validateKneel(const BattleUnit* unit, bool kneel, int tuBasis);
 /// iseq, or 0 on failure (SS2.2: 0 is never a valid iseq a caller should treat
 /// as sent) - outside an active coop battle, with no live SavedBattleGame,
 /// if @a actorId does not resolve on THIS machine, or for an unknown @a kind.
+///
+/// W1-P9 (SS2.W2 / WV-D30, RB-D32's "extend the signature, never fork it"):
+/// @a kind may now also be "walk", in which case @a walk carries the plan (see
+/// CoopWalkIntentArgs above) and MUST be non-null. The walk branch previews the
+/// concrete path itself through the LOCAL Pathfinding (unless
+/// @a walk->pathOverride is set), computes `tuBasis` as Sigma per-step
+/// getTUCost(bam), and applies WV-D48's CLIENT-SIDE RESERVE RULE before the
+/// envelope is built: `BattlescapeGame::checkReservedTU` is evaluated per step
+/// over the previewed path with THIS machine's own getTUReserved()/
+/// getKneelReserved(), a violation at step 1 sends NOTHING (returning 0, with
+/// vanilla's own reserve warning already on screen because that first check is
+/// made with justChecking=false), and a violation at step k>1 ships the k-1
+/// prefix with `tuBasis` over that prefix only.
 std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir = -1,
-	bool turret = false, bool kneel = false, int tuBasisOverride = -1);
+	bool turret = false, bool kneel = false, int tuBasisOverride = -1,
+	const CoopWalkIntentArgs* walk = nullptr);
 
 /// CLIENT (R3-P1, REVIEW4 IR-2): host bt_ack{iseq,actionId} receipt - if
 /// @a ack's iseq matches this client's own in-flight intent (set by a prior
@@ -406,5 +521,103 @@ void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted);
 /// "busy" (the pushed context must be popped exactly once regardless of
 /// which branch kneel() took).
 void coopOnKneelFinished(BattleUnit* unit, bool succeeded);
+
+// ===== W1-P9 (WAVE1-RUNBOOK.md SS2.W2, rulings D4/D-6 = WV-D29/WV-D30/WV-D37/
+// WV-D38/WV-D48): the ATOM walk-core thin hooks. Kept outside namespace
+// CoopArbiter for the same call-site-simplicity reason as
+// coopOnChainQuiesced()/coopOnUnitTurnFinished()/coopOnKneelFinished() above.
+// src/Battlescape/UnitWalkBState.cpp had ZERO coop hooks before this packet;
+// it gains exactly THREE, and every one of them is a single guarded call.
+// =============================================================================
+
+/// THIN HOOK 1/3 - UnitWalkBState::think()'s STEP-COMPLETION point (the
+/// `if (_unit->getStatus() == STATUS_STANDING)` block right after
+/// BattleUnit::keepWalking() advanced the phase). Fires ONCE per COMPLETED
+/// step, for BOTH origins (SS2.W2/WV-D37: "step evs are origin-independent - a
+/// host-origin walk emits them too").
+///
+/// Three jobs, all self-guarded and inert outside an active co-op battle on
+/// the host sim:
+///   1. SS2.W5/WV-D8: author the ACTING unit's own tile FOV. In a co-op battle
+///      the `updateSoldierInfo()` two lines below no longer recalculates tiles
+///      (a selection change must not author shared fog), and the acting unit of
+///      an ADMITTED REMOTE walk is not the host's selected unit anyway - so
+///      without this the host's fog would only catch up at postPathProcedures'
+///      end-of-walk calculateFOV, one chunk instead of one step at a time.
+///   2. emit `bt_ev walk_step` (SS2.W2's frozen SINGULAR kind) carrying
+///      {unit, stepIndex, from, dir, to, tuAfter, enAfter} + h:{unitsStats}
+///      (RB-D14). Reveal deltas ride the envelope automatically at the
+///      CoopEmit::sendEv choke (SS2.4a), which is why job 1 runs first.
+///   3. consume the TEST-ONLY requestHaltWalk() latch.
+///
+/// @return TRUE only when that latch was armed, i.e. "stop this walk at this
+/// step boundary" - the vanilla call site turns that into its own
+/// `return cancelCurentMove();`, the same exit every real halt takes. FALSE in
+/// single player, off the host sim, and in every ordinary step.
+bool coopOnWalkStepFinished(BattleUnit* unit);
+
+/// THIN HOOK 2/3 - the head of UnitWalkBState::think()'s own `cancelCurentMove`
+/// lambda, i.e. THE cancel path every mid-walk abort funnels through. Latches
+/// the SS2.W2 halt `reason` for the walk chain currently in flight; the first
+/// reason recorded for a chain wins, so a more specific hook (3/3 below, and
+/// W1-P11's spot halt later) can record ahead of this catch-all.
+///
+/// @a vanillaResult is `_action.result` verbatim - vanilla's OWN classification
+/// of the two halts it names: "STR_NOT_ENOUGH_TIME_UNITS" (UnitWalkBState.cpp
+/// TU guard) maps to `no_tu`, "STR_NOT_ENOUGH_ENERGY" (energy guard) to
+/// `no_energy`. An EMPTY result maps to `blocked`, which is exact for the two
+/// causes walk-core's door-free/contact-free fixtures can produce
+/// (INVALID_MOVE_COST and the `unitInMyWay` occupancy branch) and is the
+/// DOCUMENTED approximation for the causes that belong to later packets
+/// (`spot`/`reaction` - W1-P11 and the shot wave record their own reason before
+/// they cancel, exactly as hook 3/3 does).
+///
+/// @a reasonOverride, when non-null, is a SS2.W2 enum string recorded directly
+/// instead of mapping @a vanillaResult. No-op outside an active coop battle or
+/// when @a unit is not the actor of the walk chain in flight.
+void coopNoteWalkHalt(BattleUnit* unit, const std::string& vanillaResult,
+	const char* reasonOverride = nullptr);
+
+/// THIN HOOK 3/3 - UnitWalkBState::think()'s TU-RESERVE branch, i.e. the
+/// `_parent->checkReservedTU(_unit, tu, energy) == false` sub-expression that
+/// SS2.W2/WV-D48 names as "the sole enforcement point" for a TU reserve. This
+/// REPLACES that sub-expression with one guarded coop call, because the branch
+/// has TWO co-op obligations and neither can be met from beside it:
+///
+///   * WV-D38 (owner AWARENESS item, the half that makes WV-D14's per-machine
+///     reserve real): the host does NOT apply ITS OWN reserve to a
+///     CLIENT-ORIGIN walk. `tuReserved`/`kneelReserved` are saveBlob-EXCLUDED
+///     (SharedEcon.cpp) and therefore machine-local, so the value in force
+///     during execution would otherwise be the HOST player's - silently
+///     truncating a walk the ordering seat's own reserve had already allowed.
+///     The CLIENT enforces its own, per step, in sendClientIntent() (WV-D48).
+///   * SS2.W2's halt reason: this branch leaves `_action.result` EMPTY, which
+///     hook 2/3's catch-all would map to `blocked`. A reserve refusal is a TU
+///     shortfall, so it records `no_tu` before cancelling.
+///
+/// @return TRUE when the walk must stop at this step (the vanilla call site
+/// turns that into its own `return cancelCurentMove();`). OUTSIDE a co-op
+/// battle, and for a HOST-ORIGIN walk inside one, it is exactly
+/// `!bg->checkReservedTU(unit, tu, energy)` - the vanilla predicate, called
+/// with the vanilla arguments, warning surface included - so single player is
+/// byte-identical.
+bool coopWalkReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu, int energy);
+
+/// W1-P9: the WALK ARM's own gate in BattlescapeGame::primaryAction, replacing
+/// W1-P6's coopBlockLocalExecution() call there - see BattleAuthority.h for why
+/// that gate SPLIT in this packet and what each half now guards.
+///
+/// This is the CONFIRM half: ONE guarded call immediately before
+/// `statePushBack(new UnitWalkBState(...))`. On a co-op CLIENT it ships the
+/// previewed plan as a `bt_intent walk` through CoopArbiter::sendClientIntent()
+/// (RB-D32's one builder) and returns TRUE, so the push never runs and the
+/// client mints NOTHING (WV-D40, a G1 criterion). On the co-op HOST it stamps
+/// the walk's action context (RB-D19, beginHostLocalWalk()) and returns FALSE so
+/// vanilla executes exactly as before. FALSE in single player.
+///
+/// The plan is read out of the LIVE Pathfinding the caller has just calculated
+/// and previewed, so both machines describe the same route with the same code.
+bool coopInterceptWalkConfirm(BattleUnit* actor, Position dest, bool run,
+	bool strafe, bool sneak, bool ignoreSpotted, SavedBattleGame* save);
 
 } // namespace OpenXcom

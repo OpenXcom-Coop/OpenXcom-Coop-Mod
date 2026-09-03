@@ -353,4 +353,57 @@ bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s);
 /// `event_state` as `coopLocalExecBlocked`; never read by game logic.
 int coopLocalExecutionBlocks();
 
+/// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30, WV-D40 unchanged): the WALK ARM's
+/// entry gate, which is what W1-P6's `coopBlockLocalExecution()` call in
+/// BattlescapeGame::primaryAction's walk arm becomes now that the arm HAS a
+/// wire verb.
+///
+/// THE GATE SPLITS; IT IS NOT WEAKENED. W1-P6's own comment at that call site
+/// says the second term "simply refuses ... until W1-P9 turns it into a walk
+/// INTENT" - this is that packet, so:
+///   * THIS call keeps term 2 (OWNERSHIP + active side) and keeps it HERE, at
+///     the top of the arm, because D6's ownership wall forbids a seat even
+///     PREVIEWING a unit it does not command - and a co-op client now runs
+///     vanilla's whole preview block (Pathfinding::calculate + previewPath,
+///     both machine-local display scratch: `_path`/`_totalTUCost` are not
+///     serialized and `Tile::_preview`/`_markerColor`/`_tuMarker` are not
+///     serialized either, the same class of state W1-P6's own note cleared
+///     `Map::resetObstacles()` on). A refusal bumps the SAME
+///     coopLocalExecutionBlocks() counter W1-P6 minted, so every existing
+///     "delivered then refused" proof keeps working for the cases that still
+///     refuse.
+///   * term 1 (hostSim - "only the simulating machine may EXECUTE") moves DOWN
+///     to `coopInterceptWalkConfirm()` (CoopArbiter.h), which sits immediately
+///     before `statePushBack(new UnitWalkBState(...))`. WV-D40 is enforced
+///     there and is not relaxed by one line: a co-op client still never reaches
+///     that push. What changes is what happens INSTEAD - a `bt_intent walk`
+///     rather than a bare refusal.
+/// Self-guarded exactly like coopBlockLocalExecution(): false outside an ACTIVE
+/// co-op battle, so SP is byte-identical.
+bool coopBlockWalkArm(const BattleUnit* u, const SavedBattleGame* s);
+
+/// W1-P9: test-only introspection - how many times the WALK ARM has been
+/// ENTERED on this machine (bumped by coopBlockWalkArm() before it decides
+/// anything, in a co-op battle only). Reported by TestServer's `event_state` as
+/// `coopWalkArmEntered`.
+///
+/// It is the DELIVERY PROOF W1-G1 criterion 4b needs after this packet.
+/// Before W1-P9 that proof was "coopLocalExecBlocked went up", because a client
+/// ground click could only ever be refused; now a click on a unit the client
+/// DOES command is forwarded as an intent instead, and a click whose
+/// pathfinder finds no route reaches the arm and legitimately does nothing at
+/// all. Neither of those moves the refusal counter, so without this one the
+/// "the click arrived" half of 4b would become unprovable - which is exactly
+/// the vacuity the criterion exists to exclude. Never read by game logic.
+int coopWalkArmEntries();
+
+/// W1-P9: test-only introspection - how many `bt_intent walk` envelopes this
+/// CLIENT has shipped from the walk-confirm hook (`coopInterceptWalkConfirm`).
+/// Reported by TestServer's `event_state` as `coopWalkIntentsSent`. Together
+/// with coopWalkArmEntries() above it separates "the click reached the arm and
+/// became an ORDER" from "the click reached the arm and did nothing", which is
+/// what a ground-click gate has to be able to tell apart once the arm has a
+/// wire verb. Never read by game logic.
+int coopWalkIntentsFromClick();
+
 } // namespace OpenXcom
