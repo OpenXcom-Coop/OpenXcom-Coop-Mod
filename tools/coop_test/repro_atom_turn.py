@@ -40,10 +40,63 @@ player unit currently sees a hostile - approximated via battle_state's own
 R2-P11's own field; an empty union implies every per-unit spotted set is
 also empty, which is the direction this rule actually needs - a
 conservative but sound proxy for the vanilla UnitTurnBState.cpp:114-118
-"unitsSpottedThisTurn grew" abort predicate the runbook cites) and (b) no
-door tile within 2 tiles of it (a tile_info sweep). If it does not qualify,
-tear the whole session down and re-roll (fresh RNG-seeded generation) - up
-to 5 attempts, logging each.
+"unitsSpottedThisTurn grew" abort predicate the runbook cites), (b) no
+door tile within 2 tiles of it (a tile_info sweep), and (c) NO LIVING
+NON-PLAYER UNIT WITHIN MAX VIEW DISTANCE of it (see rule (c) below). If it
+does not qualify, tear the whole session down and re-roll (fresh RNG-seeded
+generation), logging each.
+
+============================================================================
+FIXTURE-ROBUSTNESS PASS (W1-P7 follow-up, 2026-09-03). Four distinct failure
+signatures were observed in one day; three were this file's own fixture
+premises going stale, and all three are fixed here. NO assertion was
+weakened - each premise was made TRUE instead. Cites RB-D15, REVIEW4 IR-4,
+WV-D18 and SS2.4a.
+
+(A) `run_no_reveal_case` red: "a turn back to an ALREADY-FACED direction
+    attached 1 reveal delta(s)". ROOT CAUSE: **W1-P6 invalidated the old
+    premise.** The case used to turn back to the actor's t=0 facing on the
+    assumption that "every tile in that cone is already discovered". That
+    held while the actor happened to be the unit BattlescapeState::init()
+    ran updateSoldierInfo(checkFOV=true) -> calculateFOV() for. W1-P6's
+    CoopHandshake::selectOwnUnitAtEntry now auto-selects each machine's OWN
+    unit at entry, and the actor here is the CLIENT's seat-1 soldier - so on
+    the host the actor is NOT the selected unit, its t=0 cone was never
+    computed or published, and turning back to it genuinely discovers tiles
+    for the first time. The delta was CORRECTLY non-empty; SS2.4a was never
+    broken. (Same root cause as the REVIEW4 REVEAL_SEQS_AT_T0 exact->range
+    relaxation W1-P6 had to make in test_rw_hash_now.py.)
+    FIX: the case no longer assumes any cone is published - it PUBLISHES one
+    itself (turn to it, settle, wait for the host's quiescent flush), turns
+    away, and only then measures the turn back. The assertion is unchanged
+    and still exactly as strict; see run_no_reveal_case()'s own docstring for
+    why it can still fail, including its in-run positive control.
+
+(B) The vanilla `unitSpotted` mid-chain abort - the host's own log line
+    "[coop-turn] unit N's coop-admitted turn ABORTED mid-chain - the
+    RB-D15/REVIEW4 IR-4 fixture guards ... should have prevented this".
+    ROOT CAUSE: rules (a)+(b) did not implement RB-D15's THIRD requirement.
+    RB-D15/WV-D18 ask for "open-ground, no-door, NO-ENEMY-LOS"; rule (a) only
+    asked whether a hostile was ALREADY spotted at t=0, which says nothing
+    about whether the actor's rotation will bring one INTO view.
+    FIX: new rule (c) below, the IR-4 "pin the selection rule" treatment.
+
+(C) The faithful-UI right-click never reaching BattlescapeGame::
+    secondaryAction (the host received no bt_intent at all, and the run timed
+    out in wait_settled). ROOT CAUSE: run_ui_variant still used
+    `map_tile_screen_pos` + a raw click, the recipe W1-P6 explicitly
+    documented as NOT WORKING - three real offsets sit between the projected
+    point and the point that actually selects a tile.
+    FIX: migrated to W1-P6's `map_tile_click_pos` probe, which resolves all
+    three and SELF-VERIFIES, with a bounded per-direction retry. Same shape
+    test_rw_input_gating.py and test_rw_feedback.py already use.
+
+(D) "timed out waiting for action settled" when this file is launched in the
+    SAME shell invocation as a preceding harness run. Environment effect, not
+    a defect in this test: run it in its OWN invocation (the standing harness
+    rule - one harness run at a time, machine-wide). Noted here so the next
+    reader does not re-derive it.
+============================================================================
 
 Run:  python tools/coop_test/repro_atom_turn.py
 """
@@ -62,10 +115,34 @@ FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
-MAX_REROLLS = 5
+# Raised from 5 by the 2026-09-03 fixture-robustness pass: SELECTION RULE (c)
+# (no non-player unit within MAX_VIEW_DISTANCE) rejects more generations than
+# rules (a)+(b) did, and a re-roll is the CORRECT response to a fixture that
+# cannot prove the property - re-rolling is cheap (~25s a boot), a red run is
+# not. One acceptance run was observed needing 9 attempts, so the ceiling has
+# real headroom above the common case of 1-2 (RB-D15's
+# own "the two guards ARE the construction" argument, extended to the third).
+MAX_REROLLS = 15
 
 SDLK_TAB = 9  # Options::keyBattleNextUnit default (test_rw_input_gating.py precedent)
 SDLK_HOME = 278  # Options::keyBattleCenterUnit default
+
+FACTION_PLAYER = 0
+
+# Mod::_maxViewDistance's default, `src/Mod/Mod.cpp:424` - and stock xcom1
+# does not override it (no `maxViewDistance` key in bin/standard/xcom1/*.rul),
+# which is the ruleset this harness runs. It is a HARD CAP: darkness and
+# `maxDarknessToSeeUnits` only ever REDUCE effective view range, never extend
+# it, so "no non-player unit within this many tiles" is a strict superset of
+# "this actor's rotation cannot spot anybody" - which is what fixture rule (c)
+# needs to be sound rather than merely likely.
+MAX_VIEW_DISTANCE = 20
+
+# run_ui_variant's bounded retry (signature C). W1-P6's own `tile_click_until`
+# note: "the battlescape camera can shift between the probe's round-trip check
+# and the injected click arriving, so a click occasionally lands one tile off".
+# Each attempt costs the actor one turn's TU (4), which is why this is small.
+UI_CLICK_TRIES = 4
 
 # Direction -> (dx, dy) step table, 0=North clockwise (the same table
 # TestServer.cpp's own "battle_action act==\"turn\"/\"door\"" debug helpers use).
@@ -181,10 +258,46 @@ def has_door_within(gc, x, y, z, radius=2):
     return False
 
 
+def nearest_non_player_distance(battle_state_resp, unit):
+    """Straight-line tile distance from `unit` to the closest LIVING non-player
+    unit, or None if there are none. 3D, because vanilla's own view-distance
+    test is a 3D squared-distance compare."""
+    best = None
+    for u in battle_state_resp.get("units", []):
+        if u.get("faction") == FACTION_PLAYER or u.get("isOut"):
+            continue
+        d2 = ((u["x"] - unit["x"]) ** 2 + (u["y"] - unit["y"]) ** 2
+              + (u["z"] - unit["z"]) ** 2)
+        if best is None or d2 < best:
+            best = d2
+    return None if best is None else best ** 0.5
+
+
 def qualifying_actor(host, soldier_id):
-    """REVIEW4 IR-4 SELECTION RULE - see this file's own module docstring
-    for the exact (a)/(b) predicates and the documented approximation for
-    (a). Returns the seat-1 soldier's unit dict if it qualifies, else None."""
+    """REVIEW4 IR-4 SELECTION RULE - see this file's own module docstring for
+    the exact predicates and the documented approximation for (a). Returns the
+    seat-1 soldier's unit dict if it qualifies, else None.
+
+    RULE (c), ADDED BY THE 2026-09-03 FIXTURE-ROBUSTNESS PASS (signature B).
+    RB-D15 and WV-D18 both require an "open-ground, no-door, NO-ENEMY-LOS"
+    actor, and rules (a)+(b) only covered the first two: (a) asks whether a
+    hostile is ALREADY spotted at t=0, which is silent on whether this actor's
+    ROTATION will bring one into view. Vanilla aborts a BA_NONE turn mid-chain
+    the moment `getUnitsSpottedThisTurn()` grows (UnitTurnBState.cpp:117), and
+    that abort leaves the unit on an intermediate facing - which is exactly the
+    red this rule exists to stop ("the admitted turn itself never completed on
+    the host"), and which the engine itself flags as a FIXTURE failure:
+    "[coop-turn] ... ABORTED mid-chain - the RB-D15/REVIEW4 IR-4 fixture guards
+    ... should have prevented this".
+
+    The predicate is deliberately a conservative SUPERSET of vanilla's: no
+    LIVING NON-PLAYER unit (hostile or neutral - the harness cannot cheaply
+    tell which factions a given observer adds to its spotted set, so it excludes
+    both) anywhere within MAX_VIEW_DISTANCE. A unit further away than the mod's
+    view-distance cap can never be spotted by any rotation, so a fixture that
+    passes this rule cannot take the abort branch. It is a PIN on the selection
+    rule (the IR-4 treatment), never a relaxation of anything the test asserts.
+    """
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
         return None
@@ -195,6 +308,15 @@ def qualifying_actor(host, soldier_id):
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
                 return None  # rule (b)
+            d = nearest_non_player_distance(st, u)
+            if d is not None and d <= MAX_VIEW_DISTANCE:
+                print(f"[repro_atom_turn] rule (c): nearest non-player unit is "
+                      f"{d:.2f} tiles from the actor (cap {MAX_VIEW_DISTANCE}) - "
+                      "its rotation could spot one and abort mid-chain")
+                return None  # rule (c)
+            print(f"[repro_atom_turn] rule (c) ok: nearest non-player unit is "
+                  f"{'none at all' if d is None else format(d, '.2f') + ' tiles'} "
+                  f"away (cap {MAX_VIEW_DISTANCE})")
             return u
     return None
 
@@ -224,7 +346,8 @@ def bring_up_qualifying_battle():
                 return host, client, actor, soldier_id
 
             print(f"[repro_atom_turn] re-roll {attempt}/{MAX_REROLLS}: fixture did not "
-                  "qualify (a hostile already spotted, or a door within 2 tiles) - "
+                  "qualify (rule (a) a hostile already spotted, (b) a door within 2 tiles, "
+                  "or (c) a non-player unit inside max view distance) - "
                   "tearing down and retrying")
             host.shutdown()
             client.shutdown()
@@ -295,12 +418,64 @@ def wait_settled(host, client, baseline, timeout=15):
                      settled, timeout=timeout)
 
 
+def center_on_selection(gc):
+    gc.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
+    time.sleep(0.15)
+
+
+def tile_click(gc, tx, ty, tz, button="right"):
+    """W1-P6's `map_tile_click_pos` recipe, verbatim in shape from
+    test_rw_input_gating.py (and reused by test_rw_feedback.py).
+
+    SIGNATURE C FIX (2026-09-03). This used to be `map_tile_screen_pos` + a raw
+    click, which W1-P6 documented as NOT A WORKING RECIPE: three real offsets
+    sit between the projected point and the point that actually selects a tile
+    - `mapClick` reads Map::getSelectorPosition() rather than projecting the
+    click itself; `inject_input` pushes WINDOW pixels while the camera works in
+    base coordinates (Screen::getXScale() is 2 in the harness's 640x400
+    window); and a point over the icons panel is swallowed by mapClick's
+    `_mouseOverIcons` early return. The probe resolves all three AND
+    re-verifies the round trip, so a click that would have missed is reported
+    as `verified: false` HERE instead of surfacing minutes later as "the host
+    received no bt_intent at all".
+
+    Returns the probe response, or None when the tile is not clickable right
+    now (a FIXTURE condition - the caller re-rolls the target, it is never a
+    result about the feature under test)."""
+    center_on_selection(gc)
+    pr = gc.ok({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
+    if not pr.get("verified"):
+        return None
+    gc.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"],
+           "button": button})
+    return pr
+
+
 def run_ui_variant(host, client, actor_id, current_dir):
     """ONE faithful-UI variant step (packet text): a real right-click via
     inject_input, proving the RB-D10 secondaryAction intercept end-to-end -
     the client SENDS an intent (instead of running vanilla locally) exactly
     as the battle_intent-driven path above did, but reached through the
-    real map-click code path this time."""
+    real map-click code path this time.
+
+    The right-click itself now goes through W1-P6's self-verifying
+    `map_tile_click_pos` probe (see tile_click above, signature C), inside
+    W1-P6's `tile_click_until` RETRY SHAPE - a bounded loop that stops the
+    moment the INTENDED EFFECT is observed. Two distinct camera/viewport facts
+    make that necessary, and neither says anything about the intercept:
+      * a particular neighbour tile may not be clickable from where the camera
+        sits at all (the probe reports `verified: false`); and
+      * "the battlescape camera can shift between the probe's round-trip check
+        and the injected click arriving, so a click occasionally lands one tile
+        off" (W1-P6's own note) - which is a turn to a NEIGHBOURING facing, not
+        a failure to turn.
+    Each attempt therefore re-reads the unit's CURRENT facing, picks a fresh
+    90-degree target from it, and re-probes. (`current_dir` is consequently only
+    the caller's view of the starting facing and is no longer read here - the
+    loop must use the live one, because a mis-landed attempt has already moved
+    it.) Every assertion below is unchanged
+    and still applies to the attempt that landed: the unit must end on exactly
+    the intended facing on BOTH machines, and its TU must have dropped."""
     selected = None
     for _ in range(12):
         st = client.cmd({"cmd": "battle_state"})
@@ -314,41 +489,44 @@ def run_ui_variant(host, client, actor_id, current_dir):
         f"(last selectedId={selected}) - see test_rw_input_gating.py's own "
         "'initial-selection' note on why a fresh load may start elsewhere")
 
-    # Center the camera on our selected unit (Options::keyBattleCenterUnit,
-    # default SDLK_HOME) BEFORE asking map_tile_screen_pos for a target tile -
-    # otherwise the camera may still be wherever it was at battle load
-    # (typically centered on whichever unit the HOST had selected at
-    # snapshot time), and a tile near OUR unit could resolve to a screen
-    # position nowhere near the visible viewport.
-    client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
-    time.sleep(0.1)
+    before_tu = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["tu"]
 
-    unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
-    ui_to_dir = (current_dir + 2) % 8  # a clearly different direction (90 degrees on)
-    tx = unit["x"] + DIR_DX[ui_to_dir]
-    ty = unit["y"] + DIR_DY[ui_to_dir]
-    tz = unit["z"]
+    ui_to_dir = None
+    landed = False
+    for attempt in range(1, UI_CLICK_TRIES + 1):
+        unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
+        here = unit["direction"]
+        # Prefer 90 degrees on (the original recipe); fall back through the
+        # other non-current facings when a neighbour tile is not clickable.
+        placed = False
+        for cand in [(here + off) % 8 for off in (2, 6, 3, 5, 1, 7, 4)]:
+            baseline = event_seq_baseline(client)
+            if tile_click(client, unit["x"] + DIR_DX[cand], unit["y"] + DIR_DY[cand],
+                          unit["z"], button="right") is not None:
+                ui_to_dir = cand
+                placed = True
+                break
+        assert placed, (
+            "no neighbour tile of the actor was clickable in any direction - FIXTURE "
+            "failure (camera/viewport), not a result about the RB-D10 intercept")
 
-    pos_resp = client.ok({"cmd": "map_tile_screen_pos", "x": tx, "y": ty, "z": tz})
-    sx, sy = pos_resp["screenX"], pos_resp["screenY"]
-    assert 0 <= sx < pos_resp["mapWidth"] and 0 <= sy < pos_resp["mapHeight"], (
-        f"computed click target ({sx},{sy}) is off the "
-        f"{pos_resp['mapWidth']}x{pos_resp['mapHeight']} map viewport")
-
-    before_tu = unit["tu"]
-    baseline = event_seq_baseline(client)
-    client.ok({"cmd": "inject_input", "kind": "click", "x": sx, "y": sy, "button": "right"})
-
-    wait_settled(host, client, baseline)
+        wait_settled(host, client, baseline)
+        if units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["direction"] == ui_to_dir:
+            landed = True
+            break
+        got = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["direction"]
+        print(f"[repro_atom_turn] run_ui_variant attempt {attempt}/{UI_CLICK_TRIES}: the "
+              f"click turned unit {actor_id} to dir {got}, intended {ui_to_dir} - the "
+              "camera shifted between the probe and the injected click (W1-P6's known "
+              "one-tile-off effect); re-aiming from the new facing")
 
     host_unit = units_by_id(host.cmd({"cmd": "battle_state"}))[actor_id]
     client_unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
 
-    assert client_unit["direction"] == ui_to_dir, (
+    assert landed and client_unit["direction"] == ui_to_dir, (
         f"faithful-UI right-click did not turn unit {actor_id} to dir {ui_to_dir} "
-        f"(client direction={client_unit['direction']}) - the RB-D10 secondaryAction "
-        "intercept did not fire end-to-end (see this repro's WATCH note on "
-        "inject_input sending no preceding SDL_MOUSEMOTION)")
+        f"(client direction={client_unit['direction']}) in {UI_CLICK_TRIES} attempts - "
+        "the RB-D10 secondaryAction intercept did not fire end-to-end")
     assert host_unit["direction"] == ui_to_dir, (
         f"host unit {actor_id} direction={host_unit['direction']}, expected {ui_to_dir}")
     assert client_unit["tu"] < before_tu, \
@@ -365,15 +543,101 @@ def run_ui_variant(host, client, actor_id, current_dir):
           "+ emitted, client applied), hash-clean, fog of war in parity")
 
 
-def run_no_reveal_case(host, client, actor_id, back_to_dir):
+def settle_reveal(host, client, timeout=30):
+    """Wait until the HOST has NOTHING unpublished and the client has caught up.
+
+    Load-bearing for the no-reveal measurement below, and the reason is exactly
+    the one test_rw_retry_cancel.py's own settle_emits() gives: SS2.4a's
+    quiescent flush (CoopReveal::flushQuiescent, at the RB-D5 pump point) can
+    publish a standalone `ev reveal` a tick or two AFTER an action settles. A
+    measurement started before that flush would see the PREVIOUS action's
+    leftover bits ride the next envelope and report a false non-empty diff."""
+    def quiet():
+        hs = host.cmd({"cmd": "event_state"})
+        cs = client.cmd({"cmd": "event_state"})
+        rs = host.cmd({"cmd": "reveal_state"})
+        return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
+                    and rs.get("unpublished") is False
+                    and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
+                    and cs.get("queueDepth") == 0)
+    client.wait_for("host has nothing unpublished and the client is caught up",
+                    quiet, timeout=timeout)
+
+
+def turn_to(host, client, actor_id, to_dir, what):
+    """One admitted client turn, settled and fully flushed. Returns how many
+    reveal deltas the HOST attached while it ran."""
+    emits_before = host_reveal_emits(host)
+    baseline = event_seq_baseline(client)
+    client.ok({"cmd": "battle_intent", "kind": "turn", "actor": actor_id, "toDir": to_dir})
+    wait_settled(host, client, baseline)
+    settle_reveal(host, client)
+    unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
+    assert unit["direction"] == to_dir, (
+        f"{what}: unit {actor_id} direction={unit['direction']}, expected {to_dir} - "
+        "the turn did not land")
+    return host_reveal_emits(host) - emits_before
+
+
+def run_no_reveal_case(host, client, actor_id, reveal_emits_t0):
     """RW-REVEAL-SYNC presence-gating (SS2.4a: `reveal` is "omitted when nothing
     was revealed"): an action that discovers NOTHING must attach no reveal field
-    at all. Driven by turning the actor BACK to a facing it has already held -
-    every tile in that cone is already discovered, and reveal is monotone, so
-    the diff at the CoopEmit::sendEv choke is empty.
+    at all.
 
-    DISCLOSED DEVIATION from the anchor pack's literal recipe (see this
-    packet's report): the pack asks for a TURRET-ONLY turn here, to guard
+    HOW THE EMPTY DIFF IS CONSTRUCTED (rewritten 2026-09-03, signature A). This
+    case used to turn the actor back to its t=0 facing on the assumption that
+    "every tile in that cone is already discovered". **W1-P6 invalidated that
+    assumption** - see this file's module docstring for the full trace: the
+    actor is the CLIENT's seat-1 soldier, W1-P6's entry auto-select means the
+    HOST's own selected unit is a different one, and only the selected unit's
+    FOV is recalculated by BattlescapeState::init(), so the actor's t=0 cone was
+    never computed OR published and turning back to it discovered tiles for the
+    first time. The delta was correctly non-empty and SS2.4a was never broken.
+
+    The premise is now MADE TRUE instead of assumed, in three steps:
+      1. turn the actor TO `probe_dir` and let the host publish everything
+         (settle_reveal waits for `reveal_state.unpublished == False`), so that
+         cone is now, by construction, fully discovered AND published;
+      2. turn AWAY to `away_dir`, again fully flushed;
+      3. turn BACK to `probe_dir` and MEASURE.
+    Reveal is monotone within a stage (SS2.4a: "bits only ever ADDED"), so step
+    3's cone is a subset of what step 1 already published and its diff at the
+    CoopEmit::sendEv choke is necessarily empty.
+
+    WHY THE ASSERTION CAN STILL FAIL (this is a gate, not a formality):
+      * The construction guarantees the DIFF is empty. It does NOT suppress an
+        ATTACHMENT. If SS2.4a's presence gating regressed - if sendEv attached a
+        `reveal` field unconditionally, or attached an empty delta - the host
+        would log one more "attached reveal delta" line for step 3 and this
+        assertion fails. The measurement is exactly as strict as before: the
+        count must be UNCHANGED, not "small".
+      * IN-RUN POSITIVE CONTROL: the counter must be NON-ZERO at the moment of
+        the measurement. That is ASSERTED, and it is guaranteed rather than
+        map-dependent - the host publishes the initial fog during bring-up, so
+        `[coop-reveal] attached reveal delta` lines exist in every run before a
+        single action is driven. It proves, in this very run, that this build
+        really does emit the line host_reveal_emits() greps for, that the log
+        is readable, and that the counter is not silently stuck at zero. Those
+        bring-up deltas go through the SAME CoopEmit::sendEv choke and the SAME
+        CoopReveal::attachDelta the measured turn would use, so a gating
+        regression that attached unconditionally would move this same counter.
+      * How many deltas the run's own TURNS attached is REPORTED but
+        deliberately NOT asserted, because it is genuinely map-dependent: on a
+        roll where the actor starts in an already fully-discovered pocket the
+        e2e turn, the UI turn and both preps can all legitimately attach
+        nothing (observed). Requiring it would fail runs for having a MORE
+        certainly-empty diff than usual - the opposite of what this case wants.
+        Likewise the preparation turns are not required to reveal anything: a
+        prep that reveals nothing means the cone was ALREADY published, which
+        satisfies the premise even more directly than one that publishes it.
+      * The OTHER direction - "the host stopped attaching deltas when it should
+        have" - is not this case's job and is covered elsewhere in the same
+        run: the e2e turn asserts host/client `mapDiscoveredFloor` equality,
+        assert_reveal_parity does a per-tile fog compare after every action,
+        and repro_reveal_sync.py covers the delta/base machinery wholesale.
+
+    DISCLOSED DEVIATION from the anchor pack's literal recipe (see R3-P1's
+    report): the pack asks for a TURRET-ONLY turn here, to guard
     TileEngine.cpp:1547's `Options::strafe && getTurretType() > -1` turret-cone
     branch. On this fixture that case is vacuous AND risky: every unit is a
     plain soldier with getTurretType() == -1 (the same fact RW-FIX-TURRET's own
@@ -385,26 +649,51 @@ def run_no_reveal_case(host, client, actor_id, back_to_dir):
 
     Observed through the HOST's own log rather than the event ring: CoopEventLog
     is a fixed POD struct and deliberately carries no payload (BattlePump.h)."""
+    start_dir = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["direction"]
+    probe_dir = (start_dir + 4) % 8   # 180 degrees off - a fresh cone
+    away_dir = (probe_dir + 2) % 8    # 90 degrees off that - another fresh cone
+
+    # Start from a fully published baseline, so nothing left over from the
+    # previous case can ride step 1 or 3.
+    settle_reveal(host, client)
+
+    prep1 = turn_to(host, client, actor_id, probe_dir, "no-reveal prep 1 (publish the cone)")
+    prep2 = turn_to(host, client, actor_id, away_dir, "no-reveal prep 2 (turn away)")
+
     emits_before = host_reveal_emits(host)
-    baseline = event_seq_baseline(client)
-    client.ok({"cmd": "battle_intent", "kind": "turn", "actor": actor_id, "toDir": back_to_dir})
-    wait_settled(host, client, baseline)
+
+    # POSITIVE CONTROL (see the docstring): the counter must be live. Guaranteed
+    # by the host's bring-up fog publication, which goes through the same
+    # CoopEmit::sendEv choke the measurement watches - so this is not a
+    # map-dependent hope, and a silently-broken counter cannot make the
+    # measurement below vacuous.
+    assert emits_before > 0, (
+        "host_reveal_emits() reads 0 - this build never logged '[coop-reveal] "
+        "attached reveal delta' at all, not even for the host's bring-up fog "
+        "publication, so a zero at the measurement would be meaningless. The "
+        "counter, not SS2.4a, is what failed here.")
+    measured = turn_to(host, client, actor_id, probe_dir,
+                       "no-reveal measurement (back to the published cone)")
+    emits_after = host_reveal_emits(host)
+
+    assert measured == 0, (
+        f"a turn back to a cone this test had ALREADY published attached {measured} "
+        "reveal delta(s) - SS2.4a's presence gating is broken (an empty diff must "
+        "attach nothing at all). Reveal is monotone within a stage, so this cone "
+        "cannot legitimately discover anything new.")
+    assert emits_after == emits_before, "host reveal-delta count moved outside the turn"
 
     unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
-    assert unit["direction"] == back_to_dir, (
-        f"the no-reveal turn did not land: unit {actor_id} direction={unit['direction']}, "
-        f"expected {back_to_dir}")
-
-    emits_after = host_reveal_emits(host)
-    assert emits_after == emits_before, (
-        f"a turn back to an ALREADY-FACED direction attached {emits_after - emits_before} "
-        "reveal delta(s) - SS2.4a's presence gating is broken (an empty diff must attach "
-        "nothing at all)")
     assert_reveal_parity(host, client, "after the no-reveal turn",
                          extra_positions=neighbourhood(unit))
-    print(f"PASS run_no_reveal_case: turning unit {actor_id} back to dir {back_to_dir} revealed "
-          f"nothing and attached NO reveal field (host reveal-delta count stayed at "
-          f"{emits_after}) - SS2.4a presence gating holds")
+    by_turns = emits_before - reveal_emits_t0
+    print(f"PASS run_no_reveal_case: positive control ok - the counter is live at "
+          f"{emits_before} (bring-up fog publication guarantees it); this run's own "
+          f"turns attached {by_turns} delta(s) since t=0, of which the prep turns "
+          f"contributed {prep1 + prep2}"
+          f"{' (the actor started in an already fully-discovered pocket, which makes the empty diff below even more certain)' if by_turns == 0 else ''}"
+          f"; turning unit {actor_id} back to the already-published dir {probe_dir} "
+          f"attached NONE (count stayed at {emits_after}) - SS2.4a presence gating holds")
 
 
 def run_deny_path(client, host_state, seated_soldier_id):
@@ -476,6 +765,10 @@ def test_atom_turn_e2e():
               f"full={len(t0_h)}/8 buckets EQUAL post-overlay-dismissal")
 
         # --- drive the client action via battle_intent (RB-D32) ---
+        # Captured HERE so run_no_reveal_case() can use "the host attached at
+        # least one reveal delta while this run drove real turns" as its
+        # positive control (see its docstring).
+        reveal_emits_t0 = host_reveal_emits(host)
         baseline = event_seq_baseline(client)
         intent_resp = client.ok({"cmd": "battle_intent", "kind": "turn",
                                   "actor": actor_id, "toDir": to_dir})
@@ -529,9 +822,11 @@ def test_atom_turn_e2e():
         run_ui_variant(host, client, actor_id, client_unit["direction"])
 
         # --- RW-REVEAL-SYNC presence gating: an action that reveals nothing
-        # must attach no `reveal` field (turn back to the actor's ORIGINAL
-        # facing, whose cone is by now fully discovered) ---
-        run_no_reveal_case(host, client, actor_id, from_dir)
+        # must attach no `reveal` field. The case PUBLISHES the cone it later
+        # returns to rather than assuming any facing is already discovered -
+        # W1-P6's entry auto-select made that assumption false (signature A,
+        # module docstring). ---
+        run_no_reveal_case(host, client, actor_id, reveal_emits_t0)
 
         # --- deny path: client intents a HOST-owned unit ---
         run_deny_path(client, host_state, soldier_id)
