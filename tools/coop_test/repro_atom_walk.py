@@ -54,6 +54,10 @@ PINS (a fixture that fails one is RE-ROLLED; nothing asserted is relaxed):
        a WALK moves the actor and vanilla auto-opens a door it steps up to
        (UnitWalkBState.cpp's `unitOpensDoor` block), which is W1-P10's atom and
        would arrive here as an unapplied terrain change.
+       **INVERTED BY `--require-door` (W1-P10):** that packet makes a door a
+       synced `ev door` in the same seq stream rather than an unapplied terrain
+       change, so its acceptance re-runs this whole file on a fixture that DOES
+       contain one. Same assertions, door-containing map.
   (c') CONTACT-FREE WITH A MARGIN: session.MAX_VIEW_DISTANCE plus the total
        displacement this test can produce. session.actor_is_contact_free()'s own
        cap is exactly right for a ROTATION, which cannot move the actor; a walk
@@ -94,6 +98,7 @@ WHY THE ASSERTIONS HERE ARE NOT VACUOUS - the checks that would go RED:
     WR-6 names.
 
 Run:  python tools/coop_test/repro_atom_walk.py
+      python tools/coop_test/repro_atom_walk.py --require-door   (W1-P10)
       (in its OWN shell invocation - the standing harness rule, one harness run
        at a time, machine-wide.)
 """
@@ -112,6 +117,16 @@ COOP_SEAT_1 = 1
 FACTION_PLAYER = 0
 
 MAX_REROLLS = 15
+
+# W1-P10 (SS4 "ATOM door" acceptance: "repro_atom_walk.py re-run with a
+# door-containing fixture"). OFF by default, so the fixture this file was
+# ACCEPTED on is unchanged; with `--require-door` rule (b') below is INVERTED -
+# the actor must have a door within WALK_DOOR_RADIUS instead of not having one -
+# which re-runs every walk-core phase on a map where vanilla's auto-open really
+# can fire mid-walk. Before W1-P10 that was an unapplied terrain change on the
+# client; after it, it is a `door` ev in the same seq stream, and this run is
+# what proves the walk atom is unharmed by it.
+REQUIRE_DOOR = "--require-door" in sys.argv
 # TU HEADROOM. A soldier has ~55 TU and a tile costs 4-8, so ONE actor cannot
 # carry every phase - and an actor that runs dry produces a FIXTURE failure that
 # looks exactly like a broken atom ("no walk could be ordered"). Each phase that
@@ -123,6 +138,16 @@ SEAT1_SOLDIERS = 5
 # own one-tile door lookahead.
 WALK_RUN = 3
 WALK_DOOR_RADIUS = WALK_RUN + 2
+# W1-P10's inverted run wants a door in the actor's OPERATING AREA rather than
+# strictly inside vanilla's one-tile auto-open lookahead. The window is WIDE, and
+# the number is measured rather than chosen: at the tight WALK_DOOR_RADIUS the
+# fixture qualified 0/15 boots, and at 9 it qualified 0/15 again - the squad
+# starts inside the Skyranger and this map class puts its nearest door 5..17
+# tiles away. The point of the inverted run is that rule (b') no longer has to
+# EXIST - that a door in the actor's region is no longer a reason to reject a
+# walk fixture - so the honest window is the one in which that claim can
+# actually be exercised.
+WALK_DOOR_REQUIRE_RADIUS = 16
 
 # (c') the contact margin at QUALIFICATION time. session.MAX_VIEW_DISTANCE is
 # the right cap for a ROTATION, which cannot move the actor; a walk can, so this
@@ -290,14 +315,20 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=SEAT1_SOLDIERS)
 
 
 def has_door_within(gc, x, y, z, radius):
-    for dx in range(-radius, radius + 1):
-        for dy in range(-radius, radius + 1):
-            ti = gc.cmd({"cmd": "tile_info", "x": x + dx, "y": y + dy, "z": z})
-            if not ti.get("ok"):
-                continue
-            for part in ti.get("parts", {}).values():
-                if part.get("isDoor") or part.get("isUfoDoor"):
-                    return True
+    """Any door part within Chebyshev @a radius of (x,y) at the SAME level.
+
+    Reads W1-P10's `find_doors` probe - ONE round trip for the whole map -
+    instead of a tile_info sweep, which is the same predicate at
+    (2*radius+1)^2 round trips per soldier. At the tight WALK_DOOR_RADIUS the
+    sweep was merely wasteful; at WALK_DOOR_REQUIRE_RADIUS, across every seated
+    soldier, it cost ~4.7 MINUTES per fixture attempt (measured) and made the
+    inverted run untenable."""
+    r = gc.cmd({"cmd": "find_doors", "limit": 512})
+    if not r.get("ok"):
+        return False
+    for d in r["doors"]:
+        if d["z"] == z and abs(d["x"] - x) <= radius and abs(d["y"] - y) <= radius:
+            return True
     return False
 
 
@@ -432,10 +463,20 @@ def qualifying_actor(host, soldier_id):
     for u in units.values():
         if u.get("soldierId") != soldier_id:
             continue
-        if has_door_within(host, u["x"], u["y"], u["z"], WALK_DOOR_RADIUS):
+        radius = WALK_DOOR_REQUIRE_RADIUS if REQUIRE_DOOR else WALK_DOOR_RADIUS
+        near_door = has_door_within(host, u["x"], u["y"], u["z"], radius)
+        if REQUIRE_DOOR and not near_door:
+            print(f"[repro_atom_walk] rule (b') INVERTED (--require-door): no door "
+                  f"within {radius} tiles of the actor - this run wants one")
+            return None
+        if near_door and not REQUIRE_DOOR:
             print(f"[repro_atom_walk] rule (b'): a door within {WALK_DOOR_RADIUS} tiles "
                   "of the actor - a walk would auto-open it (W1-P10's atom)")
             return None
+        if near_door:
+            print(f"[repro_atom_walk] rule (b') INVERTED: a door IS within "
+                  f"{radius} tiles of the actor - W1-P10's `door` ev is what keeps "
+                  "the terrain in sync when a walk opens it")
         d = session.nearest_non_player_distance(st, u)
         cap = session.MAX_VIEW_DISTANCE + WALK_CONTACT_MARGIN
         if d is not None and d <= cap:
@@ -473,7 +514,19 @@ def bring_up_qualifying_battle():
         try:
             bring_up_lobby(host, client, port)
             drive_to_battlescape(host, client, seated)
-            actor = qualifying_actor(host, seated["soldierId"])
+            # W1-P10's --require-door run asks every seated soldier, not just
+            # the first: measured, 15/15 boots had no door within
+            # WALK_DOOR_RADIUS of soldier #1, so a first-soldier-only search
+            # simply never finds a door fixture. The DEFAULT run is unchanged -
+            # it still qualifies on soldier #1 alone.
+            candidates = (seated["soldierIds"] if REQUIRE_DOOR
+                          else [seated["soldierId"]])
+            actor = None
+            for sid in candidates:
+                actor = qualifying_actor(host, sid)
+                if actor is not None:
+                    seated["soldierId"] = sid
+                    break
             if actor is not None:
                 print(f"[repro_atom_walk] fixture qualifies on attempt "
                       f"{attempt}/{MAX_REROLLS} (actor unit id={actor['id']}, "

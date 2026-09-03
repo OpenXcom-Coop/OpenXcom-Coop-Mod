@@ -34,6 +34,7 @@
 #include "../Mod/Mod.h"
 #include "UnitFallBState.h"
 #include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/CoopDoor.h"
 
 namespace OpenXcom
 {
@@ -368,7 +369,16 @@ void UnitWalkBState::think()
 			// now open doors (if any)
 			if (dir < Pathfinding::DIR_UP)
 			{
-				int door = _terrain->unitOpensDoor(_unit, false, dir);
+				// W1-P10 (WAVE1-RUNBOOK.md SS4 "ATOM door" / WV-D26): ONE
+				// guarded coop call REPLACING the `_terrain->unitOpensDoor(...)`
+				// sub-expression (W1-P9's coopWalkReserveRefuses precedent).
+				// Outside a co-op battle, and off the simulating host, it IS
+				// that call and nothing else. On the host it emits the SS2.4
+				// `ev door` for whatever vanilla actually mutated - which lands
+				// in the seq stream exactly HERE, between the walk_step ev of
+				// the step before the doorway and the one after it (SS2.W2
+				// rule 6). All logic in src/CoopMod (CoopDoor.h).
+				int door = coopUnitOpensDoor(_terrain, _unit, false, dir);
 				if (door == 3)
 				{
 					return; // don't start walking yet, wait for the ufo door to open

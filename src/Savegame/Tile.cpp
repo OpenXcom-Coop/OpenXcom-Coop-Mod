@@ -30,6 +30,7 @@
 #include "../Mod/Armor.h"
 #include "SerializationHelper.h"
 #include "../Battlescape/BattlescapeGame.h"
+#include "../CoopMod/CoopDoor.h"
 #include "../fmath.h"
 #include "SavedBattleGame.h"
 
@@ -387,6 +388,12 @@ int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bo
 		setMapData(_objects[part]->getDataset()->getObject(_objects[part]->getAltMCD()), _objects[part]->getAltMCD(), _mapData->SetID[part],
 				   _objects[part]->getDataset()->getObject(_objects[part]->getAltMCD())->getObjectType());
 		setMapData(0, -1, -1, part);
+		// W1-P10 (WAVE1-RUNBOOK.md SS4 "ATOM door" / WV-D50): ONE guarded coop
+		// call, at the point the NORMAL-door mutation has actually happened.
+		// See CoopDoor.h for why the journal sits here and not at
+		// TileEngine::unitOpensDoor's return. No-op outside an armed capture
+		// window, so SP and every non-coop battle are byte-identical.
+		coopNoteDoorOpened(this, part, 0);
 		return 0;
 	}
 	if (_objectsCache[part].isUfoDoor && _objectsCache[part].currentFrame == 0) // ufo door part 0 - door is closed
@@ -395,6 +402,8 @@ int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bo
 			return 4;
 		_objectsCache[part].currentFrame = 1; // start opening door
 		updateSprite((TilePart)part);
+		// W1-P10: the UFO-door half of the same journal hook (CoopDoor.h).
+		coopNoteDoorOpened(this, part, 1);
 		return 1;
 	}
 	if (_objectsCache[part].isUfoDoor && _objectsCache[part].currentFrame != 7) // ufo door != part 7 - door is still opening
@@ -415,6 +424,11 @@ int Tile::closeUfoDoor()
 			_objectsCache[part].currentFrame = 0;
 			retval = 1;
 			updateSprite((TilePart)part);
+			// W1-P10 / WV-D50: the CLOSE half of the journal (CoopDoor.h). This
+			// is the turn-boundary mutation TileEngine::closeUfoDoors() drives
+			// (TileEngine.cpp:4315) and whose bits ride binTiles into the
+			// saveBlob bucket (this file, :209-210).
+			coopNoteDoorClosed(this, part);
 		}
 	}
 

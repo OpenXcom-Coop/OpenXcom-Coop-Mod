@@ -26,6 +26,7 @@
 #include "../Engine/Sound.h"
 #include "../Engine/Options.h"
 #include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/CoopDoor.h"
 
 namespace OpenXcom
 {
@@ -75,7 +76,14 @@ void UnitTurnBState::init()
 		if (_action.type == BA_NONE)
 		{
 			// try to open a door
-			int door = _parent->getTileEngine()->unitOpensDoor(_unit, true);
+			// W1-P10 (SS4 "ATOM door"): ONE guarded coop call REPLACING the
+			// `unitOpensDoor(...)` sub-expression - THE right-click door path
+			// SS2.4 reserved a `door` field on the turn ev for and never
+			// applied ("RW-UNSUPPORTED door-in-turn"). The terrain now rides
+			// its own `ev door` from inside here, so that fallback is retired
+			// for this path (CoopDoor.h). Vanilla's own default `dir` for this
+			// call is -1 ("use the unit's facing", TileEngine.cpp:4095).
+			int door = coopUnitOpensDoor(_parent->getTileEngine(), _unit, true, -1);
 			if (door == 0)
 			{
 				_parent->getMod()->getSoundByDepth(_parent->getDepth(), Mod::DOOR_OPEN)->play(-1, _parent->getMap()->getSoundAngle(_unit->getPosition())); // normal door

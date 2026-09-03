@@ -85,6 +85,7 @@
 #include "../Savegame/EquipmentLayoutItem.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Tile.h"
+#include "../Battlescape/TileEngine.h"
 // R2-P11: corrupt_bucket's terrain-bucket poke needs a MapData* to install
 // via Tile::setMapData - the same SavedBattleGame::load()-precedent lookup
 // (getMapDataSets()->at(setId)->getObject(id)).
@@ -170,6 +171,7 @@
 #include "CoopHandshake.h"
 #include "CoopReveal.h"
 #include "CoopFog.h"
+#include "CoopDoor.h"
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -3596,6 +3598,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
 		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "map_tile_screen_pos"
 		&& cmd != "map_tile_click_pos"
+		&& cmd != "find_doors" && cmd != "battle_close_ufo_doors"
 		&& cmd != "battle_ui_press")
 	{
 		return false;
@@ -3964,6 +3967,77 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				part["mapDataSetID"] = dsid;
 				resp["parts"][partNames[p]] = part;
 			}
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "find_doors")
+	{
+		// W1-P10 (RB-D26 discipline: minimal, deterministic, test-only): every
+		// DOOR part on the map, in linear tile order. `tile_info` can already
+		// report a door, but only one tile per round trip - locating a door by
+		// scanning is ~6400 round trips, i.e. a fixture that cannot be built.
+		// This is the same "the harness cannot otherwise SEE it" justification
+		// W1-P9's lastWalk carries.
+		//
+		// SAFE UNDER BriefingState (the WAVE-1 ADDITIONS trap): it touches only
+		// `sbg`, never `bg`/`bstate`, which is exactly why the guard above
+		// leaves both nullable.
+		const int cap = req.get("limit", 512).asInt();
+		const bool ufoOnly = req.get("ufoOnly", false).asBool();
+		Json::Value doors(Json::arrayValue);
+		const int tileCount = sbg->getMapSizeXYZ();
+		int found = 0;
+		for (int i = 0; i < tileCount && found < cap; ++i)
+		{
+			Tile* t = sbg->getTile(i);
+			if (!t)
+				continue;
+			for (int p = 0; p <= O_OBJECT; ++p)
+			{
+				TilePart tp = (TilePart)p;
+				const bool isUfo = t->isUfoDoor(tp);
+				if (!isUfo && (ufoOnly || !t->isDoor(tp)))
+					continue;
+				Json::Value jd;
+				jd["x"] = t->getPosition().x;
+				jd["y"] = t->getPosition().y;
+				jd["z"] = t->getPosition().z;
+				jd["part"] = p;
+				jd["isUfoDoor"] = isUfo;
+				jd["isUfoDoorOpen"] = t->isUfoDoorOpen(tp);
+				int did = -1, dsid = -1;
+				t->getMapData(&did, &dsid, tp);
+				jd["mapDataID"] = did;
+				doors.append(jd);
+				if (++found >= cap)
+					break;
+			}
+		}
+		resp["doors"] = doors;
+		resp["count"] = found;
+		resp["mapSizeXYZ"] = tileCount;
+		resp["ok"] = true;
+	}
+	else if (cmd == "battle_close_ufo_doors")
+	{
+		// W1-P10 / WV-D50 (RB-D26): drives the BOUNDARY-CALLABLE half of the
+		// door atom - coopCloseUfoDoors(), the function W1-P13 will call from
+		// BattlescapeGame::endTurn (BattlescapeGame.cpp:549) instead of
+		// _save->getTileEngine()->closeUfoDoors(). Shipping the function
+		// without a way to RUN it would make "callable outside a walk" a claim
+		// about code nobody executed; this makes it a tested property.
+		//
+		// Refused on a co-op CLIENT: there the wrapper degrades to the plain
+		// vanilla call, which would be a machine-local terrain mutation - i.e.
+		// a deliberate desync, not a test.
+		TileEngine* te = sbg->getTileEngine();
+		if (!te)
+			resp["error"] = "battle_close_ufo_doors: no TileEngine";
+		else if (isCoopBattle() && !coopBattleAuthority().hostSim)
+			resp["error"] = "battle_close_ufo_doors: host-only (a client would mutate terrain locally)";
+		else
+		{
+			resp["closed"] = coopCloseUfoDoors(te);
 			resp["ok"] = true;
 		}
 	}
@@ -4519,6 +4593,17 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// which any unrelated failure also produces.
 		resp["coopWalkReserveRefusals"] = CoopArbiter::walkReserveRefusals();
 		resp["coopWalkReserveTruncations"] = CoopArbiter::walkReserveTruncations();
+		// W1-P10 (SS4 "ATOM door"): the door atom's three counters. Emitted and
+		// applied are what turn "the door is open on both machines" from a
+		// coincidence into a DELIVERY proof (a door that never crossed the wire
+		// and a door that did both end with the same tile_info reading if the
+		// client happened to open it locally - which is exactly the hybrid-
+		// authority bug class this rewrite exists to kill).
+		// `coopDoorInTurnUnsupported` is the RETIRED SS2.4 fallback, kept as a
+		// tripwire and asserted at zero.
+		resp["coopDoorEvsEmitted"] = coopDoorEvsEmitted();
+		resp["coopDoorEvsApplied"] = coopDoorEvsApplied();
+		resp["coopDoorInTurnUnsupported"] = coopDoorInTurnUnsupported();
 		// This machine's own (machine-local, saveBlob-EXCLUDED) reserve settings -
 		// the values WV-D14 ratifies as per-machine and WV-D48 makes the client
 		// enforce for itself.
@@ -5158,6 +5243,43 @@ std::string TestServer::execute(const std::string& line)
 				else
 				{
 					resp["soldierId"] = soldierId;
+					resp["ok"] = true;
+				}
+			}
+		}
+		else if (cmd == "newbattle_mission")
+		{
+			// W1-P10 (SS4 "ATOM door", RB-D26 discipline): pick the NEW BATTLE
+			// screen's mission by ruleset name before newbattle_ok generates
+			// the battle. The door atom's fixture must CONTAIN a door, and with
+			// the default selection that is a property of the map ROLL, not of
+			// the fixture (measured: 2/7/11 doors, none of them ufo doors, over
+			// three boots). With no "type" the command just REPORTS the list,
+			// so a test can choose one this build actually offers.
+			NewBattleState* nb = findState<NewBattleState>(_game);
+			if (!nb)
+			{
+				resp["error"] = "no NewBattleState in state stack";
+			}
+			else
+			{
+				Json::Value types(Json::arrayValue);
+				for (const std::string& t : nb->harnessMissionTypes())
+					types.append(t);
+				resp["missionTypes"] = types;
+				if (req.isMember("type"))
+				{
+					const std::string want = req["type"].asString();
+					if (!nb->harnessSelectMission(want))
+						resp["error"] = "newbattle_mission: this build does not offer '" + want + "'";
+					else
+					{
+						resp["selected"] = want;
+						resp["ok"] = true;
+					}
+				}
+				else
+				{
 					resp["ok"] = true;
 				}
 			}

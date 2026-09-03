@@ -897,6 +897,28 @@ int NewBattleState::harnessSeatOneSoldier(int seat, int index)
 }
 
 /**
+ * W1-P10 (rewrite wave 1, WAVE1-RUNBOOK.md SS4 "ATOM door"): see this method's
+ * declaration for why the door atom's fixture needs it. Drives the SAME two
+ * calls the combo box's own change handler does - setSelected() then
+ * cbxMissionChange(), which is what rebuilds _terrainTypes and re-selects a
+ * terrain (this file, :1089-1105) - so the state left behind is exactly the
+ * state a player clicking that row would have produced. Test-only.
+ */
+bool NewBattleState::harnessSelectMission(const std::string& type)
+{
+	for (size_t i = 0; i < _missionTypes.size(); ++i)
+	{
+		if (_missionTypes[i] == type)
+		{
+			_cbxMission->setSelected(i);
+			cbxMissionChange(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * Returns to the previous screen.
  * @param action Pointer to an action.
  */

@@ -148,6 +148,21 @@ public:
 	/// different soldier to the same seat (repro_atom_kneel.py's burst/
 	/// drain proof needs two real client-owned units).
 	int harnessSeatOneSoldier(int seat, int index = 0);
+	/// W1-P10 (rewrite wave 1, WAVE1-RUNBOOK.md SS4 "ATOM door"): test hook -
+	/// pick the MISSION by ruleset name, exactly as clicking the combo box
+	/// would (setSelected + cbxMissionChange, which is what rebuilds the
+	/// terrain list). The door atom's fixture has to CONTAIN a door, and the
+	/// default selection is roll-dependent terrain: measured over three boots
+	/// it produced 2, 7 and 11 doors at Chebyshev distances 5..34 from the
+	/// nearest soldier, and ZERO ufo doors - so neither "a door is reachable"
+	/// nor "a ufo door exists at all" is true by construction without this.
+	/// Returns false (and changes nothing) for a name this build's mission
+	/// list does not offer. Test-only; no game code calls it.
+	bool harnessSelectMission(const std::string& type);
+	/// The mission names this build's NEW BATTLE screen offers, in combo-box
+	/// order - so a test can pick one that exists instead of hard-coding a
+	/// ruleset string that a mod may not define.
+	const std::vector<std::string>& harnessMissionTypes() const { return _missionTypes; }
 };
 
 }

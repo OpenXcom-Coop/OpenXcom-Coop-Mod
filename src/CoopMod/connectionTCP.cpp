@@ -86,6 +86,7 @@
 #include "CoopApply.h"
 #include "CoopReveal.h"
 #include "CoopFog.h"
+#include "CoopDoor.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -97,6 +98,7 @@
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/Tile.h"
 #include "../Savegame/BattleUnit.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
@@ -717,6 +719,10 @@ static void resetCoopArbiterState();
 // h:{unitsStats} on the standalone reveal ev without splitting the CoopReveal
 // namespace across the file.
 static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save);
+// W1-P10: the door atom's battle-scoped state (CoopDoor.h). Defined next to
+// the journal itself, far below; forward-declared here so the battle-scope
+// reset can call it alongside the walk atom's own counters.
+static void coopResetDoorState();
 
 // SS2.8's mismatch path (freeze -> bt_desync -> bundle -> banner), factored out
 // of CoopHashCheck::verify() (this file) so the SS2.4a reveal `base` n-mismatch
@@ -3002,6 +3008,7 @@ static void resetCoopArbiterState()
 	g_coopLastWalk = Json::Value();
 	g_coopWalkReserveRefusals = 0;
 	g_coopWalkReserveTruncations = 0;
+	coopResetDoorState(); // W1-P10
 	CoopBattleUi::resetBannerState();
 }
 
@@ -4751,12 +4758,15 @@ void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted)
 	ev["payload"]["turretFrom"] = g_coopPendingTurnInfo.fromTurretDir;
 	ev["payload"]["turretTo"] = unit->getTurretDirection();
 	ev["payload"]["tuAfter"] = unit->getTimeUnits();
-	// "door" is deliberately never set here: R3-P1 does not hook
-	// UnitTurnBState::init()'s immediate zero-tick door-open branch
-	// (UnitTurnBState.cpp:77 @911ca487f) - RB-D15's spike fixtures are
-	// door-free by construction (REVIEW4 IR-4's own no-door-within-2-tiles
-	// selection rule), so this packet's own repro never exercises it.
-	// Door-in-turn rides the door atom, post-spike, per RB-D15's own text.
+	// "door" is deliberately never set here, and W1-P10 is why it never will
+	// be: UnitTurnBState::init()'s zero-tick door-open branch
+	// (UnitTurnBState.cpp:86) now runs through coopUnitOpensDoor(), which emits
+	// the door atom's OWN `ev door` in the same seq stream - carrying the exact
+	// tiles+parts the host mutated, which a single {result, tile, part} triple
+	// on this envelope never could (one call can open a RUN of ufo doors,
+	// TileEngine.cpp:4252). SS2.4's reserved field therefore stays unset and
+	// its "RW-UNSUPPORTED door-in-turn" client fallback is RETIRED for this
+	// path (kept as a zero-asserted tripwire, see CoopApply::applyEvPayload).
 	ev["h"] = coopBuildUnitsStatsHash(save); // RB-D14
 	CoopEmit::sendEv(ev);
 
@@ -5027,6 +5037,189 @@ bool coopInterceptWalkConfirm(BattleUnit* actor, Position dest, bool run,
 	return false;
 }
 
+// ===== W1-P10 (WAVE1-RUNBOOK.md SS4 "ATOM door" / WV-D26 / WV-D50):
+// the DOOR atom. See CoopDoor.h for the full contract. =====
+
+namespace
+{
+
+struct CoopDoorRec
+{
+	Position pos;
+	int part = 0;
+	int result = 0;   ///< Tile::openDoor()'s own return: 0 normal, 1 ufo
+};
+
+/// THE JOURNAL. Armed only for the duration of one vanilla door call, so a
+/// mutation can never leak from one capture window into the next envelope -
+/// which is exactly the trap a permanently-armed journal would set for
+/// W1-P13's boundary path (the closes would ride the NEXT walk's door ev).
+bool g_coopDoorCaptureArmed = false;
+std::vector<CoopDoorRec> g_coopDoorJournal;
+std::atomic<unsigned int> g_coopDoorEvsEmitted{0};
+std::atomic<unsigned int> g_coopDoorEvsApplied{0};
+std::atomic<unsigned int> g_coopDoorInTurnUnsupported{0};
+
+/// SS2.8 buckets carried by an `ev door`. `terrain` because a NORMAL door open
+/// rewrites mapDataID/mapDataSetID, which is precisely what that bucket sums
+/// (SharedEcon.cpp:3843-3848); `unitsStats` because a UFO door open SPENDS TU
+/// (TileEngine.cpp:4231) and because RB-D14's per-event discipline wants the
+/// cheap unit bucket on every ev. Both come out of ONE computeBattleHashes()
+/// call, so the second bucket is free.
+///
+/// STATED, NEVER OVERCLAIMED: a UFO door's open BIT is in NEITHER of these -
+/// it is serialized as openDoorWest/openDoorNorth (Tile.cpp:180-186) and as
+/// binTiles boolFields 8/0x10 (Tile.cpp:209-210), i.e. it lives in the
+/// `saveBlob` bucket, which is computed OUT OF BAND (SS2.8's bucket
+/// arithmetic) and is not a BattleHashSet member, so CoopHashCheck::verify()
+/// could not check it even if it were carried. A ufo-door divergence is caught
+/// by `hash_now full` and by W1-P13's boundary sweep - and repro_atom_door
+/// asserts it there, deliberately, rather than pretending the per-ev hash
+/// covers it.
+Json::Value coopBuildDoorHash(SavedBattleGame* save)
+{
+	Json::Value h(Json::objectValue);
+	SharedEcon::BattleHashSet buckets;
+	if (SharedEcon::computeBattleHashes(save, buckets))
+	{
+		h["terrain"] = coopHex64(buckets.terrain);
+		h["unitsStats"] = coopHex64(buckets.unitsStats);
+	}
+	return h;
+}
+
+/// Emits the `ev door` for whatever the just-finished vanilla call mutated,
+/// then disarms. Nothing mutated => nothing emitted (the common case: vanilla
+/// calls unitOpensDoor at EVERY walk step and it returns -1 whenever there is
+/// no door there).
+void coopFlushDoorJournal(BattleUnit* actor, bool open, bool rClick, int result)
+{
+	const bool armed = g_coopDoorCaptureArmed;
+	g_coopDoorCaptureArmed = false;
+	if (!armed || g_coopDoorJournal.empty())
+	{
+		g_coopDoorJournal.clear();
+		return;
+	}
+
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+
+	// WV-D50: currentActionId() is legitimately 0 here - at the turn boundary
+	// there is no action context at all, and the right-click door path is
+	// pushed as a bare UnitTurnBState. NOTHING below requires it to be non-zero.
+	Json::Value ev = CoopWire::makeEv(0u, CoopArbiter::currentActionId(), "door");
+	if (actor)
+		ev["payload"]["unit"] = actor->getId();
+	ev["payload"]["op"] = open ? "open" : "close";
+	if (open)
+	{
+		ev["payload"]["rClick"] = rClick;
+		ev["payload"]["result"] = result;
+		if (actor)
+			ev["payload"]["tuAfter"] = actor->getTimeUnits();
+	}
+	Json::Value tiles(Json::arrayValue);
+	for (const CoopDoorRec& r : g_coopDoorJournal)
+	{
+		Json::Value jt = CoopArbiter::coopPosJson(r.pos);
+		jt["part"] = r.part;
+		tiles.append(jt);
+	}
+	ev["payload"]["tiles"] = tiles;
+	ev["h"] = coopBuildDoorHash(save);
+
+	// One operator-visible line per door, like every other atom: WHICH tiles,
+	// which parts, and vanilla's own result for the first of them (0 normal,
+	// 1 ufo). A door run that opened more than one tile says so, which is the
+	// case a single {result, tile, part} triple could never have described.
+	Log(LOG_INFO) << "[coop-door] " << (open ? "open" : "close") << " "
+		<< g_coopDoorJournal.size() << " tile-part(s), first "
+		<< g_coopDoorJournal.front().pos << " part " << g_coopDoorJournal.front().part
+		<< " result " << g_coopDoorJournal.front().result
+		<< ", actionId " << ev["actionId"].asUInt()
+		<< (actor ? std::string(", actor ") + std::to_string(actor->getId())
+			: std::string(", no actor (WV-D50 boundary)"));
+	g_coopDoorJournal.clear();
+
+	CoopEmit::sendEv(ev);
+	g_coopDoorEvsEmitted.fetch_add(1);
+}
+
+} // namespace (anonymous)
+
+// Battle-scoped, exactly like the walk atom's counters: a capture window can
+// never survive a teardown, and the introspection counters start at 0 for each
+// battle rather than accumulating across a session.
+static void coopResetDoorState()
+{
+	g_coopDoorCaptureArmed = false;
+	g_coopDoorJournal.clear();
+	g_coopDoorEvsEmitted = 0;
+	g_coopDoorEvsApplied = 0;
+	g_coopDoorInTurnUnsupported = 0;
+}
+
+void coopNoteDoorOpened(const Tile* tile, int part, int result)
+{
+	if (!g_coopDoorCaptureArmed || !tile)
+		return;
+	CoopDoorRec r;
+	r.pos = tile->getPosition();
+	r.part = part;
+	r.result = result;
+	g_coopDoorJournal.push_back(r);
+}
+
+void coopNoteDoorClosed(const Tile* tile, int part)
+{
+	if (!g_coopDoorCaptureArmed || !tile)
+		return;
+	CoopDoorRec r;
+	r.pos = tile->getPosition();
+	r.part = part;
+	r.result = -1;
+	g_coopDoorJournal.push_back(r);
+}
+
+int coopUnitOpensDoor(TileEngine* te, BattleUnit* unit, bool rClick, int dir)
+{
+	if (!te)
+		return -1;
+	// SP, any non-coop battle, and any machine that is not the simulating host:
+	// EXACTLY the vanilla call, nothing armed, nothing emitted.
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return te->unitOpensDoor(unit, rClick, dir);
+
+	g_coopDoorJournal.clear();
+	g_coopDoorCaptureArmed = true;
+	const int result = te->unitOpensDoor(unit, rClick, dir);
+	// AFTER vanilla returns, so the TU spend (TileEngine.cpp:4231) is already in
+	// `tuAfter` and the calculateFOV() at :4235 has already authored this
+	// machine's newly-discovered bits - they ride THIS envelope's `reveal` at
+	// the SS2.4a choke (CoopEmit::sendEv).
+	coopFlushDoorJournal(unit, /*open=*/true, rClick, result);
+	return result;
+}
+
+int coopCloseUfoDoors(TileEngine* te)
+{
+	if (!te)
+		return 0;
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return te->closeUfoDoors();
+
+	g_coopDoorJournal.clear();
+	g_coopDoorCaptureArmed = true;
+	const int closed = te->closeUfoDoors();
+	// WV-D50: no actor, no TU, actionId 0.
+	coopFlushDoorJournal(nullptr, /*open=*/false, /*rClick=*/false, 0);
+	return closed;
+}
+
+unsigned int coopDoorEvsEmitted() { return g_coopDoorEvsEmitted.load(); }
+unsigned int coopDoorEvsApplied() { return g_coopDoorEvsApplied.load(); }
+unsigned int coopDoorInTurnUnsupported() { return g_coopDoorInTurnUnsupported.load(); }
+
 // ===== R3-P1: CoopApply (CoopApply.h) - the S2-minimal client-side state
 // applier =====
 // SPIKE-RUNBOOK.md R3-P1 packet text. Resolution is EXCLUSIVELY via
@@ -5076,6 +5269,86 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// envelope-level `reveal` object, already applied by
 		// CoopDisplayQueue::onApplied() before it reached here. A known kind,
 		// deliberately not an RW-UNSUPPORTED warning.
+		return;
+	}
+
+	if (kind == "door")
+	{
+		// W1-P10 (SS4 "ATOM door" / SS2.4's `ev door` / WV-D50): host-authored
+		// TERRAIN apply. NO `unit` is required - a turn-boundary close carries
+		// none and rides actionId 0 - so this branch sits ABOVE the unit gate.
+		//
+		// THE APPLY IS VANILLA'S OWN TRANSITION, DRIVEN BY WIRE DATA, exactly
+		// as the walk_step applier is: `Tile::openDoor(part)` and
+		// `Tile::closeUfoDoor()` are the two functions that perform the
+		// mutation on the host as well. Calling openDoor() with the DEFAULT
+		// arguments (unit = 0, reserve = BA_NONE, rClick = false) is what makes
+		// it an APPLY rather than a second decision: with a null unit, every
+		// cost/permission branch vanilla evaluates on the host
+		// (isBigUnit / cost.haveTU) is skipped, and the host has already
+		// decided. The one surviving guard,
+		// `if (_unit && _unit != unit && _unit->getPosition() != getPosition())`
+		// (Tile.cpp:386), cannot diverge: it only bites when a unit occupies the
+		// tile as a NON-ORIGIN tile, i.e. a big unit - and a big unit can never
+		// have opened a swinging door on the host either (Tile.cpp:382), while
+		// for the ufo-door branch that guard does not exist at all.
+		//
+		// NEVER "hitTile-class gated" (SS1 rule): there is no coop condition
+		// under which a carried mutation is skipped. A tile that does not
+		// resolve, or a mutation vanilla declines here, is LOGGED and left
+		// standing so the post-apply hash reports it (SS2.8, no partial
+		// repair) - it is never silently repaired and never silently dropped.
+		const Json::Value& dp = ev["payload"];
+		const bool open = (dp.get("op", "open").asString() != "close");
+		const Json::Value& tiles = dp["tiles"];
+		for (Json::ArrayIndex i = 0; i < tiles.size(); ++i)
+		{
+			const Position pos = CoopArbiter::coopJsonPos(tiles[i]);
+			const int part = tiles[i].get("part", 0).asInt();
+			Tile* t = save->getTile(pos);
+			if (!t)
+			{
+				Log(LOG_ERROR) << "[coop-apply] door " << (open ? "open" : "close")
+					<< " names tile " << pos << ", which does not exist on this machine";
+				continue;
+			}
+			if (open)
+			{
+				const int r = t->openDoor((TilePart)part);
+				if (r != 0 && r != 1)
+				{
+					Log(LOG_WARNING) << "[coop-apply] door open at " << pos << " part "
+						<< part << " returned " << r << " on this machine (host said "
+						<< dp.get("result", -1).asInt() << ") - NOT repaired; the "
+						"post-apply hash is what reports the divergence";
+				}
+			}
+			else
+			{
+				// Tile::closeUfoDoor() has no part parameter - it shuts every
+				// open ufo part on the tile (Tile.cpp:416-428), so a second
+				// entry for the same tile is a harmless no-op, exactly as it is
+				// on the host.
+				t->closeUfoDoor();
+			}
+			// Vanilla recomputes lighting and the TileEngine terrain-blockage
+			// cache whenever a door changes (TileEngine.cpp:4233). Machine-local
+			// DISPLAY state: `_light`/`_blockVisibility` are in no hash bucket
+			// and in no serializer (Tile::save/saveBinary write neither), so
+			// this is presentation parity, not authored state. calculateFOV is
+			// deliberately NOT called - the client never authors discovered
+			// bits (SS2.4a client-authority rule); those ride this envelope's
+			// own `reveal`.
+			if (save->getTileEngine())
+				save->getTileEngine()->calculateLighting(LL_FIRE, pos, 1, true);
+		}
+		if (dp.isMember("unit") && dp.isMember("tuAfter"))
+		{
+			BattleUnit* doorActor = CoopIdMaps::unit(dp["unit"].asInt());
+			if (doorActor)
+				doorActor->setTimeUnits(dp["tuAfter"].asInt());
+		}
+		g_coopDoorEvsApplied.fetch_add(1);
 		return;
 	}
 
@@ -5230,12 +5503,22 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 	{
 		if (payload.isMember("door"))
 		{
-			// SS2.4: spike fixtures are door-free by construction (RB-D15);
-			// the client does not apply a door result here (terrain apply is
-			// the door atom's job) - correctly treated as a future desync at
-			// the next hash compare (the state HAS diverged).
+			// W1-P10 RETIRES this fallback FOR THE DOOR PATH (SS4's own
+			// acceptance). SS2.4's `door` field on the turn ev described a
+			// terrain change the spike client could not apply, so it was
+			// correctly treated as a divergence. Since this packet, the
+			// right-click door path emits its own `ev door` from inside
+			// coopUnitOpensDoor() (UnitTurnBState.cpp:86) and the terrain is
+			// APPLIED in-stream - so the host still never sets this field
+			// (connectionTCP.cpp's coopOnUnitTurnFinished comment) and this
+			// branch is now a TRIPWIRE, kept and counted rather than deleted:
+			// repro_atom_door asserts the counter at ZERO while the door
+			// really did open on both machines, which is what makes the
+			// retirement a proof instead of a removal.
+			g_coopDoorInTurnUnsupported.fetch_add(1);
 			Log(LOG_WARNING) << "[coop-apply] RW-UNSUPPORTED door-in-turn (unit "
-				<< unit->getId() << ") - not applied";
+				<< unit->getId() << ") - not applied; W1-P10 retired this path, so "
+				"reaching it means a peer emitted the RETIRED shape";
 		}
 
 		// RW-FIX-TURRET: body first (never dragging the turret along - see
