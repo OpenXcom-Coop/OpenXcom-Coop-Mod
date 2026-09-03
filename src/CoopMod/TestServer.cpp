@@ -2326,18 +2326,42 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "turn_mode_save_roundtrip")
 	{
 		// W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D owner rulings D-20/D-21
-		// revision "D.1" = WV-D55): prove the BATTLE-SAVE hook pair END TO END -
-		// SavedBattleGame::save writes the key, SavedBattleGame::load reads it back
-		// to the same value - without disturbing the live co-op session. Exactly the
-		// shape reload_save_roundtrip above already uses for the ownership
-		// migration: save the world, load it into a THROWAWAY SavedGame (the real
-		// load path, so the real reader runs), report, discard.
+		// revision "D.1" = WV-D55; test-lever discipline RB-D26): prove the
+		// BATTLE-SAVE hook pair END TO END - SavedBattleGame::save writes the key
+		// and the D.1 READER reads it back to the same value - without disturbing
+		// the live co-op session.
+		//
+		// ===== WHY THIS DOES NOT LOAD A THROWAWAY SavedGame (fix, WV-D5) =====
+		// The first version of this lever copied reload_save_roundtrip's shape:
+		// `new SavedGame()` -> `load()` -> `delete`. That KILLED THE HOST PROCESS
+		// about one run in three, and the mechanism is structural, not a race in
+		// this command:
+		//   * SavedBattleGame::load() populates _mapDataSets from
+		//     `Mod::getMapDataSet(name)` (SavedBattleGame.cpp:189-193), which is a
+		//     CACHE - it returns the Mod's ONE shared MapDataSet per name
+		//     (Mod.cpp), the very same objects the LIVE battle is using;
+		//   * ~SavedBattleGame() then calls `mds->unloadData()` on every one of
+		//     them (SavedBattleGame.cpp), and unloadData() `delete`s every MapData*
+		//     in the set and drops its SurfaceSet (MapDataSet.cpp).
+		// So destroying the throwaway FREED THE MAP DATA THE LIVE BATTLE'S TILES
+		// STILL POINT AT (Tile::_objects[]), and the next thing to walk a tile -
+		// rendering, pathfinding, or the saveBlob sweep - dereferenced freed
+		// memory. Intermittent exactly as heap reuse dictates. Same borrowed-pointer
+		// family as the issue #124 crashes.
+		//
+		// THE FIX: run the REAL reader against a DETACHED YAML NODE. No SavedGame,
+		// no SavedBattleGame, no MapDataSet is constructed or destroyed - the file
+		// is parsed as data and `coopLoadTurnMode()` (the exact function
+		// SavedBattleGame::load calls, at SavedBattleGame.cpp's own hook site) is
+		// handed the exact `battleGame` node it would have been handed. The
+		// PRODUCT hooks are untouched; only the lever's method of proving them
+		// changed.
 		//
 		// coopLoadTurnMode() writes the ONE global BattleAuthority mirror, so the
-		// throwaway load would otherwise clobber the live session's mode. The live
-		// value is snapshotted and RESTORED around the load, and both values are
-		// reported, so the test asserts what the READER produced rather than what
-		// was already there.
+		// live value is snapshotted, deliberately POISONED to the opposite value,
+		// and RESTORED afterwards. The poisoning is what keeps the assertion
+		// non-vacuous: a reader that read NOTHING leaves the poisoned value behind,
+		// which cannot be mistaken for a reader that worked.
 		SavedGame* sg = _game->getSavedGame();
 		if (!sg)
 		{
@@ -2348,21 +2372,39 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			const CoopTurnMode before = coopBattleAuthority().turnMode;
 			resp["written"] = coopTurnModeName(before);
 			std::string f = req.get("file", "harness_turnmode_roundtrip.sav").asString();
-			sg->save(f, _game->getMod());
-			// Poison the mirror first: if load() read NOTHING, the reported value
-			// would otherwise be indistinguishable from the live one and this
-			// assertion would be vacuous.
+			sg->save(f, _game->getMod()); // the REAL writer, on the LIVE battle
+
 			coopBattleAuthority().turnMode = (before == CoopTurnMode::Traditional)
 				? CoopTurnMode::Parallel : CoopTurnMode::Traditional;
 			resp["poisoned"] = coopTurnModeName(coopBattleAuthority().turnMode);
-			SavedGame* fresh = new SavedGame();
-			fresh->load(f, _game->getMod(), _game->getLanguage());
+
+			bool ran = false;
+			try
+			{
+				// Same two-document shape SavedGame::load reads: [0] is the brief
+				// header, [1] is the world. The root owns the parsed arena, so it
+				// must outlive every node taken from it - hence the scope.
+				YAML::YamlRootNodeReader documents(Options::getMasterUserFolder() + f, false, false);
+				YAML::YamlNodeReader world = documents[1].useIndex();
+				YAML::YamlNodeReader battle = world["battleGame"];
+				resp["hadBattleBlock"] = battle.isValid();
+				if (battle.isValid())
+				{
+					YAML::YamlNodeReader indexed = battle.useIndex();
+					resp["keyInBlock"] = indexed["coopTurnMode"].isValid();
+					coopLoadTurnMode(indexed); // THE REAL D.1 READER
+					ran = true;
+				}
+			}
+			catch (const std::exception& e)
+			{
+				resp["parseError"] = std::string(e.what());
+			}
+
 			resp["readBack"] = coopTurnModeName(coopBattleAuthority().turnMode);
-			resp["hadBattle"] = (fresh->getSavedBattle() != nullptr);
-			delete fresh;
 			coopBattleAuthority().turnMode = before; // restore the live session
 			resp["file"] = f;
-			resp["ok"] = true;
+			resp["ok"] = ran;
 		}
 	}
 	else if (cmd == "save_game_ui")

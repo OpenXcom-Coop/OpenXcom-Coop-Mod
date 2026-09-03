@@ -29,9 +29,26 @@ actually holds, never inferred from what the game did.
            during a live co-op battle carries `coopTurnMode` INSIDE the
            `battleGame:` block; the key is ABSENT from the CAMPAIGN block
            (D-21: the donor's `SavedGame.cpp:1334`/`:1814` shape is NOT ported);
-           the reader gets the same value back through a real
-           `SavedBattleGame::load`; and `hash_now full` stays all-EQUAL across
-           the save, because the key is on `saveBlobExcludedTopKey`.
+           the REAL D.1 reader gets the same value back off that saved block;
+           the reader is WIRED into `SavedBattleGame::load`; and `hash_now full`
+           stays all-EQUAL across the save, because the key is on
+           `saveBlobExcludedTopKey`.
+
+           HOW THE READ HALF IS PROVEN, AND WHY NOT BY LOADING THE SAVE (fix,
+           WV-D5). The first version of this phase asked the harness to load the
+           file into a throwaway `SavedGame` and then delete it. That killed the
+           HOST PROCESS about one run in three: `SavedBattleGame::load` fills
+           `_mapDataSets` from `Mod::getMapDataSet()`, which is a CACHE handing
+           back the Mod's ONE shared MapDataSet per name - the same objects the
+           LIVE battle uses - and `~SavedBattleGame` then calls
+           `unloadData()` on every one of them, which `delete`s the MapData the
+           live battle's tiles still point at. The lever now parses the saved
+           file as DATA and runs `coopLoadTurnMode()` - the exact function
+           `SavedBattleGame::load` calls - against the exact `battleGame` node it
+           would have been handed, constructing no SavedGame, no
+           SavedBattleGame and no MapDataSet at all. The one thing that detour
+           cannot observe, that the reader is actually CALLED from
+           `SavedBattleGame::load`, is asserted separately and exactly below.
   PHASE 4  IDENTICAL BEHAVIOUR in both settings at this packet - a turn intent
            is admitted and applied exactly the same way with the mode
            traditional as with it parallel, and all buckets stay EQUAL. This is
@@ -57,7 +74,10 @@ import session
 from session import assert_hash_clean
 
 COOP_SEAT_1 = 1
-MAX_REROLLS = 5
+# Raised from 5 with SELECTION RULE (c) below: it rejects more
+# generations than rules (a)+(b) did, and a re-roll is the CORRECT
+# response to a fixture that cannot prove the property.
+MAX_REROLLS = 15
 
 PARALLEL = "parallel"
 TRADITIONAL = "traditional"
@@ -250,6 +270,59 @@ def has_door_within(gc, x, y, z, radius=2):
     return False
 
 
+FACTION_PLAYER = 0
+
+# RB-D15 / REVIEW4 IR-4 SELECTION RULE (c), ported from repro_atom_turn.py's
+# 2026-09-03 fixture-robustness pass - see that file's module docstring for the
+# full trace. Mod::_maxViewDistance's default (`src/Mod/Mod.cpp:424`), which
+# stock xcom1 does not override; a HARD CAP, because darkness only ever REDUCES
+# effective view range.
+MAX_VIEW_DISTANCE = 20
+
+
+def nearest_non_player_distance(battle_state_resp, unit):
+    """Straight-line 3D tile distance from `unit` to the closest LIVING
+    non-player unit, or None if there are none."""
+    best = None
+    for u in battle_state_resp.get("units", []):
+        if u.get("faction") == FACTION_PLAYER or u.get("isOut"):
+            continue
+        d2 = ((u["x"] - unit["x"]) ** 2 + (u["y"] - unit["y"]) ** 2
+              + (u["z"] - unit["z"]) ** 2)
+        if best is None or d2 < best:
+            best = d2
+    return None if best is None else best ** 0.5
+
+
+def actor_is_contact_free(host, battle_state_resp, unit):
+    """SELECTION RULE (c): reject an actor with any LIVING NON-PLAYER unit
+    within MAX_VIEW_DISTANCE.
+
+    WHY (RB-D15, WV-D18, REVIEW4 IR-4). RB-D15 requires an "open-ground,
+    no-door, NO-ENEMY-LOS" actor. Asking whether a hostile is ALREADY spotted at
+    t=0 covers none of the third requirement: vanilla aborts a BA_NONE turn
+    mid-chain the moment `getUnitsSpottedThisTurn()` grows
+    (UnitTurnBState.cpp:117), leaving the unit on an intermediate facing - and
+    the engine itself calls that a FIXTURE failure ("[coop-turn] ... ABORTED
+    mid-chain - the RB-D15/REVIEW4 IR-4 fixture guards ... should have prevented
+    this"). Observed live in this very test on 2026-09-03.
+
+    A conservative SUPERSET of vanilla's predicate: a unit beyond the view-
+    distance cap can never be spotted by any rotation, so a fixture that passes
+    this cannot take the abort branch. A PIN on the selection rule, never a
+    relaxation of anything asserted."""
+    d = nearest_non_player_distance(battle_state_resp, unit)
+    if d is not None and d <= MAX_VIEW_DISTANCE:
+        print(f"[test_rw_turn_mode] rule (c): nearest non-player unit is {d:.2f} tiles from "
+              f"the actor (cap {MAX_VIEW_DISTANCE}) - its rotation could spot one "
+              "and abort mid-chain")
+        return False
+    print(f"[test_rw_turn_mode] rule (c) ok: nearest non-player unit is "
+          f"{'none at all' if d is None else format(d, '.2f') + ' tiles'} away "
+          f"(cap {MAX_VIEW_DISTANCE})")
+    return True
+
+
 def qualifying_actor(host, soldier_id):
     """REVIEW4 IR-4 SELECTION RULE, verbatim from repro_atom_turn.py."""
     st = host.cmd({"cmd": "battle_state"})
@@ -258,7 +331,9 @@ def qualifying_actor(host, soldier_id):
     for u in units_by_id(st).values():
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
-                return None
+                return None  # rule (b)
+            if not actor_is_contact_free(host, st, u):
+                return None  # rule (c)
             return u
     return None
 
@@ -451,6 +526,40 @@ def find_save(user_dir, name):
     return p if os.path.exists(p) else None
 
 
+def assert_reader_is_wired():
+    """The one link the detached-node read cannot observe: that the D.1 reader is
+    actually CALLED from `SavedBattleGame::load`.
+
+    The runtime detour above proves `coopLoadTurnMode()` parses the real saved
+    form correctly; it cannot prove the hook site still exists, because it calls
+    the function directly. Deleting that one line would leave every other PHASE 3
+    assertion green while D.1's read half was silently dead - so it is checked
+    here, exactly and at the source, the same way `tools/ci/lint_no_client_mint.py`
+    checks a discipline that has no runtime signal.
+
+    Deliberately NOT a substitute for the runtime read: this says the call
+    EXISTS, the detour says it WORKS. Both are required."""
+    path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "src", "Savegame",
+        "SavedBattleGame.cpp")
+    assert os.path.exists(path), f"cannot find {path} to check the D.1 hook site"
+    with open(path, "r", errors="replace") as f:
+        src = f.read()
+    load_at = src.find("void SavedBattleGame::load(")
+    save_at = src.find("void SavedBattleGame::save(")
+    assert load_at >= 0 and save_at > load_at, (
+        "could not locate SavedBattleGame::load/save to bound the hook check")
+    assert "coopLoadTurnMode(reader);" in src[load_at:save_at], (
+        "`coopLoadTurnMode(reader);` is not called inside SavedBattleGame::load - "
+        "D.1's read half is not wired, so a resumed battle would silently come back "
+        "in the wrong turn mode (WV-D55 / D-20/D-21)")
+    assert "coopSaveTurnMode(writer);" in src[save_at:], (
+        "`coopSaveTurnMode(writer);` is not called inside SavedBattleGame::save - "
+        "D.1's write half is not wired")
+    print("PASS PHASE 3 (wiring): coopLoadTurnMode is called from "
+          "SavedBattleGame::load and coopSaveTurnMode from ::save")
+
+
 def split_blocks(text):
     """Returns (campaign_block, battle_block). The battle save is one YAML
     document whose `battleGame:` mapping is the battle block; everything before
@@ -472,20 +581,27 @@ def test_battle_save():
 
         name = "w1p7_turnmode.sav"
         r = host.ok({"cmd": "turn_mode_save_roundtrip", "file": name})
-        assert r.get("hadBattle") is True, (
-            f"the round-trip's throwaway load produced no SavedBattleGame: {r} - the "
-            "battle block is what carries the key, so this would be vacuous")
+        assert not r.get("parseError"), f"the saved file did not parse: {r}"
+        assert r.get("hadBattleBlock") is True, (
+            f"the saved file has no `battleGame` block: {r} - that block is what "
+            "carries the key, so the read below would be vacuous")
+        assert r.get("keyInBlock") is True, (
+            f"the `battleGame` block does not contain `coopTurnMode`: {r} - the reader "
+            "would then be handed a node with nothing in it, and a failure to restore "
+            "the value would say nothing about the reader")
         assert r.get("written") == TRADITIONAL, f"unexpected live mode at save: {r}"
         assert r.get("poisoned") == PARALLEL, (
-            f"the round-trip did not poison the mirror before loading: {r} - without "
-            "that, a loader that read NOTHING would look identical to one that worked")
+            f"the round-trip did not poison the mirror before reading: {r} - without "
+            "that, a reader that read NOTHING would look identical to one that worked")
         assert r.get("readBack") == TRADITIONAL, (
-            f"SavedBattleGame::load did NOT restore the mode: wrote "
+            f"coopLoadTurnMode() did NOT restore the mode: wrote "
             f"{r.get('written')!r}, poisoned to {r.get('poisoned')!r}, read back "
             f"{r.get('readBack')!r} (D.1's read half)")
         print(f"PASS PHASE 3 (round-trip): save wrote {TRADITIONAL!r}, the mirror was "
-              f"poisoned to {PARALLEL!r}, and a real SavedBattleGame::load restored "
-              f"{TRADITIONAL!r}")
+              f"poisoned to {PARALLEL!r}, and the REAL coopLoadTurnMode() - fed the "
+              f"saved file's own `battleGame` node - restored {TRADITIONAL!r}")
+
+        assert_reader_is_wired()
 
         assert live_mode(host) == TRADITIONAL, \
             "the round-trip left the live session's mode disturbed"
