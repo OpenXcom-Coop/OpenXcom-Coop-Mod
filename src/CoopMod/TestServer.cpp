@@ -169,6 +169,7 @@
 #include "CoopArbiter.h"
 #include "CoopHandshake.h"
 #include "CoopReveal.h"
+#include "CoopFog.h"
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -4399,6 +4400,13 @@ static bool coopCorruptBucket(SavedBattleGame* battle, const std::string& name)
 	if (name == "smoke")      return coopCorruptSmokeBucket(battle);
 	if (name == "terrain")    return coopCorruptTerrainBucket(battle);
 	if (name == "itemIdCtr")  return coopCorruptItemIdCtrBucket(battle);
+	// W1-P8 (SS2.W4 / WV-D31): the NINTH bucket. It is not a BattleHashSet
+	// member and lives in coop-owned storage, so its poke goes straight into
+	// CoopFog's bitmap, bypassing the emit path entirely (RB-D26 discipline:
+	// deterministic, minimal, test-only). Prefer poking the CLIENT: on the HOST
+	// the corrupted bits become "live but unpublished" and the very next delta
+	// would ship them and heal the divergence.
+	if (name == "revealHostile") return CoopFog::corrupt();
 	return false;
 }
 
@@ -4408,6 +4416,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob"
 		&& cmd != "battle_intent" && cmd != "inject_ev"
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
+		&& cmd != "reveal_hostile_pass"
 		&& cmd != "hold_chain" && cmd != "defer_intents"
 		&& cmd != "omit_turn_mode")
 	{
@@ -4505,6 +4514,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
 					want.insert(SharedEcon::battleHashBucketName(i));
 				want.insert("saveBlob");
+				// W1-P8 (SS2.W4 / WV-D31 / WR-26): the sweep goes 8 -> 9. The
+				// bucket is asked for unconditionally here and OMITTED below when
+				// there is no coop hostile storage to hash (SP, non-coop battle,
+				// unallocated) - key ABSENT, never a zero.
+				want.insert("revealHostile");
 			}
 			else if (req.isMember("buckets") && req["buckets"].isArray())
 			{
@@ -4536,6 +4550,18 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				std::uint64_t sb = 0;
 				if (SharedEcon::computeSaveBlobHash(bg, sb))
 					h["saveBlob"] = coopTestHex64(sb);
+			}
+			if (want.count("revealHostile"))
+			{
+				// SS2.W4/WR-26: computed OUT OF BAND (W1-P15 item-7 R-5) because
+				// its source is CoopMod storage, not the battle document, so
+				// computeBattleHashes() cannot see it. computeHash() returns false
+				// exactly when there is nothing allocated - SP, any non-coop
+				// battle, or a coop battle that has not reached phase Active - and
+				// the key is then simply absent.
+				std::uint64_t rh = 0;
+				if (CoopFog::computeHash(rh))
+					h["revealHostile"] = coopTestHex64(rh);
 			}
 
 			resp["h"] = h;
@@ -4688,25 +4714,77 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		else
 		{
 			int floor = 0, west = 0, north = 0;
+			int discoveredVoid = 0;
 			const int n = bg->getMapSizeXYZ();
 			for (int i = 0; i < n; ++i)
 			{
 				Tile* t = bg->getTile(i);
 				if (!t) continue;
-				if (t->isDiscovered(O_FLOOR)) ++floor;
-				if (t->isDiscovered(O_WESTWALL)) ++west;
-				if (t->isDiscovered(O_NORTHWALL)) ++north;
+				const bool f = t->isDiscovered(O_FLOOR);
+				const bool w = t->isDiscovered(O_WESTWALL);
+				const bool nw = t->isDiscovered(O_NORTHWALL);
+				if (f) ++floor;
+				if (w) ++west;
+				if (nw) ++north;
+				// W1-P15 item 2, recommendation R-2 - THE MEASUREMENT. Player-side
+				// fog on a tile that is Tile::isVoid() on BOTH machines is hashed
+				// by NOTHING: SavedBattleGame::save skips void tiles
+				// (SavedBattleGame.cpp:568-579) so those bits never reach binTiles
+				// and therefore never reach the saveBlob bucket, and no other
+				// bucket hashes fog at all. Whether that hole is POPULATED in a
+				// live battle could not be settled from source; this counter
+				// settles it, and it is why assert_reveal_parity's aggregate
+				// census exists and must never be deleted as "redundant with the
+				// hash".
+				if ((f || w || nw) && t->isVoid()) ++discoveredVoid;
 			}
 			resp["mapSizeXYZ"] = n;
+			// Unchanged top-level keys: the PLAYER-side set, read from the RAW
+			// vanilla bits. W1-P15 item-6 FINDING A-3: this probe must keep
+			// reporting the raw bits and must never be routed through W1-P14's
+			// read-switch, or it could no longer prove "both sides sets equal".
 			resp["floor"] = floor;
 			resp["westwall"] = west;
 			resp["northwall"] = north;
+			resp["discoveredVoid"] = discoveredVoid;
+
+			// W1-P8 (SS2.W4 dual-set): the same census PER SIDE, so a test can
+			// assert both machines hold the SAME two sets rather than one merged
+			// number. `player` mirrors the three keys above by construction.
+			Json::Value player(Json::objectValue);
+			player["floor"] = floor;
+			player["westwall"] = west;
+			player["northwall"] = north;
+			resp["player"] = player;
+
+			int hf = 0, hw = 0, hn = 0;
+			CoopFog::census(hf, hw, hn);
+			Json::Value hostile(Json::objectValue);
+			hostile["allocated"] = CoopFog::allocated();
+			hostile["size"] = CoopFog::size();
+			hostile["floor"] = hf;
+			hostile["westwall"] = hw;
+			hostile["northwall"] = hn;
+			resp["hostile"] = hostile;
+
+			// SS2.W5 (D2 / WV-D8): the POLARITY of the selection-FOV gate on THIS
+			// machine, reported so a test can prove the guard directly instead of
+			// only inferring it from behaviour. TRUE inside an active co-op battle
+			// (a selection change authors no shared fog); FALSE in single player,
+			// which is what "SP stays bit-identical" means concretely.
+			resp["coopSuppressSelectionFov"] = coopSuppressSelectionTileFov();
+
 			const bool hostSim = coopBattleAuthority().hostSim.load();
 			resp["hostSim"] = hostSim;
-			// Host-only concept: the published bitmap exists solely on the
-			// authoring side. Reporting it on a client would just say "true"
-			// forever (its bitmap is empty by construction).
+			// Host-only concept: the published bitmaps exist solely on the
+			// authoring side. Reporting them on a client would just say "true"
+			// forever (its mirrors are empty by construction). `unpublished` now
+			// means EITHER side (W1-P8); the two per-side keys break it down.
 			resp["unpublished"] = hostSim ? CoopReveal::hasUnpublished(bg) : false;
+			resp["unpublishedPlayer"] = hostSim
+				? CoopReveal::hasUnpublishedSide(bg, CoopFog::Side::Player) : false;
+			resp["unpublishedHostile"] = hostSim
+				? CoopReveal::hasUnpublishedSide(bg, CoopFog::Side::Hostile) : false;
 			resp["ok"] = true;
 		}
 	}
@@ -4727,8 +4805,71 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// {"bad_n":true} it advertises a deliberately wrong n, which the client
 		// must treat as a DESYNC - freeze + bt_desync + bundle + banner - and
 		// never partially apply.
-		CoopReveal::requestBaseRestate(req.get("bad_n", false).asBool());
+		// W1-P8 (SS2.W4): {"side":"hostile"} restates the OTHER set. An absent
+		// side, or "player", keeps the SS2.4a behaviour byte for byte.
+		CoopFog::Side side = CoopFog::Side::Player;
+		if (!CoopFog::sideFromString(req.get("side", "").asString(), side))
+		{
+			resp["error"] = "reveal_base: unknown side";
+			return true;
+		}
+		CoopReveal::requestBaseRestate(req.get("bad_n", false).asBool(), side);
+		resp["side"] = CoopFog::sideName(side);
 		resp["ok"] = true;
+	}
+	else if (cmd == "reveal_hostile_pass")
+	{
+		// W1-P8 (RB-D26 discipline): force the coop-only HOSTILE-side FOV pass on
+		// the HOST, right now. The pass is otherwise dirty-tracked - it only
+		// re-sweeps an alien that moved or turned - so without this lever a wave-1
+		// fixture (which never runs an alien turn) could not make the hostile set
+		// grow at a chosen moment, and the SS2.W4/WR-5 "an action that reveals for
+		// BOTH sides" proof would have no way to arrange its premise.
+		// {"force":false} exercises the dirty-tracked path instead.
+		SavedGame* sg = _game->getSavedGame();
+		SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+		if (!bg)
+		{
+			resp["error"] = "reveal_hostile_pass: no live battle";
+		}
+		else if (req.get("arm", false).asBool() || req.get("republish", false).asBool())
+		{
+			// Deferred forms, both consumed by the NEXT emit rather than now, so
+			// that an ACTION's own envelope is what carries the result:
+			//   arm       - run a FORCED hostile sweep at the emit choke;
+			//   republish - forget what the hostile side has already published, so
+			//               its whole live set is pending again.
+			// `republish` is the one a wave-1 fixture needs: with no alien turn in
+			// the wave there is no way to make an alien MOVE, so a forced re-sweep
+			// of an unmoved alien discovers nothing new and the delta would be
+			// empty. Forgetting the published mirror changes no live state on
+			// either machine (reveal is monotone - the client re-applies bits it
+			// already holds) and leaves every hash bucket exactly where it was.
+			if (req.get("arm", false).asBool())
+				CoopFog::armForcedPass();
+			if (req.get("republish", false).asBool())
+				CoopReveal::armRepublish(CoopFog::Side::Hostile);
+			resp["armed"] = req.get("arm", false).asBool();
+			resp["republished"] = req.get("republish", false).asBool();
+			resp["ok"] = true;
+		}
+		else
+		{
+			resp["discovered"] = CoopFog::authorHostilePass(bg, req.get("force", true).asBool());
+			int hu = 0, hc = 0, hs = 0;
+			CoopFog::lastPassStats(hu, hc, hs);
+			resp["hostileUnits"] = hu;
+			resp["candidates"] = hc;
+			resp["swept"] = hs;
+			int hf = 0, hw = 0, hn = 0;
+			CoopFog::census(hf, hw, hn);
+			resp["floor"] = hf;
+			resp["westwall"] = hw;
+			resp["northwall"] = hn;
+			resp["unpublishedHostile"] =
+				CoopReveal::hasUnpublishedSide(bg, CoopFog::Side::Hostile);
+			resp["ok"] = true;
+		}
 	}
 
 	return true;

@@ -607,12 +607,13 @@ def test_atom_kneel_e2e():
         n_units = assert_turret_parity(host, client, "after the whole kneel/turn burst")
         assert_reveal_parity(host, client, "after the whole kneel/turn burst")
         post_h, _ = assert_hash_clean(host, client, full=True,
-                                      what="after the whole kneel/turn burst (full 8/8)")
-        assert len(post_h) == 8, (
-            f"hash_now full returned {len(post_h)} buckets, expected 8 "
+                                      what="after the whole kneel/turn burst (full 9/9)")
+        # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
+        assert len(post_h) == 9, (
+            f"hash_now full returned {len(post_h)} buckets, expected 9 "
             f"({sorted(post_h)}) - the spike bucket set changed under this test")
         print(f"PASS test_atom_kneel_e2e: directionTurret equal on all {n_units} units, fog of "
-              f"war in parity, and {len(post_h)}/8 buckets (saveBlob included, binTiles now "
+              f"war in parity, and {len(post_h)}/9 buckets (saveBlob included, binTiles now "
               "UNMASKED) EQUAL on both machines after the whole burst")
 
         print("PASS test_atom_kneel_e2e: ALL scenarios (e2e, UI variant, deny paths, "

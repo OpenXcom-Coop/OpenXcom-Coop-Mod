@@ -735,7 +735,7 @@ def test_atom_turn_e2e():
         t0_h, _ = assert_hash_clean(host, client, full=True,
                                     what="at t=0, post-overlay-dismissal (RW-FIX-TURN)")
         print(f"PASS RW-FIX-TURN: battle_state.turn == 1 on BOTH machines and hash_now "
-              f"full={len(t0_h)}/8 buckets EQUAL post-overlay-dismissal")
+              f"full={len(t0_h)}/9 buckets EQUAL post-overlay-dismissal")
 
         # --- drive the client action via battle_intent (RB-D32) ---
         # Captured HERE so run_no_reveal_case() can use "the host attached at
@@ -839,12 +839,13 @@ def test_atom_turn_e2e():
         n_units = assert_turret_parity(host, client, "after all actions")
         assert_reveal_parity(host, client, "after all actions")
         post_h, _ = assert_hash_clean(host, client, full=True,
-                                      what="after all actions (RW-FIX-TURRET, full 8/8)")
+                                      what="after all actions (RW-FIX-TURRET, full 9/9)")
         print(f"PASS test_atom_turn_e2e: turn 1/1, directionTurret equal on all {n_units} "
-              f"units, fog of war in parity, and {len(post_h)}/8 buckets (saveBlob included, "
+              f"units, fog of war in parity, and {len(post_h)}/9 buckets (saveBlob included, "
               "binTiles now UNMASKED) EQUAL on both machines after all actions")
-        assert len(post_h) == 8, (
-            f"hash_now full returned {len(post_h)} buckets, expected 8 "
+        # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
+        assert len(post_h) == 9, (
+            f"hash_now full returned {len(post_h)} buckets, expected 9 "
             f"({sorted(post_h)}) - the spike bucket set changed under this test")
     finally:
         host.shutdown()

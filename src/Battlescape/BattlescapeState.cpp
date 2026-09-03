@@ -93,6 +93,7 @@
 #include "../CoopMod/CoopBattleUi.h"
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/CoopHandshake.h"
+#include "../CoopMod/CoopFog.h"
 
 namespace OpenXcom
 {
@@ -2442,7 +2443,18 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 
 	if (checkFOV)
 	{
-		_save->getTileEngine()->calculateFOV(_save->getSelectedUnit());
+		// SS2.W5 (WAVE1-RUNBOOK.md ruling D2 = WV-D8): ONE guarded coop call.
+		// Inside a co-op battle a SELECTION change must not author shared fog, so
+		// the TILE half of this recalc is suppressed here and the acting unit's
+		// tiles are authored EXPLICITLY at the action sites instead
+		// (coopAuthorActingUnitFov), with battle entry / side begin covered by
+		// CoopFog::authorSideBeginFov(). The UNIT half still runs - the
+		// visible-unit indicator buttons a few lines below are painted straight
+		// out of it, and per-unit `visible` is machine-local and saveBlob-
+		// excluded, so keeping it costs no hash coverage. Permissive outside a
+		// co-op battle, so SINGLE PLAYER IS BIT-IDENTICAL.
+		_save->getTileEngine()->calculateFOV(_save->getSelectedUnit(),
+			!coopSuppressSelectionTileFov(), true);
 	}
 
 	// go through all units visible to the selected soldier (or other unit, e.g. mind-controlled enemy)

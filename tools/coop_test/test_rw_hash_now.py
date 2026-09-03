@@ -29,6 +29,14 @@ stronger statement than it used to be, and `mapDiscoveredFloor` equality is
 asserted directly alongside it as the human-readable witness (before this packet
 the two machines sat at host=1044 vs client=536 and the hash could not see it).
 
+W1-P8 MADE THE SWEEP NINE BUCKETS (WAVE1-RUNBOOK.md SS2.W4 / WV-D31 / WR-26):
+the DUAL-SET per-side reveal model gives the HOSTILE side its own coop-owned
+byte-per-tile bitmap with its own `revealHostile` bucket, hashed out of band
+(it is not a BattleHashSet member - W1-P15 item-7 R-5). The bucket is OMITTED,
+key absent, in SP / any non-coop battle / wherever the storage is unallocated,
+so an equal NINE-key set on both machines at t=0 is itself evidence that both
+machines allocated the hostile set at the same lifecycle point.
+
 Uses session.py's assert_hash_clean() (R2-P11's successor of the legacy
 assert_sync_clean()) rather than duplicating the hash_now round-trip.
 
@@ -90,26 +98,40 @@ import session
 # unpublished, per-part parity, 8/8 hash) are asserted separately below and do
 # not depend on this count.
 #
-# W1-P6 MADE IT A RANGE (1..2), and this is the "looked at deliberately" the
-# comment above asks for - MEASURED, not assumed: two consecutive runs of this
-# very file under W1-P6 produced 1 and then 2. D6/WV-D12's battle-entry auto-select
-# (CoopHandshake::selectOwnUnitAtEntry) puts the HOST on a unit its own seat
-# commands, which on this fixture is NOT the unit vanilla's generation-time
-# selection had left it on. `BattlescapeState::init()` then runs
-# updateSoldierInfo(checkFOV=true) -> TileEngine::calculateFOV(selectedUnit) for
-# THAT unit instead, and on this fixture it discovers nothing the seq-1 flush had
-# not already published - so the second burst has no unpublished bits and no
-# second envelope is emitted. The auto-select itself authors NO fog: it refreshes
-# the HUD with checkFOV=false precisely so a selection change can never author
-# reveals (WV-D10's rule).
-# Every load-bearing invariant is unaffected and still asserted below: emitted ==
-# applied, host `unpublished` false, per-part floor/westwall/northwall parity, and
-# all buckets EQUAL - i.e. the two machines' fog is identical, only the host's
-# bring-up trajectory through it changed. W1-P8 (D2/WV-D8, "selection changes
-# must not author shared fog") removes this coupling entirely, at which point
-# this constant should be re-measured again.
-REVEAL_SEQS_AT_T0_MIN = 1
-REVEAL_SEQS_AT_T0_MAX = 2
+# W1-P6 MADE IT A RANGE (1..2) because the battle-entry auto-select
+# (CoopHandshake::selectOwnUnitAtEntry) changed WHICH unit
+# `BattlescapeState::init()`'s updateSoldierInfo(checkFOV=true) recalculated FOV
+# for, so the second bring-up flush sometimes had nothing left to publish. That
+# entry in `rewrite/wave1-log.md` required W1-P8 to RE-MEASURE and restore an
+# exact constant if the coupling was gone.
+#
+# W1-P8 RESTORED IT TO AN EXACT 3 - re-measured, not assumed. SS2.W5 severed the
+# coupling completely: a selection change no longer authors ANY tile FOV in a
+# co-op battle, and battle entry is covered instead by an explicit SIDE-BEGIN
+# restate over EVERY player-faction unit (CoopFog::authorSideBeginFov), which
+# does not depend on what happens to be selected. The three envelopes are now
+# structural, and the host log names each one:
+#   seq 1  side:"hostile" absolute `base` restate - SS2.W4's BASELINE (WR-1):
+#          the hostile set is coop-owned storage with NO save representation, so
+#          it cannot ride the handshake blob; the host seeds its published
+#          mirror EMPTY and the whole set ships here, as the FIRST ev after
+#          phase Active.
+#   seq 2  side:"player" delta - the VOID-TILE baseline catch-up.
+#          SavedBattleGame::save skips void tiles (SavedBattleGame.cpp:568-579),
+#          so discovered bits on empty air tiles never ride the blob;
+#          CoopReveal::seedPublished deliberately leaves them unpublished and
+#          this flush ships them.
+#   seq 3  side:"player" delta - the SS2.W5 battle-entry side-begin restate,
+#          which runs once the host actually holds a BattlescapeState (i.e.
+#          after startFirstTurn() has put every unit on its final tile).
+#
+# Asserted EXACTLY, as the original constant was: a change that starts spraying
+# reveal traffic per tick, or that silently drops the hostile baseline, must be a
+# test failure rather than a silent regression. The load-bearing invariants
+# (emitted == applied, nothing left unpublished on either side, per-part parity
+# for BOTH sets, all buckets EQUAL) are asserted separately below and do not
+# depend on this count.
+REVEAL_SEQS_AT_T0 = 3
 
 
 def top_state(gc):
@@ -242,14 +264,44 @@ def main():
                 f"discovered {part} count differs at t=0: host={host_rs[part]} "
                 f"client={client_rs[part]} (of {host_rs['mapSizeXYZ']} tiles) - RW-REVEAL-SYNC "
                 "did not converge the two machines' fog of war")
+        # W1-P8 (SS2.W4 dual-set): BOTH sides' sets, per part, on both machines.
+        for side in ("player", "hostile"):
+            for part in ("floor", "westwall", "northwall"):
+                assert host_rs[side][part] == client_rs[side][part], (
+                    f"{side}-side discovered {part} differs at t=0: "
+                    f"host={host_rs[side][part]} client={client_rs[side][part]}")
+        assert host_rs["hostile"]["allocated"] and client_rs["hostile"]["allocated"], (
+            "the HOSTILE reveal set is not allocated on both machines at t=0 - the "
+            f"SS2.W4 baseline never landed: host={host_rs['hostile']} client={client_rs['hostile']}")
+        assert host_rs["hostile"]["floor"] > 0, (
+            "the hostile reveal set is EMPTY at t=0, so every hostile-side assertion in "
+            f"this wave would be vacuous: {host_rs['hostile']}")
+        assert host_rs["unpublishedHostile"] is False, (
+            f"host still owes hostile-side reveal bits at t=0: {host_rs}")
         print(f"PASS reveal_state: floor/westwall/northwall = {host_rs['floor']}/"
               f"{host_rs['westwall']}/{host_rs['northwall']} on BOTH machines, "
               "host has nothing unpublished")
+        print(f"PASS reveal_state (SS2.W4 dual-set): hostile set floor/west/north = "
+              f"{host_rs['hostile']['floor']}/{host_rs['hostile']['westwall']}/"
+              f"{host_rs['hostile']['northwall']} of {host_rs['hostile']['size']} tiles, "
+              "EQUAL on both machines")
+        # W1-P15 item 2 / R-2: the void-tile hash hole, MEASURED. Player-side fog on
+        # tiles that are Tile::isVoid() on both machines is inside no hash bucket at
+        # all - it is covered only by these aggregate counts, which is why this
+        # assert exists and must not be removed as redundant.
+        assert host_rs["discoveredVoid"] == client_rs["discoveredVoid"], (
+            f"discoveredVoid differs at t=0: host={host_rs['discoveredVoid']} "
+            f"client={client_rs['discoveredVoid']} - a fog divergence CONFINED TO VOID "
+            "TILES, which no hash bucket can see (W1-P15 item 2)")
+        print(f"MEASURED (W1-P15 item 2 / R-2): discoveredVoid = "
+              f"{host_rs['discoveredVoid']} of {host_rs['mapSizeXYZ']} tiles on BOTH "
+              "machines - the saveBlob void-tile fog hole IS populated, so this "
+              "aggregate census is load-bearing coverage, not a redundancy")
 
-        assert REVEAL_SEQS_AT_T0_MIN <= host_es["lastSeqEmitted"] <= REVEAL_SEQS_AT_T0_MAX, (
-            f"host lastSeqEmitted should be {REVEAL_SEQS_AT_T0_MIN}..{REVEAL_SEQS_AT_T0_MAX} "
-            f"at t=0 (the bring-up reveal flushes, RW-REVEAL-SYNC) - see the constants' "
-            f"comment: {host_es}")
+        assert host_es["lastSeqEmitted"] == REVEAL_SEQS_AT_T0, (
+            f"host lastSeqEmitted should be exactly {REVEAL_SEQS_AT_T0} at t=0 (the "
+            f"hostile BASELINE restate + the two player bring-up flushes, W1-P8) - see "
+            f"the constant's comment: {host_es}")
         assert client_es["lastSeqApplied"] == host_es["lastSeqEmitted"], (
             f"client lastSeqApplied should equal the host's {host_es['lastSeqEmitted']} at t=0 (every bring-up "
             f"reveal applied): {client_es}")
@@ -275,12 +327,19 @@ def main():
 
         # --- joint determinism check: hash_now {full:true} equal on both machines ---
         host_h, client_h = session.assert_hash_clean(host, client, full=True, what="t=0 joint determinism")
-        assert len(host_h) == 8, (
-            f"hash_now full returned {len(host_h)} buckets, expected 8 ({sorted(host_h)}) - "
-            "the spike bucket set changed under this test")
+        # W1-P8 (SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7
+        # BattleHashSet members + saveBlob + revealHostile. assert_hash_clean has
+        # already proved the KEY SETS are identical on both machines, so naming the
+        # new one here is what makes "9" non-vacuous rather than a bare count.
+        assert "revealHostile" in host_h, (
+            f"hash_now full did not carry the revealHostile bucket ({sorted(host_h)}) - "
+            "the hostile reveal storage was unallocated, so WR-26 omitted it")
+        assert len(host_h) == 9, (
+            f"hash_now full returned {len(host_h)} buckets, expected 9 ({sorted(host_h)}) - "
+            "the bucket set changed under this test")
 
         print("PASS: hash_now full=true EQUAL on both machines at t=0 "
-              f"({len(host_h)}/8 buckets, saveBlob now UNMASKED over binTiles)")
+              f"({len(host_h)}/9 buckets incl. revealHostile, saveBlob UNMASKED over binTiles)")
         print("HOST   h:", json.dumps(host_h, indent=2, sort_keys=True))
         print("CLIENT h:", json.dumps(client_h, indent=2, sort_keys=True))
 

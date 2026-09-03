@@ -28,7 +28,7 @@ Three sessions:
                              bouncing off the request.
   test_busy_live_fire()    - deny("busy") -> pending banner -> auto-resubmit
                              on the blocker's bt_action_end -> ack + apply,
-                             hash-clean 8/8, queueDepth 0 (packet acceptance
+                             hash-clean 9/9, queueDepth 0 (packet acceptance
                              (a)). Plus the SAME-unit variant, which R3-P1's
                              own IR-2 actor lock suppresses CLIENT-side - see
                              run_same_unit_variant()'s doc comment (this is a
@@ -488,7 +488,7 @@ def test_busy_live_fire():
     """Packet acceptance (a). hold_chain + a client turn intent A (blocker) +
     a kneel intent B on a SECOND client-owned unit -> B deny(busy) observed
     via event_state.lastDeny -> pending banner state -> auto-resubmit on A's
-    bt_action_end -> B acked + applied, hash-clean 8/8, queueDepth 0."""
+    bt_action_end -> B acked + applied, hash-clean 9/9, queueDepth 0."""
     host, client, actor, soldier_ids = bring_up_qualifying_battle("busy")
     try:
         actor_a = actor["id"]
@@ -595,9 +595,10 @@ def test_busy_live_fire():
         assert event_state(host).get("queueDepth") == 0, "host queueDepth != 0"
         assert event_state(client).get("queueDepth") == 0, "client queueDepth != 0"
         post_h, _ = assert_hash_clean(host, client, full=True,
-                                      what="after the busy/retry cycle (full 8/8)")
-        assert len(post_h) == 8, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
-        print(f"PASS test_busy_live_fire: {len(post_h)}/8 buckets EQUAL and queueDepth 0 on "
+                                      what="after the busy/retry cycle (full 9/9)")
+        # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
+        assert len(post_h) == 9, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
+        print(f"PASS test_busy_live_fire: {len(post_h)}/9 buckets EQUAL and queueDepth 0 on "
               "both machines after the whole busy/retry cycle")
     finally:
         host.shutdown()
@@ -710,9 +711,10 @@ def test_cancel_policy():
               f"quiescence and was admitted - unit {actor_b} kneeled={want_kneeled2}")
 
         post_h, _ = assert_hash_clean(host, client, full=True,
-                                      what="after both cancel-policy passes (full 8/8)")
-        assert len(post_h) == 8, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
-        print(f"PASS test_cancel_policy: {len(post_h)}/8 buckets EQUAL after both passes")
+                                      what="after both cancel-policy passes (full 9/9)")
+        # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
+        assert len(post_h) == 9, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
+        print(f"PASS test_cancel_policy: {len(post_h)}/9 buckets EQUAL after both passes")
     finally:
         host.shutdown()
         client.shutdown()

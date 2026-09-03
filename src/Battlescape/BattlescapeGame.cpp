@@ -62,6 +62,7 @@
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopBattleUi.h"
+#include "../CoopMod/CoopFog.h"
 
 namespace OpenXcom
 {
@@ -497,6 +498,16 @@ bool BattlescapeGame::kneel(BattleUnit *bu)
 			// kneeling or standing up can reveal new terrain or units. I guess.
 			getTileEngine()->calculateFOV(bu->getPosition(), 1, false); //Update unit FOV for everyone through this position, skip tiles.
 			_parentState->updateSoldierInfo(); //This also updates the tile FOV of the unit, hence why it's skipped above.
+			// SS2.W5 (WAVE1-RUNBOOK.md ruling D2 = WV-D8): ONE guarded coop call.
+			// In a co-op battle the line above no longer authors tile FOV (a
+			// selection change must not author shared fog), so the ACTING unit's
+			// own tiles are recalculated here - explicitly, and relative to the
+			// ACTOR rather than to whatever the host has selected. That also
+			// closes a pre-existing gap: an admitted REMOTE kneel intent runs on
+			// a unit the host has NOT selected, so vanilla's selected-unit recalc
+			// was authoring for the wrong unit entirely. No-op outside an active
+			// co-op battle and off the host sim, so SP is bit-identical.
+			coopAuthorActingUnitFov(bu);
 			getTileEngine()->checkReactionFire(bu, kneel);
 			// R3-P2 (SPIKE-RUNBOOK.md RB-D13): THIN hook - see CoopArbiter.h's
 			// coopOnKneelFinished() doc comment for the full contract. Fires

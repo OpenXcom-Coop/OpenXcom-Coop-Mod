@@ -52,6 +52,7 @@
 #include "../Interface/NumberText.h"
 #include "../Interface/Text.h"
 #include "../fmath.h"
+#include "../CoopMod/CoopFog.h"
 
 
 /*
@@ -412,7 +413,9 @@ void Map::refreshHiddenMovementBackground()
 int Map::getWallShade(TilePart part, Tile* tileFrot)
 {
 	int shade;
-	if (tileFrot->isDiscovered(O_FLOOR))
+	// SS2.W4 read-switch (W1-P8, audit item-6 row 1). Vanilla outside co-op and
+	// in classic co-op; only a non-player-side seat sees a different set.
+	if (coopTileDiscoveredHere(tileFrot, O_FLOOR))
 	{
 		shade = reShade(tileFrot);
 	}
@@ -422,7 +425,8 @@ int Map::getWallShade(TilePart part, Tile* tileFrot)
 	}
 	if (part)
 	{
-		if ((tileFrot->isDoor(part) || tileFrot->isUfoDoor(part)) && tileFrot->isDiscovered(part))
+		// SS2.W4 read-switch (W1-P8, audit item-6 row 2)
+		if ((tileFrot->isDoor(part) || tileFrot->isUfoDoor(part)) && coopTileDiscoveredHere(tileFrot, part))
 		{
 			Position offset =
 				part == O_NORTHWALL ? Position(1,0,0) :
@@ -682,7 +686,8 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	//get shade helpers
 	auto getTileShade = [&](Tile* tile)
 	{
-		return tile ? (tile->isDiscovered(O_FLOOR) ? reShade(tile) : 16) : 16;
+		// SS2.W4 read-switch (W1-P8, audit item-6 row 3)
+		return tile ? (coopTileDiscoveredHere(tile, O_FLOOR) ? reShade(tile) : 16) : 16;
 	};
 	auto getMixedTileShade = [&](Tile* tile, int heightOffset, bool below)
 	{
@@ -915,7 +920,8 @@ void Map::drawTerrain(Surface *surface)
 				{
 					bool isUnitMovingNearby = movingUnit && positionInRangeXY(movingUnitPosition, mapPosition, 2);
 
-					if (tile->isDiscovered(O_FLOOR))
+					// SS2.W4 read-switch (W1-P8, audit item-6 row 4)
+					if (coopTileDiscoveredHere(tile, O_FLOOR))
 					{
 						tileShade = reShade(tile);
 						obstacleShade = tileShade;
@@ -1221,7 +1227,8 @@ void Map::drawTerrain(Surface *surface)
 					}
 
 					// Draw smoke/fire
-					if (tile->getSmoke() && tile->isDiscovered(O_FLOOR))
+					// SS2.W4 read-switch (W1-P8, audit item-6 row 5)
+					if (tile->getSmoke() && coopTileDiscoveredHere(tile, O_FLOOR))
 					{
 						frameNumber = 0;
 						int shade = 0;
@@ -1285,7 +1292,8 @@ void Map::drawTerrain(Surface *surface)
 					}
 
 					// Draw Path Preview
-					if (_previewSettingArrows && tile->getPreview() != -1 && tile->isDiscovered(O_FLOOR))
+					// SS2.W4 read-switch (W1-P8, audit item-6 row 6)
+					if (_previewSettingArrows && tile->getPreview() != -1 && coopTileDiscoveredHere(tile, O_FLOOR))
 					{
 						if (itZ > 0 && tile->hasNoFloor(_save))
 						{
@@ -1619,7 +1627,8 @@ void Map::drawTerrain(Surface *surface)
 						screenPosition.y > -_spriteHeight && screenPosition.y < surface->getHeight() + _spriteHeight )
 					{
 						tile = _save->getTile(mapPosition);
-						if (!tile || !tile->isDiscovered(O_FLOOR) || tile->getPreview() == -1)
+						// SS2.W4 read-switch (W1-P8, audit item-6 row 7)
+						if (!tile || !coopTileDiscoveredHere(tile, O_FLOOR) || tile->getPreview() == -1)
 							continue;
 						int adjustment = -tile->getTerrainLevel();
 						if (_previewSettingArrows)

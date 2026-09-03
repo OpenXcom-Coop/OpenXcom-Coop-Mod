@@ -34,6 +34,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../Engine/Options.h"
 #include "../Engine/Screen.h"
+#include "../CoopMod/CoopFog.h"
 
 namespace OpenXcom
 {
@@ -107,7 +108,8 @@ void MiniMapView::draw()
 						if (s)
 						{
 							int shade = 16;
-							if (t->isDiscovered(O_FLOOR))
+							// SS2.W4 read-switch (W1-P8, audit item-6 row 8)
+							if (coopTileDiscoveredHere(t, O_FLOOR))
 							{
 								shade = t->getShade();
 								if (shade > 7) shade = 7; //vanilla
@@ -135,7 +137,8 @@ void MiniMapView::draw()
 					}
 				}
 				// perhaps (at least one) item on this tile?
-				if (t->isDiscovered(O_FLOOR) && !t->getInventory()->empty())
+				// SS2.W4 read-switch (W1-P8, audit item-6 row 9)
+				if (coopTileDiscoveredHere(t, O_FLOOR) && !t->getInventory()->empty())
 				{
 					int frame = 9 + _frame;
 					Surface * s = _set->getFrame(frame);

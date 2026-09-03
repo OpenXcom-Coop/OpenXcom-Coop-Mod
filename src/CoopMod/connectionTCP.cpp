@@ -84,6 +84,7 @@
 #include "CoopBattleSetup.h"
 #include "CoopApply.h"
 #include "CoopReveal.h"
+#include "CoopFog.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -744,6 +745,512 @@ static void coopRaiseBattleDesync(const char* bucket, const std::string& expect,
 	CoopBattleUi::showDesyncHalted();
 }
 
+// ===== RW-DUAL-FOG (W1-P8; WAVE1-RUNBOOK.md SS2.W4 / WV-D31 / WV-D39) =====
+// The HOSTILE half of the dual-set reveal model: coop-owned byte-per-tile
+// storage plus the coop-only, HOST-only FOV pass that authors it. CoopFog.h
+// carries the full contract - why this is an ADDITIONAL sweep instead of a
+// write-switch inside TileEngine::calculateTilesInFOV (the Tile::_visible /
+// _visibleTiles minting trap, W1-P15 item-6 FINDING A-5), why duplicated
+// geometry is safe here, and the void-tile hash-coverage asterisk.
+namespace CoopFog
+{
+
+namespace
+{
+
+// The hostile-side reveal set: 1 byte per tile, SS2.4a index order and SS2.4a
+// bits (1 = O_WESTWALL, 2 = O_NORTHWALL, 4 = O_FLOOR). It exists on BOTH
+// machines - the host authors it through authorHostilePass(), the client fills
+// it purely from applied `side:"hostile"` deltas (SS2.4a client-authority rule,
+// unchanged by SS2.W4). It NEVER writes Tile.
+std::vector<std::uint8_t> g_hostileReveal;
+
+// "What did this alien's field of view look like the last time we swept it"
+// (position + facing + turret facing), so a quiescent pass over an unmoved
+// hostile side costs one map lookup per unit instead of a bresenham sweep.
+std::map<int, std::uint64_t> g_hostileFovKey;
+
+// Guards both containers above. Same reasoning as CoopReveal's g_revealMutex:
+// reset() is reachable from the UDP monitor thread via
+// clearNetworkSessionQueues() -> CoopPump::reset(), while every other access is
+// main/pump-thread.
+std::mutex g_fogMutex;
+
+// Diagnostics for the last authorHostilePass() - reported by the
+// `reveal_hostile_pass` probe so a fixture can prove its own premise (that
+// there were aliens to sweep at all) instead of inferring it from a tile count.
+bool g_forceNextPass = false;
+int g_lastPassHostileUnits = 0;
+int g_lastPassCandidates = 0;
+int g_lastPassSwept = 0;
+
+std::uint64_t fovKeyOf(const BattleUnit* u)
+{
+	const Position p = u->getPosition();
+	std::uint64_t k = (std::uint64_t)(std::uint16_t)(p.x & 0xFFFF);
+	k = (k << 16) | (std::uint64_t)(std::uint16_t)(p.y & 0xFFFF);
+	k = (k << 16) | (std::uint64_t)(std::uint16_t)(p.z & 0xFFFF);
+	k = (k << 8) | (std::uint64_t)(std::uint8_t)(u->getDirection() & 0xFF);
+	k = (k << 8) | (std::uint64_t)(std::uint8_t)(u->getTurretDirection() & 0xFF);
+	return k;
+}
+
+/// Monotone OR into tile index @a i. ASSUMES g_fogMutex is held. Mirrors
+/// Tile::setDiscovered's O_FLOOR -> WESTWALL+NORTHWALL cascade
+/// (Tile.cpp:434-438) so this set converges exactly the way the vanilla one
+/// does and re-application stays idempotent (SS2.4a monotone rule).
+int applyBitsLocked(int i, std::uint8_t b)
+{
+	if (b == 0 || i < 0 || (std::size_t)i >= g_hostileReveal.size())
+		return 0;
+	if (b & 4)
+		b = (std::uint8_t)(b | 3);
+	const std::uint8_t before = g_hostileReveal[(std::size_t)i];
+	const std::uint8_t after = (std::uint8_t)(before | b);
+	if (after == before)
+		return 0;
+	g_hostileReveal[(std::size_t)i] = after;
+	const std::uint8_t added = (std::uint8_t)(after & (std::uint8_t)~before);
+	return ((added & 1) ? 1 : 0) + ((added & 2) ? 1 : 0) + ((added & 4) ? 1 : 0);
+}
+
+/// One unit's FULL tile-FOV sweep, vanilla's geometry
+/// (TileEngine::calculateTilesInFOV, TileEngine.cpp:1548-1675) reproduced for a
+/// non-player observer, with every write redirected into @a bmp.
+///
+/// Structural correspondence to vanilla, line for line:
+///  - direction/turret choice          TileEngine.cpp:1550-1555
+///  - the isOut() clear-and-return     TileEngine.cpp:1560-1564 (we simply skip)
+///  - a FULL sweep means eventRadius 0 / eventPos invalid, so
+///    setupEventVisibilitySector() would return true and inEventVisibilitySector()
+///    would be a constant true (TileEngine.cpp:1396-1402, :1429-1443) - both are
+///    therefore folded out here rather than reimplemented, and distanceSqrMin is 0.
+///  - the "eyes poke above the floor" z bump   TileEngine.cpp:1600-1607
+///  - the x/y cone + signX/signY/swap table    TileEngine.cpp:1609-1637
+///  - per-eye bresenham + the >127 pop_back    TileEngine.cpp:1645-1656
+///  - floor at the visited tile, WESTWALL at x+1, NORTHWALL at y+1
+///                                             TileEngine.cpp:1663/:1667/:1669
+///
+/// DELIBERATELY NOT REPRODUCED (this is the point of the separate sweep):
+/// vanilla's `unit->clearVisibleTiles()`, `unit->addToVisibleTiles(...)` and
+/// `tile->setVisible(+1)`. The dedupe those provided is replaced by the bitmap
+/// itself - a tile whose O_FLOOR bit is already set had its two neighbour bits
+/// set by the same code path on the earlier visit, so skipping it is EXACT, not
+/// an approximation.
+///
+/// ASSUMES g_fogMutex is held.
+int sweepUnitLocked(SavedBattleGame* battle, TileEngine* te, BattleUnit* unit)
+{
+	if (!unit || unit->isOut())
+		return 0;
+
+	bool useTurretDirection = false;
+	int direction;
+	if (Options::strafe && (unit->getTurretType() > -1))
+	{
+		direction = unit->getTurretDirection();
+		useTurretDirection = true;
+	}
+	else
+	{
+		direction = unit->getDirection();
+	}
+	(void)useTurretDirection; // vanilla only uses it for checkViewSector, which a full sweep skips
+	if (direction < 0 || direction > 7)
+		return 0;
+
+	Position posSelf = unit->getPosition();
+	Tile* selfTile = battle->getTile(posSelf);
+	if (!selfTile)
+		return 0;
+	if ((unit->getHeight() + unit->getFloatHeight() + -selfTile->getTerrainLevel()) >= 24 + 4)
+	{
+		Tile* tileAbove = battle->getTile(posSelf + Position(0, 0, 1));
+		if (tileAbove && tileAbove->hasNoFloor(0))
+		{
+			++posSelf.z;
+		}
+	}
+
+	const bool swap = (direction == 0 || direction == 4);
+	static const int signX[8] = { +1, +1, +1, +1, -1, -1, -1, -1 };
+	static const int signY[8] = { -1, -1, -1, +1, +1, +1, -1, -1 };
+	const int maxView = te->getMaxViewDistance();
+	const int maxViewSq = te->getMaxViewDistanceSq();
+	const int mapZ = battle->getMapSizeZ();
+	const int size = unit->getArmor()->getSize();
+
+	int discovered = 0;
+	std::vector<Position> trajectory;
+	Position posTest;
+	for (int x = 0; x <= maxView; ++x)
+	{
+		int y1, y2;
+		if (direction & 1)
+		{
+			y1 = 0;
+			y2 = maxView;
+		}
+		else
+		{
+			y1 = -x;
+			y2 = x;
+		}
+		for (int y = y1; y <= y2; ++y)
+		{
+			if (x * x + y * y > maxViewSq)
+				continue;
+			posTest.x = posSelf.x + signX[direction] * (swap ? y : x);
+			posTest.y = posSelf.y + signY[direction] * (swap ? x : y);
+			for (int z = 0; z < mapZ; ++z)
+			{
+				posTest.z = z;
+				if (!battle->getTile(posTest))
+					continue;
+				for (int xo = 0; xo < size; ++xo)
+				{
+					for (int yo = 0; yo < size; ++yo)
+					{
+						const Position poso = posSelf + Position(xo, yo, 0);
+						if (!battle->getTile(poso))
+							continue;
+						trajectory.clear();
+						const int tst = te->calculateLineTile(poso, posTest, trajectory);
+						if (tst > 127 && !trajectory.empty())
+						{
+							trajectory.pop_back();
+						}
+						for (const auto& posVisited : trajectory)
+						{
+							Tile* tv = battle->getTile(posVisited);
+							if (!tv)
+								continue;
+							const int iv = battle->getTileIndex(posVisited);
+							if (iv < 0 || (std::size_t)iv >= g_hostileReveal.size())
+								continue;
+							if (g_hostileReveal[(std::size_t)iv] & 4)
+								continue; // already swept this tile (exact dedupe, see above)
+							discovered += applyBitsLocked(iv, 4);
+							if (battle->getTile(Position(posVisited.x + 1, posVisited.y, posVisited.z)))
+								discovered += applyBitsLocked(battle->getTileIndex(Position(posVisited.x + 1, posVisited.y, posVisited.z)), 1);
+							if (battle->getTile(Position(posVisited.x, posVisited.y + 1, posVisited.z)))
+								discovered += applyBitsLocked(battle->getTileIndex(Position(posVisited.x, posVisited.y + 1, posVisited.z)), 2);
+						}
+					}
+				}
+			}
+		}
+	}
+	return discovered;
+}
+
+} // namespace
+
+const char* sideName(Side s)
+{
+	switch (s)
+	{
+	case Side::Hostile: return "hostile";
+	case Side::Neutral: return "neutral";
+	default:            return "player";
+	}
+}
+
+bool sideFromString(const std::string& s, Side& out)
+{
+	if (s.empty() || s == "player")  { out = Side::Player;  return true; }
+	if (s == "hostile")              { out = Side::Hostile; return true; }
+	if (s == "neutral")              { out = Side::Neutral; return true; }
+	return false;
+}
+
+Side actingSide(SavedBattleGame* battle)
+{
+	if (!battle)
+		return Side::Player;
+	switch (battle->getSide())
+	{
+	case FACTION_HOSTILE: return Side::Hostile;
+	case FACTION_NEUTRAL: return Side::Neutral;
+	default:              return Side::Player;
+	}
+}
+
+void ensureAllocated(SavedBattleGame* battle)
+{
+	if (!battle)
+		return;
+	const int n = battle->getMapSizeXYZ();
+	if (n <= 0)
+		return;
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	if (g_hostileReveal.size() == (std::size_t)n)
+		return;
+	g_hostileReveal.assign((std::size_t)n, 0u);
+	g_hostileFovKey.clear();
+	Log(LOG_INFO) << "[coop-fog] hostile reveal set allocated EMPTY (" << n
+		<< " tiles) - SS2.W4 BASELINE: nothing is pre-published, so the host's first "
+		"side:\"hostile\" restate carries the whole set";
+}
+
+bool allocated()
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	return !g_hostileReveal.empty();
+}
+
+int size()
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	return (int)g_hostileReveal.size();
+}
+
+std::uint8_t bits(int i)
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	if (i < 0 || (std::size_t)i >= g_hostileReveal.size())
+		return 0u;
+	return g_hostileReveal[(std::size_t)i];
+}
+
+bool snapshot(std::vector<std::uint8_t>& out)
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	if (g_hostileReveal.empty())
+		return false;
+	out = g_hostileReveal;
+	return true;
+}
+
+int applyBits(int i, std::uint8_t b)
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	return applyBitsLocked(i, b);
+}
+
+void census(int& floor, int& west, int& north)
+{
+	floor = west = north = 0;
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	for (std::uint8_t b : g_hostileReveal)
+	{
+		if (b & 4) ++floor;
+		if (b & 1) ++west;
+		if (b & 2) ++north;
+	}
+}
+
+bool computeHash(std::uint64_t& out)
+{
+	out = 0;
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	if (g_hostileReveal.empty())
+		return false; // WR-26: the caller OMITS the bucket - key absent, never zero
+	// FNV-1a 64, the same primitive every other SS2.8 bucket uses.
+	std::uint64_t h = 14695981039346656037ULL;
+	for (std::uint8_t b : g_hostileReveal)
+	{
+		h ^= (std::uint64_t)b;
+		h *= 1099511628211ULL;
+	}
+	out = h;
+	return true;
+}
+
+bool corrupt()
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	if (g_hostileReveal.empty())
+		return false;
+	// Deterministic: the FIRST tile that is not already fully discovered gets its
+	// missing bits; if every tile is already 7, tile 0 is cleared instead. Either
+	// way exactly one byte moves and the bucket must change.
+	for (std::size_t i = 0; i < g_hostileReveal.size(); ++i)
+	{
+		if (g_hostileReveal[i] != 7u)
+		{
+			g_hostileReveal[i] = 7u;
+			Log(LOG_WARNING) << "[coop-fog] corrupt_bucket revealHostile: tile " << i
+				<< " forced to 7 (test lever, bypasses emit)";
+			return true;
+		}
+	}
+	g_hostileReveal[0] = 0u;
+	Log(LOG_WARNING) << "[coop-fog] corrupt_bucket revealHostile: tile 0 cleared "
+		"(test lever, bypasses emit)";
+	return true;
+}
+
+void reset()
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	g_hostileReveal.clear();
+	g_hostileFovKey.clear();
+	g_forceNextPass = false;
+	g_lastPassHostileUnits = 0;
+	g_lastPassCandidates = 0;
+	g_lastPassSwept = 0;
+}
+
+int authorHostilePass(SavedBattleGame* battle, bool force)
+{
+	if (!battle || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return 0;
+	TileEngine* te = battle->getTileEngine();
+	if (!te)
+		return 0;
+
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	if (g_hostileReveal.empty())
+		return 0;
+
+	int discovered = 0;
+	int swept = 0;
+	int candidates = 0;
+	int hostileTotal = 0;
+	for (auto* bu : *battle->getUnits())
+	{
+		if (!bu || bu->getFaction() != FACTION_HOSTILE)
+			continue;
+		++hostileTotal;
+		if (bu->isOut() || bu->getTile() == 0)
+			continue;
+		++candidates;
+		const std::uint64_t key = fovKeyOf(bu);
+		auto it = g_hostileFovKey.find(bu->getId());
+		if (!force && it != g_hostileFovKey.end() && it->second == key)
+			continue; // this alien has not moved or turned since its last sweep
+		g_hostileFovKey[bu->getId()] = key;
+		discovered += sweepUnitLocked(battle, te, bu);
+		++swept;
+	}
+	g_lastPassHostileUnits = hostileTotal;
+	g_lastPassCandidates = candidates;
+	g_lastPassSwept = swept;
+	if (discovered > 0 || force)
+	{
+		Log(LOG_INFO) << "[coop-fog] hostile FOV pass: " << hostileTotal
+			<< " FACTION_HOSTILE unit(s), " << candidates << " on a tile and standing, "
+			<< swept << " swept, " << discovered
+			<< " tile part(s) newly discovered for the HOSTILE side";
+	}
+	return discovered;
+}
+
+void armForcedPass()
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	g_forceNextPass = true;
+}
+
+bool consumeArmedPass()
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	const bool armed = g_forceNextPass;
+	g_forceNextPass = false;
+	return armed;
+}
+
+void lastPassStats(int& hostileUnits, int& candidates, int& swept)
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	hostileUnits = g_lastPassHostileUnits;
+	candidates = g_lastPassCandidates;
+	swept = g_lastPassSwept;
+}
+
+int authorSideBeginFov(SavedBattleGame* battle, int faction)
+{
+	// SS2.W5/D2 authorises "ACTIONS and SIDE-BEGIN RESTATES". This is the
+	// side-begin half, and it is deliberately TILES ONLY
+	// (calculateFOV(u, doTileRecalc=true, doUnitRecalc=false)): it authors
+	// discovered bits and mints nothing else, so it cannot perturb any hash
+	// bucket, cannot spot units, and cannot push a BState.
+	//
+	// It replaces something that used to happen BY ACCIDENT. Vanilla's battle
+	// entry recalculates tile FOV for exactly ONE unit - whichever
+	// `BattlescapeState::init()` happens to have selected - and got a full
+	// all-units recalc for free from `InventoryState`'s destructor
+	// (InventoryState.cpp:377). W1-P4's pre-battle equip freeze removed the
+	// InventoryState, and SS2.W5 removes the selection-driven one; without this
+	// restate a co-op host would enter the map with the fog its units had at
+	// GENERATION time, before startFirstTurn()'s resetUnitTiles() put them on
+	// their final tiles. Doing every unit of the side, rather than the selected
+	// one, is also what makes the bring-up reveal trajectory DETERMINISTIC -
+	// the coupling test_rw_hash_now.py's REVEAL_SEQS_AT_T0 had to be widened to
+	// a range for under W1-P6.
+	if (!battle || !battle->getTileEngine())
+		return 0;
+	int swept = 0;
+	for (auto* bu : *battle->getUnits())
+	{
+		if (!bu || bu->getFaction() != faction || bu->isOut() || bu->getTile() == 0)
+			continue;
+		battle->getTileEngine()->calculateFOV(bu, true, false);
+		++swept;
+	}
+	return swept;
+}
+
+} // namespace CoopFog
+
+bool coopTileDiscoveredHere(const Tile* tile, TilePart part)
+{
+	if (!tile)
+		return false;
+	// FAST PATH, and the reason SP and classic co-op stay bit-identical: two
+	// atomic loads and then the vanilla answer. factionOf() returns
+	// FACTION_PLAYER for every seat in classic co-op (BattleAuthority.h), so the
+	// switched branch below is unreachable until W1-P14's gm2 seat map exists.
+	if (!isCoopBattle())
+		return tile->isDiscovered(part);
+	const int seat = coopBattleAuthority().localSeat.load();
+	if (seat < 0 || coopBattleAuthority().factionOf(seat) == FACTION_PLAYER)
+		return tile->isDiscovered(part);
+
+	// A seat on the HOSTILE side reads the HOSTILE set. With that storage
+	// unallocated there is no such set on this machine, and answering from the
+	// vanilla bits is strictly better than rendering a black map.
+	if (!CoopFog::allocated())
+		return tile->isDiscovered(part);
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!battle)
+		return tile->isDiscovered(part);
+	const std::uint8_t b = CoopFog::bits(battle->getTileIndex(tile->getPosition()));
+	switch (part)
+	{
+	case O_WESTWALL:  return (b & 1) != 0;
+	case O_NORTHWALL: return (b & 2) != 0;
+	// O_FLOOR and O_OBJECT both follow the floor bit - SS2.4a carries three bits
+	// per tile, and Tile::setDiscovered's own cascade (Tile.cpp:434-438) ties the
+	// walls to the floor the same way.
+	default:          return (b & 4) != 0;
+	}
+}
+
+// ===== SS2.W5 (D2 / WV-D8): G-2 action-only reveals ==========================
+// See CoopFog.h for the contract. These are the ONLY two hooks: one that stops
+// a SELECTION change from authoring shared fog, one that authors it explicitly
+// for the unit that actually ACTED.
+
+bool coopSuppressSelectionTileFov()
+{
+	return isCoopBattle();
+}
+
+void coopAuthorActingUnitFov(BattleUnit* actor)
+{
+	if (!actor || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!battle || !battle->getTileEngine())
+		return;
+	// Tiles only: the unit half of this actor's FOV is already handled by
+	// vanilla's own positional calculateFOV(pos, radius, false) at the same
+	// sites, and per-unit `visible` is machine-local anyway.
+	battle->getTileEngine()->calculateFOV(actor, true, false);
+}
+
 // ===== RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a): host-authored fog of war =====
 // See CoopReveal.h for the full contract (wire shape, monotonicity, the client
 // authority rule, and why attachment lives at the CoopEmit::sendEv choke).
@@ -768,10 +1275,41 @@ namespace
 // previous stage's reveals forever.
 std::vector<std::uint8_t> g_publishedReveal;
 
+// W1-P8 (SS2.W4 dual-set): the HOSTILE side's published mirror. Same shape and
+// same role as g_publishedReveal, but its LIVE source is CoopFog's coop-owned
+// bitmap rather than the vanilla Tile bits. SS2.W4's BASELINE rule makes it
+// start EMPTY at offer time (the hostile set has no save representation, so a
+// joining client's blob cannot carry it) - everything already authored
+// therefore ships as the first delta / `base` restate.
+std::vector<std::uint8_t> g_publishedHostile;
+
+// W1-P8 (SS2.W4 BASELINE / WR-1 / WV-D39): one-shot, armed when the HOST
+// reaches phase Active. Consumed by emitPendingBaseline() at the emit choke, so
+// the host's FIRST ev after Active is literally the side:"hostile" `base`
+// restate the rule asks for.
+bool g_hostileBaseNeeded = false;
+
+// W1-P8 (SS2.W5): one-shot, the PLAYER-side battle-ENTRY restate. Fired the
+// first time the host actually holds a BattlescapeState, i.e. once it has left
+// BriefingState and startFirstTurn() has run, so every unit is on its final
+// tile. See CoopFog::authorSideBeginFov() for why this exists at all.
+bool g_entryRestateDone = false;
+
+// RB-D26 test lever: a republish armed for the NEXT emit (see armRepublish).
+// -1 = nothing armed.
+int g_armedRepublishSide = -1;
+
+// W1-P8: re-entrancy guard for the two side-emitters below. Both go through
+// CoopEmit::sendEv(), which calls straight back into them; without this a
+// baseline restate would try to emit its own follow-ups forever. Main/pump
+// thread only, exactly like CoopEventLog's ring.
+bool g_sideEmitReentry = false;
+
 // RB-D26 one-shot test levers - see CoopReveal.h.
 bool g_revealDropNext = false;
 bool g_revealBaseNext = false;
 bool g_revealBaseBadN = false;
+CoopFog::Side g_revealBaseSide = CoopFog::Side::Player;
 
 // Guards g_publishedReveal + the lever flags. Same reasoning as CoopIdMaps'
 // own g_coopIdMapsMutex (BattleAuthority.h's R4-P1 cross-thread note): the
@@ -860,29 +1398,49 @@ bool b64Decode(const std::string& in, std::vector<std::uint8_t>& out)
 /// this is a pure probe: it returns on the FIRST difference and publishes
 /// nothing. With @a out non-null it fills out["add"] with SS2.4a's flat
 /// [index, bits, ...] array and marks every reported bit published.
-bool computeDelta(SavedBattleGame* battle, Json::Value* out)
+bool computeDelta(SavedBattleGame* battle, Json::Value* out, CoopFog::Side side)
 {
 	if (!battle)
 		return false;
 	const int n = battle->getMapSizeXYZ();
 	if (n <= 0)
 		return false;
-	if (g_publishedReveal.size() != (std::size_t)n)
+	if (side == CoopFog::Side::Neutral)
+		return false; // SS2.W4: reserved, wave 1 never authors it
+
+	std::vector<std::uint8_t>& published =
+		(side == CoopFog::Side::Hostile) ? g_publishedHostile : g_publishedReveal;
+
+	// The hostile side's LIVE source is CoopFog's coop-owned bitmap, taken once
+	// per call rather than per tile (CoopFog has its own mutex; this keeps the
+	// lock order g_revealMutex -> g_fogMutex and costs one copy instead of
+	// getMapSizeXYZ() lock round-trips).
+	std::vector<std::uint8_t> hostileLive;
+	if (side == CoopFog::Side::Hostile)
+	{
+		if (!CoopFog::snapshot(hostileLive) || (int)hostileLive.size() != n)
+			return false; // no hostile set on this machine yet: nothing to publish
+	}
+
+	if (published.size() != (std::size_t)n)
 	{
 		// Unseeded (or a differently-sized battle): publish nothing, so the very
 		// next delta carries the WHOLE live set. Bigger on the wire, still
 		// correct - reveal is monotone and idempotent (SS2.4a) - and the only
 		// way this fires is a missing seedPublished(), which must not silently
-		// desync the two machines.
-		g_publishedReveal.assign((std::size_t)n, 0u);
+		// desync the two machines. (For the HOSTILE side an empty published
+		// mirror is not an error at all: SS2.W4's BASELINE rule REQUIRES it.)
+		published.assign((std::size_t)n, 0u);
 	}
 
 	bool any = false;
 	Json::Value add(Json::arrayValue);
 	for (int i = 0; i < n; ++i)
 	{
-		const std::uint8_t live = liveBits(battle->getTile(i));
-		const std::uint8_t added = (std::uint8_t)(live & (std::uint8_t)~g_publishedReveal[i]);
+		const std::uint8_t live = (side == CoopFog::Side::Hostile)
+			? hostileLive[(std::size_t)i]
+			: liveBits(battle->getTile(i));
+		const std::uint8_t added = (std::uint8_t)(live & (std::uint8_t)~published[i]);
 		if (!added)
 			continue;
 		any = true;
@@ -890,27 +1448,51 @@ bool computeDelta(SavedBattleGame* battle, Json::Value* out)
 			return true; // probe: one difference is the whole answer
 		add.append(i);
 		add.append((int)added);
-		g_publishedReveal[i] = (std::uint8_t)(g_publishedReveal[i] | added);
+		published[i] = (std::uint8_t)(published[i] | added);
 	}
 	if (out && any)
+	{
 		(*out)["add"] = add;
+		// SS2.W4: `side` is PRESENCE-GATED and absent means "player", so the
+		// player-side delta stays byte-identical to what SS2.4a shipped.
+		if (side != CoopFog::Side::Player)
+			(*out)["side"] = CoopFog::sideName(side);
+	}
 	return any;
+}
+
+/// True iff @a side has at least one bit that is live but not yet published.
+/// ASSUMES g_revealMutex is held.
+bool hasUnpublishedSideLocked(SavedBattleGame* battle, CoopFog::Side side)
+{
+	return computeDelta(battle, nullptr, side);
 }
 
 /// HOST: ship an ABSOLUTE `base` restate of the whole live bitmap (SS2.4a).
 /// Test-lever-only in the spike (the stage atom is its future real caller).
 /// MUST be called WITHOUT g_revealMutex held - it goes through CoopEmit::sendEv,
 /// which re-enters attachDelta().
-void emitBaseRestate(SavedBattleGame* battle, bool badN)
+void emitBaseRestate(SavedBattleGame* battle, CoopFog::Side side, bool badN, const char* why)
 {
 	const int n = battle->getMapSizeXYZ();
 	if (n <= 0)
 		return;
-	std::vector<std::uint8_t> bytes((std::size_t)n, 0u);
-	for (int i = 0; i < n; ++i)
-		bytes[(std::size_t)i] = liveBits(battle->getTile(i));
+	std::vector<std::uint8_t> bytes;
+	if (side == CoopFog::Side::Hostile)
+	{
+		if (!CoopFog::snapshot(bytes) || (int)bytes.size() != n)
+			return; // no hostile set allocated on this machine
+	}
+	else
+	{
+		bytes.assign((std::size_t)n, 0u);
+		for (int i = 0; i < n; ++i)
+			bytes[(std::size_t)i] = liveBits(battle->getTile(i));
+	}
 
 	Json::Value delta(Json::objectValue);
+	if (side != CoopFog::Side::Player)
+		delta["side"] = CoopFog::sideName(side);
 	delta["base"] = b64Encode(bytes);
 	delta["n"] = badN ? (n + 1) : n;
 
@@ -919,25 +1501,50 @@ void emitBaseRestate(SavedBattleGame* battle, bool badN)
 	// Set BEFORE sendEv: attachDelta() leaves an envelope that already carries
 	// an explicit restate alone.
 	ev["reveal"] = delta;
-	CoopEmit::sendEv(ev);
 
-	Log(LOG_WARNING) << "[coop-reveal] reveal_base lever fired: absolute base restate sent ("
-		<< n << " tiles, advertised n=" << (badN ? (n + 1) : n)
-		<< (badN ? " - DELIBERATELY WRONG, the client must desync" : "") << ")";
-
-	// A restate publishes everything - nothing is outstanding afterwards.
+	// PUBLISH FIRST, EMIT SECOND. sendEv() calls straight back into
+	// emitPendingOtherSides() at the choke; marking this side published before
+	// the call is what stops the very bits we are restating from being shipped a
+	// second time as a redundant follow-up delta.
 	{
 		std::lock_guard<std::mutex> lock(g_revealMutex);
-		g_publishedReveal.swap(bytes);
+		if (side == CoopFog::Side::Hostile)
+			g_publishedHostile = bytes;
+		else
+			g_publishedReveal = bytes;
 	}
+
+	CoopEmit::sendEv(ev);
+
+	Log(LOG_WARNING) << "[coop-reveal] " << why << ": absolute base restate sent (side="
+		<< CoopFog::sideName(side) << ", " << n << " tiles, advertised n="
+		<< (badN ? (n + 1) : n)
+		<< (badN ? " - DELIBERATELY WRONG, the client must desync" : "") << ")";
 }
 
 } // namespace
 
 void seedPublished(SavedBattleGame* battle)
 {
+	// W1-P8 (SS2.W4 dual-set): the PER-BATTLE reset point for the hostile half.
+	// CoopReveal::reset() runs from clearNetworkSessionQueues(), which is a
+	// SESSION teardown (transport disconnect) - it does NOT run between two
+	// battles of one campaign. offerBattle() -> seedPublished() is the chokepoint
+	// that does, which is exactly why the player-side mirror is re-seeded here
+	// rather than relying on teardown. The hostile side has no blob to seed FROM,
+	// so its job here is the mirror image: carry NOTHING over. Without this,
+	// battle 2 of a session would start with battle 1's alien fog still in the
+	// bitmap (equal on both machines, so not a desync - just wrong), and its
+	// SS2.W5 battle-entry restate would never fire because the one-shot was
+	// already spent.
+	CoopFog::reset(); // takes its own mutex; called BEFORE g_revealMutex (lock order)
+
 	std::lock_guard<std::mutex> lock(g_revealMutex);
 	g_publishedReveal.clear();
+	g_publishedHostile.clear();
+	g_hostileBaseNeeded = false;
+	g_entryRestateDone = false;
+	g_armedRepublishSide = -1;
 	if (!battle)
 		return;
 	const int n = battle->getMapSizeXYZ();
@@ -980,7 +1587,17 @@ void seedPublished(SavedBattleGame* battle)
 bool hasUnpublished(SavedBattleGame* battle)
 {
 	std::lock_guard<std::mutex> lock(g_revealMutex);
-	return computeDelta(battle, nullptr);
+	// W1-P8: "unpublished" now means EITHER set - a stronger reading than SS2.4a's
+	// single-set one, and the one every existing "host has nothing left
+	// unpublished" assertion wants.
+	return hasUnpublishedSideLocked(battle, CoopFog::Side::Player)
+		|| hasUnpublishedSideLocked(battle, CoopFog::Side::Hostile);
+}
+
+bool hasUnpublishedSide(SavedBattleGame* battle, CoopFog::Side side)
+{
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	return hasUnpublishedSideLocked(battle, side);
 }
 
 bool attachDelta(SavedBattleGame* battle, Json::Value& env)
@@ -988,10 +1605,15 @@ bool attachDelta(SavedBattleGame* battle, Json::Value& env)
 	if (env.isMember("reveal"))
 		return false; // an explicit restate the caller built (emitBaseRestate)
 
+	// SS2.W4/WR-5: ONE `reveal` per envelope, and it is the ACTING side's.
+	// Every other side's pending bits ship as their own bt_ev{kind:"reveal"}
+	// from this same choke - see emitPendingOtherSides().
+	const CoopFog::Side side = CoopFog::actingSide(battle);
+
 	std::lock_guard<std::mutex> lock(g_revealMutex);
 
 	Json::Value delta(Json::objectValue);
-	if (!computeDelta(battle, &delta))
+	if (!computeDelta(battle, &delta, side))
 		return false;
 
 	if (g_revealDropNext)
@@ -1002,12 +1624,14 @@ bool attachDelta(SavedBattleGame* battle, Json::Value& env)
 		// removed, is exactly what the saveBlob bucket must now catch.
 		g_revealDropNext = false;
 		Log(LOG_WARNING) << "[coop-reveal] reveal_drop lever fired: dropped one reveal delta ("
-			<< (delta["add"].size() / 2) << " tiles) - the client will never receive it";
+			<< (delta["add"].size() / 2) << " tiles, side=" << CoopFog::sideName(side)
+			<< ") - the client will never receive it";
 		return false;
 	}
 
 	Log(LOG_INFO) << "[coop-reveal] attached reveal delta (" << (delta["add"].size() / 2u)
-		<< " tiles) to " << env.get("state", "?").asString() << " kind="
+		<< " tiles, side=" << CoopFog::sideName(side) << ") to "
+		<< env.get("state", "?").asString() << " kind="
 		<< env.get("kind", "-").asString();
 
 	env["reveal"] = delta;
@@ -1041,30 +1665,147 @@ void flushQuiescent()
 	if (bg && bg->isBusy())
 		return;
 
+	// SS2.W5 (D2 / WV-D8): the PLAYER-side battle-ENTRY restate - a SIDE-BEGIN,
+	// which D2 explicitly authorises as a reveal author. One-shot, and gated on
+	// the host actually holding a BattlescapeState so it runs AFTER
+	// startFirstTurn() has put every unit on its final tile.
+	if (!g_entryRestateDone && battle->getBattleState() != nullptr)
+	{
+		g_entryRestateDone = true;
+		const int swept = CoopFog::authorSideBeginFov(battle, FACTION_PLAYER);
+		Log(LOG_INFO) << "[coop-reveal] SS2.W5 battle-entry side-begin restate: tile FOV "
+			"recalculated for " << swept << " player-faction unit(s)";
+	}
+
+	// SS2.W4 BASELINE (WR-1/WV-D39): if the host has not yet shipped its
+	// side:"hostile" base restate, that IS this tick's flush. (The emit choke
+	// fires it too, so whichever comes first - an action or this pump tick - the
+	// restate really is the first ev after phase Active.)
+	if (emitPendingBaseline())
+		return;
+
+	// SS2.W4: THE HOST AUTHORS BOTH SETS. The hostile-side tile sweep has no
+	// vanilla trigger of any kind (TileEngine.cpp:1556 early-returns for every
+	// non-player observer), so it runs here, at exactly the quiescence the
+	// player-side flush already uses. Dirty-tracked per unit inside CoopFog, so
+	// an unmoved hostile side costs one map lookup per alien.
+	CoopFog::authorHostilePass(battle, false);
+
 	bool wantBase = false;
 	bool badN = false;
+	CoopFog::Side baseSide = CoopFog::Side::Player;
 	{
 		std::lock_guard<std::mutex> lock(g_revealMutex);
 		if (g_revealBaseNext)
 		{
 			wantBase = true;
 			badN = g_revealBaseBadN;
+			baseSide = g_revealBaseSide;
 			g_revealBaseNext = false;
 			g_revealBaseBadN = false;
+			g_revealBaseSide = CoopFog::Side::Player;
 		}
 	}
 	if (wantBase)
 	{
-		emitBaseRestate(battle, badN); // fires even with nothing unpublished
+		// fires even with nothing unpublished
+		emitBaseRestate(battle, baseSide, badN, "reveal_base lever fired");
 		return;
 	}
 
-	if (!hasUnpublished(battle))
-		return; // idempotent: a second quiescent tick emits no second ev
+	const CoopFog::Side acting = CoopFog::actingSide(battle);
+	if (hasUnpublishedSide(battle, acting))
+	{
+		Json::Value ev = CoopWire::makeEv(0u, 0u, "reveal"); // actionId 0: no action chain
+		ev["h"] = coopBuildUnitsStatsHash(battle); // RB-D14
+		// Stamps the real seq, attaches the ACTING side's delta at the choke, and
+		// ships every other side's pending bits as their own ev right after.
+		CoopEmit::sendEv(ev);
+		return;
+	}
 
-	Json::Value ev = CoopWire::makeEv(0u, 0u, "reveal"); // actionId 0: no action chain
-	ev["h"] = coopBuildUnitsStatsHash(battle); // RB-D14
-	CoopEmit::sendEv(ev); // stamps the real seq AND attaches the delta at the choke
+	// Nothing pending for the acting side, but another side may still owe bits:
+	// they ship as their own ev (WR-5). Idempotent - a second quiescent tick
+	// finds nothing and emits nothing.
+	emitPendingOtherSides();
+}
+
+bool emitPendingBaseline()
+{
+	if (g_sideEmitReentry)
+		return false;
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return false;
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!battle)
+		return false; // resolve the battle BEFORE consuming the one-shot, or a null
+	                  // here would silently eat the BASELINE restate for good
+	{
+		std::lock_guard<std::mutex> lock(g_revealMutex);
+		if (!g_hostileBaseNeeded)
+			return false;
+		g_hostileBaseNeeded = false;
+	}
+
+	g_sideEmitReentry = true;
+	emitBaseRestate(battle, CoopFog::Side::Hostile, false,
+		"SS2.W4 BASELINE hostile restate (first ev after phase Active)");
+	g_sideEmitReentry = false;
+	return true;
+}
+
+void emitPendingOtherSides()
+{
+	if (g_sideEmitReentry)
+		return;
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!battle)
+		return;
+
+	const CoopFog::Side acting = CoopFog::actingSide(battle);
+	// SS2.W4 TRACKS TWO SETS ("neutral" is reserved and never authored), and
+	// "every OTHER side" means every TRACKED side that is not the acting one -
+	// which is BOTH of them while a NEUTRAL side holds the turn, not just the one
+	// opposite the player. Getting this wrong would strand the player side's bits
+	// for the whole civilian phase of every turn cycle (vanilla's endTurn goes
+	// PLAYER -> HOSTILE -> NEUTRAL -> PLAYER), and `hasUnpublished()` would report
+	// "still owes bits" the entire time. Unreachable in wave 1 - nothing here
+	// crosses a side boundary until W1-P13 - but W1-P13 is exactly who would trip
+	// over it.
+	static const CoopFog::Side kTracked[2] = { CoopFog::Side::Player, CoopFog::Side::Hostile };
+
+	g_sideEmitReentry = true;
+	for (const CoopFog::Side side : kTracked)
+	{
+		if (side == acting)
+			continue; // this one rode the envelope itself (attachDelta)
+		if (!hasUnpublishedSide(battle, side))
+			continue;
+
+		Json::Value ev = CoopWire::makeEv(0u, 0u, "reveal");
+		ev["h"] = coopBuildUnitsStatsHash(battle); // RB-D14
+		{
+			Json::Value delta(Json::objectValue);
+			std::lock_guard<std::mutex> lock(g_revealMutex);
+			if (computeDelta(battle, &delta, side))
+				ev["reveal"] = delta;
+		}
+		if (!ev.isMember("reveal"))
+			continue;
+		Log(LOG_INFO) << "[coop-reveal] attached reveal delta ("
+			<< (ev["reveal"]["add"].size() / 2u) << " tiles, side="
+			<< CoopFog::sideName(side) << ") to its OWN bt_ev{kind:\"reveal\"} (WR-5)";
+		CoopEmit::sendEv(ev);
+	}
+	g_sideEmitReentry = false;
+}
+
+void armHostileBaseline()
+{
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	g_hostileBaseNeeded = true;
 }
 
 void applyFrom(SavedBattleGame* battle, const Json::Value& env)
@@ -1078,6 +1819,33 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env)
 	const std::string kind = env.isMember("kind")
 		? env.get("kind", "?").asString()
 		: env.get("state", "?").asString();
+
+	// SS2.W4: NO RECEIVE-SIDE FILTERING. Every machine applies EVERY delta into
+	// the set the delta NAMES - that is what keeps both sides' sets equal on both
+	// machines and therefore hashable. An absent `side` means "player".
+	CoopFog::Side side = CoopFog::Side::Player;
+	const std::string sideStr = d.get("side", "").asString();
+	if (!CoopFog::sideFromString(sideStr, side))
+	{
+		Log(LOG_ERROR) << "[coop-reveal] RW-UNSUPPORTED reveal-side-unknown '" << sideStr
+			<< "' at seq " << seq << " - nothing applied; the next hash will call it a desync";
+		return;
+	}
+	if (side == CoopFog::Side::Neutral)
+	{
+		// SS2.W4: reserved, never authored in wave 1. Same treatment as SS2.4's
+		// `door`-in-turn precedent - log and let the next hash report it, which is
+		// CORRECT because the state HAS diverged.
+		Log(LOG_ERROR) << "[coop-reveal] RW-UNSUPPORTED reveal-side-neutral at seq " << seq
+			<< " - nothing applied; the next hash will call it a desync";
+		return;
+	}
+	if (side == CoopFog::Side::Hostile)
+	{
+		// The hostile set is coop-owned storage with no save representation, so a
+		// receiver may meet its first hostile delta before anything allocated it.
+		CoopFog::ensureAllocated(battle);
+	}
 
 	if (d.isMember("base"))
 	{
@@ -1102,9 +1870,14 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env)
 		}
 		int applied = 0;
 		for (int i = 0; i < n; ++i)
-			applied += applyBitsToTile(battle->getTile(i), bytes[(std::size_t)i]);
-		Log(LOG_INFO) << "[coop-reveal] applied base restate at seq " << seq << " ("
-			<< n << " tiles, " << applied << " parts newly discovered)";
+		{
+			applied += (side == CoopFog::Side::Hostile)
+				? CoopFog::applyBits(i, bytes[(std::size_t)i])
+				: applyBitsToTile(battle->getTile(i), bytes[(std::size_t)i]);
+		}
+		Log(LOG_INFO) << "[coop-reveal] applied base restate at seq " << seq << " (side="
+			<< CoopFog::sideName(side) << ", " << n << " tiles, " << applied
+			<< " parts newly discovered)";
 		return;
 	}
 
@@ -1130,7 +1903,9 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env)
 			++skipped;
 			continue;
 		}
-		applied += applyBitsToTile(battle->getTile(idx), (std::uint8_t)bits);
+		applied += (side == CoopFog::Side::Hostile)
+			? CoopFog::applyBits(idx, (std::uint8_t)bits)
+			: applyBitsToTile(battle->getTile(idx), (std::uint8_t)bits);
 	}
 	if (skipped > 0)
 	{
@@ -1140,18 +1915,26 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env)
 	}
 	if (add.size() > 0)
 	{
-		Log(LOG_INFO) << "[coop-reveal] applied add delta at seq " << seq << " ("
-			<< (add.size() / 2u) << " tiles, " << applied << " parts newly discovered)";
+		Log(LOG_INFO) << "[coop-reveal] applied add delta at seq " << seq << " (side="
+			<< CoopFog::sideName(side) << ", " << (add.size() / 2u) << " tiles, "
+			<< applied << " parts newly discovered)";
 	}
 }
 
 void reset()
 {
+	CoopFog::reset(); // W1-P8: the hostile set shares this one battle-teardown chokepoint
 	std::lock_guard<std::mutex> lock(g_revealMutex);
 	g_publishedReveal.clear();
+	g_publishedHostile.clear();
+	g_hostileBaseNeeded = false;
+	g_entryRestateDone = false;
+	g_armedRepublishSide = -1;
+	g_sideEmitReentry = false;
 	g_revealDropNext = false;
 	g_revealBaseNext = false;
 	g_revealBaseBadN = false;
+	g_revealBaseSide = CoopFog::Side::Player;
 }
 
 void requestDropNextDelta()
@@ -1160,11 +1943,42 @@ void requestDropNextDelta()
 	g_revealDropNext = true;
 }
 
-void requestBaseRestate(bool badN)
+void republishSide(CoopFog::Side side)
+{
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	if (side == CoopFog::Side::Hostile)
+		g_publishedHostile.clear();
+	else if (side == CoopFog::Side::Player)
+		g_publishedReveal.clear();
+	Log(LOG_WARNING) << "[coop-reveal] republish lever fired: published mirror for side="
+		<< CoopFog::sideName(side) << " cleared - the next emit re-ships that whole set";
+}
+
+void armRepublish(CoopFog::Side side)
+{
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	g_armedRepublishSide = (int)side;
+}
+
+void consumeArmedRepublish()
+{
+	CoopFog::Side side = CoopFog::Side::Player;
+	{
+		std::lock_guard<std::mutex> lock(g_revealMutex);
+		if (g_armedRepublishSide < 0)
+			return;
+		side = (CoopFog::Side)g_armedRepublishSide;
+		g_armedRepublishSide = -1;
+	}
+	republishSide(side);
+}
+
+void requestBaseRestate(bool badN, CoopFog::Side side)
 {
 	std::lock_guard<std::mutex> lock(g_revealMutex);
 	g_revealBaseNext = true;
 	g_revealBaseBadN = badN;
+	g_revealBaseSide = side;
 }
 
 } // namespace CoopReveal
@@ -1350,8 +2164,31 @@ void sendEv(Json::Value ev)
 	// reveal writer (present and future, in-action or not) with zero per-atom
 	// code. Host-only: a client never authors discovered bits (CoopReveal.h's
 	// client authority rule).
-	if (isCoopBattle() && coopBattleAuthority().hostSim)
+	//
+	// W1-P8 (SS2.W4 dual-set, WR-5/WV-D39) made this choke side-aware without
+	// changing its shape: the field attached to THIS envelope is the ACTING
+	// side's, exactly one `reveal` per envelope, and any OTHER side's pending
+	// bits ship as their own bt_ev{kind:"reveal"} from right here, immediately
+	// afterwards, in the same seq stream.
+	const bool hostAuthoring = isCoopBattle() && coopBattleAuthority().hostSim;
+	if (hostAuthoring)
+	{
+		// SS2.W4 BASELINE / WR-1: the host's FIRST ev after phase Active is the
+		// side:"hostile" `base` restate. One-shot and re-entrancy guarded, so it
+		// costs a bool test on every later emit.
+		CoopReveal::emitPendingBaseline();
+		CoopReveal::consumeArmedRepublish(); // RB-D26 lever, one-shot, no-op unless armed
+		// SS2.W4's FLUSH-BEFORE-ANY-SWEEP-THAT-HASHES-THE-SET rule, made
+		// STRUCTURAL: bring the hostile set up to date HERE, so that by the time
+		// this envelope leaves the choke both sets' pending bits are on the wire
+		// and a boundary hash carrying `revealHostile` (W1-P13) can never race
+		// its own unpublished bits. Dirty-tracked, so an unmoved hostile side
+		// costs one map lookup per alien; it sweeps exactly the aliens that
+		// actually moved or turned since the last emit.
+		CoopFog::authorHostilePass(connectionTCP::getStaticBattle(),
+			CoopFog::consumeArmedPass());
 		CoopReveal::attachDelta(connectionTCP::getStaticBattle(), ev);
+	}
 
 	ev["seq"] = nextSeq();
 
@@ -1365,6 +2202,11 @@ void sendEv(Json::Value ev)
 	wb["indentation"] = "";
 	std::string s = Json::writeString(wb, ev);
 	coopEmitBlockingPush(std::move(s));
+
+	// SS2.W4/WR-5, after the envelope so the seq order reads
+	// "acting side's ev, then the other side's own reveal ev".
+	if (hostAuthoring)
+		CoopReveal::emitPendingOtherSides();
 }
 
 } // namespace CoopEmit
@@ -4997,6 +5839,21 @@ void onBlobChunkAppended(Game* game)
 	coopBattleAuthority().turnMode = coopTurnModeFromString(g_pendingClient.turnMode);
 	coopBattleAuthority().phase = CoopBattlePhase::Active;
 
+	// W1-P8 (SS2.W4 dual-set / WV-D31): allocate the HOSTILE-side reveal set,
+	// EMPTY, at the same lifecycle point the host does. Both machines therefore
+	// grow the SS2.8 `revealHostile` bucket at the same moment, so a joint sweep
+	// can never see the key on one machine and not the other; the host's first
+	// side:"hostile" `base` restate then fills it (SS2.W4 BASELINE / WR-1).
+	//
+	// reset() FIRST, and this is the CLIENT's per-battle reset point - the mirror
+	// of the host's seedPublished(). CoopReveal::reset() only runs at SESSION
+	// teardown (clearNetworkSessionQueues), so without this a second battle of the
+	// same campaign whose map is the same SIZE would find the bitmap already
+	// allocated, keep battle 1's alien fog, and diverge from a host that DID reset
+	// at offer time.
+	CoopFog::reset();
+	CoopFog::ensureAllocated(battle);
+
 	// W1-P2 (SS2.W1 / WV-D9 / WV-D28 / WV-D42): apply the offer's mission
 	// identity BEFORE any state is pushed. strTarget/strCraftOrBase are the two
 	// BriefingState display labels and are saveBlob-HASH-excluded
@@ -5299,6 +6156,22 @@ void onReady(Game* game, const Json::Value& ready)
 	coopBattleAuthority().phase = CoopBattlePhase::Active;
 	g_pendingHost = PendingHost();
 
+	// W1-P8 (SS2.W4 dual-set / WV-D31 / WV-D39). Three things, in this order:
+	//   1. allocate the HOSTILE-side reveal set EMPTY (the BASELINE rule: it has
+	//      no save representation, so nothing about it rides the blob);
+	//   2. run the coop-only hostile FOV pass over every alien, forced - THE HOST
+	//      AUTHORS BOTH SETS, and nothing in vanilla ever authors this one;
+	//   3. arm the side:"hostile" `base` restate, which the emit choke ships as
+	//      the host's FIRST ev after phase Active.
+	// This block runs only now, after phase Active, because isCoopBattle() - and
+	// therefore authorHostilePass() - is false before it (BattleAuthority.h).
+	if (SavedBattleGame* activeBattle = connectionTCP::getStaticBattle())
+	{
+		CoopFog::ensureAllocated(activeBattle);
+		CoopFog::authorHostilePass(activeBattle, true);
+		CoopReveal::armHostileBaseline();
+	}
+
 	Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId << ")";
 }
 
@@ -5353,17 +6226,38 @@ void verify(const Json::Value& evOrEnd)
 				break;
 			}
 		}
+		std::string got;
 		if (idx < 0)
 		{
-			// A future/upgraded peer's bucket this build does not know -
-			// SS2.8 presence-gating: ignore, never guess.
-			Log(LOG_WARNING) << "[coop-hash] ev/action_end carried unknown bucket '"
-				<< bucketName << "' - ignored";
-			continue;
+			// W1-P8 (SS2.W4 / SS2.8): `revealHostile` is computed OUT OF BAND -
+			// it is not a BattleHashSet member (W1-P15 item-7 R-5), so it can
+			// never be found by the loop above. WR-26: when this machine has no
+			// hostile storage allocated the bucket does not exist here either,
+			// and an ev that carries one anyway IS a divergence - fall through to
+			// the mismatch path rather than inventing a zero.
+			// NOTE: no wave-1 envelope carries this bucket (SS2.W4 puts it on
+			// W1-P13's boundary sweep); this arm exists so that when W1-P13 does,
+			// the client verifies it instead of silently ignoring it.
+			if (bucketName == "revealHostile")
+			{
+				std::uint64_t rh = 0;
+				got = CoopFog::computeHash(rh) ? coopHex64(rh) : std::string("<absent>");
+			}
+			else
+			{
+				// A future/upgraded peer's bucket this build does not know -
+				// SS2.8 presence-gating: ignore, never guess.
+				Log(LOG_WARNING) << "[coop-hash] ev/action_end carried unknown bucket '"
+					<< bucketName << "' - ignored";
+				continue;
+			}
+		}
+		else
+		{
+			got = coopHex64(SharedEcon::battleHashBucketValue(mine, idx));
 		}
 
 		const std::string expect = carried[bucketName].asString();
-		const std::string got = coopHex64(SharedEcon::battleHashBucketValue(mine, idx));
 		if (expect == got)
 			continue;
 

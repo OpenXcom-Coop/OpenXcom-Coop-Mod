@@ -21,6 +21,8 @@
 
 #include <json/json.h>
 
+#include "CoopFog.h"
+
 namespace OpenXcom
 {
 
@@ -90,7 +92,13 @@ void seedPublished(SavedBattleGame* battle);
 /// but not yet published. Cheap (first-difference early-out) and side-effect
 /// free - it never publishes anything. The dirty half of flushQuiescent()'s
 /// predicate; also usable by test introspection.
+/// W1-P8 (SS2.W4): "unpublished" now means EITHER SIDE's set - the strongest
+/// reading, and the one every "the host has nothing left to publish" assertion
+/// in the harness actually wants.
 bool hasUnpublished(SavedBattleGame* battle);
+
+/// HOST: the same question restricted to ONE side's set (SS2.W4 dual-set).
+bool hasUnpublishedSide(SavedBattleGame* battle, CoopFog::Side side);
 
 /// HOST: compute the live-vs-published delta for @a battle and, if non-empty,
 /// attach it to @a env as the SS2.4a `reveal` field, marking those bits
@@ -108,6 +116,33 @@ bool attachDelta(SavedBattleGame* battle, Json::Value& env);
 /// tick finds nothing unpublished and emits nothing. Called once per
 /// connectionTCP::updateCoopTask() tick (RB-D5's pump point).
 void flushQuiescent();
+
+/// HOST, one-shot (SS2.W4 BASELINE / WR-1 / WV-D39): emits the side:"hostile"
+/// absolute `base` restate that gives a joining client the whole hostile set.
+/// The hostile bitmap is coop-owned storage with NO save representation, so
+/// unlike the player-side bits it cannot ride the handshake blob - hence the
+/// host's published hostile mirror is seeded EMPTY and everything already
+/// authored ships here. Called from the emit choke BEFORE the outgoing envelope
+/// and from flushQuiescent(), so it really is the FIRST ev after phase Active
+/// whichever fires first. Returns true iff it emitted. Idempotent (the flag is
+/// consumed) and re-entrancy guarded.
+bool emitPendingBaseline();
+
+/// HOST (SS2.W4/WR-5): ONE `reveal` per envelope - the ACTING side's - so every
+/// OTHER side's pending bits ship as their own bt_ev{kind:"reveal"} emitted
+/// from the SAME choke immediately afterwards, in the same seq stream. Called
+/// by CoopEmit::sendEv() right after the envelope it follows, and by
+/// flushQuiescent() when only a non-acting side owes bits. Idempotent.
+///
+/// This is also SS2.W4's FLUSH-BEFORE-ANY-SWEEP-THAT-HASHES-THE-SET rule in
+/// practice: by the time an envelope has left this choke, BOTH sets' pending
+/// deltas are on the wire, so a boundary sweep whose `h` carries
+/// `revealHostile` (W1-P13) can never race its own unpublished bits.
+void emitPendingOtherSides();
+
+/// HOST: arm emitPendingBaseline(). Called once, when the host's battle reaches
+/// phase Active.
+void armHostileBaseline();
 
 /// CLIENT: apply @a env's `reveal` field (SS2.4a) to @a battle, if present.
 /// Handles both shapes: `add` (sparse, the only one the spike host emits) and
@@ -138,7 +173,29 @@ void requestDropNextDelta();
 /// bt_desync + bundle + banner) and never partially apply. Set by TestServer's
 /// `reveal_base` command; consumed by the next flushQuiescent(), which fires it
 /// even when nothing is unpublished (a base restate is meaningful regardless).
-void requestBaseRestate(bool badN);
+/// W1-P8: @a side selects WHICH set is restated (SS2.W4). Defaults to the
+/// player side, so every existing caller and every existing test is unchanged.
+void requestBaseRestate(bool badN, CoopFog::Side side = CoopFog::Side::Player);
+
+/// HOST, RB-D26 test lever: forget what @a side has already published, so the
+/// NEXT emit re-ships that side's WHOLE live set as a sparse delta. It changes
+/// no live state on either machine - reveal is monotone, so the receiver
+/// re-applies bits it already holds and both sets (and therefore the hash) stay
+/// exactly where they were. Its only purpose is to make "this envelope has bits
+/// pending for a side" TRUE on demand, which is how a wave-1 fixture - with no
+/// alien turn to move an alien - arranges SS2.W4/WR-5's premise that ONE action
+/// reveals for BOTH sides.
+void republishSide(CoopFog::Side side);
+
+/// HOST, RB-D26 test lever: ARM republishSide(@a side) to fire inside the NEXT
+/// emit, at the choke, rather than now. That is the difference between "the
+/// next pump tick ships the bits on their own" and "the next ACTION's envelope
+/// is what makes them pending" - and only the second arranges SS2.W4/WR-5's
+/// premise, which is one action revealing for BOTH sides at once.
+void armRepublish(CoopFog::Side side);
+
+/// Fires and clears any armRepublish(). Called only from the emit choke.
+void consumeArmedRepublish();
 
 } // namespace CoopReveal
 
