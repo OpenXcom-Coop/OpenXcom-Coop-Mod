@@ -111,7 +111,23 @@ class GameClient:
         _acquire_machine_lock()
         env = os.environ.copy()
         env["OXC_TEST_PORT"] = str(self.port)
-        # tuck the window into a corner (host left, client right of it)
+        # HEADLESS BY DEFAULT (owner standing rule). Every boot_check, repro_*,
+        # test_rw_* and SP-smoke run funnels through this one spawn(), and it
+        # used to inherit whatever the caller happened to export - which nothing
+        # did, so every harness instance opened a real window and STOLE FOCUS
+        # from whoever was using the machine. A fixture re-roll boots two
+        # instances per attempt and a proof bar does ten-plus attempts, so this
+        # is the whole blast radius.
+        #
+        # Windowed is now an explicit OPT-IN, using the same predicate
+        # run_parallel.py:300-303 already established, so the repo has one
+        # convention. The owner-smoke launcher sets OXC_HARNESS_WINDOWED=1 when
+        # the owner actually wants to watch; no test ever should.
+        if not env.get("OXC_HARNESS_WINDOWED"):
+            env["SDL_VIDEODRIVER"] = "dummy"
+            env["SDL_AUDIODRIVER"] = "dummy"
+        # Kept for the opt-in windowed path: harmless under the dummy driver,
+        # and it is what the owner-smoke path wants when it is used.
         env["SDL_VIDEO_WINDOW_POS"] = "0,40" if "host" in self.name else "660,40"
         exe_dir = os.path.dirname(EXE) or "."
         if os.name == "nt":

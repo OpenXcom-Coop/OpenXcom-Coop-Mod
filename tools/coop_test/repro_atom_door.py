@@ -124,7 +124,7 @@ FACTION_PLAYER = 0
 
 O_FLOOR, O_WESTWALL, O_NORTHWALL, O_OBJECT = 0, 1, 2, 3
 
-MAX_REROLLS = 40
+MAX_REROLLS = 60
 
 # THE PIN THAT MAKES THE CROSSING RELIABLE, and it is a MEASURED number.
 #
@@ -358,7 +358,8 @@ def staging_tiles(gc, near, far, occupied, self_pos=None):
 
 
 def walk_through_candidates(gc, approach_max, want_ufo=None, min_approach=1,
-                            clean_only=False):
+                            clean_only=False, only_actor=None,
+                            exclude_actor=None):
     """(actor_id, near, far, door) triples for a walk that must cross a door.
 
     `min_approach >= 1` is the DEFAULT and it is load-bearing: the acceptance is
@@ -366,24 +367,31 @@ def walk_through_candidates(gc, approach_max, want_ufo=None, min_approach=1,
     that already stands on the near tile produces no step before the door at
     all.
 
-    ORDERING is repro_atom_walk's own contact pin used as a PREFERENCE rather
-    than a filter, and the reason is measured, not stylistic: on the maps these
-    fixtures produce, a door within walking reach and a crossing whose whole
-    approach box clears session.MAX_VIEW_DISTANCE are almost never the same
-    door (one boot: doors at Chebyshev 5/6/7/7/8 with the single alien 19.7,
-    17.1, 19.3, 17.5 and 19.7 tiles away - every one inside the cap). A filter
-    would be a fixture that never runs. So crossings that DO clear the cap are
-    tried FIRST, then the ones furthest from contact - and the premise itself is
-    enforced downstream as a VERIFIED OUTCOME (the spotted set must not change
-    across the walk; a candidate that changes it is discarded, never absorbed).
-    Nothing asserted is weakened by this: every bucket must still be EQUAL after
-    every candidate that is actually used."""
+    CONTACT IS A HARD FILTER when `clean_only` is set, and this fixture always
+    sets it. Every tile of the crossing's approach box must clear
+    session.MAX_VIEW_DISTANCE from every living non-player unit; a crossing that
+    does not is NOT a candidate, and a map that cannot supply MIN_CROSSINGS of
+    them is RE-ROLLED rather than fallen back on.
+
+    It used to be a preference with a fallback, and the fallback was exactly the
+    hole: a crossing that wanders into alien line of sight draws reaction fire,
+    the host simulates a shot no wave-1 wire carries, and the client desync-
+    freezes with `items`/`terrain`/`unitsStats`/`saveBlob` apart. That was
+    observed twice and classified as SS5's expected alien-shot desync - an
+    ambiguous red that costs far more than a longer qualification.
+
+    THE PRICE, MEASURED over 21 instrumented boots: contact-free crossings are
+    bimodal - a map supplies either NONE or 7+. Boots with >= MIN_CROSSINGS of
+    them: STR_SMALL_SCOUT 1/7, STR_MEDIUM_SCOUT 0/7, STR_LARGE_SCOUT 0/7. Hence
+    this fixture's mission pin and MAX_REROLLS."""
     st = battle_state(gc)
     occupied = {unit_pos(u) for u in st.get("units", []) if not u.get("isOut")}
     aliens = W.living_non_players(st)
     actors = [u for u in st.get("units", [])
               if u.get("faction") == FACTION_PLAYER and not u.get("isOut")
-              and u.get("coop") == COOP_SEAT_1 and u.get("tu", 0) > 20]
+              and u.get("coop") == COOP_SEAT_1 and u.get("tu", 0) > 20
+              and (only_actor is None or u["id"] in only_actor)
+              and (exclude_actor is None or u["id"] not in exclude_actor)]
     out = []
     for d in closed_doors(gc):
         if want_ufo is not None and bool(d["isUfoDoor"]) != want_ufo:
@@ -511,7 +519,8 @@ def assert_delivery(host, client, what):
 CROSSING_TU = 22
 
 
-def phase_walk_through(host, client, want_ufo, approach_max, tag, moving_bucket):
+def phase_walk_through(host, client, want_ufo, approach_max, tag, moving_bucket,
+                       exclude_actor=None, moved_out=None):
     """A WALK THROUGH A DOOR. @a moving_bucket is the bucket that MUST have moved
     on the host across the crossing - the non-vacuity control that stops every
     "EQUAL" assertion below from being equal-because-nothing-happened. It is
@@ -553,9 +562,16 @@ def phase_walk_through(host, client, want_ufo, approach_max, tag, moving_bucket)
     tried = set()
     rejected = []
     seen = 0
+    # Every actor this phase MOVES ends up spent; PHASE 2 needs to know which,
+    # because TU never regenerates in wave 1. Reported through `moved_out` rather
+    # than guessed at by the caller.
+    if moved_out is None:
+        moved_out = set()
     for _ in range(18):
         cands = [c for c in walk_through_candidates(host, approach_max,
-                                                    want_ufo=want_ufo)
+                                                    want_ufo=want_ufo,
+                                                    clean_only=True,
+                                                    exclude_actor=exclude_actor)
                  if (c[0], c[1], c[2],
                      unit_pos(W.unit_of(host, c[0]))) not in tried]
         if not cands:
@@ -600,6 +616,7 @@ def phase_walk_through(host, client, want_ufo, approach_max, tag, moving_bucket)
             rejected.append(f"actor {actor_id} door {door_at}: no intent shipped from "
                             f"{at} with {tu} TU ({resp.get('error')})")
             continue
+        moved_out.add(actor_id)
         try:
             W.wait_walk_settled(host, client, prev)
         except Exception as e:
@@ -682,7 +699,8 @@ def closed_door_at(gc, door_at):
                for x in closed_doors(gc))
 
 
-def phase_right_click(host, client, approach_max, want_ufo, tag, moving_bucket):
+def phase_right_click(host, client, approach_max, want_ufo, tag, moving_bucket,
+                      only_actor=None):
     print(f"\n== {tag}: the RIGHT-CLICK door path (SS2.4's retired fallback) ==")
 
     def adjacent_pick():
@@ -693,6 +711,8 @@ def phase_right_click(host, client, approach_max, want_ufo, tag, moving_bucket):
                 continue
             a, b = door_sides(d)
             for u in seat_units(host):
+                if only_actor is not None and u["id"] not in only_actor:
+                    continue
                 p = unit_pos(u)
                 # Enough TU left to actually open it: a right-click door costs
                 # tile->getTUCost(part, movementType) (TileEngine.cpp:4225), i.e.
@@ -718,10 +738,12 @@ def phase_right_click(host, client, approach_max, want_ufo, tag, moving_bucket):
         # short approach almost always exists; the full radius stays as a
         # fallback rather than a first choice.
         approach = walk_through_candidates(host, RIGHT_CLICK_APPROACH_MAX,
-                                           want_ufo=want_ufo)
+                                           want_ufo=want_ufo, clean_only=True,
+                                           only_actor=only_actor)
         if not approach:
             approach = walk_through_candidates(host, approach_max,
-                                               want_ufo=want_ufo)
+                                               want_ufo=want_ufo, clean_only=True,
+                                               only_actor=only_actor)
         print(f"    no seat-1 soldier is adjacent to a closed "
               f"{'ufo' if want_ufo else 'normal'} door; "
               f"{len(approach)} approach candidate(s) "
@@ -1013,29 +1035,36 @@ def make_qualifier(want_ufo, approach_max):
                     if staging_tiles(host, c[1], c[2], occupied,
                                      self_pos=unit_pos(W.unit_of(host, c[0])))]
 
-        # CONTACT-FREE CROSSINGS ARE PREFERRED, WITH A FALLBACK. A crossing walk
-        # that moves INTO view can draw reaction fire, and no wave-1 wire carries
-        # a shot: the one desync this fixture has ever produced on a good build
-        # had `terrain` and `revealHostile` EQUAL while `items`, `unitsCore`,
-        # `unitsStats` and `saveBlob` all moved apart - the shot signature, not a
-        # door one. So when the map can supply MIN_CROSSINGS crossings whose
-        # whole approach box clears session.MAX_VIEW_DISTANCE, this fixture uses
-        # ONLY those. It is a preference and not a filter because on most rolls
-        # of this map class nothing clears that cap at walking distance, and a
-        # hard filter would be a fixture that never runs.
-        clean = _stageable(walk_through_candidates(host, approach_max,
-                                                   want_ufo=want_ufo,
-                                                   clean_only=True))
-        stageable = clean if len(clean) >= MIN_CROSSINGS else _stageable(cands)
+        # CONTACT-FREE OR RE-ROLL. No fallback: a crossing that wanders into
+        # alien line of sight draws reaction fire, the host simulates a shot no
+        # wave-1 wire carries, and the client desync-freezes. That was observed
+        # twice on a good build and is SS5's expected alien-shot class - an
+        # ambiguous red, and the thing this pin exists to make impossible.
+        stageable = _stageable(walk_through_candidates(host, approach_max,
+                                                       want_ufo=want_ufo,
+                                                       clean_only=True))
         if len(stageable) < MIN_CROSSINGS:
             near = _nearest_door_report(seats, kind)
-            return (f"only {len(stageable)} stageable crossing(s) of {len(cands)} "
-                    f"candidate(s) - MIN_CROSSINGS is {MIN_CROSSINGS}, because every "
-                    "observed red was a one-candidate boot whose single marginal "
-                    f"crossing had no route; nearest door side per soldier: {near}")
+            return (f"only {len(stageable)} CONTACT-FREE stageable crossing(s) of "
+                    f"{len(cands)} candidate(s) - MIN_CROSSINGS is {MIN_CROSSINGS}; "
+                    "every observed red was either a one-candidate boot whose single "
+                    "marginal crossing had no route, or a crossing that walked into "
+                    f"alien LOS; nearest door side per soldier: {near}")
+
+        # TWO DISTINCT ACTORS, so PHASE 2 can be given an UNSPENT one. TU never
+        # regenerates in wave 1, so whichever phase runs second inherits a squad
+        # the first one spent - measured twice, both orderings worse (the
+        # right-click phase's own approach walks arrived with 1-3 TU). Reserving
+        # a second actor at QUALIFICATION breaks the coupling instead of
+        # re-ordering around it.
+        owners = sorted({c[0] for c in stageable})
+        if len(owners) < 2:
+            return (f"{len(stageable)} contact-free crossing(s) but all belong to "
+                    f"actor(s) {owners} - PHASE 2 needs a SECOND, unspent actor")
         print(f"    fixture: {len(find_doors(host))} door part(s), {len(kind)} closed "
               f"{want}, {len(cands)} candidate crossing(s), {len(stageable)} of them "
-              f"stageable, {len(clean)} contact-free (MIN_CROSSINGS {MIN_CROSSINGS})")
+              f"CONTACT-FREE and stageable across actors {owners} "
+              f"(MIN_CROSSINGS {MIN_CROSSINGS})")
         return None
     return q
 
@@ -1084,11 +1113,26 @@ def main():
         # it finds one it can use and the walk phase was then left with no
         # candidate at all. The coupling is real in both directions; this is the
         # cheaper end of it.
+        # PHASE 2 GETS WHATEVER PHASE 1 DID NOT SPEND. TU never regenerates in
+        # wave 1, so the second phase inherits a spent squad - measured twice,
+        # with both orderings worse (its approach walks arrived with 1-3 TU).
+        # Reserving ONE actor up front was tried too and was worse again: it
+        # fixed the TU but shrank PHASE 2's candidate pool to two crossings,
+        # both of which had no route. So PHASE 1 runs on the whole squad and
+        # simply REPORTS which actors it moved; the qualifier has already
+        # guaranteed contact-free crossings across at least two actors, so
+        # something unspent always remains.
+        spent = set()
         phase_walk_through(host, client, want_ufo=False,
                            approach_max=NORMAL_APPROACH_MAX,
-                           tag="PHASE 1", moving_bucket="terrain")
+                           tag="PHASE 1", moving_bucket="terrain",
+                           moved_out=spent)
+        unspent = sorted({u["id"] for u in seat_units(host)} - spent)
+        print(f"    PHASE 1 spent actor(s) {sorted(spent)}; PHASE 2 may use "
+              f"{unspent}")
         phase_right_click(host, client, NORMAL_APPROACH_MAX, want_ufo=False,
-                          tag="PHASE 2", moving_bucket="terrain")
+                          tag="PHASE 2", moving_bucket="terrain",
+                          only_actor=unspent)
         phase_client_boundary_refused(host, client, "PHASE 3")
         phase_boundary_close(host, client, "PHASE 3")
     finally:
