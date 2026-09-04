@@ -7362,9 +7362,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "research")
 	{
+		// The host decides this once during the COOP_READY handshake.  Do not
+		// retain disabled packets: otherwise switching the option back on could
+		// unexpectedly apply an old completion.
+		if (_enable_research_sync)
+		{
+			waitedResearch.append(obj);
+		}
 
-		waitedResearch.append(obj);
+	}
 
+	if (stateString == "research_sync_option" && !getServerOwner())
+	{
+		_enable_research_sync = obj.get("enabled", false).asBool();
+		Options::EnableResearchSync = _enable_research_sync;
+		if (!_enable_research_sync)
+		{
+			waitedResearch.clear();
+		}
 	}
 
 	if (stateString == "add_coop_item")
@@ -12558,10 +12573,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		connectionTCP::_enable_time_sync = Options::EnableTimeSync;
 		root["enable_time_sync"] = connectionTCP::_enable_time_sync;
 
-		// reaction shoot option (PVP)
+		// Reaction-fire suppression is a PvP-only option.  Always reset the
+		// session value for non-PvP games so a disabled value from an earlier PvP
+		// session cannot leak into a later co-op campaign.
 		if (getCoopGamemode() == 2 || getCoopGamemode() == 3)
 		{
 			connectionTCP::_enable_reaction_shoot = Options::EnableReactionFirePvp;
+		}
+		else
+		{
+			connectionTCP::_enable_reaction_shoot = true;
 		}
 
 		// reaction shoot
@@ -12698,6 +12719,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// research option
 		bool enable_research_sync = obj["enable_research_sync"].asBool();
 		_enable_research_sync = enable_research_sync;
+		// Keep the multiplayer options page in sync with the host-authoritative
+		// session value.  Previously it continued to display the client's local
+		// default (YES), even when the host had sent NO.
+		Options::EnableResearchSync = enable_research_sync;
 
 		// time option
 		bool enable_time_sync = obj["enable_time_sync"].asBool();

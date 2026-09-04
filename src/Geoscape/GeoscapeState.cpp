@@ -1357,7 +1357,9 @@ void GeoscapeState::think()
 
 	// coop
 	// research
-	if (_game->getCoopMod()->getCoopStatic() && !_game->getCoopMod()->waitedResearch.empty())
+	if (_game->getCoopMod()->getCoopStatic()
+		&& _game->getCoopMod()->_enable_research_sync
+		&& !_game->getCoopMod()->waitedResearch.empty())
 	{
 
 		if (_game->getSavedGame()->getSelectedBase())
@@ -1422,6 +1424,13 @@ void GeoscapeState::think()
 				_game->getCoopMod()->waitedResearch.clear();
 			}
 		}
+	}
+	else if (!_game->getCoopMod()->_enable_research_sync
+		&& !_game->getCoopMod()->waitedResearch.empty())
+	{
+		// Never let completions received before/while research sync was disabled
+		// become active later if the option changes.
+		_game->getCoopMod()->waitedResearch.clear();
 	}
 
 	// coop

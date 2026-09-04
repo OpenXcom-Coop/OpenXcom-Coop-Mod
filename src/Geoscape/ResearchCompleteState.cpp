@@ -94,7 +94,8 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	// here. (This also avoids the newResearch->getName() null-deref below when the
 	// host completes an already-seen lookup.)
 	if (_game->getCoopMod()->getCoopStatic() == true && _coop == false
-		&& !_game->getCoopMod()->isSharedCampaign())
+		&& !_game->getCoopMod()->isSharedCampaign()
+		&& _game->getCoopMod()->_enable_research_sync)
 	{
 
 		Json::Value root;
@@ -117,7 +118,7 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 		}
 
 		root["base_lat"] = base->getLatitude();
-		root["base_lot"] = base->getLongitude();
+		root["base_lon"] = base->getLongitude();
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 

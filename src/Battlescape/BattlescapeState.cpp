@@ -2325,78 +2325,55 @@ void BattlescapeState::coopHealing(int actor_id, int type, int part, std::string
 	if (!unit)
 		return;
 
-	// coop (PRD-P1 rule, applied here by PRD-P6): replay on a stack-local action
-	// carrying the HEALER's own medikit. The classic branch below runs on
-	// _currentAction, whose weapon is whatever the receiving player happens to be
-	// holding - in parallel mode that is the other player's business entirely,
-	// and medikitUse() dereferences it.
-	if (connectionTCP::parallelTurnActive())
+	// Replay every peer medikit use on a stack-local action carrying the HEALER's
+	// own medikit.  The old classic-turn path reused this machine's currentAction
+	// and set actor/type/time but never weapon; medikitUse() then dereferenced a
+	// null (or, worse, unrelated local) weapon.  Modern packets identify both the
+	// healer and item, so classic and parallel turns can share the safe path.
+	BattleUnit* healer = healer_id == -1 ? unit : nullptr;
+	if (healer_id != -1)
 	{
-		BattleUnit* healer = unit;
-		if (healer_id != -1)
+		for (auto u : *_save->getUnits())
 		{
-			for (auto u : *_save->getUnits())
+			if (u->getId() == healer_id)
 			{
-				if (u->getId() == healer_id)
-				{
-					healer = u;
-					break;
-				}
+				healer = u;
+				break;
 			}
 		}
+	}
 
-		BattleAction action = BattlescapeGame::makeReplayAction(healer);
-		action.type = (BattleActionType)type;
-		action.Time = time;
-		action.weapon = BattlescapeGame::coopResolveWeapon(_save, healer, weapon_id, weapon_type, hand);
-		if (!action.weapon)
-		{
-			Log(LOG_INFO) << "coop: medkit replay skipped, healer " << healer->getId()
-						  << " has no '" << weapon_type << "' (id " << weapon_id << ")";
-			return;
-		}
-
-		BattleMediKitAction mode = medkit_state == "stimulant" ? BMA_STIMULANT
-								 : medkit_state == "painkiller" ? BMA_PAINKILLER
-																: BMA_HEAL;
-		UnitBodyPart bodyPart = mode == BMA_HEAL ? (UnitBodyPart)part : BODYPART_TORSO;
-		_battleGame->getTileEngine()->medikitUse(&action, unit, mode, bodyPart);
-		// both machines now hold the same charge counts, so this reaches the same
-		// answer on both and the item census stays equal.
-		_battleGame->getTileEngine()->medikitRemoveIfEmpty(&action);
-		updateSoldierInfo();
+	if (!healer)
+	{
+		Log(LOG_WARNING) << "coop: medkit replay skipped, healer " << healer_id << " was not found";
 		return;
 	}
 
-	_save->setSelectedUnit(unit);
-	_battleGame->getCurrentAction()->actor = unit;
+	BattleAction action = BattlescapeGame::makeReplayAction(healer);
+	action.type = (BattleActionType)type;
+	action.Time = time;
+	action.weapon = BattlescapeGame::coopResolveWeapon(_save, healer, weapon_id, weapon_type, hand);
+	if (!action.weapon || !action.weapon->getRules()
+		|| action.weapon->getRules()->getBattleType() != BT_MEDIKIT)
+	{
+		Log(LOG_WARNING) << "coop: medkit replay skipped, healer " << healer->getId()
+						 << " has no '" << weapon_type << "' (id " << weapon_id << ")";
+		return;
+	}
 
-	_battleGame->getCurrentAction()->type = (BattleActionType)type;
-
-	_battleGame->getCurrentAction()->Time = time;
-
-		if (medkit_state == "heal")
-		{
-
-			_battleGame->getTileEngine()->medikitUse(_battleGame->getCurrentAction(), unit, BMA_HEAL, (UnitBodyPart)part);
-
-		}
-
-		if (medkit_state == "stimulant")
-		{
-
-			_battleGame->getTileEngine()->medikitUse(_battleGame->getCurrentAction(), unit, BMA_STIMULANT, BODYPART_TORSO);
-
-		}
-
-		if (medkit_state == "painkiller")
-		{
-
-			_battleGame->getTileEngine()->medikitUse(_battleGame->getCurrentAction(), unit, BMA_PAINKILLER, BODYPART_TORSO);
-
-		}
-
-	
+	BattleMediKitAction mode = medkit_state == "stimulant" ? BMA_STIMULANT
+							 : medkit_state == "painkiller" ? BMA_PAINKILLER
+													: BMA_HEAL;
+	UnitBodyPart bodyPart = BODYPART_TORSO;
+	if (mode == BMA_HEAL && part >= 0 && part < BODYPART_MAX)
+	{
+		bodyPart = (UnitBodyPart)part;
+	}
+	_battleGame->getTileEngine()->medikitUse(&action, unit, mode, bodyPart);
+	// Both machines now hold the same charge counts, so this reaches the same
+	// answer on both and the item census stays equal.
+	_battleGame->getTileEngine()->medikitRemoveIfEmpty(&action);
+	updateSoldierInfo();
 }
 
 void BattlescapeState::coopActiveGranade(int actor_id, int type, std::string hand, int fusetimer, int item_id)
