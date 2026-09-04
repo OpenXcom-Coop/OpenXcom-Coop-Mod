@@ -6261,6 +6261,19 @@ std::string TestServer::execute(const std::string& line)
 					//    locally on a client - measured with a control build, see
 					//    repro_atom_spot.py's "ONE HONEST LIMIT".
 					ju["reactions"] = u->getBaseStats()->reactions;
+					// W1-P11 fix (2026-09-04): the armor flag the ZERO-STEP spot
+					// fix DEPENDS ON. `coopNoteWalkSpot` is emitted at the TOP of
+					// vanilla's turning-site spot branch so its h:{unitsStats}
+					// predates the `_preMovementCost` spend below it - but the
+					// OTHER spend in that block,
+					// `if (getTurnBeforeFirstStep()) spendTimeUnits(getTurnCost())`,
+					// fires before `unitSpotted` is even computed and no hook
+					// placement can precede it. It is unreachable only because
+					// Armor::_turnBeforeFirstStep defaults false (Armor.cpp:39)
+					// and no loaded ruleset sets it. Exposed so repro_atom_spot
+					// can ASSERT that premise instead of trusting a comment - a
+					// mod that sets it would silently reintroduce the desync.
+					ju["turnBeforeFirstStep"] = u->getArmor()->getTurnBeforeFirstStep();
 					{
 						Json::Value spottedIds(Json::arrayValue);
 						for (const BattleUnit* sp : u->getUnitsSpottedThisTurn())

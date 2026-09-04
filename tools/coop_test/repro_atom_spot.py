@@ -141,6 +141,7 @@ Run:  python tools/coop_test/repro_atom_spot.py
 Exit codes: 0 PASS - 2 FAIL - 3 SKIP (fixture exhausted).
 """
 
+import math
 import os
 import sys
 import time
@@ -270,6 +271,54 @@ def bucket_hashes(gc):
     return dict(h)
 
 
+def assert_not_frozen(host, client, what):
+    """Neither machine may be desync-frozen. Cheap, and it is checked around
+    EVERY walk because of what it replaces.
+
+    A frozen client stops applying, so the very next `settle_reveal` waits 40 s
+    for `lastSeqApplied == lastSeqEmitted` and dies with
+    "timed out waiting for host has nothing unpublished and the client is
+    caught up" - a SYMPTOM 40 s downstream of the cause, which is exactly how the
+    zero-step spot desync presented when it was first caught. This turns that
+    into a one-read diagnosis naming the machine, the stalled seq and the ev
+    kind sitting at it."""
+    for gc, tag in ((host, "host"), (client, "client")):
+        bs = battle_state(gc)
+        if not bs.get("authority", {}).get("desyncFrozen"):
+            continue
+        hs, cs = event_state(host), event_state(client)
+        stuck = cs.get("lastSeqApplied", 0) + 1
+        at = [e for e in ring(gc) if e.get("seq") == stuck]
+        raise AssertionError(
+            f"{what}: the {tag} is DESYNC-FROZEN. client lastSeqApplied="
+            f"{cs.get('lastSeqApplied')} host lastSeqEmitted={hs.get('lastSeqEmitted')} "
+            f"queueDepth={cs.get('queueDepth')}; the ev at the stalled seq {stuck} is "
+            f"{at if at else 'not in the ring'}; last spot host={last_spot(host)} "
+            f"client={last_spot(client)}. A post-apply hash compare FAILED - read the "
+            "instances' openxcom.log for the bucket and the desync bundle.")
+
+
+def send_walk_outcome(host, client, actor_id, dest, **kw):
+    """W.send_walk_outcome, wrapped so a desync is reported as a DESYNC.
+
+    The shared helper calls settle_reveal() internally, so a client that froze
+    mid-walk surfaces there as a bare TimeoutError with no cause attached. This
+    checks before (so a walk is never ordered into a frozen battle) and converts
+    the timeout into assert_not_frozen()'s diagnosis when that is what happened.
+    A timeout with NOTHING frozen still propagates unchanged - it is a real red
+    either way, and nothing here is softened."""
+    assert_not_frozen(host, client, f"before ordering a walk for actor {actor_id}")
+    try:
+        out = W.send_walk_outcome(host, client, actor_id, dest, **kw)
+    except TimeoutError:
+        assert_not_frozen(host, client,
+                          f"while settling actor {actor_id}'s walk (the TimeoutError "
+                          "this replaced was a symptom, not the cause)")
+        raise
+    assert_not_frozen(host, client, f"after actor {actor_id}'s walk")
+    return out
+
+
 def ring(gc, tail=120):
     r = gc.cmd({"cmd": "event_log", "tail": tail})
     assert r.get("ok"), f"event_log failed: {r}"
@@ -394,6 +443,49 @@ def fixture_rejection(host, client, soldier_ids):  # noqa: C901
           % (u["id"], u.get("soldierId"), pos_of(u), d, SPOT_CONTACT_MIN,
              SPOT_CONTACT_MAX, ncands))
     return None
+
+
+def any_candidates(host, actor, aliens, occupied, radii=(1, 2)):
+    """Open-ground destinations in ANY direction, respecting APPROACH_FLOOR,
+    ordered FURTHEST-from-contact first.
+
+    PHASE 2's control asks one question - "does ordering another walk for this
+    actor emit a SECOND `spot` ev for a unit already in its set?" - and the
+    answer does not depend on which way the actor walks. Reusing
+    approach_candidates() there imposed the contact phase's "must strictly
+    reduce the distance" rule on a walk that has no such requirement, and on a
+    roll where the contact halted near APPROACH_FLOOR it left NO legal
+    destination at all (traced: a 6.4-tile qualification, a 3-tile approach,
+    then "boxed in against the approach floor"). This drops the borrowed
+    constraint and keeps the floor."""
+    apos = [(a["x"], a["y"], a["z"]) for a in aliens]
+    here = pos_of(actor)
+    ring_tiles = []
+    for radius in radii:
+        for dz in (0, -1, 1):
+            z = actor["z"] + dz
+            if z < 0:
+                continue
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dy)) != radius:
+                        continue
+                    t = (actor["x"] + dx, actor["y"] + dy, z)
+                    if apos and min(dist3(t, a) for a in apos) < APPROACH_FLOOR:
+                        continue
+                    d = min((dist3(t, a) for a in apos), default=1e9)
+                    ring_tiles.append((-d, abs(dz), t))
+    ring_tiles.sort(key=lambda e: (e[0], e[1]))
+    out, probed = [], 0
+    for _, _, t in ring_tiles:
+        if probed >= MAX_TILE_PROBES:
+            break
+        probed += 1
+        if W.tile_is_open_ground(host, t[0], t[1], t[2], occupied):
+            out.append(t)
+            if len(out) >= CANDIDATES_PER_LEG * 2:
+                break
+    return out
 
 
 def approach_candidates(host, actor, aliens, occupied, radii=(2, 3, 1)):
@@ -774,7 +866,96 @@ def park_client_selection(host, client, park_id):
         f"battle_state says selectedId={battle_state(client).get('selectedId')}")
 
 
-def attempt_contact(host, client, soldier_ids, baseline, why_log):
+def assert_zero_step_contact(host, client, actor_id, hw, cw, before, baseline):
+    """THE haltStep == 0 CASE: a spot during vanilla's PRE-FIRST-STEP facing
+    turn, so the walk halts having executed NO steps at all.
+
+    THIS USED TO BE A FIXTURE REJECTION, AND THAT IS WHY A REAL DESYNC SURVIVED
+    43 GREEN RUNS. The driver saw `haltStep == 0`, recorded "this boot did not
+    offer a testable situation" and moved on - while the client had ALREADY
+    desync-frozen on the ev, so the run died in the next settle instead. A
+    fixture that REJECTS a case cannot detect a bug in that case, and every
+    green run printed "0 zero-step spot(s)" without that reading as the coverage
+    hole it was.
+
+    It is now asserted at full strength. It is also the case with the least
+    slack in the whole atom: with no executed step there is no preceding
+    `walk_step` ev to have shipped an absolute `tuAfter`, so the `spot` ev's own
+    h:{unitsStats} is the FIRST thing the client verifies after the walk began -
+    and it passes only because the ev is emitted BEFORE vanilla's
+    `_preMovementCost` spend. That ordering is the fix; this is its test.
+    """
+    action_id = hw["actionId"]
+    assert_not_frozen(host, client, "at the ZERO-STEP spot halt")
+
+    # THE DEPENDENCY THE FIX RESTS ON, asserted so it cannot rot silently.
+    for gc, tag in ((host, "host"), (client, "client")):
+        u = unit_of(gc, actor_id)
+        assert u.get("turnBeforeFirstStep") is False, (
+            f"ZERO-STEP: actor {actor_id}'s armor on the {tag} has "
+            f"turnBeforeFirstStep={u.get('turnBeforeFirstStep')!r}. The fix places "
+            "coopNoteWalkSpot BEFORE the `_preMovementCost` spend, but THAT arm spends "
+            "getTurnCost() per tick EARLIER in the block - before `unitSpotted` is even "
+            "computed - so no hook placement can precede it and the `spot` ev's "
+            "h:{unitsStats} would be post-spend again. A mod has changed the premise: "
+            "the fix must become a payload change to `ev spot`, which is a PUBLISHED "
+            "schema and therefore an owner ruling.")
+
+    for tag, w in (("host", hw), ("client", cw)):
+        r = w.get("restate") or {}
+        assert r, f"ZERO-STEP: the {tag} has no completion restate"
+        assert r["reason"] == "spot", (
+            f"ZERO-STEP: the {tag}'s halt reason is {r['reason']!r}, expected 'spot'")
+        assert r["halted"] is True, f"ZERO-STEP: the {tag}'s restate is not marked halted"
+        assert list(r["path"]) == [], (
+            f"ZERO-STEP: the {tag}'s completion path is {r['path']}, expected EMPTY - no "
+            "step executed, so the executed prefix is empty (SS2.W2 rule 5)")
+        assert not (w.get("steps") or []), (
+            f"ZERO-STEP: the {tag} recorded {len(w['steps'])} walk_step ev(s) for a walk "
+            "that executed none")
+
+    for gc, tag in ((host, "host"), (client, "client")):
+        entries = action_ring(gc, action_id)
+        spots = [e for e in entries if e["kind"] == "spot"]
+        steps = [e for e in entries if e["kind"] == "walk_step"]
+        ends = [e for e in entries if e["kind"] == "bt_action_end"]
+        assert len(spots) == 1 and len(steps) == 0 and len(ends) == 1, (
+            f"ZERO-STEP: {tag} actionId {action_id} ring is "
+            f"{[(e['seq'], e['kind']) for e in entries]}, expected exactly one `spot`, no "
+            "`walk_step`, one `bt_action_end`")
+        assert spots[0]["seq"] < ends[0]["seq"], (
+            f"ZERO-STEP: {tag}'s `spot` at seq {spots[0]['seq']} does not precede the "
+            f"bt_action_end at seq {ends[0]['seq']}")
+        assert spots[0]["h"], f"ZERO-STEP: {tag}'s `spot` ev carries no h"
+
+    hs, cs = last_spot(host), last_spot(client)
+    for key in ("actionId", "unit", "seen", "haltStep", "seq"):
+        assert hs.get(key) == cs.get(key), (
+            f"ZERO-STEP: host EMITTED and client APPLIED different `spot` evs - "
+            f"{key!r}: host={hs.get(key)!r} client={cs.get(key)!r}")
+    assert hs["haltStep"] == 0, f"ZERO-STEP: haltStep is {hs['haltStep']}, expected 0"
+    assert list(hs["seen"]), "ZERO-STEP: the `spot` ev carries an EMPTY `seen`"
+    assert (event_state(client)["coopSpotEvsApplied"]
+            == event_state(host)["coopSpotEvsEmitted"]), \
+        "ZERO-STEP: the emit and apply counters differ"
+
+    hu, cu = W.assert_unit_parity(host, client, actor_id, "at the ZERO-STEP spot halt")
+    assert pos_of(hu) == before["actor_pos"], (
+        f"ZERO-STEP: the actor moved to {pos_of(hu)} from {before['actor_pos']} on a walk "
+        "that executed no steps")
+    assert banner(client) == STR_HALT_SPOT, (
+        f"ZERO-STEP: the ORDERING seat's banner is {banner(client)!r}, expected "
+        f"{STR_HALT_SPOT!r}")
+    assert_hash_clean(host, client, full=True, what="at the ZERO-STEP spot halt")
+    assert_reaction_pin_holds(host, client, baseline, "at the ZERO-STEP spot halt")
+    print(f"PASS ZERO-STEP: actor {actor_id} spotted {list(hs['seen'])} during its "
+          f"PRE-FIRST-STEP turn - 0 of {hw['plannedLen']} planned step(s) executed, one "
+          f"`spot` ev at seq {hs['seq']} carrying h:{{unitsStats}} and NO walk_step on "
+          f"the action, restate halted=True reason='spot' path=[], TU {hu['tu']} equal "
+          f"on both machines, all 9 buckets EQUAL, ordering seat shows {STR_HALT_SPOT!r}")
+
+
+def attempt_contact(host, client, soldier_ids, baseline, why_log, observed):
     """Walk seat-1 actors toward the nearest living non-player unit until one of
     them takes vanilla's own `unitSpotted` halt, then assert the whole packet
     against it. Returns the accepted contact's (actor_id, hw, seen) or None.
@@ -839,7 +1020,7 @@ def attempt_contact(host, client, soldier_ids, baseline, why_log):
                     "stun": unit_of(host, actor_id)["stun"],
                 }
                 spots_before = event_state(host)["coopSpotEvsEmitted"]
-                kind, payload = W.send_walk_outcome(host, client, actor_id, dest)
+                kind, payload = send_walk_outcome(host, client, actor_id, dest)
                 if kind == "nosend":
                     continue
                 if kind == "deny":
@@ -911,13 +1092,15 @@ def attempt_contact(host, client, soldier_ids, baseline, why_log):
                 if halted and reason == "spot":
                     n = len(hw.get("steps") or [])
                     if n == 0:
-                        # A spot during the PRE-FIRST-STEP facing turn. A legal and
-                        # correct outcome of the atom, but "the step evs before the
-                        # halt STAND" is vacuous with no step evs, so this boot cannot
-                        # carry the packet's acceptance. Recorded with its numbers.
+                        # A spot during the PRE-FIRST-STEP facing turn. ASSERTED at
+                        # full strength (it used to be a silent REJECTION - see
+                        # assert_zero_step_contact's docstring for what that hid),
+                        # then the search continues, because "the step evs before the
+                        # halt STAND" still needs a halt that HAS step evs.
+                        assert_zero_step_contact(host, client, actor_id, hw, cw,
+                                                 before, baseline)
                         zero_step_spots += 1
-                        why_log.append(f"actor {actor_id} spotted during its "
-                                       f"pre-first-step turn (0 executed steps)")
+                        observed["zeroStep"] = observed.get("zeroStep", 0) + 1
                         break
                     if hw["plannedLen"] <= n:
                         why_log.append(f"actor {actor_id} spotted on the LAST planned "
@@ -961,20 +1144,40 @@ def phase2_control(host, client, actor_id, first_seen, baseline):
     aliens = living_non_players(st)
     live = unit_of(host, actor_id)
     occupied = {pos_of(u) for u in st["units"] if not u.get("isOut")}
-    cands = approach_candidates(host, live, aliens, occupied, radii=(1, 2))
-    assert cands, ("PHASE 2: no destination left for the control walk - the actor is "
-                   "boxed in against the approach floor. FIXTURE failure.")
+    cands = any_candidates(host, live, aliens, occupied)
 
     outcome = None
     for dest in cands[:CANDIDATES_PER_LEG]:
-        kind, payload = W.send_walk_outcome(host, client, actor_id, dest)
+        kind, payload = send_walk_outcome(host, client, actor_id, dest)
         if kind == "walk":
             outcome = payload
             break
         if kind == "deny":
             outcome = ("deny", payload)
             break
-    assert outcome is not None, "PHASE 2: no control walk could be ordered at all"
+    if outcome is None:
+        # The actor is boxed in, or every candidate was routeless. The control's
+        # STRONG form needs a walk to have run, but its claim does not vanish
+        # with one: no second `spot` ev may exist for a unit already in the set,
+        # the two machines must still agree on that set, and the buckets must
+        # still be EQUAL. That is asserted here at full strength - the same
+        # WEAK FORM this phase already uses for a denied control walk, and the
+        # same reasoning. Nothing is skipped and nothing is relaxed; only the
+        # part that is unobservable without a walk is unobserved, and it is
+        # named as such.
+        assert event_state(host)["coopSpotEvsEmitted"] == emitted_before, (
+            "PHASE 2: a `spot` ev was emitted although no control walk ever ran")
+        h_set = set(unit_of(host, actor_id)["spottedThisTurn"])
+        c_set = set(unit_of(client, actor_id)["spottedThisTurn"])
+        assert h_set == c_set and set(first_seen) <= h_set, (
+            f"PHASE 2: spotted-this-turn drifted with no walk in flight - host "
+            f"{sorted(h_set)} client {sorted(c_set)}, first contact {first_seen}")
+        assert_hash_clean(host, client, full=True, what="after the PHASE 2 no-walk control")
+        print(f"PASS PHASE 2 (weak form): no control walk could be ordered "
+              f"({len(cands)} candidate(s) tried) - asserted instead that NO second "
+              f"`spot` ev exists, both machines still hold {sorted(h_set)}, all buckets "
+              "EQUAL")
+        return
     assert_reaction_pin_holds(host, client, baseline, "after the PHASE 2 control walk")
 
     emitted_after = event_state(host)["coopSpotEvsEmitted"]
@@ -1026,7 +1229,124 @@ def phase2_control(host, client, actor_id, first_seen, baseline):
 
 # ----- bring-up ------------------------------------------------------------
 
-def bring_up_staged_contact():
+def dir_toward(frm, to):
+    """OpenXcom facing (0 = North, clockwise) from tile @a frm to tile @a to."""
+    dx, dy = to[0] - frm[0], to[1] - frm[1]
+    if dx == 0 and dy == 0:
+        return 0
+    return int(round(math.atan2(dx, -dy) / (math.pi / 4))) % 8
+
+
+def turn_to(host, client, actor_id, to_dir):
+    """One SYNCED turn (the R3-P1 turn atom) to an absolute facing. Returns True
+    when a turn actually executed. Used only by PHASE 3, to point an actor AWAY
+    from a hostile before ordering a walk back toward it."""
+    assert_not_frozen(host, client, f"before turning actor {actor_id}")
+    base = event_state(client).get("lastSeqApplied", 0)
+    r = client.cmd({"cmd": "battle_intent", "kind": "turn", "actor": actor_id,
+                    "toDir": to_dir, "turret": False})
+    if not r.get("iseq"):
+        return False
+
+    def settled():
+        hs, cs = event_state(host), event_state(client)
+        return bool(hs.get("ok") and cs.get("ok") and hs.get("queueDepth") == 0
+                    and cs.get("queueDepth") == 0
+                    and cs.get("lastSeqApplied", 0) > base)
+    try:
+        client.wait_for(f"turn of actor {actor_id} settled", settled, timeout=20)
+    except TimeoutError:
+        assert_not_frozen(host, client, f"while settling actor {actor_id}'s turn")
+        return False
+    W.settle_reveal(host, client)
+    assert_not_frozen(host, client, f"after turning actor {actor_id}")
+    return True
+
+
+def phase3_zero_step(host, client, soldier_ids, baseline, observed, spent):
+    """CONSTRUCT the haltStep == 0 case instead of waiting ~4% of runs for it.
+
+    WHY IT HAS TO BE CONSTRUCTED. A spot fires wherever vanilla's per-step
+    `calculateFOV(pos, 2, false)` first brings a hostile into the actor's view
+    ARC. Walking toward one usually opens LOS as a RESULT OF MOVING, so the
+    halt lands at haltStep >= 1 and the preceding `walk_step` ev has already
+    shipped an absolute `tuAfter`. The zero-step case needs the opposite: the
+    hostile already in line of sight from the tile the actor is STANDING on, but
+    outside its facing arc - so it is the walk's PRE-FIRST-STEP TURN that
+    reveals it. Left to chance that combination showed up in 1 run of 43, which
+    is why a real desync survived 43 green runs.
+
+    So PHASE 3 makes it: point the actor AWAY from the hostile with a synced
+    turn, then order a walk back toward it. Nothing is faked - vanilla does its
+    own FOV, its own spotting and its own halt; the fixture only arranges the
+    geometry, exactly as the reaction-fire pin arranges PHASE 0's.
+
+    Not every roll can be arranged (the actor may have no line of sight from
+    where it stands, or may spot during the turn-away itself), so this REPORTS
+    rather than fails - and main() prints whether it fired, because a bar met
+    with zero zero-step observations is not met at all."""
+    st = battle_state(host)
+    aliens = living_non_players(st)
+    if not aliens:
+        return False
+    for actor in sorted(seat1_units(host, soldier_ids), key=lambda u: -u["tu"]):
+        actor_id = actor["id"]
+        if actor_id in spent:
+            continue
+        if (unit_of(host, actor_id)["spottedThisTurn"]
+                or unit_of(client, actor_id)["spottedThisTurn"]):
+            continue
+        if actor["tu"] < 12:
+            continue
+        here = pos_of(unit_of(host, actor_id))
+        target = min(((a["x"], a["y"], a["z"]) for a in aliens),
+                     key=lambda p: dist3(here, p))
+        toward = dir_toward(here, target)
+        away = (toward + 4) % 8
+        if not turn_to(host, client, actor_id, away):
+            continue
+        if (unit_of(host, actor_id)["spottedThisTurn"]
+                or unit_of(client, actor_id)["spottedThisTurn"]):
+            # The turn-away itself swept past the hostile. Legal, and it is a
+            # TURN action rather than a walk, so it is not this atom's ev - but
+            # the actor is spent for the purpose.
+            print(f"    [PHASE 3] actor {actor_id} spotted during its turn-away - "
+                  "not a walk halt, moving on")
+            continue
+
+        st2 = battle_state(host)
+        occupied = {pos_of(u) for u in st2["units"] if not u.get("isOut")}
+        live = unit_of(host, actor_id)
+        for dest in approach_candidates(host, live, aliens, occupied)[:CANDIDATES_PER_LEG]:
+            before = {
+                "actor_pos": pos_of(unit_of(host, actor_id)),
+                "actor_spotted_host": list(unit_of(host, actor_id)["spottedThisTurn"]),
+                "actor_spotted_client": list(unit_of(client, actor_id)["spottedThisTurn"]),
+                "health": unit_of(host, actor_id)["health"],
+                "stun": unit_of(host, actor_id)["stun"],
+            }
+            kind, payload = send_walk_outcome(host, client, actor_id, dest)
+            if kind != "walk":
+                continue
+            hw, cw = payload, W.last_walk(client)
+            assert_reaction_pin_holds(host, client, baseline,
+                                      f"after PHASE 3 walk of actor {actor_id}")
+            r = hw.get("restate") or {}
+            if r.get("halted") and r.get("reason") == "spot":
+                n = len(hw.get("steps") or [])
+                if n == 0:
+                    assert_zero_step_contact(host, client, actor_id, hw, cw,
+                                             before, baseline)
+                    observed["zeroStep"] = observed.get("zeroStep", 0) + 1
+                    return True
+                print(f"    [PHASE 3] actor {actor_id} spotted at step {n}, not on its "
+                      "turn - the geometry did not arrange")
+            break
+    print("    [PHASE 3] no zero-step spot could be constructed on this roll")
+    return False
+
+
+def bring_up_staged_contact(observed):
     why_log = []
     for attempt in range(1, MAX_REROLLS + 1):
         port = str(48660 + attempt)
@@ -1047,8 +1367,11 @@ def bring_up_staged_contact():
                 client.shutdown()
                 continue
 
+            observed["boots"] = observed.get("boots", 0) + 1
+            observed["soldierIds"] = list(seated["soldierIds"])
             baseline = phase0_pin_reaction_fire(host, client)
-            staged = attempt_contact(host, client, seated["soldierIds"], baseline, why_log)
+            staged = attempt_contact(host, client, seated["soldierIds"], baseline,
+                                     why_log, observed)
             if staged is not None:
                 print(f"[repro_atom_spot] contact staged on attempt {attempt}/"
                       f"{MAX_REROLLS} ({attempt - 1} re-roll(s))")
@@ -1077,14 +1400,18 @@ def bring_up_staged_contact():
 
 def main():
     t0 = time.time()
-    host, client, staged, baseline = bring_up_staged_contact()
+    observed = {}
+    host, client, staged, baseline = bring_up_staged_contact(observed)
     actor_id, hw, seen = staged
     try:
         phase2_control(host, client, actor_id, seen, baseline)
+        phase3_zero_step(host, client, observed.get("soldierIds", []),
+                         baseline, observed, {actor_id})
     finally:
         host.shutdown()
         client.shutdown()
-    print(f"\nrepro_atom_spot: PASS ({time.time() - t0:.1f}s)")
+    print(f"\nrepro_atom_spot: PASS ({time.time() - t0:.1f}s) "
+          f"zero-step spots asserted this run: {observed.get('zeroStep', 0)}")
 
 
 if __name__ == "__main__":

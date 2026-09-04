@@ -477,6 +477,42 @@ void UnitWalkBState::think()
 
 		if (unitSpotted && !_action.desperate && !_unit->getCharging() && !_falling)
 		{
+			// W1-P11 (SS4 "ATOM spot" / SS2.W2 rule 6): the SECOND live spot
+			// halt - a turn (including the PRE-FIRST-STEP facing turn) that
+			// brings a hostile into view, i.e. a walk that halts having executed
+			// ZERO steps.
+			//
+			// PLACED FIRST IN THE BRANCH, AND THE POSITION IS LOAD-BEARING
+			// (traced 2026-09-04, 1 red in 43 runs). Every ev that carries `h`
+			// must either carry the absolute state `h` covers in its own payload,
+			// or be positioned so its `h` matches what the client ALREADY holds -
+			// CoopHashCheck::verify() runs immediately after that ev's own apply
+			// (BattlePump.h), so nothing later gets a chance to converge it.
+			// `ev spot` carries no TU (SPIKE-RUNBOOK.md SS2.4, published), so it
+			// takes the SECOND route: emitted here, BEFORE the _beforeFirstStep
+			// spend below, its h:{unitsStats} is the PRE-spend TU - exactly what
+			// the client holds, having applied nothing. The post-spend TU then
+			// reaches the client on bt_action_end.final, which
+			// applyActionEndFinal() writes BEFORE that envelope's own verify.
+			// Emitted after the spend it desynced `unitsStats` at its own seq on
+			// every zero-step spot, because with no executed step there is no
+			// preceding `walk_step` ev to have shipped an absolute `tuAfter`.
+			//
+			// DEPENDENCY, verified rather than assumed and written down so it
+			// cannot rot: the OTHER spend in this block - the
+			// `if (_unit->getArmor()->getTurnBeforeFirstStep()) spendTimeUnits(
+			// getTurnCost())` arm at the top - fires BEFORE `unitSpotted` is even
+			// computed, so no placement inside this branch could precede it.
+			// `Armor::_turnBeforeFirstStep` defaults to FALSE (Armor.cpp:39, set
+			// only by a ruleset's `turnBeforeFirstStep` key, Armor.cpp:130) and
+			// NO ruleset under bin/standard or bin/common sets it, so that arm is
+			// unreachable with the loaded mods and the `else` arm merely
+			// increments a counter. A MOD THAT SETS `turnBeforeFirstStep` WOULD
+			// REINTRODUCE THE MISMATCH, and at that point the fix has to become a
+			// payload change to `ev spot` - which is a published schema and
+			// therefore an owner ruling. repro_atom_spot.py asserts the premise
+			// so it fails loudly instead of silently desyncing.
+			coopNoteWalkSpot(_unit);
 			if (_beforeFirstStep)
 			{
 				_preMovementCost = _preMovementCost * _unit->getTurnCost();
@@ -485,13 +521,6 @@ void UnitWalkBState::think()
 			if (Options::traceAI) { Log(LOG_INFO) << "Egads! A turn reveals new units! I must pause!"; }
 			_unit->setHiding(false); // not hidden, are we...
 			_unit->abortTurn(); //revert to a standing state.
-			// W1-P11 (SS4 "ATOM spot" / SS2.W2 rule 6): the SECOND live spot
-			// halt - a turn (including the pre-first-step facing turn) that
-			// brings a hostile into view. Placed AFTER the _preMovementCost
-			// spend and abortTurn() above so the ev's h:{unitsStats} carries
-			// the same post-state the completion restate will. Same guarded
-			// call, same no-op-outside-co-op contract as the site above.
-			coopNoteWalkSpot(_unit);
 			return cancelCurentMove();
 		}
 	}
