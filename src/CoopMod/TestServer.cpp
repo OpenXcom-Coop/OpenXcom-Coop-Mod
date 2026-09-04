@@ -4492,7 +4492,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
 		&& cmd != "reveal_hostile_pass"
 		&& cmd != "hold_chain" && cmd != "defer_intents"
-		&& cmd != "battle_halt_walk" && cmd != "battle_reserve"
+		&& cmd != "battle_halt_walk" && cmd != "battle_halt_walk_before_step"
+		&& cmd != "battle_reserve"
 		&& cmd != "omit_turn_mode")
 	{
 		return false;
@@ -4778,6 +4779,17 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["ok"] = true;
 			resp["seq"] = CoopEmit::lastSeqEmitted(); // the seq sendEv() just minted
 		}
+	}
+	else if (cmd == "battle_halt_walk_before_step")
+	{
+		// TEST-ONLY (W1-P9 follow-up, RB-D26). HOST lever: arm a ONE-SHOT latch
+		// consumed BEFORE the next walk's first step, so the walk executes ZERO
+		// steps. battle_halt_walk below cannot do this - it is consumed at a
+		// COMPLETED step - and a zero-step walk is the one case in which no
+		// `bt_ev` carries the actor, so the client cannot resolve
+		// bt_action_end's `final` and silently drops it.
+		CoopArbiter::requestHaltWalkBeforeStep();
+		resp["ok"] = true;
 	}
 	else if (cmd == "battle_halt_walk")
 	{

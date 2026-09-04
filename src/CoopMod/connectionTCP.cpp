@@ -2941,6 +2941,12 @@ static CoopWalkChain g_coopWalkChain;
 // note as hold_chain/defer_intents above): the `battle_halt_walk` one-shot
 // latch, consumed by the step hook at the NEXT completed step boundary.
 static bool g_coopHaltWalkArmed = false;
+// TEST-ONLY (W1-P9 follow-up, RB-D26): the PRE-step sibling of the latch
+// above. battle_halt_walk cannot produce a ZERO-step walk - it is consumed in
+// coopOnWalkStepFinished(), which by definition runs after a step COMPLETED -
+// so the zero-step case, which is the one where no bt_ev carries the actor at
+// all, was not drivable.
+static bool g_coopHaltWalkBeforeStepArmed = false;
 
 // W1-P9: the last walk this machine emitted (host) or applied (client), as the
 // JSON `event_state.lastWalk` reports. Rebuilt as the walk runs so a test can
@@ -3005,6 +3011,7 @@ static void resetCoopArbiterState()
 	g_coopPendingChainKind.clear();
 	g_coopWalkChain = CoopWalkChain();
 	g_coopHaltWalkArmed = false;
+	g_coopHaltWalkBeforeStepArmed = false;
 	g_coopLastWalk = Json::Value();
 	g_coopWalkReserveRefusals = 0;
 	g_coopWalkReserveTruncations = 0;
@@ -3458,7 +3465,17 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 	//    extends it verbatim to energy ("an energy shortfall detected AT
 	//    ADMISSION maps to cost_changed"). Admitting one would also be the "no
 	//    silent no-op" the validator bullet forbids.
-	if (steps[0].tu > unit->getTimeUnits() || steps[0].energy > unit->getEnergy())
+	// W1-P9 FOLLOW-UP (gap 1): a KNEELED walker is stood up BEFORE its first
+	// step, and that stand-up spends getKneelChangeCost()
+	// (UnitWalkBState.cpp:104-118 -> BattlescapeGame.cpp:488-495). Checking
+	// the first step against CURRENT TU therefore admitted plans that could
+	// not take a single step: traced at TU 12, admitted, stood up, and then
+	// executed ZERO steps. That is precisely the 'no silent no-op' this
+	// validator forbids, and SS2.W2/WR-14 map an admission-time shortfall to
+	// cost_changed - so the mandatory pre-step cost belongs in the sum.
+	const int preStepTu = unit->isKneeled() ? unit->getKneelChangeCost() : 0;
+	if (steps[0].tu + preStepTu > unit->getTimeUnits()
+		|| steps[0].energy > unit->getEnergy())
 	{
 		pf->abortPath();
 		return "cost_changed";
@@ -3897,6 +3914,13 @@ int walkReserveTruncations()
 }
 
 // TEST-ONLY (W1-P9, RB-D26/RB-D32 discipline).
+void requestHaltWalkBeforeStep()
+{
+	g_coopHaltWalkBeforeStepArmed = true;
+	Log(LOG_INFO) << "[coop-walk] battle_halt_walk_before_step ARMED - the next "
+		"walk halts BEFORE its first step, executing ZERO steps (TEST-ONLY STOPGAP)";
+}
+
 void requestHaltWalk()
 {
 	g_coopHaltWalkArmed = true;
@@ -4224,6 +4248,19 @@ void onAck(const Json::Value& ack)
 	if (g_coopClientInFlight.active && g_coopClientInFlight.iseq == iseq)
 	{
 		g_coopClientInFlight.actionId = ack.get("actionId", 0u).asUInt();
+		// W1-P9 FOLLOW-UP (gap 2): register actionId -> actorId HERE, at
+		// admission, instead of waiting for a `bt_ev` to carry `unit`.
+		// SS2.3 froze bt_action_end WITHOUT a `unit` field, so the client
+		// resolves the actor from this map alone - and a walk that executes
+		// ZERO steps emits no ev at all, leaving `final` (tu/energy/dir/
+		// kneeled) silently unapplied and the buckets diverged. The ack
+		// already carries the actionId and this client already knows its own
+		// intent's actor, so no wire shape changes.
+		if (g_coopClientInFlight.actionId != 0 && g_coopClientInFlight.actorId >= 0)
+		{
+			g_coopClientActionActor[g_coopClientInFlight.actionId] =
+				g_coopClientInFlight.actorId;
+		}
 		// W1-P7 (WV-D13 item 4): admitted - MY action now owns the host's
 		// execution slot. Tracked separately from the in-flight slot because a
 		// second unit's send overwrites that slot while this action is still
@@ -4798,7 +4835,38 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 	// ABSOLUTE, and the applier clears the kneel exactly as
 	// BattleUnit::startWalking() does on the host.
 	if (g_coopPendingChainKind != "kneel")
+	{
+		// W1-P9 FOLLOW-UP (host-origin closure). The suppression above is
+		// still right for the ACTION bookkeeping - a walk must not emit a
+		// kneel bt_action_end or pop its own context - but suppressing the
+		// EV as well lost real state. The stand-up genuinely changes
+		// `kneeled` and TU, and W1-P9 relied on the walk's first step ev to
+		// carry the absolutes; a walk that executes ZERO steps emits none,
+		// so the change was simply lost. Emitting the kneel ev here fixes
+		// that for BOTH origins - it is an already-frozen SS2.4 ev kind, it
+		// is semantically exactly what happened, and because it carries
+		// `unit` it also registers the actor for this actionId on the
+		// client, which the gap-2 ack fix cannot do for a HOST-origin walk
+		// (there is no bt_ack for the host's own action).
+		if (g_coopPendingChainKind == "walk" && succeeded
+			&& g_coopWalkChain.active && g_coopWalkChain.actorId == unit->getId()
+			&& CoopArbiter::currentActionId() != 0)
+		{
+			SavedBattleGame* saveW = connectionTCP::getStaticBattle();
+			Json::Value kev = CoopWire::makeEv(0u, CoopArbiter::currentActionId(),
+				"kneel");
+			kev["payload"]["unit"] = unit->getId();
+			kev["payload"]["kneeled"] = unit->isKneeled();
+			kev["payload"]["tuAfter"] = unit->getTimeUnits();
+			kev["h"] = coopBuildUnitsStatsHash(saveW); // RB-D14
+			CoopEmit::sendEv(kev);
+			Log(LOG_INFO) << "[coop-walk] emitted the pre-step stand-up as a kneel "
+				"ev for actionId " << CoopArbiter::currentActionId()
+				<< " (unit " << unit->getId() << ") - a zero-step walk would "
+				"otherwise lose it entirely";
+		}
 		return;
+	}
 
 	const std::uint32_t actionId = CoopArbiter::currentActionId();
 	if (actionId == 0)
@@ -4962,6 +5030,23 @@ bool coopWalkReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu, int e
 {
 	if (!bg || !unit)
 		return false;
+
+	// TEST-ONLY (RB-D26): the pre-step halt latch. This call site is already
+	// reached BEFORE startWalking() for every walk and BOTH origins
+	// (UnitWalkBState.cpp:355, inside the step-cost block), so the zero-step
+	// case needs no new vanilla hook. Consumed at the TOP, ahead of the WV-D38
+	// client-origin early-return below, which would otherwise skip it.
+	if (g_coopHaltWalkBeforeStepArmed && isCoopBattle()
+		&& coopBattleAuthority().hostSim
+		&& g_coopWalkChain.active && g_coopWalkChain.actorId == unit->getId())
+	{
+		g_coopHaltWalkBeforeStepArmed = false;
+		Log(LOG_INFO) << "[coop-walk] battle_halt_walk_before_step consumed for "
+			"actionId " << g_coopWalkChain.actionId << " - halting BEFORE step 0 "
+			"(TEST-ONLY STOPGAP)";
+		coopNoteWalkHalt(unit, std::string(), "blocked");
+		return true;
+	}
 
 	// WV-D38 (the owner AWARENESS item that makes WV-D14's per-machine reserve
 	// real): the host does NOT apply ITS OWN reserve to a CLIENT-ORIGIN walk.
@@ -5699,8 +5784,12 @@ void onApplied(const Json::Value& ev)
 			{
 				Log(LOG_ERROR) << "[coop-apply] walk restate for actionId " << actionId
 					<< " does not match the " << g_coopWalkChain.steps.size()
-					<< " step ev(s) this machine applied (host path length "
-					<< jp.size() << ") - NOT repaired; the post-apply hash reports it";
+					<< " step ev(s) this machine applied FOR actionId "
+					<< g_coopWalkChain.actionId << " (chain active=" << g_coopWalkChain.active
+					<< ", host path length " << jp.size() << ") - NOT repaired; the post-apply "
+					"hash reports it. A CHAIN ID THAT DIFFERS from the restate's means the "
+					"steps counted here belong to a DIFFERENT action and this walk executed "
+					"none of its own";
 			}
 			Json::Value restate(Json::objectValue);
 			restate["path"] = jp;

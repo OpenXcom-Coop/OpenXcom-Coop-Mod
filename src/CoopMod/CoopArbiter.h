@@ -163,6 +163,13 @@ Json::Value lastWalk();
 /// its own TU/energy guards need a unit engineered to run out mid-path.
 void requestHaltWalk();
 
+/// TEST-ONLY (W1-P9 follow-up, RB-D26): arm a one-shot latch that halts the
+/// next walk BEFORE its first step, so it executes ZERO steps.
+/// requestHaltWalk() above cannot express that - it is consumed at a COMPLETED
+/// step - and a zero-step walk is precisely the case in which no `bt_ev` carries
+/// the actor, so the client cannot resolve bt_action_end's `final`.
+void requestHaltWalkBeforeStep();
+
 /// Test/introspection (TestServer `event_state`): WV-D48's client-side reserve
 /// rule, counted. `walkReserveRefusals()` is how many walk intents THIS
 /// machine's own TU reserve stopped at step 1 - nothing went on the wire, and
