@@ -152,6 +152,16 @@ def drive_to_battlescape(host, client, host_dir, client_dir):
     host.ok({"cmd": "newbattle_ok"})
 
     host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
+
+    # WV-D56 (FX-1): the coop blob snapshot/battle_offer now move to AFTER the
+    # host's own startFirstTurn() - i.e. to THIS click, not to newbattle_ok.
+    # None of the log lines below exist until it runs.
+    host.ok({"cmd": "click_widget", "match": "ok"})
+    host.wait_for("host battlescape",
+                  lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+    assert session.has_state(host, "BattlescapeState"), \
+        f"host should reach BattlescapeState after OK, stack={states(host)}"
+
     client.wait_for("client battlescape",
                     lambda: session.has_state(client, "BattlescapeState"), timeout=60)
 
@@ -178,12 +188,6 @@ def drive_to_battlescape(host, client, host_dir, client_dir):
         "battle_ready arrived but 'saveBlob EQUAL' was never logged - onReady() " \
         "did not run to completion"
     assert host_active_lines, "host did not reach phase Active after an EQUAL saveBlob"
-
-    host.ok({"cmd": "click_widget", "match": "ok"})
-    host.wait_for("host battlescape",
-                  lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-    assert session.has_state(host, "BattlescapeState"), \
-        f"host should reach BattlescapeState after OK, stack={states(host)}"
 
     # W1-P3 (SS1 WAVE-1 ADDITIONS trap 2 / WV-D9): the client now enters the
     # battle through a read-only BriefingState pushed OVER its

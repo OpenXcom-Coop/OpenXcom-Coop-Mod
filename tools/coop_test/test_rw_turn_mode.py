@@ -248,13 +248,15 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=2):
     seated_holder["soldierId"] = soldier_ids[0]
     host.ok({"cmd": "newbattle_ok"})
     host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
-    client.wait_for("client battlescape",
-                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-    time.sleep(3)
+    # WV-D56 (FX-1): snapshot/offer move to AFTER startFirstTurn() - i.e. to
+    # this click (turnMode itself is still resolved at PREPARE time, unmoved).
     host.ok({"cmd": "click_widget", "match": "ok"})
     host.wait_for("host battlescape",
                   lambda: session.has_state(host, "BattlescapeState"), timeout=30)
     session.dismiss_battle_start_overlays(host)
+    client.wait_for("client battlescape",
+                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
+    time.sleep(3)
     session.dismiss_client_briefing(client)
 
 

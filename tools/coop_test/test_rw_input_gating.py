@@ -216,6 +216,16 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
     host.ok({"cmd": "newbattle_ok"})
 
     host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
+
+    # WV-D56 (FX-1): the snapshot/offer now move to AFTER startFirstTurn() -
+    # i.e. to this click, not to newbattle_ok. Nothing has been sent yet (no
+    # battle_offer/battle_accept/battle_ready log line exists) until it runs.
+    host.ok({"cmd": "click_widget", "match": "ok"})
+    host.wait_for("host battlescape",
+                  lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+    assert session.has_state(host, "BattlescapeState"), \
+        f"host should reach BattlescapeState after OK, stack={states(host)}"
+
     client.wait_for("client battlescape",
                     lambda: session.has_state(client, "BattlescapeState"), timeout=60)
 
@@ -230,12 +240,6 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
     assert not mismatch_lines, f"battle_ready saveBlob MISMATCH: {mismatch_lines[-1]}"
     assert equal_lines, "battle_ready arrived but 'saveBlob EQUAL' was never logged"
     assert client_active_lines, "client log missing 'CLIENT phase Active' line"
-
-    host.ok({"cmd": "click_widget", "match": "ok"})
-    host.wait_for("host battlescape",
-                  lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-    assert session.has_state(host, "BattlescapeState"), \
-        f"host should reach BattlescapeState after OK, stack={states(host)}"
 
     session.dismiss_battle_start_overlays(host)
     assert top_state(host) == "BattlescapeState", \

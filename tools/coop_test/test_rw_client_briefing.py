@@ -196,6 +196,22 @@ def main():
         host.wait_for("host briefing",
                       lambda: session.has_state(host, "BriefingState"), timeout=30)
 
+        # WV-D56 (FX-1, 2026-09-04) snapshot, taken HERE while host is STILL in
+        # its own PRE-battle BriefingState: the coop blob snapshot/battle_offer
+        # now move to AFTER the host's own startFirstTurn() (the OK click just
+        # below), so the client cannot reach ANYTHING - let alone ITS OWN entry
+        # briefing - until this click runs. That click is therefore also the
+        # last moment the host's OWN pre-battle briefing text can be read for
+        # assertion 2's compare below (the host is on BattlescapeState by the
+        # time the client's briefing exists) - captured now, compared later.
+        host_texts_pre_offer = widget_texts(host)
+
+        # WV-D56: dismiss the host's briefing - this is what actually sends
+        # battle_offer (CoopHandshake::emitPreparedOffer(), called from the
+        # freeze branch after startFirstTurn()). Before this click nothing has
+        # been sent and phase is still Handshake on the host.
+        host.ok({"cmd": "click_widget", "match": "ok"})
+
         # === 1. ENTRY SHAPE ==================================================
         client.wait_for("client briefing",
                         lambda: session.has_state(client, "BriefingState"), timeout=60)
@@ -252,11 +268,12 @@ def main():
             f"mission identity differs: host={hb['strTarget']!r}/{hb['strCraftOrBase']!r} "
             f"client={cb['strTarget']!r}/{cb['strCraftOrBase']!r}")
 
-        assert top_state(host) == "BriefingState", \
-            f"host should still be in its own BriefingState for the text compare: {states(host)}"
-        host_texts = widget_texts(host)
+        # WV-D56: the host's own pre-battle BriefingState is long gone by now
+        # (dismissing it is what sent the offer in the first place) - the
+        # compare uses the SNAPSHOT taken above, while it was still up.
+        host_texts = host_texts_pre_offer
         client_texts = widget_texts(client)
-        print("HOST   briefing texts:", json.dumps(host_texts))
+        print("HOST   briefing texts (snapshot, pre-offer):", json.dumps(host_texts))
         print("CLIENT briefing texts:", json.dumps(client_texts))
 
         assert any(cb["strTarget"] in t for t in client_texts), (
@@ -337,16 +354,10 @@ def main():
               f"(was {base_seq}) with the BriefingState ON SCREEN - the drain lives in "
               "updateCoopTask(), not in a State")
 
-        # === host proceeds to its map; then the client dismisses its briefing ==
-        host.ok({"cmd": "close_briefing"})
-        host.wait_for("host battlescape",
-                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-        deadline = time.time() + 15
-        while time.time() < deadline and top_state(host) != "BattlescapeState":
-            host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
-            time.sleep(0.3)
-        assert top_state(host) == "BattlescapeState", \
-            f"host battle-start overlays never cleared, stack={states(host)}"
+        # === host settles ON its map (its BriefingState was already dismissed
+        # === above under WV-D56 - only NextTurnState is left, equip frozen);
+        # === then the client dismisses its own briefing ======================
+        session.dismiss_battle_start_overlays(host)
         time.sleep(1)
 
         host_scr = palettes(host)["screen"]

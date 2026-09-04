@@ -183,12 +183,14 @@ def bring_up(host, client, port):
     host.ok({"cmd": "newbattle_ok"})
     host.wait_for("host briefing",
                   lambda: session.has_state(host, "BriefingState"), timeout=30)
-    client.wait_for("client battlescape",
-                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
+    # WV-D56 (FX-1): snapshot/offer move to AFTER startFirstTurn() - i.e. to
+    # this close_briefing. "client battlescape" can only be waited for AFTER it.
     host.ok({"cmd": "close_briefing"})
     host.wait_for("host battlescape",
                   lambda: session.has_state(host, "BattlescapeState"), timeout=30)
     session.dismiss_battle_start_overlays(host)
+    client.wait_for("client battlescape",
+                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
     session.dismiss_client_briefing(client)
     time.sleep(1)
     return seat

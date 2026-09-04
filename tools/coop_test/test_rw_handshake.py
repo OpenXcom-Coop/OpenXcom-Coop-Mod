@@ -135,6 +135,26 @@ def main():
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
         print("PASS: host reached BriefingState (vanilla push, unconditional)")
 
+        # WV-D56 (FX-1, 2026-09-04): the coop blob SNAPSHOT and the
+        # battle_offer that advertises it now move to AFTER the host's own
+        # SavedBattleGame::startFirstTurn() - i.e. to the OK click below, not
+        # to newbattle_ok's generation-time offerBattle() call. Before this
+        # click NOTHING has been sent (prepareBattleOffer() only mints the
+        # battleId/seats and moves phase to Handshake), so the client learns
+        # nothing about this battle, and every log line this test greps for
+        # below (battle_offer sent / battle_accept received / CLIENT phase
+        # Active / battle_ready saveBlob EQUAL / HOST phase Active) is written
+        # ONLY once this click runs CoopHandshake::emitPreparedOffer(). Host is
+        # still in BriefingState (pushed unconditionally after bgen.run()); its
+        # OK proceeds to BattlescapeState exactly like the SP path.
+        host.ok({"cmd": "click_widget", "match": "ok"})
+        host.wait_for("host battlescape",
+                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+        assert session.has_state(host, "BattlescapeState"), \
+            f"host should reach BattlescapeState after OK, stack={states(host)}"
+        print("PASS: host OK click dismissed BriefingState (WV-D56: this is where "
+              "emitPreparedOffer() actually sends the offer)")
+
         # client: CoopHandshake::onBlobChunkAppended() pushes BattlescapeState
         # directly once the blob is received+verified+loaded (no client-side
         # BriefingState - LoadGameState.cpp's "loaded save with a live
@@ -186,15 +206,6 @@ def main():
             "hard gate should proceed once the comparison matches"
         print("HOST LOG:", host_active_lines[-1])
 
-        # Host is still in BriefingState (pushed unconditionally after bgen.run());
-        # its OK proceeds to BattlescapeState exactly like the SP path.
-        host.ok({"cmd": "click_widget", "match": "ok"})
-        host.wait_for("host battlescape",
-                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-        # BattlescapeState in-stack (a NextTurnState/InventoryState deploy screen
-        # normally sits on top at battle start) - same in-stack check the client uses.
-        assert session.has_state(host, "BattlescapeState"), \
-            f"host should reach BattlescapeState after OK, stack={states(host)}"
         print("PASS: BOTH machines in BattlescapeState, host+client phase Active, "
               "saveBlob EQUAL under the canonical R2-P9 hash")
 

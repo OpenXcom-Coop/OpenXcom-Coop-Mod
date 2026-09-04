@@ -355,13 +355,16 @@ def drive_to_battlescape(host, client, seated):
 
     host.ok({"cmd": "newbattle_ok"})
     host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
-    client.wait_for("client battlescape",
-                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-    time.sleep(3)
+    # WV-D56 (FX-1): the snapshot/offer now move to AFTER startFirstTurn() -
+    # i.e. to this click, not to newbattle_ok. "client battlescape" can only be
+    # waited for AFTER it, never before.
     host.ok({"cmd": "click_widget", "match": "ok"})
     host.wait_for("host battlescape",
                   lambda: session.has_state(host, "BattlescapeState"), timeout=30)
     session.dismiss_battle_start_overlays(host)
+    client.wait_for("client battlescape",
+                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
+    time.sleep(3)
     # W1-P3 (D3): the client enters through a read-only BriefingState pushed OVER
     # its BattlescapeState - every fixture that DRIVES the client must dismiss it.
     session.dismiss_client_briefing(client)

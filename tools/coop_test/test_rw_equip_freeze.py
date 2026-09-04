@@ -181,23 +181,29 @@ def main():
         host.ok({"cmd": "newbattle_ok"})
         host.wait_for("host briefing",
                       lambda: session.has_state(host, "BriefingState"), timeout=30)
-        client.wait_for("client battlescape",
-                        lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-        time.sleep(3)  # let both logs flush the handshake lines
 
         pre = states(host)
         assert "InventoryState" not in pre, \
             f"host already had an InventoryState BEFORE close_briefing: {pre}"
         print(f"host stack at the briefing: {pre}")
-        print(f"client stack at entry:      {states(client)}")
 
         # ===== the real pre-battle path: BriefingState::btnOkClick ===========
         # close_briefing calls the REAL handler (TestServer.cpp), not a
         # synthetic shortcut - which is the whole point: the freeze lives
         # inside it.
+        #
+        # WV-D56 (FX-1): the coop blob snapshot/battle_offer now move to AFTER
+        # startFirstTurn() - i.e. to THIS close_briefing call, not to
+        # newbattle_ok. The client learns nothing about this battle until it
+        # runs, so "client battlescape" can only be waited for AFTER it.
         host.ok({"cmd": "close_briefing"})
         host.wait_for("host battlescape",
                       lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+
+        client.wait_for("client battlescape",
+                        lambda: session.has_state(client, "BattlescapeState"), timeout=60)
+        time.sleep(3)  # let both logs flush the handshake lines
+        print(f"client stack at entry:      {states(client)}")
 
         # === (a) NO InventoryState - that IS the freeze ======================
         post = states(host)

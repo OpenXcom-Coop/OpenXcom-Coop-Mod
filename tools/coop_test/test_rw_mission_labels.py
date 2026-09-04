@@ -195,17 +195,29 @@ def main():
 
         host.ok({"cmd": "newbattle_ok"})
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
-        client.wait_for("client battlescape",
-                        lambda: session.has_state(client, "BattlescapeState"), timeout=60)
+
+        # WV-D56 (FX-1, 2026-09-04): the coop blob snapshot/battle_offer now
+        # move to AFTER the host's own startFirstTurn() - i.e. to THIS click,
+        # not to newbattle_ok's generation-time offerBattle() call. The client
+        # therefore learns NOTHING about this battle (no missionLabel, nothing)
+        # until the host actually clicks OK here - "host still sits in its
+        # PRE-battle BriefingState while the client already has the labels" is
+        # no longer a reachable window (that ordering is the exact thing
+        # WV-D56 closes). Assertion 2 below is adjusted to probe the SAME
+        # TestServer.cpp:5260 guard from the CLIENT's OWN read-only entry
+        # BriefingState instead (W1-P3) - still "a machine parked in
+        # BriefingState", just the other machine.
+        host.ok({"cmd": "click_widget", "match": "ok"})
+        host.wait_for("host battlescape",
+                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+        assert session.has_state(host, "BattlescapeState"), \
+            f"host should reach BattlescapeState after OK, stack={states(host)}"
+
+        client.wait_for("client briefing",
+                        lambda: session.has_state(client, "BriefingState"), timeout=60)
         time.sleep(2)  # let both logs flush the handshake lines
-        # W1-P3 (ruling D3 / WV-D9, landed after this test): the client now enters
-        # through a READ-ONLY BriefingState pushed OVER its BattlescapeState, so it
-        # is no longer on the map when it arrives. Dismiss it here - assertion 4
-        # below drives a real ctrl-B chord and needs BattlescapeState on TOP
-        # (Game::run() only think()s _states.back()). No-op on a pre-W1-P3 build.
-        session.dismiss_client_briefing(client)
-        print("PASS bring-up: host in BriefingState, client on the battlescape "
-              "(its own W1-P3 entry briefing dismissed)")
+        print("PASS bring-up: host on the battlescape, client on its own W1-P3 "
+              "read-only entry briefing")
 
         # === 1. the host minted BEFORE the offer ============================
         minted = grep(host_dir, "[coop-handshake] mission labels minted pre-offer")
@@ -221,14 +233,18 @@ def main():
             "battle_offer.missionLabel never arrived or was not applied (SS2.W1)")
         print("CLIENT LOG:", applied[-1])
 
-        # === 2. probe BOTH machines while the HOST SITS IN BriefingState =====
+        # === 2. probe BOTH machines while the CLIENT SITS IN ITS OWN ENTRY ===
+        # === BriefingState (W1-P3's read-only briefing, WV-D56-adapted) ======
         # WAVE-1 ADDITIONS / EXIT-REPORT-G5 surprise 30: battle_state against a
         # machine parked in BriefingState used to hard-kill the process; the
-        # guard is at TestServer.cpp:5260. This wave puts a BriefingState on the
-        # CLIENT too (W1-P3), so the new W1-P2 fields are re-verified here,
-        # deliberately, with the host still in its briefing.
-        assert top_state(host) == "BriefingState", \
-            f"host should still be in BriefingState for this probe, stack={states(host)}"
+        # guard is at TestServer.cpp:5260. Under WV-D56 the host can no longer
+        # be caught still sitting in its PRE-battle briefing once the client
+        # has labels (that window is exactly what WV-D56 closes) - but the
+        # CLIENT'S OWN read-only entry BriefingState (W1-P3) is still exactly
+        # "a machine parked in BriefingState", so the guard is re-verified
+        # here instead.
+        assert top_state(client) == "BriefingState", \
+            f"client should still be on its entry BriefingState for this probe, stack={states(client)}"
         hb = labels(host)
         cb = labels(client)
         assert_label_keys(hb, "host")
@@ -239,8 +255,8 @@ def main():
         print("CLIENT battle_state identity:", json.dumps(
             {k: cb.get(k) for k in ("missionType", "strTarget", "strCraftOrBase", "deployment")},
             sort_keys=True))
-        print("PASS: battle_state probes both machines with the host parked in "
-              "BriefingState (TestServer.cpp:5260 guard still holds)")
+        print("PASS: battle_state probes both machines with the CLIENT parked in "
+              "its entry BriefingState (TestServer.cpp:5260 guard still holds)")
 
         assert hb["strTarget"] == cb["strTarget"], (
             f"strTarget differs: host={hb['strTarget']!r} client={cb['strTarget']!r} - the "
@@ -294,16 +310,10 @@ def main():
         print("PASS re-mint suppression: host's post-BriefingState label still "
               f"{hb['strTarget']!r}, identical to the one the offer shipped")
 
-        # === host proceeds to the battlescape; labels must not move ==========
-        host.ok({"cmd": "click_widget", "match": "ok"})
-        host.wait_for("host battlescape",
-                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-        deadline = time.time() + 10
-        while time.time() < deadline and top_state(host) != "BattlescapeState":
-            host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
-            time.sleep(0.3)
-        assert top_state(host) == "BattlescapeState", \
-            f"host battle-start overlays never cleared, stack={states(host)}"
+        # === host settles ON the battlescape (BriefingState already dismissed
+        # === above, under WV-D56 - only NextTurnState is left, equip frozen);
+        # === labels must not move ============================================
+        session.dismiss_battle_start_overlays(host)
         time.sleep(2)
 
         hb2 = labels(host)
@@ -323,6 +333,11 @@ def main():
         print("HOST   h:", json.dumps(hh, indent=2, sort_keys=True))
 
         # === 4. ctrl-B on the CLIENT ========================================
+        # The client has been sitting on its OWN read-only entry BriefingState
+        # since bring-up (assertion 2's probe needed it there) - dismiss it now,
+        # exactly like every other fixture in this directory does before driving
+        # the client (session.dismiss_client_briefing's own precedent).
+        session.dismiss_client_briefing(client)
         pal_before = palette_of(client, "BattlescapeState")
         map_before = (cb.get("mapFingerprint"), cb.get("mapObjTiles"), cb.get("mapSizeXYZ"))
         assert top_state(client) == "BattlescapeState", \
