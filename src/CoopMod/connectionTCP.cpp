@@ -2446,6 +2446,61 @@ void coopLoadTurnMode(const YAML::YamlNodeReader& reader)
 		<< "\" (W1-P7 / D.1) - stored; CONSUMPTION on resume is r4 T4";
 }
 
+// ----- SPEC 3 (FX-2, WV-D61 / owner ruling R-B, 2026-09-04): itemIdCtr rides
+// the blob -----
+
+// Test/introspection only (BattleAuthority.h): coopItemIdCtrAdopted()/
+// coopItemIdCtrRefused() below. Declared here rather than "beside the other
+// coop counters" (g_coopSpotEvsEmitted et al., further down this file)
+// because they are used by coopLoadItemIdCtr() immediately below - same
+// discipline as W1-P7's own g_coopHostInputFrozenRefusals/g_coopTurnMirrorFired,
+// each declared beside the function that increments it.
+static std::atomic<int> g_coopItemIdCtrAdopted{0};
+static std::atomic<unsigned int> g_coopItemIdCtrRefused{0};
+
+void coopSaveItemIdCtr(YAML::YamlNodeWriter& writer, const SavedBattleGame* battle)
+{
+	// WV-D61. Written by BOTH machines and in EVERY coop battle phase past
+	// Idle - the host's offer-time snapshot happens at phase Handshake, where
+	// isCoopBattle() is still false (connectionTCP.cpp:2451). SP and any
+	// non-coop battle write NOTHING, so an SP save is byte-identical.
+	if (!battle) return;
+	if (!connectionTCP::getCoopStatic()) return;
+	if (coopBattleAuthority().phase.load() == CoopBattlePhase::Idle) return;
+	writer.write("coopItemIdCtr", *const_cast<SavedBattleGame*>(battle)->getCurrentItemId());
+}
+
+void coopLoadItemIdCtr(const YAML::YamlNodeReader& reader, SavedBattleGame* battle)
+{
+	// ADOPT, verbatim. Presence-gated: a save without the key (SP, or any
+	// save written before WV-D61) leaves vanilla's max(id)+1 derivation
+	// exactly as it is. NEVER lower the counter - a document that carries a
+	// SMALLER value than the derivation is a corrupt/foreign save, and
+	// reusing ids would break RB-D7's id maps.
+	if (!battle) return;
+	int carried = -1;
+	reader.tryRead("coopItemIdCtr", carried);
+	if (carried < 0) return;
+	int* live = battle->getCurrentItemId();
+	if (carried < *live)
+	{
+		Log(LOG_ERROR) << "[coop-itemid] WV-D61: the blob carries coopItemIdCtr "
+			<< carried << " but this machine derived " << *live
+			<< " - REFUSING to lower the counter (ids would be reused). "
+			   "The documents disagree; the itemIdCtr bucket will report it.";
+		g_coopItemIdCtrRefused.fetch_add(1);
+		return;
+	}
+	if (carried != *live)
+		Log(LOG_INFO) << "[coop-itemid] WV-D61: adopted coopItemIdCtr " << carried
+			<< " (derived " << *live << ")";
+	*live = carried;
+	g_coopItemIdCtrAdopted.store(carried);
+}
+
+int coopItemIdCtrAdopted() { return g_coopItemIdCtrAdopted.load(); }
+unsigned int coopItemIdCtrRefused() { return g_coopItemIdCtrRefused.load(); }
+
 bool isCoopBattle()
 {
 	return connectionTCP::getCoopStatic() && coopBattleAuthority().phase == CoopBattlePhase::Active;

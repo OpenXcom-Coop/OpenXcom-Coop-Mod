@@ -354,6 +354,11 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 		}
 	}
 	_itemId++;
+	// coop (SPEC 3 / FX-2, WV-D61 owner ruling R-B): ADOPT the host's carried
+	// coopItemIdCtr, verbatim, now that vanilla's own max(id)+1 derivation
+	// above has completed - so the adopt cannot be overwritten. Presence-
+	// gated; all logic lives in src/CoopMod (BattleAuthority.h).
+	coopLoadItemIdCtr(reader, this);
 
 	// units 2nd pass
 	for (const auto& unitReader : reader["units"].children())
@@ -524,6 +529,11 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	// SavedGame.cpp:1334/:1814 shape is NOT ported), and the key is on
 	// SharedEcon's saveBlobExcludedTopKey list so it never rides the hash.
 	coopSaveTurnMode(writer);
+	// coop (SPEC 3 / FX-2, WV-D61 owner ruling R-B): the host's true _itemId,
+	// so the loading machine ADOPTS it instead of re-deriving max(id)+1 - see
+	// the matching ADOPT call in load() below and BattleAuthority.h. Self-
+	// guarded the same way coopSaveTurnMode() is: an SP save is byte-identical.
+	coopSaveItemIdCtr(writer, this);
 	if (_startingCondition)
 	{
 		writer.write("startingConditionType", _startingCondition->getType());

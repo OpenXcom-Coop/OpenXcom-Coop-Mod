@@ -373,6 +373,13 @@ def main():
         assert "revealHostile" in host_h, (
             f"hash_now full did not carry the revealHostile bucket ({sorted(host_h)}) - "
             "the hostile reveal storage was unallocated, so WR-26 omitted it")
+        # SPEC 3 (FX-2, WV-D61): itemIdCtr must not silently disappear from the
+        # sweep - it stays a compared bucket even after the ADOPT hook makes it
+        # agree by construction (RB-D24's max(id)+1 fallback is superseded, the
+        # bucket itself is not dropped - see test_rw_item_id_ctr.py).
+        assert "itemIdCtr" in host_h and "itemIdCtr" in client_h, (
+            f"itemIdCtr bucket missing from hash_now full (WV-D61): "
+            f"host={sorted(host_h)} client={sorted(client_h)}")
         assert len(host_h) == 9, (
             f"hash_now full returned {len(host_h)} buckets, expected 9 ({sorted(host_h)}) - "
             "the bucket set changed under this test")

@@ -4617,6 +4617,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["lastSpot"] = CoopArbiter::lastSpot();
 		resp["coopSpotEvsEmitted"] = coopSpotEvsEmitted();
 		resp["coopSpotEvsApplied"] = coopSpotEvsApplied();
+		// SPEC 3 (FX-2, WV-D61): the last carried coopItemIdCtr value THIS
+		// machine's coopLoadItemIdCtr actually stored (0 if the adopt hook
+		// never ran - SP, no key, or not a coop battle), and how many times it
+		// refused to lower the counter (must be 0 in a clean two-machine run).
+		resp["itemIdCtrAdopted"] = coopItemIdCtrAdopted();
+		resp["itemIdCtrRefused"] = coopItemIdCtrRefused();
 		// FX-1 (WV-D56): the host input freeze's delivery-proof counter and the
 		// RW-FIX-TURN tripwire counter. Both battle-scoped, both zero outside a
 		// coop battle in flight.

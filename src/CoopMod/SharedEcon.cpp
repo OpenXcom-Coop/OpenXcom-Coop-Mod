@@ -3979,6 +3979,12 @@ bool saveBlobExcludedTopKey(std::string_view k)
 		// client mirrors it, so it must never ride the saveBlob hash. Same
 		// treatment, and the same reason, as the two BriefingState labels below.
 		|| k == "coopTurnMode"
+		// SPEC 3 (FX-2, WV-D61): the host's carried item-id counter. Both
+		// machines write the same value once the adopt works, so this is
+		// belt-and-braces - but it also keeps a legitimately different value
+		// from redding saveBlob instead of the itemIdCtr bucket that is
+		// supposed to report it.
+		|| k == "coopItemIdCtr"
 		|| k == "togglePersonalLight" || k == "toggleNightVision" || k == "toggleBrightness"
 		|| k == "animFrame"
 		|| k == "currentAmbienceDelay"

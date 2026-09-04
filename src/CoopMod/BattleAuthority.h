@@ -92,6 +92,28 @@ CoopTurnMode coopSessionTurnModeFromOptions();
 void coopSaveTurnMode(YAML::YamlNodeWriter& writer);
 void coopLoadTurnMode(const YAML::YamlNodeReader& reader);
 
+/// WV-D61 (owner ruling R-B, 2026-09-04): the HOST's true
+/// SavedBattleGame::_itemId, carried in the BATTLE save block so the machine
+/// that LOADS a coop blob adopts it verbatim instead of re-deriving
+/// max(item id)+1 - a derivation that is provably wrong whenever generation
+/// allocated an id that did not survive into the document (RB-D24's fallback,
+/// superseded here). Key `coopItemIdCtr`, on saveBlobExcludedTopKey so it
+/// never rides the saveBlob hash; the `itemIdCtr` BUCKET still compares it.
+void coopSaveItemIdCtr(YAML::YamlNodeWriter& writer, const SavedBattleGame* battle);
+void coopLoadItemIdCtr(const YAML::YamlNodeReader& reader, SavedBattleGame* battle);
+
+/// WV-D61 test/introspection, the coopSpotEvsEmitted()/coopSpotEvsApplied()
+/// precedent (CoopArbiter.h): how many times THIS machine's coopLoadItemIdCtr
+/// actually adopted the carried counter (the last carried value stored
+/// through getCurrentItemId() - present whenever the key is present and
+/// carried >= derived, whether or not the two agreed), and how many times it
+/// REFUSED to (the carried < derived branch, which must never fire in a
+/// clean two-machine run - see SPEC 3 STOP-IF). "Adopted" is a VALUE, not a
+/// boolean, so a positive-control test can see an adopt that never happened
+/// (value stays 0) as distinct from one that did.
+int coopItemIdCtrAdopted();
+unsigned int coopItemIdCtrRefused();
+
 /**
  * R2-P3 (rewrite spike, SPIKE-RUNBOOK.md RB-D6): the ONE battle-authority
  * object - kill-by-construction of the legacy getHost()/onTcpHost
