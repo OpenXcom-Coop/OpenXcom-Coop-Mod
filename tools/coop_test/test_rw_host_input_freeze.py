@@ -270,10 +270,27 @@ def main():
             f"unit: before={before} after={after} - the host input freeze did not "
             "hold")
         es_after = event_state(host)
-        assert es_after["lastSeqEmitted"] == es_before["lastSeqEmitted"], (
-            f"lastSeqEmitted moved from {es_before['lastSeqEmitted']} to "
-            f"{es_after['lastSeqEmitted']} while frozen - something reached the "
-            "wire despite the freeze")
+        # NOTE (reveal-flush race RCA, orchestrator-traced): `lastSeqEmitted`
+        # is NOT click-specific here and must not be used as the freeze proof.
+        # Under WV-D56, `emitPreparedOffer()` (fired above, at the briefing OK
+        # click) calls `CoopReveal::seedPublished()`, which seeds fog-reveal
+        # evs the pump flushes ASYNCHRONOUSLY at a nondeterministic tick. When
+        # such a flush lands inside this ~0.3s window, `lastSeqEmitted` moves
+        # (e.g. 0->1) even though the click itself minted nothing - a NO-CLICK
+        # control reproduced the same seq bump 6/6 times, and `event_log`
+        # showed both bumped seqs are `kind='reveal'`, never an action. Assert
+        # CLICK-SPECIFICALLY instead: a frozen click never reaches the walk
+        # arm at all (repro_atom_walk.py / test_rw_input_gating.py's own
+        # `coopWalkArmEntered`-unchanged precedent), so the arm-entry counter
+        # must not move and no order may have left this machine.
+        assert es_after["coopWalkArmEntered"] == es_before["coopWalkArmEntered"], (
+            f"coopWalkArmEntered moved from {es_before['coopWalkArmEntered']} to "
+            f"{es_after['coopWalkArmEntered']} while frozen - the click reached "
+            "the walk arm despite the freeze")
+        assert es_after["coopWalkIntentsSent"] == 0, (
+            f"coopWalkIntentsSent is {es_after['coopWalkIntentsSent']} after a "
+            "ground click during the freeze window - the click became an order "
+            "despite the freeze")
         assert es_after["coopHostInputFrozenRefusals"] > 0, (
             f"coopHostInputFrozenRefusals is {es_after['coopHostInputFrozenRefusals']} "
             "after a ground click during the freeze window - this is a POSITIVE "
@@ -281,7 +298,8 @@ def main():
             f"{es_after}")
         r_after_click = es_after["coopHostInputFrozenRefusals"]
         print(f"PASS: frozen ground click moved nothing (pos/tu unchanged: {before}), "
-              f"lastSeqEmitted unchanged ({es_after['lastSeqEmitted']}), "
+              f"coopWalkArmEntered unchanged ({es_after['coopWalkArmEntered']}), "
+              f"coopWalkIntentsSent=0, "
               f"coopHostInputFrozenRefusals={r_after_click} (> 0)")
 
         # === the deployed banner text, EXACT (WV-D17: never non-emptiness) ===
