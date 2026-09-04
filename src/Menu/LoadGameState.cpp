@@ -477,7 +477,9 @@ void LoadGameState::think()
 					// "battleclient" key through its own handshake and must not ack.
 					const bool skirmishRejoin = connectionTCP::session.lobbyMode == 0
 						&& connectionTCP::session.skirmishRejoinPending;
-					if ((connectionTCP::session.lobbyMode != 0 || skirmishRejoin)
+					const bool customBattleResume = connectionTCP::session.lobbyMode == 0
+						&& connectionTCP::session.customBattleResumeLoading;
+					if ((connectionTCP::session.lobbyMode != 0 || skirmishRejoin || customBattleResume)
 						&& _game->getCoopMod()->getServerOwner() == false && _coopKey == "battleclient")
 					{
 						if (skirmishRejoin)
@@ -514,6 +516,32 @@ void LoadGameState::think()
 						Json::Value done;
 						done["state"] = "close_load_progress";
 						_game->getCoopMod()->sendTCPPacketData(done.toStyledString());
+						if (customBattleResume)
+						{
+							// The streamed save is an already-running battle.  Do not let
+							// PVE2's one-time NEW-battle initialization hand it straight
+							// back to the AI when BattlescapeState begins thinking.
+							if (_game->getCoopMod()->getCoopGamemode() == 4)
+							{
+								_game->getCoopMod()->pve2_init = true;
+							}
+							if (_game->getCoopMod()->parallelTurnActive())
+							{
+								connectionTCP::resetActionArbiter(true);
+								_game->getCoopMod()->setPlayerTurn(2);
+								bs->setCurrentTurn(2);
+							}
+							else if (_game->getCoopMod()->getCoopGamemode() == 2
+								|| _game->getCoopMod()->getCoopGamemode() == 3)
+							{
+								// Campaign-PvP role model: gm2 client=Alien (waiting),
+								// gm3 client=XCOM (YOUR TURN).
+								const int turn = _game->getCoopMod()->getCoopGamemode() == 2 ? 1 : 2;
+								_game->getCoopMod()->setPlayerTurn(turn);
+								bs->setCurrentTurn(turn);
+							}
+							connectionTCP::session.completeCustomBattleResumeLoad();
+						}
 					}
 				}
 

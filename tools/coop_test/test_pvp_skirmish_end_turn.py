@@ -1,12 +1,12 @@
-"""PvP skirmish end-turn: turn boundary TU reset and handoff.
+"""PvP skirmish end-turn: round-boundary TU reset and handoff.
 
 In PvP, the two sides alternate turns:
   - XCOM turn: the XCOM-side player acts.
   - Alien turn: the alien-side player acts.
 
 An END TURN by the current executor must:
-  1. Hand off control: the OTHER machine becomes executor (its selectable
-     units get TU reset, it gets coopTurn==2 + activeSync).
+  1. Hand off control: the OTHER machine becomes executor without refreshing
+     reaction-fire TU spent during the first half-round.
   2. The turn counter increments on both machines.
 
 Gamemode 2: host=XCOM (first executor), client=aliens (second).
@@ -50,6 +50,68 @@ def end_turn(gc):
     gc.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
 
+def unit_state(gc, unit_id):
+    return next((u for u in battle(gc).get("units", [])
+                 if u.get("id") == unit_id), None)
+
+
+def alien_seat_unit(gc, owner):
+    return next((u for u in battle(gc).get("units", [])
+                 if u.get("coop") == owner and not u.get("isOut")
+                 and u.get("faction") != 2), None)
+
+
+def set_tu_on_both(host, client, unit_id, tu):
+    """Deterministically model reaction-fire TU already spent on both copies."""
+    for gc in (host, client):
+        gc.ok({"cmd": "battle_intent", "action": "turn", "unit": unit_id,
+               "tu": tu, "dry": True})
+
+
+def assert_unit_tu(fails, gc, unit_id, expected, label):
+    u = unit_state(gc, unit_id)
+    if not u:
+        _fail(fails, f"{label}: unit {unit_id} missing")
+        return False
+    if u.get("tu") != expected:
+        _fail(fails, f"{label}: unit {unit_id} TU={u.get('tu')}, expected {expected}")
+        return False
+    return True
+
+
+def finish_pvp_round(host, client, alien, label):
+    """End the alien player's half-round and verify that neither peer ever
+    exposes the vanilla HOSTILE/AI phase."""
+    end_turn(alien)
+
+    for gc, tag in ((host, "host"), (client, "client")):
+        gc.wait_for(
+            f"{label} {tag} neutral turn screen",
+            lambda gc=gc: (PVP._top(gc) == "NextTurnState"
+                           and battle(gc).get("side") == 2) or None,
+            timeout=30, interval=0.2)
+
+    host.ok({"cmd": "dismiss_popup"})
+
+    host.wait_for(
+        f"{label} host player screen without hostile phase",
+        lambda: (PVP._top(host) == "NextTurnState"
+                 and battle(host).get("side") == 0) or None,
+        timeout=30, interval=0.2)
+    client.wait_for(
+        f"{label} client advanced to player side",
+        lambda: (PVP._top(client) != "NextTurnState"
+                 and battle(client).get("side") == 0) or None,
+        timeout=30, interval=0.2)
+
+    host.ok({"cmd": "dismiss_popup"})
+    client.wait_for(
+        f"{label} client player screen closed by host",
+        lambda: PVP._top(client) != "NextTurnState" or None,
+        timeout=30, interval=0.2)
+    time.sleep(2)
+
+
 def test_end_turn_gamemode_2(fails):
     """Gamemode 2: host=XCOM starts, ends turn, client=aliens takes over."""
     print("\n--- end-turn gamemode 2 (host=XCOM -> client=aliens) ---")
@@ -87,6 +149,15 @@ def test_end_turn_gamemode_2(fails):
 
         print("PASS gm2 init: host=XCOM executor, client=aliens waits")
 
+        alien = alien_seat_unit(client, 1)
+        if not alien:
+            _fail(fails, "gm2: no live client-owned alien for TU regression")
+            return
+        alien_id = alien["id"]
+        alien_max = alien["tuMax"]
+        alien_spent = max(1, alien_max // 3)
+        set_tu_on_both(host, client, alien_id, alien_spent)
+
         # ---- end the XCOM turn ----------------------------------------------
         end_turn(host)
         time.sleep(3)
@@ -115,16 +186,34 @@ def test_end_turn_gamemode_2(fails):
         else:
             print(f"PASS gm2: client now commands {len(cs2)} alien unit(s)")
 
-        # In PvP gm2 after the XCOM turn ends:
-        # The client's alien units get TU reset via the turn-boundary code
-        # (connectionTCP.cpp:10190-10198). The client becomes activeSync.
-        # However, the client might not be the full executor in PvP mode.
-        # Validating: the client has selectable units with refreshed TU.
+        assert_unit_tu(fails, client, alien_id, alien_spent,
+                       "gm2 XCOM->alien must preserve reaction TU")
+
+        # In PvP gm2 after the XCOM turn ends, the client becomes the alien
+        # player without a TU refresh.  Reaction-fire TU spent during XCOM's
+        # half-round must remain spent until the complete round ends.
         if not client_exec2:
             # In PvP, the turn boundary from XCOM→alien may not make the
             # client the executor in the same way as PvE. The key is: client
             # units are now selectable (they weren't before).
             pass
+
+        finish_pvp_round(host, client, client, "gm2")
+
+        assert_unit_tu(fails, host, alien_id, alien_max,
+                       "gm2 host copy after full-round refresh")
+        assert_unit_tu(fails, client, alien_id, alien_max,
+                       "gm2 client alien after full-round refresh")
+
+        if not battle(host).get("inBattle") or not battle(client).get("inBattle"):
+            _fail(fails, "gm2: battle ended after one complete round")
+
+        # Reproduce the reported stale-host overwrite: no reaction TU is spent
+        # in this XCOM half-round, so the following handoff must stay at tuMax.
+        end_turn(host)
+        time.sleep(3)
+        assert_unit_tu(fails, client, alien_id, alien_max,
+                       "gm2 second handoff must not restore stale alien TU")
 
     except Exception as e:
         print(f"[ERROR] gm2: {e}")
@@ -171,6 +260,15 @@ def test_end_turn_gamemode_3(fails):
 
         print("PASS gm3 init: client=XCOM executor, host=aliens waits")
 
+        alien = alien_seat_unit(host, 0)
+        if not alien:
+            _fail(fails, "gm3: no live host-owned alien for TU regression")
+            return
+        alien_id = alien["id"]
+        alien_max = alien["tuMax"]
+        alien_spent = max(1, alien_max // 3)
+        set_tu_on_both(host, client, alien_id, alien_spent)
+
         # ---- end the XCOM turn ----------------------------------------------
         end_turn(client)
         time.sleep(3)
@@ -195,6 +293,50 @@ def test_end_turn_gamemode_3(fails):
                   "gm3: host (alien) has no selectable units after end turn")
         else:
             print(f"PASS gm3: host now commands {len(hs2)} alien unit(s)")
+
+        assert_unit_tu(fails, host, alien_id, alien_spent,
+                       "gm3 XCOM->alien must preserve reaction TU")
+
+        # ---- end the alien turn (complete the first full round) ------------
+        # This second boundary is the saved-PvP2 regression: after displaying
+        # NextTurnState, its vanilla faction tally used to call finishBattle
+        # even though both PvP seats still had living units.
+        # A completed PvP round must skip the vanilla HOSTILE/AI phase.  Both
+        # peers first display NEUTRAL, then PLAYER; the host drives both copies.
+        finish_pvp_round(host, client, host, "gm3")
+
+        assert_unit_tu(fails, host, alien_id, alien_max,
+                       "gm3 host alien after full-round refresh")
+        assert_unit_tu(fails, client, alien_id, alien_max,
+                       "gm3 client copy after full-round refresh")
+
+        hb = battle(host)
+        cb = battle(client)
+        if not hb.get("inBattle") or not cb.get("inBattle"):
+            _fail(fails,
+                  "gm3: battle ended after one complete XCOM+alien round")
+            return
+        if hb.get("pvpWin", 0) or cb.get("pvpWin", 0):
+            _fail(fails,
+                  f"gm3: false PvP verdict after full round: "
+                  f"host={hb.get('pvpWin')} client={cb.get('pvpWin')}")
+            return
+
+        hs3, host_exec3 = selectable(host)
+        cs3, client_exec3 = selectable(client)
+        if not cs3:
+            _fail(fails,
+                  "gm3: client (XCOM) did not regain control after alien turn")
+        elif hs3:
+            _fail(fails,
+                  f"gm3: host still has selectable alien units on XCOM turn: {hs3}")
+        else:
+            print("PASS gm3 full round: battle continues and control returns to XCOM")
+
+        end_turn(client)
+        time.sleep(3)
+        assert_unit_tu(fails, host, alien_id, alien_max,
+                       "gm3 second handoff must keep full alien TU")
 
     except Exception as e:
         print(f"[ERROR] gm3: {e}")

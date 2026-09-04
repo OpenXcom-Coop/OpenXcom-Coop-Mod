@@ -343,6 +343,36 @@ void CoopSession::adoptResumeSave()
 	Log(LOG_INFO) << "[coop-session] adoptResumeSave (lobbyMode=2, unlocked, ack cleared)";
 }
 
+void CoopSession::adoptCustomBattleResume()
+{
+	lobbyMode = 0;
+	sessionLocked = false;
+	lobbyClosed = true;
+	resumeAck = false;
+	skirmishRejoinPending = false;
+	customBattleResumePending = true;
+	Log(LOG_INFO) << "[coop-session] adoptCustomBattleResume (waiting for CONTINUE BATTLE)";
+}
+
+void CoopSession::finishCustomBattleResume()
+{
+	customBattleResumePending = false;
+	Log(LOG_INFO) << "[coop-session] finishCustomBattleResume";
+}
+
+void CoopSession::beginCustomBattleResumeLoad()
+{
+	customBattleResumePending = false;
+	customBattleResumeLoading = true;
+	Log(LOG_INFO) << "[coop-session] beginCustomBattleResumeLoad";
+}
+
+void CoopSession::completeCustomBattleResumeLoad()
+{
+	customBattleResumeLoading = false;
+	Log(LOG_INFO) << "[coop-session] completeCustomBattleResumeLoad";
+}
+
 void CoopSession::armResumeHandshake(bool hasBattle)
 {
 	resumeAck = false;
@@ -407,6 +437,8 @@ void CoopSession::resetSession()
 	campaignBegun = false;
 	customBattleCraftLocked = false;
 	customBattleCraftId = -1;
+	customBattleResumePending = false;
+	customBattleResumeLoading = false;
 	skirmishRejoinPending = false;
 	pendingHostSaveName.clear();
 
@@ -5673,6 +5705,28 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
+	}
+
+	if (stateString == "custom_battle_continue" && getServerOwner() == false)
+	{
+		// The host has kept its loaded tactical world paused while both players
+		// waited in the lobby. Leave that lobby now; SEND_FILE_CLIENT_TRUE follows
+		// on the same ordered connection and loads the existing battle directly.
+		connectionTCP::session.campaignStarted();
+		connectionTCP::session.markLobbyClosed();
+		connectionTCP::session.finishCustomBattleResume();
+		connectionTCP::session.beginCustomBattleResumeLoad();
+		_game->getCoopMod()->inventory_battle_window = false;
+
+		while (!_game->getStates().empty())
+		{
+			bool isLobby = dynamic_cast<LobbyMenu*>(_game->getStates().back()) != nullptr;
+			_game->popState();
+			if (isLobby)
+			{
+				break;
+			}
+		}
 	}
 
 	if (stateString == "lobby_timer")
@@ -11839,29 +11893,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				}
 
-				// Reset time units and energy at the start of the alien player's turn
-				// PVP
-				if (getHost() == false && getCoopGamemode() == 2)
-				{
-					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-					{
-						if (unit->getCoop() == 1)
-						{
-							unit->resetTimeUnitsAndEnergy();
-						}
-					}
-				}
-				// PVP2
-				else if (getHost() == true && getCoopGamemode() == 3)
-				{
-					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-					{
-						if (unit->getCoop() == 0)
-						{
-							unit->resetTimeUnitsAndEnergy();
-						}
-					}
-				}
+				// PvP/PvP2 deliberately do not refresh the alien seat here.  Reaction
+				// fire during the XCOM half-round spends that seat's TU, and the cost
+				// must carry into its following active half-round.  The ordinary
+				// NEUTRAL -> PLAYER new-round boundary refreshes both seats after the
+				// alien player has ended the round.
 
 			}
 
@@ -12008,8 +12044,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// and strand the client on its hold. The campaign resume keeps the pop -
 		// its host already clicked RESUME back in the lobby.
 		bool inBattleResume = false;
+		const bool customBattleResume = connectionTCP::session.customBattleResumeLoading;
+		// A loaded PVE2 Custom Battle has already crossed the mode's one-time
+		// new-battle hand-off.  Session teardown deliberately clears pve2_init,
+		// but leaving it false on resume makes BattlescapeState::think treat the
+		// restored PLAYER side as a fresh battle and call endTurnCoop() before
+		// either seat presses END TURN.  Mark it consumed while the resume modal
+		// still covers BattlescapeState, before popping back to the battle.
+		if (customBattleResume && getCoopGamemode() == 4)
+		{
+			pve2_init = true;
+		}
 		if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle() != nullptr
-			&& _game->getCoopMod()->getCoopCampaign() == true)
+			&& (_game->getCoopMod()->getCoopCampaign() == true || customBattleResume))
 		{
 			for (auto* st : _game->getStates())
 			{
@@ -12029,6 +12076,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 				_game->popState();
 			}
+		}
+		if (customBattleResume)
+		{
+			connectionTCP::session.completeCustomBattleResumeLoad();
 		}
 
 		Json::Value root;
@@ -12442,16 +12493,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		_peerLeftCleanly = false;
 		connectionTCP::session.clientAttached();
 
-		// issue #93: a joiner arriving while a SKIRMISH battle is already running is
-		// a rejoin into that battle, not a new lobby guest. The skirmish lobby has
-		// nothing left to offer (the battle started; its BATTLE SETTINGS button is
-		// gone) and the host is frozen behind the reconnect dialog waiting for
-		// exactly this. Route it down the campaign rejoin road - the world stream
-		// and the resume_ack that releases the freeze are mode-agnostic.
-		const bool skirmishBattleRejoin = _game->getCoopMod()->getCoopCampaign() == false
-			&& coopBattleLive(_game);
+		// A joiner arriving while a SKIRMISH session is already running goes
+		// straight into that battle (issue #93). A freshly loaded Custom Battle is
+		// the exception: customBattleResumePending keeps the joiner in the lobby
+		// until the host explicitly presses CONTINUE BATTLE.
+		const bool skirmishBattleJoin = _game->getCoopMod()->getCoopCampaign() == false
+			&& coopBattleLive(_game)
+			&& !connectionTCP::session.customBattleResumePending;
 
-		if (_game->getCoopMod()->getCoopCampaign() == true || skirmishBattleRejoin)
+		if (_game->getCoopMod()->getCoopCampaign() == true || skirmishBattleJoin)
 		{
 			root["state"] = "COOP_READY_SAVE_PROGRESS";
 			// Kept on the wire for older clients; host-save authority is the only mode.
@@ -12459,9 +12509,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// campaign lobbies (new or resume): the client joins the lobby
 			// instead of requesting a world (flow-redesign F2/F3). A live
 			// session (lobby closed) = mid-session rejoin: fetch directly.
-			root["campaign_started"] = skirmishBattleRejoin
+			root["campaign_started"] = skirmishBattleJoin
 				|| (connectionTCP::session.lobbyMode == 0 || connectionTCP::session.lobbyClosed == true);
-			root["rejoin"] = skirmishBattleRejoin
+			root["rejoin"] = skirmishBattleJoin
 				|| (connectionTCP::session.lobbyMode != 0 && connectionTCP::session.lobbyClosed == true);
 			root["lobby_mode"] = connectionTCP::session.lobbyMode;
 			// PRD-J01: tell the joining client the campaign economy model now,
@@ -14146,6 +14196,18 @@ bool connectionTCP::canAdmitAction()
 	{
 		_admitBlocked = "no_battle";
 		return false;
+	}
+	if (getCoopGamemode() == 4)
+	{
+		BattlescapeState* bstate = battle ? battle->getBattleState() : nullptr;
+		if (!bstate || !_staticGame->isState(bstate))
+		{
+			// A NextTurnState (or any other modal) is still covering the PVE2
+			// host's battlescape.  The client must not start the shared alien side
+			// before the executor has dismissed the same boundary screen.
+			_admitBlocked = "not_top_state";
+			return false;
+		}
 	}
 	if (battle->getSide() != FACTION_PLAYER)
 	{

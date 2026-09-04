@@ -21,6 +21,7 @@
 #include  "LobbyMenu.h"
 #include "../Engine/Logger.h"
 #include "../Savegame/SavedGame.h"
+#include "../Savegame/SavedBattleGame.h"
 #include "../Engine/Game.h"
 #include "../Engine/Action.h"
 #include "../Engine/Exception.h"
@@ -143,7 +144,8 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	// reconnect are never mode 2, so they are unaffected.
 	_resumeToGame = (battleRunning
 		|| (geoRunning && connectionTCP::session.sessionLocked))
-		&& connectionTCP::session.lobbyMode != 2;
+		&& connectionTCP::session.lobbyMode != 2
+		&& !connectionTCP::session.customBattleResumePending;
 
 	connectionTCP::session.markLobbyOpen();
 
@@ -244,7 +246,8 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	{
 		if (_game->getCoopMod()->getServerOwner() == true)
 		{
-			_btnCancel->setText("BATTLE SETTINGS");
+			_btnCancel->setText(connectionTCP::session.customBattleResumePending
+				? "CONTINUE BATTLE" : "BATTLE SETTINGS");
 			_btnCancel->setVisible(false); // shown once the peer is in (think())
 		}
 		else
@@ -877,7 +880,14 @@ void LobbyMenu::btnCancelClick(Action*)
 	{
 		if (startEligible())
 		{
-			openBattleSettings();
+			if (connectionTCP::session.customBattleResumePending)
+			{
+				continueCustomBattle();
+			}
+			else
+			{
+				openBattleSettings();
+			}
 		}
 		return;
 	}
@@ -967,6 +977,66 @@ void LobbyMenu::pushServerListUnlessPresent()
 void LobbyMenu::openBattleSettings()
 {
 	closeLobby();
+}
+
+void LobbyMenu::continueCustomBattle()
+{
+	if (!_game->getCoopMod()->getServerOwner()
+		|| !connectionTCP::session.customBattleResumePending
+		|| !startEligible()
+		|| !_game->getSavedGame()
+		|| !_game->getSavedGame()->getSavedBattle())
+	{
+		return;
+	}
+
+	connectionTCP::session.campaignStarted();
+
+	Json::Value start;
+	start["state"] = "custom_battle_continue";
+	_game->getCoopMod()->sendTCPPacketData(start.toStyledString());
+
+	closeLobby();
+	connectionTCP::session.finishCustomBattleResume();
+	connectionTCP::session.beginCustomBattleResumeLoad();
+	_game->getCoopMod()->inventory_battle_window = false;
+
+	// HostMenu was opened over the loaded battle's PauseState. Return the host
+	// to that BattlescapeState before the peer begins loading its snapshot.
+	int guard = 0;
+	while (guard++ < 32 && _game->getStates().size() > 1
+		&& dynamic_cast<BattlescapeState*>(_game->getStates().back()) == nullptr)
+	{
+		_game->popState();
+	}
+	_game->getCoopMod()->_battleInit = false;
+	if (_game->getCoopMod()->parallelTurnActive())
+	{
+		connectionTCP::resetActionArbiter(true);
+		_game->getCoopMod()->setPlayerTurn(2);
+		SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+		if (battle && battle->getBattleState())
+		{
+			battle->getBattleState()->setCurrentTurn(2);
+		}
+	}
+	else if (_game->getCoopMod()->getCoopGamemode() == 2
+		|| _game->getCoopMod()->getCoopGamemode() == 3)
+	{
+		// Campaign-PvP resume derives the active player from the preserved mode:
+		// gm2 host=XCOM, gm3 host=Alien. isYourTurn itself is process-static and
+		// is not serialized, so establish that same role before snapshotting.
+		const int turn = _game->getCoopMod()->getCoopGamemode() == 2 ? 2 : 1;
+		_game->getCoopMod()->setPlayerTurn(turn);
+		SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+		if (battle && battle->getBattleState())
+		{
+			battle->getBattleState()->setCurrentTurn(turn);
+		}
+	}
+	_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+
+	_game->getCoopMod()->streamSkirmishBattleToClient();
 }
 
 /**
@@ -1424,7 +1494,8 @@ void LobbyMenu::think()
 			// the selected craft and entered equipment preparation.
 			if (_game->getCoopMod()->getServerOwner() == true)
 			{
-				_btnCancel->setText("BATTLE SETTINGS");
+				_btnCancel->setText(connectionTCP::session.customBattleResumePending
+					? "CONTINUE BATTLE" : "BATTLE SETTINGS");
 				_btnCancel->setVisible(startEligible());
 			}
 			else

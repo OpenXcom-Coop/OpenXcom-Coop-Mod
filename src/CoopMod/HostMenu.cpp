@@ -666,7 +666,17 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
-	connectionTCP::_coopGamemode = 1;
+	// A resume keeps the mode serialized in the save (campaign and Custom
+	// Battle alike). Resetting a loaded PvP skirmish to 1 here ran the PVE unit
+	// conversion and changed both ownership and turn semantics before streaming.
+	const bool preserveLoadedMode =
+		(_game->getCoopMod()->inCoopCampaignContext()
+			&& connectionTCP::session.lobbyMode == 2)
+		|| connectionTCP::session.customBattleResumePending;
+	if (!preserveLoadedMode)
+	{
+		connectionTCP::_coopGamemode = 1;
+	}
 
 	_game->getCoopMod()->setCoopSession(false);
 
@@ -701,7 +711,8 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
-	if (_game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopCampaign() == true
+		|| connectionTCP::session.customBattleResumePending)
 	{
 		convert = false;
 	}
@@ -765,7 +776,8 @@ void HostMenu::hostTCPGame(Action* action)
 	_game->getCoopMod()->setServerOwner(true);
 
 	// If the player has created a server or joined another player's game, close the ServerList and create the LobbyMenu
-	if (_game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopCampaign() == true
+		|| connectionTCP::session.customBattleResumePending)
 	{
 		_game->popState();
 

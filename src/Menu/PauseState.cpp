@@ -36,6 +36,7 @@
 
 #include "../CoopMod/ServerList.h"
 #include "../CoopMod/HostMenu.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -243,9 +244,22 @@ void PauseState::btnSaveClick(Action *)
 // Opens COOP view
 void PauseState::btnCoopClick(Action *)
 {
+	// A locally loaded Custom Battle follows the campaign-resume presentation:
+	// configure hosting first, keep both players in a lobby, and stream the
+	// existing tactical world only after the host presses CONTINUE BATTLE.
+	if (_origin == OPT_BATTLESCAPE
+		&& _game->getSavedGame()
+		&& _game->getSavedGame()->getSavedBattle()
+		&& _game->getCoopMod()->getCoopCampaign() == false
+		&& _game->getCoopMod()->getServerOwner() == false
+		&& _game->getCoopMod()->isConnected() != 1)
+	{
+		connectionTCP::session.adoptCustomBattleResume();
+		_game->pushState(new HostMenu());
+	}
 
 	// Open the host menu if the host saves the players' campaign progress, the client joins the game through the main menu (New Battle)
-	if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->getCoopStatic() == false)
+	else if (_game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->getCoopStatic() == false)
 	{
 
 		_game->pushState(new HostMenu());
