@@ -33,6 +33,7 @@
 #include "../Savegame/HitLog.h"
 #include "../Engine/RNG.h"
 #include "../Engine/GraphSubset.h"
+#include "../Engine/Logger.h"
 #include "BattlescapeState.h"
 #include "../Mod/MapDataSet.h"
 #include "../Mod/Unit.h"
@@ -5526,6 +5527,12 @@ void TileEngine::medikitRemoveIfEmpty(BattleAction *action)
 
 bool TileEngine::medikitUse(BattleAction *action, BattleUnit *target, BattleMediKitAction originalMedikitAction, UnitBodyPart bodyPart)
 {
+	if (!action || !target || !action->weapon || !action->weapon->getRules())
+	{
+		Log(LOG_WARNING) << "medikitUse: rejected action with missing target, weapon or rules";
+		return false;
+	}
+
 	if (_save->isPreview())
 	{
 		return false;

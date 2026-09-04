@@ -26,6 +26,7 @@
 #include "../Interface/Window.h"
 #include "../Mod/Mod.h"
 #include "../Mod/RuleInterface.h"
+#include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/OptionsMultiplayer.h"
 #include <algorithm>
 #include <sstream>
@@ -421,8 +422,34 @@ void OptionsMultiplayerState::lstOptionsClick(Action* action)
 	if (setting->type() == OPTION_BOOL)
 	{
 		bool* b = setting->asBool();
+		// Research sync is host-authoritative while connected.  The client sees
+		// the negotiated value but must not silently override it locally.
+		if (b == &Options::EnableResearchSync
+			&& _game->getCoopMod()->getCoopStatic()
+			&& !_game->getCoopMod()->getServerOwner())
+		{
+			return;
+		}
 		*b = !*b;
 		settingText = *b ? tr("STR_YES") : tr("STR_NO");
+		if (b == &Options::EnableResearchSync && _game->getCoopMod())
+		{
+			// Make an in-session change effective immediately on this peer.  The
+			// handshake already distributes the host's initial value to the client.
+			_game->getCoopMod()->_enable_research_sync = *b;
+			if (!*b)
+			{
+				_game->getCoopMod()->waitedResearch.clear();
+			}
+			if (_game->getCoopMod()->getCoopStatic()
+				&& _game->getCoopMod()->getServerOwner())
+			{
+				Json::Value root;
+				root["state"] = "research_sync_option";
+				root["enabled"] = *b;
+				_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+			}
+		}
 		if (b == &Options::lazyLoadResources && !*b)
 		{
 			Options::reload = true; // reload when turning lazy loading off

@@ -556,7 +556,7 @@ void ExplosionBState::think()
 		// terrain leaked onto the pacing path again.
 		if (_explosionCounter > 0) ++g_coopTerrainPacingConsumes;
 		_coopTaskCompleted = false;
-		_parent->getCoopMod()->_coopPacingWait = false;
+		_parent->getCoopMod()->_coopPacingWait = false; 
 		_parent->popState();
 		return;
 	}
