@@ -104,6 +104,12 @@ WHY THESE ASSERTIONS ARE NOT VACUOUS - the checks that would go RED:
     branch would satisfy the counter alone, which is why it is never asserted on
     its own.
 
+EXIT CODES: 0 pass, 2 FAIL, 3 SKIP. A SKIP means MAX_REROLLS boots produced no
+qualifying map - the generator offered no testable situation and no assertion
+ran. It is deliberately NOT a failure, and it prints the rejection histogram so
+the reason is countable. A run that DID qualify is fully deterministic and any
+problem in it is a hard FAIL.
+
 Run:  python tools/coop_test/repro_atom_door.py
       (in its OWN shell invocation - the standing harness rule, one harness run
        at a time, machine-wide.)
@@ -125,6 +131,25 @@ FACTION_PLAYER = 0
 O_FLOOR, O_WESTWALL, O_NORTHWALL, O_OBJECT = 0, 1, 2, 3
 
 MAX_REROLLS = 60
+
+# EXIT CODES. 0 = pass, 2 = FAIL, 3 = SKIP.
+#
+# SKIP means the MAP GENERATOR never offered a testable situation - the run
+# exhausted MAX_REROLLS without a qualifying fixture. That is a fact about map
+# generation, not about the door atom, and conflating it with a failure is what
+# made this repro look flaky. NOTHING IS WEAKENED BY THIS: once a fixture
+# qualifies the repro is fully deterministic and every assertion runs at full
+# strength, so a qualified run that goes wrong is still a hard FAIL(2). Only the
+# "no map was offered" case is reclassified.
+#
+# The bar this file is held to is TEN CONSECUTIVE QUALIFIED RUNS GREEN, with the
+# exhaustion rate recorded alongside; a rate above ~50% means the fixture needs
+# revisiting rather than more re-rolls.
+EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
+
+
+class FixtureExhausted(Exception):
+    """MAX_REROLLS boots produced no qualifying map. Carries the histogram."""
 
 # THE PIN THAT MAKES THE CROSSING RELIABLE, and it is a MEASURED number.
 #
@@ -968,10 +993,14 @@ def bring_up(tag, mission, qualifies, base_port, base_probe):
     for w in why_log:
         key = w.split(":")[0].split("(")[0].strip()
         tally[key] = tally.get(key, 0) + 1
-    raise AssertionError(
-        f"FIXTURE: no qualifying {tag} fixture in {MAX_REROLLS} boots - this is a "
-        f"fixture failure, not a result about the door atom.\n      "
-        f"rejection tally: {tally}\n      last: {why_log[-1] if why_log else None}")
+    lines = [f"no qualifying {tag} fixture in {MAX_REROLLS} boots - the map "
+             "generator never offered a testable situation, which is not a "
+             "statement about the door atom",
+             "      rejection histogram:"]
+    for k, v in sorted(tally.items(), key=lambda kv: -kv[1]):
+        lines.append(f"      {v:4d}  {k}")
+    lines.append(f"      last: {why_log[-1] if why_log else None}")
+    raise FixtureExhausted(("\n".join(lines)))
 
 
 def make_qualifier(want_ufo, approach_max):
@@ -1144,9 +1173,16 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except FixtureExhausted as e:
+        # NOT a failure: no qualifying map was ever offered, so no assertion ever
+        # ran. Distinct status and exit code so a gate can count it separately
+        # and report the exhaustion rate.
+        print(f"\nrepro_atom_door: SKIP (fixture exhausted)\n{e}")
+        sys.exit(EXIT_SKIP)
     except (AssertionError, TimeoutError) as e:
         # TimeoutError too: a bare `wait_for` timeout is still a FAILED RUN
         # and must be reported as one (exit 2, with the message), not as an
-        # exit-1 traceback that reads like a crash.
+        # exit-1 traceback that reads like a crash. Everything here happened
+        # AFTER a fixture qualified, so it is a real red.
         print(f"\nrepro_atom_door: FAIL\n{type(e).__name__}: {e}")
-        sys.exit(2)
+        sys.exit(EXIT_FAIL)
