@@ -351,30 +351,43 @@ def neighbourhood(unit, radius=1):
 
 def assert_turn_parity(host, client, what):
     """RW-FIX-TURN: `battle_state.turn` must read 1 on BOTH machines once the
-    host has left its briefing. The thin client reaches 1 through the CoopMod
-    counter mirror at the end of the client handshake
-    (CoopHandshake::onBlobChunkAppended, connectionTCP.cpp) - the counter write
-    ONLY, none of startFirstTurn()'s other work.
+    host has left its briefing.
 
-    HOW THE HOST REACHES 1 CHANGED IN W1-P4 (ruling D3 = WV-D9/WV-D34,
-    mechanism WV-D43). It used to be InventoryState::btnOkClick ->
-    startFirstTurn(), i.e. the host only got to turn 1 when the pre-battle EQUIP
-    screen was dismissed. That screen is now FROZEN in a coop battle, so
-    BriefingState::btnOkClick skips the InventoryState push and calls
-    SavedBattleGame::startFirstTurn() itself, exactly the way the preview branch
-    beside it already did. The host therefore reaches turn 1 one screen EARLIER,
-    at close_briefing - which is also why the overlay dismissal below no longer
-    has an InventoryState to clear. Had the freeze skipped the push WITHOUT
-    replacing the call, the host would sit at turn 0 against a client mirror
-    forcing 1, and this assert is one of the two gates that would catch it (the
-    other is test_rw_equip_freeze.py, which checks it at close_briefing itself).
+    WV-D56 (FX-1, 2026-09-04) CHANGED HOW THE CLIENT REACHES 1. It used to be
+    the CoopMod counter mirror (coopClientMirrorFirstTurnCounter(),
+    connectionTCP.cpp), the LAST statement of the client handshake, forcing
+    `_turn` 0 -> 1 because the client's blob was snapshotted BEFORE the host's
+    own startFirstTurn() ran. WV-D56 moves the snapshot (and the battle_offer
+    that advertises it) to AFTER startFirstTurn() - CoopHandshake::
+    emitPreparedOffer(), called from BriefingState::btnOkClick's freeze branch
+    - so the blob the client loads should already carry `_turn == 1` and the
+    mirror's write becomes UNREACHABLE in the normal case. The mirror is kept
+    as a loud TRIPWIRE, not deleted: reaching it now means the snapshot was
+    taken too early (the pre-WV-D56 bug class), and its counter is exposed as
+    `event_state.turnMirrorFired` on the client - asserted at exactly 0 below,
+    which is what actually proves the tripwire never fired rather than just
+    inferring it from `turn == 1` (the tripwire's own compensating write would
+    ALSO produce `turn == 1`, silently).
+
+    HOW THE HOST REACHES 1 (unchanged by WV-D56, still true). W1-P4 (ruling D3
+    = WV-D9/WV-D34, mechanism WV-D43): the pre-battle EQUIP screen is FROZEN in
+    a coop battle, so BriefingState::btnOkClick skips the InventoryState push
+    and calls SavedBattleGame::startFirstTurn() itself, exactly the way the
+    preview branch beside it already did - at close_briefing, which is also
+    why the overlay dismissal below no longer has an InventoryState to clear.
     """
     ht = host.cmd({"cmd": "battle_state"}).get("turn")
     ct = client.cmd({"cmd": "battle_state"}).get("turn")
     assert ht == 1, (f"host battle_state.turn == {ht}, expected 1 {what} - the host's own "
                      "startFirstTurn() never ran (battle-start overlays still up?)")
     assert ct == 1, (f"client battle_state.turn == {ct}, expected 1 {what} (host={ht}) - the "
-                     "RW-FIX-TURN client counter mirror did not fire")
+                     "loaded blob should already carry turn 1 under WV-D56 (or the RW-FIX-TURN "
+                     "tripwire compensated but the item positions are not - see the "
+                     "turnMirrorFired assert below)")
+    tmf = client.cmd({"cmd": "event_state"}).get("turnMirrorFired")
+    assert tmf == 0, (f"client event_state.turnMirrorFired == {tmf}, expected 0 {what} - the "
+                      "WV-D56 tripwire fired, meaning the host's snapshot was taken BEFORE "
+                      "startFirstTurn() (the pre-WV-D56 bug class)")
     return ht, ct
 
 
