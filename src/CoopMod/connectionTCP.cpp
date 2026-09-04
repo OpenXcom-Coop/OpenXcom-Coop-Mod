@@ -2927,6 +2927,14 @@ struct CoopWalkChain
 	std::vector<Position> planned;       // the ADMITTED plan (host side only)
 	std::vector<Position> executed;      // tiles actually stepped onto, in order
 	std::vector<CoopWalkStepRec> steps;
+	// W1-P11 (SS4 "ATOM spot"): the unit ids already in the actor's
+	// `_unitsSpottedThisTurn` when this chain OPENED. The `spot` ev ships the
+	// ADDITIONS against it (prd-r3a's own wording), which is what makes `seen`
+	// a statement about THIS walk rather than about the whole turn. It mirrors
+	// UnitWalkBState's own `_numUnitsSpotted` baseline, taken one call earlier
+	// (beginWalkChain runs immediately before the BState is pushed, and nothing
+	// in between can spot).
+	std::vector<int> spottedBaseline;
 	int nextStepIndex = 0;               // SS2.W2/WV-D37: 0-based over EXECUTED steps
 	bool halted = false;
 	std::string reason;                  // SS2.W2's frozen halt enum
@@ -2947,6 +2955,19 @@ static bool g_coopHaltWalkArmed = false;
 // so the zero-step case, which is the one where no bt_ev carries the actor at
 // all, was not drivable.
 static bool g_coopHaltWalkBeforeStepArmed = false;
+
+// W1-P11 (SS4 "ATOM spot"): the last `spot` ev this machine EMITTED (host) or
+// APPLIED (client), as `event_state.lastSpot` reports, plus the two delivery
+// counters. Exactly the shape and exactly the justification W1-P9's lastWalk
+// and W1-P10's door counters carry: CoopEventLog is a fixed POD ring with no
+// payload, so without this a test can prove a `spot` ev's KIND and its POSITION
+// in the seq stream but never its `seen` list or its `haltStep` - and the two
+// counters are what turn "both machines agree on the spotted set" from a
+// coincidence into a DELIVERY proof (the client computes unit-FOV locally, so
+// it could agree by accident).
+static Json::Value g_coopLastSpot;
+static std::atomic<unsigned int> g_coopSpotEvsEmitted{0};
+static std::atomic<unsigned int> g_coopSpotEvsApplied{0};
 
 // W1-P9: the last walk this machine emitted (host) or applied (client), as the
 // JSON `event_state.lastWalk` reports. Rebuilt as the walk runs so a test can
@@ -3015,6 +3036,11 @@ static void resetCoopArbiterState()
 	g_coopLastWalk = Json::Value();
 	g_coopWalkReserveRefusals = 0;
 	g_coopWalkReserveTruncations = 0;
+	// W1-P11: battle-scoped like the walk chain itself - a `seen` list from a
+	// previous battle names unit ids that do not exist in this one.
+	g_coopLastSpot = Json::Value();
+	g_coopSpotEvsEmitted = 0;
+	g_coopSpotEvsApplied = 0;
 	coopResetDoorState(); // W1-P10
 	CoopBattleUi::resetBannerState();
 }
@@ -3331,7 +3357,28 @@ static void beginWalkChain(BattleUnit* actor, std::uint32_t actionId,
 	g_coopWalkChain.actionId = actionId;
 	g_coopWalkChain.origin = origin ? origin : "";
 	g_coopWalkChain.planned = plan;
+	// W1-P11: the `spot` ev's `seen` baseline (see CoopWalkChain).
+	for (const BattleUnit* bu : actor->getUnitsSpottedThisTurn())
+	{
+		if (bu)
+			g_coopWalkChain.spottedBaseline.push_back(bu->getId());
+	}
 	g_coopLastWalk = Json::Value();
+}
+
+/// W1-P11: rebuilds `event_state.lastSpot`. Called on the HOST at emit and on a
+/// CLIENT at apply, so a test compares the two machines' view of the SAME ev
+/// rather than trusting one.
+static void publishLastSpot(std::uint32_t actionId, int unitId,
+	const Json::Value& seen, int haltStep, std::uint32_t seq)
+{
+	Json::Value s(Json::objectValue);
+	s["actionId"] = actionId;
+	s["unit"] = unitId;
+	s["seen"] = seen;
+	s["haltStep"] = haltStep;
+	s["seq"] = seq;
+	g_coopLastSpot = s;
 }
 
 /// Rebuilds `event_state.lastWalk` from the chain in flight. Called after every
@@ -3901,6 +3948,11 @@ void beginHostLocalWalk(BattleUnit* actor, const std::vector<Position>& path)
 Json::Value lastWalk()
 {
 	return g_coopLastWalk;
+}
+
+Json::Value lastSpot()
+{
+	return g_coopLastSpot;
 }
 
 int walkReserveRefusals()
@@ -5026,6 +5078,92 @@ void coopNoteWalkHalt(BattleUnit* unit, const std::string& vanillaResult,
 		<< "' (vanilla result '" << vanillaResult << "')";
 }
 
+// ===== W1-P11 (WAVE1-RUNBOOK.md SS4 "ATOM spot" = WV-D26; SPIKE-RUNBOOK.md
+// SS2.4's `ev spot`): the spotting halt as a first-class ev. Contract in
+// CoopArbiter.h. =====
+
+void coopNoteWalkSpot(BattleUnit* unit)
+{
+	if (!isCoopBattle() || !unit)
+		return;
+	// A thin client pushes no BStates (BattlePump.h), so this can only ever run
+	// on the simulating machine; belt-and-braces, and it keeps SP and every
+	// client byte-identical.
+	if (!coopBattleAuthority().hostSim)
+		return;
+	// Not OUR walk: an AI or panic UnitWalkBState (BattlescapeGame.cpp's own
+	// two other push sites) is not coop's to report in wave 1 - AI streaming is
+	// W1-P13's (WV-D45), and nothing here may mint an action context for it.
+	if (!g_coopWalkChain.active || g_coopWalkChain.actorId != unit->getId())
+		return;
+
+	const std::uint32_t actionId = CoopArbiter::currentActionId();
+	if (actionId == 0 || actionId != g_coopWalkChain.actionId)
+		return;
+
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+
+	// (1) SS2.W2's halt reason, LATCHED FIRST. Both vanilla call sites leave
+	// `_action.result` EMPTY, and cancelCurentMove()'s catch-all maps an empty
+	// result to `blocked` - so the reason has to be recorded BEFORE the site's
+	// own `return cancelCurentMove();` reaches it. coopNoteWalkHalt() is
+	// first-reason-wins, which is exactly the room W1-P9 left here.
+	coopNoteWalkHalt(unit, std::string(), "spot");
+
+	// (2) `seen` = the ADDITIONS to the actor's _unitsSpottedThisTurn since this
+	// chain opened (prd-r3a). NOT an FOV transfer (A5): the client appends these
+	// ids to the same per-unit vector and writes no visibility state at all.
+	Json::Value seen(Json::arrayValue);
+	for (const BattleUnit* bu : unit->getUnitsSpottedThisTurn())
+	{
+		if (!bu)
+			continue;
+		const int id = bu->getId();
+		if (std::find(g_coopWalkChain.spottedBaseline.begin(),
+				g_coopWalkChain.spottedBaseline.end(), id)
+			== g_coopWalkChain.spottedBaseline.end())
+		{
+			seen.append(id);
+		}
+	}
+	if (seen.empty())
+	{
+		// Vanilla reached a `unitSpotted` halt, so the set MUST have grown.
+		// Emitted anyway - the halt is host truth and its position in the seq
+		// stream is what the client needs - but LOGGED loudly, because an empty
+		// `seen` means the baseline and vanilla's own `_numUnitsSpotted` have
+		// drifted apart and the bookkeeping half of this atom is doing nothing.
+		Log(LOG_WARNING) << "[coop-spot] actionId " << actionId << ": vanilla halted unit "
+			<< unit->getId() << " on `unitSpotted` but nothing was ADDED to its "
+			"spotted-this-turn set against this chain's baseline ("
+			<< g_coopWalkChain.spottedBaseline.size() << " id(s)) - emitting the ev anyway";
+	}
+
+	// (3) the ev itself. SS2.W2 rule 6: an interleaved consequence arrives as
+	// its OWN ev, in-stream, and breaks the walk exactly at its own position -
+	// so this lands AFTER the last `walk_step` and BEFORE the walk's
+	// `bt_action_end`, and its seq IS the halt point. `h:{unitsStats}` per
+	// RB-D14 like every other ev; any `reveal` the post-step calculateFOV just
+	// authored rides this envelope automatically at the SS2.4a sendEv choke.
+	const int haltStep = (int)g_coopWalkChain.executed.size();
+	Json::Value ev = CoopWire::makeEv(0u, actionId, "spot");
+	ev["payload"]["unit"] = unit->getId();
+	ev["payload"]["seen"] = seen;
+	ev["payload"]["haltStep"] = haltStep;
+	ev["h"] = coopBuildUnitsStatsHash(save);
+	CoopEmit::sendEv(ev);
+	g_coopSpotEvsEmitted.fetch_add(1);
+	CoopArbiter::publishLastSpot(actionId, unit->getId(), seen, haltStep,
+		CoopEmit::lastSeqEmitted());
+
+	Log(LOG_INFO) << "[coop-spot] actionId " << actionId << ": unit " << unit->getId()
+		<< " SPOTTED " << seen.size() << " new unit(s) after " << haltStep
+		<< " executed step(s) - `spot` ev at seq " << CoopEmit::lastSeqEmitted();
+}
+
+unsigned int coopSpotEvsEmitted() { return g_coopSpotEvsEmitted.load(); }
+unsigned int coopSpotEvsApplied() { return g_coopSpotEvsApplied.load(); }
+
 bool coopWalkReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu, int energy)
 {
 	if (!bg || !unit)
@@ -5437,12 +5575,13 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		return;
 	}
 
-	if (kind != "turn" && kind != "kneel" && kind != "walk_step")
+	if (kind != "turn" && kind != "kneel" && kind != "walk_step" && kind != "spot")
 	{
 		// RB-D32 corollary: an unknown ev kind (inject_ev's own spike test
-		// payloads, e.g. "spot") is a legal state-no-op - seq is consumed by
+		// payloads) is a legal state-no-op - seq is consumed by
 		// the caller (CoopPump::drainApplyQueue()) regardless of what
-		// happens here.
+		// happens here. (`spot` was that example until W1-P11 made it a real
+		// kind with a real applier below.)
 		Log(LOG_WARNING) << "[coop-apply] RW-UNSUPPORTED ev kind '" << kind << "'";
 		return;
 	}
@@ -5459,6 +5598,79 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 	{
 		Log(LOG_WARNING) << "[coop-apply] ev kind '" << kind << "' unit "
 			<< payload["unit"].asInt() << " does not resolve on this machine - dropped";
+		return;
+	}
+
+	if (kind == "spot")
+	{
+		// W1-P11 (SS4 "ATOM spot" / SS2.4's `ev spot`): BOOKKEEPING, and
+		// DELIBERATELY NOT AN FOV WRITE (A5 / prd-r3a: "append ids to the
+		// actor's spotted-this-turn set; no FOV write").
+		//
+		// The ids are appended to `_unitsSpottedThisTurn` DIRECTLY rather than
+		// through BattleUnit::addToVisibleUnits(), which is the vanilla writer
+		// but does two further things this applier must not do: it pushes onto
+		// `_visibleUnits` - machine-local presentation the client computes for
+		// itself from its OWN calculateUnitsInFOV (untouched by SS2.4a, unlike
+		// the tile half) and which drives the HUD's visible-unit buttons - and
+		// its callers set BattleUnit::_visible, a SERIALIZED field. Writing
+		// either here would be a client mint of visibility state.
+		//
+		// `_unitsSpottedThisTurn` itself is in NO hash bucket and in NO
+		// serializer (grep: BattleUnit::save/load never touch it), so this apply
+		// is hash-neutral by construction - which is the whole reason the atom's
+		// verification lives in the ev's own h:{unitsStats} and in the walk's
+		// halt POSITION rather than in a bucket of its own. It still matters:
+		// Pathfinding.cpp's `sneak` cost branch reads the set, so two machines
+		// that disagree about it would preview different paths for the same
+		// click.
+		//
+		// MEASURED REDUNDANCY, recorded so the next reader does not have to
+		// re-derive it (W1-P11 found it with a control build, not by argument).
+		// On the WALK path this apply is BELT to A5's BRACES rather than the sole
+		// writer: CoopDisplayQueue::onApplied() runs
+		// `getTileEngine()->calculateFOV(unit)` for EVERY bt_ev carrying a `unit`
+		// payload field, and SS2.4a suppresses only the TILE half of a client's
+		// FOV - `calculateUnitsInFOV` is untouched and writes
+		// _unitsSpottedThisTurn locally. With this push_back compiled out,
+		// repro_atom_spot.py still passed. It is KEPT because it is prd-r3a's
+		// specified shape and because HOST TRUTH is strictly safer than a
+		// client-side derivation that SS2.4a permits but does not guarantee to
+		// agree; it is idempotent (the de-dup below) and hash-neutral, so keeping
+		// it costs nothing. What it must NEVER become is the thing a test claims
+		// to prove - repro_atom_spot's docstring says so in as many words.
+		//
+		// An id that does not resolve is LOGGED and left standing (SS2.8's
+		// no-partial-repair rule), never guessed at.
+		const Json::Value& seen = payload["seen"];
+		std::vector<BattleUnit*>& spotted = unit->getUnitsSpottedThisTurn();
+		int added = 0, already = 0, unresolved = 0;
+		for (Json::ArrayIndex i = 0; i < seen.size(); ++i)
+		{
+			BattleUnit* seenUnit = CoopIdMaps::unit(seen[i].asInt());
+			if (!seenUnit)
+			{
+				++unresolved;
+				Log(LOG_WARNING) << "[coop-apply] spot ev for unit " << unit->getId()
+					<< " names unit " << seen[i].asInt() << ", which does not resolve on "
+					"this machine - NOT applied";
+				continue;
+			}
+			if (std::find(spotted.begin(), spotted.end(), seenUnit) != spotted.end())
+			{
+				++already;
+				continue;
+			}
+			spotted.push_back(seenUnit);
+			++added;
+		}
+		g_coopSpotEvsApplied.fetch_add(1);
+		const int haltStep = payload.get("haltStep", -1).asInt();
+		CoopArbiter::publishLastSpot(ev.get("actionId", 0u).asUInt(), unit->getId(),
+			seen, haltStep, ev.get("seq", 0u).asUInt());
+		Log(LOG_INFO) << "[coop-apply] spot: unit " << unit->getId() << " +" << added
+			<< " spotted-this-turn (" << already << " already known, " << unresolved
+			<< " unresolved) at haltStep " << haltStep;
 		return;
 	}
 

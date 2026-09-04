@@ -152,6 +152,13 @@ void beginHostLocalWalk(BattleUnit* actor, const std::vector<Position>& path);
 /// carries no payload (BattlePump.h).
 Json::Value lastWalk();
 
+/// W1-P11 test/introspection (TestServer event_state `lastSpot`): the most
+/// recent `spot` ev this machine EMITTED (host) or APPLIED (client), as
+/// {actionId, unit, seen:[uid...], haltStep, seq}. Null before the first spot
+/// of a battle. Same justification as lastWalk above - CoopEventLog carries no
+/// payload, so this is the only window onto `seen`/`haltStep`.
+Json::Value lastSpot();
+
 // TEST-ONLY (W1-P9, RB-D26/RB-D32 discipline - minimal, deterministic,
 // test-only; same family and the same removal note as hold_chain above).
 /// HOST: arm a ONE-SHOT latch that halts the next walk at its NEXT completed
@@ -609,6 +616,58 @@ void coopNoteWalkHalt(BattleUnit* unit, const std::string& vanillaResult,
 /// with the vanilla arguments, warning surface included - so single player is
 /// byte-identical.
 bool coopWalkReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu, int energy);
+
+// =============================================================================
+// W1-P11 (WAVE1-RUNBOOK.md SS4 "ATOM spot" = WV-D26; schema SPIKE-RUNBOOK.md
+// SS2.4's `ev spot`): the spotting halt as a FIRST-CLASS EV. One more thin hook
+// in src/Battlescape/UnitWalkBState.cpp, called at BOTH of vanilla's LIVE
+// spot-halt sites.
+// =============================================================================
+
+/// THIN HOOK - vanilla's `unitSpotted` walk halts in UnitWalkBState::think():
+/// the MID-WALK one (`if (unitSpotted) return cancelCurentMove();`, right after
+/// the post-step calculateFOV) and the TURNING one (the
+/// `if (unitSpotted && !_action.desperate && !_unit->getCharging() && !_falling)`
+/// branch at the end of think(), which covers the pre-first-step facing turn and
+/// therefore a ZERO-step walk). Called immediately BEFORE each site's
+/// `return cancelCurentMove();`.
+///
+/// Two jobs, in this order:
+///   1. LATCH SS2.W2's halt reason `spot` for the walk chain in flight. This is
+///      why the hook has to exist at all: both sites leave `_action.result`
+///      EMPTY, and coopNoteWalkHalt()'s catch-all maps an empty result to
+///      `blocked` - so without this the completion restate would name the wrong
+///      cause and the ordering seat would see the wrong banner.
+///      coopNoteWalkHalt() is FIRST-REASON-WINS, which is precisely the room
+///      W1-P9 left for this.
+///   2. EMIT `bt_ev spot` (SS2.4's own kind) carrying
+///      {unit, seen:[uid...], haltStep} + h:{unitsStats} (RB-D14), through the
+///      normal CoopEmit::sendEv choke so any pending `reveal` rides the
+///      envelope (SS2.4a). SS2.W2 rule 6: an interleaved consequence arrives as
+///      its OWN ev in-stream and breaks the walk at exactly its own position -
+///      so the ev lands AFTER the last `walk_step` and BEFORE the walk's
+///      `bt_action_end`, and its position in the seq stream IS the halt point.
+///
+/// `seen` is the set of unit ids ADDED to the actor's `_unitsSpottedThisTurn`
+/// since the walk chain OPENED (prd-r3a: "ships the actor's
+/// _unitsSpottedThisTurn ADDITIONS"). It is BOOKKEEPING, never an FOV transfer
+/// (A5): the client appends the ids to the same per-unit vector and writes NO
+/// visibility state of any kind.
+///
+/// No-op in single player, in any non-co-op battle, off the host sim, and for a
+/// walk this machine holds no chain for (an AI or panic UnitWalkBState - AI
+/// streaming is W1-P13's, WV-D45). SP is byte-identical.
+void coopNoteWalkSpot(BattleUnit* unit);
+
+/// W1-P11 test/introspection, the W1-P10 door-counter precedent: how many
+/// `spot` envelopes this machine SENT and how many it APPLIED. They are what
+/// make "both machines agree on the actor's spotted-this-turn set" a DELIVERY
+/// proof rather than a coincidence - a client runs its own
+/// TileEngine::calculateUnitsInFOV (SS2.4a suppresses only the TILE half), so
+/// it can reach the same set without any ev ever arriving. Battle-scoped: both
+/// reset at teardown with the rest of the walk-chain bookkeeping.
+unsigned int coopSpotEvsEmitted();
+unsigned int coopSpotEvsApplied();
 
 /// W1-P9: the WALK ARM's own gate in BattlescapeGame::primaryAction, replacing
 /// W1-P6's coopBlockLocalExecution() call there - see BattleAuthority.h for why

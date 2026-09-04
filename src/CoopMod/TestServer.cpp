@@ -4605,6 +4605,17 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["coopDoorEvsEmitted"] = coopDoorEvsEmitted();
 		resp["coopDoorEvsApplied"] = coopDoorEvsApplied();
 		resp["coopDoorInTurnUnsupported"] = coopDoorInTurnUnsupported();
+		// W1-P11 (SS4 "ATOM spot"): the spot atom's payload window and its two
+		// delivery counters, exactly the lastWalk / door-counter precedents
+		// above. `lastSpot` is the only place `seen` and `haltStep` are visible
+		// at all (CoopEventLog is a payload-free POD ring), and the counters are
+		// what separate "the client APPLIED a spot ev" from "the client happened
+		// to compute the same set itself" - a client still runs its own
+		// calculateUnitsInFOV (SS2.4a suppresses only the TILE half), so the set
+		// alone proves nothing. MEASURED with a control build, not argued.
+		resp["lastSpot"] = CoopArbiter::lastSpot();
+		resp["coopSpotEvsEmitted"] = coopSpotEvsEmitted();
+		resp["coopSpotEvsApplied"] = coopSpotEvsApplied();
 		// This machine's own (machine-local, saveBlob-EXCLUDED) reserve settings -
 		// the values WV-D14 ratifies as per-machine and WV-D48 makes the client
 		// enforce for itself.
@@ -6225,6 +6236,37 @@ std::string TestServer::execute(const std::string& line)
 					// R3-P2: the kneel atom's own observable - no test consumer
 					// needed this before now (turn/direction only).
 					ju["kneeled"] = u->isKneeled();
+					// W1-P11 (SS4 "ATOM spot"). Two plain getters, both needed by
+					// the spot fixture and neither derivable from anything already
+					// reported:
+					//  * `reactions` is the numerator of
+					//    BattleUnit::getReactionScore() (reactions * TU / maxTU),
+					//    which TileEngine::getSpottingUnits() compares against the
+					//    WALKER's own score before a unit may reaction-fire at all.
+					//    repro_atom_spot pins its fixture by zeroing it on every
+					//    non-player unit, and a pin that cannot be READ BACK is not
+					//    a pin - S5's AI-ORIGIN PRECONDITION makes an alien SHOT an
+					//    EXPECTED wave-1 client desync, so a spot repro has to prove
+					//    reaction fire was IMPOSSIBLE, not merely absent.
+					//  * `spottedThisTurn` is BattleUnit::_unitsSpottedThisTurn, the
+					//    very set the `spot` ev's `seen` list carries. It is in no
+					//    hash bucket and in no serializer, so it is otherwise
+					//    completely invisible to a test. It is what the fixture
+					//    rule pins ("this actor has spotted nothing yet, on BOTH
+					//    machines") and what the vanilla-oracle TRIPWIRE reads
+					//    ("the set GREW, so the walk MUST have reported `spot`").
+					//    Stated honestly: comparing the two machines' sets is a
+					//    CONSISTENCY check and NOT a delivery proof, because A5's
+					//    targeted per-ev calculateFOV(unit) recomputes the same set
+					//    locally on a client - measured with a control build, see
+					//    repro_atom_spot.py's "ONE HONEST LIMIT".
+					ju["reactions"] = u->getBaseStats()->reactions;
+					{
+						Json::Value spottedIds(Json::arrayValue);
+						for (const BattleUnit* sp : u->getUnitsSpottedThisTurn())
+							if (sp) spottedIds.append(sp->getId());
+						ju["spottedThisTurn"] = spottedIds;
+					}
 					// W1-P5 (ruling D8 = WV-D14, evidence F2's "open-item-9 fields"):
 					// the reaction-hand state btn{Left,Right}HandItemClick's
 					// right-click branch writes. Serialized (BattleUnit.cpp:791-796)
@@ -6634,6 +6676,20 @@ std::string TestServer::execute(const std::string& line)
 						else if (name == "psiStrength") { bs->psiStrength = v; if (cs) cs->psiStrength = v; }
 						else if (name == "firing")      { bs->firing = v;      if (cs) cs->firing = v; }
 						else if (name == "tu")          { bs->tu = v;          if (cs) cs->tu = v; }
+						// W1-P11: the spot fixture's reaction-fire pin. A unit whose
+						// `reactions` stat is 0 scores 0 in
+						// BattleUnit::getReactionScore() and is therefore dropped by
+						// TileEngine::getSpottingUnits()'s
+						// `bu->getReactionScore() >= threshold` test for any walker
+						// with a positive score - i.e. it cannot reaction-fire AT
+						// ALL, before determineReactionType() is ever consulted.
+						// `currStats` IS serialized (BattleUnit.cpp's
+						// writer.write("currStats", _stats)) and is NOT on
+						// saveBlobExcludedUnitKey's list, so it rides the saveBlob
+						// bucket: like every other stat here it MUST be applied on
+						// BOTH machines, and the fixture asserts all buckets EQUAL
+						// immediately afterwards to prove it was.
+						else if (name == "reactions")   { bs->reactions = v;   if (cs) cs->reactions = v; }
 					};
 					if (req.isMember("psiSkill"))    setStat("psiSkill", req["psiSkill"].asInt());
 					if (req.isMember("psiStrength")) setStat("psiStrength", req["psiStrength"].asInt());

@@ -254,6 +254,18 @@ void UnitWalkBState::think()
 			}
 			if (unitSpotted)
 			{
+				// W1-P11 (WAVE1-RUNBOOK.md SS4 "ATOM spot" / SS2.W2 rule 6,
+				// WV-D26): ONE guarded coop call, at vanilla's own MID-WALK
+				// spotting halt - the first of the two LIVE sites prd-r3a
+				// names. It emits the `spot` ev in-stream at exactly this
+				// position (after the step ev this step already emitted, before
+				// the walk's completion restate) and latches SS2.W2's halt
+				// reason `spot` AHEAD of cancelCurentMove()'s catch-all, which
+				// maps this branch's EMPTY `_action.result` to `blocked`.
+				// No-op outside an active co-op battle, off the host sim, and
+				// for a walk this machine did not open a chain for - so single
+				// player is byte-identical.
+				coopNoteWalkSpot(_unit);
 				return cancelCurentMove();
 			}
 			// check for reaction fire
@@ -473,6 +485,13 @@ void UnitWalkBState::think()
 			if (Options::traceAI) { Log(LOG_INFO) << "Egads! A turn reveals new units! I must pause!"; }
 			_unit->setHiding(false); // not hidden, are we...
 			_unit->abortTurn(); //revert to a standing state.
+			// W1-P11 (SS4 "ATOM spot" / SS2.W2 rule 6): the SECOND live spot
+			// halt - a turn (including the pre-first-step facing turn) that
+			// brings a hostile into view. Placed AFTER the _preMovementCost
+			// spend and abortTurn() above so the ev's h:{unitsStats} carries
+			// the same post-state the completion restate will. Same guarded
+			// call, same no-op-outside-co-op contract as the site above.
+			coopNoteWalkSpot(_unit);
 			return cancelCurentMove();
 		}
 	}
