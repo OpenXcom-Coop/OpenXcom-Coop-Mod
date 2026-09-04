@@ -1394,53 +1394,78 @@ def phase6b_host_origin(host, client, host_ids):
 
     Driven through the REAL UI (W1-P6's self-verifying `map_tile_click_pos`
     probe), because the host has no `battle_intent`: SS2.5's "host-local player
-    input never enters the intent path"."""
+    input never enters the intent path".
+
+    FIXTURE RECIPE, bucket (i) (2026-09-04 RCA). WV-D56 leaves a host unit
+    already SELECTED at phase-6b entry (`selectOwnUnitAtEntry`), and
+    `battleNewPreviewPath == PATH_NONE` means a single ground click WALKS
+    immediately - there is no two-click preview->confirm here. So "select it
+    first" must NEVER be a ground click on the eventual target tile: with a
+    unit already selected and no preview, that click IS the walk, and the
+    measured loop below then clicks the tile the unit is already standing on
+    (no path, no walk, `wait_walk_settled` times out on every attempt). The
+    fix is to select by TAB-cycling only - the same idiom `phase2_hud` already
+    uses, a pure selection hotkey that cannot itself move anyone - and to only
+    compute the candidate destination tile AFTER selection is confirmed, from
+    the unit's then-current position, so the measured click always targets a
+    tile the unit has not already been walked onto."""
     st = battle_state(host)
     units = units_by_id(st)
     candidates = [u for u in units.values()
                   if u["id"] in host_ids and not u.get("isOut")]
     assert candidates, "PHASE 6b: the host owns no live soldier"
-    occupied = {pos_of(u) for u in units.values() if not u.get("isOut")}
 
     chosen = None
     for u in candidates:
         if session.nearest_non_player_distance(st, u) is not None and \
            session.nearest_non_player_distance(st, u) <= session.MAX_VIEW_DISTANCE:
             continue
-        runs = (straight_runs(host, u, occupied, length=1, st=st)
-                or straight_runs(host, u, occupied, length=2, st=st))
-        if not runs:
-            continue
-        tile = runs[0][1][0]
-        host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
-        time.sleep(0.15)
-        pr = host.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1],
-                       "z": tile[2]})
-        if pr.get("ok") and pr.get("verified"):
-            chosen = (u, tile, pr)
-            break
-    assert chosen is not None, (
-        "PHASE 6b: no host-owned, contact-free soldier with a clickable adjacent "
-        "open tile - FIXTURE failure, not a result about origin-independence")
-    u, tile, pr = chosen
 
-    # Select it on the host first, then click the ground tile.
-    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"],
-             "button": "left"})
-    time.sleep(0.4)
-    prev = walk_action_id(host)
-    arm0 = event_state(host)["coopWalkArmEntered"]
-    sel = battle_state(host).get("selectedId")
-    if sel != u["id"]:
-        # The click selected nothing (an empty tile) - select via TAB instead.
+        # Select the candidate WITHOUT walking it. TAB-cycle only - never a
+        # ground click here (see the RCA above): with a unit already selected
+        # and PATH_NONE preview, a click on the target tile is the walk.
         for _ in range(12):
             if battle_state(host).get("selectedId") == u["id"]:
                 break
             host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})
             time.sleep(0.15)
+        if battle_state(host).get("selectedId") != u["id"]:
+            continue   # could not select this candidate - try the next one
+
+        # NOW compute a FRESH reachable adjacent open tile, from the unit's
+        # CURRENT (post-selection) position - true by construction rather
+        # than by the assumption that selecting never moves anyone.
+        st2 = battle_state(host)
+        units2 = units_by_id(st2)
+        u2 = units2.get(u["id"])
+        if u2 is None or u2.get("isOut"):
+            continue
+        occupied2 = {pos_of(x) for x in units2.values() if not x.get("isOut")}
+        runs = (straight_runs(host, u2, occupied2, length=1, st=st2)
+                or straight_runs(host, u2, occupied2, length=2, st=st2))
+        if not runs:
+            continue
+        tile = runs[0][1][0]
+        if tile == pos_of(u2):
+            continue   # guard: the measured click must target a DIFFERENT tile
+
+        host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
+        time.sleep(0.15)
+        pr = host.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1],
+                       "z": tile[2]})
+        if pr.get("ok") and pr.get("verified"):
+            chosen = (u2, tile, pr)
+            break
+    assert chosen is not None, (
+        "PHASE 6b: no host-owned, contact-free soldier with a clickable adjacent "
+        "open tile - FIXTURE failure, not a result about origin-independence")
+    u, tile, pr = chosen
     assert battle_state(host).get("selectedId") == u["id"], (
         f"PHASE 6b: could not select host unit {u['id']} (selectedId="
         f"{battle_state(host).get('selectedId')})")
+
+    prev = walk_action_id(host)
+    arm0 = event_state(host)["coopWalkArmEntered"]
 
     landed = False
     for _ in range(4):
