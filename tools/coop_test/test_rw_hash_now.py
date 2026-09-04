@@ -109,8 +109,8 @@ import session
 # coupling completely: a selection change no longer authors ANY tile FOV in a
 # co-op battle, and battle entry is covered instead by an explicit SIDE-BEGIN
 # restate over EVERY player-faction unit (CoopFog::authorSideBeginFov), which
-# does not depend on what happens to be selected. The three envelopes are now
-# structural, and the host log names each one:
+# does not depend on what happens to be selected. The three envelopes were
+# structural at the time, and the host log named each one:
 #   seq 1  side:"hostile" absolute `base` restate - SS2.W4's BASELINE (WR-1):
 #          the hostile set is coop-owned storage with NO save representation, so
 #          it cannot ride the handshake blob; the host seeds its published
@@ -122,8 +122,33 @@ import session
 #          CoopReveal::seedPublished deliberately leaves them unpublished and
 #          this flush ships them.
 #   seq 3  side:"player" delta - the SS2.W5 battle-entry side-begin restate,
-#          which runs once the host actually holds a BattlescapeState (i.e.
-#          after startFirstTurn() has put every unit on its final tile).
+#          which ran once the host actually held a BattlescapeState. Before
+#          WV-D56 that condition was met LATER than the void-tile catch-up
+#          (phase could reach Active while the host still sat in
+#          BriefingState, before BattlescapeState existed at all), so the two
+#          player-side deltas shipped on separate quiescent-flush ticks.
+#
+# FX-1 (WV-D56, 2026-09-04) RE-MEASURED IT TO AN EXACT 2 - 5/5 stable runs
+# (old constant 3, new constant 2; both numbers recorded here per the
+# packet's own re-pin discipline). ROOT CAUSE OF THE CHANGE: the coop blob
+# snapshot (and therefore CoopReveal::seedPublished()) now happens from
+# CoopHandshake::emitPreparedOffer(), called from BriefingState::btnOkClick's
+# freeze branch AFTER startFirstTurn() - by which point BattlescapeState has
+# ALREADY been pushed and SavedBattleGame::setBattleState() has ALREADY run
+# (BriefingState.cpp's freeze branch sits BELOW the pushState(bs) call). So by
+# the time phase reaches Active, "the host holds a BattlescapeState" is
+# already true - the SS2.W5 side-begin restate's trigger condition and the
+# void-tile catch-up's trigger condition are now satisfied at the SAME
+# quiescent-flush tick, and CoopReveal::flushQuiescent coalesces everything
+# discovered by then into ONE outgoing delta instead of two. Measured host log
+# (5/5 runs): exactly one `[coop-reveal] attached reveal delta (side=player)`
+# line, not two. The hostile BASELINE restate (seq 1) is unaffected - it is
+# gated on phase reaching Active, not on BattlescapeState existing, so it still
+# ships as its own envelope.
+#   seq 1  side:"hostile" absolute `base` restate - SS2.W4's BASELINE, unchanged.
+#   seq 2  side:"player" delta - the void-tile catch-up AND the SS2.W5
+#          side-begin restate, now COALESCED into one quiescent flush because
+#          both are already eligible the instant phase reaches Active.
 #
 # Asserted EXACTLY, as the original constant was: a change that starts spraying
 # reveal traffic per tick, or that silently drops the hostile baseline, must be a
@@ -131,7 +156,7 @@ import session
 # (emitted == applied, nothing left unpublished on either side, per-part parity
 # for BOTH sets, all buckets EQUAL) are asserted separately below and do not
 # depend on this count.
-REVEAL_SEQS_AT_T0 = 3
+REVEAL_SEQS_AT_T0 = 2
 
 
 def top_state(gc):
@@ -191,14 +216,28 @@ def main():
 
         host.ok({"cmd": "newbattle_ok"})
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
-        client.wait_for("client battlescape",
-                        lambda: session.has_state(client, "BattlescapeState"), timeout=60)
 
+        # WV-D56 (FX-1, 2026-09-04): the coop blob SNAPSHOT and the
+        # battle_offer that advertises it now move to AFTER the host's own
+        # SavedBattleGame::startFirstTurn() - i.e. to THIS click, not to
+        # newbattle_ok's generation-time offerBattle() call. Before this click
+        # nothing has been sent (prepareBattleOffer() only mints the
+        # battleId/seats and moves phase to Handshake), so the client learns
+        # nothing about this battle - waiting for "client battlescape" BEFORE
+        # this click would deadlock (both sides correctly waiting on each
+        # other). This is also why REVEAL_SEQS_AT_T0 below had to be
+        # re-measured: seedPublished() now runs from inside this click too,
+        # after startFirstTurn() and with BattlescapeState already pushed
+        # (host.getBattleState() is already non-null), not at battle-generation
+        # time.
         host.ok({"cmd": "click_widget", "match": "ok"})
         host.wait_for("host battlescape",
                       lambda: session.has_state(host, "BattlescapeState"), timeout=30)
         assert session.has_state(host, "BattlescapeState"), \
             f"host should reach BattlescapeState, stack={session.states(host)}"
+
+        client.wait_for("client battlescape",
+                        lambda: session.has_state(client, "BattlescapeState"), timeout=60)
         print("PASS: both machines in BattlescapeState (G3-path handshake complete)")
 
         # RW-FIX-TURN (R1): dismiss the host's battle-start overlays
