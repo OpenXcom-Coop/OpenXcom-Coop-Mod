@@ -324,6 +324,8 @@ void BriefingState::btnOkClick(Action *)
 		// screen is a silent items/saveBlob divergence - a gap the harness never
 		// caught because no test ever equipped. Un-freezing belongs to the
 		// synchronized-equip initiative (`inventory_move`), not to this wave.
+		// WV-D56 (FX-1): the snapshot now happens BELOW, not above - see the
+		// CoopHandshake::emitPreparedOffer(_game) call after startFirstTurn().
 		//
 		// THE startFirstTurn() CALL IS NOT OPTIONAL (WV-D43). This push is the
 		// host's ONLY non-preview route into SavedBattleGame::startFirstTurn():
@@ -347,6 +349,13 @@ void BriefingState::btnOkClick(Action *)
 		if (CoopHandshake::freezePreBattleEquip(_game))
 		{
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
+			// WV-D56 (FX-1): the blob the client loads is snapshotted HERE, after
+			// startFirstTurn() has run randomizeItemLocations()/resetUnitTiles()/
+			// per-unit prepareNewTurn()/newTurnUpdateScripts() and set _turn = 1 -
+			// not inside offerBattle()/prepareBattleOffer() at battle-generation
+			// time. Self-guarded (a no-op unless this machine is the coop host with
+			// a matching PREPARE already in flight), so SP is unaffected.
+			CoopHandshake::emitPreparedOffer(_game);
 			return;
 		}
 		_game->pushState(new InventoryState(false, bs, 0));
@@ -357,6 +366,7 @@ void BriefingState::btnOkClick(Action *)
 		Options::baseYResolution = Options::baseYGeoscape;
 		_game->getScreen()->resetDisplay(false);
 		delete bs;
+		CoopHandshake::abandonPreparedOffer(_game); // WV-D56: self-guarded, no-op in SP
 		_game->pushState(new AliensCrashState);
 	}
 }

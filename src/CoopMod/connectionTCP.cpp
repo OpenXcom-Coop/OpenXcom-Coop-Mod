@@ -6506,6 +6506,39 @@ void showSpectatorMode()
 	showRefusalKey("STR_COOP_SPECTATOR_MODE", BannerClass::Notice);
 }
 
+// FX-1 (WV-D56) test/introspection: how many times freezeBattleInputUntilActive()
+// below has refused a host input this process. Battle-scoped; reset alongside the
+// rest of the banner-class bookkeeping in resetBannerState(). std::atomic to match
+// the established test-exposed-counter convention (g_coopSpotEvsEmitted/
+// g_coopDoorEvsEmitted et al.) - TestServer's introspection reads happen on the
+// main thread like everything else here, but the counters this file already
+// exposes the same way are all atomic, so this one is too.
+static std::atomic<unsigned int> g_coopHostInputFrozenRefusals{0};
+
+bool freezeBattleInputUntilActive()
+{
+	// WV-D56: the host now enters BattlescapeState BEFORE the client holds the
+	// blob (the snapshot/offer moved to AFTER startFirstTurn()), so every coop
+	// input gate that reads isCoopBattle() (== phase Active) is PERMISSIVE in
+	// that window. Deliberately NOT isCoopBattle() itself - this predicate must
+	// be TRUE precisely where isCoopBattle() is FALSE.
+	if (!connectionTCP::getCoopStatic())
+		return false;
+	BattleAuthority& a = coopBattleAuthority();
+	if (!a.hostSim.load())
+		return false;
+	if (a.phase.load() != CoopBattlePhase::Handshake)
+		return false;
+	// NOT Sticky - Sticky refuses every later banner write for the rest of the
+	// battle (setBanner's own arbitration rule), which would silence the entry
+	// notices/denies/wait driver once the freeze lifts.
+	showRefusalKey("STR_COOP_WAITING_FOR_JOIN", BannerClass::Notice);
+	g_coopHostInputFrozenRefusals.fetch_add(1);   // test/introspection
+	return true;
+}
+
+unsigned int coopHostInputFrozenRefusals() { return g_coopHostInputFrozenRefusals.load(); }
+
 bool chatIsOpen(Game* g)
 {
 	if (!g)
@@ -6551,6 +6584,7 @@ void resetBannerState()
 {
 	g_bannerClass = BannerClass::None;
 	g_bannerTick = 0;
+	g_coopHostInputFrozenRefusals = 0;   // FX-1 (WV-D56): battle-scoped like the rest
 }
 
 void tick()
@@ -6853,6 +6887,14 @@ struct PendingHost
 	bool active = false;
 	std::uint32_t battleId = 0;
 	std::string saveBlobHex; // this machine's own saveBlob bucket (offerBattle() computes it once)
+
+	// FX-1 (WV-D56): PREPARE/EMIT split. prepareBattleOffer() stashes the
+	// gamemode/seats it resolved here so emitPreparedOffer() - called later,
+	// from BriefingState::btnOkClick after startFirstTurn() - can read them
+	// without re-deriving anything.
+	bool prepared = false;          // PREPARE ran, EMIT has not (yet, or ever)
+	int gamemode = 0;               // was a prepareBattleOffer() local
+	std::vector<int> seats;         // was a prepareBattleOffer() local
 };
 static PendingHost g_pendingHost;
 
@@ -7262,7 +7304,7 @@ void selectOwnUnitAtEntry(Game* game)
 		<< " commands NO unit in this battle - spectator notice raised";
 }
 
-void offerBattle(Game* game, int gamemode)
+void prepareBattleOffer(Game* game, int gamemode)
 {
 	if (!game || !connectionTCP::getServerOwner())
 	{
@@ -7288,11 +7330,11 @@ void offerBattle(Game* game, int gamemode)
 	initBattleAuthority(battleId); // -> hostSim=true, localSeat, phase=Handshake, seat-faction store cleared
 
 	// W1-P7 deliverable 6 (REV D / WV-D55 / D-19b): resolve the session's turn
-	// mode HERE, before the blob snapshot below, not down at the offer-building
-	// block - a battle save taken later must carry the mode the battle is being
-	// PLAYED in (D.1), and the mirror is what coopSaveTurnMode() reads.
-	// initBattleAuthority() above does not touch this field; only
-	// resetBattleAuthority() (teardown) does.
+	// mode HERE, before the blob snapshot in emitPreparedOffer() below, not down
+	// at the offer-building block - a battle save taken later must carry the
+	// mode the battle is being PLAYED in (D.1), and the mirror is what
+	// coopSaveTurnMode() reads. initBattleAuthority() above does not touch this
+	// field; only resetBattleAuthority() (teardown) does.
 	coopBattleAuthority().turnMode = coopSessionTurnModeFromOptions();
 
 	// R5-P1 (RB-D23): the ONE generation-time canonical-faction/seat pass -
@@ -7313,8 +7355,42 @@ void offerBattle(Game* game, int gamemode)
 	}
 	assignSeatsAndFactions(battle, gamemode, seats);
 
+	// FX-1 (WV-D56 / REV E.1 IR3-2): PREPARE ends here, and this is the ONLY
+	// function that resets g_pendingHost - moving this reset into
+	// emitPreparedOffer() would wipe prepared/gamemode/seats/battleId before the
+	// offer build there ever reads them. Sends NOTHING, snapshots NOTHING: the
+	// blob snapshot + battle_offer build/send now live in emitPreparedOffer(),
+	// called later from BriefingState::btnOkClick's freeze branch AFTER
+	// startFirstTurn().
+	g_pendingHost = PendingHost();
+	g_pendingHost.prepared = true;
+	g_pendingHost.battleId = battleId;
+	g_pendingHost.gamemode = gamemode;
+	g_pendingHost.seats = seats;
+
+	Log(LOG_INFO) << "[coop-handshake] WV-D56: battle offer PREPARED (battleId=" << battleId
+		<< ", gamemode=" << gamemode << ", seats=" << seats.size()
+		<< ") - snapshot+send deferred to emitPreparedOffer() (after startFirstTurn())";
+}
+
+void offerBattle(Game* game, int gamemode)
+{
+	prepareBattleOffer(game, gamemode);
+}
+
+void emitPreparedOffer(Game* game)
+{
+	// FX-1 (WV-D56) guard: fires once, only after a matching PREPARE, and only
+	// while the handshake is still open (Handshake, not Idle/Active/Ended).
+	if (!game || !g_pendingHost.prepared || g_pendingHost.active) return;   // once only
+	if (coopBattleAuthority().phase != CoopBattlePhase::Handshake) return;
+	SavedBattleGame* battle = game->getSavedGame() ? game->getSavedGame()->getSavedBattle() : nullptr;
+	if (!battle) { Log(LOG_ERROR) << "[coop-handshake] WV-D56: emitPreparedOffer() with no live battle"; return; }
+
 	// Snapshot (donor call shape CoopState.cpp:~1667 @1e0f9276f) - the whole
 	// generated SavedGame blob, which contains the active SavedBattleGame.
+	// WV-D56: taken HERE, after the caller's startFirstTurn(), so it already
+	// carries `_turn == 1` and the post-randomizeItemLocations() item positions.
 	game->getSavedGame()->saveCoopToMemory("battlehost", game->getMod(), "battlehost");
 
 	// RW-REVEAL-SYNC (SS2.4a): seed the published fog bitmap from the very state
@@ -7323,8 +7399,8 @@ void offerBattle(Game* game, int gamemode)
 	// 2026-09-02 gap probe measured ~500 floors revealed between this line and
 	// the host's own battlescape bring-up - the standalone quiescent flush is
 	// load-bearing, not a nicety). Called EXPLICITLY rather than behind an
-	// isCoopBattle() guard: phase is still Handshake here (initBattleAuthority()
-	// above), so isCoopBattle() is false at this point (BattleAuthority.h).
+	// isCoopBattle() guard: phase is still Handshake here, so isCoopBattle() is
+	// false at this point (BattleAuthority.h).
 	CoopReveal::seedPublished(battle);
 
 	std::string blob;
@@ -7333,7 +7409,7 @@ void offerBattle(Game* game, int gamemode)
 		auto it = connectionTCP::coopFilesHost.find("battlehost");
 		if (it == connectionTCP::coopFilesHost.end())
 		{
-			Log(LOG_ERROR) << "[coop-handshake] offerBattle(): saveCoopToMemory did not "
+			Log(LOG_ERROR) << "[coop-handshake] emitPreparedOffer(): saveCoopToMemory did not "
 				"populate coopFilesHost[\"battlehost\"]";
 			resetBattleAuthority();
 			return;
@@ -7372,17 +7448,19 @@ void offerBattle(Game* game, int gamemode)
 		}
 	}
 
-	g_pendingHost = PendingHost();
+	// FX-1 (WV-D56 / REV E.1 IR3-2): NOT `g_pendingHost = PendingHost()` - that
+	// full reset now lives in prepareBattleOffer() (above), which already set
+	// prepared/battleId/gamemode/seats this function reads below. Resetting
+	// here would wipe them before the offer build gets to use them.
 	g_pendingHost.active = true;
-	g_pendingHost.battleId = battleId;
 	g_pendingHost.saveBlobHex = coopComputeSaveBlobBucketHex(battle);
 
 	Json::Value offer(Json::objectValue);
 	offer["state"] = "battle_offer";
 	offer["protocolVersion"] = 1;
-	offer["battleId"] = battleId;
-	offer["gamemode"] = gamemode;
-	offer["seatMap"] = coopBuildRealSeatMap(seats); // R5-P1 (RB-D23/RB-D31): real per-unit-derived factions
+	offer["battleId"] = g_pendingHost.battleId;
+	offer["gamemode"] = g_pendingHost.gamemode;
+	offer["seatMap"] = coopBuildRealSeatMap(g_pendingHost.seats); // R5-P1 (RB-D23/RB-D31): real per-unit-derived factions
 	offer["blobBytes"] = Json::UInt64(blob.size());
 	offer["blobSha"] = sha;
 
@@ -7391,10 +7469,11 @@ void offerBattle(Game* game, int gamemode)
 	// REQUIRED from W1-P7 on - a wave-1 host ALWAYS sends it - but the READER is
 	// presence-gated (absent = parallel, D-26).
 	//
-	// Stamped HERE rather than at the four vanilla call sites: offerBattle() is
-	// the single host-side choke every one of them funnels through, so all FOUR
-	// are covered (WR-8) with no vanilla edit at all - the same argument SS2.4a
-	// makes for attaching `reveal` at the CoopEmit::sendEv choke.
+	// Stamped HERE rather than at the four vanilla call sites: the EMIT half is
+	// still the single host-side choke every one of them funnels through (via
+	// PREPARE), so all FOUR are covered (WR-8) with no vanilla edit at all - the
+	// same argument SS2.4a makes for attaching `reveal` at the
+	// CoopEmit::sendEv choke.
 	//
 	// The value is the HOST's remembered preference; a client's own setting is
 	// irrelevant. D-22's resumed-battle rule (read the mode from the BATTLE SAVE
@@ -7419,10 +7498,11 @@ void offerBattle(Game* game, int gamemode)
 	// envelope for protocol tolerance, but a wave-1 host ALWAYS sends it; when
 	// present, target / craftOrBase / deployment are all REQUIRED KEYS - and
 	// REQUIRED means the key is PRESENT, not that the value is non-empty (WR-9).
-	// mintMissionLabels() ran at the call site one line above offerBattle(), i.e.
-	// BEFORE the saveCoopToMemory() snapshot above, so these are the same labels
-	// the blob carries AND the ones this host will keep - BriefingState's own
-	// re-mint is suppressed by operationNameAlreadyMinted() (SS2.W1).
+	// mintMissionLabels() ran at the call site one line above offerBattle()
+	// (i.e. one line above prepareBattleOffer()), i.e. BEFORE even PREPARE ran -
+	// so these are the same labels the blob carries AND the ones this host will
+	// keep - BriefingState's own re-mint is suppressed by
+	// operationNameAlreadyMinted() (SS2.W1).
 	Json::Value missionLabel(Json::objectValue);
 	missionLabel["target"] = battle->getMissionTarget();
 	missionLabel["craftOrBase"] = battle->getMissionCraftOrBase();
@@ -7432,10 +7512,26 @@ void offerBattle(Game* game, int gamemode)
 
 	CoopEmit::sendBattle(offer);
 
-	Log(LOG_INFO) << "[coop-handshake] battle_offer sent (battleId=" << battleId
-		<< ", gamemode=" << gamemode << ", blobBytes=" << blob.size()
+	Log(LOG_INFO) << "[coop-handshake] battle_offer sent (battleId=" << g_pendingHost.battleId
+		<< ", gamemode=" << g_pendingHost.gamemode << ", blobBytes=" << blob.size()
 		<< ", turnMode=" << coopTurnModeName(mode)
-		<< ", saveBlob=" << g_pendingHost.saveBlobHex << ")";
+		<< ", saveBlob=" << g_pendingHost.saveBlobHex
+		<< ") [WV-D56: post-startFirstTurn snapshot]";
+}
+
+void abandonPreparedOffer(Game* game)
+{
+	// FX-1 (WV-D56): the path where a prepared-but-not-yet-emitted battle never
+	// starts (BriefingState's no-aliens arm). Deliberate no-op once EMIT has
+	// already fired (g_pendingHost.active) - abandoning a battle already offered
+	// to the peer is the EXISTING onRefuse()/onReady()-mismatch teardown's job,
+	// not this one's.
+	(void)game;
+	if (!g_pendingHost.prepared || g_pendingHost.active) return;
+	Log(LOG_WARNING) << "[coop-handshake] WV-D56: a prepared battle offer was ABANDONED "
+		"before the briefing entered the battle - resetting authority";
+	resetBattleAuthority();
+	g_pendingHost = PendingHost();
 }
 
 void onOffer(Game* game, const Json::Value& offer)
@@ -7521,6 +7617,13 @@ void onOffer(Game* game, const Json::Value& offer)
 		<< ", expecting " << g_pendingClient.blobBytes << " bytes)";
 }
 
+// FX-1 (WV-D56) test/introspection: how many times coopClientMirrorFirstTurnCounter()
+// below has fired its tripwire branch. Battle-scoped; reset at resetPendingState()
+// with the rest of this file's handshake bookkeeping.
+static std::atomic<unsigned int> g_coopTurnMirrorFired{0};
+
+unsigned int coopTurnMirrorFired() { return g_coopTurnMirrorFired.load(); }
+
 /**
  * RW-FIX-TURN (owner-approved fix packet 2026-09-01, recorded in the docs
  * repo's spike-log "OWNER DECISION - saveBlob post-overlay divergence RCA";
@@ -7545,19 +7648,21 @@ void onOffer(Game* game, const Json::Value& offer)
  * sim; every bit of state they touch reaches the thin client as bt_ev/
  * bt_action_end (SS2.4) or was already in the blob.
  *
- * SEQUENCING (why the call site is the LAST statement of the client
- * handshake, after battle_ready has been sent): onReady()'s SS2.7 hard gate
- * compares the client's saveBlob against the hash the HOST computed at offer
- * time - i.e. against a turn-0 host. The client's own saveBlob is likewise
- * computed at turn 0, a few lines above the call site. Bumping any earlier
- * (at blob load, or before coopComputeSaveBlobBucketHex(), or before the
- * battle_ready send) would put a turn-1 client hash against a turn-0 host
- * hash and tear the handshake down. Bumping here leaves a transient
- * client=1/host=0 window that closes the moment the host dismisses its equip
- * screen - and the host cannot take ANY action before dismissing it, so no
- * bt_ev/bt_action_end can be produced inside that window; the per-event `h`
- * (RB-D14) carries unitsStats only and is blind to the turn counter either
- * way.
+ * SEQUENCING - CLOSED BY WV-D56 (FX-1, 2026-09-04). This paragraph used to
+ * explain why the call site had to be the LAST statement of the client
+ * handshake: the blob the client loaded was streamed while the HOST was still
+ * at turn 0 (offerBattle() used to snapshot at battle-generation time), so
+ * the client's own saveBlob hash had to be computed at turn 0 too, ahead of
+ * this mirror, or it would tear the handshake down against the host's
+ * turn-0 hash. WV-D56 CLOSES that window: the host's snapshot (and the
+ * battle_offer that advertises it) now happens AFTER
+ * SavedBattleGame::startFirstTurn() (CoopHandshake::emitPreparedOffer(),
+ * called from BriefingState::btnOkClick's freeze branch), so the blob the
+ * client loads already carries `_turn == 1` - this function's normal path is
+ * now the `battle->getTurn() != 0` early return below, and the write this
+ * function used to always perform is now a TRIPWIRE for a snapshot taken too
+ * early (see the body). The call site (still the last statement of the client
+ * handshake) is unchanged; only its expected outcome is.
  *
  * No wire/schema change whatsoever: nothing here is transmitted.
  */
@@ -7570,15 +7675,23 @@ static void coopClientMirrorFirstTurnCounter(SavedBattleGame* battle)
 	if (coopBattleAuthority().hostSim)
 		return;
 
-	// Idempotent, and correct for a future mid-battle resume blob: such a
-	// blob already carries turn >= 1 and must never be rewound to 1.
-	if (battle->getTurn() != 0)
-		return;
+	if (battle->getTurn() != 0) return;   // WV-D56: the NORMAL path now
 
+	// WV-D56 TRIPWIRE: under the post-WV-D56 sequencing this should be
+	// unreachable - the loaded blob should already carry turn 1. Reaching it
+	// means the host's snapshot was taken BEFORE startFirstTurn(), same as
+	// before WV-D56; the counter mirror below still compensates the TURN
+	// COUNTER (idempotent, and correct for a future mid-battle resume blob,
+	// which already carries turn >= 1 and must never be rewound to 1), but
+	// none of startFirstTurn()'s OTHER work (randomizeItemLocations(),
+	// resetUnitTiles(), the per-unit prepareNewTurn(), newTurnUpdateScripts())
+	// ran before this snapshot was taken, so the item positions are NOT what
+	// the client's `items`/`saveBlob` buckets assume.
+	Log(LOG_ERROR) << "[coop-handshake] WV-D56 TRIPWIRE: the loaded blob carries turn 0 - "
+		"the host's snapshot was taken BEFORE startFirstTurn(). "
+		"RW-FIX-TURN is compensating, but the item positions are NOT.";
+	g_coopTurnMirrorFired.fetch_add(1);
 	battle->setTurn(1);
-
-	Log(LOG_INFO) << "[coop-handshake] RW-FIX-TURN: client turn counter 0 -> 1 "
-		"(mirrors the host's startFirstTurn(); counter only, no wire field)";
 }
 
 void onBlobChunkAppended(Game* game)
@@ -8023,6 +8136,7 @@ void resetPendingState()
 	// let operationNameAlreadyMinted()/carriedDeployment() steer a LATER,
 	// unrelated (possibly single-player) BriefingState.
 	g_missionLabels = MissionLabels();
+	g_coopTurnMirrorFired = 0; // FX-1 (WV-D56): battle-scoped like everything else here
 }
 
 } // namespace CoopHandshake

@@ -264,6 +264,32 @@ void showDesyncHalted();
 /// No-op outside an active coop battle (no live BattlescapeState to reach).
 void showEquipFrozen();
 
+/// FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): TRUE while THIS machine is the
+/// coop HOST and the battle handshake has not reached phase Active - i.e. the
+/// client does not hold the blob yet. Deliberately NOT isCoopBattle() (that
+/// requires phase Active, so it is false in exactly the window this guards).
+/// Raises the STR_COOP_WAITING_FOR_JOIN banner (Notice class, never Sticky -
+/// Sticky would block every later banner for the rest of the battle) each
+/// time it refuses, so the banner cannot be aged out, and bumps
+/// coopHostInputFrozenRefusals() below.
+///
+/// The thin vanilla hook is a single unconditional call at the top of
+/// BattlescapeState::handle: `if (CoopBattleUi::freezeBattleInputUntilActive())
+/// return;` - see that call site for the ONE exemption (the Options key) this
+/// predicate does NOT itself carry; the exemption is the caller's job, so the
+/// counter here stays a clean delivery proof for map input alone.
+///
+/// No-op (false) in SP, outside a coop battle, on a client, and the instant
+/// phase reaches Active - so the freeze self-lifts with no explicit unfreeze
+/// call anywhere.
+bool freezeBattleInputUntilActive();
+
+/// FX-1 test/introspection: how many times freezeBattleInputUntilActive() has
+/// refused a host input this process. A POSITIVE delivery proof (not an
+/// absence) that the freeze actually fired. Battle-scoped: reset with the rest
+/// of the banner-class bookkeeping at teardown.
+unsigned int coopHostInputFrozenRefusals();
+
 /// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): the SEAT FILTER on
 /// BattlescapeGame::primaryAction's click-to-select branch. Returns TRUE when
 /// the click must be REFUSED, having already put the refusal on screen.

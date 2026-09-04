@@ -2938,6 +2938,26 @@ std::string BattlescapeState::getMeleeDamagePreview(BattleUnit *actor, BattleIte
  */
 inline void BattlescapeState::handle(Action *action)
 {
+	// WV-D56: the host now enters the battlescape BEFORE the client holds the
+	// blob. Every coop input gate is permissive while phase == Handshake
+	// (isCoopBattle() is false there), so map clicks and hotkeys are frozen
+	// until the handshake completes. Self-guarded: false in SP, on a client,
+	// and the instant phase reaches Active.
+	//
+	// THE ONE EXEMPTION (WV-D56 escape hatch): Options. This function calls
+	// State::handle() below, which is the ONLY dispatch path to _btnHelp and
+	// _btnAbort, so an unconditional return would leave a waiting host with no
+	// way to save, load or abandon. The hatch is a KEY test, not a widget test,
+	// so no HUD button becomes reachable: at :568 keyBattleOptions is bound to
+	// btnHelpClick and, outside preview, to nothing else (the _btnEndTurn
+	// binding at :578 is `if (_save->isPreview())` only - which is why the
+	// hatch also requires !isPreview()).
+	const bool coopOptionsHatch = action
+		&& action->getDetails()->type == SDL_KEYDOWN
+		&& action->getDetails()->key.keysym.sym == Options::keyBattleOptions
+		&& !_save->isPreview();
+	if (!coopOptionsHatch && CoopBattleUi::freezeBattleInputUntilActive()) return;
+
 	if (!_firstInit)
 	{
 		if (_game->getCursor()->getVisible() || ((action->getDetails()->type == SDL_MOUSEBUTTONDOWN || action->getDetails()->type == SDL_MOUSEBUTTONUP) && _game->isRightClick(action)))

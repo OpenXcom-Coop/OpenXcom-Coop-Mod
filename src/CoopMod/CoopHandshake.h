@@ -122,6 +122,50 @@ namespace CoopHandshake
 /// evaluates and sends "busy").
 void offerBattle(Game* game, int gamemode);
 
+// ----- FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): offerBattle() SPLIT into
+// PREPARE and EMIT halves, so the coop blob snapshot (and the battle_offer
+// that advertises it) can move to AFTER the host's SavedBattleGame::
+// startFirstTurn() call without reordering a single vanilla statement. See
+// this header's ORDERING TRAP note below for why the split exists and
+// connectionTCP.cpp's prepareBattleOffer()/emitPreparedOffer() for the exact
+// line-level provenance of each half. offerBattle() itself becomes a thin
+// compatibility wrapper (`{ prepareBattleOffer(game, gamemode); }`) so all
+// FOUR existing call sites are unchanged.
+
+/// HOST, PREPARE half (WV-D56). Everything offerBattle() used to do UP TO AND
+/// INCLUDING assignSeatsAndFactions() - the host/phase guards, the battleId
+/// mint, initBattleAuthority(), the turnMode resolve, and the seat/faction
+/// pass. Stashes @a gamemode and the resolved seat list into g_pendingHost
+/// (prepared=true) so emitPreparedOffer() can read them later. Sends NOTHING
+/// and snapshots NOTHING - phase is Handshake when this returns, but no
+/// battle_offer has gone out yet, which is exactly the window
+/// CoopBattleUi::freezeBattleInputUntilActive() exists to freeze.
+void prepareBattleOffer(Game* game, int gamemode);
+
+/// HOST, EMIT half (WV-D56). Everything offerBattle() used to do AFTER
+/// assignSeatsAndFactions(): the saveCoopToMemory("battlehost", ...) snapshot,
+/// CoopReveal::seedPublished(), the blob read + sha256, the corrupt_next_blob
+/// lever, the battle_offer JSON build (missionLabel/turnMode included,
+/// UNCHANGED shape) and CoopEmit::sendBattle(). Called from ONE new line in
+/// BriefingState::btnOkClick's already coop-gated freeze branch, immediately
+/// after SavedBattleGame::startFirstTurn() - so the blob this snapshots
+/// already carries `_turn == 1` and the post-randomizeItemLocations() item
+/// positions. No-op (logs) unless prepareBattleOffer() has already run for
+/// this battle and emitPreparedOffer() has not already fired for it
+/// (`g_pendingHost.prepared && !g_pendingHost.active`), or if phase has moved
+/// past Handshake.
+void emitPreparedOffer(Game* game);
+
+/// HOST (WV-D56): the path where a prepared-but-not-yet-emitted battle never
+/// starts (BriefingState's no-aliens arm - a battle with zero live aliens
+/// never reaches the freeze branch that would call emitPreparedOffer()).
+/// Self-guarded no-op once emitPreparedOffer() has already fired
+/// (g_pendingHost.active) or when nothing is prepared at all, so it is safe
+/// to call unconditionally. Resets BattleAuthority back to Idle so the next
+/// offerBattle()/prepareBattleOffer() call is not refused as a "double-offer
+/// while phase != Idle".
+void abandonPreparedOffer(Game* game);
+
 // ----- W1-P2: battle_offer mission identity (WAVE1-RUNBOOK.md SS2.W1, ruling
 // D-4 = shape (d); WV-D9 / WV-D28 / WV-D42; WR-8/WR-9/WR-10/WR-23/WR-27,
 // IR2-10) -----
@@ -147,6 +191,18 @@ void offerBattle(Game* game, int gamemode);
 // above EACH of offerBattle()'s four call sites - Menu/NewBattleState.cpp:809,
 // Geoscape/ConfirmLandingState.cpp:369, Geoscape/ConfirmCydoniaState.cpp:179,
 // Geoscape/GeoscapeState.cpp:629 - never as a one-site fix.
+//
+// WV-D56 UPDATE (FX-1, 2026-09-04): mintMissionLabels() does NOT move - it
+// still runs one line above offerBattle() (now prepareBattleOffer(), via the
+// thin offerBattle() wrapper), still BEFORE the blob snapshot, which is all
+// this section requires. What DOES move is the snapshot itself: it no longer
+// happens inside offerBattle() at battle-generation time - it happens later,
+// from the explicit CoopHandshake::emitPreparedOffer(_game) call
+// BriefingState::btnOkClick's freeze branch makes immediately after
+// SavedBattleGame::startFirstTurn(), so this paragraph's "the CALLER pushes
+// BriefingState only AFTERWARDS" description of the ordering trap is now
+// PRE-WV-D56 history for the snapshot half specifically (the labels-before-
+// snapshot requirement it states is unaffected either way).
 
 /// HOST: mint the two BriefingState display labels into the live
 /// SavedBattleGame and resolve+remember this battle's AlienDeployment type,
@@ -360,6 +416,17 @@ void requestOmitTurnMode(bool on);
 /// with checkFOV=false (WV-D10's rule for a co-op-driven refresh) so a
 /// selection change can never author fog.
 void selectOwnUnitAtEntry(Game* game);
+
+/// WV-D56 test/introspection: how many times coopClientMirrorFirstTurnCounter()
+/// (connectionTCP.cpp, the former RW-FIX-TURN client counter) has fired its
+/// TRIPWIRE branch - i.e. found a loaded blob still carrying `turn == 0`. Under
+/// FX-1's normal sequencing (snapshot taken AFTER startFirstTurn()) this stays
+/// ZERO forever; a non-zero value means the host's snapshot was taken before
+/// startFirstTurn() ran, so item positions are NOT what the client's `items`/
+/// `saveBlob` buckets assume. Exposed through event_state as `turnMirrorFired`
+/// (TestServer.cpp). Battle-scoped: resets with the rest of the handshake
+/// bookkeeping at resetPendingState()/teardown.
+unsigned int coopTurnMirrorFired();
 
 } // namespace CoopHandshake
 

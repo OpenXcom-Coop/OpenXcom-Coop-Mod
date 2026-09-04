@@ -169,6 +169,7 @@
 #include "BattleWire.h"
 #include "CoopArbiter.h"
 #include "CoopHandshake.h"
+#include "CoopBattleUi.h" // FX-1 (WV-D56): coopHostInputFrozenRefusals()
 #include "CoopReveal.h"
 #include "CoopFog.h"
 #include "CoopDoor.h"
@@ -4616,6 +4617,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["lastSpot"] = CoopArbiter::lastSpot();
 		resp["coopSpotEvsEmitted"] = coopSpotEvsEmitted();
 		resp["coopSpotEvsApplied"] = coopSpotEvsApplied();
+		// FX-1 (WV-D56): the host input freeze's delivery-proof counter and the
+		// RW-FIX-TURN tripwire counter. Both battle-scoped, both zero outside a
+		// coop battle in flight.
+		resp["coopHostInputFrozenRefusals"] = CoopBattleUi::coopHostInputFrozenRefusals();
+		resp["turnMirrorFired"] = CoopHandshake::coopTurnMirrorFired();
 		// This machine's own (machine-local, saveBlob-EXCLUDED) reserve settings -
 		// the values WV-D14 ratifies as per-machine and WV-D48 makes the client
 		// enforce for itself.
