@@ -3513,22 +3513,25 @@ void connectionTCP::updateCoopTask()
 					}
 				}
 
-				// coop (PRD-P11): the three per-action exemptions, hoisted so the
+				// coop (PRD-P11): the per-action exemptions, hoisted so the
 				// ordering rule below can see them. A packet that qualifies ONLY
 				// through one of these is the CLOSER of the chain currently holding
 				// the gate, and must never be held back by the ordering rule - see
 				// the carve-out where `subjectHeld` is computed.
-				// coop (parallel Phase 3, Sub-task A): the unit_death/after_unit_death
-				// disjuncts only ever qualify in classic - the parallel host ships
+				// coop (classic auto-shot pacing): only unit_death may open the
+				// client's authoritative UnitDieBState while a shot owns the gate.
+				// after_unit_death carries the host's FINAL DEAD status; admitting it
+				// while the killing ExplosionBState is parked makes the queued client
+				// UnitDieBState see an already-out unit and skip every collapse frame.
+				// It therefore follows the ordinary gate and applies after the replay.
+				// In parallel neither legacy death carrier normally arrives - the host ships
 				// unit_casualty instead (Phase 2a/2b), so the legacy trio never arrives
-				// on a parallel client's wire and these two clauses are permanently
-				// false there. Gated for clarity/hardening; classic keeps both,
-				// byte-identical. `abortPath` is unaffected (walk chains exist in both
+				// on a parallel client's wire. Gated for clarity/hardening;
+				// `abortPath` is unaffected (walk chains exist in both
 				// modes).
 				const bool chainCloser =
 						((stateString == "abortPath" && _coopWalkInit) ||
-						 (!parallelTurnActive() && stateString == "unit_death" && _coopInitDeath) ||
-						 (!parallelTurnActive() && stateString == "after_unit_death" && _coopInitDeath));
+						 (!parallelTurnActive() && stateString == "unit_death" && _coopInitDeath));
 
 				// coop (PRD-I3 SEAM-2 HALF 2): a set_smoke_tile/set_fire_tile carrying
 				// `bnd:true` is the neutral->player boundary decay. It belongs to NO chain
@@ -3618,7 +3621,14 @@ void connectionTCP::updateCoopTask()
 				// of its closer means this machine has not started that chain at all and
 				// there is nothing yet for the closer to close.
 				bool closerOvertakesOpener = false;
-				if (chainCloser && subject >= 0 && !legacyOrder)
+				// coop (classic auto-shot pacing): the opener-order barrier was added
+				// for parallel chain/state ordering, but applying it to classic parks
+				// hit_unit behind the active projectile gate and then parks unit_death
+				// behind that hit. The subject-less hasHitUnit release can still pass,
+				// so the client starts the next round without ever having queued its
+				// UnitDieBState. Keep classic's original closer behaviour; parallel's
+				// ordered replay retains the barrier unchanged.
+				if (parallelTurnActive() && chainCloser && subject >= 0 && !legacyOrder)
 				{
 					if (const char* opener = coopChainOpener(stateString))
 					{
@@ -9151,7 +9161,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
-		// Make sure the Battlescape does not get stuck...
+		// The authoritative classic UnitDieBState is now queued immediately after
+		// the current ExplosionBState. Release the explosion as soon as unit_death
+		// has been consumed, so the client starts collapsing immediately. The queued
+		// UnitDieBState remains ahead of ProjectileFlyBState, so the next client round
+		// cannot start before the collapse ends.
 		_hasHitUnit = -1;
 
 	}

@@ -6324,6 +6324,10 @@ std::string TestServer::execute(const std::string& line)
 					ju["id"] = u->getId();
 					ju["faction"] = (int)u->getFaction();
 					ju["status"] = (int)u->getStatus();
+					// Classic auto-shot pacing regression probe: unlike liveness,
+					// the intermediate collapse frames prove UnitDieBState actually
+					// ran before the remaining rounds in the burst were replayed.
+					ju["fallPhase"] = u->getFallingPhase();
 					ju["isOut"] = u->isOut();
 					ju["health"] = u->getHealth();
 					ju["tu"] = u->getTimeUnits();
