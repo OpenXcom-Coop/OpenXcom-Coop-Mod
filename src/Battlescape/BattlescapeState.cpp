@@ -42,6 +42,7 @@
 #include "MiniMapState.h"
 #include "BattlescapeGenerator.h"
 #include "BriefingState.h"
+#include "NextTurnState.h"
 #include "ExtendedBattlescapeLinksState.h"
 #include "../lodepng.h"
 #include "../Geoscape/SelectMusicTrackState.h"
@@ -905,6 +906,20 @@ BattlescapeState::BattlescapeState() :
  */
 BattlescapeState::~BattlescapeState()
 {
+	// Clear the save's back-pointer if it still names this (about-to-be-freed)
+	// state. SavedBattleGame::getBattleGame() delegates through _battleState, so a
+	// stale pointer here is a use-after-free waiting to happen - the coop pump
+	// (connectionTCP::updateCoopTask -> BattlescapeGame::handleStateCoop) reads it
+	// every frame whenever the battlescape is not the top state. Nulling it here
+	// makes that guard fail safe for EVERY teardown path (next-stage, debrief,
+	// abort, main-menu). A path that immediately re-enters a new battle sets
+	// _battleState to the live state before this dtor runs, so this never clobbers a
+	// valid pointer.
+	if (_save && _save->getBattleState() == this)
+	{
+		_save->setBattleState(0);
+	}
+
 	delete _animTimer;
 	delete _gameTimer;
 	delete _battleGame;
@@ -6376,20 +6391,47 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 		else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
 		{
 
-			// if there is a next mission stage + we have people in exit area OR we killed all aliens, load the next stage
+			// coop multi-stage transition. The host rebuilds the next stage
+			// authoritatively, SHIPS it to the client (setupCoop -> sendMissionFile
+			// writes the "battlehost" blob and sends SEND_FILE_CLIENT_TRUE, exactly
+			// like a fresh coop mission start), and then ENTERS the rebuilt battle on
+			// the host as well.
+			//
+			// The previous code stopped at a "please wait" CoopState and never
+			// re-entered: after popState() the finished stage-1 BattlescapeState was
+			// freed but SavedBattleGame::_battleState still pointed at it, so the coop
+			// pump (connectionTCP::updateCoopTask -> BattlescapeGame::handleStateCoop)
+			// dereferenced the dangling BattlescapeGame and use-after-free crashed the
+			// host - and on the runs where the freed memory survived long enough, the
+			// host simply hung on "please wait" forever while the client (which loads
+			// the shipped blob) advanced to the next stage alone. Wiring a fresh
+			// BattlescapeState to the rebuilt _save fixes both: _battleState stays
+			// valid, and the in-battle coop turn handshake syncs the two machines into
+			// the next stage together.
 			_popups.clear();
 			_save->setMissionType(nextStage);
 			BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 			bgen.nextStage();
-			_game->popState();
 
-			// please wait message
-			CoopState* coopWindow = new CoopState(4);
-			_game->pushState(coopWindow);
-
-			// start  coop mission
+			// tag coop units + ship the rebuilt stage to the client. As at every
+			// other coop mission-start site (ConfirmLandingState, GeoscapeState,
+			// NewBattleState, ...), the briefing is only a vehicle for setupCoop()
+			// (co-op never shows it) and is intentionally not pushed.
 			BriefingState* b = new BriefingState(0, 0);
 			b->setupCoop();
+
+			// leave the finished stage-1 battle and enter the rebuilt stage-2 one,
+			// mirroring BriefingState::btnOkClick. setBattleState re-points the save at
+			// the LIVE state before any coop pump can touch it, so nothing dereferences
+			// the popped one. The BattlescapeState ctor performs the co-op battle init
+			// (turn negotiation + inventory sync) for the new stage.
+			_game->popState();
+
+			BattlescapeState* bs = new BattlescapeState;
+			bs->getBattleGame()->spawnFromPrimedItems();
+			_save->setBattleState(bs);
+			_game->pushState(bs);
+			_game->pushState(new NextTurnState(_save, bs));
 
 		}
 
