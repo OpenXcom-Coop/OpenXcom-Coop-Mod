@@ -144,6 +144,7 @@ Exit codes: 0 PASS - 2 FAIL - 3 SKIP (fixture exhausted).
 import os
 import sys
 import time
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
@@ -1100,4 +1101,15 @@ if __name__ == "__main__":
         # reported as one (exit 2, with the message), not as an exit-1 traceback
         # that reads like a crash.
         print(f"\nrepro_atom_spot: FAIL\n{type(e).__name__}: {e}")
+        #
+        # The TRACEBACK is printed as well, and that is not cosmetic: this
+        # file's asserts fall into three classes with very different
+        # consequences (a hole in the atom, a wire/field defect, a fixture
+        # premise), and the FILE:LINE is what separates them in one read. A
+        # red that has to be REPRODUCED before it can be classified costs a
+        # cycle, and this wave has already paid that twice. Purely additive:
+        # no assertion, no control flow and no exit code depends on it.
+        print("")
+        print("--- traceback (classification aid) ---")
+        traceback.print_exc()
         sys.exit(EXIT_FAIL)
