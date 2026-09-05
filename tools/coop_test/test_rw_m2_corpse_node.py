@@ -7,6 +7,21 @@ node the client's loader already drops (SavedBattleGame.cpp:298) - the exact
 t=0 saveBlob divergence on a crashed-UFO map whose power-source explosion
 killed crew during generation.
 
+EXTENDED for FX-4 (WV-D68, 2026-09-05): this file now QUALIFIES a boot on
+EITHER a killed (STATUS_DEAD, status==6) OR a stunned (STATUS_UNCONSCIOUS,
+status==7) non-player unit in the host's `battle_state.units[]` at t=0 - not
+killed alone. WV-D68 settles BOTH kinds of generation casualty synchronously
+inside UnitDieBState's ctor (the outer :53 condition gains
+`|| isBeforeGame()`), closing the M2 corpse/node divergence class that FX-3b's
+own SPEC 5 cycle-2 was RETURNED over (a stunned victim used to animate a "fall
+to death" pirouette on the first map frames, racing `isBeforeGame()`'s flip
+between host and client). A qualifying boot additionally asserts the WV-D68
+settle proof: `pendingStates == 0` AND `isBusy == false` on BOTH machines,
+read IMMEDIATELY at phase Active - proof that no collapse animation is still
+in flight on either machine. Stun is rare (~1/30 boots, per WV-D68's own
+measurement); 0 stun-qualified boots in a green run is acceptable and is
+reported, not treated as a gap.
+
 AI-NEUTRAL AND ACTION-FREE: t=0 only. Every assertion below runs before
 anything moves - no walk, no turn, no kneel, no end-turn. This fixture never
 drives a battle atom, so none of their contact/reaction/spot hazards apply
@@ -34,16 +49,24 @@ this tree follows).
 
 ON A QUALIFYING BOOT, this asserts (in this order, so a red says exactly which
 half failed):
-  1. the POSITIVE CONTROL FIRST (an assertion an inert fix could not fail): the
-     host's own log carries "released N AIModule(s)" with N >= 1 - the release
-     mechanism actually ran and found something to release, not merely that
-     nothing is visibly wrong afterwards;
-  2. `battle_state.unitsDeadWithAI == 0` on BOTH machines - the counter this
-     packet's own TestServer.cpp probe adds beside `turnBeforeFirstStep`
-     (:6309), counting STATUS_DEAD units that still carry a non-null
-     AIModule;
+  0. the POSITIVE CONTROL (an assertion an inert fix could not fail), ONLY
+     when this boot rolled a KILLED casualty (FX-3b's release predicate is
+     `health <= 0`, which is never true for a stunned unit, so a stun-only
+     boot skips this control rather than false-failing it): the host's own
+     log carries "released N AIModule(s)" with N >= 1;
+  1. `battle_state.unitsDeadWithAI == 0` on BOTH machines - the counter FX-3b's
+     own TestServer.cpp probe adds beside `turnBeforeFirstStep` (:6309),
+     counting STATUS_DEAD units that still carry a non-null AIModule
+     (RETAINED from FX-3b; re-run here on FX-3b+FX-4 together per WV-D68 (f) -
+     no separate FX-3b test is needed);
+  2. WV-D68's OWN settle proof: `pendingStates == 0` AND `isBusy == false` on
+     BOTH machines, read IMMEDIATELY at phase Active (before any further
+     settle delay) - proof that no collapse BState is in flight on either
+     machine, i.e. that a stunned (or killed) generation casualty was fully
+     settled synchronously and never animated;
   3. `hash_now {full:true}` - every SharedEcon bucket, saveBlob included, EQUAL
-     between host and client;
+     between host and client (bucket count is never hard-coded - "all buckets
+     EQUAL" is asserted over whatever the sweep reports);
   4. the host's own log carries "[coop-handshake] battle_ready saveBlob EQUAL"
      (and never "... MISMATCH" for this session) - the handshake this fix
      exists to stop refusing actually accepted the world;
@@ -61,12 +84,19 @@ separate process invocation - "one test per invocation"), SKIPs (VACUOUS
 boots) do not break the streak. The SKIP rate is reported at every gate.
 
 RED-THEN-GREEN is NOT automated by this file - it is the owner's second
-independent hit, done by hand per the brief: comment out the single call in
-BattlescapeGenerator::run(), rebuild, run this file until a qualifying boot,
-capture the failure (expected: the host log's own
-"battle_ready saveBlob MISMATCH" line plus an `AI:` node count delta between
-the two machines' saved documents), then restore the call, rebuild, and
-confirm green again.
+independent hit, done by hand per each packet's brief:
+  - FX-3b (WV-D62): comment out the single call in BattlescapeGenerator::run(),
+    rebuild, run this file until a qualifying boot, capture the failure
+    (expected: the host log's own "battle_ready saveBlob MISMATCH" line plus
+    an `AI:` node count delta between the two machines' saved documents), then
+    restore the call, rebuild, and confirm green again.
+  - FX-4 (WV-D68): revert ONLY the `|| _parent->getSave()->isBeforeGame()`
+    clause on UnitDieBState.cpp:53 (leave everything else - the comment block,
+    the pendingStates probe, this test - in place), rebuild, loop this file
+    hunting a STUN-qualified (not merely killed-qualified) boot, capture the
+    failure (expected: a `pendingStates`/`isBusy` non-zero reading on the
+    client and/or a `nodes[].type` divergence and/or a saveBlob MISMATCH),
+    then restore the clause, rebuild, and confirm green again.
 
 Run: python tools/coop_test/test_rw_m2_corpse_node.py (its own shell
 invocation - one harness run at a time, machine-wide).
@@ -88,6 +118,7 @@ MISSION = "STR_SUPPLY_SHIP"
 MAX_BRINGUPS = 24
 FACTION_PLAYER = 0
 STATUS_DEAD = 6
+STATUS_UNCONSCIOUS = 7  # WV-D68 (FX-4): a stunned generation casualty qualifies too
 
 BASE_PORT = 48400          # the coop lobby TCP port (bring_up_lobby's `port`)
 BASE_PROBE = 49400         # the TestServer control-socket port base
@@ -136,6 +167,13 @@ def log_text(gc):
 def dead_non_player_units(st):
     return [u for u in st.get("units", [])
             if u.get("status") == STATUS_DEAD and u.get("faction") != FACTION_PLAYER]
+
+
+def stunned_non_player_units(st):
+    """WV-D68 (FX-4): the OTHER generation-casualty kind - a non-player unit
+    STATUS_UNCONSCIOUS (stunned) rather than STATUS_DEAD (killed) at t=0."""
+    return [u for u in st.get("units", [])
+            if u.get("status") == STATUS_UNCONSCIOUS and u.get("faction") != FACTION_PLAYER]
 
 
 # ----- save-file introspection (the (C) RCA's own "MECHANISM 2" fields) ---
@@ -213,13 +251,15 @@ def item_ids(save_text):
 
 def one_bringup(tag):
     """One fresh host+client bring-up on the STR_SUPPLY_SHIP fixture. Returns
-    (host, client, dead_count) - the caller decides whether dead_count >= 1
-    qualifies this boot or whether to shut it down and roll again.
+    (host, client, killed_count, stunned_count) - the caller decides whether
+    (killed_count + stunned_count) >= 1 qualifies this boot (WV-D68: EITHER
+    kind of generation casualty qualifies) or whether to shut it down and roll
+    again.
 
     Raises MissionNotOffered (a static ruleset fact, never retried) or lets
     any other AssertionError/TimeoutError propagate as a hard FAIL: after
-    WV-D62 there is no known reason a clean bring-up on this fixture should
-    fail or hang, so this file does not reclassify one as an unrelated,
+    WV-D62/WV-D68 there is no known reason a clean bring-up on this fixture
+    should fail or hang, so this file does not reclassify one as an unrelated,
     re-rollable mismatch the way test_rw_item_id_ctr.py does for its own
     (different, already-fixed-elsewhere) map class."""
     port = str(BASE_PORT + tag)
@@ -241,56 +281,99 @@ def one_bringup(tag):
         client.shutdown()
         raise
 
-    dead = dead_non_player_units(battle_state(host))
-    return host, client, len(dead)
+    st = battle_state(host)
+    killed = len(dead_non_player_units(st))
+    stunned = len(stunned_non_player_units(st))
+    return host, client, killed, stunned
 
 
 def find_qualifying_bringup():
     for attempt in range(1, MAX_BRINGUPS + 1):
-        host, client, dead_count = one_bringup(attempt)
-        if dead_count >= 1:
+        host, client, killed, stunned = one_bringup(attempt)
+        if killed >= 1 or stunned >= 1:
             print(f"[test_rw_m2_corpse_node] QUALIFIED on bring-up "
-                  f"{attempt}/{MAX_BRINGUPS}: {dead_count} STATUS_DEAD "
-                  "non-player unit(s) in the host's battle_state at t=0")
-            return host, client, dead_count, attempt
+                  f"{attempt}/{MAX_BRINGUPS}: killed={killed} stunned={stunned} "
+                  "non-player casualty(ies) in the host's battle_state at t=0")
+            return host, client, killed, stunned, attempt
         print(f"[test_rw_m2_corpse_node] bring-up {attempt}/{MAX_BRINGUPS}: "
-              "no crash-kill rolled, re-rolling with a fresh bring-up")
+              "no crash-kill/stun rolled, re-rolling with a fresh bring-up")
         host.shutdown()
         client.shutdown()
     raise FixtureExhausted(
-        f"no HOST-side STATUS_DEAD non-player unit at t=0 in {MAX_BRINGUPS} "
-        f"fresh bring-ups of {MISSION!r} - VACUOUS, not a result about WV-D62")
+        f"no HOST-side STATUS_DEAD/STATUS_UNCONSCIOUS non-player unit at t=0 "
+        f"in {MAX_BRINGUPS} fresh bring-ups of {MISSION!r} - VACUOUS, not a "
+        "result about WV-D62/WV-D68")
 
 
 # ----- assertions on a qualified boot --------------------------------------
 
-def run_assertions(host, client, dead_count):
+def run_assertions(host, client, killed, stunned):
+    # Reach phase Active on BOTH machines first, polled TIGHT (not the coarse
+    # default interval) so the WV-D68 settle-proof below reads "IMMEDIATELY at
+    # phase Active" rather than after a blanket settle delay that could let an
+    # in-flight collapse animation quietly finish first and hide a real red.
+    host.wait_for("host phase reaches Active",
+                  lambda: (event_state(host).get("phase") == "Active") or None,
+                  timeout=30, interval=0.1)
+    client.wait_for("client phase reaches Active",
+                    lambda: (event_state(client).get("phase") == "Active") or None,
+                    timeout=30, interval=0.1)
+
+    # --- (2) WV-D68's OWN settle proof, read IMMEDIATELY: no collapse BState
+    # is in flight on EITHER machine right at phase Active ---
+    host_st_t0 = battle_state(host)
+    client_st_t0 = battle_state(client)
+    assert host_st_t0.get("pendingStates") == 0, (
+        f"HOST battle_state.pendingStates={host_st_t0.get('pendingStates')} "
+        "(expected 0) IMMEDIATELY at phase Active - a BState (e.g. an animated "
+        "UnitDieBState collapse) is still in flight on the host; WV-D68's "
+        "synchronous settle did not complete before the first frame")
+    assert host_st_t0.get("isBusy") is False, (
+        f"HOST battle_state.isBusy={host_st_t0.get('isBusy')} (expected False) "
+        "IMMEDIATELY at phase Active - the host's BattlescapeGame reports busy, "
+        "i.e. an animation/chain is still running at t=0")
+    assert client_st_t0.get("pendingStates") == 0, (
+        f"CLIENT battle_state.pendingStates={client_st_t0.get('pendingStates')} "
+        "(expected 0) IMMEDIATELY at phase Active - the client is replaying a "
+        "collapse the host already settled synchronously, the exact M2 "
+        "divergence WV-D68 exists to close")
+    assert client_st_t0.get("isBusy") is False, (
+        f"CLIENT battle_state.isBusy={client_st_t0.get('isBusy')} (expected "
+        "False) IMMEDIATELY at phase Active - the client's BattlescapeGame "
+        "reports busy, i.e. an animation/chain is still running at t=0")
+
     # Settle: both sides' onReady()/phase bookkeeping runs during/after the
     # blob load that follows the click driving startFirstTurn() - the same
     # settle test_rw_item_id_ctr.py and test_rw_hash_now.py use before their
-    # own t=0 introspection.
+    # own t=0 introspection. Deliberately AFTER the immediate settle-proof
+    # above, never before it.
     time.sleep(2)
 
-    host_es, client_es = event_state(host), event_state(client)
-    assert host_es.get("phase") == "Active" and client_es.get("phase") == "Active", (
-        "both machines should be phase Active after a qualifying boot: "
-        f"host={host_es.get('phase')} client={client_es.get('phase')}")
-
-    # --- (1) POSITIVE CONTROL FIRST: the release mechanism actually ran ---
     host_log = log_text(host)
-    m = RELEASE_LOG_RE.search(host_log)
-    assert m, (
-        "positive control FAILED: the host log does not carry "
-        "'released N AIModule(s)' - "
-        "BattlescapeGenerator::releaseAIModulesOfUnitsKilledDuringGeneration "
-        f"never logged a release even though the host reported {dead_count} "
-        "STATUS_DEAD non-player unit(s) at t=0 - nothing below can prove "
-        "anything if the mechanism never engaged")
-    released = int(m.group(1))
-    assert released >= 1, (
-        f"positive control: the host log's release count is {released}, expected >= 1")
 
-    # --- (2) the actual fix: unitsDeadWithAI == 0 on BOTH machines ---
+    # --- (0) POSITIVE CONTROL, only when this boot rolled a KILLED casualty:
+    # FX-3b's release predicate is health<=0, never true for a stunned unit,
+    # so a stun-only qualifying boot correctly has nothing to release here ---
+    released = 0
+    if killed >= 1:
+        m = RELEASE_LOG_RE.search(host_log)
+        assert m, (
+            "positive control FAILED: the host log does not carry "
+            "'released N AIModule(s)' - "
+            "BattlescapeGenerator::releaseAIModulesOfUnitsKilledDuringGeneration "
+            f"never logged a release even though the host reported {killed} "
+            "STATUS_DEAD non-player unit(s) at t=0 - nothing below can prove "
+            "anything if the mechanism never engaged")
+        released = int(m.group(1))
+        assert released >= 1, (
+            f"positive control: the host log's release count is {released}, expected >= 1")
+    else:
+        print("[test_rw_m2_corpse_node] no KILLED casualty this boot (stun-only "
+              "qualification) - FX-3b's release positive control does not apply "
+              "(its predicate is health<=0, never true for a stunned unit)")
+
+    # --- (1) FX-3b's own assertion, RETAINED: unitsDeadWithAI == 0 on BOTH
+    # machines, re-run here on FX-3b+FX-4 together (WV-D68 (f)) ---
     host_st, client_st = battle_state(host), battle_state(client)
     assert host_st.get("unitsDeadWithAI") == 0, (
         f"HOST battle_state.unitsDeadWithAI={host_st.get('unitsDeadWithAI')} "
@@ -303,9 +386,11 @@ def run_assertions(host, client, dead_count):
         "means the host's own generation-time release did not run before the "
         "snapshot was taken (WV-D62)")
 
-    # --- (3) hash_now full: every bucket, saveBlob included, EQUAL ---
+    # --- (3) hash_now full: every bucket, saveBlob included, EQUAL. Never
+    # hard-code a bucket count - assert "all buckets EQUAL" over whatever the
+    # sweep reports. ---
     session.assert_hash_clean(host, client, full=True,
-                               what="WV-D62 t=0 (qualified boot)")
+                               what="WV-D62/WV-D68 t=0 (qualified boot)")
 
     # --- (4) the host's own handshake log: accepted, never mismatched ---
     assert SAVEBLOB_EQUAL_TEXT in host_log, (
@@ -335,24 +420,28 @@ def run_assertions(host, client, dead_count):
         f"host-only={sorted(set(host_items) - set(client_items))} "
         f"client-only={sorted(set(client_items) - set(host_items))}")
 
-    print(f"PASS: {dead_count} STATUS_DEAD non-player unit(s) at t=0; host log "
-          f"'released {released} AIModule(s)'; unitsDeadWithAI == 0 on both "
-          "machines; hash_now full EQUAL (saveBlob included); host log "
-          f"{SAVEBLOB_EQUAL_TEXT!r} present; {len(host_nodes)} node(s) and "
-          f"{len(host_items)} item(s) agree byte-for-byte between the two "
-          "machines' saved documents")
+    print(f"PASS: killed={killed} stunned={stunned} non-player casualty(ies) at "
+          f"t=0; pendingStates==0 and isBusy==False on both machines "
+          "IMMEDIATELY at phase Active (WV-D68 settle proof); "
+          f"host log 'released {released} AIModule(s)'"
+          f"{' (skipped: stun-only boot)' if killed == 0 else ''}; "
+          "unitsDeadWithAI == 0 on both machines; hash_now full EQUAL "
+          f"(saveBlob included); host log {SAVEBLOB_EQUAL_TEXT!r} present; "
+          f"{len(host_nodes)} node(s) and {len(host_items)} item(s) agree "
+          "byte-for-byte between the two machines' saved documents")
 
 
 def main():
     t0 = time.time()
-    host, client, dead_count, bringup_index = find_qualifying_bringup()
+    host, client, killed, stunned, bringup_index = find_qualifying_bringup()
     try:
-        run_assertions(host, client, dead_count)
+        run_assertions(host, client, killed, stunned)
     finally:
         host.shutdown()
         client.shutdown()
     print(f"\ntest_rw_m2_corpse_node: PASS (qualified on bring-up "
-          f"{bringup_index}/{MAX_BRINGUPS}, {time.time() - t0:.1f}s)")
+          f"{bringup_index}/{MAX_BRINGUPS}, killed={killed} stunned={stunned}, "
+          f"{time.time() - t0:.1f}s)")
 
 
 if __name__ == "__main__":

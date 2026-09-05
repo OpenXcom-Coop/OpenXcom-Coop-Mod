@@ -6131,6 +6131,7 @@ std::string TestServer::execute(const std::string& line)
 				// return the pointer.
 				BattlescapeGame* bgame = bg->getBattleState() ? bg->getBattleGame() : nullptr;
 				resp["isBusy"] = bgame ? bgame->isBusy() : false;
+				resp["pendingStates"] = bgame ? (int)bgame->getStates().size() : 0; // WV-D68 (FX-4) settle proof (test-only probe)
 				resp["panicHandled"] = bgame ? bgame->getPanicHandled() : false;
 				resp["isPreview"] = bg->isPreview();
 				resp["clientPanicHandle"] = _game->getCoopMod()->_clientPanicHandle;
