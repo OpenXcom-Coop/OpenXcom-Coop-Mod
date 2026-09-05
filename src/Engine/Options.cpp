@@ -611,6 +611,12 @@ void createAdvancedOptionsOTHER()
 	// with an empty value. Its control is the HOST/lobby toggle (D-19).
 	_info.push_back(OptionInfo(OPTION_OTHER, "CoopTurnMode", &CoopTurnMode, "parallel"));
 
+	// W1-P12 (ruling D-3 = WV-D27/WV-D49): the S3 ghost stepper - display-only
+	// replay of a partner's turn/kneel/walk. Default ON. Literal English
+	// description (the coopCancelOnAnyPartnerAction precedent, :596 above),
+	// never a STR_ key (WV-D5's lint_coop_strings orphan count stays put).
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopGhostStepper", &coopGhostStepper, true, "Co-op: Animate Partner Actions (Ghost Stepper)", "STR_BATTLESCAPE"));
+
 }
 
 void createControlsOTHER()

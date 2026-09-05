@@ -173,6 +173,7 @@
 #include "CoopReveal.h"
 #include "CoopFog.h"
 #include "CoopDoor.h"
+#include "CoopGhost.h" // W1-P12: event_state's ghostEnqueued/ghostCompleted/ghostQueueDepth
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -2777,6 +2778,17 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["value"] = Options::coopIntentTimeoutSeconds;
 			resp["ok"] = true;
 		}
+		else if (name == "coopGhostStepper")
+		{
+			// W1-P12 (ruling D-3 = WV-D27/WV-D49): the S3 ghost stepper toggle.
+			// Same round-trip shape as every lever above - "value" is OPTIONAL
+			// (omit it for a pure read) and the response echoes the LIVE
+			// Options:: global read back AFTER the (possible) write.
+			if (req.isMember("value"))
+				Options::coopGhostStepper = req["value"].asBool();
+			resp["value"] = Options::coopGhostStepper;
+			resp["ok"] = true;
+		}
 		else
 		{
 			resp["error"] = "unknown option: " + name;
@@ -4628,6 +4640,15 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// coop battle in flight.
 		resp["coopHostInputFrozenRefusals"] = CoopBattleUi::coopHostInputFrozenRefusals();
 		resp["turnMirrorFired"] = CoopHandshake::coopTurnMirrorFired();
+		// W1-P12 (ghost stepper): display-only replay counters. `ghostEnqueued`/
+		// `ghostCompleted` are the DELIVERY proof (an ev applied -> a ghost
+		// queued -> it ran its interpolation to completion) rather than an
+		// absence any unrelated failure could also produce; `ghostQueueDepth`
+		// is how many units have a ghost mid-sweep RIGHT NOW. All three are
+		// read-only test introspection, never fed back into game logic.
+		resp["ghostEnqueued"] = (int)CoopGhost::enqueuedCount();
+		resp["ghostCompleted"] = (int)CoopGhost::completedCount();
+		resp["ghostQueueDepth"] = (int)CoopGhost::queueDepth();
 		// This machine's own (machine-local, saveBlob-EXCLUDED) reserve settings -
 		// the values WV-D14 ratifies as per-machine and WV-D48 makes the client
 		// enforce for itself.

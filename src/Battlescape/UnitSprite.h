@@ -19,11 +19,12 @@
  */
 #include "../Engine/Surface.h"
 #include "../Engine/Script.h"
+#include "../CoopMod/CoopGhost.h" // W1-P12: CoopUnitDrawView (full struct - the 4 inline accessors below read its fields)
+#include "../Savegame/BattleUnit.h" // W1-P12: the 4 inline accessors below call _unit's own getters, so a forward declare is no longer enough
 
 namespace OpenXcom
 {
 
-class BattleUnit;
 class BattleItem;
 class SavedBattleGame;
 class SurfaceSet;
@@ -60,6 +61,21 @@ private:
 	int _red, _blue;
 	int _x, _y, _shade, _burn;
 	GraphSubset _mask;
+	// W1-P12: the presentation read-switch (CoopMod/CoopGhost.h). Null for
+	// every caller except Map::drawUnit's &view argument - the 4 accessors
+	// below are then SP-identical by construction (see their own bodies).
+	const CoopUnitDrawView *_coopView = nullptr;
+	/// W1-P12 motion-read accessors: `_coopView`'s field when a ghost is
+	/// live, `_unit`'s own getter otherwise - EXACTLY the expression each one
+	/// replaces (mechanical substitution, UnitSprite.cpp, WR-22).
+	/// `uStatus()` returns int, not UnitStatus (Mod/Unit.h's enum): every one
+	/// of UnitSprite.cpp's 47 call sites only ever compares the result
+	/// against a STATUS_* constant, which an unscoped-enum-vs-int comparison
+	/// handles with no cast needed.
+	int uDir()       const { return _coopView ? _coopView->direction  : _unit->getDirection(); }
+	int uWalkPhase() const { return _coopView ? (_coopView->walkPhase % 8) : _unit->getWalkingPhase(); }
+	int uStatus()    const { return _coopView ? _coopView->status : (int)_unit->getStatus(); }
+	bool uKneeled()  const { return _coopView ? _coopView->kneeled    : _unit->isKneeled(); }
 
 	/// Drawing routine for XCom soldiers in overalls, sectoids (routine 0),
 	/// mutons (routine 10),
@@ -113,7 +129,11 @@ public:
 	/// Cleans up the UnitSprite.
 	~UnitSprite();
 	/// Draws the unit.
-	void draw(const BattleUnit* unit, int part, int x, int y, int shade, GraphSubset mask, bool drawFacingIndicator);
+	/// W1-P12: `coopView` is a defaulted presentation read-switch (CoopMod/
+	/// CoopGhost.h) - null (the default) is byte-identical to the
+	/// pre-W1-P12 vanilla behaviour.
+	void draw(const BattleUnit* unit, int part, int x, int y, int shade, GraphSubset mask, bool drawFacingIndicator,
+	          const CoopUnitDrawView* coopView = nullptr);
 };
 
 } //namespace OpenXcom

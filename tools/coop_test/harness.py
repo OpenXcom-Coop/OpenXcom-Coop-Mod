@@ -231,9 +231,20 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     opts = HERMETIC_OPTIONS
     if extra:
         opts = opts.replace("options:\n", extra + "options:\n", 1)
-    if options:
+    all_options = dict(options) if options else {}
+    # W1-P12 REGRESSION acceptance (SPEC 7 (g)): "REGRESSION twice - once ON,
+    # once OFF". None of the 18 regression tests know anything about
+    # coopGhostStepper, so this is the mechanism for the OFF pass without
+    # editing any of them: a PYTHON-side (not OXC_*, and not a new game-process
+    # env var - WAVE1-RUNBOOK.md SS4b's own "OXC_* is not the mechanism" note)
+    # opt-in that forces the option off in EVERY generated options.cfg, for
+    # this harness process only. A caller's own explicit `options` dict entry
+    # (none of the 18 pass one today) still wins.
+    if os.environ.get("COOP_GHOST_STEPPER_OFF") and "coopGhostStepper" not in all_options:
+        all_options["coopGhostStepper"] = False
+    if all_options:
         extra_opts = ""
-        for key, value in options.items():
+        for key, value in all_options.items():
             if isinstance(value, bool):
                 value = "true" if value else "false"
             extra_opts += "  %s: %s\n" % (key, value)

@@ -40,6 +40,7 @@ class Timer;
 class Text;
 class Tile;
 class UnitSprite;
+struct CoopUnitDrawView; // W1-P12 (CoopMod/CoopGhost.h) - pointer-only here, thin
 
 enum CursorType { CT_NONE, CT_NORMAL, CT_AIM, CT_PSI, CT_WAYPOINT, CT_THROW };
 enum TilePart : int;
@@ -145,7 +146,9 @@ public:
 	/// Gets the currently selected position.
 	void getSelectorPosition(Position *pos) const;
 	/// Calculates the offset of a soldier, when it is walking in the middle of 2 tiles.
-	UnitWalkingOffset calculateWalkingOffset(const BattleUnit *unit) const;
+	/// W1-P12: `view` is a defaulted presentation read-switch (CoopMod/CoopGhost.h) -
+	/// null (the default) is byte-identical to the pre-W1-P12 vanilla behaviour.
+	UnitWalkingOffset calculateWalkingOffset(const BattleUnit *unit, const CoopUnitDrawView* view = nullptr) const;
 	/// Sets the 3D cursor type.
 	void setCursorType(CursorType type, int size = 1);
 	/// Gets the 3D cursor type.

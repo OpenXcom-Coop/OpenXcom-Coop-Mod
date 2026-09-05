@@ -87,6 +87,7 @@
 #include "CoopReveal.h"
 #include "CoopFog.h"
 #include "CoopDoor.h"
+#include "CoopGhost.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -2086,6 +2087,7 @@ void reset()
 	resetCoopArbiterState(); // R2-P5: action-context stack, actionId mint, deny-tick map
 	CoopEventLog::reset(); // R2-P11
 	CoopReveal::reset(); // RW-REVEAL-SYNC: published fog bitmap + its one-shot test levers
+	CoopGhost::reset(); // W1-P12: battle-scoped ghost queue + its counters
 }
 
 } // namespace CoopPump
@@ -5929,6 +5931,284 @@ void applyActionEndFinal(BattleUnit* unit, const Json::Value& final)
 } // namespace CoopApply
 // RW-MINT-WHITELIST-END
 
+// RW-REPLAY-REGION-BEGIN
+// W1-P12 (D-3/WV-D27/WV-D49/A4): the S3 ghost stepper's implementation body.
+// Declarations + CoopUnitDrawView + the full design doc comment live in
+// CoopGhost.h (WV-D20: no new .cpp); this is the storage + the bodies, next
+// to CoopApply/CoopDisplayQueue - the established home for this scaffolding.
+// Every line from here to the matching END is display-only, enforced by
+// tools/ci/lint_no_replay_mutation.py: it never calls any state-mutating
+// BattleUnit/Tile method (that lint's own module doc comment carries the
+// exact forbidden list) and only ever holds SavedBattleGame/BattleUnit/Tile
+// as a read-only pointer parameter or local.
+
+/// Copies every field straight off @a u (0/false/default Position when @a u
+/// is null). Never mutates @a u - a plain read (CoopGhost.h's own doc
+/// comment).
+CoopUnitDrawView CoopUnitDrawView::fromUnit(const BattleUnit* u)
+{
+	CoopUnitDrawView v;
+	if (!u)
+		return v;
+	v.pos = u->getPosition();
+	v.lastPos = u->getLastPosition();
+	v.destination = u->getDestination();
+	v.direction = u->getDirection();
+	v.turretDirection = u->getTurretDirection();
+	v.walkPhase = u->getWalkingPhase() + u->getDiagonalWalkingPhase();
+	v.verticalDirection = u->getVerticalDirection();
+	v.status = (int)u->getStatus();
+	v.kneeled = u->isKneeled();
+	v.ghostTrailing = false;
+	return v;
+}
+
+namespace CoopGhost
+{
+
+namespace
+{
+
+// W1-P12 (6e): the FIXED interpolation constants - never tunable, and never
+// an Options entry beyond coopGhostStepper itself (packet text). walk: 120ms
+// linear per executed step. turn: 60ms per 45-degree octant, along the
+// SHORTER modular arc (ties -> clockwise). kneel: hold the OLD kneeled value
+// for 100ms, then flip once - a kneel has no intermediate state, the
+// animation IS the delay.
+const std::uint32_t kWalkMsPerStep = 120;
+const std::uint32_t kTurnMsPerOctant = 60;
+const std::uint32_t kKneelHoldMs = 100;
+
+/// One running (or just-completed-and-not-yet-popped) ghost. IDs and
+/// geometry only - NEVER a pointer to BattleUnit (step 3's own instruction:
+/// this queue must survive the pointer it was built from going stale, and
+/// must never be used to resolve one either - CoopIdMaps::unit() does that,
+/// fresh, every time a caller needs the live unit).
+struct GhostReplay
+{
+	std::string kind;   // "turn" | "kneel" | "walk_step" - onEvApplied()'s own gate
+	int unitId = 0;
+	Position fromPos;
+	Position toPos;
+	int fromDir = 0;
+	int toDir = 0;
+	bool kneeledBefore = false;
+	bool kneeledAfter = false;
+	std::uint32_t seq = 0;
+	std::uint32_t startedAtMs = 0;
+};
+
+// Battle-scoped: one live slot per unit id. Cleared by reset() (called from
+// CoopPump::reset()'s battle-teardown chokepoint, alongside CoopReveal's own
+// battle-scoped storage).
+std::map<int, GhostReplay> g_coopGhosts;
+std::atomic<unsigned int> g_ghostEnqueued{0};
+std::atomic<unsigned int> g_ghostCompleted{0};
+
+/// The number of 45-degree steps to turn from @a fromDir to @a toDir along
+/// the SHORTER modular arc (6e); ties (exactly 4 either way) resolve
+/// clockwise. Sets *@a clockwiseOut (when non-null) to which way that is.
+int turnOctants(int fromDir, int toDir, bool* clockwiseOut)
+{
+	const int cw = ((toDir - fromDir) % 8 + 8) % 8;
+	const int ccw = 8 - cw;
+	const bool clockwise = (cw <= ccw);
+	if (clockwiseOut)
+		*clockwiseOut = clockwise;
+	return clockwise ? cw : ccw;
+}
+
+/// The total wall-clock duration (ms) of @a g's animation, per (6e)'s fixed
+/// constants above.
+std::uint32_t ghostDurationMs(const GhostReplay& g)
+{
+	if (g.kind == "kneel")
+		return kKneelHoldMs;
+	if (g.kind == "turn")
+		return (std::uint32_t)turnOctants(g.fromDir, g.toDir, nullptr) * kTurnMsPerOctant;
+	return kWalkMsPerStep; // "walk_step"
+}
+
+} // unnamed namespace
+
+void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
+{
+	if (!save || !Options::coopGhostStepper)
+		return;
+
+	const std::string kind = ev.get("kind", "").asString();
+	if (kind != "turn" && kind != "kneel" && kind != "walk_step")
+		return;
+
+	const Json::Value& payload = ev["payload"];
+	if (!payload.isMember("unit"))
+		return;
+	BattleUnit* unit = CoopIdMaps::unit(payload["unit"].asInt());
+	if (!unit)
+		return;
+
+	GhostReplay rec;
+	rec.kind = kind;
+	rec.unitId = unit->getId();
+	rec.seq = ev.get("seq", 0u).asUInt();
+	rec.startedAtMs = SDL_GetTicks();
+
+	if (kind == "turn")
+	{
+		// SS2.4: both endpoints already ride the payload - no canonical read
+		// needed for direction. A body turn never moves or kneels the unit.
+		rec.fromDir = payload.get("fromDir", unit->getDirection()).asInt();
+		rec.toDir = payload.get("toDir", unit->getDirection()).asInt();
+		rec.kneeledBefore = rec.kneeledAfter = unit->isKneeled();
+		rec.fromPos = rec.toPos = unit->getPosition();
+	}
+	else if (kind == "kneel")
+	{
+		// SS2.4's `kneel` ev payload carries only the NEW value - the OLD one
+		// has to come off canonical state HERE, before the caller's next line
+		// (CoopApply::applyEvPayload()) flips it (CoopGhost.h's own file
+		// comment; the call site's own comment in
+		// CoopDisplayQueue::onApplied() records the same ordering rule).
+		rec.kneeledBefore = unit->isKneeled();
+		rec.kneeledAfter = payload.get("kneeled", rec.kneeledBefore).asBool();
+		rec.fromDir = rec.toDir = unit->getDirection();
+		rec.fromPos = rec.toPos = unit->getPosition();
+	}
+	else // "walk_step"
+	{
+		rec.fromPos = CoopArbiter::coopJsonPos(payload["from"]);
+		rec.toPos = CoopArbiter::coopJsonPos(payload["to"]);
+		rec.fromDir = rec.toDir = payload.get("dir", unit->getDirection()).asInt();
+		// W1-P9 follow-up (2026-09-03): a walk that began kneeled stands up -
+		// that stand-up's OWN `kneel` ev (if the host emitted one) already ran
+		// through this same function first, so by the time a walk_step ev
+		// arrives the unit's kneeled bit is already whatever it will stay -
+		// nothing here needs to animate a second flip.
+		rec.kneeledBefore = rec.kneeledAfter = unit->isKneeled();
+	}
+
+	// WV-D49: a ghost already running for this unit is COMPLETED INSTANTLY,
+	// not queued behind - the display clock never gates apply, so the new
+	// ev's ghost starts clean from the new payload's own endpoints.
+	auto it = g_coopGhosts.find(rec.unitId);
+	if (it != g_coopGhosts.end())
+	{
+		g_ghostCompleted.fetch_add(1);
+		it->second = rec;
+	}
+	else
+	{
+		g_coopGhosts.emplace(rec.unitId, rec);
+	}
+	g_ghostEnqueued.fetch_add(1);
+}
+
+void advance(SavedBattleGame* save, std::uint32_t nowMs)
+{
+	if (!save || g_coopGhosts.empty())
+		return;
+
+	for (auto it = g_coopGhosts.begin(); it != g_coopGhosts.end(); )
+	{
+		const std::uint32_t elapsed = nowMs - it->second.startedAtMs; // unsigned - wrap-safe
+		if (elapsed >= ghostDurationMs(it->second))
+		{
+			g_ghostCompleted.fetch_add(1);
+			it = g_coopGhosts.erase(it);
+		}
+		else
+		{
+			++it;
+		}
+	}
+}
+
+bool view(const BattleUnit* u, CoopUnitDrawView* io)
+{
+	if (!u || !io || g_coopGhosts.empty())
+		return false;
+	auto it = g_coopGhosts.find(u->getId());
+	if (it == g_coopGhosts.end())
+		return false;
+
+	const GhostReplay& g = it->second;
+	const std::uint32_t elapsed = SDL_GetTicks() - g.startedAtMs;
+	const std::uint32_t duration = ghostDurationMs(g);
+	const float progress = duration > 0
+		? std::min(1.0f, (float)elapsed / (float)duration)
+		: 1.0f;
+
+	if (g.kind == "kneel")
+	{
+		// (6e): no intermediate state - hold the OLD value, then flip once.
+		io->kneeled = (elapsed >= duration) ? g.kneeledAfter : g.kneeledBefore;
+		return true;
+	}
+
+	if (g.kind == "turn")
+	{
+		bool clockwise = false;
+		const int octants = turnOctants(g.fromDir, g.toDir, &clockwise);
+		const int stepsElapsed = (octants <= 0)
+			? 0
+			: std::min(octants, (int)(elapsed / kTurnMsPerOctant));
+		io->direction = clockwise
+			? (g.fromDir + stepsElapsed) % 8
+			: ((g.fromDir - stepsElapsed) % 8 + 8) % 8;
+		return true;
+	}
+
+	// "walk_step" - the trailing-anchor render (6c): the unit is BEHIND the
+	// scenes on the destination tile for the whole sweep (Map::
+	// calculateWalkingOffset's own `if (view && view->ghostTrailing)
+	// midphase = 0;` forces vanilla's own "already arrived" branch over the
+	// WHOLE range), so the screen offset runs from a full tile behind to
+	// zero as `walkPhase` advances.
+	io->pos = g.toPos;
+	io->destination = g.toPos;
+	io->lastPos = g.fromPos;
+	io->status = (int)STATUS_WALKING;
+	io->direction = g.toDir;
+	{
+		const int endphase = 8 + 8 * (g.toDir % 2); // vanilla's own value, Map.cpp
+		int wp = (int)(progress * (float)endphase);
+		if (wp >= endphase)
+			wp = endphase - 1;
+		if (wp < 0)
+			wp = 0;
+		io->walkPhase = wp;
+	}
+	io->ghostTrailing = true;
+	return true;
+}
+
+BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile)
+{
+	if (!save || !tile || g_coopGhosts.empty())
+		return nullptr;
+	const Position p = tile->getPosition();
+	for (const auto& kv : g_coopGhosts)
+	{
+		if (kv.second.kind == "walk_step" && kv.second.fromPos == p)
+			return CoopIdMaps::unit(kv.second.unitId);
+	}
+	return nullptr;
+}
+
+void reset()
+{
+	g_coopGhosts.clear();
+	g_ghostEnqueued.store(0u);
+	g_ghostCompleted.store(0u);
+}
+
+unsigned int enqueuedCount() { return g_ghostEnqueued.load(); }
+unsigned int completedCount() { return g_ghostCompleted.load(); }
+unsigned int queueDepth() { return (unsigned int)g_coopGhosts.size(); }
+
+} // namespace CoopGhost
+// RW-REPLAY-REGION-END
+
 namespace CoopDisplayQueue
 {
 
@@ -5967,8 +6247,12 @@ static void coopRefreshAppliedHud()
 // map/unit-sprite rendering reads those fields fresh every frame (no
 // separate cache/dirty flag exists on BattleUnit to invalidate - grepped),
 // so the facing sweep is already "instant" the moment the write lands; there
-// is nothing further to trigger. Ghost-sweep polish (an actual ANIMATED
-// turn) is r3a S3's job, explicitly NOT required here (packet text).
+// is nothing further to trigger for the CANONICAL unit. Ghost-sweep polish
+// (an actual ANIMATED turn/kneel/walk on the OBSERVING machine) is W1-P12's
+// job - BUILT: see CoopGhost::onEvApplied()'s own call below (immediately
+// before this function's CoopApply::applyEvPayload() call) and the
+// RW-REPLAY-REGION-marked CoopGhost implementation right above this
+// namespace (CoopGhost.h carries the full design doc comment).
 //
 // Called from CoopPump::drainApplyQueue() (BattlePump.h/RB-D5), in strict
 // seq order, for every bt_ev/bt_action_end AFTER the gap check and BEFORE
@@ -6011,6 +6295,15 @@ void onApplied(const Json::Value& ev)
 			// sent the original intent.
 			g_coopClientActionActor[actionId] = payload["unit"].asInt();
 		}
+		// RW-REPLAY-REGION-BEGIN
+		// W1-P12 (D-3/WV-D27): enqueue the ghost BEFORE CoopApply mutates the
+		// unit - a `kneel` ev's payload carries only the NEW value (SS2.4), so
+		// the OLD one has to be read off canonical state while it is still
+		// true (see CoopGhost.h's own file comment). `turn`/`walk_step` need no
+		// such care (both endpoints already ride the payload) but go through
+		// the same one call site for every kind this packet handles.
+		CoopGhost::onEvApplied(save, ev);
+		// RW-REPLAY-REGION-END
 		CoopApply::applyEvPayload(save, ev);
 	}
 	else if (state == "bt_action_end")

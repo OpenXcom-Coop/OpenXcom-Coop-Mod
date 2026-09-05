@@ -53,6 +53,7 @@
 #include "../Interface/Text.h"
 #include "../fmath.h"
 #include "../CoopMod/CoopFog.h"
+#include "../CoopMod/CoopGhost.h"
 
 
 /*
@@ -501,6 +502,7 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 		return;
 	}
 	BattleUnit* bu = unitTile->getOverlappingUnit(_save, TUO_ALWAYS);
+	if (!bu) bu = CoopGhost::trailingUnitOverTile(_save, unitTile); // W1-P12, no-op in SP
 	Position unitOffset;
 	bool unitFromBelow = false;
 	bool unitFromAbove = false;
@@ -534,11 +536,18 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 		return;
 	}
 
-	unitOffset.x = unitTile->getPosition().x - bu->getPosition().x;
-	unitOffset.y = unitTile->getPosition().y - bu->getPosition().y;
+	// W1-P12: the presentation read-switch (CoopMod/CoopGhost.h). `view` is
+	// SP-identical to `bu`'s own getters until CoopGhost::view() overwrites
+	// what a live ghost animates for THIS unit - a no-op outside a coop
+	// battle, with the option off, or with no ghost running for `bu`.
+	CoopUnitDrawView view = CoopUnitDrawView::fromUnit(bu);
+	CoopGhost::view(bu, &view);
+
+	unitOffset.x = unitTile->getPosition().x - view.pos.x;
+	unitOffset.y = unitTile->getPosition().y - view.pos.y;
 	int part = unitOffset.x + unitOffset.y*2;
 
-	bool moving = bu->getStatus() == STATUS_WALKING || bu->getStatus() == STATUS_FLYING;
+	bool moving = view.status == STATUS_WALKING || view.status == STATUS_FLYING;
 	int bonusWidth = moving ? 0 : tileFoorWidth;
 	int topMargin = 0;
 	int bottomMargin = 0;
@@ -572,10 +581,10 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	{
 		GraphSubset leftMask = mask.offset(-tileFoorWidth/2, 0);
 		GraphSubset rightMask = mask.offset(+tileFoorWidth/2, 0);
-		int direction = bu->getDirection();
+		int direction = view.direction;
 		Position partCurr = currTile->getPosition();
-		Position partDest = bu->getDestination() + unitOffset;
-		Position partLast = bu->getLastPosition() + unitOffset;
+		Position partDest = view.destination + unitOffset;
+		Position partLast = view.lastPos + unitOffset;
 		bool isTileDestPos = positionHaveSameXY(partDest, partCurr);
 		bool isTileLastPos = positionHaveSameXY(partLast, partCurr);
 
@@ -709,11 +718,11 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 
 	// draw unit
 	int shade = 0;
-	UnitWalkingOffset offsets = calculateWalkingOffset(bu);
+	UnitWalkingOffset offsets = calculateWalkingOffset(bu, &view);
 	if (moving)
 	{
-		const Position start = bu->getPosition();
-		const Position end = bu->getDestination();
+		const Position start = view.pos;
+		const Position end = view.destination;
 		const auto minLevel = std::min(start.z, end.z); // Sint16
 		const int startShade = getMixedTileShade(_save->getTile(start), start.z == minLevel ? offsets.TerrainLevelOffset : 0, false);
 		const int endShade = getMixedTileShade(_save->getTile(end), end.z == minLevel ? offsets.TerrainLevelOffset : 0, false);
@@ -731,7 +740,7 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	{
 		shade = std::min(+NIGHT_VISION_SHADE, shade);
 	}
-	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed);
+	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed, &view);
 }
 
 /**
@@ -2164,14 +2173,22 @@ void Map::getSelectorPosition(Position *pos) const
  * @param unit Pointer to BattleUnit.
  * @param offset Pointer to the offset to return the calculation.
  */
-UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit) const
+UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit, const CoopUnitDrawView* view) const
 {
 	UnitWalkingOffset result = { };
 
 	int offsetX[8] = { 1, 1, 1, 0, -1, -1, -1, 0 };
 	int offsetY[8] = { 1, 0, -1, -1, -1, 0, 1, 1 };
-	int phase = unit->getWalkingPhase() + unit->getDiagonalWalkingPhase();
-	int dir = unit->getDirection();
+	// W1-P12: `view` is null for every caller except Map::drawUnit (byte-
+	// identical vanilla behaviour then - the OTHER caller, :1720, never
+	// passes one). When non-null, every motion read below comes from it
+	// instead of `unit` - the ghost renders from ITS OWN interpolation
+	// state, never from BattleUnit (A4) - and with no live ghost `view`'s
+	// fields are exactly what `fromUnit()` copied off `unit`, so the value
+	// is unchanged either way.
+	int phase = view ? ((view->walkPhase % 8) + (view->walkPhase / 8) * 8)
+	                  : (unit->getWalkingPhase() + unit->getDiagonalWalkingPhase());
+	int dir = view ? view->direction : unit->getDirection();
 	int midphase = 4 + 4 * (dir % 2);
 	int endphase = 8 + 8 * (dir % 2);
 	int size = unit->getArmor()->getSize();
@@ -2190,12 +2207,23 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit) const
 		else
 			midphase = 1;
 	}
+	if (view && view->ghostTrailing)
+	{
+		// W1-P12 (6c): a ghost-trailing WALK is behind the scenes on the
+		// destination tile for its WHOLE sweep, not just the phase>=midphase
+		// half vanilla's own dual-branch below already handles - forcing
+		// midphase to 0 routes every phase through that branch, so the
+		// screen offset runs from a full tile behind to zero as walkPhase
+		// advances from 0 to endphase.
+		midphase = 0;
+	}
+	const int status = view ? view->status : (int)unit->getStatus();
 	if (unit->getVerticalDirection())
 	{
 		midphase = 4;
 		endphase = 8;
 	}
-	else if ((unit->getStatus() == STATUS_WALKING || unit->getStatus() == STATUS_FLYING))
+	else if (status == STATUS_WALKING || status == STATUS_FLYING)
 	{
 		if (phase < midphase)
 		{
@@ -2212,11 +2240,11 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit) const
 	result.NormalizedMovePhase = endphase == 16 ? phase : phase * 2;
 
 	// If we are walking in between tiles, interpolate it's terrain level.
-	if (unit->getStatus() == STATUS_WALKING || unit->getStatus() == STATUS_FLYING)
+	if (status == STATUS_WALKING || status == STATUS_FLYING)
 	{
-		const Position posCurr = unit->getPosition();
-		const Position posDest = unit->getDestination();
-		const Position posLast = unit->getLastPosition();
+		const Position posCurr = view ? view->pos : unit->getPosition();
+		const Position posDest = view ? view->destination : unit->getDestination();
+		const Position posLast = view ? view->lastPos : unit->getLastPosition();
 		if (phase < midphase)
 		{
 			int fromLevel = getTerrainLevel(posCurr, size);
@@ -2254,7 +2282,7 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit) const
 	}
 	else
 	{
-		result.TerrainLevelOffset = getTerrainLevel(unit->getPosition(), size);
+		result.TerrainLevelOffset = getTerrainLevel(view ? view->pos : unit->getPosition(), size);
 	}
 	result.ScreenOffset.y += result.TerrainLevelOffset;
 	return result;

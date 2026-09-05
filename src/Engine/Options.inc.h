@@ -139,6 +139,17 @@ OPT int coopIntentTimeoutSeconds;
 // below carries no description or category.
 OPT std::string CoopTurnMode;
 
+// W1-P12 (WAVE1-RUNBOOK.md ruling D-3 = WV-D27/WV-D49): the S3 GHOST STEPPER -
+// a partner's turn/kneel/walk ANIMATES on the observing machine instead of
+// snapping, display-only (A4: never SavedBattleGame/BattleUnit/Tile - see
+// CoopMod/CoopGhost.h). A real user option (WR-25: an OptionInfo
+// registration, the coopCancelOnAnyPartnerAction precedent above), never a
+// connectionTCP static, so the harness's set_option lever can toggle it.
+// DEFAULT true. Turning it off enqueues nothing (CoopDisplayQueue::
+// onApplied() still applies every ev exactly the same - the option only
+// gates the DISPLAY side) and moves no hash bucket either way.
+OPT bool coopGhostStepper;
+
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;
 OPT int oxceResearchScrollSpeed;

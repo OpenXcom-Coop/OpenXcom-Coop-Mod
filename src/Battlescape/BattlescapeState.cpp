@@ -94,6 +94,7 @@
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/CoopHandshake.h"
 #include "../CoopMod/CoopFog.h"
+#include "../CoopMod/CoopGhost.h"
 
 namespace OpenXcom
 {
@@ -912,6 +913,7 @@ void BattlescapeState::think()
 		if (_popups.empty())
 		{
 			State::think();
+			CoopGhost::advance(_save, SDL_GetTicks()); // W1-P12: display-only, self-guarded (no-op outside a coop battle)
 			int ret = _battleGame->think();
 			if (ret > -1)
 			{
