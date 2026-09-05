@@ -8,12 +8,15 @@ Typical use: spawn two instances (host + client) with isolated -user folders,
 drive both through save-load / host / join / lobby, then assert on soldiers.
 """
 
+import atexit
+import datetime
 import json
 import errno
 import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -70,6 +73,60 @@ def _acquire_machine_lock(timeout=3600):
                 waited = True
             time.sleep(5)
 
+# WV-D64 / SPEC 0b time accounting: when OXC_TIMELOG is set, append one CSV
+# row per event to that file (header ts_iso,agent,role,event,detail - the same
+# file every builder/orchestrator TL one-liner writes to, see
+# rewrite/wave1-timelog.csv in the docs repo). Tagged with OXC_AGENT (default
+# "unknown"); role is fixed "harness" so these automatic rows are visually
+# distinct from the manual "agent" rows a builder's own TL calls write. NEVER
+# raises - a timing-accounting failure must not fail a test.
+_TIMELOG_EXIT_CODE = [0]
+
+
+def _timelog(event, detail=""):
+    path = os.environ.get("OXC_TIMELOG")
+    if not path:
+        return
+    try:
+        agent = os.environ.get("OXC_AGENT", "unknown")
+        ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        row = "%s,%s,%s,%s,%s\n" % (
+            ts, agent, "harness", event, str(detail).replace(",", ";"))
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(row)
+    except OSError:
+        pass
+
+
+_orig_sys_exit = sys.exit
+
+
+def _tracking_sys_exit(code=None):
+    # sys.exit(None) / sys.exit() means success (0); sys.exit("message")
+    # prints the message and the PROCESS exit code is 1, not the string -
+    # mirror that so test_end's detail reports the real process exit code.
+    if code is None:
+        _TIMELOG_EXIT_CODE[0] = 0
+    elif isinstance(code, int):
+        _TIMELOG_EXIT_CODE[0] = code
+    else:
+        _TIMELOG_EXIT_CODE[0] = 1
+    _orig_sys_exit(code)
+
+
+sys.exit = _tracking_sys_exit
+
+
+def _timelog_test_end():
+    _timelog("test_end", "%s exit=%s" % (
+        os.path.basename(sys.argv[0]), _TIMELOG_EXIT_CODE[0]))
+
+
+# "at harness import" - this module body runs exactly once per process
+# (import caching), the first time any test script imports it.
+_timelog("test_start", os.path.basename(sys.argv[0]))
+atexit.register(_timelog_test_end)
+
 # A known-good land tile for first-base placement (place_first_base rejects
 # water). Shared by the fresh-campaign tests so they need no pre-existing save.
 LAND_LON, LAND_LAT = 0.7063353365604198, -0.5070346730015731
@@ -109,6 +166,7 @@ class GameClient:
 
     def spawn(self, extra_args=()):
         _acquire_machine_lock()
+        _timelog("spawn", "%s port=%s" % (self.name, self.port))
         env = os.environ.copy()
         env["OXC_TEST_PORT"] = str(self.port)
         # HEADLESS BY DEFAULT (owner standing rule). Every boot_check, repro_*,
@@ -200,6 +258,7 @@ class GameClient:
                 self.proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+        _timelog("spawn_end", "%s port=%s" % (self.name, self.port))
 
 
 def make_user_dir(name, saves=(), mods=(), options=None):
