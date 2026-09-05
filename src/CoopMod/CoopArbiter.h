@@ -204,6 +204,12 @@ void pushActionContext(std::uint32_t actionId, const char* origin);
 /// empty (SS2.2: 0 is never a minted actionId, so 0 doubles as "none").
 std::uint32_t currentActionId();
 
+/// The `origin` string on top of CoopMod's action-context stack (RB-D12), or
+/// "" when the stack is empty. SS2.2's enum values; "intent" means the action
+/// was ADMITTED FROM A CLIENT's bt_intent (the arbiter's own push sites),
+/// which is what WV-D38/WV-D59 key their client-origin rules on.
+const char* currentActionOrigin();
+
 /// SS2.5 turn validator: cost + well-formedness only (see this packet's
 /// final report for why not_your_unit/turn_over/busy - which need the
 /// intent's seat and the live BattlescapeGame - are checked by onIntent()

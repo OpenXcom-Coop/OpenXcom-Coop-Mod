@@ -4627,6 +4627,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["coopDoorEvsEmitted"] = coopDoorEvsEmitted();
 		resp["coopDoorEvsApplied"] = coopDoorEvsApplied();
 		resp["coopDoorInTurnUnsupported"] = coopDoorInTurnUnsupported();
+		// SPEC 6 (P10-ACCEPT, WV-D59): the door TU-reserve fairness waive
+		// counter - the positive control that the host's own reserve was
+		// neutralised for a CLIENT-ORIGIN door open, not just coincidentally
+		// absent.
+		resp["coopDoorReserveWaived"] = coopDoorReserveWaived();
 		// W1-P11 (SS4 "ATOM spot"): the spot atom's payload window and its two
 		// delivery counters, exactly the lastWalk / door-counter precedents
 		// above. `lastSpot` is the only place `seen` and `haltStep` are visible

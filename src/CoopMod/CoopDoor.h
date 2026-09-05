@@ -129,4 +129,11 @@ unsigned int coopDoorEvsEmitted();
 unsigned int coopDoorEvsApplied();
 unsigned int coopDoorInTurnUnsupported();
 
+/// WV-D59 (P10-ACCEPT, owner ruling R-E, 2026-09-04): counts how many times
+/// coopUnitOpensDoor() waived the HOST's own tuReserved/kneelReserved for a
+/// CLIENT-ORIGIN door open - the positive control for the door TU-reserve
+/// fairness fix (the host must not apply ITS OWN reserve to a client's
+/// order). Same test-introspection discipline as the three counters above.
+unsigned int coopDoorReserveWaived();
+
 }

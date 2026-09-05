@@ -3219,6 +3219,11 @@ std::uint32_t currentActionId()
 	return g_coopActionContextStack.empty() ? 0u : g_coopActionContextStack.back().actionId;
 }
 
+const char* currentActionOrigin()
+{
+	return g_coopActionContextStack.empty() ? "" : g_coopActionContextStack.back().origin.c_str();
+}
+
 const char* validateTurn(const BattleUnit* unit, int toDir, bool turret, int tuBasis)
 {
 	// Well-formedness (SS2.5's "turn well-formedness" bullet: actor exists,
@@ -5339,6 +5344,10 @@ std::vector<CoopDoorRec> g_coopDoorJournal;
 std::atomic<unsigned int> g_coopDoorEvsEmitted{0};
 std::atomic<unsigned int> g_coopDoorEvsApplied{0};
 std::atomic<unsigned int> g_coopDoorInTurnUnsupported{0};
+/// WV-D59 (owner ruling R-E, 2026-09-04): counts how many times
+/// coopUnitOpensDoor() waived the HOST's own tuReserved/kneelReserved for a
+/// CLIENT-ORIGIN door open. Test introspection only, like its siblings above.
+std::atomic<unsigned int> g_coopDoorReserveWaived{0};
 
 /// SS2.8 buckets carried by an `ev door`. `terrain` because a NORMAL door open
 /// rewrites mapDataID/mapDataSetID, which is precisely what that bucket sums
@@ -5437,6 +5446,7 @@ static void coopResetDoorState()
 	g_coopDoorEvsEmitted = 0;
 	g_coopDoorEvsApplied = 0;
 	g_coopDoorInTurnUnsupported = 0;
+	g_coopDoorReserveWaived = 0;
 }
 
 void coopNoteDoorOpened(const Tile* tile, int part, int result)
@@ -5472,7 +5482,35 @@ int coopUnitOpensDoor(TileEngine* te, BattleUnit* unit, bool rClick, int dir)
 
 	g_coopDoorJournal.clear();
 	g_coopDoorCaptureArmed = true;
+	// WV-D59 (owner ruling R-E, 2026-09-04). The host must not apply ITS OWN
+	// TU reserve to a CLIENT-ORIGIN door: tuReserved/kneelReserved are
+	// saveBlob-EXCLUDED (SharedEcon.cpp:3974) and therefore machine-local, so
+	// the value in force during execution would be the HOST player's. This is
+	// WV-D38's walk rule, extended to the door, and it must neutralise BOTH
+	// application points in ONE place - Tile::openDoor's own `cost`
+	// (TileEngine.cpp:4190, which can return 4 = "not enough TUs" and refuse
+	// the open outright) and checkReservedTU (TileEngine.cpp:4229). Bracketing
+	// the vanilla call is the only shape that reaches both without a second
+	// vanilla hook. Save/restore is hash-free because both fields are excluded.
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	const bool clientOrigin = save
+		&& std::string(CoopArbiter::currentActionOrigin()) == "intent";
+	BattleActionType savedTu = BA_NONE;
+	bool savedKneel = false;
+	if (clientOrigin)
+	{
+		savedTu = save->getTUReserved();
+		savedKneel = save->getKneelReserved();
+		save->setTUReserved(BA_NONE);
+		save->setKneelReserved(false);
+		g_coopDoorReserveWaived.fetch_add(1);
+	}
 	const int result = te->unitOpensDoor(unit, rClick, dir);
+	if (clientOrigin)
+	{
+		save->setTUReserved(savedTu);
+		save->setKneelReserved(savedKneel);
+	}
 	// AFTER vanilla returns, so the TU spend (TileEngine.cpp:4231) is already in
 	// `tuAfter` and the calculateFOV() at :4235 has already authored this
 	// machine's newly-discovered bits - they ride THIS envelope's `reveal` at
@@ -5499,6 +5537,7 @@ int coopCloseUfoDoors(TileEngine* te)
 unsigned int coopDoorEvsEmitted() { return g_coopDoorEvsEmitted.load(); }
 unsigned int coopDoorEvsApplied() { return g_coopDoorEvsApplied.load(); }
 unsigned int coopDoorInTurnUnsupported() { return g_coopDoorInTurnUnsupported.load(); }
+unsigned int coopDoorReserveWaived() { return g_coopDoorReserveWaived.load(); }
 
 // ===== R3-P1: CoopApply (CoopApply.h) - the S2-minimal client-side state
 // applier =====
