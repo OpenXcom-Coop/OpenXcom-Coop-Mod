@@ -196,6 +196,7 @@ BattlescapeGame::BattlescapeGame(SavedBattleGame *save, BattlescapeState *parent
 
 	_debugPlay = false;
 
+	// WV-D68: generation casualties (killed AND stunned) settle synchronously inside UnitDieBState's ctor while isBeforeGame() - see UnitDieBState.cpp.
 	checkForCasualties(nullptr, BattleActionAttack{ }, true);
 	cancelCurrentAction();
 }

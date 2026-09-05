@@ -50,7 +50,24 @@ UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const Ru
 	_unit(unit), _damageType(damageType), _noSound(noSound), _extraFrame(0), _overKill(unit->getOverKillDamage())
 {
 	// don't show the "fall to death" animation when a unit is blasted with explosives or he is already unconscious
-	if (!_damageType->isDirect() || _unit->getStatus() == STATUS_UNCONSCIOUS)
+	// ---------------------------------------------------------------------------
+	// DO NOT REVERT THIS CONDITION WHEN MERGING UPSTREAM OXCE (WV-D68, 2026-09-05).
+	//
+	// Before the battle starts (isBeforeGame()), EVERY generation casualty - killed
+	// OR stunned by the crashed UFO's exploding power sources - is settled here,
+	// synchronously, instead of animating a collapse on the first map frames.
+	// Upstream only did this for non-direct damage (killed victims); a STUNNED
+	// victim (DT_NONE, isDirect()==true) animated instead. That was invisible in
+	// single-player (victims sit inside the UFO) but breaks the CO-OP mod: the
+	// host runs that collapse BEFORE the battle counts as started (node-danger
+	// marking below is skipped), snapshots the unit mid-collapse for the joining
+	// player, who replays the collapse AFTER start (marking applied) - a permanent
+	// map-node divergence that fails the co-op state hash. Settling everything
+	// before the first frame keeps both machines identical and is consistent with
+	// the "instant death from UFO power sources" intent in BattlescapeGame's ctor.
+	// Owner ruling: openxcom-coop-agent-docs rewrite/wave1-log.md, WV-D68.
+	// ---------------------------------------------------------------------------
+	if (!_damageType->isDirect() || _unit->getStatus() == STATUS_UNCONSCIOUS || _parent->getSave()->isBeforeGame())
 	{
 
 		/********************************************************
