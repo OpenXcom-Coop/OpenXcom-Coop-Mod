@@ -4029,6 +4029,14 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["doors"] = doors;
 		resp["count"] = found;
 		resp["mapSizeXYZ"] = tileCount;
+		// WV-D63 (SPEC 6a): decomposed map bounds, additive. contact_free_
+		// ufo_door_setup() needs the width/length (not just the XYZ product)
+		// to pick the CORNER farthest from a given door - the only consumer,
+		// and find_doors is the one round trip that already needs a door's
+		// position anyway.
+		resp["mapSizeX"] = sbg->getMapSizeX();
+		resp["mapSizeY"] = sbg->getMapSizeY();
+		resp["mapSizeZ"] = sbg->getMapSizeZ();
 		resp["ok"] = true;
 	}
 	else if (cmd == "battle_close_ufo_doors")
@@ -4507,7 +4515,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "hold_chain" && cmd != "defer_intents"
 		&& cmd != "battle_halt_walk" && cmd != "battle_halt_walk_before_step"
 		&& cmd != "battle_reserve"
-		&& cmd != "omit_turn_mode")
+		&& cmd != "omit_turn_mode"
+		&& cmd != "battle_teleport_unit" && cmd != "battle_teleport_all")
 	{
 		return false;
 	}
@@ -4845,6 +4854,274 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// need a unit engineered to run out mid-path.
 		CoopArbiter::requestHaltWalk();
 		resp["ok"] = true;
+	}
+	else if (cmd == "battle_teleport_unit")
+	{
+		// TEST-ONLY (WV-D63, RB-D26 discipline: same family as corrupt_bucket /
+		// newbattle_seat_soldier / battle_halt_walk). Applied by the HARNESS to
+		// EACH machine separately with the SAME absolute arguments; it never
+		// forwards anything to the peer - no wire message, nothing emitted. It
+		// MOVES a 1x1 unit to an absolute tile+facing so a repro can build a
+		// deterministic situation (e.g. a soldier standing in front of a UFO
+		// door) with no coop network traffic; the harness proves determinism
+		// afterwards with hash_now{full:true}. Never call from product code.
+		//
+		// Mirrors EXACTLY the setter sequence vanilla's own walk-step
+		// completion uses: UnitWalkBState.cpp:155 calls
+		// BattleUnit::keepWalking(), which at BattleUnit.cpp:1183 sets the
+		// position (`_pos = _destination` - the same field setPosition(),
+		// BattleUnit.cpp:939/BattleUnit.h:254, writes) and at BattleUnit.cpp:1188
+		// calls setTile(destTile, save) (BattleUnit.h:472). setTile()'s own body
+		// (BattleUnit.cpp:3427-3441/3454-3465) already clears the OLD tile's
+		// Tile::_unit and links the NEW tile's, so the explicit
+		// oldTile->setUnit(nullptr) below is belt-and-braces, not load-bearing.
+		//
+		// It never recomputes FOV/LOS: on the CLIENT the SS2.4a suppression
+		// stays untouched, and on the HOST this lever does not call
+		// calculateFOV either - the fixture's first real action recomputes FOV
+		// through the normal hooked path (WV-D63(b)).
+		SavedGame* sgTU = _game->getSavedGame();
+		SavedBattleGame* bgTU = sgTU ? sgTU->getSavedBattle() : nullptr;
+		if (!bgTU)
+		{
+			resp["error"] = "battle_teleport_unit: no live battle";
+		}
+		else
+		{
+			const int unitId = req.get("unit", -1).asInt();
+			BattleUnit* unit = nullptr;
+			for (auto* u : *bgTU->getUnits())
+			{
+				if (u->getId() == unitId) { unit = u; break; }
+			}
+			if (!unit)
+			{
+				resp["error"] = "battle_teleport_unit: no such unit id " + std::to_string(unitId);
+			}
+			else if (unit->getArmor()->getSize() != 1)
+			{
+				// WV-D63(b): "1x1 units only. A 2x2 unit argument => the lever
+				// returns an error and the fixture re-picks; never partially
+				// moves one."
+				resp["error"] = "battle_teleport_unit: unit " + std::to_string(unitId)
+					+ " is not 1x1 (armor size " + std::to_string(unit->getArmor()->getSize()) + ")";
+			}
+			else if (unit->isOut())
+			{
+				resp["error"] = "battle_teleport_unit: unit " + std::to_string(unitId) + " is out (dead/unconscious)";
+			}
+			else if (unit->getStatus() != STATUS_STANDING)
+			{
+				// STEPS asks the lever to "set _status to STATUS_STANDING", but
+				// BattleUnit exposes no public status setter (verified:
+				// BattleUnit.h has none besides markAsResummonedFakeCivilian's
+				// inline one-off, BattleUnit.h:892). This lever runs at fixture
+				// SETUP, before any BState chain has run, so a live unit that is
+				// not already STANDING is mid-animation/mid-panic - refusing
+				// (change nothing) is the RB-D26-consistent answer rather than
+				// reaching into private state to force it.
+				resp["error"] = "battle_teleport_unit: unit " + std::to_string(unitId) + " is not STATUS_STANDING";
+			}
+			else
+			{
+				const Position pos(req.get("x", -1).asInt(), req.get("y", -1).asInt(), req.get("z", -1).asInt());
+				Tile* destTile = bgTU->getTile(pos);
+				if (!destTile)
+				{
+					resp["error"] = "battle_teleport_unit: destination tile out of bounds";
+				}
+				else if (destTile->getUnit() != nullptr)
+				{
+					resp["error"] = "battle_teleport_unit: destination tile occupied";
+				}
+				else if (destTile->isVoid())
+				{
+					// Tile.cpp:289.
+					resp["error"] = "battle_teleport_unit: destination tile is void";
+				}
+				else if (destTile->hasNoFloor(bgTU))
+				{
+					// Tile.cpp:319 - the same standable-tile predicate
+					// SavedBattleGame::setUnitPosition's own testOnly check uses
+					// (SavedBattleGame.cpp:2710), which is the real vanilla
+					// placement validator this lever's predicate mirrors.
+					resp["error"] = "battle_teleport_unit: destination tile has no floor";
+				}
+				else if (destTile->getTUCost(O_OBJECT, MT_WALK) == Pathfinding::INVALID_MOVE_COST)
+				{
+					// Tile.cpp:300 / Pathfinding.h:88 (INVALID_MOVE_COST == 255) -
+					// SavedBattleGame.cpp:2709's own placement-validity check.
+					resp["error"] = "battle_teleport_unit: destination tile object blocks movement";
+				}
+				else
+				{
+					const Position from = unit->getPosition();
+					Tile* oldTile = unit->getTile();
+					if (oldTile) oldTile->setUnit(nullptr); // belt-and-braces; setTile() below already does this
+					unit->setPosition(pos);
+					unit->setTile(destTile, bgTU);
+					if (req.isMember("dir"))
+					{
+						unit->setDirection(req["dir"].asInt());
+					}
+					resp["ok"] = true;
+					resp["unit"] = unit->getId();
+					Json::Value fromJ, toJ;
+					fromJ["x"] = from.x; fromJ["y"] = from.y; fromJ["z"] = from.z;
+					toJ["x"] = pos.x; toJ["y"] = pos.y; toJ["z"] = pos.z;
+					resp["from"] = fromJ;
+					resp["to"] = toJ;
+					resp["dir"] = unit->getDirection();
+					Log(LOG_INFO) << "[coop-test] battle_teleport_unit unit=" << unit->getId()
+						<< " from=(" << from.x << "," << from.y << "," << from.z << ")"
+						<< " to=(" << pos.x << "," << pos.y << "," << pos.z << ")"
+						<< " dir=" << unit->getDirection();
+				}
+			}
+		}
+	}
+	else if (cmd == "battle_teleport_all")
+	{
+		// TEST-ONLY (WV-D63, RB-D26 discipline; see battle_teleport_unit above -
+		// same "applied per-machine, no wire traffic, never call from product
+		// code" contract). Moves EVERY live 1x1 unit of <faction> onto free
+		// standable tiles scanned inward from <corner>, in unit-id order, all
+		// facing <facing>. Refuses (change NOTHING) if the faction has ANY live
+		// 2x2+ unit, or if there are fewer free standable tiles than units to
+		// move - "never partially moves one" (WV-D63(b)); the fixture then
+		// re-picks a different generated map.
+		SavedGame* sgTA = _game->getSavedGame();
+		SavedBattleGame* bgTA = sgTA ? sgTA->getSavedBattle() : nullptr;
+		if (!bgTA)
+		{
+			resp["error"] = "battle_teleport_all: no live battle";
+		}
+		else
+		{
+			const std::string facStr = req.get("faction", "").asString();
+			UnitFaction fac = FACTION_HOSTILE;
+			bool badFaction = false;
+			if (facStr == "player") fac = FACTION_PLAYER;
+			else if (facStr == "hostile") fac = FACTION_HOSTILE;
+			else if (facStr == "neutral") fac = FACTION_NEUTRAL;
+			else badFaction = true;
+
+			// This lever OWNS both ends of "corner" - no wire/protocol depends
+			// on the mapping, so it is a private convention, stated once:
+			// NW=(low x,low y), NE=(high x,low y), SW=(low x,high y),
+			// SE=(high x,high y); "scanning inward" walks row-major (y outer,
+			// x inner) FROM that corner TOWARD the map's centre.
+			const std::string cornerStr = req.get("corner", "").asString();
+			bool xDescending = false, yDescending = false, badCorner = false;
+			if (cornerStr == "NW") { xDescending = false; yDescending = false; }
+			else if (cornerStr == "NE") { xDescending = true;  yDescending = false; }
+			else if (cornerStr == "SW") { xDescending = false; yDescending = true;  }
+			else if (cornerStr == "SE") { xDescending = true;  yDescending = true;  }
+			else badCorner = true;
+
+			if (badFaction)
+			{
+				resp["error"] = "battle_teleport_all: unknown faction '" + facStr + "'";
+			}
+			else if (badCorner)
+			{
+				resp["error"] = "battle_teleport_all: unknown corner '" + cornerStr + "'";
+			}
+			else
+			{
+				const int facing = req.get("facing", 0).asInt();
+
+				std::vector<BattleUnit*> movers;
+				bool anyBigUnit = false;
+				for (auto* u : *bgTA->getUnits())
+				{
+					if (u->getFaction() != fac || u->isOut()) continue;
+					if (u->getArmor()->getSize() != 1) { anyBigUnit = true; continue; }
+					movers.push_back(u);
+				}
+				// Deterministic order (WV-D63(a)): unit-id order.
+				std::sort(movers.begin(), movers.end(),
+					[](const BattleUnit* a, const BattleUnit* b) { return a->getId() < b->getId(); });
+
+				if (anyBigUnit)
+				{
+					resp["error"] = "battle_teleport_all: faction '" + facStr
+						+ "' has a live 2x2+ unit - refusing (WV-D63(b): never partially moves one)";
+				}
+				else if (movers.empty())
+				{
+					resp["error"] = "battle_teleport_all: faction '" + facStr + "' has no live 1x1 units to move";
+				}
+				else
+				{
+					const int mx = bgTA->getMapSizeX();
+					const int my = bgTA->getMapSizeY();
+					const int mz = bgTA->getMapSizeZ();
+
+					// Same standable-tile predicate as battle_teleport_unit
+					// above (Tile.cpp:289/:300/:319, Pathfinding.h:88), applied
+					// per-candidate while scanning inward from the corner.
+					std::vector<Tile*> freeTiles;
+					for (int z = 0; z < mz && freeTiles.size() < movers.size(); ++z)
+					{
+						for (int yi = 0; yi < my && freeTiles.size() < movers.size(); ++yi)
+						{
+							const int y = yDescending ? (my - 1 - yi) : yi;
+							for (int xi = 0; xi < mx && freeTiles.size() < movers.size(); ++xi)
+							{
+								const int x = xDescending ? (mx - 1 - xi) : xi;
+								Tile* t = bgTA->getTile(Position(x, y, z));
+								if (!t) continue;
+								if (t->getUnit() != nullptr) continue;
+								if (t->isVoid()) continue;
+								if (t->hasNoFloor(bgTA)) continue;
+								if (t->getTUCost(O_OBJECT, MT_WALK) == Pathfinding::INVALID_MOVE_COST) continue;
+								freeTiles.push_back(t);
+							}
+						}
+					}
+
+					if (freeTiles.size() < movers.size())
+					{
+						resp["error"] = "battle_teleport_all: only found " + std::to_string(freeTiles.size())
+							+ " free standable tile(s) near corner '" + cornerStr + "' for "
+							+ std::to_string(movers.size()) + " unit(s)";
+					}
+					else
+					{
+						Json::Value moves(Json::arrayValue);
+						for (std::size_t i = 0; i < movers.size(); ++i)
+						{
+							BattleUnit* unit = movers[i];
+							Tile* destTile = freeTiles[i];
+							const Position pos = destTile->getPosition();
+							const Position from = unit->getPosition();
+							Tile* oldTile = unit->getTile();
+							if (oldTile) oldTile->setUnit(nullptr); // belt-and-braces, see battle_teleport_unit
+							unit->setPosition(pos);
+							unit->setTile(destTile, bgTA);
+							unit->setDirection(facing);
+							Json::Value mv;
+							mv["unit"] = unit->getId();
+							Json::Value fromJ, toJ;
+							fromJ["x"] = from.x; fromJ["y"] = from.y; fromJ["z"] = from.z;
+							toJ["x"] = pos.x; toJ["y"] = pos.y; toJ["z"] = pos.z;
+							mv["from"] = fromJ;
+							mv["to"] = toJ;
+							mv["dir"] = unit->getDirection();
+							moves.append(mv);
+							Log(LOG_INFO) << "[coop-test] battle_teleport_all faction=" << facStr
+								<< " unit=" << unit->getId()
+								<< " to=(" << pos.x << "," << pos.y << "," << pos.z << ")"
+								<< " dir=" << facing;
+						}
+						resp["ok"] = true;
+						resp["moves"] = moves;
+						resp["count"] = (int)movers.size();
+					}
+				}
+			}
+		}
 	}
 	else if (cmd == "battle_reserve")
 	{
@@ -6313,6 +6590,11 @@ std::string TestServer::execute(const std::string& line)
 					// can ASSERT that premise instead of trusting a comment - a
 					// mod that sets it would silently reintroduce the desync.
 					ju["turnBeforeFirstStep"] = u->getArmor()->getTurnBeforeFirstStep();
+					// WV-D63 (SPEC 6a): the placement lever's own 1x1 refusal
+					// check (`getArmor()->getSize() == 1`), exposed so a test can
+					// verify the SAME predicate rather than trusting the lever's
+					// error string.
+					ju["armorSize"] = u->getArmor()->getSize();
 					if (u->getHealth() <= 0 && u->getAIModule() != nullptr) ++unitsDeadWithAI; // WV-D62 + correction: health<=0 = vanilla prepareHealth rule; meaningful pre/post the STATUS_DEAD flip
 					{
 						Json::Value spottedIds(Json::arrayValue);

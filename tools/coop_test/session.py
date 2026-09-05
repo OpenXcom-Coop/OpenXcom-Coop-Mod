@@ -748,6 +748,170 @@ def assert_hash_clean(host, client, buckets=None, full=False, what=""):
     return hh, ch
 
 
+# WV-D63 (SPEC 6a): deterministic placement helpers. Faction/seat/tilepart
+# constants are declared locally rather than imported - every repro in this
+# tree (repro_atom_door.py, repro_atom_walk.py, ...) already re-declares its
+# own copies rather than session.py exporting a shared set, so this follows
+# the existing convention instead of inventing a new one.
+_FACTION_PLAYER = 0
+_COOP_SEAT_1 = 1
+_O_WESTWALL = 1
+_O_NORTHWALL = 2
+
+# dir 0 = north, clockwise (repro_atom_door.py/repro_atom_walk.py's own
+# DIR_DX/DIR_DY tables): (dx, dy) -> dir.
+_DIR_FROM_DELTA = {
+    (0, -1): 0, (1, -1): 1, (1, 0): 2, (1, 1): 3,
+    (0, 1): 4, (-1, 1): 5, (-1, 0): 6, (-1, -1): 7,
+}
+
+# This lever OWNS the corner<->geometry mapping - TestServer.cpp's own
+# battle_teleport_all comment states the same convention - NW=(low x,low y),
+# NE=(high x,low y), SW=(low x,high y), SE=(high x,high y). "Facing the map
+# edge" (WV-D63(a)) means facing further INTO that same corner, i.e. away
+# from the map's centre and away from the door.
+_CORNER_FACING = {"NW": 7, "NE": 1, "SW": 5, "SE": 3}
+
+
+def place_deterministic(host, client, moves, what=""):
+    """WV-D63(a): applies the SAME sequence of placement-lever calls
+    (`battle_teleport_unit` / `battle_teleport_all`) to BOTH machines, in the
+    same order, with identical arguments - never any coop wire traffic
+    (WV-D63(b): the harness applies each machine's lever call independently)
+    - then asserts `hash_now{full:true}` ALL buckets EQUAL: the gate every
+    WV-D63 fixture must pass before its measured action.
+
+    `moves`: a list of dicts, each `{"lever": "battle_teleport_unit"|
+    "battle_teleport_all", **params}` - `params` match that lever's own JSON
+    fields exactly (TestServer.cpp). Raises if either machine's lever call
+    errors, if the two machines' replies for one move DIFFER (WV-D63(f):
+    "moves N units on BOTH machines with identical replies" - dict equality
+    is the right comparison here, since these are JSON objects, not an
+    ordering promise), or if the post-placement hash comparison mismatches.
+    Returns the list of (host_reply, client_reply) pairs, one per move.
+    """
+    tag = f" {what}" if what else ""
+    results = []
+    for i, move in enumerate(moves):
+        move = dict(move)
+        lever = move.pop("lever")
+        req = {"cmd": lever, **move}
+        hr = host.cmd(req)
+        cr = client.cmd(req)
+        assert hr.get("ok"), f"place_deterministic{tag}: move {i} ({lever}) failed on host: {hr}"
+        assert cr.get("ok"), f"place_deterministic{tag}: move {i} ({lever}) failed on client: {cr}"
+        assert hr == cr, (
+            f"place_deterministic{tag}: move {i} ({lever}) replies differ between "
+            f"host and client - host={hr} client={cr}")
+        results.append((hr, cr))
+    assert_hash_clean(host, client, full=True, what=f"place_deterministic{tag}")
+    return results
+
+
+def _tile_standable(gc, pos):
+    """Conservative READ-ONLY proxy for the placement lever's own
+    standability predicate (Tile.cpp:289/:300/:319 via `tile_info`, the same
+    floor-presence check `repro_atom_door.tile_walkable()` uses) - used here
+    only to CHOOSE which side of a door to stand on before calling the
+    lever; the lever itself is the real judge and refuses (changing nothing)
+    if this proxy ever disagrees."""
+    ti = gc.cmd({"cmd": "tile_info", "x": pos[0], "y": pos[1], "z": pos[2]})
+    if not ti.get("ok"):
+        return False
+    return ti.get("parts", {}).get("floor", {}).get("mapDataID", -1) >= 0
+
+
+def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what=""):
+    """WV-D63(c): builds a CONTACT-FREE UFO-door crossing SITUATION
+    deterministically via `place_deterministic`, instead of searching a
+    freshly generated map for one the way `repro_atom_door.py`'s
+    `walk_through_candidates()`/`MAX_REROLLS` loop does. Call once the battle
+    is Active on both machines (after the usual bring-up +
+    `dismiss_battle_start_overlays`/`dismiss_client_briefing`).
+
+    1. Picks a CLOSED UFO door via `find_doors` (the same TestServer lever
+       `repro_atom_door.find_doors()` wraps), filtered to `isUfoDoor` and not
+       `isUfoDoorOpen`, in `find_doors`' own linear tile-index order
+       (deterministic). `door_pick_rule(doors)` may override the SELECTION
+       from that filtered list (default: the first).
+    2. `battle_teleport_all {faction:"hostile", corner:<farthest from the
+       door>, facing:<into that corner>}` - moves every live hostile out of
+       contact range on BOTH machines (WV-D63(a): "teleport all aliens away"
+       replaces "kill all but one").
+    3. `battle_teleport_unit` - moves ONE live seat-1 soldier onto the
+       standable tile in front of the door, facing it.
+    4. `place_deterministic`'s own hash-equality gate (all buckets EQUAL).
+    5. Returns the `(actor_id, near, far, door)` crossing descriptor
+       `repro_atom_door.py`'s `walk_through_candidates()` already produces,
+       so a caller can feed it straight into that file's
+       `phase_walk_through()`/`phase_right_click()` unchanged.
+
+    Raises `AssertionError` (prefixed `FIXTURE:` where the cause is "this
+    generated map cannot supply the situation", never a coop-atom failure)
+    if there is no closed UFO door, no live seat-1 soldier, or neither side
+    of the chosen door looks standable - the caller re-picks (a fresh
+    bring-up / a different door_pick_rule), the same re-roll discipline
+    every other wave-1 fixture uses.
+    """
+    tag = f" {what}" if what else ""
+    doors_resp = host.cmd({"cmd": "find_doors", "limit": 512, "ufoOnly": True})
+    assert doors_resp.get("ok"), f"contact_free_ufo_door_setup{tag}: find_doors failed on host: {doors_resp}"
+    closed = [d for d in doors_resp.get("doors", []) if not d.get("isUfoDoorOpen")]
+    assert closed, f"FIXTURE: contact_free_ufo_door_setup{tag}: no closed UFO door on this map"
+    door = (door_pick_rule or (lambda ds: ds[0]))(closed)
+
+    mx = doors_resp["mapSizeX"]
+    my = doors_resp["mapSizeY"]
+
+    if door["part"] == _O_WESTWALL:
+        side_a = (door["x"], door["y"], door["z"])
+        side_b = (door["x"] - 1, door["y"], door["z"])
+    elif door["part"] == _O_NORTHWALL:
+        side_a = (door["x"], door["y"], door["z"])
+        side_b = (door["x"], door["y"] - 1, door["z"])
+    else:
+        raise AssertionError(
+            f"FIXTURE: contact_free_ufo_door_setup{tag}: door part {door['part']} "
+            "is not a wall part (floor/object doors are not walk-through)")
+
+    vert = "S" if door["y"] < my / 2.0 else "N"
+    horiz = "E" if door["x"] < mx / 2.0 else "W"
+    corner = vert + horiz
+    alien_facing = _CORNER_FACING[corner]
+
+    hs = host.cmd({"cmd": "battle_state"})
+    assert hs.get("ok") and hs.get("inBattle"), (
+        f"contact_free_ufo_door_setup{tag}: battle_state unusable on host: {hs}")
+    seat1 = sorted(
+        u["id"] for u in hs.get("units", [])
+        if u.get("faction") == _FACTION_PLAYER and not u.get("isOut")
+        and u.get("coop") == _COOP_SEAT_1)
+    assert seat1, f"FIXTURE: contact_free_ufo_door_setup{tag}: no live seat-1 soldier"
+    actor_id = seat1[0]
+
+    if _tile_standable(host, side_a):
+        near, far = side_a, side_b
+    elif _tile_standable(host, side_b):
+        near, far = side_b, side_a
+    else:
+        raise AssertionError(
+            f"FIXTURE: contact_free_ufo_door_setup{tag}: neither side of door "
+            f"{door} looks standable (tile_info proxy)")
+
+    dx = (far[0] > near[0]) - (far[0] < near[0])
+    dy = (far[1] > near[1]) - (far[1] < near[1])
+    soldier_dir = _DIR_FROM_DELTA[(dx, dy)]
+
+    moves = [
+        {"lever": "battle_teleport_all", "faction": "hostile", "corner": corner, "facing": alien_facing},
+        {"lever": "battle_teleport_unit", "unit": actor_id,
+         "x": near[0], "y": near[1], "z": near[2], "dir": soldier_dir},
+    ]
+    place_deterministic(host, client, moves, what=f"contact_free_ufo_door_setup{tag}")
+
+    return actor_id, near, far, door
+
+
 def assert_turret_parity(host, client, what="", unit_ids=None):
     """RW-FIX-TURRET: `battle_state`'s per-unit `directionTurret` must read
     the SAME on both machines for every unit they share (or just `unit_ids`).

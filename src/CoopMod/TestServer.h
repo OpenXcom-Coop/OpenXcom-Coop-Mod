@@ -69,8 +69,12 @@ private:
 	bool executeBattle12(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 	/// Fourth sub-dispatcher: R2-P11 rewrite-spike battle-lane introspection
 	/// (event_log/event_state/hash_now/corrupt_bucket/corrupt_next_blob/
-	/// battle_intent/inject_ev, SPIKE-RUNBOOK.md RB-D26/RB-D32). Same
-	/// C1061-avoidance reason as the three dispatchers above.
+	/// battle_intent/inject_ev, SPIKE-RUNBOOK.md RB-D26/RB-D32), plus the
+	/// WV-D63 deterministic placement levers battle_teleport_unit/
+	/// battle_teleport_all (TEST-ONLY: applied to each machine independently
+	/// by the harness with identical absolute arguments; emit nothing; never
+	/// call from product code). Same C1061-avoidance reason as the three
+	/// dispatchers above.
 	bool executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 
 	Game* _game = nullptr;
