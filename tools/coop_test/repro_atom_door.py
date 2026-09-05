@@ -136,6 +136,7 @@ COOP_SEAT_1 = 1
 FACTION_PLAYER = 0
 
 O_FLOOR, O_WESTWALL, O_NORTHWALL, O_OBJECT = 0, 1, 2, 3
+FACTION_HOSTILE = 1  # standard OpenXcom UnitFaction enum (PLAYER=0, HOSTILE=1, NEUTRAL=2)
 
 MAX_REROLLS = 60
 
@@ -157,6 +158,13 @@ EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
 
 class FixtureExhausted(Exception):
     """MAX_REROLLS boots produced no qualifying map. Carries the histogram."""
+
+# SPEC 6c2 (d) step 4 / WV-D72. The --deterministic path's own fresh-boot
+# retry ceiling - deliberately far below MAX_REROLLS=60, because the WV-D63
+# lever PINS the situation instead of searching a map-rolled one for it: a
+# staging miss here is a fixture-lever finding to report (rate), never a
+# reason to grind through dozens of boots hoping for better luck.
+DETERMINISTIC_MAX_BOOTS = 3
 
 # THE PIN THAT MAKES THE CROSSING RELIABLE, and it is a MEASURED number.
 #
@@ -1299,9 +1307,16 @@ def phase_client_boundary_refused(host, client, tag):
 
 # ----- fixtures -----------------------------------------------------------
 
-def bring_up(tag, mission, qualifies, base_port, base_probe):
+def bring_up(tag, mission, qualifies, base_port, base_probe, max_attempts=None):
+    """`max_attempts` (SPEC 6c2 / WV-D72, additive): caps the re-roll/fresh-
+    boot loop below the module's own MAX_REROLLS - the --deterministic path
+    passes DETERMINISTIC_MAX_BOOTS (3) here, since a WV-D63-staged SITUATION
+    that still fails to qualify after a few fresh boots is a lever finding,
+    not a map-luck grind. `None` (every existing caller) preserves today's
+    MAX_REROLLS behaviour byte-for-byte."""
+    limit = MAX_REROLLS if max_attempts is None else max_attempts
     why_log = []
-    for attempt in range(1, MAX_REROLLS + 1):
+    for attempt in range(1, limit + 1):
         port = str(base_port + attempt)
         host = GameClient("host", base_probe + attempt * 2,
                           make_user_dir(f"repro_atom_door_{tag}_host_{attempt}"))
@@ -1314,10 +1329,10 @@ def bring_up(tag, mission, qualifies, base_port, base_probe):
             why = qualifies(host, client)
             if why is None:
                 print(f"[repro_atom_door] {tag} fixture qualifies on attempt "
-                      f"{attempt}/{MAX_REROLLS} ({attempt - 1} re-roll(s))")
+                      f"{attempt}/{limit} ({attempt - 1} re-roll(s))")
                 return host, client
             why_log.append(why)
-            print(f"[repro_atom_door] {tag} re-roll {attempt}/{MAX_REROLLS}: {why}")
+            print(f"[repro_atom_door] {tag} re-roll {attempt}/{limit}: {why}")
             host.shutdown()
             client.shutdown()
         except Exception:
@@ -1328,7 +1343,7 @@ def bring_up(tag, mission, qualifies, base_port, base_probe):
     for w in why_log:
         key = w.split(":")[0].split("(")[0].strip()
         tally[key] = tally.get(key, 0) + 1
-    lines = [f"no qualifying {tag} fixture in {MAX_REROLLS} boots - the map "
+    lines = [f"no qualifying {tag} fixture in {limit} boots - the map "
              "generator never offered a testable situation, which is not a "
              "statement about the door atom",
              "      rejection histogram:"]
@@ -1464,6 +1479,143 @@ def _nearest_door_report(seats, doors):
     return out
 
 
+def _approach_tile_before(near, far):
+    """The collinear tile ONE STEP FURTHER from `far` than `near` - i.e. the
+    tile a proper PHASE-1 approach walks FROM (SPEC 6c2 (d) step 4).
+
+    `session.contact_free_ufo_door_setup()` (WV-D63(c)) places its actor
+    DIRECTLY ON `near` (0 tiles from the crossing). That is exactly the
+    geometry `walk_through_candidates()`'s own `min_approach >= 1` floor
+    rejects (its own docstring: "an actor that already stands on the near
+    tile produces no step before the door at all") and that
+    `assert_door_between_steps` (SS2.W2 rule 6) cannot satisfy either - a
+    1-tile walk has no walk_step BEFORE the door ev, only one at/after it.
+
+    One extra `battle_teleport_unit` hop onto THIS tile, applied identically
+    on both machines via `session.place_deterministic` (the SAME WV-D63
+    levers, the SAME hash-equality gate), restores the 2-step approach both
+    PHASE 1 (`phase_walk_through`) and `phase_reserve_fairness` leg (a)'s own
+    UNCHANGED internal `walk_through_candidates()` search need - without
+    touching `contact_free_ufo_door_setup` itself, which SPEC 6c2 (d) step 2
+    only extends additively."""
+    dx, dy = near[0] - far[0], near[1] - far[1]
+    return (near[0] + dx, near[1] + dy, near[2])
+
+
+def _stage_base_defence_deterministic(out, attempt_box):
+    """WV-D63/WV-D72 qualifier for STR_BASE_DEFENSE's --deterministic path
+    (SPEC 6c2 (d) step 4). Runs INSIDE `bring_up()`'s own re-roll loop
+    (capped at DETERMINISTIC_MAX_BOOTS via `bring_up`'s `max_attempts`, never
+    MAX_REROLLS), so a staging miss gets a FRESH BOOT exactly as WV-D72
+    requires - the MAP is still rolled, only the SITUATION is pinned.
+
+    Stages BOTH WV-D59 legs' crossings:
+      A = the client-origin crossing PHASE 1 and phase_reserve_fairness leg
+          (a) both drive (via their own unchanged internal searches, made
+          reliable by A's setup clearing every hostile map-wide and A's own
+          extra approach-backup teleport giving `walk_through_candidates()`
+          an approach >= 1 candidate to find);
+      B = the host-origin control leg (b)'s `find_adjacent_closed_door(...,
+          only_actor=[B_actor])` then finds, adjacent by construction
+          (0-approach, exactly what stage_right_click_pick's adjacency test
+          wants and exactly what `walk_through_candidates()` would reject).
+
+    Stashes them into `out["A"]`/`out["B"]` on success and returns None
+    (bring_up stops re-rolling). Returns a reason STRING on a recoverable
+    miss (bring_up re-rolls: a FRESH boot, per WV-D72). Re-raises anything
+    that is not a `FIXTURE:`-prefixed AssertionError - a hash-equality
+    mismatch from `place_deterministic` (WV-D63's own STOP-IF) or any other
+    genuine failure must propagate UNCHANGED, never be swallowed by a wider
+    catch."""
+    def q(host, client):
+        attempt_box[0] += 1
+        k = attempt_box[0]
+
+        def _skip(reason):
+            print(f"deterministic staging: attempt {k}/{DETERMINISTIC_MAX_BOOTS} "
+                  f"-> {reason}")
+            return reason
+
+        if spotted(host):
+            return _skip("a hostile is already visible to the host at t=0: "
+                        f"{spotted(host)}")
+        if any(hh != ch for hh, ch in _bucket_pairs(host, client)):
+            return _skip("the fixture is ALREADY divergent at t=0 in "
+                        f"{_divergent_buckets(host, client)}")
+
+        try:
+            doors_resp = host.cmd({"cmd": "find_doors", "limit": 512, "ufoOnly": True})
+            assert doors_resp.get("ok"), f"find_doors failed: {doors_resp}"
+            closed = [d for d in doors_resp.get("doors", [])
+                     if not d.get("isUfoDoorOpen")]
+            if len(closed) < 2:
+                return _skip(f"FIXTURE: only {len(closed)} closed UFO door(s) on "
+                            "this map, need >= 2 (one per WV-D59 leg)")
+            live_seat1 = sorted(u["id"] for u in seat_units(host))
+            if len(live_seat1) < 2:
+                return _skip(f"FIXTURE: only {len(live_seat1)} live seat-1 "
+                            "soldier(s), need >= 2 (one per WV-D59 leg)")
+            # EMPIRICAL (first deterministic run, this cycle): a base-defence
+            # boot can spawn a 2x2+ hostile (Sectopod/Cyberdisc-class), and
+            # `battle_teleport_all` REFUSES OUTRIGHT the moment the hostile
+            # faction has ANY live non-1x1 unit (TestServer.cpp's own
+            # WV-D63(b) "never partially moves one" rule) - a whole-faction
+            # refusal, not a partial move. That refusal is NOT `FIXTURE:`-
+            # prefixed (it is `place_deterministic`'s own wrapped lever-error
+            # text), so it is checked HERE, read-only, before the lever is
+            # ever called, rather than by widening the `except AssertionError`
+            # catch below to also swallow a differently-shaped message.
+            big_hostiles = [u["id"] for u in battle_state(host).get("units", [])
+                           if u.get("faction") == FACTION_HOSTILE
+                           and not u.get("isOut")
+                           and u.get("armorSize", 1) != 1]
+            if big_hostiles:
+                return _skip("FIXTURE: hostile faction has a live 2x2+ unit "
+                            f"{big_hostiles} - battle_teleport_all refuses to "
+                            "move it (WV-D63(b))")
+
+            A = session.contact_free_ufo_door_setup(
+                host, client, door_pick_rule=lambda ds: ds[0], what="leg-a")
+            actor_a, near_a, far_a, door_a = A
+
+            back_a = _approach_tile_before(near_a, far_a)
+            occupied = {unit_pos(u) for u in battle_state(host).get("units", [])
+                       if not u.get("isOut")}
+            if not tile_walkable(host, back_a, occupied):
+                return _skip(f"FIXTURE: no walkable approach-staging tile {back_a} "
+                            f"behind door {door_a} for PHASE 1's approach step")
+            facing = dir_between(back_a, near_a)
+            assert facing is not None, (
+                f"FIXTURE: {back_a} and {near_a} are not adjacent on the "
+                "DIR_DX/DIR_DY compass - cannot face the approach step")
+            session.place_deterministic(host, client, [
+                {"lever": "battle_teleport_unit", "unit": actor_a,
+                 "x": back_a[0], "y": back_a[1], "z": back_a[2], "dir": facing},
+            ], what="leg-a PHASE1 approach backup")
+
+            second_id = next((i for i in live_seat1 if i != actor_a), None)
+            if second_id is None:
+                return _skip("FIXTURE: no SECOND live seat-1 soldier for leg (b)")
+
+            B = session.contact_free_ufo_door_setup(
+                host, client, door_pick_rule=lambda ds: ds[1], actor_id=second_id,
+                teleport_hostiles=False, what="leg-b")
+        except AssertionError as e:
+            msg = str(e)
+            if not msg.startswith("FIXTURE:"):
+                raise
+            return _skip(msg)
+
+        out["A"], out["B"] = A, B
+        print(f"deterministic staging: attempt {k}/{DETERMINISTIC_MAX_BOOTS} -> ok "
+              f"(leg-a actor {actor_a} staged at {back_a} -> door "
+              f"{door_a['x']},{door_a['y']},{door_a['z']} part {door_a['part']}; "
+              f"leg-b actor {B[0]} adjacent to door {B[3]['x']},{B[3]['y']},"
+              f"{B[3]['z']} part {B[3]['part']})")
+        return None
+    return q
+
+
 def run_small_scout():
     """The ORIGINAL fixture, UNCHANGED (SPEC 6 (d) step 3's "do not remove or
     weaken any of the 30 existing assertions" - this function's body and phase
@@ -1508,7 +1660,7 @@ def run_small_scout():
     print(f"\nrepro_atom_door[{DOOR_MISSION}]: PASS ({time.time() - t0:.1f}s)")
 
 
-def run_base_defence():
+def run_base_defence(deterministic=True):
     """SPEC 6 (P10-ACCEPT): STR_BASE_DEFENSE - the ONE map class this wave
     measured with doors at Chebyshev 0-4 (wave1-log 2026-09-03), unlocked by
     FX-1/WV-D56 fixing the t=0 `randomizeItemLocations` divergence. Its doors
@@ -1528,9 +1680,44 @@ def run_base_defence():
     door state and still runs. This is a scope choice, not a gap: SPEC 6's
     DONE-WHEN never asks for a base-defence PHASE 2/boundary-close variant,
     and duplicating them here would only spend TU/actor budget the WV-D59
-    phase needs, for no additional acceptance evidence."""
+    phase needs, for no additional acceptance evidence.
+
+    `deterministic` (SPEC 6c2 / WV-D71, DEFAULT True): stage BOTH WV-D59
+    legs' crossings with the WV-D63 placement lever
+    (`_stage_base_defence_deterministic`) instead of searching a freshly
+    rolled map for one - the WV-D65 3-consecutive-green bar. PHASE 1 and
+    `phase_reserve_fairness` are still called UNCHANGED (same signatures, same
+    assertions); only the SITUATION they find via their own internal search is
+    now pinned rather than rolled. `deterministic=False` (reachable via
+    `--no-deterministic`, WV-D65 EXPLORATION) runs the ORIGINAL map-rolled
+    path byte-for-byte unchanged, `make_qualifier`/`MAX_REROLLS` included."""
     t0 = time.time()
-    print(f"=== FIXTURE: {BASE_DEFENSE_MISSION} (UFO doors - the `unitsStats` bucket) ===")
+    mode = "DETERMINISTIC (WV-D63 lever)" if deterministic else "EXPLORATION (map-rolled, --no-deterministic)"
+    print(f"=== FIXTURE: {BASE_DEFENSE_MISSION} (UFO doors - the `unitsStats` bucket) "
+          f"[{mode}] ===")
+
+    if deterministic:
+        out, attempt_box = {}, [0]
+        host, client = bring_up("basedef", BASE_DEFENSE_MISSION,
+                                _stage_base_defence_deterministic(out, attempt_box),
+                                48920, 49920, max_attempts=DETERMINISTIC_MAX_BOOTS)
+        try:
+            actor_a = out["A"][0]
+            spent = set()
+            phase_walk_through(host, client, want_ufo=True,
+                               approach_max=BASE_DEFENSE_APPROACH_MAX,
+                               tag="PHASE 1 (base defence, deterministic)",
+                               moving_bucket="unitsStats", moved_out=spent)
+            phase_client_boundary_refused(host, client, "PHASE 3 (base defence)")
+            phase_reserve_fairness(host, client, "PHASE 4 (WV-D59)", want_ufo=True,
+                                   approach_max=BASE_DEFENSE_APPROACH_MAX,
+                                   exclude_actor=spent | {actor_a})
+        finally:
+            host.shutdown()
+            client.shutdown()
+        print(f"\nrepro_atom_door[{BASE_DEFENSE_MISSION}]: PASS ({time.time() - t0:.1f}s)")
+        return
+
     host, client = bring_up("basedef", BASE_DEFENSE_MISSION,
                             make_qualifier(True, BASE_DEFENSE_APPROACH_MAX), 48920, 49920)
     try:
@@ -1556,10 +1743,24 @@ def main():
                     default=None,
                     help="run ONLY this mission class's leg (default: run BOTH, "
                          "base defence first - SPEC 6 (P10-ACCEPT))")
+    ap.add_argument("--deterministic", dest="deterministic", action="store_true",
+                    default=True,
+                    help="stage the STR_BASE_DEFENSE crossing with the WV-D63 "
+                         "lever (DEFAULT, WV-D71) - the WV-D65 3-consecutive-"
+                         "green deterministic bar")
+    ap.add_argument("--no-deterministic", dest="deterministic", action="store_false",
+                    help="use the legacy map-rolled search (EXPLORATION at "
+                         "G2/G3, WV-D65). STR_SMALL_SCOUT's doors are NORMAL, "
+                         "not UFO, so this flag is a no-op for that leg either "
+                         "way - it only changes STR_BASE_DEFENSE's behaviour")
     args = ap.parse_args()
 
+    print("repro_atom_door: mode = " +
+          ("DETERMINISTIC (WV-D63 lever, WV-D71 default)" if args.deterministic
+           else "EXPLORATION (map-rolled search, --no-deterministic, WV-D65)"))
+
     if args.mission == BASE_DEFENSE_MISSION:
-        run_base_defence()
+        run_base_defence(deterministic=args.deterministic)
         return
     if args.mission == DOOR_MISSION:
         run_small_scout()
@@ -1573,7 +1774,8 @@ def main():
     # (a fixture fact - see the module docstring's FIXTURE section, and SPEC 6
     # DONE-WHEN 2) - STR_BASE_DEFENSE normally supplies the PASS.
     results = {}
-    for name, runner in ((BASE_DEFENSE_MISSION, run_base_defence),
+    for name, runner in ((BASE_DEFENSE_MISSION,
+                         lambda: run_base_defence(deterministic=args.deterministic)),
                         (DOOR_MISSION, run_small_scout)):
         try:
             runner()

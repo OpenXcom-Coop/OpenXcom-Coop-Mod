@@ -1151,7 +1151,16 @@ def phase5_reserve(host, client, client_ids):
                 ev_before = event_state(client)
                 host_seq_before = event_state(host)["lastSeqEmitted"]
                 warn_before = warning_text(client)
-                kind, out = reserve_probe(host, client, actor_id, mode, radius=1)
+                # WV-D73 (traced, folded into SPEC 6c2): reserve_probe() returns a
+                # 4-tuple on its "truncated" branch (:1126-1129) and a 2-tuple on
+                # every other branch; unpacking straight into `kind, out` raised
+                # "ValueError: too many values to unpack" whenever "truncated" fired
+                # here (rare - this call uses radius=1, and truncation needs a
+                # violation at step k>1, so only a one-tile destination requiring a
+                # multi-step detour hits it). Mirror the call site at :1220-1221,
+                # which already consumes the 4-tuple deliberately.
+                probe = reserve_probe(host, client, actor_id, mode, radius=1)
+                kind, out = probe[0], probe[1]
                 if kind == "refused":
                     found = (actor_id, mode, out[1], ev_before, host_seq_before,
                              warn_before)

@@ -821,13 +821,23 @@ def _tile_standable(gc, pos):
     return ti.get("parts", {}).get("floor", {}).get("mapDataID", -1) >= 0
 
 
-def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what=""):
+def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what="",
+                                 actor_id=None, teleport_hostiles=True):
     """WV-D63(c): builds a CONTACT-FREE UFO-door crossing SITUATION
     deterministically via `place_deterministic`, instead of searching a
     freshly generated map for one the way `repro_atom_door.py`'s
     `walk_through_candidates()`/`MAX_REROLLS` loop does. Call once the battle
     is Active on both machines (after the usual bring-up +
     `dismiss_battle_start_overlays`/`dismiss_client_briefing`).
+
+    WHY `actor_id`/`teleport_hostiles` exist (SPEC 6c2 (d) step 2): the WV-D59
+    door-reserve-fairness repro needs TWO deterministically-staged crossings
+    in the SAME battle, one per leg - a client-origin crossing and a
+    host-origin control - and this helper's own "lowest live seat-1 soldier"
+    rule would otherwise hand BOTH callers the identical actor. `actor_id`
+    lets a SECOND call pick a DIFFERENT soldier; `teleport_hostiles=False`
+    lets that second call skip re-doing the (idempotent but redundant)
+    `battle_teleport_all` the FIRST call already did in this battle.
 
     1. Picks a CLOSED UFO door via `find_doors` (the same TestServer lever
        `repro_atom_door.find_doors()` wraps), filtered to `isUfoDoor` and not
@@ -837,9 +847,12 @@ def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what=""):
     2. `battle_teleport_all {faction:"hostile", corner:<farthest from the
        door>, facing:<into that corner>}` - moves every live hostile out of
        contact range on BOTH machines (WV-D63(a): "teleport all aliens away"
-       replaces "kill all but one").
+       replaces "kill all but one"). SKIPPED when `teleport_hostiles=False`
+       (the caller already cleared hostiles earlier in this same battle).
     3. `battle_teleport_unit` - moves ONE live seat-1 soldier onto the
-       standable tile in front of the door, facing it.
+       standable tile in front of the door, facing it: the LOWEST live
+       seat-1 id by default, or the given `actor_id` (asserted live, seat-1,
+       and present on BOTH machines) when provided.
     4. `place_deterministic`'s own hash-equality gate (all buckets EQUAL).
     5. Returns the `(actor_id, near, far, door)` crossing descriptor
        `repro_atom_door.py`'s `walk_through_candidates()` already produces,
@@ -848,10 +861,12 @@ def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what=""):
 
     Raises `AssertionError` (prefixed `FIXTURE:` where the cause is "this
     generated map cannot supply the situation", never a coop-atom failure)
-    if there is no closed UFO door, no live seat-1 soldier, or neither side
-    of the chosen door looks standable - the caller re-picks (a fresh
-    bring-up / a different door_pick_rule), the same re-roll discipline
-    every other wave-1 fixture uses.
+    if there is no closed UFO door, no live seat-1 soldier (or the requested
+    `actor_id` is not one, on EITHER machine), or neither side of the chosen
+    door looks standable - the caller re-picks (a fresh bring-up / a
+    different door_pick_rule), the same re-roll discipline every other
+    wave-1 fixture uses. Defaults preserve every existing caller byte-for-
+    byte (`actor_id=None, teleport_hostiles=True` = today's behaviour).
     """
     tag = f" {what}" if what else ""
     doors_resp = host.cmd({"cmd": "find_doors", "limit": 512, "ufoOnly": True})
@@ -887,7 +902,22 @@ def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what=""):
         if u.get("faction") == _FACTION_PLAYER and not u.get("isOut")
         and u.get("coop") == _COOP_SEAT_1)
     assert seat1, f"FIXTURE: contact_free_ufo_door_setup{tag}: no live seat-1 soldier"
-    actor_id = seat1[0]
+    if actor_id is None:
+        actor_id = seat1[0]
+    else:
+        assert actor_id in seat1, (
+            f"FIXTURE: contact_free_ufo_door_setup{tag}: requested actor_id "
+            f"{actor_id} is not a live seat-1 soldier on the host (live seat-1: "
+            f"{seat1})")
+        cs = client.cmd({"cmd": "battle_state"})
+        assert cs.get("ok") and cs.get("inBattle"), (
+            f"contact_free_ufo_door_setup{tag}: battle_state unusable on client: {cs}")
+        cseat1 = {u["id"] for u in cs.get("units", [])
+                  if u.get("faction") == _FACTION_PLAYER and not u.get("isOut")
+                  and u.get("coop") == _COOP_SEAT_1}
+        assert actor_id in cseat1, (
+            f"FIXTURE: contact_free_ufo_door_setup{tag}: requested actor_id "
+            f"{actor_id} is not a live seat-1 soldier on the CLIENT")
 
     if _tile_standable(host, side_a):
         near, far = side_a, side_b
@@ -902,11 +932,12 @@ def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what=""):
     dy = (far[1] > near[1]) - (far[1] < near[1])
     soldier_dir = _DIR_FROM_DELTA[(dx, dy)]
 
-    moves = [
-        {"lever": "battle_teleport_all", "faction": "hostile", "corner": corner, "facing": alien_facing},
-        {"lever": "battle_teleport_unit", "unit": actor_id,
-         "x": near[0], "y": near[1], "z": near[2], "dir": soldier_dir},
-    ]
+    moves = []
+    if teleport_hostiles:
+        moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+                      "corner": corner, "facing": alien_facing})
+    moves.append({"lever": "battle_teleport_unit", "unit": actor_id,
+                  "x": near[0], "y": near[1], "z": near[2], "dir": soldier_dir})
     place_deterministic(host, client, moves, what=f"contact_free_ufo_door_setup{tag}")
 
     return actor_id, near, far, door
