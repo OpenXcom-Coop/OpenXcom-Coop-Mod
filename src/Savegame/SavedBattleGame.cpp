@@ -295,6 +295,8 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 			if (unit->getId() == undoUnitId)
 				_undoUnit = unit;
 		}
+		// Dead units never get an AIModule on load; the generator releases theirs too
+		// (releaseAIModulesOfUnitsKilledDuringGeneration, WV-D62), so host and loaded copies agree.
 		else if (unit->getStatus() != STATUS_DEAD && !unit->isIgnored())
 		{
 			if (const auto& ai = unitReader["AI"])

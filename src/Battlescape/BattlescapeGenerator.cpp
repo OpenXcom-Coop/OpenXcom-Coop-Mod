@@ -953,6 +953,7 @@ void BattlescapeGenerator::run()
 	if (!isPreview && _ufo && _ufo->getStatus() == Ufo::CRASHED)
 	{
 		explodePowerSources();
+		releaseAIModulesOfUnitsKilledDuringGeneration();
 	}
 
 	if (!isPreview)
@@ -2546,6 +2547,60 @@ void BattlescapeGenerator::explodePowerSources()
 		Position p = t->getPosition().toVoxel() + Position(8,8,0);
 		_save->getTileEngine()->explode({ }, p, power, _game->getMod()->getDamageType(DT_HE), power / 10);
 		t = _save->getTileEngine()->checkForTerrainExplosions();
+	}
+}
+
+// ---------------------------------------------------------------------------
+// releaseAIModulesOfUnitsKilledDuringGeneration
+//
+// DO NOT REMOVE OR "SIMPLIFY AWAY" THIS FUNCTION WHEN MERGING UPSTREAM OXCE.
+//
+// Why it exists: units whose health is driven to zero DURING map generation
+// (crashed-UFO power-source explosions in explodePowerSources()) -- their STATUS_DEAD
+// flip happens LATER, in BattlescapeGame::checkForCasualties, so this releases on the
+// getHealth() <= 0 predicate, exactly as vanilla's turn-start rule does. Vanilla only
+// releases such a unit's
+// AIModule at that side's NEXT turn-start (BattleUnit::prepareHealth), because
+// releasing at the moment of death could free a module that is still executing.
+// Generation is the one point where no AIModule is on the call stack, so it is
+// safe to release here.
+//
+// Why it matters: an AIModule on a dead unit is never read by anything (audited
+// 2026-09-05: no think/reaction/spotting/node/spawn/revive/script path consults
+// it), but BattleUnit::save() still serialises it as the per-unit `AI:` node.
+// The CO-OP mod hashes the battle state on both machines; the joining machine
+// rebuilds the battle from the host's snapshot through SavedBattleGame::load(),
+// which (correctly) never reconstructs an AIModule for a dead unit. Without this
+// release the two machines disagree at t=0 on every crashed-UFO map whose
+// explosion killed crew, and the co-op handshake refuses to start the battle.
+//
+// Owner ruling (openxcom-coop-agent-docs rewrite/wave1-log.md, 2026-09-05,
+// WV-D62): fix it here, vanilla-wide, rather than hide it from the hash.
+// Single-player behaviour is unchanged except that generation-killed units no
+// longer write an ignored `AI:` node into saves.
+// ---------------------------------------------------------------------------
+void BattlescapeGenerator::releaseAIModulesOfUnitsKilledDuringGeneration()
+{
+	int released = 0;
+	for (auto* bu : *_save->getUnits())
+	{
+		// Predicate = vanilla's own turn-start release rule (BattleUnit::prepareHealth,
+		// "if (_health <= 0 && _currentAIState)"). At THIS call site the crew killed by
+		// explodePowerSources() are getHealth() <= 0 but NOT yet STATUS_DEAD -- the status
+		// flip happens later, in BattlescapeGame::checkForCasualties (run from the
+		// BattlescapeGame ctor, after BattlescapeGenerator::run() returns). A
+		// getStatus()==STATUS_DEAD test would therefore match NOTHING here. WV-D62 +
+		// SUPERVISOR CORRECTION (openxcom-coop-agent-docs rewrite/wave1-log.md 2026-09-05,
+		// docs 199bf09).
+		if (bu->getHealth() <= 0 && bu->getAIModule() != nullptr)
+		{
+			bu->setAIModule(nullptr);
+			++released;
+		}
+	}
+	if (released > 0)
+	{
+		Log(LOG_INFO) << "releaseAIModulesOfUnitsKilledDuringGeneration: released " << released << " AIModule(s)";
 	}
 }
 

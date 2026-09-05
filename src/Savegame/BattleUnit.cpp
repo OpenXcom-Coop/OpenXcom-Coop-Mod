@@ -2707,6 +2707,8 @@ void BattleUnit::prepareHealth(int health)
 	setValueMax(_health, health, -UnitStats::OverkillMultipler * _stats.health, _stats.health);
 
 	// if unit is dead, AI state should be gone
+	// See BattlescapeGenerator::releaseAIModulesOfUnitsKilledDuringGeneration() for the
+	// generation-time counterpart (co-op determinism, WV-D62).
 	if (_health <= 0 && _currentAIState)
 	{
 		delete _currentAIState;

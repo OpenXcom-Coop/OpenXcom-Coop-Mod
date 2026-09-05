@@ -6212,6 +6212,11 @@ std::string TestServer::execute(const std::string& line)
 				const BattleUnit* giftSel = coop->getGiftSelectedBattleUnit();
 				resp["giftSelectedId"] = giftSel ? giftSel->getId() : -1;
 				Json::Value units(Json::arrayValue);
+				// WV-D62 (FX-3b): count of units whose health was driven <=0 that still
+				// carry a non-null AIModule - should be 0 on both machines once the
+				// generator releases gen-killed units' modules (BattlescapeGenerator::
+				// releaseAIModulesOfUnitsKilledDuringGeneration).
+				int unitsDeadWithAI = 0;
 				for (auto* u : *bg->getUnits())
 				{
 					Json::Value ju;
@@ -6307,6 +6312,7 @@ std::string TestServer::execute(const std::string& line)
 					// can ASSERT that premise instead of trusting a comment - a
 					// mod that sets it would silently reintroduce the desync.
 					ju["turnBeforeFirstStep"] = u->getArmor()->getTurnBeforeFirstStep();
+					if (u->getHealth() <= 0 && u->getAIModule() != nullptr) ++unitsDeadWithAI; // WV-D62 + correction: health<=0 = vanilla prepareHealth rule; meaningful pre/post the STATUS_DEAD flip
 					{
 						Json::Value spottedIds(Json::arrayValue);
 						for (const BattleUnit* sp : u->getUnitsSpottedThisTurn())
@@ -6329,6 +6335,7 @@ std::string TestServer::execute(const std::string& line)
 					units.append(ju);
 				}
 				resp["units"] = units;
+				resp["unitsDeadWithAI"] = unitsDeadWithAI; // WV-D62 (FX-3b) positive control
 				// Spotted hostiles: union of what all player units currently see.
 				// The tactical driver targets only these (no omniscient wall-shots).
 				std::set<int> spotted;
