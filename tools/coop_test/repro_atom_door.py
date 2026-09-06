@@ -1006,7 +1006,8 @@ def phase_right_click(host, client, approach_max, want_ufo, tag, moving_bucket,
           "SS2.4's fallback is retired for this path")
 
 
-def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_actor=None):
+def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_actor=None,
+                           only_actor_a=None, only_actor_b=None):
     """WV-D59 (owner ruling R-E, 2026-09-04): the host must not apply ITS OWN
     TU reserve to a CLIENT-ORIGIN door. `tuReserved`/`kneelReserved` are
     saveBlob-EXCLUDED (SharedEcon.cpp:3974) and therefore machine-local, so the
@@ -1039,7 +1040,24 @@ def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_ac
       for a host-origin action, not just a client-origin one).
 
     Both legs restore {mode:"none", kneel:false} on both machines when done,
-    win or lose (spec (d) step 4's closing bullet) - via try/finally."""
+    win or lose (spec (d) step 4's closing bullet) - via try/finally.
+
+    `only_actor_a`/`only_actor_b` (SPEC 6c4 (d) step 2, additive, BOTH default
+    `None` = today's behaviour byte-for-byte): constrain each leg's own search
+    to a caller-staged actor instead of letting it fall through to whichever
+    other staged actor is left once `exclude_actor` has removed the ones
+    already spent - the SPEC 6c4 (b) root cause (leg (a)'s search landing on
+    B, which is staged ADJACENT for leg (b) and therefore REJECTED by
+    `walk_through_candidates()`'s own `min_approach=1` floor, then wandering
+    the map and halting `reason=no_tu`). `only_actor_a` passes straight
+    through to leg (a)'s own `walk_through_candidates(..., only_actor=...)`
+    (that parameter already exists there). `only_actor_b` narrows leg (b)'s
+    own `candidate_pool` to the intersection with the caller's set, leaving
+    every existing filter (`control_exclude`, `already_tried_actors`,
+    kneeled) exactly as it is. Neither touches `exclude_actor`, `cheb()`,
+    `min_approach`, the TU filter or `approach_max` - the map-rolled
+    (`--no-deterministic`) and base-defence exploration legs pass neither and
+    are therefore unchanged."""
     print(f"\n== {tag}: WV-D59 - door TU-reserve fairness ==")
     try:
         # ----- LEG (a): CLIENT-origin crossing, HOST reserve aimed+kneel -----
@@ -1057,6 +1075,7 @@ def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_ac
             cands = [c for c in walk_through_candidates(host, approach_max,
                                                         want_ufo=want_ufo,
                                                         clean_only=True,
+                                                        only_actor=only_actor_a,
                                                         exclude_actor=exclude_actor)
                      if (c[0], c[1], c[2],
                          unit_pos(W.unit_of(host, c[0]))) not in tried]
@@ -1139,7 +1158,8 @@ def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_ac
             candidate_pool = [u["id"] for u in seat_units(host)
                              if u["id"] not in control_exclude
                              and u["id"] not in already_tried_actors
-                             and not u.get("kneeled")]
+                             and not u.get("kneeled")
+                             and (only_actor_b is None or u["id"] in only_actor_b)]
             pick = find_adjacent_closed_door(host, want_ufo,
                                              only_actor=candidate_pool, min_tu=0)
             if not pick:
@@ -1651,19 +1671,57 @@ def _stage_deterministic(mission, out, attempt_box):
             B = session.contact_free_ufo_door_setup(
                 host, client, door_pick_rule=pick_b, actor_id=second_id,
                 teleport_hostiles=False, what="leg-b")
+
+            # SPEC 6c4 (d) step 1: PHASE 4 leg (a) needs its OWN approach-1
+            # actor - by the time it runs, exclude_actor=spent|{actor_a} has
+            # already excluded A, and B is staged ADJACENT (approach 0, what
+            # leg (b) needs), which `walk_through_candidates()`'s own
+            # `min_approach=1` floor rejects. A THIRD staged actor, backed up
+            # one tile exactly like A, gives leg (a) an approach-1 candidate
+            # of its own instead of falling through to B's and then to the
+            # map-wide search (SPEC 6c4 (b), the traced root cause).
+            third_id = next((i for i in live_seat1
+                             if i != actor_a and i != B[0]), None)
+            if third_id is None:
+                return _skip("FIXTURE: no THIRD live seat-1 soldier for PHASE 4 "
+                            "leg (a)")
+
+            pick_c = (lambda ds: ds[2]) if len(closed) > 2 else pick_b
+
+            C = session.contact_free_ufo_door_setup(
+                host, client, door_pick_rule=pick_c, actor_id=third_id,
+                teleport_hostiles=False, what="leg-a-phase4")
+            actor_c, near_c, far_c, door_c = C
+
+            back_c = _approach_tile_before(near_c, far_c)
+            occupied = {unit_pos(u) for u in battle_state(host).get("units", [])
+                       if not u.get("isOut")}
+            if not tile_walkable(host, back_c, occupied):
+                return _skip(f"FIXTURE: no walkable approach-staging tile {back_c} "
+                            f"behind door {door_c} for PHASE 4 leg (a)'s actor C")
+            facing_c = dir_between(back_c, near_c)
+            assert facing_c is not None, (
+                f"FIXTURE: {back_c} and {near_c} are not adjacent on the "
+                "DIR_DX/DIR_DY compass - cannot face the approach step (actor C)")
+            session.place_deterministic(host, client, [
+                {"lever": "battle_teleport_unit", "unit": actor_c,
+                 "x": back_c[0], "y": back_c[1], "z": back_c[2], "dir": facing_c},
+            ], what="leg-a-phase4 approach backup")
         except AssertionError as e:
             msg = str(e)
             if not msg.startswith("FIXTURE:"):
                 raise
             return _skip(msg)
 
-        out["A"], out["B"] = A, B
+        out["A"], out["B"], out["C"] = A, B, C
         print(f"deterministic staging [{mission}]: attempt "
               f"{k}/{DETERMINISTIC_MAX_BOOTS} -> ok "
               f"(leg-a actor {actor_a} staged at {back_a} -> door "
               f"{door_a['x']},{door_a['y']},{door_a['z']} part {door_a['part']}; "
               f"leg-b actor {B[0]} adjacent to door {B[3]['x']},{B[3]['y']},"
-              f"{B[3]['z']} part {B[3]['part']})")
+              f"{B[3]['z']} part {B[3]['part']}; "
+              f"leg-a-phase4 actor {actor_c} staged at {back_c} -> door "
+              f"{door_c['x']},{door_c['y']},{door_c['z']} part {door_c['part']})")
         return None
     return q
 
@@ -1766,7 +1824,8 @@ def run_base_defence(deterministic=True):
             phase_client_boundary_refused(host, client, "PHASE 3 (base defence)")
             phase_reserve_fairness(host, client, "PHASE 4 (WV-D59)", want_ufo=True,
                                    approach_max=BASE_DEFENSE_APPROACH_MAX,
-                                   exclude_actor=spent | {actor_a})
+                                   exclude_actor=spent | {actor_a},
+                                   only_actor_a={out["C"][0]}, only_actor_b={out["B"][0]})
         finally:
             host.shutdown()
             client.shutdown()
@@ -1839,7 +1898,8 @@ def run_supply_ship(deterministic=True):
             phase_client_boundary_refused(host, client, "PHASE 3 (supply ship)")
             phase_reserve_fairness(host, client, "PHASE 4 (WV-D59)", want_ufo=True,
                                    approach_max=BASE_DEFENSE_APPROACH_MAX,
-                                   exclude_actor=spent | {actor_a})
+                                   exclude_actor=spent | {actor_a},
+                                   only_actor_a={out["C"][0]}, only_actor_b={out["B"][0]})
         finally:
             host.shutdown()
             client.shutdown()
