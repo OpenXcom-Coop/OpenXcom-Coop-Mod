@@ -4021,6 +4021,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				int did = -1, dsid = -1;
 				t->getMapData(&did, &dsid, tp);
 				jd["mapDataID"] = did;
+				// SPEC 0e-1 (WV-D87): the door's map-DATASET name (e.g. "LIGHTNIN"),
+				// not just its raw record id - the Lightning-contact spike needs to
+				// find "the craft's own UFO door" without hard-coding a dataset index
+				// that a mod could renumber. MapDataSet::getName() (MapDataSet.h:52).
+				jd["dataSet"] = (dsid >= 0 && sbg->getMapDataSets() && dsid < (int)sbg->getMapDataSets()->size())
+					? (*sbg->getMapDataSets())[dsid]->getName() : std::string();
 				doors.append(jd);
 				if (++found >= cap)
 					break;
