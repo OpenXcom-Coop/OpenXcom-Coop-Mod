@@ -36,7 +36,17 @@ import repro_atom_door as D
 
 MISSION = "STR_SUPPLY_SHIP"
 MAX_BOOTS = 3
-PINNED_TU = 60
+# LEG (a) needs enough TU to walk the approach step AND pay the door: 60 is ample.
+LEG_A_TU = 60
+# LEG (b) MUST be pinned LOW or the control proves nothing. Tile::openDoor computes
+# affordability as BattleActionCost(reserve, unit, weapon).haveTU() (Tile.cpp:367-401),
+# which folds the RESERVED action's own cost in on top of the door's TUCost - so a
+# richly-stocked actor opens the door under an aimed+kneel reserve anyway and the
+# refusal we are trying to observe never happens. repro_atom_door.py's own proven
+# control leg pins CONTROL_LEG_TU = RIGHT_CLICK_TU = 8 for exactly this reason
+# ("a refusal at the control step is evidence the RESERVE changed the outcome, not
+# that the actor was merely short on TU"). Same value, same reason.
+LEG_B_TU = 8
 EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
 BASE_GAME_PORT = 47997
 BASE_TEST_PORT = 48997
@@ -115,15 +125,17 @@ def run_scenario(host, client, tag):
     assert a0.get("direction") == want_dir, (
         f"{tag}: actor {actor_a} faces {a0.get('direction')}, expected {want_dir} "
         f"(toward {far})")
-    assert not D.battle_state(host).get("spotted"), (
-        f"{tag}: the host already has a spotted hostile after placement: "
-        f"{D.battle_state(host).get('spotted')}")
+    spotted_now = D.battle_state(host).get("spotted")
+    assert not spotted_now, (
+        f"FIXTURE: {tag}: the host still has a spotted hostile after placement "
+        f"({spotted_now}) - contact-free is a PREMISE of this fixture, so this map "
+        "roll is unusable; re-boot (WV-D72)")
     assert_hash_clean(host, client, full=True, what=f"{tag} after placement")
 
     # ---- step 4: LEG (a) - CLIENT-origin crossing, HOST reserve aimed+kneel ----
     W.set_reserve(host, mode="aimed", kneel=True)
     W.set_reserve(client, mode="none", kneel=False)
-    pin_tu(host, client, actor_a, PINNED_TU)
+    pin_tu(host, client, actor_a, LEG_A_TU)
     assert_hash_clean(host, client, full=True, what=f"{tag}(a) TU pinned")
 
     emitted0 = D.event_state(host)["coopDoorEvsEmitted"]
@@ -140,7 +152,7 @@ def run_scenario(host, client, tag):
     evs = D.action_events(host, action_id)
     door_evs = [e for e in evs if e["kind"] == "door"]
     if not door_evs:
-        dump_record(f"{tag}(a)", host, actor_a, near, PINNED_TU, door_at, False,
+        dump_record(f"{tag}(a)", host, actor_a, near, LEG_A_TU, door_at, False,
                    action_id=action_id, restate=hw.get("restate"))
         raise AssertionError(
             f"{tag}(a): STOP-IF - the client-origin crossing emitted NO `door` ev "
@@ -187,7 +199,7 @@ def run_scenario(host, client, tag):
     # ---- b1 BASELINE: reserve=none, does this actor/door/TU open at all? ----
     W.set_reserve(host, mode="none", kneel=False)
     W.set_reserve(client, mode="none", kneel=False)
-    pin_tu(host, client, second_id, PINNED_TU)
+    pin_tu(host, client, second_id, LEG_B_TU)
     assert_hash_clean(host, client, full=True, what=f"{tag}(b) baseline TU pinned")
 
     emitted_base0 = D.event_state(host)["coopDoorEvsEmitted"]
@@ -197,7 +209,7 @@ def run_scenario(host, client, tag):
     opened = wait_counter(host, lambda es: es["coopDoorEvsEmitted"] > emitted_base0)
     W.settle_reveal(host, client)
     if not opened:
-        dump_record(f"{tag}(b) baseline", host, second_id, near_b, PINNED_TU, door_at,
+        dump_record(f"{tag}(b) baseline", host, second_id, near_b, LEG_B_TU, door_at,
                    False)
         raise AssertionError(
             f"{tag}(b): STOP-IF - the baseline host-origin order (reserve=none) did "
@@ -210,7 +222,7 @@ def run_scenario(host, client, tag):
     # ---- re-arm: close it again, re-pin TU, only the reserve changes next ----
     rc = host.cmd({"cmd": "battle_close_ufo_doors"})
     assert rc.get("ok"), f"{tag}(b): re-close failed: {rc}"
-    pin_tu(host, client, second_id, PINNED_TU)
+    pin_tu(host, client, second_id, LEG_B_TU)
     d3 = D.door_lookup(host, door_at)
     assert d3 is not None and d3.get("isUfoDoorOpen") is False, (
         f"{tag}(b): door {door_at} did not re-close before the control: {d3}")
@@ -234,7 +246,7 @@ def run_scenario(host, client, tag):
     # waive moving is a TU-affordability outcome (Tile::openDoor's own cost
     # check), not proof the waive predicate fired for a HOST-origin action.
     if door_opened or waive_fired:
-        dump_record(f"{tag}(b) control", host, second_id, near_b, PINNED_TU, door_at,
+        dump_record(f"{tag}(b) control", host, second_id, near_b, LEG_B_TU, door_at,
                    False)
         print(f"      coopDoorReserveWaived before={waived_b0} after={hs['coopDoorReserveWaived']}")
         if waive_fired:
@@ -246,7 +258,7 @@ def run_scenario(host, client, tag):
             f"{tag}(b): the control leg OPENED the door under the IDENTICAL host "
             f"reserve that the baseline needed reserve=none to clear, but "
             f"coopDoorReserveWaived did NOT move ({waived_b0} unchanged) - NOT the "
-            "WV-D59 waive; PINNED_TU is affordable for Tile::openDoor's own "
+            "WV-D59 waive; LEG_B_TU is affordable for Tile::openDoor's own "
             "BattleActionCost(reserve).haveTU() check regardless of origin")
     d4 = D.door_lookup(host, door_at)
     assert d4 is not None and d4.get("isUfoDoorOpen") is False, (
