@@ -223,7 +223,7 @@ class GameClient:
                     return
             except (ConnectionRefusedError, socket.timeout, OSError):
                 self.sock = None
-                time.sleep(1)
+                time.sleep(0.1)
         raise TimeoutError(f"{self.name}: test server not reachable on :{self.port}")
 
     def cmd(self, obj):
@@ -242,7 +242,9 @@ class GameClient:
             raise RuntimeError(f"{self.name}: {obj.get('cmd')} failed: {r.get('error')}")
         return r
 
-    def wait_for(self, desc, predicate, timeout=90, interval=1.0):
+    # SPEC 0c / WV-D82: measured 2026-09-06, 1.0 s rounding cost ~2.2 s per battle
+    # setup; 0.1 s is the measured value, not a guess.
+    def wait_for(self, desc, predicate, timeout=90, interval=0.1):
         deadline = time.time() + timeout
         last = None
         while time.time() < deadline:
