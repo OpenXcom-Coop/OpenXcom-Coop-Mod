@@ -186,17 +186,34 @@ def standable_side(host, door, tag):
     raise AssertionError(f"FIXTURE: {tag}: neither side of door {door} looks standable")
 
 
-def wait_facing_applied(host, client, timeout=30):
-    """The same 'host emitted, caught up on the client' predicate the OLD
-    file's own facing-turn helper used (D.wait_host_idle is broader and
-    outside SPEC 6e's allowed-primitive list; event_state alone is
-    sufficient here since nothing else is in flight)."""
-    client.wait_for(
-        "facing turn applied on both machines",
-        lambda: (D.event_state(client).get("lastSeqApplied", 0)
-                 == D.event_state(host).get("lastSeqEmitted", 0)
-                 and D.event_state(client).get("queueDepth") == 0) or None,
-        timeout=timeout)
+def wait_facing(host, client, actor_id, want_dir, timeout=30):
+    """Poll until BOTH machines report `actor_id` actually FACING `want_dir`.
+
+    A seq-based wait (`lastSeqApplied == lastSeqEmitted and queueDepth == 0`)
+    is VACUOUSLY TRUE in the window between shipping the intent and the host
+    emitting anything for it - so it can return mid-turn.
+    Observed: a rotation 2 -> 6 sampled at facing 3 (one step in), failing 1 run
+    in 3. UnitTurnBState turns one step per tick, so the only non-racy predicate
+    is the FACING ITSELF. Same lesson as the `payload.op` filter: never gate on a
+    condition that can hold before the action has happened."""
+    deadline = time.time() + timeout
+    last = (None, None)
+    while time.time() < deadline:
+        hu = {u["id"]: u for u in D.battle_state(host).get("units", [])}
+        cu = {u["id"]: u for u in D.battle_state(client).get("units", [])}
+        hd = hu.get(actor_id, {}).get("direction")
+        cd = cu.get(actor_id, {}).get("direction")
+        last = (hd, cd)
+        if hd == want_dir and cd == want_dir:
+            cs = D.event_state(client)
+            hs = D.event_state(host)
+            if (cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
+                    and cs.get("queueDepth") == 0):
+                return True
+        time.sleep(0.1)
+    raise AssertionError(
+        f"wait_facing: actor {actor_id} never reached facing {want_dir} on both "
+        f"machines within {timeout}s (last seen host={last[0]} client={last[1]})")
 
 
 def wait_door_fired(host, client, before_emitted, timeout=30):
@@ -218,11 +235,14 @@ def wait_door_fired(host, client, before_emitted, timeout=30):
 
 def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_actors):
     """SPEC 6f AMENDMENT 2 phases B ('want_ufo=True') and C ('want_ufo=False'):
-    THE TURN IS THE RIGHT-CLICK. Actor starts FACING AWAY from a NAMED,
-    PLACED door; the entire action under test is ONE client
-    `battle_intent {kind:"turn"}` toward it (UnitTurnBState.cpp:74-98's
-    unconditional coopUnitOpensDoor on the new facing - no separate
-    `battle_action {action:"door"}` follows). Returns (actor_id, door_key) so
+    THE TURN IS THE RIGHT-CLICK, but ONLY on a ZERO-TICK re-issue. Actor is
+    placed FACING AWAY from a NAMED, PLACED door, then: (1) a turn intent
+    toward the door ROTATES it and must NOT open the door - the negative
+    control, because lookAt() sets STATUS_TURNING and UnitTurnBState.cpp:74
+    gates the door-open on `getStatus() != STATUS_TURNING`; (2) the SAME turn
+    intent re-issued is now zero-tick and MUST open it
+    (connectionTCP.cpp:4912, "zero-tick door-open branch"). No separate
+    `battle_action {action:"door"}` is involved. Returns (actor_id, door_key) so
     a later phase can exclude both."""
     door, door_key = pick_door(host, want_ufo, exclude_door_keys, tag)
     actor_id = pick_soldier(host, client, used_actors, tag)
@@ -254,11 +274,19 @@ def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_a
     assert door_before is not None and door_before.get("isUfoDoorOpen") is False, (
         f"{tag}: door {door_key} is not closed before the turn: {door_before}")
 
-    # ---- THE ONE ACTION: a client turn intent toward the door ----
+    # ---- STEP 1, THE NEGATIVE CONTROL: a REAL rotation must NOT open the door.
+    # UnitTurnBState::init() calls lookAt() FIRST (UnitTurnBState.cpp:73), and
+    # BattleUnit::lookAt sets STATUS_TURNING whenever the facing actually CHANGES
+    # (BattleUnit.cpp:1248-1270). The door-open branch is then gated on
+    # `_chargeTUs && getStatus() != STATUS_TURNING` (:74), so a rotation that
+    # really turns can never open a door - only the ZERO-TICK re-issue does.
+    # connectionTCP.cpp:4912 names it: "UnitTurnBState::init()'s zero-tick
+    # door-open branch". That is vanilla's real right-click behaviour: right-click
+    # a door you are NOT facing and you only turn; right-click again and it opens.
     r = client.cmd({"cmd": "battle_intent", "kind": "turn", "actor": actor_id,
                     "toDir": want_dir})
-    assert r.get("iseq"), f"{tag}: the turn intent did not ship: {r}"
-    wait_facing_applied(host, client)
+    assert r.get("iseq"), f"{tag}: the facing turn intent did not ship: {r}"
+    wait_facing(host, client, actor_id, want_dir)
     W.settle_reveal(host, client)
 
     hunits = {u["id"]: u for u in D.battle_state(host).get("units", [])}
@@ -269,6 +297,30 @@ def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_a
         f"{tag}: actor {actor_id} facing host={hdir} client={cdir} after the turn, "
         f"expected {want_dir} on both machines")
 
+    mid_emitted = D.event_state(host)["coopDoorEvsEmitted"]
+    assert mid_emitted == before_emitted, (
+        f"{tag} NEGATIVE CONTROL: a REAL rotation ({start_dir} -> {want_dir}) opened "
+        f"a door (coopDoorEvsEmitted {before_emitted} -> {mid_emitted}). That "
+        "contradicts UnitTurnBState.cpp:74's STATUS_TURNING gate.")
+    door_mid = D.door_lookup(host, door_key)
+    assert door_mid is not None and door_mid.get("isUfoDoorOpen") is False, (
+        f"{tag} NEGATIVE CONTROL: door {door_key} is no longer closed after a turn "
+        f"that only rotated the actor: {door_mid}")
+    assert_hash_clean(host, client, full=True, what=f"{tag} after the rotation")
+    print(f"    [{tag}] negative control OK: the rotation {start_dir} -> {want_dir} "
+          f"turned the actor and left the door CLOSED (coopDoorEvsEmitted "
+          f"{before_emitted})")
+
+    # ---- STEP 2, THE ACTION UNDER TEST: the ZERO-TICK re-issue opens the door.
+    before_h = host.cmd({"cmd": "hash_now", "full": True})["h"]
+    before_emitted = mid_emitted
+    before_seq = D.event_state(host)["lastSeqEmitted"]
+    r = client.cmd({"cmd": "battle_intent", "kind": "turn", "actor": actor_id,
+                    "toDir": want_dir})
+    assert r.get("iseq"), f"{tag}: the zero-tick turn intent did not ship: {r}"
+    fired = wait_door_fired(host, client, before_emitted)
+    W.settle_reveal(host, client)
+
     after_emitted = D.event_state(host)["coopDoorEvsEmitted"]
     evs_since = [e for e in D.event_log(host, 160) if e["seq"] > before_seq]
     action_id = evs_since[0]["actionId"] if evs_since else None
@@ -276,10 +328,10 @@ def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_a
         dump_record(tag, host, actor_id, stand, LEG_A_TU, door_key,
                    door_before.get("isUfoDoorOpen"), action_id=action_id)
         raise AssertionError(
-            f"{tag}: STOP-IF - a client turn intent toward a closed door did NOT "
-            f"open it (coopDoorEvsEmitted stayed {before_emitted}; stream: "
-            f"{[e['kind'] for e in evs_since]}) - this contradicts "
-            "UnitTurnBState.cpp:74-98's unconditional right-click on the new facing")
+            f"{tag}: STOP-IF - the ZERO-TICK re-issue (actor already facing {want_dir}) "
+            f"did NOT open the door (coopDoorEvsEmitted stayed {before_emitted}; "
+            f"stream: {[e['kind'] for e in evs_since]}) - this contradicts "
+            "UnitTurnBState.cpp:74-98's zero-tick door-open branch")
 
     door_kind_evs = [e for e in evs_since if e["kind"] == "door"]
     assert door_kind_evs, (
