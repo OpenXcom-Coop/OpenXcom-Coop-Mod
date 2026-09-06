@@ -1220,3 +1220,295 @@ def actor_is_contact_free(battle_state_resp, unit, tag):
           % (tag, "none at all" if d is None else "%.2f tiles" % d,
              MAX_VIEW_DISTANCE))
     return True
+
+
+# ===== SPEC 6g (WV-D78/WV-D80): primitives relocated from repro_atom_door.py ==
+# That file was 2113 lines of map-ROLLED door search whose coverage now lives in
+# repro_door_deterministic.py (SPEC 6d/6e/6f), and it was a proven flake. These
+# helpers were shared, so they move here VERBATIM; the file itself is deleted.
+# Two authorized substitutions were made in drive_to_battlescape: its
+# W.top_state/W.states calls became the session-local top_state/states_stripped
+# below, and its session.-prefixed self-calls lost the prefix now that it lives
+# here. Nothing else changed.
+
+
+def states_stripped(gc):
+    """`states()` with MSVC's "class OpenXcom::" prefix removed - the form every
+    repro compares against. Copied from repro_atom_walk.states (SPEC 6g
+    AMENDMENT 1): it is a pure wrapper over this module's OWN states(), so it
+    lives here without importing repro_atom_walk (which imports session, and
+    would cycle)."""
+    return [s.replace("class OpenXcom::", "") for s in states(gc)]
+
+
+def top_state(gc):
+    """The top of the state stack, prefix-stripped. Copied from
+    repro_atom_walk.top_state (SPEC 6g AMENDMENT 1)."""
+    st = states_stripped(gc)
+    return st[-1] if st else None
+
+
+COOP_SEAT_1 = 1
+O_FLOOR, O_WESTWALL, O_NORTHWALL, O_OBJECT = 0, 1, 2, 3
+FACTION_PLAYER = 0
+FACTION_HOSTILE = 1  # standard OpenXcom UnitFaction enum (PLAYER=0, HOSTILE=1, NEUTRAL=2)
+DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
+DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
+
+
+def battle_state(gc):
+    return gc.cmd({"cmd": "battle_state"})
+
+
+def event_state(gc):
+    return gc.cmd({"cmd": "event_state"})
+
+
+def event_log(gc, tail=120):
+    return gc.cmd({"cmd": "event_log", "tail": tail}).get("events", [])
+
+
+def action_events(gc, action_id, tail=160):
+    return [e for e in event_log(gc, tail) if e.get("actionId") == action_id]
+
+
+def find_doors(gc):
+    r = gc.cmd({"cmd": "find_doors", "limit": 512})
+    assert r.get("ok"), f"find_doors failed: {r}"
+    return r["doors"]
+
+
+def door_census(gc):
+    """Every door part this machine knows about, as a comparable set. Used two
+    ways: HOST vs CLIENT (they must be identical - that is the terrain-sync
+    assertion) and BEFORE vs AFTER (they must differ - that is the non-vacuity
+    control). A NORMAL door that opens leaves the census entirely, because
+    Tile::openDoor clears the part's map data; a UFO door stays and flips
+    isUfoDoorOpen."""
+    return sorted((d["x"], d["y"], d["z"], d["part"], d["isUfoDoor"],
+                   d["isUfoDoorOpen"], d["mapDataID"]) for d in find_doors(gc))
+
+
+def assert_door_parity(host, client, what):
+    hc, cc = door_census(host), door_census(client)
+    if hc != cc:
+        only_h = [e for e in hc if e not in cc]
+        only_c = [e for e in cc if e not in hc]
+        raise AssertionError(
+            f"{what}: the two machines' DOOR CENSUS differ - "
+            f"{len(only_h)} entr(ies) only on the host {only_h[:6]}, "
+            f"{len(only_c)} only on the client {only_c[:6]}. The client did not "
+            "apply the host's terrain change.")
+    return hc
+
+
+def assert_door_between_steps(gc, action_id, what):
+    """SS2.W2 rule 6 / SS4's acceptance: the `door` ev takes its place in the
+    seq stream BETWEEN the walk step evs either side of the doorway."""
+    evs = action_events(gc, action_id)
+    kinds = [(e["seq"], e["kind"]) for e in evs]
+    doors = [e for e in evs if e["kind"] == "door"]
+    steps = [e for e in evs if e["kind"] == "walk_step"]
+    assert doors, (
+        f"{what}: actionId {action_id} emitted NO `door` ev - the walk did not "
+        f"cross a door (stream: {kinds})")
+    d0 = doors[0]
+    before = [s for s in steps if s["seq"] < d0["seq"]]
+    after = [s for s in steps if s["seq"] > d0["seq"]]
+    assert before, (
+        f"{what}: the `door` ev (seq {d0['seq']}) has NO walk_step BEFORE it in "
+        f"actionId {action_id} - it was emitted before the walk began stepping, "
+        f"not at the doorway (stream: {kinds})")
+    assert after, (
+        f"{what}: the `door` ev (seq {d0['seq']}) has NO walk_step AFTER it in "
+        f"actionId {action_id} - it was flushed at the END of the walk instead of "
+        f"at its own position in the stream (stream: {kinds})")
+    print(f"    [{what}] stream: {kinds}")
+    print(f"    [{what}] door ev seq={d0['seq']} sits between {len(before)} step(s) "
+          f"before and {len(after)} after, all in actionId {action_id}")
+    return d0
+
+
+def closed_doors(gc):
+    out = []
+    for d in find_doors(gc):
+        if d["isUfoDoor"] and d["isUfoDoorOpen"]:
+            continue
+        if door_sides(d) is None:
+            continue
+        out.append(d)
+    return out
+
+
+def closed_door_at(gc, door_at):
+    return any((x["x"], x["y"], x["z"], x["part"]) == door_at
+               for x in closed_doors(gc))
+
+
+def door_lookup(gc, door_at):
+    """SPEC 6c5 step 1 (WV-D77) instrumentation helper. The full door dict at
+    (x,y,z,part) - notably its `isUfoDoorOpen` - or None if that coordinate is
+    not a door on this machine right now. `find_doors`/`closed_doors` already
+    exist; this just indexes by coordinate so a rejection record can report
+    the door's own before/after state without re-deriving the filter."""
+    for d in find_doors(gc):
+        if (d["x"], d["y"], d["z"], d["part"]) == door_at:
+            return d
+    return None
+
+
+def door_sides(d):
+    """The two tiles a wall-part door joins. O_WESTWALL is the west face of its
+    own tile, O_NORTHWALL the north face (TileEngine::unitOpensDoor's own
+    checkPositions table, TileEngine.cpp:4108-4177). Floor/object doors are
+    skipped: this file only reasons about doors you WALK THROUGH."""
+    t = (d["x"], d["y"], d["z"])
+    if d["part"] == O_WESTWALL:
+        return t, (d["x"] - 1, d["y"], d["z"])
+    if d["part"] == O_NORTHWALL:
+        return t, (d["x"], d["y"] - 1, d["z"])
+    return None
+
+
+def unit_pos(u):
+    return (u["x"], u["y"], u["z"])
+
+
+def units(gc):
+    return battle_state(gc).get("units", [])
+
+
+def seat_units(gc, seat=COOP_SEAT_1):
+    return [u for u in units(gc)
+            if u.get("faction") == FACTION_PLAYER and not u.get("isOut")
+            and u.get("coop") == seat]
+
+
+def spotted(gc):
+    return sorted(battle_state(gc).get("spotted") or [])
+
+
+def dir_between(a, b):
+    dx = (b[0] > a[0]) - (b[0] < a[0])
+    dy = (b[1] > a[1]) - (b[1] < a[1])
+    for d in range(8):
+        if DIR_DX[d] == dx and DIR_DY[d] == dy:
+            return d
+    return None
+
+
+# ----- fixture bring-up ---------------------------------------------------
+
+
+def cheb(a, b):
+    return max(abs(a[0] - b[0]), abs(a[1] - b[1]), abs(a[2] - b[2]))
+
+
+def tile_walkable(gc, t, occupied):
+    """Cheap conservative screen for a STAGING tile: it exists, it has a floor,
+    and nobody is standing on it. Pathfinding stays the real judge - a staging
+    tile that survives this and yields no route is simply skipped."""
+    if t in occupied:
+        return False
+    ti = gc.cmd({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]})
+    if not ti.get("ok"):
+        return False
+    return ti.get("parts", {}).get("floor", {}).get("mapDataID", -1) >= 0
+
+
+def staging_tiles(gc, near, far, occupied, self_pos=None):
+    """EVERY tile from which a walk to @a far is a two-step crossing through the
+    door: adjacent to `near`, exactly two steps from `far`, walkable, and free.
+
+    A LIST, not a single tile, and that is the point. When this returned only the
+    first match, one actor parking on it made the same door unusable for all six
+    other soldiers - four of the seven rejections in a traced red were "no
+    walkable staging tile", for a tile that existed and was simply occupied by
+    the previous candidate. @a self_pos is excused from the occupancy test for
+    the same reason: an actor standing on a staging tile IS staged.
+
+    The two-step requirement is not decoration either: a neighbour of `near` that
+    is also a DIAGONAL neighbour of `far` lets Pathfinding cut the corner and
+    never touch the wall the door is in (observed as a one-step "routed WITHOUT
+    crossing a door")."""
+    dx, dy = near[0] - far[0], near[1] - far[1]
+    ordered = [(near[0] + dx, near[1] + dy, near[2])]          # collinear first
+    for ox in (-1, 0, 1):
+        for oy in (-1, 0, 1):
+            if ox or oy:
+                ordered.append((near[0] + ox, near[1] + oy, near[2]))
+    out = []
+    for t in ordered:
+        if t in (near, far) or t in out:
+            continue
+        if cheb(t, far) != 2:
+            continue
+        if t != self_pos and not tile_walkable(gc, t, occupied):
+            continue
+        out.append(t)
+    return out
+
+
+def wait_host_idle(host, client, timeout=30):
+    """The host has NO action context open and NO live BState chain, and the
+    client has caught up.
+
+    `lastSeqApplied == lastSeqEmitted` ALONE IS NOT ENOUGH, and this cost a run:
+    a turn emits its `bt_ev` from UnitTurnBState and its `bt_action_end` from
+    CoopArbiter::onChainQuiesced() one chain-unwind LATER, so the two counters
+    are transiently EQUAL in the gap between them - and
+    CoopArbiter::popActionContext() runs inside onChainQuiesced
+    (connectionTCP.cpp:3737). Anything driven in that window inherits the
+    previous action's actionId, which is exactly how PHASE 2's `actionId 0`
+    assertion first failed (it observed 3). `busyOwnerSeat == -1` on the HOST is
+    the shipped predicate for BOTH halves at once:
+    `!bg->isBusy() && currentActionId() == 0` (connectionTCP.cpp:4545-4551)."""
+    client.wait_for("host idle (no action context, no BState chain), client caught up",
+                    lambda: (event_state(host).get("busyOwnerSeat") == -1
+                             and event_state(client).get("lastSeqApplied", 0)
+                             == event_state(host).get("lastSeqEmitted", 0)
+                             and event_state(client).get("queueDepth") == 0
+                             and event_state(host).get("queueDepth") == 0) or None,
+                    timeout=timeout)
+
+
+def drive_to_battlescape(host, client, seated, mission=None, seat_count=8):
+    """repro_atom_walk.drive_to_battlescape plus the mission pin. Kept local
+    rather than parameterising the walk repro's copy: that file carries a
+    stop-line criterion and this packet must not change how it boots."""
+    host.ok({"cmd": "lobby_action"})
+    host.wait_for("host at battle settings",
+                  lambda: (not has_state(host, "LobbyMenu")) or None)
+    assert top_state(host) == "NewBattleState", \
+        f"host should land on the NEW BATTLE setup screen, stack={states_stripped(host)}"
+    if mission:
+        r = host.cmd({"cmd": "newbattle_mission", "type": mission})
+        assert r.get("ok"), (
+            f"FIXTURE: this build's NEW BATTLE screen does not offer {mission!r} "
+            f"- offered: {r.get('missionTypes')}")
+
+    soldier_ids = []
+    for i in range(seat_count):
+        r = host.cmd({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1, "index": i})
+        if not r.get("ok"):
+            break
+        soldier_ids.append(r["soldierId"])
+    assert len(soldier_ids) >= 2, (
+        f"FIXTURE: newbattle_seat_soldier stamped only {len(soldier_ids)} soldier(s) "
+        "to seat 1 - this repro needs client-owned actors to walk")
+    seated["soldierIds"] = soldier_ids
+
+    host.ok({"cmd": "newbattle_ok"})
+    host.wait_for("host briefing", lambda: has_state(host, "BriefingState"),
+                  timeout=60)
+    # WV-D56 (FX-1): the snapshot/offer now move to AFTER startFirstTurn() -
+    # i.e. to this click, not to newbattle_ok. "client battlescape" can only be
+    # waited for AFTER it, never before.
+    host.ok({"cmd": "click_widget", "match": "ok"})
+    host.wait_for("host battlescape",
+                  lambda: has_state(host, "BattlescapeState"), timeout=40)
+    dismiss_battle_start_overlays(host)
+    client.wait_for("client battlescape",
+                    lambda: has_state(client, "BattlescapeState"), timeout=90)
+    time.sleep(3)
+    dismiss_client_briefing(client)

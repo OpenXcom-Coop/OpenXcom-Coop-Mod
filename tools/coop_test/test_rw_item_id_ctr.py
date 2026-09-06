@@ -18,7 +18,7 @@ moves - no walk, no turn, no kneel. This fixture never drives a walk/door/spot
 atom, so none of their contact/reaction hazards apply here.
 
 FIXTURE: repro_atom_door.py's bring-up shape (W.bring_up_lobby +
-D.drive_to_battlescape) with newbattle_mission type="STR_BATTLESHIP" - the map
+session.drive_to_battlescape) with newbattle_mission type="STR_BATTLESHIP" - the map
 class the (C) RCA measured diverging on itemIdCtr ALONE.
 
 RE-ROLL, NOT A HARD FAIL, ON AN UNRELATED PRE-EXISTING DIVERGENCE (traced, not
@@ -65,7 +65,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 import repro_atom_walk as W
-import repro_atom_door as D
 
 MISSION = "STR_BATTLESHIP"
 BOOTS = 6
@@ -151,7 +150,7 @@ def one_attempt(tag):
         W.bring_up_lobby(host, client, port)
 
         try:
-            D.drive_to_battlescape(host, client, seated, mission=MISSION)
+            session.drive_to_battlescape(host, client, seated, mission=MISSION)
         except AssertionError as e:
             if "does not offer" in str(e):
                 raise MissionNotOffered(str(e))

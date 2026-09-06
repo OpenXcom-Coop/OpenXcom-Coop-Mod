@@ -48,7 +48,6 @@ from harness import GameClient, make_user_dir
 import session
 from session import assert_hash_clean, place_deterministic, contact_free_ufo_door_setup
 import repro_atom_walk as W
-import repro_atom_door as D
 
 FACTION_PLAYER = 0
 FACTION_HOSTILE = 1
@@ -67,7 +66,7 @@ def bring_up(tag, mission, game_port, host_test_port, client_test_port):
     client = GameClient(f"{tag}-client", client_test_port, client_dir)
     W.bring_up_lobby(host, client, game_port)
     seated = {}
-    D.drive_to_battlescape(host, client, seated, mission=mission)
+    session.drive_to_battlescape(host, client, seated, mission=mission)
     return host, client, seated
 
 

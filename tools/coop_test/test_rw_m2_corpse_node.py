@@ -112,7 +112,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 import repro_atom_walk as W
-import repro_atom_door as D
 
 MISSION = "STR_SUPPLY_SHIP"
 MAX_BRINGUPS = 24
@@ -271,7 +270,7 @@ def one_bringup(tag):
     try:
         W.bring_up_lobby(host, client, port)
         try:
-            D.drive_to_battlescape(host, client, seated, mission=MISSION)
+            session.drive_to_battlescape(host, client, seated, mission=MISSION)
         except AssertionError as e:
             if "does not offer" in str(e):
                 raise MissionNotOffered(str(e))
