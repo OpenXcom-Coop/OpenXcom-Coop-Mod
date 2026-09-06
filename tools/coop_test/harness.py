@@ -87,6 +87,11 @@ def _timelog(event, detail=""):
     path = os.environ.get("OXC_TIMELOG")
     if not path:
         return
+    # WV-D70: ~690 of the ~790 rows a session writes are the spawn tier and only
+    # SPEC 0c's boot analysis needed them; OFF unless OXC_TIMELOG_SPAWNS=1.
+    # test_start/test_end keep emitting under OXC_TIMELOG.
+    if event in ("spawn", "spawn_end") and not os.environ.get("OXC_TIMELOG_SPAWNS"):
+        return
     try:
         agent = os.environ.get("OXC_AGENT", "unknown")
         ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
