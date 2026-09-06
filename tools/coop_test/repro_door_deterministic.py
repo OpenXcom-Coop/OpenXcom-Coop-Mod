@@ -381,6 +381,132 @@ def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_a
 # phase B leaves one open, so this drives the SAME `battle_close_ufo_doors`
 # lever (real endTurn wiring is W1-P13's, per CoopDoor.h:65-67) and it mutates.
 
+def pick_walkthrough_door(host, want_ufo, exclude_keys, tag):
+    """A door that can actually be WALKED through, not merely right-clicked.
+
+    `standable_side()` only requires the NEAR side to be walkable, which is all a
+    right-click needs. A walk-through additionally needs (1) the FAR side to be a
+    real, walkable tile and (2) a walkable approach tile one step behind the near
+    side, so the door ev lands BETWEEN two walk steps. Map-edge doors fail (1):
+    a westwall door at x=0 has a far side of (-1, y, z), off the map, so the walk
+    intent has no destination and legitimately never ships ("actorId does not
+    resolve / no route"). Observed 3/3 before this filter existed.
+    """
+    occupied = {D.unit_pos(u) for u in D.battle_state(host).get("units", [])
+                if not u.get("isOut")}
+    rejected = []
+    for d in D.closed_doors(host):
+        if bool(d.get("isUfoDoor")) != want_ufo:
+            continue
+        key = (d["x"], d["y"], d["z"], d["part"])
+        if key in exclude_keys:
+            continue
+        sides = D.door_sides(d)
+        if not sides:
+            continue
+        for stand, through in (sides, (sides[1], sides[0])):
+            if not D.tile_walkable(host, stand, occupied):
+                continue
+            if not D.tile_walkable(host, through, occupied):
+                rejected.append(f"{key}: far side {through} not walkable (map edge?)")
+                continue
+            back = (stand[0] + (stand[0] - through[0]),
+                    stand[1] + (stand[1] - through[1]), stand[2])
+            if not D.tile_walkable(host, back, occupied):
+                rejected.append(f"{key}: approach {back} not walkable")
+                continue
+            return d, key, stand, through, back
+    raise AssertionError(
+        f"FIXTURE: {tag}: no closed {'UFO' if want_ufo else 'non-UFO'} door on this "
+        f"map roll can be walked through (both sides + an approach tile). "
+        f"Rejected: {rejected[:6]}")
+
+
+def phase_walk_through_normal_door(host, client, tag, exclude_door_keys, used_actors):
+    """SPEC 6g step 0: WALK THROUGH a NON-UFO door.
+
+    The last combination `repro_atom_door.py` covered that this file did not.
+    Phase A walks through a UFO door (which STAYS in the census and moves
+    saveBlob/unitsStats); phase C RIGHT-CLICKS a normal door (which LEAVES the
+    census and moves terrain). This phase is the fourth corner: a normal door
+    crossed by WALKING, which is what the old file's small-scout leg did with
+    `moving_bucket="terrain"`.
+
+    Geometry is phase A's: the actor starts ONE tile back from the near side so
+    the door ev lands BETWEEN two walk steps (a one-step crossing cannot produce
+    a walk_step before the door ev - session.py:881-890 makes the two sides
+    exactly one tile apart).
+    """
+    door, door_key, stand, through, back = pick_walkthrough_door(
+        host, False, exclude_door_keys, tag)
+    actor_id = pick_soldier(host, client, used_actors, tag)
+
+    place_deterministic(host, client, [
+        {"lever": "battle_teleport_unit", "unit": actor_id,
+         "x": back[0], "y": back[1], "z": back[2],
+         "dir": D.dir_between(back, stand)},
+    ], what=f"{tag} place actor {actor_id} one tile behind normal door {door_key}")
+
+    W.set_reserve(host, mode="none", kneel=False)
+    W.set_reserve(client, mode="none", kneel=False)
+    pin_tu(host, client, actor_id, LEG_A_TU)
+    assert_hash_clean(host, client, full=True, what=f"{tag} TU pinned")
+
+    census_before = D.door_census(host)
+    before_h = host.cmd({"cmd": "hash_now", "full": True})["h"]
+    before_emitted = D.event_state(host)["coopDoorEvsEmitted"]
+    door_before = D.door_lookup(host, door_key)
+    assert door_before is not None, f"{tag}: normal door {door_key} vanished before the walk"
+
+    prev = W.walk_action_id(host)
+    resp = W.send_walk(client, actor_id, through)
+    assert resp.get("iseq"), f"{tag}: the client-origin walk intent did not ship: {resp}"
+    W.wait_walk_settled(host, client, prev)
+    W.settle_reveal(host, client)
+
+    hw = W.last_walk(host)
+    action_id = hw.get("actionId")
+    evs = D.action_events(host, action_id)
+    if not [e for e in evs if e["kind"] == "door"]:
+        dump_record(tag, host, actor_id, back, LEG_A_TU, door_key,
+                   door_before.get("isUfoDoorOpen"), action_id=action_id,
+                   restate=hw.get("restate"))
+        raise AssertionError(
+            f"{tag}: STOP-IF - walking through normal door {door_key} emitted NO "
+            f"`door` ev (stream kinds: {[e['kind'] for e in evs]})")
+
+    # the atom criterion, on BOTH machines
+    D.assert_door_between_steps(host, action_id, what=f"{tag} stream position (host)")
+    D.assert_door_between_steps(client, action_id, what=f"{tag} stream position (client)")
+
+    after_emitted = D.event_state(host)["coopDoorEvsEmitted"]
+    assert after_emitted > before_emitted, (
+        f"{tag}: coopDoorEvsEmitted did not advance ({before_emitted})")
+
+    census_after = D.door_census(host)
+    assert census_after != census_before, (
+        f"{tag} NON-VACUITY: the door census did not change across the crossing")
+    assert D.door_lookup(host, door_key) is None, (
+        f"{tag}: STOP-IF - NON-UFO door {door_key} is still in the census after being "
+        "walked through; door_census's documented rule is that a normal door LEAVES "
+        "it (Tile::openDoor clears the part's map data)")
+    D.assert_door_parity(host, client, what=f"{tag} census")
+
+    after_h = host.cmd({"cmd": "hash_now", "full": True})["h"]
+    moved = sorted(k for k in before_h if before_h[k] != after_h.get(k))
+    assert moved, f"{tag} NON-VACUITY: no hash bucket moved on the host"
+    assert_hash_clean(host, client, full=True, what=f"{tag} after the crossing")
+
+    hu = {u["id"]: u for u in D.battle_state(host).get("units", [])}
+    assert D.unit_pos(hu[actor_id]) == through, (
+        f"{tag}: actor {actor_id} ended at {D.unit_pos(hu[actor_id])}, expected {through}")
+
+    print(f"[{tag}] walk-through-non-UFO door {door_key} actor {actor_id}: "
+          f"{back} -> {stand} -> {through}; coopDoorEvsEmitted {before_emitted} -> "
+          f"{after_emitted}; bucket(s) moved={moved}; census LEFT (normal door)")
+    return actor_id, door_key
+
+
 def phase_boundary_close(host, client, tag):
     """Phase D, the MUTATING half: snapshot every OPEN UFO door the host
     reports (never a hard-coded key - which doors are open is measured), close
@@ -697,11 +823,18 @@ def run_scenario(host, client, tag):
 
     # ---- Phase C: same shape on a THIRD, NON-UFO door, a THIRD soldier ----
     used_actors.add(actor2)
-    phase_turn_opens_door(
+    actor3, door3_key = phase_turn_opens_door(
         host, client, f"{tag} phase C", want_ufo=False,
         exclude_door_keys={door_at, door2_key}, used_actors=used_actors)
+    used_actors.add(actor3)
 
     # ---- SPEC 6f Phase D: BOUNDARY CLOSE, the mutating half (WV-D50) ----
+    print(f"\n== {tag} phase F: WALK through a NON-UFO door ==")
+    actor4, door4_key = phase_walk_through_normal_door(
+        host, client, f"{tag} phase F",
+        exclude_door_keys={door_at, door2_key, door3_key}, used_actors=used_actors)
+    used_actors.add(actor4)
+
     census_d, emitted_d = phase_boundary_close(host, client, f"{tag} phase D")
 
     # ---- SPEC 6f Phase D2: the immediate NO-OP repeat ----
