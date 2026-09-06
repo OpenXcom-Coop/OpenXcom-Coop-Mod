@@ -36,6 +36,13 @@ No bucket name is hard-coded for the right-click legs: only "at least one
 moved, printed by name" is asserted (a prior leg's `moving_bucket` constant
 was never measured against a UFO right-click and would be a guess).
 
+SPEC 6f AMENDMENT (REV E.11) - fixes leg (a)'s geometry (actor starts one tile
+back of `near` so the crossing is back->near->far with a walk_step either
+side of the door), runs phases B/C for the first time live, and adds phases
+D/D2/E: the WV-D50 boundary close (MUTATING - phase B leaves a UFO door open,
+unlike repro_atom_door.py's own fixture), its no-op repeat, and the client's
+host-only refusal. Which door(s) are open at D is MEASURED, never assumed.
+
 Run:  python tools/coop_test/repro_door_deterministic.py (one harness run at
       a time, machine-wide).
 """
@@ -314,6 +321,119 @@ def phase_right_click_door(host, client, tag, want_ufo, exclude_door_keys, used_
     return actor_id, door_key
 
 
+# ===== SPEC 6f phases D/D2/E: the WV-D50 turn-boundary close, its no-op ====
+# repeat, and the client refusal - repro_atom_door.py's own fixture never had
+# an open UFO door, so its boundary phase could only ever be a no-op; here
+# phase B leaves one open, so this drives the SAME `battle_close_ufo_doors`
+# lever (real endTurn wiring is W1-P13's, per CoopDoor.h:65-67) and it mutates.
+
+def phase_boundary_close(host, client, tag):
+    """Phase D, the MUTATING half: snapshot every OPEN UFO door the host
+    reports (never a hard-coded key - which doors are open is measured), close
+    them, and prove each of THOSE doors shut."""
+    print(f"\n== {tag}: boundary close (mutating) ==")
+    open_before = {(d["x"], d["y"], d["z"], d["part"]): d
+                   for d in D.find_doors(host) if d["isUfoDoorOpen"]}
+    assert open_before, (
+        f"{tag}: STOP-IF - no UFO door is open entering phase D, although "
+        "phase B's own assertions left one open - something closed it in between")
+    census_before = D.door_census(host)
+    before_emitted = D.event_state(host)["coopDoorEvsEmitted"]
+
+    r = host.cmd({"cmd": "battle_close_ufo_doors"})
+    assert r.get("ok"), f"{tag}: battle_close_ufo_doors failed: {r}"
+    closed = r.get("closed", 0)
+    assert closed > 0, (
+        f"{tag}: STOP-IF - the lever reports ok but closed={closed} while "
+        f"{len(open_before)} UFO door(s) were open: {sorted(open_before)}")
+
+    if not wait_door_fired(host, client, before_emitted):
+        dump_record(tag, host, None, None, None, next(iter(open_before)), True)
+        raise AssertionError(
+            f"{tag}: STOP-IF - closed={closed} but no door ev reached the client "
+            "within 30s")
+
+    after_by_key = {k: D.door_lookup(host, k) for k in open_before}
+    still_open = {k: v for k, v in after_by_key.items()
+                  if not v or v.get("isUfoDoorOpen") is not False}
+    assert not still_open, (
+        f"{tag}: STOP-IF - {len(still_open)} previously-open UFO door(s) did not "
+        f"read isUfoDoorOpen==False after the close: {still_open}")
+
+    census_after = D.door_census(host)
+    assert census_after != census_before, (
+        f"{tag} NON-VACUITY: door census did not change across the boundary close")
+
+    door_kind_evs = [e for e in D.action_events(host, 0) if e["kind"] == "door"]
+    assert door_kind_evs, (
+        f"{tag}: STOP-IF - coopDoorEvsEmitted moved but no `door`-kind ev is in "
+        "the actionId-0 stream")
+
+    D.assert_door_parity(host, client, what=f"{tag} census")
+    assert_hash_clean(host, client, full=True, what=f"{tag} after boundary close")
+    after_emitted = D.event_state(host)["coopDoorEvsEmitted"]
+    print(f"[{tag}] closed={closed} previously-open UFO door(s) "
+          f"{sorted(open_before)}; coopDoorEvsEmitted {before_emitted} -> {after_emitted}")
+    return census_after, after_emitted
+
+
+def phase_boundary_close_noop(host, client, tag, census_before, emitted_before):
+    """Phase D2: 'nothing mutated => nothing emitted' - a real assertion, not
+    a shrug, or every turn boundary would put an empty `door` ev on the wire."""
+    print(f"\n== {tag}: boundary close (no-op) ==")
+    before_seq = D.event_state(host)["lastSeqEmitted"]
+    r = host.cmd({"cmd": "battle_close_ufo_doors"})
+    assert r.get("ok"), f"{tag}: battle_close_ufo_doors (no-op) failed: {r}"
+    assert r.get("closed", -1) == 0, (
+        f"{tag}: STOP-IF - the no-op close reports closed={r.get('closed')}, "
+        "expected 0 (every UFO door was already shut by phase D)")
+    time.sleep(1.0)
+    hs = D.event_state(host)
+    assert hs["coopDoorEvsEmitted"] == emitted_before, (
+        f"{tag}: STOP-IF - coopDoorEvsEmitted moved ({emitted_before} -> "
+        f"{hs['coopDoorEvsEmitted']}) although the lever mutated nothing")
+    assert hs["lastSeqEmitted"] == before_seq, (
+        f"{tag}: STOP-IF - the no-op close minted a seq ({before_seq} -> "
+        f"{hs['lastSeqEmitted']}) without mutating anything")
+    census_after = D.door_census(host)
+    assert census_after == census_before, (
+        f"{tag}: STOP-IF - door census changed on a no-op close - "
+        f"before={census_before} after={census_after}")
+    D.assert_door_parity(host, client, what=f"{tag} census")
+    assert_hash_clean(host, client, full=True, what=f"{tag} after no-op close")
+    print(f"[{tag}] closed=0, coopDoorEvsEmitted stayed {emitted_before} (NO-OP)")
+
+
+def phase_client_refused(host, client, tag, census_before):
+    """Phase E: the host-authoritative terrain guard (TestServer.cpp:4057).
+    A refusal that still mutated would be the desync it exists to prevent."""
+    print(f"\n== {tag}: client refusal ==")
+    hs0 = D.event_state(host)["lastSeqEmitted"]
+    cs0 = D.event_state(client)["coopDoorEvsEmitted"]
+    r = client.cmd({"cmd": "battle_close_ufo_doors"})
+    assert not r.get("ok"), (
+        f"{tag}: STOP-IF - a CLIENT was allowed to run battle_close_ufo_doors: {r}")
+    assert "host-only" in r.get("error", ""), (
+        f"{tag}: STOP-IF - unexpected refusal reason: {r}")
+    time.sleep(0.5)
+    hs, cs = D.event_state(host), D.event_state(client)
+    assert hs["lastSeqEmitted"] == hs0, (
+        f"{tag}: STOP-IF - the HOST minted a seq after a refused client call "
+        f"({hs0} -> {hs['lastSeqEmitted']})")
+    assert cs["coopDoorEvsEmitted"] == cs0, (
+        f"{tag}: STOP-IF - the CLIENT's own door-ev counter moved after its "
+        f"refused local call ({cs0} -> {cs['coopDoorEvsEmitted']})")
+    census_h, census_c = D.door_census(host), D.door_census(client)
+    assert census_h == census_before, (
+        f"{tag}: STOP-IF - the HOST's door census changed after a refused "
+        f"client call - before={census_before} after={census_h}")
+    assert census_c == census_before, (
+        f"{tag}: STOP-IF - the CLIENT's door census changed after its own "
+        f"refused call - before={census_before} after={census_c}")
+    assert_hash_clean(host, client, full=True, what=f"{tag} after client refusal")
+    print(f"[{tag}] client refused ({r['error']!r}); nothing mutated on either machine")
+
+
 def run_scenario(host, client, tag):
     # ---- step 2: build the situation with ONE call (WV-D63 lever) ----
     actor_a, near, far, door = contact_free_ufo_door_setup(host, client, what=f"{tag} leg-a")
@@ -338,6 +458,25 @@ def run_scenario(host, client, tag):
         "roll is unusable; re-boot (WV-D72)")
     assert_hash_clean(host, client, full=True, what=f"{tag} after placement")
 
+    # ---- step 3.5 (SPEC 6f STEP 0, WV-D63/WV-D72): back the actor up ONE
+    # tile so the door ev lands BETWEEN two walk steps. near/far are always
+    # exactly one tile apart (session.py:881-890), so a one-step walk cannot
+    # produce a walk_step BEFORE the door ev; the crossing becomes
+    # back -> near -> far: step, door, step.
+    back = (near[0] + (near[0] - far[0]), near[1] + (near[1] - far[1]), near[2])
+    occupied = {D.unit_pos(u) for u in D.battle_state(host).get("units", [])
+                if not u.get("isOut")}
+    if not D.tile_walkable(host, back, occupied):
+        raise AssertionError(
+            f"FIXTURE: {tag}(a): the one-tile-back approach {back} is not "
+            "walkable or is occupied - this map roll cannot supply leg (a)'s "
+            "door-between-steps geometry (WV-D72)")
+    place_deterministic(host, client, [
+        {"lever": "battle_teleport_unit", "unit": actor_a,
+         "x": back[0], "y": back[1], "z": back[2], "dir": D.dir_between(back, near)},
+    ], what=f"{tag}(a) back up one tile for the door-between-steps geometry")
+    # place_deterministic's own gate already re-asserts assert_hash_clean(full=True).
+
     # ---- step 4: LEG (a) - CLIENT-origin crossing, HOST reserve aimed+kneel ----
     W.set_reserve(host, mode="aimed", kneel=True)
     W.set_reserve(client, mode="none", kneel=False)
@@ -359,7 +498,7 @@ def run_scenario(host, client, tag):
     evs = D.action_events(host, action_id)
     door_evs = [e for e in evs if e["kind"] == "door"]
     if not door_evs:
-        dump_record(f"{tag}(a)", host, actor_a, near, LEG_A_TU, door_at, False,
+        dump_record(f"{tag}(a)", host, actor_a, back, LEG_A_TU, door_at, False,
                    action_id=action_id, restate=hw.get("restate"))
         raise AssertionError(
             f"{tag}(a): STOP-IF - the client-origin crossing emitted NO `door` ev "
@@ -369,8 +508,15 @@ def run_scenario(host, client, tag):
     # ---- SPEC 6e phase A additions (owner item 1 + item 6): the door ev's
     # STREAM POSITION on BOTH machines, plus a door-census change + parity.
     # Purely additive - leg (a)'s own accepted assertions below are unchanged.
-    D.assert_door_between_steps(host, action_id, what=f"{tag}(a) stream position (host)")
-    D.assert_door_between_steps(client, action_id, what=f"{tag}(a) stream position (client)")
+    # WV-D77: on a STOP-IF here (the geometry fix did not produce a leading
+    # walk_step), paste the instrumented record before propagating.
+    try:
+        D.assert_door_between_steps(host, action_id, what=f"{tag}(a) stream position (host)")
+        D.assert_door_between_steps(client, action_id, what=f"{tag}(a) stream position (client)")
+    except AssertionError:
+        dump_record(f"{tag}(a) stream-position", host, actor_a, back, LEG_A_TU,
+                   door_at, False, action_id=action_id, restate=hw.get("restate"))
+        raise
     census_after_a = D.door_census(host)
     assert census_after_a != census_before_a, (
         f"{tag}(a) NON-VACUITY: door census did not change across the crossing")
@@ -500,6 +646,15 @@ def run_scenario(host, client, tag):
     phase_right_click_door(
         host, client, f"{tag} phase C", want_ufo=False,
         exclude_door_keys={door_at, door2_key}, used_actors=used_actors)
+
+    # ---- SPEC 6f Phase D: BOUNDARY CLOSE, the mutating half (WV-D50) ----
+    census_d, emitted_d = phase_boundary_close(host, client, f"{tag} phase D")
+
+    # ---- SPEC 6f Phase D2: the immediate NO-OP repeat ----
+    phase_boundary_close_noop(host, client, f"{tag} phase D2", census_d, emitted_d)
+
+    # ---- SPEC 6f Phase E: CLIENT REFUSAL (host-authoritative terrain guard) ----
+    phase_client_refused(host, client, f"{tag} phase E", census_d)
 
 
 def run_fixture(tag):
