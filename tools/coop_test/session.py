@@ -1472,10 +1472,17 @@ def wait_host_idle(host, client, timeout=30):
                     timeout=timeout)
 
 
-def drive_to_battlescape(host, client, seated, mission=None, seat_count=8):
+def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_seat=None):
     """repro_atom_walk.drive_to_battlescape plus the mission pin. Kept local
     rather than parameterising the walk repro's copy: that file carries a
-    stop-line criterion and this packet must not change how it boots."""
+    stop-line criterion and this packet must not change how it boots.
+
+    `pre_seat` (SPEC 0e-1, additive): an optional `callable(host)` invoked
+    right after the mission pin and before any `newbattle_seat_soldier`
+    call - the window WV-D87/WV-D88 need for `newbattle_craft`/
+    `newbattle_race` (race must land AFTER mission, since cbxMissionChange
+    rebuilds the race list, and BEFORE seating). Every existing caller is
+    unaffected: default None, nothing runs."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
                   lambda: (not has_state(host, "LobbyMenu")) or None)
@@ -1486,6 +1493,9 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8):
         assert r.get("ok"), (
             f"FIXTURE: this build's NEW BATTLE screen does not offer {mission!r} "
             f"- offered: {r.get('missionTypes')}")
+
+    if pre_seat is not None:
+        pre_seat(host)
 
     soldier_ids = []
     for i in range(seat_count):
