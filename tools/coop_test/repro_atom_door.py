@@ -788,6 +788,18 @@ def closed_door_at(gc, door_at):
                for x in closed_doors(gc))
 
 
+def door_lookup(gc, door_at):
+    """SPEC 6c5 step 1 (WV-D77) instrumentation helper. The full door dict at
+    (x,y,z,part) - notably its `isUfoDoorOpen` - or None if that coordinate is
+    not a door on this machine right now. `find_doors`/`closed_doors` already
+    exist; this just indexes by coordinate so a rejection record can report
+    the door's own before/after state without re-deriving the filter."""
+    for d in find_doors(gc):
+        if (d["x"], d["y"], d["z"], d["part"]) == door_at:
+            return d
+    return None
+
+
 def find_adjacent_closed_door(host, want_ufo, only_actor=None, min_tu=0):
     """A (actor_id, standing_pos, through_pos, facing_dir, door) tuple for a
     seat-1 soldier ALREADY standing next to a CLOSED door of the requested
@@ -1095,11 +1107,27 @@ def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_ac
                                 "when its crossing was due")
                 continue
 
+            # SPEC 6c5 step 1 (WV-D77): captured ONCE, before the attempt, so
+            # both rejection sites below can report the door's true
+            # before-state instead of inferring it from the closed_door_at()
+            # check above.
+            door_before = door_lookup(host, door_at)
+
             prev = W.walk_action_id(host)
             resp = W.send_walk(client, actor_id, far)
             if not resp.get("iseq"):
-                rejected.append(f"actor {actor_id} door {door_at}: no intent shipped "
-                                f"from {at} with {tu} TU ({resp.get('error')})")
+                msg = (f"actor {actor_id} door {door_at}: no intent shipped "
+                      f"from {at} with {tu} TU ({resp.get('error')})")
+                rejected.append(msg)
+                # SPEC 6c5 step 1 (WV-D77) - INSTRUMENTATION, additive only:
+                # the message above is unchanged, this just prints what was
+                # already computable but discarded (the "second rejection
+                # class" the spec names, "no intent shipped").
+                print(f"    [{tag}(a) REJECTED - no intent - INSTRUMENTED] {msg}")
+                print(f"      actor {actor_id} pos={at} tu={tu}")
+                print(f"      door {door_at} isUfoDoorOpen before="
+                      f"{door_before.get('isUfoDoorOpen') if door_before else 'DOOR NOT FOUND'}")
+                print(f"      full send_walk response: {resp!r}")
                 continue
             try:
                 W.wait_walk_settled(host, client, prev)
@@ -1115,10 +1143,35 @@ def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_ac
                        and e.get("payload", {}).get("op") == "open"]
             if not door_evs:
                 restate = hw.get("restate") or {}
-                rejected.append(f"actor {actor_id} door {door_at}: walk from {at} "
-                                f"({tu} TU) emitted NO `door` ev (open) - "
-                                f"halted={restate.get('halted')} "
-                                f"reason={restate.get('reason')}")
+                msg = (f"actor {actor_id} door {door_at}: walk from {at} "
+                      f"({tu} TU) emitted NO `door` ev (open) - "
+                      f"halted={restate.get('halted')} "
+                      f"reason={restate.get('reason')}")
+                rejected.append(msg)
+                # SPEC 6c5 step 1 (WV-D77): the evidence was ALREADY IN SCOPE
+                # (hw/evs) and was being thrown away down to two fields. Print
+                # everything - positions, the executed path from the
+                # completion restate, the ev-kind sequence, and the door's own
+                # before/after state. ADDITIVE ONLY: the assertion/message
+                # above is unchanged.
+                pos_after = unit_pos(W.unit_of(host, actor_id))
+                tu_after = W.unit_of(host, actor_id).get("tu")
+                door_after = door_lookup(host, door_at)
+                kinds = [e["kind"] for e in evs]
+                print(f"    [{tag}(a) REJECTED - no door ev - INSTRUMENTED] {msg}")
+                print(f"      actor {actor_id} pos before={at} after={pos_after}; "
+                      f"tu before={tu} after={tu_after}")
+                print(f"      door {door_at} isUfoDoorOpen "
+                      f"before={door_before.get('isUfoDoorOpen') if door_before else 'DOOR NOT FOUND'} "
+                      f"after={door_after.get('isUfoDoorOpen') if door_after else 'DOOR NOT FOUND'}")
+                print(f"      ev-kind sequence for actionId {hw.get('actionId')}: {kinds}")
+                if isinstance(restate.get("path"), list):
+                    print(f"      executed path (restate.path, "
+                          f"{len(restate['path'])} tile(s)): {restate['path']}")
+                else:
+                    print("      restate has NO usable 'path' key")
+                print(f"      full restate dict: {restate!r}")
+                print(f"      full hw (lastWalk) dict: {hw!r}")
                 continue
             crossed_actor = actor_id
             print(f"    [{tag}(a)] actor {actor_id} crossed door {door_at} from {at} "
@@ -1193,6 +1246,11 @@ def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_ac
                                    f"{CONTROL_LEG_TU} TU, reserve none (baseline)")
 
             # BASELINE: reserve=none, does this actor/door/TU actually open at all?
+            # SPEC 6c5 step 1 (WV-D77): captured before the attempt so the
+            # rejection below (leg (b)'s equivalent of leg (a)'s "no door ev"
+            # site) can report before/after state.
+            door_before = door_lookup(host, door_at)
+            log_before = event_log(host, 20)
             emitted_base0 = event_state(host)["coopDoorEvsEmitted"]
             ra = host.cmd({"cmd": "battle_action", "action": "door", "unit": actor_id,
                           "x": through[0], "y": through[1], "z": through[2]})
@@ -1207,10 +1265,32 @@ def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_ac
             wait_host_idle(host, client)
             W.settle_reveal(host, client)
             if not base_opened:
-                control_rejected.append(
-                    f"actor {actor_id} door {door_at}: did NOT open even at "
-                    f"{CONTROL_LEG_TU} TU with reserve=none - not a usable control "
-                    "candidate")
+                msg = (f"actor {actor_id} door {door_at}: did NOT open even at "
+                      f"{CONTROL_LEG_TU} TU with reserve=none - not a usable control "
+                      "candidate")
+                control_rejected.append(msg)
+                # SPEC 6c5 step 1 (WV-D77) - leg (b)'s EQUIVALENT of leg (a)'s
+                # "no door ev" site. There is no walk/restate here (this is a
+                # direct HOST battle_action, WV-D50 - no action context), so
+                # the richest available evidence is the actor's own
+                # before/after state, the door's own before/after state, and
+                # the raw event stream around the attempt. ADDITIVE ONLY.
+                pos_now = unit_pos(W.unit_of(host, actor_id))
+                tu_now = W.unit_of(host, actor_id).get("tu")
+                door_after = door_lookup(host, door_at)
+                log_after = event_log(host, 20)
+                last_before_seq = log_before[-1]["seq"] if log_before else 0
+                new_kinds = [e["kind"] for e in log_after
+                            if e.get("seq", 0) > last_before_seq]
+                print(f"    [{tag}(b) REJECTED - baseline did not open - "
+                      f"INSTRUMENTED] {msg}")
+                print(f"      actor {actor_id} pos={pos_now} "
+                      f"tu(pinned)={CONTROL_LEG_TU} tu(now)={tu_now}")
+                print(f"      door {door_at} isUfoDoorOpen "
+                      f"before={door_before.get('isUfoDoorOpen') if door_before else 'DOOR NOT FOUND'} "
+                      f"after={door_after.get('isUfoDoorOpen') if door_after else 'DOOR NOT FOUND'}")
+                print(f"      ev-kind sequence since the attempt: {new_kinds}")
+                print(f"      battle_action response: {ra!r}")
                 continue
             assert_hash_clean(host, client, full=True,
                               what=f"{tag}(b) actor {actor_id} baseline open")
