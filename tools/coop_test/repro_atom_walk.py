@@ -311,7 +311,9 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=SEAT1_SOLDIERS)
     session.dismiss_battle_start_overlays(host)
     client.wait_for("client battlescape",
                     lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-    time.sleep(3)
+    # WV-D82: connectionTCP.cpp:8280-8330 pushes BattlescapeState and the read-only BriefingState in ONE synchronous handler; this asserts that precondition loudly instead of napping 3 s past it (WV-D80).
+    client.wait_for("client entry briefing pushed over BattlescapeState",
+                    lambda: session.has_state(client, "BriefingState") or None, timeout=20)
     # W1-P3 (D3): the client enters through a read-only BriefingState pushed OVER
     # its BattlescapeState - every fixture that DRIVES the client must dismiss it.
     session.dismiss_client_briefing(client)
