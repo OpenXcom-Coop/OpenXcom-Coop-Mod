@@ -84,18 +84,47 @@ def run_fixture(tag, mission, game_port, host_test_port, client_test_port):
             assert hostile_units, f"FIXTURE: {tag}: no live hostile on this generated map"
 
             if any(u.get("armorSize", 1) != 1 for u in hostile_units):
-                # WV-D63(b): "never partially moves one" - this map cannot be
-                # used for the ALL-1x1 happy path below, but it DOES let this
-                # file prove the 2x2 refusal itself before moving on.
+                # WV-D89 (supersedes WV-D63(b)'s refusal): 2x2 units now move
+                # WHOLE - this map's live 2x2+ hostile(s) let this file prove
+                # the whole-move here before re-picking a fresh map for the
+                # ALL-1x1 happy path below (still needed - the loop itself is
+                # SPEC 0e-3's to delete).
                 print(f"{tag}: attempt {attempt} rolled a live 2x2+ hostile - "
-                      "proving the refusal, then re-picking the map (WV-D63(b))")
-                refused = host.cmd({"cmd": "battle_teleport_all", "faction": "hostile",
-                                     "corner": "SE", "facing": 3})
-                assert not refused.get("ok"), (
-                    f"{tag}: battle_teleport_all on a faction with a live 2x2+ unit "
-                    f"should refuse, got {refused}")
+                      "proving the 2x2 whole-move, then re-picking the map for "
+                      "the ALL-1x1 happy path (WV-D89)")
+                [(moved, _c_moved)] = place_deterministic(
+                    host, client,
+                    [{"lever": "battle_teleport_all", "faction": "hostile",
+                      "corner": "SE", "facing": 3}],
+                    what=f"{tag} 2x2 whole move (attempt {attempt})")
+
+                doors_resp = host.cmd({"cmd": "find_doors", "limit": 1})
+                assert doors_resp.get("ok"), f"{tag}: find_doors failed: {doors_resp}"
+                mx, my = doors_resp["mapSizeX"], doors_resp["mapSizeY"]
+
+                units_after = {u["id"]: u for u in battle_state(host).get("units", [])}
+                big_movers = [mv for mv in moved.get("moves", [])
+                              if units_after.get(mv["unit"], {}).get("armorSize", 1) == 2]
+                assert big_movers, (
+                    f"{tag}: expected at least one size-2 mover among {moved.get('moves')}")
+                for mv in big_movers:
+                    uid = mv["unit"]
+                    u = units_after[uid]
+                    x, y, z = u["x"], u["y"], u["z"]
+                    assert x >= mx // 2 and y >= my // 2, (
+                        f"{tag}: 2x2 unit {uid} at ({x},{y},{z}) is not inside the SE "
+                        f"corner quarter of the {mx}x{my} map")
+                    footprint = {(x + dx, y + dy) for dx in (0, 1) for dy in (0, 1)}
+                    for other in units_after.values():
+                        if other["id"] == uid or other.get("isOut"):
+                            continue
+                        assert (other["x"], other["y"]) not in footprint or other["z"] != z, (
+                            f"{tag}: unit {other['id']} at "
+                            f"({other['x']},{other['y']},{other['z']}) overlaps 2x2 unit "
+                            f"{uid}'s footprint at ({x},{y},{z})")
+
                 assert_hash_clean(host, client, full=True,
-                                   what=f"{tag} after 2x2 refusal (attempt {attempt})")
+                                   what=f"{tag} after 2x2 whole move (attempt {attempt})")
                 continue
 
             n_hostile_before = len(hostile_units)
