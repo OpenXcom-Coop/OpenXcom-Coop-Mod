@@ -4903,14 +4903,6 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			{
 				resp["error"] = "battle_teleport_unit: no such unit id " + std::to_string(unitId);
 			}
-			else if (unit->getArmor()->getSize() != 1)
-			{
-				// WV-D63(b): "1x1 units only. A 2x2 unit argument => the lever
-				// returns an error and the fixture re-picks; never partially
-				// moves one."
-				resp["error"] = "battle_teleport_unit: unit " + std::to_string(unitId)
-					+ " is not 1x1 (armor size " + std::to_string(unit->getArmor()->getSize()) + ")";
-			}
 			else if (unit->isOut())
 			{
 				resp["error"] = "battle_teleport_unit: unit " + std::to_string(unitId) + " is out (dead/unconscious)";
@@ -4930,56 +4922,36 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			else
 			{
 				const Position pos(req.get("x", -1).asInt(), req.get("y", -1).asInt(), req.get("z", -1).asInt());
-				Tile* destTile = bgTU->getTile(pos);
-				if (!destTile)
+				const int size = unit->getArmor()->getSize();
+				if (!bgTU->getTile(pos))
 				{
 					resp["error"] = "battle_teleport_unit: destination tile out of bounds";
 				}
-				else if (destTile->getUnit() != nullptr)
+				else if (!bgTU->setUnitPosition(unit, pos, /*testOnly=*/true))
 				{
-					resp["error"] = "battle_teleport_unit: destination tile occupied";
-				}
-				else if (destTile->isVoid())
-				{
-					// Tile.cpp:289.
-					resp["error"] = "battle_teleport_unit: destination tile is void";
-				}
-				else if (destTile->hasNoFloor(bgTU))
-				{
-					// Tile.cpp:319 - the same standable-tile predicate
-					// SavedBattleGame::setUnitPosition's own testOnly check uses
-					// (SavedBattleGame.cpp:2710), which is the real vanilla
-					// placement validator this lever's predicate mirrors.
-					resp["error"] = "battle_teleport_unit: destination tile has no floor";
-				}
-				else if (destTile->getTUCost(O_OBJECT, MT_WALK) == Pathfinding::INVALID_MOVE_COST)
-				{
-					// Tile.cpp:300 / Pathfinding.h:88 (INVALID_MOVE_COST == 255) -
-					// SavedBattleGame.cpp:2709's own placement-validity check.
-					resp["error"] = "battle_teleport_unit: destination tile object blocks movement";
+					// WV-D89: vanilla's own placement validator, footprint-aware (SavedBattleGame.cpp:2697):
+					// every tile of a size x size footprint must exist, be free of OTHER units, not block
+					// movement, have a floor (non-flyers), not be a big wall; large units also pass the
+					// diagonal-block test. Refused => nothing changed.
+					resp["error"] = "battle_teleport_unit: destination footprint not placeable for a size-"
+						+ std::to_string(size) + " unit (SavedBattleGame::setUnitPosition testOnly)";
 				}
 				else
 				{
 					const Position from = unit->getPosition();
-					Tile* oldTile = unit->getTile();
-					if (oldTile) oldTile->setUnit(nullptr); // belt-and-braces; setTile() below already does this
-					unit->setPosition(pos);
-					unit->setTile(destTile, bgTU);
-					if (req.isMember("dir"))
-					{
-						unit->setDirection(req["dir"].asInt());
-					}
-					resp["ok"] = true;
-					resp["unit"] = unit->getId();
+					bgTU->setUnitPosition(unit, pos);   // setTile clears the old footprint, marks the new one
+					if (req.isMember("dir")) unit->setDirection(req["dir"].asInt());
+					resp["ok"] = true; resp["unit"] = unit->getId(); resp["size"] = size;
+					const Position to = unit->getPosition();
 					Json::Value fromJ, toJ;
 					fromJ["x"] = from.x; fromJ["y"] = from.y; fromJ["z"] = from.z;
-					toJ["x"] = pos.x; toJ["y"] = pos.y; toJ["z"] = pos.z;
+					toJ["x"] = to.x; toJ["y"] = to.y; toJ["z"] = to.z;
 					resp["from"] = fromJ;
 					resp["to"] = toJ;
 					resp["dir"] = unit->getDirection();
 					Log(LOG_INFO) << "[coop-test] battle_teleport_unit unit=" << unit->getId()
 						<< " from=(" << from.x << "," << from.y << "," << from.z << ")"
-						<< " to=(" << pos.x << "," << pos.y << "," << pos.z << ")"
+						<< " to=(" << to.x << "," << to.y << "," << to.z << ")"
 						<< " dir=" << unit->getDirection();
 				}
 			}
@@ -5037,25 +5009,26 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				const int facing = req.get("facing", 0).asInt();
 
 				std::vector<BattleUnit*> movers;
-				bool anyBigUnit = false;
 				for (auto* u : *bgTA->getUnits())
 				{
 					if (u->getFaction() != fac || u->isOut()) continue;
-					if (u->getArmor()->getSize() != 1) { anyBigUnit = true; continue; }
 					movers.push_back(u);
 				}
-				// Deterministic order (WV-D63(a)): unit-id order.
+				// WV-D89 (supersedes WV-D63(b)'s 2x2 refusal): big units go
+				// FIRST, so the corner's open space goes to them - armor size
+				// DESCENDING, then id ASCENDING (WV-D63(a)'s deterministic order)
+				// among movers of the same size.
 				std::sort(movers.begin(), movers.end(),
-					[](const BattleUnit* a, const BattleUnit* b) { return a->getId() < b->getId(); });
+					[](const BattleUnit* a, const BattleUnit* b)
+					{
+						const int sa = a->getArmor()->getSize(), sb = b->getArmor()->getSize();
+						if (sa != sb) return sa > sb;
+						return a->getId() < b->getId();
+					});
 
-				if (anyBigUnit)
+				if (movers.empty())
 				{
-					resp["error"] = "battle_teleport_all: faction '" + facStr
-						+ "' has a live 2x2+ unit - refusing (WV-D63(b): never partially moves one)";
-				}
-				else if (movers.empty())
-				{
-					resp["error"] = "battle_teleport_all: faction '" + facStr + "' has no live 1x1 units to move";
+					resp["error"] = "battle_teleport_all: faction '" + facStr + "' has no live units to move";
 				}
 				else
 				{
@@ -5063,66 +5036,101 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					const int my = bgTA->getMapSizeY();
 					const int mz = bgTA->getMapSizeZ();
 
-					// Same standable-tile predicate as battle_teleport_unit
-					// above (Tile.cpp:289/:300/:319, Pathfinding.h:88), applied
-					// per-candidate while scanning inward from the corner.
-					std::vector<Tile*> freeTiles;
-					for (int z = 0; z < mz && freeTiles.size() < movers.size(); ++z)
+					// Same corner-inward scan order as before (z, then y, then
+					// x, honouring xDescending/yDescending) - every in-bounds
+					// position, unfiltered: the PLAN pass below is the sole
+					// judge, through vanilla's own footprint-aware
+					// SavedBattleGame::setUnitPosition(testOnly).
+					std::vector<Position> candidates;
+					candidates.reserve((std::size_t)mx * (std::size_t)my * (std::size_t)mz);
+					for (int z = 0; z < mz; ++z)
 					{
-						for (int yi = 0; yi < my && freeTiles.size() < movers.size(); ++yi)
+						for (int yi = 0; yi < my; ++yi)
 						{
 							const int y = yDescending ? (my - 1 - yi) : yi;
-							for (int xi = 0; xi < mx && freeTiles.size() < movers.size(); ++xi)
+							for (int xi = 0; xi < mx; ++xi)
 							{
 								const int x = xDescending ? (mx - 1 - xi) : xi;
-								Tile* t = bgTA->getTile(Position(x, y, z));
-								if (!t) continue;
-								if (t->getUnit() != nullptr) continue;
-								if (t->isVoid()) continue;
-								if (t->hasNoFloor(bgTA)) continue;
-								if (t->getTUCost(O_OBJECT, MT_WALK) == Pathfinding::INVALID_MOVE_COST) continue;
-								freeTiles.push_back(t);
+								candidates.push_back(Position(x, y, z));
 							}
 						}
 					}
 
-					if (freeTiles.size() < movers.size())
+					// PLAN pass (WV-D89): "never partially moves" - every
+					// mover's footprint is proven placeable, against a
+					// reserved-tile set that grows as each mover is planned,
+					// BEFORE anything actually moves. Reserved tiles are
+					// tracked as linear indices (Position has no operator<).
+					std::set<long long> reserved;
+					std::vector<BattleUnit*> plannedUnit;
+					std::vector<Position> plannedPos;
+					std::string planError;
+					for (BattleUnit* unit : movers)
 					{
-						resp["error"] = "battle_teleport_all: only found " + std::to_string(freeTiles.size())
-							+ " free standable tile(s) near corner '" + cornerStr + "' for "
-							+ std::to_string(movers.size()) + " unit(s)";
+						const int size = unit->getArmor()->getSize();
+						bool placed = false;
+						for (const Position& p : candidates)
+						{
+							if (!bgTA->setUnitPosition(unit, p, /*testOnly=*/true))
+								continue;
+							bool footprintFree = true;
+							for (int dx = 0; dx < size && footprintFree; ++dx)
+								for (int dy = 0; dy < size && footprintFree; ++dy)
+									if (reserved.count((long long)(p.z) * mx * my + (long long)(p.y + dy) * mx + (p.x + dx)))
+										footprintFree = false;
+							if (!footprintFree)
+								continue;
+							for (int dx = 0; dx < size; ++dx)
+								for (int dy = 0; dy < size; ++dy)
+									reserved.insert((long long)(p.z) * mx * my + (long long)(p.y + dy) * mx + (p.x + dx));
+							plannedUnit.push_back(unit);
+							plannedPos.push_back(p);
+							placed = true;
+							break;
+						}
+						if (!placed)
+						{
+							planError = "battle_teleport_all: no placeable footprint near corner '" + cornerStr
+								+ "' for unit " + std::to_string(unit->getId()) + " (size " + std::to_string(size)
+								+ "); nothing moved";
+							break;
+						}
+					}
+
+					if (!planError.empty())
+					{
+						resp["error"] = planError;
 					}
 					else
 					{
+						// APPLY pass: every planned mover was already proven
+						// placeable above.
 						Json::Value moves(Json::arrayValue);
-						for (std::size_t i = 0; i < movers.size(); ++i)
+						for (std::size_t i = 0; i < plannedUnit.size(); ++i)
 						{
-							BattleUnit* unit = movers[i];
-							Tile* destTile = freeTiles[i];
-							const Position pos = destTile->getPosition();
+							BattleUnit* unit = plannedUnit[i];
 							const Position from = unit->getPosition();
-							Tile* oldTile = unit->getTile();
-							if (oldTile) oldTile->setUnit(nullptr); // belt-and-braces, see battle_teleport_unit
-							unit->setPosition(pos);
-							unit->setTile(destTile, bgTA);
+							bgTA->setUnitPosition(unit, plannedPos[i]);   // setTile clears the old footprint, marks the new one
 							unit->setDirection(facing);
+							const Position to = unit->getPosition();
 							Json::Value mv;
 							mv["unit"] = unit->getId();
 							Json::Value fromJ, toJ;
 							fromJ["x"] = from.x; fromJ["y"] = from.y; fromJ["z"] = from.z;
-							toJ["x"] = pos.x; toJ["y"] = pos.y; toJ["z"] = pos.z;
+							toJ["x"] = to.x; toJ["y"] = to.y; toJ["z"] = to.z;
 							mv["from"] = fromJ;
 							mv["to"] = toJ;
 							mv["dir"] = unit->getDirection();
+							mv["size"] = unit->getArmor()->getSize();
 							moves.append(mv);
 							Log(LOG_INFO) << "[coop-test] battle_teleport_all faction=" << facStr
 								<< " unit=" << unit->getId()
-								<< " to=(" << pos.x << "," << pos.y << "," << pos.z << ")"
+								<< " to=(" << to.x << "," << to.y << "," << to.z << ")"
 								<< " dir=" << facing;
 						}
 						resp["ok"] = true;
 						resp["moves"] = moves;
-						resp["count"] = (int)movers.size();
+						resp["count"] = (int)plannedUnit.size();
 					}
 				}
 			}
