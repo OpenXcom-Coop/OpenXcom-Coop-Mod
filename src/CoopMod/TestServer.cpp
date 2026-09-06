@@ -5622,6 +5622,76 @@ std::string TestServer::execute(const std::string& line)
 				}
 			}
 		}
+		else if (cmd == "newbattle_craft")
+		{
+			// SPEC 0e-1 (WV-D87): pin the skirmish craft by ruleset name before
+			// newbattle_ok generates the battle - the Lightning-contact fixtures
+			// need a craft whose own map data carries a known door (LIGHTNIN.MCD
+			// record 40, the only UFO_Door tile). With no "type" the command just
+			// REPORTS the list, mirroring newbattle_mission above.
+			NewBattleState* nb = findState<NewBattleState>(_game);
+			if (!nb)
+			{
+				resp["error"] = "no NewBattleState in state stack";
+			}
+			else
+			{
+				Json::Value crafts(Json::arrayValue);
+				for (const std::string& t : nb->harnessCrafts())
+					crafts.append(t);
+				resp["crafts"] = crafts;
+				if (req.isMember("type"))
+				{
+					const std::string want = req["type"].asString();
+					if (!nb->harnessSelectCraft(want))
+						resp["error"] = "newbattle_craft: this build does not offer '" + want + "'";
+					else
+					{
+						resp["selected"] = want;
+						resp["ok"] = true;
+					}
+				}
+				else
+				{
+					resp["ok"] = true;
+				}
+			}
+		}
+		else if (cmd == "newbattle_race")
+		{
+			// SPEC 0e-1 (WV-D88): pin the alien race by ruleset name from the list
+			// cbxMissionChange built for the CURRENT mission - MUST be called after
+			// newbattle_mission (that handler rebuilds _alienRaces; picking a race
+			// first would select from the wrong list). With no "race" the command
+			// just REPORTS the list, mirroring newbattle_mission above.
+			NewBattleState* nb = findState<NewBattleState>(_game);
+			if (!nb)
+			{
+				resp["error"] = "no NewBattleState in state stack";
+			}
+			else
+			{
+				Json::Value races(Json::arrayValue);
+				for (const std::string& t : nb->harnessAlienRaces())
+					races.append(t);
+				resp["alienRaces"] = races;
+				if (req.isMember("race"))
+				{
+					const std::string want = req["race"].asString();
+					if (!nb->harnessSelectAlienRace(want))
+						resp["error"] = "newbattle_race: this build does not offer '" + want + "'";
+					else
+					{
+						resp["selected"] = want;
+						resp["ok"] = true;
+					}
+				}
+				else
+				{
+					resp["ok"] = true;
+				}
+			}
+		}
 		else if (cmd == "coop_connecting_dialogs")
 		{
 			// Count "Connecting..." wait dialogs (CoopState 15) ANYWHERE in the

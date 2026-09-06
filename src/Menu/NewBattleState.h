@@ -163,6 +163,18 @@ public:
 	/// order - so a test can pick one that exists instead of hard-coding a
 	/// ruleset string that a mod may not define.
 	const std::vector<std::string>& harnessMissionTypes() const { return _missionTypes; }
+	/// SPEC 0e-1 (WV-D87): test hook - pick the CRAFT by ruleset name, exactly as
+	/// clicking the combo would (setSelected + cbxCraftChange, which re-seats the
+	/// soldiers and, in coop, sends the existing craft_list/selected_craft_id
+	/// message). Returns false (changes nothing) for a name not offered. Test-only.
+	bool harnessSelectCraft(const std::string& type);
+	const std::vector<std::string>& harnessCrafts() const { return _crafts; }
+	/// SPEC 0e-1 (WV-D88): test hook - pick the ALIEN RACE by ruleset name from the
+	/// list cbxMissionChange built for the CURRENT mission (call after
+	/// harnessSelectMission). No change handler exists for this combo; the race is
+	/// read at generation. Returns false (changes nothing) for a name not offered.
+	bool harnessSelectAlienRace(const std::string& race);
+	const std::vector<std::string>& harnessAlienRaces() const { return _alienRaces; }
 };
 
 }

@@ -919,6 +919,48 @@ bool NewBattleState::harnessSelectMission(const std::string& type)
 }
 
 /**
+ * SPEC 0e-1 (WV-D87): see this method's declaration for why the Lightning-
+ * contact fixtures need it. Drives the SAME two calls the combo box's own
+ * change handler does - setSelected() then cbxCraftChange(), which re-seats
+ * the soldiers and, in coop, sends the existing craft_list/selected_craft_id
+ * message (this file, :1146-1154) - so the state left behind is exactly the
+ * state a player clicking that row would have produced. Test-only.
+ */
+bool NewBattleState::harnessSelectCraft(const std::string& type)
+{
+	for (size_t i = 0; i < _crafts.size(); ++i)
+	{
+		if (_crafts[i] == type)
+		{
+			_cbxCraft->setSelected(i);
+			cbxCraftChange(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * SPEC 0e-1 (WV-D88): see this method's declaration for why the Lightning-
+ * contact fixtures need it. No change handler exists for this combo - the
+ * race is read at generation - so this only moves the selection. Call after
+ * harnessSelectMission(), which is what rebuilds _alienRaces for the current
+ * mission. Test-only.
+ */
+bool NewBattleState::harnessSelectAlienRace(const std::string& race)
+{
+	for (size_t i = 0; i < _alienRaces.size(); ++i)
+	{
+		if (_alienRaces[i] == race)
+		{
+			_cbxAlienRace->setSelected(i);
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * Returns to the previous screen.
  * @param action Pointer to an action.
  */
