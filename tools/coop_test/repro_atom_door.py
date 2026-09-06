@@ -1139,8 +1139,17 @@ def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_ac
             assert_hash_clean(host, client, full=True,
                               what=f"{tag}(a) after a crossing attempt")
             evs = action_events(host, hw["actionId"])
-            door_evs = [e for e in evs if e["kind"] == "door"
-                       and e.get("payload", {}).get("op") == "open"]
+            # SPEC 6c6 (WV-D77): the `event_log` probe emits a fixed-size POD
+            # (CoopEventLog::Entry, BattlePump.h:206-219 / TestServer.cpp:4524-4542)
+            # with exactly `seq`, `actionId`, `kind`, `h` - there is no `payload`
+            # field and there cannot be one, so an `e.get("payload", {}).get("op")`
+            # clause is unsatisfiable by construction and this leg could never
+            # pass. `kind` is the only field the probe supplies (PHASE 1's
+            # assert_door_between_steps already filters on it alone); the OPEN
+            # itself is proved below by the counter asserts and the door's own
+            # isUfoDoorOpen False->True transition, not by a payload the probe
+            # cannot carry.
+            door_evs = [e for e in evs if e["kind"] == "door"]
             if not door_evs:
                 restate = hw.get("restate") or {}
                 msg = (f"actor {actor_id} door {door_at}: walk from {at} "
@@ -1173,6 +1182,18 @@ def phase_reserve_fairness(host, client, tag, want_ufo, approach_max, exclude_ac
                 print(f"      full restate dict: {restate!r}")
                 print(f"      full hw (lastWalk) dict: {hw!r}")
                 continue
+            # SPEC 6c6 (WV-D77): STRICTER than the check this leg was meant to
+            # be - a `door` ev in this action's stream is not enough on its own
+            # (kind alone doesn't say which way it swung), so also require the
+            # TARGET door itself to have gone isUfoDoorOpen False -> True across
+            # this specific attempt, using the door_lookup helper cycle 5 added.
+            door_after_open = door_lookup(host, door_at)
+            before_open = door_before.get("isUfoDoorOpen") if door_before else None
+            after_open = door_after_open.get("isUfoDoorOpen") if door_after_open else None
+            assert before_open is False and after_open is True, (
+                f"{tag}(a): door {door_at} did not go isUfoDoorOpen False -> True "
+                f"across the crossing that emitted a `door` ev (before={before_open}, "
+                f"after={after_open})")
             crossed_actor = actor_id
             print(f"    [{tag}(a)] actor {actor_id} crossed door {door_at} from {at} "
                   f"-> {far} under the HOST's aimed+kneel reserve")
