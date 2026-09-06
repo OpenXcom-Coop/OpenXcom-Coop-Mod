@@ -235,6 +235,28 @@ NORMAL_APPROACH_MAX = 7
 BASE_DEFENSE_MISSION = "STR_BASE_DEFENSE"
 BASE_DEFENSE_APPROACH_MAX = 4
 
+# SPEC 6c3 (P10-ACCEPT, cycle 3, OWNER RULING WV-D75, 2026-09-05). The
+# deterministic acceptance leg moves OFF STR_BASE_DEFENSE and onto
+# STR_SUPPLY_SHIP. TRACED (do not re-derive): `alienDeployments.rul`'s
+# STR_BASE_DEFENSE block is the ONLY mission class carrying `alienRank: 6`
+# and `alienRank: 7` (the terror units, each `lowQty 0`/`highQty 2`) after
+# ranks 5..0, and `armors.rul` gives CYBERDISC_ARMOR/SECTOPOD_ARMOR/
+# REAPER_ARMOR size 2 - `battle_teleport_all` correctly REFUSES OUTRIGHT the
+# instant the hostile faction holds ANY live size-2 unit
+# (TestServer.cpp:5044/:5053, WV-D63(b)), which base defence rolls on ~89%
+# of boots. STR_SUPPLY_SHIP's deployment (ranks 5,4,3,2,1) carries no rank
+# 6/7 at all and so cannot trigger that refusal - measured staged on
+# attempt 1 in three separate runs (test_rw_teleport_lever.py's supply-ship
+# leg, orch9 + orch10 x2, 2026-09-05). Its doors are UFO doors exactly like
+# base defence's, so it reuses BASE_DEFENSE_APPROACH_MAX (a generic "can the
+# actor still act after walking" TU-affordability cap, never specific to
+# one mission's door geometry - see that constant's own comment) and the
+# same `unitsStats` non-vacuity bucket. Base defence is NOT deleted: it
+# stays reachable via `--mission STR_BASE_DEFENSE` as a secondary/
+# exploration leg (WV-D65); its ~89% SKIP rate is now a DOCUMENTED PROPERTY
+# of the 2x2 roll, not a defect, and it never gates acceptance.
+SUPPLY_SHIP_MISSION = "STR_SUPPLY_SHIP"
+
 DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
 DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
 
@@ -1502,12 +1524,27 @@ def _approach_tile_before(near, far):
     return (near[0] + dx, near[1] + dy, near[2])
 
 
-def _stage_base_defence_deterministic(out, attempt_box):
-    """WV-D63/WV-D72 qualifier for STR_BASE_DEFENSE's --deterministic path
-    (SPEC 6c2 (d) step 4). Runs INSIDE `bring_up()`'s own re-roll loop
-    (capped at DETERMINISTIC_MAX_BOOTS via `bring_up`'s `max_attempts`, never
+def _stage_deterministic(mission, out, attempt_box):
+    """WV-D63/WV-D72 qualifier for a UFO-door mission's --deterministic path
+    (SPEC 6c2 (d) step 4; made MISSION-AGNOSTIC by SPEC 6c3 (d) step 1,
+    WV-D75). Runs INSIDE `bring_up()`'s own re-roll loop (capped at
+    DETERMINISTIC_MAX_BOOTS via `bring_up`'s `max_attempts`, never
     MAX_REROLLS), so a staging miss gets a FRESH BOOT exactly as WV-D72
     requires - the MAP is still rolled, only the SITUATION is pinned.
+
+    `mission` is used only for the attempt-log prefix below; nothing in this
+    function's own logic ever hardcoded a mission string - the ONLY thing
+    that made the pre-SPEC-6c3 version base-defence-specific was its name.
+    Called with BASE_DEFENSE_MISSION (`run_base_defence`, secondary/
+    exploration leg) or SUPPLY_SHIP_MISSION (`run_supply_ship`, the WV-D75
+    acceptance leg). STR_BASE_DEFENSE was left behind because its
+    `alienDeployments.rul` block is the ONLY mission class carrying
+    `alienRank: 6`/`7` (the terror units) after ranks 5..0, and those ranks'
+    armors (`armors.rul`: CYBERDISC_ARMOR/SECTOPOD_ARMOR/REAPER_ARMOR) are
+    size 2 - `battle_teleport_all` correctly REFUSES OUTRIGHT the instant the
+    hostile faction holds ANY live size-2 unit (the `big_hostiles` check
+    below, TestServer.cpp:5044/:5053, WV-D63(b)), which base defence rolls on
+    ~89% of boots. See SUPPLY_SHIP_MISSION's own comment for the full trace.
 
     Stages BOTH WV-D59 legs' crossings:
       A = the client-origin crossing PHASE 1 and phase_reserve_fairness leg
@@ -1519,6 +1556,13 @@ def _stage_base_defence_deterministic(out, attempt_box):
           only_actor=[B_actor])` then finds, adjacent by construction
           (0-approach, exactly what stage_right_click_pick's adjacency test
           wants and exactly what `walk_through_candidates()` would reject).
+          SPEC 6c3 (d) step 3: B's door is the SECOND closed UFO door when
+          the map has one, else it REUSES the first (`pick_b` below) - leg
+          (b) must not depend on a second door existing, and its own
+          BASELINE/CONTROL loop already re-closes the door it just opened
+          between attempts (`battle_close_ufo_doors`,
+          `phase_reserve_fairness`'s leg (b)), which is the path a reused
+          door falls back on.
 
     Stashes them into `out["A"]`/`out["B"]` on success and returns None
     (bring_up stops re-rolling). Returns a reason STRING on a recoverable
@@ -1532,8 +1576,8 @@ def _stage_base_defence_deterministic(out, attempt_box):
         k = attempt_box[0]
 
         def _skip(reason):
-            print(f"deterministic staging: attempt {k}/{DETERMINISTIC_MAX_BOOTS} "
-                  f"-> {reason}")
+            print(f"deterministic staging [{mission}]: attempt "
+                  f"{k}/{DETERMINISTIC_MAX_BOOTS} -> {reason}")
             return reason
 
         if spotted(host):
@@ -1548,9 +1592,9 @@ def _stage_base_defence_deterministic(out, attempt_box):
             assert doors_resp.get("ok"), f"find_doors failed: {doors_resp}"
             closed = [d for d in doors_resp.get("doors", [])
                      if not d.get("isUfoDoorOpen")]
-            if len(closed) < 2:
-                return _skip(f"FIXTURE: only {len(closed)} closed UFO door(s) on "
-                            "this map, need >= 2 (one per WV-D59 leg)")
+            if len(closed) < 1:
+                return _skip(f"FIXTURE: no closed UFO door on this map, need "
+                            ">= 1")
             live_seat1 = sorted(u["id"] for u in seat_units(host))
             if len(live_seat1) < 2:
                 return _skip(f"FIXTURE: only {len(live_seat1)} live seat-1 "
@@ -1573,6 +1617,13 @@ def _stage_base_defence_deterministic(out, attempt_box):
                 return _skip("FIXTURE: hostile faction has a live 2x2+ unit "
                             f"{big_hostiles} - battle_teleport_all refuses to "
                             "move it (WV-D63(b))")
+
+            # SPEC 6c3 (d) step 3, decision-free: leg (a) always takes the
+            # first closed UFO door; leg (b) takes the second if the map has
+            # one, else it REUSES the first (leg (b)'s own BASELINE/CONTROL
+            # loop already re-closes between attempts - see this function's
+            # docstring).
+            pick_b = (lambda ds: ds[1]) if len(closed) > 1 else (lambda ds: ds[0])
 
             A = session.contact_free_ufo_door_setup(
                 host, client, door_pick_rule=lambda ds: ds[0], what="leg-a")
@@ -1598,7 +1649,7 @@ def _stage_base_defence_deterministic(out, attempt_box):
                 return _skip("FIXTURE: no SECOND live seat-1 soldier for leg (b)")
 
             B = session.contact_free_ufo_door_setup(
-                host, client, door_pick_rule=lambda ds: ds[1], actor_id=second_id,
+                host, client, door_pick_rule=pick_b, actor_id=second_id,
                 teleport_hostiles=False, what="leg-b")
         except AssertionError as e:
             msg = str(e)
@@ -1607,7 +1658,8 @@ def _stage_base_defence_deterministic(out, attempt_box):
             return _skip(msg)
 
         out["A"], out["B"] = A, B
-        print(f"deterministic staging: attempt {k}/{DETERMINISTIC_MAX_BOOTS} -> ok "
+        print(f"deterministic staging [{mission}]: attempt "
+              f"{k}/{DETERMINISTIC_MAX_BOOTS} -> ok "
               f"(leg-a actor {actor_a} staged at {back_a} -> door "
               f"{door_a['x']},{door_a['y']},{door_a['z']} part {door_a['part']}; "
               f"leg-b actor {B[0]} adjacent to door {B[3]['x']},{B[3]['y']},"
@@ -1684,7 +1736,9 @@ def run_base_defence(deterministic=True):
 
     `deterministic` (SPEC 6c2 / WV-D71, DEFAULT True): stage BOTH WV-D59
     legs' crossings with the WV-D63 placement lever
-    (`_stage_base_defence_deterministic`) instead of searching a freshly
+    (`_stage_deterministic(BASE_DEFENSE_MISSION, ...)`, made mission-agnostic
+    by SPEC 6c3 (d) step 1 - see `run_supply_ship` for the WV-D75 acceptance
+    leg this same helper now also drives) instead of searching a freshly
     rolled map for one - the WV-D65 3-consecutive-green bar. PHASE 1 and
     `phase_reserve_fairness` are still called UNCHANGED (same signatures, same
     assertions); only the SITUATION they find via their own internal search is
@@ -1699,7 +1753,8 @@ def run_base_defence(deterministic=True):
     if deterministic:
         out, attempt_box = {}, [0]
         host, client = bring_up("basedef", BASE_DEFENSE_MISSION,
-                                _stage_base_defence_deterministic(out, attempt_box),
+                                _stage_deterministic(BASE_DEFENSE_MISSION, out,
+                                                     attempt_box),
                                 48920, 49920, max_attempts=DETERMINISTIC_MAX_BOOTS)
         try:
             actor_a = out["A"][0]
@@ -1736,23 +1791,98 @@ def run_base_defence(deterministic=True):
     print(f"\nrepro_atom_door[{BASE_DEFENSE_MISSION}]: PASS ({time.time() - t0:.1f}s)")
 
 
+def run_supply_ship(deterministic=True):
+    """SPEC 6c3 (P10-ACCEPT, cycle 3, OWNER RULING WV-D75): STR_SUPPLY_SHIP -
+    the deterministic leg's new home, replacing STR_BASE_DEFENSE as the
+    WV-D65 acceptance target. See SUPPLY_SHIP_MISSION's own comment and
+    `_stage_deterministic`'s docstring for the full traced reason (base
+    defence's rank 6/7 -> a 2x2 hostile -> `battle_teleport_all`'s correct
+    whole-faction refusal, ~89% of boots; supply ship's deployment has no
+    rank 6/7 at all).
+
+    Otherwise BYTE-FOR-BYTE the same shape as `run_base_defence()`: same
+    phase order (PHASE 1, PHASE 3, PHASE 4/WV-D59), same `unitsStats`
+    non-vacuity bucket (supply ship's doors are UFO doors too), same shared
+    staging helper (`_stage_deterministic`, mission-agnostic per SPEC 6c3 (d)
+    step 1) and the same SCOPE choice (PHASE 2 / the open-door half of
+    PHASE 3 not re-run here - see `run_base_defence`'s docstring). Reuses
+    `BASE_DEFENSE_APPROACH_MAX` as its approach cap (a generic TU-
+    affordability ceiling, never specific to one mission's door geometry -
+    see that constant's own comment) rather than minting a new one.
+
+    `deterministic` (DEFAULT True): stage BOTH WV-D59 legs' crossings with
+    the WV-D63 placement lever via
+    `_stage_deterministic(SUPPLY_SHIP_MISSION, ...)` - the WV-D65
+    3-consecutive-green bar this cycle exists to meet reliably.
+    `deterministic=False` (reachable via `--no-deterministic`) runs the
+    ORIGINAL map-rolled search against this same mission,
+    `make_qualifier`/`MAX_REROLLS` included, exactly like
+    `run_base_defence`'s own exploration branch."""
+    t0 = time.time()
+    mode = "DETERMINISTIC (WV-D63 lever)" if deterministic else "EXPLORATION (map-rolled, --no-deterministic)"
+    print(f"=== FIXTURE: {SUPPLY_SHIP_MISSION} (UFO doors - the `unitsStats` bucket) "
+          f"[{mode}] ===")
+
+    if deterministic:
+        out, attempt_box = {}, [0]
+        host, client = bring_up("supplyship", SUPPLY_SHIP_MISSION,
+                                _stage_deterministic(SUPPLY_SHIP_MISSION, out,
+                                                     attempt_box),
+                                49120, 50120, max_attempts=DETERMINISTIC_MAX_BOOTS)
+        try:
+            actor_a = out["A"][0]
+            spent = set()
+            phase_walk_through(host, client, want_ufo=True,
+                               approach_max=BASE_DEFENSE_APPROACH_MAX,
+                               tag="PHASE 1 (supply ship, deterministic)",
+                               moving_bucket="unitsStats", moved_out=spent)
+            phase_client_boundary_refused(host, client, "PHASE 3 (supply ship)")
+            phase_reserve_fairness(host, client, "PHASE 4 (WV-D59)", want_ufo=True,
+                                   approach_max=BASE_DEFENSE_APPROACH_MAX,
+                                   exclude_actor=spent | {actor_a})
+        finally:
+            host.shutdown()
+            client.shutdown()
+        print(f"\nrepro_atom_door[{SUPPLY_SHIP_MISSION}]: PASS ({time.time() - t0:.1f}s)")
+        return
+
+    host, client = bring_up("supplyship", SUPPLY_SHIP_MISSION,
+                            make_qualifier(True, BASE_DEFENSE_APPROACH_MAX), 49120, 50120)
+    try:
+        spent = set()
+        phase_walk_through(host, client, want_ufo=True,
+                           approach_max=BASE_DEFENSE_APPROACH_MAX,
+                           tag="PHASE 1 (supply ship)", moving_bucket="unitsStats",
+                           moved_out=spent)
+        phase_client_boundary_refused(host, client, "PHASE 3 (supply ship)")
+        phase_reserve_fairness(host, client, "PHASE 4 (WV-D59)", want_ufo=True,
+                               approach_max=BASE_DEFENSE_APPROACH_MAX,
+                               exclude_actor=spent)
+    finally:
+        host.shutdown()
+        client.shutdown()
+    print(f"\nrepro_atom_door[{SUPPLY_SHIP_MISSION}]: PASS ({time.time() - t0:.1f}s)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mission", choices=(BASE_DEFENSE_MISSION, DOOR_MISSION),
+    ap.add_argument("--mission",
+                    choices=(BASE_DEFENSE_MISSION, DOOR_MISSION, SUPPLY_SHIP_MISSION),
                     default=None,
                     help="run ONLY this mission class's leg (default: run BOTH, "
-                         "base defence first - SPEC 6 (P10-ACCEPT))")
+                         "supply ship first - SPEC 6c3 / WV-D75)")
     ap.add_argument("--deterministic", dest="deterministic", action="store_true",
                     default=True,
-                    help="stage the STR_BASE_DEFENSE crossing with the WV-D63 "
-                         "lever (DEFAULT, WV-D71) - the WV-D65 3-consecutive-"
-                         "green deterministic bar")
+                    help="stage the crossing with the WV-D63 lever (DEFAULT, "
+                         "WV-D71) - the WV-D65 3-consecutive-green deterministic "
+                         "bar. Applies to STR_SUPPLY_SHIP and STR_BASE_DEFENSE")
     ap.add_argument("--no-deterministic", dest="deterministic", action="store_false",
                     help="use the legacy map-rolled search (EXPLORATION at "
                          "G2/G3, WV-D65). STR_SMALL_SCOUT's doors are NORMAL, "
                          "not UFO, so this flag is a no-op for that leg either "
-                         "way - it only changes STR_BASE_DEFENSE's behaviour")
+                         "way - it only changes STR_SUPPLY_SHIP's and "
+                         "STR_BASE_DEFENSE's behaviour")
     args = ap.parse_args()
 
     print("repro_atom_door: mode = " +
@@ -1765,17 +1895,26 @@ def main():
     if args.mission == DOOR_MISSION:
         run_small_scout()
         return
+    if args.mission == SUPPLY_SHIP_MISSION:
+        run_supply_ship(deterministic=args.deterministic)
+        return
 
-    # DEFAULT (no --mission): run BOTH, base defence first (SPEC 6 (d) step 3).
-    # Combined outcome: any hard FAIL is a hard FAIL; SKIP only if BOTH legs
-    # skipped; otherwise PASS. This is what keeps a bare
-    # `python repro_atom_door.py` (BLOCK REGRESSION's own invocation) a
-    # reliable gate even though STR_SMALL_SCOUT alone skips on ~95% of boots
-    # (a fixture fact - see the module docstring's FIXTURE section, and SPEC 6
-    # DONE-WHEN 2) - STR_BASE_DEFENSE normally supplies the PASS.
+    # DEFAULT (no --mission): run BOTH, supply ship first (SPEC 6c3 (d) step 2 /
+    # WV-D75 - it stages on ~100% of boots, attempt 1/3 every time measured,
+    # replacing base defence's ~89%-SKIP roll as the reliable half of this
+    # combined gate). Combined outcome UNCHANGED from cycle 2: any hard FAIL is
+    # a hard FAIL; SKIP only if BOTH legs skipped; otherwise PASS. This is what
+    # keeps a bare `python repro_atom_door.py` (BLOCK REGRESSION's own
+    # invocation) a reliable gate even though STR_SMALL_SCOUT alone skips on
+    # ~95% of boots (a fixture fact - see the module docstring's FIXTURE
+    # section, and SPEC 6 DONE-WHEN 2 / SPEC 6c3 DONE-WHEN 5) -
+    # STR_SUPPLY_SHIP now normally supplies the PASS. STR_BASE_DEFENSE stays
+    # reachable via `--mission STR_BASE_DEFENSE` (WV-D65 secondary/exploration
+    # leg) rather than in this default pair, since its ~89% SKIP rate would
+    # only add noise to a combined result that no longer needs it.
     results = {}
-    for name, runner in ((BASE_DEFENSE_MISSION,
-                         lambda: run_base_defence(deterministic=args.deterministic)),
+    for name, runner in ((SUPPLY_SHIP_MISSION,
+                         lambda: run_supply_ship(deterministic=args.deterministic)),
                         (DOOR_MISSION, run_small_scout)):
         try:
             runner()
