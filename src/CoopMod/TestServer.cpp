@@ -4992,8 +4992,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			// This lever OWNS both ends of "corner" - no wire/protocol depends
 			// on the mapping, so it is a private convention, stated once:
 			// NW=(low x,low y), NE=(high x,low y), SW=(low x,high y),
-			// SE=(high x,high y); "scanning inward" walks row-major (y outer,
-			// x inner) FROM that corner TOWARD the map's centre.
+			// SE=(high x,high y); "scanning inward" walks RINGS of growing
+			// Chebyshev distance FROM that corner (WV-D93), never rows.
 			const std::string cornerStr = req.get("corner", "").asString();
 			bool xDescending = false, yDescending = false, badCorner = false;
 			if (cornerStr == "NW") { xDescending = false; yDescending = false; }
