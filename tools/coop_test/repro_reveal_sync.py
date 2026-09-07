@@ -743,6 +743,22 @@ def test_g2_selection_decoupled():
         actor_a = actor["id"]
         cs = client.cmd({"cmd": "battle_state"})
         actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
+        # WV-D94 (SPEC 0e-3 AMENDMENT 3, owner D1 2026-09-07): the positive control
+        # turns actor_a on the craft ROOF, one level above its staged deck tile, where
+        # the map is unexplored in every direction. Measured M6: the roof fires within
+        # the actor's 2nd turn on 6/6 boots (Skyranger/Lightning/Avenger); a soldier
+        # enclosed in the hull fires on 0/8 turns - which is how the west craft column
+        # went vacuous. The lever does not recompute sight; the first turn does.
+        roof = (actor["x"], actor["y"], actor["z"] + 1)
+        occupied = {session.unit_pos(u) for u in cs["units"] if not u.get("isOut")}
+        if not session.tile_walkable(host, roof, occupied):
+            raise AssertionError(
+                f"FIXTURE: [g2] no standable roof tile above the staged actor at {roof}")
+        session.place_deterministic(host, client, [
+            {"lever": "battle_teleport_unit", "unit": actor_a,
+             "x": roof[0], "y": roof[1], "z": roof[2], "dir": actor.get("direction", 0)}],
+            what="[g2] WV-D94 roof staging")
+        print(f"[repro_reveal_sync/g2] actor {actor_a} staged on the craft roof at {roof} (WV-D94)")
         assert_dual_reveal_parity(host, client, "before the G-2 proof")
 
         # --- (+) POSITIVE CONTROL: an ACTION authors fog -----------------------
