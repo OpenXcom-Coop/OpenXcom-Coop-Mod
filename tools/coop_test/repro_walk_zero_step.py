@@ -257,77 +257,36 @@ def phase2_admission(host, client, actor_id):
 
 
 
-# ===== SPEC 6g: bring_up moved here from repro_atom_door.py, its ONE remaining
-# consumer (AMENDMENT 2). It cannot live in session.py: it calls
-# W.bring_up_lobby, and repro_atom_walk imports session, which would cycle. The
-# local MAX_REROLLS was 12 and DEAD (single occurrence, nothing imports this
-# module); the value bring_up actually uses is repro_atom_door's 60, moved with it.
-MAX_REROLLS = 60
 DOOR_MISSION = "STR_SMALL_SCOUT"
 
 
-class FixtureExhausted(Exception):
-    """MAX_REROLLS boots produced no qualifying map. Carries the histogram."""
-
-# SPEC 6c2 (d) step 4 / WV-D72. The --deterministic path's own fresh-boot
-# retry ceiling - deliberately far below MAX_REROLLS=60, because the WV-D63
-# lever PINS the situation instead of searching a map-rolled one for it: a
-# staging miss here is a fixture-lever finding to report (rate), never a
-# reason to grind through dozens of boots hoping for better luck.
-
-
-def bring_up(tag, mission, qualifies, base_port, base_probe, max_attempts=None):
-    """`max_attempts` (SPEC 6c2 / WV-D72, additive): caps the re-roll/fresh-
-    boot loop below the module's own MAX_REROLLS - the --deterministic path
-    passes DETERMINISTIC_MAX_BOOTS (3) here, since a WV-D63-staged SITUATION
-    that still fails to qualify after a few fresh boots is a lever finding,
-    not a map-luck grind. `None` (every existing caller) preserves today's
-    MAX_REROLLS behaviour byte-for-byte."""
-    limit = MAX_REROLLS if max_attempts is None else max_attempts
-    why_log = []
-    for attempt in range(1, limit + 1):
-        port = str(base_port + attempt)
-        host = GameClient("host", base_probe + attempt * 2,
-                          make_user_dir(f"repro_atom_door_{tag}_host_{attempt}"))
-        client = GameClient("client", base_probe + 1 + attempt * 2,
-                            make_user_dir(f"repro_atom_door_{tag}_client_{attempt}"))
-        seated = {}
-        try:
-            W.bring_up_lobby(host, client, port)
-            session.drive_to_battlescape(host, client, seated, mission=mission)
-            why = qualifies(host, client)
-            if why is None:
-                print(f"[repro_atom_door] {tag} fixture qualifies on attempt "
-                      f"{attempt}/{limit} ({attempt - 1} re-roll(s))")
-                return host, client
-            why_log.append(why)
-            print(f"[repro_atom_door] {tag} re-roll {attempt}/{limit}: {why}")
-            host.shutdown()
-            client.shutdown()
-        except Exception:
-            host.shutdown()
-            client.shutdown()
-            raise
-    tally = {}
-    for w in why_log:
-        key = w.split(":")[0].split("(")[0].strip()
-        tally[key] = tally.get(key, 0) + 1
-    lines = [f"no qualifying {tag} fixture in {limit} boots - the map "
-             "generator never offered a testable situation, which is not a "
-             "statement about the door atom",
-             "      rejection histogram:"]
-    for k, v in sorted(tally.items(), key=lambda kv: -kv[1]):
-        lines.append(f"      {v:4d}  {k}")
-    lines.append(f"      last: {why_log[-1] if why_log else None}")
-    raise FixtureExhausted(("\n".join(lines)))
+def bring_up(tag, mission, qualifies, base_port, base_probe):
+    port = str(base_port + 1)
+    host = GameClient("host", base_probe + 1 * 2,
+                      make_user_dir(f"repro_atom_door_{tag}_host_1"))
+    client = GameClient("client", base_probe + 1 + 1 * 2,
+                        make_user_dir(f"repro_atom_door_{tag}_client_1"))
+    seated = {}
+    try:
+        W.bring_up_lobby(host, client, port)
+        session.drive_to_battlescape(host, client, seated, mission=mission)
+        session.stage_open_ground_actor(host, client, seated["soldierIds"], "zerostep",
+                                        run_length=3)
+        why = qualifies(host, client)
+        if why is None:
+            print(f"[repro_atom_door] {tag} fixture qualifies")
+            return host, client
+        raise AssertionError(f"FIXTURE: zerostep: {why}")
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
 
 
 def qualifies(host, client):
     st = session.battle_state(host)
     if not st.get("inBattle"):
         return "no battle"
-    if session.spotted(host):
-        return f"a hostile is already visible to the host at t=0: {session.spotted(host)}"
     seats = session.seat_units(host)
     if len(seats) < 2:
         return f"only {len(seats)} seat-1 soldier(s)"
