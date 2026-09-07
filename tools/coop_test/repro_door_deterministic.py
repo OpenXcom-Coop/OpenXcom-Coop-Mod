@@ -533,6 +533,26 @@ def pick_walkthrough_door(host, want_ufo, exclude_keys, tag):
             if not session.tile_walkable(host, back, occupied):
                 rejected.append(f"{key}: approach {back} not walkable")
                 continue
+            # WV-D90 record #1 (traced 2026-09-07): the approach edge back->stand carried a
+            # solid wall part (back's northwall, mapDataID 65) and the pathfinder detoured, so the
+            # crossing was not the 2-step shape phase F asserts. Reject such a candidate up front.
+            # Moving north crosses back's north edge; south crosses stand's north edge; west
+            # crosses back's west edge; east crosses stand's west edge.
+            ti_back = host.cmd({"cmd": "tile_info", "x": back[0], "y": back[1], "z": back[2]}).get("parts", {})
+            ti_stand = host.cmd({"cmd": "tile_info", "x": stand[0], "y": stand[1], "z": stand[2]}).get("parts", {})
+            dx, dy = stand[0] - back[0], stand[1] - back[1]
+            if dx < 0:
+                edge = ti_back.get("westwall", {})
+            elif dx > 0:
+                edge = ti_stand.get("westwall", {})
+            elif dy < 0:
+                edge = ti_back.get("northwall", {})
+            else:
+                edge = ti_stand.get("northwall", {})
+            if edge.get("mapDataID", -1) >= 0:
+                rejected.append(f"{key}: wall part (mapDataID {edge.get('mapDataID')}) on the "
+                                f"approach edge {back}->{stand} (WV-D90 record #1)")
+                continue
             return d, key, stand, through, back
     raise AssertionError(
         f"FIXTURE: {tag}: no closed {'UFO' if want_ufo else 'non-UFO'} door on this "
