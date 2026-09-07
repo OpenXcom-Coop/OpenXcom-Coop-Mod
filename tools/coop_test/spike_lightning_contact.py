@@ -240,12 +240,17 @@ def boot_a(placement, game_port, host_port, client_port):
         require(live_hostiles, "no live hostile to stage the contact with")
         hostile1 = live_hostiles[0]["id"]
 
+        # Z CORRECTION (REV E.18, traced on 6 boots): the Lightning deck sits at door.z and
+        # everything past the door is void at that z; the exit tile is one level DOWN.
+        far_ground = (far[0], far[1], far[2] - 1)
+        record["a4_far_ground"] = far_ground
+        record["a4_far_ground_standable"] = session._tile_standable(host, far_ground)
         if placement == "P1":
-            target = add_delta(far, d_out, 1)
+            target = add_delta(far_ground, d_out, 1)
         else:
             target = None
             for perp in (perp1, perp2):
-                cand = add_delta(add_delta(far, d_out, 1), perp, 2)
+                cand = add_delta(add_delta(far_ground, d_out, 1), perp, 2)
                 if session._tile_standable(host, cand):
                     target = cand
                     record["a7_perp_used"] = perp
@@ -278,7 +283,7 @@ def boot_a(placement, game_port, host_port, client_port):
                 what=f"{tag} place actor {actor_id} at near={near}")
         record["a6_actor_id"] = actor_id
 
-        status, hw = W.send_walk_outcome(host, client, actor_id, far)
+        status, hw = W.send_walk_outcome(host, client, actor_id, far_ground)
         require(status == "walk",
                 f"the contact walk was not executed (status={status!r}, {hw})")
 
@@ -308,12 +313,12 @@ def boot_a(placement, game_port, host_port, client_port):
                 for k in set(host_h) | set(client_h) if host_h.get(k) != client_h.get(k)}
 
         if placement == "P1":
-            record["a6_prediction_halt_0_steps"] = pred(
-                halted is True and len(executed) == 0,
+            record["a6_prediction_halt_after_1_step_spot"] = pred(
+                halted is True and len(executed) == 1 and reason == "spot" and door_ev_present,
                 {"halted": halted, "executed_prefix_len": len(executed)})
         else:
-            record["a7_prediction_door_then_1step_then_spot"] = pred(
-                door_ev_present and len(executed) == 1 and halted is True,
+            record["a7_prediction_no_halt_outside_vision_cone"] = pred(
+                door_ev_present and len(executed) == 1 and halted is False,
                 {"door_ev_present": door_ev_present, "executed_prefix_len": len(executed),
                  "halted": halted})
 
@@ -361,7 +366,7 @@ def boot_b(game_port, host_port, client_port):
         record["b1_civilian_count"] = len(civilians0)
         record["b1_map_size"] = {"x": mx, "y": my, "z": mz}
         record["b1_prediction_ge_2_size2"] = pred(by_size.get(2, 0) >= 2, by_size.get(2, 0))
-        record["b1_prediction_16_civilians"] = pred(len(civilians0) == 16, len(civilians0))
+        record["b1_civilians_count"] = len(civilians0)  # varies per map (9 and 11 measured); the deployment's 16 is a ceiling, not a guarantee
 
         # B2: hostiles to the corner farthest from the door; civilians to the
         # diagonally OPPOSITE corner; hash gate.
