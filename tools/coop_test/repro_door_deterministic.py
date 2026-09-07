@@ -587,6 +587,42 @@ def phase_walk_through_normal_door(host, client, tag, exclude_door_keys, used_ac
     hw = W.last_walk(host)
     action_id = hw.get("actionId")
     evs = session.action_events(host, action_id)
+
+    # WV-D90 (owner D13, 2026-09-06): the KNOWN detour. Plain walk, then the check: the
+    # crossing of THIS door is exactly two steps and the door leaves the census. Anything else
+    # is the known flaky scenario -> full evidence record, loud banner, exit 2. Never retried.
+    executed = hw.get("executed", [])
+    planned_len = hw.get("plannedLen")
+    door_after = session.door_lookup(host, door_key)
+    if planned_len != 2 or len(executed) != 2 or door_after is not None:
+        def _parts(t):
+            ti = host.cmd({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]})
+            return ti.get("parts") if ti.get("ok") else ti
+        doors_resp = host.cmd({"cmd": "find_doors", "limit": 512})
+        record = {
+            "test": "repro_door_deterministic", "phase": tag, "tracking": "WV-D90",
+            "door": door_key, "door_before": door_before, "door_after": door_after,
+            "stand": stand, "through": through, "back": back,
+            "tiles": {"stand": _parts(stand), "through": _parts(through), "back": _parts(back)},
+            "units_within_3": session.units_near(host, [stand, through, back], radius=3),
+            "units_within_3_client": session.units_near(client, [stand, through, back], radius=3),
+            "walk": {"actor": actor_id, "plannedLen": planned_len, "executed": executed,
+                     "steps": hw.get("steps"), "restate": hw.get("restate")},
+            "door_evs": [e for e in evs if e.get("kind") == "door"],
+            "event_kinds": [e.get("kind") for e in evs],
+            "map": {"x": doors_resp.get("mapSizeX"), "y": doors_resp.get("mapSizeY"),
+                    "z": doors_resp.get("mapSizeZ")},
+            "closed_doors_now": [(d["x"], d["y"], d["z"], d["part"]) for d in session.closed_doors(host)],
+            "hash_equal": host.cmd({"cmd": "hash_now", "full": True}).get("h")
+                          == client.cmd({"cmd": "hash_now", "full": True}).get("h"),
+        }
+        session.known_flake(
+            "repro_door_deterministic", "WV-D90",
+            f"phase F walk back->through of terrain door {door_key} was not a direct 2-step "
+            f"crossing (planned {planned_len}, executed {len(executed)}, door still present: "
+            f"{door_after is not None})",
+            record)
+
     if not [e for e in evs if e["kind"] == "door"]:
         dump_record(tag, host, actor_id, back, LEG_A_TU, door_key,
                    door_before.get("isUfoDoorOpen"), action_id=action_id,
@@ -1011,6 +1047,10 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("repro_door_deterministic", "WV-D90", str(e))
+        print(f"\nrepro_door_deterministic: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(EXIT_FAIL)
     except AssertionError as e:
         if is_fixture_error(e):
             print(f"\nrepro_door_deterministic: SKIP (fixture) - {e}")
