@@ -726,4 +726,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("test_rw_retry_cancel", "WV-D90", str(e))
+        print(f"\ntest_rw_retry_cancel: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(2)
+    except AssertionError as e:
+        if str(e).startswith("FIXTURE:"):
+            print(f"\ntest_rw_retry_cancel: SKIP (fixture) - {e}")
+            sys.exit(3)
+        print(f"\ntest_rw_retry_cancel: FAIL\nAssertionError: {e}")
+        sys.exit(2)
+    except TimeoutError as e:
+        print(f"\ntest_rw_retry_cancel: FAIL\nTimeoutError: {e}")
+        sys.exit(2)

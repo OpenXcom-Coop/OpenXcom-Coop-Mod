@@ -868,4 +868,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("repro_atom_turn", "WV-D90", str(e))
+        print(f"\nrepro_atom_turn: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(2)
+    except AssertionError as e:
+        if str(e).startswith("FIXTURE:"):
+            print(f"\nrepro_atom_turn: SKIP (fixture) - {e}")
+            sys.exit(3)
+        print(f"\nrepro_atom_turn: FAIL\nAssertionError: {e}")
+        sys.exit(2)
+    except TimeoutError as e:
+        print(f"\nrepro_atom_turn: FAIL\nTimeoutError: {e}")
+        sys.exit(2)

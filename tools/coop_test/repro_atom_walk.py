@@ -1601,5 +1601,19 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    print("ALL W1-P9 ATOM WALK-CORE TESTS PASSED")
+    try:
+        main()
+        print("ALL W1-P9 ATOM WALK-CORE TESTS PASSED")
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("repro_atom_walk", "WV-D90", str(e))
+        print(f"\nrepro_atom_walk: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(2)
+    except AssertionError as e:
+        if str(e).startswith("FIXTURE:"):
+            print(f"\nrepro_atom_walk: SKIP (fixture) - {e}")
+            sys.exit(3)
+        print(f"\nrepro_atom_walk: FAIL\nAssertionError: {e}")
+        sys.exit(2)
+    except TimeoutError as e:
+        print(f"\nrepro_atom_walk: FAIL\nTimeoutError: {e}")
+        sys.exit(2)

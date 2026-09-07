@@ -316,6 +316,16 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (AssertionError, TimeoutError) as e:
-        print(f"\nrepro_walk_zero_step: FAIL\n{type(e).__name__}: {e}")
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("repro_walk_zero_step", "WV-D90", str(e))
+        print(f"\nrepro_walk_zero_step: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(2)
+    except AssertionError as e:
+        if str(e).startswith("FIXTURE:"):
+            print(f"\nrepro_walk_zero_step: SKIP (fixture) - {e}")
+            sys.exit(3)
+        print(f"\nrepro_walk_zero_step: FAIL\nAssertionError: {e}")
+        sys.exit(2)
+    except TimeoutError as e:
+        print(f"\nrepro_walk_zero_step: FAIL\nTimeoutError: {e}")
         sys.exit(2)
