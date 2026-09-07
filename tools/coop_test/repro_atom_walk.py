@@ -116,17 +116,6 @@ COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 FACTION_PLAYER = 0
 
-MAX_REROLLS = 15
-
-# W1-P10 (SS4 "ATOM door" acceptance: "repro_atom_walk.py re-run with a
-# door-containing fixture"). OFF by default, so the fixture this file was
-# ACCEPTED on is unchanged; with `--require-door` rule (b') below is INVERTED -
-# the actor must have a door within WALK_DOOR_RADIUS instead of not having one -
-# which re-runs every walk-core phase on a map where vanilla's auto-open really
-# can fire mid-walk. Before W1-P10 that was an unapplied terrain change on the
-# client; after it, it is a `door` ev in the same seq stream, and this run is
-# what proves the walk atom is unharmed by it.
-REQUIRE_DOOR = "--require-door" in sys.argv
 # TU HEADROOM. A soldier has ~55 TU and a tile costs 4-8, so ONE actor cannot
 # carry every phase - and an actor that runs dry produces a FIXTURE failure that
 # looks exactly like a broken atom ("no walk could be ordered"). Each phase that
@@ -138,16 +127,6 @@ SEAT1_SOLDIERS = 5
 # own one-tile door lookahead.
 WALK_RUN = 3
 WALK_DOOR_RADIUS = WALK_RUN + 2
-# W1-P10's inverted run wants a door in the actor's OPERATING AREA rather than
-# strictly inside vanilla's one-tile auto-open lookahead. The window is WIDE, and
-# the number is measured rather than chosen: at the tight WALK_DOOR_RADIUS the
-# fixture qualified 0/15 boots, and at 9 it qualified 0/15 again - the squad
-# starts inside the Skyranger and this map class puts its nearest door 5..17
-# tiles away. The point of the inverted run is that rule (b') no longer has to
-# EXIST - that a door in the actor's region is no longer a reason to reject a
-# walk fixture - so the honest window is the one in which that claim can
-# actually be exercised.
-WALK_DOOR_REQUIRE_RADIUS = 16
 
 # (c') the contact margin at QUALIFICATION time. session.MAX_VIEW_DISTANCE is
 # the right cap for a ROTATION, which cannot move the actor; a walk can, so this
@@ -457,31 +436,23 @@ def straight_runs(host, actor, occupied, length=WALK_RUN, st=None, want=10):
 def qualifying_actor(host, soldier_id):
     """WV-D18's walk-core fixture rule, PINNED - see the module docstring for
     why (b') and (c') are stronger than repro_atom_turn.py's and why (e') is
-    here at all. Returns the unit dict, or None to re-roll."""
+    here at all. Returns the unit dict, or None if it fails a rule.
+
+    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    within view distance, and the lever does not recompute sight, so the
+    visible list may be stale."""
     st = battle_state(host)
     if not st.get("ok") or not st.get("inBattle"):
         return None
-    if st.get("spotted"):
-        return None                                   # (a) nothing spotted yet
     units = units_by_id(st)
     occupied = {pos_of(u) for u in units.values() if not u.get("isOut")}
     for u in units.values():
         if u.get("soldierId") != soldier_id:
             continue
-        radius = WALK_DOOR_REQUIRE_RADIUS if REQUIRE_DOOR else WALK_DOOR_RADIUS
-        near_door = has_door_within(host, u["x"], u["y"], u["z"], radius)
-        if REQUIRE_DOOR and not near_door:
-            print(f"[repro_atom_walk] rule (b') INVERTED (--require-door): no door "
-                  f"within {radius} tiles of the actor - this run wants one")
-            return None
-        if near_door and not REQUIRE_DOOR:
+        if has_door_within(host, u["x"], u["y"], u["z"], WALK_DOOR_RADIUS):
             print(f"[repro_atom_walk] rule (b'): a door within {WALK_DOOR_RADIUS} tiles "
                   "of the actor - a walk would auto-open it (W1-P10's atom)")
             return None
-        if near_door:
-            print(f"[repro_atom_walk] rule (b') INVERTED: a door IS within "
-                  f"{radius} tiles of the actor - W1-P10's `door` ev is what keeps "
-                  "the terrain in sync when a walk opens it")
         d = session.nearest_non_player_distance(st, u)
         cap = session.MAX_VIEW_DISTANCE + WALK_CONTACT_MARGIN
         if d is not None and d <= cap:
@@ -509,43 +480,34 @@ def qualifying_actor(host, soldier_id):
 
 
 def bring_up_qualifying_battle():
-    for attempt in range(1, MAX_REROLLS + 1):
-        port = str(48436 + attempt)
-        host_dir = make_user_dir(f"repro_atom_walk_host_{attempt}")
-        client_dir = make_user_dir(f"repro_atom_walk_client_{attempt}")
-        host = GameClient("host", 49380 + attempt * 2, host_dir)
-        client = GameClient("client", 49381 + attempt * 2, client_dir)
-        seated = {}
-        try:
-            bring_up_lobby(host, client, port)
-            drive_to_battlescape(host, client, seated)
-            # W1-P10's --require-door run asks every seated soldier, not just
-            # the first: measured, 15/15 boots had no door within
-            # WALK_DOOR_RADIUS of soldier #1, so a first-soldier-only search
-            # simply never finds a door fixture. The DEFAULT run is unchanged -
-            # it still qualifies on soldier #1 alone.
-            candidates = (seated["soldierIds"] if REQUIRE_DOOR
-                          else [seated["soldierId"]])
-            actor = None
-            for sid in candidates:
-                actor = qualifying_actor(host, sid)
-                if actor is not None:
-                    seated["soldierId"] = sid
-                    break
-            if actor is not None:
-                print(f"[repro_atom_walk] fixture qualifies on attempt "
-                      f"{attempt}/{MAX_REROLLS} (actor unit id={actor['id']}, "
-                      f"soldierId={seated['soldierId']}, pos={pos_of(actor)}, "
-                      f"seat-1 soldiers={seated['soldierIds']})")
-                return host, client, actor, seated["soldierIds"]
-            print(f"[repro_atom_walk] re-roll {attempt}/{MAX_REROLLS}")
-            host.shutdown()
-            client.shutdown()
-        except Exception:
-            host.shutdown()
-            client.shutdown()
-            raise
-    raise RuntimeError(f"repro_atom_walk: no qualifying fixture found in {MAX_REROLLS} boots")
+    port = str(48436 + 1)
+    host_dir = make_user_dir(f"repro_atom_walk_host_1")
+    client_dir = make_user_dir(f"repro_atom_walk_client_1")
+    host = GameClient("host", 49380 + 1 * 2, host_dir)
+    client = GameClient("client", 49381 + 1 * 2, client_dir)
+    seated = {}
+    try:
+        bring_up_lobby(host, client, port)
+        drive_to_battlescape(host, client, seated)
+        session.stage_open_ground_actor(
+            host, client, [seated["soldierId"]], "repro_atom_walk",
+            door_radius=WALK_DOOR_RADIUS,
+            contact_min=session.MAX_VIEW_DISTANCE + WALK_CONTACT_MARGIN + 1,
+            need_weapon=True, run_length=WALK_RUN)
+        actor = qualifying_actor(host, seated["soldierId"])
+        if actor is not None:
+            print(f"[repro_atom_walk] fixture qualifies "
+                  f"(actor unit id={actor['id']}, "
+                  f"soldierId={seated['soldierId']}, pos={pos_of(actor)}, "
+                  f"seat-1 soldiers={seated['soldierIds']})")
+            return host, client, actor, seated["soldierIds"]
+        raise AssertionError(f"FIXTURE: [repro_atom_walk] staged actor failed the qualifying "
+                              f"rule (door within radius, or a non-player unit inside view "
+                              f"distance) after staging")
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
 
 
 # ----- walk driving -------------------------------------------------------
