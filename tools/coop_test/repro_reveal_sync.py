@@ -95,6 +95,7 @@ Run:  python tools/coop_test/repro_reveal_sync.py
 """
 
 import glob
+import math
 import os
 import re
 import sys
@@ -447,6 +448,36 @@ def host_kneel(host, client, host_unit_id):
     assert now != was, f"host-local kneel on {host_unit_id} did not toggle (still {now})"
 
 
+def stage_on_roof(host, client, actor, tag, turn_delta):
+    """WV-D94 (SPEC 0e-3 AMENDMENTS 3-5, owner D1/D2/D3): put the staged soldier on the craft
+    ROOF (one level above its deck tile), FACING so that the scenario's first
+    `client_turn_by(actor_a, turn_delta)` lands looking at the MAP CENTRE - 20 tiles of
+    unexplored terrain in view on every craft position. M6: an enclosed deck soldier reveals
+    nothing (0/8), a roof soldier reveals by its 2nd turn (6/6). M8: with the inherited facing,
+    the (5,12) block's first-turn delta was VOID tiles only, and the save-blob hash skips void
+    tiles (CoopFog.h COVERAGE ASTERISK), so `drop`'s hash proof went blind there. The lever does
+    not recompute sight; the first turn does. Returns the roof tile."""
+    roof = (actor["x"], actor["y"], actor["z"] + 1)
+    st = client.cmd({"cmd": "battle_state"})
+    occupied = {session.unit_pos(u) for u in st["units"] if not u.get("isOut")}
+    if not session.tile_walkable(host, roof, occupied):
+        raise AssertionError(
+            f"FIXTURE: [{tag}] no standable roof tile above the staged actor at {roof}")
+    doors = host.cmd({"cmd": "find_doors", "limit": 1})
+    mx, my = doors["mapSizeX"], doors["mapSizeY"]
+    dx, dy = mx / 2.0 - roof[0], my / 2.0 - roof[1]
+    centre_dir = int(round(math.degrees(math.atan2(dx, -dy)) / 45.0)) % 8
+    facing = (centre_dir - turn_delta) % 8
+    session.place_deterministic(host, client, [
+        {"lever": "battle_teleport_unit", "unit": actor["id"],
+         "x": roof[0], "y": roof[1], "z": roof[2], "dir": facing}],
+        what=f"[{tag}] WV-D94 roof staging")
+    print(f"[repro_reveal_sync/{tag}] actor {actor['id']} staged on the craft roof at {roof}, "
+          f"facing {facing} so the first turn (+{turn_delta}) faces the map centre "
+          f"(dir {centre_dir}, map {mx}x{my}) (WV-D94)")
+    return roof
+
+
 def test_reveal_sync_e2e():
     host, client, actor, soldier_ids = bring_up_qualifying_battle("e2e")
     try:
@@ -590,22 +621,7 @@ def test_reveal_drop_detected():
     class the old binTiles fog mask made invisible."""
     host, client, actor, soldier_ids = bring_up_qualifying_battle("drop")
     try:
-        # WV-D94 (SPEC 0e-3 AMENDMENT 4, owner D2 2026-09-07): the reveal_drop one-shot
-        # fires only on a NON-EMPTY delta, and a soldier enclosed in the hull reveals
-        # nothing (M6: deck 0/8, roof 6/6 by the 2nd turn), so the staged soldier goes
-        # to the craft ROOF first. Staged BEFORE the lever is armed; the lever does not
-        # recompute sight, so nothing is consumed here - the first turn below reveals.
-        roof = (actor["x"], actor["y"], actor["z"] + 1)
-        occupied = {session.unit_pos(u) for u in client.cmd({"cmd": "battle_state"})["units"]
-                    if not u.get("isOut")}
-        if not session.tile_walkable(host, roof, occupied):
-            raise AssertionError(
-                f"FIXTURE: [drop] no standable roof tile above the staged actor at {roof}")
-        session.place_deterministic(host, client, [
-            {"lever": "battle_teleport_unit", "unit": actor["id"],
-             "x": roof[0], "y": roof[1], "z": roof[2], "dir": actor.get("direction", 0)}],
-            what="[drop] WV-D94 roof staging")
-        print(f"[repro_reveal_sync/drop] actor {actor['id']} staged on the craft roof at {roof} (WV-D94)")
+        stage_on_roof(host, client, actor, "drop", 1)
         assert_reveal_parity(host, client, "before the drop")
         before_h, _ = assert_hash_clean(host, client, full=True, what="before the drop")
 
@@ -759,22 +775,7 @@ def test_g2_selection_decoupled():
         actor_a = actor["id"]
         cs = client.cmd({"cmd": "battle_state"})
         actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
-        # WV-D94 (SPEC 0e-3 AMENDMENT 3, owner D1 2026-09-07): the positive control
-        # turns actor_a on the craft ROOF, one level above its staged deck tile, where
-        # the map is unexplored in every direction. Measured M6: the roof fires within
-        # the actor's 2nd turn on 6/6 boots (Skyranger/Lightning/Avenger); a soldier
-        # enclosed in the hull fires on 0/8 turns - which is how the west craft column
-        # went vacuous. The lever does not recompute sight; the first turn does.
-        roof = (actor["x"], actor["y"], actor["z"] + 1)
-        occupied = {session.unit_pos(u) for u in cs["units"] if not u.get("isOut")}
-        if not session.tile_walkable(host, roof, occupied):
-            raise AssertionError(
-                f"FIXTURE: [g2] no standable roof tile above the staged actor at {roof}")
-        session.place_deterministic(host, client, [
-            {"lever": "battle_teleport_unit", "unit": actor_a,
-             "x": roof[0], "y": roof[1], "z": roof[2], "dir": actor.get("direction", 0)}],
-            what="[g2] WV-D94 roof staging")
-        print(f"[repro_reveal_sync/g2] actor {actor_a} staged on the craft roof at {roof} (WV-D94)")
+        stage_on_roof(host, client, actor, "g2", 2)
         assert_dual_reveal_parity(host, client, "before the G-2 proof")
 
         # --- (+) POSITIVE CONTROL: an ACTION authors fog -----------------------
@@ -898,22 +899,7 @@ def test_dual_side_ordering():
         actor_a = actor["id"]
         cs = client.cmd({"cmd": "battle_state"})
         actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
-        # WV-D94 (SPEC 0e-3 AMENDMENT 4, owner D2 2026-09-07): the WR-5 carriage proof
-        # needs ONE player-side reveal on the acting soldier's own envelope, so actor_a
-        # turns on the craft ROOF, one level above its staged deck tile, where the map is
-        # unexplored in every direction (M6: roof fires within the actor's 2nd turn 6/6;
-        # a soldier enclosed in the hull fires 0/8 - the west craft column went vacuous).
-        # The lever does not recompute sight; the first turn does.
-        roof = (actor["x"], actor["y"], actor["z"] + 1)
-        occupied = {session.unit_pos(u) for u in cs["units"] if not u.get("isOut")}
-        if not session.tile_walkable(host, roof, occupied):
-            raise AssertionError(
-                f"FIXTURE: [dual] no standable roof tile above the staged actor at {roof}")
-        session.place_deterministic(host, client, [
-            {"lever": "battle_teleport_unit", "unit": actor_a,
-             "x": roof[0], "y": roof[1], "z": roof[2], "dir": actor.get("direction", 0)}],
-            what="[dual] WV-D94 roof staging")
-        print(f"[repro_reveal_sync/dual] actor {actor_a} staged on the craft roof at {roof} (WV-D94)")
+        stage_on_roof(host, client, actor, "dual", 2)
         assert_dual_reveal_parity(host, client, "before the WR-5 carriage proof")
 
         pair = None
