@@ -77,10 +77,6 @@ from session import assert_hash_clean
 
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
-# Raised from 5 by the WV-D5 fixture-pinning sweep: SELECTION RULE (c)
-# rejects more generations than (a)+(b) did, and a re-roll is the CORRECT
-# response to a fixture that cannot prove the property.
-MAX_REROLLS = 15
 
 # W1-P7 (WV-D13 item 2): the in-flight indicator's exact text.
 STR_ORDER_SENT_TEXT = "Order sent - waiting for the host"
@@ -233,11 +229,13 @@ def qualifying_actor(host, soldier_id):
     view. Vanilla aborts a BA_NONE turn mid-chain the moment
     getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
     session.actor_is_contact_free() - THE one shared copy (session.py).
+
+    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    within view distance, and the lever does not recompute sight, so the
+    visible list may be stale.
     """
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
-        return None
-    if st.get("spotted"):
         return None
     for u in units_by_id(st).values():
         if u.get("soldierId") == soldier_id:
@@ -251,31 +249,29 @@ def qualifying_actor(host, soldier_id):
 
 def bring_up_qualifying_battle(tag):
     """Returns (host, client, actor_unit_dict, soldier_ids)."""
-    for attempt in range(1, MAX_REROLLS + 1):
-        port = str(48236 + attempt)
-        host_dir = make_user_dir(f"rw_retry_{tag}_host_{attempt}")
-        client_dir = make_user_dir(f"rw_retry_{tag}_client_{attempt}")
-        host = GameClient("host", 49080 + attempt * 2, host_dir)
-        client = GameClient("client", 49081 + attempt * 2, client_dir)
-        seated = {}
-        try:
-            bring_up_lobby(host, client, port)
-            drive_to_battlescape(host, client, seated, seat_count=2)
-            actor = qualifying_actor(host, seated["soldierId"])
-            if actor is not None:
-                print(f"[test_rw_retry_cancel] fixture qualifies on attempt "
-                      f"{attempt}/{MAX_REROLLS} (actor unit id={actor['id']}, "
-                      f"soldierId={seated['soldierId']})")
-                return host, client, actor, seated["soldierIds"]
-            print(f"[test_rw_retry_cancel] re-roll {attempt}/{MAX_REROLLS}: fixture did "
-                  "not qualify (hostile spotted, or a door within 2 tiles)")
-            host.shutdown()
-            client.shutdown()
-        except Exception:
-            host.shutdown()
-            client.shutdown()
-            raise
-    raise RuntimeError(f"test_rw_retry_cancel: no qualifying fixture in {MAX_REROLLS} boots")
+    port = str(48236 + 1)
+    host_dir = make_user_dir(f"rw_retry_{tag}_host_1")
+    client_dir = make_user_dir(f"rw_retry_{tag}_client_1")
+    host = GameClient("host", 49080 + 1 * 2, host_dir)
+    client = GameClient("client", 49081 + 1 * 2, client_dir)
+    seated = {}
+    try:
+        bring_up_lobby(host, client, port)
+        drive_to_battlescape(host, client, seated, seat_count=2)
+        session.stage_open_ground_actor(host, client, [seated["soldierId"]], tag)
+        actor = qualifying_actor(host, seated["soldierId"])
+        if actor is not None:
+            print(f"[test_rw_retry_cancel] fixture qualifies "
+                  f"(actor unit id={actor['id']}, "
+                  f"soldierId={seated['soldierId']})")
+            return host, client, actor, seated["soldierIds"]
+        raise AssertionError(f"FIXTURE: [{tag}] staged actor failed the qualifying rule "
+                              f"(door within radius, or a non-player unit inside view distance) "
+                              f"after staging")
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
 
 
 # ----- shared observation helpers -----

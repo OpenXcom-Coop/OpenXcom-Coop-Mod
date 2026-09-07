@@ -115,14 +115,6 @@ FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
-# Raised from 5 by the 2026-09-03 fixture-robustness pass: SELECTION RULE (c)
-# (no non-player unit within MAX_VIEW_DISTANCE) rejects more generations than
-# rules (a)+(b) did, and a re-roll is the CORRECT response to a fixture that
-# cannot prove the property - re-rolling is cheap (~25s a boot), a red run is
-# not. One acceptance run was observed needing 9 attempts, so the ceiling has
-# real headroom above the common case of 1-2 (RB-D15's
-# own "the two guards ARE the construction" argument, extended to the third).
-MAX_REROLLS = 15
 
 SDLK_TAB = 9  # Options::keyBattleNextUnit default (test_rw_input_gating.py precedent)
 SDLK_HOME = 278  # Options::keyBattleCenterUnit default
@@ -285,12 +277,14 @@ def qualifying_actor(host, soldier_id):
     view-distance cap can never be spotted by any rotation, so a fixture that
     passes this rule cannot take the abort branch. It is a PIN on the selection
     rule (the IR-4 treatment), never a relaxation of anything the test asserts.
+
+    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    within view distance, and the lever does not recompute sight, so the
+    visible list may be stale.
     """
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
         return None
-    if st.get("spotted"):
-        return None  # rule (a)
     units = units_by_id(st)
     for u in units.values():
         if u.get("soldierId") == soldier_id:
@@ -303,41 +297,36 @@ def qualifying_actor(host, soldier_id):
 
 
 def bring_up_qualifying_battle():
-    """REVIEW4 IR-4: boot a live skirmish, seat one soldier to seat 1, and
-    check the SELECTION RULE against it; re-roll (fresh boot - a new
-    generation is RNG-seeded fresh) up to MAX_REROLLS times if it doesn't
-    qualify. Returns (host, client, actor_unit_dict, soldier_id)."""
-    for attempt in range(1, MAX_REROLLS + 1):
-        port = str(47996 + attempt)
-        host_dir = make_user_dir(f"repro_atom_turn_host_{attempt}")
-        client_dir = make_user_dir(f"repro_atom_turn_client_{attempt}")
-        host = GameClient("host", 48830 + attempt * 2, host_dir)
-        client = GameClient("client", 48831 + attempt * 2, client_dir)
-        seated = {}
-        try:
-            bring_up_lobby(host, client, port)
-            drive_to_battlescape(host, client, seated)
+    """REVIEW4 IR-4: boot a live skirmish, seat one soldier to seat 1, stage it on
+    open ground (SPEC 0e-3), and check the SELECTION RULE against it. Returns
+    (host, client, actor_unit_dict, soldier_id)."""
+    port = str(47996 + 1)
+    host_dir = make_user_dir(f"repro_atom_turn_host_1")
+    client_dir = make_user_dir(f"repro_atom_turn_client_1")
+    host = GameClient("host", 48830 + 1 * 2, host_dir)
+    client = GameClient("client", 48831 + 1 * 2, client_dir)
+    seated = {}
+    try:
+        bring_up_lobby(host, client, port)
+        drive_to_battlescape(host, client, seated)
 
-            soldier_id = seated["soldierId"]
-            actor = qualifying_actor(host, soldier_id)
-            if actor is not None:
-                print(f"[repro_atom_turn] fixture qualifies on attempt {attempt}/{MAX_REROLLS} "
-                      f"(actor unit id={actor['id']}, soldierId={soldier_id}, "
-                      f"pos=({actor['x']},{actor['y']},{actor['z']}))")
-                return host, client, actor, soldier_id
+        soldier_id = seated["soldierId"]
+        session.stage_open_ground_actor(host, client, [soldier_id], "turn")
 
-            print(f"[repro_atom_turn] re-roll {attempt}/{MAX_REROLLS}: fixture did not "
-                  "qualify (rule (a) a hostile already spotted, (b) a door within 2 tiles, "
-                  "or (c) a non-player unit inside max view distance) - "
-                  "tearing down and retrying")
-            host.shutdown()
-            client.shutdown()
-        except Exception:
-            host.shutdown()
-            client.shutdown()
-            raise
+        actor = qualifying_actor(host, soldier_id)
+        if actor is not None:
+            print(f"[repro_atom_turn] fixture qualifies "
+                  f"(actor unit id={actor['id']}, soldierId={soldier_id}, "
+                  f"pos=({actor['x']},{actor['y']},{actor['z']}))")
+            return host, client, actor, soldier_id
 
-    raise RuntimeError(f"repro_atom_turn: no qualifying fixture found in {MAX_REROLLS} boots")
+        raise AssertionError(f"FIXTURE: [turn] staged actor failed the qualifying rule "
+                              f"(door within radius, or a non-player unit inside view distance) "
+                              f"after staging")
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
 
 
 def neighbourhood(unit, radius=1):

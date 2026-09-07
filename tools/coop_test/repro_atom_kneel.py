@@ -74,10 +74,6 @@ FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
-# Raised from 5 by the WV-D5 fixture-pinning sweep: SELECTION RULE (c)
-# rejects more generations than (a)+(b) did, and a re-roll is the CORRECT
-# response to a fixture that cannot prove the property.
-MAX_REROLLS = 15
 
 SDLK_TAB = 9    # Options::keyBattleNextUnit default (test_rw_input_gating.py precedent)
 SDLK_K = 107    # Options::keyBattleKneel default (SDLK_k, Options.cpp:337)
@@ -220,12 +216,14 @@ def qualifying_actor(host, soldier_id):
     t=0, which is silent on whether this actor's ROTATION will bring one into
     view. Vanilla aborts a BA_NONE turn mid-chain the moment
     getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
-    session.actor_is_contact_free() - THE one shared copy (session.py)."""
+    session.actor_is_contact_free() - THE one shared copy (session.py).
+
+    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    within view distance, and the lever does not recompute sight, so the
+    visible list may be stale."""
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
         return None
-    if st.get("spotted"):
-        return None  # rule (a)
     units = units_by_id(st)
     for u in units.values():
         if u.get("soldierId") == soldier_id:
@@ -239,36 +237,33 @@ def qualifying_actor(host, soldier_id):
 
 def bring_up_qualifying_battle(seat_count=1, tag="kneel"):
     """Returns (host, client, actor_unit_dict, soldier_ids list)."""
-    for attempt in range(1, MAX_REROLLS + 1):
-        port = str(48196 + attempt)
-        host_dir = make_user_dir(f"repro_atom_{tag}_host_{attempt}")
-        client_dir = make_user_dir(f"repro_atom_{tag}_client_{attempt}")
-        host = GameClient("host", 49030 + attempt * 2, host_dir)
-        client = GameClient("client", 49031 + attempt * 2, client_dir)
-        seated = {}
-        try:
-            bring_up_lobby(host, client, port)
-            drive_to_battlescape(host, client, seated, seat_count=seat_count)
+    port = str(48196 + 1)
+    host_dir = make_user_dir(f"repro_atom_{tag}_host_1")
+    client_dir = make_user_dir(f"repro_atom_{tag}_client_1")
+    host = GameClient("host", 49030 + 1 * 2, host_dir)
+    client = GameClient("client", 49031 + 1 * 2, client_dir)
+    seated = {}
+    try:
+        bring_up_lobby(host, client, port)
+        drive_to_battlescape(host, client, seated, seat_count=seat_count)
 
-            soldier_id = seated["soldierId"]
-            actor = qualifying_actor(host, soldier_id)
-            if actor is not None:
-                print(f"[repro_atom_kneel] fixture qualifies on attempt {attempt}/{MAX_REROLLS} "
-                      f"(actor unit id={actor['id']}, soldierId={soldier_id}, "
-                      f"pos=({actor['x']},{actor['y']},{actor['z']}))")
-                return host, client, actor, seated["soldierIds"]
+        session.stage_open_ground_actor(host, client, [seated["soldierId"]], tag)
 
-            print(f"[repro_atom_kneel] re-roll {attempt}/{MAX_REROLLS}: fixture did not "
-                  "qualify (a hostile already spotted, or a door within 2 tiles) - "
-                  "tearing down and retrying")
-            host.shutdown()
-            client.shutdown()
-        except Exception:
-            host.shutdown()
-            client.shutdown()
-            raise
+        soldier_id = seated["soldierId"]
+        actor = qualifying_actor(host, soldier_id)
+        if actor is not None:
+            print(f"[repro_atom_kneel] fixture qualifies "
+                  f"(actor unit id={actor['id']}, soldierId={soldier_id}, "
+                  f"pos=({actor['x']},{actor['y']},{actor['z']}))")
+            return host, client, actor, seated["soldierIds"]
 
-    raise RuntimeError(f"repro_atom_kneel: no qualifying fixture found in {MAX_REROLLS} boots")
+        raise AssertionError(f"FIXTURE: [{tag}] staged actor failed the qualifying rule "
+                              f"(door within radius, or a non-player unit inside view distance) "
+                              f"after staging")
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
 
 
 def event_seq_baseline(client):

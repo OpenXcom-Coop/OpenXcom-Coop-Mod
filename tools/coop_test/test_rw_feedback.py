@@ -68,10 +68,6 @@ from session import assert_hash_clean
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 FACTION_PLAYER = 0
-# Raised from 5 with SELECTION RULE (c) below: it rejects more
-# generations than rules (a)+(b) did, and a re-roll is the CORRECT
-# response to a fixture that cannot prove the property.
-MAX_REROLLS = 15
 
 SDLK_HOME = 278  # Options::keyBattleCenterUnit default
 
@@ -222,11 +218,13 @@ def has_door_within(gc, x, y, z, radius=2):
 def qualifying_actor(host, soldier_id):
     """REVIEW4 IR-4 SELECTION RULE, verbatim from repro_atom_turn.py: (a) nothing
     spotted yet (an alien in LOS aborts a BA_NONE rotation,
-    UnitTurnBState.cpp:114-118), (b) no door within 2 tiles."""
+    UnitTurnBState.cpp:114-118), (b) no door within 2 tiles.
+
+    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    within view distance, and the lever does not recompute sight, so the
+    visible list may be stale."""
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
-        return None
-    if st.get("spotted"):
         return None
     for u in units_by_id(st).values():
         if u.get("soldierId") == soldier_id:
@@ -240,31 +238,29 @@ def qualifying_actor(host, soldier_id):
 
 def bring_up_qualifying_battle(tag):
     """Returns (host, client, actor_unit_dict, soldier_ids)."""
-    for attempt in range(1, MAX_REROLLS + 1):
-        port = str(48336 + attempt)
-        host_dir = make_user_dir(f"rw_fb_{tag}_host_{attempt}")
-        client_dir = make_user_dir(f"rw_fb_{tag}_client_{attempt}")
-        host = GameClient("host", 49180 + attempt * 2, host_dir)
-        client = GameClient("client", 49181 + attempt * 2, client_dir)
-        seated = {}
-        try:
-            bring_up_lobby(host, client, port)
-            drive_to_battlescape(host, client, seated, seat_count=2)
-            actor = qualifying_actor(host, seated["soldierId"])
-            if actor is not None:
-                print(f"[test_rw_feedback] fixture qualifies on attempt "
-                      f"{attempt}/{MAX_REROLLS} (actor unit id={actor['id']}, "
-                      f"soldierId={seated['soldierId']})")
-                return host, client, actor, seated["soldierIds"]
-            print(f"[test_rw_feedback] re-roll {attempt}/{MAX_REROLLS}: fixture did not "
-                  "qualify (hostile spotted, or a door within 2 tiles)")
-            host.shutdown()
-            client.shutdown()
-        except Exception:
-            host.shutdown()
-            client.shutdown()
-            raise
-    raise RuntimeError(f"test_rw_feedback: no qualifying fixture in {MAX_REROLLS} boots")
+    port = str(48336 + 1)
+    host_dir = make_user_dir(f"rw_fb_{tag}_host_1")
+    client_dir = make_user_dir(f"rw_fb_{tag}_client_1")
+    host = GameClient("host", 49180 + 1 * 2, host_dir)
+    client = GameClient("client", 49181 + 1 * 2, client_dir)
+    seated = {}
+    try:
+        bring_up_lobby(host, client, port)
+        drive_to_battlescape(host, client, seated, seat_count=2)
+        session.stage_open_ground_actor(host, client, [seated["soldierId"]], tag)
+        actor = qualifying_actor(host, seated["soldierId"])
+        if actor is not None:
+            print(f"[test_rw_feedback] fixture qualifies "
+                  f"(actor unit id={actor['id']}, "
+                  f"soldierId={seated['soldierId']})")
+            return host, client, actor, seated["soldierIds"]
+        raise AssertionError(f"FIXTURE: [{tag}] staged actor failed the qualifying rule "
+                              f"(door within radius, or a non-player unit inside view distance) "
+                              f"after staging")
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
 
 
 # ----- shared helpers -----

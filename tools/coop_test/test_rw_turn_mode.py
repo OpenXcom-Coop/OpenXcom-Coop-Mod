@@ -74,10 +74,6 @@ import session
 from session import assert_hash_clean
 
 COOP_SEAT_1 = 1
-# Raised from 5 with SELECTION RULE (c) below: it rejects more
-# generations than rules (a)+(b) did, and a re-roll is the CORRECT
-# response to a fixture that cannot prove the property.
-MAX_REROLLS = 15
 
 PARALLEL = "parallel"
 TRADITIONAL = "traditional"
@@ -274,9 +270,13 @@ def has_door_within(gc, x, y, z, radius=2):
 
 
 def qualifying_actor(host, soldier_id):
-    """REVIEW4 IR-4 SELECTION RULE, verbatim from repro_atom_turn.py."""
+    """REVIEW4 IR-4 SELECTION RULE, verbatim from repro_atom_turn.py.
+
+    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    within view distance, and the lever does not recompute sight, so the
+    visible list may be stale."""
     st = host.cmd({"cmd": "battle_state"})
-    if not st.get("ok") or not st.get("inBattle") or st.get("spotted"):
+    if not st.get("ok") or not st.get("inBattle"):
         return None
     for u in units_by_id(st).values():
         if u.get("soldierId") == soldier_id:
@@ -296,31 +296,30 @@ def bring_up_qualifying_battle(tag, host_options=None, client_options=None,
     options.cfg BEFORE it boots, which is the only way to have the mode in
     force from the very first frame (harness.make_user_dir). `pre_offer` runs
     on the host after the lobby is up and before the offer goes out."""
-    for attempt in range(1, MAX_REROLLS + 1):
-        port = str(48436 + attempt)
-        host_dir = make_user_dir(f"rw_tm_{tag}_host_{attempt}", options=host_options)
-        client_dir = make_user_dir(f"rw_tm_{tag}_client_{attempt}", options=client_options)
-        host = GameClient("host", 49280 + attempt * 2, host_dir)
-        client = GameClient("client", 49281 + attempt * 2, client_dir)
-        seated = {}
-        try:
-            bring_up_lobby(host, client, port)
-            if pre_offer:
-                pre_offer(host, client)
-            drive_to_battlescape(host, client, seated, seat_count=2)
-            actor = qualifying_actor(host, seated["soldierId"])
-            if actor is not None:
-                print(f"[test_rw_turn_mode] fixture qualifies on attempt "
-                      f"{attempt}/{MAX_REROLLS} (actor unit id={actor['id']})")
-                return host, client, actor, seated["soldierIds"], host_dir
-            print(f"[test_rw_turn_mode] re-roll {attempt}/{MAX_REROLLS}")
-            host.shutdown()
-            client.shutdown()
-        except Exception:
-            host.shutdown()
-            client.shutdown()
-            raise
-    raise RuntimeError(f"test_rw_turn_mode: no qualifying fixture in {MAX_REROLLS} boots")
+    port = str(48436 + 1)
+    host_dir = make_user_dir(f"rw_tm_{tag}_host_1", options=host_options)
+    client_dir = make_user_dir(f"rw_tm_{tag}_client_1", options=client_options)
+    host = GameClient("host", 49280 + 1 * 2, host_dir)
+    client = GameClient("client", 49281 + 1 * 2, client_dir)
+    seated = {}
+    try:
+        bring_up_lobby(host, client, port)
+        if pre_offer:
+            pre_offer(host, client)
+        drive_to_battlescape(host, client, seated, seat_count=2)
+        session.stage_open_ground_actor(host, client, [seated["soldierId"]], tag)
+        actor = qualifying_actor(host, seated["soldierId"])
+        if actor is not None:
+            print(f"[test_rw_turn_mode] fixture qualifies "
+                  f"(actor unit id={actor['id']})")
+            return host, client, actor, seated["soldierIds"], host_dir
+        raise AssertionError(f"FIXTURE: [{tag}] staged actor failed the qualifying rule "
+                              f"(door within radius, or a non-player unit inside view distance) "
+                              f"after staging")
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
 
 
 def settle_emits(host, client, timeout=40):
