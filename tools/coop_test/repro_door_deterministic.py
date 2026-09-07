@@ -7,11 +7,11 @@ hostile away, teleport a soldier next to a named closed UFO door, walk it
 through, and re-prove WV-D59 (the host must not apply its own TU reserve to
 a client-origin door) in both directions, with a host-origin control leg.
 
-DETERMINISTIC fixture (WV-D65): the SITUATION comes from
-`contact_free_ufo_door_setup` (the WV-D63 lever) plus its own hash-equality
-gate, never a map re-roll loop - bar is 3 CONSECUTIVE GREEN, not 10. A
-`FIXTURE:`-prefixed staging failure re-boots up to MAX_BOOTS(3) and SKIPs
-(exit 3, WV-D72); anything else is a real FAIL (exit 2).
+DETERMINISTIC fixture (WV-D65): the SITUATION comes from the Lightning
+craft's own UFO door (WV-D87) plus place_deterministic's own hash-equality
+gate - bar is 3 CONSECUTIVE GREEN, not 10. SPEC 0e-2 (WV-D86) removes the
+map search entirely: ONE boot, no retry of any kind. A `FIXTURE:`-prefixed
+staging failure SKIPs (exit 3, WV-D72); anything else is a real FAIL (exit 2).
 
 THE TRAP AVOIDED (WV-D77): `event_log`'s probe is a fixed-size POD (`seq`,
 `actionId`, `kind`, `h`, no `payload` - BattlePump.h:206-219 /
@@ -61,8 +61,9 @@ import session
 from session import assert_hash_clean, contact_free_ufo_door_setup, place_deterministic
 import repro_atom_walk as W
 
-MISSION = "STR_SUPPLY_SHIP"
-MAX_BOOTS = 3
+MISSION = "STR_TERROR_MISSION"
+RACE = "STR_FLOATER"
+CRAFT = "STR_LIGHTNING"
 # LEG (a) needs enough TU to walk the approach step AND pay the door: 60 is ample.
 LEG_A_TU = 60
 # LEG (b) MUST be pinned LOW or the control proves nothing. Tile::openDoor computes
@@ -79,23 +80,30 @@ BASE_GAME_PORT = 47997
 BASE_TEST_PORT = 48997
 
 
-class FixtureExhausted(Exception):
-    """MAX_BOOTS fresh boots, none staged a SITUATION - a lever/fixture finding (WV-D72), never a regression."""
-
-
 def is_fixture_error(e):
     return str(e).startswith("FIXTURE:")
 
-def bring_up(attempt):
-    """test_rw_teleport_lever.py's own bring_up(), verbatim in shape."""
-    port = str(BASE_GAME_PORT + attempt)
-    host = GameClient("det-host", BASE_TEST_PORT + attempt * 2,
-                      make_user_dir(f"door_det_host_{attempt}"))
-    client = GameClient("det-client", BASE_TEST_PORT + 1 + attempt * 2,
-                        make_user_dir(f"door_det_client_{attempt}"))
+
+def _pin(h):
+    """SPEC 0e-2 (WV-D87/WV-D88): pin the Lightning craft, then the floater
+    race - order matters, drive_to_battlescape calls this AFTER the mission
+    pin (cbxMissionChange has already rebuilt the race list by then) and
+    BEFORE any seat is picked."""
+    h.ok({"cmd": "newbattle_craft", "type": CRAFT})
+    h.ok({"cmd": "newbattle_race", "race": RACE})
+
+
+def bring_up():
+    """SPEC 0e-2 (WV-D86): one boot, no retry - ports/dirs keep the same
+    offsets the single remaining attempt (1) used."""
+    port = str(BASE_GAME_PORT + 1)
+    host = GameClient("det-host", BASE_TEST_PORT + 2,
+                      make_user_dir("door_det_host_1"))
+    client = GameClient("det-client", BASE_TEST_PORT + 3,
+                        make_user_dir("door_det_client_1"))
     W.bring_up_lobby(host, client, port)
     seated = {}
-    session.drive_to_battlescape(host, client, seated, mission=MISSION)
+    session.drive_to_battlescape(host, client, seated, mission=MISSION, pre_seat=_pin)
     return host, client
 
 
@@ -844,25 +852,16 @@ def run_scenario(host, client, tag):
 
 
 def run_fixture(tag):
-    attempts = []
-    for attempt in range(1, MAX_BOOTS + 1):
-        host, client = bring_up(attempt)
-        try:
-            run_scenario(host, client, f"{tag}#{attempt}")
-            print(f"[{tag}] PASSED on boot {attempt}/{MAX_BOOTS}")
-            return
-        except AssertionError as e:
-            if is_fixture_error(e):
-                attempts.append(str(e))
-                print(f"[{tag}] FIXTURE miss on boot {attempt}/{MAX_BOOTS}: {e}")
-                continue
-            raise
-        finally:
-            host.shutdown()
-            client.shutdown()
-    raise FixtureExhausted(
-        f"[{tag}] {MAX_BOOTS} fresh boot(s), none staged the SITUATION:\n  "
-        + "\n  ".join(attempts))
+    """SPEC 0e-2 (WV-D86): one boot, no retry - a `FIXTURE:` staging failure
+    propagates straight to `__main__`'s is_fixture_error mapping (exit 3)
+    instead of being caught and retried here."""
+    host, client = bring_up()
+    try:
+        run_scenario(host, client, tag)
+        print(f"[{tag}] PASSED")
+    finally:
+        host.shutdown()
+        client.shutdown()
 
 
 def main():
@@ -873,9 +872,12 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except FixtureExhausted as e:
-        print(f"\nrepro_door_deterministic: SKIP (fixture exhausted)\n{e}")
-        sys.exit(EXIT_SKIP)
-    except (AssertionError, TimeoutError) as e:
-        print(f"\nrepro_door_deterministic: FAIL\n{type(e).__name__}: {e}")
+    except AssertionError as e:
+        if is_fixture_error(e):
+            print(f"\nrepro_door_deterministic: SKIP (fixture) - {e}")
+            sys.exit(EXIT_SKIP)
+        print(f"\nrepro_door_deterministic: FAIL\nAssertionError: {e}")
+        sys.exit(EXIT_FAIL)
+    except TimeoutError as e:
+        print(f"\nrepro_door_deterministic: FAIL\nTimeoutError: {e}")
         sys.exit(EXIT_FAIL)
