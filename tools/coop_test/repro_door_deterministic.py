@@ -143,6 +143,73 @@ def dump_record(what, host, actor_id, pos_before, tu_before, door_at, open_befor
           f"path={restate.get('path')}")
 
 
+# ===== SPEC 0e-2 (WV-D87): the Lightning craft's own UFO door - legs (a)/(b) ====
+# and phase B all stage on this ONE door now, replacing contact_free_ufo_door_setup.
+
+def lightning_door(host):
+    """The craft's own UFO door: exactly one find_doors entry with dataSet LIGHTNIN (WV-D87)."""
+    r = host.cmd({"cmd": "find_doors", "limit": 512})
+    assert r.get("ok"), f"find_doors failed: {r}"
+    ds = [d for d in r.get("doors", []) if d.get("dataSet") == "LIGHTNIN"]
+    assert len(ds) == 1, f"FIXTURE: expected exactly one LIGHTNIN door, got {ds}"
+    return ds[0], r["mapSizeX"], r["mapSizeY"]
+
+
+def lightning_setup(host, client, tag, actor_id=None, move_factions=True):
+    """WV-D87 staging on the craft door. Returns (actor_id, near, far, far_ground, door).
+    near = the standable side (deck), far = the void side at door z, far_ground = far one level
+    down (the exit tile). Hostiles -> the corner farthest from the door, neutrals -> the
+    opposite corner (WV-D88), both machines, hash gate; the actor -> near, facing far."""
+    door, mx, my = lightning_door(host)
+    a, b = session.door_sides(door)
+    if session._tile_standable(host, a):
+        near, far = a, b
+    elif session._tile_standable(host, b):
+        near, far = b, a
+    else:
+        raise AssertionError(f"FIXTURE: {tag}: neither side of the LIGHTNIN door is standable")
+    far_ground = (far[0], far[1], far[2] - 1)
+    assert session._tile_standable(host, far_ground), (
+        f"FIXTURE: {tag}: the exit tile {far_ground} below the door is not standable")
+    corner = ("S" if door["y"] < my / 2.0 else "N") + ("E" if door["x"] < mx / 2.0 else "W")
+    opposite = {"NW": "SE", "NE": "SW", "SW": "NE", "SE": "NW"}[corner]
+    moves = []
+    st = session.battle_state(host)
+    if move_factions:
+        if any(u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut") for u in st["units"]):
+            moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+                          "corner": corner, "facing": session._CORNER_FACING[corner]})
+        if any(u.get("faction") == 2 and not u.get("isOut") for u in st["units"]):
+            moves.append({"lever": "battle_teleport_all", "faction": "neutral",
+                          "corner": opposite, "facing": session._CORNER_FACING[opposite]})
+    seat1 = sorted(u["id"] for u in session.seat_units(host))
+    assert seat1, f"FIXTURE: {tag}: no live seat-1 soldier"
+    if actor_id is None:
+        actor_id = seat1[0]
+    assert actor_id in seat1, f"FIXTURE: {tag}: actor {actor_id} is not a live seat-1 soldier"
+    occupant = next((u for u in st["units"] if session.unit_pos(u) == near and u["id"] != actor_id
+                     and not u.get("isOut")), None)
+    if occupant is not None:
+        deck = [(x, y, near[2]) for y in range(door["y"] - 4, door["y"] + 5)
+                for x in range(door["x"] - 4, door["x"] + 5)]
+        occupied = {session.unit_pos(u) for u in st["units"] if not u.get("isOut")}
+        free = next((t for t in deck if t not in (near, far) and session.tile_walkable(host, t, occupied)), None)
+        assert free is not None, f"FIXTURE: {tag}: no free deck tile to move unit {occupant['id']} off {near}"
+        moves.append({"lever": "battle_teleport_unit", "unit": occupant["id"],
+                      "x": free[0], "y": free[1], "z": free[2], "dir": occupant.get("direction", 0)})
+    moves.append({"lever": "battle_teleport_unit", "unit": actor_id,
+                  "x": near[0], "y": near[1], "z": near[2], "dir": session.dir_between(near, far)})
+    place_deterministic(host, client, moves, what=f"lightning_setup {tag}")
+    st = session.battle_state(host)
+    me = next(u for u in st["units"] if u["id"] == actor_id)
+    hostile_d = min((((u["x"] - me["x"]) ** 2 + (u["y"] - me["y"]) ** 2 + (u["z"] - me["z"]) ** 2) ** 0.5
+                     for u in st["units"] if u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut")),
+                    default=None)
+    assert hostile_d is None or hostile_d > session.MAX_VIEW_DISTANCE, (
+        f"FIXTURE: {tag}: a hostile is {hostile_d:.1f} tiles from the actor after the corner move")
+    return actor_id, near, far, far_ground, door
+
+
 # ===== SPEC 6f AMENDMENT 2 phases B/C: THE TURN IS THE RIGHT-CLICK, on a ====
 # NAMED, PLACED door with its OWN soldier - a plain exclusion filter over
 # session.closed_doors() / session.seat_units(), never a ranked/qualified candidate
@@ -622,8 +689,8 @@ def phase_client_refused(host, client, tag, census_before):
 
 
 def run_scenario(host, client, tag):
-    # ---- step 2: build the situation with ONE call (WV-D63 lever) ----
-    actor_a, near, far, door = contact_free_ufo_door_setup(host, client, what=f"{tag} leg-a")
+    # ---- step 2: build the situation on the Lightning's own UFO door (WV-D87) ----
+    actor_a, near, far, far_ground, door = lightning_setup(host, client, f"{tag} leg-a")
     door_at = (door["x"], door["y"], door["z"], door["part"])
 
     # ---- step 3: assert the SITUATION explicitly ----
@@ -638,11 +705,8 @@ def run_scenario(host, client, tag):
     assert a0.get("direction") == want_dir, (
         f"{tag}: actor {actor_a} faces {a0.get('direction')}, expected {want_dir} "
         f"(toward {far})")
-    spotted_now = session.battle_state(host).get("spotted")
-    assert not spotted_now, (
-        f"FIXTURE: {tag}: the host still has a spotted hostile after placement "
-        f"({spotted_now}) - contact-free is a PREMISE of this fixture, so this map "
-        "roll is unusable; re-boot (WV-D72)")
+    # SPEC 0e-2: lightning_setup's own hostile-distance assertion (position-based,
+    # HOSTILE-only, on battle_state) already replaces the old stale-`spotted` check.
     assert_hash_clean(host, client, full=True, what=f"{tag} after placement")
 
     # ---- step 3.5 (SPEC 6f STEP 0, WV-D63/WV-D72): back the actor up ONE
@@ -651,17 +715,33 @@ def run_scenario(host, client, tag):
     # produce a walk_step BEFORE the door ev; the crossing becomes
     # back -> near -> far: step, door, step.
     back = (near[0] + (near[0] - far[0]), near[1] + (near[1] - far[1]), near[2])
-    occupied = {session.unit_pos(u) for u in session.battle_state(host).get("units", [])
-                if not u.get("isOut")}
+    st = session.battle_state(host)
+    occupied = {session.unit_pos(u) for u in st["units"] if not u.get("isOut")}
+    moves = []
+    back_occupant = next((u for u in st["units"] if session.unit_pos(u) == back
+                          and u["id"] != actor_a and not u.get("isOut")), None)
+    if back_occupant is not None:
+        # SPEC 0e-2: the same occupant-move lightning_setup does for `near`, using
+        # a local copy of its own deck-scan, applied here for `back`.
+        deck = [(x, y, near[2]) for y in range(door["y"] - 4, door["y"] + 5)
+                for x in range(door["x"] - 4, door["x"] + 5)]
+        free = next((t for t in deck if t not in (near, far, back)
+                     and session.tile_walkable(host, t, occupied)), None)
+        assert free is not None, (
+            f"FIXTURE: {tag}(a): no free deck tile to move unit {back_occupant['id']} off {back}")
+        moves.append({"lever": "battle_teleport_unit", "unit": back_occupant["id"],
+                      "x": free[0], "y": free[1], "z": free[2],
+                      "dir": back_occupant.get("direction", 0)})
+        occupied = occupied - {back}
     if not session.tile_walkable(host, back, occupied):
         raise AssertionError(
             f"FIXTURE: {tag}(a): the one-tile-back approach {back} is not "
             "walkable or is occupied - this map roll cannot supply leg (a)'s "
             "door-between-steps geometry (WV-D72)")
-    place_deterministic(host, client, [
-        {"lever": "battle_teleport_unit", "unit": actor_a,
-         "x": back[0], "y": back[1], "z": back[2], "dir": session.dir_between(back, near)},
-    ], what=f"{tag}(a) back up one tile for the door-between-steps geometry")
+    moves.append({"lever": "battle_teleport_unit", "unit": actor_a,
+                  "x": back[0], "y": back[1], "z": back[2], "dir": session.dir_between(back, near)})
+    place_deterministic(host, client, moves,
+                        what=f"{tag}(a) back up one tile for the door-between-steps geometry")
     # place_deterministic's own gate already re-asserts assert_hash_clean(full=True).
 
     # ---- step 4: LEG (a) - CLIENT-origin crossing, HOST reserve aimed+kneel ----
@@ -675,7 +755,7 @@ def run_scenario(host, client, tag):
     census_before_a = session.door_census(host)  # SPEC 6e item 6: non-vacuity control
 
     prev = W.walk_action_id(host)
-    resp = W.send_walk(client, actor_a, far)
+    resp = W.send_walk(client, actor_a, far_ground)
     assert resp.get("iseq"), f"{tag}(a): the client-origin walk intent did not ship: {resp}"
     W.wait_walk_settled(host, client, prev)
     W.settle_reveal(host, client)
@@ -723,8 +803,8 @@ def run_scenario(host, client, tag):
         "client-origin door")
     units_after_a = {u["id"]: u for u in session.battle_state(host).get("units", [])}
     final_pos = session.unit_pos(units_after_a[actor_a])
-    assert final_pos == far, (
-        f"{tag}(a): actor {actor_a} ended at {final_pos}, expected {far}")
+    assert final_pos == far_ground, (
+        f"{tag}(a): actor {actor_a} ended at {final_pos}, expected {far_ground}")
     assert_hash_clean(host, client, full=True, what=f"{tag} after leg (a)")
     print(f"[{tag}] leg (a): coopDoorEvsEmitted {emitted0} -> {emitted_a}, "
           f"coopDoorReserveWaived {waived0} -> {waived_a}")
@@ -740,11 +820,11 @@ def run_scenario(host, client, tag):
     assert others, f"FIXTURE: {tag}(b): no second live seat-1 soldier for the control leg"
     second_id = others[0]
 
-    second_id, near_b, far_b, door_b = contact_free_ufo_door_setup(
-        host, client,
-        door_pick_rule=lambda ds: next(d for d in ds
-                                       if (d["x"], d["y"], d["z"], d["part"]) == door_at),
-        actor_id=second_id, teleport_hostiles=False, what=f"{tag} leg-b")
+    second_id, near_b, far_b, far_ground_b, door_b = lightning_setup(
+        host, client, f"{tag} leg-b", actor_id=second_id, move_factions=False)
+    assert (door_b["x"], door_b["y"], door_b["z"], door_b["part"]) == door_at, (
+        f"{tag}(b): STOP-IF - leg-b staged on a different door {door_b} than leg-a's "
+        f"{door_at}; WV-D87 says a Lightning map carries exactly one")
 
     # ---- b1 BASELINE: reserve=none, does this actor/door/TU open at all? ----
     W.set_reserve(host, mode="none", kneel=False)
