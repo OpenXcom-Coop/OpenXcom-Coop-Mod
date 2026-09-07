@@ -146,13 +146,7 @@ def dump_record(what, host, actor_id, pos_before, tu_before, door_at, open_befor
 # ===== SPEC 0e-2 (WV-D87): the Lightning craft's own UFO door - legs (a)/(b) ====
 # and phase B all stage on this ONE door now, replacing contact_free_ufo_door_setup.
 
-def lightning_door(host):
-    """The craft's own UFO door: exactly one find_doors entry with dataSet LIGHTNIN (WV-D87)."""
-    r = host.cmd({"cmd": "find_doors", "limit": 512})
-    assert r.get("ok"), f"find_doors failed: {r}"
-    ds = [d for d in r.get("doors", []) if d.get("dataSet") == "LIGHTNIN"]
-    assert len(ds) == 1, f"FIXTURE: expected exactly one LIGHTNIN door, got {ds}"
-    return ds[0], r["mapSizeX"], r["mapSizeY"]
+lightning_door = session.lightning_door
 
 
 def lightning_setup(host, client, tag, actor_id=None, move_factions=True):

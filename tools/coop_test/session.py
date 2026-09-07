@@ -943,6 +943,58 @@ def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what="",
     return actor_id, near, far, door
 
 
+def lightning_door(host):
+    """The craft's own UFO door: exactly one find_doors entry with dataSet LIGHTNIN (WV-D87)."""
+    r = host.cmd({"cmd": "find_doors", "limit": 512})
+    assert r.get("ok"), f"find_doors failed: {r}"
+    ds = [d for d in r.get("doors", []) if d.get("dataSet") == "LIGHTNIN"]
+    assert len(ds) == 1, f"FIXTURE: expected exactly one LIGHTNIN door, got {ds}"
+    return ds[0], r["mapSizeX"], r["mapSizeY"]
+
+
+class KnownFlake(AssertionError):
+    """WV-D90: a KNOWN flaky scenario was detected and its evidence recorded. Exit 2, loudly."""
+
+
+KNOWN_FLAKE_BANNER = (
+    "################################################################################\n"
+    "#  KNOWN FLAKY SCENARIO - NOT A NEW FAILURE - EVIDENCE CAPTURED FOR THE RCA    #\n"
+    "#  {test}: {summary}\n"
+    "#  Tracked as {tracking}. This failure is IMPORTANT EVIDENCE toward fixing the    #\n"
+    "#  known flake: keep this log. The JSON record follows / preceded this banner. #\n"
+    "################################################################################")
+
+
+def print_known_flake_banner(test, tracking, summary):
+    print("\n" + KNOWN_FLAKE_BANNER.format(test=test, tracking=tracking, summary=summary) + "\n",
+          flush=True)
+
+
+def units_near(gc, tiles, radius=3):
+    """Every living unit within Chebyshev `radius` of ANY of `tiles`: id, faction, position,
+    armorSize, status - 'anything that could be on the tile' (owner, 2026-09-06)."""
+    out = []
+    for u in battle_state(gc).get("units", []):
+        if u.get("isOut"):
+            continue
+        p = unit_pos(u)
+        if any(cheb(p, t) <= radius for t in tiles):
+            out.append({"id": u["id"], "faction": u.get("faction"), "pos": p,
+                        "armorSize": u.get("armorSize", 1), "status": u.get("status"),
+                        "soldierId": u.get("soldierId")})
+    return out
+
+
+def known_flake(test, tracking, summary, record):
+    """WV-D90: print the banner + the one-line JSON record + the banner, then raise KnownFlake
+    (the caller's __main__ maps it to exit 2 and prints the banner once more)."""
+    import json as _json
+    print_known_flake_banner(test, tracking, summary)
+    print("KNOWN-FLAKE-RECORD " + _json.dumps(record, default=str, sort_keys=True), flush=True)
+    print_known_flake_banner(test, tracking, summary)
+    raise KnownFlake(f"{test}: {summary} (WV-D90 {tracking}; record printed above)")
+
+
 def assert_turret_parity(host, client, what="", unit_ids=None):
     """RW-FIX-TURRET: `battle_state`'s per-unit `directionTurret` must read
     the SAME on both machines for every unit they share (or just `unit_ids`).
