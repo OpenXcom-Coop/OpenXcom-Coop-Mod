@@ -219,17 +219,32 @@ def lightning_setup(host, client, tag, actor_id=None, move_factions=True):
 
 def pick_door(host, want_ufo, exclude_keys, tag):
     """The first CLOSED door of the requested kind whose (x,y,z,part) is not
-    already spoken for - not a ranking, a plain exclusion. Missing on this
-    map roll => FIXTURE (WV-D72), never a red."""
+    already spoken for and is more than session.MAX_VIEW_DISTANCE tiles
+    (Chebyshev, position-based, from battle_state) from every living hostile
+    (SPEC 0e-2: the actor must not spot on its approach) - not a ranking, a
+    plain exclusion. Missing on this map roll => FIXTURE (WV-D72), never a red."""
     kind = "UFO" if want_ufo else "non-UFO"
     candidates = [d for d in session.closed_doors(host) if bool(d["isUfoDoor"]) == want_ufo]
+    hostiles = [u for u in session.battle_state(host).get("units", [])
+                if u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut")]
+    considered = 0
+    best_dist = None
     for d in candidates:
         key = (d["x"], d["y"], d["z"], d["part"])
-        if key not in exclude_keys:
-            return d, key
+        if key in exclude_keys:
+            continue
+        considered += 1
+        if hostiles:
+            dist = min(session.cheb((d["x"], d["y"], d["z"]), session.unit_pos(h)) for h in hostiles)
+            if dist <= session.MAX_VIEW_DISTANCE:
+                best_dist = dist if best_dist is None else max(best_dist, dist)
+                continue
+        return d, key
     raise AssertionError(
-        f"FIXTURE: {tag}: no closed {kind} door distinct from {sorted(exclude_keys)} "
-        f"on this map roll ({len(candidates)} closed {kind} door(s) total)")
+        f"FIXTURE: {tag}: no closed {kind} door distinct from {sorted(exclude_keys)} and "
+        f"more than {session.MAX_VIEW_DISTANCE} tiles (Chebyshev) from every living hostile "
+        f"on this map roll ({considered} candidate(s) considered, best hostile distance "
+        f"{best_dist})")
 
 
 def pick_soldier(host, client, used_actors, tag):
@@ -307,7 +322,8 @@ def wait_door_fired(host, client, before_emitted, timeout=30):
     return False
 
 
-def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_actors):
+def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_actors,
+                          door_pick=None):
     """SPEC 6f AMENDMENT 2 phases B ('want_ufo=True') and C ('want_ufo=False'):
     THE TURN IS THE RIGHT-CLICK, but ONLY on a ZERO-TICK re-issue. Actor is
     placed FACING AWAY from a NAMED, PLACED door, then: (1) a turn intent
@@ -317,8 +333,15 @@ def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_a
     intent re-issued is now zero-tick and MUST open it
     (connectionTCP.cpp:4912, "zero-tick door-open branch"). No separate
     `battle_action {action:"door"}` is involved. Returns (actor_id, door_key) so
-    a later phase can exclude both."""
-    door, door_key = pick_door(host, want_ufo, exclude_door_keys, tag)
+    a later phase can exclude both.
+
+    SPEC 0e-2: `door_pick(host) -> (door, door_key)`, when given, replaces
+    `pick_door(...)` - phase B uses it to stay on the Lightning's own craft
+    door (WV-D87) instead of picking a second one."""
+    if door_pick is not None:
+        door, door_key = door_pick(host)
+    else:
+        door, door_key = pick_door(host, want_ufo, exclude_door_keys, tag)
     actor_id = pick_soldier(host, client, used_actors, tag)
     stand, through = standable_side(host, door, tag)
     want_dir = session.dir_between(stand, through)
@@ -465,16 +488,33 @@ def pick_walkthrough_door(host, want_ufo, exclude_keys, tag):
     a westwall door at x=0 has a far side of (-1, y, z), off the map, so the walk
     intent has no destination and legitimately never ships ("actorId does not
     resolve / no route"). Observed 3/3 before this filter existed.
+
+    SPEC 0e-2: also skips any door whose Chebyshev distance to the nearest
+    living hostile (position-based, from battle_state) is
+    <= session.MAX_VIEW_DISTANCE - phase F's actor must not spot on its
+    approach walk.
     """
     occupied = {session.unit_pos(u) for u in session.battle_state(host).get("units", [])
                 if not u.get("isOut")}
+    hostiles = [u for u in session.battle_state(host).get("units", [])
+                if u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut")]
     rejected = []
+    considered = 0
+    best_dist = None
     for d in session.closed_doors(host):
         if bool(d.get("isUfoDoor")) != want_ufo:
             continue
         key = (d["x"], d["y"], d["z"], d["part"])
         if key in exclude_keys:
             continue
+        considered += 1
+        if hostiles:
+            dist = min(session.cheb((d["x"], d["y"], d["z"]), session.unit_pos(h)) for h in hostiles)
+            if dist <= session.MAX_VIEW_DISTANCE:
+                best_dist = dist if best_dist is None else max(best_dist, dist)
+                rejected.append(f"{key}: {dist} tiles from the nearest hostile "
+                                f"(<= {session.MAX_VIEW_DISTANCE})")
+                continue
         sides = session.door_sides(d)
         if not sides:
             continue
@@ -492,7 +532,9 @@ def pick_walkthrough_door(host, want_ufo, exclude_keys, tag):
             return d, key, stand, through, back
     raise AssertionError(
         f"FIXTURE: {tag}: no closed {'UFO' if want_ufo else 'non-UFO'} door on this "
-        f"map roll can be walked through (both sides + an approach tile). "
+        f"map roll can be walked through (both sides + an approach tile) and is more "
+        f"than {session.MAX_VIEW_DISTANCE} tiles from every living hostile "
+        f"({considered} candidate(s) considered, best hostile distance {best_dist}). "
         f"Rejected: {rejected[:6]}")
 
 
@@ -902,11 +944,24 @@ def run_scenario(host, client, tag):
     W.set_reserve(client, mode="none", kneel=False)
     assert_hash_clean(host, client, full=True, what=f"{tag} final")
 
-    # ---- Phase B: THE TURN IS THE RIGHT-CLICK on a SECOND UFO door, a SECOND soldier ----
+    # ---- Phase B: THE TURN IS THE RIGHT-CLICK on the SAME craft door (WV-D87), a
+    # SECOND soldier - re-close it first (leg (b)'s control left it closed already,
+    # but this is the fixture's own precondition, not an assumption).
+    def _phase_b_door(h):
+        d, _, _ = lightning_door(h)
+        return d, (d["x"], d["y"], d["z"], d["part"])
+
+    rb = host.cmd({"cmd": "battle_close_ufo_doors"})
+    assert rb.get("ok"), f"{tag} phase B: battle_close_ufo_doors failed: {rb}"
+    d5 = session.door_lookup(host, door_at)
+    assert d5 is not None and d5.get("isUfoDoorOpen") is False, (
+        f"{tag} phase B: STOP-IF - the craft door {door_at} is not closed before "
+        f"phase B: {d5}")
+
     used_actors = {actor_a, second_id}
     actor2, door2_key = phase_turn_opens_door(
         host, client, f"{tag} phase B", want_ufo=True,
-        exclude_door_keys={door_at}, used_actors=used_actors)
+        exclude_door_keys=set(), used_actors=used_actors, door_pick=_phase_b_door)
 
     # ---- Phase C: same shape on a THIRD, NON-UFO door, a THIRD soldier ----
     used_actors.add(actor2)
