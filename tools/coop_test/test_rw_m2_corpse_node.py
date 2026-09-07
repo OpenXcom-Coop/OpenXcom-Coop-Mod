@@ -18,9 +18,12 @@ to death" pirouette on the first map frames, racing `isBeforeGame()`'s flip
 between host and client). A qualifying boot additionally asserts the WV-D68
 settle proof: `pendingStates == 0` AND `isBusy == false` on BOTH machines,
 read IMMEDIATELY at phase Active - proof that no collapse animation is still
-in flight on either machine. Stun is rare (~1/30 boots, per WV-D68's own
-measurement); 0 stun-qualified boots in a green run is acceptable and is
-reported, not treated as a gap.
+in flight on either machine.
+
+SPEC 0e-4 (owner D11, 2026-09-07): stun is rare under a random roll
+(~1/30 boots, per WV-D68's own measurement), so this file used to accept 0
+stun-qualified boots in a green run. It now PINS SEED_STUNNED (found once by
+`hunt_seed.py`), so the stunned boot always qualifies; see "THE SEED" below.
 
 AI-NEUTRAL AND ACTION-FREE: t=0 only. Every assertion below runs before
 anything moves - no walk, no turn, no kneel, no end-turn. This fixture never
@@ -34,18 +37,23 @@ UFO_CRASH_RECOVERY deployment measured to actually offer a CRASHED ship on this
 build - `missionType: STR_UFO_CRASH_RECOVERY`, `reinforcementsDeployment:
 STR_SUPPLY_SHIP`, confirmed against a real generated save, 2026-09-05).
 
-THE ROLL: explodePowerSources() only fires 75% of the time per power-source
-tile (RNG::percent(75), BattlescapeGenerator.cpp:2532), and even then a hit
-does not always kill a unit standing near one. A single diagnostic boot of
-this fixture (host-only, no coop) already rolled 1 STATUS_DEAD non-player unit
-on its FIRST attempt, consistent with the ~1/8 rate this packet's brief
-measured. This file loops fresh host+client bring-ups, UP TO MAX_BRINGUPS,
-until the HOST reports at least one STATUS_DEAD (status==6) non-player
-(faction != FACTION_PLAYER) unit in its own `battle_state.units[]` at t=0. A
-run that never rolls one in MAX_BRINGUPS attempts is VACUOUS - it never
-exercised the fix at all - and exits SKIP(3) rather than reporting a green
-that proves nothing (the same WV-D57 lesson every other rewrite fixture in
-this tree follows).
+THE SEED (SPEC 0e-4, owner D11, 2026-09-07): explodePowerSources() only fires
+75% of the time per power-source tile (RNG::percent(75),
+BattlescapeGenerator.cpp:2532), and even then a hit does not always kill a
+unit standing near one - so a fresh bring-up used to have to be re-rolled,
+bounded by a bring-up budget, until one landed. `set_seed` sent to the host right
+before `newbattle_ok` (session.drive_to_battlescape's `pre_ok` hook) makes the
+map/NPC/squad deterministic (measured M5/M9: same seed -> identical
+mapFingerprint/NPC ids/positions/sizes/squad positions), so this file instead
+PINS a seed found ONCE by `tools/coop_test/hunt_seed.py`: SEED_KILLED (>= 1
+STATUS_DEAD non-player unit at t=0) and SEED_STUNNED (>= 1
+STATUS_UNCONSCIOUS non-player unit at t=0, WV-D68's second kind). Each pinned
+boot asserts `battle_state.mapFingerprint` matches the fingerprint the hunt
+recorded for that seed BEFORE anything else; a mismatch means a
+ruleset/map/generator change shifted what the seed produces, and raises
+`session.known_flake(..., "WV-D91", ...)` (the WV-D90 banner, exit 2) rather
+than silently reporting a boot that proves nothing (the same WV-D57 lesson
+every other rewrite fixture in this tree follows). No reroll loop remains.
 
 ON A QUALIFYING BOOT, this asserts (in this order, so a red says exactly which
 half failed):
@@ -79,9 +87,9 @@ half failed):
      deliberate: it is what the (C) RCA's own investigation compared, and it
      is what the coop handshake's saveBlob hash is itself computed over.
 
-Bar (BLOCK RUN's own convention): TEN CONSECUTIVE QUALIFIED GREEN runs (each a
-separate process invocation - "one test per invocation"), SKIPs (VACUOUS
-boots) do not break the streak. The SKIP rate is reported at every gate.
+Bar (WV-D65, SPEC 0e-4): the fixture is now DETERMINISTIC (a pinned seed, not
+a map roll), so the bar is THREE CONSECUTIVE GREEN runs (each a separate
+process invocation - "one test per invocation").
 
 RED-THEN-GREEN is NOT automated by this file - it is the owner's second
 independent hit, done by hand per each packet's brief:
@@ -114,18 +122,25 @@ import session
 import repro_atom_walk as W
 
 MISSION = "STR_SUPPLY_SHIP"
-MAX_BRINGUPS = 24
 FACTION_PLAYER = 0
 STATUS_DEAD = 6
 STATUS_UNCONSCIOUS = 7  # WV-D68 (FX-4): a stunned generation casualty qualifies too
+
+# PINNED (SPEC 0e-4, owner D11): found ONCE by hunt_seed.py, never re-rolled.
+# pinned 2026-09-07 by hunt_seed.py at 29536ea95
+SEED_KILLED = 2
+FINGERPRINT_KILLED = 8.979686268403716e+18
+# pinned 2026-09-07 by hunt_seed.py at 29536ea95
+SEED_STUNNED = 23
+FINGERPRINT_STUNNED = -6.768173743533399e+18
 
 BASE_PORT = 48400          # the coop lobby TCP port (bring_up_lobby's `port`)
 BASE_PROBE = 49400         # the TestServer control-socket port base
 
 # EXIT CODES, the wave's shipped convention (2026-09-03 ruling):
-# 0 = PASS, 2 = FAIL (a red), 3 = SKIP - either the ruleset does not offer the
-# fixture mission, or MAX_BRINGUPS attempts never rolled a qualifying
-# crash-kill (VACUOUS). Neither is a statement about WV-D62 itself.
+# 0 = PASS, 2 = FAIL (a red - includes a WV-D91/WV-D92 known-flake banner), 3 =
+# SKIP (the ruleset does not offer the fixture mission, or a pinned seed's
+# fingerprint guard passed yet the casualty vanished - see FIXTURE: below).
 EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
 
 RELEASE_LOG_RE = re.compile(r"released (\d+) AIModule\(s\)")
@@ -133,16 +148,10 @@ SAVEBLOB_EQUAL_TEXT = "[coop-handshake] battle_ready saveBlob EQUAL"
 SAVEBLOB_MISMATCH_TEXT = "[coop-handshake] battle_ready saveBlob MISMATCH"
 
 
-class MissionNotOffered(Exception):
-    """STR_SUPPLY_SHIP is not in this build's NEW BATTLE mission list - a fact
-    about the loaded ruleset, not about WV-D62. SKIP, not FAIL, and never
-    retried (every bring-up would fail identically)."""
-
-
-class FixtureExhausted(Exception):
-    """MAX_BRINGUPS fresh bring-ups never produced a HOST-side STATUS_DEAD
-    non-player unit at t=0. VACUOUS - SKIP, not FAIL."""
-
+# SPEC 0e-4: the "does not offer" mission check raises an AssertionError
+# already prefixed "FIXTURE:" by session.drive_to_battlescape itself, which
+# the REV E.22 __main__ template's own `str(e).startswith("FIXTURE:")` check
+# routes to SKIP(3) - no bespoke MissionNotOffered wrapper needed any more.
 
 # ----- small probes --------------------------------------------------------
 
@@ -248,19 +257,27 @@ def item_ids(save_text):
 
 # ----- fixture bring-up -----------------------------------------------------
 
-def one_bringup(tag):
-    """One fresh host+client bring-up on the STR_SUPPLY_SHIP fixture. Returns
-    (host, client, killed_count, stunned_count) - the caller decides whether
-    (killed_count + stunned_count) >= 1 qualifies this boot (WV-D68: EITHER
-    kind of generation casualty qualifies) or whether to shut it down and roll
-    again.
+def one_bringup(tag, seed, expected_fingerprint):
+    """One fresh host+client bring-up on the STR_SUPPLY_SHIP fixture with the
+    PINNED `seed` (SPEC 0e-4, owner D11): `set_seed` is sent to the host via
+    session.drive_to_battlescape's `pre_ok` hook immediately before
+    `newbattle_ok`, so the map/NPC/squad are deterministic (measured M5/M9).
 
-    Raises MissionNotOffered (a static ruleset fact, never retried) or lets
-    any other AssertionError/TimeoutError propagate as a hard FAIL: after
-    WV-D62/WV-D68 there is no known reason a clean bring-up on this fixture
-    should fail or hang, so this file does not reclassify one as an unrelated,
-    re-rollable mismatch the way test_rw_item_id_ctr.py does for its own
-    (different, already-fixed-elsewhere) map class."""
+    Immediately after drive_to_battlescape returns, asserts the FINGERPRINT
+    GUARD: `battle_state.mapFingerprint == expected_fingerprint`. A mismatch
+    means a ruleset/map/generator change shifted what this seed produces, so
+    this raises `session.known_flake(..., "WV-D91", ...)` (WV-D90 banner,
+    exit 2) rather than silently reporting a boot that no longer proves
+    anything.
+
+    Returns (host, client, killed, stunned). Lets a "does not offer" mission
+    AssertionError (already "FIXTURE:"-prefixed by session.py) or any other
+    AssertionError/TimeoutError propagate as a hard FAIL/SKIP via the
+    REV E.22 __main__ template: after WV-D62/WV-D68 there is no known reason
+    a clean bring-up on a PINNED seed should fail or hang, so this file does
+    not reclassify one as an unrelated, re-rollable mismatch the way
+    test_rw_item_id_ctr.py does for its own (different, already-fixed-
+    elsewhere) map class."""
     port = str(BASE_PORT + tag)
     host = GameClient("host", BASE_PROBE + tag * 2,
                        make_user_dir(f"rw_m2_corpse_host_{tag}"))
@@ -269,39 +286,36 @@ def one_bringup(tag):
     seated = {}
     try:
         W.bring_up_lobby(host, client, port)
-        try:
-            session.drive_to_battlescape(host, client, seated, mission=MISSION)
-        except AssertionError as e:
-            if "does not offer" in str(e):
-                raise MissionNotOffered(str(e))
-            raise
+        session.drive_to_battlescape(
+            host, client, seated, mission=MISSION,
+            pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": seed}))
     except Exception:
         host.shutdown()
         client.shutdown()
         raise
 
     st = battle_state(host)
+    fp = st.get("mapFingerprint")
+    if fp != expected_fingerprint:
+        killed = len(dead_non_player_units(st))
+        stunned = len(stunned_non_player_units(st))
+        record = {
+            "seed": seed, "expected_fingerprint": expected_fingerprint,
+            "actual_fingerprint": fp, "mapSizeXYZ": st.get("mapSizeXYZ"),
+            "killed": killed, "stunned": stunned,
+            "units": [{"id": u.get("id"), "faction": u.get("faction"),
+                       "status": u.get("status")} for u in st.get("units", [])],
+        }
+        host.shutdown()
+        client.shutdown()
+        session.known_flake(
+            "test_rw_m2_corpse_node", "WV-D91",
+            f"pinned seed {seed} no longer reproduces the scenario - re-run hunt_seed.py",
+            record)
+
     killed = len(dead_non_player_units(st))
     stunned = len(stunned_non_player_units(st))
     return host, client, killed, stunned
-
-
-def find_qualifying_bringup():
-    for attempt in range(1, MAX_BRINGUPS + 1):
-        host, client, killed, stunned = one_bringup(attempt)
-        if killed >= 1 or stunned >= 1:
-            print(f"[test_rw_m2_corpse_node] QUALIFIED on bring-up "
-                  f"{attempt}/{MAX_BRINGUPS}: killed={killed} stunned={stunned} "
-                  "non-player casualty(ies) in the host's battle_state at t=0")
-            return host, client, killed, stunned, attempt
-        print(f"[test_rw_m2_corpse_node] bring-up {attempt}/{MAX_BRINGUPS}: "
-              "no crash-kill/stun rolled, re-rolling with a fresh bring-up")
-        host.shutdown()
-        client.shutdown()
-    raise FixtureExhausted(
-        f"no HOST-side STATUS_DEAD/STATUS_UNCONSCIOUS non-player unit at t=0 "
-        f"in {MAX_BRINGUPS} fresh bring-ups of {MISSION!r} - VACUOUS, not a "
-        "result about WV-D62/WV-D68")
 
 
 # ----- assertions on a qualified boot --------------------------------------
@@ -432,30 +446,50 @@ def run_assertions(host, client, killed, stunned):
 
 def main():
     t0 = time.time()
-    host, client, killed, stunned, bringup_index = find_qualifying_bringup()
+
+    host, client, killed, stunned = one_bringup(1, SEED_KILLED, FINGERPRINT_KILLED)
     try:
+        assert killed >= 1, (
+            f"FIXTURE: pinned SEED_KILLED={SEED_KILLED} passed its fingerprint "
+            "guard but rolled 0 STATUS_DEAD non-player unit(s) at t=0 - the map "
+            "reproduced but the casualty did not (report this)")
         run_assertions(host, client, killed, stunned)
     finally:
         host.shutdown()
         client.shutdown()
-    print(f"\ntest_rw_m2_corpse_node: PASS (qualified on bring-up "
-          f"{bringup_index}/{MAX_BRINGUPS}, killed={killed} stunned={stunned}, "
-          f"{time.time() - t0:.1f}s)")
+    print(f"[test_rw_m2_corpse_node] killed boot (seed {SEED_KILLED}): "
+          f"killed={killed} stunned={stunned}")
+
+    host, client, killed, stunned = one_bringup(2, SEED_STUNNED, FINGERPRINT_STUNNED)
+    try:
+        assert stunned >= 1, (
+            f"FIXTURE: pinned SEED_STUNNED={SEED_STUNNED} passed its fingerprint "
+            "guard but rolled 0 STATUS_UNCONSCIOUS non-player unit(s) at t=0 - "
+            "the map reproduced but the casualty did not (report this)")
+        run_assertions(host, client, killed, stunned)
+    finally:
+        host.shutdown()
+        client.shutdown()
+    print(f"[test_rw_m2_corpse_node] stunned boot (seed {SEED_STUNNED}): "
+          f"killed={killed} stunned={stunned}")
+
+    print(f"\ntest_rw_m2_corpse_node: PASS (2/2 pinned boots - killed seed "
+          f"{SEED_KILLED}, stunned seed {SEED_STUNNED} - {time.time() - t0:.1f}s)")
 
 
 if __name__ == "__main__":
     try:
         main()
-    except MissionNotOffered as e:
-        print(f"\ntest_rw_m2_corpse_node: SKIP ({MISSION} not offered)\n{e}")
-        sys.exit(EXIT_SKIP)
-    except FixtureExhausted as e:
-        print(f"\ntest_rw_m2_corpse_node: SKIP (fixture exhausted, VACUOUS)\n{e}")
-        sys.exit(EXIT_SKIP)
-    except (AssertionError, TimeoutError) as e:
-        print(f"\ntest_rw_m2_corpse_node: FAIL\n{type(e).__name__}: {e}")
-        import traceback
-        print("")
-        print("--- traceback (classification aid) ---")
-        traceback.print_exc()
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("test_rw_m2_corpse_node", "WV-D91", str(e))
+        print(f"\ntest_rw_m2_corpse_node: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(EXIT_FAIL)
+    except AssertionError as e:
+        if str(e).startswith("FIXTURE:"):
+            print(f"\ntest_rw_m2_corpse_node: SKIP (fixture) - {e}")
+            sys.exit(EXIT_SKIP)
+        print(f"\ntest_rw_m2_corpse_node: FAIL\nAssertionError: {e}")
+        sys.exit(EXIT_FAIL)
+    except TimeoutError as e:
+        print(f"\ntest_rw_m2_corpse_node: FAIL\nTimeoutError: {e}")
         sys.exit(EXIT_FAIL)
