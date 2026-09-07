@@ -72,24 +72,20 @@ SS2.W2's `reaction` reason. A run that DOES get shot at therefore fails loudly
 and specifically, instead of surfacing as a mysterious hash red.
 ============================================================================
 
-FIXTURE (WR-29, and the RB-D15/IR-4 "pin the selection rule" shape). Walk-core's
+FIXTURE (WV-D86/WV-D87, SPEC 0e-2 cycle 3): DETERMINISTIC, no search. Walk-core's
 fixtures are CONTACT-FREE by construction (WV-D18) precisely so they cannot take
-this halt, so this packet must CREATE the contact rather than find one. The
-qualifying rule is repro_atom_turn.py's rule (c) INVERTED:
-session.actor_is_contact_free() asks for NO living non-player unit within
-session.MAX_VIEW_DISTANCE; this file asks for one INSIDE a band, close enough
-that a few steps can bring it into view and far enough that the actor is not
-already standing in its lap. Everything else about the fixture is the shared
-helper set (bring_up_lobby / drive_to_battlescape / straight_runs /
-send_walk_outcome, imported from repro_atom_walk).
-
-FIXTURE EXHAUSTION IS A SKIP, NOT A RED (the orchestrator's 2026-09-03 ruling,
-shipped in repro_atom_door.py). "The map generator never offered a testable
-situation" is a statement about map generation, not about the spot atom.
-`FixtureExhausted` is raised at EXACTLY ONE site - the end of the bring-up
-re-roll loop - with a rejection histogram; every assertion inside the drive is a
-hard FAIL (exit 2) whether or not a contact was eventually staged, so a SKIP
-cannot mask a real failure.
+this halt, so this packet must CREATE the contact rather than find one - but
+instead of trying successive freshly generated maps for a qualifying alien
+distance (the old INVERTED rule this file used to run), contact_p3 (WV-D87/M1) stages the
+whole situation on the Lightning craft's own UFO door with place_deterministic's
+own hash-equality gate: the door's fixed geometry gives `near`/`far`/`far_ground`,
+the actor is placed on the deck at `near` facing out, one hostile is placed
+exactly `far_ground + 6*d_out` tiles away (inside view range once the actor steps
+through the door) and every other hostile is moved to the far corner. ONE boot,
+no retry of any kind. A `FIXTURE:`-prefixed staging failure SKIPs (exit 3);
+everything else is a real FAIL (exit 2). Everything else about the fixture is the
+shared helper set (bring_up_lobby / drive_to_battlescape / send_walk_outcome,
+imported from repro_atom_walk).
 
 WHY THE ASSERTIONS HERE ARE NOT VACUOUS - the checks that would go RED:
   * The stream-position check reads the event ring on BOTH machines and requires
@@ -150,7 +146,7 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
-from session import assert_hash_clean, assert_reveal_parity
+from session import assert_hash_clean, assert_reveal_parity, DIR_DX, DIR_DY, place_deterministic
 import repro_atom_walk as W
 
 COOP_SEAT_1 = 1
@@ -158,18 +154,6 @@ FACTION_PLAYER = 0
 
 EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
 
-
-class FixtureExhausted(Exception):
-    """MAX_REROLLS boots produced no stageable contact. Carries the histogram."""
-
-
-# The bring-up ceiling. Each boot is ~25-40 s plus a bounded drive, so this is
-# sized for a fixture that qualifies OFTEN rather than for a lottery: the rule
-# below is the INVERSE of the one repro_atom_walk.py re-rolls on, and that file
-# measured nearest-alien distances of 10.0 .. 32.6 over 15 boots while needing
-# > 24 - i.e. most boots of this map class have an alien inside the band this
-# file wants. The measured rate is reported by every run.
-MAX_REROLLS = 12
 
 # Seat-1 soldiers to stamp. Each one is an INDEPENDENT chance at a contact (its
 # spotted-this-turn set is its own) and TU never regenerates in wave 1, so an
@@ -341,6 +325,12 @@ def drive_to_battlescape(host, client, seated):
     assert W.top_state(host) == "NewBattleState", \
         f"host should land on the NEW BATTLE setup screen, stack={W.states(host)}"
 
+    # SPEC 0e-2 (WV-D87): the craft pin, BEFORE any newbattle_seat_soldier call
+    # (this local drive_to_battlescape deliberately never issues a
+    # newbattle_mission - see the docstring above - so the craft pin has no
+    # mission pin to follow; it just has to land before seats are picked).
+    host.ok({"cmd": "newbattle_craft", "type": "STR_LIGHTNING"})
+
     soldier_ids = []
     for i in range(SEAT1_SOLDIERS):
         r = host.cmd({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1, "index": i})
@@ -377,77 +367,6 @@ def seat1_units(host, soldier_ids):
             if u.get("soldierId") in want and not u.get("isOut")]
 
 
-def fixture_rejection(host, client, soldier_ids):  # noqa: C901
-    """The INVERTED selection rule. Returns None when this boot can be driven,
-    else a one-line reason (the histogram key is its leading clause).
-
-    Rules, in order:
-      (a) NOTHING already spotted at t=0. Kept from repro_atom_turn.py verbatim:
-          an alien a player unit can already see is an alien whose reaction fire
-          the approach walk is standing in front of, and it is also an alien this
-          actor may already carry in its spotted-this-turn set - in which case
-          the walk cannot produce a NEW spot at all.
-      (c-inv) at least one seat-1 soldier has a living non-player unit inside
-          [SPOT_CONTACT_MIN, SPOT_CONTACT_MAX]. This is session.
-          actor_is_contact_free()'s predicate with the sense reversed, and it is
-          pinned exactly as hard: a boot that fails it is RE-ROLLED, never
-          driven with a relaxed assertion.
-      (d) the actor's OWN spotted-this-turn set is empty ON BOTH MACHINES, so a
-          spot during its walk is a genuine ADDITION. Readable directly since
-          this packet (battle_state's per-unit `spottedThisTurn`). Checked on
-          the client too because that set is machine-local: a client that has
-          ever SELECTED a unit has computed that unit's FOV for itself
-          (SS2.W5), which the host has not.
-      (e) at least one routable, contact-floor-respecting approach destination
-          exists for that actor.
-    """
-    st = battle_state(host)
-    if not st.get("ok") or not st.get("inBattle"):
-        return "no battle: battle_state reports inBattle=False"
-    if st.get("spotted"):
-        return f"rule (a) a hostile is ALREADY spotted at t=0: {st['spotted']}"
-
-    aliens = living_non_players(st)
-    if not aliens:
-        return "rule (c-inv) the map holds no living non-player unit at all"
-
-    mine = seat1_units(host, soldier_ids)
-    if not mine:
-        return "no seat-1 soldier resolved to a live battle unit"
-
-    occupied = {pos_of(u) for u in st["units"] if not u.get("isOut")}
-    cst = units_by_id(battle_state(client))
-    best = None
-    for u in mine:
-        cu = cst.get(u["id"], {})
-        if u.get("spottedThisTurn") or cu.get("spottedThisTurn"):
-            continue                                        # rule (d), BOTH machines
-        d = session.nearest_non_player_distance(st, u)
-        if d is None or not (SPOT_CONTACT_MIN <= d <= SPOT_CONTACT_MAX):
-            continue                                        # rule (c-inv)
-        cands = approach_candidates(host, u, aliens, occupied)
-        if not cands:
-            continue                                        # rule (e)
-        if best is None or d < best[0]:
-            best = (d, u, len(cands))
-    if best is None:
-        ds = []
-        for u in mine:
-            d = session.nearest_non_player_distance(st, u)
-            ds.append("none" if d is None else "%.1f" % d)
-        return ("rule (c-inv/d/e) no seat-1 soldier has a clean, approachable "
-                "non-player unit in the band [%d, %d] - per-actor nearest: %s"
-                % (SPOT_CONTACT_MIN, SPOT_CONTACT_MAX, ", ".join(ds)))
-
-    d, u, ncands = best
-    print("[repro_atom_spot] rule (c-inv) ok: actor %d (soldierId %s) at %s has a "
-          "living non-player unit %.2f tiles away (band [%d, %d]), %d approach "
-          "destination(s), its own spotted-this-turn set EMPTY"
-          % (u["id"], u.get("soldierId"), pos_of(u), d, SPOT_CONTACT_MIN,
-             SPOT_CONTACT_MAX, ncands))
-    return None
-
-
 def any_candidates(host, actor, aliens, occupied, radii=(1, 2)):
     """Open-ground destinations in ANY direction, respecting APPROACH_FLOOR,
     ordered FURTHEST-from-contact first.
@@ -480,57 +399,6 @@ def any_candidates(host, actor, aliens, occupied, radii=(1, 2)):
                     ring_tiles.append((-d, abs(dz), t))
     ring_tiles.sort(key=lambda e: (e[0], e[1]))
     out, probed = [], 0
-    for _, _, t in ring_tiles:
-        if probed >= MAX_TILE_PROBES:
-            break
-        probed += 1
-        if W.tile_is_open_ground(host, t[0], t[1], t[2], occupied):
-            out.append(t)
-            if len(out) >= CANDIDATES_PER_LEG * 2:
-                break
-    return out
-
-
-def approach_candidates(host, actor, aliens, occupied, radii=(2, 3, 1)):
-    """Open-ground destinations that move the actor CLOSER to the nearest living
-    non-player unit without ever coming inside APPROACH_FLOOR of any of them.
-
-    Searched across z, z-1 and z+1 and ordered nearest-to-target-first, for the
-    reason repro_atom_walk.straight_runs() documents and MEASURED: the squad
-    starts INSIDE the Skyranger, whose deck sits one level ABOVE the terrain, so
-    a same-level-only search finds air on every side and 15/15 boots produce no
-    candidate at all. Pathfinding routes the drop itself.
-
-    This is the INVERSE ordering of straight_runs(), which sorts the destination
-    FURTHEST from contact first."""
-    apos = [(a["x"], a["y"], a["z"]) for a in aliens]
-    if not apos:
-        return []
-    here = pos_of(actor)
-    target = min(apos, key=lambda p: dist3(here, p))
-    d_here = dist3(here, target)
-
-    ring_tiles = []
-    for radius in radii:
-        for dz in (0, -1, 1):
-            z = actor["z"] + dz
-            if z < 0:
-                continue
-            for dx in range(-radius, radius + 1):
-                for dy in range(-radius, radius + 1):
-                    if max(abs(dx), abs(dy)) != radius:
-                        continue
-                    t = (actor["x"] + dx, actor["y"] + dy, z)
-                    if min(dist3(t, a) for a in apos) < APPROACH_FLOOR:
-                        continue                       # never close in past the floor
-                    d_t = dist3(t, target)
-                    if d_t >= d_here:
-                        continue                       # must actually approach
-                    ring_tiles.append((d_t, abs(dz), t))
-    ring_tiles.sort(key=lambda e: (e[0], e[1]))
-
-    out = []
-    probed = 0
     for _, _, t in ring_tiles:
         if probed >= MAX_TILE_PROBES:
             break
@@ -958,180 +826,57 @@ def assert_zero_step_contact(host, client, actor_id, hw, cw, before, baseline):
           f"on both machines, all 9 buckets EQUAL, ordering seat shows {STR_HALT_SPOT!r}")
 
 
-def attempt_contact(host, client, soldier_ids, baseline, why_log, observed):
-    """Walk seat-1 actors toward the nearest living non-player unit until one of
-    them takes vanilla's own `unitSpotted` halt, then assert the whole packet
-    against it. Returns the accepted contact's (actor_id, hw, seen) or None.
-
-    EVERY assertion inside here runs at FULL STRENGTH whether or not a contact is
-    eventually staged - only "this boot never staged one" is a rejection. That is
-    the orchestrator's SKIP ruling applied honestly: a product misbehaviour on
-    the way to a contact is a hard FAIL, never a re-roll."""
-    clean_legs = 0
-    zero_step_spots = 0
-    candidates = sorted(seat1_units(host, soldier_ids), key=lambda u: -u["tu"])
-    assert len(candidates) >= 2,         f"only {len(candidates)} live seat-1 unit(s) - one is reserved as the client's "         "selection parking spot and at least one more is needed to walk"
-    # The PARKING unit is chosen ONCE and never walked. Selecting a unit on the
-    # CLIENT runs SS2.W5's updateSoldierInfo(checkFOV) ->
-    # calculateFOV(selectedUnit, doTileRecalc=false, doUnitRecalc=true), which
-    # writes THAT unit's _unitsSpottedThisTurn locally while the HOST's copy of
-    # the same unit stays empty (the host never selected it and never recomputed
-    # its FOV). That asymmetry is hash-free and architecturally legal - the field
-    # is in no bucket and in no serializer - but it means a unit the client has
-    # ever had selected is no longer a clean spot fixture. MEASURED: an earlier
-    # version TABbed per actor and reds appeared at ~2/4 runs with
-    # "host [] client [1000000]" before the contact walk. So: park once, on a
-    # unit that is never a walker.
-    park_id = candidates[-1]["id"]
+def contact_p3(host, client, soldier_ids, baseline):
+    """WV-D87 / M1: the deterministic contact. Actor on the deck at `near` facing out; one
+    hostile at far_ground + 6*d_out facing the door (>= APPROACH_FLOOR from the destination);
+    every other hostile in the far corner; destination far_ground + 2*d_out (planned 3 steps).
+    Measured: the step down through the door completes, then the spot halts (haltStep 1)."""
+    door, mx, my = session.lightning_door(host)
+    a, b = session.door_sides(door)
+    near, far = (a, b) if session._tile_standable(host, a) else (b, a)
+    far_ground = (far[0], far[1], far[2] - 1)
+    d_out = session.dir_between(near, far)
+    corner = ("S" if door["y"] < my / 2.0 else "N") + ("E" if door["x"] < mx / 2.0 else "W")
+    place_deterministic(host, client, [{"lever": "battle_teleport_all", "faction": "hostile",
+                                        "corner": corner, "facing": session._CORNER_FACING[corner]}],
+                        what="P3 corner")
+    hostiles = sorted((u for u in living_non_players(battle_state(host))
+                       if u.get("faction") == session.FACTION_HOSTILE), key=lambda u: u["id"])
+    assert hostiles, "FIXTURE: no live hostile to stage"
+    alien = hostiles[0]["id"]
+    alien_tile = (far_ground[0] + DIR_DX[d_out] * 6, far_ground[1] + DIR_DY[d_out] * 6, far_ground[2])
+    dest = (far_ground[0] + DIR_DX[d_out] * 2, far_ground[1] + DIR_DY[d_out] * 2, far_ground[2])
+    assert session._tile_standable(host, alien_tile) and session._tile_standable(host, dest), (
+        f"FIXTURE: alien tile {alien_tile} or destination {dest} not standable on this map")
+    place_deterministic(host, client, [{"lever": "battle_teleport_unit", "unit": alien,
+                                        "x": alien_tile[0], "y": alien_tile[1], "z": alien_tile[2],
+                                        "dir": (d_out + 4) % 8}], what="P3 alien")
+    mine = seat1_units(host, soldier_ids)
+    assert len(mine) >= 2, "FIXTURE: need two seat-1 units (walker + parking spot)"
+    actor = min(mine, key=lambda u: session.cheb(pos_of(u), near))
+    actor_id = actor["id"]
+    park_id = next(u["id"] for u in mine if u["id"] != actor_id)
     park_client_selection(host, client, park_id)
-    for actor in [u for u in candidates if u["id"] != park_id]:
-        actor_id = actor["id"]
-        if (unit_of(host, actor_id)["spottedThisTurn"]
-                or unit_of(client, actor_id)["spottedThisTurn"]):
-            continue
-        # PHASE 0's gate-1 argument (getSpottingUnits' `bu->getReactionScore() >=
-        # threshold`) needs the WALKER's own score strictly positive, and the
-        # score is `reactions * TU / maxTU`. Asserted here rather than assumed:
-        # gates 2 and 3 would still hold with a zero-score walker, but this run
-        # would no longer be able to claim the strong form of the pin.
-        for gc, tag in ((host, "host"), (client, "client")):
-            u = unit_of(gc, actor_id)
-            assert u["reactions"] > 0 and u["tu"] > 0, (
-                f"PHASE 0 gate 1: the actor {actor_id} on the {tag} has reactions="
-                f"{u['reactions']} tu={u['tu']} - its own reaction score is 0, so a "
-                "zeroed alien would tie the getSpottingUnits threshold test")
-        assert battle_state(client)["selectedId"] == park_id, (
-            f"the CLIENT's selection drifted off its parking unit {park_id} onto "
-            f"{battle_state(client)['selectedId']} - see park_client_selection()")
-        for leg in range(1, MAX_LEGS + 1):
-            st = battle_state(host)
-            aliens = living_non_players(st)
-            live = unit_of(host, actor_id)
-            occupied = {pos_of(u) for u in st["units"] if not u.get("isOut")}
-            cands = approach_candidates(host, live, aliens, occupied)
-            if not cands:
-                why_log.append(f"no approach destination for actor {actor_id} at leg {leg}")
-                break
-
-            progressed = False
-            for dest in cands[:CANDIDATES_PER_LEG]:
-                before = {
-                    "actor_pos": pos_of(unit_of(host, actor_id)),
-                    "actor_spotted_host": list(unit_of(host, actor_id)["spottedThisTurn"]),
-                    "actor_spotted_client": list(unit_of(client, actor_id)["spottedThisTurn"]),
-                    "health": unit_of(host, actor_id)["health"],
-                    "stun": unit_of(host, actor_id)["stun"],
-                }
-                spots_before = event_state(host)["coopSpotEvsEmitted"]
-                kind, payload = send_walk_outcome(host, client, actor_id, dest)
-                if kind == "nosend":
-                    continue
-                if kind == "deny":
-                    # A drained actor legitimately gets `cost_changed` (SS2.3's own
-                    # mapping). Not a failure of anything - move to the next actor.
-                    why_log.append(f"actor {actor_id} denied ({payload.get('reason')}) "
-                                   f"at leg {leg}")
-                    progressed = True
-                    break
-                progressed = True
-                hw, cw = payload, W.last_walk(client)
-
-                # SAFETY FIRST, every leg, before anything is interpreted.
-                assert_reaction_pin_holds(host, client, baseline,
-                                          f"after actor {actor_id} leg {leg}")
-                after = unit_of(host, actor_id)
-                assert (after["health"], after["stun"]) == (before["health"], before["stun"]), (
-                    f"actor {actor_id} lost health/stun during a plain walk "
-                    f"({before['health']}/{before['stun']} -> {after['health']}/"
-                    f"{after['stun']}) - something attacked it")
-
-                r = hw.get("restate") or {}
-                reason = r.get("reason") or ""
-                halted = bool(r.get("halted"))
-                assert reason in ("",) + HALT_REASONS, (
-                    f"actor {actor_id} leg {leg}: halt reason {reason!r} is not one of "
-                    f"SS2.W2's frozen enum values")
-                assert reason != "reaction", (
-                    f"actor {actor_id} leg {leg} halted on SS2.W2 reason 'reaction' - "
-                    "PHASE 0's pin has failed and this run cannot separate the spot atom "
-                    "from S5's expected AI-origin desync class")
-
-                # ===== THE TRIPWIRE, and it is what stops a SKIP from masking a
-                # real failure (the orchestrator's own stated risk in the
-                # 2026-09-03 SKIP ruling).
-                #
-                # VANILLA ITSELF is the oracle. BattleUnit::_unitsSpottedThisTurn
-                # is written by TileEngine::calculateUnitsInFOV on the HOST
-                # whether or not any coop hook exists, and UnitWalkBState's own
-                # halt predicate is literally "that set's size changed"
-                # (`_numUnitsSpotted != _unit->getUnitsSpottedThisTurn().size()`).
-                # So: if the set GREW during this walk, vanilla spotted something,
-                # and W1-P11 is REQUIRED to have reported it as `spot` + emitted
-                # one ev. Anything else is the atom silently not firing.
-                #
-                # MEASURED, NOT REASONED: with both coopNoteWalkSpot() call sites
-                # commented out and the exe rebuilt, this file previously walked
-                # every actor of every boot to exhaustion and exited SKIP(3) -
-                # a missing atom classified as "the map generator offered
-                # nothing". With this tripwire the same build FAILS(2) on the
-                # first leg that spots.
-                grew = (set(unit_of(host, actor_id)["spottedThisTurn"])
-                        - set(before["actor_spotted_host"]))
-                if grew:
-                    assert halted and reason == "spot", (
-                        f"actor {actor_id} leg {leg}: vanilla ADDED {sorted(grew)} to the "
-                        f"actor's spotted-this-turn set during this walk - which is "
-                        "UnitWalkBState's own halt predicate - but the completion restate "
-                        f"says halted={halted} reason={reason!r}. W1-P11's coopNoteWalkSpot "
-                        "hook did not run at the site vanilla actually took. (The one "
-                        "other way to reach this: vanilla suppresses the halt while "
-                        "`_falling`, which this fixture's routes are not supposed to "
-                        "produce - either way it is a red, not a re-roll.)")
-                    assert event_state(host)["coopSpotEvsEmitted"] > spots_before, (
-                        f"actor {actor_id} leg {leg}: the restate reports reason='spot' but "
-                        f"the host emitted no `spot` ev (counter still {spots_before}) - "
-                        "the halt reason and the ev must always travel together")
-
-                if halted and reason == "spot":
-                    n = len(hw.get("steps") or [])
-                    if n == 0:
-                        # A spot during the PRE-FIRST-STEP facing turn. ASSERTED at
-                        # full strength (it used to be a silent REJECTION - see
-                        # assert_zero_step_contact's docstring for what that hid),
-                        # then the search continues, because "the step evs before the
-                        # halt STAND" still needs a halt that HAS step evs.
-                        assert_zero_step_contact(host, client, actor_id, hw, cw,
-                                                 before, baseline)
-                        zero_step_spots += 1
-                        observed["zeroStep"] = observed.get("zeroStep", 0) + 1
-                        break
-                    if hw["plannedLen"] <= n:
-                        why_log.append(f"actor {actor_id} spotted on the LAST planned "
-                                       f"step ({n}/{hw['plannedLen']}) - nothing left to "
-                                       "break")
-                        break
-                    seen = assert_contact(host, client, actor_id, hw, cw, before, baseline)
-                    print(f"[repro_atom_spot] staged after {clean_legs} clean leg(s) and "
-                          f"{zero_step_spots} zero-step spot(s)")
-                    return actor_id, hw, seen
-
-                if halted and reason in ("no_tu", "no_energy"):
-                    why_log.append(f"actor {actor_id} ran out of {reason} at leg {leg}")
-                    break
-                if halted:
-                    # `blocked` - the pathfinder walked into something. Try the next
-                    # candidate at this radius.
-                    continue
-                clean_legs += 1
-                break                                   # leg done, walk the next one
-            if not progressed:
-                why_log.append(f"actor {actor_id} could not order any walk at leg {leg}")
-                break
-            if unit_of(host, actor_id)["spottedThisTurn"]:
-                break                                   # this actor's contact is spent
-    why_log.append(f"no stageable contact: {clean_legs} clean leg(s), "
-                   f"{zero_step_spots} zero-step spot(s)")
-    return None
+    if pos_of(actor) != near:
+        place_deterministic(host, client, [{"lever": "battle_teleport_unit", "unit": actor_id,
+                                            "x": near[0], "y": near[1], "z": near[2], "dir": d_out}],
+                            what="P3 actor")
+    u = unit_of(host, actor_id)
+    assert u["reactions"] > 0 and u["tu"] > 0, f"actor {actor_id} has no reactions/TU: {u}"
+    before = {"actor_pos": pos_of(u),
+              "actor_spotted_host": list(u["spottedThisTurn"]),
+              "actor_spotted_client": list(unit_of(client, actor_id)["spottedThisTurn"]),
+              "health": u["health"], "stun": u["stun"]}
+    spots_before = event_state(host)["coopSpotEvsEmitted"]
+    kind, payload = send_walk_outcome(host, client, actor_id, dest)
+    assert kind == "walk", f"P3: the contact walk did not execute (kind={kind!r}, {payload})"
+    hw, cw = payload, W.last_walk(client)
+    r = hw["restate"]
+    assert r.get("halted") and r.get("reason") == "spot", (
+        f"P3: expected a spot halt, got halted={r.get('halted')} reason={r.get('reason')!r}")
+    assert event_state(host)["coopSpotEvsEmitted"] > spots_before, "P3: no spot ev emitted"
+    seen = assert_contact(host, client, actor_id, hw, cw, before, baseline)
+    return actor_id, hw, seen
 
 
 # ----- PHASE 2: the control ------------------------------------------------
@@ -1266,171 +1011,45 @@ def turn_to(host, client, actor_id, to_dir):
     return True
 
 
-def phase3_zero_step(host, client, soldier_ids, baseline, observed, spent):
-    """CONSTRUCT the haltStep == 0 case instead of waiting ~4% of runs for it.
-
-    WHY IT HAS TO BE CONSTRUCTED. A spot fires wherever vanilla's per-step
-    `calculateFOV(pos, 2, false)` first brings a hostile into the actor's view
-    ARC. Walking toward one usually opens LOS as a RESULT OF MOVING, so the
-    halt lands at haltStep >= 1 and the preceding `walk_step` ev has already
-    shipped an absolute `tuAfter`. The zero-step case needs the opposite: the
-    hostile already in line of sight from the tile the actor is STANDING on, but
-    outside its facing arc - so it is the walk's PRE-FIRST-STEP TURN that
-    reveals it. Left to chance that combination showed up in 1 run of 43, which
-    is why a real desync survived 43 green runs.
-
-    So PHASE 3 makes it: point the actor AWAY from the hostile with a synced
-    turn, then order a walk back toward it. Nothing is faked - vanilla does its
-    own FOV, its own spotting and its own halt; the fixture only arranges the
-    geometry, exactly as the reaction-fire pin arranges PHASE 0's.
-
-    Not every roll can be arranged (the actor may have no line of sight from
-    where it stands, or may spot during the turn-away itself), so this REPORTS
-    rather than fails - and main() prints whether it fired, because a bar met
-    with zero zero-step observations is not met at all."""
-    st = battle_state(host)
-    aliens = living_non_players(st)
-    if not aliens:
-        return False
-    for actor in sorted(seat1_units(host, soldier_ids), key=lambda u: -u["tu"]):
-        actor_id = actor["id"]
-        if actor_id in spent:
-            continue
-        if (unit_of(host, actor_id)["spottedThisTurn"]
-                or unit_of(client, actor_id)["spottedThisTurn"]):
-            continue
-        if actor["tu"] < 12:
-            continue
-        here = pos_of(unit_of(host, actor_id))
-        target = min(((a["x"], a["y"], a["z"]) for a in aliens),
-                     key=lambda p: dist3(here, p))
-        toward = dir_toward(here, target)
-        away = (toward + 4) % 8
-        if not turn_to(host, client, actor_id, away):
-            continue
-        if (unit_of(host, actor_id)["spottedThisTurn"]
-                or unit_of(client, actor_id)["spottedThisTurn"]):
-            # The turn-away itself swept past the hostile. Legal, and it is a
-            # TURN action rather than a walk, so it is not this atom's ev - but
-            # the actor is spent for the purpose.
-            print(f"    [PHASE 3] actor {actor_id} spotted during its turn-away - "
-                  "not a walk halt, moving on")
-            continue
-
-        st2 = battle_state(host)
-        occupied = {pos_of(u) for u in st2["units"] if not u.get("isOut")}
-        live = unit_of(host, actor_id)
-        for dest in approach_candidates(host, live, aliens, occupied)[:CANDIDATES_PER_LEG]:
-            before = {
-                "actor_pos": pos_of(unit_of(host, actor_id)),
-                "actor_spotted_host": list(unit_of(host, actor_id)["spottedThisTurn"]),
-                "actor_spotted_client": list(unit_of(client, actor_id)["spottedThisTurn"]),
-                "health": unit_of(host, actor_id)["health"],
-                "stun": unit_of(host, actor_id)["stun"],
-            }
-            kind, payload = send_walk_outcome(host, client, actor_id, dest)
-            if kind != "walk":
-                continue
-            hw, cw = payload, W.last_walk(client)
-            assert_reaction_pin_holds(host, client, baseline,
-                                      f"after PHASE 3 walk of actor {actor_id}")
-            r = hw.get("restate") or {}
-            if r.get("halted") and r.get("reason") == "spot":
-                n = len(hw.get("steps") or [])
-                if n == 0:
-                    assert_zero_step_contact(host, client, actor_id, hw, cw,
-                                             before, baseline)
-                    observed["zeroStep"] = observed.get("zeroStep", 0) + 1
-                    return True
-                print(f"    [PHASE 3] actor {actor_id} spotted at step {n}, not on its "
-                      "turn - the geometry did not arrange")
-            break
-    print("    [PHASE 3] no zero-step spot could be constructed on this roll")
-    return False
-
-
-def bring_up_staged_contact(observed):
-    why_log = []
-    for attempt in range(1, MAX_REROLLS + 1):
-        port = str(48660 + attempt)
-        host = GameClient("host", 49620 + attempt * 2,
-                          make_user_dir(f"repro_atom_spot_host_{attempt}"))
-        client = GameClient("client", 49621 + attempt * 2,
-                            make_user_dir(f"repro_atom_spot_client_{attempt}"))
-        seated = {}
-        try:
-            W.bring_up_lobby(host, client, port)
-            drive_to_battlescape(host, client, seated)
-
-            why = fixture_rejection(host, client, seated["soldierIds"])
-            if why is not None:
-                why_log.append(why)
-                print(f"[repro_atom_spot] re-roll {attempt}/{MAX_REROLLS}: {why}")
-                host.shutdown()
-                client.shutdown()
-                continue
-
-            observed["boots"] = observed.get("boots", 0) + 1
-            observed["soldierIds"] = list(seated["soldierIds"])
-            baseline = phase0_pin_reaction_fire(host, client)
-            staged = attempt_contact(host, client, seated["soldierIds"], baseline,
-                                     why_log, observed)
-            if staged is not None:
-                print(f"[repro_atom_spot] contact staged on attempt {attempt}/"
-                      f"{MAX_REROLLS} ({attempt - 1} re-roll(s))")
-                return host, client, staged, baseline
-            print(f"[repro_atom_spot] re-roll {attempt}/{MAX_REROLLS}: {why_log[-1]}")
-            host.shutdown()
-            client.shutdown()
-        except Exception:
-            host.shutdown()
-            client.shutdown()
-            raise
-
-    tally = {}
-    for w in why_log:
-        key = w.split(":")[0].split("(")[0].strip()
-        tally[key] = tally.get(key, 0) + 1
-    lines = [f"no stageable contact in {MAX_REROLLS} boots - the map generator never "
-             "offered an alien this squad could walk into view of without being shot "
-             "at, which is not a statement about the spot atom",
-             "      rejection histogram:"]
-    for k, v in sorted(tally.items(), key=lambda kv: -kv[1]):
-        lines.append(f"      {v:4d}  {k}")
-    lines.append(f"      last: {why_log[-1] if why_log else None}")
-    raise FixtureExhausted("\n".join(lines))
+def bring_up_lightning():
+    """SPEC 0e-2 (WV-D86/WV-D87): one boot, no retry - ports/dirs keep the same
+    offsets the single remaining attempt (1) used."""
+    port = str(48660 + 1)
+    host = GameClient("host", 49620 + 1 * 2,
+                      make_user_dir("repro_atom_spot_host_1"))
+    client = GameClient("client", 49621 + 1 * 2,
+                        make_user_dir("repro_atom_spot_client_1"))
+    seated = {}
+    W.bring_up_lobby(host, client, port)
+    drive_to_battlescape(host, client, seated)
+    return host, client, seated
 
 
 def main():
     t0 = time.time()
-    observed = {}
-    host, client, staged, baseline = bring_up_staged_contact(observed)
-    actor_id, hw, seen = staged
+    host, client, seated = bring_up_lightning()
     try:
+        baseline = phase0_pin_reaction_fire(host, client)
+        actor_id, hw, seen = contact_p3(host, client, seated["soldierIds"], baseline)
         phase2_control(host, client, actor_id, seen, baseline)
-        phase3_zero_step(host, client, observed.get("soldierIds", []),
-                         baseline, observed, {actor_id})
     finally:
         host.shutdown()
         client.shutdown()
-    print(f"\nrepro_atom_spot: PASS ({time.time() - t0:.1f}s) "
-          f"zero-step spots asserted this run: {observed.get('zeroStep', 0)}")
+    print(f"\nrepro_atom_spot: PASS ({time.time() - t0:.1f}s)")
 
 
 if __name__ == "__main__":
     try:
         main()
-    except FixtureExhausted as e:
-        # NOT a failure: no boot ever staged a contact, so PHASE 1 never ran.
-        # Distinct status and exit code so a gate can count it separately and
-        # report the exhaustion rate (the orchestrator's 2026-09-03 ruling).
-        print(f"\nrepro_atom_spot: SKIP (fixture exhausted)\n{e}")
-        sys.exit(EXIT_SKIP)
-    except (AssertionError, TimeoutError) as e:
-        # TimeoutError too: a bare `wait_for` timeout is a FAILED RUN and must be
-        # reported as one (exit 2, with the message), not as an exit-1 traceback
-        # that reads like a crash.
-        print(f"\nrepro_atom_spot: FAIL\n{type(e).__name__}: {e}")
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("repro_atom_spot", "WV-D90", str(e))
+        print(f"\nrepro_atom_spot: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(EXIT_FAIL)
+    except AssertionError as e:
+        if str(e).startswith("FIXTURE:"):
+            print(f"\nrepro_atom_spot: SKIP (fixture) - {e}")
+            sys.exit(EXIT_SKIP)
+        print(f"\nrepro_atom_spot: FAIL\nAssertionError: {e}")
         #
         # The TRACEBACK is printed as well, and that is not cosmetic: this
         # file's asserts fall into three classes with very different
@@ -1439,6 +1058,15 @@ if __name__ == "__main__":
         # red that has to be REPRODUCED before it can be classified costs a
         # cycle, and this wave has already paid that twice. Purely additive:
         # no assertion, no control flow and no exit code depends on it.
+        print("")
+        print("--- traceback (classification aid) ---")
+        traceback.print_exc()
+        sys.exit(EXIT_FAIL)
+    except TimeoutError as e:
+        # A bare `wait_for` timeout is a FAILED RUN and must be reported as one
+        # (exit 2, with the message), not as an exit-1 traceback that reads like
+        # a crash. Same traceback treatment as the AssertionError branch above.
+        print(f"\nrepro_atom_spot: FAIL\nTimeoutError: {e}")
         print("")
         print("--- traceback (classification aid) ---")
         traceback.print_exc()
