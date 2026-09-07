@@ -343,7 +343,17 @@ def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_a
     else:
         door, door_key = pick_door(host, want_ufo, exclude_door_keys, tag)
     actor_id = pick_soldier(host, client, used_actors, tag)
-    stand, through = standable_side(host, door, tag)
+    if door_pick is not None:
+        # REV E.20 (WV-D87): the craft door has ONE standable side - the deck tile `near` -
+        # and leg (b)'s actor may still be standing on it. lightning_setup moves that
+        # occupant to a free deck tile and places THIS actor on `near` facing the door;
+        # `through` is the void tile at door z (the direction the door faces). The
+        # facing-away teleport below re-places the actor on the SAME tile with the new
+        # facing (the lever accepts a unit's own footprint, SavedBattleGame.cpp:2708).
+        actor_id, stand, through, _far_ground, door = lightning_setup(
+            host, client, tag, actor_id=actor_id, move_factions=False)
+    else:
+        stand, through = standable_side(host, door, tag)
     want_dir = session.dir_between(stand, through)
     away_dir = (want_dir + 4) % 8  # any facing that is NOT toward the door
 
