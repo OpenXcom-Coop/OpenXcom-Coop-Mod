@@ -21,39 +21,44 @@ FIXTURE: repro_atom_door.py's bring-up shape (W.bring_up_lobby +
 session.drive_to_battlescape) with newbattle_mission type="STR_BATTLESHIP" - the map
 class the (C) RCA measured diverging on itemIdCtr ALONE.
 
-RE-ROLL, NOT A HARD FAIL, ON AN UNRELATED PRE-EXISTING DIVERGENCE (traced, not
-assumed - see _confirmed_unrelated_mismatch() below). The (C) RCA's own sample
-measured STR_BATTLESHIP hitting a t=0 handshake refusal on `battle_ready`'s
-saveBlob compare in **3 of 6** boots - not always the itemIdCtr-ALONE class
-this packet targets: a SEPARATE, richer class (their "MECHANISM 2": a dead
-alien's corpse id/`nodes[].type`/`binTiles`) can also fire on a UFO map class,
-and WV-D61 does not touch it (it is out of this packet's scope - FX-3a/M2
-territory). CONCRETELY OBSERVED on this build (builder trace, 2026-09-04): a
-boot whose HOST log carries `battle_ready saveBlob MISMATCH` refuses the
-handshake before the client ever gets its own BriefingState off its stack, so
-`session.dismiss_client_briefing` times out - the ONE signature this file
-treats as "this boot rolled the unrelated pre-existing bug, not a WV-D61
-regression" and re-rolls a FRESH attempt for, capped at MAX_REROLLS. ANY OTHER
-exception (including a TimeoutError whose host log does NOT carry that exact
-line) is a hard FAIL - this is not a blanket retry-on-any-timeout.
+PINNED SEEDS, NOT A REROLL (SPEC 0e-4, owner D11, 2026-09-07): the (C) RCA's
+own sample measured STR_BATTLESHIP hitting a t=0 handshake refusal on
+`battle_ready`'s saveBlob compare in **3 of 6** boots - not always the
+itemIdCtr-ALONE class this packet targets: a SEPARATE, richer class (their
+"MECHANISM 2": a dead alien's corpse id/`nodes[].type`/`binTiles`) can also
+fire on a UFO map class, and WV-D61 does not touch it (it is out of this
+packet's scope - FX-3a/M2 territory). This file used to re-roll a fresh
+attempt past that unrelated refusal, up to a re-roll budget. `set_seed` sent
+to the host right before `newbattle_ok` (session.drive_to_battlescape's
+`pre_ok` hook) makes the map/NPC/squad deterministic (measured M5/M9), so
+this file instead PINS two seeds found ONCE by `tools/coop_test/hunt_seed.py`:
+SEED_DIVERGENT (the adopt line logs `carried != derived`) and SEED_AGREED
+(the adopt ran, `carried == derived` - the control that proves the mechanism
+ran without a discrepancy). Each pinned boot asserts
+`battle_state.mapFingerprint` matches the fingerprint the hunt recorded for
+that seed BEFORE anything else; a mismatch raises `session.known_flake(...,
+"WV-D91", ...)` (the WV-D90 banner, exit 2). On a `TimeoutError` whose host
+log carries `UNRELATED_MISMATCH_SIGNATURE` ("battle_ready saveBlob
+MISMATCH"), this raises `session.known_flake(..., "WV-D92", ...)` instead of
+re-rolling - the pinned seeds are ones that do NOT refuse (measured M9: 0
+refusals in 33 boots on this tip), so a refusal on a pinned seed is evidence
+a ruleset/product change shifted its behaviour, not something to roll past.
 
 POSITIVE CONTROL FIRST (an adopt that never happened cannot prove anything):
-every qualifying boot must show event_state.itemIdCtrAdopted > 0 (or the
-client's own log carrying the "[coop-itemid] WV-D61: adopted coopItemIdCtr"
-line) before any hash comparison is treated as meaningful. coopLoadItemIdCtr
-stores a value there on EVERY presence-gated load, whether or not carried and
-derived agreed, so this checks the mechanism actually RAN, not that it found
-a discrepancy.
+every boot must show event_state.itemIdCtrAdopted > 0 (or the client's own
+log carrying the "[coop-itemid] WV-D61: adopted coopItemIdCtr" line) before
+any hash comparison is treated as meaningful. coopLoadItemIdCtr stores a
+value there on EVERY presence-gated load, whether or not carried and derived
+agreed, so this checks the mechanism actually RAN, not that it found a
+discrepancy.
 
-NON-VACUITY: the mechanism engaging is not enough by itself - this file runs
-the WHOLE fixture 6 times (one process, internal loop - see BOOTS below) and
-reports how many of those QUALIFYING boots produced a GENUINE carried !=
-derived discrepancy before the adopt, read out of the "(derived N)" suffix the
-adopted-line only prints on disagreement. If that count is 0 across all 6
-qualifying boots the itemIdCtr-equality assertions below never exercised the
-fix at all, so the run is VACUOUS and exits SKIP rather than reporting a green
-that proves nothing (WV-D57's own lesson: a fixture that rejects/never-hits a
-case cannot detect a bug in it).
+NON-VACUITY BY CONSTRUCTION: this file runs exactly TWO pinned boots -
+SEED_DIVERGENT and SEED_AGREED - and asserts
+`(derived_diff is not None) == expect_diverged` on each, read out of the
+"(derived N)" suffix the adopted-line only prints on disagreement. The
+divergent seed is pinned precisely because the hunt already confirmed it
+produces a genuine carried != derived discrepancy, so this file can never
+report a green that proves nothing (WV-D57's own lesson).
 """
 
 import os
@@ -67,33 +72,24 @@ import session
 import repro_atom_walk as W
 
 MISSION = "STR_BATTLESHIP"
-BOOTS = 6
-MAX_REROLLS = 20  # measured ~50% pre-existing unrelated-mismatch rate on this
-                   # map class (the (C) RCA's own 3/6 sample) - generous so
-                   # exhaustion is a near-null event, not a coin flip
+
+# PINNED (SPEC 0e-4, owner D11): found ONCE by hunt_seed.py, never re-rolled.
+# pinned 2026-09-07 by hunt_seed.py at 29536ea95
+SEED_DIVERGENT = 7
+FINGERPRINT_DIVERGENT = -6.208391770701378e+18
+# pinned 2026-09-07 by hunt_seed.py at 29536ea95
+SEED_AGREED = 1
+FINGERPRINT_AGREED = 1.870118385057293e+18
 
 # EXIT CODES, matching the wave's shipped convention (2026-09-03 ruling):
-# 0 = PASS, 2 = FAIL (a red), 3 = SKIP (not a red - either the ruleset does not
-# offer the fixture mission, all BOOTS qualifying boots came back agreeing
-# i.e. VACUOUS, or MAX_REROLLS was exhausted chasing a qualifying boot).
+# 0 = PASS, 2 = FAIL (a red - includes a WV-D91/WV-D92 known-flake banner), 3 =
+# SKIP (the ruleset does not offer the fixture mission).
 EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
 
 ADOPT_LOG_RE = re.compile(
     r"\[coop-itemid\] WV-D61: adopted coopItemIdCtr (\d+) \(derived (\d+)\)")
 
 UNRELATED_MISMATCH_SIGNATURE = "battle_ready saveBlob MISMATCH"
-BRIEFING_TIMEOUT_SIGNATURE = "client dismissed its entry briefing"
-
-
-class MissionNotOffered(Exception):
-    """STR_BATTLESHIP is not in this build's NEW BATTLE mission list - a fact
-    about the loaded ruleset, not about WV-D61. SKIP, not FAIL."""
-
-
-class FixtureExhausted(Exception):
-    """MAX_REROLLS attempts never produced a qualifying boot (the handshake
-    kept refusing on the unrelated, pre-existing divergence class). SKIP, not
-    FAIL - carries the re-roll count."""
 
 
 def _log_text(gc):
@@ -114,28 +110,29 @@ def _adopted_derived_pairs(gc):
             for m in ADOPT_LOG_RE.finditer(_log_text(gc))]
 
 
-def _confirmed_unrelated_mismatch(host, timeout_err):
-    """TRACED, not assumed (2026-09-04 builder trace): a handshake refusal on
-    this fixture reliably produces the exact TimeoutError signature this
-    checks for (dismiss_client_briefing hangs because the client's BriefingState
-    never leaves its stack once the host tears the battle down under it), AND
-    the host's own log carries the ERROR line onReady() prints on that refusal
-    path (connectionTCP.cpp's onReady(), the SS2.8 canonical-bucket compare).
-    Requiring BOTH signals (not just the timeout shape) is what keeps this from
-    silently swallowing a real WV-D61 regression that happened to also time out
-    somewhere in the bring-up chain for an unrelated reason."""
-    if BRIEFING_TIMEOUT_SIGNATURE not in str(timeout_err):
-        return False
-    return UNRELATED_MISMATCH_SIGNATURE in _log_text(host)
+def one_attempt(tag, seed, expected_fingerprint, expect_diverged):
+    """One host+client bring-up on the STR_BATTLESHIP fixture with the PINNED
+    `seed` (SPEC 0e-4, owner D11): `set_seed` is sent to the host via
+    session.drive_to_battlescape's `pre_ok` hook right before `newbattle_ok`,
+    so the map/NPC/squad are deterministic (measured M5/M9).
 
+    Asserts the FINGERPRINT GUARD immediately after drive_to_battlescape
+    returns: `battle_state.mapFingerprint == expected_fingerprint`. A
+    mismatch raises `session.known_flake(..., "WV-D91", ...)` (WV-D90
+    banner, exit 2) - a ruleset/map/generator change shifted what this seed
+    produces.
 
-def one_attempt(tag):
-    """One host+client bring-up attempt on the STR_BATTLESHIP fixture, tagged
-    for unique ports/user-dirs so re-rolls never collide with a qualifying
-    boot's own directories. Returns a result dict on success. Raises
-    MissionNotOffered (SKIP-worthy, static ruleset fact - never re-rolled) or
-    NotQualifying (a confirmed pre-existing, WV-D61-unrelated t=0 divergence
-    refused the handshake - re-roll)."""
+    On a TimeoutError whose host log carries the confirmed pre-existing
+    UNRELATED_MISMATCH_SIGNATURE, raises `session.known_flake(..., "WV-D92",
+    "pinned seed <n> now hits the pre-existing battle_ready saveBlob
+    mismatch", {...})` - evidence, not a re-roll (the pinned seeds are ones
+    that do NOT refuse; a refusal here means the ruleset/product shifted).
+    Any other exception is a hard FAIL.
+
+    Returns a result dict and asserts
+    `(derived_diff is not None) == expect_diverged` at the end: SEED_DIVERGENT
+    must show a genuine carried != derived discrepancy and SEED_AGREED must
+    not, by construction."""
     port = str(48250 + tag)
     host = GameClient("host", 48950 + tag * 2,
                        make_user_dir(f"rw_itemidctr_host_{tag}"))
@@ -150,18 +147,27 @@ def one_attempt(tag):
         W.bring_up_lobby(host, client, port)
 
         try:
-            session.drive_to_battlescape(host, client, seated, mission=MISSION)
-        except AssertionError as e:
-            if "does not offer" in str(e):
-                raise MissionNotOffered(str(e))
-            raise
+            session.drive_to_battlescape(
+                host, client, seated, mission=MISSION,
+                pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": seed}))
         except TimeoutError as e:
-            if _confirmed_unrelated_mismatch(host, e):
-                raise NotQualifying(
-                    "pre-existing t=0 divergence UNRELATED to WV-D61 refused the "
-                    f"handshake (host log confirms {UNRELATED_MISMATCH_SIGNATURE!r}"
-                    f"): {e}")
+            if UNRELATED_MISMATCH_SIGNATURE in _log_text(host):
+                session.known_flake(
+                    "test_rw_item_id_ctr", "WV-D92",
+                    f"pinned seed {seed} now hits the pre-existing "
+                    "battle_ready saveBlob mismatch",
+                    {"seed": seed, "error": str(e)[:200]})
             raise
+
+        st = session.battle_state(host)
+        fp = st.get("mapFingerprint")
+        if fp != expected_fingerprint:
+            session.known_flake(
+                "test_rw_item_id_ctr", "WV-D91",
+                f"pinned seed {seed} no longer reproduces the scenario - "
+                "re-run hunt_seed.py",
+                {"seed": seed, "expected_fingerprint": expected_fingerprint,
+                 "actual_fingerprint": fp, "mapSizeXYZ": st.get("mapSizeXYZ")})
 
         # settle so both sides' battle_ready/onReady bookkeeping (phase ->
         # Active) - and with it the ADOPT hook, which runs during blob load,
@@ -194,12 +200,20 @@ def one_attempt(tag):
 
         # --- hash_now full: itemIdCtr (and every other bucket) EQUAL ---
         host_h, client_h = session.assert_hash_clean(
-            host, client, full=True, what=f"WV-D61 t=0 ({tag})")
+            host, client, full=True, what=f"WV-D61 t=0 (seed {seed})")
         assert "itemIdCtr" in host_h and "itemIdCtr" in client_h, (
             f"itemIdCtr bucket missing from hash_now full: "
             f"host={sorted(host_h)} client={sorted(client_h)}")
 
         derived_diff = next(((c, d) for c, d in log_pairs if c != d), None)
+        assert (derived_diff is not None) == expect_diverged, (
+            f"pinned seed {seed}: expected "
+            f"{'a genuine carried != derived discrepancy' if expect_diverged else 'carried == derived (no discrepancy)'} "
+            f"but got derived_diff={derived_diff} (pairs={log_pairs})")
+
+        tagres = ("derived=" + str(derived_diff)) if derived_diff else "agreed"
+        print(f"[test_rw_item_id_ctr] seed {seed}: adopted={adopted_ctr} "
+              f"refused={refused} itemIdCtr={host_h['itemIdCtr']} ({tagres})")
         return {
             "adopted": adopted_ctr,
             "refused": refused,
@@ -211,66 +225,36 @@ def one_attempt(tag):
         client.shutdown()
 
 
-class NotQualifying(Exception):
-    """This attempt hit the confirmed unrelated pre-existing divergence -
-    re-roll with a fresh attempt rather than counting it."""
-
-
-def one_boot(boot_index):
-    """One QUALIFYING boot (re-rolling past the confirmed unrelated t=0
-    divergence, capped at MAX_REROLLS)."""
-    why_log = []
-    for reroll in range(1, MAX_REROLLS + 1):
-        tag = boot_index * 1000 + reroll
-        try:
-            r = one_attempt(tag)
-            if reroll > 1:
-                print(f"[test_rw_item_id_ctr] boot {boot_index}/{BOOTS} qualified "
-                      f"on re-roll {reroll}/{MAX_REROLLS}")
-            tagres = ("derived=" + str(r["derived_diff"])) if r["derived_diff"] else "agreed"
-            print(f"[test_rw_item_id_ctr] boot {boot_index}/{BOOTS}: "
-                  f"adopted={r['adopted']} refused={r['refused']} "
-                  f"itemIdCtr={r['itemIdCtr']} ({tagres})")
-            return r
-        except NotQualifying as e:
-            why_log.append(str(e))
-            print(f"[test_rw_item_id_ctr] boot {boot_index}/{BOOTS} re-roll "
-                  f"{reroll}/{MAX_REROLLS}: {e}")
-    raise FixtureExhausted(
-        f"boot {boot_index}/{BOOTS}: no qualifying attempt in {MAX_REROLLS} "
-        f"re-rolls - last: {why_log[-1] if why_log else None}")
-
-
 def main():
-    results = []
-    for boot_index in range(1, BOOTS + 1):
-        results.append(one_boot(boot_index))
+    t0 = time.time()
+    divergent = one_attempt(1, SEED_DIVERGENT, FINGERPRINT_DIVERGENT, expect_diverged=True)
+    agreed = one_attempt(2, SEED_AGREED, FINGERPRINT_AGREED, expect_diverged=False)
 
-    diverged = [r for r in results if r["derived_diff"] is not None]
-    print(f"\n[test_rw_item_id_ctr] {len(diverged)}/{BOOTS} qualifying boot(s) "
-          "produced a GENUINE discarded-id divergence (carried != derived) "
-          "before the adopt:")
-    for r in diverged:
-        c, d = r["derived_diff"]
-        print(f"    derived N: carried(host)={c} derived(client, pre-adopt)={d}")
+    print(f"\n[test_rw_item_id_ctr] divergent boot (seed {SEED_DIVERGENT}) "
+          f"produced a GENUINE discarded-id divergence (carried != derived) "
+          f"before the adopt: derived_diff={divergent['derived_diff']} "
+          "(non-vacuity by construction)")
+    print(f"[test_rw_item_id_ctr] agreed boot (seed {SEED_AGREED}): "
+          f"derived_diff={agreed['derived_diff']} (control - no discrepancy)")
 
-    if not diverged:
-        print("\nVACUOUS: no boot produced a discarded id")
-        sys.exit(EXIT_SKIP)
-
-    print(f"\ntest_rw_item_id_ctr: PASS ({BOOTS}/{BOOTS} qualified boots, "
-          f"{len(diverged)}/{BOOTS} non-vacuous, all itemIdCtr EQUAL post-adopt)")
+    print(f"\ntest_rw_item_id_ctr: PASS (2/2 pinned boots - divergent seed "
+          f"{SEED_DIVERGENT}, agreed seed {SEED_AGREED} - both itemIdCtr EQUAL "
+          f"post-adopt, {time.time() - t0:.1f}s)")
 
 
 if __name__ == "__main__":
     try:
         main()
-    except MissionNotOffered as e:
-        print(f"\ntest_rw_item_id_ctr: SKIP ({MISSION} not offered)\n{e}")
-        sys.exit(EXIT_SKIP)
-    except FixtureExhausted as e:
-        print(f"\ntest_rw_item_id_ctr: SKIP (fixture exhausted)\n{e}")
-        sys.exit(EXIT_SKIP)
-    except (AssertionError, TimeoutError) as e:
-        print(f"\ntest_rw_item_id_ctr: FAIL\n{type(e).__name__}: {e}")
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("test_rw_item_id_ctr", "WV-D90", str(e))
+        print(f"\ntest_rw_item_id_ctr: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(EXIT_FAIL)
+    except AssertionError as e:
+        if str(e).startswith("FIXTURE:"):
+            print(f"\ntest_rw_item_id_ctr: SKIP (fixture) - {e}")
+            sys.exit(EXIT_SKIP)
+        print(f"\ntest_rw_item_id_ctr: FAIL\nAssertionError: {e}")
+        sys.exit(EXIT_FAIL)
+    except TimeoutError as e:
+        print(f"\ntest_rw_item_id_ctr: FAIL\nTimeoutError: {e}")
         sys.exit(EXIT_FAIL)
