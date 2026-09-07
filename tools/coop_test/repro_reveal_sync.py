@@ -182,7 +182,7 @@ def bring_up_lobby(host, client, port):
 # IR2-1) - see the shared helper's docstring.
 
 
-def drive_to_battlescape(host, client, seated_holder, seat_count=2):
+def drive_to_battlescape(host, client, seated_holder, seat_count=3):
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
                   lambda: (not session.has_state(host, "LobbyMenu")) or None)
@@ -488,277 +488,261 @@ def stage_on_roof(host, client, actor, tag, turn_delta):
     return roof
 
 
-def test_reveal_sync_e2e():
-    host, client, actor, soldier_ids = bring_up_qualifying_battle("e2e")
-    try:
-        actor_a = actor["id"]
-        cs = client.cmd({"cmd": "battle_state"})
-        actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
+def run_e2e(host, client, actor, soldier_ids):
+    actor_a = actor["id"]
+    cs = client.cmd({"cmd": "battle_state"})
+    actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
 
-        # --- (a) pre-action: unmasked 9/9 + exact fog parity, BOTH sides ---
-        rs = assert_dual_reveal_parity(host, client, "pre-action (bring-up gap closed)",
-                                       samples=24,
-                                       extra_positions=[(actor["x"], actor["y"], actor["z"])])
-        pre_h, _ = assert_hash_clean(host, client, full=True, what="pre-action")
-        assert "revealHostile" in pre_h, (
-            f"the ninth bucket is missing pre-action ({sorted(pre_h)}) - the hostile "
-            "storage was never allocated, so WR-26 omitted it and every hostile-side "
-            "assertion below would be vacuous")
-        assert len(pre_h) == BUCKETS, (
-            f"hash_now full returned {len(pre_h)} buckets, expected {BUCKETS} ({sorted(pre_h)})")
-        assert rs["hostile"]["floor"] > 0, (
-            f"the HOSTILE reveal set is empty pre-action: {rs['hostile']} - the host's "
-            "coop-only hostile FOV pass authored nothing")
-        # SS2.W4 BASELINE (WR-1 / WV-D39), asserted where it happens rather than
-        # inferred from the equality above: the hostile set has NO save
-        # representation, so it cannot ride the handshake blob - the host seeds its
-        # published mirror EMPTY and ships the whole set as the FIRST ev after
-        # phase Active. Without this the "hostile sets are equal" assertion could
-        # be satisfied by both machines simply being empty.
-        # NOTE (IR2-3): the assertion is deliberately NOT "no battle_ready
-        # mismatch" - CoopHandshake::onReady does not compare `h` at all
-        # (connectionTCP.cpp, "not compared at handshake"), so that would be
-        # vacuous.
-        entry_bases = [a for a in client_reveal_applies(client)
-                       if a[0] == "base restate" and a[2] == "hostile"]
-        assert entry_bases, (
-            "the client never applied a side:\"hostile\" `base` restate - the SS2.W4 "
-            "BASELINE never ran, so the client's hostile set was never seeded from the "
-            "host at all")
-        assert entry_bases[0][1] == 1, (
-            f"the hostile BASELINE restate landed at seq {entry_bases[0][1]}, not seq 1 - "
-            "SS2.W4/WR-1 requires it to be the host's FIRST ev after phase Active")
-        print(f"PASS (a): pre-action {len(pre_h)}/{BUCKETS} buckets EQUAL (saveBlob UNMASKED "
-              f"over binTiles, incl. the new revealHostile) and BOTH sides' fog identical - "
-              f"player floor/west/north = {rs['floor']}/{rs['westwall']}/{rs['northwall']}, "
-              f"hostile = {rs['hostile']['floor']}/{rs['hostile']['westwall']}/"
-              f"{rs['hostile']['northwall']} of {rs['mapSizeXYZ']} tiles, "
-              f"discoveredVoid = {rs['discoveredVoid']}")
+    # --- (a) pre-action: unmasked 9/9 + exact fog parity, BOTH sides ---
+    rs = assert_dual_reveal_parity(host, client, "pre-action (bring-up gap closed)",
+                                   samples=24,
+                                   extra_positions=[(actor["x"], actor["y"], actor["z"])])
+    pre_h, _ = assert_hash_clean(host, client, full=True, what="pre-action")
+    assert "revealHostile" in pre_h, (
+        f"the ninth bucket is missing pre-action ({sorted(pre_h)}) - the hostile "
+        "storage was never allocated, so WR-26 omitted it and every hostile-side "
+        "assertion below would be vacuous")
+    assert len(pre_h) == BUCKETS, (
+        f"hash_now full returned {len(pre_h)} buckets, expected {BUCKETS} ({sorted(pre_h)})")
+    assert rs["hostile"]["floor"] > 0, (
+        f"the HOSTILE reveal set is empty pre-action: {rs['hostile']} - the host's "
+        "coop-only hostile FOV pass authored nothing")
+    # SS2.W4 BASELINE (WR-1 / WV-D39), asserted where it happens rather than
+    # inferred from the equality above: the hostile set has NO save
+    # representation, so it cannot ride the handshake blob - the host seeds its
+    # published mirror EMPTY and ships the whole set as the FIRST ev after
+    # phase Active. Without this the "hostile sets are equal" assertion could
+    # be satisfied by both machines simply being empty.
+    # NOTE (IR2-3): the assertion is deliberately NOT "no battle_ready
+    # mismatch" - CoopHandshake::onReady does not compare `h` at all
+    # (connectionTCP.cpp, "not compared at handshake"), so that would be
+    # vacuous.
+    entry_bases = [a for a in client_reveal_applies(client)
+                   if a[0] == "base restate" and a[2] == "hostile"]
+    assert entry_bases, (
+        "the client never applied a side:\"hostile\" `base` restate - the SS2.W4 "
+        "BASELINE never ran, so the client's hostile set was never seeded from the "
+        "host at all")
+    assert entry_bases[0][1] == 1, (
+        f"the hostile BASELINE restate landed at seq {entry_bases[0][1]}, not seq 1 - "
+        "SS2.W4/WR-1 requires it to be the host's FIRST ev after phase Active")
+    print(f"PASS (a): pre-action {len(pre_h)}/{BUCKETS} buckets EQUAL (saveBlob UNMASKED "
+          f"over binTiles, incl. the new revealHostile) and BOTH sides' fog identical - "
+          f"player floor/west/north = {rs['floor']}/{rs['westwall']}/{rs['northwall']}, "
+          f"hostile = {rs['hostile']['floor']}/{rs['hostile']['westwall']}/"
+          f"{rs['hostile']['northwall']} of {rs['mapSizeXYZ']} tiles, "
+          f"discoveredVoid = {rs['discoveredVoid']}")
 
-        # --- (b) >= 10 mixed turn/kneel across BOTH seats, checked after each ---
-        for i in range(MIXED_ACTIONS):
-            which = i % 5
-            if which == 0:
-                d = client_turn_by(host, client, actor_a, 2)
-                label = f"client turn A -> {d}"
-            elif which == 1:
-                client_kneel(host, client, actor_a)
-                label = "client kneel A"
-            elif which == 2:
-                d = client_turn_by(host, client, actor_b, 3)
-                label = f"client turn B -> {d}"
-            elif which == 3:
-                client_kneel(host, client, actor_b)
-                label = "client kneel B"
-            else:
-                host_unit = select_away_from(host, {actor_a, actor_b})
-                host_kneel(host, client, host_unit)
-                label = f"HOST-seat kneel (unit {host_unit}, origin=host)"
+    # --- (b) >= 10 mixed turn/kneel across BOTH seats, checked after each ---
+    for i in range(MIXED_ACTIONS):
+        which = i % 5
+        if which == 0:
+            d = client_turn_by(host, client, actor_a, 2)
+            label = f"client turn A -> {d}"
+        elif which == 1:
+            client_kneel(host, client, actor_a)
+            label = "client kneel A"
+        elif which == 2:
+            d = client_turn_by(host, client, actor_b, 3)
+            label = f"client turn B -> {d}"
+        elif which == 3:
+            client_kneel(host, client, actor_b)
+            label = "client kneel B"
+        else:
+            host_unit = select_away_from(host, {actor_a, actor_b})
+            host_kneel(host, client, host_unit)
+            label = f"HOST-seat kneel (unit {host_unit}, origin=host)"
 
-            u = units_by_id(client.cmd({"cmd": "battle_state"}))
-            probe = [(u[actor_a]["x"], u[actor_a]["y"], u[actor_a]["z"]),
-                     (u[actor_b]["x"], u[actor_b]["y"], u[actor_b]["z"])]
-            assert_dual_reveal_parity(host, client, f"after action {i + 1} ({label})",
-                                      samples=10, extra_positions=probe)
-            h, _ = assert_hash_clean(host, client, full=True,
-                                     what=f"after action {i + 1} ({label})")
-            assert len(h) == BUCKETS, \
-                f"expected {BUCKETS} buckets after action {i + 1}, got {sorted(h)}"
-            print(f"PASS (b) action {i + 1}/{MIXED_ACTIONS}: {label} - BOTH sides' fog "
-                  f"parity + {BUCKETS}/{BUCKETS}")
+        u = units_by_id(client.cmd({"cmd": "battle_state"}))
+        probe = [(u[actor_a]["x"], u[actor_a]["y"], u[actor_a]["z"]),
+                 (u[actor_b]["x"], u[actor_b]["y"], u[actor_b]["z"])]
+        assert_dual_reveal_parity(host, client, f"after action {i + 1} ({label})",
+                                  samples=10, extra_positions=probe)
+        h, _ = assert_hash_clean(host, client, full=True,
+                                 what=f"after action {i + 1} ({label})")
+        assert len(h) == BUCKETS, \
+            f"expected {BUCKETS} buckets after action {i + 1}, got {sorted(h)}"
+        print(f"PASS (b) action {i + 1}/{MIXED_ACTIONS}: {label} - BOTH sides' fog "
+              f"parity + {BUCKETS}/{BUCKETS}")
 
-        # --- (c) flush idempotence: nothing left unpublished, and further
-        # quiescent ticks emit no further reveal ev ---
-        emits_before = host_reveal_emits(host)
-        seq_before = host.cmd({"cmd": "event_state"})["lastSeqEmitted"]
-        time.sleep(2.0)  # many quiescent pump ticks
-        emits_after = host_reveal_emits(host)
-        seq_after = host.cmd({"cmd": "event_state"})["lastSeqEmitted"]
-        assert seq_after == seq_before, (
-            f"host kept emitting while idle: lastSeqEmitted {seq_before} -> {seq_after} - "
-            "CoopReveal::flushQuiescent is not idempotent (it should find nothing "
-            "unpublished on the second tick)")
-        assert emits_after == emits_before, (
-            f"host attached {emits_after - emits_before} further reveal delta(s) while idle")
-        assert host.cmd({"cmd": "reveal_state"})["unpublished"] is False, \
-            "host still reports unpublished reveal bits after settling"
-        print(f"PASS (c): flush idempotent - 2s of quiescent ticks emitted nothing "
-              f"(lastSeqEmitted stayed {seq_after}, reveal deltas stayed {emits_after})")
+    # --- (c) flush idempotence: nothing left unpublished, and further
+    # quiescent ticks emit no further reveal ev ---
+    emits_before = host_reveal_emits(host)
+    seq_before = host.cmd({"cmd": "event_state"})["lastSeqEmitted"]
+    time.sleep(2.0)  # many quiescent pump ticks
+    emits_after = host_reveal_emits(host)
+    seq_after = host.cmd({"cmd": "event_state"})["lastSeqEmitted"]
+    assert seq_after == seq_before, (
+        f"host kept emitting while idle: lastSeqEmitted {seq_before} -> {seq_after} - "
+        "CoopReveal::flushQuiescent is not idempotent (it should find nothing "
+        "unpublished on the second tick)")
+    assert emits_after == emits_before, (
+        f"host attached {emits_after - emits_before} further reveal delta(s) while idle")
+    assert host.cmd({"cmd": "reveal_state"})["unpublished"] is False, \
+        "host still reports unpublished reveal bits after settling"
+    print(f"PASS (c): flush idempotent - 2s of quiescent ticks emitted nothing "
+          f"(lastSeqEmitted stayed {seq_after}, reveal deltas stayed {emits_after})")
 
-        # --- (d) absolute `base` restate (SS2.4a's other revealDelta shape) ---
-        baseline = event_seq_baseline(client)
-        host.ok({"cmd": "reveal_base"})
-        wait_settled(host, client, baseline)
-        assert client.cmd({"cmd": "event_state"})["desyncSeen"] is False, \
-            "a VALID base restate must not desync the client"
-        assert_dual_reveal_parity(host, client, "after a valid base restate")
-        post_h, _ = assert_hash_clean(host, client, full=True, what="after a valid base restate")
-        assert len(post_h) == BUCKETS, f"expected {BUCKETS} buckets, got {sorted(post_h)}"
-        print("PASS (d): a valid absolute `base` restate applied cleanly - fog parity and "
-              f"{len(post_h)}/{BUCKETS} buckets still EQUAL, no desync")
+    # --- (d) absolute `base` restate (SS2.4a's other revealDelta shape) ---
+    baseline = event_seq_baseline(client)
+    host.ok({"cmd": "reveal_base"})
+    wait_settled(host, client, baseline)
+    assert client.cmd({"cmd": "event_state"})["desyncSeen"] is False, \
+        "a VALID base restate must not desync the client"
+    assert_dual_reveal_parity(host, client, "after a valid base restate")
+    post_h, _ = assert_hash_clean(host, client, full=True, what="after a valid base restate")
+    assert len(post_h) == BUCKETS, f"expected {BUCKETS} buckets, got {sorted(post_h)}"
+    print("PASS (d): a valid absolute `base` restate applied cleanly - fog parity and "
+          f"{len(post_h)}/{BUCKETS} buckets still EQUAL, no desync")
 
-        # --- (e) the same for the HOSTILE set: SS2.W4's other `base` shape ---
-        baseline = event_seq_baseline(client)
-        host.ok({"cmd": "reveal_base", "side": "hostile"})
-        wait_settled(host, client, baseline)
-        assert client.cmd({"cmd": "event_state"})["desyncSeen"] is False, \
-            "a VALID hostile base restate must not desync the client"
-        rs_e = assert_dual_reveal_parity(host, client, "after a hostile base restate")
-        h_e, _ = assert_hash_clean(host, client, full=True, what="after a hostile base restate")
-        assert len(h_e) == BUCKETS, f"expected {BUCKETS} buckets, got {sorted(h_e)}"
-        applies = client_reveal_applies(client)
-        hostile_bases = [a for a in applies if a[0] == "base restate" and a[2] == "hostile"]
-        assert len(hostile_bases) >= 2, (
-            "the client applied fewer than two hostile `base` restates - the SS2.W4 "
-            f"BASELINE one at entry and this lever's one: {applies}")
-        print(f"PASS (e): a side:\"hostile\" absolute `base` restate applied cleanly at seq "
-              f"{hostile_bases[-1][1]} - hostile set still "
-              f"{rs_e['hostile']['floor']}/{rs_e['hostile']['westwall']}/"
-              f"{rs_e['hostile']['northwall']} on both machines, {len(h_e)}/{BUCKETS} EQUAL")
+    # --- (e) the same for the HOSTILE set: SS2.W4's other `base` shape ---
+    baseline = event_seq_baseline(client)
+    host.ok({"cmd": "reveal_base", "side": "hostile"})
+    wait_settled(host, client, baseline)
+    assert client.cmd({"cmd": "event_state"})["desyncSeen"] is False, \
+        "a VALID hostile base restate must not desync the client"
+    rs_e = assert_dual_reveal_parity(host, client, "after a hostile base restate")
+    h_e, _ = assert_hash_clean(host, client, full=True, what="after a hostile base restate")
+    assert len(h_e) == BUCKETS, f"expected {BUCKETS} buckets, got {sorted(h_e)}"
+    applies = client_reveal_applies(client)
+    hostile_bases = [a for a in applies if a[0] == "base restate" and a[2] == "hostile"]
+    assert len(hostile_bases) >= 2, (
+        "the client applied fewer than two hostile `base` restates - the SS2.W4 "
+        f"BASELINE one at entry and this lever's one: {applies}")
+    print(f"PASS (e): a side:\"hostile\" absolute `base` restate applied cleanly at seq "
+          f"{hostile_bases[-1][1]} - hostile set still "
+          f"{rs_e['hostile']['floor']}/{rs_e['hostile']['westwall']}/"
+          f"{rs_e['hostile']['northwall']} on both machines, {len(h_e)}/{BUCKETS} EQUAL")
 
-        print(f"PASS test_reveal_sync_e2e: ALL scenarios (pre-action {BUCKETS}/{BUCKETS}, "
-              f"{MIXED_ACTIONS} mixed actions across both seats, flush idempotence, "
-              "player and hostile base restates) passed in one session")
-    finally:
-        host.shutdown()
-        client.shutdown()
+    print(f"PASS test_reveal_sync_e2e: ALL scenarios (pre-action {BUCKETS}/{BUCKETS}, "
+          f"{MIXED_ACTIONS} mixed actions across both seats, flush idempotence, "
+          "player and hostile base restates) passed in one session")
 
 
-def test_reveal_drop_detected():
+def run_drop(host, client, actor, soldier_ids):
     """FORCED MISMATCH #1 (RB-D26 `reveal_drop`). The host computes and PUBLISHES
     one delta but never ships it. Because reveal is MONOTONE - a published bit is
     never re-sent - the client is behind FOREVER, which is exactly the failure
     class the old binTiles fog mask made invisible."""
-    host, client, actor, soldier_ids = bring_up_qualifying_battle("drop")
-    try:
-        stage_on_roof(host, client, actor, "drop", 1)
-        assert_reveal_parity(host, client, "before the drop")
-        before_h, _ = assert_hash_clean(host, client, full=True, what="before the drop")
+    stage_on_roof(host, client, actor, "drop", 1)
+    assert_reveal_parity(host, client, "before the drop")
+    before_h, _ = assert_hash_clean(host, client, full=True, what="before the drop")
 
-        host.ok({"cmd": "reveal_drop"})
+    host.ok({"cmd": "reveal_drop"})
 
-        # The lever is a ONE-SHOT on the next NON-EMPTY delta: attachDelta()
-        # checks the flag only after computeDelta() found something, so an action
-        # that reveals nothing leaves it armed (verified in code, and needed here
-        # - measured on this fixture, only ~2 of 10 mixed actions reveal anything
-        # at all once the bring-up sweep has covered the neighbourhood). So drive
-        # actions until the HOST's own log says the lever actually fired, rather
-        # than assuming any particular action reveals something.
-        actor_a = actor["id"]
-        actor_b = next(u for u in client.cmd({"cmd": "battle_state"})["units"]
-                       if u.get("soldierId") == soldier_ids[1])["id"]
-        fired = False
-        for i in range(24):
-            try:
-                if i % 3 == 2:
-                    client_kneel(host, client, actor_a if (i % 6 == 2) else actor_b)
-                else:
-                    client_turn_by(host, client, actor_a if (i % 2 == 0) else actor_b, 1)
-            except Exception as e:  # out of TU / denied - keep trying other actors
-                print(f"[repro_reveal_sync/drop] action {i} skipped: {e}")
-                continue
-            if host_reveal_drops(host):
-                fired = True
-                print(f"[repro_reveal_sync/drop] reveal_drop lever fired on action {i + 1}")
-                break
-        assert fired, ("reveal_drop never had a non-empty delta to eat in 24 actions - the "
-                       "actors revealed nothing at all, so this proof would be vacuous")
+    # The lever is a ONE-SHOT on the next NON-EMPTY delta: attachDelta()
+    # checks the flag only after computeDelta() found something, so an action
+    # that reveals nothing leaves it armed (verified in code, and needed here
+    # - measured on this fixture, only ~2 of 10 mixed actions reveal anything
+    # at all once the bring-up sweep has covered the neighbourhood). So drive
+    # actions until the HOST's own log says the lever actually fired, rather
+    # than assuming any particular action reveals something.
+    actor_a = actor["id"]
+    actor_b = next(u for u in client.cmd({"cmd": "battle_state"})["units"]
+                   if u.get("soldierId") == soldier_ids[1])["id"]
+    fired = False
+    for i in range(24):
+        try:
+            if i % 3 == 2:
+                client_kneel(host, client, actor_a if (i % 6 == 2) else actor_b)
+            else:
+                client_turn_by(host, client, actor_a if (i % 2 == 0) else actor_b, 1)
+        except Exception as e:  # out of TU / denied - keep trying other actors
+            print(f"[repro_reveal_sync/drop] action {i} skipped: {e}")
+            continue
+        if host_reveal_drops(host):
+            fired = True
+            print(f"[repro_reveal_sync/drop] reveal_drop lever fired on action {i + 1}")
+            break
+    assert fired, ("reveal_drop never had a non-empty delta to eat in 24 actions - the "
+                   "actors revealed nothing at all, so this proof would be vacuous")
 
-        hr = host.cmd({"cmd": "reveal_state"})
-        cr = client.cmd({"cmd": "reveal_state"})
-        assert (hr["floor"], hr["westwall"], hr["northwall"]) != \
-               (cr["floor"], cr["westwall"], cr["northwall"]), (
-            f"the lever fired but the two machines' fog still matches: host={hr} client={cr}")
+    hr = host.cmd({"cmd": "reveal_state"})
+    cr = client.cmd({"cmd": "reveal_state"})
+    assert (hr["floor"], hr["westwall"], hr["northwall"]) != \
+           (cr["floor"], cr["westwall"], cr["northwall"]), (
+        f"the lever fired but the two machines' fog still matches: host={hr} client={cr}")
 
-        assert hr["unpublished"] is False, (
-            "the dropped delta was not marked published - it would be re-sent on the next "
-            f"flush and the divergence would silently heal, defeating the lever: {hr}")
-        print(f"PASS drop: live fog DIVERGED and stays diverged - host floor/west/north = "
-              f"{hr['floor']}/{hr['westwall']}/{hr['northwall']} vs client "
-              f"{cr['floor']}/{cr['westwall']}/{cr['northwall']}, host has nothing unpublished")
+    assert hr["unpublished"] is False, (
+        "the dropped delta was not marked published - it would be re-sent on the next "
+        f"flush and the divergence would silently heal, defeating the lever: {hr}")
+    print(f"PASS drop: live fog DIVERGED and stays diverged - host floor/west/north = "
+          f"{hr['floor']}/{hr['westwall']}/{hr['northwall']} vs client "
+          f"{cr['floor']}/{cr['westwall']}/{cr['northwall']}, host has nothing unpublished")
 
-        # THE POINT OF THE UNMASK: the joint hash must now SEE it. Before this
-        # packet saveBlobMaskFowBinTiles zeroed exactly these bits, so a
-        # host/client fog divergence produced a perfectly clean 8/8.
-        hh = host.cmd({"cmd": "hash_now", "full": True})["h"]
-        ch = client.cmd({"cmd": "hash_now", "full": True})["h"]
-        assert hh["saveBlob"] != ch["saveBlob"], (
-            "saveBlob is still EQUAL after a real fog-of-war divergence - the binTiles fog "
-            f"mask is back, or the dropped delta touched only void tiles.\n  host: {hh}\n"
-            f"  client: {ch}\n  fog: host={hr} client={cr}")
-        other = {k: (hh[k], ch[k]) for k in hh if k != "saveBlob" and hh[k] != ch[k]}
-        assert not other, (
-            f"buckets other than saveBlob diverged too, so this is not a clean fog-only "
-            f"proof: {other}")
-        assert before_h["saveBlob"] != hh["saveBlob"], (
-            "the host's own saveBlob did not move at all, so the pre/post comparison above "
-            "cannot be attributed to the dropped reveal")
-        print(f"PASS drop: the UNMASKED saveBlob bucket caught it (host={hh['saveBlob']} "
-              f"client={ch['saveBlob']}) and every other bucket stayed EQUAL - before "
-              "RW-REVEAL-SYNC this exact divergence hashed clean 8/8")
-    finally:
-        host.shutdown()
-        client.shutdown()
+    # THE POINT OF THE UNMASK: the joint hash must now SEE it. Before this
+    # packet saveBlobMaskFowBinTiles zeroed exactly these bits, so a
+    # host/client fog divergence produced a perfectly clean 8/8.
+    hh = host.cmd({"cmd": "hash_now", "full": True})["h"]
+    ch = client.cmd({"cmd": "hash_now", "full": True})["h"]
+    assert hh["saveBlob"] != ch["saveBlob"], (
+        "saveBlob is still EQUAL after a real fog-of-war divergence - the binTiles fog "
+        f"mask is back, or the dropped delta touched only void tiles.\n  host: {hh}\n"
+        f"  client: {ch}\n  fog: host={hr} client={cr}")
+    other = {k: (hh[k], ch[k]) for k in hh if k != "saveBlob" and hh[k] != ch[k]}
+    assert not other, (
+        f"buckets other than saveBlob diverged too, so this is not a clean fog-only "
+        f"proof: {other}")
+    assert before_h["saveBlob"] != hh["saveBlob"], (
+        "the host's own saveBlob did not move at all, so the pre/post comparison above "
+        "cannot be attributed to the dropped reveal")
+    print(f"PASS drop: the UNMASKED saveBlob bucket caught it (host={hh['saveBlob']} "
+          f"client={ch['saveBlob']}) and every other bucket stayed EQUAL - before "
+          "RW-REVEAL-SYNC this exact divergence hashed clean 8/8")
 
 
-def test_reveal_base_bad_n():
+def run_badn(host, client, actor, soldier_ids):
     """FORCED MISMATCH #2 (RB-D26 `reveal_base bad_n`). SS2.4a: a `base` restate
     whose `n` does not equal the receiver's getMapSizeXYZ() is a DESYNC - freeze
     + bt_desync + bundle + banner - and NEVER a partial apply. Same mismatch
     pattern as repro_atom_kneel.py's corrupt_bucket proof (R3-P2)."""
-    host, client, actor, soldier_ids = bring_up_qualifying_battle("badn")
-    try:
-        assert_reveal_parity(host, client, "before the bad-n restate")
-        fog_before = client.cmd({"cmd": "reveal_state"})
+    assert_reveal_parity(host, client, "before the bad-n restate")
+    fog_before = client.cmd({"cmd": "reveal_state"})
 
-        host.ok({"cmd": "reveal_base", "bad_n": True})
+    host.ok({"cmd": "reveal_base", "bad_n": True})
 
-        client.wait_for("client event_state.desyncSeen becomes true",
-                        lambda: client.cmd({"cmd": "event_state"}).get("desyncSeen") or None,
-                        timeout=15)
-        es = client.cmd({"cmd": "event_state"})
-        assert es.get("desyncSeen") is True, f"client did not latch desyncSeen: {es}"
-        print("PASS bad_n: client latched desyncSeen after a base restate with a wrong n")
+    client.wait_for("client event_state.desyncSeen becomes true",
+                    lambda: client.cmd({"cmd": "event_state"}).get("desyncSeen") or None,
+                    timeout=15)
+    es = client.cmd({"cmd": "event_state"})
+    assert es.get("desyncSeen") is True, f"client did not latch desyncSeen: {es}"
+    print("PASS bad_n: client latched desyncSeen after a base restate with a wrong n")
 
-        # "never partial apply": the client's own fog is byte-identical to what
-        # it was before the bad restate arrived.
-        fog_after = client.cmd({"cmd": "reveal_state"})
-        for part in ("floor", "westwall", "northwall"):
-            assert fog_after[part] == fog_before[part], (
-                f"the rejected base restate PARTIALLY applied: {part} went "
-                f"{fog_before[part]} -> {fog_after[part]} (SS2.4a forbids this)")
-        print(f"PASS bad_n: nothing was applied - client fog unchanged at "
-              f"{fog_after['floor']}/{fog_after['westwall']}/{fog_after['northwall']}")
+    # "never partial apply": the client's own fog is byte-identical to what
+    # it was before the bad restate arrived.
+    fog_after = client.cmd({"cmd": "reveal_state"})
+    for part in ("floor", "westwall", "northwall"):
+        assert fog_after[part] == fog_before[part], (
+            f"the rejected base restate PARTIALLY applied: {part} went "
+            f"{fog_before[part]} -> {fog_after[part]} (SS2.4a forbids this)")
+    print(f"PASS bad_n: nothing was applied - client fog unchanged at "
+          f"{fog_after['floor']}/{fog_after['westwall']}/{fog_after['northwall']}")
 
-        bundle_glob = os.path.join(client.user_dir, "desync-reports", "desync-*.zip")
-        bundles = glob.glob(bundle_glob)
-        assert bundles, f"no desync bundle file found under {bundle_glob}"
-        print(f"PASS bad_n: desync bundle written on the client: {bundles[0]}")
+    bundle_glob = os.path.join(client.user_dir, "desync-reports", "desync-*.zip")
+    bundles = glob.glob(bundle_glob)
+    assert bundles, f"no desync bundle file found under {bundle_glob}"
+    print(f"PASS bad_n: desync bundle written on the client: {bundles[0]}")
 
-        with open(os.path.join(host.user_dir, "openxcom.log"), "r", errors="replace") as f:
-            host_log = f.read()
-        assert "bt_desync" in host_log, \
-            "host log has no 'bt_desync' line - the client's report never reached the host"
-        line = next(ln for ln in host_log.splitlines() if "bt_desync" in ln)
-        assert "reveal" in line, (
-            f"the host's bt_desync line does not name the `reveal` bucket: {line.strip()}")
-        print(f"PASS bad_n: host recorded the peer report: {line.strip()}")
+    with open(os.path.join(host.user_dir, "openxcom.log"), "r", errors="replace") as f:
+        host_log = f.read()
+    assert "bt_desync" in host_log, \
+        "host log has no 'bt_desync' line - the client's report never reached the host"
+    line = next(ln for ln in host_log.splitlines() if "bt_desync" in ln)
+    assert "reveal" in line, (
+        f"the host's bt_desync line does not name the `reveal` bucket: {line.strip()}")
+    print(f"PASS bad_n: host recorded the peer report: {line.strip()}")
 
-        # EXACT TEXT, not merely non-empty (W1-P4): coop battle ENTRY now raises
-        # its own _txtCoopWait notice (the pre-battle equip freeze), so a
-        # non-emptiness check would no longer prove showDesyncHalted() fired.
-        banner = client.cmd({"cmd": "battle_state"}).get("coopWaitText", "")
-        assert banner == STR_DESYNC_HALTED_TEXT, (
-            f"client banner is {banner!r}, expected STR_COOP_DESYNC_HALTED "
-            f"{STR_DESYNC_HALTED_TEXT!r} - showDesyncHalted() never fired")
-        print(f"PASS bad_n: client banner shown: {banner!r}")
-    finally:
-        # A desync-frozen battle has no path back (SS2.8 "no partial repair").
-        host.shutdown()
-        client.shutdown()
+    # EXACT TEXT, not merely non-empty (W1-P4): coop battle ENTRY now raises
+    # its own _txtCoopWait notice (the pre-battle equip freeze), so a
+    # non-emptiness check would no longer prove showDesyncHalted() fired.
+    banner = client.cmd({"cmd": "battle_state"}).get("coopWaitText", "")
+    assert banner == STR_DESYNC_HALTED_TEXT, (
+        f"client banner is {banner!r}, expected STR_COOP_DESYNC_HALTED "
+        f"{STR_DESYNC_HALTED_TEXT!r} - showDesyncHalted() never fired")
+    print(f"PASS bad_n: client banner shown: {banner!r}")
 
 
-def test_g2_selection_decoupled():
+def run_g2(host, client, actor, soldier_ids):
     """SS2.W5 / ruling D2 = WV-D8: "reveals are authored by ACTIONS and side-begin
     restates only. Selection changes / TAB must not author shared fog."
 
@@ -780,108 +764,103 @@ def test_g2_selection_decoupled():
           by even one - a stronger statement than "no reveal field", since it
           also rules out an empty carrier ev.
     """
-    host, client, actor, soldier_ids = bring_up_qualifying_battle("g2")
-    try:
-        actor_a = actor["id"]
-        cs = client.cmd({"cmd": "battle_state"})
-        actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
-        stage_on_roof(host, client, actor, "g2", 2)
-        assert_dual_reveal_parity(host, client, "before the G-2 proof")
+    actor_a = actor["id"]
+    cs = client.cmd({"cmd": "battle_state"})
+    actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
+    stage_on_roof(host, client, actor, "g2", 2)
+    assert_dual_reveal_parity(host, client, "before the G-2 proof")
 
-        # --- (+) POSITIVE CONTROL: an ACTION authors fog -----------------------
-        emits_before = host_reveal_emits(host)
-        fired_on = None
-        for i in range(24):
-            try:
-                client_turn_by(host, client, actor_a if (i % 2 == 0) else actor_b, 2)
-            except Exception as e:  # out of TU / denied - keep trying the other actor
-                print(f"[repro_reveal_sync/g2] action {i} skipped: {e}")
-                continue
-            if host_reveal_emits(host) > emits_before:
-                fired_on = i + 1
-                break
-        assert fired_on is not None, (
-            "24 client turn actions authored NO fog at all, so the selection-storm half "
-            "below would be vacuous - the counter this test reads was never shown to move")
-        emits_after_action = host_reveal_emits(host)
-        print(f"PASS (+) positive control: an ACTION authored fog on attempt {fired_on} - "
-              f"host attached reveal deltas {emits_before} -> {emits_after_action}. "
-              "ACTIONS still reveal; the counter below is live.")
+    # --- (+) POSITIVE CONTROL: an ACTION authors fog -----------------------
+    emits_before = host_reveal_emits(host)
+    fired_on = None
+    for i in range(24):
+        try:
+            client_turn_by(host, client, actor_a if (i % 2 == 0) else actor_b, 2)
+        except Exception as e:  # out of TU / denied - keep trying the other actor
+            print(f"[repro_reveal_sync/g2] action {i} skipped: {e}")
+            continue
+        if host_reveal_emits(host) > emits_before:
+            fired_on = i + 1
+            break
+    assert fired_on is not None, (
+        "24 client turn actions authored NO fog at all, so the selection-storm half "
+        "below would be vacuous - the counter this test reads was never shown to move")
+    emits_after_action = host_reveal_emits(host)
+    print(f"PASS (+) positive control: an ACTION authored fog on attempt {fired_on} - "
+          f"host attached reveal deltas {emits_before} -> {emits_after_action}. "
+          "ACTIONS still reveal; the counter below is live.")
 
-        assert_dual_reveal_parity(host, client, "after the positive-control action")
+    assert_dual_reveal_parity(host, client, "after the positive-control action")
 
-        # --- (-) the selection storm authors NOTHING ---------------------------
-        # Settle first, so nothing already in flight can be mistaken for storm
-        # traffic, and snapshot every observable the storm could move.
-        time.sleep(1.5)
-        rs_before = host.cmd({"cmd": "reveal_state"})
-        emits_pre_storm = host_reveal_emits(host)
-        seq_pre_storm = host.cmd({"cmd": "event_state"})["lastSeqEmitted"]
-        assert rs_before["unpublished"] is False, (
-            f"host still owes reveal bits before the storm, so the storm's own "
-            f"contribution could not be isolated: {rs_before}")
+    # --- (-) the selection storm authors NOTHING ---------------------------
+    # Settle first, so nothing already in flight can be mistaken for storm
+    # traffic, and snapshot every observable the storm could move.
+    time.sleep(1.5)
+    rs_before = host.cmd({"cmd": "reveal_state"})
+    emits_pre_storm = host_reveal_emits(host)
+    seq_pre_storm = host.cmd({"cmd": "event_state"})["lastSeqEmitted"]
+    assert rs_before["unpublished"] is False, (
+        f"host still owes reveal bits before the storm, so the storm's own "
+        f"contribution could not be isolated: {rs_before}")
 
-        seen_selection = []
-        for _ in range(TAB_STORM_PRESSES):
-            sel = host.cmd({"cmd": "battle_state"}).get("selectedId")
-            if sel is not None and (not seen_selection or seen_selection[-1] != sel):
-                seen_selection.append(sel)
-            host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})
-            time.sleep(0.12)
+    seen_selection = []
+    for _ in range(TAB_STORM_PRESSES):
         sel = host.cmd({"cmd": "battle_state"}).get("selectedId")
         if sel is not None and (not seen_selection or seen_selection[-1] != sel):
             seen_selection.append(sel)
-        # THE STORM'S OWN PREMISE. A TAB storm that never actually changed the
-        # selection would make the zero below meaningless for a second reason.
-        assert len(set(seen_selection)) >= 2, (
-            f"the TAB storm never changed the host's selection ({seen_selection}) - it "
-            "was swallowed by an overlay or the fixture has one selectable unit, so this "
-            "assertion would prove nothing")
+        host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})
+        time.sleep(0.12)
+    sel = host.cmd({"cmd": "battle_state"}).get("selectedId")
+    if sel is not None and (not seen_selection or seen_selection[-1] != sel):
+        seen_selection.append(sel)
+    # THE STORM'S OWN PREMISE. A TAB storm that never actually changed the
+    # selection would make the zero below meaningless for a second reason.
+    assert len(set(seen_selection)) >= 2, (
+        f"the TAB storm never changed the host's selection ({seen_selection}) - it "
+        "was swallowed by an overlay or the fixture has one selectable unit, so this "
+        "assertion would prove nothing")
 
-        # Give the quiescent flush many ticks to publish anything the storm might
-        # have authored. Without this the zero could just mean "not yet".
-        time.sleep(2.5)
+    # Give the quiescent flush many ticks to publish anything the storm might
+    # have authored. Without this the zero could just mean "not yet".
+    time.sleep(2.5)
 
-        emits_post_storm = host_reveal_emits(host)
-        seq_post_storm = host.cmd({"cmd": "event_state"})["lastSeqEmitted"]
-        rs_after = host.cmd({"cmd": "reveal_state"})
+    emits_post_storm = host_reveal_emits(host)
+    seq_post_storm = host.cmd({"cmd": "event_state"})["lastSeqEmitted"]
+    rs_after = host.cmd({"cmd": "reveal_state"})
 
-        assert emits_post_storm == emits_pre_storm, (
-            f"the host attached {emits_post_storm - emits_pre_storm} reveal delta(s) during "
-            f"a {TAB_STORM_PRESSES}-press TAB storm - selection is authoring shared fog "
-            "again (SS2.W5 / D2)")
-        assert seq_post_storm == seq_pre_storm, (
-            f"lastSeqEmitted moved {seq_pre_storm} -> {seq_post_storm} during the TAB storm - "
-            "the storm emitted evs even if they carried no reveal field")
-        for part in ("floor", "westwall", "northwall"):
-            assert rs_after[part] == rs_before[part], (
-                f"the host's own {part} count moved {rs_before[part]} -> {rs_after[part]} "
-                "during a pure selection storm - a selection change authored tile FOV")
-            assert rs_after["hostile"][part] == rs_before["hostile"][part], (
-                f"the hostile set's {part} count moved during a pure selection storm")
-        assert rs_after["coopSuppressSelectionFov"] is True, (
-            "the SS2.W5 selection-FOV gate reports itself OFF inside a co-op battle: "
-            f"{rs_after}")
-        print(f"PASS (-) G-2: {TAB_STORM_PRESSES} TAB presses over "
-              f"{len(set(seen_selection))} distinct selections emitted ZERO reveal evs "
-              f"(deltas stayed {emits_post_storm}, lastSeqEmitted stayed {seq_post_storm}) "
-              "and moved no fog counter on either side's set")
+    assert emits_post_storm == emits_pre_storm, (
+        f"the host attached {emits_post_storm - emits_pre_storm} reveal delta(s) during "
+        f"a {TAB_STORM_PRESSES}-press TAB storm - selection is authoring shared fog "
+        "again (SS2.W5 / D2)")
+    assert seq_post_storm == seq_pre_storm, (
+        f"lastSeqEmitted moved {seq_pre_storm} -> {seq_post_storm} during the TAB storm - "
+        "the storm emitted evs even if they carried no reveal field")
+    for part in ("floor", "westwall", "northwall"):
+        assert rs_after[part] == rs_before[part], (
+            f"the host's own {part} count moved {rs_before[part]} -> {rs_after[part]} "
+            "during a pure selection storm - a selection change authored tile FOV")
+        assert rs_after["hostile"][part] == rs_before["hostile"][part], (
+            f"the hostile set's {part} count moved during a pure selection storm")
+    assert rs_after["coopSuppressSelectionFov"] is True, (
+        "the SS2.W5 selection-FOV gate reports itself OFF inside a co-op battle: "
+        f"{rs_after}")
+    print(f"PASS (-) G-2: {TAB_STORM_PRESSES} TAB presses over "
+          f"{len(set(seen_selection))} distinct selections emitted ZERO reveal evs "
+          f"(deltas stayed {emits_post_storm}, lastSeqEmitted stayed {seq_post_storm}) "
+          "and moved no fog counter on either side's set")
 
-        assert_dual_reveal_parity(host, client, "after the selection storm")
-        # SS1's WAVE-1 ADDITIONS trap: a NEW assertion says "ALL buckets EQUAL",
-        # never a hard-coded count. assert_hash_clean already proves the two key
-        # SETS are identical and every value matches; naming the new bucket is what
-        # keeps that from being vacuous if the bucket silently disappeared.
-        h, _ = assert_hash_clean(host, client, full=True, what="after the selection storm")
-        assert "revealHostile" in h, f"the revealHostile bucket vanished: {sorted(h)}"
-        print(f"PASS test_g2_selection_decoupled: positive control + zero-ev storm, all "
-              f"{len(h)} buckets EQUAL throughout (incl. revealHostile)")
-    finally:
-        host.shutdown()
-        client.shutdown()
+    assert_dual_reveal_parity(host, client, "after the selection storm")
+    # SS1's WAVE-1 ADDITIONS trap: a NEW assertion says "ALL buckets EQUAL",
+    # never a hard-coded count. assert_hash_clean already proves the two key
+    # SETS are identical and every value matches; naming the new bucket is what
+    # keeps that from being vacuous if the bucket silently disappeared.
+    h, _ = assert_hash_clean(host, client, full=True, what="after the selection storm")
+    assert "revealHostile" in h, f"the revealHostile bucket vanished: {sorted(h)}"
+    print(f"PASS test_g2_selection_decoupled: positive control + zero-ev storm, all "
+          f"{len(h)} buckets EQUAL throughout (incl. revealHostile)")
 
 
-def test_dual_side_ordering():
+def run_dual(host, client, actor, soldier_ids):
     """SS2.W4 / WR-5: "ONE `reveal` PER ENVELOPE... the attached `reveal` is the
     ACTING side's; any OTHER side's pending bits ship as their own
     `bt_ev{kind:"reveal", reveal:{side:...}}` emitted from the same choke
@@ -904,95 +883,122 @@ def test_dual_side_ordering():
     poked on the CLIENT for exactly that reason - on the HOST the corrupted bits
     would become "live but unpublished" and the very next delta would ship them.
     """
-    host, client, actor, soldier_ids = bring_up_qualifying_battle("dual")
+    actor_a = actor["id"]
+    cs = client.cmd({"cmd": "battle_state"})
+    actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
+    stage_on_roof(host, client, actor, "dual", 2)
+    assert_dual_reveal_parity(host, client, "before the WR-5 carriage proof")
+
+    pair = None
+    for i in range(16):
+        seen = len(client_reveal_applies(client))
+        attaches = len(host_reveal_attaches(host))
+        host.ok({"cmd": "reveal_hostile_pass", "republish": True})
+        try:
+            client_turn_by(host, client, actor_a if (i % 2 == 0) else actor_b, 2)
+        except Exception as e:
+            print(f"[repro_reveal_sync/dual] action {i} skipped: {e}")
+            continue
+        # client_turn_by() already waited for the action to settle; this extra
+        # beat lets the FOLLOW-UP ev (the non-acting side's own reveal, emitted
+        # from the same choke right after the action's envelope) land and be
+        # applied before the client log is read.
+        time.sleep(1.2)
+        new_applies = client_reveal_applies(client)[seen:]
+        new_attaches = host_reveal_attaches(host)[attaches:]
+        players = [a for a in new_applies if a[2] == "player"]
+        hostiles = [a for a in new_applies if a[2] == "hostile"]
+        if players and hostiles:
+            pair = (players[-1], hostiles[-1], new_attaches)
+            print(f"[repro_reveal_sync/dual] both sides revealed on action {i + 1}")
+            break
+        print(f"[repro_reveal_sync/dual] action {i + 1}: applies={new_applies} - "
+              "no player-side reveal on that envelope, retrying")
+    assert pair is not None, (
+        "16 actions never produced a single action that revealed for BOTH sides, so "
+        "the WR-5 carriage assertion has no premise to stand on")
+
+    player_apply, hostile_apply, attaches = pair
+    # (1) SEQ ORDER: the other side's ev is the very NEXT seq after the acting
+    # side's envelope - "immediately afterwards, in the same seq stream".
+    assert hostile_apply[1] == player_apply[1] + 1, (
+        f"the hostile reveal did not immediately follow the acting envelope: "
+        f"player at seq {player_apply[1]}, hostile at seq {hostile_apply[1]} "
+        f"(applies: {client_reveal_applies(client)[-6:]})")
+    # (2) CARRIAGE: the acting side rode the ACTION's own envelope, the other
+    # side rode an ev of its own. One `reveal` per envelope, never an array.
+    acting_carriers = [a for a in attaches if a[1] == "player"]
+    other_carriers = [a for a in attaches if a[1] == "hostile"]
+    assert acting_carriers and "kind=turn" in acting_carriers[-1][2], (
+        f"the ACTING side's delta did not ride the action's own envelope: {attaches}")
+    assert other_carriers and "OWN bt_ev" in other_carriers[-1][2], (
+        f"the non-acting side's delta did not ride its own reveal ev: {attaches}")
+    print(f"PASS WR-5: acting side (player, {acting_carriers[-1][0]} tiles) on the "
+          f"action's own envelope at seq {player_apply[1]}; the other side (hostile, "
+          f"{other_carriers[-1][0]} tiles) on its OWN bt_ev at seq {hostile_apply[1]}")
+
+    assert_dual_reveal_parity(host, client, "after the dual-side action")
+    h, _ = assert_hash_clean(host, client, full=True, what="after the dual-side action")
+    assert "revealHostile" in h, f"the revealHostile bucket vanished: {sorted(h)}"
+    print(f"PASS: all {len(h)} buckets still EQUAL after an action that revealed for "
+          "both sides")
+
+    # --- FORCED MISMATCH #3: only the NINTH bucket can see this -----------
+    before_h = h
+    assert client.ok({"cmd": "corrupt_bucket", "name": "revealHostile"}).get("ok"), \
+        "corrupt_bucket revealHostile was refused - the lever does not know the bucket"
+    hh = host.cmd({"cmd": "hash_now", "full": True})["h"]
+    ch = client.cmd({"cmd": "hash_now", "full": True})["h"]
+    assert hh["revealHostile"] != ch["revealHostile"], (
+        f"the hostile set was corrupted on the client and revealHostile is still EQUAL "
+        f"(host={hh['revealHostile']} client={ch['revealHostile']}) - the new bucket "
+        "does not actually hash the coop bitmap")
+    other = {k: (hh[k], ch[k]) for k in hh if k != "revealHostile" and hh[k] != ch[k]}
+    assert not other, (
+        f"buckets other than revealHostile diverged too, so this is not a clean "
+        f"hostile-fog-only proof: {other}")
+    assert before_h["revealHostile"] == hh["revealHostile"], (
+        "the HOST's own revealHostile moved, so the divergence cannot be attributed "
+        "to the client-side poke")
+    hr = host.cmd({"cmd": "reveal_state"})
+    cr = client.cmd({"cmd": "reveal_state"})
+    assert (hr["hostile"]["floor"], hr["hostile"]["westwall"], hr["hostile"]["northwall"]) \
+        != (cr["hostile"]["floor"], cr["hostile"]["westwall"], cr["hostile"]["northwall"]), (
+        f"corrupt_bucket revealHostile changed the digest but not the census - "
+        f"host={hr['hostile']} client={cr['hostile']}")
+    print(f"PASS corrupt_bucket revealHostile: the NINTH bucket caught it "
+          f"(host={hh['revealHostile']} client={ch['revealHostile']}) and every other "
+          "bucket stayed EQUAL - before W1-P8 this divergence was hashed by nothing")
+
+
+def instance_a():
+    host, client, actor, soldier_ids = bring_up_qualifying_battle("a")
     try:
-        actor_a = actor["id"]
+        run_g2(host, client, actor, soldier_ids)
         cs = client.cmd({"cmd": "battle_state"})
-        actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
-        stage_on_roof(host, client, actor, "dual", 2)
-        assert_dual_reveal_parity(host, client, "before the WR-5 carriage proof")
-
-        pair = None
-        for i in range(16):
-            seen = len(client_reveal_applies(client))
-            attaches = len(host_reveal_attaches(host))
-            host.ok({"cmd": "reveal_hostile_pass", "republish": True})
-            try:
-                client_turn_by(host, client, actor_a if (i % 2 == 0) else actor_b, 2)
-            except Exception as e:
-                print(f"[repro_reveal_sync/dual] action {i} skipped: {e}")
-                continue
-            # client_turn_by() already waited for the action to settle; this extra
-            # beat lets the FOLLOW-UP ev (the non-acting side's own reveal, emitted
-            # from the same choke right after the action's envelope) land and be
-            # applied before the client log is read.
-            time.sleep(1.2)
-            new_applies = client_reveal_applies(client)[seen:]
-            new_attaches = host_reveal_attaches(host)[attaches:]
-            players = [a for a in new_applies if a[2] == "player"]
-            hostiles = [a for a in new_applies if a[2] == "hostile"]
-            if players and hostiles:
-                pair = (players[-1], hostiles[-1], new_attaches)
-                print(f"[repro_reveal_sync/dual] both sides revealed on action {i + 1}")
-                break
-            print(f"[repro_reveal_sync/dual] action {i + 1}: applies={new_applies} - "
-                  "no player-side reveal on that envelope, retrying")
-        assert pair is not None, (
-            "16 actions never produced a single action that revealed for BOTH sides, so "
-            "the WR-5 carriage assertion has no premise to stand on")
-
-        player_apply, hostile_apply, attaches = pair
-        # (1) SEQ ORDER: the other side's ev is the very NEXT seq after the acting
-        # side's envelope - "immediately afterwards, in the same seq stream".
-        assert hostile_apply[1] == player_apply[1] + 1, (
-            f"the hostile reveal did not immediately follow the acting envelope: "
-            f"player at seq {player_apply[1]}, hostile at seq {hostile_apply[1]} "
-            f"(applies: {client_reveal_applies(client)[-6:]})")
-        # (2) CARRIAGE: the acting side rode the ACTION's own envelope, the other
-        # side rode an ev of its own. One `reveal` per envelope, never an array.
-        acting_carriers = [a for a in attaches if a[1] == "player"]
-        other_carriers = [a for a in attaches if a[1] == "hostile"]
-        assert acting_carriers and "kind=turn" in acting_carriers[-1][2], (
-            f"the ACTING side's delta did not ride the action's own envelope: {attaches}")
-        assert other_carriers and "OWN bt_ev" in other_carriers[-1][2], (
-            f"the non-acting side's delta did not ride its own reveal ev: {attaches}")
-        print(f"PASS WR-5: acting side (player, {acting_carriers[-1][0]} tiles) on the "
-              f"action's own envelope at seq {player_apply[1]}; the other side (hostile, "
-              f"{other_carriers[-1][0]} tiles) on its OWN bt_ev at seq {hostile_apply[1]}")
-
-        assert_dual_reveal_parity(host, client, "after the dual-side action")
-        h, _ = assert_hash_clean(host, client, full=True, what="after the dual-side action")
-        assert "revealHostile" in h, f"the revealHostile bucket vanished: {sorted(h)}"
-        print(f"PASS: all {len(h)} buckets still EQUAL after an action that revealed for "
-              "both sides")
-
-        # --- FORCED MISMATCH #3: only the NINTH bucket can see this -----------
-        before_h = h
-        assert client.ok({"cmd": "corrupt_bucket", "name": "revealHostile"}).get("ok"), \
-            "corrupt_bucket revealHostile was refused - the lever does not know the bucket"
-        hh = host.cmd({"cmd": "hash_now", "full": True})["h"]
-        ch = client.cmd({"cmd": "hash_now", "full": True})["h"]
-        assert hh["revealHostile"] != ch["revealHostile"], (
-            f"the hostile set was corrupted on the client and revealHostile is still EQUAL "
-            f"(host={hh['revealHostile']} client={ch['revealHostile']}) - the new bucket "
-            "does not actually hash the coop bitmap")
-        other = {k: (hh[k], ch[k]) for k in hh if k != "revealHostile" and hh[k] != ch[k]}
-        assert not other, (
-            f"buckets other than revealHostile diverged too, so this is not a clean "
-            f"hostile-fog-only proof: {other}")
-        assert before_h["revealHostile"] == hh["revealHostile"], (
-            "the HOST's own revealHostile moved, so the divergence cannot be attributed "
-            "to the client-side poke")
-        hr = host.cmd({"cmd": "reveal_state"})
-        cr = client.cmd({"cmd": "reveal_state"})
-        assert (hr["hostile"]["floor"], hr["hostile"]["westwall"], hr["hostile"]["northwall"]) \
-            != (cr["hostile"]["floor"], cr["hostile"]["westwall"], cr["hostile"]["northwall"]), (
-            f"corrupt_bucket revealHostile changed the digest but not the census - "
-            f"host={hr['hostile']} client={cr['hostile']}")
-        print(f"PASS corrupt_bucket revealHostile: the NINTH bucket caught it "
-              f"(host={hh['revealHostile']} client={ch['revealHostile']}) and every other "
-              "bucket stayed EQUAL - before W1-P8 this divergence was hashed by nothing")
+        actor_deck = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])
+        run_e2e(host, client, actor_deck, soldier_ids[1:])
+        run_dual(host, client, actor, soldier_ids)
     finally:
+        host.shutdown()
+        client.shutdown()
+
+
+def instance_b():
+    host, client, actor, soldier_ids = bring_up_qualifying_battle("drop")
+    try:
+        run_drop(host, client, actor, soldier_ids)
+    finally:
+        host.shutdown()
+        client.shutdown()
+
+
+def instance_c():
+    host, client, actor, soldier_ids = bring_up_qualifying_battle("badn")
+    try:
+        run_badn(host, client, actor, soldier_ids)
+    finally:
+        # A desync-frozen battle has no path back (SS2.8 "no partial repair").
         host.shutdown()
         client.shutdown()
 
@@ -1128,13 +1134,11 @@ def test_reveal_sp_smoke():
 
 
 def main():
-    test_reveal_sync_e2e()
-    test_g2_selection_decoupled()
-    test_dual_side_ordering()
+    instance_a()
     test_reveal_hostile_gm2()
     test_reveal_sp_smoke()
-    test_reveal_drop_detected()
-    test_reveal_base_bad_n()
+    instance_b()
+    instance_c()
     print("ALL RW-REVEAL-SYNC TESTS PASSED")
 
 
