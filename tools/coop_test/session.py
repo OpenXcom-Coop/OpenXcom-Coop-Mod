@@ -995,6 +995,130 @@ def known_flake(test, tracking, summary, record):
     raise KnownFlake(f"{test}: {summary} (WV-D90 {tracking}; record printed above)")
 
 
+_OPPOSITE_CORNER = {"NW": "SE", "NE": "SW", "SW": "NE", "SE": "NW"}
+_RING_DIRS = (0, 2, 4, 6)  # N, E, S, W - straight runs are checked in this fixed order
+
+
+def _nearest_non_player(st, t):
+    """3D distance from tile t to the closest LIVING non-player unit, or None."""
+    best = None
+    for u in st.get("units", []):
+        if u.get("faction") == FACTION_PLAYER or u.get("isOut"):
+            continue
+        d2 = (u["x"] - t[0]) ** 2 + (u["y"] - t[1]) ** 2 + (u["z"] - t[2]) ** 2
+        if best is None or d2 < best:
+            best = d2
+    return None if best is None else best ** 0.5
+
+
+def stage_open_ground_actor(host, client, soldier_ids, tag, door_radius=2, contact_min=21,
+                            need_weapon=False, run_length=1, scan_radius=12):
+    """WV-D86 (SPEC 0e-3): stage the 'open-ground, no-door, no-contact' actor the wave-1
+    fixtures need on the FIRST map, instead of re-rolling for one.
+
+    1. Every live hostile -> the corner FARTHEST from the player squad's centroid, facing into
+       it; every live neutral -> the diagonally OPPOSITE corner (WV-D88). Both machines,
+       identical moves, hash gate (place_deterministic).
+    2. For each soldier in `soldier_ids` (caller's order; skip it if `need_weapon` and it carries
+       none), scan tiles at the soldier's own z in rings of growing Chebyshev radius 0..scan_radius
+       around its position (within a ring: sorted by (dy, dx)); take the FIRST tile that
+       (a) has a floor and is unoccupied (tile_walkable; the soldier's own tile counts as free),
+       (b) has no door part within `door_radius` at that z (find_doors, one round trip),
+       (c) is >= `contact_min` (3D) from every living non-player unit,
+       (d) if run_length > 0: has, in at least one of N/E/S/W (checked in that order), a straight
+           run of `run_length` tiles that each satisfy (a)-(c).
+    3. Teleport the soldier there (both machines, hash gate), facing the run direction (or its
+       current facing when run_length == 0). Returns (unit_dict_after, tile, run_dir_or_None).
+
+    Never re-rolls. No tile within scan_radius for any soldier => AssertionError prefixed
+    'FIXTURE:' (the caller maps it to exit 3). Rule (a) of the old qualifying rules ('nothing
+    spotted at t=0') is deliberately NOT part of this: the lever does not recompute sight, so
+    the visible list can be stale; (c) is what prevents a mid-chain abort (spotted-set GROWTH).
+    """
+    what = f"stage_open_ground_actor[{tag}]"
+    st = battle_state(host)
+    assert st.get("ok") and st.get("inBattle"), f"{what}: no live battle on the host: {st}"
+    doors_resp = host.cmd({"cmd": "find_doors", "limit": 512})
+    assert doors_resp.get("ok"), f"{what}: find_doors failed: {doors_resp}"
+    mx, my = doors_resp["mapSizeX"], doors_resp["mapSizeY"]
+    doors = [(d["x"], d["y"], d["z"]) for d in doors_resp.get("doors", [])]
+
+    players = [u for u in st["units"] if u.get("faction") == FACTION_PLAYER and not u.get("isOut")]
+    assert players, f"FIXTURE: {what}: no live player unit"
+    cx = sum(u["x"] for u in players) / float(len(players))
+    cy = sum(u["y"] for u in players) / float(len(players))
+    corner = ("S" if cy < my / 2.0 else "N") + ("E" if cx < mx / 2.0 else "W")
+    opposite = _OPPOSITE_CORNER[corner]
+    moves = []
+    if any(u.get("faction") == FACTION_HOSTILE and not u.get("isOut") for u in st["units"]):
+        moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+                      "corner": corner, "facing": _CORNER_FACING[corner]})
+    if any(u.get("faction") == 2 and not u.get("isOut") for u in st["units"]):
+        moves.append({"lever": "battle_teleport_all", "faction": "neutral",
+                      "corner": opposite, "facing": _CORNER_FACING[opposite]})
+    if moves:
+        place_deterministic(host, client, moves, what=f"{what} clear the field")
+    st = battle_state(host)
+    occupied = {unit_pos(u) for u in st["units"] if not u.get("isOut")}
+
+    def door_near(t):
+        return any(dz == t[2] and abs(dx - t[0]) <= door_radius and abs(dy - t[1]) <= door_radius
+                   for (dx, dy, dz) in doors)
+
+    def ok_tile(t, self_pos):
+        if t != self_pos and not tile_walkable(host, t, occupied):
+            return False
+        if t == self_pos and not tile_walkable(host, t, occupied - {self_pos}):
+            return False
+        if door_near(t):
+            return False
+        d = _nearest_non_player(st, t)
+        return d is None or d >= contact_min
+
+    tried = []
+    for sid in soldier_ids:
+        unit = next((u for u in st["units"] if u.get("soldierId") == sid and not u.get("isOut")), None)
+        if unit is None:
+            tried.append((sid, "no live unit"))
+            continue
+        if need_weapon and not unit.get("weapon"):
+            tried.append((sid, "no weapon"))
+            continue
+        here = unit_pos(unit)
+        for radius in range(0, scan_radius + 1):
+            ring = sorted(((dx, dy) for dx in range(-radius, radius + 1)
+                           for dy in range(-radius, radius + 1)
+                           if max(abs(dx), abs(dy)) == radius), key=lambda p: (p[1], p[0]))
+            for dx, dy in ring:
+                t = (here[0] + dx, here[1] + dy, here[2])
+                if not ok_tile(t, here):
+                    continue
+                run_dir = None
+                if run_length > 0:
+                    for d in _RING_DIRS:
+                        tiles = [(t[0] + DIR_DX[d] * k, t[1] + DIR_DY[d] * k, t[2])
+                                 for k in range(1, run_length + 1)]
+                        if all(ok_tile(x, here) for x in tiles):
+                            run_dir = d
+                            break
+                    if run_dir is None:
+                        continue
+                facing = run_dir if run_dir is not None else unit.get("direction", 0)
+                place_deterministic(host, client, [
+                    {"lever": "battle_teleport_unit", "unit": unit["id"],
+                     "x": t[0], "y": t[1], "z": t[2], "dir": facing}],
+                    what=f"{what} stage actor {unit['id']} at {t} facing {facing}")
+                after = next(u for u in battle_state(host)["units"] if u["id"] == unit["id"])
+                print(f"[{tag}] staged actor {unit['id']} (soldierId {sid}) at {t}, "
+                      f"run_dir={run_dir}, hostiles -> {corner}, neutrals -> {opposite}")
+                return after, t, run_dir
+        tried.append((sid, f"no tile within {scan_radius}"))
+    raise AssertionError(
+        f"FIXTURE: {what}: no soldier could be staged on open ground (door_radius={door_radius}, "
+        f"contact_min={contact_min}, run_length={run_length}, need_weapon={need_weapon}); "
+        f"tried={tried}")
+
+
 def assert_turret_parity(host, client, what="", unit_ids=None):
     """RW-FIX-TURRET: `battle_state`'s per-unit `directionTurret` must read
     the SAME on both machines for every unit they share (or just `unit_ids`).
