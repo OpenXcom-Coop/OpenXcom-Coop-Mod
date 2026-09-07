@@ -5042,22 +5042,37 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					const int my = bgTA->getMapSizeY();
 					const int mz = bgTA->getMapSizeZ();
 
-					// Same corner-inward scan order as before (z, then y, then
-					// x, honouring xDescending/yDescending) - every in-bounds
-					// position, unfiltered: the PLAN pass below is the sole
-					// judge, through vanilla's own footprint-aware
-					// SavedBattleGame::setUnitPosition(testOnly).
+					// WV-D93: rings of growing Chebyshev distance from the corner -
+					// the lever PACKS into the corner ("inward", WV-D63(a)); row-major
+					// spread units along an edge (2x2 reapers 30 tiles west on urban
+					// maps, SPEC 0e-3 cycle 1).
 					std::vector<Position> candidates;
 					candidates.reserve((std::size_t)mx * (std::size_t)my * (std::size_t)mz);
+					const int maxRing = std::max(mx - 1, my - 1);
 					for (int z = 0; z < mz; ++z)
 					{
-						for (int yi = 0; yi < my; ++yi)
+						for (int d = 0; d <= maxRing; ++d)
 						{
-							const int y = yDescending ? (my - 1 - yi) : yi;
-							for (int xi = 0; xi < mx; ++xi)
+							// yi < d: the only in-ring xi is d itself (max(xi,yi)==d).
+							if (d <= mx - 1)
 							{
-								const int x = xDescending ? (mx - 1 - xi) : xi;
-								candidates.push_back(Position(x, y, z));
+								for (int yi = 0; yi < d && yi <= my - 1; ++yi)
+								{
+									const int y = yDescending ? (my - 1 - yi) : yi;
+									const int x = xDescending ? (mx - 1 - d) : d;
+									candidates.push_back(Position(x, y, z));
+								}
+							}
+							// yi == d: xi ascending from 0 up to min(d, mx - 1).
+							if (d <= my - 1)
+							{
+								const int y = yDescending ? (my - 1 - d) : d;
+								const int xiMax = std::min(d, mx - 1);
+								for (int xi = 0; xi <= xiMax; ++xi)
+								{
+									const int x = xDescending ? (mx - 1 - xi) : xi;
+									candidates.push_back(Position(x, y, z));
+								}
 							}
 						}
 					}
