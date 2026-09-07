@@ -6166,6 +6166,12 @@ std::string TestServer::execute(const std::string& line)
 				// invisible until its collapse ends). Empty except during a client ghost.
 				resp["hiddenItemIds"] = bg->getBattleGame() ? bg->getBattleGame()->coopHiddenItemIdsJson() : Json::Value(Json::arrayValue);
 				resp["isPreview"] = bg->isPreview();
+				// SavedBattleGame::_beforeGame - the pre-inventory flag nextStage()/
+				// resetTurnCounter() raises and startFirstTurn()/resetUnitTiles() clears.
+				// While it is true TileEngine::calculateLineVoxel excludes every unit from
+				// line-of-sight, so this machine can spot nothing at all - a "sees no
+				// aliens" desync is invisible in a unit census and only readable here.
+				resp["beforeGame"] = bg->isBeforeGame();
 				resp["clientPanicHandle"] = _game->getCoopMod()->_clientPanicHandle;
 				resp["serverOwner"] = connectionTCP::getServerOwner();
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
