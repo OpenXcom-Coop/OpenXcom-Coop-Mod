@@ -456,9 +456,19 @@ def stage_on_roof(host, client, actor, tag, turn_delta):
     nothing (0/8), a roof soldier reveals by its 2nd turn (6/6). M8: with the inherited facing,
     the (5,12) block's first-turn delta was VOID tiles only, and the save-blob hash skips void
     tiles (CoopFog.h COVERAGE ASTERISK), so `drop`'s hash proof went blind there. The lever does
-    not recompute sight; the first turn does. Returns the roof tile."""
+    not recompute sight; the first turn does. Returns the roof tile.
+    Idempotent: an actor already standing on that tile is left in place (SPEC 0e-5, owner D7)."""
     roof = (actor["x"], actor["y"], actor["z"] + 1)
     st = client.cmd({"cmd": "battle_state"})
+    live = next(u for u in st["units"] if u["id"] == actor["id"])
+    if (live["x"], live["y"], live["z"]) == roof:
+        # SPEC 0e-5 (owner D7): an earlier scenario of this instance already staged the
+        # soldier here. Keep it where it is and keep the facing its last turn left it - the
+        # next turn then sweeps a NEW arc, which is all a chained control needs. Never
+        # teleport a unit onto the tile it already occupies.
+        print(f"[repro_reveal_sync/{tag}] actor {actor['id']} already on the craft roof at "
+              f"{roof}, facing {live.get('direction')} - no re-stage (WV-D94, SPEC 0e-5)")
+        return roof
     occupied = {session.unit_pos(u) for u in st["units"] if not u.get("isOut")}
     if not session.tile_walkable(host, roof, occupied):
         raise AssertionError(
