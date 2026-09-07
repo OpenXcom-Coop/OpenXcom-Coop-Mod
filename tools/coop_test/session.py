@@ -955,6 +955,11 @@ def lightning_door(host):
 class KnownFlake(AssertionError):
     """WV-D90: a KNOWN flaky scenario was detected and its evidence recorded. Exit 2, loudly."""
 
+    def __init__(self, message, test=None, tracking="WV-D90"):
+        super().__init__(message)
+        self.test = test
+        self.tracking = tracking
+
 
 KNOWN_FLAKE_BANNER = (
     "################################################################################\n"
@@ -992,7 +997,7 @@ def known_flake(test, tracking, summary, record):
     print_known_flake_banner(test, tracking, summary)
     print("KNOWN-FLAKE-RECORD " + _json.dumps(record, default=str, sort_keys=True), flush=True)
     print_known_flake_banner(test, tracking, summary)
-    raise KnownFlake(f"{test}: {summary} (WV-D90 {tracking}; record printed above)")
+    raise KnownFlake(f"{test}: {summary} (WV-D90 {tracking}; record printed above)", test, tracking)
 
 
 _OPPOSITE_CORNER = {"NW": "SE", "NE": "SW", "SW": "NE", "SE": "NW"}

@@ -595,7 +595,7 @@ if __name__ == "__main__":
     try:
         main()
     except session.KnownFlake as e:
-        session.print_known_flake_banner("test_rw_turn_mode", "WV-D90", str(e))
+        session.print_known_flake_banner("test_rw_turn_mode", e.tracking, str(e))
         print(f"\ntest_rw_turn_mode: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
         sys.exit(2)
     except AssertionError as e:

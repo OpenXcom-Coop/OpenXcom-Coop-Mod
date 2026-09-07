@@ -1605,7 +1605,7 @@ if __name__ == "__main__":
         main()
         print("ALL W1-P9 ATOM WALK-CORE TESTS PASSED")
     except session.KnownFlake as e:
-        session.print_known_flake_banner("repro_atom_walk", "WV-D90", str(e))
+        session.print_known_flake_banner("repro_atom_walk", e.tracking, str(e))
         print(f"\nrepro_atom_walk: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
         sys.exit(2)
     except AssertionError as e:
