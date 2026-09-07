@@ -1648,7 +1648,7 @@ def wait_host_idle(host, client, timeout=30):
                     timeout=timeout)
 
 
-def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_seat=None):
+def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_seat=None, pre_ok=None):
     """repro_atom_walk.drive_to_battlescape plus the mission pin. Kept local
     rather than parameterising the walk repro's copy: that file carries a
     stop-line criterion and this packet must not change how it boots.
@@ -1658,7 +1658,13 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_s
     call - the window WV-D87/WV-D88 need for `newbattle_craft`/
     `newbattle_race` (race must land AFTER mission, since cbxMissionChange
     rebuilds the race list, and BEFORE seating). Every existing caller is
-    unaffected: default None, nothing runs."""
+    unaffected: default None, nothing runs.
+
+    `pre_ok` (SPEC 0e-4, additive): an optional `callable(host)` invoked
+    immediately BEFORE `newbattle_ok` - the window `hunt_seed.py` and the
+    two pinned-seed gate provers use to send `set_seed` right before the
+    generator reads it. Every existing caller is unaffected: default None,
+    nothing runs."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
                   lambda: (not has_state(host, "LobbyMenu")) or None)
@@ -1684,6 +1690,8 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_s
         "to seat 1 - this repro needs client-owned actors to walk")
     seated["soldierIds"] = soldier_ids
 
+    if pre_ok is not None:
+        pre_ok(host)
     host.ok({"cmd": "newbattle_ok"})
     host.wait_for("host briefing", lambda: has_state(host, "BriefingState"),
                   timeout=60)
