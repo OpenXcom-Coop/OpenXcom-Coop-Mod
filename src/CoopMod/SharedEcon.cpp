@@ -3728,6 +3728,40 @@ static bool coopWireOn();
 static bool coopBoundaryPersistShouldAlarm(const char* bucket, const std::string& kind, std::uint32_t bseq);
 static void coopBoundaryPersistHeal(const char* bucket, const std::string& kind, std::uint32_t bseq);
 
+/**
+ * Is `type` any stage of a MULTI-STAGE mission?
+ *
+ * BOTH halves are needed, and the second is the non-obvious one. The LAST stage of a
+ * chain carries no nextStage of its own (STR_ALIEN_COLONY_P2, STR_TLETH_P3,
+ * STR_MARS_THE_FINAL_ASSAULT) - and the host is exactly the machine sitting on that
+ * last stage while the peer is still loading the previous one. A plain "has a
+ * nextStage" test would therefore leave the HOST unstamped precisely when the peer
+ * needs the marker, reinstating the false alarm chkBattleStage exists to prevent.
+ *
+ * Scoped this way so a SINGLE-stage battle - every UFO/terror/base mission, and every
+ * parallel-turn fixture - puts no extra field on the wire at all: its next_turn is
+ * byte-identical to before the guard existed. attachBattleChecksum/verifyBattleChecksum
+ * have exactly one caller each (NextTurnState / the next_turn handler), so this runs
+ * once per turn boundary and the deployment sweep needs no cache.
+ */
+static bool coopMissionIsMultiStage(const Game* game, const std::string& type)
+{
+	if (type.empty() || !game) return false;
+	const Mod* mod = game->getMod();
+	if (!mod) return false;
+
+	if (const AlienDeployment* dep = mod->getDeployment(type))
+	{
+		if (!dep->getNextStage().empty()) return true;   // an earlier stage
+	}
+	for (const std::string& name : mod->getDeploymentsList())
+	{
+		const AlienDeployment* d = mod->getDeployment(name);
+		if (d && d->getNextStage() == type) return true; // a later stage
+	}
+	return false;
+}
+
 void attachBattleChecksum(Game* game, Json::Value& msg)
 {
 	// coop (#151): PvP (gamemodes 2/3) runs a ROLE-AWARE sim where the two machines
@@ -3751,7 +3785,10 @@ void attachBattleChecksum(Game* game, Json::Value& msg)
 	// desync) from "we are not talking about the same battle yet" (a transition).
 	if (const SavedBattleGame* battle = game->getSavedGame()->getSavedBattle())
 	{
-		msg["chkBattleStage"] = battle->getMissionType();
+		if (coopMissionIsMultiStage(game, battle->getMissionType()))
+		{
+			msg["chkBattleStage"] = battle->getMissionType();
+		}
 	}
 }
 
