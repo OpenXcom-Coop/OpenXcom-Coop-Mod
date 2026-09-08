@@ -20,10 +20,12 @@ serial lane - so contention from the other lanes never perturbs a clock- or
 dogfight-timing assertion. Everything else is greedy-LPT bin-packed across all K
 lanes by measured weight (tools/ci/test_weights.json, same table the CI shard
 planner uses). Each lane runs its queue serially as subprocesses. Exit taxonomy
-(A8-2 / WV-D74): 0 = PASS, 2 = FAIL, 3 = SKIP (fixture exhaustion, never a
-failure, never retried). Only the WV-D54 named flake family gets one retry on a
-genuine failure; every other test is reported on its first attempt. Exit 0 iff
-no test ended FAIL.
+(A8-2 / WV-D74, amended by WV-D100/WV-D101): 0 = PASS, 2 = FAIL, 3 = SKIP - and a
+SKIP IS A FAILURE (WV-D100: every test must exercise its scenario 100% of the time;
+a test that cannot is rewritten with owner-supplied fixture steps, never re-run).
+NOTHING is ever retried (WV-D101: "reruns just hide flakiness"). The table and the
+summary still list SKIP separately from FAIL so a report says WHY a run is red.
+Exit 0 iff no test ended FAIL or SKIP.
 
 Headless is forced on every lane (SDL_VIDEODRIVER/AUDIODRIVER=dummy) unless
 OXC_HARNESS_WINDOWED=1 is exported for interactive debugging.
@@ -89,15 +91,6 @@ PINNED = frozenset((
 # game pair, so K lanes = 2K game processes contending for CPU. Raise it if the
 # host has the cores/RAM to spare.
 MAX_SAFE_SLOTS = 4
-
-# WV-D54 / A8-2: the ONLY family that gets an automatic retry on a genuine
-# failure (exit code outside {0, 3}). Exit 3 is a fixture SKIP, never a
-# failure, and is never retried; a red outside this named family is reported
-# on its FIRST attempt. tools/ci/run_coop_suite.ps1 deliberately keeps its own
-# separate retry - the two runners' retry policies are allowed to diverge
-# (WV-D74).
-WV_D54_FAMILY = frozenset(("test_shared_commerce", "test_shared_research_refresh",
-                           "test_shared_arrival_owner_labels"))
 
 
 def discover():
@@ -210,13 +203,8 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg
         s0 = round(time.time() - run_start, 1)
         rc, secs, timed_out = _run_once(name, slot, base_env, hard)
         rc_attempts = [rc]
-        # A8-2 / WV-D74: exit 3 is a fixture SKIP - never a failure, never
-        # retried. A genuine red outside the WV-D54 named family is reported
-        # on its FIRST attempt; tools/ci/run_coop_suite.ps1 deliberately keeps
-        # its own retry.
-        if name in WV_D54_FAMILY and rc not in (0, 3) and not timed_out:
-            rc, secs, timed_out = _run_once(name, slot, base_env, hard)   # ONE retry, named family only
-            rc_attempts.append(rc)
+        # WV-D101: NOTHING is retried, by anyone, ever. rc_attempts/attempts and
+        # the ATT column stay (part of the --json schema) but are now always 1.
         attempts = len(rc_attempts)
         e0 = round(time.time() - run_start, 1)
         over_budget = (rc == 0 and not timed_out and secs > budget)
@@ -334,7 +322,9 @@ def main():
     wall = round(time.time() - run_start, 1)
 
     results.sort(key=lambda r: r["seconds"], reverse=True)
-    fails = [r for r in results if r["status"] == "FAIL"]
+    # WV-D100: a SKIP is a FAILURE. It is still listed separately in the table
+    # and the summary, but it makes the runner's exit code nonzero.
+    fails = [r for r in results if r["status"] in ("FAIL", "SKIP")]
     skips = [r for r in results if r["status"] == "SKIP"]
     serial = round(sum(r["seconds"] for r in results), 1)
     lane_busy = [round(sum(r["seconds"] for r in results if r["slot"] == k), 1)
@@ -348,7 +338,7 @@ def main():
                  r["slot"], "  <-- FAIL" if r["status"] == "FAIL" else ""))
 
     print("\n%d test(s): %d passed, %d skipped, %d failed" % (len(results),
-          len(results) - len(fails) - len(skips), len(skips), len(fails)))
+          len(results) - len(fails), len(skips), len(fails) - len(skips)))
     print("wall-clock %.1fs | serial-sum %.1fs | speedup %.2fx | lanes %s"
           % (wall, serial, (serial / wall if wall else 0),
              "/".join("%.0f" % b for b in lane_busy)))
