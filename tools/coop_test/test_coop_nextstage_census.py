@@ -25,8 +25,10 @@ Env:
                          assert both machines reach the debriefing/geoscape
 """
 
+import glob
 import json
 import os
+import shutil
 import sys
 import time
 
@@ -59,6 +61,33 @@ def battle(gc):
 
 def proc_dead(gc):
     return gc.proc is not None and gc.proc.poll() is not None
+
+
+def desync_reports(user_dir):
+    """Bundles the in-game drift tripwire wrote. Each one is a player-visible
+    CO-OP DESYNC DETECTED dialog, so a clean transition must produce none."""
+    return sorted(glob.glob(os.path.join(user_dir, "desync-reports", "*.zip")))
+
+
+def check_no_desync(host_dir, client_dir, when):
+    """The drift tripwire must stay silent across a stage transition.
+
+    A transition hands the client a whole new battle: the host rebuilds the stage,
+    ships the blob, enters it and closes its "Turn 1" screen - which sends next_turn
+    WITH the battle checksum - while the client may still be downloading and loading
+    that blob. Checking the host's stage-2 terms against the client's stage-1 state
+    reports a divergence that does not exist: they describe two different battles,
+    not two disagreeing copies of one (owner report: peer itemId 351 / turn 13 /
+    44 units against host 463 / turn 1 / 69 units). SharedEcon's chkBattleStage guard
+    skips the compare while the machines are on different stages. Without it BOTH
+    machines write a bundle and show the dialog at EVERY transition.
+    """
+    hr, cr = desync_reports(host_dir), desync_reports(client_dir)
+    if hr or cr:
+        raise AssertionError(
+            "DESYNC TRIPWIRE FIRED %s - host=%d client=%d bundle(s):\n  %s"
+            % (when, len(hr), len(cr), "\n  ".join(hr + cr)))
+    print(f"  no desync bundles {when} (tripwire silent on both machines)")
 
 
 def census(b):
@@ -99,6 +128,8 @@ def main():
 
     host_dir = make_tftd_user_dir("nsx_host", saves=[SAVE_SRC])
     client_dir = make_tftd_user_dir("nsx_client")
+    for d in (host_dir, client_dir):
+        shutil.rmtree(os.path.join(d, "desync-reports"), ignore_errors=True)
     host = GameClient("host", 47961, host_dir)
     client = GameClient("client", 47962, client_dir)
     fail = None
@@ -125,6 +156,40 @@ def main():
                       timeout=30, interval=1.0)
         print("battle_autoend ->", host.cmd({"cmd": "battle_autoend"}))
         print("close_nextturn ->", host.cmd({"cmd": "close_nextturn"}))
+
+        # RACE THE TRANSITION, deliberately. The host rebuilds stage 2, ships the
+        # blob and enters it; the client still has to request, download and load
+        # that blob. Closing the host's "Turn 1" screen the instant it exists sends
+        # next_turn (and the battle checksum) INTO that window - which is what a
+        # human hits and what an unraced test never reaches. Without the
+        # chkBattleStage guard both machines fire the desync dialog here.
+        print("racing: closing the HOST's stage-2 turn screen before the client "
+              "finishes loading...")
+        deadline = time.time() + 120
+        raced = None
+        while time.time() < deadline:
+            time.sleep(0.15)
+            if proc_dead(host):
+                raise AssertionError(
+                    f"HOST CRASHED on next-stage transition: rc={host.proc.returncode}")
+            st = states(host)
+            if not (any("NextTurnState" in x for x in st)
+                    and any("BattlescapeState" in x for x in st)):
+                continue
+            hb = battle(host)
+            if hb.get("missionType") != "STR_ALIEN_COLONY_P2":
+                continue
+            cb = battle(client)
+            raced = (cb.get("missionType"), cb.get("turn"), len(cb.get("units", [])))
+            print(f"  host at stage 2 (turn {hb.get('turn')}, "
+                  f"{len(hb.get('units', []))} units); client still {raced}")
+            print("  host dismiss_popup ->", host.cmd({"cmd": "dismiss_popup"}))
+            break
+        if raced is None:
+            print("  (host's stage-2 turn screen never observed; continuing)")
+        elif raced[0] == "STR_ALIEN_COLONY_P2":
+            print("  NOTE: the client had already adopted stage 2 - the compare "
+                  "window was not entered this run (timing, not a failure)")
 
         print("waiting for BOTH machines to enter stage 2 (STR_ALIEN_COLONY_P2)...")
         deadline = time.time() + 120
@@ -199,13 +264,14 @@ def main():
         # BattleUnit::_visibleUnits + Tile discovery, neither of which travels in
         # the unit census. Drive past the "Turn 1" screen so the first real
         # player turn is live on both, then compare.
-        print("\n== closing the stage-2 turn screen on both machines")
+        print("\n== settling the stage-2 turn screens")
         for gc, tag in ((host, "host"), (client, "client")):
             st = states(gc)
-            print(f"  {tag} stack: {[s.split('::')[-1] for s in st[-4:]]}")
-            if any("NextTurnState" in s for s in st):
+            print(f"  {tag} stack: {[x.split('::')[-1] for x in st[-4:]]}")
+            if any("NextTurnState" in x for x in st):
                 print(f"  {tag} dismiss_popup ->", gc.cmd({"cmd": "dismiss_popup"}))
         time.sleep(6)
+        check_no_desync(host_dir, client_dir, "across the stage-2 transition")
         hb, cb = battle(host), battle(client)
         dump("stage2_turn1_host", hb); dump("stage2_turn1_client", cb)
         for tag, b in (("host", hb), ("client", cb)):

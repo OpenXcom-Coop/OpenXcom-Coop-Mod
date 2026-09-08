@@ -3743,6 +3743,16 @@ void attachBattleChecksum(Game* game, Json::Value& msg)
 	msg["chkBattleItemId"] = Json::Value::Int64(itemIdCounter);
 	msg["chkBattleCensus"] = Json::Value::Int64(census);
 	msg["chkBattleUnits"] = Json::Value::Int64(units);
+	// coop (#188): WHICH battle these terms describe. In a multi-stage mission the
+	// host rebuilds the next stage, ships it, and enters it - so between the ship and
+	// the peer finishing its load the two machines legitimately hold DIFFERENT
+	// battles, and every term above differs for that reason alone. Stamping the
+	// mission type lets the receiver tell "we disagree about this battle" (a real
+	// desync) from "we are not talking about the same battle yet" (a transition).
+	if (const SavedBattleGame* battle = game->getSavedGame()->getSavedBattle())
+	{
+		msg["chkBattleStage"] = battle->getMissionType();
+	}
 }
 
 void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string& context)
@@ -3759,6 +3769,32 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 	// back as the same -1 "agree" sentinel the other two use.
 	const int64_t peerUnits = msg.get("chkBattleUnits", -1).asInt64();
 	if (peerItemId < 0 && peerCensus < 0 && peerUnits < 0) return; // old peer / no battle
+
+	// coop (#188): NOT COMPARABLE ACROSS A STAGE TRANSITION. A multi-stage mission
+	// hands the peer a whole new battle: the host rebuilds the stage, ships the blob,
+	// and enters it immediately, while the peer still has to request, download and
+	// load that blob. A next_turn that lands inside that window carries the HOST's
+	// stage-2 terms and is checked against the peer's stage-1 state - the item ids,
+	// the census and the unit set all differ, because they describe two different
+	// battles rather than two disagreeing copies of one. That fired the desync
+	// dialog on both machines at every transition (owner report, stage 1 of an alien
+	// colony: peer itemId 351/turn 13/44 units vs host 463/turn 1/69 units), even
+	// though both converge on identical terms the moment the load completes.
+	//
+	// Skipping is right rather than merely quiet, exactly as for the death-replay
+	// window below: the next stamp compares the two machines once the peer is on the
+	// same stage. Additive - a peer that stamps no stage reads back as the empty
+	// string and is compared exactly as before.
+	const std::string peerStage = msg.get("chkBattleStage", "").asString();
+	const SavedBattleGame* const stageBattle = game->getSavedGame()->getSavedBattle();
+	if (!peerStage.empty() && stageBattle && peerStage != stageBattle->getMissionType())
+	{
+		Log(LOG_INFO) << "[COOP] battle checksum on " << context
+					  << " skipped - the peer is on stage '" << peerStage
+					  << "', this machine is on '" << stageBattle->getMissionType()
+					  << "' (multi-stage transition in flight)";
+		return;
+	}
 
 	int64_t myItemId, myCensus, myUnits;
 	if (!battleChecksumTerms(game, myItemId, myCensus, myUnits)) return; // no battle here
