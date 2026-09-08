@@ -197,19 +197,27 @@ def slow_clock(host, client, settle=0.3):
 
 
 def _step_dialogs(host, client, interest, do_dismiss, dismissed):
-    """One pass of interest-check + popup drain across both instances. Returns
-    the (name, marker) hit or None."""
+    """One pass of interest-check + popup drain across BOTH instances. Returns
+    the (name, marker) hit or None. The pass never returns early: a machine
+    whose interest fires is the hit and is left alone; the OTHER machine is
+    still drained (with the same keep list) before the hit is returned, so a
+    popup on the peer's top can never freeze it behind the caller's back
+    (SPEC RW-S3b / S3b TRACE: a top popup stops both the geoscape clock and the
+    popup queue on that machine - Game::run thinks the top state only)."""
+    hit = None
     for gc in (host, client):
         if interest is not None:
             h = interest(gc)
             if h:
-                return (gc.name, h)
+                if hit is None:
+                    hit = (gc.name, h)
+                continue          # the wanted popup is on top here: do not drain it
         if do_dismiss:
             d, h = drain_popups(gc, interest)
             dismissed[gc.name] += d
-            if h:
-                return (gc.name, h)
-    return None
+            if h and hit is None:
+                hit = (gc.name, h)
+    return hit
 
 
 def _abs_minutes(ts):
