@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# RW-TRIAGE: TOOLING-PENDING(W6)
 """Run the coop test suite across K non-colliding harness lanes at once.
 
 Each lane is a slot (OXC_HARNESS_SLOT=k) that harness.py isolates: a per-slot
@@ -20,9 +19,11 @@ Assignment: timing-sensitive families (PINNED, below) are locked to slot 0 - the
 serial lane - so contention from the other lanes never perturbs a clock- or
 dogfight-timing assertion. Everything else is greedy-LPT bin-packed across all K
 lanes by measured weight (tools/ci/test_weights.json, same table the CI shard
-planner uses). Each lane runs its queue serially as subprocesses; a nonzero exit
-is retried once (flake tolerance, matching tools/ci/run_coop_suite.ps1) and only
-the last attempt's duration is reported. Exit 0 iff every test ended PASS.
+planner uses). Each lane runs its queue serially as subprocesses. Exit taxonomy
+(A8-2 / WV-D74): 0 = PASS, 2 = FAIL, 3 = SKIP (fixture exhaustion, never a
+failure, never retried). Only the WV-D54 named flake family gets one retry on a
+genuine failure; every other test is reported on its first attempt. Exit 0 iff
+no test ended FAIL.
 
 Headless is forced on every lane (SDL_VIDEODRIVER/AUDIODRIVER=dummy) unless
 OXC_HARNESS_WINDOWED=1 is exported for interactive debugging.
@@ -88,6 +89,15 @@ PINNED = frozenset((
 # game pair, so K lanes = 2K game processes contending for CPU. Raise it if the
 # host has the cores/RAM to spare.
 MAX_SAFE_SLOTS = 4
+
+# WV-D54 / A8-2: the ONLY family that gets an automatic retry on a genuine
+# failure (exit code outside {0, 3}). Exit 3 is a fixture SKIP, never a
+# failure, and is never retried; a red outside this named family is reported
+# on its FIRST attempt. tools/ci/run_coop_suite.ps1 deliberately keeps its own
+# separate retry - the two runners' retry policies are allowed to diverge
+# (WV-D74).
+WV_D54_FAMILY = frozenset(("test_shared_commerce", "test_shared_research_refresh",
+                           "test_shared_arrival_owner_labels"))
 
 
 def discover():
@@ -199,13 +209,18 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg
         hard = max(1.0, budget * hard_mult)
         s0 = round(time.time() - run_start, 1)
         rc, secs, timed_out = _run_once(name, slot, base_env, hard)
-        attempts = 1
-        if rc != 0 and not timed_out:   # retry a real failure once; never retry a hang
-            rc, secs, timed_out = _run_once(name, slot, base_env, hard)
-            attempts = 2
+        rc_attempts = [rc]
+        # A8-2 / WV-D74: exit 3 is a fixture SKIP - never a failure, never
+        # retried. A genuine red outside the WV-D54 named family is reported
+        # on its FIRST attempt; tools/ci/run_coop_suite.ps1 deliberately keeps
+        # its own retry.
+        if name in WV_D54_FAMILY and rc not in (0, 3) and not timed_out:
+            rc, secs, timed_out = _run_once(name, slot, base_env, hard)   # ONE retry, named family only
+            rc_attempts.append(rc)
+        attempts = len(rc_attempts)
         e0 = round(time.time() - run_start, 1)
         over_budget = (rc == 0 and not timed_out and secs > budget)
-        status = "FAIL" if (timed_out or rc != 0 or over_budget) else "PASS"
+        status = "SKIP" if (rc == 3 and not timed_out) else ("FAIL" if (timed_out or rc != 0 or over_budget) else "PASS")
         reason = None
         if timed_out:
             reason = ("BUDGET HARD-KILL: %s still running after %.1fs (%gx its %gs "
@@ -215,7 +230,8 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg
             reason = ("BUDGET EXCEEDED: %s took %.1fs > %gs budget - re-engineer the "
                       "test or add a justified exception" % (name, secs, budget))
         rec = {"test": name, "slot": slot, "status": status, "seconds": secs,
-               "attempts": attempts, "rc": rc, "timed_out": timed_out,
+               "attempts": attempts, "rc": rc, "rc_attempts": rc_attempts,
+               "timed_out": timed_out,
                "budget": budget, "over_budget": over_budget, "reason": reason,
                "start": s0, "end": e0}
         with lock:
@@ -226,6 +242,8 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg
                     note.append("retried")
                 if timed_out:
                     note.append("HANG rc=124")
+                elif rc == 3:
+                    note.append("SKIP rc=3")
                 elif rc != 0:
                     note.append("rc=%d" % rc)
                 elif over_budget:
@@ -316,7 +334,8 @@ def main():
     wall = round(time.time() - run_start, 1)
 
     results.sort(key=lambda r: r["seconds"], reverse=True)
-    fails = [r for r in results if r["status"] != "PASS"]
+    fails = [r for r in results if r["status"] == "FAIL"]
+    skips = [r for r in results if r["status"] == "SKIP"]
     serial = round(sum(r["seconds"] for r in results), 1)
     lane_busy = [round(sum(r["seconds"] for r in results if r["slot"] == k), 1)
                  for k in range(args.slots)]
@@ -326,10 +345,10 @@ def main():
     for r in results:
         print("%-30s %-6s %8.1f %8g %4d   %d%s"
               % (r["test"], r["status"], r["seconds"], r["budget"], r["attempts"],
-                 r["slot"], "  <-- FAIL" if r["status"] != "PASS" else ""))
+                 r["slot"], "  <-- FAIL" if r["status"] == "FAIL" else ""))
 
-    print("\n%d test(s): %d passed, %d failed" % (len(results),
-          len(results) - len(fails), len(fails)))
+    print("\n%d test(s): %d passed, %d skipped, %d failed" % (len(results),
+          len(results) - len(fails) - len(skips), len(skips), len(fails)))
     print("wall-clock %.1fs | serial-sum %.1fs | speedup %.2fx | lanes %s"
           % (wall, serial, (serial / wall if wall else 0),
              "/".join("%.0f" % b for b in lane_busy)))
