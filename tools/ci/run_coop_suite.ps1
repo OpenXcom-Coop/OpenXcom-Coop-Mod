@@ -60,12 +60,23 @@ if ($PlanFile) {
 
 if ($ListOnly) { $tests; exit 0 }   # to stdout, so callers can diff the shard split
 
-# Known-broken on main (real failures, not flakes) - run but do not gate.
+# Known-broken on main, or not gate-shaped - run but do not gate.
 # Add entries here if a test regresses; remove them as they are fixed so they gate
 # again. Empty = the whole suite gates (all green as of 2026-07-15).
 $quarantine = @(
-  "test_pvp_campaign_month",  # issue #171: month-roll geoscape assert can't drain MissionDetectedState/SaveGameState
-  "test_crash_reporter"       # issue #172: marker-bundle 60s timeout, intermittent
+  "test_pvp_campaign_month",       # issue #171: month-roll geoscape assert can't drain MissionDetectedState/SaveGameState
+  "test_crash_reporter",           # issue #172: marker-bundle 60s timeout, intermittent
+  # A REPRO TOOL, not a guard - its own docstring says so, and its exit codes are
+  # the reverse of what a gate assumes: exit 0 = "the heavy-alien-death desync
+  # REPRODUCED", exit 3 = "every alien side stayed in census" (i.e. clean). Gating on
+  # it therefore scores the bug FIRING as success and a clean run as failure - every
+  # green run of it on main (30 Aug, 4 Sep) was green because the drift fired, which
+  # is precisely the signal a green pipeline hides. The fixes from #166 still sit
+  # behind a lever that defaults off (g_wireOrderState) pending the battlescape
+  # rewrite, so it keeps reproducing intermittently (~1 in 3-4 per its docstring).
+  # Run it and print the verdict; do not gate on it. Its rc=0 is worth alerting on
+  # separately - it is currently the only automated thing that notices the drift.
+  "test_parallel_heavy_death_repro"
 )
 
 # --- Per-test time budgets ------------------------------------------------------

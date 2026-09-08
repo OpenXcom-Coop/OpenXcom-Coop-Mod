@@ -6390,6 +6390,28 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 			BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 			bgen.nextStage();
 
+			// FINISH STARTING the rebuilt stage before it is shipped, so the blob the
+			// client loads is the state the host itself plays.
+			//
+			// nextStage() ends in resetTurnCounter(), which parks the save at turn 0 with
+			// _beforeGame = true. Vanilla clears that in SavedBattleGame::startFirstTurn(),
+			// reached through BriefingState::btnOkClick -> InventoryState -> OK. Co-op shows
+			// neither screen on this path, so the host used to be left mid-initialisation:
+			//   * _beforeGame stayed true, and TileEngine::calculateLineVoxel excludes EVERY
+			//     unit from line-of-sight while it is ("don't start unit spotting before
+			//     pre-game inventory stuff") - so the host could never spot a single alien;
+			//   * resetUnitTiles() never ran, so tiles were not matched up with units and the
+			//     player's own units kept the setVisible(false) nextStage() gave them;
+			//   * the turn counter stayed at 0, which silences the host's own click_close and
+			//     next_turn packets (NextTurnState::close gates both on turn >= 1).
+			// The client never hit any of it because it enters through SavedBattleGame::load(),
+			// whose tail is resetUnitTiles() + recalculateFOV() - hence the player report that
+			// the client saw aliens where the host saw nothing at all. recalculateFOV() here
+			// mirrors that same load tail so both machines compute visibility from the same
+			// positions (nextStage() already did the ambient lighting pass).
+			_save->startFirstTurn();
+			_save->getTileEngine()->recalculateFOV();
+
 			// tag coop units + ship the rebuilt stage to the client. As at every
 			// other coop mission-start site (ConfirmLandingState, GeoscapeState,
 			// NewBattleState, ...), the briefing is only a vehicle for setupCoop()
