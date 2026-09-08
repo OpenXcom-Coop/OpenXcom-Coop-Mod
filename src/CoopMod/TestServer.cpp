@@ -7563,7 +7563,28 @@ std::string TestServer::execute(const std::string& line)
 			// unknown popups surface instead of silently hanging.
 			State* top = topState<State>(_game);
 			resp["type"] = top ? typeid(*top).name() : "none";
-			if (auto* ev = dynamic_cast<GeoscapeEventState*>(top))
+			// WV-D101 / SPEC RW-S3: atomic "keep" list. If the caller is waiting for
+			// this popup, do NOT pop it - report it instead. Checked FIRST so no
+			// dismiss branch below can ever eat a state the harness wants to inspect.
+			if (top && req.isMember("keep") && req["keep"].isArray())
+			{
+				const std::string topName = typeid(*top).name();
+				for (const auto& k : req["keep"])
+				{
+					if (k.isString() && !k.asString().empty() && topName.find(k.asString()) != std::string::npos)
+					{
+						resp["kept"] = true;
+						resp["handled"] = "kept";
+						resp["ok"] = true;
+						break;
+					}
+				}
+			}
+			if (resp.isMember("kept"))
+			{
+				// kept: the existing dismiss chain below is skipped entirely
+			}
+			else if (auto* ev = dynamic_cast<GeoscapeEventState*>(top))
 			{
 				ev->btnOkClick(nullptr);
 				resp["handled"] = "GeoscapeEventState";

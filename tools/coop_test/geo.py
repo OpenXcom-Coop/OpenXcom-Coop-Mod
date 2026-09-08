@@ -93,10 +93,13 @@ def both_ready(host, client):
 
 def popup(*typeid_substrs):
     """Interest predicate: fires when the top state's typeid contains any of the
-    given substrings, e.g. popup('MissionDetectedState', 'GeoscapeEventState')."""
+    given substrings, e.g. popup('MissionDetectedState', 'GeoscapeEventState').
+    Carries its substrings as `.keep` so drain_popups can hand them to the game's
+    dismiss_popup, which then checks-and-pops ATOMICALLY (SPEC RW-S3 / WV-D101)."""
     def _p(gc):
         t = top_state(gc)
         return t if any(s in t for s in typeid_substrs) else None
+    _p.keep = tuple(typeid_substrs)
     return _p
 
 
@@ -132,7 +135,13 @@ def drain_popups(gc, interest=None, limit=25):
         top = top_state(gc)
         if not top or top.endswith(_GEO):
             return dismissed, None
-        r = gc.cmd({"cmd": "dismiss_popup"})
+        req = {"cmd": "dismiss_popup"}
+        keep = getattr(interest, "keep", None)
+        if keep:
+            req["keep"] = list(keep)
+        r = gc.cmd(req)
+        if r.get("kept"):
+            return dismissed, r.get("type", top)   # the popup we want is on top: leave it
         if not r.get("ok"):
             return dismissed, None  # undismissable (WAIT dialog / unknown) - wait
         dismissed.append(r.get("handled", r.get("type", top)))
