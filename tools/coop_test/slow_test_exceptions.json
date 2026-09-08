@@ -28,6 +28,10 @@
       "budget_s": 700,
       "reason": "CI 529.8s (run 31999655291, shard 2) -- heaviest test; full both-machine debrief handshake. Not in test_weights.json (new), so the shard planner under-weighted it and its shard hit the 25min wall."
     },
+    "test_parallel_heavy_death_repro": {
+      "budget_s": 400,
+      "reason": "CI 180.9-241.2s across run 34232562811, main @2b888064a, 2026-09-08 and the runs either side, against the 180s default -- it was the only over-budget test with no exception. QUARANTINED in tools/ci/run_coop_suite.ps1 (it is a repro tool, not a guard: exit 0 = the desync REPRODUCED, exit 3 = clean), so this budget only keeps its KNOWN-FAIL line honest rather than gating. Issue #169."
+    },
     "test_parallel_soak": {
       "budget_s": 750,
       "reason": "CI 305.8s normal but 683.2s observed on a ~6x-slow runner window (run 32086393722, shard 2 retry) -- 5-turn parallel battle cycle; headroom for runner jitter until re-engineered under issue #169."
@@ -45,8 +49,8 @@
       "reason": "CI 157.8s (run 31999655291, shard 3) -- near the 180s default; local weight 300s. Skip/fast-forward flow matrix."
     },
     "test_coop_outcome_gaps": {
-      "budget_s": 360,
-      "reason": "CI 183.2s (run 31999655291, shard 3) -- over the 180s default; local weight 230s. AUDIT-rng GAP battery (spawns/psi/melee/pellets/ignite/panic/proximity)."
+      "budget_s": 600,
+      "reason": "CI 183.2s (run 31999655291, shard 3) -- over the 180s default; local weight 230s. AUDIT-rng GAP battery (spawns/psi/melee/pellets/ignite/panic/proximity). RAISED 360->600 after run 34232562811, main @2b888064a, 2026-09-08: PASSED but took 416.5s (2.3x its own baseline), and 415.4s on the run before -- the suite hit a slow/contended runner pool and this test is long enough that the 360s ceiling turns a pass into a red. Issue #169."
     },
     "test_parallel_speed_skew": {
       "budget_s": 300,
@@ -65,8 +69,8 @@
       "reason": "CI 328.0s BUDGET EXCEEDED > 300s (run 32724667370, shard 3) -- test PASSES functionally but the strict per-seq burn-in across 4 alien turns overran the 300s budget on a slow/contended runner (other runs pass ~90s: high variance). Bumped to 420 for headroom (matches test_parallel_floor_drain; legal under max_budget_s=900). Do not re-engineer -- pure budget bump. Tracked under issue #169."
     },
     "test_parallel_loose_death": {
-      "budget_s": 300,
-      "reason": "CI 208.3s passing attempt (run 32593562429, shard 2; attempt range 144-208s) -- loose-death stamp + side-barrier fixture w/ liveness scenario. Tracked under issue #169."
+      "budget_s": 500,
+      "reason": "CI 208.3s passing attempt (run 32593562429, shard 2; attempt range 144-208s) -- loose-death stamp + side-barrier fixture w/ liveness scenario. Tracked under issue #169. RAISED 300->500 after the 2026-09-07/08 slow-runner window, where it ran 452.3s, 260.2s and 205.9s against a 300s ceiling while passing at 139-167s on an unloaded runner; its liveness assertion is wall-clock sensitive, so a tight budget compounds the contention."
     },
     "test_parallel_floor_drain": {
       "budget_s": 420,

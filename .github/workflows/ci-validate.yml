@@ -375,33 +375,26 @@ jobs:
   # Native Linux (x86_64) build via GCC - the other platform ci-main.yml ships.
   build-linux:
     runs-on: ubuntu-latest
-    # Mirrors ci-main's build-linux: debian:11 (glibc 2.31) + jsoncpp 1.9.5 built
-    # from source, so the AppImage the gate builds matches the release and compiles
-    # - see the ci-main comment for the jsoncpp/glibc reasoning.
-    container: debian:11
+    # Mirrors ci-main's build-linux: ubuntu:20.04 (glibc 2.31, gcc 9.3) + jsoncpp
+    # 1.9.5 built from source, so the AppImage the gate builds matches the release and
+    # compiles - see the ci-main comment for the jsoncpp/glibc reasoning and for why
+    # this is no longer debian:11 (Debian 11 EOL, 2026-09-08).
+    container: ubuntu:20.04
     timeout-minutes: 60
     defaults:
       run:
         shell: bash
     steps:
       - name: Install deps
-        # No sudo (root in the container); git must land BEFORE checkout, which the
+        # Same mirror-flake retry as build-winxp - see the comment there. No sudo
+        # (root in the container); git must land BEFORE checkout, which the
         # `submodules: recursive` step needs and the bare container lacks.
-        #
-        # Debian 11 is END OF LIFE - same fix and same reasoning as ci-main.yml's
-        # build-linux, which see. bullseye-security stopped being published on
-        # 2026-08-31 and its Release file expired at 2026-09-07 21:13 UTC, so
-        # `apt-get update` fails outright here; the retry loop cannot help, because
-        # an expired Release and a 404 are not the mirror flakes it was written for.
-        # Plain bullseye is frozen, carries no Valid-Until and is already mirrored on
-        # archive.debian.org, so point there and drop the dead security suite. Keeps
-        # the glibc 2.31 floor (see ci-main).
+        # patchelf and the SDL 1.2 -dev packages live in `universe`, which the official
+        # ubuntu:20.04 image enables by default (build-winxp installs from it too).
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           set -eu
-          echo 'deb http://archive.debian.org/debian bullseye main' > /etc/apt/sources.list
-          rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources || true
           apt_get() { apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
           ok=0
           for n in 1 2 3 4; do
