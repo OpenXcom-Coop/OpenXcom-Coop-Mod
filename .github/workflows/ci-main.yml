@@ -694,48 +694,42 @@ jobs:
     # current distro: an AppImage bundles its own libs but NOT glibc, so its
     # portability floor is the build host's glibc, and ubuntu-latest (2.39) would
     # lock out older distros and reproduce the very "can't run it" bug this fixes.
-    # debian:11 (bullseye) gives glibc 2.31 - covers Debian 11+, Ubuntu 20.04+ and
-    # RHEL/Rocky 9 (2.34) - with gcc 10. Its distro jsoncpp (1.9.4) makes the coop
-    # code's int64/uint64 -> Json::Value writes ambiguous on gcc, so we build
-    # jsoncpp 1.9.5 from source below (the version ubuntu-latest had when this
-    # compiled) rather than change the game source or raise the glibc floor.
-    container: debian:11
+    # ubuntu:20.04 (focal) gives glibc 2.31 with gcc 9.3 - the SAME floor debian:11
+    # gave, so it still covers Debian 11+, Ubuntu 20.04+ and RHEL/Rocky 9 (2.34).
+    # The project is C++17 (CMAKE_CXX_STANDARD 17), which gcc 9.3 fully supports.
+    #
+    # Was debian:11 until 2026-09-08. Debian 11 reached end of life: bullseye-security
+    # stopped being published on 2026-08-31 and its Release file expired on 2026-09-07,
+    # so apt-get update failed outright. Dropping that suite did not work either - the
+    # debian:11 image ships its packages at SECURITY versions and -dev packages depend
+    # on an exact = match of their runtime lib, so every -dev became unsatisfiable
+    # ("libc6-dev but it is not installable"). Nor could the suite be restored: the
+    # bullseye-security pool is being dismantled unevenly across mirrors - libsepol1
+    # 3.1-1+deb11u1 is already 404 on BOTH security.debian.org and deb.debian.org.
+    # ubuntu:20.04 keeps the glibc floor on an archive that is still served coherently,
+    # and is the image build-winxp already uses successfully in this same pipeline.
+    # (debian:12 would also fix apt but raises the floor to 2.36, dropping Ubuntu 22.04
+    # LTS, Mint 21 and RHEL/Rocky 9 - a player support decision, not an apt workaround.)
+    #
+    # The distro jsoncpp makes the coop code's int64/uint64 -> Json::Value writes
+    # ambiguous on gcc, so we build jsoncpp 1.9.5 from source below rather than change
+    # the game source.
+    container: ubuntu:20.04
     timeout-minutes: 60
     defaults:
       run:
         shell: bash
     steps:
       - name: Install deps
-        # No sudo (root in the container); git must land BEFORE checkout, which the
+        # Same mirror-flake retry as build-winxp - see the comment there. No sudo
+        # (root in the container); git must land BEFORE checkout, which the
         # `submodules: recursive` step needs and the bare container lacks.
-        #
-        # Debian 11 is END OF LIFE, so this step no longer uses deb.debian.org.
-        # bullseye-security stopped being published on 2026-08-31 (bookworm- and
-        # trixie-security are still published daily) and its Release file expired at
-        # 2026-09-07 21:13 UTC, which makes `apt-get update` fail outright here.
-        # Before that it had already begun 404ing pool files its own index still
-        # advertised, as the mirrors drifted with nothing republishing them. The retry
-        # loop below cannot help with either: a 404 and an expired Release are not the
-        # mirror flakes it was written for.
-        #
-        # Plain `bullseye` is frozen at its final point release (2025-08-09) and
-        # carries NO Valid-Until, so it never expires - and it is already mirrored on
-        # archive.debian.org, where retired releases stay indefinitely. Point there and
-        # drop the dead security suite: every package installed below exists in plain
-        # bullseye (only 6 ever resolved to a newer security build), this container is
-        # a throwaway build box, and none of these libraries ship inside the AppImage -
-        # they are headers and build tooling.
-        #
-        # This deliberately KEEPS the glibc 2.31 floor the container exists for (see
-        # the job comment). debian:12 would fix apt too, but raises the floor to 2.36
-        # and drops Ubuntu 22.04 LTS (2.35), Mint 21 and RHEL/Rocky 9 (2.34) - a player
-        # support decision, not an apt workaround.
+        # patchelf and the SDL 1.2 -dev packages live in `universe`, which the official
+        # ubuntu:20.04 image enables by default (build-winxp installs from it too).
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           set -eu
-          echo 'deb http://archive.debian.org/debian bullseye main' > /etc/apt/sources.list
-          rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources || true
           apt_get() { apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 "$@"; }
           ok=0
           for n in 1 2 3 4; do
