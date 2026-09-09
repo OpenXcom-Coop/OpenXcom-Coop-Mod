@@ -257,6 +257,9 @@ namespace CrossPlatform
 	void stackTrace(void *ctx);
 	/// Produces a quick timestamp.
 	std::string now();
+	/// Produces a quick timestamp with milliseconds (WV-D111; log lines only -
+	/// now()'s other callers all build filenames, so now() itself is unchanged).
+	std::string nowMillis();
 	/// Produces a crash dump.
 	void crashDump(void *ex, const std::string &err);
 	/// Opens a URL.

@@ -75,6 +75,7 @@
 #include <unistd.h>
 #include <sys/param.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <pwd.h>
 #ifndef __CYGWIN__
 #include <execinfo.h>
@@ -1486,6 +1487,37 @@ std::string now()
 }
 
 /**
+ * Generates a timestamp of the current time, to the millisecond.
+ * WV-D111: the same shape now() returns plus ".mmm", for log lines only. now()
+ * itself is UNCHANGED because three of its callers build FILENAMES, and a
+ * wider timestamp would rename the files they build.
+ * @return String in D-M-Y_H-M-S.mmm format.
+ */
+std::string nowMillis()
+{
+	const int MAX_LEN = 25, MAX_RESULT = 80;
+	char result[MAX_RESULT] = { 0 };
+#ifdef _WIN32
+	// ONE clock read, so the second and the millisecond can never straddle a
+	// tick. dd-MM-yyyy_HH-mm-ss is the invariant-locale shape now() formats.
+	SYSTEMTIME st;
+	GetLocalTime(&st);
+	sprintf(result, "%02d-%02d-%04d_%02d-%02d-%02d.%03d",
+		(int)st.wDay, (int)st.wMonth, (int)st.wYear,
+		(int)st.wHour, (int)st.wMinute, (int)st.wSecond, (int)st.wMilliseconds);
+#else
+	char buffer[MAX_LEN];
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	time_t rawtime = (time_t)tv.tv_sec;
+	struct tm *timeinfo = localtime(&rawtime);
+	strftime(buffer, MAX_LEN, "%d-%m-%Y_%H-%M-%S", timeinfo);
+	sprintf(result, "%s.%03d", buffer, (int)(tv.tv_usec / 1000));
+#endif
+	return result;
+}
+
+/**
  * I5 next-launch crash reporter: after the dying process has written its dump and
  * log, drop a marker naming those files so a HEALTHY next launch can offer to
  * bundle them for the developers. Best-effort and self-contained on purpose - the
@@ -1712,7 +1744,7 @@ void setLogFileName(const std::string& name) {
 }
 void log(int level, const std::ostringstream& baremsgstream) {
 	std::ostringstream msgstream;
-	msgstream << "[" << CrossPlatform::now() << "]" << "\t"
+	msgstream << "[" << CrossPlatform::nowMillis() << "]" << "\t"
 			  << "[" << Logger::toString(level) << "]" << "\t"
 			  << baremsgstream.str() << std::endl;
 	auto msg = msgstream.str();
