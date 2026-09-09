@@ -44,31 +44,22 @@ REQUIRES, and where each requirement is asserted below:
            walks, plus `reveal_state` per-part parity unchanged (the client
            never authored fog - SS2.4a's client-authority rule).
 
-FIXTURE (WV-D18, and PINNED not assumed - the standing rule of this wave):
-walk-core's fixtures are DOOR-FREE and CONTACT-FREE BY CONSTRUCTION, because
-doors are W1-P10 and spot halts are W1-P11 (WV-D26). This file therefore
-strengthens repro_atom_turn.py's own selection rule in three ways, all of them
-PINS (a fixture that fails one is RE-ROLLED; nothing asserted is relaxed):
+FIXTURE (PINNED, not searched — SPEC RW-S4, owner S4=(b) + WV-D99 one run / WV-D100 no SKIP):
+every run of this file is the SAME run. bring_up_pinned_battle() boots the two-instance skirmish
+fixture, set_seed(SEED) on the host right before newbattle_ok, asserts mapFingerprint == FINGERPRINT
+(a RED naming the premise if not), applies the WV-D88 corner placement (hostiles -> the corner
+farthest from the squad, neutrals -> the opposite) through place_deterministic's hash gate, then
+teleports the seven player soldiers onto a baked FORMATION of seven parallel open-ground lanes at
+one z, one direction D, spaced 2 tiles apart, each LANE_LEN tiles long with the tile behind each
+start open too. Every walk in every phase is ordered to a destination computed by arithmetic from
+the baked constants (lane_dest), never found by scanning tiles, never retried over candidates, never
+re-rolled. A premise that no longer holds is a RED naming it (exit 2), never exit 3.
 
-  (b') NO DOOR within WALK_DOOR_RADIUS - larger than the turn repro's 2, because
-       a WALK moves the actor and vanilla auto-opens a door it steps up to
-       (UnitWalkBState.cpp's `unitOpensDoor` block), which is W1-P10's atom and
-       would arrive here as an unapplied terrain change.
-       **INVERTED BY `--require-door` (W1-P10):** that packet makes a door a
-       synced `ev door` in the same seq stream rather than an unapplied terrain
-       change, so its acceptance re-runs this whole file on a fixture that DOES
-       contain one. Same assertions, door-containing map.
-  (c') CONTACT-FREE WITH A MARGIN: session.MAX_VIEW_DISTANCE plus the total
-       displacement this test can produce. session.actor_is_contact_free()'s own
-       cap is exactly right for a ROTATION, which cannot move the actor; a walk
-       can, so the same cap alone would let an actor walk INTO view distance and
-       take vanilla's `unitSpotted` halt - a `spot` reason walk-core does not
-       own (W1-P11 does).
-  (e') THE ACTOR CARRIES A WEAPON. PHASE 5's whole subject is a TU RESERVE, and
-       BattlescapeGame::checkReservedTU reserves against
-       `bu->getMainHandWeapon(false)` - with no weapon the reserve cost computes
-       to 0 and the predicate returns true unconditionally, i.e. the phase would
-       assert a rule that was never in force.
+The SEED / FINGERPRINT / Z / D / LANE_LEN / FORMATION constants below come from
+tools/coop_test/precalc_walk_fixture.py (the one-time seed+formation hunt); re-run it to regenerate
+them if the ruleset or map generator changes. PHASE 5's reserve still needs the client soldiers to
+carry a weapon (BattlescapeGame::checkReservedTU reserves against getMainHandWeapon), which the
+default skirmish squad does.
 
 TWO TEST-ONLY LEVERS SHIP WITH THIS PACKET (WR-11, RB-D26 discipline - minimal,
 deterministic, test-only, neither changes the wire):
@@ -98,9 +89,7 @@ WHY THE ASSERTIONS HERE ARE NOT VACUOUS - the checks that would go RED:
     WR-6 names.
 
 Run:  python tools/coop_test/repro_atom_walk.py
-      python tools/coop_test/repro_atom_walk.py --require-door   (W1-P10)
-      (in its OWN shell invocation - the standing harness rule, one harness run
-       at a time, machine-wide.)
+      (in its OWN shell invocation - one harness run at a time, machine-wide.)
 """
 
 import os
@@ -138,6 +127,17 @@ WALK_DOOR_RADIUS = WALK_RUN + 2
 # below, so no walk this test issues can bring the actor inside view distance at
 # any point along the path. The margin here only guarantees room to manoeuvre.
 WALK_CONTACT_MARGIN = 4
+
+# SPEC RW-S4: pinned seed + baked FORMATION (no runtime search). Regenerate with
+#   python tools/coop_test/precalc_walk_fixture.py --seeds 40 --lane-len 11 --spacing 2
+SEED = 1
+FINGERPRINT = -4.48310638993e+18
+Z = 0
+D = (1, 0)            # lane direction (east)
+LANE_LEN = 11
+FORMATION = {  # slot -> (x, y) start tile; slots 0-4 = client soldiers (seat order), 5-6 = host
+    0: (1, 0), 1: (1, 2), 2: (1, 4), 3: (1, 6), 4: (1, 8), 5: (1, 10), 6: (1, 12),
+}
 
 SDLK_HOME = 278  # Options::keyBattleCenterUnit default
 SDLK_TAB = 9     # Options::keyBattleNextUnit default
@@ -259,227 +259,10 @@ def bring_up_lobby(host, client, port):
     host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
 
 
-def drive_to_battlescape(host, client, seated_holder, seat_count=SEAT1_SOLDIERS):
-    host.ok({"cmd": "lobby_action"})
-    host.wait_for("host at battle settings",
-                  lambda: (not session.has_state(host, "LobbyMenu")) or None)
-    assert top_state(host) == "NewBattleState", \
-        f"host should land on the NEW BATTLE setup screen, stack={states(host)}"
-
-    soldier_ids = []
-    for i in range(seat_count):
-        r = host.cmd({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1, "index": i})
-        if not r.get("ok"):
-            break   # the craft simply has fewer soldiers than that
-        soldier_ids.append(r["soldierId"])
-    assert len(soldier_ids) >= 4, \
-        f"newbattle_seat_soldier stamped only {len(soldier_ids)} soldier(s) to seat 1 - " \
-        "this repro needs at least four client-owned actors for TU headroom (see " \
-        "SEAT1_SOLDIERS)"
-    seated_holder["soldierIds"] = soldier_ids
-    seated_holder["soldierId"] = soldier_ids[0]
-
-    host.ok({"cmd": "newbattle_ok"})
-    host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
-    # WV-D56 (FX-1): the snapshot/offer now move to AFTER startFirstTurn() -
-    # i.e. to this click, not to newbattle_ok. Wait for "client battlescape"
-    # only AFTER it, never before (the client learns nothing until then).
-    host.ok({"cmd": "click_widget", "match": "ok"})
-    host.wait_for("host battlescape",
-                  lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-    session.dismiss_battle_start_overlays(host)
-    client.wait_for("client battlescape",
-                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-    # WV-D82: connectionTCP.cpp:8280-8330 pushes BattlescapeState and the read-only BriefingState in ONE synchronous handler; this asserts that precondition loudly instead of napping 3 s past it (WV-D80).
-    client.wait_for("client entry briefing pushed over BattlescapeState",
-                    lambda: session.has_state(client, "BriefingState") or None, timeout=20)
-    # W1-P3 (D3): the client enters through a read-only BriefingState pushed OVER
-    # its BattlescapeState - every fixture that DRIVES the client must dismiss it.
-    session.dismiss_client_briefing(client)
-
-
-def has_door_within(gc, x, y, z, radius):
-    """Any door part within Chebyshev @a radius of (x,y) at the SAME level.
-
-    Reads W1-P10's `find_doors` probe - ONE round trip for the whole map -
-    instead of a tile_info sweep, which is the same predicate at
-    (2*radius+1)^2 round trips per soldier. At the tight WALK_DOOR_RADIUS the
-    sweep was merely wasteful; at WALK_DOOR_REQUIRE_RADIUS, across every seated
-    soldier, it cost ~4.7 MINUTES per fixture attempt (measured) and made the
-    inverted run untenable."""
-    r = gc.cmd({"cmd": "find_doors", "limit": 512})
-    if not r.get("ok"):
-        return False
-    for d in r["doors"]:
-        if d["z"] == z and abs(d["x"] - x) <= radius and abs(d["y"] - y) <= radius:
-            return True
-    return False
-
-
-def tile_is_open_ground(gc, x, y, z, occupied):
-    """A cheap, CONSERVATIVE walkability screen for a candidate step tile: it
-    exists, it has a FLOOR, it carries no door part, and no unit is standing on
-    it. The pathfinder remains the real judge - a candidate that survives this
-    and still yields no route is simply skipped by the caller."""
-    if (x, y, z) in occupied:
-        return False
-    ti = gc.cmd({"cmd": "tile_info", "x": x, "y": y, "z": z})
-    if not ti.get("ok"):
-        return False
-    parts = ti.get("parts", {})
-    if parts.get("floor", {}).get("mapDataID", -1) < 0:
-        return False
-    for part in parts.values():
-        if part.get("isDoor") or part.get("isUfoDoor"):
-            return False
-    return True
-
-
-def living_non_players(battle_state_resp):
-    return [(u["x"], u["y"], u["z"]) for u in battle_state_resp.get("units", [])
-            if u.get("faction") != FACTION_PLAYER and not u.get("isOut")]
-
-
-def min_dist_to(aliens, tile):
-    """Straight-line 3D tile distance from @a tile to the nearest of @a aliens,
-    or None when there are none. Same metric session.nearest_non_player_distance
-    uses, applied to a TILE instead of a unit."""
-    best = None
-    for a in aliens:
-        d2 = (a[0] - tile[0]) ** 2 + (a[1] - tile[1]) ** 2 + (a[2] - tile[2]) ** 2
-        if best is None or d2 < best:
-            best = d2
-    return None if best is None else best ** 0.5
-
-
-def region_is_contact_free(aliens, actor, dest, pad=1):
-    """WV-D18's contact-free premise, applied to a candidate WALK rather than to
-    the actor's starting tile: EVERY tile the walk could occupy must stay
-    strictly outside session.MAX_VIEW_DISTANCE of every living non-player unit.
-
-    The region checked is the bounding box of (actor, dest) PADDED by @a pad,
-    which is a conservative superset of any route Pathfinding can produce for a
-    walk of this length - the whole point being that the check must not depend
-    on guessing the route. Aliens do not move for the whole of this test (wave 1
-    has no side transition, so the player side never ends), which is what makes
-    a static per-tile check SOUND rather than merely likely.
-
-    This is THE pin - see WALK_CONTACT_MARGIN's own comment for why the pin had
-    to move here from a static qualification margin."""
-    x0, x1 = sorted((actor["x"], dest[0]))
-    y0, y1 = sorted((actor["y"], dest[1]))
-    for x in range(x0 - pad, x1 + pad + 1):
-        for y in range(y0 - pad, y1 + pad + 1):
-            d = min_dist_to(aliens, (x, y, dest[2]))
-            if d is not None and d <= session.MAX_VIEW_DISTANCE:
-                return False
-    return True
-
-
-def straight_runs(host, actor, occupied, length=WALK_RUN, st=None, want=10):
-    """Candidate walk DESTINATIONS exactly @a length tiles away (Chebyshev) that
-    are open ground and whose whole neighbourhood is contact-free. Returns a
-    list of (dir_or_None, [dest]) so every call site keeps the shape it already
-    used - `entry[1][-1]` is the destination and `len(entry[1])` is meaningless
-    for planning, which is why nothing asserts a predicted path any more.
-
-    WHY DESTINATIONS AND NOT A STRAIGHT OPEN RUN. The first version demanded N
-    COLLINEAR open tiles and was rejected by EVERY generation this map produces
-    (15/15 boots, "no 3-tile open-ground run in any direction"): at t=0 the
-    squad is packed inside the Skyranger, so an actor's neighbours are other
-    soldiers and its straight lines run into the hull. Pathfinding routes around
-    both. Nothing this test asserts needed the straight line - the executed path
-    is compared against the HOST's own record and its own `plannedLen`, never
-    against a path the harness predicted - so the requirement was the fixture
-    being over-specified, not the atom being unobservable.
-
-    ORDERED so the destination FURTHEST from the nearest alien comes first:
-    walking away from contact keeps the later phases' own open ground available
-    and is the conservative direction for the pin above."""
-    if st is None:
-        st = battle_state(host)
-    aliens = living_non_players(st)
-    ring = []
-    # BOTH the actor's own level AND the one below it. The squad starts INSIDE
-    # the Skyranger, whose deck sits a level ABOVE the terrain: every tile
-    # outside the hull at the actor's own z is AIR (floor mapDataID -1) and every
-    # tile inside it is another soldier, so a same-level-only search returns
-    # nothing at all and the first walk cannot be ordered (observed). The ground
-    # the squad actually walks on is z-1, down the ramp, and Pathfinding handles
-    # the drop itself.
-    for dz in (0, -1, 1):
-        z = actor["z"] + dz
-        if z < 0:
-            continue
-        for dx in range(-length, length + 1):
-            for dy in range(-length, length + 1):
-                if max(abs(dx), abs(dy)) != length:
-                    continue
-                t = (actor["x"] + dx, actor["y"] + dy, z)
-                if not region_is_contact_free(aliens, actor, t):
-                    continue
-                d = min_dist_to(aliens, t)
-                # same level first, then down, then up - a same-level walk is the
-                # simplest thing to reason about and the others are the fallback.
-                ring.append((abs(dz), -(d if d is not None else 1e9), t))
-    ring.sort(key=lambda e: (e[0], e[1]))
-
-    out = []
-    for _, _, t in ring:
-        if tile_is_open_ground(host, t[0], t[1], t[2], occupied):
-            out.append((None, [t]))
-            if len(out) >= want:
-                break
-    return out
-
-
-def qualifying_actor(host, soldier_id):
-    """WV-D18's walk-core fixture rule, PINNED - see the module docstring for
-    why (b') and (c') are stronger than repro_atom_turn.py's and why (e') is
-    here at all. Returns the unit dict, or None if it fails a rule.
-
-    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
-    within view distance, and the lever does not recompute sight, so the
-    visible list may be stale."""
-    st = battle_state(host)
-    if not st.get("ok") or not st.get("inBattle"):
-        return None
-    units = units_by_id(st)
-    occupied = {pos_of(u) for u in units.values() if not u.get("isOut")}
-    for u in units.values():
-        if u.get("soldierId") != soldier_id:
-            continue
-        if has_door_within(host, u["x"], u["y"], u["z"], WALK_DOOR_RADIUS):
-            print(f"[repro_atom_walk] rule (b'): a door within {WALK_DOOR_RADIUS} tiles "
-                  "of the actor - a walk would auto-open it (W1-P10's atom)")
-            return None
-        d = session.nearest_non_player_distance(st, u)
-        cap = session.MAX_VIEW_DISTANCE + WALK_CONTACT_MARGIN
-        if d is not None and d <= cap:
-            print(f"[repro_atom_walk] rule (c'): nearest non-player unit is {d:.2f} "
-                  f"tiles away (walk cap {cap}) - this actor could walk INTO view "
-                  "distance and take vanilla's spot halt (W1-P11's atom)")
-            return None
-        print(f"[repro_atom_walk] rule (c') ok: nearest non-player unit is "
-              f"{'none at all' if d is None else '%.2f tiles' % d} away (walk cap {cap})")
-        if not u.get("weapon"):
-            print("[repro_atom_walk] rule (e'): the actor carries no weapon, so a TU "
-                  "reserve computes to 0 and PHASE 5 would assert a rule that is not "
-                  "in force")
-            return None
-        runs = straight_runs(host, u, occupied, st=st)
-        if not runs:
-            print(f"[repro_atom_walk] rule (f'): no open-ground, contact-free "
-                  f"destination {WALK_RUN} tiles from the actor - there is nothing "
-                  "to walk")
-            return None
-        print(f"[repro_atom_walk] rule (f') ok: {len(runs)} contact-free destination(s) "
-              f"{WALK_RUN} tiles out: {[r[1][0] for r in runs]}")
-        return u
-    return None
-
-
-def bring_up_qualifying_battle():
+def bring_up_pinned_battle():
+    """SPEC RW-S4: boot the two-instance skirmish fixture on the PINNED seed,
+    assert the map fingerprint, apply the WV-D88 corner placement, then
+    teleport the seven player soldiers onto the baked FORMATION."""
     port = str(48436 + 1)
     host_dir = make_user_dir(f"repro_atom_walk_host_1")
     client_dir = make_user_dir(f"repro_atom_walk_client_1")
@@ -488,22 +271,68 @@ def bring_up_qualifying_battle():
     seated = {}
     try:
         bring_up_lobby(host, client, port)
-        drive_to_battlescape(host, client, seated)
-        session.stage_open_ground_actor(
-            host, client, [seated["soldierId"]], "repro_atom_walk",
-            door_radius=WALK_DOOR_RADIUS,
-            contact_min=session.MAX_VIEW_DISTANCE + WALK_CONTACT_MARGIN + 1,
-            need_weapon=True, run_length=WALK_RUN)
-        actor = qualifying_actor(host, seated["soldierId"])
-        if actor is not None:
-            print(f"[repro_atom_walk] fixture qualifies "
-                  f"(actor unit id={actor['id']}, "
-                  f"soldierId={seated['soldierId']}, pos={pos_of(actor)}, "
-                  f"seat-1 soldiers={seated['soldierIds']})")
-            return host, client, actor, seated["soldierIds"]
-        raise AssertionError(f"FIXTURE: [repro_atom_walk] staged actor failed the qualifying "
-                              f"rule (door within radius, or a non-player unit inside view "
-                              f"distance) after staging")
+        session.drive_to_battlescape(host, client, seated, seat_count=SEAT1_SOLDIERS,
+                                     pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED}))
+
+        st = battle_state(host)
+        assert st["mapFingerprint"] == FINGERPRINT, (
+            f"FIXTURE PREMISE BROKE: mapFingerprint {st['mapFingerprint']!r} != "
+            f"{FINGERPRINT!r}")
+
+        # WV-D88 corner placement (byte-for-byte the lever call
+        # session.stage_open_ground_actor's own step 1 uses).
+        players = [u for u in st["units"] if u.get("faction") == FACTION_PLAYER
+                   and not u.get("isOut")]
+        cx = sum(u["x"] for u in players) / len(players)
+        cy = sum(u["y"] for u in players) / len(players)
+        dr = host.cmd({"cmd": "find_doors", "limit": 1})
+        mx, my = dr["mapSizeX"], dr["mapSizeY"]
+        corner = ("S" if cy < my / 2.0 else "N") + ("E" if cx < mx / 2.0 else "W")
+        opp = session._OPPOSITE_CORNER[corner]
+        moves = []
+        if any(u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut")
+               for u in st["units"]):
+            moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+                          "corner": corner, "facing": session._CORNER_FACING[corner]})
+        if any(u.get("faction") == 2 and not u.get("isOut") for u in st["units"]):
+            moves.append({"lever": "battle_teleport_all", "faction": "neutral",
+                          "corner": opp, "facing": session._CORNER_FACING[opp]})
+        if moves:
+            session.place_deterministic(host, client, moves, what="RW-S4 corner placement")
+
+        # SLOT -> UNIT MAPPING. slots 0-4 = the client soldiers in seat order;
+        # slots 5-6 = the first two live host seat-0 player soldiers by id.
+        st = battle_state(host)
+        units = units_by_id(st)
+        soldier_to_unit = {u["soldierId"]: u["id"] for u in units.values()
+                           if u.get("soldierId") is not None}
+        client_ids = [u["id"] for u in units.values()
+                      if u.get("coop") == COOP_SEAT_1 and not u.get("isOut")]
+        assert len(client_ids) >= 5, (
+            f"FIXTURE PREMISE BROKE: only {len(client_ids)} live seat-1 unit(s); "
+            "this fixture needs 5")
+        host_ids = sorted(u["id"] for u in units.values()
+                          if u.get("coop") == COOP_SEAT_0 and u.get("isPlayerSoldier")
+                          and not u.get("isOut"))
+        slot_unit = {}
+        for i in range(5):
+            slot_unit[i] = soldier_to_unit[seated["soldierIds"][i]]
+        slot_unit[5] = host_ids[0]
+        slot_unit[6] = host_ids[1]
+        assert len(slot_unit) == 7
+
+        moves = [{"lever": "battle_teleport_unit", "unit": slot_unit[s],
+                  "x": FORMATION[s][0], "y": FORMATION[s][1], "z": Z, "dir": 2}
+                 for s in range(7)]
+        session.place_deterministic(host, client, moves, what="RW-S4 FORMATION")
+        for s in range(7):
+            u = unit_of(host, slot_unit[s])
+            assert (u["x"], u["y"], u["z"]) == (FORMATION[s][0], FORMATION[s][1], Z), (
+                f"FIXTURE PREMISE BROKE: slot {s} unit {slot_unit[s]} sits at "
+                f"{(u['x'], u['y'], u['z'])}, expected {(FORMATION[s][0], FORMATION[s][1], Z)}")
+
+        print(f"[repro_atom_walk] fixture qualifies (SEED={SEED}, slot_unit={slot_unit})")
+        return host, client, slot_unit, seated["soldierIds"]
     except Exception:
         host.shutdown()
         client.shutdown()
@@ -566,17 +395,32 @@ def send_walk(client, actor_id, dest, path=None, tu_basis=None, run=False,
     return client.cmd(req)
 
 
-def walk_candidates(host, actor_id, lengths=(1, 2, 3)):
-    """Contact-free, open-ground destinations across several radii, nearest
-    radius first. Flat list of tiles."""
-    actor = unit_of(host, actor_id)
-    st = battle_state(host)
-    occ = {pos_of(u) for u in st["units"] if not u.get("isOut")}
-    out = []
-    for radius in lengths:
-        for _, dest in straight_runs(host, actor, occ, length=radius, st=st):
-            out.append(dest[0])
-    return out
+def lane_dest(host, unit_id, n):
+    """The unit's CURRENT position + n*D (pure arithmetic, no scan). Asserts it
+    lies within the unit's lane (SPEC RW-S4 (d)3)."""
+    u = unit_of(host, unit_id)
+    assert abs(n) <= LANE_LEN, (
+        f"lane_dest: n={n} exceeds LANE_LEN={LANE_LEN} for unit {unit_id}")
+    return (u["x"] + D[0] * n, u["y"] + D[1] * n, u["z"])
+
+
+def walk_lane(host, client, unit_id, what, n, min_steps=1, require_unhalted=True):
+    """ONE send_walk to lane_dest(n); no iseq -> a RED naming the premise.
+    Returns (hw, cw), the same shape every phase body's assertions expect."""
+    dest = lane_dest(host, unit_id, n)
+    prev = walk_action_id(host)
+    resp = send_walk(client, unit_id, dest)
+    pos = pos_of(unit_of(host, unit_id))
+    assert resp.get("iseq"), (f"FIXTURE PREMISE BROKE: {what}: no route from {pos} to {dest}; "
+                              f"reply={resp}")
+    wait_walk_settled(host, client, prev)
+    settle_reveal(host, client)
+    hw, cw = last_walk(host), last_walk(client)
+    halted = bool((hw.get("restate") or {}).get("halted"))
+    if require_unhalted and halted:
+        raise AssertionError(f"FIXTURE PREMISE BROKE: {what}: walk halted "
+                             f"({(hw.get('restate') or {}).get('reason')!r}) unexpectedly")
+    return hw, cw
 
 
 def send_walk_outcome(host, client, actor_id, dest, timeout=20, **kw):
@@ -612,74 +456,6 @@ def send_walk_outcome(host, client, actor_id, dest, timeout=20, **kw):
         time.sleep(0.05)
     raise TimeoutError(f"walk intent iseq {iseq} for actor {actor_id} was neither "
                        f"executed nor denied within {timeout}s")
-
-
-def richest(host, ids, n=1, exclude=()):
-    """The @a n client-owned units with the most TU left, excluding @a exclude.
-
-    Actors are allocated by TU rather than by index because every phase that
-    WALKS spends TU and an actor that runs dry fails exactly like a broken atom
-    would ("no walk could be ordered"). Choosing dynamically keeps that fixture
-    failure mode away from the assertions."""
-    st = battle_state(host)
-    us = [u for u in st["units"] if u["id"] in ids and not u.get("isOut")
-          and u["id"] not in exclude]
-    us.sort(key=lambda u: -u["tu"])
-    return [u["id"] for u in us[:n]]
-
-
-def pick_and_walk(host, client, actor_id, what, lengths=(1, 2, 3), min_steps=1,
-                  require_unhalted=True, rounds=3):
-    """Order ONE walk for @a actor_id and settle it. Tries contact-free
-    destinations at each radius in @a lengths, nearest radius first, and within a
-    radius the destination FURTHEST from contact first; a candidate the
-    pathfinder cannot route to simply ships nothing and the next is tried.
-
-    WHY THIS EXISTS RATHER THAN "walk one tile north". At t=0 the squad is packed
-    inside the Skyranger, so an actor's ADJACENT tiles are other soldiers and its
-    straight lines run into the hull - the first version of this file demanded a
-    3-tile open run and was rejected by 15/15 generations, and a 1-tile version
-    is rejected just as often for the same reason. Pathfinding routes around
-    both, and nothing this file asserts needs a path the harness predicted.
-
-    Returns (host lastWalk, client lastWalk) or None when nothing could be
-    ordered."""
-    last = None
-    # ROUNDS, not one pass: a walk that lands but is too SHORT still MOVED the
-    # actor, and the geometry that made it short - being packed inside the
-    # Skyranger with nothing but hull and squadmates around - is exactly what the
-    # move fixes. A second pass from the new position routinely succeeds where
-    # the first could not (observed: an actor still in the craft had no routable
-    # 2- or 3-tile destination at all).
-    for _ in range(rounds):
-        progressed = False
-        for radius in lengths:
-            actor = unit_of(host, actor_id)
-            occ = {pos_of(u) for u in battle_state(host)["units"] if not u.get("isOut")}
-            for _, dest in straight_runs(host, actor, occ, length=radius):
-                prev = walk_action_id(host)
-                resp = send_walk(client, actor_id, dest[0])
-                if not resp.get("iseq"):
-                    continue
-                wait_walk_settled(host, client, prev)
-                settle_reveal(host, client)
-                hw, cw = last_walk(host), last_walk(client)
-                last = (hw, cw)
-                progressed = True
-                halted = bool((hw.get("restate") or {}).get("halted"))
-                if (len(hw.get("steps") or []) >= min_steps
-                        and not (require_unhalted and halted)):
-                    return hw, cw
-                if halted:
-                    # A REAL halt (almost always `no_tu` on a drained actor). Not
-                    # a failure of the atom - it is what SS2.W2 says must happen -
-                    # but the caller asked for a clean walk, so try a shorter plan.
-                    print(f"    [{what}] a {len(hw['steps'])}-step walk HALTED "
-                          f"({(hw.get('restate') or {}).get('reason')!r}); trying a "
-                          "shorter plan")
-        if not progressed:
-            break
-    return last if (last and not require_unhalted) else None
 
 
 def assert_every_step_hashed(gc, expected, what):
@@ -805,11 +581,11 @@ def phase1_open_ground(host, client, actor_id):
 
     executed = []
     for k in range(1, 3):
-        # Leg 1 may have to leave the Skyranger (see pick_and_walk's docstring);
-        # after that the actor is on open ground and the legs stay SHORT, so the
-        # actor keeps TU for PHASE 1b's multi-step walk.
-        got = pick_and_walk(host, client, actor_id, f"PHASE 1 leg {k}",
-                            lengths=(1, 2, 3) if k == 1 else (1, 2))
+        # Leg 1 may have to leave the Skyranger; after that the actor is on
+        # open ground and the legs stay SHORT, so the actor keeps TU for
+        # PHASE 1b's multi-step walk.
+        got = walk_lane(host, client, actor_id, f"PHASE 1 leg {k}",
+                        3 if k == 1 else 2)
         assert got is not None, f"PHASE 1: no walk could be ordered for leg {k}"
         hw, cw = got
         assert_step_stream(hw, cw, f"PHASE 1 leg {k}")
@@ -846,8 +622,7 @@ def phase1b_multi_step(host, client, actor_id):
     "one ev per step, strictly increasing stepIndex" is asserted on a real
     multi-step stream rather than inferred from single-step legs."""
     t0 = time.time()
-    got = pick_and_walk(host, client, actor_id, "PHASE 1b",
-                        lengths=(WALK_RUN, 2, WALK_RUN + 1), min_steps=2)
+    got = walk_lane(host, client, actor_id, "PHASE 1b", 3, min_steps=2)
     elapsed = time.time() - t0
     hw, cw = got if got else (None, None)
     assert hw is not None and len(hw["steps"]) >= 2, (
@@ -889,7 +664,7 @@ def phase2_hud(host, client, actor_id):
         f"PHASE 2 PRECONDITION: the client's painted TU {hud0['tu']} already "
         f"disagrees with the model {u0['tu']} before the walk")
 
-    got = pick_and_walk(host, client, actor_id, "PHASE 2 HUD walk", lengths=(1, 2))
+    got = walk_lane(host, client, actor_id, "PHASE 2 HUD walk", 1)
     assert got is not None, "PHASE 2: no walk could be ordered for the HUD proof"
     hw, cw = got
     assert_step_stream(hw, cw, "PHASE 2")
@@ -918,26 +693,22 @@ def phase2_hud(host, client, actor_id):
 
 def phase3_halt(host, client, actor_id):
     """SS2.W2 rule 5 + the halt presenter (WV-D53)."""
-    cands = walk_candidates(host, actor_id, lengths=(WALK_RUN, 2))
-    assert cands, "PHASE 3: no contact-free destination left for the halt walk"
+    dest = lane_dest(host, actor_id, 3)
 
-    hw = cw = None
-    for dest in cands:
-        prev = walk_action_id(host)
-        # ARMED BEFORE THE SEND, deliberately. The intent travels over the game's
-        # own TCP lane while battle_halt_walk goes straight to the host's
-        # TestServer, so arming afterwards is a race the walk usually wins. The
-        # latch is one-shot and idempotent, so a candidate that ships nothing
-        # simply leaves it armed for the next one - which is what this loop wants.
-        host.ok({"cmd": "battle_halt_walk"})
-        resp = send_walk(client, actor_id, dest)
-        if not resp.get("iseq"):
-            continue
-        wait_walk_settled(host, client, prev)
-        settle_reveal(host, client)
-        hw, cw = last_walk(host), last_walk(client)
-        if hw["plannedLen"] >= 2 and 0 < len(hw["steps"]) < hw["plannedLen"]:
-            break
+    prev = walk_action_id(host)
+    # ARMED BEFORE THE SEND, deliberately. The intent travels over the game's
+    # own TCP lane while battle_halt_walk goes straight to the host's
+    # TestServer, so arming afterwards is a race the walk usually wins. The
+    # latch is one-shot and idempotent.
+    host.ok({"cmd": "battle_halt_walk"})
+    resp = send_walk(client, actor_id, dest)
+    if not resp.get("iseq"):
+        raise AssertionError(
+            f"FIXTURE PREMISE BROKE: PHASE 3: no route from "
+            f"{pos_of(unit_of(host, actor_id))} to {dest}; reply={resp}")
+    wait_walk_settled(host, client, prev)
+    settle_reveal(host, client)
+    hw, cw = last_walk(host), last_walk(client)
     assert hw is not None and hw["plannedLen"] >= 2, (
         "PHASE 3: no candidate destination produced a MULTI-STEP plan - a halt can "
         "only be observed on a walk with something left to halt. FIXTURE failure.")
@@ -978,31 +749,21 @@ def phase3_halt(host, client, actor_id):
           f"ordering seat shows {STR_HALT_BLOCKED!r}, all buckets EQUAL")
 
 
-def phase4_denies(host, client, actor_id, client_own_ids):
+def phase4_denies(host, client, slot4_id, slot0_id):
     """The two deny paths SS2.W2's validator owns, each observed once."""
+    # slot 0 becomes the 4a blocker (spec (c)); record its lane tile so the SECOND
+    # teleport can move it back off slot 4's lane before the cost_changed half -
+    # otherwise slot 4's next tile stays occupied and no intent can ship.
+    slot0_home = pos_of(unit_of(host, slot0_id))
     # --- path_changed: a plan through an OCCUPIED tile -------------------
-    st = battle_state(host)
-    units = units_by_id(st)
-    blocker = None
-    walker = None
-    for uid in client_own_ids:
-        u = units.get(uid)
-        if not u or u.get("isOut"):
-            continue
-        for other in units.values():
-            if other["id"] == uid or other.get("isOut"):
-                continue
-            if other["z"] != u["z"]:
-                continue
-            if max(abs(other["x"] - u["x"]), abs(other["y"] - u["y"])) == 1:
-                walker, blocker = u, other
-                break
-        if walker:
-            break
-    assert walker is not None, (
-        "PHASE 4: no client-owned unit has another unit on an ADJACENT tile, so a "
-        "one-step plan through an occupied tile cannot be built - FIXTURE failure, "
-        "not a result about the validator")
+    block_dest = lane_dest(host, slot4_id, 1)
+    session.place_deterministic(
+        host, client,
+        [{"lever": "battle_teleport_unit", "unit": slot0_id,
+          "x": block_dest[0], "y": block_dest[1], "z": block_dest[2], "dir": 2}],
+        what="PHASE 4 path_changed blocker placement")
+    walker = unit_of(host, slot4_id)
+    blocker = unit_of(host, slot0_id)
 
     walks_before = walk_action_id(host)
     resp = send_walk(client, walker["id"], pos_of(blocker), path=[pos_of(blocker)])
@@ -1026,15 +787,20 @@ def phase4_denies(host, client, actor_id, client_own_ids):
     print(f"PASS PHASE 4a: a plan through the tile of unit {blocker['id']} was denied "
           f"path_changed, nothing was emitted, the unit did not move")
 
+    # SECOND teleport (spec (c)): move the blocker back to its own lane tile so
+    # slot 4's next tile is free for the cost_changed walk to ship.
+    session.place_deterministic(
+        host, client,
+        [{"lever": "battle_teleport_unit", "unit": slot0_id,
+          "x": slot0_home[0], "y": slot0_home[1], "z": slot0_home[2], "dir": 2}],
+        what="PHASE 4 restore blocker to its lane")
+
     # --- cost_changed: a stale basis ------------------------------------
-    actor = unit_of(host, actor_id)
-    resp = None
-    for dest in walk_candidates(host, actor_id, lengths=(1, 2)):
-        resp = send_walk(client, actor_id, dest, tu_basis=999)
-        if resp.get("iseq"):
-            break
+    actor = unit_of(host, slot4_id)
+    dest = lane_dest(host, slot4_id, 1)
+    resp = send_walk(client, slot4_id, dest, tu_basis=999)
     assert resp and resp.get("iseq"), \
-        f"PHASE 4: the stale-basis intent did not ship from any candidate: {resp}"
+        f"PHASE 4: the stale-basis intent did not ship: {resp}"
     iseq = resp["iseq"]
 
     def denied2():
@@ -1045,7 +811,7 @@ def phase4_denies(host, client, actor_id, client_own_ids):
         f"PHASE 4: expected reason 'cost_changed' for tuBasisOverride=999, got {ld}")
     assert banner(client) == STR_DENY_COST_CHANGED, (
         f"PHASE 4: banner {banner(client)!r}, expected {STR_DENY_COST_CHANGED!r}")
-    assert pos_of(unit_of(host, actor_id)) == pos_of(actor), (
+    assert pos_of(unit_of(host, slot4_id)) == pos_of(actor), (
         "PHASE 4: the cost_changed-denied walk moved the unit anyway")
     assert_hash_clean(host, client, full=True, what="after the PHASE 4 denies")
     print("PASS PHASE 4b: tuBasisOverride=999 denied cost_changed, unit unmoved, "
@@ -1078,9 +844,10 @@ def reserve_probe(host, client, actor_id, mode, radius):
     hard-coded TU level would be asserting arithmetic, not the rule."""
     set_reserve(client, mode=mode)
     ev0 = event_state(client)
-    cands = walk_candidates(host, actor_id, lengths=(radius,))
-    if not cands:
-        return ("nocand", None)
+    if radius == 1:
+        cands = [lane_dest(host, actor_id, 1), lane_dest(host, actor_id, -1)]
+    else:
+        cands = [lane_dest(host, actor_id, radius)]
     for dest in cands:
         out = send_walk_outcome(host, client, actor_id, dest)
         ev1 = event_state(client)
@@ -1109,7 +876,10 @@ def phase5_reserve(host, client, client_ids):
     set_reserve(client, mode="none", kneel=False)
 
     found = None
-    for actor_id in richest(host, client_ids, len(client_ids)):
+    # highest-TU actor first: the reserve-bite window is reached by walking an
+    # actor DOWN, so an actor that starts with the most room is the one that can
+    # be walked into it (this is the actor order the pre-rewrite fixture used).
+    for actor_id in sorted(client_ids, key=lambda u: -unit_of(host, u)["tu"]):
         for mode in ("aimed", "snap"):
             for _ in range(14):
                 ev_before = event_state(client)
@@ -1187,7 +957,12 @@ def phase5b_truncation(host, client, client_ids):
         set_reserve(client, mode="none")
 
         found = None
-        for actor_id in richest(host, client_ids, len(client_ids), exclude=used):
+        # highest-TU actor first, re-evaluated per run (the actor order the
+        # pre-rewrite fixture used): a truncation only exists inside the narrow TU
+        # window, and a drained actor produces a prefix the host denies
+        # (cost_changed) instead of admitting.
+        for actor_id in sorted([i for i in client_ids if i not in used],
+                               key=lambda u: -unit_of(host, u)["tu"]):
             for mode in ("aimed", "snap"):
                 for _ in range(14):
                     probe = reserve_probe(host, client, actor_id, mode,
@@ -1382,60 +1157,22 @@ def phase6b_host_origin(host, client, host_ids):
     compute the candidate destination tile AFTER selection is confirmed, from
     the unit's then-current position, so the measured click always targets a
     tile the unit has not already been walked onto."""
-    st = battle_state(host)
-    units = units_by_id(st)
-    candidates = [u for u in units.values()
-                  if u["id"] in host_ids and not u.get("isOut")]
-    assert candidates, "PHASE 6b: the host owns no live soldier"
+    u = unit_of(host, host_ids[0])
+    assert not u.get("isOut"), f"PHASE 6b: the host's slot-5 soldier {u['id']} is OUT"
 
-    chosen = None
-    for u in candidates:
-        if session.nearest_non_player_distance(st, u) is not None and \
-           session.nearest_non_player_distance(st, u) <= session.MAX_VIEW_DISTANCE:
-            continue
-
-        # Select the candidate WITHOUT walking it. TAB-cycle only - never a
-        # ground click here (see the RCA above): with a unit already selected
-        # and PATH_NONE preview, a click on the target tile is the walk.
-        for _ in range(12):
-            if battle_state(host).get("selectedId") == u["id"]:
-                break
-            host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})
-            time.sleep(0.15)
-        if battle_state(host).get("selectedId") != u["id"]:
-            continue   # could not select this candidate - try the next one
-
-        # NOW compute a FRESH reachable adjacent open tile, from the unit's
-        # CURRENT (post-selection) position - true by construction rather
-        # than by the assumption that selecting never moves anyone.
-        st2 = battle_state(host)
-        units2 = units_by_id(st2)
-        u2 = units2.get(u["id"])
-        if u2 is None or u2.get("isOut"):
-            continue
-        occupied2 = {pos_of(x) for x in units2.values() if not x.get("isOut")}
-        runs = (straight_runs(host, u2, occupied2, length=1, st=st2)
-                or straight_runs(host, u2, occupied2, length=2, st=st2))
-        if not runs:
-            continue
-        tile = runs[0][1][0]
-        if tile == pos_of(u2):
-            continue   # guard: the measured click must target a DIFFERENT tile
-
-        host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
-        time.sleep(0.15)
-        pr = host.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1],
-                       "z": tile[2]})
-        if pr.get("ok") and pr.get("verified"):
-            chosen = (u2, tile, pr)
+    # Select the candidate WITHOUT walking it. TAB-cycle only - never a
+    # ground click here (see the RCA above): with a unit already selected
+    # and PATH_NONE preview, a click on the target tile is the walk.
+    for _ in range(12):
+        if battle_state(host).get("selectedId") == u["id"]:
             break
-    assert chosen is not None, (
-        "PHASE 6b: no host-owned, contact-free soldier with a clickable adjacent "
-        "open tile - FIXTURE failure, not a result about origin-independence")
-    u, tile, pr = chosen
+        host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})
+        time.sleep(0.15)
     assert battle_state(host).get("selectedId") == u["id"], (
         f"PHASE 6b: could not select host unit {u['id']} (selectedId="
         f"{battle_state(host).get('selectedId')})")
+
+    tile = lane_dest(host, u["id"], 1)
 
     prev = walk_action_id(host)
     arm0 = event_state(host)["coopWalkArmEntered"]
@@ -1497,7 +1234,7 @@ def phase7_burst(host, client, client_ids, host_ids):
                    "kneel": not u["kneeled"]})
 
     for uid in client_ids[:2]:
-        if pick_and_walk(host, client, uid, "PHASE 7 walk", lengths=(1, 2)) is not None:
+        if walk_lane(host, client, uid, "PHASE 7 walk", 1) is not None:
             actions += 1
         do_client_turn(uid); actions += 1
         time.sleep(0.6)
@@ -1525,7 +1262,7 @@ def phase7_burst(host, client, client_ids, host_ids):
 
 
 def main():
-    host, client, actor, soldier_ids = bring_up_qualifying_battle()
+    host, client, slot_unit, soldier_ids = bring_up_pinned_battle()
     try:
         st_h = battle_state(host)
         units = units_by_id(st_h)
@@ -1533,11 +1270,10 @@ def main():
                       if u.get("coop") == COOP_SEAT_1 and not u.get("isOut")]
         host_ids = [u["id"] for u in units.values()
                     if u.get("coop") == COOP_SEAT_0 and u.get("isPlayerSoldier")]
-        assert len(client_ids) >= 4, (
+        assert len(client_ids) >= 5, (
             f"fixture is VACUOUS: the client owns {len(client_ids)} unit(s); this "
-            "repro needs at least four - every phase that WALKS spends TU, and an "
+            "repro needs at least five - every phase that WALKS spends TU, and an "
             "actor that runs dry fails exactly like a broken atom would")
-        actor_id = actor["id"]
         print(f"[repro_atom_walk] client-owned units {sorted(client_ids)}, "
               f"host-owned soldiers {sorted(host_ids)}")
 
@@ -1545,45 +1281,30 @@ def main():
         assert_hash_clean(host, client, full=True, what="at t=0 (pre-action)")
 
         battle_t0 = time.time()
-        phase1_open_ground(host, client, actor_id)
+        phase1_open_ground(host, client, slot_unit[0])
         elapsed = time.time() - battle_t0
         assert elapsed < 5.0 * 6, (
             f"PHASE 1 battle-phase wall clock {elapsed:.2f}s - the packet's <5 s "
             "target is per WALK; this is the six-leg aggregate and is reported so a "
             "regression in the pipeline's latency is visible")
 
-        # ONE ACTOR PER TU-SPENDING PHASE, allocated by REMAINING TU (see
-        # richest()). Every phase below that walks is handed the freshest unit
-        # available at the moment it runs, so a phase can never fail merely
-        # because an earlier one drained the squad.
-        used = {actor_id}
+        phase1b_multi_step(host, client, slot_unit[1])
 
-        def take():
-            uid = richest(host, client_ids, 1, exclude=used)[0]
-            used.add(uid)
-            return uid
+        phase2_hud(host, client, slot_unit[2])
+        phase3_halt(host, client, slot_unit[3])
+        phase4_denies(host, client, slot_unit[4], slot_unit[0])
 
-        a_multi = take()
-        phase1b_multi_step(host, client, a_multi)
-
-        a_hud = take()
-        phase2_hud(host, client, a_hud)
-        a_halt = take()
-        phase3_halt(host, client, a_halt)
-        phase4_denies(host, client, richest(host, client_ids, 1)[0], client_ids)
-
-        # ORDER MATTERS, and it is TU that orders it. PHASE 6 needs a LONG walk
-        # (a short one finishes before a second order can be busy-denied into the
-        # pending slot) and PHASE 7 needs actors that can still walk at all, while
+        # ORDER MATTERS. PHASE 6 needs a LONG busy window (built via hold_chain,
+        # not TU) and PHASE 7 needs actors that can still walk at all, while
         # PHASE 5's whole method is to walk actors DOWN until their own reserve
         # bites - so PHASE 5 goes LAST, after everything that needs fuel.
-        rich2 = richest(host, client_ids, 2)
-        phase6_safelist(host, client, rich2[0], rich2[1])
-        phase6b_host_origin(host, client, host_ids)
-        phase7_burst(host, client, richest(host, client_ids, 2), host_ids)
+        phase6_safelist(host, client, slot_unit[1], slot_unit[2])
+        phase6b_host_origin(host, client, [slot_unit[5], slot_unit[6]])
+        phase7_burst(host, client, [slot_unit[3], slot_unit[4]],
+                    [slot_unit[5], slot_unit[6]])
 
-        phase5_reserve(host, client, client_ids)
-        phase5b_truncation(host, client, client_ids)
+        phase5_reserve(host, client, [slot_unit[i] for i in range(5)])
+        phase5b_truncation(host, client, [slot_unit[i] for i in range(5)])
 
         # PHASE 8: the wave's standing full-sweep assertion.
         settle_reveal(host, client)
@@ -1609,9 +1330,6 @@ if __name__ == "__main__":
         print(f"\nrepro_atom_walk: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
         sys.exit(2)
     except AssertionError as e:
-        if str(e).startswith("FIXTURE:"):
-            print(f"\nrepro_atom_walk: SKIP (fixture) - {e}")
-            sys.exit(3)
         print(f"\nrepro_atom_walk: FAIL\nAssertionError: {e}")
         sys.exit(2)
     except TimeoutError as e:
