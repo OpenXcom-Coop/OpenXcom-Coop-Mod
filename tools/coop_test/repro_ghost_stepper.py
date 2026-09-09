@@ -2,18 +2,24 @@
 GHOST STEPPER - a partner's turn/kneel/walk ANIMATES on the observing machine
 instead of snapping, display-only, without moving a single hash bucket.
 
-FIXTURE: reuses repro_atom_walk.py's fixture WHOLESALE
-(bring_up_qualifying_battle / qualifying_actor / pick_and_walk / straight_runs
-/ the battle_halt_walk lever) rather than re-deriving path-finding - walk's
-own qualifying rule (open ground, no door, contact-free - WV-D18) is a
-STRICT SUPERSET of what a turn/kneel fixture needs, so one qualifying actor
-drives all three ghost verbs. AI-neutral by construction (t=0, one player
-side, no side transition) and contact-free per
-session.actor_is_contact_free (walk_atom's own qualifying_actor already
-enforces it, transitively, through session.actor_is_contact_free); door-free
-is NOT required by THIS file's own contract - a door ev is not a ghost verb
-and must be ignored by the stepper - but walk_atom's fixture happens to be
-door-free anyway (WV-D18), so no door ev crosses the wire in any run below.
+FIXTURE (SPEC RW-S4 REV E.47, owner D36 2026-09-09 - REWRITTEN from scratch on
+the LIGHTNING-CRAFT ROOF: self-contained, deterministic, map-independent, no
+search, no SKIP). The player's Lightning craft has a flat roof except a raised
+portion at the very centre. Each fresh actor is teleported (battle_teleport_unit,
+applied to BOTH machines through place_deterministic's hash gate) to a baked
+OFF-CENTRE roof lane - a straight, flat, unobstructed run along the craft's long
+(x) axis - so it has an unobstructed multi-step walk 100% of the time on any map,
+because the craft geometry is invariant and only its map placement offset varies.
+The lane is located each run from the craft's own LIGHTNIN door
+(session.lightning_door), never from absolute coordinates: roof_z = door_z +
+ROOF_DZ, lane_y = door_y + LANE_DY, lane_x0 = door_x + LANE_DX_START, walked by
+ARITHMETIC (start + n*D), never by scanning. Hostiles/neutrals are corner-placed
+far away (WV-D88) so the roof stays contact-free even after a walk recomputes FOV.
+The baked constants were measured once by the orchestrator's R1 (three boots, door
+at y=25/5/15, identical door-relative craft-roof geometry, hash_now{full} EQUAL on
+both machines after every teleport and a 6-step walk). A premise that no longer
+holds (a lane tile that is not flat/walkable/free) is a RED naming it (exit 2),
+never a SKIP (WV-D100).
 
 WHY EVERY ASSERTION READS THE CLIENT (never the host) - "the observing
 machine" is always the CLIENT in this wave's two-seat topology, and this is
@@ -28,24 +34,22 @@ either). So the ghost never runs on the host, regardless of which seat
 originated the action - a HOST-origin turn/kneel/walk is exactly as
 observable on the client's event_state counters as a CLIENT-origin one.
 
-SESSION SHAPE (two bring-ups, in this order):
+SESSION SHAPE (two boots, in this order):
   test_ghost_verbs_e2e()      - ONE session: the OFF negative control FIRST
-                                 (while ghostEnqueued is still literally 0 -
-                                 see its own docstring for why the ORDER
-                                 matters), then the ON positive controls
-                                 (turn/kneel/walk), the halted-walk prefix
-                                 proof, and the kneel-before-walk ordering
-                                 case.
+                                 (while ghostEnqueued is still literally 0),
+                                 then the ON positive turn/kneel, the
+                                 multi-step walk, the halted-walk prefix, and
+                                 the kneel-before-walk ordering case - each on
+                                 its own fresh client soldier teleported to
+                                 the baked roof lane.
   test_desync_lever_still_detects() - a SEPARATE, freshly-booted session
-                                 (SS2.8 "no partial repair": a desync-frozen
-                                 battle has no path back, so this session is
-                                 torn down, never reused - repro_atom_kneel.py's
-                                 own test_forced_mismatch precedent).
+                                 (SS2.8 "no partial repair"), seated to leave
+                                 HOST-owned units, proving the desync lever
+                                 still fires.
 
-Exit codes: 0 PASS - 2 FAIL - 3 SKIP (fixture exhausted - repro_atom_spot.py's
-own 2026-09-03 SKIP-ruling precedent: a boot/route/candidate-set that the
-underlying map geometry simply did not provide is not this packet's product
-under test and must not count as a red).
+Exit codes: 0 PASS - 2 FAIL (a red, including a broken fixture premise). There
+is NO exit-3 SKIP - the roof fixture always provides the lane, and a missing
+lane is a RED, not a skip (SPEC RW-S4 REV E.47, WV-D100).
 
 Run:  python tools/coop_test/repro_ghost_stepper.py
 """
@@ -59,17 +63,23 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir  # noqa: F401 (re-exported for parity with sibling repros)
 import session
 from session import assert_hash_clean
+from repro_atom_walk import bring_up_lobby
 
-import repro_atom_walk as walkmod
+EXIT_PASS, EXIT_FAIL = 0, 2
 
-EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
+COOP_SEAT_0 = 0
 
-
-class FixtureExhausted(Exception):
-    """The underlying map/actor geometry did not provide what a phase needed
-    (a routable multi-step walk, a genuine partial-prefix halt, a fresh
-    qualifying TU-rich actor) - repro_atom_spot.py's own precedent: this is a
-    SKIP, not a product FAIL."""
+# SPEC RW-S4 REV E.47: the Lightning craft roof, located each run from the craft's
+# own LIGHTNIN door (map-independent; only the craft's placement offset varies).
+# Measured by orch38 R1 on three boots (door at y=25 / y=5 / y=15) - identical
+# door-relative craft-roof geometry, hash_now{full} EQUAL on both machines after
+# every teleport and a 6-step walk.
+ROOF_DZ        = 1       # roof_z = door_z + 1
+LANE_DY        = 2       # lane row (off-centre), lane_y = door_y + 2   (a proven clear run-7 row)
+LANE_DX_START  = -7      # lane_x0 = door_x - 7
+ROOF_LANE_LEN  = 7       # 7 tiles => up to a 6-step walk
+PARK_DY        = -2      # parking row (off-centre, opposite side; also a proven clear run-7 row)
+D              = (1, 0)  # walk east along the craft long (x) axis
 
 
 def event_state(gc):
@@ -82,35 +92,6 @@ def battle_state(gc):
 
 def units_by_id(resp):
     return {u["id"]: u for u in resp.get("units", [])}
-
-
-def pick_fresh_actor(host, soldier_ids, exclude_ids, min_tu=45):
-    """A DIFFERENT client-owned soldier (from the fixture's own `soldier_ids`
-    list - repro_atom_walk.py's drive_to_battlescape seats several so a
-    later phase never has to share one actor's dwindling TU with an earlier
-    one) with at least `min_tu` TU left, no door within
-    walkmod.WALK_DOOR_RADIUS, and contact-free (session.actor_is_contact_free).
-
-    WHY THIS EXISTS: this file drives turn+kneel+kneel-restore+a multi-step
-    walk on ONE actor before halted_walk_prefix()/kneel_before_walk_ordering()
-    run - both of which ALSO need a multi-step walk, and a soldier's TU budget
-    (~50-70) does not comfortably cover all of that on one unit. Every seated
-    soldier started in the SAME tight cluster the original qualifying_actor()
-    verified (all of them within a few tiles of it), so the SAME
-    nearest-alien-distance margin applies - this is a re-check, not a
-    re-roll: no second boot, no second lobby flow."""
-    st = battle_state(host)
-    candidates = [u for u in st["units"]
-                  if u.get("soldierId") in soldier_ids and u["id"] not in exclude_ids
-                  and not u.get("isOut") and u.get("tu", 0) >= min_tu]
-    candidates.sort(key=lambda u: -u["tu"])
-    for u in candidates:
-        if walkmod.has_door_within(host, u["x"], u["y"], u["z"], walkmod.WALK_DOOR_RADIUS):
-            continue
-        if not session.actor_is_contact_free(st, u, "ghost-fresh-actor"):
-            continue
-        return u
-    return None
 
 
 def unit_of(gc, uid):
@@ -192,29 +173,118 @@ def do_kneel(host, client, actor_id):
     return unit_of(host, actor_id), unit_of(client, actor_id)
 
 
-def pick_and_walk_resilient(host, client, actor_id, what, soldier_ids=None, used=None,
-                             max_actor_retries=2, **kw):
-    """walkmod.pick_and_walk(), retried on a FRESH actor when the assigned
-    one cannot route ANYTHING (measured empirically to be a per-ACTOR
-    position problem far more often than a per-battle one). Returns
-    (result, actor_id_actually_used); result is None only after every retry
-    is exhausted."""
-    tried = [actor_id]
-    while True:
-        result = walkmod.pick_and_walk(host, client, tried[-1], what, **kw)
-        if result is not None or soldier_ids is None or len(tried) > max_actor_retries:
-            return result, tried[-1]
-        replacement = pick_fresh_actor(host, soldier_ids, exclude_ids=set(tried) | (used or set()))
-        if replacement is None:
-            return None, tried[-1]
-        if used is not None:
-            used.add(replacement["id"])
-        print(f"[repro_ghost_stepper] {what}: unit {tried[-1]} could not route any walk - "
-              f"retrying on a fresh unit {replacement['id']} (tu={replacement['tu']})")
-        tried.append(replacement["id"])
+# ----- roof fixture (SPEC RW-S4 REV E.47) ---------------------------------
+
+def bring_up_roof_battle(seat_count, tag):
+    """Boot the two-instance skirmish on the Lightning, corner-place hostiles/
+    neutrals far away (WV-D88) so the roof stays contact-free, and return
+    (host, client, client_ids, host_ids, door).
+
+    `seat_count` (R1 F89): the base soldier pool is 6; `seat_count` stamps N
+    of them to the CLIENT (coop seat 1), leaving the rest on the HOST (coop
+    seat 0) - session.drive_to_battlescape's own seat loop stops the moment
+    a seat attempt fails, so seat_count directly controls the split."""
+    port = str(48448)
+    host_dir = make_user_dir(f"repro_ghost_stepper_host_{tag}")
+    client_dir = make_user_dir(f"repro_ghost_stepper_client_{tag}")
+    host = GameClient("host", 49480, host_dir)
+    client = GameClient("client", 49481, client_dir)
+    seated = {}
+    try:
+        bring_up_lobby(host, client, port)
+        session.drive_to_battlescape(
+            host, client, seated, seat_count=seat_count,
+            pre_seat=lambda h: h.ok({"cmd": "newbattle_craft", "type": "STR_LIGHTNING"}))
+
+        door, mapX, mapY = session.lightning_door(host)
+
+        # WV-D88 corner placement (byte-for-byte the block
+        # repro_atom_walk.bring_up_pinned_battle uses): hostiles -> the
+        # squad's own corner, neutrals -> the opposite one, so the roof stays
+        # contact-free.
+        st = battle_state(host)
+        players = [u for u in st["units"] if u.get("faction") == session.FACTION_PLAYER
+                   and not u.get("isOut")]
+        assert players, "FIXTURE PREMISE BROKE: bring_up_roof_battle: no live player unit"
+        cx = sum(u["x"] for u in players) / len(players)
+        cy = sum(u["y"] for u in players) / len(players)
+        corner = ("S" if cy < mapY / 2.0 else "N") + ("E" if cx < mapX / 2.0 else "W")
+        opp = session._OPPOSITE_CORNER[corner]
+        moves = []
+        if any(u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut")
+               for u in st["units"]):
+            moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+                          "corner": corner, "facing": session._CORNER_FACING[corner]})
+        if any(u.get("faction") == 2 and not u.get("isOut") for u in st["units"]):
+            moves.append({"lever": "battle_teleport_all", "faction": "neutral",
+                          "corner": opp, "facing": session._CORNER_FACING[opp]})
+        if moves:
+            session.place_deterministic(host, client, moves, what="ghost-stepper roof corner placement")
+
+        st = battle_state(host)
+        client_ids = [u["id"] for u in st["units"]
+                      if u.get("coop") == session.COOP_SEAT_1 and not u.get("isOut")]
+        host_ids = sorted(u["id"] for u in st["units"]
+                          if u.get("coop") == COOP_SEAT_0 and u.get("isPlayerSoldier")
+                          and not u.get("isOut"))
+
+        print(f"[repro_ghost_stepper] bring_up_roof_battle(seat_count={seat_count}) qualifies: "
+              f"{len(client_ids)} client unit(s) {client_ids}, {len(host_ids)} host unit(s) "
+              f"{host_ids}, door={door}")
+        return host, client, client_ids, host_ids, door
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
 
 
-def negative_control(host, client, actor_id, soldier_ids=None, used=None):
+def teleport_to_lane(host, client, actor_id, door):
+    """Teleport (both machines, hash gate) to the baked off-centre roof lane's
+    start tile, facing east (dir=2) so it faces straight down the lane."""
+    start = (door["x"] + LANE_DX_START, door["y"] + LANE_DY, door["z"] + ROOF_DZ)
+    session.place_deterministic(
+        host, client,
+        [{"lever": "battle_teleport_unit", "unit": actor_id,
+          "x": start[0], "y": start[1], "z": start[2], "dir": 2}],
+        what=f"ghost roof lane-start unit {actor_id}")
+    return start
+
+
+def park(host, client, actor_id, door, k):
+    """Move a finished actor off the lane to a distinct parking-row tile so the
+    lane is clear for the next fresh actor (the park row is a separate off-centre
+    run-7 roof row; k = 0,1,2,... spaces parked actors one tile apart)."""
+    p = (door["x"] + LANE_DX_START + k, door["y"] + PARK_DY, door["z"] + ROOF_DZ)
+    session.place_deterministic(
+        host, client,
+        [{"lever": "battle_teleport_unit", "unit": actor_id, "x": p[0], "y": p[1], "z": p[2], "dir": 2}],
+        what=f"ghost park unit {actor_id}")
+
+
+def lane_dest(host, actor_id, n):
+    """The unit's CURRENT position + n*D (pure arithmetic, no scan)."""
+    u = session.unit_of(host, actor_id)
+    return (u["x"] + D[0] * n, u["y"] + D[1] * n, u["z"])
+
+
+def walk_lane(host, client, actor_id, what, n, require_unhalted=True):
+    """ONE send_walk to lane_dest(n); no iseq => a RED naming the premise. Same
+    (hw, cw) shape every GS phase's assertions expect (mirrors the RW-S4
+    repro_atom_walk.walk_lane)."""
+    dest = lane_dest(host, actor_id, n)
+    prev = session.walk_action_id(host)
+    resp = session.send_walk(client, actor_id, dest)
+    assert resp.get("iseq"), (f"FIXTURE PREMISE BROKE: {what}: no route from "
+                              f"{session.pos_of(session.unit_of(host, actor_id))} to {dest}; reply={resp}")
+    session.wait_walk_settled(host, client, prev)
+    session.settle_reveal(host, client)
+    hw, cw = session.last_walk(host), session.last_walk(client)
+    if require_unhalted and bool((hw.get("restate") or {}).get("halted")):
+        raise AssertionError(f"FIXTURE PREMISE BROKE: {what}: walk halted unexpectedly")
+    return hw, cw
+
+
+def negative_control(host, client, actor_id):
     """DONE-WHEN 6 / SPEC 7(f)'s "ON/OFF equivalence" negative control - run
     FIRST, deliberately, while event_state.ghostEnqueued is still literally 0
     on a freshly-booted battle (it is a monotone per-battle counter,
@@ -223,14 +293,7 @@ def negative_control(host, client, actor_id, soldier_ids=None, used=None):
     counter value, not a before/after delta computed against a nonzero
     baseline. Running the positive controls first would make a literal-zero
     assertion impossible to satisfy honestly; this file avoids that instead
-    of reinterpreting the assertion.
-
-    `soldier_ids`/`used` (optional): when given, a `pick_and_walk()` failure
-    on `actor_id` is retried on a FRESH actor from the pool (up to twice)
-    before this is treated as fixture exhaustion - measured empirically the
-    single flakiest step in this file (an actor that cannot route even a
-    1-tile walk is a per-ACTOR position problem, not a per-BATTLE one, so a
-    different actor routinely succeeds where the first could not)."""
+    of reinterpreting the assertion."""
     for name, value in (("coopGhostStepper", False),):
         set_ghost_option(host, value)
         set_ghost_option(client, value)
@@ -240,29 +303,9 @@ def negative_control(host, client, actor_id, soldier_ids=None, used=None):
     assert es0.get("ghostEnqueued", -1) == 0, (
         f"negative control must start from a genuinely fresh ghost counter, got {es0}")
 
-    tried = [actor_id]
-    result = None
-    while True:
-        do_turn(host, client, tried[-1])
-        do_kneel(host, client, tried[-1])
-        result = walkmod.pick_and_walk(host, client, tried[-1], "negative control",
-                                        lengths=(1, 2, 3), min_steps=1, require_unhalted=True,
-                                        rounds=6)
-        if result is not None or soldier_ids is None or len(tried) >= 3:
-            break
-        replacement = pick_fresh_actor(host, soldier_ids, exclude_ids=set(tried) | (used or set()))
-        if replacement is None:
-            break
-        if used is not None:
-            used.add(replacement["id"])
-        print(f"[repro_ghost_stepper] negative_control: unit {tried[-1]} could not route any "
-              f"walk - retrying on a fresh unit {replacement['id']} (tu={replacement['tu']})")
-        tried.append(replacement["id"])
-
-    if result is None:
-        raise FixtureExhausted(
-            f"negative control: fixture could not produce any unhalted walk on any of {tried}")
-    hw, cw = result
+    do_turn(host, client, actor_id)
+    do_kneel(host, client, actor_id)
+    hw, cw = walk_lane(host, client, actor_id, "negative control", 3)
     assert hw.get("steps"), "negative control: the walk fixture produced no executed steps at all"
 
     es1 = event_state(client)
@@ -324,37 +367,25 @@ def positive_kneel(host, client, actor_id):
     return hh, ch
 
 
-def positive_walk(host, client, actor_id, soldier_ids=None, used=None):
+def positive_walk(host, client, actor_id):
     before = event_state(client)
     enq0, comp0 = before.get("ghostEnqueued", 0), before.get("ghostCompleted", 0)
     seq0 = before.get("lastSeqApplied", 0)
 
-    result, actor_id = pick_and_walk_resilient(
-        host, client, actor_id, "positive_walk", soldier_ids=soldier_ids, used=used,
-        lengths=(2, 3, 1), min_steps=1, require_unhalted=True, rounds=6)
-    if result is None:
-        raise FixtureExhausted("positive_walk: fixture could not produce any unhalted walk")
-    hw, cw = result
+    hw, cw = walk_lane(host, client, actor_id, "positive_walk", 5)
     steps = hw.get("steps") or []
     assert steps, "positive_walk: the settled walk executed zero steps"
 
     # EXPECTED is every turn/kneel/walk_step ev since seq0, NOT just the
-    # FINAL accepted walk's own `steps` - TWO reasons, both legitimate and
-    # both real ghost-worthy evs this assertion must not miss:
-    #   (1) pick_and_walk() (repro_atom_walk.py, opaque here) can execute and
-    #       reject an earlier HALTED candidate before landing the unhalted
-    #       one this function asserts on - that earlier candidate's steps
-    #       are real walk_step evs that really did enqueue a ghost each;
-    #   (2) vanilla turns a unit to face its path's first step BEFORE it
-    #       walks whenever the actor is not already facing that way - a real
-    #       `turn` ev (and, if the actor started kneeled, a real `kneel`
-    #       stand-up ev too - the W1-P9 follow-up kneel_before_walk_ordering()
-    #       covers on its own) - each of which enqueues its OWN ghost, same
-    #       as any other partner action.
-    # Re-deriving the true expected count from the event ring (which - unlike
-    # the ghost counters - carries a seq/actionId per entry) is what makes
-    # this assertion correct regardless of how many attempts pick_and_walk()
-    # needed and regardless of the actor's incoming facing/kneeled state.
+    # walk's own `steps` - vanilla turns a unit to face its path's first step
+    # BEFORE it walks whenever the actor is not already facing that way (a
+    # real `turn` ev, and if the actor started kneeled, a real `kneel`
+    # stand-up ev too - the W1-P9 follow-up kneel_before_walk_ordering()
+    # covers on its own) - each of which enqueues its OWN ghost, same as any
+    # other partner action. Re-deriving the true expected count from the
+    # event ring (which - unlike the ghost counters - carries a seq/actionId
+    # per entry) is what makes this assertion correct regardless of the
+    # actor's incoming facing/kneeled state.
     log = client.cmd({"cmd": "event_log", "tail": 200}).get("events", [])
     ghost_kinds = ("turn", "kneel", "walk_step")
     expected = sum(1 for e in log if e.get("seq", 0) > seq0 and e.get("kind") in ghost_kinds)
@@ -380,100 +411,41 @@ def positive_walk(host, client, actor_id, soldier_ids=None, used=None):
     return hh, ch
 
 
-def halted_walk_prefix(host, client, actor_id, soldier_ids=None, used=None):
+def halted_walk_prefix(host, client, actor_id):
     """SPEC 7(f): "a HALTED walk animates only the executed prefix" -
     ghostEnqueued must equal len(lastWalk['steps']) (the EXECUTED prefix),
     never the intent's planned path length. Uses the SAME battle_halt_walk
-    one-shot TestServer lever repro_atom_walk.py's own PHASE 3 uses.
+    one-shot TestServer lever repro_atom_walk.py's own PHASE 3 uses. The roof
+    lane's baked ROOF_LANE_LEN gives a 6-step plan every run, so the halt
+    lever always has something left to stop."""
+    attempt_es = event_state(client)
+    enq0 = attempt_es.get("ghostEnqueued", 0)
+    comp0 = attempt_es.get("ghostCompleted", 0)
+    seq0 = attempt_es.get("lastSeqApplied", 0)
 
-    `soldier_ids`/`used` (optional): retries on a FRESH actor (up to twice)
-    when EVERY candidate for the current one fails to produce a genuine
-    partial-prefix halt - pick_and_walk_resilient()'s own precedent, for the
-    same reason (a per-actor position problem, not a per-battle one)."""
-    tried = [actor_id]
-    hw = cw = None
-    enq0 = comp0 = seq0 = None  # captured freshly per ATTEMPT - see below for why
-    cands_tried_total = 0
-    while True:
-        actor_id = tried[-1]
-        # WIDE length set (repro_atom_walk.py's own PHASE 3 uses just
-        # (WALK_RUN, 2) = (3, 2)): a "3-tile straight run" destination can
-        # still resolve to a SHORT (even 1-step) pathfinder route around
-        # obstacles, so this needs enough candidates that at least one keeps
-        # plannedLen>=2 - the property under test (a genuine PARTIAL-prefix
-        # halt) is meaningless below that.
-        cands = walkmod.walk_candidates(host, actor_id, lengths=(5, 4, 3, 2))
-        cands_tried_total += len(cands)
+    dest = lane_dest(host, actor_id, ROOF_LANE_LEN - 1)
+    prev = session.walk_action_id(host)
+    host.ok({"cmd": "battle_halt_walk"})  # armed BEFORE the send - PHASE 3's own precedent
+    resp = session.send_walk(client, actor_id, dest)
+    assert resp.get("iseq"), (
+        f"FIXTURE PREMISE BROKE: halted_walk_prefix: no route from "
+        f"{session.pos_of(session.unit_of(host, actor_id))} to {dest}; reply={resp}")
+    session.wait_walk_settled(host, client, prev)
+    session.settle_reveal(host, client)
+    hw, cw = session.last_walk(host), session.last_walk(client)
+    assert hw is not None and hw["plannedLen"] >= 2, (
+        "halted_walk_prefix: no candidate destination produced a MULTI-STEP plan - a halt can "
+        "only be observed on a walk with something left to halt. FIXTURE failure.")
 
-        for dest in cands:
-            # Snapshotted PER ATTEMPT, not once at the top of the function: an
-            # earlier candidate that ran to FULL completion without halting
-            # (tried and rejected below, but very much executed and very much
-            # ghost-enqueued) must not be folded into the delta this function
-            # ultimately asserts for the ONE candidate that actually produced
-            # the halt under test.
-            attempt_es = event_state(client)
-            enq_attempt = attempt_es.get("ghostEnqueued", 0)
-            comp_attempt = attempt_es.get("ghostCompleted", 0)
-            seq_attempt = attempt_es.get("lastSeqApplied", 0)
+    hsteps = hw["steps"]
+    assert 0 < len(hsteps) < hw["plannedLen"], (
+        f"halted_walk_prefix: the walk executed {len(hsteps)} of {hw['plannedLen']} planned "
+        "step(s) - the halt lever must stop it AFTER at least one step and BEFORE the last")
 
-            prev = walkmod.walk_action_id(host)
-            host.ok({"cmd": "battle_halt_walk"})  # armed BEFORE the send - see PHASE 3's own comment
-            resp = walkmod.send_walk(client, actor_id, dest)
-            if not resp.get("iseq"):
-                continue  # nothing left this machine (no route / a first-step reserve refusal)
-            iseq = resp["iseq"]
+    executed = hsteps
 
-            # DENY-AWARE wait (repro_atom_walk.py's own send_walk_outcome()
-            # precedent): a candidate can legitimately come back denied
-            # (`cost_changed` on an actor this file's own earlier tests have
-            # already spent TU on) rather than executed - waiting on
-            # wait_walk_settled() alone for such a candidate would hang for
-            # its full timeout instead of moving on to the next one.
-            deadline = time.time() + 15
-            outcome = None
-            while time.time() < deadline:
-                hw_poll = walkmod.last_walk(host)
-                if (hw_poll.get("actionId", 0) != prev and hw_poll.get("active") is False
-                        and hw_poll.get("restate")):
-                    outcome = "walk"
-                    break
-                ld = event_state(client).get("lastDeny")
-                if ld and ld.get("iseq") == iseq:
-                    outcome = "deny"
-                    break
-                time.sleep(0.05)
-            if outcome != "walk":
-                continue  # denied, or neither within the window - try the next candidate
-
-            walkmod.settle_reveal(host, client)
-            hw, cw = walkmod.last_walk(host), walkmod.last_walk(client)
-            if hw["plannedLen"] >= 2 and 0 < len(hw["steps"]) < hw["plannedLen"]:
-                enq0, comp0, seq0 = enq_attempt, comp_attempt, seq_attempt
-                break
-            hw = cw = None  # this candidate ran but did not produce a genuine partial halt - keep trying
-
-        if hw is not None or soldier_ids is None or len(tried) > 2:
-            break
-        replacement = pick_fresh_actor(host, soldier_ids, exclude_ids=set(tried) | (used or set()))
-        if replacement is None:
-            break
-        if used is not None:
-            used.add(replacement["id"])
-        print(f"[repro_ghost_stepper] halted_walk_prefix: unit {actor_id} produced no genuine "
-              f"partial-prefix halt across {len(cands)} candidate(s) - retrying on a fresh unit "
-              f"{replacement['id']} (tu={replacement['tu']})")
-        tried.append(replacement["id"])
-
-    if hw is None:
-        raise FixtureExhausted(
-            f"halted_walk_prefix: could not produce a genuine partial-prefix halt from any of "
-            f"{cands_tried_total} candidate(s) across unit(s) {tried}")
-
-    executed = hw["steps"]
-
-    # EXPECTED counts turn/kneel/walk_step evs since the WINNING attempt's own
-    # seq baseline, not just len(executed) - the same pre-walk-turn/stand-up
+    # EXPECTED counts turn/kneel/walk_step evs since this attempt's own seq
+    # baseline, not just len(executed) - the same pre-walk-turn/stand-up
     # reasoning as positive_walk()'s own doc comment: vanilla turns (and, if
     # kneeled, stands up) the actor to face the path BEFORE walking whenever
     # needed, and each of those is its own real ghost-worthy ev.
@@ -515,12 +487,7 @@ def kneel_before_walk_ordering(host, client, actor_id):
     assert cu["kneeled"], "kneel_before_walk_ordering: could not get the actor kneeled to begin with"
 
     seq_before = event_seq_baseline(client)
-    result = walkmod.pick_and_walk(host, client, actor_id, "kneel-then-walk",
-                                    lengths=(1, 2, 3), min_steps=1, require_unhalted=True,
-                                    rounds=6)
-    if result is None:
-        raise FixtureExhausted("kneel_before_walk_ordering: fixture could not produce an unhalted walk")
-    hw, cw = result
+    hw, cw = walk_lane(host, client, actor_id, "kneel-then-walk", 3)
     assert not cw["restate"]["halted"], "kneel_before_walk_ordering: the walk halted - not the case under test"
 
     hu = unit_of(host, actor_id)
@@ -553,43 +520,21 @@ def kneel_before_walk_ordering(host, client, actor_id):
 
 
 def test_ghost_verbs_e2e():
+    host, client, client_ids, host_ids, door = bring_up_roof_battle(8, "a")
     try:
-        host, client, actor, soldier_ids = walkmod.bring_up_qualifying_battle()
-    except RuntimeError as e:
-        raise FixtureExhausted(str(e)) from e
-    try:
-        actor_id = actor["id"]
+        assert len(client_ids) >= 5, (
+            f"FIXTURE PREMISE BROKE: only {len(client_ids)} live seat-1 unit(s); this fixture "
+            "needs 5 (one fresh soldier per phase)")
         assert_hash_clean(host, client, full=True, what="at t=0 (pre-action)")
 
-        # ONE DEDICATED ACTOR PER WALK-CONSUMING PHASE (pick_fresh_actor()'s
-        # own doc comment explains why): a soldier's TU budget (~50-70) does
-        # not comfortably cover more than one multi-step walk, and this file
-        # drives FOUR separate ones (negative_control, positive_walk,
-        # halted_walk_prefix, kneel_before_walk_ordering) - the fixture seats
-        # exactly enough soldiers (SEAT1_SOLDIERS=5) for one each, with
-        # `actor` itself reserved for the two WALK-FREE phases
-        # (positive_turn/positive_kneel, which spend only a few TU each).
-        # `used` excludes ONLY `actor_id` itself (positive_turn/
-        # positive_kneel's dedicated actor, and later reused by
-        # kneel_before_walk_ordering - its state must stay predictable). It
-        # deliberately does NOT grow as each phase claims a soldier: a
-        # soldier a COMPLETED earlier phase touched is perfectly reusable by
-        # a later one as long as it currently has enough TU
-        # (pick_fresh_actor()'s own live re-check) - the fixture's
-        # SEAT1_SOLDIERS=5 pool is comfortable for that, but NOT for five
-        # phases each permanently claiming a distinct soldier plus retries on
-        # top, which starved late phases of any spare soldier at all
-        # (measured: repeated SKIPs on the LAST phase to run).
-        used = {actor_id}
-
-        def next_actor(tag):
-            u = pick_fresh_actor(host, soldier_ids, exclude_ids=used)
-            if u is None:
-                raise FixtureExhausted(f"no fresh, qualifying, TU-rich actor left for {tag}")
-            print(f"[repro_ghost_stepper] {tag} will use unit {u['id']} (tu={u['tu']})")
-            return u["id"]
-        neg_actor_id = next_actor("negative_control")
-        off_es = negative_control(host, client, neg_actor_id, soldier_ids=soldier_ids, used=used)
+        # ONE DEDICATED, FRESH CLIENT SOLDIER PER PHASE, all teleported to the
+        # SAME baked roof lane in turn and parked on a separate row once done
+        # (teleport_to_lane/park's own doc comments) - the lane is always
+        # clear at the start of each phase, so there is no search, no retry,
+        # no reroll (SPEC RW-S4 REV E.47).
+        teleport_to_lane(host, client, client_ids[0], door)
+        off_es = negative_control(host, client, client_ids[0])
+        park(host, client, client_ids[0], door, 0)
 
         # Option back ON (the default - WV-D5-style explicit re-arm rather
         # than assuming a prior branch left it that way).
@@ -597,24 +542,22 @@ def test_ghost_verbs_e2e():
         set_ghost_option(client, True)
         assert read_ghost_option(client) is True, "coopGhostStepper did not read back True on client"
 
-        on_hh, on_ch = positive_turn(host, client, actor_id)
-        positive_kneel(host, client, actor_id)
+        teleport_to_lane(host, client, client_ids[1], door)
+        on_hh, on_ch = positive_turn(host, client, client_ids[1])
+        positive_kneel(host, client, client_ids[1])
+        park(host, client, client_ids[1], door, 1)
 
-        walk_actor_id = next_actor("positive_walk")
-        positive_walk(host, client, walk_actor_id, soldier_ids=soldier_ids, used=used)
+        teleport_to_lane(host, client, client_ids[2], door)
+        positive_walk(host, client, client_ids[2])
+        park(host, client, client_ids[2], door, 2)
 
-        halt_actor_id = next_actor("halted_walk_prefix")
-        halted_walk_prefix(host, client, halt_actor_id, soldier_ids=soldier_ids, used=used)
+        teleport_to_lane(host, client, client_ids[3], door)
+        halted_walk_prefix(host, client, client_ids[3])
+        park(host, client, client_ids[3], door, 3)
 
-        # REUSES `actor_id` (positive_turn/positive_kneel's own actor)
-        # instead of claiming a further fresh soldier: it has spent TU on
-        # only three cheap actions (a turn, a kneel, positive_kneel's own
-        # restore-kneel) and positive_kneel() already leaves it back in its
-        # ORIGINAL not-kneeled state, so it is exactly as usable here as a
-        # brand-new soldier - and not claiming one leaves more of the
-        # SEAT1_SOLDIERS=5 pool free for the walk-heavy phases' own
-        # retry-on-a-fresh-actor paths above, which need it far more.
-        kneel_before_walk_ordering(host, client, actor_id)
+        teleport_to_lane(host, client, client_ids[4], door)
+        kneel_before_walk_ordering(host, client, client_ids[4])
+        park(host, client, client_ids[4], door, 4)
 
         final_es = event_state(client)
         print(f"PASS test_ghost_verbs_e2e: ALL scenarios passed in one session "
@@ -672,7 +615,8 @@ def test_desync_lever_still_detects():
     bundle." A SEPARATE, freshly-booted session (SS2.8 "no partial repair" -
     repro_atom_kneel.py's own test_forced_mismatch precedent): a
     desync-frozen battle has no path back, so this session is torn down,
-    never reused.
+    never reused. Seated to leave HOST-owned units (bring_up_roof_battle(4)):
+    GS7 needs a unit the HOST itself can kneel.
 
     THE HOST'S OWN ACTION IS A REAL KEYPRESS, NOT battle_intent
     (repro_atom_kneel.py's own precedent): `battle_intent` is the CLIENT's
@@ -680,14 +624,14 @@ def test_desync_lever_still_detects():
     the host itself never "intents" anything, it executes directly, so its
     local action must be driven the same way a real player would
     (inject_input), exactly like every other host-origin action in this
-    file's sibling repros."""
+    file's sibling repros. GS7 does NOT use the roof lane - a kneel does not
+    move the unit, and the corner-placed aliens keep it contact-free at its
+    default interior tile."""
     import glob
 
+    host, client, client_ids, host_ids, door = bring_up_roof_battle(4, "b")
     try:
-        host, client, actor, soldier_ids = walkmod.bring_up_qualifying_battle()
-    except RuntimeError as e:
-        raise FixtureExhausted(str(e)) from e
-    try:
+        assert host_ids, "FIXTURE PREMISE BROKE: Session B has no host-owned unit to kneel"
         assert read_ghost_option(client) is True, "coopGhostStepper must default to ON for this proof"
         assert_hash_clean(host, client, full=True, what="at t=0 (pre-corruption)")
 
@@ -727,14 +671,13 @@ def main():
 
 
 if __name__ == "__main__":
-    # Exit-code convention verbatim from repro_atom_spot.py (2026-09-03 SKIP
-    # ruling): 0 PASS, 2 FAIL (a red), 3 SKIP (fixture exhausted - not a red).
+    # Exit-code convention: 0 PASS, 2 FAIL (a red, including a broken fixture
+    # premise). There is NO exit-3 SKIP (SPEC RW-S4 REV E.47, WV-D100) - the
+    # roof fixture always provides the lane, so a broken premise is a red
+    # naming it, never a skip.
     try:
         main()
         sys.exit(EXIT_PASS)
-    except FixtureExhausted as e:
-        print(f"\nrepro_ghost_stepper: SKIP (fixture exhausted)\n{e}")
-        sys.exit(EXIT_SKIP)
     except (AssertionError, TimeoutError) as e:
         print(f"\nrepro_ghost_stepper: FAIL\n{type(e).__name__}: {e}")
         print("")
