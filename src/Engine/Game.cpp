@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cmath>
 #include <sstream>
+#include <typeinfo>
 #include <SDL_mixer.h>
 #include "State.h"
 #include "Screen.h"
@@ -585,6 +586,12 @@ void Game::setState(State *state)
 void Game::pushState(State *state)
 {
 	_states.push_back(state);
+	// WV-D112: the screen record. pushState/popState are the COMPLETE chokepoint
+	// onto the screen stack (private member, no friends, const accessor), so this
+	// pair is a full history of what was shown - including the direct pushes that
+	// bypass the geoscape popup queue. LOG_INFO because Release runs at LOG_INFO.
+	Log(LOG_INFO) << "[coop-ui] push " << typeid(*state).name()
+		<< " depth=" << _states.size();
 	_init = false;
 }
 
@@ -596,8 +603,14 @@ void Game::pushState(State *state)
  */
 void Game::popState()
 {
-	_deleted.push_back(_states.back());
+	State *popped = _states.back();
+	_deleted.push_back(popped);
 	_states.pop_back();
+	// WV-D112: the matching record. The state is still alive here (the delete
+	// happens at the start of the next cycle), so typeid is safe, and depth is
+	// the size AFTER the pop - so a pop's depth is its push's depth minus one.
+	Log(LOG_INFO) << "[coop-ui] pop  " << typeid(*popped).name()
+		<< " depth=" << _states.size();
 	_init = false;
 }
 
