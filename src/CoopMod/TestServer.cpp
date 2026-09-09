@@ -6191,6 +6191,18 @@ std::string TestServer::execute(const std::string& line)
 					waypoints.append(jw);
 				}
 				resp["waypoints"] = waypoints;
+				// WV-D108: the selected geoscape time-speed, resolved through a window
+				// on top via the SAME findState<GeoscapeState> the geo_set_speed handler
+				// uses, so settle can assert the speed took without sampling the clock.
+				// No GeoscapeState on the stack (e.g. in battle) -> -1 / "".
+				{
+					GeoscapeState* geoSpd = findState<GeoscapeState>(_game);
+					int spdIdx = geoSpd ? geoSpd->getTimeSpeedIndex() : -1;
+					static const char* const kSpeedNames[6] = {
+						"_btn5Secs", "_btn1Min", "_btn5Mins", "_btn30Mins", "_btn1Hour", "_btn1Day"};
+					resp["timeSpeedIndex"] = spdIdx;
+					resp["timeSpeedName"] = (spdIdx >= 0 && spdIdx < 6) ? kSpeedNames[spdIdx] : "";
+				}
 				resp["ok"] = true;
 			}
 		}

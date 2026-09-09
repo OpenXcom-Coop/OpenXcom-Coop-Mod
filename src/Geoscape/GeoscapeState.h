@@ -274,6 +274,8 @@ public:
 	void btnTimerClick(Action *action);
 	/// Selects a time-speed button by index (0=5s,1=1min,2=5min,3=30min,4=1hr,5=1day). For the test harness.
 	void setTimeSpeedIndex(int idx);
+	/// WV-D108: the index of the currently selected time-speed button in the same order, or -1. For the test harness.
+	int getTimeSpeedIndex() const;
 	/// Updates the co-op ally markers on the speed/toolbar buttons.
 	void updatePeerSpeedIndicators();
 	/// Tells the other player which geoscape sub-screen this player navigated to (0..5).

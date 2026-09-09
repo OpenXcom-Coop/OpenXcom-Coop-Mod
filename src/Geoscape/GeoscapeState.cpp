@@ -7327,6 +7327,22 @@ void GeoscapeState::setTimeSpeedIndex(int idx)
 }
 
 /**
+ * The index of the currently selected time-speed button, in the same
+ * {5s,1min,5min,30min,1hr,1day} order setTimeSpeedIndex uses, or -1 if none
+ * matches. WV-D108: lets the test harness read the selected speed back
+ * instead of sampling the clock. No behaviour change.
+ * @return index 0..5, or -1.
+ */
+int GeoscapeState::getTimeSpeedIndex() const
+{
+	TextButton* btns[6] = {_btn5Secs, _btn1Min, _btn5Mins, _btn30Mins, _btn1Hour, _btn1Day};
+	for (int i = 0; i < 6; ++i)
+		if (_timeSpeed == btns[i])
+			return i;
+	return -1;
+}
+
+/**
  * Updates the scale.
  * @param dX delta of X;
  * @param dY delta of Y;
