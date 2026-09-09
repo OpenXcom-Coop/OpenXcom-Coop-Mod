@@ -41,6 +41,7 @@
 #endif
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <share.h>
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <shellapi.h>
@@ -1667,16 +1668,27 @@ bool openExplorer(const std::string &url)
 
 /**
  * Appends a file, logs nothing to avoid recursion.
+ * WV-D110: the append must PERMIT SHARED READING. SDL1's Windows RWops opens
+ * the file for writing with dwShareMode 0, i.e. exclusively, so the WRITER was
+ * denying every reader - and a reader's own open in turn made this append FAIL
+ * (measured: 84 sharing violations in 3000 reader opens and 21 lost game
+ * records in one run). Binary mode on both branches: the log is LF-only and a
+ * text-mode append would rewrite every '\n' as "\r\n".
  * @param filename - where to writeFile
  * @param data - what to writeFile
  * @return if we did write it.
  */
 static bool logToFile(const std::string& filename, const std::string& data) {
-	// Even SDL1 file IO accepts UTF-8 file names on windows.
-	SDL_RWops *rwops = SDL_RWFromFile(filename.c_str(), "a+");
-	if (rwops) {
-		auto rv = SDL_RWwrite(rwops, data.c_str(), data.size(), 1);
-		SDL_RWclose(rwops);
+#ifdef _WIN32
+	// UTF-8 file names, same as the SDL call this replaces.
+	FILE *f = _wfsopen(pathToWindows(filename).c_str(), L"ab", _SH_DENYNO);
+#else
+	// POSIX append already permits concurrent readers.
+	FILE *f = fopen(filename.c_str(), "ab");
+#endif
+	if (f) {
+		auto rv = fwrite(data.c_str(), data.size(), 1, f);
+		fclose(f);
 		return rv == 1;
 	}
 	return false;
