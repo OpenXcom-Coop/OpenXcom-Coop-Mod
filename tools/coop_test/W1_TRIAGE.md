@@ -9,7 +9,7 @@ decisions ledger and Section 5 R1-P6 for the packet that produced this file.
 ## Summary
 
 - **GREEN**: 92 (every one ran green in a full sequential pass; see report)
-- **SKIP-PENDING**: 52 (4 pre-existing C2 guards + 48 new this packet)
+- **SKIP-PENDING**: 52 (4 pre-existing C2 guards + 48 new this packet) (+1 re-guarded 2026-09-08, D25)
 - **TOOLING-PENDING**: 2 (not `test_*.py`; RB-D28)
 - **DELETED**: 38 (32 `test_parallel_*` + 6 other #166-introduced test files; all removed by the C1 revert, none exist as files any more)
 - Total `test_*.py` on disk: 144 (GREEN + SKIP-PENDING)
@@ -132,7 +132,7 @@ Each file carries a 2-line header guard (RB-D21): `# RW-TRIAGE: SKIP-PENDING(<un
 | `test_battlescape_soldier_gift.py` | r3 | live in-battle soldier gift during active turns (battle-action e2e); shares mid-battle-resume setup |
 | `test_campaign_then_skirmish_debrief.py` | r5/W6 | drives a full PvP skirmish battle (gamemode 2) to debrief; groups with the PvP battle suite |
 | `test_coop_alien_launcher_item_loss.py` | r3 | issue #74 item-id lockstep after replicated shot (item/inventory-in-battle atom) |
-| `test_coop_basedef_temp_ufo_uaf.py` | R4-P2 | base-defense temp_ufo UAF (explicit per packet) |
+| `test_coop_basedef_temp_ufo_uaf.py` | W1-G3 re-point | **RE-POINTED 2026-09-08 (owner D25)** — R4-P2 had re-pointed it onto the offerBattle handshake and removed the guard without updating this row; since W1-P3 the client enters via a read-only BriefingState, not straight into BattlescapeState, so the test's BOTH-machines wait fails (exit 4; proven pre-existing at `1fc2470e0`, orch29c F34). Unlock = before W1-G3: re-point the client-side wait to BriefingState + `close_briefing` (the `test_rw_handshake` / `test_cydonia_coop_start` shape); the PR #111 UAF guard is untouched. |
 | `test_coop_blast_item_damage.py` | r3 | issue #74 symmetric blast item destruction (explosions atom) |
 | `test_coop_door_sync.py` | r3 | issue #143 UFO door-open sync via UnitTurnBState (battle-action e2e) |
 | `test_coop_double_turn_tu.py` | r3 | double-TU-on-turn regression, directly overlaps the spike's own turn atom (battle-action e2e) |
@@ -307,3 +307,24 @@ entry is one defect with two symptoms: it is what fails
 `test_skirmish_flow.py` step 7, and it is visible in every skirmish repro's
 client stack (e.g. `['MainMenuState', 'NewBattleState', 'ServerList',
 'LobbyMenu', 'BattlescapeState']`). W1-P3 owns it.
+
+### 3. `test_coop_basedef_temp_ufo_uaf.py`: unguarded (R4-P2 row stale) -> `W1-G3 re-point`
+
+- **Why the old row was wrong:** R4-P2 re-pointed this test onto the
+  `offerBattle` handshake (its own header says so) and dropped the file's
+  SKIP-PENDING guard, but never updated its W1_TRIAGE row - the row still read
+  `SKIP-PENDING | R4-P2` while the file ran unguarded and failed.
+- **Evidence:** the test exits **4** on the rewrite branch, proven pre-existing
+  by a byte-exact `geo.py` swap giving the identical exit 4 before and after
+  RW-S3b (orch29c F34, verified at `1fc2470e0`). Its header waits for the CLIENT
+  to be "pushed straight into BattlescapeState by
+  `CoopHandshake::onBlobChunkAppended` (no client-side BriefingState)", which
+  W1-P3 (client read-only `BriefingState` on entry) changed, so the
+  BOTH-machines wait can never complete.
+- **What unlocks it:** before W1-G3, re-point the client-side wait to
+  BriefingState + `close_briefing` (the `test_rw_handshake` /
+  `test_cydonia_coop_start` shape). The PR #111 `CoopBaseDefense` snapshot UAF
+  guard is untouched and still needed - this is a real crash regression test.
+- **Guard added (owner D25 = (a)):** the 2-line SKIP-PENDING(W1-G3 re-point)
+  guard after the stdlib import block; runbook §5 W1-G3 criterion 5c makes a
+  row still guarded at G3 a gate failure, so it cannot be lost.

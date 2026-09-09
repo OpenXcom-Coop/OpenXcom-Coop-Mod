@@ -49,6 +49,9 @@ import os
 import sys
 import time
 
+# RW-TRIAGE: SKIP-PENDING(W1-G3 re-point: client entry via BriefingState)
+print("SKIP-PENDING: rewrite"); sys.exit(0)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURE = "coop_basedef_retaliation.sav"
 FIXTURE_PATH = os.path.join(HERE, "fixtures", FIXTURE)
