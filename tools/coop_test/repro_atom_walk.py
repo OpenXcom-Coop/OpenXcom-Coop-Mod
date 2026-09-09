@@ -100,6 +100,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 from session import assert_hash_clean, assert_reveal_parity
+from session import (battle_state, event_state, units_by_id, unit_of, last_walk,
+                      pos_of, jpos, send_walk, walk_action_id, wait_walk_settled,
+                      settle_reveal, walk_candidates, richest, pick_and_walk,
+                      has_door_within, tile_is_open_ground, straight_runs,
+                      living_non_players, min_dist_to, region_is_contact_free,
+                      WALK_RUN)
 
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
@@ -174,40 +180,12 @@ def lobby(gc):
     return gc.cmd({"cmd": "lobby_state"})
 
 
-def battle_state(gc):
-    return gc.cmd({"cmd": "battle_state"})
-
-
-def event_state(gc):
-    return gc.cmd({"cmd": "event_state"})
-
-
-def units_by_id(resp):
-    return {u["id"]: u for u in resp.get("units", [])}
-
-
-def unit_of(gc, uid):
-    return units_by_id(battle_state(gc))[uid]
-
-
 def banner(gc):
     return battle_state(gc).get("coopWaitText", "")
 
 
 def warning_text(gc):
     return battle_state(gc).get("warningText", "")
-
-
-def last_walk(gc):
-    return event_state(gc).get("lastWalk") or {}
-
-
-def pos_of(u):
-    return (u["x"], u["y"], u["z"])
-
-
-def jpos(p):
-    return {"x": p[0], "y": p[1], "z": p[2]}
 
 
 def tpos(j):
@@ -340,60 +318,6 @@ def bring_up_pinned_battle():
 
 
 # ----- walk driving -------------------------------------------------------
-
-def settle_reveal(host, client, timeout=40):
-    """The host has NOTHING unpublished and the client has caught up. Same
-    helper (and the same reason) as repro_atom_turn.py's: SS2.4a's quiescent
-    flush can publish a standalone `ev reveal` a tick or two after an action
-    settles, and a measurement started before it would see the previous
-    action's leftovers."""
-    def quiet():
-        hs = event_state(host)
-        cs = event_state(client)
-        rs = host.cmd({"cmd": "reveal_state"})
-        return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
-                    and rs.get("unpublished") is False
-                    and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
-                    and cs.get("queueDepth") == 0)
-    client.wait_for("host has nothing unpublished and the client is caught up",
-                    quiet, timeout=timeout)
-
-
-def walk_action_id(gc):
-    return (last_walk(gc) or {}).get("actionId", 0)
-
-
-def wait_walk_settled(host, client, prev_action_id, timeout=30):
-    """The host finished a NEW walk chain (its restate is out and the chain is
-    no longer active) AND the client has applied everything up to it.
-
-    @a prev_action_id is load-bearing: `lastWalk` KEEPS the previous walk's
-    finished record, so a predicate that only asked "is a walk finished?" would
-    be satisfied instantly by the walk BEFORE this one and every assertion after
-    it would read stale data."""
-    def done():
-        hs = event_state(host)
-        cs = event_state(client)
-        hw = hs.get("lastWalk") or {}
-        return bool(hs.get("ok") and cs.get("ok")
-                    and hw and hw.get("actionId", 0) != prev_action_id
-                    and hw.get("active") is False and hw.get("restate")
-                    and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
-                    and cs.get("queueDepth") == 0 and hs.get("queueDepth") == 0)
-    client.wait_for("walk settled (a NEW host restate emitted, client caught up)",
-                    done, timeout=timeout)
-
-
-def send_walk(client, actor_id, dest, path=None, tu_basis=None, run=False,
-              strafe=False, sneak=False):
-    req = {"cmd": "battle_intent", "kind": "walk", "actor": actor_id,
-           "dest": jpos(dest), "run": run, "strafe": strafe, "sneak": sneak}
-    if path is not None:
-        req["path"] = [jpos(p) for p in path]
-    if tu_basis is not None:
-        req["tuBasisOverride"] = tu_basis
-    return client.cmd(req)
-
 
 def lane_dest(host, unit_id, n):
     """The unit's CURRENT position + n*D (pure arithmetic, no scan). Asserts it

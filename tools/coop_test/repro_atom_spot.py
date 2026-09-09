@@ -403,7 +403,7 @@ def any_candidates(host, actor, aliens, occupied, radii=(1, 2)):
         if probed >= MAX_TILE_PROBES:
             break
         probed += 1
-        if W.tile_is_open_ground(host, t[0], t[1], t[2], occupied):
+        if session.tile_is_open_ground(host, t[0], t[1], t[2], occupied):
             out.append(t)
             if len(out) >= CANDIDATES_PER_LEG * 2:
                 break

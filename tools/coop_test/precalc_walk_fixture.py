@@ -153,7 +153,7 @@ def old_enclosed(host, client, soldier_ids):
     units = {u["id"]: u for u in st["units"]}
     client_ids = [u["id"] for u in st["units"]
                   if u.get("coop") == COOP_SEAT_1 and not u.get("isOut")]
-    take = W.richest(host, client_ids, 1, exclude={actor_id})
+    take = session.richest(host, client_ids, 1, exclude={actor_id})
     if not take:
         return None, {"stage": "no take() unit available"}
     tu = units[take[0]]

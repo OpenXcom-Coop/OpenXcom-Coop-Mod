@@ -1578,6 +1578,308 @@ def dir_between(a, b):
     return None
 
 
+# ===== SPEC RW-S4 (D35=(a)): shared walk search helpers, moved from
+# repro_atom_walk.py =====
+# The rewrite (commit 2) deleted repro_atom_walk's search helpers, but the
+# family is de-facto shared. Bodies are VERBATIM from dfb40b88a's
+# repro_atom_walk.py, with ONE authorized substitution: region_is_contact_free's
+# session.MAX_VIEW_DISTANCE self-reference lost its session.-prefix now that it
+# lives here (same precedent as the SPEC 6g relocation above).
+
+
+WALK_RUN = 3
+
+
+def units_by_id(resp):
+    return {u["id"]: u for u in resp.get("units", [])}
+
+
+def unit_of(gc, uid):
+    return units_by_id(battle_state(gc))[uid]
+
+
+def last_walk(gc):
+    return event_state(gc).get("lastWalk") or {}
+
+
+def pos_of(u):
+    return (u["x"], u["y"], u["z"])
+
+
+def jpos(p):
+    return {"x": p[0], "y": p[1], "z": p[2]}
+
+
+def has_door_within(gc, x, y, z, radius):
+    """Any door part within Chebyshev @a radius of (x,y) at the SAME level.
+
+    Reads W1-P10's `find_doors` probe - ONE round trip for the whole map -
+    instead of a tile_info sweep, which is the same predicate at
+    (2*radius+1)^2 round trips per soldier. At the tight WALK_DOOR_RADIUS the
+    sweep was merely wasteful; at WALK_DOOR_REQUIRE_RADIUS, across every seated
+    soldier, it cost ~4.7 MINUTES per fixture attempt (measured) and made the
+    inverted run untenable."""
+    r = gc.cmd({"cmd": "find_doors", "limit": 512})
+    if not r.get("ok"):
+        return False
+    for d in r["doors"]:
+        if d["z"] == z and abs(d["x"] - x) <= radius and abs(d["y"] - y) <= radius:
+            return True
+    return False
+
+
+def tile_is_open_ground(gc, x, y, z, occupied):
+    """A cheap, CONSERVATIVE walkability screen for a candidate step tile: it
+    exists, it has a FLOOR, it carries no door part, and no unit is standing on
+    it. The pathfinder remains the real judge - a candidate that survives this
+    and still yields no route is simply skipped by the caller."""
+    if (x, y, z) in occupied:
+        return False
+    ti = gc.cmd({"cmd": "tile_info", "x": x, "y": y, "z": z})
+    if not ti.get("ok"):
+        return False
+    parts = ti.get("parts", {})
+    if parts.get("floor", {}).get("mapDataID", -1) < 0:
+        return False
+    for part in parts.values():
+        if part.get("isDoor") or part.get("isUfoDoor"):
+            return False
+    return True
+
+
+def living_non_players(battle_state_resp):
+    return [(u["x"], u["y"], u["z"]) for u in battle_state_resp.get("units", [])
+            if u.get("faction") != FACTION_PLAYER and not u.get("isOut")]
+
+
+def min_dist_to(aliens, tile):
+    """Straight-line 3D tile distance from @a tile to the nearest of @a aliens,
+    or None when there are none. Same metric session.nearest_non_player_distance
+    uses, applied to a TILE instead of a unit."""
+    best = None
+    for a in aliens:
+        d2 = (a[0] - tile[0]) ** 2 + (a[1] - tile[1]) ** 2 + (a[2] - tile[2]) ** 2
+        if best is None or d2 < best:
+            best = d2
+    return None if best is None else best ** 0.5
+
+
+def region_is_contact_free(aliens, actor, dest, pad=1):
+    """WV-D18's contact-free premise, applied to a candidate WALK rather than to
+    the actor's starting tile: EVERY tile the walk could occupy must stay
+    strictly outside session.MAX_VIEW_DISTANCE of every living non-player unit.
+
+    The region checked is the bounding box of (actor, dest) PADDED by @a pad,
+    which is a conservative superset of any route Pathfinding can produce for a
+    walk of this length - the whole point being that the check must not depend
+    on guessing the route. Aliens do not move for the whole of this test (wave 1
+    has no side transition, so the player side never ends), which is what makes
+    a static per-tile check SOUND rather than merely likely.
+
+    This is THE pin - see WALK_CONTACT_MARGIN's own comment for why the pin had
+    to move here from a static qualification margin."""
+    x0, x1 = sorted((actor["x"], dest[0]))
+    y0, y1 = sorted((actor["y"], dest[1]))
+    for x in range(x0 - pad, x1 + pad + 1):
+        for y in range(y0 - pad, y1 + pad + 1):
+            d = min_dist_to(aliens, (x, y, dest[2]))
+            if d is not None and d <= MAX_VIEW_DISTANCE:
+                return False
+    return True
+
+
+def straight_runs(host, actor, occupied, length=WALK_RUN, st=None, want=10):
+    """Candidate walk DESTINATIONS exactly @a length tiles away (Chebyshev) that
+    are open ground and whose whole neighbourhood is contact-free. Returns a
+    list of (dir_or_None, [dest]) so every call site keeps the shape it already
+    used - `entry[1][-1]` is the destination and `len(entry[1])` is meaningless
+    for planning, which is why nothing asserts a predicted path any more.
+
+    WHY DESTINATIONS AND NOT A STRAIGHT OPEN RUN. The first version demanded N
+    COLLINEAR open tiles and was rejected by EVERY generation this map produces
+    (15/15 boots, "no 3-tile open-ground run in any direction"): at t=0 the
+    squad is packed inside the Skyranger, so an actor's neighbours are other
+    soldiers and its straight lines run into the hull. Pathfinding routes around
+    both. Nothing this test asserts needed the straight line - the executed path
+    is compared against the HOST's own record and its own `plannedLen`, never
+    against a path the harness predicted - so the requirement was the fixture
+    being over-specified, not the atom being unobservable.
+
+    ORDERED so the destination FURTHEST from the nearest alien comes first:
+    walking away from contact keeps the later phases' own open ground available
+    and is the conservative direction for the pin above."""
+    if st is None:
+        st = battle_state(host)
+    aliens = living_non_players(st)
+    ring = []
+    # BOTH the actor's own level AND the one below it. The squad starts INSIDE
+    # the Skyranger, whose deck sits a level ABOVE the terrain: every tile
+    # outside the hull at the actor's own z is AIR (floor mapDataID -1) and every
+    # tile inside it is another soldier, so a same-level-only search returns
+    # nothing at all and the first walk cannot be ordered (observed). The ground
+    # the squad actually walks on is z-1, down the ramp, and Pathfinding handles
+    # the drop itself.
+    for dz in (0, -1, 1):
+        z = actor["z"] + dz
+        if z < 0:
+            continue
+        for dx in range(-length, length + 1):
+            for dy in range(-length, length + 1):
+                if max(abs(dx), abs(dy)) != length:
+                    continue
+                t = (actor["x"] + dx, actor["y"] + dy, z)
+                if not region_is_contact_free(aliens, actor, t):
+                    continue
+                d = min_dist_to(aliens, t)
+                # same level first, then down, then up - a same-level walk is the
+                # simplest thing to reason about and the others are the fallback.
+                ring.append((abs(dz), -(d if d is not None else 1e9), t))
+    ring.sort(key=lambda e: (e[0], e[1]))
+
+    out = []
+    for _, _, t in ring:
+        if tile_is_open_ground(host, t[0], t[1], t[2], occupied):
+            out.append((None, [t]))
+            if len(out) >= want:
+                break
+    return out
+
+
+def settle_reveal(host, client, timeout=40):
+    """The host has NOTHING unpublished and the client has caught up. Same
+    helper (and the same reason) as repro_atom_turn.py's: SS2.4a's quiescent
+    flush can publish a standalone `ev reveal` a tick or two after an action
+    settles, and a measurement started before it would see the previous
+    action's leftovers."""
+    def quiet():
+        hs = event_state(host)
+        cs = event_state(client)
+        rs = host.cmd({"cmd": "reveal_state"})
+        return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
+                    and rs.get("unpublished") is False
+                    and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
+                    and cs.get("queueDepth") == 0)
+    client.wait_for("host has nothing unpublished and the client is caught up",
+                    quiet, timeout=timeout)
+
+
+def walk_action_id(gc):
+    return (last_walk(gc) or {}).get("actionId", 0)
+
+
+def wait_walk_settled(host, client, prev_action_id, timeout=30):
+    """The host finished a NEW walk chain (its restate is out and the chain is
+    no longer active) AND the client has applied everything up to it.
+
+    @a prev_action_id is load-bearing: `lastWalk` KEEPS the previous walk's
+    finished record, so a predicate that only asked "is a walk finished?" would
+    be satisfied instantly by the walk BEFORE this one and every assertion after
+    it would read stale data."""
+    def done():
+        hs = event_state(host)
+        cs = event_state(client)
+        hw = hs.get("lastWalk") or {}
+        return bool(hs.get("ok") and cs.get("ok")
+                    and hw and hw.get("actionId", 0) != prev_action_id
+                    and hw.get("active") is False and hw.get("restate")
+                    and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
+                    and cs.get("queueDepth") == 0 and hs.get("queueDepth") == 0)
+    client.wait_for("walk settled (a NEW host restate emitted, client caught up)",
+                    done, timeout=timeout)
+
+
+def send_walk(client, actor_id, dest, path=None, tu_basis=None, run=False,
+              strafe=False, sneak=False):
+    req = {"cmd": "battle_intent", "kind": "walk", "actor": actor_id,
+           "dest": jpos(dest), "run": run, "strafe": strafe, "sneak": sneak}
+    if path is not None:
+        req["path"] = [jpos(p) for p in path]
+    if tu_basis is not None:
+        req["tuBasisOverride"] = tu_basis
+    return client.cmd(req)
+
+
+def walk_candidates(host, actor_id, lengths=(1, 2, 3)):
+    """Contact-free, open-ground destinations across several radii, nearest
+    radius first. Flat list of tiles."""
+    actor = unit_of(host, actor_id)
+    st = battle_state(host)
+    occ = {pos_of(u) for u in st["units"] if not u.get("isOut")}
+    out = []
+    for radius in lengths:
+        for _, dest in straight_runs(host, actor, occ, length=radius, st=st):
+            out.append(dest[0])
+    return out
+
+
+def richest(host, ids, n=1, exclude=()):
+    """The @a n client-owned units with the most TU left, excluding @a exclude.
+
+    Actors are allocated by TU rather than by index because every phase that
+    WALKS spends TU and an actor that runs dry fails exactly like a broken atom
+    would ("no walk could be ordered"). Choosing dynamically keeps that fixture
+    failure mode away from the assertions."""
+    st = battle_state(host)
+    us = [u for u in st["units"] if u["id"] in ids and not u.get("isOut")
+          and u["id"] not in exclude]
+    us.sort(key=lambda u: -u["tu"])
+    return [u["id"] for u in us[:n]]
+
+
+def pick_and_walk(host, client, actor_id, what, lengths=(1, 2, 3), min_steps=1,
+                  require_unhalted=True, rounds=3):
+    """Order ONE walk for @a actor_id and settle it. Tries contact-free
+    destinations at each radius in @a lengths, nearest radius first, and within a
+    radius the destination FURTHEST from contact first; a candidate the
+    pathfinder cannot route to simply ships nothing and the next is tried.
+
+    WHY THIS EXISTS RATHER THAN "walk one tile north". At t=0 the squad is packed
+    inside the Skyranger, so an actor's ADJACENT tiles are other soldiers and its
+    straight lines run into the hull - the first version of this file demanded a
+    3-tile open run and was rejected by 15/15 generations, and a 1-tile version
+    is rejected just as often for the same reason. Pathfinding routes around
+    both, and nothing this file asserts needs a path the harness predicted.
+
+    Returns (host lastWalk, client lastWalk) or None when nothing could be
+    ordered."""
+    last = None
+    # ROUNDS, not one pass: a walk that lands but is too SHORT still MOVED the
+    # actor, and the geometry that made it short - being packed inside the
+    # Skyranger with nothing but hull and squadmates around - is exactly what the
+    # move fixes. A second pass from the new position routinely succeeds where
+    # the first could not (observed: an actor still in the craft had no routable
+    # 2- or 3-tile destination at all).
+    for _ in range(rounds):
+        progressed = False
+        for radius in lengths:
+            actor = unit_of(host, actor_id)
+            occ = {pos_of(u) for u in battle_state(host)["units"] if not u.get("isOut")}
+            for _, dest in straight_runs(host, actor, occ, length=radius):
+                prev = walk_action_id(host)
+                resp = send_walk(client, actor_id, dest[0])
+                if not resp.get("iseq"):
+                    continue
+                wait_walk_settled(host, client, prev)
+                settle_reveal(host, client)
+                hw, cw = last_walk(host), last_walk(client)
+                last = (hw, cw)
+                progressed = True
+                halted = bool((hw.get("restate") or {}).get("halted"))
+                if (len(hw.get("steps") or []) >= min_steps
+                        and not (require_unhalted and halted)):
+                    return hw, cw
+                if halted:
+                    # A REAL halt (almost always `no_tu` on a drained actor). Not
+                    # a failure of the atom - it is what SS2.W2 says must happen -
+                    # but the caller asked for a clean walk, so try a shorter plan.
+                    print(f"    [{what}] a {len(hw['steps'])}-step walk HALTED "
+                          f"({(hw.get('restate') or {}).get('reason')!r}); trying a "
+                          "shorter plan")
+        if not progressed:
+            break
+    return last if (last and not require_unhalted) else None
+
+
 # ----- fixture bring-up ---------------------------------------------------
 
 

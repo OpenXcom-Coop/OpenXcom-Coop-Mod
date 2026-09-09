@@ -149,7 +149,7 @@ def phase1_lever(host, client, actor_id):
     assert_hash_clean(host, client, full=True, what="PHASE 1 t=0")
     kneel_actor(host, client, actor_id, "PHASE 1")
     before = W.unit_of(host, actor_id)
-    dests = W.walk_candidates(host, actor_id, lengths=(1, 2, 3))
+    dests = session.walk_candidates(host, actor_id, lengths=(1, 2, 3))
     assert dests, "FIXTURE: no routable destination for the actor"
     assert host.cmd({"cmd": "battle_halt_walk_before_step"}).get("ok"),         "PHASE 1: battle_halt_walk_before_step lever refused"
     hw = zero_step_walk(host, client, actor_id, dests[:8], "PHASE 1")
@@ -186,7 +186,7 @@ def phase2_admission(host, client, actor_id):
     SS2.W2/WR-14 map an admission-time shortfall to exactly that deny."""
     print("\n== PHASE 2: admission counts the stand-up (GAP 1, no lever) ==")
     kneel_actor(host, client, actor_id, "PHASE 2")
-    dests = W.walk_candidates(host, actor_id, lengths=(1, 2, 3))
+    dests = session.walk_candidates(host, actor_id, lengths=(1, 2, 3))
     assert dests, "FIXTURE: no routable destination for the kneeled actor"
 
     denied = []
@@ -293,7 +293,7 @@ def qualifies(host, client):
     rich = [u for u in seats if u.get("tu", 0) > 30]
     if not rich:
         return f"no seat-1 soldier with TU to spare: {[(u['id'], u.get('tu')) for u in seats]}"
-    if not W.walk_candidates(host, rich[0]["id"], lengths=(1, 2, 3)):
+    if not session.walk_candidates(host, rich[0]["id"], lengths=(1, 2, 3)):
         return f"no routable destination for actor {rich[0]['id']}"
     return None
 
