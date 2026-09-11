@@ -51,6 +51,7 @@
 #include "../CoopMod/CrashHandler.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 #include "../CoopMod/TestServer.h" // coop test automation
+#include "../CoopMod/connectionUDP/connection_udp_glue.h" // coop UDP transport (shutdown)
 
 namespace OpenXcom
 {
@@ -124,6 +125,9 @@ Game::Game(const std::string &title) : _screen(0), _cursor(0), _lang(0), _save(0
  */
 Game::~Game()
 {
+	TestServer::instance().stop();
+	stopUdpPeer();
+
 	Sound::stop();
 	Music::stop();
 

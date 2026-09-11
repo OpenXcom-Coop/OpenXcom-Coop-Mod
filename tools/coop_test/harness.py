@@ -6,24 +6,85 @@ newline-delimited JSON over TCP on 127.0.0.1:<port>.
 
 Typical use: spawn two instances (host + client) with isolated -user folders,
 drive both through save-load / host / join / lobby, then assert on soldiers.
+
+Port-file failures preserve a bounded operation history, post-failure metadata
+and up to 64 KiB of the game log in TEMP/oxc-coop-port-diagnostics. The report
+path is printed; diagnostics do not retry a denied read or change its failure.
 """
 
 import atexit
+from collections import deque
 import datetime
 import json
 import errno
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 if os.name == "nt":
     import msvcrt
 else:
     import fcntl
+
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+
+    # kernel32 with use_last_error so a failed CreateFileW below surfaces its
+    # own GetLastError - the actual failing call's code, not a later reopen's.
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _CreateFileW = _kernel32.CreateFileW
+    _CreateFileW.argtypes = (
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+    _CreateFileW.restype = wintypes.HANDLE  # c_void_p; avoids c_int truncation
+    _CloseHandle = _kernel32.CloseHandle
+    _CloseHandle.argtypes = (wintypes.HANDLE,)
+    _CloseHandle.restype = wintypes.BOOL
+
+    _GENERIC_READ = 0x80000000
+    _FILE_SHARE_READ = 0x00000001
+    _FILE_SHARE_WRITE = 0x00000002
+    _FILE_SHARE_DELETE = 0x00000004
+    _OPEN_EXISTING = 3
+    _FILE_ATTRIBUTE_NORMAL = 0x00000080
+    _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+    def _port_file_opener(path, flags):
+        """Read while the publisher's rename handle still holds DELETE access.
+
+        Ordinary Windows open() omits FILE_SHARE_DELETE and can collide with
+        that handle after the final name becomes visible. Granting the missing
+        share bit removes this race without suppressing genuine access errors.
+        """
+        # lpSecurityAttributes = NULL -> the returned handle is non-inheritable.
+        handle = _CreateFileW(
+            path, _GENERIC_READ,
+            _FILE_SHARE_READ | _FILE_SHARE_WRITE | _FILE_SHARE_DELETE,
+            None, _OPEN_EXISTING, _FILE_ATTRIBUTE_NORMAL, None)
+        if handle is None or handle == _INVALID_HANDLE_VALUE:
+            error = ctypes.WinError(ctypes.get_last_error())
+            error.filename = path
+            raise error
+        owns_handle = True
+        try:
+            # Ownership transfers to the fd; closing the file object (fd) closes
+            # the handle. O_NOINHERIT keeps the CRT fd non-inheritable too.
+            fd = msvcrt.open_osfhandle(handle, flags | os.O_NOINHERIT)
+            owns_handle = False
+            return fd
+        finally:
+            if owns_handle and not _CloseHandle(handle):
+                raise ctypes.WinError(ctypes.get_last_error())
+else:
+    # Non-Windows: open(..., opener=None) is the default open, unchanged.
+    _port_file_opener = None
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # OXC_TEST_EXE points the whole suite at a different build - e.g.
@@ -75,6 +136,7 @@ _COOP_JOIN_CMDS = frozenset(("join_tcp", "join_udp"))
 # invariant the old per-port model relied on).
 _EPHEMERAL_COOP_PORTS = {}
 PORT_FILE_NAME = "testserver_port.txt"
+KILLED_RETURN_CODE = 1 if os.name == "nt" else -signal.SIGKILL
 
 # Per-slot harness lock: suites are stateful (shared TEST_ROOT under %TEMP%, one
 # game instance per s{slot}_ user dir), so two runs on the SAME slot would
@@ -87,6 +149,67 @@ _LOCK_PATH = os.path.join(
     "oxc-coop-harness.lock" if HARNESS_SLOT == 0
     else "oxc-coop-harness.slot%d.lock" % HARNESS_SLOT)
 _lock_handle = None
+_PORT_FILE_HISTORY = deque(maxlen=128)
+
+
+def _port_file_event(operation, **fields):
+    event = dict(fields, operation=operation,
+                 wall=datetime.datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                 monotonic=time.monotonic(), pid=os.getpid(),
+                 tid=threading.get_native_id(), slot=HARNESS_SLOT,
+                 lock_held=_lock_handle is not None)
+    _PORT_FILE_HISTORY.append(event)
+    return event
+
+
+def _port_file_error(exc):
+    return {"type": type(exc).__name__, "message": str(exc),
+            "errno": getattr(exc, "errno", None),
+            "winerror": getattr(exc, "winerror", None),
+            "filename": getattr(exc, "filename", None)}
+
+
+def _report_port_file_error(operation, exc, user_dir, **fields):
+    event = _port_file_event(operation, error=_port_file_error(exc),
+                             user_dir=user_dir, **fields)
+    payload = {"failure": event, "history": list(_PORT_FILE_HISTORY),
+               "test": os.path.abspath(sys.argv[0]), "exe": EXE,
+               "lock_path": _LOCK_PATH, "post_failure_metadata": []}
+    port_file = os.path.join(user_dir, PORT_FILE_NAME)
+    for path in (user_dir, port_file, port_file + ".tmp"):
+        observation = {"path": path, "monotonic": time.monotonic()}
+        try:
+            st = os.stat(path)
+            observation.update(size=st.st_size, mode=st.st_mode,
+                               mtime_ns=st.st_mtime_ns, ctime_ns=st.st_ctime_ns,
+                               device=st.st_dev, inode=st.st_ino,
+                               file_attributes=getattr(st, "st_file_attributes", None))
+        except OSError as snapshot_error:
+            observation["error"] = _port_file_error(snapshot_error)
+        payload["post_failure_metadata"].append(observation)
+    try:
+        with open(os.path.join(user_dir, "openxcom.log"), "rb") as game_log:
+            game_log.seek(0, os.SEEK_END)
+            size = game_log.tell()
+            game_log.seek(max(0, size - 65536))
+            payload["game_log_tail"] = game_log.read(65536).decode("utf-8", errors="replace")
+            payload["game_log_tail_truncated"] = size > 65536
+    except OSError as log_error:
+        payload["game_log_error"] = _port_file_error(log_error)
+    # Outside the instance directory: the next make_user_dir() must not erase it.
+    diagnostics_dir = os.path.join(TEMP_ROOT, "oxc-coop-port-diagnostics")
+    report_path = os.path.join(diagnostics_dir, f"port-file-{os.getpid()}-{time.time_ns()}.json")
+    try:
+        os.makedirs(diagnostics_dir, exist_ok=True)
+        with open(report_path, "x", encoding="utf-8") as report:
+            json.dump(payload, report, indent=2)
+    except OSError as report_error:
+        print("[harness-port-file] diagnostic-write-failed " +
+              json.dumps(_port_file_error(report_error)), file=sys.stderr, flush=True)
+        print("[harness-port-file] " + json.dumps(payload), file=sys.stderr, flush=True)
+    else:
+        print("[harness-port-file] " + json.dumps(dict(event, report=report_path)),
+              file=sys.stderr, flush=True)
 
 
 def _acquire_machine_lock(timeout=3600):
@@ -221,6 +344,7 @@ class GameClient:
         self._fixed_port = int(port) if (user_dir is None and port) else None
         self.port = self._fixed_port
         self.proc = None
+        self._shutdown_proc = None
         self.sock = None
         self.buf = b""
 
@@ -229,7 +353,11 @@ class GameClient:
         return os.path.join(self.user_dir, PORT_FILE_NAME) if self.user_dir else None
 
     def spawn(self, extra_args=()):
+        _port_file_event("spawn_requested", user_dir=self.user_dir,
+                         previous_game_pid=self.proc.pid if self.proc else None,
+                         previous_returncode=self.proc.poll() if self.proc else None)
         _acquire_machine_lock()
+        _port_file_event("spawn_lock_acquired", user_dir=self.user_dir)
         _timelog("spawn", "%s port=%s" % (self.name, self.port))
         env = os.environ.copy()
         # Ephemeral by default (OXC_TEST_PORT=0 -> the game picks a free control
@@ -238,11 +366,20 @@ class GameClient:
         # fixed-port GameClient (user_dir=None) keeps its explicit port.
         if self._fixed_port is None:
             env["OXC_TEST_PORT"] = "0"
+            _port_file_event("stale_file_check", path=self._port_file)
             if self._port_file and os.path.exists(self._port_file):
+                removal = _port_file_event("stale_file_remove_begin", path=self._port_file)
                 try:
                     os.remove(self._port_file)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    _report_port_file_error("stale_file_remove_failed", exc, self.user_dir)
+                else:
+                    event = _port_file_event("stale_file_removed", path=self._port_file,
+                                             started=removal["wall"],
+                                             started_monotonic=removal["monotonic"])
+                    print("[harness-port-file] " + json.dumps(event), flush=True)
+            else:
+                _port_file_event("stale_file_not_observed", path=self._port_file)
         else:
             env["OXC_TEST_PORT"] = str(self._fixed_port)
         # HEADLESS BY DEFAULT (owner standing rule). Every boot_check, repro_*,
@@ -280,6 +417,7 @@ class GameClient:
             popen_kwargs["startupinfo"] = si
         self.proc = subprocess.Popen(
             args, env=env, cwd=exe_dir, **popen_kwargs)
+        _port_file_event("spawned", user_dir=self.user_dir, game_pid=self.proc.pid)
 
     def _resolve_port(self, deadline):
         """The control port to dial: the fixed one, or the ephemeral port the
@@ -287,22 +425,48 @@ class GameClient:
         boot budget (no port-guessing)."""
         if self._fixed_port is not None:
             return self._fixed_port
+        attempt = 0
         while time.time() < deadline:
             if self.proc and self.proc.poll() is not None:
-                raise RuntimeError(f"{self.name}: game exited early rc={self.proc.returncode}")
+                exc = RuntimeError(f"{self.name}: game exited early rc={self.proc.returncode}")
+                _report_port_file_error("port_wait_game_exited", exc, self.user_dir,
+                                        game_pid=self.proc.pid, game_returncode=self.proc.returncode)
+                raise exc
+            attempt += 1
+            stage = "open"
+            _port_file_event("port_read_begin", path=self._port_file, attempt=attempt,
+                             game_pid=self.proc.pid if self.proc else None)
             try:
-                with open(self._port_file, encoding="utf-8") as f:
+                with open(self._port_file, encoding="utf-8",
+                          opener=_port_file_opener) as f:
+                    stage = "read"
                     txt = f.read().strip()
+                    stage = "close"
+                stage = "parse"
                 if txt:
                     p = int(txt)
                     if p > 0:
+                        _port_file_event("port_resolved", path=self._port_file,
+                                         attempt=attempt, port=p)
                         return p
-            except (FileNotFoundError, ValueError):
-                pass
+                _port_file_event("port_not_ready", path=self._port_file, attempt=attempt,
+                                 value=txt[:80])
+            except (FileNotFoundError, ValueError) as exc:
+                _port_file_event("port_not_ready", path=self._port_file, attempt=attempt,
+                                 stage=stage, error=_port_file_error(exc))
+            except OSError as exc:
+                _report_port_file_error("port_read_failed", exc, self.user_dir,
+                                        stage=stage, attempt=attempt,
+                                        game_pid=self.proc.pid if self.proc else None,
+                                        game_returncode=self.proc.poll() if self.proc else None)
+                raise
             time.sleep(0.2)
-        raise TimeoutError(
+        exc = TimeoutError(
             f"{self.name}: game never reported its test-server port "
             f"(no {self._port_file})")
+        _report_port_file_error("port_wait_timeout", exc, self.user_dir, attempts=attempt,
+                                game_pid=self.proc.pid if self.proc else None)
+        raise exc
 
     def connect(self, timeout=60):
         deadline = time.time() + timeout
@@ -393,18 +557,75 @@ class GameClient:
             time.sleep(interval)
         raise TimeoutError(f"{self.name}: timed out waiting for {desc} (last={last!r})")
 
-    def shutdown(self):
+    def kill(self):
+        """Deliberately drop this test peer, validating and reaping the killed process."""
+        if not self.proc or self.proc.poll() is not None:
+            raise RuntimeError(f"{self.name}: cannot kill a game that is not running")
+        _port_file_event("intentional_kill", user_dir=self.user_dir, game_pid=self.proc.pid)
+        self.proc.kill()
+        self.proc.wait(timeout=15)
+        self.shutdown(expected_returncodes=(KILLED_RETURN_CODE,))
+
+    def shutdown(self, *, expected_returncodes=(0,)):
+        """Quit and reap the game; abnormal exits require an explicit expectation."""
+        if self.proc is not None and self.proc is self._shutdown_proc:
+            return
+        shutdown = _port_file_event("shutdown_requested", user_dir=self.user_dir,
+                                    game_pid=self.proc.pid if self.proc else None,
+                                    expected_returncodes=expected_returncodes)
+        forced_kill = False
         try:
-            if self.sock:
-                self.sock.sendall((json.dumps({"cmd": "quit"}) + "\n").encode())
-        except OSError:
-            pass
-        if self.proc:
             try:
-                self.proc.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-        _timelog("spawn_end", "%s port=%s" % (self.name, self.port))
+                if self.sock and (not self.proc or self.proc.poll() is None):
+                    self.sock.sendall((json.dumps({"cmd": "quit"}) + "\n").encode())
+            except OSError as exc:
+                _port_file_event("shutdown_quit_failed", user_dir=self.user_dir,
+                                 error=_port_file_error(exc))
+            if self.proc:
+                try:
+                    self.proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    forced_kill = True
+                    _port_file_event("shutdown_wait_timeout", user_dir=self.user_dir,
+                                     game_pid=self.proc.pid)
+                    self.proc.kill()
+                    self.proc.wait(timeout=15)
+        finally:
+            if self.sock:
+                self.sock.close()
+                self.sock = None
+                self.buf = b""
+            returncode = self.proc.poll() if self.proc else None
+            event = _port_file_event("shutdown_complete", user_dir=self.user_dir,
+                                     game_pid=self.proc.pid if self.proc else None,
+                                     game_returncode=returncode,
+                                     forced_kill=forced_kill, started=shutdown["wall"],
+                                     started_monotonic=shutdown["monotonic"])
+            print("[harness-port-file] " + json.dumps(event), flush=True)
+            _timelog("spawn_end", "%s port=%s" % (self.name, self.port))
+        if self.proc and (forced_kill or returncode not in expected_returncodes):
+            exc = RuntimeError(
+                f"{self.name}: shutdown failed: rc={returncode}, "
+                f"expected={expected_returncodes}, forced_kill={forced_kill}")
+            _report_port_file_error("shutdown_failed", exc, self.user_dir,
+                                    game_pid=self.proc.pid, game_returncode=returncode,
+                                    forced_kill=forced_kill)
+            raise exc
+        self._shutdown_proc = self.proc
+
+
+def shutdown_clients(*clients):
+    """Clean up every supplied peer before propagating any shutdown failures."""
+    errors = []
+    for client in clients:
+        if client is None:
+            continue
+        try:
+            client.shutdown()
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            errors.append(exc)
+    if errors:
+        raise RuntimeError("peer shutdown failed: " + "; ".join(map(str, errors))) from errors[0]
 
 
 def make_user_dir(name, saves=(), mods=(), options=None):
@@ -431,9 +652,23 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     # uses to identify its own processes and never touch a foreign session's.
     name = "s%d_%s" % (HARNESS_SLOT, name)
     d = os.path.join(TEST_ROOT, name)
+    _port_file_event("user_dir_prepare", user_dir=d)
     if os.path.exists(d):
-        shutil.rmtree(d)
-    os.makedirs(os.path.join(d, "xcom1"))
+        removal = _port_file_event("user_dir_remove_begin", user_dir=d)
+        try:
+            shutil.rmtree(d)
+        except OSError as exc:
+            _report_port_file_error("user_dir_remove_failed", exc, d)
+            raise
+        event = _port_file_event("user_dir_removed", user_dir=d, started=removal["wall"],
+                                 started_monotonic=removal["monotonic"])
+        print("[harness-port-file] " + json.dumps(event), flush=True)
+    try:
+        os.makedirs(os.path.join(d, "xcom1"))
+    except OSError as exc:
+        _report_port_file_error("user_dir_create_failed", exc, d)
+        raise
+    _port_file_event("user_dir_created", user_dir=d)
     # OXC_TEST_EXTRA_MOD (mod-loaded regression, GAP-10): a path - or an os.pathsep-
     # joined list of paths - to mod folder(s) appended to EVERY instance's mod set,
     # so any existing test can be run with an extra mod active without editing it.
@@ -473,6 +708,7 @@ def make_user_dir(name, saves=(), mods=(), options=None):
         f.write(opts)
     for save in saves:
         shutil.copy(save, os.path.join(d, "xcom1"))
+    _port_file_event("user_dir_ready", user_dir=d)
     return d
 
 

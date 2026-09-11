@@ -12,13 +12,10 @@ like SP, then offerBattle() ships it, for BOTH "coop" (SEPARATE) and "shared"
 campaigns alike (both are gamemode 0/1 "classic" under RB-D18 - PvP/PvE2 are
 the only gamemodes the interim handshake refuses).
 
-TRIM (RW-TRIAGE, this packet): the pre-rewrite version of this test waited for
-BriefingState on BOTH machines. Under the R4-P1 handshake the CLIENT never
-gets a BriefingState - CoopHandshake::onBlobChunkAppended pushes
-BattlescapeState directly once the streamed blob is verified+loaded (the
-LoadGameState.cpp "loaded save with a live battle" precedent), so only the
-HOST still sees BriefingState (pushed unconditionally, exactly like vanilla
-SP) and must click OK to reach BattlescapeState. Assertions below mirror
+FX-1 (WV-D56): the host must click its briefing OK BEFORE waiting for the
+client's battle entry. That click runs startFirstTurn() and emits the prepared
+battle offer. The client reaches BattlescapeState only after the streamed blob
+is verified and loaded, with a read-only entry briefing above it. Assertions mirror
 test_rw_handshake.py: phase-Active log lines on both machines + BattlescapeState
 in the state stack on both machines. The saveBlob hash comparison itself is
 SOFT-GATED pending R2-P9 (owner-approved 2026-09-01, see test_rw_handshake.py's
@@ -132,12 +129,16 @@ def run_mode(mode, test_ports, coop_port):
         host.wait_for("host briefing", lambda: _has(host, "BriefingState"), timeout=60)
         print("PASS: host reached BriefingState (vanilla push, unconditional)")
 
-        # client: CoopHandshake::onBlobChunkAppended() pushes BattlescapeState
-        # directly once the blob is received+verified+loaded - no client-side
-        # BriefingState (LoadGameState.cpp precedent).
+        # FX-1: briefing OK runs startFirstTurn() before emitting the prepared offer.
+        host.ok({"cmd": "click_widget", "match": "ok"})
+        host.wait_for("host battlescape",
+                      lambda: _has(host, "BattlescapeState"), timeout=60)
+        assert _has(host, "BattlescapeState"), \
+            f"host should reach BattlescapeState after OK, stack={states(host)}"
+
         client.wait_for("client battlescape",
                         lambda: _has(client, "BattlescapeState"), timeout=180)
-        print("PASS: client reached BattlescapeState directly (offer/accept/"
+        print("PASS: client reached BattlescapeState (offer/accept/"
               "stream/blobSha-verify/load all succeeded)")
 
         time.sleep(3)  # let both logs flush the handshake lines
@@ -169,13 +170,6 @@ def run_mode(mode, test_ports, coop_port):
         print("PASS: handshake log lines present on both machines "
               "(offer/accept/ready, host+client phase Active)")
 
-        # Host is still in BriefingState (pushed unconditionally); OK proceeds
-        # to BattlescapeState exactly like the SP path.
-        host.ok({"cmd": "click_widget", "match": "ok"})
-        host.wait_for("host battlescape",
-                      lambda: _has(host, "BattlescapeState"), timeout=60)
-        assert _has(host, "BattlescapeState"), \
-            f"host should reach BattlescapeState after OK, stack={states(host)}"
         print("PASS: BOTH machines in BattlescapeState, host+client phase Active")
 
         battles = [gc.ok({"cmd": "battle_state"}) for gc in (host, client)]

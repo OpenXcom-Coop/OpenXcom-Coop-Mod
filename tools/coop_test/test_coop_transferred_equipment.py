@@ -40,6 +40,7 @@ Run:  python tools/coop_test/test_coop_transferred_equipment.py
 import os
 import sys
 import time
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
@@ -169,19 +170,59 @@ def scenario_conservation():
         print(f"world rockets before={world_rockets_before}, client base stock={client_stock}")
         assert client_stock > 0, "client base has no rockets to reason about"
 
-        # host equips a base-resident soldier with a rocket in the off-hand
-        soldier = next(s for s in hb["soldiers"] if not s.get("craft"))["name"]
+        # Peer-local rosters can reuse names. Make the old name-only wait
+        # unsatisfiable so only actual guest delivery can satisfy this test.
+        picked = next(s for s in hb["soldiers"] if not s.get("craft"))
+        soldier_id = picked["id"]
+        soldier = f"F112 XFER {uuid.uuid4().hex}"
+        host.ok({"cmd": "rename_soldier", "name": picked["name"], "newName": soldier})
+
+        hs = host.ok({"cmd": "get_soldiers"})
+        host_unit = next(x for b in hs["bases"] for x in b["soldiers"] if x["id"] == soldier_id)
+        assert host_unit["name"] == soldier, (
+            f"rename did not stick: host soldier id {soldier_id} is "
+            f"{host_unit['name']!r}, wanted {soldier!r}")
+
+        cs = client.ok({"cmd": "get_soldiers"})
+        assert not any(
+            x["name"] == soldier
+            for b in cs["bases"]
+            for x in b["soldiers"]), (
+            f"fixture-unique name {soldier!r} unexpectedly already present in the "
+            f"client's resident roster")
+
+        target_coop_base = cb["coopBaseId"]
+        assert target_coop_base >= 0, f"destination lacks a co-op identity: {cb}"
+        guests_before = client.ok({"cmd": "base_report", "base": cb["name"]})["coopGuests"]
+
         host.ok({"cmd": "give_layout", "item": ROCKET, "slot": "left", "name": soldier, "count": 1})
-        print(f"equipped host soldier '{soldier}' with a {ROCKET} (off-hand)")
+        print(f"equipped host soldier '{soldier}' (id {soldier_id}) with a {ROCKET} (off-hand)")
 
         # vanilla base transfer of that soldier to the client's base
         tr = host.ok({"cmd": "transfer_to_coop_base", "name": soldier, "toBase": cb["name"]})
         assert tr.get("transferred"), f"transfer failed: {tr}"
 
-        def client_sees():
-            s = client.cmd({"cmd": "get_soldiers"})
-            return any(x["name"] == soldier for b in s.get("bases", []) for x in b["soldiers"]) or None
-        client.wait_for("client sees transferred soldier", client_sees, timeout=30)
+        # The host retains the named Soldier; the peer receives a guest census.
+        # Require both signals within the original single 30-second deadline.
+        last_delivery = {}
+        def guest_delivered():
+            r = host.ok({"cmd": "get_soldiers"})
+            u = next((x for b in r["bases"] for x in b["soldiers"]
+                      if x["id"] == soldier_id), None)
+            guests = client.ok({"cmd": "base_report", "base": cb["name"]})["coopGuests"]
+            last_delivery.update(host_soldier=u, client_guests=guests)
+            if u is not None and u["coopBase"] == target_coop_base and guests == guests_before + 1:
+                return last_delivery
+            return None
+        try:
+            delivery = client.wait_for("host assignment and client guest delivery",
+                                       guest_delivered, timeout=30)
+        except TimeoutError as error:
+            raise TimeoutError(
+                f"{error}; soldier_id={soldier_id}, target_coop_base={target_coop_base}, "
+                f"guests_before={guests_before}, last_delivery={last_delivery!r}") from error
+        print(f"PASS guest-delivery: host soldier {soldier_id} assigned to {target_coop_base}; "
+              f"client guests {guests_before} -> {delivery['client_guests']}")
 
         # (1) no item created anywhere in the co-op world
         world_rockets_after = storage_rockets(host, hb["name"]) + storage_rockets(client, cb["name"])

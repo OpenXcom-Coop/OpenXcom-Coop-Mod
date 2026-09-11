@@ -5,13 +5,12 @@ management" option:
   ON  - the gear's item counts move AND arrive IMMEDIATELY (a 0-hour transfer,
         matching the instant soldier move): the sending base's stored count
         drops, the receiving base's stored count rises by the same amount, with
-        no pending timed transfer and no in-game time elapsing.
+        no pending timed transfer and at most five in-game minutes elapsing.
   OFF - nothing moves.
 
-Immediacy is proven definitively: both instances sit paused after
-new_campaign, so a travel-timed transfer could NEVER arrive (its clock never
-moves). The receiving base's stored count going up while the in-game clock is
-unchanged can only mean the items landed instantly.
+The geoscape clocks run after new_campaign. Allow up to five elapsed in-game
+minutes across the transfer and storage observations, rather than requiring
+a frozen clock. Keep the storage, pending-transfer and conservation checks.
 
 Several distinct items are equipped (a rocket in one hand, a pistol in the
 other) so multi-item transfer is covered too.
@@ -34,6 +33,7 @@ import geo
 # item -> inventory slot; both are present in a fresh starting base.
 GEAR = {"STR_SMALL_ROCKET": "left", "STR_PISTOL": "right"}
 OPT = "oxceAlternateCraftEquipmentManagement"
+MAX_ARRIVAL_GAME_MINUTES = 5
 
 
 def own_base(gc):
@@ -81,7 +81,7 @@ def run(alt_on):
             for i in GEAR:
                 assert stored(host, hb["name"], i) == send0[i] - 1, \
                     f"ON: sender {i} {send0[i]} -> {stored(host, hb['name'], i)}, expected -1"
-            # ...and lands in the receiver's STORAGE immediately (no time advance).
+            # ...and lands in the receiver's STORAGE within the allowed clock drift.
             client.wait_for(
                 "all gear stored at receiving base immediately",
                 lambda: all(stored(client, cb["name"], i) == recv0[i] + 1 for i in GEAR) or None,
@@ -91,11 +91,13 @@ def run(alt_on):
                 assert incoming(client, cb["name"], i) == 0, f"ON: {i} should land in storage, not queue"
                 assert (stored(host, hb["name"], i) + stored(client, cb["name"], i)) \
                     == (send0[i] + recv0[i]), f"ON: world {i} total changed"
-            # definitive immediacy: the receiver's clock never advanced.
-            assert clock1 == clock0, \
-                f"ON: gear arrived only after in-game time passed ({clock0} -> {clock1}); not immediate"
+            elapsed_minutes = clock1 - clock0
+            assert 0 <= elapsed_minutes <= MAX_ARRIVAL_GAME_MINUTES, \
+                f"ON: gear arrival took {elapsed_minutes} in-game minutes " \
+                f"({clock0} -> {clock1}); expected 0..{MAX_ARRIVAL_GAME_MINUTES}"
             print(f"PASS ON: {list(GEAR)} each moved sender -1 / receiver +1, "
-                  f"immediately (clock frozen at {clock0}), world conserved")
+                  f"within {elapsed_minutes} in-game minutes "
+                  f"(limit {MAX_ARRIVAL_GAME_MINUTES}), world conserved")
         else:
             for _ in range(4):
                 host.cmd({"cmd": "ping"}); client.cmd({"cmd": "ping"}); time.sleep(1)

@@ -79,6 +79,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
+from repro_atom_spot import phase0_pin_reaction_fire, assert_reaction_pin_holds
 
 FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
@@ -607,6 +608,13 @@ def test_classic_selection_gating():
         print(f"PASS (1) D6 entry auto-select: host starts on its own unit "
               f"{host_initial_id}, client on its own {client_initial_id}")
 
+        # F108 / S5 AI-ORIGIN PRECONDITION: entry is settled and no walk-capable
+        # input has run yet, so apply the PROVEN symmetric reaction-fire pin once
+        # (repro_atom_spot.phase0_pin_reaction_fire). Deferred reaction-fire
+        # coop-wire migration is OUT of this wave-1 selection/walk fixture's scope;
+        # this suppresses no production path and implements no reaction fire.
+        reaction_pin = phase0_pin_reaction_fire(host, client)
+
         # === (2) the TAB cycle (R5-P2's original half, unchanged) ============
         host_seen = cycle_selected_ids(host, len(host_own_ids) + 3)
         bad = [sid for sid in host_seen if sid != -1 and sid not in host_own_ids]
@@ -773,6 +781,9 @@ def test_classic_selection_gating():
             "client desync-frozen after the ground-click phase"
         assert not battle_state(host)["authority"]["desyncFrozen"], \
             "host desync-frozen after the ground-click phase"
+
+        assert_reaction_pin_holds(host, client, reaction_pin,
+                                  "after the client ground-click group")
 
         # === (6) selection storm: every bucket still EQUAL ===================
         # TAB only, deliberately: NEXT-STOP's variants flag units
@@ -970,6 +981,8 @@ def test_classic_selection_gating():
             "client must apply them")
         session.assert_hash_clean(host, client, full=True,
                                   what="after PHASE Z's host-origin walk")
+        assert_reaction_pin_holds(host, client, reaction_pin,
+                                  "after PHASE Z's host-origin walk")
         print(f"PASS PHASE Z sensitivity control: the host's identical click walked "
               f"unit {h_actor} {(before['x'], before['y'], before['z'])} -> "
               f"{(h_final['x'], h_final['y'], h_final['z'])}, TU {before['tu']} -> "

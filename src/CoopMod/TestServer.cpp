@@ -45,6 +45,8 @@
 #include "TestServer.h"
 
 #include <algorithm>
+#include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <set>
@@ -293,6 +295,179 @@ static std::string testServerPortFilePath()
 	return Options::getUserFolder() + "testserver_port.txt";
 }
 
+// Capture startup operations in memory, then log after the publication attempt.
+static const char* const kPortFileLogPrefix = "[testserver-port-file]";
+
+// Concurrent appenders can overwrite parts of a game-log record on Windows.
+// Capture on the I/O thread; emit from pump() after the loader has finished.
+static std::mutex portFileLogMutex;
+static std::deque<std::pair<SeverityLevel, std::string>> portFileLogQueue;
+
+class PortFileLog
+{
+public:
+	explicit PortFileLog(SeverityLevel level) : _level(level) {}
+	~PortFileLog()
+	{
+		std::lock_guard<std::mutex> lock(portFileLogMutex);
+		portFileLogQueue.emplace_back(_level, _message.str());
+	}
+	std::ostringstream& get() { return _message; }
+private:
+	SeverityLevel _level;
+	std::ostringstream _message;
+};
+
+static void flushPortFileLogs()
+{
+	std::deque<std::pair<SeverityLevel, std::string>> pending;
+	{
+		std::lock_guard<std::mutex> lock(portFileLogMutex);
+		pending.swap(portFileLogQueue);
+	}
+	for (const auto& record : pending)
+	{
+		Log(record.first) << record.second;
+	}
+}
+
+// Wall time correlates across processes; monotonic epochs are implementation-defined.
+struct PortFileOpStamp
+{
+	long long wallUs;
+	long long monoUs;
+};
+
+struct PortFileNativeError
+{
+	bool captured = false;
+	unsigned long code = 0;
+};
+
+static PortFileNativeError portFileNativeError(int rc)
+{
+	PortFileNativeError error;
+#ifdef _WIN32
+	if (rc != 0)
+	{
+		error.captured = (_get_doserrno(&error.code) == 0);
+	}
+#else
+	(void)rc;
+#endif
+	return error;
+}
+
+static PortFileOpStamp portFileStampNow()
+{
+	using namespace std::chrono;
+	PortFileOpStamp s;
+	s.wallUs = duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
+	s.monoUs = duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
+	return s;
+}
+
+static unsigned long portFileCurrentPid()
+{
+#ifdef _WIN32
+	return static_cast<unsigned long>(GetCurrentProcessId());
+#else
+	return static_cast<unsigned long>(getpid());
+#endif
+}
+
+static void logPortFileCleanup(const std::string& finalPath, const PortFileOpStamp& stamp,
+	int rc, int err, const PortFileNativeError& nativeError)
+{
+	std::string outcome;
+	if (rc == 0)
+	{
+		outcome = "outcome=removed-stale";
+	}
+	else if (err == ENOENT)
+	{
+		outcome = "outcome=absent-expected errno=" + std::to_string(err);
+	}
+	else
+	{
+		outcome = "outcome=remove-failed errno=" + std::to_string(err)
+			+ " errstr=\"" + std::strerror(err) + "\"";
+	}
+	if (rc != 0)
+	{
+		outcome += " native_error=" + (nativeError.captured ? std::to_string(nativeError.code) : "unavailable");
+	}
+	PortFileLog(LOG_INFO).get() << kPortFileLogPrefix << " cleanup.remove"
+		<< " pid=" << portFileCurrentPid()
+		<< " tid=" << std::this_thread::get_id()
+		<< " final=\"" << finalPath << "\""
+		<< " wall_us=" << stamp.wallUs
+		<< " mono_us=" << stamp.monoUs
+		<< " rc=" << rc
+		<< " " << outcome;
+}
+
+// Streams expose state bits, not a reliable native failure code.
+static void logPortFilePublish(const std::string& finalPath, int port,
+	bool attempted, bool openOk,
+	bool writeGood, bool writeFail, bool writeBad,
+	bool closeGood, bool closeFail, bool closeBad,
+	bool renameCalled, int renameRc, int renameErr, const PortFileNativeError& renameNativeError,
+	const PortFileOpStamp& openStamp, const PortFileOpStamp& writeStamp,
+	const PortFileOpStamp& closeStamp, const PortFileOpStamp& renameStamp)
+{
+	const std::string tmpPath = finalPath + ".tmp";
+	const bool published = attempted && openOk && writeGood && closeGood
+		&& renameCalled && renameRc == 0;
+	PortFileLog(published ? LOG_INFO : LOG_ERROR).get() << kPortFileLogPrefix << " publish"
+		<< " pid=" << portFileCurrentPid()
+		<< " tid=" << std::this_thread::get_id()
+		<< " port=" << port
+		<< " tmp=\"" << tmpPath << "\""
+		<< " final=\"" << finalPath << "\""
+		<< " outcome=" << (published ? "published" : "not-published");
+	PortFileLog(openOk ? LOG_INFO : LOG_ERROR).get() << kPortFileLogPrefix << " publish.open"
+		<< " tmp=\"" << tmpPath << "\""
+		<< " ok=" << (openOk ? 1 : 0)
+		<< " wall_us=" << openStamp.wallUs
+		<< " mono_us=" << openStamp.monoUs
+		<< (openOk ? "" : " note=stream-failbit-only-no-reliable-errno");
+	if (!openOk)
+	{
+		return;
+	}
+	PortFileLog((writeGood && !writeFail && !writeBad) ? LOG_INFO : LOG_ERROR).get() << kPortFileLogPrefix << " publish.write"
+		<< " good=" << (writeGood ? 1 : 0)
+		<< " fail=" << (writeFail ? 1 : 0)
+		<< " bad=" << (writeBad ? 1 : 0)
+		<< " wall_us=" << writeStamp.wallUs
+		<< " mono_us=" << writeStamp.monoUs;
+	PortFileLog((closeGood && !closeFail && !closeBad) ? LOG_INFO : LOG_ERROR).get() << kPortFileLogPrefix << " publish.close"
+		<< " good=" << (closeGood ? 1 : 0)
+		<< " fail=" << (closeFail ? 1 : 0)
+		<< " bad=" << (closeBad ? 1 : 0)
+		<< " wall_us=" << closeStamp.wallUs
+		<< " mono_us=" << closeStamp.monoUs;
+	std::string renameOutcome;
+	if (renameRc == 0)
+	{
+		renameOutcome = "outcome=renamed";
+	}
+	else
+	{
+		renameOutcome = "outcome=rename-failed errno=" + std::to_string(renameErr)
+			+ " errstr=\"" + std::strerror(renameErr) + "\""
+			+ " native_error=" + (renameNativeError.captured ? std::to_string(renameNativeError.code) : "unavailable");
+	}
+	PortFileLog(renameRc == 0 ? LOG_INFO : LOG_ERROR).get() << kPortFileLogPrefix << " publish.rename"
+		<< " tmp=\"" << tmpPath << "\""
+		<< " final=\"" << finalPath << "\""
+		<< " rc=" << renameRc
+		<< " wall_us=" << renameStamp.wallUs
+		<< " mono_us=" << renameStamp.monoUs
+		<< " " << renameOutcome;
+}
+
 void TestServer::startFromEnvironment(Game* game)
 {
 	if (_running.load())
@@ -332,10 +507,15 @@ void TestServer::ioThread(int port)
 {
 	// Clear any stale port file before binding, so the harness never reads a port
 	// left over from a previous run in a reused -user folder.
-	std::remove(testServerPortFilePath().c_str());
+	const std::string portFilePath = testServerPortFilePath();
+	const int cleanupRc = std::remove(portFilePath.c_str());
+	const int cleanupErrno = errno;
+	const PortFileNativeError cleanupNativeError = portFileNativeError(cleanupRc);
+	const PortFileOpStamp cleanupStamp = portFileStampNow();
 
 	if (SDLNet_Init() != 0)
 	{
+		logPortFileCleanup(portFilePath, cleanupStamp, cleanupRc, cleanupErrno, cleanupNativeError);
 		Log(LOG_ERROR) << "[testserver] SDLNet_Init failed: " << SDLNet_GetError();
 		return;
 	}
@@ -346,6 +526,7 @@ void TestServer::ioThread(int port)
 		port = probeEphemeralPort(SOCK_STREAM);
 		if (port <= 0)
 		{
+			logPortFileCleanup(portFilePath, cleanupStamp, cleanupRc, cleanupErrno, cleanupNativeError);
 			Log(LOG_ERROR) << "[testserver] could not probe an ephemeral port";
 			SDLNet_Quit();
 			return;
@@ -356,12 +537,14 @@ void TestServer::ioThread(int port)
 	// an outbound connect). Test-only server, gated by OXC_TEST_PORT.
 	if (SDLNet_ResolveHost(&ip, nullptr, (Uint16)port) != 0)
 	{
+		logPortFileCleanup(portFilePath, cleanupStamp, cleanupRc, cleanupErrno, cleanupNativeError);
 		Log(LOG_ERROR) << "[testserver] resolve failed: " << SDLNet_GetError();
 		return;
 	}
 	TCPsocket listening = SDLNet_TCP_Open(&ip);
 	if (!listening)
 	{
+		logPortFileCleanup(portFilePath, cleanupStamp, cleanupRc, cleanupErrno, cleanupNativeError);
 		Log(LOG_ERROR) << "[testserver] open failed: " << SDLNet_GetError();
 		return;
 	}
@@ -371,21 +554,85 @@ void TestServer::ioThread(int port)
 	// The listener is up on `port`. Report it to the harness atomically: write a
 	// temp file then rename over the final name, so a poller never reads a
 	// half-written value. The log line below is the stdout/log fallback report.
+	//
+	// Preserve error codes before timestamps/logging; timestamps mark post-call
+	// observations. Do not log between temporary-file write, close and rename.
+	bool pubAttempted = false;
+	bool pubOpenOk = false;
+	bool pubWriteGood = false, pubWriteFail = false, pubWriteBad = false;
+	bool pubCloseGood = false, pubCloseFail = false, pubCloseBad = false;
+	bool pubRenameCalled = false;
+	int pubRenameRc = 0;
+	int pubRenameErrno = 0;
+	PortFileNativeError pubRenameNativeError;
+	PortFileOpStamp pubOpenStamp = {};
+	PortFileOpStamp pubWriteStamp = {};
+	PortFileOpStamp pubCloseStamp = {};
+	PortFileOpStamp pubRenameStamp = {};
 	{
-		const std::string finalPath = testServerPortFilePath();
+		const std::string finalPath = portFilePath;
 		const std::string tmpPath = finalPath + ".tmp";
 		std::ofstream pf(tmpPath.c_str(), std::ios::out | std::ios::trunc);
+		pubOpenStamp = portFileStampNow();
 		if (pf)
 		{
+			pubAttempted = true;
+			pubOpenOk = true;
 			pf << port << "\n";
+			pubWriteGood = pf.good();
+			pubWriteFail = pf.fail();
+			pubWriteBad = pf.bad();
+			pubWriteStamp = portFileStampNow();
 			pf.close();
-			std::rename(tmpPath.c_str(), finalPath.c_str());
+			pubCloseGood = pf.good();
+			pubCloseFail = pf.fail();
+			pubCloseBad = pf.bad();
+			pubCloseStamp = portFileStampNow();
+			pubRenameRc = std::rename(tmpPath.c_str(), finalPath.c_str());
+			pubRenameErrno = errno;
+			pubRenameNativeError = portFileNativeError(pubRenameRc);
+			pubRenameStamp = portFileStampNow();
+			pubRenameCalled = true;
 		}
 	}
 	Log(LOG_INFO) << "[testserver] listening on 127.0.0.1:" << port;
+	logPortFileCleanup(portFilePath, cleanupStamp, cleanupRc, cleanupErrno, cleanupNativeError);
+	logPortFilePublish(portFilePath, port, pubAttempted, pubOpenOk,
+		pubWriteGood, pubWriteFail, pubWriteBad,
+		pubCloseGood, pubCloseFail, pubCloseBad,
+		pubRenameCalled, pubRenameRc, pubRenameErrno, pubRenameNativeError,
+		pubOpenStamp, pubWriteStamp, pubCloseStamp, pubRenameStamp);
 
 	TCPsocket client = nullptr;
 	std::string recvBuf;
+
+	auto flushResponses = [&]()
+	{
+		if (!client)
+		{
+			return;
+		}
+		std::deque<std::string> out;
+		{
+			std::lock_guard<std::mutex> lock(_mutex);
+			out.swap(_outbox);
+		}
+		for (auto& resp : out)
+		{
+			resp += '\n';
+			int sent = 0;
+			int len = (int)resp.size();
+			while (sent < len)
+			{
+				int n = SDLNet_TCP_Send(client, resp.data() + sent, len - sent);
+				if (n <= 0)
+				{
+					break;
+				}
+				sent += n;
+			}
+		}
+	};
 
 	while (_running.load())
 	{
@@ -436,32 +683,11 @@ void TestServer::ioThread(int port)
 			}
 		}
 
-		// Flush responses.
-		if (client)
-		{
-			std::deque<std::string> out;
-			{
-				std::lock_guard<std::mutex> lock(_mutex);
-				out.swap(_outbox);
-			}
-			for (auto& resp : out)
-			{
-				resp += '\n';
-				int sent = 0;
-				int len = (int)resp.size();
-				while (sent < len)
-				{
-					int n = SDLNet_TCP_Send(client, resp.data() + sent, len - sent);
-					if (n <= 0)
-					{
-						break;
-					}
-					sent += n;
-				}
-			}
-		}
+		flushResponses();
 	}
 
+	// stop() can race the last loop condition after pump() queues the quit reply.
+	flushResponses();
 	if (client)
 	{
 		SDLNet_TCP_Close(client);
@@ -488,6 +714,7 @@ void TestServer::pump()
 			return;
 		}
 	}
+	flushPortFileLogs();
 	for (;;)
 	{
 		std::string line;

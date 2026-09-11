@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import yaml
 
-from harness import GameClient, make_user_dir
+from harness import GameClient, make_user_dir, shutdown_clients
 import session
 
 HOST_NAME = "HostPlayer"
@@ -154,9 +154,7 @@ def generate_fixtures():
         solo_text = derive_solo(modern)
         return host_dual, client_dual, solo_text
     finally:
-        for gc in (host, client):
-            try: gc.shutdown()
-            except Exception: pass
+        shutdown_clients(host, client)
 
 
 def test_gate(host_text):
@@ -179,8 +177,7 @@ def test_gate(host_text):
         assert not any("HostMenu" in s for s in st), f"save reached the host window without upgrading: {st}"
         print("PASS gate: legacy dual intercepted -> SaveUpgradeDialogState (did not load as solo)")
     finally:
-        try: host.shutdown()
-        except Exception: pass
+        host.shutdown()
 
 
 def test_solo_never_gates(solo_text):
@@ -209,8 +206,7 @@ def test_solo_never_gates(solo_text):
         assert markers["coop"] is False, f"solo save must load as solo (coop=false): {markers}"
         print("PASS solo-never-gates: fork-era solo save loaded straight to geoscape, no gate")
     finally:
-        try: host.shutdown()
-        except Exception: pass
+        host.shutdown()
 
 
 def test_upgrade_and_rejoin(host_text, client_text):
@@ -254,9 +250,7 @@ def test_upgrade_and_rejoin(host_text, client_text):
         session.assert_client_zero_disk(client_dir)
         print("PASS rejoin: upgraded save loaded, client streamed its world, roster intact, zero-disk")
     finally:
-        for gc in (host, client):
-            try: gc.shutdown()
-            except Exception: pass
+        shutdown_clients(host, client)
 
 
 def main():

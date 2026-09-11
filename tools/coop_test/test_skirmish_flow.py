@@ -17,8 +17,9 @@ lobby). Desired flow:
      which opens the client's craft screen OVER the lobby (it never leaves it)
   6. the setup screen's COOP button re-opens the lobby, which still offers
      BATTLE SETTINGS, so the host can bounce between the two
-  7. host presses OK on the setup screen -> the client leaves the lobby and
-     both machines reach the battlescape
+  7. host presses OK on the setup screen, then OK on the host briefing ->
+     the battle offer is sent, the client leaves the lobby and both machines
+     reach the battlescape
 
 What used to be wrong:
   - the popup was suppressed entirely for campaign lobbies (a lobbyMode gate),
@@ -248,8 +249,11 @@ def test_skirmish_full_flow():
         host.wait_for("host at battle settings again",
                       lambda: (not session.has_state(host, "LobbyMenu")) or None)
 
-        # 7. OK on the setup screen starts the battle for BOTH machines
+        # 7. FX-1 emits the battle offer only after the host's briefing OK.
         host.ok({"cmd": "newbattle_ok"})
+        host.wait_for("host briefing",
+                      lambda: session.has_state(host, "BriefingState"), timeout=120)
+        host.ok({"cmd": "click_widget", "match": "ok"})
 
         def in_battle(gc):
             st = states(gc)

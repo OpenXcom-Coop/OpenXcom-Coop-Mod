@@ -102,6 +102,13 @@ def selected_unit(bs):
     return None
 
 
+def unit_by_id(bs, uid):
+    for u in bs.get("units", []):
+        if u.get("id") == uid:
+            return u
+    return None
+
+
 # Direction -> (dx, dy) step table, 0=North clockwise - the same table every
 # other rewrite repro in this directory uses (repro_atom_turn.py's own copy).
 DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
@@ -130,6 +137,20 @@ def find_move_click(gc, actor):
         pr = gc.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
         if pr.get("verified"):
             return pr["winX"], pr["winY"], (tx, ty, tz)
+    return None
+
+
+def resolve_click_pixel(gc, tile):
+    """Re-project an already-chosen tile's window pixel under the CURRENT camera.
+    The pixel is camera-relative and the camera/view level move across the
+    Handshake -> PauseState -> Active transitions, so a pixel resolved earlier
+    can stop addressing the tile. map_tile_click_pos re-centres on the tile and
+    re-projects it through the production selector path. Returns (winX, winY), or
+    None if the tile cannot be clicked right now (a fixture condition)."""
+    tx, ty, tz = tile
+    pr = gc.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
+    if pr.get("verified"):
+        return pr["winX"], pr["winY"]
     return None
 
 
@@ -175,8 +196,17 @@ def bring_up_lobby(host, client, port):
 # ------------------------------------------------------------------- main ---
 def main():
     port = "47997"
-    host_dir = make_user_dir("rw_freeze_host")
-    client_dir = make_user_dir("rw_freeze_client")
+    # F109 hermetic camera: each instance boots with a dummy SDL mouse parked at
+    # (0,0) - the top-left corner - which under battleEdgeScroll=SCROLL_AUTO arms a
+    # continuous edge-scroll the moment the battlescape is interactive again (e.g.
+    # returning from the Pause hatch). That scroll shifts the camera _mapOffset
+    # BETWEEN map_tile_click_pos verifying the target world tile and the injected
+    # click being consumed, so the click resolves one tile off and the move is
+    # silently rejected. This test exercises input-freeze / Options hatch /
+    # movement, NOT automatic edge scrolling, so pin a hermetic camera
+    # (battleEdgeScroll=0 / SCROLL_NONE) on both instances.
+    host_dir = make_user_dir("rw_freeze_host", options={"battleEdgeScroll": 0})
+    client_dir = make_user_dir("rw_freeze_client", options={"battleEdgeScroll": 0})
     host = GameClient("host", 48850, host_dir)
     client = GameClient("client", 48851, client_dir)
     try:
@@ -240,15 +270,16 @@ def main():
         # === the ordering seat's unit, for the before/after position+TU check ===
         actor = selected_unit(bs1)
         assert actor is not None, f"host has no selected unit: {bs1}"
+        actor_id = actor["id"]
         before = (actor["x"], actor["y"], actor["z"], actor["tu"])
         es_before = event_state(host)
 
-        # THE SAME ground click is reused for every click in this file (frozen
-        # AND unfrozen): a real, verified screen position over one of the
-        # actor's neighbour tiles, resolved ONCE while the map/camera state is
-        # settled. This is what lets the LAST assertion below ("the SAME ground
-        # click DOES move the unit") be a real move, not just an absence of
-        # refusal - repro_atom_turn.py's `tile_click` precedent.
+        # The move-click TILE is chosen ONCE (a verified neighbour of the actor);
+        # its camera-relative window PIXEL is RE-RESOLVED (resolve_click_pixel)
+        # before each later click, because the camera/view level move across
+        # Handshake -> PauseState -> Active. Reusing the TILE (not the pixel) is
+        # what keeps the last assertion a real, same-target move, not just an
+        # absence of refusal - repro_atom_turn.py's `tile_click` precedent.
         click = find_move_click(host, actor)
         assert click is not None, (
             f"FIXTURE: none of the actor's 8 neighbour tiles verified through "
@@ -364,7 +395,16 @@ def main():
             actor3 = selected_unit(bs3)
             before2 = (actor3["x"], actor3["y"], actor3["z"], actor3["tu"])
             r2 = event_state(host)["coopHostInputFrozenRefusals"]
-            host.ok({"cmd": "inject_input", "kind": "click", "x": click_x, "y": click_y})
+            # Re-resolve the SAME tile's pixel: the PauseState open/close round
+            # trip can move the camera, so the Handshake pixel may no longer
+            # address click_tile. Same tile, fresh projection.
+            recheck = resolve_click_pixel(host, click_tile)
+            assert recheck is not None, (
+                f"FIXTURE: move-click tile {click_tile} no longer verifies through "
+                f"map_tile_click_pos after the PauseState round trip - cannot "
+                f"re-resolve the frozen re-check click for this boot's camera state")
+            recheck_x, recheck_y = recheck
+            host.ok({"cmd": "inject_input", "kind": "click", "x": recheck_x, "y": recheck_y})
             time.sleep(0.3)
             bs4 = battle_state(host)
             actor4 = selected_unit(bs4)
@@ -404,18 +444,67 @@ def main():
         r4 = event_state(host)["coopHostInputFrozenRefusals"]
         bs5 = battle_state(host)
         actor5 = selected_unit(bs5)
+        # SAME actor: click_tile is the ORIGINAL actor's neighbour, so a changed
+        # selection here would not be the same action. Enforce identity, then
+        # track that unit BY ID (not "whatever is selected") for the move proof,
+        # so a selection change can never be miscredited as movement.
+        assert actor5 is not None and actor5["id"] == actor_id, (
+            f"selected unit changed between the frozen check and the Active control "
+            f"(was id {actor_id}, now {None if actor5 is None else actor5['id']})")
         before3 = (actor5["x"], actor5["y"], actor5["z"], actor5["tu"])
 
-        host.ok({"cmd": "inject_input", "kind": "click", "x": click_x, "y": click_y})
+        # Re-resolve the SAME tile's pixel under the now-Active camera instead of
+        # reusing the Handshake pixel: same tile, same actor, but the camera/view
+        # level can move (empirically measured), so a fixed pixel would address a
+        # different tile. map_tile_click_pos re-centres on click_tile and
+        # re-projects it through the production selector path.
+        active_click = resolve_click_pixel(host, click_tile)
+        assert active_click is not None, (
+            f"FIXTURE: the move-click tile {click_tile} no longer verifies through "
+            f"map_tile_click_pos once phase is Active - cannot re-resolve a real "
+            f"move-click for this boot's camera state (selected actor at "
+            f"{(actor5['x'], actor5['y'], actor5['z'])})")
+        active_x, active_y = active_click
+        print(f"fixture: re-resolved move-click tile {click_tile} under the Active "
+              f"camera to window ({active_x},{active_y}) "
+              f"(was ({click_x},{click_y}) at Handshake)")
+
+        host.ok({"cmd": "inject_input", "kind": "click", "x": active_x, "y": active_y})
 
         def _moved():
-            u = selected_unit(battle_state(host))
+            u = unit_by_id(battle_state(host), actor_id)
             return u is not None and (u["x"], u["y"], u["z"], u["tu"]) != before3
-        host.wait_for("the unfrozen ground click to move the actor", lambda: _moved() or None,
-                      timeout=15)
+        try:
+            host.wait_for("the unfrozen ground click to move the actor", lambda: _moved() or None,
+                          timeout=15)
+        except TimeoutError:
+            # Do NOT swallow: capture WHY the re-resolved click did not move the
+            # unit (freeze failed to lift vs. a fixture no-move tile) and RE-RAISE
+            # the same failure. Diagnostics only - no retry, no extended timeout,
+            # no catch-to-pass. Arm entry is reported, NEVER asserted as a pass.
+            diag_bs = battle_state(host)
+            diag_tracked = unit_by_id(diag_bs, actor_id)
+            diag_sel = selected_unit(diag_bs)
+            diag_es = event_state(host)
+            diag_pos = (None if diag_tracked is None
+                        else (diag_tracked["x"], diag_tracked["y"], diag_tracked["z"], diag_tracked["tu"]))
+            print("DIAG (Active non-vacuity control timed out):")
+            print(f"  tracked actor id {actor_id}: {diag_pos} (before click: {before3})")
+            print(f"  currently selected id: {None if diag_sel is None else diag_sel['id']}")
+            print(f"  intended move-click tile: {click_tile}")
+            print(f"  Handshake pixel: ({click_x},{click_y})  "
+                  f"Active re-resolved pixel: ({active_x},{active_y})")
+            print(f"  event_state: coopWalkArmEntered={diag_es.get('coopWalkArmEntered')} "
+                  f"coopWalkIntentsSent={diag_es.get('coopWalkIntentsSent')} "
+                  f"coopHostInputFrozenRefusals={diag_es.get('coopHostInputFrozenRefusals')} "
+                  f"(refusals were {r4} before the click)")
+            print(f"  lastWalk: {diag_es.get('lastWalk')}")
+            print(f"  battle phase: {diag_bs.get('phase')!r}  top state: {top_state(host)!r}")
+            raise
 
         bs6 = battle_state(host)
-        actor6 = selected_unit(bs6)
+        actor6 = unit_by_id(bs6, actor_id)
+        assert actor6 is not None, f"tracked actor id {actor_id} vanished from battle_state: {bs6}"
         after3 = (actor6["x"], actor6["y"], actor6["z"], actor6["tu"])
         r5 = event_state(host)["coopHostInputFrozenRefusals"]
 
@@ -428,10 +517,10 @@ def main():
             f"unit once phase reached Active: before={before3} after={after3} - the "
             "freeze lifted (no refusal) but nothing downstream actually let the "
             "click through")
-        print(f"PASS (non-vacuity control): once Active, the SAME ground click "
-              f"({click_x},{click_y}) no longer refuses (coopHostInputFrozenRefusals "
-              f"stayed at {r5}) AND actually moves the unit: before={before3} "
-              f"after={after3}")
+        print(f"PASS (non-vacuity control): once Active, the SAME ground-click "
+              f"tile {click_tile} (re-resolved to window ({active_x},{active_y})) "
+              f"no longer refuses (coopHostInputFrozenRefusals stayed at {r5}) AND "
+              f"actually moves the unit: before={before3} after={after3}")
 
         print("ALL FX-1 HOST-INPUT-FREEZE CHECKS PASSED")
     finally:

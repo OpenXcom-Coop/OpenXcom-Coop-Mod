@@ -19,6 +19,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 
 PORT = 48971
+# The Windows fixture exits 3; 0xC0000005 is the fault recorded in its crash log,
+# not the process exit code. POSIX signalLogger exits with EXIT_FAILURE.
+CRASH_RETURN_CODE = 3 if os.name == "nt" else 1
 
 
 def _dmps(d):
@@ -35,6 +38,7 @@ def _newest_crashlog(d):
 def main():
     gc = GameClient("host", PORT, make_user_dir("crashdump"))
     gc.spawn()
+    crash_requested = False
     try:
         gc.connect()
         crash_dir = gc.ok({"cmd": "crashlog_probe"})["dir"]
@@ -45,14 +49,13 @@ def main():
         # faults inside the command handler - so a dropped socket IS the success path.
         crashed = False
         try:
+            crash_requested = True
             gc.cmd({"cmd": "force_crash"})
         except (ConnectionError, OSError, socket.timeout):
             crashed = True
         # give the in-thread minidump write + process teardown a moment.
-        try:
-            gc.proc.wait(timeout=20)
-        except Exception:
-            pass
+        returncode = gc.proc.wait(timeout=20)
+        assert returncode == CRASH_RETURN_CODE, f"unexpected crash exit: {returncode}"
         assert crashed or gc.proc.poll() is not None, "force_crash did not bring the process down"
         print("PASS: instance faulted as intended")
 
@@ -73,13 +76,12 @@ def main():
         text = open(log, "r", encoding="utf-8", errors="replace").read()
         assert "Mods:" in text and "xcom1" in text, \
             f"crash log missing the mod list:\n{text[:600]}"
+        if os.name == "nt":
+            assert "Code = 0xC0000005" in text, f"wrong intentional fault:\n{text}"
         print("PASS: crash log records the mod list")
         print("CRASH-PRODUCES-DUMP TEST PASSED")
     finally:
-        try:
-            gc.shutdown()
-        except Exception:
-            pass
+        gc.shutdown(expected_returncodes=(CRASH_RETURN_CODE,) if crash_requested else (0,))
 
 
 if __name__ == "__main__":

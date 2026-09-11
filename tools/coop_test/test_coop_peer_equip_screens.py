@@ -43,7 +43,10 @@ import os
 import sys
 
 # RW-TRIAGE: SKIP-PENDING(r4/r5)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
+# Keep the standalone test quarantined without exiting its helper importers.
+if __name__ == "__main__":
+    print("SKIP-PENDING: rewrite")
+    sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir

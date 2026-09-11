@@ -16,7 +16,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
+from harness import GameClient, make_user_dir, shutdown_clients, LAND_LON, LAND_LAT
 import session
 import geo  # PRD-13 S7: geo.top_state (safe on empty stack)
 
@@ -128,7 +128,7 @@ def main():
         # A client leaving after the host opens the START CAMPAIGN confirm
         # dialog must (a) auto-dismiss the dialog and (b) never start the
         # campaign, even if the host clicks OK. Drives the REAL confirm dialog.
-        host.shutdown(); client.shutdown()
+        shutdown_clients(host, client)
         c4_host_dir = make_user_dir("c4_host")
         host = GameClient("host", 48652, c4_host_dir)
         client = GameClient("client", 48653, make_user_dir("c4_client"))
@@ -157,7 +157,7 @@ def main():
         )
 
         # hard-kill the lone client (abrupt drop, no graceful quit)
-        client.proc.kill()
+        client.kill()
 
         # (a) the dialog auto-dismisses once the host notices the drop
         host.wait_for(
@@ -185,8 +185,7 @@ def main():
 
         print("ALL LOBBY GATING TESTS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        shutdown_clients(host, client)
 
 
 if __name__ == "__main__":

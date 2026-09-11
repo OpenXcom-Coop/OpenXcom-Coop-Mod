@@ -153,7 +153,8 @@ def main():
         print("PASS bug4: campaign save refuses a different host name")
 
         # correct name hosts fine
-        host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": "47903", "player": "HostPlayer"})
+        resume_host = host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": "47903", "player": "HostPlayer"})
+        resume_port = str(resume_host["port"])
         host.wait_for("resume lobby", lambda: session._has_state(host, "LobbyMenu"))
 
         # ---------- Bug 5: waiting text merges names + port ----------
@@ -162,7 +163,7 @@ def main():
         # Poll for the merged form rather than reading that transient default.
         details = host.wait_for(
             "resume waiting text merged (names + port)",
-            lambda: (lambda d: d if ("ClientPlayer" in d and "47903" in d) else None)(
+            lambda: (lambda d: d if ("ClientPlayer" in d and resume_port in d) else None)(
                 host.cmd({"cmd": "lobby_state"}).get("detailsText", "")),
             timeout=15,
         )

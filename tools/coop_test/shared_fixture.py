@@ -72,7 +72,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+from harness import GameClient, make_user_dir, shutdown_clients
 import session
 import geo
 
@@ -233,8 +233,7 @@ class SharedSession:
         print("PASS zero-disk: client (replica) user dir clean")
 
     def shutdown(self):
-        self.host.shutdown()
-        self.client.shutdown()
+        shutdown_clients(self.host, self.client)
 
     # context-manager form, for tests that prefer it
     def __enter__(self):
