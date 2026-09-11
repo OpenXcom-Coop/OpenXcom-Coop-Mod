@@ -408,6 +408,13 @@ public:
 	/// Sim code must never call this - vanilla owns _turn through
 	/// startFirstTurn()/endTurn().
 	void setTurn(int turn);
+	/// W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute active-side
+	/// set - the coop client-apply counterpart of the `newSide` field on the
+	/// `side_transition` restate. Plain assignment to the private _side field
+	/// (getSide() is the only other accessor). Sim code must never call this -
+	/// vanilla owns _side through endTurn(); the client applier is the one
+	/// caller (connectionTCP.cpp's CoopApply::applyEvPayload).
+	void coopSetSide(UnitFaction side);
 	/// Sets the bug hunt turn number.
 	void setBughuntMinTurn(int bughuntMinTurn);
 	/// Gets the bug hunt turn number.

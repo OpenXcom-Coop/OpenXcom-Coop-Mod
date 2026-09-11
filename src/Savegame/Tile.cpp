@@ -778,6 +778,18 @@ void Tile::setFire(int fire)
 }
 
 /**
+ * W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute tile-fire set
+ * for the `side_transition` restate's perTile applier. Same clamp as
+ * setFire() above, but no RNG::generate() roll - _animationOffset is
+ * cosmetic (not serialized) and the restate applier must never call RNG.
+ * @param fire : amount of turns this tile is on fire.
+ */
+void Tile::coopSetTileFireAbsolute(int fire)
+{
+	_fire = Clamp(fire, 0, 255);
+}
+
+/**
  * Get the amount of turns this tile is on fire. 0 = no fire.
  * @return fire : amount of turns this tile is on fire.
  */
@@ -815,6 +827,18 @@ void Tile::setSmoke(int smoke)
 {
 	_smoke = Clamp(smoke, 0, 255);
 	_animationOffset = RNG::generate(0,3);
+}
+
+/**
+ * W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute tile-smoke set
+ * for the `side_transition` restate's perTile applier. Same clamp as
+ * setSmoke() above, but no RNG::generate() roll - see
+ * coopSetTileFireAbsolute()'s comment for why.
+ * @param smoke : amount of turns this tile is smoking.
+ */
+void Tile::coopSetSmokeAbsolute(int smoke)
+{
+	_smoke = Clamp(smoke, 0, 255);
 }
 
 

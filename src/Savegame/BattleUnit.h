@@ -336,6 +336,42 @@ public:
 	/// Clamped to [0, stamina] the same way vanilla's own internal energy
 	/// mutations are.
 	void setEnergy(int energy);
+	/// W1-P13a (WAVE1-RUNBOOK.md SPEC 9): absolute health set - the coop
+	/// client-apply counterpart for the `side_transition` restate. A plain
+	/// assignment, deliberately with NO regen/clamp cascade: prepareHealth()/
+	/// heal() are deltas and kill()/instaKill() are not restates, so none of
+	/// them is the right shape for an absolute post-endTurn value.
+	void coopSetHealth(int health);
+	/// W1-P13a: absolute stun-level set. healStun(int) is a delta and
+	/// prepareStun() is a turn-transition helper; neither restates.
+	void coopSetStunlevel(int stun);
+	/// W1-P13a: absolute morale set. moraleChange(int) is a delta that also
+	/// runs bravery maths, which a restate must not repeat.
+	void coopSetMorale(int morale);
+	/// W1-P13a: absolute mana set. prepareMana() is a turn-transition helper
+	/// and stimulant() is a delta; neither restates.
+	void coopSetMana(int mana);
+	/// W1-P13a: absolute unit-status set (BattleUnit.cpp:710 is serialized and
+	/// rides the saveBlob bucket; also feeds unitsCore via unitLiveness()).
+	void coopSetStatus(UnitStatus status);
+	/// W1-P13a: absolute floating-flag set (serialized, saveBlob bucket).
+	/// Apply AFTER position - setTile() recomputes _floating on its own, and
+	/// this restate value must win.
+	void coopSetFloating(bool floating);
+	/// W1-P13a: absolute on-fire-turns set for the UNIT (not the tile - see
+	/// Tile::coopSetTileFireAbsolute). setFire() silently drops the write
+	/// when _specab is SPECAB_BURNFLOOR or SPECAB_BURN_AND_EXPLODE; a restate
+	/// must land unconditionally, so this bypasses that guard on purpose.
+	void coopSetFireAbsolute(int fire);
+	/// W1-P13a (RW-FIX-TURRET discipline): absolute BODY direction set -
+	/// writes _direction/_toDirection ONLY, mirroring setTurretDirection()
+	/// above but for the other half. setDirection() also writes
+	/// _directionTurret/_toDirectionTurret, which are serialized and NOT
+	/// saveBlob-excluded; the frozen `side_transition` restate carries no
+	/// turret field (see SavedBattleGame.cpp's endTurn() turret-reset loop,
+	/// reproduced by the applier instead), so using plain setDirection() here
+	/// would clobber a turret facing this restate does not carry.
+	void coopSetBodyDirection(int dir);
 	/// Gets the unit's health.
 	int getHealth() const;
 	/// Gets the unit's mana.

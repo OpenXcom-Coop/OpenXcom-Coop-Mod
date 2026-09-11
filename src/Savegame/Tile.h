@@ -347,12 +347,22 @@ public:
 	BattleUnit *getOverlappingUnit(const SavedBattleGame *saveBattleGame, TileUnitOverlapping range = TUO_NORMAL) const;
 	/// Set fire, does not increment overlaps.
 	void setFire(int fire);
+	/// W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute tile-fire
+	/// set for the `side_transition` restate's perTile applier. Keeps
+	/// setFire()'s own Clamp(fire,0,255) but drops its RNG::generate(0,3)
+	/// _animationOffset roll - _animationOffset is cosmetic, not serialized,
+	/// and the restate applier must never call RNG (A2).
+	void coopSetTileFireAbsolute(int fire);
 	/// Get fire.
 	int getFire() const;
 	/// Add smoke, increments overlap.
 	void addSmoke(int smoke);
 	/// Set smoke, does not increment overlaps.
 	void setSmoke(int smoke);
+	/// W1-P13a: absolute tile-smoke set for the `side_transition` restate's
+	/// perTile applier. Same discipline as coopSetTileFireAbsolute() above:
+	/// keeps setSmoke()'s Clamp(smoke,0,255), drops the RNG roll.
+	void coopSetSmokeAbsolute(int smoke);
 	/// Get smoke.
 	int getSmoke() const;
 	/// Get flammability.

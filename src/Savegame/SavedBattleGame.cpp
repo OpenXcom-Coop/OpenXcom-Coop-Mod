@@ -1246,6 +1246,19 @@ void SavedBattleGame::setTurn(int turn)
 }
 
 /**
+ * W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute active-side
+ * set - the coop client-apply counterpart of the `newSide` field on the
+ * `side_transition` restate. See the declaration in SavedBattleGame.h for
+ * the full contract; the only caller is CoopApply::applyEvPayload() in
+ * src/CoopMod/connectionTCP.cpp.
+ * @param side The new active side.
+ */
+void SavedBattleGame::coopSetSide(UnitFaction side)
+{
+	_side = side;
+}
+
+/**
 * Sets the bug hunt turn number.
 */
 void SavedBattleGame::setBughuntMinTurn(int bughuntMinTurn)

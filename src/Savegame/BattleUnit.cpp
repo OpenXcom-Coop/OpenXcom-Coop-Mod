@@ -4767,6 +4767,99 @@ void BattleUnit::setEnergy(int energy)
 }
 
 /**
+ * W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute health set for
+ * the `side_transition` restate applier. Plain assignment - no regen/clamp
+ * cascade, unlike the delta-based prepareHealth()/heal() or the special-cased
+ * kill()/instaKill().
+ * @param health new health value
+ */
+void BattleUnit::coopSetHealth(int health)
+{
+	_health = health;
+}
+
+/**
+ * W1-P13a: absolute stun-level set for the `side_transition` restate
+ * applier. Plain assignment - healStun(int) is a delta and prepareStun() is
+ * a turn-transition helper, neither of which restates.
+ * @param stun new stun level
+ */
+void BattleUnit::coopSetStunlevel(int stun)
+{
+	_stunlevel = stun;
+}
+
+/**
+ * W1-P13a: absolute morale set for the `side_transition` restate applier.
+ * Plain assignment - moraleChange(int) is a delta that also runs bravery
+ * maths, which a restate must not repeat.
+ * @param morale new morale value
+ */
+void BattleUnit::coopSetMorale(int morale)
+{
+	_morale = morale;
+}
+
+/**
+ * W1-P13a: absolute mana set for the `side_transition` restate applier.
+ * Plain assignment - prepareMana() is a turn-transition helper and
+ * stimulant() is a delta, neither of which restates.
+ * @param mana new mana value
+ */
+void BattleUnit::coopSetMana(int mana)
+{
+	_mana = mana;
+}
+
+/**
+ * W1-P13a: absolute unit-status set for the `side_transition` restate
+ * applier. Plain assignment.
+ * @param status new unit status
+ */
+void BattleUnit::coopSetStatus(UnitStatus status)
+{
+	_status = status;
+}
+
+/**
+ * W1-P13a: absolute floating-flag set for the `side_transition` restate
+ * applier. Plain assignment - the caller applies this AFTER position, since
+ * setTile() recomputes _floating on its own and this restate value must win.
+ * @param floating new floating flag
+ */
+void BattleUnit::coopSetFloating(bool floating)
+{
+	_floating = floating;
+}
+
+/**
+ * W1-P13a: absolute on-fire-turns set for the UNIT, for the `side_transition`
+ * restate applier. Unlike setFire() above, this writes unconditionally -
+ * setFire() silently drops the write for SPECAB_BURNFLOOR/
+ * SPECAB_BURN_AND_EXPLODE units, and a restate must land regardless.
+ * @param fire new on-fire-turns value
+ */
+void BattleUnit::coopSetFireAbsolute(int fire)
+{
+	_fire = fire;
+}
+
+/**
+ * W1-P13a (RW-FIX-TURRET discipline): absolute BODY direction set for the
+ * `side_transition` restate applier - writes _direction/_toDirection ONLY,
+ * the mirror image of setTurretDirection() above. setDirection() also writes
+ * _directionTurret/_toDirectionTurret (serialized, NOT saveBlob-excluded);
+ * the frozen restate carries no turret field, so using setDirection() here
+ * would clobber a turret facing this restate does not carry.
+ * @param dir new body direction
+ */
+void BattleUnit::coopSetBodyDirection(int dir)
+{
+	_direction = dir;
+	_toDirection = dir;
+}
+
+/**
  * Get the faction the unit was killed by.
  * @return faction
  */

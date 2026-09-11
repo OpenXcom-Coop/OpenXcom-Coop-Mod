@@ -63,6 +63,7 @@
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopBattleUi.h"
 #include "../CoopMod/CoopFog.h"
+#include "../CoopMod/CoopSideTransition.h"
 
 namespace OpenXcom
 {
@@ -232,6 +233,17 @@ int BattlescapeGame::think()
 		// it's a non player side (ALIENS or CIVILIANS)
 		if (_save->getSide() != FACTION_PLAYER)
 		{
+			// W1-P13a (WAVE1-RUNBOOK.md SPEC 9 / D48): without this, the FIRST
+			// side_transition that lets a coop client's side actually change
+			// would immediately fall into the "no selectable unit" arm below
+			// and mint a client-LOCAL end turn (selectNextPlayerUnit() == 0 ->
+			// _endTurnRequested = true), or - with a selectable unit - run
+			// handleAI() locally with no coop gate at all. See
+			// coopSuppressNonPlayerThink()'s own comment (BattleAuthority.h)
+			// for the exact predicate; self-guarded, so SP and non-coop stay
+			// byte-identical.
+			if (coopSuppressNonPlayerThink(_save))
+				return ret;
 			auto sideBackup = _save->getSide();
 			_save->resetUnitHitStates();
 			if (!_debugPlay)
@@ -658,6 +670,18 @@ void BattlescapeGame::endTurn()
 
 	_triggerProcessed.reset();
 	_endTurnProcessed.reset();
+
+	// W1-P13a (WAVE1-RUNBOOK.md SPEC 9): "emit AFTER SavedBattleGame::endTurn
+	// returns, i.e. at the point BattlescapeGame::endTurn regains control".
+	// This is that point for BOTH paths through the function above: the
+	// direct one (_save->endTurn() returned, no terrain explosion followed)
+	// and the terrain-explosion detour (that path returns EARLY, before
+	// reaching the two resets just above, so it lands here on the re-entry
+	// that finds _endTurnProcessed already consumed). Either way this runs
+	// EXACTLY ONCE per completed side transition. Self-guarded (isCoopBattle()
+	// && hostSim) - a no-op on SP, on any non-coop battle, and on a client
+	// (which never reaches this function's _save->endTurn() call at all).
+	coopEmitSideTransition(_save);
 
 	if (_save->getSide() == FACTION_PLAYER)
 	{

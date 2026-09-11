@@ -428,4 +428,28 @@ int coopWalkArmEntries();
 /// wire verb. Never read by game logic.
 int coopWalkIntentsFromClick();
 
+/// W1-P13a (WAVE1-RUNBOOK.md SPEC 9 / D48): the think() guard. ONE guarded
+/// early return, `if (coopSuppressNonPlayerThink(_save)) return ret;`, as the
+/// FIRST statement inside BattlescapeGame::think()'s
+/// `if (_save->getSide() != FACTION_PLAYER)` branch (BattlescapeGame.cpp:233) -
+/// with no selectable unit that branch reaches
+/// `selectNextPlayerUnit(true, _AISecondMove) == 0` -> a client-LOCAL end
+/// turn the moment side_transition lets the client change sides at all; with
+/// a selectable unit it runs handleAI() locally, which has no coop gate.
+///
+/// Self-guarded like isCoopBattle()/coopMayCommand(): returns false (SP and
+/// non-coop battle stay byte-identical) outside an active coop battle.
+/// Inside one, returns true when either:
+///   1. `!coopBattleAuthority().hostSim` - a client never runs non-player AI
+///      or a client-local end-turn; that is entirely the host's job.
+///   2. the currently active side (@a s->getSide()) has at least one HUMAN
+///      seat mapped to it in the seat->faction store (iterate seats 0..3
+///      through the public factionOf() - kMaxSeats is private and, per
+///      RB-D17, is and stays 4) - an unmapped seat defaults to FACTION_PLAYER
+///      (BattleAuthority::factionOf()), so this can only be true for a
+///      non-player side when gm2+ actually assigned a human to it.
+/// False (vanilla AI runs) in every other case - i.e. on the host, for an
+/// AI-only side.
+bool coopSuppressNonPlayerThink(const SavedBattleGame* s);
+
 } // namespace OpenXcom

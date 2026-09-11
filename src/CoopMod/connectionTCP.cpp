@@ -46,6 +46,7 @@
 #include "../Battlescape/BattlescapeState.h"
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/BattlescapeGame.h"
+#include "../Battlescape/NextTurnState.h"
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/Pathfinding.h"
@@ -88,6 +89,7 @@
 #include "CoopFog.h"
 #include "CoopDoor.h"
 #include "CoopGhost.h"
+#include "CoopSideTransition.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -2523,6 +2525,30 @@ bool coopMaySelectUnit(const BattleUnit* u)
 	if (!isCoopBattle())
 		return true;
 	return coopBattleAuthority().commandsUnit(u);
+}
+
+// W1-P13a (WAVE1-RUNBOOK.md SPEC 9 / D48): the think() guard - see
+// BattleAuthority.h's own doc comment for the full rationale. Self-guarded
+// like isCoopBattle()/coopMayCommand() (false outside an active coop battle),
+// so SP and every non-coop battle stay byte-identical.
+bool coopSuppressNonPlayerThink(const SavedBattleGame* s)
+{
+	if (!isCoopBattle())
+		return false;
+	if (!coopBattleAuthority().hostSim)
+		return true;
+	if (!s)
+		return false;
+	const int side = (int)s->getSide();
+	// kMaxSeats is private (RB-D17: it is, and stays, 4 - COOP_SEAT_0..
+	// COOP_SEAT_3) - iterate the fixed range through the public factionOf()
+	// rather than exposing the constant.
+	for (int seat = 0; seat < 4; ++seat)
+	{
+		if (coopBattleAuthority().factionOf(seat) == side)
+			return true;
+	}
+	return false;
 }
 
 // W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /
@@ -5539,6 +5565,188 @@ unsigned int coopDoorEvsApplied() { return g_coopDoorEvsApplied.load(); }
 unsigned int coopDoorInTurnUnsupported() { return g_coopDoorInTurnUnsupported.load(); }
 unsigned int coopDoorReserveWaived() { return g_coopDoorReserveWaived.load(); }
 
+// ===== W1-P13a: side_transition / side_begin (CoopSideTransition.h) =====
+// WAVE1-RUNBOOK.md SPEC 9. Host-only emit; the client applier lives inside
+// CoopApply::applyEvPayload() below (kinds "side_transition"/"side_begin"),
+// and the client's NextTurnState push + input re-selection live inside
+// CoopDisplayQueue::onApplied() further down this file.
+
+// Forward declarations: RB-D31's wire<->faction-enum helpers are defined
+// below, in namespace CoopHandshake (this file's CoopHandshake section).
+// Reopening the namespace here only forward-declares them, they are NOT
+// redefined - same pattern as CoopArbiter::findUnitById's forward
+// declaration above. This section needs both directions of the STRING <->
+// enum conversion before that point in the file.
+namespace CoopHandshake
+{
+static int coopWireStringToFaction(const std::string& s);
+static std::string coopFactionToWireString(int faction);
+}
+
+// W1-P13a: the side_transition boundary FULL SWEEP - all nine buckets
+// (terrain, fire, smoke, items, unitsCore, unitsStats, itemIdCtr, saveBlob,
+// revealHostile). Mirrors TestServer's hash_now{full:true} bucket assembly
+// (the only other place this sweep is built) so the wire's own `h` and a
+// test's own hash_now full agree by construction. `revealHostile` is OMITTED
+// (key absent, never zeroed) when CoopFog::computeHash() reports nothing
+// allocated - SP, non-coop, or pre-Active - though in an active coop battle,
+// the only context this function is ever called from, that never happens.
+static Json::Value coopBuildSideTransitionHash(SavedBattleGame* save)
+{
+	Json::Value h(Json::objectValue);
+	SharedEcon::BattleHashSet hs;
+	if (SharedEcon::computeBattleHashes(save, hs))
+	{
+		for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+			h[SharedEcon::battleHashBucketName(i)] = coopHex64(SharedEcon::battleHashBucketValue(hs, i));
+	}
+	std::uint64_t sb = 0;
+	if (SharedEcon::computeSaveBlobHash(save, sb))
+		h["saveBlob"] = coopHex64(sb);
+	std::uint64_t rh = 0;
+	if (CoopFog::computeHash(rh))
+		h["revealHostile"] = coopHex64(rh);
+	return h;
+}
+
+void coopEmitSideTransition(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+
+	// FLUSH BOTH REVEAL SETS BEFORE EMITTING (WV-D39 / SS2.W4): author any
+	// pending hostile-vision bits NOW, so h.revealHostile (below) cannot race
+	// CoopEmit::sendEv()'s own authorHostilePass() call for the SAME
+	// envelope. Dirty-tracked (sweeps only units that moved/turned since the
+	// last sweep), so sendEv()'s later call finds nothing new and is a no-op.
+	CoopFog::authorHostilePass(save, /*force=*/false);
+
+	Json::Value ev = CoopWire::makeEv(0u, CoopArbiter::currentActionId(), "side_transition");
+	Json::Value& payload = ev["payload"];
+
+	// (b): "the restate schema is prd-r3b:213-224's, MINUS selectedUnit" -
+	// perUnit restates every field the frozen schema names, walking the
+	// state AFTER SavedBattleGame::endTurn() (S1/a pre-snapshot is not
+	// needed - this is a restate, not a delta).
+	Json::Value perUnit(Json::arrayValue);
+	for (BattleUnit* u : *save->getUnits())
+	{
+		Json::Value pu(Json::objectValue);
+		pu["id"] = u->getId();
+		pu["faction"] = CoopHandshake::coopFactionToWireString((int)u->getFaction());
+		pu["tu"] = u->getTimeUnits();
+		pu["energy"] = u->getEnergy();
+		pu["health"] = u->getHealth();
+		pu["stun"] = u->getStunlevel();
+		pu["morale"] = u->getMorale();
+		pu["mana"] = u->getMana();
+		pu["fire"] = u->getFire();
+		Json::Value wounds(Json::arrayValue);
+		for (int part = 0; part < (int)BODYPART_MAX; ++part)
+			wounds.append(u->getFatalWound((UnitBodyPart)part));
+		pu["wounds"] = wounds;
+		pu["kneeled"] = u->isKneeled();
+		pu["floating"] = u->isFloating();
+		pu["status"] = (int)u->getStatus();
+		pu["mcId"] = u->getMindControllerId();
+		pu["pos"] = CoopArbiter::coopPosJson(u->getPosition());
+		pu["dir"] = u->getDirection();
+		perUnit.append(pu);
+	}
+	payload["perUnit"] = perUnit;
+
+	// perTile: restate only tiles carrying a non-default (non-zero) hazard
+	// value right now - SPEC 9 test 1's hazard-free fixture has none, so this
+	// asserts perTile == [] there, non-vacuously (a bug that dumped the whole
+	// map would fail it). KNOWN LIMITATION, deliberately unexercised in wave 1
+	// (REV E.48 B.3/D58 postpones the burning-map test to the shot wave):
+	// with no pre-snapshot, a tile whose fire/smoke ticked down to exactly 0
+	// on THIS transition is indistinguishable here from one that was already
+	// 0, so it is NOT restated - a client whose stale copy still shows that
+	// tile burning would only be caught by the boundary hash's fire/smoke
+	// buckets, not repaired by this envelope. Fixing that is shot-wave work.
+	Json::Value perTile(Json::arrayValue);
+	const int tileCount = save->getMapSizeXYZ();
+	for (int i = 0; i < tileCount; ++i)
+	{
+		Tile* t = save->getTile(i);
+		if (!t)
+			continue;
+		if (t->getSmoke() == 0 && t->getFire() == 0)
+			continue;
+		Json::Value pt(Json::objectValue);
+		pt["pos"] = CoopArbiter::coopPosJson(t->getPosition());
+		pt["smoke"] = t->getSmoke();
+		pt["fire"] = t->getFire();
+		perTile.append(pt);
+	}
+	payload["perTile"] = perTile;
+
+	// perItem: restate only items carrying an active fuse right now -
+	// endTurn()'s fuseEndTurnUpdate() is the only thing that can change this
+	// at this boundary. Nothing at this boundary changes ammoQty, so it is
+	// never included.
+	Json::Value perItem(Json::arrayValue);
+	for (BattleItem* item : *save->getItems())
+	{
+		if (item->getFuseTimer() == -1)
+			continue;
+		Json::Value pi(Json::objectValue);
+		pi["item"] = item->getId();
+		pi["fuse"] = item->getFuseTimer();
+		perItem.append(pi);
+	}
+	payload["perItem"] = perItem;
+
+	payload["newTurn"] = save->getTurn();
+	payload["newSide"] = CoopHandshake::coopFactionToWireString((int)save->getSide());
+	// Carried for host parity; IGNORED on the client in v1 (REV E.48 B.3/D58):
+	// SavedBattleGame::_cheating has no setter, is not serialized, and is in
+	// no hash bucket.
+	payload["cheating"] = save->isCheating();
+
+	ev["h"] = coopBuildSideTransitionHash(save);
+
+	CoopEmit::sendEv(ev);
+
+	// side_begin (b): no stats, no tile data - activeSeats comes straight
+	// from the seat->faction store. Emitted right after side_transition, from
+	// the same guarded hook, once the endTurn chain that produced it has
+	// quiesced (this function's own caller is that quiescence point - see
+	// BattlescapeGame.cpp's own comment at the call site).
+	Json::Value begin = CoopWire::makeEv(0u, 0u, "side_begin");
+	begin["payload"]["side"] = CoopHandshake::coopFactionToWireString((int)save->getSide());
+	begin["payload"]["turn"] = save->getTurn();
+	Json::Value activeSeats(Json::arrayValue);
+	for (int seat = 0; seat < 4; ++seat)
+	{
+		if (coopBattleAuthority().factionOf(seat) == (int)save->getSide())
+			activeSeats.append(seat);
+	}
+	begin["payload"]["activeSeats"] = activeSeats;
+	CoopEmit::sendEv(begin);
+}
+
+// W1-P13a (REV E.1 D-5): see CoopSideTransition.h's own doc comment. Both
+// predicates below share the same self-guard (false outside an active coop
+// battle, and on the host itself - vanilla runs unchanged in both cases;
+// true only for a client inside an active coop battle) but are kept as two
+// named call sites rather than one, since NextTurnState.cpp's ctor and its
+// close() ask two different questions.
+bool coopSuppressBugHuntCheck(const SavedBattleGame*)
+{
+	if (!isCoopBattle())
+		return false;
+	return !coopBattleAuthority().hostSim;
+}
+
+bool coopSuppressNextTurnLifecycle(const SavedBattleGame*)
+{
+	if (!isCoopBattle())
+		return false;
+	return !coopBattleAuthority().hostSim;
+}
+
 // ===== R3-P1: CoopApply (CoopApply.h) - the S2-minimal client-side state
 // applier =====
 // SPIKE-RUNBOOK.md R3-P1 packet text. Resolution is EXCLUSIVELY via
@@ -5668,6 +5876,156 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 				doorActor->setTimeUnits(dp["tuAfter"].asInt());
 		}
 		g_coopDoorEvsApplied.fetch_add(1);
+		return;
+	}
+
+	if (kind == "side_transition")
+	{
+		// W1-P13a (REV E.1 IR3-1/S-2): reproduce vanilla's own turret-reset
+		// loop - SavedBattleGame::endTurn() (SavedBattleGame.cpp:1539-1545) -
+		// as the FIRST act of applying this restate, before any perUnit
+		// write. Deterministic, faction-derived, RNG-free; the frozen restate
+		// carries no turret field and never will (SS2.W6).
+		for (BattleUnit* bu : *save->getUnits())
+		{
+			if (bu->getOriginalFaction() != FACTION_PLAYER)
+				bu->setDirection(bu->getDirection());
+		}
+
+		const Json::Value& p = ev["payload"];
+
+		// Apply order (STEP 4): (i) turret-reset above, (ii) perUnit - pos
+		// BEFORE floating, because setTile() recomputes _floating/
+		// _haveNoFloorBelow - (iii) perTile, (iv) perItem, (v) newTurn,
+		// (vi) newSide.
+		const Json::Value& perUnit = p["perUnit"];
+		for (Json::ArrayIndex i = 0; i < perUnit.size(); ++i)
+		{
+			const Json::Value& pu = perUnit[i];
+			BattleUnit* u = CoopIdMaps::unit(pu.get("id", -1).asInt());
+			if (!u)
+			{
+				Log(LOG_WARNING) << "[coop-apply] side_transition perUnit "
+					<< pu.get("id", -1).asInt() << " does not resolve on this "
+					"machine - entry dropped";
+				continue;
+			}
+			if (pu.isMember("faction"))
+				u->convertToFaction((UnitFaction)CoopHandshake::coopWireStringToFaction(pu["faction"].asString()));
+			if (pu.isMember("tu"))
+				u->setTimeUnits(pu["tu"].asInt());
+			if (pu.isMember("energy"))
+				u->setEnergy(pu["energy"].asInt());
+			if (pu.isMember("wounds"))
+			{
+				const Json::Value& w = pu["wounds"];
+				for (Json::ArrayIndex part = 0; part < w.size() && part < (Json::ArrayIndex)BODYPART_MAX; ++part)
+					u->setFatalWound(w[part].asInt(), (UnitBodyPart)part);
+			}
+			if (pu.isMember("kneeled"))
+			{
+				const bool wantKneel = pu["kneeled"].asBool();
+				if (u->isKneeled() != wantKneel)
+					u->kneel(wantKneel);
+			}
+			if (pu.isMember("mcId"))
+				u->setMindControllerId(pu["mcId"].asInt());
+			if (pu.isMember("pos"))
+			{
+				const Position pos = CoopArbiter::coopJsonPos(pu["pos"]);
+				if (save->getTile(pos))
+				{
+					u->setTile(save->getTile(pos), save);
+					u->setPosition(pos, /*updateLastPos=*/false);
+				}
+				else
+				{
+					Log(LOG_ERROR) << "[coop-apply] side_transition perUnit " << u->getId()
+						<< " pos " << pos << " is not a tile on this machine - position not applied";
+				}
+			}
+			if (pu.isMember("health"))
+				u->coopSetHealth(pu["health"].asInt());
+			if (pu.isMember("stun"))
+				u->coopSetStunlevel(pu["stun"].asInt());
+			if (pu.isMember("morale"))
+				u->coopSetMorale(pu["morale"].asInt());
+			if (pu.isMember("mana"))
+				u->coopSetMana(pu["mana"].asInt());
+			if (pu.isMember("status"))
+				u->coopSetStatus((UnitStatus)pu["status"].asInt());
+			if (pu.isMember("floating"))
+				u->coopSetFloating(pu["floating"].asBool());
+			if (pu.isMember("fire"))
+				u->coopSetFireAbsolute(pu["fire"].asInt());
+			if (pu.isMember("dir"))
+				u->coopSetBodyDirection(pu["dir"].asInt());
+		}
+
+		const Json::Value& perTile = p["perTile"];
+		for (Json::ArrayIndex i = 0; i < perTile.size(); ++i)
+		{
+			const Json::Value& pt = perTile[i];
+			const Position pos = CoopArbiter::coopJsonPos(pt["pos"]);
+			Tile* t = save->getTile(pos);
+			if (!t)
+			{
+				Log(LOG_ERROR) << "[coop-apply] side_transition perTile " << pos
+					<< " is not a tile on this machine - entry dropped";
+				continue;
+			}
+			if (pt.isMember("smoke"))
+				t->coopSetSmokeAbsolute(pt["smoke"].asInt());
+			if (pt.isMember("fire"))
+				t->coopSetTileFireAbsolute(pt["fire"].asInt());
+		}
+
+		const Json::Value& perItem = p["perItem"];
+		for (Json::ArrayIndex i = 0; i < perItem.size(); ++i)
+		{
+			const Json::Value& pi = perItem[i];
+			BattleItem* it = CoopIdMaps::item(pi.get("item", -1).asInt());
+			if (!it)
+			{
+				Log(LOG_WARNING) << "[coop-apply] side_transition perItem "
+					<< pi.get("item", -1).asInt() << " does not resolve on this "
+					"machine - entry dropped";
+				continue;
+			}
+			if (pi.isMember("fuse"))
+				it->setFuseTimer(pi["fuse"].asInt());
+			if (pi.isMember("ammoQty"))
+				it->setAmmoQuantity(pi["ammoQty"].asInt());
+		}
+
+		if (p.isMember("newTurn"))
+			save->setTurn(p["newTurn"].asInt());
+		if (p.isMember("newSide"))
+			save->coopSetSide((UnitFaction)CoopHandshake::coopWireStringToFaction(p["newSide"].asString()));
+
+		// `cheating?` is carried for host parity and deliberately IGNORED on
+		// the client in v1 (REV E.48 B.3/D58): SavedBattleGame::_cheating has
+		// no setter, is not serialized, and is in no hash bucket.
+		return;
+	}
+
+	if (kind == "side_begin")
+	{
+		// (b): side_begin carries no stats/tile data - state is already right
+		// from side_transition. Step 6's "re-select locally with the seat
+		// filter": only when this machine's seat commands the side that is
+		// NOW active (mySideActive) - selectNextPlayerUnit() is already
+		// filtered through coopMaySelectUnit() (W1-P6,
+		// SavedBattleGame::selectPlayerUnit()), so this can never select a
+		// unit the local seat does not command. "Arm input"/"reset per-side
+		// UI" need no code here: every input gate in this file
+		// (coopMayCommand/coopBlockLocalExecution/coopBlockWalkArm) already
+		// reads SavedBattleGame::getSide() fresh on every call, so they are
+		// already armed the moment side_transition's coopSetSide() lands;
+		// UI refresh rides the generic coopRefreshAppliedHud() call at the
+		// end of CoopDisplayQueue::onApplied(), same as every other kind.
+		if (coopBattleAuthority().mySideActive(save))
+			save->selectNextPlayerUnit();
 		return;
 	}
 
@@ -6344,6 +6702,22 @@ void onApplied(const Json::Value& ev)
 		CoopGhost::onEvApplied(save, ev);
 		// RW-REPLAY-REGION-END
 		CoopApply::applyEvPayload(save, ev);
+
+		// W1-P13a (REV E.1 S-3): the client's own NextTurnState push. Vanilla
+		// only ever pushes this from BattlescapeGame::endTurn() (:729), which
+		// never runs on a thin client - side_transition is the FIRST packet
+		// that changes a client's side at all, so this is where a client has
+		// to push its own turn banner. Mirrors vanilla's own trigger
+		// condition at that call site (skip a FACTION_NEUTRAL result - a
+		// civilian "turn" gets no banner on the host either). No-op if this
+		// machine is not presently sitting on the battle (mid-teardown race),
+		// same as every other presentation hook in this file.
+		if (ev.get("kind", "").asString() == "side_transition" && save->getSide() != FACTION_NEUTRAL)
+		{
+			BattlescapeState* bs = save->getBattleState();
+			if (bs)
+				bs->getGame()->pushState(new NextTurnState(save, bs));
+		}
 	}
 	else if (state == "bt_action_end")
 	{

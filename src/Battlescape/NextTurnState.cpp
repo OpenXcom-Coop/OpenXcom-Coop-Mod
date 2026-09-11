@@ -48,6 +48,7 @@
 #include "Map.h"
 #include "TileEngine.h"
 #include "Pathfinding.h"
+#include "../CoopMod/CoopSideTransition.h"
 
 namespace OpenXcom
 {
@@ -287,7 +288,13 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 
 	if (_battleGame->getSide() == FACTION_PLAYER)
 	{
-		checkBugHuntMode();
+		// W1-P13a (REV E.1 D-5): checkBugHuntMode() is a hashed write (it can
+		// set _battleGame->setBughuntMode(true), which is serialized and
+		// rides the saveBlob bucket) that reads bu->getVisible() - a D4
+		// machine-local input - so it must stay strictly host-authoritative.
+		// See coopSuppressBugHuntCheck()'s own comment (CoopSideTransition.h).
+		if (!coopSuppressBugHuntCheck(_battleGame))
+			checkBugHuntMode();
 		_state->bugHuntMessage();
 	}
 
@@ -524,6 +531,16 @@ void NextTurnState::close()
 {
 	_battleGame->getBattleGame()->cleanupDeleted();
 	_game->popState();
+
+	// W1-P13a (REV E.1 S-3 / WV-D51): presentation-only dismissal on a coop
+	// CLIENT. Everything above this point (cleanupDeleted + popState) is the
+	// dismissal itself and always runs; everything below is vanilla's own
+	// post-dismissal battle-lifecycle work (tally, the mind-control
+	// conversion, finishBattle(), autosave) - a client's own NextTurnState
+	// push has no local authority to make any of those calls. See
+	// coopSuppressNextTurnLifecycle()'s own comment (CoopSideTransition.h).
+	if (coopSuppressNextTurnLifecycle(_battleGame))
+		return;
 
 	BattlescapeTally tally = _state->getBattleGame()->tallyUnits();
 
