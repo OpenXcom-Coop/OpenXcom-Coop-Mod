@@ -5831,6 +5831,11 @@ static int g_lastTallyCount = 0;
 static int g_lastTallyNeeded = 0;
 static std::vector<int> g_lastTallyReadySeats;
 
+// Forward declaration: clearPresentationInert() is defined further down
+// this namespace, but reset() below must call it, so it needs an early
+// declaration to compile.
+static void clearPresentationInert();
+
 void reset()
 {
 	g_turn = 0;
@@ -5842,6 +5847,12 @@ void reset()
 	g_lastTallyCount = 0;
 	g_lastTallyNeeded = 0;
 	g_lastTallyReadySeats.clear();
+	// REV E.51 / E51.3 / D69 (F174): a battle-authority reset (the teardown
+	// chokepoint a peer drop reaches via resetBattleAuthority()) must not
+	// leave a stale painted END-TURN tally or an inverted button behind -
+	// reuses the existing presenter entry (clearPresentationInert()) rather
+	// than duplicating it.
+	clearPresentationInert();
 }
 
 // Same reach-the-live-battlescape pattern CoopBattleUi's own
