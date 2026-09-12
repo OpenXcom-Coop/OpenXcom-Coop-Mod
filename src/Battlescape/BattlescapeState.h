@@ -98,6 +98,13 @@ private:
 	// parallel same-side tally OR the traditional sequential baton - without
 	// touching this class (owner ruling 2026-09-02, dual turn models).
 	Text *_txtCoopEndTurn;
+	// coop (W1-P13b, REV E.50 D68/E50.3): this machine's OWN END-TURN arm bit,
+	// per the last tally applied by CoopEndTurn.h (src/CoopMod). Written only
+	// by setCoopEndTurnArmed() above, read only by getCoopEndTurnArmed() -
+	// F165's pinned resolution: the armed bit cannot be read off
+	// BattlescapeButton (no reader, private _inverted), so this class stores
+	// the same value its own repaint feeds _btnEndTurn->toggle().
+	bool _coopEndTurnArmed;
 	Uint8 _tooltipDefaultColor;
 	Uint8 _medikitRed, _medikitGreen, _medikitBlue, _medikitOrange;
 	std::vector<State*> _popups;
@@ -283,9 +290,21 @@ public:
 	/// in W1-P7 by design: W1-P13's readiness tally (D1 / SS2.W3) is its driver, and
 	/// a text-only entry point is what lets W1-P13 drive it from either turn model.
 	void setCoopEndTurnText(const std::string &text);
+	/// coop (W1-P13b, WAVE1-RUNBOOK.md SPEC 10 / REV E.48 SS.C item 4/5):
+	/// this machine's own END-TURN arm state - toggles the inverted button
+	/// surface (donor precedent `_btnEndTurn->toggle(mine)`) and records the
+	/// bit getCoopEndTurnArmed() below reports. Its OWN entry point, never
+	/// folded into setCoopEndTurnText() above: that setter stays text-only
+	/// by design (W1-P7's recorded intent), so the armed bit gets its own.
+	void setCoopEndTurnArmed(bool armed);
 	/// coop (W1-P7): read-only companion to setCoopEndTurnText, for test
 	/// introspection only (TestServer's "battle_state"). Empty means hidden.
 	std::string getCoopEndTurnText() const;
+	/// coop (W1-P13b, REV E.50 D68/E50.3): read-only probe for test
+	/// introspection only - this machine's OWN seat armed per the last
+	/// applied tally, the same value the repaint feeds
+	/// setCoopEndTurnArmed()/_btnEndTurn->toggle().
+	bool getCoopEndTurnArmed() const;
 	/// Gets melee damage preview.
 	std::string getMeleeDamagePreview(BattleUnit *actor, BattleItem *weapon) const;
 	/// Handles keypresses.

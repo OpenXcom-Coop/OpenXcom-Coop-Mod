@@ -376,24 +376,6 @@ void showOrderSent();
 /// Terminal class, so it dwell-clears like any other answer.
 void showIntentTimeout();
 
-/// CLIENT (SS2.W8 / WV-D23 / ruling D-10): the LOCAL end-turn refusal,
-/// STR_COOP_TURN_OVER = "Only the host can end the turn".
-///
-/// Its own presenter entry ON PURPOSE. BattlescapeState::btnEndTurnClick used to
-/// raise this through showDeny("turn_over"), i.e. through the SS2.6 WIRE deny
-/// table, and therefore told the player "The turn has already ended" - which is
-/// factually wrong at the only place that branch is reachable. allowButtons()
-/// requires `_save->getSide() == FACTION_PLAYER`, so an off-turn press never
-/// reaches the handler at all; the state this message actually covers, for its
-/// whole lifetime, is a co-op CLIENT pressing END TURN during ITS OWN side before
-/// the readiness wire exists. SS2.W8 rules the fix client-side only: no
-/// `not_your_turn` reason is added to the SS2.2 wire enum, and the SS2.6
-/// STR_COOP_DENY_TURN_OVER row keeps its own (correct, for a wire deny) text.
-///
-/// LIFETIME: W1-P13 RETIRES this entry - once bt_end_turn_ready exists the client
-/// press ARMS instead of refusing, and the key goes INERT (RB-D3 precedent).
-void showEndTurnHostOnly();
-
 /// The per-tick driver: ONE unconditional guarded call from the RB-D5 pump point
 /// (connectionTCP::updateCoopTask, beside CoopReveal::flushQuiescent()). Three
 /// jobs, all self-guarded and completely inert outside an active co-op battle:

@@ -90,6 +90,7 @@
 #include "CoopDoor.h"
 #include "CoopGhost.h"
 #include "CoopSideTransition.h"
+#include "CoopEndTurn.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -2393,6 +2394,10 @@ void resetBattleAuthority()
 	// host, from Options::CoopTurnMode) every time a battle starts.
 	a.turnMode = CoopTurnMode::Parallel;
 	a.resetSeatFactions();
+	// W1-P13b (SS2.W3): the readiness tally is battle-scoped state too - a
+	// new battle must never inherit the previous one's side-phase counter,
+	// ready map, or tallies-seen count.
+	CoopEndTurn::reset();
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -5772,6 +5777,14 @@ void coopEmitSideTransition(SavedBattleGame* save)
 	}
 	begin["payload"]["activeSeats"] = activeSeats;
 	CoopEmit::sendEv(begin);
+
+	// W1-P13b (SS2.W3 boundary discipline, IR2-4): the readiness tally's
+	// per-side-phase reset+recompute+re-emit, hooked to this same quiescence
+	// point - right after side_begin, so both machines have already applied
+	// the new side before a fresh tally can reference it. HOST-ONLY
+	// (self-guarded); a no-op for the SP/non-coop callers of this whole
+	// function (already excluded by the guard at its own top).
+	CoopEndTurn::onSideTransition(save);
 }
 
 // W1-P13a (REV E.1 D-5): see CoopSideTransition.h's own doc comment. Both
@@ -5793,6 +5806,368 @@ bool coopSuppressNextTurnLifecycle(const SavedBattleGame*)
 		return false;
 	return !coopBattleAuthority().hostSim;
 }
+
+// ===== W1-P13b: CoopEndTurn (CoopEndTurn.h) - the END-TURN readiness tally
+// =====
+// WAVE1-RUNBOOK.md SPEC 10 / REV E.48 SS.C / REV E.50. See CoopEndTurn.h's
+// own doc comment for the full contract; PARALLEL MODE ONLY.
+namespace CoopEndTurn
+{
+
+// kMaxSeats mirrors BattleAuthority's own COOP_SEAT_0..3 cap (RB-D17); kept
+// as a local constant here because BattleAuthority::kMaxSeats is private.
+static const int kMaxSeats = 4;
+
+// Battle-scoped file statics, all cleared by reset() at teardown.
+static int g_turn = 0;                  // this machine's own side-phase counter
+static bool g_hostReady[kMaxSeats] = { false, false, false, false }; // HOST-ONLY
+static int g_talliesSeen = 0;
+
+// The last APPLIED-or-EMITTED (non-inert) tally's own fields - the
+// event_state snapshot REV E.48 C.2/F171 name.
+static int g_lastTallyTurn = 0;
+static std::string g_lastTallySide;
+static int g_lastTallyCount = 0;
+static int g_lastTallyNeeded = 0;
+static std::vector<int> g_lastTallyReadySeats;
+
+void reset()
+{
+	g_turn = 0;
+	for (int i = 0; i < kMaxSeats; ++i)
+		g_hostReady[i] = false;
+	g_talliesSeen = 0;
+	g_lastTallyTurn = 0;
+	g_lastTallySide.clear();
+	g_lastTallyCount = 0;
+	g_lastTallyNeeded = 0;
+	g_lastTallyReadySeats.clear();
+}
+
+// Same reach-the-live-battlescape pattern CoopBattleUi's own
+// activeBattlescapeState() uses (that one is file-local to CoopBattleUi's
+// namespace block further down, so this is its own copy rather than a
+// cross-namespace reach).
+static BattlescapeState* coopEndTurnActiveState()
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	return save ? save->getBattleState() : nullptr;
+}
+
+// ----- REV E.48 C.4 / WR-20: the LIVE-seat predicate -----
+
+// The CONNECTED half (REV E.48 C.4). Wave 1's classic fixture is capped at
+// two seats: the host (seat 0) is this machine and is always connected to
+// itself; every other seat is the ONE peer wave 1 ever has, whose presence
+// this codebase already tracks as `connectionTCP::session.clientInLobby`
+// ("a client has passed every join gate ... onConnect==1 only means
+// listening, so this is the real presence signal", connectionTCP.h:221-223)
+// - cleared to false by CoopSession::onClientDrop(), called from
+// disconnectTCP() the moment the peer tears down, which F168/F169 measured
+// DOES run for a live in-battle disconnect_to_menu while the battle itself
+// stays up on the host. No per-seat map exists for a THIRD seat in this
+// build (gm3/gm4 multi-seat groups are out of wave-1 scope) - a future
+// multi-seat wave gets its own map here rather than this function guessing
+// at one.
+static bool coopEndTurnSeatConnected(int seat)
+{
+	if (seat == 0)
+		return true;
+	return connectionTCP::session.clientInLobby;
+}
+
+// The unit half (REV E.48 C.4, quoted verbatim): at least one BattleUnit u
+// with (int)u->getCoopSeat() == seat, !u->isOut(), u->getFaction() ==
+// save->getSide().
+static bool coopEndTurnSeatLive(SavedBattleGame* save, int seat)
+{
+	if (!save || !coopEndTurnSeatConnected(seat))
+		return false;
+	for (BattleUnit* u : *save->getUnits())
+	{
+		if (u && (int)u->getCoopSeat() == seat && !u->isOut()
+			&& u->getFaction() == save->getSide())
+			return true;
+	}
+	return false;
+}
+
+static int coopEndTurnComputeNeeded(SavedBattleGame* save)
+{
+	if (!save)
+		return 0;
+	int needed = 0;
+	const int seats = std::max(1, connectionTCP::seatCount());
+	for (int s = 0; s < seats && s < kMaxSeats; ++s)
+	{
+		if (coopEndTurnSeatLive(save, s))
+			++needed;
+	}
+	return needed;
+}
+
+// ----- presentation -----
+
+// F164: LocalizedText's arg() fills {0}/{1} in mint order, so count goes
+// first - "END TURN {0}/{1}" -> "END TURN 1/2" for count=1, needed=2.
+static std::string coopEndTurnTallyText(BattlescapeState* bs, int count, int needed)
+{
+	if (count <= 0 || !bs || !bs->getGame() || !bs->getGame()->getLanguage())
+		return std::string();
+	return bs->getGame()->getLanguage()->getString("STR_COOP_END_TURN_TALLY")
+		.arg(count).arg(needed);
+}
+
+// Applies a GENUINE (non-inert) tally to this machine's own presentation
+// (the inverted button via the paired arming setter, and the persistent
+// text) and event_state snapshot. Bumps the tallies-seen counter (REV E.48
+// C.2's "+1").
+static void applyTallySnapshot(int turn, const std::string& side, int count,
+	int needed, const std::vector<int>& readySeats)
+{
+	g_lastTallyTurn = turn;
+	g_lastTallySide = side;
+	g_lastTallyCount = count;
+	g_lastTallyNeeded = needed;
+	g_lastTallyReadySeats = readySeats;
+	++g_talliesSeen;
+
+	const int mySeat = coopBattleAuthority().localSeat;
+	bool mine = false;
+	for (int s : readySeats)
+	{
+		if (s == mySeat) { mine = true; break; }
+	}
+
+	BattlescapeState* bs = coopEndTurnActiveState();
+	if (bs)
+	{
+		bs->setCoopEndTurnArmed(mine);
+		bs->setCoopEndTurnText(coopEndTurnTallyText(bs, count, needed));
+	}
+}
+
+// A side with zero human seats is INERT (IR2-4): clears this machine's own
+// presentation only (so a stale count from the previous, real, phase cannot
+// linger visually through an AI-only phase) - the event_state snapshot and
+// the tallies-seen counter are UNTOUCHED, because "the tally is INERT" means
+// no tally was seen at all, not that an empty one was.
+static void clearPresentationInert()
+{
+	BattlescapeState* bs = coopEndTurnActiveState();
+	if (bs)
+	{
+		bs->setCoopEndTurnArmed(false);
+		bs->setCoopEndTurnText(std::string());
+	}
+}
+
+// HOST-ONLY. Recomputes `needed`/the ready set fresh every time (so a
+// departed seat drops out the instant this runs - see onSeatSetChanged()
+// below for the proactive re-emit WR-20 also requires), then either goes
+// INERT or applies + broadcasts a genuine tally. The one choke every
+// host-side mutation (a press, a boundary, a seat-set change) re-enters.
+static void emitTally(SavedBattleGame* save)
+{
+	if (!save)
+		return;
+
+	const int needed = coopEndTurnComputeNeeded(save);
+	const std::string side = CoopHandshake::coopFactionToWireString((int)save->getSide());
+
+	if (needed <= 0)
+	{
+		clearPresentationInert();
+		return;
+	}
+
+	std::vector<int> readySeats;
+	const int seats = std::max(1, connectionTCP::seatCount());
+	for (int s = 0; s < seats && s < kMaxSeats; ++s)
+	{
+		if (coopEndTurnSeatLive(save, s) && g_hostReady[s])
+			readySeats.push_back(s);
+	}
+	const int count = (int)readySeats.size();
+
+	applyTallySnapshot(g_turn, side, count, needed, readySeats);
+
+	Json::Value msg(Json::objectValue);
+	msg["state"] = "bt_end_turn_tally";
+	msg["battleId"] = coopBattleAuthority().battleId.load();
+	msg["turn"] = g_turn;
+	msg["side"] = side;
+	Json::Value readyArr(Json::arrayValue);
+	for (int s : readySeats)
+		readyArr.append(s);
+	msg["ready"] = readyArr;
+	msg["count"] = count;
+	msg["needed"] = needed;
+	CoopEmit::sendBattle(msg);
+}
+
+// HOST-ONLY: runs vanilla requestEndTurn() once every live seat has armed.
+static void tryCommit(SavedBattleGame* save)
+{
+	if (!save)
+		return;
+	const int needed = coopEndTurnComputeNeeded(save);
+	if (needed <= 0)
+		return;
+	int count = 0;
+	const int seats = std::max(1, connectionTCP::seatCount());
+	for (int s = 0; s < seats && s < kMaxSeats; ++s)
+	{
+		if (coopEndTurnSeatLive(save, s) && g_hostReady[s])
+			++count;
+	}
+	if (count < needed)
+		return;
+	BattlescapeGame* bg = save->getBattleGame();
+	if (bg)
+		bg->requestEndTurn(false);
+}
+
+// HOST-ONLY: a seat's ready press, from the wire or from the host's own
+// local arm folded through the same path (toggleReady() below always passes
+// the CURRENT g_turn for a local press, so the host's own press is never
+// stale by construction).
+static void applyReady(SavedBattleGame* save, int seat, int turn, bool ready)
+{
+	if (!save)
+		return;
+	if (turn != g_turn)
+	{
+		// A stale press - DROP and answer with the current tally (WR-4):
+		// never a silent drop, or the presser's own button would latch
+		// forever with no host-side counterpart.
+		emitTally(save);
+		return;
+	}
+	if (seat < 0 || seat >= kMaxSeats)
+		return;
+	// D-24: ready:false (un-arm) is a legal press in parallel mode.
+	g_hostReady[seat] = ready;
+	emitTally(save);
+	tryCommit(save);
+}
+
+// ----- CoopEndTurn.h API -----
+
+void onSideTransition(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	++g_turn;
+	for (int i = 0; i < kMaxSeats; ++i)
+		g_hostReady[i] = false;
+	emitTally(save);
+}
+
+void onClientAppliedSideTransition()
+{
+	if (!isCoopBattle() || coopBattleAuthority().hostSim)
+		return;
+	++g_turn;
+}
+
+void onSeatSetChanged(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	for (int s = 0; s < kMaxSeats; ++s)
+	{
+		if (!coopEndTurnSeatConnected(s))
+			g_hostReady[s] = false;
+	}
+	emitTally(save);
+}
+
+void toggleReady(BattlescapeState* bs)
+{
+	if (!isCoopBattle())
+		return;
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!save)
+		return;
+	const int seat = coopBattleAuthority().localSeat;
+	if (seat < 0)
+		return;
+	const bool want = !(bs && bs->getCoopEndTurnArmed());
+
+	if (coopBattleAuthority().hostSim)
+	{
+		applyReady(save, seat, g_turn, want);
+		return;
+	}
+
+	// Optimistic local paint; the host's own re-emitted tally confirms or
+	// undoes it the moment it comes back (SS2.W3's donor-precedent shape).
+	if (bs)
+		bs->setCoopEndTurnArmed(want);
+
+	Json::Value msg(Json::objectValue);
+	msg["state"] = "bt_end_turn_ready";
+	msg["battleId"] = coopBattleAuthority().battleId.load();
+	msg["seat"] = seat;
+	msg["turn"] = g_turn;
+	msg["ready"] = want;
+	CoopEmit::sendBattle(msg);
+}
+
+void onReadyReceived(const Json::Value& msg)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!save)
+		return;
+	const int seat = msg.get("seat", -1).asInt();
+	const int turn = msg.get("turn", -1).asInt();
+	const bool ready = msg.get("ready", false).asBool();
+	applyReady(save, seat, turn, ready);
+}
+
+void onTallyReceived(const Json::Value& msg)
+{
+	if (!isCoopBattle())
+		return;
+	const int turn = msg.get("turn", 0).asInt();
+	const std::string side = msg.get("side", "").asString();
+	const int count = msg.get("count", 0).asInt();
+	const int needed = msg.get("needed", 0).asInt();
+	std::vector<int> readySeats;
+	const Json::Value& ready = msg["ready"];
+	for (Json::ArrayIndex i = 0; i < ready.size(); ++i)
+		readySeats.push_back(ready[i].asInt());
+	applyTallySnapshot(turn, side, count, needed, readySeats);
+}
+
+void testSendReady(int turn, bool ready)
+{
+	if (!isCoopBattle())
+		return;
+	const int seat = coopBattleAuthority().localSeat;
+	if (seat < 0)
+		return;
+	Json::Value msg(Json::objectValue);
+	msg["state"] = "bt_end_turn_ready";
+	msg["battleId"] = coopBattleAuthority().battleId.load();
+	msg["seat"] = seat;
+	msg["turn"] = turn;
+	msg["ready"] = ready;
+	CoopEmit::sendBattle(msg);
+}
+
+int phaseCounter() { return g_turn; }
+int tallyTurn() { return g_lastTallyTurn; }
+std::string tallySide() { return g_lastTallySide; }
+int tallyCount() { return g_lastTallyCount; }
+int tallyNeeded() { return g_lastTallyNeeded; }
+std::vector<int> tallyReadySeats() { return g_lastTallyReadySeats; }
+int talliesSeen() { return g_talliesSeen; }
+
+} // namespace CoopEndTurn
 
 // ===== R3-P1: CoopApply (CoopApply.h) - the S2-minimal client-side state
 // applier =====
@@ -6062,6 +6437,13 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// `cheating?` is carried for host parity and deliberately IGNORED on
 		// the client in v1 (REV E.48 B.3/D58): SavedBattleGame::_cheating has
 		// no setter, is not serialized, and is in no hash bucket.
+
+		// W1-P13b (SS2.W3): this machine's own mirror of the side-phase
+		// counter advances HERE - the client's own "applied" point for this
+		// restate - never from an incoming bt_end_turn_tally (that would
+		// let the apply-queue's own lag stamp a press as current before the
+		// matching side_transition has actually landed).
+		CoopEndTurn::onClientAppliedSideTransition();
 		return;
 	}
 
@@ -7386,15 +7768,6 @@ void showIntentTimeout()
 		return;
 	setBanner(bs, bs->getGame()->getLanguage()->getString("STR_COOP_ACTION_TIMEOUT"),
 		BannerClass::Terminal);
-}
-
-void showEndTurnHostOnly()
-{
-	// SS2.W8 / WV-D23: STR_COOP_TURN_OVER, whose VALUE this packet replaced
-	// ("Only the host can end the turn"). Deliberately NOT routed through
-	// showDeny(): that goes to the SS2.6 WIRE deny table, whose turn_over row is a
-	// different message for a different situation and keeps its own text.
-	showRefusalKey("STR_COOP_TURN_OVER");
 }
 
 void resetBannerState()
@@ -12422,6 +12795,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// client-inbound (handled by R3-P1's client intent tracker, not
 			// here); bt_desync stays unwired (R2-P9).
 			CoopArbiter::onIntent(obj);
+		}
+		else if (stateString == "bt_end_turn_ready")
+		{
+			// W1-P13b (SS2.W3): host-inbound - a client's arm/un-arm press.
+			// Direct dispatch (SS2.1: bt_-prefixed, neither bt_ev nor
+			// bt_action_end) - never rides the seq-ordered apply queue
+			// (WR-4). Self-guarded (HOST-only effect).
+			CoopEndTurn::onReadyReceived(obj);
+		}
+		else if (stateString == "bt_end_turn_tally")
+		{
+			// W1-P13b (SS2.W3): inbound tally adopt. Same direct-dispatch
+			// reasoning as above. Self-guarded (isCoopBattle() only).
+			CoopEndTurn::onTallyReceived(obj);
 		}
 		else if (stateString == "battle_offer")
 		{
@@ -18245,6 +18632,13 @@ void connectionTCP::disconnectTCP(bool isMain)
 		if (teardownAsHost)
 		{
 			connectionTCP::session.onClientDrop();
+			// W1-P13b (WR-20): a client leaving mid-battle changes the live
+			// -seat set - recompute `needed`, discard the departed seat's
+			// own stored ready, and re-emit the tally so the surviving
+			// seat(s) can still close the side. Self-guarded (isCoopBattle()
+			// && hostSim inside); a no-op here whenever the battle already
+			// ended or never started (getStaticBattle() null).
+			CoopEndTurn::onSeatSetChanged(connectionTCP::getStaticBattle());
 		}
 		else
 		{

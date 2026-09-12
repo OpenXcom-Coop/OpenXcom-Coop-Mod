@@ -2039,7 +2039,7 @@ def wait_host_idle(host, client, timeout=30):
                     timeout=timeout)
 
 
-def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_seat=None, pre_ok=None):
+def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_seat=None, pre_ok=None, seat_client=True):
     """repro_atom_walk.drive_to_battlescape plus the mission pin. Kept local
     rather than parameterising the walk repro's copy: that file carries a
     stop-line criterion and this packet must not change how it boots.
@@ -2055,7 +2055,15 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_s
     immediately BEFORE `newbattle_ok` - the window `hunt_seed.py` and the
     two pinned-seed gate provers use to send `set_seed` right before the
     generator reads it. Every existing caller is unaffected: default None,
-    nothing runs."""
+    nothing runs.
+
+    `seat_client` (SPEC 10 / REV E.48 C.4, additive): when False, the seat-1
+    seating loop below (and its own `len(soldier_ids) >= 2` guard) is
+    skipped entirely - no `newbattle_seat_soldier` call is ever sent for
+    the client seat - so a caller can bring up a battle with the client
+    UNSEATED (a spectator: C.4's connected-seat-with-no-live-unit case).
+    Every existing caller is unaffected: default True runs the seating loop
+    exactly as before."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
                   lambda: (not has_state(host, "LobbyMenu")) or None)
@@ -2071,14 +2079,15 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_s
         pre_seat(host)
 
     soldier_ids = []
-    for i in range(seat_count):
-        r = host.cmd({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1, "index": i})
-        if not r.get("ok"):
-            break
-        soldier_ids.append(r["soldierId"])
-    assert len(soldier_ids) >= 2, (
-        f"FIXTURE: newbattle_seat_soldier stamped only {len(soldier_ids)} soldier(s) "
-        "to seat 1 - this repro needs client-owned actors to walk")
+    if seat_client:
+        for i in range(seat_count):
+            r = host.cmd({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1, "index": i})
+            if not r.get("ok"):
+                break
+            soldier_ids.append(r["soldierId"])
+        assert len(soldier_ids) >= 2, (
+            f"FIXTURE: newbattle_seat_soldier stamped only {len(soldier_ids)} soldier(s) "
+            "to seat 1 - this repro needs client-owned actors to walk")
     seated["soldierIds"] = soldier_ids
 
     if pre_ok is not None:

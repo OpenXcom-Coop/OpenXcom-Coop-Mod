@@ -201,6 +201,7 @@
 #include "CoopFog.h"
 #include "CoopDoor.h"
 #include "CoopGhost.h" // W1-P12: event_state's ghostEnqueued/ghostCompleted/ghostQueueDepth
+#include "CoopEndTurn.h" // W1-P13b: battle_end_turn_ready lever + event_state's coopEndTurn* fields
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -4865,7 +4866,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_reserve"
 		&& cmd != "omit_turn_mode"
 		&& cmd != "battle_teleport_unit" && cmd != "battle_teleport_all"
-		&& cmd != "battle_set_unit_state")
+		&& cmd != "battle_set_unit_state"
+		&& cmd != "battle_end_turn_ready")
 	{
 		return false;
 	}
@@ -5021,6 +5023,30 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["tuReserved"] = bgR ? (int)bgR->getTUReserved() : -1;
 			resp["kneelReserved"] = bgR ? bgR->getKneelReserved() : false;
 		}
+		// W1-P13b (REV E.48 SPEC 10 SS.C.2/F171, E50.3): the readiness
+		// tally. The raw side-phase counter is reported SEPARATELY from the
+		// last APPLIED-or-EMITTED tally's own `turn` - the latter stays
+		// frozen through the two INERT phases of a full cycle (hostile,
+		// neutral in the classic fixture), so SPEC 10 (f)'s "3 vs 1" and
+		// "the tally-applied counter advances exactly once per cycle"
+		// assertions both need to tell the two apart.
+		// `coopEndTurnTalliesSeen` is the "+1" C.2 asserts on a genuine
+		// (non-inert) tally application; it does NOT move on an inert
+		// boundary.
+		resp["coopEndTurnPhaseCounter"] = CoopEndTurn::phaseCounter();
+		{
+			Json::Value tally(Json::objectValue);
+			tally["turn"] = CoopEndTurn::tallyTurn();
+			tally["side"] = CoopEndTurn::tallySide();
+			tally["count"] = CoopEndTurn::tallyCount();
+			tally["needed"] = CoopEndTurn::tallyNeeded();
+			Json::Value readySeats(Json::arrayValue);
+			for (int s : CoopEndTurn::tallyReadySeats())
+				readySeats.append(s);
+			tally["ready"] = readySeats;
+			resp["coopEndTurnTally"] = tally;
+		}
+		resp["coopEndTurnTalliesSeen"] = CoopEndTurn::talliesSeen();
 		resp["ok"] = true;
 	}
 	else if (cmd == "hash_now")
@@ -5543,6 +5569,21 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				resp["tu"] = unit->getTimeUnits();
 			}
 		}
+	}
+	else if (cmd == "battle_end_turn_ready")
+	{
+		// TEST-ONLY (REV E.48 SPEC 10 SS.C.2 / SS.A.6, RB-D26 discipline -
+		// same family as battle_teleport_unit/battle_set_unit_state above):
+		// ships the SS2.W3 bt_end_turn_ready message with THIS machine's own
+		// seat and the GIVEN `turn` - touching no local readiness state
+		// itself, so the harness can CONSTRUCT a stale press deterministically
+		// (a `turn` one behind the current side-phase counter) instead of
+		// racing for one. Never forwarded, nothing emitted beyond the one
+		// message, never called from product code.
+		const int turnArg = req.get("turn", 0).asInt();
+		const bool readyArg = req.get("ready", false).asBool();
+		CoopEndTurn::testSendReady(turnArg, readyArg);
+		resp["ok"] = true;
 	}
 	else if (cmd == "battle_reserve")
 	{
@@ -6942,6 +6983,11 @@ std::string TestServer::execute(const std::string& line)
 					// stays HIDDEN (empty), which is what proves the re-add did not put a
 					// stray widget on the map strip.
 					resp["coopEndTurnText"] = bsForBanner ? bsForBanner->getCoopEndTurnText() : "";
+					// W1-P13b (REV E.50 D68/E50.3): the button-inversion
+					// probe C.2 names - this machine's OWN seat armed per
+					// the last applied tally, the same value the repaint
+					// feeds BattlescapeState::setCoopEndTurnArmed().
+					resp["coopEndTurnArmed"] = bsForBanner ? bsForBanner->getCoopEndTurnArmed() : false;
 					// W1-P9 (SS2.W2 / WV-D48): the VANILLA warning surface's text.
 					// SS2.6 keeps every CO-OP message off _warning, so this asks a
 					// different question from coopWaitText above - and the one

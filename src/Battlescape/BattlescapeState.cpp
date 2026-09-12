@@ -95,6 +95,7 @@
 #include "../CoopMod/CoopHandshake.h"
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopGhost.h"
+#include "../CoopMod/CoopEndTurn.h"
 
 namespace OpenXcom
 {
@@ -105,6 +106,7 @@ namespace OpenXcom
  */
 BattlescapeState::BattlescapeState() :
 	_reserve(0), _touchButtonsEnabled(false), _manaBarVisible(false),
+	_coopEndTurnArmed(false),
 	_firstInit(true), _paletteResetNeeded(false), _paletteResetRequested(false),
 	_isMouseScrolling(false), _isMouseScrolled(false),
 	_xBeforeMouseScrolling(0), _yBeforeMouseScrolling(0),
@@ -1558,23 +1560,24 @@ void BattlescapeState::btnEndTurnClick(Action *)
 {
 	if (allowButtons())
 	{
-		// R5-P2 (SPIKE-RUNBOOK.md REVIEW4 IR-13): a coop CLIENT's End Turn
-		// button must never run vanilla endTurn locally - it would mint
-		// state and guarantee a desync (the real end-turn readiness flow
-		// lands with W1-P13). No-op guard: only this battle's host machine
-		// may run requestEndTurn() locally.
+		// W1-P13b (WAVE1-RUNBOOK.md SPEC 10 / SS2.W3, superseding R5-P2's
+		// client-only guard and W1-P7's SS2.W8 fix): END TURN no longer
+		// closes a parallel-mode side directly on EITHER machine - a press
+		// ARMS this machine's own seat in the readiness tally instead, and
+		// only the HOST's own commit (once every live seat has armed) still
+		// runs vanilla requestEndTurn() below. Both arms are folded through
+		// the SAME widened coop guard, so the SP path - the four statements
+		// after this whole if - is UNCHANGED (byte-identical) outside an
+		// active coop battle, exactly as the client-only guard always kept
+		// it.
 		//
-		// W1-P7 (SS2.W8 / WV-D23 / ruling D-10) fixed the MESSAGE. R5-P2 raised
-		// this refusal through showDeny("turn_over"), i.e. through the SS2.6 WIRE
-		// deny table - so the player was told "The turn has already ended", which
-		// is factually wrong here: this branch is only ever reached DURING the
-		// presser's own side (allowButtons() above requires
-		// _save->getSide() == FACTION_PLAYER, so an off-turn press never arrives).
-		// SS2.W8 rules the fix client-side only: its own presenter entry, its own
-		// string, and NO new wire deny reason - the SS2.2 enum is unchanged.
-		if (isCoopBattle() && !coopBattleAuthority().hostSim)
+		// W1-P13b (WR-3) also RETIRES the presenter entry W1-P7 built for the
+		// client's old refusal (CoopBattleUi::showEndTurnHostOnly(),
+		// STR_COOP_TURN_OVER): once a press ARMS instead of refusing, that
+		// entry has no reachable case. The .yml key stays, inert (RB-D3).
+		if (isCoopBattle())
 		{
-			CoopBattleUi::showEndTurnHostOnly();
+			CoopEndTurn::toggleReady(this);
 			return;
 		}
 
@@ -2867,6 +2870,25 @@ void BattlescapeState::setCoopEndTurnText(const std::string &text)
 }
 
 /**
+ * coop (W1-P13b, WAVE1-RUNBOOK.md SPEC 10 / REV E.48 SS.C item 4/5): this
+ * machine's own END-TURN arm state. Its OWN entry point - kept separate from
+ * setCoopEndTurnText() above on purpose, so that setter stays exactly what
+ * W1-P7 designed it to be (text + visibility only, no policy of its own).
+ * Toggles the donor's inverted-button surface
+ * (`_btnEndTurn->toggle(mine)`, `cbff7951d:BattlescapeState.cpp:5238`) and
+ * records the same bit getCoopEndTurnArmed() below reports (F165: the bit
+ * cannot be read back off BattlescapeButton, which exposes no reader for its
+ * private _inverted).
+ * @param armed True when src/CoopMod's CoopEndTurn.h last applied a tally
+ * naming this machine's own seat as ready.
+ */
+void BattlescapeState::setCoopEndTurnArmed(bool armed)
+{
+	_btnEndTurn->toggle(armed);
+	_coopEndTurnArmed = armed;
+}
+
+/**
  * coop (W1-P7): read-only companion to setCoopEndTurnText() above, for test
  * introspection only (TestServer's "battle_state" command proves the surface
  * exists and is hidden). Empty string means the surface is hidden.
@@ -2874,6 +2896,17 @@ void BattlescapeState::setCoopEndTurnText(const std::string &text)
 std::string BattlescapeState::getCoopEndTurnText() const
 {
 	return _txtCoopEndTurn->getVisible() ? _txtCoopEndTurn->getText() : std::string();
+}
+
+/**
+ * coop (W1-P13b, REV E.50 D68/E50.3): read-only companion to
+ * setCoopEndTurnArmed() above, for test introspection only (TestServer's
+ * "battle_state"). This machine's OWN seat armed per the last applied
+ * tally - the same value the repaint feeds into the setter.
+ */
+bool BattlescapeState::getCoopEndTurnArmed() const
+{
+	return _coopEndTurnArmed;
 }
 
 /**
