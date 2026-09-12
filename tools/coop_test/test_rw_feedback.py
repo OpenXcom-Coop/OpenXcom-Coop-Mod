@@ -27,10 +27,13 @@ of bin/common into bin/x64/Release/common was skipped):
            lost intent locks the unit forever. Then the exact late-message rule:
            a late bt_ack/bt_deny for that iseq is PERMANENTLY IGNORED, while a
            late bt_action_end STILL APPLIES.
-  PHASE 5  SS2.W8's END TURN local refusal: a CLIENT press during the PLAYER
-           side says "Only the host can end the turn", NOT "The turn has already
-           ended". Plus the dormant `_txtCoopEndTurn` surface (WV-D13 item 4)
-           exists and is HIDDEN on both machines.
+  PHASE 5  W1-P13b's END TURN readiness tally (SS2.W3, SPEC 10 / REV E.50):
+           a CLIENT press during the PLAYER side now ARMS this machine's own
+           seat instead of refusing - SS2.W8's retired local refusal
+           ("Only the host can end the turn") is no longer reachable here.
+           The side does not advance on one seat's arm alone, and the
+           `_txtCoopEndTurn` surface (WV-D13 item 4) goes from HIDDEN at t=0
+           to the exact rendered tally text once armed.
 
 THE LEVER. WV-D24 cannot be tested without a genuinely unanswered intent, so
 this packet adds `defer_intents {ms,count}` next to R2-P7's `hold_chain` - the
@@ -704,40 +707,58 @@ def test_end_turn_refusal():
         assert event_state(client).get("hostSim") is not True, \
             "this machine must be the CLIENT for SS2.W8's refusal to be reachable"
         turn_before = cs.get("turn")
-        banner_before = banner_of(client)
-        assert banner_before != STR_END_TURN_HOST_ONLY, (
-            "the refusal text is already on screen before the press - the assertion "
-            "below could not tell the press apart from the previous state")
 
         client.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
-        got = wait_banner(client, STR_END_TURN_HOST_ONLY,
-                          "PHASE 5: client END TURN during the PLAYER side", timeout=15)
-        assert got != STR_WIRE_TURN_OVER, "still showing the old wire-deny text"
-        after = client.cmd({"cmd": "battle_state"})
-        assert after.get("turn") == turn_before and after.get("side") == FACTION_PLAYER, (
-            f"the client's END TURN press actually ended the turn: "
-            f"{turn_before}/{FACTION_PLAYER} -> {after.get('turn')}/{after.get('side')}")
-        print(f"PASS PHASE 5: a CLIENT END TURN press during ITS OWN side shows "
-              f"{got!r} - NOT {STR_WIRE_TURN_OVER!r} (SS2.W8 / WV-D23), and the turn "
-              "did not advance")
+        # W1-P13b (REV E.50 E50.1/E50.2): the client's arm is now a genuine
+        # wire round trip (bt_end_turn_ready -> host -> bt_end_turn_tally ->
+        # both machines), unlike SS2.W8's old LOCAL-only refusal - wait for
+        # both machines to paint the tally before asserting on it (a bounded
+        # wait_for on a surface, not an attempt loop, E50.4/SS.A.8).
+        def both_show_tally():
+            return True if (end_turn_surface_of(host) == "END TURN 1/2"
+                             and end_turn_surface_of(client) == "END TURN 1/2") else None
+        client.wait_for("both machines paint END TURN 1/2 after the client's arm",
+                        both_show_tally, timeout=15)
 
-        # The refusal is LOCAL: no wire deny reason was added (SS2.2 unchanged), so
-        # nothing about it may show up in the deny bookkeeping.
+        after = client.cmd({"cmd": "battle_state"})
+        # KEPT, RE-POINTED (SPEC 10 (f)): the turn_before/after no-advance
+        # compare now proves the side did not advance on ONE seat's arm
+        # (this fixture has TWO live seats - F166).
+        assert after.get("turn") == turn_before and after.get("side") == FACTION_PLAYER, (
+            f"the side did not advance on ONE seat's arm: "
+            f"{turn_before}/{FACTION_PLAYER} -> {after.get('turn')}/{after.get('side')}")
+
+        # KEPT (SPEC 10 (f) / :730): the arm is LOCAL readiness bookkeeping -
+        # no wire deny reason was added (SS2.2 unchanged), so nothing about it
+        # may show up in the deny bookkeeping.
         ld = event_state(client).get("lastDeny")
         assert not ld or ld.get("reason") != "turn_over" or ld.get("iseq"), (
-            f"the local END TURN refusal produced a WIRE deny: {ld} - SS2.W8 forbids "
+            f"the client's END TURN arm produced a WIRE deny: {ld} - SS2.W8 forbids "
             "growing the SS2.2 enum for it")
 
+        # KEPT (SPEC 10 (f) / :734).
         post_h, _ = assert_hash_clean(host, client, full=True,
-                                      what="after the END TURN refusal")
-        print(f"PASS PHASE 5: {len(post_h)} buckets EQUAL after the refused press")
+                                      what="after the client's END TURN arm")
+        print(f"PASS PHASE 5: {len(post_h)} buckets EQUAL after the client's arm")
 
-        # The dormant surface again, at the end of a real battle rather than at t=0.
+        # RE-POINTED, not removed (REV E.50 E50.2 / D67 = (a)): the surface
+        # became REACHABLE once W1-P13b landed, so it is asserted at its exact
+        # rendered value (WR-3's LIFETIME rule) instead of the old dormant ""
+        # this leg used to check at the end of a real battle.
         for gc, who in ((host, "host"), (client, "client")):
-            assert end_turn_surface_of(gc) == "", \
-                f"{who}: _txtCoopEndTurn became visible without W1-P13's tally"
-        print("PASS PHASE 5: _txtCoopEndTurn is still dormant on both machines")
+            assert end_turn_surface_of(gc) == "END TURN 1/2", (
+                f"{who}: _txtCoopEndTurn did not show the W1-P13b tally after "
+                f"the client's arm, got {end_turn_surface_of(gc)!r}")
+        # ADDED (REV E.50 E50.3 / D68 = (a)): the button-inversion probe -
+        # THIS machine's own armed bit, a different observable from the text
+        # (count across seats vs this machine's own bit).
+        assert client.cmd({"cmd": "battle_state"}).get("coopEndTurnArmed") is True, (
+            "client's own END TURN button did not invert after arming")
+        assert host.cmd({"cmd": "battle_state"}).get("coopEndTurnArmed") is False, (
+            "host's END TURN button inverted on the client's arm alone")
+        print("PASS PHASE 5: _txtCoopEndTurn reads 'END TURN 1/2' on both machines; "
+              "client armed=True / host armed=False (W1-P13b)")
     finally:
         host.shutdown()
         client.shutdown()

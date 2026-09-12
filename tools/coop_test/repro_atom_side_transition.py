@@ -283,6 +283,22 @@ def run_hazard_free_cycle():
         pre_hazard = host.cmd({"cmd": "hash_now", "buckets": ["fire", "smoke"]})
         assert pre_hazard.get("ok"), f"hash_now(fire,smoke) failed pre-cycle: {pre_hazard}"
 
+        # SPEC 10 / REV E.50 E50.1 (D66 = (a)): W1-P13b makes `needed` the
+        # LIVE-seat count (REV E.48 C.4) - this classic fixture has TWO live
+        # seats, so a lone host press can no longer close the side. The
+        # client arms through its OWN real button first, and this driver
+        # waits for the HOST's tally text to reach the rendered
+        # STR_COOP_END_TURN_TALLY for count 1 of needed 2 before the host's
+        # press - a bounded wait_for on a surface, not an attempt loop
+        # (E50.4/SS.A.8). No SPEC 9 assertion above or below this insertion
+        # changes.
+        client.ok({"cmd": "battle_action", "action": "end_turn_button"})
+
+        def _host_shows_1_of_2():
+            return True if battle_state(host).get("coopEndTurnText") == "END TURN 1/2" else None
+        host.wait_for("host paints END TURN 1/2 after the client's arm (SPEC 10 E50.1)",
+                      _host_shows_1_of_2, timeout=15)
+
         host.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
         client_saw_nts, _l10_evidence = drive_full_cycle(host, client, turn0, timeout=60)
@@ -480,6 +496,17 @@ def run_script_rng_fixture():
 
         hs0 = battle_state(host)
         turn0 = hs0["turn"]
+        # SPEC 10 / REV E.50 E50.1 (D66 = (a)) - same insertion as
+        # run_hazard_free_cycle's above: `needed` is 2 in this classic-seat
+        # fixture, so the client arms through its own real button and this
+        # driver waits for the host's tally text before the host's press.
+        client.ok({"cmd": "battle_action", "action": "end_turn_button"})
+
+        def _host_shows_1_of_2_rng():
+            return True if battle_state(host).get("coopEndTurnText") == "END TURN 1/2" else None
+        host.wait_for("host paints END TURN 1/2 after the client's arm (SPEC 10 E50.1)",
+                      _host_shows_1_of_2_rng, timeout=15)
+
         host.ok({"cmd": "battle_action", "action": "end_turn_button"})
         drive_full_cycle(host, client, turn0, timeout=60, capture_l10=False)
         session.wait_host_idle(host, client, timeout=30)

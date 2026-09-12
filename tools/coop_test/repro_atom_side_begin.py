@@ -194,6 +194,22 @@ def run_classic():
         print(f"[classic] pre-cycle selection armed: host unit {host_pre}, "
               f"client unit {client_pre}")
 
+        # SPEC 10 / REV E.50 E50.1 (D66 = (a)): W1-P13b makes `needed` the
+        # LIVE-seat count (REV E.48 C.4) - this classic fixture has TWO live
+        # seats, so a lone host press can no longer close the side. The
+        # client arms through its OWN real button first, and this driver
+        # waits for the HOST's tally text to reach the rendered
+        # STR_COOP_END_TURN_TALLY for count 1 of needed 2 before the host's
+        # press - a bounded wait_for on a surface, not an attempt loop
+        # (E50.4/SS.A.8). No SPEC 9 assertion above or below this insertion
+        # changes.
+        client.ok({"cmd": "battle_action", "action": "end_turn_button"})
+
+        def _host_shows_1_of_2():
+            return True if battle_state(host).get("coopEndTurnText") == "END TURN 1/2" else None
+        host.wait_for("host paints END TURN 1/2 after the client's arm (SPEC 10 E50.1)",
+                      _host_shows_1_of_2, timeout=15)
+
         host.ok({"cmd": "battle_action", "action": "end_turn_button"})
         hs1, cs1 = drive_side_change(host, client, FACTION_PLAYER, turn0 + 1, timeout=60)
 
