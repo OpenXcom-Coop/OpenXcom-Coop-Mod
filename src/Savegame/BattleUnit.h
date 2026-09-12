@@ -372,6 +372,16 @@ public:
 	/// reproduced by the applier instead), so using plain setDirection() here
 	/// would clobber a turret facing this restate does not carry.
 	void coopSetBodyDirection(int dir);
+	/// W1-P13a (REV E.49 / D63): absolute set of the unit's SCRIPT VALUES -
+	/// the twelfth coop client-apply counterpart, for `side_transition`'s
+	/// perUnit.scriptTags. y-script turn hooks (newTurnUnit) write BattleUnit
+	/// tags on the HOST inside SavedBattleGame::endTurn, which a thin client
+	/// never runs; the tags are serialized (_scriptValues.save, :856) and are
+	/// NOT saveBlob-excluded, so they must ride the restate. ABSOLUTE: every
+	/// existing value is zeroed first, then the wire map is decoded through
+	/// the same path BattleUnit::load uses for the "tags" key. Runs no script
+	/// and draws no RNG.
+	void coopSetScriptValues(const std::vector<std::pair<std::string, int>>& tags, const ScriptGlobal* shared);
 	/// Gets the unit's health.
 	int getHealth() const;
 	/// Gets the unit's mana.

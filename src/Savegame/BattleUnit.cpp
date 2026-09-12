@@ -4860,6 +4860,49 @@ void BattleUnit::coopSetBodyDirection(int dir)
 }
 
 /**
+ * W1-P13a (REV E.49 / D63): absolute set of the unit's SCRIPT VALUES for the
+ * `side_transition` restate applier - the twelfth coop client-apply
+ * counterpart. Counterpart to BattleUnit::save's _scriptValues.save call
+ * (:856) and BattleUnit::load's _scriptValues.load call (:696).
+ * ABSOLUTE overwrite, half one: ScriptValuesBase::loadBase (Script.cpp:4303)
+ * only SETS the keys present in the node and saveBase (Script.cpp:4331)
+ * omits every zero-valued tag, so a load alone would leave a client tag the
+ * host holds at 0 stale. Zero the whole vector first, via the public
+ * ScriptValues API only. setBase() grows the vector on demand
+ * (Script.cpp:4276), so getValuesRaw().size() covers every tag this unit has
+ * ever held.
+ * ABSOLUTE overwrite, half two: decode the wire map through the identical
+ * path BattleUnit::load uses for the "tags" key - a one-node YAML document
+ * {tags: {...}} handed to _scriptValues.load(reader, shared).
+ * Runs no script and draws no RNG (A2).
+ * @param tags wire-decoded tag name -> script value pairs
+ * @param shared the mod's ScriptGlobal (same pointer BattleUnit::load/save use)
+ */
+void BattleUnit::coopSetScriptValues(const std::vector<std::pair<std::string, int>>& tags, const ScriptGlobal* shared)
+{
+	using CoopTag = decltype(_scriptValues)::Tag;
+	const size_t allocated = _scriptValues.getValuesRaw().size();
+	for (size_t i = 1; i <= allocated; ++i)
+	{
+		_scriptValues.set(CoopTag::make(i), 0);
+	}
+
+	if (!tags.empty())
+	{
+		YAML::YamlRootNodeWriter writer;
+		writer.setAsMap();
+		YAML::YamlNodeWriter tagsWriter = writer["tags"];
+		tagsWriter.setAsMap();
+		for (const auto& kv : tags)
+		{
+			tagsWriter[tagsWriter.saveString(kv.first)].setValue(kv.second);
+		}
+		YAML::YamlRootNodeReader reader(writer.emit(), "coopScriptTags");
+		_scriptValues.load(reader.toBase(), shared);
+	}
+}
+
+/**
  * Get the faction the unit was killed by.
  * @return faction
  */

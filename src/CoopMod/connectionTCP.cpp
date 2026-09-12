@@ -5583,6 +5583,52 @@ static int coopWireStringToFaction(const std::string& s);
 static std::string coopFactionToWireString(int faction);
 }
 
+// W1-P13a / REV E.49 (D63): the unit's script values, exactly as
+// BattleUnit::save serializes them (_scriptValues.save, BattleUnit.cpp:856),
+// converted node for node into a JSON object {tagName: int}. _scriptValues is
+// private, but BattleUnit::save is public, so the emit needs no new vanilla
+// read accessor: write the unit to a throwaway YAML document and take its
+// "tags" child. COVERAGE NOTE: only "int"-typed tags round-trip. A tag
+// declared with the other registered value type, "RuleList" (Mod.cpp:388),
+// serializes as a mod NAME string and is not carried faithfully by this
+// int-typed wire field - recorded as wave-1 residue alongside the uncarried
+// BattleItem / SavedBattleGame script values (REV E.49 OUT-OF-WAVE row).
+static Json::Value coopScriptTagsToJson(const BattleUnit* u, const ScriptGlobal* shared)
+{
+	Json::Value out(Json::objectValue);
+
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	u->save(writer["u"], shared);
+	YAML::YamlRootNodeReader reader(writer.emit(), "coopScriptTags");
+	YAML::YamlNodeReader tags = reader["u"]["tags"];
+	if (!tags || !tags.isMap())
+		return out;
+
+	for (const YAML::YamlNodeReader& tag : tags.children())
+		out[tag.readKey<std::string>()] = tag.readVal<int>();
+
+	return out;
+}
+
+// W1-P13a / REV E.49 (D63): inverse of coopScriptTagsToJson - walks the wire
+// JSON object's member names and returns tag name -> int pairs for
+// BattleUnit::coopSetScriptValues. A non-object input returns the empty
+// vector (matching the presence-gated wire house style: absence means
+// "nothing to decode", not "clear everything" - the caller already gates on
+// pu.isMember("scriptTags")).
+static std::vector<std::pair<std::string, int>> coopScriptTagsFromJson(const Json::Value& v)
+{
+	std::vector<std::pair<std::string, int>> out;
+	if (!v.isObject())
+		return out;
+
+	for (const std::string& name : v.getMemberNames())
+		out.emplace_back(name, v[name].asInt());
+
+	return out;
+}
+
 // W1-P13a: the side_transition boundary FULL SWEEP - all nine buckets
 // (terrain, fire, smoke, items, unitsCore, unitsStats, itemIdCtr, saveBlob,
 // revealHostile). Mirrors TestServer's hash_now{full:true} bucket assembly
@@ -5651,6 +5697,7 @@ void coopEmitSideTransition(SavedBattleGame* save)
 		pu["mcId"] = u->getMindControllerId();
 		pu["pos"] = CoopArbiter::coopPosJson(u->getPosition());
 		pu["dir"] = u->getDirection();
+		pu["scriptTags"] = coopScriptTagsToJson(u, save->getMod()->getScriptGlobal());
 		perUnit.append(pu);
 	}
 	payload["perUnit"] = perUnit;
@@ -5960,6 +6007,15 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 				u->coopSetFireAbsolute(pu["fire"].asInt());
 			if (pu.isMember("dir"))
 				u->coopSetBodyDirection(pu["dir"].asInt());
+
+			// REV E.49 / D63: LAST among this unit's perUnit writes (after
+			// `floating`, per E49.1). ABSOLUTE overwrite of the unit's script
+			// values; runs no script and draws no RNG (A2). The host's y-script
+			// turn hooks fire inside SavedBattleGame::endTurn, which this thin
+			// client never runs.
+			if (pu.isMember("scriptTags"))
+				u->coopSetScriptValues(coopScriptTagsFromJson(pu["scriptTags"]),
+					save->getMod()->getScriptGlobal());
 		}
 
 		const Json::Value& perTile = p["perTile"];
