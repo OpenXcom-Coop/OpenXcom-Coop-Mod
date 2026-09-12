@@ -29,6 +29,12 @@ seat's side is active - via `battle_state.selectedId` plus each unit's
 `coop` field, and separately proves the ENVELOPE COUNT (3 side_begin per
 full cycle, M9a-4) via event_log.
 
+D64 (REV E.49 E49.2.2): this own-seat `selectedId` check (WR-18, below) is
+the OWNER-RULED assertion of record REPLACING (f).2's `activeSeats ==
+[0,1]` wording - not a substitution the builder chose. `event_log` entries
+carry only {seq, actionId, kind, h} and no payload, so `activeSeats` itself
+is not readable at this surface, as stated above.
+
 Cites WV-D45, WV-D51, WR-18, D48, D49, D58.
 
 Run:  python tools/coop_test/repro_atom_side_begin.py
@@ -210,9 +216,13 @@ def run_classic():
         cu = {u["id"]: u for u in cs1["units"]}
         host_sel = hs1.get("selectedId", -1)
         client_sel = cs1.get("selectedId", -1)
+        # D64: owner-ruled assertion of record, replacing (f).2's
+        # `activeSeats == [0,1]` wording (module docstring).
         assert host_sel in hu and hu[host_sel]["coop"] == 0, (
             f"WR-18: host's restored selection {host_sel} does not resolve "
             f"to an OWN (seat 0) unit: {hu.get(host_sel)}")
+        # D64: owner-ruled assertion of record, replacing (f).2's
+        # `activeSeats == [0,1]` wording (module docstring).
         assert client_sel in cu and cu[client_sel]["coop"] == 1, (
             f"WR-18: client's restored selection {client_sel} does not "
             f"resolve to an OWN (seat 1) unit: {cu.get(client_sel)}")
@@ -305,6 +315,8 @@ def run_gm2():
         cs_hostile = battle_state(client)
         cu_hostile = {u["id"]: u for u in cs_hostile["units"]}
         client_sel = cs_hostile.get("selectedId", -1)
+        # D64: owner-ruled assertion of record, replacing (f).2's
+        # `activeSeats == [0,1]` wording (module docstring).
         assert client_sel in cu_hostile and cu_hostile[client_sel]["coop"] == 1, (
             f"gm2 hostile phase: client's selection {client_sel} does not "
             f"resolve to an OWN (seat 1) unit: {cu_hostile.get(client_sel)}")

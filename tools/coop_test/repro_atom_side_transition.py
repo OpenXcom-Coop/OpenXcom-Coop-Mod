@@ -30,6 +30,12 @@ row. The perTile smoke/fire and perUnit fire/stun/health APPLY paths ship in
 SPEC 9 as specified but UNEXERCISED in wave 1 (documented here, not silently
 dropped).
 
+D64 (REV E.49 E49.2.1) COVERAGE NOTE: the fire/smoke-unchanged check at L3
+below is the outcome assertion of record for tiles, REPLACING B.3's
+`perTile == []` wording above - "the host emits only tiles that changed"
+is a sender-discipline property no outcome check can reach, and stays
+UNPROVEN in wave 1.
+
 Cites WV-D45, WV-D51, WR-18, D-5, D48, D49, D58.
 
 Run:  python tools/coop_test/repro_atom_side_transition.py
@@ -152,7 +158,11 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
     dump, per WV-D77) ever got to run. L11 does its own, single, post-cycle
     hash_now comparison instead - this is a TEST-PLUMBING fix (which hash
     check runs where), not a product fix, and does not touch what is
-    asserted or when the STOP-IF fires.
+    asserted or when the STOP-IF fires. D63 closes the mechanical reason
+    cited above (the client now receives the host's scriptTags on the same
+    side_transition envelope, so saveBlob no longer diverges from the first
+    one) - L11 keeps this single, post-cycle check unchanged regardless,
+    because that is the invariant REV E.49 E49.1 names.
 
     Returns (client_saw_next_turn_state: bool, l10_evidence: (pre_h, post_h)
     or None - always None when capture_l10 is False). Raises TimeoutError if
@@ -170,10 +180,12 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
                 # L10 / REV E.1 S-3: the FIRST client NextTurnState. Prove
                 # dismissing it is presentation-only (WV-D51): hash-neutral,
                 # and the battle does not end.
+                # D64 (E49.2.1/E49.2.3): nine-bucket EQUAL boundary check.
                 pre, _ = assert_hash_clean(host, client, full=True,
                                             what="L10 pre-close_nextturn(client)")
                 r = client.cmd({"cmd": "close_nextturn"})
                 assert r.get("ok"), f"L10: close_nextturn failed on client: {r}"
+                # D64 (E49.2.1/E49.2.3): nine-bucket EQUAL boundary check.
                 post, _ = assert_hash_clean(host, client, full=True,
                                              what="L10 post-close_nextturn(client)")
                 cs = battle_state(client)
@@ -202,8 +214,9 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
 
 
 def _read_script_rng_tags(path):
-    """WV-D77 evidence-capture helper for L11's STOP-IF path only - never
-    called, and never asserted on, in the green path.
+    """D63/E49.1 acceptance reader: called on BOTH machines on EVERY run of
+    run_script_rng_fixture's L11 leg (no longer a failure-path-only WV-D77
+    capture helper - the green path now asserts on what this returns).
 
     Reads a `save_game` dump's battleGame.units[].tags for the ScriptRng
     mod's two tags. Grounded directly in the C++ writers (not guessed):
@@ -326,6 +339,7 @@ def run_hazard_free_cycle():
         seqs = [e["seq"] for e in boundary]
         assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs), (
             f"boundary envelopes are not strictly seq-ordered: {boundary}")
+        # D64 (E49.2.3): h present on every side_transition entry.
         for e in transitions:
             assert e.get("h"), (
                 f"side_transition seq={e['seq']} carried an EMPTY h "
@@ -346,6 +360,8 @@ def run_hazard_free_cycle():
         # literal per-envelope read of the frozen wire field.
         post_hazard = host.cmd({"cmd": "hash_now", "buckets": ["fire", "smoke"]})
         assert post_hazard.get("ok"), f"hash_now(fire,smoke) failed post-cycle: {post_hazard}"
+        # D64 (E49.2.1): host fire/smoke buckets unchanged - assertion of
+        # record for tiles, replacing B.3's `perTile == []` wording.
         assert pre_hazard["h"] == post_hazard["h"], (
             f"L3: the host's fire/smoke buckets changed across a HAZARD-FREE "
             f"cycle - pre={pre_hazard['h']} post={post_hazard['h']} - "
@@ -354,10 +370,12 @@ def run_hazard_free_cycle():
               f"across the cycle ({post_hazard['h']})")
 
         # ----- L4: nine buckets EQUAL at the boundary -----
+        # D64 (E49.2.1/E49.2.3): nine-bucket EQUAL boundary check.
         hh, ch = assert_hash_clean(host, client, full=True, what="L4 post-cycle boundary")
         print(f"[L4] all {len(hh)} buckets EQUAL after the boundary: {sorted(hh)}")
 
         # ----- L5: the client's own hash compare recorded no mismatch -----
+        # D64 (E49.2.3): the client's own verify did not fire.
         es = event_state(client)
         assert es.get("desyncSeen") is False, (
             f"L5: the client's desyncSeen flag is not False after a clean "
@@ -424,22 +442,30 @@ def run_hazard_free_cycle():
 
 
 def run_script_rng_fixture():
-    """SPEC 9 (f) test 1's L11: the Coop_ScriptRng_Test restate-clean leg
-    (RB-D2 path). A SECOND boot, same pin, same one cycle, with
+    """SPEC 9 (f) test 1's L11: the Coop_ScriptRng_Test scriptTags parity
+    leg (D63/E49.1 - this is now the acceptance leg, not a KNOWN-GAP
+    capture). A SECOND boot, same pin, same one cycle, with
     tools/coop_test/mods/Coop_ScriptRng_Test loaded on BOTH machines
     (make_user_dir's `mods=` param - both machines need the SAME mods or
     their rulesets diverge, per that helper's own docstring).
 
-    ORCH40'S EXPLICIT WARNING (carried verbatim into this file, REV E.48
-    SS.B.4): on a thin client SavedBattleGame::endTurn - and therefore
-    newTurnUpdateScripts - NEVER RUNS, and the frozen side_transition schema
-    carries no scriptTags field. The mod's own newTurnUnit hook
-    (script_rng.rul) fires on the HOST for every unit at every side close and
-    stores fresh COOP_RNG_R/COOP_RNG_C values that never reach the client. If
-    this reds on saveBlob, that is a genuine STOP-IF (SPEC 9 (i) / REV E.48
-    SS.B.4): WV-D77 instrument-and-stop - capture the evidence and STOP. Do
-    NOT delete this leg, do NOT weaken the assertion, do NOT re-roll the
-    fixture, do NOT try a fix here."""
+    REV E.49 E49.1 (D63 = (a)), the invariant this leg asserts: after ONE
+    full cycle on this fixture, the saveBlob bucket is EQUAL AND the
+    per-unit COOP_RNG_R/COOP_RNG_C maps read by `_read_script_rng_tags` are
+    EQUAL host == client for every unit. `BattleUnit::coopSetScriptValues`
+    (landed in commit ecf58062f, "feat(coop): side_transition perUnit
+    carries scriptTags (D63)") applies the host's freshly-rolled tags to the
+    client from side_transition's new perUnit `scriptTags` field as an
+    absolute overwrite, so the mod's own newTurnUnit hook
+    (script_rng.rul, which fires on the HOST for every unit at every side
+    close and stores fresh COOP_RNG_R/COOP_RNG_C values) now reaches the
+    client on the wire.
+
+    F147: this fixture was built for PRD-P3 GAP-10 to prove a PARALLEL
+    client's own script draws match the host's by seed replay; under the
+    rewrite's thin client the client is not supposed to draw at all, so the
+    leg now proves a different and correct property - the client's tags
+    EQUAL the host's after a boundary."""
     port = "48121"
     host_dir = make_user_dir("repro_atom_side_transition_rng_host", mods=[SCRIPT_RNG_MOD])
     client_dir = make_user_dir("repro_atom_side_transition_rng_client", mods=[SCRIPT_RNG_MOD])
@@ -464,48 +490,44 @@ def run_script_rng_fixture():
         hh, ch = hr["h"], cr["h"]
         mismatched = {k: (hh[k], ch.get(k)) for k in hh if hh.get(k) != ch.get(k)}
 
-        if not mismatched:
-            print(f"[L11] Coop_ScriptRng_Test fixture restates CLEAN: all "
-                  f"{len(hh)} buckets EQUAL after the cycle ({sorted(hh)})")
-            return
-
-        if set(mismatched) != {"saveBlob"}:
-            raise AssertionError(
-                "repro_atom_side_transition L11: the ScriptRng fixture "
-                f"diverged on bucket(s) OTHER than saveBlob: "
-                f"{sorted(mismatched)} - this is the generic boundary-"
-                "divergence STOP-IF (SPEC 9 (i)), not the expected "
-                f"scriptTags gap: {mismatched}")
-
-        # EXPECTED failure mode per ORCH40's warning - WV-D77 instrument-and-stop.
-        print("KNOWN-GAP CAPTURE: saveBlob diverged after the ScriptRng "
-              f"cycle - host={mismatched['saveBlob'][0]} "
-              f"client={mismatched['saveBlob'][1]}")
-        dump = {}
+        # D63/E49.1: read the per-unit COOP_RNG_R/COOP_RNG_C tag maps on BOTH
+        # machines UNCONDITIONALLY - this is the acceptance read now, not a
+        # failure-path capture, so a parse failure here is itself a RED.
+        tag_maps = {}
         for gc, role in ((host, "host"), (client, "client")):
             fname = f"coop_rng_probe_{role}.sav"
             r = gc.cmd({"cmd": "save_game", "file": fname})
-            assert r.get("ok"), f"save_game failed on {role} (L11 capture): {r}"
+            assert r.get("ok"), f"save_game failed on {role} (L11 acceptance read): {r}"
             path = os.path.join(gc.user_dir, "xcom1", fname)
-            try:
-                dump[role] = _read_script_rng_tags(path)
-            except Exception as exc:  # noqa: BLE001 - evidence capture must not itself hide the STOP
-                dump[role] = f"<capture failed: {exc!r}>"
-            print(f"[L11 CAPTURE] {role} COOP_RNG_R/COOP_RNG_C per unit "
-                  f"(from {path}): {dump[role]}")
+            tag_maps[role] = _read_script_rng_tags(path)
+            print(f"[L11 MAP] {role} COOP_RNG_R/COOP_RNG_C per unit "
+                  f"(from {path}): {tag_maps[role]}")
 
-        raise AssertionError(
-            "repro_atom_side_transition L11 STOP-IF (REV E.48 SS.B.4 / "
-            "WV-D77): the Coop_ScriptRng_Test fixture reds on saveBlob after "
-            "one hazard-free cycle - a thin client's "
-            "SavedBattleGame::endTurn (and therefore newTurnUpdateScripts) "
-            "never runs, and the frozen side_transition schema carries no "
-            "scriptTags field, so the host's freshly-rolled COOP_RNG_R/"
-            "COOP_RNG_C values never reach the client. Captured evidence: "
-            f"saveBlob host={mismatched['saveBlob'][0]} "
-            f"client={mismatched['saveBlob'][1]}, per-unit tags={dump}. Per "
-            "SS.B.4: do not delete this leg, do not weaken the assertion, "
-            "do not re-roll, do not try a fix here - report and stop.")
+        # D63/E49.1 named assertion: all nine hash_now buckets, saveBlob
+        # included, are EQUAL after the cycle - the host's freshly-rolled
+        # tags now reach the client on the wire, so this is no longer an
+        # expected divergence.
+        assert not mismatched, (
+            "repro_atom_side_transition L11 (D63/E49.1): bucket(s) "
+            f"mismatched after one hazard-free ScriptRng cycle: "
+            f"{sorted(mismatched)} - host={hh} client={ch}; per-unit tag "
+            f"maps: host={tag_maps['host']} client={tag_maps['client']}")
+
+        # D63/E49.1 named assertion: the per-unit COOP_RNG_R/COOP_RNG_C maps
+        # themselves are EQUAL host == client for every unit - the direct
+        # read, not implied by the bucket-hash check above.
+        tag_diff = {u: (tag_maps["host"].get(u), tag_maps["client"].get(u))
+                    for u in set(tag_maps["host"]) | set(tag_maps["client"])
+                    if tag_maps["host"].get(u) != tag_maps["client"].get(u)}
+        assert tag_maps["host"] == tag_maps["client"], (
+            "repro_atom_side_transition L11 (D63/E49.1): per-unit "
+            f"COOP_RNG_R/COOP_RNG_C maps differ host vs client: {tag_diff} "
+            f"- host={tag_maps['host']} client={tag_maps['client']}")
+
+        print(f"[L11] Coop_ScriptRng_Test scriptTags parity OK: "
+              f"{len(tag_maps['host'])} unit(s) carry tags, all {len(hh)} "
+              f"buckets EQUAL ({sorted(hh)}), per-unit tag maps EQUAL host "
+              "== client")
     finally:
         host.shutdown()
         client.shutdown()
