@@ -4864,7 +4864,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_halt_walk" && cmd != "battle_halt_walk_before_step"
 		&& cmd != "battle_reserve"
 		&& cmd != "omit_turn_mode"
-		&& cmd != "battle_teleport_unit" && cmd != "battle_teleport_all")
+		&& cmd != "battle_teleport_unit" && cmd != "battle_teleport_all"
+		&& cmd != "battle_set_unit_state")
 	{
 		return false;
 	}
@@ -5496,6 +5497,50 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						resp["count"] = (int)plannedUnit.size();
 					}
 				}
+			}
+		}
+	}
+	else if (cmd == "battle_set_unit_state")
+	{
+		// TEST-ONLY (REV E.48 SPEC 9 SS.B.5 / SS.A.6, RB-D26 discipline - same
+		// family as battle_teleport_unit/battle_teleport_all above: applied by
+		// the HARNESS to EACH machine separately with the SAME absolute
+		// arguments; it never forwards anything to the peer - no wire message,
+		// nothing emitted. Never call from product code.
+		//
+		// `tu` only - REV E.48 SS.B.3 shrank this lever from a wider
+		// {unit, tu, hazard...} shape to exactly {unit, tu} (the incendiary-
+		// shot / tile-hazard levers named in an earlier draft were dropped).
+		// Writes through BattleUnit::setTimeUnits(int), the SAME absolute
+		// setter W1-P13a's side_transition applier uses for the restate's
+		// `perUnit.tu` field (`_tu = Clamp(tu, 0, (int)_stats.tu);`) - reports
+		// `tu` back after the write. Used by SPEC 14 (P1, P4); SPEC 9's own
+		// tests do not call it.
+		SavedGame* sgTS = _game->getSavedGame();
+		SavedBattleGame* bgTS = sgTS ? sgTS->getSavedBattle() : nullptr;
+		if (!bgTS)
+		{
+			resp["error"] = "battle_set_unit_state: no live battle";
+		}
+		else
+		{
+			const int unitId = req.get("unit", -1).asInt();
+			BattleUnit* unit = nullptr;
+			for (auto* u : *bgTS->getUnits())
+			{
+				if (u->getId() == unitId) { unit = u; break; }
+			}
+			if (!unit)
+			{
+				resp["error"] = "battle_set_unit_state: no such unit id " + std::to_string(unitId);
+			}
+			else
+			{
+				if (req.isMember("tu"))
+					unit->setTimeUnits(req["tu"].asInt());
+				resp["ok"] = true;
+				resp["unit"] = unit->getId();
+				resp["tu"] = unit->getTimeUnits();
 			}
 		}
 	}

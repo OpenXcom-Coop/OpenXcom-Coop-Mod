@@ -1449,6 +1449,90 @@ def event_log(gc, tail=120):
     return gc.cmd({"cmd": "event_log", "tail": tail}).get("events", [])
 
 
+COOP_SEAT_NONE = -1  # CoopSeat.h: "no seat commands this unit"
+
+
+def pin_ai_neutral(host, client, tag=""):
+    """REV E.48 SS.B.2 (D49, RULED 2026-09-11) - the ONE shared AI-neutral pin
+    every boundary-crossing test in the SPEC 9..15 chain imports rather than
+    re-implementing (SS.A.7: written by SPEC 9, imported by 10, 11, 12, 13).
+    A boundary-crossing test is any test that presses END TURN and lets the
+    battle run through the alien (and civilian) phase back to the player
+    side - wave 1 streams no alien action before SPEC 12 (walk/turn only
+    after it), so a non-player unit that acts during such a test desyncs the
+    client. This pins every unit no human seat commands so it CANNOT act.
+
+    Call immediately after drive_to_battlescape(). Reads `battle_state.units`
+    on the HOST for every LIVE unit whose `coop` seat is COOP_SEAT_NONE (-1)
+    and whose `faction` is not FACTION_PLAYER (0) - i.e. no human seat owns
+    it. In gm2 the client's own aliens sit at seat 1 (not NONE), so they are
+    correctly left unpinned and this may legitimately find zero (REV E.48
+    SS.B.4) - callers of a gm2 boot must not assert count > 0 themselves; a
+    CLASSIC boot with zero pinned units is a red (the premise - a NONE-seat
+    non-player unit exists for the pin to act on - is unexercised, M9a-3).
+
+    THE CALL SHAPE (M9a-1 / F136, empirically measured against the set_stat
+    handler at the tip, TestServer.cpp ~7454-7499): a top-level `tu` key is
+    silently IGNORED by that handler (only `psiSkill`/`psiStrength` are read
+    as top-level keys; `tu`/`reactions`/`firing` are read ONLY through the
+    `stat`+`value` pair), and `setStat("tu", v)` alone writes only the unit's
+    BASE stats, never the current `_tu` - an alien already holding a full TU
+    bar at t=0 would still act on its first hostile phase. Per unit, to BOTH
+    machines (each machine independently simulates the battle - the same
+    WV-D63 discipline place_deterministic above follows), three `set_stat`
+    calls:
+      {stat: "psiSkill",  value: 0}
+      {stat: "reactions", value: 0}   - zeroes BattleUnit::getReactionScore()
+                                         (TileEngine::getSpottingUnits()'s own
+                                         gate), so the unit cannot react
+      {stat: "tu", value: 0, refill: True} - `refill` runs
+                                         unit->setTimeUnits(bs->tu) in THE
+                                         SAME call, draining the CURRENT bar
+                                         the instant the base stat is zeroed.
+    The third call's reply reports `tu` after the write - asserted 0 on BOTH
+    machines for every pinned unit.
+
+    WHY THE PIN HOLDS AT EVERY LATER PHASE (M9a-2 / F137, verified by reading
+    the code): SavedBattleGame::endTurn() -> prepareNewTurn() ->
+    updateUnitStats(true, false) -> prepareTimeUnits() -> setValueMax(_tu,
+    recovery, 0, getBaseStats()->tu) - with base tu clamped to 0 this pins
+    `_tu` back to 0 every turn, forever. No re-pin per phase is needed.
+
+    Finally asserts `assert_hash_clean(host, client, full=True)` (a t=0,
+    pre-first-event boundary sweep - the clean precondition every later
+    per-boundary check in this chain builds on).
+
+    Prints and returns the pinned unit id list; does NOT itself assert the
+    count is non-zero (see the gm2 note above) - that is the caller's job."""
+    tagstr = f" {tag}" if tag else ""
+    st = battle_state(host)
+    assert st.get("ok") and st.get("inBattle"), \
+        f"pin_ai_neutral{tagstr}: no live battle on host: {st}"
+    targets = [u["id"] for u in st.get("units", [])
+               if u.get("coop") == COOP_SEAT_NONE and u.get("faction") != FACTION_PLAYER
+               and not u.get("isOut")]
+    for uid in targets:
+        for gc in (host, client):
+            who = "host" if gc is host else "client"
+            for stat in ("psiSkill", "reactions"):
+                r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid,
+                            "stat": stat, "value": 0})
+                assert r.get("ok"), (
+                    f"pin_ai_neutral{tagstr}: set_stat {stat} unit {uid} failed "
+                    f"on {who}: {r}")
+            r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid,
+                        "stat": "tu", "value": 0, "refill": True})
+            assert r.get("ok"), (
+                f"pin_ai_neutral{tagstr}: set_stat tu unit {uid} failed on {who}: {r}")
+            assert r.get("tu") == 0, (
+                f"pin_ai_neutral{tagstr}: unit {uid} read back tu={r.get('tu')} "
+                f"after refill on {who}, expected 0")
+    assert_hash_clean(host, client, full=True, what=f"pin_ai_neutral{tagstr}")
+    print(f"[pin_ai_neutral{tagstr}] pinned {len(targets)} NONE-seat non-player "
+          f"unit(s): {targets}")
+    return targets
+
+
 def action_events(gc, action_id, tail=160):
     return [e for e in event_log(gc, tail) if e.get("actionId") == action_id]
 
