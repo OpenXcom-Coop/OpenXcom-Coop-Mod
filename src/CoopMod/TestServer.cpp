@@ -4867,6 +4867,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "omit_turn_mode"
 		&& cmd != "battle_teleport_unit" && cmd != "battle_teleport_all"
 		&& cmd != "battle_set_unit_state"
+		&& cmd != "battle_strip_unit"
 		&& cmd != "battle_end_turn_ready"
 		&& cmd != "screen_pixels")
 	{
@@ -5583,6 +5584,74 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				resp["ok"] = true;
 				resp["unit"] = unit->getId();
 				resp["tu"] = unit->getTimeUnits();
+			}
+		}
+	}
+	else if (cmd == "battle_strip_unit")
+	{
+		// TEST-ONLY (REV E.48 SPEC 12 SS.E.5 / SS.A.6, RB-D26 discipline - same
+		// family as battle_teleport_unit/battle_set_unit_state above): applied
+		// by the HARNESS to EACH machine separately with the SAME absolute
+		// arguments; it never forwards anything to the peer - no wire message,
+		// nothing emitted. Never call from product code.
+		//
+		// Removes and deletes every BattleItem in the given unit's inventory,
+		// on THIS machine only, and reports the deleted item ids so the
+		// harness can assert both machines agree. The single removal API used
+		// is SavedBattleGame::removeItem (SavedBattleGame.cpp:1930): it
+		// detaches the item from its owner/tile (moveToOwner(nullptr)) and
+		// hands it to deleteList() for end-of-game cleanup, and it also purges
+		// each ammo slot's own ammo item the same way. It REFUSES special
+		// weapons by design (item->isSpecialWeapon() early-returns,
+		// SavedBattleGame.cpp:1946-1951) - those ids are reported separately
+		// under skippedSpecial and are NOT a failure of this lever.
+		//
+		// itemIdCtr is untouched: this arm never reads or writes it, and
+		// SavedBattleGame::removeItem does not touch it either.
+		SavedGame* sgSU = _game->getSavedGame();
+		SavedBattleGame* bgSU = sgSU ? sgSU->getSavedBattle() : nullptr;
+		if (!bgSU)
+		{
+			resp["error"] = "battle_strip_unit: no live battle";
+		}
+		else
+		{
+			const int unitId = req.get("unit", -1).asInt();
+			BattleUnit* unit = nullptr;
+			for (auto* u : *bgSU->getUnits())
+			{
+				if (u->getId() == unitId) { unit = u; break; }
+			}
+			if (!unit)
+			{
+				resp["error"] = "battle_strip_unit: no such unit id " + std::to_string(unitId);
+			}
+			else
+			{
+				// SNAPSHOT first - never iterate the live inventory while removing from it.
+				std::vector<BattleItem*> inv(unit->getInventory()->begin(), unit->getInventory()->end());
+				Json::Value deleted(Json::arrayValue);
+				Json::Value skippedSpecial(Json::arrayValue);
+				for (BattleItem* bi : inv)
+				{
+					const int biId = bi->getId();
+					if (bi->isSpecialWeapon())
+					{
+						skippedSpecial.append(biId);
+						continue;
+					}
+					bgSU->removeItem(bi);
+					deleted.append(biId);
+				}
+				resp["ok"] = true;
+				resp["unit"] = unit->getId();
+				resp["deleted"] = deleted;
+				resp["skippedSpecial"] = skippedSpecial;
+				resp["remaining"] = (int)unit->getInventory()->size();
+				Log(LOG_INFO) << "[coop-test] battle_strip_unit unit=" << unit->getId()
+					<< " deleted=" << deleted.size()
+					<< " skippedSpecial=" << skippedSpecial.size()
+					<< " remaining=" << unit->getInventory()->size();
 			}
 		}
 	}
@@ -7149,6 +7218,12 @@ std::string TestServer::execute(const std::string& line)
 					ju["owner"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getOwnerPlayerId() : -1;
 					BattleItem* w = u->getMainHandWeapon(false);
 					ju["weapon"] = w ? w->getRules()->getType() : "";
+					// REV E.48 SS.E.3 (SPEC 12): the ARMOR TYPE (Armor::getType(), the
+					// armors.rul `type:` key - e.g. STR_FLYING_SUIT_UC - NOT the storeItem).
+					// The up/down gate's fixture seeds a flying suit with seed_soldier_armor
+					// and must assert it landed on BOTH machines; no other reported field
+					// exposes it.
+					ju["armor"] = u->getArmor() ? u->getArmor()->getType() : "";
 					// kill attribution (for coop outcome cross-validation)
 					ju["murdererId"] = u->getMurdererId();
 					ju["killedBy"] = (int)u->killedBy();
