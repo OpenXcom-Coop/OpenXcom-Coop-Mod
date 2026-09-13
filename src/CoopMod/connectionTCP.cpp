@@ -2397,6 +2397,10 @@ void resetBattleAuthority()
 	// W1-P13c (REV E.1 S-9 / D-23): the traditional baton is per-battle state
 	// too - a new battle must never inherit the previous one's holder.
 	a.activeSeat = -1;
+	// W1-P13c (REV E.57 / D78 = (a)): the buffered pending tally is per-battle
+	// state too - a new battle must never inherit the previous one's.
+	a.pendingTallyTurn = -1;
+	a.pendingTallyActiveSeat = -1;
 	a.resetSeatFactions();
 	// W1-P13b (SS2.W3): the readiness tally is battle-scoped state too - a
 	// new battle must never inherit the previous one's side-phase counter,
@@ -6044,10 +6048,28 @@ static void applyTallySnapshot(int turn, const std::string& side, int count,
 	// - SS2.W3's ordering rule) and only in traditional mode; a stale-turn or
 	// parallel-mode tally leaves the field untouched rather than overwriting a
 	// current value with a stale or irrelevant one.
-	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional
-		&& turn == g_turn)
+	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional)
 	{
-		coopBattleAuthority().activeSeat.store(activeSeat);
+		if (turn == g_turn)
+		{
+			// Honour now - the existing path, unchanged. REV E.57 / D78 (a):
+			// a honoured apply also clears any pending pair.
+			coopBattleAuthority().activeSeat.store(activeSeat);
+			coopBattleAuthority().pendingTallyTurn.store(-1);
+			coopBattleAuthority().pendingTallyActiveSeat.store(-1);
+		}
+		else if (turn > g_turn)
+		{
+			// BUFFER (REV E.57 / D78 = (a)): this tally is ahead of this
+			// machine's last APPLIED side_transition counter, because the
+			// battle lane is NOT the seq-ordered apply queue (SS2.3 / WR-4).
+			// Keep the ONE pending pair - newer replaces older - and honour it
+			// in onClientAppliedSideTransition() when the counter reaches it.
+			coopBattleAuthority().pendingTallyTurn.store(turn);
+			coopBattleAuthority().pendingTallyActiveSeat.store(activeSeat);
+		}
+		// turn < g_turn: stale. Ignore it, and never overwrite a pending pair
+		// with an older one.
 	}
 
 	const int mySeat = coopBattleAuthority().localSeat;
@@ -6287,6 +6309,28 @@ void onClientAppliedSideTransition()
 	if (!isCoopBattle() || coopBattleAuthority().hostSim)
 		return;
 	++g_turn;
+
+	// REV E.57 / D78 = (a): this is the exact point this machine's applied
+	// side_transition counter catches up, so it is where a tally that arrived
+	// ahead of its own side_transition is honoured. Equal: honour and clear.
+	// Still greater: stays pending. Now less: dropped - the side it belonged
+	// to is gone. The turnMode guard keeps activeSeat's "written only in
+	// traditional mode" invariant true at every writer.
+	const int pending = coopBattleAuthority().pendingTallyTurn.load();
+	if (pending < 0)
+		return;
+	if (pending == g_turn)
+	{
+		if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional)
+			coopBattleAuthority().activeSeat.store(coopBattleAuthority().pendingTallyActiveSeat.load());
+		coopBattleAuthority().pendingTallyTurn.store(-1);
+		coopBattleAuthority().pendingTallyActiveSeat.store(-1);
+	}
+	else if (pending < g_turn)
+	{
+		coopBattleAuthority().pendingTallyTurn.store(-1);
+		coopBattleAuthority().pendingTallyActiveSeat.store(-1);
+	}
 }
 
 void onSeatSetChanged(SavedBattleGame* save)

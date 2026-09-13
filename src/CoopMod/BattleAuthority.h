@@ -212,6 +212,19 @@ struct BattleAuthority
 	/// first tally of a side). Reset to -1 by resetBattleAuthority().
 	std::atomic<int> activeSeat{-1};
 
+	/// W1-P13c (REV E.57 / D78 = (a)): the ONE pending tally. A
+	/// bt_end_turn_tally whose `turn` is AHEAD of this machine's last APPLIED
+	/// side_transition counter (the unordered battle lane beating the
+	/// seq-ordered apply queue - SPIKE-RUNBOOK.md SS2.3 / WR-4) is BUFFERED
+	/// here as the pair (turn, activeSeat) instead of being dropped, and
+	/// honoured the moment onClientAppliedSideTransition() advances the
+	/// counter to it. A newer pending pair replaces an older one; a tally
+	/// older than the counter never overwrites one. -1 = nothing pending.
+	/// Reset to -1 by resetBattleAuthority() and on every honoured apply.
+	/// std::atomic for the same cross-thread reason as activeSeat above.
+	std::atomic<int> pendingTallyTurn{-1};
+	std::atomic<int> pendingTallyActiveSeat{-1};
+
 	/// R2-P9 (SPIKE-RUNBOOK.md SS2.8): set the moment this machine's own
 	/// hash-mismatch detector (CoopHashCheck::verify, BattlePump.h) latches a
 	/// desync - "freeze battle input" per SS2.8's mismatch-behavior note.

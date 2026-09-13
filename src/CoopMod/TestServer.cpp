@@ -5058,6 +5058,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// thing that arrived. -1 = no baton (parallel mode, or before the
 		// first tally of a side); reads the same way on both machines.
 		resp["coopActiveSeat"] = coopBattleAuthority().activeSeat.load();
+		// W1-P13c (REV E.57 / D78 = (a)): the ONE pending tally's turn, or -1
+		// when nothing is buffered - the lifecycle of the buffer that makes
+		// the honoured value deterministic across a side boundary. Read-only,
+		// test-only, never forwarded on the wire.
+		resp["coopPendingTallyTurn"] = coopBattleAuthority().pendingTallyTurn.load();
 		resp["ok"] = true;
 	}
 	else if (cmd == "hash_now")
