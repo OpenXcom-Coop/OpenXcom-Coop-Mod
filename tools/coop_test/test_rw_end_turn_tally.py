@@ -76,6 +76,29 @@ authority-reset clear, E51.4 - BOOT B's counter form), WV-D46/IR2-4, WR-3,
 WR-4, WR-20, D-24, D53 (SS.C.4 - the LIVE seat definition), D57 (SS.C.2 - the
 constructed stale press).
 
+BOOT C (W1-P13c / SPEC 11, REV E.52 E52.1, added by commit 1 of this unit -
+tests only, no engine change in this commit). The classic seated fixture
+above, but the HOST sets `CoopTurnMode=traditional` before the offer (the
+`test_rw_turn_mode.py` OPTION="CoopTurnMode" / `set_mode()` / `live_mode()`
+shape, imported rather than reimplemented) while the CLIENT's own option is
+left at the D-26 default (parallel), so `live_mode(host) ==
+live_mode(client) == "traditional"` is a genuine wire-mirror proof, not a
+locally-set coincidence. Asserts the TRADITIONAL ENTRY TALLY REV E.52 E52.1
+describes: on BOTH machines, right after `drive_to_battlescape` +
+`pin_ai_neutral`, `event_state.coopActiveSeat == 0` (the first LIVE seat in
+D-23 order - host seat 0 first), the raw tally reads
+`needed=1/count=0/ready=[]/side='player'`, the WV-D46 side-phase counter is
+still 0 (the entry tally is NOT a side phase), and nothing is painted
+(`coopEndTurnText==''`, `coopEndTurnArmed is False` - count 0 paints
+nothing, SPEC 10's own rule). This is the traditional-mode counterpart to
+BOOT A's L1: BOOT A's L1 proves parallel emits NOTHING at t=0 (the raw
+tally is the `reset()` default); BOOT C proves traditional emits EXACTLY
+ONE genuine tally at the same point. Every BOOT A / BOOT B assertion above
+is UNCHANGED and REMAINS a PARALLEL-mode assertion; BOOT A's L1 additionally
+now asserts `coopActiveSeat == -1` on both machines (parallel never writes
+`BattleAuthority::activeSeat` - the readable form of the old "activeSeat is
+-1" control), which REV E.52 E52.1 explicitly leaves untouched.
+
 Run:  python tools/coop_test/test_rw_end_turn_tally.py
 """
 
@@ -88,6 +111,7 @@ from harness import GameClient, make_user_dir
 import session
 from session import (battle_state, event_state, event_log, pin_ai_neutral,
                       assert_hash_clean, FACTION_PLAYER, FACTION_HOSTILE)
+from test_rw_turn_mode import set_mode, live_mode, TRADITIONAL, PARALLEL
 
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
@@ -200,7 +224,9 @@ def run_boot_a():
             f"{MISSION} boot - the premise (a unit for the pin to act on) is "
             "unexercised (M9a-3)")
 
-        # ----- L1: baseline at t=0 -----
+        # ----- L1: baseline at t=0 (PARALLEL mode - REV E.52 E52.1 leaves
+        # this leg untouched: parallel emits NOTHING at entry, so every
+        # assertion below stands exactly as SPEC 10 wrote it) -----
         for gc, who in ((host, "host"), (client, "client")):
             bs = battle_state(gc)
             assert bs.get("coopEndTurnText") == "", (
@@ -209,6 +235,13 @@ def run_boot_a():
             assert bs.get("coopEndTurnArmed") is False, (
                 f"{who}: coopEndTurnArmed is not False at t=0: "
                 f"{bs.get('coopEndTurnArmed')}")
+            # REV E.52 E52.1 (W1-P13c): parallel mode never writes
+            # BattleAuthority::activeSeat - the readable form of the
+            # "activeSeat is -1" control for the mode this whole boot drives.
+            assert event_state(gc).get("coopActiveSeat") == -1, (
+                f"{who}: coopActiveSeat is not -1 in PARALLEL mode at t=0 "
+                f"(REV E.52 E52.1 - parallel never writes the field): "
+                f"{event_state(gc).get('coopActiveSeat')}")
         # See the module docstring's BUILDER FINDING: no emitTally() call has
         # run yet, so the raw tally is the reset() default, not a live
         # recompute - assert the TRUE default, never a value the shipped code
@@ -650,10 +683,88 @@ def run_boot_b():
         client.shutdown()
 
 
+def run_boot_c():
+    """W1-P13c / SPEC 11, REV E.52 E52.1 - the TRADITIONAL entry tally.
+    Same classic seated fixture as BOOT A (seat_count=2, STR_SMALL_SCOUT,
+    seed 1, B.2's pin), but the HOST sets CoopTurnMode=traditional before
+    the offer while the CLIENT's own option is left at the D-26 default
+    (parallel) - a genuine wire-mirror non-vacuity control, the same shape
+    `test_rw_turn_mode.test_wire_traditional` uses. Asserts the ENTRY tally
+    on BOTH machines, immediately after drive_to_battlescape + pin_ai_neutral
+    and before any END TURN action: `coopActiveSeat==0` (the first LIVE seat
+    in D-23 order), the raw tally is exactly
+    needed=1/count=0/ready=[]/side='player', the WV-D46 side-phase counter is
+    still 0 (an entry tally is NOT a side phase), and nothing is painted
+    (text=='' / armed=False, count==0 paints nothing per SPEC 10's rule)."""
+    port = "48162"
+    host_dir = make_user_dir("test_rw_end_turn_tally_c_host")
+    client_dir = make_user_dir("test_rw_end_turn_tally_c_client")
+    host = GameClient("host", 49554, host_dir)
+    client = GameClient("client", 49555, client_dir)
+    seated = {}
+    try:
+        bring_up_lobby(host, client, port)
+
+        def pre_ok_traditional(h):
+            set_mode(h, TRADITIONAL)
+            h.ok({"cmd": "set_seed", "seed": 1})
+
+        session.drive_to_battlescape(host, client, seated, mission=MISSION, seat_count=2,
+                                      pre_ok=pre_ok_traditional)
+
+        assert live_mode(host) == TRADITIONAL and live_mode(client) == TRADITIONAL, (
+            f"REV E.52 E52.1 fixture: expected both machines' live battle mode "
+            f"to be {TRADITIONAL!r} (host set it, client mirrors off the wire "
+            f"while its OWN option stays {PARALLEL!r}): host={live_mode(host)!r} "
+            f"client={live_mode(client)!r}")
+
+        pinned = pin_ai_neutral(host, client, tag="end_turn_tally-c")
+        assert len(pinned) > 0, (
+            f"pin_ai_neutral pinned ZERO NONE-seat non-player units on a CLASSIC "
+            f"{MISSION} boot - the premise (a unit for the pin to act on) is "
+            "unexercised (M9a-3)")
+
+        for gc, who in ((host, "host"), (client, "client")):
+            es = event_state(gc)
+            assert es.get("coopActiveSeat") == 0, (
+                f"{who}: coopActiveSeat at the entry tally is not 0 (REV E.52 "
+                f"E52.1, D-23 first-live-seat order - host seat 0 first): "
+                f"{es.get('coopActiveSeat')}")
+            tally = es.get("coopEndTurnTally", {})
+            assert (tally.get("needed") == 1 and tally.get("count") == 0
+                    and tally.get("ready") == [] and tally.get("side") == "player"), (
+                f"{who}: the traditional entry tally is not exactly "
+                f"needed=1/count=0/ready=[]/side='player' (REV E.52 E52.1): "
+                f"{tally}")
+            assert es.get("coopEndTurnPhaseCounter") == 0, (
+                f"{who}: coopEndTurnPhaseCounter is not 0 at the entry tally - "
+                f"an entry tally is NOT a side phase (REV E.52 E52.1, WV-D46): "
+                f"{es.get('coopEndTurnPhaseCounter')}")
+            bs = battle_state(gc)
+            assert bs.get("coopEndTurnText") == "", (
+                f"{who}: coopEndTurnText is not empty at the entry tally "
+                f"(count==0 paints nothing, SPEC 10's rule): "
+                f"{bs.get('coopEndTurnText')!r}")
+            assert bs.get("coopEndTurnArmed") is False, (
+                f"{who}: coopEndTurnArmed is not False at the entry tally: "
+                f"{bs.get('coopEndTurnArmed')}")
+
+        assert_hash_clean(host, client, full=True, what="traditional entry tally")
+        print("[boot C] REV E.52 E52.1 entry tally OK on both machines: "
+              "coopActiveSeat==0, tally needed=1/count=0/ready=[]/side='player', "
+              "coopEndTurnPhaseCounter==0, text=='' and armed=False")
+
+        print("PASS: test_rw_end_turn_tally BOOT C (traditional, entry tally)")
+    finally:
+        host.shutdown()
+        client.shutdown()
+
+
 def main():
     run_boot_a()
     run_boot_b()
-    print("ALL SPEC 10 test_rw_end_turn_tally TESTS PASSED")
+    run_boot_c()
+    print("ALL SPEC 10 + SPEC 11 (REV E.52 E52.1) test_rw_end_turn_tally TESTS PASSED")
 
 
 if __name__ == "__main__":
