@@ -36,7 +36,7 @@ class BattlescapeState;
  *
  *   bt_end_turn_ready {state, battleId, seat, turn:int, ready:bool}  client->host
  *   bt_end_turn_tally {state, battleId, turn:int, side, ready:[seat...],
- *                       count:int, needed:int}                       host->all
+ *                       count:int, needed:int, activeSeat?:seat}     host->all
  *
  * Both are top-level messages (no `payload`) and both bypass the seq-ordered
  * apply queue - they are `bt_`-prefixed (battle lane) but neither `bt_ev` nor
@@ -44,9 +44,13 @@ class BattlescapeState;
  * the direct lane dispatcher with NO edit to that file (SS2.1's own routing
  * predicate).
  *
- * PARALLEL MODE ONLY (SPEC 10 (b)). `activeSeat` (the traditional baton,
- * W1-P13c) is NOT implemented here and no predicate below may hard-code
- * "all seats" in a way P13c cannot parameterize later.
+ * PARALLEL MODE (SPEC 10 (b)) is unchanged and byte-identical to before this
+ * comment was last true. `activeSeat` (the TRADITIONAL baton, W1-P13c / WV-D55
+ * / D-23..D-25) is now IMPLEMENTED here: OPTIONAL, present in the tally ONLY
+ * in traditional mode (ABSENT in parallel), `needed` forced to 1, `ready`
+ * naming exactly the baton holder. See onBattleActive() below for the entry
+ * initialiser and BattleAuthority.h's `activeSeat` field for where the
+ * HONOURED value lives on the receiving side.
  *
  * ALL LOGIC LIVES IN src/CoopMod (body: connectionTCP.cpp, next to
  * CoopSideTransition's own W1-P13a scaffolding - the two packets share the
@@ -81,6 +85,18 @@ void reset();
 /// the new side has zero human seats, in which case the tally stays INERT
 /// (no wire message; the counter still advanced).
 void onSideTransition(SavedBattleGame* save);
+
+/// W1-P13c (WAVE1-RUNBOOK.md REV E.52 E52.1 / D71): the TRADITIONAL baton's
+/// entry initialiser. HOST-ONLY (self-guarded exactly like onSideTransition()
+/// above), and additionally a no-op in parallel mode. Called ONCE, from the
+/// host-side point where coopBattleAuthority().phase becomes Active (after
+/// the seat->faction store is populated) - without it `activeSeat` sits at
+/// resetBattleAuthority()'s -1 default through the whole first player side,
+/// so coopMayCommand()'s baton term would be false for every seat. Seeds the
+/// baton at seat 0 and emits the ENTRY tally (activeSeat = the first LIVE
+/// seat in D-23 order, count 0, needed 1). Parallel mode emits NOTHING here -
+/// SPEC 10's "no tally at t=0" stands untouched.
+void onBattleActive(SavedBattleGame* save);
 
 /// CLIENT-ONLY (self-guarded). Called from CoopApply::applyEvPayload()'s
 /// "side_transition" branch, once per applied restate - this machine's own

@@ -128,6 +128,8 @@ or deleted is an OWNER call, flagged in
 | STR_COOP_DENY_WEAPON_MISSING | WIRED | - | SS2.6 deny table (connectionTCP.cpp:3074). |
 | STR_COOP_DENY_NOT_YOUR_UNIT | WIRED | - | SS2.6 deny table (connectionTCP.cpp:3075). |
 | STR_COOP_DENY_TURN_OVER | WIRED | - | SS2.6 deny table (connectionTCP.cpp:3076). Keeps its text; SS2.W8 does NOT touch it. |
+| STR_COOP_DENY_NOT_YOUR_GO | WIRED | - | WIRED by W1-P13c (E53.4/E55.1). LOCAL-only refusal reason (never a wire deny) - `kReasonStrTable` row `connectionTCP.cpp:7545`, rendered with the baton holder's seat name (`showDeny`'s templated arm) via `coopRefuseIfNotMayCommand()`/`BattlescapeState::btnKneelClick` and the two map refusers (`coopBlockLocalExecution`/`coopBlockWalkArm`). |
+| STR_COOP_WAIT_TURN | WIRED | - | WIRED by W1-P13c (REV E.56/D77). The persistent off-turn banner, DISTINCT from the refusal above: `waitBannerText()`'s new first branch (`connectionTCP.cpp:7642`), painted onto `_txtCoopWait` via `CoopBattleUi::tick()`'s existing per-frame driver whenever `turnMode==traditional` and `activeSeat != localSeat`. |
 | STR_COOP_CANCEL_ENEMY_SPOTTED | WIRED | - | SS2.6 cancel table (connectionTCP.cpp:3078). Reused by SS2.W2's halt presenter for `reason:"spot"`. |
 | STR_COOP_CANCEL_UNIT_UNDER_FIRE | WIRED | - | SS2.6 cancel table (connectionTCP.cpp:3079). Reused by SS2.W2's halt presenter for `reason:"reaction"`. |
 | STR_COOP_CANCEL_UNIT_DOWN | WIRED | - | SS2.6 cancel table (connectionTCP.cpp:3080). Reused by SS2.W2's halt presenter for `reason:"unit_down"`. |

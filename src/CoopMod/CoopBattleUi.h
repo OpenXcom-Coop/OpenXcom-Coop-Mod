@@ -19,6 +19,13 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <string>
+
+// W1-P13c (E53.2): forward-declared at GLOBAL scope (SDL_Surface is not an
+// OpenXcom type) so this lightweight header does not need to pull in <SDL.h>
+// just for a pointer parameter.
+struct SDL_Surface;
+
 namespace OpenXcom
 {
 
@@ -397,6 +404,43 @@ void tick();
 /// a one-line banner comfortably, short enough that the map strip does not carry
 /// a stale answer into the next exchange.
 static const unsigned int kCoopBannerDwellMs = 6000u;
+
+// ---------------------------------------------------------------------------
+// W1-P13c (REV E.53 E53.1/E53.2): D-24b AMENDED - nothing is hidden off-baton.
+// Instead the bottom bar (the `_icons` panel and everything drawn on it) is
+// rendered through a gray lookup while it is not this seat's go. Every
+// widget stays visible and interactive; the refusal (E53.4/E55.1) and the
+// persistent wait banner (REV E.56) are what actually say "not your turn".
+// ---------------------------------------------------------------------------
+
+/// THE ONE vanilla touch this unit adds: BattlescapeState::blit() overrides
+/// State::blit() (State.h's virtual) and, after calling it, makes this ONE
+/// call with the `_icons` panel's own rect. This function decides for itself
+/// whether to act - the vanilla override itself carries no logic. Self-guarded
+/// (CoopMod, the only reader): acts only in a live coop battle,
+/// turnMode==Traditional, phase==Active, and activeSeat != localSeat; never in
+/// parallel mode, never with effect in single player. No-op (mode "off") when
+/// the gate is false, or when @a surface is not an 8bpp surface (E54.4 pin 1).
+///
+/// Builds/rebuilds a 256-entry lookup table lazily, from @a surface's own
+/// palette, whenever the cached copy no longer matches the live one. Applies
+/// `p = LUT[p]` to every pixel of the rect (x,y,w,h), clipped to @a surface;
+/// nothing is ever restored - when the gate turns false the next frame simply
+/// draws unmodified.
+void coopGrayBottomBar(SDL_Surface* surface, int x, int y, int w, int h);
+
+/// Test-only introspection (REV E.48 SS.A.6 / E53.2): TRUE exactly when
+/// coopGrayBottomBar() above would currently act (the same gate it evaluates
+/// internally). Backs `battle_state.coopOffBatonGray`. Never read by game
+/// logic.
+bool coopOffBatonGrayActive();
+
+/// Test-only introspection (REV E.48 SS.A.6 / E54.4 pin 3): the mode the LAST
+/// EXECUTED coopGrayBottomBar() call stored - "lut", "darken", or "off".
+/// Backs the `screen_pixels` probe's `mode` field, which must describe the
+/// same completed frame the probe's own pixel read does. Never read by game
+/// logic.
+std::string coopGrayBottomBarMode();
 
 } // namespace CoopBattleUi
 

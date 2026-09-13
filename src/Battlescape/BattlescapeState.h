@@ -150,6 +150,10 @@ public:
 	void init() override;
 	/// Runs the timers and handles popups.
 	void think() override;
+	/// W1-P13c (REV E.53 E53.2): grays the bottom bar while off-baton in
+	/// traditional-mode coop (CoopBattleUi::coopGrayBottomBar decides whether
+	/// to act; this override carries no logic of its own).
+	void blit() override;
 	/// Handler for moving mouse over the map.
 	void mapOver(Action *action);
 	/// Handler for pressing the map.

@@ -75,6 +75,11 @@ en-GB:
   STR_COOP_DENY_WEAPON_MISSING: "Order cancelled - weapon unavailable"
   STR_COOP_DENY_NOT_YOUR_UNIT: "Not one of your soldiers"
   STR_COOP_DENY_TURN_OVER: "The turn has already ended"
+  # coop (W1-P13c, traditional turn mode): the baton refusal (E53.4/E55.1) and
+  # the persistent off-turn banner (REV E.56/D77). {0} is the baton holder's
+  # seat name (seatDisplayName()).
+  STR_COOP_DENY_NOT_YOUR_GO: "Not your turn - waiting for {0}"
+  STR_COOP_WAIT_TURN: "It is {0}'s turn"
   STR_COOP_CANCEL_ENEMY_SPOTTED: "Order cancelled - enemy spotted"
   STR_COOP_CANCEL_UNIT_UNDER_FIRE: "Order cancelled - unit under fire"
   STR_COOP_CANCEL_UNIT_DOWN: "Order cancelled - unit down"

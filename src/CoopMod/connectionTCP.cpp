@@ -116,6 +116,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Engine/Options.h"
 #include "../Engine/Screen.h"
+#include "../Engine/Palette.h"
 #include <sodium.h>
 
 namespace OpenXcom
@@ -2393,6 +2394,9 @@ void resetBattleAuthority()
 	// is per-BATTLE session state, re-established from the offer (or, on the
 	// host, from Options::CoopTurnMode) every time a battle starts.
 	a.turnMode = CoopTurnMode::Parallel;
+	// W1-P13c (REV E.1 S-9 / D-23): the traditional baton is per-battle state
+	// too - a new battle must never inherit the previous one's holder.
+	a.activeSeat = -1;
 	a.resetSeatFactions();
 	// W1-P13b (SS2.W3): the readiness tally is battle-scoped state too - a
 	// new battle must never inherit the previous one's side-phase counter,
@@ -2522,7 +2526,10 @@ bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s)
 {
 	if (!isCoopBattle())
 		return true;
-	return coopBattleAuthority().commandsUnit(u) && coopBattleAuthority().mySideActive(s);
+	return coopBattleAuthority().commandsUnit(u)
+		&& coopBattleAuthority().mySideActive(s)
+		&& (coopBattleAuthority().turnMode.load() != CoopTurnMode::Traditional
+			|| coopBattleAuthority().activeSeat.load() == coopBattleAuthority().localSeat.load());
 }
 
 bool coopMaySelectUnit(const BattleUnit* u)
@@ -2530,6 +2537,22 @@ bool coopMaySelectUnit(const BattleUnit* u)
 	if (!isCoopBattle())
 		return true;
 	return coopBattleAuthority().commandsUnit(u);
+}
+
+// W1-P13c (WV-D55 / D-23, E55.1): true exactly when coopMayCommand()'s new
+// baton term is the SOLE reason it would fail - i.e. this machine would
+// otherwise command the unit on its own active side, but does not currently
+// hold the baton. The ONE place coopRefuseIfNotMayCommand() and the three
+// existing refusal sites (coopBlockLocalExecution / coopBlockWalkArm below)
+// ask "is this a not-your-go refusal", so the new deny presenter fires ONLY
+// for the baton case and stays silent for every other refusal.
+static bool coopBatonTermIsTheFailure(const BattleUnit* u, const SavedBattleGame* s)
+{
+	return isCoopBattle()
+		&& coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional
+		&& coopBattleAuthority().activeSeat.load() != coopBattleAuthority().localSeat.load()
+		&& coopBattleAuthority().commandsUnit(u)
+		&& coopBattleAuthority().mySideActive(s);
 }
 
 // W1-P13a (WAVE1-RUNBOOK.md SPEC 9 / D48): the think() guard - see
@@ -2569,6 +2592,24 @@ static std::atomic<int> g_coopLocalExecBlocked{0};
 static std::atomic<int> g_coopWalkArmEntered{0};
 static std::atomic<int> g_coopWalkIntentsFromClick{0};
 
+// W1-P13c (E55.1): the direct replacement for BattlescapeState::btnKneelClick's
+// bare `if (!coopMayCommand(bu, _save)) return;`, and also called by the two
+// map refusers below on a not_your_go refusal. Presents
+// STR_COOP_DENY_NOT_YOUR_GO (name from seatDisplayName()) and bumps the SAME
+// coopLocalExecBlocked counter ONLY when the baton term is the failure;
+// every other refusal stays silent exactly as before this packet.
+bool coopRefuseIfNotMayCommand(const BattleUnit* u, const SavedBattleGame* s)
+{
+	if (coopMayCommand(u, s))
+		return false;
+	if (coopBatonTermIsTheFailure(u, s))
+	{
+		CoopBattleUi::showDeny("not_your_go");
+		g_coopLocalExecBlocked.fetch_add(1);
+	}
+	return true;
+}
+
 bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s)
 {
 	// Self-guard: SP and every non-co-op battle fall straight through, so
@@ -2591,6 +2632,13 @@ bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s)
 	// simply refuses.
 	if (!coopBattleAuthority().hostSim)
 	{
+		// W1-P13c (E55.1): present the baton deny when it is the reason this
+		// term fires - on a CLIENT this term ALWAYS fires (hostSim is never
+		// true there), so this is where a client's baton-refused
+		// primaryAction click gets its text; TERM 2 below is then never
+		// reached on a client.
+		if (coopBatonTermIsTheFailure(u, s))
+			CoopBattleUi::showDeny("not_your_go");
 		g_coopLocalExecBlocked.fetch_add(1);
 		return true;
 	}
@@ -2601,6 +2649,10 @@ bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s)
 	// what R5-P2's entry guard checked and what this packet must not weaken.
 	if (!coopMayCommand(u, s))
 	{
+		// W1-P13c (E55.1): on the HOST this is the off-baton case (TERM 1
+		// above never fires on the host).
+		if (coopBatonTermIsTheFailure(u, s))
+			CoopBattleUi::showDeny("not_your_go");
 		g_coopLocalExecBlocked.fetch_add(1);
 		return true;
 	}
@@ -2634,6 +2686,10 @@ bool coopBlockWalkArm(const BattleUnit* u, const SavedBattleGame* s)
 	// that still refuses.
 	if (!coopMayCommand(u, s))
 	{
+		// W1-P13c (E55.1): same presenter branch as coopBlockLocalExecution's
+		// two sites above - not doubled, this is the walk arm's OWN refusal.
+		if (coopBatonTermIsTheFailure(u, s))
+			CoopBattleUi::showDeny("not_your_go");
 		g_coopLocalExecBlocked.fetch_add(1);
 		return true;
 	}
@@ -5823,6 +5879,12 @@ static int g_turn = 0;                  // this machine's own side-phase counter
 static bool g_hostReady[kMaxSeats] = { false, false, false, false }; // HOST-ONLY
 static int g_talliesSeen = 0;
 
+// W1-P13c (WV-D55 / D-23): the traditional baton's HOST-ONLY holder, -1 = none
+// resolved yet. Re-resolved by coopBatonResolve() every time emitTally() below
+// re-enters (a press, a boundary, a seat-set change), so a departed holder is
+// replaced immediately.
+static int g_batonSeat = -1;
+
 // The last APPLIED-or-EMITTED (non-inert) tally's own fields - the
 // event_state snapshot REV E.48 C.2/F171 name.
 static int g_lastTallyTurn = 0;
@@ -5847,6 +5909,8 @@ void reset()
 	g_lastTallyCount = 0;
 	g_lastTallyNeeded = 0;
 	g_lastTallyReadySeats.clear();
+	// W1-P13c (WV-D55 / D-23): the baton is per-battle state too.
+	g_batonSeat = -1;
 	// REV E.51 / E51.3 / D69 (F174): a battle-authority reset (the teardown
 	// chokepoint a peer drop reaches via resetBattleAuthority()) must not
 	// leave a stale painted END-TURN tally or an inverted button behind -
@@ -5917,6 +5981,36 @@ static int coopEndTurnComputeNeeded(SavedBattleGame* save)
 	return needed;
 }
 
+// ----- W1-P13c (WV-D55 / D-23): the traditional baton's seat order -----
+
+// HOST-ONLY. D-23: seat 0 first, then by seat index. Returns the first LIVE
+// seat at or after @a from (C.4's definition, via coopEndTurnSeatLive()), or
+// -1 if none. @a wrap selects what happens when nothing forward of @a from is
+// live: true rescans from seat 0 (emitTally()'s own re-validation - holding
+// the current baton across an incidental re-entry is fine here), false
+// returns -1 without wrapping (tryCommit()'s "is there a next seat on THIS
+// side" question - D-23: wrapping there would silently turn the LAST pass of
+// a side into an ordinary one). Deliberately no default argument: every
+// caller states its own intent explicitly.
+static int coopBatonResolve(SavedBattleGame* save, int from, bool wrap)
+{
+	const int seats = std::min(std::max(1, connectionTCP::seatCount()), kMaxSeats);
+	const int start = std::max(0, from);
+	for (int s = start; s < seats; ++s)
+	{
+		if (coopEndTurnSeatLive(save, s))
+			return s;
+	}
+	if (!wrap)
+		return -1;
+	for (int s = 0; s < start && s < seats; ++s)
+	{
+		if (coopEndTurnSeatLive(save, s))
+			return s;
+	}
+	return -1;
+}
+
 // ----- presentation -----
 
 // F164: LocalizedText's arg() fills {0}/{1} in mint order, so count goes
@@ -5934,7 +6028,7 @@ static std::string coopEndTurnTallyText(BattlescapeState* bs, int count, int nee
 // text) and event_state snapshot. Bumps the tallies-seen counter (REV E.48
 // C.2's "+1").
 static void applyTallySnapshot(int turn, const std::string& side, int count,
-	int needed, const std::vector<int>& readySeats)
+	int needed, const std::vector<int>& readySeats, int activeSeat)
 {
 	g_lastTallyTurn = turn;
 	g_lastTallySide = side;
@@ -5942,6 +6036,19 @@ static void applyTallySnapshot(int turn, const std::string& side, int count,
 	g_lastTallyNeeded = needed;
 	g_lastTallyReadySeats = readySeats;
 	++g_talliesSeen;
+
+	// W1-P13c (REV E.1 S-9 / D-23): the ONE writer of BattleAuthority's
+	// activeSeat, on BOTH machines (emitTally() below on the host,
+	// onTallyReceived() on the client). Written ONLY when this tally's `turn`
+	// matches this machine's own last APPLIED side_transition counter (g_turn
+	// - SS2.W3's ordering rule) and only in traditional mode; a stale-turn or
+	// parallel-mode tally leaves the field untouched rather than overwriting a
+	// current value with a stale or irrelevant one.
+	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional
+		&& turn == g_turn)
+	{
+		coopBattleAuthority().activeSeat.store(activeSeat);
+	}
 
 	const int mySeat = coopBattleAuthority().localSeat;
 	bool mine = false;
@@ -5983,8 +6090,21 @@ static void emitTally(SavedBattleGame* save)
 	if (!save)
 		return;
 
-	const int needed = coopEndTurnComputeNeeded(save);
+	const bool traditional = coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional;
 	const std::string side = CoopHandshake::coopFactionToWireString((int)save->getSide());
+
+	int needed = coopEndTurnComputeNeeded(save);
+	if (traditional)
+	{
+		// W1-P13c (D-23/D-25): re-resolve the baton every time this host-side
+		// choke re-enters (a press, a boundary, a seat-set change) so a
+		// departed holder is replaced immediately - the same "recompute fresh
+		// every time" discipline the parallel path's own `needed`/ready
+		// computation already follows. `needed` is ALWAYS 1 in traditional
+		// mode, or 0 (INERT) when no seat on this side is live.
+		g_batonSeat = coopBatonResolve(save, g_batonSeat, /*wrap=*/true);
+		needed = (g_batonSeat >= 0) ? 1 : 0;
+	}
 
 	if (needed <= 0)
 	{
@@ -5993,15 +6113,23 @@ static void emitTally(SavedBattleGame* save)
 	}
 
 	std::vector<int> readySeats;
-	const int seats = std::max(1, connectionTCP::seatCount());
-	for (int s = 0; s < seats && s < kMaxSeats; ++s)
+	if (traditional)
 	{
-		if (coopEndTurnSeatLive(save, s) && g_hostReady[s])
-			readySeats.push_back(s);
+		if (g_batonSeat >= 0 && g_hostReady[g_batonSeat])
+			readySeats.push_back(g_batonSeat);
+	}
+	else
+	{
+		const int seats = std::max(1, connectionTCP::seatCount());
+		for (int s = 0; s < seats && s < kMaxSeats; ++s)
+		{
+			if (coopEndTurnSeatLive(save, s) && g_hostReady[s])
+				readySeats.push_back(s);
+		}
 	}
 	const int count = (int)readySeats.size();
 
-	applyTallySnapshot(g_turn, side, count, needed, readySeats);
+	applyTallySnapshot(g_turn, side, count, needed, readySeats, traditional ? g_batonSeat : -1);
 
 	Json::Value msg(Json::objectValue);
 	msg["state"] = "bt_end_turn_tally";
@@ -6014,14 +6142,51 @@ static void emitTally(SavedBattleGame* save)
 	msg["ready"] = readyArr;
 	msg["count"] = count;
 	msg["needed"] = needed;
+	// D-25: OPTIONAL, traditional mode ONLY - ABSENT in parallel (SPEC 10's
+	// parallel assertions must not change).
+	if (traditional)
+		msg["activeSeat"] = g_batonSeat;
 	CoopEmit::sendBattle(msg);
 }
 
-// HOST-ONLY: runs vanilla requestEndTurn() once every live seat has armed.
+// HOST-ONLY: in parallel mode, runs vanilla requestEndTurn() once every live
+// seat has armed. In traditional mode (D-23/D-24), advances the baton to the
+// next live seat on THIS side, or - when none remains forward of the current
+// holder - runs the SAME requestEndTurn() chokepoint as the LAST pass.
 static void tryCommit(SavedBattleGame* save)
 {
 	if (!save)
 		return;
+
+	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional)
+	{
+		if (g_batonSeat < 0 || !g_hostReady[g_batonSeat])
+			return;
+
+		// D-23: search FORWARD ONLY (no wrap) - a wrap here is exactly what
+		// would distinguish an ordinary pass from the LAST pass. Wrapping to
+		// re-validate the CURRENT holder is emitTally()'s job, not this call's.
+		const int next = coopBatonResolve(save, g_batonSeat + 1, /*wrap=*/false);
+		if (next >= 0)
+		{
+			// A PASS: intra-side (D-23) - do NOT touch g_turn, do NOT call
+			// requestEndTurn().
+			g_batonSeat = next;
+			for (int i = 0; i < kMaxSeats; ++i)
+				g_hostReady[i] = false;
+			emitTally(save);
+			return;
+		}
+
+		// THE LAST PASS: close the side through the SAME chokepoint parallel
+		// mode uses. onSideTransition() (below) resets the baton for the new
+		// side via emitTally()'s own resolve step.
+		BattlescapeGame* bg = save->getBattleGame();
+		if (bg)
+			bg->requestEndTurn(false);
+		return;
+	}
+
 	const int needed = coopEndTurnComputeNeeded(save);
 	if (needed <= 0)
 		return;
@@ -6057,6 +6222,27 @@ static void applyReady(SavedBattleGame* save, int seat, int turn, bool ready)
 	}
 	if (seat < 0 || seat >= kMaxSeats)
 		return;
+
+	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional)
+	{
+		// D-24 (NO TAKE-BACK): a press from any seat OTHER than the current
+		// baton holder changes nothing - it is not that seat's go. Neither
+		// does a ready:false from the holder itself, once it holds the baton:
+		// the holder can only pass FORWARD, never un-arm (parallel keeps
+		// WV-D30b's un-ready below). Either way the host answers with the
+		// current tally rather than a silent drop, exactly like the
+		// stale-turn case above.
+		if (seat != g_batonSeat || !ready)
+		{
+			emitTally(save);
+			return;
+		}
+		g_hostReady[seat] = ready;
+		emitTally(save);
+		tryCommit(save);
+		return;
+	}
+
 	// D-24: ready:false (un-arm) is a legal press in parallel mode.
 	g_hostReady[seat] = ready;
 	emitTally(save);
@@ -6072,6 +6258,27 @@ void onSideTransition(SavedBattleGame* save)
 	++g_turn;
 	for (int i = 0; i < kMaxSeats; ++i)
 		g_hostReady[i] = false;
+	// W1-P13c (D-23): every new side starts the baton search at seat 0 again;
+	// emitTally()'s own coopBatonResolve() call resolves the actual first LIVE
+	// seat in D-23 order.
+	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional)
+		g_batonSeat = 0;
+	emitTally(save);
+}
+
+// W1-P13c (REV E.52 E52.1 / D71): the traditional baton's ENTRY initialiser,
+// called ONCE at the battle-Active transition (HOST-ONLY, self-guarded like
+// onSideTransition() above). Without this, `activeSeat` stays at
+// resetBattleAuthority()'s -1 default for the whole first player side, and
+// coopMayCommand()'s baton term is false for every seat. Parallel mode emits
+// NOTHING here (SPEC 10's "no tally at t=0" stands untouched).
+void onBattleActive(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	if (coopBattleAuthority().turnMode.load() != CoopTurnMode::Traditional)
+		return;
+	g_batonSeat = 0;
 	emitTally(save);
 }
 
@@ -6151,7 +6358,11 @@ void onTallyReceived(const Json::Value& msg)
 	const Json::Value& ready = msg["ready"];
 	for (Json::ArrayIndex i = 0; i < ready.size(); ++i)
 		readySeats.push_back(ready[i].asInt());
-	applyTallySnapshot(turn, side, count, needed, readySeats);
+	// D-25: `activeSeat` is OPTIONAL and ABSENT in parallel mode - a missing
+	// key defaults to -1, and applyTallySnapshot()'s own turnMode==Traditional
+	// guard means that default is never written into BattleAuthority anyway.
+	const int activeSeat = msg.get("activeSeat", -1).asInt();
+	applyTallySnapshot(turn, side, count, needed, readySeats, activeSeat);
 }
 
 void testSendReady(int turn, bool ready)
@@ -7329,6 +7540,9 @@ const ReasonStrEntry kReasonStrTable[] =
 	{ "weapon_missing",    "STR_COOP_DENY_WEAPON_MISSING" },
 	{ "not_your_unit",     "STR_COOP_DENY_NOT_YOUR_UNIT" },
 	{ "turn_over",         "STR_COOP_DENY_TURN_OVER" },
+	// W1-P13c (E53.4/E55.1): the traditional-mode baton refusal, LOCAL only -
+	// never a wire deny reason (SS2.2's 8-value enum is unchanged).
+	{ "not_your_go",       "STR_COOP_DENY_NOT_YOUR_GO" },
 	// auto-cancel causes (ADDENDUM 1.3(d))
 	{ "enemy_spotted",     "STR_COOP_CANCEL_ENEMY_SPOTTED" },
 	{ "unit_under_fire",   "STR_COOP_CANCEL_UNIT_UNDER_FIRE" },
@@ -7417,6 +7631,17 @@ std::string waitBannerText(BattlescapeState* bs)
 	const bool host = coopBattleAuthority().hostSim;
 	const int owner = CoopArbiter::busyOwnerSeat();
 
+	// W1-P13c (REV E.56 / D77): the persistent OFF-TURN banner. Evaluated
+	// first: while the baton is someone else's, that is what this seat is
+	// waiting on, and it outranks any busy-chain wording.
+	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional
+		&& coopBattleAuthority().activeSeat.load() != me)
+	{
+		const std::string batonName = seatDisplayName(bs, coopBattleAuthority().activeSeat.load());
+		if (!batonName.empty())
+			return bs->getGame()->getLanguage()->getString("STR_COOP_WAIT_TURN").arg(batonName);
+	}
+
 	if (host)
 	{
 		// The host is only ever "waiting" on a chain it does not own - i.e. on a
@@ -7466,6 +7691,16 @@ void showDeny(const char* reason)
 	// next successful action (WV-D13 item 1).
 	const BannerClass cls = (std::strcmp(reason ? reason : "", "busy") == 0)
 		? BannerClass::Wait : BannerClass::Terminal;
+	// W1-P13c (E53.4/E55.1): the ONE templated deny row - {0} is the baton
+	// holder's seat name, the same source the persistent wait banner uses
+	// (REV E.56). Every other reason keeps its byte-for-byte getString(key)
+	// path below.
+	if (std::strcmp(reason ? reason : "", "not_your_go") == 0)
+	{
+		setBanner(bs, bs->getGame()->getLanguage()->getString(key)
+			.arg(seatDisplayName(bs, coopBattleAuthority().activeSeat.load())), cls);
+		return;
+	}
 	setBanner(bs, bs->getGame()->getLanguage()->getString(key), cls);
 }
 
@@ -7828,6 +8063,166 @@ void tick()
 		if (want != bs->getCoopWaitText())
 			setBanner(bs, want, BannerClass::Wait);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// W1-P13c (REV E.53 E53.1/E53.2): D-24b AMENDED - the off-baton gray bottom
+// bar. See CoopBattleUi.h's own doc comments for the contract; nothing here
+// is reachable outside a live traditional-mode coop battle (coopOffBatonGrayActive()
+// is the ONE gate, read by both the pass below and the test probe).
+// ---------------------------------------------------------------------------
+
+bool coopOffBatonGrayActive()
+{
+	if (!isCoopBattle())
+		return false;
+	if (coopBattleAuthority().turnMode.load() != CoopTurnMode::Traditional)
+		return false;
+	return coopBattleAuthority().activeSeat.load() != coopBattleAuthority().localSeat.load();
+}
+
+namespace
+{
+// File-local LUT cache + the mode it was built under - rebuilt lazily
+// whenever the live palette no longer matches the cached copy.
+bool g_grayLutBuilt = false;
+SDL_Color g_grayLutPalette[256];
+Uint8 g_grayLut[256];
+std::string g_grayLutModeCache; // "lut" or "darken"; meaningful only once g_grayLutBuilt
+
+// Test-only: the mode the LAST EXECUTED coopGrayBottomBar() call stored,
+// "off" until the first real pass. E54.4 pin 3: this must describe the same
+// completed frame screen_pixels reads.
+std::string g_grayLastMode = "off";
+} // namespace
+
+std::string coopGrayBottomBarMode()
+{
+	return g_grayLastMode;
+}
+
+void coopGrayBottomBar(SDL_Surface* surface, int x, int y, int w, int h)
+{
+	// Gate: CoopMod is the ONLY reader. Never in parallel mode, never with
+	// effect in single player (coopOffBatonGrayActive() is false in both).
+	// E54.4 pin 1: also requires an 8bpp surface.
+	if (!surface || !coopOffBatonGrayActive() || surface->format->BitsPerPixel != 8)
+	{
+		g_grayLastMode = "off";
+		return;
+	}
+
+	SDL_Palette* pal = surface->format->palette;
+	if (!pal || pal->ncolors < 256)
+	{
+		g_grayLastMode = "off";
+		return;
+	}
+
+	// Rebuild lazily: only when the live 256-entry palette differs from the
+	// cached copy (a cheap compare of the RGB triplets).
+	bool paletteChanged = !g_grayLutBuilt;
+	if (!paletteChanged)
+	{
+		for (int i = 0; i < 256; ++i)
+		{
+			const SDL_Color& a = pal->colors[i];
+			const SDL_Color& b = g_grayLutPalette[i];
+			if (a.r != b.r || a.g != b.g || a.b != b.b)
+			{
+				paletteChanged = true;
+				break;
+			}
+		}
+	}
+
+	if (paletteChanged)
+	{
+		for (int i = 0; i < 256; ++i)
+			g_grayLutPalette[i] = pal->colors[i];
+
+		// E53.2: gray ramp = palette indices 0..15 (Palette::blockOffset(0)).
+		const int rampStart = Palette::blockOffset(0);
+		bool isGrayRamp = true;
+		for (int i = rampStart; i < rampStart + 16; ++i)
+		{
+			const SDL_Color& c = pal->colors[i];
+			const int maxc = std::max(std::max((int)c.r, (int)c.g), (int)c.b);
+			const int minc = std::min(std::min((int)c.r, (int)c.g), (int)c.b);
+			if (maxc - minc > 24)
+			{
+				isGrayRamp = false;
+				break;
+			}
+		}
+
+		if (isGrayRamp)
+		{
+			g_grayLutModeCache = "lut";
+			int rampL[16];
+			for (int r = 0; r < 16; ++r)
+			{
+				const SDL_Color& c = pal->colors[rampStart + r];
+				rampL[r] = (299 * (int)c.r + 587 * (int)c.g + 114 * (int)c.b) / 1000;
+			}
+			for (int i = 0; i < 256; ++i)
+			{
+				const SDL_Color& c = pal->colors[i];
+				const int L = (299 * (int)c.r + 587 * (int)c.g + 114 * (int)c.b) / 1000;
+				int best = 0;
+				int bestDist = -1;
+				for (int r = 0; r < 16; ++r)
+				{
+					const int dist = std::abs(rampL[r] - L);
+					// E54.4 pin 1: break an equal-distance tie (the L==0 tie
+					// between ramp indices 0 and 15) by the LOWEST index, so
+					// the LUT is identical on both machines.
+					if (bestDist < 0 || dist < bestDist)
+					{
+						bestDist = dist;
+						best = r;
+					}
+				}
+				g_grayLut[i] = (Uint8)(rampStart + best);
+			}
+		}
+		else
+		{
+			g_grayLutModeCache = "darken";
+			for (int i = 0; i < 256; ++i)
+				g_grayLut[i] = (Uint8)((i & 0xF0) | std::min(15, (i & 0x0F) + 4));
+		}
+		g_grayLutBuilt = true;
+	}
+
+	// Clip the rect to the surface. The map, the banner texts and anything
+	// outside the rect are untouched.
+	const int x0 = std::max(0, x);
+	const int y0 = std::max(0, y);
+	const int x1 = std::min((int)surface->w, x + w);
+	const int y1 = std::min((int)surface->h, y + h);
+
+	if (x1 > x0 && y1 > y0)
+	{
+		const bool mustLock = SDL_MUSTLOCK(surface) != 0;
+		if (mustLock)
+			SDL_LockSurface(surface);
+
+		Uint8* pixels = static_cast<Uint8*>(surface->pixels);
+		for (int py = y0; py < y1; ++py)
+		{
+			Uint8* row = pixels + (std::size_t)py * surface->pitch;
+			for (int px = x0; px < x1; ++px)
+				row[px] = g_grayLut[row[px]];
+		}
+
+		if (mustLock)
+			SDL_UnlockSurface(surface);
+	}
+
+	// Nothing is ever restored: when the gate turns false the next call above
+	// simply returns with mode "off" and the next frame draws unmodified.
+	g_grayLastMode = g_grayLutModeCache;
 }
 
 } // namespace CoopBattleUi
@@ -9323,6 +9718,11 @@ void onReady(Game* game, const Json::Value& ready)
 		CoopFog::ensureAllocated(activeBattle);
 		CoopFog::authorHostilePass(activeBattle, true);
 		CoopReveal::armHostileBaseline();
+		// W1-P13c (REV E.52 E52.1 / D71): the traditional baton's ENTRY
+		// initialiser - seeds the holder at the first LIVE seat in D-23 order
+		// and emits the entry tally. Self-guarded (host-only, no-op in
+		// parallel mode).
+		CoopEndTurn::onBattleActive(activeBattle);
 	}
 
 	Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId << ")";

@@ -4867,7 +4867,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "omit_turn_mode"
 		&& cmd != "battle_teleport_unit" && cmd != "battle_teleport_all"
 		&& cmd != "battle_set_unit_state"
-		&& cmd != "battle_end_turn_ready")
+		&& cmd != "battle_end_turn_ready"
+		&& cmd != "screen_pixels")
 	{
 		return false;
 	}
@@ -5047,6 +5048,16 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["coopEndTurnTally"] = tally;
 		}
 		resp["coopEndTurnTalliesSeen"] = CoopEndTurn::talliesSeen();
+		// W1-P13c (REV E.1 S-9 / D-23): the traditional baton's HONOURED
+		// value on BattleAuthority - the same field coopMayCommand() reads
+		// and nothing else. NOT the wire echo of the last tally that
+		// arrived: applyTallySnapshot() writes this only when a tally's
+		// `turn` matches this machine's own last APPLIED side_transition
+		// counter, so a stale-turn tally leaves it untouched and a test
+		// reading it here always sees the honoured value, not the last
+		// thing that arrived. -1 = no baton (parallel mode, or before the
+		// first tally of a side); reads the same way on both machines.
+		resp["coopActiveSeat"] = coopBattleAuthority().activeSeat.load();
 		resp["ok"] = true;
 	}
 	else if (cmd == "hash_now")
@@ -5862,6 +5873,56 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["northwall"] = hn;
 			resp["unpublishedHostile"] =
 				CoopReveal::hasUnpublishedSide(bg, CoopFog::Side::Hostile);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "screen_pixels")
+	{
+		// W1-P13c (REV E.53 E53.2 / E54.4 pin 2, REV E.48 SS.A.6): test-only,
+		// read-only, never forwarded. Placed here rather than beside
+		// "screenshot" in execute() - that function is at MSVC's C1061
+		// nesting limit. Reads the back buffer's 8-bit palette indices for
+		// the requested rect, row-major, clipped to the surface, plus the
+		// mode the LAST EXECUTED CoopBattleUi::coopGrayBottomBar() pass
+		// stored (E54.4 pin 3: the pump runs at the top of the frame loop and
+		// reads the previously completed frame, so `mode` and `pixels`
+		// describe the same frame). Safe against a machine parked in
+		// BriefingState or any other pre-battle state - it touches only
+		// _game->getScreen(), never the battle/battlescape state.
+		SDL_Surface* surface = _game->getScreen()->getSurface();
+		if (!surface)
+		{
+			resp["error"] = "screen_pixels: no live screen surface";
+		}
+		else
+		{
+			const int rx = req.get("x", 0).asInt();
+			const int ry = req.get("y", 0).asInt();
+			const int rw = req.get("w", 0).asInt();
+			const int rh = req.get("h", 0).asInt();
+			const int x0 = std::max(0, rx);
+			const int y0 = std::max(0, ry);
+			const int x1 = std::min((int)surface->w, rx + rw);
+			const int y1 = std::min((int)surface->h, ry + rh);
+
+			Json::Value pixels(Json::arrayValue);
+			if (surface->format->BitsPerPixel == 8 && x1 > x0 && y1 > y0)
+			{
+				const bool mustLock = SDL_MUSTLOCK(surface) != 0;
+				if (mustLock)
+					SDL_LockSurface(surface);
+				const Uint8* base = static_cast<const Uint8*>(surface->pixels);
+				for (int py = y0; py < y1; ++py)
+				{
+					const Uint8* row = base + (std::size_t)py * surface->pitch;
+					for (int px = x0; px < x1; ++px)
+						pixels.append(row[px]);
+				}
+				if (mustLock)
+					SDL_UnlockSurface(surface);
+			}
+			resp["pixels"] = pixels;
+			resp["mode"] = CoopBattleUi::coopGrayBottomBarMode();
 			resp["ok"] = true;
 		}
 	}
@@ -6988,6 +7049,10 @@ std::string TestServer::execute(const std::string& line)
 					// the last applied tally, the same value the repaint
 					// feeds BattlescapeState::setCoopEndTurnArmed().
 					resp["coopEndTurnArmed"] = bsForBanner ? bsForBanner->getCoopEndTurnArmed() : false;
+					// W1-P13c (REV E.53 E53.2 / E54.4 pin 2): the off-baton
+					// gray-bottom-bar gate, model-side - the secondary check
+					// beside the screen_pixels pixel read.
+					resp["coopOffBatonGray"] = bsForBanner ? CoopBattleUi::coopOffBatonGrayActive() : false;
 					// W1-P9 (SS2.W2 / WV-D48): the VANILLA warning surface's text.
 					// SS2.6 keeps every CO-OP message off _warning, so this asks a
 					// different question from coopWaitText above - and the one

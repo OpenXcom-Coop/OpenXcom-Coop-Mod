@@ -941,6 +941,20 @@ void BattlescapeState::think()
 }
 
 /**
+ * W1-P13c (REV E.53 E53.2, D-24b AMENDED): off-baton in traditional-mode
+ * coop, the bottom bar is grayed rather than hidden - every widget stays
+ * visible and interactive. This override carries no logic of its own;
+ * CoopBattleUi::coopGrayBottomBar() decides for itself whether to act (it is
+ * a no-op outside a live traditional-mode coop battle and in single player).
+ */
+void BattlescapeState::blit()
+{
+	State::blit();
+	CoopBattleUi::coopGrayBottomBar(_game->getScreen()->getSurface(),
+		_icons->getX(), _icons->getY(), _icons->getWidth(), _icons->getHeight());
+}
+
+/**
  * Processes any mouse moving over the map.
  * @param action Pointer to an action.
  */
@@ -1270,7 +1284,7 @@ void BattlescapeState::btnKneelClick(Action *)
 			// kneel on a unit this machine's seat does not command, or
 			// when this machine's side isn't currently active. One
 			// guarded call, permissive outside coop.
-			if (!coopMayCommand(bu, _save))
+			if (coopRefuseIfNotMayCommand(bu, _save))
 			{
 				return;
 			}

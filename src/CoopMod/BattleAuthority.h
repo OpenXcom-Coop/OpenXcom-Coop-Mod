@@ -205,6 +205,13 @@ struct BattleAuthority
 	/// the four fields above.
 	std::atomic<CoopTurnMode> turnMode{CoopTurnMode::Parallel};
 
+	/// W1-P13c (WV-D55 / D-23): the seat that currently HOLDS THE BATON in
+	/// traditional mode, as last HONOURED by this machine - i.e. the activeSeat
+	/// of a bt_end_turn_tally whose `turn` matched this machine's last APPLIED
+	/// side_transition counter. -1 = no baton (parallel mode, or before the
+	/// first tally of a side). Reset to -1 by resetBattleAuthority().
+	std::atomic<int> activeSeat{-1};
+
 	/// R2-P9 (SPIKE-RUNBOOK.md SS2.8): set the moment this machine's own
 	/// hash-mismatch detector (CoopHashCheck::verify, BattlePump.h) latches a
 	/// desync - "freeze battle input" per SS2.8's mismatch-behavior note.
@@ -314,6 +321,20 @@ bool isCoopBattle();
 /// below, which only needs the commandsUnit half (see coopMaySelectUnit()).
 /// Defined in connectionTCP.cpp next to isCoopBattle().
 bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s);
+
+/// W1-P13c (WV-D55 / D-23, mechanism E55.1): returns true when the caller
+/// must refuse - i.e. !coopMayCommand(u, s) - and, ONLY when the failing
+/// term is the new baton term (traditional mode, Active, activeSeat !=
+/// localSeat), presents STR_COOP_DENY_NOT_YOUR_GO through
+/// CoopBattleUi::showDeny("not_your_go") (name from seatDisplayName()) and
+/// bumps coopLocalExecutionBlocks()'s counter; for every other refusal it
+/// stays SILENT exactly as before this packet. The direct replacement for
+/// BattlescapeState::btnKneelClick's bare `if (!coopMayCommand(bu, _save))
+/// return;` (E55.1), and also called by coopBlockLocalExecution() /
+/// coopBlockWalkArm()'s existing refusal sites so the SAME presenter branch
+/// covers every command-gate refusal in the game. Defined in
+/// connectionTCP.cpp beside coopMayCommand().
+bool coopRefuseIfNotMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 
 /// R5-P2 selection-cycle predicate: the CoopMod half of the
 /// SavedBattleGame::selectPlayerUnit() filter call (RB-D10/R5-P2's
