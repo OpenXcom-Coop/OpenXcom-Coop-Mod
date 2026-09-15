@@ -3947,7 +3947,7 @@ namespace
 
 // Which top-level array (if any) the current node-tree walk descended from -
 // needed for exactly one scope-gated exclusion (previousOwner, see below).
-enum class SbScope { Other, Unit, Item };
+enum class SbScope { Other, Unit, Item, Node };
 
 // TOP-LEVEL of the battle document only (SavedBattleGame-scoped, per-seat UI/
 // display/audio-transient/battle-end-adjacent fields) - cr1-field-audit.md
@@ -4030,6 +4030,11 @@ bool saveBlobExcludedUnitKey(std::string_view k)
 		|| k == "turnsSinceStunned"
 		|| k == "dontReselect"
 		|| k == "aiMedikitUsed"
+		// WV-D44: a client runs no AI. The whole AIModule::save() map -
+		// fromNode, toNode, AIMode, wasHitBy, weaponPickedUp, targetFaction -
+		// is written under the unit (BattleUnit.cpp:767) only on the machine
+		// that ran think(), so it is host-only by construction (D89 (a)).
+		|| k == "AI"
 		|| k == "activeHand"
 		|| k == "notificationShown"
 		|| k == "killedBy"
@@ -4062,9 +4067,17 @@ bool saveBlobExcludedUnitKey(std::string_view k)
 // bytes, so a whitespace/quoting difference between the two builds cannot
 // register as a divergence. @a top marks the battle document's own direct
 // children (where the top-level-only exclusions apply); @a scope tracks
-// whether the walk is inside "units" (only place the scope-gated
-// previousOwner exclusion fires) or "items"/other (where BattleItem's own
-// previousOwner field stays hashed).
+// which of four scopes the walk is inside: "units" (the scope-gated
+// previousOwner exclusion fires only here), "items"/"itemsSpecial" (where
+// BattleItem's own previousOwner field stays hashed), "nodes" (SbScope::Node -
+// the allocated flag is skipped here; see below), or Other.
+//
+// SbScope::Node / nodes[].allocated: the pathfinding node the host's AI
+// reserved while it ran think(). A client runs no AI (WV-D44) and SPEC 12
+// (e) forbids a new wire shape for it, so this flag is host-only by
+// construction and cannot be made to match (D89 (a)). Every other node
+// field (id, position, segment, type, rank, flags, reserved, priority,
+// links) stays hashed.
 void saveBlobHashTree(const YAML::YamlNodeReader& node, std::uint64_t& h, bool top, SbScope scope)
 {
 	if (node.isMap())
@@ -4076,12 +4089,15 @@ void saveBlobHashTree(const YAML::YamlNodeReader& node, std::uint64_t& h, bool t
 				continue;
 			if (scope == SbScope::Unit && (saveBlobExcludedUnitKey(key) || key == "previousOwner"))
 				continue;
+			if (scope == SbScope::Node && key == "allocated")
+				continue;
 
 			SbScope childScope = scope;
 			if (top)
 			{
 				if (key == "units") childScope = SbScope::Unit;
 				else if (key == "items" || key == "itemsSpecial") childScope = SbScope::Item;
+				else if (key == "nodes") childScope = SbScope::Node;
 				else childScope = SbScope::Other;
 			}
 
