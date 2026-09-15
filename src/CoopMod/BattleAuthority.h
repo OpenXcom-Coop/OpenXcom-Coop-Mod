@@ -361,6 +361,17 @@ bool coopRefuseIfNotMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 /// active-side check belongs to the action-gating hooks (coopMayCommand()
 /// above), not to cycling among already-active-side candidates. Defined in
 /// connectionTCP.cpp next to isCoopBattle().
+/// W1-P13d (WAVE1-RUNBOOK.md SPEC 12, REV E.60 / owner ruling D87 = (b)):
+/// commandsUnit(u) is evaluated FIRST, so a seat-tagged unit - and, through
+/// commandsUnit's own R5-P2 mcId override, a mind-controlled unit - behaves
+/// exactly as before. A unit with NO seat tag (COOP_SEAT_NONE - every
+/// AI-run alien, civilian and HWP) is additionally selectable on the HOST
+/// (hostSim) and NEVER on a client, because the host is the executor of
+/// every seat-less unit's AI. Before this, SavedBattleGame::
+/// selectPlayerUnit()'s cycle could never land on a non-player unit, so
+/// selectNextPlayerUnit() returned 0, BattlescapeGame::think() set
+/// _endTurnRequested, handleAI() was never reached and NO enemy AI ran in
+/// any coop battle (orch43c's F251, traced against a single-player control).
 bool coopMaySelectUnit(const BattleUnit* u);
 
 /// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /

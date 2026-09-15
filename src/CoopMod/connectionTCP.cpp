@@ -2540,7 +2540,22 @@ bool coopMaySelectUnit(const BattleUnit* u)
 {
 	if (!isCoopBattle())
 		return true;
-	return coopBattleAuthority().commandsUnit(u);
+	// W1-P13d (WAVE1-RUNBOOK.md SPEC 12, REV E.60 / owner ruling D87 = (b)):
+	// a unit this machine's seat COMMANDS is selectable exactly as before -
+	// commandsUnit() first, so R5-P2's mcId override (ADDENDUM MJ-8 / R2-M4)
+	// still hands a mind-controlled unit to the CONTROLLER's seat and this
+	// predicate cannot take it away from a client.
+	if (coopBattleAuthority().commandsUnit(u))
+		return true;
+	// F251: every AI-run unit (alien, civilian, HWP) carries COOP_SEAT_NONE,
+	// so before REV E.60 the seat compare above was false for ALL of them and
+	// SavedBattleGame::selectPlayerUnit()'s cycle could never land on one -
+	// selectNextPlayerUnit() returned 0, BattlescapeGame::think() set
+	// _endTurnRequested and handleAI() was never reached, i.e. NO enemy AI ran
+	// in any coop battle. The HOST is the executor of every seat-less unit's
+	// AI (hostSim), so it may select one; a client never may.
+	return u && u->getCoopSeat() == COOP_SEAT_NONE
+		&& coopBattleAuthority().hostSim;
 }
 
 // W1-P13c (WV-D55 / D-23, E55.1): true exactly when coopMayCommand()'s new
