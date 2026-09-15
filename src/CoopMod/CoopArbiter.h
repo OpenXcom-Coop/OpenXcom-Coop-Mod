@@ -142,6 +142,16 @@ void beginHostLocalKneel(BattleUnit* actor);
 /// against. No-op outside an active coop battle.
 void beginHostLocalWalk(BattleUnit* actor, const std::vector<Position>& path);
 
+/// W1-P13d (WAVE1-RUNBOOK.md SPEC 12 / WV-D45, as amended by REV E.58 E58.1
+/// and REV E.59 E59.1): the AI-origin sibling of beginHostLocalWalk() above -
+/// BA_WALK ONLY (the AI turn verb left wave 1, D83 = (a); AI shot, grenade and
+/// psi stay out pending the shot atom). Expands the plan from the LIVE
+/// Pathfinding itself, so the vanilla call site in handleAI() stays a single
+/// unconditional call. No-op outside an active coop battle and on a client.
+/// Nothing new goes on the wire (E59.2): origin "ai" is observable only
+/// through the host's event_state.lastWalk.origin.
+void beginAiWalk(BattleUnit* actor, SavedBattleGame* save);
+
 /// Test/introspection (TestServer event_state `lastWalk`): the most recent walk
 /// this machine EMITTED (host) or APPLIED (client), as
 /// {actionId, unit, steps:[{stepIndex, from, dir, to, tuAfter, enAfter, seq}],

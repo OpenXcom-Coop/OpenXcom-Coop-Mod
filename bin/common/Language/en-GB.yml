@@ -128,6 +128,7 @@ en-GB:
   STR_COOP_INVENTORY_HOST_ONLY: "Only the host can open the inventory"
   STR_COOP_ZERO_TU_HOST_ONLY: "Only the host can expend a soldier's time units"
   STR_COOP_REACTIONS_HOST_ONLY: "Only the host can change reaction fire settings"
+  STR_COOP_LEVEL_CHANGE_HOST_ONLY: "Only the host can move a unit between levels"
   STR_COOP_LOCAL_LOAD_BLOCKED: "Saved games cannot be loaded during a co-op session"
   # coop (W1-P6, WAVE1-RUNBOOK.md ruling D6 = WV-D12): battle-entry SPECTATOR
   # notice - this seat commands no unit in this battle, so the entry auto-select

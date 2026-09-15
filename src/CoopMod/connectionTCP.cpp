@@ -4113,6 +4113,50 @@ void beginHostLocalWalk(BattleUnit* actor, const std::vector<Position>& path)
 	beginWalkChain(actor, actionId, "host", path);
 }
 
+// W1-P13d (WAVE1-RUNBOOK.md SPEC 12 / WV-D45, as amended by REV E.58 E58.1 and
+// REV E.59 E59.1): the AI-origin sibling of beginHostLocalWalk() above. The
+// host runs every seat-less unit's AI (REV E.60 / D87 = (b)); this stamps the
+// SAME coop bookkeeping the existing emit hooks read back, with origin "ai", so
+// an AI walk streams through coopOnWalkStepFinished() exactly as a host-local
+// one does. Step evs are ORIGIN-INDEPENDENT (WV-D37) and NOTHING new goes on
+// the wire (E59.2): "ai" is a host-side action-context value, observable only
+// through the host's event_state.lastWalk.origin.
+//
+// BA_WALK ONLY. The AI turn verb left wave 1 (E58.1 / D83 = (a)); AI shot,
+// grenade and psi are explicitly out (WV-D45) and need the shot atom.
+void beginAiWalk(BattleUnit* actor, SavedBattleGame* save)
+{
+	if (!isCoopBattle() || !actor || !save)
+		return;
+	if (!coopBattleAuthority().hostSim)
+		return; // a client never runs AI (SPEC 9's think guard); belt and braces
+
+	// The plan is expanded from the LIVE Pathfinding, exactly as
+	// coopInterceptWalkConfirm() does for a host-local walk - BattlescapeGame::
+	// handleAI() has just run calculate(actor, target, BAM_NORMAL) and gated on
+	// getStartDirection() != -1, so the path this reads is the one the
+	// UnitWalkBState about to be pushed will walk.
+	std::vector<CoopWalkPlanStep> steps;
+	std::vector<Position> plan;
+	if (coopWalkExpandPath(save, actor, BAM_NORMAL, steps))
+	{
+		for (const CoopWalkPlanStep& s : steps)
+			plan.push_back(s.to);
+	}
+	else
+	{
+		Log(LOG_WARNING) << "[coop-walk] AI walk for unit " << actor->getId()
+			<< " could not be expanded from the live Pathfinding - the completion "
+			   "restate will report `halted` against an EMPTY plan";
+	}
+
+	const std::uint32_t actionId = mintActionId();
+	pushActionContext(actionId, "ai"); // RB-D19
+	g_coopPendingChainActorId = actor->getId();
+	g_coopPendingChainKind = "walk";
+	beginWalkChain(actor, actionId, "ai", plan);
+}
+
 Json::Value lastWalk()
 {
 	return g_coopLastWalk;
@@ -7903,6 +7947,7 @@ const char* controlStrKey(Control c)
 	case Control::Inventory:    return "STR_COOP_INVENTORY_HOST_ONLY";
 	case Control::ZeroTu:       return "STR_COOP_ZERO_TU_HOST_ONLY";
 	case Control::HandReaction: return "STR_COOP_REACTIONS_HOST_ONLY";
+	case Control::LevelChange:  return "STR_COOP_LEVEL_CHANGE_HOST_ONLY";
 	case Control::QuickLoad:    return "STR_COOP_LOCAL_LOAD_BLOCKED";
 	}
 	return nullptr;

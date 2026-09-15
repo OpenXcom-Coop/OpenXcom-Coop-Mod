@@ -102,6 +102,12 @@ enum class Control
 	/// toggle diverges the saveBlob bucket immediately. These are the
 	/// "open item 9" fields W1-P15's audit gives a bucket home to.
 	HandReaction,
+	/// BattlescapeState::btnUnitUpClick / btnUnitDownClick ->
+	/// BattlescapeGame::moveUpDown(), which pushes a UnitWalkBState - a LOCAL
+	/// walk on a client, bypassing every coop gate (WV-D40). WV-D58 makes the
+	/// client REFUSE and routes the host's own press through the normal walk
+	/// emit path.
+	LevelChange,
 	/// The battlescape quick-load hotkey (BattlescapeState::handle) and
 	/// LoadGameState's own chokepoint. NOT battle-scoped and NOT
 	/// client-only: connectionTCP::localLoadsAllowed() forbids a local load

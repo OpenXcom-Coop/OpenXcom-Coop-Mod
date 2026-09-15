@@ -64,6 +64,7 @@
 #include "../CoopMod/CoopBattleUi.h"
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopSideTransition.h"
+#include "../CoopMod/CoopDoor.h"
 
 namespace OpenXcom
 {
@@ -429,6 +430,12 @@ void BattlescapeGame::handleAI(BattleUnit *unit)
 		}
 		if (_save->getPathfinding()->getStartDirection() != -1)
 		{
+			// W1-P13d (WV-D45, REV E.58 E58.1 / REV E.59 E59.1): ONE guarded
+			// coop call. On the co-op HOST it stamps this AI walk's action
+			// context with origin "ai" so the EXISTING per-step emit hook and
+			// the completion restate stream it, exactly as they do for a
+			// host-local walk. No-op in single player and on a client.
+			CoopArbiter::beginAiWalk(action.actor, _save);
 			statePushBack(new UnitWalkBState(this, action));
 		}
 		else if (walkToItem)
@@ -559,7 +566,14 @@ void BattlescapeGame::endTurn()
 
 	if (_triggerProcessed.tryRun())
 	{
-		if (_save->getTileEngine()->closeUfoDoors() && Mod::SLIDING_DOOR_CLOSE != -1)
+		// W1-P13d (WV-D50 / IR2-8): the SAME sub-expression-replacement shape
+		// W1-P10 already uses at UnitWalkBState.cpp and UnitTurnBState.cpp. On
+		// the co-op HOST this emits ONE `door` ev per door it actually closes,
+		// through W1-P10's applier, on actionId 0 with no `unit` - in the seq
+		// stream immediately BEFORE side_transition, which endTurn() emits
+		// further down the same function. Byte-identical vanilla count in
+		// single player.
+		if (coopCloseUfoDoors(_save->getTileEngine()) && Mod::SLIDING_DOOR_CLOSE != -1)
 		{
 			getMod()->getSoundByDepth(_save->getDepth(), Mod::SLIDING_DOOR_CLOSE)->play(); // ufo door closed
 		}
@@ -2333,6 +2347,17 @@ void BattlescapeGame::moveUpDown(BattleUnit *unit, int dir)
 		kneel(_save->getSelectedUnit());
 	}
 	_save->getPathfinding()->calculate(_currentAction.actor, _currentAction.target, _currentAction.getMoveType());
+	// W1-P13d (WV-D58 (ii)): host-origin level changes stream like any other
+	// walk. A client never reaches here (the two buttons refuse above), and if
+	// it ever did this returns true and consumes the click - WV-D40 holds
+	// either way. Same 7-parameter call as the walk-confirm arm above
+	// (CoopArbiter.h), with the movement modifiers false: a level change is a
+	// plain walk.
+	if (coopInterceptWalkConfirm(_currentAction.actor, _currentAction.target,
+		false, false, false, false, _save))
+	{
+		return;
+	}
 	statePushBack(new UnitWalkBState(this, _currentAction));
 }
 

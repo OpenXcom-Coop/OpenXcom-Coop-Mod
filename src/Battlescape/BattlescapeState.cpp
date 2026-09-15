@@ -1205,6 +1205,15 @@ void BattlescapeState::mapIn(Action *)
  */
 void BattlescapeState::btnUnitUpClick(Action *)
 {
+	// W1-P13d (WV-D58 / WV-D40): a co-op CLIENT never reaches
+	// BattlescapeGame::moveUpDown() - that pushes a UnitWalkBState, a LOCAL
+	// walk with nothing on the wire. The host falls through to vanilla and its
+	// own press streams through coopInterceptWalkConfirm() in moveUpDown().
+	if (CoopBattleUi::refuseControl(CoopBattleUi::Control::LevelChange,
+		_save->getSelectedUnit(), _save))
+	{
+		return;
+	}
 	if (playableUnitSelected() && _save->getPathfinding()->validateUpDown(_save->getSelectedUnit(), _save->getSelectedUnit()->getPosition(), Pathfinding::DIR_UP))
 	{
 		_battleGame->cancelAllActions();
@@ -1218,6 +1227,15 @@ void BattlescapeState::btnUnitUpClick(Action *)
  */
 void BattlescapeState::btnUnitDownClick(Action *)
 {
+	// W1-P13d (WV-D58 / WV-D40): a co-op CLIENT never reaches
+	// BattlescapeGame::moveUpDown() - that pushes a UnitWalkBState, a LOCAL
+	// walk with nothing on the wire. The host falls through to vanilla and its
+	// own press streams through coopInterceptWalkConfirm() in moveUpDown().
+	if (CoopBattleUi::refuseControl(CoopBattleUi::Control::LevelChange,
+		_save->getSelectedUnit(), _save))
+	{
+		return;
+	}
 	if (playableUnitSelected() && _save->getPathfinding()->validateUpDown(_save->getSelectedUnit(), _save->getSelectedUnit()->getPosition(), Pathfinding::DIR_DOWN))
 	{
 		_battleGame->cancelAllActions();
