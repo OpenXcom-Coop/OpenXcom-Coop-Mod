@@ -35,6 +35,7 @@
 #include "UnitFallBState.h"
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/CoopDoor.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -196,7 +197,7 @@ void UnitWalkBState::think()
 				}
 			}
 
-			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && _unit->getFaction() != FACTION_PLAYER && _unit->getVisible())
+			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && _unit->getFaction() != FACTION_PLAYER && coopUnitVisibleHere(_unit))
 				_parent->getMap()->getCamera()->centerOnPosition(_unit->getPosition());
 			// if the unit changed level, camera changes level with
 			_parent->getMap()->getCamera()->setViewLevel(_unit->getPosition().z);
@@ -620,7 +621,7 @@ void UnitWalkBState::setNormalWalkSpeed()
 void UnitWalkBState::playMovementSound()
 {
 	int size = _unit->getArmor()->getSize() - 1;
-	if ((!_unit->getVisible() && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)) return;
+	if ((!coopUnitVisibleHere(_unit) && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)) return;
 
 	Tile *tile = _unit->getTile();
 	int sound = -1;

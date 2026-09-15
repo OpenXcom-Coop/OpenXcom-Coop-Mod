@@ -4869,6 +4869,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_set_unit_state"
 		&& cmd != "battle_strip_unit"
 		&& cmd != "battle_end_turn_ready"
+		&& cmd != "battle_visibility_rule"
 		&& cmd != "screen_pixels")
 	{
 		return false;
@@ -5668,6 +5669,19 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		const int turnArg = req.get("turn", 0).asInt();
 		const bool readyArg = req.get("ready", false).asBool();
 		CoopEndTurn::testSendReady(turnArg, readyArg);
+		resp["ok"] = true;
+	}
+	else if (cmd == "battle_visibility_rule")
+	{
+		// TEST-ONLY (REV E.48 SPEC 13 SS.F.2 (ii) / SS.A.6, RB-D26 discipline -
+		// same family as battle_teleport_unit / battle_set_unit_state /
+		// battle_strip_unit / battle_end_turn_ready above): flips THIS machine's
+		// own-side visibility rule. Applied by the harness to EACH machine with
+		// the SAME argument, never forwarded, nothing emitted, never called from
+		// product code. coopUnitVisibleHere() is its only reader.
+		const bool on = req.get("on", true).asBool();
+		coopBattleAuthority().visibilityRuleOn = on;
+		resp["on"] = coopBattleAuthority().visibilityRuleOn.load();
 		resp["ok"] = true;
 	}
 	else if (cmd == "battle_reserve")
@@ -7104,6 +7118,10 @@ std::string TestServer::execute(const std::string& line)
 					BattlescapeState* bsForInput = bg->getBattleState();
 					resp["mouseOverIcons"] = bsForInput ? bsForInput->getMouseOverIcons() : false;
 					resp["cursorType"] = bsForInput ? (int)bsForInput->getMap()->getCursorType() : -1;
+					// W1-P14 (REV E.48 SS.F.2 (i)): the Map::draw hidden-movement gate's
+					// own value on THIS machine. TRUE => the terrain is drawn; FALSE =>
+					// the HIDDEN MOVEMENT message is blitted instead. Read-only.
+					resp["hiddenMovementShown"] = bsForInput ? bsForInput->getMap()->hiddenMovementShown() : false;
 				}
 				// R3-P2: the _txtCoopWait deny/cancel/desync banner's current
 				// text (empty = hidden) - test introspection only, proves

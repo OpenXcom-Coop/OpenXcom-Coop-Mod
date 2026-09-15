@@ -54,6 +54,7 @@
 #include "../fmath.h"
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopGhost.h"
+#include "../CoopMod/BattleAuthority.h"
 
 
 /*
@@ -358,7 +359,7 @@ void Map::draw()
 		}
 	}
 
-	if ((_save->getSelectedUnit() && _save->getSelectedUnit()->getVisible()) || _unitDying || _save->getSide() == FACTION_PLAYER || _save->getDebugMode() || _projectileInFOV || _explosionInFOV)
+	if (hiddenMovementShown())
 	{
 		drawTerrain(this);
 	}
@@ -366,6 +367,17 @@ void Map::draw()
 	{
 		_message->blit(this->getSurface());
 	}
+}
+
+/**
+ * W1-P14 (REV E.48 SS.F.2 (i) / WV-D11 / SS2.W9 / audit row 1): the predicate
+ * moved out of draw() VERBATIM apart from the two W1-P14 edits, so a test
+ * probe can read the same value draw() acts on. Note the polarity: TRUE means
+ * the terrain is drawn and the HIDDEN MOVEMENT message is NOT shown.
+ */
+bool Map::hiddenMovementShown() const
+{
+	return (_save->getSelectedUnit() && coopUnitVisibleHere(_save->getSelectedUnit())) || _unitDying || coopSideIsMine(_save) || _save->getDebugMode() || _projectileInFOV || _explosionInFOV;
 }
 
 void Map::refreshAIProgress(int progress)
@@ -531,7 +543,7 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 		return;
 	}
 
-	if (!(bu->getVisible() || _save->getDebugMode()))
+	if (!(coopUnitVisibleHere(bu) || _save->getDebugMode()))
 	{
 		return;
 	}
@@ -969,14 +981,14 @@ void Map::drawTerrain(Surface *surface)
 						{
 							if (_cursorType != CT_AIM)
 							{
-								if (unit && (unit->getVisible() || _save->getDebugMode()))
+								if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 									frameNumber = halfAnimFrameRest; // yellow box
 								else
 									frameNumber = 0; // red box
 							}
 							else
 							{
-								if (unit && (unit->getVisible() || _save->getDebugMode()))
+								if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 									frameNumber = 7 + halfAnimFrame; // yellow animated crosshairs
 								else
 									frameNumber = 6; // red static crosshairs
@@ -1340,14 +1352,14 @@ void Map::drawTerrain(Surface *surface)
 						{
 							if (_cursorType != CT_AIM)
 							{
-								if (unit && (unit->getVisible() || _save->getDebugMode()))
+								if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 									frameNumber = 3 + halfAnimFrameRest; // yellow box
 								else
 									frameNumber = 3; // red box
 							}
 							else
 							{
-								if (unit && (unit->getVisible() || _save->getDebugMode()))
+								if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 									frameNumber = 7 + halfAnimFrame; // yellow animated crosshairs
 								else
 									frameNumber = 6; // red static crosshairs
@@ -1405,7 +1417,7 @@ void Map::drawTerrain(Surface *surface)
 										else
 										{
 											// recalculate
-											if (unit && (unit->getVisible() || _save->getDebugMode()))
+											if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 											{
 												hasLOS = _save->getTileEngine()->visible(action->actor, tile);
 											}

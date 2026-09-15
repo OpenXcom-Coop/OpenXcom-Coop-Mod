@@ -1196,7 +1196,7 @@ void BattlescapeGame::setupCursor()
  */
 bool BattlescapeGame::playableUnitSelected() const
 {
-	return _save->getSelectedUnit() != 0 && (_save->getSide() == FACTION_PLAYER || _save->getDebugMode());
+	return _save->getSelectedUnit() != 0 && (coopSideIsMine(_save) || _save->getDebugMode());
 }
 
 /**
@@ -2066,11 +2066,11 @@ void BattlescapeGame::primaryAction(Position pos)
 	{
 		_currentAction.actor = _save->getSelectedUnit();
 		BattleUnit *unit = _save->selectUnit(pos);
-		if (unit && unit == _save->getSelectedUnit() && (unit->getVisible() || _debugPlay))
+		if (unit && unit == _save->getSelectedUnit() && (coopUnitVisibleHere(unit) || _debugPlay))
 		{
 			playUnitResponseSound(unit, 3); // "annoyed" sound
 		}
-		if (unit && unit != _save->getSelectedUnit() && (unit->getVisible() || _debugPlay))
+		if (unit && unit != _save->getSelectedUnit() && (coopUnitVisibleHere(unit) || _debugPlay))
 		{
 		//  -= select unit =-
 			if (unit->getFaction() == _save->getSide())

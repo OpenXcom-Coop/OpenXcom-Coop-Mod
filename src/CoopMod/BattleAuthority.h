@@ -212,6 +212,15 @@ struct BattleAuthority
 	/// first tally of a side). Reset to -1 by resetBattleAuthority().
 	std::atomic<int> activeSeat{-1};
 
+	/// W1-P14 (REV E.48 SS.F.2 (ii) / WV-D47 / SS2.W9): the ON/OFF switch for the
+	/// own-side visibility rule, behind the test-only `battle_visibility_rule`
+	/// lever. coopUnitVisibleHere() is its ONLY reader - it exists so a test can
+	/// prove the rule is hash-free by comparing every bucket with it ON and OFF.
+	/// Default TRUE (the rule is live in a real game); reset to TRUE by
+	/// resetBattleAuthority(). std::atomic for the same cross-thread reason as
+	/// activeSeat above.
+	std::atomic<bool> visibilityRuleOn{true};
+
 	/// W1-P13c (REV E.57 / D78 = (a)): the ONE pending tally. A
 	/// bt_end_turn_tally whose `turn` is AHEAD of this machine's last APPLIED
 	/// side_transition counter (the unordered battle lane beating the
@@ -334,6 +343,42 @@ bool isCoopBattle();
 /// below, which only needs the commandsUnit half (see coopMaySelectUnit()).
 /// Defined in connectionTCP.cpp next to isCoopBattle().
 bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s);
+
+/// W1-P14 (SPEC 13 (d) / REV E.1 (IR3-5) / audit D-4 second shape / WV-D11 /
+/// WV-D47): PRESENTATION-ONLY read helper consulted at the named call sites in
+/// SPEC 13's switched set (Map/MiniMapView/BattlescapeGame/BattlescapeState/
+/// UnitWalkBState) in place of a bare BattleUnit::getVisible() read. Self-
+/// guarded outside an active coop battle (falls straight through to
+/// getVisible(), see connectionTCP.cpp for why that makes single player and
+/// classic/SHARED co-op byte-identical). Inside a coop battle, ORs the
+/// vanilla accessor with "this machine's seat commands @a u's faction" so a
+/// gm2/gm3/gm4 seat commanding a non-player faction sees its own units even
+/// though getVisible() alone would be false for them. MUST NEVER be called
+/// from a sim, serializer or hash path - it is a presentation gate only, it
+/// never writes BattleUnit::_visible and never feeds a hash bucket.
+bool coopUnitVisibleHere(const BattleUnit* u);
+
+/// W1-P14 (SPEC 13 (d) / REV E.1 (IR3-5) / audit D-4 second shape / WV-D11 /
+/// WV-D47, FINDING B-3 / D-6): the side-relative replacement for
+/// `getOriginalFaction() == FACTION_HOSTILE` at BattlescapeState::
+/// updateSoldierInfo's spotted-enemy indicator. Routing that call site's
+/// visibility read through coopUnitVisibleHere() alone, without also routing
+/// this faction test, would make a gm2 client list its OWN aliens as spotted
+/// enemies - so the two changes must land together (this commit). Self-
+/// guarded the same way as coopUnitVisibleHere(): outside an active coop
+/// battle it is the vanilla FACTION_HOSTILE test. PRESENTATION-ONLY, never a
+/// sim/serializer/hash read.
+bool coopUnitIsSpottedEnemyHere(const BattleUnit* u);
+
+/// W1-P14 (SPEC 13 (d) / REV E.1 (IR3-5) / audit D-4 second shape / WV-D11 /
+/// WV-D47): the side-relative replacement for `getSide() == FACTION_PLAYER`
+/// at the WV-D11 gate sites (playableUnitSelected(), allowButtons(), and
+/// Map::hiddenMovementShown()'s own faction term). Self-guarded like
+/// coopUnitVisibleHere(): outside an active coop battle it is the vanilla
+/// FACTION_PLAYER test; inside one it defers to
+/// coopBattleAuthority().mySideActive(s). PRESENTATION-ONLY, never a
+/// sim/serializer/hash read.
+bool coopSideIsMine(const SavedBattleGame* s);
 
 /// W1-P13c (WV-D55 / D-23, mechanism E55.1): returns true when the caller
 /// must refuse - i.e. !coopMayCommand(u, s) - and, ONLY when the failing

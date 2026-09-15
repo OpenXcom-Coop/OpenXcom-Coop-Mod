@@ -125,6 +125,10 @@ public:
 	void think() override;
 	/// Draws the surface.
 	void draw() override;
+	/// W1-P14 (REV E.48 SS.F.2 (i)): Map::draw's hidden-movement gate, extracted
+	/// verbatim so a test-only probe can read the same predicate draw() uses.
+	/// TRUE => drawTerrain(); FALSE => the HIDDEN MOVEMENT message.
+	bool hiddenMovementShown() const;
 	void refreshAIProgress(int progress);
 	/// Sets the palette.
 	void setPalette(const SDL_Color *colors, int firstcolor = 0, int ncolors = 256) override;

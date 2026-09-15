@@ -2397,6 +2397,9 @@ void resetBattleAuthority()
 	// W1-P13c (REV E.1 S-9 / D-23): the traditional baton is per-battle state
 	// too - a new battle must never inherit the previous one's holder.
 	a.activeSeat = -1;
+	// W1-P14: the visibility rule switch is per-battle test state too - a new
+	// battle must never inherit the previous one's.
+	a.visibilityRuleOn = true;
 	// W1-P13c (REV E.57 / D78 = (a)): the buffered pending tally is per-battle
 	// state too - a new battle must never inherit the previous one's.
 	a.pendingTallyTurn = -1;
@@ -2534,6 +2537,58 @@ bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s)
 		&& coopBattleAuthority().mySideActive(s)
 		&& (coopBattleAuthority().turnMode.load() != CoopTurnMode::Traditional
 			|| coopBattleAuthority().activeSeat.load() == coopBattleAuthority().localSeat.load());
+}
+
+// W1-P14 (SPEC 13 (d) / REV E.1 (IR3-5) / audit D-4 second shape / WV-D11 /
+// WV-D47): the three PRESENTATION-ONLY read helpers. Safety argument
+// (orch44 F300): BattleUnit::getVisible() (BattleUnit.cpp:3361-3369) already
+// short-circuits true for every FACTION_PLAYER unit and every always-visible
+// armor. So in classic/SHARED co-op, where factionOf(localSeat) is
+// FACTION_PLAYER, the added term below is true exactly where the accessor is
+// already true and false exactly where it is already false - the helper is a
+// provable NO-OP. The same holds on the gm2 HOST (seat 0 is FACTION_PLAYER).
+// Only a machine whose seat commands a non-player faction ever sees a
+// different value. coopSideIsMine() is a no-op the same way: factionOf(-1)
+// and factionOf(<a player seat>) both return FACTION_PLAYER.
+bool coopUnitVisibleHere(const BattleUnit* u)
+{
+	if (!u)
+		return false;
+	// SP and every non-co-op battle fall straight through to the vanilla
+	// accessor, so single player is byte-identical.
+	if (!isCoopBattle())
+		return u->getVisible();
+	// REV E.48 SS.F.2 (ii): the ONE reader of the rule switch.
+	if (!coopBattleAuthority().visibilityRuleOn.load())
+		return u->getVisible();
+	return u->getVisible()
+		|| (int)u->getFaction() == coopBattleAuthority().factionOf(
+			coopBattleAuthority().localSeat.load());
+}
+
+// FINDING B-3 / D-6: routing updateSoldierInfo's visibility read alone would
+// make a gm2 client list its OWN aliens as spotted enemies, so this faction
+// test is the side-relative partner that must switch in the same commit.
+bool coopUnitIsSpottedEnemyHere(const BattleUnit* u)
+{
+	if (!u)
+		return false;
+	if (!isCoopBattle())
+		return u->getOriginalFaction() == FACTION_HOSTILE;
+	return (int)u->getOriginalFaction() != coopBattleAuthority().factionOf(
+		coopBattleAuthority().localSeat.load());
+}
+
+// WV-D11: the side-relative replacement for getSide() == FACTION_PLAYER at
+// the presentation gate sites (playableUnitSelected, allowButtons,
+// Map::hiddenMovementShown).
+bool coopSideIsMine(const SavedBattleGame* s)
+{
+	if (!s)
+		return false;
+	if (!isCoopBattle())
+		return s->getSide() == FACTION_PLAYER;
+	return coopBattleAuthority().mySideActive(s);
 }
 
 bool coopMaySelectUnit(const BattleUnit* u)

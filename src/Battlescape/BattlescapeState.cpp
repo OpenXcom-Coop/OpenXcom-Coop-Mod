@@ -1173,7 +1173,7 @@ void BattlescapeState::mapClick(Action *action)
 		{
 			_battleGame->cancelCurrentAction();
 			BattleUnit *bu = _save->selectUnit(pos);
-			if (bu && (bu->getVisible() || _save->getDebugMode()))
+			if (bu && (coopUnitVisibleHere(bu) || _save->getDebugMode()))
 			{
 				if (_save->getDebugMode() && _game->isCtrlPressed())
 				{
@@ -2514,7 +2514,7 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 	{
 		if (j >= VISIBLE_MAX) break; // loop finished
 		// check if they are hostile and visible (by any friendly unit)
-		if (bu->getOriginalFaction() == FACTION_HOSTILE && !bu->isOut() && bu->getVisible())
+		if (coopUnitIsSpottedEnemyHere(bu) && !bu->isOut() && coopUnitVisibleHere(bu))
 		{
 			bool alreadyShown = false;
 			// check if they are not already shown (e.g. because we see them directly)
@@ -4096,7 +4096,7 @@ bool BattlescapeState::allowButtons(bool allowSaving) const
 		return false;
 	}
 
-	return ((allowSaving || _save->getSide() == FACTION_PLAYER || _save->getDebugMode())
+	return ((allowSaving || coopSideIsMine(_save) || _save->getDebugMode())
 		&& (_battleGame->getPanicHandled() || _firstInit )
 		&& (allowSaving || !_battleGame->isBusy() || _firstInit)
 		&& (_map->getProjectile() == 0));

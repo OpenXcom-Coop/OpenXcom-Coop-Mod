@@ -35,6 +35,7 @@
 #include "../Engine/Options.h"
 #include "../Engine/Screen.h"
 #include "../CoopMod/CoopFog.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -119,7 +120,7 @@ void MiniMapView::draw()
 					}
 				}
 				// alive units
-				if (t->getUnit() && (t->getUnit()->getVisible() || _battleGame->getBughuntMode() || _battleGame->getDebugMode()))
+				if (t->getUnit() && (coopUnitVisibleHere(t->getUnit()) || _battleGame->getBughuntMode() || _battleGame->getDebugMode()))
 				{
 					int frame = t->getUnit()->getMiniMapSpriteIndex();
 					int size = t->getUnit()->getArmor()->getSize();
