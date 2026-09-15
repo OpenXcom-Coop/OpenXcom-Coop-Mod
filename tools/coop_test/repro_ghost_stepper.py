@@ -175,7 +175,7 @@ def do_kneel(host, client, actor_id):
 
 # ----- roof fixture (SPEC RW-S4 REV E.47) ---------------------------------
 
-def bring_up_roof_battle(seat_count, tag):
+def bring_up_roof_battle(seat_count, tag, pre_ok=None):
     """Boot the two-instance skirmish on the Lightning, corner-place hostiles/
     neutrals far away (WV-D88) so the roof stays contact-free, and return
     (host, client, client_ids, host_ids, door).
@@ -183,7 +183,13 @@ def bring_up_roof_battle(seat_count, tag):
     `seat_count` (R1 F89): the base soldier pool is 6; `seat_count` stamps N
     of them to the CLIENT (coop seat 1), leaving the rest on the HOST (coop
     seat 0) - session.drive_to_battlescape's own seat loop stops the moment
-    a seat attempt fails, so seat_count directly controls the split."""
+    a seat attempt fails, so seat_count directly controls the split.
+
+    `pre_ok` (SPEC 12 REV E.61 E61.1, additive): an optional `callable(host)`
+    forwarded unchanged to `session.drive_to_battlescape`'s own `pre_ok`
+    window (immediately BEFORE `newbattle_ok`, AFTER seating - the window
+    `session.drive_to_battlescape`'s own docstring documents). Every existing
+    caller is unaffected: default None, nothing runs."""
     port = str(48448)
     host_dir = make_user_dir(f"repro_ghost_stepper_host_{tag}")
     client_dir = make_user_dir(f"repro_ghost_stepper_client_{tag}")
@@ -194,7 +200,8 @@ def bring_up_roof_battle(seat_count, tag):
         bring_up_lobby(host, client, port)
         session.drive_to_battlescape(
             host, client, seated, seat_count=seat_count,
-            pre_seat=lambda h: h.ok({"cmd": "newbattle_craft", "type": "STR_LIGHTNING"}))
+            pre_seat=lambda h: h.ok({"cmd": "newbattle_craft", "type": "STR_LIGHTNING"}),
+            pre_ok=pre_ok)
 
         door, mapX, mapY = session.lightning_door(host)
 

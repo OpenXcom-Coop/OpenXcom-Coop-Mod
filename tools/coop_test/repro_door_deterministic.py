@@ -104,6 +104,14 @@ def bring_up():
     W.bring_up_lobby(host, client, port)
     seated = {}
     session.drive_to_battlescape(host, client, seated, mission=MISSION, pre_seat=_pin)
+    # REV E.48 SS.E.2 (SPEC 12): phase D is re-pointed at a REAL end-of-turn,
+    # which needs the alien side inert so the boundary crosses deterministically
+    # (REV E.48 SS.B.2's AI-neutral pin, the one mechanism every SPEC 9..15
+    # boundary-crossing test uses).
+    pinned = session.pin_ai_neutral(host, client, tag="door_det")
+    assert len(pinned) > 0, (
+        f"pin_ai_neutral pinned ZERO NONE-seat non-player units on this "
+        f"CLASSIC {MISSION} boot - the premise is unexercised (M9a-3)")
     return host, client
 
 
@@ -684,10 +692,47 @@ def phase_walk_through_normal_door(host, client, tag, exclude_door_keys, used_ac
 
 
 def phase_boundary_close(host, client, tag):
-    """Phase D, the MUTATING half: snapshot every OPEN UFO door the host
-    reports (never a hard-coded key - which doors are open is measured), close
-    them, and prove each of THOSE doors shut."""
-    print(f"\n== {tag}: boundary close (mutating) ==")
+    """Phase D, the MUTATING half (REV E.48 SS.E.2, SPEC 6f (b)'s follow-up,
+    EXECUTED: "when W1-P13 wires coopCloseUfoDoors() into endTurn, phase D is
+    re-pointed at a real end-of-turn and this note is retired"). Re-pointed
+    from the `battle_close_ufo_doors` TEST LEVER to a REAL end-of-turn:
+    `BattlescapeGame::endTurn()` runs `coopCloseUfoDoors()` unconditionally on
+    every call (guarded only by an idempotency latch `_triggerProcessed`, not
+    by which side is being entered - `BattlescapeGame.cpp:576`), so the
+    F236/D66=(a) press pair (the same pair SPEC 12's classic fixtures use,
+    since `bring_up()` now seats the client so `needed` is 2) already crosses
+    this boundary on the FIRST transition. Snapshot every OPEN UFO door the
+    host reports (never a hard-coded key - which doors are open is measured),
+    press through the boundary, and prove each of THOSE doors shut.
+
+    RE-POINT (REV E.48 SS.A.10): the old STOP-IF "the lever reports ok but
+    closed=0" cannot fire any more - there is no lever reply for a real
+    end-of-turn press - so it becomes "no door ev reached the client within
+    30s" (`wait_door_fired`, already present) plus the door-state assertion
+    already below (both machines now, not just the host).
+
+    WV-D77 (instrumented on the first surprise, captured): the builder brief
+    assumed the F236/D66=(a) press pair (client arms, wait for the host's
+    rendered "END TURN 1/2", THEN the host presses) unconditionally, "because
+    bring_up() seats the client so needed is 2" - MEASURED FALSE for this
+    file's own fixture. `bring_up()`'s craft (Lightning, `soldiers: 12`) only
+    carries SIX soldiers in THIS mission/race combination
+    (STR_TERROR_MISSION / STR_FLOATER), all six seated to COOP_SEAT_1 by
+    `session.drive_to_battlescape`'s seat loop (`seat_count=8` default,
+    stops the moment `newbattle_seat_soldier` fails) - a direct diagnostic
+    boot of this exact fixture showed `seat0 (host) live player units: []`,
+    `seat1 (client) live player units: [8, 9, 10, 11, 12, 13]`. This is
+    consistent with the file's OWN pre-existing design: every actor in every
+    phase (A/B/C/F, unchanged by this commit) is already drawn exclusively
+    from `session.seat_units(host)` (= seat 1) - there never was a seat-0
+    soldier for any phase to use. With ZERO live seat-0 units, `needed` is 1
+    (REV E.48 SS.C.4's LIVE-seat definition), so the CLIENT's OWN press alone
+    completes readiness and the boundary transitions immediately - a host
+    press for a phantom "END TURN 1/2" that this build (correctly) never
+    paints timed out. The press below is therefore FUNCTIONAL (measures
+    which seats are actually live, never hard-codes needed==2) rather than
+    reusing SPEC 12's own classic-fixture assumption verbatim."""
+    print(f"\n== {tag}: boundary close (mutating, real end-of-turn) ==")
     open_before = {(d["x"], d["y"], d["z"], d["part"]): d
                    for d in session.find_doors(host) if d["isUfoDoorOpen"]}
     assert open_before, (
@@ -695,26 +740,55 @@ def phase_boundary_close(host, client, tag):
         "phase B's own assertions left one open - something closed it in between")
     census_before = session.door_census(host)
     before_emitted = session.event_state(host)["coopDoorEvsEmitted"]
+    before_seq = session.event_state(host)["lastSeqEmitted"]
+    side0 = session.battle_state(host)["side"]
 
-    r = host.cmd({"cmd": "battle_close_ufo_doors"})
-    assert r.get("ok"), f"{tag}: battle_close_ufo_doors failed: {r}"
-    closed = r.get("closed", 0)
-    assert closed > 0, (
-        f"{tag}: STOP-IF - the lever reports ok but closed={closed} while "
-        f"{len(open_before)} UFO door(s) were open: {sorted(open_before)}")
+    # ---- the real end-of-turn button press(es), REPLACING
+    # battle_close_ufo_doors: seat 0 (host) is measured live or not FIRST
+    # (REV E.48 SS.C.4), never assumed - the client always arms through its
+    # own real button; the host additionally presses ONLY when it holds a
+    # live seat (the F236/D66=(a) pair), since a host press with no live
+    # seat would never be counted toward `needed` in the first place. ----
+    units0 = session.battle_state(host)["units"]
+    host_live = [u for u in units0 if u.get("coop") == 0
+                and u.get("faction") == session.FACTION_PLAYER and not u.get("isOut")]
+    client.ok({"cmd": "battle_action", "action": "end_turn_button"})
+    if host_live:
+        def _host_shows_1_of_2():
+            return True if session.battle_state(host).get("coopEndTurnText") == "END TURN 1/2" else None
+        host.wait_for(f"{tag}: host paints END TURN 1/2 after the client's arm",
+                      _host_shows_1_of_2, timeout=20)
+        host.ok({"cmd": "battle_action", "action": "end_turn_button"})
+    else:
+        print(f"[{tag}] host holds no live seat-0 unit (measured, not "
+              f"assumed) - needed==1, the client's own press alone crosses "
+              "the boundary")
 
+    # ---- drive the host through the boundary ----
     if not wait_door_fired(host, client, before_emitted):
         dump_record(tag, host, None, None, None, next(iter(open_before)), True)
         raise AssertionError(
-            f"{tag}: STOP-IF - closed={closed} but no door ev reached the client "
-            "within 30s")
+            f"{tag}: STOP-IF - no door ev reached the client within 30s "
+            f"(RE-POINTED from the old lever's 'closed=0' STOP-IF, REV E.48 "
+            "SS.E.2 - there is no lever reply for a real end-of-turn press)")
+
+    def _side_changed():
+        return True if session.battle_state(host).get("side") != side0 else None
+    host.wait_for(f"{tag}: host crosses the side boundary", _side_changed, timeout=30)
 
     after_by_key = {k: session.door_lookup(host, k) for k in open_before}
     still_open = {k: v for k, v in after_by_key.items()
                   if not v or v.get("isUfoDoorOpen") is not False}
     assert not still_open, (
         f"{tag}: STOP-IF - {len(still_open)} previously-open UFO door(s) did not "
-        f"read isUfoDoorOpen==False after the close: {still_open}")
+        f"read isUfoDoorOpen==False on the HOST after the close: {still_open}")
+    after_by_key_c = {k: session.door_lookup(client, k) for k in open_before}
+    still_open_c = {k: v for k, v in after_by_key_c.items()
+                    if not v or v.get("isUfoDoorOpen") is not False}
+    assert not still_open_c, (
+        f"{tag}: STOP-IF - {len(still_open_c)} previously-open UFO door(s) did "
+        f"not read isUfoDoorOpen==False on the CLIENT after the close: "
+        f"{still_open_c}")
 
     census_after = session.door_census(host)
     assert census_after != census_before, (
@@ -725,11 +799,39 @@ def phase_boundary_close(host, client, tag):
         f"{tag}: STOP-IF - coopDoorEvsEmitted moved but no `door`-kind ev is in "
         "the actionId-0 stream")
 
+    # ---- WV-D50 / SPEC 12 (i)'s not-yet-asserted STOP-IF, ADDED: every
+    # `door` ev precedes EVERY `side_transition` ev in seq order, and there is
+    # exactly one `door` ev per previously-open door. Boundary `door` evs ride
+    # actionId 0 with no `unit`. ----
+    boundary_evs = [e for e in session.event_log(client, tail=256) if e["seq"] > before_seq]
+    triples = [(e["seq"], e["kind"], e["actionId"]) for e in boundary_evs]
+    print(f"[{tag}] boundary window (client event_log, seq>{before_seq}): {triples}")
+    client_door_evs = [e for e in boundary_evs if e["kind"] == "door" and e["actionId"] == 0]
+    side_transition_evs = [e for e in boundary_evs if e["kind"] == "side_transition"]
+    assert client_door_evs, (
+        f"{tag}: STOP-IF - no `door` ev (actionId 0) in the client's boundary "
+        f"window: {triples}")
+    assert side_transition_evs, (
+        f"{tag}: STOP-IF - no `side_transition` ev in the client's boundary "
+        f"window: {triples}")
+    assert len(client_door_evs) == len(open_before), (
+        f"{tag}: STOP-IF - expected exactly one `door` ev per previously-open "
+        f"door ({len(open_before)}), got {len(client_door_evs)}: {client_door_evs}")
+    max_door_seq = max(e["seq"] for e in client_door_evs)
+    min_side_transition_seq = min(e["seq"] for e in side_transition_evs)
+    assert max_door_seq < min_side_transition_seq, (
+        f"{tag}: STOP-IF - the boundary `door` ev(s) do NOT all precede every "
+        f"`side_transition` ev in seq order (WV-D50) - max door seq "
+        f"{max_door_seq} >= min side_transition seq {min_side_transition_seq}: "
+        f"{triples}")
+
     session.assert_door_parity(host, client, what=f"{tag} census")
     assert_hash_clean(host, client, full=True, what=f"{tag} after boundary close")
     after_emitted = session.event_state(host)["coopDoorEvsEmitted"]
-    print(f"[{tag}] closed={closed} previously-open UFO door(s) "
-          f"{sorted(open_before)}; coopDoorEvsEmitted {before_emitted} -> {after_emitted}")
+    print(f"[{tag}] real end-of-turn closed {len(open_before)} previously-open "
+          f"UFO door(s) {sorted(open_before)}; coopDoorEvsEmitted {before_emitted} "
+          f"-> {after_emitted}; door ev(s) all precede side_transition (max door "
+          f"seq {max_door_seq} < min side_transition seq {min_side_transition_seq})")
     return census_after, after_emitted
 
 
