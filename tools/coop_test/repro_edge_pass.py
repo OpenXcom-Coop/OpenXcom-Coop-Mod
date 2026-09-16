@@ -10,10 +10,14 @@ each using a fresh seat-1 actor teleported to the baked roof lane
            kneeled - the kneeled leg is the non-vacuous one: the host spends
            the mandatory stand-up TU before the lever aborts the first step,
            so `final` has something real to carry.
-  PHASE 3  a zero-step SPOT: an actor mid-lane, facing the map centre
-           (WV-D94), turns toward a hostile teleported 3 tiles directly
-           behind it and halts on contact before executing any step
-           (haltStep == 0).
+  PHASE 3  a zero-step SPOT: an actor placed at the lane MIDDLE tile,
+           KEEPING its own pre-teleport spawn facing F (read at runtime,
+           never hardcoded), is ordered 1 tile back-left - a move whose
+           first-step turn sweeps a single-tile hostile staged 2 tiles to
+           the actor's left - and halts on contact before executing any
+           step (haltStep == 0). Replaces cycle 1's "face the map centre"
+           construction, which placed the hostile off the map edge
+           (WV-D77).
   PHASE 4  an unaffordable UFO-door open (the zero-tick right-click):
            tu=3 (door cost - 1) refuses, tu=5 (door cost + 1) opens - the
            non-vacuity control.
@@ -22,11 +26,12 @@ PINNED R1 VALUES (measured on this tip; see each phase for where they are
 used): roof-lane upright per-step cost 4 TU; kneeled first-step cost 12 TU
 (mandatory stand-up 8 + step 4); a 3-step lane plan at tu=7 executes exactly
 1 step then halts no_tu; the LIGHTNING UFO-door open cost is 4 TU. PHASE 3's
-own "facing the map centre" direction is COMPUTED, not pinned to EAST - the
-craft's absolute map placement (unlike its own door-relative roof geometry)
-varies per boot (WV-D77 traced: door=(12,25) and door=(12,5) on a 40x40 map
-across two boots, giving different facings), so the phase uses whichever of
-the 8 directions the geometry actually produces.
+own directions (left/back/backleft) are all relative to the actor's own
+COMPUTED spawn facing F, read at runtime via `unit_of(host, actor)
+["direction"]` before any teleport - never hardcoded - since
+bring_up_roof_battle does not rotate soldiers, F is the craft template's own
+soldier-slot facing rather than anything derived from the map's absolute
+placement.
 
 There is no exit-3 SKIP and no retry/reroll of any kind (REV E.48 SS.A.2 /
 SS.A.8, WV-D100): a phase that cannot be constructed on the pinned values is
@@ -35,7 +40,6 @@ a RED (exit 2) naming the failed step.
 Run:  python tools/coop_test/repro_edge_pass.py
 """
 
-import math
 import os
 import sys
 import time
@@ -81,14 +85,10 @@ def not_frozen(gc):
     return battle_state(gc)["authority"]["desyncFrozen"] is False
 
 
-def dir_toward(frm, to):
-    """OpenXcom facing (0 = North, clockwise) from tile @a frm to tile @a to
-    (repro_atom_spot.py's own dir_toward, verbatim - the convention matches
-    session.DIR_DX/DIR_DY: pure +x gives dir 2/EAST)."""
-    dx, dy = to[0] - frm[0], to[1] - frm[1]
-    if dx == 0 and dy == 0:
-        return 0
-    return int(round(math.atan2(dx, -dy) / (math.pi / 4))) % 8
+def off(pos, d, n=1):
+    """Tile @a pos offset @a n steps in OpenXcom facing @a d (session.DIR_DX/
+    DIR_DY convention)."""
+    return (pos[0] + session.DIR_DX[d] * n, pos[1] + session.DIR_DY[d] * n, pos[2])
 
 
 def in_sector(direction, dX, dY):
@@ -289,40 +289,38 @@ def phase2_zero_step_walk(host, client, door, upright_actor, kneeled_actor):
 # ----- PHASE 3 --------------------------------------------------------------
 
 def phase3_zero_step_spot(host, client, actor_id, door):
-    print("\n== PHASE 3: zero-step SPOT (teleport-behind, facing the map centre) ==")
-    _, mapX, mapY = session.lightning_door(host)
-    actor_pos = (door["x"] - 4, door["y"] + GS.LANE_DY, door["z"] + GS.ROOF_DZ)
-    facing = dir_toward(actor_pos, (mapX / 2.0, mapY / 2.0))
-    # WV-D77 traced: the craft's map PLACEMENT (not its own door-relative
-    # geometry) varies per boot - two boots gave door=(12,25) and door=(12,5)
-    # on a 40x40 map, neither within the narrow y-band that rounds to dir=2 -
-    # so this is computed and used AS COMPUTED (any of the 8 directions),
-    # never asserted against R1's own single measured value.
-    opposite = (facing + 4) % 8
+    print("\n== PHASE 3: zero-step SPOT (lane-middle spot, back-left turn sweeps a "
+          "left-staged hostile) ==")
 
+    # 1. the actor's OWN pre-teleport spawn facing - read BEFORE any move
+    # (bring_up_roof_battle does not rotate soldiers), never hardcoded.
+    F = unit_of(host, actor_id)["direction"]
+    left = (F + 6) % 8
+    back = (F + 4) % 8
+    backleft = (F + 5) % 8
+
+    # 2. teleport to the lane MIDDLE tile, KEEPING facing F.
+    spot = (door["x"] + GS.LANE_DX_START + 3, door["y"] + GS.LANE_DY, door["z"] + GS.ROOF_DZ)
     session.place_deterministic(
         host, client,
         [{"lever": "battle_teleport_unit", "unit": actor_id,
-          "x": actor_pos[0], "y": actor_pos[1], "z": actor_pos[2], "dir": facing}],
-        what="PHASE 3 actor placement")
+          "x": spot[0], "y": spot[1], "z": spot[2], "dir": F}],
+        what="PHASE 3 soldier roof spot")
 
-    behind = (actor_pos[0] + 3 * session.DIR_DX[opposite],
-              actor_pos[1] + 3 * session.DIR_DY[opposite],
-              actor_pos[2])
-    assert session._tile_standable(host, behind), (
-        f"PHASE 3: FIXTURE PREMISE BROKE: the behind tile {behind} (facing={facing}) is "
-        "not standable")
-
+    # 3. a single-tile hostile, staged 2 tiles to the actor's LEFT, facing
+    # AWAY from the actor (left).
     st = battle_state(host)
     hostiles = sorted((u for u in st["units"]
-                        if u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut")),
+                        if u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut")
+                        and u.get("armorSize", 1) == 1),
                        key=lambda u: u["id"])
-    assert hostiles, "PHASE 3: FIXTURE PREMISE BROKE: no living hostile to stage"
+    assert hostiles, "PHASE 3: FIXTURE PREMISE BROKE: no living single-tile hostile to stage"
     alien_id = hostiles[0]["id"]
+    enemy_tile = off(spot, left, 2)
     session.place_deterministic(
         host, client,
         [{"lever": "battle_teleport_unit", "unit": alien_id,
-          "x": behind[0], "y": behind[1], "z": behind[2], "dir": opposite}],
+          "x": enemy_tile[0], "y": enemy_tile[1], "z": enemy_tile[2], "dir": left}],
         what="PHASE 3 hostile placement")
     for gc, tag in ((host, "host"), (client, "client")):
         r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": alien_id,
@@ -334,36 +332,33 @@ def phase3_zero_step_spot(host, client, actor_id, door):
     # the commanded coordinates.
     au = unit_of(host, actor_id)
     hu = unit_of(host, alien_id)
-    assert (au["x"], au["y"], au["z"]) == actor_pos and au["direction"] == facing, (
+    assert (au["x"], au["y"], au["z"]) == spot and au["direction"] == F, (
         f"PHASE 3: FIXTURE PREMISE BROKE: actor {actor_id} reads back at "
-        f"{(au['x'], au['y'], au['z'])} dir={au['direction']}, expected {actor_pos} dir={facing}")
-    assert (hu["x"], hu["y"], hu["z"]) == behind, (
+        f"{(au['x'], au['y'], au['z'])} dir={au['direction']}, expected {spot} dir={F}")
+    assert (hu["x"], hu["y"], hu["z"]) == enemy_tile, (
         f"PHASE 3: FIXTURE PREMISE BROKE: hostile {alien_id} reads back at "
-        f"{(hu['x'], hu['y'], hu['z'])}, expected {behind}")
+        f"{(hu['x'], hu['y'], hu['z'])}, expected {enemy_tile}")
 
+    # 4. premises, BEFORE the move.
     for gc, tag in ((host, "host"), (client, "client")):
         spotted = unit_of(gc, actor_id).get("spottedThisTurn")
-        assert not spotted, (
-            f"PHASE 3: FIXTURE PREMISE BROKE: actor {actor_id} already has a "
-            f"spotted-this-turn set on {tag}: {spotted}")
-
+        assert spotted == [], (
+            f"PHASE 3: FIXTURE PREMISE BROKE: actor {actor_id} spottedThisTurn is "
+            f"{spotted!r} on {tag}, expected []")
     dX = hu["x"] - au["x"]
     dY = au["y"] - hu["y"]
-    assert not in_sector(facing, dX, dY), (
-        f"PHASE 3: FIXTURE PREMISE BROKE: the hostile at {behind} is ALREADY inside actor "
-        f"{actor_id}'s facing-{facing} sector before the turn (dX={dX} dY={dY})")
+    assert not in_sector(F, dX, dY), (
+        f"PHASE 3: FIXTURE PREMISE BROKE: the hostile at {enemy_tile} is ALREADY inside "
+        f"actor {actor_id}'s facing-{F} sector before the move (dX={dX} dY={dY})")
     dist = session.cheb((au["x"], au["y"], au["z"]), (hu["x"], hu["y"], hu["z"]))
     assert dist <= session.MAX_VIEW_DISTANCE, (
         f"PHASE 3: FIXTURE PREMISE BROKE: the hostile is {dist} tiles away, beyond "
         f"MAX_VIEW_DISTANCE={session.MAX_VIEW_DISTANCE}")
 
-    # A walk whose first step requires facing `opposite` (toward the hostile,
-    # wherever `facing` actually landed) - the turn toward it brings the
-    # hostile into sector and the spot halts before any step executes.
-    dest = (actor_pos[0] + session.DIR_DX[opposite],
-            actor_pos[1] + session.DIR_DY[opposite],
-            actor_pos[2])
-    kind, hw = order_walk_outcome(host, client, actor_id, dest, "PHASE 3")
+    # 5. a move to the back-left diagonal - a first-step turn (3/8 CCW) that
+    # sweeps the hostile staged at the actor's left into view.
+    target = off(spot, backleft, 1)
+    kind, hw = order_walk_outcome(host, client, actor_id, target, "PHASE 3")
     assert kind == "walk", f"PHASE 3: expected an executed (halted) walk, got {kind}"
     restate = hw.get("restate") or {}
     assert not (hw.get("steps") or []), (
@@ -372,6 +367,7 @@ def phase3_zero_step_spot(host, client, actor_id, door):
     assert restate.get("reason") == "spot", (
         f"PHASE 3: restate reason {restate.get('reason')!r}, expected 'spot'")
 
+    # 6. the ev PAYLOAD (both machines) and the hash gate.
     action_id = hw.get("actionId")
     host_spot_seq = None
     for gc, tag in ((host, "host"), (client, "client")):
@@ -386,6 +382,9 @@ def phase3_zero_step_spot(host, client, actor_id, door):
         assert ls.get("seq") == spots[0]["seq"], (
             f"PHASE 3: {tag}'s lastSpot.seq {ls.get('seq')} != the ring's spot seq "
             f"{spots[0]['seq']}")
+        seen = list(ls.get("seen") or [])
+        assert alien_id in seen, (
+            f"PHASE 3: {tag}'s lastSpot.seen {seen} does not contain hostile {alien_id}")
         if gc is host:
             host_spot_seq = spots[0]["seq"]
 
@@ -396,11 +395,16 @@ def phase3_zero_step_spot(host, client, actor_id, door):
         assert u.get("turnBeforeFirstStep") is False, (
             f"PHASE 3: {tag}'s actor {actor_id} has turnBeforeFirstStep="
             f"{u.get('turnBeforeFirstStep')!r}, expected False")
+        spotted = u.get("spottedThisTurn") or []
+        assert alien_id in spotted, (
+            f"PHASE 3: {tag}'s actor {actor_id} spottedThisTurn {spotted} does not contain "
+            f"hostile {alien_id}")
 
-    print(f"    [PHASE 3] actor {actor_id} facing {facing} (toward map centre "
-          f"{mapX / 2:.1f},{mapY / 2:.1f}); hostile {alien_id} teleported to {behind} (3 "
-          f"tiles behind); zero-step spot halt at seq {host_spot_seq}, haltStep=0, all "
-          "buckets EQUAL, turnBeforeFirstStep False on both machines")
+    print(f"    [PHASE 3] actor {actor_id} spawn facing F={F} (left={left} back={back} "
+          f"backleft={backleft}); spot={spot}; hostile {alien_id} at {enemy_tile} (2 left); "
+          f"target={target} (1 back-left); zero-step spot halt at seq {host_spot_seq}, "
+          f"haltStep=0, seen contains {alien_id}, all buckets EQUAL, turnBeforeFirstStep "
+          "False, spottedThisTurn contains the hostile on both machines")
     print("EXERCISED P3")
 
 
