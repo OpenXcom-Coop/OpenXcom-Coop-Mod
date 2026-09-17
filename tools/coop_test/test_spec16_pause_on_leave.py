@@ -60,6 +60,57 @@ Exit codes (ONE run each of CONTROL then DROP, no re-run of either):
   * FAIL (exit 2): a game process crashed.
   * FAIL (exit 4): both runs completed but one or more of the S1 invariants
     above did not hold - the RED this file exists to invert.
+
+S2 - client kill() mid-ALIEN-turn (D96 M2 quiescence-gate proof, cycle 4) is
+appended below (run_s2() / main_s2()), invoked separately via
+`python test_spec16_pause_on_leave.py s2` (plain `python
+test_spec16_pause_on_leave.py` still runs ONLY S1, unchanged). Construction
+(F343, measured at tip 1c0291aaa): SPEC 12 AI-stream fixture (STR_SMALL_SCOUT
+/ STR_FLOATER / seed 1, via repro_atom_side_transition.bring_up_lobby +
+session.drive_to_battlescape - the established recipe test_rw_ai_origin_
+stream.py already uses); a HOST soldier is teleported ADJACENT to the alien
+(its weapon is NOT stripped, unlike the AI-stream suite's own walk-only
+fixture) so the alien ATTACKS on its turn - an in-flight attack chain
+CoopArbiter's currentActionId() never wraps (CoopArbiter.h:145: "AI shot/
+grenade/psi stay out pending the shot atom"). Both players end turn; the
+side-flip pushes a NextTurnState that blocks handleAI until dismissed
+(dismiss_next_turn_if_present, same trap test_rw_ai_origin_stream.py/
+repro_atom_side_transition.py already document), so the poll loop dismisses
+it every iteration. The poll catches the host busy on a NON-walk chain
+(isBusy True, and NOT an in-flight walk actionId change) - the vacuity
+target: without this the AI could have chosen to walk instead of attack, and
+"mid-alien-turn" attack interruption would be untested. `client.kill()` fires
+there; the host is then sampled for the pause modal (dialog code 62).
+
+PRE-FIX (measured, F343): the M2 gate (`currentActionId()==0` alone) is
+blind to this chain, so the modal fires ~0.02s after the kill while the
+alien is still mid-attack; the pushed CoopState(COOP_DLG_WAIT_PLAYERS)
+becomes the top state, so BattlescapeGame::think() (and therefore the
+ProjectileFlyBState mid-flight) never runs again - the alien is left frozen
+at STATUS_AIMING(4) with pendingStates>0 for as long as it was sampled
+(captured: sustained 1.3s).
+
+POST-FIX (D96, `!isBusy() && currentActionId()==0`): the modal push is
+deferred until the host's BState stack has ALSO drained, so by the time the
+dialog appears the interrupted attack has already resolved on its own - the
+alien's status reads a resting value (never STATUS_WALKING(1) or
+STATUS_AIMING(4)) and isBusy()/pendingStates read false/0, at (or before) the
+same sample that first shows the dialog.
+
+Exit codes (S2, run_s2()/main_s2()):
+  * PASS (exit 0): the alien was genuinely caught mid-action (isBusy True,
+    pendingStates>0) before the kill; after the kill the pause modal (dialog
+    62) appears, and by the time it has settled the alien's status is a
+    resting value (not WALKING/AIMING), the host is not isBusy, phase stays
+    "Active", authority.peerAbsent is True, authority.desyncFrozen is False,
+    inBattle is True, no LobbyMenu, BattlescapeState intact.
+  * FAIL (exit 1): a fixture precondition could not be established (no
+    living alien/soldier, no open adjacent tile, the host was never caught
+    busy on a non-walk chain within the poll window, or the dialog never
+    appeared) - the scenario was never run to the point where it could prove
+    anything.
+  * FAIL (exit 4): the run completed but one or more of the S2 invariants
+    above did not hold - the RED this scenario exists to invert (F343).
 """
 import os
 import sys
@@ -74,6 +125,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
+import repro_atom_side_transition as sid  # noqa: E402 (S2: bring_up_lobby + dismiss_next_turn_if_present)
 
 SDLK_HOME = 278
 SDLK_TAB = 9
@@ -92,6 +144,19 @@ UFO_LIFT_DATASET_RARE_MAX = 80
 # for straight_runs()'s contact-free candidate search to succeed, and gives
 # a walk long enough to hold >=2 pending steps at battleXcomSpeed=200.
 SPEC16_S1_SEED = 2
+
+# ----- S2 constants (F343: SPEC 12 AI-stream fixture, same mission/race/seed
+# test_rw_ai_origin_stream.py already uses for a reproducible single-alien
+# STR_SMALL_SCOUT boot) -----
+SPEC16_S2_MISSION = "STR_SMALL_SCOUT"
+SPEC16_S2_RACE = "STR_FLOATER"
+SPEC16_S2_SEED = 1
+SPEC16_S2_BASE_PORT = 49970
+# Mod/Unit.h UnitStatus enum: {STANDING,WALKING,FLYING,TURNING,AIMING,
+# COLLAPSING,DEAD,UNCONSCIOUS,PANICKING,BERSERK,IGNORE_ME}. The two "still
+# mid-animation" values F343 captured frozen under the pre-fix modal.
+STATUS_WALKING = 1
+STATUS_AIMING = 4
 
 _DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
 _DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
@@ -549,5 +614,218 @@ def main():
     sys.exit(0)
 
 
+# =====================================================================
+# S2 - client kill() mid-ALIEN-turn (D96 M2 quiescence-gate, cycle 4)
+# See the module docstring's S2 section for the full construction/exit-code
+# rationale. Kept separate from S1's main()/_run_scenario() (a different
+# fixture entirely - AI-stream attack, not a host walk) and invoked
+# separately: `python test_spec16_pause_on_leave.py s2`.
+# =====================================================================
+
+def _s2_bring_up(base_port):
+    """SPEC 12 AI-stream fixture bring-up (F343): the same mission/race/seed
+    test_rw_ai_origin_stream.py uses for a reproducible single-alien
+    STR_SMALL_SCOUT boot, via repro_atom_side_transition.bring_up_lobby (the
+    established shared lobby-dance helper, not a scratch copy)."""
+    port = base_port
+    host_dir = make_user_dir("spec16s2_host")
+    client_dir = make_user_dir("spec16s2_client")
+    host = GameClient("host", base_port + 1, host_dir)
+    client = GameClient("client", base_port + 2, client_dir)
+    seated = {}
+    sid.bring_up_lobby(host, client, str(port))
+    session.drive_to_battlescape(
+        host, client, seated, mission=SPEC16_S2_MISSION, seat_count=2,
+        pre_seat=lambda h: h.ok({"cmd": "newbattle_race", "race": SPEC16_S2_RACE}),
+        pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SPEC16_S2_SEED}))
+    return host, client
+
+
+def run_s2():
+    """One run: bring up the AI-stream fixture, teleport a host soldier
+    adjacent to the alien (weapon intact) so it attacks on its turn, catch
+    the host mid-attack (a non-walk BState chain CoopArbiter never wraps),
+    kill() the client, and assert the D96 drain-first + survive invariants.
+    FAIL (fixture, exit 1) if any precondition cannot be established; FAIL
+    (invariant, exit 4) if the drain/survive assertions do not hold; PASS
+    (exit 0) otherwise. See module docstring for the full contract."""
+    host, client = _s2_bring_up(SPEC16_S2_BASE_PORT)
+    try:
+        bs0 = session.battle_state(host)
+        hostiles = [u for u in bs0["units"] if u.get("faction") == 1 and not u.get("isOut")]
+        players = [u for u in bs0["units"] if u.get("faction") == 0 and not u.get("isOut")]
+        if not hostiles:
+            print(f"FAIL: no living hostile on seed {SPEC16_S2_SEED}")
+            sys.exit(1)
+        if not players:
+            print("FAIL: no living player soldier")
+            sys.exit(1)
+        alien = hostiles[0]
+        target = players[0]
+        print(f"[setup] alien: id={alien['id']} pos=({alien['x']},{alien['y']},{alien['z']}) "
+              f"weapon={alien.get('weapon')!r}")
+
+        # Teleport the first player soldier onto an open tile ADJACENT to the
+        # alien (weapon untouched - unlike the AI-stream suite's own
+        # walk-only fixture) so it is an immediate, close-range, exposed
+        # target the instant the alien side's think() starts (F343 recipe).
+        ax, ay, az = alien["x"], alien["y"], alien["z"]
+        placed = False
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1),
+                       (2, 0), (0, 2), (-2, 0), (0, -2)]:
+            tx, ty, tz = ax + dx, ay + dy, az
+            ok_both = True
+            for gc in (host, client):
+                r = gc.cmd({"cmd": "battle_teleport_unit", "unit": target["id"],
+                            "x": tx, "y": ty, "z": tz, "dir": 0})
+                if not r.get("ok"):
+                    ok_both = False
+                    break
+            if ok_both:
+                placed = True
+                print(f"[setup] teleported soldier {target['id']} to ({tx},{ty},{tz})")
+                break
+        if not placed:
+            print("FAIL: could not find an open tile adjacent to the alien to "
+                  "teleport a soldier onto")
+            sys.exit(1)
+
+        prev_action_id = (session.event_state(host).get("lastWalk") or {}).get("actionId", 0)
+
+        client.ok({"cmd": "battle_action", "action": "end_turn_button"})
+
+        def _host_shows_1_of_2():
+            return True if session.battle_state(host).get("coopEndTurnText") == "END TURN 1/2" else None
+        host.wait_for("host paints END TURN 1/2", _host_shows_1_of_2, timeout=20)
+        host.ok({"cmd": "battle_action", "action": "end_turn_button"})
+        print("[setup] both sides pressed end turn; alien side should start on host")
+
+        # ---- poll for the host to become busy on a chain that is NOT a walk
+        # (no in-flight walk actionId change) - i.e. the AI is mid-attack, a
+        # chain CoopArbiter never tracks (the vacuity target: without this
+        # filter the AI could have simply walked, and "mid-alien-turn attack"
+        # would be untested). dismiss_next_turn_if_present is required every
+        # poll - the side-flip NextTurnState blocks handleAI until closed. ----
+        deadline = time.time() + 30
+        caught = None
+        while time.time() < deadline:
+            sid.dismiss_next_turn_if_present(host)
+            bs = session.battle_state(host)
+            es = session.event_state(host)
+            lw = es.get("lastWalk") or {}
+            is_busy = bs.get("isBusy")
+            walk_changed = lw.get("actionId", 0) != prev_action_id
+            if is_busy and not (walk_changed and lw.get("active")):
+                caught = bs
+                break
+            time.sleep(0.005)
+
+        if caught is None:
+            print("FAIL: never caught the host busy on a non-walk (attack) chain "
+                  "within 30s (the alien may have chosen to walk instead of "
+                  "attack, or resolved too fast to catch, or never got LOS)")
+            sys.exit(1)
+
+        # ---- vacuity guard (F343/(f) S2): "mid-alien-turn" is untested
+        # unless the alien was ACTUALLY mid-action at the instant of the kill. ----
+        busy_at_kill = caught.get("isBusy")
+        pending_at_kill = caught.get("pendingStates")
+        if not busy_at_kill or not pending_at_kill:
+            print(f"FAIL: vacuity guard - alien was not actually mid-action at kill "
+                  f"time (isBusy={busy_at_kill} pendingStates={pending_at_kill})")
+            sys.exit(1)
+        print(f"[mid-attack] caught host busy: isBusy={busy_at_kill} "
+              f"pendingStates={pending_at_kill} selectedId={caught.get('selectedId')}")
+
+        t_kill = time.time()
+        client.kill()
+        print(f"[kill] client.kill() issued at t={t_kill:.3f}")
+
+        dialog_seen_at = None
+        settle_bs = None
+        settle_dlg = None
+        for _ in range(3000):
+            bs = session.battle_state(host)
+            dlg = host.cmd({"cmd": "coop_dialog_info"})
+            if dlg.get("present") and dlg.get("code") == COOP_DLG_WAIT_PLAYERS and dialog_seen_at is None:
+                dialog_seen_at = time.time() - t_kill
+                # short settle window (same shape as the F343 measurement
+                # script) so a same-tick sampling race does not read a stale
+                # mid-animation frame.
+                for _ in range(30):
+                    time.sleep(0.02)
+                settle_bs = session.battle_state(host)
+                settle_dlg = host.cmd({"cmd": "coop_dialog_info"})
+                break
+            time.sleep(0.003)
+
+        if dialog_seen_at is None:
+            print("FAIL: dialog 62 never appeared on the host within the sampling window")
+            sys.exit(1)
+        print(f"[result] dialog_seen_at={dialog_seen_at:.4f}s after kill")
+
+        alien_final = [u for u in settle_bs["units"] if u["id"] == alien["id"]]
+        if not alien_final:
+            print("FAIL: alien unit missing from post-kill battle_state")
+            sys.exit(1)
+        alien_final = alien_final[0]
+        status = alien_final.get("status")
+        print(f"[result] final alien: status={status} pos=({alien_final.get('x')},"
+              f"{alien_final.get('y')},{alien_final.get('z')}) "
+              f"isBusy={settle_bs.get('isBusy')} pendingStates={settle_bs.get('pendingStates')}")
+
+        failures = []
+        if status in (STATUS_WALKING, STATUS_AIMING):
+            failures.append(f"alien frozen mid-animation: status={status} "
+                             f"(STATUS_WALKING={STATUS_WALKING}/STATUS_AIMING={STATUS_AIMING}) "
+                             "- the interrupted attack did not drain before the modal settled")
+        if settle_bs.get("isBusy"):
+            failures.append(f"host still isBusy={settle_bs.get('isBusy')} "
+                             f"pendingStates={settle_bs.get('pendingStates')} after the modal settled")
+
+        authority = settle_bs.get("authority", {})
+        if settle_bs.get("phase") != "Active":
+            failures.append(f"phase={settle_bs.get('phase')!r}, expected 'Active'")
+        if authority.get("peerAbsent") is not True:
+            failures.append(f"authority.peerAbsent={authority.get('peerAbsent')!r}, expected True")
+        if authority.get("desyncFrozen"):
+            failures.append(f"authority.desyncFrozen={authority.get('desyncFrozen')!r}, expected False")
+        if not settle_bs.get("inBattle"):
+            failures.append("inBattle is not true post-kill")
+
+        if not settle_dlg.get("present") or settle_dlg.get("code") != COOP_DLG_WAIT_PLAYERS:
+            failures.append(f"dialog not present or wrong code: {settle_dlg}")
+
+        top = str(_top_state(host))
+        states_list = [str(s) for s in session.states(host)]
+        if "LobbyMenu" in top:
+            failures.append(f"host top state is LobbyMenu ({top}) - the battle was torn down")
+        if not any("BattlescapeState" in s for s in states_list):
+            failures.append(f"BattlescapeState is not on the host's state stack: {states_list}")
+
+        if failures:
+            print("FAIL: S2 invariant(s) violated:")
+            for f in failures:
+                print("  -", f)
+            sys.exit(4)
+
+        print(f"PASS: SPEC16 S2 - kill() mid-alien-attack (isBusy={busy_at_kill} "
+              f"pendingStates={pending_at_kill} at kill) drained (final status={status}, "
+              f"dialog_seen_at={dialog_seen_at:.4f}s) at/before the settled pause modal; "
+              "phase=Active, peerAbsent=true, desyncFrozen=false, dialog 62 held, "
+              "BattlescapeState intact.")
+        sys.exit(0)
+    finally:
+        host.shutdown()
+        client.shutdown()
+
+
+def main_s2():
+    run_s2()
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "s2":
+        main_s2()
+    else:
+        main()

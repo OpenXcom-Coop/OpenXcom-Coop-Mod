@@ -12100,7 +12100,26 @@ void connectionTCP::updateCoopTask()
 	// own busy check reads, so a walk's action_end, a turn's action_end, and
 	// an AI/endturn side's own quiescence all clear it identically; nothing
 	// here special-cases a walk.
-	if (g_coopPauseModalPending && CoopArbiter::currentActionId() == 0)
+	//
+	// D96 (owner, 2026-09-16, SPEC 16 cycle 4, F343): `currentActionId()==0`
+	// ALONE is blind to any BState chain CoopArbiter does not wrap - AI
+	// shot/melee/psi/throw push no action context (CoopArbiter.h:145), so a
+	// mid-AI-attack drop froze the alien mid-animation under the modal
+	// (captured: status=AIMING stuck, pendingStates=2 sustained 1.3s). PRD
+	// T5's quiescence is BOTH clauses - "the host BState stack drains AND no
+	// pending origin-chain evs remain" - so the gate also requires
+	// `!isBusy()`, read via the same null-safe (bg && bg->isBusy()) accessor
+	// busyOwnerSeat() already uses at this identical RB-D5 pump point (no
+	// live battle / no BattlescapeState => not busy, so a non-battle pause
+	// still fires). This is a permanent chain-agnostic gate: any BState-
+	// bearing action (walk/shot/melee/psi/throw/whatever r3 adds) trips
+	// isBusy() with no per-atom update needed.
+	SavedBattleGame* pauseSave = connectionTCP::getStaticBattle();
+	BattlescapeState* pauseBs = pauseSave ? pauseSave->getBattleState() : nullptr;
+	BattlescapeGame* pauseBg = pauseBs ? pauseSave->getBattleGame() : nullptr;
+	const bool pauseBusy = pauseBg && pauseBg->isBusy();
+
+	if (g_coopPauseModalPending && !pauseBusy && CoopArbiter::currentActionId() == 0)
 	{
 		g_coopPauseModalPending = false;
 		bool waitDialogPresent = false;
