@@ -7001,6 +7001,10 @@ std::string TestServer::execute(const std::string& line)
 				// "paused, not torn down" without inferring it from the
 				// dialog alone.
 				authority["peerAbsent"] = a.peerAbsent.load();
+				// SPEC 16 (W1-P17) M4: additive - true when the CURRENT
+				// pause was entered via a graceful battle_leave rather than
+				// a bare liveness/socket-loss detection (BattleAuthority.h).
+				authority["peerLeftByChoice"] = a.peerLeftByChoice.load();
 				resp["authority"] = authority;
 				resp["queueDepth"] = CoopPump::queueDepth();
 				resp["txDrains"] = CoopEmit::txDrainEvents();

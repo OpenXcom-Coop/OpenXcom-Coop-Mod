@@ -744,10 +744,24 @@ CoopState::CoopState(int state, int value) : _value(value)
 
 	if (state == 21)
 	{
+		// SPEC 16 (W1-P17) M6 (DP1, D94=(a)): captured BEFORE disconnectTCP()
+		// below - its own ctor-time call, per the comment at that function's
+		// top - tears the client's authority/session down. State 21 exists
+		// for exactly one reason (the host is gone), so any live battle
+		// under it is HOST-LEFT asymmetry's own end: the survivor's OK below
+		// (previous(), global_state==21) is the end-only control, and
+		// `reason:"seatLeft"` is logged here the same as the client-left
+		// survivor's ABANDON/SAVE&QUIT (CoopState::btnAbandonClick).
+		const bool hadLiveBattle = _game->getSavedGame()
+			&& _game->getSavedGame()->getSavedBattle() != nullptr;
 		connectionTCP::_coopGamemode = 0;
 		_txtTitle->setText("Server connection lost");
 		_btnBack->setVisible(true);
 		_game->getCoopMod()->disconnectTCP();
+		if (hadLiveBattle)
+		{
+			Log(LOG_INFO) << "[coop] battle ended: reason=\"seatLeft\" (host connection lost, local teardown, no debrief)";
+		}
 	}
 
 	if (state == 50)
@@ -1005,6 +1019,17 @@ std::string CoopState::waitingTitle() const
 		return "Waiting for players to load...";
 	}
 	const std::string peer = _game->getCoopMod()->getCurrentClientName();
+	// SPEC 16 (W1-P17) M4: a deliberate leave (battle_leave{reasonKey})
+	// names itself instead of reading as a silent connection loss. Keeps
+	// "to reconnect" in BOTH branches - existing dialog-wording assertions
+	// (test_lobby_dialogs.py, test_resume_game_in_battle.py) only check for
+	// that substring, never an exact match.
+	if (coopBattleAuthority().peerLeftByChoice)
+	{
+		return peer.empty()
+			? "The other player has left the battle.\nWaiting for them to reconnect..."
+			: peer + " has left the battle.\nWaiting for them to reconnect...";
+	}
 	return peer.empty() ? "Waiting for players to reconnect..."
 						: "Waiting for " + peer + " to reconnect...";
 }
@@ -1386,6 +1411,16 @@ void CoopState::btnAbandonClick(Action *)
 {
 	_game->resetTouchButtonFlags();
 
+	// SPEC 16 (W1-P17) M6 (DP1, D94=(a)): captured BEFORE disconnectTCP()
+	// below clears BattleAuthority::peerAbsent - that flag IS "this ABANDON
+	// is closing a mid-battle co-op pause" (as opposed to issue #81's
+	// original case, ABANDON on the host's own PRE-battle campaign wait,
+	// where nothing is paused and no battle is being ended). The wave-1 end
+	// control is a LOCAL teardown only (no `battle_end` wire atom, no
+	// debrief - that is r3b/T6, out of wave); `reason:"seatLeft"` is logged,
+	// never wired anywhere else.
+	const bool seatLeftTeardown = coopBattleAuthority().peerAbsent;
+
 	// Tear the session down FIRST and as the "main" teardown: that path never
 	// pushes a replacement dialog, so abandoning can't resurrect the very wait
 	// dialog we are leaving. Role is cleared AFTER the teardown, never before -
@@ -1394,6 +1429,11 @@ void CoopState::btnAbandonClick(Action *)
 	_game->getCoopMod()->disconnectTCP(true);
 	_game->getCoopMod()->setServerOwner(false);
 	connectionTCP::session.resetSession();
+
+	if (seatLeftTeardown)
+	{
+		Log(LOG_INFO) << "[coop] battle ended: reason=\"seatLeft\" (ABANDON, local teardown, no debrief)";
+	}
 
 	// issue #82: GoToMainMenuState::init does the geoscape rescale and drops the
 	// SavedGame - after the popped states are freed, not before them.

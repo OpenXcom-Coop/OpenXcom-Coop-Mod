@@ -33,6 +33,7 @@
 #include "../Mod/Mod.h"
 #include "../Mod/RuleInterface.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -324,11 +325,23 @@ void SaveGameState::quitToMainMenu()
 {
 	_game->resetTouchButtonFlags();
 
+	// SPEC 16 (W1-P17) M6 (DP1, D94=(a)): same capture-before-teardown as
+	// CoopState::btnAbandonClick - SAVE & QUIT's own end-control path onto
+	// the identical GoToMainMenuState chokepoint. peerAbsent is true only
+	// when this SAVE & QUIT is closing a mid-battle co-op pause (M1), never
+	// for issue #81's original pre-battle campaign-wait case.
+	const bool seatLeftTeardown = coopBattleAuthority().peerAbsent;
+
 	// Role is cleared AFTER the teardown, never before: disconnectTCP branches
 	// on it, and clearing it early makes the host tear down as a client.
 	_game->getCoopMod()->disconnectTCP(true);
 	_game->getCoopMod()->setServerOwner(false);
 	connectionTCP::session.resetSession();
+
+	if (seatLeftTeardown)
+	{
+		Log(LOG_INFO) << "[coop] battle ended: reason=\"seatLeft\" (SAVE & QUIT, local teardown, no debrief)";
+	}
 
 	// issue #82: GoToMainMenuState::init owns the geoscape rescale and drops the
 	// SavedGame (battle included) once the popped states have actually been freed.

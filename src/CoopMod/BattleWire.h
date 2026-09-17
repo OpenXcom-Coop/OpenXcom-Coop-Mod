@@ -46,7 +46,8 @@ namespace CoopWire
 
 /// SS2.1 discriminator: state starts with "bt_", or is one of the
 /// battle-handshake kinds (battle_offer/battle_accept/battle_refuse/
-/// battle_ready). bt_desync (client->host) is also a "bt_" kind and
+/// battle_ready) or SPEC 16 (W1-P17) M4's graceful-leave kind
+/// (battle_leave). bt_desync (client->host) is also a "bt_" kind and
 /// therefore routes to the battle lane.
 inline bool isBattleKind(const std::string& state)
 {
@@ -56,7 +57,8 @@ inline bool isBattleKind(const std::string& state)
 		return true;
 	}
 	return state == "battle_offer" || state == "battle_accept" ||
-		state == "battle_refuse" || state == "battle_ready";
+		state == "battle_refuse" || state == "battle_ready" ||
+		state == "battle_leave";
 }
 
 /// SS2.1: bt_ev and bt_action_end are the seq-ordered apply-queue kinds;
@@ -148,6 +150,22 @@ inline Json::Value makeDesync(uint32_t battleId, uint32_t seq, const char* bucke
 	obj["bucket"] = bucket;
 	obj["expect"] = expect;
 	obj["got"] = got;
+	return obj;
+}
+
+/// battle_leave {state, seat, reasonKey} (SPEC 16 W1-P17 M4). Client->host,
+/// sent BEFORE the client's own teardown on a deliberate `disconnect_to_menu`
+/// so the host's pause dialog can name the reason (F341: NOT a latency
+/// mechanism - liveness detection alone already raises the pause dialog in
+/// ~0.1s). @a reasonKey is wave-1's one value, "quit" - a deliberate leave;
+/// anything else (kill/socket loss) never sends this message at all, and the
+/// host's own liveness detection is what pauses the battle instead.
+inline Json::Value makeLeave(int seat, const char* reasonKey)
+{
+	Json::Value obj(Json::objectValue);
+	obj["state"] = "battle_leave";
+	obj["seat"] = seat;
+	obj["reasonKey"] = reasonKey;
 	return obj;
 }
 

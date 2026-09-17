@@ -262,6 +262,20 @@ struct BattleAuthority
 	/// (the UDP-monitor-thread race noted above the enum).
 	std::atomic<bool> peerAbsent{false};
 
+	/// SPEC 16 (W1-P17) M4: true when the CURRENT peerAbsent pause was
+	/// entered via a graceful `battle_leave{seat,reasonKey}` (the departing
+	/// seat's own deliberate `disconnect_to_menu`, sent to the host BEFORE
+	/// its transport goes down) rather than a bare liveness/socket-loss
+	/// detection. F341 (measured): this changes NOTHING about detection
+	/// latency - both paths already raise the pause dialog in ~0.1s - its
+	/// only wave-1 value is letting CoopState::waitingTitle() NAME the
+	/// reason instead of always reading as a silent connection loss.
+	/// Cleared by resetBattleAuthority() (same discipline as peerAbsent
+	/// above) and by a successful rejoin-restream (M5's onReady), so a
+	/// later, separate pause on the same battle never inherits a stale
+	/// label. std::atomic for the same cross-thread reason as peerAbsent.
+	std::atomic<bool> peerLeftByChoice{false};
+
 	/// Seat -> FACTION_* lookup, backed by the private store below. R2-P3
 	/// interim (RB-D18): the store starts empty and factionOf() falls back
 	/// to FACTION_PLAYER for any unmapped/out-of-range seat - correct for

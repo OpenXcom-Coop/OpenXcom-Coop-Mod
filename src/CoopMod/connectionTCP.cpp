@@ -2414,6 +2414,7 @@ void resetBattleAuthority()
 	a.battleId = 0;
 	a.desyncFrozen = false; // R2-P9
 	a.peerAbsent = false; // SPEC 16 M1
+	a.peerLeftByChoice = false; // SPEC 16 M4
 	// W1-P7 deliverable 6 (REV D / WV-D55): back to the D-26 default. The mode
 	// is per-BATTLE session state, re-established from the offer (or, on the
 	// host, from Options::CoopTurnMode) every time a battle starts.
@@ -10140,6 +10141,10 @@ void onReady(Game* game, const Json::Value& ready)
 		// the only two places that ever clear it again -
 		// CoopArbiter::onIntent() refuses every bt_intent while it is set.
 		coopBattleAuthority().peerAbsent = false;
+		// SPEC 16 M4: the label rides the SAME pause it was set for - a
+		// resumed battle starts clean, so a LATER, separate leave never
+		// inherits this one's reason.
+		coopBattleAuthority().peerLeftByChoice = false;
 		// SPEC 16 (W1-P17) M3/F337 (WV-D77 traced, 2026-09-16): disconnectTCP()
 		// unconditionally zeroes this global at the TOP of every disconnect
 		// (including the mid-Active-battle leave M1/M2 otherwise spare), and
@@ -13746,6 +13751,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			// R4-P1 (SS2.7): host-inbound.
 			CoopHandshake::onReady(_game, obj);
+		}
+		else if (stateString == "battle_leave")
+		{
+			// SPEC 16 (W1-P17) M4: host-inbound. The departing seat told us
+			// BEFORE its own transport went down - name the reason in the
+			// pause dialog rather than defaulting to a silent connection
+			// loss. Self-guarded on isCoopBattle() (Active): a leave sent
+			// outside an active battle (there is no wave-1 caller that
+			// would, but a stray/late packet costs nothing to ignore) has
+			// no pause to label. resetBattleAuthority()/M5's onReady are the
+			// only two places that ever clear this back to false.
+			if (isCoopBattle())
+			{
+				coopBattleAuthority().peerLeftByChoice = true;
+			}
 		}
 		else if (stateString == "bt_desync")
 		{
@@ -19421,7 +19441,76 @@ void connectionTCP::disconnectTCP(bool isMain)
 			&& !campaignEnded()
 			&& coopBattleAuthority().phase == CoopBattlePhase::Active;
 
+		// SPEC 16 (W1-P17) M4: a DELIBERATE client leave (isMain - the
+		// caller is already committed to the teardown, e.g.
+		// disconnect_to_menu/ABANDON/SAVE&QUIT, as opposed to a passive
+		// disconnect this function discovers on its own) tells the host
+		// BEFORE the transport goes down, so the pause dialog can name the
+		// reason. Sent here, before clearNetworkSessionQueues() a few lines
+		// below would otherwise erase this very message from g_txQ out from
+		// under the socket thread's own drain of it (F341: this buys no
+		// latency - liveness detection alone already raises the pause
+		// dialog in ~0.1s for a graceful quit or a kill() alike; its only
+		// value is the label).
+		if (isMain && !teardownAsHost && coopBattleLive(_game)
+			&& coopBattleAuthority().phase == CoopBattlePhase::Active)
+		{
+			Json::Value leave = CoopWire::makeLeave(coopBattleAuthority().localSeat, "quit");
+			CoopEmit::sendBattle(leave);
+			// Best-effort bounded drain: give the socket sender thread (the
+			// SPSC consumer of g_txQ) a window to pop this message before it
+			// races clearNetworkSessionQueues()'s own drain-and-discard loop
+			// below. Same bounded-wait shape as coopEmitBlockingPush()'s
+			// MN-8 bypass; capped at 100ms so a dead transport (onConnect<0,
+			// nothing will ever drain g_txQ again) cannot stall a
+			// deliberate quit.
+			for (int i = 0; i < 50 && !g_txQ.empty() && onConnect >= 0; ++i)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			}
+		}
+
 	    OpenXcom::disconnectRendezvousUdp();
+
+		// SPEC 16 (W1-P17) M4 (bugfix, WV-D77 traced via coop-DEBUG-M4
+		// instrumentation, 2026-09-17): a client's battle_leave can already
+		// be sitting in g_rxQ the instant this HOST-side reactive teardown
+		// runs - onConnect==-2 detection (above, in updateCoopTask()) and
+		// the client's own send race on the SAME tick, and THIS branch runs
+		// BEFORE updateCoopTask()'s normal "drain g_rxQ into g_rxHold, then
+		// dispatch" pump step - so clearNetworkSessionQueues()'s own g_rxQ
+		// drain-and-discard a few lines below would silently destroy the
+		// message before onTCPMessage() (connectionTCP.cpp's battle_leave
+		// case) ever saw it, leaving peerLeftByChoice permanently false for
+		// a battle_leave that DID arrive in time. Peek g_rxQ here, BEFORE it
+		// is wiped, and apply any battle_leave found exactly like
+		// onTCPMessage's own handler does. Scoped to spareAuthorityOnPeerAbsent:
+		// peerLeftByChoice is only ever read by the M1 pause it is about to
+		// enter, so there is nothing to preserve on a full teardown.
+		if (spareAuthorityOnPeerAbsent)
+		{
+			std::string queuedMsg;
+			while (g_rxQ.pop(queuedMsg))
+			{
+				Json::CharReaderBuilder rb;
+				std::unique_ptr<Json::CharReader> reader(rb.newCharReader());
+				Json::Value queuedObj;
+				std::string errs;
+				const char* begin = queuedMsg.data();
+				const char* end = begin + queuedMsg.size();
+				if (reader->parse(begin, end, &queuedObj, &errs)
+					&& queuedObj.get("state", "").asString() == "battle_leave")
+				{
+					coopBattleAuthority().peerLeftByChoice = true;
+				}
+				// every other queued message is stale for the paused battle
+				// - it resumes only via a fresh rejoin-restream (M5) - so
+				// dropping it here is the SAME "stale queues must still
+				// drop" call clearNetworkSessionQueues() makes a few lines
+				// below; this loop is that same drain, done one step
+				// earlier, only so battle_leave can be read on the way past.
+			}
+		}
 
 		// Clear all shared TCP/UDP packet queues after the transport is stopped.
 		// This prevents stale packets from the previous session from affecting
