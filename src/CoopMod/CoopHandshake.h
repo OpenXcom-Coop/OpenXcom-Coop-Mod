@@ -156,6 +156,29 @@ void prepareBattleOffer(Game* game, int gamemode);
 /// past Handshake.
 void emitPreparedOffer(Game* game);
 
+/// HOST, SPEC 16 (W1-P17) M5: REJOIN-RESTREAM entry, called from
+/// connectionTCP::streamSkirmishBattleToClient() (the re-targeted #93
+/// skirmish-rejoin path) once a client reconnects to a co-op battle M1 kept
+/// alive through a mid-`Active`-battle peer leave (`phase==Active &&
+/// peerAbsent==true`). Unlike prepareBattleOffer()/emitPreparedOffer(), this
+/// does NOT call initBattleAuthority() and does NOT mint a new battleId or
+/// re-run assignSeatsAndFactions() - the paused battle already carries every
+/// seat's faction/coop tag and BattleAuthority's own battleId/seat-faction
+/// store/turnMode from its original generation, all deliberately spared by
+/// M1's teardown-reset carve-out, so this reuses them verbatim (`resumed`
+/// offers advertise the SAME battleId - "same battle, not a copy"). Sends a
+/// `battle_offer{resumed:true}` and moves phase back to Handshake (peerAbsent
+/// stays set until onReady() below actually succeeds). From onOffer() /
+/// onBlobChunkAppended() / onAccept() / onReady() onward this is the exact
+/// same r4 handshake a fresh battle start uses - ONE code path for
+/// join-fresh/resume/rejoin/desync-recover (F333/M5).
+///
+/// No-op (logs) unless this machine is the host, has a live SavedBattleGame,
+/// and the battle is paused exactly the way M1 leaves it - a fresh join
+/// (phase==Idle) still goes through offerBattle()/prepareBattleOffer(), and
+/// phase==Handshake/Ended ignore a rejoin offer (M5's idempotence guard).
+void offerRejoinBattle(Game* game);
+
 /// HOST (WV-D56): the path where a prepared-but-not-yet-emitted battle never
 /// starts (BriefingState's no-aliens arm - a battle with zero live aliens
 /// never reaches the freeze branch that would call emitPreparedOffer()).

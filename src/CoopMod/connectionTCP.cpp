@@ -8714,6 +8714,15 @@ struct PendingHost
 	bool prepared = false;          // PREPARE ran, EMIT has not (yet, or ever)
 	int gamemode = 0;               // was a prepareBattleOffer() local
 	std::vector<int> seats;         // was a prepareBattleOffer() local
+
+	// SPEC 16 (W1-P17) M5: true when this offer came from offerRejoinBattle()
+	// (a paused live battle being restreamed) rather than
+	// prepareBattleOffer()/emitPreparedOffer() (a battle being generated for
+	// the first time). onReady()/onRefuse() read this to skip the
+	// fresh-battle-authoring tail (which is not idempotent - see onReady()'s
+	// own comment) and to avoid discarding the host's still-alive paused
+	// battle on a refuse/mismatch.
+	bool resumed = false;
 };
 static PendingHost g_pendingHost;
 
@@ -8772,6 +8781,11 @@ struct PendingClient
 	// initBattleAuthority() a second time and that resets the live mirror.
 	// Empty string = the offer carried no key (D-26: parallel).
 	std::string turnMode;
+	// SPEC 16 (W1-P17) M5/M3: the offer's `resumed` flag, stashed so
+	// onBlobChunkAppended() can hold on COOP_DLG_CLIENT_RESUME_HOLD (68) +
+	// send resume_ack instead of the normal fresh-entry infoOnly
+	// BriefingState.
+	bool resumed = false;
 };
 static PendingClient g_pendingClient;
 
@@ -9338,6 +9352,113 @@ void emitPreparedOffer(Game* game)
 		<< ") [WV-D56: post-startFirstTurn snapshot]";
 }
 
+void offerRejoinBattle(Game* game)
+{
+	// See CoopHandshake.h's doc comment for the full rationale. Guard on the
+	// EXACT state M1 leaves a mid-Active-battle leave in - a fresh join
+	// (phase==Idle) belongs to offerBattle()/prepareBattleOffer() instead,
+	// and phase==Handshake/Ended must ignore a rejoin offer (M5's idempotence
+	// guard - a handshake already in flight, or a battle that has ended,
+	// never gets a second concurrent offer).
+	if (!game || !connectionTCP::getServerOwner())
+	{
+		Log(LOG_WARNING) << "[coop-handshake] offerRejoinBattle() called on a non-host machine - ignoring";
+		return;
+	}
+	if (coopBattleAuthority().phase != CoopBattlePhase::Active || !coopBattleAuthority().peerAbsent.load())
+	{
+		Log(LOG_WARNING) << "[coop-handshake] offerRejoinBattle() called while the battle is not "
+			"paused (phase=" << static_cast<int>(coopBattleAuthority().phase.load()) << ", peerAbsent="
+			<< coopBattleAuthority().peerAbsent.load() << ") - ignoring; a fresh join uses "
+			"offerBattle()/prepareBattleOffer() instead";
+		return;
+	}
+	SavedBattleGame* battle = game->getSavedGame() ? game->getSavedGame()->getSavedBattle() : nullptr;
+	if (!battle)
+	{
+		Log(LOG_ERROR) << "[coop-handshake] offerRejoinBattle() called with no live SavedBattleGame - nothing to offer";
+		return;
+	}
+
+	// SAME battle, not a copy (M5/S3): the battleId, seat->faction store and
+	// turnMode were all deliberately spared by M1's teardown-reset carve-out,
+	// so none of them are re-derived or re-minted here the way
+	// prepareBattleOffer() mints a fresh battleId and re-runs
+	// assignSeatsAndFactions() for a battle being generated for the first
+	// time.
+	const std::uint32_t battleId = coopBattleAuthority().battleId;
+
+	// Snapshot the LIVE battle exactly as it stands right now
+	// (emitPreparedOffer()'s precedent, F333) - the rejoiner gets the battle
+	// as it currently is, not as it was when the peer left.
+	game->getSavedGame()->saveCoopToMemory("battlehost", game->getMod(), "battlehost");
+
+	std::string blob;
+	{
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		auto it = connectionTCP::coopFilesHost.find("battlehost");
+		if (it == connectionTCP::coopFilesHost.end())
+		{
+			Log(LOG_ERROR) << "[coop-handshake] offerRejoinBattle(): saveCoopToMemory did not "
+				"populate coopFilesHost[\"battlehost\"]";
+			return;
+		}
+		blob = it->second;
+	}
+	const std::string sha = coopSha256Hex(blob); // IR-6
+
+	std::vector<int> seats;
+	seats.reserve(connectionTCP::seatCount());
+	for (int s = 0; s < connectionTCP::seatCount(); ++s)
+	{
+		seats.push_back(s);
+	}
+
+	// Reopen the handshake (Handshake, not Idle) while the rejoiner streams
+	// in - onReady() flips it back to Active on success (and clears
+	// peerAbsent there, not here: a refuse/mismatch must leave the pause
+	// exactly as it was, see onRefuse()/onReady()'s own resumed branches).
+	coopBattleAuthority().phase = CoopBattlePhase::Handshake;
+
+	g_pendingHost = PendingHost();
+	g_pendingHost.prepared = true;
+	g_pendingHost.active = true;
+	g_pendingHost.battleId = battleId;
+	g_pendingHost.gamemode = connectionTCP::_coopGamemode;
+	g_pendingHost.seats = seats;
+	g_pendingHost.resumed = true;
+	g_pendingHost.saveBlobHex = coopComputeSaveBlobBucketHex(battle);
+
+	Json::Value offer(Json::objectValue);
+	offer["state"] = "battle_offer";
+	offer["protocolVersion"] = 1;
+	offer["battleId"] = battleId;
+	offer["gamemode"] = g_pendingHost.gamemode;
+	offer["seatMap"] = coopBuildRealSeatMap(seats);
+	offer["blobBytes"] = Json::UInt64(blob.size());
+	offer["blobSha"] = sha;
+	offer["resumed"] = true;
+	// MIRROR the mode this battle is already being played in - never
+	// re-derive from Options::CoopTurnMode (that is only correct at a fresh
+	// battle-generation offer; D-22's "read from the BATTLE SAVE BLOCK for a
+	// resumed offer" is r4 T4's disk-resume case, not this in-memory one).
+	offer["turnMode"] = coopTurnModeName(coopBattleAuthority().turnMode);
+
+	// W1-P2 (SS2.W1): the SAME mission identity this battle was offered
+	// with originally - still live on the battle object, never reset by M1.
+	Json::Value missionLabel(Json::objectValue);
+	missionLabel["target"] = battle->getMissionTarget();
+	missionLabel["craftOrBase"] = battle->getMissionCraftOrBase();
+	missionLabel["deployment"] = g_missionLabels.deployment;
+	missionLabel["missionType"] = battle->getMissionType(); // echo only (WR-10)
+	offer["missionLabel"] = missionLabel;
+
+	CoopEmit::sendBattle(offer);
+
+	Log(LOG_INFO) << "[coop-handshake] SPEC16 M5: rejoin battle_offer sent (battleId=" << battleId
+		<< ", blobBytes=" << blob.size() << ", saveBlob=" << g_pendingHost.saveBlobHex << ")";
+}
+
 void abandonPreparedOffer(Game* game)
 {
 	// FX-1 (WV-D56): the path where a prepared-but-not-yet-emitted battle never
@@ -9418,6 +9539,10 @@ void onOffer(Game* game, const Json::Value& offer)
 	// onBlobChunkAppended() once the blob has loaded. Presence-gated: a null
 	// value here simply means the offer carried no labels.
 	g_pendingClient.missionLabel = offer["missionLabel"];
+	// SPEC 16 (W1-P17) M5: absent = false (a fresh battle-start offer never
+	// sets the key) - the presence-gated read matches turnMode's own D-26
+	// degrade discipline just above.
+	g_pendingClient.resumed = offer.get("resumed", false).asBool();
 
 	// Fresh accumulation buffer for THIS transfer - defensive against any
 	// stale leftover (resetPendingState() also clears this at the teardown
@@ -9714,6 +9839,33 @@ void onBlobChunkAppended(Game* game)
 	battle->setBattleState(bs);
 	bs->toggleTouchButtons(false, true);
 
+	// SPEC 16 (W1-P17) M3/M5: a REJOIN has no mission briefing to show - the
+	// battle is already in progress and the client is only waiting for the
+	// host to press RESUME. Hold on COOP_DLG_CLIENT_RESUME_HOLD (68) instead
+	// of the fresh-entry infoOnly BriefingState the whole essay below
+	// documents (LoadGameState.cpp:322's campaign-resume precedent for the
+	// same dialog). The hold's own OK (issue #91 give-up) and its release on
+	// `campaign_begun` (CoopState::think()/::previous()) are already
+	// mode-agnostic - nothing about them is campaign-specific.
+	if (g_pendingClient.resumed)
+	{
+		// SPEC 16 (W1-P17) M3/F337 (WV-D77 traced, 2026-09-16): the OLD
+		// resume path that used to flip this on (close_load_progress ->
+		// COOP_READY_CLIENT_REQUEST -> ... -> "COOP_READY_HOST" sets
+		// coopSession=true, connectionTCP.cpp's own comment at its
+		// close_load_progress handler) was quarantined by the r1 vanilla
+		// restore along with campaign_resume_battle (LoadGameState.cpp's
+		// R1-P5/R4-REWIRE comment) - its SEND side no longer exists, so
+		// nothing set this true on ANY resume before M5. The r4 handshake's
+		// own success is the equivalent, reliable signal now.
+		coopSession = true;
+		game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
+		Log(LOG_INFO) << "[coop-handshake] SPEC16 M5: rejoin - held on "
+			"COOP_DLG_CLIENT_RESUME_HOLD until the host RESUMEs";
+	}
+	else
+	{
+
 	// W1-P3 (WAVE1-RUNBOOK.md SS4 / ruling D3 = WV-D9): the client's flow now
 	// converges on the host's - briefing -> map. ORDER IS PINNED by the runbook:
 	// BattlescapeState FIRST (above), then a READ-ONLY BriefingState OVER it.
@@ -9783,12 +9935,32 @@ void onBlobChunkAppended(Game* game)
 	// not below.
 	CoopBattleUi::showEquipFrozen();
 
+	} // else (!g_pendingClient.resumed) - SPEC 16 (W1-P17) M3/M5
+
 	Json::Value ready(Json::objectValue);
 	ready["state"] = "battle_ready";
 	ready["battleId"] = battleId;
 	ready["h"] = Json::Value(Json::objectValue); // IR-5: presence-gated, empty until R2-P9
 	ready["saveBlob"] = saveBlobHex;
 	CoopEmit::sendBattle(ready);
+
+	if (g_pendingClient.resumed)
+	{
+		// SPEC 16 (W1-P17) M3: the generic "adopted a streamed world, holding
+		// until the host releases us" ack (LoadGameState.cpp:305-323's exact
+		// precedent). The host's EXISTING resume_ack{adoptedWorld:true}
+		// handler (connectionTCP.cpp's "resume_ack" dispatch) is already
+		// mode-agnostic: it sets session.resumeAck=true (which
+		// CoopState::waitSatisfied() reads) and, if a host-wait dialog is
+		// already up - it is, M1/M2 already pushed COOP_DLG_WAIT_PLAYERS -
+		// leaves the RESUME release to that dialog's own button rather than
+		// releasing the hold immediately itself. No host-side skirmish
+		// special-casing needed.
+		Json::Value ack(Json::objectValue);
+		ack["state"] = "resume_ack";
+		ack["adoptedWorld"] = true;
+		game->getCoopMod()->sendTCPPacketData(ack.toStyledString());
+	}
 
 	// RW-FIX-TURN: LAST statement of the client handshake, strictly after the
 	// battle_ready hashes are computed AND sent - see the function's own doc
@@ -9847,6 +10019,21 @@ void onRefuse(Game* game, const Json::Value& refuse)
 
 	Log(LOG_ERROR) << "[coop-handshake] battle_refuse received (battleId=" << battleId
 		<< ", reason=" << reason << ") - tearing down and returning to geoscape/lobby cleanly";
+
+	if (g_pendingHost.resumed)
+	{
+		// SPEC 16 (W1-P17) M5: a REJOIN's offer never regenerated a battle -
+		// it is the host's own still-alive, paused one (M1). Unlike a fresh
+		// battle_offer, there is nothing here to unwind or discard: leave the
+		// battle exactly as M1 left it (phase Active, peerAbsent still set)
+		// so the wait modal stays up and a further rejoin attempt can be
+		// made, instead of tearing down the very battle M1 kept alive.
+		Log(LOG_WARNING) << "[coop-handshake] SPEC16 M5: rejoin refused (" << reason
+			<< ") - the host's paused battle is untouched; peerAbsent stays set";
+		coopBattleAuthority().phase = CoopBattlePhase::Active;
+		g_pendingHost = PendingHost();
+		return;
+	}
 
 	// Unwind the host's UI BEFORE dropping the battle - the caller already
 	// pushed BriefingState unconditionally (see CoopHandshake.h's top doc
@@ -9908,6 +10095,22 @@ void onReady(Game* game, const Json::Value& ready)
 			<< ") - real divergence under the SS2.8 canonical bucket hash; refusing/"
 			"tearing down - no battle starts unequal";
 
+		if (g_pendingHost.resumed)
+		{
+			// SPEC 16 (W1-P17) M5: same reasoning as onRefuse()'s resumed
+			// branch - a rejoin's client copy failed to match, but the
+			// HOST's own battle was never regenerated and is still alive
+			// and paused (M1). A real desync on rejoin is reported, not
+			// swept under a fixture swap (STOP-IF) - it must NOT also nuke
+			// the host's own still-running battle the way a fresh-battle
+			// mismatch discards the just-generated one.
+			Log(LOG_WARNING) << "[coop-handshake] SPEC16 M5: rejoin desync - the host's "
+				"paused battle is untouched; peerAbsent stays set for a further rejoin attempt";
+			coopBattleAuthority().phase = CoopBattlePhase::Active;
+			g_pendingHost = PendingHost();
+			return;
+		}
+
 		coopUnwindToSafeState(game);
 		if (game->getSavedGame())
 			game->getSavedGame()->setBattleGame(0);
@@ -9920,11 +10123,34 @@ void onReady(Game* game, const Json::Value& ready)
 	Log(LOG_INFO) << "[coop-handshake] battle_ready saveBlob EQUAL (" << clientSaveBlob
 		<< ", battleId=" << battleId << ")";
 
+	// SPEC 16 (W1-P17) M5: captured before the g_pendingHost reset just below
+	// clears it.
+	const bool wasResumed = g_pendingHost.resumed;
+
 	// The caller already pushed BriefingState unconditionally, right after
 	// bgen.run() (CoopHandshake.h's top doc comment) - this flips the ONE
 	// thing battle admission actually gates (CoopArbiter::onIntent's
 	// isCoopBattle() check) and does not touch the state stack at all.
 	coopBattleAuthority().phase = CoopBattlePhase::Active;
+	if (wasResumed)
+	{
+		// SPEC 16 M5: the rejoin succeeded - resume admission. M1 latched
+		// peerAbsent instead of tearing the battle down when the peer left;
+		// this (successful onReady) and a full resetBattleAuthority() are
+		// the only two places that ever clear it again -
+		// CoopArbiter::onIntent() refuses every bt_intent while it is set.
+		coopBattleAuthority().peerAbsent = false;
+		// SPEC 16 (W1-P17) M3/F337 (WV-D77 traced, 2026-09-16): disconnectTCP()
+		// unconditionally zeroes this global at the TOP of every disconnect
+		// (including the mid-Active-battle leave M1/M2 otherwise spare), and
+		// the OLD mechanism that used to set it back on a resume
+		// (close_load_progress -> ... -> COOP_READY_HOST, see that handler's
+		// own comment) was quarantined by the r1 vanilla restore along with
+		// campaign_resume_battle - nothing sets it true on ANY resume without
+		// this. The r4 handshake's own hash-checked success is the reliable
+		// signal now (mirrors the client-side onBlobChunkAppended fix).
+		coopSession = true;
+	}
 	g_pendingHost = PendingHost();
 
 	// W1-P8 (SS2.W4 dual-set / WV-D31 / WV-D39). Three things, in this order:
@@ -9936,19 +10162,35 @@ void onReady(Game* game, const Json::Value& ready)
 	//      the host's FIRST ev after phase Active.
 	// This block runs only now, after phase Active, because isCoopBattle() - and
 	// therefore authorHostilePass() - is false before it (BattleAuthority.h).
-	if (SavedBattleGame* activeBattle = connectionTCP::getStaticBattle())
+	//
+	// SPEC 16 (W1-P17) M5: SKIPPED on a resume (wasResumed). This whole block
+	// is fresh-battle-AUTHORING, not idempotent re-sync: CoopEndTurn::
+	// onBattleActive() in particular reseeds the traditional baton at the
+	// D-23 first-live-seat and re-emits the entry tally, which would stomp
+	// the exact baton/tally state M1's pause is defined to keep alive
+	// ("the battle SavedGame, battleId, seat map, turnMode, baton/tally all
+	// survive"). A rejoining client's own fog/reveal state is freshly
+	// allocated on ITS side regardless (onBlobChunkAppended's
+	// CoopFog::reset()/ensureAllocated()), so nothing here needs to re-run
+	// on the host to match it.
+	if (!wasResumed)
 	{
-		CoopFog::ensureAllocated(activeBattle);
-		CoopFog::authorHostilePass(activeBattle, true);
-		CoopReveal::armHostileBaseline();
-		// W1-P13c (REV E.52 E52.1 / D71): the traditional baton's ENTRY
-		// initialiser - seeds the holder at the first LIVE seat in D-23 order
-		// and emits the entry tally. Self-guarded (host-only, no-op in
-		// parallel mode).
-		CoopEndTurn::onBattleActive(activeBattle);
+		if (SavedBattleGame* activeBattle = connectionTCP::getStaticBattle())
+		{
+			CoopFog::ensureAllocated(activeBattle);
+			CoopFog::authorHostilePass(activeBattle, true);
+			CoopReveal::armHostileBaseline();
+			// W1-P13c (REV E.52 E52.1 / D71): the traditional baton's ENTRY
+			// initialiser - seeds the holder at the first LIVE seat in D-23 order
+			// and emits the entry tally. Self-guarded (host-only, no-op in
+			// parallel mode).
+			CoopEndTurn::onBattleActive(activeBattle);
+		}
 	}
 
-	Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId << ")";
+	Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId
+		<< (wasResumed ? ", RESUMED - peerAbsent cleared, admission resumed, "
+			"fresh-battle bootstrap skipped" : "") << ")";
 }
 
 void resetPendingState()
@@ -11868,6 +12110,16 @@ void connectionTCP::updateCoopTask()
 		}
 		if (!waitDialogPresent)
 		{
+			// SPEC 16 (W1-P17) M5: re-arm for a SECOND (or later) pause on
+			// the SAME still-alive battle - a stale resumeAck==true left
+			// over from an earlier successful rejoin (set by the
+			// resume_ack{adoptedWorld:true} handler) would otherwise make
+			// this freshly-pushed dialog's waitSatisfied() read "ready"
+			// before the new absence's peer has actually come back.
+			// adoptResumeSave()'s "ack cleared" comment is the same
+			// discipline for the campaign resume-from-disk case; this is
+			// its mid-battle-pause twin.
+			connectionTCP::session.resumeAck = false;
 			connectionTCP::session.freeze();
 			_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 		}
@@ -18144,15 +18396,16 @@ void connectionTCP::sendMissionFile()
 /**
  * Issue #93: hand a rejoining client the SKIRMISH battle that is running right now.
  *
- * Deliberately the same wire flow the mission started with (snapshot the live world
- * into the "battlehost" blob, then SEND_FILE_CLIENT_TRUE -> the client asks for the
- * file -> the streamer sends it -> the client loads "battleclient" straight into a
- * BattlescapeState). The snapshot is taken NOW, so the rejoiner gets the battle as it
- * currently stands, not as it was deployed - and every id in it comes from the host,
- * which is what keeps the two machines talking about the same units and items.
+ * SPEC 16 (W1-P17) M5: re-targeted off the dead SEND_FILE_CLIENT_TRUE (its receive
+ * handler was deleted by the r1 vanilla restore, R4-REWIRE) onto the r4 handshake -
+ * CoopHandshake::offerRejoinBattle() snapshots the LIVE battle and sends it as a
+ * battle_offer{resumed:true}, the SAME battle_accept/blob-stream/battle_ready pair a
+ * fresh battle start uses. The snapshot is taken NOW, so the rejoiner gets the battle
+ * as it currently stands, not as it was deployed - and every id in it comes from the
+ * host, which is what keeps the two machines talking about the same units and items.
  *
- * Only the host serves this; target=false because a skirmish has no geoscape UFO or
- * mission site to retire on the client.
+ * Only the host serves this; the live-battle/authority-paused guards live in
+ * offerRejoinBattle() itself (see CoopHandshake.h's doc comment).
  */
 void connectionTCP::streamSkirmishBattleToClient()
 {
@@ -18165,15 +18418,7 @@ void connectionTCP::streamSkirmishBattleToClient()
 	// the host owns the save (see sendMissionFile)
 	connectionTCP::coop_save_owner_player_id = 0;
 
-	_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
-
-	// R4-REWIRE: "SEND_FILE_CLIENT_TRUE" is quarantined (R1-P3,
-	// inventory-wire-protocol.md section D); its receive handler is deleted. This
-	// skirmish-rejoin stream needs re-targeting at the r4 handshake pair.
-	Json::Value obj;
-	obj["state"] = "SEND_FILE_CLIENT_TRUE";
-	obj["target"] = false;
-	sendTCPPacketData(obj.toStyledString());
+	CoopHandshake::offerRejoinBattle(_game);
 
 	Log(LOG_INFO) << "[coop] skirmish rejoin: streaming the live battle to "
 		<< _game->getCoopMod()->getCurrentClientName();
