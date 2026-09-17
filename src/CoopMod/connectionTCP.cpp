@@ -2080,7 +2080,7 @@ uint32_t queueDepth()
 	return static_cast<uint32_t>(g_battleApplyQueue.size());
 }
 
-void reset()
+void reset(bool resetChainState)
 {
 	std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
 	g_battleApplyQueue.clear();
@@ -2088,7 +2088,16 @@ void reset()
 	g_battleFrozen.store(false);
 	g_battleNextSeqMint = 1; // CoopEmit's host mint counter (SS2.2: reset by a new battle)
 	g_battleTxDrainEvents.store(0); // R2-P11
-	resetCoopArbiterState(); // R2-P5: action-context stack, actionId mint, deny-tick map
+	// SPEC 16 M2: on the mid-Active-battle peer-leave path (the ONLY caller
+	// that ever passes false - see this function's declaration in
+	// BattlePump.h), resetCoopArbiterState() is SPARED so an in-flight host
+	// BState chain's action-context bookkeeping survives to be popped by its
+	// own normal onChainQuiesced() call once the chain genuinely drains -
+	// clearing it here would make CoopArbiter::currentActionId() read 0
+	// immediately, which defeats the drain-first quiescence check M2 adds at
+	// the RB-D5 pump point.
+	if (resetChainState)
+		resetCoopArbiterState(); // R2-P5: action-context stack, actionId mint, deny-tick map
 	CoopEventLog::reset(); // R2-P11
 	CoopReveal::reset(); // RW-REVEAL-SYNC: published fog bitmap + its one-shot test levers
 	CoopGhost::reset(); // W1-P12: battle-scoped ghost queue + its counters
@@ -2382,6 +2391,20 @@ void initBattleAuthority(std::uint32_t battleId)
 	a.resetSeatFactions();
 }
 
+// SPEC 16 (W1-P17) M2: the deferred-pause-modal latch. Set by
+// connectionTCP::disconnectTCP()'s host branch (and armed again, harmlessly,
+// by a later disconnectTCP() re-entry on the same drop's UDP path) instead of
+// pushing CoopState(COOP_DLG_WAIT_PLAYERS) synchronously, so the host's
+// in-flight BState chain (a walk, a turn, an AI/endturn side) keeps thinking
+// under the still-top BattlescapeState and drains to its own boundary before
+// the modal steals the top of the stack. Consumed at the RB-D5 pump point
+// (connectionTCP::updateCoopTask()) the moment CoopArbiter::currentActionId()
+// reads 0 (chain-agnostic: works identically for a walk's action_end, a
+// turn's action_end, or an AI/endturn side's quiescence - none of them are
+// special-cased). Declared here, above resetBattleAuthority(), so a full
+// teardown can clear a stale arm for a battle that no longer exists.
+static bool g_coopPauseModalPending = false;
+
 void resetBattleAuthority()
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -2390,6 +2413,7 @@ void resetBattleAuthority()
 	a.phase = CoopBattlePhase::Idle;
 	a.battleId = 0;
 	a.desyncFrozen = false; // R2-P9
+	a.peerAbsent = false; // SPEC 16 M1
 	// W1-P7 deliverable 6 (REV D / WV-D55): back to the D-26 default. The mode
 	// is per-BATTLE session state, re-established from the offer (or, on the
 	// host, from Options::CoopTurnMode) every time a battle starts.
@@ -2409,6 +2433,9 @@ void resetBattleAuthority()
 	// new battle must never inherit the previous one's side-phase counter,
 	// ready map, or tallies-seen count.
 	CoopEndTurn::reset();
+	// SPEC 16 M2: a full teardown must not leave a stale deferred pause-modal
+	// push armed for a battle that no longer exists.
+	g_coopPauseModalPending = false;
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -3765,6 +3792,19 @@ void onIntent(const Json::Value& intent)
 	if (!isCoopBattle())
 	{
 		Log(LOG_WARNING) << "[coop-arbiter] bt_intent received outside an active coop battle - dropped";
+		return;
+	}
+
+	// SPEC 16 M2: admission freezes the moment a mid-Active-battle peer leave
+	// latches peerAbsent (M1) - no NEW intent is admitted while the peer is
+	// gone, even though the authority itself survives the drop. This does
+	// not touch an ALREADY-in-flight chain: that keeps draining on its own
+	// (drain-first, M2) - this only refuses a brand-new bt_intent, which in
+	// practice cannot arrive from the departed peer anyway; it guards a race
+	// with a not-yet-cleared connection or a future rejoin (M5).
+	if (coopBattleAuthority().peerAbsent)
+	{
+		Log(LOG_WARNING) << "[coop-arbiter] bt_intent received while peerAbsent - dropped";
 		return;
 	}
 
@@ -8490,7 +8530,7 @@ bool enqueueTx(std::string&& s)
 	return true;
 }
 
-void clearNetworkSessionQueues()
+void clearNetworkSessionQueues(bool resetAuthority)
 {
 	// Reset all shared packet queues so a new session starts like a fresh game launch.
 	// This clears stale packets left by the previous TCP/UDP session, including
@@ -8529,14 +8569,38 @@ void clearNetworkSessionQueues()
 	// is not load-bearing (each call only touches its own state), but battle
 	// authority is reset last so isCoopBattle()/coopBattleAuthority().phase
 	// read Idle immediately after every other battle store is already empty.
-	CoopPump::reset();
-	CoopIdMaps::reset();
-	resetBattleAuthority();
-	// R4-P1: clear this packet's own pending-handshake statics (client
-	// in-flight blob expectation, host pending briefing/saveBlob-hash state)
-	// at the SAME chokepoint - see CoopHandshake::resetPendingState()'s doc
-	// comment.
-	CoopHandshake::resetPendingState();
+	//
+	// SPEC 16 M2 (traced empirically, WV-D77): CoopPump::reset()'s
+	// resetCoopArbiterState() side effect clears the SAME action-context
+	// stack the RB-D5 pump point's drain-first quiescence check reads
+	// (CoopArbiter::currentActionId()) - leaving it unconditional here made
+	// that check read "quiesced" the instant a peer left, before an
+	// in-flight host walk's remaining steps ever executed, because the
+	// chain's own bookkeeping was wiped out from under it rather than popped
+	// by its normal onChainQuiesced() completion. So @a resetAuthority also
+	// gates CoopPump::reset()'s chain-state argument - the SAME single flag,
+	// since both are per-battle bookkeeping M1 needs to survive together on
+	// the mid-Active-battle spare path. Every other CoopPump::reset() effect
+	// (the apply queue, CoopEventLog/CoopReveal/CoopGhost) is untouched.
+	CoopPump::reset(resetAuthority);
+	// SPEC 16 M1: @a resetAuthority is false ONLY on the one mid-`Active`-
+	// battle peer-leave path (connectionTCP::disconnectTCP's host branch and
+	// its UDP twin, handleUdpRemotePeerLost()) - every other caller passes
+	// the default `true` and gets the unchanged, unconditional reset below.
+	// Sparing it there keeps the battle, battleId, seat map, turnMode and
+	// baton alive under the pause (peerAbsent latches instead, see the
+	// caller); the queue clear above still runs either way - a rejoin
+	// re-streams, so stale queues must still drop regardless.
+	if (resetAuthority)
+	{
+		CoopIdMaps::reset();
+		resetBattleAuthority();
+		// R4-P1: clear this packet's own pending-handshake statics (client
+		// in-flight blob expectation, host pending briefing/saveBlob-hash state)
+		// at the SAME chokepoint - see CoopHandshake::resetPendingState()'s doc
+		// comment.
+		CoopHandshake::resetPendingState();
+	}
 }
 
 // ===== R4-P1: battle-start handshake (CoopHandshake.h) =====
@@ -11777,6 +11841,37 @@ void connectionTCP::updateCoopTask()
 	// TEST-ONLY STOPGAP (W1-P7, same family and the same removal note as
 	// hold_chain above): defer_intents' release half.
 	CoopArbiter::releaseDeferredIntentsIfExpired();
+
+	// SPEC 16 (W1-P17) M2 (drain-first): the deferred pause-modal push. Armed
+	// by connectionTCP::disconnectTCP()'s host branch instead of pushing
+	// CoopState(COOP_DLG_WAIT_PLAYERS) synchronously on a mid-Active-battle
+	// leave (M1) - consumed here, at the same RB-D5 pump point the reveal
+	// flush/hold_chain release/defer_intents release already use, the moment
+	// the host's BState chain has quiesced (CoopArbiter::currentActionId()
+	// reads 0: no coop action context in flight). This boundary is
+	// chain-agnostic by construction - it is the SAME "quiesced" onIntent()'s
+	// own busy check reads, so a walk's action_end, a turn's action_end, and
+	// an AI/endturn side's own quiescence all clear it identically; nothing
+	// here special-cases a walk.
+	if (g_coopPauseModalPending && CoopArbiter::currentActionId() == 0)
+	{
+		g_coopPauseModalPending = false;
+		bool waitDialogPresent = false;
+		for (State* st : _game->getStates())
+		{
+			CoopState* cs = dynamic_cast<CoopState*>(st);
+			if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
+			{
+				waitDialogPresent = true;
+				break;
+			}
+		}
+		if (!waitDialogPresent)
+		{
+			connectionTCP::session.freeze();
+			_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+		}
+	}
 
 	// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): the order-feedback tick -
 	// WV-D24's intent timeout, the terminal-banner auto-clear, and the
@@ -19059,19 +19154,45 @@ void connectionTCP::disconnectTCP(bool isMain)
 		_voteRequestPending = false;
 		_voteStarterCooldownUntil.clear();
 
+		// Capture the machine role ONCE for this teardown - handlers used to
+		// mutate server_owner mid-flight and make the cleanup misclassify the
+		// machine (the disconnect->cancel bug family). Hoisted ABOVE
+		// clearNetworkSessionQueues() below (SPEC 16 M1): the mid-Active-battle
+		// spare gate needs it before that call runs, not after.
+		const bool teardownAsHost = (session.role == CoopRole::Host);
+
+		// SPEC 16 (W1-P17) M1 (F331 gate; owner-ruled mechanism, DECIDED (b)):
+		// a mid-`Active`-battle peer leave keeps the co-op battle authority
+		// ALIVE instead of tearing it down to Idle - the host survives, a
+		// client left, and a battle is actually live and Active right now.
+		// This is the ONLY site that ever passes resetAuthority=false to
+		// clearNetworkSessionQueues(); every other teardown (lobby, a
+		// handshake-phase leave, a full close, a leave once the campaign has
+		// ended) keeps the unconditional F331 reset unchanged.
+		const bool spareAuthorityOnPeerAbsent =
+			teardownAsHost
+			&& onConnect == -2
+			&& coopBattleLive(_game)
+			&& !campaignEnded()
+			&& coopBattleAuthority().phase == CoopBattlePhase::Active;
+
 	    OpenXcom::disconnectRendezvousUdp();
 
 		// Clear all shared TCP/UDP packet queues after the transport is stopped.
 		// This prevents stale packets from the previous session from affecting
-		// a newly hosted or joined session.
-		OpenXcom::clearNetworkSessionQueues();
+		// a newly hosted or joined session. SPEC 16 M1: on the mid-Active-battle
+		// leave path this spares resetBattleAuthority()/CoopIdMaps::reset()/
+		// CoopHandshake::resetPendingState() so the battle, battleId, seat map,
+		// turnMode and baton survive; the queue clear itself (CoopPump::reset,
+		// g_txQ/g_rxQ) still runs unconditionally either way - a rejoin
+		// re-streams, so stale queues must still drop.
+		OpenXcom::clearNetworkSessionQueues(!spareAuthorityOnPeerAbsent);
+		if (spareAuthorityOnPeerAbsent)
+		{
+			coopBattleAuthority().peerAbsent = true;
+		}
 
 		deleteAllCoopBases();
-
-		// Capture the machine role ONCE for this teardown - handlers used to
-		// mutate server_owner mid-flight and make the cleanup misclassify the
-		// machine (the disconnect->cancel bug family).
-		const bool teardownAsHost = (session.role == CoopRole::Host);
 
 		// issue #93: when the host vanishes the client is TOLD, and leaves when it
 		// says so. CoopState(21) "Server connection lost" is pushed just before
@@ -19147,6 +19268,24 @@ void connectionTCP::disconnectTCP(bool isMain)
 				{
 					Log(LOG_INFO) << "[coop] freeze dialog suppressed: the campaign "
 						"has ended; the peer has nothing left to reconnect for";
+				}
+				else if (spareAuthorityOnPeerAbsent)
+				{
+					// SPEC 16 M2 (drain-first): the co-op battle authority
+					// survives this leave (M1), so the host's in-flight
+					// BState chain (a walk, a turn, an AI/endturn side) must
+					// be allowed to drain to its own boundary (action_end /
+					// side_begin) before the pause modal steals the top of
+					// the state stack - pushing it here, synchronously, would
+					// freeze the battlescape's think() mid-chain, since only
+					// the TOP state thinks. Defer to the RB-D5 pump point's
+					// quiescence check (connectionTCP::updateCoopTask())
+					// instead; it consumes g_coopPauseModalPending the moment
+					// CoopArbiter::currentActionId() reads 0.
+					if (!waitDialogPresent)
+					{
+						g_coopPauseModalPending = true;
+					}
 				}
 				else if (!waitDialogPresent)
 				{

@@ -178,7 +178,12 @@ bool enqueueTx(std::string&& s);
 
 // Clears shared TCP/UDP transport queues and the updateCoopTask hold queue.
 // Call this when leaving a multiplayer session before starting a new one.
-void clearNetworkSessionQueues();
+// SPEC 16 (W1-P17) M1: @a resetAuthority defaults to true (the full F331
+// reset, unchanged for every existing caller); connectionTCP::disconnectTCP's
+// host branch and its UDP twin (handleUdpRemotePeerLost) are the ONLY
+// callers that ever pass false, on the one mid-`Active`-battle peer-leave
+// path where the co-op battle authority must survive the drop.
+void clearNetworkSessionQueues(bool resetAuthority = true);
 
 class Game;
 class Ufo;

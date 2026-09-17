@@ -6995,6 +6995,12 @@ std::string TestServer::execute(const std::string& line)
 				authority["localSeat"] = a.localSeat.load();
 				authority["battleId"] = a.battleId.load();
 				authority["desyncFrozen"] = a.desyncFrozen.load();
+				// SPEC 16 (W1-P17) M1, F337's NEW probe: latched on a mid-
+				// Active-battle peer leave that spared the authority reset
+				// (see connectionTCP::disconnectTCP), so a test can assert
+				// "paused, not torn down" without inferring it from the
+				// dialog alone.
+				authority["peerAbsent"] = a.peerAbsent.load();
 				resp["authority"] = authority;
 				resp["queueDepth"] = CoopPump::queueDepth();
 				resp["txDrains"] = CoopEmit::txDrainEvents();

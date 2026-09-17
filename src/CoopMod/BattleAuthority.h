@@ -248,6 +248,20 @@ struct BattleAuthority
 	/// repair, never cleared mid-battle (SS2.8): rejoin is post-spike.
 	std::atomic<bool> desyncFrozen{false};
 
+	/// SPEC 16 (W1-P17) M1: latched when a mid-`Active`-battle peer LEAVE
+	/// (graceful `disconnect_to_menu` or a liveness/socket-loss detection)
+	/// spares the F331 authority reset instead of tearing the battle down to
+	/// Idle - the battle, `battleId`, seat map, `turnMode` and baton all
+	/// survive under it (see connectionTCP::disconnectTCP's host branch and
+	/// its UDP twin, handleUdpRemotePeerLost()). Cleared back to false by
+	/// resetBattleAuthority() (same discipline as desyncFrozen above) and by
+	/// a successful rejoin-restream (M5, a later cycle). Reported additively
+	/// on `battle_state.authority.peerAbsent` (TestServer.cpp) so a test can
+	/// assert "paused, not torn down" without inferring it from the dialog
+	/// alone. std::atomic for the same cross-thread reason as desyncFrozen
+	/// (the UDP-monitor-thread race noted above the enum).
+	std::atomic<bool> peerAbsent{false};
+
 	/// Seat -> FACTION_* lookup, backed by the private store below. R2-P3
 	/// interim (RB-D18): the store starts empty and factionOf() falls back
 	/// to FACTION_PLAYER for any unmapped/out-of-range seat - correct for

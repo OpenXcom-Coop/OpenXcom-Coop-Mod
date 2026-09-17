@@ -18,6 +18,10 @@
 #include "connection_lan_discovery.h"
 #include "rendezvous_config.h"
 #include "../connectionTCP.h"
+// SPEC 16 (W1-P17) M1: handleUdpRemotePeerLost() below needs
+// coopBattleAuthority()/isCoopBattle() for the mid-Active-battle peer-leave
+// gate - the same reason connectionTCP.cpp includes this header directly.
+#include "../BattleAuthority.h"
 
 #include <array>
 #include <atomic>
@@ -615,9 +619,32 @@ void disconnectRendezvousUdp()
 
 void handleUdpRemotePeerLost()
 {
+    // SPEC 16 (W1-P17) M1 (F331 gate) - the UDP twin of
+    // connectionTCP::disconnectTCP()'s host branch: a mid-`Active`-battle
+    // peer loss on the HOST keeps the co-op battle authority ALIVE instead
+    // of tearing it down to Idle. Must be read BEFORE clearNetworkSessionQueues()
+    // below (it decides that call's resetAuthority argument) and BEFORE
+    // onConnect is overwritten a few lines down. isCoopBattle() is
+    // getCoopStatic() (onConnect==1, still true on every path that reaches
+    // this function while a battle is live) && phase==Active - exactly the
+    // mid-Active-battle condition M1 needs.
+    const bool sparePeerAbsentUdp =
+        connectionTCP::getServerOwner()
+        && onConnect != -1
+        && isCoopBattle()
+        && !connectionTCP::campaignEnded();
+
     // Drop packets from the old peer before the host relists or the client
     // returns to menus. This matches a fresh process start more closely.
-    clearNetworkSessionQueues();
+    // SPEC 16 M1: resetAuthority=false on the mid-Active-battle spare path
+    // (see sparePeerAbsentUdp above) - every other UDP-side caller of
+    // clearNetworkSessionQueues() (startUdpPeer/stopUdpPeer/
+    // clearAllReceivedUDPPackets) keeps the default full reset unchanged.
+    clearNetworkSessionQueues(!sparePeerAbsentUdp);
+    if (sparePeerAbsentUdp)
+    {
+        coopBattleAuthority().peerAbsent = true;
+    }
 
     // Called by connectionUDP glue when the UDP worker stops by itself. This
     // covers both a graceful F_CLOSE and a forced client shutdown detected by

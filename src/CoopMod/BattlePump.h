@@ -80,7 +80,24 @@ std::uint32_t queueDepth();
 /// and (SS2.2 "reset by a new battle") CoopEmit's host seq-mint counter.
 /// R2-P8 wires the actual call site at the battle teardown chokepoint; this
 /// packet only implements the function.
-void reset();
+///
+/// SPEC 16 (W1-P17) M2: @a resetChainState defaults to true (every existing
+/// caller keeps clearing CoopArbiter's action-context stack/actionId mint/
+/// pending-chain-actor bookkeeping via resetCoopArbiterState(), unchanged).
+/// connectionTCP::clearNetworkSessionQueues() is the ONLY caller that ever
+/// passes false, on the one mid-`Active`-battle peer-leave path where an
+/// in-flight host BState chain (a walk, a turn, an AI/endturn side) must be
+/// allowed to drain to its own boundary and pop ITSELF via the normal
+/// onChainQuiesced() path - clearing the stack out from under it here would
+/// make CoopArbiter::currentActionId() read 0 the instant the peer leaves,
+/// which falsely satisfies the drain-first quiescence check before the
+/// chain has actually finished (traced empirically: onChainQuiesced() never
+/// fires and the walk visibly stops mid-path when this is left
+/// unconditional). Every other CoopPump::reset() effect (the apply queue,
+/// lastSeqApplied, g_battleFrozen, the seq-mint counter, CoopEventLog/
+/// CoopReveal/CoopGhost) is UNCHANGED by this parameter - only
+/// resetCoopArbiterState() is gated.
+void reset(bool resetChainState = true);
 
 } // namespace CoopPump
 
