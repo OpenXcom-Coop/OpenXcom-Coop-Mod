@@ -19700,7 +19700,19 @@ void connectionTCP::disconnectTCP(bool isMain)
 			// seat(s) can still close the side. Self-guarded (isCoopBattle()
 			// && hostSim inside); a no-op here whenever the battle already
 			// ended or never started (getStaticBattle() null).
-			CoopEndTurn::onSeatSetChanged(connectionTCP::getStaticBattle());
+			//
+			// D98/D91: NOT on the M1 mid-Active pause path
+			// (spareAuthorityOnPeerAbsent). The absent seat there is
+			// PAUSED-and-coming-back, not gone - recomputing `needed` down
+			// to the surviving seat count would leave the host armed to
+			// close the side SOLO (a "END TURN 1/1" state), which D91
+			// forbids. The tally must freeze at its pre-drop value; a
+			// rejoin re-streams the live seat set and any subsequent real
+			// teardown still calls onSeatSetChanged() below, unguarded.
+			if (!spareAuthorityOnPeerAbsent)
+			{
+				CoopEndTurn::onSeatSetChanged(connectionTCP::getStaticBattle());
+			}
 		}
 		else
 		{

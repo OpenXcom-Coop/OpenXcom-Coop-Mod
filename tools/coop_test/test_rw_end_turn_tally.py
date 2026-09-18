@@ -20,12 +20,19 @@ un-arm (L3), the CONSTRUCTED stale press plus its positive control
 (REV E.48 C.2 / D57, L4), a full three-transition cycle with both seats
 armed (REV E.48 C.1, L5), the tally's inertness on the two zero-human-seat
 phases plus the boundary reset (L6), and finally - LAST, because it ends the
-client - the REV E.51 E51.3 F174 authority-reset clear (L7'): after the host
-has armed its own seat and the client leaves, the host's painted tally text
-and its button's inverted state are CLEARED at battle-authority reset, so no
-"END TURN 1/2" survives a drop. REV E.48 C.3's seat-loss claim (the host
-advancing the side once `needed` drops to 1) is DELETED by owner ruling D69
-= (d): seat loss = pause-on-leave, r4 T4/T5; not exercised in wave 1 (D69).
+client - the D98 tally-freeze (L7', SPEC 16 cycle 5): after the host has
+armed its own seat and the client leaves, SPEC 16 M1 keeps the co-op battle
+authority ALIVE (phase stays "Active", authority.peerAbsent goes true)
+instead of tearing it down, so the host's painted tally text and its
+button's latched state FREEZE at their pre-drop value - "END TURN 1/2"
+SURVIVES a drop, it does not clear. This replaces the OLD REV E.51 E51.3
+F174 authority-reset clear (a full teardown used to wipe the tally; that
+path is gone by design now that a mid-Active drop pauses instead of tearing
+down). REV E.48 C.3's seat-loss claim (the host advancing the side once
+`needed` drops to 1) remains DELETED by owner ruling D69 = (d): seat loss
+is pause-on-leave (r4 T4/T5), and D98/D91 forbid the host being left armed
+to close the side SOLO (a "1/1" state) - `needed` stays frozen at 2, it
+does not recompute down to the surviving seat count.
 
 BOOT B (client UNSEATED via `seat_client=False`): REV E.48 C.4's spectator
 case - a CONNECTED seat with no live commandable unit on the active side is
@@ -71,9 +78,11 @@ zero-human-seat phases still emit NONE between them, which remains the
 property this leg exists to prove.
 
 Cites SPEC 10, REV E.48 SS.C, REV E.50 (D66/E50.1, D67/E50.2, D68/E50.3),
-REV E.51 (D69 = (d)/E51.1 - the C.3 seat-loss leg deleted, E51.3 - L7's F174
-authority-reset clear, E51.4 - BOOT B's counter form), WV-D46/IR2-4, WR-3,
-WR-4, WR-20, D-24, D53 (SS.C.4 - the LIVE seat definition), D57 (SS.C.2 - the
+REV E.51 (D69 = (d)/E51.1 - the C.3 seat-loss leg deleted, E51.3 - the OLD
+F174 authority-reset clear, superseded below, E51.4 - BOOT B's counter
+form), SPEC 16 (D91 - host-continues-solo forbidden, D98 - L7' re-pointed
+to the M1 pause tally-freeze, cycle 5), WV-D46/IR2-4, WR-3, WR-4, WR-20,
+D-24, D53 (SS.C.4 - the LIVE seat definition), D57 (SS.C.2 - the
 constructed stale press).
 
 BOOT C (W1-P13c / SPEC 11, REV E.52 E52.1, added by commit 1 of this unit -
@@ -117,6 +126,9 @@ COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 MISSION = "STR_SMALL_SCOUT"
 TALLY_TEXT_1_OF_2 = "END TURN 1/2"
+# D98 (SPEC 16 M1 pause modal) - CoopState state code, matches
+# test_spec16_pause_on_leave.py's own constant of the same name.
+COOP_DLG_WAIT_PLAYERS = 62
 
 
 def states(gc):
@@ -471,14 +483,23 @@ def run_boot_a():
               f"{client_seen_after_cycle}); the new player side reads "
               "count=0/needed=2 on both; text==''; button un-latched")
 
-        # ----- L7': REV E.51 E51.3 - the F174 authority-reset clear, LAST
-        # leg, ends the client. REV E.48 C.3's seat-loss claim is DELETED
-        # (owner ruling D69 = (d), 2026-09-12): a client leaving a live coop
-        # battle HALTS the game for everyone until it reconnects
-        # (pause-on-leave, r4 T4/T5), so "the host advances the side with a
-        # single vote" is not a true statement and is asserted NOWHERE
-        # below. L7' asserts NOTHING about `needed`, nothing about a side
-        # advance, and nothing about the client. -----
+        # ----- L7': D98 (owner-ruled, SPEC 16 cycle 5) - the tally-freeze
+        # that REPLACES the OLD REV E.51 E51.3 F174 authority-reset clear.
+        # SPEC 16 M1 keeps a mid-Active client drop's co-op battle authority
+        # ALIVE (phase stays "Active", authority.peerAbsent goes true)
+        # instead of tearing it down to Idle, so there is no more
+        # battle-authority reset on this path to clear the tally at. D91
+        # forbids the host being left free to advance the side SOLO once
+        # `needed` would otherwise drop 2->1 (a "1/1" armed state), so D98
+        # gates CoopEndTurn::onSeatSetChanged() off the M1 pause path - the
+        # tally FREEZES at its pre-drop value instead. This is the LAST leg,
+        # and ends the client. REV E.48 C.3's seat-loss claim (the host
+        # advancing the side once `needed` drops to 1) remains DELETED
+        # (owner ruling D69 = (d)): a client leaving a live coop battle
+        # HALTS the game for everyone until it reconnects (pause-on-leave,
+        # r4 T4/T5), so "the host advances the side with a single vote" is
+        # not a true statement and is asserted NOWHERE below. L7' asserts
+        # NOTHING about a side advance and nothing about the client. -----
 
         # The HOST arms its OWN seat first (count 1 of needed 2), so the
         # side does NOT advance (measured - see the pinned R1 table: host
@@ -493,39 +514,65 @@ def run_boot_a():
         host.wait_for("host paints END TURN 1/2 and its own button arms "
                       "before the drop (non-vacuity, REV E.51 E51.3)",
                       host_armed_pre_drop, timeout=15)
-        # The pre-drop capture: makes the post-drop assertion below
+        # The pre-drop capture: makes the post-drop assertions below
         # non-vacuous, and every failure message quotes it.
-        pre_drop_text = battle_state(host).get("coopEndTurnText")
-        pre_drop_armed = battle_state(host).get("coopEndTurnArmed")
+        pre_drop_bs = battle_state(host)
+        pre_drop_text = pre_drop_bs.get("coopEndTurnText")
+        pre_drop_armed = pre_drop_bs.get("coopEndTurnArmed")
+        pre_drop_side = pre_drop_bs.get("side")
+        pre_drop_turn = pre_drop_bs.get("turn")
 
         client.ok({"cmd": "disconnect_to_menu"})
 
-        def host_text_cleared():
-            return True if battle_state(host).get("coopEndTurnText") == "" else None
-        host.wait_for("host's painted tally text clears at battle-authority "
-                      "reset after the client's departure (REV E.51 E51.3 / "
-                      "D69 / F174)", host_text_cleared, timeout=20)
+        def host_paused_peer_absent():
+            authority = battle_state(host).get("authority", {})
+            return True if authority.get("peerAbsent") is True else None
+        host.wait_for("host's battle authority marks the departed peer "
+                      "absent (SPEC 16 M1 pause, D98)",
+                      host_paused_peer_absent, timeout=20)
 
         post_drop = battle_state(host)
+        post_authority = post_drop.get("authority", {})
+        dlg = host.cmd({"cmd": "coop_dialog_info"})
+        assert post_authority.get("peerAbsent") is True, (
+            f"L7' (D98): host's authority.peerAbsent did not go True after "
+            f"the client's departure: {post_authority}")
+        assert post_drop.get("phase") == "Active", (
+            f"L7' (D98): host's battle phase is not 'Active' after the "
+            f"client's departure - the M1 pause must keep the authority "
+            f"alive, not tear it down: {post_drop.get('phase')!r}")
         assert post_drop.get("inBattle") is True, (
-            f"L7' (REV E.51 E51.3 / D69 / F174): host is not inBattle after "
-            f"the client's departure - pre-drop was text={pre_drop_text!r} "
+            f"L7' (D98): host is not inBattle after the client's "
+            f"departure - pre-drop was text={pre_drop_text!r} "
             f"armed={pre_drop_armed!r}: {post_drop}")
-        assert post_drop.get("coopEndTurnText") == "", (
-            f"L7' (REV E.51 E51.3 / D69 / F174): host's coopEndTurnText did "
-            f"not clear at battle-authority reset - pre-drop was "
-            f"{pre_drop_text!r}, post-drop is "
-            f"{post_drop.get('coopEndTurnText')!r}")
-        assert post_drop.get("coopEndTurnArmed") is False, (
-            f"L7' (REV E.51 E51.3 / D69 / F174): host's coopEndTurnArmed did "
-            f"not clear at battle-authority reset - pre-drop was "
-            f"{pre_drop_armed!r}, post-drop is "
+        assert post_drop.get("side") == pre_drop_side, (
+            f"L7' (D98): side changed across the pause - pre-drop "
+            f"{pre_drop_side!r}, post-drop {post_drop.get('side')!r}")
+        assert post_drop.get("turn") == pre_drop_turn, (
+            f"L7' (D98): turn changed across the pause - pre-drop "
+            f"{pre_drop_turn!r}, post-drop {post_drop.get('turn')!r}")
+        assert post_drop.get("coopEndTurnText") == TALLY_TEXT_1_OF_2, (
+            f"L7' (D98): host's coopEndTurnText did not FREEZE at the "
+            f"pre-drop tally - pre-drop was {pre_drop_text!r}, post-drop is "
+            f"{post_drop.get('coopEndTurnText')!r} (onSeatSetChanged() must "
+            f"stay gated off the M1 pause path, or `needed` drops 2->1 and "
+            f"the host ends up armed at 1/1 - D91 forbids host-continues-"
+            f"solo)")
+        assert post_drop.get("coopEndTurnArmed") is True, (
+            f"L7' (D98): host's coopEndTurnArmed did not stay latched - "
+            f"pre-drop was {pre_drop_armed!r}, post-drop is "
             f"{post_drop.get('coopEndTurnArmed')!r}")
-        print(f"[L7'] F174 authority-reset clear (REV E.51 E51.3 / D69): "
-              f"after the client's disconnect_to_menu, the host's painted "
-              f"tally and armed bit were CLEARED - text {pre_drop_text!r} -> "
-              f"{post_drop.get('coopEndTurnText')!r}, armed "
-              f"{pre_drop_armed!r} -> {post_drop.get('coopEndTurnArmed')!r}")
+        assert dlg.get("present") and dlg.get("code") == COOP_DLG_WAIT_PLAYERS, (
+            f"L7' (D98): the wait-for-players dialog (code "
+            f"{COOP_DLG_WAIT_PLAYERS}) is not up over the paused battle: "
+            f"{dlg}")
+        print(f"[L7'] D98 tally-freeze (SPEC 16 M1 pause replaces the OLD "
+              f"F174 authority-reset clear): after the client's "
+              f"disconnect_to_menu, the host's painted tally and armed bit "
+              f"stayed FROZEN at {pre_drop_text!r}/armed={pre_drop_armed!r} "
+              f"while authority.peerAbsent=True, phase=Active, side/turn "
+              f"unchanged ({pre_drop_side!r}/{pre_drop_turn!r}), dialog "
+              f"{COOP_DLG_WAIT_PLAYERS} up")
 
         print("PASS: test_rw_end_turn_tally BOOT A (classic, seat_count=2)")
     finally:
