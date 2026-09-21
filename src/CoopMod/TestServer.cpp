@@ -2667,6 +2667,22 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 					arr.append(j);
 				}
 			resp["soldiers"] = arr;
+			// SPEC 19 (W1-P20) F390: `fresh`'s SavedBattleGame::load() (this save has
+			// a live battle) populated its _mapDataSets from Mod::getMapDataSet(name)
+			// - a CACHE that returns the Mod's ONE shared MapDataSet per name, the
+			// very same objects the LIVE host battle's tiles still point at
+			// (Tile::_objects[]). ~SavedBattleGame() unloadData()s every one of them
+			// (frees each MapData* + drops the SurfaceSet) - freeing map data the
+			// live battle still reads on every frame (Tile::animate ->
+			// Tile::updateSprite -> MapData::getDataset()->getSurfaceset(), a freed
+			// MapDataSet*). Same borrowed-pointer family as issue #124 and the
+			// turn_mode_save_roundtrip lever above. Detach `fresh`'s copy of the
+			// vector before deleting it so its dtor has nothing to unload; Mod
+			// still owns (and keeps using) the real objects.
+			if (fresh->getSavedBattle())
+			{
+				fresh->getSavedBattle()->getMapDataSets()->clear();
+			}
 			delete fresh;
 			resp["ok"] = true;
 		}
