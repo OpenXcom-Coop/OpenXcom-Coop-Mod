@@ -49,6 +49,7 @@
 #include "../CoopMod/SharedEcon.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/CoopHandshake.h"
+#include "../CoopMod/CoopBattleSetup.h"
 
 namespace OpenXcom
 {
@@ -352,6 +353,16 @@ void ConfirmLandingState::btnYesClick(Action *)
 		else
 		{
 			throw Exception("No mission available!");
+		}
+
+		if (coopLanding)
+		{
+			// SPEC 19 (W1-P20) M1 (F358): the owner->seat stamp this entry was
+			// missing (present, byte-identical, at the three other stamp
+			// sites). Stamp BEFORE generate - the same order Cydonia and both
+			// base-defense arms use (F365). Body: CoopBattleSetup.h/
+			// CoopState.cpp; no logic here.
+			coopStampCraftSeats(_craft);
 		}
 
 		bgen.run();

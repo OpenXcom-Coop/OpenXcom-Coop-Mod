@@ -25,6 +25,7 @@ namespace OpenXcom
 {
 
 class SavedBattleGame;
+class Craft;
 
 /**
  * R5-P1 (rewrite spike, SPIKE-RUNBOOK.md RB-D23): the ONE generation-time
@@ -96,5 +97,40 @@ class SavedBattleGame;
  * + faction; it never touches BattleUnit::getUnitRules()/setUnitRulesCoop().
  */
 void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vector<int>& seats);
+
+/**
+ * SPEC 19 (W1-P20) M1 (F358): the owner->seat stamp that F358 found present at
+ * THREE craft-generation entry sites (ConfirmCydoniaState.cpp:109-118,
+ * GeoscapeState.cpp:6078-6085 SHARED base defense, :6099-6106 SEPARATE base
+ * defense - all byte-identical, untouched by this packet) and MISSING at the
+ * fourth: ConfirmLandingState::btnYesClick, the entry every mission-site/UFO
+ * battle takes. For every soldier of @a craft's base seated on @a craft
+ * (Soldier::getCraft() == @a craft): setCoop(owner == 999 ? 0 : owner) - the
+ * N-seat-correct shape already used post-battle (GeoscapeState.cpp:986-989,
+ * giftSoldier, SharedEcon.cpp:1522), not the three existing sites' 2-seat-only
+ * `(owner == 0 || owner == 999) ? 0 : 1` shape (left alone - no churn in
+ * accepted behaviour; folding all four into one shape is a later hygiene
+ * row). For every vehicle of @a craft: setCoop(0) (D105: HWPs are not seated
+ * by owner in wave 1 - assignSeatsAndFactions() above has no Soldier owner to
+ * read for them and falls back to COOP_SEAT_NONE regardless).
+ *
+ * Deliberately does NOT write coopBase: F366's post-battle cleanup
+ * (GeoscapeState.cpp:975-1005) keys a transferred guest's survival on
+ * `coopBase != -1`, so this stamp must never clear it; Cydonia's own
+ * `setCoopBase(-1)` is Cydonia's site's call and is untouched.
+ *
+ * Called ONCE, from ConfirmLandingState::btnYesClick, inside a new
+ * `if (coopLanding)` block placed immediately BEFORE vanilla `bgen.run()` -
+ * the same stamp-then-generate order Cydonia and both base-defense arms use
+ * (F365: a merged/seated guest must be on the craft at generation time to be
+ * deployed at all). Runs for SHARED and SEPARATE alike: in SHARED it is the
+ * whole fix (F358); in SEPARATE the host's own soldiers are owner 999/0 -> a
+ * seat-0 no-op, while a guest merged onto the craft by
+ * coopMergeGuestContributions() just above this call carries the client's own
+ * seat in ownerPlayerId already, so this reasserts (not assigns) its coop
+ * seat. Body lives in CoopState.cpp, beside assignSeatsAndFactions() (RB-D23:
+ * no new .cpp).
+ */
+void coopStampCraftSeats(Craft* craft);
 
 } // namespace OpenXcom

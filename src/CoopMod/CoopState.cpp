@@ -2056,4 +2056,30 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 	}
 }
 
+// SPEC 19 (W1-P20) M1 (F358): see the doc comment in CoopBattleSetup.h.
+void coopStampCraftSeats(Craft* craft)
+{
+	if (!craft)
+		return;
+
+	Base* base = craft->getBase();
+	if (!base)
+		return;
+
+	for (auto* soldier : *base->getSoldiers())
+	{
+		if (!soldier || soldier->getCraft() != craft)
+			continue;
+
+		const int owner = soldier->getOwnerPlayerId();
+		soldier->setCoop(owner == 999 ? 0 : owner);
+	}
+
+	for (auto* vehicle : *craft->getVehicles())
+	{
+		if (vehicle)
+			vehicle->setCoop(0);
+	}
+}
+
 }
