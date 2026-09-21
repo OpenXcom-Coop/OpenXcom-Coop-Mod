@@ -295,6 +295,16 @@ DebriefingState::DebriefingState() :
 	_lstRecoveredItems->setColumns(2, firstColumnWidth, 18);
 	_lstRecoveredItems->setAlign(ALIGN_LEFT);
 	_lstRecoveredItems->setDot(true);
+
+	// coop (F389): this is the host's battle-end chokepoint (abort/win/lose all
+	// route through here via BattlescapeState::finishBattle before the geoscape
+	// is shown). Mark the mission end so the GeoscapeState post-battle cleanup
+	// (F366 merged-guest deletion + processPendingSoldierGifts) runs. Host-only
+	// and connected-session-only: never fires in single-player or on the client.
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
+	{
+		_game->getCoopMod()->coopMissionEnd = true;
+	}
 }
 
 /**
