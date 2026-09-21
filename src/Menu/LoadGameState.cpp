@@ -325,34 +325,29 @@ void LoadGameState::think()
 
 				if (_game->getSavedGame()->getSavedBattle() != 0)
 				{
-					// R1-P5/R4-REWIRE: coop mid-battle resume - both the
-					// "inventory_battle_window" briefing-based rejoin (BriefingState::
-					// loadCoop()) and the pvp2 seat/faction-flip resume
-					// (BattleUnit::setOriginalFaction/setUnitRulesCoop,
-					// SavedBattleGame::resetCoopTiles), plus the resume_ack/
-					// close_load_progress handshake that used to follow - is
-					// quarantined pending the r4/r5 atomic-bundle rebuild (RB-D9);
-					// those symbols died with the vanilla restore (911ca487f). SP
-					// mid-battle resume (the else branch) is untouched.
-					if (_game->getCoopMod()->getCoopStatic() == true)
-					{
-						_game->getSavedGame()->setBattleGame(0);
-						_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
-					}
-					else
-					{
-						_game->getSavedGame()->getSavedBattle()->loadMapResources(_game->getMod());
-						Options::baseXResolution = Options::baseXBattlescape;
-						Options::baseYResolution = Options::baseYBattlescape;
-						_game->getScreen()->resetDisplay(false);
-						BattlescapeState *bs = new BattlescapeState;
+					// SPEC 18 (r4 T4) M5: the R1-P5/R4-REWIRE stub that used to sit
+					// here (a getCoopStatic()==true branch dropping the loaded
+					// battle behind COOP_DLG_BATTLE_UNAVAILABLE) is DELETED - it was
+					// unreachable in a live flow (the host always loads BEFORE
+					// hosting, so getCoopStatic() is false at this menu load; a
+					// connected client can never reach LoadGameState at all,
+					// localLoadsAllowed()) and its only effect was to drop a coop
+					// mid-battle save that the r4 disk-resume flow
+					// (CoopHandshake::offerResumedBattle(), connectionTCP.cpp) now
+					// serves to a rejoining peer. The vanilla push below is
+					// therefore unconditional, byte-identical to SP mid-battle
+					// resume.
+					_game->getSavedGame()->getSavedBattle()->loadMapResources(_game->getMod());
+					Options::baseXResolution = Options::baseXBattlescape;
+					Options::baseYResolution = Options::baseYBattlescape;
+					_game->getScreen()->resetDisplay(false);
+					BattlescapeState *bs = new BattlescapeState;
 
-						_game->pushState(bs);
+					_game->pushState(bs);
 
-						_game->getSavedGame()->getSavedBattle()->setBattleState(bs);
-						// Try to reactivate the touch buttons
-						bs->toggleTouchButtons(false, true);
-					}
+					_game->getSavedGame()->getSavedBattle()->setBattleState(bs);
+					// Try to reactivate the touch buttons
+					bs->toggleTouchButtons(false, true);
 				}
 
 				// flow-redesign F3: a co-op campaign save loaded from the
