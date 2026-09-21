@@ -5065,6 +5065,30 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// the honoured value deterministic across a side boundary. Read-only,
 		// test-only, never forwarded on the wire.
 		resp["coopPendingTallyTurn"] = coopBattleAuthority().pendingTallyTurn.load();
+		// SPEC 19 (W1-P20) M2 Branch B, NEW (additive): the guest-roster
+		// census vacuity guard (S1) - proof the battle_roster_contrib roster
+		// actually travelled, not just an absence any unrelated failure could
+		// also produce. `sent` is THIS machine's own last-computed census
+		// count (client: >= 1 once it has a guest seated on a peer craft;
+		// host/SHARED: 0, nothing to contribute). `soldiers[seat]` is the
+		// HOST's per-seat stored count (coopGuestContribStoredCount());
+		// `recvSeats` lists which seats currently have a non-empty store.
+		{
+			Json::Value guestContrib(Json::objectValue);
+			guestContrib["sent"] = coopGuestContribLastSentCount();
+			Json::Value recvSeats(Json::arrayValue);
+			Json::Value perSeatCounts(Json::arrayValue);
+			for (int s = 0; s < 4; ++s)
+			{
+				int n = coopGuestContribStoredCount(s);
+				perSeatCounts.append(n);
+				if (n > 0)
+					recvSeats.append(s);
+			}
+			guestContrib["recvSeats"] = recvSeats;
+			guestContrib["soldiers"] = perSeatCounts;
+			resp["guestContrib"] = guestContrib;
+		}
 		resp["ok"] = true;
 	}
 	else if (cmd == "hash_now")

@@ -1124,6 +1124,14 @@ class connectionTCP
 	// per peer base so the base that HOUSES a soldier is the one that pays for
 	// it. Sends only when the tally actually changed; call freely.
 	void sendGuestCensus(bool force = false);
+	// SPEC 19 (W1-P20) M2 Branch B: per-tick census of THIS machine's guest
+	// soldiers seated on a peer craft (getCoopBase()/getCoopCraft() both set),
+	// grouped by destination (baseId/craftId/craftType) and sent as
+	// battle_roster_contrib (BattleWire.h) so the host can materialise them at
+	// the craft-landing entry BEFORE generation. Mirrors sendGuestCensus()'s
+	// shape exactly: computed every tick, sent only when a destination's
+	// serialized set changed. No-op on SHARED (one world, no guest concept).
+	void sendGuestRosterContrib();
 };
 
 }

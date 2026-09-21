@@ -570,4 +570,34 @@ int coopWalkIntentsFromClick();
 /// AI-only side.
 bool coopSuppressNonPlayerThink(const SavedBattleGame* s);
 
+/// SPEC 19 (W1-P20) M2 Branch B: the HOST's per-seat store of the latest
+/// battle_roster_contrib (BattleWire.h) received from that seat - test/
+/// introspection + CoopState.cpp's coopMergeGuestContributions() reads.
+/// Defined in connectionTCP.cpp beside the store itself; cleared by
+/// resetBattleAuthority(). @a seat is 0..3 (RB-D17: kMaxSeats is private and
+/// stays 4); out-of-range returns the empty/false/zero default.
+///
+/// How many guest-soldier YAML entries are currently stored for @a seat.
+/// Reported by TestServer's `event_state` as `guestContrib.soldiers[seat]`
+/// (S1's vacuity guard: the roster actually travelled).
+int coopGuestContribStoredCount(int seat);
+
+/// Whether @a seat's stored entry names the craft (@a craftId + @a
+/// craftType) coopMergeGuestContributions() is about to generate for - the
+/// match coopMergeGuestContributions() itself needs before it deserialises
+/// anything stored for that seat.
+bool coopGuestContribCraftMatches(int seat, int craftId, const std::string& craftType);
+
+/// The @a index'th stored guest Soldier YAML for @a seat (Soldier::save()'s
+/// wire form), or an empty string if out of range - coopMergeGuestContrib-
+/// utions() deserialises each of these via Soldier::load().
+const std::string& coopGuestContribSoldierYaml(int seat, int index);
+
+/// The CLIENT's own count of guest soldiers in the last battle_roster_contrib
+/// census it computed (connectionTCP::sendGuestRosterContrib()) - 0 if none
+/// (host, SHARED campaign, or no SEPARATE guest waiting yet). Reported by
+/// TestServer's `event_state` as `guestContrib.sent` (S1's vacuity guard,
+/// the client-side half).
+int coopGuestContribLastSentCount();
+
 } // namespace OpenXcom

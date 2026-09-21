@@ -2405,6 +2405,52 @@ void initBattleAuthority(std::uint32_t battleId)
 // teardown can clear a stale arm for a battle that no longer exists.
 static bool g_coopPauseModalPending = false;
 
+// SPEC 19 (W1-P20) M2 Branch B: the HOST's per-seat store of the latest
+// battle_roster_contrib (BattleWire.h) received from that seat - the
+// client's guest-soldier YAML census, consumed by CoopState.cpp's
+// coopMergeGuestContributions() at the craft-landing entry BEFORE
+// generation. Declared here, above resetBattleAuthority(), for the same
+// reason g_coopPauseModalPending is: a full teardown must not leave a stale
+// entry armed for a battle that no longer exists. Host-inbound only; never
+// hashed, never seq-ordered (BattleWire.h::isBattleKind()/isSeqOrdered()).
+struct CoopGuestContribEntry
+{
+	int craftId = -1;
+	std::string craftType;
+	std::vector<std::string> soldiers; // each guest's Soldier::save() YAML
+};
+static CoopGuestContribEntry g_guestContrib[4]; // kMaxSeats (RB-D17: private, stays 4)
+
+int coopGuestContribStoredCount(int seat)
+{
+	if (seat < 0 || seat >= 4)
+		return 0;
+	return (int)g_guestContrib[seat].soldiers.size();
+}
+
+bool coopGuestContribCraftMatches(int seat, int craftId, const std::string& craftType)
+{
+	if (seat < 0 || seat >= 4)
+		return false;
+	return g_guestContrib[seat].craftId == craftId && g_guestContrib[seat].craftType == craftType;
+}
+
+const std::string& coopGuestContribSoldierYaml(int seat, int index)
+{
+	static const std::string kEmpty;
+	if (seat < 0 || seat >= 4)
+		return kEmpty;
+	if (index < 0 || index >= (int)g_guestContrib[seat].soldiers.size())
+		return kEmpty;
+	return g_guestContrib[seat].soldiers[index];
+}
+
+// The CLIENT's own count of guest soldiers in the last battle_roster_contrib
+// census it actually computed (regardless of whether the wire packet itself
+// was resent this tick - see sendGuestRosterContrib()).
+static int g_guestContribLastSentCount = 0;
+int coopGuestContribLastSentCount() { return g_guestContribLastSentCount; }
+
 void resetBattleAuthority()
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -2437,6 +2483,15 @@ void resetBattleAuthority()
 	// SPEC 16 M2: a full teardown must not leave a stale deferred pause-modal
 	// push armed for a battle that no longer exists.
 	g_coopPauseModalPending = false;
+	// SPEC 19 (W1-P20) M2 Branch B: same discipline - a stale guest-roster
+	// contribution must not survive into a battle that no longer exists.
+	for (auto& entry : g_guestContrib)
+	{
+		entry.craftId = -1;
+		entry.craftType.clear();
+		entry.soldiers.clear();
+	}
+	g_guestContribLastSentCount = 0;
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -11525,6 +11580,94 @@ void connectionTCP::sendGuestCensus(bool force)
 	sendTCPPacketData(payload);
 }
 
+// SPEC 19 (W1-P20) M2 Branch B: serialize a guest Soldier for the wire (the
+// same Soldier::save()/YAML form CoopState.cpp's coopMergeGuestContributions()
+// deserialises via Soldier::load() - see its doc comment).
+static std::string coopSerializeGuestSoldier(Game* game, Soldier* soldier)
+{
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	soldier->save(writer["soldier"], game->getMod()->getScriptGlobal());
+	return writer.emit().yaml;
+}
+
+// Last battle_roster_contrib payload actually put on the wire, per
+// destination key ("baseId:craftId:craftType") - mirrors _lastGuestCensus
+// above, one entry per destination instead of one for the whole machine.
+static std::map<std::string, std::string> _lastRosterContribSent;
+
+/**
+ * SPEC 19 (W1-P20) M2 Branch B: per-tick census of THIS machine's guest
+ * soldiers seated on a peer craft (sendGuestCensus()'s "compute every tick,
+ * send only on change" shape, extended from a headcount to the actual
+ * Soldier YAML a craft-landing merge needs). A guest is any soldier at one of
+ * OUR real bases (not a visited peer-base copy) with getCoopBase() != -1
+ * (living at a peer base) AND getCoopCraft() != -1 (seated on a peer craft -
+ * F360's "on the host's craft BEFORE bgen.run()" precondition; a guest not
+ * yet seated on a craft has nothing to contribute yet). Grouped by
+ * destination (baseId=getCoopBase(), craftId=getCoopCraft(), craftType=
+ * getCoopCraftType()) so a future multi-destination guest set sends one
+ * battle_roster_contrib per destination; wave-1's S1 fixture has exactly
+ * one. SHARED no-ops (one world, no guest concept - same guard as
+ * sendGuestCensus()). Host-inbound consumer: CoopState.cpp's
+ * coopMergeGuestContributions(), via the onTCPMessage handler beside
+ * "battle_leave".
+ */
+void connectionTCP::sendGuestRosterContrib()
+{
+	if (!getCoopStatic() || !getCoopCampaign() || !_game->getSavedGame())
+		return;
+	if (isSharedCampaign())
+		return;
+
+	struct Group
+	{
+		int baseId = -1;
+		int craftId = -1;
+		std::string craftType;
+		std::vector<std::string> soldiers;
+	};
+	std::map<std::string, Group> groups; // "baseId:craftId:craftType" -> group
+
+	for (auto* base : *_game->getSavedGame()->getBases())
+	{
+		if (base->_coopBase || base->_coopIcon)
+			continue; // a visited peer base is a swapped-in copy, not ours
+		for (auto* soldier : *base->getSoldiers())
+		{
+			if (soldier->getCoopBase() == -1 || soldier->getCoopCraft() == -1)
+				continue;
+			const int baseId = soldier->getCoopBase();
+			const int craftId = soldier->getCoopCraft();
+			const std::string craftType = soldier->getCoopCraftType();
+			const std::string key = std::to_string(baseId) + ":" + std::to_string(craftId) + ":" + craftType;
+			Group& g = groups[key];
+			g.baseId = baseId;
+			g.craftId = craftId;
+			g.craftType = craftType;
+			g.soldiers.push_back(coopSerializeGuestSoldier(_game, soldier));
+		}
+	}
+
+	int totalSent = 0;
+	for (const auto& kv : groups)
+		totalSent += (int)kv.second.soldiers.size();
+	g_guestContribLastSentCount = totalSent;
+
+	const int seat = connectionTCP::localSeat();
+	for (const auto& kv : groups)
+	{
+		const Group& g = kv.second;
+		Json::Value msg = CoopWire::makeRosterContrib(seat, g.baseId, g.craftId, g.craftType.c_str(), g.soldiers);
+		std::string payload = msg.toStyledString();
+		auto it = _lastRosterContribSent.find(kv.first);
+		if (it != _lastRosterContribSent.end() && it->second == payload)
+			continue;
+		_lastRosterContribSent[kv.first] = payload;
+		sendTCPPacketData(payload);
+	}
+}
+
 void connectionTCP::resetGiftSessionState()
 {
 
@@ -11703,6 +11846,10 @@ void connectionTCP::updateCoopTask()
 	// sack, base loss) so no path can forget it; sendGuestCensus is a cheap
 	// tally and only touches the wire when the result actually differs.
 	sendGuestCensus();
+	// SPEC 19 (W1-P20) M2 Branch B: same discipline for the guest ROSTER
+	// itself (battle_roster_contrib) - a SEPARATE guest seated on a peer
+	// craft must reach the host BEFORE the craft-landing entry merges it.
+	sendGuestRosterContrib();
 
 	if (connectionTCP::saveError == true)
 	{
@@ -13784,6 +13931,38 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (isCoopBattle())
 			{
 				coopBattleAuthority().peerLeftByChoice = true;
+			}
+		}
+		else if (stateString == "battle_roster_contrib")
+		{
+			// SPEC 19 (W1-P20) M2 Branch B: host-inbound (connectionTCP::
+			// sendGuestRosterContrib() -> BattleWire.h::makeRosterContrib()).
+			// Stores the sender's seat's latest guest-roster census; never
+			// hashed, never seq-ordered (BattleWire.h). Guarded to the HOST
+			// only - wave-1's D104 seating authority never has the host
+			// itself contributing a guest, so a stray receipt on a client
+			// (there is no sender for that today) is a no-op rather than a
+			// silently wrong store. Consumed at the craft-landing entry
+			// (CoopState.cpp::coopMergeGuestContributions()), cleared by
+			// resetBattleAuthority().
+			if (getServerOwner())
+			{
+				const int seat = obj.get("seat", -1).asInt();
+				if (seat >= 0 && seat < 4)
+				{
+					CoopGuestContribEntry& entry = g_guestContrib[seat];
+					entry.craftId = obj.get("craftId", -1).asInt();
+					entry.craftType = obj.get("craftType", "").asString();
+					entry.soldiers.clear();
+					const Json::Value& soldiers = obj["soldiers"];
+					if (soldiers.isArray())
+					{
+						for (const auto& yaml : soldiers)
+						{
+							entry.soldiers.push_back(yaml.asString());
+						}
+					}
+				}
 			}
 		}
 		else if (stateString == "bt_desync")

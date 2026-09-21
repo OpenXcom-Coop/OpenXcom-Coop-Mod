@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <json/json.h>
 
@@ -47,7 +48,8 @@ namespace CoopWire
 /// SS2.1 discriminator: state starts with "bt_", or is one of the
 /// battle-handshake kinds (battle_offer/battle_accept/battle_refuse/
 /// battle_ready) or SPEC 16 (W1-P17) M4's graceful-leave kind
-/// (battle_leave). bt_desync (client->host) is also a "bt_" kind and
+/// (battle_leave), or SPEC 19 (W1-P20) M2 Branch B's guest-roster census kind
+/// (battle_roster_contrib). bt_desync (client->host) is also a "bt_" kind and
 /// therefore routes to the battle lane.
 inline bool isBattleKind(const std::string& state)
 {
@@ -58,7 +60,7 @@ inline bool isBattleKind(const std::string& state)
 	}
 	return state == "battle_offer" || state == "battle_accept" ||
 		state == "battle_refuse" || state == "battle_ready" ||
-		state == "battle_leave";
+		state == "battle_leave" || state == "battle_roster_contrib";
 }
 
 /// SS2.1: bt_ev and bt_action_end are the seq-ordered apply-queue kinds;
@@ -166,6 +168,40 @@ inline Json::Value makeLeave(int seat, const char* reasonKey)
 	obj["state"] = "battle_leave";
 	obj["seat"] = seat;
 	obj["reasonKey"] = reasonKey;
+	return obj;
+}
+
+/// battle_roster_contrib {state, seat:int, baseId:int, craftId:int,
+/// craftType:string, soldiers:[string YAML]} (SPEC 19 W1-P20 M2 Branch B).
+/// Client->host, battle lane, NOT seq-ordered (isSeqOrdered() above only
+/// lists bt_ev/bt_action_end), NEVER hashed. @a baseId/@a craftId/@a
+/// craftType name the PEER (host) base/craft the sender's guest soldiers are
+/// seated on/at (Soldier::getCoopBase()/getCoopCraft()/getCoopCraftType());
+/// @a soldiers is each guest's own YAML save (Soldier::save(), the same
+/// form Soldier::load() consumes) - the geoscape-side data a craft-landing
+/// merge needs BEFORE generation (F359/F360/F365). Sent from
+/// connectionTCP::sendGuestRosterContrib() (the sendGuestCensus() pattern -
+/// computed every tick, sent only when the serialized set for this
+/// destination differs from the last sent, plus once on connect). Consumed,
+/// host-inbound only, at the craft-landing entry
+/// (CoopBattleSetup.h::coopMergeGuestContributions(), called from
+/// ConfirmLandingState::btnYesClick before generation); the per-seat store is
+/// cleared by resetBattleAuthority() (connectionTCP.cpp).
+inline Json::Value makeRosterContrib(int seat, int baseId, int craftId, const char* craftType,
+	const std::vector<std::string>& soldiers)
+{
+	Json::Value obj(Json::objectValue);
+	obj["state"] = "battle_roster_contrib";
+	obj["seat"] = seat;
+	obj["baseId"] = baseId;
+	obj["craftId"] = craftId;
+	obj["craftType"] = craftType;
+	Json::Value arr(Json::arrayValue);
+	for (const auto& yaml : soldiers)
+	{
+		arr.append(yaml);
+	}
+	obj["soldiers"] = arr;
 	return obj;
 }
 

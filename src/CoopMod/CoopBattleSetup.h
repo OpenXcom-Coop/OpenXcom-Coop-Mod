@@ -26,6 +26,7 @@ namespace OpenXcom
 
 class SavedBattleGame;
 class Craft;
+class Game;
 
 /**
  * R5-P1 (rewrite spike, SPIKE-RUNBOOK.md RB-D23): the ONE generation-time
@@ -132,5 +133,37 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
  * no new .cpp).
  */
 void coopStampCraftSeats(Craft* craft);
+
+/**
+ * SPEC 19 (W1-P20) M2 Branch B (F359/F360): the SEPARATE two-world merge,
+ * re-expressed on the r4 envelope with generation kept SYNCHRONOUS - the
+ * legacy trigger chain (CoopState(88)/"sendCraft"/CoopState::loadWorld(111),
+ * :1508-1690 above) is UNREACHED on the craft-landing path (F357/F359) and
+ * stays that way (a dead legacy trigger, a later hygiene row). This is its
+ * replacement: for every seat whose latest stored `battle_roster_contrib`
+ * (BattleWire.h; connectionTCP::sendGuestRosterContrib() sender,
+ * connectionTCP.cpp's onTCPMessage() "battle_roster_contrib" handler +
+ * per-seat store) names THIS craft (craft id + type), materialise each not
+ * already present (by name + ownerPlayerId - R1(b)'s sub-case: no
+ * coopOriginId field exists on Soldier, so that pair is the only key
+ * available) exactly as the legacy loadWorld(111) merge did: `new Soldier` +
+ * `load(yaml)`, `setId(lastId + 1)`, `setCoop(seat)`,
+ * `setOwnerPlayerId(seat)`, `setCoopBase(-1)` (a merged COPY - F366 deletes
+ * it post-battle, matching legacy: the durable original lives on in the
+ * client's world), push onto @a craft's base's roster,
+ * `setCraftAndMoveEquipment(craft, base, monthsPassed == -1)` space
+ * permitting (F365: on the craft BEFORE generation, or vanilla's generator
+ * never deploys it).
+ *
+ * Called ONCE, from ConfirmLandingState::btnYesClick, inside the same
+ * `if (coopLanding)` block as coopStampCraftSeats() above, BEFORE it (a
+ * freshly-merged guest's ownerPlayerId is what the stamp then reads).
+ * HOST-ONLY (a client never generates - the same reasoning
+ * coopStampCraftSeats() itself documents); a no-op when nothing was ever
+ * contributed for this craft (every classic/SHARED/skirmish call, and any
+ * SEPARATE landing with no SEPARATE guest waiting). Body lives in
+ * CoopState.cpp (RB-D23: no new .cpp).
+ */
+void coopMergeGuestContributions(Game* game, Craft* craft);
 
 } // namespace OpenXcom

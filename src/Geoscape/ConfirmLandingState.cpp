@@ -357,6 +357,13 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 		if (coopLanding)
 		{
+			// SPEC 19 (W1-P20) M2 Branch B (F359/F360): merge any
+			// client-contributed SEPARATE guest onto this craft BEFORE the
+			// stamp below reads ownership, and BEFORE vanilla generation
+			// (F365) so the generator actually deploys it. A no-op when
+			// nothing was ever contributed for this craft. Body:
+			// CoopBattleSetup.h/CoopState.cpp; no logic here.
+			coopMergeGuestContributions(_game, _craft);
 			// SPEC 19 (W1-P20) M1 (F358): the owner->seat stamp this entry was
 			// missing (present, byte-identical, at the three other stamp
 			// sites). Stamp BEFORE generate - the same order Cydonia and both

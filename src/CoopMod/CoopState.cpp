@@ -45,6 +45,9 @@
 #include "../Mod/RuleItem.h"
 #include "../Savegame/Vehicle.h"
 #include "../Savegame/BattleUnit.h"
+#include "../Savegame/Craft.h"
+#include "../Mod/RuleSoldier.h"
+#include "../Engine/Yaml.h"
 #include "CoopBattleSetup.h"
 #include "BattleAuthority.h"
 
@@ -2052,6 +2055,95 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 				// them directly.
 				unit->setAIModule(nullptr);
 			}
+		}
+	}
+}
+
+// SPEC 19 (W1-P20) M2 Branch B: deserialize a guest Soldier off the wire (the
+// same Soldier::save()/YAML form connectionTCP.cpp's coopSerializeGuestSoldier()
+// produces). Returns nullptr on a malformed/unknown-type entry (never throws
+// into the caller's merge loop - a bad entry is skipped, not fatal to the
+// rest of the roster).
+static Soldier* coopDeserializeGuestSoldier(Game* game, const std::string& yaml)
+{
+	YAML::YamlRootNodeReader reader(YAML::YamlString{ yaml }, "battleRosterContrib");
+	auto soldierReader = reader["soldier"];
+	std::string type = soldierReader["type"].readVal(game->getMod()->getSoldiersList().front());
+	RuleSoldier* rule = game->getMod()->getSoldier(type, false);
+	if (!rule)
+		return nullptr;
+
+	Soldier* soldier = new Soldier(rule, nullptr, 0 /*nationality; overwritten by load*/);
+	soldier->load(soldierReader, game->getMod(), game->getSavedGame(), game->getMod()->getScriptGlobal());
+	soldier->setCraft(0);
+	return soldier;
+}
+
+// SPEC 19 (W1-P20) M2 Branch B: see the doc comment in CoopBattleSetup.h.
+void coopMergeGuestContributions(Game* game, Craft* craft)
+{
+	if (!game || !craft || !game->getSavedGame())
+		return;
+
+	Base* base = craft->getBase();
+	if (!base)
+		return;
+
+	const std::string craftType = craft->getRules()->getType();
+	int spaceAvailable = craft->getSpaceAvailable();
+
+	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (RB-D17: private, stays 4)
+	{
+		if (!coopGuestContribCraftMatches(seat, craft->getId(), craftType))
+			continue;
+
+		const int count = coopGuestContribStoredCount(seat);
+		for (int i = 0; i < count; ++i)
+		{
+			const std::string& yaml = coopGuestContribSoldierYaml(seat, i);
+			if (yaml.empty())
+				continue;
+
+			Soldier* soldier = coopDeserializeGuestSoldier(game, yaml);
+			if (!soldier)
+				continue;
+
+			// R1(b) sub-case: no coopOriginId field exists on Soldier, so a
+			// copy already merged by a prior call into this same battle
+			// entry is recognised by name + ownerPlayerId, not an id.
+			bool already = false;
+			for (auto* existing : *base->getSoldiers())
+			{
+				if (existing && existing->getName() == soldier->getName()
+					&& existing->getOwnerPlayerId() == soldier->getOwnerPlayerId())
+				{
+					already = true;
+					break;
+				}
+			}
+
+			if (already || spaceAvailable <= 0)
+			{
+				delete soldier;
+				continue;
+			}
+
+			int lastId = 0;
+			for (auto* existing : *base->getSoldiers())
+			{
+				if (existing && existing->getId() > lastId)
+					lastId = existing->getId();
+			}
+
+			soldier->setId(lastId + 1);
+			soldier->setCoop(seat);
+			soldier->setOwnerPlayerId(seat);
+			soldier->setCoopBase(-1); // merged COPY - F366 deletes it post-battle
+			soldier->calcStatString(game->getMod()->getStatStrings(), false);
+			base->getSoldiers()->push_back(soldier);
+			soldier->setCraftAndMoveEquipment(craft, base, game->getSavedGame()->getMonthsPassed() == -1);
+
+			spaceAvailable--;
 		}
 	}
 }
