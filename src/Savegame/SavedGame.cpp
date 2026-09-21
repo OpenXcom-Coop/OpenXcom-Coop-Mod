@@ -72,6 +72,7 @@
 #include "RankCount.h"
 
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/BattleAuthority.h"
 #include "Upgrade/SaveUpgrade.h"
 #include "../version.h" // SAVE_SCHEMA_CURRENT
 
@@ -818,6 +819,29 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		int coopCampaignTypeInt = 0;
 		header.tryRead("coopCampaignType", coopCampaignTypeInt);
 		_campaignType = static_cast<CoopCampaignType>(coopCampaignTypeInt);
+	}
+
+	// M1 (SPEC 18 r4 T4, owner ruling D92/D-22): a mid-battle coop save is
+	// stamped with the wire protocol it was written under (coopBattleProtocol,
+	// save()'s header write). A DIFFERENT BUILD (a full host restart on a
+	// newer/older version) resuming a save whose body carries a battle
+	// refuses HERE, before the schema gate below even finishes classifying
+	// the rest of the document - the same "classify before you build more of
+	// the SavedGame" discipline. `header["turn"]` is battle-only (written
+	// only when _battleGame != 0 in save(); it is getSaveInfo()'s own
+	// battle-vs-geoscape discriminator too), so a geoscape coop save or a
+	// solo save - which never carry coopBattleProtocol at all - are
+	// UNAFFECTED and stay byte-identical. This is a MENU load only
+	// (loadCoopSaveFromMemory(), the coop-orchestrated blob load, is a
+	// SEPARATE function and never reaches this gate - same discipline as the
+	// schema gate immediately below, which is menu-load-only too).
+	if (_coop && header["turn"])
+	{
+		int coopBattleProtocol = -1;
+		if (!header.tryRead("coopBattleProtocol", coopBattleProtocol) || coopBattleProtocol != 1)
+		{
+			throw Exception("This mid-battle co-op save was made by a different version of the mod and cannot be resumed. Finish or abandon the battle on the version that saved it.");
+		}
 	}
 
 	// Get full save data
@@ -1790,6 +1814,26 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		headerWriter.write("coopPlayers", _coopPlayers);
 		// PRD-J01: economy model beside coop (int); mirror of the load read.
 		headerWriter.write("coopCampaignType", static_cast<int>(_campaignType));
+	}
+
+	// M1 (SPEC 18 r4 T4, owner ruling D92/D-22): a mid-battle coop save is
+	// resumed by a DIFFERENT process (a full host restart) that must reject
+	// an incompatible wire protocol before it ever tries to rebuild the
+	// battle authority/seat store from this file's body - so the stamp
+	// lives in the HEADER, read by SavedGame::load() BEFORE the body is
+	// touched, the same "classify before you build more of the SavedGame"
+	// discipline the schema gate above uses. `coopBattleProtocol` is the
+	// wire `protocolVersion` (the integer 1, connectionTCP.cpp's
+	// offerBattle()/offerRejoinBattle()) - NOT the save schema
+	// (SAVE_SCHEMA_CURRENT), which gates the whole save format and is
+	// unrelated. `coopBattleId` is purely informational (a resume mints a
+	// fresh one) and is never read back. GATED on a LIVE battle only, so a
+	// geoscape coop save and a solo save stay byte-identical - the key is
+	// simply ABSENT there.
+	if (_coop && _battleGame != 0)
+	{
+		headerWriter.write("coopBattleProtocol", 1);
+		headerWriter.write("coopBattleId", (int)coopBattleAuthority().battleId.load());
 	}
 
 	// Saves the full game data to the save
