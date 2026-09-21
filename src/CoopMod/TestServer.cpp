@@ -6910,14 +6910,23 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "coop_mission_start")
 		{
-			// SEPARATE-mode two-world-merge battle entry: the host confirms the
-			// pending coop landing. ConfirmLandingState::btnYesClick pushes
-			// CoopState(88), which auto-emits "sendCraft"; the client's
-			// contribution (sendMissionFile) and the host-side merge + battle
-			// generation (setClientSoldiers / CoopState::loadWorld 111/765) then
-			// ride network callbacks with no further manual step. This is the
-			// SEPARATE analog of the SHARED confirm_landing path; it reports the
-			// host stage right after the click so a test can gate on entry.
+			// SPEC 19 (W1-P20) M3: campaign co-op battle entry (SEPARATE or
+			// SHARED alike) - the host confirms the pending coop landing.
+			// ConfirmLandingState::btnYesClick (F357) does NOT push
+			// CoopState(88)/emit "sendCraft" on this path - that legacy
+			// two-world-merge trigger chain (sendCraft -> sendMissionFile ->
+			// setClientSoldiers -> CoopState::loadWorld 111/765) is UNREACHED
+			// here (F359; left in place as a dead legacy trigger, a later
+			// hygiene row). Instead, under its own `if (coopLanding)` block,
+			// btnYesClick merges any client-contributed SEPARATE guest onto
+			// this craft (coopMergeGuestContributions(), M2 Branch B: the
+			// client's battle_roster_contrib census, stored per seat, consumed
+			// here BEFORE generation) and stamps every seated soldier's coop
+			// seat from ownerPlayerId (coopStampCraftSeats(), M1, F358) BEFORE
+			// calling vanilla bgen.run(). This is the SEPARATE and SHARED
+			// analog of the skirmish confirm_landing path alike; it reports
+			// the host stage right after the click so a test can gate on
+			// entry.
 			ConfirmLandingState* cl = findState<ConfirmLandingState>(_game);
 			if (!cl)
 			{
