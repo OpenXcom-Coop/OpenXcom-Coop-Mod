@@ -19,10 +19,11 @@ Ports/base coordinates match the old bootstrap defaults so migrated tests
 behave identically.
 """
 
+import glob
 import os
 import time
 
-from harness import LAND_LON, LAND_LAT
+from harness import LAND_LON, LAND_LAT, EXE as _GAME_EXE
 
 HOST_LON, HOST_LAT = 0.35, 0.85
 
@@ -2108,3 +2109,543 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_s
     client.wait_for("client entry briefing pushed over BattlescapeState",
                     lambda: has_state(client, "BriefingState") or None, timeout=20)
     dismiss_client_briefing(client)
+
+
+# ===== SPEC 19 (W1-P20): campaign co-op battle entry, client-owned units =====
+#
+# Two additive campaign bring-ups (SEPARATE guest battle, SHARED mixed-owner
+# battle) plus the F355 briefing-ordering drain they both need, and the
+# T-SPLIT/T-CMD/T-EXIT common tail every S1/S2/S3 scenario asserts after it.
+# Imported by test_coop_separate_guest_battle.py (S1), test_shared_battle.py
+# (S2) and test_shared_soldier_ownership_battle.py (S3); SPEC 18 imports the
+# two bring-ups too (spec19_campaign_battle_entry.md (c)).
+
+
+def drain_host_coop_notice(host, rounds=15):
+    """A guest transfer/visit pops an items-received CoopState over the host
+    geoscape that freezes the sim. Pop only such notices (never a wait/merge
+    dialog - those are gone by the time this runs) so the craft can fly.
+
+    Lifted from test_coop_resume_battle_control.drain_host_coop_notice (SPEC
+    18's own file, R4-P2, left untouched) with its `tries` parameter renamed
+    `rounds` per this packet's own brief (a lifted bounded-poll parameter name
+    must not resemble a §A.8-controlled control-flow knob)."""
+    for _ in range(rounds):
+        top = states(host)[-1]
+        if "GeoscapeState" in top:
+            return
+        if "CoopState" in top:
+            host.cmd({"cmd": "coop_dialog_back"})
+        else:
+            host.cmd({"cmd": "dismiss_popup"})
+        time.sleep(0.4)
+
+
+def drive_both_to_tactical(host, client, timeout=240):
+    """F355 fix (SPEC 18 R1(a), orch49; archived VERBATIM at rewrite/artifacts/
+    spec19-fixtures/r1a_v2.py's drive_both_to_tactical): close the HOST
+    briefing FIRST - CoopHandshake::emitPreparedOffer() runs from
+    BriefingState::btnOkClick/close_briefing, not from coop_mission_start or
+    confirm_landing, so the client offer is not even SENT until the host's
+    briefing closes - THEN drain both machines through Briefing/Inventory/
+    CoopState popups until BOTH machines sit on BattlescapeState.
+
+    A campaign bring-up that waits for the CLIENT's inBattle/BattlescapeState
+    before the host closes its own briefing hangs forever: this is the ordering
+    every campaign battle-entry fixture in this packet (S1's SEPARATE guest
+    battle, S2/S3's SHARED mixed battle) needs and test_shared_battle.py's old
+    :165-191 shape lacked (F362). Returns True once both machines are on
+    BattlescapeState, False on timeout (the caller raises with both machines'
+    top states, which names the fixture problem instead of hanging silently)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        done = True
+        for gc in (host, client):
+            st = states(gc)
+            top = st[-1] if st else ""
+            if "BattlescapeState" in top:
+                continue
+            done = False
+            if "BriefingState" in top:
+                gc.cmd({"cmd": "close_briefing"})
+            elif "InventoryState" in top:
+                gc.cmd({"cmd": "battle_inventory", "action": "ok"})
+            elif "CoopState" in top:
+                gc.cmd({"cmd": "coop_dialog_back"})
+            else:
+                gc.cmd({"cmd": "dismiss_popup"})
+        if done:
+            # settle the coop-init handshake a couple ticks (r1a_v2.py's own
+            # mod.drain_to_tactical(rounds=3), inlined here instead of
+            # importing a test_rw_*-adjacent module for three lines).
+            for _ in range(3):
+                moved = False
+                for gc in (host, client):
+                    st = states(gc)
+                    if not st or "BattlescapeState" not in st[-1]:
+                        gc.cmd({"cmd": "dismiss_popup"})
+                        moved = True
+                time.sleep(1.0)
+                if not moved:
+                    break
+            return True
+        time.sleep(1.0)
+    return False
+
+
+def _campaign_base0(gc):
+    """The real (non-coop-mirror) base from geo_state - the shape
+    test_shared_battle.py/test_shared_landing.py's own `_base0` uses."""
+    for b in gc.ok({"cmd": "geo_state"})["bases"]:
+        if not b.get("coopBase") and not b.get("coopIcon"):
+            return b
+    raise AssertionError("no real base")
+
+
+def _campaign_skyranger(gc):
+    for c in _campaign_base0(gc)["crafts"]:
+        if "SKYRANGER" in c["type"]:
+            return c
+    raise AssertionError("no skyranger")
+
+
+def _campaign_own_roster_base(gc):
+    """The real base from get_soldiers - the shape r1a_v2.py's `own_base`/
+    test_coop_resume_battle_control.own_base uses (carries `soldiers`, unlike
+    geo_state's `_campaign_base0`)."""
+    for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
+        if not b["coopBaseFlag"] and not b.get("coopIcon") and b["soldiers"]:
+            return b
+    raise AssertionError("no real base with soldiers")
+
+
+def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None):
+    """SPEC 19 (W1-P20) S1 fixture: SEPARATE campaign, mixed-ownership squad -
+    3 of the host's own soldiers plus a CLIENT guest seated on the host's
+    craft (the client renames a spare soldier, transfers it to the host's coop
+    base, and seats it on the host's Skyranger) - flown to a fresh terror site
+    and entered LIVE via coop_mission_start.
+
+    Lifted from the archived r1a_v2.bring_up_fixed (rewrite/artifacts/
+    spec19-fixtures/r1a_v2.py, SPEC 19 R1(b)'s own measured recipe) VERBATIM
+    other than routing through this module's own states()/has_state()/
+    drain_host_coop_notice()/drive_both_to_tactical() instead of a borrowed
+    test_rw_*-adjacent module.
+
+    `pre_mission_start` (SPEC 19, additive): an optional `callable(host,
+    client)` invoked right after the squad is assembled (guest seated, client
+    back on the geoscape) and BEFORE `drain_host_coop_notice`/
+    `spawn_mission_site`/`coop_mission_start` - the window S1's own vacuity
+    guard needs (`event_state.guestContrib` must show the roster travelled
+    BEFORE the battle starts). Every other caller (SPEC 18) is unaffected:
+    default None, nothing runs.
+
+    Returns (host_squad, guest_id): host_squad is the 3 host soldier ids
+    (coop==0 in battle); guest_id is the CLIENT's own local soldier id for
+    "Guest Zzz" - under Branch B the battle's merged copy of the guest carries
+    a FRESH soldierId (loadWorld(111)'s materialisation shape: `setId(lastId +
+    1)`), so a caller must identify the guest's battle unit BY NAME, never by
+    this id (S1's own vacuity/roster assertions do exactly that)."""
+    new_campaign(host, client, port=port)
+
+    hb = _campaign_own_roster_base(host)
+    host_base_name = hb["name"]
+    cid = _campaign_skyranger(host)["id"]
+    rh = sorted(s["id"] for s in hb["soldiers"])
+    for sid in rh:
+        host.cmd({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": False})
+    host_squad = rh[:3]
+    for sid in host_squad:
+        r = host.cmd({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": True})
+        assert r.get("seated"), f"host soldier {sid} not seated: {r}"
+
+    cb = _campaign_own_roster_base(client)
+    spare = next(s for s in cb["soldiers"] if not s.get("craft"))["name"]
+    client.ok({"cmd": "rename_soldier", "name": spare, "newName": "Guest Zzz"})
+    tr = client.ok({"cmd": "transfer_to_coop_base", "name": "Guest", "toBase": host_base_name})
+    assert tr.get("transferred"), f"guest transfer failed: {tr}"
+    client.ok({"cmd": "visit_coop_base", "base": host_base_name})
+    client.wait_for("client inside host base",
+                    lambda: client.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None,
+                    timeout=60)
+    rep = client.wait_for(
+        "guest visible at host base",
+        lambda: (lambda r: r if any("Guest" in s["name"] for s in r["soldiers"]) else None)(
+            client.ok({"cmd": "base_report", "coop": True})), timeout=40)
+    guest_id = next(s for s in rep["soldiers"] if "Guest" in s["name"])["id"]
+    peer_craft = next(c for c in rep["crafts"] if "SKYRANGER" in c["type"])["id"]
+    client.ok({"cmd": "craft_assign", "soldier_id": guest_id, "craft_id": peer_craft,
+               "coop": True, "on": True})
+    client.ok({"cmd": "open_soldiers", "base": host_base_name})
+    client.wait_for("client soldiers screen",
+                    lambda: has_state(client, "SoldiersState") or None, timeout=30)
+    client.ok({"cmd": "soldiers_ok"})
+    client.ok({"cmd": "leave_base"})
+    client.wait_for("client back on geoscape",
+                    lambda: (not client.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None,
+                    timeout=60)
+    print(f"squad assembled: host soldiers {host_squad} (coop==0) + client guest "
+          f"{guest_id} (coop==1)")
+
+    if pre_mission_start is not None:
+        pre_mission_start(host, client)
+
+    drain_host_coop_notice(host)
+    b0 = _campaign_base0(host)
+    site = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
+                    "deployment": "STR_TERROR_MISSION", "lon": b0["lon"] + 0.35,
+                    "lat": b0["lat"] + 0.10, "race": "STR_SECTOID", "hours": 240})
+    site_id = site["site_id"]
+    host.wait_for(
+        "site on host",
+        lambda: any(s["id"] == site_id
+                    for s in host.ok({"cmd": "geo_state"})["missionSites"]) or None,
+        timeout=30)
+    host.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
+             "lon": b0["lon"] + 0.34, "lat": b0["lat"] + 0.10, "dest": f"site:{site_id}",
+             "fuel": 999999, "lowFuel": False})
+
+    def landing_prompt():
+        if has_state(host, "ConfirmLandingState"):
+            return True
+        top = states(host)[-1]
+        if "CoopState" in top:
+            host.cmd({"cmd": "coop_dialog_back"})
+        elif "GeoscapeState" not in top:
+            host.cmd({"cmd": "dismiss_popup"})
+        host.cmd({"cmd": "geo_set_speed", "idx": 2})
+        return None
+
+    host.wait_for("host landing prompt", landing_prompt, timeout=120, interval=0.5)
+    ms = host.ok({"cmd": "coop_mission_start"})
+    print(f"coop_mission_start -> {ms}")
+    host.wait_for("host entered", lambda: battle_state(host).get("inBattle") or None,
+                  timeout=120, interval=1.0)
+    host.wait_for("host briefing", lambda: has_state(host, "BriefingState"),
+                  timeout=60, interval=0.5)
+    if not drive_both_to_tactical(host, client):
+        raise TimeoutError(
+            "drive_both_to_tactical timed out (host=%s client=%s)"
+            % (states(host)[-3:], states(client)[-3:]))
+    print("both machines reached the battlescape (live SEPARATE coop battle)")
+    return host_squad, guest_id
+
+
+def bring_up_shared_mixed_battle(js, owners):
+    """SPEC 19 (W1-P20) S2/S3 fixture core: given an already-brought-up SHARED
+    session (`shared_fixture.bring_up`), board a 2-soldier squad on the shared
+    craft with per-slot ownership from `owners`, fly it to a fresh terror
+    site, and enter the battle LIVE via confirm_landing with the F355
+    ordering fix (drive_both_to_tactical, never a bare inBattle wait).
+
+    Lifted from the archived shared_diag.py diagnostic (SPEC 19 R1(a)'s SHARED
+    negative control), parameterised by `owners` so S2's `mixed`/`solo_client`
+    scenarios and S3's bootstrap-owner scenario can share one bring-up:
+
+      owners  {0: seat, 1: seat} - stamps the roster's first two soldiers
+              (sorted by id) to these owners via set_soldier_owner, on BOTH
+              machines, before boarding.
+      owners  None - the squad's EXISTING (bootstrap) owners are used
+              unchanged, no set_soldier_owner call at all - S3's own
+              precondition ("no set_soldier_owner; the bootstrap split
+              supplies one seat-0 and one seat-1 soldier").
+
+    Returns (host, client, squad) - squad the 2 boarded soldier ids, sorted by
+    id (squad[0]/squad[1] match `owners`' slot 0/1 when `owners` is given)."""
+    host, client = js.host, js.client
+
+    def _roster(gc):
+        out = []
+        for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
+            out.extend(b["soldiers"])
+        return out
+
+    b0 = _campaign_base0(host)
+    blon, blat = b0["lon"], b0["lat"]
+    cid = _campaign_skyranger(host)["id"]
+    rh = sorted(s["id"] for s in _roster(host))
+    squad = [rh[0], rh[1]]
+
+    if owners is not None:
+        for gc in (host, client):
+            for slot, sid in enumerate(squad):
+                gc.ok({"cmd": "set_soldier_owner", "soldier_id": sid, "owner": owners[slot]})
+
+    for sid in rh:
+        host.ok({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": False})
+    for sid in squad:
+        host.ok({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": True})
+
+    def _aboard(gc):
+        return sorted(s["id"] for s in _roster(gc) if s["craftId"] == cid)
+
+    for gc, tag in ((host, "host"), (client, "client")):
+        gc.wait_for(f"{tag} squad aboard",
+                    lambda gc=gc: (_aboard(gc) == sorted(squad)) or None,
+                    timeout=40, interval=0.5)
+    print(f"squad {squad} aboard shared craft {cid}")
+
+    site = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
+                    "deployment": "STR_TERROR_MISSION", "lon": blon + 0.35,
+                    "lat": blat + 0.10, "race": "STR_SECTOID", "hours": 240})
+    site_id = site["site_id"]
+    host.wait_for(
+        "site on host",
+        lambda: any(s["id"] == site_id
+                    for s in host.ok({"cmd": "geo_state"})["missionSites"]) or None,
+        timeout=30)
+    host.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
+             "lon": blon + 0.34, "lat": blat + 0.10, "dest": f"site:{site_id}",
+             "fuel": 999999, "lowFuel": False})
+
+    def _landing_prompt():
+        if has_state(host, "ConfirmLandingState"):
+            return True
+        host.cmd({"cmd": "geo_set_speed", "idx": 2})
+        return None
+
+    host.wait_for("ConfirmLandingState on host", _landing_prompt, timeout=90, interval=0.5)
+    host.ok({"cmd": "confirm_landing"})
+    host.wait_for("host entered", lambda: battle_state(host).get("inBattle") or None,
+                  timeout=180, interval=1.0)
+    host.wait_for("host briefing", lambda: has_state(host, "BriefingState") or None,
+                  timeout=60, interval=0.5)
+    if not drive_both_to_tactical(host, client):
+        raise TimeoutError(
+            "drive_both_to_tactical timed out (host=%s client=%s)"
+            % (states(host)[-3:], states(client)[-3:]))
+    print("both machines reached the battlescape (live SHARED coop battle)")
+    return host, client, squad
+
+
+# ---- T-SPLIT / T-CMD / T-EXIT (spec (f) common tail) -----------------------
+
+def assert_t_split(host, client, expected_seat_by_soldier_id, what=""):
+    """SPEC 19 (W1-P20) spec (f) common tail T-SPLIT, asserted on BOTH
+    machines once both tops are BattlescapeState (after drive_both_to_
+    tactical): phase Active; authority.hostSim true host / false client;
+    authority.localSeat 0 host / 1 client; battleId equal non-zero; the set
+    of isPlayerSoldier units' soldierId == expected_seat_by_soldier_id's keys;
+    each such unit's coop == its expected seat; hash_now clean; the host log
+    carries the battle_ready saveBlob EQUAL line."""
+    tag = f" {what}" if what else ""
+    battle_ids = {}
+    for gc, tag2, want_hostsim, want_localseat in (
+            (host, "host", True, 0), (client, "client", False, 1)):
+        bs = battle_state(gc)
+        assert bs.get("phase") == "Active", (
+            f"T-SPLIT{tag}: {tag2} phase={bs.get('phase')!r}, want 'Active'")
+        auth = bs.get("authority", {})
+        assert auth.get("hostSim") == want_hostsim, (
+            f"T-SPLIT{tag}: {tag2} authority.hostSim={auth.get('hostSim')!r}, "
+            f"want {want_hostsim}")
+        assert auth.get("localSeat") == want_localseat, (
+            f"T-SPLIT{tag}: {tag2} authority.localSeat={auth.get('localSeat')!r}, "
+            f"want {want_localseat}")
+        bid = auth.get("battleId")
+        assert bid, f"T-SPLIT{tag}: {tag2} authority.battleId is falsy: {bid!r}"
+        battle_ids[tag2] = bid
+        got = {u["soldierId"]: u["coop"] for u in bs.get("units", [])
+               if u.get("isPlayerSoldier")}
+        assert set(got) == set(expected_seat_by_soldier_id), (
+            f"T-SPLIT{tag}: {tag2} isPlayerSoldier roster {sorted(got)} != "
+            f"expected {sorted(expected_seat_by_soldier_id)}")
+        bad = {sid: (got[sid], seat) for sid, seat in expected_seat_by_soldier_id.items()
+               if got[sid] != seat}
+        assert not bad, (
+            f"T-SPLIT{tag}: {tag2} seat mismatch (soldierId: (got, want)) = {bad}")
+    assert battle_ids["host"] == battle_ids["client"], (
+        f"T-SPLIT{tag}: battleId differs host={battle_ids['host']} "
+        f"client={battle_ids['client']}")
+    assert_hash_clean(host, client, full=True, what=f"T-SPLIT{tag}")
+
+    lines = []
+    logp = os.path.join(host.user_dir, "openxcom.log")
+    if os.path.exists(logp):
+        with open(logp, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    equal_lines = [ln.rstrip("\n") for ln in lines if "battle_ready saveBlob EQUAL" in ln]
+    mismatch_lines = [ln.rstrip("\n") for ln in lines if "battle_ready saveBlob MISMATCH" in ln]
+    assert not mismatch_lines, (
+        f"T-SPLIT{tag}: host log carries a 'battle_ready saveBlob MISMATCH' line: "
+        f"{mismatch_lines[-1]}")
+    assert equal_lines, (
+        f"T-SPLIT{tag}: host log never logged 'battle_ready saveBlob EQUAL'")
+    print(f"PASS T-SPLIT{tag}: roster {sorted(expected_seat_by_soldier_id)} at "
+          f"expected seats on both machines, hash clean, {equal_lines[-1]}")
+
+
+def _t_cmd_adjacent_free_tile(gc, unit):
+    """ONE adjacent (Chebyshev distance 1) tile with a floor and no unit on
+    it - T-CMD needs only a single admitted step, never a search/backtrack
+    beyond the 8 immediate neighbours."""
+    st = battle_state(gc)
+    occ = {pos_of(u) for u in st.get("units", []) if not u.get("isOut")}
+    x, y, z = pos_of(unit)
+    for d in range(8):
+        t = (x + DIR_DX[d], y + DIR_DY[d], z)
+        if t in occ:
+            continue
+        if tile_walkable(gc, t, occ):
+            return t
+    raise AssertionError(
+        f"FIXTURE: T-CMD: unit {unit['id']} at {(x, y, z)} has no free adjacent "
+        f"tile (occupied={sorted(occ)})")
+
+
+def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=True,
+                 what=""):
+    """SPEC 19 (W1-P20) spec (f) common tail T-CMD.
+
+    1. The CLIENT sends `battle_intent` (walk, ONE absolute step onto an
+       adjacent free tile - the test_rw_client_gates/repro_atom_walk
+       absolute-intent shape, no tile click) for its OWN seat-1 unit ->
+       ADMITTED: lastDeny empty on the client, the unit's pos changed and
+       EQUAL on both, hash clean.
+    2. (seat0_actor_id given) The CLIENT sends the same shape of intent for a
+       SEAT-0 unit it does not own -> lastDeny.reason == "not_your_unit" on
+       the client, no pos change on either machine.
+    3. (host_check True) The HOST's click-select on the seat-1 unit's tile is
+       refused: the two-pass camera settle (test_rw_feedback/POST-REWRITE-
+       REVISIT row 17 pattern - a first settling pass, then a second pass
+       asserted `centered is False`) verifies the click lands on the right
+       tile; the refusal shows up in `battle_state.coopWaitText` (SS2.6's
+       STR_COOP_DENY_NOT_YOUR_UNIT, "Not one of your soldiers" -
+       CoopBattleUi.h:322 / connectionTCP.cpp:8196 route EVERY coop message,
+       including this one, through `_txtCoopWait` - never through vanilla
+       `_warning`, which `battle_state.warningText` exposes instead;
+       TestServer.cpp:7175 vs :7197 confirm the two are distinct probes), and
+       `selectedId` is NOT that unit.
+    """
+    tag = f" {what}" if what else ""
+
+    # ---- 1. ADMITTED: client walks its own seat-1 unit one step -----------
+    actor = unit_of(client, seat1_actor_id)
+    dest = _t_cmd_adjacent_free_tile(client, actor)
+    before_h = pos_of(unit_of(host, seat1_actor_id))
+    before_c = pos_of(actor)
+    assert before_h == before_c, (
+        f"T-CMD{tag}: seat-1 actor {seat1_actor_id} position differs before the "
+        f"walk (host={before_h} client={before_c}) - not a clean starting point")
+    prev = walk_action_id(host)
+    resp = send_walk(client, seat1_actor_id, dest)
+    assert resp.get("iseq"), f"T-CMD{tag}: admitted walk did not ship at all: {resp}"
+    wait_walk_settled(host, client, prev)
+    ld = event_state(client).get("lastDeny")
+    assert not ld, f"T-CMD{tag}: the client's OWN-unit walk was DENIED: {ld}"
+    after_h = pos_of(unit_of(host, seat1_actor_id))
+    after_c = pos_of(unit_of(client, seat1_actor_id))
+    assert after_h == dest and after_c == dest, (
+        f"T-CMD{tag}: seat-1 actor did not reach {dest} (host={after_h} "
+        f"client={after_c})")
+    assert after_h == after_c, (
+        f"T-CMD{tag}: seat-1 actor position now DIFFERS between machines "
+        f"(host={after_h} client={after_c})")
+    assert_hash_clean(host, client, full=True, what=f"T-CMD{tag} after the admitted walk")
+    print(f"PASS T-CMD{tag}: client's own seat-1 unit {seat1_actor_id} admitted "
+          f"{before_c} -> {dest}, EQUAL on both, hash clean")
+
+    # ---- 2. DENIED: client tries to command a seat-0 unit ------------------
+    if seat0_actor_id is not None:
+        before0_h = pos_of(unit_of(host, seat0_actor_id))
+        before0_c = pos_of(unit_of(client, seat0_actor_id))
+        dest0 = _t_cmd_adjacent_free_tile(host, unit_of(host, seat0_actor_id))
+        resp0 = send_walk(client, seat0_actor_id, dest0)
+        deadline = time.time() + 10
+        ld0 = None
+        while time.time() < deadline:
+            ld0 = event_state(client).get("lastDeny")
+            if ld0 and ld0.get("iseq") == resp0.get("iseq"):
+                break
+            time.sleep(0.1)
+        assert ld0 and ld0.get("iseq") == resp0.get("iseq"), (
+            f"T-CMD{tag}: the client's intent for seat-0 unit {seat0_actor_id} was "
+            f"not denied within 10s (resp={resp0}, "
+            f"lastDeny={event_state(client).get('lastDeny')})")
+        assert ld0.get("reason") == "not_your_unit", (
+            f"T-CMD{tag}: seat-0 unit deny reason={ld0.get('reason')!r}, want "
+            f"'not_your_unit' (full deny: {ld0})")
+        after0_h = pos_of(unit_of(host, seat0_actor_id))
+        after0_c = pos_of(unit_of(client, seat0_actor_id))
+        assert after0_h == before0_h and after0_c == before0_c, (
+            f"T-CMD{tag}: seat-0 unit {seat0_actor_id} MOVED despite the deny "
+            f"(host {before0_h}->{after0_h}, client {before0_c}->{after0_c})")
+        print(f"PASS T-CMD{tag}: client denied 'not_your_unit' on seat-0 unit "
+              f"{seat0_actor_id}, no pos change either machine")
+
+    if not host_check:
+        print(f"PASS T-CMD{tag}: host leg skipped BY CONSTRUCTION "
+              f"(no host-owned unit in this scenario)")
+        return
+
+    # ---- 3. host click-select refusal on the seat-1 unit's tile ------------
+    target = unit_of(host, seat1_actor_id)
+    tx, ty, tz = pos_of(target)
+    pr1 = host.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
+    assert pr1.get("verified"), (
+        f"T-CMD{tag}: map_tile_click_pos (settling pass) not verified for "
+        f"{(tx, ty, tz)}: {pr1}")
+    pr2 = host.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
+    assert pr2.get("verified"), (
+        f"T-CMD{tag}: map_tile_click_pos (settled pass) not verified for "
+        f"{(tx, ty, tz)}: {pr2}")
+    assert pr2.get("centered") is False, (
+        f"T-CMD{tag}: map_tile_click_pos reports centered=True after the "
+        f"settling pass - the camera is still moving (fixture problem, not a "
+        f"case to re-roll): {pr2}")
+    host.ok({"cmd": "inject_input", "kind": "click", "x": pr2["winX"], "y": pr2["winY"],
+             "button": "left"})
+    time.sleep(0.6)
+    hb = battle_state(host)
+    # WV-D77 CAPTURE: print the whole dict this assertion reads, not a guessed
+    # key - the brief's own text names `warningText` for this refusal, but
+    # connectionTCP.cpp:8172/8196 + CoopBattleUi.h:322 route it through
+    # `_txtCoopWait` (coopWaitText), and TestServer.cpp:7175 vs :7197 confirm
+    # `warningText` is the DISTINCT vanilla `_warning` surface SS2.6 never
+    # touches - so both are printed and the assertion below reads the one the
+    # source actually writes.
+    print(f"[T-CMD{tag} CAPTURE] host click-select refusal: coopWaitText="
+          f"{hb.get('coopWaitText')!r} warningText={hb.get('warningText')!r} "
+          f"selectedId={hb.get('selectedId')!r} target={seat1_actor_id}")
+    assert hb.get("coopWaitText") == "Not one of your soldiers", (
+        f"T-CMD{tag}: host coopWaitText={hb.get('coopWaitText')!r} after "
+        f"clicking the client's unit's tile, want 'Not one of your soldiers' "
+        f"(STR_COOP_DENY_NOT_YOUR_UNIT) - full battle_state: {hb}")
+    assert hb.get("selectedId") != seat1_actor_id, (
+        f"T-CMD{tag}: the host's click SELECTED the client's unit "
+        f"{seat1_actor_id} instead of being refused: {hb}")
+    print(f"PASS T-CMD{tag}: host click-select on seat-1 unit {seat1_actor_id}'s "
+          f"tile refused ('Not one of your soldiers'), selectedId="
+          f"{hb.get('selectedId')!r}")
+
+
+def _crash_log_snapshot():
+    """Every crash_*.log under the harness temp root or beside the exe, right
+    now - a before/after diff around T-EXIT is what makes 'no crash log' mean
+    something (a fixed set present from an EARLIER test's crash would
+    otherwise false-positive every later T-EXIT)."""
+    import harness as _harness
+    hits = set()
+    for root in (_harness.TEST_ROOT, os.path.dirname(_GAME_EXE)):
+        hits |= set(glob.glob(os.path.join(root, "**", "crash_*.log"), recursive=True))
+    return hits
+
+
+def assert_t_exit(host, client, what=""):
+    """SPEC 19 (W1-P20) spec (f) common tail T-EXIT:
+    `session.coop_abort_battle(host, client)` -> both on GeoscapeState, no
+    NEW crash log, no desyncSeen."""
+    tag = f" {what}" if what else ""
+    before_crash = _crash_log_snapshot()
+    coop_abort_battle(host, client)
+    for gc, tag2 in ((host, "host"), (client, "client")):
+        st = states(gc)
+        assert st and "GeoscapeState" in st[-1], (
+            f"T-EXIT{tag}: {tag2} not on GeoscapeState after abort: {st}")
+        desync = gc.cmd({"cmd": "battle_state"}).get("desyncSeen")
+        assert not desync, f"T-EXIT{tag}: {tag2} desyncSeen={desync!r} after abort"
+    after_crash = _crash_log_snapshot()
+    new_crash = after_crash - before_crash
+    assert not new_crash, f"T-EXIT{tag}: NEW crash log(s) appeared: {sorted(new_crash)}"
+    print(f"PASS T-EXIT{tag}: both machines back on the geoscape, no crash log, "
+          f"no desyncSeen")

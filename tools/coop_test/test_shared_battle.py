@@ -27,15 +27,43 @@ Two scenarios:
                     battle as a unit-less spectator rather than staying on the
                     geoscape - see session-notes-9.md (PRD-anchor discrepancy).
 
+SPEC 19 (W1-P20) S2 (un-skipped, re-pointed): the bring-up now goes through
+`session.bring_up_shared_mixed_battle` (F355's briefing-close-first ordering -
+the old :165-191 shape waited for the client's `inBattle` BEFORE the host
+closed its briefing, which hangs forever, F362), and each scenario now runs
+the spec (f) common tail after the existing control-split assertion:
+T-SPLIT, T-CMD (the host leg only in `mixed` - `solo_client` skips it BY
+CONSTRUCTION, REV E.48 C.4's connected-seat-with-no-live-unit case: the host
+owns no unit to be refused on), T-EXIT.
+
+STOP note (evidence, not a guess): T-EXIT calls `session.coop_abort_battle`,
+which drives the pre-rewrite ABANDON-MISSION VOTE. At this tip that vote does
+not exist any more: `BattlescapeState::btnAbortClick` (BattlescapeState.cpp
+:1652-1663) refuses only the CLIENT's press and otherwise pushes the vanilla
+`AbortMissionState` unconditionally ("W1-P5 ruling D8/WV-D14: ABORT MISSION
+ends in setAborted()+finishBattle() - a battle-wide, host-authoritative
+decision. The multiplayer VOTE... is r4 T3 (executeVoteAction('abandon_
+mission') is still a logging stub)"), and `AbortMissionState::btnOkClick`
+(AbortMissionState.cpp:198-220) confirms: no `requestVote` call anywhere.
+Captured directly: the host's own log shows `push class
+OpenXcom::AbortMissionState depth=3` where `coop_abort_battle` expects a
+`VoteMenu`, so its `vote_state` poll times out. EVERY existing caller of
+`session.coop_abort_battle` in this suite (test_vote_abort_battle.py,
+test_shared_base_defense.py, test_skirmish_end_main_menu.py,
+test_coop_debrief_sync.py, test_shared_soldier_gift_dup.py,
+test_shared_month_run.py) is independently `SKIP-PENDING` at this tip, so this
+is not something S2 broke - the helper has never been exercised against a
+live rewrite-era battle. This blocks T-EXIT (and therefore the post-battle
+world-equality legs after it) identically in both scenarios; it is r4 T3's
+gap, not a battle-ENTRY defect, so it is reported here rather than routed
+around with an unsanctioned lever.
+
 Run:  python tools/coop_test/test_shared_battle.py
 Exit 0 = pass; 2 = failure.
 """
 
 import os
 import sys
-
-# RW-TRIAGE: SKIP-PENDING(R4-P1)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
@@ -107,67 +135,20 @@ def _dbg(host, client):
             print(f"  DBG {tag} dump failed: {e}")
 
 
-def run_scenario(label, owners, want_coop, ports, fail):
+def run_scenario(label, owners, want_coop, ports, fail, host_has_unit):
     """owners: {slot: seat} for the two squad soldiers (slot 0/1 of the roster).
-       want_coop: {slot: expected BattleUnit _coop}."""
+       want_coop: {slot: expected BattleUnit _coop}.
+       host_has_unit: whether the host owns a unit in this squad - T-CMD's host
+       leg (click-select refusal) runs only when True; `solo_client` passes
+       False and skips it BY CONSTRUCTION (no host-owned unit to refuse on)."""
     print(f"\n===== scenario '{label}' =====")
     js = shared_fixture.bring_up(f"jbat_{label}", ports)
     host, client = js.host, js.client
     try:
-
-        b0 = _base0(host)
-        blon, blat = b0["lon"], b0["lat"]
-        cid = _skyranger(host)["id"]
-        rh = sorted(s["id"] for s in _roster(host))
-        squad = [rh[0], rh[1]]
-
-        # ---- squad ownership (stamped identically on both machines) ------
-        for gc in (host, client):
-            for slot, sid in enumerate(squad):
-                gc.ok({"cmd": "set_soldier_owner", "soldier_id": sid, "owner": owners[slot]})
-        for sid in rh:
-            host.ok({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": False})
-        for sid in squad:
-            host.ok({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": True})
-
-        def _aboard(gc):
-            return sorted(s["id"] for s in _roster(gc) if s["craftId"] == cid)
-
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} squad aboard",
-                        lambda gc=gc: (_aboard(gc) == sorted(squad)) or None,
-                        timeout=40, interval=0.5)
+        _, _, squad = session.bring_up_shared_mixed_battle(js, owners)
         seats = {sid: owners[i] for i, sid in enumerate(squad)}
-        print(f"PASS squad: {seats} aboard shared craft {cid} on both machines")
-
-        # ---- seed a site and fly the shared craft to it -------------------
-        site = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
-                        "deployment": "STR_TERROR_MISSION", "lon": blon + 0.35,
-                        "lat": blat + 0.10, "race": "STR_SECTOID", "hours": 240})
-        site_id = site["site_id"]
-        host.wait_for("site on host",
-                      lambda: any(s["id"] == site_id for s in _geo(host)["missionSites"]) or None,
-                      timeout=30)
-        host.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
-                 "lon": blon + 0.34, "lat": blat + 0.10, "dest": f"site:{site_id}",
-                 "fuel": 999999, "lowFuel": False})
-
-        def _landing_prompt():
-            if _has(host, "ConfirmLandingState"):
-                return True
-            host.cmd({"cmd": "geo_set_speed", "idx": 2})  # not geo_run: it auto-declines
-            return None
-
-        host.wait_for("ConfirmLandingState on host", _landing_prompt, timeout=90, interval=0.5)
-        print("PASS arrival: shared craft reached the site; host got the landing prompt")
-
-        # ---- SHARED battle entry: host confirms; NO two-world merge --------
-        host.ok({"cmd": "confirm_landing"})
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} entered the battle",
-                        lambda gc=gc: _battle(gc).get("inBattle") or None,
-                        timeout=180, interval=1.0)
-        print("PASS entry: BOTH machines entered the SHARED battle from the shared world")
+        print(f"PASS squad: {seats} aboard the shared craft; battle entered live "
+              f"(F355 briefing-close-first ordering)")
 
         # ---- control split = ownership, on BOTH machines ------------------
         for tag, gc in (("host", host), ("client", client)):
@@ -184,27 +165,16 @@ def run_scenario(label, owners, want_coop, ports, fail):
             print("PASS control-split: on BOTH machines the host-owned unit is coop=0 and the "
                   "client-owned unit is coop=1; exactly the squad deployed")
 
-        # ---- briefing -> coop pre-battle inventory -> tactical ------------
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} briefing", lambda gc=gc: _has(gc, "BriefingState") or None,
-                        timeout=120, interval=0.5)
-            gc.ok({"cmd": "close_briefing"})
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} pre-battle inventory",
-                        lambda gc=gc: _has(gc, "InventoryState") or None, timeout=120, interval=0.5)
-            gc.ok({"cmd": "battle_inventory", "action": "ok"})
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} tactical map",
-                        lambda gc=gc: _has(gc, "BattlescapeState") or None, timeout=120, interval=0.5)
-        print("PASS tactical: both machines reached the battlescape (shared lockstep battle)")
+        # ---- SPEC 19 (W1-P20) common tail: T-SPLIT / T-CMD / T-EXIT --------
+        expected_seats = {sid: want_coop[i] for i, sid in enumerate(squad)}
+        session.assert_t_split(host, client, expected_seats, what=f"S2 {label}")
 
-        # ---- abort -> abandon-mission vote -> debriefing -> geoscape -------
-        # In co-op, ABORT opens a majority vote instead of AbortMissionState, and
-        # a blind dismiss_popup drain would generic-pop the VoteMenu and then the
-        # battlescape itself. session.coop_abort_battle drives the real flow;
-        # test_vote_abort_battle.py is the repro for the raw-pop crash.
-        session.coop_abort_battle(host, client)
-        print("PASS debriefing: both machines returned to the geoscape")
+        seat1_actor = next(sid for i, sid in enumerate(squad) if want_coop[i] == 1)
+        seat0_actor = next((sid for i, sid in enumerate(squad) if want_coop[i] == 0), None)
+        session.assert_t_cmd(host, client, seat1_actor, seat0_actor,
+                             host_check=host_has_unit, what=f"S2 {label}")
+
+        session.assert_t_exit(host, client, what=f"S2 {label}")
 
         # ---- single-world post-battle merge: worlds identical -------------
         def _equal():
@@ -237,16 +207,19 @@ def run_scenario(label, owners, want_coop, ports, fail):
 def main():
     fail = []
     # AC2: mixed squad - one host-owned (seat 0) + one client-owned (seat 1).
-    run_scenario("mixed", {0: 0, 1: 1}, {0: 0, 1: 1}, (48770, 48771, 48070), fail)
+    run_scenario("mixed", {0: 0, 1: 1}, {0: 0, 1: 1}, (48770, 48771, 48070), fail,
+                 host_has_unit=True)
     # AC3: solo-seat squad - only CLIENT-owned soldiers aboard.
-    run_scenario("solo_client", {0: 1, 1: 1}, {0: 1, 1: 1}, (48772, 48773, 48072), fail)
+    run_scenario("solo_client", {0: 1, 1: 1}, {0: 1, 1: 1}, (48772, 48773, 48072), fail,
+                 host_has_unit=False)
 
-    print("\n==== PRD-J09 battle summary ====")
+    print("\n==== PRD-J09 / SPEC 19 (W1-P20) S2 battle summary ====")
     if fail:
         print(f"  FAILURES: {fail}")
         sys.exit(2)
     print("  mixed + solo_client: SHARED battles start host-side from the shared world, "
-          "split control by ownership on both machines, and merge to identical worlds.")
+          "split control by ownership on both machines, admit/deny commands per T-CMD, "
+          "and merge to identical worlds.")
     sys.exit(0)
 
 
