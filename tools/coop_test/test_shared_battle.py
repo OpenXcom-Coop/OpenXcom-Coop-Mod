@@ -36,27 +36,19 @@ T-SPLIT, T-CMD (the host leg only in `mixed` - `solo_client` skips it BY
 CONSTRUCTION, REV E.48 C.4's connected-seat-with-no-live-unit case: the host
 owns no unit to be refused on), T-EXIT.
 
-STOP note (evidence, not a guess): T-EXIT calls `session.coop_abort_battle`,
-which drives the pre-rewrite ABANDON-MISSION VOTE. At this tip that vote does
-not exist any more: `BattlescapeState::btnAbortClick` (BattlescapeState.cpp
-:1652-1663) refuses only the CLIENT's press and otherwise pushes the vanilla
-`AbortMissionState` unconditionally ("W1-P5 ruling D8/WV-D14: ABORT MISSION
-ends in setAborted()+finishBattle() - a battle-wide, host-authoritative
-decision. The multiplayer VOTE... is r4 T3 (executeVoteAction('abandon_
-mission') is still a logging stub)"), and `AbortMissionState::btnOkClick`
-(AbortMissionState.cpp:198-220) confirms: no `requestVote` call anywhere.
-Captured directly: the host's own log shows `push class
-OpenXcom::AbortMissionState depth=3` where `coop_abort_battle` expects a
-`VoteMenu`, so its `vote_state` poll times out. EVERY existing caller of
-`session.coop_abort_battle` in this suite (test_vote_abort_battle.py,
-test_shared_base_defense.py, test_skirmish_end_main_menu.py,
-test_coop_debrief_sync.py, test_shared_soldier_gift_dup.py,
-test_shared_month_run.py) is independently `SKIP-PENDING` at this tip, so this
-is not something S2 broke - the helper has never been exercised against a
-live rewrite-era battle. This blocks T-EXIT (and therefore the post-battle
-world-equality legs after it) identically in both scenarios; it is r4 T3's
-gap, not a battle-ENTRY defect, so it is reported here rather than routed
-around with an unsanctioned lever.
+T-EXIT (SPEC 19 REV E.65 / D114): `session.coop_abort_battle` was re-pointed
+off the pre-rewrite ABANDON-MISSION VOTE (r4 T3, a logging stub that does not
+exist at this tip: `BattlescapeState::btnAbortClick` refuses only the CLIENT's
+press and otherwise pushes vanilla `AbortMissionState` unconditionally, and
+`AbortMissionState::btnOkClick` has no `requestVote` - W1-P5 D8/WV-D14 make
+ABORT host-authoritative) to the rewrite-era host abort: host btnAbortClick ->
+vanilla `AbortMissionState` -> confirm (`dismiss_popup` -> `btnOkClick`) ->
+setAborted()+finishBattle() -> Debriefing -> geoscape. In a SHARED battle
+finishBattle returns BOTH machines, so S2/S3 keep the common-tail T-EXIT
+unchanged in intent (both on GeoscapeState, no crash, no desyncSeen). This is
+the orchestrator-authorized SS A.10 / R10 re-point of an existing assertion to
+the value the ruled mechanism (D8/WV-D14) implies (measured: SHARED abort
+returns both machines cleanly).
 
 Run:  python tools/coop_test/test_shared_battle.py
 Exit 0 = pass; 2 = failure.

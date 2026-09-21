@@ -11,7 +11,10 @@ r1a_v2.bring_up_fixed recipe, R1(b)'s own measured fixture) must, at the tip:
   * let the CLIENT command its own guest through the real intent path
     (admitted), refuse it on a host soldier (not_your_unit), and refuse the
     HOST's click-select on the guest's own tile;
-  * leave the battle cleanly (abort -> geoscape, no crash, no desyncSeen);
+  * leave the battle cleanly via the host-authoritative abort (D114=a / E65.1):
+    the HOST reaches the geoscape (AbortMissionState -> finishBattle) with NO
+    crash and NO desyncSeen on EITHER machine - expect_both=False, since the
+    client's SEPARATE return is r4 T2 (see OUT-OF-WAVE below);
   * satisfy F366's post-battle roster consumers: the host's merged COPY of the
     guest (coopBase == -1) is gone; the client's own durable "Guest Zzz"
     survives.
@@ -22,10 +25,12 @@ per-seat stored count for seat 1 must already be >= 1 - proof the
 `battle_roster_contrib` census actually reached the host, not just an absence
 any unrelated bring-up failure would also produce.
 
-OUT-OF-WAVE (D103): the guest's post-battle state (stats/wounds/death/
-promotions) returning to the CLIENT's world is r4 T2 (`debrief_result`) and is
-NOT asserted here - only that both machines return to the geoscape cleanly and
-the host's roster satisfies F366.
+OUT-OF-WAVE (D103 + E65.5): (1) the guest's post-battle state (stats/wounds/
+death/promotions) returning to the CLIENT's world is r4 T2 (`debrief_result`);
+(2) the CLIENT's own clean return to its geoscape after a SEPARATE host abort is
+ALSO r4 T2 (F387: the host's finishBattle returns only the host; the client is
+left in the battle). Neither is asserted here - S1 asserts only that the HOST
+reaches the geoscape cleanly and the host's roster satisfies F366.
 
 Run:  python tools/coop_test/test_coop_separate_guest_battle.py
 Exit 0 = pass; 2 = failure.
@@ -121,7 +126,8 @@ def main():
                                what="S1 separate guest battle")
         session.assert_t_cmd(host, client, guest_battle_id, host_squad[0],
                              what="S1 separate guest battle")
-        session.assert_t_exit(host, client, what="S1 separate guest battle")
+        session.assert_t_exit(host, client, what="S1 separate guest battle",
+                              expect_both=False)
 
         # ---- F366: post-battle roster consumers ------------------------------
         assert not _guest_present(host), (

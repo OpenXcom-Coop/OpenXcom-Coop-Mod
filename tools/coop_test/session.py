@@ -599,69 +599,49 @@ def drain_to_geoscape(gc, deadline, interval=0.4):
     return None
 
 
-def coop_abort_battle(host, client, vote_timeout=25, drain_timeout=200,
+def coop_abort_battle(host, client, expect_both=True, drain_timeout=200,
                       interval=0.4):
-    """End a live co-op battle the only way a player now can: ABORT -> vote ->
-    debriefing -> geoscape, on BOTH machines.
+    """End a live rewrite-era co-op battle via the host-authoritative ABORT
+    (owner ruling D8/WV-D14): the host's btnAbortClick pushes the vanilla
+    AbortMissionState (the CLIENT's press is refused), and confirming it
+    (dismiss_popup -> AbortMissionState::btnOkClick) runs setAborted()+
+    finishBattle() -> DebriefingState -> geoscape.
 
-    In multiplayer, abandoning a mission takes a strict majority: btnAbortClick
-    calls requestVote("abandon_mission", ...) and every machine opens a
-    VoteMenu. The host is the starter here, so its seat is an automatic YES and
-    the client's YES carries the 2/2 majority; the host then runs
-    abortMissionByVote -> finishBattle (which pops its own VoteMenu) and ships
-    the debriefing to the client, whose EndCoopBattle does the same. Only then
-    is dismiss_popup safe again - DebriefingState is a type it handles.
+    SPEC 19 REV E.65 (F387, D114=a): the pre-rewrite abandon-mission VOTE this
+    helper used to drive is r4 T3 (a logging stub) and does NOT exist at this
+    tip, so it is not used. finishBattle is battle-wide and host-authoritative:
+    in a SHARED battle it returns BOTH machines to the geoscape; in a SEPARATE
+    battle it returns only the HOST (the client's clean return is r4 T2
+    `debrief_result` - OUT of wave 1; call with expect_both=False, E65.1).
 
-    Exactly ONE vote is started, so the host's 60-second vote-starter cooldown
-    is never reached; a repeated battle_action/abort while a vote is already
-    active is absorbed by requestVote (it just re-shows the open menu).
-
-    Raises AssertionError if the vote is not the abandon-mission one or does not
-    pass, and TimeoutError (with both machines' top states) if either machine
-    never gets back to the geoscape.
+    Raises AssertionError if the host's confirm was not AbortMissionState, and
+    TimeoutError (with both machines' top states) if an EXPECTED machine never
+    reaches the geoscape.
     """
-
     host.ok({"cmd": "battle_action", "action": "abort"})
-
-    def _vote(gc, want):
-        return gc.wait_for(
-            f"abandon-mission vote {want}",
-            lambda: (lambda s: s if (
-                s.get(want) and (want != "active" or s.get("menuOpen"))
-            ) else None)(gc.ok({"cmd": "vote_state"})),
-            timeout=vote_timeout,
-            interval=0.25,
-        )
-
-    for gc in (host, client):
-        v = _vote(gc, "active")
-        assert v["action"] == "abandon_mission", \
-            f"{gc.name}: ABORT opened the wrong vote: {v}"
-
-    # The starter (the host, seat 0) auto-voted YES when the vote was created,
-    # so this single YES is the second of the two a 2-player majority needs.
-    cast = client.ok({"cmd": "vote_cast", "yes": True})
-    assert cast.get("accepted"), f"client vote_cast was rejected: {cast}"
-
-    for gc in (host, client):
-        v = _vote(gc, "finished")
-        assert v.get("passed"), \
-            f"{gc.name}: the abandon-mission vote did not pass: {v}"
+    host.wait_for("host abort confirm dialog (AbortMissionState)",
+                  lambda: has_state(host, "AbortMissionState") or None,
+                  timeout=30, interval=0.25)
+    r = host.cmd({"cmd": "dismiss_popup"})
+    assert r.get("handled") == "AbortMissionState", \
+        f"host abort confirm was not AbortMissionState::btnOkClick: {r}"
 
     deadline = time.time() + drain_timeout
-    for gc in (host, client):
+    machines = ((host, "host"), (client, "client")) if expect_both else ((host, "host"),)
+    for gc, name in machines:
         try:
             gc.wait_for("back on the geoscape after debriefing",
                         lambda gc=gc: drain_to_geoscape(gc, deadline, interval),
                         timeout=drain_timeout + 20, interval=1.0)
         except TimeoutError:
             raise TimeoutError(
-                f"abandon-mission abort: {gc.name} never reached the geoscape "
+                f"host-authoritative abort: {name} never reached the geoscape "
                 f"within {drain_timeout}s\n"
                 f"  host:   {states(host)[-3:]}\n"
                 f"  client: {states(client)[-3:]}")
 
-    print("abandon-mission vote passed; both machines back on the geoscape")
+    print("host-authoritative abort: %s back on the geoscape"
+          % ("both machines" if expect_both else "host (client return = r4 T2)"))
 
 
 def save_files(user_dir):
@@ -2631,17 +2611,23 @@ def _crash_log_snapshot():
     return hits
 
 
-def assert_t_exit(host, client, what=""):
-    """SPEC 19 (W1-P20) spec (f) common tail T-EXIT:
-    `session.coop_abort_battle(host, client)` -> both on GeoscapeState, no
-    NEW crash log, no desyncSeen."""
+def assert_t_exit(host, client, what="", expect_both=True):
+    """SPEC 19 (W1-P20) spec (f) common tail T-EXIT, REV E.65 (D114=a): the
+    host-authoritative abort (coop_abort_battle) returns the HOST to
+    GeoscapeState with NO new crash log and NO desyncSeen on EITHER machine.
+    SHARED (expect_both=True): the client also returns. SEPARATE
+    (expect_both=False, E65.1): the client's clean return is r4 T2
+    (`debrief_result`) and is NOT asserted here (OUT-OF-WAVE E65.5)."""
     tag = f" {what}" if what else ""
     before_crash = _crash_log_snapshot()
-    coop_abort_battle(host, client)
-    for gc, tag2 in ((host, "host"), (client, "client")):
+    coop_abort_battle(host, client, expect_both=expect_both)
+    geo_checks = ((host, "host"), (client, "client")) if expect_both else ((host, "host"),)
+    for gc, tag2 in geo_checks:
         st = states(gc)
         assert st and "GeoscapeState" in st[-1], (
             f"T-EXIT{tag}: {tag2} not on GeoscapeState after abort: {st}")
+    # desyncSeen is verified on BOTH machines through the abort regardless of mode
+    for gc, tag2 in ((host, "host"), (client, "client")):
         desync = gc.cmd({"cmd": "battle_state"}).get("desyncSeen")
         assert not desync, f"T-EXIT{tag}: {tag2} desyncSeen={desync!r} after abort"
     after_crash = _crash_log_snapshot()

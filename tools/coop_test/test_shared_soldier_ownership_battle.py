@@ -23,15 +23,15 @@ owner under the bootstrap split (SavedGame.cpp:785-795, `getId() % 2`). The
 spec (f) common tail (T-SPLIT with expected coop = bootstrap owner, T-CMD)
 runs right after the existing battle-control assertion, mid-battle, so the
 pre-existing on-load-migration coverage below still runs unconditionally;
-T-EXIT is last (it ends the battle) and is where this file currently stops -
-see the STOP note.
+T-EXIT is last (it ends the battle).
 
-STOP note (evidence, not a guess): T-EXIT calls `session.coop_abort_battle`,
-which drives the pre-rewrite ABANDON-MISSION VOTE. At this tip that vote does
-not exist any more - see test_shared_battle.py's own STOP note (same root
-cause, same captured evidence: BattlescapeState.cpp:1652-1663,
-AbortMissionState.cpp:198-220, every existing `coop_abort_battle` caller
-independently SKIP-PENDING). This is r4 T3's gap, not a battle-ENTRY defect.
+T-EXIT (SPEC 19 REV E.65 / D114): `session.coop_abort_battle` was re-pointed off
+the pre-rewrite ABANDON-MISSION VOTE (r4 T3, a logging stub that does not exist
+at this tip - see test_shared_battle.py's docstring, same root cause) to the
+rewrite-era host-authoritative abort (D8/WV-D14: host btnAbortClick -> vanilla
+AbortMissionState -> confirm -> finishBattle -> geoscape). SHARED finishBattle
+returns BOTH machines, so this file keeps the common-tail T-EXIT unchanged in
+intent (both on GeoscapeState, no crash, no desyncSeen).
 
 Run:  python tools/coop_test/test_shared_soldier_ownership_battle.py
 """
@@ -125,9 +125,8 @@ def main():
         print(f"PASS migration: a 999-owned (pre-fix) save healed on load -> "
               f"seat0={n0} seat1={n1}, no soldier left co-owned")
 
-        # ---- SPEC 19 (W1-P20): T-EXIT closes the battle - see the module's own
-        # STOP note for why this currently blocks (r4 T3, not a battle-entry
-        # defect: the abandon-mission vote is unimplemented at this tip).
+        # ---- SPEC 19 (W1-P20) T-EXIT closes the battle via the host-authoritative
+        # abort (REV E.65): SHARED finishBattle returns BOTH machines cleanly.
         session.assert_t_exit(host, client, what="S3 bootstrap ownership")
 
         print("ALL SPEC 19 (W1-P20) S3 SHARED BOOTSTRAP-OWNERSHIP-IN-BATTLE TESTS PASSED")
