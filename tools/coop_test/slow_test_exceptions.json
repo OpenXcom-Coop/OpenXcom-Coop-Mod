@@ -51,6 +51,10 @@
     "test_parallel_speed_skew": {
       "budget_s": 300,
       "reason": "CI 31.0s (run 31999655291, shard 1) but local weight 240s -- deliberately paces two game clocks against each other (pinned to the serial lane locally). Provisioned to the local weight."
+    },
+    "test_spec16_pause_on_leave": {
+      "budget_s": 420,
+      "reason": "orch50 SPEC 19 REGRESSION-33 K=2: 214.5s local (pause-on-leave S1 = drop-detect + rejoin + restream, intrinsically long waits). First time this SPEC 16 test runs in a K=2 regression -- it was the unit-under-test at its own acceptance, never budgeted, and is byte-unchanged by SPEC 19. Functionally PASSES; 420s gives K=2-contention + slower-CI headroom (hard-kill 840s)."
     }
   }
 }
