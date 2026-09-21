@@ -98,6 +98,25 @@ void onSideTransition(SavedBattleGame* save);
 /// SPEC 10's "no tally at t=0" stands untouched.
 void onBattleActive(SavedBattleGame* save);
 
+/// SPEC 18 (r4 T4) M3 (D100(b)): the DISK-RESUME twin of onBattleActive()
+/// above - called INSTEAD OF it, HOST-ONLY (self-guarded identically) and
+/// only for a disk resume (never a fresh battle - that's onBattleActive()'s -
+/// and never an in-memory rejoin, which skips this whole authoring step, see
+/// connectionTCP.cpp's onReady()). A no-op in parallel mode, same as
+/// onBattleActive(). @a savedSeat is the battle-save's persisted
+/// coopActiveSeat, read by the CALLER from the BattleAuthority::activeSeat
+/// MIRROR coopLoadActiveSeat() (BattleAuthority.h) populated at
+/// SavedBattleGame::load() time (-1 = absent key, or a parallel-mode save).
+/// Restores the EXACT holder when it still names a live seat with
+/// commandable units: g_batonSeat is seeded to @a savedSeat and emitTally()'s
+/// OWN re-resolve (coopBatonResolve(save, g_batonSeat, wrap=true), the same
+/// call every tally re-entry already makes) starts searching AT that seat and
+/// only falls through past it - wrapping to the D-23 first live seat - when
+/// @a savedSeat is no longer live. One call therefore covers both "restore
+/// the exact holder" and the D-23 degrade, with no separate branch here; the
+/// re-emitted tally is what makes the client mirror the restored holder.
+void onBattleResumed(SavedBattleGame* save, int savedSeat);
+
 /// CLIENT-ONLY (self-guarded). Called from CoopApply::applyEvPayload()'s
 /// "side_transition" branch, once per applied restate - this machine's own
 /// mirror of the side-phase counter, used ONLY to stamp this machine's own

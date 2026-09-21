@@ -179,6 +179,33 @@ void emitPreparedOffer(Game* game);
 /// phase==Handshake/Ended ignore a rejoin offer (M5's idempotence guard).
 void offerRejoinBattle(Game* game);
 
+/// HOST, SPEC 18 (r4 T4) M2: DISK-RESUME entry, called from the host's
+/// resume_ack battle-eligible fork (connectionTCP.cpp) - the SAME fork that
+/// used to emit the dead, quarantined `campaign_resume_battle` this replaces
+/// - once a menu-loaded coop battle save (CoopSession::adoptResumeSave(),
+/// lobbyMode==2) has hosted and reached its own resume lobby. Unlike
+/// offerRejoinBattle() above, the process just RESTARTED: BattleAuthority
+/// carries only what SavedBattleGame::load()'s coop hooks wrote into its
+/// turnMode/activeSeat MIRRORS (coopLoadTurnMode()/coopLoadActiveSeat(),
+/// BattleAuthority.h) moments ago, so this DOES call initBattleAuthority()
+/// (mints a FRESH battleId, the SAME shared counter prepareBattleOffer()
+/// uses) and DOES rebuild the seat->faction store - from the loaded units'
+/// persisted seat tags (BattleUnit::getCoopSeat()) through the RB-D23
+/// canonical map (coopSeatCanonicalFaction(), CoopBattleSetup.h), never by
+/// re-running assignSeatsAndFactions() (a generation-time pass) and never
+/// from Soldier::getCoop() (E63.5/F378). Also pops the host's stale menu
+/// stack down to BattlescapeState, keeping the top COOP_DLG_WAIT_PLAYERS(62)
+/// modal (M4/F401). Sends a `battle_offer{resumed:true}`; the CLIENT side
+/// needs NO change - onOffer()/onBlobChunkAppended()/onAccept()/onReady()
+/// onward is the exact same r4 handshake offerRejoinBattle() already uses.
+///
+/// No-op (logs) unless this machine is the host, phase==Idle (nothing
+/// offered yet this process) AND lobbyMode==2 (this IS a resume, not some
+/// other Idle moment - a fresh join still goes through
+/// offerBattle()/prepareBattleOffer()), and there is a live loaded
+/// SavedBattleGame.
+void offerResumedBattle(Game* game);
+
 /// HOST (WV-D56): the path where a prepared-but-not-yet-emitted battle never
 /// starts (BriefingState's no-aliens arm - a battle with zero live aliens
 /// never reaches the freeze branch that would call emitPreparedOffer()).

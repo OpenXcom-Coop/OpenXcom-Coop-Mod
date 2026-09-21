@@ -1940,8 +1940,6 @@ void CoopState::loadCoop(Action *)
 
 }
 
-namespace
-{
 // RB-D23: canonical seat -> faction mapping, by gamemode. Single source of
 // truth for BOTH the per-unit assignment loop in assignSeatsAndFactions()
 // below AND (via coopBattleAuthority().setSeatFaction()) the seat->faction
@@ -1949,6 +1947,13 @@ namespace
 // BattleAuthority::factionOf()/mySideActive()/commandsUnit()/isSpectator()
 // all read - replaces the RB-D18 interim map's flat "every seat is player"
 // template.
+//
+// SPEC 18 (r4 T4) E63.5/F378: given EXTERNAL linkage (moved out of the
+// anonymous namespace it lived in through SPEC 19) and declared in
+// CoopBattleSetup.h - CoopHandshake::offerResumedBattle() (connectionTCP.cpp,
+// a different translation unit) reuses this SAME canonical map for its
+// disk-resume seat-store rebuild, per that spec's explicit ruling ("reuse
+// coopSeatCanonicalFaction(), NOT assignSeatsAndFactions()"). Body unchanged.
 UnitFaction coopSeatCanonicalFaction(int gamemode, int seat)
 {
 	switch (gamemode)
@@ -1961,7 +1966,6 @@ UnitFaction coopSeatCanonicalFaction(int gamemode, int seat)
 		// interim invariant, carried forward unchanged by R5-P1)
 		return FACTION_PLAYER;
 	}
-}
 }
 
 // R5-P1 (SPIKE-RUNBOOK.md RB-D23): see CoopBattleSetup.h for the full

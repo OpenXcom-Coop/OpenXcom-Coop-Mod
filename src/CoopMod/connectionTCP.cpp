@@ -6664,6 +6664,21 @@ void onBattleActive(SavedBattleGame* save)
 	emitTally(save);
 }
 
+// SPEC 18 (r4 T4) M3 (D100(b)): see CoopEndTurn.h's doc comment for the full
+// rationale. Seed g_batonSeat at the PERSISTED holder and let emitTally()'s
+// own coopBatonResolve(save, g_batonSeat, wrap=true) re-resolve it - live,
+// the exact seat is kept; gone, the search falls through past it and wraps
+// to the D-23 first live seat exactly like a fresh onBattleActive() entry.
+void onBattleResumed(SavedBattleGame* save, int savedSeat)
+{
+	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	if (coopBattleAuthority().turnMode.load() != CoopTurnMode::Traditional)
+		return;
+	g_batonSeat = savedSeat;
+	emitTally(save);
+}
+
 void onClientAppliedSideTransition()
 {
 	if (!isCoopBattle() || coopBattleAuthority().hostSim)
@@ -8931,6 +8946,17 @@ struct PendingHost
 	// own comment) and to avoid discarding the host's still-alive paused
 	// battle on a refuse/mismatch.
 	bool resumed = false;
+
+	// SPEC 18 (r4 T4) M3: true ONLY when `resumed` came from
+	// offerResumedBattle() (a battle loaded off DISK after a full host
+	// restart) rather than offerRejoinBattle() (a live in-memory pause/
+	// rejoin, SPEC 16 M5). onReady() reads this to decide WHICH fresh-battle-
+	// authoring twin to run when it does run the block: a disk resume's host
+	// fog/reveal is empty and its baton must be restored from the save
+	// (CoopEndTurn::onBattleResumed()), while an in-memory rejoin's live fog/
+	// baton survived M1's pause and the whole block stays skipped, exactly
+	// as SPEC 16 left it. Always false when `resumed` is false.
+	bool fromDisk = false;
 };
 static PendingHost g_pendingHost;
 
@@ -9356,6 +9382,18 @@ void selectOwnUnitAtEntry(Game* game)
 		<< " commands NO unit in this battle - spectator notice raised";
 }
 
+// SPEC 18 (r4 T4) M2: the ONE battleId mint, hoisted out of
+// prepareBattleOffer()'s own local static so a disk-resumed offer
+// (offerResumedBattle(), below) mints from the SAME session-monotonic
+// counter instead of a second one - "same counter" is all that matters here
+// (a resumed battle is a NEW battleId either way, never the saved
+// informational one, see SavedGame.cpp's M1 stamp doc comment).
+static std::uint32_t coopMintBattleId()
+{
+	static std::uint32_t s_nextBattleId = 1; // SS2.2: battleId, host-minted, session-monotonic
+	return s_nextBattleId++;
+}
+
 void prepareBattleOffer(Game* game, int gamemode)
 {
 	if (!game || !connectionTCP::getServerOwner())
@@ -9376,8 +9414,7 @@ void prepareBattleOffer(Game* game, int gamemode)
 		return;
 	}
 
-	static std::uint32_t s_nextBattleId = 1; // SS2.2: battleId, host-minted, session-monotonic
-	const std::uint32_t battleId = s_nextBattleId++;
+	const std::uint32_t battleId = coopMintBattleId();
 
 	initBattleAuthority(battleId); // -> hostSim=true, localSeat, phase=Handshake, seat-faction store cleared
 
@@ -9676,6 +9713,181 @@ void offerRejoinBattle(Game* game)
 
 	Log(LOG_INFO) << "[coop-handshake] SPEC16 M5: rejoin battle_offer sent (battleId=" << battleId
 		<< ", blobBytes=" << blob.size() << ", saveBlob=" << g_pendingHost.saveBlobHex << ")";
+}
+
+// SPEC 18 (r4 T4) M2: the DISK-RESUME sibling of offerRejoinBattle() above -
+// reached from the resume_ack battle-eligible fork (the OLD dead
+// campaign_resume_battle emit this replaces), never a fresh join
+// (offerBattle()/prepareBattleOffer()) or a live in-memory rejoin
+// (offerRejoinBattle()). Unlike offerRejoinBattle(), the battle was NOT
+// carrying a live BattleAuthority through this process - the host just
+// loaded it off disk after a full restart - so this DOES call
+// initBattleAuthority() (mints a FRESH battleId, same shared counter
+// prepareBattleOffer() uses) and DOES rebuild the seat->faction store,
+// unlike the rejoin sibling which reuses both verbatim.
+void offerResumedBattle(Game* game)
+{
+	if (!game || !connectionTCP::getServerOwner())
+	{
+		Log(LOG_WARNING) << "[coop-handshake] offerResumedBattle() called on a non-host machine - ignoring";
+		return;
+	}
+	// Guard on the EXACT state a menu-loaded coop battle save leaves this
+	// process in: phase is still Idle (nothing has been offered yet this
+	// process) and CoopSession::adoptResumeSave() stamped lobbyMode=2 - the
+	// resume-flow marker that tells this Idle apart from any other Idle
+	// moment (a fresh skirmish/campaign entry never sets it). A fresh join
+	// still goes through offerBattle()/prepareBattleOffer(); a live pause
+	// uses offerRejoinBattle() instead (phase==Active there, never Idle).
+	if (coopBattleAuthority().phase != CoopBattlePhase::Idle || connectionTCP::session.lobbyMode != 2)
+	{
+		Log(LOG_WARNING) << "[coop-handshake] offerResumedBattle() called outside a disk resume (phase="
+			<< static_cast<int>(coopBattleAuthority().phase.load()) << ", lobbyMode="
+			<< connectionTCP::session.lobbyMode << ") - ignoring; a fresh join uses "
+			"offerBattle()/prepareBattleOffer(), a live pause uses offerRejoinBattle()";
+		return;
+	}
+	SavedBattleGame* battle = game->getSavedGame() ? game->getSavedGame()->getSavedBattle() : nullptr;
+	if (!battle)
+	{
+		Log(LOG_ERROR) << "[coop-handshake] offerResumedBattle() called with no live SavedBattleGame - nothing to offer";
+		return;
+	}
+
+	const std::uint32_t battleId = coopMintBattleId();
+	// hostSim/localSeat/phase=Handshake/battleId + a CLEARED seat->faction
+	// store (rebuilt just below); turnMode and activeSeat are NOT touched by
+	// initBattleAuthority() - they still hold whatever coopLoadTurnMode()/
+	// coopLoadActiveSeat() (BattleAuthority.h) wrote into their mirrors at
+	// SavedBattleGame::load() time, moments ago, and nothing between load and
+	// here resets them (only resetBattleAuthority(), the teardown chokepoint,
+	// does - R1(b)/audit(e) MEASURED this survives a full host restart).
+	initBattleAuthority(battleId);
+
+	// M4 (F401): pop every state above BattlescapeState EXCEPT the top
+	// COOP_DLG_WAIT_PLAYERS (62) modal, at the moment this offer is built -
+	// F401 measured the SEPARATE flow's host stack already sitting at
+	// [..., BattlescapeState, CoopState(62)] with no HostMenu by this point,
+	// so this loop is expected to pop NOTHING there (robust to a no-op); it
+	// exists for any flow where a stale menu still sits between them.
+	{
+		int guard = 0;
+		while (guard++ < 32 && !game->getStates().empty())
+		{
+			State* top = game->getStates().back();
+			if (dynamic_cast<BattlescapeState*>(top) != nullptr)
+				break;
+			CoopState* cs = dynamic_cast<CoopState*>(top);
+			if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
+				break; // the wait modal stays - the host's own RESUME click pops it later
+			game->popState();
+		}
+	}
+
+	// E63.5/F378: rebuild the seat->faction store from the LOADED units'
+	// persisted seat tags (BattleUnit::getCoopSeat(), NOT Soldier::getCoop()),
+	// through the SAME canonical map generation uses
+	// (coopSeatCanonicalFaction(), CoopBattleSetup.h) - assignSeatsAndFactions()
+	// itself is a generation-time pass and is never called on resume (F347).
+	// The host's own seat (0) is seeded even if no unit still carries its tag
+	// (a spectating/all-dead host is still seat 0); every OTHER seat comes
+	// from a live unit's tag.
+	const int gamemode = connectionTCP::_coopGamemode;
+	std::unordered_set<int> seatsFound;
+	coopBattleAuthority().setSeatFaction(0, (int)coopSeatCanonicalFaction(gamemode, 0));
+	seatsFound.insert(0);
+	for (auto* unit : *battle->getUnits())
+	{
+		if (!unit)
+			continue;
+		const CoopSeat seat = unit->getCoopSeat();
+		if (seat == COOP_SEAT_NONE)
+			continue;
+		coopBattleAuthority().setSeatFaction((int)seat, (int)coopSeatCanonicalFaction(gamemode, (int)seat));
+		seatsFound.insert((int)seat);
+	}
+	if ((int)seatsFound.size() != connectionTCP::seatCount())
+	{
+		Log(LOG_WARNING) << "[coop-handshake] offerResumedBattle(): rebuilt seat store has "
+			<< seatsFound.size() << " seat(s) tagged, seatCount() reports "
+			<< connectionTCP::seatCount() << " - a seat with no live tagged unit (logged, not fatal)";
+	}
+
+	std::vector<int> seats;
+	seats.reserve(connectionTCP::seatCount());
+	for (int s = 0; s < connectionTCP::seatCount(); ++s)
+		seats.push_back(s);
+
+	// emitPreparedOffer()'s own order: snapshot the blob FIRST, then seed the
+	// published hostile-reveal set from that SAME frozen state. A disk
+	// resume's host fog/reveal is EMPTY (F348(4): "has no save
+	// representation"), unlike offerRejoinBattle()'s live-fog case, so this
+	// fresh-battle-shaped seeding step is REQUIRED here (onReady()'s M3
+	// authoring block runs the matching CoopFog::ensureAllocated()/
+	// authorHostilePass() pair once phase flips Active).
+	game->getSavedGame()->saveCoopToMemory("battlehost", game->getMod(), "battlehost");
+	CoopReveal::seedPublished(battle);
+
+	std::string blob;
+	{
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		auto it = connectionTCP::coopFilesHost.find("battlehost");
+		if (it == connectionTCP::coopFilesHost.end())
+		{
+			Log(LOG_ERROR) << "[coop-handshake] offerResumedBattle(): saveCoopToMemory did not "
+				"populate coopFilesHost[\"battlehost\"]";
+			resetBattleAuthority();
+			return;
+		}
+		blob = it->second;
+	}
+	const std::string sha = coopSha256Hex(blob); // IR-6
+
+	g_pendingHost = PendingHost();
+	g_pendingHost.prepared = true;
+	g_pendingHost.active = true;
+	g_pendingHost.battleId = battleId;
+	g_pendingHost.gamemode = gamemode;
+	g_pendingHost.seats = seats;
+	g_pendingHost.resumed = true;
+	g_pendingHost.fromDisk = true;
+	g_pendingHost.saveBlobHex = coopComputeSaveBlobBucketHex(battle);
+
+	Json::Value offer(Json::objectValue);
+	offer["state"] = "battle_offer";
+	offer["protocolVersion"] = 1;
+	offer["battleId"] = battleId;
+	offer["gamemode"] = gamemode;
+	offer["seatMap"] = coopBuildRealSeatMap(seats);
+	offer["blobBytes"] = Json::UInt64(blob.size());
+	offer["blobSha"] = sha;
+	offer["resumed"] = true;
+	// D-22 (F352, R1(b) MEASURED it survives a full host restart): the mode
+	// this battle was PLAYED in, read straight from the mirror
+	// coopLoadTurnMode() populated at SavedBattleGame::load() time - never
+	// Options::CoopTurnMode (that is only correct for a fresh-generation
+	// offer, prepareBattleOffer()'s own case).
+	offer["turnMode"] = coopTurnModeName(coopBattleAuthority().turnMode);
+
+	// W1-P2 / D99(a): the SAME mission identity the battle was originally
+	// offered with - target/craftOrBase round-trip on the battle object
+	// itself; deployment was restored into g_missionLabels by
+	// coopLoadDeployment() -> CoopHandshake::adoptCarriedDeployment() at load
+	// time (F353), and nothing between load and here clears g_missionLabels
+	// (only resetPendingState(), post-offer, does - audit(d)).
+	Json::Value missionLabel(Json::objectValue);
+	missionLabel["target"] = battle->getMissionTarget();
+	missionLabel["craftOrBase"] = battle->getMissionCraftOrBase();
+	missionLabel["deployment"] = g_missionLabels.deployment;
+	missionLabel["missionType"] = battle->getMissionType(); // echo only (WR-10)
+	offer["missionLabel"] = missionLabel;
+
+	CoopEmit::sendBattle(offer);
+
+	Log(LOG_INFO) << "[coop-handshake] SPEC18 M2: disk-resume battle_offer sent (battleId=" << battleId
+		<< ", gamemode=" << gamemode << ", blobBytes=" << blob.size()
+		<< ", turnMode=" << coopTurnModeName(coopBattleAuthority().turnMode)
+		<< ", saveBlob=" << g_pendingHost.saveBlobHex << ")";
 }
 
 void abandonPreparedOffer(Game* game)
@@ -10345,6 +10557,17 @@ void onReady(Game* game, const Json::Value& ready)
 	// SPEC 16 (W1-P17) M5: captured before the g_pendingHost reset just below
 	// clears it.
 	const bool wasResumed = g_pendingHost.resumed;
+	// SPEC 18 (r4 T4) M3: same reason - captured before the reset. Always
+	// false when wasResumed is false (offerResumedBattle() is the only writer
+	// of fromDisk, and it always sets resumed=true alongside it).
+	const bool fromDisk = g_pendingHost.fromDisk;
+	// SPEC 18 (r4 T4) M3 (D100(b)): the persisted baton holder, read from the
+	// BattleAuthority::activeSeat MIRROR coopLoadActiveSeat() (BattleAuthority.h)
+	// populated at SavedBattleGame::load() time - captured here, before
+	// CoopEndTurn::onBattleResumed() below may overwrite this SAME mirror via
+	// the tally it emits (applyTallySnapshot() honours the mirror on the host
+	// too). Meaningless (and unused) unless fromDisk.
+	const int savedActiveSeat = coopBattleAuthority().activeSeat.load();
 
 	// The caller already pushed BriefingState unconditionally, right after
 	// bgen.run() (CoopHandshake.h's top doc comment) - this flips the ONE
@@ -10386,33 +10609,52 @@ void onReady(Game* game, const Json::Value& ready)
 	// This block runs only now, after phase Active, because isCoopBattle() - and
 	// therefore authorHostilePass() - is false before it (BattleAuthority.h).
 	//
-	// SPEC 16 (W1-P17) M5: SKIPPED on a resume (wasResumed). This whole block
-	// is fresh-battle-AUTHORING, not idempotent re-sync: CoopEndTurn::
-	// onBattleActive() in particular reseeds the traditional baton at the
-	// D-23 first-live-seat and re-emits the entry tally, which would stomp
-	// the exact baton/tally state M1's pause is defined to keep alive
-	// ("the battle SavedGame, battleId, seat map, turnMode, baton/tally all
-	// survive"). A rejoining client's own fog/reveal state is freshly
-	// allocated on ITS side regardless (onBlobChunkAppended's
-	// CoopFog::reset()/ensureAllocated()), so nothing here needs to re-run
-	// on the host to match it.
-	if (!wasResumed)
+	// SPEC 16 (W1-P17) M5 / SPEC 18 (r4 T4) M3: SKIPPED only for an
+	// IN-MEMORY rejoin (wasResumed && !fromDisk) - this whole block is
+	// fresh-battle-AUTHORING, not idempotent re-sync, and M1's live pause
+	// kept the host's own fog/baton/tally alive through it (SPEC 16
+	// behaviour, byte-unchanged). It RUNS for a fresh battle (!wasResumed) AND
+	// for a DISK resume (fromDisk): a disk resume's host fog/reveal is EMPTY
+	// (F348(4): "has no save representation" - the process just restarted)
+	// and its baton must be RESTORED, not re-seeded at the D-23 default, so
+	// the fog/reveal steps are identical to a fresh battle's but the baton
+	// step calls onBattleResumed() (the persisted holder) instead of
+	// onBattleActive() (always seat 0). A rejoining client's own fog/reveal
+	// state is freshly allocated on ITS side regardless (onBlobChunkAppended's
+	// CoopFog::reset()/ensureAllocated()), so nothing here needs to re-run on
+	// the host to match a REJOIN (as opposed to a resume) client.
+	if (!wasResumed || fromDisk)
 	{
 		if (SavedBattleGame* activeBattle = connectionTCP::getStaticBattle())
 		{
 			CoopFog::ensureAllocated(activeBattle);
 			CoopFog::authorHostilePass(activeBattle, true);
 			CoopReveal::armHostileBaseline();
-			// W1-P13c (REV E.52 E52.1 / D71): the traditional baton's ENTRY
-			// initialiser - seeds the holder at the first LIVE seat in D-23 order
-			// and emits the entry tally. Self-guarded (host-only, no-op in
-			// parallel mode).
-			CoopEndTurn::onBattleActive(activeBattle);
+			if (fromDisk)
+			{
+				// SPEC 18 (r4 T4) M3 (D100(b)): restore the EXACT traditional
+				// baton holder from the battle-save's persisted coopActiveSeat
+				// (savedActiveSeat, captured above before this call can
+				// overwrite the same mirror) - see CoopEndTurn.h's doc comment
+				// for the D-23 degrade this performs when that seat is no
+				// longer live.
+				CoopEndTurn::onBattleResumed(activeBattle, savedActiveSeat);
+			}
+			else
+			{
+				// W1-P13c (REV E.52 E52.1 / D71): the traditional baton's ENTRY
+				// initialiser - seeds the holder at the first LIVE seat in D-23 order
+				// and emits the entry tally. Self-guarded (host-only, no-op in
+				// parallel mode).
+				CoopEndTurn::onBattleActive(activeBattle);
+			}
 		}
 	}
 
 	Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId
-		<< (wasResumed ? ", RESUMED - peerAbsent cleared, admission resumed, "
+		<< (fromDisk ? ", RESUMED (disk) - peerAbsent cleared, admission resumed, "
+			"fog/reveal re-authored, baton restored"
+			: wasResumed ? ", RESUMED (in-memory rejoin) - peerAbsent cleared, admission resumed, "
 			"fresh-battle bootstrap skipped" : "") << ")";
 }
 
@@ -14575,14 +14817,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			connectionTCP::session.resumeBattlePending = false;
 			connectionTCP::session.resumeBattleEligible.clear();
 
-			// R4-REWIRE: "campaign_resume_battle" is quarantined (R1-P3,
-			// inventory-wire-protocol.md section E - "handshake survives, battle-save
-			// payload path dies"). Its receive handler is deleted; this send now
-			// lands on the peer's legacyBattleMessageDropped catch-all until the
-			// mid-battle campaign-resume flow is rebuilt in r4/r5.
-			Json::Value root;
-			root["state"] = "campaign_resume_battle";
-			sendTCPPacketData(root.toStyledString());
+			// SPEC 18 (r4 T4) M2: the OLD "campaign_resume_battle" emit was
+			// quarantined dead weight (R1-P3, inventory-wire-protocol.md
+			// section E) - its receive handler was deleted, so it only ever
+			// landed on the peer's legacyBattleMessageDropped catch-all.
+			// Re-pointed onto the SAME r4 handshake offerRejoinBattle() (SPEC
+			// 16 M5) already uses for a live in-memory pause/rejoin - this is
+			// its disk-resume sibling.
+			CoopHandshake::offerResumedBattle(_game);
 		}
 		else
 		{

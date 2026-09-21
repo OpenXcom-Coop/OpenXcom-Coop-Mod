@@ -27,6 +27,7 @@ namespace OpenXcom
 class SavedBattleGame;
 class Craft;
 class Game;
+enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/RuleItem.h does
 
 /**
  * R5-P1 (rewrite spike, SPIKE-RUNBOOK.md RB-D23): the ONE generation-time
@@ -98,6 +99,22 @@ class Game;
  * + faction; it never touches BattleUnit::getUnitRules()/setUnitRulesCoop().
  */
 void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vector<int>& seats);
+
+/**
+ * SPEC 18 (r4 T4) E63.5/F378: the RB-D23 canonical seat->faction rule
+ * assignSeatsAndFactions() above applies per-unit at generation, exposed here
+ * so CoopHandshake::offerResumedBattle() (connectionTCP.cpp, M2, a disk
+ * resume) can rebuild BattleAuthority's seat->faction store from the SAME
+ * canonical map over the LOADED units' persisted seat tags
+ * (BattleUnit::getCoopSeat()) - the spec's explicit ruling is "reuse
+ * coopSeatCanonicalFaction(), NOT assignSeatsAndFactions() (a generation-time
+ * pass, not called on resume) and NOT Soldier::getCoop()". Previously a
+ * CoopState.cpp anonymous-namespace helper (internal linkage, unreachable
+ * from a second translation unit); given external linkage and declared here
+ * so M2 can call it. Body (unchanged) still lives in CoopState.cpp, beside
+ * assignSeatsAndFactions().
+ */
+UnitFaction coopSeatCanonicalFaction(int gamemode, int seat);
 
 /**
  * SPEC 19 (W1-P20) M1 (F358): the owner->seat stamp that F358 found present at
