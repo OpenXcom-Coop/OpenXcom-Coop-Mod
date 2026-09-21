@@ -63,6 +63,7 @@
 
 #include "../Menu/NewGameState.h"
 #include "../Menu/LoadGameState.h"
+#include "../Menu/SaveGameState.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ConfirmCydoniaState.h"
 #include "../Geoscape/Globe.h"
@@ -2405,6 +2406,46 @@ void initBattleAuthority(std::uint32_t battleId)
 // teardown can clear a stale arm for a battle that no longer exists.
 static bool g_coopPauseModalPending = false;
 
+// SPEC 18 (r4 T4) M8, owner ruling D101 = (a) + drain-first: the deferred
+// mid-battle coop save latch. Armed by SaveGameState::think() (via
+// armDeferredBattleSave() below) the moment it observes a live coop battle
+// that is NOT quiescent, storing exactly the constructor arguments needed
+// to re-push the SAME SaveGameState once the battle drains - so the file
+// always holds the POST-atom state, never a mid-walk/mid-shot/etc. one.
+// Consumed at the RB-D5 pump point (connectionTCP::updateCoopTask()) the
+// moment coopBattleQuiescent() (shared with g_coopPauseModalPending above)
+// goes true; consumed BEFORE the pause modal when both latches are ready at
+// one quiescence (the modal would otherwise sit over the SaveGameState).
+// Declared here, above resetBattleAuthority(), for the same reason
+// g_coopPauseModalPending is: a full teardown must not leave a stale arm
+// for a battle that no longer exists.
+struct CoopDeferredBattleSave
+{
+	bool armed = false;
+	bool useTypeForm = false; // false = filename-form ctor, true = type-form ctor
+	int origin = 0;           // OptionsOrigin, stored as int (see armDeferredBattleSave)
+	int saveType = 0;         // SaveType, stored as int (type-form only)
+	std::string filename;     // filename-form only
+	bool quitAfterSave = false; // filename-form only (ListSave SAVE & QUIT)
+};
+static CoopDeferredBattleSave g_coopDeferredBattleSave;
+
+void armDeferredBattleSave(int origin, bool useTypeForm, int saveType, const std::string& filename, bool quitAfterSave)
+{
+	g_coopDeferredBattleSave.armed = true;
+	g_coopDeferredBattleSave.useTypeForm = useTypeForm;
+	g_coopDeferredBattleSave.origin = origin;
+	g_coopDeferredBattleSave.saveType = saveType;
+	g_coopDeferredBattleSave.filename = filename;
+	g_coopDeferredBattleSave.quitAfterSave = quitAfterSave;
+	Log(LOG_INFO) << "[coop-save] deferred until quiescent";
+}
+
+bool coopDeferredBattleSavePending()
+{
+	return g_coopDeferredBattleSave.armed;
+}
+
 // SPEC 19 (W1-P20) M2 Branch B: the HOST's per-seat store of the latest
 // battle_roster_contrib (BattleWire.h) received from that seat - the
 // client's guest-soldier YAML census, consumed by CoopState.cpp's
@@ -2483,6 +2524,9 @@ void resetBattleAuthority()
 	// SPEC 16 M2: a full teardown must not leave a stale deferred pause-modal
 	// push armed for a battle that no longer exists.
 	g_coopPauseModalPending = false;
+	// SPEC 18 (r4 T4) M8: same discipline - a stale deferred-battle-save arm
+	// must not survive into a battle that no longer exists.
+	g_coopDeferredBattleSave.armed = false;
 	// SPEC 19 (W1-P20) M2 Branch B: same discipline - a stale guest-roster
 	// contribution must not survive into a battle that no longer exists.
 	for (auto& entry : g_guestContrib)
@@ -2549,6 +2593,66 @@ void coopLoadTurnMode(const YAML::YamlNodeReader& reader)
 		<< "\" (W1-P7 / D.1) - stored; CONSUMPTION on resume is r4 T4";
 }
 
+// ----- SPEC 18 (r4 T4, owner rulings D99=(a)/D100=(b)): the deployment +
+// baton battle-save hook pairs, same shape and guard as the turn-mode pair
+// above -----
+
+void coopSaveDeployment(YAML::YamlNodeWriter& writer)
+{
+	// D99(a): the mid-battle save carries the resolved AlienDeployment type
+	// so a disk resume rebuilds the process-local mission-identity mirror
+	// (CoopHandshake::carriedDeploymentType()) a thin client cannot
+	// re-derive on its own. SP and any non-coop battle write NOTHING - the
+	// key is simply ABSENT, so an SP save stays byte-identical.
+	if (!isCoopBattle())
+		return;
+	if (!CoopHandshake::missionLabelsCarried())
+		return;
+	const std::string& deployment = CoopHandshake::carriedDeploymentType();
+	if (deployment.empty())
+		return;
+	writer.write("coopDeployment", deployment);
+}
+
+void coopLoadDeployment(const YAML::YamlNodeReader& reader)
+{
+	// Presence-gated: a save without the key (SP, or a battle that resolved
+	// no deployment) leaves the mirror untouched. An SP load reads nothing
+	// and touches nothing.
+	std::string deployment;
+	reader.tryRead("coopDeployment", deployment);
+	if (deployment.empty())
+		return;
+	CoopHandshake::adoptCarriedDeployment(deployment);
+	Log(LOG_INFO) << "[coop-deployment] battle save carried coopDeployment=\"" << deployment
+		<< "\" (D99(a)) - stored; CONSUMPTION on the resumed offer is M2's";
+}
+
+void coopSaveActiveSeat(YAML::YamlNodeWriter& writer)
+{
+	// D100(b): the mid-battle save carries the traditional-mode baton's
+	// current HOST-ONLY holder (-1 in parallel mode) so a disk resume can
+	// restore the EXACT holder instead of re-seeding to the D-23 first live
+	// seat. SP and any non-coop battle write NOTHING - byte-identical.
+	if (!isCoopBattle())
+		return;
+	writer.write("coopActiveSeat", CoopEndTurn::batonSeat());
+}
+
+void coopLoadActiveSeat(const YAML::YamlNodeReader& reader)
+{
+	// Presence-gated: reads into the BattleAuthority activeSeat MIRROR only
+	// - restoring the live CoopEndTurn baton holder from this mirror (with
+	// the D-23 degrade for an absent/invalid key) is onBattleResumed()'s job
+	// (M3, a separate cycle), not this hook's.
+	int seat = -1;
+	if (!reader.tryRead("coopActiveSeat", seat))
+		return;
+	coopBattleAuthority().activeSeat = seat;
+	Log(LOG_INFO) << "[coop-baton] battle save carried coopActiveSeat=" << seat
+		<< " (D100(b)) - stored in the activeSeat mirror; CONSUMPTION on resume is onBattleResumed's";
+}
+
 // ----- SPEC 3 (FX-2, WV-D61 / owner ruling R-B, 2026-09-04): itemIdCtr rides
 // the blob -----
 
@@ -2607,6 +2711,33 @@ unsigned int coopItemIdCtrRefused() { return g_coopItemIdCtrRefused.load(); }
 bool isCoopBattle()
 {
 	return connectionTCP::getCoopStatic() && coopBattleAuthority().phase == CoopBattlePhase::Active;
+}
+
+// SPEC 18 (r4 T4) M8, owner ruling D101 = (a) + drain-first (F400): the ONE
+// shared quiescence predicate, EXTRACTED from the SPEC 16 pause-modal
+// consumer (updateCoopTask(), beside g_coopPauseModalPending's consume site)
+// so it and the deferred-battle-save latch read the SAME gate. D96:
+// quiescence is BOTH clauses - the host BState stack drains AND no pending
+// origin-chain evs remain - chain-agnostic by construction: any BState-
+// bearing action (walk/shot/melee/psi/throw/AI/a client-origin action
+// executing on the host) trips isBusy() with no per-atom update needed.
+bool coopBattleQuiescent()
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	// F392 (crash_20260921_034003_092_0.log, W1-H1): getBattleState()/
+	// getBattleGame() keep returning their cached pointers after a battle-
+	// to-menu transition has already popped+freed the BattlescapeState, so a
+	// bare isBusy() would deref freed memory. An un-live state is treated as
+	// "no live battle", i.e. quiescent - this MUST be preserved verbatim
+	// (F400): never re-derive a bare !isBusy() here.
+	if (!connectionTCP::isBattlescapeStateLive(bs))
+	{
+		bs = nullptr;
+	}
+	BattlescapeGame* bg = bs ? save->getBattleGame() : nullptr;
+	const bool busy = bg && bg->isBusy();
+	return !busy && CoopArbiter::currentActionId() == 0;
 }
 
 // R5-P2 (SPIKE-RUNBOOK.md R5-P2 packet text): the input-gating combinators.
@@ -6106,6 +6237,12 @@ static std::string g_lastTallySide;
 static int g_lastTallyCount = 0;
 static int g_lastTallyNeeded = 0;
 static std::vector<int> g_lastTallyReadySeats;
+// SPEC 18 (r4 T4) D100(b), NEW (additive): the last tally MESSAGE's own
+// `activeSeat` field (the wire echo), set UNCONDITIONALLY by
+// applyTallySnapshot() below - distinct from BattleAuthority::activeSeat
+// (the "honoured" mirror, written only when the tally's `turn` matches this
+// machine's own last APPLIED side_transition counter).
+static int g_lastTallyActiveSeat = -1;
 
 // Forward declaration: clearPresentationInert() is defined further down
 // this namespace, but reset() below must call it, so it needs an early
@@ -6123,6 +6260,8 @@ void reset()
 	g_lastTallyCount = 0;
 	g_lastTallyNeeded = 0;
 	g_lastTallyReadySeats.clear();
+	// SPEC 18 (r4 T4) D100(b): the wire-echo mirror is per-battle state too.
+	g_lastTallyActiveSeat = -1;
 	// W1-P13c (WV-D55 / D-23): the baton is per-battle state too.
 	g_batonSeat = -1;
 	// REV E.51 / E51.3 / D69 (F174): a battle-authority reset (the teardown
@@ -6257,6 +6396,9 @@ static void applyTallySnapshot(int turn, const std::string& side, int count,
 	g_lastTallyCount = count;
 	g_lastTallyNeeded = needed;
 	g_lastTallyReadySeats = readySeats;
+	// SPEC 18 (r4 T4) D100(b): the wire-echo mirror, unconditional (unlike
+	// BattleAuthority::activeSeat below, which only writes on a turn match).
+	g_lastTallyActiveSeat = activeSeat;
 	++g_talliesSeen;
 
 	// W1-P13c (REV E.1 S-9 / D-23): the ONE writer of BattleAuthority's
@@ -6645,6 +6787,8 @@ void testSendReady(int turn, bool ready)
 
 int phaseCounter() { return g_turn; }
 int tallyTurn() { return g_lastTallyTurn; }
+int tallyActiveSeat() { return g_lastTallyActiveSeat; } // SPEC 18 D100(b)
+int batonSeat() { return g_batonSeat; } // SPEC 18 D100(b)
 std::string tallySide() { return g_lastTallySide; }
 int tallyCount() { return g_lastTallyCount; }
 int tallyNeeded() { return g_lastTallyNeeded; }
@@ -9019,6 +9163,17 @@ bool missionLabelsCarried()
 const std::string& carriedDeploymentType()
 {
 	return g_missionLabels.deployment;
+}
+
+void adoptCarriedDeployment(const std::string& deployment)
+{
+	// SPEC 18 (r4 T4) D99(a): a disk resume's coopLoadDeployment hook
+	// (connectionTCP.cpp, beside coopLoadTurnMode) calls this to populate
+	// the SAME mirror an in-memory rejoin's battle_offer.missionLabel apply
+	// already populates (see the client apply site below), so
+	// mayReopenBriefing() and M2's resumed-offer stamp both see it.
+	g_missionLabels.deployment = deployment;
+	g_missionLabels.carried = true;
 }
 
 AlienDeployment* resolveBriefingDeployment(Game* game, AlienDeployment* vanillaResolved)
@@ -12269,22 +12424,54 @@ void connectionTCP::updateCoopTask()
 	// still fires). This is a permanent chain-agnostic gate: any BState-
 	// bearing action (walk/shot/melee/psi/throw/whatever r3 adds) trips
 	// isBusy() with no per-atom update needed.
-	SavedBattleGame* pauseSave = connectionTCP::getStaticBattle();
-	BattlescapeState* pauseBs = pauseSave ? pauseSave->getBattleState() : nullptr;
-	// F392 (crash_20260921_034003_092_0.log): getBattleState()/getBattleGame()
-	// kept returning their cached pointers after a battle-to-menu transition
-	// had already popped+freed the BattlescapeState, so isBusy() below derefed
-	// freed memory from Game::run's tick (updateCoopTask+0x1c8a). Reuse F391's
-	// live-stack check; an un-live state is treated as "no live battle", which
-	// preserves the existing semantics (not busy => the pause still fires).
-	if (!connectionTCP::isBattlescapeStateLive(pauseBs))
-	{
-		pauseBs = nullptr;
-	}
-	BattlescapeGame* pauseBg = pauseBs ? pauseSave->getBattleGame() : nullptr;
-	const bool pauseBusy = pauseBg && pauseBg->isBusy();
+	// SPEC 18 (r4 T4) M8 (F400): the computation that used to live inline
+	// here is now coopBattleQuiescent() (BattleAuthority.h/connectionTCP.cpp,
+	// defined beside isCoopBattle()) - EXTRACTED verbatim (the F392
+	// isBattlescapeStateLive live-state guard included) so this pause-modal
+	// latch and the SPEC 18 deferred-battle-save latch below read the SAME
+	// gate.
+	const bool coopQuiescentNow = coopBattleQuiescent();
 
-	if (g_coopPauseModalPending && !pauseBusy && CoopArbiter::currentActionId() == 0)
+	// SPEC 18 (r4 T4) M8: consumed FIRST when both latches are ready at one
+	// quiescence (the pause modal would otherwise sit over the
+	// SaveGameState) - re-push the SAME SaveGameState with the stored
+	// constructor arguments; the vanilla backup+move write runs once, from
+	// the re-pushed state's own think(), never duplicated here.
+	if (g_coopDeferredBattleSave.armed && coopQuiescentNow)
+	{
+		g_coopDeferredBattleSave.armed = false;
+		SavedBattleGame* deferredSave = connectionTCP::getStaticBattle();
+		BattlescapeState* deferredBs = deferredSave ? deferredSave->getBattleState() : nullptr;
+		if (!connectionTCP::isBattlescapeStateLive(deferredBs))
+		{
+			deferredBs = nullptr;
+		}
+		if (deferredBs)
+		{
+			Log(LOG_INFO) << "[coop-save] written";
+			if (g_coopDeferredBattleSave.useTypeForm)
+			{
+				_game->pushState(new SaveGameState(
+					static_cast<OptionsOrigin>(g_coopDeferredBattleSave.origin),
+					static_cast<SaveType>(g_coopDeferredBattleSave.saveType),
+					deferredBs->getPalette()));
+			}
+			else
+			{
+				_game->pushState(new SaveGameState(
+					static_cast<OptionsOrigin>(g_coopDeferredBattleSave.origin),
+					g_coopDeferredBattleSave.filename,
+					deferredBs->getPalette(),
+					g_coopDeferredBattleSave.quitAfterSave));
+			}
+		}
+		else
+		{
+			Log(LOG_WARNING) << "[coop-save] deferred save dropped: no live BattlescapeState at quiescence";
+		}
+	}
+
+	if (g_coopPauseModalPending && coopQuiescentNow)
 	{
 		g_coopPauseModalPending = false;
 		bool waitDialogPresent = false;

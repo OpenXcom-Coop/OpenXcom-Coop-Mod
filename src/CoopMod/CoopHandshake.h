@@ -250,6 +250,17 @@ bool missionLabelsCarried();
 /// battle_state probe reports it (WR-23).
 const std::string& carriedDeploymentType();
 
+/// SPEC 18 (r4 T4) D99(a): adopt a deployment type carried in a loaded
+/// battle-save block (`coopDeployment`, SavedBattleGame::load's
+/// coopLoadDeployment hook, BattleAuthority.h) into this SAME process-local
+/// mission-identity mirror battle_offer.missionLabel already populates on a
+/// rejoin - so a disk-resumed battle's ctrl-B briefing
+/// (mayReopenBriefing()) and M2's resumed-offer stamp both see it exactly
+/// as a rejoin's carried value would. Sets `carried` = true; the caller
+/// (coopLoadDeployment) is presence-gated, so an empty/absent key never
+/// reaches here.
+void adoptCarriedDeployment(const std::string& deployment);
+
 /// BriefingState hook: the ONE guarded coop call on its deployment-resolution
 /// site. Pass whatever vanilla resolved (BriefingState.cpp:73-99) and use the
 /// return value.

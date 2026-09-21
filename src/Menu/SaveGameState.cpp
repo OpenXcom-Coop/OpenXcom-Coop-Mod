@@ -160,6 +160,28 @@ void SaveGameState::think()
 	{
 		_game->popState();
 
+		// SPEC 18 (r4 T4) M8, owner ruling D101 = (a) + drain-first: every
+		// mid-battle coop save funnels here - the quick-save/insta-save
+		// keys (BattlescapeState.cpp, vanilla-gated on ironman/preview only,
+		// NOT on busy), the pause-menu Save (vanilla-gated on !busy
+		// already), ListSave SAVE & QUIT, and the M7 harness lever
+		// (save_game_ui type:"quick_battle") - so ONE shared gate here,
+		// before any write, covers all of them regardless of how busy-gated
+		// each trigger's own UI happens to be (a client-origin action can
+		// start executing on the host between "Save is enabled" and the
+		// click). If a coop battle is live and NOT quiescent, defer: arm
+		// the latch with exactly the constructor arguments needed to
+		// re-push this SAME SaveGameState once the battle drains (F400:
+		// coopBattleQuiescent() preserves W1-H1's isBattlescapeStateLive
+		// guard), and return without writing - the deferred re-push runs
+		// the vanilla backup+move exactly once, never duplicated.
+		if (isCoopBattle() && !coopBattleQuiescent())
+		{
+			armDeferredBattleSave(static_cast<int>(_origin), _type != SAVE_DEFAULT,
+				static_cast<int>(_type), _filename, _quitAfterSave);
+			return;
+		}
+
 		switch (_type)
 		{
 		case SAVE_DEFAULT:

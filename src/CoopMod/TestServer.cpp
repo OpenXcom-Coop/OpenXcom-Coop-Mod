@@ -2794,9 +2794,20 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_QUICK, _game->getScreen()->getPalette()));
 			resp["ok"] = true;
 		}
+		else if (type == "quick_battle")
+		{
+			// SPEC 18 (r4 T4) M7: the real F5/quick-save path
+			// (BattlescapeState.cpp) for a MID-BATTLE coop save, so S1-S3's
+			// host save goes through SaveGameState (M8's chokepoint) rather
+			// than the direct save_game lever. Unlike save_game_ui's other
+			// types this one is OPT_BATTLESCAPE - the same call shape as the
+			// real F5 key.
+			_game->pushState(new SaveGameState(OPT_BATTLESCAPE, SAVE_QUICK, _game->getScreen()->getPalette()));
+			resp["ok"] = true;
+		}
 		else
 		{
-			resp["error"] = "need type (auto_geoscape|quick)";
+			resp["error"] = "need type (auto_geoscape|quick|quick_battle)";
 		}
 	}
 	else if (cmd == "client_reload_progress")
@@ -5063,6 +5074,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			for (int s : CoopEndTurn::tallyReadySeats())
 				readySeats.append(s);
 			tally["ready"] = readySeats;
+			// SPEC 18 (r4 T4) D100(b), NEW (additive): the last tally
+			// MESSAGE's own activeSeat field (the wire echo) - distinct from
+			// the top-level coopActiveSeat below (the "honoured" mirror).
+			tally["activeSeat"] = CoopEndTurn::tallyActiveSeat();
 			resp["coopEndTurnTally"] = tally;
 		}
 		resp["coopEndTurnTalliesSeen"] = CoopEndTurn::talliesSeen();
@@ -7057,6 +7072,12 @@ std::string TestServer::execute(const std::string& line)
 				resp["authority"] = authority;
 				resp["queueDepth"] = CoopPump::queueDepth();
 				resp["txDrains"] = CoopEmit::txDrainEvents();
+				// SPEC 18 (r4 T4) M8, NEW (additive): the deferred mid-battle
+				// coop save latch (armed by SaveGameState::think() when a
+				// save was requested while the battle was not quiescent) so
+				// a test can prove a save was requested busy and written
+				// only at quiescence.
+				resp["coopSavePending"] = coopDeferredBattleSavePending();
 			}
 			if (!bg)
 			{

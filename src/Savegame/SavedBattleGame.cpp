@@ -152,6 +152,13 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 	// any save written before REV D read nothing and change nothing (D-26: no key
 	// = parallel). W1-P7 only READS the key - CONSUMING it on resume is r4 T4.
 	coopLoadTurnMode(reader);
+	// SPEC 18 (r4 T4, owner rulings D99=(a)/D100=(b)): the mission deployment
+	// label and the traditional-mode baton holder, same thin guarded shape
+	// and presence-gating as coopLoadTurnMode above; all logic lives in
+	// src/CoopMod (BattleAuthority.h). An SP load and any save written
+	// before this reads nothing and changes nothing.
+	coopLoadDeployment(reader);
+	coopLoadActiveSeat(reader);
 	if (reader["startingConditionType"])
 	{
 		std::string startingConditionType = reader["startingConditionType"].readVal<std::string>();
@@ -531,6 +538,13 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	// SavedGame.cpp:1334/:1814 shape is NOT ported), and the key is on
 	// SharedEcon's saveBlobExcludedTopKey list so it never rides the hash.
 	coopSaveTurnMode(writer);
+	// SPEC 18 (r4 T4, owner rulings D99=(a)/D100=(b)): the mission deployment
+	// label and the traditional-mode baton holder, same guarded shape as
+	// coopSaveTurnMode above (see load()'s matching calls and
+	// BattleAuthority.h); both keys are on SharedEcon's saveBlobExcludedTopKey
+	// list so neither rides the hash.
+	coopSaveDeployment(writer);
+	coopSaveActiveSeat(writer);
 	// coop (SPEC 3 / FX-2, WV-D61 owner ruling R-B): the host's true _itemId,
 	// so the loading machine ADOPTS it instead of re-deriving max(id)+1 - see
 	// the matching ADOPT call in load() below and BattleAuthority.h. Self-

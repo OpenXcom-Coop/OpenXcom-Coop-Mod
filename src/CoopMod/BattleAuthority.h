@@ -92,6 +92,32 @@ CoopTurnMode coopSessionTurnModeFromOptions();
 void coopSaveTurnMode(YAML::YamlNodeWriter& writer);
 void coopLoadTurnMode(const YAML::YamlNodeReader& reader);
 
+/// SPEC 18 (r4 T4, owner ruling D99=(a)): the BATTLE-SAVE hook pair for the
+/// resolved mission deployment type, same shape and guard as the turn-mode
+/// pair above - SavedBattleGame::save/::load call these beside
+/// coopSaveTurnMode/coopLoadTurnMode. A thin client cannot re-derive
+/// AlienDeployment on its own (BriefingState.cpp:73-99's Ufo fallback), so a
+/// disk-resumed battle needs the value that lived only in the process-local
+/// CoopHandshake::carriedDeploymentType() mirror BEFORE the restart. SP and
+/// any battle that resolved no deployment write NOTHING (byte-identical).
+/// The key is on SharedEcon.cpp's saveBlobExcludedTopKey list (both machines
+/// already agree on the value via the offer, same as coopTurnMode).
+void coopSaveDeployment(YAML::YamlNodeWriter& writer);
+void coopLoadDeployment(const YAML::YamlNodeReader& reader);
+
+/// SPEC 18 (r4 T4, owner ruling D100=(b)): the BATTLE-SAVE hook pair for the
+/// traditional-mode baton holder (CoopEndTurn::batonSeat(), HOST-only, -1 in
+/// parallel mode or before the entry tally). Presence-gated both ways; reads
+/// back into the BattleAuthority::activeSeat MIRROR only - restoring the
+/// live CoopEndTurn baton holder on a disk resume (with the D-23 degrade for
+/// an absent/invalid key) is CoopEndTurn::onBattleResumed()'s job (M3, a
+/// separate cycle). SP and parallel-mode saves write nothing meaningful in
+/// practice (activeSeat is -1 there too), but the key is still written only
+/// inside a coop battle - byte-identical outside one. Hash-excluded, same
+/// list as coopTurnMode.
+void coopSaveActiveSeat(YAML::YamlNodeWriter& writer);
+void coopLoadActiveSeat(const YAML::YamlNodeReader& reader);
+
 /// WV-D61 (owner ruling R-B, 2026-09-04): the HOST's true
 /// SavedBattleGame::_itemId, carried in the BATTLE save block so the machine
 /// that LOADS a coop blob adopts it verbatim instead of re-deriving
@@ -357,6 +383,47 @@ void resetBattleAuthority();
 /// above) - defined instead in connectionTCP.cpp next to
 /// coopBattleAuthority().
 bool isCoopBattle();
+
+/// SPEC 18 (r4 T4) M8, owner ruling D101 = (a) + drain-first: the ONE shared
+/// quiescence predicate - "the host BState stack drains (!isBusy()) AND no
+/// pending origin-chain evs remain (CoopArbiter::currentActionId()==0)"
+/// (D96), WITH the F392 isBattlescapeStateLive() live-state guard around the
+/// getBattleState()/getBattleGame()/isBusy() reads (an un-live state counts
+/// as "no live battle", i.e. quiescent - never re-derive a bare !isBusy(),
+/// F400). EXTRACTED from the SPEC 16 pause-modal consumer
+/// (connectionTCP.cpp, updateCoopTask()) so BOTH that latch
+/// (g_coopPauseModalPending) and the SPEC 18 deferred-battle-save latch
+/// (g_coopDeferredBattleSave) read the SAME gate. Defined in
+/// connectionTCP.cpp next to isCoopBattle().
+bool coopBattleQuiescent();
+
+/// SPEC 18 (r4 T4) M8: arm the deferred mid-battle coop save latch, called
+/// from SaveGameState::think() the moment it observes isCoopBattle() &&
+/// !coopBattleQuiescent() - i.e. every mid-battle coop save funnels through
+/// this ONE chokepoint (quick-save/insta-save keys, the pause-menu Save,
+/// ListSave SAVE & QUIT, the M7 harness lever `save_game_ui type:
+/// "quick_battle"`), regardless of how busy-gated each trigger's own UI
+/// happens to be. `origin` is OptionsOrigin and `saveType` is SaveType
+/// (Menu/SaveGameState.h), both passed as their own underlying int so this
+/// header stays dependency-light exactly like isCoopBattle() above -
+/// connectionTCP.cpp casts them back at the ONE consume site (the RB-D5
+/// pump point, beside the SPEC 16 pause-modal consumer). `useTypeForm`
+/// selects which SaveGameState constructor the consumer re-invokes: false =
+/// the filename-form ctor (origin, filename, palette, quitAfterSave) - used
+/// by ListSave SAVE & QUIT; true = the type-form ctor (origin, SaveType,
+/// palette) - used by the quick-save/insta-save keys and the M7 lever. The
+/// palette is deliberately NOT stored (a stale SDL_Color* would dangle
+/// across the deferral): the consumer re-sources it from the live
+/// BattlescapeState at quiescence.
+void armDeferredBattleSave(int origin, bool useTypeForm, int saveType, const std::string& filename, bool quitAfterSave);
+
+/// SPEC 18 (r4 T4) M8, NEW test/introspection accessor: true while the
+/// deferred-battle-save latch above is armed (a save was requested while
+/// the battle was busy and has not yet been consumed at quiescence) -
+/// TestServer's battle_state probe reports it as `coopSavePending` so a
+/// test can prove a save was requested busy and written only at
+/// quiescence.
+bool coopDeferredBattleSavePending();
 
 /// R5-P2 input-gating combinator (SPIKE-RUNBOOK.md R5-P2 packet text: "ONE
 /// predicate for 'I may command this unit': my seat commands it AND my

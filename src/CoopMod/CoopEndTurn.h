@@ -159,6 +159,24 @@ int tallyCount();
 int tallyNeeded();
 std::vector<int> tallyReadySeats();
 
+/// SPEC 18 (r4 T4) D100(b), NEW (additive): the last tally MESSAGE's own
+/// `activeSeat` field (the wire echo, set unconditionally by
+/// applyTallySnapshot() on BOTH the host's emit and a client's receive) -
+/// distinct from BattleAuthority::activeSeat (the "honoured" mirror
+/// coopMayCommand() reads, written only when the tally's `turn` matches
+/// this machine's own last APPLIED side_transition counter). TestServer's
+/// event_state probe mirrors it into the existing coopEndTurnTally object
+/// alongside turn/side/count/needed/ready.
+int tallyActiveSeat();
+
+/// SPEC 18 (r4 T4) D100(b): read-only accessor for the traditional baton's
+/// current HOST-ONLY holder (-1 in parallel mode, or before
+/// onBattleActive() seeds it) - so the battle-save hook pair
+/// (coopSaveActiveSeat, connectionTCP.cpp beside coopSaveTurnMode) can
+/// persist it without a forward reference to this namespace's file statics
+/// (g_batonSeat is declared further down the same translation unit).
+int batonSeat();
+
 /// How many genuine (non-inert) tallies this machine has emitted-or-applied
 /// this battle - the "+1" REV E.48 C.2 asserts on a real tally application.
 /// Does NOT move on an inert boundary.
