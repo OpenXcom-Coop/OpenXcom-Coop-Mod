@@ -12271,6 +12271,16 @@ void connectionTCP::updateCoopTask()
 	// isBusy() with no per-atom update needed.
 	SavedBattleGame* pauseSave = connectionTCP::getStaticBattle();
 	BattlescapeState* pauseBs = pauseSave ? pauseSave->getBattleState() : nullptr;
+	// F392 (crash_20260921_034003_092_0.log): getBattleState()/getBattleGame()
+	// kept returning their cached pointers after a battle-to-menu transition
+	// had already popped+freed the BattlescapeState, so isBusy() below derefed
+	// freed memory from Game::run's tick (updateCoopTask+0x1c8a). Reuse F391's
+	// live-stack check; an un-live state is treated as "no live battle", which
+	// preserves the existing semantics (not busy => the pause still fires).
+	if (!connectionTCP::isBattlescapeStateLive(pauseBs))
+	{
+		pauseBs = nullptr;
+	}
 	BattlescapeGame* pauseBg = pauseBs ? pauseSave->getBattleGame() : nullptr;
 	const bool pauseBusy = pauseBg && pauseBg->isBusy();
 
