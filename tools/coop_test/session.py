@@ -2473,6 +2473,56 @@ def _t_cmd_adjacent_free_tile(gc, unit):
         f"tile (occupied={sorted(occ)})")
 
 
+def _dir_to(a, b):
+    """OpenXcom direction 0..7 from tile a to an ADJACENT tile b (the inverse of
+    DIR_DX/DIR_DY)."""
+    dx = (b[0] > a[0]) - (b[0] < a[0])
+    dy = (b[1] > a[1]) - (b[1] < a[1])
+    for d in range(8):
+        if DIR_DX[d] == dx and DIR_DY[d] == dy:
+            return d
+    raise AssertionError(f"_dir_to: {tuple(a)}->{tuple(b)} is not a single-tile step")
+
+
+def _octant_chain(from_dir, to_dir):
+    """The successive SINGLE-OCTANT facings from from_dir to to_dir along the
+    shortest rotation (CW if diff<=4 else CCW), ending at to_dir; empty if already
+    facing it. F395: a MULTI-octant turn aborts on a newly-spotted enemy, but each
+    single-octant turn always lands its one octant (the abort cancels only the
+    REST), so chaining reaches any facing deterministically with default movement."""
+    diff = (to_dir - from_dir) % 8
+    if diff == 0:
+        return []
+    step = 1 if diff <= 4 else -1
+    seq = []
+    d = from_dir
+    while d != to_dir:
+        d = (d + step) % 8
+        seq.append(d)
+    return seq
+
+
+def send_turn(client, actor_id, to_dir):
+    """F394/F395 (D118): a STANDALONE single-octant turn intent."""
+    return client.cmd({"cmd": "battle_intent", "kind": "turn", "actor": actor_id,
+                       "toDir": to_dir})
+
+
+def wait_turn_settled(host, client, baseline, timeout=15):
+    """Settle a TURN intent (turns do not update lastWalk, so - like repro_atom_turn's
+    turn_to - this settles on the seq stream: a NEW ev has been applied on the client
+    past `baseline` (captured BEFORE the turn) and both queues have drained;
+    baseline-guarded so it cannot return vacuously at rest)."""
+    def settled():
+        hs = event_state(host)
+        cs = event_state(client)
+        return bool(hs.get("ok") and cs.get("ok")
+                    and hs.get("queueDepth") == 0 and cs.get("queueDepth") == 0
+                    and cs.get("lastSeqApplied", 0) > baseline)
+    client.wait_for("turn settled (new seq applied, queueDepth 0 on both machines)",
+                    settled, timeout=timeout)
+
+
 def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=True,
                  what=""):
     """SPEC 19 (W1-P20) spec (f) common tail T-CMD.
@@ -2499,7 +2549,7 @@ def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=T
     """
     tag = f" {what}" if what else ""
 
-    # ---- 1. ADMITTED: client walks its own seat-1 unit one step -----------
+    # ---- 1. ADMITTED: client turns (octant by octant, if needed) then walks ----
     actor = unit_of(client, seat1_actor_id)
     dest = _t_cmd_adjacent_free_tile(client, actor)
     before_h = pos_of(unit_of(host, seat1_actor_id))
@@ -2507,6 +2557,35 @@ def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=T
     assert before_h == before_c, (
         f"T-CMD{tag}: seat-1 actor {seat1_actor_id} position differs before the "
         f"walk (host={before_h} client={before_c}) - not a clean starting point")
+
+    # F394/F395 (D118): CHAINED SINGLE-OCTANT TURNS, THEN STEP. A 1-tile walk that
+    # must turn - or a multi-octant turn - aborts at the octant a NEW enemy comes
+    # into view (vanilla, UnitTurnBState.cpp:125-130), leaving the unit short (~1/6,
+    # map-roll dependent). But each SINGLE-octant turn always lands its octant (the
+    # abort cancels only the REST). Face `dest` one octant at a time, then the step
+    # performs no turn and cannot spot-halt. Turning the client's OWN unit is
+    # admitted (it also strengthens the ownership proof).
+    to_dir = _dir_to(before_c, dest)
+    chain = _octant_chain(actor.get("direction"), to_dir)
+    for d in chain:
+        base_t = event_state(client).get("lastSeqApplied", 0)
+        rt = send_turn(client, seat1_actor_id, d)
+        assert rt.get("iseq"), f"T-CMD{tag}: single-octant turn to {d} did not ship: {rt}"
+        wait_turn_settled(host, client, base_t)
+        ldt = event_state(client).get("lastDeny")
+        assert not ldt, f"T-CMD{tag}: the client's OWN-unit turn to dir {d} was DENIED: {ldt}"
+        dir_h = unit_of(host, seat1_actor_id).get("direction")
+        dir_c = unit_of(client, seat1_actor_id).get("direction")
+        assert dir_h == d and dir_c == d, (
+            f"T-CMD{tag}: single-octant turn did not reach dir {d} (host={dir_h} client={dir_c})")
+        assert dir_h == dir_c, (
+            f"T-CMD{tag}: facing DIFFERS between machines after the octant turn to {d} "
+            f"(host={dir_h} client={dir_c})")
+        assert_hash_clean(host, client, full=True, what=f"T-CMD{tag} after octant turn to {d}")
+    if chain:
+        print(f"PASS T-CMD{tag}: client's own seat-1 unit {seat1_actor_id} faced dir {to_dir} "
+              f"via {len(chain)} single-octant turn(s), EQUAL on both, hash clean")
+
     prev = walk_action_id(host)
     resp = send_walk(client, seat1_actor_id, dest)
     assert resp.get("iseq"), f"T-CMD{tag}: admitted walk did not ship at all: {resp}"
