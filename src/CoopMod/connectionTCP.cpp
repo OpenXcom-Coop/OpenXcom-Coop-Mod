@@ -6140,7 +6140,15 @@ void reset()
 static BattlescapeState* coopEndTurnActiveState()
 {
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
-	return save ? save->getBattleState() : nullptr;
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	// F391 (crash_20260921_040305_510_0.log): getBattleState() still returned
+	// the BattlescapeState after ~Game() had already popped+freed it
+	// (Game::~Game -> stopUdpPeer -> clearNetworkSessionQueues ->
+	// resetBattleAuthority -> CoopEndTurn::clearPresentationInert ->
+	// BattlescapeState::setCoopEndTurnArmed -> BattlescapeButton::toggle on a
+	// freed button, 0xC0000005). Both callers below only get a state that is
+	// still live on the stack; otherwise they safely skip presentation.
+	return connectionTCP::isBattlescapeStateLive(bs) ? bs : nullptr;
 }
 
 // ----- REV E.48 C.4 / WR-20: the LIVE-seat predicate -----
@@ -19042,6 +19050,30 @@ SavedBattleGame* connectionTCP::getStaticBattle()
 	return (_staticGame && _staticGame->getSavedGame())
 		? _staticGame->getSavedGame()->getSavedBattle()
 		: nullptr;
+}
+
+// W1-H1 (F391/F392, traced from crash_20260921_040305_510_0.log and
+// crash_20260921_034003_092_0.log): SavedBattleGame::getBattleState() keeps
+// returning its cached BattlescapeState* after that state is popped+freed at
+// battle end (Game::~Game / a mid-run battle-to-menu transition), so a plain
+// non-null check on it derefs freed memory. Validate the cached pointer is
+// still a LIVE state on the game's own state stack first - the same
+// dynamic_cast<BattlescapeState*>(_game->getStates()...) idiom this file
+// already uses elsewhere - before any caller touches it.
+bool connectionTCP::isBattlescapeStateLive(BattlescapeState* bs)
+{
+	if (!bs || !_staticGame)
+	{
+		return false;
+	}
+	for (State* st : _staticGame->getStates())
+	{
+		if (dynamic_cast<BattlescapeState*>(st) == bs)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 void connectionTCP::setPathLock(int lock)

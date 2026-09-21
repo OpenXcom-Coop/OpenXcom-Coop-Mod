@@ -190,6 +190,7 @@ class Ufo;
 class SavedGame;
 class BattleUnit;
 class SavedBattleGame;
+class BattlescapeState;
 class VoteMenu;
 class ConfirmLandingState;
 class ConfirmCydoniaState;
@@ -700,6 +701,15 @@ class connectionTCP
 	// needs this to reach the battle without touching the private _staticGame
 	// directly. Returns nullptr if no battle (or no game) is live.
 	static SavedBattleGame* getStaticBattle();
+	// W1-H1 (F391/F392): SavedBattleGame::getBattleState() caches its
+	// BattlescapeState* pointer and keeps returning it even after that state
+	// is popped+freed at battle end (getStaticBattle() itself only tells you
+	// the SavedBattleGame is still around, not that the cached state is).
+	// This is the shared coop-side liveness check - same reach-the-live-stack
+	// idiom as the dynamic_cast<BattlescapeState*>(_game->getStates()...)
+	// call sites elsewhere in this file, but without exposing the private
+	// _staticGame handle itself. Returns false for a null bs.
+	static bool isBattlescapeStateLive(BattlescapeState* bs);
 	bool ready_coop_battle = false; // notify the other player that the co-op mission is starting
 	bool ready_coop_save_progress = false; // Notify the other player that progress saving is starting
 	std::vector<Soldier*> coopSoldiers;
