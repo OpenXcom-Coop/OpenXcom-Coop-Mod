@@ -7451,20 +7451,15 @@ namespace CoopGhost
 namespace
 {
 
-// W1-P12 (6e): the FIXED interpolation constants - never tunable, and never
-// an Options entry beyond coopGhostStepper itself (packet text). walk: 120ms
-// linear per executed step. turn: 60ms per 45-degree octant, along the
-// SHORTER modular arc (ties -> clockwise). kneel: hold the OLD kneeled value
-// for 100ms, then flip once - a kneel has no intermediate state, the
+// W1-P12 (6e) + SPEC 17 (W1-P18) D111: walk/turn pacing is now PER-SEAT,
+// derived at enqueue from the acting unit's owning seat's speed dial (or
+// the floor when unowned) via CoopSpeed::speedFor() below - never a
+// wall-clock constant. Frame counts per step (8 straight/vertical, 16
+// diagonal; 1 per turn octant, along the SHORTER modular arc, ties ->
+// clockwise) are vanilla's own, unchanged - only the per-frame pace is now
+// per-seat. kneel is the one exception: hold the OLD kneeled value for a
+// FIXED 100ms, then flip once - a kneel has no intermediate state, the
 // animation IS the delay.
-// TEMPORARY (SPEC 17 M4 RED control, W1-P18): kWalkMsPerStep/
-// kTurnMsPerOctant are about to be replaced by the per-seat derivation
-// below (paceMsFor/framesForStep) - this intermediate build keeps
-// ghostDurationMs on these OLD constants on purpose, so control (ii)'s RED
-// capture proves the new recording/probe plumbing still reports the OLD,
-// setting-blind duration before the derivation swap lands.
-const std::uint32_t kWalkMsPerStep = 120;
-const std::uint32_t kTurnMsPerOctant = 60;
 const std::uint32_t kKneelHoldMs = 100;
 
 /// One running (or just-completed-and-not-yet-popped) ghost. IDs and
@@ -7546,19 +7541,17 @@ int framesForStep(const GhostReplay& g)
 	return diag ? 16 : 8;
 }
 
-/// The total wall-clock duration (ms) of @a g's animation, per (6e)'s fixed
-/// constants above.
-/// TEMPORARY (SPEC 17 M4 RED control): still the OLD wall-clock formula -
-/// paceMsFor/framesForStep above are wired into rec.frames/rec.seat already,
-/// but NOT into this function yet, so control (ii)'s first capture proves
-/// the duration ignores every seat's setting before the per-seat swap.
+/// The total wall-clock duration (ms) of @a g's animation: vanilla's own
+/// frame count (turnOctants/framesForStep) times the acting seat's pace
+/// (paceMsFor) - D111, per-seat, never a wall-clock constant. kneel is the
+/// one exception (6e, FIXED 100ms hold).
 std::uint32_t ghostDurationMs(const GhostReplay& g)
 {
 	if (g.kind == "kneel")
 		return kKneelHoldMs;
 	if (g.kind == "turn")
-		return (std::uint32_t)turnOctants(g.fromDir, g.toDir, nullptr) * kTurnMsPerOctant;
-	return kWalkMsPerStep; // "walk_step"
+		return (std::uint32_t)turnOctants(g.fromDir, g.toDir, nullptr) * paceMsFor(g.unitId);
+	return (std::uint32_t)framesForStep(g) * paceMsFor(g.unitId); // walk_step
 }
 
 } // unnamed namespace
