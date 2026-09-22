@@ -128,21 +128,34 @@ def main():
         # SaveGameState::think() has its own 10-frame warmup (_firstRun<10,
         # unrelated to M8) before the quiescence check runs at all - poll
         # (bounded; the walk is still draining throughout) rather than
-        # sampling the very next frame.
+        # sampling the very next frame. F406 (WV-D77, captured under
+        # REGRESSION K=2 on the SEPARATE twin test_coop_resume_battle_
+        # control.py): a short window can miss the warmup's arm under lane
+        # contention (K=2 slows real frame processing generally, not just
+        # this warmup) - widened to match, same exit-early shape, same
+        # assertions re-verified below (never masked).
         sp_immediate = None
         immediate_files = set()
-        deadline = time.time() + 5.0
+        poll_iters = 0
+        t_start = time.time()
+        deadline = t_start + 30.0
         while time.time() < deadline:
+            poll_iters += 1
             sp_immediate = rc.battle(host).get("coopSavePending")
             immediate_files = set(session.save_files(host_dir)) - before_files
-            if sp_immediate is True:
+            if sp_immediate is True or immediate_files:
                 break
             time.sleep(0.1)
+        elapsed = time.time() - t_start
         assert sp_immediate is True, (
             f"M8 VACUITY: coopSavePending never became True after the mid-walk save "
-            f"request (pending={pending}): {r}")
-        assert not immediate_files, f"M8: a save file appeared before the walk drained: {immediate_files}"
-        print(f"PASS M8 deferral: coopSavePending=True, no new save file while busy (pending={pending})")
+            f"request (pending={pending}) - polled {poll_iters} time(s) over "
+            f"{elapsed:.1f}s: {r}")
+        assert not immediate_files, (
+            f"M8: a save file appeared before the walk drained after "
+            f"{poll_iters} poll(s)/{elapsed:.1f}s: {immediate_files}")
+        print(f"PASS M8 deferral: coopSavePending=True, no new save file while busy "
+              f"(pending={pending}, armed after {poll_iters} poll(s)/{elapsed:.1f}s)")
 
         for _ in range(150):
             if not (session.event_state(host).get("lastWalk") or {}).get("active"):

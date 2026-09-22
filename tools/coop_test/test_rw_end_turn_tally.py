@@ -51,6 +51,10 @@ empirically on the pinned classic fixture: immediately after
 `event_state.coopEndTurnTally` on BOTH machines read exactly
 `{"turn": 0, "side": "", "count": 0, "needed": 0, "ready": []}` - the
 `reset()` defaults, never a recompute the shipped code does not perform.
+(SPEC 18 F405, §A.10 re-point: D100(b) added `activeSeat` to this SAME
+probed object - the reset() default now reads `activeSeat: -1` alongside
+the fields above; the shape below is updated to match, nothing else about
+this finding changed.)
 L1 therefore asserts that TRUE default and proves the fixture's needed==2
 PREMISE the same way SPEC 9's repro_atom_side_begin proves
 "activeSeats==[0,1]" - functionally, off `battle_state.units`, before any
@@ -263,7 +267,14 @@ def run_boot_a():
             f"host coopEndTurnPhaseCounter is not 0 at t=0: "
             f"{hes0.get('coopEndTurnPhaseCounter')}")
         t0_tally = hes0.get("coopEndTurnTally", {})
-        assert t0_tally == {"turn": 0, "side": "", "count": 0, "needed": 0, "ready": []}, (
+        # SPEC 18 F405 (§A.10 re-point): D100(b) added `activeSeat` to this
+        # SAME probed object (event_state.coopEndTurnTally.activeSeat, the
+        # wire-echoed tally holder) - the reset() default now carries
+        # activeSeat:-1 alongside the fields this file's own BUILDER FINDING
+        # already established. Re-pointed to the exact new value; nothing
+        # else about the finding or this assertion's strength changed.
+        assert t0_tally == {"turn": 0, "side": "", "count": 0, "needed": 0, "ready": [],
+                            "activeSeat": -1}, (
             f"host coopEndTurnTally at t=0 is not the reset() default: {t0_tally}")
         # The fixture's OWN needed==2 premise, proven functionally (same
         # method SPEC 9's repro_atom_side_begin uses for its

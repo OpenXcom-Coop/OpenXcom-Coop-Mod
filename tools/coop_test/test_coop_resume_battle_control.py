@@ -398,25 +398,38 @@ def main():
         # DEFERRAL (D101/M8): the file must not appear yet, and the latch must
         # be armed, while the walk is still mid-flight. SaveGameState::think()
         # has its own 10-frame warmup (_firstRun<10, unrelated to M8) before it
-        # runs the quiescence check at all, so poll (bounded, the walk is still
-        # draining throughout this window at battleXcomSpeed=200) rather than
-        # sampling the very next frame.
+        # runs the quiescence check at all, so poll rather than sampling the
+        # very next frame. F406 (WV-D77, captured under REGRESSION K=2):
+        # a 5s window sampled `coopSavePending never became True (pending=5):
+        # {'ok': True}` under lane contention - K=2 slows real FRAME
+        # PROCESSING generally (not just this warmup), so the 10-frame warmup
+        # can take longer in WALL time than a short window allows even though
+        # the walk (also frame-paced) is still comfortably mid-flight. Widened
+        # to a generous wait_for-style bound; still exits the instant either
+        # signal appears, and the assertions below independently re-verify
+        # both facts precisely (never masked).
         sp_immediate = None
         immediate_files = set()
-        deadline = time.time() + 5.0
+        poll_iters = 0
+        t_start = time.time()
+        deadline = t_start + 30.0
         while time.time() < deadline:
+            poll_iters += 1
             sp_immediate = battle(host).get("coopSavePending")
             immediate_files = set(session.save_files(host_dir)) - before_files
-            if sp_immediate is True:
+            if sp_immediate is True or immediate_files:
                 break
             time.sleep(0.1)
+        elapsed = time.time() - t_start
         assert sp_immediate is True, (
             f"M8 VACUITY: coopSavePending never became True after the mid-walk "
-            f"save request (pending={pending}): {r}")
+            f"save request (pending={pending}) - polled {poll_iters} time(s) over "
+            f"{elapsed:.1f}s: {r}")
         assert not immediate_files, (
-            f"M8: a save file appeared BEFORE the walk drained (deferral broken): {immediate_files}")
+            f"M8: a save file appeared BEFORE the walk drained (deferral broken) after "
+            f"{poll_iters} poll(s)/{elapsed:.1f}s: {immediate_files}")
         print(f"PASS M8 deferral: coopSavePending=True, no new save file while busy "
-              f"(walk pending={pending})")
+              f"(walk pending={pending}, armed after {poll_iters} poll(s)/{elapsed:.1f}s)")
 
         # drain the walk to its own natural end
         for _ in range(150):
