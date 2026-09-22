@@ -5063,6 +5063,19 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["ghostEnqueued"] = (int)CoopGhost::enqueuedCount();
 		resp["ghostCompleted"] = (int)CoopGhost::completedCount();
 		resp["ghostQueueDepth"] = (int)CoopGhost::queueDepth();
+		// SPEC 17 (W1-P18) M4: the last ghost this machine enqueued - kind/
+		// frames/fixed-duration/owning-seat, proving the per-seat pacing
+		// derivation delivered (control (ii)'s own red-then-green evidence)
+		// rather than only that a ghost ran, which the counters above prove.
+		{
+			const CoopGhost::GhostLastView gl = CoopGhost::lastGhost();
+			Json::Value ghostLastJ(Json::objectValue);
+			ghostLastJ["kind"] = gl.kind;
+			ghostLastJ["frames"] = gl.frames;
+			ghostLastJ["ms"] = (int)gl.ms;
+			ghostLastJ["seat"] = gl.seat;
+			resp["ghostLast"] = ghostLastJ;
+		}
 		// SPEC 17 (W1-P18): per-seat animation-pacing introspection. `local`
 		// is this machine's own raw dials; `seats` is this machine's current
 		// view of the table (connected+valid seats only); `floor` is the

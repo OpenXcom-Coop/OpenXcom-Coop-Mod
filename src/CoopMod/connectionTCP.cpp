@@ -7457,6 +7457,12 @@ namespace
 // SHORTER modular arc (ties -> clockwise). kneel: hold the OLD kneeled value
 // for 100ms, then flip once - a kneel has no intermediate state, the
 // animation IS the delay.
+// TEMPORARY (SPEC 17 M4 RED control, W1-P18): kWalkMsPerStep/
+// kTurnMsPerOctant are about to be replaced by the per-seat derivation
+// below (paceMsFor/framesForStep) - this intermediate build keeps
+// ghostDurationMs on these OLD constants on purpose, so control (ii)'s RED
+// capture proves the new recording/probe plumbing still reports the OLD,
+// setting-blind duration before the derivation swap lands.
 const std::uint32_t kWalkMsPerStep = 120;
 const std::uint32_t kTurnMsPerOctant = 60;
 const std::uint32_t kKneelHoldMs = 100;
@@ -7478,6 +7484,12 @@ struct GhostReplay
 	bool kneeledAfter = false;
 	std::uint32_t seq = 0;
 	std::uint32_t startedAtMs = 0;
+	// SPEC 17 (W1-P18) D111: FIXED AT ENQUEUE - an in-flight ghost keeps its
+	// old duration even if the per-seat speed table changes mid-flight.
+	// frames/seat feed the event_state ghostLast probe only.
+	std::uint32_t durationMs = 0;
+	int frames = 0;
+	int seat = -1;
 };
 
 // Battle-scoped: one live slot per unit id. Cleared by reset() (called from
@@ -7486,6 +7498,19 @@ struct GhostReplay
 std::map<int, GhostReplay> g_coopGhosts;
 std::atomic<unsigned int> g_ghostEnqueued{0};
 std::atomic<unsigned int> g_ghostCompleted{0};
+
+/// SPEC 17 (W1-P18) M4: the last ghost THIS machine enqueued this battle -
+/// event_state's ghostLast probe (CoopGhost::lastGhost() below). Default-
+/// empty kind ("") before the first ghost; cleared by reset() alongside the
+/// counters above.
+struct GhostLast
+{
+	std::string kind;
+	int frames = 0;
+	std::uint32_t ms = 0;
+	int seat = -1;
+};
+GhostLast g_ghostLast;
 
 /// The number of 45-degree steps to turn from @a fromDir to @a toDir along
 /// the SHORTER modular arc (6e); ties (exactly 4 either way) resolve
@@ -7500,8 +7525,33 @@ int turnOctants(int fromDir, int toDir, bool* clockwiseOut)
 	return clockwise ? cw : ccw;
 }
 
+/// SPEC 17 (W1-P18) D111: the acting unit's per-frame pace - its OWNING
+/// seat's dial when owned and valid, otherwise the floor fallback
+/// (CoopSpeed::speedFor()'s own rule). Resolved fresh from @a unitId every
+/// call, never cached - this region never stores a unit pointer.
+std::uint32_t paceMsFor(int unitId)
+{
+	BattleUnit* unit = CoopIdMaps::unit(unitId);
+	CoopSpeed::Which w = (unit && unit->getFaction() == FACTION_PLAYER) ? CoopSpeed::Xcom : CoopSpeed::Alien;
+	return (std::uint32_t)CoopSpeed::speedFor(unit, w);
+}
+
+/// Vanilla's own frame count for one walk step (R1 measured): 8 for a
+/// straight or vertical (z-change) step, 16 for a diagonal one.
+int framesForStep(const GhostReplay& g)
+{
+	if (g.fromPos.z != g.toPos.z)
+		return 8;
+	bool diag = (g.fromPos.x != g.toPos.x) && (g.fromPos.y != g.toPos.y);
+	return diag ? 16 : 8;
+}
+
 /// The total wall-clock duration (ms) of @a g's animation, per (6e)'s fixed
 /// constants above.
+/// TEMPORARY (SPEC 17 M4 RED control): still the OLD wall-clock formula -
+/// paceMsFor/framesForStep above are wired into rec.frames/rec.seat already,
+/// but NOT into this function yet, so control (ii)'s first capture proves
+/// the duration ignores every seat's setting before the per-seat swap.
 std::uint32_t ghostDurationMs(const GhostReplay& g)
 {
 	if (g.kind == "kneel")
@@ -7569,6 +7619,16 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 		rec.kneeledBefore = rec.kneeledAfter = unit->isKneeled();
 	}
 
+	// SPEC 17 (W1-P18) D111: duration is FIXED HERE, AT ENQUEUE - an
+	// in-flight ghost keeps this value even if the per-seat table changes
+	// mid-flight (advance()/view() below read it back, never recompute it).
+	rec.frames = (rec.kind == "turn")
+		? turnOctants(rec.fromDir, rec.toDir, nullptr)
+		: (rec.kind == "walk_step" ? framesForStep(rec) : 0);
+	rec.durationMs = ghostDurationMs(rec);
+	rec.seat = unit ? (int)unit->getCoopSeat() : -1;
+	g_ghostLast = GhostLast{ rec.kind, rec.frames, rec.durationMs, rec.seat };
+
 	// WV-D49: a ghost already running for this unit is COMPLETED INSTANTLY,
 	// not queued behind - the display clock never gates apply, so the new
 	// ev's ghost starts clean from the new payload's own endpoints.
@@ -7593,7 +7653,7 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 	for (auto it = g_coopGhosts.begin(); it != g_coopGhosts.end(); )
 	{
 		const std::uint32_t elapsed = nowMs - it->second.startedAtMs; // unsigned - wrap-safe
-		if (elapsed >= ghostDurationMs(it->second))
+		if (elapsed >= it->second.durationMs) // D111: fixed at enqueue, never recomputed
 		{
 			g_ghostCompleted.fetch_add(1);
 			it = g_coopGhosts.erase(it);
@@ -7615,7 +7675,7 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io)
 
 	const GhostReplay& g = it->second;
 	const std::uint32_t elapsed = SDL_GetTicks() - g.startedAtMs;
-	const std::uint32_t duration = ghostDurationMs(g);
+	const std::uint32_t duration = g.durationMs; // D111: fixed at enqueue, never recomputed
 	const float progress = duration > 0
 		? std::min(1.0f, (float)elapsed / (float)duration)
 		: 1.0f;
@@ -7631,9 +7691,13 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io)
 	{
 		bool clockwise = false;
 		const int octants = turnOctants(g.fromDir, g.toDir, &clockwise);
-		const int stepsElapsed = (octants <= 0)
-			? 0
-			: std::min(octants, (int)(elapsed / kTurnMsPerOctant));
+		// D111: per-octant pace derived from the FIXED total duration, not a
+		// wall-clock constant - g.durationMs already baked in paceMsFor() at
+		// enqueue.
+		const std::uint32_t perOctant = octants > 0 ? (g.durationMs / (std::uint32_t)octants) : 0;
+		const int stepsElapsed = (octants <= 0 || perOctant == 0)
+			? octants
+			: std::min(octants, (int)(elapsed / perOctant));
 		io->direction = clockwise
 			? (g.fromDir + stepsElapsed) % 8
 			: ((g.fromDir - stepsElapsed) % 8 + 8) % 8;
@@ -7682,11 +7746,17 @@ void reset()
 	g_coopGhosts.clear();
 	g_ghostEnqueued.store(0u);
 	g_ghostCompleted.store(0u);
+	g_ghostLast = GhostLast{};
 }
 
 unsigned int enqueuedCount() { return g_ghostEnqueued.load(); }
 unsigned int completedCount() { return g_ghostCompleted.load(); }
 unsigned int queueDepth() { return (unsigned int)g_coopGhosts.size(); }
+
+GhostLastView lastGhost()
+{
+	return GhostLastView{ g_ghostLast.kind, g_ghostLast.frames, g_ghostLast.ms, g_ghostLast.seat };
+}
 
 } // namespace CoopGhost
 // RW-REPLAY-REGION-END

@@ -20,6 +20,7 @@
  */
 
 #include <cstdint>
+#include <string>
 
 #include <json/json.h>
 
@@ -158,6 +159,23 @@ unsigned int completedCount();
 /// How many ghosts are mid-sweep RIGHT NOW (one slot per unit with a live
 /// ghost).
 unsigned int queueDepth();
+
+/// SPEC 17 (W1-P18) M4: the last ghost THIS machine enqueued this battle -
+/// kind/frame-count/fixed-duration/owning-seat, proving the per-seat pacing
+/// derivation delivered (control (ii)'s own evidence) rather than merely
+/// that a ghost ran. Empty kind ("") before the first ghost this battle.
+struct GhostLastView
+{
+	std::string kind;
+	int frames = 0;
+	unsigned ms = 0;
+	int seat = -1;
+};
+
+/// The last ghost enqueued this battle (SPEC 17 M4 probe above) - default/
+/// empty before the first one. Read-only test introspection, same rule as
+/// enqueuedCount()/completedCount()/queueDepth() above.
+GhostLastView lastGhost();
 
 } // namespace CoopGhost
 
