@@ -168,6 +168,7 @@ struct PendingCmd
 	int baseId = -1;
 	Json::Value payload;
 	bool remote = false;
+	bool separateProtocol = false;
 };
 
 std::mutex g_mx;                     // guards the four queues below
@@ -1549,6 +1550,9 @@ bool baseNewValidate(Game* game, const Json::Value& payload, Base* /*base*/, int
 	SavedGame* save = game->getSavedGame();
 	Mod* mod = game->getMod();
 	if (!save || !mod) { failReason = "no world"; return false; }
+	// The eight-base limit is campaign-wide in both co-op campaign types.  It
+	// must not scale with the number of seats.
+	if (save->getBases()->size() >= 8) { failReason = "STR_MAXIMUM_NUMBER_OF_BASES_REACHED"; return false; }
 	double lon = payload.get("lon", 0.0).asDouble();
 	double lat = payload.get("lat", 0.0).asDouble();
 	int regionCost = -1;
@@ -1562,13 +1566,17 @@ bool baseNewValidate(Game* game, const Json::Value& payload, Base* /*base*/, int
 	return true;
 }
 
-void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int seat)
 {
 	SavedGame* save = game->getSavedGame();
 	Mod* mod = game->getMod();
 	if (!save || !mod) return;
 
 	Base* nb = new Base(mod); // ctor random-mints _coop_base_id
+	std::string ownerName = payload.get("ownerPlayerName", connectionTCP::seatName(seat)).asString();
+	nb->setOwnerPlayerName(ownerName);
+	if (save->getCampaignType() == CoopCampaignType::Separate)
+		nb->_coopBase = !nb->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat()));
 	nb->setFakeUnderwater(payload.get("fakeUnderwater", false).asBool());
 	nb->setLongitude(payload.get("lon", 0.0).asDouble());
 	nb->setLatitude(payload.get("lat", 0.0).asDouble());
@@ -2634,7 +2642,7 @@ void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 	if (pc.remote)
 	{
 		Json::Value fail;
-		fail["state"] = "shared_fail";
+		fail["state"] = pc.separateProtocol ? "separate_fail" : "shared_fail";
 		fail["seq"] = pc.seq;
 		fail["reason"] = reason;
 		if (game->getCoopMod()) game->getCoopMod()->sendTCPPacketData(fail.toStyledString());
@@ -2660,6 +2668,24 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	}
 
 	Base* base = resolveBase(game, pc.baseId);
+	// Schema-3 SEPARATE policy is intentionally stricter than SHARED.  A seat may
+	// mutate only bases carrying its player name.  The two explicit foreign-base
+	// exceptions are the agreed co-op services: purchasing into that base and
+	// equipping/rearming a craft stationed there.  Keep this host-side so a stale
+	// or modified client UI can never bypass ownership.
+	if (pc.separateProtocol && base && game && game->getSavedGame()
+		&& game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+	{
+		const std::string playerName = connectionTCP::seatName(pc.seat);
+		const bool foreign = !base->isOwnedByPlayer(playerName);
+		const bool foreignAllowed = pc.cmd == "buy"
+			|| pc.cmd == "craft_equip" || pc.cmd == "craft_rearm";
+		if (foreign && !foreignAllowed)
+		{
+			rejectHostCmd(game, pc, "This base belongs to " + base->getOwnerPlayerName());
+			return;
+		}
+	}
 	int64_t cost = 0;
 	std::string failReason;
 	++g_cmdN;
@@ -2681,7 +2707,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	++g_applyN;
 
 	Json::Value apply;
-	apply["state"] = "shared_apply";
+	apply["state"] = pc.separateProtocol ? "separate_apply" : "shared_apply";
 	apply["cmd"] = pc.cmd;
 	apply["seq"] = pc.seq;
 	apply["seat"] = pc.seat;
@@ -2703,7 +2729,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	if (pc.remote && game->getCoopMod())
 	{
 		Json::Value ok;
-		ok["state"] = "shared_ok";
+		ok["state"] = pc.separateProtocol ? "separate_ok" : "shared_ok";
 		ok["seq"] = pc.seq;
 		game->getCoopMod()->sendTCPPacketData(ok.toStyledString());
 		++g_okN;
@@ -2805,7 +2831,7 @@ int baseIndex(Game* game, const Base* base)
 
 void ScreenRefresh::bind(Game* game, const void* owner, Base* base, bool wantProgress)
 {
-	if (!game || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (!game || !game->getCoopMod() || !(game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign())) return;
 	_game = game;
 	_base = base;
 	_wantProgress = wantProgress;
@@ -2953,7 +2979,7 @@ void applyDogfightState(Game* game, const Json::Value& obj)
 
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 {
-	if (state == "shared_cmd")
+	if (state == "shared_cmd" || state == "separate_cmd")
 	{
 		// Only the host validates/applies commands; a replica ignores stray cmds.
 		if (isHost())
@@ -2965,12 +2991,13 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 			pc.baseId = obj.get("baseId", -1).asInt();
 			pc.payload = obj["payload"];
 			pc.remote = true;
+			pc.separateProtocol = (state == "separate_cmd");
 			std::lock_guard<std::mutex> lk(g_mx);
 			g_cmdQ.push_back(std::move(pc));
 		}
 		return true;
 	}
-	if (state == "shared_apply")
+	if (state == "shared_apply" || state == "separate_apply")
 	{
 		// Replicas (and only replicas) adopt applied mutations. The host applied
 		// at broadcast time and must never re-apply its own broadcast.
@@ -2981,12 +3008,12 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 		}
 		return true;
 	}
-	if (state == "shared_ok")
+	if (state == "shared_ok" || state == "separate_ok")
 	{
 		++g_okN; // informational: the mutation self-applies from shared_apply
 		return true;
 	}
-	if (state == "shared_fail")
+	if (state == "shared_fail" || state == "separate_fail")
 	{
 		std::string reason = obj.get("reason", "").asString();
 		++g_failN;
@@ -3075,6 +3102,16 @@ void update(Game* game)
 
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
                     const Json::Value& payload)
+
+{
+	const bool separate = game && game->getCoopMod()
+		&& (game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign())
+		&& !game->getCoopMod()->isSharedCampaign();
+	submitCommandEngine(game, cmd, baseId, payload, separate);
+}
+
+void submitCommandEngine(Game* game, const std::string& cmd, int baseId,
+	const Json::Value& payload, bool separateProtocol)
 {
 	if (!game) return;
 	int seq = ++g_seqCounter;
@@ -3091,6 +3128,7 @@ void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 		pc.baseId = baseId;
 		pc.payload = payload;
 		pc.remote = false;
+		pc.separateProtocol = separateProtocol;
 		std::lock_guard<std::mutex> lk(g_mx);
 		g_cmdQ.push_back(std::move(pc));
 	}
@@ -3098,7 +3136,7 @@ void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 	{
 		// Replica: send the command to the host; mutate nothing locally.
 		Json::Value msg;
-		msg["state"] = "shared_cmd";
+		msg["state"] = separateProtocol ? "separate_cmd" : "shared_cmd";
 		msg["cmd"] = cmd;
 		msg["seq"] = seq;
 		msg["seat"] = seat;
@@ -3138,9 +3176,10 @@ void resetStats()
 namespace {
 bool sharedHost(Game* game)
 {
-	return game && game->getCoopMod() && game->getCoopMod()->isSharedCampaign()
-		&& connectionTCP::getHost();
+	return game && game->getCoopMod() && (game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign())
+		&& game->getCoopMod()->getServerOwner();
 }
+
 }
 
 void hostResearchDone(Game* game, int baseId, const std::string& research,

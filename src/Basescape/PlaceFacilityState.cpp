@@ -36,6 +36,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 #include <algorithm>
 #include <climits>
 #include <cmath>
@@ -320,7 +321,7 @@ void PlaceFacilityState::viewClick(Action *)
 			// we mutate NOTHING locally and emit a fac_build shared_cmd. The host
 			// re-validates (the vanilla validity re-check is the tile-conflict
 			// guard) then debits + adds the facility + broadcasts shared_apply.
-			if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+			if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false)
 			{
 				int baseId = 0;
 				auto* bases = _game->getSavedGame()->getBases();
@@ -330,7 +331,10 @@ void PlaceFacilityState::viewClick(Action *)
 				payload["facilityType"] = _rule->getType();
 				payload["x"] = _view->getGridX();
 				payload["y"] = _view->getGridY();
-				SharedEcon::submitLocalCmd(_game, "fac_build", baseId, payload);
+				if (_game->getCoopMod()->isSharedCampaign())
+					SharedEcon::submitLocalCmd(_game, "fac_build", baseId, payload);
+				else
+					SeparateEcon::submitLocalCmd(_game, "fac_build", baseId, payload);
 				if (!_game->isShiftPressed())
 					_game->popState();
 				return;
@@ -422,7 +426,7 @@ void PlaceFacilityState::viewClick(Action *)
 			}
 
 			// COOP (SEPARATE mirror only; SHARED rides the fac_build shared_cmd above)
-			if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
+			if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
 			{
 
 				Json::Value root;

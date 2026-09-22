@@ -22,6 +22,7 @@ Run:  python tools/coop_test/test_save_upgrade_flow.py
 """
 
 import base64
+import copy
 import os
 import re
 import sys
@@ -79,8 +80,20 @@ def derive_legacy_dual(modern_text):
     upgraded save still loads clean."""
     hdr, body = list(yaml.safe_load_all(modern_text))
     ccs = body.get("coopClientSaves") or []
-    assert ccs, "modern source save has no embedded client world to derive from"
-    client_modern = base64.b64decode(ccs[0]["blob"]).decode("utf-8")
+    if ccs:
+        client_modern = base64.b64decode(ccs[0]["blob"]).decode("utf-8")
+    else:
+        # Schema 3 source: fabricate the historical two worlds by partitioning
+        # the unified base list on its persistent owner.  Keep the common world
+        # fields on both sides, exactly as an old separate pair did.
+        client_header = copy.deepcopy(hdr)
+        client_body = copy.deepcopy(body)
+        host_body = copy.deepcopy(body)
+        host_body["bases"] = [b for b in body.get("bases", []) if b.get("ownerplayername", HOST_NAME) == HOST_NAME]
+        client_body["bases"] = [b for b in body.get("bases", []) if b.get("ownerplayername", HOST_NAME) == CLIENT_NAME]
+        assert client_body["bases"], "schema-3 source has no client-owned base to derive from"
+        modern_text = yaml.safe_dump_all([hdr, host_body], sort_keys=False)
+        client_modern = yaml.safe_dump_all([client_header, client_body], sort_keys=False)
     host_dual = strip_modern_coop_fields(modern_text)
     client_dual = strip_modern_coop_fields(client_modern)
     # inject a STRONG marker: force the first soldier's coopbase to a peer link

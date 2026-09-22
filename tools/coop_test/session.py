@@ -168,15 +168,26 @@ def new_campaign(host, client, port="47900",
         )
         host.ok({"cmd": "coop_dialog_back"})
     else:
-        # SEPARATE: the client places its own base and pushes its world blob;
-        # the host waits for that blob, then clicks BEGIN.
+        # SEPARATE: the client contributes its first base once. The host merges
+        # it into the authoritative world and retains no player-world blob.
         client.wait_for("client base placement", lambda: _has_state(client, "BuildNewBaseState"))
         client.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": client_base})
 
         host.wait_for(
             "all players placed bases",
-            lambda: host.cmd({"cmd": "has_coop_file",
-                              "key": f"host_{host.cmd({'cmd': 'save_markers'})['saveID']}_{client_name}.data"}).get("present") or None,
+            lambda: next((b for b in host.cmd({"cmd": "geo_state"}).get("bases", [])
+                          if b.get("ownerPlayerName") == client_name), None),
+            timeout=120,
+        )
+        host.ok({"cmd": "coop_dialog_back"})
+
+        # Popping the base-placement gate lets the host finish month-zero
+        # initialization and stream that settled world. Separate therefore has
+        # a second readiness gate: release both geoscapes only after the client
+        # confirms that it adopted the authoritative world.
+        host.wait_for(
+            "client settled-world ack",
+            lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
             timeout=120,
         )
         host.ok({"cmd": "coop_dialog_back"})

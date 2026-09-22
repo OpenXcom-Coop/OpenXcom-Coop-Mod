@@ -113,7 +113,7 @@ void ConfirmNewBaseState::btnOkClick(Action *)
 	// affordable, proceeds to name + lift. The floating _base is a UI scratch object
 	// that carries lon/lat/name/lift into base_new; the authoritative base arrives
 	// via shared_apply.
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		if (_game->getSavedGame()->getFunds() >= _cost)
 		{

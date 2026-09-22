@@ -673,7 +673,6 @@ class connectionTCP
 	/// (g_lastNextTurnJson). Only reachable via the parallel_state TestServer
 	/// command; never fires in shipped mode. No-op if no next_turn has applied yet.
 	void coopDebugReplayLastNextTurn();
-	void sendBaseFile();
 	void sendMissionFile();
 	/// issue #93: stream the RUNNING skirmish battle to a rejoining client.
 	void streamSkirmishBattleToClient();
@@ -765,6 +764,9 @@ class connectionTCP
 	bool isCoopSession(); // is the co-op session created? (does not consider whether a player has joined)
 	void setCoopSession(bool session);
 	void setServerOwner(bool owner);
+	// Rebuild Separate's local purple/own-base presentation from persistent
+	// owner names after this process's seat is known or a streamed world lands.
+	void refreshSeparateBaseOwnership();
 	static bool _coopCampaign;
 	void setCoopCampaign(bool coop);
 	static int _coopGamemode; // no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
@@ -777,11 +779,15 @@ class connectionTCP
 	// PRD-J01: true when the ACTIVE save is a SHARED co-op campaign. Every later
 	// SHARED-gated behavior tests this; SEPARATE/solo return false.
 	bool isSharedCampaign();
+	// True only for an actual SEPARATE co-op campaign. Do not replace this with
+	// !isSharedCampaign(): that expression is also true in single-player, PvP,
+	// custom battles, and before an active co-op save has been installed.
+	bool isSeparateCampaign();
 	// Static mirror for engine-level callers with no CoopMod instance (Craft capacity).
 	static bool isSharedCampaignStatic();
-	// PRD-J02: true for a SHARED client - a world replica the host streams. A
-	// replica never builds its own world, never saves to disk, and never runs
-	// the SEPARATE mirror machinery. (isSharedCampaign() && !host)
+	// True for a client replica in either host-authoritative campaign type.
+	// Shared and Separate have different economy/permission rules, but neither
+	// client owns a second strategic world or writes a campaign save to disk.
 	bool isSharedReplica();
 	// PRD-J02: serialize the host's authoritative world fresh and hand it to the
 	// streamer (single-client resume-blob lane) so the connected client adopts
@@ -1144,7 +1150,6 @@ class connectionTCP
 
 	void createCoopMenu();
 	static void sendTCPPacketStaticData2(std::string data);
-	void writeHostMapFile2();
 	void writeHostMapFile();
 	bool writeHostMapSaveProgressFile();
 	void writeHostMapLoadProgressFile();
@@ -1419,7 +1424,6 @@ class connectionTCP
 	bool openMultipleTargetsMenu = false;
 
 	static bool no_bases;
-	static bool isCoopBaseLoading;
 
 	// hotseat
 	static bool _isHotseatActive;
@@ -1444,32 +1448,29 @@ class connectionTCP
 	// LOAD_PROGRESS
 	bool _isLoadProgress = false;
 
-	// Transport scratch only: peer base/battlescape payloads plus the served
-	// client-world blobs for the CURRENT session. Never a permanent save
-	// store - the host .sav embed (coopClientSaves) is the durable copy, and
-	// SavedGame::load redefines the served set from it on every load. (Same
-	// intent as the fixes branch: temp data and permanent saves stay
-	// strictly separate.)
+	// Transport scratch for battles, authoritative campaign-world streams and
+	// the distinct player worlds used by PvP. Shared/Separate campaign saves
+	// never persist entries from these maps.
 	// Stores coop files in a hash map instead of separate files in the host folders
 	static std::unordered_map<std::string, std::string> coopFilesHost;
 	// Stores coop files in a hash map instead of separate files in the client folders
 	static std::unordered_map<std::string, std::string> coopFilesClient;
-	// Guards both blob maps: the loopData streamer thread reads them while the
+	// Guards both transfer maps: the loopData streamer thread reads them while the
 	// main thread stores/erases entries. Hold only around map access; copy the
 	// blob out before any long work.
 	static std::mutex coopFilesMutex;
 	static bool hasCoopFile(const std::string& key);
-	// Canonical world-blob keys, scoped by the current saveID:
+	// PvP-only player-world keys, scoped by the current saveID:
 	// host_<saveID>_<clientName>.data / client_<saveID>_<hostName>.data
-	static std::string hostBlobKey(const std::string& clientName);
-	static std::string clientBlobKey(const std::string& hostName);
-	// Newest stored world blob for a given client, matched by EXACT player-name
+	static std::string pvpHostWorldKey(const std::string& clientName);
+	static std::string pvpClientWorldKey(const std::string& hostName);
+	// Newest stored PvP world for a given client, matched by EXACT player-name
 	// field across any saveID (the host re-mints saveID on every save, so the
 	// stored key's id can lag the current one). Returns nullptr if none. Blob
 	// identity comes from the caller's roster, never from reverse-parsing keys.
 	// CALLER MUST HOLD coopFilesMutex; the returned pointer is valid only while
 	// that lock is held.
-	static const std::string* findHostClientBlob(const std::string& clientName);
+	static const std::string* findPvpClientWorld(const std::string& clientName);
 	// Single authority: may this machine read/write local .sav files right now?
 	// Truth table: solo play -> yes; coop host -> yes; coop client -> no.
 	// Every local save/load gate and Load/Save button-visibility decision must
@@ -1609,10 +1610,8 @@ class connectionTCP
 	// Soldiers gifted away are parked here instead of deleted: UI states
 	// (sort snapshots, open dialogs) may still hold pointers to them.
 	std::vector<Soldier*> _giftedSoldiers;
-	// Ids of soldiers gifted away this session. A stale copy of one of
-	// these can resurrect when the pre-visit "basehost" snapshot is restored;
-	// the sweep in processPendingSoldierGifts() parks exactly those (and
-	// nothing else - legacy saves carry unrelated ownerPlayerId values).
+	// Ids of soldiers gifted away this session. The cleanup sweep parks exactly
+	// these and nothing else; legacy saves can contain unrelated owner ids.
 	std::unordered_set<int> _giftedAwaySoldierIds;
 	// Counter feeding the unique per-packet gift id, plus the in-memory
 	// duplicate-delivery guard (sufficient now: the host's save is the single
@@ -1637,15 +1636,11 @@ class connectionTCP
 	// the host on reconnect. To keep the embedded blob fresh, the client
 	// silently pushes its progress to the host after every soldier gift.
 	void pushProgressToHostSilently();
-	// Fix B (Bug 1): when the client assigns/unassigns its guest soldiers to a
-	// host craft via the mirror-base UI, the assignment is written only into the
-	// "basehost" blob (the client's copy of the HOST world). The client's OWN
-	// world blob (client_<saveID>_<host>.data) - which GeoscapeState reloads at
-	// mission end - is never updated, so the guest's CoopCraft reverts to its
-	// stale value (unassigned) after a battle. This durably mirrors the
-	// per-guest CoopCraft/CoopCraftType into the own-world blob (and pushes it
-	// to the host) so the assignment survives the mission-end reload.
-	// assignments maps a guest's CoopName to {CoopCraft, CoopCraftType}.
+	// New SEPARATE campaign only: contribute the client's freshly placed first
+	// base to the host world once. The transient transfer is discarded after
+	// merge and is never embedded as a player-world save.
+	void sendInitialSeparateBaseToHost();
+	// Legacy multi-world PvP helper. Campaigns never call this path.
 	void syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments);
 	// Clears session gift state (pending queues, dedup ids, away-ids)
 	// after a save load - stale in-memory state must never outlive the save

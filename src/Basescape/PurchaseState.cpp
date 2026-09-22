@@ -53,6 +53,7 @@
 #include "../Mod/RuleCountry.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -813,7 +814,7 @@ void PurchaseState::btnOkClick(Action *)
 	// locally - funds and incoming transfers arrive via shared_apply. The SEPARATE
 	// cross-player `purchase` packet path below is untouched and SHARED-fenced (a
 	// SHARED world has no _coopBase mirror bases, so it never fires here anyway).
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		Json::Value items(Json::arrayValue);
 		int64_t estTotal = 0;
@@ -848,7 +849,10 @@ void PurchaseState::btnOkClick(Action *)
 			{
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
 			}
-			SharedEcon::submitLocalCmd(_game, "buy", baseId, payload);
+			if (_game->getCoopMod()->isSharedCampaign())
+				SharedEcon::submitLocalCmd(_game, "buy", baseId, payload);
+			else
+				SeparateEcon::submitLocalCmd(_game, "buy", baseId, payload);
 		}
 		_game->popState();
 		return;

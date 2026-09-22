@@ -24,7 +24,7 @@ Notes on shapes (PRD 3.1 detection table, detector v2.3):
   embed         : body has coopClientSaveKey + base64 coopClientSaveBlob
   sidecar       : body saveID != 0, no embed, + a host_<saveID>_<name>.data file
   solo          : no co-op trace at all -> loads normally, stamped on next save
-  current       : header saveSchema: 2 (+ coop: true)
+  current       : header saveSchema: 3 (+ coop: true)
   unknown-future: header saveSchema: 99 (> SAVE_SCHEMA_CURRENT)
   malformed     : not a two-document stream
 """
@@ -262,7 +262,7 @@ def sidecar_data_name():
 def current():
     body = _host_body(gamemode=1, save_id=20260716120000)
     body += "coop_save_owner_player_id: 0\nno_bases: false\n"
-    return _stream(_header("Current Coop", schema=2, coop=True), body)
+    return _stream(_header("Current Coop", schema=3, coop=True), body)
 
 
 def future():

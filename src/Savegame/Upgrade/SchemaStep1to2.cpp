@@ -403,9 +403,9 @@ public:
 							"Copy the other player's save file into this game's saves folder first, then select it here."});
 			reqs.push_back({InputRequest::ClientName, true, "clientName",
 							"The client player's name - must exactly match the name that player connects with."});
-			reqs.push_back({InputRequest::HostName, false, "hostName",
-							"Your (host) player name - optional; leave blank to claim it automatically at the next host."});
 		}
+		reqs.push_back({InputRequest::HostName, true, "hostName",
+						"Your unique host player name; base ownership in schema 3 uses player names."});
 		// embed / sidecar: none (the framework auto-ingests the client world).
 		return reqs;
 	}
@@ -432,6 +432,8 @@ public:
 		const bool skip = (set.variant == SchemaVariant::Dual && in.skipClient);
 		const bool haveClient = !set.clients.empty();
 		const std::string cname = effectiveClientName(set, in);
+		if (!validPlayerName(in.hostName))
+			out.errors.push_back("A valid host player name is required for base ownership.");
 
 		if (!skip)
 		{
@@ -440,6 +442,8 @@ public:
 			else if (!validPlayerName(cname))
 				out.errors.push_back("The client player name contains characters that are not allowed.");
 		}
+		if (!in.hostName.empty() && !cname.empty() && in.hostName == cname)
+			out.errors.push_back("Host and client player names must be unique.");
 
 		if (skip || !haveClient)
 			out.warnings.push_back("No client world will be included; that player will restart fresh when they rejoin.");
@@ -491,7 +495,7 @@ public:
 		// --- host doc ---
 		ryml::NodeRef hh = set.host.header();
 		setBool(hh, "coop", true);
-		setInt(hh, "saveSchema", SAVE_SCHEMA_CURRENT);
+		setInt(hh, "saveSchema", 2);
 		setInt(hh, "coopCampaignType", COOP_CAMPAIGN_TYPE_SEPARATE);
 		writeRoster(hh, set.roster);
 
@@ -526,7 +530,7 @@ public:
 			ryml::NodeRef ch = c.world.header();
 			ryml::NodeRef cb = c.world.body();
 			setBool(ch, "coop", true);
-			setInt(ch, "saveSchema", SAVE_SCHEMA_CURRENT);
+			setInt(ch, "saveSchema", 2);
 			setInt(ch, "coopCampaignType", COOP_CAMPAIGN_TYPE_SEPARATE);
 			writeRoster(ch, set.roster);
 

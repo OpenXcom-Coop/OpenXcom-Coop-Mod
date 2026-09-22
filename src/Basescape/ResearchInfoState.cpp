@@ -35,6 +35,7 @@
 #include "../Engine/RNG.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 #include <climits>
 
 namespace OpenXcom
@@ -80,7 +81,7 @@ void ResearchInfoState::buildUi()
 	// PRD-J06: in a SHARED campaign the shared world is host-authoritative. This
 	// screen still edits it live (so vanilla's scientist/lab capping works), but
 	// btnOkClick/btnCancelClick reverse those edits and submit a shared_cmd instead.
-	_shared = _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign();
+	_shared = _game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign());
 	_sharedOrigAssigned = _project ? _project->getAssigned() : 0;
 
 	_window = new Window(this, 230, 140, 45, 30);
@@ -209,11 +210,13 @@ void ResearchInfoState::btnOkClick(Action *)
 			// scientists, refunds the needed item, deletes the scratch project).
 			_base->removeResearch(_project);
 			Json::Value p; p["project"] = project;
-			SharedEcon::submitLocalCmd(_game, "res_start", baseId, p);
+			if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "res_start", baseId, p);
+			else SeparateEcon::submitLocalCmd(_game, "res_start", baseId, p);
 			if (finalAssigned > 0)
 			{
 				Json::Value a; a["project"] = project; a["assigned"] = finalAssigned;
-				SharedEcon::submitLocalCmd(_game, "res_alloc", baseId, a);
+				if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "res_alloc", baseId, a);
+				else SeparateEcon::submitLocalCmd(_game, "res_alloc", baseId, a);
 			}
 		}
 		else
@@ -223,7 +226,8 @@ void ResearchInfoState::btnOkClick(Action *)
 			_project->setAssigned(_sharedOrigAssigned);
 			_base->setScientists(_base->getScientists() + delta);
 			Json::Value a; a["project"] = project; a["assigned"] = finalAssigned;
-			SharedEcon::submitLocalCmd(_game, "res_alloc", baseId, a);
+			if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "res_alloc", baseId, a);
+			else SeparateEcon::submitLocalCmd(_game, "res_alloc", baseId, a);
 		}
 		_game->popState();
 		return;
@@ -251,7 +255,8 @@ void ResearchInfoState::btnCancelClick(Action *)
 		_project->setAssigned(_sharedOrigAssigned);
 		_base->setScientists(_base->getScientists() + delta);
 		Json::Value p; p["project"] = project;
-		SharedEcon::submitLocalCmd(_game, "res_cancel", baseId, p);
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "res_cancel", baseId, p);
+		else SeparateEcon::submitLocalCmd(_game, "res_cancel", baseId, p);
 		_game->popState();
 		return;
 	}

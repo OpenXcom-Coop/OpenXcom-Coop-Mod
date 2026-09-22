@@ -47,6 +47,7 @@
 #include "../Basescape/CraftSoldiersState.h"
 
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -269,7 +270,10 @@ void ConfirmLandingState::btnYesClick(Action *)
 	// touch the shared world. Report the answer; the host does the rest.
 	if (_sharedBroker)
 	{
-		SharedEcon::submitLandReply(_game, _craft, true, false);
+		if (_game->getCoopMod()->isSharedCampaign())
+			SharedEcon::submitLandReply(_game, _craft, true, false);
+		else
+			SeparateEcon::submitLandReply(_game, _craft, true, false);
 		_game->popState();
 		return;
 	}
@@ -285,7 +289,7 @@ void ConfirmLandingState::btnYesClick(Action *)
 		// and ship "battlehost" to the client via the existing coop path. This
 		// SKIPS the SEPARATE two-world merge (CoopState(88)/sendCraft), which in
 		// SHARED would duplicate the already-shared soldiers.
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			_game->getCoopMod()->setSelectedCraft(_craft);
 			_game->getCoopMod()->setConfirmLandingState(this);
@@ -418,7 +422,7 @@ void ConfirmLandingState::startCoopMission()
 	// second call here would run bgen.run() again and replace the world with a NEW random
 	// map, stranding the client (which already loaded the first) on a different map. If a
 	// battle already exists, this is a re-entry - do nothing.
-	if (_game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getSavedGame()
 		&& _game->getSavedGame()->getSavedBattle())
 	{
 		return;
@@ -441,6 +445,8 @@ void ConfirmLandingState::startCoopMission()
 	AlienBase* b = dynamic_cast<AlienBase*>(_craft->getDestination());
 
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+	if (_craft && _craft->getBase())
+		bgame->setBattleOwnerPlayerName(_craft->getBase()->getOwnerPlayerName());
 	_game->getSavedGame()->setBattleGame(bgame);
 	BattlescapeGenerator bgen(_game);
 	bgen.setWorldTexture(_missionTexture, _globeTexture);
@@ -504,7 +510,10 @@ void ConfirmLandingState::btnNoClick(Action *)
 	// still means "patrol here" rather than "return to base"; the host applies it.
 	if (_sharedBroker)
 	{
-		SharedEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
+		if (_game->getCoopMod()->isSharedCampaign())
+			SharedEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
+		else
+			SeparateEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
 		_game->popState();
 		return;
 	}

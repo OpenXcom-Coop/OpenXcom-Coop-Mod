@@ -42,6 +42,7 @@
 #include <algorithm>
 #include "../Engine/Unicode.h"
 #include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5b)
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -190,7 +191,7 @@ void CraftArmorState::cbxSortByChange(Action *action)
 		if (selIdx != 2 && selIdx != 3)
 		{
 			_dynGetter = compFunc->getGetter();
-			if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+			if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false)
 			{
 				initList(_lstSoldiers->getScroll());
 				return;
@@ -375,7 +376,7 @@ void CraftArmorState::lstItemsLeftArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -429,7 +430,7 @@ void CraftArmorState::lstItemsRightArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -562,9 +563,10 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 					// host-authoritative - route the armor change as an absolute
 					// end-state via soldier_armor instead of moving the store items
 					// on this replica (which drifts chkItems from the host).
-					if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+					if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 					{
-						SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
+						if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
+						else SeparateEcon::submitSoldierArmor(_game, _base, s, a->getType());
 					}
 					else if (a->getStoreItem() == nullptr ||
 						a->getStoreItem() == s->getArmor()->getStoreItem() ||
@@ -653,9 +655,10 @@ void CraftArmorState::btnDeequipAllArmorClick(Action *action)
 			// shared host-authoritative path; the replica mutates nothing. Each
 			// soldier is an INDEPENDENT absolute end-state (its own default armor),
 			// so a per-soldier command has no ordering dependency - no local batch.
-			if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+			if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 			{
-				SharedEcon::submitSoldierArmor(_game, _base, soldier, a->getType());
+				if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitSoldierArmor(_game, _base, soldier, a->getType());
+				else SeparateEcon::submitSoldierArmor(_game, _base, soldier, a->getType());
 			}
 			else if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
 			{
@@ -699,9 +702,10 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 			}
 			// SHARED (PRD-J09 GAP-5b): route through the shared host-authoritative
 			// path (see btnDeequipAllArmorClick); the replica mutates nothing.
-			if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+			if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 			{
-				SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
+				if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
+				else SeparateEcon::submitSoldierArmor(_game, _base, s, a->getType());
 			}
 			else if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
 			{

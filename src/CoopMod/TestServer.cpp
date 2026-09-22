@@ -2217,11 +2217,8 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else
 		{
-			// same as clicking the peer base marker (MultipleTargetsState)
-			coop->current_base_name = target->getName();
-			CoopState* w = new CoopState(50);
-			w->setGlobe(geo->getGlobe());
-			_game->pushState(w);
+			// Shared and Separate keep every real base in the active world.
+			_game->pushState(new BasescapeState(target, geo->getGlobe()));
 			resp["ok"] = true;
 		}
 	}
@@ -5596,6 +5593,7 @@ std::string TestServer::execute(const std::string& line)
 					// and it rides the payload, so it must be EQUAL on every machine -
 					// unlike SEPARATE, where each side rolls its own.
 					jb["coopBaseId"] = b->_coop_base_id;
+					jb["ownerPlayerName"] = b->getOwnerPlayerName();
 					Json::Value crafts(Json::arrayValue);
 					for (auto* c : *b->getCrafts())
 					{
@@ -6175,6 +6173,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["clientPanicHandle"] = _game->getCoopMod()->_clientPanicHandle;
 				resp["serverOwner"] = connectionTCP::getServerOwner();
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
+				resp["battleOwnerPlayerName"] = bg->getBattleOwnerPlayerName();
 				// PRD-P0: the receive gate. updateCoopTask() will only hand a packet to
 				// onTCPMessage() once _coop_task_completed (or one of the per-action
 				// exemptions) says this machine is idle; everything else is parked in the
@@ -7936,6 +7935,7 @@ std::string TestServer::execute(const std::string& line)
 					b["coopBaseFlag"] = base->_coopBase;
 					b["coopIcon"] = base->_coopIcon;
 					b["coopBaseId"] = base->_coop_base_id;
+					b["ownerPlayerName"] = base->getOwnerPlayerName();
 					Json::Value soldiers(Json::arrayValue);
 					for (auto* s : *base->getSoldiers())
 					{
@@ -7952,7 +7952,7 @@ std::string TestServer::execute(const std::string& line)
 		{
 			// What the mirror-base visit view would list: soldiers in THIS
 			// machine's save stationed at the given coop base id (the exact
-			// source set CoopState(55) deep-copies into the visited base).
+			// source used to deep-copy a downloaded peer base here).
 			int coopBaseId = req.get("coopBaseId", -1).asInt();
 			if (!_game->getSavedGame())
 			{
@@ -8046,6 +8046,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["name"] = target->getName();
 				resp["coopBaseFlag"] = target->_coopBase;
 				resp["coopBaseId"] = target->_coop_base_id;
+				resp["ownerPlayerName"] = target->getOwnerPlayerName();
 
 				// Living-quarters accounting. A TRANSFERRED soldier keeps its owner
 				// (only a GIFT changes that), so it never joins the receiver's
@@ -8670,6 +8671,13 @@ std::string TestServer::execute(const std::string& line)
 				b->setLongitude(req.get("lon", 1.0).asDouble());
 				b->setLatitude(req.get("lat", 0.3).asDouble());
 				b->_coop_base_id = req.get("coopbaseid", 424242).asInt();
+				std::string owner = req.get("ownerPlayerName", "").asString();
+				if (!owner.empty())
+				{
+					b->setOwnerPlayerName(owner);
+					b->_coopBase = !b->isOwnedByPlayer(
+						connectionTCP::seatName(connectionTCP::localSeat()));
+				}
 				sg->getBases()->push_back(b);
 				resp["coopBaseId"] = b->_coop_base_id;
 				resp["baseCount"] = (int)sg->getBases()->size();

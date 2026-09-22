@@ -50,6 +50,7 @@
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 #include "../CoopMod/SharedEcon.h" // coop (PRD-J09)
+#include "../CoopMod/SeparateEcon.h"
 #include "../Savegame/Vehicle.h"
 
 namespace OpenXcom
@@ -211,7 +212,7 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
 	// base/roster and every player must see ALL soldiers (mixed-owner squads),
 	// so this filter is fenced off (it is a no-op in SHARED anyway - every SHARED
 	// soldier has coopBase == -1 - but fencing avoids the base_oldsoldiers2 swap).
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		std::vector<Soldier*> coopSoldiers;
 
@@ -268,7 +269,7 @@ void CraftSoldiersState::cbxSortByChange(Action *)
 		}
 		// Playtest: SHARED must not reorder the shared host-authoritative roster; keep the
 		// dynamic-stat column but skip the sort/restore mutations.
-		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false)
 		{
 			initList(_lstSoldiers->getScroll());
 			return;
@@ -353,7 +354,7 @@ void CraftSoldiersState::btnOkClick(Action *)
 	// coop
 	// PRD-J09: paired with the fenced ctor guest-filter (SHARED never swapped the
 	// list, so there is nothing to restore).
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		// coop
 		*_base->getSoldiers() = _base->base_oldsoldiers2;
@@ -574,7 +575,7 @@ void CraftSoldiersState::lstItemsLeftArrowClick(Action *action)
  */
 void CraftSoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -628,7 +629,7 @@ void CraftSoldiersState::lstItemsRightArrowClick(Action *action)
  */
 void CraftSoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -672,12 +673,13 @@ void CraftSoldiersState::lstSoldiersClick(Action *action)
 		// (host's OR client's) is a shared-world mutation - route it through the
 		// protocol (host validates capacity, broadcasts) instead of mutating this
 		// replica locally. The list refreshes on re-entry (J10 adds live refresh).
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			// a craft OUT on a mission is locked (matches the vanilla no-op below)
 			if (!(s->getCraft() && s->getCraft()->getStatus() == "STR_OUT"))
 			{
-				SharedEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+				if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+				else SeparateEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
 			}
 			return;
 		}
@@ -785,7 +787,7 @@ void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
 	// (move a soldier to the peer's base so both can deploy). In SHARED the base is
 	// shared, so it is unnecessary; ownership reassignment still lives on the
 	// SoldierInfo gift path. Fence it here.
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		return;
 	}
@@ -857,10 +859,11 @@ void CraftSoldiersState::harnessToggle(int soldierId)
 	{
 		if (s->getId() != soldierId)
 			continue;
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			if (!(s->getCraft() && s->getCraft()->getStatus() == "STR_OUT"))
-				SharedEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+				if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+				else SeparateEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
 		}
 		else if (s->getCraft() == c)
 		{

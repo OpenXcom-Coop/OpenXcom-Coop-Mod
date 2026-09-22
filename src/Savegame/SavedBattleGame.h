@@ -82,6 +82,8 @@ public:
 	Pathfinding *_pathfinding;
 	TileEngine *_tileEngine;
 	std::string _missionType, _strTarget, _strCraftOrBase, _alienCustomDeploy, _alienCustomMission;
+	/// Unique campaign player name whose craft/base owns this mission.
+	std::string _battleOwnerPlayerName;
 	std::string _lastUsedMapScript;
 	int _alienItemLevel = 0;
 	std::string _reinforcementsDeployment, _reinforcementsRace;
@@ -162,6 +164,8 @@ public:
 	void setMissionCraftOrBase(const std::string& missionCraftOrBase) { _strCraftOrBase = missionCraftOrBase; }
 	/// Gets the mission craft/base.
 	const std::string& getMissionCraftOrBase() const { return _strCraftOrBase; }
+	void setBattleOwnerPlayerName(const std::string& name) { _battleOwnerPlayerName = name; }
+	const std::string& getBattleOwnerPlayerName() const { return _battleOwnerPlayerName; }
 	/// Gets the base's items BEFORE the mission.
 	ItemContainer *getBaseStorageItems();
 	/// Sets the starting conditions.

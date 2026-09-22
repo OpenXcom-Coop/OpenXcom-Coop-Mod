@@ -118,7 +118,7 @@ void TransferConfirmState::btnOkClick(Action *)
 	// the local completeTransfer runs; the host applies + broadcasts. This gate
 	// fires before the SEPARATE _coopBase check so the SEPARATE machinery never
 	// runs in SHARED.
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		_state->submitSharedTransfer();
 		_game->popState();

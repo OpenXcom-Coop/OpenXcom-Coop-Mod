@@ -38,6 +38,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5b)
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -263,9 +264,12 @@ std::string CraftWeaponsState::equipCapacityError(Mod *mod, Craft *craft,
  */
 void CraftWeaponsState::equipSelectedWeapon(RuleCraftWeapon* selRule)
 {
-	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
-		SharedEcon::submitCraftRearm(_game, _craft, (int)_weapon, selRule ? selRule->getType() : "");
+		if (_game->getCoopMod()->isSharedCampaign())
+			SharedEcon::submitCraftRearm(_game, _craft, (int)_weapon, selRule ? selRule->getType() : "");
+		else
+			SeparateEcon::submitCraftRearm(_game, _craft, (int)_weapon, selRule ? selRule->getType() : "");
 		return;
 	}
 

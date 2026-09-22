@@ -112,6 +112,8 @@
   "test_shared_ufo_alert": 5.5,
   "test_shared_waypoint_arrival": 7.4,
   "test_shared_world_equal": 13.8,
+  "test_separate_single_world": 24.0,
+  "test_separate_single_world_contract": 1.0,
   "test_ufo_notice": 27.6,
   "test_unload_weapon_crash": 6.6
 }

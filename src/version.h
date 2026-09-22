@@ -24,7 +24,7 @@
 // changes; every save writes it into the header as "saveSchema". The in-game
 // Save Upgrader (src/Savegame/Upgrade/) detects older schemas and migrates
 // them up to this current value one step at a time. See PRD save-upgrader.md.
-#define SAVE_SCHEMA_CURRENT 2
+#define SAVE_SCHEMA_CURRENT 3
 
 #define OPENXCOM_VERSION_ENGINE "Extended"
 #define OPENXCOM_VERSION_SHORT "Extended 8.4.2"

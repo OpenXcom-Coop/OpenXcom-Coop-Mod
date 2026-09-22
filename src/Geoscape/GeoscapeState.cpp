@@ -139,6 +139,7 @@
 
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
@@ -606,6 +607,7 @@ void GeoscapeState::startCoopMission()
 		SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
 		_game->getSavedGame()->setBattleGame(bgame);
 		bgame->setMissionType("STR_BASE_DEFENSE");
+		bgame->setBattleOwnerPlayerName(_game->getSavedGame()->getSelectedBase()->getOwnerPlayerName());
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.setBase(_game->getSavedGame()->getSelectedBase());
 		bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(g_coopBaseDefense.missionCustomDeploy));
@@ -912,7 +914,8 @@ void GeoscapeState::init()
 	}
 
 	// Graph requests (co-op)
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->_enable_time_sync == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->_enable_time_sync == true
+		&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 
 		Json::Value root;
@@ -961,7 +964,7 @@ void GeoscapeState::init()
 		// (client-owned soldiers carry _coop=1 but are legitimate members of the
 		// single world), so this "delete the other player's battle copies" loop
 		// must NOT run - it would erase them. The bare if guards the whole for.
-		if (!_game->getCoopMod()->isSharedCampaign())
+		if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		for (auto &base : *_game->getSavedGame()->getBases())
 		{
 
@@ -999,7 +1002,7 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->coopMissionEnd = false;
 
-		if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
+		if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 
 			_game->getCoopMod()->updateAllCoopBases();
@@ -1013,7 +1016,7 @@ void GeoscapeState::init()
 		// replica is byte-identical and the frozen-replica relationship resumes -
 		// same bootstrap channel as J02 (streamSharedWorldToClient -> resume-blob
 		// streamer -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState).
-		if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner() == true)
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getCoopMod()->getServerOwner() == true)
 		{
 			// The client's automatic resume-hold (pushed by LoadGameState whenever a
 			// streamed world is adopted) is released by the resume_ack handler: after
@@ -1034,7 +1037,7 @@ void GeoscapeState::init()
 	// blob dance (reload its own geoscape snapshot + merge soldier deltas); it
 	// keeps its lockstep post-battle world and waits for the host's authoritative
 	// world restream (dispatched from the host block above) to reload it whole.
-	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		_game->getCoopMod()->coopMissionEnd = false;
 		_game->getCoopMod()->_coopEnd = 1;
@@ -1042,7 +1045,7 @@ void GeoscapeState::init()
 
 	// coop
 	// The client should be able to retrieve the save.
-	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && !_game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 
 		_game->getCoopMod()->coopMissionEnd = false;
@@ -1059,29 +1062,14 @@ void GeoscapeState::init()
 		std::string coopKey;
 		if (connectionTCP::getServerOwner() == false)
 		{
-			coopKey = connectionTCP::clientBlobKey(_game->getCoopMod()->getHostName());
+			coopKey = connectionTCP::pvpClientWorldKey(_game->getCoopMod()->getHostName());
 
-			// If the player's own-world blob isn't found, try the basehost blob.
-			if (!_game->getCoopMod()->hasCoopFile(coopKey))
-			{
-				coopKey = "basehost";
-			}
 		}
 		else
 		{
 			// Server owner returning from a mission it didn't battle-host:
-			// reload the geoscape snapshot stashed at mission sync, falling
-			// back to the last basehost snapshot.
+			// reload the geoscape snapshot stashed at mission sync.
 			coopKey = "coop_geoscape_return";
-			if (!_game->getCoopMod()->hasCoopFile(coopKey))
-			{
-				// PRD-09: this snapshot should exist for every mission the server
-				// owner enters (mission start stashes it; F3 resume re-stashes it).
-				// Falling back to 'basehost' rolls the campaign back to session
-				// start - log it so any future gap is visible in harness logs.
-				Log(LOG_WARNING) << "[coop] mission-end restore: no 'coop_geoscape_return' snapshot - falling back to 'basehost' (rolls the campaign back to session start)";
-				coopKey = "basehost";
-			}
 		}
 
 		if (!_game->getCoopMod()->hasCoopFile(coopKey))
@@ -1255,7 +1243,7 @@ void GeoscapeState::init()
 		// player runs the one authoritative world (each replica applies the same
 		// deterministic start-of-game maintenance below), so this override would
 		// clobber the replica's funds back to a pre-deduction mirror value. Fence.
-		if (_game->getCoopMod()->coopFunds != 0 && !_game->getCoopMod()->isSharedCampaign())
+		if (_game->getCoopMod()->coopFunds != 0 && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 
 			_game->getSavedGame()->setFunds(_game->getCoopMod()->coopFunds);
@@ -1269,7 +1257,7 @@ void GeoscapeState::init()
 		// has one shared world - suppress it. It is also unsafe to send here at
 		// SHARED campaign start: the replica has no SavedGame yet and the handler
 		// dereferences it.
-		if (!_game->getCoopMod()->isSharedCampaign())
+		if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			Json::Value markers;
 			markers["state"] = "baseRequest";
@@ -1325,7 +1313,7 @@ void GeoscapeState::init()
 		determineAlienMissions();
 		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - (_game->getSavedGame()->getBaseMaintenance() - _game->getSavedGame()->getBases()->front()->getPersonnelMaintenance()));
 
-		// PRD-J02: SHARED campaign start. The host's authoritative world is now
+		// PRD-J02: host-authoritative campaign start. The host's world is now
 		// fully initialized (month advanced, start-of-game maintenance charged),
 		// so serialize it and stream it to the waiting client as its replica.
 		// Streaming HERE (not at base naming) means the replica adopts the SETTLED
@@ -1333,7 +1321,7 @@ void GeoscapeState::init()
 		// and the host's time-sync then agrees. Hold in COOP_DLG_WAIT_PLAYERS
 		// until the client acks loaded, then BEGIN releases both. The dialog also
 		// keeps the host's geoscape from broadcasting before the client is ready.
-		if (_game->getCoopMod()->isSharedCampaign()
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 			&& _game->getCoopMod()->getServerOwner()
 			&& connectionTCP::session.lobbyMode == 1)
 		{
@@ -1522,7 +1510,7 @@ void GeoscapeState::think()
 					popup(new MissionDetectedState(match, this, true));
 					_game->getCoopMod()->show_coop_mission_popup = -1;
 				}
-				else if (!_game->getCoopMod()->isSharedCampaign())
+				else if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 				{
 					// SEPARATE: the sender's real id does not exist in this world;
 					// legacy behavior - pop the first detected site.
@@ -1556,14 +1544,14 @@ void GeoscapeState::think()
 						// byte-faithful replica of the host's own (getCoop()==false), NOT a
 						// SEPARATE mirror (getCoop()==true). Requiring getCoop()==true
 						// swallowed the alert on every non-host player.
-						bool coopMatch = _game->getCoopMod()->isSharedCampaign()
+						bool coopMatch = (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 							? true : (ufo->getCoop() == true);
 						if (!coopMatch || !ufo->getDetected())
 							continue;
 						// Exact match on the peer's ufo id when it travelled (SHARED shares
 						// one world, so ids are identical); otherwise fall back to the
 						// legacy type+race match.
-						if (it->ufoId >= 0 && _game->getCoopMod()->isSharedCampaign())
+						if (it->ufoId >= 0 && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 						{
 							if (ufo->getId() == it->ufoId) { match = ufo; break; }
 						}
@@ -1859,7 +1847,7 @@ void GeoscapeState::think()
 			// PRD-J02: this is the SEPARATE-only peer economy/craft mirror. In
 			// SHARED every player already holds the authoritative world, so the
 			// mirror snapshot is suppressed (the receiver fences it too).
-			if (!_game->getCoopMod()->isSharedCampaign())
+			if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 			{
 				_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, root.toStyledString());
 
@@ -1999,7 +1987,7 @@ void GeoscapeState::think()
 			// item / soldier / transfer / production counts - GAP-4) on the periodic
 			// time heartbeat. The replica logs a warning on mismatch; full desync
 			// repair is PRD-J10.
-			if (_game->getCoopMod()->isSharedCampaign())
+			if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 				SharedEcon::attachWorldChecksum(_game, root);
 
 		}
@@ -2060,8 +2048,7 @@ void GeoscapeState::think()
 			// df_state), NOT this machine's local minimize - so a replica un-minimizing to
 			// watch never desyncs its clock from the host. Host + solo keep the vanilla
 			// "all local windows minimized" rule.
-			bool sharedReplica = _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign()
-				&& !_game->getCoopMod()->getServerOwner();
+			bool sharedReplica = _game->getCoopMod() && _game->getCoopMod()->isSharedReplica();
 			bool clockRuns = sharedReplica ? !_dfHostAnyOpen
 			                              : (_dogfights.size() == _minimizedDogfights);
 			if (clockRuns)
@@ -2091,7 +2078,7 @@ void GeoscapeState::think()
 	// set (df_open) + one per-tick render frame (df_state). REPLICA: reconcile
 	// its render-only windows toward the latest df_open set (runs every think so
 	// a window opens the moment its craft + UFO are replicated).
-	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		if (_game->getCoopMod()->getServerOwner())
 			sharedBroadcastDogfights();
@@ -2990,7 +2977,7 @@ void GeoscapeState::time5Seconds()
 					// pop the same popup and clear the stale destination line + waypoint
 					// marker (Bug: the "reached destination" alert and marker cleanup never
 					// reached the clients). Redirect rides the existing craft_order lane.
-					if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner())
+					if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getCoopMod()->getServerOwner())
 						SharedEcon::hostPatrolPrompt(_game, xcraft);
 					xcraft->setDestination(0);
 				}
@@ -4840,7 +4827,7 @@ void GeoscapeState::time1MonthCoop()
 	// disagree about which base was found) and the host would roll a SECOND time on top of
 	// its authoritative roll in time1Month. The host rolls once in time1Month and names
 	// the winner via alien_base_found; every SHARED machine applies that instead.
-	if (!_game->getCoopMod()->isSharedCampaign()
+	if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 		&& !_game->getSavedGame()->getAlienBases()->empty()
 		&& RNG::percent(_game->getMod()->getChanceToDetectAlienBaseEachMonth()))
 	{
@@ -5510,7 +5497,7 @@ void GeoscapeState::startDogfight()
  */
 bool GeoscapeState::brokerSharedLanding(Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade)
 {
-	if (!_game->getCoopMod()->isSharedCampaign() || !_game->getCoopMod()->getServerOwner())
+	if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) || !_game->getCoopMod()->getServerOwner())
 		return false;
 	if (_sharedLandingPending.find(craft) != _sharedLandingPending.end())
 		return true; // already asked; still waiting for the answer
@@ -5523,7 +5510,10 @@ bool GeoscapeState::brokerSharedLanding(Craft* craft, Texture* missionTexture, T
 	// land_close the resolver broadcasts. Battle authority stays on the host.
 	_sharedLandingPending[craft] = SharedLandingPrompt{ missionTexture, globeTexture, shade };
 	_game->getCoopMod()->clearLandingResolved(craft->getId()); // fresh prompt
-	SharedEcon::hostLandingPrompt(_game, craft, SharedEcon::lastCraftOrderSeat(craft), shade);
+	if (_game->getCoopMod()->isSharedCampaign())
+		SharedEcon::hostLandingPrompt(_game, craft, SharedEcon::lastCraftOrderSeat(craft), shade);
+	else
+		SeparateEcon::hostLandingPrompt(_game, craft, SharedEcon::lastCraftOrderSeat(craft), shade);
 	popup(new ConfirmLandingState(craft, missionTexture, globeTexture, shade, true /*sharedBroker*/));
 	return true;
 }
@@ -5555,7 +5545,10 @@ void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol)
 	// open broker prompt - mark it resolved locally (the host's own copy) and broadcast
 	// land_close so the clients close theirs (ConfirmLandingState::think consumes it).
 	_game->getCoopMod()->markLandingResolved(craft->getId());
-	SharedEcon::broadcastLandClose(_game, craft);
+	if (_game->getCoopMod()->isSharedCampaign())
+		SharedEcon::broadcastLandClose(_game, craft);
+	else
+		SeparateEcon::broadcastLandClose(_game, craft);
 	// Close the host's OWN broker copy synchronously if it is on top (a client just
 	// answered). If the host answered its own dialog, that copy already popped itself.
 	// Do it before generating the battle so the stale dialog is not left underneath.
@@ -5724,7 +5717,7 @@ int GeoscapeState::harnessDogfightEpoch() const
 void GeoscapeState::sharedBroadcastDogfights()
 {
 	connectionTCP* coop = _game->getCoopMod();
-	if (!coop || !coop->isSharedCampaign() || !coop->getServerOwner())
+	if (!coop || !(coop->isSharedCampaign() || coop->isSeparateCampaign()) || !coop->getServerOwner())
 		return;
 
 	// 1) df_open on a membership change (epoch++).
@@ -5817,7 +5810,7 @@ void GeoscapeState::sharedApplyDogfightMembership(const Json::Value& dogfights, 
 void GeoscapeState::sharedReconcileReplicaDogfights()
 {
 	connectionTCP* coop = _game->getCoopMod();
-	if (!coop || !coop->isSharedCampaign() || coop->getServerOwner())
+	if (!coop || !(coop->isSharedCampaign() || coop->isSeparateCampaign()) || coop->getServerOwner())
 		return;
 	SavedGame* save = _game->getSavedGame();
 	if (!save) return;
@@ -6069,7 +6062,7 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 				// SHARED would force every shared soldier to host control (its coopBase
 				// match never fires) and could duplicate the roster. Mirrors the SHARED
 				// branch of ConfirmLandingState::btnYesClick for normal craft landings.
-				if (_game->getCoopMod()->isSharedCampaign())
+				if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 				{
 					_game->getCoopMod()->setHost(true);
 					for (auto* s : *base->getSoldiers())

@@ -307,7 +307,7 @@ void GeoscapeCraftState::btnBaseClick(Action *)
 	}
 	// PRD-J08 SHARED: craft orders are commands to the host - mutate nothing
 	// locally; the world settles via shared_apply (+ the position snapshot).
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		SharedEcon::submitCraftReturn(_game, _craft);
 		delete _waypoint;
@@ -354,7 +354,7 @@ void GeoscapeCraftState::btnPatrolClick(Action *)
 		return;
 	}
 	// PRD-J08 SHARED: patrol rides the command protocol (auto-patrol included).
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		SharedEcon::submitCraftPatrol(_game, _craft, true);
 		delete _waypoint;
@@ -394,7 +394,7 @@ void GeoscapeCraftState::btnCancelClick(Action *)
 	{
 		// PRD-J08 SHARED: the redirect is a command; the shared waypoint is
 		// created by the applier on host + replicas (id counter lock-step).
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			SharedEcon::submitCraftPoint(_game, _craft,
 				_waypoint->getLongitude(), _waypoint->getLatitude());

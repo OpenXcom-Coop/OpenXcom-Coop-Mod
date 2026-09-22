@@ -257,10 +257,14 @@ void LoadGameState::think()
 			// re-assert this machine's own seat so localSeat() reflects the client,
 			// not the host. (2-player transport: client seat = 1.)
 			if (!_coopKey.empty()
-				&& s->getCampaignType() == CoopCampaignType::Shared
+				&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 				&& _game->getCoopMod()->getServerOwner() == false)
 			{
 				connectionTCP::coop_save_owner_player_id = 1;
+				// Base::load ran before the streamed save's complete roster and this
+				// client's seat were installed. Rebuild the view flags now so only
+				// bases owned by another player's name are purple/foreign.
+				_game->getCoopMod()->refreshSeparateBaseOwnership();
 
 				// PRD-J10: a fresh authoritative world landed - this is also how a
 				// desync repair completes. Clear the resync in-flight guard so a

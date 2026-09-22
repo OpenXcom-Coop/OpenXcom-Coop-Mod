@@ -155,6 +155,9 @@
     <ClCompile Include="Savegame\Upgrade\SchemaStep1to2.cpp">
       <Filter>Savegame\Upgrade</Filter>
     </ClCompile>
+    <ClCompile Include="Savegame\Upgrade\SchemaStep2to3.cpp">
+      <Filter>Savegame\Upgrade</Filter>
+    </ClCompile>
     <ClCompile Include="Savegame\Soldier.cpp">
       <Filter>Savegame</Filter>
     </ClCompile>
@@ -1263,6 +1266,9 @@
       <Filter>CoopMod</Filter>
     </ClCompile>
     <ClCompile Include="CoopMod\SharedEcon.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\SeparateEcon.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
     <ClCompile Include="CoopMod\AddServerMenu.cpp">
@@ -2836,6 +2842,9 @@
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\SharedEcon.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\SeparateEcon.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\AddServerMenu.h">

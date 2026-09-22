@@ -429,6 +429,7 @@ void MonthlyReportState::btnOkClick(Action *)
 void MonthlyReportState::calculateChanges()
 {
 	// initialize all our variables.
+	int globalFundingDiff = 0;
 	_lastMonthsRating = 0;
 	int xcomSubTotal = 0;
 	int xcomTotal = 0;
@@ -503,6 +504,11 @@ void MonthlyReportState::calculateChanges()
 			break;
 		}
 	}
+
+	// Legacy SEPARATE has one economy world per player.  Display this world's
+	// allocated change rather than the global change duplicated on every player.
+	globalFundingDiff = _fundingDiff;
+	_fundingDiff = _game->getSavedGame()->getPlayerFundingShare(globalFundingDiff);
 
 	//calculate total.
 	_ratingTotal = xcomTotal - alienTotal;
@@ -591,6 +597,7 @@ void MonthlyReportState::calculateChanges()
 		root["year"] = _game->getSavedGame()->getTime()->getYear();
 
 		root["fundingDiff"] = _fundingDiff;
+		root["globalFundingDiff"] = globalFundingDiff;
 		root["ratingTotal"] = _ratingTotal;
 		root["lastMonthsRating"] = _lastMonthsRating;
 
@@ -615,7 +622,7 @@ void MonthlyReportState::calculateChanges()
 		// state is constructed AFTER SavedGame::monthlyFunding(), so getFunds() is
 		// the settled value and getBaseMaintenance()/getCountryFunding() equal the
 		// just-ended month's expenditure/income (bases/countries unchanged since).
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			root["sharedFunds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
 			root["sharedMaintenance"] = Json::Value::Int64(_game->getSavedGame()->getBaseMaintenance());

@@ -56,6 +56,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5)
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -749,7 +750,10 @@ void CraftEquipmentState::submitSharedCraftEquip(const RuleItem* item, int signe
 	else
 		target = current + signedChange;
 	if (target < 0) target = 0;
-	SharedEcon::submitCraftEquip(_game, c, item->getType(), target);
+	if (_game->getCoopMod()->isSharedCampaign())
+		SharedEcon::submitCraftEquip(_game, c, item->getType(), target);
+	else
+		SeparateEcon::submitCraftEquip(_game, c, item->getType(), target);
 }
 
 /**
@@ -764,7 +768,7 @@ void CraftEquipmentState::moveLeftByValue(int change)
 	// mutate locally on a replica). Vehicles are deferred; the local-batch loops
 	// (templates / alt-management inventory) keep their existing local behavior.
 	if (!_isNewBattle && !_localBatch && !item->getVehicleUnit()
-		&& _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+		&& _game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		submitSharedCraftEquip(item, change <= 0 ? change : -change);
 		return;
@@ -862,7 +866,7 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 	// SHARED (PRD-J09 GAP-5): host-authoritative shared stores - route the move
 	// instead of mutating this replica locally (see moveLeftByValue).
 	if (!_isNewBattle && !_localBatch && !item->getVehicleUnit()
-		&& _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+		&& _game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		submitSharedCraftEquip(item, change);
 		return;

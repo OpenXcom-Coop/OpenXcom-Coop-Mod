@@ -201,10 +201,11 @@ class SharedSession:
     """A live SHARED campaign: host + client, world streamed, both on geoscape."""
 
     def __init__(self, tag, ports, mods=(), transport="tcp",
-                 host_options=None, client_options=None):
+                 host_options=None, client_options=None, campaign_mode="shared"):
         self.tag = tag
         self.host_port, self.client_port, self.coop_port = ports
         self.transport = transport
+        self.campaign_mode = campaign_mode
         # Both machines get the SAME mods, or their rulesets diverge.
         # host_options/client_options are per-instance options.cfg keys (in force
         # from the very first frame), so a SHARED test can bring the campaign up
@@ -222,7 +223,7 @@ class SharedSession:
         self.host.connect()
         self.client.connect()
         session.new_campaign(self.host, self.client, port=str(self.coop_port),
-                             campaign_mode="shared",
+                             campaign_mode=self.campaign_mode,
                              host_base=host_base, client_base=client_base,
                              transport=self.transport)
         if wait_ready:
@@ -253,7 +254,8 @@ class SharedSession:
 
 def bring_up(tag, ports, wait_ready=True,
              host_base="HostBase", client_base="ClientBase", mods=(),
-             transport="tcp", host_options=None, client_options=None):
+             transport="tcp", host_options=None, client_options=None,
+             campaign_mode="shared"):
     """Stand up a SHARED campaign: host creates it, client joins, the host streams
     the authoritative world, both settle on the geoscape.
 
@@ -269,7 +271,8 @@ def bring_up(tag, ports, wait_ready=True,
     only has to cover the body.
     """
     js = SharedSession(tag, ports, mods=mods, transport=transport,
-                       host_options=host_options, client_options=client_options)
+                       host_options=host_options, client_options=client_options,
+                       campaign_mode=campaign_mode)
     try:
         js._start(wait_ready, host_base, client_base)
     except BaseException:

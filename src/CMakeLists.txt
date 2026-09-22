@@ -150,6 +150,7 @@ set(coopmod_src
   CoopMod/Profile.cpp
   CoopMod/ServerList.cpp
   CoopMod/SharedEcon.cpp
+  CoopMod/SeparateEcon.cpp
 
   CoopMod/connectionUDP/connection_lan_discovery.cpp
   CoopMod/connectionUDP/connection_rendezvous_glue.cpp
@@ -434,6 +435,7 @@ set ( savegame_src
   Savegame/Ufo.cpp
   Savegame/Upgrade/SaveUpgrade.cpp
   Savegame/Upgrade/SchemaStep1to2.cpp
+  Savegame/Upgrade/SchemaStep2to3.cpp
   Savegame/Vehicle.cpp
   Savegame/Waypoint.cpp
   Savegame/WeightedOptions.cpp

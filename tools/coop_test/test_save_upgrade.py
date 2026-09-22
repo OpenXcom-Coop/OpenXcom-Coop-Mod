@@ -15,16 +15,16 @@ Covers (PRD save-upgrader.md 9):
   / unknown-future / malformed
 - disk-less self-test (runSelfTest)
 - runner e2e on the DUAL pair: original left untouched, upgraded written to a new file
-  (header coop/coopPlayers/saveSchema:2; body saveID/owner 0/coopClientSaves[1]
-  whose blob decodes to owner 1 + client base; soldiers stamped both sides)
+  (header coop/coopPlayers/saveSchema:3; one host body containing owner-tagged
+  host and client bases, with no coopClientSaves blobs)
 - embed + sidecar recovery (ports test_legacy_migration.py's intent to the new flow)
 - negatives: mid-battle refused, gamemode mismatch refused, skip-client warns + 0 saves
 
 Run:  python tools/coop_test/test_save_upgrade.py
 """
 
-import base64
 import os
+import copy
 import shutil
 import sys
 
@@ -120,7 +120,7 @@ def main():
         uh, ub = two_docs(upgraded)
         assert uh["coop"] is True, "upgraded header coop != true"
         assert uh["coopPlayers"] == ["HostGuy", "Carol"], uh.get("coopPlayers")
-        assert uh["saveSchema"] == 2, uh.get("saveSchema")
+        assert uh["saveSchema"] == 3, uh.get("saveSchema")
         # header name gets a version-stamped suffix; assert the prefix, not the
         # literal build version, so a version bump does not break the test.
         assert uh["name"].startswith("Dual Coop (upgraded to "), f"upgraded name not suffixed: {uh['name']}"
@@ -128,47 +128,61 @@ def main():
         assert uh["coopCampaignType"] == 0, uh.get("coopCampaignType")
         assert ub["coop_save_owner_player_id"] == 0, ub.get("coop_save_owner_player_id")
         assert ub["saveID"] != 0 and "saveID" in ub, "upgraded body missing saveID"
-        assert len(ub["coopClientSaves"]) == 1, ub.get("coopClientSaves")
+        assert "coopClientSaves" not in ub, "schema-3 SEPARATE must not retain client blobs"
         # host soldiers stamped owner 0; empty/missing coopname filled from name
         hs = ub["bases"][0]["soldiers"]
         assert all(s["ownerplayerid"] == 0 for s in hs), [s.get("ownerplayerid") for s in hs]
         assert {s["coopname"] for s in hs} == {"Alice", "Bravo"}, [s.get("coopname") for s in hs]
-        # embedded client blob decodes to a 2-doc stream: owner 1 + the client base
-        entry = ub["coopClientSaves"][0]
-        assert entry["key"] == f"host_{ub['saveID']}_Carol.data", entry["key"]
-        cdocs = list(yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8")))
-        assert len(cdocs) == 2, "client blob is not a 2-doc stream"
-        ch, cb = cdocs
-        assert ch["coop"] is True and ch["saveSchema"] == 2, "client header not stamped"
-        assert ch["coopCampaignType"] == 0, ch.get("coopCampaignType")
-        assert cb["coop_save_owner_player_id"] == 1, cb.get("coop_save_owner_player_id")
-        assert cb["saveID"] == ub["saveID"], "client saveID must match host"
-        assert cb["bases"][0]["name"] == "ClientBase", "client world/base not embedded"
-        assert all(s["ownerplayerid"] == 1 for s in cb["bases"][0]["soldiers"]), "client soldiers not stamped owner 1"
+        assert len(ub["bases"]) == 2, ub["bases"]
+        by_name = {b["name"]: b for b in ub["bases"]}
+        assert by_name["HostBase"]["ownerplayername"] == "HostGuy"
+        assert by_name["ClientBase"]["ownerplayername"] == "Carol"
+        assert all(s["ownerplayerid"] == 1 for s in by_name["ClientBase"]["soldiers"])
         # re-detecting the upgraded file now reports current
         assert gc.ok({"cmd": "upgrade_detect", "file": upgname("dual_host.sav")})["kind"] == "current"
-        print("PASS dual e2e: original untouched, upgraded shape + embedded client world correct")
+        print("PASS dual e2e: original untouched, client base merged into unified host world")
+
+        # Schema-3 compatibility rule: an old campaign may already exceed the new
+        # global cap. Preserve every base, warn, and let runtime construction stay
+        # locked while the count is >= 8.
+        reset_fixtures()
+        hp = os.path.join(xcom1, "dual_host.sav")
+        cp = os.path.join(xcom1, "dual_client.sav")
+        hh, hb = two_docs(hp)
+        ch, cb = two_docs(cp)
+        template = cb["bases"][0]
+        for i in range(7):
+            extra = copy.deepcopy(template)
+            extra["name"] = f"ClientExtra{i + 1}"
+            cb["bases"].append(extra)
+        with open(cp, "w", encoding="utf-8") as f:
+            yaml.safe_dump_all([ch, cb], f, sort_keys=False)
+        r = gc.ok({"cmd": "upgrade_run", "host": "dual_host.sav", "client": "dual_client.sav",
+                   "clientName": "Carol", "hostName": "HostGuy"})
+        assert r["success"] is True, r
+        assert any("preserved" in w and "below 8" in w for w in r["warnings"]), r["warnings"]
+        _, over = two_docs(outp("dual_host.sav"))
+        assert len(over["bases"]) == 9, "over-cap migration lost a base"
+        assert "coopClientSaves" not in over
+        print("PASS over-cap migration: all 9 bases preserved, warning emitted")
 
         # ---- 4. embed + sidecar recovery (test_legacy_migration.py intent) ---
         reset_fixtures()
-        r = gc.ok({"cmd": "upgrade_run", "host": "embed_host.sav"})
+        r = gc.ok({"cmd": "upgrade_run", "host": "embed_host.sav", "hostName": "HostGuy"})
         assert r["success"] is True, f"embed upgrade failed: {r}"
         eh, eb = two_docs(outp("embed_host.sav"))
-        assert eb["coop_save_owner_player_id"] == 0 and len(eb["coopClientSaves"]) == 1
+        assert eb["coop_save_owner_player_id"] == 0 and "coopClientSaves" not in eb
         assert "coopClientSaveKey" not in eb and "coopClientSaveBlob" not in eb, "embed leftovers not removed"
-        ec = list(yaml.safe_load_all(base64.b64decode(eb["coopClientSaves"][0]["blob"]).decode()))[1]
-        assert ec["coop_save_owner_player_id"] == 1, "embed client not tagged owner 1"
-        assert eb["coopClientSaves"][0]["key"].endswith("_Bob.data"), eb["coopClientSaves"][0]["key"]
-        print("PASS embed recovery: client world de-embedded + re-embedded as coopClientSaves")
+        assert {b["ownerplayername"] for b in eb["bases"]} == {"HostGuy", "Bob"}
+        assert any(b["name"] == "ClientBase" for b in eb["bases"])
+        print("PASS embed recovery: client world merged and blob removed")
 
         reset_fixtures()
-        r = gc.ok({"cmd": "upgrade_run", "host": "sidecar_host.sav"})
+        r = gc.ok({"cmd": "upgrade_run", "host": "sidecar_host.sav", "hostName": "HostGuy"})
         assert r["success"] is True, f"sidecar upgrade failed: {r}"
         sh, sb = two_docs(outp("sidecar_host.sav"))
-        assert len(sb["coopClientSaves"]) == 1, "sidecar client not imported"
-        assert sb["coopClientSaves"][0]["key"].endswith("_Carol.data"), sb["coopClientSaves"][0]["key"]
-        sc = list(yaml.safe_load_all(base64.b64decode(sb["coopClientSaves"][0]["blob"]).decode()))[1]
-        assert sc["bases"][0]["name"] == "ClientBase", "sidecar client world not embedded"
+        assert "coopClientSaves" not in sb, "sidecar migration must emit no blob"
+        assert any(b["name"] == "ClientBase" and b["ownerplayername"] == "Carol" for b in sb["bases"])
         # the read-only sidecar .data is never modified/deleted (PRD 5)
         assert os.path.exists(os.path.join(xcom1, synth.sidecar_data_name())), "sidecar .data must be left intact"
         print("PASS sidecar recovery: host_<id>_<name>.data imported, source file left intact")
@@ -184,9 +198,8 @@ def main():
         assert os.path.exists(outp("dual_host_battle.sav")), "dual_host_battle_upgraded.sav must be written"
         uh, ub = two_docs(outp("dual_host_battle.sav"))
         assert "battleGame" in ub, "host battleGame (the single battle authority) must be kept"
-        entry = ub["coopClientSaves"][0]
-        cb2 = list(yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8")))[1]
-        assert "battleGame" not in cb2, "client battleGame must be stripped (rehydrated from host)"
+        assert sum(1 for b in ub["bases"] if b["name"] == "ClientBase") == 1
+        assert "coopClientSaves" not in ub
         assert any("host battle kept" in l for l in r["report"]), r["report"]
         assert any("client battle snapshot" in l for l in r["report"]), r["report"]
         assert gc.ok({"cmd": "upgrade_detect", "file": upgname("dual_host_battle.sav")})["kind"] == "current"
@@ -201,12 +214,10 @@ def main():
         print("PASS negative: gamemode mismatch refused")
 
         reset_fixtures()
-        r = gc.ok({"cmd": "upgrade_run", "host": "dual_host.sav", "skip": True})
-        assert r["success"] is True, f"skip-client upgrade failed: {r}"
-        assert any("restart fresh" in w for w in r["warnings"]), r["warnings"]
-        _, kb = two_docs(outp("dual_host.sav"))
-        assert "coopClientSaves" not in kb or kb["coopClientSaves"] in (None, []), kb.get("coopClientSaves")
-        print("PASS skip-client: warns + upgraded host carries 0 client worlds")
+        r = gc.cmd({"cmd": "upgrade_run", "host": "dual_host.sav", "skip": True})
+        assert r["success"] is False, "unified migration must refuse a lossy missing-client merge"
+        assert any("missing" in e.lower() for e in r.get("errors", [])), r
+        print("PASS skip-client: schema-3 unified migration refuses lossy merge")
 
         # ---- 6. detector v2 STRONG-marker save + transform hardening ---------
         # The strong pair is shaped like the real-world 1.7.0 save: no saveID,
@@ -235,14 +246,13 @@ def main():
         # ufo cross-instance id zeroed
         assert ub["ufos"][0].get("coopUfoId", 0) == 0, ub["ufos"][0].get("coopUfoId")
         # embedded client world: soldier links reset (owner 1), craft coopItems gone
-        entry = ub["coopClientSaves"][0]
-        cb = list(yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8")))[1]
-        cs = cb["bases"][0]["soldiers"][0]
+        client_base = next(b for b in ub["bases"] if b["ownerplayername"] == "Carol")
+        cs = client_base["soldiers"][0]
         assert cs["ownerplayerid"] == 1, cs.get("ownerplayerid")
         assert cs["coop"] == 0 and cs["coopbase"] == -1 and cs["coopcraft"] == -1, cs
         assert cs["coopcrafttype"] in ("", None), cs.get("coopcrafttype")
         assert cs["coopname"] == "Carol", "client coopname must be preserved"
-        assert "coopItems" not in cb["bases"][0]["crafts"][0], "client craft coopItems must be removed"
+        assert "coopItems" not in client_base["crafts"][0], "client craft coopItems must be removed"
         # the report calls out the resets with counts
         assert any("Reset stale co-op links" in l for l in r["report"]), r["report"]
         # and the upgraded strong save now reads as current
@@ -265,8 +275,8 @@ def main():
         hnames = {s.get("coopname") or s.get("name") for s in ub["bases"][0]["soldiers"]}
         assert hnames == {"Alice", "Bravo"}, f"peer mirror must be dropped from host: {hnames}"
         # the client's real Carol is preserved in the embedded world
-        cb = list(yaml.safe_load_all(base64.b64decode(ub["coopClientSaves"][0]["blob"]).decode("utf-8")))[1]
-        cnames = {s.get("coopname") or s.get("name") for base in cb["bases"] for s in base.get("soldiers", [])}
+        cnames = {s.get("coopname") or s.get("name") for base in ub["bases"]
+                  if base.get("ownerplayername") == "Carol" for s in base.get("soldiers", [])}
         assert "Carol" in cnames, f"client's real Carol must be preserved: {cnames}"
         print("PASS mirror-drop: peer mirror removed from host, real copy kept in client, no dup warning")
 

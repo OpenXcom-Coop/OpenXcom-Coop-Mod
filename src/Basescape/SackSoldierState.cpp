@@ -34,6 +34,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -115,7 +116,7 @@ void SackSoldierState::btnOkClick(Action *)
 	// shared_cmd keyed by the soldier's stable id; mutate NOTHING locally. The host
 	// validates + removes + broadcasts shared_apply (replaces all the SEPARATE
 	// peer-base save juggling below).
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false)
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -123,64 +124,12 @@ void SackSoldierState::btnOkClick(Action *)
 			if (bases->at(i) == _base) { baseId = (int)i; break; }
 		Json::Value payload;
 		payload["soldierId"] = soldier->getId();
-		SharedEcon::submitLocalCmd(_game, "sack", baseId, payload);
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "sack", baseId, payload);
+		else SeparateEcon::submitLocalCmd(_game, "sack", baseId, payload);
 		_game->popState();
 		return;
 	}
 
-	// coop campaign
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
-	{
-
-		// save the other player's base (CLIENT only), e.g. soldiers etc.
-		std::string filename = "basehost";
-
-		SavedGame* basehost_save = new SavedGame();
-
-		basehost_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
-
-		// if save found
-		if (basehost_save)
-		{
-
-			for (auto& saved_base : *basehost_save->getBases())
-			{
-				auto& soldiers = *saved_base->getSoldiers(); // Reference to the vector of soldiers
-
-				for (auto it = soldiers.begin(); it != soldiers.end(); /* no ++it here */)
-				{
-					// Check if the soldier belongs to this coop base and has the matching ID
-					if ((*it)->getCoopBase() == _base->getId() && (*it)->getId() == soldier->getId())
-					{
-						delete *it;              // Free memory
-						it = soldiers.erase(it); // Remove pointer from vector and update iterator
-					}
-					else
-					{
-						++it; // Only move to next if not erased
-					}
-				}
-			}
-
-
-			// Lis�t��n uudet sotilaat ensimm�isen tukikohdan sotilaslistaan
-			auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
-
-			soldier->setCoopCraft(-1);
-			soldier->setCoopCraftType("");
-
-			soldier->setCoopBase(-1);
-
-			soldier->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
-
-			target_soldiers.push_back(soldier);
-
-			// save changes
-			basehost_save->saveCoopToMemory(filename, _game->getMod(), filename);
-
-		}
-		
-	}
 
 	if (soldier->getArmor()->getStoreItem())
 	{

@@ -733,33 +733,6 @@ CoopState::CoopState(int state, int value) : _value(value)
 		_game->getCoopMod()->disconnectTCP();
 	}
 
-	if (state == 50)
-	{
-
-		connectionTCP::isCoopBaseLoading = true;
-
-		_txtTitle->setText("Synchronizing bases...");
-		_btnBack->setText("Disconnect");
-		_btnBack->setVisible(true);
-
-		if (_game->getCoopMod()->getHost() == true)
-		{
-			Json::Value obj;
-			obj["state"] = "SEND_FILE_HOST_BASE";
-			DebugLog(obj.toStyledString());
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
-		else
-		{
-
-			Json::Value obj;
-			obj["state"] = "SEND_FILE_CLIENT_BASE";
-			DebugLog(obj.toStyledString());
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
-
-	}
-
 	// out of sync
 	if (state == 999)
 	{
@@ -1002,25 +975,26 @@ std::string CoopState::readyTitle() const
 }
 
 /**
- * Is the thing this host-wait dialog waits for satisfied right now? Bases wait
- * on every registered client's world blob (a client pushes progress right after
- * base naming); the player wait is answered by resume_ack (F3/F4).
+ * Is the thing this host-wait dialog waits for satisfied right now? Campaign
+ * base placement waits until the authoritative host world contains a base owned
+ * by the joining player's name; the player wait is answered by resume_ack.
  */
 bool CoopState::waitSatisfied() const
 {
 	if (global_state == COOP_DLG_WAIT_BASES)
 	{
-		// The host's base-placement wait dialog. For every non-PvP
-		// campaign the client's world blob arriving IS the
-		// base-placement-complete signal (the client pushes it right
-		// after base naming), so BEGIN stays gated on that blob.
-		// PvP gm2 is the exception: the client is the alien side, never
-		// places a base and never sends a blob, so BEGIN must not wait
-		// on one.
+		// PvP gm2 is the alien side and never places a base.
 		if (connectionTCP::getCoopGamemode() == 2)
 			return true;
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+		{
+			const std::string owner = _game->getCoopMod()->getCurrentClientName();
+			for (Base* base : *_game->getSavedGame()->getBases())
+				if (base && base->isOwnedByPlayer(owner)) return true;
+			return false;
+		}
 		return connectionTCP::hasCoopFile(
-			connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
+			connectionTCP::pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName()));
 	}
 	return connectionTCP::session.resumeAck;
 }
@@ -1230,27 +1204,6 @@ void CoopState::think()
 			}
 
 		}
-		else if (global_state == 50)
-		{
-
-			if (state_counter == 0)
-			{
-				_txtTitle->setText("Synchronizing bases.");
-				state_counter = 1;
-			}
-			else if (state_counter == 1)
-			{
-				_txtTitle->setText("Synchronizing bases..");
-				state_counter = 2;
-			}
-			else if (state_counter == 2)
-			{
-				_txtTitle->setText("Synchronizing bases...");
-				state_counter = 0;
-			}
-
-		}
-
 	}
 
 	//  coop fix
@@ -1275,9 +1228,20 @@ void CoopState::previous(Action *)
 	{
 		connectionTCP::session.sessionLive();
 
-		Json::Value root;
-		root["state"] = "campaign_begun";
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		if (global_state == COOP_DLG_WAIT_BASES
+			&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+		{
+			// Do not stream here. Popping this dialog lets GeoscapeState::init
+			// finish the new world first (month zero, maintenance and starting
+			// craft assignments). It then streams that settled authoritative world
+			// and opens COOP_DLG_WAIT_PLAYERS until the client has adopted it.
+		}
+		else
+		{
+			Json::Value root;
+			root["state"] = "campaign_begun";
+			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+		}
 	}
 
 	// issue #91: OK on a resume hold that the host never released. Nothing on this
@@ -1304,7 +1268,7 @@ void CoopState::previous(Action *)
 	// PRD-11 C13: COOP_DLG_CLIENT_LOAD_WAIT (52) added - its "Disconnect" button
 	// must actually tear the connection down, not merely pop the dialog and leave
 	// the client half-attached.
-	if (global_state == 50 || global_state == 1 || global_state == 88 || global_state == 3 || global_state == 4 || global_state == 15 || global_state == 53 || global_state == COOP_DLG_CLIENT_LOAD_WAIT)
+	if (global_state == 1 || global_state == 88 || global_state == 3 || global_state == 4 || global_state == 15 || global_state == 53 || global_state == COOP_DLG_CLIENT_LOAD_WAIT)
 	{
 
 		if (global_state == 15)
@@ -1476,7 +1440,7 @@ void CoopState::loadWorld()
 		if (client_save && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 		{
 
-			std::string filename = connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName());
+			std::string filename = connectionTCP::pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName());
 
 			// served copy lives in memory only; the host .sav embed persists it
 			client_save->saveCoopToMemory(filename, _game->getMod(), filename);
@@ -1648,19 +1612,12 @@ void CoopState::loadWorld()
 	}
 	else if (global_state == 555)
 	{
-		std::string filename = connectionTCP::clientBlobKey(_game->getCoopMod()->getHostName());
+		// Campaign replicas adopt the host's one authoritative world from a
+		// fixed transient transfer slot, never from a player-keyed world store.
+		std::string filename = (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+			? "authoritative_campaign_world"
+			: connectionTCP::pvpClientWorldKey(_game->getCoopMod()->getHostName());
 		_game->pushState(new LoadGameState(OPT_GEOSCAPE, filename, _palette, filename, true));
-	}
-	else if (global_state == 777)
-	{
-		if (_game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->coopMissionEnd == false)
-		{
-			_game->getSavedGame()->saveCoopToMemory("basehost", _game->getMod(), "basehost");
-		}
-		else if (_game->getCoopMod()->coopMissionEnd == false)
-		{
-			_game->getSavedGame()->saveCoopToMemory("basehost", _game->getMod(), "basehost");
-		}
 	}
 	else if (global_state == 666)
 	{
@@ -1672,179 +1629,6 @@ void CoopState::loadWorld()
 		{
 			_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
 		}
-
-	}
-	else if (global_state == 55)
-	{
-
-			_game->popState();
-		
-			SavedGame *oldsave = _game->getSavedGame();
-
-			SavedGame* newsave = new SavedGame();
-
-			std::string filename = "";
-
-			// write
-			_game->getCoopMod()->coopFunds = oldsave->getFunds();
-			oldsave->saveCoopToMemory("basehost", _game->getMod(), "basehost");
-			filename = "baseclient"; 
-
-			std::vector<Soldier*> current_soldiers;
-
-			newsave->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
-
-			for (auto& newbase : *newsave->getBases())
-			{
-
-				newbase->isCoopBase(true);
-
-				// Issue #33: the peer's own soldiers are about to be removed from
-				// this visited-base view (only the visitor's guest soldiers are
-				// shown), but a soldier's equipment layout does NOT decrement base
-				// storage - the physical items stay in storage. If we drop the
-				// soldiers but keep their reserved items in storage, those items
-				// appear as free/available on the inventory ground pane. Remove
-				// each departing soldier's layout items (weapon + loaded ammo)
-				// from the visited base's storage so the visitor only sees the
-				// peer's genuinely free equipment.
-				for (auto* peerSoldier : *newbase->getSoldiers())
-				{
-					for (auto* layoutItem : *peerSoldier->getEquipmentLayout())
-					{
-						const RuleItem* itemRule = layoutItem->getItemType();
-						if (itemRule)
-						{
-							newbase->getStorageItems()->removeItem(itemRule, 1);
-						}
-						for (int ammoSlot = 0; ammoSlot < RuleItem::AmmoSlotMax; ++ammoSlot)
-						{
-							const RuleItem* ammoRule = layoutItem->getAmmoItemForSlot(ammoSlot);
-							if (ammoRule)
-							{
-								newbase->getStorageItems()->removeItem(ammoRule, 1);
-							}
-						}
-					}
-				}
-
-				// clear all vehicles and soldiers from the base
-				newbase->getSoldiers()->clear();
-
-				for (auto &temp_craft : *newbase->getCrafts())
-				{
-				
-					auto& vehicles = *temp_craft->getVehicles();
-
-					for (auto it = vehicles.begin(); it != vehicles.end();)
-					{
-						Vehicle* temp_vehicle = *it;
-
-						const RuleItem* rule = temp_vehicle->getRules();
-						newbase->getItemsCoop()->addItem(rule);
-
-						if (rule->getVehicleClipAmmo())
-						{
-							newbase->getItemsCoop()->addItem(rule->getVehicleClipAmmo(), rule->getVehicleClipsLoaded());
-						}
-
-						it = vehicles.erase(it);
-						delete temp_vehicle;
-					}
-				
-				}
-
-				newbase->getVehicles()->clear();
-
-				newbase->cleanupDefenses(false);
-
-				for (auto* unit_base : *oldsave->getBases())
-				{
-
-					// vehicles
-					for (auto& old_craft : *unit_base->getCrafts())
-					{
-
-						for (auto& old_vehicle : *old_craft->getVehicles())
-						{
-
-							for (auto& new_craft : *newbase->getCrafts())
-							{
-
-								// find the old co-op vehicle that matches the new co-op vehicle
-								if (old_vehicle->getCoopBase() == newbase->_coop_base_id && new_craft->getType() == old_vehicle->getCoopCraftType() && new_craft->getId() == old_vehicle->getCoopCraft())
-								{
-
-									// check if this vehicle item exists in the base inventory
-									int vehicle_count = newbase->getItemsCoop()->getItem(old_vehicle->getRules());
-
-									if (vehicle_count > 0)
-									{
-
-										Vehicle* deep_vehicle = old_vehicle->clone();
-
-										new_craft->getVehicles()->push_back(deep_vehicle);
-
-										const RuleItem* v_rule = deep_vehicle->getRules();
-
-										newbase->getItemsCoop()->removeItem(v_rule);
-
-										const RuleItem* ammo = v_rule->getVehicleClipAmmo();
-										int ammoPerVehicle = v_rule->getVehicleClipsLoaded();
-
-										newbase->getItemsCoop()->removeItem(ammo, ammoPerVehicle);
-
-									}
-
-
-									break;
-
-								}
-
-							}
-
-						}
-
-					}
-						
-					// soldiers
-					for (auto& soldier : *unit_base->getSoldiers())
-					{
-
-						// if a co-op soldier is found in the co-op base
-						if (soldier->getCoopBase() == newbase->_coop_base_id)
-						{
-
-							Soldier* deep_copied_soldier = soldier->deepCopy(_game->getMod(), _game->getSavedGame());
-
-							newbase->getSoldiers()->push_back(deep_copied_soldier);
-
-						}
-					}
-
-
-				}
-
-				
-
-			}
-
-
-			_game->setSavedGame(newsave);
-
-			// select the clicked base
-			Base* selected_base = newsave->getBases()->front();
-
-			for (auto* base : *newsave->getBases())
-			{
-				if (base->getName() == _game->getCoopMod()->current_base_name)
-				{
-					selected_base = base;
-				}
-			}
-
-			_game->pushState(new BasescapeState(selected_base, currentGlobe));
-
 
 	}
 	else

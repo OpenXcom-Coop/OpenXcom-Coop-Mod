@@ -212,7 +212,7 @@ std::string SaveWorld::emit() const
 	return out;
 }
 
-std::string hostBlobKey(long long saveID, const std::string& clientName)
+std::string legacyHostBlobKey(long long saveID, const std::string& clientName)
 {
 	return "host_" + std::to_string(saveID) + "_" + clientName + ".data";
 }
@@ -233,7 +233,7 @@ std::string readFileText(const std::string& fileName)
 	return std::string((std::istreambuf_iterator<char>(*in)), std::istreambuf_iterator<char>());
 }
 
-// host_<saveID>_<name>.data -> <name>  (mirror of connectionTCP::findHostClientBlob)
+// host_<saveID>_<name>.data -> <name> (schema-2 upgrade input only)
 std::string clientNameFromKey(const std::string& key)
 {
 	const std::string prefix = "host_";
@@ -316,6 +316,27 @@ void ingestSaveSet(SaveSet& set, const DetectedSchema& d, const UpgradeInputs& i
 	case SchemaVariant::Embed:
 	{
 		ryml::ConstNodeRef body = set.host.body();
+		// Schema 2 stores every client world in a sequence.  Older schema 1
+		// embed saves used the singular key/blob pair below.
+		ryml::ConstNodeRef clients = body.find_child("coopClientSaves");
+		if (!clients.invalid() && clients.is_seq())
+		{
+			for (ryml::ConstNodeRef entry : clients.children())
+			{
+				std::string key = yamlutil::getStr(entry, "key", std::string());
+				ryml::ConstNodeRef blobNode = entry.find_child("blob");
+				if (blobNode.invalid() || !blobNode.has_val())
+					continue;
+				std::string clientStream = yamlutil::base64DecodeToString(blobNode.val());
+				if (clientStream.empty())
+					continue;
+				ClientWorld cw;
+				cw.name = clientNameFromKey(key);
+				cw.world.ingestStream(clientStream);
+				set.clients.push_back(std::move(cw));
+			}
+			break;
+		}
 		std::string key = yamlutil::getStr(body, "coopClientSaveKey", std::string());
 		ryml::ConstNodeRef blobNode = body.invalid() ? body : body.find_child("coopClientSaveBlob");
 		if (!blobNode.invalid() && blobNode.has_val())
@@ -382,7 +403,7 @@ std::string emitHostStream(SaveSet& set)
 			std::string clientStream = c.world.emit();
 			ryml::NodeRef e = seq.append_child();
 			e |= ryml::MAP;
-			yamlutil::setStr(e, "key", hostBlobKey(set.saveID, c.name));
+			yamlutil::setStr(e, "key", legacyHostBlobKey(set.saveID, c.name));
 			ryml::NodeRef blob = yamlutil::mapChild(e, "blob");
 			blob.set_val_serialized(c4::fmt::base64(ryml::csubstr(clientStream.data(), clientStream.size())));
 		}
@@ -420,10 +441,10 @@ bool postflightVerify(const std::string& stream, std::string& why)
 			why = "host header saveSchema is not current";
 			return false;
 		}
-		// Upgraded saves are always SEPARATE (SHARED postdates every schema-1 save).
-		if (yamlutil::getInt(header, "coopCampaignType", -1) != 0)
+		const long long campaignType = yamlutil::getInt(header, "coopCampaignType", -1);
+		if (campaignType != 0 && campaignType != 1)
 		{
-			why = "host header coopCampaignType is not SEPARATE (0)";
+			why = "host header has an invalid coopCampaignType";
 			return false;
 		}
 		if (yamlutil::getInt(body, "coop_save_owner_player_id", -1) != 0)
@@ -437,6 +458,28 @@ bool postflightVerify(const std::string& stream, std::string& why)
 			return false;
 		}
 		ryml::ConstNodeRef seq = body.find_child("coopClientSaves");
+		if (campaignType == 0 && !seq.invalid() && seq.num_children() != 0)
+		{
+			why = "schema-3 SEPARATE save still contains client-world blobs";
+			return false;
+		}
+		if (campaignType == 0)
+		{
+			ryml::ConstNodeRef bases = body.find_child("bases");
+			if (bases.invalid() || !bases.is_seq() || bases.num_children() == 0)
+			{
+				why = "unified SEPARATE save has an invalid base count";
+				return false;
+			}
+			for (ryml::ConstNodeRef base : bases.children())
+			{
+				if (yamlutil::getStr(base, "ownerplayername", std::string()).empty())
+				{
+					why = "unified SEPARATE base is missing ownerplayername";
+					return false;
+				}
+			}
+		}
 		if (!seq.invalid())
 		{
 			for (ryml::ConstNodeRef e : seq.children())
@@ -696,8 +739,21 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 	//    stamped-older solo saves to a silent/generic upgrade instead.
 	if (stampedOld)
 	{
+		// Every save carries the schema stamp, including solo campaigns.  A
+		// schema-2 solo save needs no co-op world merge and must never be routed
+		// to the client-file picker merely because CURRENT advanced to 3.
+		if (!header["coop"].readVal(false))
+		{
+			d.kind = DetectedSchema::Solo;
+			d.schema = SAVE_SCHEMA_CURRENT;
+			d.variant = SchemaVariant::None;
+			return d;
+		}
 		d.kind = DetectedSchema::Legacy;
-		d.variant = SchemaVariant::Dual;
+		// Schema 2 is already host-authoritative: its client worlds are embedded
+		// when SEPARATE and intentionally absent when SHARED. It never needs the
+		// legacy dual-file/name prompts; 2->3 validates a missing required embed.
+		d.variant = SchemaVariant::Embed;
 		return d;
 	}
 
@@ -738,6 +794,7 @@ const std::vector<const SchemaStep*>& getSchemaSteps()
 {
 	static const std::vector<const SchemaStep*> steps = {
 		step_1_to_2(),
+		step_2_to_3(),
 	};
 	return steps;
 }
@@ -1002,7 +1059,7 @@ bool runSelfTest(std::vector<std::string>& log)
 			set.clients.push_back(std::move(cw));
 		}
 		UpgradeInputs in;
-		in.hostName = "";
+		in.hostName = "Host";
 		in.clientName = "Bob";
 		step_1_to_2()->apply(set, in);
 
@@ -1011,9 +1068,9 @@ bool runSelfTest(std::vector<std::string>& log)
 			log.push_back("FAIL: host header coop not set");
 			return false;
 		}
-		if (yamlutil::getInt(set.host.header(), "saveSchema", 0) != SAVE_SCHEMA_CURRENT)
+		if (yamlutil::getInt(set.host.header(), "saveSchema", 0) != 2)
 		{
-			log.push_back("FAIL: host header saveSchema not current");
+			log.push_back("FAIL: 1->2 did not stamp schema 2");
 			return false;
 		}
 		if (yamlutil::getInt(set.host.body(), "coop_save_owner_player_id", -1) != 0)
@@ -1026,9 +1083,9 @@ bool runSelfTest(std::vector<std::string>& log)
 			log.push_back("FAIL: coopClientSaveKey not removed");
 			return false;
 		}
-		if (set.roster.size() != 2 || set.roster[0] != "" || set.roster[1] != "Bob")
+		if (set.roster.size() != 2 || set.roster[0] != "Host" || set.roster[1] != "Bob")
 		{
-			log.push_back("FAIL: roster not [\"\", \"Bob\"]");
+			log.push_back("FAIL: roster not [\"Host\", \"Bob\"]");
 			return false;
 		}
 		if (set.saveID < 10000000000000LL)
@@ -1058,7 +1115,25 @@ bool runSelfTest(std::vector<std::string>& log)
 		}
 		log.push_back("OK: 1->2 transform tagged host/client and minted identity");
 
-		// 3. Emit + post-flight verify (blob round-trips, detector reports current).
+		// 3. Merge the schema-2 client world into the authoritative host world.
+		step_2_to_3()->apply(set, in);
+		if (yamlutil::getInt(set.host.header(), "saveSchema", 0) != SAVE_SCHEMA_CURRENT
+			|| !set.clients.empty())
+		{
+			log.push_back("FAIL: 2->3 did not stamp current schema and remove client worlds");
+			return false;
+		}
+		ryml::ConstNodeRef mergedBases = set.host.body().find_child("bases");
+		if (mergedBases.invalid() || mergedBases.num_children() != 2
+			|| yamlutil::getStr(mergedBases.child(0), "ownerplayername", "") != "Host"
+			|| yamlutil::getStr(mergedBases.child(1), "ownerplayername", "") != "Bob")
+		{
+			log.push_back("FAIL: 2->3 did not merge owner-tagged bases");
+			return false;
+		}
+		log.push_back("OK: 2->3 merged client base into the host world");
+
+		// 4. Emit + post-flight verify (no blobs, detector reports current).
 		std::string emitted = emitHostStream(set);
 		std::string why;
 		if (!postflightVerify(emitted, why))

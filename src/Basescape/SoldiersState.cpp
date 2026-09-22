@@ -254,7 +254,7 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
 
 
 	// Coop mode: if the game is in coop and this base is not a coop base
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		std::vector<Soldier*> coopSoldiers;
 
@@ -565,7 +565,7 @@ void SoldiersState::lstItemsLeftArrowClick(Action *action)
 void SoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
 	// Playtest: SHARED must not reorder the shared roster (diverges from the host).
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -619,7 +619,7 @@ void SoldiersState::lstItemsRightArrowClick(Action *action)
  */
 void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -649,149 +649,9 @@ void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 void SoldiersState::btnOkClick(Action *)
 {
 
-	// coop campaign
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
-	{
-
-		// save the other player's base (CLIENT only), e.g., soldiers, etc.
-		std::string filename = "basehost";
-
-		SavedGame* basehost_save = new SavedGame();
-
-		basehost_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
-
-		// if save found
-		if (basehost_save)
-		{
-
-			for (auto& saved_base : *basehost_save->getBases())
-			{
-
-				// poista ensiksi kaikki jotka ei -1 tukikohdasta!
-				auto& soldiers = *saved_base->getSoldiers(); // Viitataan vektoriin
-
-				// Vapautetaan muistissa olevat sotilaat, joiden coopBase != -1
-				for (auto it = soldiers.begin(); it != soldiers.end(); /* ei ++it */)
-				{
-					if ((*it)->getCoopBase() == _base->_coop_base_id) // Tarkistetaan coopBase
-					{
-						delete *it;              // Vapautetaan muistista sotilas
-						it = soldiers.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
-					}
-					else
-					{
-						++it; // Siirrytään seuraavaan vain jos ei poistettu
-					}
-				}
-
-				// Myös ajoneuvot
-				auto& crafts = *saved_base->getCrafts(); // Viitataan vektoriin, joka sisältää Craft*-olioita
-
-				for (auto& craft : crafts) // Jokainen craft on yksittäinen alus
-				{
-					auto& vehicles = *craft->getVehicles(); // Viitataan aluksen ajoneuvovektoriin
-
-					for (auto it = vehicles.begin(); it != vehicles.end(); /* ei ++it */)
-					{
-						if ((*it)->getCoopBase() == _base->_coop_base_id) // Tarkistetaan coopBase
-						{
-							delete *it;              // Vapautetaan muistista ajoneuvo
-							it = vehicles.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
-						}
-						else
-						{
-							++it; // Siirrytään seuraavaan vain jos ei poistettu
-						}
-					}
-				}
-			}
-
-			// Lisätään uudet sotilaat ensimmäisen tukikohdan sotilaslistaan
-			auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
-
-			for (auto* soldier : *_base->getSoldiers())
-			{
-				if (soldier->getCraft())
-				{
-
-					soldier->setCoopCraft(soldier->getCraft()->getId());
-					soldier->setCoopCraftType(soldier->getCraft()->getType());
-				}
-				else
-				{
-					// A guest taken OFF the craft must have its persisted seat cleared
-					// too. CoopState/BasescapeState rebuild a co-op base by re-seating
-					// every guest whose CoopCraft matches a craft there, so leaving a
-					// stale id here silently puts the soldier back on the craft the
-					// moment the player leaves and re-enters the base.
-					soldier->setCoopCraft(-1);
-					soldier->setCoopCraftType("");
-				}
-
-				soldier->setCoopBase(_base->_coop_base_id);
-				soldier->setCoopName(soldier->getName());
-
-				target_soldiers.push_back(soldier);
-			}
-
-			auto& target_vehicles = *basehost_save->getBases()->front()->getCrafts()->front()->getVehicles();
-
-			// lisätään uudet ajoneuvot
-			for (auto* craft : *_base->getCrafts())
-			{
-
-				for (auto* vehicle : *craft->getVehicles())
-				{
-
-					vehicle->setCoopBase(_base->_coop_base_id);
-					vehicle->setCoopCraft(craft->getId());
-					vehicle->setCoopCraftType(craft->getType());
-
-					target_vehicles.push_back(vehicle);
-				}
-			}
-
-			// save changes
-			basehost_save->saveCoopToMemory(filename, _game->getMod(), filename);
-
-			// Fix B (Bug 1): the CoopCraft assignments above land ONLY in the
-			// "basehost" blob (the client's copy of the HOST world). The client's
-			// OWN-world blob (client_<saveID>_<host>.data) - which GeoscapeState
-			// reloads at mission end - is never touched here, so a guest's craft
-			// assignment reverts to its stale value and the soldier is unassigned
-			// from the skyranger after a battle. Mirror each guest's assignment
-			// into the own-world blob so it survives the reload.
-			std::map<std::string, std::pair<int, std::string>> guestCraftAssignments;
-			for (auto* soldier : *_base->getSoldiers())
-			{
-				Craft* assignedCraft = soldier->getCraft();
-				guestCraftAssignments[soldier->getName()] = std::make_pair(
-					assignedCraft ? assignedCraft->getId() : -1,
-					assignedCraft ? assignedCraft->getType() : std::string());
-			}
-			_game->getCoopMod()->syncOwnWorldGuestCraft(_base->_coop_base_id, guestCraftAssignments);
-		
-			// estetaan dublikaatio tallenuksen jalkeen...
-			auto& soldiers = *_base->getSoldiers();
-			for (auto it = soldiers.begin(); it != soldiers.end();)
-			{
-
-				if ((*it)->getCoopBase() == -1)
-				{
-					delete *it;              // Vapautetaan muisti
-					it = soldiers.erase(it); // Poistetaan listasta ja päivitetään iteraattori
-				}
-				else
-				{
-					++it; // Siirrytään seuraavaan elementtiin vain, jos ei poistettu
-				}
-			}
-		}
-		
-	}
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && !_game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		// coop
 		_filteredListOfSoldiers = _base->base_oldsoldiers;

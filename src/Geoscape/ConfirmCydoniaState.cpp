@@ -33,6 +33,7 @@
 #include "../Mod/AlienDeployment.h"
 #include "../Engine/Options.h"
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../CoopMod/CoopState.h"
 
 namespace OpenXcom
@@ -93,8 +94,14 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 		_game->getCoopMod()->setSelectedCraft(_craft);
 		_game->getCoopMod()->setConfirmCydoniaState(this);
 
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
+			if (!_game->getCoopMod()->getServerOwner())
+			{
+				SeparateEcon::requestCydonia(_game, _craft);
+				_game->popState();
+				return;
+			}
 			// SHARED owns one world, so generate Cydonia once on the host and stream
 			// that authoritative battle instead of running the separate-world merge.
 			_game->getCoopMod()->setHost(true);
@@ -138,7 +145,7 @@ void ConfirmCydoniaState::startCoopMission()
 {
 	// The shared path can be re-entered by delayed network callbacks. Never
 	// replace an already-streamed Mars map with a second random generation.
-	if (_game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getSavedGame()
 		&& _game->getSavedGame()->getSavedBattle())
 	{
 		return;
@@ -150,6 +157,8 @@ void ConfirmCydoniaState::startCoopMission()
 	}
 
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+	if (_craft && _craft->getBase())
+		bgame->setBattleOwnerPlayerName(_craft->getBase()->getOwnerPlayerName());
 	_game->getSavedGame()->setBattleGame(bgame);
 	BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 	for (auto& ad : _game->getMod()->getDeploymentsList())

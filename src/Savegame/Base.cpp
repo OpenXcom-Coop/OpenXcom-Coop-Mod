@@ -275,6 +275,19 @@ void Base::load(const YAML::YamlNodeReader& reader, SavedGame *save, bool newGam
 
 	// coop
 	reader.tryRead("coopbaseid", _coop_base_id);
+	reader.tryRead("ownerplayername", _ownerPlayerName);
+
+	// In the unified SEPARATE save every base is real.  Keep the established
+	// _coopBase UI restrictions/colour working by deriving that local-view flag
+	// from persistent ownership after deserialization.  Legacy saves have no
+	// ownerplayername. Non-campaign multiplayer modes keep their own protocol.
+	if (save && save->isCoopSave()
+		&& save->getCampaignType() == CoopCampaignType::Separate
+		&& !_ownerPlayerName.empty())
+	{
+		_coopBase = _ownerPlayerName != connectionTCP::seatName(connectionTCP::localSeat());
+		_coopIcon = false;
+	}
 
 	// coop
 	if (_coop_base_id == 0)
@@ -488,6 +501,8 @@ void Base::save(YAML::YamlNodeWriter writer) const
 
 	// coop
 	writer.write("coopbaseid", _coop_base_id);
+	if (!_ownerPlayerName.empty())
+		writer.write("ownerplayername", _ownerPlayerName);
 	writer.write("crafts", _crafts,
 				 [&](YAML::YamlNodeWriter& v, const Craft* c)
 				 {

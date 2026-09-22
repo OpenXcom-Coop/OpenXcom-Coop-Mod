@@ -47,6 +47,7 @@
 #include "../Mod/RuleSoldier.h"
 #include "../Savegame/SoldierDeath.h"
 #include "../CoopMod/SharedEcon.h" // coop (SHARED soldier_rename)
+#include "../CoopMod/SeparateEcon.h"
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 
@@ -678,7 +679,7 @@ void SoldierInfoState::edtSoldierChange(Action *)
 	// setName above stays for immediate UI feedback; the shared_apply re-asserts the
 	// winning name authoritatively on every machine.
 	if (_base != 0 && _base->_coopBase == false
-		&& _game->getCoopMod()->isSharedCampaign())
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -687,7 +688,8 @@ void SoldierInfoState::edtSoldierChange(Action *)
 		Json::Value payload;
 		payload["soldierId"] = _soldier->getId();
 		payload["name"] = _edtSoldier->getText();
-		SharedEcon::submitLocalCmd(_game, "soldier_rename", baseId, payload);
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "soldier_rename", baseId, payload);
+		else SeparateEcon::submitLocalCmd(_game, "soldier_rename", baseId, payload);
 	}
 }
 
@@ -749,7 +751,7 @@ void SoldierInfoState::btnPrevClick(Action *)
 	for (size_t i = 0; i < n; ++i)
 	{
 		_soldierId = (_soldierId == 0) ? n - 1 : _soldierId - 1;
-		if (!_game->getCoopMod()->isSharedCampaign()
+		if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 			|| SharedEcon::ownsSoldier(_game, _list->at(_soldierId)))
 			break;
 	}
@@ -768,7 +770,7 @@ void SoldierInfoState::btnNextClick(Action *)
 		_soldierId++;
 		if (_soldierId >= n)
 			_soldierId = 0;
-		if (!_game->getCoopMod()->isSharedCampaign()
+		if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 			|| SharedEcon::ownsSoldier(_game, _list->at(_soldierId)))
 			break;
 	}

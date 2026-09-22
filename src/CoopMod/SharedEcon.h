@@ -185,6 +185,11 @@ void update(Game* game);
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
                     const Json::Value& payload);
 
+/// Low-level validated command engine shared by the two one-world protocols.
+/// Public UI code must call SharedEcon or SeparateEcon, never this directly.
+void submitCommandEngine(Game* game, const std::string& cmd, int baseId,
+	const Json::Value& payload, bool separateProtocol);
+
 /// PRD-J10: THE single "the host rejected your command" dialog. Every J05-J08
 /// failure path funnels here (the screens never pop their own): the host's
 /// machine-readable @a reason - an STR_ id where the vanilla rule had one, a bare

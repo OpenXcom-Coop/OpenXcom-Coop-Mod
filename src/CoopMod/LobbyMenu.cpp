@@ -638,10 +638,9 @@ void LobbyMenu::resumeCampaign()
 	// battle save: after the geoscape world ack, stream the battle (2c)
 	connectionTCP::session.armResumeHandshake(_game->getSavedGame()->getSavedBattle() != nullptr);
 
-	// Serve the connected client its world: stored blob if we have one,
-	// otherwise a fresh world + base building (registered-no-blob, D6).
-	// PRD-J02: SHARED has no per-client stored blob - there is a single
-	// authoritative world. Always take the campaign_resume path: the client's
+	// Campaign modes always serve the host's one authoritative world. PvP keeps
+	// its distinct player-world resume path below. Always take campaign_resume
+	// for Shared/Separate: the client's
 	// request_load_progress makes the host serialize the CURRENT world fresh and
 	// stream it (streamSharedWorldToClient). Never build a fresh client world.
 	std::string clientName = _game->getCoopMod()->getCurrentClientName();
@@ -653,19 +652,19 @@ void LobbyMenu::resumeCampaign()
 	// fresh world that another campaign_start in request_load_progress
 	// would overwrite, never arming sendFileClient).
 	if (connectionTCP::_coopGamemode == 2
-		&& !connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
+		&& !connectionTCP::hasCoopFile(connectionTCP::pvpHostWorldKey(clientName)))
 	{
 		try
 		{
 			// PvP P4: the gm2 alien client never sends a world blob to the host
 			// (its own coopFilesClient world is process-local). Build a MINIMAL
 			// no_bases stub - one unplaced/unnamed EMPTY base, empty roster - and
-			// store it under the client's hostBlobKey so the campaign_resume branch
+			// store it under the client's pvpHostWorldKey so the campaign_resume branch
 			// below fires. Replaces the former full-world synthesis (host bases +
 			// host roster stamped no_bases via a temporary global flip), which
 			// leaked the host's placed bases and named roster into the client's
 			// rejoin world. buildCoopStub reads no global flag, so there is no flip.
-			std::string key = connectionTCP::hostBlobKey(clientName);
+			std::string key = connectionTCP::pvpHostWorldKey(clientName);
 			std::string stub = _game->getSavedGame()->buildCoopStub(_game->getMod());
 			{
 				std::lock_guard<std::mutex> lk(connectionTCP::coopFilesMutex);
@@ -679,8 +678,8 @@ void LobbyMenu::resumeCampaign()
 		}
 	}
 
-	if (_game->getCoopMod()->isSharedCampaign()
-		|| connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+		|| connectionTCP::hasCoopFile(connectionTCP::pvpHostWorldKey(clientName)))
 	{
 		Json::Value root;
 		root["state"] = "campaign_resume";
@@ -765,7 +764,7 @@ void LobbyMenu::startCampaign()
 	if (_game->getCoopMod()->getCoopGamemode() == 3)
 		connectionTCP::no_bases = true;
 
-	// A NEW campaign always mints a fresh saveID and starts with no world blobs
+	// A NEW campaign always mints a fresh saveID and starts with no stale transfers
 	// (fixes C2: a second campaign in the same process must not reuse the first
 	// campaign's ID or serve its stale client world). resumeCampaign keeps the
 	// loaded ID. The campaign_start packet built below carries this fresh ID and
@@ -815,7 +814,10 @@ void LobbyMenu::startCampaign()
 	}
 
 	if (!connectionTCP::no_bases)
+	{
+		_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(_game->getCoopMod()->getHostName());
 		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+	}
 	else
 	{
 		// PvP: the host is the alien side and has no bases.  Push the

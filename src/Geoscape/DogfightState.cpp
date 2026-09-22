@@ -255,9 +255,7 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	// PRD-DF01: on a SHARED replica this window renders a host-simulated fight from
 	// the df_state stream and never runs the sim body (see update()). The host owns
 	// every dogfight; a replica never has a non-replica instance and vice versa.
-	_isReplicaView = _game->getCoopMod()
-		&& _game->getCoopMod()->isSharedCampaign()
-		&& !_game->getCoopMod()->getServerOwner();
+	_isReplicaView = _game->getCoopMod() && _game->getCoopMod()->isSharedReplica();
 	_craft->setInDogfight(true);
 	_weaponNum = _craft->getRules()->getWeapons();
 	if (_weaponNum > RuleCraft::WeaponMax)
@@ -3186,7 +3184,7 @@ void DogfightState::playDfSound(int soundId)
 	if (auto* s = _game->getMod()->getSound("GEO.CAT", soundId))
 		s->play();
 	// A replica only ever plays frame-driven sounds, so it must not re-broadcast them.
-	if (!_isReplicaView && _game->getCoopMod()->isSharedCampaign())
+	if (!_isReplicaView && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		_frameSounds.push_back(soundId);
 }
 

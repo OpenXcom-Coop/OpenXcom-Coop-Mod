@@ -94,7 +94,7 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	// here. (This also avoids the newResearch->getName() null-deref below when the
 	// host completes an already-seen lookup.)
 	if (_game->getCoopMod()->getCoopStatic() == true && _coop == false
-		&& !_game->getCoopMod()->isSharedCampaign()
+		&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 		&& _game->getCoopMod()->_enable_research_sync)
 	{
 

@@ -358,6 +358,7 @@
     <ClCompile Include="CoopMod\Profile.cpp" />
     <ClCompile Include="CoopMod\ServerList.cpp" />
     <ClCompile Include="CoopMod\SharedEcon.cpp" />
+    <ClCompile Include="CoopMod\SeparateEcon.cpp" />
     <ClCompile Include="CoopMod\TestServer.cpp" />
     <ClCompile Include="CoopMod\VoteMenu.cpp" />
     <ClCompile Include="CoopMod\connectionTCP.cpp" />
@@ -755,6 +756,9 @@
     <ClCompile Include="Savegame\Upgrade\SchemaStep1to2.cpp">
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
     </ClCompile>
+    <ClCompile Include="Savegame\Upgrade\SchemaStep2to3.cpp">
+      <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
+    </ClCompile>
     <ClCompile Include="Savegame\SerializationHelper.cpp" />
     <ClCompile Include="Savegame\Soldier.cpp" />
     <ClCompile Include="Savegame\Node.cpp">
@@ -812,6 +816,7 @@
     <ClInclude Include="CoopMod\Profile.h" />
     <ClInclude Include="CoopMod\ServerList.h" />
     <ClInclude Include="CoopMod\SharedEcon.h" />
+    <ClInclude Include="CoopMod\SeparateEcon.h" />
     <ClInclude Include="CoopMod\TestServer.h" />
     <ClInclude Include="CoopMod\VoteMenu.h" />
     <ClInclude Include="CoopMod\connectionTCP.h" />

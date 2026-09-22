@@ -127,19 +127,10 @@ void MultipleTargetsState::popupTarget(Target *target)
 		Ufo* u = dynamic_cast<Ufo*>(target);
 		if (b != 0)
 		{
-			// coop
-			if (_game->getCoopMod()->getCoopStatic() == true && b->_coopBase == true)
-			{
-
-				CoopState *coopWindow = new CoopState(50);
-				_game->getCoopMod()->current_base_name = b->getName();
-				coopWindow->setGlobe(_state->getGlobe());
-				_game->pushState(coopWindow);
-			}
-			else
-			{
-				_game->pushState(new InterceptState(_state->getGlobe(), _useCustomSound, b));
-			}
+			// Shared and Separate campaigns keep every real base in the current
+			// world. Opening another player's base therefore uses the normal base
+			// selection flow; no base file is downloaded or swapped in.
+			_game->pushState(new InterceptState(_state->getGlobe(), _useCustomSound, b));
 
 		}
 		else if (c != 0)

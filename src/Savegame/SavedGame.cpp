@@ -351,7 +351,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	// coop (PRD-P5): the parallel-turns session mode survives a save/load so a
 	// mid-battle resume comes back in the same mode it was played in.
 	reader.tryRead("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
-	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
+	if (connectionTCP::getServerOwner() == false)
 	{
 		reader.tryRead("no_bases", connectionTCP::no_bases);
 	}
@@ -863,12 +863,10 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	// coop (PRD-P5): the parallel-turns session mode survives a save/load so a
 	// mid-battle resume comes back in the same mode it was played in.
 	reader.tryRead("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
-	// Single-authority: a host save embeds every client-world blob captured
-	// at save time. Restore them as the served copies (memory only - the
-	// reconnect flow streams from these), so a rolled-back save rolls every
-	// client back too. The load defines the full served set: stale host blobs
-	// from another campaign/session are dropped first, so a solo or different
-	// save never serves (or re-embeds) a foreign client world.
+	// Only adversarial PvP keeps distinct player worlds. Shared and Separate
+	// campaigns always load one authoritative host world and never restore
+	// player-world blobs.
+	if (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3)
 	{
 		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
 		for (auto it = connectionTCP::coopFilesHost.begin(); it != connectionTCP::coopFilesHost.end();)
@@ -892,7 +890,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 			}
 		}
 	}
-	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
+	if (connectionTCP::getServerOwner() == false)
 	{
 		reader.tryRead("no_bases", connectionTCP::no_bases);
 	}
@@ -1374,7 +1372,12 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	for (auto& base : _bases)
 	{
 
-		if (base->_coopBase == false)
+		// Every named-owner base is real in schema-3 Separate. _coopBase is only
+		// the current seat's foreign-base UI flag and may still reflect the seat
+		// used while the disk save was loaded, before hosting/joining starts.
+		if (base->_coopBase == false
+			|| (_campaignType == CoopCampaignType::Separate
+				&& !base->getOwnerPlayerName().empty()))
 		{
 			found = true;
 		}
@@ -1813,21 +1816,15 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	// coop (PRD-P5)
 	writer.write("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
 	writer.write("no_bases", connectionTCP::no_bases);
-	// Single-authority: embed the freshest client-world blob of EVERY client
-	// so this save captures all players' rosters atomically. Skip when this
-	// call is itself writing a client sidecar (.data) to avoid recursion, and
-	// when no coop campaign session ever ran (saveID 0 - never pollute a solo
-	// campaign's save with another campaign's blobs).
+	// PvP still owns distinct player worlds. Campaign modes do not embed client
+	// worlds: their single host save already contains every base and roster.
 	bool isSidecarWrite = filename.size() >= 5 && filename.compare(filename.size() - 5, 5, ".data") == 0;
-	// PRD-J02: a SHARED save is already the single authoritative world for every
-	// player - there are no separate client worlds to embed. Skip the
-	// coopClientSaves sequence entirely (SEPARATE keeps embedding as before).
-	bool sharedSave = (_campaignType == CoopCampaignType::Shared);
-	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite && !sharedSave)
+	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite
+		&& (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3))
 	{
 		// Blob identity comes from the locked roster (host at [0], clients after),
 		// NOT from reverse-parsing map keys: each client's world lives under
-		// hostBlobKey(name) at the current saveID (the store keeps one entry per
+		// pvpHostWorldKey(name) at the current saveID (the store keeps one entry per
 		// client and the saveID is stable within a session - see PRD-04). This
 		// removes the fragile filename find/substr + lexicographic-id selection
 		// that could pick the wrong blob (S8). Keyed by exact name, so player
@@ -1844,9 +1841,9 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 			// blob matched by exact roster name (any saveID); the embedded key is
 			// normalized to the CURRENT saveID so the reconnect flow finds it
 			// after this save is loaded.
-			const std::string* blob = connectionTCP::findHostClientBlob(_coopPlayers[i]);
+			const std::string* blob = connectionTCP::findPvpClientWorld(_coopPlayers[i]);
 			if (blob && !blob->empty())
-				toEmbed.emplace_back(connectionTCP::hostBlobKey(_coopPlayers[i]), blob);
+				toEmbed.emplace_back(connectionTCP::pvpHostWorldKey(_coopPlayers[i]), blob);
 			else if (connectionTCP::_coopGamemode == 2)
 			{
 				// PvP P4: the gm2 alien client has no host-side world blob (its own
@@ -1855,7 +1852,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 				// leaking host bases/roster. buildCoopStub touches no coop map, so
 				// calling it here under coopFilesMutex cannot deadlock.
 				stubStore.push_back(buildCoopStub(mod));
-				toEmbed.emplace_back(connectionTCP::hostBlobKey(_coopPlayers[i]), &stubStore.back());
+				toEmbed.emplace_back(connectionTCP::pvpHostWorldKey(_coopPlayers[i]), &stubStore.back());
 			}
 		}
 		if (!toEmbed.empty())
@@ -2412,9 +2409,43 @@ int SavedGame::getCountryFunding() const
 	int total = 0;
 	for (auto* country : _countries)
 	{
-		total += country->getFunding().back();
+		total += getPlayerFundingShare(country->getFunding().back());
 	}
 	return total;
+}
+
+/**
+ * Returns this player's share of a global council-funding value.
+ *
+ * Schema 1/2 SEPARATE keeps one complete economy world per player.  Giving the
+ * full council payment to every world multiplied campaign funding by the player
+ * count.  Split each country's payment between those worlds instead.  Assigning
+ * the integer remainder by roster seat preserves the exact solo total when all
+ * player shares are added together.
+ *
+ * Schema 3 SEPARATE is one host-authoritative world (identified by named base
+ * ownership), so its single funds ledger receives the full value exactly once.
+ */
+int SavedGame::getPlayerFundingShare(int globalFunding) const
+{
+	if (!_coop || _campaignType != CoopCampaignType::Separate || _coopPlayers.size() < 2)
+		return globalFunding;
+
+	for (const Base* base : _bases)
+		if (base && !base->getOwnerPlayerName().empty())
+			return globalFunding;
+
+	const int players = static_cast<int>(_coopPlayers.size());
+	int seat = connectionTCP::coop_save_owner_player_id;
+	if (seat < 0 || seat >= players)
+		seat = 0;
+	const int quotient = globalFunding / players;
+	const int remainder = globalFunding % players;
+	if (remainder > 0 && seat < remainder)
+		return quotient + 1;
+	if (remainder < 0 && seat < -remainder)
+		return quotient - 1;
+	return quotient;
 }
 
 /**
@@ -2479,9 +2510,13 @@ int SavedGame::getBaseMaintenance() const
 	int total = 0;
 	for (const auto* xbase : _bases)
 	{
-		// coop
-		// In separate campaigns, monthly maintenance costs only include bases owned by the current player, not bases owned by other players. This is a temporary fix until the separate campaign rework.
-		if (connectionTCP::getCoopStatic() == true && connectionTCP::isSharedCampaignStatic() == false && xbase->_coopBase == true)
+		// Old ownerless mirror/PvP bases are display copies and must not be billed.
+		// A unified Separate base has a persistent owner name and is part of the
+		// host's one real economy even when it is foreign in this seat's UI.
+		if (connectionTCP::getCoopStatic() == true
+			&& connectionTCP::isSharedCampaignStatic() == false
+			&& xbase->_coopBase == true
+			&& xbase->getOwnerPlayerName().empty())
 		{
 			continue;
 		}

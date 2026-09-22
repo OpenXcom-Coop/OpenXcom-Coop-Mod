@@ -54,6 +54,7 @@
 #include "../Mod/RuleCraft.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -830,7 +831,10 @@ void TransferItemsState::submitSharedTransfer()
 	payload["crafts"] = crafts;
 	payload["scientists"] = scientists;
 	payload["engineers"] = engineers;
-	SharedEcon::submitLocalCmd(_game, "transfer", fromId, payload);
+	if (_game->getCoopMod()->isSharedCampaign())
+		SharedEcon::submitLocalCmd(_game, "transfer", fromId, payload);
+	else
+		SeparateEcon::submitLocalCmd(_game, "transfer", fromId, payload);
 }
 
 /**
@@ -867,7 +871,7 @@ bool TransferItemsState::transferSoldierNow(Soldier* soldier)
 		if (row.type == TRANSFER_SOLDIER && row.rule == (const void*)soldier)
 		{
 			row.amount = 1;
-			if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+			if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 			{
 				submitSharedTransfer();
 			}

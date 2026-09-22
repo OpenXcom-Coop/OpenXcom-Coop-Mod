@@ -154,6 +154,9 @@ public:
 	bool _coopBase  = false;
 	bool _coopIcon = false;
 	int _coop_base_id = 0;
+	/// Unique locked co-op player name that owns this real base. Empty denotes
+	/// a legacy/solo base; _coopBase remains only a local-view UI flag.
+	std::string _ownerPlayerName;
 	/// Creates a new base.
 	Base(const Mod *mod);
 	/// Cleans up the base.
@@ -196,6 +199,9 @@ public:
 	/// Sets the base's scientists.
 	void setScientists(int scientists);
 	void isCoopBase(bool coopBase);
+	const std::string& getOwnerPlayerName() const { return _ownerPlayerName; }
+	void setOwnerPlayerName(const std::string& ownerPlayerName) { _ownerPlayerName = ownerPlayerName; }
+	bool isOwnedByPlayer(const std::string& playerName) const { return _ownerPlayerName.empty() || _ownerPlayerName == playerName; }
 	/// Gets the base's engineers.
 	int getEngineers() const;
 	/// Sets the base's engineers.
