@@ -2787,7 +2787,10 @@ void GeoscapeState::time5Seconds()
 				Ufo* u = dynamic_cast<Ufo*>(xcraft->getDestination());
 				if (u != 0)
 				{
-					if (!u->getDetected())
+					// SPEC 18 (r4 T4) F404 (D122=b): a skirmish/New-Battle UFO has monthsPassed==-1
+					// and NO trajectory (Ufo::load skips the mission+trajectory block for -1), so
+					// this campaign-only craft-chase block must not deref u->getTrajectory() on it.
+					if (!u->getDetected() && _game->getSavedGame()->getMonthsPassed() != -1)
 					{
 						if (u->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && (u->getStatus() == Ufo::LANDED || u->getStatus() == Ufo::DESTROYED))
 						{
