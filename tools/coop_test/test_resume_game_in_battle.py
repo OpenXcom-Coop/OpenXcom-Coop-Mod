@@ -4,28 +4,20 @@ Reported: in a NEW BATTLE > COOP battle the client left for the main menu, the
 host's coop menu (LobbyMenu) popped up over the tactical map offering RESUME
 GAME - and pressing it dropped the host on the GEOSCAPE with the battle gone.
 
-Two separate faults, both covered here.
+SPEC 18 (r4 T4) D97/R1(c) ROUTING (2026-09-21): this file used to also cover
+a client dropping mid-battle (FREEZE/STAY-FROZEN/ABANDON). Those scenarios are
+SPEC 16's (test_spec16_pause_on_leave.py's S1/S4, test_skirmish_rejoin_
+battle.py) and are REMOVED from this file - their bodies are deleted below;
+the helper functions SAVE-AND-QUIT still uses are kept. R1(c) ran every
+scenario in this file once at the SPEC 18 tip with the skip removed:
+SAVE-AND-QUIT's own assertions pass (un-skipped here, S6 - this unit's, the
+mid-battle save->load-back-into-battle proof, one of the "nine save/resume
+harness tests" SPEC 18 re-points); MENU-HOST/MENU-CLIENT and PRE-BATTLE/
+PRE-GAME were GREEN at the tip and stay, unmodified, no code. The pre-existing
+teardown rc=3 on SAVE-AND-QUIT (F391/F392 family, D120-waived) is OUT OF this
+unit's scope - not fixed here.
 
-1. THE DIALOG. A drop mid-mission is a freeze to wait out, exactly like the
-   campaign case: the reconnect dialog (CoopState 62) over the battle, naming
-   the missing player, with SAVE & QUIT / ABANDON GAME while nobody is there and
-   "All players connected" / RESUME once they are back. The skirmish path
-   instead raised the lobby (connectionTCP teardown, lobbyMode-0 branch) plus a
-   dismissable "X has left the server" popup - a menu, over a live battle,
-   whose action button threw the battle away.
-
-2. THE BUTTON. `LobbyMenu::returnToRunningGame()` popped states until the top
-   one was a GeoscapeState. EVERY co-op battle has one underneath - a campaign's
-   own world, or (skirmish) the one LoadGameState creates before pushing the
-   streamed battle - so the first thing popped was the live BattlescapeState.
-   The coop menu is still reachable by hand mid-battle (pause -> co-op), which
-   is the campaign screenshot in the issue, so the button has to be right too.
-
-SCENARIOS
-  FREEZE        skirmish battle, client leaves -> reconnect dialog over the
-                battle, no lobby anywhere, RESUME hidden, battle intact.
-  STAY-FROZEN   ...and it stays that way: the host cannot play on alone.
-  ABANDON       ABANDON GAME on that dialog -> main menu, nothing written.
+SCENARIOS (this file, post-routing)
   SAVE-AND-QUIT SAVE & QUIT -> save-slot list -> a .sav that loads back INTO the
                 battle -> main menu.
   MENU-HOST     campaign mission, both players in it, HOST opens the coop menu
@@ -43,9 +35,6 @@ Run:  python tools/coop_test/test_resume_game_in_battle.py
 import os
 import sys
 import time
-
-# RW-TRIAGE: SKIP-PENDING(R4-P2)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
@@ -149,91 +138,11 @@ def drop_client_mid_battle(host, client):
                   timeout=90, interval=0.5)
 
 
-def assert_frozen_over_the_battle(host, tag):
-    """The shared assertion of the drop scenarios: the reconnect dialog, over an
-    intact battle, with no lobby and no way to play on."""
-    d = dialog(host)
-    assert d["code"] == COOP_DLG_WAIT_PLAYERS, f"{tag}: wrong dialog: {d}"
-    assert "reconnect" in d["title"], f"{tag}: not the reconnect wording: {d}"
-    assert d["saveQuitVisible"] and d["abandonVisible"], \
-        f"{tag}: no way out of the freeze: {d}"
-    assert not d["backVisible"], \
-        f"{tag}: RESUME offered with nobody to resume: {d}"
-    assert not has(host, "LobbyMenu"), (
-        f"issue #93 ({tag}): the coop LOBBY was raised over the battle instead of "
-        f"the reconnect dialog: {states(host)}")
-    assert has(host, "BattlescapeState"), \
-        f"{tag}: the battle was torn down by the drop: {states(host)}"
-    assert in_battle_save(host), f"{tag}: the world lost its battle: {states(host)}"
-    assert top(host) == "CoopState", \
-        f"{tag}: the freeze dialog is not the top state: {states(host)}"
-    return d
-
-
 # ------------------------------------------------------- the drop itself ---
-
-def scenario_freeze_and_stay_frozen():
-    """FREEZE + STAY-FROZEN: the reported flow, up to the dialog."""
-    print("\n===== scenario FREEZE / STAY-FROZEN =====")
-    host = GameClient("host", 48792, make_user_dir("i93_freeze_host"))
-    client = GameClient("client", 48793, make_user_dir("i93_freeze_client"))
-    try:
-        host.spawn(); host.connect()
-        client.spawn(); client.connect()
-        start_skirmish_battle(host, client, "47992")
-        print(f"PASS entry: both machines on the skirmish tactical map "
-              f"(host={states(host)})")
-        assert has(host, "GeoscapeState"), (
-            "premise changed: the skirmish battle no longer runs over a "
-            f"GeoscapeState, so this suite proves nothing: {states(host)}")
-
-        drop_client_mid_battle(host, client)
-        d = assert_frozen_over_the_battle(host, "FREEZE")
-        print(f"PASS freeze: {d['title']!r} over the battle, "
-              f"{d['saveQuitText']!r} + {d['abandonText']!r}, no lobby")
-
-        # STAY-FROZEN: nothing releases the host on its own.
-        before_stack = states(host)
-        before_battle = host.cmd({"cmd": "battle_state"})
-        time.sleep(12)
-        assert states(host) == before_stack, (
-            f"issue #93 STAY-FROZEN: the host's stack moved on its own while its "
-            f"peer was missing: {before_stack} -> {states(host)}")
-        d2 = dialog(host)
-        assert d2["code"] == COOP_DLG_WAIT_PLAYERS and not d2["backVisible"], \
-            f"STAY-FROZEN: the freeze dialog let go: {d2}"
-        after_battle = host.cmd({"cmd": "battle_state"})
-        assert after_battle.get("turn") == before_battle.get("turn"), \
-            f"STAY-FROZEN: the battle advanced behind the dialog: " \
-            f"{before_battle.get('turn')} -> {after_battle.get('turn')}"
-        print("PASS stay-frozen: 12s later the host is still held, battle unchanged")
-    finally:
-        host.shutdown(); client.shutdown()
-
-
-def scenario_abandon():
-    """ABANDON GAME on the mid-battle freeze: straight out, nothing written."""
-    print("\n===== scenario ABANDON =====")
-    host_dir = make_user_dir("i93_abandon_host")
-    host = GameClient("host", 48794, host_dir)
-    client = GameClient("client", 48795, make_user_dir("i93_abandon_client"))
-    try:
-        host.spawn(); host.connect()
-        client.spawn(); client.connect()
-        start_skirmish_battle(host, client, "47993")
-        drop_client_mid_battle(host, client)
-
-        before = session.save_files(host_dir)
-        host.ok({"cmd": "coop_dialog_abandon"})
-        host.wait_for("host reached the main menu",
-                      lambda: (top(host) == "MainMenuState") or None,
-                      timeout=60, interval=0.5)
-        after = session.save_files(host_dir)
-        assert after == before, \
-            f"ABANDON GAME must write nothing; user dir changed {before} -> {after}"
-        print("PASS abandon: mid-battle freeze -> main menu, nothing written")
-    finally:
-        host.shutdown(); client.shutdown()
+# (FREEZE/STAY-FROZEN/ABANDON scenario BODIES removed per D97/R1(c): they are
+# SPEC 16's S1/S4, live in test_spec16_pause_on_leave.py/test_skirmish_
+# rejoin_battle.py. drop_client_mid_battle/wait_peer_dropped above are KEPT -
+# scenario_save_and_quit below still uses them.)
 
 
 def scenario_save_and_quit():
@@ -419,8 +328,9 @@ def scenario_prebattle_drop_and_lobby_gating():
 
 
 def main():
-    scenario_freeze_and_stay_frozen()
-    scenario_abandon()
+    # FREEZE/STAY-FROZEN/ABANDON dropped per D97/R1(c) routing (SPEC 16 owns
+    # them now) - this file runs SAVE-AND-QUIT (S6) + the coop-menu-over-a-
+    # battle + pre-battle/pre-game scenarios only.
     scenario_save_and_quit()
     scenario_coop_menu_midbattle()
     scenario_prebattle_drop_and_lobby_gating()

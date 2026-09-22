@@ -200,12 +200,16 @@ def assert_world_equal(host, client, tag="", timeout=45, interval=1.0):
 class SharedSession:
     """A live SHARED campaign: host + client, world streamed, both on geoscape."""
 
-    def __init__(self, tag, ports, mods=(), transport="tcp"):
+    def __init__(self, tag, ports, mods=(), transport="tcp", host_options=None):
         self.tag = tag
         self.host_port, self.client_port, self.coop_port = ports
         self.transport = transport
         # Both machines get the SAME mods, or their rulesets diverge.
-        self.host_dir = make_user_dir(f"{tag}_host", mods=mods)
+        # `host_options` (SPEC 18, additive): boot-time options.cfg overrides
+        # for the HOST instance only (e.g. {"battleXcomSpeed": 200} - the
+        # SPEC 16 F342 lever, paces the LOCAL machine, host only). Every
+        # existing caller is unaffected: default None, nothing changes.
+        self.host_dir = make_user_dir(f"{tag}_host", mods=mods, options=host_options)
         self.client_dir = make_user_dir(f"{tag}_client", mods=mods)
         self.host = GameClient("host", self.host_port, self.host_dir)
         self.client = GameClient("client", self.client_port, self.client_dir)
@@ -246,7 +250,7 @@ class SharedSession:
 
 def bring_up(tag, ports, wait_ready=True,
              host_base="HostBase", client_base="ClientBase", mods=(),
-             transport="tcp"):
+             transport="tcp", host_options=None):
     """Stand up a SHARED campaign: host creates it, client joins, the host streams
     the authoritative world, both settle on the geoscape.
 
@@ -255,11 +259,14 @@ def bring_up(tag, ports, wait_ready=True,
     transport - "tcp" (default) or "udp". UDP runs the real direct-LAN
                 connectionUDP transport on 127.0.0.1 (host binds coop_port, client
                 binds coop_port+1); opt in only for a repro that needs it.
+    host_options - (SPEC 18, additive) boot-time options.cfg overrides for the
+                HOST instance only; see SharedSession.__init__. Default None,
+                every existing caller unaffected.
 
     Cleans up its own processes if bring-up fails, so the caller's try/finally
     only has to cover the body.
     """
-    js = SharedSession(tag, ports, mods=mods, transport=transport)
+    js = SharedSession(tag, ports, mods=mods, transport=transport, host_options=host_options)
     try:
         js._start(wait_ready, host_base, client_base)
     except BaseException:

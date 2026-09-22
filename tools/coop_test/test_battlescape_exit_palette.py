@@ -29,8 +29,17 @@ Exit 0 = pass; 2 = failure.
 import os
 import sys
 
-# RW-TRIAGE: SKIP-PENDING(R4-P2)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
+# SPEC 18 (r4 T4) E63.4/R1(c) TRIAGE (2026-09-21): run once at the tip with
+# this skip bypassed - RED at its OWN bring-up (Phase A: "client: timed out
+# waiting for client entered the battle"), the stale SHARED fixture (shared_
+# fixture.bring_up + test_coop_alien_launcher_item_loss.enter_battle, F355
+# briefing-ordering - the client never enters), NOT M5's LoadGameState.cpp
+# branch (T1 never runs far enough to reach it). Re-tagged per E63.4's "any
+# other red" disposition; NOT re-pointed to the M5 flow (this file never
+# reaches it) and NOT un-skipped. OUT-OF-WAVE row recorded in the SPEC 18
+# ledger (Builder C's report).
+print("SKIP-PENDING(TRIAGE-2026-09-21: stale SHARED bring-up / F355; "
+      "I74.enter_battle path; not T1's M5 branch)"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir

@@ -244,12 +244,18 @@ def resume_campaign_battle(host, client, save_file, port="47900",
 
     Like resume_campaign(), but the save carries a battleGame, so this must NOT
     wait on the geoscape-resume `resumeAck` / BEGIN handshake: for a battle-
-    eligible client the host's resume_ack handler emits `campaign_resume_battle`
-    instead of setting resumeAck (connectionTCP.cpp), and the two-phase battle
-    stream (campaign_resume_battle -> SEND_FILE_CLIENT_SAVE ->
-    battlehost/battleclient) drives itself. We only drive the lobby up to the
-    host accepting the resume, then wait (BOUNDED - never hang) until BOTH
-    machines report battle_state.inBattle.
+    eligible client the host's resume_ack handler (connectionTCP.cpp) calls
+    `CoopHandshake::offerResumedBattle()` - the r4 disk-resume sibling of SPEC
+    16's `offerRejoinBattle()` (SPEC 18, r4 T4, M2) - which mints a fresh
+    battleId, rebuilds the authority/seat store from the loaded battle, and
+    emits `battle_offer{resumed:true}` through the SAME accept/blob/
+    `battle_ready` pipe a fresh join uses. The client loads it, both hash-
+    check it, and the host's own COOP_DLG_WAIT_PLAYERS modal - already on its
+    stack from the resume lobby - is what the caller presses (`coop_dialog_
+    back`) afterwards to land both machines on BattlescapeState (M4); this
+    helper does not press it. We only drive the lobby up to the host accepting
+    the resume, then wait (BOUNDED - never hang) until BOTH machines report
+    battle_state.inBattle.
 
     `host` must be freshly at the main menu with the save in its user dir;
     `client` freshly at the main menu (empty user dir). Raises TimeoutError with
