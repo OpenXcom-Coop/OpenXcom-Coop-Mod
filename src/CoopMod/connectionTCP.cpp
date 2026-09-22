@@ -8760,11 +8760,25 @@ bool coopSeatConnected(int seat)
 
 Triple floor()
 {
+	// F1 (traced, Builder C): coopSeatConnected(s) reads
+	// connectionTCP::session.clientInLobby for every seat>0, a HOST-side-only
+	// flag (set exclusively by CoopSession::clientAttached(), reached only
+	// from the host's own incoming-connection acceptance path) - on the
+	// CLIENT's own process it is never true, so gating floor() on it there
+	// wrongly excludes the client's OWN seat and floor() collapses to just
+	// the host's triple. g_seatValid[s] alone already encodes connectivity
+	// correctly on BOTH machines: the host sets it only for seats it has a
+	// report for, and broadcasts (battle_speed_seats) only connected+valid
+	// seats, so a client's table mirror holds exactly the seats the host
+	// considers connected. D113 (floor = slowest of the CONNECTED seats) is
+	// unchanged - only this mechanism is corrected. D107 (a paused/absent
+	// seat's kept entry stays in the floor) still holds: a transient
+	// disconnect never clears g_seatValid.
 	bool any = false;
 	Triple t{ 0, 0, 0 };
 	for (int s = 0; s < kMaxSeats; ++s)
 	{
-		if (!coopSeatConnected(s) || !g_seatValid[s])
+		if (!g_seatValid[s])
 			continue;
 		if (!any)
 		{
