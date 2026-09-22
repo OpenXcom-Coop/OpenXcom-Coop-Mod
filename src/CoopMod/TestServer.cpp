@@ -202,6 +202,7 @@
 #include "CoopDoor.h"
 #include "CoopGhost.h" // W1-P12: event_state's ghostEnqueued/ghostCompleted/ghostQueueDepth
 #include "CoopEndTurn.h" // W1-P13b: battle_end_turn_ready lever + event_state's coopEndTurn* fields
+#include "CoopSpeed.h" // SPEC 17 (W1-P18): event_state's speed + three set_option arms
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -3090,6 +3091,24 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			Options::battleInstantGrenade = req.get("value", false).asBool();
 			resp["ok"] = true;
 		}
+		else if (name == "battleXcomSpeed")
+		{
+			// SPEC 17 (W1-P18): a fixture's per-machine dial. MEMORY ONLY
+			// (never Options::save) - CoopSpeed::onLocalChanged() (per-tick
+			// pump) picks the new value up and reports/republishes it.
+			Options::battleXcomSpeed = req.get("value", Options::battleXcomSpeed).asInt();
+			resp["ok"] = true;
+		}
+		else if (name == "battleAlienSpeed")
+		{
+			Options::battleAlienSpeed = req.get("value", Options::battleAlienSpeed).asInt();
+			resp["ok"] = true;
+		}
+		else if (name == "battleFireSpeed")
+		{
+			Options::battleFireSpeed = req.get("value", Options::battleFireSpeed).asInt();
+			resp["ok"] = true;
+		}
 		else if (name == "coopCancelOnEnemySpotted" || name == "coopCancelOnOwnUnitHit"
 			|| name == "coopCancelOnVisibilityGain" || name == "coopCancelOnAnyPartnerAction")
 		{
@@ -5044,6 +5063,70 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["ghostEnqueued"] = (int)CoopGhost::enqueuedCount();
 		resp["ghostCompleted"] = (int)CoopGhost::completedCount();
 		resp["ghostQueueDepth"] = (int)CoopGhost::queueDepth();
+		// SPEC 17 (W1-P18): per-seat animation-pacing introspection. `local`
+		// is this machine's own raw dials; `seats` is this machine's current
+		// view of the table (connected+valid seats only); `floor` is the
+		// slowest-wins fallback (null outside a coop battle, since floor()
+		// would be meaningless there); `lastRead` proves WHICH dial the most
+		// recent speedFor() call actually used and for whom (M2's delivery
+		// proof, the coopWalkArmEntered precedent).
+		{
+			auto whichName = [](int w) -> const char*
+			{
+				switch (w)
+				{
+				case (int)CoopSpeed::Alien: return "alien";
+				case (int)CoopSpeed::Fire: return "fire";
+				default: return "xcom";
+				}
+			};
+			Json::Value speed(Json::objectValue);
+			const CoopSpeed::Triple local = CoopSpeed::localTriple();
+			Json::Value localJ(Json::objectValue);
+			localJ["xcom"] = local.xcom;
+			localJ["alien"] = local.alien;
+			localJ["fire"] = local.fire;
+			speed["local"] = localJ;
+			Json::Value seatsJ(Json::arrayValue);
+			for (int s = 0; s < CoopSpeed::kMaxSeats; ++s)
+			{
+				if (!CoopSpeed::seatValid(s))
+					continue;
+				const CoopSpeed::Triple t = CoopSpeed::seatTriple(s);
+				Json::Value entry(Json::objectValue);
+				entry["seat"] = s;
+				entry["xcom"] = t.xcom;
+				entry["alien"] = t.alien;
+				entry["fire"] = t.fire;
+				seatsJ.append(entry);
+			}
+			speed["seats"] = seatsJ;
+			if (isCoopBattle())
+			{
+				const CoopSpeed::Triple f = CoopSpeed::floor();
+				Json::Value floorJ(Json::objectValue);
+				floorJ["xcom"] = f.xcom;
+				floorJ["alien"] = f.alien;
+				floorJ["fire"] = f.fire;
+				speed["floor"] = floorJ;
+			}
+			else
+			{
+				speed["floor"] = Json::Value();
+			}
+			speed["seq"] = CoopSpeed::seq();
+			speed["synced"] = CoopSpeed::synced();
+			const CoopSpeed::LastRead lr = CoopSpeed::lastRead();
+			Json::Value lastReadJ(Json::objectValue);
+			lastReadJ["which"] = whichName(lr.which);
+			lastReadJ["value"] = lr.value;
+			lastReadJ["seat"] = lr.seat;
+			speed["lastRead"] = lastReadJ;
+			speed["reportsSent"] = (int)CoopSpeed::reportsSent();
+			speed["tablesRecv"] = (int)CoopSpeed::tablesRecv();
+			speed["quickModeIgnored"] = (int)CoopSpeed::quickModeIgnored();
+			resp["speed"] = speed;
+		}
 		// This machine's own (machine-local, saveBlob-EXCLUDED) reserve settings -
 		// the values WV-D14 ratifies as per-machine and WV-D48 makes the client
 		// enforce for itself.
