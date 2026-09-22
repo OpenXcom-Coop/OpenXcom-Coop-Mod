@@ -333,12 +333,12 @@ def stage_alien_and_walk(host, client, walker_id):
     a real-click walk. Returns (elevator, dest, lw, pending) once the walk is
     observed >=2-pending mid-flight."""
     aliens = s16._find_alien(host)
-    assert aliens, "FIXTURE: no living alien on this boot"
+    assert aliens, "S1-PRECOND: no living alien on this boot"
     alien = aliens[0]
     walker = next(u for u in battle(host)["units"] if u["id"] == walker_id)
 
     lx, ly, ds_id, ds_info = s16._locate_ufo_lift_column(host)
-    assert lx is not None, f"FIXTURE: no rare UFO lift/hull dataset column found: {ds_info}"
+    assert lx is not None, f"S1-PRECOND: no rare UFO lift/hull dataset column found: {ds_info}"
     elevator = (lx, ly, 1)
     away = s16._away_direction(walker, (lx, ly))
     session.place_deterministic(
@@ -355,15 +355,15 @@ def stage_alien_and_walk(host, client, walker_id):
         cands = s16._far_destinations(host, walker, elevator, occupied, length=length, want=5)
         if cands:
             break
-    assert cands, f"FIXTURE: no far destination found (walker tu={walker.get('tu')})"
+    assert cands, f"S1-PRECOND: no far destination found (walker tu={walker.get('tu')})"
     dest = cands[0][1][-1]
 
-    assert s16._select_by_tab(host, walker_id), "FIXTURE: could not TAB-select the walker"
+    assert s16._select_by_tab(host, walker_id), "S1-PRECOND: could not TAB-select the walker"
     prev = session.walk_action_id(host)
-    assert s16._click_walk(host, dest), "FIXTURE: map_tile_click_pos never verified (dest off-view)"
+    assert s16._click_walk(host, dest), "S1-PRECOND: map_tile_click_pos never verified (dest off-view)"
     lw, pending = s16._poll_walk_until_pending(host, prev, min_pending=2, timeout=25)
     assert lw is not None and pending >= 2, (
-        f"FIXTURE: walk never reached >=2-pending mid-flight (pending={pending})")
+        f"S1-PRECOND: walk never reached >=2-pending mid-flight (pending={pending})")
     print(f"[walk] pending={pending} plannedLen={lw.get('plannedLen')} dest={dest}")
     return elevator, dest, lw, pending
 
