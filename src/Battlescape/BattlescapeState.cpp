@@ -96,6 +96,7 @@
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopGhost.h"
 #include "../CoopMod/CoopEndTurn.h"
+#include "../CoopMod/CoopSpeed.h"
 
 namespace OpenXcom
 {
@@ -3188,34 +3189,48 @@ inline void BattlescapeState::handle(Action *action)
 				// "ctrl-s" - switch xcom unit speed to max and back
 				else if (key == SDLK_s && ctrlPressed)
 				{
-					if (_save->getSide() == FACTION_PLAYER)
+					// SPEC 17 (W1-P18) M6: gated on the unit-less form of the
+					// input-command combinator (F373's quickModeAllowed()) -
+					// off-baton in traditional mode must not let this seat
+					// toggle the OTHER seat's dial out from under it. Vanilla
+					// body BYTE-IDENTICAL inside the else; SP/every non-coop
+					// battle takes it unconditionally (quickModeAllowed()
+					// is permissive there).
+					if (!CoopSpeed::quickModeAllowed(_save))
 					{
-						if (Options::battleXcomSpeedOrig >= 1 && Options::battleXcomSpeedOrig <= 40)
-						{
-							Options::battleXcomSpeed = Options::battleXcomSpeedOrig;
-							Options::battleXcomSpeedOrig = -1;
-							warning("STR_QUICK_MODE_DEACTIVATED");
-						}
-						else
-						{
-							Options::battleXcomSpeedOrig = Options::battleXcomSpeed;
-							Options::battleXcomSpeed = 1;
-							warningLongRaw(tr("STR_QUICK_MODE_ACTIVATED"));
-						}
+						CoopSpeed::noteQuickModeIgnored();
 					}
 					else
 					{
-						if (Options::battleAlienSpeedOrig >= 1 && Options::battleAlienSpeedOrig <= 40)
+						if (_save->getSide() == FACTION_PLAYER)
 						{
-							Options::battleAlienSpeed = Options::battleAlienSpeedOrig;
-							Options::battleAlienSpeedOrig = -1;
-							warning("STR_QUICK_MODE_DEACTIVATED");
+							if (Options::battleXcomSpeedOrig >= 1 && Options::battleXcomSpeedOrig <= 40)
+							{
+								Options::battleXcomSpeed = Options::battleXcomSpeedOrig;
+								Options::battleXcomSpeedOrig = -1;
+								warning("STR_QUICK_MODE_DEACTIVATED");
+							}
+							else
+							{
+								Options::battleXcomSpeedOrig = Options::battleXcomSpeed;
+								Options::battleXcomSpeed = 1;
+								warningLongRaw(tr("STR_QUICK_MODE_ACTIVATED"));
+							}
 						}
 						else
 						{
-							Options::battleAlienSpeedOrig = Options::battleAlienSpeed;
-							Options::battleAlienSpeed = 1;
-							warning("STR_QUICK_MODE_ACTIVATED");
+							if (Options::battleAlienSpeedOrig >= 1 && Options::battleAlienSpeedOrig <= 40)
+							{
+								Options::battleAlienSpeed = Options::battleAlienSpeedOrig;
+								Options::battleAlienSpeedOrig = -1;
+								warning("STR_QUICK_MODE_DEACTIVATED");
+							}
+							else
+							{
+								Options::battleAlienSpeedOrig = Options::battleAlienSpeed;
+								Options::battleAlienSpeed = 1;
+								warning("STR_QUICK_MODE_ACTIVATED");
+							}
 						}
 					}
 				}
