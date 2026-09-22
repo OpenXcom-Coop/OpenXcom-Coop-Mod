@@ -27,6 +27,7 @@
 #include "../Engine/Options.h"
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/CoopDoor.h"
+#include "../CoopMod/CoopSpeed.h"
 
 namespace OpenXcom
 {
@@ -62,9 +63,9 @@ void UnitTurnBState::init()
 	}
 	_action.clearTU();
 	if (_unit->getFaction() == FACTION_PLAYER)
-		_parent->setStateInterval(Options::battleXcomSpeed);
+		_parent->setStateInterval(CoopSpeed::xcomSpeedFor(_unit));
 	else
-		_parent->setStateInterval(Options::battleAlienSpeed);
+		_parent->setStateInterval(CoopSpeed::alienSpeedFor(_unit));
 
 	// if the unit has a turret and we are turning during targeting, then only the turret turns
 	_turret = _unit->getTurretType() != -1 && (_action.targeting || _action.strafe);

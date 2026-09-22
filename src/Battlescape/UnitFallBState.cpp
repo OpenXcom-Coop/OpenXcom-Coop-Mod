@@ -28,6 +28,7 @@
 #include "../Engine/Options.h"
 #include "../Mod/Armor.h"
 #include "../Mod/Mod.h"
+#include "../CoopMod/CoopSpeed.h"
 
 namespace OpenXcom
 {
@@ -56,9 +57,9 @@ void UnitFallBState::init()
 {
 	_terrain = _parent->getTileEngine();
 	if (_parent->getSave()->getSide() == FACTION_PLAYER)
-		_parent->setStateInterval(Options::battleXcomSpeed);
+		_parent->setStateInterval(CoopSpeed::xcomSpeedFor(nullptr));
 	else
-		_parent->setStateInterval(Options::battleAlienSpeed);
+		_parent->setStateInterval(CoopSpeed::alienSpeedFor(nullptr));
 
 }
 

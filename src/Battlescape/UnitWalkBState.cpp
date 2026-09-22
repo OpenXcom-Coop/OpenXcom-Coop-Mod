@@ -36,6 +36,7 @@
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/CoopDoor.h"
 #include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopSpeed.h"
 
 namespace OpenXcom
 {
@@ -609,9 +610,9 @@ void UnitWalkBState::postPathProcedures()
 void UnitWalkBState::setNormalWalkSpeed()
 {
 	if (_unit->getFaction() == FACTION_PLAYER)
-		_parent->setStateInterval(Options::battleXcomSpeed);
+		_parent->setStateInterval(CoopSpeed::xcomSpeedFor(_unit));
 	else
-		_parent->setStateInterval(Options::battleAlienSpeed);
+		_parent->setStateInterval(CoopSpeed::alienSpeedFor(_unit));
 }
 
 
