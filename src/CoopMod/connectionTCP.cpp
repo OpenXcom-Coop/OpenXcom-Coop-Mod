@@ -10408,6 +10408,10 @@ void onBlobChunkAppended(Game* game)
 	// call above reset the mirror to the D-26 default.
 	coopBattleAuthority().turnMode = coopTurnModeFromString(g_pendingClient.turnMode);
 	coopBattleAuthority().phase = CoopBattlePhase::Active;
+	// SPEC 17 (W1-P18) M3: this CLIENT's Active-transition seed - the per-
+	// battle point for both a fresh join and a SPEC-16 rejoin (this path
+	// does not run resetBattleAuthority()).
+	CoopSpeed::onClientActive();
 
 	// W1-P8 (SS2.W4 dual-set / WV-D31): allocate the HOSTILE-side reveal set,
 	// EMPTY, at the same lifecycle point the host does. Both machines therefore
@@ -10817,6 +10821,10 @@ void onReady(Game* game, const Json::Value& ready)
 	// thing battle admission actually gates (CoopArbiter::onIntent's
 	// isCoopBattle() check) and does not touch the state stack at all.
 	coopBattleAuthority().phase = CoopBattlePhase::Active;
+	// SPEC 17 (W1-P18) M3: the HOST's Active-transition broadcast - the ONE
+	// site common to both a fresh battle and a SPEC-16 resumed one, so the
+	// first battle_speed_seats table goes out right after Active either way.
+	CoopSpeed::tableChanged();
 	if (wasResumed)
 	{
 		// SPEC 16 M5: the rejoin succeeded - resume admission. M1 latched
@@ -12498,6 +12506,14 @@ void connectionTCP::updateCoopTask()
 	// itself (battle_roster_contrib) - a SEPARATE guest seated on a peer
 	// craft must reach the host BEFORE the craft-landing entry merges it.
 	sendGuestRosterContrib();
+	// SPEC 17 (W1-P18) M3: same per-tick discipline - report/republish this
+	// machine's own speed dials whenever they (or the table) actually
+	// change. No-op outside a coop battle (isCoopBattle() guard, both here
+	// and inside onLocalChanged() itself).
+	if (isCoopBattle())
+	{
+		CoopSpeed::onLocalChanged();
+	}
 
 	if (connectionTCP::saveError == true)
 	{
@@ -14593,6 +14609,25 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// R4-P1 (SS2.7): client-inbound.
 			CoopHandshake::onOffer(_game, obj);
 		}
+		else if (stateString == "battle_speed_seats")
+		{
+			// SPEC 17 (W1-P18) M3: client-inbound. The host's full
+			// connected+valid seat table (CoopSpeed::tableChanged()).
+			// Self-guarded exactly like battle_leave below: battleId must
+			// match this battle, phase must still be Handshake/Active, and
+			// the carried seq must be newer than what this machine already
+			// holds (a stale/out-of-order copy is dropped silently - the
+			// next real change resends anyway).
+			const BattleAuthority& a = coopBattleAuthority();
+			const CoopBattlePhase ph = a.phase.load();
+			const bool phaseOk = ph == CoopBattlePhase::Handshake || ph == CoopBattlePhase::Active;
+			const std::uint32_t battleId = obj.get("battleId", 0u).asUInt();
+			const std::uint32_t wireSeq = obj.get("seq", 0u).asUInt();
+			if (phaseOk && battleId == a.battleId.load() && wireSeq > CoopSpeed::seq())
+			{
+				CoopSpeed::applySeats(wireSeq, obj["seats"]);
+			}
+		}
 		else if (stateString == "battle_accept")
 		{
 			// R4-P1 (SS2.7): host-inbound.
@@ -14621,6 +14656,37 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (isCoopBattle())
 			{
 				coopBattleAuthority().peerLeftByChoice = true;
+			}
+		}
+		else if (stateString == "battle_speed_report")
+		{
+			// SPEC 17 (W1-P18) M3: host-inbound. A client's own speed dials,
+			// sent whenever they change (CoopSpeed::onLocalChanged()). Direct
+			// dispatch, HOST only - self-guarded the same way
+			// battle_roster_contrib below is. battleId must match this
+			// battle and phase must still be Handshake/Active; anything else
+			// (a stray/late/wrong-battle packet) is dropped, logged ONCE per
+			// battle (CoopSpeed::noteReportDropOnce()) rather than per
+			// message.
+			if (getServerOwner())
+			{
+				const BattleAuthority& a = coopBattleAuthority();
+				const CoopBattlePhase ph = a.phase.load();
+				const bool phaseOk = ph == CoopBattlePhase::Handshake || ph == CoopBattlePhase::Active;
+				const std::uint32_t battleId = obj.get("battleId", 0u).asUInt();
+				if (phaseOk && battleId == a.battleId.load())
+				{
+					const int seat = obj.get("seat", -1).asInt();
+					CoopSpeed::applyReport(seat, CoopSpeed::Triple{ obj.get("xcom", 0).asInt(),
+						obj.get("alien", 0).asInt(), obj.get("fire", 0).asInt() });
+					CoopSpeed::tableChanged();
+				}
+				else if (CoopSpeed::noteReportDropOnce())
+				{
+					Log(LOG_WARNING) << "[coop-speed] SPEC17 M3: battle_speed_report dropped "
+						"(battleId=" << battleId << ", expected " << a.battleId.load()
+						<< ", phase=" << (int)ph << ")";
+				}
 			}
 		}
 		else if (stateString == "battle_roster_contrib")

@@ -49,8 +49,10 @@ namespace CoopWire
 /// battle-handshake kinds (battle_offer/battle_accept/battle_refuse/
 /// battle_ready) or SPEC 16 (W1-P17) M4's graceful-leave kind
 /// (battle_leave), or SPEC 19 (W1-P20) M2 Branch B's guest-roster census kind
-/// (battle_roster_contrib). bt_desync (client->host) is also a "bt_" kind and
-/// therefore routes to the battle lane.
+/// (battle_roster_contrib), or SPEC 17 (W1-P18) M3's per-seat animation-pacing
+/// kinds (battle_speed_report/battle_speed_seats - SESSION-LEVEL, G1: never
+/// bt_ev, never seq-ordered, never hashed). bt_desync (client->host) is also
+/// a "bt_" kind and therefore routes to the battle lane.
 inline bool isBattleKind(const std::string& state)
 {
 	static const std::string kPrefix = "bt_";
@@ -60,7 +62,8 @@ inline bool isBattleKind(const std::string& state)
 	}
 	return state == "battle_offer" || state == "battle_accept" ||
 		state == "battle_refuse" || state == "battle_ready" ||
-		state == "battle_leave" || state == "battle_roster_contrib";
+		state == "battle_leave" || state == "battle_roster_contrib" ||
+		state == "battle_speed_report" || state == "battle_speed_seats";
 }
 
 /// SS2.1: bt_ev and bt_action_end are the seq-ordered apply-queue kinds;
@@ -202,6 +205,41 @@ inline Json::Value makeRosterContrib(int seat, int baseId, int craftId, const ch
 		arr.append(yaml);
 	}
 	obj["soldiers"] = arr;
+	return obj;
+}
+
+/// battle_speed_report {state, battleId:uint, seat:int, xcom:int, alien:int,
+/// fire:int} (SPEC 17 W1-P18 M3). Client->host, battle lane, NOT seq-ordered,
+/// NEVER hashed (G1: session-level only, nothing per-event). Sent from
+/// CoopSpeed::onLocalChanged() whenever this CLIENT's own
+/// battleXcomSpeed/battleAlienSpeed/battleFireSpeed dials change (or have
+/// never been reported yet this battle). @a seat is the sender's own seat.
+inline Json::Value makeSpeedReport(uint32_t battleId, int seat, int xcom, int alien, int fire)
+{
+	Json::Value obj(Json::objectValue);
+	obj["state"] = "battle_speed_report";
+	obj["battleId"] = battleId;
+	obj["seat"] = seat;
+	obj["xcom"] = xcom;
+	obj["alien"] = alien;
+	obj["fire"] = fire;
+	return obj;
+}
+
+/// battle_speed_seats {state, battleId:uint, seq:uint,
+/// seats:[{seat:int,xcom:int,alien:int,fire:int}...]} (SPEC 17 W1-P18 M3).
+/// Host->client(s), battle lane, NOT seq-ordered, NEVER hashed. The FULL
+/// table of every seat CoopSpeed considers connected+valid right now
+/// (including the reporting client's own entry mirrored straight back).
+/// Sent from CoopSpeed::tableChanged() (HOST only) whenever the table
+/// changes; @a seq lets a client ignore a stale/out-of-order copy.
+inline Json::Value makeSpeedSeats(uint32_t battleId, uint32_t seq, const Json::Value& seats)
+{
+	Json::Value obj(Json::objectValue);
+	obj["state"] = "battle_speed_seats";
+	obj["battleId"] = battleId;
+	obj["seq"] = seq;
+	obj["seats"] = seats;
 	return obj;
 }
 
