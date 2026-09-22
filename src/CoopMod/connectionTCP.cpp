@@ -92,6 +92,7 @@
 #include "CoopGhost.h"
 #include "CoopSideTransition.h"
 #include "CoopEndTurn.h"
+#include "CoopSpeed.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -2536,6 +2537,9 @@ void resetBattleAuthority()
 		entry.soldiers.clear();
 	}
 	g_guestContribLastSentCount = 0;
+	// SPEC 17 (W1-P18) M1: the per-seat speed table is battle-scoped state
+	// too - a new battle must never inherit the previous one's dials.
+	CoopSpeed::reset();
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -8648,6 +8652,245 @@ void coopGrayBottomBar(SDL_Surface* surface, int x, int y, int w, int h)
 }
 
 } // namespace CoopBattleUi
+
+// ---------------------------------------------------------------------------
+// SPEC 17 (W1-P18): per-seat animation pacing. Declared in CoopSpeed.h;
+// storage + bodies live here, OUTSIDE the RW-REPLAY-REGION markers above
+// (this mechanism reads/writes real state - the table, the wire sends - not
+// a display-only replay, so it must NOT be inside that lint-guarded region).
+// G1 (binding): nothing here ever puts per-event timing on the wire; the two
+// wire kinds this region's onLocalChanged()/tableChanged() send are
+// SESSION-LEVEL (battle_speed_report/battle_speed_seats, BattleWire.h),
+// never bt_ev, never seq-ordered, never hashed.
+// ---------------------------------------------------------------------------
+namespace CoopSpeed
+{
+
+Triple g_seat[kMaxSeats];
+bool g_seatValid[kMaxSeats] = { false, false, false, false };
+std::uint32_t g_seq = 0;
+
+Triple g_lastSentLocal{ 0, 0, 0 };
+bool g_lastSentValid = false;
+
+unsigned g_reportsSent = 0;
+unsigned g_tablesRecv = 0;
+unsigned g_quickModeIgnored = 0;
+bool g_hostReportDropWarned = false;
+
+LastRead g_lastRead{ (int)Xcom, 0, -1 };
+
+Triple localTriple()
+{
+	return Triple{ Options::battleXcomSpeed, Options::battleAlienSpeed, Options::battleFireSpeed };
+}
+
+// W1-P18: non-static byte-equivalent hoist of coopEndTurnSeatConnected
+// (connectionTCP.cpp:6308) - that helper is `static` (TU-local linkage) so
+// this namespace needs its own copy of the same CONNECTED predicate.
+bool coopSeatConnected(int seat)
+{
+	if (seat == 0)
+		return true;
+	return connectionTCP::session.clientInLobby;
+}
+
+Triple floor()
+{
+	bool any = false;
+	Triple t{ 0, 0, 0 };
+	for (int s = 0; s < kMaxSeats; ++s)
+	{
+		if (!coopSeatConnected(s) || !g_seatValid[s])
+			continue;
+		if (!any)
+		{
+			t = g_seat[s];
+			any = true;
+		}
+		else
+		{
+			t.xcom = std::max(t.xcom, g_seat[s].xcom);
+			t.alien = std::max(t.alien, g_seat[s].alien);
+			t.fire = std::min(t.fire, g_seat[s].fire);
+		}
+	}
+	if (!any)
+		return localTriple();
+	return t;
+}
+
+int speedFor(const BattleUnit* u, Which w)
+{
+	Triple t;
+	int seat = -1;
+	if (!isCoopBattle())
+	{
+		t = localTriple();
+	}
+	else if (u && (int)u->getCoopSeat() != COOP_SEAT_NONE && g_seatValid[(int)u->getCoopSeat()])
+	{
+		seat = (int)u->getCoopSeat();
+		t = g_seat[seat];
+	}
+	else
+	{
+		t = floor();
+	}
+	const int value = (w == Xcom) ? t.xcom : (w == Alien) ? t.alien : t.fire;
+	g_lastRead = LastRead{ (int)w, value, seat };
+	return value;
+}
+
+int xcomSpeedFor(const BattleUnit* u) { return speedFor(u, Xcom); }
+int alienSpeedFor(const BattleUnit* u) { return speedFor(u, Alien); }
+int fireSpeedFor(const BattleUnit* u) { return speedFor(u, Fire); }
+
+void tableChanged()
+{
+	++g_seq;
+	Json::Value seats(Json::arrayValue);
+	for (int s = 0; s < kMaxSeats; ++s)
+	{
+		if (!coopSeatConnected(s) || !g_seatValid[s])
+			continue;
+		Json::Value entry(Json::objectValue);
+		entry["seat"] = s;
+		entry["xcom"] = g_seat[s].xcom;
+		entry["alien"] = g_seat[s].alien;
+		entry["fire"] = g_seat[s].fire;
+		seats.append(entry);
+	}
+	Json::Value msg = CoopWire::makeSpeedSeats(coopBattleAuthority().battleId.load(), g_seq, seats);
+	enqueueTx(msg.toStyledString());
+}
+
+void onLocalChanged()
+{
+	if (!isCoopBattle())
+		return;
+	if (localTriple() != g_lastSentLocal || !g_lastSentValid)
+	{
+		if (connectionTCP::getServerOwner())
+		{
+			g_seat[0] = localTriple();
+			g_seatValid[0] = true;
+			tableChanged();
+		}
+		else
+		{
+			const Triple t = localTriple();
+			Json::Value msg = CoopWire::makeSpeedReport(coopBattleAuthority().battleId.load(),
+				coopBattleAuthority().localSeat.load(), t.xcom, t.alien, t.fire);
+			enqueueTx(msg.toStyledString());
+			++g_reportsSent;
+		}
+		g_lastSentLocal = localTriple();
+		g_lastSentValid = true;
+	}
+}
+
+void reset()
+{
+	for (int s = 0; s < kMaxSeats; ++s)
+	{
+		g_seat[s] = Triple{ 0, 0, 0 };
+		g_seatValid[s] = false;
+	}
+	g_seq = 0;
+	g_lastSentLocal = Triple{ 0, 0, 0 };
+	g_lastSentValid = false;
+	g_reportsSent = 0;
+	g_tablesRecv = 0;
+	g_quickModeIgnored = 0;
+	g_hostReportDropWarned = false;
+	g_lastRead = LastRead{ (int)Xcom, 0, -1 };
+}
+
+bool quickModeAllowed(const SavedBattleGame* s)
+{
+	return !isCoopBattle() || (coopSideIsMine(s) && !CoopBattleUi::coopOffBatonGrayActive());
+}
+
+void noteQuickModeIgnored()
+{
+	++g_quickModeIgnored;
+}
+
+Triple seatTriple(int seat)
+{
+	if (seat < 0 || seat >= kMaxSeats)
+		return Triple{ 0, 0, 0 };
+	return g_seat[seat];
+}
+
+bool seatValid(int seat)
+{
+	if (seat < 0 || seat >= kMaxSeats)
+		return false;
+	return g_seatValid[seat];
+}
+
+std::uint32_t seq() { return g_seq; }
+
+LastRead lastRead() { return g_lastRead; }
+
+unsigned reportsSent() { return g_reportsSent; }
+unsigned tablesRecv() { return g_tablesRecv; }
+unsigned quickModeIgnored() { return g_quickModeIgnored; }
+
+bool synced()
+{
+	const int seat = coopBattleAuthority().localSeat.load();
+	if (seat < 0 || seat >= kMaxSeats || !g_seatValid[seat])
+		return false;
+	return g_seat[seat] == localTriple();
+}
+
+void onClientActive()
+{
+	g_lastSentValid = false;
+	const int seat = coopBattleAuthority().localSeat.load();
+	if (seat < 0 || seat >= kMaxSeats)
+		return;
+	g_seat[seat] = localTriple();
+	g_seatValid[seat] = true;
+}
+
+void applyReport(int seat, const Triple& t)
+{
+	if (seat < 0 || seat >= kMaxSeats)
+		return;
+	g_seat[seat] = t;
+	g_seatValid[seat] = true;
+}
+
+void applySeats(std::uint32_t seqIn, const Json::Value& seats)
+{
+	for (int s = 0; s < kMaxSeats; ++s)
+		g_seatValid[s] = false;
+	for (Json::ArrayIndex i = 0; i < seats.size(); ++i)
+	{
+		const int seat = seats[i].get("seat", -1).asInt();
+		if (seat < 0 || seat >= kMaxSeats)
+			continue;
+		g_seat[seat] = Triple{ seats[i].get("xcom", 0).asInt(), seats[i].get("alien", 0).asInt(),
+			seats[i].get("fire", 0).asInt() };
+		g_seatValid[seat] = true;
+	}
+	g_seq = seqIn;
+	++g_tablesRecv;
+}
+
+bool noteReportDropOnce()
+{
+	if (g_hostReportDropWarned)
+		return false;
+	g_hostReportDropWarned = true;
+	return true;
+}
+
+} // namespace CoopSpeed
 
 // ===== Geoscape sync conflation slot =====
 // One overwrite slot per snapshot channel (see CoopSnapSlot). The main thread
