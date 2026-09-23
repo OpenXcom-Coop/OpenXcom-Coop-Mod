@@ -1855,8 +1855,35 @@ def wait_walk_settled(host, client, prev_action_id, timeout=30):
                     and hw.get("active") is False and hw.get("restate")
                     and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
                     and cs.get("queueDepth") == 0 and hs.get("queueDepth") == 0)
-    client.wait_for("walk settled (a NEW host restate emitted, client caught up)",
-                    done, timeout=timeout)
+    try:
+        client.wait_for("walk settled (a NEW host restate emitted, client caught up)",
+                        done, timeout=timeout)
+    except Exception:
+        # F420 (D126, owner): on-timeout diagnostic ONLY. The poll gave up, so dump
+        # both machines and WHICH predicate sub-condition is unmet, then re-raise the
+        # original timeout. Fires ONLY on the failure path (zero effect on green runs);
+        # the window is UNCHANGED; this is NOT a second poll and NOT a masking wait -
+        # it captures the rare K=2 no-desync stall family (F419) for a future run.
+        _hs = event_state(host); _cs = event_state(client)
+        _hw = _hs.get("lastWalk") or {}; _cw = _cs.get("lastWalk") or {}
+        print("[F420 wait_walk_settled TIMEOUT] prev_action_id=%s" % prev_action_id, flush=True)
+        for _nm, _es, _lw in (("host", _hs, _hw), ("client", _cs, _cw)):
+            print("  [%s] ok=%s lastSeqApplied=%s lastSeqEmitted=%s queueDepth=%s "
+                  "lastWalk{actionId=%s active=%s restate=%s steps=%s}"
+                  % (_nm, _es.get("ok"), _es.get("lastSeqApplied"), _es.get("lastSeqEmitted"),
+                     _es.get("queueDepth"), _lw.get("actionId"), _lw.get("active"),
+                     bool(_lw.get("restate")), len(_lw.get("steps") or [])), flush=True)
+        _unmet = []
+        if not _hs.get("ok"): _unmet.append("host_not_ok")
+        if not _cs.get("ok"): _unmet.append("client_not_ok")
+        if _hw.get("actionId", 0) == prev_action_id: _unmet.append("host_no_new_walk(actionId==prev)")
+        if _hw.get("active") is not False: _unmet.append("host_walk_still_active")
+        if not _hw.get("restate"): _unmet.append("host_restate_missing")
+        if _cs.get("lastSeqApplied", 0) != _hs.get("lastSeqEmitted", 0): _unmet.append("client_behind(lastSeqApplied<lastSeqEmitted)")
+        if _cs.get("queueDepth") != 0: _unmet.append("client_queueDepth_stuck")
+        if _hs.get("queueDepth") != 0: _unmet.append("host_queueDepth_stuck")
+        print("  [F420] unmet sub-conditions: %s" % (_unmet or ["<none-race>"]), flush=True)
+        raise
 
 
 def send_walk(client, actor_id, dest, path=None, tu_basis=None, run=False,

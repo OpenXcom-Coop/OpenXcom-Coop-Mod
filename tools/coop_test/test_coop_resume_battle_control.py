@@ -362,6 +362,22 @@ def stage_alien_and_walk(host, client, walker_id):
     prev = session.walk_action_id(host)
     assert s16._click_walk(host, dest), "S1-PRECOND: map_tile_click_pos never verified (dest off-view)"
     lw, pending = s16._poll_walk_until_pending(host, prev, min_pending=2, timeout=25)
+    if lw is None:
+        # F420 (D126, owner): on-timeout diagnostic ONLY. The mid-walk-pending poll
+        # gave up (pending stayed < 2 within the window); dump the staging/walk state
+        # on BOTH machines before the assertion below fails. Fires ONLY on the failure
+        # path; the window is UNCHANGED; this is NOT a second poll and NOT a masking
+        # wait - it captures the rare K=2 no-desync stall family (F419) for a future run.
+        print("[F420 poll_walk_until_pending TIMEOUT] pending=%s prev_action_id=%s"
+              % (pending, prev), flush=True)
+        for _nm, _gc in (("host", host), ("client", client)):
+            _es = session.event_state(_gc); _lw = _es.get("lastWalk") or {}
+            _steps = _lw.get("steps") or []; _planned = _lw.get("plannedLen", 0)
+            print("  [%s] ok=%s lastSeqApplied=%s lastSeqEmitted=%s queueDepth=%s "
+                  "lastWalk{actionId=%s(prev=%s) active=%s plannedLen=%s steps=%s pending=%s}"
+                  % (_nm, _es.get("ok"), _es.get("lastSeqApplied"), _es.get("lastSeqEmitted"),
+                     _es.get("queueDepth"), _lw.get("actionId"), prev, _lw.get("active"),
+                     _planned, len(_steps), _planned - len(_steps)), flush=True)
     assert lw is not None and pending >= 2, (
         f"S1-PRECOND: walk never reached >=2-pending mid-flight (pending={pending})")
     print(f"[walk] pending={pending} plannedLen={lw.get('plannedLen')} dest={dest}")
