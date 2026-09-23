@@ -252,27 +252,6 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
 	// coop: transfer the hovered soldier to another player
 	_lstSoldiers->onKeyboardPress((ActionHandler)&SoldiersState::lstSoldiersGiveUnitPress, Options::giveUnit);
 
-
-	// Coop mode: if the game is in coop and this base is not a coop base
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
-	{
-		std::vector<Soldier*> coopSoldiers;
-
-		_base->base_oldsoldiers = *_base->getSoldiers();
-
-		for (auto* soldier : *_base->getSoldiers())
-		{
-			if (soldier->getCoopBase() == -1)
-			{
-				// Add all soldiers that do NOT belong to a coop base
-				coopSoldiers.push_back(soldier);
-			}
-		}
-
-		// Replace the contents of the original soldier list
-		*_base->getSoldiers() = coopSoldiers;
-	}
-
 }
 
 /**
@@ -438,8 +417,8 @@ void SoldiersState::initList(size_t scrl)
 	{
 		_lstSoldiers->setArrowColumn(188, ARROW_VERTICAL);
 
-		// Playtest: SHARED shows only the local player's own soldiers (non-destructive:
-		// filter a LOCAL copy, never mutate the shared roster). SEPARATE/solo unchanged.
+		// Both one-world campaign types show only the local player's soldiers.
+		// Filter a local copy: the authoritative unified roster is never mutated.
 		_filteredListOfSoldiers = SharedEcon::visibleSoldiers(_game, _base);
 	}
 	else
@@ -491,17 +470,6 @@ void SoldiersState::initList(size_t scrl)
 	unsigned int row = 0;
 	for (const auto* soldier : _filteredListOfSoldiers)
 	{
-
-		//  coop
-		if (soldier->getCoopBase() != -1 && _base->_coopBase == false && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true)
-		{
-			continue;
-		}
-
-		if (soldier->getCoopBase() == -1 && _base->_coopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
-		{
-			continue;
-		}
 
 		std::string craftString = soldier->getCraftString(_game->getLanguage(), recovery);
 
@@ -648,20 +616,6 @@ void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
  */
 void SoldiersState::btnOkClick(Action *)
 {
-
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
-	{
-		// coop
-		_filteredListOfSoldiers = _base->base_oldsoldiers;
-		*_base->getSoldiers() = _base->base_oldsoldiers;
-
-		_base->base_oldsoldiers.clear();
-
-	}
-
-
 	_game->popState();
 }
 
@@ -748,55 +702,9 @@ void SoldiersState::btnInventoryClick(Action *)
 			_game->getSavedGame()->setDisableSoldierEquipment(true);
 		}
 
-		// Issue #33 (own-base variant): coop "guest" soldiers stationed at this
-		// base are stripped from the editable roster (see the SoldiersState ctor),
-		// so they are not deployed for this inventory - but their equipment-layout
-		// items still sit in this base's storage and would otherwise show up as
-		// free/available on the ground pane. Pull those reserved items out of
-		// storage while runInventory builds the ground, then put them straight
-		// back. Base-mode runInventory never mutates storage, so the real save is
-		// left untouched.
-		std::vector<const RuleItem*> hiddenReserved;
-		if (_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getCoopCampaign() && _base->_coopBase == false)
-		{
-			for (auto* guest : _base->base_oldsoldiers)
-			{
-				if (guest->getCoopBase() == -1)
-				{
-					continue; // an editable own soldier - it is deployed normally
-				}
-				for (auto* layoutItem : *guest->getEquipmentLayout())
-				{
-					const RuleItem* itemRule = layoutItem->getItemType();
-					if (itemRule)
-					{
-						hiddenReserved.push_back(itemRule);
-					}
-					for (int ammoSlot = 0; ammoSlot < RuleItem::AmmoSlotMax; ++ammoSlot)
-					{
-						const RuleItem* ammoRule = layoutItem->getAmmoItemForSlot(ammoSlot);
-						if (ammoRule)
-						{
-							hiddenReserved.push_back(ammoRule);
-						}
-					}
-				}
-			}
-			for (const RuleItem* itemRule : hiddenReserved)
-			{
-				_base->getStorageItems()->removeItem(itemRule, 1);
-			}
-		}
-
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.setBase(_base);
 		bgen.runInventory(0);
-
-		// restore the reserved items pulled out above (see issue #33 note)
-		for (const RuleItem* itemRule : hiddenReserved)
-		{
-			_base->getStorageItems()->addItem(itemRule, 1);
-		}
 
 		// pre-select the soldier under the mouse cursor (if possible)
 		if (_availableOptions.empty() || _cbxScreenActions->getSelected() == 0)
@@ -846,8 +754,9 @@ void SoldiersState::lstSoldiersClick(Action *action)
 		}
 		else
 		{
-			// Playtest: the list is owner-filtered in SHARED, so the display row is NOT the
-			// base-roster index SoldierInfoState expects. Map it back to the real index.
+			// The list is owner-filtered in both one-world campaign types, so the
+			// display row is NOT the base-roster index SoldierInfoState expects. Map
+			// it back to the authoritative roster index.
 			size_t _row = _lstSoldiers->getSelectedRow();
 			int _baseIdx = (int)_row;
 			if (_row < _filteredListOfSoldiers.size())

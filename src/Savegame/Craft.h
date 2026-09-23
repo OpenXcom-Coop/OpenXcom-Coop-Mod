@@ -303,6 +303,8 @@ public:
 	int getSpaceAvailable() const;
 	/// Gets the amount of space used inside a craft.
 	int getSpaceUsed() const;
+	/// Gets soldier space used by one co-op owner seat.
+	int getSpaceUsedByOwner(int ownerSeat) const;
 	/// Checks if the commander is onboard.
 	bool isCommanderOnboard() const;
 	/// Checks if there are only permitted soldier types onboard.

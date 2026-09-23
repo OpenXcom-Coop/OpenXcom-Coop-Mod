@@ -56,6 +56,8 @@ private:
 	SharedEcon::ScreenRefresh _sharedRefresh;
 	/// Re-reads the shared world into the funds label / base view (PRD-J10).
 	void sharedRefresh();
+	/// Recalculate menu permissions whenever the displayed base changes.
+	void updateBaseAccessButtons();
 public:
 	/// Creates the Basescape state.
 	BasescapeState(Base *base, Globe *globe);
@@ -112,6 +114,11 @@ public:
 	/// Test automation: the funds header text (a constructor/init-time cache; only
 	/// changes when the screen is rebuilt, so it proves a live SHARED refresh landed).
 	std::string harnessFundsText() const;
+	/// Test automation: inspect the real Basescape menu after selecting a base.
+	bool harnessButtonVisible(const std::string &button) const;
+	std::string harnessBaseName() const;
+	bool harnessForeignBase() const;
+	int harnessMiniBorderColor(const std::string &baseName) const;
 };
 
 }

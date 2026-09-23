@@ -108,6 +108,8 @@ public:
 	int harnessSpaceUsed() const;
 	int harnessSpaceAvailable() const;
 	int harnessMaxUnits() const;
+	/// Local player's displayed use (SEPARATE) or combined use (other modes).
+	int displayedSpaceUsed() const;
 };
 
 }

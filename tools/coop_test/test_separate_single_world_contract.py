@@ -27,6 +27,8 @@ def main():
     battle = source("src/Savegame/SavedBattleGame.cpp")
     save = source("src/Savegame/SavedGame.cpp")
     basescape = source("src/Basescape/BasescapeState.cpp")
+    craft_info = source("src/Basescape/CraftInfoState.cpp")
+    craft = source("src/Savegame/Craft.cpp")
     cmake = source("src/CMakeLists.txt")
     save_ui = source("src/Menu/SaveGameState.cpp")
 
@@ -67,17 +69,37 @@ def main():
     assert 'pc.separateProtocol ? "separate_apply" : "shared_apply"' in econ
     assert 'pc.separateProtocol ? "separate_ok" : "shared_ok"' in econ
 
-    # A Separate player may mutate only named-owned bases, except for the two
-    # explicitly requested foreign-base services: buy and equip/rearm craft.
+    # The common command engine delegates Separate's foreign-base policy to the
+    # Separate module; the policy itself must not spread through SharedEcon.
     ownership = econ.split("Schema-3 SEPARATE policy", 1)[1]
     ownership = ownership.split("int64_t cost", 1)[0]
     assert "base->isOwnedByPlayer(playerName)" in ownership
-    assert 'pc.cmd == "buy"' in ownership
-    assert 'pc.cmd == "craft_equip"' in ownership
-    assert 'pc.cmd == "craft_rearm"' in ownership
+    assert "SeparateEcon::allowsForeignBaseCommand" in ownership
     assert 'pc.cmd == "fac_build"' not in ownership
+    separate_policy = separate.split("bool allowsForeignBaseCommand", 1)[1].split(
+        "bool validateCraftAssign", 1)[0]
+    assert 'cmd == "buy"' in separate_policy
+    assert 'cmd == "craft_equip"' in separate_policy
+    assert 'cmd == "craft_rearm"' in separate_policy
+    assert 'cmd == "craft_assign"' in separate_policy
+    assert 'cmd == "transfer_arrived"' in separate_policy
+    assert "!remote" in separate_policy
     assert "save->getBases()->size() >= 8" in econ
     assert "getBases()->size() < MiniBaseView::MAX_BASES" in basescape
+    assert "SharedEcon::ownsSoldier(_game, soldier)" in craft_info
+    separate_capacity = craft.split("if (connectionTCP::isSeparateCampaignStatic())", 1)[1]
+    separate_capacity = separate_capacity.split("// coop", 1)[0]
+    assert "getMaxUnitsClamped() / 2" in separate_capacity
+    assert "getSpaceUsedByOwner(connectionTCP::localSeat())" in separate_capacity
+    separate_validation = separate.split("bool validateCraftAssign", 1)[1].split(
+        "void submitCraftEquip", 1)[0]
+    assert "getMaxUnitsClamped() / 2" in separate_validation
+    assert "getSpaceUsedByOwner(seat)" in separate_validation
+    assert "soldier->getOwnerPlayerId() != seat" in separate_validation
+    separate_assign = separate.split("void submitCraftAssign", 1)[1].split(
+        "void submitSoldierArmor", 1)[0]
+    assert 'p["onOff"] = onOff' in separate_assign
+    assert 'p["soldierOwner"] = soldier->getOwnerPlayerId()' in separate_assign
     assert "CoopMod/SeparateEcon.cpp" in cmake
     assert "Savegame/Upgrade/SchemaStep2to3.cpp" in cmake
 
@@ -107,6 +129,15 @@ def main():
 
     soldier = source("src/Savegame/Soldier.cpp")
     assert "base->_coopBase == true && base->getOwnerPlayerName().empty()" in soldier
+    assert "coop->isSharedCampaign() || coop->isSeparateCampaign()" in econ
+    separate_ownership = tcp.split("void connectionTCP::refreshSeparateBaseOwnership", 1)[1]
+    separate_ownership = separate_ownership.split("void connectionTCP::setCoopCampaign", 1)[0]
+    assert "soldier->getOwnerPlayerId() == 999" in separate_ownership
+    assert "soldier->setOwnerPlayerId(ownerSeat)" in separate_ownership
+    assert "seatName(seat) == base->getOwnerPlayerName()" in separate_ownership
+    lobby = source("src/CoopMod/LobbyMenu.cpp")
+    host_initial = lobby.split("setOwnerPlayerName(_game->getCoopMod()->getHostName())", 1)[1]
+    assert "refreshSeparateBaseOwnership();" in host_initial
     saved_game = source("src/Savegame/SavedGame.cpp")
     maintenance = saved_game.split("int SavedGame::getBaseMaintenance() const", 1)[1].split(
         "std::vector<Ufo*> *SavedGame::getUfos", 1)[0]
@@ -142,21 +173,99 @@ def main():
     assert 'writer.write("battleOwnerPlayerName"' in battle
     assert "setBattleOwnerPlayerName(_craft->getBase()->getOwnerPlayerName())" in landing
 
-    funding = save.split("int SavedGame::getPlayerFundingShare", 1)[1]
-    funding = funding.split("int SavedGame::getCountryFunding", 1)[0] \
-        if "int SavedGame::getCountryFunding" in funding else funding
-    assert "_coopPlayers.size()" in funding
-    assert "CoopCampaignType::Separate" in funding
-    assert "getOwnerPlayerName().empty()" in funding
-    assert "globalFunding / players" in funding
+    country_funding = save.split("int SavedGame::getCountryFunding", 1)[1].split(
+        "int SavedGame::getPlayerIncomeShare", 1)[0]
+    assert "country->getFunding().back()" in country_funding
+    assert "getPlayerIncomeShare" not in country_funding
+    income_share = save.split("int SavedGame::getPlayerIncomeShare", 1)[1].split(
+        "std::vector<Region*> *SavedGame::getRegions", 1)[0]
+    assert "_coopPlayers.size()" in income_share
+    assert "CoopCampaignType::Separate" in income_share
+    assert "globalIncome / players" in income_share
+    funding_ui = source("src/Geoscape/FundingState.cpp")
+    assert "getPlayerIncomeShare" not in funding_ui
+    monthly = source("src/Geoscape/MonthlyReportState.cpp")
+    assert "getPlayerIncomeShare(_game->getSavedGame()->getCountryFunding())" in monthly
+    settled_start = source("src/Geoscape/GeoscapeState.cpp").split(
+        "PRD-J02: host-authoritative campaign start", 1)[1].split(
+        "void GeoscapeState::think", 1)[0]
+    assert "if (_game->getCoopMod()->isSharedCampaign())" in settled_start
+    assert "new CoopState(COOP_DLG_WAIT_PLAYERS)" in settled_start
+    session_source = source("tools/coop_test/session.py")
+    separate_start = session_source.split("# SEPARATE: the client contributes", 1)[1].split(
+        "# session up:", 1)[0]
+    assert '"single Separate wait dialog only"' in separate_start
+    assert 'host.ok({"cmd": "coop_dialog_back"})' not in separate_start.split(
+        '"client settled-world ack"', 1)[1]
+
+    # Basescape must recompute foreign access after a mini-base switch, not
+    # merely once in its constructor. A foreign globe marker bypasses the
+    # craft/intercept menu and opens the restricted Basescape view directly.
+    assert "void BasescapeState::updateBaseAccessButtons()" in basescape
+    assert "connectionTCP::seatName(connectionTCP::localSeat())" in basescape
+    assert "_btnFacilities->setVisible(false);" in basescape
+    assert "_btnCrafts->setVisible(true);" in basescape
+    targets = source("src/Geoscape/MultipleTargetsState.cpp")
+    foreign_route = targets.split(
+        "Shared and Separate campaigns keep every real base", 1)[1].split(
+        "else if (c != 0)", 1)[0]
+    assert "isSeparateCampaign()" in foreign_route
+    assert "isOwnedByPlayer" in foreign_route
+    assert "new BasescapeState" in foreign_route
+    assert "new InterceptState" in foreign_route
+    mini = source("src/Basescape/MiniBaseView.cpp")
+    assert "Uint8 MiniBaseView::getBaseBorderColor" in mini
+    assert "_bases->at(base)->_coopBase" in mini
+    assert "_foreignBorder(247)" in mini
+    assert "if (base == _base)" in mini
+    bases_button = geoscape.split("void GeoscapeState::btnBasesClick", 1)[1].split(
+        "void GeoscapeState::btnGraphsClick", 1)[0]
+    assert "isSeparateCampaign()" in bases_button
+    assert "isOwnedByPlayer(localName)" in bases_button
+    assert "selectableBases.front()" in bases_button
+
+    craft_info = source("src/Geoscape/GeoscapeCraftState.cpp")
+    assert "foreignSeparateCraft" in craft_info
+    assert "craftBase->isOwnedByPlayer" in craft_info
+    globe = source("src/Geoscape/Globe.cpp")
+    assert "bool Globe::isCraftFlightVisible" in globe
+    assert "bool Globe::isWaypointVisible" in globe
+    flight_draw = globe.split("void Globe::drawFlights()", 1)[1].split(
+        "void Globe::drawDetail", 1)[0]
+    assert "isCraftFlightVisible(xcraft)" in flight_draw
+    marker_draw = globe.split("void Globe::drawMarkers()", 1)[1].split(
+        "bool Globe::isCraftFlightVisible", 1)[0]
+    assert "isWaypointVisible(wp)" in marker_draw
+    waypoint_clicks = globe.split("std::vector<Target*> Globe::getTargets", 1)[1].split(
+        "void Globe::cachePolygons", 1)[0]
+    assert "isWaypointVisible(wp)" in waypoint_clicks
+
+    soldiers_ui = source("src/Basescape/SoldiersState.cpp")
+    craft_soldiers_ui = source("src/Basescape/CraftSoldiersState.cpp")
+    for roster_ui in (soldiers_ui, craft_soldiers_ui):
+        assert "legacyMirrorRoster" not in roster_ui
+        assert "base_oldsoldiers" not in roster_ui
+    base_header = source("src/Savegame/Base.h")
+    assert "base_oldsoldiers" not in base_header
+    assert "base_oldsoldiers" not in tcp
+    arriving = source("src/Geoscape/ItemsArrivingState.cpp")
+    assert "transfer->getHours() <= 0" in arriving
+    transfer = source("src/Savegame/Transfer.cpp")
+    advance = transfer.split("void Transfer::advance", 1)[1].split(
+        "Soldier *Transfer::getSoldier", 1)[0]
+    assert "if (_delivered)" in advance
 
     print("PASS: single-world SEPARATE battle authority stays on the server host")
     print("PASS: client landing answers use the broker; legacy blob merge is bypassed")
     print("PASS: battle ownership persists by the craft base owner's player name")
-    print("PASS: legacy SEPARATE funding is divided; schema-3 single-world funding is not")
+    print("PASS: Monthly Report income is split while country funding stays unchanged")
     print("PASS: SEPARATE wire protocol and foreign-base command allow-list are isolated")
     print("PASS: the eight-base ceiling is global in UI and host validation")
     print("PASS: legacy per-player world/base/save packets are blocked in schema-3")
+    print("PASS: BASES selects an own base and foreign mini-base borders stay purple")
+    print("PASS: foreign bases refresh restricted menus and globe clicks open Basescape")
+    print("PASS: foreign craft info is read-only and its route remains private")
+    print("PASS: foreign-base personnel arrivals leave transit and remain visible")
 
 
 if __name__ == "__main__":

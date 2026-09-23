@@ -43,6 +43,7 @@ private:
 	size_t _craftId;
 	Craft *_craft;
 	int _weaponNum;
+	int _visibleCrewCount;
 
 	TextButton *_btnOk, *_btnW[RuleCraft::WeaponMax], *_btnCrew, *_btnEquip, *_btnArmor, *_btnPilots, *_btnNewBattle;
 	Window *_window;
@@ -83,6 +84,8 @@ public:
 	void btnPilotsClick(Action *action);
 	/// Handler for changing the text on the Name edit.
 	void edtCraftChange(Action *action);
+	/// Test-only view of the crew icons rendered for this local player.
+	int harnessVisibleCrewCount() const { return _visibleCrewCount; }
 };
 
 }

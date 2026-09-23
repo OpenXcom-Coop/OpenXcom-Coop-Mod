@@ -19,6 +19,7 @@
  */
 
 #include "SharedEcon.h"
+#include "SeparateEcon.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1869,22 +1870,28 @@ void craftPatrolApply(Game* game, Json::Value& payload, Base* base, int seat)
 // regardless of arrival order (last-write-wins, like the craft orders). Vehicles
 // are covered by the same craft space accounting (getSpaceAvailable counts unit
 // size); a dedicated vehicle assign command was not needed for the AC.
-Soldier* findSoldierAtBase(Base* base, int id)
+Soldier* findSoldierAtBase(Base* base, int id, int owner = -1)
 {
 	if (!base) return nullptr;
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) return s;
+		if (s->getId() == id && (owner < 0 || s->getOwnerPlayerId() == owner)) return s;
 	return nullptr;
 }
 
-bool craftAssignValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+bool craftAssignValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                          int64_t& cost, std::string& failReason)
 {
+	if (game && game->getSavedGame()
+		&& game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+		return SeparateEcon::validateCraftAssign(
+			game, payload, base, seat, cost, failReason);
+
 	cost = 0; // no funds effect; broadcast still carries authoritative getFunds()
 	if (!base) { failReason = "base not found"; return false; }
 	Craft* craft = resolveOrderCraft(game, payload, base);
 	if (!craft) { failReason = "craft not found"; return false; }
-	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt());
+	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt(),
+		payload.get("soldierOwner", -1).asInt());
 	if (!s) { failReason = "soldier not found"; return false; }
 	const bool onOff = payload.get("onOff", false).asBool();
 	// A craft already OUT on a mission is locked (vanilla lstSoldiersClick).
@@ -1905,7 +1912,8 @@ void craftAssignApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 {
 	if (!base) return;
 	Craft* craft = resolveOrderCraft(game, payload, base);
-	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt());
+	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt(),
+		payload.get("soldierOwner", -1).asInt());
 	if (!craft || !s) return;
 	const bool onOff = payload.get("onOff", false).asBool();
 	const bool newBattle = game->getSavedGame()->getMonthsPassed() == -1;
@@ -2669,20 +2677,27 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 
 	Base* base = resolveBase(game, pc.baseId);
 	// Schema-3 SEPARATE policy is intentionally stricter than SHARED.  A seat may
-	// mutate only bases carrying its player name.  The two explicit foreign-base
-	// exceptions are the agreed co-op services: purchasing into that base and
-	// equipping/rearming a craft stationed there.  Keep this host-side so a stale
-	// or modified client UI can never bypass ownership.
+	// mutate only bases carrying its player name. The explicit player-facing
+	// foreign-base exceptions are the agreed co-op services: purchasing into that
+	// base and equipping/rearming a craft stationed there. Host simulation results
+	// are not player actions: they must reach every replica even when the affected
+	// base belongs to another player (most visibly transfer_arrived, which removes
+	// an arrived soldier from the replica's Transfers list). Keep the distinction
+	// host-side so a stale or modified client UI can never bypass ownership.
 	if (pc.separateProtocol && base && game && game->getSavedGame()
 		&& game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
 	{
 		const std::string playerName = connectionTCP::seatName(pc.seat);
 		const bool foreign = !base->isOwnedByPlayer(playerName);
-		const bool foreignAllowed = pc.cmd == "buy"
-			|| pc.cmd == "craft_equip" || pc.cmd == "craft_rearm";
+		const bool foreignAllowed = SeparateEcon::allowsForeignBaseCommand(
+			pc.cmd, pc.remote);
 		if (foreign && !foreignAllowed)
 		{
-			rejectHostCmd(game, pc, "This base belongs to " + base->getOwnerPlayerName());
+			// Normal Separate UI permissions prevent this action. Keep the host-side
+			// security boundary, but the obsolete per-player-world ownership dialog
+			// and its wire response no longer exist.
+			++g_failN;
+			setLastFail("foreign base command rejected");
 			return;
 		}
 	}
@@ -3357,6 +3372,7 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff)
 	p["craftId"] = craft->getId();
 	p["craftType"] = craft->getRules()->getType();
 	p["soldierId"] = soldier->getId();
+	p["soldierOwner"] = soldier->getOwnerPlayerId();
 	p["onOff"] = onOff;
 	submitLocalCmd(game, "craft_assign", craftBaseIndex(game, craft), p);
 }
@@ -3495,7 +3511,8 @@ bool ownsSoldier(Game* game, const Soldier* soldier)
 {
 	if (!game || !soldier) return false;
 	connectionTCP* coop = game->getCoopMod();
-	if (!coop || !coop->isSharedCampaign()) return true; // solo/SEPARATE: not owner-gated
+	if (!coop || !(coop->isSharedCampaign() || coop->isSeparateCampaign()))
+		return true; // solo: not owner-gated
 	return soldier->getOwnerPlayerId() == connectionTCP::localSeat();
 }
 
@@ -3504,11 +3521,12 @@ std::vector<Soldier*> visibleSoldiers(Game* game, Base* base)
 	std::vector<Soldier*> out;
 	if (!base) return out;
 	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
-	bool shared = coop && coop->isSharedCampaign();
-	int seat = shared ? connectionTCP::localSeat() : -1;
+	bool playerOwnedRoster = coop
+		&& (coop->isSharedCampaign() || coop->isSeparateCampaign());
+	int seat = playerOwnedRoster ? connectionTCP::localSeat() : -1;
 	for (auto* s : *base->getSoldiers())
 	{
-		if (!shared || s->getOwnerPlayerId() == seat)
+		if (!playerOwnedRoster || s->getOwnerPlayerId() == seat)
 			out.push_back(s);
 	}
 	return out;

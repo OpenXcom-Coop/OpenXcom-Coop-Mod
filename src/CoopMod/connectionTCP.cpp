@@ -2790,14 +2790,8 @@ void connectionTCP::sendSoldierGiftPacket(Soldier* soldier, int newOwnerId)
 		for (auto& base : *_game->getSavedGame()->getBases())
 		{
 
-			auto containsSoldier = [soldier](const std::vector<Soldier*>& list)
-			{
-				return std::find(list.begin(), list.end(), soldier) != list.end();
-			};
-
-			// The live roster may be temporarily swapped out while a soldier
-			// list screen is open - check the snapshots too.
-			if (containsSoldier(*base->getSoldiers()) || containsSoldier(base->base_oldsoldiers) || containsSoldier(base->base_oldsoldiers2))
+			if (std::find(base->getSoldiers()->begin(), base->getSoldiers()->end(), soldier)
+				!= base->getSoldiers()->end())
 			{
 				stationBaseId = base->_coop_base_id;
 				break;
@@ -2857,11 +2851,6 @@ void connectionTCP::removeSoldierFromLocalBases(Soldier* soldier)
 		};
 
 		eraseFrom(*base->getSoldiers());
-		// SoldiersState/CraftSoldiersState swap the roster while open and
-		// restore it from these snapshots afterwards - purge them too so the
-		// soldier cannot resurrect on the giver's side.
-		eraseFrom(base->base_oldsoldiers);
-		eraseFrom(base->base_oldsoldiers2);
 
 	}
 
@@ -5864,6 +5853,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (!connectionTCP::no_bases)
 			{
 				_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(connectionTCP::seatName(connectionTCP::localSeat()));
+				refreshSeparateBaseOwnership();
 				beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 			}
 			else
@@ -6324,19 +6314,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							soldier->setCoop(owner);
 
 							targetBase->getSoldiers()->push_back(soldier);
-
-							// SoldiersState/CraftSoldiersState restore the
-							// roster from these snapshots when they close; if
-							// one is open right now (snapshot non-empty), add
-							// the soldier there too or the restore drops it.
-							if (!targetBase->base_oldsoldiers.empty())
-							{
-								targetBase->base_oldsoldiers.push_back(soldier);
-							}
-							if (!targetBase->base_oldsoldiers2.empty())
-							{
-								targetBase->base_oldsoldiers2.push_back(soldier);
-							}
 
 							Log(LOG_INFO) << "[coop-gift] RECV added soldier '" << soldier->getName()
 							              << "' id=" << soldier->getId() << " to base '" << targetBase->getName()
@@ -10424,7 +10401,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		 _game->getSavedGame()->getTime()->setYearCoop(year);
 
 		 int fundingDiff = obj.isMember("globalFundingDiff") && _game->getSavedGame()
-			 ? _game->getSavedGame()->getPlayerFundingShare(obj["globalFundingDiff"].asInt())
+			 ? _game->getSavedGame()->getPlayerIncomeShare(obj["globalFundingDiff"].asInt())
 			 : obj["fundingDiff"].asInt();
 		 fundingDiffCoop = fundingDiff;
 
@@ -13986,6 +13963,32 @@ void connectionTCP::refreshSeparateBaseOwnership()
 				{
 					base->_coopBase = !base->isOwnedByPlayer(localName);
 					base->_coopIcon = false;
+
+					// Schema-3 keeps every base and soldier in one authoritative save.
+					// Legacy/fresh Separate starting soldiers may still carry 999
+					// (unowned); bind those once to the seat named by their base. A later
+					// physical base transfer preserves this owner, so the destination
+					// base owner cannot see or control the guest soldier.
+					int ownerSeat = -1;
+					for (int seat = 0; seat < seatCount(); ++seat)
+					{
+						if (seatName(seat) == base->getOwnerPlayerName())
+						{
+							ownerSeat = seat;
+							break;
+						}
+					}
+					if (ownerSeat >= 0)
+					{
+						for (Soldier* soldier : *base->getSoldiers())
+						{
+							if (soldier && soldier->getOwnerPlayerId() == 999)
+							{
+								soldier->setOwnerPlayerId(ownerSeat);
+								soldier->setCoop(ownerSeat);
+							}
+						}
+					}
 				}
 			}
 		}
@@ -14036,6 +14039,14 @@ bool connectionTCP::isSharedCampaignStatic()
 bool connectionTCP::isSharedReplica()
 {
 	return (isSharedCampaign() || isSeparateCampaign()) && !getServerOwner();
+}
+
+bool connectionTCP::isSeparateCampaignStatic()
+{
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	return save && save->isCoopSave()
+		&& save->getCampaignType() == CoopCampaignType::Separate
+		&& (_coopGamemode == 0 || _coopGamemode == 1);
 }
 
 // PRD-J02: hand the host's authoritative world to the single-client streamer.
@@ -17023,6 +17034,7 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 				else ++it;
 			}
 		}
+		refreshSeparateBaseOwnership();
 
 		delete coopFile;
 		coopFile = nullptr;

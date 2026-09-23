@@ -310,12 +310,13 @@ void applyDogfightState(Game* game, const Json::Value& obj);
 /// shared_apply{land_prompt} so THAT seat gets the confirm dialog. @a shade is the
 /// host's day/night value (the replica's clock may differ by a tick).
 /// Playtest (soldier ownership parity): the soldiers THIS machine's player may see /
-/// manage at @a base. SHARED: only getOwnerPlayerId() == localSeat() (each player sees
-/// only their own half of the shared roster). SEPARATE/solo: the full roster verbatim
-/// (the SEPARATE guest-filter is handled destructively per-view, unchanged). A COPY -
-/// callers must never mutate base->getSoldiers() in SHARED (checksum/desync).
+/// manage at @a base. Both one-world co-op campaign types expose only
+/// getOwnerPlayerId() == localSeat(); a transferred Separate soldier remains visible
+/// to its owner at the foreign base, not to that base's owner. Solo returns the full
+/// roster. A COPY - callers must never mutate base->getSoldiers() through this view.
 std::vector<Soldier*> visibleSoldiers(Game* game, Base* base);
-/// True if this machine's player owns @a soldier (SHARED owner==localSeat; else true).
+/// True if this machine's player owns @a soldier (co-op campaign owner==localSeat;
+/// solo always true).
 bool ownsSoldier(Game* game, const Soldier* soldier);
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);

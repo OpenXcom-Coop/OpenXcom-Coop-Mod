@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <cstdint>
 #include <json/json.h>
 
 namespace OpenXcom
@@ -22,6 +23,11 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj);
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 	const Json::Value& payload);
 int baseIndex(Game* game, const Base* base);
+/// Separate-only host policy for commands targeting another player's base.
+bool allowsForeignBaseCommand(const std::string& cmd, bool remote);
+/// Separate-only craft assignment validation (ownership + per-seat half quota).
+bool validateCraftAssign(Game* game, const Json::Value& payload, Base* base,
+	int seat, int64_t& cost, std::string& failReason);
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType,
 	int desiredOnCraft);
 void submitCraftRearm(Game* game, Craft* craft, int slot,

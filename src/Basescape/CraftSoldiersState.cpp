@@ -207,31 +207,6 @@ CraftSoldiersState::CraftSoldiersState(Base *base, size_t craft)
 	// coop: transfer the hovered soldier to another player
 	_lstSoldiers->onKeyboardPress((ActionHandler)&CraftSoldiersState::lstSoldiersGiveUnitPress, Options::giveUnit);
 
-	// Coop mode: if the game is in coop and this base is not a coop base
-	// PRD-J09: the guest-filter is SEPARATE-only. In SHARED there is one shared
-	// base/roster and every player must see ALL soldiers (mixed-owner squads),
-	// so this filter is fenced off (it is a no-op in SHARED anyway - every SHARED
-	// soldier has coopBase == -1 - but fencing avoids the base_oldsoldiers2 swap).
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
-	{
-		std::vector<Soldier*> coopSoldiers;
-
-		_base->base_oldsoldiers2 = *_base->getSoldiers();
-
-		for (auto* soldier : *_base->getSoldiers())
-		{
-			if (soldier->getCoopBase() == -1)
-			{
-				// Add all soldiers that do NOT belong to a coop base
-				coopSoldiers.push_back(soldier);
-			}
-		}
-
-		// Replace the contents of the original soldier list
-		*_base->getSoldiers() = coopSoldiers;
-	}
-
-
 }
 
 /**
@@ -350,16 +325,6 @@ void CraftSoldiersState::cbxSortByChange(Action *)
  */
 void CraftSoldiersState::btnOkClick(Action *)
 {
-
-	// coop
-	// PRD-J09: paired with the fenced ctor guest-filter (SHARED never swapped the
-	// list, so there is nothing to restore).
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
-	{
-		// coop
-		*_base->getSoldiers() = _base->base_oldsoldiers2;
-	}
-
 	_game->popState();
 }
 
@@ -412,23 +377,12 @@ void CraftSoldiersState::initList(size_t scrl)
 	Craft *c = _base->getCrafts()->at(_craft);
 	BaseSumDailyRecovery recovery = _base->getSumRecoveryPerDay();
 
-	// Playtest: SHARED shows only the local player's own soldiers (non-destructive
-	// local copy; row indexing below goes through _viewSoldiers). SEPARATE/solo full.
+	// Both one-world campaign types show only the local player's soldiers. This is
+	// a non-destructive local view; row indexing below goes through _viewSoldiers.
 	_viewSoldiers = SharedEcon::visibleSoldiers(_game, _base);
 	// coop
 	for (auto* soldier : _viewSoldiers)
 	{
-
-		//  coop
-		if (soldier->getCoopBase() != -1 && _base->_coopBase == false && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true)
-		{
-			continue;
-		}
-
-		if (soldier->getCoopBase() == -1 && _base->_coopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
-		{
-			continue;
-		}
 
 		if (_dynGetter != NULL)
 		{
@@ -464,7 +418,7 @@ void CraftSoldiersState::initList(size_t scrl)
 	_lstSoldiers->draw();
 
 	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(c->getSpaceAvailable()));
-	_txtUsed->setText(tr("STR_SPACE_USED").arg(c->getSpaceUsed()));
+	_txtUsed->setText(tr("STR_SPACE_USED").arg(displayedSpaceUsed()));
 }
 
 /**
@@ -509,7 +463,16 @@ std::vector<int> CraftSoldiersState::harnessDisplayedSoldierIds() const
 
 int CraftSoldiersState::harnessSpaceUsed() const
 {
-	return _base->getCrafts()->at(_craft)->getSpaceUsed();
+	return displayedSpaceUsed();
+}
+
+int CraftSoldiersState::displayedSpaceUsed() const
+{
+	Craft* craft = _base->getCrafts()->at(_craft);
+	if (!_game->getCoopMod()->isSeparateCampaign())
+		return craft->getSpaceUsed();
+
+	return craft->getSpaceUsedByOwner(connectionTCP::localSeat());
 }
 
 int CraftSoldiersState::harnessSpaceAvailable() const

@@ -1318,16 +1318,20 @@ void GeoscapeState::init()
 		// so serialize it and stream it to the waiting client as its replica.
 		// Streaming HERE (not at base naming) means the replica adopts the SETTLED
 		// funds: the client's own init sees monthsPassed==0 and never re-charges,
-		// and the host's time-sync then agrees. Hold in COOP_DLG_WAIT_PLAYERS
-		// until the client acks loaded, then BEGIN releases both. The dialog also
-		// keeps the host's geoscape from broadcasting before the client is ready.
+		// and the host's time-sync then agrees. Shared holds in
+		// COOP_DLG_WAIT_PLAYERS until the client acks. Separate already showed its
+		// one WAIT_BASES/BEGIN gate, so its adopted-world ack releases the client
+		// automatically instead of showing a second wait/ready dialog to the host.
 		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 			&& _game->getCoopMod()->getServerOwner()
 			&& connectionTCP::session.lobbyMode == 1)
 		{
 			connectionTCP::session.resumeAck = false;
 			_game->getCoopMod()->streamSharedWorldToClient();
-			_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+			if (_game->getCoopMod()->isSharedCampaign())
+			{
+				_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+			}
 		}
 	}
 }
@@ -5081,15 +5085,38 @@ void GeoscapeState::btnBasesClick(Action *)
 	timerReset();
 	if (!_game->getSavedGame()->getBases()->empty())
 	{
-		if (Options::oxceGeoGoToNearestBase)
+		auto *bases = _game->getSavedGame()->getBases();
+		std::vector<size_t> selectableBases;
+		if (_game->getCoopMod()->isSeparateCampaign())
+		{
+			const std::string localName = connectionTCP::seatName(connectionTCP::localSeat());
+			for (size_t i = 0; i < bases->size(); ++i)
+				if (bases->at(i)->isOwnedByPlayer(localName))
+					selectableBases.push_back(i);
+
+			// A globe visit may have left the selected index on a foreign base.
+			// BASES always returns to one of this player's own bases.
+			if (!selectableBases.empty())
+			{
+				Base *selected = _game->getSavedGame()->getSelectedBase();
+				if (!selected || !selected->isOwnedByPlayer(localName))
+					_game->getSavedGame()->setSelectedBase(selectableBases.front());
+			}
+		}
+		else
+		{
+			for (size_t i = 0; i < bases->size(); ++i)
+				selectableBases.push_back(i);
+		}
+
+		if (Options::oxceGeoGoToNearestBase && !selectableBases.empty())
 		{
 			std::vector< std::pair<size_t, double> > xbaseSorting;
-			size_t baseIdx = 0;
-			for (auto* xbase : *_game->getSavedGame()->getBases())
+			for (size_t baseIdx : selectableBases)
 			{
+				auto *xbase = bases->at(baseIdx);
 				double xdistance = xbase->getDistance(_game->getSavedGame()->getGlobeLongitude(), _game->getSavedGame()->getGlobeLatitude());
 				xbaseSorting.push_back(std::make_pair(baseIdx, xdistance));
-				baseIdx++;
 			}
 			std::stable_sort(xbaseSorting.begin(), xbaseSorting.end(),
 				[](const std::pair<size_t, double> &a, const std::pair<size_t, double> &b)

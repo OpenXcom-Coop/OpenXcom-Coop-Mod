@@ -344,9 +344,9 @@ private:
 	std::vector<Country*> *getCountries();
 	/// Gets the total country funding.
 	int getCountryFunding() const;
-	/// Allocates global council funding to this legacy SEPARATE player world.
-	/// Single-world campaigns and solo saves receive the value unchanged.
-	int getPlayerFundingShare(int globalFunding) const;
+	/// Returns the local player's display share of Monthly Report income.
+	/// Country funding and the authoritative funds ledger remain unchanged.
+	int getPlayerIncomeShare(int globalIncome) const;
 	/// Gets the list of regions.
 	std::vector<Region*> *getRegions();
 	/// Gets the list of bases.

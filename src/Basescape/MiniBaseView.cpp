@@ -34,7 +34,7 @@ namespace OpenXcom
  * @param x X position in pixels.
  * @param y Y position in pixels.
  */
-MiniBaseView::MiniBaseView(int width, int height, int x, int y) : InteractiveSurface(width, height, x, y), _bases(0), _texture(0), _base(0), _hoverBase(0), _red(0), _green(0), _blue(0)
+MiniBaseView::MiniBaseView(int width, int height, int x, int y) : InteractiveSurface(width, height, x, y), _bases(0), _texture(0), _base(0), _hoverBase(0), _red(0), _green(0), _blue(0), _foreignBorder(247)
 {
 }
 
@@ -95,14 +95,15 @@ void MiniBaseView::draw()
 	for (size_t i = 0; i < MAX_BASES; ++i)
 	{
 		// Draw base squares
-		if (i == _base)
+		const Uint8 borderColor = getBaseBorderColor(i);
+		if (borderColor != 0)
 		{
 			SDL_Rect r;
 			r.x = i * (MINI_SIZE + 2);
 			r.y = 0;
 			r.w = MINI_SIZE + 2;
 			r.h = MINI_SIZE + 2;
-			drawRect(&r, 1);
+			drawRect(&r, borderColor);
 		}
 		_texture->getFrame(41)->blitNShade(this, i * (MINI_SIZE + 2), 0);
 
@@ -146,6 +147,18 @@ void MiniBaseView::draw()
 			unlock();
 		}
 	}
+}
+
+Uint8 MiniBaseView::getBaseBorderColor(size_t base) const
+{
+	// In unified Separate, _coopBase is the seat-local presentation flag.
+	// Selection keeps the normal white border. Unselected foreign bases use a
+	// lighter purple border so ownership remains visible without overpowering it.
+	if (base == _base)
+		return 1;
+	if (_bases && base < _bases->size() && _bases->at(base)->_coopBase)
+		return _foreignBorder;
+	return 0;
 }
 
 /**

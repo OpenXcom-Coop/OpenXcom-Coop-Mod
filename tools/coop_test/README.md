@@ -296,7 +296,11 @@ finally:
 | `test_shared_world_equal.py` | the equality helper itself, **including a negative control** |
 | `test_shared_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
 | `test_shared_month_run.py` | the long run: 2 month ends + a battle in one campaign |
-| `test_separate_single_world.py` | schema-3 Separate: named ownership, full strategic-world equality, own-soldier UI preservation, foreign-base allow/deny policy, save/resume without blobs, and the global eight-base cap |
+| `test_separate_campaign_core.py` | focused schema-3 Separate core: named unified world, Monthly Report income split, and the global eight-base cap |
+| `test_separate_campaign_ui.py` | focused Separate UI: foreign-base permissions, purple mini-base border, direct globe navigation, and BASES selecting an own base |
+| `test_separate_campaign_soldiers.py` | focused Separate personnel: foreign-base arrival cleanup, owner-prefixed popup, and private Soldier List views |
+| `test_separate_campaign_craft.py` | focused Separate craft: owner-filtered crew icons/list and the two-player 7+7 Skyranger quota |
+| `test_separate_single_world.py` | full end-to-end Separate integration, including save/resume; retained as the slower aggregate regression |
 | `test_separate_single_world_contract.py` | build-independent source guard for Separate host battle authority, wire isolation, ownership policy, funding and the global base cap |
 
 #### Replicated SHARED dogfights (PRD-DF01..DF03)

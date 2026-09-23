@@ -132,8 +132,8 @@ FundingState::FundingState()
 	{
 		_fundingCountryList.push_back(FundingCountry(
 			tr(country->getRules()->getType()),
-			_game->getSavedGame()->getPlayerFundingShare(country->getFunding().back()),
-			country->getFunding().size() > 1 ? _game->getSavedGame()->getPlayerFundingShare(country->getFunding().back() - country->getFunding().at(country->getFunding().size() - 2)) : 0)
+			country->getFunding().back(),
+			country->getFunding().size() > 1 ? country->getFunding().back() - country->getFunding().at(country->getFunding().size() - 2) : 0)
 		);
 	}
 }

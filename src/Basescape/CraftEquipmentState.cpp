@@ -41,6 +41,7 @@
 #include "../Mod/Armor.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/Soldier.h"
 #include "../Mod/RuleCraft.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Mod/RuleItemCategory.h"
@@ -57,6 +58,7 @@
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5)
 #include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -70,10 +72,10 @@ namespace OpenXcom
 CraftEquipmentState::CraftEquipmentState(Base *base, size_t craft) :
 	_lstScroll(0), _sel(0), _craft(craft), _base(base), _totalItems(0), _totalItemStorageSize(0.0), _ammoColor(0),
 	_reload(true), _returningFromGlobalTemplates(false), _returningFromInventory(false), _firstInit(true), _isNewBattle(false),
-	_localBatch(false)
+	_displayedCrew(0), _displayedSpaceUsed(0), _displayedSpaceAvailable(0), _localBatch(false)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
-	bool craftHasACrew = c->getNumTotalSoldiers() > 0;
+	bool craftHasACrew = getDisplayedCrew() > 0;
 	_isNewBattle = _game->getSavedGame()->getMonthsPassed() == -1;
 
 	// Create objects
@@ -153,13 +155,7 @@ CraftEquipmentState::CraftEquipmentState(Base *base, size_t craft) :
 
 	_txtStores->setText(tr("STR_STORES"));
 
-	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(c->getSpaceAvailable()));
-
-	_txtUsed->setText(tr("STR_SPACE_USED").arg(c->getSpaceUsed()));
-
-	std::ostringstream ss3;
-	ss3 << tr("STR_SOLDIERS_UC") << ">" << Unicode::TOK_COLOR_FLIP << c->getNumTotalSoldiers();
-	_txtCrew->setText(ss3.str());
+	refreshCrewCapacity();
 
 	// populate sort options
 	_categoryStrings.push_back("STR_ALL");
@@ -716,8 +712,36 @@ void CraftEquipmentState::updateQuantity()
 	_lstEquipment->setCellText(_sel, 1, ss.str());
 	_lstEquipment->setCellText(_sel, 2, ss2.str());
 
-	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(c->getSpaceAvailable()));
-	_txtUsed->setText(tr("STR_SPACE_USED").arg(c->getSpaceUsed()));
+	refreshCrewCapacity();
+}
+
+int CraftEquipmentState::getDisplayedCrew() const
+{
+	Craft *craft = _base->getCrafts()->at(_craft);
+	if (!connectionTCP::isSeparateCampaignStatic())
+		return craft->getNumTotalSoldiers();
+
+	int count = 0;
+	for (Soldier *soldier : *_base->getSoldiers())
+		if (soldier->getCraft() == craft && SharedEcon::ownsSoldier(_game, soldier))
+			++count;
+	return count;
+}
+
+void CraftEquipmentState::refreshCrewCapacity()
+{
+	Craft *craft = _base->getCrafts()->at(_craft);
+	_displayedCrew = getDisplayedCrew();
+	_displayedSpaceUsed = connectionTCP::isSeparateCampaignStatic()
+		? craft->getSpaceUsedByOwner(connectionTCP::localSeat())
+		: craft->getSpaceUsed();
+	_displayedSpaceAvailable = craft->getSpaceAvailable();
+
+	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(_displayedSpaceAvailable));
+	_txtUsed->setText(tr("STR_SPACE_USED").arg(_displayedSpaceUsed));
+	std::ostringstream ss;
+	ss << tr("STR_SOLDIERS_UC") << ">" << Unicode::TOK_COLOR_FLIP << _displayedCrew;
+	_txtCrew->setText(ss.str());
 }
 
 /**
@@ -1047,7 +1071,7 @@ void CraftEquipmentState::harnessInventory()
 void CraftEquipmentState::btnInventoryClick(Action *)
 {
 	Craft *craft = _base->getCrafts()->at(_craft);
-	if (craft->getNumTotalSoldiers() > 0)
+	if (getDisplayedCrew() > 0)
 	{
 		if (Options::oxceAlternateCraftEquipmentManagement && !_isNewBattle)
 		{

@@ -816,6 +816,7 @@ void LobbyMenu::startCampaign()
 	if (!connectionTCP::no_bases)
 	{
 		_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(_game->getCoopMod()->getHostName());
+		_game->getCoopMod()->refreshSeparateBaseOwnership();
 		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 	}
 	else

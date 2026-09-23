@@ -271,7 +271,13 @@ GeoscapeCraftState::GeoscapeCraftState(Craft *craft, Globe *globe, Waypoint *way
 	// PRD-J08 SHARED: SEPARATE-only peer-disable, fenced. A SHARED world has no
 	// mirror (coop) crafts - every craft is shared and ANY player may command
 	// it, so only the vanilla low-fuel/mission-complete hiding applies.
-	if ((!_game->getCoopMod()->isSharedCampaign() && _craft->coop)
+	const Base *craftBase = _craft->getBase();
+	const bool foreignSeparateCraft = _game->getCoopMod()->isSeparateCampaign()
+		&& craftBase && !craftBase->getOwnerPlayerName().empty()
+		&& !craftBase->isOwnedByPlayer(
+			connectionTCP::seatName(connectionTCP::localSeat()));
+	if (foreignSeparateCraft
+		|| (!_game->getCoopMod()->isSharedCampaign() && _craft->coop)
 		|| _craft->getLowFuel() || _craft->getMissionComplete())
 	{
 		_btnBase->setVisible(false);
@@ -385,6 +391,11 @@ void GeoscapeCraftState::btnPatrolClick(Action *)
 bool GeoscapeCraftState::testControlButtonsVisible() const
 {
 	return _btnBase->getVisible() && _btnTarget->getVisible() && _btnPatrol->getVisible();
+}
+
+std::string GeoscapeCraftState::testCraftBaseName() const
+{
+	return _craft && _craft->getBase() ? _craft->getBase()->getName() : std::string();
 }
 
 void GeoscapeCraftState::btnCancelClick(Action *)

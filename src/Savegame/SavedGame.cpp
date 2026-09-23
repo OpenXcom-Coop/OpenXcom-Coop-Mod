@@ -2409,38 +2409,31 @@ int SavedGame::getCountryFunding() const
 	int total = 0;
 	for (auto* country : _countries)
 	{
-		total += getPlayerFundingShare(country->getFunding().back());
+		total += country->getFunding().back();
 	}
 	return total;
 }
 
 /**
- * Returns this player's share of a global council-funding value.
+ * Returns this player's share of the income shown in the Monthly Report.
  *
- * Schema 1/2 SEPARATE keeps one complete economy world per player.  Giving the
- * full council payment to every world multiplied campaign funding by the player
- * count.  Split each country's payment between those worlds instead.  Assigning
- * the integer remainder by roster seat preserves the exact solo total when all
- * player shares are added together.
- *
- * Schema 3 SEPARATE is one host-authoritative world (identified by named base
- * ownership), so its single funds ledger receives the full value exactly once.
+ * Separate players see equal portions whose sum is exactly the normal
+ * single-player income. This is presentation only: country funding values,
+ * monthlyFunding(), the finance graph and the one authoritative funds ledger
+ * retain the full amount. Assign the integer remainder by roster seat so the
+ * displayed shares also add up exactly without losing a currency unit.
  */
-int SavedGame::getPlayerFundingShare(int globalFunding) const
+int SavedGame::getPlayerIncomeShare(int globalIncome) const
 {
 	if (!_coop || _campaignType != CoopCampaignType::Separate || _coopPlayers.size() < 2)
-		return globalFunding;
-
-	for (const Base* base : _bases)
-		if (base && !base->getOwnerPlayerName().empty())
-			return globalFunding;
+		return globalIncome;
 
 	const int players = static_cast<int>(_coopPlayers.size());
 	int seat = connectionTCP::coop_save_owner_player_id;
 	if (seat < 0 || seat >= players)
 		seat = 0;
-	const int quotient = globalFunding / players;
-	const int remainder = globalFunding % players;
+	const int quotient = globalIncome / players;
+	const int remainder = globalIncome % players;
 	if (remainder > 0 && seat < remainder)
 		return quotient + 1;
 	if (remainder < 0 && seat < -remainder)

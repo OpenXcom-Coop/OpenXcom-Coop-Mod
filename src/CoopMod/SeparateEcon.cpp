@@ -12,6 +12,9 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Mod/RuleCraft.h"
+#include "../Mod/Armor.h"
+
+#include <algorithm>
 
 namespace OpenXcom
 {
@@ -124,6 +127,60 @@ int baseIndex(Game* game, const Base* base)
 	return findBaseIndex(game, base);
 }
 
+bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
+{
+	// Player-facing exceptions agreed for a foreign Separate base. Commands in
+	// the second group are host simulation results, never remote player requests.
+	if (cmd == "buy" || cmd == "craft_equip" || cmd == "craft_rearm"
+		|| cmd == "craft_assign")
+		return true;
+	return !remote && (
+		cmd == "research_done" || cmd == "fac_done" || cmd == "prod_done"
+		|| cmd == "transfer_arrived" || cmd == "base_destroyed"
+		|| cmd == "patrol_prompt" || cmd == "base_damaged"
+		|| cmd == "alien_base_found" || cmd == "alert" || cmd == "day_tick"
+		|| cmd == "land_prompt" || cmd == "land_close");
+}
+
+bool validateCraftAssign(Game* game, const Json::Value& payload, Base* base,
+	int seat, int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!game || !base) { failReason = "base not found"; return false; }
+	Craft* craft = nullptr;
+	int id = payload.get("craftId", -1).asInt();
+	std::string type = payload.get("craftType", "").asString();
+	for (Craft* candidate : *base->getCrafts())
+		if (candidate->getId() == id && candidate->getRules()->getType() == type)
+		{ craft = candidate; break; }
+	if (!craft) { failReason = "craft not found"; return false; }
+
+	int soldierId = payload.get("soldierId", -1).asInt();
+	int soldierOwner = payload.get("soldierOwner", seat).asInt();
+	Soldier* soldier = nullptr;
+	for (Soldier* candidate : *base->getSoldiers())
+		if (candidate->getId() == soldierId
+			&& candidate->getOwnerPlayerId() == soldierOwner)
+		{ soldier = candidate; break; }
+	if (!soldier) { failReason = "soldier not found"; return false; }
+	if (soldier->getOwnerPlayerId() != seat)
+		{ failReason = "soldier not owned by player"; return false; }
+
+	bool onOff = payload.get("onOff", false).asBool();
+	if (soldier->getCraft() && soldier->getCraft()->getStatus() == "STR_OUT")
+		{ failReason = "craft out on mission"; return false; }
+	if (onOff && soldier->getCraft() != craft)
+	{
+		if (!soldier->hasFullHealth())
+			{ failReason = "STR_SOLDIER_NOT_APPROVED"; return false; }
+		int space = std::max(0, craft->getMaxUnitsClamped() / 2
+			- craft->getSpaceUsedByOwner(seat));
+		if (craft->validateAddingSoldier(space, soldier) != CPE_None)
+			{ failReason = "STR_NOT_ENOUGH_CRAFT_SPACE"; return false; }
+	}
+	return true;
+}
+
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType,
 	int desiredOnCraft)
 {
@@ -155,7 +212,8 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff)
 	p["craftId"] = craft->getId();
 	p["craftType"] = craft->getRules()->getType();
 	p["soldierId"] = soldier->getId();
-	p["on"] = onOff;
+	p["soldierOwner"] = soldier->getOwnerPlayerId();
+	p["onOff"] = onOff;
 	submitLocalCmd(game, "craft_assign", findBaseIndex(game, craft->getBase()), p);
 }
 

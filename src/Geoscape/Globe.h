@@ -34,6 +34,7 @@ class Target;
 class LocalizedText;
 class RuleGlobe;
 class Craft;
+class Waypoint;
 
 /**
  * Interactive globe view of the world.
@@ -187,6 +188,10 @@ public:
 	void drawDetail();
 	/// Draws all the markers over the globe.
 	void drawMarkers();
+	/// Separate campaign presentation: whether this seat may see a craft's route.
+	bool isCraftFlightVisible(const Craft *craft) const;
+	/// Separate campaign presentation: hides waypoints used only by foreign crafts.
+	bool isWaypointVisible(const Waypoint *waypoint) const;
 	/// Blits the globe onto another surface.
 	void blit(SDL_Surface *surface) override;
 	/// Special handling for mouse hover.

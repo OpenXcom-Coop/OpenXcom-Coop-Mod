@@ -150,6 +150,7 @@
 #include "../Geoscape/ConfirmNewBaseState.h"
 #include "../Geoscape/UfoDetectedState.h"
 #include "../Geoscape/InterceptState.h"
+#include "../Geoscape/MultipleTargetsState.h"
 #include "../Geoscape/ConfirmDestinationState.h"
 #include "../Geoscape/DogfightState.h"
 #include "LobbyMenu.h"
@@ -164,6 +165,7 @@
 #include "../Basescape/SoldiersState.h"
 #include "../Basescape/SoldierInfoState.h"
 #include "../Basescape/CraftSoldiersState.h"
+#include "../Basescape/CraftInfoState.h"
 #include "../Basescape/TransferItemsState.h"
 #include "../Basescape/PurchaseState.h"
 #include "../Basescape/SellState.h"
@@ -179,6 +181,7 @@
 #include "../Basescape/SackSoldierState.h"
 #include "../Basescape/PlaceLiftState.h"
 #include "../Basescape/CraftEquipmentState.h"
+#include "../Basescape/CraftsState.h"
 #include "../Basescape/CraftWeaponsState.h"
 #include "../Basescape/SoldierArmorState.h"
 #include "../Basescape/CraftArmorState.h"
@@ -705,10 +708,50 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 {
 	connectionTCP* coop = _game->getCoopMod();
 
+	// CraftInfoState crew-preview regression: open the real summary screen and
+	// expose the number of locally visible soldier icons it actually rendered.
+	if (cmd == "open_craft_info")
+	{
+		std::string baseName = req.get("base", "").asString();
+		int craftId = req.get("craft_id", -1).asInt();
+		Base* target = nullptr;
+		size_t craftIndex = 0;
+		if (_game->getSavedGame())
+		{
+			for (Base* base : *_game->getSavedGame()->getBases())
+			{
+				if (base && base->getName() == baseName)
+				{
+					target = base;
+					for (size_t i = 0; i < base->getCrafts()->size(); ++i)
+						if (craftId < 0 || base->getCrafts()->at(i)->getId() == craftId)
+						{ craftIndex = i; craftId = base->getCrafts()->at(i)->getId(); break; }
+					break;
+				}
+			}
+		}
+		if (!target || target->getCrafts()->empty()) resp["error"] = "craft base not found";
+		else
+		{
+			_game->pushState(new CraftInfoState(target, craftIndex));
+			resp["craftId"] = craftId;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "craft_info_state")
+	{
+		CraftInfoState* state = findState<CraftInfoState>(_game);
+		if (!state) resp["error"] = "no CraftInfoState in state stack";
+		else
+		{
+			resp["visibleCrew"] = state->harnessVisibleCrewCount();
+			resp["ok"] = true;
+		}
+	}
 	// Vote regression hooks live in this shallow dispatcher because execute() is
 	// already at MSVC's nested-block limit. They drive the real connectionTCP /
 	// VoteSession code; no separate test implementation of the vote rules exists.
-	if (cmd == "vote_state")
+	else if (cmd == "vote_state")
 	{
 		const VoteSession& vote = coop->getActiveVoteForTest();
 		resp["active"] = vote.active;
@@ -973,6 +1016,11 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 			_game->pushState(new SoldiersState(target));
 			resp["ok"] = true;
 		}
+		else if (screen == "crafts")
+		{
+			_game->pushState(new CraftsState(target));
+			resp["ok"] = true;
+		}
 		else if (screen == "basescape")
 		{
 			// Playtest B1: the base management screen (funds header + facility grid).
@@ -1113,8 +1161,8 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		else if (dynamic_cast<StoresState*>(top))      resp["top"] = "stores";
 		else if (auto* ss = dynamic_cast<SoldiersState*>(top))
 		{
-			// Playtest: what the soldier-list SCREEN actually displays. In SHARED each
-			// player should see only their own half of the shared roster.
+			// Playtest: what the soldier-list SCREEN actually displays. In either
+			// one-world campaign type each player sees only their owned soldiers.
 			resp["top"] = "soldiers";
 			Json::Value arr(Json::arrayValue);
 			for (int id : ss->harnessDisplayedSoldierIds()) arr.append(id);
@@ -1258,6 +1306,29 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 			resp["moved"] = moved;
 			resp["ok"] = moved;
 			if (!moved) resp["error"] = "item not on craft equipment list: " + item;
+		}
+	}
+	else if (cmd == "crafts_state")
+	{
+		CraftsState* state = findState<CraftsState>(_game);
+		int craftId = req.get("craft_id", -1).asInt();
+		if (!state) resp["error"] = "no CraftsState in state stack";
+		else
+		{
+			resp["crew"] = state->harnessDisplayedCrew(craftId);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "craft_equipment_state")
+	{
+		CraftEquipmentState* ces = findState<CraftEquipmentState>(_game);
+		if (!ces) resp["error"] = "no CraftEquipmentState in state stack";
+		else
+		{
+			resp["crew"] = ces->harnessDisplayedCrew();
+			resp["used"] = ces->harnessDisplayedSpaceUsed();
+			resp["available"] = ces->harnessDisplayedSpaceAvailable();
+			resp["ok"] = true;
 		}
 	}
 	else if (cmd == "open_craft_equipment" || cmd == "craft_equipment_ok" || cmd == "craft_inventory")
@@ -1988,11 +2059,15 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		// PRD-J04 test helper: launch the first ready craft at the first real
 		// base toward a distant waypoint, so the host moves it and the SHARED
 		// position snapshot carries the motion to the (frozen) replica.
+		const std::string requestedBase = req.get("base", "").asString();
 		SavedGame* sg = _game->getSavedGame();
 		Base* base = nullptr; Craft* craft = nullptr;
 		if (sg)
 			for (auto* b : *sg->getBases())
-				if (!b->_coopBase && !b->_coopIcon && !b->getCrafts()->empty())
+				if ((requestedBase.empty()
+						? (!b->_coopBase && !b->_coopIcon)
+						: b->getName() == requestedBase)
+					&& !b->getCrafts()->empty())
 				{ base = b; craft = b->getCrafts()->front(); break; }
 		if (!craft)
 			resp["error"] = "no craft";
@@ -2008,6 +2083,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			craft->setDestination(w);
 			craft->setStatus("STR_OUT");
 			resp["craftId"] = craft->getId();
+			resp["waypointId"] = w->getId();
 			resp["baseLon"] = base->getLongitude();
 			resp["baseLat"] = base->getLatitude();
 			resp["ok"] = true;
@@ -2219,6 +2295,139 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		{
 			// Shared and Separate keep every real base in the active world.
 			_game->pushState(new BasescapeState(target, geo->getGlobe()));
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "basescape_select_base")
+	{
+		const std::string baseName = req.get("base", "").asString();
+		BasescapeState* state = findState<BasescapeState>(_game);
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (Base* base : *_game->getSavedGame()->getBases())
+				if (base && base->getName() == baseName) { target = base; break; }
+		if (!state) resp["error"] = "no BasescapeState in state stack";
+		else if (!target) resp["error"] = "base not found: " + baseName;
+		else
+		{
+			// Same selection/update path used when the mini-base strip changes base.
+			state->setBase(target);
+			state->init();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "land_craft")
+	{
+		// Undo fly_craft after a route-visibility assertion so later squad tests
+		// can legally edit the crew. This is deterministic setup, not simulation.
+		const std::string requestedBase = req.get("base", "").asString();
+		Base* base = nullptr;
+		Craft* craft = nullptr;
+		if (_game->getSavedGame())
+			for (Base* candidate : *_game->getSavedGame()->getBases())
+				if (candidate->getName() == requestedBase && !candidate->getCrafts()->empty())
+				{ base = candidate; craft = candidate->getCrafts()->front(); break; }
+		if (!craft) resp["error"] = "no craft";
+		else
+		{
+			craft->setDestination(base);
+			craft->setStatus("STR_READY");
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "basescape_menu_state")
+	{
+		BasescapeState* state = findState<BasescapeState>(_game);
+		if (!state) resp["error"] = "no BasescapeState in state stack";
+		else
+		{
+			resp["base"] = state->harnessBaseName();
+			resp["foreign"] = state->harnessForeignBase();
+			const char* buttons[] = {"newBase", "baseInfo", "soldiers", "crafts",
+				"facilities", "research", "manufacture", "transfer", "purchase",
+				"sell", "geoscape"};
+			Json::Value visible(Json::objectValue);
+			for (const char* button : buttons)
+				visible[button] = state->harnessButtonVisible(button);
+			resp["visible"] = visible;
+			Json::Value borders(Json::objectValue);
+			for (Base* base : *_game->getSavedGame()->getBases())
+				borders[base->getName()] = state->harnessMiniBorderColor(base->getName());
+			resp["miniBorderColors"] = borders;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "click_bases")
+	{
+		GeoscapeState* geo = _game->getGeoscapeState();
+		if (!geo) resp["error"] = "no GeoscapeState";
+		else
+		{
+			geo->btnBasesClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "globe_click_base")
+	{
+		const std::string baseName = req.get("base", "").asString();
+		GeoscapeState* geo = _game->getGeoscapeState();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (Base* base : *_game->getSavedGame()->getBases())
+				if (base && base->getName() == baseName) { target = base; break; }
+		if (!geo) resp["error"] = "no GeoscapeState";
+		else if (!target) resp["error"] = "base not found: " + baseName;
+		else
+		{
+			// Exercise the real one-target globe popup routing used by globeClick.
+			std::vector<Target*> targets(1, target);
+			std::vector<Craft*> crafts;
+			_game->pushState(new MultipleTargetsState(targets, crafts, geo, false));
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "globe_click_craft")
+	{
+		const std::string baseName = req.get("base", "").asString();
+		const int craftId = req.get("craft_id", -1).asInt();
+		GeoscapeState* geo = _game->getGeoscapeState();
+		Craft* target = nullptr;
+		if (_game->getSavedGame())
+			for (Base* base : *_game->getSavedGame()->getBases())
+			{
+				if (!baseName.empty() && base->getName() != baseName) continue;
+				for (Craft* craft : *base->getCrafts())
+					if (craft->getId() == craftId) { target = craft; break; }
+				if (target) break;
+			}
+		if (!geo) resp["error"] = "no GeoscapeState";
+		else if (!target) resp["error"] = "craft not found";
+		else
+		{
+			std::vector<Target*> targets(1, target);
+			std::vector<Craft*> crafts;
+			_game->pushState(new MultipleTargetsState(targets, crafts, geo, false));
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "geoscape_craft_menu_state")
+	{
+		GeoscapeCraftState* state = findState<GeoscapeCraftState>(_game);
+		if (!state) resp["error"] = "no GeoscapeCraftState in state stack";
+		else
+		{
+			resp["base"] = state->testCraftBaseName();
+			resp["controlButtonsVisible"] = state->testControlButtonsVisible();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "close_geoscape_craft")
+	{
+		GeoscapeCraftState* state = findState<GeoscapeCraftState>(_game);
+		if (!state) resp["error"] = "no GeoscapeCraftState in state stack";
+		else
+		{
+			state->btnCancelClick(nullptr);
 			resp["ok"] = true;
 		}
 	}
@@ -3371,12 +3580,17 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		// craft_id, coop (which copy to match - own=false, peer mirror=true).
 		int craftId = req.get("craft_id", -1).asInt();
 		bool wantCoop = req.get("coop", false).asBool();
+		std::string baseName = req.get("base", "").asString();
 		SavedGame* sg = _game->getSavedGame();
 		Craft* craft = nullptr;
 		if (sg)
 			for (auto* b : *sg->getBases())
+			{
+				if (!baseName.empty() && b->getName() != baseName) continue;
 				for (auto* c : *b->getCrafts())
 					if (c->getId() == craftId && c->coop == wantCoop) { craft = c; break; }
+				if (craft) break;
+			}
 		GeoscapeState* geo = findState<GeoscapeState>(_game);
 		if (!craft) resp["error"] = "no matching craft";
 		else if (!geo) resp["error"] = "no geoscape";
@@ -3388,6 +3602,32 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["coop"] = craft->coop;
 			resp["buttons_visible"] = gcs->testControlButtonsVisible();
 			delete gcs;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "geo_craft_route_visibility")
+	{
+		const std::string baseName = req.get("base", "").asString();
+		const int craftId = req.get("craft_id", -1).asInt();
+		SavedGame* sg = _game->getSavedGame();
+		GeoscapeState* geo = findState<GeoscapeState>(_game);
+		Craft* craft = nullptr;
+		if (sg)
+			for (Base* base : *sg->getBases())
+			{
+				if (!baseName.empty() && base->getName() != baseName) continue;
+				for (Craft* candidate : *base->getCrafts())
+					if (candidate->getId() == craftId) { craft = candidate; break; }
+				if (craft) break;
+			}
+		Waypoint* waypoint = craft ? dynamic_cast<Waypoint*>(craft->getDestination()) : nullptr;
+		if (!geo) resp["error"] = "no geoscape";
+		else if (!craft) resp["error"] = "no matching craft";
+		else if (!waypoint) resp["error"] = "craft has no waypoint destination";
+		else
+		{
+			resp["flightVisible"] = geo->getGlobe()->isCraftFlightVisible(craft);
+			resp["waypointVisible"] = geo->getGlobe()->isWaypointVisible(waypoint);
 			resp["ok"] = true;
 		}
 	}
@@ -5785,6 +6025,11 @@ std::string TestServer::execute(const std::string& line)
 				resp["monthsPassed"] = mp;
 				resp["score"] = sg->getCurrentScore(mp);
 				resp["funds"] = Json::Value::Int64(sg->getFunds());
+				// Separate keeps country funding and the authoritative ledger whole,
+				// but each seat sees its equal share on the Monthly Report Income row.
+				const int countryFunding = sg->getCountryFunding();
+				resp["countryFunding"] = countryFunding;
+				resp["monthlyIncomeDisplay"] = sg->getPlayerIncomeShare(countryFunding);
 				Json::Value countries(Json::arrayValue);
 				for (auto* c : *sg->getCountries())
 				{
@@ -5911,7 +6156,8 @@ std::string TestServer::execute(const std::string& line)
 			Soldier* sol = nullptr;
 			if (base)
 				for (auto* s : *base->getSoldiers())
-					if (s->getId() == soldierId) { sol = s; break; }
+					if (s->getId() == soldierId && SharedEcon::ownsSoldier(_game, s))
+					{ sol = s; break; }
 			if (!found)
 				resp["error"] = "craft id not found";
 			else if (!sol)
@@ -5928,16 +6174,6 @@ std::string TestServer::execute(const std::string& line)
 					CraftSoldiersState* st = new CraftSoldiersState(base, craftIdx);
 					st->harnessToggle(soldierId);
 					delete st;
-					// The CraftSoldiersState ctor DESTRUCTIVELY swaps the base roster
-					// for a guest-free copy (SEPARATE only) and restores it in
-					// btnOkClick - which a harness-driven state never reaches. Put it
-					// back by hand, or every craft_assign silently drops this base's
-					// co-op guests from the roster for good.
-					if (!base->base_oldsoldiers2.empty())
-					{
-						*base->getSoldiers() = base->base_oldsoldiers2;
-						base->base_oldsoldiers2.clear();
-					}
 				}
 				// Report what ACTUALLY happened: harnessToggle silently declines a
 				// seat the craft will not accept (no room, soldier not fit), so a
@@ -5945,7 +6181,7 @@ std::string TestServer::execute(const std::string& line)
 				// that was never seated. In SHARED the toggle is a shared_cmd that
 				// the host applies and broadcasts, so the local state only catches
 				// up a moment later - report it as async and let the caller poll.
-				bool shared = coop && coop->isSharedCampaign();
+				bool shared = coop && (coop->isSharedCampaign() || coop->isSeparateCampaign());
 				resp["craftId"] = sol->getCraft() ? sol->getCraft()->getId() : -1;
 				resp["seated"] = (sol->getCraft() == base->getCrafts()->at(craftIdx));
 				resp["async"] = shared;
@@ -8187,6 +8423,16 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "close_inventory")
+		{
+			InventoryState* inv = findState<InventoryState>(_game);
+			if (!inv) resp["error"] = "no InventoryState in state stack";
+			else
+			{
+				inv->btnOkClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "inventory_ground")
 		{
 			// Read-only: the items on the base-inventory ground tile = the
@@ -8491,6 +8737,77 @@ std::string TestServer::execute(const std::string& line)
 				}
 				resp["items"] = items;
 				resp["soldiers"] = soldiers;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "force_transfer_arrivals")
+		{
+			// Deterministically drive the authoritative host's real arrival path
+			// without waiting several in-game days. Do not run this independently on
+			// a replica: hostTransferArrived must be what delivers and removes the
+			// matching Transfer there, just as it is during normal campaign time.
+			std::string baseName = req.get("base", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (Base* base : *_game->getSavedGame()->getBases())
+					if (baseName.empty() || base->getName() == baseName)
+					{ target = base; break; }
+			GeoscapeState* geo = _game->getGeoscapeState();
+			if (!connectionTCP::getServerOwner()) resp["error"] = "host only";
+			else if (!target) resp["error"] = "base not found";
+			else if (!geo) resp["error"] = "no GeoscapeState";
+			else
+			{
+				int advanced = 0;
+				Json::Value arrived(Json::arrayValue);
+				for (Transfer* transfer : *target->getTransfers())
+				{
+					while (transfer->getHours() > 0)
+					{
+						transfer->advance(target);
+						advanced++;
+					}
+					Json::Value d;
+					d["type"] = transfer->getType();
+					if (transfer->getType() == TRANSFER_ITEM && transfer->getItems())
+						d["rule"] = transfer->getItems()->getType();
+					else if (transfer->getType() == TRANSFER_CRAFT && transfer->getCraft())
+						d["rule"] = transfer->getCraft()->getRules()->getType();
+					else if (transfer->getType() == TRANSFER_SOLDIER && transfer->getSoldier())
+						d["rule"] = transfer->getSoldier()->getRules()->getType();
+					else
+						d["rule"] = "";
+					d["qty"] = transfer->getQuantity();
+					arrived.append(d);
+				}
+				SharedEcon::hostTransferArrived(
+					_game, SharedEcon::baseIndex(_game, target), arrived);
+				ItemsArrivingState* popup = new ItemsArrivingState(geo);
+				Json::Value rowsJson(Json::arrayValue);
+				for (const auto& row : popup->getRows())
+				{
+					Json::Value j;
+					j["type"] = row.type;
+					j["name"] = row.name;
+					j["qty"] = row.qty;
+					j["base"] = row.base;
+					j["baseIdx"] = row.baseIdx;
+					j["ownerSeat"] = row.ownerSeat;
+					rowsJson.append(j);
+				}
+				resp["rows"] = (int)popup->getRows().size();
+				if (popup->getRows().empty())
+				{
+					delete popup;
+				}
+				else
+				{
+					geo->popup(popup);
+					SharedEcon::hostAlert(_game, "ItemsArrivingState", "", nullptr,
+						-1, {}, {}, false, rowsJson);
+				}
+				resp["remaining"] = (int)target->getTransfers()->size();
+				resp["advanced"] = advanced;
 				resp["ok"] = true;
 			}
 		}

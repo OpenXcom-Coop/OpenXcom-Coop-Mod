@@ -306,6 +306,8 @@ TransferType Transfer::getType() const
  */
 void Transfer::advance(Base *base)
 {
+	if (_delivered)
+		return;
 	_hours--;
 	if (_hours <= 0)
 	{

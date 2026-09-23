@@ -204,7 +204,8 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtRating->setText(tr("STR_MONTHLY_RATING").arg(_ratingTotal).arg(rating));
 
 	std::ostringstream ss;
-	ss << tr("STR_INCOME") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(_game->getSavedGame()->getCountryFunding());
+	ss << tr("STR_INCOME") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(
+		_game->getSavedGame()->getPlayerIncomeShare(_game->getSavedGame()->getCountryFunding()));
 	ss << " (";
 	if (_fundingDiff > 0)
 		ss << '+';
@@ -505,10 +506,10 @@ void MonthlyReportState::calculateChanges()
 		}
 	}
 
-	// Legacy SEPARATE has one economy world per player.  Display this world's
-	// allocated change rather than the global change duplicated on every player.
+	// Separate shows each player an equal share of the Monthly Report income
+	// change. Country funding itself and the authoritative ledger stay global.
 	globalFundingDiff = _fundingDiff;
-	_fundingDiff = _game->getSavedGame()->getPlayerFundingShare(globalFundingDiff);
+	_fundingDiff = _game->getSavedGame()->getPlayerIncomeShare(globalFundingDiff);
 
 	//calculate total.
 	_ratingTotal = xcomTotal - alienTotal;

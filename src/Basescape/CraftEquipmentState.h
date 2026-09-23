@@ -63,6 +63,9 @@ private:
 	bool _returningFromInventory;
 	bool _firstInit;
 	bool _isNewBattle;
+	int _displayedCrew;
+	int _displayedSpaceUsed;
+	int _displayedSpaceAvailable;
 	/// SHARED (PRD-J09 GAP-5): suppress the host-authoritative equip routing during
 	/// multi-step LOCAL loops (template load, alt-management inventory prep) whose
 	/// intermediate steps assume the base/craft mutate locally between calls.
@@ -70,6 +73,10 @@ private:
 	/// SHARED (PRD-J09 GAP-5): route a base<->craft item move through craft_equip
 	/// (absolute desired-on-craft count) instead of mutating this replica's stores.
 	void submitSharedCraftEquip(const RuleItem* item, int signedChange);
+	/// Refreshes player-scoped crew/capacity figures shown in Separate campaigns.
+	void refreshCrewCapacity();
+	/// Returns the number of soldiers on this craft visible to the local player.
+	int getDisplayedCrew() const;
 	/// Updates quantities of item.
 	void updateQuantity();
 	/// initializes the displayed list
@@ -127,6 +134,9 @@ public:
 	bool harnessMove(const std::string& itemType, int change);
 	/// Harness: open the craft inventory screen ("Equip craft > ... > Inventory").
 	void harnessInventory();
+	int harnessDisplayedCrew() const { return _displayedCrew; }
+	int harnessDisplayedSpaceUsed() const { return _displayedSpaceUsed; }
+	int harnessDisplayedSpaceAvailable() const { return _displayedSpaceAvailable; }
 };
 
 }

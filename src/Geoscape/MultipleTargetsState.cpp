@@ -31,9 +31,11 @@
 #include "UfoDetectedState.h"
 #include "GeoscapeCraftState.h"
 #include "TargetInfoState.h"
+#include "../Basescape/BasescapeState.h"
 #include "../Engine/Options.h"
 #include "../Engine/Action.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -130,7 +132,25 @@ void MultipleTargetsState::popupTarget(Target *target)
 			// Shared and Separate campaigns keep every real base in the current
 			// world. Opening another player's base therefore uses the normal base
 			// selection flow; no base file is downloaded or swapped in.
-			_game->pushState(new InterceptState(_state->getGlobe(), _useCustomSound, b));
+			if (_game->getCoopMod()->isSeparateCampaign()
+				&& !b->getOwnerPlayerName().empty()
+				&& !b->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat())))
+			{
+				auto* bases = _game->getSavedGame()->getBases();
+				for (size_t i = 0; i < bases->size(); ++i)
+				{
+					if (bases->at(i) == b)
+					{
+						_game->getSavedGame()->setSelectedBase(i);
+						break;
+					}
+				}
+				_game->pushState(new BasescapeState(b, _state->getGlobe()));
+			}
+			else
+			{
+				_game->pushState(new InterceptState(_state->getGlobe(), _useCustomSound, b));
+			}
 
 		}
 		else if (c != 0)

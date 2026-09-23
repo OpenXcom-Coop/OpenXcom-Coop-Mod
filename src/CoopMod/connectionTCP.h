@@ -785,6 +785,8 @@ class connectionTCP
 	bool isSeparateCampaign();
 	// Static mirror for engine-level callers with no CoopMod instance (Craft capacity).
 	static bool isSharedCampaignStatic();
+	// Static mirror of isSeparateCampaign() for the same engine-level callers.
+	static bool isSeparateCampaignStatic();
 	// True for a client replica in either host-authoritative campaign type.
 	// Shared and Separate have different economy/permission rules, but neither
 	// client owns a second strategic world or writes a campaign save to disk.
@@ -1586,8 +1588,7 @@ class connectionTCP
 	// Serializes the soldier (with its station base id) and sends the
 	// physical-gift packet to the peer.
 	void sendSoldierGiftPacket(Soldier* soldier, int newOwnerId);
-	// Erases the soldier pointer from every base roster (including the
-	// SoldiersState/CraftSoldiersState base_oldsoldiers snapshots).
+	// Erases the soldier pointer from every base roster.
 	void removeSoldierFromLocalBases(Soldier* soldier);
 	// In-battle gifts waiting for the mission to end. Snapshot the craft id and
 	// type while the battle world is still alive: Soldier::getCraft() may keep a

@@ -1636,14 +1636,18 @@ bool Craft::isDestroyed() const
 int Craft::getSpaceAvailable() const
 {
 
-	// SHARED: ONE shared physical craft with a single real capacity N. Both players load
-	// the same craft, so available = full N minus the COMBINED used (getSpaceUsed already
-	// sums every owner's aboard soldiers) - NOT the SEPARATE per-player half/-4 split,
-	// which locked each seat to a fixed sub-count. The combined used is host-authoritative
-	// and identical on both machines because the shared roster + craft_assign are synced.
+	// SHARED has one unrestricted physical capacity shared by both owners.
 	if (connectionTCP::isSharedCampaignStatic())
 	{
 		return getMaxUnitsClamped() - getSpaceUsed();
+	}
+	// SEPARATE uses equal per-player quotas on that one physical craft. With the
+	// currently supported two-player campaign a 14-place Skyranger gives each
+	// player seven places; the peer's crew does not consume the local quota.
+	if (connectionTCP::isSeparateCampaignStatic())
+	{
+		return std::max(0, getMaxUnitsClamped() / 2
+			- getSpaceUsedByOwner(connectionTCP::localSeat()));
 	}
 
 	// coop
@@ -1691,6 +1695,17 @@ int Craft::getSpaceUsed() const
 		}
 	}
 	return vehicleSpaceUsed;
+}
+
+int Craft::getSpaceUsedByOwner(int ownerSeat) const
+{
+	int used = 0;
+	for (const Soldier* soldier : *_base->getSoldiers())
+	{
+		if (soldier->getCraft() == this && soldier->getOwnerPlayerId() == ownerSeat)
+			used += soldier->getArmor()->getTotalSize();
+	}
+	return used;
 }
 
 /**

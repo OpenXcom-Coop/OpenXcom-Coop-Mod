@@ -46,6 +46,7 @@
 #include "CraftArmorState.h"
 #include "CraftPilotsState.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -56,7 +57,7 @@ namespace OpenXcom
  * @param base Pointer to the base to get info from.
  * @param craftId ID of the selected craft.
  */
-CraftInfoState::CraftInfoState(Base *base, size_t craftId) : _base(base), _craftId(craftId), _craft(0)
+CraftInfoState::CraftInfoState(Base *base, size_t craftId) : _base(base), _craftId(craftId), _craft(0), _visibleCrewCount(0)
 {
 	// Create objects
 	if (_game->getSavedGame()->getMonthsPassed() != -1)
@@ -274,10 +275,15 @@ void CraftInfoState::init()
 
 		SurfaceSet *customArmorPreviews = _game->getMod()->getSurfaceSet("CustomArmorPreviews");
 		int x = 0;
+		_visibleCrewCount = 0;
 		for (const auto* soldier : *_base->getSoldiers())
 		{
-			if (soldier->getCraft() == _craft)
+			// The strategic world contains both players' soldiers. Match the Crew
+			// button's CraftSoldiersState view: render only this player's assigned
+			// soldiers, otherwise the summary shows phantom crew at a foreign base.
+			if (soldier->getCraft() == _craft && SharedEcon::ownsSoldier(_game, soldier))
 			{
+				++_visibleCrewCount;
 				for (int index : soldier->getArmor()->getCustomArmorPreviewIndex())
 				{
 					Surface *customFrame1 = customArmorPreviews->getFrame(index);

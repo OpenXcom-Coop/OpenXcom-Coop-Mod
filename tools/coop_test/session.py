@@ -181,16 +181,21 @@ def new_campaign(host, client, port="47900",
         )
         host.ok({"cmd": "coop_dialog_back"})
 
-        # Popping the base-placement gate lets the host finish month-zero
-        # initialization and stream that settled world. Separate therefore has
-        # a second readiness gate: release both geoscapes only after the client
-        # confirms that it adopted the authoritative world.
+        # Popping the one visible base-placement gate lets the host finish
+        # month-zero initialization and stream the settled world. The client's
+        # adopted-world ack releases its hold automatically. A second host
+        # CoopState here is the duplicate wait/"placed" dialog regression.
         host.wait_for(
             "client settled-world ack",
             lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
             timeout=120,
         )
-        host.ok({"cmd": "coop_dialog_back"})
+        host.wait_for(
+            "single Separate wait dialog only",
+            lambda: ("GeoscapeState" in _states(host)[-1]
+                     if _states(host) else None),
+            timeout=30,
+        )
 
     # session up: both synced — client sees the geoscape with no dialogs
     try:

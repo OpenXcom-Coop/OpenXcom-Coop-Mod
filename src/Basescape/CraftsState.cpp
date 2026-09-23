@@ -28,6 +28,7 @@
 #include "../Interface/Text.h"
 #include "../Interface/TextList.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/Soldier.h"
 #include "../Mod/RuleCraft.h"
 #include "../Savegame/Base.h"
 #include "../Menu/ErrorMessageState.h"
@@ -36,6 +37,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Mod/RuleInterface.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -154,17 +156,41 @@ void CraftsState::think()
 void CraftsState::initList(size_t scrl)
 {
 	_lstCrafts->clearList();
+	_displayedCrew.clear();
 	for (const auto* craft : *_base->getCrafts())
 	{
 		std::ostringstream ss, ss2, ss3;
 		ss << craft->getNumWeapons() << "/" << craft->getRules()->getWeapons();
-		ss2 << craft->getNumTotalSoldiers();
+		int crew = getDisplayedCrew(craft);
+		_displayedCrew.push_back(crew);
+		ss2 << crew;
 		ss3 << craft->getNumTotalVehicles();
 		_lstCrafts->addRow(5, craft->getName(_game->getLanguage()).c_str(), tr(craft->getStatus()).c_str(), ss.str().c_str(), ss2.str().c_str(), ss3.str().c_str());
 	}
 
 	if (scrl)
 		_lstCrafts->scrollTo(scrl);
+}
+
+int CraftsState::getDisplayedCrew(const Craft *craft) const
+{
+	if (!connectionTCP::isSeparateCampaignStatic())
+		return craft->getNumTotalSoldiers();
+
+	int count = 0;
+	for (Soldier *soldier : *_base->getSoldiers())
+		if (soldier->getCraft() == craft && SharedEcon::ownsSoldier(_game, soldier))
+			++count;
+	return count;
+}
+
+int CraftsState::harnessDisplayedCrew(int craftId) const
+{
+	const auto& crafts = *_base->getCrafts();
+	for (size_t i = 0; i < crafts.size() && i < _displayedCrew.size(); ++i)
+		if (crafts[i]->getId() == craftId)
+			return _displayedCrew[i];
+	return -1;
 }
 
 /**
