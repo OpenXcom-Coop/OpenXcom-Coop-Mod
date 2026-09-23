@@ -34,7 +34,7 @@ import os
 import sys
 import time
 
-# RW-TRIAGE: SKIP-PENDING(R4-P2)
+# RW-TRIAGE: SKIP-PENDING(POST-REWRITE-REVISIT row 18)
 print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

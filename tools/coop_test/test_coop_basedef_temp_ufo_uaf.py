@@ -49,9 +49,6 @@ import os
 import sys
 import time
 
-# RW-TRIAGE: SKIP-PENDING(W1-G3 re-point: client entry via BriefingState)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURE = "coop_basedef_retaliation.sav"
 FIXTURE_PATH = os.path.join(HERE, "fixtures", FIXTURE)
@@ -129,30 +126,25 @@ def main():
         # Advance until the base defense fires (interest) or the budget elapses.
         res = geo.skip_ingame_time(
             host, client, minutes=12 * 24 * 60,
-            interest=lambda gc: in_battle(gc),
+            interest=geo.popup(*BATTLE_STATES),
             dismiss=True, real_timeout=180, stuck_timeout=None)
         print("skip_ingame_time result:", res)
         battle_reached = res.get("hit") is not None or in_battle(host) or in_battle(client)
 
-        # R4-P2: the interest above only proves ONE machine left the geoscape
-        # first - GeoscapeState::startCoopMission() now offers the battle over
-        # the SAME handshake R4-P1 built (CoopHandshake::offerBattle), so both
-        # machines are expected to complete it. Wait for both explicitly.
+        # E75.1 driving fix + F355 / owner D25: skip_ingame_time now HALTS at the
+        # base-defense BriefingState (interest carries .keep via geo.popup), so it
+        # is still on the host's stack here. CoopHandshake::emitPreparedOffer() runs
+        # from BriefingState::btnOkClick/close_briefing, so the client offer is not
+        # SENT until the HOST closes its own briefing FIRST; waiting for the client's
+        # BattlescapeState before that hangs. session.drive_both_to_tactical closes
+        # the host BriefingState via close_briefing, then drains BOTH machines through
+        # Briefing/Inventory/CoopState popups to BattlescapeState (the SPEC 19 flow).
         if battle_reached:
-            host.wait_for("host briefing", lambda: session._has_state(host, "BriefingState"),
-                          timeout=60)
-            print("PASS: host reached BriefingState (vanilla push, unconditional)")
-
-            client.wait_for("client battlescape",
-                            lambda: session._has_state(client, "BattlescapeState"),
-                            timeout=120)
-            print("PASS: client reached BattlescapeState directly (offer/accept/"
-                  "stream/blobSha-verify/load all succeeded)")
-
-            host.ok({"cmd": "click_widget", "match": "ok"})
-            host.wait_for("host battlescape",
-                          lambda: session._has_state(host, "BattlescapeState"), timeout=60)
-            print("PASS: BOTH machines in BattlescapeState")
+            assert session.drive_both_to_tactical(host, client), (
+                f"drive_both_to_tactical timed out host={session.states(host)[-3:]} "
+                f"client={session.states(client)[-3:]}")
+            print("PASS: BOTH machines in BattlescapeState (host briefing closed "
+                  "first via close_briefing, F355)")
 
             host_log = log_lines(host_dir)
             client_log = log_lines(client_dir)
