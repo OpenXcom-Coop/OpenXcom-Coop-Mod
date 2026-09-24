@@ -456,7 +456,7 @@ def sa_drop(host, client, ctx):
     before = {"host": probes(host), "client": probes(client)}
     st = set_tile_both(host, client, C15_FIRE_TILE_2, fire=1)
     t0h, t0c = tile(host, C15_FIRE_TILE_2), tile(client, C15_FIRE_TILE_2)
-    rd = host.cmd({"cmd": "delta_drop_next"})
+    rd = host.cmd({"cmd": "delta_drop_next", "class": "tiles"})
     if not rd.get("ok"):
         notes.append(f"delta_drop_next on the host: {rd}")
     turn0 = end_turn_cycle(host, client, notes, client_follows=False)

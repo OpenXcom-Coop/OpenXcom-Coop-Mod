@@ -2158,6 +2158,11 @@ static std::atomic<int> g_deltaSyncEvsApplied{0};
 // S-A.2's attach. Cleared at teardown with the probes so a stale arm never
 // survives into the next battle.
 static std::atomic<bool> g_deltaDropNext{false};
+// Its optional class filter (F515): "" = the next NON-EMPTY delta; a delta
+// class name (e.g. "tiles") = the next delta carrying at least one entry of
+// that class. Guarded by g_deltaDropMutex together with the flag.
+static std::mutex g_deltaDropMutex;
+static std::string g_deltaDropClass;
 // `lastDelta` (null until the first delta this battle).
 static std::mutex g_deltaLastMutex;
 static Json::Value g_deltaLast;
@@ -2195,8 +2200,10 @@ Json::Value lastDelta()
 	return g_deltaLast;
 }
 
-void requestDropNext()
+void requestDropNext(const std::string& cls)
 {
+	std::lock_guard<std::mutex> lock(g_deltaDropMutex);
+	g_deltaDropClass = cls;
 	g_deltaDropNext = true;
 }
 
@@ -2224,7 +2231,11 @@ static void resetProbes()
 	g_deltaApplyUsMax = 0;
 	g_deltaSyncEvsEmitted = 0;
 	g_deltaSyncEvsApplied = 0;
-	g_deltaDropNext = false;
+	{
+		std::lock_guard<std::mutex> lock(g_deltaDropMutex);
+		g_deltaDropNext = false;
+		g_deltaDropClass.clear();
+	}
 	{
 		std::lock_guard<std::mutex> lock(g_deltaLastMutex);
 		g_deltaLast = Json::Value();
@@ -2912,13 +2923,31 @@ bool attach(SavedBattleGame* battle, Json::Value& env)
 	wb["indentation"] = "";
 	const std::string text = Json::writeString(wb, delta);
 
-	if (g_deltaDropNext.exchange(false))
+	bool dropThis = false;
+	std::string dropClass;
+	{
+		// F515: with a class the one-shot skips every delta without an entry of
+		// that class (the first delta after arming can be one the wave-1 payload
+		// already restates, e.g. a side_transition's battle.side alone).
+		std::lock_guard<std::mutex> lock(g_deltaDropMutex);
+		if (g_deltaDropNext.load()
+			&& (g_deltaDropClass.empty()
+				|| (delta.isMember(g_deltaDropClass) && !delta[g_deltaDropClass].empty())))
+		{
+			dropThis = true;
+			dropClass = g_deltaDropClass;
+			g_deltaDropNext = false;
+			g_deltaDropClass.clear();
+		}
+	}
+	if (dropThis)
 	{
 		// RB-D26 delta_drop_next: computed AND committed (never re-sent) but
 		// deliberately not attached - the client is permanently missing these
 		// values, a hash-visible divergence.
 		g_deltaDropped.fetch_add(1);
 		Log(LOG_WARNING) << "[coop-delta] delta_drop_next lever fired: seq " << seq << " kind=" << kind
+			<< " class=" << (dropClass.empty() ? std::string("any") : dropClass)
 			<< " - delta computed and committed but NOT attached, the client will never receive it: "
 			<< text.substr(0, 1500);
 		return false;

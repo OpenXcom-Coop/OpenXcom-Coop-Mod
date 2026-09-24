@@ -5930,8 +5930,25 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// hash-visible divergence. Harmless (cleared at teardown) if nothing
 		// follows, or on a client. Consumed by the next CoopDelta::attach()
 		// whose delta is non-empty.
-		CoopDelta::requestDropNext();
-		resp["ok"] = true;
+		// Optional {class} (F515): a delta class name (spec (b)1 top-level key,
+		// e.g. "tiles") - the one-shot is then consumed only by the next delta
+		// carrying at least one entry of that class. Absent = as above.
+		const std::string dropClass = req.get("class", "").asString();
+		static const char* const kDeltaClasses[] = { "units", "unitsAdded", "tiles", "nodes",
+			"items", "itemsAdded", "itemsRemoved", "battle" };
+		bool knownClass = dropClass.empty();
+		for (const char* c : kDeltaClasses)
+			knownClass = knownClass || dropClass == c;
+		if (!knownClass)
+		{
+			resp["error"] = "delta_drop_next: unknown class '" + dropClass + "'";
+		}
+		else
+		{
+			CoopDelta::requestDropNext(dropClass);
+			resp["ok"] = true;
+			resp["class"] = dropClass.empty() ? std::string("any") : dropClass;
+		}
 	}
 	else if (cmd == "hash_timing")
 	{

@@ -92,8 +92,10 @@ Json::Value lastDelta();
 /// so the client is permanently missing those values - a hash-visible
 /// divergence that proves the delta, and nothing else, closed the hole.
 /// Cleared at battle teardown. Consumed by the next attach() whose delta is
-/// non-empty (the reveal_drop pattern).
-void requestDropNext();
+/// non-empty (the reveal_drop pattern) or, when @a cls names a delta class
+/// (a spec (b)1 top-level key, e.g. "tiles"; F515), by the next attach()
+/// whose delta carries at least one entry of that class.
+void requestDropNext(const std::string& cls = std::string());
 
 // ----- W2-P2 S-A, commit S-A.2: the delta core (spec (b)1-6, 9, 15) -----
 // Stage S-A syncs UNITS, TILES, NODES and BATTLE COUNTERS (itemIdCtr
