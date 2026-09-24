@@ -1816,6 +1816,7 @@ BattleUnit *BattlescapeGame::getPrimaryBusyActor() const
 {
 	for (BattleState *bs : _states)
 	{
+		if (!bs) continue; // W2-H2 F489: the end-turn marker (statePushBack(0)) is a null entry
 		if (dynamic_cast<UnitDieBState*>(bs) || dynamic_cast<UnitFallBState*>(bs)
 			|| dynamic_cast<ExplosionBState*>(bs))
 		{
