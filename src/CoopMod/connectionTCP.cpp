@@ -2175,6 +2175,15 @@ static std::string g_deltaDropClass;
 // `lastDelta` (null until the first delta this battle).
 static std::mutex g_deltaLastMutex;
 static Json::Value g_deltaLast;
+// W2-P2 S-C (spec (b)11/(b)13/(b)16): the host-local combat context count and
+// the cue probes. Commit S-C.1 (the RED commit) adds the storage and readers
+// only; commit S-C.2's beginHostLocalCombat, cue hooks (host) and cue-kind
+// branch (client) write them. `cueCounts` is empty and `lastCue` null until
+// the first cue this battle.
+static std::atomic<int> g_hostCombatContexts{0};
+static std::mutex g_cueMutex;
+static std::map<std::string, int> g_cueCounts;
+static Json::Value g_cueLast;
 
 Probes probes()
 {
@@ -2203,6 +2212,7 @@ Probes probes()
 	p.lightLocalCalls = g_lightLocalCalls.load();
 	p.lightWholeCalls = g_lightWholeCalls.load();
 	p.lightUsMax = g_lightUsMax.load();
+	p.hostCombatContexts = g_hostCombatContexts.load();
 	return p;
 }
 
@@ -2216,6 +2226,21 @@ Json::Value lastLight()
 {
 	std::lock_guard<std::mutex> lock(g_lightLastMutex);
 	return g_lightLast;
+}
+
+Json::Value cueCounts()
+{
+	std::lock_guard<std::mutex> lock(g_cueMutex);
+	Json::Value out(Json::objectValue);
+	for (const auto& kv : g_cueCounts)
+		out[kv.first] = kv.second;
+	return out;
+}
+
+Json::Value lastCue()
+{
+	std::lock_guard<std::mutex> lock(g_cueMutex);
+	return g_cueLast;
 }
 
 void resetLightWindow()
@@ -2270,6 +2295,12 @@ static void resetProbes()
 	{
 		std::lock_guard<std::mutex> lock(g_lightLastMutex);
 		g_lightLast = Json::Value();
+	}
+	g_hostCombatContexts = 0;
+	{
+		std::lock_guard<std::mutex> lock(g_cueMutex);
+		g_cueCounts.clear();
+		g_cueLast = Json::Value();
 	}
 }
 

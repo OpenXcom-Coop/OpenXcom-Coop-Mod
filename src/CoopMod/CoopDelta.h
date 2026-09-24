@@ -84,6 +84,10 @@ struct Probes
 	int lightLocalCalls = 0; ///< [lightLocalCalls] client: region (non-whole-map) light recomputes
 	int lightWholeCalls = 0; ///< [lightWholeCalls] client: whole-map light recomputes
 	int lightUsMax = 0;      ///< [lightUsMax] client: the slowest single light recompute, microseconds
+	// W2-P2 S-C (spec (b)13/(b)16): the host's own combat actions. Commit
+	// S-C.1 (the RED commit) adds the storage only; commit S-C.2's
+	// CoopArbiter::beginHostLocalCombat is the writer.
+	int hostCombatContexts = 0; ///< [hostCombatContexts] host: host-local combat contexts begun
 };
 
 /// A snapshot of this machine's probes (thread-safe; reads atomics).
@@ -104,6 +108,18 @@ Json::Value lastLight();
 /// `light_probe_reset` (W2-P2 S-L, A4.5; test lever): zero this machine's
 /// `lightUsMax` and `deltaApplyUsMax` windows. Nothing else changes.
 void resetLightWindow();
+
+/// [cueCounts] (W2-P2 S-C, spec (b)11/(b)16) the cue evs of this battle per
+/// kind - host: emitted, client: applied - as {kind: count} (an empty object
+/// when there has been none). Commit S-C.1 (the RED commit) adds the storage
+/// and this reader only; commit S-C.2's cue hooks (host) and cue-kind branch
+/// (client) are the writers.
+Json::Value cueCounts();
+
+/// [lastCue] (W2-P2 S-C, spec (b)16) the last cue ev this machine emitted
+/// (host) or applied (client), as {kind, seq, actionId, payload} - or null
+/// when there has been none this battle. Same writers as cueCounts().
+Json::Value lastCue();
 
 /// HOST, RB-D26 one-shot (the `reveal_drop` pattern): the NEXT delta attach
 /// computes and commits its delta but does not attach it (bumping `dropped`),

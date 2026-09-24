@@ -5109,6 +5109,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["lightWholeCalls"] = dp.lightWholeCalls;
 			resp["lightUsMax"] = dp.lightUsMax;
 			resp["lastLight"] = CoopDelta::lastLight();
+			// W2-P2 S-C (spec (b)16): the host-local combat context count
+			// (host) and the cue probes (host emitted / client applied),
+			// battle-scoped, same reset. Commit S-C.1 exposes them; commit
+			// S-C.2's contexts, cue hooks and client cue-kind branch write them.
+			resp["hostCombatContexts"] = dp.hostCombatContexts;
+			resp["cueCounts"] = CoopDelta::cueCounts();
+			resp["lastCue"] = CoopDelta::lastCue();
 		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
