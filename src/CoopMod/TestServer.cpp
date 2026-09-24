@@ -4059,6 +4059,19 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				ji["tz"] = tp.z;
 			}
 			ji["fuse"] = it->getFuseTimer();
+			// W2-P2 S-B (spec (b)16): the item fields the delta carries, read-only.
+			// previousOwner / unitLink (a corpse's or body's unit) as ids, -1 when
+			// none. slotX/slotY only for an INV_SLOT slot: the items bucket hashes
+			// them there alone (MJ-7), so a ground or hand item's stale x/y is
+			// not state and is not reported.
+			ji["previousOwner"] = it->getPreviousOwner() ? it->getPreviousOwner()->getId() : -1;
+			ji["unitLink"] = it->getUnit() ? it->getUnit()->getId() : -1;
+			if (it->getSlot() && it->getSlot()->getType() == INV_SLOT)
+			{
+				ji["slotX"] = it->getSlotX();
+				ji["slotY"] = it->getSlotY();
+			}
+			ji["fuseEnabled"] = it->isFuseEnabled();
 			Json::Value am(Json::arrayValue);
 			for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
 			{
