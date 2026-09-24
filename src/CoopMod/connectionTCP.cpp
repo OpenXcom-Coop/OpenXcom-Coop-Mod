@@ -2432,6 +2432,15 @@ struct CoopDeferredBattleSave
 };
 static CoopDeferredBattleSave g_coopDeferredBattleSave;
 
+// W2-H1 F448 (owner D136 = (b)): the storage behind coopSaveDeferrals() /
+// coopSaveDeferredAt() / coopSaveDeferredWrittenAt() (BattleAuthority.h) -
+// test-only introspection, never read by game logic. Battle-scoped, reset
+// with the latch by resetBattleAuthority(); atomics because that teardown is
+// reachable from the UDP-monitor thread (the W2-P1 storage note below).
+static std::atomic<int> g_coopSaveDeferrals{0};
+static std::atomic<std::uint32_t> g_coopSaveDeferredAt{0};
+static std::atomic<std::uint32_t> g_coopSaveDeferredWrittenAt{0};
+
 void armDeferredBattleSave(int origin, bool useTypeForm, int saveType, const std::string& filename, bool quitAfterSave)
 {
 	g_coopDeferredBattleSave.armed = true;
@@ -2440,12 +2449,29 @@ void armDeferredBattleSave(int origin, bool useTypeForm, int saveType, const std
 	g_coopDeferredBattleSave.saveType = saveType;
 	g_coopDeferredBattleSave.filename = filename;
 	g_coopDeferredBattleSave.quitAfterSave = quitAfterSave;
+	g_coopSaveDeferrals.fetch_add(1);
+	g_coopSaveDeferredAt = SDL_GetTicks();
 	Log(LOG_INFO) << "[coop-save] deferred until quiescent";
 }
 
 bool coopDeferredBattleSavePending()
 {
 	return g_coopDeferredBattleSave.armed;
+}
+
+int coopSaveDeferrals()
+{
+	return g_coopSaveDeferrals.load();
+}
+
+std::uint32_t coopSaveDeferredAt()
+{
+	return g_coopSaveDeferredAt.load();
+}
+
+std::uint32_t coopSaveDeferredWrittenAt()
+{
+	return g_coopSaveDeferredWrittenAt.load();
 }
 
 // SPEC 19 (W1-P20) M2 Branch B: the HOST's per-seat store of the latest
@@ -2544,6 +2570,10 @@ void resetBattleAuthority()
 	// SPEC 18 (r4 T4) M8: same discipline - a stale deferred-battle-save arm
 	// must not survive into a battle that no longer exists.
 	g_coopDeferredBattleSave.armed = false;
+	// W2-H1 F448: the deferral record is battle-scoped with the latch.
+	g_coopSaveDeferrals = 0;
+	g_coopSaveDeferredAt = 0;
+	g_coopSaveDeferredWrittenAt = 0;
 	// SPEC 19 (W1-P20) M2 Branch B: same discipline - a stale guest-roster
 	// contribution must not survive into a battle that no longer exists.
 	for (auto& entry : g_guestContrib)
@@ -3454,6 +3484,11 @@ struct CoopWalkChain
 	// {path, halted, reason, final, agreesWithSteps}. Null until the restate is
 	// emitted (host) or applied (client).
 	Json::Value restate;
+	// W2-H1 F448 (owner D136 = (b)), test-only: the HOST's SDL_GetTicks() at
+	// the completion restate (the moment `active` goes false), so a test can
+	// order the deferred save's write (coopSaveDeferredWrittenAt()) after the
+	// walk's end without racing either window. 0 while active and on a client.
+	std::uint32_t endTick = 0;
 };
 static CoopWalkChain g_coopWalkChain;
 
@@ -3929,6 +3964,7 @@ static void publishLastWalk()
 	w["reason"] = g_coopWalkChain.reason;
 	w["active"] = g_coopWalkChain.active;
 	w["restate"] = g_coopWalkChain.restate;
+	w["endTick"] = (Json::UInt)g_coopWalkChain.endTick; // W2-H1 F448
 	g_coopLastWalk = w;
 }
 
@@ -4390,6 +4426,7 @@ void onChainQuiesced()
 				<< (halted ? (" HALTED (" + g_coopWalkChain.reason + ")") : std::string());
 
 			g_coopWalkChain.active = false;
+			g_coopWalkChain.endTick = SDL_GetTicks(); // W2-H1 F448
 			{
 				Json::Value restate(Json::objectValue);
 				restate["path"] = end["path"];
@@ -13147,6 +13184,7 @@ void connectionTCP::updateCoopTask()
 		}
 		if (deferredBs)
 		{
+			g_coopSaveDeferredWrittenAt = SDL_GetTicks(); // W2-H1 F448 record
 			Log(LOG_INFO) << "[coop-save] written";
 			if (g_coopDeferredBattleSave.useTypeForm)
 			{

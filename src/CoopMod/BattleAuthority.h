@@ -426,6 +426,25 @@ void armDeferredBattleSave(int origin, bool useTypeForm, int saveType, const std
 /// quiescence.
 bool coopDeferredBattleSavePending();
 
+/// W2-H1 F448 (owner D136 = (b)), test-only introspection: a BATTLE-scoped
+/// record of the deferral above that a test reads instead of racing the
+/// latch's own window (a walk that drains within ~50 ms clears the latch
+/// before the test's first battle_state reply arrives - F448/F460). Reported
+/// by TestServer's `battle_state` next to `coopSavePending` as
+/// `coopSaveDeferrals` / `coopSaveDeferredAt` / `coopSaveDeferredWrittenAt`;
+/// never read by game logic. Reset with the latch by resetBattleAuthority().
+///
+/// How many saves armDeferredBattleSave() has deferred this battle.
+int coopSaveDeferrals();
+
+/// SDL_GetTicks() at the last deferral ("[coop-save] deferred until
+/// quiescent"); 0 before any this battle.
+std::uint32_t coopSaveDeferredAt();
+
+/// SDL_GetTicks() at the last deferred write (the "[coop-save] written"
+/// re-push at quiescence); 0 before any this battle.
+std::uint32_t coopSaveDeferredWrittenAt();
+
 /// R5-P2 input-gating combinator (SPIKE-RUNBOOK.md R5-P2 packet text: "ONE
 /// predicate for 'I may command this unit': my seat commands it AND my
 /// faction side is active"). Self-guarded like isCoopBattle() - returns

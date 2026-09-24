@@ -7229,6 +7229,13 @@ std::string TestServer::execute(const std::string& line)
 				// a test can prove a save was requested busy and written
 				// only at quiescence.
 				resp["coopSavePending"] = coopDeferredBattleSavePending();
+				// W2-H1 F448 (owner D136 = (b)), NEW (additive): the battle-
+				// scoped deferral record, so a test proves "requested busy,
+				// written after the walk ended" without racing the latch's
+				// own window (BattleAuthority.h).
+				resp["coopSaveDeferrals"] = coopSaveDeferrals();
+				resp["coopSaveDeferredAt"] = (Json::UInt)coopSaveDeferredAt();
+				resp["coopSaveDeferredWrittenAt"] = (Json::UInt)coopSaveDeferredWrittenAt();
 			}
 			if (!bg)
 			{

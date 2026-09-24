@@ -410,42 +410,44 @@ def main():
         elevator, dest, lw, pending = stage_alien_and_walk(host, client, walker_id)
 
         before_files = set(session.save_files(host_dir))
+        deferrals_before = battle(host).get("coopSaveDeferrals")
         r = host.ok({"cmd": "save_game_ui", "type": "quick_battle"})
-        # DEFERRAL (D101/M8): the file must not appear yet, and the latch must
-        # be armed, while the walk is still mid-flight. SaveGameState::think()
-        # has its own 10-frame warmup (_firstRun<10, unrelated to M8) before it
-        # runs the quiescence check at all, so poll rather than sampling the
-        # very next frame. F406 (WV-D77, captured under REGRESSION K=2):
-        # a 5s window sampled `coopSavePending never became True (pending=5):
-        # {'ok': True}` under lane contention - K=2 slows real FRAME
-        # PROCESSING generally (not just this warmup), so the 10-frame warmup
-        # can take longer in WALL time than a short window allows even though
-        # the walk (also frame-paced) is still comfortably mid-flight. Widened
-        # to a generous wait_for-style bound; still exits the instant either
-        # signal appears, and the assertions below independently re-verify
-        # both facts precisely (never masked).
-        sp_immediate = None
+        # DEFERRAL (D101/M8), read from the game's own record. F448 (owner
+        # D136 = (b), WV-D77): the old check had to OBSERVE the latch armed
+        # with no file yet, a window that closes when the walk drains. A walk
+        # whose remaining steps run off-screen (interval 0) and halt on TU
+        # (F450) drains within ~25-200 ms of the request, and each battle_state
+        # reply reaches the test ~50 ms after the game handled it (F460), so
+        # the first look can land after the deferred write (REGRESSION K=2:
+        # deferred -> halt +22 ms -> written +25 ms; the first poll saw the new
+        # file with the latch already cleared). The game now records every
+        # deferral (`coopSaveDeferrals`, bumped at "[coop-save] deferred until
+        # quiescent") and the tick of the deferred write
+        # (`coopSaveDeferredWrittenAt`, at "[coop-save] written"), and the
+        # host's `lastWalk.endTick` is the tick its walk ended. So: wait for
+        # the new file (the F406 bound, unchanged - SaveGameState::think()'s
+        # 10-frame warmup still runs first and K=2 slows frames), assert the
+        # save was deferred exactly once across the request, and - after the
+        # file exists (below) - that the deferred write came no earlier than
+        # the walk's end.
         immediate_files = set()
         poll_iters = 0
         t_start = time.time()
         deadline = t_start + 30.0
         while time.time() < deadline:
             poll_iters += 1
-            sp_immediate = battle(host).get("coopSavePending")
             immediate_files = set(session.save_files(host_dir)) - before_files
-            if sp_immediate is True or immediate_files:
+            if immediate_files:
                 break
             time.sleep(0.1)
         elapsed = time.time() - t_start
-        assert sp_immediate is True, (
-            f"M8 VACUITY: coopSavePending never became True after the mid-walk "
-            f"save request (pending={pending}) - polled {poll_iters} time(s) over "
-            f"{elapsed:.1f}s: {r}")
-        assert not immediate_files, (
-            f"M8: a save file appeared BEFORE the walk drained (deferral broken) after "
-            f"{poll_iters} poll(s)/{elapsed:.1f}s: {immediate_files}")
-        print(f"PASS M8 deferral: coopSavePending=True, no new save file while busy "
-              f"(walk pending={pending}, armed after {poll_iters} poll(s)/{elapsed:.1f}s)")
+        deferrals_after = battle(host).get("coopSaveDeferrals")
+        assert isinstance(deferrals_before, int) and deferrals_after == deferrals_before + 1, (
+            f"M8 VACUITY: the mid-walk save request (pending={pending}) was not deferred "
+            f"exactly once - coopSaveDeferrals {deferrals_before} -> {deferrals_after} "
+            f"after {poll_iters} poll(s)/{elapsed:.1f}s: {r}")
+        print(f"PASS M8 deferral: coopSaveDeferrals {deferrals_before} -> {deferrals_after} "
+              f"(walk pending={pending}, new file after {poll_iters} poll(s)/{elapsed:.1f}s)")
 
         # drain the walk to its own natural end
         for _ in range(150):
@@ -471,6 +473,19 @@ def main():
         assert len(new_files) == 1, f"M8: expected exactly one new save file, got {sorted(new_files)}"
         savpath = os.path.join(host_dir, next(iter(new_files)))
         print(f"PASS M8: coopSavePending cleared, one new save written -> {savpath}")
+
+        # F448 (D136): the deferred write came no earlier than the walk's end -
+        # both are the host's own SDL_GetTicks(), read once the file exists.
+        rec = battle(host)
+        walk_end = (session.event_state(host).get("lastWalk") or {}).get("endTick")
+        written_at = rec.get("coopSaveDeferredWrittenAt")
+        assert (isinstance(walk_end, int) and walk_end > 0 and isinstance(written_at, int)
+                and written_at >= walk_end), (
+            f"M8: the deferred save was not written after the walk ended (deferral broken): "
+            f"coopSaveDeferredWrittenAt={written_at} lastWalk.endTick={walk_end} "
+            f"coopSaveDeferredAt={rec.get('coopSaveDeferredAt')}")
+        print(f"PASS M8 write-after-walk-end: coopSaveDeferredWrittenAt={written_at} >= "
+              f"lastWalk.endTick={walk_end} (deferred at {rec.get('coopSaveDeferredAt')})")
 
         sav_status, sav_pos, sav_block = _sav_status_pos(savpath, walker_id)
         assert sav_status == STATUS_STANDING, (
