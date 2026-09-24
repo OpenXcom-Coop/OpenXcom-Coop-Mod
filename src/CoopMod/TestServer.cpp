@@ -5008,7 +5008,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_strip_unit"
 		&& cmd != "battle_end_turn_ready"
 		&& cmd != "battle_visibility_rule"
-		&& cmd != "screen_pixels")
+		&& cmd != "screen_pixels"
+		&& cmd != "battle_camera_center"
+		&& cmd != "path_probe")
 	{
 		return false;
 	}
@@ -6714,6 +6716,110 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 			resp["pixels"] = pixels;
 			resp["mode"] = CoopBattleUi::coopGrayBottomBarMode();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "battle_camera_center")
+	{
+		// W2-H3 (spec AMENDMENT 2 step 4, owner D143): test-only, camera-only,
+		// read by the harness on THIS machine, never forwarded, nothing emitted.
+		// Centres this machine's battlescape camera on tile {x,y,z} through
+		// vanilla's own Camera::centerOnPosition(pos, false) - the same call
+		// map_tile_click_pos makes when it re-centres - which also sets the view
+		// level to z (Camera.cpp: _mapOffset.z = _center.z). No game state is
+		// touched. Reports the camera centre and view level after the call, and
+		// the base screen and icon-panel sizes the click probe searches within
+		// (read-only). A tile outside the map is refused and nothing changes.
+		SavedGame* sgCC = _game->getSavedGame();
+		SavedBattleGame* bgCC = sgCC ? sgCC->getSavedBattle() : nullptr;
+		BattlescapeState* bsCC = bgCC ? bgCC->getBattleState() : nullptr;
+		const Position posCC(req.get("x", -1).asInt(), req.get("y", -1).asInt(), req.get("z", -1).asInt());
+		if (!bsCC)
+		{
+			resp["error"] = "battle_camera_center: no BattlescapeState";
+		}
+		else if (!bgCC->getTile(posCC))
+		{
+			resp["error"] = "battle_camera_center: tile out of bounds";
+		}
+		else
+		{
+			Camera* camCC = bsCC->getMap()->getCamera();
+			camCC->centerOnPosition(posCC, false);
+			const Position cCC = camCC->getCenterPosition();
+			resp["centerX"] = cCC.x;
+			resp["centerY"] = cCC.y;
+			resp["centerZ"] = cCC.z;
+			resp["viewLevel"] = camCC->getViewLevel();
+			resp["baseW"] = Options::baseXResolution;
+			resp["baseH"] = Options::baseYResolution;
+			resp["iconW"] = bsCC->getMap()->getIconWidth();
+			resp["iconH"] = bsCC->getMap()->getIconHeight();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "path_probe")
+	{
+		// W2-H3 (spec AMENDMENT 3 step 1): test-only, READ-ONLY, answered by
+		// THIS machine to the harness, never forwarded, nothing emitted. Runs
+		// vanilla's Pathfinding::calculate for unit {unit} from its current
+		// tile to tile {x,y,z} with BAM_NORMAL (the plain walk click's own move
+		// type, BattlescapeGame.cpp:2138) and reports {reachable, steps,
+		// tuCost} plus the tile the path ends on (calculate may lower or raise
+		// the requested z; `reachable` = a non-empty path that ends ON the
+		// requested tile). The search runs on a PRIVATE Pathfinding instance
+		// built on this battle, so the live pathfinder's path, preview and
+		// unit pointer are never touched; the private path is then cleared
+		// (abortPath) and the instance dropped. Pathfinding::calculate /
+		// bresenhamPath / aStarPath / getTUCost only READ the unit (getters)
+		// and the tiles (getTile / isBlocked); they write only the private
+		// instance's own _path, _nodes, _totalTUCost, _unit and _strafeMove,
+		// and Pathfinding.cpp has no RNG call - so no unit, tile or map state
+		// changes and no RNG draw.
+		SavedGame* sgPP = _game->getSavedGame();
+		SavedBattleGame* bgPP = sgPP ? sgPP->getSavedBattle() : nullptr;
+		const int unitIdPP = req.get("unit", -1).asInt();
+		const Position posPP(req.get("x", -1).asInt(), req.get("y", -1).asInt(), req.get("z", -1).asInt());
+		BattleUnit* unitPP = nullptr;
+		if (bgPP)
+		{
+			for (auto* u : *bgPP->getUnits())
+			{
+				if (u->getId() == unitIdPP) { unitPP = u; break; }
+			}
+		}
+		if (!bgPP)
+		{
+			resp["error"] = "path_probe: no live battle";
+		}
+		else if (!unitPP || unitPP->isOut())
+		{
+			resp["error"] = "path_probe: no live unit id " + std::to_string(unitIdPP);
+		}
+		else if (!bgPP->getTile(posPP))
+		{
+			resp["error"] = "path_probe: tile out of bounds";
+		}
+		else
+		{
+			Pathfinding probePP(bgPP);
+			probePP.calculate(unitPP, posPP, BAM_NORMAL);
+			const std::vector<int>& pathPP = probePP.getPath();
+			Position endPP = unitPP->getPosition();
+			for (int dirPP : pathPP)
+			{
+				Position stepPP;
+				Pathfinding::directionToVector(dirPP, &stepPP);
+				endPP = endPP + stepPP;
+			}
+			const int stepsPP = (int)pathPP.size();
+			resp["steps"] = stepsPP;
+			resp["tuCost"] = probePP.getTotalTUCost();
+			resp["endX"] = endPP.x;
+			resp["endY"] = endPP.y;
+			resp["endZ"] = endPP.z;
+			resp["reachable"] = stepsPP > 0 && endPP == posPP;
+			probePP.abortPath();
 			resp["ok"] = true;
 		}
 	}
