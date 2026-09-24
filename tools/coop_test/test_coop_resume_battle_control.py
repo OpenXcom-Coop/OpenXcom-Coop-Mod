@@ -21,9 +21,17 @@ the Skyranger, so no long HOST real-click walk exists there. D121 controls
 the map instead - the host's campaign base gets a LIGHTNING (a large flat
 walkable roof), the mission is a landed SMALL-SCOUT UFO (a deterministic
 small map), the sole alien is teleported into the UFO at the ACCESS_LIFT tile
-(LOS wall-blocked - no spot-halt), and the host walks a long corner-to-corner
-run on the Lightning's roof. Lifted from the orchestrator's proven R1(d)/R1(f)
-scratch script (r1d_e72.py) - see that file for the measured 3-boot evidence.
+(LOS wall-blocked - no spot-halt), and the host walks to the first far
+destination whose click needs no camera re-centring, so the walker stays
+on-screen for the whole walk. W2-H3 (F465, D137, D140, D141): vanilla paces
+only an on-screen walk (911ca487f UnitWalkBState.cpp:100 `onScreen`, :279
+interval 0 off-screen); a re-centred click left the walker off-screen, the
+walk ran unpaced and could end before the save request arrived. The HOST
+boots with `battlescapeScale` 5 (SCALE_SCREEN): the battlescape fills the
+640x400 window instead of 320x200, so a long walk and its walker fit on one
+view (D141). Lifted from the
+orchestrator's proven R1(d)/R1(f) scratch script (r1d_e72.py) - see that file
+for the measured 3-boot evidence.
 
 split_report/assert_split/settle_and_assert are REWRITTEN here (F376, same
 function names so test_shared_resume_battle_control.py's `import ... as rc`
@@ -329,9 +337,20 @@ def _host_squad_battle_units(gc, host_squad):
 def stage_alien_and_walk(host, client, walker_id):
     """SPEC 16's proven staging (test_spec16_pause_on_leave.py): park the sole
     alien on the UFO's own ACCESS_LIFT column (LOS wall-blocked - no F394
-    spot-halt), then find a far destination on the Lightning's roof and start
-    a real-click walk. Returns (elevator, dest, lw, pending) once the walk is
-    observed >=2-pending mid-flight."""
+    spot-halt), then pick a far destination the walker reaches while staying
+    on-screen and start a real-click walk. Returns (elevator, dest, lw,
+    pending) once the walk is observed >=2-pending mid-flight.
+
+    W2-H3 (F465, D137, D140, D141): vanilla paces a walk only while the walker
+    is on screen (911ca487f UnitWalkBState.cpp:100/:279). If the destination is
+    off the HOME view, map_tile_click_pos re-centres the camera on it
+    (`centered` true), the walker leaves the view and the walk runs unpaced.
+    So, with the walker selected, each candidate (length order, then candidate
+    order, both unchanged) is probed after HOME, and the FIRST one whose click
+    pixel is found without re-centring is the destination; a candidate that
+    needs re-centring is skipped. The host's full-window battlescape
+    (`battlescapeScale` 5, see main()) keeps the long candidates on the HOME
+    view (D141)."""
     aliens = s16._find_alien(host)
     assert aliens, "S1-PRECOND: no living alien on this boot"
     alien = aliens[0]
@@ -348,17 +367,32 @@ def stage_alien_and_walk(host, client, walker_id):
     print(f"[stage] alien {alien['id']} parked at UFO lift {elevator} (dir={away})")
 
     occupied = {(u["x"], u["y"], u["z"]) for u in battle(host)["units"] if not u.get("isOut")}
-    cands = []
+    # HOME centres on the SELECTED unit, so select the walker before probing.
+    assert s16._select_by_tab(host, walker_id), "S1-PRECOND: could not TAB-select the walker"
+    dest = None
+    probed = []
     for length in (10, 12, 8, 6, 5, 4):
         if length * 4 > walker.get("tu", 0):
             continue
         cands = s16._far_destinations(host, walker, elevator, occupied, length=length, want=5)
-        if cands:
+        for c in cands:
+            t = c[1][-1]
+            # HOME before every probe: a probe that re-centres moves the camera.
+            host.ok({"cmd": "inject_input", "kind": "key", "key": s16.SDLK_HOME})
+            time.sleep(0.15)
+            pr = host.cmd({"cmd": "map_tile_click_pos", "x": t[0], "y": t[1], "z": t[2]})
+            probed.append((length, t, pr.get("centered"), pr.get("verified")))
+            if pr.get("verified") and pr.get("centered") is False:
+                dest = t
+                break
+        if dest is not None:
             break
-    assert cands, f"S1-PRECOND: no far destination found (walker tu={walker.get('tu')})"
-    dest = cands[0][1][-1]
+    assert dest is not None, (
+        f"S1-PRECOND: no far destination is clickable without re-centring the camera after "
+        f"HOME (walker tu={walker.get('tu')}); (length, dest, centered, verified): {probed}")
+    print(f"[stage] on-screen dest={dest} length={length}; "
+          f"(length, dest, centered, verified) probed: {probed}")
 
-    assert s16._select_by_tab(host, walker_id), "S1-PRECOND: could not TAB-select the walker"
     prev = session.walk_action_id(host)
     assert s16._click_walk(host, dest), "S1-PRECOND: map_tile_click_pos never verified (dest off-view)"
     lw, pending = s16._poll_walk_until_pending(host, prev, min_pending=2, timeout=25)
@@ -385,7 +419,7 @@ def stage_alien_and_walk(host, client, walker_id):
 
 
 def main():
-    host_dir = make_user_dir("crbc_host", options={"battleXcomSpeed": 200})
+    host_dir = make_user_dir("crbc_host", options={"battleXcomSpeed": 200, "battlescapeScale": 5})
     client_dir = make_user_dir("crbc_client")
     host = GameClient("host", 47861, host_dir)
     client = GameClient("client", 47862, client_dir)
