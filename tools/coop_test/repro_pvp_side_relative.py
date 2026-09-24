@@ -395,10 +395,29 @@ def phase4_client_click_selects_own_alien(host, client, alien_id, alien_pos, sol
     time.sleep(0.8)
     print("PHASE 4: settling pass done (camera-settle race, module docstring)")
 
-    # the baseline is taken AFTER the settling pass: that click legitimately
-    # bumps coopLocalExecBlocked once (an empty-ground miss refused by the
-    # commanding arm), which is expected and not part of what this phase
-    # measures.
+    # W2-H1 F485: since F447 (harness battleEdgeScroll: 0) the camera no
+    # longer drifts after the probe centres it, so the settling click lands ON
+    # the alien's tile and, rule still ON, SELECTS the alien without touching
+    # coopLocalExecBlocked (captured: selectedId 8 -> 1000000, counter 0 -> 0;
+    # before F447 the drifted click was an empty-ground miss). Undo that with
+    # the same one-sided select lever as above - setSelectedUnit only, the
+    # camera and so the settled geometry are untouched - so the rule-OFF click
+    # again starts from "soldier selected, alien not selected".
+    settle_sel = battle_state(client).get("selectedId")
+    r = client.cmd({"cmd": "battle_action", "action": "select", "unit": soldier_id})
+    assert r.get("ok"), (
+        f"PHASE 4: client re-select of seat-0 soldier {soldier_id} after the "
+        f"settling pass failed: {r}")
+    cs = battle_state(client)
+    assert cs.get("selectedId") == soldier_id, (
+        f"PHASE 4: client selectedId did not move back to the seat-0 soldier "
+        f"{soldier_id} after the settling pass: {cs.get('selectedId')}")
+    print(f"PHASE 4: settling click left selectedId={settle_sel}; selection "
+          f"pointed back at soldier {soldier_id}")
+
+    # the baseline is taken AFTER the settling pass and the re-point: what the
+    # settling click did to coopLocalExecBlocked is not part of what this
+    # phase measures.
     blocked_before = event_state(client).get("coopLocalExecBlocked")
     print(f"PHASE 4: client coopLocalExecBlocked after the settling pass = {blocked_before}")
 
