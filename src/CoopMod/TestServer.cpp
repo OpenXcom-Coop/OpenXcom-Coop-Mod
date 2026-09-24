@@ -204,6 +204,7 @@
 #include "CoopEndTurn.h" // W1-P13b: battle_end_turn_ready lever + event_state's coopEndTurn* fields
 #include "CoopSpeed.h" // SPEC 17 (W1-P18): event_state's speed + three set_option arms
 #include "CoopDelta.h" // W2-P2 S-A: event_state's delta probes + the delta_drop_next lever
+#include "CoopIdMaps.h" // W2-P2 S-B: item levers register/forget their ids (spec (b)15)
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -3990,6 +3991,52 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	return true;
 }
 
+// W2-P2 S-B (spec (b)15): a TEST LEVER created or wrote @a item on THIS machine
+// (the harness applies item levers to BOTH machines). HOST: absorbed into the
+// delta snapshot, so the lever write never rides a delta (no mint race, a
+// one-machine poke stays hash-detectable). BOTH: registered in CoopIdMaps -
+// a product item reaches the client's id map through the battle-blob load or
+// the delta's own materialization, and a lever mint bypasses both, so without
+// this a later delta naming the id (a field change, its removal) could not
+// resolve on the client.
+static void coopLeverItemWritten(BattleItem* item)
+{
+	if (!item)
+		return;
+	CoopDelta::absorbItem(item);
+	CoopIdMaps::registerItem(item);
+}
+
+// W2-P2 S-B (spec (b)15): the ids SavedBattleGame::removeItem(@a item) will
+// purge - the item and each ammo item loaded in it (self-references excluded).
+// Read BEFORE the removal.
+static std::vector<int> coopLeverRemovalIds(BattleItem* item)
+{
+	std::vector<int> ids;
+	if (!item)
+		return ids;
+	ids.push_back(item->getId());
+	for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
+	{
+		BattleItem* ammo = item->getAmmoForSlot(slot);
+		if (ammo && ammo != item)
+			ids.push_back(ammo->getId());
+	}
+	return ids;
+}
+
+// W2-P2 S-B (spec (b)15): a TEST LEVER removed these item ids on THIS machine.
+// HOST: dropped from the delta snapshot (the removal never rides a delta).
+// BOTH: forgotten by CoopIdMaps (the id is gone).
+static void coopLeverItemsRemoved(const std::vector<int>& ids)
+{
+	for (int id : ids)
+	{
+		CoopDelta::absorbItemRemoved(id);
+		CoopIdMaps::forget(id);
+	}
+}
+
 bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	// Issue #74 driver set: per-instance battlescape item census + the ability to
@@ -4111,7 +4158,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 						|| bi->getSlot()->getId() == "STR_LEFT_HAND"))
 						hands.push_back(bi);
 				for (auto* bi : hands)
+				{
+					const std::vector<int> goneIds = coopLeverRemovalIds(bi);
 					sbg->removeItem(bi);
+					coopLeverItemsRemoved(goneIds); // W2-P2 S-B (spec (b)15), incl. its ammo ids
+				}
 			}
 			// slot=ground: drop the item straight onto the unit's tile instead of
 			// into an inventory slot. Deterministic loose items - the inventory
@@ -4146,6 +4197,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				// W2-P2 S-A (spec (b)15): the item counter this mint advanced
 				// never rides a delta (both machines mint the same ids).
 				CoopDelta::absorbBattle(sbg);
+				coopLeverItemWritten(g); // W2-P2 S-B (spec (b)15): the minted item
 				return true;
 			}
 
@@ -4199,10 +4251,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 					sbg->initItem(a, unit);
 					w->setAmmoForSlot(0, a);
 					resp["ammoId"] = a->getId();
+					coopLeverItemWritten(a); // W2-P2 S-B (spec (b)15): the minted ammo, as loaded
 				}
 			}
 			resp["ok"] = true;
 			CoopDelta::absorbBattle(sbg); // W2-P2 S-A (spec (b)15): the item counter
+			coopLeverItemWritten(w); // W2-P2 S-B (spec (b)15): the minted item, as placed
 		}
 	}
 	else if (cmd == "battle_open_inventory")
@@ -4322,6 +4376,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 					bi->setFuseEnabled(true);
 				}
 				ids.append(bi->getId());
+				coopLeverItemWritten(bi); // W2-P2 S-B (spec (b)15): each minted item
 			}
 			resp["ids"] = ids;
 			resp["ok"] = true;
@@ -4855,6 +4910,7 @@ static bool coopCorruptItemsBucket(SavedBattleGame* battle)
 	{
 		if (!it) continue;
 		it->setAmmoQuantity(it->getAmmoQuantity() + 1); // D5 bucket field
+		CoopDelta::absorbItem(it); // W2-P2 S-B (spec (b)15): a one-machine poke stays a divergence
 		return true;
 	}
 	return false;
@@ -6074,11 +6130,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						skippedSpecial.append(biId);
 						continue;
 					}
+					const std::vector<int> goneIds = coopLeverRemovalIds(bi);
 					bgSU->removeItem(bi);
 					deleted.append(biId);
+					coopLeverItemsRemoved(goneIds); // W2-P2 S-B (spec (b)15), incl. its ammo ids
 				}
 				// W2-P2 S-A (spec (b)15): the battle counters as this lever left
-				// them (the removed item ids themselves are stage S-B's).
+				// them (the removed item ids are absorbed per item above, S-B).
 				CoopDelta::absorbBattle(bgSU);
 				resp["ok"] = true;
 				resp["unit"] = unit->getId();

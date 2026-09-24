@@ -1271,6 +1271,28 @@ bool BattleItem::isAmmo() const
 	return _isAmmo;
 }
 
+/**
+ * W2-P2 S-B: the raw script-value vector.
+ * @return values (element i = tag index i + 1)
+ */
+const std::vector<int>& BattleItem::coopScriptValuesRaw() const
+{
+	return _scriptValues.getValuesRaw();
+}
+
+/**
+ * W2-P2 S-B: absolute raw script-value set; every index past @a values is
+ * zeroed. Runs no script and draws no RNG.
+ * @param values new values (element i = tag index i + 1)
+ */
+void BattleItem::coopSetScriptValuesRaw(const std::vector<int>& values)
+{
+	using CoopTag = decltype(_scriptValues)::Tag;
+	const size_t n = std::max(values.size(), _scriptValues.getValuesRaw().size());
+	for (size_t i = 0; i < n; ++i)
+		_scriptValues.set(CoopTag::make(i + 1), i < values.size() ? values[i] : 0);
+}
+
 
 ////////////////////////////////////////////////////////////
 //					Script binding

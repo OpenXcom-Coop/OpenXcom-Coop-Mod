@@ -26,6 +26,7 @@ namespace OpenXcom
 
 class SavedBattleGame;
 class BattleUnit;
+class BattleItem;
 class Tile;
 
 /**
@@ -131,6 +132,22 @@ void flushSync();
 void absorbUnit(const BattleUnit* unit);
 void absorbTile(const Tile* tile);
 void absorbBattle(SavedBattleGame* battle);
+
+// ----- W2-P2 S-B, commit S-B.2: the item delta (spec (b)1, 7, 8, 15) -----
+// attach() now also diffs ITEMS: `items` (field changes, incl. ammo links -
+// a slot whose ammo is the weapon itself (BattleItem.cpp's `_ammoItem[slot] =
+// this`, F530) is encoded as the item's OWN id and restored as self),
+// `itemsAdded` (the host's BattleItem::save() YAML, materialized on the client
+// with the host's id through the load path) and `itemsRemoved`.
+
+/// HOST, armed only (spec (b)15): a TEST LEVER created or wrote @a item;
+/// copy its live values into the snapshot (a new id is added), so the write
+/// never rides a delta. Bumps `absorbed`. Never called by product code.
+void absorbItem(const BattleItem* item);
+/// HOST, armed only (spec (b)15): a TEST LEVER removed item @a id (and each
+/// of its ammo ids, one call each); drop it from the snapshot so the removal
+/// never rides a delta. Bumps `absorbed`. Never called by product code.
+void absorbItemRemoved(int id);
 
 } // namespace CoopDelta
 

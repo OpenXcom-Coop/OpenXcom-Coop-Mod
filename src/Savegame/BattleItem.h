@@ -233,6 +233,11 @@ public:
 	void setIsAmmo(bool ammo);
 	/// Checks a flag on the item to see if it's a clip in a weapon or not.
 	bool isAmmo() const;
+	/// W2-P2 S-B (spec (b)1, R3.7): the raw script-value vector (element i = tag index i + 1).
+	const std::vector<int>& coopScriptValuesRaw() const;
+	/// W2-P2 S-B: absolute raw script-value set; entries past @a values are
+	/// zeroed. Runs no script and draws no RNG.
+	void coopSetScriptValuesRaw(const std::vector<int>& values);
 };
 
 }

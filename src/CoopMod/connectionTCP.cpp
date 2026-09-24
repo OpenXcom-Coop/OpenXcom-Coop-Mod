@@ -2250,7 +2250,8 @@ static void resetProbes()
 // every synced field that changed since the previous envelope - so the second
 // player's state is WRITTEN with plain setters, never re-derived. Stage S-A
 // diffs UNITS, TILES, NODES and the BATTLE counters (itemIdCtr included);
-// items (and itemsAdded/itemsRemoved) are stage S-B.
+// stage S-B (commit S-B.2) adds ITEMS: `items` (field diffs incl. ammo links),
+// `itemsAdded` (the host's BattleItem::save() record) and `itemsRemoved`.
 //
 // Shape: a per-id / per-tile-index snapshot of the LAST SHIPPED value of every
 // (b)1 field, seeded from the exact state the client's blob freezes (seed(),
@@ -2337,6 +2338,35 @@ struct BattleSnap
 	std::vector<int> tags;
 };
 
+/// Spec (b)1 `items[]` (stage S-B): every field the delta carries for one
+/// item, plus the two flags the (b)2 unsupported rules read.
+struct ItemSnap
+{
+	std::string type;
+	bool corpse = false;  ///< BT_CORPSE: corpse -> corpse is the one carried type change
+	bool special = false; ///< isSpecialWeapon(): unsupported in itemsAdded (W2-P3, MJ-5)
+	int owner = -1;
+	int previousOwner = -1;
+	int unit = -1;        ///< the corpse / body link (BattleItem::getUnit)
+	std::string slot;     ///< inventory id, "" = none
+	bool invSlot = false; ///< slot type INV_SLOT: slotX/slotY are state only then (MJ-7)
+	int slotX = 0;
+	int slotY = 0;
+	bool onTile = false;
+	Position tile;
+	int ammoQty = 0;
+	/// Per ammo slot: the linked ammo item's id, -1 = none. A slot whose ammo is
+	/// the weapon itself (BattleItem.cpp `_ammoItem[slot] = this`, F530) holds
+	/// the item's OWN id - encoded as self, never as a link to another item.
+	int ammo[RuleItem::AmmoSlotMax] = {};
+	int fuse = -1;
+	bool fuseEnabled = false;
+	int medikit[3] = {}; ///< painKiller, heal, stimulant
+	bool droppedOnAlienTurn = false;
+	bool xcomProperty = false;
+	std::vector<int> tags;
+};
+
 std::mutex g_snapMutex;
 SavedBattleGame* g_snapBattle = nullptr; // the battle seed() captured
 bool g_snapMismatchLogged = false;
@@ -2344,6 +2374,7 @@ std::map<int, UnitSnap> g_snapUnits;
 std::vector<TileSnap> g_snapTiles;
 std::vector<int> g_snapNodeTypes; // by position in SavedBattleGame::getNodes()
 BattleSnap g_snapBattleFields;
+std::map<int, ItemSnap> g_snapItems; // stage S-B, by item id
 
 long long usSince(std::chrono::steady_clock::time_point t0)
 {
@@ -2443,6 +2474,50 @@ BattleSnap captureBattle(SavedBattleGame* b)
 	s.side = (int)b->getSide();
 	s.tags = stripTags(b->coopScriptValuesRaw());
 	return s;
+}
+
+ItemSnap captureItem(const BattleItem* it)
+{
+	ItemSnap s;
+	const RuleItem* rules = it->getRules();
+	s.type = rules ? rules->getType() : std::string();
+	s.corpse = rules && rules->getBattleType() == BT_CORPSE;
+	s.special = it->isSpecialWeapon();
+	s.owner = it->getOwner() ? it->getOwner()->getId() : -1;
+	s.previousOwner = it->getPreviousOwner() ? it->getPreviousOwner()->getId() : -1;
+	s.unit = it->getUnit() ? it->getUnit()->getId() : -1;
+	const RuleInventory* slot = it->getSlot();
+	s.slot = slot ? slot->getId() : std::string();
+	s.invSlot = slot && slot->getType() == INV_SLOT;
+	s.slotX = it->getSlotX();
+	s.slotY = it->getSlotY();
+	s.onTile = (it->getTile() != nullptr);
+	if (s.onTile)
+		s.tile = it->getTile()->getPosition();
+	s.ammoQty = it->getAmmoQuantity();
+	for (int k = 0; k < RuleItem::AmmoSlotMax; ++k)
+	{
+		const BattleItem* a = it->getAmmoForSlot(k);
+		s.ammo[k] = a ? a->getId() : -1; // self (F530) = the item's own id
+	}
+	s.fuse = it->getFuseTimer();
+	s.fuseEnabled = it->isFuseEnabled();
+	s.medikit[0] = it->getPainKillerQuantity();
+	s.medikit[1] = it->getHealQuantity();
+	s.medikit[2] = it->getStimulantQuantity();
+	s.droppedOnAlienTurn = it->getTurnFlag();
+	s.xcomProperty = it->getXCOMProperty();
+	s.tags = stripTags(it->coopScriptValuesRaw());
+	return s;
+}
+
+/// `itemsAdded[].record` (spec (b)1/(b)7): the YAML text of the host's own
+/// BattleItem::save() - what the client's load path reads back.
+std::string itemRecord(const BattleItem* it, SavedBattleGame* b)
+{
+	YAML::YamlRootNodeWriter writer;
+	it->save(writer.toBase(), b->getMod()->getScriptGlobal());
+	return writer.emit().yaml;
 }
 
 Json::Value posJson(const Position& p)
@@ -2613,6 +2688,82 @@ bool diffBattle(const BattleSnap& w, const BattleSnap& n, Json::Value& e)
 	return any;
 }
 
+/// Spec (b)1 `items[]` for one existing item. A type change other than
+/// corpse -> corpse is not carried ((b)2): it is left out of @a e and
+/// reported through @a unsupportedType.
+bool diffItem(const ItemSnap& w, const ItemSnap& n, Json::Value& e, bool& unsupportedType)
+{
+	bool any = false;
+	unsupportedType = false;
+	if (w.type != n.type)
+	{
+		if (w.corpse && n.corpse)
+		{
+			e["type"] = n.type;
+			any = true;
+		}
+		else
+		{
+			unsupportedType = true;
+		}
+	}
+	putIfChanged(e, "owner", w.owner, n.owner, any);
+	putIfChanged(e, "previousOwner", w.previousOwner, n.previousOwner, any);
+	putIfChanged(e, "unit", w.unit, n.unit, any);
+	putIfChanged(e, "slot", w.slot, n.slot, any);
+	if (n.invSlot)
+	{
+		// MJ-7: x/y are state only in an INV_SLOT slot; on entering one, both
+		// ride (the client's stale ground/hand x/y is not the snapshot's).
+		if (!w.invSlot || w.slotX != n.slotX)
+		{
+			e["slotX"] = n.slotX;
+			any = true;
+		}
+		if (!w.invSlot || w.slotY != n.slotY)
+		{
+			e["slotY"] = n.slotY;
+			any = true;
+		}
+	}
+	if (w.onTile != n.onTile || (n.onTile && w.tile != n.tile))
+	{
+		e["tile"] = n.onTile ? posJson(n.tile) : Json::Value(Json::nullValue);
+		any = true;
+	}
+	putIfChanged(e, "ammoQty", w.ammoQty, n.ammoQty, any);
+	if (!std::equal(std::begin(w.ammo), std::end(w.ammo), std::begin(n.ammo)))
+	{
+		e["ammo"] = intsJson(n.ammo, (int)RuleItem::AmmoSlotMax);
+		any = true;
+	}
+	if (w.fuse != n.fuse)
+	{
+		// BattleItem::setFuseTimer() rewrites fuseEnabled, so the client's
+		// "fuse then fuseEnabled" needs the absolute fuseEnabled with every fuse.
+		e["fuse"] = n.fuse;
+		e["fuseEnabled"] = n.fuseEnabled;
+		any = true;
+	}
+	else
+	{
+		putIfChanged(e, "fuseEnabled", w.fuseEnabled, n.fuseEnabled, any);
+	}
+	if (!std::equal(std::begin(w.medikit), std::end(w.medikit), std::begin(n.medikit)))
+	{
+		e["medikit"] = intsJson(n.medikit, 3);
+		any = true;
+	}
+	putIfChanged(e, "droppedOnAlienTurn", w.droppedOnAlienTurn, n.droppedOnAlienTurn, any);
+	putIfChanged(e, "xcomProperty", w.xcomProperty, n.xcomProperty, any);
+	if (w.tags != n.tags)
+	{
+		e["tags"] = intsJson(n.tags);
+		any = true;
+	}
+	return any;
+}
+
 /// ASSUMES g_snapMutex is held.
 void snapshotTilesLocked(SavedBattleGame* b)
 {
@@ -2645,6 +2796,12 @@ void snapshotAllLocked(SavedBattleGame* b)
 	snapshotTilesLocked(b);
 	snapshotNodesLocked(b);
 	g_snapBattleFields = captureBattle(b);
+	g_snapItems.clear();
+	for (BattleItem* it : *b->getItems())
+	{
+		if (it)
+			g_snapItems[it->getId()] = captureItem(it);
+	}
 }
 
 /// Spec (b)2: a change W2-P2 does not carry. Logged and counted ONCE (the
@@ -2809,6 +2966,96 @@ bool computeLocked(SavedBattleGame* b, Json::Value* out, bool commit)
 		}
 	}
 
+	// items (stage S-B): field diffs of existing ids, new ids as the host's own
+	// save() record (itemsAdded), vanished ids (itemsRemoved). Host ids only
+	// grow, so itemsAdded (in _items order) and itemsRemoved (map order) are
+	// id-ascending.
+	{
+		Json::Value items(Json::arrayValue);
+		Json::Value added(Json::arrayValue);
+		Json::Value removed(Json::arrayValue);
+		std::unordered_set<int> live;
+		for (BattleItem* it : *b->getItems())
+		{
+			if (!it)
+				continue;
+			const int id = it->getId();
+			live.insert(id);
+			std::map<int, ItemSnap>::iterator f = g_snapItems.find(id);
+			if (f == g_snapItems.end())
+			{
+				if (it->isSpecialWeapon())
+				{
+					// (b)7: a special weapon in itemsAdded is W2-P3's (MJ-5).
+					if (commit)
+					{
+						noteUnsupported("special-weapon item add (item " + std::to_string(id) + " "
+							+ (it->getRules() ? it->getRules()->getType() : std::string("?")) + ", W2-P3 MJ-5)");
+						g_snapItems[id] = captureItem(it);
+					}
+					continue;
+				}
+				if (!out)
+					return true;
+				Json::Value e(Json::objectValue);
+				e["id"] = id;
+				e["record"] = itemRecord(it, b);
+				added.append(e);
+				if (commit)
+					g_snapItems[id] = captureItem(it);
+				continue;
+			}
+			const ItemSnap now = captureItem(it);
+			Json::Value e(Json::objectValue);
+			bool unsupportedType = false;
+			const bool changed = diffItem(f->second, now, e, unsupportedType);
+			if (unsupportedType && commit)
+			{
+				noteUnsupported("item type change (item " + std::to_string(id) + " " + f->second.type
+					+ " -> " + now.type + ")");
+			}
+			if (changed)
+			{
+				if (!out)
+					return true;
+				e["id"] = id;
+				items.append(e);
+			}
+			if (commit && (changed || unsupportedType))
+				f->second = now;
+		}
+		for (std::map<int, ItemSnap>::iterator it = g_snapItems.begin(); it != g_snapItems.end();)
+		{
+			if (live.count(it->first) == 0)
+			{
+				if (!out)
+					return true;
+				removed.append(it->first);
+				if (commit)
+				{
+					it = g_snapItems.erase(it);
+					continue;
+				}
+			}
+			++it;
+		}
+		if (out && !items.empty())
+		{
+			(*out)["items"] = items;
+			any = true;
+		}
+		if (out && !added.empty())
+		{
+			(*out)["itemsAdded"] = added;
+			any = true;
+		}
+		if (out && !removed.empty())
+		{
+			(*out)["itemsRemoved"] = removed;
+			any = true;
+		}
+	}
+
 	return any;
 }
 
@@ -2858,6 +3105,24 @@ void noteSyncApplied()
 	g_deltaSyncEvsApplied.fetch_add(1);
 }
 
+/// CLIENT (CoopApply::applyDelta, stage S-B): the item probes ((b)16) -
+/// an itemsAdded id that already existed, an itemsRemoved id that did not,
+/// and an item change the client cannot carry in W2-P2 ((b)2/(b)7).
+void noteClientAddExisting()
+{
+	g_deltaAddExisting.fetch_add(1);
+}
+
+void noteClientRemoveMissing()
+{
+	g_deltaRemoveMissing.fetch_add(1);
+}
+
+void noteClientUnsupported()
+{
+	g_deltaUnsupported.fetch_add(1);
+}
+
 } // namespace
 
 void seed(SavedBattleGame* battle)
@@ -2872,8 +3137,8 @@ void seed(SavedBattleGame* battle)
 	g_deltaSeeds.fetch_add(1);
 	Log(LOG_INFO) << "[coop-delta] snapshot seeded at the battle-blob snapshot and armed ("
 		<< g_snapUnits.size() << " units, " << g_snapTiles.size() << " tiles, "
-		<< g_snapNodeTypes.size() << " nodes, itemIdCtr " << g_snapBattleFields.itemIdCtr
-		<< ", turn " << g_snapBattleFields.turn << ")";
+		<< g_snapNodeTypes.size() << " nodes, " << g_snapItems.size() << " items, itemIdCtr "
+		<< g_snapBattleFields.itemIdCtr << ", turn " << g_snapBattleFields.turn << ")";
 }
 
 void reset()
@@ -2887,6 +3152,7 @@ void reset()
 	g_snapTiles.shrink_to_fit();
 	g_snapNodeTypes.clear();
 	g_snapBattleFields = BattleSnap();
+	g_snapItems.clear();
 }
 
 bool attach(SavedBattleGame* battle, Json::Value& env)
@@ -3025,6 +3291,28 @@ void absorbBattle(SavedBattleGame* battle)
 	if (!g_deltaArmed.load() || battle != g_snapBattle)
 		return;
 	g_snapBattleFields = captureBattle(battle);
+	g_deltaAbsorbed.fetch_add(1);
+}
+
+void absorbItem(const BattleItem* item)
+{
+	if (!item || !g_deltaArmed.load() || !coopBattleAuthority().hostSim)
+		return;
+	std::lock_guard<std::mutex> lock(g_snapMutex);
+	if (!g_deltaArmed.load())
+		return;
+	g_snapItems[item->getId()] = captureItem(item);
+	g_deltaAbsorbed.fetch_add(1);
+}
+
+void absorbItemRemoved(int id)
+{
+	if (id < 0 || !g_deltaArmed.load() || !coopBattleAuthority().hostSim)
+		return;
+	std::lock_guard<std::mutex> lock(g_snapMutex);
+	if (!g_deltaArmed.load())
+		return;
+	g_snapItems.erase(id);
 	g_deltaAbsorbed.fetch_add(1);
 }
 
@@ -5355,7 +5643,10 @@ void onChainQuiesced()
 	{
 		Json::Value end = CoopWire::makeActionEnd(0, actionId);
 		end["final"] = buildFinal(actor);
-		end["h"] = coopBuildUnitsStatsHash(save); // RB-D14
+		// W2-P2 S-B (spec (b)10): every bt_action_end carries the 7 structured
+		// buckets from ONE computeBattleHashes() sweep (was unitsStats alone,
+		// RB-D14). No saveBlob: D138 is stacked, reading (b).
+		end["h"] = coopBuildStructuredHash(save, /*withSaveBlob=*/false);
 
 		if (wasWalk)
 		{
@@ -6536,7 +6827,8 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 
 	Json::Value end = CoopWire::makeActionEnd(0u, actionId);
 	end["final"] = CoopArbiter::buildFinal(unit);
-	end["h"] = coopBuildUnitsStatsHash(save);
+	// W2-P2 S-B (spec (b)10): the 7 structured buckets, one sweep, no saveBlob (D138).
+	end["h"] = coopBuildStructuredHash(save, /*withSaveBlob=*/false);
 	if (!succeeded)
 		end["halted"] = true;
 	CoopEmit::sendEv(end);
@@ -8516,9 +8808,13 @@ void applyActionEndFinal(BattleUnit* unit, const Json::Value& final)
 // path right after applyEvPayload(), on the bt_action_end path right before
 // CoopArbiter::onActionEndApplied() - so it runs before the auto-retry reads
 // local TU and before CoopHashCheck::verify(). Stage S-A applies battle, tiles,
-// nodes and units; items are stage S-B. An id or tile index that does not
-// resolve is counted (deltaUnresolved) and logged, never guessed. The HUD
-// refresh (coopRefreshAppliedHud) is onApplied()'s own last act on both paths.
+// nodes and units; stage S-B (commit S-B.2) adds items: removals, the ONE
+// sanctioned client mint (an itemsAdded record materialized with the host's
+// id through BattleItem::load, inside this RW-MINT-WHITELIST region), their
+// ammo links, then every items[] entry (ammo links first, then fields). An id
+// or tile index that does not resolve is counted (deltaUnresolved) and logged,
+// never guessed. The HUD refresh (coopRefreshAppliedHud) is onApplied()'s own
+// last act on both paths.
 void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 {
 	if (!save || !ev.isMember("delta") || !ev["delta"].isObject())
@@ -8903,6 +9199,473 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			}
 			if (placed)
 				fovUnits.push_back(u);
+		}
+	}
+
+	// ----- (5)-(7) items (stage S-B, spec (b)6-8) -----
+	const Mod* mod = save->getMod();
+	std::vector<BattleItem*>* saveItems = save->getItems();
+	// A unit link: -1 = none (always resolves), otherwise the id map.
+	auto linkUnit = [](int uid, BattleUnit*& out) -> bool
+	{
+		out = nullptr;
+		if (uid < 0)
+			return true;
+		out = CoopIdMaps::unit(uid);
+		return out != nullptr;
+	};
+
+	// (5) itemsRemoved (spec (b)8): the host's removal primitive, then forget
+	// the id. removeItem() also purges the item's ammo; the host lists that
+	// ammo id too, and the second call is a harmless no-op.
+	if (d.isMember("itemsRemoved"))
+	{
+		const Json::Value& arr = d["itemsRemoved"];
+		for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+		{
+			const int id = arr[k].asInt();
+			BattleItem* item = CoopIdMaps::item(id);
+			if (!item)
+			{
+				CoopDelta::noteClientRemoveMissing();
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": itemsRemoved " << id
+					<< " does not resolve on this machine - nothing removed";
+			}
+			else
+			{
+				save->removeItem(item);
+				++fields;
+				if (item->isSpecialWeapon())
+				{
+					// removeItem() keeps special weapons by design (W2-P3, MJ-5).
+					CoopDelta::noteClientUnsupported();
+					Log(LOG_WARNING) << "[coop-delta] unsupported special-weapon removal (item " << id
+						<< ") - SavedBattleGame::removeItem keeps it; the hash reports the divergence";
+				}
+			}
+			CoopIdMaps::forget(id);
+		}
+	}
+
+	// (6a) itemsAdded (spec (b)7): the one sanctioned client mint. The host's
+	// BattleItem::save() record is read back through SavedBattleGame::load()'s
+	// own pass 1/pass 2 steps for one item, with the HOST's id (the counter is
+	// not touched - battle.itemIdCtr sets it). An id that already exists here
+	// is converted into an items[]-shaped entry and applied by (7a)/(7b).
+	struct Materialized
+	{
+		BattleItem* item;
+		std::vector<int> ammoSlots; // the record's ammoItemSlots, -1 = none
+	};
+	std::vector<Materialized> materialized;
+	std::vector<Json::Value> convertedEntries;
+	if (d.isMember("itemsAdded"))
+	{
+		const Json::Value& arr = d["itemsAdded"];
+		for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+		{
+			const int id = arr[k].get("id", -1).asInt();
+			const std::string record = arr[k].get("record", "").asString();
+			try
+			{
+				YAML::YamlRootNodeReader root(YAML::YamlString{record}, "coopDeltaItem");
+				const YAML::YamlNodeReader r = root.toBase();
+				const std::string type = r["type"].readVal<std::string>("");
+				std::vector<int> ammoSlots;
+				if (const auto& slotsReader = r["ammoItemSlots"])
+				{
+					for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
+						ammoSlots.push_back(slotsReader[(size_t)s].readVal(-1));
+				}
+				const std::string slotId = r["inventoryslot"].readVal<std::string>("");
+				const Position pos = r["position"].readVal(Position(-1, -1, -1));
+
+				if (BattleItem* existing = CoopIdMaps::item(id))
+				{
+					CoopDelta::noteClientAddExisting();
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": itemsAdded " << id << " (" << type
+						<< ") already exists on this machine - applied as a field update, not minted";
+					Json::Value e(Json::objectValue);
+					e["id"] = id;
+					if (!existing->getRules() || existing->getRules()->getType() != type)
+						e["type"] = type;
+					e["owner"] = r["owner"].readVal(-1);
+					e["previousOwner"] = r["previousOwner"].readVal(-1);
+					e["unit"] = r["unit"].readVal(-1);
+					e["slot"] = slotId;
+					if (r["inventoryX"])
+						e["slotX"] = r["inventoryX"].readVal(0);
+					if (r["inventoryY"])
+						e["slotY"] = r["inventoryY"].readVal(0);
+					e["tile"] = pos.x != -1 ? CoopDelta::posJson(pos) : Json::Value(Json::nullValue);
+					e["ammoQty"] = r["ammoqty"].readVal(0);
+					Json::Value ammo(Json::arrayValue);
+					for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
+						ammo.append(s < (int)ammoSlots.size() ? ammoSlots[(std::size_t)s] : -1);
+					e["ammo"] = ammo;
+					e["fuse"] = r["fuseTimer"].readVal(-1);
+					e["fuseEnabled"] = r["fuseEnabed"].readVal(false);
+					if (r["painKiller"] || r["heal"] || r["stimulant"])
+					{
+						Json::Value mk(Json::arrayValue);
+						mk.append(r["painKiller"].readVal(0));
+						mk.append(r["heal"].readVal(0));
+						mk.append(r["stimulant"].readVal(0));
+						e["medikit"] = mk;
+					}
+					e["droppedOnAlienTurn"] = r["droppedOnAlienTurn"].readVal(false);
+					e["xcomProperty"] = r["XCOMProperty"].readVal(false);
+					convertedEntries.push_back(e);
+					continue;
+				}
+
+				const RuleItem* rule = mod->getItem(type);
+				if (!rule)
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": itemsAdded " << id << " type '" << type
+						<< "' is not an item type on this machine - not materialized";
+					continue;
+				}
+				if (r["owner"] && slotId.empty())
+				{
+					// An owned item with no inventory slot = a special weapon (W2-P3, MJ-5).
+					CoopDelta::noteClientUnsupported();
+					Log(LOG_WARNING) << "[coop-delta] unsupported special-weapon itemsAdded " << id << " (" << type
+						<< ") - not materialized; the hash reports the divergence";
+					continue;
+				}
+				BattleUnit* owner = nullptr;
+				BattleUnit* previousOwner = nullptr;
+				BattleUnit* unitLink = nullptr;
+				if (!linkUnit(r["owner"].readVal(-1), owner) || !linkUnit(r["previousOwner"].readVal(-1), previousOwner)
+					|| !linkUnit(r["unit"].readVal(-1), unitLink))
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": itemsAdded " << id
+						<< " names a unit (owner/previousOwner/unit) that does not resolve here - not materialized";
+					continue;
+				}
+				Tile* groundTile = nullptr;
+				const RuleInventory* slotRule = slotId.empty() ? nullptr : mod->getInventory(slotId);
+				if (slotRule && slotRule->getType() == INV_GROUND && pos.x != -1)
+				{
+					groundTile = save->getTile(pos);
+					if (!groundTile)
+					{
+						++unresolved;
+						Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": itemsAdded " << id << " position " << pos
+							<< " is not a tile on this machine - not materialized";
+						continue;
+					}
+				}
+
+				int hostId = id; // the constructor bumps this local copy, never the battle counter
+				BattleItem* item = new BattleItem(rule, &hostId);
+				// BattleItem::load takes a non-const Mod* but only reads it
+				// (getInventory / getInventoryGround, both const).
+				item->load(r, const_cast<Mod*>(mod), mod->getScriptGlobal());
+				if (owner)
+				{
+					item->setOwner(owner);
+					owner->getInventory()->push_back(item);
+				}
+				item->setPreviousOwner(previousOwner);
+				item->setUnit(unitLink);
+				if (groundTile && item->getSlot() && item->getSlot()->getType() == INV_GROUND)
+					groundTile->addItem(item, item->getSlot());
+				if (!saveItems->empty() && saveItems->back() && saveItems->back()->getId() >= id)
+				{
+					Log(LOG_WARNING) << "[coop-delta] seq " << seq << ": itemsAdded " << id
+						<< " appended after item " << saveItems->back()->getId()
+						<< " - _items is no longer id-ascending on this machine";
+				}
+				saveItems->push_back(item);
+				CoopIdMaps::registerItem(item);
+				materialized.push_back(Materialized{ item, ammoSlots });
+				++fields;
+				Log(LOG_INFO) << "[coop-delta] seq " << seq << ": materialized item " << id << " (" << type
+					<< ") with the host's id";
+			}
+			catch (const std::exception& ex)
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": itemsAdded " << id
+					<< " record did not parse (" << ex.what() << ") - not materialized";
+			}
+		}
+	}
+
+	// (6b) the materialized items' ammo links (SavedBattleGame::load pass 2).
+	// A slot naming the item's own id is a self-reference (F530): the
+	// constructor already made it self; it is checked, never linked.
+	for (const Materialized& m : materialized)
+	{
+		for (int s = 0; s < (int)m.ammoSlots.size() && s < RuleItem::AmmoSlotMax; ++s)
+		{
+			const int aid = m.ammoSlots[(std::size_t)s];
+			if (aid < 0)
+				continue;
+			if (aid == m.item->getId())
+			{
+				if (m.item->getAmmoForSlot(s) != m.item)
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << aid << " ammo slot " << s
+						<< " is a self-reference on the host but not here";
+				}
+				continue;
+			}
+			BattleItem* ammo = CoopIdMaps::item(aid);
+			if (!ammo || !m.item->needsAmmoForSlot(s))
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << m.item->getId() << " ammo slot " << s
+					<< " -> item " << aid << " does not resolve / does not take ammo here - link not applied";
+				continue;
+			}
+			m.item->setAmmoForSlot(s, ammo);
+			++fields;
+		}
+	}
+
+	// (7) every items[] entry (plus the converted itemsAdded ones), resolved once.
+	std::vector<std::pair<BattleItem*, const Json::Value*> > itemEntries;
+	if (d.isMember("items"))
+	{
+		const Json::Value& arr = d["items"];
+		for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+		{
+			const int id = arr[k].get("id", -1).asInt();
+			BattleItem* item = CoopIdMaps::item(id);
+			if (!item)
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << id
+					<< " does not resolve on this machine - entry dropped";
+				continue;
+			}
+			itemEntries.push_back(std::make_pair(item, &arr[k]));
+		}
+	}
+	for (const Json::Value& e : convertedEntries)
+	{
+		BattleItem* item = CoopIdMaps::item(e.get("id", -1).asInt());
+		if (item)
+			itemEntries.push_back(std::make_pair(item, &e));
+	}
+
+	// (7a) ammo links FIRST (setAmmoForSlot also detaches the ammo from its
+	// owner/tile and flags it isAmmo), so (7b)'s owner/slot/tile writes land last.
+	for (const std::pair<BattleItem*, const Json::Value*>& ie : itemEntries)
+	{
+		BattleItem* item = ie.first;
+		const Json::Value& e = *ie.second;
+		if (!e.isMember("ammo"))
+			continue;
+		const Json::Value& a = e["ammo"];
+		for (int s = 0; s < RuleItem::AmmoSlotMax && s < (int)a.size(); ++s)
+		{
+			const int aid = a[(Json::ArrayIndex)s].asInt();
+			BattleItem* cur = item->getAmmoForSlot(s);
+			if (aid == item->getId())
+			{
+				// Self-reference (F530): restored as self, i.e. already self.
+				if (cur != item)
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << aid << " ammo slot " << s
+						<< " is a self-reference on the host but not here";
+				}
+				continue;
+			}
+			if (cur == item)
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << item->getId() << " ammo slot " << s
+					<< " is a self-reference here but links " << aid << " on the host - not applied";
+				continue;
+			}
+			BattleItem* want = nullptr;
+			if (aid >= 0)
+			{
+				want = CoopIdMaps::item(aid);
+				if (!want)
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << item->getId() << " ammo slot " << s
+						<< " -> item " << aid << " does not resolve on this machine - link not applied";
+					continue;
+				}
+			}
+			if (cur != want)
+			{
+				item->setAmmoForSlot(s, want);
+				++fields;
+			}
+		}
+	}
+
+	// (7b) per entry: type, owner, previousOwner (after moveToOwner, which
+	// overwrites it), slot/slotX/slotY, tile, unit link, ammoQty, fuse then
+	// fuseEnabled (setFuseTimer rewrites fuseEnabled), medikit,
+	// droppedOnAlienTurn, xcomProperty, tags.
+	for (const std::pair<BattleItem*, const Json::Value*>& ie : itemEntries)
+	{
+		BattleItem* item = ie.first;
+		const Json::Value& e = *ie.second;
+		const int id = item->getId();
+		if (e.isMember("type"))
+		{
+			const RuleItem* rule = mod->getItem(e["type"].asString());
+			if (rule)
+				item->convertToCorpse(rule);
+			if (!rule || item->getRules() != rule)
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << id << " type -> '"
+					<< e["type"].asString() << "' is not a corpse -> corpse change here - not applied";
+			}
+			else
+			{
+				++fields;
+			}
+		}
+		if (e.isMember("owner"))
+		{
+			BattleUnit* owner = nullptr;
+			if (!linkUnit(e["owner"].asInt(), owner))
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << id << " owner "
+					<< e["owner"].asInt() << " does not resolve on this machine - not applied";
+			}
+			else
+			{
+				item->moveToOwner(owner);
+				++fields;
+			}
+		}
+		if (e.isMember("previousOwner"))
+		{
+			BattleUnit* prev = nullptr;
+			if (!linkUnit(e["previousOwner"].asInt(), prev))
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << id << " previousOwner "
+					<< e["previousOwner"].asInt() << " does not resolve on this machine - not applied";
+			}
+			else
+			{
+				item->setPreviousOwner(prev);
+				++fields;
+			}
+		}
+		if (e.isMember("slot"))
+		{
+			const std::string sid = e["slot"].asString();
+			const RuleInventory* slot = sid.empty() ? nullptr : mod->getInventory(sid);
+			if (!sid.empty() && !slot)
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << id << " slot '" << sid
+					<< "' is not an inventory on this machine - not applied";
+			}
+			else
+			{
+				item->setSlot(slot);
+				++fields;
+			}
+		}
+		if (e.isMember("slotX"))
+		{
+			item->setSlotX(e["slotX"].asInt());
+			++fields;
+		}
+		if (e.isMember("slotY"))
+		{
+			item->setSlotY(e["slotY"].asInt());
+			++fields;
+		}
+		if (e.isMember("tile"))
+		{
+			const Json::Value& tj = e["tile"];
+			if (tj.isNull())
+			{
+				if (item->getTile())
+					item->getTile()->removeItem(item); // off the floor
+				++fields;
+			}
+			else
+			{
+				const Position p = CoopArbiter::coopJsonPos(tj);
+				Tile* t = save->getTile(p);
+				if (!t)
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << id << " tile " << p
+						<< " is not a tile on this machine - not applied";
+				}
+				else
+				{
+					item->moveToOwner(nullptr);
+					t->addItem(item, item->getSlot());
+					++fields;
+				}
+			}
+		}
+		if (e.isMember("unit"))
+		{
+			BattleUnit* link = nullptr;
+			if (!linkUnit(e["unit"].asInt(), link))
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": item " << id << " unit link "
+					<< e["unit"].asInt() << " does not resolve on this machine - not applied";
+			}
+			else
+			{
+				item->setUnit(link);
+				++fields;
+			}
+		}
+		if (e.isMember("ammoQty"))
+		{
+			item->setAmmoQuantity(e["ammoQty"].asInt());
+			++fields;
+		}
+		if (e.isMember("fuse"))
+		{
+			item->setFuseTimer(e["fuse"].asInt());
+			++fields;
+		}
+		if (e.isMember("fuseEnabled"))
+		{
+			item->setFuseEnabled(e["fuseEnabled"].asBool());
+			++fields;
+		}
+		if (e.isMember("medikit"))
+		{
+			const Json::Value& mk = e["medikit"];
+			item->setPainKillerQuantity(mk.get(0u, item->getPainKillerQuantity()).asInt());
+			item->setHealQuantity(mk.get(1u, item->getHealQuantity()).asInt());
+			item->setStimulantQuantity(mk.get(2u, item->getStimulantQuantity()).asInt());
+			++fields;
+		}
+		if (e.isMember("droppedOnAlienTurn"))
+		{
+			item->setTurnFlag(e["droppedOnAlienTurn"].asBool());
+			++fields;
+		}
+		if (e.isMember("xcomProperty"))
+		{
+			item->setXCOMProperty(e["xcomProperty"].asBool());
+			++fields;
+		}
+		if (e.isMember("tags"))
+		{
+			item->coopSetScriptValuesRaw(tagsFromJson(e["tags"]));
+			++fields;
 		}
 	}
 
