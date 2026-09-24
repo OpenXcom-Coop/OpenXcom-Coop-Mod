@@ -94,6 +94,7 @@
 #include "CoopSideTransition.h"
 #include "CoopEndTurn.h"
 #include "CoopSpeed.h"
+#include "CoopDelta.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -2108,6 +2109,120 @@ void reset(bool resetChainState)
 
 } // namespace CoopPump
 
+// ===== W2-P2 S-A: CoopDelta probe storage (CoopDelta.h) =====
+// Spec rewrite/prompts/w2p2_delta_core.md (b)3/(b)16. S-A.1 (the RED commit)
+// adds ONLY the probe storage, its read accessors and the delta_drop_next
+// one-shot flag; nothing writes the counters yet - the delta core (seed/reset/
+// attach/applyDelta/absorb*/flushSync) is S-A.2's and its bodies join this
+// namespace here. Battle-scoped: resetProbes() is called from
+// resetBattleAuthority() (spec (b)5). Atomics + a mutex for the same cross-
+// thread reason as W2-P1's tripwire probes: resetBattleAuthority() can run on
+// the UDP-monitor thread while the pump thread reads.
+namespace CoopDelta
+{
+
+// The host snapshot's armed state (the `deltaArmed` probe reads it). S-A.2's
+// seed() sets it and its reset() clears it; resetProbes() leaves it alone.
+static std::atomic<bool> g_deltaArmed{false};
+static std::atomic<int> g_deltaSeeds{0};
+static std::atomic<int> g_deltaEvsEmitted{0};
+static std::atomic<int> g_deltaEvsApplied{0};
+static std::atomic<int> g_deltaFieldsApplied{0};
+static std::atomic<int> g_deltaUnresolved{0};
+static std::atomic<int> g_deltaAddExisting{0};
+static std::atomic<int> g_deltaRemoveMissing{0};
+static std::atomic<int> g_deltaUnsupported{0};
+static std::atomic<int> g_deltaAbsorbed{0};
+static std::atomic<int> g_deltaDropped{0};
+static std::atomic<int> g_deltaDiffUsLast{0};
+static std::atomic<int> g_deltaDiffUsMax{0};
+static std::atomic<int> g_deltaBytesLast{0};
+static std::atomic<int> g_deltaBytesMax{0};
+static std::atomic<int> g_deltaHashUsLast{0};
+static std::atomic<int> g_deltaHashUsMax{0};
+static std::atomic<int> g_deltaApplyUsLast{0};
+static std::atomic<int> g_deltaApplyUsMax{0};
+static std::atomic<int> g_deltaSyncEvsEmitted{0};
+static std::atomic<int> g_deltaSyncEvsApplied{0};
+// The delta_drop_next one-shot (RB-D26): set by requestDropNext(), consumed by
+// S-A.2's attach. Cleared at teardown with the probes so a stale arm never
+// survives into the next battle.
+static std::atomic<bool> g_deltaDropNext{false};
+// `lastDelta` (null until the first delta this battle).
+static std::mutex g_deltaLastMutex;
+static Json::Value g_deltaLast;
+
+Probes probes()
+{
+	Probes p;
+	p.armed = g_deltaArmed.load();
+	p.seeds = g_deltaSeeds.load();
+	p.evsEmitted = g_deltaEvsEmitted.load();
+	p.evsApplied = g_deltaEvsApplied.load();
+	p.fieldsApplied = g_deltaFieldsApplied.load();
+	p.unresolved = g_deltaUnresolved.load();
+	p.addExisting = g_deltaAddExisting.load();
+	p.removeMissing = g_deltaRemoveMissing.load();
+	p.unsupported = g_deltaUnsupported.load();
+	p.absorbed = g_deltaAbsorbed.load();
+	p.dropped = g_deltaDropped.load();
+	p.diffUsLast = g_deltaDiffUsLast.load();
+	p.diffUsMax = g_deltaDiffUsMax.load();
+	p.bytesLast = g_deltaBytesLast.load();
+	p.bytesMax = g_deltaBytesMax.load();
+	p.hashUsLast = g_deltaHashUsLast.load();
+	p.hashUsMax = g_deltaHashUsMax.load();
+	p.applyUsLast = g_deltaApplyUsLast.load();
+	p.applyUsMax = g_deltaApplyUsMax.load();
+	p.syncEvsEmitted = g_deltaSyncEvsEmitted.load();
+	p.syncEvsApplied = g_deltaSyncEvsApplied.load();
+	return p;
+}
+
+Json::Value lastDelta()
+{
+	std::lock_guard<std::mutex> lock(g_deltaLastMutex);
+	return g_deltaLast;
+}
+
+void requestDropNext()
+{
+	g_deltaDropNext = true;
+}
+
+// Battle-scope reset of every probe above (not the armed state) plus the
+// delta_drop_next one-shot. File-local: resetBattleAuthority() is its caller.
+static void resetProbes()
+{
+	g_deltaSeeds = 0;
+	g_deltaEvsEmitted = 0;
+	g_deltaEvsApplied = 0;
+	g_deltaFieldsApplied = 0;
+	g_deltaUnresolved = 0;
+	g_deltaAddExisting = 0;
+	g_deltaRemoveMissing = 0;
+	g_deltaUnsupported = 0;
+	g_deltaAbsorbed = 0;
+	g_deltaDropped = 0;
+	g_deltaDiffUsLast = 0;
+	g_deltaDiffUsMax = 0;
+	g_deltaBytesLast = 0;
+	g_deltaBytesMax = 0;
+	g_deltaHashUsLast = 0;
+	g_deltaHashUsMax = 0;
+	g_deltaApplyUsLast = 0;
+	g_deltaApplyUsMax = 0;
+	g_deltaSyncEvsEmitted = 0;
+	g_deltaSyncEvsApplied = 0;
+	g_deltaDropNext = false;
+	{
+		std::lock_guard<std::mutex> lock(g_deltaLastMutex);
+		g_deltaLast = Json::Value();
+	}
+}
+
+} // namespace CoopDelta
+
 namespace CoopEmit
 {
 
@@ -2594,6 +2709,9 @@ void resetBattleAuthority()
 		g_coopClientBStateLastSite.clear();
 	}
 	g_coopClientPanicSkipped = 0;
+	// W2-P2 S-A (spec (b)5): the delta core's probes (CoopDelta.h) are
+	// battle-scoped too, and so is the delta_drop_next one-shot.
+	CoopDelta::resetProbes();
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----

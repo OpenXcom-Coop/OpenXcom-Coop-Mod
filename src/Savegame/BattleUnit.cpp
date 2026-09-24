@@ -4903,6 +4903,18 @@ void BattleUnit::coopSetScriptValues(const std::vector<std::pair<std::string, in
 }
 
 /**
+ * W2-P2 (Q1 = c): absolute special-ability set, for the test-only
+ * battle_set_unit_state {specab} lever (test_w2_delta_core.py's burning-floor
+ * walker). _specab is otherwise derived from the armor/unit rules. Plain
+ * assignment - no RNG, no rules evaluation.
+ * @param specab new SpecialAbility value
+ */
+void BattleUnit::coopSetSpecialAbility(int specab)
+{
+	_specab = (SpecialAbility)specab;
+}
+
+/**
  * Get the faction the unit was killed by.
  * @return faction
  */

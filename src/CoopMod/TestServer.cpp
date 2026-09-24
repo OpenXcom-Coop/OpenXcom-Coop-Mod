@@ -203,6 +203,7 @@
 #include "CoopGhost.h" // W1-P12: event_state's ghostEnqueued/ghostCompleted/ghostQueueDepth
 #include "CoopEndTurn.h" // W1-P13b: battle_end_turn_ready lever + event_state's coopEndTurn* fields
 #include "CoopSpeed.h" // SPEC 17 (W1-P18): event_state's speed + three set_option arms
+#include "CoopDelta.h" // W2-P2 S-A: event_state's delta probes + the delta_drop_next lever
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -4369,6 +4370,13 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				part["mapDataSetID"] = dsid;
 				resp["parts"][partNames[p]] = part;
 			}
+			// W2-P2 S-A (spec (b)16/(e)): the tile's own synced state the delta
+			// carries - fire and smoke turns, and the pending explosive power
+			// and damage type (Tile::setExplosive). Plain getters.
+			resp["fire"] = t->getFire();
+			resp["smoke"] = t->getSmoke();
+			resp["explosive"] = t->getExplosive();
+			resp["explosiveType"] = t->getExplosiveType();
 			resp["ok"] = true;
 		}
 	}
@@ -4913,6 +4921,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "omit_turn_mode"
 		&& cmd != "battle_teleport_unit" && cmd != "battle_teleport_all"
 		&& cmd != "battle_set_unit_state"
+		&& cmd != "battle_set_tile" && cmd != "delta_drop_next" && cmd != "hash_timing"
 		&& cmd != "battle_strip_unit"
 		&& cmd != "battle_end_turn_ready"
 		&& cmd != "battle_visibility_rule"
@@ -4980,6 +4989,36 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["coopClientBStatePushes"] = coopClientBStatePushes();
 		resp["coopClientBStateLastSite"] = coopClientBStateLastSite();
 		resp["coopClientPanicSkipped"] = coopClientPanicSkipped();
+		// W2-P2 S-A (spec rewrite/prompts/w2p2_delta_core.md (b)16): the
+		// delta core's probes (CoopDelta.h), battle-scoped, reset by
+		// resetBattleAuthority(). Nothing writes them on commit S-A.1; the
+		// test_w2_delta_core.py red reads them there (deltaDropped stays 0).
+		// Timings are this machine's own measurements, never on the wire (G1).
+		{
+			const CoopDelta::Probes dp = CoopDelta::probes();
+			resp["deltaArmed"] = dp.armed;
+			resp["deltaSeeds"] = dp.seeds;
+			resp["deltaEvsEmitted"] = dp.evsEmitted;
+			resp["deltaEvsApplied"] = dp.evsApplied;
+			resp["deltaFieldsApplied"] = dp.fieldsApplied;
+			resp["deltaUnresolved"] = dp.unresolved;
+			resp["deltaAddExisting"] = dp.addExisting;
+			resp["deltaRemoveMissing"] = dp.removeMissing;
+			resp["deltaUnsupported"] = dp.unsupported;
+			resp["deltaAbsorbed"] = dp.absorbed;
+			resp["deltaDropped"] = dp.dropped;
+			resp["lastDelta"] = CoopDelta::lastDelta();
+			resp["deltaDiffUsLast"] = dp.diffUsLast;
+			resp["deltaDiffUsMax"] = dp.diffUsMax;
+			resp["deltaBytesLast"] = dp.bytesLast;
+			resp["deltaBytesMax"] = dp.bytesMax;
+			resp["hashUsLast"] = dp.hashUsLast;
+			resp["hashUsMax"] = dp.hashUsMax;
+			resp["deltaApplyUsLast"] = dp.applyUsLast;
+			resp["deltaApplyUsMax"] = dp.applyUsMax;
+			resp["syncEvsEmitted"] = dp.syncEvsEmitted;
+			resp["syncEvsApplied"] = dp.syncEvsApplied;
+		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
 		// observable proof the IR-2 one-slot lock was RELEASED (before this packet
@@ -5740,6 +5779,16 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		//    after the call) whenever a live BattlescapeGame exists.
 		// W2-P1's test_w2_thin_client_tripwire.py applies `status` to BOTH
 		// machines and `panicPending` to the CLIENT only (its S6 panic case).
+		//  * `health` / `stun` (W2-P2 S-A, spec (b)16) - written through the
+		//    existing absolute setters BattleUnit::coopSetHealth() /
+		//    coopSetStunlevel() (the side_transition restate's own); reported
+		//    back as `health` / `stun`. Applied to BOTH machines by the harness.
+		//  * `specab` (W2-P2 S-A, Q1 = c) - an int SpecialAbility written through
+		//    BattleUnit::coopSetSpecialAbility() (test lever only; _specab is
+		//    otherwise derived from the armor). A value outside
+		//    SPECAB_NONE..SPECAB_BURN_AND_EXPLODE is refused and nothing changes.
+		//    Reported back as `specab`. Applied to BOTH machines by the harness
+		//    (test_w2_delta_core.py's burning-floor walker, specab 2).
 		SavedGame* sgTS = _game->getSavedGame();
 		SavedBattleGame* bgTS = sgTS ? sgTS->getSavedBattle() : nullptr;
 		if (!bgTS)
@@ -5764,6 +5813,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				const bool wantPanic = req.get("panicPending", false).asBool();
 				const bool hasStatus = req.isMember("status");
 				const int statusArg = req.get("status", 0).asInt();
+				const bool hasSpecab = req.isMember("specab");
+				const int specabArg = req.get("specab", 0).asInt();
 				if (wantPanic && !bgameTS)
 				{
 					resp["error"] = "battle_set_unit_state: no live BattlescapeGame";
@@ -5772,25 +5823,154 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				{
 					resp["error"] = "battle_set_unit_state: status out of range " + std::to_string(statusArg);
 				}
+				else if (hasSpecab && (specabArg < (int)SPECAB_NONE || specabArg > (int)SPECAB_BURN_AND_EXPLODE))
+				{
+					resp["error"] = "battle_set_unit_state: specab out of range " + std::to_string(specabArg);
+				}
 				else
 				{
 					if (req.isMember("tu"))
 						unit->setTimeUnits(req["tu"].asInt());
 					if (hasStatus)
 						unit->coopSetStatus((UnitStatus)statusArg);
+					if (req.isMember("health"))
+						unit->coopSetHealth(req["health"].asInt());
+					if (req.isMember("stun"))
+						unit->coopSetStunlevel(req["stun"].asInt());
+					if (hasSpecab)
+						unit->coopSetSpecialAbility(specabArg);
 					if (wantPanic)
 						bgameTS->init();
 					resp["ok"] = true;
 					resp["unit"] = unit->getId();
 					resp["tu"] = unit->getTimeUnits();
 					resp["status"] = (int)unit->getStatus();
+					resp["health"] = unit->getHealth();
+					resp["stun"] = unit->getStunlevel();
+					resp["specab"] = unit->getSpecialAbility();
 					if (bgameTS)
 						resp["panicPending"] = !bgameTS->getPanicHandled();
 					Log(LOG_INFO) << "[coop-test] battle_set_unit_state unit=" << unit->getId()
 						<< " tu=" << unit->getTimeUnits()
 						<< " status=" << (int)unit->getStatus()
+						<< " health=" << unit->getHealth()
+						<< " stun=" << unit->getStunlevel()
+						<< " specab=" << unit->getSpecialAbility()
 						<< " panicPending=" << (bgameTS ? (bgameTS->getPanicHandled() ? 0 : 1) : -1);
 				}
+			}
+		}
+	}
+	else if (cmd == "battle_set_tile")
+	{
+		// TEST-ONLY (W2-P2 S-A, spec rewrite/prompts/w2p2_delta_core.md (b)16;
+		// RB-D26 discipline - same family as battle_set_unit_state above):
+		// applied by the HARNESS to EACH machine separately with the SAME
+		// absolute arguments; it never forwards anything to the peer - no wire
+		// message, nothing emitted. Never call from product code.
+		//
+		// {x, y, z, fire?, smoke?}: each optional field is written through the
+		// existing RNG-free absolute setters Tile::coopSetTileFireAbsolute() /
+		// coopSetSmokeAbsolute() (the side_transition perTile applier's own;
+		// vanilla setFire()/setSmoke() roll RNG for the animation offset), and
+		// both are reported back after the write.
+		SavedGame* sgST = _game->getSavedGame();
+		SavedBattleGame* bgST = sgST ? sgST->getSavedBattle() : nullptr;
+		if (!bgST)
+		{
+			resp["error"] = "battle_set_tile: no live battle";
+		}
+		else
+		{
+			const Position pos(req.get("x", -1).asInt(), req.get("y", -1).asInt(), req.get("z", -1).asInt());
+			Tile* t = bgST->getTile(pos);
+			if (!t)
+			{
+				resp["error"] = "battle_set_tile: no such tile";
+			}
+			else
+			{
+				if (req.isMember("fire"))
+					t->coopSetTileFireAbsolute(req["fire"].asInt());
+				if (req.isMember("smoke"))
+					t->coopSetSmokeAbsolute(req["smoke"].asInt());
+				resp["ok"] = true;
+				resp["x"] = pos.x;
+				resp["y"] = pos.y;
+				resp["z"] = pos.z;
+				resp["fire"] = t->getFire();
+				resp["smoke"] = t->getSmoke();
+				Log(LOG_INFO) << "[coop-test] battle_set_tile (" << pos.x << "," << pos.y << "," << pos.z
+					<< ") fire=" << t->getFire() << " smoke=" << t->getSmoke();
+			}
+		}
+	}
+	else if (cmd == "delta_drop_next")
+	{
+		// RB-D26 one-shot (W2-P2 S-A, spec (b)16; the reveal_drop pattern): the
+		// HOST's next delta attach computes and commits its delta but does not
+		// attach it, so the client is permanently missing those values - a
+		// hash-visible divergence. Harmless (cleared at teardown) if nothing
+		// follows, or on a client. On commit S-A.1 the flag is stored only;
+		// S-A.2's CoopDelta attach is its reader.
+		CoopDelta::requestDropNext();
+		resp["ok"] = true;
+	}
+	else if (cmd == "hash_timing")
+	{
+		// TEST-ONLY, read-only (W2-P2 S-A, spec (b)16; measurements M1/M4):
+		// times SharedEcon::computeBattleHashes() (the 7-bucket structured
+		// sweep) and SharedEcon::computeSaveBlobHash() `reps` times each on
+		// THIS machine and reports {sweepUs:{mean,max}, saveBlobUs:{mean,max},
+		// mapSizeXYZ, units, items}. Changes no state.
+		SavedGame* sgHT = _game->getSavedGame();
+		SavedBattleGame* bgHT = sgHT ? sgHT->getSavedBattle() : nullptr;
+		if (!bgHT)
+		{
+			resp["error"] = "hash_timing: no live battle";
+		}
+		else
+		{
+			using HtClock = std::chrono::steady_clock;
+			const int reps = std::max(1, std::min(1000, req.get("reps", 10).asInt()));
+			long long sweepSum = 0, sweepMax = 0, blobSum = 0, blobMax = 0;
+			bool computedAll = true;
+			for (int i = 0; i < reps; ++i)
+			{
+				SharedEcon::BattleHashSet hs;
+				const HtClock::time_point t0 = HtClock::now();
+				const bool sweepOk = SharedEcon::computeBattleHashes(bgHT, hs);
+				const HtClock::time_point t1 = HtClock::now();
+				std::uint64_t sb = 0;
+				const bool blobOk = SharedEcon::computeSaveBlobHash(bgHT, sb);
+				const HtClock::time_point t2 = HtClock::now();
+				computedAll = computedAll && sweepOk && blobOk;
+				const long long sweepUs = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+				const long long blobUs = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+				sweepSum += sweepUs;
+				blobSum += blobUs;
+				sweepMax = std::max(sweepMax, sweepUs);
+				blobMax = std::max(blobMax, blobUs);
+			}
+			if (!computedAll)
+			{
+				resp["error"] = "hash_timing: a hash computation returned false";
+			}
+			else
+			{
+				Json::Value sweepJ(Json::objectValue);
+				sweepJ["mean"] = (double)sweepSum / reps;
+				sweepJ["max"] = (Json::Int64)sweepMax;
+				Json::Value blobJ(Json::objectValue);
+				blobJ["mean"] = (double)blobSum / reps;
+				blobJ["max"] = (Json::Int64)blobMax;
+				resp["sweepUs"] = sweepJ;
+				resp["saveBlobUs"] = blobJ;
+				resp["reps"] = reps;
+				resp["mapSizeXYZ"] = bgHT->getMapSizeXYZ();
+				resp["units"] = (int)bgHT->getUnits()->size();
+				resp["items"] = (int)bgHT->getItems()->size();
+				resp["ok"] = true;
 			}
 		}
 	}
@@ -7449,6 +7629,12 @@ std::string TestServer::execute(const std::string& line)
 					ju["health"] = u->getHealth();
 					ju["tu"] = u->getTimeUnits();
 					ju["stun"] = u->getStunlevel();
+					// W2-P2 S-A (spec (b)16/(e)): morale, whether the unit stands
+					// on a tile (false for a dead/unconscious unit taken off the
+					// map), and the UNIT's own on-fire turns (not the tile's).
+					ju["morale"] = u->getMorale();
+					ju["onTile"] = (u->getTile() != nullptr);
+					ju["unitFire"] = u->getFire();
 					ju["name"] = u->getName(_game->getLanguage());
 					ju["isPlayerSoldier"] = (u->getGeoscapeSoldier() != nullptr);
 					// PRD-J09: in-battle control split. _coop 0 = host-controlled,
