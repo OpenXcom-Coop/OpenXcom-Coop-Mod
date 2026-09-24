@@ -326,11 +326,96 @@ def _host_squad_battle_units(gc, host_squad):
     return [u for u in bs["units"] if u.get("soldierId") in host_squad and not u.get("isOut")]
 
 
+ROOF_ICON_MARGIN = 8   # base px a roof click must sit above the icon panel (F592(b))
+ROOF_FULL_TU = 999     # battle_set_unit_state tu: BattleUnit::setTimeUnits clamps it to the unit's own TU stat
+ROOF_CORNERS = ("NW", "NE", "SW", "SE")
+ROOF_PAIRS = (("NW", "SE"), ("NE", "SW"))
+
+
+def _roof_part(parts, name):
+    p = parts.get(name) or {}
+    return (p.get("mapDataSetID", -1), p.get("mapDataID", -1))
+
+
+def _lightning_roof(host, start, occupied):
+    """AMENDMENT 2 step 1 (owner D143): flood-fill (4-neighbour) the plain
+    roof tiles connected to the walker's start tile on its own level. Plain =
+    the SAME floor part as the start tile (read from tile_info, never
+    hard-coded; F615), no wall, object or door part, and no unit (the walker's
+    own tile excepted). Returns (floor, roof_tiles, bbox, corners) where bbox =
+    (minx, miny, maxx, maxy) and corners maps NW/NE/SW/SE to the roof tile
+    nearest that bbox corner (ties broken by x, then y)."""
+    z = start[2]
+    ti = host.cmd({"cmd": "tile_info", "x": start[0], "y": start[1], "z": z})
+    assert ti.get("ok"), f"S1-PRECOND: tile_info failed on the walker's start tile {start}: {ti}"
+    floor = _roof_part(ti.get("parts", {}), "floor")
+    assert floor[1] >= 0, f"S1-PRECOND: the walker's start tile {start} has no floor: {ti}"
+
+    def plain(t):
+        if t != start and t in occupied:
+            return False
+        r = host.cmd({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]})
+        if not r.get("ok"):
+            return False
+        parts = r.get("parts", {})
+        if _roof_part(parts, "floor") != floor:
+            return False
+        if any(_roof_part(parts, n)[1] >= 0 for n in ("westwall", "northwall", "object")):
+            return False
+        return not any(p.get("isDoor") or p.get("isUfoDoor") for p in parts.values())
+
+    roof, todo, seen = set(), [start], {start}
+    while todo:
+        t = todo.pop()
+        if not plain(t):
+            continue
+        roof.add(t)
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            n = (t[0] + dx, t[1] + dy, z)
+            if n not in seen:
+                seen.add(n)
+                todo.append(n)
+    assert start in roof, f"S1-PRECOND: the walker's start tile {start} is not plain roof: {ti}"
+    xs = [t[0] for t in roof]
+    ys = [t[1] for t in roof]
+    bbox = (min(xs), min(ys), max(xs), max(ys))
+    anchor = {"NW": (bbox[0], bbox[1]), "NE": (bbox[2], bbox[1]),
+              "SW": (bbox[0], bbox[3]), "SE": (bbox[2], bbox[3])}
+    corners = {}
+    for name in ROOF_CORNERS:
+        ax, ay = anchor[name]
+        corners[name] = min(roof, key=lambda t: ((t[0] - ax) ** 2 + (t[1] - ay) ** 2, t[0], t[1]))
+    return floor, roof, bbox, corners
+
+
+def _roof_camera(host, centre):
+    """AMENDMENT 2 step 4: centre the host camera on the roof centre tile at
+    the roof's view level (TestServer battle_camera_center, camera-only)."""
+    cam = host.ok({"cmd": "battle_camera_center", "x": centre[0], "y": centre[1], "z": centre[2]})
+    assert cam.get("viewLevel") == centre[2], f"S1-PRECOND: camera view level is not the roof's: {cam}"
+    return cam
+
+
+def _roof_probe(host, centre, tile):
+    """map_tile_click_pos for `tile` with the camera freshly centred on the
+    roof centre (a probe that finds no pixel re-centres the camera itself, so
+    every probe starts from the same view)."""
+    cam = _roof_camera(host, centre)
+    pr = host.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
+    icon_top = cam["baseH"] - cam["iconH"]
+    clear = (pr.get("verified") is True and pr.get("centered") is False
+             and isinstance(pr.get("baseY"), int) and pr["baseY"] + ROOF_ICON_MARGIN <= icon_top)
+    return pr, cam, icon_top, clear
+
+
 def stage_alien_and_walk(host, client, walker_id):
     """SPEC 16's proven staging (test_spec16_pause_on_leave.py): park the sole
     alien on the UFO's own ACCESS_LIFT column (LOS wall-blocked - no F394
-    spot-halt), then find a far destination on the Lightning's roof and start
-    a real-click walk. Returns (elevator, dest, lw, pending) once the walk is
+    spot-halt). Then the owner's fixture steps (W2-H3 AMENDMENT 2, D143): the
+    walker walks the Lightning roof from one corner to the opposite corner
+    with the camera centred on the roof, so the whole walk is on-screen and
+    vanilla paces every step at battleXcomSpeed (F465) - the save request
+    lands mid-walk. Returns (elevator, dest, lw, pending) once the walk is
     observed >=2-pending mid-flight."""
     aliens = s16._find_alien(host)
     assert aliens, "S1-PRECOND: no living alien on this boot"
@@ -347,20 +432,65 @@ def stage_alien_and_walk(host, client, walker_id):
         what="park alien in UFO")
     print(f"[stage] alien {alien['id']} parked at UFO lift {elevator} (dir={away})")
 
+    # (1) the roof: plain tiles connected to the walker's start tile, bbox, corners
+    start0 = (walker["x"], walker["y"], walker["z"])
+    assert start0[2] == 1, f"S1-PRECOND: the walker does not start on the Lightning roof (z 1): {start0}"
     occupied = {(u["x"], u["y"], u["z"]) for u in battle(host)["units"] if not u.get("isOut")}
-    cands = []
-    for length in (10, 12, 8, 6, 5, 4):
-        if length * 4 > walker.get("tu", 0):
-            continue
-        cands = s16._far_destinations(host, walker, elevator, occupied, length=length, want=5)
-        if cands:
-            break
-    assert cands, f"S1-PRECOND: no far destination found (walker tu={walker.get('tu')})"
-    dest = cands[0][1][-1]
+    floor, roof, bbox, corners = _lightning_roof(host, start0, occupied)
+    centre = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2, start0[2])
+    print(f"[stage] roof: floor={floor} tiles={len(roof)} bbox(minx,miny,maxx,maxy)={bbox} "
+          f"centre={centre} corners={corners}")
 
+    # (2) an opposite-corner pair whose click pixels are both found without
+    # re-centring and clear of the icon panel, camera on the roof centre;
+    # the longer path first, then the fixed pair order
+    probes = {}
+    for name in ROOF_CORNERS:
+        pr, cam, icon_top, clear = _roof_probe(host, centre, corners[name])
+        probes[name] = clear
+        print(f"[stage] corner {name} {corners[name]}: centered={pr.get('centered')} "
+              f"verified={pr.get('verified')} base=({pr.get('baseX')},{pr.get('baseY')}) "
+              f"win=({pr.get('winX')},{pr.get('winY')}) iconTop={icon_top} clear={clear} "
+              f"view base={cam['baseW']}x{cam['baseH']} icons={cam['iconW']}x{cam['iconH']}")
+
+    def path_len(pair):
+        a, b = corners[pair[0]], corners[pair[1]]
+        return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+    fit = [p for p in sorted(ROOF_PAIRS, key=lambda p: -path_len(p)) if probes[p[0]] and probes[p[1]]]
+    assert fit, (f"S1-PRECOND: no opposite-corner roof pair is clickable without re-centring "
+                 f"(bbox={bbox} corners={corners} clear={probes})")
+    pair = fit[0]
+    start, dest = corners[pair[0]], corners[pair[1]]
+    if start == start0:
+        start, dest = dest, start   # S2: never teleport a unit onto its own tile
+    print(f"[stage] chosen pair {pair}: start={start} dest={dest} path length={path_len(pair)}")
+
+    # (3) the walker on the start corner with its full TU stat, TAB-selected
+    if start != start0:
+        session.place_deterministic(
+            host, client, [{"lever": "battle_teleport_unit", "unit": walker_id,
+                            "x": start[0], "y": start[1], "z": start[2]}],
+            what="walker to the roof corner")
+    tus = [gc.ok({"cmd": "battle_set_unit_state", "unit": walker_id, "tu": ROOF_FULL_TU})["tu"]
+           for gc in (host, client)]
+    assert tus[0] == tus[1], f"S1-PRECOND: the walker's full TU differs host/client: {tus}"
+    session.assert_hash_clean(host, client, full=True, what="walker full TU")
     assert s16._select_by_tab(host, walker_id), "S1-PRECOND: could not TAB-select the walker"
+    walker = next(u for u in battle(host)["units"] if u["id"] == walker_id)
+    assert (walker["x"], walker["y"], walker["z"]) == start, (
+        f"S1-PRECOND: the walker is not on the start corner {start}: {walker}")
+    print(f"[stage] walker {walker_id} at {start} tu={walker.get('tu')} energy={walker.get('energy')}")
+
+    # (4) camera on the roof centre, no HOME; (5) click the opposite corner
+    _roof_camera(host, centre)
     prev = session.walk_action_id(host)
-    assert s16._click_walk(host, dest), "S1-PRECOND: map_tile_click_pos never verified (dest off-view)"
+    pr = host.cmd({"cmd": "map_tile_click_pos", "x": dest[0], "y": dest[1], "z": dest[2]})
+    print(f"[stage] click {dest}: centered={pr.get('centered')} verified={pr.get('verified')} "
+          f"base=({pr.get('baseX')},{pr.get('baseY')}) win=({pr.get('winX')},{pr.get('winY')})")
+    assert pr.get("verified") is True and pr.get("centered") is False, (
+        f"S1-PRECOND: the destination corner {dest} is not clickable on the roof view: {pr}")
+    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
     lw, pending = s16._poll_walk_until_pending(host, prev, min_pending=2, timeout=25)
     if lw is None:
         # F420 (D126, owner): on-timeout diagnostic ONLY. The mid-walk-pending poll
