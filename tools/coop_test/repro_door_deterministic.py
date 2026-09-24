@@ -116,7 +116,7 @@ def bring_up():
 
 
 def pin_tu(host, client, actor_id, tu):
-    for gc in (host, client):
+    for gc in (client, host):  # F607: client first, then host
         r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": actor_id,
                    "stat": "tu", "value": tu, "refill": True})
         assert r.get("ok"), f"pin_tu({gc.name}): set_stat failed: {r}"

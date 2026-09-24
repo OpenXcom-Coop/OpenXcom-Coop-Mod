@@ -236,8 +236,8 @@ def settle_client(client, seen, timeout=20, texts=None):
 def give_both(host, client, req):
     """battle_give on BOTH machines in the same order; ids asserted equal."""
     full = dict(req, cmd="battle_give")
+    rc = client.cmd(full)  # F607: client first, then host
     rh = host.cmd(full)
-    rc = client.cmd(full)
     assert rh.get("ok") and rc.get("ok"), f"PREMISE: battle_give {req} failed: host={rh} client={rc}"
     assert (rh.get("weaponId"), rh.get("ammoId")) == (rc.get("weaponId"), rc.get("ammoId")), (
         f"PREMISE: battle_give {req} minted different ids: host={rh} client={rc}")
@@ -248,7 +248,7 @@ def equalize_tu(host, client, uid):
     """Both machines get the HOST's current TU for `uid` (see the docstring's
     FIXTURE note). Returns that value."""
     tu = units(host)[uid]["tu"]
-    for gc in (host, client):
+    for gc in (client, host):  # F607: client first, then host
         r = gc.cmd({"cmd": "battle_set_unit_state", "unit": uid, "tu": tu})
         assert r.get("ok") and r.get("tu") == tu, (
             f"PREMISE: battle_set_unit_state tu={tu} unit {uid} on {gc.name}: {r}")
@@ -327,7 +327,7 @@ def loaded_ammo(item, weapon_id):
 def s6_panic(host, client, ctx):
     rifle, clip = give_both(host, client, {"unit": C2_ID, "item": "STR_RIFLE",
                                            "ammo": "STR_RIFLE_CLIP", "clear_hands": True})
-    for gc in (host, client):
+    for gc in (client, host):  # F607: client first, then host
         r = gc.cmd({"cmd": "battle_set_unit_state", "unit": C2_ID, "status": STATUS_PANICKING})
         assert r.get("ok") and r.get("status") == STATUS_PANICKING, (
             f"PREMISE: status PANICKING on {gc.name}: {r}")
@@ -353,7 +353,7 @@ def s6_panic(host, client, ctx):
           f"client warning={pc['warning']!r} banner={pc['banner']!r}; "
           f"pushes client {p0c['pushes']}->{pc['pushes']}", flush=True)
     # A1.2 (iii): back to STANDING on both, whatever happened above.
-    for gc in (host, client):
+    for gc in (client, host):  # F607: client first, then host
         rr = gc.cmd({"cmd": "battle_set_unit_state", "unit": C2_ID, "status": STATUS_STANDING})
         assert rr.get("ok"), f"PREMISE: status STANDING on {gc.name}: {rr}"
     fails = []
@@ -500,11 +500,11 @@ def stage(host, client, ctx):
     tele = {}
     for uid, tile, d in ((C_ID, S4_C_TILE, S4_C_DIR), (H_ID, S4_H_TILE, S4_H_DIR)):
         rs = []
-        for gc in (host, client):
+        for gc in (client, host):  # F607: client first; rs stays [host, client]
             r = gc.cmd({"cmd": "battle_teleport_unit", "unit": uid,
                         "x": tile[0], "y": tile[1], "z": tile[2], "dir": d})
             assert r.get("ok"), f"PREMISE: battle_teleport_unit {uid} -> {tile} on {gc.name}: {r}"
-            rs.append((r.get("to"), r.get("dir")))
+            rs.insert(0, (r.get("to"), r.get("dir")))
         assert rs[0] == rs[1] == ({"x": tile[0], "y": tile[1], "z": tile[2]}, d), (
             f"PREMISE: battle_teleport_unit {uid} responses differ: host={rs[0]} client={rs[1]}")
         tele[uid] = rs[0]

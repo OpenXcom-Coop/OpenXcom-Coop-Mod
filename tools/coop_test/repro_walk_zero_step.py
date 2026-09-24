@@ -192,13 +192,13 @@ def phase2_admission(host, client, actor_id):
     denied = []
     admitted = []
     for tu in (16, 15, 14, 13, 12, 11, 10, 9, 8):
-        for gc in (host, client):
+        for gc in (client, host):  # F607: client first, then host
             gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": actor_id,
                     "stat": "tu", "value": tu, "refill": True})
         assert_hash_clean(host, client, full=True,
                           what=f"PHASE 2 after a symmetric TU set to {tu}")
         kneel_actor(host, client, actor_id, "PHASE 2")
-        for gc in (host, client):
+        for gc in (client, host):  # F607: client first, then host
             gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": actor_id,
                     "stat": "tu", "value": tu, "refill": True})
         assert_hash_clean(host, client, full=True,

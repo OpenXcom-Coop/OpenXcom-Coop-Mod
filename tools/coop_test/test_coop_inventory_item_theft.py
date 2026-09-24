@@ -117,7 +117,7 @@ def main():
         # written. Clips in between would put a blaster bomb at that id instead
         # (still stolen, just a different item).
         given = {}
-        for tag, gc in (("host", host), ("client", client)):
+        for tag, gc in (("client", client), ("host", host)):  # F607: client first
             given[tag] = [
                 gc.ok({"cmd": "battle_give", "unit": victim["id"], "item": LAUNCHER,
                        "slot": "right", "clear_hands": True}),

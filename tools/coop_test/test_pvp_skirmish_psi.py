@@ -111,7 +111,7 @@ def test_psi(fails, alien_player, gamemode):
 
         # Arm the psi-amp on BOTH machines (nothing replicates a mid-battle
         # item spawn; ids only line up if both sides create it in step).
-        for gc in (host, client):
+        for gc in (client, host):  # F607: client first, then host
             gc.ok({"cmd": "battle_give", "unit": shooter["id"],
                    "item": "STR_PSI_AMP",
                    "slot": "right", "clear_hands": True})
@@ -120,7 +120,7 @@ def test_psi(fails, alien_player, gamemode):
         # Force psi stats high on the attacker (both machines) and force the
         # victim visible (both machines) so the MC deterministically succeeds
         # and psiAttackMessage's send guard is satisfied.
-        for gc in (host, client):
+        for gc in (client, host):  # F607: client first, then host
             r = gc.ok({"cmd": "battle_action", "action": "set_stat",
                        "unit": shooter["id"], "psiSkill": 100,
                        "psiStrength": 100, "refill": True})

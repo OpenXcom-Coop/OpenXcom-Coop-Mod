@@ -198,7 +198,8 @@ def short(e, n=300):
 
 def both(host, client, req, keys):
     """Send `req` to BOTH machines; assert ok and equal on `keys`."""
-    rh, rc = host.cmd(dict(req)), client.cmd(dict(req))
+    rc = client.cmd(dict(req))  # F607: client first, then host
+    rh = host.cmd(dict(req))
     assert rh.get("ok") and rc.get("ok"), f"staging {req} failed: host={rh} client={rc}"
     vh, vc = tuple(rh.get(k) for k in keys), tuple(rc.get(k) for k in keys)
     assert vh == vc, f"staging {req} differs: host={vh} client={vc}"

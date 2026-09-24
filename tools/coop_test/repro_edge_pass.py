@@ -117,7 +117,7 @@ def set_tu_both(host, client, actor_id, tu, exact=True):
     machines. Every boundary call in this file keeps the default `exact=True`,
     since the whole point there is the PRECISE TU value."""
     landed = {}
-    for gc in (host, client):
+    for gc in (client, host):  # F607: client first, then host
         r = gc.cmd({"cmd": "battle_set_unit_state", "unit": actor_id, "tu": tu})
         assert r.get("ok"), (
             f"battle_set_unit_state(unit={actor_id}, tu={tu}) failed on "
@@ -322,7 +322,7 @@ def phase3_zero_step_spot(host, client, actor_id, door):
         [{"lever": "battle_teleport_unit", "unit": alien_id,
           "x": enemy_tile[0], "y": enemy_tile[1], "z": enemy_tile[2], "dir": left}],
         what="PHASE 3 hostile placement")
-    for gc, tag in ((host, "host"), (client, "client")):
+    for gc, tag in ((client, "client"), (host, "host")):  # F607: client first
         r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": alien_id,
                     "stat": "reactions", "value": 0})
         assert r.get("ok"), f"PHASE 3: could not zero hostile {alien_id} reactions on {tag}: {r}"

@@ -97,7 +97,7 @@ def test_census(fails, alien_player, gamemode):
             return
 
         # Give rifles to executor's units
-        for gc in (host, client):
+        for gc in (client, host):  # F607: client first, then host
             for s in executor_sel[:2]:
                 gc.ok({"cmd": "battle_give", "unit": s["id"],
                        "item": "STR_RIFLE", "ammo": "STR_RIFLE_CLIP",

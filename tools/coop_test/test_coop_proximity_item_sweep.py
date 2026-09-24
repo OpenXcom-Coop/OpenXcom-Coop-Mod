@@ -179,8 +179,10 @@ def run(ports, fails):
         # this is also what keeps the two item-id spaces aligned.
         near = [(-1, -1), (0, -1), (1, 0), (-1, 1)]
         litter, control, grenades = [], [], []
+        # F607: every drop pair below runs on the CLIENT first, then the HOST;
+        # [::-1] keeps each list in [host, client] order.
         for (dx, dy), itype in zip(near, LITTER):
-            ids = [drop(gc, ux + dx, uy + dy, uz, itype) for gc in (host, client)]
+            ids = [drop(gc, ux + dx, uy + dy, uz, itype) for gc in (client, host)][::-1]
             if ids[0] is None or ids[1] is None:
                 continue      # off-map tile; the map is generated, not fixed
             assert ids[0] == ids[1], f"item-id spaces diverged while littering: {ids}"
@@ -191,13 +193,13 @@ def run(ports, fails):
         # so it separates "the peer swept the tiles" from "the peer lost items".
         # +8: outside the swept 3x3 AND outside a proximity grenade's blast radius
         # (power 55 -> ~5 tiles), so nothing but a bug can touch it.
-        cids = [drop(gc, ux + 8, uy, uz, "STR_PISTOL") for gc in (host, client)]
+        cids = [drop(gc, ux + 8, uy, uz, "STR_PISTOL") for gc in (client, host)][::-1]
         if cids[0] is not None and cids[0] == cids[1]:
             control.append(cids[0])
 
-        gid = [drop(gc, ux + 1, uy + 1, uz, PROXY, prime=True) for gc in (host, client)]
+        gid = [drop(gc, ux + 1, uy + 1, uz, PROXY, prime=True) for gc in (client, host)][::-1]
         if gid[0] is None:
-            gid = [drop(gc, ux, uy, uz, PROXY, prime=True) for gc in (host, client)]
+            gid = [drop(gc, ux, uy, uz, PROXY, prime=True) for gc in (client, host)][::-1]
         assert gid[0] is not None and gid[0] == gid[1], \
             f"could not place a primed proximity grenade next to the unit: {gid}"
         grenades.append(gid[0])

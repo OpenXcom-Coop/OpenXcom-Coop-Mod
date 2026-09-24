@@ -74,15 +74,15 @@ def run():
         assert hostile_ids, f"no live hostile on the pinned seed {SEED}"
 
         for uid in hostile_ids:
+            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})  # F607: client first
             rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
-            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})
             assert rh.get("ok") and rc.get("ok"), (
                 f"battle_strip_unit failed for unit {uid}: host={rh} client={rc}")
             assert rh.get("deleted") == rc.get("deleted"), (
                 f"E.5: the two machines' deleted item id lists differ for unit "
                 f"{uid}: host={rh.get('deleted')} client={rc.get('deleted')}")
-            host.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
             client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
+            host.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
 
         # ---- non-vacuity capture, BEFORE the verdict: position/TU before ----
         before_pos = {u["id"]: session.unit_pos(u) for u in hostiles}

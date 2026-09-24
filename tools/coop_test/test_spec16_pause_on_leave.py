@@ -405,7 +405,7 @@ def _run_scenario(tag, run_idx, drop, seed):
         elevator_tile = (lx, ly, 1)
 
         away_dir = _away_direction(actor, (lx, ly))
-        for gc in (host, client):
+        for gc in (client, host):  # F607: client first, then host
             tr = gc.cmd({"cmd": "battle_teleport_unit", "unit": alien["id"],
                          "x": elevator_tile[0], "y": elevator_tile[1], "z": elevator_tile[2],
                          "dir": away_dir})
@@ -675,7 +675,7 @@ def run_s2():
                        (2, 0), (0, 2), (-2, 0), (0, -2)]:
             tx, ty, tz = ax + dx, ay + dy, az
             ok_both = True
-            for gc in (host, client):
+            for gc in (client, host):  # F607: client first, then host
                 r = gc.cmd({"cmd": "battle_teleport_unit", "unit": target["id"],
                             "x": tx, "y": ty, "z": tz, "dir": 0})
                 if not r.get("ok"):

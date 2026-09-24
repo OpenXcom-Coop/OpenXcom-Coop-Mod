@@ -676,12 +676,12 @@ def run_boot_b(activate_text, deactivate_text):
         hostile_ids = [u["id"] for u in hostiles]
         assert hostile_ids, f"boot B fixture: no live hostile on the pinned seed {SEED_AI}"
         for uid in hostile_ids:
+            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})  # F607: client first
             rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
-            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})
             assert rh.get("ok") and rc.get("ok"), (
                 f"boot B fixture: battle_strip_unit failed for {uid}: host={rh} client={rc}")
-            host.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
             client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
+            host.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
 
         wc0 = (event_state(host).get("lastWalk") or {}).get("actionId", 0)
         turn0 = battle_state(host)["turn"]

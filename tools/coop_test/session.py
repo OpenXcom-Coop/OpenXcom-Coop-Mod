@@ -783,8 +783,11 @@ def place_deterministic(host, client, moves, what=""):
         move = dict(move)
         lever = move.pop("lever")
         req = {"cmd": lever, **move}
-        hr = host.cmd(req)
+        # F607 (W2-P2 S-H.1a): CLIENT first, then HOST. The host's per-tick
+        # reveal flush stamps `h` from host state, so a host-first lever let
+        # it ship an ev the client could not match yet.
         cr = client.cmd(req)
+        hr = host.cmd(req)
         assert hr.get("ok"), f"place_deterministic{tag}: move {i} ({lever}) failed on host: {hr}"
         assert cr.get("ok"), f"place_deterministic{tag}: move {i} ({lever}) failed on client: {cr}"
         assert hr == cr, (
@@ -1499,7 +1502,7 @@ def pin_ai_neutral(host, client, tag=""):
                if u.get("coop") == COOP_SEAT_NONE and u.get("faction") != FACTION_PLAYER
                and not u.get("isOut")]
     for uid in targets:
-        for gc in (host, client):
+        for gc in (client, host):  # F607: client first (see place_deterministic)
             who = "host" if gc is host else "client"
             for stat in ("psiSkill", "reactions"):
                 r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid,

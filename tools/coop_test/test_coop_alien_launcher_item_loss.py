@@ -188,7 +188,7 @@ def run_scenario(label, alien_slot, ports, fails):
         # Arm identically, in the same order, on BOTH machines - nothing in the
         # protocol replicates a mid-battle item spawn.
         given = {}
-        for tag, gc in (("host", host), ("client", client)):
+        for tag, gc in (("client", client), ("host", host)):  # F607: client first
             given[tag] = [arm(gc, soldier["id"], "right"), arm(gc, alien["id"], alien_slot)]
         for i in range(2):
             hw, cw = given["host"][i], given["client"][i]
@@ -247,10 +247,10 @@ def run_scenario(label, alien_slot, ports, fails):
         # Spawning one more item on each machine must still yield the SAME id: a
         # receiver that fabricated a BattleItem for the replayed shot has bumped
         # its own counter, and the id spaces stay apart for the rest of the battle.
+        cp = client.ok({"cmd": "battle_give", "unit": soldier["id"], "item": "STR_PISTOL",
+                        "slot": "belt"})  # F607: client first, then host
         hp = host.ok({"cmd": "battle_give", "unit": soldier["id"], "item": "STR_PISTOL",
                       "slot": "belt"})
-        cp = client.ok({"cmd": "battle_give", "unit": soldier["id"], "item": "STR_PISTOL",
-                        "slot": "belt"})
         if hp["weaponId"] != cp["weaponId"]:
             fails.append(f"{label}: item-id spaces drifted apart during the shot (next id: "
                          f"host {hp['weaponId']}, client {cp['weaponId']}) - the peer "

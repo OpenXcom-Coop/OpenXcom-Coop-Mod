@@ -423,7 +423,7 @@ def phase0_pin_reaction_fire(host, client):
                    "should have rejected this boot"
 
     for a in aliens:
-        for gc, tag in ((host, "host"), (client, "client")):
+        for gc, tag in ((client, "client"), (host, "host")):  # F607: client first
             r = gc.cmd({"cmd": "battle_action", "action": "set_stat",
                         "unit": a["id"], "stat": "reactions", "value": 0})
             assert r.get("ok"), \
