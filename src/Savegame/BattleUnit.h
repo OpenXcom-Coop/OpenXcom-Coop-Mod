@@ -386,6 +386,22 @@ public:
 	/// (TestServer battle_set_unit_state {specab}). _specab is otherwise
 	/// derived from the armor/unit rules and has no setter. Plain assignment.
 	void coopSetSpecialAbility(int specab);
+	/// W2-P2 S-A (spec (b)1, R3.7): absolute motion-points set for the delta
+	/// applier. keepWalking() only adds and prepareNewTurn() only zeroes.
+	void coopSetMotionPoints(int motionPoints);
+	/// W2-P2 S-A: absolute wants-to-surrender set (serialized, hashed).
+	void coopSetWantsToSurrender(bool wantsToSurrender);
+	/// W2-P2 S-A: the serialized morale-restored counter (no vanilla getter).
+	int coopGetMoraleRestored() const;
+	/// W2-P2 S-A: absolute morale-restored set.
+	void coopSetMoraleRestored(int moraleRestored);
+	/// W2-P2 S-A: absolute reaction-hand state (the two UI toggles are deltas).
+	void coopSetReactionHands(const std::string& preferredHand, bool disabledLeft, bool disabledRight);
+	/// W2-P2 S-A: the raw script-value vector (element i = tag index i + 1).
+	const std::vector<int>& coopScriptValuesRaw() const;
+	/// W2-P2 S-A: absolute raw script-value set; entries past @a values are
+	/// zeroed. Runs no script and draws no RNG.
+	void coopSetScriptValuesRaw(const std::vector<int>& values);
 	/// Gets the unit's health.
 	int getHealth() const;
 	/// Gets the unit's mana.

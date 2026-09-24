@@ -363,6 +363,10 @@ public:
 	/// perTile applier. Same discipline as coopSetTileFireAbsolute() above:
 	/// keeps setSmoke()'s Clamp(smoke,0,255), drops the RNG roll.
 	void coopSetSmokeAbsolute(int smoke);
+	/// W2-P2 S-A (spec (b)1, R3.7): absolute UFO-door open state of @a part
+	/// for the delta applier (frame 1 = opening, 0 = closed, as openDoor()/
+	/// closeUfoDoor() write it). No-op on a part that is not a UFO door.
+	void coopSetUfoDoorOpen(TilePart part, bool open);
 	/// Get smoke.
 	int getSmoke() const;
 	/// Get flammability.

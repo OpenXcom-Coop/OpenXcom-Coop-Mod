@@ -4915,6 +4915,78 @@ void BattleUnit::coopSetSpecialAbility(int specab)
 }
 
 /**
+ * W2-P2 S-A (spec (b)1, R3.7): absolute motion-points set for the delta
+ * applier. Plain assignment - no RNG, no rules evaluation.
+ * @param motionPoints new motion points
+ */
+void BattleUnit::coopSetMotionPoints(int motionPoints)
+{
+	_motionPoints = motionPoints;
+}
+
+/**
+ * W2-P2 S-A: absolute wants-to-surrender set. Plain assignment.
+ * @param wantsToSurrender new flag
+ */
+void BattleUnit::coopSetWantsToSurrender(bool wantsToSurrender)
+{
+	_wantsToSurrender = wantsToSurrender;
+}
+
+/**
+ * W2-P2 S-A: the serialized morale-restored counter.
+ * @return morale restored
+ */
+int BattleUnit::coopGetMoraleRestored() const
+{
+	return _moraleRestored;
+}
+
+/**
+ * W2-P2 S-A: absolute morale-restored set. Plain assignment.
+ * @param moraleRestored new counter
+ */
+void BattleUnit::coopSetMoraleRestored(int moraleRestored)
+{
+	_moraleRestored = moraleRestored;
+}
+
+/**
+ * W2-P2 S-A: absolute reaction-hand state. Plain assignments.
+ * @param preferredHand "STR_RIGHT_HAND", "STR_LEFT_HAND" or ""
+ * @param disabledLeft reactions disabled for the left hand
+ * @param disabledRight reactions disabled for the right hand
+ */
+void BattleUnit::coopSetReactionHands(const std::string& preferredHand, bool disabledLeft, bool disabledRight)
+{
+	_preferredHandForReactions = preferredHand;
+	_reactionsDisabledForLeftHand = disabledLeft;
+	_reactionsDisabledForRightHand = disabledRight;
+}
+
+/**
+ * W2-P2 S-A: the raw script-value vector.
+ * @return values (element i = tag index i + 1)
+ */
+const std::vector<int>& BattleUnit::coopScriptValuesRaw() const
+{
+	return _scriptValues.getValuesRaw();
+}
+
+/**
+ * W2-P2 S-A: absolute raw script-value set; every index past @a values is
+ * zeroed. Runs no script and draws no RNG.
+ * @param values new values (element i = tag index i + 1)
+ */
+void BattleUnit::coopSetScriptValuesRaw(const std::vector<int>& values)
+{
+	using CoopTag = decltype(_scriptValues)::Tag;
+	const size_t n = std::max(values.size(), _scriptValues.getValuesRaw().size());
+	for (size_t i = 0; i < n; ++i)
+		_scriptValues.set(CoopTag::make(i + 1), i < values.size() ? values[i] : 0);
+}
+
+/**
  * Get the faction the unit was killed by.
  * @return faction
  */

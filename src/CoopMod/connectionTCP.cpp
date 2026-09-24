@@ -110,6 +110,11 @@
 #include "../Savegame/BattleUnit.h"
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
+// W2-P2 S-A: the delta core reads/writes node types, resolves tile parts the
+// way SavedBattleGame::loadMapResources() does, and names a unit's spawn type.
+#include "../Savegame/Node.h"
+#include "../Mod/MapDataSet.h"
+#include "../Mod/Unit.h"
 
 // R4-P1 (SPIKE-RUNBOOK.md SS2.7/IR-6): CoopHandshake needs the full SavedGame
 // (loadCoopSaveFromMemory/saveCoopToMemory), Options/Screen (battlescape
@@ -728,6 +733,10 @@ static void resetCoopArbiterState();
 // h:{unitsStats} on the standalone reveal ev without splitting the CoopReveal
 // namespace across the file.
 static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save);
+// W2-P2 S-A (spec (b)10): the 7 structured buckets from ONE sweep (+ saveBlob
+// when asked). Defined right after coopBuildUnitsStatsHash; declared here so
+// CoopDelta::flushSync() (above CoopEmit) can stamp the `sync` ev's `h`.
+static Json::Value coopBuildStructuredHash(SavedBattleGame* save, bool withSaveBlob);
 // W1-P10: the door atom's battle-scoped state (CoopDoor.h). Defined next to
 // the journal itself, far below; forward-declared here so the battle-scope
 // reset can call it alongside the walk atom's own counters.
@@ -2104,6 +2113,7 @@ void reset(bool resetChainState)
 		resetCoopArbiterState(); // R2-P5: action-context stack, actionId mint, deny-tick map
 	CoopEventLog::reset(); // R2-P11
 	CoopReveal::reset(); // RW-REVEAL-SYNC: published fog bitmap + its one-shot test levers
+	CoopDelta::reset(); // W2-P2 S-A (spec (b)5): disarm + clear the delta snapshot; a rejoin re-seeds
 	CoopGhost::reset(); // W1-P12: battle-scoped ghost queue + its counters
 }
 
@@ -2111,10 +2121,10 @@ void reset(bool resetChainState)
 
 // ===== W2-P2 S-A: CoopDelta probe storage (CoopDelta.h) =====
 // Spec rewrite/prompts/w2p2_delta_core.md (b)3/(b)16. S-A.1 (the RED commit)
-// adds ONLY the probe storage, its read accessors and the delta_drop_next
-// one-shot flag; nothing writes the counters yet - the delta core (seed/reset/
-// attach/applyDelta/absorb*/flushSync) is S-A.2's and its bodies join this
-// namespace here. Battle-scoped: resetProbes() is called from
+// added the probe storage, its read accessors and the delta_drop_next
+// one-shot flag; S-A.2's delta core (seed/reset/attach/absorb*/flushSync, the
+// section right below, and CoopApply::applyDelta) writes them. Battle-scoped:
+// resetProbes() is called from
 // resetBattleAuthority() (spec (b)5). Atomics + a mutex for the same cross-
 // thread reason as W2-P1's tripwire probes: resetBattleAuthority() can run on
 // the UDP-monitor thread while the pump thread reads.
@@ -2223,6 +2233,774 @@ static void resetProbes()
 
 } // namespace CoopDelta
 
+// ===== W2-P2 S-A, commit S-A.2: the delta core (CoopDelta.h) =====
+// Spec rewrite/prompts/w2p2_delta_core.md (b)1-5, 9, 15, 16 (owner ruling
+// D128 = (b)): every host envelope carries `delta` - the ABSOLUTE value of
+// every synced field that changed since the previous envelope - so the second
+// player's state is WRITTEN with plain setters, never re-derived. Stage S-A
+// diffs UNITS, TILES, NODES and the BATTLE counters (itemIdCtr included);
+// items (and itemsAdded/itemsRemoved) are stage S-B.
+//
+// Shape: a per-id / per-tile-index snapshot of the LAST SHIPPED value of every
+// (b)1 field, seeded from the exact state the client's blob freezes (seed(),
+// (b)4) and committed by every attach. A field goes on the wire iff it differs
+// from the snapshot, an entry iff one of its fields does, the `delta` object
+// iff one class is non-empty. No field carries timing (G1).
+//
+// Threading: attach/seed/absorb*/flushSync run on the main (pump) thread;
+// reset() can run on the UDP-monitor thread (CoopPump::reset(), the reason
+// CoopReveal takes g_revealMutex), so the snapshot has its own mutex, taken
+// INSIDE each public function and never held across CoopEmit::sendEv().
+
+// RB-D31's faction <-> wire-string helper is defined far below (namespace
+// CoopHandshake); forward-declared here exactly like the side-transition
+// section's own forward declaration further down.
+namespace CoopHandshake
+{
+static std::string coopFactionToWireString(int faction);
+}
+
+namespace CoopDelta
+{
+
+namespace
+{
+
+/// Spec (b)1 `units[]`: every field the delta carries for one unit.
+struct UnitSnap
+{
+	Position pos;
+	bool onTile = false;
+	int dir = 0;
+	int turretDir = 0;
+	int faction = 0;
+	int status = 0;
+	int tu = 0;
+	int energy = 0;
+	int health = 0;
+	int stun = 0;
+	int morale = 0;
+	int mana = 0;
+	int fire = 0;
+	bool kneeled = false;
+	bool floating = false;
+	int wounds[BODYPART_MAX] = {};
+	int armor[SIDE_MAX] = {};
+	int motionPoints = 0;
+	int mcId = 0;
+	bool wantsToSurrender = false;
+	bool isSurrendering = false;
+	int moraleRestored = 0;
+	std::string spawnUnit;
+	bool respawn = false;
+	int spawnUnitFaction = 0;
+	bool alreadyRespawned = false;
+	std::string reactPref;
+	bool reactOffLeft = false;
+	bool reactOffRight = false;
+	std::vector<int> tags;
+};
+
+/// Spec (b)1 `tiles[]`: one tile (index = SavedBattleGame::getTileIndex order,
+/// the reveal system's index).
+struct TileSnap
+{
+	int ids[O_MAX] = {};
+	int setIds[O_MAX] = {};
+	int fire = 0;
+	int smoke = 0;
+	int explosive = 0;
+	int explosiveType = 0;
+	int doorBits = 0;
+};
+
+/// Spec (b)1 `battle`.
+struct BattleSnap
+{
+	int itemIdCtr = 0;
+	int objectivesDestroyed = 0;
+	std::vector<std::vector<std::pair<int, int> > > moduleMap;
+	bool bughuntMode = false;
+	int turn = 0;
+	int side = 0;
+	std::vector<int> tags;
+};
+
+std::mutex g_snapMutex;
+SavedBattleGame* g_snapBattle = nullptr; // the battle seed() captured
+bool g_snapMismatchLogged = false;
+std::map<int, UnitSnap> g_snapUnits;
+std::vector<TileSnap> g_snapTiles;
+std::vector<int> g_snapNodeTypes; // by position in SavedBattleGame::getNodes()
+BattleSnap g_snapBattleFields;
+
+long long usSince(std::chrono::steady_clock::time_point t0)
+{
+	return std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now() - t0).count();
+}
+
+/// A Last/Max probe pair (spec (b)16): Last = @a v, Max = the running max.
+void noteLastMax(std::atomic<int>& last, std::atomic<int>& mx, long long v)
+{
+	const int iv = (int)std::min<long long>(std::max<long long>(v, 0), 2000000000LL);
+	last = iv;
+	int prev = mx.load();
+	while (iv > prev && !mx.compare_exchange_weak(prev, iv))
+	{
+	}
+}
+
+/// RAII: times one host `h` build into hashUsLast/Max (spec (b)16, M1).
+struct HashTimer
+{
+	std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+	~HashTimer() { noteLastMax(g_deltaHashUsLast, g_deltaHashUsMax, usSince(t0)); }
+};
+
+/// `tags`: the raw script-value vector with trailing zeros stripped ((b)1).
+std::vector<int> stripTags(const std::vector<int>& raw)
+{
+	std::vector<int> v(raw);
+	while (!v.empty() && v.back() == 0)
+		v.pop_back();
+	return v;
+}
+
+UnitSnap captureUnit(const BattleUnit* u)
+{
+	UnitSnap s;
+	s.pos = u->getPosition();
+	s.onTile = (u->getTile() != nullptr);
+	s.dir = u->getDirection();
+	s.turretDir = u->getTurretDirection();
+	s.faction = (int)u->getFaction();
+	s.status = (int)u->getStatus();
+	s.tu = u->getTimeUnits();
+	s.energy = u->getEnergy();
+	s.health = u->getHealth();
+	s.stun = u->getStunlevel();
+	s.morale = u->getMorale();
+	s.mana = u->getMana();
+	s.fire = u->getFire();
+	s.kneeled = u->isKneeled();
+	s.floating = u->isFloating();
+	for (int part = 0; part < (int)BODYPART_MAX; ++part)
+		s.wounds[part] = u->getFatalWound((UnitBodyPart)part);
+	for (int side = 0; side < (int)SIDE_MAX; ++side)
+		s.armor[side] = u->getArmor((UnitSide)side);
+	s.motionPoints = u->getMotionPoints();
+	s.mcId = u->getMindControllerId();
+	s.wantsToSurrender = u->wantsToSurrender();
+	s.isSurrendering = u->isSurrendering();
+	s.moraleRestored = u->coopGetMoraleRestored();
+	s.spawnUnit = u->getSpawnUnit() ? u->getSpawnUnit()->getType() : std::string();
+	s.respawn = u->getRespawn();
+	s.spawnUnitFaction = (int)u->getSpawnUnitFaction();
+	s.alreadyRespawned = u->getAlreadyRespawned();
+	s.reactPref = u->isRightHandPreferredForReactions() ? "STR_RIGHT_HAND"
+		: (u->isLeftHandPreferredForReactions() ? "STR_LEFT_HAND" : "");
+	s.reactOffLeft = u->isLeftHandDisabledForReactions();
+	s.reactOffRight = u->isRightHandDisabledForReactions();
+	s.tags = stripTags(u->coopScriptValuesRaw());
+	return s;
+}
+
+TileSnap captureTile(const Tile* t)
+{
+	TileSnap s;
+	for (int part = 0; part < (int)O_MAX; ++part)
+		t->getMapData(&s.ids[part], &s.setIds[part], (TilePart)part);
+	s.fire = t->getFire();
+	s.smoke = t->getSmoke();
+	s.explosive = t->getExplosive();
+	s.explosiveType = t->getExplosiveType();
+	s.doorBits = (t->isUfoDoorOpen(O_WESTWALL) ? 1 : 0)
+		| (t->isUfoDoorOpen(O_NORTHWALL) ? 2 : 0)
+		| (t->isUfoDoorOpen(O_FLOOR) ? 4 : 0);
+	return s;
+}
+
+BattleSnap captureBattle(SavedBattleGame* b)
+{
+	BattleSnap s;
+	s.itemIdCtr = *b->getCurrentItemId();
+	s.objectivesDestroyed = b->coopGetObjectivesDestroyed();
+	s.moduleMap = b->getModuleMap();
+	s.bughuntMode = b->getBughuntMode();
+	s.turn = b->getTurn();
+	s.side = (int)b->getSide();
+	s.tags = stripTags(b->coopScriptValuesRaw());
+	return s;
+}
+
+Json::Value posJson(const Position& p)
+{
+	Json::Value j(Json::objectValue);
+	j["x"] = p.x;
+	j["y"] = p.y;
+	j["z"] = p.z;
+	return j;
+}
+
+Json::Value intsJson(const int* v, int n)
+{
+	Json::Value a(Json::arrayValue);
+	for (int i = 0; i < n; ++i)
+		a.append(v[i]);
+	return a;
+}
+
+Json::Value intsJson(const std::vector<int>& v)
+{
+	Json::Value a(Json::arrayValue);
+	for (int x : v)
+		a.append(x);
+	return a;
+}
+
+template <typename T>
+void putIfChanged(Json::Value& e, const char* key, const T& was, const T& now, bool& any)
+{
+	if (was != now)
+	{
+		e[key] = now;
+		any = true;
+	}
+}
+
+bool diffUnit(const UnitSnap& w, const UnitSnap& n, Json::Value& e)
+{
+	bool any = false;
+	if (w.pos != n.pos)
+	{
+		e["pos"] = posJson(n.pos);
+		any = true;
+	}
+	putIfChanged(e, "onTile", w.onTile, n.onTile, any);
+	putIfChanged(e, "dir", w.dir, n.dir, any);
+	putIfChanged(e, "turretDir", w.turretDir, n.turretDir, any);
+	if (w.faction != n.faction)
+	{
+		e["faction"] = CoopHandshake::coopFactionToWireString(n.faction);
+		any = true;
+	}
+	putIfChanged(e, "status", w.status, n.status, any);
+	putIfChanged(e, "tu", w.tu, n.tu, any);
+	putIfChanged(e, "energy", w.energy, n.energy, any);
+	putIfChanged(e, "health", w.health, n.health, any);
+	putIfChanged(e, "stun", w.stun, n.stun, any);
+	putIfChanged(e, "morale", w.morale, n.morale, any);
+	putIfChanged(e, "mana", w.mana, n.mana, any);
+	putIfChanged(e, "fire", w.fire, n.fire, any);
+	putIfChanged(e, "kneeled", w.kneeled, n.kneeled, any);
+	putIfChanged(e, "floating", w.floating, n.floating, any);
+	if (!std::equal(std::begin(w.wounds), std::end(w.wounds), std::begin(n.wounds)))
+	{
+		e["wounds"] = intsJson(n.wounds, (int)BODYPART_MAX);
+		any = true;
+	}
+	if (!std::equal(std::begin(w.armor), std::end(w.armor), std::begin(n.armor)))
+	{
+		e["armor"] = intsJson(n.armor, (int)SIDE_MAX);
+		any = true;
+	}
+	putIfChanged(e, "motionPoints", w.motionPoints, n.motionPoints, any);
+	putIfChanged(e, "mcId", w.mcId, n.mcId, any);
+	putIfChanged(e, "wantsToSurrender", w.wantsToSurrender, n.wantsToSurrender, any);
+	putIfChanged(e, "isSurrendering", w.isSurrendering, n.isSurrendering, any);
+	putIfChanged(e, "moraleRestored", w.moraleRestored, n.moraleRestored, any);
+	putIfChanged(e, "spawnUnit", w.spawnUnit, n.spawnUnit, any);
+	putIfChanged(e, "respawn", w.respawn, n.respawn, any);
+	if (w.spawnUnitFaction != n.spawnUnitFaction)
+	{
+		e["spawnUnitFaction"] = CoopHandshake::coopFactionToWireString(n.spawnUnitFaction);
+		any = true;
+	}
+	putIfChanged(e, "alreadyRespawned", w.alreadyRespawned, n.alreadyRespawned, any);
+	putIfChanged(e, "reactPref", w.reactPref, n.reactPref, any);
+	putIfChanged(e, "reactOffLeft", w.reactOffLeft, n.reactOffLeft, any);
+	putIfChanged(e, "reactOffRight", w.reactOffRight, n.reactOffRight, any);
+	if (w.tags != n.tags)
+	{
+		e["tags"] = intsJson(n.tags);
+		any = true;
+	}
+	return any;
+}
+
+bool diffTile(const TileSnap& w, const TileSnap& n, Json::Value& e)
+{
+	bool any = false;
+	bool partsChanged = false;
+	for (int part = 0; part < (int)O_MAX; ++part)
+	{
+		if (w.ids[part] != n.ids[part] || w.setIds[part] != n.setIds[part])
+			partsChanged = true;
+	}
+	if (partsChanged)
+	{
+		// All four parts, O_FLOOR..O_OBJECT, as [id, setId] ((b)1).
+		Json::Value parts(Json::arrayValue);
+		for (int part = 0; part < (int)O_MAX; ++part)
+		{
+			Json::Value p(Json::arrayValue);
+			p.append(n.ids[part]);
+			p.append(n.setIds[part]);
+			parts.append(p);
+		}
+		e["parts"] = parts;
+		any = true;
+	}
+	putIfChanged(e, "fire", w.fire, n.fire, any);
+	putIfChanged(e, "smoke", w.smoke, n.smoke, any);
+	putIfChanged(e, "explosive", w.explosive, n.explosive, any);
+	putIfChanged(e, "explosiveType", w.explosiveType, n.explosiveType, any);
+	putIfChanged(e, "doorBits", w.doorBits, n.doorBits, any);
+	return any;
+}
+
+bool diffBattle(const BattleSnap& w, const BattleSnap& n, Json::Value& e)
+{
+	bool any = false;
+	putIfChanged(e, "itemIdCtr", w.itemIdCtr, n.itemIdCtr, any);
+	putIfChanged(e, "objectivesDestroyed", w.objectivesDestroyed, n.objectivesDestroyed, any);
+	Json::Value mm(Json::arrayValue);
+	for (std::size_t x = 0; x < n.moduleMap.size(); ++x)
+	{
+		for (std::size_t y = 0; y < n.moduleMap[x].size(); ++y)
+		{
+			const bool had = x < w.moduleMap.size() && y < w.moduleMap[x].size();
+			if (!had || w.moduleMap[x][y] != n.moduleMap[x][y])
+			{
+				Json::Value cell(Json::arrayValue);
+				cell.append((int)x);
+				cell.append((int)y);
+				cell.append(n.moduleMap[x][y].first);
+				cell.append(n.moduleMap[x][y].second);
+				mm.append(cell);
+			}
+		}
+	}
+	if (!mm.empty())
+	{
+		e["moduleMap"] = mm;
+		any = true;
+	}
+	putIfChanged(e, "bughuntMode", w.bughuntMode, n.bughuntMode, any);
+	putIfChanged(e, "turn", w.turn, n.turn, any);
+	if (w.side != n.side)
+	{
+		e["side"] = CoopHandshake::coopFactionToWireString(n.side);
+		any = true;
+	}
+	if (w.tags != n.tags)
+	{
+		e["tags"] = intsJson(n.tags);
+		any = true;
+	}
+	return any;
+}
+
+/// ASSUMES g_snapMutex is held.
+void snapshotTilesLocked(SavedBattleGame* b)
+{
+	const int n = b->getMapSizeXYZ();
+	g_snapTiles.assign((std::size_t)std::max(n, 0), TileSnap());
+	for (int i = 0; i < n; ++i)
+		g_snapTiles[(std::size_t)i] = captureTile(b->getTile(i));
+}
+
+/// ASSUMES g_snapMutex is held.
+void snapshotNodesLocked(SavedBattleGame* b)
+{
+	g_snapNodeTypes.clear();
+	std::vector<Node*>* nodes = b->getNodes();
+	if (!nodes)
+		return;
+	for (Node* node : *nodes)
+		g_snapNodeTypes.push_back(node ? node->getType() : 0);
+}
+
+/// ASSUMES g_snapMutex is held.
+void snapshotAllLocked(SavedBattleGame* b)
+{
+	g_snapUnits.clear();
+	for (BattleUnit* u : *b->getUnits())
+	{
+		if (u)
+			g_snapUnits[u->getId()] = captureUnit(u);
+	}
+	snapshotTilesLocked(b);
+	snapshotNodesLocked(b);
+	g_snapBattleFields = captureBattle(b);
+}
+
+/// Spec (b)2: a change W2-P2 does not carry. Logged and counted ONCE (the
+/// caller snapshots the new state); the hash reports the divergence (K1).
+void noteUnsupported(const std::string& what)
+{
+	g_deltaUnsupported.fetch_add(1);
+	Log(LOG_WARNING) << "[coop-delta] unsupported " << what
+		<< " - not carried in W2-P2; snapshotted so it reports once, the hash reports the divergence";
+}
+
+/// Diffs @a b against the snapshot. @a out == nullptr is a DRY RUN: it returns
+/// at the first difference and changes, logs and counts nothing (flushSync's
+/// emptiness probe). Otherwise *out receives every non-empty (b)1 class and,
+/// with @a commit, every shipped value is written back into the snapshot.
+/// Returns true iff something differs. ASSUMES g_snapMutex is held.
+bool computeLocked(SavedBattleGame* b, Json::Value* out, bool commit)
+{
+	bool any = false;
+
+	// battle counters
+	{
+		const BattleSnap now = captureBattle(b);
+		Json::Value e(Json::objectValue);
+		if (diffBattle(g_snapBattleFields, now, e))
+		{
+			if (!out)
+				return true;
+			(*out)["battle"] = e;
+			any = true;
+			if (commit)
+				g_snapBattleFields = now;
+		}
+	}
+
+	// tiles
+	const int tileCount = b->getMapSizeXYZ();
+	if ((int)g_snapTiles.size() != tileCount)
+	{
+		if (commit)
+		{
+			noteUnsupported("map size change (" + std::to_string(g_snapTiles.size()) + " -> "
+				+ std::to_string(tileCount) + " tiles)");
+			snapshotTilesLocked(b);
+		}
+	}
+	else
+	{
+		Json::Value tiles(Json::arrayValue);
+		for (int i = 0; i < tileCount; ++i)
+		{
+			const TileSnap now = captureTile(b->getTile(i));
+			Json::Value e(Json::objectValue);
+			if (diffTile(g_snapTiles[(std::size_t)i], now, e))
+			{
+				if (!out)
+					return true;
+				e["i"] = i;
+				tiles.append(e);
+				if (commit)
+					g_snapTiles[(std::size_t)i] = now;
+			}
+		}
+		if (out && !tiles.empty())
+		{
+			(*out)["tiles"] = tiles;
+			any = true;
+		}
+	}
+
+	// nodes
+	std::vector<Node*>* nodes = b->getNodes();
+	const std::size_t nodeCount = nodes ? nodes->size() : 0;
+	if (g_snapNodeTypes.size() != nodeCount)
+	{
+		if (commit)
+		{
+			noteUnsupported("node list change (" + std::to_string(g_snapNodeTypes.size()) + " -> "
+				+ std::to_string(nodeCount) + " nodes)");
+			snapshotNodesLocked(b);
+		}
+	}
+	else
+	{
+		Json::Value arr(Json::arrayValue);
+		for (std::size_t k = 0; k < nodeCount; ++k)
+		{
+			Node* node = (*nodes)[k];
+			if (!node)
+				continue;
+			const int type = node->getType();
+			if (type != g_snapNodeTypes[k])
+			{
+				if (!out)
+					return true;
+				Json::Value e(Json::objectValue);
+				e["id"] = node->getID();
+				e["type"] = type;
+				arr.append(e);
+				if (commit)
+					g_snapNodeTypes[k] = type;
+			}
+		}
+		if (out && !arr.empty())
+		{
+			(*out)["nodes"] = arr;
+			any = true;
+		}
+	}
+
+	// units
+	{
+		Json::Value units(Json::arrayValue);
+		std::unordered_set<int> live;
+		for (BattleUnit* u : *b->getUnits())
+		{
+			if (!u)
+				continue;
+			const int id = u->getId();
+			live.insert(id);
+			std::map<int, UnitSnap>::iterator it = g_snapUnits.find(id);
+			if (it == g_snapUnits.end())
+			{
+				if (commit)
+				{
+					noteUnsupported("unit add (unit " + std::to_string(id) + ", W2-P3 unitsAdded)");
+					g_snapUnits[id] = captureUnit(u);
+				}
+				continue;
+			}
+			const UnitSnap now = captureUnit(u);
+			Json::Value e(Json::objectValue);
+			if (diffUnit(it->second, now, e))
+			{
+				if (!out)
+					return true;
+				e["id"] = id;
+				units.append(e);
+				if (commit)
+					it->second = now;
+			}
+		}
+		if (commit)
+		{
+			for (std::map<int, UnitSnap>::iterator it = g_snapUnits.begin(); it != g_snapUnits.end();)
+			{
+				if (live.count(it->first) == 0)
+				{
+					noteUnsupported("unit removal (unit " + std::to_string(it->first) + ")");
+					it = g_snapUnits.erase(it);
+				}
+				else
+				{
+					++it;
+				}
+			}
+		}
+		if (out && !units.empty())
+		{
+			(*out)["units"] = units;
+			any = true;
+		}
+	}
+
+	return any;
+}
+
+/// `lastDelta` ((b)16): the class counts of one delta.
+Json::Value summarize(std::uint32_t seq, const std::string& kind, const Json::Value& d)
+{
+	Json::Value s(Json::objectValue);
+	s["seq"] = seq;
+	s["kind"] = kind;
+	s["units"] = (int)d["units"].size();
+	s["tiles"] = (int)d["tiles"].size();
+	s["nodes"] = (int)d["nodes"].size();
+	s["items"] = (int)d["items"].size();
+	s["itemsAdded"] = (int)d["itemsAdded"].size();
+	s["itemsRemoved"] = (int)d["itemsRemoved"].size();
+	Json::Value keys(Json::arrayValue);
+	if (d.isMember("battle") && d["battle"].isObject())
+	{
+		for (const std::string& k : d["battle"].getMemberNames())
+			keys.append(k);
+	}
+	s["battle"] = keys;
+	return s;
+}
+
+std::string envKind(const Json::Value& env)
+{
+	return env.isMember("kind") ? env["kind"].asString() : env.get("state", "").asString();
+}
+
+/// CLIENT (CoopApply::applyDelta): one applied delta's probes ((b)16).
+void noteClientApplied(const Json::Value& env, int fields, int unresolved, long long us)
+{
+	g_deltaEvsApplied.fetch_add(1);
+	g_deltaFieldsApplied.fetch_add(fields);
+	if (unresolved > 0)
+		g_deltaUnresolved.fetch_add(unresolved);
+	noteLastMax(g_deltaApplyUsLast, g_deltaApplyUsMax, us);
+	const Json::Value summary = summarize(env.get("seq", 0u).asUInt(), envKind(env), env["delta"]);
+	std::lock_guard<std::mutex> lock(g_deltaLastMutex);
+	g_deltaLast = summary;
+}
+
+/// CLIENT (CoopApply::applyEvPayload's `sync` branch).
+void noteSyncApplied()
+{
+	g_deltaSyncEvsApplied.fetch_add(1);
+}
+
+} // namespace
+
+void seed(SavedBattleGame* battle)
+{
+	if (!battle)
+		return;
+	std::lock_guard<std::mutex> lock(g_snapMutex);
+	snapshotAllLocked(battle);
+	g_snapBattle = battle;
+	g_snapMismatchLogged = false;
+	g_deltaArmed = true;
+	g_deltaSeeds.fetch_add(1);
+	Log(LOG_INFO) << "[coop-delta] snapshot seeded at the battle-blob snapshot and armed ("
+		<< g_snapUnits.size() << " units, " << g_snapTiles.size() << " tiles, "
+		<< g_snapNodeTypes.size() << " nodes, itemIdCtr " << g_snapBattleFields.itemIdCtr
+		<< ", turn " << g_snapBattleFields.turn << ")";
+}
+
+void reset()
+{
+	std::lock_guard<std::mutex> lock(g_snapMutex);
+	g_deltaArmed = false;
+	g_snapBattle = nullptr;
+	g_snapMismatchLogged = false;
+	g_snapUnits.clear();
+	g_snapTiles.clear();
+	g_snapTiles.shrink_to_fit();
+	g_snapNodeTypes.clear();
+	g_snapBattleFields = BattleSnap();
+}
+
+bool attach(SavedBattleGame* battle, Json::Value& env)
+{
+	if (!battle || !g_deltaArmed.load())
+		return false;
+
+	const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+	Json::Value delta(Json::objectValue);
+	bool nonEmpty = false;
+	{
+		std::lock_guard<std::mutex> lock(g_snapMutex);
+		if (!g_deltaArmed.load())
+			return false; // a teardown reset() won the race
+		if (battle != g_snapBattle)
+		{
+			if (!g_snapMismatchLogged)
+			{
+				g_snapMismatchLogged = true;
+				Log(LOG_ERROR) << "[coop-delta] the live battle is not the one the snapshot was "
+					"seeded from - no delta is attached until the next seed";
+			}
+			return false;
+		}
+		nonEmpty = computeLocked(battle, &delta, /*commit=*/true);
+	}
+	noteLastMax(g_deltaDiffUsLast, g_deltaDiffUsMax, usSince(t0));
+	if (!nonEmpty)
+		return false;
+
+	const std::uint32_t seq = env.get("seq", 0u).asUInt();
+	const std::string kind = envKind(env);
+	Json::StreamWriterBuilder wb;
+	wb["indentation"] = "";
+	const std::string text = Json::writeString(wb, delta);
+
+	if (g_deltaDropNext.exchange(false))
+	{
+		// RB-D26 delta_drop_next: computed AND committed (never re-sent) but
+		// deliberately not attached - the client is permanently missing these
+		// values, a hash-visible divergence.
+		g_deltaDropped.fetch_add(1);
+		Log(LOG_WARNING) << "[coop-delta] delta_drop_next lever fired: seq " << seq << " kind=" << kind
+			<< " - delta computed and committed but NOT attached, the client will never receive it: "
+			<< text.substr(0, 1500);
+		return false;
+	}
+
+	noteLastMax(g_deltaBytesLast, g_deltaBytesMax, (long long)text.size());
+	env["delta"] = delta;
+	g_deltaEvsEmitted.fetch_add(1);
+	{
+		const Json::Value summary = summarize(seq, kind, delta);
+		std::lock_guard<std::mutex> lock(g_deltaLastMutex);
+		g_deltaLast = summary;
+	}
+	Log(LOG_INFO) << "[coop-delta] attached to seq " << seq << " kind=" << kind << " ("
+		<< text.size() << " bytes): " << text.substr(0, 1500);
+	return true;
+}
+
+void flushSync()
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	if (!g_deltaArmed.load())
+		return;
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!battle)
+		return;
+	{
+		std::lock_guard<std::mutex> lock(g_snapMutex);
+		if (!g_deltaArmed.load() || battle != g_snapBattle)
+			return;
+		if (!computeLocked(battle, nullptr, /*commit=*/false))
+			return; // nothing changed since the last envelope: no `sync`
+	}
+	// Spec (b)9: a context-less chain ended with state the client has not got
+	// yet (a fall after a shot, deaths after endTurn, AI/reaction chains until
+	// W2-P3). actionId 0, empty payload; the state is the delta sendEv attaches
+	// at the choke, `h` the 7 structured buckets ((b)10).
+	Json::Value ev = CoopWire::makeEv(0u, 0u, "sync");
+	ev["h"] = coopBuildStructuredHash(battle, /*withSaveBlob=*/false);
+	g_deltaSyncEvsEmitted.fetch_add(1);
+	CoopEmit::sendEv(ev);
+}
+
+void absorbUnit(const BattleUnit* unit)
+{
+	if (!unit || !g_deltaArmed.load() || !coopBattleAuthority().hostSim)
+		return;
+	std::lock_guard<std::mutex> lock(g_snapMutex);
+	if (!g_deltaArmed.load())
+		return;
+	g_snapUnits[unit->getId()] = captureUnit(unit);
+	g_deltaAbsorbed.fetch_add(1);
+}
+
+void absorbTile(const Tile* tile)
+{
+	if (!tile || !g_deltaArmed.load() || !coopBattleAuthority().hostSim)
+		return;
+	std::lock_guard<std::mutex> lock(g_snapMutex);
+	if (!g_deltaArmed.load() || !g_snapBattle)
+		return;
+	const int i = g_snapBattle->getTileIndex(tile->getPosition());
+	if (i < 0 || i >= (int)g_snapTiles.size())
+		return;
+	g_snapTiles[(std::size_t)i] = captureTile(tile);
+	g_deltaAbsorbed.fetch_add(1);
+}
+
+void absorbBattle(SavedBattleGame* battle)
+{
+	if (!battle || !g_deltaArmed.load() || !coopBattleAuthority().hostSim)
+		return;
+	std::lock_guard<std::mutex> lock(g_snapMutex);
+	if (!g_deltaArmed.load() || battle != g_snapBattle)
+		return;
+	g_snapBattleFields = captureBattle(battle);
+	g_deltaAbsorbed.fetch_add(1);
+}
+
+} // namespace CoopDelta
+
 namespace CoopEmit
 {
 
@@ -2296,8 +3074,17 @@ void sendBattle(Json::Value& msg)
 	coopEmitBlockingPush(std::move(s));
 }
 
+// W2-P2 S-A (spec (b)3): sendEv() nesting depth. Only the OUTERMOST call
+// attaches a `delta`: the nested emissions CoopReveal::emitPendingBaseline()/
+// emitPendingOtherSides() make from inside it never carry one (the baseline
+// reveal leaves BEFORE the outer envelope, so a delta on it would let the outer
+// envelope's wave-1 applier re-derive state the delta already set). Main/pump
+// thread only, like CoopEventLog's ring.
+static int g_sendEvDepth = 0;
+
 void sendEv(Json::Value ev)
 {
+	++g_sendEvDepth;
 	// RW-REVEAL-SYNC (SS2.4a): THE single attachment point for host-authored fog
 	// of war. Because every host emit - bt_ev of ANY kind and bt_action_end
 	// alike - funnels through this one function, diffing here absorbs every
@@ -2331,6 +3118,11 @@ void sendEv(Json::Value ev)
 	}
 
 	ev["seq"] = nextSeq();
+	// W2-P2 S-A (spec (b)3, D128 = (b)): the whole-battle `delta` - every synced
+	// unit/tile/node/battle-counter field that changed since the previous
+	// envelope, as absolute values. Host, armed, outermost call only.
+	if (hostAuthoring && g_sendEvDepth == 1)
+		CoopDelta::attach(connectionTCP::getStaticBattle(), ev);
 
 	// R2-P11 (RB-D32): HOST-side event-ring record point - see BattlePump.h's
 	// CoopEventLog doc comment for why this (post seq-mint, every host emit
@@ -2347,6 +3139,7 @@ void sendEv(Json::Value ev)
 	// "acting side's ev, then the other side's own reveal ev".
 	if (hostAuthoring)
 		CoopReveal::emitPendingOtherSides();
+	--g_sendEvDepth;
 }
 
 } // namespace CoopEmit
@@ -3730,11 +4523,36 @@ static std::string coopHex64(std::uint64_t v)
 // second hand-rolled hasher.
 static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save)
 {
+	CoopDelta::HashTimer timer; // W2-P2 S-A (spec (b)16): hashUsLast/Max, M1
 	Json::Value h(Json::objectValue);
 	SharedEcon::BattleHashSet buckets;
 	if (SharedEcon::computeBattleHashes(save, buckets))
 	{
 		h["unitsStats"] = coopHex64(buckets.unitsStats);
+	}
+	return h;
+}
+
+// W2-P2 S-A (spec (b)10): the 7 structured buckets from ONE
+// computeBattleHashes() sweep - the same sweep coopBuildUnitsStatsHash() above
+// already pays for one bucket (N7) - plus `saveBlob` when @a withSaveBlob. The
+// `sync` ev carries it without saveBlob (a carried saveBlob is not verified by
+// the client today, N3 / D138 reading (b)).
+static Json::Value coopBuildStructuredHash(SavedBattleGame* save, bool withSaveBlob)
+{
+	CoopDelta::HashTimer timer; // hashUsLast/Max
+	Json::Value h(Json::objectValue);
+	SharedEcon::BattleHashSet hs;
+	if (SharedEcon::computeBattleHashes(save, hs))
+	{
+		for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+			h[SharedEcon::battleHashBucketName(i)] = coopHex64(SharedEcon::battleHashBucketValue(hs, i));
+	}
+	if (withSaveBlob)
+	{
+		std::uint64_t sb = 0;
+		if (SharedEcon::computeSaveBlobHash(save, sb))
+			h["saveBlob"] = coopHex64(sb);
 	}
 	return h;
 }
@@ -4450,7 +5268,14 @@ void onChainQuiesced()
 		return;
 
 	if (g_coopActionContextStack.empty())
+	{
+		// W2-P2 S-A (spec (b)9): a context-less chain just ended. If it left
+		// state the client has not received (a fall, deaths after endTurn, AI and
+		// reaction chains until W2-P3), ship it now as one `sync` ev. Host +
+		// armed + non-empty delta only; otherwise a no-op.
+		CoopDelta::flushSync();
 		return; // no coop action in flight - a foreign/AI popState, not ours
+	}
 
 	// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
 	// R2-P7 hold_chain lever (RB-D26/RB-D32 family): keep this chain
@@ -5316,8 +6141,10 @@ void onEvAppliedCancelCheck(const Json::Value& ev, int visibleBefore)
 	//    supposed to let through.
 	if (!cause && Options::coopCancelOnAnyPartnerAction)
 	{
+		// W2-P2 S-A (spec (b)9/(b)11): `sync` is a SYSTEM ev (a context-less
+		// chain's state), not a partner action - same reasoning as `reveal`.
 		const bool safeListed = (kind == "walk_step" || kind == "turn"
-			|| kind == "door" || kind == "kneel" || kind == "reveal");
+			|| kind == "door" || kind == "kneel" || kind == "reveal" || kind == "sync");
 		if (!safeListed)
 			cause = ""; // no dedicated STR_ - falls through to STR_COOP_CANCEL_EVENT
 	}
@@ -6034,6 +6861,7 @@ std::atomic<unsigned int> g_coopDoorReserveWaived{0};
 /// covers it.
 Json::Value coopBuildDoorHash(SavedBattleGame* save)
 {
+	CoopDelta::HashTimer timer; // W2-P2 S-A (spec (b)16): hashUsLast/Max
 	Json::Value h(Json::objectValue);
 	SharedEcon::BattleHashSet buckets;
 	if (SharedEcon::computeBattleHashes(save, buckets))
@@ -6280,6 +7108,7 @@ static std::vector<std::pair<std::string, int>> coopScriptTagsFromJson(const Jso
 // the only context this function is ever called from, that never happens.
 static Json::Value coopBuildSideTransitionHash(SavedBattleGame* save)
 {
+	CoopDelta::HashTimer timer; // W2-P2 S-A (spec (b)16): hashUsLast/Max
 	Json::Value h(Json::objectValue);
 	SharedEcon::BattleHashSet hs;
 	if (SharedEcon::computeBattleHashes(save, hs))
@@ -7345,6 +8174,16 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		return;
 	}
 
+	if (kind == "sync")
+	{
+		// W2-P2 S-A (spec (b)9): the host's context-less-chain carrier. Empty
+		// payload; its WHOLE state effect is the envelope's `delta`, written by
+		// applyDelta() right after this returns (CoopDisplayQueue::onApplied).
+		// A known kind, deliberately not an RW-UNSUPPORTED warning.
+		CoopDelta::noteSyncApplied();
+		return;
+	}
+
 	if (kind != "turn" && kind != "kneel" && kind != "walk_step" && kind != "spot")
 	{
 		// RB-D32 corollary: an unknown ev kind (inject_ev's own spike test
@@ -7639,6 +8478,427 @@ void applyActionEndFinal(BattleUnit* unit, const Json::Value& final)
 		if (unit->isKneeled() != wantKneel)
 			unit->kneel(wantKneel);
 	}
+}
+
+// W2-P2 S-A, commit S-A.2 (spec rewrite/prompts/w2p2_delta_core.md (b)6): the
+// DELTA applier. Writes the host's absolute values with plain setters only - no
+// RNG, no rules evaluation, no BState, no script. Called from
+// CoopDisplayQueue::onApplied() after every wave-1 applier (V9) - on the bt_ev
+// path right after applyEvPayload(), on the bt_action_end path right before
+// CoopArbiter::onActionEndApplied() - so it runs before the auto-retry reads
+// local TU and before CoopHashCheck::verify(). Stage S-A applies battle, tiles,
+// nodes and units; items are stage S-B. An id or tile index that does not
+// resolve is counted (deltaUnresolved) and logged, never guessed. The HUD
+// refresh (coopRefreshAppliedHud) is onApplied()'s own last act on both paths.
+void applyDelta(SavedBattleGame* save, const Json::Value& ev)
+{
+	if (!save || !ev.isMember("delta") || !ev["delta"].isObject())
+		return;
+	const Json::Value& d = ev["delta"];
+	const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+	const std::uint32_t seq = ev.get("seq", 0u).asUInt();
+	int fields = 0;
+	int unresolved = 0;
+	bool tileChanged = false;
+	std::vector<BattleUnit*> fovUnits;
+
+	auto tagsFromJson = [](const Json::Value& a)
+	{
+		std::vector<int> v;
+		for (Json::ArrayIndex i = 0; i < a.size(); ++i)
+			v.push_back(a[i].asInt());
+		return v;
+	};
+
+	// (1) battle: counters, turn, side, tags.
+	if (d.isMember("battle"))
+	{
+		const Json::Value& b = d["battle"];
+		if (b.isMember("itemIdCtr"))
+		{
+			*save->getCurrentItemId() = b["itemIdCtr"].asInt();
+			++fields;
+		}
+		if (b.isMember("objectivesDestroyed"))
+		{
+			save->coopSetObjectivesDestroyed(b["objectivesDestroyed"].asInt());
+			++fields;
+		}
+		if (b.isMember("moduleMap"))
+		{
+			std::vector<std::vector<std::pair<int, int> > >& mm = save->getModuleMap();
+			const Json::Value& cells = b["moduleMap"];
+			for (Json::ArrayIndex i = 0; i < cells.size(); ++i)
+			{
+				const Json::Value& c = cells[i];
+				const int x = c[0u].asInt();
+				const int y = c[1u].asInt();
+				if (x < 0 || y < 0 || x >= (int)mm.size() || y >= (int)mm[(std::size_t)x].size())
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": moduleMap cell (" << x << "," << y
+						<< ") does not exist on this machine - not applied";
+					continue;
+				}
+				mm[(std::size_t)x][(std::size_t)y] = std::make_pair(c[2u].asInt(), c[3u].asInt());
+				++fields;
+			}
+		}
+		if (b.isMember("bughuntMode"))
+		{
+			save->setBughuntMode(b["bughuntMode"].asBool());
+			++fields;
+		}
+		if (b.isMember("turn"))
+		{
+			save->setTurn(b["turn"].asInt());
+			++fields;
+		}
+		if (b.isMember("side"))
+		{
+			save->coopSetSide((UnitFaction)CoopHandshake::coopWireStringToFaction(b["side"].asString()));
+			++fields;
+		}
+		if (b.isMember("tags"))
+		{
+			save->coopSetScriptValuesRaw(tagsFromJson(b["tags"]));
+			++fields;
+		}
+	}
+
+	// (2) tiles: parts (MapData resolved exactly as
+	// SavedBattleGame::loadMapResources() does), then explosive, fire, smoke,
+	// UFO-door bits.
+	if (d.isMember("tiles"))
+	{
+		const Json::Value& tiles = d["tiles"];
+		std::vector<MapDataSet*>* sets = save->getMapDataSets();
+		const int tileCount = save->getMapSizeXYZ();
+		for (Json::ArrayIndex k = 0; k < tiles.size(); ++k)
+		{
+			const Json::Value& te = tiles[k];
+			const int i = te.get("i", -1).asInt();
+			if (i < 0 || i >= tileCount)
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": tile index " << i
+					<< " does not exist on this machine (" << tileCount << " tiles) - entry dropped";
+				continue;
+			}
+			Tile* t = save->getTile(i);
+			tileChanged = true;
+			if (te.isMember("parts"))
+			{
+				const Json::Value& parts = te["parts"];
+				for (int part = 0; part < (int)O_MAX && part < (int)parts.size(); ++part)
+				{
+					const Json::Value& p = parts[(Json::ArrayIndex)part];
+					const int id = p[0u].asInt();
+					const int setId = p[1u].asInt();
+					if (id == -1 || setId == -1)
+					{
+						t->setMapData(nullptr, -1, -1, (TilePart)part);
+						++fields;
+						continue;
+					}
+					if (!sets || setId < 0 || setId >= (int)sets->size() || !(*sets)[(std::size_t)setId]
+						|| id < 0 || (std::size_t)id >= (*sets)[(std::size_t)setId]->getSize())
+					{
+						++unresolved;
+						Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": tile " << i << " part " << part
+							<< " names MapData [" << id << "," << setId << "], which does not resolve on "
+							"this machine - part not applied";
+						continue;
+					}
+					t->setMapData((*sets)[(std::size_t)setId]->getObject((std::size_t)id), id, setId, (TilePart)part);
+					++fields;
+				}
+			}
+			if (te.isMember("explosive") || te.isMember("explosiveType"))
+			{
+				t->setExplosive(te.get("explosive", t->getExplosive()).asInt(),
+					te.get("explosiveType", t->getExplosiveType()).asInt(), /*force=*/true);
+				++fields;
+			}
+			if (te.isMember("fire"))
+			{
+				t->coopSetTileFireAbsolute(te["fire"].asInt());
+				++fields;
+			}
+			if (te.isMember("smoke"))
+			{
+				t->coopSetSmokeAbsolute(te["smoke"].asInt());
+				++fields;
+			}
+			if (te.isMember("doorBits"))
+			{
+				const int bits = te["doorBits"].asInt();
+				const TilePart doorParts[3] = { O_WESTWALL, O_NORTHWALL, O_FLOOR };
+				const int doorMasks[3] = { 1, 2, 4 };
+				for (int k2 = 0; k2 < 3; ++k2)
+				{
+					const bool wantOpen = (bits & doorMasks[k2]) != 0;
+					if (t->isUfoDoorOpen(doorParts[k2]) != wantOpen)
+						t->coopSetUfoDoorOpen(doorParts[k2], wantOpen);
+				}
+				++fields;
+			}
+		}
+	}
+
+	// (3) nodes.
+	if (d.isMember("nodes"))
+	{
+		const Json::Value& arr = d["nodes"];
+		std::vector<Node*>* nodes = save->getNodes();
+		for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+		{
+			const int id = arr[k].get("id", -1).asInt();
+			Node* node = nullptr;
+			if (nodes && id >= 0 && id < (int)nodes->size() && (*nodes)[(std::size_t)id]
+				&& (*nodes)[(std::size_t)id]->getID() == id)
+			{
+				node = (*nodes)[(std::size_t)id];
+			}
+			else if (nodes)
+			{
+				for (Node* n : *nodes)
+				{
+					if (n && n->getID() == id)
+					{
+						node = n;
+						break;
+					}
+				}
+			}
+			if (!node)
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": node " << id
+					<< " does not resolve on this machine - entry dropped";
+				continue;
+			}
+			node->setType(arr[k].get("type", node->getType()).asInt());
+			++fields;
+		}
+	}
+
+	// (4) units, in side_transition's field order; tags LAST.
+	if (d.isMember("units"))
+	{
+		const Json::Value& arr = d["units"];
+		for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+		{
+			const Json::Value& ue = arr[k];
+			const int id = ue.get("id", -1).asInt();
+			BattleUnit* u = CoopIdMaps::unit(id);
+			if (!u)
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": unit " << id
+					<< " does not resolve on this machine - entry dropped";
+				continue;
+			}
+			bool placed = false;
+			if (ue.isMember("faction"))
+			{
+				u->convertToFaction((UnitFaction)CoopHandshake::coopWireStringToFaction(ue["faction"].asString()));
+				++fields;
+			}
+			if (ue.isMember("tu"))
+			{
+				u->setTimeUnits(ue["tu"].asInt());
+				++fields;
+			}
+			if (ue.isMember("energy"))
+			{
+				u->setEnergy(ue["energy"].asInt());
+				++fields;
+			}
+			if (ue.isMember("wounds"))
+			{
+				const Json::Value& w = ue["wounds"];
+				for (Json::ArrayIndex part = 0; part < w.size() && part < (Json::ArrayIndex)BODYPART_MAX; ++part)
+					u->setFatalWound(w[part].asInt(), (UnitBodyPart)part);
+				++fields;
+			}
+			if (ue.isMember("kneeled"))
+			{
+				const bool wantKneel = ue["kneeled"].asBool();
+				if (u->isKneeled() != wantKneel)
+					u->kneel(wantKneel);
+				++fields;
+			}
+			if (ue.isMember("mcId"))
+			{
+				u->setMindControllerId(ue["mcId"].asInt());
+				++fields;
+			}
+			if (ue.isMember("pos") || ue.isMember("onTile"))
+			{
+				// Either half may ride alone ((b)1: a field rides iff it
+				// changed); the other half is this machine's own, unchanged value.
+				const Position pos = ue.isMember("pos") ? CoopArbiter::coopJsonPos(ue["pos"]) : u->getPosition();
+				const bool onTile = ue.isMember("onTile") ? ue["onTile"].asBool() : (u->getTile() != nullptr);
+				if (onTile && !save->getTile(pos))
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": unit " << id << " pos " << pos
+						<< " is not a tile on this machine - position not applied";
+				}
+				else
+				{
+					u->setTile(onTile ? save->getTile(pos) : nullptr, save);
+					u->setPosition(pos, /*updateLastPos=*/false);
+					placed = true;
+					++fields;
+				}
+			}
+			if (ue.isMember("health"))
+			{
+				u->coopSetHealth(ue["health"].asInt());
+				++fields;
+			}
+			if (ue.isMember("stun"))
+			{
+				u->coopSetStunlevel(ue["stun"].asInt());
+				++fields;
+			}
+			if (ue.isMember("morale"))
+			{
+				u->coopSetMorale(ue["morale"].asInt());
+				++fields;
+			}
+			if (ue.isMember("mana"))
+			{
+				u->coopSetMana(ue["mana"].asInt());
+				++fields;
+			}
+			if (ue.isMember("status"))
+			{
+				u->coopSetStatus((UnitStatus)ue["status"].asInt());
+				placed = true;
+				++fields;
+			}
+			if (ue.isMember("floating"))
+			{
+				u->coopSetFloating(ue["floating"].asBool());
+				++fields;
+			}
+			if (ue.isMember("fire"))
+			{
+				u->coopSetFireAbsolute(ue["fire"].asInt());
+				++fields;
+			}
+			if (ue.isMember("dir"))
+			{
+				u->coopSetBodyDirection(ue["dir"].asInt());
+				++fields;
+			}
+			if (ue.isMember("turretDir"))
+			{
+				u->setTurretDirection(ue["turretDir"].asInt());
+				++fields;
+			}
+			if (ue.isMember("armor"))
+			{
+				const Json::Value& a = ue["armor"];
+				for (Json::ArrayIndex side = 0; side < a.size() && side < (Json::ArrayIndex)SIDE_MAX; ++side)
+					u->setArmor(a[side].asInt(), (UnitSide)side);
+				++fields;
+			}
+			if (ue.isMember("motionPoints"))
+			{
+				u->coopSetMotionPoints(ue["motionPoints"].asInt());
+				++fields;
+			}
+			if (ue.isMember("wantsToSurrender"))
+			{
+				u->coopSetWantsToSurrender(ue["wantsToSurrender"].asBool());
+				++fields;
+			}
+			if (ue.isMember("isSurrendering"))
+			{
+				u->setSurrendering(ue["isSurrendering"].asBool());
+				++fields;
+			}
+			if (ue.isMember("moraleRestored"))
+			{
+				u->coopSetMoraleRestored(ue["moraleRestored"].asInt());
+				++fields;
+			}
+			if (ue.isMember("spawnUnit"))
+			{
+				const std::string type = ue["spawnUnit"].asString();
+				const Unit* spawn = type.empty() ? nullptr : save->getMod()->getUnit(type);
+				if (!type.empty() && !spawn)
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": unit " << id << " spawnUnit '" << type
+						<< "' is not a unit type on this machine - not applied";
+				}
+				else
+				{
+					u->setSpawnUnit(spawn);
+					++fields;
+				}
+			}
+			if (ue.isMember("respawn"))
+			{
+				u->setRespawn(ue["respawn"].asBool());
+				++fields;
+			}
+			if (ue.isMember("spawnUnitFaction"))
+			{
+				u->setSpawnUnitFaction((UnitFaction)CoopHandshake::coopWireStringToFaction(ue["spawnUnitFaction"].asString()));
+				++fields;
+			}
+			if (ue.isMember("alreadyRespawned"))
+			{
+				u->setAlreadyRespawned(ue["alreadyRespawned"].asBool());
+				++fields;
+			}
+			if (ue.isMember("reactPref") || ue.isMember("reactOffLeft") || ue.isMember("reactOffRight"))
+			{
+				const std::string curPref = u->isRightHandPreferredForReactions() ? "STR_RIGHT_HAND"
+					: (u->isLeftHandPreferredForReactions() ? "STR_LEFT_HAND" : "");
+				u->coopSetReactionHands(ue.get("reactPref", curPref).asString(),
+					ue.get("reactOffLeft", u->isLeftHandDisabledForReactions()).asBool(),
+					ue.get("reactOffRight", u->isRightHandDisabledForReactions()).asBool());
+				++fields;
+			}
+			if (ue.isMember("tags"))
+			{
+				u->coopSetScriptValuesRaw(tagsFromJson(ue["tags"]));
+				++fields;
+			}
+			if (placed)
+				fovUnits.push_back(u);
+		}
+	}
+
+	// (8) display refresh - machine-local presentation, in no hash bucket: one
+	// fire-layer lighting pass when any tile changed (vanilla endTurn's own
+	// call), then a targeted FOV refresh per non-out unit whose position or
+	// status changed (the A5 precedent; the client's tile half stays
+	// suppressed, SS2.4a).
+	TileEngine* tileEngine = save->getTileEngine();
+	if (tileEngine)
+	{
+		if (tileChanged)
+			tileEngine->calculateLighting(LL_FIRE, TileEngine::invalid, 0, true);
+		for (BattleUnit* u : fovUnits)
+		{
+			if (!u->isOut())
+				tileEngine->calculateFOV(u);
+		}
+	}
+
+	const long long us = std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now() - t0).count();
+	CoopDelta::noteClientApplied(ev, fields, unresolved, us);
+	Log(LOG_INFO) << "[coop-delta] applied seq " << seq << ": " << fields << " field write(s), "
+		<< unresolved << " unresolved, " << us << " us";
 }
 
 } // namespace CoopApply
@@ -8081,6 +9341,7 @@ void onApplied(const Json::Value& ev)
 		CoopGhost::onEvApplied(save, ev);
 		// RW-REPLAY-REGION-END
 		CoopApply::applyEvPayload(save, ev);
+		CoopApply::applyDelta(save, ev); // W2-P2 S-A (spec (b)6): after the wave-1 applier (V9)
 
 		// W1-P13a (REV E.1 S-3): the client's own NextTurnState push. Vanilla
 		// only ever pushes this from BattlescapeGame::endTurn() (:729), which
@@ -8170,6 +9431,7 @@ void onApplied(const Json::Value& ev)
 				<< " has no known actor on this machine (no preceding bt_ev carried "
 				"its 'unit' field) - final not applied";
 		}
+		CoopApply::applyDelta(save, ev); // W2-P2 S-A (spec (b)6): before the auto-retry reads local TU
 		CoopArbiter::onActionEndApplied(actionId); // IR-2: clears this client's own lock
 		// R2-P7: THE auto-retry trigger. bt_action_end is emitted ONLY from
 		// the host's onChainQuiesced() (RB-D11), so applying one is the
@@ -10077,6 +11339,7 @@ void emitPreparedOffer(Game* game)
 	// WV-D56: taken HERE, after the caller's startFirstTurn(), so it already
 	// carries `_turn == 1` and the post-randomizeItemLocations() item positions.
 	game->getSavedGame()->saveCoopToMemory("battlehost", game->getMod(), "battlehost");
+	CoopDelta::seed(battle); // W2-P2 S-A (spec (b)4, N2): the delta snapshot := the state the blob just froze
 
 	// RW-REVEAL-SYNC (SS2.4a): seed the published fog bitmap from the very state
 	// the blob just froze, so the host's first `reveal` delta carries exactly
@@ -10244,6 +11507,7 @@ void offerRejoinBattle(Game* game)
 	// (emitPreparedOffer()'s precedent, F333) - the rejoiner gets the battle
 	// as it currently is, not as it was when the peer left.
 	game->getSavedGame()->saveCoopToMemory("battlehost", game->getMod(), "battlehost");
+	CoopDelta::seed(battle); // W2-P2 S-A (spec (b)4): re-seed from the live battle the rejoiner receives
 
 	std::string blob;
 	{
@@ -10422,6 +11686,7 @@ void offerResumedBattle(Game* game)
 	// authoring block runs the matching CoopFog::ensureAllocated()/
 	// authorHostilePass() pair once phase flips Active).
 	game->getSavedGame()->saveCoopToMemory("battlehost", game->getMod(), "battlehost");
+	CoopDelta::seed(battle); // W2-P2 S-A (spec (b)4): the delta snapshot := the resumed state the blob froze
 	CoopReveal::seedPublished(battle);
 
 	std::string blob;

@@ -415,6 +415,16 @@ public:
 	/// vanilla owns _side through endTurn(); the client applier is the one
 	/// caller (connectionTCP.cpp's CoopApply::applyEvPayload).
 	void coopSetSide(UnitFaction side);
+	/// W2-P2 S-A (spec (b)1, R3.7): the destroyed-objective counter (no
+	/// vanilla getter; addDestroyedObjective() is its only writer).
+	int coopGetObjectivesDestroyed() const;
+	/// W2-P2 S-A: absolute destroyed-objective set for the delta applier.
+	void coopSetObjectivesDestroyed(int objectivesDestroyed);
+	/// W2-P2 S-A: the raw battle script-value vector (element i = tag i + 1).
+	const std::vector<int>& coopScriptValuesRaw() const;
+	/// W2-P2 S-A: absolute raw battle script-value set; entries past
+	/// @a values are zeroed. Runs no script and draws no RNG.
+	void coopSetScriptValuesRaw(const std::vector<int>& values);
 	/// Sets the bug hunt turn number.
 	void setBughuntMinTurn(int bughuntMinTurn);
 	/// Gets the bug hunt turn number.

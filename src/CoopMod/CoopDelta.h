@@ -24,6 +24,10 @@
 namespace OpenXcom
 {
 
+class SavedBattleGame;
+class BattleUnit;
+class Tile;
+
 /**
  * W2-P2 (rewrite wave 2, docs rewrite/prompts/w2p2_delta_core.md, owner ruling
  * D128 = (b)): the DELTA CORE. Every host event carries a `delta` - the
@@ -31,13 +35,13 @@ namespace OpenXcom
  * attached at the one host emit choke (CoopEmit::sendEv), and the client writes
  * those values with plain setters, never by re-running the simulation.
  *
- * Stage S-A, commit S-A.1 (the RED commit, spec (d)): this header declares ONLY
- * the spec (b)16 probes' read accessors and the `delta_drop_next` lever's
- * one-shot request. NOTHING writes the probes yet - the snapshot, diff, attach,
- * seed, reset, apply, absorb and `sync` flush are commit S-A.2's product. The
- * storage lives in connectionTCP.cpp just above `namespace CoopEmit` (spec
- * (b)3), next to the other battle-scoped coop globals; the counters are reset by
- * resetBattleAuthority() (spec (b)5).
+ * Stage S-A: commit S-A.1 (the RED commit, spec (d)) declared the spec (b)16
+ * probes' read accessors and the `delta_drop_next` lever's one-shot request;
+ * commit S-A.2 adds the snapshot, diff, attach, seed, reset, absorb and `sync`
+ * flush below (the client applier is CoopApply::applyDelta, inside
+ * connectionTCP.cpp's CoopApply region). The storage lives in connectionTCP.cpp
+ * just above `namespace CoopEmit` (spec (b)3), next to the other battle-scoped
+ * coop globals; the counters are reset by resetBattleAuthority() (spec (b)5).
  *
  * Every probe is TEST INTROSPECTION ONLY (TestServer `event_state`), battle-
  * scoped, and never read by game logic. Timings are local measurements, never
@@ -87,8 +91,44 @@ Json::Value lastDelta();
 /// computes and commits its delta but does not attach it (bumping `dropped`),
 /// so the client is permanently missing those values - a hash-visible
 /// divergence that proves the delta, and nothing else, closed the hole.
-/// Cleared at battle teardown. In S-A.1 the flag is only stored.
+/// Cleared at battle teardown. Consumed by the next attach() whose delta is
+/// non-empty (the reveal_drop pattern).
 void requestDropNext();
+
+// ----- W2-P2 S-A, commit S-A.2: the delta core (spec (b)1-6, 9, 15) -----
+// Stage S-A syncs UNITS, TILES, NODES and BATTLE COUNTERS (itemIdCtr
+// included); items are stage S-B. Bodies: connectionTCP.cpp, just above
+// namespace CoopEmit.
+
+/// HOST (spec (b)4): snapshot := live state of @a battle, and arm. Called on
+/// the line after each of the three saveCoopToMemory("battlehost") snapshots
+/// (fresh offer, rejoin, disk resume) - the exact state the client's blob
+/// freezes. Unconditional: phase is still Handshake at the fresh offer.
+void seed(SavedBattleGame* battle);
+
+/// Spec (b)5: disarm and clear the snapshot. Called from CoopPump::reset().
+/// A disarmed host attaches nothing.
+void reset();
+
+/// HOST (spec (b)3), at the CoopEmit::sendEv choke, for the OUTERMOST call
+/// only: diff the live state against the snapshot, write env["delta"] when
+/// non-empty, and commit the new values. No-op unless armed. Returns true iff
+/// a delta was attached.
+bool attach(SavedBattleGame* battle, Json::Value& env);
+
+/// HOST (spec (b)9): called from onChainQuiesced()'s empty-context branch.
+/// When armed and the delta is non-empty, emits one
+/// bt_ev{kind:"sync", actionId:0, payload:{}} carrying it, with h = the 7
+/// structured buckets. Self-guarded (coop battle, host sim).
+void flushSync();
+
+/// HOST, armed only (spec (b)15): a TEST LEVER wrote this object directly;
+/// copy its live values into the snapshot so the write never rides a delta
+/// (a one-machine poke keeps proving detection; a both-machine write stays
+/// equal without a mint race). Bumps `absorbed`. Never called by product code.
+void absorbUnit(const BattleUnit* unit);
+void absorbTile(const Tile* tile);
+void absorbBattle(SavedBattleGame* battle);
 
 } // namespace CoopDelta
 

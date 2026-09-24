@@ -4130,6 +4130,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				resp["weaponSlot"] = "STR_GROUND";
 				resp["ammoId"] = -1;
 				resp["ok"] = true;
+				// W2-P2 S-A (spec (b)15): the item counter this mint advanced
+				// never rides a delta (both machines mint the same ids).
+				CoopDelta::absorbBattle(sbg);
 				return true;
 			}
 
@@ -4186,6 +4189,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				}
 			}
 			resp["ok"] = true;
+			CoopDelta::absorbBattle(sbg); // W2-P2 S-A (spec (b)15): the item counter
 		}
 	}
 	else if (cmd == "battle_open_inventory")
@@ -4308,6 +4312,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			}
 			resp["ids"] = ids;
 			resp["ok"] = true;
+			CoopDelta::absorbBattle(sbg); // W2-P2 S-A (spec (b)15): the item counter
 		}
 	}
 	else if (cmd == "battle_prox")
@@ -4803,6 +4808,9 @@ static bool coopCorruptUnitsStatsBucket(SavedBattleGame* battle)
 		const int cur = u->getTimeUnits();
 		const int next = (cur < u->getBaseStats()->tu) ? (cur + 1) : (cur - 1);
 		u->setTimeUnits(next);
+		// W2-P2 S-A (spec (b)15): a one-machine poke must stay a divergence the
+		// hash detects - never healed by the host's next delta.
+		CoopDelta::absorbUnit(u);
 		return true;
 	}
 	return false;
@@ -4822,6 +4830,7 @@ static bool coopCorruptUnitsCoreBucket(SavedBattleGame* battle)
 		// tile-occupancy bookkeeping) - deliberate, same "bypassing emit"
 		// spirit as the unitsStats poke above; test-only and short-lived.
 		u->setPosition(np);
+		CoopDelta::absorbUnit(u); // W2-P2 S-A (spec (b)15)
 		return true;
 	}
 	return false;
@@ -4843,6 +4852,7 @@ static bool coopCorruptFireBucket(SavedBattleGame* battle)
 	Tile* t = coopTestFirstTile(battle);
 	if (!t) return false;
 	t->setFire(t->getFire() + 1);
+	CoopDelta::absorbTile(t); // W2-P2 S-A (spec (b)15)
 	return true;
 }
 
@@ -4851,6 +4861,7 @@ static bool coopCorruptSmokeBucket(SavedBattleGame* battle)
 	Tile* t = coopTestFirstTile(battle);
 	if (!t) return false;
 	t->setSmoke(t->getSmoke() + 1);
+	CoopDelta::absorbTile(t); // W2-P2 S-A (spec (b)15)
 	return true;
 }
 
@@ -4875,6 +4886,7 @@ static bool coopCorruptTerrainBucket(SavedBattleGame* battle)
 		if (!floorData)
 			continue;
 		t->setMapData(floorData, floorId, floorSet, O_OBJECT);
+		CoopDelta::absorbTile(t); // W2-P2 S-A (spec (b)15)
 		return true;
 	}
 	return false;
@@ -4885,6 +4897,7 @@ static bool coopCorruptItemIdCtrBucket(SavedBattleGame* battle)
 	int* ctr = battle->getCurrentItemId();
 	if (!ctr) return false;
 	++(*ctr);
+	CoopDelta::absorbBattle(battle); // W2-P2 S-A (spec (b)15)
 	return true;
 }
 
@@ -4991,8 +5004,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["coopClientPanicSkipped"] = coopClientPanicSkipped();
 		// W2-P2 S-A (spec rewrite/prompts/w2p2_delta_core.md (b)16): the
 		// delta core's probes (CoopDelta.h), battle-scoped, reset by
-		// resetBattleAuthority(). Nothing writes them on commit S-A.1; the
-		// test_w2_delta_core.py red reads them there (deltaDropped stays 0).
+		// resetBattleAuthority(). Written by the S-A.2 delta core (host:
+		// seed/attach/absorb/flushSync; client: CoopApply::applyDelta).
 		// Timings are this machine's own measurements, never on the wire (G1).
 		{
 			const CoopDelta::Probes dp = CoopDelta::probes();
@@ -5536,6 +5549,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					const Position from = unit->getPosition();
 					bgTU->setUnitPosition(unit, pos);   // setTile clears the old footprint, marks the new one
 					if (req.isMember("dir")) unit->setDirection(req["dir"].asInt());
+					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): a lever write never rides a delta
 					resp["ok"] = true; resp["unit"] = unit->getId(); resp["size"] = size;
 					const Position to = unit->getPosition();
 					Json::Value fromJ, toJ;
@@ -5722,6 +5736,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 							const Position from = unit->getPosition();
 							bgTA->setUnitPosition(unit, plannedPos[i]);   // setTile clears the old footprint, marks the new one
 							unit->setDirection(facing);
+							CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15)
 							const Position to = unit->getPosition();
 							Json::Value mv;
 							mv["unit"] = unit->getId();
@@ -5841,6 +5856,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						unit->coopSetSpecialAbility(specabArg);
 					if (wantPanic)
 						bgameTS->init();
+					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): a lever write never rides a delta
 					resp["ok"] = true;
 					resp["unit"] = unit->getId();
 					resp["tu"] = unit->getTimeUnits();
@@ -5894,6 +5910,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					t->coopSetTileFireAbsolute(req["fire"].asInt());
 				if (req.isMember("smoke"))
 					t->coopSetSmokeAbsolute(req["smoke"].asInt());
+				CoopDelta::absorbTile(t); // W2-P2 S-A (spec (b)15): the host absorbs its own lever write
 				resp["ok"] = true;
 				resp["x"] = pos.x;
 				resp["y"] = pos.y;
@@ -5911,8 +5928,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// HOST's next delta attach computes and commits its delta but does not
 		// attach it, so the client is permanently missing those values - a
 		// hash-visible divergence. Harmless (cleared at teardown) if nothing
-		// follows, or on a client. On commit S-A.1 the flag is stored only;
-		// S-A.2's CoopDelta attach is its reader.
+		// follows, or on a client. Consumed by the next CoopDelta::attach()
+		// whose delta is non-empty.
 		CoopDelta::requestDropNext();
 		resp["ok"] = true;
 	}
@@ -6030,6 +6047,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					bgSU->removeItem(bi);
 					deleted.append(biId);
 				}
+				// W2-P2 S-A (spec (b)15): the battle counters as this lever left
+				// them (the removed item ids themselves are stage S-B's).
+				CoopDelta::absorbBattle(bgSU);
 				resp["ok"] = true;
 				resp["unit"] = unit->getId();
 				resp["deleted"] = deleted;
@@ -8169,6 +8189,7 @@ std::string TestServer::execute(const std::string& line)
 					if (req.isMember("visible"))     unit->setVisible(req["visible"].asBool());
 					if (req.get("refill", false).asBool())
 						unit->setTimeUnits(bs->tu);
+					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): `refill` writes TU
 					resp["psiSkill"] = bs->psiSkill;
 					resp["psiStrength"] = bs->psiStrength;
 					resp["visible"] = unit->getVisible();

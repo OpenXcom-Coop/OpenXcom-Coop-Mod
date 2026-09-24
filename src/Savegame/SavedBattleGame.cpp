@@ -1273,6 +1273,47 @@ void SavedBattleGame::coopSetSide(UnitFaction side)
 }
 
 /**
+ * W2-P2 S-A (spec (b)1, R3.7): the destroyed-objective counter.
+ * @return objectives destroyed
+ */
+int SavedBattleGame::coopGetObjectivesDestroyed() const
+{
+	return _objectivesDestroyed;
+}
+
+/**
+ * W2-P2 S-A: absolute destroyed-objective set for the delta applier. Plain
+ * assignment - no autoEndBattle() cascade (that is addDestroyedObjective()'s).
+ * @param objectivesDestroyed new counter
+ */
+void SavedBattleGame::coopSetObjectivesDestroyed(int objectivesDestroyed)
+{
+	_objectivesDestroyed = objectivesDestroyed;
+}
+
+/**
+ * W2-P2 S-A: the raw battle script-value vector.
+ * @return values (element i = tag index i + 1)
+ */
+const std::vector<int>& SavedBattleGame::coopScriptValuesRaw() const
+{
+	return _scriptValues.getValuesRaw();
+}
+
+/**
+ * W2-P2 S-A: absolute raw battle script-value set; every index past
+ * @a values is zeroed. Runs no script and draws no RNG.
+ * @param values new values (element i = tag index i + 1)
+ */
+void SavedBattleGame::coopSetScriptValuesRaw(const std::vector<int>& values)
+{
+	using CoopTag = decltype(_scriptValues)::Tag;
+	const size_t n = std::max(values.size(), _scriptValues.getValuesRaw().size());
+	for (size_t i = 0; i < n; ++i)
+		_scriptValues.set(CoopTag::make(i + 1), i < values.size() ? values[i] : 0);
+}
+
+/**
 * Sets the bug hunt turn number.
 */
 void SavedBattleGame::setBughuntMinTurn(int bughuntMinTurn)
