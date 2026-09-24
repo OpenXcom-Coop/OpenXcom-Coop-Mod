@@ -77,6 +77,13 @@ struct Probes
 	int applyUsMax = 0;      ///< [deltaApplyUsMax]
 	int syncEvsEmitted = 0;  ///< [syncEvsEmitted] host: `sync` evs emitted
 	int syncEvsApplied = 0;  ///< [syncEvsApplied] client: `sync` evs applied
+	// W2-P2 S-L (amendment A4.5, owner ruling M6): the client's light
+	// recomputes made by CoopApply::applyDelta. Commit S-L.1 (the RED commit)
+	// counts today's one whole-map pass; commit S-L.2's vanilla-shaped local
+	// calls are the `lightLocalCalls` writers.
+	int lightLocalCalls = 0; ///< [lightLocalCalls] client: region (non-whole-map) light recomputes
+	int lightWholeCalls = 0; ///< [lightWholeCalls] client: whole-map light recomputes
+	int lightUsMax = 0;      ///< [lightUsMax] client: the slowest single light recompute, microseconds
 };
 
 /// A snapshot of this machine's probes (thread-safe; reads atomics).
@@ -87,6 +94,16 @@ Probes probes();
 /// {seq, kind, units, tiles, nodes, items, itemsAdded, itemsRemoved,
 /// battle:[keys]} - or null when there has been none this battle.
 Json::Value lastDelta();
+
+/// [lastLight] (W2-P2 S-L, A4.5) the last light recompute the client's delta
+/// applier made, as {seq, kind, layer, x, y, z, radius, terrain, whole, us}
+/// (x/y/z = -1 and whole = true for a whole-map pass) - or null when there
+/// has been none this battle.
+Json::Value lastLight();
+
+/// `light_probe_reset` (W2-P2 S-L, A4.5; test lever): zero this machine's
+/// `lightUsMax` and `deltaApplyUsMax` windows. Nothing else changes.
+void resetLightWindow();
 
 /// HOST, RB-D26 one-shot (the `reveal_drop` pattern): the NEXT delta attach
 /// computes and commits its delta but does not attach it (bumping `dropped`),

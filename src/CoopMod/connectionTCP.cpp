@@ -2154,6 +2154,15 @@ static std::atomic<int> g_deltaApplyUsLast{0};
 static std::atomic<int> g_deltaApplyUsMax{0};
 static std::atomic<int> g_deltaSyncEvsEmitted{0};
 static std::atomic<int> g_deltaSyncEvsApplied{0};
+// W2-P2 S-L (amendment A4.5): the client delta applier's light recomputes.
+// Written only by noteClientLight() (CoopApply::applyDelta); display state,
+// never on the wire (G1).
+static std::atomic<int> g_lightLocalCalls{0};
+static std::atomic<int> g_lightWholeCalls{0};
+static std::atomic<int> g_lightUsMax{0};
+// `lastLight` (null until the first recompute this battle).
+static std::mutex g_lightLastMutex;
+static Json::Value g_lightLast;
 // The delta_drop_next one-shot (RB-D26): set by requestDropNext(), consumed by
 // S-A.2's attach. Cleared at teardown with the probes so a stale arm never
 // survives into the next battle.
@@ -2191,6 +2200,9 @@ Probes probes()
 	p.applyUsMax = g_deltaApplyUsMax.load();
 	p.syncEvsEmitted = g_deltaSyncEvsEmitted.load();
 	p.syncEvsApplied = g_deltaSyncEvsApplied.load();
+	p.lightLocalCalls = g_lightLocalCalls.load();
+	p.lightWholeCalls = g_lightWholeCalls.load();
+	p.lightUsMax = g_lightUsMax.load();
 	return p;
 }
 
@@ -2198,6 +2210,18 @@ Json::Value lastDelta()
 {
 	std::lock_guard<std::mutex> lock(g_deltaLastMutex);
 	return g_deltaLast;
+}
+
+Json::Value lastLight()
+{
+	std::lock_guard<std::mutex> lock(g_lightLastMutex);
+	return g_lightLast;
+}
+
+void resetLightWindow()
+{
+	g_lightUsMax = 0;
+	g_deltaApplyUsMax = 0;
 }
 
 void requestDropNext(const std::string& cls)
@@ -2231,6 +2255,9 @@ static void resetProbes()
 	g_deltaApplyUsMax = 0;
 	g_deltaSyncEvsEmitted = 0;
 	g_deltaSyncEvsApplied = 0;
+	g_lightLocalCalls = 0;
+	g_lightWholeCalls = 0;
+	g_lightUsMax = 0;
 	{
 		std::lock_guard<std::mutex> lock(g_deltaDropMutex);
 		g_deltaDropNext = false;
@@ -2239,6 +2266,10 @@ static void resetProbes()
 	{
 		std::lock_guard<std::mutex> lock(g_deltaLastMutex);
 		g_deltaLast = Json::Value();
+	}
+	{
+		std::lock_guard<std::mutex> lock(g_lightLastMutex);
+		g_lightLast = Json::Value();
 	}
 }
 
@@ -3097,6 +3128,43 @@ void noteClientApplied(const Json::Value& env, int fields, int unresolved, long 
 	const Json::Value summary = summarize(env.get("seq", 0u).asUInt(), envKind(env), env["delta"]);
 	std::lock_guard<std::mutex> lock(g_deltaLastMutex);
 	g_deltaLast = summary;
+}
+
+/// CLIENT (CoopApply::applyDelta, W2-P2 S-L, amendment A4.5): one light
+/// recompute the delta applier made - `whole` iff @a pos is
+/// TileEngine::invalid (lightWholeCalls, else lightLocalCalls), its time into
+/// lightUsMax, and `lastLight`. One log line per call, so a test can check a
+/// given seq's recompute after the fact. Probe only: it never recomputes.
+void noteClientLight(const Json::Value& env, int layer, const Position& pos, int radius, bool terrain,
+	long long us)
+{
+	const bool whole = (pos == TileEngine::invalid);
+	(whole ? g_lightWholeCalls : g_lightLocalCalls).fetch_add(1);
+	const int iv = (int)std::min<long long>(std::max<long long>(us, 0), 2000000000LL);
+	int prev = g_lightUsMax.load();
+	while (iv > prev && !g_lightUsMax.compare_exchange_weak(prev, iv))
+	{
+	}
+	const std::uint32_t seq = env.get("seq", 0u).asUInt();
+	const std::string kind = envKind(env);
+	Json::Value l(Json::objectValue);
+	l["seq"] = seq;
+	l["kind"] = kind;
+	l["layer"] = layer;
+	l["x"] = pos.x;
+	l["y"] = pos.y;
+	l["z"] = pos.z;
+	l["radius"] = radius;
+	l["terrain"] = terrain;
+	l["whole"] = whole;
+	l["us"] = iv;
+	{
+		std::lock_guard<std::mutex> lock(g_lightLastMutex);
+		g_lightLast = l;
+	}
+	Log(LOG_INFO) << "[coop-light] seq=" << seq << " kind=" << kind << " layer=" << layer << " pos=("
+		<< pos.x << "," << pos.y << "," << pos.z << ") radius=" << radius << " terrain=" << (terrain ? 1 : 0)
+		<< " whole=" << (whole ? 1 : 0) << " us=" << iv;
 }
 
 /// CLIENT (CoopApply::applyEvPayload's `sync` branch).
@@ -9678,7 +9746,14 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 	if (tileEngine)
 	{
 		if (tileChanged)
+		{
+			// W2-P2 S-L.1 (A4.5): probe only - time and count this pass; the
+			// call, its layer, position and trigger are unchanged.
+			const std::chrono::steady_clock::time_point tl0 = std::chrono::steady_clock::now();
 			tileEngine->calculateLighting(LL_FIRE, TileEngine::invalid, 0, true);
+			CoopDelta::noteClientLight(ev, LL_FIRE, TileEngine::invalid, 0, true,
+				std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tl0).count());
+		}
 		for (BattleUnit* u : fovUnits)
 		{
 			if (!u->isOut())

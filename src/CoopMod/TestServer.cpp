@@ -5004,6 +5004,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_teleport_unit" && cmd != "battle_teleport_all"
 		&& cmd != "battle_set_unit_state"
 		&& cmd != "battle_set_tile" && cmd != "delta_drop_next" && cmd != "hash_timing"
+		&& cmd != "light_census" && cmd != "light_recompute" && cmd != "light_probe_reset"
 		&& cmd != "battle_strip_unit"
 		&& cmd != "battle_end_turn_ready"
 		&& cmd != "battle_visibility_rule"
@@ -5100,6 +5101,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["deltaApplyUsMax"] = dp.applyUsMax;
 			resp["syncEvsEmitted"] = dp.syncEvsEmitted;
 			resp["syncEvsApplied"] = dp.syncEvsApplied;
+			// W2-P2 S-L (amendment A4.5): the client delta applier's light
+			// recomputes (CoopDelta.h), battle-scoped, same reset.
+			resp["lightLocalCalls"] = dp.lightLocalCalls;
+			resp["lightWholeCalls"] = dp.lightWholeCalls;
+			resp["lightUsMax"] = dp.lightUsMax;
+			resp["lastLight"] = CoopDelta::lastLight();
 		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
@@ -6076,6 +6083,208 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				resp["ok"] = true;
 			}
 		}
+	}
+	else if (cmd == "light_census")
+	{
+		// TEST-ONLY, read-only (W2-P2 S-L, amendment A4.5): THIS machine's
+		// light, whole map. Light is in no hash bucket and no serializer (the
+		// A4 research note N7), so nothing else can see it. Per layer
+		// (ambient/fire/items/units) the sum over tiles of FNV(index, value)
+		// for value > 0, the same over Tile::getShade(), the non-zero count per
+		// layer, and with {dump:true} base64 of LL_MAX bytes per tile in tile
+		// index order (SavedBattleGame::getTileIndex). Changes no state; never
+		// derefs the battle's BattlescapeState.
+		SavedGame* sgLC = _game->getSavedGame();
+		SavedBattleGame* bgLC = sgLC ? sgLC->getSavedBattle() : nullptr;
+		if (!bgLC)
+		{
+			resp["error"] = "light_census: no live battle";
+		}
+		else
+		{
+			const int n = bgLC->getMapSizeXYZ();
+			const bool wantDump = req.get("dump", false).asBool();
+			auto fnv = [](int index, int value)
+			{
+				std::uint64_t h = 1469598103934665603ULL;
+				h = (h ^ (std::uint64_t)(std::uint32_t)index) * 1099511628211ULL;
+				h = (h ^ (std::uint64_t)(std::uint32_t)value) * 1099511628211ULL;
+				return h;
+			};
+			auto hex = [](std::uint64_t v)
+			{
+				char buf[17];
+				std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)v);
+				return std::string(buf);
+			};
+			std::uint64_t layerSum[LL_MAX] = {};
+			int nonZero[LL_MAX] = {};
+			std::uint64_t shadeSum = 0;
+			std::vector<std::uint8_t> bytes;
+			if (wantDump)
+				bytes.reserve((std::size_t)n * LL_MAX);
+			for (int i = 0; i < n; ++i)
+			{
+				const Tile* t = bgLC->getTile(i);
+				for (int l = 0; l < LL_MAX; ++l)
+				{
+					const int v = t->getLight((LightLayers)l);
+					if (v > 0)
+					{
+						layerSum[l] += fnv(i, v);
+						++nonZero[l];
+					}
+					if (wantDump)
+						bytes.push_back((std::uint8_t)v);
+				}
+				const int s = t->getShade();
+				if (s > 0)
+					shadeSum += fnv(i, s);
+			}
+			static const char* const kLayerNames[LL_MAX] = { "ambient", "fire", "items", "units" };
+			Json::Value layers(Json::objectValue);
+			Json::Value nz(Json::objectValue);
+			for (int l = 0; l < LL_MAX; ++l)
+			{
+				layers[kLayerNames[l]] = hex(layerSum[l]);
+				nz[kLayerNames[l]] = nonZero[l];
+			}
+			resp["mapSizeXYZ"] = n;
+			resp["mapSizeX"] = bgLC->getMapSizeX();
+			resp["mapSizeY"] = bgLC->getMapSizeY();
+			resp["mapSizeZ"] = bgLC->getMapSizeZ();
+			resp["personalLight"] = bgLC->getTogglePersonalLight();
+			resp["globalShade"] = bgLC->getGlobalShade();
+			resp["layers"] = layers;
+			resp["shade"] = hex(shadeSum);
+			resp["nonZero"] = nz;
+			if (wantDump)
+			{
+				static const char kB64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+				std::string out;
+				out.reserve(((bytes.size() + 2u) / 3u) * 4u);
+				std::size_t i = 0;
+				for (; i + 3u <= bytes.size(); i += 3u)
+				{
+					const std::uint32_t v = ((std::uint32_t)bytes[i] << 16) | ((std::uint32_t)bytes[i + 1] << 8) | bytes[i + 2];
+					out += kB64[(v >> 18) & 63]; out += kB64[(v >> 12) & 63];
+					out += kB64[(v >> 6) & 63];  out += kB64[v & 63];
+				}
+				if (i + 1u == bytes.size())
+				{
+					const std::uint32_t v = (std::uint32_t)bytes[i] << 16;
+					out += kB64[(v >> 18) & 63]; out += kB64[(v >> 12) & 63]; out += "==";
+				}
+				else if (i + 2u == bytes.size())
+				{
+					const std::uint32_t v = ((std::uint32_t)bytes[i] << 16) | ((std::uint32_t)bytes[i + 1] << 8);
+					out += kB64[(v >> 18) & 63]; out += kB64[(v >> 12) & 63];
+					out += kB64[(v >> 6) & 63];  out += '=';
+				}
+				resp["dump"] = out;
+			}
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "light_recompute")
+	{
+		// TEST LEVER (W2-P2 S-L, amendment A4.5): display state only. Applied by
+		// the HARNESS to each machine it wants recomputed; never forwards
+		// anything to the peer. Levers never recompute light (A4 note N8), so a
+		// light scenario stages both machines to exact light with the default:
+		// ONE TileEngine::calculateLighting(LL_AMBIENT, invalid, 0, true), the
+		// whole map. With a shape {layer (0-3 or ambient/fire/items/units),
+		// x, y, z, radius, terrain} and {reps} it runs that call `reps` times and
+		// reports the time per call (the S-L.0 measurement). Never derefs the
+		// battle's BattlescapeState.
+		SavedGame* sgLR = _game->getSavedGame();
+		SavedBattleGame* bgLR = sgLR ? sgLR->getSavedBattle() : nullptr;
+		TileEngine* teLR = bgLR ? bgLR->getTileEngine() : nullptr;
+		int layer = (int)LL_AMBIENT;
+		bool layerOk = true;
+		if (req.isMember("layer"))
+		{
+			const Json::Value& lj = req["layer"];
+			if (lj.isString())
+			{
+				const std::string ls = lj.asString();
+				if (ls == "ambient") layer = (int)LL_AMBIENT;
+				else if (ls == "fire") layer = (int)LL_FIRE;
+				else if (ls == "items") layer = (int)LL_ITEMS;
+				else if (ls == "units") layer = (int)LL_UNITS;
+				else layerOk = false;
+			}
+			else if (lj.isIntegral())
+			{
+				layer = lj.asInt();
+				layerOk = layer >= (int)LL_AMBIENT && layer < (int)LL_MAX;
+			}
+			else
+			{
+				layerOk = false;
+			}
+		}
+		const bool hasPos = req.isMember("x") || req.isMember("y") || req.isMember("z");
+		const Position pos = hasPos
+			? Position(req.get("x", -1).asInt(), req.get("y", -1).asInt(), req.get("z", -1).asInt())
+			: TileEngine::invalid;
+		const int radius = req.get("radius", 0).asInt();
+		const bool terrain = req.get("terrain", true).asBool();
+		const int reps = std::max(1, std::min(1000, req.get("reps", 1).asInt()));
+		if (!teLR)
+		{
+			resp["error"] = "light_recompute: no live battle";
+		}
+		else if (!layerOk)
+		{
+			resp["error"] = "light_recompute: bad layer";
+		}
+		else if (hasPos && !bgLR->getTile(pos))
+		{
+			resp["error"] = "light_recompute: no such tile";
+		}
+		else if (radius < 0)
+		{
+			resp["error"] = "light_recompute: negative radius";
+		}
+		else
+		{
+			using LrClock = std::chrono::steady_clock;
+			long long sum = 0, mx = 0;
+			for (int i = 0; i < reps; ++i)
+			{
+				const LrClock::time_point t0 = LrClock::now();
+				teLR->calculateLighting((LightLayers)layer, pos, radius, terrain);
+				const long long us = std::chrono::duration_cast<std::chrono::microseconds>(LrClock::now() - t0).count();
+				sum += us;
+				mx = std::max(mx, us);
+			}
+			Json::Value usJ(Json::objectValue);
+			usJ["mean"] = (double)sum / reps;
+			usJ["max"] = (Json::Int64)mx;
+			resp["us"] = usJ;
+			resp["layer"] = layer;
+			resp["x"] = pos.x;
+			resp["y"] = pos.y;
+			resp["z"] = pos.z;
+			resp["radius"] = radius;
+			resp["terrain"] = terrain;
+			resp["whole"] = !hasPos;
+			resp["reps"] = reps;
+			resp["mapSizeXYZ"] = bgLR->getMapSizeXYZ();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "light_probe_reset")
+	{
+		// TEST LEVER (W2-P2 S-L, amendment A4.5): zero THIS machine's
+		// `lightUsMax` and `deltaApplyUsMax` windows, so a scenario reads the
+		// maxima of its own action only. Nothing else changes.
+		CoopDelta::resetLightWindow();
+		const CoopDelta::Probes dp = CoopDelta::probes();
+		resp["lightUsMax"] = dp.lightUsMax;
+		resp["deltaApplyUsMax"] = dp.applyUsMax;
+		resp["ok"] = true;
 	}
 	else if (cmd == "battle_strip_unit")
 	{
