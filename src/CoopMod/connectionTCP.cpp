@@ -2493,6 +2493,21 @@ const std::string& coopGuestContribSoldierYaml(int seat, int index)
 static int g_guestContribLastSentCount = 0;
 int coopGuestContribLastSentCount() { return g_guestContribLastSentCount; }
 
+// W2-P1 (thin-client tripwire, commit 1 of 2): the storage behind
+// coopClientBStatePushes() / coopClientBStateLastSite() /
+// coopClientPanicSkipped() (BattleAuthority.h). Battle-scoped, so declared
+// here, above resetBattleAuthority(), for the same reason
+// g_coopPauseModalPending is: a full teardown must not carry the previous
+// battle's counts into the next one. Nothing writes them in commit 1; commit
+// 2's coopClientBStateTripwire() / coopSkipClientPanic() (beside
+// coopBlockLocalExecution() below) are the only writers. The string has its
+// own mutex because resetBattleAuthority() can run on the UDP-monitor thread
+// (BattleAuthority.h's R4-P1 note) while the pump thread reads it.
+static std::atomic<int> g_coopClientBStatePushes{0};
+static std::mutex g_coopClientBStateLastSiteMutex;
+static std::string g_coopClientBStateLastSite;
+static std::atomic<int> g_coopClientPanicSkipped{0};
+
 void resetBattleAuthority()
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -2540,6 +2555,14 @@ void resetBattleAuthority()
 	// SPEC 17 (W1-P18) M1: the per-seat speed table is battle-scoped state
 	// too - a new battle must never inherit the previous one's dials.
 	CoopSpeed::reset();
+	// W2-P1: the thin-client tripwire probes are battle-scoped too - a new
+	// battle must never inherit the previous one's refusal counts or site.
+	g_coopClientBStatePushes = 0;
+	{
+		std::lock_guard<std::mutex> lock(g_coopClientBStateLastSiteMutex);
+		g_coopClientBStateLastSite.clear();
+	}
+	g_coopClientPanicSkipped = 0;
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -3002,6 +3025,24 @@ int coopWalkIntentsFromClick()
 int coopLocalExecutionBlocks()
 {
 	return g_coopLocalExecBlocked.load();
+}
+
+// W2-P1 (commit 1): read accessors for the thin-client tripwire storage
+// declared above resetBattleAuthority(). See BattleAuthority.h.
+int coopClientBStatePushes()
+{
+	return g_coopClientBStatePushes.load();
+}
+
+std::string coopClientBStateLastSite()
+{
+	std::lock_guard<std::mutex> lock(g_coopClientBStateLastSiteMutex);
+	return g_coopClientBStateLastSite;
+}
+
+int coopClientPanicSkipped()
+{
+	return g_coopClientPanicSkipped.load();
 }
 
 // ===== R2-P4: CLIENT-side id -> pointer maps (CoopIdMaps.h) =====

@@ -560,6 +560,38 @@ bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s);
 /// `event_state` as `coopLocalExecBlocked`; never read by game logic.
 int coopLocalExecutionBlocks();
 
+/// W2-P1 (thin-client tripwire, commit 1 of 2): test-only introspection for
+/// the second player's "never simulates" guarantee. Three BATTLE-scoped values
+/// (reset by resetBattleAuthority(), unlike coopLocalExecutionBlocks()'s
+/// process-lifetime counter above), reported by TestServer's `event_state` as
+/// `coopClientBStatePushes` / `coopClientBStateLastSite` /
+/// `coopClientPanicSkipped`; never read by game logic.
+///
+/// Commit 1 adds the storage, these read accessors and the probes ONLY -
+/// nothing increments them yet, so every value reads 0 / "" on its build (the
+/// red the S1-S7 test, test_w2_thin_client_tripwire.py, proves). Commit 2's
+/// writers live in connectionTCP.cpp beside coopBlockLocalExecution() and write
+/// the storage directly:
+///   * coopClientBStateTripwire(site, bs): `g_coopClientBStatePushes`
+///     (fetch_add) and `g_coopClientBStateLastSite`, set to
+///     "<site>:<typeid(*bs).name()>" - or "<site>:endTurnRequest" when
+///     bs == nullptr - under `g_coopClientBStateLastSiteMutex`;
+///   * coopSkipClientPanic(): `g_coopClientPanicSkipped` (fetch_add).
+/// The storage is declared above resetBattleAuthority() in connectionTCP.cpp
+/// (the same placement rule as g_coopPauseModalPending) so the teardown can
+/// reset it; the string carries its own mutex because resetBattleAuthority()
+/// is reachable from the UDP-monitor thread (the R4-P1 note at the top of this
+/// header) while the pump thread reads it.
+///
+/// How many BState pushes the tripwire has refused on this machine this battle.
+int coopClientBStatePushes();
+
+/// The last refused push as "<site>:<dynamic type name>"; "" before any.
+std::string coopClientBStateLastSite();
+
+/// How many start-of-turn panic checks this machine has skipped this battle.
+int coopClientPanicSkipped();
+
 /// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30, WV-D40 unchanged): the WALK ARM's
 /// entry gate, which is what W1-P6's `coopBlockLocalExecution()` call in
 /// BattlescapeGame::primaryAction's walk arm becomes now that the arm HAS a

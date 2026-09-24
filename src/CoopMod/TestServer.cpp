@@ -4968,6 +4968,18 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// all - a broken injection recipe, a modal swallowing the event, the
 		// wrong viewport. This counter says the click ARRIVED and was refused.
 		resp["coopLocalExecBlocked"] = coopLocalExecutionBlocks();
+		// W2-P1 (thin-client tripwire, commit 1 of 2): the second player's
+		// "never simulates" probes (BattleAuthority.h). Battle-scoped - reset
+		// by resetBattleAuthority(). Nothing increments them on commit 1; the
+		// S1-S7 test (test_w2_thin_client_tripwire.py) reads them there to prove
+		// its red, and commit 2's coopClientBStateTripwire() /
+		// coopSkipClientPanic() are their only writers.
+		// coopClientBStateLastSite is "<site>:<dynamic type name>" of the last
+		// refused push ("<site>:endTurnRequest" for the null end-turn marker),
+		// "" before any refusal.
+		resp["coopClientBStatePushes"] = coopClientBStatePushes();
+		resp["coopClientBStateLastSite"] = coopClientBStateLastSite();
+		resp["coopClientPanicSkipped"] = coopClientPanicSkipped();
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
 		// observable proof the IR-2 one-slot lock was RELEASED (before this packet
@@ -5703,14 +5715,31 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// arguments; it never forwards anything to the peer - no wire message,
 		// nothing emitted. Never call from product code.
 		//
-		// `tu` only - REV E.48 SS.B.3 shrank this lever from a wider
-		// {unit, tu, hazard...} shape to exactly {unit, tu} (the incendiary-
-		// shot / tile-hazard levers named in an earlier draft were dropped).
-		// Writes through BattleUnit::setTimeUnits(int), the SAME absolute
-		// setter W1-P13a's side_transition applier uses for the restate's
-		// `perUnit.tu` field (`_tu = Clamp(tu, 0, (int)_stats.tu);`) - reports
-		// `tu` back after the write. Used by SPEC 14 (P1, P4); SPEC 9's own
-		// tests do not call it.
+		// Fields - each optional, applied in this order, all reported back:
+		//  * `tu` - REV E.48 SS.B.3 shrank this lever from a wider
+		//    {unit, tu, hazard...} shape to {unit, tu} (the incendiary-shot /
+		//    tile-hazard levers named in an earlier draft were dropped). Writes
+		//    through BattleUnit::setTimeUnits(int), the SAME absolute setter
+		//    W1-P13a's side_transition applier uses for the restate's
+		//    `perUnit.tu` field (`_tu = Clamp(tu, 0, (int)_stats.tu);`) -
+		//    reports `tu` back after the write. Used by SPEC 14 (P1, P4); SPEC
+		//    9's own tests do not call it.
+		//  * `status` (W2-P1) - an int UnitStatus, written through the existing
+		//    BattleUnit::coopSetStatus() (the side_transition restate's own
+		//    absolute setter); reported back as `status`. A value outside
+		//    STATUS_STANDING..STATUS_IGNORE_ME is refused and nothing changes.
+		//  * `panicPending` (W2-P1) - `true` calls the live BattlescapeGame's
+		//    public init(), whose only effect is `_playerPanicHandled = false`
+		//    on the player side from turn 2 on, so the NEXT think() runs the
+		//    start-of-turn panic check (handlePanickingPlayer()) again. The
+		//    BattlescapeGame is found the way the battle_state probe finds it
+		//    (getBattleState() ? getBattleGame() : nullptr - the
+		//    SavedBattleGame::getBattleGame() deref guard); when there is none
+		//    the call is refused with "no live BattlescapeGame" BEFORE anything
+		//    is written. Reported back as `panicPending` (= !getPanicHandled()
+		//    after the call) whenever a live BattlescapeGame exists.
+		// W2-P1's test_w2_thin_client_tripwire.py applies `status` to BOTH
+		// machines and `panicPending` to the CLIENT only (its S6 panic case).
 		SavedGame* sgTS = _game->getSavedGame();
 		SavedBattleGame* bgTS = sgTS ? sgTS->getSavedBattle() : nullptr;
 		if (!bgTS)
@@ -5731,11 +5760,37 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 			else
 			{
-				if (req.isMember("tu"))
-					unit->setTimeUnits(req["tu"].asInt());
-				resp["ok"] = true;
-				resp["unit"] = unit->getId();
-				resp["tu"] = unit->getTimeUnits();
+				BattlescapeGame* bgameTS = bgTS->getBattleState() ? bgTS->getBattleGame() : nullptr;
+				const bool wantPanic = req.get("panicPending", false).asBool();
+				const bool hasStatus = req.isMember("status");
+				const int statusArg = req.get("status", 0).asInt();
+				if (wantPanic && !bgameTS)
+				{
+					resp["error"] = "battle_set_unit_state: no live BattlescapeGame";
+				}
+				else if (hasStatus && (statusArg < (int)STATUS_STANDING || statusArg > (int)STATUS_IGNORE_ME))
+				{
+					resp["error"] = "battle_set_unit_state: status out of range " + std::to_string(statusArg);
+				}
+				else
+				{
+					if (req.isMember("tu"))
+						unit->setTimeUnits(req["tu"].asInt());
+					if (hasStatus)
+						unit->coopSetStatus((UnitStatus)statusArg);
+					if (wantPanic)
+						bgameTS->init();
+					resp["ok"] = true;
+					resp["unit"] = unit->getId();
+					resp["tu"] = unit->getTimeUnits();
+					resp["status"] = (int)unit->getStatus();
+					if (bgameTS)
+						resp["panicPending"] = !bgameTS->getPanicHandled();
+					Log(LOG_INFO) << "[coop-test] battle_set_unit_state unit=" << unit->getId()
+						<< " tu=" << unit->getTimeUnits()
+						<< " status=" << (int)unit->getStatus()
+						<< " panicPending=" << (bgameTS ? (bgameTS->getPanicHandled() ? 0 : 1) : -1);
+				}
 			}
 		}
 	}
