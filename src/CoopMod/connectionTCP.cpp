@@ -28,6 +28,7 @@
 #include <map>
 #include <memory>
 #include <sstream>
+#include <typeinfo>
 #include <unordered_set>
 
 #include "../Engine/Game.h"
@@ -2973,6 +2974,40 @@ bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s)
 	}
 
 	return false;
+}
+
+// W2-P1 (thin-client tripwire, commit 2 of 2; plan F422/F432, SS3.6): the two
+// writers of the battle-scoped storage commit 1 declared above
+// resetBattleAuthority(). See BattleAuthority.h. Both use TERM 1's predicate
+// above (`isCoopBattle() && !hostSim`): on the host, in SP and in every
+// non-co-op battle they return false having touched nothing, so vanilla is
+// byte-identical there.
+bool coopClientBStateTripwire(const char* site, BattleState* bs)
+{
+	if (!isCoopBattle() || coopBattleAuthority().hostSim)
+		return false;
+	const std::string entry = std::string(site ? site : "<null>") + ":"
+		+ (bs ? typeid(*bs).name() : "endTurnRequest");
+	const int refusals = g_coopClientBStatePushes.fetch_add(1) + 1;
+	{
+		std::lock_guard<std::mutex> lock(g_coopClientBStateLastSiteMutex);
+		g_coopClientBStateLastSite = entry;
+	}
+	Log(LOG_WARNING) << "[coop-tripwire] client BState push refused: " << entry
+		<< " (refusals this battle: " << refusals << ")";
+	// The state's constructor has already run (a detector first); refusing it
+	// here stops its init()/think(). BattleState's destructor is virtual.
+	if (bs)
+		delete bs;
+	return true;
+}
+
+bool coopSkipClientPanic()
+{
+	if (!isCoopBattle() || coopBattleAuthority().hostSim)
+		return false;
+	g_coopClientPanicSkipped.fetch_add(1);
+	return true;
 }
 
 // W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30; WV-D40 unchanged): the walk arm's
@@ -8374,6 +8409,8 @@ const char* controlStrKey(Control c)
 	case Control::ZeroTu:       return "STR_COOP_ZERO_TU_HOST_ONLY";
 	case Control::HandReaction: return "STR_COOP_REACTIONS_HOST_ONLY";
 	case Control::LevelChange:  return "STR_COOP_LEVEL_CHANGE_HOST_ONLY";
+	case Control::ItemAction:   return "STR_COOP_ITEM_ACTION_HOST_ONLY"; // W2-P1, interim until W2-P4
+	case Control::Reload:       return "STR_COOP_RELOAD_HOST_ONLY";      // W2-P1, interim until W2-P4
 	case Control::QuickLoad:    return "STR_COOP_LOCAL_LOAD_BLOCKED";
 	}
 	return nullptr;
@@ -8449,6 +8486,49 @@ bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s)
 	}
 
 	return false;
+}
+
+// W2-P1 (plan F422/F432, SS3.6): the action menu's non-targeting choke. See
+// CoopBattleUi.h. Paths 1-4 of the spec's client-local sim table (prime/
+// unprime, medikit, scanner, melee) all start here, after
+// `_action->terrainMeleeTilePart = 0;` and before any branch of
+// ActionMenuState::handleAction; every other kind sets `targeting` and is
+// refused later by primaryAction's commanding arm (coopBlockLocalExecution()),
+// so it is left untouched here.
+bool refuseItemActionChoice(BattleAction* action)
+{
+	if (!action)
+		return false;
+	bool nonTargeting = false;
+	switch (action->type)
+	{
+	case BA_PRIME:
+	case BA_UNPRIME:
+	case BA_HIT:
+		nonTargeting = true;
+		break;
+	case BA_USE:
+		if (action->weapon)
+		{
+			const BattleType bt = action->weapon->getRules()->getBattleType();
+			nonTargeting = (bt == BT_MEDIKIT || bt == BT_SCANNER);
+		}
+		break;
+	default:
+		break;
+	}
+	if (!nonTargeting)
+		return false;
+	// refuseControl() is self-guarded (false outside an active co-op battle, so
+	// SP is byte-identical) and has already put the refusal on the banner when
+	// it returns true - a Terminal-class write, so it replaces the entry-notice
+	// (Notice-class) text a client carries from battle entry (F442).
+	if (!refuseControl(Control::ItemAction, action->actor, connectionTCP::getStaticBattle()))
+		return false;
+	// The caller pops the menu and returns; BA_NONE makes the action it hands
+	// back to BattlescapeState (handleNonTargetAction) a no-op.
+	action->type = BA_NONE;
+	return true;
 }
 
 bool refuseSelectUnitClick(const BattleUnit* target)

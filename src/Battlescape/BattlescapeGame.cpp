@@ -293,7 +293,7 @@ int BattlescapeGame::think()
 			// it's a player side && we have not handled all panicking units
 			if (!_playerPanicHandled)
 			{
-				_playerPanicHandled = handlePanickingPlayer();
+				_playerPanicHandled = coopSkipClientPanic() ? true : handlePanickingPlayer();
 				_save->getBattleState()->updateSoldierInfo();
 			}
 		}
@@ -1227,6 +1227,7 @@ void BattlescapeGame::handleState()
  */
 void BattlescapeGame::statePushFront(BattleState *bs)
 {
+	if (coopClientBStateTripwire("statePushFront", bs)) return;
 	_states.push_front(bs);
 	bs->init();
 }
@@ -1237,6 +1238,7 @@ void BattlescapeGame::statePushFront(BattleState *bs)
  */
 void BattlescapeGame::statePushNext(BattleState *bs)
 {
+	if (coopClientBStateTripwire("statePushNext", bs)) return;
 	if (_states.empty())
 	{
 		_states.push_front(bs);
@@ -1255,6 +1257,7 @@ void BattlescapeGame::statePushNext(BattleState *bs)
  */
 void BattlescapeGame::statePushBack(BattleState *bs)
 {
+	if (coopClientBStateTripwire("statePushBack", bs)) return;
 	if (_states.empty())
 	{
 		_states.push_front(bs);
@@ -1923,6 +1926,7 @@ void BattlescapeGame::primaryAction(Position pos)
 				getMap()->getWaypoints()->clear();
 				_parentState->getGame()->getCursor()->setVisible(false);
 				_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
+				if (coopClientBStateTripwire("primaryAction.spray")) return;
 				_states.push_back(new ProjectileFlyBState(this, _currentAction));
 				statePushFront(new UnitTurnBState(this, _currentAction));
 				_currentAction.sprayTargeting = false;
@@ -2058,6 +2062,7 @@ void BattlescapeGame::primaryAction(Position pos)
 
 			_parentState->getGame()->getCursor()->setVisible(false);
 			_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
+			if (coopClientBStateTripwire("primaryAction.fire")) return;
 			_states.push_back(new ProjectileFlyBState(this, _currentAction));
 			statePushFront(new UnitTurnBState(this, _currentAction)); // first of all turn towards the target
 		}
@@ -2262,6 +2267,7 @@ void BattlescapeGame::launchAction()
 	getMap()->setCursorType(CT_NONE);
 	_parentState->getGame()->getCursor()->setVisible(false);
 	_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
+	if (coopClientBStateTripwire("launchAction")) return;
 	_states.push_back(new ProjectileFlyBState(this, _currentAction));
 	statePushFront(new UnitTurnBState(this, _currentAction)); // first of all turn towards the target
 }

@@ -38,6 +38,7 @@
 #include "Pathfinding.h"
 #include "TileEngine.h"
 #include "../Interface/Text.h"
+#include "../CoopMod/CoopBattleUi.h"
 
 namespace OpenXcom
 {
@@ -303,6 +304,7 @@ void ActionMenuState::handleAction()
 {
 	// reset potential garbage from the previous action
 	_action->terrainMeleeTilePart = 0;
+	if (CoopBattleUi::refuseItemActionChoice(_action)) { _game->popState(); return; }
 
 	{
 		const RuleItem *weapon = _action->weapon->getRules();

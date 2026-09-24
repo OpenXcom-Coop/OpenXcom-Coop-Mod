@@ -32,6 +32,7 @@ namespace OpenXcom
 class BattleUnit;
 class Game;
 class SavedBattleGame;
+struct BattleAction;
 
 /**
  * R2-P6 (rewrite spike, SPIKE-RUNBOOK.md sec 2.6, ADDENDUM 2026-08-31 sec
@@ -113,7 +114,24 @@ enum class Control
 	/// client-only: connectionTCP::localLoadsAllowed() forbids a local load
 	/// for EVERY machine in a live co-op session (PRD-08 C7), host included -
 	/// loading mid-session forks the served world silently.
-	QuickLoad
+	QuickLoad,
+	/// W2-P1 (plan F422/F432, SS3.6): the NON-TARGETING item actions chosen in
+	/// ActionMenuState::handleAction - prime / unprime a grenade, the medikit,
+	/// the motion scanner and a melee attack (BA_PRIME, BA_UNPRIME, BA_HIT,
+	/// BA_USE on a BT_MEDIKIT or BT_SCANNER). Each runs vanilla LOCALLY (fuse,
+	/// TU, target health/stun/wounds, item charges; a melee pushes a
+	/// MeleeAttackBState) with nothing on the wire, so the client REFUSES
+	/// through refuseItemActionChoice() below. Targeting kinds are untouched:
+	/// primaryAction's commanding arm already refuses them on a client
+	/// (coopBlockLocalExecution()). INTERIM - W2-P4 retires this value (and
+	/// its string) when its intents replace the refusal.
+	ItemAction,
+	/// W2-P1: BattlescapeState::btnReloadClick (the reload hotkey) ->
+	/// BattleUnit::reloadAmmo(), which re-links ammo (`items`) and spends TU
+	/// (`unitsStats`) LOCALLY with nothing on the wire. INTERIM - W2-P4
+	/// retires this value (and its string) when its intents replace the
+	/// refusal.
+	Reload
 };
 
 /// W1-P5: the ONE gate every hard-gated control calls. Returns TRUE when @a c
@@ -149,6 +167,22 @@ enum class Control
 /// scoped to the co-op SESSION, not to the battle, because that is what
 /// connectionTCP::localLoadsAllowed() answers.
 bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s);
+
+/// W2-P1 (plan F422/F432, SS3.6): the ONE choke for the action menu's
+/// NON-TARGETING kinds, called as the first statement after
+/// `_action->terrainMeleeTilePart = 0;` in ActionMenuState::handleAction:
+/// `if (CoopBattleUi::refuseItemActionChoice(_action)) { _game->popState(); return; }`.
+/// Returns TRUE only when @a action is one of the five non-targeting kinds -
+/// BA_PRIME, BA_UNPRIME, BA_HIT, and BA_USE whose weapon's battle type is
+/// BT_MEDIKIT or BT_SCANNER - AND refuseControl(Control::ItemAction,
+/// action->actor, <the live SavedBattleGame>) refuses (which has already put
+/// the refusal on the banner); on TRUE it sets `action->type = BA_NONE` so the
+/// caller's handleNonTargetAction() does nothing. Every other kind (the
+/// targeting ones, which primaryAction's commanding arm already refuses on a
+/// client) returns FALSE untouched, as does every kind outside an active
+/// co-op battle - SP is byte-identical. On the HOST refuseControl()'s
+/// ownership term applies exactly as for the other controls (A1.4 / F438).
+bool refuseItemActionChoice(BattleAction* action);
 
 /// W1-P5: the presenter half of refuseControl(), for the ONE site that has
 /// already decided the refusal for itself - LoadGameState::init's local-load

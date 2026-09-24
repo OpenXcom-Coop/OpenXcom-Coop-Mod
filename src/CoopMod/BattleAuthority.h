@@ -33,6 +33,7 @@ namespace OpenXcom
 {
 
 class BattleUnit;
+class BattleState;
 class SavedBattleGame;
 
 /**
@@ -591,6 +592,44 @@ std::string coopClientBStateLastSite();
 
 /// How many start-of-turn panic checks this machine has skipped this battle.
 int coopClientPanicSkipped();
+
+/// W2-P1 (thin-client tripwire, commit 2 of 2; plan F422/F432, SS3.6): the ONE
+/// guard at every place a battle state (BState) becomes live in
+/// BattlescapeGame - the first statement of the three helpers
+/// statePushFront/statePushNext/statePushBack (@a bs == nullptr on
+/// statePushBack is vanilla's end-turn request), and the statement BEFORE each
+/// of the three direct `_states.push_back(new ProjectileFlyBState(...))` sites
+/// (primaryAction's spray and fire branches, launchAction), where it runs
+/// before the `new`, so @a bs is null there and nothing is built.
+///
+/// Inside an ACTIVE co-op battle on a machine that is NOT the host sim
+/// (`isCoopBattle() && !coopBattleAuthority().hostSim`) it bumps
+/// coopClientBStatePushes(), records coopClientBStateLastSite() as
+/// "<site>:<typeid(*bs).name()>" (or "<site>:endTurnRequest" when @a bs is
+/// null), logs ONE warning line, deletes @a bs if non-null and returns TRUE -
+/// the call site then returns at once. Everywhere else (the host, SP, any
+/// non-co-op battle) it returns FALSE and touches nothing, so vanilla is
+/// byte-identical there.
+///
+/// A DETECTOR FIRST: a refused state's constructor has already run, so the
+/// tripwire stops init()/think(), not constructor side effects. Every KNOWN
+/// client-local simulation path is refused or skipped upstream (the action
+/// menu, the reload hotkey, the panic check - see coopSkipClientPanic() and
+/// CoopBattleUi::refuseItemActionChoice()), so a count here is a path nobody
+/// has found yet, surfacing as a counter instead of a desync. Defined in
+/// connectionTCP.cpp beside coopBlockLocalExecution().
+bool coopClientBStateTripwire(const char* site, BattleState* bs = nullptr);
+
+/// W2-P1: the start-of-turn panic check on a co-op CLIENT. BattlescapeGame::
+/// think()'s player branch reads `_playerPanicHandled = coopSkipClientPanic()
+/// ? true : handlePanickingPlayer();`. On a machine that is NOT the host sim
+/// inside an active co-op battle (the same predicate as
+/// coopClientBStateTripwire()) this bumps coopClientPanicSkipped() and returns
+/// TRUE, so the check is marked handled without running
+/// handlePanickingPlayer() (its RNG, dropItem and UnitWalkBState/
+/// UnitPanicBState pushes). The host keeps resolving panic for every player
+/// unit - W2-P3 streams it. FALSE everywhere else.
+bool coopSkipClientPanic();
 
 /// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30, WV-D40 unchanged): the WALK ARM's
 /// entry gate, which is what W1-P6's `coopBlockLocalExecution()` call in

@@ -2123,6 +2123,7 @@ void BattlescapeState::btnReserveClick(Action *action)
  */
 void BattlescapeState::btnReloadClick(Action *)
 {
+	if (CoopBattleUi::refuseControl(CoopBattleUi::Control::Reload, _save->getSelectedUnit(), _save)) return;
 	if (playableUnitSelected() && _save->getSelectedUnit()->reloadAmmo())
 	{
 		_game->getMod()->getSoundByDepth(_save->getDepth(), _save->getSelectedUnit()->getReloadSound())->play(-1, getMap()->getSoundAngle(_save->getSelectedUnit()->getPosition()));
