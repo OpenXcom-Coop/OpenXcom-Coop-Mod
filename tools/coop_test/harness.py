@@ -311,6 +311,19 @@ LAND_LON, LAND_LAT = 0.7063353365604198, -0.5070346730015731
 # a small windowed display. OpenXcom defaults every unspecified key and rescans
 # the other stock mods as inactive. Data (UFO/TFTD/standard/common) resolves
 # from the exe's own dir, so this runs on any machine with a built OpenXcom.exe.
+#
+# battleEdgeScroll: 0 (SCROLL_NONE, Options.h:30) - W2-H1 F447 (traced in
+# F456/F458/F459), the F109 precedent of test_rw_host_input_freeze.py made
+# harness-wide. Under the dummy SDL video driver the mouse sits at (0,0), and
+# Game::run replays that position as a synthetic mouse motion on every state
+# re-init. With the default SCROLL_AUTO (2), a re-init with a live battlescape
+# on top (e.g. any popup closed after the host's phase Active) makes
+# Camera::mouseOver start the edge-scroll timer, and the camera then drifts
+# (8,4) per step after every centring until a real button-down, so a verified
+# click pixel resolves off its tile. A harness artifact: no player's mouse is
+# parked on the corner by the driver. A caller's explicit `options` entry still
+# wins: make_user_dir splices it ABOVE these keys, and the engine's options.cfg
+# reader takes the first matching key (Yaml.cpp findChildNode).
 HERMETIC_OPTIONS = """\
 mods:
   - active: true
@@ -325,6 +338,7 @@ options:
   musicVolume: 0
   soundVolume: 0
   uiVolume: 0
+  battleEdgeScroll: 0
 """
 
 
