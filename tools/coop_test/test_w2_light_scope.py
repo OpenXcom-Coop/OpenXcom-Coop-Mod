@@ -135,7 +135,7 @@ C15_BACK_DEST = C15_H_TILE
 C15_BACK_PATH = [(2, 6, 0), (1, 6, 0)]
 # LS3's client apply-cost bar in microseconds (A4.5 BAR_L). The orchestrator
 # sets it from the S-L.0 measurement; None until then.
-BAR_L_US = None
+BAR_L_US = 6700
 LAYERS = ("ambient", "fire", "items", "units")
 ZERO_PROBES = ("deltaUnresolved", "deltaUnsupported", "deltaRemoveMissing", "deltaAddExisting")
 PROBE_KEYS = ("desyncSeen", "coopClientBStatePushes", "lastSeqEmitted", "lastSeqApplied",

@@ -8883,17 +8883,165 @@ void applyActionEndFinal(BattleUnit* unit, const Json::Value& final)
 // or tile index that does not resolve is counted (deltaUnresolved) and logged,
 // never guessed. The HUD refresh (coopRefreshAppliedHud) is onApplied()'s own
 // last act on both paths.
+//
+// W2-P2 S-L.2 (amendment A4.3 rule L-a, A4.4; owner M6 ruling 2026-09-24): the
+// light recompute in step (8) mirrors vanilla's scope - local calls shaped from
+// what the delta changed, the whole map only at a side transition.
+
+/// One client light recompute (S-L.2), timed and recorded through the S-L.1
+/// probe (CoopDelta::noteClientLight: local vs whole, layer/pos/radius/terrain/us).
+static void coopClientLight(TileEngine* te, const Json::Value& ev, LightLayers layer, Position pos, int radius,
+	bool terrain)
+{
+	const std::chrono::steady_clock::time_point tl0 = std::chrono::steady_clock::now();
+	te->calculateLighting(layer, pos, radius, terrain);
+	CoopDelta::noteClientLight(ev, layer, pos, radius, terrain,
+		std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tl0).count());
+}
+
+/// The L-a box of @a ps (non-empty, on-map positions): {midpoint (floor), the
+/// largest half-extent over x, y and z}. A single position gives {it, 0}.
+static std::pair<Position, int> coopLightBox(const std::vector<Position>& ps)
+{
+	int lo[3] = { ps.front().x, ps.front().y, ps.front().z };
+	int hi[3] = { lo[0], lo[1], lo[2] };
+	for (const Position& p : ps)
+	{
+		const int v[3] = { p.x, p.y, p.z };
+		for (int a = 0; a < 3; ++a)
+		{
+			lo[a] = std::min(lo[a], v[a]);
+			hi[a] = std::max(hi[a], v[a]);
+		}
+	}
+	int mid[3];
+	int half = 0;
+	for (int a = 0; a < 3; ++a)
+	{
+		mid[a] = (lo[a] + hi[a]) / 2; // coordinates are >= 0: floor
+		half = std::max(half, hi[a] - mid[a]);
+	}
+	return std::make_pair(Position(mid[0], mid[1], mid[2]), half);
+}
+
+/// L-a rule 3's condition (vanilla's own light sources in calculateTerrainItems
+/// and calculateUnitLighting): the item glows, or it links a burning unit.
+static bool coopItemGivesLight(const BattleItem* item)
+{
+	return item && (item->getGlow() || (item->getUnit() && item->getUnit()->getFire() > 0));
+}
+
+/// Where @a item's light sits: its tile, else its owner's tile. False when it
+/// is on neither (e.g. an owner that is off the map).
+static bool coopItemLightPos(SavedBattleGame* save, const BattleItem* item, Position& out)
+{
+	if (item->getTile())
+	{
+		out = item->getTile()->getPosition();
+		return true;
+	}
+	const BattleUnit* owner = item->getOwner();
+	if (owner && owner->getTile() && save->getTile(owner->getPosition()))
+	{
+		out = owner->getPosition();
+		return true;
+	}
+	return false;
+}
+
 void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 {
-	if (!save || !ev.isMember("delta") || !ev["delta"].isObject())
+	if (!save)
 		return;
+	// S-L.2 (A4.3 L-a rule 4, A4.4): a side_transition is the client's ONE
+	// whole-map light pass (vanilla endTurn's own LL_FIRE call, which the host
+	// makes right after emitting it) and nothing else - also when the envelope
+	// carries no delta, so this sits before the delta-less early return.
+	const bool sideTransition = ev.get("kind", "").asString() == "side_transition";
+	if (!ev.isMember("delta") || !ev["delta"].isObject())
+	{
+		if (sideTransition && save->getTileEngine())
+			coopClientLight(save->getTileEngine(), ev, LL_FIRE, TileEngine::invalid, 0, true);
+		return;
+	}
 	const Json::Value& d = ev["delta"];
 	const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 	const std::uint32_t seq = ev.get("seq", 0u).asUInt();
 	int fields = 0;
 	int unresolved = 0;
-	bool tileChanged = false;
 	std::vector<BattleUnit*> fovUnits;
+
+	// S-L.2 (A4.3 L-a rules 2-3): the PRE-apply state step (8) needs, read
+	// before (4)-(7) write it. Units: every entry that changes pos, onTile,
+	// status, fire or faction, with its position now (for a walk_step the wave-1
+	// applier already moved the unit, so this is the post-step position).
+	// Items: the tile of a light-giving item the delta removes from a tile; for
+	// an item the delta moves (items[] tile/owner, or an itemsAdded id that
+	// already exists here) its id, whether it gave light, and where; the
+	// itemsAdded ids minted by (6a), whose tile (8c) reads.
+	std::vector<std::pair<int, Position> > lightUnits;
+	std::vector<Position> lightItemPos;
+	std::vector<std::pair<int, bool> > lightItemMoved;
+	std::vector<int> lightItemMinted;
+	if (d.isMember("units"))
+	{
+		const Json::Value& arr = d["units"];
+		for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+		{
+			const Json::Value& ue = arr[k];
+			if (!(ue.isMember("pos") || ue.isMember("onTile") || ue.isMember("status") || ue.isMember("fire")
+				|| ue.isMember("faction")))
+			{
+				continue;
+			}
+			const int id = ue.get("id", -1).asInt();
+			if (const BattleUnit* u = CoopIdMaps::unit(id))
+				lightUnits.push_back(std::make_pair(id, u->getPosition()));
+		}
+	}
+	if (d.isMember("itemsRemoved"))
+	{
+		const Json::Value& arr = d["itemsRemoved"];
+		for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+		{
+			const BattleItem* item = CoopIdMaps::item(arr[k].asInt());
+			if (item && item->getTile() && coopItemGivesLight(item))
+				lightItemPos.push_back(item->getTile()->getPosition());
+		}
+	}
+	{
+		auto noteMoved = [&](int id)
+		{
+			const BattleItem* item = CoopIdMaps::item(id);
+			const bool lit = coopItemGivesLight(item);
+			Position p;
+			if (lit && coopItemLightPos(save, item, p))
+				lightItemPos.push_back(p);
+			lightItemMoved.push_back(std::make_pair(id, lit));
+		};
+		if (d.isMember("items"))
+		{
+			const Json::Value& arr = d["items"];
+			for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+			{
+				const int id = arr[k].get("id", -1).asInt();
+				if ((arr[k].isMember("tile") || arr[k].isMember("owner")) && CoopIdMaps::item(id))
+					noteMoved(id);
+			}
+		}
+		if (d.isMember("itemsAdded"))
+		{
+			const Json::Value& arr = d["itemsAdded"];
+			for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+			{
+				const int id = arr[k].get("id", -1).asInt();
+				if (CoopIdMaps::item(id))
+					noteMoved(id); // (6a) applies it as a field update (tile/owner included)
+				else
+					lightItemMinted.push_back(id);
+			}
+		}
+	}
 
 	auto tagsFromJson = [](const Json::Value& a)
 	{
@@ -8979,7 +9127,6 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 				continue;
 			}
 			Tile* t = save->getTile(i);
-			tileChanged = true;
 			if (te.isMember("parts"))
 			{
 				const Json::Value& parts = te["parts"];
@@ -9737,22 +9884,133 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 		}
 	}
 
-	// (8) display refresh - machine-local presentation, in no hash bucket: one
-	// fire-layer lighting pass when any tile changed (vanilla endTurn's own
-	// call), then a targeted FOV refresh per non-out unit whose position or
-	// status changed (the A5 precedent; the client's tile half stays
-	// suppressed, SS2.4a).
+	// (8) display refresh - machine-local presentation, in no hash bucket: the
+	// light recompute (S-L.2, below), then a targeted FOV refresh per non-out
+	// unit whose position or status changed (the A5 precedent; the client's
+	// tile half stays suppressed, SS2.4a). FOV reads light, so light goes first.
 	TileEngine* tileEngine = save->getTileEngine();
 	if (tileEngine)
 	{
-		if (tileChanged)
+		if (sideTransition)
 		{
-			// W2-P2 S-L.1 (A4.5): probe only - time and count this pass; the
-			// call, its layer, position and trigger are unchanged.
-			const std::chrono::steady_clock::time_point tl0 = std::chrono::steady_clock::now();
-			tileEngine->calculateLighting(LL_FIRE, TileEngine::invalid, 0, true);
-			CoopDelta::noteClientLight(ev, LL_FIRE, TileEngine::invalid, 0, true,
-				std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - tl0).count());
+			// A4.4: ONE whole-map pass, nothing else (vanilla endTurn's call).
+			coopClientLight(tileEngine, ev, LL_FIRE, TileEngine::invalid, 0, true);
+		}
+		else
+		{
+			// A4.3 L-a: vanilla-shaped local calls, one per cause class, in
+			// vanilla's order (terrain, units, items), no cross-class merging.
+			// Every call goes through coopClientLight (the S-L.1 probe).
+			//
+			// (8a) tiles: every entry that changed parts, fire, smoke or UFO-door
+			// bits (explosive/explosiveType alone change no light). ONE call over
+			// their box, radius = half-extent + 1, terrain caches rebuilt;
+			// LL_AMBIENT when any parts changed (a roof may be gone), else
+			// LL_FIRE. One tile = vanilla's TileEngine::hit call (tile, 1, true).
+			std::vector<Position> litTiles;
+			bool partsChanged = false;
+			if (d.isMember("tiles"))
+			{
+				const Json::Value& tiles = d["tiles"];
+				const int tileCount = save->getMapSizeXYZ();
+				for (Json::ArrayIndex k = 0; k < tiles.size(); ++k)
+				{
+					const Json::Value& te = tiles[k];
+					const int i = te.get("i", -1).asInt();
+					if (i < 0 || i >= tileCount)
+						continue;
+					if (!(te.isMember("parts") || te.isMember("fire") || te.isMember("smoke")
+						|| te.isMember("doorBits")))
+					{
+						continue;
+					}
+					partsChanged = partsChanged || te.isMember("parts");
+					litTiles.push_back(save->getTile(i)->getPosition());
+				}
+			}
+			if (!litTiles.empty())
+			{
+				const std::pair<Position, int> box = coopLightBox(litTiles);
+				coopClientLight(tileEngine, ev, partsChanged ? LL_AMBIENT : LL_FIRE, box.first, box.second + 1, true);
+			}
+
+			// (8b) units whose light can move (the pre-pass list): a dead or
+			// unconscious unit -> (LL_ITEMS, pos, armour size), vanilla's
+			// UnitDieBState call; else (LL_UNITS, new pos, 2), vanilla's walk-step
+			// call, plus (LL_UNITS, old pos, 0) when the pre-apply position is
+			// more than 2 tiles away. More than 4 such units: ONE merged LL_UNITS
+			// call over their box + 2. Positions off the map are skipped (an
+			// invalid position would mean the whole map).
+			struct LitUnit
+			{
+				Position pos;
+				int size;
+				bool down;
+				bool farOld;
+				Position oldPos;
+			};
+			std::vector<LitUnit> litUnits;
+			for (const std::pair<int, Position>& lu : lightUnits)
+			{
+				const BattleUnit* u = CoopIdMaps::unit(lu.first);
+				if (!u || !save->getTile(u->getPosition()))
+					continue;
+				const Position p = u->getPosition();
+				const Position o = lu.second;
+				const bool farOld = save->getTile(o) != nullptr
+					&& std::max(std::max(std::abs(p.x - o.x), std::abs(p.y - o.y)), std::abs(p.z - o.z)) > 2;
+				const bool down = u->getStatus() == STATUS_DEAD || u->getStatus() == STATUS_UNCONSCIOUS;
+				litUnits.push_back(LitUnit{ p, u->getArmor()->getSize(), down, farOld, o });
+			}
+			if (litUnits.size() > 4)
+			{
+				std::vector<Position> ps;
+				for (const LitUnit& lu : litUnits)
+				{
+					ps.push_back(lu.pos);
+					if (lu.farOld)
+						ps.push_back(lu.oldPos);
+				}
+				const std::pair<Position, int> box = coopLightBox(ps);
+				coopClientLight(tileEngine, ev, LL_UNITS, box.first, box.second + 2, false);
+			}
+			else
+			{
+				for (const LitUnit& lu : litUnits)
+				{
+					if (lu.down)
+					{
+						coopClientLight(tileEngine, ev, LL_ITEMS, lu.pos, lu.size, false);
+						continue;
+					}
+					coopClientLight(tileEngine, ev, LL_UNITS, lu.pos, 2, false);
+					if (lu.farOld)
+						coopClientLight(tileEngine, ev, LL_UNITS, lu.oldPos, 0, false);
+				}
+			}
+
+			// (8c) light-giving items (glowing, or linking a burning unit) that
+			// were added to a tile, removed from a tile, or moved (tile/owner):
+			// ONE LL_ITEMS call over their old and new positions, radius =
+			// half-extent. One item = vanilla's itemDrop call (tile, 0).
+			for (const std::pair<int, bool>& m : lightItemMoved)
+			{
+				const BattleItem* item = CoopIdMaps::item(m.first);
+				Position p;
+				if (item && (m.second || coopItemGivesLight(item)) && coopItemLightPos(save, item, p))
+					lightItemPos.push_back(p);
+			}
+			for (int id : lightItemMinted)
+			{
+				const BattleItem* item = CoopIdMaps::item(id);
+				if (item && item->getTile() && coopItemGivesLight(item))
+					lightItemPos.push_back(item->getTile()->getPosition());
+			}
+			if (!lightItemPos.empty())
+			{
+				const std::pair<Position, int> box = coopLightBox(lightItemPos);
+				coopClientLight(tileEngine, ev, LL_ITEMS, box.first, box.second, false);
+			}
 		}
 		for (BattleUnit* u : fovUnits)
 		{
