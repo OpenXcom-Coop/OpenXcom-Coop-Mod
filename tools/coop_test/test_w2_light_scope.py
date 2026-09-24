@@ -12,19 +12,35 @@ compares both machines' light tile by tile (the `light_census` probe, whole
 map, all four layers plus shade) and reads the client's recompute counters.
 Three scenarios, ONE boot, in this order (A4.5: LS3's tile changes would make
 today's client recompute the whole map and heal LS1's stale light before LS2
-could show it):
+could show it).
+
+The battle runs AT NIGHT (owner D142 = a, amendment A6): maximum darkness
+(15) from the NEW BATTLE settings. Mechanism A6 (1): before the host's game
+starts, this test writes `darkness: 15` into the host's new-battle config
+(<host user dir>/xcom1/battle.cfg, the file NewBattleState::load() reads with
+cfgReader["darkness"] when the NEW BATTLE screen opens); test-only, no src
+change. By day (S-L.1's run, F603: globalShade 0, ambient 15 on 6237/6400
+tiles) a unit's light never beats the ambient layer, so no census difference
+could show. Boot precondition on BOTH machines: light_census globalShade ==
+15, and after light_recompute the census `units` layer is non-zero on H's
+tile.
 
   LS1  plain walk. H is staged at C15_H_TILE on BOTH machines, both recompute
        light (baseline census equal), then the host walks H to C15_WALK_DEST
        with a real-UI click. GREEN: census equal; client lightLocalCalls
        delta >= 2 (one per walk_step); lightWholeCalls delta 0.
-  LS2  turn end, no tile change. Right after LS1 (no light_recompute): both
-       press END TURN, full cycle back to the player side. The map has no
+  LS2  turn end, no tile change; stages its own stale light (A6, F606): after
+       LS1 (and its classifier), TU refilled and light_recompute on BOTH
+       machines (baseline census equal), then the host walks H back along the
+       C15 path to C15_H_TILE with a real-UI click (moves H's personal light;
+       the census right after the walk is evidence only, no classifier), then
+       both press END TURN, full cycle back to the player side. The map has no
        fire or smoke, so the side transitions carry no tiles. GREEN: census
-       equal; client lightWholeCalls delta == the number of side_transition
-       evs the client applied in the cycle (its event_log), and the client's
-       last light recompute at each of those seqs was whole-map (its
-       `[coop-light] seq=` log line - the per-seq record of `lastLight`).
+       equal; client lightWholeCalls delta over the cycle == the number of
+       side_transition evs the client applied in the cycle (its event_log),
+       and the client's last light recompute at each of those seqs was
+       whole-map (its `[coop-light] seq=` log line - the per-seq record of
+       `lastLight`).
   LS3  burning floor (tile + unit). H gets specab 2 (SPECAB_BURNFLOOR) on BOTH
        machines, is staged at C15B_H_TILE, both recompute light (baseline),
        the client's light timing windows are zeroed (light_probe_reset), then
@@ -33,11 +49,14 @@ could show it):
        GREEN: census equal; lightWholeCalls delta 0; lightLocalCalls
        delta >= 3; client deltaApplyUsMax (the window) <= BAR_L_US.
 
-RED (commit S-L.1: this file, the three levers and the probes; product
-behaviour untouched), the A4.5 RED column: LS1 census `units` layer differs
-and client lightLocalCalls delta 0; LS2 census still differs and
-lightWholeCalls delta 0; LS3 client lightWholeCalls delta >= 3 and
-deltaApplyUsMax >= 4 ms. BAR_L_US is None until the orchestrator sets it from
+RED (commits S-L.1 and S-L.1b: this file, the three levers and the probes;
+product behaviour untouched), the A4.5 RED column as amended by A6: LS1
+census `units` layer differs (classifier CLIENT-stale) and client
+lightLocalCalls delta 0; LS2 client lightWholeCalls delta 0 over the cycle
+and the census differs (the walk back left the client stale); LS3 client
+lightWholeCalls delta >= 3 and deltaApplyUsMax >= 4 ms (at night LS3 may
+also show a census difference: recorded, not a stop). BAR_L_US is None until
+the orchestrator sets it from
 the S-L.0 measurement; while it is None, LS3's bar check fails with
 "BAR_L not set (S-L.0 pending)".
 
@@ -59,8 +78,9 @@ bytes per tile, tile index order) to the machine's user dir, path printed.
 
 FIXTURE (deterministic, never searched here): test_w2_delta_core.py's boot -
 the default NEW BATTLE map, set_seed SEED_MAP right before newbattle_ok,
-asserted against the baked MAP_FP, pin_ai_neutral - and its constants reused
-verbatim. Every staging write goes to BOTH machines and the responses are
+asserted against the baked MAP_FP, pin_ai_neutral - plus the night config
+above, and its constants reused verbatim. Every staging write goes to BOTH
+machines and the responses are
 asserted equal. set_seed on the HOST immediately before LS3's walk order.
 
 Each scenario prints ONE "EVIDENCE <id>:" line (both machines' fields) before
@@ -105,6 +125,14 @@ COOP_SEAT_0 = 0
 
 # ----- test_w2_light_scope.py (S-L) -----
 PORT = "48624"
+# A6 (owner D142 = a): the battle runs at maximum darkness. NewBattleState's
+# darkness slider range is 0-15; the host's new-battle config lives in the
+# master user folder (Options::getMasterUserFolder() = <user dir>/xcom1/).
+DARKNESS = 15
+NEW_BATTLE_CFG = os.path.join("xcom1", "battle.cfg")
+# LS2's walk back along the C15 path (A6 / F606): from C15_WALK_DEST to C15_H_TILE.
+C15_BACK_DEST = C15_H_TILE
+C15_BACK_PATH = [(2, 6, 0), (1, 6, 0)]
 # LS3's client apply-cost bar in microseconds (A4.5 BAR_L). The orchestrator
 # sets it from the S-L.0 measurement; None until then.
 BAR_L_US = None
@@ -179,6 +207,43 @@ def census_view(c):
             "personalLight": c["personalLight"], "globalShade": c["globalShade"], "dump": c["path"]}
 
 
+def tile_light(c, t):
+    """The LL_MAX light bytes [ambient, fire, items, units] of tile `t` in
+    census `c` (tile index = x + y*sizeX + z*sizeX*sizeY, as coords())."""
+    i = t[0] + t[1] * c["mapSizeX"] + t[2] * c["mapSizeX"] * c["mapSizeY"]
+    w = len(LAYERS)
+    return list(c["bytes"][w * i:w * i + w])
+
+
+def tiles_light(ch, cc, tiles):
+    """{'x,y,z': {'host': [4], 'client': [4]}} for each tile in `tiles`."""
+    return {f"{t[0]},{t[1]},{t[2]}": {"host": tile_light(ch, t), "client": tile_light(cc, t)} for t in tiles}
+
+
+def write_night_cfg(user_dir):
+    """A6 mechanism (1): the host's new-battle config with the darkness slider
+    at DARKNESS, written before the game starts, so NewBattleState::load()
+    reads it when the NEW BATTLE screen opens (every other key falls back to
+    the same default index the no-file path selects)."""
+    path = os.path.join(user_dir, NEW_BATTLE_CFG)
+    with open(path, "w", encoding="ascii", newline="\n") as f:
+        f.write(f"darkness: {DARKNESS}\n")
+    return path
+
+
+def cfg_darkness(user_dir):
+    """The `darkness:` value in the machine's battle.cfg as the game last
+    wrote it (NewBattleState::save(), called again at newbattle_ok), or the
+    reason it could not be read."""
+    path = os.path.join(user_dir, NEW_BATTLE_CFG)
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            m = re.search(r"^darkness:\s*(\d+)", f.read(), re.M)
+    except OSError as e:
+        return f"unreadable: {e}"
+    return int(m.group(1)) if m else "no darkness key"
+
+
 def classify(host, client, ch0, cc0, tag):
     """The staleness classifier (A4.5, R7): light_recompute on BOTH machines,
     a second census, and per machine the tiles the recompute changed."""
@@ -222,10 +287,12 @@ def census_check(host, client, ch, cc, tag):
 
 def baseline(host, client, tag):
     """light_recompute on BOTH machines, then the baseline census. Returns
-    (evidence, error); error names STOP-IF L2 when the census differs."""
+    (evidence, error, (host census, client census)); error names STOP-IF L2
+    when the census differs. The censuses are None when the recompute failed."""
     rh, rc = host.cmd({"cmd": "light_recompute"}), client.cmd({"cmd": "light_recompute"})
     if not (rh.get("ok") and rc.get("ok")):
-        return {"recompute": {"host": rh, "client": rc}}, f"baseline light_recompute failed: host={rh} client={rc}"
+        return ({"recompute": {"host": rh, "client": rc}},
+                f"baseline light_recompute failed: host={rh} client={rc}", (None, None))
     ch, cc = census(host, tag + "_baseline"), census(client, tag + "_baseline")
     mism = census_mismatch(ch, cc)
     diff = tile_diffs(ch["bytes"], cc["bytes"])
@@ -235,14 +302,14 @@ def baseline(host, client, tag):
     if mism or diff:
         return ev, (f"STOP-IF L2: baseline light census differs after light_recompute on both machines "
                     f"{mism}: {len(diff)} tile(s), first (host client) {ev['first (host client)']}; "
-                    f"dumps host={ch['path']} client={cc['path']}")
+                    f"dumps host={ch['path']} client={cc['path']}"), (ch, cc)
     if not (ch["personalLight"] is True and cc["personalLight"] is True):
         return ev, (f"baseline: personalLight host={ch['personalLight']} client={cc['personalLight']} "
-                    f"(want true on both)")
+                    f"(want true on both)"), (ch, cc)
     if not (ch["nonZero"]["units"] > 0 and cc["nonZero"]["units"] > 0):
         return ev, (f"baseline: nonZero.units host={ch['nonZero']['units']} "
-                    f"client={cc['nonZero']['units']} (want > 0: no unit light to move)")
-    return ev, None
+                    f"client={cc['nonZero']['units']} (want > 0: no unit light to move)"), (ch, cc)
+    return ev, None, (ch, cc)
 
 
 def light_lines(gc, seqs, timeout=5.0):
@@ -310,20 +377,24 @@ def ls1(host, client, ctx):
     notes = []
     dc.tele_both(host, client, H_ID, C15_H_TILE, C15_H_DIR)
     dc.tu_both(host, client, H_ID)
-    base, berr = baseline(host, client, "LS1")
+    base, berr, (bh, bc) = baseline(host, client, "LS1")
     if berr:
         print(f"EVIDENCE LS1: baseline={base}", flush=True)
         raise AssertionError(berr)
+    h_tiles = [C15_H_TILE] + C15_WALK_PATH
     before = {"host": probes(host), "client": probes(client)}
     hw = dc.host_walk(host, client, C15_WALK_DEST, None, notes)
     ph, pc = probes(host), probes(client)
     ch, cc = census(host, "LS1_after"), census(client, "LS1_after")
+    walk_light = {"baseline": tiles_light(bh, bc, h_tiles), "after": tiles_light(ch, cc, h_tiles)}
     cfails, cev = census_check(host, client, ch, cc, "LS1_after")
     d_local = delta_of(before["client"], pc, "lightLocalCalls")
     d_whole = delta_of(before["client"], pc, "lightWholeCalls")
     print(f"EVIDENCE LS1: walk executed={dc.executed_path(hw)}; baseline mismatch={base['mismatch']} "
           f"nonZero host={base['host']['nonZero']} client={base['client']['nonZero']} "
-          f"personalLight host={base['host']['personalLight']} client={base['client']['personalLight']}; "
+          f"personalLight host={base['host']['personalLight']} client={base['client']['personalLight']} "
+          f"globalShade host={base['host']['globalShade']} client={base['client']['globalShade']}; "
+          f"H path tile light [ambient,fire,items,units]={walk_light}; "
           f"after census={cev}; client lightLocalCalls delta={d_local} lightWholeCalls delta={d_whole}; "
           f"client light {light_view(before['client'])}->{light_view(pc)}; "
           f"host desyncSeen={ph['desyncSeen']} client desyncSeen={pc['desyncSeen']}; "
@@ -342,10 +413,25 @@ def ls1(host, client, ctx):
 
 def ls2(host, client, ctx):
     notes = []
-    ch0, cc0 = census(host, "LS2_before"), census(client, "LS2_before")
-    pre = {"mismatch": census_mismatch(ch0, cc0), "tilesDiffer": len(tile_diffs(ch0["bytes"], cc0["bytes"])),
-           "first (host client)": fmt_tiles(ch0, cc0, tile_diffs(ch0["bytes"], cc0["bytes"]))}
+    # A6 / F606: LS2 stages its own stale light instead of depending on LS1's
+    # leftover (LS1's classifier recomputes both machines and heals it).
+    dc.tu_both(host, client, H_ID)
+    base, berr, (bh, bc) = baseline(host, client, "LS2")
+    if berr:
+        print(f"EVIDENCE LS2: baseline={base}", flush=True)
+        raise AssertionError(berr)
+    h_tiles = [C15_WALK_DEST] + C15_BACK_PATH
+    pre_walk = probes(client)
+    hw = dc.host_walk(host, client, C15_BACK_DEST, None, notes)
+    # Evidence only: the census right after the walk, BEFORE the cycle. No
+    # classifier here (its light_recompute would heal the staged stale light).
+    ch0, cc0 = census(host, "LS2_walked"), census(client, "LS2_walked")
+    d0 = tile_diffs(ch0["bytes"], cc0["bytes"])
+    pre = {"mismatch": census_mismatch(ch0, cc0), "tilesDiffer": len(d0),
+           "first (host client)": fmt_tiles(ch0, cc0, d0)}
     before = {"host": probes(host), "client": probes(client)}
+    walk_light = {"baseline": tiles_light(bh, bc, h_tiles), "walked": tiles_light(ch0, cc0, h_tiles)}
+    walk_calls = {k: delta_of(pre_walk, before["client"], k) for k in ("lightLocalCalls", "lightWholeCalls")}
     seq0 = before["client"]["lastSeqApplied"] or 0
     turn0 = dc.end_turn_cycle(host, client, notes)
     hs, cs = battle_state(host), battle_state(client)
@@ -355,10 +441,15 @@ def ls2(host, client, ctx):
     kinds = [(e["seq"], e["kind"]) for e in log if e.get("seq", 0) > seq0]
     lines = light_lines(client, st_seqs)
     ch, cc = census(host, "LS2_after"), census(client, "LS2_after")
+    walk_light["after cycle"] = tiles_light(ch, cc, h_tiles)
     cfails, cev = census_check(host, client, ch, cc, "LS2_after")
     d_local = delta_of(before["client"], pc, "lightLocalCalls")
     d_whole = delta_of(before["client"], pc, "lightWholeCalls")
-    print(f"EVIDENCE LS2: census before the cycle={pre}; turn {turn0} -> host=({hs.get('turn')},"
+    print(f"EVIDENCE LS2: baseline mismatch={base['mismatch']} globalShade host={base['host']['globalShade']} "
+          f"client={base['client']['globalShade']}; walk back executed={dc.executed_path(hw)}; "
+          f"client light calls during the walk={walk_calls}; "
+          f"H path tile light [ambient,fire,items,units]={walk_light}; "
+          f"census after the walk, before the cycle={pre}; turn {turn0} -> host=({hs.get('turn')},"
           f"{hs.get('side')}) client=({cs.get('turn')},{cs.get('side')}); client evs applied in the cycle="
           f"{kinds}; side_transition seqs={st_seqs}; client [coop-light] lines at those seqs={lines}; "
           f"after census={cev}; client lightWholeCalls delta={d_whole} lightLocalCalls delta={d_local}; "
@@ -366,6 +457,8 @@ def ls2(host, client, ctx):
           f"host desyncSeen={ph['desyncSeen']} client desyncSeen={pc['desyncSeen']}; "
           f"host lastDelta={ph['lastDelta']} client lastDelta={pc['lastDelta']}; notes={notes}", flush=True)
     fails = list(notes)
+    if dc.executed_path(hw) != C15_BACK_PATH:
+        fails.append(f"walk back executed {dc.executed_path(hw)} (want {C15_BACK_PATH})")
     if (hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")) != (turn0 + 1, FACTION_PLAYER,
                                                                              turn0 + 1, FACTION_PLAYER):
         fails.append(f"not on player turn {turn0 + 1} on both: host=({hs.get('turn')},{hs.get('side')}) "
@@ -390,7 +483,7 @@ def ls3(host, client, ctx):
                  ("specab",))
     dc.tele_both(host, client, H_ID, C15B_H_TILE, C15B_H_DIR)
     dc.tu_both(host, client, H_ID)
-    base, berr = baseline(host, client, "LS3")
+    base, berr, _ = baseline(host, client, "LS3")
     if berr:
         print(f"EVIDENCE LS3: specab={sa.get('specab')} baseline={base}", flush=True)
         raise AssertionError(berr)
@@ -441,7 +534,43 @@ SCENARIOS = (("LS1", ls1), ("LS2", ls2), ("LS3", ls3))
 # ===================== bring-up =====================
 
 
+def night_precondition(host, client):
+    """A6 boot precondition on BOTH machines: light_census globalShade ==
+    DARKNESS, and after light_recompute the census `units` layer is non-zero
+    on H's tile. Prints one EVIDENCE line; returns the failure text or None."""
+    c0 = {"host": census(host, "boot"), "client": census(client, "boot")}
+    rh, rc = host.cmd({"cmd": "light_recompute"}), client.cmd({"cmd": "light_recompute"})
+    c1 = {"host": census(host, "boot_recomputed"), "client": census(client, "boot_recomputed")}
+    pos = {}
+    for name, gc in (("host", host), ("client", client)):
+        u = session.units_by_id(battle_state(gc)).get(H_ID) or {}
+        pos[name] = (u.get("x"), u.get("y"), u.get("z"))
+    h_light = {name: (tile_light(c1[name], pos[name]) if None not in pos[name] else None) for name in pos}
+    shade = {name: c0[name]["globalShade"] for name in c0}
+    cfg = {"host": cfg_darkness(host.user_dir), "client": cfg_darkness(client.user_dir)}
+    print(f"EVIDENCE boot-night: host battle.cfg darkness after newbattle_ok={cfg['host']} "
+          f"(client {cfg['client']}); globalShade host={shade['host']} client={shade['client']} "
+          f"(want {DARKNESS}); nonZero before recompute host={c0['host']['nonZero']} "
+          f"client={c0['client']['nonZero']}; light_recompute ok host={rh.get('ok')} client={rc.get('ok')}; "
+          f"after recompute nonZero host={c1['host']['nonZero']} client={c1['client']['nonZero']}; "
+          f"H={H_ID} tile host={pos['host']} client={pos['client']} light [ambient,fire,items,units] "
+          f"host={h_light['host']} client={h_light['client']}; dumps host={c1['host']['path']} "
+          f"client={c1['client']['path']}", flush=True)
+    if shade["host"] != DARKNESS or shade["client"] != DARKNESS:
+        return (f"night precondition: globalShade host={shade['host']} client={shade['client']} "
+                f"(want {DARKNESS}; host battle.cfg darkness={cfg['host']})")
+    if not (rh.get("ok") and rc.get("ok")):
+        return f"night precondition: light_recompute failed host={rh} client={rc}"
+    if not all(h_light[n] and h_light[n][3] > 0 for n in h_light):
+        return (f"night precondition: units light on H's tile host={h_light['host']} "
+                f"client={h_light['client']} (want units > 0 on both)")
+    return None
+
+
 def boot(host, client):
+    cfg_path = write_night_cfg(host.user_dir)
+    print(f"[w2p2-sl] night config written before the host starts: {cfg_path} (darkness: {DARKNESS})",
+          flush=True)
     raw.bring_up_lobby(host, client, PORT)
     seated = {}
     session.drive_to_battlescape(host, client, seated, seat_count=2,
@@ -457,9 +586,12 @@ def boot(host, client):
     assert h_ids and h_ids[0] == H_ID, f"first host-seat soldier {h_ids[:1]} (baked H={H_ID})"
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
+    nerr = night_precondition(host, client)
+    assert nerr is None, nerr
     ph = probes(host)
     print(f"[w2p2-sl] boot ok: MAP_FP={MAP_FP!r} turn={hs['turn']} H={H_ID} pinned={pinned} "
-          f"SEED_C15={SEED_C15} BAR_L_US={BAR_L_US} host lastSeqEmitted={ph['lastSeqEmitted']}", flush=True)
+          f"DARKNESS={DARKNESS} SEED_C15={SEED_C15} BAR_L_US={BAR_L_US} "
+          f"host lastSeqEmitted={ph['lastSeqEmitted']}", flush=True)
     return {}
 
 
