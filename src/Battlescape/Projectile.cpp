@@ -33,6 +33,7 @@
 #include "../Engine/Options.h"
 #include "../fmath.h"
 #include "../CoopMod/CoopSpeed.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -305,6 +306,7 @@ int Projectile::calculateThrow(double accuracy)
 		}
 
 
+		coopNoteThrowArc(originVoxel, targetVoxel, deltas, curvature);
 		test = _save->getTileEngine()->calculateParabolaVoxel(originVoxel, targetVoxel, true, &_trajectory, _action.actor, curvature, deltas);
 		if (forced) return O_OBJECT; //fake hit
 		Position endPoint = getPositionFromEnd(_trajectory, ItemDropVoxelOffset).toTile();

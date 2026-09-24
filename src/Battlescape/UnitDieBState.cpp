@@ -35,6 +35,7 @@
 #include "InfoboxOKState.h"
 #include "InfoboxState.h"
 #include "../Savegame/Node.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -106,6 +107,7 @@ UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const Ru
 	_unit->clearVisibleTiles();
 	_unit->clearVisibleUnits();
 	_unit->freePatrolTarget();
+	coopCueDeath(_unit, _damageType);
 
 	if (!_parent->getSave()->isBeforeGame() && _unit->getFaction() == FACTION_HOSTILE)
 	{
@@ -275,6 +277,7 @@ void UnitDieBState::think()
 			convertUnitToCorpse();
 		}
 
+		coopCueCorpse(_unit);
 		_parent->getSave()->clearUnitSelection(_unit);
 	}
 

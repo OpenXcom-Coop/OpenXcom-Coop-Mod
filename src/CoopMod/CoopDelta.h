@@ -28,6 +28,11 @@ class SavedBattleGame;
 class BattleUnit;
 class BattleItem;
 class Tile;
+class Position;
+class Projectile;
+struct BattleAction;
+struct BattleActionAttack;
+struct RuleDamageType;
 
 /**
  * W2-P2 (rewrite wave 2, docs rewrite/prompts/w2p2_delta_core.md, owner ruling
@@ -88,6 +93,11 @@ struct Probes
 	// S-C.1 (the RED commit) adds the storage only; commit S-C.2's
 	// CoopArbiter::beginHostLocalCombat is the writer.
 	int hostCombatContexts = 0; ///< [hostCombatContexts] host: host-local combat contexts begun
+	// W2-P2 S-C (amendment A3, F690): the arming guard's deferrals - an
+	// onChainQuiesced() that fired INSIDE an armed push pair (the battle_fire
+	// lever's turn-then-shot pushes) and was deferred instead of closing the
+	// context before the shot state existed.
+	int armingDeferrals = 0;    ///< [armingDeferrals] host: quiescences deferred while arming
 };
 
 /// A snapshot of this machine's probes (thread-safe; reads atomics).
@@ -183,5 +193,63 @@ void absorbItem(const BattleItem* item);
 void absorbItemRemoved(int id);
 
 } // namespace CoopDelta
+
+// ----- W2-P2 S-C, commit S-C.2: host combat cues (spec (b)11, (b)14) -----
+// A cue is bt_ev{kind, actionId, payload}: its STATE effect is the envelope's
+// `delta` alone (attached at the CoopEmit::sendEv choke); the payload carries
+// only the display fields a later animation unit (W2-P5/P6) needs - frozen here
+// (V2), no timing (G1). Every hook below is ONE guarded call at its vanilla
+// site and a no-op unless isCoopBattle() && hostSim (so SP, a client and the
+// WV-D68 pre-game deaths emit nothing). A cue takes
+// CoopArbiter::currentActionId() - 0 outside a context: the hooks serve every
+// origin (Q2 = (a)); AI and reaction fire get their own contexts in W2-P3.
+// Bodies: connectionTCP.cpp.
+
+/// Spec (b)11: true for the 16 frozen cue kinds (shot, hit, explosion, melee,
+/// psi, death, corpse, prime, sync, fall, revive, spawn, panic, prox_trigger,
+/// medikit, scanner). The client's CoopApply::applyEvPayload records the cue
+/// probe for them and nothing else.
+bool coopIsCueKind(const std::string& kind);
+
+/// P1 (ProjectileFlyBState::createNewProjectile, after the hit-log block):
+/// the `shot` cue - {actor, unit (=actor), weapon, ammo, action, shotIndex,
+/// waypointsLeft, originVoxel, impactVoxel, impact, arc?}. `arc` rides a throw
+/// or an arcing shot and comes from coopNoteThrowArc()'s note.
+void coopCueShot(const BattleAction& action, const BattleItem* ammo, const Projectile* projectile, int impact);
+
+/// P2 (ProjectileFlyBState::think, after a shotgun pellet's TileEngine::hit):
+/// the pellet `hit` cue - {actor?, unit?, voxel, damageType, power, miss:false,
+/// pellet}.
+void coopCuePellet(const BattleActionAttack& attack, const Position& voxel, int power,
+	const RuleDamageType* damageType, int pellet);
+
+/// PR1 (Projectile::calculateThrow, before calculateParabolaVoxel): record the
+/// arc of the throw / arcing shot being computed (last write wins inside the
+/// `tries` loop); read and cleared by the next coopCueShot(). Nothing is sent.
+void coopNoteThrowArc(const Position& originVoxel, const Position& targetVoxel, const Position& deltas,
+	double curvature);
+
+/// E1 (end of ExplosionBState::init, before the BA_SELF_DESTRUCT test - the
+/// damage is applied by then): `explosion` (area), `melee` (BA_HIT), `psi`
+/// (psi amp) or `hit` (a bullet impact), each with its frozen payload.
+void coopCueExplosionInit(const BattleActionAttack& attack, const Position& centre, int power, int radius,
+	const RuleDamageType* damageType, bool areaOfEffect, bool melee, bool psi, bool miss, int chain,
+	const Tile* tile, const BattleUnit* target);
+
+/// D1 (UnitDieBState constructor, after freePatrolTarget()): the `death` cue -
+/// {unit, outcome:"dead"|"unconscious", instant, damageType}.
+void coopCueDeath(const BattleUnit* unit, const RuleDamageType* damageType);
+
+/// D2 (UnitDieBState::think, before clearUnitSelection()): the `corpse` cue -
+/// {unit, pos, corpses:[item ids linked to the unit]}, only when >= 1.
+void coopCueCorpse(const BattleUnit* unit);
+
+/// Spec (b)14 (BattlescapeGame::handleNonTargetAction, the last statement of
+/// the BA_PRIME and BA_UNPRIME spendTU blocks): prime/unprime as an INSTANT
+/// host action - mint, push {id,"host"}, emit the `prime` cue ({actor, unit
+/// (=actor), item, fuse, unprime}; delta + h), emit bt_action_end{final, h},
+/// pop: the kneel pattern in one call. Coop + hostSim only; logged no-op while
+/// another action context is open (the fuse then rides the next delta).
+void coopHostPrime(BattleUnit* actor, BattleItem* item, bool unprime);
 
 } // namespace OpenXcom

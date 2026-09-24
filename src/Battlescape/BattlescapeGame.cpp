@@ -65,6 +65,7 @@
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopSideTransition.h"
 #include "../CoopMod/CoopDoor.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -1105,6 +1106,7 @@ void BattlescapeGame::handleNonTargetAction()
 				playSound(_currentAction.weapon->getRules()->getPrimeSound()); // prime sound
 				_save->getTileEngine()->calculateLighting(LL_UNITS, _currentAction.actor->getPosition());
 				_save->getTileEngine()->calculateFOV(_currentAction.actor->getPosition(), _currentAction.weapon->getVisibilityUpdateRange(), false);
+				coopHostPrime(_currentAction.actor, _currentAction.weapon, false);
 			}
 			else
 			{
@@ -1120,6 +1122,7 @@ void BattlescapeGame::handleNonTargetAction()
 				playSound(_currentAction.weapon->getRules()->getUnprimeSound()); // unprime sound
 				_save->getTileEngine()->calculateLighting(LL_UNITS, _currentAction.actor->getPosition());
 				_save->getTileEngine()->calculateFOV(_currentAction.actor->getPosition(), _currentAction.weapon->getVisibilityUpdateRange(), false);
+				coopHostPrime(_currentAction.actor, _currentAction.weapon, true);
 			}
 			else
 			{
@@ -1134,6 +1137,7 @@ void BattlescapeGame::handleNonTargetAction()
 		{
 			if (_currentAction.haveTU(&error))
 			{
+				CoopArbiter::beginHostLocalCombat(_currentAction.actor, _currentAction.type);
 				statePushBack(new MeleeAttackBState(this, _currentAction));
 			}
 			else
@@ -1928,6 +1932,7 @@ void BattlescapeGame::primaryAction(Position pos)
 				_parentState->getGame()->getCursor()->setVisible(false);
 				_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
 				if (coopClientBStateTripwire("primaryAction.spray")) return;
+				CoopArbiter::beginHostLocalCombat(_currentAction.actor, _currentAction.type);
 				_states.push_back(new ProjectileFlyBState(this, _currentAction));
 				statePushFront(new UnitTurnBState(this, _currentAction));
 				_currentAction.sprayTargeting = false;
@@ -2030,6 +2035,7 @@ void BattlescapeGame::primaryAction(Position pos)
 						getMap()->setCursorType(CT_NONE);
 						_parentState->getGame()->getCursor()->setVisible(false);
 						_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
+						CoopArbiter::beginHostLocalCombat(_currentAction.actor, _currentAction.type);
 						statePushBack(new PsiAttackBState(this, _currentAction));
 					}
 					else
@@ -2064,6 +2070,7 @@ void BattlescapeGame::primaryAction(Position pos)
 			_parentState->getGame()->getCursor()->setVisible(false);
 			_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
 			if (coopClientBStateTripwire("primaryAction.fire")) return;
+			CoopArbiter::beginHostLocalCombat(_currentAction.actor, _currentAction.type);
 			_states.push_back(new ProjectileFlyBState(this, _currentAction));
 			statePushFront(new UnitTurnBState(this, _currentAction)); // first of all turn towards the target
 		}
@@ -2269,6 +2276,7 @@ void BattlescapeGame::launchAction()
 	_parentState->getGame()->getCursor()->setVisible(false);
 	_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
 	if (coopClientBStateTripwire("launchAction")) return;
+	CoopArbiter::beginHostLocalCombat(_currentAction.actor, _currentAction.type);
 	_states.push_back(new ProjectileFlyBState(this, _currentAction));
 	statePushFront(new UnitTurnBState(this, _currentAction)); // first of all turn towards the target
 }

@@ -31,6 +31,7 @@
 #include "../Mod/RuleItem.h"
 #include "../Mod/Armor.h"
 #include "../Engine/RNG.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -364,6 +365,7 @@ void ExplosionBState::init()
 		_parent->playSound(sound, _center.toTile());
 	}
 
+	coopCueExplosionInit(_attack, _center, _power, _radius, _damageType, _areaOfEffect, _hit, _psi, miss, _explosionCounter, _tile, _targetPsiOrHit);
 	if (_attack.type == BA_SELF_DESTRUCT)
 	{
 		if (_attack.attacker)

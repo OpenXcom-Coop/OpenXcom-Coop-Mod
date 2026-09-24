@@ -52,6 +52,7 @@
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/Pathfinding.h"
 #include "../Battlescape/TileEngine.h"
+#include "../Battlescape/Projectile.h" // W2-P2 S-C.2: the `shot` cue reads the trajectory ends
 
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -2184,6 +2185,9 @@ static std::atomic<int> g_hostCombatContexts{0};
 static std::mutex g_cueMutex;
 static std::map<std::string, int> g_cueCounts;
 static Json::Value g_cueLast;
+// W2-P2 S-C.2 (amendment A3, F690): onChainQuiesced() calls deferred by the
+// arming guard (CoopArbiter's g_coopChainArming).
+static std::atomic<int> g_armingDeferrals{0};
 
 Probes probes()
 {
@@ -2213,6 +2217,7 @@ Probes probes()
 	p.lightWholeCalls = g_lightWholeCalls.load();
 	p.lightUsMax = g_lightUsMax.load();
 	p.hostCombatContexts = g_hostCombatContexts.load();
+	p.armingDeferrals = g_armingDeferrals.load();
 	return p;
 }
 
@@ -2297,6 +2302,7 @@ static void resetProbes()
 		g_lightLast = Json::Value();
 	}
 	g_hostCombatContexts = 0;
+	g_armingDeferrals = 0;
 	{
 		std::lock_guard<std::mutex> lock(g_cueMutex);
 		g_cueCounts.clear();
@@ -3204,6 +3210,40 @@ void noteSyncApplied()
 	g_deltaSyncEvsApplied.fetch_add(1);
 }
 
+/// W2-P2 S-C.2 (spec (b)11/(b)16): one cue ev into `cueCounts` / `lastCue` -
+/// HOST: emitted (coopEmitCue / flushSync, with the seq sendEv stamped on it),
+/// CLIENT: applied (CoopApply::applyEvPayload's cue-kind and `sync` branches).
+/// Probe only.
+void noteCue(const std::string& kind, std::uint32_t seq, std::uint32_t actionId, const Json::Value& payload)
+{
+	Json::Value c(Json::objectValue);
+	c["kind"] = kind;
+	c["seq"] = seq;
+	c["actionId"] = actionId;
+	c["payload"] = payload;
+	std::lock_guard<std::mutex> lock(g_cueMutex);
+	++g_cueCounts[kind];
+	g_cueLast = c;
+}
+
+/// HOST: the seq CoopEmit::sendEv() stamped on the @a kind envelope it just
+/// emitted. sendEv takes the ev by value and can emit nested `reveal` evs
+/// around it (the baseline before, the other sides' after), so the seq is read
+/// back from the host's own event ring (recorded right after the seq mint):
+/// the newest entry of @a kind after @a seqBefore. 0 if none (never expected).
+std::uint32_t hostSeqOf(const char* kind, std::uint32_t seqBefore)
+{
+	for (std::size_t n = CoopEventLog::size(); n > 0; --n)
+	{
+		const CoopEventLog::Entry& e = CoopEventLog::at(n - 1);
+		if (e.seq <= seqBefore)
+			break;
+		if (std::strncmp(e.kind, kind, sizeof(e.kind)) == 0)
+			return e.seq;
+	}
+	return 0u;
+}
+
 /// CLIENT (CoopApply::applyDelta, stage S-B): the item probes ((b)16) -
 /// an itemsAdded id that already existed, an itemsRemoved id that did not,
 /// and an item change the client cannot carry in W2-P2 ((b)2/(b)7).
@@ -3354,7 +3394,10 @@ void flushSync()
 	Json::Value ev = CoopWire::makeEv(0u, 0u, "sync");
 	ev["h"] = coopBuildStructuredHash(battle, /*withSaveBlob=*/false);
 	g_deltaSyncEvsEmitted.fetch_add(1);
+	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
 	CoopEmit::sendEv(ev);
+	// W2-P2 S-C.2 (spec (b)11/(b)16): `sync` is one of the 16 cue kinds.
+	noteCue("sync", hostSeqOf("sync", seqBefore), 0u, Json::Value(Json::objectValue));
 }
 
 void absorbUnit(const BattleUnit* unit)
@@ -3416,6 +3459,286 @@ void absorbItemRemoved(int id)
 }
 
 } // namespace CoopDelta
+
+// ===== W2-P2 S-C, commit S-C.2: host combat cues (CoopDelta.h) =====
+// Spec rewrite/prompts/w2p2_delta_core.md (b)11 (the frozen cue schemas, V2) and
+// (b)14 (prime), owner ruling D128 = (b), Q2 = (a) (the hooks serve every
+// origin), Q5 = (a) (no medikit/scanner hook yet). A cue's payload is DISPLAY
+// fields only (G1, no timing): the state it announces rides the same envelope's
+// `delta`, attached at the CoopEmit::sendEv choke. `h` = the 7 structured
+// buckets from one sweep ((b)10). F471: `hit`/`death` keep R2-P7's reading of
+// `payload.unit` as the unit TOUCHED; `actor` is the acting unit.
+namespace
+{
+
+/// Spec (b)11's `action` wire strings.
+const char* coopCueActionWire(int baType)
+{
+	switch (baType)
+	{
+	case BA_SNAPSHOT: return "snap";
+	case BA_AIMEDSHOT: return "aimed";
+	case BA_AUTOSHOT: return "auto";
+	case BA_THROW: return "throw";
+	case BA_LAUNCH: return "launch";
+	case BA_HIT: return "hit";
+	case BA_PANIC: return "panic";
+	case BA_MINDCONTROL: return "mc";
+	case BA_USE: return "use";
+	case BA_PRIME: return "prime";
+	case BA_UNPRIME: return "unprime";
+	case BA_TRIGGER_TIMED_GRENADE: return "trigger_timed";
+	case BA_SELF_DESTRUCT: return "self_destruct";
+	case BA_TRIGGER_PROXY_GRENADE: return "trigger_prox";
+	default: return "none";
+	}
+}
+
+/// A voxel (or tile position) as {x,y,z}.
+Json::Value coopCueVoxel(const Position& p)
+{
+	Json::Value v(Json::objectValue);
+	v["x"] = p.x;
+	v["y"] = p.y;
+	v["z"] = p.z;
+	return v;
+}
+
+/// PR1's note: the arc Projectile::calculateThrow() computed last (the
+/// `tries` loop's last write wins), consumed by the next coopCueShot().
+struct CoopThrowArcNote
+{
+	bool set = false;
+	Position origin;
+	Position target;
+	Position deltas;
+	double curvature = 0.0;
+};
+CoopThrowArcNote g_coopThrowArc;
+
+/// Spec (b)11's guard: every hook is a no-op unless this machine is the
+/// simulating host of an active coop battle.
+bool coopCueAuthoring()
+{
+	return isCoopBattle() && coopBattleAuthority().hostSim;
+}
+
+/// `hit`'s `unit?`: the unit on the impact tile, or null.
+const BattleUnit* coopCueUnitAt(SavedBattleGame* battle, const Position& voxel)
+{
+	if (!battle)
+		return nullptr;
+	const Tile* tile = battle->getTile(voxel.toTile());
+	return tile ? tile->getOverlappingUnit(battle) : nullptr;
+}
+
+int coopCueDamageType(const RuleDamageType* damageType)
+{
+	return damageType ? (int)damageType->ResistType : (int)DT_NONE;
+}
+
+/// Build one cue bt_ev{kind, actionId, payload, h}, send it through the choke
+/// (which attaches the delta) and record the host's cue probe.
+void coopEmitCue(const char* kind, const Json::Value& payload)
+{
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!battle)
+		return;
+	const std::uint32_t actionId = CoopArbiter::currentActionId();
+	Json::Value ev = CoopWire::makeEv(0u, actionId, kind);
+	ev["payload"] = payload;
+	ev["h"] = coopBuildStructuredHash(battle, /*withSaveBlob=*/false);
+	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
+	CoopEmit::sendEv(ev);
+	const std::uint32_t seq = CoopDelta::hostSeqOf(kind, seqBefore);
+	CoopDelta::noteCue(kind, seq, actionId, payload);
+	Json::StreamWriterBuilder wb;
+	wb["indentation"] = "";
+	Log(LOG_INFO) << "[coop-cue] " << kind << " seq " << seq << " actionId " << actionId << ": "
+		<< Json::writeString(wb, payload);
+}
+
+} // namespace
+
+bool coopIsCueKind(const std::string& kind)
+{
+	static const char* const kCueKinds[] = { "shot", "hit", "explosion", "melee", "psi", "death", "corpse",
+		"prime", "sync", "fall", "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner" };
+	for (const char* k : kCueKinds)
+	{
+		if (kind == k)
+			return true;
+	}
+	return false;
+}
+
+void coopNoteThrowArc(const Position& originVoxel, const Position& targetVoxel, const Position& deltas,
+	double curvature)
+{
+	if (!coopCueAuthoring())
+		return;
+	g_coopThrowArc.set = true;
+	g_coopThrowArc.origin = originVoxel;
+	g_coopThrowArc.target = targetVoxel;
+	g_coopThrowArc.deltas = deltas;
+	g_coopThrowArc.curvature = curvature;
+}
+
+void coopCueShot(const BattleAction& action, const BattleItem* ammo, const Projectile* projectile, int impact)
+{
+	// The PR1 note belongs to THIS createNewProjectile() call when it computed a
+	// throw / arcing shot; consumed either way so a stale arc never rides later.
+	const CoopThrowArcNote arc = g_coopThrowArc;
+	g_coopThrowArc = CoopThrowArcNote();
+	if (!coopCueAuthoring())
+		return;
+	const int actor = action.actor ? action.actor->getId() : -1;
+	Json::Value p(Json::objectValue);
+	p["actor"] = actor;
+	p["unit"] = actor;
+	p["weapon"] = action.weapon ? action.weapon->getId() : -1;
+	p["ammo"] = ammo ? ammo->getId() : -1;
+	p["action"] = coopCueActionWire(action.type);
+	p["shotIndex"] = action.autoShotCounter;
+	p["waypointsLeft"] = (int)action.waypoints.size();
+	if (projectile)
+	{
+		try
+		{
+			// Trajectory front / back (getPositionFromStart clamps the offset).
+			p["originVoxel"] = coopCueVoxel(projectile->getPosition(-(1 << 20)));
+			p["impactVoxel"] = coopCueVoxel(projectile->getPosition(1 << 20));
+		}
+		catch (const std::exception&)
+		{
+			Log(LOG_WARNING) << "[coop-cue] shot by unit " << actor << ": empty trajectory - voxels omitted";
+		}
+	}
+	p["impact"] = impact;
+	const bool arcing = action.type == BA_THROW || (action.weapon && action.weapon->getArcingShot(action.type));
+	if (arcing && arc.set)
+	{
+		Json::Value a(Json::objectValue);
+		a["curvature"] = arc.curvature;
+		a["targetVoxel"] = coopCueVoxel(arc.target);
+		a["deltas"] = coopCueVoxel(arc.deltas);
+		p["arc"] = a;
+	}
+	coopEmitCue("shot", p);
+}
+
+void coopCuePellet(const BattleActionAttack& attack, const Position& voxel, int power,
+	const RuleDamageType* damageType, int pellet)
+{
+	if (!coopCueAuthoring())
+		return;
+	Json::Value p(Json::objectValue);
+	if (attack.attacker)
+		p["actor"] = attack.attacker->getId();
+	const BattleUnit* victim = coopCueUnitAt(connectionTCP::getStaticBattle(), voxel);
+	if (victim)
+		p["unit"] = victim->getId();
+	p["voxel"] = coopCueVoxel(voxel);
+	p["damageType"] = coopCueDamageType(damageType);
+	p["power"] = power;
+	p["miss"] = false;
+	p["pellet"] = pellet;
+	coopEmitCue("hit", p);
+}
+
+void coopCueExplosionInit(const BattleActionAttack& attack, const Position& centre, int power, int radius,
+	const RuleDamageType* damageType, bool areaOfEffect, bool melee, bool psi, bool miss, int chain,
+	const Tile* tile, const BattleUnit* target)
+{
+	if (!coopCueAuthoring())
+		return;
+	const int attacker = attack.attacker ? attack.attacker->getId() : -1;
+	Json::Value p(Json::objectValue);
+	if (areaOfEffect)
+	{
+		if (attack.attacker)
+			p["actor"] = attacker;
+		p["centreVoxel"] = coopCueVoxel(centre);
+		p["radius"] = radius;
+		p["power"] = power;
+		p["damageType"] = coopCueDamageType(damageType);
+		p["chain"] = chain;
+		// ExplosionBState::init's own branch: no damage item + a tile = a
+		// terrain (tile-explosive) explosion.
+		p["terrain"] = (attack.damage_item == nullptr && tile != nullptr);
+		coopEmitCue("explosion", p);
+	}
+	else if (melee)
+	{
+		p["actor"] = attacker;
+		if (target)
+			p["unit"] = target->getId();
+		p["voxel"] = coopCueVoxel(centre);
+		p["success"] = !miss;
+		p["power"] = power;
+		p["damageType"] = coopCueDamageType(damageType);
+		coopEmitCue("melee", p);
+	}
+	else if (psi)
+	{
+		p["actor"] = attacker;
+		p["unit"] = target ? target->getId() : -1;
+		p["action"] = coopCueActionWire(attack.type);
+		p["success"] = !miss;
+		coopEmitCue("psi", p);
+	}
+	else
+	{
+		if (attack.attacker)
+			p["actor"] = attacker;
+		const BattleUnit* victim = coopCueUnitAt(connectionTCP::getStaticBattle(), centre);
+		if (victim)
+			p["unit"] = victim->getId();
+		p["voxel"] = coopCueVoxel(centre);
+		p["damageType"] = coopCueDamageType(damageType);
+		p["power"] = power;
+		p["miss"] = miss;
+		coopEmitCue("hit", p);
+	}
+}
+
+void coopCueDeath(const BattleUnit* unit, const RuleDamageType* damageType)
+{
+	if (!coopCueAuthoring() || !unit)
+		return;
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	Json::Value p(Json::objectValue);
+	p["unit"] = unit->getId();
+	p["outcome"] = unit->getHealth() <= 0 ? "dead" : "unconscious";
+	// The constructor's own skip-the-pirouette condition (UnitDieBState.cpp:70),
+	// read after it ran: its instaFalling() leaves the unit out, the animated
+	// path leaves it standing.
+	p["instant"] = (damageType && !damageType->isDirect()) || unit->isOut() || (battle && battle->isBeforeGame());
+	p["damageType"] = coopCueDamageType(damageType);
+	coopEmitCue("death", p);
+}
+
+void coopCueCorpse(const BattleUnit* unit)
+{
+	if (!coopCueAuthoring() || !unit)
+		return;
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!battle)
+		return;
+	Json::Value corpses(Json::arrayValue);
+	for (const BattleItem* bi : *battle->getItems())
+	{
+		if (bi && bi->getUnit() == unit)
+			corpses.append(bi->getId());
+	}
+	if (corpses.empty())
+		return; // (b)11: only when >= 1 (a unit converted by convertUnit() leaves none)
+	Json::Value p(Json::objectValue);
+	p["unit"] = unit->getId();
+	p["pos"] = coopCueVoxel(unit->getPosition());
+	p["corpses"] = corpses;
+	coopEmitCue("corpse", p);
+}
 
 namespace CoopEmit
 {
@@ -4770,6 +5093,18 @@ static std::map<std::uint32_t, int> g_coopClientActionActor;
 // begin site sets this, and both completion hooks now require their own verb.
 static std::string g_coopPendingChainKind;
 
+// W2-P2 S-C.2 (amendment A3, TRACED as F690): the ARMING GUARD. On an empty
+// BState queue BattlescapeGame::statePushBack() runs init() inside the push,
+// and UnitTurnBState::init() pops at once when the unit already faces its
+// target - so popState()'s tail ran onChainQuiesced() BETWEEN a turn-then-shot
+// push pair and closed the action's context before the shot state existed (the
+// battle_fire lever: a `sync` carrying only the TU top-up left before the shot
+// spent its ammo). While this is set onChainQuiesced() defers (logged,
+// `armingDeferrals` +1); endChainArming() clears it after the second push and
+// closes the context itself when the queue is empty by then. W2-P3 reuses it
+// for handleAI. Battle-scoped (resetCoopArbiterState()).
+static bool g_coopChainArming = false;
+
 // W1-P9 (SS2.W2 / WV-D30 / WV-D37): the WALK CHAIN in flight, kept on BOTH
 // machines - the HOST fills it from its emit hooks, a CLIENT from its apply
 // path - so `event_state.lastWalk` can report the same shape from either side.
@@ -4904,6 +5239,7 @@ static void resetCoopArbiterState()
 	// like W1-P6's coopLocalExecBlocked, whose "delivered then handled" proofs
 	// compare a before/after pair inside one run.
 	g_coopPendingChainKind.clear();
+	g_coopChainArming = false; // W2-P2 S-C.2 (A3)
 	g_coopWalkChain = CoopWalkChain();
 	g_coopHaltWalkArmed = false;
 	g_coopHaltWalkBeforeStepArmed = false;
@@ -5693,6 +6029,18 @@ void onChainQuiesced()
 		return; // no coop action in flight - a foreign/AI popState, not ours
 	}
 
+	// W2-P2 S-C.2 (amendment A3, F690): a quiescence INSIDE an armed push pair
+	// (the queue emptied between the turn push and the shot push) is not the
+	// action's end - defer it; endChainArming() closes the context if the queue
+	// is still empty after the second push.
+	if (g_coopChainArming)
+	{
+		CoopDelta::g_armingDeferrals.fetch_add(1);
+		Log(LOG_INFO) << "[coop-ctx] quiescence deferred while arming (actionId " << currentActionId()
+			<< ")";
+		return;
+	}
+
 	// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
 	// R2-P7 hold_chain lever (RB-D26/RB-D32 family): keep this chain
 	// artificially OPEN so a second intent deterministically lands mid-chain
@@ -5854,6 +6202,67 @@ void beginHostLocalKneel(BattleUnit* actor)
 	pushActionContext(actionId, "host"); // RB-D19
 	g_coopPendingChainActorId = actor->getId();
 	g_coopPendingChainKind = "kneel"; // W1-P9: see the global's own comment
+}
+
+void beginHostLocalCombat(BattleUnit* actor, int baType)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !actor)
+		return;
+	// W2-P2 S-C.2 (spec (b)13, section 3.3): the host's OWN shot / throw /
+	// launch / psi / melee becomes one action - the chain-ful counterpart of
+	// beginHostLocalTurn() above. The chain's end is the existing
+	// onChainQuiesced() emit (final = buildFinal(actor), no halt fields); the
+	// cue hooks (coopEmitCue) take this context's id; a second player's intent
+	// meanwhile is denied `busy` by onIntent()'s currentActionId() check.
+	if (currentActionId() != 0)
+	{
+		Log(LOG_WARNING) << "[coop-ctx] host-local combat by unit " << actor->getId() << " (action type "
+			<< baType << ") not begun: action context " << currentActionId() << " (origin '"
+			<< currentActionOrigin() << "') is still open";
+		return;
+	}
+	const char* kind = "shoot"; // BA_SNAPSHOT / BA_AIMEDSHOT / BA_AUTOSHOT (spray included)
+	switch (baType)
+	{
+	case BA_THROW: kind = "throw"; break;
+	case BA_LAUNCH: kind = "launch"; break;
+	case BA_HIT: kind = "melee"; break;
+	case BA_PANIC:
+	case BA_MINDCONTROL:
+	case BA_USE: kind = "psi"; break; // B4: the psi-amp branch of primaryAction
+	default: break;
+	}
+	const std::uint32_t actionId = mintActionId();
+	pushActionContext(actionId, "host"); // RB-D19
+	g_coopPendingChainActorId = actor->getId();
+	// Neither "turn" nor "kneel" nor "walk": the chain's own pre-shot
+	// UnitTurnBState emits no `turn` ev (coopOnUnitTurnFinished's gate).
+	g_coopPendingChainKind = kind;
+	CoopDelta::g_hostCombatContexts.fetch_add(1);
+	Log(LOG_INFO) << "[coop-ctx] host-local combat context " << actionId << " begun: unit " << actor->getId()
+		<< " kind=" << kind << " (action type " << baType << ")";
+}
+
+void beginChainArming()
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	g_coopChainArming = true;
+}
+
+void endChainArming(bool statesEmpty)
+{
+	if (!g_coopChainArming)
+		return;
+	g_coopChainArming = false;
+	if (statesEmpty)
+	{
+		// Nothing is left running after the pushes (every pushed state popped
+		// inside its own push): the deferred quiescence is the action's end.
+		Log(LOG_INFO) << "[coop-ctx] arming ended with an empty BState queue - closing actionId "
+			<< currentActionId() << " now";
+		onChainQuiesced();
+	}
 }
 
 void beginHostLocalWalk(BattleUnit* actor, const std::vector<Position>& path)
@@ -6935,6 +7344,48 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 	CoopArbiter::popActionContext();
 	g_coopPendingChainActorId = -1;
 	g_coopPendingChainKind.clear();
+}
+
+// W2-P2 S-C.2 (spec (b)14): prime / unprime as an INSTANT host action - the
+// kneel pattern above in one call (mint, push {id,"host"}, the `prime` cue with
+// its delta + h, bt_action_end{final, h}, pop). Called as the last statement of
+// BattlescapeGame::handleNonTargetAction()'s BA_PRIME / BA_UNPRIME spendTU
+// blocks; W2-P4's prime intent reuses it. `h` = the 7 structured buckets
+// (stage S-H switches it to its action-end helper).
+void coopHostPrime(BattleUnit* actor, BattleItem* item, bool unprime)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !actor || !item)
+		return;
+	if (CoopArbiter::currentActionId() != 0)
+	{
+		Log(LOG_WARNING) << "[coop-ctx] host " << (unprime ? "unprime" : "prime") << " of item " << item->getId()
+			<< " by unit " << actor->getId() << " not wrapped: action context " << CoopArbiter::currentActionId()
+			<< " is still open - the fuse rides the next delta";
+		return;
+	}
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!save)
+		return;
+
+	const std::uint32_t actionId = CoopArbiter::mintActionId();
+	CoopArbiter::pushActionContext(actionId, "host"); // RB-D19
+
+	Json::Value p(Json::objectValue);
+	p["actor"] = actor->getId();
+	p["unit"] = actor->getId();
+	p["item"] = item->getId();
+	p["fuse"] = item->getFuseTimer();
+	p["unprime"] = unprime;
+	coopEmitCue("prime", p);
+
+	Json::Value end = CoopWire::makeActionEnd(0u, actionId);
+	end["final"] = CoopArbiter::buildFinal(actor);
+	end["h"] = coopBuildStructuredHash(save, /*withSaveBlob=*/false);
+	CoopEmit::sendEv(end);
+
+	CoopArbiter::popActionContext();
+	Log(LOG_INFO) << "[coop-ctx] host " << (unprime ? "unprime" : "prime") << " actionId " << actionId
+		<< ": unit " << actor->getId() << " item " << item->getId() << " fuse " << item->getFuseTimer();
 }
 
 // ===== W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30 / WV-D37 / WV-D38 / WV-D48):
@@ -8601,6 +9052,20 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// applyDelta() right after this returns (CoopDisplayQueue::onApplied).
 		// A known kind, deliberately not an RW-UNSUPPORTED warning.
 		CoopDelta::noteSyncApplied();
+		CoopDelta::noteCue(kind, ev.get("seq", 0u).asUInt(), ev.get("actionId", 0u).asUInt(),
+			ev["payload"]); // W2-P2 S-C.2: `sync` is one of the 16 cue kinds ((b)11/(b)16)
+		return;
+	}
+
+	if (coopIsCueKind(kind))
+	{
+		// W2-P2 S-C.2 (spec (b)11, V2): a host combat cue (shot, hit, explosion,
+		// melee, psi, death, corpse, prime; the P3/P4 kinds are frozen here too).
+		// Its WHOLE state effect is the envelope's `delta`, written by
+		// applyDelta() right after this returns (CoopDisplayQueue::onApplied);
+		// the payload is display data for W2-P5/P6. Record the probe, nothing
+		// else - no RNG, no rules, no BState, no unit write.
+		CoopDelta::noteCue(kind, ev.get("seq", 0u).asUInt(), ev.get("actionId", 0u).asUInt(), ev["payload"]);
 		return;
 	}
 
@@ -10478,14 +10943,24 @@ void onApplied(const Json::Value& ev)
 	{
 		const std::uint32_t actionId = ev.get("actionId", 0u).asUInt();
 		const Json::Value& payload = ev["payload"];
-		if (actionId != 0 && payload.isMember("unit"))
+		if (actionId != 0 && (payload.isMember("actor") || payload.isMember("unit")))
 		{
 			// Purely client-side bookkeeping (never on the wire - SS2.3/
 			// SS2.4 have no "unit" field on bt_action_end) so a LATER
 			// bt_action_end (same actionId) can be resolved to a unit on
 			// this machine, whether or not this machine is the one that
 			// sent the original intent.
-			g_coopClientActionActor[actionId] = payload["unit"].asInt();
+			// W2-P2 S-C.2 (spec (b)12, F471): FIRST wins, and a cue's `actor`
+			// is preferred over its `unit` (the unit the cue is ABOUT). A combat
+			// chain's last unit-bearing ev is the victim's `death`/`corpse`, so
+			// last-wins would write the shooter's `final` onto the dead victim;
+			// in every wave-1 chain each ev's `unit` IS the actor, so first-wins
+			// changes nothing there.
+			if (g_coopClientActionActor.find(actionId) == g_coopClientActionActor.end())
+			{
+				g_coopClientActionActor[actionId] = payload.isMember("actor")
+					? payload["actor"].asInt() : payload["unit"].asInt();
+			}
 		}
 		// RW-REPLAY-REGION-BEGIN
 		// W1-P12 (D-3/WV-D27): enqueue the ghost BEFORE CoopApply mutates the

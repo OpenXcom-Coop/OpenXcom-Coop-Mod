@@ -39,6 +39,7 @@
 #include "BattlescapeState.h"
 #include "../Savegame/BattleUnitStatistics.h"
 #include "../fmath.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -587,6 +588,7 @@ bool ProjectileFlyBState::createNewProjectile()
 	{
 		_parent->getSave()->appendToHitLog(HITLOG_NEW_SHOT, _action.actor->getFaction());
 	}
+	coopCueShot(_action, _ammo, projectile, _projectileImpact);
 
 	return true;
 }
@@ -817,6 +819,7 @@ void ProjectileFlyBState::think()
 									}
 									_parent->getMap()->getExplosions()->push_back(explosion);
 									_parent->getSave()->getTileEngine()->hit(attack, proj->getPosition(offset), power, _ammo->getRules()->getDamageType());
+									coopCuePellet(attack, proj->getPosition(offset), power, _ammo->getRules()->getDamageType(), i);
 
 									//do not work yet
 //									if (_ammo->getRules()->getExplosionRadius(_unit) != 0)

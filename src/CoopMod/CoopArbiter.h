@@ -152,6 +152,31 @@ void beginHostLocalWalk(BattleUnit* actor, const std::vector<Position>& path);
 /// through the host's event_state.lastWalk.origin.
 void beginAiWalk(BattleUnit* actor, SavedBattleGame* save);
 
+/// W2-P2 S-C.2 (docs rewrite/prompts/w2p2_delta_core.md (b)13, section 3.3):
+/// RB-D19 origin stamping for a coop HOST's own combat action - shot (snap/
+/// aimed/auto/spray), throw, launch, psi, melee (@a baType = the vanilla
+/// BattleActionType). Mints an actionId, pushes {actionId,"host"}, records
+/// @a actor as the chain's pending actor with the chain kind shoot|throw|
+/// launch|psi|melee, bumps `hostCombatContexts`. The chain's end is the existing
+/// onChainQuiesced() bt_action_end; the cue hooks (CoopDelta.h) carry this id.
+/// Called from BattlescapeGame (after the primaryAction.spray/.fire and
+/// launchAction tripwires, before the PsiAttackBState/MeleeAttackBState pushes)
+/// and from the TestServer battle_fire lever (which bypasses primaryAction).
+/// No-op outside a coop battle, on a client, without an actor; logged no-op
+/// while another action context is open.
+void beginHostLocalCombat(BattleUnit* actor, int baType);
+
+/// W2-P2 S-C.2 (amendment A3, F690): the ARMING GUARD around a turn-then-shot
+/// push pair whose first push can pop inside itself (UnitTurnBState on a unit
+/// already facing its target) and run onChainQuiesced() before the shot state
+/// exists. beginChainArming() (host, coop only) right after the context
+/// begins; while armed onChainQuiesced() defers (logged, `armingDeferrals` +1);
+/// endChainArming(@a statesEmpty = the BState queue is empty after the second
+/// push) clears it and, when nothing is left running, closes the context
+/// itself. The battle_fire lever uses it; W2-P3 reuses it for handleAI.
+void beginChainArming();
+void endChainArming(bool statesEmpty);
+
 /// Test/introspection (TestServer event_state `lastWalk`): the most recent walk
 /// this machine EMITTED (host) or APPLIED (client), as
 /// {actionId, unit, steps:[{stepIndex, from, dir, to, tuAfter, enAfter, seq}],

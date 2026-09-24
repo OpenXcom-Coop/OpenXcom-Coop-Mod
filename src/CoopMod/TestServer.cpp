@@ -4803,8 +4803,17 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["tuHave"] = unit->getTimeUnits();
 		resp["weaponId"] = w->getId();
 		resp["ammoId"] = w->getAmmoForAction(bt) ? w->getAmmoForAction(bt)->getId() : -1;
+		// W2-P2 S-C.2 (spec (b)13, F475): this lever bypasses primaryAction, so it
+		// mirrors the click's host-local combat context itself. Amendment A3
+		// (F690): the context is ARMED across the two pushes - on an empty queue
+		// the turn push runs UnitTurnBState::init(), which pops at once when the
+		// unit already faces the target, and that quiescence must not close the
+		// context before the shot state exists.
+		CoopArbiter::beginHostLocalCombat(unit, bt);
+		CoopArbiter::beginChainArming();
 		bg->statePushBack(new UnitTurnBState(bg, *a));
 		bg->statePushBack(new ProjectileFlyBState(bg, *a));
+		CoopArbiter::endChainArming(!bg->isBusy());
 		resp["ok"] = true;
 	}
 	return true;
@@ -5116,6 +5125,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["hostCombatContexts"] = dp.hostCombatContexts;
 			resp["cueCounts"] = CoopDelta::cueCounts();
 			resp["lastCue"] = CoopDelta::lastCue();
+			// W2-P2 S-C.2 (amendment A3, F690): quiescences the arming guard
+			// deferred (host).
+			resp["armingDeferrals"] = dp.armingDeferrals;
 		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
