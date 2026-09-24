@@ -1,11 +1,13 @@
 """W2-P1 - test_w2_thin_client_tripwire.py: the second player's game never runs
 battle simulation by itself (spec rewrite/prompts/w2p1_thin_client_tripwire.md
-section (f), as amended by AMENDMENT A1; findings F422, F432, F435-F438).
+section (f), as amended by AMENDMENTS A1 and A2 - A2 wins where they differ;
+findings F422, F432, F435-F441).
 
 In a co-op battle only the HOST simulates. Before W2-P1 the CLIENT still ran
 vanilla simulation on six paths, each of which changes the client's copy of
-the battle alone. Seven scenarios, ONE boot, run in the A1.2 order
-S6, S1, S2, S3, S4, S5, S7 on player turn 2:
+the battle alone. Seven scenarios, ONE boot, run on player turn 2 in the A2.2
+order S6, S1, S3, STAGE, S2, S5, S7, S4 (STAGE is a fixture step, not a
+scenario):
 
   S6 panic     The client's start-of-turn panic check (BattlescapeGame::think
                -> handlePanickingPlayer) must be SKIPPED on the client: the
@@ -15,22 +17,32 @@ S6, S1, S2, S3, S4, S5, S7 on player turn 2:
   S1 prime     PRIME GRENADE from the client's action menu is REFUSED with
                "Only the host can use this item": no fuse screen, the fuse
                stays -1 and C's TU stays equal on both machines.
-  S2 medikit   USE MEDI-KIT is refused with the same text: MedikitState never
-               opens, C's TU stays equal.
   S3 scanner   USE SCANNER is refused with the same text: ScannerState never
                opens, C's TU stays equal.
-  S4 melee     STUN (a stun rod, BA_HIT) against the host soldier H standing
-               on the tile C faces is refused with the same text: no local
-               MeleeAttackBState, H's stun stays equal on both machines.
+  STAGE        C -> S4_C_TILE facing S4_C_DIR, H -> S4_H_TILE (the tile C
+               faces) facing C, battle_teleport_unit on BOTH machines, once,
+               responses ok and equal (A2.1/A2.2).
+  S2 medikit   USE MEDI-KIT (its target is H, standing on the tile C faces -
+               vanilla STR_MEDI_KIT cannot target its own user, F439) is
+               refused with the same text: MedikitState never opens, C's TU
+               stays equal.
   S5 reload    The reload hotkey (Options::keyBattleReload, read at run time
                from the client's own options.cfg) is refused with "Only the
                host can reload": the clip stays on C's belt and the rifle
                stays empty on both machines, C's TU stays equal.
-  S7 tripwire  The battle_fire lever pushes UnitTurnBState then
-               ProjectileFlyBState through statePushBack on the CLIENT only
+  S7 tripwire  The battle_fire lever, called for C2 on the CLIENT only, pushes
+               UnitTurnBState then ProjectileFlyBState through statePushBack
                (A1.3): the tripwire refuses and counts BOTH (delta exactly 2),
                names the last refused site "statePushBack:<ProjectileFlyBState
-               type name>", and the clip's ammo and C's TU stay equal.
+               type name>", and the clip's ammo and C2's TU stay equal. The
+               target is a floor tile inside C2's facing octant whose line of
+               fire crosses no unit, so C2 does not turn and C keeps facing H
+               (A2.2).
+  S4 melee     LAST (A2.2/F440: its red knocks H out on the client and mints a
+               body item there, shifting later client item ids). STUN (a stun
+               rod, BA_HIT) against H on the tile C faces is refused with the
+               same text: no local MeleeAttackBState, H's stun stays equal on
+               both machines.
 
 Every scenario also ends with: hash_now {full:true} - ALL buckets EQUAL on
 both machines (never a hard-coded bucket count), desyncSeen false on both,
@@ -43,13 +55,14 @@ client, seat_count=2 so the client owns two soldiers), pinned with set_seed
 SEED right before newbattle_ok, asserted against the baked MAP_FP, then
 session.pin_ai_neutral. C / C2 are the two client-seated soldiers (in
 seating order), H the first host-seat soldier; their ids are asserted
-against the baked values. S4's staging (C's tile + facing, H on the tile C
-faces, facing C) and S7's floor target tile were computed ONCE by a scratch
-precalc boot on SEED and are baked below; the test teleports with
-battle_teleport_unit on BOTH machines and asserts each response. Every item
-is given with battle_give on BOTH machines in the same order and the
-returned ids are asserted equal. Before each of S1-S5 and S7, C's TU is set
-on BOTH machines to the host's own value (battle_set_unit_state tu) so every
+against the baked values. The STAGE tiles (C's tile + facing, H on the tile
+C faces, facing C) and S7's floor target tile (from C2's tile and facing at
+the S7 point) were computed by scratch precalc boots on SEED and are baked
+below; the test teleports with battle_teleport_unit on BOTH machines and
+asserts each response. Every item is given with battle_give on BOTH machines
+in the same order and the returned ids are asserted equal. Before each of
+S1-S5 and S7 the acting unit's TU (C, or C2 for S7) is set on BOTH machines
+to the host's own value (battle_set_unit_state tu; A2.3/F441) so every
 scenario starts from the same TU on both machines - on the red build the
 client spends TU locally, and without this an earlier scenario's red would
 starve a later one of the TU its own red needs.
@@ -59,11 +72,12 @@ a row is pressed by its keyboard shortcut: TAB-select C on the client
 (test_rw_seat_pacing.tab_select), click_widget nth=25 (the right-hand box,
 self-verified against its rect centre), confirm ActionMenuState is on top,
 then inject the row's key. A scenario whose red path opens a vanilla modal
-on the client (fuse screen, MedikitState, ScannerState, a panic infobox)
-completes that vanilla interaction - fuse 0, PAINKILLER, ESC, or the
-infobox's own 2 s timer - and returns the client to BattlescapeState before
-the next scenario (A1.6). That is observation of what happened, never a
-second press of the same action.
+on the client (fuse screen, MedikitState, ScannerState, a panic infobox, an
+OK infobox) completes that vanilla interaction - fuse 0, PAINKILLER, ESC,
+the infobox's own 2 s timer, or the OK button - and returns the client to
+BattlescapeState before the next scenario (A1.6); any infobox text is read
+(list_widgets) before it closes and printed in the EVIDENCE line. That is
+observation of what happened, never a second press of the same action.
 
 RED-THEN-GREEN (spec (d)). Commit 1 (this file, the event_state probes and
 the battle_set_unit_state status/panicPending fields - no product behaviour)
@@ -102,11 +116,12 @@ MAP_FP = -4.48310638993e+18          # host battle_state.mapFingerprint on SEED
 C_ID = 8                              # first client-seated soldier's unit id
 C2_ID = 9                             # second client-seated soldier's unit id
 H_ID = 10                             # first host-seat (coop 0) soldier's unit id
-S4_C_TILE = (13, 11, 0)               # open ground, >= 8 tiles from every unit
+S4_C_TILE = (13, 11, 0)               # STAGE: open ground, >= 8 tiles from every unit
 S4_C_DIR = 2                          # east: faces S4_H_TILE
 S4_H_TILE = (14, 11, 0)               # the tile C faces
 S4_H_DIR = 6                          # west: faces C
-S7_TARGET = (10, 11, 0)               # floor tile 3 west of S4_C_TILE, open line
+S7_TARGET = (15, 17, 0)               # A2.2: floor tile 2 north of C2 (15,19,1) facing 0,
+                                      # no unit on the line; C2 does not turn
 
 PORT = "48530"
 FACTION_PLAYER = 0
@@ -180,17 +195,31 @@ def watch_top(gc, done, timeout, seen):
         time.sleep(0.05)
 
 
-def settle_client(client, seen, timeout=20):
+def infobox_text(gc):
+    """Every non-empty caption on gc's top state (list_widgets Text /
+    TextButton), for the EVIDENCE line of a scenario that raised an infobox."""
+    lw = gc.cmd({"cmd": "list_widgets"})
+    return [w["text"] for w in lw.get("widgets", []) if w.get("text")]
+
+
+def settle_client(client, seen, timeout=20, texts=None):
     """Wait (bounded) until the client is back on BattlescapeState with no
     live BState and its panic check done, recording every top state seen;
     then a short settle so the post-popup handleNonTargetAction() has run.
-    Returns whether it settled."""
+    Each NEWLY seen infobox has its text read into `texts` first; an
+    InfoboxOKState (it waits for OK) is then closed through its OK button -
+    the A1.6 vanilla completion. Returns whether it settled."""
+    texts = [] if texts is None else texts
     deadline = time.time() + timeout
     ok = False
     while time.time() < deadline:
         st = top(client)
         if not seen or seen[-1] != st:
             seen.append(st)
+            if st and "Infobox" in st:
+                texts.append((st, infobox_text(client)))
+                if st == "InfoboxOKState":
+                    client.cmd({"cmd": "click_widget", "match": "ok"})
         bs = battle_state(client)
         if (st == "BattlescapeState" and bs.get("pendingStates") == 0
                 and bs.get("panicHandled")):
@@ -279,6 +308,11 @@ def uv(u, k):
     return u.get(k) if u else None
 
 
+def hfields(u):
+    """A unit's status / health / stun / isOut (A2.2's S4 fields), plus tu."""
+    return {k: u.get(k) for k in ("status", "health", "stun", "isOut", "tu")}
+
+
 def loaded_ammo(item, weapon_id):
     """The ammo items actually loaded in a weapon. battle_items' `ammo` lists
     every non-null ammo slot, and a slot with no compatible ammo points at the
@@ -301,14 +335,14 @@ def s6_panic(host, client, ctx):
     uh0, uc0 = units(host)[C2_ID], units(client)[C2_ID]
     r = client.cmd({"cmd": "battle_set_unit_state", "unit": C2_ID, "panicPending": True})
     assert r.get("ok"), f"PREMISE: panicPending on the client: {r}"
-    seen = []
-    settled = settle_client(client, seen, timeout=30)
+    seen, texts = [], []
+    settled = settle_client(client, seen, timeout=30, texts=texts)
     ph, pc = probes(host), probes(client)
     uh, uc = units(host)[C2_ID], units(client)[C2_ID]
     ih, ic = items(host), items(client)
     rh, rc = ih.get(rifle), ic.get(rifle)
     print(f"EVIDENCE S6: C2={C2_ID} panicPending-reply={r.get('panicPending')} "
-          f"client-states={seen} settled={settled} "
+          f"client-states={seen} infobox-text={texts} settled={settled} "
           f"panicSkipped client {p0c['panicSkipped']}->{pc['panicSkipped']} host "
           f"{p0h['panicSkipped']}->{ph['panicSkipped']}; "
           f"C2.status host {uh0['status']}->{uh['status']} client {uc0['status']}->{uc['status']}; "
@@ -382,6 +416,7 @@ def s2_medikit(host, client, ctx):
     p0h, p0c = probes(host), probes(client)
     uh, uc = units(host), units(client)
     tu0 = (uh[C_ID]["tu"], uc[C_ID]["tu"])
+    h0 = (hfields(uh[H_ID]), hfields(uc[H_ID]))
     fronts = {}
     for name, us in (("host", uh), ("client", uc)):
         c = us[C_ID]
@@ -389,20 +424,27 @@ def s2_medikit(host, client, ctx):
         occ = [u["id"] for u in us.values()
                if not u.get("isOut") and (u["x"], u["y"], u["z"]) == ft]
         fronts[name] = (c["x"], c["y"], c["z"], c["direction"], ft, occ)
+    medikit_text = []
     press(client, KEY_ACTION_ITEM1)
     watch_top(client, lambda st: st != "ActionMenuState", 5, seen)
     if seen[-1] == "MedikitState":
+        medikit_text.append(("open", infobox_text(client)))
         press(client, KEY_PAINKILLER)
         time.sleep(0.5)
         if top(client) == "MedikitState":
+            medikit_text.append(("after PAINKILLER", infobox_text(client)))
             press(client, KEY_CANCEL)
         watch_top(client, lambda st: st != "MedikitState", 5, seen)
     settled = settle_client(client, seen)
     ph, pc = probes(host), probes(client)
-    tu1 = (units(host)[C_ID]["tu"], units(client)[C_ID]["tu"])
+    uh1, uc1 = units(host), units(client)
+    tu1 = (uh1[C_ID]["tu"], uc1[C_ID]["tu"])
+    h1 = (hfields(uh1[H_ID]), hfields(uc1[H_ID]))
     print(f"EVIDENCE S2: medikit={mid} client-states={seen} settled={settled} "
+          f"target (C x,y,z,dir, faced tile, occupant ids) host={fronts['host']} "
+          f"client={fronts['client']} (H={H_ID}); medikit-screen-text={medikit_text}; "
           f"C.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]}; "
-          f"C (x,y,z,dir,faces,occupant) host={fronts['host']} client={fronts['client']}; "
+          f"H host {h0[0]}->{h1[0]} client {h0[1]}->{h1[1]}; "
           f"client banner={pc['banner']!r} warning={pc['warning']!r}; "
           f"pushes client {p0c['pushes']}->{pc['pushes']} lastSite={pc['lastSite']!r}", flush=True)
     fails = []
@@ -451,7 +493,10 @@ def s3_scanner(host, client, ctx):
     finish(fails)
 
 
-def s4_melee(host, client, ctx):
+def stage(host, client, ctx):
+    """A2.2 STAGE (not a scenario): C -> S4_C_TILE facing S4_C_DIR, H ->
+    S4_H_TILE (the tile C faces) facing C, on BOTH machines, once; every
+    response ok and equal."""
     tele = {}
     for uid, tile, d in ((C_ID, S4_C_TILE, S4_C_DIR), (H_ID, S4_H_TILE, S4_H_DIR)):
         rs = []
@@ -463,6 +508,10 @@ def s4_melee(host, client, ctx):
         assert rs[0] == rs[1] == ({"x": tile[0], "y": tile[1], "z": tile[2]}, d), (
             f"PREMISE: battle_teleport_unit {uid} responses differ: host={rs[0]} client={rs[1]}")
         tele[uid] = rs[0]
+    print(f"STAGE: C={C_ID} -> {tele[C_ID]} H={H_ID} -> {tele[H_ID]} (both machines)", flush=True)
+
+
+def s4_melee(host, client, ctx):
     equalize_tu(host, client, C_ID)
     rod, _ = give_both(host, client, {"unit": C_ID, "item": "STR_STUN_ROD", "clear_hands": True})
     wait_banner_not(client, TEXT_ITEM_ACTION)
@@ -470,7 +519,11 @@ def s4_melee(host, client, ctx):
     p0h, p0c = probes(host), probes(client)
     uh0, uc0 = units(host), units(client)
     tu0 = (uh0[C_ID]["tu"], uc0[C_ID]["tu"])
-    st0 = (uh0[H_ID]["stun"], uc0[H_ID]["stun"])
+    h0 = (hfields(uh0[H_ID]), hfields(uc0[H_ID]))
+    cpos = {n: (u[C_ID]["x"], u[C_ID]["y"], u[C_ID]["z"], u[C_ID]["direction"])
+            for n, u in (("host", uh0), ("client", uc0))}
+    hpos = {n: (u[H_ID]["x"], u[H_ID]["y"], u[H_ID]["z"], u[H_ID]["direction"])
+            for n, u in (("host", uh0), ("client", uc0))}
     press(client, KEY_ACTION_ITEM4)
     watch_top(client, lambda st: st != "ActionMenuState", 5, seen)
     max_pending = 0
@@ -478,14 +531,16 @@ def s4_melee(host, client, ctx):
     while time.time() < t_end:
         max_pending = max(max_pending, battle_state(client).get("pendingStates") or 0)
         time.sleep(0.05)
-    settled = settle_client(client, seen)
+    texts = []
+    settled = settle_client(client, seen, timeout=30, texts=texts)
     ph, pc = probes(host), probes(client)
     uh1, uc1 = units(host), units(client)
     tu1 = (uh1[C_ID]["tu"], uc1[C_ID]["tu"])
+    h1 = (hfields(uh1[H_ID]), hfields(uc1[H_ID]))
     st1 = (uh1[H_ID]["stun"], uc1[H_ID]["stun"])
-    print(f"EVIDENCE S4: rod={rod} C->{tele[C_ID]} H->{tele[H_ID]} client-states={seen} "
-          f"settled={settled} client max pendingStates={max_pending}; "
-          f"H.stun host {st0[0]}->{st1[0]} client {st0[1]}->{st1[1]}; "
+    print(f"EVIDENCE S4: rod={rod} C(x,y,z,dir) {cpos} H(x,y,z,dir) {hpos} client-states={seen} "
+          f"infobox-text={texts} settled={settled} client max pendingStates={max_pending}; "
+          f"H host {h0[0]}->{h1[0]} client {h0[1]}->{h1[1]}; "
           f"C.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]}; "
           f"client banner={pc['banner']!r} warning={pc['warning']!r}; "
           f"pushes client {p0c['pushes']}->{pc['pushes']} lastSite={pc['lastSite']!r}", flush=True)
@@ -551,28 +606,30 @@ def s5_reload(host, client, ctx):
 
 
 def s7_tripwire(host, client, ctx):
-    equalize_tu(host, client, C_ID)
-    rifle, clip = give_both(host, client, {"unit": C_ID, "item": "STR_RIFLE",
+    equalize_tu(host, client, C2_ID)
+    rifle, clip = give_both(host, client, {"unit": C2_ID, "item": "STR_RIFLE",
                                            "ammo": "STR_RIFLE_CLIP", "clear_hands": True})
     p0h, p0c = probes(host), probes(client)
     uh0, uc0 = units(host), units(client)
-    tu0 = (uh0[C_ID]["tu"], uc0[C_ID]["tu"])
+    tu0 = (uh0[C2_ID]["tu"], uc0[C2_ID]["tu"])
     q0 = (items(host)[clip]["qty"], items(client)[clip]["qty"])
-    r = client.cmd({"cmd": "battle_fire", "unit": C_ID, "mode": "snap",
+    r = client.cmd({"cmd": "battle_fire", "unit": C2_ID, "mode": "snap",
                     "x": S7_TARGET[0], "y": S7_TARGET[1], "z": S7_TARGET[2]})
     seen = []
     settled = settle_client(client, seen, timeout=30)
     ph, pc = probes(host), probes(client)
     uh1, uc1 = units(host), units(client)
-    tu1 = (uh1[C_ID]["tu"], uc1[C_ID]["tu"])
+    tu1 = (uh1[C2_ID]["tu"], uc1[C2_ID]["tu"])
     ih1, ic1 = items(host), items(client)
     q1 = (uv(ih1.get(clip), "qty"), uv(ic1.get(clip), "qty"))
-    print(f"EVIDENCE S7: rifle={rifle} clip={clip} target={S7_TARGET} battle_fire(client)={r} "
-          f"client-states={seen} settled={settled} "
+    c2p = {n: (u[C2_ID]["x"], u[C2_ID]["y"], u[C2_ID]["z"]) for n, u in (("host", uh0), ("client", uc0))}
+    print(f"EVIDENCE S7: C2={C2_ID} at {c2p} rifle={rifle} clip={clip} target={S7_TARGET} "
+          f"battle_fire(client)={r} client-states={seen} settled={settled} "
           f"clip.qty host {q0[0]}->{q1[0]} client {q0[1]}->{q1[1]}; "
-          f"C.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]}; "
-          f"C.dir host {uh0[C_ID]['direction']}->{uh1[C_ID]['direction']} "
-          f"client {uc0[C_ID]['direction']}->{uc1[C_ID]['direction']}; "
+          f"C2.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]}; "
+          f"C2.dir host {uh0[C2_ID]['direction']}->{uh1[C2_ID]['direction']} "
+          f"client {uc0[C2_ID]['direction']}->{uc1[C2_ID]['direction']}; "
+          f"C.dir host {uh1[C_ID]['direction']} client {uc1[C_ID]['direction']}; "
           f"pushes client {p0c['pushes']}->{pc['pushes']} host {p0h['pushes']}->{ph['pushes']} "
           f"lastSite client={pc['lastSite']!r}", flush=True)
     fails = []
@@ -584,15 +641,18 @@ def s7_tripwire(host, client, ctx):
     if q1[0] != q1[1]:
         fails.append(f"clip.qty host={q1[0]} client={q1[1]} (want equal)")
     if tu1[0] != tu1[1]:
-        fails.append(f"C.tu host={tu1[0]} client={tu1[1]} (want equal)")
+        fails.append(f"C2.tu host={tu1[0]} client={tu1[1]} (want equal)")
     if not settled:
         fails.append(f"client never settled on BattlescapeState (states {seen})")
     common_tail(host, client, fails, (p0h["pushes"], p0c["pushes"]), push_delta=2, what="S7")
     finish(fails)
 
 
-SCENARIOS = (("S6", s6_panic), ("S1", s1_prime), ("S2", s2_medikit), ("S3", s3_scanner),
-             ("S4", s4_melee), ("S5", s5_reload), ("S7", s7_tripwire))
+# A2.2 order. STAGE is a fixture step: it prints PASS/FAIL like a scenario and
+# a failed STAGE also fails the run, but it is not one of the seven.
+STEPS = (("S6", s6_panic), ("S1", s1_prime), ("S3", s3_scanner), ("STAGE", stage),
+         ("S2", s2_medikit), ("S5", s5_reload), ("S7", s7_tripwire), ("S4", s4_melee))
+SCENARIOS = tuple(s for s in STEPS if s[0] != "STAGE")
 
 
 # ===================== bring-up =====================
@@ -671,7 +731,7 @@ def main():
         except Exception as e:  # a bring-up failure fails the whole run
             print(f"FAIL boot: {type(e).__name__}: {e}", flush=True)
             return 2
-        for name, fn in SCENARIOS:
+        for name, fn in STEPS:
             try:
                 fn(host, client, ctx)
                 results[name] = True
@@ -686,8 +746,9 @@ def main():
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_w2_thin_client_tripwire: {len(passed)}/{len(SCENARIOS)} passed "
-          f"(pass={passed} fail={failed}) in {time.time() - t0:.1f}s", flush=True)
-    return 0 if not failed else 2
+          f"(pass={passed} fail={failed}; STAGE {'ok' if results.get('STAGE') else 'FAILED'}) "
+          f"in {time.time() - t0:.1f}s", flush=True)
+    return 0 if not failed and results.get("STAGE") else 2
 
 
 if __name__ == "__main__":
