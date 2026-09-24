@@ -105,7 +105,7 @@ def bring_up_lightning_roof_shared(js):
 
 
 def main():
-    js = shared_fixture.bring_up("srbc", PORTS, host_options={"battleXcomSpeed": 200})
+    js = shared_fixture.bring_up("srbc", PORTS, host_options={"battleXcomSpeed": 200, "battlescapeScale": 5})
     host, client = js.host, js.client
     host_dir = js.host_dir
     fail = None
