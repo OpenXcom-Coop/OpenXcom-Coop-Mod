@@ -22,7 +22,13 @@ the second player on purpose):
        (commit S-H.1): `synced` is absent from the lever's buckets on every
        row, and every legacy bucket is unchanged by every poke (the field is
        uncovered today). A row whose poke MOVES a legacy bucket means the A5.2
-       table is wrong (STOP-IF H4) and is printed as LEGACY-MOVED.
+       table is wrong (STOP-IF H4) and is printed as LEGACY-MOVED. The three
+       `tags` rows ([7] at script tag index 1, which no registered tag names
+       for unit H on this ruleset) can make the poked battle document
+       unparseable; such a row's saveBlob column reads `unserializable`
+       (F746), and since `synced` is hashed from the raw values the row is
+       still evidence. The lever always restores (F747) and every row prints
+       its restoredValue.
   HC2  Carriage + client checks. Host real-UI kneel toggle of H, host
        real-UI walk of H (HC2_H_TILE -> HC2_WALK_DEST), both machines press
        END TURN and the full side cycle runs. GREEN: over that window the
@@ -296,14 +302,18 @@ def hc1(host, client, ctx):
         value = value_of(before, ctx)
         r = client.cmd(dict({"cmd": "field_poke", "class": cls, "field": field, "value": value,
                              "restore": True}, **tgt))
-        rec.update({"before": before, "value": value})
+        rec.update({"before": before, "value": value, "errors": r.get("errors")})
         if not r.get("ok"):
             rec["err"] = f"poke: {r.get('error')}"
-            rows.append(rec)
-            continue
+        # Recorded for every row, a refused or failed poke included: the lever
+        # always restores (S-H.1b, F747), so restoredValue shows a failed restore.
         bk = r.get("buckets") or {}
         b0, b1, b2 = bk.get("before") or {}, bk.get("poked") or {}, bk.get("restored") or {}
         sb = r.get("saveBlob") or {}
+        # A saveBlob the lever could not serialize (F746: an unregistered script
+        # tag) is reported as "unserializable"; the row stays evidence for `synced`.
+        sb_col = ("unserializable" if sb.get("poked") == "unserializable"
+                  else ("changed" if sb.get("poked") != sb.get("before") else "unchanged"))
         rec.update({
             "poked": r.get("poked"), "restoredValue": r.get("restoredValue"),
             "leverBuckets": sorted(b1),
@@ -312,7 +322,7 @@ def hc1(host, client, ctx):
             "legacyAbsent": [k for k in LEGACY_BUCKETS if k not in b1],
             "syncedInLever": "synced" in b1,
             "syncedPoked": b1.get("synced"), "syncedRestored": b2.get("synced"),
-            "saveBlobChanged": sb.get("poked") != sb.get("before"),
+            "saveBlob": sb_col,
             "saveBlobRestored": sb.get("restored") == sb.get("before"),
         })
         rows.append(rec)
@@ -330,16 +340,18 @@ def hc1(host, client, ctx):
               f"restored={json.dumps(rec.get('restoredValue'))} legacyMoved={rec.get('legacyMoved')} "
               f"legacyNotRestored={rec.get('legacyNotRestored')} syncedInLever={rec.get('syncedInLever')} "
               f"S0={rec.get('S0')} syncedPoked={rec.get('syncedPoked')} syncedRestored={rec.get('syncedRestored')} "
-              f"saveBlobChanged={rec.get('saveBlobChanged')} saveBlobRestored={rec.get('saveBlobRestored')} "
-              f"err={rec.get('err')}", flush=True)
+              f"saveBlob={rec.get('saveBlob')} saveBlobRestored={rec.get('saveBlobRestored')} "
+              f"err={rec.get('err')} errors={rec.get('errors')}", flush=True)
     ok_rows = [r for r in rows if not r.get("err")]
     print(f"EVIDENCE HC1: rows={len(rows)}/{len(HC1_ROWS)} answered={len(ok_rows)} "
           f"errors={[(r['row'], r['err']) for r in rows if r.get('err')]}; "
           f"syncedInLever on {sum(1 for r in ok_rows if r.get('syncedInLever'))} row(s); "
           f"legacyMoved on {[r['row'] for r in ok_rows if r.get('legacyMoved')]}; "
           f"legacyNotRestored on {[r['row'] for r in ok_rows if r.get('legacyNotRestored')]}; "
+          f"notRestored on {[r['row'] for r in rows if r.get('restoredValue') != r.get('before')]}; "
           f"pokeNoEffect on {[r['row'] for r in ok_rows if r.get('poked') == r.get('before')]}; "
-          f"saveBlobChanged on {[r['row'] for r in ok_rows if r.get('saveBlobChanged')]}; "
+          f"saveBlobChanged on {[r['row'] for r in ok_rows if r.get('saveBlob') == 'changed']}; "
+          f"saveBlobUnserializable on {[r['row'] for r in ok_rows if r.get('saveBlob') == 'unserializable']}; "
           f"host S0 synced={sorted({r.get('S0') for r in rows}, key=str)}; "
           f"leverBuckets={ok_rows[0].get('leverBuckets') if ok_rows else None}; "
           f"fuse item {ctx['fuseItemId']} door i={ctx['doorIndex']} A type={ctx['aType']}; "

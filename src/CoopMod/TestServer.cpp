@@ -5017,6 +5017,11 @@ static bool coopCorruptBucket(SavedBattleGame* battle, const std::string& name)
 // cell [x,y,first,second] - an existing cell is set, a cell one past the end
 // of a column (or the first cell of a new column) is pushed and popped again
 // on restore (Q-H7).
+// S-H.1b (F746, F747): exception-safe. The poke, every bucket hash and the
+// saveBlob hash run inside try/catch; the restore ALWAYS runs (also after an
+// exception or a refused write) and the post-restore hashes follow it. A hash
+// that throws (e.g. saveBlob's re-parse of an unregistered script tag, F746)
+// is reported as "unserializable", its exception text in `errors`.
 
 static const char* coopFieldPokeFactionWire(int f)
 {
@@ -5051,18 +5056,50 @@ static std::vector<int> coopFieldPokeTagsFrom(const Json::Value& a)
 	return v;
 }
 
-/// Every BattleHashSet bucket by name, plus saveBlob into @a saveBlobHex.
-static Json::Value coopFieldPokeHashes(SavedBattleGame* bg, std::string& saveBlobHex)
+/// Every BattleHashSet bucket by name, plus saveBlob into @a saveBlobHex. A
+/// computation that throws reports "unserializable" (every bucket of the
+/// sweep, or saveBlob) and appends "<stage> <what>: <exception text>" to
+/// @a errors; it never aborts the command.
+static Json::Value coopFieldPokeHashes(SavedBattleGame* bg, std::string& saveBlobHex, Json::Value& errors,
+	const char* stage)
 {
 	Json::Value b(Json::objectValue);
-	SharedEcon::BattleHashSet hs;
-	if (SharedEcon::computeBattleHashes(bg, hs))
+	try
+	{
+		SharedEcon::BattleHashSet hs;
+		if (SharedEcon::computeBattleHashes(bg, hs))
+		{
+			for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+				b[SharedEcon::battleHashBucketName(i)] = coopTestHex64(SharedEcon::battleHashBucketValue(hs, i));
+		}
+	}
+	catch (const std::exception& e)
 	{
 		for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
-			b[SharedEcon::battleHashBucketName(i)] = coopTestHex64(SharedEcon::battleHashBucketValue(hs, i));
+			b[SharedEcon::battleHashBucketName(i)] = "unserializable";
+		errors.append(std::string(stage) + " buckets: " + e.what());
 	}
-	std::uint64_t sb = 0;
-	saveBlobHex = SharedEcon::computeSaveBlobHash(bg, sb) ? coopTestHex64(sb) : std::string();
+	catch (...)
+	{
+		for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+			b[SharedEcon::battleHashBucketName(i)] = "unserializable";
+		errors.append(std::string(stage) + " buckets: unknown exception");
+	}
+	try
+	{
+		std::uint64_t sb = 0;
+		saveBlobHex = SharedEcon::computeSaveBlobHash(bg, sb) ? coopTestHex64(sb) : std::string();
+	}
+	catch (const std::exception& e)
+	{
+		saveBlobHex = "unserializable";
+		errors.append(std::string(stage) + " saveBlob: " + e.what());
+	}
+	catch (...)
+	{
+		saveBlobHex = "unserializable";
+		errors.append(std::string(stage) + " saveBlob: unknown exception");
+	}
 	return b;
 }
 
@@ -5535,38 +5572,82 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 
 	Json::Value buckets(Json::objectValue);
 	Json::Value saveBlob(Json::objectValue);
+	Json::Value errors(Json::arrayValue);
 	std::string sbHex;
-	buckets["before"] = coopFieldPokeHashes(bg, sbHex);
+	buckets["before"] = coopFieldPokeHashes(bg, sbHex, errors, "before");
 	saveBlob["before"] = sbHex;
 
-	const std::string err = write(req["value"]);
+	// The poke: a refused write or an exception is recorded, never returned
+	// early - the restore below runs either way (F747).
+	std::string err;
+	try
+	{
+		err = write(req["value"]);
+	}
+	catch (const std::exception& e)
+	{
+		err = std::string("exception: ") + e.what();
+	}
+	catch (...)
+	{
+		err = "unknown exception";
+	}
+	try
+	{
+		resp["poked"] = read();
+	}
+	catch (const std::exception& e)
+	{
+		errors.append(std::string("poked read: ") + e.what());
+	}
+	buckets["poked"] = coopFieldPokeHashes(bg, sbHex, errors, "poked");
+	saveBlob["poked"] = sbHex;
+
+	std::string rerr;
+	if (req.get("restore", true).asBool())
+	{
+		try
+		{
+			if (undo)
+				undo();
+			else
+				rerr = write(before);
+		}
+		catch (const std::exception& e)
+		{
+			rerr = std::string("exception: ") + e.what();
+		}
+		catch (...)
+		{
+			rerr = "unknown exception";
+		}
+		try
+		{
+			resp["restoredValue"] = read();
+		}
+		catch (const std::exception& e)
+		{
+			errors.append(std::string("restored read: ") + e.what());
+		}
+		buckets["restored"] = coopFieldPokeHashes(bg, sbHex, errors, "restored");
+		saveBlob["restored"] = sbHex;
+		if (!rerr.empty())
+			errors.append("restore: " + rerr);
+	}
+	resp["buckets"] = buckets;
+	resp["saveBlob"] = saveBlob;
+	if (!errors.empty())
+		resp["errors"] = errors;
 	if (!err.empty())
 	{
 		resp["error"] = "field_poke: " + err;
 		return;
 	}
-	resp["poked"] = read();
-	buckets["poked"] = coopFieldPokeHashes(bg, sbHex);
-	saveBlob["poked"] = sbHex;
-
-	if (req.get("restore", true).asBool())
+	if (!rerr.empty())
 	{
-		std::string rerr;
-		if (undo)
-			undo();
-		else
-			rerr = write(before);
-		if (!rerr.empty())
-		{
-			resp["error"] = "field_poke: restore failed: " + rerr;
-			return;
-		}
-		resp["restoredValue"] = read();
-		buckets["restored"] = coopFieldPokeHashes(bg, sbHex);
-		saveBlob["restored"] = sbHex;
+		resp["error"] = "field_poke: restore failed: " + rerr;
+		return;
 	}
-	resp["buckets"] = buckets;
-	resp["saveBlob"] = saveBlob;
 	resp["ok"] = true;
 }
 
