@@ -1,4 +1,5 @@
-# Test-only mod for W2-P4 (rewrite/prompts/w2p4_client_combat_intents.md, C18, C23a, C23b2).
+# Test-only mod for W2-P4 (rewrite/prompts/w2p4_client_combat_intents.md, C18, C23a, C23b2,
+# C23b3).
 # Data only. Each entry is the smallest change that makes one client combat path
 # reachable with stock xcom1 data:
 #   1. STR_RIFLE gains sprayWaypoints: 2 - the OXCE spray autoshot
@@ -13,6 +14,11 @@
 #      recover: false keeps it out of NEW BATTLE's generated base/craft stores
 #      (NewBattleState adds only recoverable items), so starting loadouts, item ids
 #      and the map are unchanged; tests hand it out with battle_give.
+#   4. STR_MEDI_KIT_ONE_CHARGE (amendment C3-Q13, C23b3): the stock medi-kit's
+#      data with ONE heal charge (painKiller 0, stimulant 0) and isConsumable:
+#      true, no medikitType - the full MedikitState screen. After its one heal
+#      every charge is 0, so vanilla's TileEngine::medikitRemoveIfEmpty removes
+#      it. recover: false, as in 3, so NEW BATTLE's loadouts stay unchanged.
 items:
   - type: STR_RIFLE
     sprayWaypoints: 2
@@ -37,8 +43,28 @@ items:
     flatRate: true
     medikitType: 1
     recover: false
+  - type: STR_MEDI_KIT_ONE_CHARGE
+    size: 0.1
+    weight: 5
+    bigSprite: 24
+    floorSprite: 24
+    battleType: 6
+    invWidth: 1
+    invHeight: 2
+    painKiller: 0
+    heal: 1
+    stimulant: 0
+    woundRecovery: 1
+    healthRecovery: 3
+    stunRecovery: 4
+    energyRecovery: 10
+    tuUse: 10
+    flatRate: true
+    isConsumable: true
+    recover: false
 extraStrings:
   - type: en-US
     strings:
       STR_UNPRIME_GRENADE: "Unprime Grenade"
       STR_MEDI_KIT_ONE_CLICK: "One-click Medi-kit"
+      STR_MEDI_KIT_ONE_CHARGE: "One-charge Medi-kit"

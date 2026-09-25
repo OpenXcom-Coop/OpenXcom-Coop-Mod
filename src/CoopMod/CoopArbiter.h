@@ -567,9 +567,11 @@ std::uint32_t lateAnswersIgnored();
 ///   intentsReceived()  HOST:   {kind: {admitted, denied}} of the intents it answered.
 ///   lastActionHalt()   BOTH:   the last non-walk bt_action_end this machine
 ///                              emitted (host) or applied (client), as
-///                              {actionId, halted, reason}; null before the first.
+///                              {actionId, halted, reason, continue}; null before
+///                              the first. `continue` (W2-P4 S-D.1, amendment C3
+///                              D148) is the end's own field, null when absent.
 ///   lastAftermath()    CLIENT: the last own-action aftermath this machine ran,
-///                              as {actionId, kind}; null before the first.
+///                              as {actionId, kind, continue}; null before the first.
 Json::Value intentsSent();
 Json::Value intentsReceived();
 Json::Value lastActionHalt();

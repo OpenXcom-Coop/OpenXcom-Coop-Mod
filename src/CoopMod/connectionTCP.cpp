@@ -5606,8 +5606,11 @@ static Json::Value g_coopClientLastDeny;
 //   g_coopIntentsSent      CLIENT: {kind: count} of intents this machine sent
 //   g_coopIntentsReceived  HOST:   {kind: {admitted, denied}}
 //   g_coopLastActionHalt   BOTH:   the last non-walk bt_action_end this machine
-//                                  emitted/applied, {actionId, halted, reason}
-//   g_coopLastAftermath    CLIENT: the last own-action aftermath run, {actionId, kind}
+//                                  emitted/applied, {actionId, halted, reason,
+//                                  continue} (W2-P4 S-D.1: `continue` as the end
+//                                  carries it, null when it carries none)
+//   g_coopLastAftermath    CLIENT: the last own-action aftermath run, {actionId, kind,
+//                                  continue} (`continue` likewise, S-D.1)
 static Json::Value g_coopIntentsSent(Json::objectValue);
 static Json::Value g_coopIntentsReceived(Json::objectValue);
 static Json::Value g_coopLastActionHalt;
@@ -6000,6 +6003,10 @@ static void noteLastActionHalt(const Json::Value& end)
 	h["actionId"] = end.get("actionId", 0u).asUInt();
 	h["halted"] = end.get("halted", false).asBool();
 	h["reason"] = end.get("reason", "").asString();
+	// W2-P4 S-D.1 (amendment C3, D148 / "COMBINED CHANGES" (b)13): the end's
+	// `continue` field (an intent end of kind medikit carries it from S-D's
+	// green commit on); null while the end carries none.
+	h["continue"] = end.isMember("continue") ? end["continue"] : Json::Value();
 	g_coopLastActionHalt = h;
 }
 
@@ -13794,6 +13801,9 @@ void onApplied(const Json::Value& ev)
 			Json::Value am(Json::objectValue);
 			am["actionId"] = actionId;
 			am["kind"] = ownCombatKind;
+			// W2-P4 S-D.1 (amendment C3 (b)13): the answered end's `continue`
+			// (null when it carries none), for C23b / C23b4's screen assertions.
+			am["continue"] = ev.isMember("continue") ? ev["continue"] : Json::Value();
 			g_coopLastAftermath = am;
 			const std::string haltReason = ev.get("reason", "").asString();
 			if (!haltReason.empty())

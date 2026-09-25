@@ -4132,6 +4132,19 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				if (a) am.append(a->getId());
 			}
 			ji["ammo"] = am;
+			// W2-P4 S-D.1 (spec rewrite/prompts/w2p4_client_combat_intents.md
+			// (b)13, review N29 = F1096): a medi-kit's three charges, read-only,
+			// as [painKiller, heal, stimulant] (field_poke `medikit`'s order), on
+			// BT_MEDIKIT items only. The delta carries them and the items bucket
+			// hashes them; no probe showed them before (C23b, C23b2, C23b3).
+			if (it->getRules()->getBattleType() == BT_MEDIKIT)
+			{
+				Json::Value mk(Json::arrayValue);
+				mk.append(it->getPainKillerQuantity());
+				mk.append(it->getHealQuantity());
+				mk.append(it->getStimulantQuantity());
+				ji["medikit"] = mk;
+			}
 			items.append(ji);
 			counts[it->getRules()->getType()]++;
 		}
@@ -6799,6 +6812,19 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		//    BattleUnit::prepareMorale() roll a panic (F866). Applied to BOTH
 		//    machines by the harness (client first, F607) and absorbed like every
 		//    field here.
+		//  * `fatalWounds` (W2-P4 S-D.1, spec rewrite/prompts/
+		//    w2p4_client_combat_intents.md amendment C1 PR-Q9) - an array of
+		//    exactly BODYPART_MAX (6) ints in UnitBodyPart order (head, torso,
+		//    right arm, left arm, right leg, left leg), each 0..
+		//    UnitStats::BaseStatLimit, written per part through vanilla's own
+		//    absolute setter BattleUnit::setFatalWound(wound, part) (the setter
+		//    the delta applier uses). A wrong shape or a value out of range is
+		//    refused before anything is written. Reported back as `fatalWounds`
+		//    (the same 6-int array). The C23b medikit staging (a fatal wound for
+		//    the heal button to treat). Wounds are carried by the delta and
+		//    hashed in unitsStats, so no field_poke row is needed. Applied to
+		//    BOTH machines by the harness (client first, F607) and absorbed like
+		//    every field here.
 		SavedGame* sgTS = _game->getSavedGame();
 		SavedBattleGame* bgTS = sgTS ? sgTS->getSavedBattle() : nullptr;
 		if (!bgTS)
@@ -6835,6 +6861,29 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				// W2-P3 S-D.1 (spec (b)13): the C13 morale staging field.
 				const bool hasMorale = req.isMember("morale");
 				const int moraleArg = req.get("morale", 0).asInt();
+				// W2-P4 S-D.1 (C1 PR-Q9): the C23b fatal-wound staging field.
+				const bool hasWounds = req.isMember("fatalWounds");
+				std::string woundsErr;
+				int woundsArg[BODYPART_MAX] = {};
+				if (hasWounds)
+				{
+					const Json::Value& jw = req["fatalWounds"];
+					if (!jw.isArray() || jw.size() != (Json::ArrayIndex)BODYPART_MAX)
+					{
+						woundsErr = "fatalWounds must be an array of " + std::to_string((int)BODYPART_MAX) + " ints";
+					}
+					else
+					{
+						for (int part = 0; part < (int)BODYPART_MAX && woundsErr.empty(); ++part)
+						{
+							const Json::Value& w = jw[(Json::ArrayIndex)part];
+							if (!w.isInt() || w.asInt() < 0 || w.asInt() > UnitStats::BaseStatLimit)
+								woundsErr = "fatalWounds[" + std::to_string(part) + "] out of range";
+							else
+								woundsArg[part] = w.asInt();
+						}
+					}
+				}
 				if (wantPanic && !bgameTS)
 				{
 					resp["error"] = "battle_set_unit_state: no live BattlescapeGame";
@@ -6861,6 +6910,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				{
 					resp["error"] = "battle_set_unit_state: morale out of range " + std::to_string(moraleArg);
 				}
+				else if (!woundsErr.empty())
+				{
+					resp["error"] = "battle_set_unit_state: " + woundsErr;
+				}
 				else
 				{
 					if (req.isMember("tu"))
@@ -6881,6 +6934,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						unit->setRespawn(req["respawn"].asBool());
 					if (hasMorale)
 						unit->coopSetMorale(moraleArg); // W2-P3 S-D.1: the C13 panic staging
+					if (hasWounds)
+					{
+						for (int part = 0; part < (int)BODYPART_MAX; ++part)
+							unit->setFatalWound(woundsArg[part], (UnitBodyPart)part); // W2-P4 S-D.1: the C23b staging
+					}
 					if (wantPanic)
 						bgameTS->init();
 					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): a lever write never rides a delta
@@ -6895,6 +6953,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					resp["spawnUnitFaction"] = (int)unit->getSpawnUnitFaction();
 					resp["respawn"] = unit->getRespawn();
 					resp["morale"] = unit->getMorale();
+					{
+						Json::Value jw(Json::arrayValue);
+						for (int part = 0; part < (int)BODYPART_MAX; ++part)
+							jw.append(unit->getFatalWound((UnitBodyPart)part));
+						resp["fatalWounds"] = jw; // W2-P4 S-D.1 (C1 PR-Q9)
+					}
 					if (bgameTS)
 						resp["panicPending"] = !bgameTS->getPanicHandled();
 					Log(LOG_INFO) << "[coop-test] battle_set_unit_state unit=" << unit->getId()
@@ -6907,6 +6971,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						<< " spawnUnitFaction=" << (int)unit->getSpawnUnitFaction()
 						<< " respawn=" << (unit->getRespawn() ? 1 : 0)
 						<< " morale=" << unit->getMorale()
+						<< " fatalWounds=" << unit->getFatalWounds()
 						<< " panicPending=" << (bgameTS ? (bgameTS->getPanicHandled() ? 0 : 1) : -1);
 				}
 			}
@@ -9220,6 +9285,16 @@ std::string TestServer::execute(const std::string& line)
 					ju["reactOffRight"] = u->isRightHandDisabledForReactions();
 					ju["reactPrefLeft"] = u->isLeftHandPreferredForReactions();
 					ju["reactPrefRight"] = u->isRightHandPreferredForReactions();
+					// W2-P4 S-D.1 (spec rewrite/prompts/w2p4_client_combat_intents.md
+					// (b)13, review N29 = F1096): the fatal wounds per body part
+					// (BODYPART_MAX = 6, UnitBodyPart order), read-only - carried by
+					// the delta and hashed in unitsStats, shown by no probe before.
+					{
+						Json::Value wounds(Json::arrayValue);
+						for (int part = 0; part < (int)BODYPART_MAX; ++part)
+							wounds.append(u->getFatalWound((UnitBodyPart)part));
+						ju["wounds"] = wounds;
+					}
 					Position p = u->getPosition();
 					ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;
 					units.append(ju);
