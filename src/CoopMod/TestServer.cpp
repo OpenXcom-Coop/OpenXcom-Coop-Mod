@@ -87,6 +87,7 @@
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/ProjectileFlyBState.h"
 #include "../Battlescape/PsiAttackBState.h"
+#include "../Battlescape/MeleeAttackBState.h" // W2-P4 S-C.1: battle_fire mode melee
 #include "../Battlescape/Position.h"
 #include "../Battlescape/Map.h"
 #include "../Battlescape/Camera.h"
@@ -4719,7 +4720,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "battle_fire")
 	{
 		// Fire <weapon_id> (or the main hand weapon) from <unit>. mode =
-		// snap|aimed|auto|launch. launch takes <waypoints> (a list of x/y/z) -
+		// snap|aimed|auto|launch|throw, or melee|use (W2-P4 S-C.1: the melee /
+		// mind-probe stand-ins below). launch takes <waypoints> (a list of x/y/z) -
 		// exactly what a blaster launcher does. <hand> stamps
 		// BattlescapeState::_hand, which is what the coop packet reports as the
 		// firing hand. <tu> tops the actor's TU up first so the shot is never
@@ -4767,6 +4769,74 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// R1-P4 stub: BattlescapeState::_hand (the coop firing-hand stamp) was
 		// removed by the r1 vanilla restore. The <hand> param is accepted but
 		// no longer has anywhere to land until r4/r5 rebuild the hook.
+
+		if (mode == "melee" || mode == "use")
+		{
+			// W2-P4 S-C.1 (docs rewrite/prompts/w2p4_client_combat_intents.md
+			// (b)13 and TASK 0): HOST stand-ins for a second player's melee and
+			// mind probe, for seed hunts. They run what the intent executor
+			// ((b)3) runs, in its order, on a LOCAL BattleAction (never the
+			// host's _currentAction, N4 = F1038; no selection change, F1122):
+			// melee = the target tile vanilla's own validMeleeRange (or
+			// validTerrainMeleeRange) gives from the actor's CURRENT position
+			// and facing (ActionMenuState::handleAction's BA_HIT branch), then
+			// one MeleeAttackBState; use = the mind probe's spendTU
+			// (BattlescapeGame.cpp primaryAction's BT_MINDPROBE branch) on
+			// <target>'s tile, with no UnitInfoState on the host. Both inside
+			// one host-local combat context armed across the push
+			// (beginHostLocalCombat's own kind for the action type: melee /
+			// psi), so the chain or the spend ends in one bt_action_end.
+			const bool melee = (mode == "melee");
+			BattleAction la;
+			la.actor = unit;
+			la.weapon = w;
+			la.type = melee ? BA_HIT : BA_USE;
+			if (melee)
+			{
+				TileEngine* te = sbg->getTileEngine();
+				if (!te->validMeleeRange(unit->getPosition(), unit->getDirection(), unit, 0, &la.target))
+				{
+					if (!te->validTerrainMeleeRange(&la))
+					{
+						resp["error"] = "STR_THERE_IS_NO_ONE_THERE";
+						return true;
+					}
+				}
+			}
+			else
+			{
+				BattleUnit* tgt = findUnit(req.get("target", -1).asInt());
+				if (!tgt)
+				{
+					resp["error"] = "no target id";
+					return true;
+				}
+				la.target = tgt->getPosition();
+			}
+			la.updateTU();
+			resp["tuCost"] = la.Time;
+			resp["tuHave"] = unit->getTimeUnits();
+			resp["weaponId"] = w->getId();
+			Json::Value t;
+			t["x"] = la.target.x; t["y"] = la.target.y; t["z"] = la.target.z;
+			resp["targetTile"] = t;
+			resp["terrainPart"] = la.terrainMeleeTilePart;
+			CoopArbiter::beginHostLocalCombat(unit, la.type);
+			CoopArbiter::beginChainArming();
+			if (melee)
+			{
+				bg->statePushBack(new MeleeAttackBState(bg, la));
+			}
+			else
+			{
+				std::string err;
+				resp["spent"] = la.spendTU(&err);
+				resp["spendError"] = err;
+			}
+			CoopArbiter::endChainArming(!bg->isBusy());
+			resp["ok"] = true;
+			return true;
+		}
 
 		BattleActionType bt = BA_SNAPSHOT;
 		if (mode == "aimed") bt = BA_AIMEDSHOT;
