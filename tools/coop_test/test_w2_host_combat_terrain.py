@@ -36,9 +36,13 @@ Three scenarios, ONE boot, in this order (the TASK 0a-2 one-boot order):
       action is exactly shot -> bt_action_end, the `shot` payload has action
       `throw` and an `arc` (host log and the client's lastCue), the grenade
       lies on C3_THROW_TILE on both with owner -1, no bucket differs; across
-      the cycle - an `explosion` cue with actionId 0 whose centreVoxel lies on
-      the landing tile (in both logs), the grenade and the clip absent on
-      both, both machines on player turn N+1, the common asserts
+      the cycle - an `explosion` cue whose centreVoxel lies on the landing
+      tile, carrying the cycle's `endturn` action context id (in both logs;
+      host closedContexts origin endturn - W2-P3 S-A.2 re-point, spec
+      w2p3_nonplayer_origins.md (b)15 (ii)), that context's one
+      bt_action_end (no `final`) before the cycle's side_transition, the
+      grenade and the clip absent on both, both machines on player turn N+1,
+      the common asserts
       (battleInstantGrenade is false by default, Options.cpp:261).
   C4  rocket + chained terrain explosion. H gets a rocket launcher +
       STR_SMALL_ROCKET (xcom1 has no STR_HE_ROCKET: battle_give returned
@@ -516,16 +520,30 @@ def c3_grenade(host, client, ctx):
             fails.append(f"{name} grenade {gid} after the throw {it} (want on {C3_THROW_TILE}, owner -1)")
     if diff_t:
         fails.append(f"buckets differ after the throw: {diff_t} (want none)")
-    # across the cycle: explosion (actionId 0, centre on the landing tile), grenade and clip gone on both
-    good = [e for e in expl if e["actionId"] == 0 and landed is not None
+    # across the cycle (W2-P3 S-A.2 re-point, spec w2p3_nonplayer_origins.md (b)15 (ii), chain rule A.10): the
+    # explosion (centre on the landing tile) carries the cycle's `endturn` context id (host closedContexts origin
+    # endturn), whose one bt_action_end (no `final`) precedes the cycle's side_transition; grenade and clip gone
+    closed = event_state(host).get("closedContexts") or []
+    ectx = {c.get("actionId"): c for c in closed if c.get("origin") == "endturn"}
+    good = [e for e in expl if e["actionId"] in ectx and landed is not None
             and voxel_tile(((ecues.get(e["seq"]) or {}).get("payload") or {}).get("centreVoxel")) == landed]
     if not good:
-        fails.append(f"no host `explosion` ev with actionId 0 centred on the landing tile {landed} in the cycle "
-                     f"(explosions {cue_view(ecues, [e['seq'] for e in expl])})")
+        fails.append(f"no host `explosion` ev on an `endturn` context centred on the landing tile {landed} in the "
+                     f"cycle (explosions (seq, actionId) {[(e['seq'], e['actionId']) for e in expl]} "
+                     f"{cue_view(ecues, [e['seq'] for e in expl])}; endturn contexts {list(ectx.values())})")
     for e in good:
+        aid = e["actionId"]
         ce = cmap.get(e["seq"])
-        if not ce or ce["kind"] != "explosion" or ce["actionId"] != 0:
-            fails.append(f"client event_log at explosion seq {e['seq']}: {ce} (want kind explosion, actionId 0)")
+        if not ce or ce["kind"] != "explosion" or ce["actionId"] != aid:
+            fails.append(f"client event_log at explosion seq {e['seq']}: {ce} (want kind explosion, actionId {aid})")
+        ends = [x["seq"] for x in hev_c if x["actionId"] == aid and x["kind"] == "bt_action_end"]
+        sts = [x["seq"] for x in hev_c if x["kind"] == "side_transition" and x["seq"] > e["seq"]]
+        if (len(ends) != 1 or ectx[aid].get("endSeq") != ends[0] or ectx[aid].get("hasFinal") is not False
+                or not sts or not e["seq"] < ends[0] < sts[0]):
+            fails.append(f"endturn context {ectx[aid]} evs "
+                         f"{[(x['seq'], x['kind'], x['actionId']) for x in hev_c if x['actionId'] == aid]} (want "
+                         f"exactly one bt_action_end = its endSeq, no final, after the explosion and before the "
+                         f"cycle's side_transition {sts[:1]})")
     for name, present in (("grenade", {"host": gid in ih, "client": gid in ic}),
                           ("clip", {"host": clip in ih, "client": clip in ic})):
         if present["host"] or present["client"]:

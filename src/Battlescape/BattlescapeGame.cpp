@@ -452,6 +452,10 @@ void BattlescapeGame::handleAI(BattleUnit *unit)
 		ss << "Attack type=" << action.type << " target="<< action.target << " weapon=" << action.weapon->getRules()->getType();
 		_parentState->debug(ss.str());
 		action.updateTU();
+		// W2-P3 S-A (spec (b)1/(b)4/(b)5): ONE guarded coop call - on the co-op
+		// HOST the attack runs in its own `ai` action context (armed across the
+		// pushes below). No-op in single player and on a client.
+		coopBeginAiAttack(action.actor, action.type);
 		if (action.type == BA_MINDCONTROL || action.type == BA_PANIC || action.type == BA_USE)
 		{
 			statePushBack(new PsiAttackBState(this, action));
@@ -468,6 +472,8 @@ void BattlescapeGame::handleAI(BattleUnit *unit)
 				statePushBack(new ProjectileFlyBState(this, action));
 			}
 		}
+		// W2-P3 S-A (spec (b)4): ONE guarded coop call - the pushes are done.
+		coopAiAttackPushed(_states.empty());
 	}
 
 	if (action.type == BA_NONE)
@@ -556,6 +562,10 @@ bool BattlescapeGame::kneel(BattleUnit *bu)
  */
 void BattlescapeGame::endTurn()
 {
+	// W2-P3 S-A (spec (b)6): ONE guarded coop call - on the co-op HOST, with the
+	// BState queue empty, every action context still open is closed here. No-op
+	// in single player and on a client.
+	coopOnEndTurnEntry(_states.empty());
 	_debugPlay = _save->getDebugMode() && _parentState->getGame()->isCtrlPressed() && (_save->getSide() != FACTION_NEUTRAL);
 	_currentAction.type = BA_NONE;
 	_currentAction.skillRules = nullptr;
@@ -621,6 +631,9 @@ void BattlescapeGame::endTurn()
 					}
 				}
 			}
+			// W2-P3 S-A (spec (b)6): ONE guarded coop call - the hot grenades run
+			// in one actor-less `endturn` action context. No-op in single player.
+			coopBeginEndTurnChain(exploded);
 			for (auto& p : forRemoval)
 			{
 				BattleItem* item = std::get<BattleItem*>(p);
@@ -652,6 +665,8 @@ void BattlescapeGame::endTurn()
 	if (t)
 	{
 		Position p = t->getPosition().toVoxel();
+		// W2-P3 S-A (spec (b)6): ONE guarded coop call - an `endturn` context.
+		coopBeginEndTurnChain(true);
 		statePushNext(new ExplosionBState(this, p, BattleActionAttack{ }, t));
 		statePushBack(0);
 		return;
@@ -677,6 +692,8 @@ void BattlescapeGame::endTurn()
 		if (t)
 		{
 			Position p = t->getPosition().toVoxel();
+			// W2-P3 S-A (spec (b)6): ONE guarded coop call - an `endturn` context.
+			coopBeginEndTurnChain(true);
 			statePushNext(new ExplosionBState(this, p, BattleActionAttack{ }, t));
 			statePushBack(0);
 			return;

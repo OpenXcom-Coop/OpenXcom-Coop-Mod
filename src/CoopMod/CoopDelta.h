@@ -301,4 +301,37 @@ void coopCueCorpse(const BattleUnit* unit);
 /// another action context is open (the fuse then rides the next delta).
 void coopHostPrime(BattleUnit* actor, BattleItem* item, bool unprime);
 
+// ----- W2-P3 S-A, commit S-A.2: the `ai` and `endturn` action contexts -----
+// Spec rewrite/prompts/w2p3_nonplayer_origins.md (b)1, (b)4-6; amendment B1
+// RQ5/RQ6. Each is ONE call at its BattlescapeGame.cpp site and a no-op unless
+// isCoopBattle() && hostSim. Origins are host-side action-context values only
+// (nothing new on the wire). Bodies: connectionTCP.cpp.
+
+/// V2 (BattlescapeGame::handleAI, the line after the attack's
+/// action.updateTU()): open the `ai` context {id, "ai", actor, kind} - kind
+/// shoot|throw|launch|melee|psi from @a baType (W2-P2 S-C's mapping) - and arm
+/// the W2-P2 arming guard. Every type but psi also records the pre-attack
+/// `turn` ev for this action (spec (b)5, RQ6). Logged no-op (bumping
+/// `contextBeginRefused`) while another context is open.
+void coopBeginAiAttack(BattleUnit* actor, int baType);
+
+/// V3 (handleAI, the statement after the attack's state pushes): end the
+/// arming; when @a statesEmpty (every pushed state already popped inside its
+/// own push) close the `ai` context now. No-op unless coopBeginAiAttack() armed.
+void coopAiAttackPushed(bool statesEmpty);
+
+/// V4 (the first statement of BattlescapeGame::endTurn()): when @a statesEmpty,
+/// close EVERY open context (bt_action_end each; an actor-less `endturn` one
+/// without `final`), clear the arming and the pre-attack turn flag, and bump
+/// the diagnostic `contextsClosedAtEndTurn` for each closed context whose
+/// origin is not `endturn` (RQ5). Nothing when states are still queued.
+void coopOnEndTurnEntry(bool statesEmpty);
+
+/// V5 (endTurn, before the hot-grenade push loop, @a go = `exploded`) and V6
+/// (before each terrain-explosion push, @a go = true): when @a go, open the
+/// actor-less {id, "endturn", -1, "endturn"} context the explosion chain runs
+/// in; the next endTurn() entry closes it. Logged no-op (bumping
+/// `contextBeginRefused`) while another context is open.
+void coopBeginEndTurnChain(bool go);
+
 } // namespace OpenXcom

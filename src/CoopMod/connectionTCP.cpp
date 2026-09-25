@@ -2326,6 +2326,33 @@ Json::Value closedContexts()
 	return out;
 }
 
+// W2-P3 S-A.2 (spec (b)13): the writers of the two context probes above. HOST:
+// CoopArbiter::pushActionContext() counts every push (every origin, wave 1's
+// included); every close site records its entry once its bt_action_end is out.
+// Probe only, never read by game logic.
+static void noteContextOpened(const std::string& origin)
+{
+	std::lock_guard<std::mutex> lock(g_contextProbeMutex);
+	++g_contextsOpened[origin];
+}
+
+static void noteContextClosed(std::uint32_t actionId, const std::string& origin, const std::string& kind, int actorId,
+	std::uint32_t nestedIn, std::uint32_t endSeq, bool hasFinal)
+{
+	ClosedContextRec c;
+	c.actionId = actionId;
+	c.origin = origin;
+	c.kind = kind;
+	c.actorId = actorId;
+	c.nestedIn = nestedIn;
+	c.endSeq = endSeq;
+	c.hasFinal = hasFinal;
+	std::lock_guard<std::mutex> lock(g_contextProbeMutex);
+	g_closedContexts.push_back(c);
+	if (g_closedContexts.size() > kClosedContextsKept)
+		g_closedContexts.erase(g_closedContexts.begin());
+}
+
 Json::Value hashVerifyCounts()
 {
 	std::lock_guard<std::mutex> lock(g_hashVerifyMutex);
@@ -5136,6 +5163,12 @@ struct CoopActionContextEntry
 {
 	std::uint32_t actionId;
 	std::string origin;
+	// W2-P3 S-A.2 (spec rewrite/prompts/w2p3_nonplayer_origins.md (b)2): the
+	// entry's own actor (-1 = actor-less, an `endturn` context) and chain kind.
+	// For the BASE entry g_coopPendingChainActorId/g_coopPendingChainKind below
+	// stay the wave-1 description the turn/kneel/walk hooks read.
+	int actorId = -1;
+	std::string kind;
 };
 static std::vector<CoopActionContextEntry> g_coopActionContextStack;
 
@@ -5342,6 +5375,16 @@ static std::string g_coopPendingChainKind;
 // for handleAI. Battle-scoped (resetCoopArbiterState()).
 static bool g_coopChainArming = false;
 
+// W2-P3 S-A.2 (spec (b)5, amendment B1 RQ6 = (a)): the pre-attack turn flag,
+// tied to the AI action's own id. coopBeginAiAttack() sets it for every AI
+// attack that pushes a UnitTurnBState (all but psi); coopOnUnitTurnFinished()
+// then emits the wave-1 `turn` ev for that action while currentActionId() is
+// this id, and clears it. Cleared at every context close, at the endTurn()
+// entry close and with the arbiter state, so a turn that popped inside its own
+// init() (the unit already faced its target) never leaves it standing for a
+// later host-local pre-shot turn (N4 / B1 ST5). 0 = none.
+static std::uint32_t g_coopPreAttackTurnActionId = 0;
+
 // W1-P9 (SS2.W2 / WV-D30 / WV-D37): the WALK CHAIN in flight, kept on BOTH
 // machines - the HOST fills it from its emit hooks, a CLIENT from its apply
 // path - so `event_state.lastWalk` can report the same shape from either side.
@@ -5477,6 +5520,7 @@ static void resetCoopArbiterState()
 	// compare a before/after pair inside one run.
 	g_coopPendingChainKind.clear();
 	g_coopChainArming = false; // W2-P2 S-C.2 (A3)
+	g_coopPreAttackTurnActionId = 0; // W2-P3 S-A.2 (RQ6)
 	g_coopWalkChain = CoopWalkChain();
 	g_coopHaltWalkArmed = false;
 	g_coopHaltWalkBeforeStepArmed = false;
@@ -5653,6 +5697,7 @@ static Json::Value buildFinal(const BattleUnit* u)
 void pushActionContext(std::uint32_t actionId, const char* origin)
 {
 	g_coopActionContextStack.push_back(CoopActionContextEntry{ actionId, origin ? origin : "" });
+	CoopDelta::noteContextOpened(origin ? origin : ""); // W2-P3 S-A.2: contextsOpened, every origin
 }
 
 std::uint32_t currentActionId()
@@ -6277,59 +6322,15 @@ void onIntent(const Json::Value& intent)
 		   "that exist)";
 }
 
-void onChainQuiesced()
+// W2-P3 S-A.2 (spec rewrite/prompts/w2p3_nonplayer_origins.md (b)3): the BASE
+// context's close, factored out of onChainQuiesced() byte-for-byte (the block
+// from the static-battle read through the oldest-denied-seat log, incl. A10 and
+// the walk restate) plus ONE new branch - an actor-less base whose origin is
+// `endturn` emits bt_action_end{actionId, h} with NO `final` - and the
+// closedContexts record (spec (b)13). Also called by coopOnEndTurnEntry()
+// (spec (b)6), which closes every open context at endTurn() entry.
+static void closeBaseContext()
 {
-	if (!isCoopBattle())
-		return;
-
-	if (g_coopActionContextStack.empty())
-	{
-		// W2-P2 S-A (spec (b)9): a context-less chain just ended. If it left
-		// state the client has not received (a fall, deaths after endTurn, AI and
-		// reaction chains until W2-P3), ship it now as one `sync` ev. Host +
-		// armed + non-empty delta only; otherwise a no-op.
-		CoopDelta::flushSync();
-		return; // no coop action in flight - a foreign/AI popState, not ours
-	}
-
-	// W2-P2 S-C.2 (amendment A3, F690): a quiescence INSIDE an armed push pair
-	// (the queue emptied between the turn push and the shot push) is not the
-	// action's end - defer it; endChainArming() closes the context if the queue
-	// is still empty after the second push.
-	if (g_coopChainArming)
-	{
-		CoopDelta::g_armingDeferrals.fetch_add(1);
-		Log(LOG_INFO) << "[coop-ctx] quiescence deferred while arming (actionId " << currentActionId()
-			<< ")";
-		return;
-	}
-
-	// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
-	// R2-P7 hold_chain lever (RB-D26/RB-D32 family): keep this chain
-	// artificially OPEN so a second intent deterministically lands mid-chain
-	// and gets a LIVE deny("busy"). Deferring HERE - before the bt_action_end
-	// emit and before popActionContext() - is the minimal intercept: it leaves
-	// currentActionId() != 0, which is exactly the arm of onIntent()'s SS2.5
-	// busy check that a real long chain would trip. releaseHeldChainIfExpired()
-	// (called unconditionally from the RB-D5 pump point) re-enters this
-	// function once the window closes, and it then falls straight through.
-	if (g_coopHoldChainMs > 0)
-	{
-		if (!g_coopHoldChainHolding)
-		{
-			g_coopHoldChainHolding = true;
-			g_coopHoldChainUntil = std::chrono::steady_clock::now()
-				+ std::chrono::milliseconds(g_coopHoldChainMs);
-			Log(LOG_INFO) << "[coop-arbiter] hold_chain: HOLDING actionId " << currentActionId()
-				<< " open for " << g_coopHoldChainMs << " ms - bt_action_end deferred, "
-				"further intents will deny(busy) (TEST-ONLY STOPGAP)";
-		}
-		if (std::chrono::steady_clock::now() < g_coopHoldChainUntil)
-			return; // still held
-		g_coopHoldChainHolding = false;
-		g_coopHoldChainMs = 0; // one-shot
-	}
-
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
 	const std::uint32_t actionId = currentActionId();
 	BattleUnit* actor = findUnitById(save, g_coopPendingChainActorId);
@@ -6338,12 +6339,34 @@ void onChainQuiesced()
 	// `path`/`halted`/`reason` fields belong on this envelope.
 	const bool wasWalk = (g_coopPendingChainKind == "walk"
 		&& g_coopWalkChain.active && g_coopWalkChain.actionId == actionId);
+	// W2-P3 S-A.2 (spec (b)13): the closedContexts record's fields, read before
+	// the bookkeeping below is cleared.
+	const std::string closedOrigin = currentActionOrigin();
+	const std::string closedKind = g_coopPendingChainKind;
+	const int closedActorId = g_coopPendingChainActorId;
+	std::uint32_t endSeq = 0;
+	bool hasFinal = false;
 
 	popActionContext();
 	g_coopPendingChainActorId = -1;
 	g_coopPendingChainKind.clear();
+	g_coopPreAttackTurnActionId = 0; // W2-P3 S-A.2 (RQ6): cleared at every close
 
-	if (!actor)
+	if (!actor && closedOrigin == "endturn")
+	{
+		// W2-P3 S-A.2 (spec (b)3/(b)6): the end-turn grenade / terrain explosion
+		// chain has no actor. Its end still goes out - with NO `final` (the
+		// client skips its "no known actor" warning for such an end, A18) and
+		// the action-end hash (8 structured buckets + saveBlob, D138).
+		Json::Value end = CoopWire::makeActionEnd(0, actionId);
+		end["h"] = coopBuildActionEndHash(save);
+		const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
+		CoopEmit::sendEv(end);
+		endSeq = CoopDelta::hostSeqOf("bt_action_end", seqBefore);
+		Log(LOG_INFO) << "[coop-ctx] endturn context " << actionId << " closed: bt_action_end seq " << endSeq
+			<< " (actor-less, no final)";
+	}
+	else if (!actor)
 	{
 		Log(LOG_WARNING) << "[coop-arbiter] chain quiesced for actionId " << actionId
 			<< " but its actor no longer resolves - bt_action_end skipped";
@@ -6412,8 +6435,12 @@ void onChainQuiesced()
 			publishLastWalk();
 		}
 
+		const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted(); // W2-P3 S-A.2: closedContexts endSeq
 		CoopEmit::sendEv(end);
+		endSeq = CoopDelta::hostSeqOf("bt_action_end", seqBefore);
+		hasFinal = true;
 	}
+	CoopDelta::noteContextClosed(actionId, closedOrigin, closedKind, closedActorId, 0u, endSeq, hasFinal);
 
 	// Oldest-denied-seat-first bookkeeping (SS2.5): consulted here (read-only
 	// - the spike is deny-only, see the SEAM note in CoopArbiter.h) so a
@@ -6428,6 +6455,62 @@ void onChainQuiesced()
 		Log(LOG_INFO) << "[coop-arbiter] quiesce: oldest-denied seat=" << oldest->first
 			<< " (tick=" << oldest->second << ")";
 	}
+}
+
+void onChainQuiesced()
+{
+	if (!isCoopBattle())
+		return;
+
+	if (g_coopActionContextStack.empty())
+	{
+		// W2-P2 S-A (spec (b)9): a context-less chain just ended. If it left
+		// state the client has not received (a fall, deaths after endTurn, AI and
+		// reaction chains until W2-P3), ship it now as one `sync` ev. Host +
+		// armed + non-empty delta only; otherwise a no-op.
+		CoopDelta::flushSync();
+		return; // no coop action in flight - a foreign/AI popState, not ours
+	}
+
+	// W2-P2 S-C.2 (amendment A3, F690): a quiescence INSIDE an armed push pair
+	// (the queue emptied between the turn push and the shot push) is not the
+	// action's end - defer it; endChainArming() closes the context if the queue
+	// is still empty after the second push.
+	if (g_coopChainArming)
+	{
+		CoopDelta::g_armingDeferrals.fetch_add(1);
+		Log(LOG_INFO) << "[coop-ctx] quiescence deferred while arming (actionId " << currentActionId()
+			<< ")";
+		return;
+	}
+
+	// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
+	// R2-P7 hold_chain lever (RB-D26/RB-D32 family): keep this chain
+	// artificially OPEN so a second intent deterministically lands mid-chain
+	// and gets a LIVE deny("busy"). Deferring HERE - before the bt_action_end
+	// emit and before popActionContext() - is the minimal intercept: it leaves
+	// currentActionId() != 0, which is exactly the arm of onIntent()'s SS2.5
+	// busy check that a real long chain would trip. releaseHeldChainIfExpired()
+	// (called unconditionally from the RB-D5 pump point) re-enters this
+	// function once the window closes, and it then falls straight through.
+	if (g_coopHoldChainMs > 0)
+	{
+		if (!g_coopHoldChainHolding)
+		{
+			g_coopHoldChainHolding = true;
+			g_coopHoldChainUntil = std::chrono::steady_clock::now()
+				+ std::chrono::milliseconds(g_coopHoldChainMs);
+			Log(LOG_INFO) << "[coop-arbiter] hold_chain: HOLDING actionId " << currentActionId()
+				<< " open for " << g_coopHoldChainMs << " ms - bt_action_end deferred, "
+				"further intents will deny(busy) (TEST-ONLY STOPGAP)";
+		}
+		if (std::chrono::steady_clock::now() < g_coopHoldChainUntil)
+			return; // still held
+		g_coopHoldChainHolding = false;
+		g_coopHoldChainMs = 0; // one-shot
+	}
+
+	closeBaseContext(); // W2-P3 S-A.2 (spec (b)3 step 8)
 }
 
 void beginHostLocalTurn(BattleUnit* actor, bool turret)
@@ -7462,7 +7545,12 @@ void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted)
 		return; // a foreign/AI/SP turn - not coop's to report
 	// W1-P9: ...and the chain in flight must actually BE a turn. See
 	// g_coopPendingChainKind's own comment for the walk collision this closes.
-	if (g_coopPendingChainKind != "turn")
+	// W2-P3 S-A.2 (spec (b)5, B1 RQ6): or the AI attack's own pre-attack turn -
+	// the flag names that action's id, so only its turn passes (the wave-1
+	// `turn` shape unchanged, a new producer of an existing kind).
+	const bool preAttackTurn = g_coopPreAttackTurnActionId != 0
+		&& CoopArbiter::currentActionId() == g_coopPreAttackTurnActionId;
+	if (g_coopPendingChainKind != "turn" && !preAttackTurn)
 		return;
 
 	const std::uint32_t actionId = CoopArbiter::currentActionId();
@@ -7514,6 +7602,7 @@ void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted)
 		Log(LOG_INFO) << "[coop-turn] turn seq " << CoopDelta::hostSeqOf("turn", seqBefore) << " actionId "
 			<< actionId << ": " << Json::writeString(wb, ev["payload"]);
 	}
+	g_coopPreAttackTurnActionId = 0; // W2-P3 S-A.2 (spec (b)5): after emitting, the flag clears
 
 	if (aborted)
 	{
@@ -7612,11 +7701,16 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 	end["h"] = coopBuildActionEndHash(save);
 	if (!succeeded)
 		end["halted"] = true;
+	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted(); // W2-P3 S-A.2: closedContexts endSeq
 	CoopEmit::sendEv(end);
+	const std::string closedOrigin = CoopArbiter::currentActionOrigin(); // W2-P3 S-A.2 (spec (b)13)
 
 	CoopArbiter::popActionContext();
 	g_coopPendingChainActorId = -1;
 	g_coopPendingChainKind.clear();
+	g_coopPreAttackTurnActionId = 0; // W2-P3 S-A.2 (RQ6): cleared at every close
+	CoopDelta::noteContextClosed(actionId, closedOrigin, "kneel", unit->getId(), 0u,
+		CoopDelta::hostSeqOf("bt_action_end", seqBefore), true);
 }
 
 // W2-P2 S-C.2 (spec (b)14): prime / unprime as an INSTANT host action - the
@@ -7654,11 +7748,142 @@ void coopHostPrime(BattleUnit* actor, BattleItem* item, bool unprime)
 	Json::Value end = CoopWire::makeActionEnd(0u, actionId);
 	end["final"] = CoopArbiter::buildFinal(actor);
 	end["h"] = coopBuildActionEndHash(save);
+	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted(); // W2-P3 S-A.2: closedContexts endSeq
 	CoopEmit::sendEv(end);
 
 	CoopArbiter::popActionContext();
+	g_coopPreAttackTurnActionId = 0; // W2-P3 S-A.2 (RQ6): cleared at every close
+	CoopDelta::noteContextClosed(actionId, "host", unprime ? "unprime" : "prime", actor->getId(), 0u,
+		CoopDelta::hostSeqOf("bt_action_end", seqBefore), true);
 	Log(LOG_INFO) << "[coop-ctx] host " << (unprime ? "unprime" : "prime") << " actionId " << actionId
 		<< ": unit " << actor->getId() << " item " << item->getId() << " fuse " << item->getFuseTimer();
+}
+
+// ===== W2-P3 S-A.2 (docs rewrite/prompts/w2p3_nonplayer_origins.md (b)1, (b)4-6;
+// amendment B1 RQ5/RQ6): the `ai` and `endturn` action contexts. Declared in
+// CoopDelta.h; each is ONE self-guarded call at its BattlescapeGame.cpp site and a
+// no-op unless isCoopBattle() && hostSim (single player and a client run none of
+// it). Origins are host-side action-context values only - nothing new on the wire
+// (E59.2). =====
+
+/// Spec (b)1: the `ai` context's kind for the vanilla BattleActionType - W2-P2
+/// S-C's host-combat mapping (beginHostLocalCombat).
+static const char* coopAiAttackKind(int baType)
+{
+	switch (baType)
+	{
+	case BA_THROW: return "throw";
+	case BA_LAUNCH: return "launch";
+	case BA_HIT: return "melee";
+	case BA_PANIC:
+	case BA_MINDCONTROL:
+	case BA_USE: return "psi";
+	default: return "shoot"; // BA_SNAPSHOT / BA_AIMEDSHOT / BA_AUTOSHOT
+	}
+}
+
+void coopBeginAiAttack(BattleUnit* actor, int baType)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !actor)
+		return;
+	// Spec (b)1: a base begin while a context is open is a logged no-op (never
+	// expected - handleAI runs with an empty BState queue).
+	if (CoopArbiter::currentActionId() != 0)
+	{
+		CoopDelta::g_contextBeginRefused.fetch_add(1);
+		Log(LOG_WARNING) << "[coop-ctx] ai attack by unit " << actor->getId() << " (action type " << baType
+			<< ") not begun: action context " << CoopArbiter::currentActionId() << " (origin '"
+			<< CoopArbiter::currentActionOrigin() << "') is still open";
+		return;
+	}
+	const char* kind = coopAiAttackKind(baType);
+	const std::uint32_t actionId = CoopArbiter::mintActionId();
+	CoopArbiter::pushActionContext(actionId, "ai");
+	g_coopActionContextStack.back().actorId = actor->getId();
+	g_coopActionContextStack.back().kind = kind;
+	g_coopPendingChainActorId = actor->getId();
+	g_coopPendingChainKind = kind;
+	// Spec (b)5 / B1 RQ6: every AI attack but psi pushes a UnitTurnBState toward
+	// its target - record the "before" facing the wave-1 `turn` ev reports and
+	// name this action as the one whose turn coopOnUnitTurnFinished() emits.
+	if (std::strcmp(kind, "psi") != 0)
+	{
+		g_coopPendingTurnInfo.fromDir = actor->getDirection();
+		g_coopPendingTurnInfo.fromTurretDir = actor->getTurretDirection();
+		g_coopPendingTurnInfo.turretOnly = false;
+		g_coopPreAttackTurnActionId = actionId;
+	}
+	// Spec (b)4 (W2-P2's arming guard, reused; B1: armed only once the context
+	// is actually open): the turn push can pop inside itself when the unit
+	// already faces its target.
+	CoopArbiter::beginChainArming();
+	Log(LOG_INFO) << "[coop-ctx] ai context " << actionId << " begun: unit " << actor->getId() << " kind=" << kind
+		<< " (action type " << baType << ")";
+}
+
+void coopAiAttackPushed(bool statesEmpty)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	// Spec (b)4: a no-op unless coopBeginAiAttack() armed; closes the context
+	// itself when every pushed state already popped inside its own push.
+	CoopArbiter::endChainArming(statesEmpty);
+}
+
+void coopOnEndTurnEntry(bool statesEmpty)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	// Spec (b)6: entered from statePushBack(0) or popState()'s marker path the
+	// BState queue is empty and every chain has finished, but neither path runs
+	// popState()'s quiescence tail. handleState()'s entry can still have states
+	// queued behind the marker: then nothing is closed here.
+	if (!statesEmpty)
+		return;
+	if (g_coopChainArming)
+	{
+		Log(LOG_WARNING) << "[coop-ctx] endTurn() entered while arming (actionId " << CoopArbiter::currentActionId()
+			<< ") - arming cleared";
+		g_coopChainArming = false;
+	}
+	while (!g_coopActionContextStack.empty())
+	{
+		const std::uint32_t id = g_coopActionContextStack.back().actionId;
+		const std::string origin = g_coopActionContextStack.back().origin;
+		CoopArbiter::closeBaseContext();
+		if (origin != "endturn")
+		{
+			// B1 RQ5: a DIAGNOSTIC (the AI's last chain ending the turn from
+			// popState()'s AI branch is normal vanilla flow).
+			CoopDelta::g_contextsClosedAtEndTurn.fetch_add(1);
+			Log(LOG_INFO) << "[coop-ctx] context " << id << " (origin '" << origin
+				<< "') still open at endTurn() entry - closed there";
+		}
+	}
+	g_coopPreAttackTurnActionId = 0; // B1 RQ6
+}
+
+void coopBeginEndTurnChain(bool go)
+{
+	if (!go || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	if (CoopArbiter::currentActionId() != 0)
+	{
+		CoopDelta::g_contextBeginRefused.fetch_add(1);
+		Log(LOG_WARNING) << "[coop-ctx] endturn chain not begun: action context " << CoopArbiter::currentActionId()
+			<< " (origin '" << CoopArbiter::currentActionOrigin() << "') is still open";
+		return;
+	}
+	// Spec (b)6: the end-turn grenade / terrain explosion chain, actor-less. The
+	// NEXT endTurn() entry (the marker brings it back) closes it, so its
+	// bt_action_end precedes _save->endTurn() and the side_transition.
+	const std::uint32_t actionId = CoopArbiter::mintActionId();
+	CoopArbiter::pushActionContext(actionId, "endturn");
+	g_coopActionContextStack.back().actorId = -1;
+	g_coopActionContextStack.back().kind = "endturn";
+	g_coopPendingChainActorId = -1;
+	g_coopPendingChainKind = "endturn";
+	Log(LOG_INFO) << "[coop-ctx] endturn context " << actionId << " begun (actor-less)";
 }
 
 // ===== W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30 / WV-D37 / WV-D38 / WV-D48):
@@ -11346,7 +11571,7 @@ void onApplied(const Json::Value& ev)
 				save->getTileEngine()->calculateFOV(unit); // A5: targeted FOV refresh
 			g_coopClientActionActor.erase(it);
 		}
-		else
+		else if (ev.isMember("final")) // W2-P3 S-A.2 (A18): an actor-less `endturn` end carries no final
 		{
 			Log(LOG_WARNING) << "[coop-apply] bt_action_end actionId " << actionId
 				<< " has no known actor on this machine (no preceding bt_ev carried "
