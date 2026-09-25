@@ -214,6 +214,7 @@
 #include "../Interface/DisableableComboBox.h"
 #include "../Interface/Text.h"
 #include "../Interface/TextButton.h"
+#include "../Interface/BattlescapeButton.h" // W2-P4 S-E2.1b: map_tile_click_pos special-action buttons
 #include "../Engine/InteractiveSurface.h"
 
 namespace OpenXcom
@@ -4639,6 +4640,31 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			const int iconLeft = baseW / 2 - iconW / 2;
 			const int iconTop = baseH - iconH;
 
+			// W2-P4 S-E2.1b (F1283): the VISIBLE special-action buttons at the
+			// screen's right edge swallow a click the same way the icons panel
+			// does (a click there presses the button: T0-17 saw a throw click
+			// open the skill menu). They are BattlescapeState's _btnLaunch
+			// (screenWidth - 32, 0) and _btnSpecial / _btnSkills / _btnPsi, each
+			// placed at one of the SPECIAL_BUTTONS_MAX (3) slots
+			// _posSpecialActions = screenWidth - 32, - 64, - 96 at y 25
+			// (BattlescapeState.cpp:204-220, updateUiButton :2620-2647), all
+			// 32x24. They are private, so they are found among the state's
+			// surfaces by that exact type, size and place; a hidden one is not
+			// excluded (it takes no click).
+			std::vector<SDL_Rect> specialButtons;
+			for (auto* s : bstate->getSurfaces())
+			{
+				if (!s || !s->getVisible() || !dynamic_cast<BattlescapeButton*>(s))
+					continue;
+				if (s->getWidth() != 32 || s->getHeight() != 24 || (s->getY() != 0 && s->getY() != 25)
+					|| s->getX() < baseW - 3 * 32)
+					continue;
+				SDL_Rect r;
+				r.x = (Sint16)s->getX(); r.y = (Sint16)s->getY();
+				r.w = (Uint16)s->getWidth(); r.h = (Uint16)s->getHeight();
+				specialButtons.push_back(r);
+			}
+
 			Position savedSel;
 			bmap->getSelectorPosition(&savedSel);
 
@@ -4671,6 +4697,17 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 							continue;
 						if (my >= iconTop && mx >= iconLeft && mx < iconLeft + iconW)
 							continue; // mapClick returns early over the icons panel
+						bool onSpecial = false;
+						for (const SDL_Rect& b : specialButtons)
+						{
+							if (mx >= b.x && mx < b.x + b.w && my >= b.y && my < b.y + b.h)
+							{
+								onSpecial = true;
+								break;
+							}
+						}
+						if (onSpecial)
+							continue; // W2-P4 S-E2.1b: the click would press a special-action button
 						const int d = dx * dx + dy * dy;
 						if (d >= bestD)
 							continue;
