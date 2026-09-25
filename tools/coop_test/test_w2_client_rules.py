@@ -57,7 +57,11 @@ has sprayWaypoints 2), in this order:
          both with the host's Ctrl ON (the value follows the ordering player's
          key, not the host's); each leg one {intent, shoot, C} context with
          C16F_CHAIN, C TU C16F_TU_AFTER on both. A survives both legs in either
-         order (T0-9f: health 30 -> 19 -> 7, standing).
+         order (T0-9f: health 30 -> 19 -> 7, standing). Leg 3 (S-E1.1b, F1268):
+         the HOST's touch Ctrl OFF, A's health restored to its pre-leg-1 value
+         and C TU max (both), the same snap with the client's own touch Ctrl ON.
+         RED: the host's Ctrl OFF gives the UNFORCED value. GREEN: C16F_FORCED
+         (the client's own key forces the shot with the host's key up).
 
 C16f runs after C18 on purpose: at SEED_C18 the spray changes no terrain and
 hits no unit (T0-9f / SEED_C18 proofs), so C16f meets the same world on the red
@@ -414,10 +418,10 @@ def leg_view(leg):
             "A": leg["A"], "diff": leg["rec"]["diff"], "desync": leg["rec"]["dsc"]}
 
 
-def c16f_leg_fails(host, client, leg, want, what):
+def c16f_leg_fails(host, client, leg, want, what, host_ctrl=True):
     fails = []
-    if not leg["hostMods"].get("ctrl"):
-        fails.append(f"{what}: host touch Ctrl {leg['hostMods']} at the press (want ON)")
+    if bool(leg["hostMods"].get("ctrl")) != host_ctrl:
+        fails.append(f"{what}: host touch Ctrl {leg['hostMods']} at the press (want {'ON' if host_ctrl else 'OFF'})")
     fails += forwarded_fails(leg["before"], leg["rec"])
     f, cx = admitted_fails(leg["before"], leg["rec"], "shoot", C_ID)
     fails += [f"{what}: {m}" for m in f]
@@ -446,12 +450,21 @@ def c16f_force_fire(host, client, ctx):
     vis = both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "visible": True},
                ("visible",)).get("visible")
     staged = diff_buckets(host, client)
+    a_health0 = (session.units_by_id(battle_state(host)).get(A_ID) or {}).get("health")
     legs = {}
     try:
         legs["hostCtrlOn"] = touch(host, ctrl=True)
         legs["L1"] = c16f_leg(host, client, False, notes)
         set_tu_both(host, client, C_ID, TU_MAX)
         legs["L2"] = c16f_leg(host, client, True, notes)
+        # S-E1.1b (F1268): leg 3 - the host's Ctrl OFF, the client's own Ctrl ON.
+        legs["hostCtrlOffL3"] = touch(host, ctrl=False)
+        legs["Arestored"] = {k: v for k, v in both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID,
+                                                                  "health": a_health0},
+                                                    ("health", "stun", "status")).items()
+                             if k in ("health", "stun", "status")}
+        set_tu_both(host, client, C_ID, TU_MAX)
+        legs["L3"] = c16f_leg(host, client, True, notes)
     except Exception as e:
         notes.append(f"C16f drive: {short(e)}")
     finally:
@@ -463,7 +476,10 @@ def c16f_force_fire(host, client, ctx):
           f"aimCancel={aim0} hostCtrlOn={legs.get('hostCtrlOn')} hostCtrlOff={legs.get('hostCtrlOff')}; "
           f"LEG1 (client Ctrl OFF, want {C16F_UNFORCED})="
           f"{leg_view(legs['L1']) if 'L1' in legs else None}; LEG2 (client Ctrl ON, want {C16F_FORCED})="
-          f"{leg_view(legs['L2']) if 'L2' in legs else None}; notes={notes}", flush=True)
+          f"{leg_view(legs['L2']) if 'L2' in legs else None}; A health before leg 1={a_health0} "
+          f"hostCtrlOffL3={legs.get('hostCtrlOffL3')} Arestored={legs.get('Arestored')}; LEG3 (host Ctrl OFF, "
+          f"client Ctrl ON, want {C16F_FORCED})={leg_view(legs['L3']) if 'L3' in legs else None}; notes={notes}",
+          flush=True)
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
@@ -477,6 +493,11 @@ def c16f_force_fire(host, client, ctx):
         fails += c16f_leg_fails(host, client, legs["L2"], C16F_FORCED, "leg 2 (client Ctrl ON)")
     else:
         fails.append("leg 2 never ran")
+    if "L3" in legs:
+        fails += c16f_leg_fails(host, client, legs["L3"], C16F_FORCED, "leg 3 (host Ctrl OFF, client Ctrl ON)",
+                                host_ctrl=False)
+    else:
+        fails.append("leg 3 never ran")
     finish(fails)
 
 
