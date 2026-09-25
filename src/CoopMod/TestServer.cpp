@@ -6288,9 +6288,35 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 		}
 
+		// W2-P4 S-A.2 (spec rewrite/prompts/w2p4_client_combat_intents.md (b)13,
+		// F1185): the COMBAT plan - `plan` {action, weapon, ammo, target,
+		// targetUnit, targetPos?, forceFire} passed through verbatim (a literal
+		// forceFire, never this machine's keys); tuBasis is computed by
+		// sendClientIntent() exactly as for the real UI unless tuBasisOverride
+		// is given.
+		CoopCombatIntentArgs combatArgs;
+		if (req.isMember("plan") && req["plan"].isObject())
+		{
+			const Json::Value& pl = req["plan"];
+			combatArgs.action = pl.get("action", "").asString();
+			combatArgs.weapon = pl.get("weapon", -1).asInt();
+			combatArgs.ammo = pl.get("ammo", -1).asInt();
+			combatArgs.target = Position(pl["target"].get("x", 0).asInt(),
+				pl["target"].get("y", 0).asInt(), pl["target"].get("z", 0).asInt());
+			combatArgs.targetUnit = pl.get("targetUnit", -1).asInt();
+			combatArgs.targetPos = combatArgs.target; // no targetPos given: the clicked tile
+			if (pl.isMember("targetPos"))
+			{
+				combatArgs.targetPos = Position(pl["targetPos"].get("x", 0).asInt(),
+					pl["targetPos"].get("y", 0).asInt(), pl["targetPos"].get("z", 0).asInt());
+			}
+			combatArgs.forceFire = pl.get("forceFire", false).asBool();
+		}
+
 		const std::uint32_t iseq = CoopArbiter::sendClientIntent(
 			kind.c_str(), actor, toDir, turret, kneel, tuBasisOverride,
-			kind == "walk" ? &walkArgs : nullptr);
+			kind == "walk" ? &walkArgs : nullptr,
+			kind == "shoot" ? &combatArgs : nullptr);
 		if (iseq == 0u)
 		{
 			resp["error"] = "battle_intent: not sent (see log - outside an active coop "

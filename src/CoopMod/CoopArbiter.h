@@ -33,6 +33,7 @@ namespace OpenXcom
 class BattleUnit;
 class BattlescapeGame;
 class SavedBattleGame;
+struct BattleAction;
 
 /**
  * W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / rulings D4+D-6 = WV-D29/WV-D30/WV-D38/
@@ -61,6 +62,33 @@ struct CoopWalkIntentArgs
 	bool sneak = false;
 	bool ignoreSpotted = false;
 	std::vector<Position> pathOverride;
+};
+
+/**
+ * W2-P4 S-A (docs rewrite/prompts/w2p4_client_combat_intents.md (b)1/(b)5):
+ * the COMBAT intent's plan, handed to sendClientIntent() below - the one plan
+ * struct RB-D32's "extend the signature, never fork it" rule allows beside
+ * CoopWalkIntentArgs. S-A builds the `shoot` kind (snap / aimed / auto):
+ *   action      the wire action string ("snap" | "aimed" | "auto")
+ *   weapon      the item id of the weapon the order fires
+ *   ammo        getAmmoForAction(type)'s item id when the order was built, -1 none
+ *   target      the clicked tile
+ *   targetUnit  the unit the order aims at (-1 = a tile)
+ *   targetPos   that unit's position when the order was built (iff targetUnit >= 0)
+ *   forceFire   the ORDERING machine's own Options::forceFire && Ctrl (F423)
+ * Everything here is PLAN data: a busy-held order keeps it verbatim and only
+ * `tuBasis` is recomputed at the resubmit (PR-Q12), which is why tuBasis is not
+ * a member.
+ */
+struct CoopCombatIntentArgs
+{
+	std::string action;
+	int weapon = -1;
+	int ammo = -1;
+	Position target;
+	int targetUnit = -1;
+	Position targetPos;
+	bool forceFire = false;
 };
 
 /**
@@ -321,9 +349,15 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 /// vanilla's own reserve warning already on screen because that first check is
 /// made with justChecking=false), and a violation at step k>1 ships the k-1
 /// prefix with `tuBasis` over that prefix only.
+///
+/// W2-P4 S-A (spec (b)1): @a kind may also be "shoot", in which case @a combat
+/// carries the plan (CoopCombatIntentArgs above) and MUST be non-null; `tuBasis`
+/// is the actor's own getActionTUs(type, weapon).Time unless
+/// @a tuBasisOverride is given. Every send is counted per kind in
+/// intentsSent() (spec (b)13).
 std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir = -1,
 	bool turret = false, bool kneel = false, int tuBasisOverride = -1,
-	const CoopWalkIntentArgs* walk = nullptr);
+	const CoopWalkIntentArgs* walk = nullptr, const CoopCombatIntentArgs* combat = nullptr);
 
 /// CLIENT (R3-P1, REVIEW4 IR-2): host bt_ack{iseq,actionId} receipt - if
 /// @a ack's iseq matches this client's own in-flight intent (set by a prior
@@ -741,5 +775,34 @@ unsigned int coopSpotEvsApplied();
 /// and previewed, so both machines describe the same route with the same code.
 bool coopInterceptWalkConfirm(BattleUnit* actor, Position dest, bool run,
 	bool strafe, bool sneak, bool ignoreSpotted, SavedBattleGame* save);
+
+/// W2-P4 S-A (docs rewrite/prompts/w2p4_client_combat_intents.md (b)5, K5;
+/// PR-Q1/PR-Q18): the SHOT execution point in BattlescapeGame::primaryAction -
+/// ONE guarded call on the line before the `primaryAction.fire` tripwire, i.e.
+/// after vanilla's own pre-execution display (target, CT_NONE, cursor hidden,
+/// cameraPosition). In order:
+///   1. the baton check at the execution point, on BOTH machines
+///      (coopRefuseIfNotMayCommand: rendered not_your_go + coopLocalExecBlocked);
+///      a refusal restores the cursor vanilla just hid and returns TRUE;
+///   2. on the co-op HOST: FALSE - vanilla executes and its own
+///      beginHostLocalCombat() stamps the `host` context (W2-P2);
+///   3. on a co-op CLIENT: ships the completed vanilla action as a `shoot`
+///      bt_intent through sendClientIntent() (RB-D32's one builder) and returns
+///      TRUE whether or not it went out, so vanilla's execution never runs on a
+///      thin client (the tripwire below stays the backstop).
+/// FALSE in single player and outside an active co-op battle.
+bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save);
+
+/// W2-P4 S-A (spec (b)4, Q3 = (a), PR-Q4, PR-Q11): the halt LATCH - ONE guarded
+/// call in BattlescapeGame::popState() before vanilla's player warning. On the
+/// co-op HOST, while an `intent` context is the base, a popped state whose
+/// actor is that context's actor is a REMOTE action: the first non-empty
+/// vanilla `result` of such a state (the base context on top of the stack, not
+/// a nested reaction's) is latched for the context - closeBaseContext() ships it
+/// as `halted`/`reason` on the context's bt_action_end - and TRUE is returned so
+/// vanilla skips BOTH host-screen side effects for it (the warning and the
+/// throw/launch cancel of the HOST player's own action). FALSE everywhere else
+/// (SP, a client, the host's own actions), so vanilla is byte-identical there.
+bool coopLatchActionResult(const BattleAction& action);
 
 } // namespace OpenXcom

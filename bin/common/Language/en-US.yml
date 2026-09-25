@@ -75,6 +75,9 @@ en-US:
   STR_COOP_DENY_WEAPON_MISSING: "Order cancelled - weapon unavailable"
   STR_COOP_DENY_NOT_YOUR_UNIT: "Not one of your soldiers"
   STR_COOP_DENY_TURN_OVER: "The turn has already ended"
+  # coop (W2-P4 S-A, Q1 = (a)): the combat admission deny `cannot_use` - the one
+  # refusal vanilla has no text for (canUseWeapon() false with no message).
+  STR_COOP_DENY_CANNOT_USE: "Order cancelled - this weapon cannot be used"
   # coop (W1-P13c, traditional turn mode): the baton refusal (E53.4/E55.1) and
   # the persistent off-turn banner (REV E.56/D77). {0} is the baton holder's
   # seat name (seatDisplayName()).

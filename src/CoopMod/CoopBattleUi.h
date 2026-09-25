@@ -282,6 +282,17 @@ void showCancel(const char* cause, const char* evKind);
 /// TU and energy halts, and vanilla shows nothing at all for a blocked one.
 void showWalkHalt(const char* reason);
 
+/// W2-P4 S-A (docs rewrite/prompts/w2p4_client_combat_intents.md (b)4): the
+/// COMBAT halt presenter - the reason a host-executed combat intent of THIS
+/// client failed (bt_action_end `reason`: no_tu, no_energy, no_morale,
+/// no_health, no_mana, no_stun, no_ammo_loaded, no_rounds_left, out_of_range,
+/// failed_cqb, unable_to_throw_here, no_trajectory, no_line_of_fire), rendered
+/// with VANILLA's own key through a table separate from the walk and deny
+/// tables. Terminal class. Shown only on the ORDERING seat (the sole caller is
+/// the client apply path, for an action this client owns); an unknown reason
+/// shows nothing (logged). No-op outside an active co-op battle.
+void showCombatHalt(const char* reason);
+
 /// R2-P9 (SPIKE-RUNBOOK.md SS2.8 mismatch-behavior note): the STICKY desync
 /// banner - "desync detected - battle halted (rejoin arrives in a later
 /// build)" (STR_COOP_DESYNC_HALTED). Called once, from CoopHashCheck::verify

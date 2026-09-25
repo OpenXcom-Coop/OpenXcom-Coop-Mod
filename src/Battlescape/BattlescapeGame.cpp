@@ -1320,7 +1320,12 @@ void BattlescapeGame::popState()
 	auto* first = _states.front();
 	BattleAction action = first->getAction();
 
-	if (action.actor && !action.result.empty() && action.actor->getFaction() == FACTION_PLAYER
+	// W2-P4 S-A (spec (b)4, Q3 = (a), PR-Q4): ONE guarded coop call - on the
+	// co-op HOST it latches a partner's (intent) action result for its
+	// bt_action_end and reports the state as REMOTE, so the two host-screen side
+	// effects below (the warning, the throw/launch cancel) skip it. False in SP.
+	const bool coopRemoteAction = coopLatchActionResult(action);
+	if (!coopRemoteAction && action.actor && !action.result.empty() && action.actor->getFaction() == FACTION_PLAYER
 		&& _playerPanicHandled && (_save->getSide() == FACTION_PLAYER || _debugPlay))
 	{
 		_parentState->warning(action.result);
@@ -1338,7 +1343,7 @@ void BattlescapeGame::popState()
 			if (_save->getSide() == FACTION_PLAYER)
 			{
 				// after throwing the cursor returns to default cursor, after shooting it stays in targeting mode and the player can shoot again in the same mode (autoshot,snap,aimed)
-				if ((action.type == BA_THROW || action.type == BA_LAUNCH) && !actionFailed)
+				if (!coopRemoteAction && (action.type == BA_THROW || action.type == BA_LAUNCH) && !actionFailed)
 				{
 					// clean up the waypoints
 					if (action.type == BA_LAUNCH)
@@ -1897,9 +1902,12 @@ void BattlescapeGame::primaryAction(Position pos)
 	{
 		// COMMANDING ARM (targeting confirm / BA_LAUNCH + spray waypoints):
 		// stays gated, as the entry guard had it. ONE guarded call, permissive
-		// outside coop; the predicate is hostSim AND coopMayCommand - see
-		// BattleAuthority.h for why coopMayCommand alone is not enough.
-		if (coopBlockLocalExecution(_save->getSelectedUnit(), _save))
+		// outside coop. W2-P4 S-A: the gate SPLITS like W1-P9's walk arm - a
+		// kind whose intercept exists keeps ownership + active side here and
+		// its hostSim/baton terms move down to its execution point; every
+		// other kind keeps the old hostSim AND coopMayCommand gate - see
+		// BattleAuthority.h (coopBlockTargetingArm).
+		if (coopBlockTargetingArm(_save->getSelectedUnit(), _save))
 		{
 			return;
 		}
@@ -2094,6 +2102,12 @@ void BattlescapeGame::primaryAction(Position pos)
 
 			_parentState->getGame()->getCursor()->setVisible(false);
 			_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
+			// W2-P4 S-A (spec (b)5 K5): ONE guarded coop call at the shot's
+			// EXECUTION point - the baton check on both machines, and on a
+			// co-op CLIENT the completed action ships as a `shoot` intent and
+			// TRUE comes back, so nothing below runs there. FALSE on the host
+			// (vanilla executes) and in single player.
+			if (coopInterceptFireConfirm(&_currentAction, _save)) return;
 			if (coopClientBStateTripwire("primaryAction.fire")) return;
 			CoopArbiter::beginHostLocalCombat(_currentAction.actor, _currentAction.type);
 			_states.push_back(new ProjectileFlyBState(this, _currentAction));

@@ -575,6 +575,25 @@ bool coopMaySelectUnit(const BattleUnit* u);
 /// Defined in connectionTCP.cpp next to coopMayCommand().
 bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s);
 
+/// W2-P4 S-A (docs rewrite/prompts/w2p4_client_combat_intents.md (b)5 K1, as
+/// amended by PR-Q1, PR-Q2 and PR-Q20): what W1-P6's coopBlockLocalExecution()
+/// call at the top of BattlescapeGame::primaryAction's TARGETING arm becomes -
+/// W1-P9's walk-arm gate split, generalised to the arm whose kinds now have a
+/// wire verb. Reads the kind off @a s's live BattlescapeGame::getCurrentAction().
+///   * A kind whose intercept EXISTS (S-A: the snap / aimed / auto shot - NOT
+///     the spray start, i.e. an autoshot with a `sprayWaypoints` weapon under
+///     Ctrl+Shift or an already-running spray targeting): OWNERSHIP + ACTIVE
+///     SIDE only, on BOTH machines (`commandsUnit(u) && mySideActive(s)`), a
+///     refusal bumping the same coopLocalExecBlocked counter. The hostSim term
+///     moves down to the execution point (coopInterceptFireConfirm(),
+///     CoopArbiter.h) and so does the baton term (PR-Q1: the local aiming
+///     bookkeeping - confirm-fire first click - stays allowed off-turn, E54.1).
+///   * Every other targeting kind (throw, launch, spray, psi, mind probe) keeps
+///     coopBlockLocalExecution() exactly as before (PR-Q2): each later stage
+///     lifts its own kinds, so no build between S-A and S-E has a local-sim path.
+/// Self-guarded: false outside an ACTIVE co-op battle, so SP is byte-identical.
+bool coopBlockTargetingArm(const BattleUnit* u, SavedBattleGame* s);
+
 /// W1-P6: test-only introspection - how many times coopBlockLocalExecution()
 /// has refused a local execution in this process. Reported by TestServer's
 /// `event_state` as `coopLocalExecBlocked`; never read by game logic.
