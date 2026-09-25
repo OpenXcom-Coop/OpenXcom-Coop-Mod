@@ -1698,12 +1698,20 @@ bool BattlescapeGame::handlePanickingUnit(BattleUnit *unit)
 				_save->getPathfinding()->calculate(ba.actor, ba.target, ba.getMoveType());
 				if (_save->getPathfinding()->getStartDirection() != -1) // sanity check the path.
 				{
+					// W2-P3 S-D (spec (b)7): ONE guarded coop call - on the co-op HOST
+					// the panic runs in its own `panic` context and this flee walk
+					// streams under it. No-op in single player and on a client.
+					coopNotePanicFleeWalk(ba.actor, _save);
 					statePushBack(new UnitWalkBState(this, ba));
 					break;
 				}
 			}
 		}
 	}
+	// W2-P3 S-D (spec (b)7/(b)9): ONE guarded coop call - on the co-op HOST the
+	// `panic` cue {unit, mode} opens the action (in the context V9 opened for a
+	// flee). No-op in single player and on a client.
+	coopCuePanic(unit, flee);
 	// Time units can only be reset after everything else occurs
 	statePushBack(new UnitPanicBState(this, ba.actor));
 

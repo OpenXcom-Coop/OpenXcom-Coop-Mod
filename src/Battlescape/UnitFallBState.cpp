@@ -29,6 +29,7 @@
 #include "../Mod/Armor.h"
 #include "../Mod/Mod.h"
 #include "../CoopMod/CoopSpeed.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -60,6 +61,10 @@ void UnitFallBState::init()
 		_parent->setStateInterval(CoopSpeed::xcomSpeedFor(nullptr));
 	else
 		_parent->setStateInterval(CoopSpeed::alienSpeedFor(nullptr));
+	// W2-P3 S-D (spec (b)9, V14): ONE guarded coop call - on the co-op HOST the
+	// `fall` cue {units:[{unit, from}]} for the units about to fall. No-op in
+	// single player and on a client.
+	coopCueFall(_parent->getSave());
 
 }
 

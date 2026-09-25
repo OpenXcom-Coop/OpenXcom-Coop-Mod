@@ -391,4 +391,37 @@ void coopCueSpawn(BattleUnit* unit, const char* cause, const BattleUnit* from);
 /// carries every one of them in `unitsAdded`.
 void coopCueSpawnAdded(SavedBattleGame* save, const char* cause);
 
+// ----- W2-P3 S-D, commit S-D.2: the turn machine's own chains -----
+// Spec rewrite/prompts/w2p3_nonplayer_origins.md (b)1, (b)7, (b)9 (V9, V10,
+// V14, V15). Each is ONE guarded call at its vanilla site and a no-op unless
+// isCoopBattle() && hostSim. `panic` is a base action context (host-side value
+// only, nothing new on the wire); `fall` and `revive` open no context and carry
+// the running one's id (0 outside a chain). Bodies: connectionTCP.cpp.
+
+/// V9 (BattlescapeGame::handlePanickingUnit, the line before the flee walk's
+/// UnitWalkBState push): open the `panic` context {id, "panic", @a unit} when
+/// no context is open, then expand the live Pathfinding exactly as
+/// CoopArbiter::beginAiWalk() does and open the walk chain under the panic id
+/// (origin "panic", kind `walk`) - the flee streams `walk_step` evs and the
+/// panic's bt_action_end carries the completion restate.
+void coopNotePanicFleeWalk(BattleUnit* unit, SavedBattleGame* save);
+
+/// V10 (handlePanickingUnit, the line before the UnitPanicBState push): ensure
+/// the `panic` context (opened by V9 for a flee) and emit the frozen `panic`
+/// cue {unit, mode}: "berserk" for STATUS_BERSERK, else "flee" when @a flee,
+/// else "freeze". It is the action's first ev; its delta carries the weapons
+/// a flee dropped.
+void coopCuePanic(BattleUnit* unit, bool flee);
+
+/// V14 (UnitFallBState::init, its last statement): the frozen `fall` cue
+/// {units:[{unit, from}]} for SavedBattleGame::getFallingUnits() at init,
+/// `from` = each unit's position then; no cue when the list is empty.
+void coopCueFall(SavedBattleGame* save);
+
+/// V15 (SavedBattleGame::reviveUnconsciousUnits, the line after
+/// removeUnconsciousBodyItem()): the frozen `revive` cue {unit, pos}, pos after
+/// placeUnitNearPosition(). Emitted inline (spec (b)9), also inside
+/// SavedBattleGame::endTurn() before the side_transition.
+void coopCueRevive(BattleUnit* unit);
+
 } // namespace OpenXcom

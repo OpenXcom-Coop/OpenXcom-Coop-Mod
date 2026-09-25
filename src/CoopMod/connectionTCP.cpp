@@ -8240,6 +8240,121 @@ void coopCueSpawnAdded(SavedBattleGame* save, const char* cause)
 	}
 }
 
+// ===== W2-P3 S-D.2 (docs rewrite/prompts/w2p3_nonplayer_origins.md (b)1, (b)7,
+// (b)9; V9, V10, V14, V15; owner ruling D128 = (b)): the turn machine's own
+// chains - a panic / berserk runs as the `panic` action context (its flee walk
+// streamed as `walk_step` evs under that id), and the `fall` / `revive` cues.
+// Declared in CoopDelta.h; each is ONE self-guarded call at its vanilla site and
+// a no-op unless isCoopBattle() && hostSim. Nothing new on the wire (E59.2). =====
+
+/// Spec (b)7: open the BASE context {id, "panic", @a unit, "panic"} (pending
+/// actor = @a unit, kind `panic`) when no context is open. V10 of a flee reuses
+/// the context V9 opened for the same unit. Any other open context: a logged
+/// no-op bumping `contextBeginRefused` (spec (b)1 - never expected, the panic is
+/// resolved from think() with an empty BState queue). Returns whether @a unit's
+/// panic context is the open one.
+static bool coopEnsurePanicContext(BattleUnit* unit)
+{
+	if (!g_coopActionContextStack.empty())
+	{
+		const CoopActionContextEntry& front = g_coopActionContextStack.front();
+		if (g_coopActionContextStack.size() == 1 && front.origin == "panic" && front.actorId == unit->getId())
+			return true;
+		CoopDelta::g_contextBeginRefused.fetch_add(1);
+		Log(LOG_WARNING) << "[coop-ctx] panic of unit " << unit->getId() << " not begun: action context "
+			<< CoopArbiter::currentActionId() << " (origin '" << CoopArbiter::currentActionOrigin()
+			<< "') is still open";
+		return false;
+	}
+	const std::uint32_t actionId = CoopArbiter::mintActionId();
+	CoopArbiter::pushActionContext(actionId, "panic");
+	g_coopActionContextStack.back().actorId = unit->getId();
+	g_coopActionContextStack.back().kind = "panic";
+	g_coopPendingChainActorId = unit->getId();
+	g_coopPendingChainKind = "panic";
+	Log(LOG_INFO) << "[coop-ctx] panic context " << actionId << " begun: unit " << unit->getId();
+	return true;
+}
+
+void coopNotePanicFleeWalk(BattleUnit* unit, SavedBattleGame* save)
+{
+	if (!coopCueAuthoring() || !unit || !save)
+		return;
+	if (!coopEnsurePanicContext(unit))
+		return; // refused (logged): never a walk chain under another action's id
+	// Spec (b)7: the plan is expanded from the LIVE Pathfinding exactly as
+	// CoopArbiter::beginAiWalk() does - handlePanickingUnit() has just run
+	// calculate(actor, target, BAM_NORMAL) and gated on getStartDirection() != -1,
+	// so this is the path the UnitWalkBState about to be pushed will walk.
+	std::vector<CoopArbiter::CoopWalkPlanStep> steps;
+	std::vector<Position> plan;
+	if (CoopArbiter::coopWalkExpandPath(save, unit, BAM_NORMAL, steps))
+	{
+		for (const CoopArbiter::CoopWalkPlanStep& s : steps)
+			plan.push_back(s.to);
+	}
+	else
+	{
+		Log(LOG_WARNING) << "[coop-walk] panic flee walk for unit " << unit->getId()
+			<< " could not be expanded from the live Pathfinding - the completion "
+			   "restate will report `halted` against an EMPTY plan";
+	}
+	// The panic context's kind becomes `walk` (spec (b)1): the walk hooks stream
+	// the flee under the panic id and its bt_action_end carries the W1 restate.
+	const std::uint32_t actionId = CoopArbiter::currentActionId();
+	g_coopActionContextStack.back().kind = "walk";
+	g_coopPendingChainKind = "walk";
+	CoopArbiter::beginWalkChain(unit, actionId, "panic", plan);
+	Log(LOG_INFO) << "[coop-ctx] panic context " << actionId << ": flee walk of unit " << unit->getId() << ", "
+		<< plan.size() << " planned step(s)";
+}
+
+void coopCuePanic(BattleUnit* unit, bool flee)
+{
+	if (!coopCueAuthoring() || !unit)
+		return;
+	coopEnsurePanicContext(unit); // a flee with a path: V9 already opened it
+	// Spec (b)7/(b)9: the frozen W2-P2 payload {unit, mode}. V10 runs before the
+	// UnitPanicBState constructor stands the unit up, so the status is intact.
+	Json::Value p(Json::objectValue);
+	p["unit"] = unit->getId();
+	p["mode"] = unit->getStatus() == STATUS_BERSERK ? "berserk" : (flee ? "flee" : "freeze");
+	coopEmitCue("panic", p);
+}
+
+void coopCueFall(SavedBattleGame* save)
+{
+	if (!coopCueAuthoring() || !save)
+		return;
+	// Spec (b)9: the falling list at init, `from` = each unit's position then.
+	Json::Value units(Json::arrayValue);
+	for (const BattleUnit* u : *save->getFallingUnits())
+	{
+		if (!u)
+			continue;
+		Json::Value e(Json::objectValue);
+		e["unit"] = u->getId();
+		e["from"] = CoopArbiter::coopPosJson(u->getPosition());
+		units.append(e);
+	}
+	if (units.empty())
+		return; // no cue when the list is empty
+	Json::Value p(Json::objectValue);
+	p["units"] = units;
+	coopEmitCue("fall", p);
+}
+
+void coopCueRevive(BattleUnit* unit)
+{
+	if (!coopCueAuthoring() || !unit)
+		return;
+	// Spec (b)9: {unit, pos}, pos after placeUnitNearPosition().
+	Json::Value p(Json::objectValue);
+	p["unit"] = unit->getId();
+	p["pos"] = CoopArbiter::coopPosJson(unit->getPosition());
+	coopEmitCue("revive", p);
+}
+
 // ===== W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30 / WV-D37 / WV-D38 / WV-D48):
 // the ATOM walk-core hooks. See CoopArbiter.h for each one's full contract. =====
 

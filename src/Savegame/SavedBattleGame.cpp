@@ -2729,6 +2729,10 @@ void SavedBattleGame::reviveUnconsciousUnits(bool noTU)
 						}
 					}
 					removeUnconsciousBodyItem(bu);
+					// W2-P3 S-D (spec (b)9, V15): ONE guarded coop call - on the
+					// co-op HOST the `revive` cue {unit, pos}. No-op in single
+					// player and on a client.
+					coopCueRevive(bu);
 				}
 			}
 		}
