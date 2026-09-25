@@ -33,6 +33,7 @@ namespace OpenXcom
 class BattleUnit;
 class BattlescapeGame;
 class SavedBattleGame;
+class RuleSkill; // W2-P4 S-E2: coopInterceptSkillUse()
 struct BattleAction;
 
 /**
@@ -109,6 +110,17 @@ struct CoopWalkIntentArgs
  * and:
  *   spray       the shot VOXELS of vanilla primaryAction's own spread, in the
  *               action's list order (back = the first shot); targetUnit -1
+ *
+ * W2-P4 S-E2 (amendment C3 D147 section 1): the same plan carries the `skill`
+ * kind (a SkillMenuState row: `weapon` is the item chooseWeaponForSkill()
+ * picked, -1 = none; the wire's `action` is the skill's target mode, read off
+ * the skill's own rule) and, on EVERY kind, the skill a follow-up order runs
+ * under:
+ *   skill       the RuleSkill type (empty = none): for a `skill` order the row
+ *               pressed; for any other kind this machine's
+ *               _currentAction.skillRules when the order was built (a
+ *               follow-up of a `continue: true` skill), so the host charges the
+ *               skill's cost (the updateTU() rule, N9 = F1146)
  */
 struct CoopCombatIntentArgs
 {
@@ -126,6 +138,7 @@ struct CoopCombatIntentArgs
 	int terrainPart = 0;
 	int bodypart = -1;
 	bool ctrl = false;
+	std::string skill;
 };
 
 /**
@@ -402,6 +415,10 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 /// W2-P4 S-D: "use_item" also carries the motion scanner; + "medikit" (BA_USE
 /// with the kit), "reload" and "reaction_hands" (neither has an action type,
 /// so neither ships a `tuBasis`).
+/// W2-P4 S-E2 (amendment C3 D147): + "skill" {skill, action (the skill's target
+/// mode), weapon, tuBasis = getActionTUs(target mode, skill).Time}; and every
+/// combat kind whose @a combat->skill is set ships it as `skill` with its
+/// `tuBasis` from getActionTUs(type, skill) (the updateTU() rule).
 std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir = -1,
 	bool turret = false, bool kneel = false, int tuBasisOverride = -1,
 	const CoopWalkIntentArgs* walk = nullptr, const CoopCombatIntentArgs* combat = nullptr);
@@ -962,6 +979,24 @@ bool coopInterceptReload(BattleUnit* unit, SavedBattleGame* save, bool playable)
 /// CLIENT: a `reaction_hands` order {hand, ctrl} with THIS machine's
 /// Game::isCtrlPressed(true) (owner D133 (a), Q12 = (a)).
 bool coopInterceptReactionHands(BattleUnit* unit, SavedBattleGame* save, bool rightHand);
+
+/// W2-P4 S-E2 (amendment C3 D147 section 1 step 1, C3-Q5 (a), C4 PR-Q18): the
+/// SKILL execution point - SkillMenuState::btnActionMenuItemClick(), the line
+/// before its TileEngine::skillUse() (after vanilla's own row pick, weapon pick
+/// and updateTU()):
+/// `if (coopInterceptSkillUse(_action, selectedSkill)) { _game->popState(); return; }`.
+/// The baton at the execution point first, on BOTH machines
+/// (coopRefuseIfNotMayCommand). HOST: FALSE - vanilla runs the skill. CLIENT: a
+/// `skill` order {skill, action, weapon, tuBasis} - the host alone runs the
+/// skill's script and the instant-grenade fuse write and answers `continue` on
+/// the order's bt_action_end; on `continue: true` this machine enters its own
+/// targeting through a coop ActionMenuState continuation running vanilla
+/// ActionMenuState::handleAction() (C3-Q5 (a)), unless the player has moved on
+/// (C3-Q8 (a)). Whenever TRUE comes back @a action is left as vanilla's own
+/// stop leaves it (not targeting, BA_NONE, no skill), so the closed menu's
+/// handleNonTargetAction() does nothing. FALSE in single player and outside an
+/// active co-op battle.
+bool coopInterceptSkillUse(BattleAction* action, const RuleSkill* skill);
 
 /// K10's onEndClick guard (MedikitState::onEndClick, its
 /// TileEngine::medikitRemoveIfEmpty() line): TRUE on a co-op CLIENT - the host

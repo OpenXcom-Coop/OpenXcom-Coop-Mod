@@ -61,6 +61,9 @@
 #include "../Engine/Sound.h" // W2-P4 S-C.2: the mind probe's hit sound at the client's own end
 #include "../Battlescape/MedikitState.h" // W2-P4 S-D.2: the ordering client's open medi-kit screen (D148)
 #include "../Battlescape/ScannerState.h" // W2-P4 S-D.2: the scanner's screen at the client's own end
+#include "../Battlescape/SkillMenuState.h" // W2-P4 S-E2.2: chooseWeaponForSkill() + the skill continuation (ActionMenuState)
+#include "../Mod/RuleSkill.h" // W2-P4 S-E2.2: the `skill` intent
+#include "../Mod/RuleSoldier.h" // W2-P4 S-E2.2: a soldier's skill list (the skill menu's filter)
 #include "../Interface/Cursor.h" // W2-P4 S-A.2: the ordering client's cursor restore
 #include "../Battlescape/AIModule.h" // W2-P3 S-C.2: a unitsAdded record's `AI` (load pass 1)
 
@@ -5652,6 +5655,23 @@ static bool g_coopIntentContinue = true;
 // with the arbiter state (the mint restarts at 1 per battle).
 static std::uint32_t g_coopIntentForceFireActionId = 0;
 
+// W2-P4 S-E2.2 (amendment C3 D147, C3-Q7 (a)): HOST - the ONE-SHOT skill grant.
+// A `skill` order the host answers with `continue: true` records {actor, skill,
+// the skill's action type, the weapon it picked}; a later order carrying `skill`
+// is admitted only when it matches, and its admission consumes the grant (vanilla
+// reaches a skill follow-up only after the script said continue). The next
+// `skill` order, a side change (CoopEndTurn::onSideTransition()) and the arbiter
+// reset clear it.
+struct CoopSkillGrant
+{
+	bool active = false;
+	int actorId = -1;
+	const RuleSkill* skill = nullptr;
+	BattleActionType type = BA_NONE;
+	int weaponId = -1;
+};
+static CoopSkillGrant g_coopSkillGrant;
+
 // R3-P1: purely client-side actionId -> actorId correlation. Neither
 // bt_ev's "unit" field nor bt_action_end carry both together on the wire
 // (SS2.3/SS2.4 - bt_action_end has no "unit" field at all), so a client
@@ -5838,6 +5858,7 @@ static void resetCoopArbiterState()
 	g_coopIntentContinueSet = false; // W2-P4 S-D.2 (D148)
 	g_coopIntentContinue = true;
 	g_coopIntentForceFireActionId = 0; // W2-P4 S-E1 (F423)
+	g_coopSkillGrant = CoopSkillGrant(); // W2-P4 S-E2.2 (C3-Q7)
 	g_coopBusyOwnerSeat = -1;
 	g_coopDeferIntentsMs = 0;
 	g_coopDeferIntentsLeft = 0;
@@ -6068,6 +6089,9 @@ static const CoopResultEnum kCoopCombatResultTable[] =
 	{ "STR_UNABLE_TO_THROW_HERE",  "unable_to_throw_here" },
 	{ "STR_NO_TRAJECTORY",         "no_trajectory" },
 	{ "STR_NO_LINE_OF_FIRE",       "no_line_of_fire" },
+	// W2-P4 S-E2.2 (amendment C3 D147, SK7): a skill whose action needs an item
+	// the actor does not carry (SkillMenuState's own result).
+	{ "STR_SKILL_NEEDS_ITEM",      "skill_needs_item" },
 };
 // SavedBattleGame::canUseWeapon()'s three message terms (admission only).
 static const CoopResultEnum kCoopCanUseResultTable[] =
@@ -6179,11 +6203,14 @@ static const char* coopMedikitActionName(int bma)
 // W2-P4 S-B (spec (b)1): the wire kinds that carry a CoopCombatIntentArgs plan.
 // W2-P4 S-C: + melee, psi, use_item. W2-P4 S-D: + medikit, reload,
 // reaction_hands (reload's plan is empty; the hands' is {hand, ctrl}).
+// W2-P4 S-E2.2 (amendment C3 D147): + skill ({skill, weapon}; its action type is
+// the skill's own target mode, so coopCombatActionType() below leaves it BA_NONE).
 static bool coopIsCombatKind(const std::string& kind)
 {
 	return kind == "shoot" || kind == "throw" || kind == "prime"
 		|| kind == "melee" || kind == "psi" || kind == "use_item"
-		|| kind == "medikit" || kind == "reload" || kind == "reaction_hands";
+		|| kind == "medikit" || kind == "reload" || kind == "reaction_hands"
+		|| kind == "skill";
 }
 
 // W2-P4 S-B (spec (b)1): a combat plan's vanilla action type - `shoot` by its
@@ -6250,6 +6277,85 @@ static void coopClientMedikitAnswered(int actorId, int itemId, bool refreshPart,
 		return;
 	}
 	ms->coopAnswered(refreshPart, keepOpen);
+}
+
+// W2-P4 S-E2.2 (amendment C3 D147 section 1 step 3, C3-Q5 (a)): CLIENT - the
+// continuation of this machine's own `skill` order after the host answered
+// `continue: true`. A small ActionMenuState with no rows, pushed through
+// BattlescapeState::popup() (so the battlescape's popped flag runs vanilla's
+// handleNonTargetAction() after it, as after the skill menu itself). Its init()
+// puts the skill's action back on this machine's _currentAction - the skill, its
+// target mode, the weapon the order carried - recomputes the cost as vanilla's
+// row press did (updateTU()) and runs vanilla's own
+// ActionMenuState::handleAction(), i.e. exactly what SkillMenuState runs after
+// the script said continue (SK10): the research / canUseWeapon checks, the aim or
+// throw targeting, the prime screen, the medi-kit screen, the melee range check.
+// handleAction() pops this state on every path. The skill's script never runs
+// here (the host ran it). If the player moved on in the frame between the answer
+// and this init() (C3-Q8 (a)), it closes without touching the action.
+class CoopSkillContinueState : public ActionMenuState
+{
+private:
+	int _actorId;
+	const RuleSkill* _skill;
+	BattleActionType _type;
+	int _weaponId;
+public:
+	CoopSkillContinueState(BattleAction* action, int actorId, const RuleSkill* skill, BattleActionType type,
+		int weaponId)
+		: ActionMenuState(action), _actorId(actorId), _skill(skill), _type(type), _weaponId(weaponId)
+	{
+		_screen = false;
+	}
+	void init() override
+	{
+		BattleItem* weapon = findItemById(connectionTCP::getStaticBattle(), _weaponId);
+		if (!_action->actor || _action->actor->getId() != _actorId || _action->targeting
+			|| _action->type != BA_NONE || !weapon)
+		{
+			Log(LOG_INFO) << "[coop-arbiter] skill continuation for unit " << _actorId << " dropped: the player "
+				"moved on or the weapon " << _weaponId << " no longer resolves (C3-Q8)";
+			_game->popState();
+			return;
+		}
+		_action->skillRules = _skill;
+		_action->type = _type;
+		_action->weapon = weapon;
+		_action->updateTU();
+		ActionMenuState::handleAction();
+	}
+};
+
+// W2-P4 S-E2.2 (amendment C3 D147 step 3, C3-Q8 (a)): CLIENT - the answer to
+// this machine's own `skill` order. On `continue: true` the targeting continues
+// only while the player has not moved on: the order's unit is still the
+// selected unit and the action's actor, the battlescape is the top state and
+// idle (nothing targeting, no action chosen, no chain running). Otherwise the
+// answer is dropped silently, as if the player had cancelled the targeting. A
+// `continue: false` answer needs nothing: the order's send already left the
+// action as vanilla's own stop leaves it.
+static void coopClientSkillAnswered(const CoopCombatIntentArgs& plan, int actorId, bool cont)
+{
+	if (!cont)
+		return;
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	BattlescapeGame* bg = bs ? save->getBattleGame() : nullptr;
+	if (!bg || !bs->getGame() || bs->getGame()->getStates().empty())
+		return;
+	const RuleSkill* skill = save->getMod()->getSkill(plan.skill);
+	BattleUnit* actor = findUnitById(save, actorId);
+	const BattleAction* cur = bg->getCurrentAction();
+	if (!skill || !actor || save->getSelectedUnit() != actor || cur->actor != actor
+		|| bs->getGame()->getStates().back() != bs || cur->targeting || cur->type != BA_NONE || bg->isBusy()
+		|| !findItemById(save, plan.weapon))
+	{
+		Log(LOG_INFO) << "[coop-arbiter] skill " << plan.skill << " continue for unit " << actorId
+			<< " dropped: the player moved on (C3-Q8)";
+		return;
+	}
+	bs->popup(new CoopSkillContinueState(bg->getCurrentAction(), actorId, skill, skill->getTargetMode(),
+		plan.weapon));
 }
 
 // W2-P4 S-B (spec (b)5): CLIENT - the ORDERING client's own aftermath when its
@@ -6365,6 +6471,10 @@ static void coopClientCombatAftermath(const std::string& kind, const CoopCombatI
 				<< plan.targetUnit << " does not resolve on this machine - no probe screen";
 		}
 	}
+	// W2-P4 S-E2.2 (amendment C3 D147 step 3): a `skill` order's answer - on
+	// `continue: true` this machine's own targeting continues (C3-Q5 / C3-Q8).
+	if (kind == "skill")
+		coopClientSkillAnswered(plan, actorId, cont && !failed);
 }
 
 static Json::Value buildFinal(const BattleUnit* u)
@@ -6812,7 +6922,7 @@ static const char* coopWeaponUseDeny(BattleUnit* actor, BattleItem* weapon, Batt
 // (action "launch"), whose plan carries its waypoints. W2-P4 S-E1: also the
 // spray (action "auto" with `spray`, the shot voxels).
 static const char* validateShoot(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
-	BattleAction& out)
+	BattleAction& out, const RuleSkill* skill = nullptr)
 {
 	// Well-formedness, mapped to cost_changed as validateTurn()/validateWalk()
 	// map theirs (the order no longer matches host reality).
@@ -6925,6 +7035,7 @@ static const char* validateShoot(BattleUnit* actor, const Json::Value& intent, S
 		a.sprayTargeting = true;
 	}
 	a.targeting = true; // N12: UnitTurnBState skips the reserve check only when targeting
+	a.skillRules = skill; // W2-P4 S-E2.2 (C3 D147, N9 = F1146): a skill follow-up costs the skill's TU
 	a.updateTU();       // N37: haveTU() and ProjectileFlyBState read these cost fields
 	if (intent.get("tuBasis", -1).asInt() != a.Time)
 		return "cost_changed";
@@ -6969,7 +7080,7 @@ static const char* validateShoot(BattleUnit* actor, const Json::Value& intent, S
 // the call ProjectileFlyBState::init() makes. On success @a out is the LOCAL
 // BattleAction the executor runs.
 static const char* validateThrow(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
-	BattleAction& out)
+	BattleAction& out, const RuleSkill* skill = nullptr)
 {
 	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
 		return "cost_changed";
@@ -6993,6 +7104,7 @@ static const char* validateThrow(BattleUnit* actor, const Json::Value& intent, S
 	a.type = BA_THROW;
 	a.target = target;
 	a.targeting = true; // N12
+	a.skillRules = skill; // W2-P4 S-E2.2 (C3 D147, N9 = F1146): a skill follow-up costs the skill's TU
 	a.updateTU();       // N37
 	if (intent.get("tuBasis", -1).asInt() != a.Time)
 		return "cost_changed";
@@ -7033,7 +7145,7 @@ static const char* validateThrow(BattleUnit* actor, const Json::Value& intent, S
 // cost basis and haveTU(). On success @a out is the LOCAL BattleAction the
 // executor spends (value = the fuse).
 static const char* validatePrime(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
-	BattleAction& out)
+	BattleAction& out, const RuleSkill* skill = nullptr)
 {
 	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
 		return "cost_changed";
@@ -7061,6 +7173,7 @@ static const char* validatePrime(BattleUnit* actor, const Json::Value& intent, S
 	a.weapon = item;
 	a.type = type;
 	a.value = fuse;
+	a.skillRules = skill; // W2-P4 S-E2.2 (C3 D147, N9 = F1146): a skill follow-up costs the skill's TU
 	a.updateTU(); // N37
 	if (intent.get("tuBasis", -1).asInt() != a.Time)
 		return "cost_changed";
@@ -7120,7 +7233,7 @@ static const char* coopCostDeny(BattleAction& a, const Json::Value& intent)
 // LOCAL BattleAction the executor runs (targeting false, vanilla's own non-target
 // BA_HIT).
 static const char* validateMelee(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
-	BattleAction& out)
+	BattleAction& out, const RuleSkill* skill = nullptr)
 {
 	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
 		return "cost_changed";
@@ -7143,6 +7256,7 @@ static const char* validateMelee(BattleUnit* actor, const Json::Value& intent, S
 	a.actor = actor;
 	a.weapon = weapon;
 	a.type = BA_HIT;
+	a.skillRules = skill; // W2-P4 S-E2.2 (C3 D147, N9 = F1146): a skill follow-up costs the skill's TU
 	a.updateTU(); // N37
 	if (const char* cost = coopCostDeny(a, intent))
 		return cost;
@@ -7190,7 +7304,7 @@ static const char* validateMelee(BattleUnit* actor, const Json::Value& intent, S
 // `los_required`. On success @a out is the LOCAL BattleAction the executor runs
 // (targeting, as the click's own).
 static const char* validatePsi(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
-	BattleAction& out)
+	BattleAction& out, const RuleSkill* skill = nullptr)
 {
 	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
 		return "cost_changed";
@@ -7220,6 +7334,7 @@ static const char* validatePsi(BattleUnit* actor, const Json::Value& intent, Sav
 	a.type = type;
 	a.target = target;
 	a.targeting = true; // the click's own action is a targeting one
+	a.skillRules = skill; // W2-P4 S-E2.2 (C3 D147, N9 = F1146): a skill follow-up costs the skill's TU
 	a.updateTU();       // N37
 	if (const char* cost = coopCostDeny(a, intent))
 		return cost;
@@ -7283,7 +7398,7 @@ static const char* validatePsi(BattleUnit* actor, const Json::Value& intent, Sav
 // `los_required`. On success @a out is the LOCAL BattleAction the executor
 // spends.
 static const char* validateUseItem(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
-	BattleAction& out)
+	BattleAction& out, const RuleSkill* skill = nullptr)
 {
 	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
 		return "cost_changed";
@@ -7307,6 +7422,7 @@ static const char* validateUseItem(BattleUnit* actor, const Json::Value& intent,
 	a.actor = actor;
 	a.weapon = item;
 	a.type = BA_USE;
+	a.skillRules = skill; // W2-P4 S-E2.2 (C3 D147, N9 = F1146): a skill follow-up costs the skill's TU
 	a.updateTU(); // N37
 	if (const char* cost = coopCostDeny(a, intent))
 		return cost;
@@ -7419,7 +7535,7 @@ static BattleUnit* coopMedikitTarget(BattleUnit* actor, const BattleItem* kit, S
 // BattleAction the executor spends, and @a target / @a bma / @a part are
 // medikitUse()'s arguments.
 static const char* validateMedikit(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
-	BattleAction& out, BattleUnit*& target, int& bma, int& part)
+	BattleAction& out, BattleUnit*& target, int& bma, int& part, const RuleSkill* skill = nullptr)
 {
 	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
 		return "cost_changed";
@@ -7461,6 +7577,7 @@ static const char* validateMedikit(BattleUnit* actor, const Json::Value& intent,
 	a.actor = actor;
 	a.weapon = kit;
 	a.type = BA_USE;
+	a.skillRules = skill; // W2-P4 S-E2.2 (C3 D147, N9 = F1146): a skill follow-up costs the skill's TU
 	a.updateTU(); // N37
 	if (const char* cost = coopCostDeny(a, intent))
 		return cost;
@@ -7487,6 +7604,113 @@ static const char* validateReactionHands(const Json::Value& intent)
 	if ((hand != "left" && hand != "right") || !intent.isMember("ctrl") || !intent["ctrl"].isBool())
 		return "cost_changed";
 	return nullptr;
+}
+
+// W2-P4 S-E2.2 (amendment C3 D147 section 1 step 2): a NAMED donor reproduction
+// (RB-D10) of SkillMenuState's constructor filter (SkillMenuState.cpp, the loop
+// over the geoscape soldier's skills): @a skill is one of the rows the actor's
+// skill menu lists - one of its soldier rules' skills, within the menu's five
+// hotkeyed rows, with every required soldier bonus, a TU or mana cost, and psi
+// skill when the skill requires it.
+static bool coopSkillListed(BattleUnit* actor, const RuleSkill* skill)
+{
+	Soldier* soldier = actor ? actor->getGeoscapeSoldier() : nullptr;
+	if (!soldier || !skill)
+		return false;
+	int rows = 5; // the menu's hotkeys, keyBattleActionItem1..5
+	for (const RuleSkill* s : soldier->getRules()->getSkills())
+	{
+		if (rows > 0
+			&& soldier->hasAllRequiredBonusesForSkill(s)
+			&& (s->getCost().Time > 0 || s->getCost().Mana > 0)
+			&& (!s->isPsiRequired() || actor->getBaseStats()->psiSkill > 0))
+		{
+			if (s == skill)
+				return true;
+			--rows;
+		}
+	}
+	return false;
+}
+
+// W2-P4 S-E2.2 (amendment C3 D147 section 1 step 2, C3-Q6 (a), N12 = F1149): the
+// `skill` plan's admission, in the order C3 names, with VANILLA'S OWN FUNCTIONS:
+// the skill resolves and is one the actor's skill menu lists (coopSkillListed())
+// and the order's `action` is the skill's own target mode, else `skill_invalid`
+// (a silent row); the weapon is the one vanilla's own
+// SkillMenuState::chooseWeaponForSkill() picks NOW (-1 = none), else
+// `weapon_missing`; `tuBasis` is getActionTUs(target mode, skill), else
+// `cost_changed`. NO haveTU() deny: vanilla hands `have_tu` to the skill's
+// script and lets it decide. On success @a out is the LOCAL BattleAction the
+// executor hands TileEngine::skillUse() (actor, target mode, weapon, skill,
+// updateTU()'d cost - SkillMenuState's own lines before its skillUse() call) and
+// @a skillOut the skill.
+static const char* validateSkill(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
+	BattleAction& out, const RuleSkill*& skillOut)
+{
+	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
+		return "cost_changed";
+	const Json::Value& name = intent["skill"];
+	const RuleSkill* skill = name.isString() ? save->getMod()->getSkill(name.asString()) : nullptr;
+	if (!skill || !coopSkillListed(actor, skill))
+		return "skill_invalid";
+	if (intent.get("action", -1).asInt() != (int)skill->getTargetMode())
+		return "skill_invalid";
+
+	BattleAction a;
+	a.actor = actor;
+	a.type = skill->getTargetMode();
+	a.skillRules = skill;
+	SkillMenuState::chooseWeaponForSkill(&a, skill); // C3-Q6 (a): vanilla's own pick
+	if ((a.weapon ? a.weapon->getId() : -1) != intent.get("weapon", -1).asInt())
+		return "weapon_missing";
+	a.updateTU(); // N37
+	if (intent.get("tuBasis", -1).asInt() != a.Time)
+		return "cost_changed";
+
+	out = a;
+	skillOut = skill;
+	return nullptr;
+}
+
+// W2-P4 S-E2.2 (amendment C3 D147 "the follow-up", C3-Q7 (a)): a non-`skill`
+// order carrying `skill` - a follow-up of a skill whose script said continue.
+// The skill resolves, is one the actor's menu lists and its target mode is the
+// order's own action type, else `skill_invalid`; the order matches the one-shot
+// grant the host recorded when it answered that skill `continue: true` (same
+// actor, skill, action type and item), else `skill_not_granted` (a silent row).
+// On success @a skillOut is the skill the order's LOCAL BattleAction runs with
+// (its cost, its attack data, the reaction scripts' originalAction.skillRules).
+static const char* coopSkillFollowUpDeny(BattleUnit* actor, const std::string& kind, const Json::Value& intent,
+	SavedBattleGame* save, const RuleSkill*& skillOut)
+{
+	const Json::Value& name = intent["skill"];
+	const RuleSkill* skill = name.isString() ? save->getMod()->getSkill(name.asString()) : nullptr;
+	if (!skill || !coopSkillListed(actor, skill))
+		return "skill_invalid";
+	CoopCombatIntentArgs plan; // just the two fields coopCombatActionType() reads
+	plan.action = intent.get("action", "").asString();
+	plan.unprime = intent.get("unprime", false).asBool();
+	const BattleActionType type = coopIsCombatKind(kind) ? coopCombatActionType(kind, plan) : BA_NONE;
+	if (type == BA_NONE || type != skill->getTargetMode())
+		return "skill_invalid";
+	// The item field each kind's validator reads (`item` for throw / prime /
+	// use_item / medikit, `weapon` for the others).
+	const int itemId = intent.isMember("item") ? intent.get("item", -1).asInt() : intent.get("weapon", -1).asInt();
+	if (!g_coopSkillGrant.active || g_coopSkillGrant.actorId != actor->getId() || g_coopSkillGrant.skill != skill
+		|| g_coopSkillGrant.type != type || g_coopSkillGrant.weaponId != itemId)
+	{
+		return "skill_not_granted";
+	}
+	skillOut = skill;
+	return nullptr;
+}
+
+// W2-P4 S-E2.2 (C3-Q7 (a)): an admitted follow-up consumes the grant.
+static void coopConsumeSkillGrant(const RuleSkill* followSkill)
+{
+	if (followSkill)
+		g_coopSkillGrant = CoopSkillGrant();
 }
 
 void onIntent(const Json::Value& intent)
@@ -7595,6 +7819,22 @@ void onIntent(const Json::Value& intent)
 	{
 		denyIntent(iseq, "busy", seat, kind);
 		return;
+	}
+
+	// W2-P4 S-E2.2 (amendment C3 D147 "the follow-up", C3-Q7 (a), N9 = F1146): an
+	// order carrying `skill` (every kind but `skill` itself) is a skill follow-up
+	// - admitted only against the one-shot grant (coopSkillFollowUpDeny()); its
+	// validator then builds the LOCAL action with the skill, so the cost basis is
+	// the skill's (the updateTU() rule) and its admission consumes the grant.
+	const RuleSkill* followSkill = nullptr;
+	if (kind != "skill" && intent.isMember("skill") && !intent["skill"].isNull())
+	{
+		const char* reason = coopSkillFollowUpDeny(actor, kind, intent, save, followSkill);
+		if (reason)
+		{
+			denyIntent(iseq, reason, seat, kind);
+			return;
+		}
 	}
 
 	if (kind == "turn")
@@ -7758,8 +7998,8 @@ void onIntent(const Json::Value& intent)
 		// "auto" `shoot` with `spray`: sprayTargeting and the shipped shot voxels
 		// on the action - vanilla primaryAction's spray-fire state pair).
 		BattleAction action;
-		const char* reason = (kind == "throw") ? validateThrow(actor, intent, save, action)
-			: validateShoot(actor, intent, save, action);
+		const char* reason = (kind == "throw") ? validateThrow(actor, intent, save, action, followSkill)
+			: validateShoot(actor, intent, save, action, followSkill);
 		if (reason)
 		{
 			denyIntent(iseq, reason, seat, kind);
@@ -7771,6 +8011,7 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
+		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		// Set BEFORE the first push: statePushBack() inits at once and the cue
 		// hooks / a reaction's beginNested() read the base actor (item 7).
@@ -7816,7 +8057,7 @@ void onIntent(const Json::Value& intent)
 		// endChainArming()'s empty-queue close through onChainQuiesced() ->
 		// closeBaseContext() - the existing bt_action_end emitter.
 		BattleAction action;
-		const char* reason = validatePrime(actor, intent, save, action);
+		const char* reason = validatePrime(actor, intent, save, action, followSkill);
 		if (reason)
 		{
 			denyIntent(iseq, reason, seat, kind);
@@ -7829,6 +8070,7 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
+		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		g_coopPendingChainActorId = actor->getId();
 		g_coopPendingChainKind = unprime ? "unprime" : "prime"; // spec (b)3's instant kinds
@@ -7877,8 +8119,8 @@ void onIntent(const Json::Value& intent)
 		// cameraPosition stays (0,0,-1): no host camera restore (D131). The
 		// frozen `melee` / `psi` cues come from the existing ExplosionBState hook.
 		BattleAction action;
-		const char* reason = (kind == "melee") ? validateMelee(actor, intent, save, action)
-			: validatePsi(actor, intent, save, action);
+		const char* reason = (kind == "melee") ? validateMelee(actor, intent, save, action, followSkill)
+			: validatePsi(actor, intent, save, action, followSkill);
 		if (reason)
 		{
 			denyIntent(iseq, reason, seat, kind);
@@ -7890,6 +8132,7 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
+		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		// Set BEFORE the push: statePushBack() inits at once and the cue hooks /
 		// a reaction's beginNested() read the base actor (item 7).
@@ -7931,7 +8174,7 @@ void onIntent(const Json::Value& intent)
 		// frozen `scanner` cue {actor, unit (= actor), item} whose delta carries
 		// the TU, under the instant context kind `scanner`.
 		BattleAction action;
-		const char* reason = validateUseItem(actor, intent, save, action);
+		const char* reason = validateUseItem(actor, intent, save, action, followSkill);
 		if (reason)
 		{
 			denyIntent(iseq, reason, seat, kind);
@@ -7944,6 +8187,7 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
+		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		g_coopPendingChainActorId = actor->getId();
 		g_coopPendingChainKind = scanner ? "scanner" : "mindprobe"; // spec (b)3's instant kinds
@@ -7997,7 +8241,7 @@ void onIntent(const Json::Value& intent)
 		BattleAction action;
 		BattleUnit* target = nullptr;
 		int bma = 0, part = 0;
-		const char* reason = validateMedikit(actor, intent, save, action, target, bma, part);
+		const char* reason = validateMedikit(actor, intent, save, action, target, bma, part, followSkill);
 		if (reason)
 		{
 			denyIntent(iseq, reason, seat, kind);
@@ -8009,6 +8253,7 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
+		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		g_coopPendingChainActorId = actor->getId();
 		g_coopPendingChainKind = "medikit"; // spec (b)3's instant kind
@@ -8131,9 +8376,102 @@ void onIntent(const Json::Value& intent)
 		return;
 	}
 
+	if (kind == "skill")
+	{
+		// W2-P4 S-E2.2 (amendment C3 D147 section 1 step 2, owner D147 = (a)): a
+		// soldier SKILL as an INSTANT intent - the host alone runs it. The same
+		// wrapper as `prime` (mint, ack, `intent` context, arming) around vanilla's
+		// own TileEngine::skillUse() on a LOCAL BattleAction {actor, the skill's
+		// target mode, the weapon vanilla picked, the skill} - the skill's script,
+		// its cost spend when the script says so - then a NAMED donor reproduction
+		// (RB-D10) of SkillMenuState::btnActionMenuItemClick()'s lines after that
+		// call (SkillMenuState.cpp, from `if (!continueAction || ...` to the
+		// BA_PRIME / BA_UNPRIME stop): the script said stop, or no action -> stop;
+		// an action but no item -> stop with STR_SKILL_NEEDS_ITEM; a BT_GRENADE
+		// throw -> the instant grenade's fuse write (fuse 0, enabled) HERE, then
+		// continue; a prime / unprime -> stop; anything else -> continue. The
+		// answer is the context's one ev, its bt_action_end (closeBaseContext(),
+		// the existing emitter): the additive `continue` field, plus
+		// `halted`/`reason` when a stop carries vanilla's own message (the
+		// script's haveTU() text, or SK7's). Everything the script and the fuse
+		// write changed rides that envelope's delta (TU, stats, tags, the fuse).
+		// A continue records the one-shot grant (C3-Q7 (a)) the follow-up order
+		// is admitted against; the ordering client then enters its own targeting.
+		BattleAction action;
+		const RuleSkill* skill = nullptr;
+		const char* reason = validateSkill(actor, intent, save, action, skill);
+		if (reason)
+		{
+			denyIntent(iseq, reason, seat, kind);
+			return;
+		}
+
+		const std::uint32_t actionId = mintActionId();
+		Json::Value ack = CoopWire::makeAck(iseq, actionId);
+		CoopEmit::sendBattle(ack);
+		clearDeny(seat);
+		noteIntentReceived(kind, true); // spec (b)13
+		g_coopSkillGrant = CoopSkillGrant(); // C3-Q7 (a): the next skill order clears the grant
+		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		g_coopPendingChainActorId = actor->getId();
+		g_coopPendingChainKind = "skill"; // the instant context kind
+		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
+		g_coopIntentResultKey.clear();
+		g_coopIntentContinueSet = false; // a fresh `continue` per context
+		g_coopIntentContinue = true;
+
+		Log(LOG_INFO) << "[coop-ctx] admitted skill intent iseq " << iseq << " seat " << seat << " actor "
+			<< actor->getId() << " actionId " << actionId << ": skill " << skill->getType() << " type "
+			<< (int)action.type << " weapon " << (action.weapon ? action.weapon->getId() : -1) << " tuBasis "
+			<< action.Time;
+
+		beginChainArming();
+		const bool continueAction = save->getTileEngine()->skillUse(&action, skill);
+		bool cont = true;
+		if (!continueAction || action.type == BA_NONE)
+		{
+			cont = false;
+		}
+		else if (!action.weapon)
+		{
+			action.result = "STR_SKILL_NEEDS_ITEM"; // SK7
+			cont = false;
+		}
+		else if (action.type == BA_THROW && action.weapon->getRules()->getBattleType() == BT_GRENADE)
+		{
+			// SK8, instant grenades - on the host only.
+			action.weapon->setFuseTimer(0);
+			action.weapon->setFuseEnabled(true);
+		}
+		else if (action.type == BA_PRIME || action.type == BA_UNPRIME)
+		{
+			cont = false; // SK9: the skill menu supports instant grenades only
+		}
+		if (!cont && !action.result.empty())
+		{
+			g_coopIntentResultLatched = true; // spec (b)4: the stop's vanilla text
+			g_coopIntentResultKey = action.result;
+		}
+		g_coopIntentContinueSet = true;
+		g_coopIntentContinue = cont;
+		if (cont)
+		{
+			g_coopSkillGrant.active = true;
+			g_coopSkillGrant.actorId = actor->getId();
+			g_coopSkillGrant.skill = skill;
+			g_coopSkillGrant.type = action.type;
+			g_coopSkillGrant.weaponId = action.weapon->getId();
+		}
+		Log(LOG_INFO) << "[coop-ctx] skill " << skill->getType() << " (actionId " << actionId << "): script "
+			<< (continueAction ? "continue" : "stop") << " -> continue " << cont << " result '" << action.result
+			<< "' tu " << actor->getTimeUnits();
+		endChainArming(!bg->isBusy());
+		return;
+	}
+
 	Log(LOG_WARNING) << "[coop-arbiter] bt_intent unknown kind '" << kind
 		<< "' - dropped (RB-D9/SS2.W2, W2-P4: turn, kneel, walk, shoot, throw, prime, melee, psi, use_item, "
-		   "medikit, reload and reaction_hands are the validators that exist)";
+		   "medikit, reload, reaction_hands and skill are the validators that exist)";
 }
 
 // W2-P3 S-A.2 (spec rewrite/prompts/w2p3_nonplayer_origins.md (b)3): the BASE
@@ -8167,7 +8505,10 @@ static void closeBaseContext()
 	g_coopIntentResultKey.clear();
 	// W2-P4 S-D.2 (amendment C3, owner D148): the medi-kit intent context's
 	// latched `continue`, read before the bookkeeping below is cleared.
-	const bool continueSet = g_coopIntentContinueSet && closedOrigin == "intent" && closedKind == "medikit";
+	// W2-P4 S-E2.2 (amendment C3 D147): and the skill intent context's (the
+	// skill's continue/stop answer).
+	const bool continueSet = g_coopIntentContinueSet && closedOrigin == "intent"
+		&& (closedKind == "medikit" || closedKind == "skill");
 	const bool continueValue = g_coopIntentContinue;
 	g_coopIntentContinueSet = false;
 	g_coopIntentContinue = true;
@@ -8292,7 +8633,9 @@ static void closeBaseContext()
 		// W2-P4 S-D.2 (amendment C3, owner D148): the medi-kit order's answer
 		// carries medikitUse()'s own canContinueHealing as the additive
 		// `continue` field (no timing, G1); false closes the ordering client's
-		// open medi-kit screen.
+		// open medi-kit screen. W2-P4 S-E2.2 (amendment C3 D147): a skill order's
+		// answer carries its continue / stop the same way - true lets the ordering
+		// client continue into its own targeting.
 		if (continueSet)
 			end["continue"] = continueValue;
 
@@ -8921,11 +9264,40 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 			Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent('" << kindStr << "') with no plan - dropped";
 			return 0u;
 		}
+		// W2-P4 S-E2.2 (amendment C3 D147): the skill a `skill` order presses, or
+		// a follow-up order runs under - resolved on this machine's own mod.
+		const RuleSkill* skill = combat->skill.empty() ? nullptr : save->getMod()->getSkill(combat->skill);
+		if (!combat->skill.empty() && !skill)
+		{
+			Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent('" << kindStr << "'): skill '" << combat->skill
+				<< "' does not resolve on this machine - dropped";
+			return 0u;
+		}
+		if (kindStr == "skill" && !skill)
+		{
+			Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent('skill') with no skill - dropped";
+			return 0u;
+		}
 		if (tuBasis < 0)
 		{
 			BattleItem* weapon = findItemById(save, combat->weapon);
 			const BattleActionType type = coopCombatActionType(kindStr, *combat);
-			tuBasis = (weapon && type != BA_NONE) ? actor->getActionTUs(type, weapon).Time : 0;
+			if (kindStr == "skill")
+			{
+				// W2-P4 S-E2.2: SkillMenuState's own updateTU() for the row -
+				// getActionTUs(the skill's target mode, the skill).
+				tuBasis = actor->getActionTUs(skill->getTargetMode(), skill).Time;
+			}
+			else if (skill && type != BA_NONE)
+			{
+				// W2-P4 S-E2.2 (N9 = F1146): a skill follow-up costs the skill's TU
+				// (BattleActionCost::updateTU()'s own rule), possibly 0.
+				tuBasis = actor->getActionTUs(type, skill).Time;
+			}
+			else
+			{
+				tuBasis = (weapon && type != BA_NONE) ? actor->getActionTUs(type, weapon).Time : 0;
+			}
 		}
 	}
 	else
@@ -9070,11 +9442,26 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		intent["hand"] = combat->action;
 		intent["ctrl"] = combat->ctrl;
 	}
+	else if (kindStr == "skill")
+	{
+		// W2-P4 S-E2.2 (amendment C3 D147 section 1 step 1): the `skill` payload -
+		// the skill (its RuleSkill type), its target mode (the type SkillMenuState
+		// set for the row), the weapon chooseWeaponForSkill() picked (-1 = none).
+		intent["skill"] = combat->skill;
+		intent["action"] = (int)save->getMod()->getSkill(combat->skill)->getTargetMode();
+		intent["weapon"] = combat->weapon;
+		intent["tuBasis"] = tuBasis;
+	}
 	else // "kneel"
 	{
 		intent["kneel"] = kneel;
 		intent["tuBasis"] = tuBasis;
 	}
+	// W2-P4 S-E2.2 (amendment C3 D147 "the follow-up"): every other combat kind
+	// carries the skill it runs under (`skill?`), set when the order was built
+	// from a _currentAction with skillRules - a skill follow-up.
+	if (kindStr != "skill" && coopIsCombatKind(kindStr) && !combat->skill.empty())
+		intent["skill"] = combat->skill;
 
 	CoopEmit::sendBattle(intent);
 
@@ -9105,7 +9492,7 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		g_coopClientInFlight.ignoreSpotted = walk->ignoreSpotted;
 	}
 	// W2-P4 S-A.2: the combat plan, kept verbatim (see the struct's comment).
-	g_coopClientInFlight.hasCombat = coopIsCombatKind(kindStr); // W2-P4 S-B: + throw, prime; S-C: + melee, psi, use_item; S-D: + medikit, reload, reaction_hands
+	g_coopClientInFlight.hasCombat = coopIsCombatKind(kindStr); // W2-P4 S-B: + throw, prime; S-C: + melee, psi, use_item; S-D: + medikit, reload, reaction_hands; S-E2: + skill
 	g_coopClientInFlight.combat = g_coopClientInFlight.hasCombat ? *combat : CoopCombatIntentArgs();
 	// W1-P7 (WV-D24): the timeout basis. Stamped AFTER the envelope actually
 	// shipped, so a send that never went out cannot arm a timer.
@@ -10611,6 +10998,16 @@ static void coopEndSprayTargeting(BattleAction* action)
 	action->waypoints.clear();
 }
 
+// W2-P4 S-E2.2 (amendment C3 D147 "the follow-up"): the skill an order built from
+// @a action runs under - this machine's own _currentAction.skillRules, which a
+// skill continuation (CoopSkillContinueState) set and vanilla keeps until the
+// targeting ends; empty for an ordinary order. Every client intercept below puts
+// it on its plan, so the host charges the skill's cost.
+static std::string coopOrderSkill(const BattleAction* action)
+{
+	return (action && action->skillRules) ? action->skillRules->getType() : std::string();
+}
+
 bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save)
 {
 	if (!isCoopBattle() || !action || !action->actor || !save)
@@ -10693,6 +11090,7 @@ bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save)
 	}
 	// F423 (per-player half, spec (b)8): the ORDERING machine's own force-fire.
 	args.forceFire = Options::forceFire && save->isCtrlPressed(true);
+	args.skill = coopOrderSkill(action); // W2-P4 S-E2.2: a skill follow-up
 
 	const std::uint32_t iseq = CoopArbiter::sendClientIntent(wireKind, action->actor->getId(),
 		-1, false, false, -1, nullptr, &args);
@@ -10768,6 +11166,7 @@ bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save)
 			args.targetUnit = tu->getId();
 			args.targetPos = tu->getPosition();
 		}
+		args.skill = coopOrderSkill(action); // W2-P4 S-E2.2: a skill follow-up
 		CoopArbiter::sendClientIntent("melee", action->actor->getId(), -1, false, false, -1, nullptr, &args);
 		// No MeleeAttackBState runs on a thin client to clear the action type
 		// (vanilla's own reason for ActionMenuState's BA_HIT reset), so clear it
@@ -10783,6 +11182,7 @@ bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save)
 	args.weapon = action->weapon->getId();
 	args.fuse = unprime ? -1 : action->value;
 	args.unprime = unprime;
+	args.skill = coopOrderSkill(action); // W2-P4 S-E2.2 (never set in practice: a skill stops at a prime, SK9)
 	CoopArbiter::sendClientIntent("prime", action->actor->getId(), -1, false, false, -1, nullptr, &args);
 	// TRUE whether or not the envelope went out: no fuse, TU or FOV write ever
 	// runs on a thin client (WV-D40's rule).
@@ -10840,6 +11240,7 @@ bool coopInterceptPsiConfirm(BattleAction* action, BattleUnit* targetUnit, Saved
 		args.action = "use";
 		args.target = targetUnit->getPosition();
 	}
+	args.skill = coopOrderSkill(action); // W2-P4 S-E2.2: a skill follow-up
 	const std::uint32_t iseq = CoopArbiter::sendClientIntent(wireKind, action->actor->getId(),
 		-1, false, false, -1, nullptr, &args);
 	if (iseq == 0u && !(g_coopClientInFlight.active && g_coopClientInFlight.actorId == action->actor->getId()))
@@ -10938,6 +11339,7 @@ bool coopInterceptMedikitPress(BattleAction* action, BattleUnit* target, int med
 	args.targetUnit = target->getId();
 	args.targetPos = target->getPosition();
 	args.bodypart = part;
+	args.skill = coopOrderSkill(action); // W2-P4 S-E2.2: a skill follow-up
 	CoopArbiter::sendClientIntent("medikit", actorId, -1, false, false, -1, nullptr, &args);
 	if (oneClick)
 		action->type = BA_NONE; // the one-click row has no screen left open
@@ -10970,8 +11372,54 @@ bool coopInterceptScannerUse(BattleAction* action)
 	CoopCombatIntentArgs args;
 	args.action = "use";
 	args.weapon = action->weapon->getId();
+	args.skill = coopOrderSkill(action); // W2-P4 S-E2.2: a skill follow-up
 	CoopArbiter::sendClientIntent("use_item", action->actor->getId(), -1, false, false, -1, nullptr, &args);
 	action->type = BA_NONE;
+	return true;
+}
+
+bool coopInterceptSkillUse(BattleAction* action, const RuleSkill* skill)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!isCoopBattle() || !action || !action->actor || !skill || !save)
+		return false; // SP and every non-co-op battle: vanilla, byte-identical
+
+	// Whenever TRUE comes back the menu closes (the caller pops it) with the action
+	// as vanilla's own stop leaves it (SkillMenuState, the `!continueAction` block),
+	// so the closed menu's handleNonTargetAction() has nothing to run.
+	auto stopAction = [action]()
+	{
+		action->targeting = false;
+		action->type = BA_NONE;
+		action->skillRules = nullptr;
+	};
+
+	// C4 PR-Q18 (revisit row 13, E54.1): the baton at the execution point, on BOTH
+	// machines (the PR-Q1 house pattern) - opening the skill menu stays allowed
+	// off-turn. A refusal shows the rendered not_your_go and bumps
+	// coopLocalExecBlocked (coopRefuseIfNotMayCommand).
+	if (coopRefuseIfNotMayCommand(action->actor, save))
+	{
+		stopAction();
+		return true;
+	}
+
+	// HOST: vanilla runs the skill (its script, the fuse write, the continuation).
+	if (coopBattleAuthority().hostSim)
+		return false;
+
+	// CLIENT (owner D147 = (a), amendment C3 D147 section 1 step 1): the pressed
+	// row becomes a `skill` order - the skill, and the weapon vanilla's own
+	// chooseWeaponForSkill() just picked (the host re-picks it and must agree,
+	// C3-Q6). The script, its cost spend and the instant-grenade fuse write run on
+	// the host only; the answer's `continue` decides whether this machine enters
+	// its own targeting (coopClientSkillAnswered()). TRUE whether or not the
+	// envelope went out: skillUse() never runs on a thin client (WV-D40).
+	CoopCombatIntentArgs args;
+	args.skill = skill->getType();
+	args.weapon = action->weapon ? action->weapon->getId() : -1;
+	CoopArbiter::sendClientIntent("skill", action->actor->getId(), -1, false, false, -1, nullptr, &args);
+	stopAction();
 	return true;
 }
 
@@ -12070,6 +12518,7 @@ void onSideTransition(SavedBattleGame* save)
 	++g_turn;
 	for (int i = 0; i < kMaxSeats; ++i)
 		g_hostReady[i] = false;
+	g_coopSkillGrant = CoopSkillGrant(); // W2-P4 S-E2.2 (C3-Q7 (a)): a side change clears the skill grant
 	// W1-P13c (D-23): every new side starts the baton search at seat 0 again;
 	// emitTally()'s own coopBatonResolve() call resolves the actual first LIVE
 	// seat in D-23 order.
@@ -14838,6 +15287,11 @@ const ReasonStrEntry kReasonStrTable[] =
 	// meanwhile - vanilla's own key (the one-click row's text; no stock value,
 	// N31, so the raw key shows exactly as vanilla shows it).
 	{ "no_uses_left",         "STR_NO_USES_LEFT" },
+	// W2-P4 S-E2.2 (amendment C3 D147, C3-Q7 (a)): a skill order the host's
+	// skill-menu rules refuse, and a skill follow-up with no matching grant - both
+	// SILENT (vanilla's menu never offers either, so it has no text for them).
+	{ "skill_invalid",        "" },
+	{ "skill_not_granted",    "" },
 	// auto-cancel causes (ADDENDUM 1.3(d))
 	{ "enemy_spotted",     "STR_COOP_CANCEL_ENEMY_SPOTTED" },
 	{ "unit_under_fire",   "STR_COOP_CANCEL_UNIT_UNDER_FIRE" },
@@ -15125,6 +15579,7 @@ void showCombatHalt(const char* reason)
 		{ "unable_to_throw_here", "STR_UNABLE_TO_THROW_HERE" },
 		{ "no_trajectory",        "STR_NO_TRAJECTORY" },
 		{ "no_line_of_fire",      "STR_NO_LINE_OF_FIRE" },
+		{ "skill_needs_item",     "STR_SKILL_NEEDS_ITEM" }, // W2-P4 S-E2.2 (C3 D147, SK7)
 	};
 
 	const char* key = nullptr;

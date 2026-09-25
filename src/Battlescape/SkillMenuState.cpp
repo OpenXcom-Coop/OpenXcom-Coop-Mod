@@ -33,6 +33,7 @@
 #include "ActionMenuItem.h"
 #include "Pathfinding.h"
 #include "TileEngine.h"
+#include "../CoopMod/CoopArbiter.h"
 
 namespace OpenXcom
 {
@@ -186,6 +187,7 @@ void SkillMenuState::btnActionMenuItemClick(Action *action)
 		chooseWeaponForSkill(_action, selectedSkill);
 		_action->updateTU();
 
+		if (coopInterceptSkillUse(_action, selectedSkill)) { _game->popState(); return; }
 		bool continueAction = tileEngine->skillUse(_action, selectedSkill);
 
 		if (!continueAction || _action->type == BA_NONE)
