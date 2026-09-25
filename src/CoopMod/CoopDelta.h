@@ -456,4 +456,19 @@ void coopCueRevive(BattleUnit* unit);
 /// there. No side effect.
 bool coopIsRemoteIntentAction(const BattleAction& action);
 
+// ----- W2-P4 S-E1, commit S-E1.2: whose force-fire key a shot reads -----
+// Spec rewrite/prompts/w2p4_client_combat_intents.md (b)8 (F423, the per-player
+// half; R3.2 F1-F4). Body: connectionTCP.cpp, next to coopIsRemoteIntentAction().
+
+/// The force-fire key of the player whose action is running - ONE guarded call
+/// replacing vanilla's `Options::forceFire && save->isCtrlPressed(true)` at each
+/// of the four force-fire terms (ProjectileFlyBState::init, Projectile.cpp x2,
+/// TileEngine::isTileInLOS). On the co-op HOST while the base action context is
+/// a partner's `intent`, it is that order's own `forceFire` (the ordering
+/// machine's Options::forceFire && its own Ctrl, shipped on the `shoot` order;
+/// false for every other intent kind) - never the host's option or keys. Every
+/// where else (SP, a client, the host's own and the AI's actions) it is
+/// vanilla's own expression, so vanilla is byte-identical there. No side effect.
+bool coopForceFirePressed(const SavedBattleGame* save);
+
 } // namespace OpenXcom

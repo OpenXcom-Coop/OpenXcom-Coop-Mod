@@ -1973,6 +1973,12 @@ void BattlescapeGame::primaryAction(Position pos)
 				getMap()->getWaypoints()->clear();
 				_parentState->getGame()->getCursor()->setVisible(false);
 				_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
+				// W2-P4 S-E1 (spec (b)5 K2): ONE guarded coop call at the spray's
+				// EXECUTION point, after vanilla's own spread - the baton check on
+				// both machines, and on a co-op CLIENT the spray ships as a `shoot`
+				// intent with its shot voxels and TRUE comes back, so nothing below
+				// runs there. FALSE on the host (vanilla executes) and in single player.
+				if (coopInterceptFireConfirm(&_currentAction, _save)) return;
 				if (coopClientBStateTripwire("primaryAction.spray")) return;
 				CoopArbiter::beginHostLocalCombat(_currentAction.actor, _currentAction.type);
 				_states.push_back(new ProjectileFlyBState(this, _currentAction));

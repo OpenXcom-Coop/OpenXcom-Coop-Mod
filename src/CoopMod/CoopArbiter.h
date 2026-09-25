@@ -104,6 +104,11 @@ struct CoopWalkIntentArgs
  * For the scanner `weapon` is the scanner; `reload`'s plan is empty; for
  * `reaction_hands` `action` is the hand ("left" | "right") and:
  *   ctrl        the ORDERING machine's Ctrl at the press (Q12 = (a))
+ *
+ * W2-P4 S-E1 (spec (b)1): the spray autoshot is a `shoot` with action "auto"
+ * and:
+ *   spray       the shot VOXELS of vanilla primaryAction's own spread, in the
+ *               action's list order (back = the first shot); targetUnit -1
  */
 struct CoopCombatIntentArgs
 {
@@ -115,6 +120,7 @@ struct CoopCombatIntentArgs
 	Position targetPos;
 	bool forceFire = false;
 	std::vector<Position> waypoints;
+	std::vector<Position> spray;
 	int fuse = -1;
 	bool unprime = false;
 	int terrainPart = 0;
@@ -841,6 +847,14 @@ bool coopInterceptWalkConfirm(BattleUnit* actor, Position dest, bool run,
 /// BattlescapeGame::launchAction() on the line before the `launchAction`
 /// tripwire, where a BA_LAUNCH ships as a `shoot` intent with the action
 /// "launch" and its waypoints. Steps 1-3 are the same at both sites.
+///
+/// W2-P4 S-E1 (spec (b)1/(b)5 K2, PR-Q18): a third guarded call is the SPRAY
+/// execution point - primaryAction's spray-fire block, on the line before the
+/// `primaryAction.spray` tripwire, after vanilla's own spread. A spray ships as
+/// a `shoot` intent with the action "auto" and `spray` (the shot voxels). Steps
+/// 1-3 are the same; whenever it returns TRUE for a spray it also runs vanilla's
+/// two post-push lines the early return skips (sprayTargeting off, waypoints
+/// cleared).
 bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save);
 
 /// W2-P4 S-B (docs rewrite/prompts/w2p4_client_combat_intents.md (b)5 K7;

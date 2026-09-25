@@ -5109,7 +5109,8 @@ bool coopBlockTargetingArm(const BattleUnit* u, SavedBattleGame* s)
 	// S-A's built kinds: the snap / aimed / auto shot (primaryAction's final
 	// `else`, the K5 intercept). NOT the spray start (PR-Q20): an autoshot with a
 	// `sprayWaypoints` weapon under Ctrl+Shift, or a spray targeting already
-	// running, is the spray kind, which keeps the old gate until S-E.
+	// running, is the spray kind, which keeps the old gate until S-E (lifted by
+	// W2-P4 S-E1 below).
 	// W2-P4 S-B: + the throw (the same K5 intercept) and the launcher, whose
 	// waypoint clicks are local display and whose execution point is the launch
 	// button (launchAction's coopInterceptFireConfirm(), K6).
@@ -5117,20 +5118,19 @@ bool coopBlockTargetingArm(const BattleUnit* u, SavedBattleGame* s)
 	// BT_PSIAMP item) and the mind probe (BA_USE with a BT_MINDPROBE item), whose
 	// execution points are primaryAction's coopInterceptPsiConfirm() calls (K3/K4)
 	// after vanilla's own target checks.
+	// W2-P4 S-E1 (spec (b)1/(b)5 K2, PR-Q20 ends here): + the spray - the spray
+	// start (an autoshot with a `sprayWaypoints` weapon under Ctrl+Shift) and the
+	// spray waypoint clicks are local display like the launcher's; the spray's
+	// execution point is primaryAction's spray-fire coopInterceptFireConfirm()
+	// (K2), after vanilla's own spread.
 	const BattleType battleType = (a && a->weapon && a->weapon->getRules())
 		? a->weapon->getRules()->getBattleType() : BT_NONE;
 	const bool psiKind = (battleType == BT_PSIAMP
 			&& (a->type == BA_PANIC || a->type == BA_MINDCONTROL || a->type == BA_USE))
 		|| (battleType == BT_MINDPROBE && a->type == BA_USE);
-	bool built = a && a->weapon && a->weapon->getRules()
+	const bool built = a && a->weapon && a->weapon->getRules()
 		&& (a->type == BA_SNAPSHOT || a->type == BA_AIMEDSHOT || a->type == BA_AUTOSHOT
-			|| a->type == BA_THROW || a->type == BA_LAUNCH || psiKind)
-		&& !a->sprayTargeting;
-	if (built && a->type == BA_AUTOSHOT && a->weapon->getRules()->getSprayWaypoints() > 0
-		&& s->isCtrlPressed(true) && s->isShiftPressed(true))
-	{
-		built = false;
-	}
+			|| a->type == BA_THROW || a->type == BA_LAUNCH || psiKind);
 	if (!built)
 		return coopBlockLocalExecution(u, s); // PR-Q2: not lifted yet - unchanged
 
@@ -5637,6 +5637,14 @@ static std::string g_coopIntentResultKey;
 static bool g_coopIntentContinueSet = false;
 static bool g_coopIntentContinue = true;
 
+// W2-P4 S-E1 (spec (b)8, F423 per-player half): HOST - the actionId of the
+// admitted `shoot` intent whose order carries `forceFire: true` (0 = none).
+// coopForceFirePressed() reads it while an `intent` base context is open: that
+// context force-fires iff its own actionId is stored here, so no clear is needed
+// at the context's close (actionIds are never reused within a battle). Reset
+// with the arbiter state (the mint restarts at 1 per battle).
+static std::uint32_t g_coopIntentForceFireActionId = 0;
+
 // R3-P1: purely client-side actionId -> actorId correlation. Neither
 // bt_ev's "unit" field nor bt_action_end carry both together on the wire
 // (SS2.3/SS2.4 - bt_action_end has no "unit" field at all), so a client
@@ -5821,6 +5829,7 @@ static void resetCoopArbiterState()
 	g_coopIntentResultKey.clear();
 	g_coopIntentContinueSet = false; // W2-P4 S-D.2 (D148)
 	g_coopIntentContinue = true;
+	g_coopIntentForceFireActionId = 0; // W2-P4 S-E1 (F423)
 	g_coopBusyOwnerSeat = -1;
 	g_coopDeferIntentsMs = 0;
 	g_coopDeferIntentsLeft = 0;
@@ -6792,7 +6801,8 @@ static const char* coopWeaponUseDeny(BattleUnit* actor, BattleItem* weapon, Batt
 // re-derivation. On success @a out is the LOCAL BattleAction the executor runs
 // (actor, weapon, type, target, updateTU()'d cost, targeting) and nullptr is
 // returned; otherwise the wire deny reason. W2-P4 S-B: also the launcher
-// (action "launch"), whose plan carries its waypoints.
+// (action "launch"), whose plan carries its waypoints. W2-P4 S-E1: also the
+// spray (action "auto" with `spray`, the shot voxels).
 static const char* validateShoot(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
 	BattleAction& out)
 {
@@ -6827,6 +6837,26 @@ static const char* validateShoot(BattleUnit* actor, const Json::Value& intent, S
 			return "cost_changed";
 	}
 
+	// W2-P4 S-E1 (spec (b)1 `spray`): the spray autoshot's shot VOXELS - vanilla
+	// primaryAction's own spread, in the action's list order (back = the first
+	// shot, vanilla `target = waypoints.back().toTile()`). Only on an "auto" order.
+	std::list<Position> spray;
+	if (intent.isMember("spray"))
+	{
+		const Json::Value& sp = intent["spray"];
+		if (type != BA_AUTOSHOT || !sp.isArray() || sp.empty())
+			return "cost_changed";
+		for (Json::ArrayIndex i = 0; i < sp.size(); ++i)
+		{
+			const Position v = coopJsonPos(sp[i]);
+			if (!save->getTile(v.toTile()))
+				return "cost_changed";
+			spray.push_back(v);
+		}
+		if (spray.back().toTile() != target)
+			return "cost_changed";
+	}
+
 	// 1. The weapon resolves and is the actor's (inventory owner, or one of its
 	//    special weapons).
 	BattleItem* weapon = findItemById(save, intent.get("weapon", -1).asInt());
@@ -6834,6 +6864,14 @@ static const char* validateShoot(BattleUnit* actor, const Json::Value& intent, S
 		|| (weapon->getOwner() != actor && actor->getSpecialWeapon(weapon->getRules()) != weapon))
 	{
 		return "weapon_missing";
+	}
+	// W2-P4 S-E1 (spec (b)2): a spray only from a weapon vanilla lets spray
+	// (primaryAction's spray start needs getSprayWaypoints() > 0), with no more
+	// shots than its auto shot fires (vanilla's spread is exactly that many).
+	if (!spray.empty() && (weapon->getRules()->getSprayWaypoints() <= 0
+		|| (int)spray.size() > weapon->getRules()->getConfigAuto()->shots))
+	{
+		return "cost_changed";
 	}
 	// W2-P4 S-B (spec (b)2): no more waypoints than primaryAction's own rule lets
 	// the launcher place (getCurrentWaypoints(), -1 = no limit).
@@ -6870,6 +6908,14 @@ static const char* validateShoot(BattleUnit* actor, const Json::Value& intent, S
 	a.type = type;
 	a.target = target;
 	a.waypoints = waypoints; // W2-P4 S-B: the launcher's cascade (empty for a shot)
+	if (!spray.empty())
+	{
+		// W2-P4 S-E1: vanilla's spray action - the shot voxels on the waypoints,
+		// sprayTargeting set (ProjectileFlyBState::createNewProjectile() fires at
+		// waypoints.back() and pops it, shot by shot).
+		a.waypoints = spray;
+		a.sprayTargeting = true;
+	}
 	a.targeting = true; // N12: UnitTurnBState skips the reserve check only when targeting
 	a.updateTU();       // N37: haveTU() and ProjectileFlyBState read these cost fields
 	if (intent.get("tuBasis", -1).asInt() != a.Time)
@@ -6883,7 +6929,9 @@ static const char* validateShoot(BattleUnit* actor, const Json::Value& intent, S
 
 	// 5. Range: the weapon's own RuleItem::isOutOfRange() on the squared 3D
 	//    distance ProjectileFlyBState::init() uses (a launch: its first leg).
-	if (weapon->getRules()->isOutOfRange(actor->distance3dToPositionSq(target)))
+	//    W2-P4 S-E1 (spec (b)2): the spray excepted - vanilla clamps each spray
+	//    shot to the weapon's range (ProjectileFlyBState::createNewProjectile()).
+	if (spray.empty() && weapon->getRules()->isOutOfRange(actor->distance3dToPositionSq(target)))
 		return "out_of_range";
 
 	// 6. The aimed-at unit is still where the ordering seat saw it (PR-Q12: a
@@ -7679,7 +7727,9 @@ void onIntent(const Json::Value& intent)
 		// cameraPosition stays (0,0,-1): no host camera restore (D131).
 		// W2-P4 S-B: the same executor runs a `throw` (validateThrow) and the
 		// launcher's `shoot` (action "launch", its waypoints on the action -
-		// vanilla launchAction's own state pair).
+		// vanilla launchAction's own state pair). W2-P4 S-E1: and the spray (an
+		// "auto" `shoot` with `spray`: sprayTargeting and the shipped shot voxels
+		// on the action - vanilla primaryAction's spray-fire state pair).
 		BattleAction action;
 		const char* reason = (kind == "throw") ? validateThrow(actor, intent, save, action)
 			: validateShoot(actor, intent, save, action);
@@ -7702,11 +7752,18 @@ void onIntent(const Json::Value& intent)
 		g_coopPendingChainKind = action.type == BA_THROW ? "throw" : (action.type == BA_LAUNCH ? "launch" : "shoot");
 		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
 		g_coopIntentResultKey.clear();
+		// W2-P4 S-E1 (spec (b)8, F423): the ORDERING machine's own force-fire rides
+		// the `shoot` order; inside this context F1-F4 read it through
+		// coopForceFirePressed(), never the host's option and keys. A `throw`
+		// carries no forceFire: its context reads false.
+		const bool orderForceFire = kind == "shoot" && intent.get("forceFire", false).asBool();
+		g_coopIntentForceFireActionId = orderForceFire ? actionId : 0;
 
 		Log(LOG_INFO) << "[coop-ctx] admitted " << kind << " intent iseq " << iseq << " seat " << seat
 			<< " actor " << actor->getId() << " actionId " << actionId << ": "
 			<< g_coopPendingChainKind << " weapon " << action.weapon->getId()
 			<< " target " << action.target << " waypoints " << action.waypoints.size()
+			<< (action.sprayTargeting ? " (spray)" : "") << " forceFire " << orderForceFire
 			<< " tuBasis " << action.Time;
 
 		// W2-P2 S-C.2 (amendment A3, F690): ARMED across the two pushes - on an
@@ -8897,6 +8954,15 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 			for (Position p : combat->waypoints)
 				wp.append(coopPosJson(p));
 			intent["waypoints"] = wp;
+		}
+		// W2-P4 S-E1 (spec (b)1): the spray's shot VOXELS - vanilla's own spread,
+		// in the action's list order (back = the first shot).
+		if (!combat->spray.empty())
+		{
+			Json::Value sp(Json::arrayValue);
+			for (Position v : combat->spray)
+				sp.append(coopPosJson(v));
+			intent["spray"] = sp;
 		}
 		intent["forceFire"] = combat->forceFire;
 		intent["tuBasis"] = tuBasis;
@@ -10499,6 +10565,24 @@ bool coopInterceptWalkConfirm(BattleUnit* actor, Position dest, bool run,
 	return false;
 }
 
+// W2-P4 S-E1 (spec (b)5 K2, plan review N20 = F1087): whenever the spray-fire
+// intercept below answers TRUE, primaryAction returns before vanilla's own two
+// lines after its spray push (BattlescapeGame.cpp, right after
+// `statePushFront(new UnitTurnBState(...))` in the spray branch):
+// `_currentAction.sprayTargeting = false; _currentAction.waypoints.clear();`.
+// They are run here instead, so this machine's _currentAction leaves the spray
+// exactly as vanilla leaves it after firing (plain autoshot targeting). Without
+// them the next map click would re-enter the spray-fire branch with the shot
+// voxels still on the action and the map's waypoints already cleared. No-op for
+// every other action.
+static void coopEndSprayTargeting(BattleAction* action)
+{
+	if (!action->sprayTargeting)
+		return;
+	action->sprayTargeting = false;
+	action->waypoints.clear();
+}
+
 bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save)
 {
 	if (!isCoopBattle() || !action || !action->actor || !save)
@@ -10512,6 +10596,7 @@ bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save)
 	if (coopRefuseIfNotMayCommand(action->actor, save))
 	{
 		CoopArbiter::coopClientRestoreCursor();
+		coopEndSprayTargeting(action);
 		return true;
 	}
 
@@ -10558,6 +10643,14 @@ bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save)
 		// the first (launchAction set it). A launch aims at tiles, never a unit.
 		args.waypoints.assign(action->waypoints.begin(), action->waypoints.end());
 	}
+	else if (action->sprayTargeting)
+	{
+		// W2-P4 S-E1 (spec (b)1, K2): the spray - vanilla's own spread, the shot
+		// VOXELS primaryAction just put on the action (list order, back = the
+		// first shot; the target is that shot's tile). A spray aims at voxels,
+		// never a unit.
+		args.spray.assign(action->waypoints.begin(), action->waypoints.end());
+	}
 	else
 	{
 		// The aimed-at unit: the one on the clicked tile, when THIS machine can see
@@ -10582,6 +10675,7 @@ bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save)
 		// lock keeps the cursor hidden until that in-flight order's answer.)
 		CoopArbiter::coopClientRestoreCursor();
 	}
+	coopEndSprayTargeting(action);
 	// TRUE whether or not the envelope went out: vanilla's execution never runs
 	// on a thin client (WV-D40's rule, as coopInterceptWalkConfirm()).
 	return true;
@@ -11023,6 +11117,24 @@ bool coopIsRemoteIntentAction(const BattleAction& action)
 		return false;
 	const CoopActionContextEntry& base = g_coopActionContextStack.front();
 	return base.origin == "intent" && action.actor && action.actor->getId() == g_coopPendingChainActorId;
+}
+
+// W2-P4 S-E1 (spec (b)8, F423 per-player half): see CoopDelta.h. Inside a
+// partner's `intent` base context the answer is that order's own shipped
+// forceFire (g_coopIntentForceFireActionId names the one context that carries
+// true), for every shot in the context - the vanilla keyboard read applies the
+// key of the player at the keyboard to the whole player-side action, and in
+// co-op that player is the one who ordered it. Vanilla's own expression
+// everywhere else.
+bool coopForceFirePressed(const SavedBattleGame* save)
+{
+	if (isCoopBattle() && coopBattleAuthority().hostSim && !g_coopActionContextStack.empty()
+		&& g_coopActionContextStack.front().origin == "intent")
+	{
+		return g_coopIntentForceFireActionId != 0
+			&& g_coopActionContextStack.front().actionId == g_coopIntentForceFireActionId;
+	}
+	return Options::forceFire && save->isCtrlPressed(true);
 }
 
 // ===== W1-P10 (WAVE1-RUNBOOK.md SS4 "ATOM door" / WV-D26 / WV-D50):

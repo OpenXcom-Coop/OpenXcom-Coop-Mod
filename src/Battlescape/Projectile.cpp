@@ -133,7 +133,7 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 		!_trajectory.empty() &&
 		_action.actor->getFaction() == FACTION_PLAYER &&
 		_action.autoShotCounter == 1 &&
-		(!_save->isCtrlPressed(true) || !Options::forceFire) &&
+		!coopForceFirePressed(_save) && // W2-P4 S-E1 (F423 F2): a partner's order carries its own key
 		_save->getBattleGame()->getPanicHandled() &&
 		_action.type != BA_LAUNCH &&
 		!_action.sprayTargeting)
@@ -230,7 +230,7 @@ int Projectile::calculateThrow(double accuracy)
 	else
 	{
 		BattleUnit *tu = targetTile->getOverlappingUnit(_save);
-		if (Options::forceFire && _save->isCtrlPressed(true) && _save->getSide() == FACTION_PLAYER)
+		if (coopForceFirePressed(_save) && _save->getSide() == FACTION_PLAYER) // W2-P4 S-E1 (F423 F3): a partner's order carries its own key
 		{
 			targets.push_back(_action.target.toVoxel() + Position(0, 0, 12));
 			forced = true;
