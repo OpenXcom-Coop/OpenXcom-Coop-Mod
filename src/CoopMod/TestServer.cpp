@@ -4121,6 +4121,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				ji["slotY"] = it->getSlotY();
 			}
 			ji["fuseEnabled"] = it->isFuseEnabled();
+			// W2-P3 S-C.1 (spec (b)13): a special built-in weapon (an owner and
+			// no inventory slot, BattleItem::isSpecialWeapon), read-only.
+			ji["special"] = it->isSpecialWeapon();
 			Json::Value am(Json::arrayValue);
 			for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
 			{
@@ -5060,6 +5063,21 @@ static std::vector<int> coopFieldPokeTagsFrom(const Json::Value& a)
 	return v;
 }
 
+/// W2-P3 S-C.1 (amendment B1 RQ9): the unit-side special-weapon link
+/// (BattleUnit::_specWeapon, the slots addLoadedSpecialWeapon fills) as the
+/// _items entries the unit's own getSpecialWeapon(rules) resolves to, in
+/// _items order. getSpecialWeapon() scans the slots up to the first empty one.
+static std::vector<BattleItem*> coopFieldPokeSpecialSlots(const BattleUnit* u, SavedBattleGame* bg)
+{
+	std::vector<BattleItem*> out;
+	for (BattleItem* x : *bg->getItems())
+	{
+		if (x && x->getRules() && u->getSpecialWeapon(x->getRules()) == x)
+			out.push_back(x);
+	}
+	return out;
+}
+
 /// Every BattleHashSet bucket by name, plus saveBlob into @a saveBlobHex. A
 /// computation that throws reports "unserializable" (every bucket of the
 /// sweep, or saveBlob) and appends "<stage> <what>: <exception text>" to
@@ -5269,6 +5287,60 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 			write = [u](const Json::Value& v)
 			{
 				u->coopSetScriptValuesRaw(coopFieldPokeTagsFrom(v));
+				return std::string();
+			};
+		}
+		else if (field == "specialWeapons")
+		{
+			// W2-P3 S-C.1 (amendment B1 RQ9): the unit's special-weapon ids as its
+			// own slots hold them (coopFieldPokeSpecialSlots), a list of item
+			// ids. The write uses the client applier's two setters (spec (b)11):
+			// BattleUnit::addLoadedSpecialWeapon() links a listed item, and
+			// BattleUnit::coopDetachSpecialWeapon() unlinks a slot item that is
+			// not listed. coopDetachSpecialWeapon() also clears the item's owner
+			// (the removal path's second write); this lever moves ONLY the unit's
+			// link, so the item's owner and previousOwner are put back at once.
+			read = [u, bg]()
+			{
+				Json::Value a(Json::arrayValue);
+				for (const BattleItem* x : coopFieldPokeSpecialSlots(u, bg))
+					a.append(x->getId());
+				return a;
+			};
+			write = [u, bg](const Json::Value& v) -> std::string
+			{
+				std::vector<BattleItem*> want;
+				for (Json::ArrayIndex k = 0; k < v.size(); ++k)
+				{
+					BattleItem* found = nullptr;
+					for (BattleItem* x : *bg->getItems())
+					{
+						if (x && x->getId() == v[k].asInt())
+						{
+							found = x;
+							break;
+						}
+					}
+					if (!found)
+						return "special weapon item " + std::to_string(v[k].asInt()) + " does not resolve";
+					want.push_back(found);
+				}
+				const std::vector<BattleItem*> cur = coopFieldPokeSpecialSlots(u, bg);
+				for (BattleItem* x : cur)
+				{
+					if (std::find(want.begin(), want.end(), x) != want.end())
+						continue;
+					BattleUnit* owner = x->getOwner();
+					BattleUnit* previous = x->getPreviousOwner();
+					u->coopDetachSpecialWeapon(x);
+					x->setOwner(owner);
+					x->setPreviousOwner(previous);
+				}
+				for (BattleItem* x : want)
+				{
+					if (std::find(cur.begin(), cur.end(), x) == cur.end())
+						u->addLoadedSpecialWeapon(x);
+				}
 				return std::string();
 			};
 		}
@@ -5551,6 +5623,29 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 				return std::string();
 			};
 		}
+		else if (field == "reinforcementsMemory")
+		{
+			// W2-P3 S-C.1 (amendment B1 RQ2/RQ9): {"<wave type>": count}, written
+			// absolutely into getReinforcementsMemory() - the write spec (b)12
+			// gives the client applier.
+			read = [bg]()
+			{
+				Json::Value o(Json::objectValue);
+				for (const auto& kv : bg->getReinforcementsMemory())
+					o[kv.first] = kv.second;
+				return o;
+			};
+			write = [bg](const Json::Value& v) -> std::string
+			{
+				if (!v.isObject())
+					return "reinforcementsMemory value must be an object {wave type: count}";
+				std::map<std::string, int> m;
+				for (const std::string& k : v.getMemberNames())
+					m[k] = v[k].asInt();
+				bg->getReinforcementsMemory() = m;
+				return "";
+			};
+		}
 	}
 	else
 	{
@@ -5804,6 +5899,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["closedContexts"] = CoopDelta::closedContexts();
 			resp["contextsClosedAtEndTurn"] = dp.contextsClosedAtEndTurn;
 			resp["contextBeginRefused"] = dp.contextBeginRefused;
+			// W2-P3 S-C.1 (amendment B1 RQ7): the host's ring of the last 32
+			// attached deltas by seq, each with its added/removed ids per class
+			// (a client reports its own empty ring). Same reset.
+			resp["deltaRing"] = CoopDelta::deltaRing();
 		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
@@ -6577,6 +6676,16 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		//    SPECAB_NONE..SPECAB_BURN_AND_EXPLODE is refused and nothing changes.
 		//    Reported back as `specab`. Applied to BOTH machines by the harness
 		//    (test_w2_delta_core.py's burning-floor walker, specab 2).
+		//  * `spawnUnit` / `spawnUnitFaction` / `respawn` (W2-P3 S-C.1, spec
+		//    rewrite/prompts/w2p3_nonplayer_origins.md (b)13) - the conversion
+		//    staging of C12a: `spawnUnit` a unit type string ("" clears) written
+		//    through BattleUnit::setSpawnUnit(mod->getUnit(type)), an unknown
+		//    type is refused; `spawnUnitFaction` an int UnitFaction 0-2 through
+		//    setSpawnUnitFaction(), out of range refused; `respawn` a bool
+		//    through setRespawn(). Every refusal happens before anything is
+		//    written. Reported back as `spawnUnit` (type or ""),
+		//    `spawnUnitFaction` (int) and `respawn`. Applied to BOTH machines by
+		//    the harness (client first, F607) and absorbed like every field here.
 		SavedGame* sgTS = _game->getSavedGame();
 		SavedBattleGame* bgTS = sgTS ? sgTS->getSavedBattle() : nullptr;
 		if (!bgTS)
@@ -6603,9 +6712,26 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				const int statusArg = req.get("status", 0).asInt();
 				const bool hasSpecab = req.isMember("specab");
 				const int specabArg = req.get("specab", 0).asInt();
+				// W2-P3 S-C.1 (spec (b)13): the conversion staging fields.
+				const bool hasSpawnUnit = req.isMember("spawnUnit");
+				const std::string spawnUnitArg = req.get("spawnUnit", "").asString();
+				const Unit* spawnRule = (hasSpawnUnit && !spawnUnitArg.empty())
+					? _game->getMod()->getUnit(spawnUnitArg) : nullptr;
+				const bool hasSpawnFaction = req.isMember("spawnUnitFaction");
+				const int spawnFactionArg = req.get("spawnUnitFaction", 0).asInt();
 				if (wantPanic && !bgameTS)
 				{
 					resp["error"] = "battle_set_unit_state: no live BattlescapeGame";
+				}
+				else if (hasSpawnUnit && !spawnUnitArg.empty() && !spawnRule)
+				{
+					resp["error"] = "battle_set_unit_state: spawnUnit '" + spawnUnitArg + "' is not a unit type";
+				}
+				else if (hasSpawnFaction
+					&& (spawnFactionArg < (int)FACTION_PLAYER || spawnFactionArg > (int)FACTION_NEUTRAL))
+				{
+					resp["error"] = "battle_set_unit_state: spawnUnitFaction out of range "
+						+ std::to_string(spawnFactionArg);
 				}
 				else if (hasStatus && (statusArg < (int)STATUS_STANDING || statusArg > (int)STATUS_IGNORE_ME))
 				{
@@ -6627,6 +6753,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						unit->coopSetStunlevel(req["stun"].asInt());
 					if (hasSpecab)
 						unit->coopSetSpecialAbility(specabArg);
+					if (hasSpawnUnit)
+						unit->setSpawnUnit(spawnRule); // W2-P3 S-C.1: "" clears (nullptr)
+					if (hasSpawnFaction)
+						unit->setSpawnUnitFaction((UnitFaction)spawnFactionArg);
+					if (req.isMember("respawn"))
+						unit->setRespawn(req["respawn"].asBool());
 					if (wantPanic)
 						bgameTS->init();
 					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): a lever write never rides a delta
@@ -6637,6 +6769,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					resp["health"] = unit->getHealth();
 					resp["stun"] = unit->getStunlevel();
 					resp["specab"] = unit->getSpecialAbility();
+					resp["spawnUnit"] = unit->getSpawnUnit() ? unit->getSpawnUnit()->getType() : std::string();
+					resp["spawnUnitFaction"] = (int)unit->getSpawnUnitFaction();
+					resp["respawn"] = unit->getRespawn();
 					if (bgameTS)
 						resp["panicPending"] = !bgameTS->getPanicHandled();
 					Log(LOG_INFO) << "[coop-test] battle_set_unit_state unit=" << unit->getId()
@@ -6645,6 +6780,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						<< " health=" << unit->getHealth()
 						<< " stun=" << unit->getStunlevel()
 						<< " specab=" << unit->getSpecialAbility()
+						<< " spawnUnit=" << (unit->getSpawnUnit() ? unit->getSpawnUnit()->getType() : std::string("-"))
+						<< " spawnUnitFaction=" << (int)unit->getSpawnUnitFaction()
+						<< " respawn=" << (unit->getRespawn() ? 1 : 0)
 						<< " panicPending=" << (bgameTS ? (bgameTS->getPanicHandled() ? 0 : 1) : -1);
 				}
 			}
@@ -8747,6 +8885,20 @@ std::string TestServer::execute(const std::string& line)
 				// generator releases gen-killed units' modules (BattlescapeGenerator::
 				// releaseAIModulesOfUnitsKilledDuringGeneration).
 				int unitsDeadWithAI = 0;
+				// W2-P3 S-C.1 (spec (b)13): each unit's `specialWeapons` = the ids
+				// of the _items entries with isSpecialWeapon() it owns, in _items
+				// order (a pure read).
+				std::map<int, Json::Value> specialIdsByOwner;
+				for (const BattleItem* it : *bg->getItems())
+				{
+					if (it && it->isSpecialWeapon())
+					{
+						Json::Value& ids = specialIdsByOwner[it->getOwner()->getId()];
+						if (!ids.isArray())
+							ids = Json::Value(Json::arrayValue);
+						ids.append(it->getId());
+					}
+				}
 				for (auto* u : *bg->getUnits())
 				{
 					Json::Value ju;
@@ -8765,6 +8917,18 @@ std::string TestServer::execute(const std::string& line)
 					ju["unitFire"] = u->getFire();
 					// W2-P3 S-A.1 (amendment B1 RQ7): the unit's rules type (a pure read).
 					ju["type"] = u->getType();
+					// W2-P3 S-C.1 (spec (b)13): the conversion fields and the special
+					// built-in weapons, pure reads. psiWeapon = getSpecialWeapon(BT_PSIAMP)'s
+					// id, -1 when none.
+					ju["originalFaction"] = (int)u->getOriginalFaction();
+					ju["spawnUnit"] = u->getSpawnUnit() ? u->getSpawnUnit()->getType() : std::string();
+					ju["respawn"] = u->getRespawn();
+					{
+						std::map<int, Json::Value>::const_iterator sw = specialIdsByOwner.find(u->getId());
+						ju["specialWeapons"] = sw != specialIdsByOwner.end() ? sw->second : Json::Value(Json::arrayValue);
+						const BattleItem* psi = u->getSpecialWeapon(BT_PSIAMP);
+						ju["psiWeapon"] = psi ? psi->getId() : -1;
+					}
 					ju["name"] = u->getName(_game->getLanguage());
 					ju["isPlayerSoldier"] = (u->getGeoscapeSoldier() != nullptr);
 					// PRD-J09: in-battle control split. _coop 0 = host-controlled,

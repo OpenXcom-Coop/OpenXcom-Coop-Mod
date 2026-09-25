@@ -13,7 +13,10 @@ bt_action_end and side_transition carries `saveBlob`, and the second player
 compares both. Three scenarios, ONE boot, in this order (HC3 LAST: it freezes
 the second player on purpose):
 
-  HC1  Per-field coverage. For each of the 33 A5.2 rows the CLIENT runs the
+  HC1  Per-field coverage. For each of the 33 A5.2 rows, plus the two rows
+       W2-P3 S-C adds (amendment B1 RQ9: battle.reinforcementsMemory,
+       unit.specialWeapons; red on commit S-C.1, green on S-C.2), the CLIENT
+       runs the
        test-only `field_poke` lever (one field written with the delta
        applier's own setter, every bucket hashed by name plus saveBlob, the
        field restored with the same setter - all inside one command). The row
@@ -117,6 +120,7 @@ HC2_WALK_PATH = [(8, 0, 0), (7, 0, 0)]
 FUSE_ITEM = "STR_GRENADE"        # the fuseEnabled row's item (given to H2's left hand, fuse 20)
 FUSE_TURNS = 20
 REACTIONS_POKE = 7               # HC3: client-only reactions = current + 7
+HC_WAVE = "HC1_WAVE"             # W2-P3 S-C: the reinforcementsMemory row's wave key (any string; no stock wave)
 
 PORT = "48627"
 FACTION_PLAYER = 0
@@ -173,6 +177,16 @@ HC1_ROWS = (
     ("battle.turn", "battle", "battle", "turn", lambda b, c: b + 1),
     ("battle.side", "battle", "battle", "side", lambda b, c: "hostile"),
     ("battle.tags", "battle", "battle", "tags", lambda b, c: [7]),
+    # W2-P3 S-C (spec rewrite/prompts/w2p3_nonplayer_origins.md, amendment B1
+    # RQ2/RQ9): the two fields S-C adds to `synced`. The battle's
+    # reinforcement-wave counter (stock xcom1 defines no wave: before = {}), and
+    # H's special-weapon ids - the unit-side link (its own slots, the write the
+    # second player's addLoadedSpecialWeapon makes), poked to hold A's pistol
+    # without touching the item (no legacy bucket moves). RED (commit S-C.1):
+    # `synced` does not move for either row.
+    ("battle.reinforcementsMemory", "battle", "battle", "reinforcementsMemory",
+     lambda b, c: dict(b, **{HC_WAVE: (b.get(HC_WAVE) or 0) + 1})),
+    ("unit.specialWeapons", "unit", "H", "specialWeapons", lambda b, c: list(b) + [A_WEAPON]),
 )
 
 

@@ -879,6 +879,11 @@ public:
 	void addLoadedSpecialWeapon(BattleItem* item);
 	/// Remove all special weapons.
 	void removeSpecialWeapons(SavedBattleGame *save);
+	/// W2-P3 (MJ-5): the coop client's removal of ONE special weapon - nulls the
+	/// slot holding @a item, then clears its owner (removeSpecialWeapons' two
+	/// writes for that item), so SavedBattleGame::removeItem() can remove it.
+	/// Returns true when a slot held it. No RNG.
+	bool coopDetachSpecialWeapon(BattleItem* item);
 	/// Get special weapon by battle type.
 	BattleItem *getSpecialWeapon(BattleType type) const;
 	/// Get special weapon by name.

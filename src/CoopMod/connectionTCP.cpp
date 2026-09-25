@@ -2188,6 +2188,14 @@ static std::string g_deltaDropClass;
 // `lastDelta` (null until the first delta this battle).
 static std::mutex g_deltaLastMutex;
 static Json::Value g_deltaLast;
+// W2-P3 S-C.1 (spec rewrite/prompts/w2p3_nonplayer_origins.md, amendment B1
+// RQ7): `deltaRing`, the HOST's last kDeltaRingKept attached deltas, oldest
+// first - each one summarize() record plus the ids its classes added or
+// removed (unitsAddedIds, itemsAddedIds, itemsRemovedIds). Written by
+// attach() only; guarded by g_deltaLastMutex; battle-scoped (resetProbes()).
+// Probe only, never read by game logic.
+static const std::size_t kDeltaRingKept = 32;
+static std::vector<Json::Value> g_deltaRing;
 // W2-P2 S-C (spec (b)11/(b)13/(b)16): the host-local combat context count and
 // the cue probes. Commit S-C.1 (the RED commit) adds the storage and readers
 // only; commit S-C.2's beginHostLocalCombat, cue hooks (host) and cue-kind
@@ -2275,6 +2283,15 @@ Json::Value lastDelta()
 {
 	std::lock_guard<std::mutex> lock(g_deltaLastMutex);
 	return g_deltaLast;
+}
+
+Json::Value deltaRing()
+{
+	std::lock_guard<std::mutex> lock(g_deltaLastMutex);
+	Json::Value out(Json::arrayValue);
+	for (const Json::Value& r : g_deltaRing)
+		out.append(r);
+	return out;
 }
 
 Json::Value lastLight()
@@ -2513,6 +2530,7 @@ static void resetProbes()
 	{
 		std::lock_guard<std::mutex> lock(g_deltaLastMutex);
 		g_deltaLast = Json::Value();
+		g_deltaRing.clear(); // W2-P3 S-C.1 (RQ7)
 	}
 	{
 		std::lock_guard<std::mutex> lock(g_lightLastMutex);
@@ -3393,6 +3411,7 @@ Json::Value summarize(std::uint32_t seq, const std::string& kind, const Json::Va
 	s["seq"] = seq;
 	s["kind"] = kind;
 	s["units"] = (int)d["units"].size();
+	s["unitsAdded"] = (int)d["unitsAdded"].size(); // W2-P3 S-C.1 (spec (b)10/(b)13): 0 until S-C.2 carries unit adds
 	s["tiles"] = (int)d["tiles"].size();
 	s["nodes"] = (int)d["nodes"].size();
 	s["items"] = (int)d["items"].size();
@@ -3406,6 +3425,30 @@ Json::Value summarize(std::uint32_t seq, const std::string& kind, const Json::Va
 	}
 	s["battle"] = keys;
 	return s;
+}
+
+/// W2-P3 S-C.1 (amendment B1 RQ7): the ids of one delta add/remove class - an
+/// `itemsAdded` / `unitsAdded` entry is {id, record}, an `itemsRemoved` entry
+/// is the bare id.
+Json::Value deltaClassIds(const Json::Value& arr)
+{
+	Json::Value ids(Json::arrayValue);
+	if (!arr.isArray())
+		return ids;
+	for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+		ids.append(arr[k].isObject() ? arr[k].get("id", -1).asInt() : arr[k].asInt());
+	return ids;
+}
+
+/// W2-P3 S-C.1 (RQ7): one `deltaRing` record = the summary + the added and
+/// removed ids per class.
+Json::Value deltaRingRecord(const Json::Value& summary, const Json::Value& d)
+{
+	Json::Value r = summary;
+	r["unitsAddedIds"] = deltaClassIds(d["unitsAdded"]);
+	r["itemsAddedIds"] = deltaClassIds(d["itemsAdded"]);
+	r["itemsRemovedIds"] = deltaClassIds(d["itemsRemoved"]);
+	return r;
 }
 
 std::string envKind(const Json::Value& env)
@@ -3622,8 +3665,12 @@ bool attach(SavedBattleGame* battle, Json::Value& env)
 	g_deltaEvsEmitted.fetch_add(1);
 	{
 		const Json::Value summary = summarize(seq, kind, delta);
+		const Json::Value ringRec = deltaRingRecord(summary, delta); // W2-P3 S-C.1 (RQ7)
 		std::lock_guard<std::mutex> lock(g_deltaLastMutex);
 		g_deltaLast = summary;
+		g_deltaRing.push_back(ringRec);
+		while (g_deltaRing.size() > kDeltaRingKept)
+			g_deltaRing.erase(g_deltaRing.begin());
 	}
 	Log(LOG_INFO) << "[coop-delta] attached to seq " << seq << " kind=" << kind << " ("
 		<< text.size() << " bytes): " << text.substr(0, 1500);

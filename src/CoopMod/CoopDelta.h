@@ -119,9 +119,19 @@ Probes probes();
 
 /// [lastDelta] the class counts of the last delta this machine emitted
 /// (host: the last NON-EMPTY one) or applied (client), as
-/// {seq, kind, units, tiles, nodes, items, itemsAdded, itemsRemoved,
-/// battle:[keys]} - or null when there has been none this battle.
+/// {seq, kind, units, unitsAdded, tiles, nodes, items, itemsAdded,
+/// itemsRemoved, battle:[keys]} - or null when there has been none this
+/// battle. (`unitsAdded`: W2-P3 S-C.1, spec (b)10/(b)13.)
 Json::Value lastDelta();
+
+/// [deltaRing] (W2-P3 S-C.1, amendment B1 RQ7) HOST: the last 32 deltas this
+/// machine attached, oldest first, each the lastDelta() record of that
+/// envelope plus the ids its classes added or removed - {seq, kind, units,
+/// unitsAdded, tiles, nodes, items, itemsAdded, itemsRemoved, battle:[keys],
+/// unitsAddedIds:[..], itemsAddedIds:[..], itemsRemovedIds:[..]} - so a test
+/// reads the delta of one specific ev by its seq. An empty array on a client
+/// and before the first attach. Probe only.
+Json::Value deltaRing();
 
 /// [lastLight] (W2-P2 S-L, A4.5) the last light recompute the client's delta
 /// applier made, as {seq, kind, layer, x, y, z, radius, terrain, whole, us}

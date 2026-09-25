@@ -5695,6 +5695,30 @@ void BattleUnit::removeSpecialWeapons(SavedBattleGame *save)
 }
 
 /**
+ * W2-P3 (MJ-5): detach one special weapon - null the slot holding it, then
+ * clear its owner (removeSpecialWeapons' two writes for that one item).
+ * @return True when a slot held the item.
+ */
+bool BattleUnit::coopDetachSpecialWeapon(BattleItem* item)
+{
+	if (!item)
+	{
+		return false;
+	}
+	bool held = false;
+	for (auto*& s : _specWeapon)
+	{
+		if (s == item)
+		{
+			s = nullptr;
+			held = true;
+		}
+	}
+	item->setOwner(nullptr);
+	return held;
+}
+
+/**
  * Get special weapon by battletype.
  */
 BattleItem *BattleUnit::getSpecialWeapon(BattleType type) const
