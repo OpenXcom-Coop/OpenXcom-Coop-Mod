@@ -58,6 +58,9 @@ anything for the client before its press.
        (F1207): each next-turn screen on top is dismissed the way a player
        does it (one Enter key through inject_input, NextTurnState::handle)
        until both machines show the battlescape and the client has caught up.
+       Staging (F1214, H6b's lever; it touches neither the selection nor the
+       action): the client's selected unit gets a rifle + clip (both
+       machines), so the expected menu rows are always the rifle's.
        The client presses the right-hand box, then ESC. RED / GREEN as H6b.
   H6d  the host kills the client's selected soldier V (capD staging: shooter
        H_ID with a rifle + clip on SHOOTER_TILE, TU max, firing 120; V on
@@ -650,6 +653,7 @@ def h6b2_trad_snap(host, client, ctx):
 def h6c_par_menu(host, client, ctx):
     notes = []
     keys = {}
+    staged = {}
     turn0 = None
     try:
         turn0 = battle_state(host).get("turn")
@@ -660,6 +664,12 @@ def h6c_par_menu(host, client, ctx):
         drive_full_cycle(host, client, turn0, timeout=90)
         session.wait_host_idle(host, client, timeout=30)
         keys = settle_tops_player(host, client)
+        # F1214 (H6.1b): a known right-hand weapon on the client's selected unit,
+        # H6b's lever (client first, F607); it touches neither the selection nor
+        # the action, so the menu's expected rows are always the rifle's.
+        sel0 = battle_state(client).get("selectedId")
+        staged["unit"] = sel0
+        staged["rifle"] = give_both(host, client, sel0, "STR_RIFLE", "STR_RIFLE_CLIP")
     except Exception as e:
         notes.append(f"precondition: the battlescape was not back on top after the cycle: {short(e)}; "
                      f"{dump(host, client)}")
@@ -670,8 +680,8 @@ def h6c_par_menu(host, client, ctx):
     rh = right_hand(client, sel) if sel not in (None, -1) else None
     ev = rhand_press(client, want_menu=True) if not notes else {}
     esc_top = close_menu(client) if ev.get("top") == MENU_STATE else None
-    print(f"EVIDENCE H6c: turn0={turn0} nextTurnKeys={keys} pre={pre} selectedUnit={ubrief(su)} rightHand={rh} "
-          f"press={ev} afterEsc={esc_top} notes={notes}", flush=True)
+    print(f"EVIDENCE H6c: turn0={turn0} nextTurnKeys={keys} staged={staged} pre={pre} selectedUnit={ubrief(su)} "
+          f"rightHand={rh} press={ev} afterEsc={esc_top} notes={notes}", flush=True)
     fails = list(notes)
     if notes:
         finish(fails)
