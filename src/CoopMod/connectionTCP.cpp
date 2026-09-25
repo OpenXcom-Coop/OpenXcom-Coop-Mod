@@ -5617,6 +5617,13 @@ static Json::Value g_coopIntentsSent(Json::objectValue);
 static Json::Value g_coopIntentsReceived(Json::objectValue);
 static Json::Value g_coopLastActionHalt;
 static Json::Value g_coopLastAftermath;
+// W2-P4 S-E2.1 (amendment C3 D147 section 3, C23s1/C23s3: "the follow-up / throw
+// intent carries `skill`"): HOST - the last kCoopIntentsReceivedLogMax bt_intent
+// envelopes onIntent() admitted into its checks (after the defer_intents hold),
+// oldest first, as {iseq, kind, actorId, skill}; `skill` is the envelope's own
+// `skill` field verbatim, null when it carries none. Test introspection only.
+static Json::Value g_coopIntentsReceivedLog(Json::arrayValue);
+static const Json::ArrayIndex kCoopIntentsReceivedLogMax = 16;
 
 // W2-P4 S-A.2 (spec (b)4, PR-Q11): HOST - the combat HALT LATCH of the `intent`
 // base context in flight. coopLatchActionResult() (popState) records the FIRST
@@ -5825,6 +5832,7 @@ static void resetCoopArbiterState()
 	g_coopIntentsReceived = Json::Value(Json::objectValue);
 	g_coopLastActionHalt = Json::Value();
 	g_coopLastAftermath = Json::Value();
+	g_coopIntentsReceivedLog = Json::Value(Json::arrayValue); // W2-P4 S-E2.1
 	g_coopIntentResultLatched = false; // W2-P4 S-A.2 (spec (b)4)
 	g_coopIntentResultKey.clear();
 	g_coopIntentContinueSet = false; // W2-P4 S-D.2 (D148)
@@ -7527,6 +7535,25 @@ void onIntent(const Json::Value& intent)
 	const int seat = intent.get("seat", -1).asInt();
 	const int actorId = intent.get("actorId", -1).asInt();
 	const std::string kind = intent.get("kind", "").asString();
+
+	// W2-P4 S-E2.1 (test introspection, see g_coopIntentsReceivedLog): record
+	// the envelope's `skill` field as the wire carried it. No behaviour reads it.
+	{
+		Json::Value rec(Json::objectValue);
+		rec["iseq"] = iseq;
+		rec["kind"] = kind;
+		rec["actorId"] = actorId;
+		rec["skill"] = intent.isMember("skill") ? intent["skill"] : Json::Value();
+		g_coopIntentsReceivedLog.append(rec);
+		if (g_coopIntentsReceivedLog.size() > kCoopIntentsReceivedLogMax)
+		{
+			Json::Value kept(Json::arrayValue);
+			for (Json::ArrayIndex k = g_coopIntentsReceivedLog.size() - kCoopIntentsReceivedLogMax;
+				k < g_coopIntentsReceivedLog.size(); ++k)
+				kept.append(g_coopIntentsReceivedLog[k]);
+			g_coopIntentsReceivedLog = kept;
+		}
+	}
 
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
 	BattlescapeGame* bg = save ? save->getBattleGame() : nullptr;
@@ -9591,6 +9618,7 @@ Json::Value intentsSent()           { return g_coopIntentsSent; }
 Json::Value intentsReceived()       { return g_coopIntentsReceived; }
 Json::Value lastActionHalt()        { return g_coopLastActionHalt; }
 Json::Value lastAftermath()         { return g_coopLastAftermath; }
+Json::Value intentsReceivedLog()    { return g_coopIntentsReceivedLog; } // W2-P4 S-E2.1
 
 // TEST-ONLY (W1-P7): see CoopArbiter.h.
 void requestDeferIntents(std::uint32_t ms, int count)

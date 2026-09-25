@@ -6,8 +6,10 @@ description: "Test-only fixture for W2-P4 (client combat intents). Data only. Ma
   (STR_GRENADE unprimeActionName) and the one-click medikit (a new, non-recoverable
   STR_MEDI_KIT_ONE_CLICK with medikitType 1), plus a consumable one-charge
   full-screen medikit (STR_MEDI_KIT_ONE_CHARGE, isConsumable, non-recoverable)
-  whose removal after its last charge is otherwise unreachable. Both machines in
-  a co-op pair must load it."
+  whose removal after its last charge is otherwise unreachable, and three soldier
+  skills on STR_SOLDIER (a continue-into-snap skill, a stop skill and an
+  instant-grenade skill) whose scripts no stock data has. Both machines in a
+  co-op pair must load it."
 author: coop harness
 
 master: xcom1

@@ -597,6 +597,11 @@ Json::Value intentsSent();
 Json::Value intentsReceived();
 Json::Value lastActionHalt();
 Json::Value lastAftermath();
+/// W2-P4 S-E2.1 (amendment C3 D147 section 3): HOST test introspection, battle-scoped.
+/// The last 16 bt_intent envelopes onIntent() took into its checks (after the
+/// defer_intents hold), oldest first, as {iseq, kind, actorId, skill}; `skill` is
+/// the envelope's own field verbatim (null when absent). Nothing reads it.
+Json::Value intentsReceivedLog();
 
 // TEST-ONLY (W1-P7, RB-D26/RB-D32 discipline; same family and the same removal
 // note as hold_chain above): delete once real-network latency/loss can be

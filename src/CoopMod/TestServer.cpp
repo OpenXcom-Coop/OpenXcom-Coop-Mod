@@ -6082,6 +6082,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["intentsReceived"] = CoopArbiter::intentsReceived();
 		resp["lastActionHalt"] = CoopArbiter::lastActionHalt();
 		resp["lastAftermath"] = CoopArbiter::lastAftermath();
+		// W2-P4 S-E2.1 (amendment C3 D147 section 3): HOST - the envelopes onIntent
+		// took into its checks, {iseq, kind, actorId, skill} (the wire `skill` field).
+		resp["intentsReceivedLog"] = CoopArbiter::intentsReceivedLog();
 		// The seat this machine believes owns the host's execution slot right now
 		// (-1 = idle / cannot attribute) - the input to the seat-attributed wait
 		// banner, exposed so a test can prove the ATTRIBUTION, not just the text.

@@ -1,5 +1,5 @@
 # Test-only mod for W2-P4 (rewrite/prompts/w2p4_client_combat_intents.md, C18, C23a, C23b2,
-# C23b3).
+# C23b3, C23s1-C23s3).
 # Data only. Each entry is the smallest change that makes one client combat path
 # reachable with stock xcom1 data:
 #   1. STR_RIFLE gains sprayWaypoints: 2 - the OXCE spray autoshot
@@ -19,6 +19,62 @@
 #      true, no medikitType - the full MedikitState screen. After its one heal
 #      every charge is 0, so vanilla's TileEngine::medikitRemoveIfEmpty removes
 #      it. recover: false, as in 3, so NEW BATTLE's loadouts stay unchanged.
+#   5. Soldier skills (amendment C3 D147, C23s1/C23s2/C23s3): three skills on
+#      every STR_SOLDIER, so the SKILLS button shows and SkillMenuState lists
+#      them in this order (keys 49, 50, 51). Each costs 10 % of the unit's
+#      base TU (costUse, percent). Their skillUseUnit scripts decide:
+#        STR_COOP_TEST_SKILL_GO      snap (targetMode 8) with a firearm
+#                                    (battleType 1): continue, spend nothing -
+#                                    the follow-up snap pays the skill's cost.
+#        STR_COOP_TEST_SKILL_STOP    no follow-up (targetMode 0): stop, spend
+#                                    the cost, and set the unit tag
+#                                    COOP_SKILL_STOP_RAN to 1 (a non-TU script
+#                                    effect).
+#        STR_COOP_TEST_SKILL_GRENADE throw (targetMode 6) with a grenade
+#                                    (battleType 4): continue, spend nothing -
+#                                    vanilla's instant grenade (fuse 0, enabled)
+#                                    before the throw targeting.
+extended:
+  tags:
+    BattleUnit:
+      COOP_SKILL_STOP_RAN: int
+skills:
+  - type: STR_COOP_TEST_SKILL_GO
+    targetMode: 8
+    battleType: 1
+    costUse:
+      time: 10
+    scripts:
+      skillUseUnit: |
+        set continue_action 1;
+        set spend_tu 0;
+        return;
+  - type: STR_COOP_TEST_SKILL_STOP
+    targetMode: 0
+    costUse:
+      time: 10
+    scripts:
+      skillUseUnit: |
+        actor.setTag Tag.COOP_SKILL_STOP_RAN 1;
+        set continue_action 0;
+        set spend_tu 1;
+        return;
+  - type: STR_COOP_TEST_SKILL_GRENADE
+    targetMode: 6
+    battleType: 4
+    costUse:
+      time: 10
+    scripts:
+      skillUseUnit: |
+        set continue_action 1;
+        set spend_tu 0;
+        return;
+soldiers:
+  - type: STR_SOLDIER
+    skills:
+      - STR_COOP_TEST_SKILL_GO
+      - STR_COOP_TEST_SKILL_STOP
+      - STR_COOP_TEST_SKILL_GRENADE
 items:
   - type: STR_RIFLE
     sprayWaypoints: 2
@@ -68,3 +124,6 @@ extraStrings:
       STR_UNPRIME_GRENADE: "Unprime Grenade"
       STR_MEDI_KIT_ONE_CLICK: "One-click Medi-kit"
       STR_MEDI_KIT_ONE_CHARGE: "One-charge Medi-kit"
+      STR_COOP_TEST_SKILL_GO: "Skill: snap (continue)"
+      STR_COOP_TEST_SKILL_STOP: "Skill: stop"
+      STR_COOP_TEST_SKILL_GRENADE: "Skill: instant grenade"
