@@ -8890,6 +8890,16 @@ std::string TestServer::execute(const std::string& line)
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
+				// W2-H6 (spec (c), F1200-F1206): the actor of THIS machine's current
+				// battle action (BattlescapeGame::_currentAction.actor), -1 for null,
+				// beside selectedId - vanilla pairs the two on every player-driven
+				// selection change (BattlescapeState::selectNextPlayerUnit), and the
+				// client's co-op selection writers are what this reads. A pure read;
+				// bgame is null while no BattlescapeState is wired (BriefingState).
+				{
+					BattleAction* curAction = bgame ? bgame->getCurrentAction() : nullptr;
+					resp["currentActionActorId"] = (curAction && curAction->actor) ? curAction->actor->getId() : -1;
+				}
 				// W1-P6: the two conditions BattlescapeState::mapClick checks
 				// BEFORE it ever calls primaryAction (:1102, :1106). Without them
 				// a swallowed map click is indistinguishable from a click that
