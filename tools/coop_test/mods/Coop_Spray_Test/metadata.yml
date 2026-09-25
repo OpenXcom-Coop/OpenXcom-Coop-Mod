@@ -1,0 +1,11 @@
+name: "Coop spray / unprime / one-click medikit probe"
+version: 1.0
+description: "Test-only fixture for W2-P4 (client combat intents). Data only. Makes
+  three client combat paths reachable that stock xcom1 data never reaches: the OXCE
+  spray autoshot (STR_RIFLE sprayWaypoints), the UNPRIME action-menu row
+  (STR_GRENADE unprimeActionName) and the one-click medikit (a new, non-recoverable
+  STR_MEDI_KIT_ONE_CLICK with medikitType 1). Both machines in a co-op pair must
+  load it."
+author: coop harness
+
+master: xcom1

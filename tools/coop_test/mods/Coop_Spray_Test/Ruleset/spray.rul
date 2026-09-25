@@ -1,0 +1,44 @@
+# Test-only mod for W2-P4 (rewrite/prompts/w2p4_client_combat_intents.md, C18, C23a, C23b2).
+# Data only. Each entry is the smallest change that makes one client combat path
+# reachable with stock xcom1 data:
+#   1. STR_RIFLE gains sprayWaypoints: 2 - the OXCE spray autoshot
+#      (Ctrl+Shift+click on the AUTO aim, BattlescapeGame::primaryAction), which no
+#      stock item enables. With battleConfirmFireMode off, the second waypoint click
+#      fires; the 3 auto shots are spread over the two waypoints (C18).
+#   2. STR_GRENADE gains unprimeActionName: ActionMenuState adds the UNPRIME row
+#      only when that name is set and the unprime cost is > 0 (costUnprime defaults
+#      to 25 %); stock grenades set no name, so they have no UNPRIME row (C23a).
+#   3. STR_MEDI_KIT_ONE_CLICK: the stock medi-kit's data plus medikitType: 1 (heal),
+#      so ActionMenuState heals at once instead of opening MedikitState (C23b2).
+#      recover: false keeps it out of NEW BATTLE's generated base/craft stores
+#      (NewBattleState adds only recoverable items), so starting loadouts, item ids
+#      and the map are unchanged; tests hand it out with battle_give.
+items:
+  - type: STR_RIFLE
+    sprayWaypoints: 2
+  - type: STR_GRENADE
+    unprimeActionName: STR_UNPRIME_GRENADE
+  - type: STR_MEDI_KIT_ONE_CLICK
+    size: 0.1
+    weight: 5
+    bigSprite: 24
+    floorSprite: 24
+    battleType: 6
+    invWidth: 1
+    invHeight: 2
+    painKiller: 10
+    heal: 10
+    stimulant: 10
+    woundRecovery: 1
+    healthRecovery: 3
+    stunRecovery: 4
+    energyRecovery: 10
+    tuUse: 10
+    flatRate: true
+    medikitType: 1
+    recover: false
+extraStrings:
+  - type: en-US
+    strings:
+      STR_UNPRIME_GRENADE: "Unprime Grenade"
+      STR_MEDI_KIT_ONE_CLICK: "One-click Medi-kit"
