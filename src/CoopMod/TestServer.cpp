@@ -5795,6 +5795,15 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["saveBlobUsMax"] = dp.saveBlobUsMax;
 			resp["saveBlobVerifyUsLast"] = dp.saveBlobVerifyUsLast;
 			resp["saveBlobVerifyUsMax"] = dp.saveBlobVerifyUsMax;
+			// W2-P3 S-A.1 (spec rewrite/prompts/w2p3_nonplayer_origins.md
+			// (b)13, amendment B1 RQ5/RQ7): the host's action-context probes,
+			// battle-scoped, same reset (a client reports its own empty values).
+			// Commit S-A.1 exposes them; commit S-A.2's context begin and close
+			// paths write them. contextsClosedAtEndTurn is a diagnostic (RQ5).
+			resp["contextsOpened"] = CoopDelta::contextsOpened();
+			resp["closedContexts"] = CoopDelta::closedContexts();
+			resp["contextsClosedAtEndTurn"] = dp.contextsClosedAtEndTurn;
+			resp["contextBeginRefused"] = dp.contextBeginRefused;
 		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
@@ -8754,6 +8763,8 @@ std::string TestServer::execute(const std::string& line)
 					ju["morale"] = u->getMorale();
 					ju["onTile"] = (u->getTile() != nullptr);
 					ju["unitFire"] = u->getFire();
+					// W2-P3 S-A.1 (amendment B1 RQ7): the unit's rules type (a pure read).
+					ju["type"] = u->getType();
 					ju["name"] = u->getName(_game->getLanguage());
 					ju["isPlayerSoldier"] = (u->getGeoscapeSoldier() != nullptr);
 					// PRD-J09: in-battle control split. _coop 0 = host-controlled,

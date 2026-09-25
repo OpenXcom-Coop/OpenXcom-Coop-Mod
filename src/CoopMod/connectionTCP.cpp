@@ -2200,6 +2200,26 @@ static Json::Value g_cueLast;
 // W2-P2 S-C.2 (amendment A3, F690): onChainQuiesced() calls deferred by the
 // arming guard (CoopArbiter's g_coopChainArming).
 static std::atomic<int> g_armingDeferrals{0};
+// W2-P3 S-A (spec rewrite/prompts/w2p3_nonplayer_origins.md (b)13, amendment
+// B1 RQ5/RQ7): the host's action-context probes. Commit S-A.1 (the RED
+// commit) adds the storage and readers only; commit S-A.2's context begin and
+// close paths are the writers. Battle-scoped (resetProbes()).
+struct ClosedContextRec
+{
+	std::uint32_t actionId = 0;
+	std::string origin;         ///< the entry's origin ("intent", "host", "ai", "endturn", ...), host-side only
+	std::string kind;           ///< the chain's kind (g_coopPendingChainKind for a base entry, e.g. "shoot")
+	int actorId = -1;           ///< -1 = actor-less (an `endturn` context)
+	std::uint32_t nestedIn = 0; ///< the base entry's actionId for a nested context, 0 for a base one
+	std::uint32_t endSeq = 0;   ///< the seq of its bt_action_end, 0 when none was emitted
+	bool hasFinal = false;      ///< that bt_action_end carried `final`
+};
+static const std::size_t kClosedContextsKept = 32;
+static std::mutex g_contextProbeMutex;
+static std::map<std::string, int> g_contextsOpened;   // origin -> contexts pushed this battle
+static std::vector<ClosedContextRec> g_closedContexts; // the last kClosedContextsKept closes, oldest first
+static std::atomic<int> g_contextsClosedAtEndTurn{0};
+static std::atomic<int> g_contextBeginRefused{0};
 // W2-P2 S-H.1 (amendment A5.5, owner ruling D138): the hash-coverage probes.
 // Host: the saveBlob timings (SaveBlobTimer, below). Client: the per-bucket
 // verify counts and the last verify's bucket list, written by
@@ -2242,6 +2262,8 @@ Probes probes()
 	p.lightUsMax = g_lightUsMax.load();
 	p.hostCombatContexts = g_hostCombatContexts.load();
 	p.armingDeferrals = g_armingDeferrals.load();
+	p.contextsClosedAtEndTurn = g_contextsClosedAtEndTurn.load();
+	p.contextBeginRefused = g_contextBeginRefused.load();
 	p.saveBlobUsLast = g_saveBlobUsLast.load();
 	p.saveBlobUsMax = g_saveBlobUsMax.load();
 	p.saveBlobVerifyUsLast = g_saveBlobVerifyUsLast.load();
@@ -2274,6 +2296,34 @@ Json::Value lastCue()
 {
 	std::lock_guard<std::mutex> lock(g_cueMutex);
 	return g_cueLast;
+}
+
+Json::Value contextsOpened()
+{
+	std::lock_guard<std::mutex> lock(g_contextProbeMutex);
+	Json::Value out(Json::objectValue);
+	for (const auto& kv : g_contextsOpened)
+		out[kv.first] = kv.second;
+	return out;
+}
+
+Json::Value closedContexts()
+{
+	std::lock_guard<std::mutex> lock(g_contextProbeMutex);
+	Json::Value out(Json::arrayValue);
+	for (const ClosedContextRec& c : g_closedContexts)
+	{
+		Json::Value e(Json::objectValue);
+		e["actionId"] = c.actionId;
+		e["origin"] = c.origin;
+		e["kind"] = c.kind;
+		e["actorId"] = c.actorId;
+		e["nestedIn"] = c.nestedIn;
+		e["endSeq"] = c.endSeq;
+		e["hasFinal"] = c.hasFinal;
+		out.append(e);
+	}
+	return out;
 }
 
 Json::Value hashVerifyCounts()
@@ -2448,6 +2498,13 @@ static void resetProbes()
 		g_cueCounts.clear();
 		g_cueLast = Json::Value();
 	}
+	{
+		std::lock_guard<std::mutex> lock(g_contextProbeMutex); // W2-P3 S-A
+		g_contextsOpened.clear();
+		g_closedContexts.clear();
+	}
+	g_contextsClosedAtEndTurn = 0;
+	g_contextBeginRefused = 0;
 	g_saveBlobUsLast = 0;
 	g_saveBlobUsMax = 0;
 	g_saveBlobVerifyUsLast = 0;
@@ -7447,7 +7504,16 @@ void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted)
 	// its "RW-UNSUPPORTED door-in-turn" client fallback is RETIRED for this
 	// path (kept as a zero-asserted tripwire, see CoopApply::applyEvPayload).
 	ev["h"] = coopBuildUnitsStatsHash(save); // RB-D14
+	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
 	CoopEmit::sendEv(ev);
+	// W2-P3 S-A.1 (amendment B1 RQ7): the host's `turn` payload as one log line
+	// (event_log carries no payload), the [coop-cue] line's shape. Probe only.
+	{
+		Json::StreamWriterBuilder wb;
+		wb["indentation"] = "";
+		Log(LOG_INFO) << "[coop-turn] turn seq " << CoopDelta::hostSeqOf("turn", seqBefore) << " actionId "
+			<< actionId << ": " << Json::writeString(wb, ev["payload"]);
+	}
 
 	if (aborted)
 	{

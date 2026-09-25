@@ -98,6 +98,11 @@ struct Probes
 	// lever's turn-then-shot pushes) and was deferred instead of closing the
 	// context before the shot state existed.
 	int armingDeferrals = 0;    ///< [armingDeferrals] host: quiescences deferred while arming
+	// W2-P3 S-A (spec rewrite/prompts/w2p3_nonplayer_origins.md (b)13,
+	// amendment B1 RQ5): the action-context counters. Commit S-A.1 (the RED
+	// commit) adds the storage only; commit S-A.2 is the writer.
+	int contextsClosedAtEndTurn = 0; ///< [contextsClosedAtEndTurn] host: contexts (origin != endturn) closed at endTurn() entry; diagnostic (RQ5)
+	int contextBeginRefused = 0;     ///< [contextBeginRefused] host: base context begins refused because a context was open
 	// W2-P2 S-H (amendment A5.5, owner ruling D138): the `saveBlob` timings,
 	// kept apart from hashUsLast/Max (N19). Commit S-H.1 (the RED commit)
 	// times the host's existing saveBlob computations (side_transition, and a
@@ -139,6 +144,22 @@ Json::Value cueCounts();
 /// (host) or applied (client), as {kind, seq, actionId, payload} - or null
 /// when there has been none this battle. Same writers as cueCounts().
 Json::Value lastCue();
+
+/// [contextsOpened] (W2-P3 S-A, spec (b)13) host: the action contexts pushed
+/// this battle per origin, every origin including wave 1's ("intent", "host",
+/// "ai", "endturn", ...), as {origin: count} (an empty object when there has
+/// been none). Commit S-A.1 (the RED commit) adds the storage and this reader
+/// only; commit S-A.2's context begin paths are the writers.
+Json::Value contextsOpened();
+
+/// [closedContexts] (W2-P3 S-A, spec (b)13, amendment B1 RQ7) host: the last
+/// 32 action contexts closed this battle, oldest first, as [{actionId, origin,
+/// kind, actorId (-1 = actor-less), nestedIn (the base entry's id, 0 for a
+/// base context), endSeq (the seq of its bt_action_end, 0 when none was
+/// emitted), hasFinal (that bt_action_end carried `final`)}] (an empty array
+/// when there has been none). Commit S-A.1 (the RED commit) adds the storage
+/// and this reader only; commit S-A.2's context close paths are the writers.
+Json::Value closedContexts();
 
 /// [hashVerifyCounts] (W2-P2 S-H, amendment A5.5) client: per bucket name,
 /// how many times CoopHashCheck::verify() compared that bucket this battle,
