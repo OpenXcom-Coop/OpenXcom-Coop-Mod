@@ -53,6 +53,7 @@
 #include "../Battlescape/Pathfinding.h"
 #include "../Battlescape/TileEngine.h"
 #include "../Battlescape/Projectile.h" // W2-P2 S-C.2: the `shot` cue reads the trajectory ends
+#include "../Battlescape/AIModule.h" // W2-P3 S-C.2: a unitsAdded record's `AI` (load pass 1)
 
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -2659,6 +2660,9 @@ struct BattleSnap
 	int turn = 0;
 	int side = 0;
 	std::vector<int> tags;
+	/// W2-P3 S-C.2 (spec (b)12, B1 RQ2/RQ9): the reinforcement waves' counters
+	/// (SavedBattleGame::getReinforcementsMemory), {wave type: count}.
+	std::map<std::string, int> reinforcementsMemory;
 };
 
 /// Spec (b)1 `items[]` (stage S-B): every field the delta carries for one
@@ -2667,7 +2671,7 @@ struct ItemSnap
 {
 	std::string type;
 	bool corpse = false;  ///< BT_CORPSE: corpse -> corpse is the one carried type change
-	bool special = false; ///< isSpecialWeapon(): unsupported in itemsAdded (W2-P3, MJ-5)
+	bool special = false; ///< isSpecialWeapon(): shipped in itemsAdded since W2-P3 S-C.2 (MJ-5)
 	int owner = -1;
 	int previousOwner = -1;
 	int unit = -1;        ///< the corpse / body link (BattleItem::getUnit)
@@ -2818,6 +2822,7 @@ BattleSnap captureBattle(SavedBattleGame* b)
 	s.turn = b->getTurn();
 	s.side = (int)b->getSide();
 	s.tags = stripTags(b->coopScriptValuesRaw());
+	s.reinforcementsMemory = b->getReinforcementsMemory(); // W2-P3 S-C.2 ((b)12)
 	return s;
 }
 
@@ -2862,6 +2867,16 @@ std::string itemRecord(const BattleItem* it, SavedBattleGame* b)
 {
 	YAML::YamlRootNodeWriter writer;
 	it->save(writer.toBase(), b->getMod()->getScriptGlobal());
+	return writer.emit().yaml;
+}
+
+/// `unitsAdded[].record` (W2-P3 S-C.2, spec (b)10): the YAML text of the
+/// host's own BattleUnit::save() - what the client's battle-load path (pass 1)
+/// reads back. The itemRecord() pattern.
+std::string unitRecord(const BattleUnit* u, SavedBattleGame* b)
+{
+	YAML::YamlRootNodeWriter writer;
+	u->save(writer.toBase(), b->getMod()->getScriptGlobal());
 	return writer.emit().yaml;
 }
 
@@ -3028,6 +3043,15 @@ bool diffBattle(const BattleSnap& w, const BattleSnap& n, Json::Value& e)
 	if (w.tags != n.tags)
 	{
 		e["tags"] = intsJson(n.tags);
+		any = true;
+	}
+	if (w.reinforcementsMemory != n.reinforcementsMemory)
+	{
+		// W2-P3 S-C.2 (spec (b)12): the whole map, absolute, {wave type: count}.
+		Json::Value m(Json::objectValue);
+		for (const auto& kv : n.reinforcementsMemory)
+			m[kv.first] = kv.second;
+		e["reinforcementsMemory"] = m;
 		any = true;
 	}
 	return any;
@@ -3257,9 +3281,11 @@ bool computeLocked(SavedBattleGame* b, Json::Value* out, bool commit)
 		}
 	}
 
-	// units
+	// units (W2-P3 S-C.2, spec (b)10: a new id rides `unitsAdded` as the host's
+	// own save() record, in _units order - the client appends in that order)
 	{
 		Json::Value units(Json::arrayValue);
+		Json::Value added(Json::arrayValue);
 		std::unordered_set<int> live;
 		for (BattleUnit* u : *b->getUnits())
 		{
@@ -3270,11 +3296,14 @@ bool computeLocked(SavedBattleGame* b, Json::Value* out, bool commit)
 			std::map<int, UnitSnap>::iterator it = g_snapUnits.find(id);
 			if (it == g_snapUnits.end())
 			{
+				if (!out)
+					return true;
+				Json::Value e(Json::objectValue);
+				e["id"] = id;
+				e["record"] = unitRecord(u, b);
+				added.append(e);
 				if (commit)
-				{
-					noteUnsupported("unit add (unit " + std::to_string(id) + ", W2-P3 unitsAdded)");
 					g_snapUnits[id] = captureUnit(u);
-				}
 				continue;
 			}
 			const UnitSnap now = captureUnit(u);
@@ -3309,6 +3338,11 @@ bool computeLocked(SavedBattleGame* b, Json::Value* out, bool commit)
 			(*out)["units"] = units;
 			any = true;
 		}
+		if (out && !added.empty())
+		{
+			(*out)["unitsAdded"] = added;
+			any = true;
+		}
 	}
 
 	// items (stage S-B): field diffs of existing ids, new ids as the host's own
@@ -3329,17 +3363,9 @@ bool computeLocked(SavedBattleGame* b, Json::Value* out, bool commit)
 			std::map<int, ItemSnap>::iterator f = g_snapItems.find(id);
 			if (f == g_snapItems.end())
 			{
-				if (it->isSpecialWeapon())
-				{
-					// (b)7: a special weapon in itemsAdded is W2-P3's (MJ-5).
-					if (commit)
-					{
-						noteUnsupported("special-weapon item add (item " + std::to_string(id) + " "
-							+ (it->getRules() ? it->getRules()->getType() : std::string("?")) + ", W2-P3 MJ-5)");
-						g_snapItems[id] = captureItem(it);
-					}
-					continue;
-				}
+				// W2-P3 S-C.2 (spec (b)11, MJ-5): a special built-in weapon ships like
+				// any item - its record has `owner` and no `inventoryslot`, and the
+				// client links it to that owner's special-weapon slot.
 				if (!out)
 					return true;
 				Json::Value e(Json::objectValue);
@@ -3411,7 +3437,7 @@ Json::Value summarize(std::uint32_t seq, const std::string& kind, const Json::Va
 	s["seq"] = seq;
 	s["kind"] = kind;
 	s["units"] = (int)d["units"].size();
-	s["unitsAdded"] = (int)d["unitsAdded"].size(); // W2-P3 S-C.1 (spec (b)10/(b)13): 0 until S-C.2 carries unit adds
+	s["unitsAdded"] = (int)d["unitsAdded"].size(); // W2-P3 S-C (spec (b)10/(b)13)
 	s["tiles"] = (int)d["tiles"].size();
 	s["nodes"] = (int)d["nodes"].size();
 	s["items"] = (int)d["items"].size();
@@ -3562,6 +3588,25 @@ void noteClientRemoveMissing()
 void noteClientUnsupported()
 {
 	g_deltaUnsupported.fetch_add(1);
+}
+
+/// HOST (W2-P3 S-C.2, spec (b)9 V17): the ids of the live units of @a battle
+/// the snapshot does not know yet (the next attach ships them as
+/// `unitsAdded`), in _units order. Empty unless armed on this battle.
+std::vector<int> unknownUnitIds(SavedBattleGame* battle)
+{
+	std::vector<int> ids;
+	if (!battle || !g_deltaArmed.load())
+		return ids;
+	std::lock_guard<std::mutex> lock(g_snapMutex);
+	if (!g_deltaArmed.load() || battle != g_snapBattle)
+		return ids;
+	for (BattleUnit* u : *battle->getUnits())
+	{
+		if (u && g_snapUnits.find(u->getId()) == g_snapUnits.end())
+			ids.push_back(u->getId());
+	}
+	return ids;
 }
 
 } // namespace
@@ -8160,6 +8205,41 @@ BattleUnit* coopReactionTrigger(BattleUnit* selected)
 	return selected;
 }
 
+// ===== W2-P3 S-C.2 (docs rewrite/prompts/w2p3_nonplayer_origins.md (b)9-(b)12;
+// amendment B1 RQ2/RQ9/RQ10/RQ11; owner rulings D128 = (b), D138): the `spawn`
+// cue. Declared in CoopDelta.h; each is ONE self-guarded call at its vanilla
+// site and a no-op unless isCoopBattle() && hostSim. The new unit itself is the
+// envelope's `unitsAdded` (CoopDelta::computeLocked), its special weapons ride
+// `itemsAdded`; the payload is the frozen W2-P2 (b)11 display shape. =====
+
+void coopCueSpawn(BattleUnit* unit, const char* cause, const BattleUnit* from)
+{
+	if (!coopCueAuthoring() || !unit)
+		return;
+	Json::Value p(Json::objectValue);
+	p["unit"] = unit->getId();
+	p["cause"] = cause ? cause : "";
+	if (from)
+		p["from"] = from->getId();
+	coopEmitCue("spawn", p);
+}
+
+void coopCueSpawnAdded(SavedBattleGame* save, const char* cause)
+{
+	if (!coopCueAuthoring() || !save)
+		return;
+	// Spec (b)9: the list is taken BEFORE the first cue is sent - that cue's
+	// delta carries every one of these units in `unitsAdded`.
+	const std::vector<int> ids = CoopDelta::unknownUnitIds(save);
+	for (int id : ids)
+	{
+		Json::Value p(Json::objectValue);
+		p["unit"] = id;
+		p["cause"] = cause ? cause : "";
+		coopEmitCue("spawn", p);
+	}
+}
+
 // ===== W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30 / WV-D37 / WV-D38 / WV-D48):
 // the ATOM walk-core hooks. See CoopArbiter.h for each one's full contract. =====
 
@@ -8930,6 +9010,15 @@ bool coopSuppressBugHuntCheck(const SavedBattleGame*)
 }
 
 bool coopSuppressNextTurnLifecycle(const SavedBattleGame*)
+{
+	if (!isCoopBattle())
+		return false;
+	return !coopBattleAuthority().hostSim;
+}
+
+// W2-P3 S-C.2 (spec (b)12, B1 RQ2/RQ11): see CoopSideTransition.h. The same
+// self-guard as the two predicates above.
+bool coopSuppressReinforcements(const SavedBattleGame*)
 {
 	if (!isCoopBattle())
 		return false;
@@ -10403,6 +10492,16 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			save->coopSetScriptValuesRaw(tagsFromJson(b["tags"]));
 			++fields;
 		}
+		if (b.isMember("reinforcementsMemory"))
+		{
+			// W2-P3 S-C.2 (spec (b)12): the whole map, written absolutely.
+			const Json::Value& rm = b["reinforcementsMemory"];
+			std::map<std::string, int> m;
+			for (const std::string& k : rm.getMemberNames())
+				m[k] = rm[k].asInt();
+			save->getReinforcementsMemory() = m;
+			++fields;
+		}
 	}
 
 	// (2) tiles: parts (MapData resolved exactly as
@@ -10518,6 +10617,96 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			}
 			node->setType(arr[k].get("type", node->getType()).asInt());
 			++fields;
+		}
+	}
+
+	// (3b) unitsAdded (W2-P3 S-C.2, spec (b)10; K2 = N1): the one sanctioned
+	// client UNIT mint - before (4) units and before every item step, so an
+	// item's owner link resolves. The host's BattleUnit::save() record is read
+	// back EXACTLY as SavedBattleGame::load()'s unit pass 1 builds a generated
+	// unit (the rules constructor with the record's type/armor/originalFaction,
+	// the HOST's id, then BattleUnit::load; its AIModule on the same condition),
+	// pass 2's previousOwner link and resetUnitTiles' tile link. Never
+	// setSpecialWeapon() (pass 2 can mint through createItemForUnitSpecialBuiltin,
+	// F537): the special weapons arrive as itemsAdded entries (MJ-5). No
+	// initUnit/createTempUnit, no script callback, no RNG (the rules constructor
+	// draws RNG::seedless only).
+	if (d.isMember("unitsAdded"))
+	{
+		const Json::Value& arr = d["unitsAdded"];
+		Mod* unitMod = const_cast<Mod*>(save->getMod()); // getStatAdjustment() is non-const; nothing is written
+		for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
+		{
+			const int id = arr[k].get("id", -1).asInt();
+			const std::string record = arr[k].get("record", "").asString();
+			if (CoopIdMaps::unit(id))
+			{
+				CoopDelta::noteClientAddExisting();
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": unitsAdded " << id
+					<< " already exists on this machine - nothing applied";
+				continue;
+			}
+			try
+			{
+				YAML::YamlRootNodeReader root(YAML::YamlString{record}, "coopDeltaUnit");
+				const YAML::YamlNodeReader r = root.toBase();
+				if (id < BattleUnit::MAX_SOLDIER_ID)
+				{
+					// A mid-battle unit is never a geoscape soldier.
+					CoopDelta::noteClientUnsupported();
+					Log(LOG_WARNING) << "[coop-delta] unsupported unitsAdded " << id
+						<< " - a soldier id (< MAX_SOLDIER_ID); not materialized, the hash reports the divergence";
+					continue;
+				}
+				const std::string type = r["genUnitType"].readVal<std::string>("");
+				const std::string armor = r["genUnitArmor"].readVal<std::string>("");
+				if (!unitMod->getUnit(type) || !unitMod->getArmor(armor))
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": unitsAdded " << id << " type '" << type
+						<< "' / armor '" << armor << "' does not resolve on this machine - not materialized";
+					continue;
+				}
+				const UnitFaction faction = r["faction"].readVal<UnitFaction>();
+				const UnitFaction originalFaction = r["originalFaction"].readVal(faction);
+				SavedGame* geo = save->getGeoscapeSave();
+				BattleUnit* unit = new BattleUnit(unitMod, unitMod->getUnit(type), originalFaction, id, nullptr,
+					unitMod->getArmor(armor), unitMod->getStatAdjustment(geo ? geo->getDifficulty() : 0),
+					save->getDepth(), nullptr);
+				unit->load(r, unitMod, unitMod->getScriptGlobal());
+				if (faction != FACTION_PLAYER && unit->getStatus() != STATUS_DEAD && !unit->isIgnored())
+				{
+					if (const auto& ai = r["AI"])
+					{
+						AIModule* aiModule = new AIModule(save, unit, nullptr);
+						aiModule->load(ai);
+						unit->setAIModule(aiModule);
+					}
+				}
+				const int prevId = r["previousOwner"].readVal(-1);
+				BattleUnit* prev = prevId >= 0 ? CoopIdMaps::unit(prevId) : nullptr;
+				if (prevId >= 0 && !prev)
+				{
+					++unresolved;
+					Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": unitsAdded " << id << " previousOwner "
+						<< prevId << " does not resolve on this machine - left unlinked";
+				}
+				unit->setPreviousOwner(prev);
+				if (!unit->isOut())
+					unit->setTile(save->getTile(unit->getPosition()), save);
+				save->getUnits()->push_back(unit); // the host appended it too: _units order agrees
+				CoopIdMaps::registerUnit(unit);
+				fovUnits.push_back(unit); // (8): its FOV refresh; RQ10: no light call of its own
+				++fields;
+				Log(LOG_INFO) << "[coop-delta] seq " << seq << ": materialized unit " << id << " (" << type
+					<< ", faction " << (int)faction << ") with the host's id";
+			}
+			catch (const std::exception& ex)
+			{
+				++unresolved;
+				Log(LOG_ERROR) << "[coop-delta] seq " << seq << ": unitsAdded " << id
+					<< " record did not parse (" << ex.what() << ") - not materialized";
+			}
 		}
 	}
 
@@ -10746,15 +10935,16 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			}
 			else
 			{
-				save->removeItem(item);
-				++fields;
 				if (item->isSpecialWeapon())
 				{
-					// removeItem() keeps special weapons by design (W2-P3, MJ-5).
-					CoopDelta::noteClientUnsupported();
-					Log(LOG_WARNING) << "[coop-delta] unsupported special-weapon removal (item " << id
-						<< ") - SavedBattleGame::removeItem keeps it; the hash reports the divergence";
+					// W2-P3 S-C.2 (spec (b)11, MJ-5): removeItem() keeps a special
+					// weapon by design, so first the host's removeSpecialWeapons()
+					// writes for this one item - its owner's slot nulled, its owner
+					// cleared (BattleUnit::coopDetachSpecialWeapon).
+					item->getOwner()->coopDetachSpecialWeapon(item);
 				}
+				save->removeItem(item);
+				++fields;
 			}
 			CoopIdMaps::forget(id);
 		}
@@ -10840,14 +11030,6 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 						<< "' is not an item type on this machine - not materialized";
 					continue;
 				}
-				if (r["owner"] && slotId.empty())
-				{
-					// An owned item with no inventory slot = a special weapon (W2-P3, MJ-5).
-					CoopDelta::noteClientUnsupported();
-					Log(LOG_WARNING) << "[coop-delta] unsupported special-weapon itemsAdded " << id << " (" << type
-						<< ") - not materialized; the hash reports the divergence";
-					continue;
-				}
 				BattleUnit* owner = nullptr;
 				BattleUnit* previousOwner = nullptr;
 				BattleUnit* unitLink = nullptr;
@@ -10881,7 +11063,14 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 				if (owner)
 				{
 					item->setOwner(owner);
-					owner->getInventory()->push_back(item);
+					// An owned item with no inventory slot = a special weapon (MJ-5):
+					// W2-P3 S-C.2 (spec (b)11) links it to its owner's special-weapon
+					// slot exactly as load pass 1 does (SavedBattleGame.cpp :344-:348),
+					// never through setSpecialWeapon() (F537).
+					if (item->isSpecialWeapon())
+						owner->addLoadedSpecialWeapon(item);
+					else
+						owner->getInventory()->push_back(item);
 				}
 				item->setPreviousOwner(previousOwner);
 				item->setUnit(unitLink);

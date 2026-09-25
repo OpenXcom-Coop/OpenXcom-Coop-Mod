@@ -370,4 +370,25 @@ void coopCueProxTrigger(BattleUnit* unit, BattleItem* item, const Position& pos)
 /// context's trigger); @a selected (vanilla's getSelectedUnit()) everywhere else.
 BattleUnit* coopReactionTrigger(BattleUnit* selected);
 
+// ----- W2-P3 S-C, commit S-C.2: units that appear mid-battle -----
+// Spec rewrite/prompts/w2p3_nonplayer_origins.md (b)9-(b)12; amendment B1
+// RQ2/RQ9/RQ10/RQ11. The unit itself rides the delta's `unitsAdded` (the
+// host's BattleUnit::save() record, materialized on the client through the
+// battle-load path) and its special built-in weapons ride `itemsAdded`; these
+// hooks only announce it. Each is ONE guarded call at its vanilla site and a
+// no-op unless isCoopBattle() && hostSim. Bodies: connectionTCP.cpp.
+
+/// V16 (SavedBattleGame::convertUnit, the line after newUnit->dontReselect(),
+/// cause "convert", @a from = the converted unit) and V12
+/// (BattlescapeGame::spawnNewUnit, the line after the new unit's
+/// calculateFOV(), cause "item", @a from null): the frozen `spawn` cue
+/// {unit, cause, from?} in the running action context (0 outside one).
+void coopCueSpawn(BattleUnit* unit, const char* cause, const BattleUnit* from);
+
+/// V17 (NextTurnState's ctor, the line after determineReinforcements()): one
+/// `spawn` cue {unit, cause} per live unit the delta snapshot does not know
+/// yet - the ids are listed BEFORE the first cue is sent, whose delta then
+/// carries every one of them in `unitsAdded`.
+void coopCueSpawnAdded(SavedBattleGame* save, const char* cause);
+
 } // namespace OpenXcom

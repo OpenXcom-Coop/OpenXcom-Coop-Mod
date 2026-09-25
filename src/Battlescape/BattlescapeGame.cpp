@@ -2589,6 +2589,7 @@ void BattlescapeGame::spawnNewUnit(BattleActionAttack attack, Position position)
 
 		getTileEngine()->applyGravity(newUnit->getTile());
 		getTileEngine()->calculateFOV(newUnit->getPosition());  //happens fairly rarely, so do a full recalc for units in range to handle the potential unit visible cache issues.
+		coopCueSpawn(newUnit, "item", nullptr);
 	}
 	else
 	{

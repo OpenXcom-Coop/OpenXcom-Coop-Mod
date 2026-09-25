@@ -55,6 +55,7 @@
 #include "../fmath.h"
 #include "../Engine/Language.h"
 #include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -2306,6 +2307,7 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 	getTileEngine()->calculateFOV(newUnit->getPosition());  //happens fairly rarely, so do a full recalc for units in range to handle the potential unit visible cache issues.
 	getTileEngine()->applyGravity(newUnit->getTile());
 	newUnit->dontReselect();
+	coopCueSpawn(newUnit, "convert", unit);
 	return newUnit;
 }
 

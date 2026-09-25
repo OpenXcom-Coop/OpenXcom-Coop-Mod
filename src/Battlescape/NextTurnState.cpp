@@ -49,6 +49,7 @@
 #include "TileEngine.h"
 #include "Pathfinding.h"
 #include "../CoopMod/CoopSideTransition.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -220,7 +221,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 	// environmental effects
 	std::string message;
 
-	if (sc && !_battleGame->getBattleGame()->areAllEnemiesNeutralized())
+	if (sc && !coopSuppressReinforcements(_battleGame) && !_battleGame->getBattleGame()->areAllEnemiesNeutralized())
 	{
 		if (_battleGame->getSide() == FACTION_PLAYER)
 		{
@@ -306,7 +307,8 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 	}
 	if (allowReinforcements && !_battleGame->getBattleGame()->areAllEnemiesNeutralized())
 	{
-		bool showAlert = determineReinforcements();
+		bool showAlert = coopSuppressReinforcements(_battleGame) ? false : determineReinforcements();
+		coopCueSpawnAdded(_battleGame, "reinforcement");
 		if (showAlert && _battleGame->getTurn() > 0)
 		{
 			messageReinforcements = tr("STR_REINFORCEMENTS_ALERT");

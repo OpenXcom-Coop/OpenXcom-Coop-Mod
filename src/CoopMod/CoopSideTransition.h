@@ -82,4 +82,15 @@ bool coopSuppressBugHuntCheck(const SavedBattleGame* save);
 /// an active coop battle.
 bool coopSuppressNextTurnLifecycle(const SavedBattleGame* save);
 
+/// W2-P3 S-C.2 (docs rewrite/prompts/w2p3_nonplayer_origins.md (b)12,
+/// amendment B1 RQ2/RQ11; F541, N14): true iff NextTurnState's ctor must NOT
+/// roll, spawn or mint reinforcements (determineReinforcements()) nor apply
+/// the environmental conditions (applyEnvironmentalConditionToFaction(): RNG +
+/// BattleUnit::damage) on this machine. Units the host spawns reach a client
+/// through the delta's `unitsAdded` (their items through `itemsAdded`),
+/// announced by `spawn` cues; the damage rides the delta. Same self-guard as
+/// the two predicates above: false outside an active coop battle and on the
+/// host itself; true only for a client inside an active coop battle.
+bool coopSuppressReinforcements(const SavedBattleGame* save);
+
 }

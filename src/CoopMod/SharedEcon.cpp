@@ -3908,6 +3908,16 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		}
 	}
 
+	// W2-P3 S-C.2 (amendment B1 RQ9, F955): the unit-side special-weapon link
+	// (BattleUnit::_specWeapon, written by addLoadedSpecialWeapon /
+	// coopDetachSpecialWeapon on the client) has no slot enumerator, so each
+	// unit's link is read as the _items entries x with
+	// unit->getSpecialWeapon(x's rules) == x - asked once per DISTINCT item rule
+	// (getSpecialWeapon(rules) returns the first slot holding that rule, the
+	// only one the per-item test can match). Collected by the items sweep below.
+	std::set<const RuleItem*> specRules;
+	std::set<const BattleItem*> liveItems;
+
 	// --- items: the strict census -------------------------------------------
 	// D5 (SS2.8): adds ammoQty + fuse (fuse was already carried via
 	// getFuseTimer()). MJ-7 (SS2.8/cr1-field-audit.md sec 2b): ground-strip
@@ -3918,6 +3928,9 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 	{
 		if (!item)
 			continue;
+		liveItems.insert(item); // W2-P3 S-C.2 (F955)
+		if (item->getRules())
+			specRules.insert(item->getRules());
 		std::uint64_t h = FNV_OFFSET;
 		h = mix(h, item->getId());
 		h ^= fnv1a(item->getRules() ? item->getRules()->getType() : std::string("?"));
@@ -4021,6 +4034,21 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		y = mix(y, unit->isLeftHandDisabledForReactions() ? 1 : 0);
 		y = mix(y, unit->isRightHandDisabledForReactions() ? 1 : 0);
 		y = mixSyncedTags(y, unit->coopScriptValuesRaw());
+		// W2-P3 S-C.2 (B1 RQ9, F955): the unit's special-weapon link - the ids
+		// of the _items entries its own slots hold, ascending, as size then ids.
+		{
+			std::vector<int> spec;
+			for (const RuleItem* rule : specRules)
+			{
+				const BattleItem* w = unit->getSpecialWeapon(rule);
+				if (w && liveItems.count(w))
+					spec.push_back(w->getId());
+			}
+			std::sort(spec.begin(), spec.end());
+			y = mix(y, (std::int64_t)spec.size());
+			for (int sid : spec)
+				y = mix(y, sid);
+		}
 		out.synced += y;
 	}
 
@@ -4061,6 +4089,16 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		y = mix(y, battle->getTurn());
 		y = mix(y, (int)battle->getSide());
 		y = mixSyncedTags(y, battle->coopScriptValuesRaw());
+		// W2-P3 S-C.2 (B1 RQ2/RQ9): reinforcementsMemory, captureBattle's getter -
+		// size, then each {wave type, count} in the map's own (key) order.
+		const std::map<std::string, int>& rm = battle->getReinforcementsMemory();
+		y = mix(y, (std::int64_t)rm.size());
+		for (const auto& kv : rm)
+		{
+			y ^= fnv1a(kv.first);
+			y *= FNV_PRIME;
+			y = mix(y, kv.second);
+		}
 		out.synced += y;
 	}
 
