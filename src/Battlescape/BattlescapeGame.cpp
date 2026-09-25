@@ -1116,7 +1116,8 @@ void BattlescapeGame::handleNonTargetAction()
 		}
 		// W2-P4 S-B (spec (b)5 K7): ONE guarded coop call at the non-targeting
 		// EXECUTION point - the baton check on both machines, and on a co-op
-		// CLIENT the completed prime / unprime ships as a `prime` intent and
+		// CLIENT the completed prime / unprime ships as a `prime` intent (a
+		// melee as a `melee` intent, W2-P4 S-C) and
 		// TRUE comes back, so none of the branches below runs there. FALSE on
 		// the host (vanilla executes) and in single player.
 		else if (coopInterceptNonTargetAction(&_currentAction, _save))
@@ -2004,6 +2005,13 @@ void BattlescapeGame::primaryAction(Position pos)
 					(_currentAction.actor->getFaction() == FACTION_PLAYER && targetUnit->getFaction() != FACTION_HOSTILE) ||
 					std::find(_currentAction.actor->getVisibleUnits()->begin(), _currentAction.actor->getVisibleUnits()->end(), targetUnit) != _currentAction.actor->getVisibleUnits()->end())
 				{
+					// W2-P4 S-C (spec (b)5 K3): ONE guarded coop call at the mind
+					// probe's EXECUTION point, after vanilla's own target checks -
+					// the baton check on both machines, and on a co-op CLIENT the
+					// probe ships as a `use_item` intent and TRUE comes back (the
+					// client opens UnitInfoState at its own order's end, Q14 = a).
+					// FALSE on the host (vanilla executes) and in single player.
+					if (coopInterceptPsiConfirm(&_currentAction, targetUnit, _save)) return;
 					std::string error;
 					if (_currentAction.spendTU(&error))
 					{
@@ -2076,6 +2084,13 @@ void BattlescapeGame::primaryAction(Position pos)
 						getMap()->setCursorType(CT_NONE);
 						_parentState->getGame()->getCursor()->setVisible(false);
 						_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
+						// W2-P4 S-C (spec (b)5 K4): ONE guarded coop call at the psi
+						// attack's EXECUTION point, after vanilla's own target checks
+						// and pre-execution display - the baton check on both
+						// machines, and on a co-op CLIENT the attack ships as a `psi`
+						// intent and TRUE comes back, so nothing below runs there.
+						// FALSE on the host (vanilla executes) and in single player.
+						if (coopInterceptPsiConfirm(&_currentAction, targetUnit, _save)) return;
 						CoopArbiter::beginHostLocalCombat(_currentAction.actor, _currentAction.type);
 						statePushBack(new PsiAttackBState(this, _currentAction));
 					}

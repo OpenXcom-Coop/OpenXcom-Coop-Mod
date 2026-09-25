@@ -55,6 +55,10 @@
 #include "../Battlescape/TileEngine.h"
 #include "../Battlescape/Projectile.h" // W2-P2 S-C.2: the `shot` cue reads the trajectory ends
 #include "../Battlescape/ProjectileFlyBState.h" // W2-P4 S-A.2: the `shoot` intent executor
+#include "../Battlescape/MeleeAttackBState.h" // W2-P4 S-C.2: the `melee` intent executor
+#include "../Battlescape/PsiAttackBState.h" // W2-P4 S-C.2: the `psi` intent executor
+#include "../Battlescape/UnitInfoState.h" // W2-P4 S-C.2: the mind probe's screen at the client's own end
+#include "../Engine/Sound.h" // W2-P4 S-C.2: the mind probe's hit sound at the client's own end
 #include "../Interface/Cursor.h" // W2-P4 S-A.2: the ordering client's cursor restore
 #include "../Battlescape/AIModule.h" // W2-P3 S-C.2: a unitsAdded record's `AI` (load pass 1)
 
@@ -5107,9 +5111,18 @@ bool coopBlockTargetingArm(const BattleUnit* u, SavedBattleGame* s)
 	// W2-P4 S-B: + the throw (the same K5 intercept) and the launcher, whose
 	// waypoint clicks are local display and whose execution point is the launch
 	// button (launchAction's coopInterceptFireConfirm(), K6).
+	// W2-P4 S-C (PR-Q2): + the psi amp (BA_PANIC / BA_MINDCONTROL / BA_USE with a
+	// BT_PSIAMP item) and the mind probe (BA_USE with a BT_MINDPROBE item), whose
+	// execution points are primaryAction's coopInterceptPsiConfirm() calls (K3/K4)
+	// after vanilla's own target checks.
+	const BattleType battleType = (a && a->weapon && a->weapon->getRules())
+		? a->weapon->getRules()->getBattleType() : BT_NONE;
+	const bool psiKind = (battleType == BT_PSIAMP
+			&& (a->type == BA_PANIC || a->type == BA_MINDCONTROL || a->type == BA_USE))
+		|| (battleType == BT_MINDPROBE && a->type == BA_USE);
 	bool built = a && a->weapon && a->weapon->getRules()
 		&& (a->type == BA_SNAPSHOT || a->type == BA_AIMEDSHOT || a->type == BA_AUTOSHOT
-			|| a->type == BA_THROW || a->type == BA_LAUNCH)
+			|| a->type == BA_THROW || a->type == BA_LAUNCH || psiKind)
 		&& !a->sprayTargeting;
 	if (built && a->type == BA_AUTOSHOT && a->weapon->getRules()->getSprayWaypoints() > 0
 		&& s->isCtrlPressed(true) && s->isShiftPressed(true))
@@ -6086,14 +6099,31 @@ static BattleActionType coopShootActionType(const std::string& a)
 	return BA_NONE;
 }
 
+// W2-P4 S-C.2 (spec (b)1): the `psi` payload's action string -> the vanilla
+// type (the psi amp's PANIC / MIND CONTROL rows, or its BA_USE); anything else
+// is BA_NONE.
+static BattleActionType coopPsiActionType(const std::string& a)
+{
+	if (a == "panic")
+		return BA_PANIC;
+	if (a == "mc")
+		return BA_MINDCONTROL;
+	if (a == "use")
+		return BA_USE;
+	return BA_NONE;
+}
+
 // W2-P4 S-B (spec (b)1): the wire kinds that carry a CoopCombatIntentArgs plan.
+// W2-P4 S-C: + melee, psi, use_item.
 static bool coopIsCombatKind(const std::string& kind)
 {
-	return kind == "shoot" || kind == "throw" || kind == "prime";
+	return kind == "shoot" || kind == "throw" || kind == "prime"
+		|| kind == "melee" || kind == "psi" || kind == "use_item";
 }
 
 // W2-P4 S-B (spec (b)1): a combat plan's vanilla action type - `shoot` by its
-// action string, `throw` BA_THROW, `prime` BA_PRIME or BA_UNPRIME.
+// action string, `throw` BA_THROW, `prime` BA_PRIME or BA_UNPRIME. W2-P4 S-C:
+// `melee` BA_HIT, `psi` by its action string, `use_item` BA_USE.
 static BattleActionType coopCombatActionType(const std::string& kind, const CoopCombatIntentArgs& plan)
 {
 	if (kind == "shoot")
@@ -6102,6 +6132,12 @@ static BattleActionType coopCombatActionType(const std::string& kind, const Coop
 		return BA_THROW;
 	if (kind == "prime")
 		return plan.unprime ? BA_UNPRIME : BA_PRIME;
+	if (kind == "melee")
+		return BA_HIT;
+	if (kind == "psi")
+		return coopPsiActionType(plan.action);
+	if (kind == "use_item")
+		return BA_USE;
 	return BA_NONE;
 }
 
@@ -6145,6 +6181,34 @@ static void coopClientCombatAftermath(const std::string& kind, const CoopCombatI
 		{
 			Log(LOG_WARNING) << "[coop-arbiter] prime aftermath: item " << plan.weapon
 				<< " does not resolve on this machine - no message";
+		}
+	}
+	// W2-P4 S-C.2 (spec (b)5, Q14 = (a)): a mind probe that did not fail opens
+	// vanilla's own probe screen on THIS machine at its own order's end (the TU
+	// the host spent is already applied) - primaryAction's BT_MINDPROBE success
+	// lines: the probe's hit sound, UnitInfoState(target, ..., mindProbe true),
+	// cancelCurrentAction(); the cancel only while _currentAction is still the
+	// probe order. A melee needs nothing more (its intercept already cleared
+	// BA_HIT) and a psi attack keeps its targeting (vanilla PsiAttackBState).
+	if (kind == "use_item" && !failed)
+	{
+		BattleItem* item = findItemById(save, plan.weapon);
+		BattleUnit* target = findUnitById(save, plan.targetUnit);
+		if (item && item->getRules() && item->getRules()->getBattleType() == BT_MINDPROBE && target)
+		{
+			if (Sound* hit = bs->getGame()->getMod()->getSoundByDepth(save->getDepth(),
+				item->getRules()->getHitSound()))
+			{
+				hit->play(-1, bg->getMap()->getSoundAngle(target->getPosition()));
+			}
+			bs->getGame()->pushState(new UnitInfoState(target, bs, false, true));
+			if (cur->type == BA_USE && cur->weapon == item && cur->actor && cur->actor->getId() == actorId)
+				bg->cancelCurrentAction();
+		}
+		else
+		{
+			Log(LOG_WARNING) << "[coop-arbiter] mind probe aftermath: item " << plan.weapon << " / target "
+				<< plan.targetUnit << " does not resolve on this machine - no probe screen";
 		}
 	}
 }
@@ -6818,6 +6882,265 @@ static const char* validatePrime(BattleUnit* actor, const Json::Value& intent, S
 	return nullptr;
 }
 
+// W2-P4 S-C.2: the item a combat plan names resolves on the HOST and is the
+// actor's (inventory owner, or one of its special weapons) - step 1 of every
+// S-C admission, validateShoot()'s own rule.
+static BattleItem* coopActorItem(BattleUnit* actor, SavedBattleGame* save, int id)
+{
+	BattleItem* item = findItemById(save, id);
+	if (!item || !item->getRules()
+		|| (item->getOwner() != actor && actor->getSpecialWeapon(item->getRules()) != item))
+	{
+		return nullptr;
+	}
+	return item;
+}
+
+// W2-P4 S-C.2: step 4 of every S-C admission - the order's cost basis equals the
+// actor's own cost for @a a (updateTU()'d by the caller, N37), STRICT in either
+// direction, then vanilla's own haveTU() with its message's own reason
+// (validateTurn()'s "basis matched but TU short" precedent). nullptr = allowed.
+static const char* coopCostDeny(BattleAction& a, const Json::Value& intent)
+{
+	if (intent.get("tuBasis", -1).asInt() != a.Time)
+		return "cost_changed";
+	std::string msg;
+	if (!a.haveTU(&msg))
+	{
+		const char* wire = coopResultWire(kCoopCombatResultTable, msg);
+		return wire ? wire : "cost_changed";
+	}
+	return nullptr;
+}
+
+// W2-P4 S-C.2 (docs rewrite/prompts/w2p4_client_combat_intents.md (b)1-2): the
+// `melee` plan's admission, in the order ActionMenuState::handleAction()'s
+// BA_HIT row runs its checks, with VANILLA'S OWN FUNCTIONS: the weapon, the
+// action menu's research + canUseWeapon() (coopWeaponUseDeny()), the cost basis
+// and haveTU(), then the target - vanilla's own validMeleeRange() (or, when it
+// finds nobody, validTerrainMeleeRange()) from the actor's CURRENT position and
+// facing must give the shipped tile and terrain part: nothing there is vanilla's
+// STR_THERE_IS_NO_ONE_THERE (`no_one_there`), another tile or part is
+// `target_moved`; the shipped target unit must still be alive and where the
+// ordering seat saw it. No ammo check here: MeleeAttackBState::init() runs
+// vanilla's own, and its failure is a halt (spec (b)4). On success @a out is the
+// LOCAL BattleAction the executor runs (targeting false, vanilla's own non-target
+// BA_HIT).
+static const char* validateMelee(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
+	BattleAction& out)
+{
+	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
+		return "cost_changed";
+	const Position target = coopJsonPos(intent["target"]);
+	if (!save->getTile(target))
+		return "cost_changed";
+	const int terrainPart = intent.get("terrainPart", 0).asInt();
+
+	// 1. The weapon resolves and is the actor's.
+	BattleItem* weapon = coopActorItem(actor, save, intent.get("weapon", -1).asInt());
+	if (!weapon)
+		return "weapon_missing";
+
+	// 3. The research check, then canUseWeapon() (the menu ran both for BA_HIT).
+	if (const char* use = coopWeaponUseDeny(actor, weapon, BA_HIT, save))
+		return use;
+
+	// 4. tuBasis, then haveTU() (the BA_HIT row's own first check).
+	BattleAction a;
+	a.actor = actor;
+	a.weapon = weapon;
+	a.type = BA_HIT;
+	a.updateTU(); // N37
+	if (const char* cost = coopCostDeny(a, intent))
+		return cost;
+
+	// 5. Range: the BA_HIT row's own melee target pick, from the actor's CURRENT
+	//    position and facing.
+	TileEngine* te = save->getTileEngine();
+	if (te->validMeleeRange(actor->getPosition(), actor->getDirection(), actor, 0, &a.target))
+	{
+		a.terrainMeleeTilePart = 0;
+	}
+	else if (!te->validTerrainMeleeRange(&a))
+	{
+		return "no_one_there";
+	}
+	if (a.target != target || a.terrainMeleeTilePart != terrainPart)
+		return "target_moved";
+
+	// 6. The unit the order hits is still alive and where the ordering seat saw it.
+	const int targetUnitId = intent.get("targetUnit", -1).asInt();
+	if (targetUnitId >= 0)
+	{
+		BattleUnit* tu = findUnitById(save, targetUnitId);
+		if (!tu || tu->isOut())
+			return "target_dead";
+		const Position shipped = intent.isMember("targetPos") ? coopJsonPos(intent["targetPos"]) : target;
+		if (tu->getPosition() != shipped)
+			return "target_moved";
+	}
+
+	out = a;
+	return nullptr;
+}
+
+// W2-P4 S-C.2 (spec (b)1-2): the `psi` plan's admission (the psi amp's panic,
+// mind control or use), in spec (b)2's order with VANILLA'S OWN FUNCTIONS: the
+// amp (K4's own BT_PSIAMP condition), research + canUseWeapon(), the cost basis
+// and haveTU() (primaryAction's own updateTU() before the push), the range
+// PsiAttackBState::init() checks (isOutOfRange on the squared 3D distance), the
+// shipped target unit still the one vanilla's selectUnit() finds on the clicked
+// tile, then a donor reproduction (RB-D10) of primaryAction's own psi target
+// rules (BattlescapeGame.cpp, the BT_PSIAMP branch) composed from the same
+// public calls with the ACTOR's faction: a target the rules refuse is
+// `invalid_target` (vanilla shows nothing, Q1), a missing line of sight
+// `los_required`. On success @a out is the LOCAL BattleAction the executor runs
+// (targeting, as the click's own).
+static const char* validatePsi(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
+	BattleAction& out)
+{
+	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
+		return "cost_changed";
+	const BattleActionType type = coopPsiActionType(intent.get("action", "").asString());
+	if (type == BA_NONE)
+		return "cost_changed";
+	const Position target = coopJsonPos(intent["target"]);
+	if (!save->getTile(target))
+		return "cost_changed";
+
+	// 1. The weapon resolves, is the actor's, and is a psi amp (K4's condition;
+	//    any other item under this kind is a malformed plan).
+	BattleItem* weapon = coopActorItem(actor, save, intent.get("weapon", -1).asInt());
+	if (!weapon)
+		return "weapon_missing";
+	if (weapon->getRules()->getBattleType() != BT_PSIAMP)
+		return "cost_changed";
+
+	// 3. The research check, then canUseWeapon() (the menu ran both).
+	if (const char* use = coopWeaponUseDeny(actor, weapon, type, save))
+		return use;
+
+	// 4. tuBasis, then haveTU().
+	BattleAction a;
+	a.actor = actor;
+	a.weapon = weapon;
+	a.type = type;
+	a.target = target;
+	a.targeting = true; // the click's own action is a targeting one
+	a.updateTU();       // N37
+	if (const char* cost = coopCostDeny(a, intent))
+		return cost;
+
+	// 5. Range: PsiAttackBState::init()'s own check.
+	if (weapon->getRules()->isOutOfRange(actor->distance3dToPositionSq(target)))
+		return "out_of_range";
+
+	// 6. The target unit: alive, where the ordering seat saw it, and the unit
+	//    vanilla's own selectUnit() finds on the clicked tile.
+	BattleUnit* targetUnit = findUnitById(save, intent.get("targetUnit", -1).asInt());
+	if (!targetUnit || targetUnit->isOut())
+		return "target_dead";
+	const Position shipped = intent.isMember("targetPos") ? coopJsonPos(intent["targetPos"]) : target;
+	if (targetUnit->getPosition() != shipped || save->selectUnit(target) != targetUnit)
+		return "target_moved";
+
+	// 7. primaryAction's own psi target rules (donor reproduction, RB-D10).
+	const UnitFaction targetFaction = targetUnit->getFaction();
+	const UnitFaction attackerFaction = actor->getFaction();
+	bool knowTarget = true;
+	if (attackerFaction == FACTION_PLAYER || attackerFaction == FACTION_NEUTRAL)
+	{
+		knowTarget = targetUnit->getVisible();
+	}
+	else if (attackerFaction == FACTION_HOSTILE && targetFaction != FACTION_HOSTILE)
+	{
+		knowTarget = actor->getAIModule() ? actor->getAIModule()->validTarget(targetUnit, false, true) : false;
+	}
+	bool psiTargetAllowed = knowTarget && weapon->getRules()->isTargetAllowed(targetFaction, attackerFaction);
+	if (type == BA_MINDCONTROL && attackerFaction == targetFaction)
+		psiTargetAllowed = false;
+	else if (type == BA_PANIC && targetUnit->getUnitRules() && !targetUnit->getUnitRules()->canPanic())
+		psiTargetAllowed = false;
+	else if (type == BA_MINDCONTROL && targetUnit->getUnitRules() && !targetUnit->getUnitRules()->canBeMindControlled())
+		psiTargetAllowed = false;
+	if (!psiTargetAllowed)
+		return "invalid_target";
+	if (weapon->getRules()->isLOSRequired()
+		&& !(attackerFaction == FACTION_PLAYER && targetFaction != FACTION_HOSTILE)
+		&& std::find(actor->getVisibleUnits()->begin(), actor->getVisibleUnits()->end(), targetUnit)
+			== actor->getVisibleUnits()->end())
+	{
+		return "los_required";
+	}
+
+	out = a;
+	return nullptr;
+}
+
+// W2-P4 S-C.2 (spec (b)1-2): the `use_item` plan's admission - S-C builds the
+// MIND PROBE (the item's battle type selects it; the scanner is S-D's, so any
+// other item under this kind is a malformed plan here). Spec (b)2's order with
+// VANILLA'S OWN FUNCTIONS: the item, research + canUseWeapon() (the action menu
+// ran both for BA_USE), the cost basis and haveTU() (the probe's own spendTU),
+// the shipped target unit alive and where the ordering seat saw it, then a donor
+// reproduction (RB-D10) of primaryAction's own BT_MINDPROBE target rules with
+// the ACTOR's faction (N19): a target of the actor's own faction or not visible
+// is `invalid_target` (vanilla shows nothing, Q1), a missing line of sight
+// `los_required`. On success @a out is the LOCAL BattleAction the executor
+// spends.
+static const char* validateUseItem(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
+	BattleAction& out)
+{
+	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
+		return "cost_changed";
+
+	// 1. The item resolves and is the actor's; S-C's item is the mind probe.
+	BattleItem* item = coopActorItem(actor, save, intent.get("item", -1).asInt());
+	if (!item)
+		return "weapon_missing";
+	if (item->getRules()->getBattleType() != BT_MINDPROBE)
+		return "cost_changed";
+
+	// 3. The research check, then canUseWeapon().
+	if (const char* use = coopWeaponUseDeny(actor, item, BA_USE, save))
+		return use;
+
+	// 4. tuBasis, then haveTU().
+	BattleAction a;
+	a.actor = actor;
+	a.weapon = item;
+	a.type = BA_USE;
+	a.updateTU(); // N37
+	if (const char* cost = coopCostDeny(a, intent))
+		return cost;
+
+	// 6. The probed unit: a probe needs one; alive and where the seat saw it.
+	const int targetUnitId = intent.get("targetUnit", -1).asInt();
+	if (targetUnitId < 0 || !intent.isMember("targetPos"))
+		return "cost_changed";
+	BattleUnit* targetUnit = findUnitById(save, targetUnitId);
+	if (!targetUnit || targetUnit->isOut())
+		return "target_dead";
+	if (targetUnit->getPosition() != coopJsonPos(intent["targetPos"]))
+		return "target_moved";
+	a.target = targetUnit->getPosition();
+
+	// 7. primaryAction's own BT_MINDPROBE target rules (donor reproduction,
+	//    RB-D10), the ACTOR's faction (N19: vanilla reads the selected unit's).
+	if (targetUnit->getFaction() == actor->getFaction() || !targetUnit->getVisible())
+		return "invalid_target";
+	if (item->getRules()->isLOSRequired()
+		&& !(actor->getFaction() == FACTION_PLAYER && targetUnit->getFaction() != FACTION_HOSTILE)
+		&& std::find(actor->getVisibleUnits()->begin(), actor->getVisibleUnits()->end(), targetUnit)
+			== actor->getVisibleUnits()->end())
+	{
+		return "los_required";
+	}
+
+	out = a;
+	return nullptr;
+}
+
 void onIntent(const Json::Value& intent)
 {
 	if (!isCoopBattle())
@@ -7167,9 +7490,103 @@ void onIntent(const Json::Value& intent)
 		return;
 	}
 
+	if (kind == "melee" || kind == "psi")
+	{
+		// W2-P4 S-C.2 (docs rewrite/prompts/w2p4_client_combat_intents.md (b)2-3):
+		// admission with vanilla's own checks (validateMelee / validatePsi), then
+		// the ONE vanilla state the host's own click pushes - MeleeAttackBState
+		// (handleNonTargetAction's BA_HIT branch) or PsiAttackBState
+		// (primaryAction's BT_PSIAMP branch), no turn first - on a LOCAL
+		// BattleAction built from the payload, never the host's _currentAction.
+		// cameraPosition stays (0,0,-1): no host camera restore (D131). The
+		// frozen `melee` / `psi` cues come from the existing ExplosionBState hook.
+		BattleAction action;
+		const char* reason = (kind == "melee") ? validateMelee(actor, intent, save, action)
+			: validatePsi(actor, intent, save, action);
+		if (reason)
+		{
+			denyIntent(iseq, reason, seat, kind);
+			return;
+		}
+
+		const std::uint32_t actionId = mintActionId();
+		Json::Value ack = CoopWire::makeAck(iseq, actionId);
+		CoopEmit::sendBattle(ack);
+		clearDeny(seat);
+		noteIntentReceived(kind, true); // spec (b)13
+		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		// Set BEFORE the push: statePushBack() inits at once and the cue hooks /
+		// a reaction's beginNested() read the base actor (item 7).
+		g_coopPendingChainActorId = actor->getId();
+		g_coopPendingChainKind = kind; // W2-P2's combat kinds (beginHostLocalCombat): melee / psi
+		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
+		g_coopIntentResultKey.clear();
+
+		Log(LOG_INFO) << "[coop-ctx] admitted " << kind << " intent iseq " << iseq << " seat " << seat
+			<< " actor " << actor->getId() << " actionId " << actionId << ": type " << (int)action.type
+			<< " weapon " << action.weapon->getId() << " target " << action.target
+			<< " terrainPart " << action.terrainMeleeTilePart << " tuBasis " << action.Time;
+
+		// W2-P2 S-C.2 (amendment A3, F690): ARMED across the push, so a state that
+		// pops inside its own init() closes the context through
+		// endChainArming()'s empty-queue branch, never mid-push.
+		beginChainArming();
+		if (kind == "melee")
+			bg->statePushBack(new MeleeAttackBState(bg, action));
+		else
+			bg->statePushBack(new PsiAttackBState(bg, action));
+		endChainArming(!bg->isBusy());
+		return;
+	}
+
+	if (kind == "use_item")
+	{
+		// W2-P4 S-C.2 (spec (b)3, Q10 = (a)): the MIND PROBE as an INSTANT intent -
+		// the same wrapper as `prime` around an RB-D10 donor reproduction of
+		// primaryAction's BT_MINDPROBE success block (BattlescapeGame.cpp: the
+		// spendTU) MINUS the host-screen sound and UnitInfoState (the screen opens
+		// on the ordering client at its own end, Q14 = a); no cue exists for it, so
+		// the context's one ev is the bt_action_end endChainArming()'s empty-queue
+		// close emits through onChainQuiesced() -> closeBaseContext().
+		BattleAction action;
+		const char* reason = validateUseItem(actor, intent, save, action);
+		if (reason)
+		{
+			denyIntent(iseq, reason, seat, kind);
+			return;
+		}
+
+		const std::uint32_t actionId = mintActionId();
+		Json::Value ack = CoopWire::makeAck(iseq, actionId);
+		CoopEmit::sendBattle(ack);
+		clearDeny(seat);
+		noteIntentReceived(kind, true); // spec (b)13
+		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		g_coopPendingChainActorId = actor->getId();
+		g_coopPendingChainKind = "mindprobe"; // spec (b)3's instant kind
+		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
+		g_coopIntentResultKey.clear();
+
+		Log(LOG_INFO) << "[coop-ctx] admitted use_item intent iseq " << iseq << " seat " << seat
+			<< " actor " << actor->getId() << " actionId " << actionId << ": mindprobe item "
+			<< action.weapon->getId() << " target " << action.target << " tuBasis " << action.Time;
+
+		beginChainArming();
+		std::string error;
+		if (!action.spendTU(&error))
+		{
+			// Unreachable after validateUseItem()'s haveTU(); vanilla's own failure
+			// text is latched so the end still says why (spec (b)4).
+			g_coopIntentResultLatched = true;
+			g_coopIntentResultKey = error;
+		}
+		endChainArming(!bg->isBusy());
+		return;
+	}
+
 	Log(LOG_WARNING) << "[coop-arbiter] bt_intent unknown kind '" << kind
-		<< "' - dropped (RB-D9/SS2.W2, W2-P4: turn, kneel, walk, shoot, throw and prime are "
-		   "the validators that exist)";
+		<< "' - dropped (RB-D9/SS2.W2, W2-P4: turn, kneel, walk, shoot, throw, prime, melee, psi and "
+		   "use_item are the validators that exist)";
 }
 
 // W2-P3 S-A.2 (spec rewrite/prompts/w2p3_nonplayer_origins.md (b)3): the BASE
@@ -8020,6 +8437,40 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		intent["unprime"] = combat->unprime;
 		intent["tuBasis"] = tuBasis;
 	}
+	else if (kindStr == "melee")
+	{
+		// W2-P4 S-C.2: spec (b)1's frozen `melee` payload (the tile and terrain
+		// part validMeleeRange / validTerrainMeleeRange gave; -1 = no unit).
+		intent["weapon"] = combat->weapon;
+		intent["target"] = coopPosJson(combat->target);
+		intent["terrainPart"] = combat->terrainPart;
+		intent["targetUnit"] = combat->targetUnit;
+		if (combat->targetUnit >= 0)
+			intent["targetPos"] = coopPosJson(combat->targetPos);
+		intent["tuBasis"] = tuBasis;
+	}
+	else if (kindStr == "psi")
+	{
+		// W2-P4 S-C.2: spec (b)1's frozen `psi` payload.
+		intent["weapon"] = combat->weapon;
+		intent["action"] = combat->action;
+		intent["target"] = coopPosJson(combat->target);
+		intent["targetUnit"] = combat->targetUnit;
+		intent["targetPos"] = coopPosJson(combat->targetPos);
+		intent["tuBasis"] = tuBasis;
+	}
+	else if (kindStr == "use_item")
+	{
+		// W2-P4 S-C.2: spec (b)1's frozen `use_item` payload (the mind probe:
+		// the probed unit and where the ordering seat saw it).
+		intent["item"] = combat->weapon;
+		if (combat->targetUnit >= 0)
+		{
+			intent["targetUnit"] = combat->targetUnit;
+			intent["targetPos"] = coopPosJson(combat->targetPos);
+		}
+		intent["tuBasis"] = tuBasis;
+	}
 	else // "kneel"
 	{
 		intent["kneel"] = kneel;
@@ -8055,7 +8506,7 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		g_coopClientInFlight.ignoreSpotted = walk->ignoreSpotted;
 	}
 	// W2-P4 S-A.2: the combat plan, kept verbatim (see the struct's comment).
-	g_coopClientInFlight.hasCombat = coopIsCombatKind(kindStr); // W2-P4 S-B: + throw, prime
+	g_coopClientInFlight.hasCombat = coopIsCombatKind(kindStr); // W2-P4 S-B: + throw, prime; S-C: + melee, psi, use_item
 	g_coopClientInFlight.combat = g_coopClientInFlight.hasCombat ? *combat : CoopCombatIntentArgs();
 	// W1-P7 (WV-D24): the timeout basis. Stamped AFTER the envelope actually
 	// shipped, so a send that never went out cannot arm a timer.
@@ -9628,11 +10079,13 @@ bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save)
 		return false; // SP and every non-co-op battle: vanilla, byte-identical
 
 	// W2-P4 S-B's kinds: vanilla's own two conditions (handleNonTargetAction's
-	// BA_PRIME branch needs a chosen fuse, `value > -1`; BA_UNPRIME). Every other
-	// kind falls through to vanilla's branches unchanged (S-C / S-D add theirs).
+	// BA_PRIME branch needs a chosen fuse, `value > -1`; BA_UNPRIME). W2-P4 S-C:
+	// + BA_HIT (the melee). Every other kind falls through to vanilla's branches
+	// unchanged (S-D adds its own).
 	const bool prime = action->type == BA_PRIME && action->value > -1;
 	const bool unprime = action->type == BA_UNPRIME;
-	if (!prime && !unprime)
+	const bool melee = action->type == BA_HIT;
+	if (!prime && !unprime && !melee)
 		return false;
 
 	// PR-Q18 (revisit row 13, E54.1): the baton at the execution point, on BOTH
@@ -9642,9 +10095,37 @@ bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save)
 		return true;
 
 	// HOST: vanilla's prime / unprime block runs; coopHostPrime() wraps it in a
-	// `host` context (W2-P2 S-C).
+	// `host` context (W2-P2 S-C). A melee: vanilla's BA_HIT branch pushes the
+	// MeleeAttackBState inside its own beginHostLocalCombat() `host` context.
 	if (coopBattleAuthority().hostSim)
 		return false;
+
+	if (melee)
+	{
+		// W2-P4 S-C.2 (spec (b)1, K7): CLIENT - the completed vanilla melee
+		// becomes a `melee` order: the tile and terrain part ActionMenuState's own
+		// BA_HIT row picked (validMeleeRange / validTerrainMeleeRange from the
+		// actor's position and facing), and the unit standing there.
+		CoopCombatIntentArgs args;
+		args.action = "melee";
+		args.weapon = action->weapon->getId();
+		args.target = action->target;
+		args.terrainPart = action->terrainMeleeTilePart;
+		const Tile* tile = save->getTile(action->target);
+		const BattleUnit* tu = tile ? tile->getUnit() : nullptr;
+		if (tu && !tu->isOut() && action->terrainMeleeTilePart == 0)
+		{
+			args.targetUnit = tu->getId();
+			args.targetPos = tu->getPosition();
+		}
+		CoopArbiter::sendClientIntent("melee", action->actor->getId(), -1, false, false, -1, nullptr, &args);
+		// No MeleeAttackBState runs on a thin client to clear the action type
+		// (vanilla's own reason for ActionMenuState's BA_HIT reset), so clear it
+		// here: handleNonTargetAction() then leaves BA_NONE, and no later popup
+		// close re-sends the order. TRUE whether or not the envelope went out.
+		action->type = BA_NONE;
+		return true;
+	}
 
 	// CLIENT: the completed vanilla action becomes a `prime` order (spec (b)1).
 	CoopCombatIntentArgs args;
@@ -9655,6 +10136,70 @@ bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save)
 	CoopArbiter::sendClientIntent("prime", action->actor->getId(), -1, false, false, -1, nullptr, &args);
 	// TRUE whether or not the envelope went out: no fuse, TU or FOV write ever
 	// runs on a thin client (WV-D40's rule).
+	return true;
+}
+
+bool coopInterceptPsiConfirm(BattleAction* action, BattleUnit* targetUnit, SavedBattleGame* save)
+{
+	if (!isCoopBattle() || !action || !action->actor || !action->weapon || !action->weapon->getRules()
+		|| !targetUnit || !save)
+	{
+		return false; // SP and every non-co-op battle: vanilla, byte-identical
+	}
+
+	// W2-P4 S-C's kinds - vanilla's own two branch conditions in primaryAction:
+	// the mind probe (BA_USE, BT_MINDPROBE, K3) and the psi amp (BA_PANIC /
+	// BA_MINDCONTROL / BA_USE, BT_PSIAMP, K4). Anything else: vanilla, untouched.
+	const BattleType bt = action->weapon->getRules()->getBattleType();
+	const bool probe = bt == BT_MINDPROBE && action->type == BA_USE;
+	const bool psi = bt == BT_PSIAMP
+		&& (action->type == BA_PANIC || action->type == BA_MINDCONTROL || action->type == BA_USE);
+	if (!probe && !psi)
+		return false;
+
+	// PR-Q1 / PR-Q18 (revisit row 13, E54.1): the baton at the execution point,
+	// on BOTH machines - the menu and the aiming stay allowed off-turn. A refusal
+	// gives back the cursor vanilla's psi pre-execution lines just hid.
+	if (coopRefuseIfNotMayCommand(action->actor, save))
+	{
+		CoopArbiter::coopClientRestoreCursor();
+		return true;
+	}
+
+	// HOST: vanilla executes (the psi attack's own beginHostLocalCombat() stamps
+	// the `host` context, W2-P2; the probe spends and opens its screen).
+	if (coopBattleAuthority().hostSim)
+		return false;
+
+	// CLIENT: the completed vanilla action becomes an order (spec (b)1) - the
+	// probe a `use_item`, the amp a `psi` with its action; the target unit is the
+	// one vanilla's own selectUnit(pos) found, at its position now.
+	CoopCombatIntentArgs args;
+	args.weapon = action->weapon->getId();
+	args.targetUnit = targetUnit->getId();
+	args.targetPos = targetUnit->getPosition();
+	const char* wireKind = "use_item";
+	if (psi)
+	{
+		wireKind = "psi";
+		args.action = action->type == BA_PANIC ? "panic" : (action->type == BA_MINDCONTROL ? "mc" : "use");
+		args.target = action->target; // primaryAction set it to the clicked tile
+	}
+	else
+	{
+		args.action = "use";
+		args.target = targetUnit->getPosition();
+	}
+	const std::uint32_t iseq = CoopArbiter::sendClientIntent(wireKind, action->actor->getId(),
+		-1, false, false, -1, nullptr, &args);
+	if (iseq == 0u && !(g_coopClientInFlight.active && g_coopClientInFlight.actorId == action->actor->getId()))
+	{
+		// Nothing went out and no earlier order of this unit is in flight to
+		// answer it: give the cursor back (the coopInterceptFireConfirm() rule).
+		CoopArbiter::coopClientRestoreCursor();
+	}
+	// TRUE whether or not the envelope went out: no TU spend, BState or probe
+	// screen ever runs on a thin client before the host's answer (WV-D40).
 	return true;
 }
 
@@ -9678,6 +10223,16 @@ bool coopLatchActionResult(const BattleAction& action)
 			<< action.result << "' (actor " << action.actor->getId() << ")";
 	}
 	return true;
+}
+
+// W2-P4 S-C.2 (amendment C1 PR-Q4): coopLatchActionResult()'s REMOTE test without
+// its latch - see CoopDelta.h.
+bool coopIsRemoteIntentAction(const BattleAction& action)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || g_coopActionContextStack.empty())
+		return false;
+	const CoopActionContextEntry& base = g_coopActionContextStack.front();
+	return base.origin == "intent" && action.actor && action.actor->getId() == g_coopPendingChainActorId;
 }
 
 // ===== W1-P10 (WAVE1-RUNBOOK.md SS4 "ATOM door" / WV-D26 / WV-D50):
@@ -13334,6 +13889,13 @@ const ReasonStrEntry kReasonStrTable[] =
 	{ "land_equipment",       "STR_LAND_EQUIPMENT" },
 	{ "both_hands",           "STR_MUST_USE_BOTH_HANDS" },
 	{ "cannot_use",           "STR_COOP_DENY_CANNOT_USE" },
+	// W2-P4 S-C.2 (Q1 = (a)): the melee / psi / mind-probe target denies, each
+	// with vanilla's own key; `invalid_target` is SILENT (an empty key: vanilla
+	// shows nothing for a psi / probe target its rules refuse), so showDeny()
+	// only clears the Sent banner for it.
+	{ "no_one_there",         "STR_THERE_IS_NO_ONE_THERE" },
+	{ "los_required",         "STR_LINE_OF_SIGHT_REQUIRED" },
+	{ "invalid_target",       "" },
 	// auto-cancel causes (ADDENDUM 1.3(d))
 	{ "enemy_spotted",     "STR_COOP_CANCEL_ENEMY_SPOTTED" },
 	{ "unit_under_fire",   "STR_COOP_CANCEL_UNIT_UNDER_FIRE" },
@@ -13480,6 +14042,13 @@ void showDeny(const char* reason)
 	// every other reason is a terminal ANSWER about the plan itself, and those
 	// now dwell-clear rather than sitting on the map strip until the player's
 	// next successful action (WV-D13 item 1).
+	// W2-P4 S-C.2 (Q1 = (a)): a SILENT row (empty key) only clears the Sent
+	// banner - vanilla shows nothing for that refusal.
+	if (!*key)
+	{
+		setBanner(bs, std::string(), BannerClass::None);
+		return;
+	}
 	const BannerClass cls = (std::strcmp(reason ? reason : "", "busy") == 0)
 		? BannerClass::Wait : BannerClass::Terminal;
 	// W1-P13c (E53.4/E55.1): the ONE templated deny row - {0} is the baton
@@ -13777,8 +14346,8 @@ bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s)
 // so it is left untouched here. W2-P4 S-B (PR-Q3 (a)): BA_PRIME and
 // BA_UNPRIME are no longer refused - their fuse screen stays local and the
 // order ships as a `prime` intent at handleNonTargetAction
-// (coopInterceptNonTargetAction()); melee, medikit and scanner stay refused
-// until their own stages.
+// (coopInterceptNonTargetAction()); W2-P4 S-C: BA_HIT likewise ships a `melee`
+// intent there; medikit and scanner stay refused until their own stage.
 bool refuseItemActionChoice(BattleAction* action)
 {
 	if (!action)
@@ -13786,9 +14355,6 @@ bool refuseItemActionChoice(BattleAction* action)
 	bool nonTargeting = false;
 	switch (action->type)
 	{
-	case BA_HIT:
-		nonTargeting = true;
-		break;
 	case BA_USE:
 		if (action->weapon)
 		{

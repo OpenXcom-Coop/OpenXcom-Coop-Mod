@@ -424,4 +424,18 @@ void coopCueFall(SavedBattleGame* save);
 /// SavedBattleGame::endTurn() before the side_transition.
 void coopCueRevive(BattleUnit* unit);
 
+// ----- W2-P4 S-C, commit S-C.2: a partner's melee on the host -----
+// Spec rewrite/prompts/w2p4_client_combat_intents.md, amendment C1 PR-Q4. Body:
+// connectionTCP.cpp, next to coopLatchActionResult().
+
+/// PR-Q4 (MeleeAttackBState::think, ONE guarded term on the "not a reaction
+/// attack" condition that sets the parent's current action to BA_NONE): TRUE on
+/// the co-op HOST while the base action context is a partner's `intent` and
+/// @a action's actor is that context's actor, so a partner's melee never resets
+/// the HOST player's own _currentAction (its aim mode) - the same REMOTE test as
+/// coopLatchActionResult(), without its latch. FALSE everywhere else (SP, a
+/// client, the host's own and the AI's actions), so vanilla is byte-identical
+/// there. No side effect.
+bool coopIsRemoteIntentAction(const BattleAction& action);
+
 } // namespace OpenXcom

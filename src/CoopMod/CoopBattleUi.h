@@ -125,7 +125,7 @@ enum class Control
 	/// primaryAction's commanding arm already refuses them on a client
 	/// (coopBlockLocalExecution()). INTERIM - W2-P4 retires this value (and
 	/// its string) when its intents replace the refusal; its S-B stage already
-	/// lifted prime / unprime (PR-Q3).
+	/// lifted prime / unprime and its S-C stage the melee (PR-Q3).
 	ItemAction,
 	/// W2-P1: BattlescapeState::btnReloadClick (the reload hotkey) ->
 	/// BattleUnit::reloadAmmo(), which re-links ammo (`items`) and spends TU
@@ -174,9 +174,10 @@ bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s);
 /// `_action->terrainMeleeTilePart = 0;` in ActionMenuState::handleAction:
 /// `if (CoopBattleUi::refuseItemActionChoice(_action)) { _game->popState(); return; }`.
 /// Returns TRUE only when @a action is one of the non-targeting kinds still
-/// refused here - BA_HIT, and BA_USE whose weapon's battle type is BT_MEDIKIT
-/// or BT_SCANNER (W2-P4 S-B lifted BA_PRIME and BA_UNPRIME: they now ship a
-/// `prime` intent at handleNonTargetAction, PR-Q3) - AND
+/// refused here - BA_USE whose weapon's battle type is BT_MEDIKIT or
+/// BT_SCANNER (W2-P4 S-B lifted BA_PRIME and BA_UNPRIME: they now ship a
+/// `prime` intent at handleNonTargetAction; W2-P4 S-C lifted BA_HIT: it ships
+/// a `melee` intent there, PR-Q3) - AND
 /// refuseControl(Control::ItemAction,
 /// action->actor, <the live SavedBattleGame>) refuses (which has already put
 /// the refusal on the banner); on TRUE it sets `action->type = BA_NONE` so the

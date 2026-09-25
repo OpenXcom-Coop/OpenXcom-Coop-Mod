@@ -205,7 +205,10 @@ void MeleeAttackBState::think()
 			_parent->getMap()->invalidate();
 		}
 
-		if (_unit->getFaction() == _parent->getSave()->getSide()) // not a reaction attack
+		// W2-P4 S-C (amendment C1 PR-Q4): ONE guarded coop term - on the co-op HOST
+		// a partner's admitted melee never resets the HOST player's own current
+		// action (its aim mode); false in SP, on a client and for the host's own.
+		if (_unit->getFaction() == _parent->getSave()->getSide() && !coopIsRemoteIntentAction(_action)) // not a reaction attack
 		{
 			_parent->getCurrentAction()->type = BA_NONE; // do this to restore cursor
 		}

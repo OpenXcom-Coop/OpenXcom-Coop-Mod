@@ -44,9 +44,15 @@ scenario):
                (A2.2).
   S4 melee     LAST (A2.2/F440: its red knocks H out on the client and mints a
                body item there, shifting later client item ids). STUN (a stun
-               rod, BA_HIT) against H on the tile C faces is refused with the
-               same text: no local MeleeAttackBState, H's stun stays equal on
-               both machines.
+               rod, BA_HIT) against H on the tile C faces. Re-pointed by W2-P4
+               S-C (amendment C1 PR-Q3 (a), chain rule A.10): the melee is no
+               longer refused but sent as a `melee` intent - the host admits
+               and runs it (host closedContexts gains exactly one {origin
+               intent, kind melee, actorId C}, whose evs open with the `melee`
+               cue {actor C, unit H} and end in exactly one bt_action_end, each
+               applied on the client with the same seq, kind and actionId), no
+               local MeleeAttackBState, C's TU is spent and equal on both
+               machines, H's status / health / stun stay equal on both.
 
 Every scenario also ends with: hash_now {full:true} - ALL buckets EQUAL on
 both machines (never a hard-coded bucket count), desyncSeen false on both,
@@ -113,6 +119,8 @@ import repro_atom_walk as raw
 from test_rw_turn_baton import (RHAND_NTH, RHAND_RECT, ACTION_MENU_STATE,
                                 click_nth, drive_full_cycle, dismiss_next_turn_if_present)
 from test_rw_seat_pacing import tab_select
+from test_w2_host_combat import evs_since           # W2-P4 S-C: the S4 re-point's chain
+from test_w2_ai_origins import host_payloads        # W2-P4 S-C: the S4 re-point's `melee` cue
 
 # ----- baked fixture constants (scratch precalc boot on SEED, A1.5) -----
 SEED = 1
@@ -537,12 +545,22 @@ def stage(host, client, ctx):
     print(f"STAGE: C={C_ID} -> {tele[C_ID]} H={H_ID} -> {tele[H_ID]} (both machines)", flush=True)
 
 
+def melee_contexts(host, ctx0):
+    """W2-P4 S-C (S4 re-point): the host's NEW closedContexts records that are
+    C's admitted melee intent ({origin intent, kind melee, actorId C})."""
+    seen0 = {c.get("actionId") for c in ctx0}
+    return [c for c in (event_state(host).get("closedContexts") or []) if c.get("actionId") not in seen0
+            and c.get("origin") == "intent" and c.get("kind") == "melee" and c.get("actorId") == C_ID]
+
+
 def s4_melee(host, client, ctx):
     equalize_tu(host, client, C_ID)
     rod, _ = give_both(host, client, {"unit": C_ID, "item": "STR_STUN_ROD", "clear_hands": True})
     wait_banner_not(client, TEXT_ITEM_ACTION)
     seen = open_right_hand_menu(client)
     p0h, p0c = probes(host), probes(client)
+    ctx0 = event_state(host).get("closedContexts") or []
+    seq0 = event_state(host).get("lastSeqEmitted") or 0
     uh0, uc0 = units(host), units(client)
     tu0 = (uh0[C_ID]["tu"], uc0[C_ID]["tu"])
     h0 = (hfields(uh0[H_ID]), hfields(uc0[H_ID]))
@@ -559,6 +577,24 @@ def s4_melee(host, client, ctx):
         time.sleep(0.05)
     texts = []
     settled = settle_client(client, seen, timeout=30, texts=texts)
+    # W2-P4 S-C (C1 PR-Q3 (a)): the melee is an order now - wait (bounded) for
+    # the host's intent context to close and the client to apply everything.
+    order_note = ""
+    try:
+        client.wait_for("C's melee intent closed on the host and applied on the client",
+                        lambda: (melee_contexts(host, ctx0) and event_state(client).get("inFlight") is None
+                                 and event_state(client).get("lastSeqApplied")
+                                 == event_state(host).get("lastSeqEmitted")) or None, timeout=15, interval=0.1)
+    except Exception as e:
+        order_note = f"{type(e).__name__}: {e}"
+    mctx = melee_contexts(host, ctx0)
+    aid = mctx[0].get("actionId") if len(mctx) == 1 else None
+    hev, cev = evs_since(host, seq0), evs_since(client, seq0)
+    chain = [e for e in hev if aid is not None and e["actionId"] == aid]
+    cmap = {e["seq"]: e for e in cev}
+    mseqs = [e["seq"] for e in chain if e["kind"] == "melee"]
+    pl = host_payloads(host, mseqs) if mseqs else {}
+    melee_cue = ((pl.get(mseqs[0]) or {}).get("payload") or {}) if mseqs else {}
     ph, pc = probes(host), probes(client)
     uh1, uc1 = units(host), units(client)
     tu1 = (uh1[C_ID]["tu"], uc1[C_ID]["tu"])
@@ -566,17 +602,36 @@ def s4_melee(host, client, ctx):
     st1 = (uh1[H_ID]["stun"], uc1[H_ID]["stun"])
     print(f"EVIDENCE S4: rod={rod} C(x,y,z,dir) {cpos} H(x,y,z,dir) {hpos} client-states={seen} "
           f"infobox-text={texts} settled={settled} client max pendingStates={max_pending}; "
+          f"melee contexts={mctx} orderWait={order_note!r} chain={[(e['seq'], e['kind']) for e in chain]} "
+          f"client chain={[(s, (cmap.get(s) or {}).get('kind'), (cmap.get(s) or {}).get('actionId')) for s in [e['seq'] for e in chain]]} "
+          f"melee cue={melee_cue}; "
           f"H host {h0[0]}->{h1[0]} client {h0[1]}->{h1[1]}; "
           f"C.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]}; "
           f"client banner={pc['banner']!r} warning={pc['warning']!r}; "
           f"pushes client {p0c['pushes']}->{pc['pushes']} lastSite={pc['lastSite']!r}", flush=True)
     fails = []
-    if pc["banner"] != TEXT_ITEM_ACTION:
-        fails.append(f"client banner {pc['banner']!r} (want {TEXT_ITEM_ACTION!r})")
-    if st1[0] != st1[1]:
-        fails.append(f"H.stun host={st1[0]} client={st1[1]} (want equal)")
-    if tu1[0] != tu1[1]:
-        fails.append(f"C.tu host={tu1[0]} client={tu1[1]} (want equal)")
+    if len(mctx) != 1:
+        fails.append(f"host closedContexts gained {len(mctx)} {{origin intent, kind melee, actorId {C_ID}}} "
+                     f"(want exactly 1; wait: {order_note!r})")
+    kinds = [e["kind"] for e in chain]
+    if aid is not None and (not kinds or kinds[0] != "melee" or kinds[-1] != "bt_action_end"
+                            or kinds.count("bt_action_end") != 1):
+        fails.append(f"host evs of actionId {aid} = {kinds} (want the `melee` cue first and exactly one "
+                     f"bt_action_end, last)")
+    bad = [(e["seq"], e["kind"], cmap.get(e["seq"])) for e in chain
+           if not cmap.get(e["seq"]) or cmap[e["seq"]]["kind"] != e["kind"] or cmap[e["seq"]]["actionId"] != aid]
+    if bad:
+        fails.append(f"client event_log does not hold the host's evs of actionId {aid}: (seq, kind, client)={bad}")
+    if aid is not None and (melee_cue.get("actor"), melee_cue.get("unit")) != (C_ID, H_ID):
+        fails.append(f"`melee` cue payload {melee_cue} (want actor {C_ID}, unit {H_ID})")
+    if pc["banner"] == TEXT_ITEM_ACTION:
+        fails.append(f"client banner {pc['banner']!r} (the interim host-only refusal: want the press sent as "
+                     f"an order)")
+    if h1[0] != h1[1] or st1[0] != st1[1]:
+        fails.append(f"H host={h1[0]} client={h1[1]} (want status / health / stun equal)")
+    if tu1[0] != tu1[1] or tu1[0] >= tu0[0]:
+        fails.append(f"C.tu host={tu1[0]} client={tu1[1]} before={tu0} (want spent by the host's melee and "
+                     f"equal on both)")
     if not settled:
         fails.append(f"client never settled on BattlescapeState (states {seen})")
     common_tail(host, client, fails, (p0h["pushes"], p0c["pushes"]), what="S4")

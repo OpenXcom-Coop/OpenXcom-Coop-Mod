@@ -86,6 +86,14 @@ struct CoopWalkIntentArgs
  *   waypoints   the launcher's waypoint tiles in click order (action "launch")
  *   fuse        the chosen fuse (prime; -1 with unprime)
  *   unprime     true for BA_UNPRIME (the `prime` kind's `unprime` field)
+ *
+ * W2-P4 S-C (spec (b)1): the same plan carries the `melee`, `psi` and
+ * `use_item` (mind probe) kinds; `weapon` is the stun rod / psi amp / probe
+ * (the wire's `item` for use_item), `action` the psi action ("panic" | "mc" |
+ * "use"), `target` the melee tile validMeleeRange() gave (the clicked tile for
+ * psi, the target unit's tile for the probe), `targetUnit` / `targetPos` the
+ * unit the order acts on, and:
+ *   terrainPart the melee's terrain part (validTerrainMeleeRange(); 0 = none)
  */
 struct CoopCombatIntentArgs
 {
@@ -99,6 +107,7 @@ struct CoopCombatIntentArgs
 	std::vector<Position> waypoints;
 	int fuse = -1;
 	bool unprime = false;
+	int terrainPart = 0;
 };
 
 /**
@@ -370,6 +379,8 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 /// (BA_PRIME, or BA_UNPRIME when @a combat->unprime), and "shoot" may carry the
 /// action "launch" with its waypoints; each takes @a combat the same way, and
 /// `tuBasis` is getActionTUs() of that kind's action type and item.
+/// W2-P4 S-C: + "melee" (BA_HIT), "psi" (BA_PANIC / BA_MINDCONTROL / BA_USE by
+/// the plan's action) and "use_item" (BA_USE: the mind probe).
 std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir = -1,
 	bool turret = false, bool kneel = false, int tuBasisOverride = -1,
 	const CoopWalkIntentArgs* walk = nullptr, const CoopCombatIntentArgs* combat = nullptr);
@@ -829,7 +840,37 @@ bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save);
 ///      bt_intent through sendClientIntent() and returns TRUE whether or not it
 ///      went out, so no fuse, TU or FOV write ever runs on a thin client.
 /// FALSE in single player and outside an active co-op battle.
+///
+/// W2-P4 S-C (spec (b)5 K7, PR-Q18): + BA_HIT, the melee (the stun rod's STUN
+/// row; ActionMenuState's own checks already set the target tile and terrain
+/// part): steps 1-2 as above (on the host vanilla's BA_HIT branch pushes the
+/// MeleeAttackBState), and on a co-op CLIENT it ships as a `melee` bt_intent,
+/// after which the client's own _currentAction is set to BA_NONE - no
+/// MeleeAttackBState runs there to clear it (vanilla's own reason for the
+/// ActionMenuState reset), so no later popup close re-sends the order.
 bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save);
+
+/// W2-P4 S-C (docs rewrite/prompts/w2p4_client_combat_intents.md (b)5 K3/K4;
+/// PR-Q2, PR-Q18): the PSI-FAMILY execution points in
+/// BattlescapeGame::primaryAction - ONE guarded call in the mind probe's branch
+/// on the line before its spendTU (K3) and ONE in the psi amp's branch on the
+/// line before its beginHostLocalCombat() (K4), each after vanilla's own target
+/// checks; @a targetUnit is the unit vanilla's own selectUnit(pos) returned.
+/// The kinds: BA_USE with a BT_MINDPROBE item, and BA_PANIC / BA_MINDCONTROL /
+/// BA_USE with a BT_PSIAMP item; every other action returns FALSE. In order:
+///   1. the baton check at the execution point, on BOTH machines
+///      (coopRefuseIfNotMayCommand: rendered not_your_go + coopLocalExecBlocked);
+///      a refusal restores the cursor and returns TRUE;
+///   2. on the co-op HOST: FALSE - vanilla executes (the psi attack's
+///      beginHostLocalCombat() stamps the `host` context, W2-P2);
+///   3. on a co-op CLIENT: ships the completed vanilla action - a `use_item`
+///      bt_intent for the probe, a `psi` bt_intent (action "panic" | "mc" |
+///      "use") for the amp - through sendClientIntent() and returns TRUE whether
+///      or not it went out, so no TU spend, BState or UnitInfoState runs on a
+///      thin client until the host's answer (the probe's screen opens at the
+///      order's own bt_action_end, Q14 = a).
+/// FALSE in single player and outside an active co-op battle.
+bool coopInterceptPsiConfirm(BattleAction* action, BattleUnit* targetUnit, SavedBattleGame* save);
 
 /// W2-P4 S-A (spec (b)4, Q3 = (a), PR-Q4, PR-Q11): the halt LATCH - ONE guarded
 /// call in BattlescapeGame::popState() before vanilla's player warning. On the

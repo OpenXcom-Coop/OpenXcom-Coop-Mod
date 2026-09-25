@@ -591,7 +591,10 @@ bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s);
 ///     W2-P4 S-B adds the throw and the launcher (BA_THROW, BA_LAUNCH): the
 ///     launcher's waypoint clicks are local display, its execution point is
 ///     the launch button (launchAction's coopInterceptFireConfirm()).
-///   * Every other targeting kind (spray, psi, mind probe) keeps
+///     W2-P4 S-C adds the psi amp (BA_PANIC / BA_MINDCONTROL / BA_USE with a
+///     BT_PSIAMP item) and the mind probe (BA_USE with a BT_MINDPROBE item):
+///     their execution points are coopInterceptPsiConfirm() (CoopArbiter.h).
+///   * Every other targeting kind (the spray) keeps
 ///     coopBlockLocalExecution() exactly as before (PR-Q2): each later stage
 ///     lifts its own kinds, so no build between S-A and S-E has a local-sim path.
 /// Self-guarded: false outside an ACTIVE co-op battle, so SP is byte-identical.
