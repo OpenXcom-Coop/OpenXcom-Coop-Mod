@@ -9147,16 +9147,25 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 				u->setMindControllerId(pu["mcId"].asInt());
 			if (pu.isMember("pos"))
 			{
+				// W2-H5 (F809): a dead or unconscious unit stays OFF its tile, as
+				// on the host - vanilla unlinks the dying unit (UnitDieBState.cpp:301),
+				// endTurn writes no tile and resetUnitTiles skips isOut(); only a
+				// unit that WAKES is re-linked (reviveUnconsciousUnits ->
+				// setUnitPosition). The status that decides is this entry's
+				// RESTATED one: it is applied below, after `pos`. Same unlink
+				// shape as applyDelta's `onTile` rule.
 				const Position pos = CoopArbiter::coopJsonPos(pu["pos"]);
-				if (save->getTile(pos))
-				{
-					u->setTile(save->getTile(pos), save);
-					u->setPosition(pos, /*updateLastPos=*/false);
-				}
-				else
+				const int restatedStatus = pu.isMember("status") ? pu["status"].asInt() : (int)u->getStatus();
+				const bool link = restatedStatus != STATUS_DEAD && restatedStatus != STATUS_UNCONSCIOUS;
+				if (link && !save->getTile(pos))
 				{
 					Log(LOG_ERROR) << "[coop-apply] side_transition perUnit " << u->getId()
 						<< " pos " << pos << " is not a tile on this machine - position not applied";
+				}
+				else
+				{
+					u->setTile(link ? save->getTile(pos) : nullptr, save);
+					u->setPosition(pos, /*updateLastPos=*/false);
 				}
 			}
 			if (pu.isMember("health"))
