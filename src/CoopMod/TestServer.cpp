@@ -6493,12 +6493,25 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// forceFire, never this machine's keys); tuBasis is computed by
 		// sendClientIntent() exactly as for the real UI unless tuBasisOverride
 		// is given.
+		// W2-P4 S-E3.1 (F1233, F1290): the plan of EVERY combat kind of spec (b)1,
+		// passed through under its frozen payload names - `item` (throw, prime,
+		// use_item, medikit) or `weapon`; `action` (shoot, psi, medikit); `hand` and
+		// `ctrl` (reaction_hands); `fuse` and `unprime` (prime); `terrainPart`
+		// (melee); `bodypart` (medikit); `waypoints` (a launch, tiles) and `spray`
+		// (a spray, voxels) as [{x,y,z}...]; `skill` (the `skill` kind's row, or a
+		// follow-up's skill). `reload` has none. The `skill` kind's wire `action`
+		// (its target mode) is read off the skill by sendClientIntent().
+		const bool combatKind = kind == "shoot" || kind == "throw" || kind == "prime"
+			|| kind == "melee" || kind == "psi" || kind == "use_item" || kind == "medikit"
+			|| kind == "reload" || kind == "reaction_hands" || kind == "skill";
 		CoopCombatIntentArgs combatArgs;
 		if (req.isMember("plan") && req["plan"].isObject())
 		{
 			const Json::Value& pl = req["plan"];
 			combatArgs.action = pl.get("action", "").asString();
 			combatArgs.weapon = pl.get("weapon", -1).asInt();
+			if (pl.isMember("item"))
+				combatArgs.weapon = pl["item"].asInt();
 			combatArgs.ammo = pl.get("ammo", -1).asInt();
 			combatArgs.target = Position(pl["target"].get("x", 0).asInt(),
 				pl["target"].get("y", 0).asInt(), pl["target"].get("z", 0).asInt());
@@ -6510,12 +6523,36 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					pl["targetPos"].get("y", 0).asInt(), pl["targetPos"].get("z", 0).asInt());
 			}
 			combatArgs.forceFire = pl.get("forceFire", false).asBool();
+			if (pl.isMember("hand"))
+				combatArgs.action = pl["hand"].asString(); // reaction_hands: the hand rides `action`
+			combatArgs.ctrl = pl.get("ctrl", false).asBool();
+			combatArgs.fuse = pl.get("fuse", -1).asInt();
+			combatArgs.unprime = pl.get("unprime", false).asBool();
+			combatArgs.terrainPart = pl.get("terrainPart", 0).asInt();
+			combatArgs.bodypart = pl.get("bodypart", -1).asInt();
+			combatArgs.skill = pl.get("skill", "").asString();
+			if (pl["waypoints"].isArray())
+			{
+				for (const Json::Value& t : pl["waypoints"])
+				{
+					combatArgs.waypoints.push_back(Position(t.get("x", 0).asInt(),
+						t.get("y", 0).asInt(), t.get("z", 0).asInt()));
+				}
+			}
+			if (pl["spray"].isArray())
+			{
+				for (const Json::Value& v : pl["spray"])
+				{
+					combatArgs.spray.push_back(Position(v.get("x", 0).asInt(),
+						v.get("y", 0).asInt(), v.get("z", 0).asInt()));
+				}
+			}
 		}
 
 		const std::uint32_t iseq = CoopArbiter::sendClientIntent(
 			kind.c_str(), actor, toDir, turret, kneel, tuBasisOverride,
 			kind == "walk" ? &walkArgs : nullptr,
-			kind == "shoot" ? &combatArgs : nullptr);
+			combatKind ? &combatArgs : nullptr);
 		if (iseq == 0u)
 		{
 			resp["error"] = "battle_intent: not sent (see log - outside an active coop "
