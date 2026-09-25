@@ -495,6 +495,11 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
         time.sleep(0.1)
     time.sleep(1.2)
 
+    # W2-H4 (F779): the click may have become a multi-step walk the host is still
+    # running, so a fixed sleep can land these reads mid-walk. Compare the two
+    # machines only once the host is idle and the client has caught up.
+    session.wait_host_idle(host, client)
+
     ev1 = event_state(client)
     cb1 = battle_state(client)
     hb1 = battle_state(host)
@@ -961,6 +966,10 @@ def test_classic_selection_gating():
             "the HOST's identical ground click did not move its own soldier at all - "
             "so (5)'s 'the client did not move' proves nothing about the gate. Either "
             "the injection recipe is broken or every adjacent tile is impassable.")
+        # W2-H4 (F779): host_unit_acted() fires on the walk's first TU/position
+        # change, so the walk can still be running here. Settle before the
+        # host-vs-client compare below.
+        session.wait_host_idle(host, client)
         h_final = units_by_id(battle_state(host))[h_actor]
         hfull = host.cmd({"cmd": "hash_now", "full": True})["h"]
         moved_buckets = sorted(k for k in hfull if hfull[k] != host_hash_before.get(k))
