@@ -595,7 +595,7 @@ def test_busy_live_fire():
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after the busy/retry cycle (full 9/9)")
         # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
-        assert len(post_h) == 9, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
+        assert len(post_h) == 10, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
         print(f"PASS test_busy_live_fire: {len(post_h)}/9 buckets EQUAL and queueDepth 0 on "
               "both machines after the whole busy/retry cycle")
     finally:
@@ -711,7 +711,7 @@ def test_cancel_policy():
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after both cancel-policy passes (full 9/9)")
         # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
-        assert len(post_h) == 9, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
+        assert len(post_h) == 10, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
         print(f"PASS test_cancel_policy: {len(post_h)}/9 buckets EQUAL after both passes")
     finally:
         host.shutdown()

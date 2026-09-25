@@ -435,13 +435,21 @@ struct BattleHashSet
 	std::uint64_t unitsStats; ///< tu, energy, health, stun, morale, mana, fire,
 	                          ///< kneeling, mcId, wounds, motionPoints (SS2.8)
 	std::uint64_t itemIdCtr;  ///< SavedBattleGame::getCurrentItemId()
+	/// W2-P2 S-H (owner ruling D138, amendment A5.2): every delta field no
+	/// other bucket covers - unit onTile, dir, turretDir, raw status, floating,
+	/// armor, surrender flags, moraleRestored, spawn fields, reaction hands,
+	/// tags; tile doorBits; node type; item previousOwner, unit link, ammo
+	/// links, fuseEnabled, medikit, droppedOnAlienTurn, xcomProperty, tags;
+	/// battle objectivesDestroyed, moduleMap, bughuntMode, turn, side, tags.
+	std::uint64_t synced;
 };
 
-/// How many buckets a BattleHashSet holds.
-const int BATTLE_HASH_BUCKETS = 7;
+/// How many buckets a BattleHashSet holds (W2-P2 S-H: 7 -> 8, `synced`).
+const int BATTLE_HASH_BUCKETS = 8;
 /// Wire/introspection name of bucket @a i (0..BATTLE_HASH_BUCKETS-1) - the
 /// same strings SS2.8 names (terrain/fire/smoke/items/unitsCore/unitsStats/
-/// itemIdCtr), used verbatim as the `h` JSON object's keys.
+/// itemIdCtr, plus W2-P2 S-H's synced), used verbatim as the `h` JSON
+/// object's keys.
 const char* battleHashBucketName(int i);
 /// Value of bucket @a i.
 std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i);
@@ -460,8 +468,10 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out);
 /// (SS2.4a): the per-tile FOW "discovered" carve-out that used to mask the
 /// packed binTiles blob is GONE - revealed tiles are host-authored, wire-synced
 /// game state now (CoopReveal.h), so this hash VERIFIES them. Returns false
-/// (and zeroes @a out) when @a battle is null.
-bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out);
+/// (and zeroes @a out) when @a battle is null. W2-P2 S-H (Q-H6): when
+/// @a yamlOut is given it receives the emitted battle document the hash was
+/// taken over (the desync diagnostics' text; unchanged hash).
+bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::string* yamlOut = nullptr);
 
 /// R2-P9 (RB-D20): minimal desync diagnostic bundle - a zip with
 /// desync-info.json (bucket/expect/got/seq/kind + timestamp) and a best-
@@ -473,9 +483,18 @@ bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out);
 /// crash-marker machinery, or forced-save capture is ported. Best-effort:
 /// never throws, returns an empty string on any failure (a full disk, a
 /// read-only user folder) rather than compounding the desync with a second
-/// failure.
+/// failure. W2-P2 S-H (Q-H6): a non-empty @a saveBlobYaml (the reporting
+/// machine's own battle document, on a `saveBlob` mismatch) is added to the
+/// zip as saveBlob-client.yaml.
 std::string writeDesyncBundle(const std::string& bucket, const std::string& expect,
-	const std::string& got, std::uint32_t seq, const std::string& kind);
+	const std::string& got, std::uint32_t seq, const std::string& kind,
+	const std::string* saveBlobYaml = nullptr);
+
+/// W2-P2 S-H (Q-H6): writes @a text as <user folder>/desync-reports/
+/// desync-<timestamp>-<suffix> (the host's own `saveBlob` document for a
+/// peer's `saveBlob` desync report). Best-effort like writeDesyncBundle():
+/// never throws, returns the path or an empty string.
+std::string writeDesyncText(const std::string& suffix, const std::string& text);
 
 } // namespace SharedEcon
 

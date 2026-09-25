@@ -854,7 +854,7 @@ def test_atom_turn_e2e():
               f"units, fog of war in parity, and {len(post_h)}/9 buckets (saveBlob included, "
               "binTiles now UNMASKED) EQUAL on both machines after all actions")
         # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
-        assert len(post_h) == 9, (
+        assert len(post_h) == 10, (
             f"hash_now full returned {len(post_h)} buckets, expected 9 "
             f"({sorted(post_h)}) - the spike bucket set changed under this test")
     finally:

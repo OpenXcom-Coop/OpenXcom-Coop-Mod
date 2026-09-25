@@ -733,11 +733,17 @@ static void resetCoopArbiterState();
 // there). Declared here so CoopReveal::flushQuiescent() below can stamp RB-D14's
 // h:{unitsStats} on the standalone reveal ev without splitting the CoopReveal
 // namespace across the file.
-static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save);
-// W2-P2 S-A (spec (b)10): the 7 structured buckets from ONE sweep (+ saveBlob
-// when asked). Defined right after coopBuildUnitsStatsHash; declared here so
-// CoopDelta::flushSync() (above CoopEmit) can stamp the `sync` ev's `h`.
+// W2-P2 S-H (D138): @a withSynced adds the `synced` bucket; only the baseline
+// reveal (emitBaseRestate, A5.4 H3) passes false.
+static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save, bool withSynced = true);
+// W2-P2 S-A (spec (b)10): the 8 structured buckets (W2-P2 S-H: + `synced`)
+// from ONE sweep (+ saveBlob when asked). Defined right after
+// coopBuildUnitsStatsHash; declared here so CoopDelta::flushSync() (above
+// CoopEmit) can stamp the `sync` ev's `h`.
 static Json::Value coopBuildStructuredHash(SavedBattleGame* save, bool withSaveBlob);
+// W2-P2 S-H (D138, A5.7): the 8 structured buckets + `saveBlob` - every
+// bt_action_end and every `sync` (Q-H3 = (a)).
+static Json::Value coopBuildActionEndHash(SavedBattleGame* save);
 // W1-P10: the door atom's battle-scoped state (CoopDoor.h). Defined next to
 // the journal itself, far below; forward-declared here so the battle-scope
 // reset can call it alongside the walk atom's own counters.
@@ -748,8 +754,11 @@ static void coopResetDoorState();
 // raises the IDENTICAL desync through the IDENTICAL code. Latches on
 // BattleAuthority::desyncFrozen: a battle that already desynced never reports a
 // second time (SS2.8 "NO partial repair").
+// W2-P2 S-H (Q-H6): @a saveBlobYaml = this machine's own battle document on
+// a `saveBlob` mismatch; it rides the bundle (null for every other bucket).
 static void coopRaiseBattleDesync(const char* bucket, const std::string& expect,
-	const std::string& got, std::uint32_t seq, const std::string& kind)
+	const std::string& got, std::uint32_t seq, const std::string& kind,
+	const std::string* saveBlobYaml = nullptr)
 {
 	if (coopBattleAuthority().desyncFrozen.exchange(true))
 		return; // already latched, or lost a race with another envelope this tick
@@ -760,7 +769,8 @@ static void coopRaiseBattleDesync(const char* bucket, const std::string& expect,
 
 	g_battleFrozen.store(true); // halts the R2-P2 apply queue too (BattlePump.h)
 
-	const std::string bundlePath = SharedEcon::writeDesyncBundle(bucket, expect, got, seq, kind);
+	const std::string bundlePath = SharedEcon::writeDesyncBundle(bucket, expect, got, seq, kind,
+		saveBlobYaml);
 
 	Json::Value rep = CoopWire::makeDesync(coopBattleAuthority().battleId.load(), seq,
 		bucket, expect, got);
@@ -1523,7 +1533,9 @@ void emitBaseRestate(SavedBattleGame* battle, CoopFog::Side side, bool badN, con
 	delta["n"] = badN ? (n + 1) : n;
 
 	Json::Value ev = CoopWire::makeEv(0u, 0u, "reveal");
-	ev["h"] = coopBuildUnitsStatsHash(battle); // RB-D14
+	// RB-D14. W2-P2 S-H (A5.4 H3): no `synced` - the baseline can be emitted
+	// nested before the outer envelope's delta has reached the client.
+	ev["h"] = coopBuildUnitsStatsHash(battle, /*withSynced=*/false);
 	// Set BEFORE sendEv: attachDelta() leaves an envelope that already carries
 	// an explicit restate alone.
 	ev["reveal"] = delta;
@@ -2298,6 +2310,84 @@ void noteHashVerifyBucket(const std::string& bucket)
 		g_hashVerifyLast["buckets"].append(bucket);
 }
 
+// ----- W2-P2 S-H.2 (Q-H6 = (a)): the host's last 8 `saveBlob` documents -----
+// A `saveBlob` mismatch names no field by itself (R7). The host keeps the YAML
+// text of each `saveBlob` it put in an `h` (coopAttachSaveBlob), bound to the
+// seq of the envelope that carried it (bindSaveBlobText, in sendEv), and writes
+// the matching one to its desync-reports folder when the client's
+// bt_desync{bucket:"saveBlob"} arrives; the client's bundle carries its own.
+// Diagnostics only: nothing here is read by game logic or put on the wire.
+struct SaveBlobText
+{
+	std::uint32_t seq = 0; ///< 0 = computed, not yet bound to an envelope
+	std::string hex;
+	std::string yaml;
+};
+static const size_t kSaveBlobTextsKept = 8;
+static std::mutex g_saveBlobTextMutex;
+static std::vector<SaveBlobText> g_saveBlobTexts; // oldest first
+
+static void keepSaveBlobText(const std::string& hex, std::string&& yaml)
+{
+	SaveBlobText t;
+	t.hex = hex;
+	t.yaml = std::move(yaml);
+	std::lock_guard<std::mutex> lock(g_saveBlobTextMutex);
+	g_saveBlobTexts.push_back(std::move(t));
+	while (g_saveBlobTexts.size() > kSaveBlobTextsKept)
+		g_saveBlobTexts.erase(g_saveBlobTexts.begin());
+}
+
+/// HOST, sendEv() right after the seq is minted: an envelope whose `h`
+/// carries `saveBlob` claims the newest unbound document with that hash.
+static void bindSaveBlobText(const Json::Value& ev)
+{
+	if (!ev.isMember("h") || !ev["h"].isObject() || !ev["h"].isMember("saveBlob"))
+		return;
+	const std::string hex = ev["h"]["saveBlob"].asString();
+	const std::uint32_t seq = ev.get("seq", 0u).asUInt();
+	std::lock_guard<std::mutex> lock(g_saveBlobTextMutex);
+	for (auto it = g_saveBlobTexts.rbegin(); it != g_saveBlobTexts.rend(); ++it)
+	{
+		if (it->seq == 0 && it->hex == hex)
+		{
+			it->seq = seq;
+			return;
+		}
+	}
+}
+
+/// HOST, on a peer's bt_desync{bucket:"saveBlob"}: write the kept document of
+/// @a seq (the one whose hash is @a expect) next to the desync reports.
+static void writeHostSaveBlobText(std::uint32_t seq, const std::string& expect)
+{
+	std::string yaml, hex;
+	bool found = false;
+	{
+		std::lock_guard<std::mutex> lock(g_saveBlobTextMutex);
+		for (auto it = g_saveBlobTexts.rbegin(); it != g_saveBlobTexts.rend(); ++it)
+		{
+			if (seq != 0 && it->seq == seq)
+			{
+				yaml = it->yaml;
+				hex = it->hex;
+				found = true;
+				break;
+			}
+		}
+	}
+	if (!found)
+	{
+		Log(LOG_ERROR) << "[coop-hash] saveBlob desync at seq " << seq
+			<< ": no kept host saveBlob document for that seq (last " << kSaveBlobTextsKept << " kept)";
+		return;
+	}
+	if (hex != expect)
+		Log(LOG_ERROR) << "[coop-hash] saveBlob desync at seq " << seq << ": kept document hashes " << hex
+			<< ", the report's expect is " << expect;
+	SharedEcon::writeDesyncText("host-saveBlob-seq" + std::to_string(seq) + ".yaml", yaml);
+}
+
 void resetLightWindow()
 {
 	g_lightUsMax = 0;
@@ -2366,6 +2456,10 @@ static void resetProbes()
 		std::lock_guard<std::mutex> lock(g_hashVerifyMutex);
 		g_hashVerifyCounts.clear();
 		g_hashVerifyLast = Json::Value();
+	}
+	{
+		std::lock_guard<std::mutex> lock(g_saveBlobTextMutex); // W2-P2 S-H.2 (Q-H6)
+		g_saveBlobTexts.clear();
 	}
 }
 
@@ -2536,6 +2630,14 @@ struct SaveBlobTimer
 	~SaveBlobTimer() { noteLastMax(g_saveBlobUsLast, g_saveBlobUsMax, usSince(t0)); }
 };
 
+/// RAII: times the CLIENT's `saveBlob` recompute in CoopHashCheck::verify()'s
+/// arm into saveBlobVerifyUsLast/Max (W2-P2 S-H.2, A5.5).
+struct SaveBlobVerifyTimer
+{
+	std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+	~SaveBlobVerifyTimer() { noteLastMax(g_saveBlobVerifyUsLast, g_saveBlobVerifyUsMax, usSince(t0)); }
+};
+
 /// `tags`: the raw script-value vector with trailing zeros stripped ((b)1).
 std::vector<int> stripTags(const std::vector<int>& raw)
 {
@@ -2545,6 +2647,11 @@ std::vector<int> stripTags(const std::vector<int>& raw)
 	return v;
 }
 
+// FIELD-PARITY (W2-P2 S-H, owner ruling D138, A5.2): SharedEcon.cpp's
+// computeBattleHashes() hashes every field the four capture* functions below
+// read - in a legacy bucket or in `synced`, with these exact getters. A field
+// added to UnitSnap/TileSnap/ItemSnap/BattleSnap joins one of them in the same
+// commit (and test_w2_hash_coverage.py's HC1 table gains its row).
 UnitSnap captureUnit(const BattleUnit* u)
 {
 	UnitSnap s;
@@ -3458,9 +3565,10 @@ void flushSync()
 	// Spec (b)9: a context-less chain ended with state the client has not got
 	// yet (a fall after a shot, deaths after endTurn, AI/reaction chains until
 	// W2-P3). actionId 0, empty payload; the state is the delta sendEv attaches
-	// at the choke, `h` the 7 structured buckets ((b)10).
+	// at the choke, `h` the 8 structured buckets + saveBlob ((b)10; W2-P2 S-H,
+	// D138, Q-H3 = (a): a `sync` ends a chain like a bt_action_end does).
 	Json::Value ev = CoopWire::makeEv(0u, 0u, "sync");
-	ev["h"] = coopBuildStructuredHash(battle, /*withSaveBlob=*/false);
+	ev["h"] = coopBuildActionEndHash(battle);
 	g_deltaSyncEvsEmitted.fetch_add(1);
 	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
 	CoopEmit::sendEv(ev);
@@ -3925,6 +4033,10 @@ void sendEv(Json::Value ev)
 	}
 
 	ev["seq"] = nextSeq();
+	// W2-P2 S-H.2 (Q-H6): bind a saveBlob-carrying `h`'s kept document to this
+	// seq (host diagnostics only; the envelope is not touched).
+	if (hostAuthoring)
+		CoopDelta::bindSaveBlobText(ev);
 	// W2-P2 S-A (spec (b)3, D128 = (b)): the whole-battle `delta` - every synced
 	// unit/tile/node/battle-counter field that changed since the previous
 	// envelope, as absolute values. Host, armed, outermost call only.
@@ -5341,7 +5453,7 @@ static std::string coopHex64(std::uint64_t v)
 // spike" - walk/shot/etc. atoms are post-spike and may carry more). Built
 // via SharedEcon::computeBattleHashes() - the ported SS2.8 sweep - never a
 // second hand-rolled hasher.
-static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save)
+static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save, bool withSynced)
 {
 	CoopDelta::HashTimer timer; // W2-P2 S-A (spec (b)16): hashUsLast/Max, M1
 	Json::Value h(Json::objectValue);
@@ -5349,33 +5461,58 @@ static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save)
 	if (SharedEcon::computeBattleHashes(save, buckets))
 	{
 		h["unitsStats"] = coopHex64(buckets.unitsStats);
+		// W2-P2 S-H (owner ruling D138): `synced` rides every ev's `h`, the
+		// baseline reveal's excepted (A5.4 H3) - same sweep, no extra cost.
+		if (withSynced)
+			h["synced"] = coopHex64(buckets.synced);
 	}
 	return h;
 }
 
-// W2-P2 S-A (spec (b)10): the 7 structured buckets from ONE
-// computeBattleHashes() sweep - the same sweep coopBuildUnitsStatsHash() above
-// already pays for one bucket (N7) - plus `saveBlob` when @a withSaveBlob. The
-// `sync` ev carries it without saveBlob (a carried saveBlob is not verified by
-// the client today, N3 / D138 reading (b)).
+// W2-P2 S-H.2 (D138, Q-H6, N19): `saveBlob` into @a h, timed on its own
+// (saveBlobUsLast/Max - hashUsLast/Max stays the sweep, F754), and the hashed
+// document kept for the desync diagnostics (CoopDelta::keepSaveBlobText).
+static void coopAttachSaveBlob(SavedBattleGame* save, Json::Value& h)
+{
+	CoopDelta::SaveBlobTimer sbTimer; // saveBlobUsLast/Max
+	std::uint64_t sb = 0;
+	std::string yaml;
+	if (SharedEcon::computeSaveBlobHash(save, sb, &yaml))
+	{
+		const std::string hex = coopHex64(sb);
+		h["saveBlob"] = hex;
+		CoopDelta::keepSaveBlobText(hex, std::move(yaml));
+	}
+}
+
+// W2-P2 S-A (spec (b)10): the structured buckets (8 since W2-P2 S-H: + `synced`)
+// from ONE computeBattleHashes() sweep - the same sweep
+// coopBuildUnitsStatsHash() above already pays for one bucket (N7) - plus
+// `saveBlob` when @a withSaveBlob (coopBuildActionEndHash below). Cue evs and
+// `side_begin` carry it without saveBlob.
 static Json::Value coopBuildStructuredHash(SavedBattleGame* save, bool withSaveBlob)
 {
-	CoopDelta::HashTimer timer; // hashUsLast/Max
 	Json::Value h(Json::objectValue);
-	SharedEcon::BattleHashSet hs;
-	if (SharedEcon::computeBattleHashes(save, hs))
 	{
-		for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
-			h[SharedEcon::battleHashBucketName(i)] = coopHex64(SharedEcon::battleHashBucketValue(hs, i));
+		CoopDelta::HashTimer timer; // hashUsLast/Max: the sweep only (N19)
+		SharedEcon::BattleHashSet hs;
+		if (SharedEcon::computeBattleHashes(save, hs))
+		{
+			for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+				h[SharedEcon::battleHashBucketName(i)] = coopHex64(SharedEcon::battleHashBucketValue(hs, i));
+		}
 	}
 	if (withSaveBlob)
-	{
-		CoopDelta::SaveBlobTimer sbTimer; // W2-P2 S-H.1 (A5.5): saveBlobUsLast/Max
-		std::uint64_t sb = 0;
-		if (SharedEcon::computeSaveBlobHash(save, sb))
-			h["saveBlob"] = coopHex64(sb);
-	}
+		coopAttachSaveBlob(save, h);
 	return h;
+}
+
+// W2-P2 S-H.2 (owner ruling D138, A5.7): every bt_action_end (onChainQuiesced,
+// coopOnKneelFinished, coopHostPrime) and every `sync` (Q-H3 = (a)) carries
+// the 8 structured buckets + `saveBlob`, and the client verifies both.
+static Json::Value coopBuildActionEndHash(SavedBattleGame* save)
+{
+	return coopBuildStructuredHash(save, /*withSaveBlob=*/true);
 }
 
 namespace CoopArbiter
@@ -6159,10 +6296,10 @@ void onChainQuiesced()
 	{
 		Json::Value end = CoopWire::makeActionEnd(0, actionId);
 		end["final"] = buildFinal(actor);
-		// W2-P2 S-B (spec (b)10): every bt_action_end carries the 7 structured
+		// W2-P2 S-B (spec (b)10): every bt_action_end carries the structured
 		// buckets from ONE computeBattleHashes() sweep (was unitsStats alone,
-		// RB-D14). No saveBlob: D138 is stacked, reading (b).
-		end["h"] = coopBuildStructuredHash(save, /*withSaveBlob=*/false);
+		// RB-D14). W2-P2 S-H (owner ruling D138): 8 buckets + saveBlob.
+		end["h"] = coopBuildActionEndHash(save);
 
 		if (wasWalk)
 		{
@@ -7404,8 +7541,9 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 
 	Json::Value end = CoopWire::makeActionEnd(0u, actionId);
 	end["final"] = CoopArbiter::buildFinal(unit);
-	// W2-P2 S-B (spec (b)10): the 7 structured buckets, one sweep, no saveBlob (D138).
-	end["h"] = coopBuildStructuredHash(save, /*withSaveBlob=*/false);
+	// W2-P2 S-B (spec (b)10): the structured buckets, one sweep; W2-P2 S-H
+	// (owner ruling D138): 8 buckets + saveBlob.
+	end["h"] = coopBuildActionEndHash(save);
 	if (!succeeded)
 		end["halted"] = true;
 	CoopEmit::sendEv(end);
@@ -7419,8 +7557,8 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 // kneel pattern above in one call (mint, push {id,"host"}, the `prime` cue with
 // its delta + h, bt_action_end{final, h}, pop). Called as the last statement of
 // BattlescapeGame::handleNonTargetAction()'s BA_PRIME / BA_UNPRIME spendTU
-// blocks; W2-P4's prime intent reuses it. `h` = the 7 structured buckets
-// (stage S-H switches it to its action-end helper).
+// blocks; W2-P4's prime intent reuses it. `h` = the action-end helper's 8
+// structured buckets + saveBlob (W2-P2 S-H, D138).
 void coopHostPrime(BattleUnit* actor, BattleItem* item, bool unprime)
 {
 	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !actor || !item)
@@ -7449,7 +7587,7 @@ void coopHostPrime(BattleUnit* actor, BattleItem* item, bool unprime)
 
 	Json::Value end = CoopWire::makeActionEnd(0u, actionId);
 	end["final"] = CoopArbiter::buildFinal(actor);
-	end["h"] = coopBuildStructuredHash(save, /*withSaveBlob=*/false);
+	end["h"] = coopBuildActionEndHash(save);
 	CoopEmit::sendEv(end);
 
 	CoopArbiter::popActionContext();
@@ -7798,7 +7936,8 @@ std::atomic<unsigned int> g_coopDoorReserveWaived{0};
 /// could not check it even if it were carried. A ufo-door divergence is caught
 /// by `hash_now full` and by W1-P13's boundary sweep - and repro_atom_door
 /// asserts it there, deliberately, rather than pretending the per-ev hash
-/// covers it.
+/// covers it. W2-P2 S-H (owner ruling D138) closes that: every UFO-door part's
+/// open bit (floor included) is in the `synced` bucket, carried here too.
 Json::Value coopBuildDoorHash(SavedBattleGame* save)
 {
 	CoopDelta::HashTimer timer; // W2-P2 S-A (spec (b)16): hashUsLast/Max
@@ -7808,6 +7947,7 @@ Json::Value coopBuildDoorHash(SavedBattleGame* save)
 	{
 		h["terrain"] = coopHex64(buckets.terrain);
 		h["unitsStats"] = coopHex64(buckets.unitsStats);
+		h["synced"] = coopHex64(buckets.synced); // W2-P2 S-H (D138)
 	}
 	return h;
 }
@@ -8040,7 +8180,8 @@ static std::vector<std::pair<std::string, int>> coopScriptTagsFromJson(const Jso
 
 // W1-P13a: the side_transition boundary FULL SWEEP - all nine buckets
 // (terrain, fire, smoke, items, unitsCore, unitsStats, itemIdCtr, saveBlob,
-// revealHostile). Mirrors TestServer's hash_now{full:true} bucket assembly
+// revealHostile; ten since W2-P2 S-H: + synced). Mirrors TestServer's
+// hash_now{full:true} bucket assembly
 // (the only other place this sweep is built) so the wire's own `h` and a
 // test's own hash_now full agree by construction. `revealHostile` is OMITTED
 // (key absent, never zeroed) when CoopFog::computeHash() reports nothing
@@ -8048,23 +8189,22 @@ static std::vector<std::pair<std::string, int>> coopScriptTagsFromJson(const Jso
 // the only context this function is ever called from, that never happens.
 static Json::Value coopBuildSideTransitionHash(SavedBattleGame* save)
 {
-	CoopDelta::HashTimer timer; // W2-P2 S-A (spec (b)16): hashUsLast/Max
 	Json::Value h(Json::objectValue);
-	SharedEcon::BattleHashSet hs;
-	if (SharedEcon::computeBattleHashes(save, hs))
 	{
-		for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
-			h[SharedEcon::battleHashBucketName(i)] = coopHex64(SharedEcon::battleHashBucketValue(hs, i));
+		// W2-P2 S-A (spec (b)16): hashUsLast/Max. W2-P2 S-H.2 (N19, F754): the
+		// sweep and revealHostile only - saveBlob is timed on its own below.
+		CoopDelta::HashTimer timer;
+		SharedEcon::BattleHashSet hs;
+		if (SharedEcon::computeBattleHashes(save, hs))
+		{
+			for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+				h[SharedEcon::battleHashBucketName(i)] = coopHex64(SharedEcon::battleHashBucketValue(hs, i));
+		}
+		std::uint64_t rh = 0;
+		if (CoopFog::computeHash(rh))
+			h["revealHostile"] = coopHex64(rh);
 	}
-	std::uint64_t sb = 0;
-	{
-		CoopDelta::SaveBlobTimer sbTimer; // W2-P2 S-H.1 (A5.5): saveBlobUsLast/Max
-		if (SharedEcon::computeSaveBlobHash(save, sb))
-			h["saveBlob"] = coopHex64(sb);
-	}
-	std::uint64_t rh = 0;
-	if (CoopFog::computeHash(rh))
-		h["revealHostile"] = coopHex64(rh);
+	coopAttachSaveBlob(save, h); // saveBlobUsLast/Max + the Q-H6 document
 	return h;
 }
 
@@ -8184,6 +8324,9 @@ void coopEmitSideTransition(SavedBattleGame* save)
 			activeSeats.append(seat);
 	}
 	begin["payload"]["activeSeats"] = activeSeats;
+	// W2-P2 S-H (owner ruling D138, Q-H8 = (a)): side_begin is an outermost
+	// envelope (its delta has landed), so it carries the 8 structured buckets.
+	begin["h"] = coopBuildStructuredHash(save, /*withSaveBlob=*/false);
 	CoopEmit::sendEv(begin);
 
 	// W1-P13b (SS2.W3 boundary discipline, IR2-4): the readiness tally's
@@ -14274,6 +14417,12 @@ void verify(const Json::Value& evOrEnd)
 	CoopDelta::noteHashVerifyBegin(evOrEnd); // W2-P2 S-H.1 (A5.5): lastHashVerify probe only
 	for (const auto& bucketName : carried.getMemberNames())
 	{
+		// W2-P2 S-H.2 (owner ruling D138, A5.4 H1 rule / Q-H2 = (a)): `synced`
+		// and `saveBlob` sort before most bucket names, so comparing them in
+		// this loop would re-label existing divergences (N14). Both are
+		// compared AFTER it - `synced`, then `saveBlob` last.
+		if (bucketName == "synced" || bucketName == "saveBlob")
+			continue;
 		int idx = -1;
 		for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
 		{
@@ -14331,6 +14480,46 @@ void verify(const Json::Value& evOrEnd)
 		const std::string kind = evOrEnd.get("kind", "?").asString();
 		coopRaiseBattleDesync(bucketName.c_str(), expect, got, seq, kind);
 		return;
+	}
+
+	// W2-P2 S-H.2 (owner ruling D138): the deferred arms, same freeze/report
+	// path as every bucket above (coopRaiseBattleDesync), first mismatch wins.
+	// `synced` (the 8th BattleHashSet member, A5.2) - from the sweep above.
+	if (carried.isMember("synced"))
+	{
+		const std::string expect = carried["synced"].asString();
+		const std::string got = coopHex64(mine.synced);
+		CoopDelta::noteHashVerifyBucket("synced");
+		if (expect != got)
+		{
+			const std::uint32_t seq = evOrEnd.get("seq", 0u).asUInt();
+			const std::string kind = evOrEnd.get("kind", "?").asString();
+			coopRaiseBattleDesync("synced", expect, got, seq, kind);
+			return;
+		}
+	}
+	// `saveBlob` LAST (the whole-document safety net: every bt_action_end,
+	// `sync` and side_transition). Recomputed here, timed into
+	// saveBlobVerifyUsLast/Max; on a mismatch this machine's own document goes
+	// into the desync bundle (Q-H6 = (a)).
+	if (carried.isMember("saveBlob"))
+	{
+		const std::string expect = carried["saveBlob"].asString();
+		std::string got;
+		std::string yaml;
+		{
+			CoopDelta::SaveBlobVerifyTimer sbTimer;
+			std::uint64_t sb = 0;
+			got = SharedEcon::computeSaveBlobHash(battle, sb, &yaml) ? coopHex64(sb) : std::string("<absent>");
+		}
+		CoopDelta::noteHashVerifyBucket("saveBlob");
+		if (expect != got)
+		{
+			const std::uint32_t seq = evOrEnd.get("seq", 0u).asUInt();
+			const std::string kind = evOrEnd.get("kind", "?").asString();
+			coopRaiseBattleDesync("saveBlob", expect, got, seq, kind, &yaml);
+			return;
+		}
 	}
 }
 
@@ -18061,6 +18250,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				<< " expect=" << obj.get("expect", "").asString()
 				<< " got=" << obj.get("got", "").asString()
 				<< " bundlePath=" << obj.get("bundlePath", "").asString();
+			// W2-P2 S-H.2 (Q-H6 = (a)): a `saveBlob` freeze names no field - write
+			// the document this host hashed for that seq next to the reports.
+			if (coopBattleAuthority().hostSim && obj.get("bucket", "").asString() == "saveBlob")
+				CoopDelta::writeHostSaveBlobText(obj.get("seq", 0u).asUInt(), obj.get("expect", "").asString());
 		}
 		else if (stateString == "bt_ack")
 		{

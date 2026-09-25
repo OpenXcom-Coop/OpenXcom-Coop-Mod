@@ -118,7 +118,7 @@ MIXED_ACTIONS = 10  # packet text: ">= 10 mixed turn/kneel across BOTH seats"
 # plus saveBlob plus revealHostile. Named, not hard-coded inline, because SS1's
 # WAVE-1 ADDITIONS trap says a later packet must never "fix" a 9-bucket sweep
 # back to 8.
-BUCKETS = 9
+BUCKETS = 10
 
 TAB_STORM_PRESSES = 24
 

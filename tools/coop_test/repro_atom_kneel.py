@@ -610,7 +610,7 @@ def test_atom_kneel_e2e():
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after the whole kneel/turn burst (full 9/9)")
         # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
-        assert len(post_h) == 9, (
+        assert len(post_h) == 10, (
             f"hash_now full returned {len(post_h)} buckets, expected 9 "
             f"({sorted(post_h)}) - the spike bucket set changed under this test")
         print(f"PASS test_atom_kneel_e2e: directionTurret equal on all {n_units} units, fog of "

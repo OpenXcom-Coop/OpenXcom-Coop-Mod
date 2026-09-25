@@ -88,6 +88,7 @@
 #include "../Savegame/BattleItem.h"
 #include "../Savegame/Tile.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/Node.h" // W2-P2 S-H: the `synced` bucket's node types
 #include "../Mod/RuleInventory.h"
 #include "../Engine/CrossPlatform.h"
 #include "../../libs/miniz/miniz.h"
@@ -3786,6 +3787,19 @@ int unitLiveness(const BattleUnit* unit)
 	}
 }
 
+// W2-P2 S-H (A5.2): the `synced` bucket's script-tag form - the raw
+// script-value vector with trailing zeros stripped, exactly as the delta's
+// `tags` ships it (CoopDelta's stripTags), mixed as size then values.
+std::uint64_t mixSyncedTags(std::uint64_t h, std::vector<int> tags)
+{
+	while (!tags.empty() && tags.back() == 0)
+		tags.pop_back();
+	h = mix(h, (std::int64_t)tags.size());
+	for (int v : tags)
+		h = mix(h, v);
+	return h;
+}
+
 } // namespace
 
 const char* battleHashBucketName(int i)
@@ -3793,6 +3807,7 @@ const char* battleHashBucketName(int i)
 	static const char* const kNames[BATTLE_HASH_BUCKETS] =
 	{
 		"terrain", "fire", "smoke", "items", "unitsCore", "unitsStats", "itemIdCtr",
+		"synced", // W2-P2 S-H (D138, A5.2)
 	};
 	return (i >= 0 && i < BATTLE_HASH_BUCKETS) ? kNames[i] : "?";
 }
@@ -3808,6 +3823,7 @@ std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i)
 	case 4: return h.unitsCore;
 	case 5: return h.unitsStats;
 	case 6: return h.itemIdCtr;
+	case 7: return h.synced; // W2-P2 S-H (D138, A5.2)
 	default: return 0;
 	}
 }
@@ -3816,8 +3832,18 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 {
 	out.terrain = out.fire = out.smoke = out.items = 0;
 	out.unitsCore = out.unitsStats = out.itemIdCtr = 0;
+	out.synced = 0; // W2-P2 S-H (D138)
 	if (!battle)
 		return false;
+
+	// W2-P2 S-H (owner ruling D138, amendment A5.2): `synced` = every delta
+	// field no other bucket covers (33 rows), in the same sweep. Per entity an
+	// FNV that first mixes a kind tag (1 unit, 2 tile, 3 node, 4 item,
+	// 5 battle) and the id/index, then the fields in the A5.2 table order,
+	// summed like every other bucket (order-free, N12). FIELD-PARITY:
+	// connectionTCP.cpp's CoopDelta captureUnit/captureTile/captureItem/
+	// captureBattle read exactly these getters - a field added there joins a
+	// legacy bucket or this one in the same commit.
 
 	// --- tiles: terrain, fire, smoke ---------------------------------------
 	// A VOID tile (no map-data part AND no explosive accumulator) contributes
@@ -3866,6 +3892,20 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 			h = mix(h, sm);
 			out.smoke += h;
 		}
+
+		// synced (A5.2 row 36): doorBits, captureTile's formula; tiles with
+		// every UFO-door part closed contribute nothing.
+		const int doorBits = (tile->isUfoDoorOpen(O_WESTWALL) ? 1 : 0)
+			| (tile->isUfoDoorOpen(O_NORTHWALL) ? 2 : 0)
+			| (tile->isUfoDoorOpen(O_FLOOR) ? 4 : 0);
+		if (doorBits != 0)
+		{
+			std::uint64_t y = FNV_OFFSET;
+			y = mix(y, 2);
+			y = mix(y, i);
+			y = mix(y, doorBits);
+			out.synced += y;
+		}
 	}
 
 	// --- items: the strict census -------------------------------------------
@@ -3898,6 +3938,26 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		h = mix(h, item->getFuseTimer());
 		h = mix(h, item->getAmmoQuantity()); // D5
 		out.items += h;
+
+		// synced (A5.2 rows 40, 41, 45, 47-51), captureItem's getters.
+		std::uint64_t y = FNV_OFFSET;
+		y = mix(y, 4);
+		y = mix(y, item->getId());
+		y = mix(y, item->getPreviousOwner() ? item->getPreviousOwner()->getId() : -1);
+		y = mix(y, item->getUnit() ? item->getUnit()->getId() : -1);
+		for (int k = 0; k < RuleItem::AmmoSlotMax; ++k)
+		{
+			const BattleItem* a = item->getAmmoForSlot(k);
+			y = mix(y, a ? a->getId() : -1); // self (F530) = the item's own id
+		}
+		y = mix(y, item->isFuseEnabled() ? 1 : 0);
+		y = mix(y, item->getPainKillerQuantity());
+		y = mix(y, item->getHealQuantity());
+		y = mix(y, item->getStimulantQuantity());
+		y = mix(y, item->getTurnFlag() ? 1 : 0);
+		y = mix(y, item->getXCOMProperty() ? 1 : 0);
+		y = mixSyncedTags(y, item->coopScriptValuesRaw());
+		out.synced += y;
 	}
 
 	// --- units: core identity/liveness/position, then unitsStats ------------
@@ -3934,6 +3994,74 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 			s = mix(s, unit->getFatalWound((UnitBodyPart)part));
 		s = mix(s, unit->getMotionPoints());
 		out.unitsStats += s;
+
+		// synced (A5.2 rows 2-4, 6, 15, 17, 20-30), captureUnit's getters;
+		// `status` raw (Q-H5 = (a), F608), unitsCore keeps liveness.
+		std::uint64_t y = FNV_OFFSET;
+		y = mix(y, 1);
+		y = mix(y, unit->getId());
+		y = mix(y, unit->getTile() != nullptr ? 1 : 0);
+		y = mix(y, unit->getDirection());
+		y = mix(y, unit->getTurretDirection());
+		y = mix(y, (int)unit->getStatus());
+		y = mix(y, unit->isFloating() ? 1 : 0);
+		for (int side = 0; side < (int)SIDE_MAX; ++side)
+			y = mix(y, unit->getArmor((UnitSide)side));
+		y = mix(y, unit->wantsToSurrender() ? 1 : 0);
+		y = mix(y, unit->isSurrendering() ? 1 : 0);
+		y = mix(y, unit->coopGetMoraleRestored());
+		y ^= fnv1a(unit->getSpawnUnit() ? unit->getSpawnUnit()->getType() : std::string());
+		y *= FNV_PRIME;
+		y = mix(y, unit->getRespawn() ? 1 : 0);
+		y = mix(y, (int)unit->getSpawnUnitFaction());
+		y = mix(y, unit->getAlreadyRespawned() ? 1 : 0);
+		y ^= fnv1a(unit->isRightHandPreferredForReactions() ? std::string("STR_RIGHT_HAND")
+			: (unit->isLeftHandPreferredForReactions() ? std::string("STR_LEFT_HAND") : std::string()));
+		y *= FNV_PRIME;
+		y = mix(y, unit->isLeftHandDisabledForReactions() ? 1 : 0);
+		y = mix(y, unit->isRightHandDisabledForReactions() ? 1 : 0);
+		y = mixSyncedTags(y, unit->coopScriptValuesRaw());
+		out.synced += y;
+	}
+
+	// synced (A5.2 row 37): every node's type.
+	if (std::vector<Node*>* nodes = battle->getNodes())
+	{
+		for (Node* node : *nodes)
+		{
+			if (!node)
+				continue;
+			std::uint64_t y = FNV_OFFSET;
+			y = mix(y, 3);
+			y = mix(y, node->getID());
+			y = mix(y, node->getType());
+			out.synced += y;
+		}
+	}
+
+	// synced (A5.2 rows 55-60): the battle as one entity, captureBattle's
+	// getters; moduleMap cells x-major (x, y, first, second).
+	{
+		std::uint64_t y = FNV_OFFSET;
+		y = mix(y, 5);
+		y = mix(y, 0);
+		y = mix(y, battle->coopGetObjectivesDestroyed());
+		const auto& moduleMap = battle->getModuleMap();
+		for (size_t x = 0; x < moduleMap.size(); ++x)
+		{
+			for (size_t my = 0; my < moduleMap[x].size(); ++my)
+			{
+				y = mix(y, (std::int64_t)x);
+				y = mix(y, (std::int64_t)my);
+				y = mix(y, moduleMap[x][my].first);
+				y = mix(y, moduleMap[x][my].second);
+			}
+		}
+		y = mix(y, battle->getBughuntMode() ? 1 : 0);
+		y = mix(y, battle->getTurn());
+		y = mix(y, (int)battle->getSide());
+		y = mixSyncedTags(y, battle->coopScriptValuesRaw());
+		out.synced += y;
 	}
 
 	out.itemIdCtr = (std::uint64_t)(std::int64_t)*battle->getCurrentItemId();
@@ -4129,7 +4257,7 @@ void saveBlobHashTree(const YAML::YamlNodeReader& node, std::uint64_t& h, bool t
 
 } // namespace
 
-bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out)
+bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::string* yamlOut)
 {
 	out = 0;
 	if (!battle)
@@ -4145,10 +4273,16 @@ bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out)
 
 	// Re-parse and hash the STRUCTURE, so emit-formatting differences between
 	// the two builds cannot register as a divergence.
-	YAML::YamlRootNodeReader reader(text, "saveBlob");
-	std::uint64_t h = FNV_OFFSET;
-	saveBlobHashTree(reader["battle"], h, true, SbScope::Other);
-	out = h;
+	{
+		YAML::YamlRootNodeReader reader(text, "saveBlob");
+		std::uint64_t h = FNV_OFFSET;
+		saveBlobHashTree(reader["battle"], h, true, SbScope::Other);
+		out = h;
+	}
+	// W2-P2 S-H (Q-H6): the hashed document for the desync diagnostics. The
+	// reader parsed into its own arena and is gone, so the text can move out.
+	if (yamlOut)
+		*yamlOut = std::move(text.yaml);
 	return true;
 }
 
@@ -4226,7 +4360,8 @@ bool writeZipArchive(const std::string& path,
 } // namespace
 
 std::string writeDesyncBundle(const std::string& bucket, const std::string& expect,
-	const std::string& got, std::uint32_t seq, const std::string& kind)
+	const std::string& got, std::uint32_t seq, const std::string& kind,
+	const std::string* saveBlobYaml)
 {
 	try
 	{
@@ -4253,6 +4388,10 @@ std::string writeDesyncBundle(const std::string& bucket, const std::string& expe
 		const std::string logTail = readLogTail(256 * 1024);
 		if (!logTail.empty())
 			members.push_back(std::make_pair(std::string("openxcom.log"), logTail));
+		// W2-P2 S-H (Q-H6): a `saveBlob` mismatch names no field by itself;
+		// this machine's own battle document goes with the report.
+		if (saveBlobYaml && !saveBlobYaml->empty())
+			members.push_back(std::make_pair(std::string("saveBlob-client.yaml"), *saveBlobYaml));
 
 		if (!writeZipArchive(path, members))
 		{
@@ -4270,6 +4409,39 @@ std::string writeDesyncBundle(const std::string& bucket, const std::string& expe
 	catch (...)
 	{
 		Log(LOG_ERROR) << "[coop-hash] desync bundle failed";
+		return std::string();
+	}
+}
+
+std::string writeDesyncText(const std::string& suffix, const std::string& text)
+{
+	try
+	{
+		const std::string dir = Options::getUserFolder() + "desync-reports/";
+		if (!CrossPlatform::folderExists(dir))
+			CrossPlatform::createFolder(dir);
+		if (!CrossPlatform::folderExists(dir))
+		{
+			Log(LOG_ERROR) << "[coop-hash] desync text: cannot create " << dir;
+			return std::string();
+		}
+		const std::string path = dir + "desync-" + desyncTimeString() + "-" + suffix;
+		if (!CrossPlatform::writeFile(path, text))
+		{
+			Log(LOG_ERROR) << "[coop-hash] desync text: failed to write " << path;
+			return std::string();
+		}
+		Log(LOG_ERROR) << "[coop-hash] desync text written to " << path;
+		return path;
+	}
+	catch (const std::exception& e)
+	{
+		Log(LOG_ERROR) << "[coop-hash] desync text failed: " << e.what();
+		return std::string();
+	}
+	catch (...)
+	{
+		Log(LOG_ERROR) << "[coop-hash] desync text failed";
 		return std::string();
 	}
 }

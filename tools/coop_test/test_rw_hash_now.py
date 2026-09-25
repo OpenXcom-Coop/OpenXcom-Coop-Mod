@@ -380,7 +380,7 @@ def main():
         assert "itemIdCtr" in host_h and "itemIdCtr" in client_h, (
             f"itemIdCtr bucket missing from hash_now full (WV-D61): "
             f"host={sorted(host_h)} client={sorted(client_h)}")
-        assert len(host_h) == 9, (
+        assert len(host_h) == 10 and "synced" in host_h, (
             f"hash_now full returned {len(host_h)} buckets, expected 9 ({sorted(host_h)}) - "
             "the bucket set changed under this test")
 
