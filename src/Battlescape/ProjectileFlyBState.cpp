@@ -118,7 +118,11 @@ void ProjectileFlyBState::init()
 	{
 		BattleUnit* target = _parent->getSave()->getTile(_action.target)->getUnit();
 		// target is dead: cancel the shot.
-		if (!target || target->isOut() || target->isOutThresholdExceed() || target != _parent->getSave()->getSelectedUnit())
+		// W2-P3 S-B (owner ruling D145 = a, amendment B3): ONE guarded coop call - on the
+		// co-op HOST the target must be the unit whose action triggered the reaction (a
+		// client's walker is never the host's selected unit); vanilla's selected unit
+		// everywhere else.
+		if (!target || target->isOut() || target->isOutThresholdExceed() || target != coopReactionTrigger(_parent->getSave()->getSelectedUnit()))
 		{
 			_parent->popState();
 			return;

@@ -3482,6 +3482,11 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit *unit)
 						if (ruleItem->getBattleType() == BT_GRENADE || ruleItem->getBattleType() == BT_PROXIMITYGRENADE)
 						{
 							Position p = t->getPosition().toVoxel() + Position(8, 8, t->getTerrainLevel());
+							// W2-P3 S-B (spec (b)1/(b)8/(b)9): ONE guarded coop call - on the
+							// co-op HOST the detonation runs in its own nested `prox` context,
+							// announced by the `prox_trigger` cue. No-op in single player and
+							// on a client.
+							coopCueProxTrigger(unit, item, t->getPosition());
 							statePushNext(new ExplosionBState(this, p, BattleActionAttack::GetBeforeShoot(BA_TRIGGER_PROXY_GRENADE, nullptr, item)));
 							exploded = true;
 						}

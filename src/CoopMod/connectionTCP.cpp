@@ -5169,6 +5169,29 @@ struct CoopActionContextEntry
 	// stay the wave-1 description the turn/kneel/walk hooks read.
 	int actorId = -1;
 	std::string kind;
+	// W2-P3 S-B.2 (spec (b)2-3, amendments B1 RQ4, B3 = owner D145, B4): the
+	// NESTED entries - origin `reaction` or `prox` - stack above the base entry
+	// (the stack's front) and carry their own actor (the reactor / the unit that
+	// set the mine off). nestedIn = the base entry's id when it was opened (0 when
+	// nothing was open: a reaction or prox with no base below it).
+	std::uint32_t nestedIn = 0;
+	// `reaction` only (D145): the actor of the base action open when this
+	// reaction began (g_coopPendingChainActorId then - the walker, the shooter,
+	// the kneeler, the AI unit), i.e. the unit whose action triggered it; -1 when
+	// no base action was open. coopReactionTrigger() compares a reaction shot's
+	// target with this unit instead of the host's selected unit.
+	int triggerId = -1;
+	// `reaction` only (B4): the triggering unit's state when this reaction's
+	// checkReactionFire burst ran. Every tryReaction of ONE burst sees that unit
+	// unchanged; between two bursts it has acted (a step, a stand-up, a turn, a
+	// shot changes its position, facing, TU, energy or kneel), so a begin whose
+	// state differs is a NEW burst and opens a NEW reaction context.
+	int burstUnit = -1;
+	Position burstPos;
+	int burstDir = -1;
+	int burstTu = -1;
+	int burstEnergy = -1;
+	bool burstKneeled = false;
 };
 static std::vector<CoopActionContextEntry> g_coopActionContextStack;
 
@@ -5431,6 +5454,12 @@ struct CoopWalkChain
 	// order the deferred save's write (coopSaveDeferredWrittenAt()) after the
 	// walk's end without racing either window. 0 while active and on a client.
 	std::uint32_t endTick = 0;
+	// W2-P3 S-B.2 (amendment B1 RQ4 (a)): HOST only - a reaction burst was aimed
+	// at this walker since its last completed step (coopBeginReaction sets it,
+	// coopOnWalkStepFinished clears it). coopNoteWalkHalt()'s catch-all then
+	// resolves the vanilla `blocked` to `reaction`; a stand-up reaction the walk
+	// survives never marks the walk halted.
+	bool reactionSinceStep = false;
 };
 static CoopWalkChain g_coopWalkChain;
 
@@ -6457,6 +6486,107 @@ static void closeBaseContext()
 	}
 }
 
+// ===== W2-P3 S-B.2 (spec rewrite/prompts/w2p3_nonplayer_origins.md (b)2-3,
+// amendments B1 RQ4, B3 = owner D145, B4): NESTED contexts. A `reaction` or
+// `prox` entry stacks above the base entry; currentActionId() stays "the top
+// entry", so every ev a hook emits inside a reaction or a prox chain carries
+// that chain's id, while g_coopPendingChainActorId/g_coopPendingChainKind keep
+// describing the BASE entry (the turn/kneel/walk/spot hooks are unchanged). =====
+
+static bool isNestedOrigin(const std::string& origin)
+{
+	return origin == "reaction" || origin == "prox";
+}
+
+/// Spec (b)2: the front (base) entry's id, 0 when the stack is empty. Hooks owned
+/// by the base chain (walk_step, spot, the stand-up kneel ev, the kneel's own
+/// close) read it instead of the top (B1 RQ4 (a)).
+static std::uint32_t baseActionId()
+{
+	return g_coopActionContextStack.empty() ? 0u : g_coopActionContextStack.front().actionId;
+}
+
+/// Spec (b)2 nested begin. REUSES the top entry when it has the same origin -
+/// for `reaction` only when it is the SAME checkReactionFire burst (B4: the
+/// triggering unit in the same state; @a burst != nullptr) - else mints and
+/// pushes {id, origin, actorId: @a actor, kind: origin, nestedIn: the base's id}.
+static void beginNested(const char* origin, const BattleUnit* actor, const CoopActionContextEntry* burst)
+{
+	if (!g_coopActionContextStack.empty())
+	{
+		const CoopActionContextEntry& top = g_coopActionContextStack.back();
+		const bool sameBurst = !burst || (top.burstUnit == burst->burstUnit && top.burstPos == burst->burstPos
+			&& top.burstDir == burst->burstDir && top.burstTu == burst->burstTu
+			&& top.burstEnergy == burst->burstEnergy && top.burstKneeled == burst->burstKneeled);
+		if (top.origin == origin && sameBurst)
+		{
+			Log(LOG_INFO) << "[coop-ctx] " << origin << " context " << top.actionId << " reused (actor "
+				<< (actor ? actor->getId() : -1) << ")";
+			return;
+		}
+	}
+	std::uint32_t nestedIn = 0;
+	int triggerId = -1;
+	if (!g_coopActionContextStack.empty())
+	{
+		const CoopActionContextEntry& front = g_coopActionContextStack.front();
+		if (isNestedOrigin(front.origin))
+		{
+			// The base already closed (a kneel's own hook erases it, spec (b)3):
+			// carry the lone nested entry's own base and trigger.
+			nestedIn = front.nestedIn;
+			triggerId = front.triggerId;
+		}
+		else
+		{
+			nestedIn = front.actionId;
+			triggerId = g_coopPendingChainActorId;
+		}
+	}
+	const std::uint32_t actionId = mintActionId();
+	pushActionContext(actionId, origin);
+	CoopActionContextEntry& e = g_coopActionContextStack.back();
+	e.actorId = actor ? actor->getId() : -1;
+	e.kind = origin;
+	e.nestedIn = nestedIn;
+	e.triggerId = triggerId;
+	if (burst)
+	{
+		e.burstUnit = burst->burstUnit;
+		e.burstPos = burst->burstPos;
+		e.burstDir = burst->burstDir;
+		e.burstTu = burst->burstTu;
+		e.burstEnergy = burst->burstEnergy;
+		e.burstKneeled = burst->burstKneeled;
+	}
+	Log(LOG_INFO) << "[coop-ctx] " << origin << " context " << actionId << " begun: actor " << e.actorId
+		<< " nestedIn " << nestedIn << " trigger " << triggerId;
+}
+
+/// Spec (b)3: pop the top NESTED entry and emit its bt_action_end{actionId,
+/// final: buildFinal(actor) iff the actor resolves, h: the action-end hash (8
+/// structured buckets + saveBlob, D138 / B1 ST6)}; record it in closedContexts.
+static void closeNested()
+{
+	if (g_coopActionContextStack.empty())
+		return;
+	const CoopActionContextEntry e = g_coopActionContextStack.back();
+	g_coopActionContextStack.pop_back();
+	g_coopPreAttackTurnActionId = 0; // W2-P3 S-A.2 (RQ6): cleared at every close
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	BattleUnit* actor = findUnitById(save, e.actorId);
+	Json::Value end = CoopWire::makeActionEnd(0, e.actionId);
+	if (actor)
+		end["final"] = buildFinal(actor);
+	end["h"] = coopBuildActionEndHash(save);
+	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
+	CoopEmit::sendEv(end);
+	const std::uint32_t endSeq = CoopDelta::hostSeqOf("bt_action_end", seqBefore);
+	CoopDelta::noteContextClosed(e.actionId, e.origin, e.kind, e.actorId, e.nestedIn, endSeq, actor != nullptr);
+	Log(LOG_INFO) << "[coop-ctx] " << e.origin << " context " << e.actionId << " closed (nestedIn " << e.nestedIn
+		<< "): bt_action_end seq " << endSeq << (actor ? "" : " (actor does not resolve, no final)");
+}
+
 void onChainQuiesced()
 {
 	if (!isCoopBattle())
@@ -6509,6 +6639,20 @@ void onChainQuiesced()
 		g_coopHoldChainHolding = false;
 		g_coopHoldChainMs = 0; // one-shot
 	}
+
+	// W2-P3 S-B.2 (spec (b)3 steps 5-7): nested entries close innermost-first,
+	// before their base.
+	while (g_coopActionContextStack.size() > 1 && isNestedOrigin(g_coopActionContextStack.back().origin))
+		closeNested();
+	if (g_coopActionContextStack.size() == 1 && isNestedOrigin(g_coopActionContextStack.back().origin))
+	{
+		closeNested(); // a reaction / prox with nothing below it
+		return;
+	}
+	// RB-D13: coopOnKneelFinished() owns the kneel entry - a reaction to a kneel
+	// is pushed, and can complete, inside kneel() before that hook runs.
+	if (g_coopPendingChainKind == "kneel")
+		return;
 
 	closeBaseContext(); // W2-P3 S-A.2 (spec (b)3 step 8)
 }
@@ -7645,12 +7789,15 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 		// `unit` it also registers the actor for this actionId on the
 		// client, which the gap-2 ack fix cannot do for a HOST-origin walk
 		// (there is no bt_ack for the host's own action).
+		// W2-P3 S-B.2 (B1 RQ4 (a)): a hook owned by the base chain - it reads the
+		// WALK's own id, never the top entry (the stand-up's reaction context,
+		// pushed by kneel()'s checkReactionFire just before this hook, is on top).
 		if (g_coopPendingChainKind == "walk" && succeeded
 			&& g_coopWalkChain.active && g_coopWalkChain.actorId == unit->getId()
-			&& CoopArbiter::currentActionId() != 0)
+			&& g_coopWalkChain.actionId != 0 && CoopArbiter::baseActionId() == g_coopWalkChain.actionId)
 		{
 			SavedBattleGame* saveW = connectionTCP::getStaticBattle();
-			Json::Value kev = CoopWire::makeEv(0u, CoopArbiter::currentActionId(),
+			Json::Value kev = CoopWire::makeEv(0u, g_coopWalkChain.actionId,
 				"kneel");
 			kev["payload"]["unit"] = unit->getId();
 			kev["payload"]["kneeled"] = unit->isKneeled();
@@ -7658,14 +7805,16 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 			kev["h"] = coopBuildUnitsStatsHash(saveW); // RB-D14
 			CoopEmit::sendEv(kev);
 			Log(LOG_INFO) << "[coop-walk] emitted the pre-step stand-up as a kneel "
-				"ev for actionId " << CoopArbiter::currentActionId()
+				"ev for actionId " << g_coopWalkChain.actionId
 				<< " (unit " << unit->getId() << ") - a zero-step walk would "
 				"otherwise lose it entirely";
 		}
 		return;
 	}
 
-	const std::uint32_t actionId = CoopArbiter::currentActionId();
+	// W2-P3 S-B.2 (spec (b)3): the kneel closes its OWN (base) entry - a reaction
+	// to the kneel is nested above it by now, and stays open after it (N23).
+	const std::uint32_t actionId = CoopArbiter::baseActionId();
 	if (actionId == 0)
 		return; // defensive: no action context even though the pending actor matched
 
@@ -7703,9 +7852,11 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded)
 		end["halted"] = true;
 	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted(); // W2-P3 S-A.2: closedContexts endSeq
 	CoopEmit::sendEv(end);
-	const std::string closedOrigin = CoopArbiter::currentActionOrigin(); // W2-P3 S-A.2 (spec (b)13)
+	// W2-P3 S-A.2 (spec (b)13); S-B.2 (spec (b)3): the FRONT entry's origin, and
+	// the front entry erased (with no nested entry both are the top, as before).
+	const std::string closedOrigin = g_coopActionContextStack.front().origin;
 
-	CoopArbiter::popActionContext();
+	g_coopActionContextStack.erase(g_coopActionContextStack.begin());
 	g_coopPendingChainActorId = -1;
 	g_coopPendingChainKind.clear();
 	g_coopPreAttackTurnActionId = 0; // W2-P3 S-A.2 (RQ6): cleared at every close
@@ -7850,7 +8001,12 @@ void coopOnEndTurnEntry(bool statesEmpty)
 	{
 		const std::uint32_t id = g_coopActionContextStack.back().actionId;
 		const std::string origin = g_coopActionContextStack.back().origin;
-		CoopArbiter::closeBaseContext();
+		// W2-P3 S-B.2 (spec (b)6): innermost first - a nested entry through
+		// closeNested(), the base through closeBaseContext().
+		if (CoopArbiter::isNestedOrigin(origin))
+			CoopArbiter::closeNested();
+		else
+			CoopArbiter::closeBaseContext();
 		if (origin != "endturn")
 		{
 			// B1 RQ5: a DIAGNOSTIC (the AI's last chain ending the turn from
@@ -7886,6 +8042,77 @@ void coopBeginEndTurnChain(bool go)
 	Log(LOG_INFO) << "[coop-ctx] endturn context " << actionId << " begun (actor-less)";
 }
 
+// ===== W2-P3 S-B.2 (docs rewrite/prompts/w2p3_nonplayer_origins.md (b)1-3, (b)8,
+// (b)9; amendments B1 RQ4 (a) / RQ8, B3 = owner D145, B4; D139): the NESTED
+// `reaction` and `prox` contexts and the D145 reaction-target fix. Declared in
+// CoopDelta.h; each is ONE self-guarded call at its vanilla site and a no-op
+// unless isCoopBattle() && hostSim. Nothing new on the wire (E59.2). =====
+
+void coopBeginReaction(BattleUnit* reactor, BattleUnit* target)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !reactor || !target)
+		return;
+	// B1 RQ4 (a): record "a reaction against the walker" - resolved to the halt
+	// reason `reaction` in coopNoteWalkHalt()'s catch-all, cleared at each step
+	// (a stand-up reaction the walk survives never marks it halted).
+	if (g_coopWalkChain.active && g_coopWalkChain.actorId == target->getId())
+		g_coopWalkChain.reactionSinceStep = true;
+	// B4: one reaction context per checkReactionFire burst - @a target (the
+	// unit checkReactionFire was called for) in the state this burst sees.
+	CoopActionContextEntry burst;
+	burst.burstUnit = target->getId();
+	burst.burstPos = target->getPosition();
+	burst.burstDir = target->getDirection();
+	burst.burstTu = target->getTimeUnits();
+	burst.burstEnergy = target->getEnergy();
+	burst.burstKneeled = target->isKneeled();
+	CoopArbiter::beginNested("reaction", reactor, &burst);
+}
+
+void coopCueProxTrigger(BattleUnit* unit, BattleItem* item, const Position& pos)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !unit)
+		return;
+	// Spec (b)8: the walk's halt reason FIRST - a prox trigger ends the walk
+	// through popState() (UnitWalkBState's `change > 1` branch), which passes no
+	// halt hook. coopNoteWalkHalt() ignores a unit that is not the active walker.
+	coopNoteWalkHalt(unit, std::string(), "prox");
+	CoopArbiter::beginNested("prox", unit, nullptr);
+	// Spec (b)9: the frozen W2-P2 payload {unit, item, pos}, after the nested begin.
+	Json::Value p(Json::objectValue);
+	p["unit"] = unit->getId();
+	p["item"] = item ? item->getId() : -1;
+	p["pos"] = CoopArbiter::coopPosJson(pos);
+	coopEmitCue("prox_trigger", p);
+}
+
+BattleUnit* coopReactionTrigger(BattleUnit* selected)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return selected; // single player / a client: vanilla's selected unit
+	// D145 (B3): the unit whose action triggered the reaction - the top-most
+	// `reaction` context's trigger (coopBeginReaction ran right before this
+	// reaction's state was pushed). No base action open then (a context-less
+	// fall) -> vanilla's selected unit.
+	for (auto it = g_coopActionContextStack.rbegin(); it != g_coopActionContextStack.rend(); ++it)
+	{
+		if (it->origin != "reaction")
+			continue;
+		if (it->triggerId < 0)
+			return selected;
+		BattleUnit* trigger = CoopArbiter::findUnitById(connectionTCP::getStaticBattle(), it->triggerId);
+		if (!trigger)
+			return selected;
+		if (trigger != selected)
+		{
+			Log(LOG_INFO) << "[coop-ctx] reaction " << it->actionId << ": target check against trigger unit "
+				<< trigger->getId() << " (host selected " << (selected ? selected->getId() : -1) << ", D145)";
+		}
+		return trigger;
+	}
+	return selected;
+}
+
 // ===== W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30 / WV-D37 / WV-D38 / WV-D48):
 // the ATOM walk-core hooks. See CoopArbiter.h for each one's full contract. =====
 
@@ -7904,8 +8131,15 @@ bool coopOnWalkStepFinished(BattleUnit* unit)
 	if (!g_coopWalkChain.active || g_coopWalkChain.actorId != unit->getId())
 		return false;
 
-	const std::uint32_t actionId = CoopArbiter::currentActionId();
-	if (actionId == 0 || actionId != g_coopWalkChain.actionId)
+	// W2-P3 S-B.2 (B1 RQ4 (a)): a step completed - a reaction aimed at the walker
+	// before it (the stand-up's) no longer explains a halt.
+	g_coopWalkChain.reactionSinceStep = false;
+
+	// W2-P3 S-B.2 (B1 RQ4 (a)): a hook owned by the base chain - the walk's OWN
+	// id, which must be the base entry; a reaction context nested above it (the
+	// stand-up's) does not stop the step ev.
+	const std::uint32_t actionId = g_coopWalkChain.actionId;
+	if (actionId == 0 || CoopArbiter::baseActionId() != actionId)
 		return false;
 
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
@@ -7992,6 +8226,11 @@ void coopNoteWalkHalt(BattleUnit* unit, const std::string& vanillaResult,
 			reason = "no_tu";
 		else if (vanillaResult == "STR_NOT_ENOUGH_ENERGY")
 			reason = "no_energy";
+		// W2-P3 S-B.2 (B1 RQ4 (a)): UnitWalkBState's reaction branch cancels
+		// with an EMPTY result; a reaction burst aimed at this walker since its
+		// last step (coopBeginReaction) is what stopped it.
+		else if (g_coopWalkChain.reactionSinceStep)
+			reason = "reaction";
 		else
 			reason = "blocked";
 	}
@@ -8022,8 +8261,9 @@ void coopNoteWalkSpot(BattleUnit* unit)
 	if (!g_coopWalkChain.active || g_coopWalkChain.actorId != unit->getId())
 		return;
 
-	const std::uint32_t actionId = CoopArbiter::currentActionId();
-	if (actionId == 0 || actionId != g_coopWalkChain.actionId)
+	// W2-P3 S-B.2 (B1 RQ4 (a)): the walk's OWN id, which must be the base entry.
+	const std::uint32_t actionId = g_coopWalkChain.actionId;
+	if (actionId == 0 || CoopArbiter::baseActionId() != actionId)
 		return;
 
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
@@ -11892,9 +12132,12 @@ void showWalkHalt(const char* reason)
 		{ "no_tu",      "STR_NOT_ENOUGH_TIME_UNITS" },       // REUSE vanilla's own
 		{ "no_energy",  "STR_NOT_ENOUGH_ENERGY" },           // REUSE vanilla's own
 		{ "blocked",    "STR_COOP_HALT_PATH_BLOCKED" },      // NEW, minted by W1-P9
-		// `prox` -> STR_COOP_HALT_PROXIMITY is W1-P11's to mint; `fall` ->
-		// STR_COOP_HALT_FELL is reserved for walk-FULL. Neither is producible by
-		// walk-core (its fixtures are door- and contact-free, WV-D18), and
+		// W2-P3 S-B.2 (owner ruling D139, amendment B1 RQ8): a proximity-mine
+		// halt shows NO message - a silent row (no key, no string, no warning);
+		// STR_COOP_HALT_PROXIMITY stays reserved and unminted.
+		{ "prox",       nullptr },
+		// `fall` -> STR_COOP_HALT_FELL is reserved for walk-FULL (not producible
+		// by walk-core, whose fixtures are door- and contact-free, WV-D18), and
 		// minting an unreferenced key here would create a WV-D41 orphan.
 	};
 
@@ -11904,6 +12147,8 @@ void showWalkHalt(const char* reason)
 		if (reason && std::strcmp(e.enumStr, reason) == 0)
 		{
 			key = e.strKey;
+			if (!key)
+				return; // a silent row (D139)
 			break;
 		}
 	}

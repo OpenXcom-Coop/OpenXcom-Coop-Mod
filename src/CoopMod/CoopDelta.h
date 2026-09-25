@@ -334,4 +334,30 @@ void coopOnEndTurnEntry(bool statesEmpty);
 /// `contextBeginRefused`) while another context is open.
 void coopBeginEndTurnChain(bool go);
 
+// ----- W2-P3 S-B, commit S-B.2: nested `reaction` / `prox` contexts, D145 -----
+// Spec rewrite/prompts/w2p3_nonplayer_origins.md (b)1-3, (b)8, (b)9; amendments
+// B1 RQ4 (a) / RQ8, B3 (owner ruling D145 = a), B4; D139. Each is ONE guarded
+// call at its vanilla site and a no-op unless isCoopBattle() && hostSim.
+// Bodies: connectionTCP.cpp.
+
+/// V13 (TileEngine::tryReaction, the line before the reaction hit-log entry):
+/// open the NESTED `reaction` context {id, "reaction", @a reactor, nestedIn: the
+/// base's id} - reused for every reactor of the same checkReactionFire burst, a
+/// new one per burst (B4) - recording the base action's actor as the reaction's
+/// trigger (D145); mark "a reaction against the walker" when @a target is the
+/// active walker (its halt reason becomes `reaction`, RQ4 (a)).
+void coopBeginReaction(BattleUnit* reactor, BattleUnit* target);
+
+/// V11 (BattlescapeGame::checkForProximityGrenades, the line before the
+/// grenade's ExplosionBState push): latch the walk's halt reason `prox`, open
+/// the NESTED `prox` context {id, "prox", @a unit} and emit the `prox_trigger`
+/// cue {unit, item, pos}.
+void coopCueProxTrigger(BattleUnit* unit, BattleItem* item, const Position& pos);
+
+/// D145 (ProjectileFlyBState::init / MeleeAttackBState::init, the reaction
+/// target check): the unit a reaction shot's target must be - in coop on the
+/// host the unit whose action triggered the reaction (the top-most `reaction`
+/// context's trigger); @a selected (vanilla's getSelectedUnit()) everywhere else.
+BattleUnit* coopReactionTrigger(BattleUnit* selected);
+
 } // namespace OpenXcom
