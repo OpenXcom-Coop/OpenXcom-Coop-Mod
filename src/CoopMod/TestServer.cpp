@@ -4452,6 +4452,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			resp["smoke"] = t->getSmoke();
 			resp["explosive"] = t->getExplosive();
 			resp["explosiveType"] = t->getExplosiveType();
+			// W2-H5 (F809, F830): the unit this tile links (Tile::getUnit), -1 for
+			// none - the tile half of BattleUnit::setTile's two-way link; the
+			// unit half is battle_state `onTile`. Plain getter.
+			resp["unit"] = t->getUnit() ? t->getUnit()->getId() : -1;
 			resp["ok"] = true;
 		}
 	}
