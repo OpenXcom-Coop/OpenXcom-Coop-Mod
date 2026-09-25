@@ -98,6 +98,15 @@ struct Probes
 	// lever's turn-then-shot pushes) and was deferred instead of closing the
 	// context before the shot state existed.
 	int armingDeferrals = 0;    ///< [armingDeferrals] host: quiescences deferred while arming
+	// W2-P2 S-H (amendment A5.5, owner ruling D138): the `saveBlob` timings,
+	// kept apart from hashUsLast/Max (N19). Commit S-H.1 (the RED commit)
+	// times the host's existing saveBlob computations (side_transition, and a
+	// structured `h` built with saveBlob); the client's verify arm, and so its
+	// timing writer, is commit S-H.2's.
+	int saveBlobUsLast = 0;       ///< [saveBlobUsLast] host: last saveBlob computation, microseconds
+	int saveBlobUsMax = 0;        ///< [saveBlobUsMax]
+	int saveBlobVerifyUsLast = 0; ///< [saveBlobVerifyUsLast] client: last saveBlob verify, microseconds
+	int saveBlobVerifyUsMax = 0;  ///< [saveBlobVerifyUsMax]
 };
 
 /// A snapshot of this machine's probes (thread-safe; reads atomics).
@@ -130,6 +139,25 @@ Json::Value cueCounts();
 /// (host) or applied (client), as {kind, seq, actionId, payload} - or null
 /// when there has been none this battle. Same writers as cueCounts().
 Json::Value lastCue();
+
+/// [hashVerifyCounts] (W2-P2 S-H, amendment A5.5) client: per bucket name,
+/// how many times CoopHashCheck::verify() compared that bucket this battle,
+/// equal or not, as {bucket: n} (an empty object when there has been none).
+/// A carried bucket verify() does not know (logged and ignored) is not
+/// compared, so it is not counted.
+Json::Value hashVerifyCounts();
+
+/// [lastHashVerify] (W2-P2 S-H, A5.5) client: the last verify() call that
+/// reached its compare loop, as {seq, kind, buckets:[the names it compared,
+/// in order]} (`kind` = the ev's kind, else the envelope's state) - or null
+/// when there has been none this battle.
+Json::Value lastHashVerify();
+
+/// CoopHashCheck::verify()'s two probe hooks (A5.5; probe only, never read by
+/// game logic): noteHashVerifyBegin() once, right before the compare loop;
+/// noteHashVerifyBucket() once per bucket the loop compares.
+void noteHashVerifyBegin(const Json::Value& evOrEnd);
+void noteHashVerifyBucket(const std::string& bucket);
 
 /// HOST, RB-D26 one-shot (the `reveal_drop` pattern): the NEXT delta attach
 /// computes and commits its delta but does not attach it (bumping `dropped`),

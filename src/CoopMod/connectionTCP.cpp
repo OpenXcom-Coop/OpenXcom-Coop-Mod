@@ -2188,6 +2188,18 @@ static Json::Value g_cueLast;
 // W2-P2 S-C.2 (amendment A3, F690): onChainQuiesced() calls deferred by the
 // arming guard (CoopArbiter's g_coopChainArming).
 static std::atomic<int> g_armingDeferrals{0};
+// W2-P2 S-H.1 (amendment A5.5, owner ruling D138): the hash-coverage probes.
+// Host: the saveBlob timings (SaveBlobTimer, below). Client: the per-bucket
+// verify counts and the last verify's bucket list, written by
+// CoopHashCheck::verify()'s two probe hooks; the client saveBlob verify timing
+// is stored and reset here, and written by commit S-H.2's verify arm.
+static std::atomic<int> g_saveBlobUsLast{0};
+static std::atomic<int> g_saveBlobUsMax{0};
+static std::atomic<int> g_saveBlobVerifyUsLast{0};
+static std::atomic<int> g_saveBlobVerifyUsMax{0};
+static std::mutex g_hashVerifyMutex;
+static std::map<std::string, int> g_hashVerifyCounts;
+static Json::Value g_hashVerifyLast;
 
 Probes probes()
 {
@@ -2218,6 +2230,10 @@ Probes probes()
 	p.lightUsMax = g_lightUsMax.load();
 	p.hostCombatContexts = g_hostCombatContexts.load();
 	p.armingDeferrals = g_armingDeferrals.load();
+	p.saveBlobUsLast = g_saveBlobUsLast.load();
+	p.saveBlobUsMax = g_saveBlobUsMax.load();
+	p.saveBlobVerifyUsLast = g_saveBlobVerifyUsLast.load();
+	p.saveBlobVerifyUsMax = g_saveBlobVerifyUsMax.load();
 	return p;
 }
 
@@ -2246,6 +2262,40 @@ Json::Value lastCue()
 {
 	std::lock_guard<std::mutex> lock(g_cueMutex);
 	return g_cueLast;
+}
+
+Json::Value hashVerifyCounts()
+{
+	std::lock_guard<std::mutex> lock(g_hashVerifyMutex);
+	Json::Value out(Json::objectValue);
+	for (const auto& kv : g_hashVerifyCounts)
+		out[kv.first] = kv.second;
+	return out;
+}
+
+Json::Value lastHashVerify()
+{
+	std::lock_guard<std::mutex> lock(g_hashVerifyMutex);
+	return g_hashVerifyLast;
+}
+
+void noteHashVerifyBegin(const Json::Value& evOrEnd)
+{
+	Json::Value last(Json::objectValue);
+	last["seq"] = evOrEnd.get("seq", 0u).asUInt();
+	last["kind"] = evOrEnd.isMember("kind") ? evOrEnd.get("kind", "").asString()
+		: evOrEnd.get("state", "?").asString();
+	last["buckets"] = Json::Value(Json::arrayValue);
+	std::lock_guard<std::mutex> lock(g_hashVerifyMutex);
+	g_hashVerifyLast = last;
+}
+
+void noteHashVerifyBucket(const std::string& bucket)
+{
+	std::lock_guard<std::mutex> lock(g_hashVerifyMutex);
+	++g_hashVerifyCounts[bucket];
+	if (g_hashVerifyLast.isObject())
+		g_hashVerifyLast["buckets"].append(bucket);
 }
 
 void resetLightWindow()
@@ -2307,6 +2357,15 @@ static void resetProbes()
 		std::lock_guard<std::mutex> lock(g_cueMutex);
 		g_cueCounts.clear();
 		g_cueLast = Json::Value();
+	}
+	g_saveBlobUsLast = 0;
+	g_saveBlobUsMax = 0;
+	g_saveBlobVerifyUsLast = 0;
+	g_saveBlobVerifyUsMax = 0;
+	{
+		std::lock_guard<std::mutex> lock(g_hashVerifyMutex);
+		g_hashVerifyCounts.clear();
+		g_hashVerifyLast = Json::Value();
 	}
 }
 
@@ -2466,6 +2525,15 @@ struct HashTimer
 {
 	std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 	~HashTimer() { noteLastMax(g_deltaHashUsLast, g_deltaHashUsMax, usSince(t0)); }
+};
+
+/// RAII: times one host `saveBlob` computation into saveBlobUsLast/Max (W2-P2
+/// S-H.1, amendment A5.5 / N19) - a probe of its own, so the whole-document
+/// hash is measured apart from the M1 sweep.
+struct SaveBlobTimer
+{
+	std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+	~SaveBlobTimer() { noteLastMax(g_saveBlobUsLast, g_saveBlobUsMax, usSince(t0)); }
 };
 
 /// `tags`: the raw script-value vector with trailing zeros stripped ((b)1).
@@ -5302,6 +5370,7 @@ static Json::Value coopBuildStructuredHash(SavedBattleGame* save, bool withSaveB
 	}
 	if (withSaveBlob)
 	{
+		CoopDelta::SaveBlobTimer sbTimer; // W2-P2 S-H.1 (A5.5): saveBlobUsLast/Max
 		std::uint64_t sb = 0;
 		if (SharedEcon::computeSaveBlobHash(save, sb))
 			h["saveBlob"] = coopHex64(sb);
@@ -7988,8 +8057,11 @@ static Json::Value coopBuildSideTransitionHash(SavedBattleGame* save)
 			h[SharedEcon::battleHashBucketName(i)] = coopHex64(SharedEcon::battleHashBucketValue(hs, i));
 	}
 	std::uint64_t sb = 0;
-	if (SharedEcon::computeSaveBlobHash(save, sb))
-		h["saveBlob"] = coopHex64(sb);
+	{
+		CoopDelta::SaveBlobTimer sbTimer; // W2-P2 S-H.1 (A5.5): saveBlobUsLast/Max
+		if (SharedEcon::computeSaveBlobHash(save, sb))
+			h["saveBlob"] = coopHex64(sb);
+	}
 	std::uint64_t rh = 0;
 	if (CoopFog::computeHash(rh))
 		h["revealHostile"] = coopHex64(rh);
@@ -14199,6 +14271,7 @@ void verify(const Json::Value& evOrEnd)
 		return;
 
 	const Json::Value& carried = evOrEnd["h"];
+	CoopDelta::noteHashVerifyBegin(evOrEnd); // W2-P2 S-H.1 (A5.5): lastHashVerify probe only
 	for (const auto& bucketName : carried.getMemberNames())
 	{
 		int idx = -1;
@@ -14242,6 +14315,9 @@ void verify(const Json::Value& evOrEnd)
 		}
 
 		const std::string expect = carried[bucketName].asString();
+		// W2-P2 S-H.1 (A5.5): hashVerifyCounts probe only - every bucket that
+		// reaches this compare is counted, equal or not; nothing else changes.
+		CoopDelta::noteHashVerifyBucket(bucketName);
 		if (expect == got)
 			continue;
 

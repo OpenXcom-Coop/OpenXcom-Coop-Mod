@@ -49,6 +49,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <set>
 #include <typeinfo>
 
@@ -112,6 +113,7 @@
 #include "../Savegame/EquipmentLayoutItem.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Tile.h"
+#include "../Savegame/Node.h" // W2-P2 S-H.1: field_poke's node `type` row
 #include "../Battlescape/TileEngine.h"
 // R2-P11: corrupt_bucket's terrain-bucket poke needs a MapData* to install
 // via Tile::setMapData - the same SavedBattleGame::load()-precedent lookup
@@ -4999,6 +5001,575 @@ static bool coopCorruptBucket(SavedBattleGame* battle, const std::string& name)
 	return false;
 }
 
+// ----- W2-P2 S-H.1 (amendment A5.5, owner ruling D138): `field_poke` -----
+// TEST-ONLY lever (T13 gate below), run on the CLIENT by
+// test_w2_hash_coverage.py's HC1: {class:"unit"|"item"|"tile"|"node"|"battle",
+// id (unit/item/node) | i (tile index; or x/y/z), field:"<delta key>", value,
+// restore:true}. Writes ONE delta field with the setter CoopApply::applyDelta
+// uses, hashes every BattleHashSet bucket BY NAME (battleHashBucketName, so the
+// lever carries whatever buckets this build has) plus saveBlob, restores the
+// prior value with the same setter and hashes again - all inside this one
+// command, so no frame ever runs with the poked value. Without `value` it is a
+// read-only peek ({before} only). Nothing is emitted and nothing is absorbed.
+// Values use the delta's own shapes (spec (b)1): factions as RB-D31 wire
+// strings, `tags` as the stripped raw script-value vector, `ammo` as one id per
+// ammo slot (the item's own id = a self-reference, F530), `moduleMap` as one
+// cell [x,y,first,second] - an existing cell is set, a cell one past the end
+// of a column (or the first cell of a new column) is pushed and popped again
+// on restore (Q-H7).
+
+static const char* coopFieldPokeFactionWire(int f)
+{
+	if (f == (int)FACTION_HOSTILE) return "hostile";
+	if (f == (int)FACTION_NEUTRAL) return "neutral";
+	return "player";
+}
+
+static UnitFaction coopFieldPokeWireFaction(const std::string& s)
+{
+	if (s == "hostile") return FACTION_HOSTILE;
+	if (s == "neutral") return FACTION_NEUTRAL;
+	return FACTION_PLAYER;
+}
+
+static Json::Value coopFieldPokeTags(const std::vector<int>& raw)
+{
+	std::vector<int> v(raw);
+	while (!v.empty() && v.back() == 0)
+		v.pop_back();
+	Json::Value out(Json::arrayValue);
+	for (int x : v)
+		out.append(x);
+	return out;
+}
+
+static std::vector<int> coopFieldPokeTagsFrom(const Json::Value& a)
+{
+	std::vector<int> v;
+	for (Json::ArrayIndex k = 0; k < a.size(); ++k)
+		v.push_back(a[k].asInt());
+	return v;
+}
+
+/// Every BattleHashSet bucket by name, plus saveBlob into @a saveBlobHex.
+static Json::Value coopFieldPokeHashes(SavedBattleGame* bg, std::string& saveBlobHex)
+{
+	Json::Value b(Json::objectValue);
+	SharedEcon::BattleHashSet hs;
+	if (SharedEcon::computeBattleHashes(bg, hs))
+	{
+		for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
+			b[SharedEcon::battleHashBucketName(i)] = coopTestHex64(SharedEcon::battleHashBucketValue(hs, i));
+	}
+	std::uint64_t sb = 0;
+	saveBlobHex = SharedEcon::computeSaveBlobHash(bg, sb) ? coopTestHex64(sb) : std::string();
+	return b;
+}
+
+static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value& req, Json::Value& resp)
+{
+	const std::string cls = req.get("class", "").asString();
+	const std::string field = req.get("field", "").asString();
+	std::function<Json::Value()> read;
+	std::function<std::string(const Json::Value&)> write; // "" = written, else the error
+	std::function<void()> undo; // set by a write that must be undone by hand (moduleMap)
+
+	auto findUnit = [bg](int id) -> BattleUnit*
+	{
+		for (BattleUnit* u : *bg->getUnits())
+			if (u && u->getId() == id)
+				return u;
+		return nullptr;
+	};
+	auto unitLinkJson = [](const BattleUnit* u) { return Json::Value(u ? u->getId() : -1); };
+
+	if (cls == "unit")
+	{
+		BattleUnit* u = findUnit(req.get("id", -1).asInt());
+		if (!u)
+		{
+			resp["error"] = "field_poke: no unit id " + std::to_string(req.get("id", -1).asInt());
+			return;
+		}
+		resp["id"] = u->getId();
+		resp["unitType"] = u->getType();
+		auto prefOf = [u]() -> std::string
+		{
+			return u->isRightHandPreferredForReactions() ? "STR_RIGHT_HAND"
+				: (u->isLeftHandPreferredForReactions() ? "STR_LEFT_HAND" : "");
+		};
+		if (field == "onTile")
+		{
+			read = [u]() { return Json::Value(u->getTile() != nullptr); };
+			write = [u, bg](const Json::Value& v) -> std::string
+			{
+				const Position p = u->getPosition();
+				if (v.asBool() && !bg->getTile(p))
+					return "unit position is not a tile";
+				u->setTile(v.asBool() ? bg->getTile(p) : nullptr, bg);
+				u->setPosition(p, /*updateLastPos=*/false);
+				return "";
+			};
+		}
+		else if (field == "dir")
+		{
+			read = [u]() { return Json::Value(u->getDirection()); };
+			write = [u](const Json::Value& v) { u->coopSetBodyDirection(v.asInt()); return std::string(); };
+		}
+		else if (field == "turretDir")
+		{
+			read = [u]() { return Json::Value(u->getTurretDirection()); };
+			write = [u](const Json::Value& v) { u->setTurretDirection(v.asInt()); return std::string(); };
+		}
+		else if (field == "status")
+		{
+			read = [u]() { return Json::Value((int)u->getStatus()); };
+			write = [u](const Json::Value& v) { u->coopSetStatus((UnitStatus)v.asInt()); return std::string(); };
+		}
+		else if (field == "floating")
+		{
+			read = [u]() { return Json::Value(u->isFloating()); };
+			write = [u](const Json::Value& v) { u->coopSetFloating(v.asBool()); return std::string(); };
+		}
+		else if (field == "armor")
+		{
+			read = [u]()
+			{
+				Json::Value a(Json::arrayValue);
+				for (int side = 0; side < (int)SIDE_MAX; ++side)
+					a.append(u->getArmor((UnitSide)side));
+				return a;
+			};
+			write = [u](const Json::Value& v)
+			{
+				for (Json::ArrayIndex side = 0; side < v.size() && side < (Json::ArrayIndex)SIDE_MAX; ++side)
+					u->setArmor(v[side].asInt(), (UnitSide)side);
+				return std::string();
+			};
+		}
+		else if (field == "wantsToSurrender")
+		{
+			read = [u]() { return Json::Value(u->wantsToSurrender()); };
+			write = [u](const Json::Value& v) { u->coopSetWantsToSurrender(v.asBool()); return std::string(); };
+		}
+		else if (field == "isSurrendering")
+		{
+			read = [u]() { return Json::Value(u->isSurrendering()); };
+			write = [u](const Json::Value& v) { u->setSurrendering(v.asBool()); return std::string(); };
+		}
+		else if (field == "moraleRestored")
+		{
+			read = [u]() { return Json::Value(u->coopGetMoraleRestored()); };
+			write = [u](const Json::Value& v) { u->coopSetMoraleRestored(v.asInt()); return std::string(); };
+		}
+		else if (field == "spawnUnit")
+		{
+			read = [u]() { return Json::Value(u->getSpawnUnit() ? u->getSpawnUnit()->getType() : std::string()); };
+			write = [u, mod](const Json::Value& v) -> std::string
+			{
+				const std::string type = v.asString();
+				const Unit* spawn = type.empty() ? nullptr : mod->getUnit(type);
+				if (!type.empty() && !spawn)
+					return "spawnUnit '" + type + "' is not a unit type";
+				u->setSpawnUnit(spawn);
+				return "";
+			};
+		}
+		else if (field == "respawn")
+		{
+			read = [u]() { return Json::Value(u->getRespawn()); };
+			write = [u](const Json::Value& v) { u->setRespawn(v.asBool()); return std::string(); };
+		}
+		else if (field == "spawnUnitFaction")
+		{
+			read = [u]() { return Json::Value(coopFieldPokeFactionWire((int)u->getSpawnUnitFaction())); };
+			write = [u](const Json::Value& v)
+			{
+				u->setSpawnUnitFaction(coopFieldPokeWireFaction(v.asString()));
+				return std::string();
+			};
+		}
+		else if (field == "alreadyRespawned")
+		{
+			read = [u]() { return Json::Value(u->getAlreadyRespawned()); };
+			write = [u](const Json::Value& v) { u->setAlreadyRespawned(v.asBool()); return std::string(); };
+		}
+		else if (field == "reactPref")
+		{
+			read = [prefOf]() { return Json::Value(prefOf()); };
+			write = [u](const Json::Value& v)
+			{
+				u->coopSetReactionHands(v.asString(), u->isLeftHandDisabledForReactions(),
+					u->isRightHandDisabledForReactions());
+				return std::string();
+			};
+		}
+		else if (field == "reactOffLeft")
+		{
+			read = [u]() { return Json::Value(u->isLeftHandDisabledForReactions()); };
+			write = [u, prefOf](const Json::Value& v)
+			{
+				u->coopSetReactionHands(prefOf(), v.asBool(), u->isRightHandDisabledForReactions());
+				return std::string();
+			};
+		}
+		else if (field == "reactOffRight")
+		{
+			read = [u]() { return Json::Value(u->isRightHandDisabledForReactions()); };
+			write = [u, prefOf](const Json::Value& v)
+			{
+				u->coopSetReactionHands(prefOf(), u->isLeftHandDisabledForReactions(), v.asBool());
+				return std::string();
+			};
+		}
+		else if (field == "tags")
+		{
+			read = [u]() { return coopFieldPokeTags(u->coopScriptValuesRaw()); };
+			write = [u](const Json::Value& v)
+			{
+				u->coopSetScriptValuesRaw(coopFieldPokeTagsFrom(v));
+				return std::string();
+			};
+		}
+	}
+	else if (cls == "item")
+	{
+		BattleItem* it = nullptr;
+		const int id = req.get("id", -1).asInt();
+		for (BattleItem* x : *bg->getItems())
+		{
+			if (x && x->getId() == id)
+			{
+				it = x;
+				break;
+			}
+		}
+		if (!it)
+		{
+			resp["error"] = "field_poke: no item id " + std::to_string(id);
+			return;
+		}
+		resp["id"] = it->getId();
+		resp["itemType"] = it->getRules() ? it->getRules()->getType() : std::string();
+		auto findItem = [bg](int iid) -> BattleItem*
+		{
+			for (BattleItem* x : *bg->getItems())
+				if (x && x->getId() == iid)
+					return x;
+			return nullptr;
+		};
+		if (field == "previousOwner")
+		{
+			read = [it, unitLinkJson]() { return unitLinkJson(it->getPreviousOwner()); };
+			write = [it, findUnit](const Json::Value& v) -> std::string
+			{
+				BattleUnit* prev = v.asInt() < 0 ? nullptr : findUnit(v.asInt());
+				if (v.asInt() >= 0 && !prev)
+					return "previousOwner unit does not resolve";
+				it->setPreviousOwner(prev);
+				return "";
+			};
+		}
+		else if (field == "unit")
+		{
+			read = [it, unitLinkJson]() { return unitLinkJson(it->getUnit()); };
+			write = [it, findUnit](const Json::Value& v) -> std::string
+			{
+				BattleUnit* link = v.asInt() < 0 ? nullptr : findUnit(v.asInt());
+				if (v.asInt() >= 0 && !link)
+					return "unit link does not resolve";
+				it->setUnit(link);
+				return "";
+			};
+		}
+		else if (field == "ammo")
+		{
+			read = [it]()
+			{
+				Json::Value a(Json::arrayValue);
+				for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
+				{
+					const BattleItem* x = it->getAmmoForSlot(s);
+					a.append(x ? x->getId() : -1); // self (F530) = the item's own id
+				}
+				return a;
+			};
+			write = [it, findItem](const Json::Value& v) -> std::string
+			{
+				for (int s = 0; s < RuleItem::AmmoSlotMax && s < (int)v.size(); ++s)
+				{
+					const int aid = v[(Json::ArrayIndex)s].asInt();
+					BattleItem* cur = it->getAmmoForSlot(s);
+					if (aid == it->getId() || cur == it)
+					{
+						if (aid == it->getId() && cur == it)
+							continue; // a self-reference stays self
+						return "ammo slot " + std::to_string(s) + ": a self-reference cannot be changed";
+					}
+					BattleItem* want = aid < 0 ? nullptr : findItem(aid);
+					if (aid >= 0 && !want)
+						return "ammo item " + std::to_string(aid) + " does not resolve";
+					if (cur != want)
+						it->setAmmoForSlot(s, want);
+				}
+				return "";
+			};
+		}
+		else if (field == "fuseEnabled")
+		{
+			read = [it]() { return Json::Value(it->isFuseEnabled()); };
+			write = [it](const Json::Value& v) { it->setFuseEnabled(v.asBool()); return std::string(); };
+		}
+		else if (field == "medikit")
+		{
+			read = [it]()
+			{
+				Json::Value a(Json::arrayValue);
+				a.append(it->getPainKillerQuantity());
+				a.append(it->getHealQuantity());
+				a.append(it->getStimulantQuantity());
+				return a;
+			};
+			write = [it](const Json::Value& v)
+			{
+				it->setPainKillerQuantity(v.get(0u, it->getPainKillerQuantity()).asInt());
+				it->setHealQuantity(v.get(1u, it->getHealQuantity()).asInt());
+				it->setStimulantQuantity(v.get(2u, it->getStimulantQuantity()).asInt());
+				return std::string();
+			};
+		}
+		else if (field == "droppedOnAlienTurn")
+		{
+			read = [it]() { return Json::Value(it->getTurnFlag()); };
+			write = [it](const Json::Value& v) { it->setTurnFlag(v.asBool()); return std::string(); };
+		}
+		else if (field == "xcomProperty")
+		{
+			read = [it]() { return Json::Value(it->getXCOMProperty()); };
+			write = [it](const Json::Value& v) { it->setXCOMProperty(v.asBool()); return std::string(); };
+		}
+		else if (field == "tags")
+		{
+			read = [it]() { return coopFieldPokeTags(it->coopScriptValuesRaw()); };
+			write = [it](const Json::Value& v)
+			{
+				it->coopSetScriptValuesRaw(coopFieldPokeTagsFrom(v));
+				return std::string();
+			};
+		}
+	}
+	else if (cls == "tile")
+	{
+		Tile* t = nullptr;
+		if (req.isMember("i"))
+		{
+			const int idx = req["i"].asInt();
+			if (idx >= 0 && idx < bg->getMapSizeXYZ())
+				t = bg->getTile(idx);
+		}
+		else
+		{
+			t = bg->getTile(Position(req.get("x", -1).asInt(), req.get("y", -1).asInt(), req.get("z", -1).asInt()));
+		}
+		if (!t)
+		{
+			resp["error"] = "field_poke: no such tile";
+			return;
+		}
+		resp["i"] = bg->getTileIndex(t->getPosition());
+		if (field == "doorBits")
+		{
+			read = [t]()
+			{
+				return Json::Value((t->isUfoDoorOpen(O_WESTWALL) ? 1 : 0) | (t->isUfoDoorOpen(O_NORTHWALL) ? 2 : 0)
+					| (t->isUfoDoorOpen(O_FLOOR) ? 4 : 0));
+			};
+			write = [t](const Json::Value& v)
+			{
+				const int bits = v.asInt();
+				const TilePart doorParts[3] = { O_WESTWALL, O_NORTHWALL, O_FLOOR };
+				const int doorMasks[3] = { 1, 2, 4 };
+				for (int k = 0; k < 3; ++k)
+				{
+					const bool wantOpen = (bits & doorMasks[k]) != 0;
+					if (t->isUfoDoorOpen(doorParts[k]) != wantOpen)
+						t->coopSetUfoDoorOpen(doorParts[k], wantOpen);
+				}
+				return std::string();
+			};
+		}
+	}
+	else if (cls == "node")
+	{
+		Node* node = nullptr;
+		const int id = req.get("id", -1).asInt();
+		if (std::vector<Node*>* nodes = bg->getNodes())
+		{
+			for (Node* n : *nodes)
+			{
+				if (n && n->getID() == id)
+				{
+					node = n;
+					break;
+				}
+			}
+		}
+		if (!node)
+		{
+			resp["error"] = "field_poke: no node id " + std::to_string(id);
+			return;
+		}
+		resp["id"] = node->getID();
+		if (field == "type")
+		{
+			read = [node]() { return Json::Value(node->getType()); };
+			write = [node](const Json::Value& v) { node->setType(v.asInt()); return std::string(); };
+		}
+	}
+	else if (cls == "battle")
+	{
+		if (field == "objectivesDestroyed")
+		{
+			read = [bg]() { return Json::Value(bg->coopGetObjectivesDestroyed()); };
+			write = [bg](const Json::Value& v) { bg->coopSetObjectivesDestroyed(v.asInt()); return std::string(); };
+		}
+		else if (field == "moduleMap")
+		{
+			read = [bg]()
+			{
+				const std::vector<std::vector<std::pair<int, int> > >& mm = bg->getModuleMap();
+				Json::Value out(Json::objectValue);
+				out["columns"] = (int)mm.size();
+				Json::Value cells(Json::arrayValue);
+				for (std::size_t x = 0; x < mm.size(); ++x)
+				{
+					for (std::size_t y = 0; y < mm[x].size(); ++y)
+					{
+						Json::Value c(Json::arrayValue);
+						c.append((int)x);
+						c.append((int)y);
+						c.append(mm[x][y].first);
+						c.append(mm[x][y].second);
+						cells.append(c);
+					}
+				}
+				out["cells"] = cells;
+				return out;
+			};
+			write = [bg, &undo](const Json::Value& v) -> std::string
+			{
+				std::vector<std::vector<std::pair<int, int> > >& mm = bg->getModuleMap();
+				if (!v.isArray() || v.size() != 4)
+					return "moduleMap value must be one cell [x,y,first,second]";
+				const int x = v[0u].asInt();
+				const int y = v[1u].asInt();
+				const std::pair<int, int> cell(v[2u].asInt(), v[3u].asInt());
+				if (x >= 0 && y >= 0 && x < (int)mm.size() && y < (int)mm[(std::size_t)x].size())
+				{
+					const std::pair<int, int> old = mm[(std::size_t)x][(std::size_t)y];
+					mm[(std::size_t)x][(std::size_t)y] = cell; // the applier's own write
+					undo = [bg, x, y, old]() { bg->getModuleMap()[(std::size_t)x][(std::size_t)y] = old; };
+					return "";
+				}
+				if (x == (int)mm.size() && y == 0)
+				{
+					mm.push_back(std::vector<std::pair<int, int> >(1, cell));
+					undo = [bg]() { bg->getModuleMap().pop_back(); };
+					return "";
+				}
+				if (x >= 0 && x < (int)mm.size() && y == (int)mm[(std::size_t)x].size())
+				{
+					mm[(std::size_t)x].push_back(cell);
+					undo = [bg, x]() { bg->getModuleMap()[(std::size_t)x].pop_back(); };
+					return "";
+				}
+				return "moduleMap cell is neither an existing cell nor one past the end";
+			};
+		}
+		else if (field == "bughuntMode")
+		{
+			read = [bg]() { return Json::Value(bg->getBughuntMode()); };
+			write = [bg](const Json::Value& v) { bg->setBughuntMode(v.asBool()); return std::string(); };
+		}
+		else if (field == "turn")
+		{
+			read = [bg]() { return Json::Value(bg->getTurn()); };
+			write = [bg](const Json::Value& v) { bg->setTurn(v.asInt()); return std::string(); };
+		}
+		else if (field == "side")
+		{
+			read = [bg]() { return Json::Value(coopFieldPokeFactionWire((int)bg->getSide())); };
+			write = [bg](const Json::Value& v) { bg->coopSetSide(coopFieldPokeWireFaction(v.asString())); return std::string(); };
+		}
+		else if (field == "tags")
+		{
+			read = [bg]() { return coopFieldPokeTags(bg->coopScriptValuesRaw()); };
+			write = [bg](const Json::Value& v)
+			{
+				bg->coopSetScriptValuesRaw(coopFieldPokeTagsFrom(v));
+				return std::string();
+			};
+		}
+	}
+	else
+	{
+		resp["error"] = "field_poke: unknown class '" + cls + "' (unit|item|tile|node|battle)";
+		return;
+	}
+	if (!read || !write)
+	{
+		resp["error"] = "field_poke: unknown field '" + field + "' for class '" + cls + "'";
+		return;
+	}
+
+	resp["class"] = cls;
+	resp["field"] = field;
+	const Json::Value before = read();
+	resp["before"] = before;
+	if (!req.isMember("value"))
+	{
+		resp["peek"] = true; // read-only: nothing written
+		resp["ok"] = true;
+		return;
+	}
+
+	Json::Value buckets(Json::objectValue);
+	Json::Value saveBlob(Json::objectValue);
+	std::string sbHex;
+	buckets["before"] = coopFieldPokeHashes(bg, sbHex);
+	saveBlob["before"] = sbHex;
+
+	const std::string err = write(req["value"]);
+	if (!err.empty())
+	{
+		resp["error"] = "field_poke: " + err;
+		return;
+	}
+	resp["poked"] = read();
+	buckets["poked"] = coopFieldPokeHashes(bg, sbHex);
+	saveBlob["poked"] = sbHex;
+
+	if (req.get("restore", true).asBool())
+	{
+		std::string rerr;
+		if (undo)
+			undo();
+		else
+			rerr = write(before);
+		if (!rerr.empty())
+		{
+			resp["error"] = "field_poke: restore failed: " + rerr;
+			return;
+		}
+		resp["restoredValue"] = read();
+		buckets["restored"] = coopFieldPokeHashes(bg, sbHex);
+		saveBlob["restored"] = sbHex;
+	}
+	resp["buckets"] = buckets;
+	resp["saveBlob"] = saveBlob;
+	resp["ok"] = true;
+}
+
 bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
@@ -5019,7 +5590,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_visibility_rule"
 		&& cmd != "screen_pixels"
 		&& cmd != "battle_camera_center"
-		&& cmd != "path_probe")
+		&& cmd != "path_probe"
+		&& cmd != "field_poke")
 	{
 		return false;
 	}
@@ -5128,6 +5700,16 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			// W2-P2 S-C.2 (amendment A3, F690): quiescences the arming guard
 			// deferred (host).
 			resp["armingDeferrals"] = dp.armingDeferrals;
+			// W2-P2 S-H.1 (amendment A5.5, owner ruling D138): the hash-
+			// coverage probes, battle-scoped, same reset. Client: how often
+			// CoopHashCheck::verify compared each bucket, and the last verify's
+			// bucket list; host / client: the saveBlob timings (N19).
+			resp["hashVerifyCounts"] = CoopDelta::hashVerifyCounts();
+			resp["lastHashVerify"] = CoopDelta::lastHashVerify();
+			resp["saveBlobUsLast"] = dp.saveBlobUsLast;
+			resp["saveBlobUsMax"] = dp.saveBlobUsMax;
+			resp["saveBlobVerifyUsLast"] = dp.saveBlobVerifyUsLast;
+			resp["saveBlobVerifyUsMax"] = dp.saveBlobVerifyUsMax;
 		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
@@ -6841,6 +7423,16 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			probePP.abortPath();
 			resp["ok"] = true;
 		}
+	}
+	else if (cmd == "field_poke")
+	{
+		// W2-P2 S-H.1 (amendment A5.5): see coopFieldPoke() above.
+		SavedGame* sgFP = _game->getSavedGame();
+		SavedBattleGame* bgFP = sgFP ? sgFP->getSavedBattle() : nullptr;
+		if (!bgFP)
+			resp["error"] = "field_poke: no live battle";
+		else
+			coopFieldPoke(_game->getMod(), bgFP, req, resp);
 	}
 
 	return true;
