@@ -5454,6 +5454,23 @@ static std::chrono::steady_clock::time_point g_coopHoldChainUntil;
 // RW-TODO(R3-P1) marker in TestServer.cpp).
 static Json::Value g_coopClientLastDeny;
 
+// W2-P4 S-A.1 (docs rewrite/prompts/w2p4_client_combat_intents.md (b)13): the
+// combat-intent probes, test introspection only, battle-scoped (reset in
+// resetCoopArbiterState() below). Commit S-A.1 exposes them through
+// event_state; NOTHING writes them yet - S-A.2's sendClientIntent (sent),
+// onIntent's admit/deny paths (received), the non-walk bt_action_end emit/apply
+// (lastActionHalt) and the ordering client's own-action aftermath (lastAftermath)
+// are their writers.
+//   g_coopIntentsSent      CLIENT: {kind: count} of intents this machine sent
+//   g_coopIntentsReceived  HOST:   {kind: {admitted, denied}}
+//   g_coopLastActionHalt   BOTH:   the last non-walk bt_action_end this machine
+//                                  emitted/applied, {actionId, halted, reason}
+//   g_coopLastAftermath    CLIENT: the last own-action aftermath run, {actionId, kind}
+static Json::Value g_coopIntentsSent(Json::objectValue);
+static Json::Value g_coopIntentsReceived(Json::objectValue);
+static Json::Value g_coopLastActionHalt;
+static Json::Value g_coopLastAftermath;
+
 // R3-P1: purely client-side actionId -> actorId correlation. Neither
 // bt_ev's "unit" field nor bt_action_end carry both together on the wire
 // (SS2.3/SS2.4 - bt_action_end has no "unit" field at all), so a client
@@ -5629,6 +5646,11 @@ static void resetCoopArbiterState()
 	g_coopIntentTimeouts = 0;
 	g_coopLastTimedOutIseq = 0;
 	g_coopLateAnswersIgnored = 0;
+	// W2-P4 S-A.1 (spec (b)13): the combat-intent probes are battle-scoped too.
+	g_coopIntentsSent = Json::Value(Json::objectValue);
+	g_coopIntentsReceived = Json::Value(Json::objectValue);
+	g_coopLastActionHalt = Json::Value();
+	g_coopLastAftermath = Json::Value();
 	g_coopBusyOwnerSeat = -1;
 	g_coopDeferIntentsMs = 0;
 	g_coopDeferIntentsLeft = 0;
@@ -7695,6 +7717,12 @@ Json::Value inFlightIntent()
 std::uint32_t intentTimeouts()      { return g_coopIntentTimeouts; }
 std::uint32_t lastTimedOutIseq()    { return g_coopLastTimedOutIseq; }
 std::uint32_t lateAnswersIgnored()  { return g_coopLateAnswersIgnored; }
+
+// W2-P4 S-A.1 (spec (b)13): see the statics' comment above - read-only accessors.
+Json::Value intentsSent()           { return g_coopIntentsSent; }
+Json::Value intentsReceived()       { return g_coopIntentsReceived; }
+Json::Value lastActionHalt()        { return g_coopLastActionHalt; }
+Json::Value lastAftermath()         { return g_coopLastAftermath; }
 
 // TEST-ONLY (W1-P7): see CoopArbiter.h.
 void requestDeferIntents(std::uint32_t ms, int count)

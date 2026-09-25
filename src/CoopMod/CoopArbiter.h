@@ -500,6 +500,21 @@ std::uint32_t lastTimedOutIseq();
 /// changes nothing" a DELIVERED-then-ignored assertion instead of an absence.
 std::uint32_t lateAnswersIgnored();
 
+/// W2-P4 S-A.1 (docs rewrite/prompts/w2p4_client_combat_intents.md (b)13)
+/// test/introspection (TestServer event_state), battle-scoped. Written by nothing
+/// on commit S-A.1; S-A.2 adds the writers.
+///   intentsSent()      CLIENT: {kind: count} of the intents this machine sent.
+///   intentsReceived()  HOST:   {kind: {admitted, denied}} of the intents it answered.
+///   lastActionHalt()   BOTH:   the last non-walk bt_action_end this machine
+///                              emitted (host) or applied (client), as
+///                              {actionId, halted, reason}; null before the first.
+///   lastAftermath()    CLIENT: the last own-action aftermath this machine ran,
+///                              as {actionId, kind}; null before the first.
+Json::Value intentsSent();
+Json::Value intentsReceived();
+Json::Value lastActionHalt();
+Json::Value lastAftermath();
+
 // TEST-ONLY (W1-P7, RB-D26/RB-D32 discipline; same family and the same removal
 // note as hold_chain above): delete once real-network latency/loss can be
 // injected another way.

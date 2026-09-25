@@ -5771,7 +5771,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "screen_pixels"
 		&& cmd != "battle_camera_center"
 		&& cmd != "path_probe"
-		&& cmd != "field_poke")
+		&& cmd != "field_poke"
+		&& cmd != "set_touch_modifiers" && cmd != "forget_research")
 	{
 		return false;
 	}
@@ -5915,6 +5916,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["intentTimeouts"] = CoopArbiter::intentTimeouts();
 		resp["lastTimedOutIseq"] = CoopArbiter::lastTimedOutIseq();
 		resp["lateAnswersIgnored"] = CoopArbiter::lateAnswersIgnored();
+		// W2-P4 S-A.1 (spec rewrite/prompts/w2p4_client_combat_intents.md (b)13):
+		// the combat-intent probes (CoopArbiter.h), battle-scoped. Commit S-A.1
+		// exposes them; nothing writes them until S-A.2.
+		resp["coopIntentsSent"] = CoopArbiter::intentsSent();
+		resp["intentsReceived"] = CoopArbiter::intentsReceived();
+		resp["lastActionHalt"] = CoopArbiter::lastActionHalt();
+		resp["lastAftermath"] = CoopArbiter::lastAftermath();
 		// The seat this machine believes owns the host's execution slot right now
 		// (-1 = idle / cannot attribute) - the input to the seat-attributed wait
 		// banner, exposed so a test can prove the ATTRIBUTION, not just the text.
@@ -7320,6 +7328,49 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// older than REV D, which nothing in this repo can be.
 		CoopHandshake::requestOmitTurnMode(req.get("on", true).asBool());
 		resp["ok"] = true;
+	}
+	else if (cmd == "set_touch_modifiers")
+	{
+		// W2-P4 S-A.1 (spec rewrite/prompts/w2p4_client_combat_intents.md (b)13):
+		// TEST lever on the machine it is sent to - a plain setter for THIS
+		// machine's Game touch-button modifier flags, the _ctrl/_alt/_shift that
+		// Game::isCtrlPressed(true)/isAltPressed(true)/isShiftPressed(true) OR in
+		// (the flags BattlescapeState's touch buttons toggle, R3.2). Each flag is
+		// written only when its key is given; the reply carries all three. No
+		// product code changes: the readers are C23f (hand Ctrl), C16f (force-fire)
+		// and C18 (the Ctrl+Shift spray start).
+		if (req.isMember("ctrl"))
+			_game->setCtrlPressedFlag(req["ctrl"].asBool());
+		if (req.isMember("alt"))
+			_game->setAltPressedFlag(req["alt"].asBool());
+		if (req.isMember("shift"))
+			_game->setShiftPressedFlag(req["shift"].asBool());
+		resp["ctrl"] = _game->getCtrlPressedFlag();
+		resp["alt"] = _game->getAltPressedFlag();
+		resp["shift"] = _game->getShiftPressedFlag();
+		resp["ok"] = true;
+	}
+	else if (cmd == "forget_research")
+	{
+		// W2-P4 S-A.1 (amendment C3, C3-Q4 (a)): HOST-only TEST lever, the mirror
+		// of discover_research - remove <topic> from THIS machine's discovered
+		// list through vanilla SavedGame::removeDiscoveredResearch. Research sits
+		// in no battle hash bucket, so the host alone can lose a topic mid-battle:
+		// the only way an honest client's order reaches the host's
+		// `not_researched` deny (C16d-r). Refused on a co-op client.
+		SavedGame* sg = _game->getSavedGame();
+		RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
+		if (isCoopBattle() && !coopBattleAuthority().hostSim)
+			resp["error"] = "forget_research: host-only (a client's research never reaches the host)";
+		else if (!sg || !rule)
+			resp["error"] = "forget_research: no world / unknown research";
+		else
+		{
+			sg->removeDiscoveredResearch(rule);
+			resp["topic"] = rule->getName();
+			resp["researched"] = sg->isResearched(rule, false);
+			resp["ok"] = true;
+		}
 	}
 	else if (cmd == "defer_intents")
 	{
