@@ -33,6 +33,8 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "TileEngine.h"
+#include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -217,7 +219,7 @@ void MedikitState::onEndClick(Action *)
 		_game->getScreen()->resetDisplay(false);
 	}
 	_game->popState();
-	_tileEngine->medikitRemoveIfEmpty(_action);
+	if (!coopClientSkipsMedikitRemoval()) _tileEngine->medikitRemoveIfEmpty(_action);
 }
 
 /**
@@ -231,9 +233,11 @@ void MedikitState::onHealClick(Action *)
 		return;
 	}
 
+	if (coopInterceptMedikitPress(_action, _targetUnit, BMA_HEAL, _medikitView->getSelectedPart())) return;
 	if (_action->spendTU(&_action->result))
 	{
 		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_HEAL, (UnitBodyPart)_medikitView->getSelectedPart());
+		coopHostMedikit(_action, _targetUnit, BMA_HEAL, _medikitView->getSelectedPart());
 		_medikitView->updateSelectedPart();
 		_medikitView->invalidate();
 		update();
@@ -259,9 +263,11 @@ void MedikitState::onStimulantClick(Action *)
 		return;
 	}
 
+	if (coopInterceptMedikitPress(_action, _targetUnit, BMA_STIMULANT, BODYPART_TORSO)) return;
 	if (_action->spendTU(&_action->result))
 	{
 		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_STIMULANT, BODYPART_TORSO);
+		coopHostMedikit(_action, _targetUnit, BMA_STIMULANT, BODYPART_TORSO);
 		update();
 		if (!canContinueHealing)
 		{
@@ -285,9 +291,11 @@ void MedikitState::onPainKillerClick(Action *)
 		return;
 	}
 
+	if (coopInterceptMedikitPress(_action, _targetUnit, BMA_PAINKILLER, BODYPART_TORSO)) return;
 	if (_action->spendTU(&_action->result))
 	{
 		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_PAINKILLER, BODYPART_TORSO);
+		coopHostMedikit(_action, _targetUnit, BMA_PAINKILLER, BODYPART_TORSO);
 		update();
 		if (!canContinueHealing)
 		{
@@ -309,6 +317,28 @@ void MedikitState::update()
 	_stimulantTxt->setText(toString(_item->getStimulantQuantity()));
 	_healTxt->setText(toString(_item->getHealQuantity()));
 	_medikitView->invalidate();
+}
+
+/**
+ * W2-P4 S-D (co-op, amendment C3 D148 / C3-Q11): on a co-op client the host runs
+ * a button's use; when its answer arrives this runs the handler's own post-use
+ * lines (the charges and wounds are already applied).
+ * @param refreshPart True after a heal (the selected body part is refreshed).
+ * @param keepOpen False closes the screen (the host's `continue: false`, or a
+ * refused order - vanilla closes on a failed spendTU).
+ */
+void MedikitState::coopAnswered(bool refreshPart, bool keepOpen)
+{
+	if (refreshPart)
+	{
+		_medikitView->updateSelectedPart();
+	}
+	_medikitView->invalidate();
+	update();
+	if (!keepOpen)
+	{
+		onEndClick(0);
+	}
 }
 
 }

@@ -311,6 +311,24 @@ void coopCueCorpse(const BattleUnit* unit);
 /// another action context is open (the fuse then rides the next delta).
 void coopHostPrime(BattleUnit* actor, BattleItem* item, bool unprime);
 
+/// W2-P4 S-D (docs rewrite/prompts/w2p4_client_combat_intents.md, amendment C1
+/// PR-Q5 = Q7's mechanism): the host's OWN medi-kit use as an INSTANT host
+/// action - ONE call right AFTER the vanilla effect at each of four sites
+/// (MedikitState's three buttons, after medikitUse(); ActionMenuState's
+/// one-click kit, after its switch - @a medikitAction / @a bodyPart -1 there:
+/// the kit's own type decides). Mint, push {id,"host"}, the frozen `medikit`
+/// cue {actor, unit (the patient), item, action, bodypart} whose delta carries
+/// the TU and the effect, then the close through onChainQuiesced() ->
+/// closeBaseContext() (Q10's shared path; a use that left states queued keeps
+/// the context open until that chain quiesces). No hook in medikitUse(). Coop +
+/// hostSim only; a logged no-op while another action context is open.
+void coopHostMedikit(BattleAction* action, BattleUnit* target, int medikitAction, int bodyPart);
+
+/// W2-P4 S-D (PR-Q5): the host's OWN motion-scanner use, the same shape - ONE
+/// call right after ActionMenuState's BT_SCANNER spendTU; the frozen `scanner`
+/// cue {actor, unit (= actor), item}.
+void coopHostScanner(BattleAction* action);
+
 // ----- W2-P3 S-A, commit S-A.2: the `ai` and `endturn` action contexts -----
 // Spec rewrite/prompts/w2p3_nonplayer_origins.md (b)1, (b)4-6; amendment B1
 // RQ5/RQ6. Each is ONE call at its BattlescapeGame.cpp site and a no-op unless

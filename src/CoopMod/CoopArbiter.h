@@ -94,6 +94,16 @@ struct CoopWalkIntentArgs
  * psi, the target unit's tile for the probe), `targetUnit` / `targetPos` the
  * unit the order acts on, and:
  *   terrainPart the melee's terrain part (validTerrainMeleeRange(); 0 = none)
+ *
+ * W2-P4 S-D (spec (b)1): the same plan carries the `medikit`, `use_item`
+ * (scanner), `reload` and `reaction_hands` kinds. For `medikit`, `weapon` is
+ * the kit (the wire's `item`), `action` the button ("heal" | "stim" |
+ * "painkiller"), `targetUnit` / `targetPos` the patient, and:
+ *   bodypart    the body part the button treats (UnitBodyPart; the torso for
+ *               stimulant and painkiller)
+ * For the scanner `weapon` is the scanner; `reload`'s plan is empty; for
+ * `reaction_hands` `action` is the hand ("left" | "right") and:
+ *   ctrl        the ORDERING machine's Ctrl at the press (Q12 = (a))
  */
 struct CoopCombatIntentArgs
 {
@@ -108,6 +118,8 @@ struct CoopCombatIntentArgs
 	int fuse = -1;
 	bool unprime = false;
 	int terrainPart = 0;
+	int bodypart = -1;
+	bool ctrl = false;
 };
 
 /**
@@ -381,6 +393,9 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 /// `tuBasis` is getActionTUs() of that kind's action type and item.
 /// W2-P4 S-C: + "melee" (BA_HIT), "psi" (BA_PANIC / BA_MINDCONTROL / BA_USE by
 /// the plan's action) and "use_item" (BA_USE: the mind probe).
+/// W2-P4 S-D: "use_item" also carries the motion scanner; + "medikit" (BA_USE
+/// with the kit), "reload" and "reaction_hands" (neither has an action type,
+/// so neither ships a `tuBasis`).
 std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir = -1,
 	bool turret = false, bool kneel = false, int tuBasisOverride = -1,
 	const CoopWalkIntentArgs* walk = nullptr, const CoopCombatIntentArgs* combat = nullptr);
@@ -850,6 +865,12 @@ bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save);
 /// after which the client's own _currentAction is set to BA_NONE - no
 /// MeleeAttackBState runs there to clear it (vanilla's own reason for the
 /// ActionMenuState reset), so no later popup close re-sends the order.
+///
+/// W2-P4 S-D (spec (b)5 K7, N9): + BA_USE with a BT_MEDIKIT or BT_SCANNER item -
+/// the popup-close AFTERMATH of a medi-kit or scanner use, whose vanilla branch
+/// runs updateGameStateAfterScript(). TRUE on a co-op CLIENT (skipped: the
+/// host's use ran it; no baton check - nothing is ordered here), FALSE on the
+/// host (vanilla runs it for the host's own use).
 bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save);
 
 /// W2-P4 S-C (docs rewrite/prompts/w2p4_client_combat_intents.md (b)5 K3/K4;
@@ -873,6 +894,62 @@ bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save);
 ///      order's own bt_action_end, Q14 = a).
 /// FALSE in single player and outside an active co-op battle.
 bool coopInterceptPsiConfirm(BattleAction* action, BattleUnit* targetUnit, SavedBattleGame* save);
+
+// ===== W2-P4 S-D (docs rewrite/prompts/w2p4_client_combat_intents.md (b)5
+// K9-K11, K13, K14; amendments C1 PR-Q3 / PR-Q15, C3 D148 / D150, C4 PR-Q18;
+// owner D133): the ITEM and HAND execution points. Each is ONE guarded call at
+// its vanilla site, self-guarded (FALSE in single player and outside an active
+// co-op battle, so SP is byte-identical), and each checks the baton at the
+// execution point on BOTH machines first (coopRefuseIfNotMayCommand: rendered
+// not_your_go + coopLocalExecBlocked; the menus, the medi-kit screen and the
+// hand buttons stay allowed off-turn, E54.1). On the co-op HOST each returns
+// FALSE (vanilla runs; PR-Q5's host calls wrap the medi-kit and scanner uses);
+// on a co-op CLIENT each ships the completed vanilla press as an intent through
+// sendClientIntent() and returns TRUE whether or not it went out, so none of
+// spendTU, medikitUse, medikitRemoveIfEmpty, reloadAmmo or a reaction toggle
+// ever runs on a thin client. =====
+
+/// K10 (MedikitState's heal / stimulant / painkiller buttons, the line before
+/// each spendTU, after vanilla's own quantity check) and K9 (ActionMenuState's
+/// one-click kit row, the line before its spendTU; @a medikitAction and
+/// @a bodyPart -1: the kit's own type decides, vanilla's one-click switch).
+/// @a medikitAction is a BattleMediKitAction, @a bodyPart a UnitBodyPart.
+/// CLIENT: a `medikit` order {item, targetUnit, targetPos, action, bodypart}.
+/// A press while this unit's order is in flight or held pending is IGNORED
+/// (owner D150 = (a), N16): TRUE, nothing sent. The one-click row's action is
+/// set to BA_NONE whenever TRUE comes back (its menu is already closed); the
+/// medi-kit screen keeps its action (D148: the screen stays open, its answer
+/// refreshes or closes it).
+bool coopInterceptMedikitPress(BattleAction* action, BattleUnit* target, int medikitAction, int bodyPart);
+
+/// K11 (ActionMenuState's BT_SCANNER row, the line before its spendTU):
+/// `if (coopInterceptScannerUse(_action)) { _game->popState(); return; }`.
+/// CLIENT: a `use_item` order {item} (the item's battle type tells the host it
+/// is the scanner); the ScannerState opens on this machine at the order's own
+/// bt_action_end (Q14 = a). TRUE sets @a action->type = BA_NONE.
+bool coopInterceptScannerUse(BattleAction* action);
+
+/// K13 (BattlescapeState::btnReloadClick, the W2-P1 refusal line):
+/// `if (coopInterceptReload(_save->getSelectedUnit(), _save, playableUnitSelected())) return;`.
+/// FALSE unless @a playable (vanilla's own gate on the next line then does
+/// nothing either). CLIENT: a `reload` order {} - vanilla picks the clip on
+/// the host (H6, N30).
+bool coopInterceptReload(BattleUnit* unit, SavedBattleGame* save, bool playable);
+
+/// K14 (BattlescapeState::btn{Left,Right}HandItemClick's right-click branch,
+/// the W2-P1/W1-P5 refusal lines). HOST: after the baton, Control::HandReaction's
+/// ownership term (CoopBattleUi::refuseControl, STR_COOP_DENY_NOT_YOUR_UNIT,
+/// Q13) - otherwise FALSE and vanilla's own toggle runs, unwrapped (spec (b)9).
+/// CLIENT: a `reaction_hands` order {hand, ctrl} with THIS machine's
+/// Game::isCtrlPressed(true) (owner D133 (a), Q12 = (a)).
+bool coopInterceptReactionHands(BattleUnit* unit, SavedBattleGame* save, bool rightHand);
+
+/// K10's onEndClick guard (MedikitState::onEndClick, its
+/// TileEngine::medikitRemoveIfEmpty() line): TRUE on a co-op CLIENT - the host
+/// removes an emptied consumable kit right after the use that emptied it
+/// (C3-Q12 (a)) and the removal reaches this machine through the delta, so the
+/// client never removes an item itself. FALSE on the host and in single player.
+bool coopClientSkipsMedikitRemoval();
 
 /// W2-P4 S-A (spec (b)4, Q3 = (a), PR-Q4, PR-Q11): the halt LATCH - ONE guarded
 /// call in BattlescapeGame::popState() before vanilla's player warning. On the

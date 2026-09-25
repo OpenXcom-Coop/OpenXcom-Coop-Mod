@@ -21,19 +21,41 @@ scenario):
                it (host closedContexts gains exactly one {origin intent, kind
                prime, actorId C}), the fuse is 0 on both machines and C's TU
                stays equal on both machines.
-  S3 scanner   USE SCANNER is refused with the same text: ScannerState never
-               opens, C's TU stays equal.
+  S3 scanner   USE SCANNER. Re-pointed by W2-P4 S-D (amendment C1 PR-Q3 (a),
+               chain rule A.10): the choice is no longer refused but sent as
+               a `use_item` intent - the host admits and runs it (host
+               closedContexts gains exactly one {origin intent, kind scanner,
+               actorId C}, whose evs are exactly the `scanner` cue {actor C,
+               item} then one bt_action_end, each applied on the client with
+               the same seq, kind and actionId), ScannerState opens on the
+               client at its own order's end and never on the host, C's TU is
+               spent and equal on both machines.
   STAGE        C -> S4_C_TILE facing S4_C_DIR, H -> S4_H_TILE (the tile C
                faces) facing C, battle_teleport_unit on BOTH machines, once,
                responses ok and equal (A2.1/A2.2).
   S2 medikit   USE MEDI-KIT (its target is H, standing on the tile C faces -
-               vanilla STR_MEDI_KIT cannot target its own user, F439) is
-               refused with the same text: MedikitState never opens, C's TU
-               stays equal.
+               vanilla STR_MEDI_KIT cannot target its own user, F439), then
+               PAINKILLER. Re-pointed by W2-P4 S-D (amendment C3 D148, "Tripwire
+               S2 re-point"): MedikitState opens locally and the press is a
+               `medikit` intent - after the client's own bt_action_end the
+               screen is still its top state (`continue: true`, H is
+               standing), the host closed exactly one {origin intent, kind
+               medikit, actorId C}, C's TU is before - 10 on both machines,
+               the kit's painkiller count went 10 -> 9 on both, the banner is
+               not the interim text; the cancel key then closes the screen
+               locally with nothing sent.
   S5 reload    The reload hotkey (Options::keyBattleReload, read at run time
-               from the client's own options.cfg) is refused with "Only the
-               host can reload": the clip stays on C's belt and the rifle
-               stays empty on both machines, C's TU stays equal.
+               from the client's own options.cfg). Re-pointed by W2-P4 S-D
+               (amendment C1 PR-Q3 (a), chain rule A.10): the key is sent as a
+               `reload` intent - the host closed exactly one {origin intent,
+               kind reload, actorId C} whose evs are exactly one bt_action_end
+               (applied on the client with the same seq, kind and actionId),
+               the clip is loaded in the rifle on both machines and C's TU is
+               before - 15 on both. C is stripped and gets its max TU on both
+               machines first (C23e's staging): its own loadout carries a rifle
+               clip vanilla's reload would pick first (F1132), and S3 and S2 now
+               really spend TU, which would leave C below the reload's cost and
+               S4's stun rod.
   S7 tripwire  The battle_fire lever, called for C2 on the CLIENT only, pushes
                UnitTurnBState then ProjectileFlyBState through statePushBack
                (A1.3): the tripwire refuses and counts BOTH (delta exactly 2),
@@ -72,7 +94,8 @@ below; the test teleports with battle_teleport_unit on BOTH machines and
 asserts each response. Every item is given with battle_give on BOTH machines
 in the same order and the returned ids are asserted equal. Before each of
 S1-S5 and S7 the acting unit's TU (C, or C2 for S7) is set on BOTH machines
-to the host's own value (battle_set_unit_state tu; A2.3/F441) so every
+to the host's own value (battle_set_unit_state tu; A2.3/F441; S5: C's max
+TU on both, W2-P4 S-D) so every
 scenario starts from the same TU on both machines - on the red build the
 client spends TU locally, and without this an earlier scenario's red would
 starve a later one of the TU its own red needs.
@@ -151,6 +174,11 @@ KEY_CANCEL = 27                       # Options::keyCancel (ScannerState / Medik
 
 TEXT_ITEM_ACTION = "Only the host can use this item"   # STR_COOP_ITEM_ACTION_HOST_ONLY
 TEXT_RELOAD = "Only the host can reload"                # STR_COOP_RELOAD_HOST_ONLY
+# W2-P4 S-D re-points: both interim keys above are RETIRED (the texts stay here
+# only as "not the interim refusal" checks).
+MEDIKIT_TU = 10                       # STR_MEDI_KIT tuUse 10 flat (items.rul; T0-19 = F1250: "TU before - 10")
+RELOAD_TU = 15                        # STR_RIFLE's clip load from STR_BELT (T0-9: 15, C23e)
+TU_MAX = 255                          # battle_set_unit_state tu: clamped to the unit's max TU
 
 DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
 DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
@@ -442,15 +470,47 @@ def s1_prime(host, client, ctx):
     finish(fails)
 
 
+def intent_contexts(host, ctx0, kind):
+    """W2-P4 S-D (S2 / S3 / S5 re-points): the host's NEW closedContexts records
+    that are C's admitted intent of context kind `kind` ({origin intent, kind,
+    actorId C})."""
+    seen0 = {c.get("actionId") for c in ctx0}
+    return [c for c in (event_state(host).get("closedContexts") or []) if c.get("actionId") not in seen0
+            and c.get("origin") == "intent" and c.get("kind") == kind and c.get("actorId") == C_ID]
+
+
+def wait_intent_done(host, client, ctx0, kind, timeout=15):
+    """W2-P4 S-D: wait (bounded) until C's `kind` intent context has closed on the
+    host and the client has applied everything the host emitted (the client's
+    own bt_action_end included). Returns "" or the wait's failure text."""
+    try:
+        client.wait_for(f"C's {kind} intent closed on the host and applied on the client",
+                        lambda: (intent_contexts(host, ctx0, kind) and event_state(client).get("inFlight") is None
+                                 and event_state(client).get("lastSeqApplied")
+                                 == event_state(host).get("lastSeqEmitted")) or None, timeout=timeout, interval=0.1)
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+    return ""
+
+
+def pk_count(its, iid):
+    """A medi-kit's painkiller charge (battle_items `medikit` [painKiller, heal,
+    stimulant], S-D.1)."""
+    mk = (its.get(iid) or {}).get("medikit")
+    return mk[0] if mk else None
+
+
 def s2_medikit(host, client, ctx):
     equalize_tu(host, client, C_ID)
     mid, _ = give_both(host, client, {"unit": C_ID, "item": "STR_MEDI_KIT", "clear_hands": True})
     wait_banner_not(client, TEXT_ITEM_ACTION)
     seen = open_right_hand_menu(client)
     p0h, p0c = probes(host), probes(client)
+    ctx0 = event_state(host).get("closedContexts") or []
     uh, uc = units(host), units(client)
     tu0 = (uh[C_ID]["tu"], uc[C_ID]["tu"])
     h0 = (hfields(uh[H_ID]), hfields(uc[H_ID]))
+    pk0 = (pk_count(items(host), mid), pk_count(items(client), mid))
     fronts = {}
     for name, us in (("host", uh), ("client", uc)):
         c = us[C_ID]
@@ -459,33 +519,66 @@ def s2_medikit(host, client, ctx):
                if not u.get("isOut") and (u["x"], u["y"], u["z"]) == ft]
         fronts[name] = (c["x"], c["y"], c["z"], c["direction"], ft, occ)
     medikit_text = []
+    order_note = ""
+    top_after = None
+    cancel = {}
     press(client, KEY_ACTION_ITEM1)
     watch_top(client, lambda st: st != "ActionMenuState", 5, seen)
     if seen[-1] == "MedikitState":
         medikit_text.append(("open", infobox_text(client)))
         press(client, KEY_PAINKILLER)
-        time.sleep(0.5)
-        if top(client) == "MedikitState":
+        # W2-P4 S-D (amendment C3 D148): the painkiller is an order now - wait for
+        # the client's own bt_action_end instead of a fixed sleep.
+        order_note = wait_intent_done(host, client, ctx0, "medikit")
+        top_after = top(client)
+        if top_after == "MedikitState":
             medikit_text.append(("after PAINKILLER", infobox_text(client)))
+            cancel["before"] = (event_state(client).get("coopIntentsSent"), event_state(host).get("lastSeqEmitted"))
             press(client, KEY_CANCEL)
         watch_top(client, lambda st: st != "MedikitState", 5, seen)
+        time.sleep(0.5)
+        cancel["after"] = (event_state(client).get("coopIntentsSent"), event_state(host).get("lastSeqEmitted"))
+        cancel["top"] = top(client)
     settled = settle_client(client, seen)
+    mctx = intent_contexts(host, ctx0, "medikit")
     ph, pc = probes(host), probes(client)
+    halt_c = event_state(client).get("lastActionHalt") or {}
     uh1, uc1 = units(host), units(client)
     tu1 = (uh1[C_ID]["tu"], uc1[C_ID]["tu"])
     h1 = (hfields(uh1[H_ID]), hfields(uc1[H_ID]))
+    pk1 = (pk_count(items(host), mid), pk_count(items(client), mid))
     print(f"EVIDENCE S2: medikit={mid} client-states={seen} settled={settled} "
           f"target (C x,y,z,dir, faced tile, occupant ids) host={fronts['host']} "
           f"client={fronts['client']} (H={H_ID}); medikit-screen-text={medikit_text}; "
+          f"medikit contexts={mctx} orderWait={order_note!r} top after the answer={top_after!r} "
+          f"client lastActionHalt={halt_c} cancel={cancel}; "
+          f"painkiller host {pk0[0]}->{pk1[0]} client {pk0[1]}->{pk1[1]}; "
           f"C.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]}; "
           f"H host {h0[0]}->{h1[0]} client {h0[1]}->{h1[1]}; "
           f"client banner={pc['banner']!r} warning={pc['warning']!r}; "
           f"pushes client {p0c['pushes']}->{pc['pushes']} lastSite={pc['lastSite']!r}", flush=True)
     fails = []
-    if pc["banner"] != TEXT_ITEM_ACTION:
-        fails.append(f"client banner {pc['banner']!r} (want {TEXT_ITEM_ACTION!r})")
-    if "MedikitState" in seen:
-        fails.append(f"MedikitState opened on the client (states {seen})")
+    # W2-P4 S-D (amendment C3 D148 "Tripwire S2 re-point", chain rule A.10): the
+    # medi-kit screen opens locally and the painkiller press is an order the host
+    # runs; the screen stays open on the answer (`continue: true`, H is standing).
+    if "MedikitState" not in seen or top_after != "MedikitState":
+        fails.append(f"MedikitState did not open and stay the client's top state after the answer (states {seen}, "
+                     f"top after the answer {top_after!r})")
+    if halt_c.get("actionId") != (mctx[0].get("actionId") if len(mctx) == 1 else None) or halt_c.get(
+            "continue") is not True:
+        fails.append(f"client lastActionHalt {halt_c} (want the medikit order's end with continue true)")
+    if len(mctx) != 1:
+        fails.append(f"host closedContexts gained {len(mctx)} {{origin intent, kind medikit, actorId {C_ID}}} "
+                     f"(want exactly 1; wait: {order_note!r})")
+    if tu1 != (tu0[0] - MEDIKIT_TU, tu0[0] - MEDIKIT_TU):
+        fails.append(f"C.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]} (want before - {MEDIKIT_TU} on both)")
+    if pk0 != (10, 10) or pk1 != (9, 9):
+        fails.append(f"kit {mid} painkiller host {pk0[0]}->{pk1[0]} client {pk0[1]}->{pk1[1]} (want 10 -> 9 on both)")
+    if pc["banner"] == TEXT_ITEM_ACTION:
+        fails.append(f"client banner {pc['banner']!r} (the interim host-only refusal: want the press sent as an "
+                     f"order)")
+    if cancel.get("top") != "BattlescapeState" or "before" not in cancel or cancel["before"] != cancel.get("after"):
+        fails.append(f"the cancel key did not close the screen locally with nothing sent ({cancel})")
     if tu1[0] != tu1[1]:
         fails.append(f"C.tu host={tu1[0]} client={tu1[1]} (want equal)")
     if not settled:
@@ -500,27 +593,61 @@ def s3_scanner(host, client, ctx):
     wait_banner_not(client, TEXT_ITEM_ACTION)
     seen = open_right_hand_menu(client)
     p0h, p0c = probes(host), probes(client)
+    ctx0 = event_state(host).get("closedContexts") or []
+    seq0 = event_state(host).get("lastSeqEmitted") or 0
     tu0 = (units(host)[C_ID]["tu"], units(client)[C_ID]["tu"])
     press(client, KEY_ACTION_ITEM1)
     watch_top(client, lambda st: st != "ActionMenuState", 5, seen)
+    # W2-P4 S-D (C1 PR-Q3 (a), chain rule A.10): the scanner is an order now -
+    # wait (bounded) for the host's intent context to close and the client to
+    # apply everything; the client's ScannerState opens at its own end (Q14 = a).
+    order_note = wait_intent_done(host, client, ctx0, "scanner")
+    watch_top(client, lambda st: st == "ScannerState", 5, seen)
+    tops = {"host": top(host), "client": top(client)}
     if seen[-1] == "ScannerState":
         time.sleep(0.5)
         press(client, KEY_CANCEL)
         watch_top(client, lambda st: st != "ScannerState", 5, seen)
     settled = settle_client(client, seen)
+    sctx = intent_contexts(host, ctx0, "scanner")
+    aid = sctx[0].get("actionId") if len(sctx) == 1 else None
+    hev, cev = evs_since(host, seq0), evs_since(client, seq0)
+    chain = [e for e in hev if aid is not None and e["actionId"] == aid]
+    cmap = {e["seq"]: e for e in cev}
+    sseqs = [e["seq"] for e in chain if e["kind"] == "scanner"]
+    pl = host_payloads(host, sseqs) if sseqs else {}
+    scanner_cue = ((pl.get(sseqs[0]) or {}).get("payload") or {}) if sseqs else {}
     ph, pc = probes(host), probes(client)
     tu1 = (units(host)[C_ID]["tu"], units(client)[C_ID]["tu"])
-    print(f"EVIDENCE S3: scanner={sid_} client-states={seen} settled={settled} "
+    print(f"EVIDENCE S3: scanner={sid_} client-states={seen} settled={settled} tops at the answer={tops} "
+          f"scanner contexts={sctx} orderWait={order_note!r} chain={[(e['seq'], e['kind']) for e in chain]} "
+          f"client chain={[(s, (cmap.get(s) or {}).get('kind'), (cmap.get(s) or {}).get('actionId')) for s in [e['seq'] for e in chain]]} "
+          f"scanner cue={scanner_cue}; "
           f"C.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]}; "
           f"client banner={pc['banner']!r} warning={pc['warning']!r}; "
           f"pushes client {p0c['pushes']}->{pc['pushes']} lastSite={pc['lastSite']!r}", flush=True)
     fails = []
-    if pc["banner"] != TEXT_ITEM_ACTION:
-        fails.append(f"client banner {pc['banner']!r} (want {TEXT_ITEM_ACTION!r})")
-    if "ScannerState" in seen:
-        fails.append(f"ScannerState opened on the client (states {seen})")
-    if tu1[0] != tu1[1]:
-        fails.append(f"C.tu host={tu1[0]} client={tu1[1]} (want equal)")
+    if len(sctx) != 1:
+        fails.append(f"host closedContexts gained {len(sctx)} {{origin intent, kind scanner, actorId {C_ID}}} "
+                     f"(want exactly 1; wait: {order_note!r})")
+    kinds = [e["kind"] for e in chain]
+    if aid is not None and kinds != ["scanner", "bt_action_end"]:
+        fails.append(f"host evs of actionId {aid} = {kinds} (want exactly the `scanner` cue, then one bt_action_end)")
+    bad = [(e["seq"], e["kind"], cmap.get(e["seq"])) for e in chain
+           if not cmap.get(e["seq"]) or cmap[e["seq"]]["kind"] != e["kind"] or cmap[e["seq"]]["actionId"] != aid]
+    if bad:
+        fails.append(f"client event_log does not hold the host's evs of actionId {aid}: (seq, kind, client)={bad}")
+    if aid is not None and (scanner_cue.get("actor"), scanner_cue.get("item")) != (C_ID, sid_):
+        fails.append(f"`scanner` cue payload {scanner_cue} (want actor {C_ID}, item {sid_})")
+    if pc["banner"] == TEXT_ITEM_ACTION:
+        fails.append(f"client banner {pc['banner']!r} (the interim host-only refusal: want the press sent as "
+                     f"an order)")
+    if tops["client"] != "ScannerState" or tops["host"] == "ScannerState":
+        fails.append(f"top states at the answer {tops} (want ScannerState on the client only, opened at its own "
+                     f"order's end)")
+    if tu1[0] != tu1[1] or tu1[0] >= tu0[0]:
+        fails.append(f"C.tu host={tu1[0]} client={tu1[1]} before={tu0} (want spent by the host's scanner and "
+                     f"equal on both)")
     if not settled:
         fails.append(f"client never settled on BattlescapeState (states {seen})")
     common_tail(host, client, fails, (p0h["pushes"], p0c["pushes"]), what="S3")
@@ -639,10 +766,36 @@ def s4_melee(host, client, ctx):
 
 
 def s5_reload(host, client, ctx):
-    equalize_tu(host, client, C_ID)
+    # W2-P4 S-D (C1 PR-Q3 (a), chain rule A.10): the reload is an order the host
+    # EXECUTES now, and S3 / S2 before it are executed too (the first green run:
+    # C TU 56 -> 28 after S1's prime -> 14 after S3's scanner -> 4 after S2's
+    # painkiller; C's max TU varies per boot, F1250), which is below the rifle's
+    # 15 TU reload - vanilla's reloadAmmo() would then refuse, and S4's stun rod
+    # (last) could not be ordered at all. So S5 gives C its max TU on BOTH
+    # machines (client first, F607), C23e's staging, instead of equalize_tu's
+    # carry-over.
+    tus = []
+    for gc in (client, host):  # F607: client first, then host
+        r = gc.cmd({"cmd": "battle_set_unit_state", "unit": C_ID, "tu": TU_MAX})
+        assert r.get("ok"), f"PREMISE: battle_set_unit_state tu={TU_MAX} unit {C_ID} on {gc.name}: {r}"
+        tus.append(r.get("tu"))
+    assert tus[0] == tus[1] and tus[0] >= RELOAD_TU, f"PREMISE: C max TU client/host {tus} (want equal, >= {RELOAD_TU})"
+    # F1132 (amendment C2, C23e's order): C's own starting loadout carries a
+    # rifle clip that vanilla's reloadAmmo() picks before the staged one (the
+    # first green run's end delta moved C's own item into the rifle), so C is
+    # stripped on BOTH machines first (client first, F607): the staged clip is
+    # then the only one.
+    sc = client.cmd({"cmd": "battle_strip_unit", "unit": C_ID})
+    sh = host.cmd({"cmd": "battle_strip_unit", "unit": C_ID})
+    assert sh.get("ok") and sc.get("ok") and set(sh.get("deleted") or []) == set(sc.get("deleted") or []), (
+        f"PREMISE: battle_strip_unit {C_ID}: host={sh} client={sc}")
     rifle, _ = give_both(host, client, {"unit": C_ID, "item": "STR_RIFLE", "clear_hands": True})
     clip, _ = give_both(host, client, {"unit": C_ID, "item": "STR_RIFLE_CLIP",
                                        "slot": "STR_BELT", "slotX": 0, "slotY": 0})
+    inv = {n: sorted((i, v.get("slot")) for i, v in its.items() if v.get("owner") == C_ID)
+           for n, its in (("host", items(host)), ("client", items(client)))}
+    assert inv["host"] == inv["client"] == sorted([(rifle, "STR_RIGHT_HAND"), (clip, "STR_BELT")]), (
+        f"PREMISE: C's inventory {inv} (want exactly the rifle {rifle} in hand and the clip {clip} on the belt)")
     wait_banner_not(client, TEXT_RELOAD)
     assert tab_select(client, C_ID), (
         f"PREMISE: TAB never selected C ({C_ID}) on the client: "
@@ -650,17 +803,26 @@ def s5_reload(host, client, ctx):
     assert top(client) == "BattlescapeState", (
         f"PREMISE: client top is {top(client)!r}, not BattlescapeState, before the reload key")
     p0h, p0c = probes(host), probes(client)
+    ctx0 = event_state(host).get("closedContexts") or []
+    seq0 = event_state(host).get("lastSeqEmitted") or 0
     tu0 = (units(host)[C_ID]["tu"], units(client)[C_ID]["tu"])
     ih0, ic0 = items(host), items(client)
     seen = ["BattlescapeState"]
     press(client, ctx["reload_key"])
-    time.sleep(0.5)
+    order_note = wait_intent_done(host, client, ctx0, "reload")
     settled = settle_client(client, seen)
+    rctx = intent_contexts(host, ctx0, "reload")
+    aid = rctx[0].get("actionId") if len(rctx) == 1 else None
+    hev, cev = evs_since(host, seq0), evs_since(client, seq0)
+    chain = [e for e in hev if aid is not None and e["actionId"] == aid]
+    cmap = {e["seq"]: e for e in cev}
     ph, pc = probes(host), probes(client)
     tu1 = (units(host)[C_ID]["tu"], units(client)[C_ID]["tu"])
     ih1, ic1 = items(host), items(client)
-    print(f"EVIDENCE S5: rifle={rifle} clip={clip} reload_key={ctx['reload_key']} "
-          f"client-states={seen} settled={settled} "
+    print(f"EVIDENCE S5: rifle={rifle} clip={clip} reload_key={ctx['reload_key']} C max TU={tus} "
+          f"client-states={seen} settled={settled} reload contexts={rctx} orderWait={order_note!r} "
+          f"chain={[(e['seq'], e['kind']) for e in chain]} "
+          f"client chain={[(s, (cmap.get(s) or {}).get('kind'), (cmap.get(s) or {}).get('actionId')) for s in [e['seq'] for e in chain]]} "
           f"rifle.ammo host {ih0[rifle]['ammo']}->{ih1[rifle]['ammo']} "
           f"client {ic0[rifle]['ammo']}->{ic1[rifle]['ammo']}; "
           f"clip host owner={ih1[clip]['owner']} slot={ih1[clip]['slot']} "
@@ -669,17 +831,24 @@ def s5_reload(host, client, ctx):
           f"client banner={pc['banner']!r} warning={pc['warning']!r}; "
           f"pushes client {p0c['pushes']}->{pc['pushes']} lastSite={pc['lastSite']!r}", flush=True)
     fails = []
-    if pc["banner"] != TEXT_RELOAD:
-        fails.append(f"client banner {pc['banner']!r} (want {TEXT_RELOAD!r})")
+    if len(rctx) != 1:
+        fails.append(f"host closedContexts gained {len(rctx)} {{origin intent, kind reload, actorId {C_ID}}} "
+                     f"(want exactly 1; wait: {order_note!r})")
+    kinds = [e["kind"] for e in chain]
+    if aid is not None and kinds != ["bt_action_end"]:
+        fails.append(f"host evs of actionId {aid} = {kinds} (want exactly one bt_action_end)")
+    bad = [(e["seq"], e["kind"], cmap.get(e["seq"])) for e in chain
+           if not cmap.get(e["seq"]) or cmap[e["seq"]]["kind"] != e["kind"] or cmap[e["seq"]]["actionId"] != aid]
+    if bad:
+        fails.append(f"client event_log does not hold the host's evs of actionId {aid}: (seq, kind, client)={bad}")
+    if pc["banner"] == TEXT_RELOAD:
+        fails.append(f"client banner {pc['banner']!r} (the interim host-only refusal: want the key sent as an "
+                     f"order)")
     lh, lc = loaded_ammo(ih1[rifle], rifle), loaded_ammo(ic1[rifle], rifle)
-    if lh or lc:
-        fails.append(f"rifle {rifle} loaded ammo host={lh} client={lc} (want none on both)")
-    for name, it in (("host", ih1[clip]), ("client", ic1[clip])):
-        if it.get("owner") != C_ID or it.get("slot") != "STR_BELT":
-            fails.append(f"clip {clip} not on C's belt on {name}: owner={it.get('owner')} "
-                         f"slot={it.get('slot')}")
-    if tu1[0] != tu1[1]:
-        fails.append(f"C.tu host={tu1[0]} client={tu1[1]} (want equal)")
+    if lh != [clip] or lc != [clip]:
+        fails.append(f"rifle {rifle} loaded ammo host={lh} client={lc} (want [{clip}] on both: the host's reload)")
+    if tu1 != (tu0[0] - RELOAD_TU, tu0[0] - RELOAD_TU):
+        fails.append(f"C.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]} (want before - {RELOAD_TU} on both)")
     if not settled:
         fails.append(f"client never settled on BattlescapeState (states {seen})")
     common_tail(host, client, fails, (p0h["pushes"], p0c["pushes"]), what="S5")

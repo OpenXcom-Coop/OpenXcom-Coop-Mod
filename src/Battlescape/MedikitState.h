@@ -58,5 +58,7 @@ public:
 	MedikitState(BattleUnit *targetUnit, BattleAction *action, TileEngine *tile);
 	/// Handler for right-clicking anything.
 	void handle(Action *action) override;
+	/// W2-P4 S-D (co-op, C3-Q11): the post-use lines for a use the host ran.
+	void coopAnswered(bool refreshPart, bool keepOpen);
 };
 }

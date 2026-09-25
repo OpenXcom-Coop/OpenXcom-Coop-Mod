@@ -38,7 +38,8 @@
 #include "Pathfinding.h"
 #include "TileEngine.h"
 #include "../Interface/Text.h"
-#include "../CoopMod/CoopBattleUi.h"
+#include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -304,7 +305,6 @@ void ActionMenuState::handleAction()
 {
 	// reset potential garbage from the previous action
 	_action->terrainMeleeTilePart = 0;
-	if (CoopBattleUi::refuseItemActionChoice(_action)) { _game->popState(); return; }
 
 	{
 		const RuleItem *weapon = _action->weapon->getRules();
@@ -402,6 +402,7 @@ void ActionMenuState::handleAction()
 						(type == BMT_STIMULANT && _action->weapon->getStimulantQuantity() > 0) ||
 						(type == BMT_PAINKILLER && _action->weapon->getPainKillerQuantity() > 0))
 					{
+						if (coopInterceptMedikitPress(_action, targetUnit, -1, -1)) return;
 						if (_action->spendTU(&_action->result))
 						{
 							switch (type)
@@ -436,6 +437,7 @@ void ActionMenuState::handleAction()
 							case BMT_NORMAL:
 								break;
 							}
+							coopHostMedikit(_action, targetUnit, -1, -1);
 						}
 					}
 					else
@@ -457,8 +459,10 @@ void ActionMenuState::handleAction()
 		else if (_action->type == BA_USE && weapon->getBattleType() == BT_SCANNER)
 		{
 			// spend TUs first, then show the scanner
+			if (coopInterceptScannerUse(_action)) { _game->popState(); return; }
 			if (_action->spendTU(&_action->result))
 			{
+				coopHostScanner(_action);
 				_game->popState();
 				_game->pushState (new ScannerState(_action));
 			}

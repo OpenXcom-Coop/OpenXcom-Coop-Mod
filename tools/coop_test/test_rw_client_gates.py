@@ -24,6 +24,11 @@ WHAT THIS ASSERTS.
     of the effect (no dialog / no InventoryState / TU unchanged / reaction
     flags unchanged / no LoadGameState), and `hash_now full` ALL BUCKETS EQUAL
     after every single press. That last one is the MINT-PROOF.
+    W2-P4 S-D (owner D133 (a)): row (4), the hand-reaction toggle, is no longer
+    refused - the press is a `reaction_hands` intent the HOST runs with
+    vanilla's own toggle; the row asserts the order (one host intent context,
+    the client's intent counter), vanilla's resulting flags on BOTH machines
+    and all buckets EQUAL.
   PHASE 2 - the same controls on the HOST still WORK (the gate is client-side,
     not a global disable), the ownership term refuses a host press against a
     CLIENT-owned unit with SS2.6's own not_your_unit string, and the chat-open
@@ -306,18 +311,63 @@ def main():
             TXT_ZERO_TU, zero_tu_effect)
 
         # (4) HAND REACTION TOGGLE ----------------------------------------
-        def react_effect():
-            now = units_by_id(battle_state(client))[c_unit]
-            for f in ("reactOffLeft", "reactOffRight", "reactPrefLeft", "reactPrefRight"):
-                assert now[f] == c_before[f], (
-                    f"the client flipped {f} locally ({c_before[f]} -> {now[f]}) - "
-                    "that field is serialized and NOT saveBlob-excluded")
+        # W2-P4 S-D (owner D133 (a); spec rewrite/prompts/w2p4_client_combat_
+        # intents.md (b)12, chain rule A.10): no longer refused. The client's
+        # hand right-click is a `reaction_hands` intent the HOST runs with
+        # vanilla's own toggleRightHandForReactions(ctrl false): the press
+        # produced an intent (client coopIntentsSent.reaction_hands +1), the host
+        # executed it (exactly one new {origin intent, kind reaction_hands,
+        # actorId c_unit} in its closedContexts), nothing ran locally (client
+        # coopClientBStatePushes unchanged), and both machines hold vanilla's
+        # result - offRight false, the right hand preferred unless it already
+        # was - with ALL BUCKETS EQUAL (the MINT-PROOF).
+        rflags = ("reactOffLeft", "reactOffRight", "reactPrefLeft", "reactPrefRight")
+        want_flags = dict((f, c_before[f]) for f in rflags)
+        want_flags["reactPrefRight"] = not c_before["reactPrefRight"]
+        want_flags["reactPrefLeft"] = False
+        want_flags["reactOffRight"] = False
+        es_h0, es_c0 = session.event_state(host), session.event_state(client)
+        ctx0 = {c.get("actionId") for c in (es_h0.get("closedContexts") or [])}
+        sent0 = (es_c0.get("coopIntentsSent") or {}).get("reaction_hands", 0)
+        pushes0 = es_c0.get("coopClientBStatePushes")
 
-        client_press_check(
-            "hand_reaction",
-            lambda: client.ok({"cmd": "battle_ui_press", "control": "hand_reaction",
-                               "hand": "right"}),
-            TXT_REACTIONS, react_effect)
+        def hands_ctxs():
+            return [c for c in (session.event_state(host).get("closedContexts") or [])
+                    if c.get("actionId") not in ctx0 and c.get("origin") == "intent"
+                    and c.get("kind") == "reaction_hands" and c.get("actorId") == c_unit]
+
+        client.ok({"cmd": "battle_ui_press", "control": "hand_reaction", "hand": "right"})
+        client.wait_for("the client's reaction_hands order closed on the host and applied on the client",
+                        lambda: (hands_ctxs() and session.event_state(client).get("inFlight") is None
+                                 and session.event_state(client).get("lastSeqApplied")
+                                 == session.event_state(host).get("lastSeqEmitted")) or None,
+                        timeout=15, interval=0.1)
+        es_c1 = session.event_state(client)
+        got = banner(client)
+        h_now = units_by_id(battle_state(host))[c_unit]
+        c_now = units_by_id(battle_state(client))[c_unit]
+        print(f"  hand_reaction: contexts={hands_ctxs()} sent {sent0}->"
+              f"{(es_c1.get('coopIntentsSent') or {}).get('reaction_hands', 0)} pushes {pushes0}->"
+              f"{es_c1.get('coopClientBStatePushes')} flags before={dict((f, c_before[f]) for f in rflags)} "
+              f"host={dict((f, h_now[f]) for f in rflags)} client={dict((f, c_now[f]) for f in rflags)} "
+              f"banner={got!r}")
+        assert len(hands_ctxs()) == 1, (
+            f"hand_reaction: host closedContexts gained {hands_ctxs()} (want exactly one "
+            f"{{origin intent, kind reaction_hands, actorId {c_unit}}})")
+        assert (es_c1.get("coopIntentsSent") or {}).get("reaction_hands", 0) == sent0 + 1, (
+            f"hand_reaction: client coopIntentsSent {es_c0.get('coopIntentsSent')} -> "
+            f"{es_c1.get('coopIntentsSent')} (want reaction_hands +1)")
+        assert es_c1.get("coopClientBStatePushes") == pushes0, (
+            f"hand_reaction: client coopClientBStatePushes {pushes0} -> {es_c1.get('coopClientBStatePushes')}")
+        for f in rflags:
+            assert h_now[f] == want_flags[f] and c_now[f] == want_flags[f], (
+                f"hand_reaction: {f} host={h_now[f]} client={c_now[f]} (want {want_flags[f]} on both: "
+                f"vanilla's toggle, run by the host)")
+        assert got != TXT_REACTIONS, (
+            f"hand_reaction: client banner {got!r} (the retired host-only refusal)")
+        session.assert_hash_clean(host, client, full=True,
+                                  what="after the client's hand_reaction order (MINT-PROOF)")
+        print(f"  PASS hand_reaction: an order the host ran, flags {want_flags} on both, all buckets EQUAL")
 
         # (5) QUICK LOAD ---------------------------------------------------
         # Driven as a REAL SDL keypress through Game::run's event loop, because

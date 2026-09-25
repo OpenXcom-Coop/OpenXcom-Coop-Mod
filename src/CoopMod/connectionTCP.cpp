@@ -59,6 +59,8 @@
 #include "../Battlescape/PsiAttackBState.h" // W2-P4 S-C.2: the `psi` intent executor
 #include "../Battlescape/UnitInfoState.h" // W2-P4 S-C.2: the mind probe's screen at the client's own end
 #include "../Engine/Sound.h" // W2-P4 S-C.2: the mind probe's hit sound at the client's own end
+#include "../Battlescape/MedikitState.h" // W2-P4 S-D.2: the ordering client's open medi-kit screen (D148)
+#include "../Battlescape/ScannerState.h" // W2-P4 S-D.2: the scanner's screen at the client's own end
 #include "../Interface/Cursor.h" // W2-P4 S-A.2: the ordering client's cursor restore
 #include "../Battlescape/AIModule.h" // W2-P3 S-C.2: a unitsAdded record's `AI` (load pass 1)
 
@@ -5626,6 +5628,15 @@ static Json::Value g_coopLastAftermath;
 static bool g_coopIntentResultLatched = false;
 static std::string g_coopIntentResultKey;
 
+// W2-P4 S-D.2 (amendment C3, owner D148): HOST - the medi-kit intent's
+// `continue` latch. The `medikit` executor sets it from vanilla's own
+// TileEngine::medikitUse() return (canContinueHealing); closeBaseContext()
+// writes it as the additive `continue` field on that intent context's
+// bt_action_end and clears it. Cleared again at every medi-kit context begin
+// and with the arbiter state.
+static bool g_coopIntentContinueSet = false;
+static bool g_coopIntentContinue = true;
+
 // R3-P1: purely client-side actionId -> actorId correlation. Neither
 // bt_ev's "unit" field nor bt_action_end carry both together on the wire
 // (SS2.3/SS2.4 - bt_action_end has no "unit" field at all), so a client
@@ -5808,6 +5819,8 @@ static void resetCoopArbiterState()
 	g_coopLastAftermath = Json::Value();
 	g_coopIntentResultLatched = false; // W2-P4 S-A.2 (spec (b)4)
 	g_coopIntentResultKey.clear();
+	g_coopIntentContinueSet = false; // W2-P4 S-D.2 (D148)
+	g_coopIntentContinue = true;
 	g_coopBusyOwnerSeat = -1;
 	g_coopDeferIntentsMs = 0;
 	g_coopDeferIntentsLeft = 0;
@@ -6120,17 +6133,47 @@ static BattleActionType coopPsiActionType(const std::string& a)
 	return BA_NONE;
 }
 
+// W2-P4 S-D.2 (spec (b)1): the `medikit` payload's action string -> vanilla's
+// BattleMediKitAction (MedikitState's three buttons; a one-click kit's type);
+// anything else is 0.
+static int coopMedikitAction(const std::string& a)
+{
+	if (a == "heal")
+		return BMA_HEAL;
+	if (a == "stim")
+		return BMA_STIMULANT;
+	if (a == "painkiller")
+		return BMA_PAINKILLER;
+	return 0;
+}
+
+// W2-P4 S-D.2: the reverse of coopMedikitAction() - the wire action string.
+static const char* coopMedikitActionName(int bma)
+{
+	switch (bma)
+	{
+	case BMA_HEAL: return "heal";
+	case BMA_STIMULANT: return "stim";
+	case BMA_PAINKILLER: return "painkiller";
+	default: return "";
+	}
+}
+
 // W2-P4 S-B (spec (b)1): the wire kinds that carry a CoopCombatIntentArgs plan.
-// W2-P4 S-C: + melee, psi, use_item.
+// W2-P4 S-C: + melee, psi, use_item. W2-P4 S-D: + medikit, reload,
+// reaction_hands (reload's plan is empty; the hands' is {hand, ctrl}).
 static bool coopIsCombatKind(const std::string& kind)
 {
 	return kind == "shoot" || kind == "throw" || kind == "prime"
-		|| kind == "melee" || kind == "psi" || kind == "use_item";
+		|| kind == "melee" || kind == "psi" || kind == "use_item"
+		|| kind == "medikit" || kind == "reload" || kind == "reaction_hands";
 }
 
 // W2-P4 S-B (spec (b)1): a combat plan's vanilla action type - `shoot` by its
 // action string, `throw` BA_THROW, `prime` BA_PRIME or BA_UNPRIME. W2-P4 S-C:
-// `melee` BA_HIT, `psi` by its action string, `use_item` BA_USE.
+// `melee` BA_HIT, `psi` by its action string, `use_item` BA_USE. W2-P4 S-D:
+// `medikit` BA_USE; `reload` and `reaction_hands` have no BattleActionType
+// (BA_NONE: no tuBasis rides them, N30 / Q12).
 static BattleActionType coopCombatActionType(const std::string& kind, const CoopCombatIntentArgs& plan)
 {
 	if (kind == "shoot")
@@ -6143,9 +6186,53 @@ static BattleActionType coopCombatActionType(const std::string& kind, const Coop
 		return BA_HIT;
 	if (kind == "psi")
 		return coopPsiActionType(plan.action);
-	if (kind == "use_item")
+	if (kind == "use_item" || kind == "medikit")
 		return BA_USE;
 	return BA_NONE;
+}
+
+// W2-P4 S-D.2 (spec (b)3): the `use_item` order's context kind by its item's
+// battle type - `scanner` for a motion scanner, `mindprobe` for a mind probe
+// (the same kind names the host's intent context and the client's
+// lastAftermath carry); the wire kind itself otherwise.
+static std::string coopUseItemKind(SavedBattleGame* save, int itemId)
+{
+	const BattleItem* item = findItemById(save, itemId);
+	const BattleType bt = (item && item->getRules()) ? item->getRules()->getBattleType() : BT_NONE;
+	if (bt == BT_SCANNER)
+		return "scanner";
+	if (bt == BT_MINDPROBE)
+		return "mindprobe";
+	return "use_item";
+}
+
+// W2-P4 S-D.2 (amendment C3 D148 / C3-Q11 (a), N18): CLIENT - the answer to this
+// machine's own `medikit` order reaches the medi-kit screen it was pressed on.
+// When the TOP state is a MedikitState and this machine's _currentAction (the
+// screen's own action) is still that order's BA_USE by @a actorId with the
+// kit @a itemId (compared by id: a consumable kit the host removed right after
+// its use is no longer in the item list, but the screen still holds it), the
+// screen runs vanilla's own post-use lines through its ONE public method -
+// the selected body part refreshed iff @a refreshPart (a heal), the view and
+// the three numbers redrawn from the charges the delta already wrote, and the
+// screen closed iff !@a keepOpen (the host's `continue: false`, or a refused
+// order: vanilla closes on a failed spendTU). Anything else: nothing (the
+// player closed the screen meanwhile, or opened another one).
+static void coopClientMedikitAnswered(int actorId, int itemId, bool refreshPart, bool keepOpen)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	BattlescapeGame* bg = bs ? save->getBattleGame() : nullptr;
+	if (!bg || !bs->getGame() || bs->getGame()->getStates().empty())
+		return;
+	MedikitState* ms = dynamic_cast<MedikitState*>(bs->getGame()->getStates().back());
+	const BattleAction* cur = bg->getCurrentAction();
+	if (!ms || cur->type != BA_USE || !cur->actor || cur->actor->getId() != actorId || !cur->weapon
+		|| cur->weapon->getId() != itemId)
+	{
+		return;
+	}
+	ms->coopAnswered(refreshPart, keepOpen);
 }
 
 // W2-P4 S-B (spec (b)5): CLIENT - the ORDERING client's own aftermath when its
@@ -6158,8 +6245,10 @@ static BattleActionType coopCombatActionType(const std::string& kind, const Coop
 // getUnprimeActionMessage() warning). The cancel runs only while _currentAction
 // is still the order's own action (the player may have moved on meanwhile).
 // No-op with no live battlescape.
+// W2-P4 S-D.2: + the medi-kit answer (coopClientMedikitAnswered() above), the
+// scanner's ScannerState and the reload sound; @a cont is the end's `continue`.
 static void coopClientCombatAftermath(const std::string& kind, const CoopCombatIntentArgs& plan, int actorId,
-	bool failed)
+	bool failed, bool cont)
 {
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
 	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
@@ -6197,7 +6286,48 @@ static void coopClientCombatAftermath(const std::string& kind, const CoopCombatI
 	// cancelCurrentAction(); the cancel only while _currentAction is still the
 	// probe order. A melee needs nothing more (its intercept already cleared
 	// BA_HIT) and a psi attack keeps its targeting (vanilla PsiAttackBState).
-	if (kind == "use_item" && !failed)
+	// W2-P4 S-D.2 (amendment C3 D148): the medi-kit order's answer reaches the
+	// screen it was pressed on - the part refreshed after a heal, the numbers
+	// redrawn, closed on `continue: false` (a one-click kit has no screen).
+	if (kind == "medikit")
+	{
+		coopClientMedikitAnswered(actorId, plan.weapon, plan.action == "heal" && !failed, cont && !failed);
+	}
+	// W2-P4 S-D.2 (spec (b)5, Q14 = (a)): a scanner order that did not fail opens
+	// vanilla's own ScannerState on THIS machine at its own order's end (the TU
+	// the host spent is already applied; ActionMenuState's own lines: spendTU,
+	// then pushState(ScannerState)). ScannerState reads the action's actor in
+	// its constructor only, so a local action carries it.
+	if (kind == "use_item" && !failed && coopUseItemKind(save, plan.weapon) == "scanner")
+	{
+		BattleUnit* actor = findUnitById(save, actorId);
+		if (actor)
+		{
+			BattleAction scan;
+			scan.actor = actor;
+			scan.type = BA_USE;
+			scan.weapon = findItemById(save, plan.weapon);
+			bs->getGame()->pushState(new ScannerState(&scan));
+		}
+		else
+		{
+			Log(LOG_WARNING) << "[coop-arbiter] scanner aftermath: actor " << actorId
+				<< " does not resolve on this machine - no scanner screen";
+		}
+	}
+	// W2-P4 S-D.2 (spec (b)5): a reload that did not fail plays vanilla's own
+	// reload sound (BattlescapeState::btnReloadClick); the HUD refresh is the
+	// apply path's own coopRefreshAppliedHud().
+	if (kind == "reload" && !failed)
+	{
+		BattleUnit* actor = findUnitById(save, actorId);
+		if (actor)
+		{
+			if (Sound* s = bs->getGame()->getMod()->getSoundByDepth(save->getDepth(), actor->getReloadSound()))
+				s->play(-1, bg->getMap()->getSoundAngle(actor->getPosition()));
+		}
+	}
+	if (kind == "use_item" && !failed && coopUseItemKind(save, plan.weapon) != "scanner")
 	{
 		BattleItem* item = findItemById(save, plan.weapon);
 		BattleUnit* target = findUnitById(save, plan.targetUnit);
@@ -7085,8 +7215,9 @@ static const char* validatePsi(BattleUnit* actor, const Json::Value& intent, Sav
 }
 
 // W2-P4 S-C.2 (spec (b)1-2): the `use_item` plan's admission - S-C builds the
-// MIND PROBE (the item's battle type selects it; the scanner is S-D's, so any
-// other item under this kind is a malformed plan here). Spec (b)2's order with
+// MIND PROBE (the item's battle type selects it; W2-P4 S-D.2 adds the MOTION
+// SCANNER, which stops after the cost checks - it has no target; any other
+// item under this kind is a malformed plan). Spec (b)2's order with
 // VANILLA'S OWN FUNCTIONS: the item, research + canUseWeapon() (the action menu
 // ran both for BA_USE), the cost basis and haveTU() (the probe's own spendTU),
 // the shipped target unit alive and where the ordering seat saw it, then a donor
@@ -7101,11 +7232,14 @@ static const char* validateUseItem(BattleUnit* actor, const Json::Value& intent,
 	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
 		return "cost_changed";
 
-	// 1. The item resolves and is the actor's; S-C's item is the mind probe.
+	// 1. The item resolves and is the actor's; S-C's item is the mind probe,
+	//    W2-P4 S-D's the motion scanner (F1242: the item's battle type selects
+	//    which, spec (b)1).
 	BattleItem* item = coopActorItem(actor, save, intent.get("item", -1).asInt());
 	if (!item)
 		return "weapon_missing";
-	if (item->getRules()->getBattleType() != BT_MINDPROBE)
+	const BattleType bt = item->getRules()->getBattleType();
+	if (bt != BT_MINDPROBE && bt != BT_SCANNER)
 		return "cost_changed";
 
 	// 3. The research check, then canUseWeapon().
@@ -7120,6 +7254,14 @@ static const char* validateUseItem(BattleUnit* actor, const Json::Value& intent,
 	a.updateTU(); // N37
 	if (const char* cost = coopCostDeny(a, intent))
 		return cost;
+
+	// W2-P4 S-D.2 (spec (b)1-2, K11): the SCANNER has no target -
+	// ActionMenuState's BT_SCANNER row checks nothing past the spendTU.
+	if (bt == BT_SCANNER)
+	{
+		out = a;
+		return nullptr;
+	}
 
 	// 6. The probed unit: a probe needs one; alive and where the seat saw it.
 	const int targetUnitId = intent.get("targetUnit", -1).asInt();
@@ -7145,6 +7287,149 @@ static const char* validateUseItem(BattleUnit* actor, const Json::Value& intent,
 	}
 
 	out = a;
+	return nullptr;
+}
+
+// W2-P4 S-D.2 (amendment C1 PR-Q10): the medi-kit's target rule - a NAMED donor
+// reproduction (RB-D10) of ActionMenuState::handleAction()'s inline BT_MEDIKIT
+// target pick (ActionMenuState.cpp, the `BA_USE && BT_MEDIKIT` branch up to
+// `targetUnit = _action->actor;`), run from @a actor's CURRENT tile and facing
+// with vanilla's own calls: first an UNCONSCIOUS woundable unit lying on the
+// actor's own tile (the kit's allowTargetGround / Friend/Neutral/Hostile-Ground
+// terms; never a 2x2 unit), else the woundable unit standing on the tile the
+// actor faces (TileEngine::validMeleeRange with preferEnemy false, the
+// allowTarget*Standing terms), else the actor itself when the kit allows self.
+// Unconscious targets are allowed (vanilla's ground target is `isOut()`), so
+// the generic "not out" term is not applied to a medi-kit. nullptr = vanilla's
+// STR_THERE_IS_NO_ONE_THERE.
+static BattleUnit* coopMedikitTarget(BattleUnit* actor, const BattleItem* kit, SavedBattleGame* save)
+{
+	const RuleItem* weapon = kit->getRules();
+	TileEngine* tileEngine = save->getTileEngine();
+	BattleUnit* targetUnit = nullptr;
+	for (BattleUnit* bu : *save->getUnits())
+	{
+		if (bu->getPosition() == actor->getPosition() &&
+			bu != actor &&
+			bu->getStatus() == STATUS_UNCONSCIOUS &&
+			(bu->isWoundable() || weapon->getAllowTargetImmune()) &&
+			weapon->getAllowTargetGround())
+		{
+			if (bu->isBigUnit())
+				continue;
+			if ((weapon->getAllowTargetFriendGround() && bu->getOriginalFaction() == FACTION_PLAYER) ||
+				(weapon->getAllowTargetNeutralGround() && bu->getOriginalFaction() == FACTION_NEUTRAL) ||
+				(weapon->getAllowTargetHostileGround() && bu->getOriginalFaction() == FACTION_HOSTILE))
+			{
+				targetUnit = bu;
+				break;
+			}
+		}
+	}
+	if (!targetUnit && weapon->getAllowTargetStanding())
+	{
+		Position faced;
+		if (tileEngine->validMeleeRange(actor->getPosition(), actor->getDirection(), actor, 0, &faced, false))
+		{
+			Tile* tile = save->getTile(faced);
+			if (tile != 0 && tile->getUnit() && (tile->getUnit()->isWoundable() || weapon->getAllowTargetImmune()))
+			{
+				if ((weapon->getAllowTargetFriendStanding() && tile->getUnit()->getOriginalFaction() == FACTION_PLAYER) ||
+					(weapon->getAllowTargetNeutralStanding() && tile->getUnit()->getOriginalFaction() == FACTION_NEUTRAL) ||
+					(weapon->getAllowTargetHostileStanding() && tile->getUnit()->getOriginalFaction() == FACTION_HOSTILE))
+				{
+					targetUnit = tile->getUnit();
+				}
+			}
+		}
+	}
+	if (!targetUnit && weapon->getAllowTargetSelf())
+		targetUnit = actor;
+	return targetUnit;
+}
+
+// W2-P4 S-D.2 (docs rewrite/prompts/w2p4_client_combat_intents.md (b)1-2, as
+// amended by C1 PR-Q10 and C3 D148): the `medikit` plan's admission (a
+// MedikitState button, or a one-click kit - C1 PR-Q15), in spec (b)2's order
+// with VANILLA'S OWN FUNCTIONS: the kit resolves and is the actor's (a
+// BT_MEDIKIT item); the action menu's research + canUseWeapon() for BA_USE
+// (coopWeaponUseDeny()); the action is one of the three buttons (a one-click
+// kit's own type decides its one action, ActionMenuState's switch); the charge
+// for it is left (MedikitState's / the one-click row's own quantity check:
+// vanilla STR_NO_USES_LEFT, `no_uses_left`); the cost basis and haveTU()
+// (vanilla's spendTU failure is a deny here - the client closes its screen on
+// it, N18); the target is what coopMedikitTarget() (PR-Q10) picks NOW, else
+// `no_one_there`; the body part is a real one. On success @a out is the LOCAL
+// BattleAction the executor spends, and @a target / @a bma / @a part are
+// medikitUse()'s arguments.
+static const char* validateMedikit(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
+	BattleAction& out, BattleUnit*& target, int& bma, int& part)
+{
+	if (!save || !actor || actor->isOut() || isUnitFalling(actor))
+		return "cost_changed";
+
+	// 1. The kit resolves, is the actor's, and is a medi-kit.
+	BattleItem* kit = coopActorItem(actor, save, intent.get("item", -1).asInt());
+	if (!kit)
+		return "weapon_missing";
+	if (kit->getRules()->getBattleType() != BT_MEDIKIT)
+		return "cost_changed";
+
+	// 3. The research check, then canUseWeapon() (the menu ran both for BA_USE).
+	if (const char* use = coopWeaponUseDeny(actor, kit, BA_USE, save))
+		return use;
+
+	// The action: one of the three buttons; a one-click kit (medikitType set)
+	// only ever runs its own type's action.
+	const int action = coopMedikitAction(intent.get("action", "").asString());
+	if (action == 0)
+		return "cost_changed";
+	const BattleMediKitType kitType = kit->getRules()->getMediKitType();
+	if ((kitType == BMT_HEAL && action != BMA_HEAL) || (kitType == BMT_STIMULANT && action != BMA_STIMULANT)
+		|| (kitType == BMT_PAINKILLER && action != BMA_PAINKILLER))
+	{
+		return "cost_changed";
+	}
+	const int bodyPart = intent.get("bodypart", -1).asInt();
+	if (bodyPart < 0 || bodyPart >= (int)BODYPART_MAX)
+		return "cost_changed";
+
+	// The charge: vanilla's own quantity check for that action.
+	const int left = action == BMA_HEAL ? kit->getHealQuantity()
+		: (action == BMA_STIMULANT ? kit->getStimulantQuantity() : kit->getPainKillerQuantity());
+	if (left <= 0)
+		return "no_uses_left";
+
+	// 4. tuBasis, then haveTU().
+	BattleAction a;
+	a.actor = actor;
+	a.weapon = kit;
+	a.type = BA_USE;
+	a.updateTU(); // N37
+	if (const char* cost = coopCostDeny(a, intent))
+		return cost;
+
+	// 6. The patient: vanilla's own target pick from the actor's current tile
+	//    and facing must give the shipped unit (PR-Q10).
+	BattleUnit* picked = coopMedikitTarget(actor, kit, save);
+	if (!picked || picked->getId() != intent.get("targetUnit", -1).asInt())
+		return "no_one_there";
+
+	out = a;
+	target = picked;
+	bma = action;
+	part = bodyPart;
+	return nullptr;
+}
+
+// W2-P4 S-D.2 (spec (b)1, Q12 = (a), D133): the `reaction_hands` plan's
+// admission - well-formedness only: the hand is "left" or "right" and `ctrl`
+// is a bool (vanilla's toggle is free and never refuses). nullptr = allowed.
+static const char* validateReactionHands(const Json::Value& intent)
+{
+	const std::string hand = intent.get("hand", "").asString();
+	if ((hand != "left" && hand != "right") || !intent.isMember("ctrl") || !intent["ctrl"].isBool())
+		return "cost_changed";
 	return nullptr;
 }
 
@@ -7555,8 +7840,80 @@ void onIntent(const Json::Value& intent)
 		// on the ordering client at its own end, Q14 = a); no cue exists for it, so
 		// the context's one ev is the bt_action_end endChainArming()'s empty-queue
 		// close emits through onChainQuiesced() -> closeBaseContext().
+		// W2-P4 S-D.2 (spec (b)3, F1242): the item's battle type selects the
+		// MOTION SCANNER too - an RB-D10 donor reproduction of ActionMenuState's
+		// BT_SCANNER row (its spendTU) MINUS the host-screen ScannerState (the
+		// screen opens on the ordering client at its own end, Q14 = a), then the
+		// frozen `scanner` cue {actor, unit (= actor), item} whose delta carries
+		// the TU, under the instant context kind `scanner`.
 		BattleAction action;
 		const char* reason = validateUseItem(actor, intent, save, action);
+		if (reason)
+		{
+			denyIntent(iseq, reason, seat, kind);
+			return;
+		}
+		const bool scanner = action.weapon->getRules()->getBattleType() == BT_SCANNER;
+
+		const std::uint32_t actionId = mintActionId();
+		Json::Value ack = CoopWire::makeAck(iseq, actionId);
+		CoopEmit::sendBattle(ack);
+		clearDeny(seat);
+		noteIntentReceived(kind, true); // spec (b)13
+		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		g_coopPendingChainActorId = actor->getId();
+		g_coopPendingChainKind = scanner ? "scanner" : "mindprobe"; // spec (b)3's instant kinds
+		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
+		g_coopIntentResultKey.clear();
+
+		Log(LOG_INFO) << "[coop-ctx] admitted use_item intent iseq " << iseq << " seat " << seat
+			<< " actor " << actor->getId() << " actionId " << actionId << ": " << g_coopPendingChainKind
+			<< " item " << action.weapon->getId() << " target " << action.target << " tuBasis " << action.Time;
+
+		beginChainArming();
+		std::string error;
+		if (!action.spendTU(&error))
+		{
+			// Unreachable after validateUseItem()'s haveTU(); vanilla's own failure
+			// text is latched so the end still says why (spec (b)4).
+			g_coopIntentResultLatched = true;
+			g_coopIntentResultKey = error;
+		}
+		else if (scanner)
+		{
+			Json::Value p(Json::objectValue);
+			p["actor"] = actor->getId();
+			p["unit"] = actor->getId();
+			p["item"] = action.weapon->getId();
+			coopEmitCue("scanner", p);
+		}
+		endChainArming(!bg->isBusy());
+		return;
+	}
+
+	if (kind == "medikit")
+	{
+		// W2-P4 S-D.2 (docs rewrite/prompts/w2p4_client_combat_intents.md (b)3, as
+		// amended by C1 PR-Q10 and C3 D148 / C3-Q12): the MEDI-KIT as an INSTANT
+		// intent - the same wrapper as `prime` around an RB-D10 donor reproduction
+		// of MedikitState's button handler (MedikitState.cpp: spendTU, then
+		// TileEngine::medikitUse() with the button's action and body part; the
+		// one-click kit's switch in ActionMenuState::handleAction is the same two
+		// calls) MINUS the host-screen refresh, on a LOCAL BattleAction; then the
+		// frozen `medikit` cue {actor, unit, item, action, bodypart} whose delta
+		// carries the TU, the charges and the patient; then C3-Q12's removal
+		// right after the use - vanilla's TileEngine::medikitRemoveIfEmpty(), a
+		// no-op unless a consumable kit is empty. The cue goes out BEFORE the
+		// removal so its delta still carries the emptied kit's charges (a removed
+		// item's fields ride no delta; the ordering client's open screen shows
+		// them, C23b3); the removal rides the context's bt_action_end. The
+		// context's `continue` is medikitUse()'s own canContinueHealing (D148).
+		// medikitUse() ends in updateGameStateAfterScript(), which can push
+		// states (N11): the arming guard covers both outcomes.
+		BattleAction action;
+		BattleUnit* target = nullptr;
+		int bma = 0, part = 0;
+		const char* reason = validateMedikit(actor, intent, save, action, target, bma, part);
 		if (reason)
 		{
 			denyIntent(iseq, reason, seat, kind);
@@ -7570,30 +7927,129 @@ void onIntent(const Json::Value& intent)
 		noteIntentReceived(kind, true); // spec (b)13
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		g_coopPendingChainActorId = actor->getId();
-		g_coopPendingChainKind = "mindprobe"; // spec (b)3's instant kind
+		g_coopPendingChainKind = "medikit"; // spec (b)3's instant kind
 		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
 		g_coopIntentResultKey.clear();
+		g_coopIntentContinueSet = false; // D148: a fresh `continue` per context
+		g_coopIntentContinue = true;
 
-		Log(LOG_INFO) << "[coop-ctx] admitted use_item intent iseq " << iseq << " seat " << seat
-			<< " actor " << actor->getId() << " actionId " << actionId << ": mindprobe item "
-			<< action.weapon->getId() << " target " << action.target << " tuBasis " << action.Time;
+		Log(LOG_INFO) << "[coop-ctx] admitted medikit intent iseq " << iseq << " seat " << seat
+			<< " actor " << actor->getId() << " actionId " << actionId << ": item " << action.weapon->getId()
+			<< " patient " << target->getId() << " action " << coopMedikitActionName(bma) << " bodypart " << part
+			<< " tuBasis " << action.Time;
 
 		beginChainArming();
 		std::string error;
-		if (!action.spendTU(&error))
+		if (action.spendTU(&error))
 		{
-			// Unreachable after validateUseItem()'s haveTU(); vanilla's own failure
-			// text is latched so the end still says why (spec (b)4).
+			TileEngine* tileEngine = save->getTileEngine();
+			const bool cont = tileEngine->medikitUse(&action, target, (BattleMediKitAction)bma, (UnitBodyPart)part);
+			Json::Value p(Json::objectValue);
+			p["actor"] = actor->getId();
+			p["unit"] = target->getId();
+			p["item"] = action.weapon->getId();
+			p["action"] = coopMedikitActionName(bma);
+			p["bodypart"] = part;
+			coopEmitCue("medikit", p);
+			tileEngine->medikitRemoveIfEmpty(&action); // C3-Q12 (a)
+			g_coopIntentContinueSet = true;
+			g_coopIntentContinue = cont;
+		}
+		else
+		{
+			// Unreachable after validateMedikit()'s haveTU(); vanilla's own failure
+			// text is latched so the end still says why (spec (b)4), and the screen
+			// closes as vanilla's own spendTU failure closes it.
 			g_coopIntentResultLatched = true;
 			g_coopIntentResultKey = error;
+			g_coopIntentContinueSet = true;
+			g_coopIntentContinue = false;
 		}
 		endChainArming(!bg->isBusy());
 		return;
 	}
 
+	if (kind == "reload")
+	{
+		// W2-P4 S-D.2 (spec (b)1/(b)3, K13, F432, N30): the RELOAD as an INSTANT
+		// intent - vanilla's own BattleUnit::reloadAmmo() on the actor (it picks
+		// the cheapest compatible clip and spends the TU itself; no RNG), MINUS
+		// the host-screen sound and HUD refresh of BattlescapeState's hotkey
+		// handler. The plan carries nothing (vanilla chooses the clip), so the
+		// admission is the common one above. A reload that finds nothing to do is
+		// vanilla's silent no-op; here it is a `halted` end with no reason (N30).
+		// The context's one ev is its bt_action_end, whose delta carries the ammo
+		// link and the TU.
+		const std::uint32_t actionId = mintActionId();
+		Json::Value ack = CoopWire::makeAck(iseq, actionId);
+		CoopEmit::sendBattle(ack);
+		clearDeny(seat);
+		noteIntentReceived(kind, true); // spec (b)13
+		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		g_coopPendingChainActorId = actor->getId();
+		g_coopPendingChainKind = "reload"; // spec (b)3's instant kind
+		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
+		g_coopIntentResultKey.clear();
+
+		Log(LOG_INFO) << "[coop-ctx] admitted reload intent iseq " << iseq << " seat " << seat << " actor "
+			<< actor->getId() << " actionId " << actionId << ": tu " << actor->getTimeUnits();
+
+		beginChainArming();
+		if (!actor->reloadAmmo())
+		{
+			g_coopIntentResultLatched = true; // N30: a silent halt - no vanilla text
+			g_coopIntentResultKey.clear();
+		}
+		endChainArming(!bg->isBusy());
+		return;
+	}
+
+	if (kind == "reaction_hands")
+	{
+		// W2-P4 S-D.2 (owner D133 (a), Q12 = (a), K14): the reaction-fire hand
+		// press as an INSTANT intent - vanilla's own
+		// BattleUnit::toggle{Left,Right}HandForReactions(ctrl) on the actor, the
+		// exact call BattlescapeState's hand right-click makes, with the ORDERING
+		// machine's Ctrl. Not idempotent (N31): the one-in-flight lock and the ack
+		// make a double apply impossible. The context's one ev is its
+		// bt_action_end, whose delta carries reactPref / reactOffLeft /
+		// reactOffRight (hashed in `synced`).
+		const char* reason = validateReactionHands(intent);
+		if (reason)
+		{
+			denyIntent(iseq, reason, seat, kind);
+			return;
+		}
+		const bool left = intent["hand"].asString() == "left";
+		const bool ctrl = intent["ctrl"].asBool();
+
+		const std::uint32_t actionId = mintActionId();
+		Json::Value ack = CoopWire::makeAck(iseq, actionId);
+		CoopEmit::sendBattle(ack);
+		clearDeny(seat);
+		noteIntentReceived(kind, true); // spec (b)13
+		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		g_coopPendingChainActorId = actor->getId();
+		g_coopPendingChainKind = "reaction_hands"; // spec (b)3's instant kind
+		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
+		g_coopIntentResultKey.clear();
+
+		Log(LOG_INFO) << "[coop-ctx] admitted reaction_hands intent iseq " << iseq << " seat " << seat
+			<< " actor " << actor->getId() << " actionId " << actionId << ": hand " << (left ? "left" : "right")
+			<< " ctrl " << (ctrl ? 1 : 0);
+
+		beginChainArming();
+		if (left)
+			actor->toggleLeftHandForReactions(ctrl);
+		else
+			actor->toggleRightHandForReactions(ctrl);
+		endChainArming(!bg->isBusy());
+		return;
+	}
+
 	Log(LOG_WARNING) << "[coop-arbiter] bt_intent unknown kind '" << kind
-		<< "' - dropped (RB-D9/SS2.W2, W2-P4: turn, kneel, walk, shoot, throw, prime, melee, psi and "
-		   "use_item are the validators that exist)";
+		<< "' - dropped (RB-D9/SS2.W2, W2-P4: turn, kneel, walk, shoot, throw, prime, melee, psi, use_item, "
+		   "medikit, reload and reaction_hands are the validators that exist)";
 }
 
 // W2-P3 S-A.2 (spec rewrite/prompts/w2p3_nonplayer_origins.md (b)3): the BASE
@@ -7625,6 +8081,12 @@ static void closeBaseContext()
 	const std::string resultKey = g_coopIntentResultKey;
 	g_coopIntentResultLatched = false;
 	g_coopIntentResultKey.clear();
+	// W2-P4 S-D.2 (amendment C3, owner D148): the medi-kit intent context's
+	// latched `continue`, read before the bookkeeping below is cleared.
+	const bool continueSet = g_coopIntentContinueSet && closedOrigin == "intent" && closedKind == "medikit";
+	const bool continueValue = g_coopIntentContinue;
+	g_coopIntentContinueSet = false;
+	g_coopIntentContinue = true;
 
 	popActionContext();
 	g_coopPendingChainActorId = -1;
@@ -7727,6 +8189,13 @@ static void closeBaseContext()
 			{
 				end["reason"] = wire;
 			}
+			else if (resultKey.empty())
+			{
+				// W2-P4 S-D.2 (N30): a SILENT halt - vanilla shows nothing (a reload
+				// that found nothing to load), so the end carries no reason.
+				Log(LOG_INFO) << "[coop-ctx] intent context " << actionId << " (" << closedKind
+					<< ") halted silently - no vanilla text";
+			}
 			else
 			{
 				Log(LOG_WARNING) << "[coop-ctx] intent context " << actionId << " halted on unmapped vanilla "
@@ -7736,6 +8205,12 @@ static void closeBaseContext()
 				<< resultKey << "' -> halted " << end["halted"].asBool() << " reason '"
 				<< (wire ? wire : "") << "'";
 		}
+		// W2-P4 S-D.2 (amendment C3, owner D148): the medi-kit order's answer
+		// carries medikitUse()'s own canContinueHealing as the additive
+		// `continue` field (no timing, G1); false closes the ordering client's
+		// open medi-kit screen.
+		if (continueSet)
+			end["continue"] = continueValue;
 
 		const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted(); // W2-P3 S-A.2: closedContexts endSeq
 		CoopEmit::sendEv(end);
@@ -8478,6 +8953,30 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		}
 		intent["tuBasis"] = tuBasis;
 	}
+	else if (kindStr == "medikit")
+	{
+		// W2-P4 S-D.2: spec (b)1's frozen `medikit` payload (a MedikitState
+		// button or a one-click kit: the patient, where the ordering seat saw it,
+		// the button's action and body part).
+		intent["item"] = combat->weapon;
+		intent["targetUnit"] = combat->targetUnit;
+		intent["targetPos"] = coopPosJson(combat->targetPos);
+		intent["action"] = combat->action;
+		intent["bodypart"] = combat->bodypart;
+		intent["tuBasis"] = tuBasis;
+	}
+	else if (kindStr == "reload")
+	{
+		// W2-P4 S-D.2: spec (b)1's frozen `reload` payload is empty - vanilla
+		// chooses the clip on the host (H6), so no clip and no basis ride it (N30).
+	}
+	else if (kindStr == "reaction_hands")
+	{
+		// W2-P4 S-D.2: spec (b)1's frozen `reaction_hands` payload (Q12 = (a)):
+		// the press - which hand, and the ordering machine's Ctrl.
+		intent["hand"] = combat->action;
+		intent["ctrl"] = combat->ctrl;
+	}
 	else // "kneel"
 	{
 		intent["kneel"] = kneel;
@@ -8513,7 +9012,7 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		g_coopClientInFlight.ignoreSpotted = walk->ignoreSpotted;
 	}
 	// W2-P4 S-A.2: the combat plan, kept verbatim (see the struct's comment).
-	g_coopClientInFlight.hasCombat = coopIsCombatKind(kindStr); // W2-P4 S-B: + throw, prime; S-C: + melee, psi, use_item
+	g_coopClientInFlight.hasCombat = coopIsCombatKind(kindStr); // W2-P4 S-B: + throw, prime; S-C: + melee, psi, use_item; S-D: + medikit, reload, reaction_hands
 	g_coopClientInFlight.combat = g_coopClientInFlight.hasCombat ? *combat : CoopCombatIntentArgs();
 	// W1-P7 (WV-D24): the timeout basis. Stamped AFTER the envelope actually
 	// shipped, so a send that never went out cannot arm a timer.
@@ -8650,10 +9149,18 @@ void onDeny(const Json::Value& deny)
 		// terminal answers about the plan itself (cost/target/ownership), not
 		// a "try again in a moment".
 		const bool combat = g_coopClientInFlight.hasCombat;
+		const std::string deniedKind = g_coopClientInFlight.kind;
+		const int deniedActor = g_coopClientInFlight.actorId;
+		const int deniedItem = g_coopClientInFlight.combat.weapon;
 		g_coopClientInFlight = CoopClientInFlight();
 		// W2-P4 S-A.2 (spec (b)5): a refused combat order gives the cursor back.
 		if (combat)
 			coopClientRestoreCursor();
+		// W2-P4 S-D.2 (amendment C3 D148, N18): a refused medi-kit order closes the
+		// medi-kit screen it was pressed on, as vanilla's own failed spendTU
+		// closes it; the reason is shown below, on the battlescape.
+		if (deniedKind == "medikit")
+			coopClientMedikitAnswered(deniedActor, deniedItem, false, false);
 	}
 
 	CoopBattleUi::showDeny(reason.c_str());
@@ -10085,10 +10592,24 @@ bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save)
 	if (!isCoopBattle() || !action || !action->actor || !action->weapon || !save)
 		return false; // SP and every non-co-op battle: vanilla, byte-identical
 
+	// W2-P4 S-D.2 (spec (b)5 K7, N9): BA_USE here is the popup-close AFTERMATH of
+	// a medi-kit or scanner use (its own execution point was the medi-kit screen
+	// or the action menu). Vanilla's BA_USE branch runs
+	// updateGameStateAfterScript() (casualties, revives, infection) - simulation
+	// a thin client never runs, so on a co-op CLIENT it is skipped (TRUE; no
+	// baton check - nothing is being ordered); the host's use ran it on the host.
+	// FALSE on the host: vanilla runs it for the host's own use.
+	if (action->type == BA_USE && action->weapon->getRules()
+		&& (action->weapon->getRules()->getBattleType() == BT_MEDIKIT
+			|| action->weapon->getRules()->getBattleType() == BT_SCANNER))
+	{
+		return !coopBattleAuthority().hostSim;
+	}
+
 	// W2-P4 S-B's kinds: vanilla's own two conditions (handleNonTargetAction's
 	// BA_PRIME branch needs a chosen fuse, `value > -1`; BA_UNPRIME). W2-P4 S-C:
 	// + BA_HIT (the melee). Every other kind falls through to vanilla's branches
-	// unchanged (S-D adds its own).
+	// unchanged.
 	const bool prime = action->type == BA_PRIME && action->value > -1;
 	const bool unprime = action->type == BA_UNPRIME;
 	const bool melee = action->type == BA_HIT;
@@ -10208,6 +10729,268 @@ bool coopInterceptPsiConfirm(BattleAction* action, BattleUnit* targetUnit, Saved
 	// TRUE whether or not the envelope went out: no TU spend, BState or probe
 	// screen ever runs on a thin client before the host's answer (WV-D40).
 	return true;
+}
+
+// W2-P4 S-D.2 (spec (b)1, C1 PR-Q15): a ONE-CLICK kit's action and body part,
+// ActionMenuState::handleAction()'s own one-click switch (the kit's medikitType
+// decides the action; a heal treats the first body part with a fatal wound,
+// else the torso; stimulant and painkiller use the torso). FALSE for a normal
+// kit (medikitType 0 has no one-click row).
+static bool coopOneClickMedikit(const BattleItem* kit, const BattleUnit* target, int& bma, int& part)
+{
+	switch (kit->getRules()->getMediKitType())
+	{
+	case BMT_HEAL: bma = BMA_HEAL; break;
+	case BMT_STIMULANT: bma = BMA_STIMULANT; break;
+	case BMT_PAINKILLER: bma = BMA_PAINKILLER; break;
+	default: return false;
+	}
+	part = BODYPART_TORSO;
+	if (bma == BMA_HEAL && target->getFatalWounds())
+	{
+		for (int i = 0; i < BODYPART_MAX; ++i)
+		{
+			if (target->getFatalWound((UnitBodyPart)i))
+			{
+				part = i;
+				break;
+			}
+		}
+	}
+	return true;
+}
+
+bool coopInterceptMedikitPress(BattleAction* action, BattleUnit* target, int medikitAction, int bodyPart)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!isCoopBattle() || !action || !action->actor || !action->weapon || !action->weapon->getRules() || !target
+		|| !save)
+	{
+		return false; // SP and every non-co-op battle: vanilla, byte-identical
+	}
+	// K9 passes -1 / -1: a one-click kit, whose menu has already closed.
+	const bool oneClick = medikitAction < 0;
+
+	// PR-Q18 (revisit row 13, E54.1): the baton at the execution point, on BOTH
+	// machines (N38: the host too, now that the action menu no longer refuses
+	// item actions). The screen and the menu stay allowed off-turn.
+	if (coopRefuseIfNotMayCommand(action->actor, save))
+	{
+		if (oneClick)
+			action->type = BA_NONE; // nothing is left to run for this action
+		return true;
+	}
+
+	// HOST: vanilla spends and heals; coopHostMedikit() then wraps the use in a
+	// `host` context (PR-Q5).
+	if (coopBattleAuthority().hostSim)
+		return false;
+
+	// CLIENT, D150 = (a) / N16: a press while this unit's order is in flight OR
+	// held pending (a busy deny frees the in-flight slot) is IGNORED - the player
+	// presses again once the screen has refreshed from the answer.
+	const int actorId = action->actor->getId();
+	if ((g_coopClientInFlight.active && g_coopClientInFlight.actorId == actorId)
+		|| (g_coopClientPending.active && g_coopClientPending.actorId == actorId))
+	{
+		Log(LOG_INFO) << "[coop-arbiter] medi-kit press for unit " << actorId << " ignored: its order is still "
+			<< (g_coopClientPending.active && g_coopClientPending.actorId == actorId ? "held pending" : "in flight")
+			<< " (D150)";
+		if (oneClick)
+			action->type = BA_NONE;
+		return true;
+	}
+
+	int bma = medikitAction;
+	int part = bodyPart;
+	if (oneClick && !coopOneClickMedikit(action->weapon, target, bma, part))
+		return false; // not a one-click kit: vanilla's own branch (never reached from K9)
+
+	// CLIENT: the completed vanilla press becomes a `medikit` order (spec (b)1) -
+	// the patient MedikitState / the one-click row picked, where it is now, the
+	// button's action and body part. TRUE whether or not the envelope went out:
+	// no spendTU, medikitUse or removal ever runs on a thin client (WV-D40).
+	CoopCombatIntentArgs args;
+	args.action = CoopArbiter::coopMedikitActionName(bma);
+	args.weapon = action->weapon->getId();
+	args.targetUnit = target->getId();
+	args.targetPos = target->getPosition();
+	args.bodypart = part;
+	CoopArbiter::sendClientIntent("medikit", actorId, -1, false, false, -1, nullptr, &args);
+	if (oneClick)
+		action->type = BA_NONE; // the one-click row has no screen left open
+	return true;
+}
+
+bool coopInterceptScannerUse(BattleAction* action)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!isCoopBattle() || !action || !action->actor || !action->weapon || !action->weapon->getRules() || !save)
+		return false; // SP and every non-co-op battle: vanilla, byte-identical
+
+	// PR-Q18 (E54.1): the baton at the execution point, on BOTH machines (N38).
+	// The caller closes the menu; BA_NONE leaves handleNonTargetAction() nothing.
+	if (coopRefuseIfNotMayCommand(action->actor, save))
+	{
+		action->type = BA_NONE;
+		return true;
+	}
+
+	// HOST: vanilla spends and opens its scanner screen; coopHostScanner() wraps
+	// the spend in a `host` context (PR-Q5).
+	if (coopBattleAuthority().hostSim)
+		return false;
+
+	// CLIENT: the completed vanilla choice becomes a `use_item` order (spec (b)1;
+	// the item's battle type tells the host it is the scanner). The screen opens
+	// on THIS machine at the order's own end (Q14 = a). TRUE whether or not the
+	// envelope went out: no spendTU ever runs on a thin client (WV-D40).
+	CoopCombatIntentArgs args;
+	args.action = "use";
+	args.weapon = action->weapon->getId();
+	CoopArbiter::sendClientIntent("use_item", action->actor->getId(), -1, false, false, -1, nullptr, &args);
+	action->type = BA_NONE;
+	return true;
+}
+
+bool coopInterceptReload(BattleUnit* unit, SavedBattleGame* save, bool playable)
+{
+	// Not playable: vanilla's own playableUnitSelected() gate on the next line
+	// does nothing, so neither does this. SP: vanilla, byte-identical.
+	if (!isCoopBattle() || !unit || !save || !playable)
+		return false;
+
+	// PR-Q18 (E54.1): the baton at the execution point, on BOTH machines (N38).
+	if (coopRefuseIfNotMayCommand(unit, save))
+		return true;
+
+	// HOST: vanilla reloads (the reload rides the next emission, as before).
+	if (coopBattleAuthority().hostSim)
+		return false;
+
+	// CLIENT: the key becomes a `reload` order (spec (b)1, F432): vanilla picks
+	// the clip on the host (H6), so the plan is empty. TRUE whether or not the
+	// envelope went out: reloadAmmo() never runs on a thin client (WV-D40).
+	CoopCombatIntentArgs args;
+	args.action = "reload";
+	CoopArbiter::sendClientIntent("reload", unit->getId(), -1, false, false, -1, nullptr, &args);
+	return true;
+}
+
+bool coopInterceptReactionHands(BattleUnit* unit, SavedBattleGame* save, bool rightHand)
+{
+	if (!isCoopBattle() || !unit || !save)
+		return false; // SP and every non-co-op battle: vanilla, byte-identical
+
+	if (coopBattleAuthority().hostSim)
+	{
+		// PR-Q18 (E54.1, N32): the baton at the execution point; then Q13 = (a):
+		// Control::HandReaction's own HOST term - the ownership refusal
+		// (STR_COOP_DENY_NOT_YOUR_UNIT). The host's own toggle stays unwrapped and
+		// rides the next emission (spec (b)9, N19).
+		if (coopBatonTermIsTheFailure(unit, save))
+		{
+			coopRefuseIfNotMayCommand(unit, save);
+			return true;
+		}
+		return CoopBattleUi::refuseControl(CoopBattleUi::Control::HandReaction, unit, save);
+	}
+
+	// CLIENT: the baton (PR-Q18), then the press becomes a `reaction_hands`
+	// order (owner D133 (a), Q12 = (a)): which hand, and THIS machine's Ctrl -
+	// the value vanilla's own handler reads (Game::isCtrlPressed(true)). TRUE
+	// whether or not the envelope went out: no toggle runs on a thin client.
+	if (coopRefuseIfNotMayCommand(unit, save))
+		return true;
+	CoopCombatIntentArgs args;
+	args.action = rightHand ? "right" : "left";
+	args.ctrl = save->isCtrlPressed(true);
+	CoopArbiter::sendClientIntent("reaction_hands", unit->getId(), -1, false, false, -1, nullptr, &args);
+	return true;
+}
+
+bool coopClientSkipsMedikitRemoval()
+{
+	// C3-Q12 (a): the HOST removes an emptied consumable kit right after the use
+	// that emptied it, and the removal reaches this machine through the delta -
+	// so a co-op CLIENT never runs MedikitState::onEndClick()'s own removal.
+	return isCoopBattle() && !coopBattleAuthority().hostSim;
+}
+
+// W2-P4 S-D.2 (amendment C1 PR-Q5 = Q7's mechanism): the host's OWN medi-kit
+// and scanner uses as INSTANT host actions - coopHostPrime()'s shape, called
+// ONCE right AFTER the vanilla effect at each of the five host-side sites
+// (MedikitState's three buttons after medikitUse(); ActionMenuState's one-click
+// kit after its switch, and its scanner row after spendTU): mint, push
+// {id,"host"}, the frozen `medikit` / `scanner` cue whose delta carries the TU
+// and the effect, then the close through onChainQuiesced() -> closeBaseContext()
+// (Q10's shared path, the intent executor's own arming wrapper - a medi-kit
+// use can leave states queued, N11, and the context then stays open until
+// that chain quiesces). No hook in TileEngine::medikitUse(). Coop + hostSim
+// only; a logged no-op while another action context is open (the effect then
+// rides the next delta, coopHostPrime()'s rule).
+static bool coopHostItemContextOpen(BattleUnit* actor, const char* kind, BattlescapeGame*& bg)
+{
+	if (CoopArbiter::currentActionId() != 0)
+	{
+		Log(LOG_WARNING) << "[coop-ctx] host " << kind << " by unit " << actor->getId() << " not wrapped: action "
+			"context " << CoopArbiter::currentActionId() << " is still open - the effect rides the next delta";
+		return false;
+	}
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	bg = (save && save->getBattleState()) ? save->getBattleGame() : nullptr;
+	if (!bg)
+		return false;
+	const std::uint32_t actionId = CoopArbiter::mintActionId();
+	CoopArbiter::pushActionContext(actionId, "host"); // RB-D19
+	g_coopPendingChainActorId = actor->getId();
+	g_coopPendingChainKind = kind;
+	Log(LOG_INFO) << "[coop-ctx] host " << kind << " context " << actionId << " begun: unit " << actor->getId();
+	return true;
+}
+
+void coopHostMedikit(BattleAction* action, BattleUnit* target, int medikitAction, int bodyPart)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !action || !action->actor || !action->weapon
+		|| !action->weapon->getRules() || !target)
+	{
+		return;
+	}
+	int bma = medikitAction;
+	int part = bodyPart;
+	// The one-click site passes -1 / -1: its kit's own action, and (read after
+	// the heal - display data only) the first body part still wounded, else the
+	// torso.
+	if (bma < 0 && !coopOneClickMedikit(action->weapon, target, bma, part))
+		return;
+	BattlescapeGame* bg = nullptr;
+	if (!coopHostItemContextOpen(action->actor, "medikit", bg))
+		return;
+	CoopArbiter::beginChainArming();
+	Json::Value p(Json::objectValue);
+	p["actor"] = action->actor->getId();
+	p["unit"] = target->getId();
+	p["item"] = action->weapon->getId();
+	p["action"] = CoopArbiter::coopMedikitActionName(bma);
+	p["bodypart"] = part;
+	coopEmitCue("medikit", p);
+	CoopArbiter::endChainArming(!bg->isBusy());
+}
+
+void coopHostScanner(BattleAction* action)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !action || !action->actor || !action->weapon)
+		return;
+	BattlescapeGame* bg = nullptr;
+	if (!coopHostItemContextOpen(action->actor, "scanner", bg))
+		return;
+	CoopArbiter::beginChainArming();
+	Json::Value p(Json::objectValue);
+	p["actor"] = action->actor->getId();
+	p["unit"] = action->actor->getId();
+	p["item"] = action->weapon->getId();
+	coopEmitCue("scanner", p);
+	CoopArbiter::endChainArming(!bg->isBusy());
 }
 
 bool coopLatchActionResult(const BattleAction& action)
@@ -13796,11 +14579,16 @@ void onApplied(const Json::Value& ev)
 		// unprime shows vanilla's own message (coopClientCombatAftermath()).
 		if (ownCombatEnd)
 		{
+			// W2-P4 S-D.2 (amendment C3 D148): + the end's `continue` (the medi-kit
+			// screen closes on false; absent = true).
 			CoopArbiter::coopClientCombatAftermath(ownCombatKind, ownCombatPlan, ownCombatActor,
-				ev.get("halted", false).asBool());
+				ev.get("halted", false).asBool(), ev.get("continue", true).asBool());
 			Json::Value am(Json::objectValue);
 			am["actionId"] = actionId;
-			am["kind"] = ownCombatKind;
+			// W2-P4 S-D.2: a `use_item` order's aftermath is its item's own kind
+			// (`scanner` / `mindprobe`, spec (b)3's context kinds).
+			am["kind"] = ownCombatKind == "use_item"
+				? CoopArbiter::coopUseItemKind(save, ownCombatPlan.weapon) : ownCombatKind;
 			// W2-P4 S-D.1 (amendment C3 (b)13): the answered end's `continue`
 			// (null when it carries none), for C23b / C23b4's screen assertions.
 			am["continue"] = ev.isMember("continue") ? ev["continue"] : Json::Value();
@@ -13906,6 +14694,10 @@ const ReasonStrEntry kReasonStrTable[] =
 	{ "no_one_there",         "STR_THERE_IS_NO_ONE_THERE" },
 	{ "los_required",         "STR_LINE_OF_SIGHT_REQUIRED" },
 	{ "invalid_target",       "" },
+	// W2-P4 S-D.2 (Q1 = (a), amendment C3 D148): a medi-kit charge used up
+	// meanwhile - vanilla's own key (the one-click row's text; no stock value,
+	// N31, so the raw key shows exactly as vanilla shows it).
+	{ "no_uses_left",         "STR_NO_USES_LEFT" },
 	// auto-cancel causes (ADDENDUM 1.3(d))
 	{ "enemy_spotted",     "STR_COOP_CANCEL_ENEMY_SPOTTED" },
 	{ "unit_under_fire",   "STR_COOP_CANCEL_UNIT_UNDER_FIRE" },
@@ -14268,8 +15060,6 @@ const char* controlStrKey(Control c)
 	case Control::ZeroTu:       return "STR_COOP_ZERO_TU_HOST_ONLY";
 	case Control::HandReaction: return "STR_COOP_REACTIONS_HOST_ONLY";
 	case Control::LevelChange:  return "STR_COOP_LEVEL_CHANGE_HOST_ONLY";
-	case Control::ItemAction:   return "STR_COOP_ITEM_ACTION_HOST_ONLY"; // W2-P1, interim until W2-P4
-	case Control::Reload:       return "STR_COOP_RELOAD_HOST_ONLY";      // W2-P1, interim until W2-P4
 	case Control::QuickLoad:    return "STR_COOP_LOCAL_LOAD_BLOCKED";
 	}
 	return nullptr;
@@ -14347,47 +15137,13 @@ bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s)
 	return false;
 }
 
-// W2-P1 (plan F422/F432, SS3.6): the action menu's non-targeting choke. See
-// CoopBattleUi.h. Paths 1-4 of the spec's client-local sim table (prime/
-// unprime, medikit, scanner, melee) all start here, after
-// `_action->terrainMeleeTilePart = 0;` and before any branch of
-// ActionMenuState::handleAction; every other kind sets `targeting` and is
-// refused later by primaryAction's commanding arm (coopBlockLocalExecution()),
-// so it is left untouched here. W2-P4 S-B (PR-Q3 (a)): BA_PRIME and
-// BA_UNPRIME are no longer refused - their fuse screen stays local and the
-// order ships as a `prime` intent at handleNonTargetAction
-// (coopInterceptNonTargetAction()); W2-P4 S-C: BA_HIT likewise ships a `melee`
-// intent there; medikit and scanner stay refused until their own stage.
-bool refuseItemActionChoice(BattleAction* action)
-{
-	if (!action)
-		return false;
-	bool nonTargeting = false;
-	switch (action->type)
-	{
-	case BA_USE:
-		if (action->weapon)
-		{
-			const BattleType bt = action->weapon->getRules()->getBattleType();
-			nonTargeting = (bt == BT_MEDIKIT || bt == BT_SCANNER);
-		}
-		break;
-	default:
-		break;
-	}
-	if (!nonTargeting)
-		return false;
-	// refuseControl() is self-guarded (false outside an active co-op battle, so
-	// SP is byte-identical) and has already put the refusal on the banner when
-	// it returns true - a Terminal-class write, so it replaces the entry-notice
-	// (Notice-class) text a client carries from battle entry (F442).
-	if (!refuseControl(Control::ItemAction, action->actor, connectionTCP::getStaticBattle()))
-		return false;
-	// The caller pops the menu and returns; BA_NONE makes the action it hands
-	// back to BattlescapeState (handleNonTargetAction) a no-op.
-	action->type = BA_NONE;
-	return true;
-}
+// W2-P1's action-menu choke (refuseItemActionChoice) and its Control::ItemAction /
+// Control::Reload refusals are RETIRED by W2-P4 S-D (spec (b)12, C1 PR-Q3): every
+// non-targeting item action is an intent now - prime / unprime / melee at
+// handleNonTargetAction (coopInterceptNonTargetAction()), the medi-kit at its
+// screen's buttons and the one-click row (coopInterceptMedikitPress()), the
+// scanner at its menu row (coopInterceptScannerUse()), the reload key at
+// btnReloadClick (coopInterceptReload()).
 
 bool refuseSelectUnitClick(const BattleUnit* target)
 {

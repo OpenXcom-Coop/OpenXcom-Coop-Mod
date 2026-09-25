@@ -657,9 +657,10 @@ int coopClientPanicSkipped();
 ///
 /// A DETECTOR FIRST: a refused state's constructor has already run, so the
 /// tripwire stops init()/think(), not constructor side effects. Every KNOWN
-/// client-local simulation path is refused or skipped upstream (the action
-/// menu, the reload hotkey, the panic check - see coopSkipClientPanic() and
-/// CoopBattleUi::refuseItemActionChoice()), so a count here is a path nobody
+/// client-local simulation path is refused, skipped or sent as an intent
+/// upstream (the action menu's item actions and the reload hotkey - W2-P4's
+/// intercepts in CoopArbiter.h - and the panic check, coopSkipClientPanic()),
+/// so a count here is a path nobody
 /// has found yet, surfacing as a counter instead of a desync. Defined in
 /// connectionTCP.cpp beside coopBlockLocalExecution().
 bool coopClientBStateTripwire(const char* site, BattleState* bs = nullptr);

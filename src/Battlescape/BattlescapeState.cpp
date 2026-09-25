@@ -1736,8 +1736,9 @@ void BattlescapeState::btnLeftHandItemClick(Action *action)
 			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
 			// - machine-local display state, same class as the reserve settings
 			// ratified there.
-			if (CoopBattleUi::refuseControl(CoopBattleUi::Control::HandReaction,
-					_save->getSelectedUnit(), _save))
+			// W2-P4 S-D (owner D133 (a)): the refusal became the reaction-hands
+			// intercept - on a co-op client the press is an order the host runs.
+			if (coopInterceptReactionHands(_save->getSelectedUnit(), _save, false))
 			{
 				return;
 			}
@@ -1799,8 +1800,9 @@ void BattlescapeState::btnRightHandItemClick(Action *action)
 			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
 			// - machine-local display state, same class as the reserve settings
 			// ratified there.
-			if (CoopBattleUi::refuseControl(CoopBattleUi::Control::HandReaction,
-					_save->getSelectedUnit(), _save))
+			// W2-P4 S-D (owner D133 (a)): the refusal became the reaction-hands
+			// intercept - on a co-op client the press is an order the host runs.
+			if (coopInterceptReactionHands(_save->getSelectedUnit(), _save, true))
 			{
 				return;
 			}
@@ -2123,7 +2125,7 @@ void BattlescapeState::btnReserveClick(Action *action)
  */
 void BattlescapeState::btnReloadClick(Action *)
 {
-	if (CoopBattleUi::refuseControl(CoopBattleUi::Control::Reload, _save->getSelectedUnit(), _save)) return;
+	if (coopInterceptReload(_save->getSelectedUnit(), _save, playableUnitSelected())) return;
 	if (playableUnitSelected() && _save->getSelectedUnit()->reloadAmmo())
 	{
 		_game->getMod()->getSoundByDepth(_save->getDepth(), _save->getSelectedUnit()->getReloadSound())->play(-1, getMap()->getSoundAngle(_save->getSelectedUnit()->getPosition()));
