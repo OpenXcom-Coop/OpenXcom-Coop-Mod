@@ -47,6 +47,7 @@
 #include "../Battlescape/BattlescapeState.h"
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/BattlescapeGame.h"
+#include "../Battlescape/Map.h" // W2-H6: the client selected-unit-out block's CT_NORMAL cursor
 #include "../Battlescape/NextTurnState.h"
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/UnitWalkBState.h"
@@ -4891,6 +4892,78 @@ bool coopMaySelectUnit(const BattleUnit* u)
 	// AI (hostSim), so it may select one; a client never may.
 	return u && u->getCoopSeat() == COOP_SEAT_NONE
 		&& coopBattleAuthority().hostSim;
+}
+
+// W2-H6 (spec rewrite/prompts/w2h6_client_selection_actor.md (b)1; F1170,
+// F1200-F1208): CLIENT - the pairing vanilla makes on every player-driven
+// selection change (BattlescapeState::selectNextPlayerUnit: updateSoldierInfo,
+// cancelAllActions(), the action actor = the new unit, setupCursor()), for
+// whatever THIS machine has selected now (null included: the actor is then
+// null too). The client's co-op selection writers (the side_begin re-select,
+// the entry early return, the gift re-selects, the selected-unit-out block
+// below) write SavedBattleGame::_selectedUnit directly, so without this the
+// actor stays where it was: null in a gm2 battle (the action menu's THROW row
+// reaches getFiringAccuracy with a null attacker, F1170) or the previous unit
+// in ordinary co-op (the menu and the order carry a stale actor, F1203/F1205).
+// No FOV (WV-D10's rule for a co-op-driven HUD refresh). Client-local UI
+// state only: no hashed field, nothing on the wire. A no-op on the host, in
+// single player, outside an active co-op battle and with no live battlescape.
+static void coopClientPairSelection(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim)
+		return;
+	BattlescapeState* bs = save->getBattleState();
+	if (!connectionTCP::isBattlescapeStateLive(bs))
+		return;
+	BattlescapeGame* bg = save->getBattleGame();
+	if (!bg)
+		return;
+	bs->updateSoldierInfo(false);
+	bg->cancelAllActions();
+	bg->getCurrentAction()->actor = save->getSelectedUnit();
+	bg->setupCursor();
+}
+
+// W2-H6 H6-4 (spec (b)5, F1206): CLIENT - vanilla popState()'s "the currently
+// selected unit died or became unconscious" block (BattlescapeGame.cpp, the
+// `_save->getSelectedUnit()->isOut()` test before `_parentState->
+// updateSoldierInfo()`) for THIS machine's selected unit; a thin client runs
+// no popState(). The client writers that put a unit out are the delta's
+// units[].status (CoopApply::applyDelta) and the side_transition restate's
+// perUnit.status (CoopApply::applyEvPayload); CoopDisplayQueue::onApplied() is
+// their only caller and coopRefreshAppliedHud() is its last act on both of its
+// paths, so that is the ONE call site of this (its own updateSoldierInfo(false)
+// right after is the block's closing HUD refresh). Acts only while the
+// selected unit is out and leaves it null or on a unit that is not out, so it
+// runs once per unit going out. The actor is cleared with the selection on
+// the player side (spec (b)5). A no-op on the host, in single player and
+// outside an active co-op battle.
+static void coopClientSelectedUnitOut(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim)
+		return;
+	const BattleUnit* sel = save->getSelectedUnit();
+	if (!sel || !sel->isOut())
+		return;
+	BattlescapeState* bs = save->getBattleState();
+	if (!connectionTCP::isBattlescapeStateLive(bs))
+		return;
+	BattlescapeGame* bg = save->getBattleGame();
+	if (!bg || !bs->getGame() || !bs->getGame()->getCursor())
+		return;
+	bg->cancelCurrentAction();
+	bg->getMap()->setCursorType(CT_NORMAL, 1);
+	bs->getGame()->getCursor()->setVisible(true);
+	if (save->getSide() == FACTION_PLAYER)
+	{
+		save->setSelectedUnit(0);
+		bg->getCurrentAction()->actor = nullptr;
+	}
+	else
+	{
+		save->selectNextPlayerUnit(true, true);
+		coopClientPairSelection(save);
+	}
 }
 
 // W1-P13c (WV-D55 / D-23, E55.1): true exactly when coopMayCommand()'s new
@@ -10613,7 +10686,13 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// UI refresh rides the generic coopRefreshAppliedHud() call at the
 		// end of CoopDisplayQueue::onApplied(), same as every other kind.
 		if (coopBattleAuthority().mySideActive(save))
+		{
 			save->selectNextPlayerUnit();
+			// W2-H6 H6-1 (F1200/F1203): the new selection gets the action actor
+			// and the cursor, as the host's own side start does (BattlescapeGame
+			// endTurn's setupCursor() on the player side).
+			coopClientPairSelection(save);
+		}
 		return;
 	}
 
@@ -12565,6 +12644,7 @@ static void coopRefreshAppliedHud()
 	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
 	if (!bs)
 		return;
+	coopClientSelectedUnitOut(save); // W2-H6 H6-4 (F1206), see its own comment
 	bs->updateSoldierInfo(false);
 }
 
@@ -14597,6 +14677,10 @@ void selectOwnUnitAtEntry(Game* game)
 		Log(LOG_INFO) << "[coop-select] W1-P6 entry selection: already on own unit "
 			<< current->getId() << " (seat " << coopBattleAuthority().localSeat.load()
 			<< ") - left as vanilla selected it";
+		// W2-H6 H6-2 (F1201/F1202): vanilla's first-init setupCursor() is refused
+		// while !allowButtons(), so pair the kept selection here (the found-own
+		// branch below already does). A no-op on the host.
+		coopClientPairSelection(battle);
 		return;
 	}
 
@@ -16712,6 +16796,7 @@ void connectionTCP::refreshBattleGiftControlState()
 		if (selected && (int)selected->getCoopSeat() != localPlayerId)
 		{
 			battle->setSelectedUnit(nullptr);
+			coopClientPairSelection(battle); // W2-H6 H6-3 (F1208): the actor goes with it
 		}
 
 		setPlayerTurn(4);
@@ -16731,6 +16816,7 @@ void connectionTCP::refreshBattleGiftControlState()
 			|| (int)selected->getCoopSeat() != localPlayerId))
 	{
 		battle->setSelectedUnit(firstLocalUnit);
+		coopClientPairSelection(battle); // W2-H6 H6-3 (F1208)
 
 		// setSelectedUnit() bypasses both the mouse-click path and
 		// SavedBattleGame::selectPlayerUnit(). Keep the separate local gift
@@ -16799,6 +16885,7 @@ void connectionTCP::giftBattleUnit(BattleUnit* unit, int newOwnerId, bool broadc
 	if (battle->getSelectedUnit() == unit && newOwnerId != localSeat())
 	{
 		battle->selectNextPlayerUnit();
+		coopClientPairSelection(battle); // W2-H6 H6-3 (F1208)
 	}
 
 	if (broadcast)
@@ -16891,6 +16978,7 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 		if (battle->getSelectedUnit() == battleUnit && newOwnerId != localPlayerId)
 		{
 			battle->selectNextPlayerUnit();
+			coopClientPairSelection(battle); // W2-H6 H6-3 (F1208)
 		}
 
 		// A later gift-back supersedes an older pending physical transfer for the
@@ -20628,6 +20716,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							if (battle->getSelectedUnit() == matchedUnit && owner != localSeat())
 							{
 								battle->selectNextPlayerUnit();
+								coopClientPairSelection(battle); // W2-H6 H6-3 (F1208)
 							}
 
 							if (giftEventId != 0)
