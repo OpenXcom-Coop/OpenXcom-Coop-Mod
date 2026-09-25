@@ -67,11 +67,13 @@ anything for the client before its press.
        VICTIM_TILE with health 1; host set_seed SEED_SHOT; battle_fire snap at
        V). One construction: V not DEAD on both = the precondition failed, no
        press. RED: the client's selectedId stays V (dead) and V stays the
-       actor; the press does nothing. GREEN: selectedId -1 and
-       currentActionActorId -1 on the player side; the press does nothing (the
-       client alive, the battlescape on top, the selection unchanged); then ONE
-       TAB selects a live soldier of the client's seat with
-       currentActionActorId == selectedId.
+       actor. GREEN (F1218, no press: click_widget nth counts visible widgets
+       only, so with the box hidden a press by nth lands on another widget):
+       the client's list_widgets holds exactly one interactive entry at
+       RHAND_RECT and it has visible false; the battlescape is on top (no
+       ActionMenuState); selectedId -1 and currentActionActorId -1 on the
+       player side; then ONE TAB selects a live soldier of the client's seat
+       with currentActionActorId == selectedId.
 
 Common asserts after every scenario (spec (d)): after wait_host_idle, hash_now
 {full:true} with every bucket EQUAL (never a hard-coded count);
@@ -101,7 +103,8 @@ from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 import repro_atom_walk as raw
 from repro_atom_side_begin import row_for as gm2_row_for, drive_side_change
 from repro_pvp_side_relative import drive_to_gm2_battlescape
-from test_rw_turn_baton import RHAND_NTH, pre_ok_traditional, drive_full_cycle, dismiss_next_turn_if_present
+from test_rw_turn_baton import (RHAND_NTH, RHAND_RECT, pre_ok_traditional, drive_full_cycle,
+                                dismiss_next_turn_if_present)
 from test_rw_seat_pacing import SDLK_TAB, SDLK_HOME
 from test_w2_delta_core import diff_buckets, desync_record, short, both
 from test_w2_delta_items import items_by_id
@@ -360,6 +363,22 @@ def click_fails(ev):
     if not isinstance(c, dict) or not c.get("ok") or (c.get("baseX"), c.get("baseY")) != RHAND_CENTRE:
         return [f"precondition: the right-hand box click {c} (want ok at base {RHAND_CENTRE})"]
     return []
+
+
+def hand_box_view(gc):
+    """F1218 (H6.1c): the right-hand box as list_widgets reports it. list_widgets
+    lists every surface of the top state, hidden ones included, each with its
+    `visible` flag. Returns the top state (prefix-stripped), every entry at
+    RHAND_RECT, and the rect click_widget nth RHAND_NTH would hit now (it
+    counts visible interactive surfaces only)."""
+    lw = gc.cmd({"cmd": "list_widgets"})
+    ws = lw.get("widgets", [])
+    boxes = [w for w in ws if (w.get("x"), w.get("y"), w.get("w"), w.get("h")) == RHAND_RECT]
+    vis = [w for w in ws if w.get("interactive") and w.get("visible")]
+    nth = vis[RHAND_NTH] if len(vis) > RHAND_NTH else None
+    return {"ok": lw.get("ok"), "state": (lw.get("state") or "").replace("class OpenXcom::", ""),
+            "boxes": [{k: w.get(k) for k in ("idx", "type", "interactive", "visible")} for w in boxes],
+            "nthRect": (nth.get("x"), nth.get("y"), nth.get("w"), nth.get("h")) if nth else None}
 
 
 def close_menu(client):
@@ -731,10 +750,12 @@ def h6d_par_death(host, client, ctx):
     ev = {}
     tab = {}
     if dead:
-        ev = rhand_press(client, want_menu=False)
-        ev["selectedAfter"] = battle_state(client).get("selectedId") if ev.get("alive") else None
-        if ev.get("alive") and ev.get("top") == MENU_STATE:
-            ev["afterEsc"] = close_menu(client)
+        try:
+            ev = hand_box_view(client)
+        except Exception as e:
+            ev["probe"] = short(e)
+        ev["alive"] = alive(client)
+        ev["rc"] = client.proc.poll() if client.proc else None
         if ev.get("alive"):
             s0 = battle_state(client).get("selectedId")
             press(client, SDLK_TAB)
@@ -747,7 +768,7 @@ def h6d_par_death(host, client, ctx):
             tab.update({"selectedId": cs.get("selectedId"), "actorId": cs.get("currentActionActorId"),
                         "unit": ubrief(units(client).get(cs.get("selectedId")))})
     print(f"EVIDENCE H6d: victim={v} {ubrief(v0)} staged={staged} victim host={ubrief(vh)} client={ubrief(vc)} "
-          f"dead={dead} afterKill={after} press={ev} tab={tab} notes={notes}", flush=True)
+          f"dead={dead} afterKill={after} handBox={ev} tab={tab} notes={notes}", flush=True)
     fails = list(notes)
     if not dead:
         fails.append(f"precondition: victim {v} not DEAD on both after the one construction (host "
@@ -760,11 +781,15 @@ def h6d_par_death(host, client, ctx):
     if ac.get("side") != FACTION_PLAYER:
         fails.append(f"precondition: client side {ac.get('side')} after the kill (want {FACTION_PLAYER})")
     if not ev.get("alive"):
-        fails.append(f"the client process died after the press: rc={ev.get('rc')}")
+        fails.append(f"the client process is not running after the kill: rc={ev.get('rc')}")
         finish(fails)
-    if ev.get("top") != BS_STATE or ev.get("selectedAfter") != ac.get("selectedId"):
-        fails.append(f"the press was not a no-op: top {ev.get('top')} selectedId {ac.get('selectedId')} -> "
-                     f"{ev.get('selectedAfter')} (want {BS_STATE}, unchanged)")
+    boxes = ev.get("boxes") or []
+    if ev.get("ok") is not True or len(boxes) != 1 or boxes[0].get("interactive") is not True \
+            or boxes[0].get("visible") is not False:
+        fails.append(f"client list_widgets right-hand box at {RHAND_RECT}: {boxes} (ok {ev.get('ok')}; want exactly "
+                     f"one interactive entry with visible false)")
+    if ev.get("state") != BS_STATE:
+        fails.append(f"client top {ev.get('state')} after the kill (want {BS_STATE}, no {MENU_STATE})")
     tu = units(client).get(tab.get("selectedId"))
     if not (own_live(tu) and tu.get("faction") == FACTION_PLAYER and tab.get("selectedId") != v):
         fails.append(f"TAB selected {tab.get('selectedId')} {ubrief(tu)} (want a live soldier of seat 1 other than {v})")
