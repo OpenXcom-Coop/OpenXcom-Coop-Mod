@@ -6686,6 +6686,15 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		//    written. Reported back as `spawnUnit` (type or ""),
 		//    `spawnUnitFaction` (int) and `respawn`. Applied to BOTH machines by
 		//    the harness (client first, F607) and absorbed like every field here.
+		//  * `morale` (W2-P3 S-D.1, spec rewrite/prompts/w2p3_nonplayer_origins.md
+		//    (b)13) - an int 0-100 written through the existing absolute setter
+		//    BattleUnit::coopSetMorale() (the side_transition restate's own; plain
+		//    assignment, no bravery maths); out of range is refused before
+		//    anything is written. Reported back as `morale`. The C13 panic
+		//    staging: morale 0 before the END TURN makes the player side start's
+		//    BattleUnit::prepareMorale() roll a panic (F866). Applied to BOTH
+		//    machines by the harness (client first, F607) and absorbed like every
+		//    field here.
 		SavedGame* sgTS = _game->getSavedGame();
 		SavedBattleGame* bgTS = sgTS ? sgTS->getSavedBattle() : nullptr;
 		if (!bgTS)
@@ -6719,6 +6728,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					? _game->getMod()->getUnit(spawnUnitArg) : nullptr;
 				const bool hasSpawnFaction = req.isMember("spawnUnitFaction");
 				const int spawnFactionArg = req.get("spawnUnitFaction", 0).asInt();
+				// W2-P3 S-D.1 (spec (b)13): the C13 morale staging field.
+				const bool hasMorale = req.isMember("morale");
+				const int moraleArg = req.get("morale", 0).asInt();
 				if (wantPanic && !bgameTS)
 				{
 					resp["error"] = "battle_set_unit_state: no live BattlescapeGame";
@@ -6741,6 +6753,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				{
 					resp["error"] = "battle_set_unit_state: specab out of range " + std::to_string(specabArg);
 				}
+				else if (hasMorale && (moraleArg < 0 || moraleArg > 100))
+				{
+					resp["error"] = "battle_set_unit_state: morale out of range " + std::to_string(moraleArg);
+				}
 				else
 				{
 					if (req.isMember("tu"))
@@ -6759,6 +6775,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						unit->setSpawnUnitFaction((UnitFaction)spawnFactionArg);
 					if (req.isMember("respawn"))
 						unit->setRespawn(req["respawn"].asBool());
+					if (hasMorale)
+						unit->coopSetMorale(moraleArg); // W2-P3 S-D.1: the C13 panic staging
 					if (wantPanic)
 						bgameTS->init();
 					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): a lever write never rides a delta
@@ -6772,6 +6790,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					resp["spawnUnit"] = unit->getSpawnUnit() ? unit->getSpawnUnit()->getType() : std::string();
 					resp["spawnUnitFaction"] = (int)unit->getSpawnUnitFaction();
 					resp["respawn"] = unit->getRespawn();
+					resp["morale"] = unit->getMorale();
 					if (bgameTS)
 						resp["panicPending"] = !bgameTS->getPanicHandled();
 					Log(LOG_INFO) << "[coop-test] battle_set_unit_state unit=" << unit->getId()
@@ -6783,6 +6802,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						<< " spawnUnit=" << (unit->getSpawnUnit() ? unit->getSpawnUnit()->getType() : std::string("-"))
 						<< " spawnUnitFaction=" << (int)unit->getSpawnUnitFaction()
 						<< " respawn=" << (unit->getRespawn() ? 1 : 0)
+						<< " morale=" << unit->getMorale()
 						<< " panicPending=" << (bgameTS ? (bgameTS->getPanicHandled() ? 0 : 1) : -1);
 				}
 			}
