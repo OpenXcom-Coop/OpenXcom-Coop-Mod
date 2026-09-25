@@ -1114,6 +1114,14 @@ void BattlescapeGame::handleNonTargetAction()
 			_parentState->warning(_currentAction.result);
 			_currentAction.result = "";
 		}
+		// W2-P4 S-B (spec (b)5 K7): ONE guarded coop call at the non-targeting
+		// EXECUTION point - the baton check on both machines, and on a co-op
+		// CLIENT the completed prime / unprime ships as a `prime` intent and
+		// TRUE comes back, so none of the branches below runs there. FALSE on
+		// the host (vanilla executes) and in single player.
+		else if (coopInterceptNonTargetAction(&_currentAction, _save))
+		{
+		}
 		else if (_currentAction.type == BA_PRIME && _currentAction.value > -1)
 		{
 			if (_currentAction.spendTU(&error))
@@ -2104,7 +2112,8 @@ void BattlescapeGame::primaryAction(Position pos)
 			_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
 			// W2-P4 S-A (spec (b)5 K5): ONE guarded coop call at the shot's
 			// EXECUTION point - the baton check on both machines, and on a
-			// co-op CLIENT the completed action ships as a `shoot` intent and
+			// co-op CLIENT the completed action ships as a `shoot` intent (a
+			// throw as a `throw` intent, W2-P4 S-B) and
 			// TRUE comes back, so nothing below runs there. FALSE on the host
 			// (vanilla executes) and in single player.
 			if (coopInterceptFireConfirm(&_currentAction, _save)) return;
@@ -2314,6 +2323,11 @@ void BattlescapeGame::launchAction()
 	getMap()->setCursorType(CT_NONE);
 	_parentState->getGame()->getCursor()->setVisible(false);
 	_currentAction.cameraPosition = getMap()->getCamera()->getMapOffset();
+	// W2-P4 S-B (spec (b)5 K6): ONE guarded coop call at the launch's
+	// EXECUTION point - the baton check on both machines, and on a co-op
+	// CLIENT the completed launch ships as a `shoot` intent (action "launch")
+	// and TRUE comes back. FALSE on the host (vanilla executes) and in SP.
+	if (coopInterceptFireConfirm(&_currentAction, _save)) return;
 	if (coopClientBStateTripwire("launchAction")) return;
 	CoopArbiter::beginHostLocalCombat(_currentAction.actor, _currentAction.type);
 	_states.push_back(new ProjectileFlyBState(this, _currentAction));

@@ -79,6 +79,13 @@ struct CoopWalkIntentArgs
  * Everything here is PLAN data: a busy-held order keeps it verbatim and only
  * `tuBasis` is recomputed at the resubmit (PR-Q12), which is why tuBasis is not
  * a member.
+ *
+ * W2-P4 S-B (spec (b)1): the same plan carries the `throw` and `prime` kinds
+ * and the launcher's `shoot` (action "launch"); for those `weapon` is the item
+ * the order uses (the wire's `item` for throw / prime):
+ *   waypoints   the launcher's waypoint tiles in click order (action "launch")
+ *   fuse        the chosen fuse (prime; -1 with unprime)
+ *   unprime     true for BA_UNPRIME (the `prime` kind's `unprime` field)
  */
 struct CoopCombatIntentArgs
 {
@@ -89,6 +96,9 @@ struct CoopCombatIntentArgs
 	int targetUnit = -1;
 	Position targetPos;
 	bool forceFire = false;
+	std::vector<Position> waypoints;
+	int fuse = -1;
+	bool unprime = false;
 };
 
 /**
@@ -355,6 +365,11 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 /// is the actor's own getActionTUs(type, weapon).Time unless
 /// @a tuBasisOverride is given. Every send is counted per kind in
 /// intentsSent() (spec (b)13).
+///
+/// W2-P4 S-B (spec (b)1): @a kind may also be "throw" (BA_THROW) or "prime"
+/// (BA_PRIME, or BA_UNPRIME when @a combat->unprime), and "shoot" may carry the
+/// action "launch" with its waypoints; each takes @a combat the same way, and
+/// `tuBasis` is getActionTUs() of that kind's action type and item.
 std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir = -1,
 	bool turret = false, bool kneel = false, int tuBasisOverride = -1,
 	const CoopWalkIntentArgs* walk = nullptr, const CoopCombatIntentArgs* combat = nullptr);
@@ -791,7 +806,30 @@ bool coopInterceptWalkConfirm(BattleUnit* actor, Position dest, bool run,
 ///      TRUE whether or not it went out, so vanilla's execution never runs on a
 ///      thin client (the tripwire below stays the backstop).
 /// FALSE in single player and outside an active co-op battle.
+///
+/// W2-P4 S-B (spec (b)5 K5/K6, PR-Q18): the same call is the THROW execution
+/// point (the same primaryAction line: a BA_THROW ships as a `throw` intent)
+/// and the LAUNCH execution point - a second guarded call in
+/// BattlescapeGame::launchAction() on the line before the `launchAction`
+/// tripwire, where a BA_LAUNCH ships as a `shoot` intent with the action
+/// "launch" and its waypoints. Steps 1-3 are the same at both sites.
 bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save);
+
+/// W2-P4 S-B (docs rewrite/prompts/w2p4_client_combat_intents.md (b)5 K7;
+/// PR-Q18): the NON-TARGETING execution point - ONE guarded `else if` in
+/// BattlescapeGame::handleNonTargetAction() right after its `result` branch.
+/// S-B's kinds are BA_PRIME with a chosen fuse (`value > -1`, vanilla's own
+/// condition) and BA_UNPRIME; every other kind returns FALSE and vanilla's own
+/// branches run unchanged. For a S-B kind, in order:
+///   1. the baton check on BOTH machines (coopRefuseIfNotMayCommand: rendered
+///      not_your_go + coopLocalExecBlocked); a refusal returns TRUE;
+///   2. on the co-op HOST: FALSE - vanilla's prime / unprime block runs and
+///      coopHostPrime() wraps it in a `host` context (W2-P2);
+///   3. on a co-op CLIENT: ships the completed vanilla action as a `prime`
+///      bt_intent through sendClientIntent() and returns TRUE whether or not it
+///      went out, so no fuse, TU or FOV write ever runs on a thin client.
+/// FALSE in single player and outside an active co-op battle.
+bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save);
 
 /// W2-P4 S-A (spec (b)4, Q3 = (a), PR-Q4, PR-Q11): the halt LATCH - ONE guarded
 /// call in BattlescapeGame::popState() before vanilla's player warning. On the

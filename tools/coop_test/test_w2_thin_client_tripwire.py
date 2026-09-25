@@ -14,9 +14,13 @@ scenario):
                host resolves panic for every unit. Proves: the skip counter
                moves by exactly 1, no panic infobox opens on the client, and
                the panicking soldier C2 keeps its rifle on both machines.
-  S1 prime     PRIME GRENADE from the client's action menu is REFUSED with
-               "Only the host can use this item": no fuse screen, the fuse
-               stays -1 and C's TU stays equal on both machines.
+  S1 prime     PRIME GRENADE from the client's action menu. Re-pointed by
+               W2-P4 S-B (amendment C1 PR-Q3 (a), chain rule A.10): the prime
+               is no longer refused but sent as a `prime` intent - vanilla's
+               fuse screen opens locally (fuse 0), the host admits and runs
+               it (host closedContexts gains exactly one {origin intent, kind
+               prime, actorId C}), the fuse is 0 on both machines and C's TU
+               stays equal on both machines.
   S3 scanner   USE SCANNER is refused with the same text: ScannerState never
                opens, C's TU stays equal.
   STAGE        C -> S4_C_TILE facing S4_C_DIR, H -> S4_H_TILE (the tile C
@@ -371,12 +375,21 @@ def s6_panic(host, client, ctx):
     finish(fails)
 
 
+def prime_contexts(host, ctx0):
+    """W2-P4 S-B (S1 re-point): the host's NEW closedContexts records that are
+    C's admitted prime intent ({origin intent, kind prime, actorId C})."""
+    seen0 = {c.get("actionId") for c in ctx0}
+    return [c for c in (event_state(host).get("closedContexts") or []) if c.get("actionId") not in seen0
+            and c.get("origin") == "intent" and c.get("kind") == "prime" and c.get("actorId") == C_ID]
+
+
 def s1_prime(host, client, ctx):
     equalize_tu(host, client, C_ID)
     gid, _ = give_both(host, client, {"unit": C_ID, "item": "STR_GRENADE", "clear_hands": True})
     wait_banner_not(client, TEXT_ITEM_ACTION)
     seen = open_right_hand_menu(client)
     p0h, p0c = probes(host), probes(client)
+    ctx0 = event_state(host).get("closedContexts") or []
     tu0 = (units(host)[C_ID]["tu"], units(client)[C_ID]["tu"])
     f0 = (items(host)[gid]["fuse"], items(client)[gid]["fuse"])
     press(client, KEY_ACTION_ITEM1)
@@ -385,21 +398,34 @@ def s1_prime(host, client, ctx):
         press(client, KEY_FUSE_0)
         watch_top(client, lambda st: st != "PrimeGrenadeState", 5, seen)
     settled = settle_client(client, seen)
+    # W2-P4 S-B (C1 PR-Q3 (a)): the prime is an order now - wait (bounded) for
+    # the host's intent context to close and the client to apply everything.
+    order_note = ""
+    try:
+        client.wait_for("C's prime intent closed on the host and applied on the client",
+                        lambda: (prime_contexts(host, ctx0) and event_state(client).get("inFlight") is None
+                                 and event_state(client).get("lastSeqApplied")
+                                 == event_state(host).get("lastSeqEmitted")) or None, timeout=15, interval=0.1)
+    except Exception as e:
+        order_note = f"{type(e).__name__}: {e}"
+    pctx = prime_contexts(host, ctx0)
     ph, pc = probes(host), probes(client)
     tu1 = (units(host)[C_ID]["tu"], units(client)[C_ID]["tu"])
     f1 = (items(host)[gid]["fuse"], items(client)[gid]["fuse"])
     print(f"EVIDENCE S1: grenade={gid} client-states={seen} settled={settled} "
+          f"prime contexts={pctx} orderWait={order_note!r} "
           f"fuse host {f0[0]}->{f1[0]} client {f0[1]}->{f1[1]}; "
           f"C.tu host {tu0[0]}->{tu1[0]} client {tu0[1]}->{tu1[1]}; "
           f"client banner={pc['banner']!r} warning={pc['warning']!r}; "
           f"pushes client {p0c['pushes']}->{pc['pushes']} lastSite={pc['lastSite']!r}", flush=True)
     fails = []
-    if pc["banner"] != TEXT_ITEM_ACTION:
-        fails.append(f"client banner {pc['banner']!r} (want {TEXT_ITEM_ACTION!r})")
-    if "PrimeGrenadeState" in seen:
-        fails.append(f"the fuse screen opened on the client (states {seen})")
-    if f1 != (-1, -1):
-        fails.append(f"fuse host={f1[0]} client={f1[1]} (want -1/-1)")
+    if len(pctx) != 1:
+        fails.append(f"host closedContexts gained {len(pctx)} {{origin intent, kind prime, actorId {C_ID}}} "
+                     f"(want exactly 1; wait: {order_note!r})")
+    if "PrimeGrenadeState" not in seen:
+        fails.append(f"the fuse screen never opened on the client (states {seen})")
+    if f1 != (0, 0):
+        fails.append(f"fuse host={f1[0]} client={f1[1]} (want 0/0)")
     if tu1[0] != tu1[1]:
         fails.append(f"C.tu host={tu1[0]} client={tu1[1]} (want equal)")
     if not settled:

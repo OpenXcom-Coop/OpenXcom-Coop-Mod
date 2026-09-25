@@ -588,7 +588,10 @@ bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s);
 ///     moves down to the execution point (coopInterceptFireConfirm(),
 ///     CoopArbiter.h) and so does the baton term (PR-Q1: the local aiming
 ///     bookkeeping - confirm-fire first click - stays allowed off-turn, E54.1).
-///   * Every other targeting kind (throw, launch, spray, psi, mind probe) keeps
+///     W2-P4 S-B adds the throw and the launcher (BA_THROW, BA_LAUNCH): the
+///     launcher's waypoint clicks are local display, its execution point is
+///     the launch button (launchAction's coopInterceptFireConfirm()).
+///   * Every other targeting kind (spray, psi, mind probe) keeps
 ///     coopBlockLocalExecution() exactly as before (PR-Q2): each later stage
 ///     lifts its own kinds, so no build between S-A and S-E has a local-sim path.
 /// Self-guarded: false outside an ACTIVE co-op battle, so SP is byte-identical.
