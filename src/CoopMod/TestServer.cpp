@@ -4734,7 +4734,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	{
 		// Fire <weapon_id> (or the main hand weapon) from <unit>. mode =
 		// snap|aimed|auto|launch|throw, or melee|use (W2-P4 S-C.1: the melee /
-		// mind-probe stand-ins below). launch takes <waypoints> (a list of x/y/z) -
+		// mind-probe stand-ins below), or spray (W2-P4 S-E1.1: the spray
+		// stand-in below). launch takes <waypoints> (a list of x/y/z) -
 		// exactly what a blaster launcher does. <hand> stamps
 		// BattlescapeState::_hand, which is what the coop packet reports as the
 		// firing hand. <tu> tops the actor's TU up first so the shot is never
@@ -4846,6 +4847,81 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				resp["spent"] = la.spendTU(&err);
 				resp["spendError"] = err;
 			}
+			CoopArbiter::endChainArming(!bg->isBusy());
+			resp["ok"] = true;
+			return true;
+		}
+
+		if (mode == "spray")
+		{
+			// W2-P4 S-E1.1 (docs rewrite/prompts/w2p4_client_combat_intents.md (b)1
+			// spray, TASK 0 T0-10 / AMENDMENT C4 F1168): HOST stand-in for a second
+			// player's spray autoshot, for the SEED_C18 hunt - no existing lever
+			// can start a spray. It runs what the intent executor ((b)3) runs, in
+			// its order, on a LOCAL BattleAction (never the host's _currentAction,
+			// N4 = F1038; no selection change, F1122): BA_AUTOSHOT with
+			// sprayTargeting set and the waypoint VOXELS of vanilla's own spread,
+			// then UnitTurnBState + ProjectileFlyBState inside one host-local
+			// combat context armed across the two pushes (the `auto` mode's
+			// order). <waypoints> = the clicked TILES in click order (1 ..
+			// the weapon's sprayWaypoints). The spread below is vanilla
+			// BattlescapeGame::primaryAction's spray-fire block (the loop over
+			// numberOfShots) copied verbatim over those tiles; the reply carries
+			// the voxels (`spray`, back = the first shot) so a test can compare
+			// them with what the client's own primaryAction ships.
+			const Json::Value& wp = req["waypoints"];
+			const int maxWaypoints = w->getRules()->getSprayWaypoints();
+			if (maxWaypoints <= 0 || !wp.isArray() || wp.size() < 1 || (int)wp.size() > maxWaypoints)
+			{
+				resp["error"] = "spray: the weapon has no sprayWaypoints, or <waypoints> is not a list of 1.."
+					+ std::to_string(maxWaypoints) + " tiles";
+				return true;
+			}
+			std::vector<Position> clicked;
+			for (Json::ArrayIndex i = 0; i < wp.size(); ++i)
+			{
+				clicked.push_back(Position(wp[i].get("x", 0).asInt(), wp[i].get("y", 0).asInt(),
+					wp[i].get("z", 0).asInt()));
+			}
+			BattleAction la;
+			la.actor = unit;
+			la.weapon = w;
+			la.type = BA_AUTOSHOT;
+			la.targeting = true;
+			la.sprayTargeting = true;
+			int numberOfShots = w->getRules()->getConfigAuto()->shots;
+			int numberOfWaypoints = clicked.size();
+			for (int i = numberOfShots - 1; i > 0; --i)
+			{
+				int waypointIndex = std::max(0, std::min(numberOfWaypoints - 1, i * (numberOfWaypoints - 1) / (numberOfShots - 1)));
+				Position previousWaypoint = clicked.at(waypointIndex).toVoxel() + TileEngine::voxelTileCenter;
+				Position nextWaypoint = clicked.at(std::min((int)clicked.size() - 1, waypointIndex + 1)).toVoxel() + TileEngine::voxelTileCenter;
+				Position targetPos;
+				targetPos.x = previousWaypoint.x + (nextWaypoint.x - previousWaypoint.x) * (i * (numberOfWaypoints - 1) % (numberOfShots - 1)) / (numberOfShots - 1);
+				targetPos.y = previousWaypoint.y + (nextWaypoint.y - previousWaypoint.y) * (i * (numberOfWaypoints - 1) % (numberOfShots - 1)) / (numberOfShots - 1);
+				targetPos.z = previousWaypoint.z + (nextWaypoint.z - previousWaypoint.z) * (i * (numberOfWaypoints - 1) % (numberOfShots - 1)) / (numberOfShots - 1);
+				la.waypoints.push_back(targetPos);
+			}
+			la.waypoints.push_back(clicked.front().toVoxel() + TileEngine::voxelTileCenter);
+			la.target = la.waypoints.back().toTile();
+			la.updateTU();
+			resp["tuCost"] = la.Time;
+			resp["tuHave"] = unit->getTimeUnits();
+			resp["weaponId"] = w->getId();
+			resp["ammoId"] = w->getAmmoForAction(BA_AUTOSHOT) ? w->getAmmoForAction(BA_AUTOSHOT)->getId() : -1;
+			resp["shots"] = numberOfShots;
+			Json::Value spray(Json::arrayValue);
+			for (const Position& v : la.waypoints)
+			{
+				Json::Value jv;
+				jv["x"] = v.x; jv["y"] = v.y; jv["z"] = v.z;
+				spray.append(jv);
+			}
+			resp["spray"] = spray;
+			CoopArbiter::beginHostLocalCombat(unit, la.type);
+			CoopArbiter::beginChainArming();
+			bg->statePushBack(new UnitTurnBState(bg, la));
+			bg->statePushBack(new ProjectileFlyBState(bg, la));
 			CoopArbiter::endChainArming(!bg->isBusy());
 			resp["ok"] = true;
 			return true;
