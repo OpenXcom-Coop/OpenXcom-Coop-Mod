@@ -1,0 +1,34 @@
+# Test-only mod for W2-P5 (rewrite/prompts/w2p5_display_ghosts.md, H4; TASK 0 T0-5).
+# Data only. Stock xcom1 has no ammo with shotgunPellets (items.rul: 0 matches), so
+# ProjectileFlyBState's pellet loop (one `hit` cue per extra pellet that lands,
+# coopCuePellet) is unreachable without it:
+#   1. STR_COOP_PELLET_CLIP: the stock STR_PISTOL_CLIP's data plus shotgunPellets: 4
+#      (the main projectile + 3 extra pellets). recover: false keeps it out of NEW
+#      BATTLE's generated base/craft stores (NewBattleState adds only recoverable
+#      items), so starting loadouts, item ids and the map are unchanged; tests hand
+#      it out with battle_give.
+#   2. STR_PISTOL's compatibleAmmo lists it after STR_PISTOL_CLIP (the full list: a
+#      plain list replaces the stock one).
+items:
+  - type: STR_PISTOL
+    compatibleAmmo:
+      - STR_PISTOL_CLIP
+      - STR_COOP_PELLET_CLIP
+  - type: STR_COOP_PELLET_CLIP
+    size: 0.1
+    weight: 3
+    bigSprite: 4
+    floorSprite: 4
+    hitSound: 22
+    hitAnimation: 26
+    power: 26
+    damageType: 1
+    clipSize: 12
+    battleType: 2
+    armor: 12
+    shotgunPellets: 4
+    recover: false
+extraStrings:
+  - type: en-US
+    strings:
+      STR_COOP_PELLET_CLIP: "Pellet Pistol Clip"
