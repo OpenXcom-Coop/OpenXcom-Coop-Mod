@@ -49,6 +49,12 @@ ONE boot, in this order:
       The lever runs on an empty host state stack, so C's UnitDieBState is the
       host's front state and C2's queues behind it (TASK 0b T0b-2: host evs
       exactly D3_EVS, the D3_DEATHS / D3_CORPSES payloads, 6 runs identical).
+      W2-P6b S-D.3 (AMENDMENT P6b-4, F1793/F1798/F1800): the CLIENT's test-only
+      battle_action death_apply_hold {on: true} before the lever ({on: false}
+      after the row) forces the race order - C's ghost has started when C2's
+      death is enqueued - in every run, and seq 16's record must say so
+      (headStartedAtEnqueue true), so D3 never passes vacuously in the other
+      order.
 
 W2-P6b S-D (spec rewrite/prompts/w2p6_display_two.md section 8 and the P6b plan
 review's section 2 rows D1-D3; AMENDMENT P6b-1; AMENDMENT P6b-2 = TASK 0b's
@@ -474,8 +480,9 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
     """Section 2 rows D1-D5 after the row's chain settled. `wants` = the expected client death records in the
     host's queue order, each {seq, actionId, unit, payload (the pinned subset), front (None = only equal to the
     payload's), fromDir, octants, respawn, Is, sounds, startedAfterSeq, overKill, endedBy, and optionally
-    unitDyingSet, unitDyingCleared, dirsShown, phasesShown, payloadFront (False: the payload's `front` is checked
-    through the record only)}. Prints ONE "EVIDENCE <tag>:" line, returns fails.
+    unitDyingSet, unitDyingCleared, dirsShown, phasesShown, headStartedAtEnqueue (S-D.3, D3 only), payloadFront
+    (False: the payload's `front` is checked through the record only)}. Prints ONE "EVIDENCE <tag>:" line, returns
+    fails.
     Common (section 2 "All rows"): the client's rngSeed unchanged across the row, the host's displayTwo all zero,
     the client's completed + cut == enqueued; D-S3: frames, sound lists and overKill equal on both machines and
     equal the pins."""
@@ -538,7 +545,7 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
                     "octants": w["octants"], "frames": DEATH_F, "respawn": w["respawn"], "Is": w["Is"],
                     "startedAfterSeq": w["startedAfterSeq"], "overKill": w["overKill"], "endedBy": w["endedBy"]}
             want.update(death_schedule(want["front"], w["octants"], w["Is"], DEATH_F, w["respawn"]))
-            for k in ("unitDyingSet", "unitDyingCleared", "dirsShown", "phasesShown"):
+            for k in ("unitDyingSet", "unitDyingCleared", "dirsShown", "phasesShown", "headStartedAtEnqueue"):
                 if k in w:
                     want[k] = w[k]
             got = {k: r.get(k) for k in want}
@@ -849,7 +856,10 @@ def d3_burst(host, client, ctx):
     front state (payload front true), C2's queues behind it (front false) and starts at C's pop with the
     interval C's pirouette left (Is 100). Client: V1 = C {startedAfterSeq 0, Is 33, 7 octants}, V2 = C2
     {startedAfterSeq = V1's seq, Is 100, 2 octants}; both set the Map's dying flag (player victims), V1's release
-    clears it (V2's then finds it cleared); both end "out" at their own corpse ev."""
+    clears it (V2's then finds it cleared); both end "out" at their own corpse ev.
+    W2-P6b S-D.3 (AMENDMENT P6b-4, F1798/F1800): the client's death_apply_hold lever is on from before the kill
+    lever to the end of the row, so V1 has started when V2 is enqueued in every run (the race order);
+    V2's record headStartedAtEnqueue must be true."""
     notes = []
     uh0 = units(host)
     own = [uid for uid, t in ((C_ID, D3_C_TILE), (C2_ID, D3_C2_TILE))
@@ -865,6 +875,8 @@ def d3_burst(host, client, ctx):
     snap_d = death_snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     tops0 = (top(host), top(client))
+    # S-D.3 (AMENDMENT P6b-4): the client's test-only hold, on before the kill lever
+    hold_on = client.cmd({"cmd": "battle_action", "action": "death_apply_hold", "on": True})
     k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "coop_side": 1})
     try:
         host.wait_for("host C and C2 DEAD, no BState", lambda: host_both_dead_idle(host, (C_ID, C2_ID)), timeout=30)
@@ -883,7 +895,7 @@ def d3_burst(host, client, ctx):
     dsc = desync_record(client, pc["desyncSeen"])
     chain_ev = {"staged": {"C": (C_ID, D3_C_TILE, D3_C_DIR), "C2": (C2_ID, D3_C2_TILE, D3_C2_DIR), "tele": tele,
                            "ownTile": own, "stagedDiff": staged_diff, "units": staged},
-                "topsBefore": tops0, "lever": k, "seq0": seq0,
+                "topsBefore": tops0, "holdOn": hold_on, "lever": k, "seq0": seq0,
                 "hostEvs": [(e["seq"], e["kind"], e["actionId"]) for e in hev],
                 "clientEvs": [(e["seq"], e["kind"], e["actionId"]) for e in cev],
                 "cuePayloads": {str(s): p for s, p in pl.items()},
@@ -892,16 +904,24 @@ def d3_burst(host, client, ctx):
                 "topsAfter": (top(host), top(client)), "diff": end_diff, "desync": dsc,
                 "hostDesyncSeen": ph["desyncSeen"], "notes": list(notes)}
     s1, s2 = (D3_EVS[0][0], D3_EVS[1][0])
-    d3 = death_row("D3", host, client, snap_d, extra=chain_ev, wants=[
-        {"seq": s1, "actionId": 0, "unit": C_ID, "payload": {k_: D3_DEATHS[s1][k_] for k_ in DEATH_KEYS},
-         "front": True, "fromDir": D3_C_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN,
-         "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out",
-         "unitDyingSet": True, "unitDyingCleared": True},
-        {"seq": s2, "actionId": 0, "unit": C2_ID, "payload": {k_: D3_DEATHS[s2][k_] for k_ in DEATH_KEYS},
-         "front": False, "fromDir": D3_C2_DIR, "octants": 2, "respawn": False, "Is": DEATH_IC,
-         "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": s1, "overKill": OVERKILL_NONE, "endedBy": "out",
-         "unitDyingSet": True, "unitDyingCleared": False}])
+    try:
+        d3 = death_row("D3", host, client, snap_d, extra=chain_ev, wants=[
+            {"seq": s1, "actionId": 0, "unit": C_ID, "payload": {k_: D3_DEATHS[s1][k_] for k_ in DEATH_KEYS},
+             "front": True, "fromDir": D3_C_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN,
+             "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out",
+             "unitDyingSet": True, "unitDyingCleared": True},
+            {"seq": s2, "actionId": 0, "unit": C2_ID, "payload": {k_: D3_DEATHS[s2][k_] for k_ in DEATH_KEYS},
+             "front": False, "fromDir": D3_C2_DIR, "octants": 2, "respawn": False, "Is": DEATH_IC,
+             "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": s1, "overKill": OVERKILL_NONE, "endedBy": "out",
+             "unitDyingSet": True, "unitDyingCleared": False, "headStartedAtEnqueue": True}])
+    finally:
+        # S-D.3 (AMENDMENT P6b-4): the client's hold off after the row
+        hold_off = client.cmd({"cmd": "battle_action", "action": "death_apply_hold", "on": False})
     fails = list(notes)
+    if hold_on.get("ok") is not True or hold_on.get("on") is not True:
+        fails.append(f"client death_apply_hold {{on: true}} answered {hold_on} (want ok, on true)")
+    if hold_off.get("ok") is not True or hold_off.get("on") is not False:
+        fails.append(f"client death_apply_hold {{on: false}} answered {hold_off} (want ok, on false)")
     if own:
         fails.append(f"units {own} already stand on their D3 tile (S2: never teleported onto their own tile)")
     if staged_diff:

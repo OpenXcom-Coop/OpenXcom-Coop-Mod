@@ -15124,6 +15124,12 @@ std::vector<DeathGhost> g_deathGhosts;
 std::vector<DeathGhost> g_deathHolding;
 int g_deathInterval = BattlescapeState::DEFAULT_ANIM_SPEED;
 bool g_deathDyingOn = false;
+/// W2-P6b S-D.3 (AMENDMENT P6b-4, F1793/F1798): the TEST-ONLY `death_apply_hold` lever (TestServer battle_action,
+/// sent to the client). While on, an applied `death` first runs ONE deathAdvance() when the queue head is enqueued
+/// but not started, so the head starts before the later death is enqueued (the race order F1798 traced) whether or
+/// not a client frame ran between the two applies. Off in every game; battle-scoped (cleared by combatSync()'s
+/// generation branch).
+bool g_deathApplyHold = false;
 
 /// The LIVE battle's BattlescapeState, fresh on every call (OQ4: never a stored Map pointer
 /// dereferenced): null with none on the state stack (the client parked in BriefingState, a teardown).
@@ -15198,6 +15204,7 @@ void combatSync()
 		g_deathHolding.clear();
 		g_deathInterval = BattlescapeState::DEFAULT_ANIM_SPEED;
 		g_deathDyingOn = false;
+		g_deathApplyHold = false; // W2-P6b S-D.3: the test-only lever is battle-scoped
 		g_combatProbe = CombatProbeStore();
 		g_combatProbe.gen = g;
 	}
@@ -16222,6 +16229,8 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	r["overKill"] = unit ? unit->getOverKillDamage() : 0;
 	r["holdMs"] = 0;
 	r["endedBy"] = "";
+	// W2-P6b S-D.3 (AMENDMENT P6b-4, probe only): the queue head had started when this death was enqueued.
+	r["headStartedAtEnqueue"] = !g_deathGhosts.empty() && g_deathGhosts.front().started;
 	if (instant)
 	{
 		// E3 needs no ghost (parity by snap, N8); ST5 (a): vanilla's isOut-frame scream (UnitDieBState :258-:261).
@@ -16339,6 +16348,11 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 		deathEndAll(nowMs, "side_transition");
 	if (kind == "death")
 	{
+		// W2-P6b S-D.3 (AMENDMENT P6b-4, F1798): the test-only lever's pre-advance - ONE deathAdvance() before the
+		// enqueue while the head is enqueued but not started. Never a deferred apply: this ev's apply and its
+		// delta keep their place in the pump.
+		if (g_deathApplyHold && !g_deathGhosts.empty() && !g_deathGhosts.front().started)
+			deathAdvance(save, nowMs);
 		deathOnEv(save, ev, nowMs);
 		return;
 	}
@@ -16868,6 +16882,13 @@ bool deathGhostActive(int unitId)
 			return true;
 	}
 	return false;
+}
+
+bool setDeathApplyHold(bool on)
+{
+	combatSync(); // a pending generation reset clears the lever first, never after this write
+	g_deathApplyHold = on;
+	return g_deathApplyHold;
 }
 
 void probeDeriveShotPath(SavedBattleGame* save, const Json::Value& ev)

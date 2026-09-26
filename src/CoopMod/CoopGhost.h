@@ -239,7 +239,8 @@ Json::Value turnGhostProbe();
 /// probe of THIS machine this battle - {death:{counts:{enqueued, started, completed, cut, instant}, queued (the
 /// death ghosts queued, started or holding now), ring:[the last 32 death records]}}. A death record: {seq,
 /// actionId, unit, instant, outcome, front, fromDir, octants, frames, respawn, Is, Ic, tc, isOutMs, popMs, sound,
-/// startedAfterSeq, dirsShown, phasesShown, unitDyingSet, unitDyingCleared, overKill, holdMs, endedBy}. Probe
+/// startedAfterSeq, dirsShown, phasesShown, unitDyingSet, unitDyingCleared, overKill, holdMs, endedBy,
+/// headStartedAtEnqueue (S-D.3: the queue head had started at this record's enqueue)}. Probe
 /// storage only at S-D.1: nothing writes it (the S-D.2 death ghosts do, on a coop client only). Kept apart from
 /// the SPEC 7 counters and the combat ghosts; main thread only, cleared with the combat probe storage.
 Json::Value displayTwoProbe();
@@ -249,6 +250,12 @@ Json::Value displayTwoProbe();
 /// on the host and in single player) - the predicate W2-P6a's client message queue reads so a death message
 /// waits until the unit's collapse has ended. Main thread only; reads only.
 bool deathGhostActive(int unitId);
+
+/// W2-P6b S-D.3 (AMENDMENT P6b-4, F1793/F1798): TEST-ONLY - the `death_apply_hold` lever (TestServer battle_action,
+/// sent to the coop client). While on, an applied `death` first runs ONE death-queue advance when the queue head is
+/// enqueued but not started (the head starts before the later death is enqueued; never a deferred apply). Off in
+/// every game; battle-scoped (cleared with the combat probe storage). Returns the value now held. Main thread only.
+bool setDeathApplyHold(bool on);
 
 /// W2-P5 S-A.1 (amendment E1 PR-E2; S-A.2 amendment E2): CLIENT, probe only, called from
 /// CoopApply::applyEvPayload()'s cue branch for an applied `shot` (before applyDelta): re-derive the

@@ -10031,6 +10031,15 @@ std::string TestServer::execute(const std::string& line)
 				resp["killed"] = killed;
 				resp["ok"] = true;
 			}
+			else if (act == "death_apply_hold")
+			{
+				// W2-P6b S-D.3 (AMENDMENT P6b-4, F1793/F1798): TEST-ONLY lever, sent to the CLIENT. {on: true|false}
+				// -> {ok, on}. While on, the client's watcher runs ONE death-queue advance before a `death`
+				// enqueue when the queue head has not started (CoopGhost::setDeathApplyHold), so a two-victim
+				// burst's second death is enqueued behind a started head in every run. Battle-scoped.
+				resp["on"] = CoopGhost::setDeathApplyHold(req.get("on", false).asBool());
+				resp["ok"] = true;
+			}
 			else
 			{
 				// actions needing a unit
