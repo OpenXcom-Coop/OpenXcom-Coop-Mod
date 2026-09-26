@@ -475,7 +475,10 @@ def send_intent(host, client, req, notes, timeout=15):
         if ld.get("iseq") == iseq:
             return "deny"
         if order_done(host, client):
-            return "end"
+            # F1318: a deny applied between the read above and order_done()'s
+            # reads leaves the order done; lastDeny wins, so re-read it once.
+            ld = event_state(client).get("lastDeny") or {}
+            return "deny" if ld.get("iseq") == iseq else "end"
         return None
     try:
         out["answer"] = client.wait_for(f"the host's answer to iseq {iseq}", answered, timeout=timeout,

@@ -10,7 +10,10 @@ build with the NEW battle_fire `spray` stand-in).
 S-E1 writes C18 and C16f. S-E2 (commit S-E2.1) adds the skill rows C23s1,
 C23s3 and C23s2 (the owner's D147 = (a), AMENDMENT C3 "D147 - soldier skills
 as a two-step `skill` intent" sections 1-5 and its mechanism rulings C3-Q5..Q9;
-the rows are C3 section 3's table).
+the rows are C3 section 3's table). S-E2b (commit S-E2b.1) adds C23s4, a second
+click under a skill (the F1291 capture, F1312/F1313; the orchestrator's R10
+ruling on C3-Q7: the skill grant persists while vanilla keeps the skill's
+targeting).
 
 Before S-E the second player cannot spray: its Ctrl+Shift click that starts a
 spray (BattlescapeGame::primaryAction, an AUTO shot with a `sprayWaypoints`
@@ -23,7 +26,7 @@ Options::forceFire && the HOST's isCtrlPressed(true). After S-E the spray is a
 F1-F4 read the order's own `forceFire` (the ordering machine's Options::forceFire
 && its own Ctrl), never the host's keys.
 
-Five scenarios, ONE boot (the Coop_Spray_Test mod on both machines: STR_RIFLE
+Six scenarios, ONE boot (the Coop_Spray_Test mod on both machines: STR_RIFLE
 has sprayWaypoints 2, every STR_SOLDIER has the three test skills). C18 and
 C16f first, in this order:
 
@@ -141,6 +144,31 @@ A2.2 precedent):
          both (the script's non-TU effect reached the client in the delta). RED
          (T0-17): the key sends nothing; client TU 64 -> 58 and tag [1], host
          TU 64 and tag []: buckets saveBlob/synced/unitsStats differ.
+  C23s4  a second click under a skill (S-E2b, after C23s2: on the S-E2 green
+         build C23s2 leaves the battle equal). In vanilla (the F1291 capture on
+         the host's own soldier, F1312/F1313) after SKILLS + GO and a first
+         click the action stays a snap carrying the skill, targeting stays,
+         and a second click without the menu fires again at the skill's cost.
+         C re-staged as in C23s1 (rifle + clip, lever, both, clear hands; C on
+         C_TILE facing east; A on A_SPAWN; C TU max) plus C's firing 120 as
+         C18/C16f (F1315: without it the follow-up shot left the map). Client:
+         SKILLS, key 49 (GO), asserted as C23s1's step 1; click 1 on
+         C23S1_TARGET (host set_seed SEED_C23S1), asserted as C23s1's step 2.
+         Click 2: the same tile again WITHOUT reopening the menu (HOME, host
+         set_seed SEED_C23S1, one left click). GREEN: ONE more `shoot` order
+         carrying skill SKILL_GO is admitted ({intent, shoot, C} with one
+         bt_action_end, the host's intentsReceivedLog entry skill SKILL_GO), C
+         TU - SKILL_TU and the clip - 1 on both, buckets equal. Then the plain
+         snap: one right-click on the map cancels the targeting (vanilla
+         cancelCurrentAction drops the skill), the right-hand box, key 50, one
+         click on C23S1_TARGET (host set_seed SEED_C23S1): ONE `shoot` order
+         with no skill, admitted at the weapon's own cost (C TU - SNAP_TU, the
+         clip - 1, both). Last, one lever order (battle_intent shoot, snap,
+         skill SKILL_GO): after an order with no skill a skill order needs a
+         new skill answer, so the host denies it C23S4_DENY and nothing runs.
+         RED (the one-shot grant as S-E2.2 built it, C3-Q7): click 2 is SENT
+         and the host denies it skill_not_granted, silently (no banner, no
+         warning, the client still aims); C TU and the clip unchanged.
 
 Common asserts (spec (f), after wait_host_idle): hash_now {full:true} - every
 bucket EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged
@@ -181,7 +209,10 @@ spray stand-in) is run ONCE and every scenario must FAIL with its RED evidence.
 Commit S-E1.2 is run ONCE and every scenario must PASS. Commit S-E2.1 (the C23s
 rows, the mod's skills, the intentsReceivedLog probe) is run ONCE: C18 and C16f
 PASS (S-E1 is in) and the C23s rows FAIL with their RED evidence; commit S-E2.2
-is run ONCE and every scenario must PASS. Each scenario prints ONE
+is run ONCE and every scenario must PASS. Commit S-E2b.1 (C23s4) is run ONCE:
+C18, C16f, C23s1, C23s3 and C23s2 PASS and C23s4 FAILs on click 2 (denied
+skill_not_granted, silent); commit S-E2b.2 is run ONCE and every scenario must
+PASS. Each scenario prints ONE
 "EVIDENCE <id>:" line with both machines' fields BEFORE its green conditions are
 checked; main() runs every scenario even after an earlier one failed and prints
 "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that times
@@ -214,6 +245,7 @@ from test_w2_client_shoot import (top, snap, ubrief, press, menu_rows, mine, giv
                                   RHAND_CENTRE, TU_MAX, C_TU_FULL, CURSOR_AIM, POLL_S, KEY_SNAP, KEY_AUTO)
 from test_w2_client_grenade import mod_log, hurt_map, hurt_delta
 from test_w2_client_shoot import shot_brief, order_done, SENT_WAIT_S, ORDER_TIMEOUT_S
+from test_w2_client_shoot import send_intent, shoot_req, recv_of
 from test_w2_client_grenade import (admitted_fails as admitted_kind_fails, cancel_client_targeting, item_view,
                                     fuse_fails, CURSOR_TARGETING, CURSOR_THROW)
 from test_w2_client_items import strip_both
@@ -284,6 +316,9 @@ C23S2_TU_AFTER = C_TU_FULL - SKILL_TU   # 58
 TAG_STOP_RAN = [1]                # field_poke unit tags after the stop script (COOP_SKILL_STOP_RAN = 1)
 CURSOR_NORMAL = 1                 # CT_NORMAL
 STEP_WAIT_S = 3.0                 # how long the client's cursor gets to reach its targeting mode after step 1
+
+# ----- C23s4 (S-E2b: a second click under a skill; the F1291 capture, F1312/F1313) -----
+C23S4_DENY = "skill_not_granted"  # the host's silent deny row for a skill order with no skill answer (C3-Q7)
 
 # ----- UI -----
 CLICK_WAIT_S = 1.5                # how long a waypoint click gets to show as refused or sent
@@ -1021,9 +1056,250 @@ def c23s2_skill_stop(host, client, ctx):
     finish(fails)
 
 
-# C23s2 runs LAST: its red leaves C's TU and tag split (W2-P1 A2.2 precedent).
+# ===================== C23s4: a second click under a skill (S-E2b) =====================
+
+
+def tu_clip(rec, clip):
+    """C's TU and the clip's qty as (host, client), from one record."""
+    return {"tu": ((rec["uh"].get(C_ID) or {}).get("tu"), (rec["uc"].get(C_ID) or {}).get("tu")),
+            "clip": ((rec["ih"].get(clip) or {}).get("qty"), (rec["ic"].get(clip) or {}).get("qty"))}
+
+
+def drop_fails(prev, rec, clip, tu_drop, clip_drop, what):
+    """C's TU fell by `tu_drop` and the clip by `clip_drop` from record `prev`
+    to record `rec`, the same value on both machines."""
+    fails = []
+    p, n = tu_clip(prev, clip), tu_clip(rec, clip)
+    for key, drop in (("tu", tu_drop), ("clip", clip_drop)):
+        b = p[key][0]
+        want = None if b is None else b - drop
+        if p[key][1] != b or n[key] != (want, want):
+            name = "C tu" if key == "tu" else f"clip {clip} qty"
+            fails.append(f"{what}: {name} (host, client) {p[key]} -> {n[key]} (want -{drop} on both: {want})")
+    return fails
+
+
+def leg_record(host, client, before, log_prev, kind="shoot"):
+    """The record of one order after its press: the counters, the host's new
+    contexts, the {intent, `kind`, C} context's actionId and evs, the host's
+    new intentsReceivedLog entries."""
+    rec = collect(host, client, before["host"]["lastSeqEmitted"] or 0)
+    log = rlog(host)
+    new = ctx_view(before, rec)
+    h = mine(new, "intent", kind, C_ID)
+    aid = h[0]["actionId"] if len(h) == 1 else None
+    chain = chain_of(rec, aid)
+    return {"before": before, "rec": rec, "log": log, "logNew": rlog_new(log_prev, log), "new": new, "aid": aid,
+            "chain": chain, "shots": shot_payloads(host, chain) if kind == "shoot" else []}
+
+
+def s4_view(leg, clip):
+    if not leg:
+        return None
+    rec = leg["rec"]
+    return {"press": leg.get("press"), "outcome": leg.get("outcome"), "counters": press_view(leg["before"], rec),
+            "ui": ui_view(leg["before"], rec), "newContexts": leg["new"], "action": leg["aid"],
+            "chain": [(e["seq"], e["kind"]) for e in leg["chain"]], "shots": shot_brief(leg["shots"]),
+            "hostLogNew": leg["logNew"], "tuClip": tu_clip(rec, clip), "hostEvs": ev_tuples(rec["hev"]),
+            "clientEvs": ev_tuples(rec["cev"]), "diff": rec["diff"], "desync": rec["dsc"]}
+
+
+def follow_leg(host, client, log_prev, notes):
+    """One click on C23S1_TARGET WITHOUT the menu (follow_click: HOME, the
+    host's set_seed SEED_C23S1, one verified left click) and its record."""
+    b = snap(host, client)
+    ev = {}
+    out = follow_click(host, client, C23S1_TARGET, SEED_C23S1, ev, notes)
+    leg = leg_record(host, client, b, log_prev)
+    leg.update({"press": ev, "outcome": out})
+    return leg
+
+
+def plain_snap_leg(host, client, log_prev, notes):
+    """The plain snap: one right-click on the map while the client targets
+    (vanilla BattlescapeState::mapClick -> cancelCurrentAction: targeting off,
+    the skill dropped), then the right-hand box, key 50, HOME, one verified
+    left click on C23S1_TARGET with the host's set_seed SEED_C23S1 right before
+    it; and its record."""
+    b = snap(host, client)
+    ev = {}
+    out = {"state": "not pressed"}
+    try:
+        ev["cursorBefore"] = battle_state(client).get("cursorType")
+        assert ev["cursorBefore"] in CURSOR_TARGETING, (
+            f"precondition: the client is not targeting before the right-click (cursorType {ev['cursorBefore']}; a "
+            f"right-click then is a turn order, not a cancel)")
+        press(client, SDLK_HOME)
+        time.sleep(0.15)
+        pr = client.cmd({"cmd": "map_tile_click_pos", "x": C23S1_TARGET[0], "y": C23S1_TARGET[1],
+                         "z": C23S1_TARGET[2]})
+        ev["rightClickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY", "centered")}
+        assert pr.get("verified"), f"precondition: map_tile_click_pos did not verify {C23S1_TARGET} on the client: {pr}"
+        client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "right"})
+        ev["cursorAfterRightClick"] = wait_cursor(client, CURSOR_NORMAL)
+        assert ev["cursorAfterRightClick"] == CURSOR_NORMAL, (
+            f"the right-click did not cancel the client's targeting (cursorType {ev['cursorAfterRightClick']}, want "
+            f"{CURSOR_NORMAL})")
+        pv = aim_click(client, KEY_SNAP, C23S1_TARGET, lambda: host.ok({"cmd": "set_seed", "seed": SEED_C23S1}))
+        ev["snap"] = {k: v for k, v in pv.items() if k != "clickAt"}
+        out = await_press(host, client, b, notes)
+    except Exception as e:
+        notes.append(f"plain snap (right-click cancel, right-hand box, key {KEY_SNAP}, click): {short(e)}")
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle (plain snap): {short(e)}")
+    leg = leg_record(host, client, b, log_prev)
+    leg.update({"press": ev, "outcome": out})
+    return leg
+
+
+def skill_lever_leg(host, client, rifle, clip, log_prev, notes):
+    """One lever order for C: battle_intent shoot (snap at C23S1_TARGET with
+    the rifle and its clip) carrying skill SKILL_GO, then (bounded) the host's
+    answer; and its record."""
+    b = snap(host, client)
+    req = shoot_req(C_ID, "snap", rifle, clip, C23S1_TARGET)
+    req["plan"]["skill"] = SKILL_GO
+    lv = send_intent(host, client, req, notes)
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle (lever order): {short(e)}")
+    leg = leg_record(host, client, b, log_prev)
+    leg.update({"press": {"sent": lv["sent"], "iseq": lv["iseq"], "error": lv["resp"].get("error")},
+                "outcome": {"answer": lv["answer"]}})
+    return leg
+
+
+def c23s4_skill_repeat(host, client, ctx):
+    notes = []
+    tc0 = cancel_client_targeting(client)
+    rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
+    pc_ = place(host, client, C_ID, C_TILE, C18_C_DIR)
+    pa_ = place(host, client, A_ID, A_SPAWN, A_SPAWN_DIR)
+    set_tu_both(host, client, C_ID, TU_MAX)
+    set_firing_both(host, client, C_ID)   # F1315: as C18 / C16f
+    staged = diff_buckets(host, client)
+    before = snap(host, client)
+    log0 = rlog(host)
+    # step 1: SKILLS, key 49 (GO) - as C23s1's step 1
+    ev1 = {}
+    out1 = skill_step(host, client, KEY_SKILL_GO, ev1, notes)
+    cur1 = wait_cursor(client, CURSOR_AIM)
+    s1 = leg_record(host, client, before, log0, kind="skill")
+    s1.update({"press": ev1, "outcome": out1})
+    gate1 = gate_view(s1["rec"], cur1, CURSOR_AIM)
+    # click 1 (the skill's follow-up snap, as C23s1's step 2), then click 2 WITHOUT the menu
+    c1 = c2 = None
+    cur2 = cur3 = None
+    gate2 = {"go": False, "why": "click 1 not sent"}
+    if gate1["go"]:
+        c1 = follow_leg(host, client, s1["log"], notes)
+        cur2 = wait_cursor(client, CURSOR_AIM)   # vanilla keeps the targeting after a shot
+        gate2 = gate_view(c1["rec"], cur2, CURSOR_AIM)
+        if gate2["go"]:
+            c2 = follow_leg(host, client, c1["log"], notes)
+            cur3 = battle_state(client).get("cursorType")
+    last = c2 or c1 or s1
+    # the plain snap: right-click cancel, then the right-hand box, key 50, click
+    ps = plain_snap_leg(host, client, last["log"], notes)
+    # the third skill-carrying order, through the lever
+    lv = skill_lever_leg(host, client, rifle, clip, ps["log"], notes)
+    print(f"EVIDENCE C23s4: staged rifle={rifle} clip={clip} C={pc_} A={pa_} stagedDiff={staged} "
+          f"targetingCancel={tc0} | STEP 1 (SKILLS, key {KEY_SKILL_GO}) {s4_view(s1, clip)} cursor={cur1} "
+          f"gate={gate1} | CLICK 1 (on {C23S1_TARGET}) {s4_view(c1, clip)} cursor after={cur2} gate={gate2} "
+          f"| CLICK 2 (same tile, no menu) {s4_view(c2, clip)} cursor after={cur3} | PLAIN SNAP (right-click "
+          f"cancel, right-hand box, key {KEY_SNAP}) {s4_view(ps, clip)} | THIRD ORDER (battle_intent shoot, skill "
+          f"{SKILL_GO}) {s4_view(lv, clip)}; notes={notes}", flush=True)
+    fails = list(notes)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if ev1.get("rows") != SKILL_ROWS:
+        fails.append(f"precondition: client skill menu rows {ev1.get('rows')} (want {SKILL_ROWS})")
+    # step 1: the skill order (as C23s1)
+    r1 = s1["rec"]
+    fails += [f"step 1: {m}" for m in forwarded_fails(before, r1)]
+    f, _ = admitted_kind_fails(before, r1, "skill", "skill", C_ID)
+    fails += [f"step 1: {m}" for m in f]
+    fails += chain_fails(r1, s1["aid"], SKILL_CHAIN, "step 1")
+    fails += skill_end_fails(r1, s1["aid"], True, "step 1")
+    fails += rlog_fails(s1["logNew"], "skill", SKILL_GO, "step 1")
+    if cur1 != CURSOR_AIM:
+        fails.append(f"step 1: client cursorType {cur1} after the skill order (want {CURSOR_AIM})")
+    fails += [f"step 1: {m}" for m in tu_fails(r1, C_ID, C_TU_FULL)]
+    if not gate1["go"]:
+        fails.append(f"click 1 not sent: {gate1} (want equal buckets and the client aiming)")
+    # click 1: the follow-up snap carries the skill (as C23s1's step 2)
+    if c1:
+        r = c1["rec"]
+        fails += [f"click 1: {m}" for m in forwarded_fails(c1["before"], r)]
+        f, cx = admitted_kind_fails(c1["before"], r, "shoot", "shoot", C_ID)
+        fails += [f"click 1: {m}" for m in f]
+        fails += chain_fails(r, c1["aid"], C23S1_CHAIN, "click 1")
+        if cx and (len(c1["shots"]) != 1 or (c1["shots"][0][1] or {}).get("weapon") != rifle):
+            fails.append(f"click 1: `shot` cue(s) {shot_brief(c1['shots'])} (want one with weapon {rifle}, the rifle)")
+        fails += rlog_fails(c1["logNew"], "shoot", SKILL_GO, "click 1")
+        fails += [f"click 1: {m}" for m in tu_fails(r, C_ID, C23S1_TU_AFTER)]
+        fails += [f"click 1: {m}" for m in qty_fails(r, clip, C23S1_CLIP_AFTER, "clip")]
+        if not gate2["go"]:
+            fails.append(f"click 2 not sent: {gate2} (want equal buckets and the client still aiming after click 1)")
+    # click 2: the same tile again, no menu - admitted at the skill's cost again
+    if c2:
+        r = c2["rec"]
+        fails += [f"click 2: {m}" for m in forwarded_fails(c2["before"], r)]
+        ld0, ld1 = c2["before"]["client"]["lastDeny"], r["client"]["lastDeny"]
+        if ld1 != ld0:
+            fails.append(f"click 2: the host denied the order, client lastDeny {ld1} (want admitted: vanilla keeps the "
+                         f"skill's targeting and fires again at the skill's cost)")
+        f, _ = admitted_kind_fails(c2["before"], r, "shoot", "shoot", C_ID)
+        fails += [f"click 2: {m}" for m in f]
+        fails += rlog_fails(c2["logNew"], "shoot", SKILL_GO, "click 2")
+        fails += drop_fails(c1["rec"], r, clip, SKILL_TU, 1, "click 2")
+        if r["diff"]:
+            fails.append(f"click 2: buckets differ {r['diff']} (want none)")
+    # the plain snap: no skill, the weapon's own cost
+    r = ps["rec"]
+    fails += [f"plain snap: {m}" for m in forwarded_fails(ps["before"], r)]
+    f, _ = admitted_kind_fails(ps["before"], r, "shoot", "shoot", C_ID)
+    fails += [f"plain snap: {m}" for m in f]
+    fails += rlog_fails(ps["logNew"], "shoot", None, "plain snap")
+    fails += drop_fails(last["rec"], r, clip, SNAP_TU, 1, "plain snap")
+    if r["diff"]:
+        fails.append(f"plain snap: buckets differ {r['diff']} (want none)")
+    # the third skill-carrying order: needs a new skill answer - denied, nothing runs
+    r = lv["rec"]
+    b = lv["before"]
+    ld = r["client"]["lastDeny"] or {}
+    if not lv["press"]["sent"]:
+        fails.append(f"third order: the lever did not send it: {lv['press']}")
+    elif lv["outcome"]["answer"] != "deny" or ld.get("iseq") != lv["press"]["iseq"] or ld.get("reason") != C23S4_DENY:
+        fails.append(f"third order: answer {lv['outcome']['answer']}, client lastDeny {r['client']['lastDeny']} (want "
+                     f"{{iseq {lv['press']['iseq']}, reason {C23S4_DENY}}})")
+    dd = (recv_of(r["host"]["intentsReceived"], "shoot", "denied")
+          - recv_of(b["host"]["intentsReceived"], "shoot", "denied"))
+    da = (recv_of(r["host"]["intentsReceived"], "shoot", "admitted")
+          - recv_of(b["host"]["intentsReceived"], "shoot", "admitted"))
+    if (da, dd) != (0, 1):
+        fails.append(f"third order: host intentsReceived.shoot admitted +{da} denied +{dd} (want +0 / +1)")
+    if lv["new"]:
+        fails.append(f"third order: host closedContexts gained {lv['new']} (want none: nothing executed)")
+    if r["host"]["lastSeqEmitted"] != b["host"]["lastSeqEmitted"]:
+        fails.append(f"third order: host lastSeqEmitted {b['host']['lastSeqEmitted']}->{r['host']['lastSeqEmitted']} "
+                     f"(want unchanged)")
+    fails += rlog_fails(lv["logNew"], "shoot", SKILL_GO, "third order")
+    fails += drop_fails(ps["rec"], r, clip, 0, 0, "third order")
+    if r["diff"]:
+        fails.append(f"third order: buckets differ {r['diff']} (want none)")
+    fails += common_fails(host, client, before, "C23s4")
+    finish(fails)
+
+
+# C23s2 ran LAST until S-E2b: its red left C's TU and tag split (W2-P1 A2.2
+# precedent). C23s4 (S-E2b) runs after it on the S-E2 green build, where C23s2
+# leaves the battle equal, and re-stages C itself.
 SCENARIOS = (("C18", c18_spray), ("C16f", c16f_force_fire), ("C23s1", c23s1_skill_continue),
-             ("C23s3", c23s3_skill_grenade), ("C23s2", c23s2_skill_stop))
+             ("C23s3", c23s3_skill_grenade), ("C23s2", c23s2_skill_stop), ("C23s4", c23s4_skill_repeat))
 
 
 # ===================== bring-up =====================
