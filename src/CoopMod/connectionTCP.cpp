@@ -15004,12 +15004,19 @@ struct CombatGhost
 	bool dropSound = false;           // a throw: ITEM_DROP when the ghost ends, natural or cut (spec (b)7)
 	// W2-P5 S-T.1 (E3.1 ST2 (a), section 4 H0; probe only): the advance() gap record while the ghost lives
 	// (lastAdvanceMs starts at startedAtMs, maxGapMs lands in the ring record at its end), and the same-action
-	// hold's fields - declared here, written by S-T.3 only (inert: nothing reads them in this commit).
+	// hold's fields (S-T.3: written by combatStartShot()'s hold, read by combatReleaseHeld() / H3 / H4).
 	std::uint32_t lastAdvanceMs = 0;
 	std::uint32_t maxGapMs = 0;
 	bool held = false;
 	std::uint32_t afterTurnSeq = 0;
 	std::uint32_t enqueuedAtMs = 0;
+	// W2-P5 S-T.3 (amendment E3 Q1 (b), E3.1 section 4 H1-H4): the pair's keys - the shooter's unit id (its
+	// SPEC 7 turn ghost's key) and the shot's actionId - and the fire / throw sound S-A's rule picked at
+	// enqueue (the ammo may leave with this cue's own delta, N23), played and recorded at release.
+	int unitId = -1;
+	std::uint32_t actionId = 0;
+	int pendingSound = Mod::NO_SOUND;
+	Position pendingSoundAt;
 };
 std::vector<CombatGhost> g_combatGhosts;
 
@@ -15128,7 +15135,9 @@ bool combatClient(); // W2-P5 S-T.1: defined with the combat ghosts below
 /// direction along the SHORTER octant arc (ties clockwise, as vanilla's unit turn() does), one octant per
 /// g.durationMs / octants (fixed at enqueue, D111), and the status its view draws. Shared by view() and
 /// advance()'s dirsShown / poseShown probe, so the probe records what view() draws. @a status: in, the
-/// canonical status the caller's view carries; out, the drawn status (unchanged in this commit). Reads only.
+/// canonical status the caller's view carries; out, the drawn status - W2-P5 S-T.3 (amendment E3 Q5 (a)):
+/// STATUS_TURNING, vanilla's pose while a unit turns (its lookAt), never the aiming pose a held
+/// shot's delta already wrote. Reads only.
 void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int* status)
 {
 	bool clockwise = false;
@@ -15144,7 +15153,8 @@ void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int
 		*direction = clockwise
 			? (g.fromDir + stepsElapsed) % 8
 			: ((g.fromDir - stepsElapsed) % 8 + 8) % 8;
-	(void)status; // the canonical status stands
+	if (status)
+		*status = (int)STATUS_TURNING; // W2-P5 S-T.3 (E3 Q5 (a), E3.1 OR4 (a)): the turning pose
 }
 
 /// W2-P5 S-T.1 (amendment E3 section E3.6; E3.1 OR4/OR5; probe only): one turn-end record for a SPEC 7 `turn`
@@ -15248,12 +15258,17 @@ void combatPlay(const SavedBattleGame* save, int sound, int angle)
 
 /// Ends @a g (spec (b)3/(b)7/(b)9/(b)11): its display object leaves the Map and is deleted, a throw plays
 /// ITEM_DROP at its landing position (natural or cut), its record gets cut/steps/soundEnd, and
-/// completed or cut +1. @a cut: ended before its fixed duration elapsed.
+/// completed or cut +1. @a cut: ended before its fixed duration elapsed. W2-P5 S-T.3 (E3.1 section 4 H4,
+/// F1579): a HELD ghost (it never started) always counts cut, plays no ITEM_DROP and keeps its record's
+/// sound / soundEnd NO_SOUND and steps 0 - it never went on the Map, so combatDetach() only deletes it.
 void combatEnd(CombatGhost& g, bool cut)
 {
+	const bool neverStarted = g.held;
+	if (neverStarted)
+		cut = true;
 	Map* map = combatDetach(g);
 	Json::Value* r = combatRecord(g.ordinal);
-	if (g.dropSound && map)
+	if (g.dropSound && map && !neverStarted)
 	{
 		combatPlay(connectionTCP::getStaticBattle(), Mod::ITEM_DROP, map->getSoundAngle(g.landingPos));
 		if (r)
@@ -15309,8 +15324,12 @@ bool combatDeriveShotPath(SavedBattleGame* save, const Json::Value& p, BattleUni
 /// 0 ms shotgun shot) counts completed at enqueue (PR-E5). The ghost is a vanilla Projectile constructed
 /// with the shot's items (its constructor reads rules and the SPEC 17 seat table only, N24) and driven
 /// through the coop accessors - never calculateTrajectory/calculateThrow/move/skipTrajectory/
-/// addVaporCloud (N7, N8).
-void combatStartShot(SavedBattleGame* save, const Json::Value& ev)
+/// addVaporCloud (N7, N8). W2-P5 S-T.3 (amendment E3 Q1 (b), E3.1 section 4 H1): @a hold (the shooter's
+/// SPEC 7 `turn` ghost of this same action, seq @a turnSeq, still runs) builds the ghost HELD - resolution,
+/// path, Projectile, ticks, ms and record fields exactly as below, but no sound, not on the Map, no follow
+/// switch and no startedAtMs; it counts `live` and waits for advance()'s release (H2). A record with no
+/// display object (unresolved, noMap, 0 ms) is never held (PR-E5).
+void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, std::uint32_t turnSeq)
 {
 	const Json::Value& p = ev["payload"];
 	const std::string actionWire = p.get("action", "").asString();
@@ -15414,8 +15433,13 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev)
 		if (sound == Mod::NO_SOUND)
 			sound = combatPickSound(weapon->getRules()->getFireSoundRaw());
 	}
-	combatPlay(save, sound, map->getSoundAngle(soundAt));
-	r["sound"] = sound;
+	// W2-P5 S-T.3 (H1): a held ghost plays and records its sound at release, not here.
+	const bool held = hold && ms != 0;
+	if (!held)
+	{
+		combatPlay(save, sound, map->getSoundAngle(soundAt));
+		r["sound"] = sound;
+	}
 
 	if (ms == 0)
 	{
@@ -15447,6 +15471,24 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev)
 		g.thrownItemId = weapon->getId();
 		g.thrownItem = weapon;
 	}
+	g.unitId = shooter->getId();
+	g.actionId = ev.get("actionId", 0u).asUInt();
+	g.pendingSound = sound;
+	g.pendingSoundAt = soundAt;
+	if (held)
+	{
+		// W2-P5 S-T.3 (H1): wait for the shooter's turn ghost (seq turnSeq); advance() releases it (H2).
+		g.startedAtMs = 0;
+		g.held = true;
+		g.afterTurnSeq = turnSeq;
+		g.enqueuedAtMs = SDL_GetTicks();
+		g.lastAdvanceMs = g.enqueuedAtMs;
+		r["afterTurnSeq"] = turnSeq;
+		g.ordinal = combatPushRecord(r);
+		++g_combatProbe.live;
+		g_combatGhosts.push_back(g);
+		return;
+	}
 	// Spec (b)5/(b)6: vanilla draws it (FOV rules and hidden-movement reveal included); the camera does not
 	// follow a ghost (D131 is W2-P6's), restored when the ghost leaves the Map.
 	map->setProjectile(projectile);
@@ -15459,6 +15501,32 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev)
 	g_combatGhosts.push_back(g);
 }
 
+/// W2-P5 S-T.3 (amendment E3.1 section 4 H3, OR1 (a)): run for every non-reveal bt_ev and every
+/// bt_action_end BEFORE combatEndAll(). Each PENDING pair - a held shot ghost whose shooter's SPEC 7 turn
+/// ghost (seq afterTurnSeq) still runs - ends unless @a ev is a `shot` of that pair's own actionId (a
+/// launch's next leg or a burst's next shot, which H1 then tests against the same turn ghost): the turn
+/// ghost ends now (turn record `cut`, g_ghostCompleted +1, erased) and combatEndAll() then ends the held
+/// ghost by H4. The pairs are collected first (turnGhostEnded() syncs the combat storage).
+void combatEndPendingPairs(const Json::Value& ev, const std::string& kind, std::uint32_t nowMs)
+{
+	const std::uint32_t evActionId = ev.get("actionId", 0u).asUInt();
+	std::vector<std::pair<int, std::uint32_t> > pending; // (the shooter's unit id, its turn ghost's seq)
+	for (const CombatGhost& p : g_combatGhosts)
+	{
+		if (p.held && !(kind == "shot" && evActionId == p.actionId))
+			pending.push_back(std::make_pair(p.unitId, p.afterTurnSeq));
+	}
+	for (const std::pair<int, std::uint32_t>& k : pending)
+	{
+		auto t = g_coopGhosts.find(k.first);
+		if (t == g_coopGhosts.end() || t->second.seq != k.second)
+			continue;
+		turnGhostEnded(t->second, "cut", nowMs);
+		g_ghostCompleted.fetch_add(1);
+		g_coopGhosts.erase(t);
+	}
+}
+
 /// The combat half of onEvApplied() (a coop client): Q1 (b)'s completion rule, never gated by the option
 /// (OQ3), then a `shot`'s own ghost when the option is on.
 void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
@@ -15468,21 +15536,39 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	combatSync();
 	if (kind == "reveal")
 		return; // Q1 (b): a nested reveal carries no delta (N14) - it neither ends nor starts a ghost
-	combatEndAll(SDL_GetTicks());
+	const std::uint32_t nowMs = SDL_GetTicks();
+	combatEndPendingPairs(ev, kind, nowMs); // W2-P5 S-T.3 (H3, OR1 (a))
+	combatEndAll(nowMs);
 	if (kind != "shot")
 		return;
-	// Q1 (b) third clause (OQ7: accepted untested): a shot also completes the shooter's own running SPEC 7
-	// ghost - vanilla finishes the turn before it fires.
+	// Q1 (b) third clause (OQ7): a shot also completes the shooter's own running SPEC 7 ghost - vanilla
+	// finishes the turn before it fires. W2-P5 S-T.3 (amendment E3 Q1 (b), E3.1 section 4 H1): EXCEPT the
+	// shooter's still-running `turn` ghost of this same action - it keeps running and the shot's projectile
+	// ghost is built held until advance() sees that turn ghost gone (H2). The shot's state still applies
+	// now (H5, WV-D49); only when it is drawn and heard moves.
+	bool hold = false;
+	std::uint32_t turnSeq = 0;
+	const std::uint32_t evActionId = ev.get("actionId", 0u).asUInt();
 	auto own = g_coopGhosts.find(ev["payload"].get("actor", -1).asInt());
 	if (own != g_coopGhosts.end())
 	{
-		turnGhostEnded(own->second, "cut", SDL_GetTicks()); // W2-P5 S-T.1 (E3 section E3.6): probe only
-		g_ghostCompleted.fetch_add(1);
-		g_coopGhosts.erase(own);
+		const GhostReplay& t = own->second;
+		if (t.kind == "turn" && evActionId != 0 && t.actionId == evActionId
+			&& (std::uint32_t)(nowMs - t.startedAtMs) < t.durationMs)
+		{
+			hold = true;
+			turnSeq = t.seq;
+		}
+		else
+		{
+			turnGhostEnded(own->second, "cut", nowMs); // W2-P5 S-T.1 (E3 section E3.6): probe only
+			g_ghostCompleted.fetch_add(1);
+			g_coopGhosts.erase(own);
+		}
 	}
 	if (!Options::coopGhostStepper)
 		return; // OQ3: only STARTING a ghost is gated (Q4 = a)
-	combatStartShot(save, ev);
+	combatStartShot(save, ev, hold, turnSeq);
 }
 
 /// The combat half of advance() (spec (b)5/(b)9; OQ3: always runs): steps each ghost's projectile to
@@ -15506,6 +15592,20 @@ bool combatAdvance(std::uint32_t nowMs)
 		const bool early = elapsed < it->durationMs;
 		const bool gone = !live || live != it->drawnOn
 			|| (it->thrownItemId >= 0 && CoopIdMaps::item(it->thrownItemId) != it->thrownItem);
+		if (it->held)
+		{
+			// W2-P5 S-T.3 (E3.1 section 4 H2): a held ghost is not on the Map yet and does not step; only the
+			// Map and thrown-item check applies (it then ends by H4). combatReleaseHeld() starts it.
+			if (gone)
+			{
+				CombatGhost done = *it;
+				it = g_combatGhosts.erase(it);
+				combatEnd(done, true);
+				continue;
+			}
+			++it;
+			continue;
+		}
 		if (gone || !early)
 		{
 			CombatGhost done = *it;
@@ -15523,6 +15623,60 @@ bool combatAdvance(std::uint32_t nowMs)
 		++it;
 	}
 	return true;
+}
+
+/// W2-P5 S-T.3 (amendment E3 Q1 (b), E3.1 section 4 H2, F1580): advance() calls this AFTER the SPEC 7
+/// completion loop, so a turn ghost that ended naturally this frame releases its shot this same frame. A
+/// held ghost whose Map is no longer the live one, or whose thrown item no longer resolves to the pointer
+/// captured at enqueue, ends by H4. One whose shooter has no SPEC 7 ghost with seq == afterTurnSeq any more
+/// is released: startedAtMs = now, its record's waitMs and startStamp (OR5 (a)), its fire / throw sound
+/// (S-A's rule, picked at enqueue) played and recorded, then S-A's go-on-Map lines (the Map's follow flag
+/// read now and switched off, setProjectile, invalidate). Stepping starts at the next combatAdvance(). Not
+/// option-gated (OQ3); display only - no state waits for it (H5).
+void combatReleaseHeld(const SavedBattleGame* save, std::uint32_t nowMs)
+{
+	combatSync();
+	if (g_combatGhosts.empty())
+		return;
+	Map* live = combatLiveMap();
+	for (auto it = g_combatGhosts.begin(); it != g_combatGhosts.end(); )
+	{
+		if (!it->held)
+		{
+			++it;
+			continue;
+		}
+		const bool gone = !live || live != it->drawnOn
+			|| (it->thrownItemId >= 0 && CoopIdMaps::item(it->thrownItemId) != it->thrownItem);
+		if (gone)
+		{
+			CombatGhost done = *it;
+			it = g_combatGhosts.erase(it);
+			combatEnd(done, true);
+			continue;
+		}
+		auto t = g_coopGhosts.find(it->unitId);
+		if (t != g_coopGhosts.end() && t->second.seq == it->afterTurnSeq)
+		{
+			++it; // its turn ghost still runs
+			continue;
+		}
+		it->held = false;
+		it->startedAtMs = nowMs;
+		const std::uint32_t stamp = ++g_combatProbe.stamp;
+		combatPlay(save, it->pendingSound, live->getSoundAngle(it->pendingSoundAt));
+		if (Json::Value* r = combatRecord(it->ordinal))
+		{
+			(*r)["sound"] = it->pendingSound;
+			(*r)["waitMs"] = (Json::UInt)(nowMs - it->enqueuedAtMs);
+			(*r)["startStamp"] = stamp;
+		}
+		it->followBefore = live->getFollowProjectile();
+		live->setProjectile(it->projectile);
+		live->setFollowProjectile(false);
+		live->invalidate();
+		++it;
+	}
 }
 
 } // unnamed namespace
@@ -15669,6 +15823,10 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 		}
 	}
 
+	// W2-P5 S-T.3 (E3.1 section 4 H2, F1580): after the SPEC 7 loop - a shot held on its turn ghost goes on the
+	// Map in the frame that turn ghost ended.
+	combatReleaseHeld(save, nowMs);
+
 	// W2-P5 S-A.2 (Q5 = a): while ANY ghost is live (this frame included) the Map redraws every frame - a
 	// thin client's Map otherwise redraws only on its 100 ms animation timer or a camera move (N9).
 	if (stepperLive || combatLive)
@@ -15704,7 +15862,7 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io)
 	if (g.kind == "turn")
 	{
 		// W2-P5 S-T.1 (E3.1 OR4 (a)): the pose helper advance()'s dirsShown / poseShown probe shares (the
-		// same arithmetic this branch always ran; the status stays the canonical one).
+		// same arithmetic this branch always ran); S-T.3 (Q5 (a)): it draws the turning pose.
 		turnPoseAt(g, elapsed, &io->direction, &io->status);
 		return true;
 	}
@@ -15768,13 +15926,15 @@ GhostLastView lastGhost()
 
 void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev)
 {
-	(void)ev;
 	if (!save || !combatClient())
 		return;
 	// W2-P5 S-A.2 (spec (b)2, Q1 (b); OQ3: never gated by the option): a bt_action_end ends every running
-	// combat ghost before its delta applies.
+	// combat ghost before its delta applies. W2-P5 S-T.3 (E3.1 section 4 H3, OR1 (a)): a pending pair's turn
+	// ghost ends first.
 	combatSync();
-	combatEndAll(SDL_GetTicks());
+	const std::uint32_t nowMs = SDL_GetTicks();
+	combatEndPendingPairs(ev, "bt_action_end", nowMs);
+	combatEndAll(nowMs);
 }
 
 bool ownsProjectile(const Map* map)
