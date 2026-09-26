@@ -177,6 +177,24 @@ struct GhostLastView
 /// enqueuedCount()/completedCount()/queueDepth() above.
 GhostLastView lastGhost();
 
+/// W2-P5 S-A.1 (spec rewrite/prompts/w2p5_display_ghosts.md (b)11, amendment E1 PR-E5): the combat-ghost
+/// probe of THIS machine this battle - {enqueued:{shot,hit,explosion}, completed:{...}, cut:{...},
+/// joined, live, unresolved, noMap, ring:[the last 32 ghost records]}. Kept apart from the SPEC 7
+/// counters above. Main thread only (E1 OQ4 = (a)): reset() bumps a generation, this storage is
+/// cleared on its next main-thread use. Commit S-A.1 exposes it; nothing writes it until S-A.2.
+Json::Value combatProbe();
+
+/// W2-P5 S-A.1 (amendment E1 PR-E2): CLIENT, probe only, called from CoopApply::applyEvPayload()'s cue
+/// branch for an applied `shot` (before applyDelta): re-derive the shot's path from the payload's
+/// originVoxel/impactVoxel (straight: TileEngine::calculateLineVoxel) or its `arc` (calculateParabolaVoxel),
+/// the shooter excluded, into a local vector, and record {seq, arc, derivedLen, derivedEnd} (derivedLen
+/// -1 and derivedEnd null when the payload has no voxels). No display object, no battle-state write,
+/// no RNG.
+void probeDeriveShotPath(SavedBattleGame* save, const Json::Value& ev);
+
+/// The last 32 probeDeriveShotPath() records this battle, oldest first (an empty array on the host).
+Json::Value derivedPaths();
+
 } // namespace CoopGhost
 
 } // namespace OpenXcom

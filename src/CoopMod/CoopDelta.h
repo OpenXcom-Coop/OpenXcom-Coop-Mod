@@ -276,6 +276,14 @@ bool coopIsCueKind(const std::string& kind);
 /// or an arcing shot and comes from coopNoteThrowArc()'s note.
 void coopCueShot(const BattleAction& action, const BattleItem* ammo, const Projectile* projectile, int impact);
 
+/// [shotTrajectories] (W2-P5 S-A.1, spec rewrite/prompts/w2p5_display_ghosts.md (b)11) HOST: the last 16
+/// `shot` cues coopCueShot() emitted this battle, oldest first, as [{seq, trajLen, speed, impact}] - the
+/// trajectory length and speed vanilla's Projectile holds for the shot (Projectile::coopTrajectorySize /
+/// coopSpeed), the host-side twin of a combat ghost's trajLen/speed. An empty array on a client and
+/// before the first shot. Main thread only (E1 OQ4 = (a)): CoopGhost::reset() only bumps the combat
+/// probe generation and this storage is cleared on its next main-thread use. Probe only.
+Json::Value coopShotTrajectories();
+
 /// P2 (ProjectileFlyBState::think, after a shotgun pellet's TileEngine::hit):
 /// the pellet `hit` cue - {actor?, unit?, voxel, damageType, power, miss:false,
 /// pellet}.

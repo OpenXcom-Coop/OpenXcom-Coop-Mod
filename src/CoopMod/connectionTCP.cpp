@@ -3923,6 +3923,32 @@ void coopEmitCue(const char* kind, const Json::Value& payload)
 		<< Json::writeString(wb, payload);
 }
 
+// W2-P5 S-A.1 (spec rewrite/prompts/w2p5_display_ghosts.md (b)11, amendment E1 OQ4 = (a)): the combat
+// display probes are MAIN-THREAD ONLY. CoopGhost::reset() (CoopPump::reset(), which can run on the
+// UDP-monitor thread, N15) only bumps this generation; every main-thread entry that touches combat
+// probe storage (the host's shotTrajectories writer and reader below, CoopGhost's combat probe) clears
+// its own storage first when the generation has moved since its last use.
+std::atomic<unsigned int> g_coopCombatGen{0};
+
+/// HOST: the shotTrajectories ring (CoopDelta.h coopShotTrajectories()), the last 16 shots.
+struct CoopShotTrajRing
+{
+	unsigned int gen = 0;
+	std::deque<Json::Value> ring;
+};
+CoopShotTrajRing g_coopShotTraj;
+const std::size_t kCoopShotTrajCap = 16;
+
+void coopShotTrajSync()
+{
+	const unsigned int g = g_coopCombatGen.load();
+	if (g_coopShotTraj.gen != g)
+	{
+		g_coopShotTraj.ring.clear();
+		g_coopShotTraj.gen = g;
+	}
+}
+
 } // namespace
 
 bool coopIsCueKind(const std::string& kind)
@@ -3989,7 +4015,31 @@ void coopCueShot(const BattleAction& action, const BattleItem* ammo, const Proje
 		a["deltas"] = coopCueVoxel(arc.deltas);
 		p["arc"] = a;
 	}
+	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted(); // W2-P5 S-A.1: the shotTrajectories seq
 	coopEmitCue("shot", p);
+	// W2-P5 S-A.1 (spec (b)11): the HOST shotTrajectories probe - the trajectory length and speed the
+	// shot's own Projectile flies with (read-only accessors), the host-side twin of a ghost's trajLen/speed.
+	if (projectile)
+	{
+		coopShotTrajSync();
+		Json::Value r(Json::objectValue);
+		r["seq"] = CoopDelta::hostSeqOf("shot", seqBefore);
+		r["trajLen"] = (int)projectile->coopTrajectorySize();
+		r["speed"] = projectile->coopSpeed();
+		r["impact"] = impact;
+		g_coopShotTraj.ring.push_back(r);
+		while (g_coopShotTraj.ring.size() > kCoopShotTrajCap)
+			g_coopShotTraj.ring.pop_front();
+	}
+}
+
+Json::Value coopShotTrajectories()
+{
+	coopShotTrajSync();
+	Json::Value out(Json::arrayValue);
+	for (const Json::Value& r : g_coopShotTraj.ring)
+		out.append(r);
+	return out;
 }
 
 void coopCuePellet(const BattleActionAttack& attack, const Position& voxel, int power,
@@ -13168,6 +13218,10 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// the payload is display data for W2-P5/P6. Record the probe, nothing
 		// else - no RNG, no rules, no BState, no unit write.
 		CoopDelta::noteCue(kind, ev.get("seq", 0u).asUInt(), ev.get("actionId", 0u).asUInt(), ev["payload"]);
+		// W2-P5 S-A.1 (amendment E1 PR-E2): probe only - re-derive this shot's path with vanilla's own
+		// path function before applyDelta runs (CoopGhost region; writes no battle state, draws no RNG).
+		if (kind == "shot")
+			CoopGhost::probeDeriveShotPath(save, ev);
 		return;
 	}
 
@@ -14821,6 +14875,52 @@ struct GhostLast
 };
 GhostLast g_ghostLast;
 
+/// W2-P5 S-A.1 (spec rewrite/prompts/w2p5_display_ghosts.md (b)11, amendment E1 PR-E2/PR-E5/OQ4 = (a)):
+/// the combat-ghost probe storage (event_state `combatGhost` / `derivedPaths`), kept apart from the
+/// SPEC 7 queue and counters above. MAIN-THREAD ONLY: reset() only bumps g_coopCombatGen and
+/// combatSync() clears this storage on its next main-thread use. On commit S-A.1 nothing writes the
+/// counters or the ring (the S-A.2 combat ghosts are their writers); `derived` is PR-E2's probe ring.
+struct CombatKinds
+{
+	int shot = 0;
+	int hit = 0;
+	int explosion = 0;
+};
+struct CombatProbeStore
+{
+	unsigned int gen = 0;
+	CombatKinds enqueued;
+	CombatKinds completed;
+	CombatKinds cut;
+	int joined = 0;
+	int live = 0;
+	int unresolved = 0;
+	int noMap = 0;
+	std::deque<Json::Value> ring;    // the last kCombatRingCap combat ghost records
+	std::deque<Json::Value> derived; // PR-E2: the last kCombatRingCap client path re-derivations
+};
+CombatProbeStore g_combatProbe;
+const std::size_t kCombatRingCap = 32;
+
+void combatSync()
+{
+	const unsigned int g = g_coopCombatGen.load();
+	if (g_combatProbe.gen != g)
+	{
+		g_combatProbe = CombatProbeStore();
+		g_combatProbe.gen = g;
+	}
+}
+
+Json::Value combatKindsJson(const CombatKinds& k)
+{
+	Json::Value o(Json::objectValue);
+	o["shot"] = k.shot;
+	o["hit"] = k.hit;
+	o["explosion"] = k.explosion;
+	return o;
+}
+
 /// The number of 45-degree steps to turn from @a fromDir to @a toDir along
 /// the SHORTER modular arc (6e); ties (exactly 4 either way) resolve
 /// clockwise. Sets *@a clockwiseOut (when non-null) to which way that is.
@@ -15054,6 +15154,9 @@ void reset()
 	g_ghostEnqueued.store(0u);
 	g_ghostCompleted.store(0u);
 	g_ghostLast = GhostLast{};
+	// W2-P5 S-A.1 (E1 OQ4 = (a)): the combat probe storage is main-thread only - bump its generation,
+	// never touch it from here (this can run on the UDP-monitor thread, N15).
+	g_coopCombatGen.fetch_add(1u);
 }
 
 unsigned int enqueuedCount() { return g_ghostEnqueued.load(); }
@@ -15063,6 +15166,73 @@ unsigned int queueDepth() { return (unsigned int)g_coopGhosts.size(); }
 GhostLastView lastGhost()
 {
 	return GhostLastView{ g_ghostLast.kind, g_ghostLast.frames, g_ghostLast.ms, g_ghostLast.seat };
+}
+
+Json::Value combatProbe()
+{
+	combatSync();
+	Json::Value o(Json::objectValue);
+	o["enqueued"] = combatKindsJson(g_combatProbe.enqueued);
+	o["completed"] = combatKindsJson(g_combatProbe.completed);
+	o["cut"] = combatKindsJson(g_combatProbe.cut);
+	o["joined"] = g_combatProbe.joined;
+	o["live"] = g_combatProbe.live;
+	o["unresolved"] = g_combatProbe.unresolved;
+	o["noMap"] = g_combatProbe.noMap;
+	Json::Value ring(Json::arrayValue);
+	for (const Json::Value& r : g_combatProbe.ring)
+		ring.append(r);
+	o["ring"] = ring;
+	return o;
+}
+
+void probeDeriveShotPath(SavedBattleGame* save, const Json::Value& ev)
+{
+	combatSync();
+	if (!save)
+		return;
+	const Json::Value& p = ev["payload"];
+	const bool arc = p.isMember("arc") && p["arc"].isObject();
+	Json::Value r(Json::objectValue);
+	r["seq"] = ev.get("seq", 0u).asUInt();
+	r["arc"] = arc;
+	r["derivedLen"] = -1; // a cue without voxels (the host's empty-trajectory warning)
+	r["derivedEnd"] = Json::Value();
+	if (p.isMember("originVoxel") && p.isMember("impactVoxel"))
+	{
+		// The host's own final path call (Projectile.cpp calculateTrajectory / calculateThrow), from the
+		// shipped endpoints, the shooter excluded as the host excluded it. Both path functions write only
+		// the TileEngine voxel cache (N28) and draw no RNG.
+		BattleUnit* shooter = CoopIdMaps::unit(p.get("actor", -1).asInt());
+		const Position origin = CoopArbiter::coopJsonPos(p["originVoxel"]);
+		std::vector<Position> traj;
+		if (arc)
+		{
+			const Json::Value& a = p["arc"];
+			save->getTileEngine()->calculateParabolaVoxel(origin, CoopArbiter::coopJsonPos(a["targetVoxel"]), true,
+				&traj, shooter, a.get("curvature", 0.0).asDouble(), CoopArbiter::coopJsonPos(a["deltas"]));
+		}
+		else
+		{
+			save->getTileEngine()->calculateLineVoxel(origin, CoopArbiter::coopJsonPos(p["impactVoxel"]), true,
+				&traj, shooter);
+		}
+		r["derivedLen"] = (int)traj.size();
+		if (!traj.empty())
+			r["derivedEnd"] = coopCueVoxel(traj.back());
+	}
+	g_combatProbe.derived.push_back(r);
+	while (g_combatProbe.derived.size() > kCombatRingCap)
+		g_combatProbe.derived.pop_front();
+}
+
+Json::Value derivedPaths()
+{
+	combatSync();
+	Json::Value out(Json::arrayValue);
+	for (const Json::Value& r : g_combatProbe.derived)
+		out.append(r);
+	return out;
 }
 
 } // namespace CoopGhost

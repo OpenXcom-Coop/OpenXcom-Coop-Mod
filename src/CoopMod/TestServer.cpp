@@ -5024,7 +5024,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		else if (mode == "launch") bt = BA_LAUNCH;
 		else if (mode == "throw") bt = BA_THROW;
 
-		sbg->setSelectedUnit(unit);
+		// W2-P5 S-A.1 (amendment E1 PR-E1): <keepSelection> true leaves the host's selected unit as it
+		// is, so an alien stand-in's shot at that unit is vanilla's reaction branch with the selected unit
+		// as its trigger (ProjectileFlyBState::init) instead of being popped.
+		if (!req.get("keepSelection", false).asBool())
+			sbg->setSelectedUnit(unit);
 		BattleAction* a = bg->getCurrentAction();
 		a->actor = unit;
 		a->weapon = w;
@@ -6024,7 +6028,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "field_poke"
 		&& cmd != "set_touch_modifiers" && cmd != "forget_research"
 		&& cmd != "research_check" && cmd != "can_use_weapon" && cmd != "set_research_sync"
-		&& cmd != "clear_warning")
+		&& cmd != "clear_warning"
+		&& cmd != "display_rules")
 	{
 		return false;
 	}
@@ -6275,6 +6280,14 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			ghostLastJ["seat"] = gl.seat;
 			resp["ghostLast"] = ghostLastJ;
 		}
+		// W2-P5 S-A.1 (spec rewrite/prompts/w2p5_display_ghosts.md (b)11, amendment E1 PR-E2): the combat
+		// display probes. combatGhost (both machines; nothing writes it until S-A.2), derivedPaths (CLIENT:
+		// the probe-only path re-derivation of each applied `shot`), rngSeed (the sim RNG state, read only:
+		// the V4 bar), shotTrajectories (HOST: the last 16 shots' trajectory length and speed).
+		resp["combatGhost"] = CoopGhost::combatProbe();
+		resp["derivedPaths"] = CoopGhost::derivedPaths();
+		resp["rngSeed"] = Json::Value::Int64((int64_t)RNG::getSeed());
+		resp["shotTrajectories"] = coopShotTrajectories();
 		// SPEC 17 (W1-P18): per-seat animation-pacing introspection. `local`
 		// is this machine's own raw dials; `seats` is this machine's current
 		// view of the table (connected+valid seats only); `floor` is the
@@ -7875,6 +7888,69 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["warningText"] = bsCW->getWarningText();
 			resp["ok"] = true;
 		}
+	}
+	else if (cmd == "display_rules")
+	{
+		// W2-P5 S-A.1 (spec rewrite/prompts/w2p5_display_ghosts.md (b)11): READ-ONLY lever - the display
+		// rules of each item type in <types> from THIS machine's LOADED Mod, so a test computes a ghost's
+		// expected frames, timing and sound ids from loaded data (mod-correct), plus the Mod constants.
+		// Sound fields are read from the raw vectors (the first id, -1 = none; `soundLists` = every id):
+		// RuleItem::getFireSound() and its siblings pick with RNG::generate, the sim RNG this lever must
+		// never draw. Reply {ok, items: {type: {...} | null (unknown type)}, constants: {...}}.
+		const Json::Value& types = req["types"];
+		if (!types.isArray())
+		{
+			resp["error"] = "display_rules: <types> must be a list of item type names";
+			return true;
+		}
+		auto firstOf = [](const std::vector<int>& v) { return v.empty() ? (int)Mod::NO_SOUND : v.front(); };
+		auto listOf = [](const std::vector<int>& v)
+		{
+			Json::Value a(Json::arrayValue);
+			for (int x : v)
+				a.append(x);
+			return a;
+		};
+		Json::Value items(Json::objectValue);
+		for (Json::ArrayIndex i = 0; i < types.size(); ++i)
+		{
+			const std::string type = types[i].asString();
+			const RuleItem* r = _game->getMod()->getItem(type, false);
+			if (!r)
+			{
+				items[type] = Json::Value();
+				continue;
+			}
+			Json::Value o(Json::objectValue);
+			o["bulletSprite"] = r->getBulletSprite();
+			o["fireSound"] = firstOf(r->getFireSoundRaw());
+			o["hitSound"] = firstOf(r->getHitSoundRaw());
+			o["hitAnimation"] = r->getHitAnimation();
+			o["hitAnimationFrames"] = r->getHitAnimationFrames();
+			o["hitMissSound"] = firstOf(r->getHitMissSoundRaw());
+			o["hitMissAnimation"] = r->getHitMissAnimation();
+			o["explosionSpeed"] = r->getExplosionSpeed();
+			o["powerForAnimation"] = r->getPowerForAnimation();
+			o["explosionHitSound"] = firstOf(r->getExplosionHitSoundRaw());
+			o["bulletSpeed"] = r->getBulletSpeed();
+			o["shotgunPellets"] = r->getShotgunPellets();
+			Json::Value lists(Json::objectValue);
+			lists["fireSound"] = listOf(r->getFireSoundRaw());
+			lists["hitSound"] = listOf(r->getHitSoundRaw());
+			lists["hitMissSound"] = listOf(r->getHitMissSoundRaw());
+			lists["explosionHitSound"] = listOf(r->getExplosionHitSoundRaw());
+			o["soundLists"] = lists;
+			items[type] = o;
+		}
+		Json::Value k(Json::objectValue);
+		k["EXPLOSION_OFFSET"] = Mod::EXPLOSION_OFFSET;
+		k["SMALL_EXPLOSION"] = Mod::SMALL_EXPLOSION;
+		k["LARGE_EXPLOSION"] = Mod::LARGE_EXPLOSION;
+		k["ITEM_THROW"] = Mod::ITEM_THROW;
+		k["ITEM_DROP"] = Mod::ITEM_DROP;
+		resp["items"] = items;
+		resp["constants"] = k;
+		resp["ok"] = true;
 	}
 	else if (cmd == "defer_intents")
 	{

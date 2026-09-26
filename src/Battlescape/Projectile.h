@@ -90,6 +90,9 @@ public:
 	float getDistance() const;
 	/// Is this projectile being drawn back-to-front or front-to-back?
 	bool isReversed() const;
+	/// W2-P5 (coop display ghosts, read-only): the speed and trajectory length this projectile flies with.
+	int coopSpeed() const { return _speed; }
+	size_t coopTrajectorySize() const { return _trajectory.size(); }
 	/// adds a cloud of particles at the projectile's location
 	void addVaporCloud();
 };
