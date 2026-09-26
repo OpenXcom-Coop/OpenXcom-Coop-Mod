@@ -93,6 +93,11 @@ public:
 	/// W2-P5 (coop display ghosts, read-only): the speed and trajectory length this projectile flies with.
 	int coopSpeed() const { return _speed; }
 	size_t coopTrajectorySize() const { return _trajectory.size(); }
+	/// W2-P5 S-A.2 (the watching machine's projectile ghost): fly a trajectory it was given, step it to an index
+	/// (clamped to the last point) - never move(), never the RNG; and the host's final (accuracy-modified) target.
+	void coopGhostSetTrajectory(const std::vector<Position>& trajectory) { _trajectory = trajectory; _position = 0; }
+	void coopGhostStepTo(size_t index) { _position = index < _trajectory.size() ? index : (_trajectory.empty() ? 0 : _trajectory.size() - 1); }
+	Position coopFarVoxel() const { return _targetVoxel; }
 	/// adds a cloud of particles at the projectile's location
 	void addVaporCloud();
 };

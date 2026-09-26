@@ -4117,7 +4117,7 @@ bool BattlescapeState::allowButtons(bool allowSaving) const
 	return ((allowSaving || coopSideIsMine(_save) || _save->getDebugMode())
 		&& (_battleGame->getPanicHandled() || _firstInit )
 		&& (allowSaving || !_battleGame->isBusy() || _firstInit)
-		&& (_map->getProjectile() == 0));
+		&& (_map->getProjectile() == 0 || CoopGhost::ownsProjectile(_map))); // W2-P5 S-A.2 (Q3 = b): a ghost's projectile does not lock input
 }
 
 // W1-P5 RATIFICATION (WAVE1-RUNBOOK.md ruling D8 = WV-D14's "RATIFY per-machine

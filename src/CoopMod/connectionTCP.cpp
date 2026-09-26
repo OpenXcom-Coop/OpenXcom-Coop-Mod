@@ -4007,6 +4007,12 @@ void coopCueShot(const BattleAction& action, const BattleItem* ammo, const Proje
 	}
 	p["impact"] = impact;
 	const bool arcing = action.type == BA_THROW || (action.weapon && action.weapon->getArcingShot(action.type));
+	// W2-P5 S-A.2 (spec rewrite/prompts/w2p5_display_ghosts.md amendment E2): a STRAIGHT shot's far target -
+	// the host's final accuracy-modified target voxel (Projectile.cpp calculateTrajectory), signed and about
+	// 16000 voxels out (F1521). The watching machine's ghost re-derives the host's exact line toward it
+	// (F1517); an arc re-derives from `arc` instead (F1522). The one additive field E2 authorizes.
+	if (projectile && !arcing)
+		p["farVoxel"] = coopCueVoxel(projectile->coopFarVoxel());
 	if (arcing && arc.set)
 	{
 		Json::Value a(Json::objectValue);
@@ -14878,8 +14884,8 @@ GhostLast g_ghostLast;
 /// W2-P5 S-A.1 (spec rewrite/prompts/w2p5_display_ghosts.md (b)11, amendment E1 PR-E2/PR-E5/OQ4 = (a)):
 /// the combat-ghost probe storage (event_state `combatGhost` / `derivedPaths`), kept apart from the
 /// SPEC 7 queue and counters above. MAIN-THREAD ONLY: reset() only bumps g_coopCombatGen and
-/// combatSync() clears this storage on its next main-thread use. On commit S-A.1 nothing writes the
-/// counters or the ring (the S-A.2 combat ghosts are their writers); `derived` is PR-E2's probe ring.
+/// combatSync() clears this storage on its next main-thread use. The S-A.2 combat ghosts below write
+/// the counters and the ring; `derived` is PR-E2's probe ring.
 struct CombatKinds
 {
 	int shot = 0;
@@ -14898,15 +14904,83 @@ struct CombatProbeStore
 	int noMap = 0;
 	std::deque<Json::Value> ring;    // the last kCombatRingCap combat ghost records
 	std::deque<Json::Value> derived; // PR-E2: the last kCombatRingCap client path re-derivations
+	std::uint64_t pushed = 0;        // S-A.2: ring records pushed this battle (a ghost finds its own by ordinal)
 };
 CombatProbeStore g_combatProbe;
 const std::size_t kCombatRingCap = 32;
+
+/// W2-P5 S-A.2 (spec (b)1-6, (b)8-11 for `shot`; amendments E1 OQ3/OQ4/OQ5/PR-E5 and E2): one running
+/// combat ghost on the watching machine. MAIN-THREAD ONLY (OQ4). It owns its display object (the Map owns
+/// none, N32) and keeps ids, its ring record's ordinal and two pointers it only COMPARES: the Map it was
+/// drawn on and a thrown item as resolved at enqueue - never dereferenced once what they name may be gone.
+struct CombatGhost
+{
+	std::string kind;                 // "shot" (S-A)
+	std::uint64_t ordinal = 0;        // its ring record (CombatProbeStore::pushed at enqueue)
+	std::uint32_t startedAtMs = 0;
+	std::uint32_t durationMs = 0;     // FIXED AT ENQUEUE (D111), never recomputed
+	std::size_t speed = 1;            // trajectory points per 16 ms tick (vanilla's Projectile speed, min 1)
+	std::size_t trajLen = 0;
+	std::size_t index = 0;            // the projectile index advance() set last
+	int steps = 0;                    // how many distinct projectile indices advance() set
+	Projectile* projectile = nullptr; // owned; on `drawnOn` while the ghost runs
+	const Map* drawnOn = nullptr;     // the live Map at enqueue - compared only
+	bool followBefore = true;         // the Map's follow-projectile flag the ghost switched off (spec (b)6)
+	int thrownItemId = -1;            // a throw: the item the Map draws through Projectile::getItem() (N8)
+	const BattleItem* thrownItem = nullptr; // resolved at enqueue - compared only (spec (b)9)
+	Position landingPos;              // a throw: vanilla's ITEM_DROP position (ProjectileFlyBState::think)
+	bool dropSound = false;           // a throw: ITEM_DROP when the ghost ends, natural or cut (spec (b)7)
+};
+std::vector<CombatGhost> g_combatGhosts;
+
+/// The LIVE battle's BattlescapeState, fresh on every call (OQ4: never a stored Map pointer
+/// dereferenced): null with none on the state stack (the client parked in BriefingState, a teardown).
+/// isBattlescapeStateLive() guards the cached state pointer (F391).
+BattlescapeState* combatLiveState()
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	return connectionTCP::isBattlescapeStateLive(bs) ? bs : nullptr;
+}
+
+Map* combatLiveMap()
+{
+	BattlescapeState* bs = combatLiveState();
+	return bs ? bs->getMap() : nullptr;
+}
+
+/// Spec (b)9 / OQ4: takes @a g's projectile off the LIVE Map when that Map is the one it was drawn on and
+/// still shows it (the Map's follow flag restored, the Map redrawn), then deletes it; with no live Map or
+/// another one it only deletes (a ghost whose BattlescapeState died is freed without touching any Map).
+/// Returns the live Map when it is the ghost's own, else null.
+Map* combatDetach(CombatGhost& g)
+{
+	Map* live = combatLiveMap();
+	const bool own = live && live == g.drawnOn;
+	if (g.projectile)
+	{
+		if (own && live->getProjectile() == g.projectile)
+		{
+			live->setProjectile(nullptr);
+			live->setFollowProjectile(g.followBefore);
+			live->invalidate();
+		}
+		delete g.projectile;
+		g.projectile = nullptr;
+	}
+	return own ? live : nullptr;
+}
 
 void combatSync()
 {
 	const unsigned int g = g_coopCombatGen.load();
 	if (g_combatProbe.gen != g)
 	{
+		// S-A.2 (OQ4): a reset() since the last main-thread use - every stale ghost leaves the live Map
+		// first and is deleted, then the probe storage starts over.
+		for (CombatGhost& ghost : g_combatGhosts)
+			combatDetach(ghost);
+		g_combatGhosts.clear();
 		g_combatProbe = CombatProbeStore();
 		g_combatProbe.gen = g;
 	}
@@ -14968,14 +15042,342 @@ std::uint32_t ghostDurationMs(const GhostReplay& g)
 	return (std::uint32_t)framesForStep(g) * paceMsFor(g.unitId); // walk_step
 }
 
+// ----- W2-P5 S-A.2: the combat ghosts (spec rewrite/prompts/w2p5_display_ghosts.md (b)1-11 for `shot`) -----
+
+/// Vanilla's projectile state tick (ProjectileFlyBState setStateInterval(1000/60)).
+const std::uint32_t kCombatTickMs = 16;
+
+/// Coop CLIENT only (spec (b)1): the host simulates and draws with vanilla's own states.
+bool combatClient()
+{
+	return isCoopBattle() && !coopBattleAuthority().hostSim;
+}
+
+int& combatKindSlot(CombatKinds& k, const std::string& kind)
+{
+	if (kind == "hit")
+		return k.hit;
+	if (kind == "explosion")
+		return k.explosion;
+	return k.shot;
+}
+
+/// Pushes one ring record (spec (b)11) and returns its ordinal.
+std::uint64_t combatPushRecord(const Json::Value& r)
+{
+	const std::uint64_t ordinal = g_combatProbe.pushed++;
+	g_combatProbe.ring.push_back(r);
+	while (g_combatProbe.ring.size() > kCombatRingCap)
+		g_combatProbe.ring.pop_front();
+	return ordinal;
+}
+
+/// The ring record with @a ordinal, or null once it has left the ring.
+Json::Value* combatRecord(std::uint64_t ordinal)
+{
+	const std::uint64_t first = g_combatProbe.pushed - (std::uint64_t)g_combatProbe.ring.size();
+	if (ordinal < first || ordinal >= g_combatProbe.pushed)
+		return nullptr;
+	return &g_combatProbe.ring[(std::size_t)(ordinal - first)];
+}
+
+/// One id from a rule's raw sound list, WITHOUT the sim RNG (F1512: RuleItem's own sound getters pick with
+/// the game's generator): none -> Mod::NO_SOUND, one -> that id, several -> RNG::seedless (V4), as vanilla
+/// picks one of them at random.
+int combatPickSound(const std::vector<int>& v)
+{
+	if (v.empty())
+		return Mod::NO_SOUND;
+	if (v.size() == 1)
+		return v.front();
+	return v[(std::size_t)RNG::seedless(0, (int)v.size() - 1)];
+}
+
+/// Spec (b)7 (vanilla's own NO_SOUND guard, F1476): plays @a sound on this machine at @a angle, through
+/// the depth-aware sound set; a no-op for Mod::NO_SOUND.
+void combatPlay(const SavedBattleGame* save, int sound, int angle)
+{
+	if (save && sound != Mod::NO_SOUND)
+		save->getMod()->getSoundByDepth(save->getDepth(), sound)->play(-1, angle);
+}
+
+/// Ends @a g (spec (b)3/(b)7/(b)9/(b)11): its display object leaves the Map and is deleted, a throw plays
+/// ITEM_DROP at its landing position (natural or cut), its record gets cut/steps/soundEnd, and
+/// completed or cut +1. @a cut: ended before its fixed duration elapsed.
+void combatEnd(CombatGhost& g, bool cut)
+{
+	Map* map = combatDetach(g);
+	Json::Value* r = combatRecord(g.ordinal);
+	if (g.dropSound && map)
+	{
+		combatPlay(connectionTCP::getStaticBattle(), Mod::ITEM_DROP, map->getSoundAngle(g.landingPos));
+		if (r)
+			(*r)["soundEnd"] = Mod::ITEM_DROP;
+	}
+	if (r)
+	{
+		(*r)["cut"] = cut;
+		(*r)["steps"] = g.steps;
+	}
+	++combatKindSlot(cut ? g_combatProbe.cut : g_combatProbe.completed, g.kind);
+	if (g_combatProbe.live > 0)
+		--g_combatProbe.live;
+}
+
+/// Q1 (b): every running combat ghost ends before the next ev's state applies (cut when early).
+void combatEndAll(std::uint32_t nowMs)
+{
+	std::vector<CombatGhost> ending;
+	ending.swap(g_combatGhosts);
+	for (CombatGhost& g : ending)
+		combatEnd(g, (std::uint32_t)(nowMs - g.startedAtMs) < g.durationMs);
+}
+
+/// Spec (b)4 + amendment E2: a shot's path re-derived with vanilla's own path function from the cue's
+/// shipped inputs - straight: TileEngine::calculateLineVoxel(originVoxel, farVoxel, true, path, shooter),
+/// the host's own final call (F1517, F1518); arc: calculateParabolaVoxel from the payload's `arc`, the
+/// host's exact inputs (N27). Both write only the TileEngine voxel cache (N28) and draw no RNG (F1523).
+/// FALSE (nothing derived) when the payload lacks those inputs.
+bool combatDeriveShotPath(SavedBattleGame* save, const Json::Value& p, BattleUnit* shooter,
+	std::vector<Position>* path)
+{
+	if (!save || !p.isMember("originVoxel"))
+		return false;
+	const Position origin = CoopArbiter::coopJsonPos(p["originVoxel"]);
+	if (p.isMember("arc") && p["arc"].isObject())
+	{
+		const Json::Value& a = p["arc"];
+		save->getTileEngine()->calculateParabolaVoxel(origin, CoopArbiter::coopJsonPos(a["targetVoxel"]), true,
+			path, shooter, a.get("curvature", 0.0).asDouble(), CoopArbiter::coopJsonPos(a["deltas"]));
+		return true;
+	}
+	if (!p.isMember("farVoxel"))
+		return false;
+	save->getTileEngine()->calculateLineVoxel(origin, CoopArbiter::coopJsonPos(p["farVoxel"]), true, path, shooter);
+	return true;
+}
+
+/// Spec (b)1-7, (b)9-11: starts the projectile ghost of one applied `shot` (a coop client, the option on),
+/// BEFORE the cue's own delta, so the shooter, the weapon, the ammo and a thrown item still resolve (N23).
+/// Exactly one ring record and one enqueued.shot; a record with no display object (unresolved, noMap or a
+/// 0 ms shotgun shot) counts completed at enqueue (PR-E5). The ghost is a vanilla Projectile constructed
+/// with the shot's items (its constructor reads rules and the SPEC 17 seat table only, N24) and driven
+/// through the coop accessors - never calculateTrajectory/calculateThrow/move/skipTrajectory/
+/// addVaporCloud (N7, N8).
+void combatStartShot(SavedBattleGame* save, const Json::Value& ev)
+{
+	const Json::Value& p = ev["payload"];
+	const std::string actionWire = p.get("action", "").asString();
+	const BattleActionType type = actionWire == "throw" ? BA_THROW : CoopArbiter::coopShootActionType(actionWire);
+	const bool isThrow = type == BA_THROW;
+	BattleUnit* shooter = CoopIdMaps::unit(p.get("actor", -1).asInt());
+	BattleItem* weapon = CoopIdMaps::item(p.get("weapon", -1).asInt());
+	const int ammoId = p.get("ammo", -1).asInt();
+	BattleItem* ammo = ammoId >= 0 ? CoopIdMaps::item(ammoId) : nullptr;
+	const bool arc = p.isMember("arc") && p["arc"].isObject();
+	const bool pellets = !isThrow && ammo && ammo->getRules()->getShotgunPellets() != 0;
+
+	Json::Value r(Json::objectValue);
+	r["seq"] = ev.get("seq", 0u).asUInt();
+	r["actionId"] = ev.get("actionId", 0u).asUInt();
+	r["kind"] = "shot";
+	r["unit"] = p.get("actor", -1).asInt();
+	r["seat"] = shooter ? (int)shooter->getCoopSeat() : -1;
+	r["speed"] = 0;
+	r["trajLen"] = 0;
+	r["ticks"] = 0;
+	r["ms"] = 0;
+	r["endVoxel"] = Json::Value();
+	r["pathMatches"] = false;
+	r["arc"] = arc;
+	r["pellets"] = pellets;
+	r["sprites"] = 0;
+	r["spread"] = 0;
+	r["frame"] = -1;
+	r["frames"] = 0;
+	r["maxDelay"] = 0;
+	r["intervalMs"] = 0;
+	r["sound"] = Mod::NO_SOUND;
+	r["soundEnd"] = Mod::NO_SOUND;
+	r["steps"] = 0;
+	r["cut"] = false;
+	++g_combatProbe.enqueued.shot;
+
+	std::vector<Position> path;
+	const bool resolved = shooter && weapon && type != BA_NONE && (isThrow || ammo) && p.isMember("impactVoxel")
+		&& combatDeriveShotPath(save, p, shooter, &path) && !path.empty();
+	BattlescapeState* bs = combatLiveState();
+	Map* map = bs ? bs->getMap() : nullptr;
+	r["unresolved"] = !resolved;
+	r["noMap"] = !map;
+	if (resolved)
+	{
+		// OQ5: a derived path that does not end on the host's impact still flies as derived; the record says so.
+		r["trajLen"] = (int)path.size();
+		r["endVoxel"] = coopCueVoxel(path.back());
+		r["pathMatches"] = path.back() == CoopArbiter::coopJsonPos(p["impactVoxel"]);
+	}
+	if (!resolved)
+		++g_combatProbe.unresolved;
+	if (!map)
+		++g_combatProbe.noMap;
+	if (!resolved || !map)
+	{
+		++g_combatProbe.completed.shot;
+		combatPushRecord(r);
+		return;
+	}
+
+	const Position origin = CoopArbiter::coopJsonPos(p["originVoxel"]);
+	const Position impact = CoopArbiter::coopJsonPos(p["impactVoxel"]);
+	BattleAction action;
+	action.type = type;
+	action.actor = shooter;
+	action.weapon = weapon;
+	action.target = impact.toTile();
+	Projectile* projectile = new Projectile(bs->getGame()->getMod(), save, action, origin.toTile(), impact, ammo);
+	projectile->coopGhostSetTrajectory(path);
+	const int speed = projectile->coopSpeed();
+	const std::size_t step = (std::size_t)std::max(1, speed);
+	// Spec (b)3: ceil(N / speed) ticks of 16 ms, fixed here; shotgun ammo has no flight (vanilla skips it, N6).
+	const std::size_t ticks = pellets ? 0 : (path.size() + step - 1) / step;
+	const std::uint32_t ms = (std::uint32_t)ticks * kCombatTickMs;
+	r["speed"] = speed;
+	r["ticks"] = (int)ticks;
+	r["ms"] = ms;
+
+	// Spec (b)7 (vanilla's createNewProjectile): a throw plays ITEM_THROW at the thrower's position; a shot
+	// plays the ammo's fire sound, else the weapon's, at the trajectory's origin.
+	int sound = Mod::NO_SOUND;
+	Position soundAt = origin.toTile();
+	if (isThrow)
+	{
+		sound = Mod::ITEM_THROW;
+		soundAt = shooter->getPosition();
+	}
+	else
+	{
+		sound = combatPickSound(ammo->getRules()->getFireSoundRaw());
+		if (sound == Mod::NO_SOUND)
+			sound = combatPickSound(weapon->getRules()->getFireSoundRaw());
+	}
+	combatPlay(save, sound, map->getSoundAngle(soundAt));
+	r["sound"] = sound;
+
+	if (ms == 0)
+	{
+		delete projectile;
+		++g_combatProbe.completed.shot;
+		combatPushRecord(r);
+		return;
+	}
+
+	CombatGhost g;
+	g.kind = "shot";
+	g.startedAtMs = SDL_GetTicks();
+	g.durationMs = ms;
+	g.speed = step;
+	g.trajLen = path.size();
+	g.projectile = projectile;
+	g.drawnOn = map;
+	g.followBefore = map->getFollowProjectile();
+	if (isThrow)
+	{
+		// Vanilla's landing position for ITEM_DROP (ProjectileFlyBState::think at the impact).
+		Position landing = Projectile::getPositionFromEnd(path, Projectile::ItemDropVoxelOffset).toTile();
+		if (landing.y > save->getMapSizeY())
+			landing.y--;
+		if (landing.x > save->getMapSizeX())
+			landing.x--;
+		g.landingPos = landing;
+		g.dropSound = true;
+		g.thrownItemId = weapon->getId();
+		g.thrownItem = weapon;
+	}
+	// Spec (b)5/(b)6: vanilla draws it (FOV rules and hidden-movement reveal included); the camera does not
+	// follow a ghost (D131 is W2-P6's), restored when the ghost leaves the Map.
+	map->setProjectile(projectile);
+	map->setFollowProjectile(false);
+	map->invalidate();
+	g.ordinal = combatPushRecord(r);
+	++g_combatProbe.live;
+	g_combatGhosts.push_back(g);
+}
+
+/// The combat half of onEvApplied() (a coop client): Q1 (b)'s completion rule, never gated by the option
+/// (OQ3), then a `shot`'s own ghost when the option is on.
+void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
+{
+	if (!combatClient())
+		return;
+	combatSync();
+	if (kind == "reveal")
+		return; // Q1 (b): a nested reveal carries no delta (N14) - it neither ends nor starts a ghost
+	combatEndAll(SDL_GetTicks());
+	if (kind != "shot")
+		return;
+	// Q1 (b) third clause (OQ7: accepted untested): a shot also completes the shooter's own running SPEC 7
+	// ghost - vanilla finishes the turn before it fires.
+	auto own = g_coopGhosts.find(ev["payload"].get("actor", -1).asInt());
+	if (own != g_coopGhosts.end())
+	{
+		g_ghostCompleted.fetch_add(1);
+		g_coopGhosts.erase(own);
+	}
+	if (!Options::coopGhostStepper)
+		return; // OQ3: only STARTING a ghost is gated (Q4 = a)
+	combatStartShot(save, ev);
+}
+
+/// The combat half of advance() (spec (b)5/(b)9; OQ3: always runs): steps each ghost's projectile to
+/// min(N - 1, floor(elapsed / 16) x speed) and ends a ghost whose fixed duration elapsed (completed), whose
+/// Map is no longer the live one or whose thrown item no longer resolves to the pointer captured at
+/// enqueue (cut when early). TRUE when a combat ghost was live at entry.
+bool combatAdvance(std::uint32_t nowMs)
+{
+	combatSync();
+	if (g_combatGhosts.empty())
+		return false;
+	const Map* live = combatLiveMap();
+	for (auto it = g_combatGhosts.begin(); it != g_combatGhosts.end(); )
+	{
+		const std::uint32_t elapsed = nowMs - it->startedAtMs; // unsigned - wrap-safe
+		const bool early = elapsed < it->durationMs;
+		const bool gone = !live || live != it->drawnOn
+			|| (it->thrownItemId >= 0 && CoopIdMaps::item(it->thrownItemId) != it->thrownItem);
+		if (gone || !early)
+		{
+			CombatGhost done = *it;
+			it = g_combatGhosts.erase(it);
+			combatEnd(done, early);
+			continue;
+		}
+		const std::size_t index = std::min(it->trajLen - 1, (std::size_t)(elapsed / kCombatTickMs) * it->speed);
+		if (index != it->index)
+		{
+			it->projectile->coopGhostStepTo(index);
+			it->index = index;
+			++it->steps;
+		}
+		++it;
+	}
+	return true;
+}
+
 } // unnamed namespace
 
 void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 {
-	if (!save || !Options::coopGhostStepper)
+	if (!save)
 		return;
 
 	const std::string kind = ev.get("kind", "").asString();
+	// W2-P5 S-A.2 (Q1 (b), OQ3): the combat ghosts' completion rule runs for every applied ev whatever the
+	// option; a `shot` then starts its projectile ghost when the option is on (combatOnEv above).
+	combatOnEv(save, ev, kind);
+	if (!Options::coopGhostStepper)
+		return;
+
 	if (kind != "turn" && kind != "kneel" && kind != "walk_step")
 		return;
 
@@ -15054,8 +15456,11 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 
 void advance(SavedBattleGame* save, std::uint32_t nowMs)
 {
-	if (!save || g_coopGhosts.empty())
+	// W2-P5 S-A.2 (OQ3): the combat half always runs, whatever the option.
+	const bool combatLive = combatAdvance(nowMs);
+	if (!save || (g_coopGhosts.empty() && !combatLive))
 		return;
+	const bool stepperLive = !g_coopGhosts.empty();
 
 	for (auto it = g_coopGhosts.begin(); it != g_coopGhosts.end(); )
 	{
@@ -15069,6 +15474,15 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 		{
 			++it;
 		}
+	}
+
+	// W2-P5 S-A.2 (Q5 = a): while ANY ghost is live (this frame included) the Map redraws every frame - a
+	// thin client's Map otherwise redraws only on its 100 ms animation timer or a camera move (N9).
+	if (stepperLive || combatLive)
+	{
+		Map* map = combatLiveMap();
+		if (map)
+			map->invalidate();
 	}
 }
 
@@ -15168,6 +15582,29 @@ GhostLastView lastGhost()
 	return GhostLastView{ g_ghostLast.kind, g_ghostLast.frames, g_ghostLast.ms, g_ghostLast.seat };
 }
 
+void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev)
+{
+	(void)ev;
+	if (!save || !combatClient())
+		return;
+	// W2-P5 S-A.2 (spec (b)2, Q1 (b); OQ3: never gated by the option): a bt_action_end ends every running
+	// combat ghost before its delta applies.
+	combatSync();
+	combatEndAll(SDL_GetTicks());
+}
+
+bool ownsProjectile(const Map* map)
+{
+	if (!map || !map->getProjectile())
+		return false;
+	for (const CombatGhost& g : g_combatGhosts)
+	{
+		if (g.projectile == map->getProjectile())
+			return true;
+	}
+	return false;
+}
+
 Json::Value combatProbe()
 {
 	combatSync();
@@ -15200,26 +15637,18 @@ void probeDeriveShotPath(SavedBattleGame* save, const Json::Value& ev)
 	r["derivedEnd"] = Json::Value();
 	if (p.isMember("originVoxel") && p.isMember("impactVoxel"))
 	{
-		// The host's own final path call (Projectile.cpp calculateTrajectory / calculateThrow), from the
-		// shipped endpoints, the shooter excluded as the host excluded it. Both path functions write only
-		// the TileEngine voxel cache (N28) and draw no RNG.
+		// The host's own final path call (Projectile.cpp calculateTrajectory / calculateThrow), the shooter
+		// excluded as the host excluded it - S-A.2 (amendment E2): the ghost's own derivation, a straight
+		// shot toward the payload's farVoxel. Both path functions write only the TileEngine voxel cache
+		// (N28) and draw no RNG.
 		BattleUnit* shooter = CoopIdMaps::unit(p.get("actor", -1).asInt());
-		const Position origin = CoopArbiter::coopJsonPos(p["originVoxel"]);
 		std::vector<Position> traj;
-		if (arc)
+		if (combatDeriveShotPath(save, p, shooter, &traj))
 		{
-			const Json::Value& a = p["arc"];
-			save->getTileEngine()->calculateParabolaVoxel(origin, CoopArbiter::coopJsonPos(a["targetVoxel"]), true,
-				&traj, shooter, a.get("curvature", 0.0).asDouble(), CoopArbiter::coopJsonPos(a["deltas"]));
+			r["derivedLen"] = (int)traj.size();
+			if (!traj.empty())
+				r["derivedEnd"] = coopCueVoxel(traj.back());
 		}
-		else
-		{
-			save->getTileEngine()->calculateLineVoxel(origin, CoopArbiter::coopJsonPos(p["impactVoxel"]), true,
-				&traj, shooter);
-		}
-		r["derivedLen"] = (int)traj.size();
-		if (!traj.empty())
-			r["derivedEnd"] = coopCueVoxel(traj.back());
 	}
 	g_combatProbe.derived.push_back(r);
 	while (g_combatProbe.derived.size() > kCombatRingCap)
@@ -15451,6 +15880,10 @@ void onApplied(const Json::Value& ev)
 				<< " has no known actor on this machine (no preceding bt_ev carried "
 				"its 'unit' field) - final not applied";
 		}
+		// RW-REPLAY-REGION-BEGIN
+		// W2-P5 S-A.2 (spec (b)2, Q1 (b)): every running combat ghost ends before this end's delta applies.
+		CoopGhost::onActionEndApplied(save, ev);
+		// RW-REPLAY-REGION-END
 		CoopApply::applyDelta(save, ev); // W2-P2 S-A (spec (b)6): before the auto-retry reads local TU
 		CoopArbiter::onActionEndApplied(actionId); // IR-2: clears this client's own lock
 		// R2-P7: THE auto-retry trigger. bt_action_end is emitted ONLY from

@@ -30,6 +30,7 @@ namespace OpenXcom
 {
 
 class BattleUnit;
+class Map;
 class SavedBattleGame;
 class Tile;
 
@@ -125,7 +126,30 @@ BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile);
 /// the display clock never gates apply (WV-D49). No-op when
 /// Options::coopGhostStepper is false, outside a coop battle, for any other
 /// `kind`, or when @a save/the payload's unit does not resolve.
+///
+/// W2-P5 S-A.2 (spec rewrite/prompts/w2p5_display_ghosts.md (b)1-6, (b)8-11 for `shot`; amendments E1, E2):
+/// on a coop CLIENT this is also the COMBAT ghost's single bt_ev entry. Q1 (b): every applied ev except a
+/// `reveal` first ends every running combat ghost (cut when its fixed duration has not elapsed), and a `shot`
+/// also completes the shooter's own running SPEC 7 ghost; OQ3: that completion rule is never gated by
+/// Options::coopGhostStepper, only STARTING a ghost is. An applied `shot` then starts one display-only
+/// projectile ghost: a vanilla Projectile on the live Map flying the path re-derived with vanilla's own path
+/// function (straight: TileEngine::calculateLineVoxel toward the payload's farVoxel, E2; arc:
+/// calculateParabolaVoxel from the payload's `arc`), paced by the shooter's seat fire dial (SPEC 17) and
+/// fixed at enqueue, with the fire / throw sound. No battle-state write, no sim RNG, no BState, no camera
+/// move (follow is switched off while the ghost's projectile is on the Map and restored after).
 void onEvApplied(SavedBattleGame* save, const Json::Value& ev);
+
+/// W2-P5 S-A.2 (spec (b)2, Q1 (b)): the combat completion rule for an applied `bt_action_end` - every running
+/// combat ghost ends (cut when early) before the end's delta applies. Called from
+/// CoopDisplayQueue::onApplied()'s bt_action_end branch on the line before its CoopApply::applyDelta(). Never
+/// gated by the option (OQ3); a no-op on the host and outside a coop battle.
+void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev);
+
+/// W2-P5 S-A.2 (Q3 = b): TRUE when @a map's projectile is a combat ghost's own display object on this
+/// machine, so BattlescapeState::allowButtons() does not lock the watching player's input during a
+/// partner's or an alien's shot. FALSE in single player, on the host and whenever the Map shows no ghost
+/// projectile. Reads only (a pointer compare).
+bool ownsProjectile(const Map* map);
 
 /// Advances every running ghost by one frame of wall-clock time - called
 /// once per frame from BattlescapeState::think()'s existing per-frame path
@@ -135,6 +159,13 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev);
 /// state on the very next draw. No-op outside a coop battle; still drains
 /// (never strands) whatever is already queued even with the option off, so a
 /// mid-flight toggle cannot leave a ghost stuck forever.
+///
+/// W2-P5 S-A.2: also steps every combat ghost's projectile to its index at
+/// @a nowMs (vanilla's 16 ms tick, `speed` points a tick) and ends it when its
+/// fixed duration elapsed, the Map it was drawn on is no longer the live one,
+/// or a thrown item no longer resolves to the pointer captured at enqueue
+/// (spec (b)9). Q5 (a): invalidates the live Map every frame while ANY ghost
+/// (SPEC 7 or combat) is live, so ghosts draw at the frame rate.
 void advance(SavedBattleGame* save, std::uint32_t nowMs);
 
 /// Drops every ghost record and resets the enqueued/completed counters.
@@ -181,15 +212,17 @@ GhostLastView lastGhost();
 /// probe of THIS machine this battle - {enqueued:{shot,hit,explosion}, completed:{...}, cut:{...},
 /// joined, live, unresolved, noMap, ring:[the last 32 ghost records]}. Kept apart from the SPEC 7
 /// counters above. Main thread only (E1 OQ4 = (a)): reset() bumps a generation, this storage is
-/// cleared on its next main-thread use. Commit S-A.1 exposes it; nothing writes it until S-A.2.
+/// cleared on its next main-thread use (after every stale ghost has left the live Map and been
+/// deleted). Written by the S-A.2 combat ghosts: one ring record and one `enqueued` count per started
+/// ghost; a record with no display object (unresolved / noMap / 0 ms) counts `completed` at enqueue.
 Json::Value combatProbe();
 
-/// W2-P5 S-A.1 (amendment E1 PR-E2): CLIENT, probe only, called from CoopApply::applyEvPayload()'s cue
-/// branch for an applied `shot` (before applyDelta): re-derive the shot's path from the payload's
-/// originVoxel/impactVoxel (straight: TileEngine::calculateLineVoxel) or its `arc` (calculateParabolaVoxel),
-/// the shooter excluded, into a local vector, and record {seq, arc, derivedLen, derivedEnd} (derivedLen
-/// -1 and derivedEnd null when the payload has no voxels). No display object, no battle-state write,
-/// no RNG.
+/// W2-P5 S-A.1 (amendment E1 PR-E2; S-A.2 amendment E2): CLIENT, probe only, called from
+/// CoopApply::applyEvPayload()'s cue branch for an applied `shot` (before applyDelta): re-derive the
+/// shot's path the way the ghost does - straight: TileEngine::calculateLineVoxel from originVoxel toward
+/// the payload's farVoxel (E2); arc: calculateParabolaVoxel from its `arc` - the shooter excluded, into a
+/// local vector, and record {seq, arc, derivedLen, derivedEnd} (derivedLen -1 and derivedEnd null when the
+/// payload lacks the voxels). No display object, no battle-state write, no RNG.
 void probeDeriveShotPath(SavedBattleGame* save, const Json::Value& ev);
 
 /// The last 32 probeDeriveShotPath() records this battle, oldest first (an empty array on the host).
