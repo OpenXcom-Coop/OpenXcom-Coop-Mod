@@ -145,6 +145,15 @@ FORMATION = {  # slot -> (x, y) start tile; slots 0-4 = client soldiers (seat or
     0: (1, 0), 1: (1, 2), 2: (1, 4), 3: (1, 6), 4: (1, 8), 5: (1, 10), 6: (1, 12),
 }
 
+# W2-P4 S-F (V8, F429, C1 PR-Q6): PHASE 6's busy window is the holder's REAL
+# straight walk down its own lane, BLOCKER_WALK_STEPS tiles, at the client's walk
+# dial BLOCKER_XCOM_DIAL with the host camera on the lane (on-screen pacing is 8
+# frames x the dial per straight step, F1120). S-F.1 (3 boots): (2,4,0) ->
+# (9,4,0), 28 TU, admitted -> complete 5.75-5.76 s; the phase's sequence is done
+# 1.16 s after the send.
+BLOCKER_WALK_STEPS = 7
+BLOCKER_XCOM_DIAL = 100
+
 SDLK_HOME = 278  # Options::keyBattleCenterUnit default
 SDLK_TAB = 9     # Options::keyBattleNextUnit default
 
@@ -955,6 +964,21 @@ def phase5b_truncation(host, client, client_ids):
           f"'the host does not apply ITS reserve to a client-origin walk'")
 
 
+def set_client_xcom_dial(host, client, value):
+    """The CLIENT's walk dial (SPEC 17: the host paces a walk by the WALKER's
+    seat dial). Waits until both machines' seat tables hold it."""
+    client.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": value})
+    seat = event_state(client).get("localSeat")
+
+    def on_both():
+        for gc in (host, client):
+            seats = (event_state(gc).get("speed") or {}).get("seats") or []
+            if not any(s.get("seat") == seat and s.get("xcom") == value for s in seats):
+                return None
+        return True
+    client.wait_for(f"seat {seat}'s walk dial = {value} on both machines", on_both, timeout=15)
+
+
 def phase6_safelist(host, client, walker_id, holder_id):
     """WR-6 / WV-D29 / WV-D37: with `coopCancelOnAnyPartnerAction` ON, an applied
     partner WALK STEP must NOT cancel a held pending intent. Before this packet
@@ -962,20 +986,19 @@ def phase6_safelist(host, client, walker_id, holder_id):
     SS2.W2's frozen SINGULAR `walk_step` fell through to the unclassified arm and
     EVERY step of every partner walk cancelled whatever the player was holding.
 
-    HOW THE STATE IS BUILT, and why not "just walk next to a held order".
+    HOW THE STATE IS BUILT.
     R2-P7's cancel policy only runs while a PENDING intent is held, and a pending
     intent is only created by a busy DENY - so the held order and the streaming
-    walk must be two DIFFERENT actions overlapping in time. That overlap is not
-    reliably producible from the harness: measured on this build, a 4-to-7-step
-    walk completes inside the ~50 ms it takes the next TestServer command to
-    reach the host, so the second intent is ADMITTED rather than busy-denied
-    (observed repeatedly; the host's own log shows consecutive actionIds).
-
-    So the state is built DETERMINISTICALLY instead, out of levers that already
-    exist and with a POSITIVE CONTROL that makes the negative meaningful:
-      * `hold_chain` keeps a finished chain artificially open, which is exactly
-        the busy window a second intent needs - that intent is denied `busy` and
-        goes PENDING (R2-P7's own mechanism, unchanged);
+    walk must be two DIFFERENT actions overlapping in time. W2-P4 S-F (V8, F429,
+    C1 PR-Q6) builds that overlap from a REAL long action, with a POSITIVE
+    CONTROL that makes the negative meaningful:
+      * the busy window is the holder's REAL walk: BLOCKER_WALK_STEPS straight
+        steps down its own lane at the client's walk dial BLOCKER_XCOM_DIAL,
+        with the host camera on the lane so the host paces every step on screen
+        (a walk off screen finishes in tens of ms, F1116). A second intent sent
+        into it is denied `busy` and goes PENDING (R2-P7's own mechanism,
+        unchanged), and the phase asserts that the case and the control below
+        both land while that walk still owns the host's slot;
       * `inject_ev {kind:"walk_step"}` emits a real envelope through the real
         `CoopEmit::sendEv` with the real next seq, which the client applies
         through the real `CoopDisplayQueue::onApplied` and therefore through the
@@ -988,15 +1011,27 @@ def phase6_safelist(host, client, walker_id, holder_id):
         CANCEL. Without it "the order survived" would also be satisfied by a
         cancel policy that was off, or by an ev that never arrived.
     """
+    # (0) the blocker's premises: a straight, affordable lane walk, paced on the
+    #     host's screen at a slow client walk dial.
+    holder = unit_of(host, holder_id)
+    dest = lane_dest(host, holder_id, BLOCKER_WALK_STEPS)
+    pp = host.cmd({"cmd": "path_probe", "unit": holder_id, "x": dest[0], "y": dest[1], "z": dest[2]})
+    assert (pp.get("reachable") and pp.get("steps") == BLOCKER_WALK_STEPS
+            and (pp.get("tuCost") or 999) <= holder["tu"]), (
+        f"PREMISE BROKE: PHASE 6's blocker walk {pos_of(holder)} -> {dest} is not a "
+        f"straight, affordable {BLOCKER_WALK_STEPS}-step walk (path_probe {pp}, TU {holder['tu']})")
+    prior_dial = event_state(client)["speed"]["local"]["xcom"]
+    set_client_xcom_dial(host, client, BLOCKER_XCOM_DIAL)
+    host.ok({"cmd": "battle_camera_center", "x": (holder["x"] + dest[0]) // 2, "y": dest[1],
+             "z": dest[2]})
+
     client.ok({"cmd": "set_option", "name": "coopCancelOnAnyPartnerAction", "value": True})
-    hold_ms = 20000
+    prev = walk_action_id(host)
     try:
-        host.ok({"cmd": "hold_chain", "ms": hold_ms})
-        # (1) an action that will quiesce INTO the hold.
-        a = unit_of(client, holder_id)
-        client.ok({"cmd": "battle_intent", "kind": "turn", "actor": holder_id,
-                   "toDir": (a["direction"] + 2) % 8})
-        client.wait_for("the first action is running and the chain is being held",
+        # (1) the blocker: the holder's real walk.
+        resp = send_walk(client, holder_id, dest)
+        assert resp.get("iseq"), f"PHASE 6: the blocker walk did not ship: {resp}"
+        client.wait_for("the holder's blocker walk is running on the host",
                         lambda: (event_state(host).get("busyOwnerSeat", -1) >= 0) or None,
                         timeout=20)
 
@@ -1007,7 +1042,7 @@ def phase6_safelist(host, client, walker_id, holder_id):
         held = client.wait_for("a busy-denied order held PENDING",
                                lambda: battle_state(client).get("coopPendingIntent") or None,
                                timeout=20)
-        print(f"  PHASE 6: order {held} is HELD PENDING (busy-denied by the held chain)")
+        print(f"  PHASE 6: order {held} is HELD PENDING (busy-denied by the blocker walk)")
 
         # (3) THE CASE: a partner walk step applies while it is held.
         seq0 = event_state(client)["lastSeqApplied"]
@@ -1026,6 +1061,11 @@ def phase6_safelist(host, client, walker_id, holder_id):
         assert not after.get("coopWaitText", "").startswith("Order cancelled"), (
             f"PHASE 6 (WR-6): the banner reads {after.get('coopWaitText')!r} after a "
             "partner walk step")
+        owner = event_state(host).get("busyOwnerSeat")
+        assert owner == COOP_SEAT_1, (
+            f"PHASE 6: host busyOwnerSeat is {owner} after the walk_step case, expected "
+            f"{COOP_SEAT_1} - the case must land while the holder's blocker walk still "
+            "owns the host's slot")
         print(f"  PHASE 6: an applied walk_step ev (seq {r['seq']}) left the held "
               f"order standing: {after['coopPendingIntent']}")
 
@@ -1043,6 +1083,11 @@ def phase6_safelist(host, client, walker_id, holder_id):
             f"PHASE 6 POSITIVE CONTROL: an UNCLASSIFIED ev kind left the banner at "
             f"{ctl_banner!r} instead of a cancel - the cancel policy is not running "
             "at all, which would make the walk_step case above vacuous")
+        owner = event_state(host).get("busyOwnerSeat")
+        assert owner == COOP_SEAT_1, (
+            f"PHASE 6: host busyOwnerSeat is {owner} after the positive control, expected "
+            f"{COOP_SEAT_1} - the control must land while the holder's blocker walk still "
+            "owns the host's slot")
         print(f"  PHASE 6 POSITIVE CONTROL: an UNCLASSIFIED ev kind DID cancel the "
               f"held order ({ctl_banner!r}) - so the policy really was live for the "
               "walk_step case")
@@ -1050,10 +1095,15 @@ def phase6_safelist(host, client, walker_id, holder_id):
         client.ok({"cmd": "set_option", "name": "coopCancelOnAnyPartnerAction",
                    "value": False})
 
-    # Let the hold window close before anything else runs.
-    client.wait_for("the hold_chain window closes",
-                    lambda: (event_state(host).get("busyOwnerSeat", -1) < 0) or None,
-                    timeout=int(hold_ms / 1000) + 20)
+    # Let the blocker walk finish before anything else runs, then give the
+    # client back its own walk dial.
+    wait_walk_settled(host, client, prev, timeout=60)
+    hw = last_walk(host)
+    assert (len(hw.get("steps") or []) == BLOCKER_WALK_STEPS
+            and (hw.get("restate") or {}).get("halted") is False), (
+        f"PHASE 6: the blocker walk did not run its {BLOCKER_WALK_STEPS} planned steps "
+        f"unhalted: steps={len(hw.get('steps') or [])} restate={hw.get('restate')}")
+    set_client_xcom_dial(host, client, prior_dial)
     settle_reveal(host, client)
     assert_hash_clean(host, client, full=True, what="after PHASE 6")
     print("PASS PHASE 6 (WR-6): a partner `walk_step` did NOT cancel a held order, "
@@ -1218,8 +1268,8 @@ def main():
         phase3_halt(host, client, slot_unit[3])
         phase4_denies(host, client, slot_unit[4], slot_unit[0])
 
-        # ORDER MATTERS. PHASE 6 needs a LONG busy window (built via hold_chain,
-        # not TU) and PHASE 7 needs actors that can still walk at all, while
+        # ORDER MATTERS. PHASE 6 needs a LONG busy window (the holder's real
+        # 7-step walk, 28 TU) and PHASE 7 needs actors that can still walk at all, while
         # PHASE 5's whole method is to walk actors DOWN until their own reserve
         # bites - so PHASE 5 goes LAST, after everything that needs fuel.
         phase6_safelist(host, client, slot_unit[1], slot_unit[2])

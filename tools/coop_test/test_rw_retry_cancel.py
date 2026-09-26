@@ -1,23 +1,22 @@
 """R2-P7 (rewrite spike, SPIKE-RUNBOOK.md R2-P7 packet text, OWNER-1 resolved
 2026-08-31): CLIENT auto-retry on deny("busy") + the four info-cancel user
-options + the `hold_chain` test lever that finally makes a LIVE busy deny
-reproducible.
+options + a LIVE busy deny, made reproducible by a real long blocker (the
+CLIENT's own autoshot, W2-P4 S-F).
 
 WHY THIS FILE EXISTS AT ALL: R3-P2's own burst proof recorded a GAP
 (spike-log "R3-P2 ACCEPTED", GAP paragraph) - deny("busy") had never been
 live-fired, because a full 4-tick UnitTurnBState chain resolves host-side in
 well under one TestServer round trip, so a natural two-seat race cannot land.
-The owner approved (2026-09-02) a test-only `hold_chain {ms}` lever as a
-STOPGAP: the HOST defers a quiesced chain's bt_action_end + action-context pop
-for N ms, which keeps CoopArbiter::onIntent()'s SS2.5 `currentActionId() != 0`
-busy arm true for a deterministic window. Its removal note is carried verbatim
-at every one of its code sites.
-
-hold_chain holds CHAIN-FUL actions only. A kneel is chain-less (RB-D13):
-coopOnKneelFinished() emits its own bt_action_end and pops its own action
-context inside the single BattlescapeGame::kneel() call, never reaching
-BattlescapeGame::popState()/onChainQuiesced() where the latch lives. So every
-blocker in this file is a TURN, and every blocked intent is a kneel.
+The owner approved (2026-09-02) a test-only STOPGAP lever that held a quiesced
+chain's bt_action_end back for N ms. W2-P4 S-F (V8, F429, AMENDMENT C1 PR-Q6)
+replaces it with a REAL long chain: the CLIENT's OWN autoshot (a `shoot`
+intent, action auto) by the staged actor at the lane-end floor tile, at the
+client's slowest battleFireSpeed. Its action context stays open for the whole
+autoshot, which keeps CoopArbiter::onIntent()'s SS2.5 busy arm true. Measured
+on the S-F.1 base (3 boots): first shot -> bt_action_end 3.71-3.82 s, every
+sequence below lands inside it with >= 2 s to spare, and the target floor tile
+and the terrain bucket are unchanged. Every blocked intent is a kneel on a
+SECOND client unit.
 
 Three sessions:
   test_option_round_trip() - ONE instance at the main menu (no battle needed):
@@ -48,7 +47,7 @@ W1-P7 EXTENSIONS (WAVE1-RUNBOOK.md ruling D7 = WV-D13; its own acceptance says
   * the busy-live-fire pass now asserts the "order sent" IN-FLIGHT indicator
     (STR_COOP_ORDER_SENT) between the send and the host's answer;
   * ...and it asserts the donor wait driver's SUPPRESSION rule POSITIVELY. The
-    blocker in this file is the CLIENT'S OWN admitted turn, so the seat that
+    blocker in this file is the CLIENT'S OWN admitted autoshot, so the seat that
     owns the host's execution slot is the client's own - and the donor rule
     (`cbff7951d:BattlescapeState.cpp:5292-5370`) says a machine must NOT be told
     to "wait for {someone}" when it is waiting on ITSELF. The generic SS2.6 busy
@@ -108,9 +107,19 @@ CANCEL_DEFAULTS = {
     "coopCancelOnAnyPartnerAction": False,
 }
 
-# Long enough that a client round trip (~50ms observed, R3-P2) fits many times
-# over inside the window, short enough not to pad the suite.
-HOLD_MS = 6000
+# W2-P4 S-F (V8, F429, C1 PR-Q6): the blocker. The CLIENT's OWN autoshot at its
+# slowest fire dial (SPEC 17's CoopSpeed::fireSpeedFor reads the SHOOTER's seat
+# dial) lasts 3.71-3.82 s on this fixture (S-F.1, 3 boots). BLOCKER_SEED goes to
+# the host right before each order (the W2-P4 action-seed rule).
+BLOCKER_FIRE_DIAL = 1
+BLOCKER_SEED = 1
+BLOCKER_WEAPON = "STR_RIFLE"
+BLOCKER_AMMO = "STR_RIFLE_CLIP"
+TU_MAX = 255  # battle_set_unit_state clamps it to the unit's own maximum
+LANE_MAX = 14
+DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
+DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
+TILE_PARTS = ("floor", "westwall", "northwall", "object")
 
 
 def states(gc):
@@ -298,8 +307,8 @@ def settle_emits(host, client, timeout=30):
     up. Load-bearing before reading a `lastSeqEmitted` baseline: RW-REVEAL-SYNC's
     quiescent flush (CoopReveal::flushQuiescent, at the RB-D5 pump point) can
     emit a standalone `ev reveal` a tick or two AFTER an action settles, and a
-    baseline read in that window would make start_held_blocker()'s exactly-+1
-    lever proof spuriously red."""
+    blocker ordered in that window would start against the previous action's
+    leftovers."""
     def quiet():
         hs = event_state(host)
         cs = event_state(client)
@@ -312,53 +321,151 @@ def settle_emits(host, client, timeout=30):
                     quiet, timeout=timeout)
 
 
-def start_held_blocker(host, client, actor_id, hold_ms=HOLD_MS):
-    """Arms hold_chain on the HOST, then fires a client TURN intent on
-    `actor_id` (180 degrees = the longest single rotation, 4 ticks). Returns
-    once the turn's bt_ev has been applied client-side AND the host's
-    bt_action_end is provably still outstanding - i.e. the chain has run to
-    completion and is now being HELD open, so onIntent() answers busy for
-    anything else.
+def both_ok(host, client, req, keys):
+    """A two-machine lever pair, CLIENT first (F607); the named response fields
+    must agree on both machines."""
+    rc = client.ok(dict(req))
+    rh = host.ok(dict(req))
+    vc, vh = tuple(rc.get(k) for k in keys), tuple(rh.get(k) for k in keys)
+    assert vc == vh, f"{req['cmd']} disagrees across machines: host={vh} client={vc}"
+    return rh
 
-    Returns the host's lastSeqEmitted BEFORE the blocker, so a caller can wait
-    for the release (base + 2 = the ev plus the deferred action_end)."""
+
+def tile_parts(gc, t):
+    ti = gc.ok({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]})
+    return {p: (ti["parts"][p]["mapDataSetID"], ti["parts"][p]["mapDataID"]) for p in TILE_PARTS}
+
+
+def lane_target(host, unit, occupied):
+    """The blocker's aim point, by a fixed rule (no search, T0a F1114): for each
+    cardinal direction from the unit, the run of tiles k = 1..LANE_MAX that exist,
+    have a floor, carry no wall/object/door part and no unit; the longest run wins
+    (ties N, E, S, W) and its end tile is the target. On this fixture the staged
+    actor stands in the craft, so the lane is the craft's own floor."""
+    origin = (unit["x"], unit["y"], unit["z"])
+    best = None
+    for d in (0, 2, 4, 6):
+        n = 0
+        for k in range(1, LANE_MAX + 1):
+            t = (origin[0] + DIR_DX[d] * k, origin[1] + DIR_DY[d] * k, origin[2])
+            if t in occupied:
+                break
+            ti = host.cmd({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]})
+            if not ti.get("ok"):
+                break
+            parts = ti["parts"]
+            if parts["floor"]["mapDataID"] < 0:
+                break
+            if any(parts[p]["mapDataID"] >= 0 for p in ("westwall", "northwall", "object")):
+                break
+            if any(parts[p].get("isDoor") or parts[p].get("isUfoDoor") for p in TILE_PARTS):
+                break
+            n = k
+        if best is None or n > best[0]:
+            best = (n, (origin[0] + DIR_DX[d] * n, origin[1] + DIR_DY[d] * n, origin[2]))
+    assert best[0] >= 1, (
+        f"PREMISE BROKE: unit {unit['id']} at {origin} has no open floor tile in any "
+        "cardinal direction to aim the blocker autoshot at")
+    return best[1]
+
+
+def stage_blocker(host, client, actor_id):
+    """W2-P4 S-F (V8, F429, C1 PR-Q6): arms `actor_id` for the blocker - a rifle
+    and clip on both machines (ids read from the lever's reply, F1107), the
+    client's fire dial at its slowest (both machines' seat tables must show it:
+    the host paces the shot by the shooter's seat dial), and the lane-end floor
+    tile with its parts as they stand now (the floor-survives census)."""
+    give = both_ok(host, client, {"cmd": "battle_give", "unit": actor_id, "item": BLOCKER_WEAPON,
+                                  "ammo": BLOCKER_AMMO, "clear_hands": True}, ("weaponId", "ammoId"))
+    my_seat = event_state(client).get("localSeat")
+    client.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": BLOCKER_FIRE_DIAL})
+
+    def dial_on_both():
+        for gc in (host, client):
+            seats = (event_state(gc).get("speed") or {}).get("seats") or []
+            if not any(s.get("seat") == my_seat and s.get("fire") == BLOCKER_FIRE_DIAL for s in seats):
+                return None
+        return True
+    client.wait_for(f"seat {my_seat}'s fire dial = {BLOCKER_FIRE_DIAL} on both machines", dial_on_both,
+                    timeout=15)
+    st = host.cmd({"cmd": "battle_state"})
+    occupied = {(u["x"], u["y"], u["z"]) for u in st.get("units", []) if not u.get("isOut")}
+    target = lane_target(host, units_by_id(st)[actor_id], occupied)
+    census = tile_parts(host, target)
+    assert tile_parts(client, target) == census, (
+        f"the blocker's target tile {target} differs across machines before any shot")
+    return {"actor": actor_id, "weapon": give["weaponId"], "ammo": give["ammoId"],
+            "target": target, "census": census}
+
+
+def start_autoshot_blocker(host, client, blocker):
+    """Orders the CLIENT's OWN autoshot (`battle_intent` kind shoot, action auto)
+    by the staged actor at the lane-end floor tile. Returns the blocker's
+    actionId once the host has admitted it (bt_ack) and the client has applied
+    its first `shot` ev, with the blocker's action context provably OPEN - so
+    onIntent() answers busy for anything else until its bt_action_end."""
     settle_emits(host, client)
-    emitted_base = event_state(host).get("lastSeqEmitted", 0)
-    hold = host.ok({"cmd": "hold_chain", "ms": hold_ms})
-    assert hold.get("ms") == hold_ms, f"hold_chain did not arm: {hold}"
-
+    actor_id = blocker["actor"]
+    both_ok(host, client, {"cmd": "battle_set_unit_state", "unit": actor_id, "tu": TU_MAX}, ("tu",))
     applied_base = event_state(client).get("lastSeqApplied", 0)
-    a = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
-    to_dir = (a["direction"] + 4) % 8
-    client.ok({"cmd": "battle_intent", "kind": "turn", "actor": actor_id, "toDir": to_dir})
+    host.ok({"cmd": "set_seed", "seed": BLOCKER_SEED})
+    t = blocker["target"]
+    client.ok({"cmd": "battle_intent", "kind": "shoot", "actor": actor_id,
+               "plan": {"action": "auto", "weapon": blocker["weapon"], "ammo": blocker["ammo"],
+                        "target": {"x": t[0], "y": t[1], "z": t[2]}, "targetUnit": -1,
+                        "forceFire": False}})
+    aid = client.wait_for("the blocker autoshot admitted (bt_ack carries its actionId)",
+                          lambda: (event_state(client).get("inFlight") or {}).get("actionId") or None,
+                          timeout=15)
 
-    client.wait_for("blocker turn ev applied on the client",
-                    lambda: (event_state(client).get("lastSeqApplied", 0) > applied_base) or None,
-                    timeout=20)
+    def first_shot_applied():
+        ring = client.cmd({"cmd": "event_log", "tail": 64}).get("events", [])
+        return any(e.get("kind") == "shot" and e.get("actionId") == aid
+                   and (e.get("seq") or 0) > applied_base for e in ring) or None
+    client.wait_for(f"the blocker's first shot ev (actionId {aid}) applied on the client",
+                    first_shot_applied, timeout=20)
 
-    # THE LEVER PROOF: exactly ONE new seq exists (the turn ev). A chain that
-    # quiesced normally would already have emitted its bt_action_end as the
-    # very next seq. While the reveal flush could in principle add a seq here,
-    # CoopReveal::flushQuiescent() self-gates on currentActionId()==0 - which
-    # a held chain keeps non-zero - so nothing else can emit during the hold.
-    emitted_now = event_state(host).get("lastSeqEmitted", 0)
-    assert emitted_now == emitted_base + 1, (
-        f"host lastSeqEmitted {emitted_base} -> {emitted_now}: the bt_action_end was NOT "
-        "deferred, so hold_chain did not engage (expected exactly +1 for the turn ev)")
-    return emitted_base
+    # THE BLOCKER PROOF (W2-P4 S-F, chain rule A.10: re-pointed from the old
+    # "exactly +1 seq", which an autoshot's many cue evs cannot give). The
+    # client's OWN admitted action owns the host's slot, and the host has not
+    # closed its context.
+    my_seat = event_state(client).get("localSeat")
+    owner = event_state(client).get("busyOwnerSeat")
+    assert owner == my_seat, (
+        f"client busyOwnerSeat is {owner} while its OWN blocker autoshot (actionId {aid}) "
+        f"runs; expected its own seat {my_seat}")
+    closed = [c.get("actionId") for c in (event_state(host).get("closedContexts") or [])]
+    assert aid not in closed, (
+        f"the host already closed the blocker's context {aid} ({closed}): the autoshot "
+        "ended before the sequence it is meant to block could start")
+    return aid
 
 
-def wait_hold_released(host, client, emitted_base, timeout=40):
-    """Waits for the held chain's deferred bt_action_end to be emitted (host
-    lastSeqEmitted reaches base+2) and drained on the client."""
-    def released():
-        hs = event_state(host)
-        cs = event_state(client)
-        return bool(hs.get("lastSeqEmitted", 0) >= emitted_base + 2
-                    and cs.get("lastSeqApplied", 0) >= emitted_base + 2
-                    and cs.get("queueDepth") == 0)
-    client.wait_for("held chain released (deferred bt_action_end emitted + applied)",
-                    released, timeout=timeout)
+def wait_blocker_closed(host, client, blocker, aid, timeout=40):
+    """The blocker's bt_action_end: the host's closedContexts gains its actionId
+    as `{origin intent, kind shoot, actorId <actor>}`, the client has applied
+    through that entry's endSeq and drained its queue, and the target floor tile
+    is unchanged on both machines (the census)."""
+    def rec_of():
+        for c in (event_state(host).get("closedContexts") or []):
+            if c.get("actionId") == aid:
+                return c
+        return None
+    rec = host.wait_for(f"host closedContexts gains the blocker's actionId {aid}", rec_of,
+                        timeout=timeout)
+    assert (rec.get("origin"), rec.get("kind"), rec.get("actorId")) == ("intent", "shoot", blocker["actor"]), (
+        f"the blocker's closed context is {rec}, expected origin intent, kind shoot, "
+        f"actorId {blocker['actor']}")
+    client.wait_for(f"client applied through the blocker's endSeq {rec['endSeq']}",
+                    lambda: (event_state(client).get("lastSeqApplied", 0) >= rec["endSeq"]
+                             and event_state(client).get("queueDepth") == 0) or None,
+                    timeout=timeout)
+    for gc, who in ((host, "host"), (client, "client")):
+        now = tile_parts(gc, blocker["target"])
+        assert now == blocker["census"], (
+            f"{who}: the blocker's target tile {blocker['target']} changed "
+            f"{blocker['census']} -> {now} - its floor must survive the autoshot")
+    return rec
 
 
 def wait_pending_cleared_and_applied(host, client, unit_id, want_kneeled, timeout=40):
@@ -483,7 +590,7 @@ def run_same_unit_variant(host, client, actor_id):
 
 
 def test_busy_live_fire():
-    """Packet acceptance (a). hold_chain + a client turn intent A (blocker) +
+    """Packet acceptance (a). The client's own autoshot A (blocker, W2-P4 S-F) +
     a kneel intent B on a SECOND client-owned unit -> B deny(busy) observed
     via event_state.lastDeny -> pending banner state -> auto-resubmit on A's
     bt_action_end -> B acked + applied, hash-clean 9/9, queueDepth 0."""
@@ -494,18 +601,19 @@ def test_busy_live_fire():
                        if u.get("soldierId") == soldier_ids[1])["id"]
         assert actor_a != actor_b
         assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0 (pre-action)")
+        blocker = stage_blocker(host, client, actor_a)
 
         # --- pass 1: the SAME-unit variant (disclosed tension), under its own
-        #     held blocker so it cannot eat the second pass's hold window ---
-        base1 = start_held_blocker(host, client, actor_a)
-        print("[test_rw_retry_cancel] hold_chain engaged: the blocker turn's bt_action_end "
-              "is deferred and the host's action context stays open")
+        #     blocker so it cannot eat the second pass's busy window ---
+        aid1 = start_autoshot_blocker(host, client, blocker)
+        print(f"[busy pass 1] blocker engaged: the client's own autoshot (actionId "
+              f"{aid1}) owns the host's slot and its action context is open")
         run_same_unit_variant(host, client, actor_a)
-        wait_hold_released(host, client, base1)
+        wait_blocker_closed(host, client, blocker, aid1)
 
         # --- pass 2: the blocker again, then the SECOND unit's intent, which
         #     sends and denies busy for real ---
-        start_held_blocker(host, client, actor_a)
+        aid2 = start_autoshot_blocker(host, client, blocker)
         b_before = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
         want_kneeled = not b_before["kneeled"]
         intent_b = client.ok({"cmd": "battle_intent", "kind": "kneel",
@@ -513,8 +621,8 @@ def test_busy_live_fire():
         iseq_b = intent_b["iseq"]
 
         # W1-P7 (WV-D13 item 2): the IN-FLIGHT indicator. Between the send and
-        # the host's answer the player used to see nothing at all. The blocker is
-        # held open for HOLD_MS, so this window is wide and deterministic.
+        # the host's answer the player used to see nothing at all. The blocker
+        # autoshot runs ~3.7 s (S-F.1), so this window is wide and deterministic.
         sent_banner = banner_of(client)
         assert sent_banner in (STR_ORDER_SENT_TEXT, STR_BUSY_TEXT), (
             f"banner right after the send is {sent_banner!r}, expected either the "
@@ -536,7 +644,7 @@ def test_busy_live_fire():
         ld = client.wait_for("LIVE deny(busy) via event_state.lastDeny", denied_busy, timeout=15)
         assert ld.get("reason") == "busy", (
             f"expected a LIVE deny reason 'busy' for iseq {iseq_b}, got {ld} - the "
-            "hold_chain lever did not keep the host's action context open")
+            f"blocker autoshot (actionId {aid2}) did not keep the host's action context open")
         print(f"PASS test_busy_live_fire: LIVE deny(busy) observed for iseq {iseq_b} "
               f"(unit {actor_b}) - closes the R3-P2 GAP")
 
@@ -575,6 +683,7 @@ def test_busy_live_fire():
         # --- auto-resubmit on the blocker's bt_action_end, with NO further
         #     client command of any kind ---
         wait_pending_cleared_and_applied(host, client, actor_b, want_kneeled)
+        wait_blocker_closed(host, client, blocker, aid2)
 
         host_b = units_by_id(host.cmd({"cmd": "battle_state"}))[actor_b]
         client_b = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
@@ -611,17 +720,17 @@ def set_cancel_options(gc, value_map):
         assert resp.get("value") is want, f"set_option {name}={want} failed: {resp}"
 
 
-def make_pending(host, client, actor_a, actor_b):
-    """Blocker turn on A (held) + kneel intent on B -> a live pending slot.
-    Returns (emitted_base, iseq_b, want_kneeled)."""
-    emitted_base = start_held_blocker(host, client, actor_a)
+def make_pending(host, client, blocker, actor_b):
+    """Blocker autoshot by A (W2-P4 S-F) + kneel intent on B -> a live pending
+    slot. Returns (blocker actionId, iseq_b, want_kneeled)."""
+    aid = start_autoshot_blocker(host, client, blocker)
     b_before = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
     want_kneeled = not b_before["kneeled"]
     iseq_b = client.ok({"cmd": "battle_intent", "kind": "kneel",
                         "actor": actor_b, "kneel": want_kneeled})["iseq"]
     client.wait_for("pending slot created by deny(busy)",
                     lambda: pending_of(client) or None, timeout=15)
-    return emitted_base, iseq_b, want_kneeled
+    return aid, iseq_b, want_kneeled
 
 
 def inject_spot(host, client):
@@ -648,10 +757,11 @@ def test_cancel_policy():
         actor_a = actor["id"]
         actor_b = next(u for u in client.cmd({"cmd": "battle_state"})["units"]
                        if u.get("soldierId") == soldier_ids[1])["id"]
+        blocker = stage_blocker(host, client, actor_a)
 
         # ===== default-ON: the spot ev CANCELS the held order =====
         set_cancel_options(client, CANCEL_DEFAULTS)  # explicit, not inherited
-        base_on, iseq_b, want_kneeled = make_pending(host, client, actor_a, actor_b)
+        aid_on, iseq_b, want_kneeled = make_pending(host, client, blocker, actor_b)
         print(f"[test_cancel_policy] default-ON: pending {pending_of(client)}")
 
         inject_spot(host, client)
@@ -666,14 +776,11 @@ def test_cancel_policy():
               f"pending intent and showed {banner!r}")
 
         # ...and it stays cancelled: the blocker's action_end must NOT resurrect
-        # it. The spot ev consumed one seq of its own, so the deferred
-        # action_end lands at base+3 on the client (turn ev, spot ev,
-        # action_end) - wait_hold_released's base+2 floor is satisfied by the
-        # spot ev alone, so this waits on the HOST's own emit counter instead.
+        # it. W2-P4 S-F (chain rule A.10): the old "base+3" seq floor becomes the
+        # host's closedContexts gaining the blocker's actionId - an autoshot's
+        # cue evs give no fixed seq count.
         b_state = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
-        host.wait_for("held chain released (deferred blocker action_end emitted)",
-                      lambda: (event_state(host).get("lastSeqEmitted", 0) >= base_on + 3) or None,
-                      timeout=40)
+        wait_blocker_closed(host, client, blocker, aid_on)
         time.sleep(2.0)
         assert pending_of(client) is None, "a CANCELLED intent came back at quiescence"
         after = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
@@ -687,7 +794,7 @@ def test_cancel_policy():
 
         # ===== all-OFF: pure auto-retry, the spot ev changes nothing =====
         set_cancel_options(client, {n: False for n in CANCEL_OPTIONS})
-        _base_off, iseq_b2, want_kneeled2 = make_pending(host, client, actor_a, actor_b)
+        aid_off, iseq_b2, want_kneeled2 = make_pending(host, client, blocker, actor_b)
         print(f"[test_cancel_policy] all-OFF: pending {pending_of(client)}")
 
         inject_spot(host, client)
@@ -701,6 +808,7 @@ def test_cancel_policy():
               f"SURVIVES as {survived}")
 
         wait_pending_cleared_and_applied(host, client, actor_b, want_kneeled2)
+        wait_blocker_closed(host, client, blocker, aid_off)
         host_b = units_by_id(host.cmd({"cmd": "battle_state"}))[actor_b]
         client_b = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
         assert host_b["kneeled"] == want_kneeled2 and client_b["kneeled"] == host_b["kneeled"], (

@@ -36,11 +36,11 @@ of bin/common into bin/x64/Release/common was skipped):
            to the exact rendered tally text once armed.
 
 THE LEVER. WV-D24 cannot be tested without a genuinely unanswered intent, so
-this packet adds `defer_intents {ms,count}` next to R2-P7's `hold_chain` - the
+this packet adds `defer_intents {ms,count}` - the
 HOST holds the next N bt_intent messages for {ms} before dispatching them
 normally. That gives BOTH halves of the ruling in one mechanism: the client
-really times out, and the host's answer really arrives late. It carries the same
-TEST-ONLY STOPGAP removal note as hold_chain at every code site.
+really times out, and the host's answer really arrives late. It carries a
+TEST-ONLY STOPGAP removal note at every code site.
 
 REACHABILITY (WR-3, and this wave's standing anti-vacuity discipline). PHASE 5
 presses END TURN on the CLIENT during the PLAYER side, which is the ONLY state
@@ -100,10 +100,22 @@ CLIENT_PLAYER = "ClientPlayer"
 # right failure - the dwell is a user-visible contract.
 BANNER_DWELL_MS = 6000
 
-HOLD_MS = 8000       # hold_chain window for the seat-attributed wait phase
 DEFER_MS = 9000      # defer_intents window for the timeout phases
 SHORT_TIMEOUT_S = 3  # coopIntentTimeoutSeconds while testing the timeout
 LONG_TIMEOUT_S = 120  # ...and while testing anything that must NOT time out
+
+# W2-P4 S-F (V8, F429, C1 PR-Q6): PHASE 3's blocker is the HOST's own autoshot -
+# ONE battle_fire {mode: auto} at the host's slowest fire dial (SPEC 17's
+# CoopSpeed::fireSpeedFor reads the SHOOTER's seat dial). On this fixture it
+# lasts 2.69-2.70 s and the client's kneel is busy-denied ~0.6 s into it
+# (S-F.1, 3 boots). BLOCKER_SEED goes to the host right before the order.
+BLOCKER_FIRE_DIAL = 1
+BLOCKER_SEED = 1
+BLOCKER_WEAPON = "STR_RIFLE"
+BLOCKER_AMMO = "STR_RIFLE_CLIP"
+TU_MAX = 255  # battle_set_unit_state clamps it to the unit's own maximum
+LANE_MAX = 14
+TILE_PARTS = ("floor", "westwall", "northwall", "object")
 
 
 def states(gc):
@@ -326,20 +338,68 @@ def tile_click(gc, tx, ty, tz, button="right"):
     return pr
 
 
-def start_host_local_turn_blocker(host, client, tries=6):
-    """Arm hold_chain on the HOST, then make the HOST turn one of ITS OWN units
-    with a real right-click (BattlescapeGame::secondaryAction ->
-    CoopArbiter::beginHostLocalTurn, origin "host"). The chain runs to
-    completion and is then HELD open, so the host's action context stays open
-    and onIntent() answers deny("busy") for the whole window - and the busy
-    owner is SEAT 0, which is what makes the seat attribution testable at all.
+def both_ok(host, client, req, keys):
+    """A two-machine lever pair, CLIENT first (F607); the named response fields
+    must agree on both machines."""
+    rc = client.ok(dict(req))
+    rh = host.ok(dict(req))
+    vc, vh = tuple(rc.get(k) for k in keys), tuple(rh.get(k) for k in keys)
+    assert vc == vh, f"{req['cmd']} disagrees across machines: host={vh} client={vc}"
+    return rh
 
-    Returns the host's lastSeqEmitted BEFORE the blocker.
 
-    A host-local turn (not a client intent, and not a kneel) is required here:
-    a kneel is chain-less (RB-D13) so hold_chain never latches it, and a CLIENT
-    intent would make the busy owner the CLIENT's own seat - the case the donor
-    driver deliberately SUPPRESSES."""
+def tile_parts(gc, t):
+    ti = gc.ok({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]})
+    return {p: (ti["parts"][p]["mapDataSetID"], ti["parts"][p]["mapDataID"]) for p in TILE_PARTS}
+
+
+def lane_target(host, unit, occupied):
+    """The blocker's aim point, by a fixed rule (no search, T0a F1117): for each
+    cardinal direction from the unit, the run of tiles k = 1..LANE_MAX that exist,
+    have a floor, carry no wall/object/door part and no unit; the longest run wins
+    (ties N, E, S, W) and its end tile is the target. On this fixture the host's
+    selected unit stands in the craft, so the lane is the craft's own floor."""
+    origin = (unit["x"], unit["y"], unit["z"])
+    best = None
+    for d in (0, 2, 4, 6):
+        n = 0
+        for k in range(1, LANE_MAX + 1):
+            t = (origin[0] + DIR_DX[d] * k, origin[1] + DIR_DY[d] * k, origin[2])
+            if t in occupied:
+                break
+            ti = host.cmd({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]})
+            if not ti.get("ok"):
+                break
+            parts = ti["parts"]
+            if parts["floor"]["mapDataID"] < 0:
+                break
+            if any(parts[p]["mapDataID"] >= 0 for p in ("westwall", "northwall", "object")):
+                break
+            if any(parts[p].get("isDoor") or parts[p].get("isUfoDoor") for p in TILE_PARTS):
+                break
+            n = k
+        if best is None or n > best[0]:
+            best = (n, (origin[0] + DIR_DX[d] * n, origin[1] + DIR_DY[d] * n, origin[2]))
+    assert best[0] >= 1, (
+        f"PREMISE BROKE: unit {unit['id']} at {origin} has no open floor tile in any "
+        "cardinal direction to aim the blocker autoshot at")
+    return best[1]
+
+
+def start_host_autoshot_blocker(host, client):
+    """W2-P4 S-F (V8, F429, C1 PR-Q6): the HOST's OWN autoshot - ONE
+    `battle_fire {mode: auto}` by the host's selected seat-0 unit at the lane-end
+    floor tile, at the host's slowest fire dial. The host's action context stays
+    open for the whole autoshot, so onIntent() answers deny("busy") for the whole
+    window - and the busy owner is SEAT 0, which is what makes the seat
+    attribution testable at all.
+
+    A host-local action is required here: a CLIENT intent would make the busy
+    owner the CLIENT's own seat - the case the donor driver deliberately
+    SUPPRESSES (R2-P7's busy test file blocks on exactly that case).
+
+    Returns the blocker record {aid, unit, target, census} once the client has
+    applied the blocker's first `shot` ev, with its context provably OPEN."""
     settle_emits(host, client)
 
     st = host.cmd({"cmd": "battle_state"})
@@ -349,52 +409,57 @@ def start_host_local_turn_blocker(host, client, tries=6):
     assert unit is not None, f"host has no selected unit: selectedId={sel}"
     assert unit.get("coop") == COOP_SEAT_0, (
         f"host's selected unit {sel} is seat {unit.get('coop')}, not 0 - this phase "
-        "needs the HOST to be the busy owner, which is a FIXTURE requirement")
+        "needs the HOST to be the busy owner")
 
-    for attempt in range(1, tries + 1):
-        emitted_base = event_state(host).get("lastSeqEmitted", 0)
-        hold = host.ok({"cmd": "hold_chain", "ms": HOLD_MS})
-        assert hold.get("ms") == HOLD_MS, f"hold_chain did not arm: {hold}"
+    give = both_ok(host, client, {"cmd": "battle_give", "unit": sel, "item": BLOCKER_WEAPON,
+                                  "ammo": BLOCKER_AMMO, "clear_hands": True}, ("weaponId", "ammoId"))
+    host.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": BLOCKER_FIRE_DIAL})
 
-        u = units_by_id(host.cmd({"cmd": "battle_state"}))[sel]
-        # A DIFFERENT direction each attempt: an unclickable target tile (off the
-        # viewport, or under the icons panel) would otherwise make every retry
-        # fail identically.
-        to_dir = (u["direction"] + 2 + attempt - 1) % 8
-        if to_dir == u["direction"]:
-            to_dir = (to_dir + 1) % 8
-        pr = tile_click(host, u["x"] + DIR_DX[to_dir], u["y"] + DIR_DY[to_dir], u["z"],
-                        button="right")
-        if pr is None:
-            print(f"[test_rw_feedback] blocker attempt {attempt}/{tries}: tile for dir "
-                  f"{to_dir} is not clickable right now - retrying")
-            host.ok({"cmd": "hold_chain", "ms": 1})  # disarm the unused hold
-            time.sleep(0.5)
-            continue
-        time.sleep(1.0)
+    def dial_on_both():
+        for gc in (host, client):
+            seats = (event_state(gc).get("speed") or {}).get("seats") or []
+            if not any(s.get("seat") == COOP_SEAT_0 and s.get("fire") == BLOCKER_FIRE_DIAL for s in seats):
+                return None
+        return True
+    host.wait_for(f"seat 0's fire dial = {BLOCKER_FIRE_DIAL} on both machines", dial_on_both, timeout=15)
+    occupied = {(u["x"], u["y"], u["z"]) for u in st.get("units", []) if not u.get("isOut")}
+    target = lane_target(host, unit, occupied)
+    census = tile_parts(host, target)
+    assert tile_parts(client, target) == census, (
+        f"the blocker's target tile {target} differs across machines before any shot")
+    both_ok(host, client, {"cmd": "battle_set_unit_state", "unit": sel, "tu": TU_MAX}, ("tu",))
 
-        es = event_state(host)
-        if es.get("busyOwnerSeat") == COOP_SEAT_0 \
-                and es.get("lastSeqEmitted", 0) == emitted_base + 1:
-            # THE LEVER PROOF, same shape as test_rw_retry_cancel's: exactly ONE
-            # new seq (the turn ev). A chain that quiesced normally would have
-            # emitted its bt_action_end as the very next seq.
-            print(f"[test_rw_feedback] host-local turn blocker engaged on attempt "
-                  f"{attempt} (unit {sel} -> dir {to_dir}, busyOwnerSeat=0, "
-                  f"action_end deferred)")
-            return emitted_base
-        print(f"[test_rw_feedback] blocker attempt {attempt}/{tries} did not engage "
-              f"(busyOwnerSeat={es.get('busyOwnerSeat')}, "
-              f"seq {emitted_base} -> {es.get('lastSeqEmitted')}) - retrying")
-        # Let the hold expire before the next attempt so state is clean.
-        time.sleep(HOLD_MS / 1000.0 + 1.0)
-        settle_emits(host, client)
-        st = host.cmd({"cmd": "battle_state"})
-        sel = st.get("selectedId")
+    seq_base = event_state(host).get("lastSeqEmitted", 0)
+    host.ok({"cmd": "set_seed", "seed": BLOCKER_SEED})
+    host.ok({"cmd": "battle_fire", "unit": sel, "mode": "auto", "weapon_id": give["weaponId"],
+             "x": target[0], "y": target[1], "z": target[2]})
 
-    raise AssertionError(
-        "could not place a host-local turn blocker - FIXTURE failure (the camera "
-        "or the clickable-tile probe, not the feature under test)")
+    def first_shot(gc):
+        ring = gc.cmd({"cmd": "event_log", "tail": 64}).get("events", [])
+        for e in ring:
+            if e.get("kind") == "shot" and (e.get("seq") or 0) > seq_base:
+                return e
+        return None
+    shot = host.wait_for("the blocker's first shot ev emitted on the host",
+                         lambda: first_shot(host), timeout=20)
+    aid = shot.get("actionId")
+    client.wait_for(f"the blocker's first shot ev (seq {shot.get('seq')}) applied on the client",
+                    lambda: first_shot(client), timeout=20)
+
+    # THE BLOCKER PROOF (W2-P4 S-F, chain rule A.10: re-pointed from the old
+    # "exactly +1 seq", which an autoshot's many cue evs cannot give). The
+    # HOST's own action owns the slot, and the host has not closed its context.
+    es = event_state(host)
+    assert es.get("busyOwnerSeat") == COOP_SEAT_0, (
+        f"host busyOwnerSeat is {es.get('busyOwnerSeat')} while its own blocker autoshot "
+        f"(actionId {aid}) runs; expected seat {COOP_SEAT_0}")
+    closed = [c.get("actionId") for c in (es.get("closedContexts") or [])]
+    assert aid not in closed, (
+        f"the host already closed the blocker's context {aid} ({closed}): the autoshot "
+        "ended before the client's order could be sent into it")
+    print(f"[test_rw_feedback] host autoshot blocker engaged (unit {sel} at {target}, "
+          f"actionId {aid}, busyOwnerSeat=0, context open)")
+    return {"aid": aid, "unit": sel, "target": target, "census": census}
 
 
 # ===========================================================================
@@ -509,7 +574,7 @@ def test_seat_attributed_wait():
                        if u.get("soldierId") == soldier_ids[1])["id"]
         set_timeout_option(client, LONG_TIMEOUT_S)
 
-        emitted_base = start_host_local_turn_blocker(host, client)
+        blocker = start_host_autoshot_blocker(host, client)
 
         b_before = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
         want_kneeled = not b_before["kneeled"]
@@ -550,12 +615,23 @@ def test_seat_attributed_wait():
                             and u["kneeled"] == want_kneeled
                             and event_state(client).get("queueDepth") == 0
                             and event_state(host).get("queueDepth") == 0) else None
-        client.wait_for("held order auto-retried and admitted after the hold expires",
+        client.wait_for("held order resubmitted and admitted after the blocker's bt_action_end",
                         resolved, timeout=60)
         client.wait_for("wait banner clears by itself once the retry lands",
                         lambda: (banner_of(client) == "") or None, timeout=20)
-        assert event_state(host).get("lastSeqEmitted", 0) >= emitted_base + 2, (
-            "the held chain never released its deferred bt_action_end")
+        # W2-P4 S-F (chain rule A.10): the old "base+2" seq floor becomes the
+        # host's closedContexts gaining the blocker's actionId.
+        rec = next((c for c in (event_state(host).get("closedContexts") or [])
+                    if c.get("actionId") == blocker["aid"]), None)
+        assert rec is not None and (rec.get("origin"), rec.get("kind"), rec.get("actorId")) \
+            == ("host", "shoot", blocker["unit"]), (
+            f"the host's closedContexts holds {rec} for the blocker's actionId "
+            f"{blocker['aid']}, expected origin host, kind shoot, actorId {blocker['unit']}")
+        for gc, who in ((host, "host"), (client, "client")):
+            now = tile_parts(gc, blocker["target"])
+            assert now == blocker["census"], (
+                f"{who}: the blocker's target tile {blocker['target']} changed "
+                f"{blocker['census']} -> {now} - its floor must survive the autoshot")
         print("PASS PHASE 3 (CLEARS BY ITSELF): the waiting message went away when the "
               "auto-retried order was admitted, with no further client command")
 
