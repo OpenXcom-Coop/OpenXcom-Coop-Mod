@@ -7811,6 +7811,22 @@ void onIntent(const Json::Value& intent)
 		return;
 	}
 
+	// W2-P4 S-E3.2 (spec (b)2 (iii), (b)10, Q2 = (a); C1 N26 = F1093): the
+	// traditional baton - the HOST-side twin of coopMayCommand()'s baton term,
+	// ONE shared term for every kind (the wave-1 turn / kneel / walk included).
+	// In traditional mode an intent from a seat that does not hold the baton is
+	// denied `not_your_go`; the ordering client's showDeny() renders
+	// STR_COOP_DENY_NOT_YOUR_GO with the baton holder's name, the same text its
+	// own client-side check shows. On the host activeSeat is the baton itself
+	// (emitTally() writes g_batonSeat into it on every emission). Parallel mode
+	// and single player are unchanged.
+	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional
+		&& coopBattleAuthority().activeSeat.load() != seat)
+	{
+		denyIntent(iseq, "not_your_go", seat, kind);
+		return;
+	}
+
 	// busy (SS2.5): a BState chain active, OR this arbiter's own action
 	// context is still on the stack awaiting its bt_action_end (covers the
 	// same-tick edge where _states has just emptied but onChainQuiesced()
@@ -15255,8 +15271,9 @@ const ReasonStrEntry kReasonStrTable[] =
 	{ "weapon_missing",    "STR_COOP_DENY_WEAPON_MISSING" },
 	{ "not_your_unit",     "STR_COOP_DENY_NOT_YOUR_UNIT" },
 	{ "turn_over",         "STR_COOP_DENY_TURN_OVER" },
-	// W1-P13c (E53.4/E55.1): the traditional-mode baton refusal, LOCAL only -
-	// never a wire deny reason (SS2.2's 8-value enum is unchanged).
+	// W1-P13c (E53.4/E55.1): the traditional-mode baton refusal, shown by the
+	// client-side check; since W2-P4 S-E3.2 (Q2 = (a)) also the host's wire deny
+	// for an off-baton intent (CoopArbiter::onIntent).
 	{ "not_your_go",       "STR_COOP_DENY_NOT_YOUR_GO" },
 	// W2-P4 S-A.2 (docs rewrite/prompts/w2p4_client_combat_intents.md (b)2,
 	// Q1 = (a)): the combat admission's denies - one wire enum per VANILLA text,

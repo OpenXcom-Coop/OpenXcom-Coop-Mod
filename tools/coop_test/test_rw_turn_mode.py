@@ -1,8 +1,10 @@
 """W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D - owner turn-mode rulings
 D-19..D-27, full text WV-D55; schema SS2.W1's `turnMode`): the TURN MODE option
-and its TRANSPORT. **The option and its transport only - there is no baton
-logic in this packet, that is W1-P13's**, and REV D's rule is binding:
-"NOTHING in this packet may branch behaviour on the mode."
+and its TRANSPORT. W1-P7 shipped the option and its transport only, under REV
+D's rule "NOTHING in this packet may branch behaviour on the mode". The baton
+logic came later: since W1-P13c traditional mode has a baton (seat 0 first,
+D-23), and since W2-P4 S-E3 (Q2) the HOST also denies an intent from a seat off
+its go (`not_your_go`) - PHASE 4 below passes the baton before its turn.
 
 That rule is what makes this file's shape unusual and worth reading: because
 nothing branches on the mode, behaviour can NEVER prove the plumbing. Every
@@ -49,11 +51,12 @@ actually holds, never inferred from what the game did.
            SavedBattleGame and no MapDataSet at all. The one thing that detour
            cannot observe, that the reader is actually CALLED from
            `SavedBattleGame::load`, is asserted separately and exactly below.
-  PHASE 4  IDENTICAL BEHAVIOUR in both settings at this packet - a turn intent
-           is admitted and applied exactly the same way with the mode
-           traditional as with it parallel, and all buckets stay EQUAL. This is
-           the direct check on REV D's binding rule; W1-P13's acceptance is
-           where the two modes are finally allowed to differ.
+  PHASE 4  a turn intent in TRADITIONAL mode, sent on its seat's go (re-pointed
+           by W2-P4 S-E3, C1 PR-Q7, chain rule A.10). At battle start the
+           baton is at seat 0, the host (D-23), so the host's END TURN first
+           passes it to seat 1 (as test_rw_seat_pacing.py BOOT C does); the
+           client's turn intent is then admitted and applied exactly the same
+           way as in parallel mode, and all buckets stay EQUAL.
 
 An SP battle save must NOT carry the key at all - that half is asserted by this
 packet's SP battle smoke, which is where an SP battle already exists.
@@ -335,8 +338,8 @@ def settle_emits(host, client, timeout=40):
 
 
 def run_a_turn(host, client, actor_id, what):
-    """One admitted client TURN intent, start to finish. Used to show the two
-    modes behave IDENTICALLY at this packet (REV D's binding rule)."""
+    """One admitted client TURN intent, start to finish (PHASE 4: sent on the
+    client seat's go, admitted and applied as in parallel mode)."""
     settle_emits(host, client)
     a = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
     to_dir = (a["direction"] + 2) % 8
@@ -358,7 +361,7 @@ def run_a_turn(host, client, actor_id, what):
 
 
 # ===========================================================================
-# PHASE 2 + 4 - the wire, and identical behaviour in both settings
+# PHASE 2 + 4 - the wire, and a turn intent on the client seat's go
 # ===========================================================================
 
 def test_wire_traditional():
@@ -399,17 +402,31 @@ def test_wire_traditional():
         print("PASS PHASE 2 (traditional): the host logged the offer carrying "
               "turnMode=traditional")
 
-        # PHASE 4: behaviour is IDENTICAL - REV D's binding rule for this packet.
+        # PHASE 4 (W2-P4 S-E3, C1 PR-Q7, chain rule A.10): the baton is at seat 0
+        # at battle start (D-23) and the host denies an off-baton intent
+        # not_your_go (Q2), so the host's END TURN first passes it to seat 1
+        # (test_rw_seat_pacing.py BOOT C), then the turn is sent on seat 1's go.
+        seat_h, seat_c = event_state(host).get("coopActiveSeat"), event_state(client).get("coopActiveSeat")
+        assert seat_h == 0 and seat_c == 0, (
+            f"PHASE 4 premise: coopActiveSeat is not 0 at entry on both machines "
+            f"(host={seat_h} client={seat_c}) - D-23 gives the host's seat 0 the first go")
+        host.ok({"cmd": "battle_action", "action": "end_turn_button"})
+
+        def baton_at_seat_1():
+            return True if (event_state(host).get("coopActiveSeat") == 1
+                            and event_state(client).get("coopActiveSeat") == 1) else None
+        host.wait_for("PHASE 4: the host's END TURN hands the baton to seat 1 on both machines",
+                      baton_at_seat_1, timeout=15)
         actor_id = actor["id"]
         to_dir, tu = run_a_turn(host, client, actor_id, "traditional mode")
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after a turn in TRADITIONAL mode")
         assert live_mode(host) == TRADITIONAL and live_mode(client) == TRADITIONAL, \
             "the mode drifted during play"
-        print(f"PASS PHASE 4 (traditional): an intent was admitted and applied exactly "
-              f"as in parallel mode (unit {actor_id} -> dir {to_dir}, TU {tu}), "
-              f"{len(post_h)} buckets EQUAL - nothing branches on the mode yet, which "
-              "is what REV D requires of this packet")
+        print(f"PASS PHASE 4 (traditional): after the host's END TURN passed the baton to "
+              f"seat 1, the client's turn intent was admitted and applied exactly as in "
+              f"parallel mode (unit {actor_id} -> dir {to_dir}, TU {tu}), "
+              f"{len(post_h)} buckets EQUAL")
         return
     finally:
         host.shutdown()
