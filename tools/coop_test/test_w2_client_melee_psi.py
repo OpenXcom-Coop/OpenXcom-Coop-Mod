@@ -68,8 +68,12 @@ Four scenarios, ONE boot, in this order:
   C22o   an order for the mind-controlled alien (W2-P4 S-E4; review N29 =
          F1096, Q8 (a); TASK 0 T0-8). Right after C22 on the same boot: A is
          FACTION_PLAYER with mindControllerId C on both (the precondition, C2
-         / F1129). A's TU is set to max on both (client first; A has 0 TU
-         after the mind control, so the turn below is affordable). One client
+         / F1129). After the mind control A has 0 TU and a TU cap of 0, so
+         battle_set_unit_state cannot raise its TU (F1303); `battle_action
+         set_stat {stat tu, value A_TU_CAP, refill true}` on both (client
+         first) writes the cap back to A's bring-up TU and refills TU to it.
+         Staging asserts: A's TU after the refill (= the cap) equal on both
+         and at least C22O_TURN_TU, the turn's cost. One client
          `battle_intent turn` for A to A's facing + C22O_OCTANTS. RED (at
          S-E4.1): the host denies it `not_your_unit` (onIntent compares A's
          coop seat with the intent seat; the client's lastDeny), nothing
@@ -201,6 +205,8 @@ C22_CHAIN = ["psi", "bt_action_end"]
 
 # ----- C22o (T0-8's order for A after the mind control; review N29 = F1096) -----
 C22O_OCTANTS = 2                  # T0b's order: A's facing + 2 octants
+A_TU_CAP = 54                     # A's TU at bring-up (this file's boot line, before the mind control)
+C22O_TURN_TU = 2                  # 2 octants x armor turnCost 1 (Armor.cpp default; no xcom1 / common ruleset sets it)
 
 # ----- UI -----
 KEY_ITEM1, KEY_ITEM2, KEY_ITEM3, KEY_ITEM4 = 49, 50, 51, 52   # keyBattleActionItem1..4
@@ -592,11 +598,16 @@ def c22o_order(host, client, ctx):
     req = None
     si = {}
     d0 = None
+    tu = {}
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     if mc:
         try:
-            set_tu_both(host, client, A_ID, TU_MAX)
+            # F1303: the TU cap is getBaseStats()->tu (= _stats, the clamp of setTimeUnits); set_stat writes it and
+            # `refill` writes TU = the cap, so the reply's `tu` is the cap on each machine (both(): equal on both).
+            tu["staged"] = both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu",
+                                               "value": A_TU_CAP, "refill": True}, ("tu",)).get("tu")
+            tu["now"] = (units(host)[A_ID].get("tu"), units(client)[A_ID].get("tu"))
             staged = diff_buckets(host, client)
             d0 = units(client)[A_ID].get("direction")
             req = {"cmd": "battle_intent", "kind": "turn", "actor": A_ID, "toDir": (d0 + C22O_OCTANTS) % 8}
@@ -609,8 +620,8 @@ def c22o_order(host, client, ctx):
     rec = collect(host, client, seq0)
     new = ctx_view(before, rec)
     ah, ac = rec["uh"].get(A_ID) or {}, rec["uc"].get(A_ID) or {}
-    print(f"EVIDENCE C22o: A before host={a0['host']} client={a0['client']} mindControlled={mc} stagedDiff={staged} "
-          f"request={req} intent={ {k: si.get(k) for k in ('sent', 'iseq', 'answer')} } "
+    print(f"EVIDENCE C22o: A before host={a0['host']} client={a0['client']} mindControlled={mc} tuStaging={tu} "
+          f"stagedDiff={staged} request={req} intent={ {k: si.get(k) for k in ('sent', 'iseq', 'answer')} } "
           f"lastDeny={rec['client']['lastDeny']} banner={rec['clientUi']['banner']!r}; {press_view(before, rec)}; "
           f"newContexts={new}; host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; "
           f"A host={a_view(ah)} client={a_view(ac)}; diff={rec['diff']} desync={rec['dsc']}; notes={notes}",
@@ -622,6 +633,10 @@ def c22o_order(host, client, ctx):
         finish(fails)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
+    ts = tu.get("staged")
+    if ts is None or ts < C22O_TURN_TU or tu.get("now") != (ts, ts):
+        fails.append(f"precondition: A's TU staging {tu} (want the refilled TU = the cap equal on both and at least "
+                     f"{C22O_TURN_TU}, the {C22O_OCTANTS}-octant turn's cost)")
     if not si.get("sent"):
         fails.append(f"battle_intent turn answered {si.get('resp')} (want sent: an iseq)")
     ld = rec["client"]["lastDeny"] or {}
