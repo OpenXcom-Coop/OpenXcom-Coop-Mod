@@ -20,7 +20,7 @@ host admits it with vanilla's own checks and runs vanilla's own code under an
 `intent` action context (context kinds of spec (b)3: `melee`, `psi`,
 `mindprobe`) that ends in one bt_action_end; the ordering client runs vanilla's
 aftermath for its own action.
-Three scenarios, ONE boot, in this order:
+Four scenarios, ONE boot, in this order:
 
   C21    stun rod (W2-P2 C5's staging with C). A stun rod on C (lever, both,
          clear hands), C -> C21_C_TILE facing north (dir 0), A2 -> C21_A2_TILE
@@ -65,6 +65,18 @@ Three scenarios, ONE boot, in this order:
          player and mindControllerId C on both (C2 / F1129: the faction is the
          proof); C TU C22_TU_AFTER on both after each leg; lastAftermath
          {actionId, kind psi} for each leg.
+  C22o   an order for the mind-controlled alien (W2-P4 S-E4; review N29 =
+         F1096, Q8 (a); TASK 0 T0-8). Right after C22 on the same boot: A is
+         FACTION_PLAYER with mindControllerId C on both (the precondition, C2
+         / F1129). A's TU is set to max on both (client first; A has 0 TU
+         after the mind control, so the turn below is affordable). One client
+         `battle_intent turn` for A to A's facing + C22O_OCTANTS. RED (at
+         S-E4.1): the host denies it `not_your_unit` (onIntent compares A's
+         coop seat with the intent seat; the client's lastDeny), nothing
+         executed. GREEN (at S-E4.2): admitted through the seat-parametrised
+         commandsUnit (MJ-8: a mind-controlled unit is commanded by its
+         controller's seat): host closedContexts gains exactly one {origin
+         intent, kind turn, actorId A}; A's facing changed and equal on both.
 
 The order puts C23d before C22: C22's mind control makes A a player unit, and
 the mind probe refuses a target of the prober's own faction (primaryAction's
@@ -86,9 +98,7 @@ actionId; exactly one bt_action_end; client coopIntentsSent[wire kind] +1;
 client inFlight null at the end; client intentTimeouts unchanged (no
 STR_COOP_ACTION_TIMEOUT).
 
-Out of this file (spec, amendments): a client order for A after the mind
-control (N29 = F1096) is denied `not_your_unit` until Q8's fix, which is
-S-E's; that leg is S-E's to add. The host's psi infobox (H10) is W2-P6's.
+Out of this file (spec, amendments): the host's psi infobox (H10) is W2-P6's.
 
 Probes: all exist before this file (S-A.1 added coopIntentsSent,
 intentsReceived, lastActionHalt, lastAftermath). The cue payloads are read from
@@ -107,14 +117,17 @@ build proves them again (N18 = F1085).
 
 RED-THEN-GREEN (spec (d) row S-C). Commit S-C.1 (this file and the battle_fire
 melee / use stand-ins) is run ONCE and every scenario must FAIL with its RED
-evidence. Commit S-C.2 is run ONCE and every scenario must PASS. Each scenario
+evidence. Commit S-C.2 is run ONCE and every scenario must PASS. C22o is S-E4's
+row: its commit S-E4.1 is run ONCE with C21, C23d and C22 passing and C22o
+failing with its RED evidence; commit S-E4.2 is run ONCE and all four must
+PASS. Each scenario
 prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its green
 conditions are checked; main() runs every scenario even after an earlier one
 failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded;
 a wait that times out is recorded in the EVIDENCE line and fails the scenario.
 
 WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
-alternative map or actor. Exit 0 only when all three scenarios pass, 2
+alternative map or actor. Exit 0 only when all four scenarios pass, 2
 otherwise (a bring-up failure is also 2). WV-D95: run in the foreground to
 completion.
 
@@ -134,7 +147,8 @@ from test_w2_delta_items import unit_view, tile_of
 from test_w2_host_combat import bring_up_lobby_roster_pinned, ev_tuples
 from test_w2_client_shoot import (top, snap, ubrief, press, units, place, set_tu_both, await_press, order_done,
                                   collect, ctx_view, chain_of, forwarded_fails, tu_fails, common_fails, finish,
-                                  press_view, ui_view, TU_MAX, C_TU_FULL, POLL_S, SENT_WAIT_S, ORDER_TIMEOUT_S)
+                                  press_view, ui_view, send_intent, TU_MAX, C_TU_FULL, POLL_S, SENT_WAIT_S,
+                                  ORDER_TIMEOUT_S)
 from test_w2_client_grenade import (admitted_fails, cancel_client_targeting, open_hand_menu, target_order, settle,
                                     host_payloads_of)
 
@@ -184,6 +198,9 @@ C22_TU_AFTER = C_TU_FULL - PSI_TU             # 39
 C22P_A_MORALE = 70                # A morale 100 -> 70 after the panic
 C22_ROWS = 3                      # THROW + MIND CONTROL + PANIC
 C22_CHAIN = ["psi", "bt_action_end"]
+
+# ----- C22o (T0-8's order for A after the mind control; review N29 = F1096) -----
+C22O_OCTANTS = 2                  # T0b's order: A's facing + 2 octants
 
 # ----- UI -----
 KEY_ITEM1, KEY_ITEM2, KEY_ITEM3, KEY_ITEM4 = 49, 50, 51, 52   # keyBattleActionItem1..4
@@ -566,7 +583,61 @@ def c22_psi(host, client, ctx):
     finish(fails)
 
 
-SCENARIOS = (("C21", c21_stun), ("C23d", c23d_probe), ("C22", c22_psi))
+def c22o_order(host, client, ctx):
+    notes = []
+    a0 = {"host": a_view(units(host).get(A_ID)), "client": a_view(units(client).get(A_ID))}
+    mc = all((a0[n] or {}).get("faction") == FACTION_PLAYER and (a0[n] or {}).get("mindControllerId") == C_ID
+             for n in ("host", "client"))
+    staged = None
+    req = None
+    si = {}
+    d0 = None
+    before = snap(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    if mc:
+        try:
+            set_tu_both(host, client, A_ID, TU_MAX)
+            staged = diff_buckets(host, client)
+            d0 = units(client)[A_ID].get("direction")
+            req = {"cmd": "battle_intent", "kind": "turn", "actor": A_ID, "toDir": (d0 + C22O_OCTANTS) % 8}
+            before = snap(host, client)
+            seq0 = before["host"]["lastSeqEmitted"] or 0
+            si = send_intent(host, client, req, notes, timeout=ORDER_TIMEOUT_S)
+        except Exception as e:
+            notes.append(f"order: {short(e)}")
+        settle(host, client, notes)
+    rec = collect(host, client, seq0)
+    new = ctx_view(before, rec)
+    ah, ac = rec["uh"].get(A_ID) or {}, rec["uc"].get(A_ID) or {}
+    print(f"EVIDENCE C22o: A before host={a0['host']} client={a0['client']} mindControlled={mc} stagedDiff={staged} "
+          f"request={req} intent={ {k: si.get(k) for k in ('sent', 'iseq', 'answer')} } "
+          f"lastDeny={rec['client']['lastDeny']} banner={rec['clientUi']['banner']!r}; {press_view(before, rec)}; "
+          f"newContexts={new}; host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; "
+          f"A host={a_view(ah)} client={a_view(ac)}; diff={rec['diff']} desync={rec['dsc']}; notes={notes}",
+          flush=True)
+    fails = list(notes)
+    if not mc:
+        fails.append(f"precondition: A host={a0['host']} client={a0['client']} (want faction {FACTION_PLAYER} and "
+                     f"mindControllerId {C_ID} on both: C22's mind control)")
+        finish(fails)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if not si.get("sent"):
+        fails.append(f"battle_intent turn answered {si.get('resp')} (want sent: an iseq)")
+    ld = rec["client"]["lastDeny"] or {}
+    if si.get("iseq") and ld.get("iseq") == si.get("iseq"):
+        fails.append(f"the host denied the order: client lastDeny {ld} (want admitted: a mind-controlled unit is "
+                     f"commanded by its controller's seat, Q8 / MJ-8)")
+    f, _ = admitted_fails(before, rec, "turn", "turn", A_ID)
+    fails += f
+    if ah.get("direction") is None or ah.get("direction") != ac.get("direction") or ah.get("direction") == d0:
+        fails.append(f"A direction host={ah.get('direction')} client={ac.get('direction')} (want equal on both and "
+                     f"changed from {d0})")
+    fails += common_fails(host, client, before, "C22o")
+    finish(fails)
+
+
+SCENARIOS = (("C21", c21_stun), ("C23d", c23d_probe), ("C22", c22_psi), ("C22o", c22o_order))
 
 
 # ===================== bring-up =====================
