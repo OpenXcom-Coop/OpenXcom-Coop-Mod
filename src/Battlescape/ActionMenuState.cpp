@@ -40,6 +40,7 @@
 #include "../Interface/Text.h"
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/CoopDelta.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -90,7 +91,7 @@ ActionMenuState::ActionMenuState(BattleAction *action, int x, int y) : _action(a
 
 	if (weapon->isManaRequired() && _action->actor->getOriginalFaction() == FACTION_PLAYER)
 	{
-		if (!_game->getMod()->isManaFeatureEnabled() || !_game->getSavedGame()->isManaUnlocked(_game->getMod()))
+		if (!_game->getMod()->isManaFeatureEnabled() || !coopIsManaUnlockedFor(_game, _action->actor, _game->getMod()))
 		{
 			return;
 		}
@@ -313,7 +314,7 @@ void ActionMenuState::handleAction()
 
 		if (_action->type != BA_THROW &&
 			_action->actor->getOriginalFaction() == FACTION_PLAYER &&
-			!_game->getSavedGame()->isResearched(weapon->getRequirements()))
+			!coopIsResearchedFor(_game, _action->actor, weapon->getRequirements()))
 		{
 			_action->result = "STR_UNABLE_TO_USE_ALIEN_ARTIFACT_UNTIL_RESEARCHED";
 			_game->popState();

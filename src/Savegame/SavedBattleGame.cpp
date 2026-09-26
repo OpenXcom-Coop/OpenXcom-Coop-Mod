@@ -1199,7 +1199,7 @@ bool SavedBattleGame::canUseWeapon(const BattleItem* weapon, const BattleUnit* u
 	{
 		return false;
 	}
-	if (unit->getOriginalFaction() == FACTION_PLAYER && !_battleState->getGame()->getSavedGame()->isResearched(rule->getRequirements()))
+	if (unit->getOriginalFaction() == FACTION_PLAYER && !coopIsResearchedFor(_battleState->getGame(), unit, rule->getRequirements()))
 	{
 		return false;
 	}
@@ -1209,7 +1209,7 @@ bool SavedBattleGame::canUseWeapon(const BattleItem* weapon, const BattleUnit* u
 	}
 	if (rule->isManaRequired() && unit->getOriginalFaction() == FACTION_PLAYER)
 	{
-		if (!_rule->isManaFeatureEnabled() || !_battleState->getGame()->getSavedGame()->isManaUnlocked(_rule))
+		if (!_rule->isManaFeatureEnabled() || !coopIsManaUnlockedFor(_battleState->getGame(), unit, _rule))
 		{
 			return false;
 		}

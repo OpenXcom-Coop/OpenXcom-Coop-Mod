@@ -826,4 +826,14 @@ bool coopSeatResearchStored(int seat);
 int coopSeatResearchCount(int seat);
 int coopSeatResearchUnknown(int seat);
 
+/// W2-P4r S-R.2 (spec (b)6, Q-R6 (a); owner D149 "each soldier's owner's
+/// research"): coopSeatIsResearched() / coopSeatIsManaUnlocked() for @a
+/// unit's OWNER - its seat tag (BattleUnit::getCoopSeat()), never the
+/// controller; a null or seat-less unit reads the live world. Called by the
+/// guarded vanilla terms (SavedBattleGame::canUseWeapon, ActionMenuState) and
+/// the host's admission (coopWeaponUseDeny); @a mod = the Mod* the vanilla
+/// site passes (PR-R5).
+bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<const RuleResearch*>& req);
+bool coopIsManaUnlockedFor(Game* game, const BattleUnit* unit, Mod* mod);
+
 } // namespace OpenXcom

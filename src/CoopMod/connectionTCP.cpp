@@ -64,6 +64,7 @@
 #include "../Battlescape/SkillMenuState.h" // W2-P4 S-E2.2: chooseWeaponForSkill() + the skill continuation (ActionMenuState)
 #include "../Mod/RuleSkill.h" // W2-P4 S-E2.2: the `skill` intent
 #include "../Mod/RuleSoldier.h" // W2-P4 S-E2.2: a soldier's skill list (the skill menu's filter)
+#include "../Mod/RuleResearch.h" // W2-P4r S-R.2: the research list's names (battle_accept)
 #include "../Interface/Cursor.h" // W2-P4 S-A.2: the ordering client's cursor restore
 #include "../Battlescape/AIModule.h" // W2-P3 S-C.2: a unitsAdded record's `AI` (load pass 1)
 
@@ -4627,6 +4628,67 @@ int coopSeatResearchUnknown(int seat)
 	return g_coopSeatResearchUnknown[seat];
 }
 
+// W2-P4r S-R.2 (spec (b)3, Q-R1 (a)): the store's writer. Seat 1..3 only (seat
+// 0 is always the live world). A fresh research-only SavedGame is filled with
+// vanilla addFinishedResearchSimple() for every name the Mod knows (unknown
+// names are counted, never added), then swapped in under the mutex: a later
+// accept for the same seat replaces the entry. The replaced entry is freed
+// outside the lock. Callers: the client for its own seat
+// (CoopHandshake::onOffer(), before it adopts the host's world) and the host
+// for the accepting seat (CoopHandshake::onAccept()).
+static void coopStoreSeatResearch(int seat, const Json::Value& names, Mod* mod)
+{
+	if (seat < 1 || seat > 3 || !mod)
+		return;
+	std::unique_ptr<SavedGame> world(new SavedGame());
+	int unknown = 0;
+	if (names.isArray())
+	{
+		for (Json::ArrayIndex i = 0; i < names.size(); ++i)
+		{
+			const RuleResearch* r = names[i].isString() ? mod->getResearch(names[i].asString(), false) : nullptr;
+			if (r)
+				world->addFinishedResearchSimple(r);
+			else
+				++unknown;
+		}
+	}
+	{
+		std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+		g_coopSeatResearch[seat].swap(world);
+		g_coopSeatResearchUnknown[seat] = unknown;
+	}
+}
+
+// W2-P4r S-R.2 (spec (b)3/(b)9, PR-R6): empties every seat's list, unknown
+// count and "logged once" latch under the mutex (the lists are freed outside
+// it). Called from resetBattleAuthority(), beside the g_guestContrib clear.
+static void coopClearSeatResearch()
+{
+	std::unique_ptr<SavedGame> old[4];
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	for (int s = 0; s < 4; ++s)
+	{
+		old[s].swap(g_coopSeatResearch[s]);
+		g_coopSeatResearchUnknown[s] = 0;
+		g_coopSeatResearchNoListLogged[s] = false;
+	}
+}
+
+// W2-P4r S-R.2 (spec (b)6, Q-R6 (a); owner D149: "each soldier's owner's
+// research"): the unit's OWNER is its seat tag (BattleUnit::getCoopSeat()),
+// never the controller. A null unit, a seat-less one (COOP_SEAT_NONE: HWPs,
+// aliens, civilians, single player) and seat 0 read the live world.
+bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<const RuleResearch*>& req)
+{
+	return coopSeatIsResearched(game, unit ? (int)unit->getCoopSeat() : -1, req);
+}
+
+bool coopIsManaUnlockedFor(Game* game, const BattleUnit* unit, Mod* mod)
+{
+	return coopSeatIsManaUnlocked(game, unit ? (int)unit->getCoopSeat() : -1, mod);
+}
+
 // W2-P1 (thin-client tripwire, commit 1 of 2): the storage behind
 // coopClientBStatePushes() / coopClientBStateLastSite() /
 // coopClientPanicSkipped() (BattleAuthority.h). Battle-scoped, so declared
@@ -4690,6 +4752,9 @@ void resetBattleAuthority()
 		entry.soldiers.clear();
 	}
 	g_guestContribLastSentCount = 0;
+	// W2-P4r S-R.2 (spec (b)3/(b)9): the per-seat research lists are
+	// battle-scoped too - a new battle must never inherit the previous one's.
+	coopClearSeatResearch();
 	// SPEC 17 (W1-P18) M1: the per-seat speed table is battle-scoped state
 	// too - a new battle must never inherit the previous one's dials.
 	CoopSpeed::reset();
@@ -6978,17 +7043,20 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 // W2-P4 S-A.2 (spec (b)2 (v), D146 research combined, amendment C3): step 3 of
 // every combat admission that is not a throw - a donor reproduction of
 // ActionMenuState::handleAction()'s research check (ActionMenuState.cpp
-// :314-319, BA_THROW exempt) - the vanilla text canUseWeapon() lacks - against
-// the HOST's SavedGame, then canUseWeapon() as is. nullptr = allowed. (W2-P4
-// S-B: moved out of validateShoot() unchanged so validatePrime() runs the same
-// two checks the action menu ran for BA_PRIME / BA_UNPRIME.)
+// :314-319, BA_THROW exempt) - the vanilla text canUseWeapon() lacks - then
+// canUseWeapon() as is. nullptr = allowed. (W2-P4 S-B: moved out of
+// validateShoot() unchanged so validatePrime() runs the same two checks the
+// action menu ran for BA_PRIME / BA_UNPRIME.) W2-P4r S-R.2 (C1, PR-R4, owner
+// D149): the research read is the actor OWNER's - coopIsResearchedFor(), the
+// helper the action menu reads too: this machine's live world, unless the
+// research-separate mode routes a seat 1..3 actor to its stored list.
 static const char* coopWeaponUseDeny(BattleUnit* actor, BattleItem* weapon, BattleActionType type,
 	SavedBattleGame* save)
 {
 	BattlescapeState* bstate = save->getBattleState();
-	SavedGame* game = (bstate && bstate->getGame()) ? bstate->getGame()->getSavedGame() : nullptr;
 	if (type != BA_THROW && actor->getOriginalFaction() == FACTION_PLAYER
-		&& game && !game->isResearched(weapon->getRules()->getRequirements()))
+		&& bstate && bstate->getGame()
+		&& !coopIsResearchedFor(bstate->getGame(), actor, weapon->getRules()->getRequirements()))
 	{
 		return "not_researched";
 	}
@@ -17713,16 +17781,35 @@ void onOffer(Game* game, const Json::Value& offer)
 	// chokepoint, but a belt-and-braces clear here costs nothing).
 	mapData.clear();
 
+	// W2-P4r S-R.2 (spec (b)2, Q-R7 (a); owner D149): THIS machine's own
+	// research list, captured HERE - before it adopts the host's world
+	// (onBlobChunkAppended()'s setSavedGame(), which runs only after the host
+	// has read this accept and streamed the blob) - stored for this machine's
+	// own seat and shipped on the accept. On every offer, in every mode: the
+	// research-separate mode is read at each check and can turn on mid-battle
+	// (#185). Additive fields; protocolVersion stays 1.
+	const int researchSeat = coopBattleAuthority().localSeat;
+	Json::Value research(Json::arrayValue);
+	if (SavedGame* own = game->getSavedGame())
+	{
+		for (const RuleResearch* r : own->getDiscoveredResearch())
+			research.append(r->getName());
+	}
+	coopStoreSeatResearch(researchSeat, research, game->getMod());
+
 	Json::Value accept(Json::objectValue);
 	accept["state"] = "battle_accept";
 	accept["protocolVersion"] = 1;
 	accept["battleId"] = battleId;
+	accept["seat"] = researchSeat;
+	accept["research"] = research;
 	CoopEmit::sendBattle(accept);
 
 	Log(LOG_INFO) << "[coop-handshake] battle_offer accepted (battleId=" << battleId
 		<< ", turnMode=" << coopTurnModeName(coopBattleAuthority().turnMode)
 		<< (g_pendingClient.turnMode.empty() ? " [key ABSENT - D-26 degrade]" : "")
-		<< ", expecting " << g_pendingClient.blobBytes << " bytes)";
+		<< ", expecting " << g_pendingClient.blobBytes << " bytes)"
+		<< ", research=" << research.size();
 }
 
 // FX-1 (WV-D56) test/introspection: how many times coopClientMirrorFirstTurnCounter()
@@ -18158,6 +18245,21 @@ void onAccept(Game* game, const Json::Value& accept)
 		return;
 	}
 
+	// W2-P4r S-R.2 (spec (b)4; owner D149): store the accepting seat's research
+	// list (its own, captured before it adopts this machine's world). An accept
+	// without the field (an older peer) or from a seat outside this battle
+	// stores nothing: that seat's checks then read the live (host) world,
+	// D146's combined behaviour (coopSeatIsResearched() logs that once), and
+	// the line below says researchTopics=-1.
+	const int researchSeat = accept.get("seat", -1).asInt();
+	bool researchStored = false;
+	if (accept.isMember("research") && researchSeat >= 1 && researchSeat <= 3
+		&& std::find(g_pendingHost.seats.begin(), g_pendingHost.seats.end(), researchSeat) != g_pendingHost.seats.end())
+	{
+		coopStoreSeatResearch(researchSeat, accept["research"], game->getMod());
+		researchStored = true;
+	}
+
 	// Trigger the KEPT sendMissionFile carrier: loopData() (already running on
 	// its own thread) watches sendFileClient/sendFileBase and streams whatever
 	// is in coopFilesHost["battlehost"] (offerBattle() just populated it) as
@@ -18167,7 +18269,10 @@ void onAccept(Game* game, const Json::Value& accept)
 	sendFileClient = true;
 
 	Log(LOG_INFO) << "[coop-handshake] battle_accept received (battleId=" << battleId
-		<< ") - streaming the battle blob";
+		<< ") - streaming the battle blob"
+		<< ", researchSeat=" << researchSeat
+		<< ", researchTopics=" << (researchStored ? coopSeatResearchCount(researchSeat) : -1)
+		<< ", researchUnknown=" << (researchStored ? coopSeatResearchUnknown(researchSeat) : 0);
 }
 
 void onRefuse(Game* game, const Json::Value& refuse)
