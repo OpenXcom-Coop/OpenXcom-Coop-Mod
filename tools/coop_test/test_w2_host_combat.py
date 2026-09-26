@@ -12,7 +12,7 @@ opened for the host's shot or stun, so no cue ev (`shot`, `hit`, `melee`,
 `death`, `corpse`) is sent and no `bt_action_end` closes it. After stage S-C
 the host opens a host-local combat context (CoopArbiter::beginHostLocalCombat,
 spec (b)13), the six vanilla cue hooks emit their cues with the action's id and
-`h`, and the chain's end emits the action's `bt_action_end`. Two scenarios,
+`h`, and the chain's end emits the action's `bt_action_end`. Three scenarios,
 ONE boot, in this order:
 
   C1  host real-UI snap shot kills alien A. H gets a rifle + clip
@@ -42,6 +42,31 @@ ONE boot, in this order:
       payload.corpses = [the body item id]); A2 status UNCONSCIOUS and stun
       equal on both; the body item (unitLink A2) equal on both; A2's weapon
       on the ground on both; the common asserts.
+  D3  (W2-P6b S-D, the NEW last scenario) a two-victim death burst. C (8) ->
+      D3_C_TILE facing D3_C_DIR, C2 (9) -> D3_C2_TILE facing D3_C2_DIR (BOTH),
+      then the HOST's battle_action kill_unit_real {coop_side: 1}; bounded waits
+      for both DEAD on the host with no BState (F823) and the client caught up.
+      The lever runs on an empty host state stack, so C's UnitDieBState is the
+      host's front state and C2's queues behind it (TASK 0b T0b-2: host evs
+      exactly D3_EVS, the D3_DEATHS / D3_CORPSES payloads, 6 runs identical).
+
+W2-P6b S-D (spec rewrite/prompts/w2p6_display_two.md section 8 and the P6b plan
+review's section 2 rows D1-D3; AMENDMENT P6b-1; AMENDMENT P6b-2 = TASK 0b's
+traced host schedule, which replaces section 8's tick model): the watching
+machine plays each animated death as the host does. D1 (C1's kill of A) and D2
+(C5's stun of A2) each want ONE client record for the death ev's seq in
+event_state displayTwo.death.ring, D3 wants two (V1 = C, V2 = C2, in the host's
+order), and every `death` payload carries the additive `front` (the host's
+state stack was empty at the push). Each record's schedule (Ic, tc, isOutMs,
+popMs) equals death_schedule() for its own inputs; its frames, sound and
+overKill match both machines' battle_state (D-S3) and the pins. Common to the
+three rows: the client's rngSeed unchanged across the row, the host's
+displayTwo all zero, the client's completed + cut == enqueued once its death
+ghosts ended (a bounded wait). coopGhostStepper is pinned true in both
+instances' options (the W2-P5 ghost-file precedent). RED (commit S-D.1: the
+probes exist, nothing writes them): C1, C5 and D3 fail only on
+displayTwo.death (no record) and the payload's missing `front`. Each row
+prints ONE "EVIDENCE D<n>:" line.
 
 Both scenarios also check the cueCounts probe against the event logs (for
 each cue kind the scenario expects: host cueCounts delta == `kind` evs the
@@ -75,7 +100,7 @@ CLIENT first, then the HOST (F607, S-H.1a), with the responses asserted equal;
 every item a lever creates is created on both machines with ids asserted
 equal. set_seed on the HOST immediately before each action.
 
-RED-THEN-GREEN (spec (d), Q4 = b). Commit S-C.1 (this file and the
+RED-THEN-GREEN (spec (d), Q4 = b; W2-P6b S-D: the D rows above). Commit S-C.1 (this file and the
 event_state probes hostCombatContexts / cueCounts / lastCue - storage and
 readers only, nothing writes them) is run ONCE and both scenarios must FAIL
 with their named red evidence while the state is already equal. Commit S-C.2
@@ -87,13 +112,15 @@ bounded; a wait that times out is recorded in the EVIDENCE line and fails the
 scenario.
 
 WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
-alternative map or actor. Exit 0 only when both scenarios pass, 2 otherwise
+alternative map or actor. Exit 0 only when every scenario passes, 2 otherwise
 (a bring-up failure is also 2). WV-D95: run in the foreground to completion.
 
 Run:  python tools/coop_test/test_w2_host_combat.py
 """
 
+import json
 import os
+import re
 import sys
 import time
 
@@ -141,6 +168,34 @@ SEED_C5 = 1                      # STUN (key 52): A2 UNCONSCIOUS, stun 120, heal
 A_WEAPON = 56                    # A's right-hand STR_PLASMA_PISTOL
 A2_WEAPON = 59                   # A2's right-hand STR_PLASMA_RIFLE
 FIRING_120 = 120
+
+# ----- W2-P6b S-D (section 8 + review section 2 rows D1-D3; AMENDMENTS P6b-1 and P6b-2; TASK 0b) -----
+DEATH_IS_TURN = 33               # the UnitDieBState ctor's last interval for a victim that must turn
+                                 # (DEFAULT_ANIM_SPEED / 3, UnitDieBState.cpp :100/:103; F1768)
+DEATH_IC = 100                   # DEFAULT_ANIM_SPEED: the collapse interval the pirouette's end sets (:183)
+DEATH_F = 3                      # deathFrames of SECTOID_ARMOR0 and STR_NONE_UC (T0b-3 on the S-D.1 build, both
+                                 # machines, terror seed 1 and the default map; F1768)
+SECTOID_DEATH_SOUNDS = [10]      # battle_state deathSounds of A and A2 (T0b-3, equal on both machines)
+SOLDIER_DEATH_SOUNDS = [41, 42, 43]   # every soldier of the pinned roster: C, C2, H, U (T0b-3, both machines)
+NO_SOUND = -1                    # a stun's record sound: the host plays none (N6 = F1655)
+OVERKILL_NONE = 0                # getOverKillDamage() after C1, C5 and the D3 lever deaths (T0b-1, T0b-3, F1767)
+DIRS_4_TO_3 = [4, 5, 6, 7, 0, 1, 2, 3]   # the drawn directions of a 7-octant pirouette from dir 4 (D1, D2)
+PHASES_ALL = list(range(DEATH_F))        # [0, 1, 2]: every collapse frame drawn
+C1_DEATH = {"unit": A_ID, "outcome": "dead", "instant": False, "damageType": 1}          # T0b-1 (seq 7)
+C5_DEATH = {"unit": A2_ID, "outcome": "unconscious", "instant": False, "damageType": 0}  # T0b-1 (seq 12)
+DEATH_KEYS = ("unit", "outcome", "instant", "damageType")
+DEATH_SETTLE_S = 5.0             # bounded wait for the client's death ghosts to end after the chain settled
+# D3 (TASK 0b T0b-2 = F1767/F1769: 6 runs identical, 26.6 s per boot)
+C_ID, C2_ID = 8, 9               # the client seat's soldiers
+D3_C_TILE, D3_C_DIR = (12, 26, 0), 4     # open road (H left it at C5)
+D3_C2_TILE, D3_C2_DIR = (12, 27, 0), 1   # open road
+D3_SEQ0 = 14                     # host lastSeqEmitted right before the lever (after C1 and C5)
+D3_KILLED = [C_ID, C2_ID]        # the lever's answer
+D3_EVS = [(15, "death", 0), (16, "death", 0), (17, "corpse", 0), (18, "corpse", 0)]   # host = client
+D3_DEATHS = {15: {"unit": C_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": True},
+             16: {"unit": C2_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": False}}
+D3_CORPSES = {17: {"unit": C_ID, "corpses": [101]}, 18: {"unit": C2_ID, "corpses": [102]}}
+DIR_FACING_3 = 3                 # a collapsed unit's final direction (the corpse ev's DEAD carrier, F1767)
 
 PORT = "48625"
 FACTION_PLAYER = 0
@@ -330,6 +385,201 @@ def cue_delta(before, after):
     return {k: (after.get(k) or 0) - (before.get(k) or 0) for k in keys if (after.get(k) or 0) != (before.get(k) or 0)}
 
 
+# ===================== W2-P6b S-D: the death records =====================
+
+# The host's own coopEmitCue log line (connectionTCP.cpp): `[coop-cue] <kind> seq <n> actionId <a>: <payload>`.
+CUE_RE = re.compile(r"\[coop-cue\] (\S+) seq (\d+) actionId (\d+): (\{.*\})\s*$", re.M)
+DEATH_COUNT_KEYS = ("enqueued", "started", "completed", "cut", "instant")
+
+
+def cue_payloads(host, seqs, timeout=5.0):
+    """{seq: payload} from the HOST's own openxcom.log `[coop-cue]` lines for every seq in `seqs`, read with a
+    bounded wait for the log write to land (event_log carries no payload)."""
+    path = os.path.join(host.user_dir, "openxcom.log")
+    want = set(s for s in seqs if s is not None)
+    deadline = time.time() + timeout
+    while True:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            text = ""
+        found = {}
+        for m in CUE_RE.finditer(text):
+            s = int(m.group(2))
+            if s in want:
+                try:
+                    found[s] = json.loads(m.group(4))
+                except ValueError as e:
+                    found[s] = {"unparsed": m.group(4)[:300], "error": str(e)}
+        if want <= set(found) or time.time() >= deadline:
+            return found
+
+
+def display_two(gc):
+    """event_state displayTwo (W2-P6b S-D.1) of this machine ({} when absent)."""
+    es = event_state(gc)
+    assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
+    return es.get("displayTwo") or {}
+
+
+def death_of(dt):
+    return (dt or {}).get("death") or {}
+
+
+def death_counts(dt):
+    c = death_of(dt).get("counts") or {}
+    return {k: c.get(k) for k in DEATH_COUNT_KEYS}
+
+
+def rng_of(gc):
+    return event_state(gc).get("rngSeed")
+
+
+def death_snap(host, client):
+    """The row's S-D starting point: both machines' displayTwo and the client's rngSeed."""
+    return {"dt": {"host": display_two(host), "client": display_two(client)}, "rng": rng_of(client)}
+
+
+def death_schedule(front, octants, is_ms, frames, respawn):
+    """AMENDMENT P6b-2 (TASK 0b, F1764/F1765; replaces section 8 D-e's tick model): the host's traced death
+    schedule in ms from the victim's first think. A `front` death (the host's state stack was empty at the push)
+    turns its first octant at +0, a queued head at +Is; later octants every Is; the last octant -> startFalling
+    (tc) takes 2 x Ic - Is; isOut = tc + F x Ic (a respawn victim consumes every frame in tc's own tick, so
+    isOut = tc); pop = isOut + 2 x Ic. Ic = DEATH_IC after a pirouette (UnitDieBState :183); a victim already
+    facing 3 (no pirouette, recorded untested) keeps the inherited Is and falls at its first think."""
+    if octants > 0:
+        ic = DEATH_IC
+        tc = (0 if front else is_ms) + (octants - 1) * is_ms + 2 * ic - is_ms
+    else:
+        ic = is_ms
+        tc = 0 if front else is_ms
+    is_out = tc if respawn else tc + frames * ic
+    return {"Ic": ic, "tc": tc, "isOutMs": is_out, "popMs": is_out + 2 * ic}
+
+
+def wait_death_ghosts_ended(client, notes, timeout=DEATH_SETTLE_S):
+    """Bounded: every death ghost the client enqueued has ended (completed + cut == enqueued)."""
+    def ended():
+        c = death_counts(display_two(client))
+        return ((c["completed"] or 0) + (c["cut"] or 0) == (c["enqueued"] or 0)) or None
+    try:
+        client.wait_for("the client's death ghosts ended (completed + cut == enqueued)", ended, timeout=timeout,
+                        interval=0.1)
+    except Exception as e:
+        notes.append(f"client death ghosts: {short(e)}")
+
+
+def death_row(tag, host, client, snap0, wants=(), extra=None):
+    """Section 2 rows D1-D5 after the row's chain settled. `wants` = the expected client death records in the
+    host's queue order, each {seq, actionId, unit, payload (the pinned subset), front (None = only equal to the
+    payload's), fromDir, octants, respawn, Is, sounds, startedAfterSeq, overKill, endedBy, and optionally
+    unitDyingSet, unitDyingCleared, dirsShown, phasesShown, payloadFront (False: the payload's `front` is checked
+    through the record only)}. Prints ONE "EVIDENCE <tag>:" line, returns fails.
+    Common (section 2 "All rows"): the client's rngSeed unchanged across the row, the host's displayTwo all zero,
+    the client's completed + cut == enqueued; D-S3: frames, sound lists and overKill equal on both machines and
+    equal the pins."""
+    dt1 = {"host": display_two(host), "client": display_two(client)}
+    rng1 = rng_of(client)
+    uh, uc = units(host), units(client)
+    pl = cue_payloads(host, [w["seq"] for w in wants])
+    ring = death_of(dt1["client"]).get("ring") or []
+    c0, c1 = death_counts(snap0["dt"]["client"]), death_counts(dt1["client"])
+    hd = death_of(dt1["host"])
+    recs = {w["seq"]: [r for r in ring if w["seq"] is not None and r.get("seq") == w["seq"]] for w in wants}
+    lists = {w["unit"]: {n: {k: (u.get(w["unit"]) or {}).get(k) for k in ("deathSounds", "deathFrames", "overKill",
+                                                                          "fallPhase", "status", "health")}
+                         for n, u in (("host", uh), ("client", uc))} for w in wants}
+    print(f"EVIDENCE {tag}: " + json.dumps({
+        "payloads": {str(s): pl.get(s) for s in recs}, "records": {str(s): r for s, r in recs.items()},
+        "clientCounts": {"before": c0, "after": c1},
+        "clientQueued": death_of(dt1["client"]).get("queued"), "ringSeqs": [r.get("seq") for r in ring],
+        "hostDisplayTwo": dt1["host"], "units": {str(u): v for u, v in lists.items()},
+        "rngClient": {"before": snap0["rng"], "after": rng1},
+        "want": wants, "extra": extra}, sort_keys=True, default=str), flush=True)
+    fails = []
+    # the additive `front` on each death payload (ST1 a) and the pinned payload subset
+    for w in wants:
+        p = pl.get(w["seq"]) if w["seq"] is not None else None
+        if p is None:
+            fails.append(f"{tag}: no host `death` payload for seq {w['seq']}")
+            continue
+        sub = {k: p.get(k) for k in w["payload"]}
+        if sub != w["payload"]:
+            fails.append(f"{tag}: host death payload seq {w['seq']} {sub} (want {w['payload']})")
+        if not w.get("payloadFront", True):
+            continue   # D5: `front` is read through its record only (record front == payload front)
+        if "front" not in p or not isinstance(p.get("front"), bool):
+            want_f = "a bool" if w["front"] is None else str(w["front"]).lower()
+            fails.append(f"{tag}: host death payload seq {w['seq']} has no `front` (want {want_f}; payload {p})")
+        elif w["front"] is not None and p["front"] is not w["front"]:
+            fails.append(f"{tag}: host death payload seq {w['seq']} front={p['front']} (want {w['front']})")
+    # the client's death records
+    missing = [w["seq"] for w in wants if len(recs[w["seq"]]) != 1]
+    if missing:
+        fails.append(f"{tag}: client displayTwo.death has no single record for the death seq(s) {missing} (records "
+                     f"per seq {[(s, len(r)) for s, r in recs.items()]}; ring seqs {[r.get('seq') for r in ring]}; "
+                     f"counts {c0} -> {c1}; want exactly one record per death and enqueued +{len(wants)})")
+    else:
+        d_enq = (c1["enqueued"] or 0) - (c0["enqueued"] or 0)
+        d_inst = (c1["instant"] or 0) - (c0["instant"] or 0)
+        if d_enq != len(wants) or d_inst != 0:
+            fails.append(f"{tag}: client displayTwo.death counts {c0} -> {c1} (want enqueued +{len(wants)}, "
+                         f"instant +0)")
+        if (c1["completed"] or 0) + (c1["cut"] or 0) != (c1["enqueued"] or 0):
+            fails.append(f"{tag}: client displayTwo.death counts {c1} (want completed + cut == enqueued)")
+        for w in wants:
+            r = recs[w["seq"]][0]
+            p = pl.get(w["seq"]) or {}
+            unit_c = uc.get(w["unit"]) or {}
+            frames = unit_c.get("deathFrames")
+            want = {"actionId": w["actionId"], "unit": w["unit"], "instant": False, "outcome": w["payload"]["outcome"],
+                    "front": p.get("front") if w["front"] is None else w["front"], "fromDir": w["fromDir"],
+                    "octants": w["octants"], "frames": DEATH_F, "respawn": w["respawn"], "Is": w["Is"],
+                    "startedAfterSeq": w["startedAfterSeq"], "overKill": w["overKill"], "endedBy": w["endedBy"]}
+            want.update(death_schedule(want["front"], w["octants"], w["Is"], DEATH_F, w["respawn"]))
+            for k in ("unitDyingSet", "unitDyingCleared", "dirsShown", "phasesShown"):
+                if k in w:
+                    want[k] = w[k]
+            got = {k: r.get(k) for k in want}
+            bad = {k: (got[k], want[k]) for k in want if got[k] != want[k]}
+            if bad:
+                fails.append(f"{tag}: client death record seq {w['seq']} (got, want) {bad} (record {r})")
+            if not w.get("payloadFront", True) and not isinstance(p.get("front"), bool):
+                fails.append(f"{tag}: host death payload seq {w['seq']} front={p.get('front')!r} (want a bool)")
+            if (3 - (r.get("fromDir") or 0)) % 8 != r.get("octants"):
+                fails.append(f"{tag}: record seq {w['seq']} octants {r.get('octants')} != (3 - fromDir "
+                             f"{r.get('fromDir')}) mod 8")
+            if frames != DEATH_F:
+                fails.append(f"{tag}: client battle_state deathFrames of {w['unit']} = {frames} (want {DEATH_F})")
+            snd = r.get("sound")
+            if w["payload"]["outcome"] == "dead":
+                if snd not in w["sounds"]:
+                    fails.append(f"{tag}: record seq {w['seq']} sound {snd} (want one of {w['sounds']})")
+            elif snd != NO_SOUND:
+                fails.append(f"{tag}: record seq {w['seq']} sound {snd} (want {NO_SOUND}: a stun plays none)")
+    # D-S3: the watcher's inputs equal the host's and the pins
+    for w in wants:
+        lh, lc = lists[w["unit"]]["host"], lists[w["unit"]]["client"]
+        if lh["deathSounds"] != w["sounds"] or lc["deathSounds"] != w["sounds"]:
+            fails.append(f"{tag}: deathSounds of {w['unit']} host={lh['deathSounds']} client={lc['deathSounds']} "
+                         f"(want {w['sounds']} on both: D-S3)")
+        if lh["deathFrames"] != DEATH_F or lc["deathFrames"] != DEATH_F:
+            fails.append(f"{tag}: deathFrames of {w['unit']} host={lh['deathFrames']} client={lc['deathFrames']} "
+                         f"(want {DEATH_F} on both: D-S3)")
+        if lh["overKill"] != w["overKill"] or lc["overKill"] != w["overKill"]:
+            fails.append(f"{tag}: overKill of {w['unit']} host={lh['overKill']} client={lc['overKill']} "
+                         f"(want {w['overKill']} on both: D-S3, ST4)")
+    # common: the host never ghosts, the client's sim RNG untouched
+    hc_ = hd.get("counts") or {}
+    if (not hd or any((hc_.get(k) or 0) != 0 for k in DEATH_COUNT_KEYS) or (hd.get("queued") or 0) != 0
+            or hd.get("ring")):
+        fails.append(f"{tag}: host displayTwo {dt1['host']} (want the death counts all 0, queued 0, no record)")
+    if snap0["rng"] is None or rng1 != snap0["rng"]:
+        fails.append(f"{tag}: client rngSeed {snap0['rng']} -> {rng1} (want unchanged: V4)")
+    return fails
+
+
 # ===================== scenarios =====================
 
 
@@ -354,6 +604,7 @@ def c1_snap_kill(host, client, ctx):
     spotted0 = battle_state(host).get("spotted")
     before = {"host": probes(host), "client": probes(client)}
     cb = {"host": cue_probes(host), "client": cue_probes(client)}
+    snap_d = death_snap(host, client)   # W2-P6b S-D row D1
     seq0 = before["host"]["lastSeqEmitted"] or 0
     cursor0 = None
     try:
@@ -375,6 +626,7 @@ def c1_snap_kill(host, client, ctx):
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
         notes.append(f"wait_host_idle after the shot: {short(e)}")
+    wait_death_ghosts_ended(client, notes)
     uh, uc = units(host), units(client)
     ih, ic = items_by_id(host), items_by_id(client)
     ph, pc = probes(host), probes(client)
@@ -411,6 +663,12 @@ def c1_snap_kill(host, client, ctx):
           f"{ph['lastDelta']} client lastDelta={pc['lastDelta']}; host {delta_view(before['host'])}->"
           f"{delta_view(ph)}; client {delta_view(before['client'])}->{delta_view(pc)}; notes={notes}",
           flush=True)
+    # W2-P6b S-D row D1 (review section 2; AMENDMENT P6b-2's schedule): A's animated death on the client
+    d1 = death_row("D1", host, client, snap_d, [
+        {"seq": seq_of(chain, "death"), "actionId": aid, "unit": A_ID, "payload": C1_DEATH, "front": False,
+         "fromDir": C1_A_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN, "sounds": SECTOID_DEATH_SOUNDS,
+         "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": False,
+         "dirsShown": DIRS_4_TO_3, "phasesShown": PHASES_ALL}])
     fails = list(notes)
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
@@ -463,6 +721,7 @@ def c1_snap_kill(host, client, ctx):
         fails.append(f"H tu host={th} client={tc} (want equal)")
     if clip1["host"] is None or clip1["host"] != clip1["client"]:
         fails.append(f"clip {clip} qty host={clip1['host']} client={clip1['client']} (want equal)")
+    fails += d1
     fails += common_fails(host, client, before, {}, "C1")
     finish(fails)
 
@@ -483,6 +742,7 @@ def c5_stun(host, client, ctx):
     w0 = {"host": ih0.get(A2_WEAPON), "client": ic0.get(A2_WEAPON)}
     before = {"host": probes(host), "client": probes(client)}
     cb = {"host": cue_probes(host), "client": cue_probes(client)}
+    snap_d = death_snap(host, client)   # W2-P6b S-D row D2
     seq0 = before["host"]["lastSeqEmitted"] or 0
     cursor0 = None
     try:
@@ -497,6 +757,7 @@ def c5_stun(host, client, ctx):
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
         notes.append(f"wait_host_idle after the stun: {short(e)}")
+    wait_death_ghosts_ended(client, notes)
     uh, uc = units(host), units(client)
     ih, ic = items_by_id(host), items_by_id(client)
     ph, pc = probes(host), probes(client)
@@ -528,6 +789,12 @@ def c5_stun(host, client, ctx):
           f"{pc['syncEvsApplied']}; host lastDelta={ph['lastDelta']} client lastDelta={pc['lastDelta']}; "
           f"host {delta_view(before['host'])}->{delta_view(ph)}; client {delta_view(before['client'])}->"
           f"{delta_view(pc)}; notes={notes}", flush=True)
+    # W2-P6b S-D row D2 (review section 2): A2's animated stun collapse on the client, no sound (N6)
+    d2 = death_row("D2", host, client, snap_d, [
+        {"seq": seq_of(chain, "death"), "actionId": aid, "unit": A2_ID, "payload": C5_DEATH, "front": False,
+         "fromDir": C5_A2_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN, "sounds": SECTOID_DEATH_SOUNDS,
+         "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": False,
+         "dirsShown": DIRS_4_TO_3, "phasesShown": PHASES_ALL}])
     fails = list(notes)
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
@@ -563,11 +830,106 @@ def c5_stun(host, client, ctx):
     if tile_of(w1["host"]) != tile_of(w1["client"]):
         fails.append(f"weapon {A2_WEAPON} tile host={tile_of(w1['host'])} client={tile_of(w1['client'])} "
                      f"(want the same)")
+    fails += d2
     fails += common_fails(host, client, before, {}, "C5")
     finish(fails)
 
 
-SCENARIOS = (("C1", c1_snap_kill), ("C5", c5_stun))
+def host_both_dead_idle(host, uids):
+    """HOST only: every unit in `uids` DEAD, no BState queued or running (F823)."""
+    bs = battle_state(host)
+    ub = session.units_by_id(bs)
+    return (all((ub.get(u) or {}).get("status") == STATUS_DEAD for u in uids) and bs.get("pendingStates") == 0
+            and not bs.get("isBusy")) or None
+
+
+def d3_burst(host, client, ctx):
+    """W2-P6b S-D row D3 (review section 2, OR1 (a); AMENDMENT P6b-2 / T0b-2 = F1767): the kill-lever burst of
+    seat 1. The host's evs are exactly D3_EVS (actionId 0: the lever opens no context); C's death is the host's
+    front state (payload front true), C2's queues behind it (front false) and starts at C's pop with the
+    interval C's pirouette left (Is 100). Client: V1 = C {startedAfterSeq 0, Is 33, 7 octants}, V2 = C2
+    {startedAfterSeq = V1's seq, Is 100, 2 octants}; both set the Map's dying flag (player victims), V1's release
+    clears it (V2's then finds it cleared); both end "out" at their own corpse ev."""
+    notes = []
+    uh0 = units(host)
+    own = [uid for uid, t in ((C_ID, D3_C_TILE), (C2_ID, D3_C2_TILE))
+           if ((uh0.get(uid) or {}).get("x"), (uh0.get(uid) or {}).get("y"), (uh0.get(uid) or {}).get("z")) == t]
+    tele = {}
+    if not own:   # S2: a unit is never teleported onto its own tile
+        tele["C"] = tele_both(host, client, C_ID, D3_C_TILE, D3_C_DIR)
+        tele["C2"] = tele_both(host, client, C2_ID, D3_C2_TILE, D3_C2_DIR)
+    staged_diff = diff_buckets(host, client)
+    staged = {n: {uid: unit_brief(u.get(uid)) for uid in (C_ID, C2_ID)}
+              for n, u in (("host", units(host)), ("client", units(client)))}
+    before = {"host": probes(host), "client": probes(client)}
+    snap_d = death_snap(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    tops0 = (top(host), top(client))
+    k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "coop_side": 1})
+    try:
+        host.wait_for("host C and C2 DEAD, no BState", lambda: host_both_dead_idle(host, (C_ID, C2_ID)), timeout=30)
+    except Exception as e:
+        notes.append(f"host kill chain: {short(e)}")
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle after the lever: {short(e)}")
+    wait_death_ghosts_ended(client, notes)
+    uh, uc = units(host), units(client)
+    hev, cev = evs_since(host, seq0), evs_since(client, seq0)
+    pl = cue_payloads(host, [e["seq"] for e in hev if e["kind"] in ("death", "corpse")])
+    end_diff = diff_buckets(host, client)
+    ph, pc = probes(host), probes(client)
+    dsc = desync_record(client, pc["desyncSeen"])
+    chain_ev = {"staged": {"C": (C_ID, D3_C_TILE, D3_C_DIR), "C2": (C2_ID, D3_C2_TILE, D3_C2_DIR), "tele": tele,
+                           "ownTile": own, "stagedDiff": staged_diff, "units": staged},
+                "topsBefore": tops0, "lever": k, "seq0": seq0,
+                "hostEvs": [(e["seq"], e["kind"], e["actionId"]) for e in hev],
+                "clientEvs": [(e["seq"], e["kind"], e["actionId"]) for e in cev],
+                "cuePayloads": {str(s): p for s, p in pl.items()},
+                "after": {"host": {uid: unit_brief(uh.get(uid)) for uid in (C_ID, C2_ID)},
+                          "client": {uid: unit_brief(uc.get(uid)) for uid in (C_ID, C2_ID)}},
+                "topsAfter": (top(host), top(client)), "diff": end_diff, "desync": dsc,
+                "hostDesyncSeen": ph["desyncSeen"], "notes": list(notes)}
+    s1, s2 = (D3_EVS[0][0], D3_EVS[1][0])
+    d3 = death_row("D3", host, client, snap_d, extra=chain_ev, wants=[
+        {"seq": s1, "actionId": 0, "unit": C_ID, "payload": {k_: D3_DEATHS[s1][k_] for k_ in DEATH_KEYS},
+         "front": True, "fromDir": D3_C_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN,
+         "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out",
+         "unitDyingSet": True, "unitDyingCleared": True},
+        {"seq": s2, "actionId": 0, "unit": C2_ID, "payload": {k_: D3_DEATHS[s2][k_] for k_ in DEATH_KEYS},
+         "front": False, "fromDir": D3_C2_DIR, "octants": 2, "respawn": False, "Is": DEATH_IC,
+         "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": s1, "overKill": OVERKILL_NONE, "endedBy": "out",
+         "unitDyingSet": True, "unitDyingCleared": False}])
+    fails = list(notes)
+    if own:
+        fails.append(f"units {own} already stand on their D3 tile (S2: never teleported onto their own tile)")
+    if staged_diff:
+        fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
+    if seq0 != D3_SEQ0:
+        fails.append(f"host lastSeqEmitted before the lever {seq0} (want {D3_SEQ0}: T0b-2)")
+    if not k.get("ok") or k.get("killed") != D3_KILLED:
+        fails.append(f"kill_unit_real {{coop_side: 1}} answered {k} (want ok, killed {D3_KILLED})")
+    hv = [(e["seq"], e["kind"], e["actionId"]) for e in hev]
+    cv = [(e["seq"], e["kind"], e["actionId"]) for e in cev]
+    if hv != D3_EVS or cv != D3_EVS:
+        fails.append(f"evs since seq {seq0} host={hv} client={cv} (want exactly {D3_EVS} on both)")
+    for s, want in D3_CORPSES.items():
+        got = {k_: (pl.get(s) or {}).get(k_) for k_ in want}
+        if got != want:
+            fails.append(f"host corpse payload seq {s} {got} (want {want})")
+    for name, u in (("host", uh), ("client", uc)):
+        for uid in (C_ID, C2_ID):
+            v = u.get(uid) or {}
+            if (v.get("status"), v.get("onTile"), v.get("direction")) != (STATUS_DEAD, False, DIR_FACING_3):
+                fails.append(f"{name} unit {uid} {unit_brief(v)} (want status DEAD ({STATUS_DEAD}), onTile false, "
+                             f"direction {DIR_FACING_3})")
+    fails += d3
+    fails += common_fails(host, client, before, {}, "D3")
+    finish(fails)
+
+
+SCENARIOS = (("C1", c1_snap_kill), ("C5", c5_stun), ("D3", d3_burst))
 
 
 # ===================== bring-up =====================
@@ -627,8 +989,10 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49846, make_user_dir("w2p2_host_combat_host"))
-    client = GameClient("client", 49847, make_user_dir("w2p2_host_combat_client"))
+    # W2-P6b S-D: coopGhostStepper pinned true in both instances (the D rows need the client's death ghosts)
+    host = GameClient("host", 49846, make_user_dir("w2p2_host_combat_host", options={"coopGhostStepper": True}))
+    client = GameClient("client", 49847, make_user_dir("w2p2_host_combat_client",
+                                                       options={"coopGhostStepper": True}))
     results = {}
     try:
         try:

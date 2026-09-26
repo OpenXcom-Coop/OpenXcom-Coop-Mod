@@ -14978,6 +14978,17 @@ struct TurnGhostCounts
 	int replaced = 0;
 	int cut = 0;
 };
+/// W2-P6b S-D.1 (spec rewrite/prompts/w2p6_display_two.md section 8, AMENDMENT P6b-1): how death ghosts were
+/// enqueued, started and ended this battle, and how many instant deaths the watcher only recorded (event_state
+/// `displayTwo.death.counts`).
+struct DeathGhostCounts
+{
+	int enqueued = 0;
+	int started = 0;
+	int completed = 0;
+	int cut = 0;
+	int instant = 0;
+};
 struct CombatProbeStore
 {
 	unsigned int gen = 0;
@@ -14997,6 +15008,13 @@ struct CombatProbeStore
 	TurnGhostCounts turn;
 	std::deque<Json::Value> turnRing;
 	std::uint32_t stamp = 0;
+	// W2-P6b S-D.1 (section 8 S-D.1, D-c; AMENDMENT P6b-1): the death-ghost probe storage (event_state
+	// `displayTwo.death`): its counters, the current queue depth and the last kCombatRingCap death records. Kept
+	// apart from g_coopGhosts, g_combatGhosts and the SPEC 7 counters (F1687). Probe storage only at S-D.1:
+	// nothing writes it yet (S-D.2's death ghosts do). Cleared with the rest of this storage by combatSync() only.
+	DeathGhostCounts death;
+	int deathQueued = 0;
+	std::deque<Json::Value> deathRing;
 };
 CombatProbeStore g_combatProbe;
 const std::size_t kCombatRingCap = 32;
@@ -16335,6 +16353,27 @@ Json::Value turnGhostProbe()
 	for (const Json::Value& r : g_combatProbe.turnRing)
 		ring.append(r);
 	o["ring"] = ring;
+	return o;
+}
+
+Json::Value displayTwoProbe()
+{
+	combatSync();
+	Json::Value o(Json::objectValue);
+	Json::Value death(Json::objectValue);
+	Json::Value c(Json::objectValue);
+	c["enqueued"] = g_combatProbe.death.enqueued;
+	c["started"] = g_combatProbe.death.started;
+	c["completed"] = g_combatProbe.death.completed;
+	c["cut"] = g_combatProbe.death.cut;
+	c["instant"] = g_combatProbe.death.instant;
+	death["counts"] = c;
+	death["queued"] = g_combatProbe.deathQueued;
+	Json::Value ring(Json::arrayValue);
+	for (const Json::Value& r : g_combatProbe.deathRing)
+		ring.append(r);
+	death["ring"] = ring;
+	o["death"] = death;
 	return o;
 }
 

@@ -34,6 +34,18 @@ One scenario, ONE boot:
         `turn` ev for Ch (N4: AIModule::meleeAttack pre-turns the attacker
         directly); the only new unit on BOTH machines is Z with id Z_ID and
         type STR_ZOMBIE; C DEAD on both.
+        W2-P6b S-D row D5 (spec rewrite/prompts/w2p6_display_two.md section 8,
+        the P6b review's section 2 D5; AMENDMENTS P6b-1 and P6b-2): the
+        client holds ONE death record for C's `death` ev {unit C, respawn
+        true, isOutMs == tc (a respawn victim consumes every collapse frame in
+        one tick), phasesShown [], endedBy "out" (the spawn's delta takes C off
+        its tile)}, its schedule equal to test_w2_host_combat.death_schedule()
+        for its own inputs, its `front` equal to the payload's; the common S-D
+        asserts (client rngSeed unchanged, host displayTwo all zero, client
+        completed + cut == enqueued, D-S3 sound lists / deathFrames /
+        overKill). coopGhostStepper is pinned true in both instances. RED
+        (commit S-D.1): C12b fails only on D5 (no record). One "EVIDENCE D5:"
+        line.
 
 Common asserts (spec (f) as amended by B1 RQ5, after the chain settled):
 W2-P2's common asserts (hash_now {full:true} ALL buckets EQUAL; desyncSeen
@@ -92,6 +104,8 @@ from test_w2_ai_origins import host_payloads, ctx_probes, ctx_view, sv, bring_up
 from test_w2_unit_spawn import ring_at, ring_view
 from test_w2_turn_cues import (begin, end, cycle, rec_evidence, cycle_fails, context_fails, payload, held_by_client,
                                items, st_seqs)
+from test_w2_host_combat import (death_snap, death_row, wait_death_ghosts_ended, DEATH_IS_TURN, SOLDIER_DEATH_SOUNDS,
+                                 OVERKILL_NONE)
 
 # ----- bring-up (W2-P3 TASK 0c, T0c constants.md "Common bring-up" + "C12b") -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
@@ -118,6 +132,9 @@ Z_ID, Z_TYPE = 1000023, "STR_ZOMBIE"   # the new unit = last unit id + 1
 Z_WEAPON_ID = 91                 # ZOMBIE_WEAPON, owner Z (itemIdCtr 91 -> 92); printed
 CHAIN = ["melee", "death", "spawn", "bt_action_end"]
 PAYLOAD_EXTRA = ("turn",)        # payloads read beyond test_w2_turn_cues.end()'s kinds
+# W2-P6b S-D row D5 (review section 2): C's death record on the client
+D5_DEATH = {"unit": C_ID, "outcome": "dead", "instant": False}   # the death payload subset (no overkill: converts)
+D5_OCTANTS = (3 - C_DIR) % 8     # 1: C faces 2 at the death (staged; the chryssalid pre-turns only itself, N4)
 UNIT_KEYS = ("type", "faction", "originalFaction", "status", "isOut", "onTile", "x", "y", "z", "direction", "tu",
              "health", "stun", "spawnUnit", "respawn", "specialWeapons")
 
@@ -170,7 +187,9 @@ def c12b_zombie(host, client, ctx):
     c_items = sorted(i for i, it in ih0.items() if it.get("owner") == C_ID)
     staged = {"C": {"host": uview(uh0.get(C_ID)), "client": uview(uc0.get(C_ID))},
               "Ch": {"host": uview(uh0.get(CH_ID)), "client": uview(uc0.get(CH_ID))}}
+    snap_d = death_snap(host, client)   # W2-P6b S-D row D5
     cycle(host, client, SEED_C12B, rec, "cycle 1")
+    wait_death_ghosts_ended(client, rec["notes"])
     end(host, client, rec)
     hev = rec["hev"]
     rec["pl"].update(host_payloads(host, [e["seq"] for e in hev if e["kind"] in PAYLOAD_EXTRA]))
@@ -195,6 +214,15 @@ def c12b_zombie(host, client, ctx):
           f"ev's delta={sring}; new units host={new_h} client={new_c}; units="
           f"{units_evidence(rec, [C_ID, CH_ID, Z_ID])}; items={items_evidence(rec, [Z_WEAPON_ID] + c_items)}; "
           f"itemIdCtr host/client={item_ctr}; {rec_evidence(rec)}", flush=True)
+    # W2-P6b S-D row D5 (review section 2): C's death record (a respawn victim) on the client
+    md_seqs = [e["seq"] for e in melee + death]
+    md_ring = [r for r in (rec["ring"] or []) if r.get("seq") in md_seqs]   # C's pre-death facing evidence
+    d5 = death_row("D5", host, client, snap_d, extra={"stagedC": staged["C"], "hostDeltaRingMeleeDeath": md_ring},
+                   wants=[
+        {"seq": death[0]["seq"] if death else None, "actionId": c1.get("actionId") if c1 else None, "unit": C_ID,
+         "payload": D5_DEATH, "front": None, "payloadFront": False, "fromDir": C_DIR, "octants": D5_OCTANTS,
+         "respawn": True, "Is": DEATH_IS_TURN, "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": 0,
+         "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": True, "phasesShown": []}])
     fails = list(rec["notes"])
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
@@ -235,6 +263,7 @@ def c12b_zombie(host, client, ctx):
         if not u or u.get("status") != STATUS_DEAD:
             fails.append(f"C {C_ID} on the {name} {uview(u)} (want status DEAD)")
     fails += context_fails(rec, "C12b")
+    fails += d5
     fails += common_fails(host, client, rec["before"], {}, "C12b")
     finish(fails)
 
@@ -301,8 +330,9 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49862, make_user_dir("w2p3_zombie_host"))
-    client = GameClient("client", 49863, make_user_dir("w2p3_zombie_client"))
+    # W2-P6b S-D: coopGhostStepper pinned true in both instances (row D5 needs the client's death ghost)
+    host = GameClient("host", 49862, make_user_dir("w2p3_zombie_host", options={"coopGhostStepper": True}))
+    client = GameClient("client", 49863, make_user_dir("w2p3_zombie_client", options={"coopGhostStepper": True}))
     results = {}
     try:
         try:

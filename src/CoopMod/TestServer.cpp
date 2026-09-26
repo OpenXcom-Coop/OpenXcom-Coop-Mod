@@ -6287,6 +6287,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["combatGhost"] = CoopGhost::combatProbe();
 		// W2-P5 S-T.1 (amendment E3 section E3.6): the SPEC 7 `turn` ghost ends (counts + ring), both machines.
 		resp["turnGhost"] = CoopGhost::turnGhostProbe();
+		// W2-P6b S-D.1 (spec rewrite/prompts/w2p6_display_two.md section 8): the display-II probe (death ghost
+		// counts, queue depth and records), both machines; nothing writes it until S-D.2.
+		resp["displayTwo"] = CoopGhost::displayTwoProbe();
 		resp["derivedPaths"] = CoopGhost::derivedPaths();
 		resp["rngSeed"] = Json::Value::Int64((int64_t)RNG::getSeed());
 		resp["shotTrajectories"] = coopShotTrajectories();
@@ -9714,6 +9717,43 @@ std::string TestServer::execute(const std::string& line)
 						for (int part = 0; part < (int)BODYPART_MAX; ++part)
 							wounds.append(u->getFatalWound((UnitBodyPart)part));
 						ju["wounds"] = wounds;
+					}
+					// W2-P6b S-D.1 (spec rewrite/prompts/w2p6_display_two.md section 8 S-D.1; AMENDMENT
+					// P6b-1 ST4; review F1739/F1748): the death display inputs, read-only - the overkill the
+					// sprite's burn fade reads (getOverKillDamage(), derived from the synced health), the fall
+					// phase, the armour's death frames, the unit's death sounds, and the panic / berserk lists
+					// BattlescapeGame::handlePanickingUnit selects (the unit rules, else the geoscape
+					// soldier's gender lists, else none).
+					ju["overKill"] = u->getOverKillDamage();
+					ju["fallPhase"] = u->getFallingPhase();
+					ju["deathFrames"] = u->getArmor()->getDeathFrames();
+					{
+						auto soundList = [](const std::vector<int>& v)
+						{
+							Json::Value a(Json::arrayValue);
+							for (int s : v)
+								a.append(s);
+							return a;
+						};
+						ju["deathSounds"] = soundList(u->getDeathSounds());
+						Json::Value panicSounds(Json::arrayValue);
+						Json::Value berserkSounds(Json::arrayValue);
+						if (u->getUnitRules())
+						{
+							panicSounds = soundList(u->getUnitRules()->getPanicSounds());
+							berserkSounds = soundList(u->getUnitRules()->getBerserkSounds());
+						}
+						else if (u->getGeoscapeSoldier())
+						{
+							const RuleSoldier* soldierRules = u->getGeoscapeSoldier()->getRules();
+							const bool male = u->getGeoscapeSoldier()->getGender() == GENDER_MALE;
+							panicSounds = soundList(male ? soldierRules->getMalePanicSounds()
+							                             : soldierRules->getFemalePanicSounds());
+							berserkSounds = soundList(male ? soldierRules->getMaleBerserkSounds()
+							                               : soldierRules->getFemaleBerserkSounds());
+						}
+						ju["panicSounds"] = panicSounds;
+						ju["berserkSounds"] = berserkSounds;
 					}
 					Position p = u->getPosition();
 					ju["x"] = p.x; ju["y"] = p.y; ju["z"] = p.z;

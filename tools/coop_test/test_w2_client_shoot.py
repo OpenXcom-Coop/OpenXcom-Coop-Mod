@@ -27,6 +27,13 @@ Eight scenarios, ONE boot, in this order:
          and tile on both; C TU C16_TU_AFTER and the clip C16_CLIP_AFTER on both;
          the client is back in aim mode (cursorType 2) with lastAftermath
          {actionId, kind shoot}.
+         W2-P6b S-D row D4 (spec rewrite/prompts/w2p6_display_two.md section 8,
+         the P6b review's section 2 D4; Q16 / OR3 (a)): the client's
+         coopGhostStepper is set false right before the press and true after
+         the order settled; client displayTwo.death enqueued +0 while its
+         cueCounts.death +1; the host's displayTwo all zero; the client's
+         rngSeed unchanged. Declared green at red (commit S-D.1: nothing
+         writes displayTwo). One "EVIDENCE D4:" line.
   C16h   the halt. C's TU = the snap cost SNAP_TU (both); C faces dir 0 (the
          turn C16's shot produced); real-UI snap at the floor tile C16H_TARGET,
          two octants east. The pre-shot turn spends 1 TU per octant, so vanilla's
@@ -155,6 +162,7 @@ from test_rw_seat_pacing import tab_select, SDLK_HOME
 from test_w2_delta_core import diff_buckets, desync_record, short, both
 from test_w2_delta_items import items_by_id, unit_view, tile_of
 from test_w2_host_combat import bring_up_lobby_roster_pinned, evs_since, ev_tuples
+from test_w2_host_combat import display_two, death_of, death_counts, rng_of, DEATH_COUNT_KEYS
 from test_w2_ai_origins import host_payloads
 
 # ----- bring-up (TASK 0: the roster-pinned terror boot) -----
@@ -649,6 +657,11 @@ def c16_snap_kill(host, client, ctx):
     staged = diff_buckets(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
+    # W2-P6b S-D row D4 (review section 2; Q16 / OR3 (a)): the client's ghost option off for this one order
+    d4_0 = {"dt": {"host": display_two(host), "client": display_two(client)}, "rng": rng_of(client),
+            "cue": (event_state(client).get("cueCounts") or {}).get("death") or 0,
+            "option": client.ok({"cmd": "set_option", "name": "coopGhostStepper"}).get("value")}
+    d4_off = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": False}).get("value")
     pv = {}
     try:
         pv = aim_click(client, KEY_SNAP, A_TILE, lambda: host.ok({"cmd": "set_seed", "seed": SEED_C16}))
@@ -659,6 +672,7 @@ def c16_snap_kill(host, client, ctx):
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
         notes.append(f"wait_host_idle: {short(e)}")
+    d4_on = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": True}).get("value")
     rec = collect(host, client, seq0)
     new = ctx_view(before, rec)
     hits = mine(new, "intent", "shoot", C_ID)
@@ -673,9 +687,29 @@ def c16_snap_kill(host, client, ctx):
           f"{ubrief(rec['uh'].get(A_ID))} client={ubrief(rec['uc'].get(A_ID))}; C host={ubrief(rec['uh'].get(C_ID))} "
           f"client={ubrief(rec['uc'].get(C_ID))}; items={c_items(rec['ih'], rec['ic'], (rifle, clip))}; corpses="
           f"{corpses}; diff={rec['diff']} desync={rec['dsc']}; notes={notes}", flush=True)
+    d4_1 = {"dt": {"host": display_two(host), "client": display_two(client)}, "rng": rng_of(client),
+            "cue": (event_state(client).get("cueCounts") or {}).get("death") or 0}
+    d4_enq = (death_counts(d4_1["dt"]["client"])["enqueued"] or 0) - (death_counts(d4_0["dt"]["client"])["enqueued"]
+                                                                     or 0)
+    d4_cue = d4_1["cue"] - d4_0["cue"]
+    hd4 = death_of(d4_1["dt"]["host"])
+    print(f"EVIDENCE D4: option before={d4_0['option']} lever off={d4_off} on={d4_on}; client displayTwo.death counts "
+          f"{death_counts(d4_0['dt']['client'])} -> {death_counts(d4_1['dt']['client'])} (enqueued +{d4_enq}); client "
+          f"cueCounts.death {d4_0['cue']} -> {d4_1['cue']} (+{d4_cue}); host displayTwo={d4_1['dt']['host']}; client "
+          f"rngSeed {d4_0['rng']} -> {d4_1['rng']}", flush=True)
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if d4_off is not False or d4_on is not True:
+        fails.append(f"D4: client coopGhostStepper lever answered off={d4_off} on={d4_on} (want False then True)")
+    if d4_enq != 0 or d4_cue != 1:
+        fails.append(f"D4: client displayTwo.death enqueued +{d4_enq}, cueCounts.death +{d4_cue} (want +0 while +1: "
+                     f"the option off starts no death ghost)")
+    if (not hd4 or any(((hd4.get("counts") or {}).get(k) or 0) != 0 for k in DEATH_COUNT_KEYS)
+            or (hd4.get("queued") or 0) != 0 or hd4.get("ring")):
+        fails.append(f"D4: host displayTwo {d4_1['dt']['host']} (want the death counts all 0, queued 0, no record)")
+    if d4_0["rng"] is None or d4_1["rng"] != d4_0["rng"]:
+        fails.append(f"D4: client rngSeed {d4_0['rng']} -> {d4_1['rng']} (want unchanged: V4)")
     fails += forwarded_fails(before, rec)
     f, cx = admitted_fails(before, rec, "shoot", C_ID)
     fails += f

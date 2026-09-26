@@ -234,6 +234,15 @@ Json::Value combatProbe();
 /// (which keep their exact semantics). Main thread only, cleared with the combat probe storage.
 Json::Value turnGhostProbe();
 
+/// W2-P6b S-D.1 (spec rewrite/prompts/w2p6_display_two.md section 8, AMENDMENTS P6b-1 and P6b-2): the display-II
+/// probe of THIS machine this battle - {death:{counts:{enqueued, started, completed, cut, instant}, queued (the
+/// death ghosts queued, started or holding now), ring:[the last 32 death records]}}. A death record: {seq,
+/// actionId, unit, instant, outcome, front, fromDir, octants, frames, respawn, Is, Ic, tc, isOutMs, popMs, sound,
+/// startedAfterSeq, dirsShown, phasesShown, unitDyingSet, unitDyingCleared, overKill, holdMs, endedBy}. Probe
+/// storage only at S-D.1: nothing writes it (the S-D.2 death ghosts do, on a coop client only). Kept apart from
+/// the SPEC 7 counters and the combat ghosts; main thread only, cleared with the combat probe storage.
+Json::Value displayTwoProbe();
+
 /// W2-P5 S-A.1 (amendment E1 PR-E2; S-A.2 amendment E2): CLIENT, probe only, called from
 /// CoopApply::applyEvPayload()'s cue branch for an applied `shot` (before applyDelta): re-derive the
 /// shot's path the way the ghost does - straight: TileEngine::calculateLineVoxel from originVoxel toward
