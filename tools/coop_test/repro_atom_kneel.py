@@ -16,10 +16,10 @@ fired immediately after with no sleep) but could not be made to land - see
 run_burst_drain_proof()'s own doc comment for the diagnostic finding
 (BState think()-loop resolution in this harness is effectively
 un-throttled, faster than a second TestServer command's own round trip).
-SUPERSEDED (R2-P7, 2026-09-02): the owner-approved `hold_chain {ms}`
-TestServer lever now makes a LIVE deny("busy") deterministic, and
-tools/coop_test/test_rw_retry_cancel.py fires it end-to-end (deny -> pending
--> auto-resubmit). THIS file is deliberately left as-is: its burst proof is
+SUPERSEDED (R2-P7, 2026-09-02; W2-P4 S-F): tools/coop_test/test_rw_retry_cancel.py
+lands a LIVE deny("busy") deterministically behind a real long chain (the
+client's own autoshot) and fires it end-to-end (deny -> pending ->
+auto-resubmit). THIS file is deliberately left as-is: its burst proof is
 about in-order drain across origins, not about busy, and it stays a
 lever-free natural-race regression.
 The "oldest-denied-first observable via lastDeny" clause is instead proven
@@ -395,10 +395,9 @@ def run_burst_drain_proof(host, client, actor_a_id, actor_b_id):
     ONLY by R2-P5's own enumerated code-review checklist (item 1), not by a
     live fire in either R3-P1 or R3-P2.
 
-    RESOLVED by R2-P7 (owner-approved 2026-09-02): the TestServer
-    `hold_chain {ms}` lever defers a quiesced chain's bt_action_end +
-    action-context pop on the HOST, which keeps onIntent()'s
-    `currentActionId() != 0` busy arm true for a deterministic window.
+    RESOLVED (R2-P7, then W2-P4 S-F): a real long chain - the client's own
+    autoshot - keeps its action context open on the HOST, which keeps
+    onIntent()'s `currentActionId() != 0` busy arm true for a measured window.
     test_rw_retry_cancel.py owns that live-fire proof now; this function
     keeps its lever-free natural-race shape on purpose.
 

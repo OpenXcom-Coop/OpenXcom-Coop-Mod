@@ -5580,8 +5580,8 @@ static std::uint32_t g_coopLateAnswersIgnored = 0;  // late ack/deny dropped
 // re-derive would mis-attribute a kill to the victim's side.
 static int g_coopBusyOwnerSeat = -1;
 
-// TEST-ONLY (W1-P7, RB-D26/RB-D32 family; delete with hold_chain once real
-// network latency/loss can be injected another way): the defer_intents lever's
+// TEST-ONLY (W1-P7, RB-D26/RB-D32 family; delete once real network
+// latency/loss can be injected another way): the defer_intents lever's
 // HOST-side state. A deferred intent is held VERBATIM and re-dispatched into the
 // real onIntent() path when its deadline passes, so the client sees a genuinely
 // unanswered intent first and a genuinely LATE answer afterwards.
@@ -5594,13 +5594,6 @@ static std::uint32_t g_coopDeferIntentsMs = 0;
 static int g_coopDeferIntentsLeft = 0;
 static std::vector<CoopDeferredIntent> g_coopDeferredIntents;
 static bool g_coopDeferReentry = false;  // true while re-dispatching a deferred one
-
-// R2-P7 (RB-D26/RB-D32 family, owner-approved 2026-09-02): the hold_chain
-// test lever's state.
-// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
-static std::uint32_t g_coopHoldChainMs = 0;   // armed duration; 0 = disarmed
-static bool g_coopHoldChainHolding = false;   // a chain is currently held open
-static std::chrono::steady_clock::time_point g_coopHoldChainUntil;
 
 // R3-P1 (IR-2): ClientIntentState.lastDeny - the {iseq,reason} object from
 // the most recent bt_deny this CLIENT received, or null (Json::Value()'s
@@ -5786,7 +5779,7 @@ struct CoopWalkChain
 static CoopWalkChain g_coopWalkChain;
 
 // TEST-ONLY (W1-P9, RB-D26/RB-D32 discipline; same family and the same removal
-// note as hold_chain/defer_intents above): the `battle_halt_walk` one-shot
+// note as defer_intents above): the `battle_halt_walk` one-shot
 // latch, consumed by the step hook at the NEXT completed step boundary.
 static bool g_coopHaltWalkArmed = false;
 // TEST-ONLY (W1-P9 follow-up, RB-D26): the PRE-step sibling of the latch
@@ -5847,10 +5840,8 @@ static void resetCoopArbiterState()
 	g_coopClientInFlight = CoopClientInFlight();
 	g_coopClientLastDeny = Json::Value();
 	g_coopClientActionActor.clear();
-	// R2-P7: the pending slot + the hold_chain lever are battle-scoped too.
+	// R2-P7: the pending slot is battle-scoped too.
 	g_coopClientPending = CoopClientPending();
-	g_coopHoldChainMs = 0;
-	g_coopHoldChainHolding = false;
 	// W1-P7 (WV-D13/WV-D24): the order-feedback state is battle-scoped too - a
 	// timed-out iseq from a previous battle must never suppress a fresh answer
 	// (iseq restarts at 1 per battle, SS2.2).
@@ -7769,8 +7760,8 @@ void onIntent(const Json::Value& intent)
 		return;
 	}
 
-	// TEST-ONLY (W1-P7, same family and the same removal note as hold_chain):
-	// defer_intents. Holds this envelope verbatim and re-enters here when its
+	// TEST-ONLY (W1-P7, RB-D26/RB-D32 family; delete once real network
+	// latency/loss can be injected another way): defer_intents. Holds this envelope verbatim and re-enters here when its
 	// deadline passes (releaseDeferredIntentsIfExpired(), at the RB-D5 pump
 	// point). Nothing is answered in the meantime, which is exactly what
 	// WV-D24's timeout needs to be deterministic - and the answer that finally
@@ -8843,32 +8834,6 @@ void onChainQuiesced()
 		Log(LOG_INFO) << "[coop-ctx] quiescence deferred while arming (actionId " << currentActionId()
 			<< ")";
 		return;
-	}
-
-	// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
-	// R2-P7 hold_chain lever (RB-D26/RB-D32 family): keep this chain
-	// artificially OPEN so a second intent deterministically lands mid-chain
-	// and gets a LIVE deny("busy"). Deferring HERE - before the bt_action_end
-	// emit and before popActionContext() - is the minimal intercept: it leaves
-	// currentActionId() != 0, which is exactly the arm of onIntent()'s SS2.5
-	// busy check that a real long chain would trip. releaseHeldChainIfExpired()
-	// (called unconditionally from the RB-D5 pump point) re-enters this
-	// function once the window closes, and it then falls straight through.
-	if (g_coopHoldChainMs > 0)
-	{
-		if (!g_coopHoldChainHolding)
-		{
-			g_coopHoldChainHolding = true;
-			g_coopHoldChainUntil = std::chrono::steady_clock::now()
-				+ std::chrono::milliseconds(g_coopHoldChainMs);
-			Log(LOG_INFO) << "[coop-arbiter] hold_chain: HOLDING actionId " << currentActionId()
-				<< " open for " << g_coopHoldChainMs << " ms - bt_action_end deferred, "
-				"further intents will deny(busy) (TEST-ONLY STOPGAP)";
-		}
-		if (std::chrono::steady_clock::now() < g_coopHoldChainUntil)
-			return; // still held
-		g_coopHoldChainHolding = false;
-		g_coopHoldChainMs = 0; // one-shot
 	}
 
 	// W2-P3 S-B.2 (spec (b)3 steps 5-7): nested entries close innermost-first,
@@ -9954,8 +9919,7 @@ int busyOwnerSeat()
 		BattlescapeGame* bg = bs ? save->getBattleGame() : nullptr;
 
 		// SS2.5's own busy predicate: a live BState chain OR an open action
-		// context (which is also what a held hold_chain window keeps true, and
-		// what onIntent() itself answers deny("busy") on).
+		// context (which is what onIntent() itself answers deny("busy") on).
 		const bool busy = (bg && bg->isBusy()) || currentActionId() != 0;
 		if (!busy)
 		{
@@ -9971,8 +9935,7 @@ int busyOwnerSeat()
 			if (!actor)
 			{
 				// The chain has already unwound but its action context is still
-				// open (a held chain, or the gap between the last popState and
-				// onChainQuiesced). The arbiter's own pending-chain actor is the
+				// open (the gap between the last popState and onChainQuiesced). The arbiter's own pending-chain actor is the
 				// rewrite's equivalent answer - the donor had no such state
 				// because it had no admission model.
 				actor = findUnitById(save, g_coopPendingChainActorId);
@@ -10098,32 +10061,6 @@ void releaseDeferredIntentsIfExpired()
 		onIntent(intent);
 		g_coopDeferReentry = false;
 	}
-}
-
-// ----- R2-P7: hold_chain test lever (HOST) -----
-
-// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
-void requestHoldChain(std::uint32_t ms)
-{
-	g_coopHoldChainMs = ms;
-	g_coopHoldChainHolding = false;
-	Log(LOG_INFO) << "[coop-arbiter] hold_chain armed: the next quiesced BState chain "
-		"will be held open for " << ms << " ms (TEST-ONLY STOPGAP)";
-}
-
-// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
-void releaseHeldChainIfExpired()
-{
-	if (!g_coopHoldChainHolding)
-		return;
-	if (std::chrono::steady_clock::now() < g_coopHoldChainUntil)
-		return;
-
-	Log(LOG_INFO) << "[coop-arbiter] hold_chain window expired - releasing the held chain "
-		"(TEST-ONLY STOPGAP)";
-	g_coopHoldChainHolding = false;
-	g_coopHoldChainMs = 0; // one-shot
-	onChainQuiesced();     // now runs its normal emit + pop
 }
 
 } // namespace CoopArbiter
@@ -20410,23 +20347,15 @@ void connectionTCP::updateCoopTask()
 	// CoopHandshake.h for the full placement argument.
 	CoopHandshake::selectOwnUnitAtEntry(_game);
 
-	// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
-	// R2-P7 hold_chain lever: the release half. Self-guarded (completely inert
-	// with no hold armed), so this stays a single unconditional call at the
-	// same RB-D5 pump point the reveal flush already uses - the only place
-	// that reliably ticks on the HOST while a held chain's window runs down
-	// (popState will not be entered again on its own).
-	CoopArbiter::releaseHeldChainIfExpired();
-
-	// TEST-ONLY STOPGAP (W1-P7, same family and the same removal note as
-	// hold_chain above): defer_intents' release half.
+	// TEST-ONLY STOPGAP (W1-P7, RB-D26/RB-D32 family; delete once real network
+	// latency/loss can be injected another way): defer_intents' release half.
 	CoopArbiter::releaseDeferredIntentsIfExpired();
 
 	// SPEC 16 (W1-P17) M2 (drain-first): the deferred pause-modal push. Armed
 	// by connectionTCP::disconnectTCP()'s host branch instead of pushing
 	// CoopState(COOP_DLG_WAIT_PLAYERS) synchronously on a mid-Active-battle
 	// leave (M1) - consumed here, at the same RB-D5 pump point the reveal
-	// flush/hold_chain release/defer_intents release already use, the moment
+	// flush/defer_intents release already use, the moment
 	// the host's BState chain has quiesced (CoopArbiter::currentActionId()
 	// reads 0: no coop action context in flight). This boundary is
 	// chain-agnostic by construction - it is the SAME "quiesced" onIntent()'s

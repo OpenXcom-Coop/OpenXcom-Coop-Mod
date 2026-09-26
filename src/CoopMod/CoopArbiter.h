@@ -273,7 +273,7 @@ Json::Value lastWalk();
 Json::Value lastSpot();
 
 // TEST-ONLY (W1-P9, RB-D26/RB-D32 discipline - minimal, deterministic,
-// test-only; same family and the same removal note as hold_chain above).
+// test-only; same family and the same removal note as requestDeferIntents() below).
 /// HOST: arm a ONE-SHOT latch that halts the next walk at its NEXT completed
 /// step boundary, exactly as if vanilla had taken one of its own
 /// cancelCurentMove() branches. The step evs already emitted STAND (SS2.W2
@@ -513,25 +513,6 @@ bool cancelPendingIntent();
 /// created it - or Json::Value() (null) when nothing is pending.
 Json::Value pendingIntent();
 
-// ----- R2-P7: hold_chain test lever (HOST) -----
-
-// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
-/// HOST (RB-D26/RB-D32 family, owner-approved 2026-09-02): arm a one-shot
-/// latch that keeps the NEXT quiesced BState chain artificially OPEN for
-/// @a ms milliseconds - onChainQuiesced() defers its bt_action_end emit and
-/// its action-context pop, so onIntent()'s `currentActionId() != 0` arm keeps
-/// answering deny("busy") for the whole window. Without it a live busy deny
-/// cannot be landed at all: R3-P2 measured a full 4-tick UnitTurnBState chain
-/// resolving in well under one TestServer round trip (spike-log R3-P2 GAP).
-void requestHoldChain(std::uint32_t ms);
-
-// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
-/// HOST: the release half of requestHoldChain() - ONE unconditional guarded
-/// call at the RB-D5 pump point (next to CoopReveal::flushQuiescent()). Once
-/// the hold window expires this re-enters onChainQuiesced(), which then runs
-/// its normal emit+pop. Completely inert with no hold armed.
-void releaseHeldChainIfExpired();
-
 // ----- W1-P7: order feedback (WAVE1-RUNBOOK.md ruling D7 = WV-D13) -----
 
 /// MACHINE-RELATIVE: the co-op SEAT that owns the action currently occupying
@@ -540,8 +521,7 @@ void releaseHeldChainIfExpired();
 /// STR_COOP_WAIT_FOR_PLAYER_ACTION driver (WV-D13 item 4) reads it.
 ///
 /// HOST arm: the SS2.5 busy predicate - `BattlescapeGame::isBusy()` OR an open
-/// action context (`currentActionId() != 0`, which is also what a held
-/// hold_chain window keeps true). The owner is LATCHED once per busy window,
+/// action context (`currentActionId() != 0`). The owner is LATCHED once per busy window,
 /// donor semantics (`cbff7951d:BattlescapeState.cpp:5310-5327`): consequence
 /// states (death/fall/explosion) are pushed to the FRONT of the queue mid-chain,
 /// so re-deriving the owner every tick would mis-attribute a kill to the victim's
@@ -620,9 +600,8 @@ Json::Value lastAftermath();
 /// the envelope's own field verbatim (null when absent). Nothing reads it.
 Json::Value intentsReceivedLog();
 
-// TEST-ONLY (W1-P7, RB-D26/RB-D32 discipline; same family and the same removal
-// note as hold_chain above): delete once real-network latency/loss can be
-// injected another way.
+// TEST-ONLY (W1-P7, RB-D26/RB-D32 discipline): delete once real-network
+// latency/loss can be injected another way.
 /// HOST: hold the next @a count incoming bt_intent messages for @a ms
 /// milliseconds before dispatching them normally. This is the only way to make
 /// WV-D24's timeout deterministic: it produces a real UNANSWERED intent (the
@@ -632,8 +611,8 @@ Json::Value intentsReceivedLog();
 void requestDeferIntents(std::uint32_t ms, int count);
 
 // TEST-ONLY (W1-P7): the release half of requestDeferIntents() - ONE
-// unconditional guarded call at the RB-D5 pump point, next to
-// releaseHeldChainIfExpired(). Inert with nothing deferred.
+// unconditional guarded call at the RB-D5 pump point (the one
+// CoopReveal::flushQuiescent() also uses). Inert with nothing deferred.
 void releaseDeferredIntentsIfExpired();
 
 } // namespace CoopArbiter

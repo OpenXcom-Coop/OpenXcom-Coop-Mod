@@ -5953,7 +5953,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_intent" && cmd != "inject_ev"
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
 		&& cmd != "reveal_hostile_pass"
-		&& cmd != "hold_chain" && cmd != "defer_intents"
+		&& cmd != "defer_intents"
 		&& cmd != "battle_halt_walk" && cmd != "battle_halt_walk_before_step"
 		&& cmd != "battle_reserve"
 		&& cmd != "omit_turn_mode"
@@ -7608,28 +7608,6 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 		}
 	}
-	else if (cmd == "hold_chain")
-	{
-		// TEST-ONLY STOPGAP (owner 2026-09-02): delete/replace with a real shot-based busy once the shot atom lands (r3 fan-out) - a slow auto-shot is the natural long chain.
-		// R2-P7 (RB-D26/RB-D32 family, owner-approved 2026-09-02): HOST lever.
-		// Holds the next quiesced BState chain open for {ms} so a second
-		// intent deterministically lands mid-chain and gets a LIVE
-		// deny("busy") - the gap R3-P2 could not close (a full 4-tick
-		// UnitTurnBState chain resolves faster than one TestServer round
-		// trip, spike-log R3-P2 GAP). Arming on a client is harmless: the
-		// latch is only ever read by the HOST-side onChainQuiesced().
-		if (!isCoopBattle())
-		{
-			resp["error"] = "hold_chain: not in an active coop battle";
-		}
-		else
-		{
-			const std::uint32_t ms = req.get("ms", 3000u).asUInt();
-			CoopArbiter::requestHoldChain(ms);
-			resp["ok"] = true;
-			resp["ms"] = ms;
-		}
-	}
 	else if (cmd == "omit_turn_mode")
 	{
 		// TEST-ONLY STOPGAP (W1-P7 deliverable 6, RB-D26/RB-D32 family; delete when
@@ -7688,9 +7666,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "defer_intents")
 	{
-		// TEST-ONLY STOPGAP (W1-P7, RB-D26/RB-D32 family; same removal note as
-		// hold_chain above - delete once real network latency/loss can be injected
-		// another way). HOST lever: hold the next {count} incoming bt_intent
+		// TEST-ONLY STOPGAP (W1-P7, RB-D26/RB-D32 family; delete once real network
+		// latency/loss can be injected another way). HOST lever: hold the next {count} incoming bt_intent
 		// messages for {ms} before dispatching them normally.
 		//
 		// This is the ONLY way to make WV-D24's intent timeout deterministic. It

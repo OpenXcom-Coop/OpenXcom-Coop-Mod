@@ -2,8 +2,9 @@
 FLIGHT (drain-first proof, M1+M2). S2-S5 are later cycles, not in this file.
 
 Construction = owner D95 (2026-09-16, R1M F340/F342): a host-origin walk is
-NOT a wire intent (beginHostLocalWalk is a UI-click path only) and
-hold_chain's time-hold never engages for it, so a deterministic "walk in
+NOT a wire intent (beginHostLocalWalk is a UI-click path only) and the
+test-only chain-hold lever of the time (deleted in W2-P4 S-F) never engaged
+for it, so a deterministic "walk in
 flight" fixture needs a real slow multi-step walk, not the intent lane. The
 fixture: SKYRANGER + a landed STR_SMALL_SCOUT (the smallest UFO) + one alien
 teleported onto the UFO's lift-shaft second level (z+1, facing away) + the
