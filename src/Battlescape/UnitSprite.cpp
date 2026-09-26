@@ -212,11 +212,11 @@ void UnitSprite::draw(const BattleUnit* unit, int part, int x, int y, int shade,
 	{
 		if (overkill > maxHp)
 		{
-			_burn = 16 * (_unit->getFallingPhase() + 1) / armor->getDeathFrames();
+			_burn = 16 * (uFallPhase() + 1) / armor->getDeathFrames();
 		}
 		else
 		{
-			_burn = 16 * overkill * (_unit->getFallingPhase() + 1) / armor->getDeathFrames() / maxHp;
+			_burn = 16 * overkill * (uFallPhase() + 1) / armor->getDeathFrames() / maxHp;
 		}
 	}
 
@@ -376,7 +376,7 @@ void UnitSprite::drawRoutine0()
 	if (uStatus() == STATUS_COLLAPSING)
 	{
 		Part coll{ BODYPART_COLLAPSING };
-		selectUnit(coll, die, _unit->getFallingPhase());
+		selectUnit(coll, die, uFallPhase());
 		blitBody(coll);
 		return;
 	}
@@ -666,7 +666,7 @@ void UnitSprite::drawRoutine1()
 	if (uStatus() == STATUS_COLLAPSING)
 	{
 		Part coll{ BODYPART_COLLAPSING };
-		selectUnit(coll, die, _unit->getFallingPhase());
+		selectUnit(coll, die, uFallPhase());
 		blitBody(coll);
 		return;
 	}
@@ -928,7 +928,7 @@ void UnitSprite::drawRoutine4()
 	if (uStatus() == STATUS_COLLAPSING)
 	{
 		Part coll{ BODYPART_COLLAPSING };
-		selectUnit(coll, die, _unit->getFallingPhase());
+		selectUnit(coll, die, uFallPhase());
 		blitBody(coll);
 		return;
 	}
@@ -1063,7 +1063,7 @@ void UnitSprite::drawRoutine6()
 	if (uStatus() == STATUS_COLLAPSING)
 	{
 		Part coll{ BODYPART_COLLAPSING };
-		selectUnit(coll, die, _unit->getFallingPhase());
+		selectUnit(coll, die, uFallPhase());
 		blitBody(coll);
 		return;
 	}
@@ -1238,7 +1238,7 @@ void UnitSprite::drawRoutine7()
 	if (uStatus() == STATUS_COLLAPSING)
 	{
 		Part coll{ BODYPART_COLLAPSING };
-		selectUnit(coll, die, _unit->getFallingPhase());
+		selectUnit(coll, die, uFallPhase());
 		blitBody(coll);
 		return;
 	}
@@ -1297,7 +1297,7 @@ void UnitSprite::drawRoutine8()
 	if (uStatus() == STATUS_COLLAPSING)
 	{
 		Part coll{ BODYPART_COLLAPSING };
-		selectUnit(coll, die, _unit->getFallingPhase());
+		selectUnit(coll, die, uFallPhase());
 		blitBody(coll);
 		return;
 	}
@@ -1322,7 +1322,7 @@ void UnitSprite::drawRoutine9()
 	if (uStatus() == STATUS_COLLAPSING)
 	{
 		Part coll{ BODYPART_COLLAPSING };
-		selectUnit(coll, die, _unit->getFallingPhase());
+		selectUnit(coll, die, uFallPhase());
 		blitBody(coll);
 		return;
 	}
@@ -1395,7 +1395,7 @@ void UnitSprite::drawRoutine16()
 	if ( (uStatus() == STATUS_COLLAPSING))
 	{
 		Part coll{ BODYPART_COLLAPSING };
-		selectUnit(coll, die, _unit->getFallingPhase());
+		selectUnit(coll, die, uFallPhase());
 		blitBody(coll);
 		return;
 	}
@@ -1415,7 +1415,7 @@ void UnitSprite::drawRoutine19()
 	if (uStatus() == STATUS_COLLAPSING)
 	{
 		Part coll{ BODYPART_COLLAPSING };
-		selectUnit(coll, die, _unit->getFallingPhase());
+		selectUnit(coll, die, uFallPhase());
 		blitBody(coll);
 		return;
 	}

@@ -4155,6 +4155,18 @@ void coopCueDeath(const BattleUnit* unit, const RuleDamageType* damageType)
 	// read after it ran: its instaFalling() leaves the unit out, the animated
 	// path leaves it standing.
 	p["instant"] = (damageType && !damageType->isDirect()) || unit->isOut() || (battle && battle->isBeforeGame());
+	// W2-P6b S-D.2 (spec rewrite/prompts/w2p6_display_two.md section 8 D-a; AMENDMENT P6b-1 ST1 (a)): the
+	// additive `front` - true when the host's live BattlescapeGame is not busy, so this death's UnitDieBState
+	// goes to the FRONT of the empty state stack and runs at once (statePushNext); false when it queues right
+	// behind the front state. The constructor calls this before its statePushNext, so it is that push's own
+	// branch. F392 guard (the coopBattleQuiescent() pattern): an un-live BattlescapeState counts as not busy.
+	{
+		BattlescapeState* bs = battle ? battle->getBattleState() : nullptr;
+		if (!connectionTCP::isBattlescapeStateLive(bs))
+			bs = nullptr;
+		BattlescapeGame* bg = bs ? battle->getBattleGame() : nullptr;
+		p["front"] = !(bg && bg->isBusy());
+	}
 	p["damageType"] = coopCueDamageType(damageType);
 	coopEmitCue("death", p);
 }
@@ -14881,6 +14893,7 @@ CoopUnitDrawView CoopUnitDrawView::fromUnit(const BattleUnit* u)
 	v.walkPhase = u->getWalkingPhase() + u->getDiagonalWalkingPhase();
 	v.verticalDirection = u->getVerticalDirection();
 	v.status = (int)u->getStatus();
+	v.fallPhase = u->getFallingPhase(); // W2-P6b S-D.2 (section 8 D-b): the collapse frame
 	v.kneeled = u->isKneeled();
 	v.ghostTrailing = false;
 	return v;
@@ -15014,6 +15027,7 @@ struct CombatProbeStore
 	// nothing writes it yet (S-D.2's death ghosts do). Cleared with the rest of this storage by combatSync() only.
 	DeathGhostCounts death;
 	int deathQueued = 0;
+	std::uint64_t deathPushed = 0;   // W2-P6b S-D.2: death records pushed this battle (a ghost finds its own)
 	std::deque<Json::Value> deathRing;
 };
 CombatProbeStore g_combatProbe;
@@ -15067,6 +15081,49 @@ struct CombatGhost
 	const RuleItem* rule = nullptr;
 };
 std::vector<CombatGhost> g_combatGhosts;
+
+/// W2-P6b S-D.2 (spec rewrite/prompts/w2p6_display_two.md section 8 D-c; AMENDMENTS P6b-1, P6b-2, P6b-3): one
+/// death ghost on the watching machine - an applied, animated `death` cue drawn as the host's UnitDieBState
+/// draws it (the pirouette to face 3, then the armour's collapse frames) and heard (the death sound), display
+/// only. Ids and values only, never a unit pointer (CoopIdMaps::unit() resolves it fresh). Kept apart from
+/// g_coopGhosts, g_combatGhosts and the SPEC 7 counters (F1687); main thread only (P5 OQ4).
+struct DeathGhost
+{
+	std::uint32_t seq = 0;
+	std::uint32_t actionId = 0;
+	int unitId = -1;
+	bool front = false;             // the payload's `front`: the host's state stack was empty at the push (ST1)
+	bool dead = true;               // outcome "dead" (a stun plays no death sound, N6)
+	int fromDir = 0;                // the canonical direction at the apply (read before the delta)
+	int octants = 0;                // D = (3 - fromDir) mod 8, clockwise (UnitDieBState :172-:185)
+	int frames = 0;                 // F = the armour's deathFrames
+	bool respawn = false;           // a respawn victim consumes every collapse frame in one tick (:198-:204)
+	Position pos;                   // where its death sound plays (the host's getSoundAngle(unit position))
+	int sound = Mod::NO_SOUND;      // picked at enqueue from the unit's raw list (RNG::seedless, V4)
+	std::uint64_t ordinal = 0;      // its ring record (CombatProbeStore::deathPushed at enqueue)
+	std::uint32_t afterSeq = 0;     // the released head it waited behind (0: none)
+	bool started = false;
+	std::uint32_t startedAtMs = 0;
+	// The schedule in ms from the start, FIXED AT START and never recomputed (D111 spirit; AMENDMENT P6b-2).
+	std::uint32_t intervalS = 0;    // Is: the state interval the pirouette steps at
+	std::uint32_t intervalC = 0;    // Ic: the collapse interval
+	std::uint32_t tc = 0;           // startFalling
+	std::uint32_t isOutMs = 0;
+	std::uint32_t popMs = 0;
+	bool soundDone = false;
+	bool ended = false;
+	std::uint32_t endedAtE = 0;     // e at its end (an ended head still waits for its release, D-g)
+	std::vector<int> dirsShown;
+	std::vector<int> phasesShown;
+};
+/// D-c: the host-order death queue (index 0 = the head: started, or the next to start; a ghost leaves the
+/// queue at its release), the released ghosts still drawing their last frame until they end (ST3 (a), the
+/// hold), the host's last state interval as the watcher mirrors it (D-e, D-i) and whether a death ghost set
+/// the live Map's dying flag (K11). Cleared by combatSync()'s generation branch.
+std::vector<DeathGhost> g_deathGhosts;
+std::vector<DeathGhost> g_deathHolding;
+int g_deathInterval = BattlescapeState::DEFAULT_ANIM_SPEED;
+bool g_deathDyingOn = false;
 
 /// The LIVE battle's BattlescapeState, fresh on every call (OQ4: never a stored Map pointer
 /// dereferenced): null with none on the state stack (the client parked in BriefingState, a teardown).
@@ -15130,6 +15187,17 @@ void combatSync()
 		for (CombatGhost& ghost : g_combatGhosts)
 			combatDetach(ghost);
 		g_combatGhosts.clear();
+		// W2-P6b S-D.2 (section 8 D-c, D-S4): the death ghosts go too, after the live Map's dying flag a death
+		// ghost set is restored (only on the live Map, OQ4).
+		if (g_deathDyingOn)
+		{
+			if (Map* live = combatLiveMap())
+				live->setUnitDying(false);
+		}
+		g_deathGhosts.clear();
+		g_deathHolding.clear();
+		g_deathInterval = BattlescapeState::DEFAULT_ANIM_SPEED;
+		g_deathDyingOn = false;
 		g_combatProbe = CombatProbeStore();
 		g_combatProbe.gen = g;
 	}
@@ -15562,6 +15630,7 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	}
 	// Spec (b)5/(b)6: vanilla draws it (FOV rules and hidden-movement reveal included); the camera does not
 	// follow a ghost (D131 is W2-P6's), restored when the ghost leaves the Map.
+	g_deathInterval = (int)kCombatTickMs; // W2-P6b S-D.2 (D-i): vanilla's projectile state interval, display only
 	map->setProjectile(projectile);
 	map->setFollowProjectile(false);
 	map->invalidate();
@@ -15766,6 +15835,7 @@ void combatStartImpact(SavedBattleGame* save, const Json::Value& ev, const std::
 
 	// Spec (b)5: vanilla draws them (FOV rules and hidden-movement reveal included, N12); no camera call
 	// (D131 is W2-P6's).
+	g_deathInterval = interval; // W2-P6b S-D.2 (D-i): vanilla ExplosionBState's state interval, display only
 	for (Explosion* e : sprites)
 		map->getExplosions()->push_back(e);
 	map->invalidate();
@@ -15857,6 +15927,395 @@ void combatEndPendingPairs(const Json::Value& ev, const std::string& kind, std::
 	}
 }
 
+// ----- W2-P6b S-D.2: the death ghosts (spec rewrite/prompts/w2p6_display_two.md section 8 D-d..D-j, as ruled by
+// AMENDMENT P6b-1 ST1-ST5 / OR3 / OR6, with AMENDMENT P6b-2's traced host schedule and AMENDMENT P6b-3's queue
+// rule F1784) -----
+
+/// Pushes one death record (event_state `displayTwo.death.ring`, the last kCombatRingCap) and returns its ordinal.
+std::uint64_t deathPushRecord(const Json::Value& r)
+{
+	const std::uint64_t ordinal = g_combatProbe.deathPushed++;
+	g_combatProbe.deathRing.push_back(r);
+	while (g_combatProbe.deathRing.size() > kCombatRingCap)
+		g_combatProbe.deathRing.pop_front();
+	return ordinal;
+}
+
+/// The death record with @a ordinal, or null once it has left the ring.
+Json::Value* deathRecord(std::uint64_t ordinal)
+{
+	const std::uint64_t first = g_combatProbe.deathPushed - (std::uint64_t)g_combatProbe.deathRing.size();
+	if (ordinal < first || ordinal >= g_combatProbe.deathPushed)
+		return nullptr;
+	return &g_combatProbe.deathRing[(std::size_t)(ordinal - first)];
+}
+
+/// The probe's `queued`: the death ghosts queued, started or holding now (an ended head waiting for its
+/// release is not counted).
+void deathSyncQueued()
+{
+	int n = (int)g_deathHolding.size();
+	for (const DeathGhost& g : g_deathGhosts)
+	{
+		if (!g.ended)
+			++n;
+	}
+	g_combatProbe.deathQueued = n;
+}
+
+/// D-g / K11: the live Map's dying flag clears at the first release or end after a death ghost set it
+/// (vanilla's first pop, UnitDieBState :208); @a g's record says it was the one that cleared it.
+void deathClearDying(const DeathGhost& g)
+{
+	if (!g_deathDyingOn)
+		return;
+	g_deathDyingOn = false;
+	if (Map* live = combatLiveMap())
+		live->setUnitDying(false);
+	if (Json::Value* r = deathRecord(g.ordinal))
+		(*r)["unitDyingCleared"] = true;
+}
+
+/// D-f (AMENDMENT P6b-2's traced schedule): @a g's drawn pose @a e ms after its start. FALSE (no override: the
+/// canonical unit draws, facing fromDir) before its first octant - a `front` head's first think comes at once,
+/// a queued head's one Is after its start. Then the pirouette: one octant clockwise every Is, status STANDING,
+/// until it faces 3; from tc the collapse: direction 3, status COLLAPSING, fall phase min(F - 1, (e - tc) / Ic)
+/// (so it holds F - 1 after isOutMs); a respawn victim stands facing 3 from tc (it consumes every collapse frame
+/// in that one tick). Shared by view() and deathStep()'s dirsShown / phasesShown, so the probe records what
+/// view() draws. Reads only.
+bool deathPoseAt(const DeathGhost& g, std::uint32_t e, int* direction, int* status, int* phase)
+{
+	const std::uint32_t first = g.front ? 0u : g.intervalS;
+	*direction = g.fromDir;
+	*status = (int)STATUS_STANDING;
+	*phase = 0;
+	if (e < first)
+		return false;
+	if (e < g.tc)
+	{
+		std::uint32_t steps = (std::uint32_t)g.octants;
+		if (g.intervalS > 0)
+			steps = std::min(steps, (e - first) / g.intervalS + 1u);
+		*direction = (g.fromDir + (int)steps) % 8;
+		return true;
+	}
+	*direction = 3;
+	if (!g.respawn)
+	{
+		*status = (int)STATUS_COLLAPSING;
+		const std::uint32_t last = (std::uint32_t)std::max(0, g.frames - 1);
+		const std::uint32_t k = g.intervalC > 0 ? (e - g.tc) / g.intervalC : last;
+		*phase = (int)std::min(last, k);
+	}
+	return true;
+}
+
+/// D-e (AMENDMENT P6b-2): starts the queue head at @a nowMs with its schedule fixed now, never recomputed.
+/// Is = the host's last state interval as mirrored; a victim that must turn: Ic = DEFAULT_ANIM_SPEED (the
+/// pirouette's end sets it, UnitDieBState :183) and tc = its last octant ((front ? 0 : Is) + (D - 1) x Is) +
+/// 2 x Ic - Is; a victim already facing 3: Ic = Is and tc = its first think (front ? 0 : Is); isOut = tc (a
+/// respawn victim) or tc + F x Ic; pop = isOut + 2 x Ic; the interval it leaves behind = Ic. Its record gets the
+/// schedule, the released head it waited behind (startedAfterSeq) and the unit's overkill now (ST4 (a): derived
+/// from the synced health).
+void deathStart(DeathGhost& g, std::uint32_t nowMs)
+{
+	g.started = true;
+	g.startedAtMs = nowMs;
+	const int is = std::max(1, g_deathInterval);
+	const int first = g.front ? 0 : is;
+	int ic = is;
+	int tc = first;
+	if (g.octants > 0)
+	{
+		ic = BattlescapeState::DEFAULT_ANIM_SPEED;
+		tc = std::max(first, first + (g.octants - 1) * is + 2 * ic - is);
+	}
+	const int isOut = g.respawn ? tc : tc + std::max(0, g.frames) * ic;
+	g.intervalS = (std::uint32_t)is;
+	g.intervalC = (std::uint32_t)ic;
+	g.tc = (std::uint32_t)tc;
+	g.isOutMs = (std::uint32_t)isOut;
+	g.popMs = (std::uint32_t)(isOut + 2 * ic);
+	g_deathInterval = ic;
+	++g_combatProbe.death.started;
+	const BattleUnit* unit = CoopIdMaps::unit(g.unitId);
+	if (Json::Value* r = deathRecord(g.ordinal))
+	{
+		(*r)["Is"] = g.intervalS;
+		(*r)["Ic"] = g.intervalC;
+		(*r)["tc"] = g.tc;
+		(*r)["isOutMs"] = g.isOutMs;
+		(*r)["popMs"] = g.popMs;
+		(*r)["startedAfterSeq"] = g.afterSeq;
+		(*r)["overKill"] = unit ? unit->getOverKillDamage() : 0;
+	}
+}
+
+/// D-g: ends @a g - its display stops at once. Its record gets endedBy, holdMs = max(0, e - isOutMs) and the
+/// directions / fall phases it drew; completed +1, or cut +1 when it ended before isOutMs (or never started);
+/// the live Map's dying flag clears when a death ghost still has it set. A no-op for an ended ghost.
+void deathEnd(DeathGhost& g, const char* endedBy, std::uint32_t nowMs)
+{
+	if (g.ended)
+		return;
+	g.ended = true;
+	const std::uint32_t e = g.started ? nowMs - g.startedAtMs : 0u;
+	g.endedAtE = e;
+	const bool cut = !g.started || e < g.isOutMs;
+	if (Json::Value* r = deathRecord(g.ordinal))
+	{
+		(*r)["endedBy"] = endedBy;
+		(*r)["holdMs"] = (Json::UInt)((g.started && e > g.isOutMs) ? e - g.isOutMs : 0u);
+		Json::Value dirs(Json::arrayValue);
+		for (int d : g.dirsShown)
+			dirs.append(d);
+		(*r)["dirsShown"] = dirs;
+		Json::Value phases(Json::arrayValue);
+		for (int ph : g.phasesShown)
+			phases.append(ph);
+		(*r)["phasesShown"] = phases;
+	}
+	if (cut)
+		++g_combatProbe.death.cut;
+	else
+		++g_combatProbe.death.completed;
+	deathClearDying(g);
+}
+
+/// D-g: every death ghost - queued, started, holding - ends with @a endedBy ("action_end", "side_transition",
+/// "front") and leaves both lists (an ended head waiting for its release goes with them).
+void deathEndAll(std::uint32_t nowMs, const char* endedBy)
+{
+	for (DeathGhost& g : g_deathGhosts)
+		deathEnd(g, endedBy, nowMs);
+	for (DeathGhost& g : g_deathHolding)
+		deathEnd(g, endedBy, nowMs);
+	g_deathGhosts.clear();
+	g_deathHolding.clear();
+	deathSyncQueued();
+}
+
+/// D-g: releases the queue head (vanilla's pop: the next death may start). It leaves the queue - to the hold
+/// when it still draws - the dying flag clears when still set, and the new head, not yet started, records it as
+/// the head it waited behind.
+void deathReleaseHead()
+{
+	const DeathGhost h = g_deathGhosts.front();
+	g_deathGhosts.erase(g_deathGhosts.begin());
+	deathClearDying(h);
+	if (!h.ended)
+		g_deathHolding.push_back(h);
+	if (!g_deathGhosts.empty() && !g_deathGhosts.front().started)
+		g_deathGhosts.front().afterSeq = h.seq;
+}
+
+/// D-f / D-g at one advance(): ends a started @a g "out" (TRUE) when its canonical unit is out or off its tile
+/// (the corpse / convert / next delta); else appends the direction and the collapse phase it draws now when they
+/// changed, and plays its death sound once, at the first advance at or after tc (outcome "dead" only, N6).
+bool deathStep(DeathGhost& g, const SavedBattleGame* save, std::uint32_t nowMs)
+{
+	const BattleUnit* unit = CoopIdMaps::unit(g.unitId);
+	if (!unit || unit->isOut() || !unit->getTile())
+	{
+		deathEnd(g, "out", nowMs);
+		return true;
+	}
+	const std::uint32_t e = nowMs - g.startedAtMs;
+	int dir = g.fromDir;
+	int status = 0;
+	int phase = 0;
+	deathPoseAt(g, e, &dir, &status, &phase);
+	if (g.dirsShown.empty() || g.dirsShown.back() != dir)
+		g.dirsShown.push_back(dir);
+	if (status == (int)STATUS_COLLAPSING && (g.phasesShown.empty() || g.phasesShown.back() != phase))
+		g.phasesShown.push_back(phase);
+	if (!g.soundDone && e >= g.tc)
+	{
+		g.soundDone = true;
+		Map* live = combatLiveMap();
+		if (g.dead && live)
+			combatPlay(save, g.sound, live->getSoundAngle(g.pos));
+	}
+	return false;
+}
+
+/// D-e / D-g at one advance() (a coop client; runs whatever the option, OQ3): steps every holding ghost, then
+/// starts the queue head once no combat ghost is live (the host runs a queued UnitDieBState only after the
+/// states in front of it popped), steps it and releases it at popMs - or at once when it ended before isOutMs -
+/// so the next head may start in the same frame. TRUE when a death ghost was live at entry.
+bool deathAdvance(const SavedBattleGame* save, std::uint32_t nowMs)
+{
+	combatSync();
+	if (g_deathGhosts.empty() && g_deathHolding.empty())
+		return false;
+	for (auto it = g_deathHolding.begin(); it != g_deathHolding.end(); )
+	{
+		if (deathStep(*it, save, nowMs))
+			it = g_deathHolding.erase(it);
+		else
+			++it;
+	}
+	while (!g_deathGhosts.empty())
+	{
+		DeathGhost& h = g_deathGhosts.front();
+		if (!h.started)
+		{
+			if (!g_combatGhosts.empty())
+				break;
+			deathStart(h, nowMs);
+		}
+		if (!h.ended)
+			deathStep(h, save, nowMs);
+		const std::uint32_t e = nowMs - h.startedAtMs;
+		if (!(e >= h.popMs || (h.ended && h.endedAtE < h.isOutMs)))
+			break;
+		deathReleaseHead();
+	}
+	deathSyncQueued();
+	return true;
+}
+
+/// D-d (a coop client, from combatOnEv() after Q1 (b)'s combat completion): one applied `death`. A `front` death
+/// (the host's state stack was empty at its push, ST1 (a)) first ends every death ghost ("front"; never gated,
+/// OQ3). With the option on (OR3 (a)) the cue is read BEFORE its delta: an instant death gets no ghost, only its
+/// record and (ST5 (a)) the scream a killed unit gives when it was still conscious or the wire damage type's
+/// global rule is not direct; an animated death is enqueued at the host's queue position (AMENDMENT P6b-3,
+/// F1784: index 0 when `front`; otherwise index 1 when the head started or was itself enqueued `front`, else
+/// index 0), with its death sound picked now (outcome "dead" only), the interval the host's constructor left
+/// (DEFAULT_ANIM_SPEED / 3 for a victim that must turn, else DEFAULT_ANIM_SPEED) and, for a player victim, the
+/// live Map's dying flag set (K11).
+void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs)
+{
+	const Json::Value& p = ev["payload"];
+	const bool front = p.get("front", false).asBool();
+	if (front)
+		deathEndAll(nowMs, "front");
+	if (!Options::coopGhostStepper)
+		return; // OR3 (a): starting a death display is gated, ending one is not
+	const int unitId = p.get("unit", -1).asInt();
+	const BattleUnit* unit = unitId >= 0 ? CoopIdMaps::unit(unitId) : nullptr;
+	const bool instant = p.get("instant", false).asBool();
+	const std::string outcome = p.get("outcome", "").asString();
+	const bool dead = outcome == "dead";
+	Json::Value r(Json::objectValue);
+	r["seq"] = ev.get("seq", 0u).asUInt();
+	r["actionId"] = ev.get("actionId", 0u).asUInt();
+	r["unit"] = unitId;
+	r["instant"] = instant;
+	r["outcome"] = outcome;
+	r["front"] = front;
+	r["fromDir"] = unit ? unit->getDirection() : -1;
+	r["octants"] = 0;
+	r["frames"] = unit ? unit->getArmor()->getDeathFrames() : 0;
+	r["respawn"] = unit ? unit->getRespawn() : false;
+	r["Is"] = 0;
+	r["Ic"] = 0;
+	r["tc"] = 0;
+	r["isOutMs"] = 0;
+	r["popMs"] = 0;
+	r["sound"] = Mod::NO_SOUND;
+	r["startedAfterSeq"] = 0;
+	r["dirsShown"] = Json::Value(Json::arrayValue);
+	r["phasesShown"] = Json::Value(Json::arrayValue);
+	r["unitDyingSet"] = false;
+	r["unitDyingCleared"] = false;
+	r["overKill"] = unit ? unit->getOverKillDamage() : 0;
+	r["holdMs"] = 0;
+	r["endedBy"] = "";
+	if (instant)
+	{
+		// E3 needs no ghost (parity by snap, N8); ST5 (a): vanilla's isOut-frame scream (UnitDieBState :258-:261).
+		++g_combatProbe.death.instant;
+		int sound = Mod::NO_SOUND;
+		const int dt = p.get("damageType", (int)DT_NONE).asInt();
+		const RuleDamageType* dtRule = (save && dt >= 0 && dt < (int)DAMAGE_TYPES)
+			? save->getMod()->getDamageType((ItemDamageType)dt) : nullptr;
+		if (dead && unit && (unit->getStatus() != STATUS_UNCONSCIOUS || (dtRule && !dtRule->isDirect())))
+		{
+			sound = combatPickSound(unit->getDeathSounds());
+			if (Map* live = combatLiveMap())
+				combatPlay(save, sound, live->getSoundAngle(unit->getPosition()));
+		}
+		r["sound"] = sound;
+		r["endedBy"] = "instant";
+		deathPushRecord(r);
+		return;
+	}
+	++g_combatProbe.death.enqueued;
+	if (!unit)
+	{
+		r["endedBy"] = "unresolved";
+		deathPushRecord(r);
+		++g_combatProbe.death.cut;
+		return;
+	}
+	DeathGhost g;
+	g.seq = ev.get("seq", 0u).asUInt();
+	g.actionId = ev.get("actionId", 0u).asUInt();
+	g.unitId = unitId;
+	g.front = front;
+	g.dead = dead;
+	g.fromDir = unit->getDirection();
+	g.octants = ((3 - g.fromDir) % 8 + 8) % 8;
+	g.frames = unit->getArmor()->getDeathFrames();
+	g.respawn = unit->getRespawn();
+	g.pos = unit->getPosition();
+	g.sound = dead ? combatPickSound(unit->getDeathSounds()) : Mod::NO_SOUND;
+	r["octants"] = g.octants;
+	r["sound"] = g.sound;
+	// The UnitDieBState constructor's intervals (:100/:103): DEFAULT_ANIM_SPEED, then / 3 when it must turn.
+	g_deathInterval = g.octants > 0 ? BattlescapeState::DEFAULT_ANIM_SPEED / 3 : BattlescapeState::DEFAULT_ANIM_SPEED;
+	if (unit->getFaction() == FACTION_PLAYER)
+	{
+		if (Map* live = combatLiveMap())
+		{
+			live->setUnitDying(true);
+			g_deathDyingOn = true;
+			r["unitDyingSet"] = true;
+		}
+	}
+	g.ordinal = deathPushRecord(r);
+	std::size_t at = 0;
+	if (!front && !g_deathGhosts.empty() && (g_deathGhosts.front().started || g_deathGhosts.front().front))
+		at = 1;
+	g_deathGhosts.insert(g_deathGhosts.begin() + (std::ptrdiff_t)at, g);
+	deathSyncQueued();
+}
+
+/// D-h (OR6 (a)): the started, not yet ended death ghost of @a u draws its D-f pose (direction, status, collapse
+/// frame) and takes draw precedence over any SPEC 7 ghost of the same unit, which it never touches. FALSE with
+/// none, or before its first octant (the canonical unit draws).
+bool deathView(const BattleUnit* u, CoopUnitDrawView* io)
+{
+	if (g_deathGhosts.empty() && g_deathHolding.empty())
+		return false;
+	combatSync();
+	const DeathGhost* g = nullptr;
+	for (const DeathGhost& h : g_deathHolding)
+	{
+		if (h.unitId == u->getId())
+			g = &h;
+	}
+	if (!g_deathGhosts.empty())
+	{
+		const DeathGhost& h = g_deathGhosts.front();
+		if (h.started && !h.ended && h.unitId == u->getId())
+			g = &h;
+	}
+	if (!g)
+		return false;
+	int dir = g->fromDir;
+	int status = 0;
+	int phase = 0;
+	if (!deathPoseAt(*g, SDL_GetTicks() - g->startedAtMs, &dir, &status, &phase))
+		return false;
+	io->direction = dir;
+	io->status = status;
+	if (status == (int)STATUS_COLLAPSING)
+		io->fallPhase = phase;
+	return true;
+}
+
 /// The combat half of onEvApplied() (a coop client): Q1 (b)'s completion rule, never gated by the option
 /// (OQ3), then a `shot`'s own ghost when the option is on. W2-P5 S-B.2: a `hit` / `explosion` starts its
 /// impact ghost the same way, and a pellet `hit` joins the running one of its action instead (OQ1 (a)).
@@ -15873,6 +16332,16 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	// action - it joins it below; every other running ghost still ends first.
 	const bool pellet = kind == "hit" && ev["payload"].isMember("pellet");
 	combatEndAll(nowMs, pellet ? ev.get("actionId", 0u).asUInt() : 0u);
+	// W2-P6b S-D.2 (section 8 D-d, D-g): a side change ends every death ghost (never gated, OQ3); an applied
+	// `death` goes to deathOnEv() (its `front` ending is never gated; its start is, OR3 (a)). Death ghosts are
+	// the ruled Q1 exception: no other ev ends them.
+	if (kind == "side_transition")
+		deathEndAll(nowMs, "side_transition");
+	if (kind == "death")
+	{
+		deathOnEv(save, ev, nowMs);
+		return;
+	}
 	if (kind == "hit" || kind == "explosion")
 	{
 		if (!Options::coopGhostStepper)
@@ -16043,6 +16512,7 @@ void combatReleaseHeld(const SavedBattleGame* save, std::uint32_t nowMs)
 			(*r)["waitMs"] = (Json::UInt)(nowMs - it->enqueuedAtMs);
 			(*r)["startStamp"] = stamp;
 		}
+		g_deathInterval = (int)kCombatTickMs; // W2-P6b S-D.2 (D-i): display only
 		it->followBefore = live->getFollowProjectile();
 		live->setProjectile(it->projectile);
 		live->setFollowProjectile(false);
@@ -16154,7 +16624,9 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 {
 	// W2-P5 S-A.2 (OQ3): the combat half always runs, whatever the option.
 	const bool combatLive = combatAdvance(nowMs);
-	if (!save || (g_coopGhosts.empty() && !combatLive))
+	// W2-P6b S-D.2 (section 8 D-e): the death ghosts start, step and release here, whatever the option (OQ3).
+	const bool deathLive = deathAdvance(save, nowMs);
+	if (!save || (g_coopGhosts.empty() && !combatLive && !deathLive))
 		return;
 	const bool stepperLive = !g_coopGhosts.empty();
 
@@ -16201,7 +16673,7 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 
 	// W2-P5 S-A.2 (Q5 = a): while ANY ghost is live (this frame included) the Map redraws every frame - a
 	// thin client's Map otherwise redraws only on its 100 ms animation timer or a camera move (N9).
-	if (stepperLive || combatLive)
+	if (stepperLive || combatLive || deathLive) // W2-P6b S-D.2: a death ghost redraws every frame too
 	{
 		Map* map = combatLiveMap();
 		if (map)
@@ -16211,6 +16683,9 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 
 bool view(const BattleUnit* u, CoopUnitDrawView* io)
 {
+	// W2-P6b S-D.2 (section 8 D-h, OR6 (a)): a started death ghost of `u` draws first; SPEC 7 is untouched.
+	if (u && io && deathView(u, io))
+		return true;
 	if (!u || !io || g_coopGhosts.empty())
 		return false;
 	auto it = g_coopGhosts.find(u->getId());
@@ -16307,6 +16782,8 @@ void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev)
 	const std::uint32_t nowMs = SDL_GetTicks();
 	combatEndPendingPairs(ev, "bt_action_end", nowMs);
 	combatEndAll(nowMs);
+	// W2-P6b S-D.2 (section 8 D-g, ST3 (a)): the chain's end ends every death ghost (never gated, OQ3).
+	deathEndAll(nowMs, "action_end");
 }
 
 bool ownsProjectile(const Map* map)
@@ -16375,6 +16852,22 @@ Json::Value displayTwoProbe()
 	death["ring"] = ring;
 	o["death"] = death;
 	return o;
+}
+
+bool deathGhostActive(int unitId)
+{
+	combatSync();
+	for (const DeathGhost& g : g_deathGhosts)
+	{
+		if (g.unitId == unitId && !g.ended)
+			return true;
+	}
+	for (const DeathGhost& g : g_deathHolding)
+	{
+		if (g.unitId == unitId)
+			return true;
+	}
+	return false;
 }
 
 void probeDeriveShotPath(SavedBattleGame* save, const Json::Value& ev)

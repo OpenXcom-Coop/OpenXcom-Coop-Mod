@@ -91,6 +91,7 @@ struct CoopUnitDrawView
 	int  walkPhase         = 0; // raw, same domain as BattleUnit::_walkPhase
 	int  verticalDirection = 0; // untouched by any ghost - copied straight through
 	int  status            = 0; // UnitStatus as int
+	int  fallPhase         = 0; // W2-P6b S-D.2: the collapse frame (a death ghost's, else the unit's own)
 	bool kneeled           = false;
 	bool ghostTrailing     = false; // see CoopGhost::view()'s walk branch
 
@@ -242,6 +243,12 @@ Json::Value turnGhostProbe();
 /// storage only at S-D.1: nothing writes it (the S-D.2 death ghosts do, on a coop client only). Kept apart from
 /// the SPEC 7 counters and the combat ghosts; main thread only, cleared with the combat probe storage.
 Json::Value displayTwoProbe();
+
+/// W2-P6b S-D.2 (spec rewrite/prompts/w2p6_display_two.md section 8 D-j; AMENDMENT P6b-1): TRUE while a death
+/// ghost for @a unitId is queued, started or holding its last frame on THIS machine (a coop client; always FALSE
+/// on the host and in single player) - the predicate W2-P6a's client message queue reads so a death message
+/// waits until the unit's collapse has ended. Main thread only; reads only.
+bool deathGhostActive(int unitId);
 
 /// W2-P5 S-A.1 (amendment E1 PR-E2; S-A.2 amendment E2): CLIENT, probe only, called from
 /// CoopApply::applyEvPayload()'s cue branch for an applied `shot` (before applyDelta): re-derive the
