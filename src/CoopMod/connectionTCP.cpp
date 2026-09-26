@@ -4542,6 +4542,91 @@ const std::string& coopGuestContribSoldierYaml(int seat, int index)
 static int g_guestContribLastSentCount = 0;
 int coopGuestContribLastSentCount() { return g_guestContribLastSentCount; }
 
+// W2-P4r (owner D149 = (a); spec rewrite/prompts/w2p4r_research_list.md (b)3,
+// Q-R1 (a)): the per-seat research store - one research-only SavedGame per
+// seat 1..3 (seat 0 is always the live world), answered by vanilla's own
+// isResearched / isManaUnlocked. Battle-scoped like g_guestContrib above; never
+// in any hash bucket and never in the battle document (N13). Its own mutex
+// (PR-R8: every accessor locks it): resetBattleAuthority() can run on the
+// UDP-monitor thread (BattleAuthority.h's R4-P1 note) while the main thread
+// runs canUseWeapon. The mutex is a leaf: nothing called under it takes
+// another lock. g_coopSeatResearchUnknown counts names the Mod did not know;
+// g_coopSeatResearchNoListLogged is the per-seat "logged once" latch of the
+// no-list fallback (PR-R6). S-R.1 (red) declares the store with NO writer, so
+// every seat reads the live world.
+static std::unique_ptr<SavedGame> g_coopSeatResearch[4]; // kMaxSeats (RB-D17: private, stays 4)
+static int g_coopSeatResearchUnknown[4] = {0, 0, 0, 0};
+static bool g_coopSeatResearchNoListLogged[4] = {false, false, false, false};
+static std::mutex g_coopSeatResearchMutex;
+
+bool coopResearchSeparate(Game* game)
+{
+	return game && isCoopBattle() && game->getCoopMod()->getCoopCampaign()
+		&& !game->getCoopMod()->isSharedCampaign() && !game->getCoopMod()->_enable_research_sync;
+}
+
+bool coopSeatIsResearched(Game* game, int seat, const std::vector<const RuleResearch*>& req)
+{
+	SavedGame* live = game->getSavedGame();
+	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
+		return live->isResearched(req);
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	if (!g_coopSeatResearch[seat])
+	{
+		if (!g_coopSeatResearchNoListLogged[seat])
+		{
+			g_coopSeatResearchNoListLogged[seat] = true;
+			Log(LOG_INFO) << "[coop-research] seat " << seat
+				<< " has no stored research list - its checks read the live world";
+		}
+		return live->isResearched(req);
+	}
+	return g_coopSeatResearch[seat]->isResearched(req);
+}
+
+bool coopSeatIsManaUnlocked(Game* game, int seat, Mod* mod)
+{
+	SavedGame* live = game->getSavedGame();
+	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
+		return live->isManaUnlocked(mod);
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	if (!g_coopSeatResearch[seat])
+	{
+		if (!g_coopSeatResearchNoListLogged[seat])
+		{
+			g_coopSeatResearchNoListLogged[seat] = true;
+			Log(LOG_INFO) << "[coop-research] seat " << seat
+				<< " has no stored research list - its checks read the live world";
+		}
+		return live->isManaUnlocked(mod);
+	}
+	return g_coopSeatResearch[seat]->isManaUnlocked(mod);
+}
+
+bool coopSeatResearchStored(int seat)
+{
+	if (seat < 0 || seat >= 4)
+		return false;
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	return g_coopSeatResearch[seat] != nullptr;
+}
+
+int coopSeatResearchCount(int seat)
+{
+	if (seat < 0 || seat >= 4)
+		return 0;
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	return g_coopSeatResearch[seat] ? (int)g_coopSeatResearch[seat]->getDiscoveredResearch().size() : 0;
+}
+
+int coopSeatResearchUnknown(int seat)
+{
+	if (seat < 0 || seat >= 4)
+		return 0;
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	return g_coopSeatResearchUnknown[seat];
+}
+
 // W2-P1 (thin-client tripwire, commit 1 of 2): the storage behind
 // coopClientBStatePushes() / coopClientBStateLastSite() /
 // coopClientPanicSkipped() (BattleAuthority.h). Battle-scoped, so declared

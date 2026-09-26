@@ -6022,7 +6022,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_camera_center"
 		&& cmd != "path_probe"
 		&& cmd != "field_poke"
-		&& cmd != "set_touch_modifiers" && cmd != "forget_research")
+		&& cmd != "set_touch_modifiers" && cmd != "forget_research"
+		&& cmd != "research_check" && cmd != "can_use_weapon" && cmd != "set_research_sync"
+		&& cmd != "clear_warning")
 	{
 		return false;
 	}
@@ -6412,6 +6414,37 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			guestContrib["recvSeats"] = recvSeats;
 			guestContrib["soldiers"] = perSeatCounts;
 			resp["guestContrib"] = guestContrib;
+		}
+		// W2-P4r (spec rewrite/prompts/w2p4r_research_list.md (b)11, NEW,
+		// additive; closes F1177 - the session flag was write-only): THIS
+		// machine's research-mode inputs and the per-seat research store.
+		// `separate` = coopResearchSeparate(); `liveCount` = the live world's
+		// discovered-topic count (-1 when there is no world: event_state
+		// answers before one exists, N24); `seats[s]` for s 0..3 =
+		// {seat, stored, count, unknown} (coopSeatResearchStored/Count/Unknown).
+		// Read-only, test-only.
+		{
+			connectionTCP* coopRM = _game->getCoopMod();
+			SavedGame* sgRM = _game->getSavedGame();
+			Json::Value researchMode(Json::objectValue);
+			researchMode["campaign"] = coopRM->getCoopCampaign();
+			researchMode["shared"] = coopRM->isSharedCampaign();
+			researchMode["sync"] = coopRM->_enable_research_sync;
+			researchMode["coopBattle"] = isCoopBattle();
+			researchMode["separate"] = coopResearchSeparate(_game);
+			researchMode["liveCount"] = sgRM ? (int)sgRM->getDiscoveredResearch().size() : -1;
+			Json::Value seatsRM(Json::arrayValue);
+			for (int s = 0; s < 4; ++s)
+			{
+				Json::Value e(Json::objectValue);
+				e["seat"] = s;
+				e["stored"] = coopSeatResearchStored(s);
+				e["count"] = coopSeatResearchCount(s);
+				e["unknown"] = coopSeatResearchUnknown(s);
+				seatsRM.append(e);
+			}
+			researchMode["seats"] = seatsRM;
+			resp["researchMode"] = researchMode;
 		}
 		resp["ok"] = true;
 	}
@@ -7704,10 +7737,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// in no battle hash bucket, so the host alone can lose a topic mid-battle:
 		// the only way an honest client's order reaches the host's
 		// `not_researched` deny (C16d-r). Refused on a co-op client.
+		// W2-P4r PR-R7: in a battle the client's live world is the host's
+		// adopted one; the client's own list travels on battle_accept instead.
 		SavedGame* sg = _game->getSavedGame();
 		RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
 		if (isCoopBattle() && !coopBattleAuthority().hostSim)
-			resp["error"] = "forget_research: host-only (a client's research never reaches the host)";
+			resp["error"] = "forget_research: host-only (a client's live world in a battle is the host's copy)";
 		else if (!sg || !rule)
 			resp["error"] = "forget_research: no world / unknown research";
 		else
@@ -7715,6 +7750,129 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			sg->removeDiscoveredResearch(rule);
 			resp["topic"] = rule->getName();
 			resp["researched"] = sg->isResearched(rule, false);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "research_check")
+	{
+		// W2-P4r (spec rewrite/prompts/w2p4r_research_list.md (b)11): for
+		// {topic}, what the product answers for a unit of each seat on THIS
+		// machine - coopSeatIsResearched(game, seat, {rule}) for seats
+		// 0..seatCount()-1 - plus whether a list is stored for the seat and
+		// whether the research-separate mode holds. Read-only, test-only.
+		SavedGame* sgRC = _game->getSavedGame();
+		RuleResearch* ruleRC = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
+		if (!sgRC || !ruleRC)
+		{
+			resp["error"] = "research_check: no world / unknown research";
+		}
+		else
+		{
+			const std::vector<const RuleResearch*> reqRC{ ruleRC };
+			Json::Value seatsRC(Json::arrayValue);
+			const int nRC = connectionTCP::seatCount();
+			for (int s = 0; s < nRC; ++s)
+			{
+				Json::Value e(Json::objectValue);
+				e["seat"] = s;
+				e["stored"] = coopSeatResearchStored(s);
+				e["researched"] = coopSeatIsResearched(_game, s, reqRC);
+				seatsRC.append(e);
+			}
+			resp["topic"] = ruleRC->getName();
+			resp["separate"] = coopResearchSeparate(_game);
+			resp["seats"] = seatsRC;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "can_use_weapon")
+	{
+		// W2-P4r (b)11 / Q-R2 (a): the live SavedBattleGame::canUseWeapon(item,
+		// unit, berserk, type, &message) on THIS machine - the exact call
+		// reaction fire (TileEngine determineReactionType / tryReaction),
+		// berserk (UnitPanicBState) and the AI (AIModule) make. {unit, item,
+		// action: snap|auto|aimed|hit|none, berserk}. Read-only, test-only;
+		// refused without a live BattlescapeState (the getBattleState() guard:
+		// canUseWeapon reads _battleState).
+		SavedGame* sgCU = _game->getSavedGame();
+		SavedBattleGame* bgCU = sgCU ? sgCU->getSavedBattle() : nullptr;
+		const std::string actCU = req.get("action", "snap").asString();
+		BattleActionType typeCU = BA_NONE;
+		bool actOkCU = true;
+		if (actCU == "snap") typeCU = BA_SNAPSHOT;
+		else if (actCU == "auto") typeCU = BA_AUTOSHOT;
+		else if (actCU == "aimed") typeCU = BA_AIMEDSHOT;
+		else if (actCU == "hit") typeCU = BA_HIT;
+		else if (actCU == "none") typeCU = BA_NONE;
+		else actOkCU = false;
+		if (!bgCU || !bgCU->getBattleState())
+		{
+			resp["error"] = "can_use_weapon: no live battle";
+		}
+		else if (!actOkCU)
+		{
+			resp["error"] = "can_use_weapon: unknown action " + actCU;
+		}
+		else
+		{
+			const int unitIdCU = req.get("unit", -1).asInt();
+			const int itemIdCU = req.get("item", -1).asInt();
+			BattleUnit* unitCU = nullptr;
+			for (auto* u : *bgCU->getUnits())
+				if (u->getId() == unitIdCU) { unitCU = u; break; }
+			BattleItem* itemCU = nullptr;
+			for (auto* i : *bgCU->getItems())
+				if (i->getId() == itemIdCU) { itemCU = i; break; }
+			if (!unitCU || !itemCU)
+			{
+				resp["error"] = "can_use_weapon: unit or item not found";
+			}
+			else
+			{
+				std::string msgCU;
+				resp["canUse"] = bgCU->canUseWeapon(itemCU, unitCU, req.get("berserk", false).asBool(), typeCU, &msgCU);
+				resp["message"] = msgCU;
+				resp["ok"] = true;
+			}
+		}
+	}
+	else if (cmd == "set_research_sync")
+	{
+		// W2-P4r (b)11 / Q-R3 (a): TEST lever - write THIS machine's
+		// connectionTCP::_enable_research_sync (the session flag the host sends
+		// at COOP_READY). It stands in for main's in-session writer (#185,
+		// not at this tip). Sent to BOTH machines, client first. Reply
+		// {ok, sync}.
+		connectionTCP* coopRS = _game->getCoopMod();
+		if (!req.isMember("enabled"))
+		{
+			resp["error"] = "set_research_sync: missing enabled";
+		}
+		else
+		{
+			coopRS->_enable_research_sync = req["enabled"].asBool();
+			resp["sync"] = coopRS->_enable_research_sync;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "clear_warning")
+	{
+		// W2-P4r AMENDMENT D2 (F1403): TEST lever - clear the vanilla
+		// battlescape warning text on THIS machine through the public
+		// BattlescapeState::warningRaw("") (display only; the text stays set
+		// after a refusal, so a second identical refusal cannot show as a
+		// change without this). Reply {ok, warningText}.
+		BattlescapeState* bsCW = nullptr;
+		for (auto* s : _game->getStates())
+			if (auto* bs = dynamic_cast<BattlescapeState*>(s)) bsCW = bs;
+		if (!bsCW)
+		{
+			resp["error"] = "clear_warning: no BattlescapeState";
+		}
+		else
+		{
+			bsCW->warningRaw("");
+			resp["warningText"] = bsCW->getWarningText();
 			resp["ok"] = true;
 		}
 	}

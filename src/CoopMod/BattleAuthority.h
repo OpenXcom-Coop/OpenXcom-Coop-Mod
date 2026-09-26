@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // W1-P7 deliverable 6 (REV D / WV-D55): the battle-save hook pair below takes
 // YAML nodes. Forward-declared, never included - this header is deliberately
@@ -33,6 +34,9 @@ namespace OpenXcom
 {
 
 class BattleUnit;
+class Game;
+class Mod;
+class RuleResearch;
 class BattleState;
 class SavedBattleGame;
 
@@ -793,5 +797,33 @@ const std::string& coopGuestContribSoldierYaml(int seat, int index);
 /// TestServer's `event_state` as `guestContrib.sent` (S1's vacuity guard,
 /// the client-side half).
 int coopGuestContribLastSentCount();
+
+/// W2-P4r (owner D149 = (a); spec rewrite/prompts/w2p4r_research_list.md
+/// (b)1): true when a research-based weapon check must read the unit OWNER's
+/// research - a live co-op battle (isCoopBattle(): single player is never
+/// separate) in a campaign (NEW BATTLE sets it false) that is not SHARED,
+/// with the host's "Enable Research Sync (Separate)" OFF. Evaluated on EVERY
+/// call and never cached: the option can change mid-battle (#185).
+bool coopResearchSeparate(Game* game);
+
+/// W2-P4r (b)5: vanilla SavedGame::isResearched(@a req) answered from @a
+/// seat's research. Outside coopResearchSeparate(), for a seat outside 1..3
+/// (seat 0 and seat-less units: the live world), in debug mode, or when no
+/// list is stored for the seat, it is the live world's answer - unchanged.
+/// Otherwise vanilla's own function on the seat's research-only world.
+bool coopSeatIsResearched(Game* game, int seat, const std::vector<const RuleResearch*>& req);
+
+/// W2-P4r (b)5 + PR-R5: the same routing around vanilla
+/// SavedGame::isManaUnlocked(@a mod) (@a mod = the Mod* the vanilla site
+/// passes).
+bool coopSeatIsManaUnlocked(Game* game, int seat, Mod* mod);
+
+/// W2-P4r (b)11 (test introspection; TestServer `event_state.researchMode`):
+/// whether a research list is stored for @a seat (0..3; seat 0 never is),
+/// how many known topics it holds, and how many names it could not resolve.
+/// Each takes the store's mutex (PR-R8).
+bool coopSeatResearchStored(int seat);
+int coopSeatResearchCount(int seat);
+int coopSeatResearchUnknown(int seat);
 
 } // namespace OpenXcom
