@@ -331,6 +331,14 @@ struct BattleAuthority
 	// Body in connectionTCP.cpp (RB-D6 pattern).
 	bool commandsUnit(const BattleUnit* u) const;
 
+	/// W2-P4 S-E4 (spec Q8 (a), N2 = F1036): the same rule for an explicit
+	/// @a seat instead of this machine's localSeat - the HOST's admission of a
+	/// REMOTE seat's intent (onIntent's not_your_unit). MJ-8's controller rule
+	/// unchanged: a mind-controlled unit is commanded by its controller's seat
+	/// (seat 0 when the controller no longer resolves). commandsUnit(u) is
+	/// commandsUnit(u, localSeat).
+	bool commandsUnit(const BattleUnit* u, int seat) const;
+
 	/// True iff this seat commands no player-side faction right now:
 	/// localSeat is unset (<0), or factionOf(localSeat) is not the player
 	/// side. Minimal by construction (this method takes no SavedBattleGame

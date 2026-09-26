@@ -1368,7 +1368,10 @@ void BattlescapeGame::popState()
 		}
 		else
 		{
-			if (_save->getSide() != FACTION_PLAYER && !_debugPlay)
+			// W2-P4 S-E4 (AMENDMENT C1 PR-Q8): ONE guarded term - a side a human
+			// seat commands (gm2's alien seat) runs no AI, so an action that seat
+			// ordered does not end the side here. False in SP.
+			if (_save->getSide() != FACTION_PLAYER && !_debugPlay && !coopSuppressNonPlayerThink(_save))
 			{
 				// AI does three things per unit, before switching to the next, or it got killed before doing the second thing
 				if (_AIActionCounter > 2 || _save->getSelectedUnit() == 0 || _save->getSelectedUnit()->isOut())

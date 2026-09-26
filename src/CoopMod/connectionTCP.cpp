@@ -4358,6 +4358,13 @@ bool BattleAuthority::mySideActive(const SavedBattleGame* s) const
 
 bool BattleAuthority::commandsUnit(const BattleUnit* u) const
 {
+	return commandsUnit(u, localSeat.load());
+}
+
+// W2-P4 S-E4 (spec Q8 (a)): the seat-parametrised form - the rule below is the
+// R5-P2 body unchanged, with the explicit seat in place of localSeat.
+bool BattleAuthority::commandsUnit(const BattleUnit* u, int seat) const
+{
 	if (!u)
 		return false;
 
@@ -4371,11 +4378,11 @@ bool BattleAuthority::commandsUnit(const BattleUnit* u) const
 	{
 		BattleUnit* controller = CoopArbiter::findUnitById(connectionTCP::getStaticBattle(), u->getMindControllerId());
 		if (controller)
-			return (int)controller->getCoopSeat() == localSeat;
-		return localSeat == 0; // host/AI fallback (seat 0 = host, SS2.2)
+			return (int)controller->getCoopSeat() == seat;
+		return seat == 0; // host/AI fallback (seat 0 = host, SS2.2)
 	}
 
-	return (int)u->getCoopSeat() == localSeat;
+	return (int)u->getCoopSeat() == seat;
 }
 
 bool BattleAuthority::isSpectator() const
@@ -7789,23 +7796,24 @@ void onIntent(const Json::Value& intent)
 
 	BattleUnit* actor = findUnitById(save, actorId);
 
-	// not_your_unit (SS2.3/SS2.5: "seat tag != intent seat"). Deliberately a
-	// direct comparison, NOT coopBattleAuthority().commandsUnit(actor) - see
-	// this packet's final report for why commandsUnit() (which compares
-	// against THIS machine's own localSeat) is the wrong check for the host
-	// validating a REMOTE seat's intent.
-	if (!actor || (int)actor->getCoopSeat() != seat)
+	// not_your_unit (SS2.3/SS2.5). W2-P4 S-E4 (spec Q8 (a), N2 = F1036): the
+	// INTENT seat must command the actor, through the seat-parametrised
+	// commandsUnit() - MJ-8's controller rule, so a unit the ordering seat
+	// mind-controlled is its own (the raw seat-tag compare this replaces
+	// refused it). commandsUnit(u) itself compares THIS machine's localSeat,
+	// the wrong seat for the host validating a REMOTE seat's intent.
+	if (!actor || !coopBattleAuthority().commandsUnit(actor, seat))
 	{
 		denyIntent(iseq, "not_your_unit", seat, kind);
 		return;
 	}
 
-	// turn_over (SS2.3/SS2.5). Safe to use mySideActive() as-is (unlike
-	// commandsUnit() above): RB-D16/RB-D18 mean every valid seat maps to
-	// FACTION_PLAYER in the spike's classic/SHARED fixtures, so
-	// factionOf(localSeat) == factionOf(seat) for any seat - the check is
-	// seat-invariant in spike scope.
-	if (!coopBattleAuthority().mySideActive(save))
+	// turn_over (SS2.3/SS2.5). W2-P4 S-E4 (spec Q8 (a), N1 = F1068): the active
+	// side must be the INTENT seat's faction. mySideActive() compares the
+	// HOST's own seat faction, which in gm2 (the second player commands the
+	// hostile side) denied every order the second player gave on its own side.
+	// Classic/SHARED co-op is unchanged: every seat maps to FACTION_PLAYER there.
+	if ((int)save->getSide() != coopBattleAuthority().factionOf(seat))
 	{
 		denyIntent(iseq, "turn_over", seat, kind);
 		return;
