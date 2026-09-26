@@ -4053,7 +4053,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "map_tile_screen_pos"
 		&& cmd != "map_tile_click_pos"
 		&& cmd != "find_doors" && cmd != "battle_close_ufo_doors"
-		&& cmd != "battle_ui_press")
+		&& cmd != "battle_ui_press" && cmd != "tile_census")
 	{
 		return false;
 	}
@@ -4474,6 +4474,60 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			// none - the tile half of BattleUnit::setTile's two-way link; the
 			// unit half is battle_state `onTile`. Plain getter.
 			resp["unit"] = t->getUnit() ? t->getUnit()->getId() : -1;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "tile_census")
+	{
+		// W2-P4 acceptance (F1362): tile_info's census fields for EVERY tile of an
+		// inclusive box {x0,x1,y0,y1,z0,z1} in ONE reply - test_w2_client_grenade
+		// C20 read an 800-tile box with ~2,400 separate tile_info round trips (one
+		// pump frame each), ~160 s. Read-only, test-only, no new semantics: each
+		// row is the subset of tile_info's reply that census compares, read with
+		// the SAME getters and defaults as tile_info above (the four parts'
+		// Tile::getMapData ids, -1 when empty, Tile::getFire/getSmoke) under the
+		// same key names; a position with no tile is null (tile_info: "no such
+		// tile"). Rows run z-, then y-, then x-major. At most 4096 tiles (about
+		// 1 MB; the reply is one FastWriter line, which neither the send loop nor
+		// harness.py caps). Touches only `sbg`, never `bg`/`bstate`, so it is safe
+		// under BriefingState like find_doors below.
+		const int x0 = req.get("x0", 0).asInt(), x1 = req.get("x1", -1).asInt();
+		const int y0 = req.get("y0", 0).asInt(), y1 = req.get("y1", -1).asInt();
+		const int z0 = req.get("z0", 0).asInt(), z1 = req.get("z1", -1).asInt();
+		const long long n = (long long)(x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1);
+		if (x1 < x0 || y1 < y0 || z1 < z0 || n > 4096)
+			resp["error"] = "bad box (inclusive x0..x1, y0..y1, z0..z1; at most 4096 tiles)";
+		else
+		{
+			const char* partNames[] = {"floor", "westwall", "northwall", "object"};
+			Json::Value tiles(Json::arrayValue);
+			for (int z = z0; z <= z1; ++z)
+				for (int y = y0; y <= y1; ++y)
+					for (int x = x0; x <= x1; ++x)
+					{
+						Tile* t = sbg->getTile(Position(x, y, z));
+						if (!t)
+						{
+							tiles.append(Json::Value());
+							continue;
+						}
+						Json::Value row;
+						row["x"] = t->getPosition().x;
+						row["y"] = t->getPosition().y;
+						row["z"] = t->getPosition().z;
+						for (int p = 0; p <= O_OBJECT; ++p)
+						{
+							int did = -1, dsid = -1;
+							t->getMapData(&did, &dsid, (TilePart)p);
+							row["parts"][partNames[p]]["mapDataID"] = did;
+							row["parts"][partNames[p]]["mapDataSetID"] = dsid;
+						}
+						row["fire"] = t->getFire();
+						row["smoke"] = t->getSmoke();
+						tiles.append(row);
+					}
+			resp["tiles"] = tiles;
+			resp["count"] = (int)tiles.size();
 			resp["ok"] = true;
 		}
 	}

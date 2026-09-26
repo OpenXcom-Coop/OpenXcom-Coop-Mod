@@ -236,14 +236,18 @@ def tile(gc, t):
 
 
 def census(gc, box):
-    """{tile: (4 parts, fire, smoke)} over `box` (tile_info per tile)."""
+    """{tile: (4 parts, fire, smoke)} over `box` (ONE tile_census reply, F1362:
+    tile_info's census fields for every tile, z-, y-, x-major, null = no tile)."""
+    r = gc.ok({"cmd": "tile_census", "x0": box[0][0], "x1": box[0][-1], "y0": box[1][0], "y1": box[1][-1],
+               "z0": box[2][0], "z1": box[2][-1]})
+    rows = iter(r["tiles"])
     out = {}
     for z in box[2]:
         for y in box[1]:
             for x in box[0]:
-                r = gc.cmd({"cmd": "tile_info", "x": x, "y": y, "z": z})
-                out[(x, y, z)] = ((tuple((r["parts"][p]["mapDataSetID"], r["parts"][p]["mapDataID"]) for p in PARTS),
-                                   r.get("fire"), r.get("smoke")) if r.get("ok") else None)
+                t = next(rows)
+                out[(x, y, z)] = ((tuple((t["parts"][p]["mapDataSetID"], t["parts"][p]["mapDataID"]) for p in PARTS),
+                                   t.get("fire"), t.get("smoke")) if t else None)
     return out
 
 
