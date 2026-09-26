@@ -54,6 +54,7 @@
 #include "../Battlescape/Pathfinding.h"
 #include "../Battlescape/TileEngine.h"
 #include "../Battlescape/Projectile.h" // W2-P2 S-C.2: the `shot` cue reads the trajectory ends
+#include "../Battlescape/Explosion.h" // W2-P5 S-B.2: the hit / explosion ghosts' vanilla sprites
 #include "../Battlescape/ProjectileFlyBState.h" // W2-P4 S-A.2: the `shoot` intent executor
 #include "../Battlescape/MeleeAttackBState.h" // W2-P4 S-C.2: the `melee` intent executor
 #include "../Battlescape/PsiAttackBState.h" // W2-P4 S-C.2: the `psi` intent executor
@@ -4048,6 +4049,21 @@ Json::Value coopShotTrajectories()
 	return out;
 }
 
+/// W2-P5 S-B.2 (spec rewrite/prompts/w2p5_display_ghosts.md ruling Q2 (b), amendment E1 OQ2 (a)): the two
+/// additive payload fields of the `hit` / `explosion` / `melee` / `psi` cues - the RuleItem type strings of
+/// the attack's weapon (`weaponType`) and damage item (`itemType`), each only when present (an itemless
+/// terrain link carries neither). They let the watching machine read the damage item's display rules
+/// (hit animation, frames, explosion speed, power for animation, the hit / miss / explosion sounds) even
+/// when no `shot` precedes the cue (an END TURN, prox or AI grenade, N22) and after the item is gone. No new
+/// cue kind, no new emitter.
+static void coopCueItemTypes(const BattleActionAttack& attack, Json::Value& p)
+{
+	if (attack.weapon_item)
+		p["weaponType"] = attack.weapon_item->getRules()->getType();
+	if (attack.damage_item)
+		p["itemType"] = attack.damage_item->getRules()->getType();
+}
+
 void coopCuePellet(const BattleActionAttack& attack, const Position& voxel, int power,
 	const RuleDamageType* damageType, int pellet)
 {
@@ -4064,6 +4080,7 @@ void coopCuePellet(const BattleActionAttack& attack, const Position& voxel, int 
 	p["power"] = power;
 	p["miss"] = false;
 	p["pellet"] = pellet;
+	coopCueItemTypes(attack, p); // W2-P5 S-B.2 (Q2 (b), OQ2 (a)): the `hit` schema's two additive fields
 	coopEmitCue("hit", p);
 }
 
@@ -4075,6 +4092,9 @@ void coopCueExplosionInit(const BattleActionAttack& attack, const Position& cent
 		return;
 	const int attacker = attack.attacker ? attack.attacker->getId() : -1;
 	Json::Value p(Json::objectValue);
+	// W2-P5 S-B.2 (Q2 (b), OQ2 (a)): all four branches below carry the attack's weaponType / itemType (when
+	// present) as two additive fields.
+	coopCueItemTypes(attack, p);
 	if (areaOfEffect)
 	{
 		if (attack.attacker)
@@ -14987,7 +15007,7 @@ const std::size_t kCombatRingCap = 32;
 /// drawn on and a thrown item as resolved at enqueue - never dereferenced once what they name may be gone.
 struct CombatGhost
 {
-	std::string kind;                 // "shot" (S-A)
+	std::string kind;                 // "shot" (S-A), "hit" / "explosion" (S-B)
 	std::uint64_t ordinal = 0;        // its ring record (CombatProbeStore::pushed at enqueue)
 	std::uint32_t startedAtMs = 0;
 	std::uint32_t durationMs = 0;     // FIXED AT ENQUEUE (D111), never recomputed
@@ -15017,6 +15037,16 @@ struct CombatGhost
 	std::uint32_t actionId = 0;
 	int pendingSound = Mod::NO_SOUND;
 	Position pendingSoundAt;
+	// W2-P5 S-B.2 (spec (b)3/(b)5/(b)9 for `hit` / `explosion`): an impact ghost's vanilla Explosion sprites
+	// (owned; on `drawnOn`'s explosion list until each one's animation ends, N32), the ExplosionBState state
+	// interval its sprites animate at and its tick counts (vanilla ExplosionBState::think animates every
+	// sprite once per interval), all fixed at enqueue (D111), and the damage item's rules a joining pellet
+	// falls back to (null for an itemless explosion).
+	std::vector<Explosion*> sprites;
+	std::uint32_t intervalMs = 1;
+	std::uint32_t ticksTotal = 0;
+	std::uint32_t ticksDone = 0;
+	const RuleItem* rule = nullptr;
 };
 std::vector<CombatGhost> g_combatGhosts;
 
@@ -15039,7 +15069,9 @@ Map* combatLiveMap()
 /// Spec (b)9 / OQ4: takes @a g's projectile off the LIVE Map when that Map is the one it was drawn on and
 /// still shows it (the Map's follow flag restored, the Map redrawn), then deletes it; with no live Map or
 /// another one it only deletes (a ghost whose BattlescapeState died is freed without touching any Map).
-/// Returns the live Map when it is the ghost's own, else null.
+/// Returns the live Map when it is the ghost's own, else null. W2-P5 S-B.2: an impact ghost's remaining
+/// Explosion sprites leave that Map's explosion list the same way (only when it is the ghost's own live Map)
+/// and are deleted.
 Map* combatDetach(CombatGhost& g)
 {
 	Map* live = combatLiveMap();
@@ -15054,6 +15086,18 @@ Map* combatDetach(CombatGhost& g)
 		}
 		delete g.projectile;
 		g.projectile = nullptr;
+	}
+	if (!g.sprites.empty())
+	{
+		for (Explosion* e : g.sprites)
+		{
+			if (own)
+				live->getExplosions()->remove(e);
+			delete e;
+		}
+		g.sprites.clear();
+		if (own)
+			live->invalidate();
 	}
 	return own ? live : nullptr;
 }
@@ -15285,13 +15329,22 @@ void combatEnd(CombatGhost& g, bool cut)
 		--g_combatProbe.live;
 }
 
-/// Q1 (b): every running combat ghost ends before the next ev's state applies (cut when early).
-void combatEndAll(std::uint32_t nowMs)
+/// Q1 (b): every running combat ghost ends before the next ev's state applies (cut when early). W2-P5 S-B.2
+/// (Q1 (b), amendment E1 OQ1 (a)): a pellet `hit` passes its own non-zero actionId as @a spareActionId - the
+/// running hit / explosion ghost of that action keeps running (the pellet joins it); every other ghost ends.
+void combatEndAll(std::uint32_t nowMs, std::uint32_t spareActionId = 0)
 {
 	std::vector<CombatGhost> ending;
 	ending.swap(g_combatGhosts);
 	for (CombatGhost& g : ending)
+	{
+		if (spareActionId != 0 && g.actionId == spareActionId && g.kind != "shot")
+		{
+			g_combatGhosts.push_back(g);
+			continue;
+		}
 		combatEnd(g, (std::uint32_t)(nowMs - g.startedAtMs) < g.durationMs);
+	}
 }
 
 /// Spec (b)4 + amendment E2: a shot's path re-derived with vanilla's own path function from the cue's
@@ -15501,6 +15554,265 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	g_combatGhosts.push_back(g);
 }
 
+// ----- W2-P5 S-B.2: the impact ghosts (spec (b)3, (b)5, (b)7-(b)11 for `hit` and `explosion`; ruling Q2 (b)) -----
+
+/// Vanilla ExplosionBState's optValue(): take @a newValue unless it is -1.
+void combatOptValue(int& oldValue, int newValue)
+{
+	if (newValue != -1)
+		oldValue = newValue;
+}
+
+/// The damage item's rules an impact cue names (Q2 (b): the payload's `itemType`, a type string that
+/// resolves after the item is gone) from the LOADED Mod. *@a named: whether the payload names one at all
+/// (an itemless terrain link names none).
+const RuleItem* combatCueItemRule(const SavedBattleGame* save, const Json::Value& p, bool* named)
+{
+	*named = p.isMember("itemType") && p["itemType"].isString();
+	return *named ? save->getMod()->getItem(p["itemType"].asString()) : nullptr;
+}
+
+/// Spec (b)1, (b)3, (b)5, (b)7-(b)11 for `hit` (not a pellet) and `explosion`: starts the impact ghost of one
+/// applied cue (a coop client, the option on) before the cue's own delta, as vanilla ExplosionBState::init
+/// builds its sprites - never the state itself (it applies damage, N1/R3.3). Exactly one ring record and one
+/// enqueued[kind]; a record with no display object (unresolved, noMap, 0 sprites or 0 ms) counts completed
+/// at enqueue (PR-E5). The damage item's display rules come from the payload's `itemType` (Q2 (b)).
+/// - hit (vanilla's bullet-hit branch, non-melee): anim / frames / sound = the item's hitAnimation /
+///   hitAnimationFrames / hit sound, overridden per vanilla's optValue chain by the miss rules when the
+///   payload says `miss`; one SMOKE sprite at the voxel with delay 0 (none when anim is -1), frames = the
+///   rule's when > 0 else Explosion::BULLET_FRAMES; interval max(1, 50 - 10 x explosionSpeed); ms = frames x
+///   interval; the hit / miss sound at the voxel's tile.
+/// - explosion (vanilla's area-of-effect branch): pfa = the rule's powerForAnimation when > 0 else the
+///   payload power; max(1, pfa / 5) big sprites scattered by RNG::seedless within +-pfa / 2 (never the sim
+///   RNG, V4), sprite i's delay = the count of j in [1, i - 1] with j % max(1, (pfa / 5) / 5) == 0 (vanilla
+///   bumps it after creating sprite i); start frame = the rule's hitAnimation (itemless: EXPLOSION_OFFSET),
+///   minus the frame count at depth > 0; frames = the rule's hitAnimationFrames when > 0 else
+///   Explosion::EXPLODE_FRAMES; interval max(1, 50 - 10 x explosionSpeed), 1 when chain > 6; ms = (max delay
+///   + frames) x interval; SMALL_EXPLOSION / LARGE_EXPLOSION by pfa <= 80, or the rule's explosion sound,
+///   played without an angle. power <= 0: 0 sprites, 0 ms, no sound (vanilla pops the state).
+/// Sound ids come from the raw rule lists (F1512: RuleItem's own sound getters draw the sim RNG), several
+/// ids picked with RNG::seedless (F1539).
+void combatStartImpact(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
+{
+	const Json::Value& p = ev["payload"];
+	const bool isHit = kind == "hit";
+	const int actorId = p.get("actor", -1).asInt();
+	const BattleUnit* actor = actorId >= 0 ? CoopIdMaps::unit(actorId) : nullptr;
+
+	Json::Value r(Json::objectValue);
+	r["seq"] = ev.get("seq", 0u).asUInt();
+	r["actionId"] = ev.get("actionId", 0u).asUInt();
+	r["kind"] = kind;
+	r["unit"] = actorId;
+	r["seat"] = actor ? (int)actor->getCoopSeat() : -1;
+	r["speed"] = 0;
+	r["trajLen"] = 0;
+	r["ticks"] = 0;
+	r["ms"] = 0;
+	r["endVoxel"] = Json::Value();
+	r["pathMatches"] = false;
+	r["arc"] = false;
+	r["pellets"] = false;
+	r["sprites"] = 0;
+	r["spread"] = 0;
+	r["frame"] = -1;
+	r["frames"] = 0;
+	r["maxDelay"] = 0;
+	r["intervalMs"] = 0;
+	r["sound"] = Mod::NO_SOUND;
+	r["soundEnd"] = Mod::NO_SOUND;
+	r["steps"] = 0;
+	r["cut"] = false;
+	r["afterTurnSeq"] = 0;
+	r["waitMs"] = 0;
+	r["maxGapMs"] = 0;
+	r["startStamp"] = 0;
+	++combatKindSlot(g_combatProbe.enqueued, kind);
+
+	bool named = false;
+	const RuleItem* rule = combatCueItemRule(save, p, &named);
+	const char* where = isHit ? "voxel" : "centreVoxel";
+	// A bullet hit always has a damage item (vanilla's hit branch reads its rules); an explosion may be itemless.
+	const bool resolved = p.isMember(where) && p.isMember("power") && p["power"].isInt()
+		&& (isHit ? (rule != nullptr) : (!named || rule != nullptr));
+	BattlescapeState* bs = combatLiveState();
+	Map* map = bs ? bs->getMap() : nullptr;
+	r["unresolved"] = !resolved;
+	r["noMap"] = !map;
+	if (!resolved)
+		++g_combatProbe.unresolved;
+	if (!map)
+		++g_combatProbe.noMap;
+	if (!resolved || !map)
+	{
+		++combatKindSlot(g_combatProbe.completed, kind);
+		combatPushRecord(r);
+		return;
+	}
+
+	const Position centre = CoopArbiter::coopJsonPos(p[where]);
+	const int power = p["power"].asInt();
+	const int halfAnim = BattlescapeState::DEFAULT_ANIM_SPEED / 2;
+	std::vector<Explosion*> sprites;
+	int frame = -1;
+	int frames = 0;
+	int maxDelay = 0;
+	int spread = 0;
+	int interval = 1;
+	int sound = Mod::NO_SOUND;
+	int soundAngle = 0;
+	std::uint32_t ticks = 0;
+	if (isHit)
+	{
+		int anim = rule->getHitAnimation();
+		int animFrames = rule->getHitAnimationFrames();
+		sound = combatPickSound(rule->getHitSoundRaw());
+		if (p.get("miss", false).asBool())
+		{
+			combatOptValue(anim, rule->getHitMissAnimation());
+			combatOptValue(animFrames, rule->getHitMissAnimationFrames());
+			combatOptValue(sound, combatPickSound(rule->getHitMissSoundRaw()));
+		}
+		interval = std::max(1, halfAnim - 10 * rule->getExplosionSpeed());
+		frame = anim;
+		frames = animFrames > 0 ? animFrames : Explosion::BULLET_FRAMES;
+		if (anim != -1)
+		{
+			sprites.push_back(new Explosion(centre, anim, 0, false, false, animFrames));
+			ticks = (std::uint32_t)frames;
+		}
+		soundAngle = map->getSoundAngle(centre.toTile());
+	}
+	else if (power > 0)
+	{
+		int pfa = power;
+		if (rule && rule->getPowerForAnimation() > 0)
+			pfa = rule->getPowerForAnimation();
+		frame = Mod::EXPLOSION_OFFSET;
+		int frameCount = -1;
+		sound = pfa <= 80 ? Mod::SMALL_EXPLOSION : Mod::LARGE_EXPLOSION;
+		if (rule)
+		{
+			frame = rule->getHitAnimation();
+			frameCount = rule->getHitAnimationFrames();
+			combatOptValue(sound, combatPickSound(rule->getExplosionHitSoundRaw()));
+		}
+		frames = frameCount > 0 ? frameCount : Explosion::EXPLODE_FRAMES;
+		if (save->getDepth() > 0)
+			frame -= frames;
+		const int counter = std::max(1, (pfa / 5) / 5);
+		const int lowerLimit = std::max(1, pfa / 5);
+		int frameDelay = 0;
+		for (int i = 0; i < lowerLimit; i++)
+		{
+			const int x = RNG::seedless(-pfa / 2, pfa / 2);
+			const int y = RNG::seedless(-pfa / 2, pfa / 2);
+			Position at = centre;
+			at.x += x;
+			at.y += y;
+			sprites.push_back(new Explosion(at, frame, frameDelay, true, false, frameCount));
+			spread = std::max(spread, std::max(std::abs(x), std::abs(y)));
+			maxDelay = frameDelay;
+			if (i > 0 && i % counter == 0)
+				frameDelay++;
+		}
+		interval = halfAnim;
+		if (rule)
+			interval -= 10 * rule->getExplosionSpeed();
+		if (p.get("chain", 0).asInt() > 6)
+			interval = 1; // vanilla: maximum animation speed for long chain terrain explosions
+		interval = std::max(1, interval);
+		ticks = (std::uint32_t)(maxDelay + frames);
+	}
+	const std::uint32_t ms = ticks * (std::uint32_t)interval;
+	r["frame"] = frame;
+	r["frames"] = frames;
+	r["sprites"] = (int)sprites.size();
+	r["maxDelay"] = maxDelay;
+	r["spread"] = spread;
+	r["intervalMs"] = interval;
+	r["ticks"] = (int)ticks;
+	r["ms"] = ms;
+	// Vanilla plays the hit sound even without a sprite; an explosion with no power plays none.
+	combatPlay(save, sound, soundAngle);
+	r["sound"] = sound;
+
+	if (sprites.empty() || ms == 0)
+	{
+		for (Explosion* e : sprites)
+			delete e;
+		++combatKindSlot(g_combatProbe.completed, kind);
+		combatPushRecord(r);
+		return;
+	}
+
+	// Spec (b)5: vanilla draws them (FOV rules and hidden-movement reveal included, N12); no camera call
+	// (D131 is W2-P6's).
+	for (Explosion* e : sprites)
+		map->getExplosions()->push_back(e);
+	map->invalidate();
+	CombatGhost g;
+	g.kind = kind;
+	g.startedAtMs = SDL_GetTicks();
+	g.durationMs = ms;
+	g.drawnOn = map;
+	g.unitId = actorId;
+	g.actionId = ev.get("actionId", 0u).asUInt();
+	g.sprites = sprites;
+	g.intervalMs = (std::uint32_t)interval;
+	g.ticksTotal = ticks;
+	g.rule = rule;
+	g.lastAdvanceMs = g.startedAtMs; // W2-P5 S-T.1 (E3.1 ST2 (a)): probe only
+	g.ordinal = combatPushRecord(r);
+	++g_combatProbe.live;
+	g_combatGhosts.push_back(g);
+}
+
+/// Q1 (b), amendment E1 OQ1 (a): an applied pellet `hit` (payload `pellet`) joins the running hit /
+/// explosion ghost of its actionId - one more SMOKE sprite at the pellet's voxel exactly as vanilla adds it
+/// to the same ExplosionBState's list (ProjectileFlyBState's pellet loop: the damage item's hitAnimation /
+/// hitAnimationFrames, delay 0, no sound), on that ghost's clock (animated the ticks the ghost already ran;
+/// it keeps the ghost's fixed duration) and counted in the ghost's record `sprites`. With none running it
+/// draws nothing. Either way it counts `joined`, never `enqueued`, and makes no ring record.
+void combatJoinPellet(SavedBattleGame* save, const Json::Value& ev)
+{
+	++g_combatProbe.joined;
+	const std::uint32_t actionId = ev.get("actionId", 0u).asUInt();
+	CombatGhost* g = nullptr;
+	for (CombatGhost& c : g_combatGhosts)
+	{
+		if (actionId != 0 && c.actionId == actionId && (c.kind == "hit" || c.kind == "explosion"))
+			g = &c;
+	}
+	const Json::Value& p = ev["payload"];
+	Map* live = combatLiveMap();
+	if (!g || !live || live != g->drawnOn || !p.isMember("voxel"))
+		return;
+	bool named = false;
+	const RuleItem* rule = combatCueItemRule(save, p, &named);
+	if (!rule)
+		rule = g->rule;
+	if (!rule)
+		return;
+	if (Json::Value* r = combatRecord(g->ordinal))
+		(*r)["sprites"] = (*r)["sprites"].asInt() + 1;
+	Explosion* e = new Explosion(CoopArbiter::coopJsonPos(p["voxel"]), rule->getHitAnimation(), 0, false, false,
+		rule->getHitAnimationFrames());
+	for (std::uint32_t t = 0; e && t < g->ticksDone; ++t)
+	{
+		if (!e->animate())
+		{
+			delete e;
+			e = nullptr;
+		}
+	}
+	if (!e)
+		return;
+	live->getExplosions()->push_back(e);
+	g->sprites.push_back(e);
+	live->invalidate();
+}
+
 /// W2-P5 S-T.3 (amendment E3.1 section 4 H3, OR1 (a)): run for every non-reveal bt_ev and every
 /// bt_action_end BEFORE combatEndAll(). Each PENDING pair - a held shot ghost whose shooter's SPEC 7 turn
 /// ghost (seq afterTurnSeq) still runs - ends unless @a ev is a `shot` of that pair's own actionId (a
@@ -15528,7 +15840,8 @@ void combatEndPendingPairs(const Json::Value& ev, const std::string& kind, std::
 }
 
 /// The combat half of onEvApplied() (a coop client): Q1 (b)'s completion rule, never gated by the option
-/// (OQ3), then a `shot`'s own ghost when the option is on.
+/// (OQ3), then a `shot`'s own ghost when the option is on. W2-P5 S-B.2: a `hit` / `explosion` starts its
+/// impact ghost the same way, and a pellet `hit` joins the running one of its action instead (OQ1 (a)).
 void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
 {
 	if (!combatClient())
@@ -15538,7 +15851,20 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 		return; // Q1 (b): a nested reveal carries no delta (N14) - it neither ends nor starts a ghost
 	const std::uint32_t nowMs = SDL_GetTicks();
 	combatEndPendingPairs(ev, kind, nowMs); // W2-P5 S-T.3 (H3, OR1 (a))
-	combatEndAll(nowMs);
+	// W2-P5 S-B.2 (Q1 (b), OQ1 (a)): a pellet `hit` does not end the running hit / explosion ghost of its own
+	// action - it joins it below; every other running ghost still ends first.
+	const bool pellet = kind == "hit" && ev["payload"].isMember("pellet");
+	combatEndAll(nowMs, pellet ? ev.get("actionId", 0u).asUInt() : 0u);
+	if (kind == "hit" || kind == "explosion")
+	{
+		if (!Options::coopGhostStepper)
+			return; // OQ3: only STARTING (or joining) a ghost is gated (Q4 = a)
+		if (pellet)
+			combatJoinPellet(save, ev);
+		else
+			combatStartImpact(save, ev, kind);
+		return;
+	}
 	if (kind != "shot")
 		return;
 	// Q1 (b) third clause (OQ7): a shot also completes the shooter's own running SPEC 7 ghost - vanilla
@@ -15574,13 +15900,14 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 /// The combat half of advance() (spec (b)5/(b)9; OQ3: always runs): steps each ghost's projectile to
 /// min(N - 1, floor(elapsed / 16) x speed) and ends a ghost whose fixed duration elapsed (completed), whose
 /// Map is no longer the live one or whose thrown item no longer resolves to the pointer captured at
-/// enqueue (cut when early). TRUE when a combat ghost was live at entry.
+/// enqueue (cut when early). W2-P5 S-B.2: an impact ghost animates its Explosion sprites once per elapsed
+/// state interval instead (vanilla ExplosionBState::think). TRUE when a combat ghost was live at entry.
 bool combatAdvance(std::uint32_t nowMs)
 {
 	combatSync();
 	if (g_combatGhosts.empty())
 		return false;
-	const Map* live = combatLiveMap();
+	Map* live = combatLiveMap();
 	for (auto it = g_combatGhosts.begin(); it != g_combatGhosts.end(); )
 	{
 		const std::uint32_t elapsed = nowMs - it->startedAtMs; // unsigned - wrap-safe
@@ -15606,11 +15933,38 @@ bool combatAdvance(std::uint32_t nowMs)
 			++it;
 			continue;
 		}
+		if (it->kind != "shot" && !gone)
+		{
+			// W2-P5 S-B.2 (spec (b)5; vanilla ExplosionBState::think): every sprite animates once per elapsed
+			// state interval (fixed at enqueue); one whose animation ended leaves the Map and is deleted.
+			const std::uint32_t due = std::min(it->ticksTotal, elapsed / it->intervalMs);
+			while (it->ticksDone < due)
+			{
+				for (auto s = it->sprites.begin(); s != it->sprites.end(); )
+				{
+					if ((*s)->animate())
+					{
+						++s;
+						continue;
+					}
+					live->getExplosions()->remove(*s);
+					delete *s;
+					s = it->sprites.erase(s);
+				}
+				++it->ticksDone;
+				++it->steps;
+			}
+		}
 		if (gone || !early)
 		{
 			CombatGhost done = *it;
 			it = g_combatGhosts.erase(it);
 			combatEnd(done, early);
+			continue;
+		}
+		if (it->kind != "shot")
+		{
+			++it;
 			continue;
 		}
 		const std::size_t index = std::min(it->trajLen - 1, (std::size_t)(elapsed / kCombatTickMs) * it->speed);

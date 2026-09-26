@@ -137,6 +137,13 @@ BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile);
 /// calculateParabolaVoxel from the payload's `arc`), paced by the shooter's seat fire dial (SPEC 17) and
 /// fixed at enqueue, with the fire / throw sound. No battle-state write, no sim RNG, no BState, no camera
 /// move (follow is switched off while the ghost's projectile is on the Map and restored after).
+///
+/// W2-P5 S-B.2 (spec (b)3/(b)5/(b)7 for `hit` and `explosion`; ruling Q2 (b); amendment E1 OQ1): an applied
+/// `hit` / `explosion` starts one display-only impact ghost the same way - vanilla Explosion sprites on the
+/// live Map built as ExplosionBState::init builds them from the payload and the damage item's LOADED rules
+/// (the payload's `itemType`), the explosion scatter from RNG::seedless, the frame timing fixed at enqueue,
+/// the hit / miss / explosion sound - and a pellet `hit` joins the running impact ghost of its action (one
+/// more sprite, no sound; with none running it draws nothing).
 void onEvApplied(SavedBattleGame* save, const Json::Value& ev);
 
 /// W2-P5 S-A.2 (spec (b)2, Q1 (b)): the combat completion rule for an applied `bt_action_end` - every running
