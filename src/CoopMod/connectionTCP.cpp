@@ -16043,7 +16043,6 @@ void deathStart(DeathGhost& g, std::uint32_t nowMs)
 	g.tc = (std::uint32_t)tc;
 	g.isOutMs = (std::uint32_t)isOut;
 	g.popMs = (std::uint32_t)(isOut + 2 * ic);
-	g_deathInterval = ic;
 	++g_combatProbe.death.started;
 	const BattleUnit* unit = CoopIdMaps::unit(g.unitId);
 	if (Json::Value* r = deathRecord(g.ordinal))
@@ -16139,6 +16138,7 @@ bool deathStep(DeathGhost& g, const SavedBattleGame* save, std::uint32_t nowMs)
 	if (!g.soundDone && e >= g.tc)
 	{
 		g.soundDone = true;
+		g_deathInterval = (int)g.intervalC; // W2-P6b S-D.4 (F1799): the running victim leaves Ic when its collapse starts
 		Map* live = combatLiveMap();
 		if (g.dead && live)
 			combatPlay(save, g.sound, live->getSoundAngle(g.pos));
