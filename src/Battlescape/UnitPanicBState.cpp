@@ -26,6 +26,7 @@
 #include "../Engine/RNG.h"
 #include "BattlescapeGame.h"
 #include "../Mod/Mod.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -124,6 +125,10 @@ void UnitPanicBState::think()
 					turnCost = turnCost * _unit->getTurnCost();
 
 					_unit->spendTimeUnits(turnCost);
+					// W2-P5 S-T.2 (owner ruling D151 = b, amendment E3.1 ST3): ONE guarded coop call -
+					// on the co-op HOST the berserk turn below emits its `turn` ev when the unit must
+					// turn; a no-op in single player and on a client.
+					coopArmBerserkTurn(_unit, ba.target);
 					_parent->statePushFront(new UnitTurnBState(_parent, ba, false));
 					// even if we don't have enough TUs to turn AND shoot, we still want to turn.
 					if (ba.haveTU())

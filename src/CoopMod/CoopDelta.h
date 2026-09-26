@@ -439,6 +439,13 @@ void coopNotePanicFleeWalk(BattleUnit* unit, SavedBattleGame* save);
 /// a flee dropped.
 void coopCuePanic(BattleUnit* unit, bool flee);
 
+/// W2-P5 S-T.2 (amendment E3.1 ST3 / OR2 / OR3, owner D151 = (b); UnitPanicBState::think,
+/// the line before the berserk shot's UnitTurnBState push): on the co-op HOST, inside
+/// @a unit's own `panic` context, arm the pre-action flag so that turn emits the wave-1
+/// `turn` ev (the watching machine animates it) - only when the unit must turn toward
+/// @a target (OR3 (a)). A no-op in single player and on a client.
+void coopArmBerserkTurn(BattleUnit* unit, const Position& target);
+
 /// V14 (UnitFallBState::init, its last statement): the frozen `fall` cue
 /// {units:[{unit, from}]} for SavedBattleGame::getFallingUnits() at init,
 /// `from` = each unit's position then; no cue when the list is empty.

@@ -5929,6 +5929,25 @@ static bool g_coopChainArming = false;
 // later host-local pre-shot turn (N4 / B1 ST5). 0 = none.
 static std::uint32_t g_coopPreAttackTurnActionId = 0;
 
+// W2-P5 S-T.2 (docs rewrite/prompts/w2p5_display_ghosts.md amendment E3 section
+// E3.2.2 and E3.1 ST3, owner ruling D151 = (b)): arm the PRE-ACTION turn of
+// @a actionId - record the "before" facing the wave-1 `turn` ev reports and set
+// the flag above, so coopOnUnitTurnFinished() emits that action's own pre-shot
+// turn (a new caller of the existing emitter: no new ev, field or makeEv).
+// File scope, not beside beginHostLocalCombat(): its first caller, the intent
+// executor, precedes it in namespace CoopArbiter (F1573). Callers: the host's
+// own shoot / throw / launch (beginHostLocalCombat), the second player's
+// shoot / throw intent and the berserk shot (coopArmBerserkTurn). Every close
+// clears the flag (N14), so an already-facing turn that pops in init() leaves
+// nothing behind.
+static void coopArmPreActionTurn(BattleUnit* actor, std::uint32_t actionId, bool turretOnly)
+{
+	g_coopPendingTurnInfo.fromDir = actor->getDirection();
+	g_coopPendingTurnInfo.fromTurretDir = actor->getTurretDirection();
+	g_coopPendingTurnInfo.turretOnly = turretOnly;
+	g_coopPreAttackTurnActionId = actionId;
+}
+
 // W1-P9 (SS2.W2 / WV-D30 / WV-D37): the WALK CHAIN in flight, kept on BOTH
 // machines - the HOST fills it from its emit hooks, a CLIENT from its apply
 // path - so `event_state.lastWalk` can report the same shape from either side.
@@ -8274,6 +8293,10 @@ void onIntent(const Json::Value& intent)
 		g_coopPendingChainActorId = actor->getId();
 		// W2-P2's combat kinds (beginHostLocalCombat): shoot / throw / launch.
 		g_coopPendingChainKind = action.type == BA_THROW ? "throw" : (action.type == BA_LAUNCH ? "launch" : "shoot");
+		// W2-P5 S-T.2 (amendment E3 section E3.2.2 (b), D151 = (b)): the UnitTurnBState
+		// pushed below emits the wave-1 `turn` ev for this action (snap, aimed, auto,
+		// spray, throw, launch), which the watching machine animates.
+		coopArmPreActionTurn(actor, actionId, actor->getTurretType() != -1);
 		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
 		g_coopIntentResultKey.clear();
 		// W2-P4 S-E1 (spec (b)8, F423): the ORDERING machine's own force-fire rides
@@ -9130,9 +9153,14 @@ void beginHostLocalCombat(BattleUnit* actor, int baType)
 	const std::uint32_t actionId = mintActionId();
 	pushActionContext(actionId, "host"); // RB-D19
 	g_coopPendingChainActorId = actor->getId();
-	// Neither "turn" nor "kneel" nor "walk": the chain's own pre-shot
-	// UnitTurnBState emits no `turn` ev (coopOnUnitTurnFinished's gate).
+	// Neither "turn" nor "kneel" nor "walk". W2-P5 S-T.2 (amendment E3 section
+	// E3.2.2 (a), D151 = (b)): a shoot / throw / launch chain's own pre-shot
+	// UnitTurnBState emits the wave-1 `turn` ev through the pre-action flag armed
+	// below (coopOnUnitTurnFinished's gate); melee and psi push no UnitTurnBState
+	// and arm nothing.
 	g_coopPendingChainKind = kind;
+	if (std::strcmp(kind, "shoot") == 0 || std::strcmp(kind, "throw") == 0 || std::strcmp(kind, "launch") == 0)
+		coopArmPreActionTurn(actor, actionId, actor->getTurretType() != -1);
 	CoopDelta::g_hostCombatContexts.fetch_add(1);
 	Log(LOG_INFO) << "[coop-ctx] host-local combat context " << actionId << " begun: unit " << actor->getId()
 		<< " kind=" << kind << " (action type " << baType << ")";
@@ -10832,6 +10860,25 @@ void coopCuePanic(BattleUnit* unit, bool flee)
 	p["unit"] = unit->getId();
 	p["mode"] = unit->getStatus() == STATUS_BERSERK ? "berserk" : (flee ? "flee" : "freeze");
 	coopEmitCue("panic", p);
+}
+
+void coopArmBerserkTurn(BattleUnit* unit, const Position& target)
+{
+	if (!coopCueAuthoring() || !unit)
+		return;
+	// W2-P5 S-T.2 (amendment E3.1 ST3, the S-T plan review section 5): only inside
+	// THIS unit's own panic context (the base context V10 opened; the pending actor
+	// is the unit), so the existing gate passes on the flag alone (F1575).
+	if (CoopArbiter::currentActionId() == 0 || std::strcmp(CoopArbiter::currentActionOrigin(), "panic") != 0
+		|| g_coopPendingChainActorId != unit->getId())
+		return;
+	// OR3 (a): arm only when the unit must turn - the berserk UnitTurnBState never
+	// pops in init() (chargeTUs false), so arming an already-facing unit would put
+	// a 0-octant `turn` ev on the wire.
+	if (unit->directionTo(target) == unit->getDirection())
+		return;
+	// turretOnly false: the berserk action targets nothing (UnitTurnBState.cpp:71).
+	coopArmPreActionTurn(unit, CoopArbiter::currentActionId(), false);
 }
 
 void coopCueFall(SavedBattleGame* save)
