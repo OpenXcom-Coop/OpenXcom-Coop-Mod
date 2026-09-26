@@ -174,7 +174,7 @@ C19_ROWS = 2                      # primed with the mod: THROW + UNPRIME
 SEED_C19 = 2                      # seed 1 landed on (11,21,0)
 BLAST_BOX_C19 = 5                 # the grenade's blast radius (tiles): no unit may stand this close
 C19_TU_AFTER = 46                 # 64 - 16 throw - 2 (two octants of pre-throw turn)
-C19_CHAIN = ["shot", "bt_action_end"]
+C19_CHAIN = ["turn", "shot", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-throw turn
 
 # ----- C20 (T0c, the C20 redo: F1169) -----
 C20_C_TILE, C20_C_DIR = (28, 25, 0), 6       # faces west, away from the waypoints (F1125)
@@ -182,7 +182,7 @@ C20_W = (46, 25, 0)               # both waypoints (vanilla's dive, PR-Q16)
 C20_CAMERA = (41, 24, 0)          # client camera before the waypoint clicks
 SEED_C20 = 1
 C20_TU_AFTER = 18                 # 64 - 42 launch - 4 (four octants of pre-launch turn)
-C20_CHAIN = ["shot", "shot", "explosion", "bt_action_end"]
+C20_CHAIN = ["turn", "shot", "shot", "explosion", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-launch turn
 C20_POWER, C20_RADIUS = 200, 10
 C20_BOX = (range(34, 50), range(13, 38), range(0, 2))   # T0c's census box (x, y), z 0-1
 C20_TILES_CHANGED = 285

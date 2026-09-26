@@ -184,7 +184,7 @@ A_CORPSE = "STR_SECTOID_CORPSE"
 SEED_C16 = 1
 SNAP_TU = 16                      # C's rifle snap cost (the stand-in's tuCost)
 CLIP_FULL = 20
-C16_CHAIN = ["shot", "hit", "death", "corpse", "bt_action_end"]
+C16_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-shot turn
 C16_TU_AFTER = 47                 # 64 - 16 snap - 1 for the one-octant turn
 C16_CLIP_AFTER = 19
 

@@ -6285,6 +6285,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// the probe-only path re-derivation of each applied `shot`), rngSeed (the sim RNG state, read only:
 		// the V4 bar), shotTrajectories (HOST: the last 16 shots' trajectory length and speed).
 		resp["combatGhost"] = CoopGhost::combatProbe();
+		// W2-P5 S-T.1 (amendment E3 section E3.6): the SPEC 7 `turn` ghost ends (counts + ring), both machines.
+		resp["turnGhost"] = CoopGhost::turnGhostProbe();
 		resp["derivedPaths"] = CoopGhost::derivedPaths();
 		resp["rngSeed"] = Json::Value::Int64((int64_t)RNG::getSeed());
 		resp["shotTrajectories"] = coopShotTrajectories();

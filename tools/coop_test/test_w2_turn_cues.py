@@ -200,6 +200,12 @@ C13A_RIFLE_ID, C13A_CLIP_ID = 62, 63
 C13A_DEST = (8, 36, 0)           # the flee's end tile
 SEED_C13B = 1                    # host set_seed right before its END TURN press: berserk, 6 random auto shots
 C13B_RIFLE_ID, C13B_CLIP_ID = 64, 65
+# W2-P5 S-T (owner D151 = (b); amendment E3.1 ST3 = (a), OR3 (a); TASK 0 T0-S5, F1590, 3 boots identical): C2's
+# berserk turns animate - each berserk iteration that must turn (0 -> 7, 7 -> 6, 6 -> 2) emits one `turn` ev in
+# the panic context before its burst; the third turns 4 octants with no TU left and fires nothing.
+C13B_TURNS = 3
+C13B_KINDS = ["panic", "turn", "shot", "hit", "shot", "hit", "shot", "hit", "turn", "shot", "shot", "hit", "shot",
+              "hit", "turn", "bt_action_end"]
 MORALE_AFTER_PANIC = 15          # UnitPanicBState: moraleChange(+15) when the panic ends
 
 # ----- C9 (T0b constants.md "C9"; F868) -----
@@ -790,9 +796,13 @@ def c13b_berserk(host, client, ctx):
                               (rec["uh"].get(uid) or {}).get("status"))}
               for uid, u in uh0.items() if uid != C2_ID}
     changed = {uid: v for uid, v in others.items() if v["before"] != v["after"]}
+    turns = [e for e in pevs if e["kind"] == "turn"]
+    tpl = host_payloads(host, [e["seq"] for e in turns]) if turns else {}
+    turn_pl = [(e["seq"], (tpl.get(e["seq"]) or {}).get("payload")) for e in turns]
     print(f"EVIDENCE C13b: C2 rifle={g.get('weaponId')} clip={g.get('ammoId')} -> {C13_C2_TILE}/{C13_C2_DIR} morale "
           f"response={m.get('morale')} stagedDiff={staged_diff}; seed {SEED_C13B}; panic context={ctx_view(pc)} "
-          f"kind={pc and pc.get('kind')} its evs={sv(pevs)}; shots (seq, actionId, payload)="
+          f"kind={pc and pc.get('kind')} its evs={sv(pevs)}; turns (seq, [coop-turn] payload)={turn_pl}; "
+          f"shots (seq, actionId, payload)="
           f"{[(e['seq'], e['actionId'], payload(rec, e)) for e in shots]}; other units changed={changed}; units="
           f"{units_evidence(rec, [C2_ID])}; rifle={items_evidence(rec, [C13B_RIFLE_ID])}; {rec_evidence(rec)}",
           flush=True)
@@ -812,12 +822,15 @@ def c13b_berserk(host, client, ctx):
             fails.append(f"C13b: C2's rifle {C13B_RIFLE_ID} on the {name} {iview(it)} (want still owned by C2)")
     fails += pfails
     if pc:
+        # W2-P5 S-T (E3.1 ST3 = (a)): the berserk turns are `turn` evs in the panic context (T0-S5's exact list).
         kinds = [e["kind"] for e in pevs]
-        mid = kinds[1:-1]
-        if kinds[:1] != ["panic"] or kinds[-1:] != ["bt_action_end"] or "shot" not in mid \
-                or any(k not in ("shot", "hit") for k in mid):
-            fails.append(f"C13b: the panic context {pc.get('actionId')} evs {sv(pevs)} (want panic -> >= 1 shot and "
-                         f"their hits -> bt_action_end)")
+        if kinds != C13B_KINDS or len(turns) != C13B_TURNS:
+            fails.append(f"C13b: the panic context {pc.get('actionId')} evs {sv(pevs)} carry {len(turns)} `turn` "
+                         f"ev(s) (want exactly {C13B_TURNS}: panic -> each berserk turn before its burst -> "
+                         f"bt_action_end, exactly {C13B_KINDS})")
+        bad = [(s, (p or {}).get("unit")) for s, p in turn_pl if (p or {}).get("unit") != C2_ID]
+        if bad:
+            fails.append(f"C13b: [coop-turn] payload units {bad} (want every berserk turn's unit C2 {C2_ID})")
     fails += context_fails(rec, "C13b")
     fails += common_fails(host, client, rec["before"], {}, "C13b")
     finish(fails)

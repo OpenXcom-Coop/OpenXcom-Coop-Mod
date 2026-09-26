@@ -217,6 +217,16 @@ GhostLastView lastGhost();
 /// ghost; a record with no display object (unresolved / noMap / 0 ms) counts `completed` at enqueue.
 Json::Value combatProbe();
 
+/// W2-P5 S-T.1 (amendment E3 section E3.6, E3.1 OR4/OR5): the SPEC 7 `turn` ghost probe of THIS machine this
+/// battle - {counts:{enqueued, natural, replaced, cut}, ring:[the last 32 turn-end records]}. One record per
+/// `turn` ghost end: {seq, actionId, unit, fromDir, toDir, octants, durationMs, seat, shownMs, endedBy
+/// ("natural" | "replaced" | "cut"), dirsShown (the directions its view drew as advance() stepped it, the
+/// final facing never appended), poseShown (the view's status at the first advance, -1 before one),
+/// maxGapMs (the largest advance() gap while it ran), endStamp (the battle-scoped order stamp a shot
+/// record's startStamp shares)}. Written on a coop client only; kept apart from the SPEC 7 counters above
+/// (which keep their exact semantics). Main thread only, cleared with the combat probe storage.
+Json::Value turnGhostProbe();
+
 /// W2-P5 S-A.1 (amendment E1 PR-E2; S-A.2 amendment E2): CLIENT, probe only, called from
 /// CoopApply::applyEvPayload()'s cue branch for an applied `shot` (before applyDelta): re-derive the
 /// shot's path the way the ghost does - straight: TileEngine::calculateLineVoxel from originVoxel toward

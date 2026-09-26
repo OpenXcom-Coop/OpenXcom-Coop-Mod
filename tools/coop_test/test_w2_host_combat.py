@@ -153,7 +153,7 @@ CURSOR_AIM = 2                   # battle_state.cursorType CT_AIM: H still targe
 CUE_KINDS = ("shot", "hit", "explosion", "melee", "psi", "death", "corpse", "prime", "sync", "fall",
              "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner")
 COMBAT_CUES = tuple(k for k in CUE_KINDS if k != "sync")
-C1_CHAIN = ["shot", "hit", "death", "corpse", "bt_action_end"]
+C1_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-shot turn
 C5_CHAIN = ["melee", "death", "corpse", "bt_action_end"]
 LOG_TAIL = 256                   # CoopEventLog::kCapacity
 
@@ -422,8 +422,8 @@ def c1_snap_kill(host, client, ctx):
     fails += cfails
     corpse_ids = [i["id"] for i in corpses["host"]]
     fails += last_cue_fails(ca["client"]["lastCue"], aid, seq_of(chain, "corpse"), A_ID, corpse_ids)
-    fails += cue_count_fails("host", cb["host"]["cueCounts"], ca["host"]["cueCounts"], hev, C1_CHAIN[:-1], seq0)
-    fails += cue_count_fails("client", cb["client"]["cueCounts"], ca["client"]["cueCounts"], cev, C1_CHAIN[:-1],
+    fails += cue_count_fails("host", cb["host"]["cueCounts"], ca["host"]["cueCounts"], hev, C1_CHAIN[1:-1], seq0)
+    fails += cue_count_fails("client", cb["client"]["cueCounts"], ca["client"]["cueCounts"], cev, C1_CHAIN[1:-1],
                              seq0)
     # SB1's item / morale / onTile asserts
     if idiff["hostOnly"] or idiff["clientOnly"] or idiff["differ"]:

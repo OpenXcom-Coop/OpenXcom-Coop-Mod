@@ -14859,6 +14859,16 @@ struct GhostReplay
 	std::uint32_t durationMs = 0;
 	int frames = 0;
 	int seat = -1;
+	// W2-P5 S-T.1 (amendment E3 section E3.6, E3.1 section 4 H0/H6, OR4 (a); probe only, no behaviour
+	// change): the ev's actionId; for a `turn` ghost the directions its view drew as advance() stepped it
+	// (dirsShown, the final facing never appended), the view's status at the first such advance (poseShown,
+	// -1 before one) and the advance() gap record (lastAdvanceMs starts at startedAtMs). Read by the
+	// turn-end record (turnGhostEnded) only.
+	std::uint32_t actionId = 0;
+	std::vector<int> dirsShown;
+	int poseShown = -1;
+	std::uint32_t lastAdvanceMs = 0;
+	std::uint32_t maxGapMs = 0;
 };
 
 // Battle-scoped: one live slot per unit id. Cleared by reset() (called from
@@ -14892,6 +14902,15 @@ struct CombatKinds
 	int hit = 0;
 	int explosion = 0;
 };
+/// W2-P5 S-T.1 (amendment E3 section E3.6): how SPEC 7 `turn` ghosts were enqueued and ended this battle
+/// (event_state `turnGhost.counts`).
+struct TurnGhostCounts
+{
+	int enqueued = 0;
+	int natural = 0;
+	int replaced = 0;
+	int cut = 0;
+};
 struct CombatProbeStore
 {
 	unsigned int gen = 0;
@@ -14905,6 +14924,12 @@ struct CombatProbeStore
 	std::deque<Json::Value> ring;    // the last kCombatRingCap combat ghost records
 	std::deque<Json::Value> derived; // PR-E2: the last kCombatRingCap client path re-derivations
 	std::uint64_t pushed = 0;        // S-A.2: ring records pushed this battle (a ghost finds its own by ordinal)
+	// W2-P5 S-T.1 (E3 section E3.6; E3.1 OR5 (a)): the turn-end ring (the last kCombatRingCap records) and its
+	// counters, and the battle-scoped order stamp - a turn record's endStamp and a shot record's startStamp
+	// take the next value. Cleared with the rest of this storage by combatSync() only (never by reset()).
+	TurnGhostCounts turn;
+	std::deque<Json::Value> turnRing;
+	std::uint32_t stamp = 0;
 };
 CombatProbeStore g_combatProbe;
 const std::size_t kCombatRingCap = 32;
@@ -14930,6 +14955,14 @@ struct CombatGhost
 	const BattleItem* thrownItem = nullptr; // resolved at enqueue - compared only (spec (b)9)
 	Position landingPos;              // a throw: vanilla's ITEM_DROP position (ProjectileFlyBState::think)
 	bool dropSound = false;           // a throw: ITEM_DROP when the ghost ends, natural or cut (spec (b)7)
+	// W2-P5 S-T.1 (E3.1 ST2 (a), section 4 H0; probe only): the advance() gap record while the ghost lives
+	// (lastAdvanceMs starts at startedAtMs, maxGapMs lands in the ring record at its end), and the same-action
+	// hold's fields - declared here, written by S-T.3 only (inert: nothing reads them in this commit).
+	std::uint32_t lastAdvanceMs = 0;
+	std::uint32_t maxGapMs = 0;
+	bool held = false;
+	std::uint32_t afterTurnSeq = 0;
+	std::uint32_t enqueuedAtMs = 0;
 };
 std::vector<CombatGhost> g_combatGhosts;
 
@@ -15042,6 +15075,71 @@ std::uint32_t ghostDurationMs(const GhostReplay& g)
 	return (std::uint32_t)framesForStep(g) * paceMsFor(g.unitId); // walk_step
 }
 
+bool combatClient(); // W2-P5 S-T.1: defined with the combat ghosts below
+
+/// W2-P5 S-T.1 (amendment E3.1 OR4 (a)): the `turn` ghost's drawn pose @a elapsed ms after its start - the
+/// direction along the SHORTER octant arc (ties clockwise, as vanilla's unit turn() does), one octant per
+/// g.durationMs / octants (fixed at enqueue, D111), and the status its view draws. Shared by view() and
+/// advance()'s dirsShown / poseShown probe, so the probe records what view() draws. @a status: in, the
+/// canonical status the caller's view carries; out, the drawn status (unchanged in this commit). Reads only.
+void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int* status)
+{
+	bool clockwise = false;
+	const int octants = turnOctants(g.fromDir, g.toDir, &clockwise);
+	// D111: per-octant pace derived from the FIXED total duration, not a
+	// wall-clock constant - g.durationMs already baked in paceMsFor() at
+	// enqueue.
+	const std::uint32_t perOctant = octants > 0 ? (g.durationMs / (std::uint32_t)octants) : 0;
+	const int stepsElapsed = (octants <= 0 || perOctant == 0)
+		? octants
+		: std::min(octants, (int)(elapsed / perOctant));
+	if (direction)
+		*direction = clockwise
+			? (g.fromDir + stepsElapsed) % 8
+			: ((g.fromDir - stepsElapsed) % 8 + 8) % 8;
+	(void)status; // the canonical status stands
+}
+
+/// W2-P5 S-T.1 (amendment E3 section E3.6; E3.1 OR4/OR5; probe only): one turn-end record for a SPEC 7 `turn`
+/// ghost that ends at @a nowMs - "natural" (advance(), its fixed duration elapsed), "replaced" (the unit's
+/// next ghost, onEvApplied) or "cut" (the shooter's own `shot`, Q1 (b) clause 3) - pushed to the turn ring
+/// (the last kCombatRingCap) and counted by how it ended; its endStamp takes the next order stamp. A no-op
+/// for walk_step / kneel ghosts and off a coop client. Main thread only (E1 OQ4).
+void turnGhostEnded(const GhostReplay& g, const char* endedBy, std::uint32_t nowMs)
+{
+	if (g.kind != "turn" || !combatClient())
+		return;
+	combatSync();
+	Json::Value r(Json::objectValue);
+	r["seq"] = g.seq;
+	r["actionId"] = g.actionId;
+	r["unit"] = g.unitId;
+	r["fromDir"] = g.fromDir;
+	r["toDir"] = g.toDir;
+	r["octants"] = g.frames;
+	r["durationMs"] = g.durationMs;
+	r["seat"] = g.seat;
+	r["shownMs"] = (Json::UInt)(nowMs - g.startedAtMs);
+	r["endedBy"] = endedBy;
+	Json::Value dirs(Json::arrayValue);
+	for (int d : g.dirsShown)
+		dirs.append(d);
+	r["dirsShown"] = dirs;
+	r["poseShown"] = g.poseShown;
+	r["maxGapMs"] = g.maxGapMs;
+	r["endStamp"] = ++g_combatProbe.stamp;
+	const std::string how = endedBy;
+	if (how == "natural")
+		++g_combatProbe.turn.natural;
+	else if (how == "replaced")
+		++g_combatProbe.turn.replaced;
+	else
+		++g_combatProbe.turn.cut;
+	g_combatProbe.turnRing.push_back(r);
+	while (g_combatProbe.turnRing.size() > kCombatRingCap)
+		g_combatProbe.turnRing.pop_front();
+}
+
 // ----- W2-P5 S-A.2: the combat ghosts (spec rewrite/prompts/w2p5_display_ghosts.md (b)1-11 for `shot`) -----
 
 /// Vanilla's projectile state tick (ProjectileFlyBState setStateInterval(1000/60)).
@@ -15118,6 +15216,7 @@ void combatEnd(CombatGhost& g, bool cut)
 	{
 		(*r)["cut"] = cut;
 		(*r)["steps"] = g.steps;
+		(*r)["maxGapMs"] = g.maxGapMs; // W2-P5 S-T.1 (E3.1 ST2 (a)): probe only
 	}
 	++combatKindSlot(cut ? g_combatProbe.cut : g_combatProbe.completed, g.kind);
 	if (g_combatProbe.live > 0)
@@ -15201,6 +15300,13 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev)
 	r["soundEnd"] = Mod::NO_SOUND;
 	r["steps"] = 0;
 	r["cut"] = false;
+	// W2-P5 S-T.1 (amendment E3 section E3.6, E3.1 ST2 (a) and OR5 (a); probe only): afterTurnSeq and waitMs
+	// stay 0 until S-T.3's hold writes them; maxGapMs is the advance() gap while the ghost lives (written at
+	// its end); startStamp takes the next order stamp when the ghost goes on the Map (0 without one).
+	r["afterTurnSeq"] = 0;
+	r["waitMs"] = 0;
+	r["maxGapMs"] = 0;
+	r["startStamp"] = 0;
 	++g_combatProbe.enqueued.shot;
 
 	std::vector<Position> path;
@@ -15299,6 +15405,8 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev)
 	map->setProjectile(projectile);
 	map->setFollowProjectile(false);
 	map->invalidate();
+	g.lastAdvanceMs = g.startedAtMs;           // W2-P5 S-T.1 (E3.1 ST2 (a)): probe only
+	r["startStamp"] = ++g_combatProbe.stamp;   // W2-P5 S-T.1 (E3.1 OR5 (a)): probe only
 	g.ordinal = combatPushRecord(r);
 	++g_combatProbe.live;
 	g_combatGhosts.push_back(g);
@@ -15321,6 +15429,7 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	auto own = g_coopGhosts.find(ev["payload"].get("actor", -1).asInt());
 	if (own != g_coopGhosts.end())
 	{
+		turnGhostEnded(own->second, "cut", SDL_GetTicks()); // W2-P5 S-T.1 (E3 section E3.6): probe only
 		g_ghostCompleted.fetch_add(1);
 		g_coopGhosts.erase(own);
 	}
@@ -15342,6 +15451,11 @@ bool combatAdvance(std::uint32_t nowMs)
 	for (auto it = g_combatGhosts.begin(); it != g_combatGhosts.end(); )
 	{
 		const std::uint32_t elapsed = nowMs - it->startedAtMs; // unsigned - wrap-safe
+		// W2-P5 S-T.1 (E3.1 ST2 (a)): probe only - the advance() gap while this ghost lives.
+		const std::uint32_t gap = nowMs - it->lastAdvanceMs;
+		if (gap > it->maxGapMs)
+			it->maxGapMs = gap;
+		it->lastAdvanceMs = nowMs;
 		const bool early = elapsed < it->durationMs;
 		const bool gone = !live || live != it->drawnOn
 			|| (it->thrownItemId >= 0 && CoopIdMaps::item(it->thrownItemId) != it->thrownItem);
@@ -15393,6 +15507,8 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	rec.unitId = unit->getId();
 	rec.seq = ev.get("seq", 0u).asUInt();
 	rec.startedAtMs = SDL_GetTicks();
+	rec.actionId = ev.get("actionId", 0u).asUInt(); // W2-P5 S-T.1 (E3 section E3.6): probe only
+	rec.lastAdvanceMs = rec.startedAtMs;            // W2-P5 S-T.1 (E3.1 section 4 H0): probe only
 
 	if (kind == "turn")
 	{
@@ -15444,6 +15560,7 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	auto it = g_coopGhosts.find(rec.unitId);
 	if (it != g_coopGhosts.end())
 	{
+		turnGhostEnded(it->second, "replaced", rec.startedAtMs); // W2-P5 S-T.1 (E3 section E3.6): probe only
 		g_ghostCompleted.fetch_add(1);
 		it->second = rec;
 	}
@@ -15452,6 +15569,12 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 		g_coopGhosts.emplace(rec.unitId, rec);
 	}
 	g_ghostEnqueued.fetch_add(1);
+	if (rec.kind == "turn" && combatClient())
+	{
+		// W2-P5 S-T.1 (E3 section E3.6): probe only - the turnGhost enqueued count.
+		combatSync();
+		++g_combatProbe.turn.enqueued;
+	}
 }
 
 void advance(SavedBattleGame* save, std::uint32_t nowMs)
@@ -15465,8 +15588,31 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 	for (auto it = g_coopGhosts.begin(); it != g_coopGhosts.end(); )
 	{
 		const std::uint32_t elapsed = nowMs - it->second.startedAtMs; // unsigned - wrap-safe
+		if (it->second.kind == "turn")
+		{
+			// W2-P5 S-T.1 (E3.1 section 4 H6; probe only): the advance() gap first, then - while the turn
+			// still runs - the direction its view draws at `elapsed` (appended when it changes; the final
+			// facing is never appended) and, at the first such advance, the view's status (OR4 (a)).
+			GhostReplay& tg = it->second;
+			const std::uint32_t gap = nowMs - tg.lastAdvanceMs;
+			if (gap > tg.maxGapMs)
+				tg.maxGapMs = gap;
+			tg.lastAdvanceMs = nowMs;
+			if (elapsed < tg.durationMs)
+			{
+				const BattleUnit* tu = CoopIdMaps::unit(tg.unitId);
+				int dir = tg.fromDir;
+				int status = tu ? (int)tu->getStatus() : -1;
+				turnPoseAt(tg, elapsed, &dir, &status);
+				if (tg.dirsShown.empty() || tg.dirsShown.back() != dir)
+					tg.dirsShown.push_back(dir);
+				if (tg.poseShown < 0)
+					tg.poseShown = status;
+			}
+		}
 		if (elapsed >= it->second.durationMs) // D111: fixed at enqueue, never recomputed
 		{
+			turnGhostEnded(it->second, "natural", nowMs); // W2-P5 S-T.1 (E3 section E3.6): probe only
 			g_ghostCompleted.fetch_add(1);
 			it = g_coopGhosts.erase(it);
 		}
@@ -15510,18 +15656,9 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io)
 
 	if (g.kind == "turn")
 	{
-		bool clockwise = false;
-		const int octants = turnOctants(g.fromDir, g.toDir, &clockwise);
-		// D111: per-octant pace derived from the FIXED total duration, not a
-		// wall-clock constant - g.durationMs already baked in paceMsFor() at
-		// enqueue.
-		const std::uint32_t perOctant = octants > 0 ? (g.durationMs / (std::uint32_t)octants) : 0;
-		const int stepsElapsed = (octants <= 0 || perOctant == 0)
-			? octants
-			: std::min(octants, (int)(elapsed / perOctant));
-		io->direction = clockwise
-			? (g.fromDir + stepsElapsed) % 8
-			: ((g.fromDir - stepsElapsed) % 8 + 8) % 8;
+		// W2-P5 S-T.1 (E3.1 OR4 (a)): the pose helper advance()'s dirsShown / poseShown probe shares (the
+		// same arithmetic this branch always ran; the status stays the canonical one).
+		turnPoseAt(g, elapsed, &io->direction, &io->status);
 		return true;
 	}
 
@@ -15618,6 +15755,23 @@ Json::Value combatProbe()
 	o["noMap"] = g_combatProbe.noMap;
 	Json::Value ring(Json::arrayValue);
 	for (const Json::Value& r : g_combatProbe.ring)
+		ring.append(r);
+	o["ring"] = ring;
+	return o;
+}
+
+Json::Value turnGhostProbe()
+{
+	combatSync();
+	Json::Value o(Json::objectValue);
+	Json::Value c(Json::objectValue);
+	c["enqueued"] = g_combatProbe.turn.enqueued;
+	c["natural"] = g_combatProbe.turn.natural;
+	c["replaced"] = g_combatProbe.turn.replaced;
+	c["cut"] = g_combatProbe.turn.cut;
+	o["counts"] = c;
+	Json::Value ring(Json::arrayValue);
+	for (const Json::Value& r : g_combatProbe.turnRing)
 		ring.append(r);
 	o["ring"] = ring;
 	return o;
