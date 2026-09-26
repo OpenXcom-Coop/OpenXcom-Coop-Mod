@@ -75,6 +75,18 @@ order:
          the bomb is gone and no item is added on both; no unit's health, stun
          or status changed; C TU C20_TU_AFTER on both.
 
+W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 E-e and the P6b
+review's section 2 row E4; AMENDMENTS P6b-1..P6b-3; Q14 (a), F1230): the
+ordering client plays the prime / unprime sound at its own aftermath. Row E4
+(C23a): the client's displayTwo.effects.prime.count +2 over the two legs, the
+row's new records in order {itemType STR_GRENADE, unprime false} then
+{unprime true}, each sound picked from the grenade's raw primeSound /
+unprimeSound list (display_rules, pinned in test_w2_host_combat.EFFECT_PINS:
+[] -> -1), the host's count 0, and the S-E common asserts (client rngSeed
+unchanged, host displayTwo / combatGhost all zero). coopGhostStepper is pinned
+true in both instances. RED (commit S-E.1): only C23a fails, on E4 (count +0).
+One "EVIDENCE E4:" line.
+
 The order is TASK 0 T0-6's file order (T0b: C23a, C19 + END TURN, C20). C20
 runs last: its blast leaves smoke and fire, and no END TURN follows it. C20's
 constants (T0c) were measured on the untouched map, so this file asserts the
@@ -135,7 +147,8 @@ from test_rw_turn_baton import RHAND_NTH, click_nth
 from test_rw_seat_pacing import tab_select, SDLK_HOME
 from test_w2_delta_core import diff_buckets, short, both, end_turn_cycle
 from test_w2_delta_items import items_by_id, tile_of
-from test_w2_host_combat import bring_up_lobby_roster_pinned, evs_since, ev_tuples
+from test_w2_host_combat import (bring_up_lobby_roster_pinned, evs_since, ev_tuples, effect_snap, effect_rules,
+                                 sound_row)
 from test_w2_ai_origins import host_payloads, voxel_tile
 from test_w2_client_shoot import (top, snap, ubrief, press, menu_rows, count_of, mine, place, set_tu_both,
                                   await_press, collect, ctx_view, chain_of, forwarded_fails, tu_fails,
@@ -513,6 +526,7 @@ def c23a_prime_unprime(host, client, ctx):
     staged = diff_buckets(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row E4 (both legs)
     pv = {}
     try:
         menu_order(client, pv, KEY_PRIME, fuse_key=KEY_FUSE_0)
@@ -556,6 +570,14 @@ def c23a_prime_unprime(host, client, ctx):
           f"client={item_view(rec_u['ic'].get(gu))}; C host={ubrief(rec_u['uh'].get(C_ID))} "
           f"client={ubrief(rec_u['uc'].get(C_ID))}; diff={rec_u['diff']} desync={rec_u['dsc']}; notes={notes_u}",
           flush=True)
+    # W2-P6b S-E row E4 (review section 2; section 9 E-e, Q14 (a), F1230): the ordering client plays the prime /
+    # unprime sound at its own aftermath, one record per leg in order; the host records none (it plays vanilla's).
+    rules, rfails = effect_rules(host, client, [GRENADE])
+    gl = (rules.get(GRENADE) or {}).get("soundLists") or {}
+    e4 = rfails + sound_row("E4", host, client, snap_e, "prime", [
+        {"fields": {"itemType": GRENADE, "unprime": False}, "sounds": gl.get("primeSound") or []},
+        {"fields": {"itemType": GRENADE, "unprime": True}, "sounds": gl.get("unprimeSound") or []}],
+        extra={"legActions": (aid_p, aid_u)})
     fails = list(notes) + list(notes_u)
     if staged:
         fails.append(f"leg P: buckets differ after the staging: {staged} (want none)")
@@ -571,6 +593,7 @@ def c23a_prime_unprime(host, client, ctx):
     fails += [f"leg U: {m}" for m in tu_fails(rec_u, C_ID, C_TU_FULL - UNPRIME_TU)]
     fails += aftermath_fails(rec_u, aid_u, TEXT_UNPRIMED, "leg U")
     fails += [f"leg U: {m}" for m in common_u]
+    fails += e4
     finish(fails)
 
 
@@ -827,8 +850,11 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49872, make_user_dir("w2p4_client_grenade_host", mods=[MOD_DIR]))
-    client = GameClient("client", 49873, make_user_dir("w2p4_client_grenade_client", mods=[MOD_DIR]))
+    # W2-P6b S-E: coopGhostStepper pinned true in both instances (the S-E precedent; E4's sound is not gated, OR3)
+    host = GameClient("host", 49872, make_user_dir("w2p4_client_grenade_host", mods=[MOD_DIR],
+                                                   options={"coopGhostStepper": True}))
+    client = GameClient("client", 49873, make_user_dir("w2p4_client_grenade_client", mods=[MOD_DIR],
+                                                       options={"coopGhostStepper": True}))
     results = {}
     try:
         try:

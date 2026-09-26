@@ -91,6 +91,18 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
        U_STUN's stun fell (equal on both); >= 1 floor burnt out since the
        start (equal on both); all buckets equal.
 
+W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 E-d and the
+P6b review's section 2 row E5; AMENDMENTS P6b-1..P6b-3): the watching machine
+plays the panic / berserk sound. E5 (C13a flee, C13b berserk): the client's
+displayTwo.effects.panic.count +1 with ONE record for the `panic` ev's seq
+{unit C2, mode} whose sound is picked from C2's panicSounds / berserkSounds -
+[] on both machines (T0b-3, F1782), so -1 - plus the S-E common asserts
+(client rngSeed unchanged across the cycle, host displayTwo / combatGhost all
+zero, completed + cut == enqueued per S-E kind). coopGhostStepper is pinned
+true in both instances. RED (commit S-E.1): C13a and C13b fail only on E5
+(count +0); C5r, C10 and C9 pass. Row E6 (C10's fall ghost) is held pending
+owner D173 (F1816: the fall applies under the client's NextTurnState).
+
 Common asserts (spec (f) as amended by B1 RQ5, per scenario, after its
 chain settled): W2-P2's common asserts (hash_now {full:true} ALL buckets
 EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged and
@@ -158,7 +170,7 @@ from test_rw_turn_baton import dismiss_next_turn_if_present
 from test_w2_delta_core import (probes, diff_buckets, desync_record, short, both, tele_both, set_tile_both, tile,
                                 floor_of, settle_on_battlescape, common_fails, finish, delta_view)
 from test_w2_host_combat import (evs_since, ev_tuples, cue_probes, cue_delta, open_hand_menu_host, press,
-                                 KEY_ITEM4, host_chain_done)
+                                 KEY_ITEM4, host_chain_done, effect_snap, sound_row)
 from test_w2_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta, ctx_of, ctx_view, sv, by_seq,
                                 bring_up_lobby_roster_pinned)
 from test_w2_unit_spawn import ring_of, ring_at, ring_view
@@ -207,6 +219,10 @@ C13B_TURNS = 3
 C13B_KINDS = ["panic", "turn", "shot", "hit", "shot", "hit", "shot", "hit", "turn", "shot", "shot", "hit", "shot",
               "hit", "turn", "bt_action_end"]
 MORALE_AFTER_PANIC = 15          # UnitPanicBState: moraleChange(+15) when the panic ends
+
+# ----- W2-P6b S-E row E5 (spec section 9 E-d; P6b review section 2; AMENDMENT P6b-3 F1782) -----
+C2_PANIC_SOUNDS = []             # battle_state panicSounds of C2 (T0b-3 on the S-D.1 build, both machines: every stock
+C2_BERSERK_SOUNDS = []           # unit's panic / berserk list is []) -> the record's sound is -1 (vanilla plays none)
 
 # ----- C9 (T0b constants.md "C9"; F868) -----
 U_FIRE, U_STUN = 11, 12
@@ -565,6 +581,27 @@ def c2_state_fails(rec, want, what):
     return fails
 
 
+# ===================== W2-P6b S-E row E5 =====================
+
+
+def panic_sound_row(host, client, rec, snap_e, mode, what):
+    """Row E5 (P6b review section 2; section 9 E-d; AMENDMENT P6b-3 F1782): the client's effects.panic +1, ONE
+    record for the `panic` ev's seq {unit C2, mode} whose sound is picked from C2's panic (flee / freeze) or berserk
+    list - [] on both machines (T0b-3), so -1; the S-E common asserts. Returns fails."""
+    panics = [e for e in rec["hev"] if e["kind"] == "panic"]
+    key = "berserkSounds" if mode == "berserk" else "panicSounds"
+    pin = C2_BERSERK_SOUNDS if mode == "berserk" else C2_PANIC_SOUNDS
+    lists = {n: (u.get(C2_ID) or {}).get(key) for n, u in (("host", rec["uh"]), ("client", rec["uc"]))}
+    fails = []
+    if lists != {"host": pin, "client": pin}:
+        fails.append(f"{what} E5: C2 {key} host={lists['host']} client={lists['client']} (want {pin} on both: T0b-3, "
+                     f"D-S3)")
+    fails += [f"{what} {m}" for m in sound_row("E5", host, client, snap_e, "panic", [
+        {"match": {"seq": panics[0]["seq"] if len(panics) == 1 else None}, "fields": {"unit": C2_ID, "mode": mode},
+         "sounds": pin}], extra={"panicSeqs": [e["seq"] for e in panics], key: lists})]
+    return fails
+
+
 # ===================== scenarios =====================
 
 
@@ -732,6 +769,7 @@ def c13a_flee(host, client, ctx):
     g, m = c13_stage(host, client, C13A_RIFLE_ID, C13A_CLIP_ID, fails, "C13a")
     staged_diff = diff_buckets(host, client)
     staged = {"host": uview(units(host).get(C2_ID)), "client": uview(units(client).get(C2_ID))}
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
     cycle(host, client, SEED_C13A, rec, "cycle 3", extra=c2_resolved)
     end(host, client, rec)
     pfails, pc, pevs = panic_context_fails(rec, "flee", "C13a")
@@ -743,6 +781,8 @@ def c13a_flee(host, client, ctx):
           f"seed {SEED_C13A}; panic context={ctx_view(pc)} kind={pc and pc.get('kind')} its evs={sv(pevs)}; "
           f"walk_step evs in the scenario={sv(c2_walks)}; units={units_evidence(rec, [C2_ID])}; rifle="
           f"{items_evidence(rec, [C13A_RIFLE_ID])}; {rec_evidence(rec)}", flush=True)
+    # W2-P6b S-E row E5 (review section 2; section 9 E-d; F1782): C2's panic sound record on the client
+    e5 = panic_sound_row(host, client, rec, snap_e, "flee", "C13a")
     fails = list(rec["notes"]) + fails
     if not (turn_at or 0) >= 2:
         fails.append(f"precondition: battle turn {turn_at} at the staging (want player turn 2 reached)")
@@ -777,6 +817,7 @@ def c13a_flee(host, client, ctx):
     elif not c2_walks:
         fails.append(f"C13a: no `walk_step` ev for C2's flee (want the flee walk streamed under the panic context)")
     fails += context_fails(rec, "C13a")
+    fails += e5
     fails += common_fails(host, client, rec["before"], {}, "C13a")
     finish(fails)
 
@@ -787,6 +828,7 @@ def c13b_berserk(host, client, ctx):
     g, m = c13_stage(host, client, C13B_RIFLE_ID, C13B_CLIP_ID, fails, "C13b")
     staged_diff = diff_buckets(host, client)
     uh0 = units(host)
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
     cycle(host, client, SEED_C13B, rec, "cycle 4", extra=c2_resolved)
     end(host, client, rec)
     pfails, pc, pevs = panic_context_fails(rec, "berserk", "C13b")
@@ -806,6 +848,8 @@ def c13b_berserk(host, client, ctx):
           f"{[(e['seq'], e['actionId'], payload(rec, e)) for e in shots]}; other units changed={changed}; units="
           f"{units_evidence(rec, [C2_ID])}; rifle={items_evidence(rec, [C13B_RIFLE_ID])}; {rec_evidence(rec)}",
           flush=True)
+    # W2-P6b S-E row E5 (review section 2; section 9 E-d; F1782): C2's berserk sound record on the client
+    e5 = panic_sound_row(host, client, rec, snap_e, "berserk", "C13b")
     fails = list(rec["notes"]) + fails
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
@@ -832,6 +876,7 @@ def c13b_berserk(host, client, ctx):
         if bad:
             fails.append(f"C13b: [coop-turn] payload units {bad} (want every berserk turn's unit C2 {C2_ID})")
     fails += context_fails(rec, "C13b")
+    fails += e5
     fails += common_fails(host, client, rec["before"], {}, "C13b")
     finish(fails)
 
@@ -987,8 +1032,9 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49858, make_user_dir("w2p3_turn_cues_host"))
-    client = GameClient("client", 49859, make_user_dir("w2p3_turn_cues_client"))
+    # W2-P6b S-E: coopGhostStepper pinned true in both instances (row E5 needs the client's effect displays)
+    host = GameClient("host", 49858, make_user_dir("w2p3_turn_cues_host", options={"coopGhostStepper": True}))
+    client = GameClient("client", 49859, make_user_dir("w2p3_turn_cues_client", options={"coopGhostStepper": True}))
     results = {}
     try:
         try:

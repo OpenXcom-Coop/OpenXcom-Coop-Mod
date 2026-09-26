@@ -81,6 +81,19 @@ newbattle_ok, seat_count=2, MAP_FP asserted on both; session.pin_ai_neutral
 BOTH. Every lever pair applies to the CLIENT first, then the HOST (F607). The
 seeds are set on the HOST immediately before the press that starts the chain.
 
+W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 and the P6b
+review's section 2 row E2; AMENDMENTS P6b-1..P6b-3): every `psi` ev of each
+scenario plays on the watching machine as a psi ghost - ONE client
+combatGhost record of kind psi per `psi` ev with the psi chain's frame,
+frames, intervalMs, ms and sound from both machines' display_rules
+(ALIEN_PSI_WEAPON; test_w2_host_combat.impact_row / impact_expect / EFFECT_PINS)
+and `voxel` equal to the payload's additive `voxel` (Q11), plus the S-E common
+asserts (client rngSeed unchanged across the cycle, host displayTwo /
+combatGhost all zero, completed + cut == enqueued per S-E kind).
+coopGhostStepper is pinned true in both instances. RED (commit S-E.1): both
+scenarios fail only on E2 (no psi record, the payload has no `voxel`). One
+"EVIDENCE E2:" line per scenario.
+
 Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
 BEFORE its green conditions are checked; main() runs every scenario even
 after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>".
@@ -106,6 +119,7 @@ from test_w2_delta_core import diff_buckets, short, both, tele_both, common_fail
 from test_w2_ai_origins import host_payloads, ctx_probes, ctx_view, sv, bring_up_lobby_roster_pinned
 from test_w2_turn_cues import (begin, end, cycle, rec_evidence, cycle_fails, context_fails, payload, held_by_client,
                                items, st_seqs, panic_context_fails, c2_state_fails, c2_resolved)
+from test_w2_host_combat import effect_snap, impact_row
 
 # ----- bring-up (W2-P3 TASK 0c, T0c constants.md "Common bring-up" + "C14") -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
@@ -136,6 +150,7 @@ C2_MORALE_END = 45               # 100 - 70 (psi panic) + 15 (UnitPanicBState at
 PANIC_MODE = "freeze"            # F877: C2's panic at turn 3 resolves in place (no walk, no shot)
 PSI_CHAIN = ["psi", "bt_action_end"]
 PANIC_CHAIN = ["panic", "bt_action_end"]
+PSI_WEAPON = "ALIEN_PSI_WEAPON"  # P's psi weapon: every `psi` payload's weaponType (W2-P6b S-E row E2)
 PAYLOAD_EXTRA = ("psi",)         # payloads read beyond test_w2_turn_cues.end()'s kinds
 UNIT_KEYS = ("type", "faction", "originalFaction", "mindControllerId", "mindControlled", "status", "isOut",
              "onTile", "x", "y", "z", "direction", "tu", "health", "morale", "psiWeapon", "specialWeapons")
@@ -271,6 +286,7 @@ def c14_mc(host, client, ctx):
     uh0, uc0 = units(host), units(client)
     staged = {"P psiWeapon h/c": ((uh0.get(P_ID) or {}).get("psiWeapon"), (uc0.get(P_ID) or {}).get("psiWeapon")),
               "C": uview(uh0.get(C_ID)), "C2": uview(uh0.get(C2_ID))}
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
     cycle(host, client, SEED_C14, rec, "cycle 1")
     end(host, client, rec)
     read_extra_payloads(host, rec)
@@ -281,6 +297,8 @@ def c14_mc(host, client, ctx):
           f"cycle side_transitions={st_seqs(rec['hev'])}; P's ai contexts={[ctx_view(c) for c in ai_p]} first's evs="
           f"{sv(cevs)}; psi evs (seq, actionId, payload)={[(e['seq'], e['actionId'], payload(rec, e)) for e in psis]}; "
           f"units={units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
+    # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's mind control as a psi ghost on the client
+    e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
     fails = list(rec["notes"])
     if sp["deleted"] != P_STRIPPED:
         fails.append(f"battle_strip_unit P deleted {sp['deleted']} (want {P_STRIPPED})")
@@ -296,6 +314,7 @@ def c14_mc(host, client, ctx):
     fails += pfails
     fails += unit_fails(rec, C_ID, {"faction": FACTION_HOSTILE, "mindControllerId": P_ID}, "C14-mc C")
     fails += context_fails(rec, "C14-mc")
+    fails += e2
     fails += common_fails(host, client, rec["before"], {}, "C14-mc")
     finish(fails)
 
@@ -312,6 +331,7 @@ def c14_panic(host, client, ctx):
               "C2": {"host": uview(uh0.get(C2_ID)), "client": uview(uc0.get(C2_ID))},
               "C2 items (id, type, slot)": owned_items(items(host), C2_ID)}
     off = log_size(host)
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
     cycle(host, client, SEED_C14P, rec, "cycle 2", extra=c2_resolved)
     end(host, client, rec)
     read_extra_payloads(host, rec)
@@ -331,6 +351,8 @@ def c14_panic(host, client, ctx):
           f"{ctx_view(pc)} kind={pc and pc.get('kind')} its evs={sv(pevs)} payloads="
           f"{[(e['seq'], e['kind'], payload(rec, e)) for e in pevs]}; C2 morale before h/c={m0} after h/c={m}; units="
           f"{units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
+    # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's psi panic as a psi ghost on the client
+    e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
     fails = list(rec["notes"])
     if (rc.get("psiStrength"), rc2.get("psiStrength")) != (C_PSI_STRENGTH_2, C2_PSI_STRENGTH_2):
         fails.append(f"psi staging responses C psiStrength={rc.get('psiStrength')} C2 psiStrength="
@@ -354,6 +376,7 @@ def c14_panic(host, client, ctx):
                          f"player side start)")
     fails += c2_state_fails(rec, {"pos": C2_TILE, "status": STATUS_STANDING, "tu": 0}, "C14-panic")
     fails += context_fails(rec, "C14-panic")
+    fails += e2
     fails += common_fails(host, client, rec["before"], {}, "C14-panic")
     finish(fails)
 
@@ -414,8 +437,9 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49864, make_user_dir("w2p3_psi_host"))
-    client = GameClient("client", 49865, make_user_dir("w2p3_psi_client"))
+    # W2-P6b S-E: coopGhostStepper pinned true in both instances (row E2 needs the client's psi ghosts)
+    host = GameClient("host", 49864, make_user_dir("w2p3_psi_host", options={"coopGhostStepper": True}))
+    client = GameClient("client", 49865, make_user_dir("w2p3_psi_client", options={"coopGhostStepper": True}))
     results = {}
     try:
         try:

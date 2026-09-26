@@ -74,6 +74,19 @@ probes exist, nothing writes them): C1, C5 and D3 fail only on
 displayTwo.death (no record) and the payload's missing `front`. Each row
 prints ONE "EVIDENCE D<n>:" line.
 
+W2-P6b S-E (spec section 9 and the P6b review's section 2 row E1; AMENDMENTS
+P6b-1..P6b-3): C5's stun-rod swing plays on the watching machine as a melee
+ghost. Row E1 wants ONE client combatGhost ring record of kind melee for the
+`melee` ev's seq whose frame, frames, intervalMs, ms, sound and soundEnd equal
+the rule chain impact_expect() computes from both machines' display_rules
+(ExplosionBState's hit branch; the pins in EFFECT_PINS), client
+combatGhost.enqueued.melee +1, and the S-E common asserts (client rngSeed
+unchanged, host displayTwo / combatGhost all zero, completed + cut == enqueued
+per S-E kind). The S-E helpers below are shared by the other S-E files. RED
+(commit S-E.1: the melee slot and the effect probes exist, nothing writes
+them): only C5 fails, on E1 (no melee record, enqueued.melee +0). One
+"EVIDENCE E1:" line.
+
 Both scenarios also check the cueCounts probe against the event logs (for
 each cue kind the scenario expects: host cueCounts delta == `kind` evs the
 host emitted since the scenario's first seq, client cueCounts delta == evs
@@ -587,6 +600,279 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
     return fails
 
 
+# ===================== W2-P6b S-E: the effect records =====================
+# Spec rewrite/prompts/w2p6_display_two.md section 9 (S-E) and the P6b review's section 2 rows E1-E6, as ruled by
+# AMENDMENTS P6b-1..P6b-3. Shared by test_w2_host_combat (E1 on C5), test_w2_client_melee_psi (E1 on C21, E2 on
+# C22, the C23d rngSeed guard), test_w2_psi (E2), test_w2_client_items (E3), test_w2_client_grenade (E4) and
+# test_w2_turn_cues (E5, E6). "All rows" (review section 2): the client's rngSeed unchanged across the row (V4), the
+# host's displayTwo and combatGhost all zero (the host plays vanilla's own), and completed + cut == enqueued per S-E
+# record kind on the client. No wall-clock duration is asserted: every schedule field equals the rule chain
+# computed here from display_rules (E-S1 = STOP).
+
+HIT_FRAMES = 4                   # Explosion::HIT_FRAMES (display_rules constants on the S-E.1 build, both machines)
+HALF_ANIM_MS = 50                # BattlescapeState::DEFAULT_ANIM_SPEED / 2 (ExplosionBState.cpp :277)
+# display_rules on the S-E.1 build (main menu, bare and with Coop_Spray_Test: identical; both machines per row):
+# the fields the melee / psi / medikit / prime chains read.
+EFFECT_PINS = {
+    "STR_STUN_ROD": {"meleeAnimation": 0, "meleeAnimationFrames": -1, "explosionSpeed": 0,
+                     "soundLists": {"meleeSound": [54], "meleeHitSound": []}},
+    "STR_PSI_AMP": {"meleeAnimation": 0, "meleeAnimationFrames": -1, "psiAnimation": -1, "psiAnimationFrames": -1,
+                    "explosionSpeed": 0, "soundLists": {"hitSound": [36], "psiSound": []}},
+    "ALIEN_PSI_WEAPON": {"meleeAnimation": 0, "meleeAnimationFrames": -1, "psiAnimation": -1,
+                         "psiAnimationFrames": -1, "explosionSpeed": 0,
+                         "soundLists": {"hitSound": [36], "psiSound": []}},
+    "STR_MEDI_KIT": {"soundLists": {"hitSound": []}},
+    "STR_GRENADE": {"soundLists": {"primeSound": [], "unprimeSound": []}},
+}
+FALL_KEYS = ("enqueued", "completed", "cut")
+
+
+def effects_of(dt):
+    return (dt or {}).get("effects") or {}
+
+
+def combat_ghost(gc):
+    es = event_state(gc)
+    assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
+    return es.get("combatGhost") or {}
+
+
+def effect_snap(host, client):
+    """An S-E row's starting point: both machines' displayTwo and combatGhost, and the client's rngSeed."""
+    return {"dt": {"host": display_two(host), "client": display_two(client)},
+            "cg": {"host": combat_ghost(host), "client": combat_ghost(client)}, "rng": rng_of(client)}
+
+
+def effect_rules(host, client, types):
+    """display_rules of `types` on BOTH machines. Returns (the client's items, fails): the machines must agree, the
+    constants carry HIT_FRAMES, and every EFFECT_PINS field of a pinned type equals its pin."""
+    types = sorted(set(t for t in types if t))
+    rc = client.cmd({"cmd": "display_rules", "types": types})
+    rh = host.cmd({"cmd": "display_rules", "types": types})
+    fails = []
+    if not rc.get("ok") or not rh.get("ok"):
+        return {}, [f"display_rules {types} failed: host={rh} client={rc}"]
+    items = rc.get("items") or {}
+    if items != rh.get("items") or rc.get("constants") != rh.get("constants"):
+        fails.append(f"display_rules {types} differ host={rh} client={rc} (want equal)")
+    if (rc.get("constants") or {}).get("HIT_FRAMES") != HIT_FRAMES:
+        fails.append(f"display_rules constants {rc.get('constants')} (want HIT_FRAMES {HIT_FRAMES})")
+    for t in types:
+        it = items.get(t)
+        if it is None:
+            fails.append(f"display_rules knows no {t}")
+            continue
+        pin = EFFECT_PINS.get(t) or {}
+        got = {k: it.get(k) for k in pin if k != "soundLists"}
+        want = {k: v for k, v in pin.items() if k != "soundLists"}
+        got["soundLists"] = {k: (it.get("soundLists") or {}).get(k) for k in pin.get("soundLists", {})}
+        want["soundLists"] = pin.get("soundLists", {})
+        if got != want:
+            fails.append(f"display_rules {t} {got} (want the pins {want})")
+    return items, fails
+
+
+def pick_ok(got, ids):
+    """A sound picked from the raw list `ids` (F1512 / V4): -1 for an empty list (vanilla plays none), the id for a
+    one-id list, one of the ids otherwise (F1539)."""
+    if not ids:
+        return got == NO_SOUND
+    return got == ids[0] if len(ids) == 1 else got in ids
+
+
+def pick_want(ids):
+    return NO_SOUND if not ids else (ids[0] if len(ids) == 1 else f"one of {ids}")
+
+
+def opt_value(old, new):
+    """ExplosionBState::optValue: take `new` unless it is -1."""
+    return new if new != -1 else old
+
+
+def impact_expect(rules, kind, payload):
+    """Section 9 E-b (ExplosionBState.cpp :277-:365 and :438-:444, the hit branch, success true): the melee / psi
+    record's rule chain from the payload's weaponType / itemType. melee: the weapon's melee animation / frames /
+    sound, each optValue'd by the damage item's when itemType != weaponType; soundEnd = the melee hit sound (the
+    damage item's when set) iff power > 0. psi: the weapon's melee animation / frames, then its psi ones; sound =
+    the weapon's hit sound, then its psi sound. intervalMs = max(1, 50 - 10 x explosionSpeed(itemType)); frames =
+    animFrames when > 0 else HIT_FRAMES; ms = frames x intervalMs."""
+    wt = payload.get("weaponType")
+    it = payload.get("itemType") or wt
+    w = rules.get(wt) or {}
+    d = (rules.get(it) or {}) if it != wt else None
+    wl = w.get("soundLists") or {}
+    anim = w.get("meleeAnimation", -1)
+    frames = w.get("meleeAnimationFrames", -1)
+    ends = []
+    if kind == "psi":
+        sounds = wl.get("hitSound") or []
+        anim = opt_value(anim, w.get("psiAnimation", -1))
+        frames = opt_value(frames, w.get("psiAnimationFrames", -1))
+        if wl.get("psiSound"):
+            sounds = wl["psiSound"]
+    else:
+        sounds = wl.get("meleeSound") or []
+        dl = (d or {}).get("soundLists") or {}
+        if d is not None:
+            anim = opt_value(anim, d.get("meleeAnimation", -1))
+            frames = opt_value(frames, d.get("meleeAnimationFrames", -1))
+            if dl.get("meleeSound"):
+                sounds = dl["meleeSound"]
+        if (payload.get("power") or 0) > 0:
+            ends = wl.get("meleeHitSound") or []
+            if d is not None and dl.get("meleeHitSound"):
+                ends = dl["meleeHitSound"]
+    interval = max(1, HALF_ANIM_MS - 10 * ((rules.get(it) or {}).get("explosionSpeed") or 0))
+    n = frames if frames > 0 else HIT_FRAMES
+    return {"frame": anim, "frames": n, "intervalMs": interval, "ms": n * interval, "sounds": sounds,
+            "soundEnds": ends}
+
+
+def effect_common_fails(tag, host, client, snap0, dt1=None, cg1=None):
+    """Section 2 "All rows" for S-E: the client's rngSeed unchanged across the row (V4); the host's displayTwo (death
+    and effects) and combatGhost all zero (the host plays vanilla's own display); on the client completed + cut ==
+    enqueued for combatGhost melee / psi and displayTwo.effects.fall."""
+    fails = []
+    dt1 = dt1 or {"host": display_two(host), "client": display_two(client)}
+    cg1 = cg1 or {"host": combat_ghost(host), "client": combat_ghost(client)}
+    rng1 = rng_of(client)
+    if snap0["rng"] is None or rng1 != snap0["rng"]:
+        fails.append(f"{tag}: client rngSeed {snap0['rng']} -> {rng1} (want unchanged: V4)")
+    hd, he = death_of(dt1["host"]), effects_of(dt1["host"])
+    hdc = hd.get("counts") or {}
+    hz = (all((hdc.get(k) or 0) == 0 for k in DEATH_COUNT_KEYS) and not (hd.get("queued") or 0) and not hd.get("ring")
+          and all(((he.get(k) or {}).get("count") or 0) == 0 and not (he.get(k) or {}).get("ring")
+                  for k in ("medikit", "prime", "panic"))
+          and all(((he.get("fall") or {}).get(k) or 0) == 0 for k in FALL_KEYS)
+          and not (he.get("fall") or {}).get("ring") and not (he.get("fall") or {}).get("seen"))
+    if not dt1["host"] or not he or not hz:
+        fails.append(f"{tag}: host displayTwo {dt1['host']} (want every death / effect count 0 and no record: the "
+                     f"host never ghosts)")
+    hc = cg1["host"]
+    kinds = ("shot", "hit", "explosion", "melee", "psi")
+    hcz = all(((hc.get(g) or {}).get(k) or 0) == 0 for g in ("enqueued", "completed", "cut") for k in kinds) \
+        and not (hc.get("live") or 0) and not hc.get("ring")
+    if not hc or not hcz:
+        fails.append(f"{tag}: host combatGhost {{enqueued {hc.get('enqueued')}, completed {hc.get('completed')}, cut "
+                     f"{hc.get('cut')}, live {hc.get('live')}, ring {len(hc.get('ring') or [])}}} (want all zero)")
+    cc = cg1["client"]
+    for k in ("melee", "psi"):
+        e, c, u = ((cc.get(g) or {}).get(k) for g in ("enqueued", "completed", "cut"))
+        if e is None or c is None or u is None or c + u != e:
+            fails.append(f"{tag}: client combatGhost {k}: enqueued {e} completed {c} cut {u} (want the slot present "
+                         f"and completed + cut == enqueued)")
+    cf = (effects_of(dt1["client"]).get("fall") or {})
+    e, c, u = (cf.get(k) for k in FALL_KEYS)
+    if e is None or c is None or u is None or c + u != e:
+        fails.append(f"{tag}: client displayTwo.effects.fall {{enqueued {e}, completed {c}, cut {u}}} (want present, "
+                     f"completed + cut == enqueued)")
+    return fails
+
+
+def impact_row(tag, host, client, snap0, cues, weapon):
+    """Rows E1 (melee) / E2 (psi) (review section 2; section 9 E-b): `cues` = [(seq, kind)] of the row's host melee /
+    psi cues (payloads from the host's `[coop-cue]` lines). Each wants ONE client combatGhost ring record of that seq
+    and kind, unresolved / noMap false, with the rule chain's frame, frames, intervalMs, ms and sound (melee: and
+    soundEnd; psi: `voxel` == the payload's voxel, Q11 - the payload gains it at S-E.2), and the payload's
+    weaponType == `weapon`, success true; client combatGhost.enqueued.<kind> +1 per cue; the S-E common asserts.
+    Prints ONE "EVIDENCE <tag>:" line, returns fails."""
+    dt1 = {"host": display_two(host), "client": display_two(client)}
+    cg1 = {"host": combat_ghost(host), "client": combat_ghost(client)}
+    pl = cue_payloads(host, [s for s, _ in cues])
+    types = {weapon} | {(pl.get(s) or {}).get(k) for s, _ in cues for k in ("weaponType", "itemType")}
+    rules, rfails = effect_rules(host, client, types)
+    ring = cg1["client"].get("ring") or []
+    recs = {s: [r for r in ring if r.get("seq") == s and s is not None] for s, _ in cues}
+    exp = {s: impact_expect(rules, k, pl.get(s) or {}) for s, k in cues}
+    enq0 = {k: ((snap0["cg"]["client"].get("enqueued") or {}).get(k)) for k in ("melee", "psi")}
+    enq1 = {k: ((cg1["client"].get("enqueued") or {}).get(k)) for k in ("melee", "psi")}
+    print(f"EVIDENCE {tag}: " + json.dumps({
+        "cues": [(s, k) for s, k in cues], "payloads": {str(s): pl.get(s) for s, _ in cues},
+        "records": {str(s): r for s, r in recs.items()}, "expected": {str(s): e for s, e in exp.items()},
+        "clientEnqueued": {"before": enq0, "after": enq1}, "ringSeqs": [(r.get("seq"), r.get("kind")) for r in ring],
+        "rules": rules, "hostCombatGhost": {k: cg1["host"].get(k) for k in ("enqueued", "completed", "cut", "live")},
+        "hostEffects": effects_of(dt1["host"]), "rngClient": {"before": snap0["rng"], "after": rng_of(client)}},
+        sort_keys=True, default=str), flush=True)
+    fails = list(rfails)
+    if not cues or any(s is None for s, _ in cues):
+        fails.append(f"{tag}: the row's host melee / psi cues {cues} (want each with a seq)")
+    for s, k in cues:
+        p = pl.get(s) or {}
+        if p.get("weaponType") != weapon or p.get("success") is not True:
+            fails.append(f"{tag}: host {k} payload seq {s} weaponType={p.get('weaponType')} success={p.get('success')} "
+                         f"(want {weapon}, true)")
+        if k == "psi" and not isinstance(p.get("voxel"), dict):
+            fails.append(f"{tag}: host psi payload seq {s} has no `voxel` (want the additive voxel, Q11; payload {p})")
+        if len(recs[s]) != 1:
+            fails.append(f"{tag}: client combatGhost ring has {len(recs[s])} record(s) for the {k} seq {s} (want "
+                         f"exactly one of kind {k}; ring (seq, kind) {[(r.get('seq'), r.get('kind')) for r in ring]})")
+            continue
+        r, e = recs[s][0], exp[s]
+        got = {x: r.get(x) for x in ("kind", "unresolved", "noMap", "frame", "frames", "intervalMs", "ms")}
+        want = {"kind": k, "unresolved": False, "noMap": False, "frame": e["frame"], "frames": e["frames"],
+                "intervalMs": e["intervalMs"], "ms": e["ms"]}
+        if got != want:
+            fails.append(f"{tag}: client {k} record seq {s} {got} (want {want}: the rule chain, E-S1)")
+        if not pick_ok(r.get("sound"), e["sounds"]):
+            fails.append(f"{tag}: client {k} record seq {s} sound {r.get('sound')} (want {pick_want(e['sounds'])})")
+        if k == "melee" and not pick_ok(r.get("soundEnd"), e["soundEnds"]):
+            fails.append(f"{tag}: client melee record seq {s} soundEnd {r.get('soundEnd')} (want "
+                         f"{pick_want(e['soundEnds'])}: the melee hit sound iff power > 0)")
+        if k == "psi" and (r.get("voxel") is None or r.get("voxel") != p.get("voxel")):
+            fails.append(f"{tag}: client psi record seq {s} voxel {r.get('voxel')} (want the payload's {p.get('voxel')})")
+    for k in ("melee", "psi"):
+        n = sum(1 for _, kk in cues if kk == k)
+        d = (enq1[k] or 0) - (enq0[k] or 0)
+        if d != n:
+            fails.append(f"{tag}: client combatGhost.enqueued.{k} {enq0[k]} -> {enq1[k]} (+{d}; want +{n}: one ghost "
+                         f"per applied `{k}` cue)")
+    fails += effect_common_fails(tag, host, client, snap0, dt1, cg1)
+    return fails
+
+
+def sound_row(tag, host, client, snap0, kind, wants, extra=None):
+    """Rows E3 (medikit), E4 (prime), E5 (panic) (review section 2; section 9 E-c/E-d/E-e): the client's
+    displayTwo.effects.<kind>.count +len(wants); per want ONE client record - matched by `match` (its seq) when the
+    want has one, else the row's i-th new record in order (the prime aftermath has no seq) - whose `fields` equal
+    the want's and whose sound is picked from `sounds` (-1 for an empty list, F1782); the host's count 0 (it plays
+    vanilla's own); the S-E common asserts. Prints ONE "EVIDENCE <tag>:" line, returns fails."""
+    dt1 = {"host": display_two(host), "client": display_two(client)}
+    c0 = (effects_of(snap0["dt"]["client"]).get(kind) or {}).get("count")
+    ce = effects_of(dt1["client"]).get(kind) or {}
+    ring = ce.get("ring") or []
+    d_new = (ce.get("count") or 0) - (c0 or 0)
+    new = ring[-d_new:] if d_new > 0 else []
+    found = []
+    for i, w in enumerate(wants):
+        if "match" in w:
+            found.append([r for r in ring if all(r.get(k) == v and v is not None for k, v in w["match"].items())])
+        else:
+            found.append(new[i:i + 1])
+    print(f"EVIDENCE {tag}: " + json.dumps({
+        "kind": kind, "want": wants, "records": found, "clientCount": {"before": c0, "after": ce.get("count")},
+        "clientRing": ring, "hostEffects": effects_of(dt1["host"]), "extra": extra,
+        "rngClient": {"before": snap0["rng"], "after": rng_of(client)}}, sort_keys=True, default=str), flush=True)
+    fails = []
+    d = (ce.get("count") or 0) - (c0 or 0)
+    if c0 is None or ce.get("count") is None or d != len(wants):
+        fails.append(f"{tag}: client displayTwo.effects.{kind}.count {c0} -> {ce.get('count')} (want +{len(wants)}: one "
+                     f"record per applied cue)")
+    for i, (w, rs) in enumerate(zip(wants, found)):
+        which = w.get("match") or f"new record #{i + 1}"
+        if len(rs) != 1:
+            fails.append(f"{tag}: client effects.{kind} records for {which}: {len(rs)} (want exactly one; ring {ring})")
+            continue
+        r = rs[0]
+        got = {k: r.get(k) for k in w["fields"]}
+        if got != w["fields"]:
+            fails.append(f"{tag}: client effects.{kind} record {which} {got} (want {w['fields']})")
+        if not pick_ok(r.get("sound"), w["sounds"]):
+            fails.append(f"{tag}: client effects.{kind} record {which} sound {r.get('sound')} (want "
+                         f"{pick_want(w['sounds'])})")
+    fails += effect_common_fails(tag, host, client, snap0, dt1)
+    return fails
+
+
 # ===================== scenarios =====================
 
 
@@ -750,6 +1036,7 @@ def c5_stun(host, client, ctx):
     before = {"host": probes(host), "client": probes(client)}
     cb = {"host": cue_probes(host), "client": cue_probes(client)}
     snap_d = death_snap(host, client)   # W2-P6b S-D row D2
+    snap_e = effect_snap(host, client)  # W2-P6b S-E row E1
     seq0 = before["host"]["lastSeqEmitted"] or 0
     cursor0 = None
     try:
@@ -802,6 +1089,8 @@ def c5_stun(host, client, ctx):
          "fromDir": C5_A2_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN, "sounds": SECTOID_DEATH_SOUNDS,
          "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": False,
          "dirsShown": DIRS_4_TO_3, "phasesShown": PHASES_ALL}])
+    # W2-P6b S-E row E1 (review section 2; section 9 E-b): the host's stun-rod swing as a melee ghost on the client
+    e1 = impact_row("E1", host, client, snap_e, [(seq_of(chain, "melee"), "melee")], "STR_STUN_ROD")
     fails = list(notes)
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
@@ -838,6 +1127,7 @@ def c5_stun(host, client, ctx):
         fails.append(f"weapon {A2_WEAPON} tile host={tile_of(w1['host'])} client={tile_of(w1['client'])} "
                      f"(want the same)")
     fails += d2
+    fails += e1
     fails += common_fails(host, client, before, {}, "C5")
     finish(fails)
 

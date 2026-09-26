@@ -104,6 +104,24 @@ STR_COOP_ACTION_TIMEOUT).
 
 Out of this file (spec, amendments): the host's psi infobox (H10) is W2-P6's.
 
+W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 and the P6b
+review's section 2 rows E1 / E2; AMENDMENT P6b-1 with F1750 folded in,
+AMENDMENTS P6b-2 / P6b-3): the watching machine plays the melee and psi
+display. E1 (C21): ONE client combatGhost record of kind melee for the `melee`
+ev's seq with the rule chain's frame, frames, intervalMs, ms, sound and
+soundEnd (test_w2_host_combat.impact_row / impact_expect, the pins in
+EFFECT_PINS). E2 (C22, both legs): ONE record of kind psi per `psi` ev with the
+psi chain's frame, frames, intervalMs, ms and sound, and `voxel` equal to the
+payload's additive `voxel` (Q11). Both add the S-E common asserts (client
+rngSeed unchanged across the row, host displayTwo / combatGhost all zero,
+completed + cut == enqueued per S-E kind). C23d (F1750, TASK 0b T0b-7 = F1762 /
+F1763): the client's rngSeed is unchanged across the mind probe - the
+aftermath's hit sound must come from the raw list, never
+RuleItem::getHitSound(). coopGhostStepper is pinned true in both instances.
+RED (commit S-E.1): C21 fails only on E1 (no melee record), C22 only on E2 (no
+psi record, the payload has no `voxel`), C23d only on the rngSeed guard (one
+xorshift step, T0b-7); C22o passes.
+
 Probes: all exist before this file (S-A.1 added coopIntentsSent,
 intentsReceived, lastActionHalt, lastAftermath). The cue payloads are read from
 the HOST's own openxcom.log `[coop-cue]` lines.
@@ -148,7 +166,7 @@ import session
 from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 from test_w2_delta_core import diff_buckets, short, both
 from test_w2_delta_items import unit_view, tile_of
-from test_w2_host_combat import bring_up_lobby_roster_pinned, ev_tuples
+from test_w2_host_combat import bring_up_lobby_roster_pinned, ev_tuples, effect_snap, impact_row, rng_of
 from test_w2_client_shoot import (top, snap, ubrief, press, units, place, set_tu_both, await_press, order_done,
                                   collect, ctx_view, chain_of, forwarded_fails, tu_fails, common_fails, finish,
                                   press_view, ui_view, send_intent, TU_MAX, C_TU_FULL, POLL_S, SENT_WAIT_S,
@@ -386,6 +404,7 @@ def c21_stun(host, client, ctx):
     staged = diff_buckets(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row E1
     pv = {}
     try:
         stun_order(host, client, pv)
@@ -407,6 +426,9 @@ def c21_stun(host, client, ctx):
           f"client={a_view(rec['uc'].get(A2_ID))}; C host={ubrief(rec['uh'].get(C_ID))} "
           f"client={ubrief(rec['uc'].get(C_ID))}; bodies={bodies}; diff={rec['diff']} desync={rec['dsc']}; "
           f"notes={notes}", flush=True)
+    # W2-P6b S-E row E1 (review section 2; section 9 E-b): C's own stun-rod swing as a melee ghost on the client
+    e1 = impact_row("E1", host, client, snap_e, [(next((e["seq"] for e in chain if e["kind"] == "melee"), None),
+                                                  "melee")], STUN_ROD)
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
@@ -434,6 +456,7 @@ def c21_stun(host, client, ctx):
     if rec["clientUi"]["banner"] == TEXT_ITEM_ACTION:
         fails.append(f"client banner {rec['clientUi']['banner']!r} (the interim host-only refusal: want the press "
                      f"sent as an order)")
+    fails += e1
     fails += common_fails(host, client, before, "C21")
     finish(fails)
 
@@ -448,6 +471,7 @@ def c23d_probe(host, client, ctx):
     staged = diff_buckets(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
+    rng0 = rng_of(client)   # W2-P6b S-E (AMENDMENT P6b-1, F1750 / P6b-2 F1762, F1763): the mind-probe rngSeed guard
     pv = {}
     try:
         target_order(client, pv, KEY_PROBE, CURSOR_PSI, A_TILE)
@@ -456,6 +480,7 @@ def c23d_probe(host, client, ctx):
     out = await_press(host, client, before, notes)
     settle(host, client, notes)
     rec = collect(host, client, seq0)
+    rng1 = rng_of(client)
     tops = {"host": top(host), "client": top(client)}
     new = ctx_view(before, rec)
     hits = [c for c in new if c.get("origin") == "intent" and c.get("kind") == "mindprobe"
@@ -467,8 +492,15 @@ def c23d_probe(host, client, ctx):
           f"action={aid} chain={[(e['seq'], e['kind']) for e in chain]}; host evs={ev_tuples(rec['hev'])} "
           f"client evs={ev_tuples(rec['cev'])}; C host={ubrief(rec['uh'].get(C_ID))} "
           f"client={ubrief(rec['uc'].get(C_ID))}; A host={a_view(rec['uh'].get(A_ID))} "
-          f"client={a_view(rec['uc'].get(A_ID))}; diff={rec['diff']} desync={rec['dsc']}; notes={notes}", flush=True)
+          f"client={a_view(rec['uc'].get(A_ID))}; diff={rec['diff']} desync={rec['dsc']}; client rngSeed {rng0} -> "
+          f"{rng1}; notes={notes}", flush=True)
     fails = list(notes)
+    # W2-P6b S-E (AMENDMENT P6b-1: F1750 folded into S-E; P6b-2: F1762 TRACE, F1763): the client's own mind-probe
+    # aftermath plays the probe's hit sound; it must never draw the sim RNG (V4, F1512). At the S-E.1 red the client
+    # draws RuleItem::getHitSound() (one xorshift step, T0b-7); S-E.2 picks from the raw list with RNG::seedless.
+    if rng0 is None or rng1 != rng0:
+        fails.append(f"client rngSeed {rng0} -> {rng1} across the mind probe (want unchanged: V4 - the aftermath's hit "
+                     f"sound from the raw list, never RuleItem::getHitSound(), F1750 / F1763)")
     fails += fov_fails(fv)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
@@ -539,6 +571,7 @@ def c22_psi(host, client, ctx):
     stats = {"C psiSkill": rc.get("psiSkill"), "A psiStrength": ra.get("psiStrength")}
     staged = diff_buckets(host, client)
     a0 = {"host": a_view(units(host).get(A_ID)), "client": a_view(units(client).get(A_ID))}
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row E2 (both legs)
     # ---- leg P: panic (key 50) ----
     box_p = []
     before, rec, pv, out = psi_leg(host, client, KEY_PANIC, SEED_C22P, "panic", notes, box_p)
@@ -566,6 +599,10 @@ def c22_psi(host, client, ctx):
           f"client={a_view(rec_m['uc'].get(A_ID))}; C host={ubrief(rec_m['uh'].get(C_ID))} "
           f"client={ubrief(rec_m['uc'].get(C_ID))}; diff={rec_m['diff']} desync={rec_m['dsc']}; notes={notes_m}",
           flush=True)
+    # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): each leg's `psi` cue as a psi ghost on the client
+    psi_seqs = [next((e["seq"] for e in chain_of(r_, a_) if e["kind"] == "psi"), None)
+                for r_, a_ in ((rec, aid_p), (rec_m, aid_m))]
+    e2 = impact_row("E2", host, client, snap_e, [(s, "psi") for s in psi_seqs], PSI_AMP)
     fails = list(notes) + list(notes_m)
     fails += fov_fails(fv)
     if staged:
@@ -586,6 +623,7 @@ def c22_psi(host, client, ctx):
         fails.append(f"leg M: A (faction, mindControllerId) host={got[0]} client={got[1]} (want ({FACTION_PLAYER}, "
                      f"{C_ID}) on both)")
     fails += [f"leg M: {m}" for m in common_m]
+    fails += e2
     finish(fails)
 
 
@@ -697,8 +735,10 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49874, make_user_dir("w2p4_client_melee_psi_host"))
-    client = GameClient("client", 49875, make_user_dir("w2p4_client_melee_psi_client"))
+    # W2-P6b S-E: coopGhostStepper pinned true in both instances (rows E1 / E2 need the client's melee / psi ghosts)
+    host = GameClient("host", 49874, make_user_dir("w2p4_client_melee_psi_host", options={"coopGhostStepper": True}))
+    client = GameClient("client", 49875, make_user_dir("w2p4_client_melee_psi_client",
+                                                       options={"coopGhostStepper": True}))
     results = {}
     try:
         try:

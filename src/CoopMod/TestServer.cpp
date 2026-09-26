@@ -91,6 +91,7 @@
 #include "../Battlescape/Position.h"
 #include "../Battlescape/Map.h"
 #include "../Battlescape/Camera.h"
+#include "../Battlescape/Explosion.h" // W2-P6b S-E.1: display_rules constants HIT_FRAMES
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleInventory.h"
@@ -7939,11 +7940,29 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			o["explosionHitSound"] = firstOf(r->getExplosionHitSoundRaw());
 			o["bulletSpeed"] = r->getBulletSpeed();
 			o["shotgunPellets"] = r->getShotgunPellets();
+			// W2-P6b S-E.1 (spec rewrite/prompts/w2p6_display_two.md section 9 S-E.1; review F1758): the melee and
+			// psi display rules ExplosionBState's hit branch reads (plain getters, no RNG).
+			o["meleeAnimation"] = r->getMeleeAnimation();
+			o["meleeAnimationFrames"] = r->getMeleeAnimationFrames();
+			o["meleeMissAnimation"] = r->getMeleeMissAnimation();
+			o["meleeMissAnimationFrames"] = r->getMeleeMissAnimationFrames();
+			o["psiAnimation"] = r->getPsiAnimation();
+			o["psiAnimationFrames"] = r->getPsiAnimationFrames();
+			o["psiMissAnimation"] = r->getPsiMissAnimation();
+			o["psiMissAnimationFrames"] = r->getPsiMissAnimationFrames();
 			Json::Value lists(Json::objectValue);
 			lists["fireSound"] = listOf(r->getFireSoundRaw());
 			lists["hitSound"] = listOf(r->getHitSoundRaw());
 			lists["hitMissSound"] = listOf(r->getHitMissSoundRaw());
 			lists["explosionHitSound"] = listOf(r->getExplosionHitSoundRaw());
+			// W2-P6b S-E.1 (section 9 S-E.1): the melee / psi / prime sound lists, raw (never the RNG getters).
+			lists["meleeSound"] = listOf(r->getMeleeSoundRaw());
+			lists["meleeMissSound"] = listOf(r->getMeleeMissSoundRaw());
+			lists["meleeHitSound"] = listOf(r->getMeleeHitSoundRaw());
+			lists["psiSound"] = listOf(r->getPsiSoundRaw());
+			lists["psiMissSound"] = listOf(r->getPsiMissSoundRaw());
+			lists["primeSound"] = listOf(r->getPrimeSoundRaw());
+			lists["unprimeSound"] = listOf(r->getUnprimeSoundRaw());
 			o["soundLists"] = lists;
 			items[type] = o;
 		}
@@ -7953,6 +7972,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		k["LARGE_EXPLOSION"] = Mod::LARGE_EXPLOSION;
 		k["ITEM_THROW"] = Mod::ITEM_THROW;
 		k["ITEM_DROP"] = Mod::ITEM_DROP;
+		k["HIT_FRAMES"] = Explosion::HIT_FRAMES; // W2-P6b S-E.1 (section 9): a melee / psi sprite's default frames
 		resp["items"] = items;
 		resp["constants"] = k;
 		resp["ok"] = true;

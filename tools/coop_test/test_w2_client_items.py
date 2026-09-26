@@ -109,6 +109,17 @@ order:
          tile, the same position and stun on both); the body item gone on
          both; lastAftermath continue false.
 
+W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 E-c and the P6b
+review's section 2 row E3; AMENDMENTS P6b-1..P6b-3; Q14 (a)): the watching
+machine plays the medi-kit sound. Row E3 (C23b's three presses): the client's
+displayTwo.effects.medikit.count +3, ONE record per `medikit` ev's seq with
+itemType STR_MEDI_KIT (the kit resolved before the cue's delta, N43) and its
+sound picked from the kit's raw hitSound list (display_rules, pinned in
+test_w2_host_combat.EFFECT_PINS: [] -> -1, vanilla plays none), and the S-E
+common asserts (client rngSeed unchanged, host displayTwo / combatGhost all
+zero). coopGhostStepper is pinned true in both instances. RED (commit S-E.1):
+only C23b fails, on E3 (count +0, no record). One "EVIDENCE E3:" line.
+
 C23f comes before C23b4 (H is knocked out there). C23e strips C; later rows hand
 out their own items. The scanner's ScannerState (C23c green) is closed with the
 client's cancel key before C23e.
@@ -167,7 +178,7 @@ from test_rw_turn_baton import RHAND_NTH, click_nth
 from test_rw_seat_pacing import tab_select
 from test_w2_delta_core import diff_buckets, short, both
 from test_w2_delta_items import unit_view
-from test_w2_host_combat import bring_up_lobby_roster_pinned, ev_tuples
+from test_w2_host_combat import bring_up_lobby_roster_pinned, ev_tuples, effect_snap, effect_rules, sound_row
 from test_w2_client_shoot import (top, snap, ubrief, press, menu_rows, recv_of, place, set_tu_both,
                                   await_press, order_done, collect, ctx_view, chain_of, forwarded_fails, tu_fails,
                                   common_fails, finish, press_view, ui_view, TU_MAX, C_TU_FULL, POLL_S, SENT_WAIT_S,
@@ -528,6 +539,7 @@ def c23b_medikit(host, client, ctx):
     h0 = {"host": hview(session.units_by_id(battle_state(host)).get(H_ID)),
           "client": hview(session.units_by_id(battle_state(client)).get(H_ID))}
     b0 = snap(host, client)
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row E3
     ev = {}
     opened = False
     try:
@@ -563,6 +575,16 @@ def c23b_medikit(host, client, ctx):
               f"diff={lg['rec']['diff']} desync={lg['rec']['dsc']}; notes={lg['notes']}" for lg in legs)
           + f" | CANCEL close={ev.get('close')} before={cb} after={ca}; end: {press_view(b0, rec_end)}; "
           f"ui={ui_view(b0, rec_end)}; diff={rec_end['diff']}; notes={notes}", flush=True)
+    # W2-P6b S-E row E3 (review section 2; section 9 E-c, Q14 (a)): one medikit sound record per applied `medikit`
+    # cue on the client, the kit resolved before the cue's delta (N43 = F1692), its sound picked from the kit's raw
+    # hit-sound list; none on the host (it plays vanilla's own, TileEngine :5019).
+    rules, rfails = effect_rules(host, client, [MEDIKIT])
+    kit_sounds = ((rules.get(MEDIKIT) or {}).get("soundLists") or {}).get("hitSound") or []
+    med_seqs = [e["seq"] for lg in legs for e in lg["rec"]["hev"] if e["kind"] == "medikit"]
+    med_seqs += [None] * (len(C23B_PRESSES) - len(med_seqs))   # a missing press never matches a record
+    e3 = rfails + sound_row("E3", host, client, snap_e, "medikit",
+                            [{"match": {"seq": s}, "fields": {"itemType": MEDIKIT}, "sounds": kit_sounds}
+                             for s in med_seqs], extra={"medikitSeqs": med_seqs, "legs": len(legs)})
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
@@ -608,6 +630,7 @@ def c23b_medikit(host, client, ctx):
         if (ev.get("close") or [None])[-1] != "BattlescapeState":
             fails.append(f"cancel: client states {ev.get('close')} (want the screen closed)")
         fails += nothing_sent_fails({"host": cb["host"], "client": cb["client"]}, ca["host"], ca["client"], "cancel")
+    fails += e3
     fails += common_fails(host, client, b0, "C23b")
     finish(fails)
 
@@ -1212,8 +1235,11 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49876, make_user_dir("w2p4_client_items_host", mods=[MOD_DIR]))
-    client = GameClient("client", 49877, make_user_dir("w2p4_client_items_client", mods=[MOD_DIR]))
+    # W2-P6b S-E: coopGhostStepper pinned true in both instances (row E3 needs the client's effect displays)
+    host = GameClient("host", 49876, make_user_dir("w2p4_client_items_host", mods=[MOD_DIR],
+                                                   options={"coopGhostStepper": True}))
+    client = GameClient("client", 49877, make_user_dir("w2p4_client_items_client", mods=[MOD_DIR],
+                                                       options={"coopGhostStepper": True}))
     results = {}
     try:
         try:

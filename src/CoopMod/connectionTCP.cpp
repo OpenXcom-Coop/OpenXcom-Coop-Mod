@@ -14981,6 +14981,10 @@ struct CombatKinds
 	int shot = 0;
 	int hit = 0;
 	int explosion = 0;
+	// W2-P6b S-E.1 (spec rewrite/prompts/w2p6_display_two.md section 9; review F1743, OR5 (a)): the melee and psi
+	// ghosts' own slots, so they never count as `shot`. Probe storage only at S-E.1 (S-E.2's ghosts write them).
+	int melee = 0;
+	int psi = 0;
 };
 /// W2-P5 S-T.1 (amendment E3 section E3.6): how SPEC 7 `turn` ghosts were enqueued and ended this battle
 /// (event_state `turnGhost.counts`).
@@ -15001,6 +15005,21 @@ struct DeathGhostCounts
 	int completed = 0;
 	int cut = 0;
 	int instant = 0;
+};
+/// W2-P6b S-E.1 (spec rewrite/prompts/w2p6_display_two.md section 9): one effect-sound kind's probe (event_state
+/// `displayTwo.effects.<kind>`): how many records were written this battle and the last kCombatRingCap of them.
+struct EffectSoundProbe
+{
+	int count = 0;
+	std::deque<Json::Value> ring;
+};
+/// W2-P6b S-E.1 (section 9, Q10 (a) as pinned by OR2 (a)): how fall ghosts were enqueued and ended this battle
+/// (event_state `displayTwo.effects.fall`).
+struct FallGhostCounts
+{
+	int enqueued = 0;
+	int completed = 0;
+	int cut = 0;
 };
 struct CombatProbeStore
 {
@@ -15029,6 +15048,24 @@ struct CombatProbeStore
 	int deathQueued = 0;
 	std::uint64_t deathPushed = 0;   // W2-P6b S-D.2: death records pushed this battle (a ghost finds its own)
 	std::deque<Json::Value> deathRing;
+	// W2-P6b S-E.1 (section 9 S-E.1; T0b-4): the effect probe storage (event_state `displayTwo.effects`) - the
+	// medikit / prime / panic sound records, the fall ghosts' counters and records, and `fallSeen`: the client's
+	// top state at each applied `fall` and at every applied ev after it up to and including the first one that
+	// carries a delta, with the advance() runs in between (fallAdvances counts advance() on a coop client; an
+	// open fall window remembers its count at the fall's apply). Probe storage only at S-E.1: only `fallSeen`
+	// is written (by fallSeenProbe() below); S-E.2's effects write the rest. Cleared with the rest of this
+	// storage by combatSync() only.
+	EffectSoundProbe medikit;
+	EffectSoundProbe prime;
+	EffectSoundProbe panic;
+	FallGhostCounts fall;
+	std::deque<Json::Value> fallRing;
+	std::deque<Json::Value> fallSeen;
+	std::uint64_t fallAdvances = 0;
+	bool fallSeenOpen = false;
+	std::uint32_t fallSeenSeq = 0;
+	std::uint32_t fallSeenAtMs = 0;
+	std::uint64_t fallSeenAtAdvances = 0;
 };
 CombatProbeStore g_combatProbe;
 const std::size_t kCombatRingCap = 32;
@@ -15216,6 +15253,8 @@ Json::Value combatKindsJson(const CombatKinds& k)
 	o["shot"] = k.shot;
 	o["hit"] = k.hit;
 	o["explosion"] = k.explosion;
+	o["melee"] = k.melee; // W2-P6b S-E.1 (F1743, OR5 (a))
+	o["psi"] = k.psi;
 	return o;
 }
 
@@ -15351,6 +15390,10 @@ int& combatKindSlot(CombatKinds& k, const std::string& kind)
 		return k.hit;
 	if (kind == "explosion")
 		return k.explosion;
+	if (kind == "melee")
+		return k.melee; // W2-P6b S-E.1 (F1743): never counted as `shot`
+	if (kind == "psi")
+		return k.psi;
 	return k.shot;
 }
 
@@ -15391,6 +15434,54 @@ void combatPlay(const SavedBattleGame* save, int sound, int angle)
 {
 	if (save && sound != Mod::NO_SOUND)
 		save->getMod()->getSoundByDepth(save->getDepth(), sound)->play(-1, angle);
+}
+
+/// W2-P6b S-E.1 (spec rewrite/prompts/w2p6_display_two.md section 9 S-E.1 `fall.seen`; T0b-4; probe only): the
+/// class name of the Game's top state on this machine ("none" without a live BattlescapeState). Read-only.
+std::string effectTopState()
+{
+	BattlescapeState* bs = combatLiveState();
+	Game* game = bs ? bs->getGame() : nullptr;
+	if (!game || game->getStates().empty() || !game->getStates().back())
+		return "none";
+	const std::string name = typeid(*game->getStates().back()).name();
+	const std::size_t cut = name.rfind(':');
+	return cut == std::string::npos ? name : name.substr(cut + 1);
+}
+
+/// W2-P6b S-E.1 (section 9 S-E.1 `fall.seen`; TASK 0b row T0b-4, the C10 fall observability; probe only): on a
+/// coop client, one `fallSeen` record for an applied `fall` and for every applied ev after it up to and including
+/// the first one that carries a delta - {seq, kind, fallSeq, top (the Game's top state at the apply), ms (SDL
+/// ticks), msSinceFall, advances (advance() runs since the fall's apply: advance() runs only while
+/// BattlescapeState is on top with no popup), delta (the ev carries one)}. Called before the ev's own state
+/// applies; a later `fall` opens a new window. Writes the probe storage only.
+void fallSeenProbe(const Json::Value& ev, const std::string& kind, std::uint32_t nowMs)
+{
+	const bool isFall = kind == "fall";
+	if (!isFall && !g_combatProbe.fallSeenOpen)
+		return;
+	const bool delta = ev.isMember("delta") && ev["delta"].isObject();
+	if (isFall)
+	{
+		g_combatProbe.fallSeenOpen = true;
+		g_combatProbe.fallSeenSeq = ev.get("seq", 0u).asUInt();
+		g_combatProbe.fallSeenAtMs = nowMs;
+		g_combatProbe.fallSeenAtAdvances = g_combatProbe.fallAdvances;
+	}
+	Json::Value r(Json::objectValue);
+	r["seq"] = ev.get("seq", 0u).asUInt();
+	r["kind"] = kind;
+	r["fallSeq"] = g_combatProbe.fallSeenSeq;
+	r["top"] = effectTopState();
+	r["ms"] = (Json::UInt)nowMs;
+	r["msSinceFall"] = (Json::UInt)(nowMs - g_combatProbe.fallSeenAtMs);
+	r["advances"] = (Json::UInt)(g_combatProbe.fallAdvances - g_combatProbe.fallSeenAtAdvances);
+	r["delta"] = delta;
+	g_combatProbe.fallSeen.push_back(r);
+	while (g_combatProbe.fallSeen.size() > kCombatRingCap)
+		g_combatProbe.fallSeen.pop_front();
+	if (!isFall && delta)
+		g_combatProbe.fallSeenOpen = false;
 }
 
 /// Ends @a g (spec (b)3/(b)7/(b)9/(b)11): its display object leaves the Map and is deleted, a throw plays
@@ -16333,6 +16424,7 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	if (!combatClient())
 		return;
 	combatSync();
+	fallSeenProbe(ev, kind, SDL_GetTicks()); // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only
 	if (kind == "reveal")
 		return; // Q1 (b): a nested reveal carries no delta (N14) - it neither ends nor starts a ghost
 	const std::uint32_t nowMs = SDL_GetTicks();
@@ -16640,6 +16732,8 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 	const bool combatLive = combatAdvance(nowMs);
 	// W2-P6b S-D.2 (section 8 D-e): the death ghosts start, step and release here, whatever the option (OQ3).
 	const bool deathLive = deathAdvance(save, nowMs);
+	if (combatClient())
+		++g_combatProbe.fallAdvances; // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only - one advance() run
 	if (!save || (g_coopGhosts.empty() && !combatLive && !deathLive))
 		return;
 	const bool stepperLive = !g_coopGhosts.empty();
@@ -16794,6 +16888,7 @@ void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev)
 	// ghost ends first.
 	combatSync();
 	const std::uint32_t nowMs = SDL_GetTicks();
+	fallSeenProbe(ev, "bt_action_end", nowMs); // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only
 	combatEndPendingPairs(ev, "bt_action_end", nowMs);
 	combatEndAll(nowMs);
 	// W2-P6b S-D.2 (section 8 D-g, ST3 (a)): the chain's end ends every death ghost (never gated, OQ3).
@@ -16865,6 +16960,34 @@ Json::Value displayTwoProbe()
 		ring.append(r);
 	death["ring"] = ring;
 	o["death"] = death;
+	// W2-P6b S-E.1 (section 9 S-E.1): the effect records - {medikit, prime, panic: {count, ring}, fall: {enqueued,
+	// completed, cut, ring, seen}}.
+	auto ringOf = [](const std::deque<Json::Value>& d)
+	{
+		Json::Value a(Json::arrayValue);
+		for (const Json::Value& r : d)
+			a.append(r);
+		return a;
+	};
+	auto soundProbe = [&ringOf](const EffectSoundProbe& p)
+	{
+		Json::Value s(Json::objectValue);
+		s["count"] = p.count;
+		s["ring"] = ringOf(p.ring);
+		return s;
+	};
+	Json::Value effects(Json::objectValue);
+	effects["medikit"] = soundProbe(g_combatProbe.medikit);
+	effects["prime"] = soundProbe(g_combatProbe.prime);
+	effects["panic"] = soundProbe(g_combatProbe.panic);
+	Json::Value fall(Json::objectValue);
+	fall["enqueued"] = g_combatProbe.fall.enqueued;
+	fall["completed"] = g_combatProbe.fall.completed;
+	fall["cut"] = g_combatProbe.fall.cut;
+	fall["ring"] = ringOf(g_combatProbe.fallRing);
+	fall["seen"] = ringOf(g_combatProbe.fallSeen);
+	effects["fall"] = fall;
+	o["effects"] = effects;
 	return o;
 }
 

@@ -223,6 +223,11 @@ GhostLastView lastGhost();
 /// cleared on its next main-thread use (after every stale ghost has left the live Map and been
 /// deleted). Written by the S-A.2 combat ghosts: one ring record and one `enqueued` count per started
 /// ghost; a record with no display object (unresolved / noMap / 0 ms) counts `completed` at enqueue.
+/// W2-P6b S-E.1 (spec rewrite/prompts/w2p6_display_two.md section 9; review F1743, OR5 (a)): the three counter
+/// sets gain `melee` and `psi` (never counted as `shot`). A melee / psi record (S-E.2, E-b) is an impact record
+/// {seq, actionId, kind "melee" | "psi", unit (the actor), frame, frames, sprites, intervalMs, ticks, ms,
+/// sound, soundEnd (melee: the melee hit sound when the payload power > 0, else -1), cut, unresolved,
+/// noMap, ...} plus `voxel` (the payload's voxel the sprite sits at).
 Json::Value combatProbe();
 
 /// W2-P5 S-T.1 (amendment E3 section E3.6, E3.1 OR4/OR5): the SPEC 7 `turn` ghost probe of THIS machine this
@@ -243,6 +248,14 @@ Json::Value turnGhostProbe();
 /// headStartedAtEnqueue (S-D.3: the queue head had started at this record's enqueue)}. Probe
 /// storage only at S-D.1: nothing writes it (the S-D.2 death ghosts do, on a coop client only). Kept apart from
 /// the SPEC 7 counters and the combat ghosts; main thread only, cleared with the combat probe storage.
+/// W2-P6b S-E.1 (section 9 S-E.1): the probe gains effects:{medikit:{count, ring}, prime:{count, ring},
+/// panic:{count, ring}, fall:{enqueued, completed, cut, ring, seen}} - the S-E.2 records, one per applied cue
+/// (a coop client only; the host plays vanilla's and records none): medikit {seq, actionId, actor, unit, item,
+/// itemType, sound}; prime (the ordering client's own aftermath, no seq) {itemType, unprime, sound};
+/// panic {seq, actionId, unit, mode, sound}; fall {seq, unit, from, to, paceMs, phasesShown, endedBy ("next" |
+/// "moved" | ...), cut}. `sound` = the id picked from the rule's raw list (-1 = none). `fall.seen` (written at
+/// S-E.1, T0b-4): {seq, kind, fallSeq, top, ms, msSinceFall, advances, delta} for an applied `fall` and every
+/// applied ev after it up to and including the first that carries a delta.
 Json::Value displayTwoProbe();
 
 /// W2-P6b S-D.2 (spec rewrite/prompts/w2p6_display_two.md section 8 D-j; AMENDMENT P6b-1): TRUE while a death
