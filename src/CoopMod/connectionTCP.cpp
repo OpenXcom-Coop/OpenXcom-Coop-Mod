@@ -5662,11 +5662,16 @@ static bool g_coopIntentContinue = true;
 // with the arbiter state (the mint restarts at 1 per battle).
 static std::uint32_t g_coopIntentForceFireActionId = 0;
 
-// W2-P4 S-E2.2 (amendment C3 D147, C3-Q7 (a)): HOST - the ONE-SHOT skill grant.
+// W2-P4 S-E2.2 (amendment C3 D147, C3-Q7 (a)): HOST - the skill grant.
 // A `skill` order the host answers with `continue: true` records {actor, skill,
 // the skill's action type, the weapon it picked}; a later order carrying `skill`
-// is admitted only when it matches, and its admission consumes the grant (vanilla
-// reaches a skill follow-up only after the script said continue). The next
+// is admitted only when it matches (vanilla reaches a skill follow-up only after
+// the script said continue). W2-P4 S-E2b.2 (F1291, the orchestrator's R10 ruling
+// on its own C3-Q7 text): an admitted follow-up no longer consumes it - it
+// persists while vanilla keeps the skill's targeting (vanilla's snap under a
+// skill stays armed after it fires, and a second click fires again at the
+// skill's cost with no menu). That actor's next order that carries no `skill`
+// or a different skill / type / item (coopNoteOrderForSkillGrant()), the next
 // `skill` order, a side change (CoopEndTurn::onSideTransition()) and the arbiter
 // reset clear it.
 struct CoopSkillGrant
@@ -7680,12 +7685,48 @@ static const char* validateSkill(BattleUnit* actor, const Json::Value& intent, S
 	return nullptr;
 }
 
+// W2-P4 S-E2b.2 (F1291): does @a intent, an order for @a actor that is not a
+// `skill` order, match the skill grant - the grant is @a actor's and the order
+// carries the granted skill, action type and item?
+static bool coopOrderMatchesSkillGrant(BattleUnit* actor, const std::string& kind, const Json::Value& intent,
+	SavedBattleGame* save)
+{
+	if (!g_coopSkillGrant.active || g_coopSkillGrant.actorId != actor->getId())
+		return false;
+	const Json::Value& name = intent["skill"];
+	const RuleSkill* skill = name.isString() ? save->getMod()->getSkill(name.asString()) : nullptr;
+	if (!skill || skill != g_coopSkillGrant.skill)
+		return false;
+	CoopCombatIntentArgs plan; // just the two fields coopCombatActionType() reads
+	plan.action = intent.get("action", "").asString();
+	plan.unprime = intent.get("unprime", false).asBool();
+	const BattleActionType type = coopIsCombatKind(kind) ? coopCombatActionType(kind, plan) : BA_NONE;
+	// The item field each kind's validator reads (`item` for throw / prime /
+	// use_item / medikit, `weapon` for the others).
+	const int itemId = intent.isMember("item") ? intent.get("item", -1).asInt() : intent.get("weapon", -1).asInt();
+	return type == g_coopSkillGrant.type && itemId == g_coopSkillGrant.weaponId;
+}
+
+// W2-P4 S-E2b.2 (F1291, the R10 ruling): the host received an order for
+// @a actor from a seat that commands it. Unless it is a `skill` order (whose
+// admission clears and re-records the grant itself) or it carries the granted
+// skill, action type and item, the player has left the skill's targeting: the
+// grant is cleared, whatever the order's own admission then says.
+static void coopNoteOrderForSkillGrant(BattleUnit* actor, const std::string& kind, const Json::Value& intent,
+	SavedBattleGame* save)
+{
+	if (kind == "skill" || !g_coopSkillGrant.active || g_coopSkillGrant.actorId != actor->getId())
+		return;
+	if (!coopOrderMatchesSkillGrant(actor, kind, intent, save))
+		g_coopSkillGrant = CoopSkillGrant();
+}
+
 // W2-P4 S-E2.2 (amendment C3 D147 "the follow-up", C3-Q7 (a)): a non-`skill`
 // order carrying `skill` - a follow-up of a skill whose script said continue.
 // The skill resolves, is one the actor's menu lists and its target mode is the
-// order's own action type, else `skill_invalid`; the order matches the one-shot
-// grant the host recorded when it answered that skill `continue: true` (same
-// actor, skill, action type and item), else `skill_not_granted` (a silent row).
+// order's own action type, else `skill_invalid`; the order matches the grant
+// the host recorded when it answered that skill `continue: true` (same actor,
+// skill, action type and item), else `skill_not_granted` (a silent row).
 // On success @a skillOut is the skill the order's LOCAL BattleAction runs with
 // (its cost, its attack data, the reaction scripts' originalAction.skillRules).
 static const char* coopSkillFollowUpDeny(BattleUnit* actor, const std::string& kind, const Json::Value& intent,
@@ -7701,23 +7742,10 @@ static const char* coopSkillFollowUpDeny(BattleUnit* actor, const std::string& k
 	const BattleActionType type = coopIsCombatKind(kind) ? coopCombatActionType(kind, plan) : BA_NONE;
 	if (type == BA_NONE || type != skill->getTargetMode())
 		return "skill_invalid";
-	// The item field each kind's validator reads (`item` for throw / prime /
-	// use_item / medikit, `weapon` for the others).
-	const int itemId = intent.isMember("item") ? intent.get("item", -1).asInt() : intent.get("weapon", -1).asInt();
-	if (!g_coopSkillGrant.active || g_coopSkillGrant.actorId != actor->getId() || g_coopSkillGrant.skill != skill
-		|| g_coopSkillGrant.type != type || g_coopSkillGrant.weaponId != itemId)
-	{
+	if (!coopOrderMatchesSkillGrant(actor, kind, intent, save))
 		return "skill_not_granted";
-	}
 	skillOut = skill;
 	return nullptr;
-}
-
-// W2-P4 S-E2.2 (C3-Q7 (a)): an admitted follow-up consumes the grant.
-static void coopConsumeSkillGrant(const RuleSkill* followSkill)
-{
-	if (followSkill)
-		g_coopSkillGrant = CoopSkillGrant();
 }
 
 void onIntent(const Json::Value& intent)
@@ -7808,6 +7836,10 @@ void onIntent(const Json::Value& intent)
 		return;
 	}
 
+	// W2-P4 S-E2b.2 (F1291, the R10 ruling): that actor's order with no `skill`
+	// or a different skill / type / item clears the skill grant.
+	coopNoteOrderForSkillGrant(actor, kind, intent, save);
+
 	// turn_over (SS2.3/SS2.5). W2-P4 S-E4 (spec Q8 (a), N1 = F1068): the active
 	// side must be the INTENT seat's faction. mySideActive() compares the
 	// HOST's own seat faction, which in gm2 (the second player commands the
@@ -7847,9 +7879,10 @@ void onIntent(const Json::Value& intent)
 
 	// W2-P4 S-E2.2 (amendment C3 D147 "the follow-up", C3-Q7 (a), N9 = F1146): an
 	// order carrying `skill` (every kind but `skill` itself) is a skill follow-up
-	// - admitted only against the one-shot grant (coopSkillFollowUpDeny()); its
-	// validator then builds the LOCAL action with the skill, so the cost basis is
-	// the skill's (the updateTU() rule) and its admission consumes the grant.
+	// - admitted only against the grant (coopSkillFollowUpDeny()); its validator
+	// then builds the LOCAL action with the skill, so the cost basis is the
+	// skill's (the updateTU() rule). W2-P4 S-E2b.2 (F1291): its admission leaves
+	// the grant in place, as vanilla leaves the skill's targeting armed.
 	const RuleSkill* followSkill = nullptr;
 	if (kind != "skill" && intent.isMember("skill") && !intent["skill"].isNull())
 	{
@@ -8035,7 +8068,6 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
-		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		// Set BEFORE the first push: statePushBack() inits at once and the cue
 		// hooks / a reaction's beginNested() read the base actor (item 7).
@@ -8094,7 +8126,6 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
-		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		g_coopPendingChainActorId = actor->getId();
 		g_coopPendingChainKind = unprime ? "unprime" : "prime"; // spec (b)3's instant kinds
@@ -8156,7 +8187,6 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
-		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		// Set BEFORE the push: statePushBack() inits at once and the cue hooks /
 		// a reaction's beginNested() read the base actor (item 7).
@@ -8211,7 +8241,6 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
-		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		g_coopPendingChainActorId = actor->getId();
 		g_coopPendingChainKind = scanner ? "scanner" : "mindprobe"; // spec (b)3's instant kinds
@@ -8277,7 +8306,6 @@ void onIntent(const Json::Value& intent)
 		CoopEmit::sendBattle(ack);
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
-		coopConsumeSkillGrant(followSkill); // W2-P4 S-E2.2 (C3-Q7)
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		g_coopPendingChainActorId = actor->getId();
 		g_coopPendingChainKind = "medikit"; // spec (b)3's instant kind
@@ -8419,8 +8447,9 @@ void onIntent(const Json::Value& intent)
 		// `halted`/`reason` when a stop carries vanilla's own message (the
 		// script's haveTU() text, or SK7's). Everything the script and the fuse
 		// write changed rides that envelope's delta (TU, stats, tags, the fuse).
-		// A continue records the one-shot grant (C3-Q7 (a)) the follow-up order
-		// is admitted against; the ordering client then enters its own targeting.
+		// A continue records the grant (C3-Q7 (a); S-E2b.2: it persists across
+		// the follow-ups) the follow-up orders are admitted against; the ordering
+		// client then enters its own targeting.
 		BattleAction action;
 		const RuleSkill* skill = nullptr;
 		const char* reason = validateSkill(actor, intent, save, action, skill);
