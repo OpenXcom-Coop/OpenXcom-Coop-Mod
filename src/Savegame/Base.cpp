@@ -278,14 +278,14 @@ void Base::load(const YAML::YamlNodeReader& reader, SavedGame *save, bool newGam
 	reader.tryRead("ownerplayername", _ownerPlayerName);
 
 	// In the unified SEPARATE save every base is real.  Keep the established
-	// _coopBase UI restrictions/colour working by deriving that local-view flag
+	// _isForeignBase UI restrictions/colour working by deriving that local-view flag
 	// from persistent ownership after deserialization.  Legacy saves have no
 	// ownerplayername. Non-campaign multiplayer modes keep their own protocol.
 	if (save && save->isCoopSave()
 		&& save->getCampaignType() == CoopCampaignType::Separate
 		&& !_ownerPlayerName.empty())
 	{
-		_coopBase = _ownerPlayerName != connectionTCP::seatName(connectionTCP::localSeat());
+		_isForeignBase = _ownerPlayerName != connectionTCP::seatName(connectionTCP::localSeat());
 		_coopIcon = false;
 	}
 
@@ -559,7 +559,7 @@ std::string Base::getName(Language *) const
  */
 int Base::getMarker() const
 {
-	if (_coopBase == true)
+	if (_isForeignBase == true)
 		return 9;
 	// Cheap hack to hide bases when they haven't been placed yet
 	if (AreSame(_lon, 0.0) && AreSame(_lat, 0.0))
@@ -616,9 +616,9 @@ void Base::setScientists(int scientists)
 
 
 
-void Base::isCoopBase(bool coopBase)
+void Base::setForeignBase(bool foreignBase)
 {
-	_coopBase = coopBase;
+	_isForeignBase = foreignBase;
 }
 
 /**
@@ -655,83 +655,38 @@ UfoDetection Base::detect(const Ufo *target, const SavedGame *save, bool already
 	int radar_max_range = 0;
 	int radar_chance = 0;
 
-	// coop
-	if (_coopBase == false)
+	// Every campaign base is a full Base object. Ownership is a UI/permission
+	// property and never changes which facilities participate in radar detection.
+	for (const auto* fac : _facilities)
 	{
-		for (const auto* fac : _facilities)
+		if (fac->getBuildTime() != 0)
 		{
-			if (fac->getBuildTime() != 0)
-			{
-				continue;
-			}
-			if (fac->getRules()->getRadarRange() >= distance)
-			{
-				int radarChance = fac->getRules()->getRadarChance();
-				if (fac->getRules()->isHyperwave())
-				{
-					if (radarChance == 100 || RNG::percent(radarChance))
-					{
-						hyperwave = true;
-					}
-					hyperwave_chance += radarChance;
-				}
-				else
-				{
-					radar_chance += radarChance;
-				}
-			}
+			continue;
+		}
+		if (fac->getRules()->getRadarRange() >= distance)
+		{
+			int radarChance = fac->getRules()->getRadarChance();
 			if (fac->getRules()->isHyperwave())
 			{
-				hyperwave_max_range = std::max(hyperwave_max_range, fac->getRules()->getRadarRange());
+				if (radarChance == 100 || RNG::percent(radarChance))
+				{
+					hyperwave = true;
+				}
+				hyperwave_chance += radarChance;
 			}
 			else
 			{
-				radar_max_range = std::max(radar_max_range, fac->getRules()->getRadarRange());
+				radar_chance += radarChance;
 			}
 		}
-	}
-	else
-	{
-
-		if (!_facilitiesCoop.empty())
+		if (fac->getRules()->isHyperwave())
 		{
-
-			for (int f = 0; f < _facilitiesCoop.size(); f++)
-			{
-
-				int radar_chance_coop = _facilitiesCoop[f]["radar_chance_coop"].asInt();
-				int radar_range_coop = _facilitiesCoop[f]["radar_range_coop"].asInt();
-				bool hyperwave_coop = _facilitiesCoop[f]["hyperwave_coop"].asBool();
-
-				if (radar_range_coop >= distance)
-				{
-					int radarChance = radar_chance_coop;
-					if (hyperwave_coop)
-					{
-						if (radarChance == 100 || RNG::percent(radarChance))
-						{
-							hyperwave = true;
-						}
-						hyperwave_chance += radarChance + 1;
-					}
-					else
-					{
-						radar_chance += radarChance + 1;
-					}
-				}
-				if (hyperwave_coop)
-				{
-					hyperwave_max_range = std::max(hyperwave_max_range, radar_range_coop);
-				}
-				else
-				{
-					radar_max_range = std::max(radar_max_range, radar_range_coop);
-				}
-
-			}
-
+			hyperwave_max_range = std::max(hyperwave_max_range, fac->getRules()->getRadarRange());
 		}
-
+		else
+		{
+			radar_max_range = std::max(radar_max_range, fac->getRules()->getRadarRange());
+		}
 	}
 
 	int detectionChance = 0;
@@ -1012,7 +967,7 @@ int Base::getUsedQuarters() const
 	// Only a real own base gets this treatment. While visiting a peer base the
 	// world is swapped and the guests genuinely ARE that base's residents, so
 	// there is nothing to correct there.
-	if (_coopBase == false && _coopIcon == false)
+	if (_isForeignBase == false && _coopIcon == false)
 	{
 		for (const auto* soldier : _soldiers)
 		{
@@ -1833,29 +1788,14 @@ size_t Base::getDetectionChance() const
 	size_t mindShields = 0;
 	size_t completedFacilities = 0;
 
-	// coop
-	if (_coopBase == false)
+	for (const auto* fac : _facilities)
 	{
-		for (const auto* fac : _facilities)
+		if (fac->getBuildTime() == 0)
 		{
-			if (fac->getBuildTime() == 0)
+			completedFacilities += fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
+			if (fac->getRules()->isMindShield() && !fac->getDisabled())
 			{
-				completedFacilities += fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
-				if (fac->getRules()->isMindShield() && !fac->getDisabled())
-				{
-					mindShields += fac->getRules()->getMindShieldPower();
-				}
-			}
-		}
-	}
-	else
-	{
-		if (!_facilitiesCoop.empty())
-		{
-			for (int f = 0; f < _facilitiesCoop.size(); f++)
-			{
-				mindShields += _facilitiesCoop[f]["mindShields"].asInt();
-				completedFacilities += _facilitiesCoop[f]["completedFacilities"].asInt();
+				mindShields += fac->getRules()->getMindShieldPower();
 			}
 		}
 	}

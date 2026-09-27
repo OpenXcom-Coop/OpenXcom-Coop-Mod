@@ -84,7 +84,7 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 	// while browsing, restored on exit in btnGeoscapeClick. PRD-J07: fenced in
 	// SHARED - every base in _bases is real and fully browsable by any player, so
 	// no entry filtering / old_bases juggling.)
-	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base && _base->_isForeignBase == false && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
 		// coop
@@ -260,7 +260,7 @@ void BasescapeState::init()
 	State::init();
 
 	// coop fix (SEPARATE mirror machinery: reassigns soldiers/crafts by the
-	// _coopBase/_coopCraft marker fields. PRD-J07: fenced in SHARED - the shared
+	// _isForeignBase/_coopCraft marker fields. PRD-J07: fenced in SHARED - the shared
 	// world's soldiers/crafts are real and never carry mirror markers.)
 	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getCoopMod()->getCoopCampaign() == true && _coop_base_init == false)
 	{
@@ -270,12 +270,12 @@ void BasescapeState::init()
 		for (auto* soldier : *_base->getSoldiers())
 		{
 
-			if (soldier->getCoopBase() != -1 && _base->_coopBase == false)
+			if (soldier->getCoopBase() != -1 && _base->_isForeignBase == false)
 			{
 
 				soldier->setCraft(nullptr);
 			}
-			else if (_base->_coopBase == true)
+			else if (_base->_isForeignBase == true)
 			{
 
 				// Try to assign the correct craft based on CoopCraft and CoopCraftType
@@ -317,8 +317,8 @@ void BasescapeState::init()
 
 
 	// if own coop base (SEPARATE peer-presence tracking; PRD-J07: fenced in SHARED -
-	// there are no _coopBase mirrors and no peer-presence protocol in SHARED)
-	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == true)
+	// there are no _isForeignBase mirrors and no peer-presence protocol in SHARED)
+	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == true)
 	{
 
 		_game->getCoopMod()->playerInsideCoopBase = true;
@@ -559,7 +559,7 @@ void BasescapeState::updateBaseAccessButtons()
 	if (_game->getCoopMod()->isSeparateCampaign()
 		&& !_base->getOwnerPlayerName().empty())
 	{
-		_base->_coopBase = !_base->isOwnedByPlayer(
+		_base->_isForeignBase = !_base->isOwnedByPlayer(
 			connectionTCP::seatName(connectionTCP::localSeat()));
 		_base->_coopIcon = false;
 	}
@@ -584,7 +584,7 @@ void BasescapeState::updateBaseAccessButtons()
 	_btnPurchase->setVisible(true);
 	_btnSell->setVisible(true);
 
-	if (_base->_coopBase)
+	if (_base->_isForeignBase)
 	{
 		// Separate foreign bases retain the established limited management view:
 		// browsing, soldiers, craft equipment and purchasing are allowed, while
@@ -616,7 +616,7 @@ void BasescapeState::btnNewBaseClick(Action *)
 {
 
 	// coop
-	if (_base->_coopBase == true)
+	if (_base->_isForeignBase == true)
 	{
 		return;
 	}
@@ -722,7 +722,7 @@ void BasescapeState::btnGeoscapeClick(Action *)
 
 	// coop (SEPARATE: restore the base vector filtered in the ctor. PRD-J07:
 	// fenced in SHARED - the ctor filter is fenced too, old_bases stays empty.)
-	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false)
+	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false)
 	{
 		// coop
 		*_game->getSavedGame()->getBases() = _base->old_bases;
@@ -747,7 +747,7 @@ void BasescapeState::viewLeftClick(Action *)
 		{
 
 			// coop
-			if (_base->_coopBase == true)
+			if (_base->_isForeignBase == true)
 			{
 				return;
 			}
@@ -827,7 +827,7 @@ void BasescapeState::viewLeftClick(Action *)
 			{
 
 				// coop
-				if (_base->_coopBase == true)
+				if (_base->_isForeignBase == true)
 				{
 					return;
 				}
@@ -846,7 +846,7 @@ void BasescapeState::viewRightClick(Action *)
 {
 
 	// coop
-	if (_base->_coopBase == true)
+	if (_base->_isForeignBase == true)
 	{
 		return;
 	}
@@ -1055,7 +1055,7 @@ void BasescapeState::edtBaseChange(Action *)
 	// broadcasts, last-write-wins). The local setName below still runs for
 	// immediate UI feedback - the shared_apply re-asserts the same (or the
 	// winning) name authoritatively on every machine.
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false)
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false)
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -1072,7 +1072,7 @@ void BasescapeState::edtBaseChange(Action *)
 	}
 
 	// coop
-	if (_base->_coopBase == true)
+	if (_base->_isForeignBase == true)
 	{
 		return;
 	}
@@ -1134,7 +1134,7 @@ std::string BasescapeState::harnessBaseName() const
 
 bool BasescapeState::harnessForeignBase() const
 {
-	return _base && _base->_coopBase;
+	return _base && _base->_isForeignBase;
 }
 
 int BasescapeState::harnessMiniBorderColor(const std::string &baseName) const

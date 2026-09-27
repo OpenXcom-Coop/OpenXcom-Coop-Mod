@@ -2202,7 +2202,7 @@ bool Inventory::hasCoopItem(BattleUnit* unit, const BattleItem* item)
 	for (const auto& ci : craft->getCoopItems())
 	{
 
-		if (ci.id == item->getCoopID() && ci.type == item->getRules()->getType() && ci.owner == base->_coopBase)
+		if (ci.id == item->getCoopID() && ci.type == item->getRules()->getType() && ci.owner == base->_isForeignBase)
 		{
 			return true;
 		}

@@ -10,6 +10,7 @@ class Game;
 class Craft;
 class Base;
 class Soldier;
+class Ufo;
 
 /** Host-authoritative protocol for the schema-3 SEPARATE campaign.
  *
@@ -23,6 +24,8 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj);
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 	const Json::Value& payload);
 int baseIndex(Game* game, const Base* base);
+/// True when a craft belongs to the player using this local game instance.
+bool ownsCraft(Game* game, const Craft* craft);
 /// Separate-only host policy for commands targeting another player's base.
 bool allowsForeignBaseCommand(const std::string& cmd, bool remote);
 /// Separate-only craft assignment validation (ownership + per-seat half quota).
@@ -35,6 +38,8 @@ void submitCraftRearm(Game* game, Craft* craft, int slot,
 void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier,
 	const std::string& armorType);
+/// Broadcast the host-authoritative post-bombardment facility layout.
+void hostBaseDamaged(Game* game, Base* base, const Ufo* ufo);
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol);
 void broadcastLandClose(Game* game, Craft* craft);

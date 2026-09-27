@@ -88,7 +88,7 @@ private:
 	// PRD-DF02: commandingSeat = lastCraftOrderSeat(craft), carried in df_open so a
 	// replica opens the window minimized unless it IS the commanding seat (<=0 = host-
 	// commanded/HK -> the host commands, so every client gets the minimized icon).
-	struct DfMember { std::string craftType; int craftId; int ufoId; bool ufoIsAttacking; int commandingSeat; };
+	struct DfMember { std::string craftType; int baseId; int craftId; int ufoId; bool ufoIsAttacking; int commandingSeat; };
 	int _dfEpoch = 0;
 	std::string _dfMembershipSig;
 	int _dfReplicaEpoch = 0;
@@ -238,7 +238,8 @@ public:
 	/// static-per-fight fields (disable flags, initial mode) as the host.
 	/// PRD-DF02: @a startMinimized opens the replica window as a minimized icon (the
 	/// presentation policy: only the commanding seat gets the full window).
-	void startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized = false);
+	void startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking,
+		bool startMinimized = false, bool harnessHold = false);
 	/// PRD-DF01 REPLICA: adopt a df_open membership set (opens/closes windows).
 	void sharedApplyDogfightMembership(const Json::Value& dogfights, int epoch);
 	/// PRD-DF01 REPLICA: adopt a df_state frame set (epoch-guarded; routes each
@@ -247,12 +248,13 @@ public:
 	/// PRD-DF02 (HOST): apply a replicated df_cmd to the authoritative DogfightState
 	/// for (craftId,craftType,ufoId). Returns false if no such live fight exists
 	/// (stale/reshuffled membership -> the caller drops + logs once).
-	bool sharedApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
+	bool sharedApplyDogfightCmd(int baseId, int craftId, int ufoId, const std::string& craftType,
 	                           const std::string& action, int arg);
 	/// PRD-J10 SHARED (HOST): the commanding seat answered a brokered landing
 	/// prompt. @a yes -> generate the battle exactly as the host's own
 	/// ConfirmLandingState would; otherwise patrol here / return to base.
-	void sharedLandingReply(Craft* craft, bool yes, bool patrol);
+	void sharedLandingReply(Craft* craft, bool yes, bool patrol,
+		bool hostDialogAnswered = false);
 	/// SHARED replica: a craft reached its patrol waypoint on the host (patrol_prompt).
 	/// Pops the "reached destination" alert and clears the stale destination line +
 	/// orphan waypoint marker the client's frozen sim never would.

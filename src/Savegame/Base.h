@@ -25,7 +25,6 @@
 #include "../Engine/Yaml.h"
 #include "../Mod/RuleBaseFacilityFunctions.h"
 
-#include <json/json.h>
 
 #ifndef BASEFACILITIESITERATOR
 #define BASEFACILITIESITERATOR std::vector<BaseFacility*>::iterator
@@ -151,11 +150,11 @@ public:
 	/// - but they live here, so they occupy this base's living quarters.
 	int coop_guests = 0;
 	void syncTrade(std::string items, SavedGame *save, Mod *mod);
-	bool _coopBase  = false;
+	bool _isForeignBase  = false;
 	bool _coopIcon = false;
 	int _coop_base_id = 0;
 	/// Unique locked co-op player name that owns this real base. Empty denotes
-	/// a legacy/solo base; _coopBase remains only a local-view UI flag.
+	/// a legacy/solo base; _isForeignBase remains only a local-view UI flag.
 	std::string _ownerPlayerName;
 	/// Creates a new base.
 	Base(const Mod *mod);
@@ -198,7 +197,7 @@ public:
 	int getScientists() const;
 	/// Sets the base's scientists.
 	void setScientists(int scientists);
-	void isCoopBase(bool coopBase);
+	void setForeignBase(bool foreignBase);
 	const std::string& getOwnerPlayerName() const { return _ownerPlayerName; }
 	void setOwnerPlayerName(const std::string& ownerPlayerName) { _ownerPlayerName = ownerPlayerName; }
 	bool isOwnedByPlayer(const std::string& playerName) const { return _ownerPlayerName.empty() || _ownerPlayerName == playerName; }
@@ -375,8 +374,6 @@ public:
 	void setGlobeTexture(const Texture* globeTexture) { _globeTexture = globeTexture; }
 	// coop
 	ItemContainer* getItemsCoop();
-	Json::Value _facilitiesCoop = Json::nullValue;
-	double _radar_range_coop = 0;
 	/**
 	 * Removes confirmed pending transfers.
 	 */

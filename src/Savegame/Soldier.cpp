@@ -344,10 +344,10 @@ void Soldier::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) cons
 		// coop
 		Base* base = _craft->getBase();
 		// A named owner means this is a real base in the unified Separate world.
-		// _coopBase is only a local permission/presentation flag there, so omitting
+		// _isForeignBase is only a local permission/presentation flag there, so omitting
 		// the craft link would make the same save load differently on each seat.
 		// Keep the omission solely for old ownerless mirror/PvP bases.
-		if (base && base->_coopBase == true && base->getOwnerPlayerName().empty())
+		if (base && base->_isForeignBase == true && base->getOwnerPlayerName().empty())
 		{
 			// do nothing
 		}

@@ -1577,7 +1577,7 @@ void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int seat)
 	std::string ownerName = payload.get("ownerPlayerName", connectionTCP::seatName(seat)).asString();
 	nb->setOwnerPlayerName(ownerName);
 	if (save->getCampaignType() == CoopCampaignType::Separate)
-		nb->_coopBase = !nb->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat()));
+		nb->_isForeignBase = !nb->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat()));
 	nb->setFakeUnderwater(payload.get("fakeUnderwater", false).asBool());
 	nb->setLongitude(payload.get("lon", 0.0).asDouble());
 	nb->setLatitude(payload.get("lat", 0.0).asDouble());
@@ -2141,11 +2141,12 @@ void dfCmdApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
 	GeoscapeState* gs = findGeoState(game);
 	if (!gs) return;
 	int craftId = payload.get("craftId", -1).asInt();
+	int baseId = payload.get("baseId", -1).asInt();
 	int ufoId = payload.get("ufoId", -1).asInt();
 	std::string craftType = payload.get("craftType", "").asString();
 	std::string action = payload.get("action", "").asString();
 	int arg = payload.get("arg", -1).asInt();
-	if (!gs->sharedApplyDogfightCmd(craftId, ufoId, craftType, action, arg))
+	if (!gs->sharedApplyDogfightCmd(baseId, craftId, ufoId, craftType, action, arg))
 	{
 		static bool warned = false;
 		if (!warned)
@@ -2170,6 +2171,9 @@ void landPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	// the broker dialog and any player may answer (first answer wins, host-arbitrated;
 	// a land_close closes the losers).
 	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (game && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+		&& !SeparateEcon::ownsCraft(game, craft))
+		return;
 	GeoscapeState* gs = findGeoState(game);
 	// The dialog renders the destination's name, so a replica that has not yet
 	// replicated the target (or is not on the geoscape) simply does not participate.

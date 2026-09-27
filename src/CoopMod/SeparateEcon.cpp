@@ -8,9 +8,12 @@
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ConfirmCydoniaState.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/BaseFacility.h"
 #include "../Savegame/Craft.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/Ufo.h"
+#include "../Mod/RuleBaseFacility.h"
 #include "../Mod/RuleCraft.h"
 #include "../Mod/Armor.h"
 
@@ -65,39 +68,6 @@ Json::Value craftMessage(const char* state, Game* game, Craft* craft)
 
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 {
-	if (state == "separate_land_prompt")
-	{
-		if (game && game->getCoopMod() && !game->getCoopMod()->getServerOwner())
-		{
-			Craft* craft = resolveCraft(game, obj);
-			GeoscapeState* gs = geo(game);
-			if (craft && craft->getDestination() && gs)
-			{
-				game->getCoopMod()->clearLandingResolved(craft->getId());
-				gs->popup(new ConfirmLandingState(craft, nullptr, nullptr,
-					obj.get("shade", 0).asInt(), true));
-			}
-		}
-		return true;
-	}
-	if (state == "separate_land_reply")
-	{
-		if (game && game->getCoopMod() && game->getCoopMod()->getServerOwner())
-		{
-			Craft* craft = resolveCraft(game, obj);
-			GeoscapeState* gs = geo(game);
-			if (craft && gs)
-				gs->sharedLandingReply(craft, obj.get("yes", false).asBool(),
-					obj.get("patrol", false).asBool());
-		}
-		return true;
-	}
-	if (state == "separate_land_close")
-	{
-		if (game && game->getCoopMod() && !game->getCoopMod()->getServerOwner())
-			game->getCoopMod()->markLandingResolved(obj.get("craftId", -1).asInt());
-		return true;
-	}
 	if (state == "separate_cydonia_request")
 	{
 		if (game && game->getCoopMod() && game->getCoopMod()->getServerOwner())
@@ -125,6 +95,18 @@ void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 int baseIndex(Game* game, const Base* base)
 {
 	return findBaseIndex(game, base);
+}
+
+bool ownsCraft(Game* game, const Craft* craft)
+{
+	if (!game || !craft || !craft->getBase()) return false;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSeparateCampaign()) return true;
+	// _isForeignBase is the local-view ownership flag derived from the persistent
+	// owner player name by refreshSeparateBaseOwnership(). During an incoming
+	// packet the static seat roster can briefly be unavailable/stale even though
+	// that derivation has already completed; re-reading seatName here caused the
+	// rightful client to reject its landing prompt.
+	return !craft->getBase()->_isForeignBase;
 }
 
 bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
@@ -227,33 +209,68 @@ void submitSoldierArmor(Game* game, Base* base, Soldier* soldier,
 	submitLocalCmd(game, "soldier_armor", findBaseIndex(game, base), p);
 }
 
+void hostBaseDamaged(Game* game, Base* base, const Ufo* ufo)
+{
+	if (!game || !base || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign()
+		|| !game->getCoopMod()->getServerOwner()) return;
+
+	Json::Value payload;
+	payload["ufoId"] = ufo ? ufo->getId() : -1;
+	Json::Value facilities(Json::arrayValue);
+	for (const BaseFacility* facility : *base->getFacilities())
+	{
+		if (!facility || !facility->getRules()) continue;
+		Json::Value item;
+		item["type"] = facility->getRules()->getType();
+		item["x"] = facility->getX();
+		item["y"] = facility->getY();
+		item["buildTime"] = facility->getBuildTime();
+		facilities.append(item);
+	}
+	payload["facilities"] = facilities;
+	submitLocalCmd(game, "base_damaged", findBaseIndex(game, base), payload);
+}
+
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade)
 {
 	if (!game || !craft || !(game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign())
 		|| game->getCoopMod()->isSharedCampaign() || !game->getCoopMod()->getServerOwner()) return;
-	Json::Value msg = craftMessage("separate_land_prompt", game, craft);
-	msg["initiatorSeat"] = seat;
-	msg["shade"] = shade;
-	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+	Json::Value payload;
+	payload["craftId"] = craft->getId();
+	payload["craftType"] = craft->getRules()->getType();
+	payload["initiatorSeat"] = seat;
+	payload["shade"] = shade;
+	submitLocalCmd(game, "land_prompt", findBaseIndex(game, craft->getBase()), payload);
 }
 
 void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol)
 {
 	if (!game || !craft) return;
-	Json::Value msg = craftMessage("separate_land_reply", game, craft);
-	msg["yes"] = yes;
-	msg["patrol"] = patrol;
 	if (game->getCoopMod()->getServerOwner())
-		onMessage(game, "separate_land_reply", msg);
+	{
+		GeoscapeState* gs = geo(game);
+		if (gs)
+			gs->sharedLandingReply(craft, yes, patrol, true /*hostDialogAnswered*/);
+	}
 	else
-		game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+	{
+		Json::Value payload;
+		payload["craftId"] = craft->getId();
+		payload["craftType"] = craft->getRules()->getType();
+		payload["yes"] = yes;
+		payload["patrol"] = patrol;
+		submitLocalCmd(game, "land_reply", findBaseIndex(game, craft->getBase()), payload);
+	}
 }
 
 void broadcastLandClose(Game* game, Craft* craft)
 {
 	if (!game || !craft || !game->getCoopMod()->getServerOwner()) return;
-	Json::Value msg = craftMessage("separate_land_close", game, craft);
-	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+	Json::Value payload;
+	payload["craftId"] = craft->getId();
+	payload["craftType"] = craft->getRules()->getType();
+	submitLocalCmd(game, "land_close", findBaseIndex(game, craft->getBase()), payload);
 }
 
 void requestCydonia(Game* game, Craft* craft)

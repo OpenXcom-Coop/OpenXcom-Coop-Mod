@@ -41,6 +41,7 @@
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../Mod/RuleInterface.h"
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -177,6 +178,11 @@ InterceptState::InterceptState(Globe *globe, bool useCustomSound, Base *base, Ta
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		if (_base != 0 && xbase != _base)
+			continue;
+		// Separate campaigns expose one world, but interception commands remain
+		// player-owned. Never offer another player's craft in this local menu.
+		if (_game->getCoopMod()->isSeparateCampaign()
+			&& !xbase->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat())))
 			continue;
 		// coop: SEPARATE hides the peer's mirror bases. PRD-J08 SHARED: fenced -
 		// every base is shared and lists for ALL players (a SHARED world has no

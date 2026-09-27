@@ -310,7 +310,7 @@ void CraftInfoState::init()
 		{
 
 			// coop
-			if (vehicle->getCoopBase() != 1 && _base->_coopBase == false)
+			if (vehicle->getCoopBase() != 1 && _base->_isForeignBase == false)
 			{
 				continue;
 			}
@@ -733,7 +733,7 @@ void CraftInfoState::edtCraftChange(Action *action)
 {
 
 	// coop
-	if (_base->_coopBase == true)
+	if (_base->_isForeignBase == true)
 	{
 		return;
 	}

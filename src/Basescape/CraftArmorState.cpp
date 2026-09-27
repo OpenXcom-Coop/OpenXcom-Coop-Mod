@@ -191,7 +191,7 @@ void CraftArmorState::cbxSortByChange(Action *action)
 		if (selIdx != 2 && selIdx != 3)
 		{
 			_dynGetter = compFunc->getGetter();
-			if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false)
+			if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false)
 			{
 				initList(_lstSoldiers->getScroll());
 				return;
@@ -376,7 +376,7 @@ void CraftArmorState::lstItemsLeftArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false) return;
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -430,7 +430,7 @@ void CraftArmorState::lstItemsRightArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false) return;
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{

@@ -1372,10 +1372,10 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	for (auto& base : _bases)
 	{
 
-		// Every named-owner base is real in schema-3 Separate. _coopBase is only
+		// Every named-owner base is real in schema-3 Separate. _isForeignBase is only
 		// the current seat's foreign-base UI flag and may still reflect the seat
 		// used while the disk save was loaded, before hosting/joining starts.
-		if (base->_coopBase == false
+		if (base->_isForeignBase == false
 			|| (_campaignType == CoopCampaignType::Separate
 				&& !base->getOwnerPlayerName().empty()))
 		{
@@ -2508,7 +2508,7 @@ int SavedGame::getBaseMaintenance() const
 		// host's one real economy even when it is foreign in this seat's UI.
 		if (connectionTCP::getCoopStatic() == true
 			&& connectionTCP::isSharedCampaignStatic() == false
-			&& xbase->_coopBase == true
+			&& xbase->_isForeignBase == true
 			&& xbase->getOwnerPlayerName().empty())
 		{
 			continue;

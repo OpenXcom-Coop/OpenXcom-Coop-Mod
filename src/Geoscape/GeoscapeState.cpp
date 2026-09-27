@@ -638,7 +638,8 @@ void GeoscapeState::blit()
 	State::blit();
 	for (auto* dfs : _dogfights)
 	{
-		dfs->blit();
+		if (dfs->isLocallyVisible())
+			dfs->blit();
 	}
 }
 
@@ -648,14 +649,20 @@ void GeoscapeState::blit()
  */
 void GeoscapeState::handle(Action *action)
 {
-	if (_dogfights.size() == _minimizedDogfights)
+	size_t visibleOpen = 0;
+	for (auto* dfs : _dogfights)
+		if (dfs->isLocallyVisible())
+		{
+			if (!dfs->isMinimized()) ++visibleOpen;
+		}
+	if (visibleOpen == 0)
 	{
 		State::handle(action);
 	}
 
 	if (action->getDetails()->type == SDL_KEYDOWN)
 	{
-		if (!_dogfights.empty() && _dogfights.size() > _minimizedDogfights)
+		if (visibleOpen > 0)
 		{
 			if (action->getDetails()->key.keysym.sym == SDLK_1)
 			{
@@ -826,7 +833,8 @@ void GeoscapeState::handle(Action *action)
 	{
 		for (auto* dfs : _dogfights)
 		{
-			dfs->handle(action);
+			if (dfs->isLocallyVisible())
+				dfs->handle(action);
 		}
 		_minimizedDogfights = minimizedDogfightsCount();
 	}
@@ -1357,7 +1365,7 @@ void GeoscapeState::think()
 		if (_game->getSavedGame()->getSelectedBase())
 		{
 
-			if (_game->getSavedGame()->getSelectedBase()->_coopBase == false)
+			if (_game->getSavedGame()->getSelectedBase()->_isForeignBase == false)
 			{
 
 				for (Json::Value::ArrayIndex i = 0; i < _game->getCoopMod()->waitedResearch.size(); ++i)
@@ -1378,7 +1386,7 @@ void GeoscapeState::think()
 					for (auto &base : *_game->getSavedGame()->getBases())
 					{
 
-						if ((base->getLatitude() == base_lat && base->getLongitude() == base_lon) && base->_coopBase == true)
+						if ((base->getLatitude() == base_lat && base->getLongitude() == base_lon) && base->_isForeignBase == true)
 						{
 							selected_base = base;
 							break;
@@ -1602,7 +1610,7 @@ void GeoscapeState::think()
 			{
 				for (auto& base : *_game->getSavedGame()->getBases())
 				{
-					if (base->_coopBase == false)
+					if (base->_isForeignBase == false)
 					{
 
 						for (auto& craft : *base->getCrafts())
@@ -1625,7 +1633,7 @@ void GeoscapeState::think()
 			for (auto* base : *_game->getSavedGame()->getBases())
 			{
 
-				if (base->_coopBase == false)
+				if (base->_isForeignBase == false)
 				{
 
 					root["bases"][base_index]["coopbase_id"] = base->_coop_base_id;
@@ -2027,7 +2035,10 @@ void GeoscapeState::think()
 		// (marker on the speed button); 0 = an open dogfight window (marker -> Intercept).
 		// Dogfights deliberately keep time running, so we report focus here rather than
 		// freezing. Sub-screens stop these packets, so their dedicated geo_focus sticks.
-		bool inDogfight = _minimizedDogfights < _dogfights.size();
+		bool inDogfight = false;
+		for (auto* dfs : _dogfights)
+			if (dfs->isLocallyVisible() && !dfs->isMinimized())
+			{ inDogfight = true; break; }
 		root["geo_focus"] = inDogfight ? 0 : -1;
 
 		// time/focus heartbeat via the conflation slot (last-write-wins).
@@ -2500,7 +2511,7 @@ void GeoscapeState::time5Seconds()
 	const bool noNonCoopBases = std::none_of(bases->begin(), bases->end(),
 											 [](const Base* b)
 											 {
-												 return b && !b->_coopBase;
+												 return b && !b->_isForeignBase;
 											 });
 
 	// Game over if there are no more bases.
@@ -2583,11 +2594,13 @@ void GeoscapeState::time5Seconds()
 						{
 							_pause = true;
 							timerReset();
-							_globe->center(c->getLongitude(), c->getLatitude());
+							if (SeparateEcon::ownsCraft(_game, c))
+								_globe->center(c->getLongitude(), c->getLatitude());
 							startDogfight();
 							_dogfightStartTimer->start();
 						}
-						_game->getMod()->playMusic("GMINTER");
+						if (SeparateEcon::ownsCraft(_game, c))
+							_game->getMod()->playMusic("GMINTER");
 
 						// Don't process certain craft logic (moving and reaching destination)
 						ufoIsAttacking = true;
@@ -2918,14 +2931,16 @@ void GeoscapeState::time5Seconds()
 							{
 								if (xcraft->getRules()->isWaterOnly() && u->getAltitudeInt() > xcraft->getRules()->getMaxAltitude())
 								{
-									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_DEPTH")));
+									if (dogfight->isLocallyVisible())
+										popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_DEPTH")));
 									SharedEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_DEPTH"), nullptr, xcraft->getId());
 									dogfight->setMinimized(true);
 									dogfight->setWaitForAltitude(true);
 								}
 								else if (xcraft->getRules()->isWaterOnly() && !_globe->insideLand(xcraft->getLongitude(), xcraft->getLatitude()))
 								{
-									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
+									if (dogfight->isLocallyVisible())
+										popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
 									SharedEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_AIRBORNE"), nullptr, xcraft->getId());
 									dogfight->setMinimized(true);
 									dogfight->setWaitForPoly(true);
@@ -2936,11 +2951,13 @@ void GeoscapeState::time5Seconds()
 							{
 								_pause = true;
 								timerReset();
-								_globe->center(xcraft->getLongitude(), xcraft->getLatitude());
+								if (dogfight->isLocallyVisible())
+									_globe->center(xcraft->getLongitude(), xcraft->getLatitude());
 								startDogfight();
 								_dogfightStartTimer->start();
 							}
-							_game->getMod()->playMusic("GMINTER");
+							if (dogfight->isLocallyVisible())
+								_game->getMod()->playMusic("GMINTER");
 						}
 						break;
 					case Ufo::LANDED:
@@ -4899,13 +4916,13 @@ void GeoscapeState::globeClick(Action *action)
 		if (!v.empty())
 		{
 			// coop: report what the ally clicked. Only the OTHER player's base
-			// (_coopBase) -> Bases; your own base opens the intercept window, so it
+			// (_isForeignBase) -> Bases; your own base opens the intercept window, so it
 			// (like UFOs / craft / mission sites) -> Intercept.
 			int focus = 0; // INTERCEPT
 			for (Target* t : v)
 			{
 				Base* b = dynamic_cast<Base*>(t);
-				if (b && b->_coopBase)
+				if (b && b->_isForeignBase)
 				{
 					focus = 1; // BASES
 					break;
@@ -5471,7 +5488,14 @@ int GeoscapeState::minimizedDogfightsCount()
  */
 void GeoscapeState::startDogfight()
 {
-	if (_globe->getZoom() < 3)
+	bool hasVisibleFight = false;
+	for (auto* dfs : _dogfights)
+		if (dfs->isLocallyVisible()) { hasVisibleFight = true; break; }
+	if (!hasVisibleFight)
+		for (auto* dfs : _dogfightsToBeStarted)
+			if (dfs->isLocallyVisible()) { hasVisibleFight = true; break; }
+
+	if (hasVisibleFight && _globe->getZoom() < 3)
 	{
 		if (!_zoomInEffectTimer->isRunning())
 		{
@@ -5529,18 +5553,22 @@ bool GeoscapeState::brokerSharedLanding(Craft* craft, Texture* missionTexture, T
 	if (_sharedLandingPending.find(craft) != _sharedLandingPending.end())
 		return true; // already asked; still waiting for the answer
 
-	// Playtest: EVERY player is alerted a craft reached its target - not only the seat
-	// that commanded it. Record the pending decision, broadcast the prompt to all
-	// client seats, and pop the host's OWN copy too (as a broker copy, so its answer
-	// runs through the single host-side resolver sharedLandingReply, exactly like a
-	// client's land_reply). First answer from any seat wins; the rest close on the
-	// land_close the resolver broadcasts. Battle authority stays on the host.
 	_sharedLandingPending[craft] = SharedLandingPrompt{ missionTexture, globeTexture, shade };
 	_game->getCoopMod()->clearLandingResolved(craft->getId()); // fresh prompt
+	if (_game->getCoopMod()->isSeparateCampaign())
+	{
+		// Separate Campaign decisions belong to the craft owner. The host still
+		// generates the battle, but only the owning player sees/answers the prompt.
+		if (SeparateEcon::ownsCraft(_game, craft))
+			popup(new ConfirmLandingState(craft, missionTexture, globeTexture, shade,
+				true /*sharedBroker*/));
+		else
+			SeparateEcon::hostLandingPrompt(_game, craft,
+				SharedEcon::lastCraftOrderSeat(craft), shade);
+		return true;
+	}
 	if (_game->getCoopMod()->isSharedCampaign())
 		SharedEcon::hostLandingPrompt(_game, craft, SharedEcon::lastCraftOrderSeat(craft), shade);
-	else
-		SeparateEcon::hostLandingPrompt(_game, craft, SharedEcon::lastCraftOrderSeat(craft), shade);
 	popup(new ConfirmLandingState(craft, missionTexture, globeTexture, shade, true /*sharedBroker*/));
 	return true;
 }
@@ -5548,7 +5576,8 @@ bool GeoscapeState::brokerSharedLanding(Craft* craft, Texture* missionTexture, T
 /**
  * PRD-J10 landing broker (HOST only). The commanding seat answered.
  */
-void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol)
+void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol,
+	bool hostDialogAnswered)
 {
 	auto it = _sharedLandingPending.find(craft);
 	if (it == _sharedLandingPending.end())
@@ -5579,7 +5608,7 @@ void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol)
 	// Close the host's OWN broker copy synchronously if it is on top (a client just
 	// answered). If the host answered its own dialog, that copy already popped itself.
 	// Do it before generating the battle so the stale dialog is not left underneath.
-	if (!_game->getStates().empty()
+	if (!hostDialogAnswered && !_game->getStates().empty()
 		&& dynamic_cast<ConfirmLandingState*>(_game->getStates().back()))
 	{
 		_game->popState();
@@ -5658,7 +5687,8 @@ void GeoscapeState::clientCraftReachedWaypoint(Craft* craft)
 	}
 }
 
-void GeoscapeState::startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized)
+void GeoscapeState::startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking,
+	bool startMinimized, bool harnessHold)
 {
 	if (!craft || !ufo || craft->isInDogfight())
 		return;
@@ -5667,6 +5697,7 @@ void GeoscapeState::startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttack
 	// and never sims. ufoIsAttacking (from df_open) lets the ctor derive the same
 	// static-per-fight fields (disable flags, initial mode) the host derived.
 	DogfightState* df = new DogfightState(this, craft, ufo, ufoIsAttacking);
+	df->harnessSetHold(harnessHold);
 	// PRD-DF02 presentation policy (3b): a non-commanding seat opens minimized (an
 	// icon it can click to spectate/command); the commanding seat opens full. INITIAL
 	// minimize only - a per-machine VIEW choice (4); the world clock is gated by the
@@ -5701,7 +5732,8 @@ static std::string dfMembershipSignature(const std::list<DogfightState*>& a,
 	{
 		if (!df->getCraft() || !df->getUfo()) continue;
 		std::ostringstream k;
-		k << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
+		k << df->getCraft()->getBase()->getName() << '@'
+		  << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
 		  << ':' << df->getUfo()->getId() << ':' << (df->isUfoAttacking() ? 1 : 0);
 		keys.push_back(k.str());
 	}
@@ -5709,7 +5741,8 @@ static std::string dfMembershipSignature(const std::list<DogfightState*>& a,
 	{
 		if (!df->getCraft() || !df->getUfo()) continue;
 		std::ostringstream k;
-		k << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
+		k << df->getCraft()->getBase()->getName() << '@'
+		  << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
 		  << ':' << df->getUfo()->getId() << ':' << (df->isUfoAttacking() ? 1 : 0);
 		keys.push_back(k.str());
 	}
@@ -5762,6 +5795,7 @@ void GeoscapeState::sharedBroadcastDogfights()
 			Json::Value d;
 			d["craftId"] = df->getCraft()->getId();
 			d["craftType"] = df->getCraft()->getRules()->getType();
+			d["baseId"] = SeparateEcon::baseIndex(_game, df->getCraft()->getBase());
 			d["ufoId"] = df->getUfo()->getId();
 			d["ufoIsAttacking"] = df->isUfoAttacking();
 			d["commandingSeat"] = SharedEcon::lastCraftOrderSeat(df->getCraft());
@@ -5773,6 +5807,7 @@ void GeoscapeState::sharedBroadcastDogfights()
 			Json::Value d;
 			d["craftId"] = df->getCraft()->getId();
 			d["craftType"] = df->getCraft()->getRules()->getType();
+			d["baseId"] = SeparateEcon::baseIndex(_game, df->getCraft()->getBase());
 			d["ufoId"] = df->getUfo()->getId();
 			d["ufoIsAttacking"] = df->isUfoAttacking();
 			d["commandingSeat"] = SharedEcon::lastCraftOrderSeat(df->getCraft());
@@ -5816,6 +5851,7 @@ void GeoscapeState::sharedApplyDogfightMembership(const Json::Value& dogfights, 
 		{
 			const Json::Value& d = dogfights[i];
 			DfMember m;
+			m.baseId = d.get("baseId", -1).asInt();
 			m.craftId = d.get("craftId", -1).asInt();
 			m.craftType = d.get("craftType", "").asString();
 			m.ufoId = d.get("ufoId", -1).asInt();
@@ -5845,8 +5881,12 @@ void GeoscapeState::sharedReconcileReplicaDogfights()
 	auto inDesired = [&](Craft* c, Ufo* u) -> bool
 	{
 		if (!c || !u) return false;
+		if (coop->isSeparateCampaign() && !SeparateEcon::ownsCraft(_game, c))
+			return false;
+		int baseId = SeparateEcon::baseIndex(_game, c->getBase());
 		for (auto& m : _dfDesired)
 			if (m.craftId == c->getId() && m.ufoId == u->getId()
+				&& (m.baseId < 0 || m.baseId == baseId)
 				&& m.craftType == c->getRules()->getType())
 				return true;
 		return false;
@@ -5875,6 +5915,7 @@ void GeoscapeState::sharedReconcileReplicaDogfights()
 		bool open = false;
 		for (auto* df : _dogfights)
 			if (df->getCraft() && df->getUfo()
+				&& (m.baseId < 0 || SeparateEcon::baseIndex(_game, df->getCraft()->getBase()) == m.baseId)
 				&& df->getCraft()->getId() == m.craftId
 				&& df->getUfo()->getId() == m.ufoId
 				&& df->getCraft()->getRules()->getType() == m.craftType)
@@ -5882,6 +5923,7 @@ void GeoscapeState::sharedReconcileReplicaDogfights()
 		if (!open)
 			for (auto* df : _dogfightsToBeStarted)
 				if (df->getCraft() && df->getUfo()
+					&& (m.baseId < 0 || SeparateEcon::baseIndex(_game, df->getCraft()->getBase()) == m.baseId)
 					&& df->getCraft()->getId() == m.craftId
 					&& df->getUfo()->getId() == m.ufoId
 					&& df->getCraft()->getRules()->getType() == m.craftType)
@@ -5889,13 +5931,18 @@ void GeoscapeState::sharedReconcileReplicaDogfights()
 		if (open) continue;
 
 		Craft* craft = nullptr;
-		for (auto* b : *save->getBases())
+		for (size_t bi = 0; bi < save->getBases()->size(); ++bi)
 		{
+			auto* b = save->getBases()->at(bi);
+			if (m.baseId >= 0 && static_cast<int>(bi) != m.baseId) continue;
 			for (auto* c : *b->getCrafts())
 				if (c->getId() == m.craftId && c->getRules()->getType() == m.craftType)
 				{ craft = c; break; }
 			if (craft) break;
 		}
+		if (craft && coop->isSeparateCampaign()
+			&& !SeparateEcon::ownsCraft(_game, craft))
+			continue;
 		Ufo* ufo = nullptr;
 		for (auto* u : *save->getUfos())
 			if (u->getId() == m.ufoId) { ufo = u; break; }
@@ -5935,10 +5982,12 @@ void GeoscapeState::sharedApplyDogfightState(const Json::Value& root)
 	{
 		const Json::Value& f = frames[i];
 		int craftId = f.get("craftId", -1).asInt();
+		int baseId = f.get("baseId", -1).asInt();
 		int ufoId = f.get("ufoId", -1).asInt();
 		std::string craftType = f.get("craftType", "").asString();
 		for (auto* df : _dogfights)
 			if (df->isReplicaView() && df->getCraft() && df->getUfo()
+				&& (baseId < 0 || SeparateEcon::baseIndex(_game, df->getCraft()->getBase()) == baseId)
 				&& df->getCraft()->getId() == craftId
 				&& df->getUfo()->getId() == ufoId
 				&& df->getCraft()->getRules()->getType() == craftType)
@@ -5958,12 +6007,13 @@ void GeoscapeState::sharedApplyDogfightState(const Json::Value& root)
  * (4) and is intentionally a no-op here. Returns false if the pair is no longer a live
  * fight (a stale pre-reshuffle command -> the caller drops it + logs once, epoch guard).
  */
-bool GeoscapeState::sharedApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
+bool GeoscapeState::sharedApplyDogfightCmd(int baseId, int craftId, int ufoId, const std::string& craftType,
                                           const std::string& action, int arg)
 {
 	DogfightState* target = nullptr;
 	for (auto* df : _dogfights)
 		if (df->getCraft() && df->getUfo()
+			&& (baseId < 0 || SeparateEcon::baseIndex(_game, df->getCraft()->getBase()) == baseId)
 			&& df->getCraft()->getId() == craftId
 			&& df->getUfo()->getId() == ufoId
 			&& df->getCraft()->getRules()->getType() == craftType)
@@ -6043,10 +6093,10 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 
 			// let the player know that some facilities were destroyed, but the base survived
 			popup(new BaseDestroyedState(base, ufo, true, true));
-			// SHARED: this is the ONE shared base and the damage roll is host-only RNG, so
-			// hand the replicas the resulting layout - otherwise their copy of the base
-			// keeps the facilities the host just lost (silent, permanent divergence).
+			// The damage roll is host-only RNG. Send the absolute resulting layout so
+			// Shared and Separate replicas cannot retain facilities the host just lost.
 			SharedEcon::hostBaseDamaged(_game, base, ufo);
+			SeparateEcon::hostBaseDamaged(_game, base, ufo);
 		}
 	}
 	else if (base->getAvailableSoldiers(true, true) > 0 || !base->getVehicles()->empty())

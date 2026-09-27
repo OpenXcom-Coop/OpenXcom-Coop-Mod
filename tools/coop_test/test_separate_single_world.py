@@ -149,7 +149,7 @@ def assert_unified(host, client, pristine=False):
                 assert all(s["owner"] == seat for s in roster), \
                     f"{gc.name}: {base_name} initial owners are wrong: {roster!r}"
 
-    # _coopBase is only a local foreign-base presentation flag: opposite seats
+    # _isForeignBase is only a local foreign-base presentation flag: opposite seats
     # must each see exactly one own and one foreign base.
     for gc in (host, client):
         bases = geo(gc)["bases"]

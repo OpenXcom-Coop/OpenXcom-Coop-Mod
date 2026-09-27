@@ -116,7 +116,7 @@ void TransferConfirmState::btnOkClick(Action *)
 	// COOP SHARED (PRD-J05): intra-world base->base move routed through the
 	// "transfer" shared_cmd. Neither the SEPARATE createPendingTransfers path nor
 	// the local completeTransfer runs; the host applies + broadcasts. This gate
-	// fires before the SEPARATE _coopBase check so the SEPARATE machinery never
+	// fires before the SEPARATE _isForeignBase check so the SEPARATE machinery never
 	// runs in SHARED.
 	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
@@ -128,7 +128,7 @@ void TransferConfirmState::btnOkClick(Action *)
 	}
 
 	// coop (to base)
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_isForeignBase == true && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
 		*_game->getSavedGame()->getBases() = _base->old_bases;

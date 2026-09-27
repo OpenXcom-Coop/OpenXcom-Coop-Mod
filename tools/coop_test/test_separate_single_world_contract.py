@@ -122,13 +122,13 @@ def main():
     assert "bootstrapProgressPacket" in tcp
     assert "void connectionTCP::sendInitialSeparateBaseToHost()" in tcp
     assert '"separate_initial_base_transfer"' in tcp
-    assert "campaignBootstrap ? !base->_coopIcon : !base->_coopBase" in tcp
-    assert "base->_coopBase = !base->isOwnedByPlayer(" in tcp
+    assert "campaignBootstrap ? !base->_coopIcon : !base->_isForeignBase" in tcp
+    assert "base->_isForeignBase = !base->isOwnedByPlayer(" in tcp
     assert "sendInitialSeparateBaseToHost();" in source("src/Geoscape/BaseNameState.cpp")
     assert "!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())" in save_ui
 
     soldier = source("src/Savegame/Soldier.cpp")
-    assert "base->_coopBase == true && base->getOwnerPlayerName().empty()" in soldier
+    assert "base->_isForeignBase == true && base->getOwnerPlayerName().empty()" in soldier
     assert "coop->isSharedCampaign() || coop->isSeparateCampaign()" in econ
     separate_ownership = tcp.split("void connectionTCP::refreshSeparateBaseOwnership", 1)[1]
     separate_ownership = separate_ownership.split("void connectionTCP::setCoopCampaign", 1)[0]
@@ -147,7 +147,7 @@ def main():
     assert "_campaignType == CoopCampaignType::Separate" in memory_save
     server_role = tcp.split("void connectionTCP::setServerOwner", 1)[1].split(
         "void connectionTCP::setCoopCampaign", 1)[0]
-    assert "base->_coopBase = !base->isOwnedByPlayer(localName)" in server_role
+    assert "base->_isForeignBase = !base->isOwnedByPlayer(localName)" in server_role
     load_game = source("src/Menu/LoadGameState.cpp")
     adoption = load_game.split("connectionTCP::coop_save_owner_player_id = 1", 1)[1].split(
         "SharedEcon::notifyWorldAdopted", 1)[0]
@@ -215,7 +215,7 @@ def main():
     assert "new InterceptState" in foreign_route
     mini = source("src/Basescape/MiniBaseView.cpp")
     assert "Uint8 MiniBaseView::getBaseBorderColor" in mini
-    assert "_bases->at(base)->_coopBase" in mini
+    assert "_bases->at(base)->_isForeignBase" in mini
     assert "_foreignBorder(247)" in mini
     assert "if (base == _base)" in mini
     bases_button = geoscape.split("void GeoscapeState::btnBasesClick", 1)[1].split(

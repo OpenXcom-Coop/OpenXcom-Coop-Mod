@@ -82,7 +82,7 @@ SackSoldierState::SackSoldierState(Base *base, size_t soldierId) : _base(base), 
 	_txtTitle->setText(tr("STR_SACK"));
 
 	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_isForeignBase == true)
 	{
 		_txtTitle->setText("MOVE");
 	}
@@ -116,7 +116,7 @@ void SackSoldierState::btnOkClick(Action *)
 	// shared_cmd keyed by the soldier's stable id; mutate NOTHING locally. The host
 	// validates + removes + broadcasts shared_apply (replaces all the SEPARATE
 	// peer-base save juggling below).
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false)
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false)
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();

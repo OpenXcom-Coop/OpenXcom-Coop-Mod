@@ -50,7 +50,7 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
 		&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 
-		if (base->_coopBase == true || base->_coopIcon == true)
+		if (base->_isForeignBase == true || base->_coopIcon == true)
 		{
 			_game->popState();
 			return;

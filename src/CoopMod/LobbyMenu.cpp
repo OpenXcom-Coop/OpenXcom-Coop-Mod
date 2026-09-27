@@ -1443,7 +1443,7 @@ void LobbyMenu::think()
 		{
 			for (auto& base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase == false)
+				if (base->_isForeignBase == false)
 				{
 
 					for (auto& craft : *base->getCrafts())

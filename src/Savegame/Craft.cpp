@@ -446,7 +446,7 @@ void Craft::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 	// coop
 	if (!_coopItems.empty() && _base)
 	{
-		if (_base->_coopBase == false)
+		if (_base->_isForeignBase == false)
 		{
 			writer.write("coopItems", _coopItems);
 		}

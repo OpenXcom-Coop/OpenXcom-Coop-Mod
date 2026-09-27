@@ -136,7 +136,7 @@ void DismantleFacilityState::btnOkClick(Action *)
 	// refund + removal (or removes the whole base if this is the access lift), and
 	// broadcasts shared_apply. Replaces the SEPARATE dismantle_facility/delete_base
 	// packets below.
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false)
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false)
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -188,7 +188,7 @@ void DismantleFacilityState::btnOkClick(Action *)
 			{
 
 				// COOP (SEPARATE mirror only; SHARED rides fac_dismantle above)
-				if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_coopBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
+				if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false && _game->getCoopMod()->playerInsideCoopBase == false)
 				{
 
 					Json::Value root;

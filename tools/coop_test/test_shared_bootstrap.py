@@ -5,7 +5,7 @@ builds its own world: it waits for the host to stream the authoritative world
 and adopts it as a replica. This test asserts:
 
   AC1  the client replica holds the SAME real base (name + coordinates) and
-       the SAME funds as the host - NOT a _coopBase/_coopIcon mirror
+       the SAME funds as the host - NOT a _isForeignBase/_coopIcon mirror
        (coopBase == false on every base on both sides).
   AC3  a SHARED replica's manual save attempt is refused with a popup and
        writes nothing to disk.
@@ -87,7 +87,7 @@ def main():
             f"host has mirror bases: {hgeo['bases']}"
         assert all(not b.get("coopBase") and not b.get("coopIcon") for b in cgeo["bases"]), \
             f"client has mirror bases: {cgeo['bases']}"
-        print("PASS no _coopBase/_coopIcon mirror bases on host or client")
+        print("PASS no _isForeignBase/_coopIcon mirror bases on host or client")
 
         # AC3: a SHARED replica's manual save is refused (popup + no disk write).
         client.ok({"cmd": "save_game_ui", "type": "quick"})

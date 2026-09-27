@@ -300,6 +300,10 @@ finally:
 | `test_separate_campaign_ui.py` | focused Separate UI: foreign-base permissions, purple mini-base border, direct globe navigation, and BASES selecting an own base |
 | `test_separate_campaign_soldiers.py` | focused Separate personnel: foreign-base arrival cleanup, owner-prefixed popup, and private Soldier List views |
 | `test_separate_campaign_craft.py` | focused Separate craft: owner-filtered crew icons/list and the two-player 7+7 Skyranger quota |
+| `test_separate_campaign_dogfight.py` | focused Separate interception: locally owned craft rows, concurrent owner-only dogfight windows, and host-authoritative craft/UFO damage sync |
+| `test_separate_campaign_radar.py` | foreign Separate bases detect UFOs using their real facilities |
+| `test_separate_campaign_facility_damage.py` | host-authoritative facility damage produces the same final layout on both peers |
+| `test_separate_campaign_mission.py` | owner-only landing prompt and crash-free client YES battle start |
 | `test_separate_single_world.py` | full end-to-end Separate integration, including save/resume; retained as the slower aggregate regression |
 | `test_separate_single_world_contract.py` | build-independent source guard for Separate host battle authority, wire isolation, ownership policy, funding and the global base cap |
 

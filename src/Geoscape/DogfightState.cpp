@@ -54,6 +54,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../Mod/Mod.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -249,13 +250,15 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_minimized(false), _endDogfight(false), _animatingHit(false), _waitForPoly(false), _waitForAltitude(false), _ufoSize(0), _ufoBlobSize(0),
 	_craftHeight(0), _currentCraftDamageColor(0),
 	_interceptionNumber(0), _interceptionsCount(0), _x(0), _y(0), _minimizedIconX(0), _minimizedIconY(0), _firedAtLeastOnce(false), _experienceAwarded(false),
-	_delayedRecolorDone(false), _isReplicaView(false), _ufoStance(0)
+	_delayedRecolorDone(false), _isReplicaView(false), _locallyVisible(true), _ufoStance(0)
 {
 	_screen = false;
 	// PRD-DF01: on a SHARED replica this window renders a host-simulated fight from
 	// the df_state stream and never runs the sim body (see update()). The host owns
 	// every dogfight; a replica never has a non-replica instance and vice versa.
 	_isReplicaView = _game->getCoopMod() && _game->getCoopMod()->isSharedReplica();
+	_locallyVisible = !_game->getCoopMod()->isSeparateCampaign()
+		|| SeparateEcon::ownsCraft(_game, _craft);
 	_craft->setInDogfight(true);
 	_weaponNum = _craft->getRules()->getWeapons();
 	if (_weaponNum > RuleCraft::WeaponMax)
@@ -760,6 +763,8 @@ bool DogfightState::isUfoAttacking() const
  */
 void DogfightState::think()
 {
+	if (_harnessHold)
+		return;
 	if (!_delayedRecolorDone)
 	{
 		// can't be done in the constructor (recoloring the ammo text doesn't work)
@@ -773,6 +778,7 @@ void DogfightState::think()
 		_delayedRecolorDone = true;
 
 		// Note: init() is never called for DogfightState, so we'll do it here instead
+		if (_locallyVisible)
 		{
 			auto& sounds = _game->getMod()->getStartDogfightSounds();
 			int soundId = sounds.empty() ? Mod::NO_SOUND : sounds[RNG::generate(0, sounds.size() - 1)];
@@ -2117,6 +2123,7 @@ void DogfightState::emitDfCmd(const std::string& action, int arg)
 	Json::Value p;
 	p["craftId"] = _craft ? _craft->getId() : -1;
 	p["craftType"] = _craft ? _craft->getRules()->getType() : std::string();
+	p["baseId"] = _craft ? SeparateEcon::baseIndex(_game, _craft->getBase()) : -1;
 	p["ufoId"] = _ufo ? _ufo->getId() : -1;
 	p["action"] = action;
 	p["arg"] = arg;
@@ -3104,6 +3111,7 @@ void DogfightState::buildStateFrame(Json::Value& frame) const
 {
 	frame["craftId"] = _craft ? _craft->getId() : -1;
 	frame["craftType"] = _craft ? _craft->getRules()->getType() : std::string();
+	frame["baseId"] = _craft ? SeparateEcon::baseIndex(_game, _craft->getBase()) : -1;
 	frame["ufoId"] = _ufo ? _ufo->getId() : -1;
 	frame["currentDist"] = _currentDist;
 	frame["targetDist"] = _targetDist;
@@ -3181,6 +3189,7 @@ void DogfightState::playDfSound(int soundId)
 	// dummy driver where getSound() can return null, and what a test needs to know is
 	// whether this machine's dogfight raised the SFX at all.
 	++_soundsPlayed;
+	if (_locallyVisible)
 	if (auto* s = _game->getMod()->getSound("GEO.CAT", soundId))
 		s->play();
 	// A replica only ever plays frame-driven sounds, so it must not re-broadcast them.

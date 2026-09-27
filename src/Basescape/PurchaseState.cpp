@@ -813,7 +813,7 @@ void PurchaseState::btnOkClick(Action *)
 	// Route the whole purchase through the shared_cmd protocol and mutate NOTHING
 	// locally - funds and incoming transfers arrive via shared_apply. The SEPARATE
 	// cross-player `purchase` packet path below is untouched and SHARED-fenced (a
-	// SHARED world has no _coopBase mirror bases, so it never fires here anyway).
+	// SHARED world has no _isForeignBase mirror bases, so it never fires here anyway).
 	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		Json::Value items(Json::arrayValue);
@@ -859,7 +859,7 @@ void PurchaseState::btnOkClick(Action *)
 	}
 
 	// coop
-	if (_base->_coopBase == false)
+	if (_base->_isForeignBase == false)
 	{
 		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - _total);
 	}
@@ -954,7 +954,7 @@ void PurchaseState::btnOkClick(Action *)
 
 	// COOP
 	// purchase
-	if (_base->_coopBase == true)
+	if (_base->_isForeignBase == true)
 	{
 
 		Json::Value root;

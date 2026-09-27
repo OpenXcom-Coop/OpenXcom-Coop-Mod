@@ -187,6 +187,7 @@
 #include "../Basescape/CraftArmorState.h"
 #include "../Mod/Armor.h"
 #include "SharedEcon.h"
+#include "SeparateEcon.h"
 #include "CoopState.h"
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
@@ -972,7 +973,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 			for (auto* base : *_game->getSavedGame()->getBases())
-				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 				                     : base->getName() == baseName)
 				{ target = base; break; }
 
@@ -1209,7 +1210,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		if (sg)
 		{
 			for (auto* b : *sg->getBases())
-				if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
+				if (!b->_isForeignBase && !b->_coopIcon) { base = b; break; }
 			for (auto* u : *sg->getUfos())
 				if (u->getId() == ufoId) { ufo = u; break; }
 		}
@@ -1285,7 +1286,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 			for (auto* b : *_game->getSavedGame()->getBases())
-				if (baseName.empty() ? (b->_coopBase == false && b->_coopIcon == false)
+				if (baseName.empty() ? (b->_isForeignBase == false && b->_coopIcon == false)
 				                     : b->getName() == baseName)
 				{ target = b; break; }
 		size_t idx = target ? target->getCrafts()->size() : 0;
@@ -1370,9 +1371,9 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 				for (auto* b : *_game->getSavedGame()->getBases())
 				{
 					bool match;
-					if (wantCoop) match = b->_coopBase;
+					if (wantCoop) match = b->_isForeignBase;
 					else if (!baseName.empty()) match = (b->getName() == baseName);
-					else match = (b->_coopBase == false && b->_coopIcon == false);
+					else match = (b->_isForeignBase == false && b->_coopIcon == false);
 					if (match) { target = b; break; }
 				}
 			size_t idx = target ? target->getCrafts()->size() : 0;
@@ -1412,7 +1413,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 			for (auto* b : *_game->getSavedGame()->getBases())
-				if (baseName.empty() ? (b->_coopBase == false && b->_coopIcon == false)
+				if (baseName.empty() ? (b->_isForeignBase == false && b->_coopIcon == false)
 				                     : b->getName() == baseName)
 				{ target = b; break; }
 		size_t idx = target ? target->getCrafts()->size() : 0;
@@ -1467,7 +1468,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 			for (auto* b : *_game->getSavedGame()->getBases())
-				if (baseName.empty() ? (b->_coopBase == false && b->_coopIcon == false)
+				if (baseName.empty() ? (b->_isForeignBase == false && b->_coopIcon == false)
 				                     : b->getName() == baseName)
 				{ target = b; break; }
 		size_t sidx = target ? target->getSoldiers()->size() : 0;
@@ -1516,7 +1517,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 			for (auto* b : *_game->getSavedGame()->getBases())
-				if (baseName.empty() ? (b->_coopBase == false && b->_coopIcon == false)
+				if (baseName.empty() ? (b->_isForeignBase == false && b->_coopIcon == false)
 				                     : b->getName() == baseName)
 				{ target = b; break; }
 		if (!target)
@@ -1752,7 +1753,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		{
 			Base* base = nullptr;
 			for (auto* b : *sg->getBases())
-				if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
+				if (!b->_isForeignBase && !b->_coopIcon) { base = b; break; }
 			if (!base) base = sg->getBases()->front();
 			std::string topic = req.get("topic", "").asString();
 			int cost = req.get("cost", 1).asInt();
@@ -1809,7 +1810,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (sg)
 			for (auto* base : *sg->getBases())
-				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 				                     : base->getName() == baseName)
 				{ target = base; break; }
 		if (!target)
@@ -1835,7 +1836,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		Base* base = nullptr;
 		if (sg)
 			for (auto* b : *sg->getBases())
-				if (!b->_coopBase && !b->_coopIcon) { base = b; break; }
+				if (!b->_isForeignBase && !b->_coopIcon) { base = b; break; }
 		if (!sg || !rule)
 			resp["error"] = "no world / unknown research";
 		else
@@ -1857,7 +1858,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (sg)
 			for (auto* base : *sg->getBases())
-				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 				                     : base->getName() == baseName)
 				{ target = base; break; }
 		bool found = false;
@@ -1887,7 +1888,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (sg)
 			for (auto* base : *sg->getBases())
-				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 				                     : base->getName() == baseName)
 				{ target = base; break; }
 		bool found = false;
@@ -1909,7 +1910,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 			for (auto* base : *_game->getSavedGame()->getBases())
-				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 				                     : base->getName() == baseName)
 				{ target = base; break; }
 		RuleResearch* rule = _game->getMod()->getResearch(topic, false);
@@ -1938,7 +1939,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (_game->getSavedGame())
 			for (auto* base : *_game->getSavedGame()->getBases())
-				if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+				if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 				                     : base->getName() == baseName)
 				{ target = base; break; }
 		RuleManufacture* rule = _game->getMod()->getManufacture(item, false);
@@ -2065,7 +2066,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		if (sg)
 			for (auto* b : *sg->getBases())
 				if ((requestedBase.empty()
-						? (!b->_coopBase && !b->_coopIcon)
+						? (!b->_isForeignBase && !b->_coopIcon)
 						: b->getName() == requestedBase)
 					&& !b->getCrafts()->empty())
 				{ base = b; craft = b->getCrafts()->front(); break; }
@@ -2109,9 +2110,9 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			for (auto* base : *_game->getSavedGame()->getBases())
 			{
 				bool match;
-				if (wantCoop) match = base->_coopBase;
+				if (wantCoop) match = base->_isForeignBase;
 				else if (!layoutBase.empty()) match = (base->getName() == layoutBase);
-				else match = (base->_coopBase == false && base->_coopIcon == false);
+				else match = (base->_isForeignBase == false && base->_coopIcon == false);
 				if (match) { target = base; break; }
 			}
 		}
@@ -2191,7 +2192,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		{
 			for (auto* base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase == false && base->_coopIcon == false)
+				if (base->_isForeignBase == false && base->_coopIcon == false)
 				{
 					for (auto* s : *base->getSoldiers())
 					{
@@ -2202,7 +2203,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			}
 			for (auto* base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
+				if (base->_isForeignBase && (toBaseName.empty() || base->getName() == toBaseName)) { baseTo = base; break; }
 			}
 			if (!baseTo)
 			{
@@ -2226,7 +2227,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		else
 		{
 			resp["toBase"] = baseTo->getName();
-			resp["toBaseCoopBase"] = baseTo->_coopBase;
+			resp["toBaseCoopBase"] = baseTo->_isForeignBase;
 			resp["toBaseCoopIcon"] = baseTo->_coopIcon;
 			TransferItemsState* st = new TransferItemsState(baseFrom, baseTo, nullptr);
 			bool ok = st->transferSoldierNow(soldier);
@@ -2272,7 +2273,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		{
 			for (auto* base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase == true || base->_coopIcon == true)
+				if (base->_isForeignBase == true || base->_coopIcon == true)
 				{
 					if (baseName.empty() || base->getName() == baseName)
 					{
@@ -3076,15 +3077,19 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		// the fields present in the request; optional checkup() re-derives the
 		// base-side _status (READY/REFUELLING/REARMING/REPAIRS) from real logic.
 		int craftId = req.get("craft_id", -1).asInt();
+		std::string baseName = req.get("base", "").asString();
+		std::string craftType = req.get("craft_type", "").asString();
 		SavedGame* sg = _game->getSavedGame();
 		Craft* craft = nullptr; Base* cbase = nullptr;
 		if (sg)
 		{
 			for (auto* b : *sg->getBases())
 			{
+				if (!baseName.empty() && b->getName() != baseName) continue;
 				for (auto* c : *b->getCrafts())
 				{
-					if (craftId == -1 ? !c->coop : c->getId() == craftId)
+					if ((craftId == -1 ? !c->coop : c->getId() == craftId)
+						&& (craftType.empty() || c->getRules()->getType() == craftType))
 					{
 						craft = c; cbase = b; break;
 					}
@@ -3138,6 +3143,10 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["craft_id"] = craft->getId();
 			resp["status"] = craft->getStatus();
 			resp["displayStatus"] = craft->getDisplayStatus(_game->getLanguage());
+			resp["coop"] = craft->coop;
+			resp["units"] = craft->getNumTotalUnits();
+			resp["items"] = craft->getItems()->getTotalQuantity();
+			resp["reached"] = craft->reachedDestination();
 			resp["ok"] = true;
 		}
 	}
@@ -3253,7 +3262,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		Base* target = nullptr;
 		if (sg)
 			for (auto* b : *sg->getBases())
-				if (!b->_coopBase && !b->_coopIcon
+				if (!b->_isForeignBase && !b->_coopIcon
 					&& (baseName.empty() || b->getName() == baseName)) { target = b; break; }
 		if (!sg) resp["error"] = "no saved game";
 		else if (!ufoRule) resp["error"] = "unknown ufo rule";
@@ -3289,15 +3298,18 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "host_base_damaged")
 	{
 		// Drive the MISSILE-bombardment outcome (facilities lost, base survives, NO
-		// battle) and its SHARED broadcast. Base::damageFacilities() only does anything
+		// battle) and its Shared/Separate authoritative broadcast. Base::damageFacilities() only does anything
 		// for a UFO with missilePower > 0, and no vanilla ruleset defines one, so the
 		// damage itself is simulated here; what is under test is that the host's
 		// resulting layout reaches the replica.
 		SavedGame* sg = _game->getSavedGame();
 		Base* target = nullptr;
+		const std::string wantedBase = req.get("base", "").asString();
 		if (sg)
 			for (auto* b : *sg->getBases())
-				if (!b->_coopBase && !b->_coopIcon) { target = b; break; }
+				if ((wantedBase.empty() && !b->_isForeignBase && !b->_coopIcon)
+					|| (!wantedBase.empty() && b->getName() == wantedBase))
+				{ target = b; break; }
 		if (!target) resp["error"] = "no target base";
 		else
 		{
@@ -3314,6 +3326,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			}
 			target->cleanupDefenses(true);
 			SharedEcon::hostBaseDamaged(_game, target, nullptr);
+			SeparateEcon::hostBaseDamaged(_game, target, nullptr);
 			resp["removed"] = removed;
 			resp["facilities"] = (int)facs->size();
 			resp["ok"] = true;
@@ -3420,7 +3433,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		Base* alertBase = nullptr;
 		if (_game->getSavedGame())
 			for (auto* b : *_game->getSavedGame()->getBases())
-				if (!b->_coopBase && !b->_coopIcon) { alertBase = b; break; }
+				if (!b->_isForeignBase && !b->_coopIcon) { alertBase = b; break; }
 		SharedEcon::hostAlert(_game, req.get("cls", "").asString(),
 			req.get("msg", "").asString(), alertBase,
 			req.get("craft_id", -1).asInt(), alertNames, alertIds,
@@ -3480,7 +3493,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		Base* base = nullptr;
 		if (sg)
 			for (auto* b : *sg->getBases())
-				if (!b->_coopBase) { base = b; break; }
+				if (!b->_isForeignBase) { base = b; break; }
 		if (!sg) resp["error"] = "no saved game";
 		else if (!rule) resp["error"] = "unknown craft type";
 		else if (!base) resp["error"] = "no own base";
@@ -3707,6 +3720,46 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			}
 		}
 	}
+	else if (cmd == "start_test_dogfight")
+	{
+		// Deterministic Separate/Shared UI regression setup: put a real craft/UFO
+		// pair straight into GeoscapeState's normal DogfightState lane. This avoids
+		// a short scout fight opening and ending between two harness polls.
+		SavedGame* sg = _game->getSavedGame();
+		GeoscapeState* geo = findState<GeoscapeState>(_game);
+		int craftId = req.get("craft_id", -1).asInt();
+		int ufoId = req.get("ufo_id", -1).asInt();
+		std::string baseName = req.get("base", "").asString();
+		std::string craftType = req.get("craft_type", "").asString();
+		Craft* craft = nullptr;
+		Ufo* ufo = nullptr;
+		if (sg)
+		{
+			for (Base* base : *sg->getBases())
+			{
+				if (!baseName.empty() && base->getName() != baseName) continue;
+				for (Craft* candidate : *base->getCrafts())
+					if (candidate->getId() == craftId
+						&& (craftType.empty() || candidate->getRules()->getType() == craftType))
+					{ craft = candidate; break; }
+				if (craft) break;
+			}
+			for (Ufo* candidate : *sg->getUfos())
+				if (candidate->getId() == ufoId) { ufo = candidate; break; }
+		}
+		if (!geo) resp["error"] = "no geoscape";
+		else if (!craft) resp["error"] = "no matching craft";
+		else if (!ufo) resp["error"] = "no matching ufo";
+		else
+		{
+			craft->setLongitude(ufo->getLongitude());
+			craft->setLatitude(ufo->getLatitude());
+			craft->setDestination(ufo);
+			craft->setStatus("STR_OUT");
+			geo->startSharedDogfight(craft, ufo, false, false, true);
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "dogfight_state")
 	{
 		// PRD-J08: introspect the live dogfight list (which machine holds the
@@ -3716,12 +3769,15 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		else
 		{
 			Json::Value list(Json::arrayValue);
+			int visibleCount = 0;
 			for (auto* df : geo->getDogfights())
 			{
 				Json::Value jd;
 				jd["ufoId"] = df->getUfo() ? df->getUfo()->getId() : -1;
 				jd["craftId"] = df->getCraft() ? df->getCraft()->getId() : -1;
 				jd["craftType"] = df->getCraft() ? df->getCraft()->getRules()->getType() : "";
+				jd["base"] = df->getCraft() && df->getCraft()->getBase()
+					? df->getCraft()->getBase()->getName() : "";
 				jd["minimized"] = df->isMinimized();
 				jd["ended"] = df->dogfightEnded();
 				jd["dist"] = df->harnessCurrentDist();
@@ -3735,6 +3791,8 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				jd["litStances"] = df->harnessLitStanceCount(); // ground-truth #buttons lit
 				jd["soundsPlayed"] = df->harnessSoundsPlayed(); // SFX raised on this machine
 				jd["replica"] = df->isReplicaView();
+				jd["visible"] = df->isLocallyVisible();
+				if (df->isLocallyVisible()) ++visibleCount;
 				// PRD-DF03: full per-machine frame-agreement fields.
 				jd["isReplicaView"] = df->isReplicaView();
 				jd["currentDist"] = df->harnessCurrentDist();
@@ -3749,6 +3807,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			}
 			resp["dogfights"] = list;
 			resp["count"] = (int)geo->getDogfights().size();
+			resp["visibleCount"] = visibleCount;
 			resp["pending"] = (int)geo->pendingDogfightCount();
 			resp["epoch"] = geo->harnessDogfightEpoch();
 			resp["ok"] = true;
@@ -3778,6 +3837,36 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["damage"] = ufo->getDamage();
 			resp["damageMax"] = ufo->getCraftStats().damageMax;
 			resp["status"] = (int)ufo->getStatus();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "base_detect_trials")
+	{
+		// Exercise Base::detect directly. A schema-3 Separate foreign base must
+		// use its real facilities even though _isForeignBase is true on this seat.
+		SavedGame* sg = _game->getSavedGame();
+		std::string baseName = req.get("base", "").asString();
+		int ufoId = req.get("ufo_id", -1).asInt();
+		int trials = req.get("trials", 500).asInt();
+		Base* base = nullptr;
+		Ufo* ufo = nullptr;
+		if (sg)
+		{
+			for (Base* candidate : *sg->getBases())
+				if (candidate->getName() == baseName) { base = candidate; break; }
+			for (Ufo* candidate : *sg->getUfos())
+				if (candidate->getId() == ufoId) { ufo = candidate; break; }
+		}
+		if (!base) resp["error"] = "base not found";
+		else if (!ufo) resp["error"] = "ufo not found";
+		else
+		{
+			int detected = 0;
+			for (int i = 0; i < trials; ++i)
+				if (base->detect(ufo, sg, false) != DETECTION_NONE) ++detected;
+			resp["detected"] = detected;
+			resp["trials"] = trials;
+			resp["coopBase"] = base->_isForeignBase;
 			resp["ok"] = true;
 		}
 	}
@@ -3817,7 +3906,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		if (!sg) { resp["error"] = "no save loaded"; }
 		else {
 			Base* baseFrom = nullptr;
-			for (auto* b : *sg->getBases()) if (!b->_coopBase && !b->_coopIcon) { baseFrom = b; break; }
+			for (auto* b : *sg->getBases()) if (!b->_isForeignBase && !b->_coopIcon) { baseFrom = b; break; }
 			if (!baseFrom) resp["error"] = "no own base";
 			else if (baseFrom->getCrafts()->empty()) resp["error"] = "base has no craft";
 			else if (baseFrom->getSoldiers()->empty()) resp["error"] = "base has no soldier";
@@ -3877,7 +3966,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 
 			// Prove it was accepted+queued (not rejected): give a real base the bogus id, drain again.
 			Base* victim = nullptr;
-			for (auto* b : *sg->getBases()) if (!b->_coopBase && !b->_coopIcon) { victim = b; break; }
+			for (auto* b : *sg->getBases()) if (!b->_isForeignBase && !b->_coopIcon) { victim = b; break; }
 			bool acceptedAndQueued = false;
 			if (victim) {
 				int vBefore = (int)victim->getTransfers()->size();
@@ -5824,10 +5913,10 @@ std::string TestServer::execute(const std::string& line)
 					jb["name"] = b->getName(_game->getLanguage());
 					// PRD-J02: coordinates + mirror flag, so a SHARED bootstrap/resume
 					// test can assert the client replica holds the SAME real base
-					// (not a _coopBase/_coopIcon mirror).
+					// (not a _isForeignBase/_coopIcon mirror).
 					jb["lon"] = b->getLongitude();
 					jb["lat"] = b->getLatitude();
-					jb["coopBase"] = b->_coopBase;
+					jb["coopBase"] = b->_isForeignBase;
 					jb["coopIcon"] = b->_coopIcon;
 					// PRD-J11: the base's coop id. In SHARED, base_new mints it host-side
 					// and it rides the payload, so it must be EQUAL on every machine -
@@ -6146,7 +6235,7 @@ std::string TestServer::execute(const std::string& line)
 			{
 				for (auto* b : *sg->getBases())
 				{
-					if (caCoop && !b->_coopBase) continue;
+					if (caCoop && !b->_isForeignBase) continue;
 					if (!caBase.empty() && b->getName() != caBase) continue;
 					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
 						if (b->getCrafts()->at(i)->getId() == craftId) { base = b; craftIdx = i; found = true; break; }
@@ -8168,7 +8257,7 @@ std::string TestServer::execute(const std::string& line)
 				{
 					Json::Value b;
 					b["name"] = base->getName();
-					b["coopBaseFlag"] = base->_coopBase;
+					b["coopBaseFlag"] = base->_isForeignBase;
 					b["coopIcon"] = base->_coopIcon;
 					b["coopBaseId"] = base->_coop_base_id;
 					b["ownerPlayerName"] = base->getOwnerPlayerName();
@@ -8219,7 +8308,7 @@ std::string TestServer::execute(const std::string& line)
 			{
 				for (auto* base : *_game->getSavedGame()->getBases())
 				{
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false) : base->getName() == baseName)
+					if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false) : base->getName() == baseName)
 					{
 						target = base;
 						break;
@@ -8265,11 +8354,11 @@ std::string TestServer::execute(const std::string& line)
 				{
 					bool match;
 					if (wantCoop)
-						match = base->_coopBase;
+						match = base->_isForeignBase;
 					else if (!reportBase.empty())
 						match = (base->getName() == reportBase);
 					else
-						match = (base->_coopBase == false && base->_coopIcon == false);
+						match = (base->_isForeignBase == false && base->_coopIcon == false);
 					if (match) { target = base; break; }
 				}
 			}
@@ -8280,7 +8369,7 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				resp["name"] = target->getName();
-				resp["coopBaseFlag"] = target->_coopBase;
+				resp["coopBaseFlag"] = target->_isForeignBase;
 				resp["coopBaseId"] = target->_coop_base_id;
 				resp["ownerPlayerName"] = target->getOwnerPlayerName();
 
@@ -8718,7 +8807,7 @@ std::string TestServer::execute(const std::string& line)
 			{
 				for (auto* base : *_game->getSavedGame()->getBases())
 				{
-					if (tbase.empty() ? (base->_coopBase == false && base->_coopIcon == false) : base->getName() == tbase)
+					if (tbase.empty() ? (base->_isForeignBase == false && base->_coopIcon == false) : base->getName() == tbase)
 					{ target = base; break; }
 				}
 			}
@@ -8826,7 +8915,7 @@ std::string TestServer::execute(const std::string& line)
 			{
 				for (auto* base : *_game->getSavedGame()->getBases())
 				{
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 					                     : base->getName() == baseName)
 					{ target = base; break; }
 				}
@@ -8859,7 +8948,7 @@ std::string TestServer::execute(const std::string& line)
 			Base* target = nullptr;
 			if (_game->getSavedGame())
 				for (auto* base : *_game->getSavedGame()->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 					                     : base->getName() == baseName)
 					{ target = base; break; }
 			if (!target)
@@ -8888,7 +8977,7 @@ std::string TestServer::execute(const std::string& line)
 				for (auto* base : *_game->getSavedGame()->getBases())
 				{
 					if (from == nullptr && (fromName.empty()
-						? (base->_coopBase == false && base->_coopIcon == false)
+						? (base->_isForeignBase == false && base->_coopIcon == false)
 						: base->getName() == fromName)) from = base;
 					else if (!toName.empty() && base->getName() == toName) to = base;
 				}
@@ -8916,7 +9005,7 @@ std::string TestServer::execute(const std::string& line)
 			Base* target = nullptr;
 			if (_game->getSavedGame())
 				for (auto* base : *_game->getSavedGame()->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 					                     : base->getName() == baseName)
 					{ target = base; break; }
 			RuleItem* alien = _game->getMod()->getItem(alienType, false);
@@ -8947,7 +9036,7 @@ std::string TestServer::execute(const std::string& line)
 			Base* target = nullptr;
 			if (_game->getSavedGame())
 				for (auto* base : *_game->getSavedGame()->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 					                     : base->getName() == baseName)
 					{ target = base; break; }
 			RuleItem* rule = _game->getMod()->getItem(itemType, false);
@@ -8992,7 +9081,7 @@ std::string TestServer::execute(const std::string& line)
 				if (!owner.empty())
 				{
 					b->setOwnerPlayerName(owner);
-					b->_coopBase = !b->isOwnedByPlayer(
+					b->_isForeignBase = !b->isOwnedByPlayer(
 						connectionTCP::seatName(connectionTCP::localSeat()));
 				}
 				sg->getBases()->push_back(b);
@@ -9014,7 +9103,7 @@ std::string TestServer::execute(const std::string& line)
 			Base* target = nullptr;
 			if (_game->getSavedGame())
 				for (auto* base : *_game->getSavedGame()->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 					                     : base->getName() == baseName)
 					{ target = base; break; }
 			RuleBaseFacility* rule = _game->getMod()->getBaseFacility(facType, false);
@@ -9042,7 +9131,7 @@ std::string TestServer::execute(const std::string& line)
 			Base* target = nullptr;
 			if (_game->getSavedGame())
 				for (auto* base : *_game->getSavedGame()->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 					                     : base->getName() == baseName)
 					{ target = base; break; }
 			BaseFacility* fac = nullptr;
@@ -9074,7 +9163,7 @@ std::string TestServer::execute(const std::string& line)
 			Base* target = nullptr;
 			if (_game->getSavedGame())
 				for (auto* base : *_game->getSavedGame()->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 					                     : base->getName() == baseName)
 					{ target = base; break; }
 			int idx = -1;
@@ -9104,7 +9193,7 @@ std::string TestServer::execute(const std::string& line)
 			Base* target = nullptr;
 			if (_game->getSavedGame())
 				for (auto* base : *_game->getSavedGame()->getBases())
-					if (baseName.empty() ? (base->_coopBase == false && base->_coopIcon == false)
+					if (baseName.empty() ? (base->_isForeignBase == false && base->_coopIcon == false)
 					                     : base->getName() == baseName)
 					{ target = base; break; }
 			if (!target)
@@ -9133,7 +9222,7 @@ std::string TestServer::execute(const std::string& line)
 			if (_game->getSavedGame())
 				for (auto* base : *_game->getSavedGame()->getBases())
 				{
-					if (base->_coopBase || base->_coopIcon) continue;
+					if (base->_isForeignBase || base->_coopIcon) continue;
 					if (!baseName.empty() && base->getName() != baseName) continue;
 					auto* sols = base->getSoldiers();
 					for (size_t i = 0; i < sols->size(); ++i)

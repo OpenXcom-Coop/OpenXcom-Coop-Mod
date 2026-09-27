@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2010-2016 OpenXcom Developers.
  * Copyright 2023-2026 XComCoopTeam (https://www.moddb.com/mods/openxcom-coop-mod)
  *
@@ -2391,7 +2391,7 @@ void connectionTCP::processPendingSoldierGifts()
 
 		for (auto& base : *_game->getSavedGame()->getBases())
 		{
-			if (base->_coopBase == false && base->_coopIcon == false)
+			if (base->_isForeignBase == false && base->_coopIcon == false)
 			{
 				ownWorldReady = true;
 				break;
@@ -2696,7 +2696,7 @@ void connectionTCP::sendGuestCensus(bool force)
 	{
 		// only OUR real bases hold our soldiers; a visited peer base is a
 		// swapped-in copy and would double-count them
-		if (base->_coopBase || base->_coopIcon)
+		if (base->_isForeignBase || base->_coopIcon)
 			continue;
 		for (auto* soldier : *base->getSoldiers())
 		{
@@ -6221,7 +6221,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						for (auto& base : *_game->getSavedGame()->getBases())
 						{
 
-							if (base->_coopBase == false && base->_coopIcon == false)
+							if (base->_isForeignBase == false && base->_coopIcon == false)
 							{
 
 								if (!firstOwnBase)
@@ -7188,7 +7188,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			for (auto* base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase || base->_coopIcon)
+				if (base->_isForeignBase || base->_coopIcon)
 					continue;
 				auto it = reported.find(base->_coop_base_id);
 				base->coop_guests = (it != reported.end()) ? it->second : 0;
@@ -12553,7 +12553,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			for (auto& base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase == false)
+				if (base->_isForeignBase == false)
 				{
 
 					for (auto& craft : *base->getCrafts())
@@ -12811,7 +12811,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			for (auto &base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase == false)
+				if (base->_isForeignBase == false)
 				{
 
 					for (auto &craft : *base->getCrafts())
@@ -12834,7 +12834,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto base : *_game->getSavedGame()->getBases())
 			{
 
-				if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
+				if (base->_isForeignBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
 				{
 
 					markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -12842,53 +12842,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					markers["markers"][index]["base"] = base->getName().c_str();
 					markers["markers"][index]["lon"] = base->getLongitude();
 					markers["markers"][index]["lan"] = base->getLatitude();
-
-					// new!!!
-
-					// new!!!
-					// Facilities synchronization
-					// facilities
-					int facilities_index = 0;
-					double tr_coop = 0;
-					double radar_range_coop = 0;
-					int completedFacilities = 0;
-					int mindShields = 0;
-					for (const auto* fac : *base->getFacilities())
-					{
-						if (fac->getBuildTime() != 0)
-						{
-							continue;
-						}
-
-						if (fac->getRules())
-						{
-							if (fac->getBuildTime() == 0)
-							{
-								tr_coop = fac->getRules()->getRadarRange();
-								if (tr_coop < 10000 && tr_coop > radar_range_coop)
-									radar_range_coop = tr_coop;
-
-								if (_game->getCoopMod()->getServerOwner() == false)
-								{
-									completedFacilities = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
-									if (fac->getRules()->isMindShield() && !fac->getDisabled())
-									{
-										mindShields = fac->getRules()->getMindShieldPower();
-									}
-
-									markers["markers"][index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
-									markers["markers"][index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
-									markers["markers"][index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
-									markers["markers"][index]["facilities"][facilities_index]["completedFacilities"] = completedFacilities;
-									markers["markers"][index]["facilities"][facilities_index]["mindShields"] = mindShields;
-
-									facilities_index++;
-								}
-							}
-						}
-					}
-
-					markers["markers"][index]["radar_range_coop"] = radar_range_coop;
 
 					markers["markers"][index]["getAvailableEngineers"] = base->getAvailableEngineers();
 					markers["markers"][index]["getAvailableHangars"] = base->getAvailableHangars();
@@ -12997,15 +12950,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
-			// new!!!
-			CoopBase->_facilitiesCoop = marker["facilities"];
-			double radar_range_coop = marker["radar_range_coop"].asDouble();
-			CoopBase->_radar_range_coop = radar_range_coop;
-
 			std::string base_name = marker["base"].asString();
 			CoopBase->setName(base_name);
 
-			CoopBase->isCoopBase(true);
+			CoopBase->setForeignBase(true);
 			CoopBase->_coopIcon = true;
 
 			CoopBase->setLongitude(lon);
@@ -13024,7 +12972,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
+			if (base->_isForeignBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -13042,53 +12990,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableStores"] = base->getAvailableStores();
 				markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
-
-				// new!!!
-
-				// new!!!
-				// Facilities synchronization
-				// facilities
-				int facilities_index = 0;
-				double tr_coop = 0;
-				double radar_range_coop = 0;
-				int completedFacilities = 0;
-				int mindShields = 0;
-				for (const auto* fac : *base->getFacilities())
-				{
-					if (fac->getBuildTime() != 0)
-					{
-						continue;
-					}
-
-					if (fac->getRules())
-					{
-						if (fac->getBuildTime() == 0)
-						{
-							tr_coop = fac->getRules()->getRadarRange();
-							if (tr_coop < 10000 && tr_coop > radar_range_coop)
-								radar_range_coop = tr_coop;
-
-							if (_game->getCoopMod()->getServerOwner() == false)
-							{
-								completedFacilities = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
-								if (fac->getRules()->isMindShield() && !fac->getDisabled())
-								{
-									mindShields = fac->getRules()->getMindShieldPower();
-								}
-
-								markers["markers"][index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
-								markers["markers"][index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
-								markers["markers"][index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
-								markers["markers"][index]["facilities"][facilities_index]["completedFacilities"] = completedFacilities;
-								markers["markers"][index]["facilities"][facilities_index]["mindShields"] = mindShields;
-
-								facilities_index++;
-							}
-						}
-					}
-				}
-
-				markers["markers"][index]["radar_range_coop"] = radar_range_coop;
 
 				index++;
 			}
@@ -13141,7 +13042,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		std::string base_name = obj["markers"]["base"].asString();
 		CoopBase->setName(base_name);
 
-		CoopBase->isCoopBase(true);
+		CoopBase->setForeignBase(true);
 		CoopBase->_coopIcon = true;
 
 		CoopBase->_coop_base_id = coopbaseid;
@@ -13179,7 +13080,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false && (base->getLongitude() != 0 || base->getLatitude() != 0))
+			if (base->_isForeignBase == false && base->_coopIcon == false && (base->getLongitude() != 0 || base->getLatitude() != 0))
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -13197,51 +13098,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableStores"] = base->getAvailableStores();
 				markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
-
-				// new!!!
-				// Facilities synchronization
-				// facilities
-				int facilities_index = 0;
-				double tr_coop = 0;
-				double radar_range_coop = 0;
-				int completedFacilities = 0;
-				int mindShields = 0;
-				for (const auto* fac : *base->getFacilities())
-				{
-					if (fac->getBuildTime() != 0)
-					{
-						continue;
-					}
-
-					if (fac->getRules())
-					{
-						if (fac->getBuildTime() == 0)
-						{
-							tr_coop = fac->getRules()->getRadarRange();
-							if (tr_coop < 10000 && tr_coop > radar_range_coop)
-								radar_range_coop = tr_coop;
-
-							if (_game->getCoopMod()->getServerOwner() == false)
-							{
-								completedFacilities = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
-								if (fac->getRules()->isMindShield() && !fac->getDisabled())
-								{
-									mindShields = fac->getRules()->getMindShieldPower();
-								}
-
-								markers["markers"][index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
-								markers["markers"][index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
-								markers["markers"][index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
-								markers["markers"][index]["facilities"][facilities_index]["completedFacilities"] = completedFacilities;
-								markers["markers"][index]["facilities"][facilities_index]["mindShields"] = mindShields;
-
-								facilities_index++;
-							}
-						}
-					}
-				}
-
-				markers["markers"][index]["radar_range_coop"] = radar_range_coop;
 
 				index++;
 			}
@@ -13332,11 +13188,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					existingBase->coop_workshop = getAvailableWorkshops;
 					existingBase->setScientists(getAvailableScientists);
 
-					// new !!!
-					existingBase->_facilitiesCoop = marker["facilities"];
-					double radar_range_coop = marker["radar_range_coop"].asDouble();
-					existingBase->_radar_range_coop = radar_range_coop;
-
 					alreadyExists = true;
 					break;
 				}
@@ -13359,14 +13210,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
-			// new !!!
-			CoopBase->_facilitiesCoop = marker["facilities"];
-			double radar_range_coop = marker["radar_range_coop"].asDouble();
-			CoopBase->_radar_range_coop = radar_range_coop;
-
 			CoopBase->setName(base_name);
 
-			CoopBase->isCoopBase(true);
+			CoopBase->setForeignBase(true);
 			CoopBase->_coopIcon = true;
 
 			CoopBase->setLongitude(lon);
@@ -13439,11 +13285,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					existingBase->coop_workshop = getAvailableWorkshops;
 					existingBase->setScientists(getAvailableScientists);
 
-					// new !!!
-					existingBase->_facilitiesCoop = marker["facilities"];
-					double radar_range_coop = marker["radar_range_coop"].asDouble();
-					existingBase->_radar_range_coop = radar_range_coop;
-
 					alreadyExists = true;
 					break;
 				}
@@ -13466,14 +13307,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
-			// new !!!
-			CoopBase->_facilitiesCoop = marker["facilities"];
-			double radar_range_coop = marker["radar_range_coop"].asDouble();
-			CoopBase->_radar_range_coop = radar_range_coop;
-
 			CoopBase->setName(base_name);
 
-			CoopBase->isCoopBase(true);
+			CoopBase->setForeignBase(true);
 			CoopBase->_coopIcon = true;
 
 			CoopBase->setLongitude(lon);
@@ -13961,7 +13797,7 @@ void connectionTCP::refreshSeparateBaseOwnership()
 			{
 				if (base && !base->getOwnerPlayerName().empty())
 				{
-					base->_coopBase = !base->isOwnedByPlayer(localName);
+					base->_isForeignBase = !base->isOwnedByPlayer(localName);
 					base->_coopIcon = false;
 
 					// Schema-3 keeps every base and soldier in one authoritative save.
@@ -16264,7 +16100,7 @@ void connectionTCP::updateAllCoopBases()
 
 		CoopBase->setName(base_name);
 
-		CoopBase->isCoopBase(true);
+		CoopBase->setForeignBase(true);
 		CoopBase->_coopIcon = true;
 
 		CoopBase->setLongitude(lon);
@@ -16978,10 +16814,10 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 		for (auto& base : *coopFile->getBases())
 		{
 
-			// _coopBase is seat-local presentation in a unified campaign and may
+			// _isForeignBase is seat-local presentation in a unified campaign and may
 			// mark this real base as foreign in the serialized client view. The
 			// bootstrap accepts real bases and rejects only legacy marker icons.
-			if (campaignBootstrap ? !base->_coopIcon : !base->_coopBase)
+			if (campaignBootstrap ? !base->_coopIcon : !base->_isForeignBase)
 			{
 				found = true;
 			}
@@ -17025,7 +16861,7 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 				if (base && !base->_coopIcon)
 				{
 					base->setOwnerPlayerName(owner);
-					base->_coopBase = !base->isOwnedByPlayer(
+					base->_isForeignBase = !base->isOwnedByPlayer(
 						connectionTCP::seatName(connectionTCP::localSeat()));
 					base->_coopIcon = false;
 					_game->getSavedGame()->getBases()->push_back(base);

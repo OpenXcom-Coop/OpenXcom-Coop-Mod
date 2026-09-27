@@ -2844,7 +2844,7 @@ void InventoryState::moveCoopItemsToGround(Craft* craft, BattleUnit* unit)
 		if (!craft->getBase())
 			return;
 
-		if (craft->getBase()->_coopBase == false)
+		if (craft->getBase()->_isForeignBase == false)
 			return;
 
 		std::vector<const BattleItem*> checkedItems;
@@ -2857,7 +2857,7 @@ void InventoryState::moveCoopItemsToGround(Craft* craft, BattleUnit* unit)
 		for (const auto& coopItem : craft->getCoopItems())
 		{
 
-			if (coopItem.owner != craft->getBase()->_coopBase)
+			if (coopItem.owner != craft->getBase()->_isForeignBase)
 				continue;
 
 			for (auto &item : *_game->getSavedGame()->getSavedBattle()->getItems())

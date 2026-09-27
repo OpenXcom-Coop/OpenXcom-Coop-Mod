@@ -558,7 +558,7 @@ void TransferItemsState::updateList()
 void TransferItemsState::btnOkClick(Action *)
 {
 	// COOP
-	if (Options::storageLimitsEnforced && !AreSame(_iQty, 0.0) && _baseTo->_coopBase == false)
+	if (Options::storageLimitsEnforced && !AreSame(_iQty, 0.0) && _baseTo->_isForeignBase == false)
 	{
 		// check again (because of items with negative size)
 		// But only check the base whose available space is decreasing.
@@ -922,7 +922,7 @@ void TransferItemsState::completeTransfer()
 							// and it arrives empty. ON: move each reserved item (weapon + loaded
 							// ammo) out of the sending base's storage into the transfer, so it
 							// arrives at the receiving base with the soldier.
-							if (_baseTo->_coopBase)
+							if (_baseTo->_isForeignBase)
 							{
 								if (Options::oxceAlternateCraftEquipmentManagement)
 								{
@@ -1066,7 +1066,7 @@ void TransferItemsState::completeTransfer()
 	// (that notify was dropped in PR #38 - equipment tests regressed). Uses the
 	// current base-id schema (createPendingTransfers / updateCoopTask key on
 	// _coop_base_id, not the base name the old block sent).
-	if (_baseTo->_coopBase == true && _baseTo->getTransfers())
+	if (_baseTo->_isForeignBase == true && _baseTo->getTransfers())
 	{
 		Json::Value root;
 		root["state"] = "transfer";
@@ -1437,7 +1437,7 @@ void TransferItemsState::increaseByValue(int change)
 	}
 
 	// COOP 
-	if (errorMessage.empty() || _baseTo->_coopBase == true)
+	if (errorMessage.empty() || _baseTo->_isForeignBase == true)
 	{
 		int freeQuarters = _baseTo->getAvailableQuarters() - _baseTo->getUsedQuarters() - _pQty;
 		switch (getRow().type)

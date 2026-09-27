@@ -1207,7 +1207,7 @@ void Globe::drawRadars()
 	{
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_coopBase == false)
+		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1219,7 +1219,7 @@ void Globe::drawRadars()
 		}
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1253,14 +1253,6 @@ void Globe::drawRadars()
 				}
 
 				// coop
-				if (xbase->_coopBase == false)
-				{
-					xbase->_radar_range_coop = range;
-				}
-				if (xbase->_radar_range_coop != 0 && xbase->_coopBase == true)
-				{
-					range = xbase->_radar_range_coop;
-				}
 	
 				range = Nautical(range);
 
@@ -1536,7 +1528,7 @@ void Globe::drawDetail()
 		{
 
 			// coop
-			if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_coopBase == false)
+			if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_isForeignBase == false)
 			{
 				continue;
 			}
@@ -1548,7 +1540,7 @@ void Globe::drawDetail()
 			}
 
 			// coop
-			if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+			if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_isForeignBase == false)
 			{
 				continue;
 			}
@@ -1833,7 +1825,7 @@ void Globe::drawMarkers()
 	{
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_coopBase == false)
+		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1845,7 +1837,7 @@ void Globe::drawMarkers()
 		}
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_isForeignBase == false)
 		{
 			continue;
 		}

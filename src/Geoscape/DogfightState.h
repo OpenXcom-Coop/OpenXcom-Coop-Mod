@@ -99,6 +99,10 @@ private:
 	// df_state frame + animate()s and returns - the entire sim body is skipped, no
 	// RNG, no world mutation; the host is the sole authority. Host instances = false.
 	bool _isReplicaView;
+	/// Separate Campaign: the host may simulate a peer-owned fight invisibly.
+	bool _locallyVisible;
+	/// Test-only: keep a harness-created membership alive without advancing combat.
+	bool _harnessHold = false;
 	// craft min/max, radar min/max, damage min/max, shield min/max
 	int _colors[13];
 	// Ends the dogfight.
@@ -215,6 +219,8 @@ public:
 	void awardExperienceToPilots();
 	/// PRD-DF01: is this a render-only SHARED replica (renders df_state, never sims)?
 	bool isReplicaView() const { return _isReplicaView; }
+	bool isLocallyVisible() const { return _locallyVisible; }
+	void harnessSetHold(bool hold) { _harnessHold = hold; }
 	/// PRD-DF01 REPLICA: force this render-only window to close (host membership
 	/// dropped it); handleDogfights() erases it on the next tick.
 	void closeReplicaWindow() { endDogfight(); }

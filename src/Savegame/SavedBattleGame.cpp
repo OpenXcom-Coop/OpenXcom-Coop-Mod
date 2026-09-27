@@ -3805,7 +3805,7 @@ bool SavedBattleGame::moveBaseCoopInventory(std::string item_type, int coop_item
 	if (current_craft && current_base)
 	{
 
-		if (current_base->_coopBase == true)
+		if (current_base->_isForeignBase == true)
 		{
 
 			auto& coopItems = current_craft->getCoopItems();
@@ -4065,7 +4065,7 @@ void SavedBattleGame::moveBaseCoopInventorySave(Base* base, Craft* craft, Battle
 			return;
 		}
 
-		if (base->_coopBase == true)
+		if (base->_isForeignBase == true)
 		{
 			return;
 		}

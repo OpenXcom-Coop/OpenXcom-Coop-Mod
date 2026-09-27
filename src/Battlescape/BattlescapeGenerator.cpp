@@ -1503,7 +1503,7 @@ void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod* mod, s
 
 												root["item_coop_id"] = bi->getCoopID();
 												root["item_type"] = bi->getRules()->getType();
-												root["coopbase"] = bu->getGeoscapeSoldier()->getCraft()->getBase()->_coopBase;
+												root["coopbase"] = bu->getGeoscapeSoldier()->getCraft()->getBase()->_isForeignBase;
 
 												connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
 
@@ -1513,7 +1513,7 @@ void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod* mod, s
 												{
 													if (ci.id == bi->getCoopID() &&
 														ci.type == bi->getRules()->getType() &&
-														ci.owner == !bu->getGeoscapeSoldier()->getCraft()->getBase()->_coopBase)
+														ci.owner == !bu->getGeoscapeSoldier()->getCraft()->getBase()->_isForeignBase)
 													{
 														item_exists = true;
 														break;
@@ -1522,7 +1522,7 @@ void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod* mod, s
 
 												if (!item_exists)
 												{
-													bu->getGeoscapeSoldier()->getCraft()->getCoopItems().push_back({bi->getCoopID(), bi->getRules()->getType(), !bu->getGeoscapeSoldier()->getCraft()->getBase()->_coopBase});
+													bu->getGeoscapeSoldier()->getCraft()->getCoopItems().push_back({bi->getCoopID(), bi->getRules()->getType(), !bu->getGeoscapeSoldier()->getCraft()->getBase()->_isForeignBase});
 												}
 											}
 										}

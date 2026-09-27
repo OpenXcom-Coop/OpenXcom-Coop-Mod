@@ -151,12 +151,12 @@ void MiniBaseView::draw()
 
 Uint8 MiniBaseView::getBaseBorderColor(size_t base) const
 {
-	// In unified Separate, _coopBase is the seat-local presentation flag.
+	// In unified Separate, _isForeignBase is the seat-local presentation flag.
 	// Selection keeps the normal white border. Unselected foreign bases use a
 	// lighter purple border so ownership remains visible without overpowering it.
 	if (base == _base)
 		return 1;
-	if (_bases && base < _bases->size() && _bases->at(base)->_coopBase)
+	if (_bases && base < _bases->size() && _bases->at(base)->_isForeignBase)
 		return _foreignBorder;
 	return 0;
 }
