@@ -4126,6 +4126,10 @@ void coopCueExplosionInit(const BattleActionAttack& attack, const Position& cent
 		p["unit"] = target ? target->getId() : -1;
 		p["action"] = coopCueActionWire(attack.type);
 		p["success"] = !miss;
+		// W2-P6b S-E.2 (spec rewrite/prompts/w2p6_display_two.md section 9 E-a; Q11 (a), AMENDMENT P6b-1): the one
+		// additive field of this stage - the psi sprite's voxel (the state's centre, vanilla PsiAttackBState's
+		// victim voxel), so the watching machine draws the psi sprite where the host does.
+		p["voxel"] = coopCueVoxel(centre);
 		coopEmitCue("psi", p);
 	}
 	else
@@ -6655,6 +6659,9 @@ static void coopClientCombatAftermath(const std::string& kind, const CoopCombatI
 		{
 			bs->warning(type == BA_UNPRIME ? item->getRules()->getUnprimeActionMessage()
 				: item->getRules()->getPrimeActionMessage());
+			// W2-P6b S-E.2 (spec rewrite/prompts/w2p6_display_two.md section 9 E-e; Q14 (a), F1230): vanilla's
+			// prime / unprime sound for the ordering player, after the message (BattlescapeGame :1130-:1148).
+			CoopGhost::onPrimeAftermath(save, item->getRules()->getType(), type == BA_UNPRIME);
 		}
 		else
 		{
@@ -6716,8 +6723,14 @@ static void coopClientCombatAftermath(const std::string& kind, const CoopCombatI
 		BattleUnit* target = findUnitById(save, plan.targetUnit);
 		if (item && item->getRules() && item->getRules()->getBattleType() == BT_MINDPROBE && target)
 		{
-			if (Sound* hit = bs->getGame()->getMod()->getSoundByDepth(save->getDepth(),
-				item->getRules()->getHitSound()))
+			// W2-P6b S-E.2 (AMENDMENT P6b-1: F1750 folded into S-E; P6b-2 F1762 / F1763 TRACE): the probe's hit
+			// sound from the raw list without the sim RNG - RuleItem::getHitSound() draws RNG::generate (F1512),
+			// which advanced this client's rngSeed one step (V4). The combatPickSound() pattern: an empty list ->
+			// -1 (getHitSound()'s own default), one id -> it, several -> RNG::seedless.
+			const std::vector<int>& hitIds = item->getRules()->getHitSoundRaw();
+			const int hitId = hitIds.empty() ? Mod::NO_SOUND
+				: hitIds[hitIds.size() == 1 ? 0 : (std::size_t)RNG::seedless(0, (int)hitIds.size() - 1)];
+			if (Sound* hit = bs->getGame()->getMod()->getSoundByDepth(save->getDepth(), hitId))
 			{
 				hit->play(-1, bg->getMap()->getSoundAngle(target->getPosition()));
 			}
@@ -15076,7 +15089,7 @@ const std::size_t kCombatRingCap = 32;
 /// drawn on and a thrown item as resolved at enqueue - never dereferenced once what they name may be gone.
 struct CombatGhost
 {
-	std::string kind;                 // "shot" (S-A), "hit" / "explosion" (S-B)
+	std::string kind;                 // "shot" (S-A), "hit" / "explosion" (S-B), "melee" / "psi" (W2-P6b S-E.2)
 	std::uint64_t ordinal = 0;        // its ring record (CombatProbeStore::pushed at enqueue)
 	std::uint32_t startedAtMs = 0;
 	std::uint32_t durationMs = 0;     // FIXED AT ENQUEUE (D111), never recomputed
@@ -15116,6 +15129,11 @@ struct CombatGhost
 	std::uint32_t ticksTotal = 0;
 	std::uint32_t ticksDone = 0;
 	const RuleItem* rule = nullptr;
+	// W2-P6b S-E.2 (spec rewrite/prompts/w2p6_display_two.md section 9 E-b): a melee ghost's melee hit sound (vanilla
+	// ExplosionBState::explode :438-:444), picked at enqueue, played at its tile when the ghost ends, natural or cut
+	// (the ITEM_DROP precedent); Mod::NO_SOUND for every other ghost.
+	int endSound = Mod::NO_SOUND;
+	Position endSoundAt;
 };
 std::vector<CombatGhost> g_combatGhosts;
 
@@ -15501,6 +15519,13 @@ void combatEnd(CombatGhost& g, bool cut)
 		combatPlay(connectionTCP::getStaticBattle(), Mod::ITEM_DROP, map->getSoundAngle(g.landingPos));
 		if (r)
 			(*r)["soundEnd"] = Mod::ITEM_DROP;
+	}
+	// W2-P6b S-E.2 (section 9 E-b): a melee ghost's melee hit sound, natural or cut (the ITEM_DROP rule above).
+	if (g.endSound != Mod::NO_SOUND && map && !neverStarted)
+	{
+		combatPlay(connectionTCP::getStaticBattle(), g.endSound, map->getSoundAngle(g.endSoundAt));
+		if (r)
+			(*r)["soundEnd"] = g.endSound;
 	}
 	if (r)
 	{
@@ -15999,6 +16024,263 @@ void combatJoinPellet(SavedBattleGame* save, const Json::Value& ev)
 	live->invalidate();
 }
 
+// ----- W2-P6b S-E.2: the melee / psi ghosts and the effect sounds (spec rewrite/prompts/w2p6_display_two.md
+// section 9 E-b..E-e, as ruled by AMENDMENT P6b-1 OR3 / OR5 and AMENDMENT P6b-3 F1782) -----
+
+/// E-b (review F1743, OR5 (a)): starts the melee / psi ghost of one applied `melee` / `psi` cue (a coop client, the
+/// option on) before the cue's own delta - a sibling of combatStartImpact() built line for line on vanilla
+/// ExplosionBState::init's hit branch (:277-:365) and, for melee, explode()'s melee hit sound (:438-:444); never
+/// the state itself. Exactly one ring record (kind "melee" / "psi", plus the payload's `voxel`) and one
+/// enqueued[kind]; a record with no display object (unresolved, noMap, no sprite) counts completed at enqueue.
+/// weaponRule = the payload's weaponType; the damage item = its itemType, damageRule only when itemType !=
+/// weaponType (:283); interval = max(1, 50 - 10 x the damage item's explosionSpeed) (:277).
+/// - melee: anim / frames = the weapon's melee animation / frames, sound = pick(the weapon's melee sounds), each
+///   optValue'd by damageRule's; soundEnd = pick(the weapon's melee hit sounds) optValue'd by damageRule's, iff the
+///   payload power > 0, played when the ghost ends, natural or cut (the ITEM_DROP precedent).
+/// - psi: anim / frames = the weapon's melee animation / frames, then optValue its psi ones; sound = pick(the
+///   weapon's hit sounds), then optValue pick(its psi sounds).
+/// - `success` false: vanilla's miss chains (:316-:341) with the raw lists.
+/// One HIT.PCK sprite Explosion(voxel, anim, 0, false, true, animFrames) when anim != -1; recorded frames =
+/// animFrames > 0 ? animFrames : Explosion::HIT_FRAMES, ms = frames x interval; the sound at the voxel tile's
+/// angle, played even with no sprite (vanilla :365). A cue with no `voxel` (a psi cue before this stage's additive
+/// field) is unresolved. Sound ids come from the raw rule lists (F1512), several picked with RNG::seedless (V4).
+/// The ghost follows Q1 (b) like a hit ghost.
+void combatStartHitEffect(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
+{
+	const Json::Value& p = ev["payload"];
+	const bool psi = kind == "psi";
+	const int actorId = p.get("actor", -1).asInt();
+	const BattleUnit* actor = actorId >= 0 ? CoopIdMaps::unit(actorId) : nullptr;
+
+	Json::Value r(Json::objectValue);
+	r["seq"] = ev.get("seq", 0u).asUInt();
+	r["actionId"] = ev.get("actionId", 0u).asUInt();
+	r["kind"] = kind;
+	r["unit"] = actorId;
+	r["seat"] = actor ? (int)actor->getCoopSeat() : -1;
+	r["speed"] = 0;
+	r["trajLen"] = 0;
+	r["ticks"] = 0;
+	r["ms"] = 0;
+	r["endVoxel"] = Json::Value();
+	r["pathMatches"] = false;
+	r["arc"] = false;
+	r["pellets"] = false;
+	r["sprites"] = 0;
+	r["spread"] = 0;
+	r["frame"] = -1;
+	r["frames"] = 0;
+	r["maxDelay"] = 0;
+	r["intervalMs"] = 0;
+	r["sound"] = Mod::NO_SOUND;
+	r["soundEnd"] = Mod::NO_SOUND;
+	r["steps"] = 0;
+	r["cut"] = false;
+	r["afterTurnSeq"] = 0;
+	r["waitMs"] = 0;
+	r["maxGapMs"] = 0;
+	r["startStamp"] = 0;
+	r["voxel"] = p.isMember("voxel") ? p["voxel"] : Json::Value();
+	++combatKindSlot(g_combatProbe.enqueued, kind);
+
+	const bool weaponNamed = p.isMember("weaponType") && p["weaponType"].isString();
+	const RuleItem* weaponRule = weaponNamed ? save->getMod()->getItem(p["weaponType"].asString()) : nullptr;
+	bool named = false;
+	const RuleItem* itemRule = combatCueItemRule(save, p, &named);
+	// Vanilla's hit branch reads both the weapon's rules and the damage item's (:277, :282).
+	const bool resolved = weaponRule != nullptr && itemRule != nullptr && p.isMember("voxel") && p["voxel"].isObject();
+	BattlescapeState* bs = combatLiveState();
+	Map* map = bs ? bs->getMap() : nullptr;
+	r["unresolved"] = !resolved;
+	r["noMap"] = !map;
+	if (!resolved)
+		++g_combatProbe.unresolved;
+	if (!map)
+		++g_combatProbe.noMap;
+	if (!resolved || !map)
+	{
+		++combatKindSlot(g_combatProbe.completed, kind);
+		combatPushRecord(r);
+		return;
+	}
+
+	const Position voxel = CoopArbiter::coopJsonPos(p["voxel"]);
+	const bool miss = !p.get("success", true).asBool();
+	const RuleItem* damageRule = p["itemType"].asString() != p["weaponType"].asString() ? itemRule : nullptr;
+	const int interval = std::max(1, BattlescapeState::DEFAULT_ANIM_SPEED / 2 - 10 * itemRule->getExplosionSpeed());
+	int anim = weaponRule->getMeleeAnimation();
+	int animFrames = weaponRule->getMeleeAnimationFrames();
+	int sound = Mod::NO_SOUND;
+	if (psi)
+	{
+		// psi attack sound is based on the weapon's hit sound (vanilla :291-:296)
+		sound = combatPickSound(weaponRule->getHitSoundRaw());
+		combatOptValue(anim, weaponRule->getPsiAnimation());
+		combatOptValue(animFrames, weaponRule->getPsiAnimationFrames());
+		combatOptValue(sound, combatPickSound(weaponRule->getPsiSoundRaw()));
+	}
+	else
+	{
+		sound = combatPickSound(weaponRule->getMeleeSoundRaw());
+		if (damageRule)
+		{
+			combatOptValue(anim, damageRule->getMeleeAnimation());
+			combatOptValue(animFrames, damageRule->getMeleeAnimationFrames());
+			combatOptValue(sound, combatPickSound(damageRule->getMeleeSoundRaw()));
+		}
+	}
+	if (miss)
+	{
+		combatOptValue(anim, weaponRule->getMeleeMissAnimation());
+		combatOptValue(animFrames, weaponRule->getMeleeMissAnimationFrames());
+		if (psi)
+		{
+			combatOptValue(sound, combatPickSound(weaponRule->getHitMissSoundRaw()));
+			combatOptValue(anim, weaponRule->getPsiMissAnimation());
+			combatOptValue(animFrames, weaponRule->getPsiMissAnimationFrames());
+			combatOptValue(sound, combatPickSound(weaponRule->getPsiMissSoundRaw()));
+		}
+		else
+		{
+			combatOptValue(sound, combatPickSound(weaponRule->getMeleeMissSoundRaw()));
+			if (damageRule)
+			{
+				combatOptValue(anim, damageRule->getMeleeMissAnimation());
+				combatOptValue(animFrames, damageRule->getMeleeMissAnimationFrames());
+				combatOptValue(sound, combatPickSound(damageRule->getMeleeMissSoundRaw()));
+			}
+		}
+	}
+	// Vanilla explode() (:432-:444): the melee hit sound only when the swing has power (a miss has none).
+	int soundEnd = Mod::NO_SOUND;
+	if (!psi && p.get("power", 0).asInt() > 0)
+	{
+		soundEnd = combatPickSound(weaponRule->getMeleeHitSoundRaw());
+		if (damageRule)
+			combatOptValue(soundEnd, combatPickSound(damageRule->getMeleeHitSoundRaw()));
+	}
+	const int frames = animFrames > 0 ? animFrames : Explosion::HIT_FRAMES;
+	const std::uint32_t ms = (std::uint32_t)frames * (std::uint32_t)interval;
+	const Position tile = voxel.toTile();
+	Explosion* sprite = anim != -1 ? new Explosion(voxel, anim, 0, false, true, animFrames) : nullptr;
+	r["frame"] = anim;
+	r["frames"] = frames;
+	r["sprites"] = sprite ? 1 : 0;
+	r["intervalMs"] = interval;
+	r["ticks"] = sprite ? frames : 0;
+	r["ms"] = ms;
+	// Vanilla plays the swing / psi sound even without a sprite (:365).
+	combatPlay(save, sound, map->getSoundAngle(tile));
+	r["sound"] = sound;
+
+	if (!sprite)
+	{
+		// No sprite: vanilla's first think() runs explode() at once - the melee hit sound now.
+		if (soundEnd != Mod::NO_SOUND)
+		{
+			combatPlay(save, soundEnd, map->getSoundAngle(tile));
+			r["soundEnd"] = soundEnd;
+		}
+		++combatKindSlot(g_combatProbe.completed, kind);
+		combatPushRecord(r);
+		return;
+	}
+
+	g_deathInterval = interval; // W2-P6b S-D.2 (D-i): vanilla ExplosionBState's state interval, display only
+	map->getExplosions()->push_back(sprite);
+	map->invalidate();
+	CombatGhost g;
+	g.kind = kind;
+	g.startedAtMs = SDL_GetTicks();
+	g.durationMs = ms;
+	g.drawnOn = map;
+	g.unitId = actorId;
+	g.actionId = ev.get("actionId", 0u).asUInt();
+	g.sprites.push_back(sprite);
+	g.intervalMs = (std::uint32_t)interval;
+	g.ticksTotal = (std::uint32_t)frames;
+	g.rule = itemRule;
+	g.endSound = soundEnd;
+	g.endSoundAt = tile;
+	g.lastAdvanceMs = g.startedAtMs; // W2-P5 S-T.1 (E3.1 ST2 (a)): probe only
+	g.ordinal = combatPushRecord(r);
+	++g_combatProbe.live;
+	g_combatGhosts.push_back(g);
+}
+
+/// E-c..E-e: one effect sound record (event_state `displayTwo.effects.<kind>`): count +1, the last kCombatRingCap.
+void effectPushRecord(EffectSoundProbe& probe, const Json::Value& r)
+{
+	++probe.count;
+	probe.ring.push_back(r);
+	while (probe.ring.size() > kCombatRingCap)
+		probe.ring.pop_front();
+}
+
+/// E-c (Q14 (a)): an applied `medikit` cue (a coop client, the option on) plays vanilla's medi-kit sound
+/// (TileEngine :5019, playSound(int): no angle, F1749) - the kit resolved BEFORE the cue's delta (a one-charge kit
+/// may leave with it, N43 = F1692), its sound picked from its raw hit-sound list (F1512, V4) - and records {seq,
+/// actionId, actor, unit, item, itemType, sound, unresolved}.
+void effectMedikit(const SavedBattleGame* save, const Json::Value& ev)
+{
+	const Json::Value& p = ev["payload"];
+	const int itemId = p.get("item", -1).asInt();
+	const BattleItem* item = itemId >= 0 ? CoopIdMaps::item(itemId) : nullptr;
+	const RuleItem* rule = item ? item->getRules() : nullptr;
+	const int sound = rule ? combatPickSound(rule->getHitSoundRaw()) : Mod::NO_SOUND;
+	combatPlay(save, sound, 0);
+	Json::Value r(Json::objectValue);
+	r["seq"] = ev.get("seq", 0u).asUInt();
+	r["actionId"] = ev.get("actionId", 0u).asUInt();
+	r["actor"] = p.get("actor", -1).asInt();
+	r["unit"] = p.get("unit", -1).asInt();
+	r["item"] = itemId;
+	r["itemType"] = rule ? rule->getType() : std::string();
+	r["sound"] = sound;
+	r["unresolved"] = rule == nullptr;
+	effectPushRecord(g_combatProbe.medikit, r);
+}
+
+/// E-d: an applied `panic` cue (a coop client, the option on) plays vanilla's panic / berserk sound
+/// (BattlescapeGame::handlePanickingUnit :1627-:1660, playSound(int): no angle) - mode "berserk" -> the berserk
+/// list, else the panic list: the unit's rules, else its geoscape soldier's gender list, else none - picked from
+/// the raw list (V4), and records {seq, actionId, unit, mode, sound, unresolved}. The unit is read before the cue's
+/// delta.
+void effectPanic(const SavedBattleGame* save, const Json::Value& ev)
+{
+	const Json::Value& p = ev["payload"];
+	const int unitId = p.get("unit", -1).asInt();
+	const std::string mode = p.get("mode", "").asString();
+	const bool berserk = mode == "berserk";
+	const BattleUnit* unit = unitId >= 0 ? CoopIdMaps::unit(unitId) : nullptr;
+	std::vector<int> sounds;
+	if (unit && unit->getUnitRules())
+	{
+		// aliens, civilians, xcom HWPs
+		sounds = berserk ? unit->getUnitRules()->getBerserkSounds() : unit->getUnitRules()->getPanicSounds();
+	}
+	else if (unit && unit->getGeoscapeSoldier())
+	{
+		// xcom soldiers (male / female)
+		const RuleSoldier* soldierRules = unit->getGeoscapeSoldier()->getRules();
+		const bool male = unit->getGeoscapeSoldier()->getGender() == GENDER_MALE;
+		if (male)
+			sounds = berserk ? soldierRules->getMaleBerserkSounds() : soldierRules->getMalePanicSounds();
+		else
+			sounds = berserk ? soldierRules->getFemaleBerserkSounds() : soldierRules->getFemalePanicSounds();
+	}
+	const int sound = combatPickSound(sounds);
+	combatPlay(save, sound, 0);
+	Json::Value r(Json::objectValue);
+	r["seq"] = ev.get("seq", 0u).asUInt();
+	r["actionId"] = ev.get("actionId", 0u).asUInt();
+	r["unit"] = unitId;
+	r["mode"] = mode;
+	r["sound"] = sound;
+	r["unresolved"] = unit == nullptr;
+	effectPushRecord(g_combatProbe.panic, r);
+}
+
 /// W2-P5 S-T.3 (amendment E3.1 section 4 H3, OR1 (a)): run for every non-reveal bt_ev and every
 /// bt_action_end BEFORE combatEndAll(). Each PENDING pair - a held shot ghost whose shooter's SPEC 7 turn
 /// ghost (seq afterTurnSeq) still runs - ends unless @a ev is a `shot` of that pair's own actionId (a
@@ -16419,6 +16701,7 @@ bool deathView(const BattleUnit* u, CoopUnitDrawView* io)
 /// The combat half of onEvApplied() (a coop client): Q1 (b)'s completion rule, never gated by the option
 /// (OQ3), then a `shot`'s own ghost when the option is on. W2-P5 S-B.2: a `hit` / `explosion` starts its
 /// impact ghost the same way, and a pellet `hit` joins the running one of its action instead (OQ1 (a)).
+/// W2-P6b S-E.2: a `melee` / `psi` starts its effect ghost, a `medikit` / `panic` plays its sound (option on).
 void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
 {
 	if (!combatClient())
@@ -16446,6 +16729,20 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 		if (g_deathApplyHold && !g_deathGhosts.empty() && !g_deathGhosts.front().started)
 			deathAdvance(save, nowMs);
 		deathOnEv(save, ev, nowMs);
+		return;
+	}
+	// W2-P6b S-E.2 (section 9 E-b..E-d; OR3 (a)): an applied `melee` / `psi` starts its effect ghost, which follows
+	// Q1 (b) like a hit ghost; an applied `medikit` / `panic` plays its sound. Only STARTING a display is gated.
+	if (kind == "melee" || kind == "psi" || kind == "medikit" || kind == "panic")
+	{
+		if (!Options::coopGhostStepper)
+			return;
+		if (kind == "medikit")
+			effectMedikit(save, ev);
+		else if (kind == "panic")
+			effectPanic(save, ev);
+		else
+			combatStartHitEffect(save, ev, kind);
 		return;
 	}
 	if (kind == "hit" || kind == "explosion")
@@ -17012,6 +17309,23 @@ bool setDeathApplyHold(bool on)
 	combatSync(); // a pending generation reset clears the lever first, never after this write
 	g_deathApplyHold = on;
 	return g_deathApplyHold;
+}
+
+void onPrimeAftermath(const SavedBattleGame* save, const std::string& itemType, bool unprime)
+{
+	if (!save || !combatClient())
+		return;
+	combatSync();
+	const RuleItem* rule = save->getMod()->getItem(itemType);
+	const int sound = rule ? combatPickSound(unprime ? rule->getUnprimeSoundRaw() : rule->getPrimeSoundRaw())
+		: Mod::NO_SOUND;
+	combatPlay(save, sound, 0);
+	Json::Value r(Json::objectValue);
+	r["itemType"] = itemType;
+	r["unprime"] = unprime;
+	r["sound"] = sound;
+	r["unresolved"] = rule == nullptr;
+	effectPushRecord(g_combatProbe.prime, r);
 }
 
 void probeDeriveShotPath(SavedBattleGame* save, const Json::Value& ev)

@@ -270,6 +270,14 @@ bool deathGhostActive(int unitId);
 /// every game; battle-scoped (cleared with the combat probe storage). Returns the value now held. Main thread only.
 bool setDeathApplyHold(bool on);
 
+/// W2-P6b S-E.2 (spec rewrite/prompts/w2p6_display_two.md section 9 E-e; Q14 (a), F1230, F1751): the ORDERING
+/// client's own prime / unprime aftermath (coopClientCombatAftermath, right after vanilla's message) plays vanilla's
+/// prime / unprime sound (BattlescapeGame :1132 / :1148, playSound(int): no angle) - picked from the item type's
+/// raw primeSound / unprimeSound list without the sim RNG (F1512, V4) - and writes one displayTwo.effects.prime
+/// record {itemType, unprime, sound, unresolved}. Not option-gated (OR3 (a): own-order feedback beside the ungated
+/// message). A coop client only; main thread only.
+void onPrimeAftermath(const SavedBattleGame* save, const std::string& itemType, bool unprime);
+
 /// W2-P5 S-A.1 (amendment E1 PR-E2; S-A.2 amendment E2): CLIENT, probe only, called from
 /// CoopApply::applyEvPayload()'s cue branch for an applied `shot` (before applyDelta): re-derive the
 /// shot's path the way the ghost does - straight: TileEngine::calculateLineVoxel from originVoxel toward
