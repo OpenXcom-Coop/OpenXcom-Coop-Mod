@@ -251,6 +251,47 @@ void absorbItem(const BattleItem* item);
 /// never rides a delta. Bumps `absorbed`. Never called by product code.
 void absorbItemRemoved(int id);
 
+// ----- W2-P7 S-A.1 (the RED commit): the `battleEnd` record -----
+// Spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-1 ST4 (a) (F1895,
+// F1909, F1910). TEST INTROSPECTION ONLY (TestServer `event_state.battleEnd`),
+// never read by game logic, never on the wire. SESSION-LIFETIME: cleared only
+// by initBattleAuthority() (battleEndRecordReset), never by
+// resetBattleAuthority() or CoopPump::reset(), so a skirmish end's disconnect
+// resets on both machines leave it readable. Mutex-guarded (those resets and
+// the record can meet on the UDP-monitor thread). Bodies: connectionTCP.cpp,
+// in the CoopDelta probe storage block. Commit S-A.1 adds the storage, the
+// reader, the zeros, the sendEv evsAfter probe, the drain-depth counter and
+// the teardown snapshot; commit S-A.2's host hook, client applier and pump
+// consumer are the other writers (battleEndRecordSet / battleEndNoteTeardown).
+
+/// [battleEnd] this machine's record, every key present (zeros before any
+/// write): {emitted, applied, seq, reason, aborted, inExitArea,
+/// perSeatVerdict:[{seat, verdict}], tally:{liveAliens, liveSoldiers, inExit},
+/// actionIdAtEmit, quiescentAtEmit, hBuckets:[], evsAfter, stageSkips,
+/// skirmish, latchedMs, tornDownMs, teardownInDrain, quiescentAtTeardown,
+/// desyncAtTeardown, bstatePushesAtTeardown, queueDepthAtTeardown,
+/// lastSeqApplied, hashVerify (null, or {seq, kind, buckets:[]})}.
+Json::Value battleEndRecord();
+
+/// Write key @a key of this machine's record (S-A.2's writers). Probe only.
+void battleEndRecordSet(const char* key, const Json::Value& value);
+
+/// Clear this machine's record to its zeros (and the evsAfter arm). Called
+/// by initBattleAuthority() only.
+void battleEndRecordReset();
+
+/// HOST, CoopEmit::sendEv() right after the seq stamp: the first envelope
+/// whose kind is `battle_end` records its stamped seq (`seq`); every envelope
+/// stamped after it (a trailing nested reveal included) bumps `evsAfter`.
+void battleEndNoteSend(const Json::Value& ev);
+
+/// CLIENT, S-A.2's pump consumer, before its teardown: the teardown snapshots
+/// - tornDownMs (SDL_GetTicks), teardownInDrain (CoopPump::drainApplyQueue()'s
+/// depth > 0), quiescentAtTeardown (coopBattleQuiescent()), desyncAtTeardown,
+/// bstatePushesAtTeardown (coopClientBStatePushes()), queueDepthAtTeardown,
+/// lastSeqApplied and hashVerify (lastHashVerify()).
+void battleEndNoteTeardown();
+
 } // namespace CoopDelta
 
 // ----- W2-P2 S-C, commit S-C.2: host combat cues (spec (b)11, (b)14) -----

@@ -2036,6 +2036,13 @@ void requestBaseRestate(bool badN, CoopFog::Side side)
 
 } // namespace CoopReveal
 
+// W2-P7 S-A.1 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-1 ST4 (a),
+// F1909): CoopPump::drainApplyQueue()'s nesting depth - raised on entry and
+// lowered on every return path by the guard at its top. Probe only:
+// CoopDelta::battleEndNoteTeardown() records `teardownInDrain` = depth > 0.
+// Never read by game logic.
+static std::atomic<int> g_coopDrainDepth{0};
+
 namespace CoopPump
 {
 
@@ -2047,6 +2054,13 @@ void enqueue(const Json::Value& evOrEnd)
 
 void drainApplyQueue()
 {
+	// W2-P7 S-A.1 (ST4 (a)): the drain-depth probe (g_coopDrainDepth above).
+	struct DrainDepthGuard
+	{
+		DrainDepthGuard() { g_coopDrainDepth.fetch_add(1); }
+		~DrainDepthGuard() { g_coopDrainDepth.fetch_sub(1); }
+	} depthGuard;
+
 	for (;;)
 	{
 		Json::Value ev;
@@ -2578,6 +2592,117 @@ static void resetProbes()
 		std::lock_guard<std::mutex> lock(g_saveBlobTextMutex); // W2-P2 S-H.2 (Q-H6)
 		g_saveBlobTexts.clear();
 	}
+}
+
+// ----- W2-P7 S-A.1 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-1
+// ST4 (a)): the session-lifetime `battleEnd` record (CoopDelta.h) -----
+// NOT battle-scoped: resetProbes() above never touches it. Only
+// battleEndRecordReset() - called by initBattleAuthority() - clears it, so the
+// disconnect resets both machines run at a skirmish end leave it readable
+// (F1895). Probe only: never read by game logic, never on the wire. The mutex
+// is a leaf (nothing that takes another lock runs under it).
+static std::mutex g_battleEndMutex;
+static Json::Value g_battleEnd;              // null until first use, then battleEndZeros()
+static std::uint32_t g_battleEndSendSeq = 0; // host: this battle's stamped `battle_end` seq (0 = none yet)
+
+static Json::Value battleEndZeros()
+{
+	Json::Value r(Json::objectValue);
+	r["emitted"] = 0;
+	r["applied"] = 0;
+	r["seq"] = 0u;
+	r["reason"] = "";
+	r["aborted"] = false;
+	r["inExitArea"] = 0;
+	r["perSeatVerdict"] = Json::Value(Json::arrayValue);
+	Json::Value tally(Json::objectValue);
+	tally["liveAliens"] = 0;
+	tally["liveSoldiers"] = 0;
+	tally["inExit"] = 0;
+	r["tally"] = tally;
+	r["actionIdAtEmit"] = 0u;
+	r["quiescentAtEmit"] = false;
+	r["hBuckets"] = Json::Value(Json::arrayValue);
+	r["evsAfter"] = 0;
+	r["stageSkips"] = 0;
+	r["skirmish"] = false;
+	r["latchedMs"] = 0u;
+	r["tornDownMs"] = 0u;
+	r["teardownInDrain"] = false;
+	r["quiescentAtTeardown"] = false;
+	r["desyncAtTeardown"] = false;
+	r["bstatePushesAtTeardown"] = 0;
+	r["queueDepthAtTeardown"] = 0u;
+	r["lastSeqApplied"] = 0u;
+	r["hashVerify"] = Json::Value(); // null until the teardown snapshot
+	return r;
+}
+
+// The caller holds g_battleEndMutex.
+static Json::Value& battleEndLocked()
+{
+	if (!g_battleEnd.isObject())
+		g_battleEnd = battleEndZeros();
+	return g_battleEnd;
+}
+
+Json::Value battleEndRecord()
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	return battleEndLocked();
+}
+
+void battleEndRecordSet(const char* key, const Json::Value& value)
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	battleEndLocked()[key] = value;
+}
+
+void battleEndRecordReset()
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	g_battleEnd = battleEndZeros();
+	g_battleEndSendSeq = 0;
+}
+
+void battleEndNoteSend(const Json::Value& ev)
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	Json::Value& r = battleEndLocked();
+	if (g_battleEndSendSeq != 0)
+	{
+		r["evsAfter"] = r["evsAfter"].asInt() + 1;
+		return;
+	}
+	if (ev.get("kind", "").asString() == "battle_end")
+	{
+		g_battleEndSendSeq = ev.get("seq", 0u).asUInt();
+		r["seq"] = g_battleEndSendSeq;
+	}
+}
+
+void battleEndNoteTeardown()
+{
+	// Every live value is read BEFORE the record's lock is taken (the readers
+	// below take their own locks), so g_battleEndMutex stays a leaf.
+	const std::uint32_t nowMs = SDL_GetTicks();
+	const bool inDrain = g_coopDrainDepth.load() > 0;
+	const bool quiescent = coopBattleQuiescent();
+	const bool desync = coopBattleAuthority().desyncFrozen.load();
+	const int bstatePushes = coopClientBStatePushes();
+	const std::uint32_t queueDepth = CoopPump::queueDepth();
+	const std::uint32_t lastApplied = CoopPump::lastSeqApplied();
+	const Json::Value hashVerify = lastHashVerify();
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	Json::Value& r = battleEndLocked();
+	r["tornDownMs"] = nowMs;
+	r["teardownInDrain"] = inDrain;
+	r["quiescentAtTeardown"] = quiescent;
+	r["desyncAtTeardown"] = desync;
+	r["bstatePushesAtTeardown"] = bstatePushes;
+	r["queueDepthAtTeardown"] = queueDepth;
+	r["lastSeqApplied"] = lastApplied;
+	r["hashVerify"] = hashVerify;
 }
 
 } // namespace CoopDelta
@@ -4314,6 +4439,9 @@ void sendEv(Json::Value ev)
 	}
 
 	ev["seq"] = nextSeq();
+	// W2-P7 S-A.1 (AMENDMENT P7-1 ST4 (a)): the battleEnd record's evsAfter
+	// probe - the `battle_end` envelope's seq, then every envelope after it.
+	CoopDelta::battleEndNoteSend(ev);
 	// W2-P2 S-H.2 (Q-H6): bind a saveBlob-carrying `h`'s kept document to this
 	// seq (host diagnostics only; the envelope is not touched).
 	if (hostAuthoring)
@@ -4507,6 +4635,9 @@ void initBattleAuthority(std::uint32_t battleId)
 	a.battleId = battleId;
 	a.desyncFrozen = false; // R2-P9: a fresh battle always starts unfrozen
 	a.resetSeatFactions();
+	// W2-P7 S-A.1 (AMENDMENT P7-1 ST4 (a)): the session-lifetime battleEnd
+	// record is cleared here and nowhere else (CoopDelta.h).
+	CoopDelta::battleEndRecordReset();
 }
 
 // SPEC 16 (W1-P17) M2: the deferred-pause-modal latch. Set by

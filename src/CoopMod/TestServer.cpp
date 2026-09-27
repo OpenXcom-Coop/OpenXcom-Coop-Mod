@@ -3185,6 +3185,19 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["value"] = Options::coopGhostStepper;
 			resp["ok"] = true;
 		}
+		else if (name == "battleAutoEnd")
+		{
+			// W2-P7 S-A.1 (spec rewrite/prompts/w2p7_battle_end.md R3.5, N6 =
+			// F1855): vanilla's auto-end option (Options.cpp "battleAutoEnd",
+			// default false) - the lever C28S's autoEnd path needs. Same round-trip
+			// shape as every lever above: "value" is OPTIONAL (omit it for a pure
+			// read) and the response echoes the LIVE Options:: global read back
+			// AFTER the (possible) write. Memory only, never Options::save.
+			if (req.isMember("value"))
+				Options::battleAutoEnd = req["value"].asBool();
+			resp["value"] = Options::battleAutoEnd;
+			resp["ok"] = true;
+		}
 		else
 		{
 			resp["error"] = "unknown option: " + name;
@@ -6162,6 +6175,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			// attached deltas by seq, each with its added/removed ids per class
 			// (a client reports its own empty ring). Same reset.
 			resp["deltaRing"] = CoopDelta::deltaRing();
+			// W2-P7 S-A.1 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT
+			// P7-1 ST4 (a)): the SESSION-LIFETIME battleEnd record (CoopDelta.h) -
+			// cleared only by initBattleAuthority(), so it survives the disconnect
+			// resets of a skirmish end. Commit S-A.1 exposes its zeros; commit
+			// S-A.2's host hook, client applier and pump consumer write it.
+			resp["battleEnd"] = CoopDelta::battleEndRecord();
 		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
