@@ -1,0 +1,10 @@
+name: "Coop turn-limit probe"
+version: 1.0
+description: "Test-only fixture for W2-P7 S-D1 (battle end, row E4). Data only. Adds
+  one deployment, STR_COOP_TURN_LIMIT_TEST: the stock STR_SMALL_SCOUT deployment
+  (the NEW BATTLE default) with turnLimit 1 and chronoTrigger 0 (FORCE_LOSE), so the
+  turn-limit ending of BattlescapeGame::endTurn is reachable. No stock xcom1
+  deployment sets a turnLimit. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1

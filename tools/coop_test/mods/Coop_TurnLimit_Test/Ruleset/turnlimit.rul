@@ -1,0 +1,37 @@
+# Test-only mod for W2-P7 S-D1 (rewrite/prompts/w2p7_battle_end.md, row E4; TASK 0 T0-4).
+# Data only. One new deployment, selected on the NEW BATTLE screen by the harness's
+# newbattle_mission command: the stock STR_SMALL_SCOUT deployment (the NEW BATTLE
+# default, bin/standard/xcom1/alienDeployments.rul) copied under a new type, plus
+#   turnLimit: 1      BattlescapeGame::endTurn ends the battle once getTurn() > 1
+#   chronoTrigger: 0  FORCE_LOSE (AlienDeployment.h enum ChronoTrigger): setAborted(true)
+#                     then finishBattle(false, 0) - the mission is lost.
+# The new type names no UFO rule, so NEW BATTLE generates it as a mission site on
+# the selected terrain (NewBattleState::btnOkClick's mission-site branch).
+alienDeployments:
+  - type: STR_COOP_TURN_LIMIT_TEST
+    data:
+      - alienRank: 5
+        lowQty: 1
+        highQty: 1
+        dQty: 0
+        percentageOutsideUfo: 50
+        itemSets:
+          -
+            - STR_PLASMA_PISTOL
+            - STR_PLASMA_PISTOL_CLIP
+            - STR_PLASMA_PISTOL_CLIP
+            - STR_MIND_PROBE
+          -
+            - STR_PLASMA_RIFLE
+            - STR_PLASMA_RIFLE_CLIP
+            - STR_PLASMA_RIFLE_CLIP
+            - STR_MIND_PROBE
+          -
+            - STR_HEAVY_PLASMA
+            - STR_HEAVY_PLASMA_CLIP
+            - STR_MIND_PROBE
+    width: 40
+    length: 40
+    height: 4
+    turnLimit: 1
+    chronoTrigger: 0
