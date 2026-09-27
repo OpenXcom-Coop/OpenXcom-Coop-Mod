@@ -2043,6 +2043,20 @@ void requestBaseRestate(bool badN, CoopFog::Side side)
 // Never read by game logic.
 static std::atomic<int> g_coopDrainDepth{0};
 
+// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-1 ST1/ST2
+// (a), F1899): the two battle-scoped `battle_end` flags. CLIENT only; set by
+// the `battle_end` applier (CoopApply::applyEvPayload), never by the host.
+//  - terminal: the battle stream is over - drainApplyQueue() applies nothing
+//    after `battle_end` (every mode).
+//  - teardown latch: a skirmish client leaves the battle; consumed ONCE at the
+//    RB-D5 pump point in updateCoopTask(), after the drain - never from the
+//    apply path (BattlePump.h's RB-D5 contract, the 0xC0000374 lesson).
+// Both cleared by initBattleAuthority() and resetBattleAuthority() (a
+// campaign's next battle does not disconnect). Atomics: resetBattleAuthority()
+// can run on the UDP-monitor thread.
+static std::atomic<bool> g_coopBattleEndTerminal{false};
+static std::atomic<bool> g_coopBattleEndTeardownLatch{false};
+
 namespace CoopPump
 {
 
@@ -2073,6 +2087,11 @@ void drainApplyQueue()
 
 			if (g_battleFrozen.load())
 				return; // frozen: a later packet (R2-P9/BattleAuthority) clears this
+
+			// W2-P7 S-A.2 (ST2 (a)): `battle_end` was applied - the stream is
+			// terminal, nothing after it is applied (anything still queued stays).
+			if (g_coopBattleEndTerminal.load())
+				return;
 
 			if (g_battleApplyQueue.empty())
 				return;
@@ -4570,6 +4589,12 @@ int BattleAuthority::factionOf(int seat) const
 	return (int)FACTION_PLAYER;
 }
 
+// W2-P7 S-A.2: see BattleAuthority.h.
+bool BattleAuthority::seatMapped(int seat) const
+{
+	return seat >= 0 && seat < kMaxSeats && _seatFaction[seat] != kUnmapped;
+}
+
 bool BattleAuthority::mySideActive(const SavedBattleGame* s) const
 {
 	if (!s)
@@ -4638,6 +4663,9 @@ void initBattleAuthority(std::uint32_t battleId)
 	// W2-P7 S-A.1 (AMENDMENT P7-1 ST4 (a)): the session-lifetime battleEnd
 	// record is cleared here and nowhere else (CoopDelta.h).
 	CoopDelta::battleEndRecordReset();
+	// W2-P7 S-A.2 (F1899): the battle-scoped battle_end flags start clear.
+	g_coopBattleEndTerminal = false;
+	g_coopBattleEndTeardownLatch = false;
 }
 
 // SPEC 16 (W1-P17) M2: the deferred-pause-modal latch. Set by
@@ -4992,6 +5020,9 @@ void resetBattleAuthority()
 	// W2-P2 S-A (spec (b)5): the delta core's probes (CoopDelta.h) are
 	// battle-scoped too, and so is the delta_drop_next one-shot.
 	CoopDelta::resetProbes();
+	// W2-P7 S-A.2 (F1899): the battle_end flags are battle-scoped too.
+	g_coopBattleEndTerminal = false;
+	g_coopBattleEndTeardownLatch = false;
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -12508,6 +12539,136 @@ bool coopSuppressReinforcements(const SavedBattleGame*)
 	return !coopBattleAuthority().hostSim;
 }
 
+// ===== W2-P7 S-A.2: the host's battle_end (BattleAuthority.h) =====
+// Spec rewrite/prompts/w2p7_battle_end.md, owner ruling D129 = (a), AMENDMENT
+// P7-1 (ST2 (a) every mode, ST5 (a) the reason order, ST6 (a) the PvP abort,
+// OR2 (a) tallyUnits kept), the review's PINNED S-A host hook steps 1-6.
+// Called once, as the first statement of BattlescapeState::finishBattle(),
+// before its pops, item drops and removeSummonedPlayerUnits() - so `h`
+// describes the battle the client holds. TASK 0 T0-2 (F1982/F1983): both S-A
+// triggers enter with actionId 0 and no pending reveal (OR1's pre-flush not
+// needed) and the host sends nothing after this envelope.
+void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExitArea)
+{
+	// 1. A live host coop battle only; single player, a client and a preview
+	//    are no-ops.
+	if (!game || !save || !isCoopBattle() || !coopBattleAuthority().hostSim || save->isPreview())
+		return;
+
+	// 2. A stage transition is not an end (Q6 / D158): finishBattle's own
+	//    nextStage derivation and test (BattlescapeState.cpp, the
+	//    `!nextStage.empty() && inExitArea && !isPreview` branch).
+	AlienDeployment* ruleDeploy = game->getMod()->getDeployment(save->getMissionType());
+	if (!ruleDeploy && game->getSavedGame())
+	{
+		for (auto* ufo : *game->getSavedGame()->getUfos())
+		{
+			if (ufo->isInBattlescape())
+			{
+				std::string ufoMissionName = ufo->getRules()->getType();
+				if (!save->getAlienCustomMission().empty())
+				{
+					// fake underwater UFO
+					ufoMissionName = save->getAlienCustomMission();
+				}
+				ruleDeploy = game->getMod()->getDeployment(ufoMissionName);
+				break;
+			}
+		}
+	}
+	const std::string nextStage = ruleDeploy ? ruleDeploy->getNextStage() : std::string();
+	if (!nextStage.empty() && inExitArea)
+	{
+		CoopDelta::battleEndRecordSet("stageSkips", CoopDelta::battleEndRecord()["stageSkips"].asInt() + 1);
+		Log(LOG_INFO) << "[coop-battle-end] host: stage transition to '" << nextStage
+			<< "' - not an end, no battle_end";
+		return;
+	}
+
+	// 3. OR2 (a): vanilla's own tally (stock data writes nothing, N35).
+	BattlescapeState* bs = save->getBattleState();
+	BattlescapeGame* bg = connectionTCP::isBattlescapeStateLive(bs) ? save->getBattleGame() : nullptr;
+	if (!bg)
+	{
+		Log(LOG_ERROR) << "[coop-battle-end] host: finishBattle without a live BattlescapeState - no battle_end";
+		return;
+	}
+	const BattlescapeTally t = bg->tallyUnits();
+
+	// 4. ST5 (a): the reason, in this order; `aborted` is the battle's own flag.
+	std::string reason;
+	if (save->getTurnLimit() > 0 && save->getTurn() > save->getTurnLimit())
+		reason = "turnLimit";
+	else if (abort)
+		reason = "abort";
+	else if (save->getObjectiveType() == MUST_DESTROY && save->allObjectivesDestroyed())
+		reason = "objectives";
+	else if (inExitArea == 0)
+		reason = "soldiersDown";
+	else
+		reason = "aliensDown";
+	const bool aborted = save->isAborted();
+
+	// 5. V7: X-COM's verdict is vanilla's own (finishBattle's cutscene choice:
+	//    abort -> abort, inExitArea == 0 -> lose, else win); the hostile seat
+	//    takes the complement, `abort` on an abort (ST6 (a), until D157).
+	const char* xcomVerdict = abort ? "abort" : (inExitArea == 0 ? "lose" : "win");
+	const char* hostileVerdict = abort ? "abort" : (inExitArea == 0 ? "win" : "lose");
+	Json::Value perSeatVerdict(Json::arrayValue);
+	for (int seat = 0; seat < 4; ++seat)
+	{
+		if (!coopBattleAuthority().seatMapped(seat))
+			continue;
+		const int faction = coopBattleAuthority().factionOf(seat);
+		const char* verdict = nullptr;
+		if (faction == (int)FACTION_PLAYER)
+			verdict = xcomVerdict;
+		else if (faction == (int)FACTION_HOSTILE)
+			verdict = hostileVerdict;
+		if (!verdict)
+			continue;
+		Json::Value entry(Json::objectValue);
+		entry["seat"] = seat;
+		entry["verdict"] = verdict;
+		perSeatVerdict.append(entry);
+	}
+
+	// 6. The envelope, the record, the send, then phase Ended.
+	const std::uint32_t actionId = CoopArbiter::currentActionId();
+	Json::Value ev = CoopWire::makeEv(0u, actionId, "battle_end");
+	Json::Value& p = ev["payload"];
+	p["reason"] = reason;
+	p["aborted"] = aborted;
+	p["inExitArea"] = inExitArea;
+	p["perSeatVerdict"] = perSeatVerdict;
+	Json::Value tally(Json::objectValue);
+	tally["liveAliens"] = t.liveAliens;
+	tally["liveSoldiers"] = t.liveSoldiers;
+	tally["inExit"] = t.inExit;
+	p["tally"] = tally;
+	ev["h"] = coopBuildActionEndHash(save);
+
+	Json::Value hBuckets(Json::arrayValue);
+	for (const auto& name : ev["h"].getMemberNames())
+		hBuckets.append(name);
+	CoopDelta::battleEndRecordSet("emitted", 1);
+	CoopDelta::battleEndRecordSet("reason", reason);
+	CoopDelta::battleEndRecordSet("aborted", aborted);
+	CoopDelta::battleEndRecordSet("inExitArea", inExitArea);
+	CoopDelta::battleEndRecordSet("perSeatVerdict", perSeatVerdict);
+	CoopDelta::battleEndRecordSet("tally", tally);
+	CoopDelta::battleEndRecordSet("actionIdAtEmit", actionId);
+	CoopDelta::battleEndRecordSet("quiescentAtEmit", coopBattleQuiescent());
+	CoopDelta::battleEndRecordSet("hBuckets", hBuckets);
+
+	CoopEmit::sendEv(ev);
+	coopBattleAuthority().phase = CoopBattlePhase::Ended;
+
+	Log(LOG_INFO) << "[coop-battle-end] host: battle_end reason=" << reason << " aborted=" << aborted
+		<< " inExitArea=" << inExitArea << " tally={" << t.liveAliens << "," << t.liveSoldiers << ","
+		<< t.inExit << "} actionId=" << actionId << " - phase Ended";
+}
+
 // ===== W1-P13b: CoopEndTurn (CoopEndTurn.h) - the END-TURN readiness tally
 // =====
 // WAVE1-RUNBOOK.md SPEC 10 / REV E.48 SS.C / REV E.50. See CoopEndTurn.h's
@@ -13423,6 +13584,40 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			// endTurn's setupCursor() on the player side).
 			coopClientPairSelection(save);
 		}
+		return;
+	}
+
+	if (kind == "battle_end")
+	{
+		// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md (b)5, AMENDMENT
+		// P7-1 ST1/ST2 (a), F2004): the host's terminal envelope. RECORD + ARM
+		// ONLY: no State op, no RNG, no world write and no phase write (ST1: the
+		// phase stays Active so the `h` compare right after this - verify() in
+		// the drain - still runs). The delta applies after it (onApplied). The
+		// terminal flag stops the drain after this ev in every mode; the
+		// teardown latch is armed only in a skirmish (DebriefingState's own
+		// skirmish test, getMonthsPassed() == -1, F1904) and is consumed at the
+		// RB-D5 pump point in updateCoopTask(). Campaign returns are S-C.
+		const Json::Value& p = ev["payload"];
+		bool skirmish = false;
+		BattlescapeState* bs = save->getBattleState();
+		if (connectionTCP::isBattlescapeStateLive(bs) && bs->getGame() && bs->getGame()->getSavedGame())
+			skirmish = bs->getGame()->getSavedGame()->getMonthsPassed() == -1;
+		CoopDelta::battleEndRecordSet("applied", 1);
+		CoopDelta::battleEndRecordSet("seq", ev.get("seq", 0u).asUInt());
+		CoopDelta::battleEndRecordSet("reason", p.get("reason", "").asString());
+		CoopDelta::battleEndRecordSet("aborted", p.get("aborted", false).asBool());
+		CoopDelta::battleEndRecordSet("inExitArea", p.get("inExitArea", 0).asInt());
+		CoopDelta::battleEndRecordSet("perSeatVerdict", p.get("perSeatVerdict", Json::Value(Json::arrayValue)));
+		CoopDelta::battleEndRecordSet("tally", p.get("tally", Json::Value(Json::objectValue)));
+		CoopDelta::battleEndRecordSet("latchedMs", SDL_GetTicks());
+		CoopDelta::battleEndRecordSet("skirmish", skirmish);
+		g_coopBattleEndTerminal = true;
+		if (skirmish)
+			g_coopBattleEndTeardownLatch = true;
+		Log(LOG_INFO) << "[coop-battle-end] client: battle_end applied seq=" << ev.get("seq", 0u).asUInt()
+			<< " reason=" << p.get("reason", "").asString() << " skirmish=" << skirmish
+			<< (skirmish ? " - teardown latched" : " - terminal, return path unchanged (S-C)");
 		return;
 	}
 
@@ -19059,6 +19254,22 @@ void clearNetworkSessionQueues(bool resetAuthority)
 	}
 }
 
+// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md (b)9, Q10 (a),
+// AMENDMENT P7-1 ST8 (a), F1910): the battle-scoped reset at a normal battle
+// end - the resetAuthority half of clearNetworkSessionQueues() above, without
+// its network queues (the session stays up). CoopGhost's reset rides
+// CoopPump::reset() (generation bump only, W2-P5 (b)9). Called by the
+// battle_end pump consumer in updateCoopTask(), BEFORE its
+// setState(GoToMainMenuState) - the house order (CoopState's ABANDON resets
+// first), so CoopIdMaps never holds a dropped battle's pointers.
+static void coopResetBattleScope()
+{
+	CoopPump::reset(true);
+	CoopIdMaps::reset();
+	resetBattleAuthority();
+	CoopHandshake::resetPendingState();
+}
+
 // ===== R4-P1: battle-start handshake (CoopHandshake.h) =====
 // SPIKE-RUNBOOK.md SS2.7/RB-D18/RB-D23/IR-5/IR-6. Storage/helpers live here,
 // next to BattleAuthority/CoopArbiter/CoopIdMaps/CoopPump/CoopEmit above -
@@ -23081,6 +23292,34 @@ void connectionTCP::updateCoopTask()
 			connectionTCP::session.freeze();
 			_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 		}
+	}
+
+	// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md (b)5-6, (b)9;
+	// AMENDMENT P7-1 ST1 (a), ST4 (a), ST8 (a); F1897, F1919): the skirmish
+	// client leaves the battle. The `battle_end` applier (CoopApply) only armed
+	// this latch; it is consumed HERE, at the RB-D5 pump point after the drain,
+	// never from the apply path (the 0xC0000374 lesson; the SPEC 16/18 latch
+	// precedent above). Ungated: a client has no action context to wait for
+	// (quiescentAtTeardown records it). Order: the teardown snapshots (before
+	// any reset), finishBattle's UI half (cursor, ambient loop, touch flags),
+	// phase Ended, the battle-scoped reset, then GoToMainMenuState - whose
+	// setState pops every state now; Game::run deletes the BattlescapeState/
+	// BattlescapeGame before GoToMainMenuState::init drops the SavedGame (the
+	// issue #82 chokepoint).
+	if (g_coopBattleEndTeardownLatch.exchange(false))
+	{
+		CoopDelta::battleEndNoteTeardown();
+		_game->getCursor()->setVisible(true);
+		SavedBattleGame* endedBattle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+		if (endedBattle && endedBattle->getAmbientSound() != Mod::NO_SOUND)
+		{
+			_game->getMod()->getSoundByDepth(0, endedBattle->getAmbientSound())->stopLoop();
+		}
+		_game->resetTouchButtonFlags();
+		coopBattleAuthority().phase = CoopBattlePhase::Ended;
+		coopResetBattleScope();
+		Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - leaving for the main menu";
+		_game->setState(new GoToMainMenuState(false));
 	}
 
 	// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): the order-feedback tick -

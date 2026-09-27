@@ -317,6 +317,12 @@ struct BattleAuthority
 	// implemented here (RB-D16).
 	int factionOf(int seat) const;
 
+	/// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md, PINNED S-A host
+	/// hook step 5): true iff @a seat (0..3) has an entry in the seat->faction
+	/// store. factionOf() cannot answer this - it falls back to FACTION_PLAYER
+	/// for an unmapped seat. Read-only.
+	bool seatMapped(int seat) const;
+
 	/// True iff the currently active side in @a s (SavedBattleGame::
 	/// getSide()) is the faction this machine's localSeat commands
 	/// (factionOf(localSeat)). False if @a s is null.
@@ -835,5 +841,18 @@ int coopSeatResearchUnknown(int seat);
 /// site passes (PR-R5).
 bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<const RuleResearch*>& req);
 bool coopIsManaUnlockedFor(Game* game, const BattleUnit* unit, Mod* mod);
+
+/// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md, owner D129 = (a),
+/// AMENDMENT P7-1): the HOST's one battle-end chokepoint - the first statement
+/// of BattlescapeState::finishBattle(), which every vanilla ending reaches.
+/// Emits the terminal `battle_end` bt_ev {reason, aborted, inExitArea,
+/// perSeatVerdict, tally, h} through CoopEmit::sendEv (`h` = the action-end
+/// buckets of the state BEFORE finishBattle mutates anything), then sets phase
+/// Ended. Decides nothing vanilla decides; reads only @a abort / @a inExitArea
+/// (vanilla's own arguments) and the battle. A no-op outside a live host coop
+/// battle (single player, a client) and for a preview; a stage transition
+/// (finishBattle's own nextStage test) is not an end and emits nothing.
+/// Defined in connectionTCP.cpp.
+void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExitArea);
 
 } // namespace OpenXcom

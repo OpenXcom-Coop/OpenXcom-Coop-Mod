@@ -3885,6 +3885,7 @@ void BattlescapeState::popup(State *state)
  */
 void BattlescapeState::finishBattle(bool abort, int inExitArea)
 {
+	coopHostBattleEnd(_game, _save, abort, inExitArea); // coop (W2-P7): battle_end; no-op outside a host coop battle
 	bool isPreview = _save->isPreview();
 
 	while (!_game->isState(this))
