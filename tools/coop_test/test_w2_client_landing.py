@@ -44,6 +44,9 @@ F2201_MARKER = "[coop-handshake] offerBattle() called on a non-host machine - ig
 H9_LOG = "[coop-h9]"
 OFFER_ACCEPTED = "[coop-handshake] battle_offer accepted"
 KEEP = ["ConfirmLandingState", "CraftErrorState"]
+# F2707 / ruling H9-G1: states H9-1's host must never show. The post-flush drain keeps
+# them on top (never cleared), so the host top check still fails on them by name.
+HOST_NEVER = ["CraftErrorState", "ConfirmLandingState", "BriefingState"]
 CRASH_DIR = os.path.join(os.path.dirname(EXE), "crashlogs")
 PUSH_RE = re.compile(r"\[coop-ui\] push (?:class )?(?:OpenXcom::)?(\w+) depth=")
 
@@ -402,10 +405,20 @@ def row_h9_1():
         check(p2[0] == 1, "H9-1: probe %r after 10 s of client clock, want 1 (re-fired?)" % (p2,))
         check(pushes(client, "ConfirmLandingState") == 0,
               "H9-1: a ConfirmLandingState was pushed after the refusal (re-fire)")
+        # F2707 / ruling H9-G1: the host clock runs through the flush, so a natural geoscape
+        # popup (UfoDetectedState at K=2) can reach the host after the loop's last drain.
+        # Clear it with the loop's own step; HOST_NEVER states are kept, never cleared.
+        host_top = top_of(host)
+        drain_one(host, HOST_NEVER)
+        if "GeoscapeState" not in host_top:
+            log("H9-1: host top %s after the flush -> drain step (F2707)" % host_top)
         check("GeoscapeState" in top_of(host), "H9-1: host top %s, want GeoscapeState"
               % top_of(host))
         check(pushes(host, "CraftErrorState") == 0, "H9-1: host CraftErrorState pushes %d, want 0"
               % pushes(host, "CraftErrorState"))
+        for name in ("ConfirmLandingState", "BriefingState"):
+            check(pushes(host, name) == 0, "H9-1: host %s pushes %d, want 0"
+                  % (name, pushes(host, name)))
         check(log_count(host, H9_LOG) == 0, "H9-1: host logged %d [coop-h9] lines, want 0"
               % log_count(host, H9_LOG))
         w1_host, w1_client = world(host), world(client)
@@ -422,7 +435,8 @@ def row_h9_1():
         new_crash = sorted(crash_files() - crash_before)
         check(not new_crash, "H9-1: new crashlog files %s" % new_crash)
         log("PASS H9-1 no re-fire + host untouched: probe %r after 10 s; 0 ConfirmLandingState "
-            "pushes; host top GeoscapeState, 0 CraftErrorState pushes, 0 [coop-h9] lines; "
+            "pushes; host top GeoscapeState, 0 CraftErrorState / ConfirmLandingState / "
+            "BriefingState pushes, 0 [coop-h9] lines; "
             "host world == W0; client world == W0 except craft %d; desyncSeen false and "
             "coopStatic true on both; no new crashlog" % (p2, cid))
     except Exception:
