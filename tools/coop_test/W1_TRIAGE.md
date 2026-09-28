@@ -328,3 +328,14 @@ client stack (e.g. `['MainMenuState', 'NewBattleState', 'ServerList',
 - **Guard added (owner D25 = (a)):** the 2-line SKIP-PENDING(W1-G3 re-point)
   guard after the stdlib import block; runbook §5 W1-G3 criterion 5c makes a
   row still guarded at G3 a gate failure, so it cannot be lost.
+
+## Dispositions (W2-P7 S-B2, wave 2)
+
+Recorded by W2-P7 S-B2 (docs `rewrite/prompts/w2p7_battle_end.md`, AMENDMENT P7-4; Q12 (a)). The three files stay
+SKIP-PENDING and are not edited; their intent now runs on the rewrite in `test_w2_battle_end.py`.
+
+| test | superseded by |
+|---|---|
+| `test_coop_debrief_sync.py` | rows E1/E2 (i)-(j): the client shows the host's own debriefing from `bt_debrief_result` and never scores the battle itself, so the two machines cannot count kills differently |
+| `test_skirmish_end_main_menu.py` | rows E3 (host abort, the client presses OK first) and E3b (last alien down, the host presses OK first): no co-op dialog and no LobbyMenu on the machine still reading, both end on the main menu with the SavedGame dropped |
+| `test_skirmish_debrief_disconnect.py` | row E3: the client leaving at the debriefing opens neither a LobbyMenu nor a "has left the server" dialog on the host |

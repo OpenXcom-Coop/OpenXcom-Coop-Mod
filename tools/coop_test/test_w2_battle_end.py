@@ -1,11 +1,13 @@
-"""W2-P7 S-A + S-B1 - test_w2_battle_end.py: when a co-op battle ends on the
-host, the host sends one terminal `battle_end` event, the skirmish client
-leaves the battle with it, and the client then shows the host's own
-debriefing in a display-only DebriefingState (spec
-rewrite/prompts/w2p7_battle_end.md sections (a), (b)2-7, (b)9, (f), the W2-P7
-plan review's section 2 assertion map and PINNED S-A stage text, AMENDMENT
-P7-1 rulings ST1-ST8, AMENDMENT P7-2's rulings G1-G8 and PINNED S-B1 text,
-AMENDMENT P7-3's pin fixes G9-G14; owner ruling D129 = (a)).
+"""W2-P7 S-A + S-B1 + S-B2 - test_w2_battle_end.py: when a co-op battle ends
+on the host, the host sends one terminal `battle_end` event, the skirmish
+client leaves the battle with it, the client then shows the host's own
+debriefing in a display-only DebriefingState, and each player leaves its own
+debriefing with its own OK (spec rewrite/prompts/w2p7_battle_end.md sections
+(a), (b)2-7, (b)9, (f), the W2-P7 plan review's section 2 assertion map and
+PINNED S-A stage text, AMENDMENT P7-1 rulings ST1-ST8, AMENDMENT P7-2's
+rulings G1-G8 and PINNED S-B1 text, AMENDMENT P7-3's pin fixes G9-G14,
+AMENDMENT P7-4's PINNED S-B2 text with its gaps H1-H3; owner rulings
+D129 = (a), D156 = (a)).
 
 Before W2-P7 only the host left: the host reached its DebriefingState and the
 client stayed on the battle map (F387, F431; TASK 0 T0-1 = F1980/F1981).
@@ -19,9 +21,9 @@ at the end of its own DebriefingState::init the host sends one non-seq
 stores it in either arrival order, its consumer keeps the latch armed until
 both `battle_end` and the payload are there, and then shows a display-only
 DebriefingState filled from the payload (no prepareDebriefing, no world
-write, no save; Sell/Transfer hidden). No OK is pressed on either machine
-(the leave order is S-B2, D156). Two rows, ONE boot each (one ending per
-boot):
+write, no save; Sell/Transfer hidden). No OK is pressed on either machine in
+E1/E2; E3/E3b press both OKs in the two orders (the leave order, S-B2,
+D156). Four rows, ONE boot each (one ending per boot):
 
   E1  T1, the last alien down, battleAutoEnd OFF (the default). The host runs
       battle_action kill_unit_real on A (the default map's only alien; ST7 (a),
@@ -35,6 +37,17 @@ boot):
       finishBattle(true, inExit)). Expected record (T0-2, F1983): reason abort,
       aborted true, inExitArea 0, verdict abort for seats 0 and 1, tally
       {liveAliens 1, liveSoldiers 7, inExit 0}.
+  E3  S-B2, the client leaves first: E2's ending (the host abort) on its own
+      boot with E2's pins, the whole S-A + S-B1 verdict as the precondition
+      (both machines on their debriefings), then the CLIENT presses its
+      debriefing OK, then the HOST presses its own.
+  E3b S-B2, the host leaves first: E1's ending (the last alien down) on its
+      own boot with E1's pins, the same precondition, then the HOST presses
+      its debriefing OK, then the CLIENT presses its own.
+  E3 and E3b are the pre-rewrite contract's two orders
+  (test_skirmish_end_main_menu.py :1-45, F2197). Owner D156 (a): each
+  debriefing stays until that player presses OK; nobody waits, nobody loses
+  a screen.
 
 The `battleEnd` record (event_state.battleEnd, CoopDelta.h) is SESSION-
 LIFETIME (ST4 (a), F1895): cleared only by initBattleAuthority(), so it is
@@ -87,6 +100,45 @@ R4's re-points a-c and new rows f-k):
           control) and its TRANSFER == HOST_E1_PAGE2_TRANSFER.
   both    no client save file (assert_client_zero_disk), no new crash log.
 
+S-B2 leave rows (E3 / E3b only, AMENDMENT P7-4 R2; F = the machine that
+presses OK first per LEAVE_FIRST, S = the other; every OK is dismiss_popup ->
+DebriefingState::btnOkClick, pressed only when that machine's top is
+DebriefingState):
+  L1  F's OK pressed and handled by DebriefingState.
+  L2  F reaches the main menu (top MainMenuState AND coopStatic false: its
+      MainMenuState::init ran, F2189) within OK_LEAVE_S; has_save false,
+      phase Idle.
+  L3  F's battleEnd record: debriefOk 1, debriefOkBranch = F's name,
+      phaseAtOk = PHASE_AT_OK, phaseAfterOk Idle, resetAtOk 1 on the host
+      only, popupSuppressed 0.
+  L4  the client's "[exit] stale SavedGame" log lines (the issue #82 heal,
+      MainMenuState.cpp :405) do not grow over the whole leave: the client
+      leaves through GoToMainMenuState.
+  L5  the leave reaches S within PEER_S (a CoopState on its stack, or its
+      record's popupSuppressed >= 1).
+  L6  S's top stays DebriefingState for HOST_HOLD_S (sampled every 0.25 s).
+  L7  S before its OK: top DebriefingState, no CoopState anywhere on its
+      stack, no LobbyMenu, has_save true, phase Idle; the client as S also
+      coopStatic false (the host as S keeps listening, F2188: recorded only).
+  L8  S's record: popupSuppressed 1, popupSuppressedCode = SUPPRESSED_CODE
+      (20 host, 21 client), debriefOk 0.
+  L9  S's debrief_state: shown and on top, display-only iff S is the client,
+      every content field equal to S's debriefing before F's OK.
+  L10 S's OK pressed and handled by DebriefingState.
+  L11 S reaches the main menu the same way; has_save false, phase Idle.
+  L12 S's record after its OK: debriefOk 1, debriefOkBranch = S's name,
+      phaseAtOk = PHASE_AT_OK, phaseAfterOk Idle, resetAtOk 1 on the host
+      only, popupSuppressed 1.
+  L13 the host's record: debriefHostMarked 1.
+  L14 no new crash log over the leave, no client save file.
+PHASE_AT_OK: E3's host reads Idle (the client's leave already reset its
+battle scope, F2182, H2 (a)); E3b's host reads Ended (its own OK's reset
+clears it, Q10 (a)); the client reads Idle in both. Each leave prints ONE
+"EVIDENCE <id> leave:" line (both machines' views with their records, S's
+debrief_state, both OK responses and waits, S's hold, the stale-save counts
+before -> after for both machines) before its verdict. The host's stale-save
+delta is evidence only (vanilla's own skirmish exit heals the host, F2183).
+
 The HOST_DEBRIEF pins (R6, AMENDMENT P7-3): each row's host debrief_state
 content, copied verbatim from one capture run on the S-B1.1 build, with
 `soldiers` pinned as each row's deltas in order (the row count and the stat
@@ -108,15 +160,31 @@ the host's top showing CoopState (F2011), the host's resultSent / resultBytes
 debriefDisplayOnly 0, and the client's debrief_state not shown (shown, onTop,
 displayOnly false, widgets {0, 0, 0}, page -1, and every content field whose
 host value is non-empty); E1 also records both page walks as not run. Commit
-S-B1.2 (the product) is run ONCE and both rows pass. Each row prints ONE
-"EVIDENCE <id>:" line with both machines' records, tops, host hold, both
-debriefs, the page walks and the pre-ending census BEFORE its verdict is
-checked; main() runs every row even after an earlier one failed and prints
-"PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that runs
-out is recorded and fails the row.
+S-B1.2 (the product) is run ONCE and both rows pass. Commit S-B2.1 (rows
+E3/E3b and the record's leave keys - no product behaviour) is run ONCE: E1
+and E2 pass, and E3 and E3b pass every S-A / S-B1 assertion and L1, L2, L5,
+and fail on exactly the S-B2 red, 15 lines each. E3: the client's
+debriefOk / debriefOkBranch / phaseAtOk / phaseAfterOk unset (vanilla's OK
+ran), the client's stale-save line (vanilla's OK heals), the host's
+CoopState(20) (the hold, its top, one CoopState dialog, debrief_state onTop
+false), the host's popupSuppressed / popupSuppressedCode 0, the host's OK not
+pressed (its end state and its record after the OK not checked), and the
+host's debriefHostMarked 0. E3b: the host's debriefOk / debriefOkBranch /
+phaseAtOk / phaseAfterOk / resetAtOk unset, the client's CoopState(21) (the
+hold, its top, one CoopState dialog, debrief_state onTop false), the
+client's popupSuppressed / popupSuppressedCode 0, the client's OK not pressed
+(end state and record not checked), and the host's debriefHostMarked 0.
+Commit S-B2.2 (the product) is run ONCE and all four rows pass. Each row
+prints ONE "EVIDENCE <id>:" line with both machines' records, tops, host
+hold, both debriefs, the page walks and the pre-ending census BEFORE its
+verdict is checked (E3/E3b also the "EVIDENCE <id> leave:" line); main() runs
+every row even after an earlier one failed and prints "PASS <id>" /
+"FAIL <id>: <message>". Every wait is bounded; a wait that runs out is
+recorded and fails the row.
 
 WV-D99 / WV-D100: one run is the result. No skip path, no second boot per
-row, no alternative map or actor. Exit 0 only when both rows pass, 2 otherwise.
+row, no alternative map or actor. Exit 0 only when all four rows pass, 2
+otherwise.
 
 Run:  python tools/coop_test/test_w2_battle_end.py
 """
@@ -154,7 +222,7 @@ ROW_EXPECT = {
            "verdicts": [(0, "abort"), (1, "abort")],
            "tally": {"liveAliens": 1, "liveSoldiers": 7, "inExit": 0}},
 }
-ROW_PORT = {"E1": "48766", "E2": "48767"}
+ROW_PORT = {"E1": "48766", "E2": "48767", "E3": "48768", "E3b": "48769"}
 IN_BATTLE_TOPS = ("BattlescapeState", "NextTurnState")
 
 # ----- W2-P7 S-B1 constants (AMENDMENT P7-2 R4) -----
@@ -164,7 +232,7 @@ PAGE_S = 10           # each STATS / LOOT page change of E1's page walk
 DEBRIEF_WIDGETS = {"texts": 19, "lists": 5, "buttons": 4}   # DebriefingState.cpp :144-174 (F2049)
 DEBRIEF_FIELDS = ("title", "recoveryHeader", "rows", "total", "rating", "soldiers", "recovered")
 # G11 (F2031): these rows' host page 1 has at least one row; the other rows pin `rows` as [].
-ROWS_WITH_PAGE1 = ("E1",)
+ROWS_WITH_PAGE1 = ("E1", "E3b")
 # R6: each row's host debrief_state content, copied verbatim from the capture run on the S-B1.1 build
 # (pin_view: `soldiers` as each row's deltas, G10).
 HOST_DEBRIEF = {
@@ -201,6 +269,21 @@ HOST_DEBRIEF = {
 # R6 / G12: E1's host page-2 TRANSFER visibility (vanilla :377), from one scratch capture that closed the
 # host's CoopState(20) before the host's page walk.
 HOST_E1_PAGE2_TRANSFER = False
+
+# ----- W2-P7 S-B2 constants (AMENDMENT P7-4 R2) -----
+# E3 / E3b replay E2's / E1's ending on their own boot (the same pins), then press the two OKs in order.
+ROW_EXPECT["E3"] = ROW_EXPECT["E2"]
+ROW_EXPECT["E3b"] = ROW_EXPECT["E1"]
+HOST_DEBRIEF["E3"] = HOST_DEBRIEF["E2"]
+HOST_DEBRIEF["E3b"] = HOST_DEBRIEF["E1"]
+LEAVE_FIRST = {"E3": "client", "E3b": "host"}   # who presses OK first (owner D156 (a))
+# The battle phase each machine's OK reads before any reset. E3's host: Idle - the client's leave already reset its
+# battle scope (F2182, H2 (a)). E3b's host: Ended - its own OK's reset clears it (Q10 (a)).
+PHASE_AT_OK = {"E3": {"client": "Idle", "host": "Idle"}, "E3b": {"host": "Ended", "client": "Idle"}}
+SUPPRESSED_CODE = {"host": 20, "client": 21}     # the dialog each machine would have pushed on the peer's leave
+OK_LEAVE_S = 10   # a machine's main menu (top MainMenuState AND coopStatic false) after its own OK
+PEER_S = 10       # the other machine handles the leave (a CoopState on its stack, or its record's popupSuppressed >= 1)
+STALE_SAVE = "[exit] stale SavedGame reached the main menu"   # MainMenuState.cpp :405, the issue #82 heal
 
 
 # ===================== small probes =====================
@@ -300,6 +383,67 @@ def pages_view(p):
     d = p.get("debrief") or {}
     return {"run": p.get("run"), "note": p.get("note"), "steps": p.get("steps"), "reached2": p.get("reached2"),
             "page": d.get("page"), "sellVisible": d.get("sellVisible"), "transferVisible": d.get("transferVisible")}
+
+
+def coop(gc):
+    return gc.cmd({"cmd": "get_coop"})
+
+
+def log_count(gc, literal):
+    """Lines of this machine's openxcom.log holding `literal` (0 when unreadable)."""
+    try:
+        with open(os.path.join(gc.user_dir, "openxcom.log"), "r", encoding="utf-8", errors="replace") as f:
+            return sum(1 for ln in f if literal in ln)
+    except OSError:
+        return 0
+
+
+def leave_view(gc):
+    """S-B2: one machine's state around a debriefing OK (every field from an existing probe)."""
+    c = coop(gc)
+    es = event_state(gc)
+    ws = gc.cmd({"cmd": "world_state"})
+    info = gc.cmd({"cmd": "coop_dialog_info"})
+    return {"top": top(gc), "stack": stack(gc),
+            "coopDialogs": gc.cmd({"cmd": "coop_dialog_count", "code": -1}).get("count"),
+            "dialog": {k: info.get(k) for k in ("present", "code", "title")},
+            "onConnect": c.get("onConnect"), "coopStatic": c.get("coopStatic"), "hasSave": ws.get("has_save"),
+            "phase": es.get("phase"), "battleEnd": es.get("battleEnd")}
+
+
+def press_ok(gc):
+    """S-B2: press this machine's debriefing OK (dismiss_popup -> DebriefingState::btnOkClick) only when its top is
+    DebriefingState; never dismisses anything else."""
+    t = top(gc)
+    if t != "DebriefingState":
+        return {"pressed": False, "note": f"{gc.name} OK not pressed: {gc.name} top {t}"}
+    r = gc.cmd({"cmd": "dismiss_popup"})
+    return {"pressed": True, "resp": {k: r.get(k) for k in ("ok", "handled", "error")}}
+
+
+def left_menu(gc):
+    """Top MainMenuState and the connection closed: MainMenuState::init (and its disconnect) has run (F2189)."""
+    return top(gc) == "MainMenuState" and coop(gc).get("coopStatic") is False
+
+
+def peer_handled(gc):
+    """The peer's leave reached this machine: a CoopState on its stack, or its record counted a silent teardown."""
+    n = gc.cmd({"cmd": "coop_dialog_count", "code": -1}).get("count") or 0
+    return n > 0 or ((record(gc) or {}).get("popupSuppressed") or 0) >= 1
+
+
+def top_hold(gc):
+    """S-B2 (host_hold for either machine): the distinct non-DebriefingState tops seen while sampling this machine's
+    top every 0.25 s for HOST_HOLD_S ([] = its debriefing held the top throughout)."""
+    seen = []
+    t0 = time.time()
+    while True:
+        t = top(gc)
+        if t != "DebriefingState" and t not in seen:
+            seen.append(t)
+        if time.time() - t0 >= HOST_HOLD_S:
+            return seen
+        time.sleep(0.25)
 
 
 def host_chain_done(host):
@@ -517,6 +661,132 @@ def pages_verdict(pages):
     return f
 
 
+def leave_row(rid, host, client, hdeb, cdeb):
+    """S-B2 (AMENDMENT P7-4 R2 item 4): with both machines on their debriefings, the machine named by LEAVE_FIRST
+    presses its OK, the other handles that leave while it keeps reading its debriefing, then presses its own OK.
+    Returns (evidence, failures) - failures = rows L1-L13 (run_row adds L14)."""
+    first_name = LEAVE_FIRST[rid]
+    first, second = (client, host) if first_name == "client" else (host, client)
+    stale0 = {"host": log_count(host, STALE_SAVE), "client": log_count(client, STALE_SAVE)}
+    ok1 = press_ok(first)
+    left1 = wait_until(lambda: left_menu(first), OK_LEAVE_S, 0.1) if ok1["pressed"] else (False, 0)
+    seen = wait_until(lambda: peer_handled(second), PEER_S, 0.1)
+    hold2 = top_hold(second)
+    v1 = leave_view(first)
+    v2 = leave_view(second)
+    deb2 = second.cmd({"cmd": "debrief_state"})
+    ok2 = press_ok(second)
+    left2 = wait_until(lambda: left_menu(second), OK_LEAVE_S, 0.1) if ok2["pressed"] else (False, 0)
+    v2end = leave_view(second)
+    stale1 = {"host": log_count(host, STALE_SAVE), "client": log_count(client, STALE_SAVE)}
+    pre_deb = hdeb if second is host else cdeb
+    evidence = {"first": first_name, "ok1": ok1, "left1": left1, "seen": seen, "hold2": hold2,
+                "v1": v1, "v2": v2, "deb2": deb2, "ok2": ok2, "left2": left2, "v2end": v2end,
+                "staleSave": {n: f"{stale0[n]} -> {stale1[n]}" for n in ("host", "client")}}
+    failures = leave_verdict(rid, first_name, ok1, left1, v1, stale0, stale1, seen, hold2, v2, deb2, pre_deb,
+                             ok2, left2, v2end)
+    return evidence, failures
+
+
+def leave_verdict(rid, first_name, ok1, left1, v1, stale0, stale1, seen, hold2, v2, deb2, pre_deb, ok2, left2,
+                  v2end):
+    """AMENDMENT P7-4 R2 item 5, rows L1-L13 (F = the machine that pressed OK first, S = the other); one failure
+    line per failing field, both values printed. Returns the list of failures."""
+    f = []
+    F = first_name
+    S = "host" if F == "client" else "client"
+    rec1 = v1.get("battleEnd") if isinstance(v1.get("battleEnd"), dict) else {}
+    rec2 = v2.get("battleEnd") if isinstance(v2.get("battleEnd"), dict) else {}
+    rec2end = v2end.get("battleEnd") if isinstance(v2end.get("battleEnd"), dict) else {}
+    deb2 = deb2 if isinstance(deb2, dict) else {}
+    pre_deb = pre_deb if isinstance(pre_deb, dict) else {}
+    # L1: F's OK
+    if not ok1.get("pressed"):
+        f.append(ok1.get("note"))
+    elif (ok1.get("resp") or {}).get("handled") != "DebriefingState":
+        f.append(f"{F} OK answered {ok1.get('resp')} (want handled DebriefingState)")
+    # L2: F left for the main menu
+    if not left1[0]:
+        f.append(f"{F} did not reach the main menu (top MainMenuState, coopStatic false) within {OK_LEAVE_S}s of its "
+                 f"OK ({left1[1]}s): top={v1.get('top')} coopStatic={v1.get('coopStatic')}")
+    if v1.get("hasSave") is not False:
+        f.append(f"{F} world_state.has_save={v1.get('hasSave')!r} after its OK (want False)")
+    if v1.get("phase") != "Idle":
+        f.append(f"{F} event_state.phase={v1.get('phase')!r} after its OK (want 'Idle')")
+    # L3: F's record after its OK
+    want1 = (("debriefOk", 1), ("debriefOkBranch", F), ("phaseAtOk", PHASE_AT_OK[rid][F]), ("phaseAfterOk", "Idle"),
+             ("resetAtOk", 1 if F == "host" else 0), ("popupSuppressed", 0))
+    for k, want in want1:
+        if rec1.get(k) != want:
+            f.append(f"{F} battleEnd.{k}={rec1.get(k)!r} after its OK (want {want!r})")
+    # L4: the client's stale-save lines over the whole leave (the issue #82 heal never fires on the client's route)
+    grew = stale1["client"] - stale0["client"]
+    if grew != 0:
+        f.append(f"client stale-save lines grew by {grew} over the leave ({stale0['client']} -> {stale1['client']}; "
+                 f"want 0: the client leaves through GoToMainMenuState)")
+    # L5: the leave reached S
+    if not seen[0]:
+        f.append(f"the leave never reached {S} within {PEER_S}s: no CoopState and popupSuppressed 0")
+    # L6: S's debriefing keeps the top
+    if hold2 != []:
+        f.append(f"{S} hold saw {hold2} within {HOST_HOLD_S}s after {F}'s OK (want [] - {S}'s top DebriefingState "
+                 f"throughout)")
+    # L7: S before its OK
+    if v2.get("top") != "DebriefingState":
+        f.append(f"{S} top={v2.get('top')} before its OK (want DebriefingState)")
+    if v2.get("coopDialogs") != 0:
+        f.append(f"{S} coop_dialog_count={v2.get('coopDialogs')} before its OK (want 0; dialog {v2.get('dialog')})")
+    if any("LobbyMenu" in s for s in (v2.get("stack") or [])):
+        f.append(f"{S} stack {v2.get('stack')} holds LobbyMenu before its OK")
+    if v2.get("hasSave") is not True:
+        f.append(f"{S} world_state.has_save={v2.get('hasSave')!r} before its OK (want True)")
+    if v2.get("phase") != "Idle":
+        f.append(f"{S} event_state.phase={v2.get('phase')!r} before its OK (want 'Idle')")
+    if S == "client" and v2.get("coopStatic") is not False:
+        f.append(f"client coopStatic={v2.get('coopStatic')!r} before its OK (want False - its host left)")
+    # L8: S's record before its OK
+    for k, want in (("popupSuppressed", 1), ("popupSuppressedCode", SUPPRESSED_CODE[S]), ("debriefOk", 0)):
+        if rec2.get(k) != want:
+            f.append(f"{S} battleEnd.{k}={rec2.get(k)!r} before its OK (want {want!r})")
+    # L9: S's debriefing (nobody loses a screen)
+    for k, want in (("shown", True), ("onTop", True), ("displayOnly", S == "client")):
+        if deb2.get(k) is not want:
+            f.append(f"{S} debrief_state.{k}={deb2.get(k)!r} before its OK (want {want!r})")
+    for k in DEBRIEF_FIELDS:
+        if deb2.get(k) != pre_deb.get(k):
+            f.append(f"{S} debrief_state.{k}={deb2.get(k)!r} != its debriefing before {F}'s OK {pre_deb.get(k)!r}")
+    # L10: S's OK
+    if not ok2.get("pressed"):
+        f.append(ok2.get("note"))
+    elif (ok2.get("resp") or {}).get("handled") != "DebriefingState":
+        f.append(f"{S} OK answered {ok2.get('resp')} (want handled DebriefingState)")
+    # L11: S left for the main menu
+    if not ok2.get("pressed"):
+        f.append(f"{S} end state not checked: OK not pressed")
+    else:
+        if not left2[0]:
+            f.append(f"{S} did not reach the main menu (top MainMenuState, coopStatic false) within {OK_LEAVE_S}s of "
+                     f"its OK ({left2[1]}s): top={v2end.get('top')} coopStatic={v2end.get('coopStatic')}")
+        if v2end.get("hasSave") is not False:
+            f.append(f"{S} world_state.has_save={v2end.get('hasSave')!r} after its OK (want False)")
+        if v2end.get("phase") != "Idle":
+            f.append(f"{S} event_state.phase={v2end.get('phase')!r} after its OK (want 'Idle')")
+    # L12: S's record after its OK
+    if not ok2.get("pressed"):
+        f.append(f"{S} record after the OK not checked: OK not pressed")
+    else:
+        want2 = (("debriefOk", 1), ("debriefOkBranch", S), ("phaseAtOk", PHASE_AT_OK[rid][S]),
+                 ("phaseAfterOk", "Idle"), ("resetAtOk", 1 if S == "host" else 0), ("popupSuppressed", 1))
+        for k, want in want2:
+            if rec2end.get(k) != want:
+                f.append(f"{S} battleEnd.{k}={rec2end.get(k)!r} after its OK (want {want!r})")
+    # L13: the host's battle-end debriefing was marked (the host's latest view)
+    hrec = rec1 if F == "host" else rec2end
+    if hrec.get("debriefHostMarked") != 1:
+        f.append(f"host battleEnd.debriefHostMarked={hrec.get('debriefHostMarked')!r} (want 1)")
+    return f
+
+
 def row_verdict(rid, expect, hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb, pages):
     """Every S-A assertion of the row with AMENDMENT P7-2 R4's re-points a-c and
     new rows f-k; returns the list of failures (empty = pass)."""
@@ -649,6 +919,19 @@ def run_row(rid, stage_fn, end_fn, results):
             fails = [f"pre-ending: {m}" for m in pre] + [f"ending: {m}" for m in ending]
             fails += row_verdict(rid, expect, hrec, crec, cend, hend, census.get("b0"), cleft, extra,
                                  hold, hdeb, cdeb, pages)
+            if rid in LEAVE_FIRST:
+                # S-B2 (AMENDMENT P7-4 R2 item 6): the leave order, then L14 over the leave.
+                lev, lfails = leave_row(rid, host, client, hdeb, cdeb)
+                crash2 = session._crash_log_snapshot()
+                new_crash2 = sorted(crash2 - crash1)
+                if new_crash2:
+                    lfails.append(f"new crash log(s) over the leave: {new_crash2}")
+                try:
+                    session.assert_client_zero_disk(client.user_dir)
+                except AssertionError as e:
+                    lfails.append(f"after the leave: {e}")
+                print(f"EVIDENCE {rid} leave: {lev}; newCrashLogs={new_crash2}", flush=True)
+                fails += [f"leave: {m}" for m in lfails]
             if fails:
                 raise AssertionError(f"{len(fails)} failure(s): " + " | ".join(fails))
             results[rid] = True
@@ -691,7 +974,8 @@ def boot(host, client, port):
 # ===================== main =====================
 
 
-ROWS = (("E1", stage_e1, end_e1), ("E2", stage_e2, end_e2))
+ROWS = (("E1", stage_e1, end_e1), ("E2", stage_e2, end_e2), ("E3", stage_e2, end_e2),
+        ("E3b", stage_e1, end_e1))
 
 
 def main():

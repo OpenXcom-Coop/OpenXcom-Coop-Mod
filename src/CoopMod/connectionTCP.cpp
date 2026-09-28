@@ -2678,6 +2678,15 @@ static Json::Value battleEndZeros()
 	r["resultWaitPasses"] = 0;    // client: consumer passes with the latch armed and no payload
 	r["resultDropped"] = 0;       // either machine: debrief-result messages refused
 	r["debriefDisplayOnly"] = 0;  // client: 1 once the display-only fill ran
+	// W2-P7 S-B2.1 (AMENDMENT P7-4 R1): the leave-order half (each debriefing's OK, a peer's leave).
+	r["debriefHostMarked"] = 0;   // host: 1 once its own battle-end debriefing is marked
+	r["debriefOk"] = 0;           // either machine: 1 once the co-op OK branch ran
+	r["debriefOkBranch"] = "";    // "client" (GoToMainMenuState) or "host" (reset, then vanilla's exit)
+	r["phaseAtOk"] = "";          // the battle phase at the OK, before any reset
+	r["phaseAfterOk"] = "";       // the battle phase right after the OK branch
+	r["resetAtOk"] = 0;           // host: 1 once the OK ran the battle-scoped reset (Q10 (a))
+	r["popupSuppressed"] = 0;     // either machine: peer-leave dialogs not pushed over the battle-end debriefing
+	r["popupSuppressedCode"] = 0; // the dialog not pushed: 20 host, 21 client, 440 either
 	return r;
 }
 
