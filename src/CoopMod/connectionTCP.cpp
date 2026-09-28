@@ -65,6 +65,7 @@
 #include "../Battlescape/InventoryState.h" // W2-P8 S-A.2: the ordering client's open inventory screen
 #include "../Battlescape/ScannerState.h" // W2-P4 S-D.2: the scanner's screen at the client's own end
 #include "../Battlescape/SkillMenuState.h" // W2-P4 S-E2.2: chooseWeaponForSkill() + the skill continuation (ActionMenuState)
+#include "../Battlescape/PrimeGrenadeState.h" // W2-P8 S-C2.2: the host screen check closes a prime screen
 #include "../Mod/RuleSkill.h" // W2-P4 S-E2.2: the `skill` intent
 #include "../Mod/RuleSoldier.h" // W2-P4 S-E2.2: a soldier's skill list (the skill menu's filter)
 #include "../Mod/RuleResearch.h" // W2-P4r S-R.2: the research list's names (battle_accept)
@@ -3021,6 +3022,42 @@ static void noteInventoryForceCloseNotOnTop()
 {
 	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
 	g_invForcedCloses["notOnTop"] = g_invForcedCloses.get("notOnTop", 0).asInt() + 1;
+}
+
+// W2-P8 S-C2.2 (AMENDMENT P8-4 section 4.2, C2-3, C2-5): the CLIENT force-close's covered detach, and the HOST
+// probes' writers - the covered-battle driver (coopThinkCoveredBattle), the host screen check and the medi-kit
+// recheck. Same leaf mutex; the storage, zeros, readers and reset are S-C2.1's (above).
+static void noteInventoryCoveredDetach()
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_invForcedCloses["coveredDetach"] = g_invForcedCloses.get("coveredDetach", 0).asInt() + 1;
+}
+
+static void noteHostCoveredStep(const std::string& origin, const std::string& top)
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_hostCovered["steps"] = g_hostCovered.get("steps", 0).asInt() + 1;
+	Json::Value& byOrigin = g_hostCovered["byOrigin"];
+	byOrigin[origin] = byOrigin.get(origin, 0).asInt() + 1;
+	g_hostCovered["lastTop"] = top;
+}
+
+static void noteHostScreenClose(const char* reason, const char* screen)
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	Json::Value& closes = g_hostScreens["closes"];
+	closes["count"] = closes.get("count", 0).asInt() + 1;
+	Json::Value& byReason = closes["byReason"];
+	byReason[reason] = byReason.get(reason, 0).asInt() + 1;
+	Json::Value& byScreen = closes["byScreen"];
+	byScreen[screen] = byScreen.get(screen, 0).asInt() + 1;
+}
+
+// `cursorReturned`, `refreshes`, `medikitRefused` or `coveredDetach`.
+static void noteHostScreenCounter(const char* key)
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_hostScreens[key] = g_hostScreens.get(key, 0).asInt() + 1;
 }
 
 } // namespace CoopDelta
@@ -6255,6 +6292,11 @@ struct CoopActionContextEntry
 	// no base action was open. coopReactionTrigger() compares a reaction shot's
 	// target with this unit instead of the host's selected unit.
 	int triggerId = -1;
+	// W2-P8 S-C2.2 (AMENDMENT P8-4 section 4.2; the draft section 1.2 (1), M1, F2619): NESTED entries only - the
+	// origin of the base action open when this entry began (`intent`, `endturn`, `ai`, `host`, `panic`; "" when
+	// nothing was open), carried over from a lone nested entry whose base already closed (a kneel's own hook
+	// erases it). The host's covered-battle driver reads it when the stack's front is a nested entry.
+	std::string baseOrigin;
 	// `reaction` only (B4): the triggering unit's state when this reaction's
 	// checkReactionFire burst ran. Every tryReaction of ONE burst sees that unit
 	// unchanged; between two bursts it has acted (a step, a stand-up, a turn, a
@@ -10259,6 +10301,7 @@ static void beginNested(const char* origin, const BattleUnit* actor, const CoopA
 	}
 	std::uint32_t nestedIn = 0;
 	int triggerId = -1;
+	std::string baseOrigin; // W2-P8 S-C2.2 (M1, F2619): the base's origin, carried like nestedIn
 	if (!g_coopActionContextStack.empty())
 	{
 		const CoopActionContextEntry& front = g_coopActionContextStack.front();
@@ -10268,11 +10311,13 @@ static void beginNested(const char* origin, const BattleUnit* actor, const CoopA
 			// carry the lone nested entry's own base and trigger.
 			nestedIn = front.nestedIn;
 			triggerId = front.triggerId;
+			baseOrigin = front.baseOrigin;
 		}
 		else
 		{
 			nestedIn = front.actionId;
 			triggerId = g_coopPendingChainActorId;
+			baseOrigin = front.origin;
 		}
 	}
 	const std::uint32_t actionId = mintActionId();
@@ -10281,6 +10326,7 @@ static void beginNested(const char* origin, const BattleUnit* actor, const CoopA
 	e.actorId = actor ? actor->getId() : -1;
 	e.kind = origin;
 	e.nestedIn = nestedIn;
+	e.baseOrigin = baseOrigin;
 	e.triggerId = triggerId;
 	if (burst)
 	{
@@ -11646,6 +11692,40 @@ void coopOnChainQuiesced()
 	CoopArbiter::onChainQuiesced();
 }
 
+// W2-P8 S-C2.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.2, C2-9; the draft
+// rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 1.2 (1), M1; owner D166 = B, D187 (a), D188 (a)): HOST - the
+// covered-battle driver (CoopArbiter.h). Only the top state thinks (Game::run), so a BattlescapeState under any
+// other screen used to freeze the partner's admitted order (F2071). Once per frame, right after the top state's
+// think: while this co-op host's live BattlescapeState is covered and the action context stack's FRONT (base)
+// entry is a partner's order (`intent`) or an end of turn (`endturn`) - a lone nested `reaction` / `prox` entry
+// counts by the base origin it carries (M1, F2618/F2619) - the battle's own timer takes one step through
+// BattlescapeState's covered-step method: BattlescapeGame::handleState() runs the front BState, never the AI,
+// the falls or the popups (`ai`, `host`, `panic`, no base and no context are never driven: D188, M6, C2-10). A
+// covered state's Timer runs at most one step per call and never catches up (Timer.cpp: F2617). A step can end
+// the battle (finishBattle pops the BattlescapeState into the Game's deleted list, C2-9), so after it only the
+// probe is written. A no-op in single player, on the client and outside an active co-op battle.
+void coopThinkCoveredBattle(Game* game)
+{
+	if (!game || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	if (!connectionTCP::isBattlescapeStateLive(bs))
+		return;
+	const std::list<State*>& states = game->getStates();
+	if (states.empty() || states.back() == bs)
+		return; // on top: its own think ran
+	if (g_coopActionContextStack.empty())
+		return;
+	const CoopActionContextEntry& front = g_coopActionContextStack.front();
+	const std::string origin = CoopArbiter::isNestedOrigin(front.origin) ? front.baseOrigin : front.origin;
+	if (origin != "intent" && origin != "endturn")
+		return;
+	const std::string top = typeid(*states.back()).name();
+	bs->coopStepCovered();
+	CoopDelta::noteHostCoveredStep(origin, top); // C2-9: the probe only - the step may have popped bs
+}
+
 // R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104/:116/:142 @911ca487f - see
 // CoopArbiter.h's own doc comment on this function for the full contract).
 // Kept outside namespace CoopArbiter for the same call-site-simplicity
@@ -12892,7 +12972,30 @@ bool coopInterceptMedikitPress(BattleAction* action, BattleUnit* target, int med
 	// HOST: vanilla spends and heals; coopHostMedikit() then wraps the use in a
 	// `host` context (PR-Q5).
 	if (coopBattleAuthority().hostSim)
+	{
+		// W2-P8 S-C2.2 (the draft section 1.2 (3), M5, F2335): a partner's action can run under the host's
+		// medi-kit screen now (D166 = B), so a MedikitState button press (not the one-click row) re-checks
+		// its patient with the partner's own picker: the actor out, or the picker no longer choosing the
+		// screen's patient (it walked away or went down) - the screen closes as the partner's `no_one_there`
+		// deny does (its own post-use close, vanilla's text on the battlescape), nothing is spent.
+		if (!oneClick && (action->actor->isOut()
+			|| CoopArbiter::coopMedikitTarget(action->actor, action->weapon, save) != target))
+		{
+			BattlescapeState* bs = save->getBattleState();
+			const bool live = connectionTCP::isBattlescapeStateLive(bs) && bs->getGame()
+				&& !bs->getGame()->getStates().empty();
+			MedikitState* ms = live ? dynamic_cast<MedikitState*>(bs->getGame()->getStates().back()) : nullptr;
+			if (ms)
+				ms->coopAnswered(false, false);
+			if (live)
+				bs->warning("STR_THERE_IS_NO_ONE_THERE");
+			CoopDelta::noteHostScreenCounter("medikitRefused");
+			Log(LOG_INFO) << "[coop-screen] host medi-kit press of unit " << action->actor->getId() << " on unit "
+				<< target->getId() << " refused: its patient is no longer there (M5)";
+			return true;
+		}
 		return false;
+	}
 
 	// CLIENT, D150 = (a) / N16: a press while this unit's order is in flight OR
 	// held pending (a busy deny frees the in-flight slot) is IGNORED - the player
@@ -19395,6 +19498,18 @@ static void coopClientInventoryForceClose(SavedBattleGame* save)
 	if (st != states.back())
 	{
 		CoopDelta::noteInventoryForceCloseNotOnTop();
+		// W2-P8 S-C2.2 (AMENDMENT P8-4 C2-3, P8-4 RULINGS Q1 (a); F2856 = F2884): a covered screen thinks in the
+		// very frame its cover closes, before any applied ev, and draws its unit's tile (Inventory.cpp :378).
+		// When that unit is out or off the map, it is detached now (no pop, no draw; the inventory's own draw
+		// skips a null unit): back on top the screen reads a null unit, `unit_out`.
+		if (unit && std::strcmp(reason, "unit_out") == 0)
+		{
+			inv->setSelectedUnit(nullptr, false);
+			CoopDelta::noteInventoryCoveredDetach();
+			Log(LOG_INFO) << "[coop-inv] force-close (unit_out) of unit " << unitId << "'s covered inventory: the "
+				"unit is detached from the screen until the screen on top of it closes (C2-3)";
+			return;
+		}
 		Log(LOG_INFO) << "[coop-inv] force-close (" << reason << ") of unit " << unitId
 			<< "'s inventory skipped: another screen is on top of it (J3)";
 		return;
@@ -19413,6 +19528,164 @@ static void coopClientInventoryForceClose(SavedBattleGame* save)
 	CoopDelta::noteInventoryForceClose(reason);
 	Log(LOG_INFO) << "[coop-inv] force-close: unit " << unitId << "'s inventory screen closed (" << reason
 		<< (cursorHeld ? "; the cursor item left the cursor" : "") << ")";
+}
+
+// W2-P8 S-C2.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.2: C2-1, C2-2, C2-3, C2-7,
+// C2-8; the draft rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 1.2 (2), M2-M4; owner D190 (a), J1 = F2330,
+// F2324, F2325): HOST - the host's own screens while the partner's actions run under them. One pass per pump
+// pass, right after the host's own-inventory latch: the pump runs before the frame's state delete, re-init,
+// input and think (F2616), so a screen whose soldier went down in the previous frame's driven step is handled
+// before anything reads it.
+//  - C2-3: the topmost InventoryState, when another screen covers it and its unit is out or off the map, has
+//    that unit detached (no pop, no draw) - it thinks in the very frame its cover closes (F2856). Counted once.
+//  - Top = InventoryState: its unit null, out or off the map -> `unit_out`; not commanded by this seat ->
+//    `not_commanded`; the side not this seat's -> `side` (S-C1's order). A reason closes it in S-C1's order
+//    (C2-2): a tileless unit detached, the cursor item off the cursor, vanilla's own OK button (in battle: the
+//    pop only). Else the cursor check (M3): a cursor item that no longer resolves, or is neither the unit's
+//    nor on its tile (the partner's `item_missing` rule), leaves the cursor with the partner's text. Else the
+//    refresh (M4): when this host emitted since the last pass (or the cursor item just returned), vanilla's
+//    redraws as the client's refresh runs them - the ground re-laid only with an empty cursor, the stats only
+//    while the battle selection is the screen's unit and not out. Never InventoryState::init().
+//  - Top = SkillMenuState, ActionMenuState, PrimeGrenadeState or MedikitState (M2, C2-7; the action's actor is
+//    the battle's current action's): the actor out or the selection null or out -> `unit_out`, the side not
+//    this seat's -> `side`; the medi-kit screen closes through its own post-use close, the prime screen through
+//    its own cancel (the action's fuse value -1, the pop), the menus through the pop. One close per pass: a
+//    menu under a prime screen closes on the next pass.
+// Display-only screens (unit info, the alien inventory, the scanner) stay. A no-op in single player, on the
+// client and outside an active co-op battle.
+static std::uint32_t g_hostScreenLastSeq = 0;
+
+static void coopHostScreenCheck()
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	BattlescapeState* bs = save->getBattleState();
+	if (!connectionTCP::isBattlescapeStateLive(bs) || !bs->getGame())
+		return;
+	BattlescapeGame* bg = save->getBattleGame();
+	Game* game = bs->getGame();
+	const std::list<State*>& states = game->getStates();
+	if (!bg || states.empty())
+		return;
+	const std::uint32_t seq = CoopEmit::lastSeqEmitted();
+	const bool emitted = seq != g_hostScreenLastSeq;
+	g_hostScreenLastSeq = seq;
+	State* top = states.back();
+
+	InventoryState* st = nullptr;
+	for (auto it = states.rbegin(); it != states.rend() && !st; ++it)
+		st = dynamic_cast<InventoryState*>(*it);
+	Inventory* inv = nullptr;
+	if (st)
+	{
+		for (Surface* s : st->getSurfaces())
+		{
+			inv = dynamic_cast<Inventory*>(s);
+			if (inv)
+				break;
+		}
+	}
+	if (st && inv && st != top)
+	{
+		BattleUnit* unit = inv->getSelectedUnit();
+		if (unit && (unit->isOut() || !unit->getTile()))
+		{
+			inv->setSelectedUnit(nullptr, false);
+			CoopDelta::noteHostScreenCounter("coveredDetach");
+			Log(LOG_INFO) << "[coop-screen] host inventory of unit " << unit->getId() << " covered by another "
+				"screen while the unit is out: the unit is detached from it (C2-3)";
+		}
+	}
+	if (st && inv && st == top)
+	{
+		BattleUnit* unit = inv->getSelectedUnit();
+		const char* reason = nullptr;
+		if (!unit || unit->isOut() || !unit->getTile())
+			reason = "unit_out";
+		else if (!coopBattleAuthority().commandsUnit(unit))
+			reason = "not_commanded";
+		else if (!coopBattleAuthority().mySideActive(save))
+			reason = "side";
+		if (reason)
+		{
+			const int unitId = unit ? unit->getId() : -1;
+			const bool cursorHeld = inv->getSelectedItem() != nullptr;
+			if (unit && !unit->getTile())
+				inv->setSelectedUnit(nullptr, false);
+			if (cursorHeld)
+				inv->setSelectedItem(0);
+			st->btnOkClick(0);
+			CoopDelta::noteHostScreenClose(reason, "inventory");
+			Log(LOG_INFO) << "[coop-screen] host inventory of unit " << unitId << " closed (" << reason
+				<< (cursorHeld ? "; the cursor item left the cursor" : "") << ")";
+			return;
+		}
+		bool returned = false;
+		if (BattleItem* cursor = inv->getSelectedItem())
+		{
+			const BattleItem* live = CoopArbiter::findItemById(save, cursor->getId());
+			const bool owned = live == cursor && cursor->getOwner() == unit;
+			const bool onTile = live == cursor && !cursor->getOwner() && cursor->getTile() == unit->getTile();
+			if (!owned && !onTile)
+			{
+				const int itemId = cursor->getId();
+				inv->setSelectedItem(0);
+				CoopArbiter::coopInvShowLine(inv, CoopBattleUi::inventoryLineText("item_missing"));
+				CoopDelta::noteHostScreenCounter("cursorReturned");
+				returned = true;
+				Log(LOG_INFO) << "[coop-screen] host inventory of unit " << unit->getId() << ": the cursor item "
+					<< itemId << " is no longer the unit's or on its tile - it left the cursor (M3)";
+			}
+		}
+		if (emitted || returned)
+		{
+			if (!inv->getSelectedItem())
+				inv->arrangeGround();
+			inv->drawItems();
+			if (save->getSelectedUnit() == unit && !unit->isOut())
+				st->updateStats();
+			CoopDelta::noteHostScreenCounter("refreshes");
+		}
+		return;
+	}
+
+	const char* screen = nullptr;
+	MedikitState* ms = dynamic_cast<MedikitState*>(top);
+	PrimeGrenadeState* ps = ms ? nullptr : dynamic_cast<PrimeGrenadeState*>(top);
+	if (ms)
+		screen = "medikit";
+	else if (ps)
+		screen = "prime";
+	else if (dynamic_cast<SkillMenuState*>(top))
+		screen = "skill";
+	else if (dynamic_cast<ActionMenuState*>(top))
+		screen = "action_menu";
+	if (!screen)
+		return;
+	BattleAction* cur = bg->getCurrentAction();
+	const BattleUnit* actor = cur ? cur->actor : nullptr;
+	const BattleUnit* sel = save->getSelectedUnit();
+	const char* reason = nullptr;
+	if (!actor || actor->isOut() || !sel || sel->isOut())
+		reason = "unit_out";
+	else if (!coopBattleAuthority().mySideActive(save))
+		reason = "side";
+	if (!reason)
+		return;
+	const int actorId = actor ? actor->getId() : -1;
+	if (ms)
+	{
+		ms->coopAnswered(false, false);
+	}
+	else
+	{
+		if (ps && cur)
+			cur->value = -1; // PrimeGrenadeState's own cancel (a battle prime screen is never the inventory's)
+		game->popState();
+	}
+	CoopDelta::noteHostScreenClose(reason, screen);
+	Log(LOG_INFO) << "[coop-screen] host " << screen << " screen of unit " << actorId << " closed (" << reason << ")";
 }
 
 // W1-P9 / WV-D33 (ruling D4): the CLIENT HUD refresh, folded into the walk
@@ -25048,6 +25321,11 @@ void connectionTCP::updateCoopTask()
 	// W2-P8 S-C1.2 (S-C1 PINNED STAGE TEXT step 3): the host's own-inventory latch, right after the reveal flush
 	// (a reveal that already carried the change leaves an empty flush, F2093). Self-guarded.
 	CoopDelta::flushHostInventoryLatch(); // W2-P8 S-C1 (Q7 a, F2329)
+
+	// W2-P8 S-C2.2 (AMENDMENT P8-4 C2-8): the HOST's screens over a battle the partner's actions keep running
+	// under (D166 = B): they refresh, return a lost cursor item and close themselves when their soldier goes
+	// down or the side changes (D190, J1). Self-guarded (host, active co-op battle).
+	CoopDisplayQueue::coopHostScreenCheck(); // W2-P8 S-C2 (D190, J1)
 
 	// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): battle-entry seat-relative
 	// selection, one-shot per battleId. Self-guarded and inert outside an

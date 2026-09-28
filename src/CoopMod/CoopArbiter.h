@@ -32,6 +32,7 @@ namespace OpenXcom
 
 class BattleUnit;
 class BattlescapeGame;
+class Game;             // W2-P8 S-C2.2: the covered-battle driver's parameter
 class SavedBattleGame;
 class RuleSkill; // W2-P4 S-E2: coopInterceptSkillUse()
 struct BattleAction;
@@ -653,6 +654,14 @@ void releaseDeferredIntentsIfExpired();
 /// body no-ops outside an active coop battle) so the vanilla call site stays
 /// a single unconditional call.
 void coopOnChainQuiesced();
+
+/// W2-P8 S-C2.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.2, C2-4; owner D166 = B,
+/// D187, D188): the covered-battle driver, called by Game::run() once per frame right after the top state's
+/// think. HOST only, in an active co-op battle: while another screen covers the BattlescapeState and the base
+/// action context is a partner's order (`intent`) or an end of turn (`endturn`), the battle's own timer takes
+/// one step, so the partner's action and everything it causes keep running under the host's screens; the AI,
+/// falls and the host's own actions still wait. A no-op everywhere else (single player included).
+void coopThinkCoveredBattle(Game* game);
 
 /// R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104/:116/:142 @911ca487f): the
 /// THIN completion/abort hook UnitTurnBState::think() calls, once, at

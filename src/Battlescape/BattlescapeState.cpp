@@ -2771,6 +2771,11 @@ void BattlescapeState::setStateInterval(Uint32 interval)
 	_gameTimer->setInterval(interval);
 }
 
+void BattlescapeState::coopStepCovered() // coop (W2-P8 S-C2, D166 B): coopThinkCoveredBattle's step (CoopArbiter.h)
+{
+	if (_gameTimer->isRunning()) _gameTimer->think(this, 0);
+}
+
 /**
  * Gets pointer to the game. Some states need this info.
  * @return Pointer to game.

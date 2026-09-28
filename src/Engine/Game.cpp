@@ -51,6 +51,7 @@
 #include "../CoopMod/CrashHandler.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 #include "../CoopMod/TestServer.h" // coop test automation
+#include "../CoopMod/CoopArbiter.h" // coop (W2-P8 S-C2): the covered-battle driver
 #include "../CoopMod/connectionUDP/connection_udp_glue.h" // coop UDP transport (shutdown)
 
 namespace OpenXcom
@@ -441,6 +442,7 @@ void Game::run()
 		{
 			// Process logic
 			_states.back()->think();
+			coopThinkCoveredBattle(this); // coop (W2-P8 S-C2, D166 B): a covered host battle keeps running the partner's action
 			_fpsCounter->think();
 			if (Options::FPS > 0 && !(Options::useOpenGL && Options::vSyncForOpenGL))
 			{

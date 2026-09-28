@@ -251,6 +251,7 @@ public:
 	void handleState();
 	/// Sets the state timer interval.
 	void setStateInterval(Uint32 interval);
+	void coopStepCovered(); // coop (W2-P8 S-C2, D166 B): one step of the battle's timer while another screen covers this state
 	/// Gets game.
 	Game *getGame() const;
 	/// Gets map.
