@@ -173,6 +173,7 @@
 #include "../Basescape/SoldierInfoState.h"
 #include "../Basescape/CraftSoldiersState.h"
 #include "../Basescape/TransferItemsState.h"
+#include "../Basescape/TransferBaseState.h" // W2-H8: screen_state reads its destination rows
 #include "../Basescape/PurchaseState.h"
 #include "../Basescape/SellState.h"
 #include "../Basescape/ManageAlienContainmentState.h"
@@ -1290,6 +1291,18 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		{
 			resp["top"] = "basescape";
 			resp["funds"] = bs->harnessFundsText();
+		}
+		else if (auto* tbs = dynamic_cast<TransferBaseState*>(top))
+		{
+			// W2-H8: the destination rows the Select Destination Base window offers
+			// (column 0 of its one TextList = the base name), public API only.
+			resp["top"] = "transfer_base";
+			Json::Value rows(Json::arrayValue);
+			for (auto* s : tbs->getSurfaces())
+				if (auto* tl = dynamic_cast<TextList*>(s))
+					for (size_t r = 0; r < tl->getTexts(); ++r)
+						rows.append(tl->getCellText(r, 0));
+			resp["rows"] = rows;
 		}
 		else if (dynamic_cast<GeoscapeState*>(top))    resp["top"] = "geoscape";
 		else if (auto* cd = dynamic_cast<CoopState*>(top))
@@ -9129,6 +9142,8 @@ std::string TestServer::execute(const std::string& line)
 				time["minute"] = t->getMinute();
 				resp["time"] = time;
 				resp["funds"] = Json::Value::Int64(sg->getFunds());
+				// W2-H8: the base the geoscape BASES button opens (SavedGame::_selectedBase)
+				resp["selectedBase"] = sg->getBases()->empty() ? std::string() : sg->getSelectedBase()->getName(_game->getLanguage());
 				resp["monthsPassed"] = sg->getMonthsPassed();
 				// PRD-J11: campaign model + discovered tech, so ONE geo_state call is a
 				// self-contained world dump for the shared_fixture equality helper (both
