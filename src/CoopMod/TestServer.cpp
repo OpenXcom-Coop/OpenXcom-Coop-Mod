@@ -6456,6 +6456,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["invHostDirty"] = CoopDelta::hostInventoryLatchProbe();
 		resp["invForcedCloses"] = CoopDelta::inventoryForceCloseProbe();
 		resp["invWarningWrites"] = CoopDelta::invWarningWrites();
+		// W2-P8 S-C2.1 (docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-4 section 4.2, C2-5): the HOST's
+		// covered-battle driver and host screen check probes (CoopDelta.h; zeroed and reset with the S-C1 probes
+		// above by initBattleAuthority() only). Commit S-C2.1 exposes their zeros; commit S-C2.2 writes them.
+		resp["hostCovered"] = CoopDelta::hostCoveredProbe();
+		resp["hostScreens"] = CoopDelta::hostScreensProbe();
 		// W2-P4 S-E2.1 (amendment C3 D147 section 3): HOST - the envelopes onIntent
 		// took into its checks, {iseq, kind, actorId, skill} (the wire `skill` field).
 		resp["intentsReceivedLog"] = CoopArbiter::intentsReceivedLog();

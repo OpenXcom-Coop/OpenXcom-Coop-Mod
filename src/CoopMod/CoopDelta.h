@@ -321,7 +321,8 @@ bool debriefIsDisplayOnly(const void* state);
 Json::Value hostInventoryLatchProbe();
 
 /// [invForcedCloses] CLIENT: the inventory force-close - {count, byReason
-/// {unit_out, not_commanded, side, battle_end}, notOnTop}.
+/// {unit_out, not_commanded, side, battle_end}, notOnTop, coveredDetach (W2-P8
+/// S-C2, AMENDMENT P8-4 C2-3: a covered screen's unit detached)}.
 Json::Value inventoryForceCloseProbe();
 
 /// Clear the two probes above to their zeros. Called by initBattleAuthority()
@@ -333,6 +334,24 @@ void inventoryProbesReset();
 /// own message line (every coopInvNoteWarning(); P8-3a Q3 (a), F2604).
 /// Battle-scoped with the S-A inventory probes (resetBattleAuthority()).
 int invWarningWrites();
+
+// ----- W2-P8 S-C2.1 (the RED commit): the host screen probes -----
+// Spec docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-4 section 4.2 and
+// C2-5 (owner D166 = B, D187-D191). TEST INTROSPECTION ONLY (TestServer
+// event_state), never read by game logic, never on the wire. Bodies:
+// connectionTCP.cpp. Zeroed and reset by inventoryProbesReset() above (C2-5,
+// never by resetBattleAuthority()). Commit S-C2.1 adds the storage, the zeros,
+// the readers and the reset; commit S-C2.2's covered-battle driver, host screen
+// check, medi-kit recheck and covered detach write them.
+
+/// [hostCovered] HOST: the covered-battle driver - {steps, byOrigin {intent,
+/// endturn}, lastTop (the covering top state's class at the last step)}.
+Json::Value hostCoveredProbe();
+
+/// [hostScreens] HOST: the host screen check - {closes {count, byReason
+/// {unit_out, not_commanded, side}, byScreen {inventory, action_menu, prime,
+/// skill, medikit}}, cursorReturned, refreshes, medikitRefused, coveredDetach}.
+Json::Value hostScreensProbe();
 
 } // namespace CoopDelta
 

@@ -544,7 +544,8 @@ def jt(t):
 def send_order(host, client, req, notes, box):
     """One battle_intent order from the client, then (bounded) the host's answer:
     its deny (client lastDeny.iseq) or the end of the order (a host infobox
-    closed host-only meanwhile, N7)."""
+    recorded and closed host-only meanwhile; since W2-P8 S-C2, owner D166 = B, it
+    no longer holds the order, N7)."""
     r = client.cmd(dict(req))
     iseq = r.get("iseq") if r.get("ok") else None
     out = {"resp": {k: r.get(k) for k in ("ok", "iseq", "error")}, "sent": bool(iseq), "iseq": iseq, "answer": None}

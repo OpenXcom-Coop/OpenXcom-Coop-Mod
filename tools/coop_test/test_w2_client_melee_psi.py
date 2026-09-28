@@ -345,9 +345,10 @@ def stun_order(host, client, ev):
 
 
 def await_order(host, client, before, notes, box):
-    """await_press, plus the host's psi infobox: while the order runs, a host
-    InfoboxState on top holds the chain (N7), so it is recorded into `box` and
-    dismissed host-only (H10, never asserted). Returns {state, t, tEnd}."""
+    """await_press, plus the host's psi infobox: a host InfoboxState that comes
+    up while the order runs (before W2-P8 S-C2 it held the chain, N7; since owner
+    D166 = B the chain runs under it) is recorded into `box` and dismissed
+    host-only (H10, never asserted). Returns {state, t, tEnd}."""
     t0 = time.time()
     state = "quiet"
     while time.time() - t0 < SENT_WAIT_S:

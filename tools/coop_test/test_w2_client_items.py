@@ -97,9 +97,10 @@ order:
          no fatal wound (levers, both); C TU max. Client: TAB, the right-hand
          box, host set_seed SEED_KO, key 52 (STUN): C's own stun order (S-C's
          intent) knocks H out. The host's vanilla "has become unconscious"
-         InfoboxOKState holds the order's chain (N7); it is recorded and
-         closed host-only through its OK button (the message policy is W2-P6's,
-         H10). Then H's stun is set to health + 1 (lever, both: still
+         InfoboxOKState is recorded and closed host-only through its OK button
+         (the message policy is W2-P6's, H10); since W2-P8 S-C2 (owner D166 =
+         B) it no longer holds the order's chain (N7), so the order can end
+         with the box still up and one more dismiss follows the loop. Then H's stun is set to health + 1 (lever, both: still
          unconscious, one stimulant revives him), a medi-kit on C (lever,
          both), C onto H's tile (lever, both), C TU max. Client: TAB, the
          right-hand box, key 49 (MedikitState on the patient on C's tile), key
@@ -495,9 +496,11 @@ def close_screen(client, ev):
 
 
 def dismiss_host_box(host, box):
-    """A host infobox holds a running order's chain (N7). Record its texts and
-    close it host-only: an InfoboxOKState through its OK button (the tripwire's
-    A1.6 completion), any other infobox through dismiss_popup."""
+    """A host infobox that came up while a partner's order ran (before W2-P8
+    S-C2 it held the order's chain, N7; since owner D166 = B the chain runs under
+    it). Record its texts and close it host-only: an InfoboxOKState through its OK
+    button (the tripwire's A1.6 completion), any other infobox through
+    dismiss_popup."""
     t = top(host) or ""
     if "Infobox" not in t:
         return
@@ -1082,6 +1085,9 @@ def c23b4_revive(host, client, ctx):
             if order_done(host, client):
                 break
             time.sleep(0.1)
+        # W2-P8 S-C2 (the draft section 1.6): the order no longer waits for the box, so the loop can end with the
+        # knockout box still up; a no-op when it is gone
+        dismiss_host_box(host, box)
         session.wait_host_idle(host, client, timeout=20)
     except Exception as e:
         notes.append(f"the knockout: {short(e)}")

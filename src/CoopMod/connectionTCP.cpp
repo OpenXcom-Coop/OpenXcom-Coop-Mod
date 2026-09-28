@@ -2890,7 +2890,9 @@ static void debriefReleaseToken(const void* state)
 // latch, its pump consumer and the client force-close are the writers. The mutex is a leaf.
 //   g_invHostDirty     HOST:   {pending, sets {move, load, unload, reload, close}, flushes, emptyFlushes,
 //                              heldByGate}
-//   g_invForcedCloses  CLIENT: {count, byReason {unit_out, not_commanded, side, battle_end}, notOnTop}
+//   g_invForcedCloses  CLIENT: {count, byReason {unit_out, not_commanded, side, battle_end}, notOnTop,
+//                              coveredDetach (W2-P8 S-C2, AMENDMENT P8-4 C2-3: a covered screen's unit
+//                              detached while another screen is on top of it)}
 static std::mutex g_invLatchProbeMutex;
 
 static Json::Value hostInventoryLatchZeros()
@@ -2916,11 +2918,60 @@ static Json::Value inventoryForceCloseZeros()
 		byReason[k] = 0;
 	r["byReason"] = byReason;
 	r["notOnTop"] = 0;
+	r["coveredDetach"] = 0; // W2-P8 S-C2.1 (AMENDMENT P8-4 C2-3, Q1 (a)); S-C2.2 writes it
 	return r;
 }
 
 static Json::Value g_invHostDirty = hostInventoryLatchZeros();
 static Json::Value g_invForcedCloses = inventoryForceCloseZeros();
+
+// ----- W2-P8 S-C2.1 (docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-4 section 4.2 and C2-5; the draft
+// rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 1.5): the HOST's covered-battle driver and host screen check
+// probes. TEST INTROSPECTION ONLY (TestServer event_state `hostCovered` / `hostScreens`), never on the wire.
+// Zeroed and reset with the S-C1 probes above, in inventoryProbesReset() only (C2-5: HS10 reads them across
+// the battle end). Commit S-C2.1 adds the storage, the zeros, the readers and the reset; commit S-C2.2's
+// driver, host screen check, medi-kit recheck and covered detach write them. Same leaf mutex.
+//   g_hostCovered  HOST: {steps (driven steps of a covered BattlescapeState), byOrigin {intent, endturn}
+//                        (the steps by the base context's origin), lastTop (the covering top state's class
+//                        at the last step, "" before any)}
+//   g_hostScreens  HOST: {closes {count, byReason {unit_out, not_commanded, side}, byScreen {inventory,
+//                        action_menu, prime, skill, medikit}}, cursorReturned, refreshes, medikitRefused,
+//                        coveredDetach}
+static Json::Value hostCoveredZeros()
+{
+	Json::Value r(Json::objectValue);
+	r["steps"] = 0;
+	Json::Value byOrigin(Json::objectValue);
+	for (const char* k : { "intent", "endturn" })
+		byOrigin[k] = 0;
+	r["byOrigin"] = byOrigin;
+	r["lastTop"] = "";
+	return r;
+}
+
+static Json::Value hostScreensZeros()
+{
+	Json::Value closes(Json::objectValue);
+	closes["count"] = 0;
+	Json::Value byReason(Json::objectValue);
+	for (const char* k : { "unit_out", "not_commanded", "side" })
+		byReason[k] = 0;
+	closes["byReason"] = byReason;
+	Json::Value byScreen(Json::objectValue);
+	for (const char* k : { "inventory", "action_menu", "prime", "skill", "medikit" })
+		byScreen[k] = 0;
+	closes["byScreen"] = byScreen;
+	Json::Value r(Json::objectValue);
+	r["closes"] = closes;
+	r["cursorReturned"] = 0;
+	r["refreshes"] = 0;
+	r["medikitRefused"] = 0;
+	r["coveredDetach"] = 0;
+	return r;
+}
+
+static Json::Value g_hostCovered = hostCoveredZeros();
+static Json::Value g_hostScreens = hostScreensZeros();
 
 Json::Value hostInventoryLatchProbe()
 {
@@ -2934,11 +2985,26 @@ Json::Value inventoryForceCloseProbe()
 	return g_invForcedCloses;
 }
 
+// W2-P8 S-C2.1 (AMENDMENT P8-4 section 4.2): the host probes' readers.
+Json::Value hostCoveredProbe()
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	return g_hostCovered;
+}
+
+Json::Value hostScreensProbe()
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	return g_hostScreens;
+}
+
 void inventoryProbesReset()
 {
 	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
 	g_invHostDirty = hostInventoryLatchZeros();
 	g_invForcedCloses = inventoryForceCloseZeros();
+	g_hostCovered = hostCoveredZeros(); // W2-P8 S-C2.1 (C2-5)
+	g_hostScreens = hostScreensZeros();
 }
 
 // W2-P8 S-C1.2 (S-C1 PINNED STAGE TEXT step 6): the CLIENT force-close's probe writers (the force-close lives
