@@ -1,9 +1,9 @@
-"""W2-P8 S-A - test_w2_inventory.py: the second player opens its own soldier's
-inventory in battle and moves items; the host checks and performs every placement
-(spec docs rewrite/prompts/w2p8_inventory.md: owner D130; AMENDMENT P8-1 (ST1-ST5,
-OR1-OR3); the W2-P8 PLAN REVIEW section 2 (the assertion map) and section 8.2 (this
-file's pinned text); AMENDMENT P8-2 (the TASK 0 constants and rulings F2090-F2093,
-F2097); AMENDMENT P8-3 (the re-pin at 63324d66b)).
+"""W2-P8 S-A + S-B - test_w2_inventory.py: the second player opens its own soldier's
+inventory in battle and moves, loads and unloads items; the host checks and performs
+every placement (spec docs rewrite/prompts/w2p8_inventory.md: owner D130; AMENDMENT
+P8-1 (ST1-ST5, OR1-OR3); the W2-P8 PLAN REVIEW section 2 (the assertion map), section
+8.2 (this file's pinned text) and section 9 (S-B); AMENDMENT P8-2 (the TASK 0
+constants and rulings F2090-F2093, F2097); AMENDMENT P8-3 (the re-pin at 63324d66b)).
 
 Before S-A the second player cannot open the inventory at all: the INVENTORY key
 and battle_open_inventory are refused with "Only the host can open the inventory"
@@ -59,6 +59,42 @@ client-first lever pairs with the ids read from the replies, C's TU to max):
   IV11 on "battle_intent: not sent" (its open step also fails at red and is
   recorded).
 
+S-B rows (section 9; run after IV13; each on its own T0-1 tile with the kit its T0-1b host-vanilla
+twin ran on; the expectations are T0-1b's baked host-vanilla outcome, ST2 (a): no
+live host twin before S-C1's host sync):
+  IV6   C29a load: rifle (empty) RH, rifle clip belt (0,0); pick the clip, drop it on
+        the rifle. GREEN: admitted (invGuard.last {site load, op load, decision
+        sent}), rifle ammo [clip, r, r, r], the clip owner -1 slot "" off the tile,
+        on both (F2091/F2092); C TU 64 - 15; the cursor empty after the answer.
+  IV7   Shift-unload: rifle RH loaded, LH free; a Shift+click on the rifle. GREEN:
+        admitted (site unload, op unload), the clip in STR_LEFT_HAND owner C, rifle
+        ammo [r, r, r], on both; C TU 64 - 8.
+  IV8   Ctrl auto-place: rifle RH, a grenade on the tile; a Ctrl+click on the
+        grenade's ground cell. GREEN: admitted (site ctrl_fit, op move), the grenade
+        in STR_BELT (0,0) owner C, on both; C TU 64 - 12.
+  IV9   UNLOAD unprime: rifle RH, a primed grenade (fuse 0) belt (3,0), LH free;
+        pick the grenade, the UNLOAD button. GREEN: admitted (site unload, op
+        unload), fuse -1 and the grenade in STR_LEFT_HAND owner C, on both; C TU 64
+        - 20 (RULING F2090 (a): max(1, floor(base TU x 25 / 100)) + 4 on C's
+        run-time base TU, asserted 64); the cursor empty after the answer.
+  IV10  paperdoll drop (boot option on): grenade belt (1,0); pick it, click the
+        paperdoll. GREEN: admitted (site paperdoll, op move), the grenade on C's
+        tile, owner -1, STR_GROUND, on both; C TU 64 - 6; the cursor empty.
+  IV11b host denies, load/unload ops (lever, screen open; ST1 (a)): K0 plus a
+        grenade in STR_LEFT_HAND and a loaded rifle in STR_BACK_PACK (0,0). The
+        pistol clip -> the empty RH rifle: wrong_ammo "Wrong Ammunition for this
+        Weapon!"; the belt clip -> the loaded backpack rifle, swap false:
+        already_loaded "Weapon is already loaded!"; unload the backpack rifle with
+        both hands full: one_hand_empty "At least one hand must be empty!" (vanilla
+        counts the unloaded weapon's own hand as free, Inventory.cpp :1365-:1389, so
+        the weapon sits outside the hands); unload the empty RH rifle:
+        no_ammo_loaded "No Ammunition Loaded!". Each: lastDeny {iseq, reason}, the
+        exact text on invLastWarning, nothing executed.
+  RED (commit S-B.1, S-A's interim rule, spec (b)11): IV6-IV10 refused on the
+  client (invGuard.last {site <the row's>, decision interim}, nothing sent, items
+  and TU unchanged on both, every bucket EQUAL); IV11b answered `invalid_target`
+  (S-A's host answer to op load / unload, ST1 (a)). IV1-IV5, IV11-IV13 stay green.
+
 Common asserts, every row (after wait_host_idle): hash_now {full:true} every bucket
 EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged and host 0;
 client invLocalWrites 0; host inventory_view.open false; client invGuard as the row
@@ -75,8 +111,10 @@ host lastSeqEmitted and intentsReceived unchanged) and state unchanged on both.
 
 Constants (AMENDMENT P8-2; P8-3 section 3.4: they hold at 63324d66b by code reading):
 the row tiles (T0-1, two runs identical, F2086), C's max TU 64 (T0-1), the costs
-belt->LH 4, ground clip->belt 12, LH->ground 2 (T0-1b on H, F2089; slot/item costs,
-unit-independent), the texts (en-US). The boot is the roster-pinned terror boot of
+belt->LH 4, ground clip->belt 12, LH->ground 2, load 15, Shift-unload 8, Ctrl
+auto-place 12, paperdoll 6 (T0-1b on H, F2089; slot/item costs, unit-independent),
+IV9's unprime 20 on C (F2090), each moved item's outcome (T0-1b, docs
+rewrite/w2p8-task0/run2_t0_1_3_1b.log ops 4-8, ids substituted), the texts (en-US). The boot is the roster-pinned terror boot of
 test_w2_host_combat.py with `oxceInventoryDropItemOverPaperdoll: true` on both
 (section 8.2). Every lever pair goes to the CLIENT first (F607). Item ids are read at
 run time from the lever replies, never baked.
@@ -125,7 +163,10 @@ C_TU_MAX = 64                     # P8-2 T0-1: "Max TU C 64"
 
 # ----- row tiles (P8-2 T0-1, all z 0; ST5 (a): one per row) and H's staging tile -----
 ROW_TILE = {"IV1": (0, 33, 0), "IV2": (0, 34, 0), "IV3": (49, 25, 0), "IV4": (1, 33, 0),
-            "IV5": (49, 24, 0), "IV11": (3, 32, 0), "IV12": (49, 23, 0), "IV13": (49, 26, 0)}
+            "IV5": (49, 24, 0), "IV11": (3, 32, 0), "IV12": (49, 23, 0), "IV13": (49, 26, 0),
+            # S-B (P8-2 T0-1)
+            "IV6": (0, 32, 0), "IV7": (1, 32, 0), "IV8": (0, 35, 0), "IV9": (2, 32, 0), "IV10": (48, 25, 0),
+            "IV11b": (1, 34, 0)}
 STAGE_H = (48, 24, 0)             # P8-2 T0-1 STAGE_H
 ROW_DIR = 2                       # section 8.2: tele_both(C, <row tile>, 2)
 
@@ -133,10 +174,20 @@ ROW_DIR = 2                       # section 8.2: tele_both(C, <row tile>, 2)
 TU_BELT_TO_HAND = 4               # op1 belt (1,0) -> LH
 TU_GROUND_TO_BELT = 12            # op2 ground rifle clip -> belt (2,0)
 TU_HAND_TO_GROUND = 2             # op3 LH -> ground
+# S-B (P8-2 T0-1b: "load 15; Shift-unload 8 (clip to LH); unprime + UNLOAD 18 = max(1, floor(58 x 25 / 100))
+# 14 + 4 (BattleUnit.cpp:2232); Ctrl auto-place 12 (belt (0,0)); paperdoll drop 6"; run2_t0_1_3_1b.log ops 4-8)
+TU_LOAD = 15                      # op4 clip belt (0,0) -> the rifle in RH (IV6)
+TU_SHIFT_UNLOAD = 8               # op5 Shift+click the loaded rifle in RH, LH free: the clip -> LH (IV7)
+TU_CTRL_FIT = 12                  # op7 Ctrl+click the ground grenade -> belt (0,0) (IV8)
+TU_PAPERDOLL = 6                  # op8 grenade belt (1,0) + the paperdoll -> ground (IV10)
+UNPRIME_PCT = 25                  # op6: the grenade's unprime cost, a % of the unit's base TU (F2090)
+TU_UNPRIME_TO_HAND = 4            # op6: + the move belt (3,0) -> the free LH (F2090)
+TU_UNPRIME_C = 20                 # RULING F2090 (a): max(1, floor(64 x 25 / 100)) + 4 on C (IV9)
 
 # ----- the K0 kit (P8-2 T0-1 / plan review section 5) -----
 RIFLE, RIFLE_CLIP, PISTOL_CLIP, GRENADE = "STR_RIFLE", "STR_RIFLE_CLIP", "STR_PISTOL_CLIP", "STR_GRENADE"
 BELT, LH, RH, GROUND = "STR_BELT", "STR_LEFT_HAND", "STR_RIGHT_HAND", "STR_GROUND"
+BACK_PACK = "STR_BACK_PACK"
 
 # ----- texts (bin/common + xcom1 en-US; exact text, never non-emptiness) -----
 TEXT_HOST_ONLY = "Only the host can open the inventory"   # STR_COOP_INVENTORY_HOST_ONLY (RED; retired at S-A.2)
@@ -145,6 +196,11 @@ TEXT_DENY = {
     "item_missing": "Order cancelled - item unavailable",    # STR_COOP_DENY_ITEM_MISSING (S-A.2, Q4 a)
     "not_your_unit": "Not one of your soldiers",             # STR_COOP_DENY_NOT_YOUR_UNIT
     "no_tu": "Not Enough Time Units!",                       # xcom1 STR_NOT_ENOUGH_TIME_UNITS
+    # S-B (IV11b; the S-A.2 deny rows, Q4 a)
+    "wrong_ammo": "Wrong Ammunition for this Weapon!",       # xcom1 STR_WRONG_AMMUNITION_FOR_THIS_WEAPON
+    "already_loaded": "Weapon is already loaded!",           # xcom1 STR_WEAPON_IS_ALREADY_LOADED
+    "one_hand_empty": "At least one hand must be empty!",    # OXCE STR_ONE_HAND_MUST_BE_EMPTY
+    "no_ammo_loaded": "No Ammunition Loaded!",               # xcom1 STR_NO_AMMUNITION_LOADED
 }
 TU_BASIS_BAD = 99                 # F1956: "tuBasis -1" cannot be sent (-1 = recompute); pinned 99
 
@@ -163,7 +219,7 @@ PROBE_KEYS = ("desyncSeen", "coopClientBStatePushes", "coopLocalExecBlocked", "l
               "invLastWarning", "invGuard")
 INV_PROBES = ("invLocalWrites", "invLastWarning", "invGuard")
 GUARD_KEYS = ("sent", "inflight", "baton", "interim", "vanilla_refused", "host_vanilla")
-ITEM_VIEW = ("type", "owner", "slot", "slotX", "slotY", "onTile", "tx", "ty", "tz")
+ITEM_VIEW = ("type", "owner", "slot", "slotX", "slotY", "onTile", "tx", "ty", "tz", "ammo", "fuse")
 
 
 # ===================== small probes =====================
@@ -274,29 +330,61 @@ def drop(host, client, tile, item):
     return r["ids"][0]
 
 
+def give_loaded(host, client, uid, item, slot, ammo, sx=0, sy=0):
+    """battle_give with `ammo` loaded into ammo slot 0 (both ids equal on both)."""
+    r = both(host, client, {"cmd": "battle_give", "unit": uid, "item": item, "slot": slot, "slotX": sx,
+                            "slotY": sy, "ammo": ammo}, ("weaponId", "ammoId", "weaponSlot"))
+    return r["weaponId"], r["ammoId"]
+
+
+def give_primed(host, client, uid, sx, sy):
+    r = both(host, client, {"cmd": "battle_give", "unit": uid, "item": GRENADE, "slot": BELT, "slotX": sx,
+                            "slotY": sy, "fuse": 0}, ("weaponId",))
+    return r["weaponId"]
+
+
 def restage(host, client, row, kit):
     """ST5 (a): C onto the row's own tile facing 2, stripped, the row's kit, TU max.
     kit "K0": rifle (no ammo) RH, rifle clip belt (0,0), grenade belt (1,0), primed
     grenade belt (3,0) (fuse 0), a rifle clip and a pistol clip dropped on the tile.
-    kit "RH_LH": rifle RH, grenade LH (IV5). Returns the staging record with the ids."""
+    kit "RH_LH": rifle RH, grenade LH (IV5).
+    S-B kits = the kit each row's T0-1b host-vanilla twin ran on (t0_1_3_1b.py ops 4-8):
+    "IV6" rifle RH + rifle clip belt (0,0); "IV7" rifle RH loaded (clip in ammo slot
+    0); "IV8" rifle RH + a grenade on the tile; "IV9" rifle RH + primed grenade belt
+    (3,0); "IV10" grenade belt (1,0); "IV11b" K0 + a grenade LH + a loaded rifle
+    STR_BACK_PACK (0,0). Returns the staging record with the ids."""
     tile = ROW_TILE[row]
     rec = {"tile": tile}
     t = tele_both(host, client, C_ID, tile, ROW_DIR)
     rec["tele"] = {"to": t.get("to"), "dir": t.get("dir")}
     rec["stripped"] = strip_both(host, client, C_ID)
     ids = {}
-    if kit == "K0":
+    if kit in ("K0", "IV11b"):
         ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
         ids["beltClip"] = give(host, client, C_ID, RIFLE_CLIP, BELT, 0, 0)
         ids["grenade"] = give(host, client, C_ID, GRENADE, BELT, 1, 0)
-        r = both(host, client, {"cmd": "battle_give", "unit": C_ID, "item": GRENADE, "slot": BELT, "slotX": 3,
-                                "slotY": 0, "fuse": 0}, ("weaponId",))
-        ids["primed"] = r["weaponId"]
+        ids["primed"] = give_primed(host, client, C_ID, 3, 0)
         ids["groundClip"] = drop(host, client, tile, RIFLE_CLIP)
         ids["groundPistolClip"] = drop(host, client, tile, PISTOL_CLIP)
+        if kit == "IV11b":
+            ids["lhGrenade"] = give(host, client, C_ID, GRENADE, "left")
+            ids["bpRifle"], ids["bpClip"] = give_loaded(host, client, C_ID, RIFLE, BACK_PACK, RIFLE_CLIP, 0, 0)
     elif kit == "RH_LH":
         ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
         ids["grenade"] = give(host, client, C_ID, GRENADE, "left")
+    elif kit == "IV6":
+        ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
+        ids["beltClip"] = give(host, client, C_ID, RIFLE_CLIP, BELT, 0, 0)
+    elif kit == "IV7":
+        ids["rifle"], ids["clip"] = give_loaded(host, client, C_ID, RIFLE, "right", RIFLE_CLIP)
+    elif kit == "IV8":
+        ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
+        ids["grenade"] = drop(host, client, tile, GRENADE)
+    elif kit == "IV9":
+        ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
+        ids["primed"] = give_primed(host, client, C_ID, 3, 0)
+    elif kit == "IV10":
+        ids["grenade"] = give(host, client, C_ID, GRENADE, BELT, 1, 0)
     else:
         raise AssertionError(f"unknown kit {kit!r}")
     rec["ids"] = ids
@@ -1160,9 +1248,319 @@ def iv13_real_ui_deny(host, client, ctx):
     finish(fails)
 
 
+# ===================== S-B rows (section 9) =====================
+
+
+def items_both(host, client, ids):
+    ih, ic = items_by_id(host), items_by_id(client)
+    return {n: {"host": iview(ih, i), "client": iview(ic, i)} for n, i in ids.items()}
+
+
+def staged_item_fails(st_items, wants, what):
+    """A staging precondition: each named item as the kit put it, on both machines."""
+    fails = []
+    for n, want in wants.items():
+        for m in ("host", "client"):
+            got = {k: (st_items[n][m] or {}).get(k) for k in want}
+            if got != want:
+                fails.append(f"precondition: {what} staged {m} {n} {st_items[n][m]} (want {want})")
+    return fails
+
+
+def sb_client_row(host, client, row, do_op, what, guard, tu_spent, outcome, staged_want=None):
+    """IV6-IV10: one real-UI inventory op of the client on its own C.
+    do_op(client, ev, ids) makes the row's clicks and returns True when its own
+    precondition held (the pick landed, the cell was found). Then: up to
+    SENT_WAIT_S for the order to show as sent and, when sent, the end of the order;
+    the cursor, invGuard and inFlight right after; an item still on the cursor then
+    goes back with ONE right-click (recorded; the interim refusal keeps it there) and
+    the screen closes. guard = (site, op, the ids key of the order's item);
+    tu_spent = T0-1b's cost, or cost(st) -> (cost, precondition fails) (IV9, F2090);
+    outcome(ids, tile) = {ids key: the item's T0-1b host-vanilla outcome}."""
+    notes = []
+    leftover = ensure_closed(client, notes)
+    st = restage(host, client, row, row)
+    cost_fails = []
+    if callable(tu_spent):
+        tu_spent, cost_fails = tu_spent(st)
+    st["tuSpentWant"] = tu_spent
+    session.wait_host_idle(host, client, timeout=30)
+    staged = diff_buckets(host, client)
+    ids = st["ids"]
+    tile = ROW_TILE[row]
+    st_items = items_both(host, client, ids)
+    before = snap(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    ev = {"leftover": leftover}
+    opened = open_client(client, ev)
+    reached = False
+    if opened:
+        reached = do_op(client, ev, ids)
+        if reached:
+            ev["sent"] = wait_sent(host, client, before)
+            if ev["sent"]["state"] != "quiet":
+                ev["orderWait"] = wait_order(host, client, notes)
+            ec = event_state(client)
+            ev["afterOp"] = {"cursor": selected(client), "invGuardLast": (ec.get("invGuard") or {}).get("last"),
+                             "inFlight": ec.get("inFlight"), "invLastWarning": ec.get("invLastWarning")}
+        if selected(client) != -1:
+            right_click_return(client, ev, "cleanupReturn", BELT, 0, 0)
+        close_client(client, ev)
+    rec = collect(host, client, seq0)
+    evidence(row, {"staging": st, "stagedDiff": staged, "stagedItems": st_items, "ui": ev,
+                   "row": rec_view(before, rec, ids), "notes": notes})
+    fails = list(notes) + staged_fails(st, staged) + cost_fails
+    if staged_want:
+        fails += staged_item_fails(st_items, staged_want(ids, tile), row)
+    if not opened:
+        fails += open_fails(ev, row)
+        fails += nothing_sent_fails(before, rec, row)
+        fails += common_fails(host, client, before, {}, None, row)
+        finish(fails)
+    if not reached:
+        fails.append(f"precondition: {row}'s {what} never reached its execution point (ui {ev})")
+    else:
+        ao = ev["afterOp"]
+        if ev["sent"]["state"] != "sent":
+            fails.append(f"{row}: the {what} was not sent as inv_move (sent {ev['sent']}; client invGuard.last "
+                         f"{ao['invGuardLast']}; want decision sent)")
+        f, cx = admitted_fails(before, rec, row)
+        fails += f
+        if ao["cursor"] != -1:
+            fails.append(f"{row}: client selectedItem {ao['cursor']} after the order (want -1: the answer clears "
+                         f"the cursor)")
+        for n, want in outcome(ids, tile).items():
+            fails += item_fails(rec, ids[n], want, f"{row} {n}")
+        fails += tu_fails(rec, C_TU_MAX - tu_spent, row)
+        if not (isinstance(ev.get("close"), dict) and ev["close"]["closed"]):
+            fails.append(f"{row}: the client's screen did not close: {ev.get('close')}")
+    site, op, key = guard
+    fails += common_fails(host, client, before, {"sent": 1},
+                          {"site": site, "op": op, "decision": "sent", "itemId": ids[key], "actorId": C_ID}, row)
+    finish(fails)
+
+
+def iv6_load(host, client, ctx):
+    """C29a: the belt clip dropped on the empty rifle in RH (T0-1b op4)."""
+    def do_op(cl, ev, ids):
+        if not pick(cl, ev, "pick", BELT, 0, 0, ids["beltClip"]):
+            return False
+        ev["drop"] = click(cl, slot=RH, x=0, y=0)
+        return "error" not in ev["drop"]
+
+    def staged_want(ids, tile):
+        r = ids["rifle"]
+        return {"rifle": {"owner": C_ID, "slot": RH, "onTile": False, "ammo": [r, r, r], "fuse": -1},
+                "beltClip": {"owner": C_ID, "slot": BELT, "slotX": 0, "slotY": 0, "onTile": False, "fuse": -1}}
+
+    def outcome(ids, tile):
+        r, c = ids["rifle"], ids["beltClip"]
+        return {"rifle": {"owner": C_ID, "slot": RH, "onTile": False, "ammo": [c, r, r, r], "fuse": -1},
+                "beltClip": {"owner": -1, "slot": "", "onTile": False, "ammo": [], "fuse": -1}}
+    sb_client_row(host, client, "IV6", do_op, "load (clip belt (0,0) -> the rifle in STR_RIGHT_HAND)",
+                  ("load", "load", "beltClip"), TU_LOAD, outcome, staged_want)
+
+
+def iv7_shift_unload(host, client, ctx):
+    """Shift+click the loaded rifle in RH with LH free (T0-1b op5)."""
+    def do_op(cl, ev, ids):
+        g0 = (probes(cl).get("invGuard") or {}).get("last")
+        ev["shiftClick"] = click(cl, slot=RH, x=0, y=0, mod="shift")
+        _, ev["shiftClick"]["waited"] = wait_until(
+            lambda: (probes(cl).get("invGuard") or {}).get("last") != g0, CLICK_WAIT_S)
+        return "error" not in ev["shiftClick"]
+
+    def staged_want(ids, tile):
+        r, c = ids["rifle"], ids["clip"]
+        return {"rifle": {"owner": C_ID, "slot": RH, "onTile": False, "ammo": [c, r, r, r], "fuse": -1},
+                "clip": {"owner": -1, "slot": "", "onTile": False}}
+
+    def outcome(ids, tile):
+        r, c = ids["rifle"], ids["clip"]
+        return {"rifle": {"owner": C_ID, "slot": RH, "onTile": False, "ammo": [r, r, r], "fuse": -1},
+                "clip": {"owner": C_ID, "slot": LH, "onTile": False, "ammo": [], "fuse": -1}}
+    sb_client_row(host, client, "IV7", do_op, "Shift+click unload of the rifle in STR_RIGHT_HAND",
+                  ("unload", "unload", "rifle"), TU_SHIFT_UNLOAD, outcome, staged_want)
+
+
+def iv8_ctrl_autoplace(host, client, ctx):
+    """Ctrl+click the grenade on the ground (T0-1b op7): vanilla's first fitting cell."""
+    def do_op(cl, ev, ids):
+        ground = inv_view(cl).get("ground") or []
+        ev["ground"] = ground
+        if [gi.get("id") for gi in ground] != [ids["grenade"]]:
+            return False
+        cell = (ground[0]["x"], ground[0]["y"])
+        ev["cell"] = cell
+        g0 = (probes(cl).get("invGuard") or {}).get("last")
+        ev["ctrlClick"] = click(cl, slot=GROUND, x=cell[0], y=cell[1], mod="ctrl")
+        _, ev["ctrlClick"]["waited"] = wait_until(
+            lambda: (probes(cl).get("invGuard") or {}).get("last") != g0, CLICK_WAIT_S)
+        return "error" not in ev["ctrlClick"]
+
+    def staged_want(ids, tile):
+        return {"grenade": {"owner": -1, "slot": GROUND, "onTile": True, "tx": tile[0], "ty": tile[1],
+                            "tz": tile[2], "fuse": -1}}
+
+    def outcome(ids, tile):
+        return {"grenade": {"owner": C_ID, "slot": BELT, "slotX": 0, "slotY": 0, "onTile": False, "ammo": [],
+                            "fuse": -1}}
+    sb_client_row(host, client, "IV8", do_op, "Ctrl+click auto-place of the ground grenade",
+                  ("ctrl_fit", "move", "grenade"), TU_CTRL_FIT, outcome, staged_want)
+
+
+def iv9_unload_unprime(host, client, ctx):
+    """The primed grenade picked from belt (3,0), then the UNLOAD button, LH free
+    (T0-1b op6). The cost is a % of C's base TU: RULING F2090 (a)."""
+    def do_op(cl, ev, ids):
+        if not pick(cl, ev, "pick", BELT, 3, 0, ids["primed"]):
+            return False
+        ev["unload"] = click(cl, widget="unload")
+        return "error" not in ev["unload"]
+
+    def staged_want(ids, tile):
+        return {"primed": {"owner": C_ID, "slot": BELT, "slotX": 3, "slotY": 0, "onTile": False, "fuse": 0}}
+
+    def outcome(ids, tile):
+        return {"primed": {"owner": C_ID, "slot": LH, "onTile": False, "ammo": [], "fuse": -1}}
+
+    def unprime_cost(st):
+        # F2090 (a): the formula on C's run-time base TU (restage's battle_set_unit_state tu 255
+        # clamps to getBaseStats()->tu, asserted 64 by staged_fails) must give the pinned 20.
+        base = st["tu"]
+        spent = max(1, (base * UNPRIME_PCT) // 100) + TU_UNPRIME_TO_HAND
+        bad = [] if spent == TU_UNPRIME_C else [
+            f"precondition: C's base TU {base} gives the unprime cost {spent} (want {TU_UNPRIME_C}, F2090)"]
+        return spent, bad
+    sb_client_row(host, client, "IV9", do_op, "UNLOAD unprime of the primed grenade",
+                  ("unload", "unload", "primed"), unprime_cost, outcome, staged_want)
+
+
+def iv10_paperdoll(host, client, ctx):
+    """The grenade picked from belt (1,0), then a click on the paperdoll with
+    oxceInventoryDropItemOverPaperdoll on (T0-1b op8)."""
+    def do_op(cl, ev, ids):
+        if not pick(cl, ev, "pick", BELT, 1, 0, ids["grenade"]):
+            return False
+        ev["paperdoll"] = click(cl, widget="paperdoll")
+        return "error" not in ev["paperdoll"]
+
+    def staged_want(ids, tile):
+        return {"grenade": {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False, "fuse": -1}}
+
+    def outcome(ids, tile):
+        return {"grenade": {"owner": -1, "slot": GROUND, "onTile": True, "tx": tile[0], "ty": tile[1],
+                            "tz": tile[2], "ammo": [], "fuse": -1}}
+    sb_client_row(host, client, "IV10", do_op, "paperdoll drop of the grenade",
+                  ("paperdoll", "move", "grenade"), TU_PAPERDOLL, outcome, staged_want)
+
+
+def inv_load_req(actor, item, weapon, swap=False):
+    """battle_intent's `inv_move` load (section 8.2: plan {op, item, weapon, swap})."""
+    return {"cmd": "battle_intent", "kind": "inv_move", "actor": actor,
+            "plan": {"op": "load", "item": item, "weapon": weapon, "swap": swap}}
+
+
+def inv_unload_req(actor, item):
+    return {"cmd": "battle_intent", "kind": "inv_move", "actor": actor, "plan": {"op": "unload", "item": item}}
+
+
+def iv11b_load_unload_denies(host, client, ctx):
+    notes = []
+    leftover = ensure_closed(client, notes)
+    st = restage(host, client, "IV11b", "IV11b")
+    session.wait_host_idle(host, client, timeout=30)
+    staged = diff_buckets(host, client)
+    ids = st["ids"]
+    tile = ROW_TILE["IV11b"]
+    r, rb, bc, pc, gl = ids["rifle"], ids["bpRifle"], ids["beltClip"], ids["groundPistolClip"], ids["lhGrenade"]
+    want_items = {
+        "rifle": {"owner": C_ID, "slot": RH, "onTile": False, "ammo": [r, r, r], "fuse": -1},
+        "bpRifle": {"owner": C_ID, "slot": BACK_PACK, "slotX": 0, "slotY": 0, "onTile": False,
+                    "ammo": [ids["bpClip"], rb, rb, rb], "fuse": -1},
+        "bpClip": {"owner": -1, "slot": "", "onTile": False},
+        "beltClip": {"owner": C_ID, "slot": BELT, "slotX": 0, "slotY": 0, "onTile": False},
+        "groundPistolClip": {"owner": -1, "slot": GROUND, "onTile": True, "tx": tile[0], "ty": tile[1],
+                             "tz": tile[2]},
+        "lhGrenade": {"owner": C_ID, "slot": LH, "onTile": False, "fuse": -1}}
+    st_items = items_both(host, client, {n: ids[n] for n in want_items})
+    first = snap(host, client)
+    seq0 = first["host"]["lastSeqEmitted"] or 0
+    ev = {"leftover": leftover}
+    opened = open_client(client, ev)
+    variants = [
+        ("wrong_ammo", f"pistol clip {pc} -> the empty rifle {r} in STR_RIGHT_HAND", inv_load_req(C_ID, pc, r)),
+        ("already_loaded", f"rifle clip {bc} -> the loaded rifle {rb} in STR_BACK_PACK, swap false",
+         inv_load_req(C_ID, bc, rb, False)),
+        ("one_hand_empty", f"unload the loaded rifle {rb} in STR_BACK_PACK, both hands full (rifle {r} RH, "
+                           f"grenade {gl} LH)", inv_unload_req(C_ID, rb)),
+        ("no_ammo_loaded", f"unload the empty rifle {r} in STR_RIGHT_HAND", inv_unload_req(C_ID, r)),
+    ]
+    rows = []
+    for reason, name, req in variants:
+        b = snap(host, client)
+        si = send_intent(host, client, req, notes)
+        a = snap(host, client)
+        rows.append({"want": reason, "name": name, "req": req, "intent": si,
+                     "lastDeny": a["client"]["lastDeny"],
+                     "invLastWarning": (b["client"]["invLastWarning"], a["client"]["invLastWarning"]),
+                     "hostSeq": (b["host"]["lastSeqEmitted"], a["host"]["lastSeqEmitted"]),
+                     "newContexts": new_contexts(b["host"]["closedContexts"], a["host"]["closedContexts"]),
+                     "inFlight": a["client"]["inFlight"],
+                     "sent": count_of(a["client"]["coopIntentsSent"], "inv_move")
+                     - count_of(b["client"]["coopIntentsSent"], "inv_move"),
+                     "denied": recv_of(a["host"]["intentsReceived"], "inv_move", "denied")
+                     - recv_of(b["host"]["intentsReceived"], "inv_move", "denied"),
+                     "admitted": recv_of(a["host"]["intentsReceived"], "inv_move", "admitted")
+                     - recv_of(b["host"]["intentsReceived"], "inv_move", "admitted"),
+                     "items": items_both(host, client, {n: ids[n] for n in want_items}),
+                     "cTu": (tu_of(host, C_ID), tu_of(client, C_ID))})
+    close_client(client, ev)
+    rec = collect(host, client, seq0)
+    evidence("IV11b", {"staging": st, "stagedDiff": staged, "stagedItems": st_items, "ui": ev,
+                       "variants": [{k: v for k, v in x.items() if k != "req"} for x in rows],
+                       "requests": [x["req"] for x in rows], "row": rec_view(first, rec, ids), "notes": notes})
+    fails = list(notes) + staged_fails(st, staged)
+    fails += staged_item_fails(st_items, want_items, "IV11b")
+    for x in rows:
+        tag = f"IV11b {x['want']} ({x['name']})"
+        si = x["intent"]
+        if not si["sent"]:
+            fails.append(f"{tag}: battle_intent answered {si['resp']} (want sent: an iseq)")
+            continue
+        ld = x["lastDeny"] or {}
+        if ld.get("iseq") != si["iseq"] or ld.get("reason") != x["want"]:
+            fails.append(f"{tag}: client lastDeny {x['lastDeny']} (want {{iseq {si['iseq']}, reason {x['want']}}})")
+        w0, w1 = x["invLastWarning"]
+        if w1 != TEXT_DENY[x["want"]]:
+            fails.append(f"{tag}: client invLastWarning {w0!r} -> {w1!r} (want {TEXT_DENY[x['want']]!r})")
+        if x["hostSeq"][0] != x["hostSeq"][1] or x["newContexts"]:
+            fails.append(f"{tag}: host lastSeqEmitted {x['hostSeq'][0]}->{x['hostSeq'][1]} newContexts="
+                         f"{x['newContexts']} (want nothing executed)")
+        if x["inFlight"] is not None:
+            fails.append(f"{tag}: client inFlight after the deny {x['inFlight']} (want null)")
+        if (x["sent"], x["denied"], x["admitted"]) != (1, 1, 0):
+            fails.append(f"{tag}: client coopIntentsSent.inv_move +{x['sent']} host intentsReceived.inv_move "
+                         f"denied +{x['denied']} admitted +{x['admitted']} (want +1 / +1 / +0)")
+        for n, want in want_items.items():
+            for m in ("host", "client"):
+                got = {k: (x["items"][n][m] or {}).get(k) for k in want}
+                if got != want:
+                    fails.append(f"{tag}: {m} {n} {x['items'][n][m]} (want {want}: nothing executed)")
+        if x["cTu"] != (C_TU_MAX, C_TU_MAX):
+            fails.append(f"{tag}: C tu host/client {x['cTu']} (want {C_TU_MAX} on both)")
+    if not opened:
+        fails += open_fails(ev, "IV11b")
+    fails += common_fails(host, client, first, {}, None, "IV11b")
+    finish(fails)
+
+
 SCENARIOS = (("IV1", iv1_open_look), ("IV2", iv2_pickup_local), ("IV3", iv3_grenade_to_hand),
              ("IV4", iv4_ground_to_belt), ("IV5", iv5_hand_to_ground), ("IV11", iv11_host_denies),
-             ("IV12", iv12_local_tu_refusal), ("IV13", iv13_real_ui_deny))
+             ("IV12", iv12_local_tu_refusal), ("IV13", iv13_real_ui_deny),
+             # S-B (section 9)
+             ("IV6", iv6_load), ("IV7", iv7_shift_unload), ("IV8", iv8_ctrl_autoplace),
+             ("IV9", iv9_unload_unprime), ("IV10", iv10_paperdoll), ("IV11b", iv11b_load_unload_denies))
 
 
 # ===================== bring-up =====================
