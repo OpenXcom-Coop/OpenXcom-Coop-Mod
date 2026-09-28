@@ -139,6 +139,17 @@ struct CoopCombatIntentArgs
 	int bodypart = -1;
 	bool ctrl = false;
 	std::string skill;
+	// W2-P8 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 2, F1976): the
+	// `inv_move` plan. `action` carries the op (move|load|unload) and `weapon` the
+	// item (the throw/prime precedent); these carry the move's target section and
+	// cell, the load's weapon and its Shift quick-swap. Declared on commit S-A.1
+	// because the battle_intent lever (section 8.2) fills them; nothing reads them
+	// before S-A.2.
+	std::string invSlot;
+	int invX = 0;
+	int invY = 0;
+	int invWeapon = -1;
+	bool invSwap = false;
 };
 
 /**
@@ -599,6 +610,20 @@ Json::Value lastAftermath();
 /// defer_intents hold), oldest first, as {iseq, kind, actorId, skill}; `skill` is
 /// the envelope's own field verbatim (null when absent). Nothing reads it.
 Json::Value intentsReceivedLog();
+/// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 12)
+/// test/introspection (TestServer event_state), battle-scoped (reset by
+/// resetBattleAuthority()). Written by nothing on commit S-A.1; S-A.2 adds the
+/// writers.
+///   invLocalWrites()  CLIENT: the Inventory moveItem calls the Q11 backstop refused.
+///   invLastWarning()  BOTH:   the last text the co-op layer put on the inventory's
+///                             own message line ("" before the first).
+///   invGuard()        BOTH:   the inventory execution-point guard's decisions,
+///                             {counts {sent, inflight, baton, interim,
+///                             vanilla_refused, host_vanilla}, last {site, op,
+///                             decision, itemId, actorId}}; `last` null before the first.
+int invLocalWrites();
+std::string invLastWarning();
+Json::Value invGuard();
 
 // TEST-ONLY (W1-P7, RB-D26/RB-D32 discipline): delete once real-network
 // latency/loss can be injected another way.

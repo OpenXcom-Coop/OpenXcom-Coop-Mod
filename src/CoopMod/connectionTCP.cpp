@@ -5090,6 +5090,36 @@ static std::mutex g_coopClientBStateLastSiteMutex;
 static std::string g_coopClientBStateLastSite;
 static std::atomic<int> g_coopClientPanicSkipped{0};
 
+// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 12): the
+// in-battle inventory probes, test introspection only (TestServer event_state),
+// battle-scoped (reset in resetBattleAuthority() below). Commit S-A.1 exposes
+// them; NOTHING writes them yet - S-A.2's inventory execution-point guards
+// (coopInterceptInvMove / Load / Unload), the Q11 backstop in Inventory's
+// moveItem and the client's inventory-line presenter are their writers. The
+// mutex has the W2-P1 probes' reason above: resetBattleAuthority() can run on
+// the UDP-monitor thread while the pump thread reads them.
+//   g_coopInvLocalWrites   CLIENT: the moveItem calls the Q11 backstop refused
+//   g_coopInvLastWarning   BOTH:   the last text the co-op layer put on the
+//                                  inventory's own message line ("" = none yet)
+//   g_coopInvGuard         BOTH:   the execution-point guard's decisions,
+//                                  {counts {sent, inflight, baton, interim,
+//                                  vanilla_refused, host_vanilla}, last {site, op,
+//                                  decision, itemId, actorId}} (last null = none yet)
+static std::atomic<int> g_coopInvLocalWrites{0};
+static std::mutex g_coopInvProbeMutex;
+static std::string g_coopInvLastWarning;
+static Json::Value coopInvGuardZeros()
+{
+	Json::Value g(Json::objectValue);
+	Json::Value counts(Json::objectValue);
+	for (const char* k : { "sent", "inflight", "baton", "interim", "vanilla_refused", "host_vanilla" })
+		counts[k] = 0;
+	g["counts"] = counts;
+	g["last"] = Json::Value();
+	return g;
+}
+static Json::Value g_coopInvGuard = coopInvGuardZeros();
+
 void resetBattleAuthority()
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -5158,6 +5188,13 @@ void resetBattleAuthority()
 	// W2-P7 S-A.2 (F1899): the battle_end flags are battle-scoped too.
 	g_coopBattleEndTerminal = false;
 	g_coopBattleEndTeardownLatch = false;
+	// W2-P8 S-A.1 (section 8.1 step 12): the inventory probes are battle-scoped too.
+	g_coopInvLocalWrites = 0;
+	{
+		std::lock_guard<std::mutex> lock(g_coopInvProbeMutex);
+		g_coopInvLastWarning.clear();
+		g_coopInvGuard = coopInvGuardZeros();
+	}
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -10601,6 +10638,20 @@ Json::Value intentsReceived()       { return g_coopIntentsReceived; }
 Json::Value lastActionHalt()        { return g_coopLastActionHalt; }
 Json::Value lastAftermath()         { return g_coopLastAftermath; }
 Json::Value intentsReceivedLog()    { return g_coopIntentsReceivedLog; } // W2-P4 S-E2.1
+
+// W2-P8 S-A.1 (section 8.1 step 12): the inventory probes' read-only accessors
+// (see the statics' comment above resetBattleAuthority()).
+int invLocalWrites()                { return g_coopInvLocalWrites.load(); }
+std::string invLastWarning()
+{
+	std::lock_guard<std::mutex> lock(g_coopInvProbeMutex);
+	return g_coopInvLastWarning;
+}
+Json::Value invGuard()
+{
+	std::lock_guard<std::mutex> lock(g_coopInvProbeMutex);
+	return g_coopInvGuard;
+}
 
 // TEST-ONLY (W1-P7): see CoopArbiter.h.
 void requestDeferIntents(std::uint32_t ms, int count)

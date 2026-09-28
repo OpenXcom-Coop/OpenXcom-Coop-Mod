@@ -4068,7 +4068,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "map_tile_screen_pos"
 		&& cmd != "map_tile_click_pos"
 		&& cmd != "find_doors" && cmd != "battle_close_ufo_doors"
-		&& cmd != "battle_ui_press" && cmd != "tile_census")
+		&& cmd != "battle_ui_press" && cmd != "tile_census" && cmd != "inventory_view" && cmd != "inventory_click")
 	{
 		return false;
 	}
@@ -4379,6 +4379,196 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		{
 			inv->btnOkClick(nullptr);
 			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "inventory_view")
+	{
+		// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2, F1975):
+		// READ-ONLY view of the mid-battle InventoryState, test-only. The Inventory
+		// surface is found through the state's own surface list (getSurfaces() +
+		// dynamic_cast), never a vanilla accessor. `open` = an InventoryState is on
+		// the stack, `top` = it is the top state; unitId = the screen's unit (-1 =
+		// none); selectedItem = the item on the cursor (-1 = none); rect = the
+		// Inventory surface; slots = every inventory section of the mod as {x, y,
+		// type slot|hand|ground, cells [[x, y]...]}; ground = the items on the
+		// screen unit's tile with their laid-out column/row (getSlotX/Y: the
+		// ground offset is 0 after an open, F1975, and no row scrolls the ground).
+		InventoryState* invState = findState<InventoryState>(_game);
+		Inventory* invSurf = nullptr;
+		if (invState)
+		{
+			for (auto* s : invState->getSurfaces())
+			{
+				if (auto* i = dynamic_cast<Inventory*>(s)) { invSurf = i; break; }
+			}
+		}
+		BattleUnit* invUnit = invSurf ? invSurf->getSelectedUnit() : nullptr;
+		BattleItem* cursorItem = invSurf ? invSurf->getSelectedItem() : nullptr;
+		resp["open"] = (invSurf != nullptr);
+		resp["top"] = (invState != nullptr && !_game->getStates().empty()
+			&& _game->getStates().back() == invState);
+		resp["unitId"] = invUnit ? invUnit->getId() : -1;
+		resp["selectedItem"] = cursorItem ? cursorItem->getId() : -1;
+		Json::Value rect(Json::objectValue);
+		if (invSurf)
+		{
+			rect["x"] = invSurf->getX(); rect["y"] = invSurf->getY();
+			rect["w"] = invSurf->getWidth(); rect["h"] = invSurf->getHeight();
+		}
+		resp["rect"] = rect;
+		Json::Value slots(Json::objectValue);
+		for (const auto& kv : *_game->getMod()->getInventories())
+		{
+			const RuleInventory* r = kv.second;
+			Json::Value js(Json::objectValue);
+			js["x"] = r->getX();
+			js["y"] = r->getY();
+			js["type"] = (r->getType() == INV_SLOT) ? "slot" : (r->getType() == INV_HAND) ? "hand" : "ground";
+			Json::Value cells(Json::arrayValue);
+			for (const auto& c : *r->getSlots())
+			{
+				Json::Value p(Json::arrayValue);
+				p.append(c.x);
+				p.append(c.y);
+				cells.append(p);
+			}
+			js["cells"] = cells;
+			slots[r->getId()] = js;
+		}
+		resp["slots"] = slots;
+		Json::Value ground(Json::arrayValue);
+		if (invUnit && invUnit->getTile())
+		{
+			for (auto* bi : *invUnit->getTile()->getInventory())
+			{
+				Json::Value g(Json::objectValue);
+				g["id"] = bi->getId();
+				g["x"] = bi->getSlotX();
+				g["y"] = bi->getSlotY();
+				ground.append(g);
+			}
+		}
+		resp["ground"] = ground;
+		resp["ok"] = true;
+	}
+	else if (cmd == "inventory_click")
+	{
+		// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2; the
+		// recipe F1936 / F2087): a REAL click on the TOP InventoryState, test-only -
+		// click_widget's recipe (SDL down/up through Game::run; window px = base x
+		// scale + black band) at a point computed from the inventory rules:
+		//   {slot, x, y}: an INV_SLOT / INV_GROUND cell at slot.x + x*16 + w*8,
+		//     slot.y + y*16 + h*8, (w, h) = the cursor item's size or (1, 1) with
+		//     none: the footprint centre puts the dragged item's top-left on cell
+		//     (x, y) (Inventory::mouseClick's drop cell). A hand uses its box's
+		//     top-left cell (x, y ignored).
+		//   {widget: paperdoll|unload}: the rect centre of the state's interactive
+		//     surface with that rect (RuleInventory::PAPERDOLL_X/Y/W/H; the UNLOAD
+		//     button's 288,32,32,25, InventoryState.cpp _btnUnload).
+		// Optional button (left|right|middle) and mod (ctrl|shift|alt|none: SDL's
+		// latched modifier state, exactly as inject_input; the caller clears it
+		// with inject_input kind modstate mod none).
+		InventoryState* invState = topState<InventoryState>(_game);
+		Inventory* invSurf = nullptr;
+		if (invState)
+		{
+			for (auto* s : invState->getSurfaces())
+			{
+				if (auto* i = dynamic_cast<Inventory*>(s)) { invSurf = i; break; }
+			}
+		}
+		double bx = 0.0, by = 0.0;
+		bool havePoint = false;
+		const std::string widget = req.get("widget", "").asString();
+		if (!invSurf)
+		{
+			resp["error"] = "inventory_click: no InventoryState on top";
+		}
+		else if (!widget.empty())
+		{
+			int rx = -1, ry = -1, rw = 0, rh = 0;
+			if (widget == "paperdoll")
+			{
+				rx = RuleInventory::PAPERDOLL_X; ry = RuleInventory::PAPERDOLL_Y;
+				rw = RuleInventory::PAPERDOLL_W; rh = RuleInventory::PAPERDOLL_H;
+			}
+			else if (widget == "unload")
+			{
+				rx = 288; ry = 32; rw = 32; rh = 25;
+			}
+			Surface* hit = nullptr;
+			for (auto* s : invState->getSurfaces())
+			{
+				if (!s || !dynamic_cast<InteractiveSurface*>(s) || dynamic_cast<Inventory*>(s)) continue;
+				if (s->getX() == rx && s->getY() == ry && s->getWidth() == rw && s->getHeight() == rh)
+				{
+					hit = s;
+					break;
+				}
+			}
+			if (rw == 0)
+				resp["error"] = "inventory_click: unknown widget (paperdoll|unload)";
+			else if (!hit)
+				resp["error"] = "inventory_click: no interactive surface with the widget's rect";
+			else
+			{
+				bx = hit->getX() + hit->getWidth() / 2.0;
+				by = hit->getY() + hit->getHeight() / 2.0;
+				havePoint = true;
+			}
+		}
+		else
+		{
+			const RuleInventory* slot = _game->getMod()->getInventory(req.get("slot", "").asString(), false);
+			if (!slot)
+			{
+				resp["error"] = "inventory_click: unknown slot";
+			}
+			else
+			{
+				BattleItem* cursorItem = invSurf->getSelectedItem();
+				const int w = cursorItem ? cursorItem->getRules()->getInventoryWidth() : 1;
+				const int h = cursorItem ? cursorItem->getRules()->getInventoryHeight() : 1;
+				const bool hand = (slot->getType() == INV_HAND);
+				const int cx = hand ? 0 : req.get("x", 0).asInt();
+				const int cy = hand ? 0 : req.get("y", 0).asInt();
+				bx = invSurf->getX() + slot->getX() + cx * RuleInventory::SLOT_W + w * RuleInventory::SLOT_W / 2;
+				by = invSurf->getY() + slot->getY() + cy * RuleInventory::SLOT_H + h * RuleInventory::SLOT_H / 2;
+				havePoint = true;
+				resp["cursorW"] = w;
+				resp["cursorH"] = h;
+			}
+		}
+		if (havePoint)
+		{
+			if (req.isMember("mod"))
+			{
+				const std::string modName = req.get("mod", "none").asString();
+				int mods = KMOD_NONE;
+				if (modName == "ctrl") mods = KMOD_LCTRL;
+				else if (modName == "shift") mods = KMOD_LSHIFT;
+				else if (modName == "alt") mods = KMOD_LALT;
+				SDL_SetModState((SDLMod)mods);
+				resp["modState"] = modName;
+			}
+			const std::string icButtonName = req.get("button", "left").asString();
+			const Uint8 icButton = (icButtonName == "right") ? SDL_BUTTON_RIGHT
+				: (icButtonName == "middle") ? SDL_BUTTON_MIDDLE : SDL_BUTTON_LEFT;
+			Screen* scr = _game->getScreen();
+			const int wx = (int)(bx * scr->getXScale() + scr->getCursorLeftBlackBand());
+			const int wy = (int)(by * scr->getYScale() + scr->getCursorTopBlackBand());
+			SDL_Event ev; memset(&ev, 0, sizeof(ev));
+			ev.type = SDL_MOUSEBUTTONDOWN; ev.button.button = icButton;
+			ev.button.state = SDL_PRESSED; ev.button.x = (Uint16)wx; ev.button.y = (Uint16)wy;
+			SDL_PushEvent(&ev);
+			memset(&ev, 0, sizeof(ev));
+			ev.type = SDL_MOUSEBUTTONUP; ev.button.button = icButton;
+			ev.button.state = SDL_RELEASED; ev.button.x = (Uint16)wx; ev.button.y = (Uint16)wy;
+			SDL_PushEvent(&ev);
+			resp["ok"] = true;
+			resp["button"] = icButtonName;
+			resp["baseX"] = (int)bx; resp["baseY"] = (int)by;
+			resp["winX"] = wx; resp["winY"] = wy;
 		}
 	}
 	else if (cmd == "battle_drop")
@@ -6201,6 +6391,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["intentsReceived"] = CoopArbiter::intentsReceived();
 		resp["lastActionHalt"] = CoopArbiter::lastActionHalt();
 		resp["lastAftermath"] = CoopArbiter::lastAftermath();
+		// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 12):
+		// the in-battle inventory probes (CoopArbiter.h), battle-scoped. Commit
+		// S-A.1 exposes them; nothing writes them until S-A.2.
+		resp["invLocalWrites"] = CoopArbiter::invLocalWrites();
+		resp["invLastWarning"] = CoopArbiter::invLastWarning();
+		resp["invGuard"] = CoopArbiter::invGuard();
 		// W2-P4 S-E2.1 (amendment C3 D147 section 3): HOST - the envelopes onIntent
 		// took into its checks, {iseq, kind, actorId, skill} (the wire `skill` field).
 		resp["intentsReceivedLog"] = CoopArbiter::intentsReceivedLog();
@@ -6629,7 +6825,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// (its target mode) is read off the skill by sendClientIntent().
 		const bool combatKind = kind == "shoot" || kind == "throw" || kind == "prime"
 			|| kind == "melee" || kind == "psi" || kind == "use_item" || kind == "medikit"
-			|| kind == "reload" || kind == "reaction_hands" || kind == "skill";
+			|| kind == "reload" || kind == "reaction_hands" || kind == "skill"
+			|| kind == "inv_move"; // W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2)
 		CoopCombatIntentArgs combatArgs;
 		if (req.isMember("plan") && req["plan"].isObject())
 		{
@@ -6657,6 +6854,22 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			combatArgs.terrainPart = pl.get("terrainPart", 0).asInt();
 			combatArgs.bodypart = pl.get("bodypart", -1).asInt();
 			combatArgs.skill = pl.get("skill", "").asString();
+			// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2): the
+			// `inv_move` plan {op, item, to {slot, x, y}, weapon, swap}: `action` =
+			// op, `weapon` = item (the `item` override above), the target section and
+			// cell, the load's weapon read separately, the Shift quick-swap flag.
+			if (kind == "inv_move")
+			{
+				combatArgs.action = pl.get("op", "").asString();
+				if (pl.isMember("to") && pl["to"].isObject())
+				{
+					combatArgs.invSlot = pl["to"].get("slot", "").asString();
+					combatArgs.invX = pl["to"].get("x", 0).asInt();
+					combatArgs.invY = pl["to"].get("y", 0).asInt();
+				}
+				combatArgs.invWeapon = pl.get("weapon", -1).asInt();
+				combatArgs.invSwap = pl.get("swap", false).asBool();
+			}
 			if (pl["waypoints"].isArray())
 			{
 				for (const Json::Value& t : pl["waypoints"])

@@ -7,6 +7,9 @@ On a co-op CLIENT, all of these ran locally with nothing on the wire:
   * ABORT MISSION      -> AbortMissionState, ungated on either machine; the
                           strict-majority VOTE legacy used is an r4 T3 stub.
   * mid-battle INVENTORY -> a full re-equip of any unit, writing `items`.
+                          (W2-P8 S-A, owner D130: the client now opens its
+                          OWN soldiers' inventory and every placement is an
+                          order the host performs - row (2) below.)
   * ZERO TU            -> BattleUnit::clearTimeUnits(), writing `unitsStats`.
   * hand REACTION toggles -> preferredHandForReactions /
                           reactionsDisabledFor{Left,Right}Hand, which are
@@ -29,6 +32,11 @@ WHAT THIS ASSERTS.
     vanilla's own toggle; the row asserts the order (one host intent context,
     the client's intent counter), vanilla's resulting flags on BOTH machines
     and all buckets EQUAL.
+    W2-P8 S-A (owner D130; rewrite/prompts/w2p8_inventory.md, plan review
+    section 7): row (2), the mid-battle inventory, is no longer refused - the
+    client opens its OWN soldier's inventory (InventoryState on top,
+    inventory_view naming the unit) and opening and closing it leaves all
+    buckets EQUAL. Its placements are test_w2_inventory.py's.
   PHASE 2 - the same controls on the HOST still WORK (the gate is client-side,
     not a global disable), the ownership term refuses a host press against a
     CLIENT-owned unit with SS2.6's own not_your_unit string, and the chat-open
@@ -72,7 +80,8 @@ COOP_SEAT_1 = 1
 # (SS1 WAVE-1 ADDITIONS / WV-D17: a raw STR_ key here means the deployed
 # bin/x64/Release/common/Language copy is stale relative to bin/common/).
 TXT_ABORT = "Only the host can abort the mission"
-TXT_INVENTORY = "Only the host can open the inventory"
+TXT_INVENTORY = "Only the host can open the inventory"   # RETIRED by W2-P8 S-A (Q10 a): row (2)
+# names it only in its failure message - the client now opens its own soldier's inventory
 TXT_ZERO_TU = "Only the host can expend a soldier's time units"
 TXT_REACTIONS = "Only the host can change reaction fire settings"
 TXT_LOAD = "Saved games cannot be loaded during a co-op session"
@@ -278,22 +287,40 @@ def main():
             TXT_ABORT, abort_effect)
 
         # (2) MID-BATTLE INVENTORY ----------------------------------------
-        # battle_open_inventory drives the REAL bstate->btnInventoryClick
-        # (TestServer.cpp) - the mid-battle screen, which is W1-P5's gate.
-        # `inventory_move` is deliberately NOT used anywhere here: it is a dead
-        # "rewrite-pending" stub, so any assertion through it is vacuous.
-        inv_resp = {}
-
-        def open_inv():
-            inv_resp.update(client.cmd({"cmd": "battle_open_inventory", "unit": c_unit}))
-
-        def inv_effect():
-            assert inv_resp.get("opened") is False, (
-                f"the client OPENED the mid-battle inventory: {inv_resp}")
-            assert "InventoryState" not in states(client), \
-                f"client stack has an InventoryState: {states(client)}"
-
-        client_press_check("inventory", open_inv, TXT_INVENTORY, inv_effect)
+        # W2-P8 S-A (owner D130; spec rewrite/prompts/w2p8_inventory.md, plan
+        # review section 7, Q10 (a); chain rule A.10): no longer refused. The
+        # client opens its OWN soldier's inventory: battle_open_inventory drives
+        # the REAL bstate->btnInventoryClick (TestServer.cpp), the client's top
+        # state is InventoryState, inventory_view names c_unit, and opening and
+        # closing the screen write nothing hashed (ALL BUCKETS EQUAL while it is
+        # open and after battle_close_inventory - the MINT-PROOF). No banner
+        # assertion: the banner keeps (1)'s TXT_ABORT, and (3) still sees its own
+        # text change. `inventory_move` is deliberately NOT used anywhere here:
+        # it is a dead "rewrite-pending" stub, so any assertion through it is
+        # vacuous.
+        inv_resp = client.cmd({"cmd": "battle_open_inventory", "unit": c_unit})
+        inv_banner = banner(client)
+        inv_view = client.cmd({"cmd": "inventory_view"})
+        assert inv_resp.get("opened") is True, (
+            f"the client could not open its OWN soldier's mid-battle inventory (unit "
+            f"{c_unit}): {inv_resp}, client banner {inv_banner!r} (the retired host-only "
+            f"refusal is {TXT_INVENTORY!r})")
+        assert top_state(client) == "InventoryState", (
+            f"the client's top state is not the inventory: {states(client)}")
+        assert inv_view.get("open") is True and inv_view.get("unitId") == c_unit, (
+            f"client inventory_view {inv_view} (want open on unit {c_unit})")
+        session.assert_hash_clean(
+            host, client, full=True,
+            what="with the client's own inventory open (MINT-PROOF)")
+        client.ok({"cmd": "battle_close_inventory"})
+        client.wait_for("client inventory closed",
+                        lambda: ("InventoryState" not in states(client)) or None,
+                        timeout=15)
+        session.assert_hash_clean(
+            host, client, full=True,
+            what="after the client closed its own inventory (MINT-PROOF)")
+        print(f"  PASS inventory: the client opened and closed its own unit {c_unit}'s "
+              f"inventory, all buckets EQUAL")
 
         # (3) ZERO TU ------------------------------------------------------
         def zero_tu_effect():
