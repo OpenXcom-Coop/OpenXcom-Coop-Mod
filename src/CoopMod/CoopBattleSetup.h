@@ -19,6 +19,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <string>
 #include <vector>
 
 namespace OpenXcom
@@ -27,6 +28,7 @@ namespace OpenXcom
 class SavedBattleGame;
 class Craft;
 class Game;
+class GeoscapeState;
 enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/RuleItem.h does
 
 /**
@@ -182,5 +184,18 @@ void coopStampCraftSeats(Craft* craft);
  * CoopState.cpp (RB-D23: no new .cpp).
  */
 void coopMergeGuestContributions(Game* game, Craft* craft);
+
+/**
+ * W2-H9 (owner D199 = (a); D211/D212 working assumption (a)): the test-server
+ * probes of the SEPARATE co-op client's own-craft battle refusal (TestServer
+ * event_state `coopClientBattleRefused` / `coopClientBattleRefusedLast`).
+ * Process-lifetime, never reset; written only on a SEPARATE co-op client by
+ * the landing and Cydonia refusals (CoopState.cpp); never read by game logic.
+ * coopClientBattleRefused() counts the refusals; coopClientBattleRefusedLast()
+ * is "landing:<craftId>" or "cydonia:<craftId>" of the most recent one, ""
+ * before any. Bodies live in CoopState.cpp, beside their statics.
+ */
+int coopClientBattleRefused();
+std::string coopClientBattleRefusedLast();
 
 } // namespace OpenXcom

@@ -2178,4 +2178,20 @@ void coopStampCraftSeats(Craft* craft)
 	}
 }
 
+// W2-H9 (owner D199 = (a)): the SEPARATE client own-craft battle refusal
+// probes - see the doc comment in CoopBattleSetup.h. Process-lifetime, never
+// reset; client-side writers only (the two refusals), read by the test server.
+static int s_coopClientBattleRefused = 0;
+static std::string s_coopClientBattleRefusedLast;
+
+int coopClientBattleRefused()
+{
+	return s_coopClientBattleRefused;
+}
+
+std::string coopClientBattleRefusedLast()
+{
+	return s_coopClientBattleRefusedLast;
+}
+
 }

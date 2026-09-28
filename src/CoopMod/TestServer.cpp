@@ -210,6 +210,7 @@
 #include "CoopSpeed.h" // SPEC 17 (W1-P18): event_state's speed + three set_option arms
 #include "CoopDelta.h" // W2-P2 S-A: event_state's delta probes + the delta_drop_next lever
 #include "CoopIdMaps.h" // W2-P2 S-B: item levers register/forget their ids (spec (b)15)
+#include "CoopBattleSetup.h" // W2-H9
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -6311,6 +6312,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["coopClientBStatePushes"] = coopClientBStatePushes();
 		resp["coopClientBStateLastSite"] = coopClientBStateLastSite();
 		resp["coopClientPanicSkipped"] = coopClientPanicSkipped();
+		// W2-H9 (owner D199 = (a)): the SEPARATE client own-craft battle refusal
+		// probes (CoopBattleSetup.h). Process-lifetime, never reset; "" before any
+		// refusal, else "landing:<craftId>" / "cydonia:<craftId>" of the last one.
+		resp["coopClientBattleRefused"] = coopClientBattleRefused();
+		resp["coopClientBattleRefusedLast"] = coopClientBattleRefusedLast();
 		// W2-P2 S-A (spec rewrite/prompts/w2p2_delta_core.md (b)16): the
 		// delta core's probes (CoopDelta.h), battle-scoped, reset by
 		// resetBattleAuthority(). Written by the S-A.2 delta core (host:
