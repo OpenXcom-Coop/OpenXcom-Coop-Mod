@@ -2941,6 +2941,22 @@ void inventoryProbesReset()
 	g_invForcedCloses = inventoryForceCloseZeros();
 }
 
+// W2-P8 S-C1.2 (S-C1 PINNED STAGE TEXT step 6): the CLIENT force-close's probe writers (the force-close lives
+// in CoopDisplayQueue, on the applied-ev path). The host latch's writers sit beside flushSync below.
+static void noteInventoryForceClose(const char* reason)
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_invForcedCloses["count"] = g_invForcedCloses.get("count", 0).asInt() + 1;
+	Json::Value& byReason = g_invForcedCloses["byReason"];
+	byReason[reason] = byReason.get(reason, 0).asInt() + 1;
+}
+
+static void noteInventoryForceCloseNotOnTop()
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_invForcedCloses["notOnTop"] = g_invForcedCloses.get("notOnTop", 0).asInt() + 1;
+}
+
 } // namespace CoopDelta
 
 // ===== W2-P2 S-A, commit S-A.2: the delta core (CoopDelta.h) =====
@@ -4101,6 +4117,8 @@ void flushSync()
 {
 	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
 		return;
+	if (CoopArbiter::currentActionId() != 0)
+		return; // W2-P8 S-C1 (F2329): never a sync inside an open action context; the context's own evs carry the delta
 	if (!g_deltaArmed.load())
 		return;
 	SavedBattleGame* battle = connectionTCP::getStaticBattle();
@@ -4125,6 +4143,60 @@ void flushSync()
 	CoopEmit::sendEv(ev);
 	// W2-P2 S-C.2 (spec (b)11/(b)16): `sync` is one of the 16 cue kinds.
 	noteCue("sync", hostSeqOf("sync", seqBefore), 0u, Json::Value(Json::objectValue));
+}
+
+// W2-P8 S-C1.2 (docs rewrite/prompts/w2p8_inventory.md, S-C1 PINNED STAGE TEXT step 2; Q7 (a), F1133;
+// AMENDMENT P8-3a Q1 (a), C3, C4): HOST - the latch for the host's OWN in-battle inventory changes. Set just
+// before a host site lets vanilla run: the execution-point guards' shared host branch (`move`, `load`,
+// `unload`: coopInvGuardHead), the reload key (coopInterceptReload) and the screen's close
+// (coopInventoryCloseGravityUnit, from ~InventoryState). A no-op anywhere but on the co-op host in an active
+// battle, so single player and the client never set it; no baton-refused or side-refused path reaches a site.
+// The host's hand-reaction toggles stay unwrapped (Q7 (a), N29). Consumed by flushHostInventoryLatch below.
+void noteHostInventoryChange(const char* site)
+{
+	if (!site || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_invHostDirty["pending"] = true;
+	Json::Value& sets = g_invHostDirty["sets"];
+	sets[site] = sets.get(site, 0).asInt() + 1;
+}
+
+// W2-P8 S-C1.2 (S-C1 PINNED STAGE TEXT step 3; Q7 (a), F2329, F2402): HOST - the latch's consumer, once per
+// pump pass right after the standalone reveal flush (updateCoopTask). While the battle is not quiescent the
+// latch is kept (CoopReveal::flushQuiescent's precedent): an open action context's own evs carry the change
+// (F2402), and a context-less chain's own end flushes it. Otherwise the latch clears and the one `sync` flush
+// runs - it sends nothing when a `reveal` or an action's ev already carried the delta (F2093). After the
+// host's battle_end the phase is Ended, so this is inert (W2-P7's evsAfter 0 holds, F2420).
+void flushHostInventoryLatch()
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	{
+		std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+		if (!g_invHostDirty.get("pending", false).asBool())
+			return;
+	}
+	if (!coopBattleQuiescent())
+	{
+		std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+		g_invHostDirty["heldByGate"] = g_invHostDirty.get("heldByGate", 0).asInt() + 1;
+		return;
+	}
+	{
+		std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+		g_invHostDirty["pending"] = false;
+	}
+	const int syncsBefore = g_deltaSyncEvsEmitted.load();
+	flushSync();
+	const bool emitted = g_deltaSyncEvsEmitted.load() != syncsBefore;
+	{
+		std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+		const char* key = emitted ? "flushes" : "emptyFlushes";
+		g_invHostDirty[key] = g_invHostDirty.get(key, 0).asInt() + 1;
+	}
+	Log(LOG_INFO) << "[coop-inv] host inventory latch consumed: "
+		<< (emitted ? "one `sync` sent" : "the delta was empty, nothing sent");
 }
 
 void absorbUnit(const BattleUnit* unit)
@@ -12883,7 +12955,10 @@ bool coopInterceptReload(BattleUnit* unit, SavedBattleGame* save, bool playable)
 
 	// HOST: vanilla reloads (the reload rides the next emission, as before).
 	if (coopBattleAuthority().hostSim)
+	{
+		CoopDelta::noteHostInventoryChange("reload"); // W2-P8 S-C1.2 (Q7 (a), F1133): the host's own reload syncs
 		return false;
+	}
 
 	// CLIENT: the key becomes a `reload` order (spec (b)1, F432): vanilla picks
 	// the clip on the host (H6), so the plan is empty. TRUE whether or not the
@@ -12962,9 +13037,27 @@ static int coopInvGuardHead(Inventory* inv, BattleUnit* unit, BattleItem* item, 
 	if (coopBattleAuthority().hostSim)
 	{
 		coopInvNoteGuard(site, op, "host_vanilla", item, unit);
+		CoopDelta::noteHostInventoryChange(op); // W2-P8 S-C1.2 (Q7 (a), P8-3a Q1 (a)): the host's own placement syncs
 		return 0;
 	}
 	return -1;
+}
+
+// W2-P8 S-C1.2 (V11, Q8 (a), OR1 (a); AMENDMENT P8-3a C5, F2404, F2406): CLIENT - while ANY order is held
+// pending (any kind, any unit), a new placement is refused locally with the banner's own wait text on the
+// inventory's line (S-A's busy rendering); nothing is sent and the item stays on the cursor. Checked before
+// D150's silent `inflight` step: an in-flight (not held) order keeps that silence.
+static bool coopInvHeldRefused(Inventory* inv, const BattleUnit* unit, const BattleItem* item, const char* site,
+	const char* op)
+{
+	if (!g_coopClientPending.active)
+		return false;
+	CoopArbiter::coopInvShowLine(inv, CoopBattleUi::inventoryLineText("busy"));
+	coopInvNoteGuard(site, op, "held", item, unit);
+	Log(LOG_INFO) << "[coop-inv] " << site << " (" << op << ") of item " << (item ? item->getId() : -1)
+		<< " for unit " << unit->getId() << " refused: a " << g_coopClientPending.kind << " order for unit "
+		<< g_coopClientPending.actorId << " is held pending (V11)";
+	return true;
 }
 
 // CLIENT (D150 = (a)): this unit's order is in flight or held pending.
@@ -12985,6 +13078,9 @@ bool coopInterceptInvMove(Inventory* inv, BattleUnit* unit, BattleItem* item, co
 	const int head = coopInvGuardHead(inv, unit, item, site, "move", save);
 	if (head >= 0)
 		return head == 1;
+
+	if (coopInvHeldRefused(inv, unit, item, site, "move")) // W2-P8 S-C1.2 (V11, Q8 (a))
+		return true;
 
 	// CLIENT, D150 = (a): a placement while this unit's order is in flight or held
 	// is IGNORED - the item stays on the cursor (Q2 (a)).
@@ -13034,6 +13130,9 @@ bool coopInterceptInvLoad(Inventory* inv, BattleUnit* unit, BattleItem* clip, Ba
 	if (head >= 0)
 		return head == 1;
 
+	if (coopInvHeldRefused(inv, unit, clip, "load", "load")) // W2-P8 S-C1.2 (V11, Q8 (a))
+		return true;
+
 	// CLIENT, D150 = (a): as coopInterceptInvMove() - a placement while this unit's
 	// order is in flight or held is IGNORED, the clip stays on the cursor.
 	if (coopInvUnitOrderOutstanding(unit))
@@ -13079,6 +13178,9 @@ bool coopInterceptInvUnload(Inventory* inv, BattleUnit* unit, BattleItem* item, 
 	const int head = coopInvGuardHead(inv, unit, item, "unload", "unload", save);
 	if (head >= 0)
 		return head == 1;
+
+	if (coopInvHeldRefused(inv, unit, item, "unload", "unload")) // W2-P8 S-C1.2 (V11, Q8 (a))
+		return true;
 
 	// CLIENT, D150 = (a): as coopInterceptInvMove().
 	if (coopInvUnitOrderOutstanding(unit))
@@ -13152,6 +13254,10 @@ BattleUnit* coopInventoryCloseGravityUnit(BattleUnit* u)
 {
 	if (isCoopBattle() && !coopBattleAuthority().hostSim)
 		return nullptr; // Q6 (a): the host ran the trio inside the order's context
+	// W2-P8 S-C1.2 (Q7 (a); AMENDMENT P8-3a C3): the host's screen closes - its gravity, light and FOV run in
+	// ~InventoryState right after this returns, and the pump's latch consumer syncs whatever they changed. A
+	// no-op in single player (the latch self-guards).
+	CoopDelta::noteHostInventoryChange("close");
 	return u;
 }
 
@@ -19173,6 +19279,76 @@ Json::Value derivedPaths()
 namespace CoopDisplayQueue
 {
 
+// W2-P8 S-C1.2 (docs rewrite/prompts/w2p8_inventory.md, S-C1 PINNED STAGE TEXT step 5; Q9 (a) the force-close
+// half, V13, F1969, F2398-F2400, J3; AMENDMENT P8-3a C6; P8-3b ruling 1, F2802): CLIENT - an open inventory
+// screen closes itself when its soldier is out or off the map, when this seat no longer commands it, when the
+// side is not this seat's, or when the battle has ended. Run after EVERY applied ev: on the bt_ev path right
+// after the delta applies (before a side flip pushes NextTurnState over the screen, F2400) and first in
+// coopRefreshAppliedHud - so before the next frame's InventoryState think, which draws the screen unit's tile
+// (Inventory.cpp :378, the F2802 crash). The TOPMOST InventoryState in the state stack is found by a stack scan;
+// under another screen it is counted (`notOnTop`) and left (J3). Otherwise, in F1969's order: the cursor item
+// leaves the cursor (a local reference only - nothing moves; the host's evs put every item where it is), a held
+// `inv_move` of this unit is cancelled, and vanilla's own OK button closes the screen (in battle: the pop only;
+// the coopClientMedikitAnswered precedent). A unit with no tile is first detached from the screen, so vanilla's
+// redraw inside the cursor clear cannot read its null tile. The host's own screen is S-C2's (D190).
+static void coopClientInventoryForceClose(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim)
+		return;
+	BattlescapeState* bs = save->getBattleState();
+	if (!bs || !bs->getGame())
+		return;
+	const std::list<State*>& states = bs->getGame()->getStates();
+	InventoryState* st = nullptr;
+	for (auto it = states.rbegin(); it != states.rend() && !st; ++it)
+		st = dynamic_cast<InventoryState*>(*it);
+	if (!st)
+		return;
+	Inventory* inv = nullptr;
+	for (Surface* s : st->getSurfaces())
+	{
+		inv = dynamic_cast<Inventory*>(s);
+		if (inv)
+			break;
+	}
+	if (!inv)
+		return;
+	BattleUnit* unit = inv->getSelectedUnit();
+	const char* reason = nullptr;
+	if (!unit || unit->isOut() || !unit->getTile())
+		reason = "unit_out";
+	else if (!coopBattleAuthority().commandsUnit(unit))
+		reason = "not_commanded";
+	else if (!coopBattleAuthority().mySideActive(save))
+		reason = "side";
+	else if (g_coopBattleEndTerminal.load())
+		reason = "battle_end";
+	if (!reason)
+		return;
+	const int unitId = unit ? unit->getId() : -1;
+	if (st != states.back())
+	{
+		CoopDelta::noteInventoryForceCloseNotOnTop();
+		Log(LOG_INFO) << "[coop-inv] force-close (" << reason << ") of unit " << unitId
+			<< "'s inventory skipped: another screen is on top of it (J3)";
+		return;
+	}
+	const bool cursorHeld = inv->getSelectedItem() != nullptr;
+	if (unit && !unit->getTile())
+		inv->setSelectedUnit(nullptr, false);
+	if (cursorHeld)
+		inv->setSelectedItem(0);
+	if (unitId >= 0 && g_coopClientPending.active && g_coopClientPending.kind == "inv_move"
+		&& g_coopClientPending.actorId == unitId)
+	{
+		CoopArbiter::cancelPendingIntent();
+	}
+	st->btnOkClick(0);
+	CoopDelta::noteInventoryForceClose(reason);
+	Log(LOG_INFO) << "[coop-inv] force-close: unit " << unitId << "'s inventory screen closed (" << reason
+		<< (cursorHeld ? "; the cursor item left the cursor" : "") << ")";
+}
+
 // W1-P9 / WV-D33 (ruling D4): the CLIENT HUD refresh, folded into the walk
 // packet because this is the first packet to touch CoopDisplayQueue::onApplied
 // and because a partner WALK is the action that makes the gap obvious - the TU
@@ -19197,6 +19373,7 @@ static void coopRefreshAppliedHud()
 	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
 	if (!bs)
 		return;
+	coopClientInventoryForceClose(save); // W2-P8 S-C1.2 (Q9 (a)): call site 1, see its own comment
 	CoopArbiter::coopClientInventoryRefresh(save); // W2-P8 S-A.2 (Q9 (a) the refresh half), see its own comment
 	coopClientSelectedUnitOut(save); // W2-H6 H6-4 (F1206), see its own comment
 	bs->updateSoldierInfo(false);
@@ -19279,6 +19456,9 @@ void onApplied(const Json::Value& ev)
 		// RW-REPLAY-REGION-END
 		CoopApply::applyEvPayload(save, ev);
 		CoopApply::applyDelta(save, ev); // W2-P2 S-A (spec (b)6): after the wave-1 applier (V9)
+		// W2-P8 S-C1.2 (Q9 (a); F2400, P8-3a C6): call site 2 - before the side_transition push below puts
+		// NextTurnState over an open inventory screen, see the force-close's own comment.
+		coopClientInventoryForceClose(save);
 
 		// W1-P13a (REV E.1 S-3): the client's own NextTurnState push. Vanilla
 		// only ever pushes this from BattlescapeGame::endTurn() (:729), which
@@ -24798,6 +24978,10 @@ void connectionTCP::updateCoopTask()
 	// parked in BriefingState (battle generated, phase Active, no
 	// BattlescapeState) too.
 	CoopReveal::flushQuiescent();
+
+	// W2-P8 S-C1.2 (S-C1 PINNED STAGE TEXT step 3): the host's own-inventory latch, right after the reveal flush
+	// (a reveal that already carried the change leaves an empty flush, F2093). Self-guarded.
+	CoopDelta::flushHostInventoryLatch(); // W2-P8 S-C1 (Q7 a, F2329)
 
 	// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): battle-entry seat-relative
 	// selection, one-shot per battleId. Self-guarded and inert outside an

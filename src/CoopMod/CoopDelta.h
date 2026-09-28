@@ -227,6 +227,16 @@ bool attach(SavedBattleGame* battle, Json::Value& env);
 /// structured buckets. Self-guarded (coop battle, host sim).
 void flushSync();
 
+/// W2-P8 S-C1.2 (Q7 (a); AMENDMENT P8-3a Q1 (a)): HOST, co-op battle only - the host's own in-battle
+/// inventory change at @a site ("move", "load", "unload", "reload", "close") latches one `sync`. A no-op
+/// in single player and on the client. Writes the invHostDirty probe's `pending` and `sets`.
+void noteHostInventoryChange(const char* site);
+
+/// W2-P8 S-C1.2 (Q7 (a), F2329): HOST, once per pump pass (updateCoopTask, after the reveal flush) - the
+/// latch's consumer: kept while the battle is not quiescent (`heldByGate`), else cleared and flushSync()
+/// runs (`flushes` when it sent a `sync`, `emptyFlushes` when the delta was empty).
+void flushHostInventoryLatch();
+
 /// HOST, armed only (spec (b)15): a TEST LEVER wrote this object directly;
 /// copy its live values into the snapshot so the write never rides a delta
 /// (a one-machine poke keeps proving detection; a both-machine write stays
