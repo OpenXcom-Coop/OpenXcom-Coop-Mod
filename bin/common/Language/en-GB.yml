@@ -73,6 +73,7 @@ en-GB:
   STR_COOP_DENY_TARGET_MOVED: "Order cancelled - target moved"
   STR_COOP_DENY_TARGET_DEAD: "Order cancelled - target is down"
   STR_COOP_DENY_WEAPON_MISSING: "Order cancelled - weapon unavailable"
+  STR_COOP_DENY_ITEM_MISSING: "Order cancelled - item unavailable"
   STR_COOP_DENY_NOT_YOUR_UNIT: "Not one of your soldiers"
   STR_COOP_DENY_TURN_OVER: "The turn has already ended"
   # coop (W2-P4 S-A, Q1 = (a)): the combat admission deny `cannot_use` - the one
@@ -128,7 +129,6 @@ en-GB:
   # "not one of your soldiers" case reuses STR_COOP_DENY_NOT_YOUR_UNIT above
   # rather than minting a sixth key for a reason that already has one.
   STR_COOP_ABORT_HOST_ONLY: "Only the host can abort the mission"
-  STR_COOP_INVENTORY_HOST_ONLY: "Only the host can open the inventory"
   STR_COOP_ZERO_TU_HOST_ONLY: "Only the host can expend a soldier's time units"
   STR_COOP_REACTIONS_HOST_ONLY: "Only the host can change reaction fire settings"
   STR_COOP_LEVEL_CHANGE_HOST_ONLY: "Only the host can move a unit between levels"

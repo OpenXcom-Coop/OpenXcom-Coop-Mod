@@ -61,6 +61,8 @@
 #include "../Battlescape/UnitInfoState.h" // W2-P4 S-C.2: the mind probe's screen at the client's own end
 #include "../Engine/Sound.h" // W2-P4 S-C.2: the mind probe's hit sound at the client's own end
 #include "../Battlescape/MedikitState.h" // W2-P4 S-D.2: the ordering client's open medi-kit screen (D148)
+#include "../Battlescape/Inventory.h" // W2-P8 S-A.2: the inventory guards, the host's move checks, the client's answer
+#include "../Battlescape/InventoryState.h" // W2-P8 S-A.2: the ordering client's open inventory screen
 #include "../Battlescape/ScannerState.h" // W2-P4 S-D.2: the scanner's screen at the client's own end
 #include "../Battlescape/SkillMenuState.h" // W2-P4 S-E2.2: chooseWeaponForSkill() + the skill continuation (ActionMenuState)
 #include "../Mod/RuleSkill.h" // W2-P4 S-E2.2: the `skill` intent
@@ -5092,10 +5094,10 @@ static std::atomic<int> g_coopClientPanicSkipped{0};
 
 // W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 12): the
 // in-battle inventory probes, test introspection only (TestServer event_state),
-// battle-scoped (reset in resetBattleAuthority() below). Commit S-A.1 exposes
-// them; NOTHING writes them yet - S-A.2's inventory execution-point guards
-// (coopInterceptInvMove / Load / Unload), the Q11 backstop in Inventory's
-// moveItem and the client's inventory-line presenter are their writers. The
+// battle-scoped (reset in resetBattleAuthority() below). Commit S-A.1 exposed
+// them; S-A.2's inventory execution-point guards (coopInterceptInvMove / Load /
+// Unload), the Q11 backstop in Inventory's moveItem and the inventory-line
+// presenter are their writers (coopInvNoteGuard() / coopInvNoteWarning()). The
 // mutex has the W2-P1 probes' reason above: resetBattleAuthority() can run on
 // the UDP-monitor thread while the pump thread reads them.
 //   g_coopInvLocalWrites   CLIENT: the moveItem calls the Q11 backstop refused
@@ -5119,6 +5121,31 @@ static Json::Value coopInvGuardZeros()
 	return g;
 }
 static Json::Value g_coopInvGuard = coopInvGuardZeros();
+
+// W2-P8 S-A.2 (section 8.1 step 12): the probes' writers. coopInvNoteGuard()
+// records one execution-point decision (the guards below coopInterceptReload());
+// coopInvNoteWarning() records a non-empty text the co-op layer put on the
+// inventory's own message line (Inventory::showWarning).
+static void coopInvNoteGuard(const char* site, const char* op, const char* decision, const BattleItem* item,
+	const BattleUnit* unit)
+{
+	std::lock_guard<std::mutex> lock(g_coopInvProbeMutex);
+	Json::Value& counts = g_coopInvGuard["counts"];
+	counts[decision] = counts.get(decision, 0).asInt() + 1;
+	Json::Value last(Json::objectValue);
+	last["site"] = site ? site : "";
+	last["op"] = op ? op : "";
+	last["decision"] = decision;
+	last["itemId"] = item ? item->getId() : -1;
+	last["actorId"] = unit ? unit->getId() : -1;
+	g_coopInvGuard["last"] = last;
+}
+
+static void coopInvNoteWarning(const std::string& text)
+{
+	std::lock_guard<std::mutex> lock(g_coopInvProbeMutex);
+	g_coopInvLastWarning = text;
+}
 
 void resetBattleAuthority()
 {
@@ -6803,19 +6830,24 @@ static const char* coopMedikitActionName(int bma)
 // reaction_hands (reload's plan is empty; the hands' is {hand, ctrl}).
 // W2-P4 S-E2.2 (amendment C3 D147): + skill ({skill, weapon}; its action type is
 // the skill's own target mode, so coopCombatActionType() below leaves it BA_NONE).
+// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 2, F1976):
+// + inv_move ({op, item, to, weapon, swap}: `action` = the op, `weapon` = the
+// item, the inv* fields). Carrying the plan here inherits the busy hold, the
+// resubmit (tuBasis recomputed), the timeout and the aftermath slot unchanged.
 static bool coopIsCombatKind(const std::string& kind)
 {
 	return kind == "shoot" || kind == "throw" || kind == "prime"
 		|| kind == "melee" || kind == "psi" || kind == "use_item"
 		|| kind == "medikit" || kind == "reload" || kind == "reaction_hands"
-		|| kind == "skill";
+		|| kind == "skill" || kind == "inv_move";
 }
 
 // W2-P4 S-B (spec (b)1): a combat plan's vanilla action type - `shoot` by its
 // action string, `throw` BA_THROW, `prime` BA_PRIME or BA_UNPRIME. W2-P4 S-C:
 // `melee` BA_HIT, `psi` by its action string, `use_item` BA_USE. W2-P4 S-D:
 // `medikit` BA_USE; `reload` and `reaction_hands` have no BattleActionType
-// (BA_NONE: no tuBasis rides them, N30 / Q12).
+// (BA_NONE: no tuBasis rides them, N30 / Q12). W2-P8 S-A.2 (section 8.1 step 2):
+// `inv_move` has none either (BA_NONE): its tuBasis is coopInvOrderCost()'s.
 static BattleActionType coopCombatActionType(const std::string& kind, const CoopCombatIntentArgs& plan)
 {
 	if (kind == "shoot")
@@ -6831,6 +6863,120 @@ static BattleActionType coopCombatActionType(const std::string& kind, const Coop
 	if (kind == "use_item" || kind == "medikit")
 		return BA_USE;
 	return BA_NONE;
+}
+
+// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 3): the
+// `inv_move` order's TU cost - ONE function for both ends: the ordering
+// client's tuBasis (sendClientIntent(), recomputed on every resubmit) and the
+// host's cost_changed / no_tu check (validateInvMove()). op `move`: vanilla's
+// own BattleItem::getMoveToCost(target section), the cost every drop block of
+// Inventory::mouseClick spends. `load` / `unload` are S-B's (section 9): 0
+// until then - the host answers both `invalid_target` before it reads a cost
+// (ST1 (a)). An item or section that does not resolve, or an item with no
+// section (a loaded clip, a special weapon), costs 0; the host refuses those
+// before its cost check. @a actor is S-B's (the load / unload sums read it).
+static int coopInvOrderCost(SavedBattleGame* save, const BattleUnit* actor, const CoopCombatIntentArgs& plan)
+{
+	(void)actor;
+	if (!save || plan.action != "move")
+		return 0;
+	const BattleItem* item = findItemById(save, plan.weapon);
+	const RuleInventory* slot = save->getMod()->getInventory(plan.invSlot);
+	if (!item || !item->getSlot() || !slot)
+		return 0;
+	return item->getMoveToCost(slot);
+}
+
+// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 4; Q4 (a),
+// Q5 (a)): HOST - the `inv_move` admission after onIntent()'s common terms, with
+// vanilla's own helpers (N15 = F1934). Parses the frozen payload {op, item, to
+// {slot, x, y}, weapon, swap, tuBasis} into @a plan and returns a deny reason
+// or nullptr:
+//   * common - the item resolves on the LIVE item list (a removed item stays
+//     allocated but leaves the list, N22 = F1941) and is the actor's own or lies
+//     loose on the actor's tile; not a fixed item, not a special weapon, and in
+//     a section (a clip inside a weapon has none) -> else `item_missing`;
+//   * op `load` / `unload` -> `invalid_target` until S-B (ST1 (a)); any other
+//     op -> `invalid_target`;
+//   * op `move` - the target section resolves -> else `invalid_target`; the
+//     item may be placed into it (RuleItem::canBePlacedIntoInventorySection) ->
+//     else `cannot_place`; a non-ground section also needs vanilla's own drop
+//     check (Inventory.cpp's `!overlapItems(...) && fitItemInSlot(...)`) ->
+//     else `invalid_target` (silent: vanilla shows nothing for an occupied
+//     cell); a GROUND target is never position-checked - ground x/y is each
+//     machine's own layout (N16 = F1935);
+//   * then tuBasis == coopInvOrderCost() -> else `cost_changed`; the cost fits
+//     the actor's TU -> else `no_tu`.
+// An actor with no tile (out) is refused `invalid_target` (silent; the open
+// screen cannot place for it). @a item / @a slot / @a cost are the admitted
+// order's.
+static const char* validateInvMove(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
+	CoopCombatIntentArgs& plan, BattleItem*& item, const RuleInventory*& slot, int& cost)
+{
+	item = nullptr;
+	slot = nullptr;
+	cost = 0;
+	plan = CoopCombatIntentArgs();
+	plan.action = intent.get("op", "").asString();
+	plan.weapon = intent.get("item", -1).asInt();
+	if (intent.isMember("to") && intent["to"].isObject())
+	{
+		plan.invSlot = intent["to"].get("slot", "").asString();
+		plan.invX = intent["to"].get("x", 0).asInt();
+		plan.invY = intent["to"].get("y", 0).asInt();
+	}
+	plan.invWeapon = intent.get("weapon", -1).asInt();
+	plan.invSwap = intent.get("swap", false).asBool();
+
+	if (!actor || actor->isOut() || !actor->getTile())
+		return "invalid_target";
+	item = findItemById(save, plan.weapon);
+	const bool owned = item && item->getOwner() == actor;
+	const bool onTile = item && !item->getOwner() && item->getTile() == actor->getTile();
+	if (!item || !(owned || onTile) || !item->getRules() || item->getRules()->isFixed() || item->isSpecialWeapon()
+		|| !item->getSlot())
+	{
+		return "item_missing";
+	}
+	if (plan.action != "move")
+		return "invalid_target"; // `load` / `unload`: S-B (ST1 (a)); an unknown op
+	slot = save->getMod()->getInventory(plan.invSlot);
+	if (!slot)
+		return "invalid_target";
+	if (!item->getRules()->canBePlacedIntoInventorySection(slot))
+		return "cannot_place";
+	if (slot->getType() != INV_GROUND
+		&& (Inventory::overlapItems(actor, item, slot, plan.invX, plan.invY)
+			|| !slot->fitItemInSlot(item->getRules(), plan.invX, plan.invY)))
+	{
+		return "invalid_target";
+	}
+	cost = coopInvOrderCost(save, actor, plan);
+	if (intent.get("tuBasis", -1).asInt() != cost)
+		return "cost_changed";
+	if (cost > actor->getTimeUnits())
+		return "no_tu";
+	return nullptr;
+}
+
+// W2-P8 S-A.2 (section 8.1 step 4; Q5 (a), Q6 (a), RB-D10): HOST - the NAMED
+// donor reproduction of vanilla's MOVE: Inventory.cpp :926-:958 (the drop and
+// ground-stack blocks) / :1078-:1086 (the cursor-stack block) minus their UI
+// lines (the stack counters, the cursor, the sound, the warning), with
+// `_selUnit` = the actor and `_selItem` = the item - the TU spend, then
+// Inventory::moveItem()'s own TileEngine::itemMoveInventory() on the actor's
+// tile; then vanilla's inventory-close trio for the actor's tile
+// (InventoryState.cpp :374-:377: gravity, the item light layer, FOV), which the
+// host never runs for a client-origin order otherwise (it closes no screen).
+// validateInvMove() already proved the cost fits.
+static void coopHostInvMove(SavedBattleGame* save, BattleUnit* actor, BattleItem* item, const RuleInventory* slot,
+	int x, int y, int cost)
+{
+	actor->spendTimeUnits(cost);
+	save->getTileEngine()->itemMoveInventory(actor->getTile(), actor, item, slot, x, y);
+	save->getTileEngine()->applyGravity(actor->getTile());
+	save->getTileEngine()->calculateLighting(LL_ITEMS); // dropping/picking up flares
+	save->getTileEngine()->recalculateFOV();
 }
 
 // W2-P4 S-D.2 (spec (b)3): the `use_item` order's context kind by its item's
@@ -6875,6 +7021,118 @@ static void coopClientMedikitAnswered(int actorId, int itemId, bool refreshPart,
 		return;
 	}
 	ms->coopAnswered(refreshPart, keepOpen);
+}
+
+// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 6): the
+// TOP state's InventoryState and its Inventory surface, found through the
+// state's own surface list (getSurfaces() + dynamic_cast - no vanilla accessor;
+// the coopClientMedikitAnswered() getStates().back() precedent). nullptr when
+// the inventory is not the top state (the player closed it, or another screen
+// is on top of it: InventoryState::init() re-lays it when it is back on top).
+static Inventory* coopTopInventory(InventoryState** stateOut)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	if (!bs || !bs->getGame() || bs->getGame()->getStates().empty())
+		return nullptr;
+	InventoryState* st = dynamic_cast<InventoryState*>(bs->getGame()->getStates().back());
+	if (!st)
+		return nullptr;
+	for (Surface* s : st->getSurfaces())
+	{
+		if (Inventory* inv = dynamic_cast<Inventory*>(s))
+		{
+			if (stateOut)
+				*stateOut = st;
+			return inv;
+		}
+	}
+	return nullptr;
+}
+
+// W2-P8 S-A.2 (section 8.1 steps 6 / 7, Q3 (a)): a co-op text on the
+// INVENTORY's own message line (vanilla's "Not Enough Time Units!" surface,
+// Inventory::showWarning) - the battlescape banner is hidden under the screen
+// (N13 = F1932). Recorded on the invLastWarning probe. An empty text shows
+// nothing (a silent reason).
+static void coopInvShowLine(Inventory* inv, const std::string& text)
+{
+	if (!inv || text.empty())
+		return;
+	inv->showWarning(text);
+	coopInvNoteWarning(text);
+}
+
+// W2-P8 S-A.2 (section 8.1 step 6; Q2 (a), Q3 (a), Q9 (a) the refresh half):
+// CLIENT - the answer to this machine's own `inv_move` order reaches the
+// inventory screen it was placed on: its own bt_action_end (@a ok = not
+// halted), a non-busy deny or a timeout (@a ok false, @a text the rendered
+// reason). Acts only while an InventoryState is the top state (F1968: the
+// player may have closed the screen meanwhile). The item that rode the cursor
+// while the order was in flight (Q2 (a)) leaves it - on success it now sits
+// where the host put it (the delta already applied), on a refusal it is back
+// where it was; a success plays vanilla's own drop sound (Inventory.cpp's drop
+// blocks, Mod::ITEM_DROP). Then vanilla's own redraws: arrangeGround() (only
+// with nothing on the cursor, as coopClientInventoryRefresh() below), drawItems()
+// and updateStats() - the last only while the battle selection is the screen's
+// unit and not out (updateStats() reads the battle selection, F1977). Never
+// InventoryState::init() (it re-lays the ground and closes on a null unit).
+static void coopClientInvAnswered(const CoopCombatIntentArgs& plan, int actorId, bool ok, const std::string& text)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	InventoryState* st = nullptr;
+	Inventory* inv = save ? coopTopInventory(&st) : nullptr;
+	if (!inv || !st)
+	{
+		Log(LOG_INFO) << "[coop-inv] inv_move answer for unit " << actorId << " (item " << plan.weapon
+			<< ", ok " << ok << ") - no inventory screen on top, nothing to show";
+		return;
+	}
+	const BattleItem* cursor = inv->getSelectedItem();
+	if (cursor && cursor->getId() == plan.weapon)
+		inv->setSelectedItem(0);
+	if (ok)
+	{
+		if (Sound* s = save->getBattleState()->getGame()->getMod()->getSoundByDepth(save->getDepth(), Mod::ITEM_DROP))
+			s->play();
+	}
+	BattleUnit* unit = inv->getSelectedUnit();
+	if (unit && unit->getTile())
+	{
+		if (!inv->getSelectedItem())
+			inv->arrangeGround();
+		inv->drawItems();
+	}
+	if (unit && save->getSelectedUnit() == unit && !unit->isOut())
+		st->updateStats();
+	coopInvShowLine(inv, text);
+}
+
+// W2-P8 S-A.2 (section 8.1 step 6, Q9 (a) the refresh half): CLIENT - after
+// EVERY applied ev an open (top) inventory screen shows the state the ev wrote:
+// drawItems(), updateStats() under coopClientInvAnswered()'s guard, and
+// arrangeGround() only with nothing on the cursor (a cursor item picked from
+// the ground keeps its stack count). Never InventoryState::init(). Called from
+// coopRefreshAppliedHud() before its selected-unit-out step. The force-close
+// (the unit out, not commanded, the side not the seat's) is S-C1's. A no-op on
+// the host, in single player and outside an active co-op battle.
+static void coopClientInventoryRefresh(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim)
+		return;
+	InventoryState* st = nullptr;
+	Inventory* inv = coopTopInventory(&st);
+	if (!inv || !st)
+		return;
+	BattleUnit* unit = inv->getSelectedUnit();
+	if (unit && unit->getTile())
+	{
+		if (!inv->getSelectedItem())
+			inv->arrangeGround();
+		inv->drawItems();
+	}
+	if (unit && save->getSelectedUnit() == unit && !unit->isOut())
+		st->updateStats();
 }
 
 // W2-P4 S-E2.2 (amendment C3 D147 section 1 step 3, C3-Q5 (a)): CLIENT - the
@@ -7082,6 +7340,12 @@ static void coopClientCombatAftermath(const std::string& kind, const CoopCombatI
 	// `continue: true` this machine's own targeting continues (C3-Q5 / C3-Q8).
 	if (kind == "skill")
 		coopClientSkillAnswered(plan, actorId, cont && !failed);
+	// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 6): an
+	// `inv_move` order's answer reaches the inventory screen it was placed on - the
+	// item leaves the cursor (it already sits where the host put it), vanilla's
+	// drop sound, the screen redrawn.
+	if (kind == "inv_move")
+		coopClientInvAnswered(plan, actorId, !failed, std::string());
 }
 
 static Json::Value buildFinal(const BattleUnit* u)
@@ -9124,9 +9388,54 @@ void onIntent(const Json::Value& intent)
 		return;
 	}
 
+	if (kind == "inv_move")
+	{
+		// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 4;
+		// owner D130, Q4 (a), Q5 (a), Q6 (a)): an in-battle INVENTORY placement as an
+		// INSTANT intent - the host checks it with vanilla's own rules
+		// (validateInvMove()) and performs it with vanilla's own effect and TU cost
+		// (coopHostInvMove(), the named donor reproduction, then the close trio for
+		// the actor's tile). The reload template's wrapper: mint, ack, `intent`
+		// context of kind `inv_move`, arming. The context's one ev is its
+		// bt_action_end, whose delta carries the item's owner / section / cell /
+		// tile and the actor's TU. The host runs it whatever is on its own screen
+		// (an instant order finishes inside onIntent).
+		CoopCombatIntentArgs plan;
+		BattleItem* item = nullptr;
+		const RuleInventory* slot = nullptr;
+		int cost = 0;
+		const char* reason = validateInvMove(actor, intent, save, plan, item, slot, cost);
+		if (reason)
+		{
+			denyIntent(iseq, reason, seat, kind);
+			return;
+		}
+
+		const std::uint32_t actionId = mintActionId();
+		Json::Value ack = CoopWire::makeAck(iseq, actionId);
+		CoopEmit::sendBattle(ack);
+		clearDeny(seat);
+		noteIntentReceived(kind, true); // spec (b)13
+		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		g_coopPendingChainActorId = actor->getId();
+		g_coopPendingChainKind = "inv_move"; // the instant context kind
+		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
+		g_coopIntentResultKey.clear();
+
+		Log(LOG_INFO) << "[coop-ctx] admitted inv_move intent iseq " << iseq << " seat " << seat << " actor "
+			<< actor->getId() << " actionId " << actionId << ": op " << plan.action << " item " << item->getId()
+			<< " " << (item->getSlot() ? item->getSlot()->getId() : std::string("-")) << " -> " << slot->getId()
+			<< " (" << plan.invX << "," << plan.invY << ") cost " << cost << " tu " << actor->getTimeUnits();
+
+		beginChainArming();
+		coopHostInvMove(save, actor, item, slot, plan.invX, plan.invY, cost);
+		endChainArming(!bg->isBusy());
+		return;
+	}
+
 	Log(LOG_WARNING) << "[coop-arbiter] bt_intent unknown kind '" << kind
 		<< "' - dropped (RB-D9/SS2.W2, W2-P4: turn, kneel, walk, shoot, throw, prime, melee, psi, use_item, "
-		   "medikit, reload, reaction_hands and skill are the validators that exist)";
+		   "medikit, reload, reaction_hands and skill are the validators that exist; W2-P8: inv_move)";
 }
 
 // W2-P3 S-A.2 (spec rewrite/prompts/w2p3_nonplayer_origins.md (b)3): the BASE
@@ -9916,7 +10225,13 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		{
 			BattleItem* weapon = findItemById(save, combat->weapon);
 			const BattleActionType type = coopCombatActionType(kindStr, *combat);
-			if (kindStr == "skill")
+			if (kindStr == "inv_move")
+			{
+				// W2-P8 S-A.2 (section 8.1 step 3): the placement's own cost, the one
+				// function the host's validateInvMove() recomputes.
+				tuBasis = coopInvOrderCost(save, actor, *combat);
+			}
+			else if (kindStr == "skill")
 			{
 				// W2-P4 S-E2.2: SkillMenuState's own updateTU() for the row -
 				// getActionTUs(the skill's target mode, the skill).
@@ -10084,6 +10399,30 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		intent["skill"] = combat->skill;
 		intent["action"] = (int)save->getMod()->getSkill(combat->skill)->getTargetMode();
 		intent["weapon"] = combat->weapon;
+		intent["tuBasis"] = tuBasis;
+	}
+	else if (kindStr == "inv_move")
+	{
+		// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 3,
+		// Q4 (a)): the frozen `inv_move` payload - the op, the item, the move's
+		// target {slot, x, y}, the load's weapon and Shift quick-swap, tuBasis. Ctrl
+		// auto-place and the paperdoll drop ship as a concrete `move`. No field
+		// carries timing (G1).
+		intent["op"] = combat->action;
+		intent["item"] = combat->weapon;
+		if (combat->action == "move")
+		{
+			Json::Value to(Json::objectValue);
+			to["slot"] = combat->invSlot;
+			to["x"] = combat->invX;
+			to["y"] = combat->invY;
+			intent["to"] = to;
+		}
+		else if (combat->action == "load")
+		{
+			intent["weapon"] = combat->invWeapon;
+			intent["swap"] = combat->invSwap;
+		}
 		intent["tuBasis"] = tuBasis;
 	}
 	else // "kneel"
@@ -10254,6 +10593,11 @@ void onDeny(const Json::Value& deny)
 		// (ADDENDUM (e)); showPending() is the presenter entry point the
 		// packet names for this state.
 		CoopBattleUi::showPending("busy");
+		// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 6,
+		// AMENDMENT P8-1 OR1 (a)): a HELD `inv_move` keeps its item on the cursor
+		// and says so on the inventory's own line with the banner's own wait text.
+		if (g_coopClientPending.kind == "inv_move")
+			coopInvShowLine(coopTopInventory(nullptr), CoopBattleUi::inventoryLineText("busy"));
 		return;
 	}
 
@@ -10266,6 +10610,7 @@ void onDeny(const Json::Value& deny)
 		const std::string deniedKind = g_coopClientInFlight.kind;
 		const int deniedActor = g_coopClientInFlight.actorId;
 		const int deniedItem = g_coopClientInFlight.combat.weapon;
+		const CoopCombatIntentArgs deniedPlan = g_coopClientInFlight.combat; // W2-P8 S-A.2
 		g_coopClientInFlight = CoopClientInFlight();
 		// W2-P4 S-A.2 (spec (b)5): a refused combat order gives the cursor back.
 		if (combat)
@@ -10275,6 +10620,11 @@ void onDeny(const Json::Value& deny)
 		// closes it; the reason is shown below, on the battlescape.
 		if (deniedKind == "medikit")
 			coopClientMedikitAnswered(deniedActor, deniedItem, false, false);
+		// W2-P8 S-A.2 (section 8.1 step 6; Q2 (a), Q3 (a)): a refused `inv_move`
+		// gives its item back and shows the reason on the inventory's own line - the
+		// banner's own text (nothing for a silent reason); the banner below as ever.
+		if (deniedKind == "inv_move")
+			coopClientInvAnswered(deniedPlan, deniedActor, false, CoopBattleUi::inventoryLineText(reason.c_str()));
 	}
 
 	CoopBattleUi::showDeny(reason.c_str());
@@ -10596,6 +10946,7 @@ void tickIntentTimeout()
 	const int actorId = g_coopClientInFlight.actorId;
 	const std::string kind = g_coopClientInFlight.kind;
 	const bool combat = g_coopClientInFlight.hasCombat; // W2-P4 S-A.2
+	const CoopCombatIntentArgs plan = g_coopClientInFlight.combat; // W2-P8 S-A.2
 
 	// WV-D24: remember it forever (this battle), then RELEASE the IR-2 one-slot
 	// lock. That release is the whole point - before this packet a lost intent
@@ -10612,6 +10963,10 @@ void tickIntentTimeout()
 		" (WV-D24)";
 	if (combat)
 		coopClientRestoreCursor(); // W2-P4 S-A.2: the dropped combat order gives the cursor back
+	// W2-P8 S-A.2 (section 8.1 step 6, Q2 (a)): a timed-out `inv_move` gives its
+	// item back, with the timeout's own text on the inventory's line.
+	if (kind == "inv_move")
+		coopClientInvAnswered(plan, actorId, false, CoopBattleUi::inventoryLineText("timeout"));
 	CoopBattleUi::showIntentTimeout();
 }
 
@@ -12124,6 +12479,178 @@ bool coopClientSkipsMedikitRemoval()
 	// that emptied it, and the removal reaches this machine through the delta -
 	// so a co-op CLIENT never runs MedikitState::onEndClick()'s own removal.
 	return isCoopBattle() && !coopBattleAuthority().hostSim;
+}
+
+// ===== W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 steps 5,
+// 8-10; owner D130, D150; AMENDMENT P8-1 OR2 (a)): the IN-BATTLE INVENTORY
+// execution points - see CoopArbiter.h for each guard's contract. =====
+
+// The guards' shared head (steps 1-2 of section 8.1 step 5): the baton / side /
+// ownership term at the execution point on BOTH machines, then the host.
+// Returns 1 = refused (TRUE), 0 = the host (vanilla runs), -1 = a client, go on.
+// The refusal's text goes on the inventory's own message line (the battlescape
+// banner is hidden under the screen, F1962), so this does NOT call
+// coopRefuseIfNotMayCommand(), and bumps coopLocalExecBlocked itself.
+static int coopInvGuardHead(Inventory* inv, BattleUnit* unit, BattleItem* item, const char* site, const char* op,
+	SavedBattleGame* save)
+{
+	if (!coopMayCommand(unit, save))
+	{
+		if (coopBatonTermIsTheFailure(unit, save))
+		{
+			CoopArbiter::coopInvShowLine(inv, CoopBattleUi::inventoryLineText("not_your_go"));
+			g_coopLocalExecBlocked.fetch_add(1);
+		}
+		coopInvNoteGuard(site, op, "baton", item, unit);
+		Log(LOG_INFO) << "[coop-inv] " << site << " (" << op << ") for unit " << unit->getId() << " item "
+			<< (item ? item->getId() : -1) << " refused at the execution point: this seat may not command it now";
+		return 1;
+	}
+	if (coopBattleAuthority().hostSim)
+	{
+		coopInvNoteGuard(site, op, "host_vanilla", item, unit);
+		return 0;
+	}
+	return -1;
+}
+
+// CLIENT (D150 = (a)): this unit's order is in flight or held pending.
+static bool coopInvUnitOrderOutstanding(const BattleUnit* unit)
+{
+	const int actorId = unit->getId();
+	return (g_coopClientInFlight.active && g_coopClientInFlight.actorId == actorId)
+		|| (g_coopClientPending.active && g_coopClientPending.actorId == actorId);
+}
+
+bool coopInterceptInvMove(Inventory* inv, BattleUnit* unit, BattleItem* item, const RuleInventory* slot,
+	int x, int y, const char* site)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!isCoopBattle() || !inv || !unit || !item || !slot || !save)
+		return false; // SP and every non-co-op battle: vanilla, byte-identical
+
+	const int head = coopInvGuardHead(inv, unit, item, site, "move", save);
+	if (head >= 0)
+		return head == 1;
+
+	// CLIENT, D150 = (a): a placement while this unit's order is in flight or held
+	// is IGNORED - the item stays on the cursor (Q2 (a)).
+	if (coopInvUnitOrderOutstanding(unit))
+	{
+		coopInvNoteGuard(site, "move", "inflight", item, unit);
+		Log(LOG_INFO) << "[coop-inv] " << site << " of item " << item->getId() << " for unit " << unit->getId()
+			<< " ignored: its order is still in flight or held (D150)";
+		return true;
+	}
+
+	// CLIENT, spec (b)11: a site whose order S-B builds - refused locally, nothing
+	// sent, so no build lets vanilla write on a thin client in between.
+	const std::string s = site ? site : "";
+	if (s == "ctrl_ground" || s == "ctrl_fit" || s == "paperdoll")
+	{
+		coopInvNoteGuard(site, "move", "interim", item, unit);
+		Log(LOG_INFO) << "[coop-inv] " << s << " of item " << item->getId() << " for unit " << unit->getId()
+			<< " refused on this client until W2-P8 S-B (interim, spec (b)11) - nothing sent";
+		return true;
+	}
+
+	// CLIENT: vanilla's own TU check, read-only - when vanilla would fail, it runs
+	// and warns (its spendTimeUnits() writes nothing on a failure).
+	if (item->getMoveToCost(slot) > unit->getTimeUnits())
+	{
+		coopInvNoteGuard(site, "move", "vanilla_refused", item, unit);
+		return false;
+	}
+
+	// CLIENT: the placement becomes an `inv_move {op move}` order. TRUE whether or
+	// not the envelope went out: no spend and no moveItem ever runs on a thin client.
+	CoopCombatIntentArgs args;
+	args.action = "move";
+	args.weapon = item->getId();
+	args.invSlot = slot->getId();
+	args.invX = x;
+	args.invY = y;
+	const std::uint32_t iseq = CoopArbiter::sendClientIntent("inv_move", unit->getId(), -1, false, false, -1,
+		nullptr, &args);
+	coopInvNoteGuard(site, "move", "sent", item, unit);
+	Log(LOG_INFO) << "[coop-inv] " << s << ": item " << item->getId() << " -> " << slot->getId() << " (" << x << ","
+		<< y << ") for unit " << unit->getId() << " sent as inv_move iseq " << iseq;
+	return true;
+}
+
+bool coopInterceptInvLoad(Inventory* inv, BattleUnit* unit, BattleItem* clip, BattleItem* weapon, int tuCost)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!isCoopBattle() || !inv || !unit || !clip || !weapon || !save)
+		return false; // SP and every non-co-op battle: vanilla, byte-identical
+	(void)tuCost; // S-B: vanilla's own TU check, read-only
+	const int head = coopInvGuardHead(inv, unit, clip, "load", "load", save);
+	if (head >= 0)
+		return head == 1;
+	// CLIENT: S-B builds the `load` order (spec (b)11: the interim refusal).
+	coopInvNoteGuard("load", "load", "interim", clip, unit);
+	Log(LOG_INFO) << "[coop-inv] load of clip " << clip->getId() << " into weapon " << weapon->getId() << " for unit "
+		<< unit->getId() << " refused on this client until W2-P8 S-B (interim) - nothing sent";
+	return true;
+}
+
+bool coopInterceptInvUnload(Inventory* inv, BattleUnit* unit, BattleItem* item, BattleActionCost& cost)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!isCoopBattle() || !inv || !unit || !item || !save)
+		return false; // SP and every non-co-op battle: vanilla, byte-identical
+	(void)cost; // S-B: vanilla's own haveTU(), read-only
+	const int head = coopInvGuardHead(inv, unit, item, "unload", "unload", save);
+	if (head >= 0)
+		return head == 1;
+	// CLIENT: S-B builds the `unload` order (spec (b)11: the interim refusal).
+	coopInvNoteGuard("unload", "unload", "interim", item, unit);
+	Log(LOG_INFO) << "[coop-inv] unload of item " << item->getId() << " for unit " << unit->getId()
+		<< " refused on this client until W2-P8 S-B (interim) - nothing sent";
+	return true;
+}
+
+bool coopInterceptInvReturn(Inventory* inv, BattleItem* item)
+{
+	if (!isCoopBattle() || coopBattleAuthority().hostSim || !inv || !item)
+		return false; // SP, the host and every non-co-op battle: vanilla
+	const BattleUnit* unit = inv->getSelectedUnit();
+	if (!unit)
+		return false;
+	// Q2 (a): the order this item rides the cursor for is still in flight - the
+	// item stays until the host answers.
+	if (g_coopClientInFlight.active && g_coopClientInFlight.kind == "inv_move"
+		&& g_coopClientInFlight.actorId == unit->getId() && g_coopClientInFlight.combat.weapon == item->getId())
+	{
+		Log(LOG_INFO) << "[coop-inv] right-click on item " << item->getId() << " ignored: its inv_move (iseq "
+			<< g_coopClientInFlight.iseq << ") is in flight";
+		return true;
+	}
+	// A HELD order for this item: the right-click cancels it (R2-P7's cancel
+	// control) and vanilla returns the item.
+	if (g_coopClientPending.active && g_coopClientPending.kind == "inv_move"
+		&& g_coopClientPending.actorId == unit->getId() && g_coopClientPending.combat.weapon == item->getId())
+	{
+		CoopArbiter::cancelPendingIntent();
+	}
+	return false;
+}
+
+bool coopInvLocalWriteRefused()
+{
+	if (!isCoopBattle() || coopBattleAuthority().hostSim)
+		return false;
+	const int n = g_coopInvLocalWrites.fetch_add(1) + 1;
+	Log(LOG_ERROR) << "[coop-inv] Inventory::moveItem reached on a co-op CLIENT - refused (Q11 backstop, "
+		"invLocalWrites " << n << "): an inventory execution point let vanilla through";
+	return true;
+}
+
+BattleUnit* coopInventoryCloseGravityUnit(BattleUnit* u)
+{
+	if (isCoopBattle() && !coopBattleAuthority().hostSim)
+		return nullptr; // Q6 (a): the host ran the trio inside the order's context
+	return u;
 }
 
 // W2-P4 S-D.2 (amendment C1 PR-Q5 = Q7's mechanism): the host's OWN medi-kit
@@ -18168,6 +18695,7 @@ static void coopRefreshAppliedHud()
 	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
 	if (!bs)
 		return;
+	CoopArbiter::coopClientInventoryRefresh(save); // W2-P8 S-A.2 (Q9 (a) the refresh half), see its own comment
 	coopClientSelectedUnitOut(save); // W2-H6 H6-4 (F1206), see its own comment
 	bs->updateSoldierInfo(false);
 }
@@ -18513,6 +19041,17 @@ const ReasonStrEntry kReasonStrTable[] =
 	// SILENT (vanilla's menu never offers either, so it has no text for them).
 	{ "skill_invalid",        "" },
 	{ "skill_not_granted",    "" },
+	// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 11,
+	// Q4 (a), frozen here): the `inv_move` denies - an item that is no longer
+	// the actor's or on its tile gets a coop key; the placement refusals use
+	// vanilla's own inventory keys (what a solo player reads for the same drop).
+	// `no_ammo_loaded`, `no_tu`, `cost_changed` and the silent `invalid_target`
+	// (an occupied cell: vanilla shows nothing) are the rows above.
+	{ "item_missing",         "STR_COOP_DENY_ITEM_MISSING" },
+	{ "cannot_place",         "STR_CANNOT_PLACE_ITEM_INTO_THIS_SECTION" },
+	{ "wrong_ammo",           "STR_WRONG_AMMUNITION_FOR_THIS_WEAPON" },
+	{ "already_loaded",       "STR_WEAPON_IS_ALREADY_LOADED" },
+	{ "one_hand_empty",       "STR_ONE_HAND_MUST_BE_EMPTY" },
 	// auto-cancel causes (ADDENDUM 1.3(d))
 	{ "enemy_spotted",     "STR_COOP_CANCEL_ENEMY_SPOTTED" },
 	{ "unit_under_fire",   "STR_COOP_CANCEL_UNIT_UNDER_FIRE" },
@@ -18872,7 +19411,6 @@ const char* controlStrKey(Control c)
 	switch (c)
 	{
 	case Control::Abort:        return "STR_COOP_ABORT_HOST_ONLY";
-	case Control::Inventory:    return "STR_COOP_INVENTORY_HOST_ONLY";
 	case Control::ZeroTu:       return "STR_COOP_ZERO_TU_HOST_ONLY";
 	case Control::HandReaction: return "STR_COOP_REACTIONS_HOST_ONLY";
 	case Control::LevelChange:  return "STR_COOP_LEVEL_CHANGE_HOST_ONLY";
@@ -18951,6 +19489,57 @@ bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s)
 	}
 
 	return false;
+}
+
+bool refuseInventoryOpen(const BattleUnit* u, const SavedBattleGame* s)
+{
+	// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 1;
+	// Q10 = (a), OR3 = (a); owner D130): see CoopBattleUi.h. Self-guarded: SP and
+	// every non-co-op battle fall straight through (vanilla, byte-identical).
+	if (!isCoopBattle())
+		return false;
+	// OR3 (a): the side first - during a side that is not this seat's, vanilla's
+	// own allowButtons() keeps the screen closed, silently, on both machines (V13).
+	if (!coopBattleAuthority().mySideActive(s))
+		return false;
+	// Ownership only: another seat's soldier stays refused with SS2.6's existing
+	// not_your_unit row. The baton is not checked - off the baton the screen
+	// opens to LOOK and every placement is refused at its execution point.
+	if (u && !coopBattleAuthority().commandsUnit(u))
+	{
+		showRefusalKey("STR_COOP_DENY_NOT_YOUR_UNIT");
+		return true;
+	}
+	return false;
+}
+
+std::string inventoryLineText(const char* reason)
+{
+	// W2-P8 S-A.2 (section 8.1 step 7, F1962; OR1 (a)): exactly the text the
+	// banner presenter puts up for the same answer - showPending()'s for "busy",
+	// showIntentTimeout()'s for "timeout", showDeny()'s for every deny reason. The
+	// banner presenters themselves are untouched.
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!bs || !reason)
+		return std::string();
+	if (std::strcmp(reason, "busy") == 0)
+	{
+		std::string text = waitBannerText(bs);
+		if (text.empty())
+			text = bs->getGame()->getLanguage()->getString("STR_COOP_DENY_BUSY");
+		return text;
+	}
+	if (std::strcmp(reason, "timeout") == 0)
+		return bs->getGame()->getLanguage()->getString("STR_COOP_ACTION_TIMEOUT");
+	const char* key = lookupStrKey(reason);
+	if (!key || !*key)
+		return std::string(); // an unknown reason, or a SILENT row
+	if (std::strcmp(reason, "not_your_go") == 0)
+	{
+		return bs->getGame()->getLanguage()->getString(key)
+			.arg(seatDisplayName(bs, coopBattleAuthority().activeSeat.load()));
+	}
+	return bs->getGame()->getLanguage()->getString(key);
 }
 
 // W2-P1's action-menu choke (refuseItemActionChoice) and its Control::ItemAction /

@@ -87,11 +87,10 @@ enum class Control
 	/// finishBattle()); the multiplayer VOTE that used to arbitrate it is r4
 	/// T3, so until then only the simulating machine may open the dialog.
 	Abort,
-	/// BattlescapeState::btnInventoryClick -> the MID-battle InventoryState.
-	/// Every move inside it writes the hashed `items` bucket with nothing on
-	/// the wire (`inventory_move` is not in wave 1, WV-D34). Distinct from
-	/// W1-P4's PRE-battle freeze, which is a skipped push, not a refusal.
-	Inventory,
+	// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 1,
+	// Q10 = (a)): the INVENTORY value is RETIRED - every player opens the
+	// inventory of the soldiers its seat commands and each placement is an
+	// `inv_move` order (refuseInventoryOpen() below is the open gate).
 	/// BattlescapeState::btnZeroTUsClick -> BattleUnit::clearTimeUnits(): a
 	/// LOCAL STATE MINT straight into the `unitsStats` bucket.
 	ZeroTu,
@@ -155,6 +154,28 @@ enum class Control
 /// scoped to the co-op SESSION, not to the battle, because that is what
 /// connectionTCP::localLoadsAllowed() answers.
 bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s);
+
+/// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 1;
+/// Q10 = (a), AMENDMENT P8-1 OR3 (a); owner D130): the MID-battle inventory's
+/// open gate (BattlescapeState::btnInventoryClick). TRUE = refused, the refusal
+/// already on the banner. In order: not an active co-op battle -> FALSE
+/// (vanilla); this seat's side is not active -> FALSE (vanilla's own
+/// allowButtons() then keeps the screen closed, silently, V13); a unit this seat
+/// does not command -> STR_COOP_DENY_NOT_YOUR_UNIT, TRUE; otherwise FALSE on
+/// either machine. The baton is NOT checked here: off the baton the screen
+/// opens to LOOK and every placement is refused at its execution point.
+bool refuseInventoryOpen(const BattleUnit* u, const SavedBattleGame* s);
+
+/// W2-P8 S-A.2 (section 8.1 step 7, F1962; AMENDMENT P8-1 OR1 (a)): the text
+/// the co-op layer puts on the INVENTORY's own message line, which is exactly
+/// what the battlescape banner (hidden under the inventory screen) would show
+/// for the same answer: @a reason "busy" -> showPending()'s seat-attributed
+/// wait text (STR_COOP_DENY_BUSY fallback); "timeout" ->
+/// showIntentTimeout()'s STR_COOP_ACTION_TIMEOUT; any other deny reason ->
+/// showDeny()'s text (not_your_go templated with the baton holder's name). A
+/// SILENT reason, an unknown one, or no live battle -> "". The banner paths
+/// themselves are unchanged.
+std::string inventoryLineText(const char* reason);
 
 /// W1-P5: the presenter half of refuseControl(), for the ONE site that has
 /// already decided the refusal for itself - LoadGameState::init's local-load

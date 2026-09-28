@@ -1361,7 +1361,7 @@ void BattlescapeState::btnInventoryClick(Action *)
 	// open it. One guarded coop call; false and inert outside a coop battle.
 	// W1-P4 froze the PRE-battle screen, which is a different site
 	// (BriefingState::btnOkClick) and a different mechanism (a skipped push).
-	if (CoopBattleUi::refuseControl(CoopBattleUi::Control::Inventory,
+	if (CoopBattleUi::refuseInventoryOpen( // W2-P8 (Q10 a): ownership only, the side first
 			_save->getSelectedUnit(), _save))
 	{
 		return;

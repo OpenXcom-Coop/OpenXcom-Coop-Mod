@@ -48,6 +48,7 @@
 #include "../Engine/Screen.h"
 #include "../Engine/CrossPlatform.h"
 #include "TileEngine.h"
+#include "../CoopMod/CoopArbiter.h"
 
 namespace OpenXcom
 {
@@ -505,6 +506,7 @@ std::vector<std::vector<char>>* Inventory::clearOccupiedSlotsCache()
  */
 void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int y)
 {
+	if (coopInvLocalWriteRefused()) return; // W2-P8 Q11
 	_game->getSavedGame()->getSavedBattle()->getTileEngine()->itemMoveInventory(_selUnit->getTile(), _selUnit, item, slot, x, y);
 }
 
@@ -872,7 +874,8 @@ void Inventory::mouseClick(Action *action, State *state)
 						}
 						else
 						{
-							if (!_tu || _selUnit->spendTimeUnits(item->getMoveToCost(newSlot)))
+							if (coopInterceptInvMove(this, _selUnit, item, newSlot, 0, 0, "ctrl_ground")) { placed = true; } // W2-P8
+							else if (!_tu || _selUnit->spendTimeUnits(item->getMoveToCost(newSlot)))
 							{
 								placed = true;
 								moveItem(item, newSlot, 0, 0);
@@ -927,7 +930,8 @@ void Inventory::mouseClick(Action *action, State *state)
 				{
 					if (!overlapItems(_selUnit, _selItem, slot, x, y) && slot->fitItemInSlot(_selItem->getRules(), x, y))
 					{
-						if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
+						if (coopInterceptInvMove(this, _selUnit, _selItem, slot, x, y, "drop")) {} // W2-P8
+						else if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
 						{
 							moveItem(_selItem, slot, x, y);
 							if (slot->getType() == INV_GROUND)
@@ -944,7 +948,8 @@ void Inventory::mouseClick(Action *action, State *state)
 					}
 					else if (canStack)
 					{
-						if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
+						if (coopInterceptInvMove(this, _selUnit, _selItem, slot, item->getSlotX(), item->getSlotY(), "stack")) {} // W2-P8
+						else if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
 						{
 							moveItem(_selItem, slot, item->getSlotX(), item->getSlotY());
 							_stackLevel[item->getSlotX()][item->getSlotY()] += 1;
@@ -1028,7 +1033,8 @@ void Inventory::mouseClick(Action *action, State *state)
 						}
 						if (canLoad)
 						{
-							if (!_tu || _selUnit->spendTimeUnits(tuCost))
+							if (coopInterceptInvLoad(this, _selUnit, _selItem, item, tuCost)) {} // W2-P8
+							else if (!_tu || _selUnit->spendTimeUnits(tuCost))
 							{
 								bool arrangeFloor = false;
 								auto* oldAmmo = item->setAmmoForSlot(slotAmmo, _selItem);
@@ -1079,7 +1085,8 @@ void Inventory::mouseClick(Action *action, State *state)
 					BattleItem *item = _selUnit->getItem(slot, x, y);
 					if (canBeStacked(item, _selItem))
 					{
-						if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
+						if (coopInterceptInvMove(this, _selUnit, _selItem, slot, item->getSlotX(), item->getSlotY(), "stack_cursor")) {} // W2-P8
+						else if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
 						{
 							moveItem(_selItem, slot, item->getSlotX(), item->getSlotY());
 							_stackLevel[item->getSlotX()][item->getSlotY()] += 1;
@@ -1156,7 +1163,7 @@ void Inventory::mouseClick(Action *action, State *state)
 				}
 			}
 		}
-		else
+		else if (!coopInterceptInvReturn(this, _selItem))
 		{
 			if (_selItem->getSlot()->getType() == INV_GROUND)
 			{
@@ -1199,6 +1206,7 @@ bool Inventory::quickDrop()
 {
 	if (_selUnit && _selItem)
 	{
+		if (coopInterceptInvMove(this, _selUnit, _selItem, _inventorySlotGround, 0, 0, "paperdoll")) return false; // W2-P8
 		if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(_inventorySlotGround)))
 		{
 			moveItem(_selItem, _inventorySlotGround, 0, 0);
@@ -1405,6 +1413,7 @@ bool Inventory::unload(bool quickUnload)
 	}
 
 	std::string err;
+	if (coopInterceptInvUnload(this, _selUnit, _selItem, cost)) return false; // W2-P8
 	if (!_tu || cost.spendTU(&err))
 	{
 		moveItem(_selItem, FirstFreeHand, 0, 0); // 1.
@@ -1731,7 +1740,8 @@ bool Inventory::fitItem(const RuleInventory *newSlot, BattleItem *item, std::str
 		{
 			if (!overlapItems(_selUnit, item, newSlot, x2, y2) && newSlot->fitItemInSlot(item->getRules(), x2, y2))
 			{
-				if (!_tu || _selUnit->spendTimeUnits(item->getMoveToCost(newSlot)))
+				if (coopInterceptInvMove(this, _selUnit, item, newSlot, x2, y2, "ctrl_fit")) { placed = true; } // W2-P8
+				else if (!_tu || _selUnit->spendTimeUnits(item->getMoveToCost(newSlot)))
 				{
 					placed = true;
 					moveItem(item, newSlot, x2, y2);

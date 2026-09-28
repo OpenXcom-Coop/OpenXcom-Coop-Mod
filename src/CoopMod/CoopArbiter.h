@@ -35,6 +35,10 @@ class BattlescapeGame;
 class SavedBattleGame;
 class RuleSkill; // W2-P4 S-E2: coopInterceptSkillUse()
 struct BattleAction;
+class Inventory;        // W2-P8 S-A.2: the inventory execution-point guards
+class BattleItem;
+class RuleInventory;
+struct BattleActionCost;
 
 /**
  * W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / rulings D4+D-6 = WV-D29/WV-D30/WV-D38/
@@ -1020,5 +1024,62 @@ bool coopClientSkipsMedikitRemoval();
 /// throw/launch cancel of the HOST player's own action). FALSE everywhere else
 /// (SP, a client, the host's own actions), so vanilla is byte-identical there.
 bool coopLatchActionResult(const BattleAction& action);
+
+// ===== W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 steps
+// 5, 8-10; owner D130; AMENDMENT P8-1 OR2 (a)): the IN-BATTLE INVENTORY
+// execution points. Picking an item up is local (vanilla's own cursor); every
+// placement is an `inv_move` intent the host checks and performs. Each guard is
+// ONE guarded call at its vanilla site in Inventory.cpp / InventoryState.cpp,
+// self-guarded (FALSE / the vanilla value in single player and outside an
+// active co-op battle, so SP is byte-identical). Every decision a guard takes
+// is recorded on the invGuard probe (CoopArbiter::invGuard()). =====
+
+/// The MOVE execution points (Inventory::mouseClick's drop / ground-stack /
+/// cursor-stack blocks, the Ctrl body->ground block, fitItem's Ctrl placement and
+/// quickDrop's paperdoll drop), called on the line before vanilla's own
+/// `if (!_tu || spendTimeUnits(...))`; @a site names the block ("drop",
+/// "stack", "stack_cursor", "ctrl_ground", "ctrl_fit", "paperdoll"). TRUE =
+/// vanilla's block must not run. In order:
+///   1. !coopMayCommand(unit): TRUE on BOTH machines; when the baton is the
+///      failure the rendered not_your_go text goes on the inventory's own
+///      message line and coopLocalExecBlocked +1 (decision `baton`);
+///   2. the co-op HOST: FALSE, vanilla runs (`host_vanilla`);
+///   3. CLIENT: this unit's order in flight or held pending: TRUE, nothing sent
+///      (owner D150, `inflight`);
+///   4. CLIENT, a site S-B has not built yet (ctrl_ground, ctrl_fit,
+///      paperdoll): TRUE, nothing sent, logged (`interim`, spec (b)11);
+///   5. CLIENT, the move costs more TU than the unit has: FALSE - vanilla's own
+///      spend fails and warns with no write (`vanilla_refused`);
+///   6. CLIENT: an `inv_move {op move}` order is sent and TRUE (`sent`).
+bool coopInterceptInvMove(Inventory* inv, BattleUnit* unit, BattleItem* item, const RuleInventory* slot,
+	int x, int y, const char* site);
+
+/// The LOAD execution point (mouseClick's put-ammo-in-weapon block, the line
+/// before its spendTimeUnits(tuCost)): steps 1-2 above, then TRUE on a client
+/// (`interim` until S-B builds the load order).
+bool coopInterceptInvLoad(Inventory* inv, BattleUnit* unit, BattleItem* clip, BattleItem* weapon, int tuCost);
+
+/// The UNLOAD / UNPRIME execution point (Inventory::unload, the line before its
+/// cost.spendTU()): steps 1-2 above, then TRUE on a client (`interim` until S-B
+/// builds the unload order). The caller returns false on TRUE.
+bool coopInterceptInvUnload(Inventory* inv, BattleUnit* unit, BattleItem* item, BattleActionCost& cost);
+
+/// Q2 (a): mouseClick's right-click RETURN of the cursor item. CLIENT: this
+/// unit's `inv_move` for @a item is in flight - TRUE, the item stays on the
+/// cursor until the host answers; a HELD `inv_move` for @a item is cancelled
+/// (cancelPendingIntent()) and FALSE - vanilla returns the item. FALSE
+/// everywhere else.
+bool coopInterceptInvReturn(Inventory* inv, BattleItem* item);
+
+/// Q11 (a): the client BACKSTOP - the first line of Inventory::moveItem. On a
+/// co-op CLIENT every call is refused, counted (invLocalWrites) and logged: no
+/// inventory write may run on a thin client. FALSE on the host and in SP.
+bool coopInvLocalWriteRefused();
+
+/// Q6 (a): InventoryState's destructor gravity step. nullptr on a co-op CLIENT
+/// (the host runs gravity, light and FOV for the actor's tile inside every
+/// `inv_move` context; the client keeps its local light / FOV), @a u
+/// everywhere else.
+BattleUnit* coopInventoryCloseGravityUnit(BattleUnit* u);
 
 } // namespace OpenXcom

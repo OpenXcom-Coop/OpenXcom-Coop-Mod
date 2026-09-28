@@ -60,6 +60,7 @@
 #include "TileEngine.h"
 #include "../Mod/RuleInterface.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/CoopArbiter.h"
 
 namespace OpenXcom
 {
@@ -368,7 +369,7 @@ InventoryState::~InventoryState()
 		}
 
 		//fix case when scripts could kill unit before inventory is closed
-		if (BattleUnit* unit =_battleGame->getSelectedUnit())
+		if (BattleUnit* unit = coopInventoryCloseGravityUnit(_battleGame->getSelectedUnit()))
 		{
 			Tile *inventoryTile = unit->getTile();
 			_battleGame->getTileEngine()->applyGravity(inventoryTile);
