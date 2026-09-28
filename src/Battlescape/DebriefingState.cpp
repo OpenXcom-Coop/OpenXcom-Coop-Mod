@@ -876,6 +876,7 @@ void DebriefingState::btnTransferClick(Action *)
  */
 void DebriefingState::btnOkClick(Action *)
 {
+	if (_game->getCoopMod()->coopDebriefOk(this)) return; // coop (W2-P7 S-B2): a display-only client leaves via GoToMainMenuState; the host's battle-end debriefing resets its co-op battle scope first
 	_game->popState();
 	if (_game->getSavedGame()->getMonthsPassed() == -1)
 	{

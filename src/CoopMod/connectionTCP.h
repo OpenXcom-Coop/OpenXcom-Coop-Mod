@@ -734,6 +734,10 @@ class connectionTCP
 	bool coopDebriefClientFill(DebriefingState* db);
 	bool coopDebriefClientFinish(DebriefingState* db);
 	void coopDebriefHostSend(DebriefingState* db);
+	// W2-P7 S-B2.2 (AMENDMENT P7-4): vanilla V6, the first statement of DebriefingState::btnOkClick - a co-op skirmish
+	// battle-end debriefing's OK (the client leaves via GoToMainMenuState: true = handled; the host resets its battle
+	// scope: false = vanilla's own exit). A no-op returning false for any other debriefing.
+	bool coopDebriefOk(DebriefingState* db);
 	Json::Value _jsonTargets, _jsonDamages, _jsonInventory, jsonAddedCoopItems;
 	void syncCoopInventory();
 	static bool coopInventory;

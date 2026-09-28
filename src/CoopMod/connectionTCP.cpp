@@ -2634,6 +2634,10 @@ static std::uint32_t g_battleEndSendSeq = 0; // host: this battle's stamped `bat
 // W2-P7 S-B1.1 (AMENDMENT P7-2 R2): the display-only DebriefingState token. Set
 // only by S-B1.2's client fill; compared by identity, never dereferenced.
 static const void* g_debriefDisplayOnlyState = nullptr;
+// W2-P7 S-B2.2 (AMENDMENT P7-4): the host's own battle-end DebriefingState token (a co-op skirmish debriefing after
+// this battle's battle_end). Set only by the host's mark in the debrief send path; compared by identity, never
+// dereferenced; released by that debriefing's OK.
+static const void* g_debriefHostBattleEndState = nullptr;
 // W2-P7 S-B1.2 (AMENDMENT P7-2 G3/G4): the client's stored bt_debrief_result
 // message (null = none). Session-lifetime like the record: cleared only by
 // battleEndRecordReset(), so the teardown's coopResetBattleScope() cannot wipe
@@ -2716,6 +2720,7 @@ void battleEndRecordReset()
 	g_battleEnd = battleEndZeros();
 	g_battleEndSendSeq = 0;
 	g_debriefDisplayOnlyState = nullptr;
+	g_debriefHostBattleEndState = nullptr; // W2-P7 S-B2.2: the host token is session-lifetime too
 	g_debriefResult = Json::Value(); // W2-P7 S-B1.2: the stored payload is session-lifetime too
 }
 
@@ -2824,6 +2829,32 @@ static void debriefMarkDisplayOnly(const void* state)
 	std::lock_guard<std::mutex> lock(g_battleEndMutex);
 	g_debriefDisplayOnlyState = state;
 	battleEndLocked()["debriefDisplayOnly"] = 1;
+}
+
+// ----- W2-P7 S-B2.2 (AMENDMENT P7-4): the host's battle-end debriefing token and the OK's release. -----
+
+// The host's co-op skirmish battle-end DebriefingState: the token + the record's debriefHostMarked 1.
+static void debriefMarkHostBattleEnd(const void* state)
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	g_debriefHostBattleEndState = state;
+	battleEndLocked()["debriefHostMarked"] = 1;
+}
+
+static bool debriefIsHostBattleEnd(const void* state)
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	return state != nullptr && state == g_debriefHostBattleEndState;
+}
+
+// A battle-end debriefing's OK: clears whichever token names @a state (the record keeps its keys).
+static void debriefReleaseToken(const void* state)
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	if (state != nullptr && state == g_debriefDisplayOnlyState)
+		g_debriefDisplayOnlyState = nullptr;
+	if (state != nullptr && state == g_debriefHostBattleEndState)
+		g_debriefHostBattleEndState = nullptr;
 }
 
 } // namespace CoopDelta
@@ -12948,6 +12979,9 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	const Json::Value rec = CoopDelta::battleEndRecord();
 	if (rec.get("emitted", 0).asInt() != 1 || rec.get("resultSent", 0).asInt() != 0)
 		return;
+	// W2-P7 S-B2.2 (AMENDMENT P7-4): from here this is the host's co-op skirmish battle-end debriefing - its OK resets
+	// the battle scope and a peer's leave while it is open is silent. Before the seat check: a gm2 host is marked too.
+	CoopDelta::debriefMarkHostBattleEnd(db);
 	const int local = a.localSeat.load();
 	bool playerClientSeat = false;
 	for (int s = 0; s < 4 && !playerClientSeat; ++s)
@@ -19628,6 +19662,50 @@ static void coopResetBattleScope()
 	CoopHandshake::resetPendingState();
 }
 
+// W2-P7 S-B2.2 (AMENDMENT P7-4): the battle phase as the record names it (event_state's names).
+static const char* coopPhaseRecordName(CoopBattlePhase p)
+{
+	switch (p)
+	{
+	case CoopBattlePhase::Idle:      return "Idle";
+	case CoopBattlePhase::Handshake: return "Handshake";
+	case CoopBattlePhase::Active:    return "Active";
+	case CoopBattlePhase::Ended:     return "Ended";
+	}
+	return "?";
+}
+
+// V6 (DebriefingState::btnOkClick, first statement). W2-P7 S-B2.2 (AMENDMENT P7-4; owner D156 (a), G5 (b), Q10 (a)):
+// the OK of a co-op skirmish battle-end debriefing. The client's display-only debriefing leaves through
+// GoToMainMenuState (the issue #82 chokepoint drops the SavedGame; the main menu then disconnects) and returns true.
+// The host's own battle-end debriefing runs the battle-scoped reset (a no-op when the client's leave already reset
+// it) and returns false, so vanilla's own skirmish exit runs. Any other debriefing (single player, campaign): false,
+// nothing written.
+bool connectionTCP::coopDebriefOk(DebriefingState* db)
+{
+	const bool client = CoopDelta::debriefIsDisplayOnly(db);
+	const bool host = !client && CoopDelta::debriefIsHostBattleEnd(db);
+	if (!client && !host)
+		return false;
+	const char* phaseAtOk = coopPhaseRecordName(coopBattleAuthority().phase.load());
+	if (host)
+		coopResetBattleScope();
+	CoopDelta::debriefReleaseToken(db);
+	CoopDelta::battleEndRecordSet("debriefOk", 1);
+	CoopDelta::battleEndRecordSet("debriefOkBranch", client ? "client" : "host");
+	CoopDelta::battleEndRecordSet("phaseAtOk", phaseAtOk);
+	CoopDelta::battleEndRecordSet("phaseAfterOk", coopPhaseRecordName(coopBattleAuthority().phase.load()));
+	CoopDelta::battleEndRecordSet("resetAtOk", host ? 1 : 0);
+	Log(LOG_INFO) << "[coop-debrief] " << (client ? "client" : "host") << ": debriefing OK - phaseAtOk=" << phaseAtOk
+		<< (client ? " - leaving for the main menu" : " - battle scope reset, vanilla's skirmish exit");
+	if (client)
+	{
+		_game->setState(new GoToMainMenuState(false));
+		return true;
+	}
+	return false;
+}
+
 // ===== R4-P1: battle-start handshake (CoopHandshake.h) =====
 // SPIKE-RUNBOOK.md SS2.7/RB-D18/RB-D23/IR-5/IR-6. Storage/helpers live here,
 // next to BattleAuthority/CoopArbiter/CoopIdMaps/CoopPump/CoopEmit above -
@@ -23138,6 +23216,32 @@ void connectionTCP::createLoopdataThread()
 
 }
 
+// W2-P7 S-B2.2 (AMENDMENT P7-4, owner D156 (a)): true while this machine shows its co-op skirmish battle-end
+// debriefing anywhere on the stack - the client's display-only DebriefingState or the host's own battle-end
+// DebriefingState (identity tokens, never dereferenced). Read by the -3/-2 peer-leave branches only.
+static bool coopBattleEndDebriefOnStack(Game* game)
+{
+	if (!game)
+		return false;
+	for (State* st : game->getStates())
+	{
+		DebriefingState* db = dynamic_cast<DebriefingState*>(st);
+		if (db && (CoopDelta::debriefIsDisplayOnly(db) || CoopDelta::debriefIsHostBattleEnd(db)))
+			return true;
+	}
+	return false;
+}
+
+// W2-P7 S-B2.2 (AMENDMENT P7-4): a peer left while the battle-end debriefing is open - the dialog @a code (20 host,
+// 21 client, 440 either) is not pushed; the caller runs the plain teardown.
+static void coopNoteBattleEndLeaveSilent(int code)
+{
+	CoopDelta::battleEndRecordSet("popupSuppressed", CoopDelta::battleEndRecord()["popupSuppressed"].asInt() + 1);
+	CoopDelta::battleEndRecordSet("popupSuppressedCode", code);
+	Log(LOG_INFO) << "[coop-battle-end] peer left while the battle-end debriefing is open - no CoopState(" << code
+		<< "), plain teardown (D156)";
+}
+
 // an endless loop that processes the sync-packet data: battlescape, tasks, remove targets, research, trading, disconnect, errors.
 void connectionTCP::updateCoopTask()
 {
@@ -23311,6 +23415,14 @@ void connectionTCP::updateCoopTask()
 			// (nameInUse check) doesn't refuse the returning player.
 			tcpPlayerName.clear();
 		}
+		else if (coopBattleEndDebriefOnStack(_game))
+		{
+			// W2-P7 S-B2.2 (AMENDMENT P7-4, owner D156 (a)): CoopState(440)'s constructor pops the state under it - the
+			// battle-end debriefing this machine is still reading. The plain teardown instead; that debriefing's OK leaves.
+			coopNoteBattleEndLeaveSilent(440);
+			connectionTCP::_coopGamemode = 0;
+			_game->getCoopMod()->disconnectTCP();
+		}
 		else
 		{
 			// issue #79 (mirrored from disconnectTCP): a HOST drop once the
@@ -23339,7 +23451,12 @@ void connectionTCP::updateCoopTask()
 		// lost". Either player may close a finished game first, and neither
 		// exit is allowed to interrupt the other's end-of-game screens. The
 		// plain teardown below still runs, so nothing is left half-attached.
-		if (allow_cutscene == true && !campaignEnded())
+		// W2-P7 S-B2.2 (AMENDMENT P7-4, owner D156 (a)): the same silence while this machine's co-op skirmish battle-end
+		// debriefing is open - no "has left the server" on the host, no "Server connection lost" on the client; each
+		// player's own OK leaves. Mid-battle (SPEC 16), lobby, geoscape and campaign leaves are unchanged: no battle-end
+		// debriefing is on the stack there.
+		const bool battleEndDebrief = coopBattleEndDebriefOnStack(_game);
+		if (allow_cutscene == true && !campaignEnded() && !battleEndDebrief)
 		{
 			// Make sure it calls disconnectTCP, otherwise it may get stuck.
 			if (getServerOwner() == true)
@@ -23373,6 +23490,10 @@ void connectionTCP::updateCoopTask()
 		}
 		else
 		{
+			if (battleEndDebrief)
+			{
+				coopNoteBattleEndLeaveSilent(getServerOwner() ? 20 : 21);
+			}
 			// disconnect
 			connectionTCP::_coopGamemode = 0;
 			_game->getCoopMod()->disconnectTCP();
