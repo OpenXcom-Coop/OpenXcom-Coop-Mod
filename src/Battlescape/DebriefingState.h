@@ -60,6 +60,7 @@ struct RecoveryItem { std::string name; int value; };
 class DebriefingState : public State
 {
 private:
+	friend class connectionTCP; // coop (W2-P7 S-B1): the display-only client fill/finish and the host's bt_debrief_result serializer
 	typedef std::pair<std::string, UnitStats> SoldierStatsEntry;
 
 	RuleEvent *_eventToSpawn;

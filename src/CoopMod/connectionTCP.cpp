@@ -67,6 +67,8 @@
 #include "../Mod/RuleSoldier.h" // W2-P4 S-E2.2: a soldier's skill list (the skill menu's filter)
 #include "../Mod/RuleResearch.h" // W2-P4r S-R.2: the research list's names (battle_accept)
 #include "../Interface/Cursor.h" // W2-P4 S-A.2: the ordering client's cursor restore
+#include "../Interface/TextList.h" // W2-P7 S-B1.2: the display-only debrief's recovered-items page
+#include "../Savegame/MissionStatistics.h" // W2-P7 S-B1.2: the display-only debrief frees its unused MissionStatistics (F2046)
 #include "../Battlescape/AIModule.h" // W2-P3 S-C.2: a unitsAdded record's `AI` (load pass 1)
 
 #include "../Savegame/Country.h"
@@ -2056,6 +2058,12 @@ static std::atomic<int> g_coopDrainDepth{0};
 // can run on the UDP-monitor thread.
 static std::atomic<bool> g_coopBattleEndTerminal{false};
 static std::atomic<bool> g_coopBattleEndTeardownLatch{false};
+// W2-P7 S-B1.2 (AMENDMENT P7-2 G3/G4): set by the battle_end pump consumer
+// right before it replaces the stack with the display-only debrief; consumed
+// ONCE by that debrief's init() (connectionTCP::coopDebriefClientFill, vanilla
+// V3). Main thread only; cleared by initBattleAuthority(), never by
+// resetBattleAuthority() (which may run on the UDP-monitor thread).
+static bool g_coopDebriefDisplayPending = false;
 
 namespace CoopPump
 {
@@ -2626,6 +2634,11 @@ static std::uint32_t g_battleEndSendSeq = 0; // host: this battle's stamped `bat
 // W2-P7 S-B1.1 (AMENDMENT P7-2 R2): the display-only DebriefingState token. Set
 // only by S-B1.2's client fill; compared by identity, never dereferenced.
 static const void* g_debriefDisplayOnlyState = nullptr;
+// W2-P7 S-B1.2 (AMENDMENT P7-2 G3/G4): the client's stored bt_debrief_result
+// message (null = none). Session-lifetime like the record: cleared only by
+// battleEndRecordReset(), so the teardown's coopResetBattleScope() cannot wipe
+// a payload that arrived before `battle_end` was applied.
+static Json::Value g_debriefResult;
 
 static Json::Value battleEndZeros()
 {
@@ -2694,6 +2707,7 @@ void battleEndRecordReset()
 	g_battleEnd = battleEndZeros();
 	g_battleEndSendSeq = 0;
 	g_debriefDisplayOnlyState = nullptr;
+	g_debriefResult = Json::Value(); // W2-P7 S-B1.2: the stored payload is session-lifetime too
 }
 
 void battleEndNoteSend(const Json::Value& ev)
@@ -2740,6 +2754,67 @@ bool debriefIsDisplayOnly(const void* state)
 {
 	std::lock_guard<std::mutex> lock(g_battleEndMutex);
 	return state != nullptr && state == g_debriefDisplayOnlyState;
+}
+
+// ----- W2-P7 S-B1.2 (AMENDMENT P7-2 G3/G4): the client's debrief-result store
+// helpers (file-static; the lane branch in onTCPMessage, the battle_end pump
+// consumer and the display-only fill are the only callers). Each takes
+// g_battleEndMutex, which stays a leaf. -----
+
+// Stores the whole message once and fills the record's result keys
+// (resultReceived 1, resultBytes = the compact writer's size - sendBattle's own
+// builder - and resultReceivedMs). False, nothing stored, when a payload is
+// already held.
+static bool debriefResultStore(const Json::Value& msg)
+{
+	Json::StreamWriterBuilder wb;
+	wb["indentation"] = "";
+	const int bytes = (int)Json::writeString(wb, msg).size();
+	const std::uint32_t nowMs = SDL_GetTicks();
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	if (g_debriefResult.isObject())
+		return false;
+	g_debriefResult = msg;
+	Json::Value& r = battleEndLocked();
+	r["resultReceived"] = 1;
+	r["resultBytes"] = bytes;
+	r["resultReceivedMs"] = nowMs;
+	return true;
+}
+
+static bool debriefResultStored()
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	return g_debriefResult.isObject();
+}
+
+static Json::Value debriefResultCopy()
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	return g_debriefResult;
+}
+
+// A refused debrief-result message: counts it (resultDropped) and logs once.
+static void debriefResultDropped(std::uint32_t battleId)
+{
+	{
+		std::lock_guard<std::mutex> lock(g_battleEndMutex);
+		Json::Value& r = battleEndLocked();
+		r["resultDropped"] = r["resultDropped"].asInt() + 1;
+	}
+	Log(LOG_WARNING) << "[coop-debrief] debrief result refused: battleId=" << battleId
+		<< " localBattleId=" << coopBattleAuthority().battleId.load()
+		<< " serverOwner=" << connectionTCP::getServerOwner()
+		<< " alreadyStored=" << debriefResultStored();
+}
+
+// The display-only DebriefingState token (read by debriefIsDisplayOnly()) and
+// the record's debriefDisplayOnly key.
+static void debriefMarkDisplayOnly(const void* state)
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	g_debriefDisplayOnlyState = state;
+	battleEndLocked()["debriefDisplayOnly"] = 1;
 }
 
 } // namespace CoopDelta
@@ -4684,6 +4759,8 @@ void initBattleAuthority(std::uint32_t battleId)
 	// W2-P7 S-A.2 (F1899): the battle-scoped battle_end flags start clear.
 	g_coopBattleEndTerminal = false;
 	g_coopBattleEndTeardownLatch = false;
+	// W2-P7 S-B1.2: a new battle never inherits an unconsumed display-only arm.
+	g_coopDebriefDisplayPending = false;
 }
 
 // SPEC 16 (W1-P17) M2: the deferred-pause-modal latch. Set by
@@ -12685,6 +12762,260 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 	Log(LOG_INFO) << "[coop-battle-end] host: battle_end reason=" << reason << " aborted=" << aborted
 		<< " inExitArea=" << inExitArea << " tally={" << t.liveAliens << "," << t.liveSoldiers << ","
 		<< t.inExit << "} actionId=" << actionId << " - phase Ended";
+}
+
+// ===== W2-P7 S-B1.2: the debrief hooks (connectionTCP.h; vanilla V3/V4/V5) =====
+// Spec rewrite/prompts/w2p7_battle_end.md, owner ruling D129 = (a), Q1 (a) (the
+// host ships what its vanilla debrief computed; the client never runs
+// prepareDebriefing, N23), AMENDMENT P7-2 (G2-G6, the PINNED S-B1 TEXT).
+// DebriefingState befriends connectionTCP (V2), so these read and fill its
+// members directly. Every hook is a no-op outside a coop skirmish end: the fill
+// needs the consumer's one-shot arm, the finish needs the display-only token,
+// and the send needs the host's phase Ended (set only by coopHostBattleEnd).
+
+// V3 (DebriefingState::init, in place of prepareDebriefing()). A skirmish
+// client's display-only debrief: pages 1-3 from the stored bt_debrief_result.
+// Vanilla's own rendering (init :404-600) then builds page 2 from _soldierStats
+// and page 1 + total + rating from _stats; page 3 is rendered here exactly as
+// init's base-stores block does (it needs _base, which a client never has).
+// Returns true whenever the arm was set - never prepareDebriefing() on a
+// display-only client.
+bool connectionTCP::coopDebriefClientFill(DebriefingState* db)
+{
+	if (!db || !g_coopDebriefDisplayPending)
+		return false;
+	g_coopDebriefDisplayPending = false;
+	CoopDelta::debriefMarkDisplayOnly(db); // the token + the record's debriefDisplayOnly 1
+	// Sell/Transfer are never shown (applyVisibility's _showSellButton gate):
+	// both would open a base screen with no base (F2045). _base is left
+	// uninitialized by the ctor (only prepareDebriefing() sets it), so it is
+	// nulled here to make "a display-only client has no base" hold (F2131).
+	db->_showSellButton = false;
+	db->_base = nullptr;
+
+	if (!CoopDelta::debriefResultStored())
+	{
+		Log(LOG_ERROR) << "[coop-debrief] client: display-only debrief with no stored debrief result - nothing rendered";
+		return true;
+	}
+	const Json::Value msg = CoopDelta::debriefResultCopy();
+	const Json::Value& d = msg["debrief"];
+
+	db->_txtTitle->setText(d.get("title", "").asString());
+	db->_txtRecovery->setText(d.get("recoveryHeader", "").asString());
+
+	// Page 1: one DebriefingStat per entry (the destructor frees them).
+	const Json::Value& stats = d["stats"];
+	if (stats.isArray())
+	{
+		for (const auto& e : stats)
+		{
+			DebriefingStat* ds = new DebriefingStat(e.get("item", "").asString(), e.get("recovery", false).asBool());
+			ds->qty = e.get("qty", 0).asInt();
+			ds->score = e.get("score", 0).asInt();
+			db->_stats.push_back(ds);
+		}
+	}
+
+	// Page 2: the stat gains, 12 ints in UnitStats member order.
+	const Json::Value& soldiers = d["soldiers"];
+	if (soldiers.isArray())
+	{
+		for (const auto& e : soldiers)
+		{
+			const Json::Value& s = e["stats"];
+			UnitStats gain;
+			if (s.isArray() && s.size() == 12)
+			{
+				bool allInts = true;
+				for (Json::ArrayIndex i = 0; i < 12; ++i)
+				{
+					if (!s[i].isInt())
+						allInts = false;
+				}
+				if (allInts)
+				{
+					gain = UnitStats(s[0u].asInt(), s[1u].asInt(), s[2u].asInt(), s[3u].asInt(), s[4u].asInt(),
+						s[5u].asInt(), s[6u].asInt(), s[7u].asInt(), s[8u].asInt(), s[9u].asInt(), s[10u].asInt(),
+						s[11u].asInt());
+				}
+				else
+				{
+					Log(LOG_WARNING) << "[coop-debrief] client: malformed soldier stats for '"
+						<< e.get("name", "").asString() << "' - zero stats shown";
+				}
+			}
+			else
+			{
+				Log(LOG_WARNING) << "[coop-debrief] client: malformed soldier stats for '"
+					<< e.get("name", "").asString() << "' - zero stats shown";
+			}
+			db->_soldierStats.push_back(std::pair<std::string, UnitStats>(e.get("name", "").asString(), gain));
+		}
+	}
+
+	// Page 3: exactly as init's base-stores block renders a recovered item.
+	const Json::Value& recovered = d["recovered"];
+	if (recovered.isArray())
+	{
+		int row = 0;
+		for (const auto& e : recovered)
+		{
+			const std::string itemType = e.get("item", "").asString();
+			const int qty = e.get("qty", 0).asInt();
+			RuleItem* rule = _game->getMod()->getItem(itemType);
+			if (!rule)
+			{
+				Log(LOG_WARNING) << "[coop-debrief] client: recovered item '" << itemType << "' is not in this mod - skipped";
+				continue;
+			}
+			db->_recoveredItems[rule] = qty;
+
+			std::ostringstream ss;
+			ss << Unicode::TOK_COLOR_FLIP << qty << Unicode::TOK_COLOR_FLIP;
+			std::string item = db->tr(itemType);
+			if (rule->getBattleType() == BT_AMMO || (rule->getBattleType() == BT_NONE && rule->getClipSize() > 0))
+			{
+				item.insert(0, "  ");
+				db->_lstRecoveredItems->addRow(2, item.c_str(), ss.str().c_str());
+				db->_lstRecoveredItems->setRowColor(row, db->_ammoColor);
+			}
+			else
+			{
+				db->_lstRecoveredItems->addRow(2, item.c_str(), ss.str().c_str());
+			}
+			++row;
+		}
+	}
+
+	Log(LOG_INFO) << "[coop-debrief] client: display-only debriefing filled - stats=" << (stats.isArray() ? stats.size() : 0u)
+		<< " soldiers=" << (soldiers.isArray() ? soldiers.size() : 0u)
+		<< " recovered=" << (recovered.isArray() ? recovered.size() : 0u);
+	return true;
+}
+
+// V4 (DebriefingState::init, right after the rating is rendered, before the
+// world-write block). The display-only debrief's end of init: vanilla's
+// _positiveScore rule, the unused MissionStatistics freed (it is handed to the
+// SavedGame only at the push this skips, F2046), the battle dropped as init
+// :803 does, the debrief music. Returns true = init returns now: no mission
+// statistics, diary, commendation, promotion, activity score or save.
+bool connectionTCP::coopDebriefClientFinish(DebriefingState* db)
+{
+	if (!CoopDelta::debriefIsDisplayOnly(db))
+		return false;
+	int total = 0;
+	for (const auto* ds : db->_stats)
+	{
+		if (ds->qty != 0)
+			total += ds->score;
+	}
+	db->_positiveScore = total > 0;
+	delete db->_missionStatistics;
+	db->_missionStatistics = nullptr;
+	if (_game->getSavedGame())
+		_game->getSavedGame()->setBattleGame(0);
+	_game->getMod()->playMusic(db->_positiveScore ? Mod::DEBRIEF_MUSIC_GOOD : Mod::DEBRIEF_MUSIC_BAD);
+	Log(LOG_INFO) << "[coop-debrief] client: display-only debriefing shown - total=" << total << ", battle dropped";
+	return true;
+}
+
+// V5 (the last statement of DebriefingState::init). The host serializes what
+// its own vanilla debrief computed and sends it once: skirmish only (campaign
+// returns are S-C), only after this battle's `battle_end` (phase Ended, record
+// emitted 1), only when a PLAYER-faction client seat exists (G2; none in gm2,
+// D157). Non-seq, never hashed, never an ev (no seq stamp, evsAfter untouched,
+// F2053). The host's battle-scoped reset is NOT here (F2051, S-B2).
+void connectionTCP::coopDebriefHostSend(DebriefingState* db)
+{
+	if (!db || !getServerOwner())
+		return;
+	const BattleAuthority& a = coopBattleAuthority();
+	if (!a.hostSim || a.phase.load() != CoopBattlePhase::Ended)
+		return;
+	SavedGame* sg = _game->getSavedGame();
+	if (!sg || sg->getMonthsPassed() != -1)
+		return;
+	const Json::Value rec = CoopDelta::battleEndRecord();
+	if (rec.get("emitted", 0).asInt() != 1 || rec.get("resultSent", 0).asInt() != 0)
+		return;
+	const int local = a.localSeat.load();
+	bool playerClientSeat = false;
+	for (int s = 0; s < 4 && !playerClientSeat; ++s)
+	{
+		if (s != local && a.seatMapped(s) && a.factionOf(s) == (int)FACTION_PLAYER)
+			playerClientSeat = true;
+	}
+	if (!playerClientSeat)
+	{
+		Log(LOG_INFO) << "[coop-debrief] host: no PLAYER-faction client seat - no bt_debrief_result (D157)";
+		return;
+	}
+
+	Json::Value debrief(Json::objectValue);
+	debrief["title"] = db->_txtTitle->getText();
+	debrief["recoveryHeader"] = db->_txtRecovery->getText();
+	Json::Value stats(Json::arrayValue);
+	for (const auto* ds : db->_stats)
+	{
+		if (ds->qty == 0)
+			continue; // vanilla's page 1 skips these too (init :481)
+		Json::Value e(Json::objectValue);
+		e["item"] = ds->item;
+		e["qty"] = ds->qty;
+		e["score"] = ds->score;
+		e["recovery"] = ds->recovery;
+		stats.append(e);
+	}
+	debrief["stats"] = stats;
+	Json::Value soldiers(Json::arrayValue);
+	for (const auto& sse : db->_soldierStats)
+	{
+		const UnitStats& g = sse.second;
+		Json::Value st(Json::arrayValue);
+		st.append((int)g.tu);
+		st.append((int)g.stamina);
+		st.append((int)g.health);
+		st.append((int)g.bravery);
+		st.append((int)g.reactions);
+		st.append((int)g.firing);
+		st.append((int)g.throwing);
+		st.append((int)g.strength);
+		st.append((int)g.psiStrength);
+		st.append((int)g.psiSkill);
+		st.append((int)g.melee);
+		st.append((int)g.mana);
+		Json::Value e(Json::objectValue);
+		e["name"] = sse.first;
+		e["stats"] = st;
+		soldiers.append(e);
+	}
+	debrief["soldiers"] = soldiers;
+	Json::Value recovered(Json::arrayValue);
+	for (const auto& itemType : _game->getMod()->getItemsList())
+	{
+		const RuleItem* rule = _game->getMod()->getItem(itemType);
+		if (!rule)
+			continue;
+		auto it = db->_recoveredItems.find(rule);
+		if (it == db->_recoveredItems.end() || it->second <= 0)
+			continue;
+		Json::Value e(Json::objectValue);
+		e["item"] = itemType;
+		e["qty"] = it->second;
+		recovered.append(e);
+	}
+	debrief["recovered"] = recovered;
+
+	Json::Value msg = CoopWire::makeDebriefResult(a.battleId.load(), debrief);
+	Json::StreamWriterBuilder wb;
+	wb["indentation"] = "";
+	const int bytes = (int)Json::writeString(wb, msg).size();
+	CoopEmit::sendBattle(msg);
+	CoopDelta::battleEndRecordSet("resultSent", 1);
+	CoopDelta::battleEndRecordSet("resultBytes", bytes);
+	Log(LOG_INFO) << "[coop-debrief] host: bt_debrief_result sent battleId=" << a.battleId.load() << " bytes=" << bytes
+		<< " stats=" << stats.size() << " soldiers=" << soldiers.size() << " recovered=" << recovered.size();
 }
 
 // ===== W1-P13b: CoopEndTurn (CoopEndTurn.h) - the END-TURN readiness tally
@@ -23320,24 +23651,50 @@ void connectionTCP::updateCoopTask()
 	// precedent above). Ungated: a client has no action context to wait for
 	// (quiescentAtTeardown records it). Order: the teardown snapshots (before
 	// any reset), finishBattle's UI half (cursor, ambient loop, touch flags),
-	// phase Ended, the battle-scoped reset, then GoToMainMenuState - whose
+	// phase Ended, the battle-scoped reset, then the next state - whose
 	// setState pops every state now; Game::run deletes the BattlescapeState/
-	// BattlescapeGame before GoToMainMenuState::init drops the SavedGame (the
-	// issue #82 chokepoint).
-	if (g_coopBattleEndTeardownLatch.exchange(false))
+	// BattlescapeGame before the next state's init() drops the battle.
+	// W2-P7 S-B1.2 (AMENDMENT P7-2 G2-G4, F2050, F2052): a PLAYER-faction seat
+	// ends on the host's debriefing - the latch stays armed until the host's
+	// debrief result is stored too (either arrival order; no timeout, a lost
+	// payload is a visible red), then the display-only DebriefingState, whose
+	// init() fills from the store (V3) and drops the battle (V4, the vanilla
+	// :803 order). Any other seat (the gm2 hostile seat, D157) keeps S-A's
+	// GoToMainMenuState (the issue #82 chokepoint).
+	if (g_coopBattleEndTeardownLatch.load())
 	{
-		CoopDelta::battleEndNoteTeardown();
-		_game->getCursor()->setVisible(true);
-		SavedBattleGame* endedBattle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
-		if (endedBattle && endedBattle->getAmbientSound() != Mod::NO_SOUND)
+		const BattleAuthority& endBa = coopBattleAuthority();
+		const bool wantsDebrief = endBa.factionOf(endBa.localSeat.load()) == (int)FACTION_PLAYER; // G2 (F2052)
+		if (wantsDebrief && !CoopDelta::debriefResultStored())
 		{
-			_game->getMod()->getSoundByDepth(0, endedBattle->getAmbientSound())->stopLoop();
+			// G3 (a): evidence only - the consumer passes that waited for the payload.
+			CoopDelta::battleEndRecordSet("resultWaitPasses", CoopDelta::battleEndRecord()["resultWaitPasses"].asInt() + 1);
 		}
-		_game->resetTouchButtonFlags();
-		coopBattleAuthority().phase = CoopBattlePhase::Ended;
-		coopResetBattleScope();
-		Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - leaving for the main menu";
-		_game->setState(new GoToMainMenuState(false));
+		else
+		{
+			g_coopBattleEndTeardownLatch = false;
+			CoopDelta::battleEndNoteTeardown();
+			_game->getCursor()->setVisible(true);
+			SavedBattleGame* endedBattle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+			if (endedBattle && endedBattle->getAmbientSound() != Mod::NO_SOUND)
+			{
+				_game->getMod()->getSoundByDepth(0, endedBattle->getAmbientSound())->stopLoop();
+			}
+			_game->resetTouchButtonFlags();
+			coopBattleAuthority().phase = CoopBattlePhase::Ended;
+			coopResetBattleScope();
+			if (wantsDebrief)
+			{
+				Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - showing the host's debriefing";
+				g_coopDebriefDisplayPending = true;
+				_game->setState(new DebriefingState);
+			}
+			else
+			{
+				Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - leaving for the main menu";
+				_game->setState(new GoToMainMenuState(false));
+			}
+		}
 	}
 
 	// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): the order-feedback tick -
@@ -25091,6 +25448,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// and shows the CoopBattleUi::showDeny() banner (R2-P6's
 			// presenter, unwired until now).
 			CoopArbiter::onDeny(obj);
+		}
+		else if (stateString == "bt_debrief_result")
+		{
+			// W2-P7 S-B1.2 (AMENDMENT P7-2 G3/G4, F2054): client-inbound, NOT
+			// seq-ordered - the host's debrief content, accepted in either order
+			// relative to `battle_end`. STORE ONLY: no State op, no world write,
+			// no apply, no hash. Guarded like battle_speed_seats (this battle's
+			// id; the client's battleId stays set until the battle_end consumer's
+			// reset, which waits for this store) and one payload per battle;
+			// anything else is counted (resultDropped) and logged.
+			const std::uint32_t battleId = obj.get("battleId", 0u).asUInt();
+			const bool stored = !getServerOwner() && battleId != 0
+				&& battleId == coopBattleAuthority().battleId.load()
+				&& CoopDelta::debriefResultStore(obj);
+			if (stored)
+				Log(LOG_INFO) << "[coop-debrief] client: debrief result stored battleId=" << battleId;
+			else
+				CoopDelta::debriefResultDropped(battleId);
 		}
 		return;
 	}

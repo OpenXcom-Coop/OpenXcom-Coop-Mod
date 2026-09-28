@@ -399,7 +399,7 @@ void DebriefingState::init()
 	}
 	_initDone = true;
 
-	prepareDebriefing();
+	if (!_game->getCoopMod()->coopDebriefClientFill(this)) prepareDebriefing(); // coop (W2-P7 S-B1): a display-only client fills from the host's bt_debrief_result
 
 	for (const auto& sse : _soldierStats)
 	{
@@ -598,6 +598,7 @@ void DebriefingState::init()
 	_missionStatistics->rating = rating;
 	_missionStatistics->score = total;
 	_txtRating->setText(tr("STR_RATING").arg(tr(rating)));
+	if (_game->getCoopMod()->coopDebriefClientFinish(this)) return; // coop (W2-P7 S-B1): display-only client - no world write, no save; drops the battle as :803 does
 
 	SavedGame *save = _game->getSavedGame();
 	SavedBattleGame *battle = save->getSavedBattle();
@@ -810,6 +811,7 @@ void DebriefingState::init()
 	{
 		_game->getMod()->playMusic(Mod::DEBRIEF_MUSIC_BAD);
 	}
+	_game->getCoopMod()->coopDebriefHostSend(this); // coop (W2-P7 S-B1): the host sends bt_debrief_result
 }
 
 /**

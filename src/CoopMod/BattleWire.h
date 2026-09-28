@@ -243,6 +243,26 @@ inline Json::Value makeSpeedSeats(uint32_t battleId, uint32_t seq, const Json::V
 	return obj;
 }
 
+/// bt_debrief_result {state, battleId:uint, debrief:{title:string,
+/// recoveryHeader:string, stats:[{item, qty, score, recovery}], soldiers:[{name,
+/// stats:[12 ints]}], recovered:[{item, qty}]}} (W2-P7 S-B1, plan section 4
+/// `debrief_result`, Q1 (a)). Host->client, battle lane, NOT seq-ordered
+/// (isSeqOrdered() above), NEVER hashed, never an ev. The display content the
+/// host's own vanilla debrief computed: `stats` = every DebriefingStat with a
+/// non-zero qty in order (`item` = the STR id), `soldiers` = the stat gains in
+/// UnitStats member order (tu, stamina, health, bravery, reactions, firing,
+/// throwing, strength, psiStrength, psiSkill, melee, mana), `recovered` = item
+/// type ids in the mod's item-list order; `title` / `recoveryHeader` are the
+/// host's rendered text (G6 (a)). Total and rating are derived on the client.
+inline Json::Value makeDebriefResult(uint32_t battleId, const Json::Value& debrief)
+{
+	Json::Value obj(Json::objectValue);
+	obj["state"] = "bt_debrief_result";
+	obj["battleId"] = battleId;
+	obj["debrief"] = debrief;
+	return obj;
+}
+
 } // namespace CoopWire
 
 } // namespace OpenXcom

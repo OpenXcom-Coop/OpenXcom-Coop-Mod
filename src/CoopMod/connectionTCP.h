@@ -196,6 +196,7 @@ class ConfirmLandingState;
 class ConfirmCydoniaState;
 class NewBattleState;
 class GeoscapeState;
+class DebriefingState;
 class MissionSite;
 
 // ===== Coop session lifecycle state =====
@@ -721,6 +722,18 @@ class connectionTCP
 	void setHost(bool host);
 	static bool playerInsideCoopBase; // is the player really in another player's base?
 	bool coopMissionEnd = false; // is the co-op mission completed?
+	// W2-P7 S-B1.2 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-2, Q1 (a)):
+	// the three DebriefingState hooks (vanilla V3/V4/V5; DebriefingState befriends
+	// this class). coopDebriefClientFill: a skirmish client's display-only debrief
+	// fills its pages from the host's stored bt_debrief_result instead of running
+	// prepareDebriefing() (true = handled). coopDebriefClientFinish: that
+	// display-only debrief's end of init() - no world write, no save, drops the
+	// battle (true = return early). coopDebriefHostSend: the host serializes what
+	// its own vanilla debrief computed and sends it (skirmish, PLAYER-faction
+	// client seat only). Every one is a no-op outside a coop skirmish end.
+	bool coopDebriefClientFill(DebriefingState* db);
+	bool coopDebriefClientFinish(DebriefingState* db);
+	void coopDebriefHostSend(DebriefingState* db);
 	Json::Value _jsonTargets, _jsonDamages, _jsonInventory, jsonAddedCoopItems;
 	void syncCoopInventory();
 	static bool coopInventory;
