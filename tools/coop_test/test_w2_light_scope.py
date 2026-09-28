@@ -133,9 +133,9 @@ NEW_BATTLE_CFG = os.path.join("xcom1", "battle.cfg")
 # LS2's walk back along the C15 path (A6 / F606): from C15_WALK_DEST to C15_H_TILE.
 C15_BACK_DEST = C15_H_TILE
 C15_BACK_PATH = [(2, 6, 0), (1, 6, 0)]
-# LS3's client apply-cost bar in microseconds (A4.5 BAR_L). The orchestrator
-# sets it from the S-L.0 measurement; None until then.
-BAR_L_US = 6700
+# LS3's client apply-cost bar in microseconds (A4.5 BAR_L). Set by owner
+# D153 (b), 2026-09-28: fresh runs 2334-2789 us, unfixed code 14146 us.
+BAR_L_US = 10000
 LAYERS = ("ambient", "fire", "items", "units")
 ZERO_PROBES = ("deltaUnresolved", "deltaUnsupported", "deltaRemoveMissing", "deltaAddExisting")
 PROBE_KEYS = ("desyncSeen", "coopClientBStatePushes", "lastSeqEmitted", "lastSeqApplied",
