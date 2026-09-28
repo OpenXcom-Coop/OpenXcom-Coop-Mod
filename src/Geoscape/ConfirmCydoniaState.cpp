@@ -36,6 +36,7 @@
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/CoopHandshake.h"
+#include "../CoopMod/CoopBattleSetup.h"
 
 namespace OpenXcom
 {
@@ -90,6 +91,8 @@ ConfirmCydoniaState::~ConfirmCydoniaState()
  */
 void ConfirmCydoniaState::btnYesClick(Action *)
 {
+	// W2-H9 (D199 a, D212 a): a SEPARATE co-op client never starts a battle from its own craft.
+	if (coopRefuseSeparateClientCydonia(_game, _craft)) return;
 	if (connectionTCP::getCoopStatic())
 	{
 		// R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18, RB-D23): Cydonia now rides the

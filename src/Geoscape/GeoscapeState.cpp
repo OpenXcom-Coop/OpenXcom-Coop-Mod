@@ -140,6 +140,7 @@
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/CoopHandshake.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/CoopBattleSetup.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
@@ -2974,7 +2975,8 @@ void GeoscapeState::time5Seconds()
 								Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
 								// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
 								// SEAT instead of popping the dialog here. Battle authority does not move.
-								if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade))
+								// W2-H9 (D199 a): a SEPARATE co-op client never starts a battle from its own craft.
+								if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade) && !coopRefuseSeparateClientLanding(_game, this, xcraft))
 									popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 							}
 						}
@@ -3025,7 +3027,8 @@ void GeoscapeState::time5Seconds()
 						}
 						// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
 						// SEAT instead of popping the dialog here. Battle authority does not move.
-						if (!brokerSharedLanding(xcraft, missionTexture, globeTexture, shade))
+						// W2-H9 (D199 a): a SEPARATE co-op client never starts a battle from its own craft.
+						if (!brokerSharedLanding(xcraft, missionTexture, globeTexture, shade) && !coopRefuseSeparateClientLanding(_game, this, xcraft))
 							popup(new ConfirmLandingState(xcraft, missionTexture, globeTexture, shade));
 					}
 					else
@@ -3045,7 +3048,8 @@ void GeoscapeState::time5Seconds()
 							Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
 							// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
 							// SEAT instead of popping the dialog here. Battle authority does not move.
-							if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade))
+							// W2-H9 (D199 a): a SEPARATE co-op client never starts a battle from its own craft.
+							if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade) && !coopRefuseSeparateClientLanding(_game, this, xcraft))
 								popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 						}
 						else

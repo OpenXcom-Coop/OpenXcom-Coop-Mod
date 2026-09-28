@@ -35,6 +35,8 @@
 #include "../Menu/OptionsVideoState.h"
 #include "../Menu/PauseState.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/CraftErrorState.h"
+#include "../Engine/Language.h"
 #include "CoopState.h"
 
 #include "../Basescape/BasescapeState.h"
@@ -2192,6 +2194,57 @@ int coopClientBattleRefused()
 std::string coopClientBattleRefusedLast()
 {
 	return s_coopClientBattleRefusedLast;
+}
+
+// W2-H9 (owner D199 = (a), D211/D212 = (a)): true only on a SEPARATE co-op
+// campaign's CLIENT - connected, not the server owner, a SEPARATE coop save,
+// gamemode 0/1. SHARED, the host, single player, PvP (2/3) and PvE2 (4) are
+// false. File-static, not exported.
+static bool coopSeparateClientBattleBlocked(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !connectionTCP::getCoopStatic())
+		return false;
+	if (!save->isCoopSave() || save->getCampaignType() != CoopCampaignType::Separate)
+		return false;
+	if (connectionTCP::getServerOwner())
+		return false;
+	const int gamemode = connectionTCP::getCoopGamemode();
+	return gamemode == 0 || gamemode == 1;
+}
+
+// W2-H9: the one refusal text (the key's only reference in src/).
+static std::string coopHostCraftOnlyText(Game* game)
+{
+	return game->getLanguage()->getString("STR_COOP_MISSION_HOST_CRAFT_ONLY");
+}
+
+// W2-H9: see the doc comment in CoopBattleSetup.h.
+bool coopRefuseSeparateClientLanding(Game* game, GeoscapeState* gs, Craft* craft)
+{
+	if (!gs || !craft || !coopSeparateClientBattleBlocked(game))
+		return false;
+	craft->returnToBase();
+	gs->popup(new CraftErrorState(gs, coopHostCraftOnlyText(game)));
+	++s_coopClientBattleRefused;
+	s_coopClientBattleRefusedLast = "landing:" + std::to_string(craft->getId());
+	Log(LOG_INFO) << "[coop-h9] SEPARATE client own-craft landing refused (craft " << craft->getId()
+		<< ") - message shown, craft returning to base";
+	return true;
+}
+
+// W2-H9: see the doc comment in CoopBattleSetup.h.
+bool coopRefuseSeparateClientCydonia(Game* game, Craft* craft)
+{
+	if (!craft || !coopSeparateClientBattleBlocked(game))
+		return false;
+	game->popState();
+	game->pushState(new CraftErrorState(0, coopHostCraftOnlyText(game)));
+	++s_coopClientBattleRefused;
+	s_coopClientBattleRefusedLast = "cydonia:" + std::to_string(craft->getId());
+	Log(LOG_INFO) << "[coop-h9] SEPARATE client Cydonia launch refused (craft " << craft->getId()
+		<< ") - message shown, craft untouched";
+	return true;
 }
 
 }

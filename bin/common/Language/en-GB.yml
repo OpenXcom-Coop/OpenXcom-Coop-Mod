@@ -142,6 +142,10 @@ en-GB:
   # zero battle units. The click-select ownership refusal deliberately reuses
   # STR_COOP_DENY_NOT_YOUR_UNIT above - same reason, same words as the wire deny.
   STR_COOP_SPECTATOR_MODE: "You command no soldiers - spectator mode"
+  # W2-H9 (owner D199 = (a), D211 = (a)): shown only on a SEPARATE co-op campaign's
+  # CLIENT when its own craft reaches a landable target or confirms Cydonia. Retired
+  # by the SEPARATE migration that brings client-craft joint battles.
+  STR_COOP_MISSION_HOST_CRAFT_ONLY: "In co-op only the host's craft can start a mission. Seat your soldiers on the host's craft to take part."
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

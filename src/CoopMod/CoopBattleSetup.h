@@ -198,4 +198,22 @@ void coopMergeGuestContributions(Game* game, Craft* craft);
 int coopClientBattleRefused();
 std::string coopClientBattleRefusedLast();
 
+/**
+ * W2-H9 (owner D199 = (a), D211 = (a)): on a SEPARATE co-op campaign's CLIENT
+ * only (connected, not the server owner, gamemode 0/1), refuses an own-craft
+ * landing: the craft returns to base (vanilla "No"), @a gs->popup() shows a
+ * CraftErrorState with the host-craft-only text (CoopState.cpp), and the function
+ * returns true so GeoscapeState never pushes ConfirmLandingState. False with
+ * no effect anywhere else (host, SHARED, single player, PvP, PvE2).
+ */
+bool coopRefuseSeparateClientLanding(Game* game, GeoscapeState* gs, Craft* craft);
+
+/**
+ * W2-H9 (owner D199 = (a), D212 = (a)): the same refusal for Cydonia. Called
+ * first in ConfirmCydoniaState::btnYesClick; when it returns true it has popped
+ * ConfirmCydoniaState and pushed the CraftErrorState, and the craft is
+ * untouched. False with no effect outside a SEPARATE co-op client.
+ */
+bool coopRefuseSeparateClientCydonia(Game* game, Craft* craft);
+
 } // namespace OpenXcom
