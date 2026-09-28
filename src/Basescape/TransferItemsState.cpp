@@ -571,9 +571,6 @@ void TransferItemsState::btnOkClick(Action *)
 		}
 	}
 
-	// coop
-	_baseTo->old_bases = _baseFrom->old_bases;
-
 	_game->pushState(new TransferConfirmState(_baseTo, this));
 }
 

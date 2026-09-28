@@ -44,6 +44,8 @@ private:
 	Text *_txtTitle, *_txtFunds, *_txtName, *_txtArea;
 	TextList *_lstBases;
 	std::vector<Base*> _bases;
+	/// coop (W2-H8): true when the ctor put back mirrors a basescape underneath hid.
+	bool _coopShown = false;
 public:
 	/// Creates the Transfer Base state.
 	TransferBaseState(Base *base, DebriefingState *debriefingState);

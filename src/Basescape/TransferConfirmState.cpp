@@ -131,7 +131,6 @@ void TransferConfirmState::btnOkClick(Action *)
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
-		*_game->getSavedGame()->getBases() = _base->old_bases;
 		_state->createPendingTransfers();
 	}
 	else
