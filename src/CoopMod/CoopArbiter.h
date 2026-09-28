@@ -1046,8 +1046,9 @@ bool coopLatchActionResult(const BattleAction& action);
 ///   2. the co-op HOST: FALSE, vanilla runs (`host_vanilla`);
 ///   3. CLIENT: this unit's order in flight or held pending: TRUE, nothing sent
 ///      (owner D150, `inflight`);
-///   4. CLIENT, a site S-B has not built yet (ctrl_ground, ctrl_fit,
-///      paperdoll): TRUE, nothing sent, logged (`interim`, spec (b)11);
+///   4. (W2-P8 S-B.2, section 9 step 1: spec (b)11's `interim` list is empty -
+///      ctrl_ground, ctrl_fit and paperdoll ship their vanilla-resolved target as
+///      a concrete move like every other site;)
 ///   5. CLIENT, the move costs more TU than the unit has: FALSE - vanilla's own
 ///      spend fails and warns with no write (`vanilla_refused`);
 ///   6. CLIENT: an `inv_move {op move}` order is sent and TRUE (`sent`).
@@ -1055,13 +1056,19 @@ bool coopInterceptInvMove(Inventory* inv, BattleUnit* unit, BattleItem* item, co
 	int x, int y, const char* site);
 
 /// The LOAD execution point (mouseClick's put-ammo-in-weapon block, the line
-/// before its spendTimeUnits(tuCost)): steps 1-2 above, then TRUE on a client
-/// (`interim` until S-B builds the load order).
+/// before its spendTimeUnits(tuCost)); site `load`, the clip recorded. Steps 1-3
+/// above; then (W2-P8 S-B.2, section 9 step 1) CLIENT: @a tuCost more than the
+/// unit's TU -> FALSE, vanilla warns (`vanilla_refused`); else an `inv_move {op
+/// load, item clip, weapon, swap}` order is sent (swap = the weapon's ammo slot
+/// is loaded: vanilla's Shift quick-swap passed) and TRUE (`sent`).
 bool coopInterceptInvLoad(Inventory* inv, BattleUnit* unit, BattleItem* clip, BattleItem* weapon, int tuCost);
 
 /// The UNLOAD / UNPRIME execution point (Inventory::unload, the line before its
-/// cost.spendTU()): steps 1-2 above, then TRUE on a client (`interim` until S-B
-/// builds the unload order). The caller returns false on TRUE.
+/// cost.spendTU(); the Shift+click on a hand weapon and the UNLOAD button);
+/// site `unload`. Steps 1-3 above; then (W2-P8 S-B.2, section 9 step 1) CLIENT:
+/// !cost.haveTU() -> FALSE, vanilla's spendTU(&err) warns (`vanilla_refused`);
+/// else an `inv_move {op unload, item}` order is sent and TRUE (`sent`). The
+/// caller returns false on TRUE (no sound until the answer).
 bool coopInterceptInvUnload(Inventory* inv, BattleUnit* unit, BattleItem* item, BattleActionCost& cost);
 
 /// Q2 (a): mouseClick's right-click RETURN of the cursor item. CLIENT: this
