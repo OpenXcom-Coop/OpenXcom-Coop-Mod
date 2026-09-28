@@ -4082,7 +4082,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "map_tile_screen_pos"
 		&& cmd != "map_tile_click_pos"
 		&& cmd != "find_doors" && cmd != "battle_close_ufo_doors"
-		&& cmd != "battle_ui_press" && cmd != "tile_census" && cmd != "inventory_view" && cmd != "inventory_click")
+		&& cmd != "battle_ui_press" && cmd != "tile_census" && cmd != "inventory_view" && cmd != "inventory_click"
+		&& cmd != "inventory_cursor_clear")
 	{
 		return false;
 	}
@@ -4392,6 +4393,37 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		else
 		{
 			inv->btnOkClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "inventory_cursor_clear")
+	{
+		// W2-P8 S-C1.1 (docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-3a Q4 (a)): TEST-ONLY red-run
+		// cleanup. The item on the cursor of the topmost InventoryState on the stack (on top or not) goes back
+		// where it was through the force-close's own step, Inventory::setSelectedItem(0) - a pick-up is local
+		// display only (F1923), the item never left its slot. No click: no Inventory::invClick() and no
+		// InventoryState::updateStats(). The caller then closes the screen (battle_close_inventory).
+		// Response: {ok, cleared (the item id that left the cursor, -1 = none), top (the screen is the top state)}.
+		InventoryState* invState = findState<InventoryState>(_game);
+		Inventory* invSurf = nullptr;
+		if (invState)
+		{
+			for (auto* s : invState->getSurfaces())
+			{
+				if (auto* i = dynamic_cast<Inventory*>(s)) { invSurf = i; break; }
+			}
+		}
+		if (!invSurf)
+		{
+			resp["error"] = "inventory_cursor_clear: no InventoryState";
+		}
+		else
+		{
+			BattleItem* cursorItem = invSurf->getSelectedItem();
+			resp["cleared"] = cursorItem ? cursorItem->getId() : -1;
+			resp["top"] = (!_game->getStates().empty() && _game->getStates().back() == invState);
+			if (cursorItem)
+				invSurf->setSelectedItem(0);
 			resp["ok"] = true;
 		}
 	}
@@ -6416,6 +6448,14 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["invLocalWrites"] = CoopArbiter::invLocalWrites();
 		resp["invLastWarning"] = CoopArbiter::invLastWarning();
 		resp["invGuard"] = CoopArbiter::invGuard();
+		// W2-P8 S-C1.1 (docs rewrite/prompts/w2p8_inventory.md, S-C1 PINNED STAGE TEXT; AMENDMENT P8-3a Q2 (a),
+		// Q3 (a)): the host's own-inventory sync latch and the client's inventory force-close (CoopDelta.h; reset
+		// only by initBattleAuthority(), so they survive the client's battle_end teardown), and the count of texts
+		// put on the inventory's own message line (battle-scoped with the probes above). Commit S-C1.1 exposes
+		// their zeros; commit S-C1.2's latch, pump consumer and force-close write the first two.
+		resp["invHostDirty"] = CoopDelta::hostInventoryLatchProbe();
+		resp["invForcedCloses"] = CoopDelta::inventoryForceCloseProbe();
+		resp["invWarningWrites"] = CoopDelta::invWarningWrites();
 		// W2-P4 S-E2.1 (amendment C3 D147 section 3): HOST - the envelopes onIntent
 		// took into its checks, {iseq, kind, actorId, skill} (the wire `skill` field).
 		resp["intentsReceivedLog"] = CoopArbiter::intentsReceivedLog();

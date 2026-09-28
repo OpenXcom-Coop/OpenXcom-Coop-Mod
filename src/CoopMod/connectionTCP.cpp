@@ -2682,6 +2682,9 @@ static Json::Value battleEndZeros()
 	r["resultBytes"] = 0;         // host: bytes sent; client: bytes stored
 	r["resultReceivedMs"] = 0u;   // client: SDL_GetTicks() at the store
 	r["resultWaitPasses"] = 0;    // client: consumer passes with the latch armed and no payload
+	// W2-P8 S-C1.1 (docs rewrite/prompts/w2p8_inventory.md, S-C1 PINNED STAGE TEXT; F2398, F2413): the client
+	// teardown's snapshot - an InventoryState was on this machine's state stack (battleEndNoteTeardown()).
+	r["inventoryOpenAtTeardown"] = false;
 	r["resultDropped"] = 0;       // either machine: debrief-result messages refused
 	r["debriefDisplayOnly"] = 0;  // client: 1 once the display-only fill ran
 	// W2-P7 S-B2.1 (AMENDMENT P7-4 R1): the leave-order half (each debriefing's OK, a peer's leave).
@@ -2754,6 +2757,24 @@ void battleEndNoteTeardown()
 	const std::uint32_t queueDepth = CoopPump::queueDepth();
 	const std::uint32_t lastApplied = CoopPump::lastSeqApplied();
 	const Json::Value hashVerify = lastHashVerify();
+	// W2-P8 S-C1.1 (S-C1 PINNED STAGE TEXT, F2398): an InventoryState on this machine's state stack right now -
+	// read through the static battle's live BattlescapeState's Game, null-safe; only the live stack is walked.
+	bool inventoryOpen = false;
+	if (SavedBattleGame* tdSave = connectionTCP::getStaticBattle())
+	{
+		BattlescapeState* tdBs = tdSave->getBattleState();
+		if (tdBs && tdBs->getGame())
+		{
+			for (State* s : tdBs->getGame()->getStates())
+			{
+				if (dynamic_cast<InventoryState*>(s))
+				{
+					inventoryOpen = true;
+					break;
+				}
+			}
+		}
+	}
 	std::lock_guard<std::mutex> lock(g_battleEndMutex);
 	Json::Value& r = battleEndLocked();
 	r["tornDownMs"] = nowMs;
@@ -2764,6 +2785,7 @@ void battleEndNoteTeardown()
 	r["queueDepthAtTeardown"] = queueDepth;
 	r["lastSeqApplied"] = lastApplied;
 	r["hashVerify"] = hashVerify;
+	r["inventoryOpenAtTeardown"] = inventoryOpen; // W2-P8 S-C1.1
 }
 
 bool debriefIsDisplayOnly(const void* state)
@@ -2857,6 +2879,66 @@ static void debriefReleaseToken(const void* state)
 		g_debriefDisplayOnlyState = nullptr;
 	if (state != nullptr && state == g_debriefHostBattleEndState)
 		g_debriefHostBattleEndState = nullptr;
+}
+
+// ----- W2-P8 S-C1.1 (docs rewrite/prompts/w2p8_inventory.md, S-C1 PINNED STAGE TEXT; AMENDMENT P8-3a Q2 (a)):
+// the in-battle inventory's host-latch and client force-close probes (CoopDelta.h). TEST INTROSPECTION ONLY
+// (TestServer event_state `invHostDirty` / `invForcedCloses`), never on the wire. Reset only by
+// inventoryProbesReset(), which initBattleAuthority() calls beside battleEndRecordReset(): the client's
+// battle_end teardown runs resetBattleAuthority() before a test can read a force-close made at the battle's
+// end (F2733). Commit S-C1.1 adds the storage, the zeros, the readers and the reset; commit S-C1.2's host
+// latch, its pump consumer and the client force-close are the writers. The mutex is a leaf.
+//   g_invHostDirty     HOST:   {pending, sets {move, load, unload, reload, close}, flushes, emptyFlushes,
+//                              heldByGate}
+//   g_invForcedCloses  CLIENT: {count, byReason {unit_out, not_commanded, side, battle_end}, notOnTop}
+static std::mutex g_invLatchProbeMutex;
+
+static Json::Value hostInventoryLatchZeros()
+{
+	Json::Value r(Json::objectValue);
+	r["pending"] = false;
+	Json::Value sets(Json::objectValue);
+	for (const char* k : { "move", "load", "unload", "reload", "close" })
+		sets[k] = 0;
+	r["sets"] = sets;
+	r["flushes"] = 0;
+	r["emptyFlushes"] = 0;
+	r["heldByGate"] = 0;
+	return r;
+}
+
+static Json::Value inventoryForceCloseZeros()
+{
+	Json::Value r(Json::objectValue);
+	r["count"] = 0;
+	Json::Value byReason(Json::objectValue);
+	for (const char* k : { "unit_out", "not_commanded", "side", "battle_end" })
+		byReason[k] = 0;
+	r["byReason"] = byReason;
+	r["notOnTop"] = 0;
+	return r;
+}
+
+static Json::Value g_invHostDirty = hostInventoryLatchZeros();
+static Json::Value g_invForcedCloses = inventoryForceCloseZeros();
+
+Json::Value hostInventoryLatchProbe()
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	return g_invHostDirty;
+}
+
+Json::Value inventoryForceCloseProbe()
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	return g_invForcedCloses;
+}
+
+void inventoryProbesReset()
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_invHostDirty = hostInventoryLatchZeros();
+	g_invForcedCloses = inventoryForceCloseZeros();
 }
 
 } // namespace CoopDelta
@@ -4798,6 +4880,9 @@ void initBattleAuthority(std::uint32_t battleId)
 	// W2-P7 S-A.1 (AMENDMENT P7-1 ST4 (a)): the session-lifetime battleEnd
 	// record is cleared here and nowhere else (CoopDelta.h).
 	CoopDelta::battleEndRecordReset();
+	// W2-P8 S-C1.1 (AMENDMENT P8-3a Q2 (a)): so are the inventory latch / force-close probes, never in
+	// resetBattleAuthority() (the client's battle_end teardown runs it before a test reads them, F2733).
+	CoopDelta::inventoryProbesReset();
 	// W2-P7 S-A.2 (F1899): the battle-scoped battle_end flags start clear.
 	g_coopBattleEndTerminal = false;
 	g_coopBattleEndTeardownLatch = false;
@@ -5114,7 +5199,8 @@ static Json::Value coopInvGuardZeros()
 {
 	Json::Value g(Json::objectValue);
 	Json::Value counts(Json::objectValue);
-	for (const char* k : { "sent", "inflight", "baton", "interim", "vanilla_refused", "host_vanilla" })
+	// W2-P8 S-C1.1 (S-C1 PINNED STAGE TEXT): + the zero key `held` (S-C1.2's V11 held refusal writes it).
+	for (const char* k : { "sent", "inflight", "baton", "interim", "vanilla_refused", "host_vanilla", "held" })
 		counts[k] = 0;
 	g["counts"] = counts;
 	g["last"] = Json::Value();
@@ -5141,11 +5227,23 @@ static void coopInvNoteGuard(const char* site, const char* op, const char* decis
 	g_coopInvGuard["last"] = last;
 }
 
+// W2-P8 S-C1.1 (AMENDMENT P8-3a Q3 (a), F2604): every text coopInvNoteWarning() records, counted. The held
+// text's proof: invLastWarning keeps an earlier row's text, so a row asserts this count's delta. BOTH machines;
+// battle-scoped with the probes above (resetBattleAuthority()). Probe only.
+static std::atomic<int> g_coopInvWarningWrites{0};
+
 static void coopInvNoteWarning(const std::string& text)
 {
 	std::lock_guard<std::mutex> lock(g_coopInvProbeMutex);
 	g_coopInvLastWarning = text;
+	g_coopInvWarningWrites.fetch_add(1); // W2-P8 S-C1.1 (P8-3a Q3 (a))
 }
+
+namespace CoopDelta
+{
+// W2-P8 S-C1.1 (AMENDMENT P8-3a Q3 (a)): the read-only accessor (CoopDelta.h).
+int invWarningWrites() { return g_coopInvWarningWrites.load(); }
+} // namespace CoopDelta
 
 void resetBattleAuthority()
 {
@@ -5217,6 +5315,7 @@ void resetBattleAuthority()
 	g_coopBattleEndTeardownLatch = false;
 	// W2-P8 S-A.1 (section 8.1 step 12): the inventory probes are battle-scoped too.
 	g_coopInvLocalWrites = 0;
+	g_coopInvWarningWrites = 0; // W2-P8 S-C1.1 (P8-3a Q3 (a)): reset with the S-A probes
 	{
 		std::lock_guard<std::mutex> lock(g_coopInvProbeMutex);
 		g_coopInvLastWarning.clear();

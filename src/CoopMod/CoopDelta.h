@@ -295,6 +295,35 @@ void battleEndNoteTeardown();
 /// TEST INTROSPECTION + S-B1.2's finish (AMENDMENT P7-2 R2): true iff @a state is the display-only DebriefingState (identity compare, never dereferenced).
 bool debriefIsDisplayOnly(const void* state);
 
+// ----- W2-P8 S-C1.1 (the RED commit): the in-battle inventory's S-C1 probes -----
+// Spec docs rewrite/prompts/w2p8_inventory.md, S-C1 PINNED STAGE TEXT; AMENDMENT
+// P8-3a Q2 (a), Q3 (a). TEST INTROSPECTION ONLY (TestServer event_state), never
+// read by game logic, never on the wire. Bodies: connectionTCP.cpp. Commit
+// S-C1.1 adds the storage, the zeros, the readers and the resets; commit
+// S-C1.2's host latch, its pump consumer and the client force-close write
+// them. The record above also gains `inventoryOpenAtTeardown` (CLIENT: an
+// InventoryState was on this machine's state stack at battleEndNoteTeardown()).
+
+/// [invHostDirty] HOST: the host's own-inventory `sync` latch - {pending,
+/// sets {move, load, unload, reload, close}, flushes (consumer passes that
+/// emitted a `sync`), emptyFlushes (passes whose delta was empty), heldByGate
+/// (passes that kept the latch because the battle was not quiescent)}.
+Json::Value hostInventoryLatchProbe();
+
+/// [invForcedCloses] CLIENT: the inventory force-close - {count, byReason
+/// {unit_out, not_commanded, side, battle_end}, notOnTop}.
+Json::Value inventoryForceCloseProbe();
+
+/// Clear the two probes above to their zeros. Called by initBattleAuthority()
+/// only, beside battleEndRecordReset() (P8-3a Q2 (a)): the client's battle_end
+/// teardown runs resetBattleAuthority() before a test can read them.
+void inventoryProbesReset();
+
+/// [invWarningWrites] BOTH: the texts the co-op layer put on the inventory's
+/// own message line (every coopInvNoteWarning(); P8-3a Q3 (a), F2604).
+/// Battle-scoped with the S-A inventory probes (resetBattleAuthority()).
+int invWarningWrites();
+
 } // namespace CoopDelta
 
 // ----- W2-P2 S-C, commit S-C.2: host combat cues (spec (b)11, (b)14) -----
