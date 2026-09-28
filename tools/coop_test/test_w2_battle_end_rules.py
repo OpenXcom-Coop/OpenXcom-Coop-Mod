@@ -1,19 +1,24 @@
-"""W2-P7 S-D1 - test_w2_battle_end_rules.py: the remaining battle endings. The
-turn limit, all X-COM down and a PvP (gm2) elimination each reach the host's
-one `battle_end` hook at the top of BattlescapeState::finishBattle, carry the
-right reason and per-seat verdict, and the skirmish client leaves the battle
-with it (spec rewrite/prompts/w2p7_battle_end.md sections (b)2-6 and (f)
-test_w2_battle_end_rules.py; the W2-P7 plan review's section 2 rows E4-E6 and
-PINNED S-D1 stage text; AMENDMENT P7-1 rulings ST1-ST8; owner ruling D129 =
-(a); V7 for the PvP complement).
+"""W2-P7 S-D1 + S-B1 - test_w2_battle_end_rules.py: the remaining battle
+endings. The turn limit, all X-COM down and a PvP (gm2) elimination each reach
+the host's one `battle_end` hook at the top of BattlescapeState::finishBattle,
+carry the right reason and per-seat verdict, and the skirmish client leaves the
+battle with it (spec rewrite/prompts/w2p7_battle_end.md sections (b)2-7 and
+(f) test_w2_battle_end_rules.py; the W2-P7 plan review's section 2 rows E4-E6
+and PINNED S-D1 stage text; AMENDMENT P7-1 rulings ST1-ST8; AMENDMENT P7-2
+rulings G1-G8 and PINNED S-B1 text, R5; AMENDMENT P7-3's pin fixes G9-G14;
+owner ruling D129 = (a); V7 for the PvP complement).
 
 S-D1 is the reason / verdict / teardown half of E4-E6 (review scope table):
-the S-A product (c8e9a37b1) already covers these endings, so the rows are
-DECLARED GREEN-AT-RED - they pass on the commit that adds them. A red row is a
-product gap (R7 capture, STOP). The debrief-equality re-point (D154/D156
-through S-B) and the alien seat's screen (D157) are S-D2, not asserted here.
-Three rows, ONE boot each (one ending per boot); the Coop_TurnLimit_Test data
-mod is loaded on E4's boot only:
+the S-A product (c8e9a37b1) already covered these endings, so the rows were
+DECLARED GREEN-AT-RED. S-B1 (G1, G2) re-points E4 and E5 (DEBRIEF_ROWS): the
+X-COM client now ends on the host's debriefing in a display-only
+DebriefingState, with the same S-B1 rows as test_w2_battle_end.py E1/E2 (no
+page walk here). No OK is pressed. E6 is unchanged: the PvP alien seat keeps
+S-A's MainMenuState interim until D157 (G2); its host sends no
+`bt_debrief_result` (no PLAYER-faction client seat, F2060), shown in its
+evidence and not asserted. The alien seat's screen (D157) is S-D2. Three rows,
+ONE boot each (one ending per boot); the Coop_TurnLimit_Test data mod is loaded
+on E4's boot only:
 
   E4  T5, the turn limit. Coop_TurnLimit_Test (tools/coop_test/mods/) adds
       STR_COOP_TURN_LIMIT_TEST = the NEW BATTLE default deployment
@@ -65,24 +70,49 @@ E1/E2):
           evsAfter 0 (no trailing reveal or any other host send after the
           envelope - OR1, measured 0 on all three triggers at T0-3/T0-4),
           stageSkips 0, hBuckets = the 9 action-end bucket names; the host's
-          stack still holds DebriefingState (its top is NOT asserted: F1896,
-          D156); coopClientBStatePushes 0 and desyncSeen false.
+          stack still holds DebriefingState; coopClientBStatePushes 0 and
+          desyncSeen false. E4/E5 (S-B1 rows f, g, i): the host hold (the
+          host's top stays DebriefingState for HOST_HOLD_S after the client's
+          end state, no CoopState(20), F2011/F2055); battleEnd resultSent 1,
+          resultBytes > 0, resultDropped 0, debriefDisplayOnly 0;
+          debrief_state shown, on top, not display-only, widgets {19, 5, 4},
+          page 0, parseErrors 0, and the seven content fields equal to the
+          row's HOST_DEBRIEF pin.
   client  battleEnd applied 1 with the host's seq and the row's reason /
           aborted / inExitArea / perSeatVerdict / tally, skirmish true,
           teardownInDrain false, latchedMs > 0 and tornDownMs >= latchedMs,
           desyncAtTeardown false, bstatePushesAtTeardown == b0,
           queueDepthAtTeardown 0, lastSeqApplied == the host's seq,
           hashVerify {seq = the host's seq, kind battle_end, buckets = the
-          host's hBuckets}; top MainMenuState within CLIENT_LEAVE_S of the
-          host's DebriefingState, world_state has_save false, battle_state
-          inBattle false, event_state phase Idle.
+          host's hBuckets}; the wait ends on DebriefingState or MainMenuState
+          within CLIENT_LEAVE_S of the host's DebriefingState. E4/E5 (S-B1
+          rows b-d, h, j): top DebriefingState, world_state has_save true,
+          battle_state inBattle false, event_state phase Idle; battleEnd
+          resultReceived 1, resultBytes == the host's and > 0,
+          resultReceivedMs > 0, tornDownMs >= resultReceivedMs,
+          resultDropped 0, debriefDisplayOnly 1; debrief_state shown, on top,
+          display-only, the same widget census, page 0, parseErrors 0, and
+          every content field equal to the host's. E6 (unchanged, the alien
+          seat's interim): top MainMenuState, world_state has_save false,
+          battle_state inBattle false, event_state phase Idle.
   both    no client save file (assert_client_zero_disk), no new crash log.
 
-Each row prints ONE "EVIDENCE <id>:" line with both machines' records, tops
-and the pre-ending census BEFORE its verdict is checked; main() runs every row
-even after an earlier one failed and prints "PASS <id>" / "FAIL <id>:
-<message>". Every wait is bounded; a wait that runs out is recorded and fails
-the row.
+The HOST_DEBRIEF pins (AMENDMENT P7-2 R6, P7-3) are each E4/E5 host
+debrief_state, copied verbatim from one capture run on the S-B1.1 build, with
+`soldiers` pinned as each row's deltas in order (names are compared
+host-to-client only, G10) and E4's `rows` pinned as [] (no page-1 row, G11;
+E5 needs at least one). E5's page-1 scores and total come from the per-boot
+roster (a dead soldier's score is its rank and missions), so its pin holds
+each page-1 row as {item, qty, recovery} and no total (G14); row j still
+compares both machines' scores and totals. The S-B1.1 red run:
+E4 and E5 fail on exactly the S-B1 red (as test_w2_battle_end.py E1/E2,
+without the page walk); E6 passes.
+
+Each row prints ONE "EVIDENCE <id>:" line with both machines' records, tops,
+the host hold, both debriefs and the pre-ending census BEFORE its verdict is
+checked; main() runs every row even after an earlier one failed and prints
+"PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that runs
+out is recorded and fails the row.
 
 WV-D99 / WV-D100: one run is the result. No skip path, no second boot per
 row, no alternative map or actor. Exit 0 only when all three rows pass, 2
@@ -125,7 +155,7 @@ TL_CLOSE_AT = (FACTION_HOSTILE, 1)  # the host's only NextTurnState before the e
 H_BUCKETS = sorted(["terrain", "fire", "smoke", "items", "unitsCore", "unitsStats", "itemIdCtr", "synced",
                     "saveBlob"])
 DEBRIEF_S = 30        # host DebriefingState after the ending's last step (T0-3/T0-4: 0.05 s)
-CLIENT_LEAVE_S = 30   # client MainMenuState after the host's DebriefingState (T0-3/T0-4: 0.05 s)
+CLIENT_LEAVE_S = 30   # client end state (CLIENT_END_TOPS) after the host's DebriefingState (T0-3/T0-4: 0.05 s)
 ROW_EXPECT = {
     # T0-4: the turn-limit check trips on the NEUTRAL -> PLAYER endTurn (turn 2); FORCE_LOSE sets
     # aborted and calls finishBattle(false, 0).
@@ -142,6 +172,39 @@ ROW_EXPECT = {
            "tally": {"liveAliens": 0, "liveSoldiers": 7, "inExit": 0}},
 }
 ROW_PORT = {"E4": "48776", "E5": "48777", "E6": "48778"}
+
+# ----- W2-P7 S-B1 constants (AMENDMENT P7-2 R5; as test_w2_battle_end.py) -----
+DEBRIEF_ROWS = ("E4", "E5")   # the X-COM client's display-only debrief; E6 keeps S-A's MainMenuState interim (G2)
+CLIENT_END_TOPS = ("DebriefingState", "MainMenuState")   # the client wait ends on either (every row)
+HOST_HOLD_S = 3       # the host's top sampled every 0.25 s for this long after the client's end state (F2055)
+DEBRIEF_WIDGETS = {"texts": 19, "lists": 5, "buttons": 4}   # DebriefingState.cpp :144-174 (F2049)
+DEBRIEF_FIELDS = ("title", "recoveryHeader", "rows", "total", "rating", "soldiers", "recovered")
+# G11 (F2031): these rows' host page 1 has at least one row; the other rows pin `rows` as [].
+ROWS_WITH_PAGE1 = ("E5",)
+# G14 (F2037): these rows' page-1 scores and total come from the per-boot roster (dead soldiers' ranks and
+# missions): the pin holds each page-1 row as {item, qty, recovery} and no `total`.
+ROSTER_SCORED_ROWS = ("E5",)
+# R6: each DEBRIEF_ROWS row's host debrief_state content, copied verbatim from the capture run on the S-B1.1
+# build (pin_view: `soldiers` as each row's deltas, G10).
+HOST_DEBRIEF = {
+    # R6 capture B (S-B1.1 build): E4 = T5, the turn limit (no page-1 row, G11).
+    "E4": {"title": "Terror continues", "recoveryHeader": "", "rows": [], "total": 0, "rating": "RATING> POOR!",
+           "soldiers": [
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        ],
+           "recovered": []},
+    # R6 capture B: E5 = T3, all X-COM down (roster-scored, G14: rows without score, no total).
+    "E5": {"title": "Craft is lost", "recoveryHeader": "",
+           "rows": [{"item": "X-COM OPERATIVES KILLED", "qty": 7, "recovery": False},
+                    {"item": "X-COM CRAFT LOST", "qty": 1, "recovery": False}],
+           "rating": "RATING> TERRIBLE!", "soldiers": [], "recovered": []},
+}
 
 
 # ===================== small probes =====================
@@ -189,7 +252,23 @@ def machine_view(gc):
     return {"top": top(gc), "stack": stack(gc), "inBattle": bs.get("inBattle"), "phase": es.get("phase"),
             "desyncSeen": es.get("desyncSeen"), "bstatePushes": es.get("coopClientBStatePushes"),
             "lastSeqEmitted": es.get("lastSeqEmitted"), "lastSeqApplied": es.get("lastSeqApplied"),
-            "queueDepth": es.get("queueDepth"), "hasSave": ws.get("has_save"), "battleEnd": es.get("battleEnd")}
+            "queueDepth": es.get("queueDepth"), "hasSave": ws.get("has_save"), "battleEnd": es.get("battleEnd"),
+            "debrief": gc.cmd({"cmd": "debrief_state"})}
+
+
+def host_hold(host):
+    """S-B1 row f (F2055): sample the host's top every 0.25 s for HOST_HOLD_S and
+    return the distinct non-DebriefingState tops seen, in first-seen order
+    ([] = the host's debrief held the top throughout)."""
+    seen = []
+    t0 = time.time()
+    while True:
+        t = top(host)
+        if t != "DebriefingState" and t not in seen:
+            seen.append(t)
+        if time.time() - t0 >= HOST_HOLD_S:
+            return seen
+        time.sleep(0.25)
 
 
 def log_lines(gc):
@@ -362,15 +441,118 @@ def census_view(c):
                for n in ("host", "client")}}
 
 
-def row_verdict(rid, expect, hrec, crec, cend, hend, b0, cleft, extra):
-    """Every S-A assertion of the row; returns the list of failures (empty = pass)."""
+def pin_fields(rid):
+    """The DEBRIEF_FIELDS a row's host pin holds: all seven, less `total` on
+    ROSTER_SCORED_ROWS (AMENDMENT P7-3 G14)."""
+    return tuple(k for k in DEBRIEF_FIELDS if not (rid in ROSTER_SCORED_ROWS and k == "total"))
+
+
+def pin_view(deb, rid):
+    """The pinned form of a debrief_state (AMENDMENT P7-3 G10, F2030): the seven
+    content fields, with `soldiers` reduced to each row's deltas in order (the
+    row count and the stat gains) - soldier names change per boot, so they are
+    compared host-to-client only (row j), never pinned. G14 (F2037): on
+    ROSTER_SCORED_ROWS each page-1 row is {item, qty, recovery} (a dead
+    soldier's score comes from its rank and missions, DebriefingState.cpp
+    :1494/:1530, BattleUnit.cpp :89-100) and `total` is not pinned; row j still
+    compares both machines' scores and totals."""
+    deb = deb if isinstance(deb, dict) else {}
+    out = {k: deb.get(k) for k in pin_fields(rid)}
+    out["soldiers"] = [s.get("deltas") for s in (deb.get("soldiers") or []) if isinstance(s, dict)]
+    if rid in ROSTER_SCORED_ROWS:
+        out["rows"] = [{k: r.get(k) for k in ("item", "qty", "recovery")}
+                       for r in (deb.get("rows") or []) if isinstance(r, dict)]
+    return out
+
+
+def debrief_verdict(rid, hrec, crec, hdeb, cdeb, hold):
+    """AMENDMENT P7-2 R4 rows f-j (S-B1, DEBRIEF_ROWS only); returns the list of failures."""
+    f = []
+    hdeb = hdeb if isinstance(hdeb, dict) else {}
+    cdeb = cdeb if isinstance(cdeb, dict) else {}
+    # f: the host hold - the host's debrief keeps the top (no CoopState(20), F2011 / F2055)
+    if hold != []:
+        f.append(f"host hold saw {hold} within {HOST_HOLD_S}s after the client's end state (want [] - the host's "
+                 f"top DebriefingState throughout)")
+    # g: the host record's result keys
+    hbytes = hrec.get("resultBytes")
+    if hrec.get("resultSent") != 1:
+        f.append(f"host battleEnd.resultSent={hrec.get('resultSent')} (want 1)")
+    if not isinstance(hbytes, int) or hbytes <= 0:
+        f.append(f"host battleEnd.resultBytes={hbytes} (want an int > 0)")
+    if hrec.get("resultDropped") != 0:
+        f.append(f"host battleEnd.resultDropped={hrec.get('resultDropped')} (want 0)")
+    if hrec.get("debriefDisplayOnly") != 0:
+        f.append(f"host battleEnd.debriefDisplayOnly={hrec.get('debriefDisplayOnly')} (want 0)")
+    # h: the client record's result keys
+    cbytes, rms, tdn = crec.get("resultBytes"), crec.get("resultReceivedMs"), crec.get("tornDownMs")
+    if crec.get("resultReceived") != 1:
+        f.append(f"client battleEnd.resultReceived={crec.get('resultReceived')} (want 1)")
+    if not isinstance(cbytes, int) or cbytes <= 0 or cbytes != hbytes:
+        f.append(f"client battleEnd.resultBytes={cbytes} (want the host's {hbytes}, > 0)")
+    if not isinstance(rms, int) or rms <= 0:
+        f.append(f"client battleEnd.resultReceivedMs={rms} (want an int > 0)")
+    if not isinstance(rms, int) or not isinstance(tdn, int) or tdn < rms:
+        f.append(f"client battleEnd tornDownMs={tdn} resultReceivedMs={rms} (want tornDownMs >= resultReceivedMs: "
+                 f"the teardown waited for the payload, G3)")
+    if crec.get("resultDropped") != 0:
+        f.append(f"client battleEnd.resultDropped={crec.get('resultDropped')} (want 0)")
+    if crec.get("debriefDisplayOnly") != 1:
+        f.append(f"client battleEnd.debriefDisplayOnly={crec.get('debriefDisplayOnly')} (want 1)")
+    # i: the host's debrief_state against the row's pin
+    for k, want in (("shown", True), ("onTop", True), ("displayOnly", False)):
+        if hdeb.get(k) is not want:
+            f.append(f"host debrief_state.{k}={hdeb.get(k)!r} (want {want!r})")
+    if hdeb.get("widgets") != DEBRIEF_WIDGETS:
+        f.append(f"host debrief_state.widgets={hdeb.get('widgets')} (want {DEBRIEF_WIDGETS})")
+    if hdeb.get("page") != 0:
+        f.append(f"host debrief_state.page={hdeb.get('page')} (want 0)")
+    if hdeb.get("parseErrors") != 0:
+        f.append(f"host debrief_state.parseErrors={hdeb.get('parseErrors')} (want 0)")
+    pin = HOST_DEBRIEF.get(rid)
+    if pin is None:
+        f.append(f"no HOST_DEBRIEF pin for {rid} (R6)")
+    else:
+        # G11 (F2031): a non-empty title on every row; ROWS_WITH_PAGE1 rows also need a page-1 row
+        need_rows = rid in ROWS_WITH_PAGE1
+        if pin.get("title") in ("", None) or (need_rows and len(pin.get("rows") or []) < 1):
+            f.append(f"HOST_DEBRIEF[{rid}] pin sanity: title={pin.get('title')!r} rows={pin.get('rows')} "
+                     f"(want a non-empty title{' and at least one page-1 row' if need_rows else ''})")
+        hpin = pin_view(hdeb, rid)
+        for k in pin_fields(rid):
+            if hpin.get(k) != pin.get(k):
+                f.append(f"host debrief_state.{k}={hpin.get(k)!r} (want the pinned {pin.get(k)!r})")
+    # j: the client's debrief_state against the host's
+    for k, want in (("shown", True), ("onTop", True), ("displayOnly", True)):
+        if cdeb.get(k) is not want:
+            f.append(f"client debrief_state.{k}={cdeb.get(k)!r} (want {want!r})")
+    if cdeb.get("widgets") != DEBRIEF_WIDGETS:
+        f.append(f"client debrief_state.widgets={cdeb.get('widgets')} (want {DEBRIEF_WIDGETS})")
+    if cdeb.get("page") != 0:
+        f.append(f"client debrief_state.page={cdeb.get('page')} (want 0)")
+    if cdeb.get("parseErrors") != 0:
+        f.append(f"client debrief_state.parseErrors={cdeb.get('parseErrors')} (want 0)")
+    for k in DEBRIEF_FIELDS:
+        if cdeb.get(k) != hdeb.get(k):
+            f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r}")
+    return f
+
+
+def row_verdict(rid, expect, hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
+    """Every S-A assertion of the row, with AMENDMENT P7-2 R4's re-points a-c and
+    new rows f-j on DEBRIEF_ROWS (E6 keeps the S-A end state); returns the list
+    of failures (empty = pass)."""
     f = []
     hrec = hrec if isinstance(hrec, dict) else {}
     crec = crec if isinstance(crec, dict) else {}
-    # --- the host's emission, the client's leave ---
+    debrief_row = rid in DEBRIEF_ROWS
+    # --- the host's emission, the client's end state reached ---
     if hrec.get("emitted") != 1:
         f.append(f"host battleEnd.emitted={hrec.get('emitted')} (want 1)")
-    if not cleft["ok"]:
+    if not cleft["ok"] and debrief_row:
+        f.append(f"client reached neither DebriefingState nor MainMenuState within {CLIENT_LEAVE_S}s of the "
+                 f"host's DebriefingState ({cleft['secs']}s): top={cend['top']} inBattle={cend['inBattle']}")
+    elif not cleft["ok"]:
         f.append(f"client still in battle {cleft['secs']}s after the host's DebriefingState: top={cend['top']} "
                  f"inBattle={cend['inBattle']} (want MainMenuState within {CLIENT_LEAVE_S}s)")
     # --- host record ---
@@ -424,14 +606,26 @@ def row_verdict(rid, expect, hrec, crec, cend, hend, b0, cleft, extra):
         f.append(f"client battleEnd.hashVerify={crec.get('hashVerify')} (want seq {hseq}, kind battle_end, "
                  f"buckets = the host's hBuckets)")
     # --- client end state ---
-    if cend["top"] != "MainMenuState":
-        f.append(f"client top={cend['top']} (want MainMenuState)")
-    if cend["hasSave"] is not False:
-        f.append(f"client world_state.has_save={cend['hasSave']} (want false)")
-    if cend["inBattle"] is not False:
-        f.append(f"client battle_state.inBattle={cend['inBattle']} (want false)")
-    if cend["phase"] != "Idle":
-        f.append(f"client event_state.phase={cend['phase']} (want Idle)")
+    if debrief_row:
+        # S-B1 rows b-d (G4): the display-only debrief
+        if cend["top"] != "DebriefingState":
+            f.append(f"client top={cend['top']} (want DebriefingState)")
+        if cend["hasSave"] is not True:
+            f.append(f"client world_state.has_save={cend['hasSave']} (want true)")
+        if cend["inBattle"] is not False:
+            f.append(f"client battle_state.inBattle={cend['inBattle']} (want false)")
+        if cend["phase"] != "Idle":
+            f.append(f"client event_state.phase={cend['phase']} (want Idle)")
+        f += debrief_verdict(rid, hrec, crec, hdeb, cdeb, hold)
+    else:
+        if cend["top"] != "MainMenuState":
+            f.append(f"client top={cend['top']} (want MainMenuState)")
+        if cend["hasSave"] is not False:
+            f.append(f"client world_state.has_save={cend['hasSave']} (want false)")
+        if cend["inBattle"] is not False:
+            f.append(f"client battle_state.inBattle={cend['inBattle']} (want false)")
+        if cend["phase"] != "Idle":
+            f.append(f"client event_state.phase={cend['phase']} (want Idle)")
     f += extra
     return f
 
@@ -459,8 +653,9 @@ def run_row(rid, boot_fn, stage_fn, end_fn, mods, results):
                 ending.append(f"host DebriefingState not reached within {deb_s}s of the ending's last step: "
                               f"host stack {stack(host)}")
             deb_after = round(time.time() - t_end, 2)
-            left_ok, left_s = wait_until(lambda: top(client) == "MainMenuState", CLIENT_LEAVE_S, 0.25)
+            left_ok, left_s = wait_until(lambda: top(client) in CLIENT_END_TOPS, CLIENT_LEAVE_S, 0.25)
             cleft = {"ok": left_ok, "secs": left_s}
+            hold = host_hold(host) if rid in DEBRIEF_ROWS else None
             hend, cend = machine_view(host), machine_view(client)
             crash1 = session._crash_log_snapshot()
             extra = []
@@ -472,15 +667,18 @@ def run_row(rid, boot_fn, stage_fn, end_fn, mods, results):
             except AssertionError as e:
                 extra.append(str(e))
             hrec, crec = hend.pop("battleEnd"), cend.pop("battleEnd")
+            hdeb, cdeb = hend.pop("debrief"), cend.pop("debrief")
             print(f"EVIDENCE {rid}: host DebriefingState reached={deb_ok} after {deb_s}s ({deb_after}s from the "
                   f"ending's first step); host battleEnd.emitted={(hrec or {}).get('emitted')}; client at the "
-                  f"end of the {CLIENT_LEAVE_S}s window: left={left_ok} after {left_s}s top={cend['top']} "
-                  f"inBattle={cend['inBattle']}; pre-ending fails={pre}; ending fails={ending}; "
+                  f"end of the {CLIENT_LEAVE_S}s window: reached={left_ok} after {left_s}s top={cend['top']} "
+                  f"inBattle={cend['inBattle']}; host hold={hold}; pre-ending fails={pre}; ending fails={ending}; "
                   f"boot={boot_info}; staging={staging}; ending={ending_resp}; "
                   f"pre-ending census={census_view(census)}; host battleEnd={hrec}; client battleEnd={crec}; "
-                  f"host end={hend}; client end={cend}; newCrashLogs={new_crash}", flush=True)
+                  f"host end={hend}; client end={cend}; host debrief={hdeb}; client debrief={cdeb}; "
+                  f"newCrashLogs={new_crash}", flush=True)
             fails = [f"pre-ending: {m}" for m in pre] + [f"ending: {m}" for m in ending]
-            fails += row_verdict(rid, expect, hrec, crec, cend, hend, census.get("b0"), cleft, extra)
+            fails += row_verdict(rid, expect, hrec, crec, cend, hend, census.get("b0"), cleft, extra,
+                                 hold, hdeb, cdeb)
             if fails:
                 raise AssertionError(f"{len(fails)} failure(s): " + " | ".join(fails))
             results[rid] = True

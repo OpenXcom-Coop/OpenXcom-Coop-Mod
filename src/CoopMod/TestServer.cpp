@@ -214,6 +214,7 @@
 #include "VoteMenu.h"
 #include "../Interface/DisableableComboBox.h"
 #include "../Interface/Text.h"
+#include "../Interface/TextList.h" // W2-P7 S-B1.1: the debrief_state probe reads the DebriefingState lists
 #include "../Interface/TextButton.h"
 #include "../Interface/BattlescapeButton.h" // W2-P4 S-E2.1b: map_tile_click_pos special-action buttons
 #include "../Engine/InteractiveSurface.h"
@@ -6043,7 +6044,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "set_touch_modifiers" && cmd != "forget_research"
 		&& cmd != "research_check" && cmd != "can_use_weapon" && cmd != "set_research_sync"
 		&& cmd != "clear_warning"
-		&& cmd != "display_rules")
+		&& cmd != "display_rules" && cmd != "debrief_state")
 	{
 		return false;
 	}
@@ -7994,6 +7995,135 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		k["HIT_FRAMES"] = Explosion::HIT_FRAMES; // W2-P6b S-E.1 (section 9): a melee / psi sprite's default frames
 		resp["items"] = items;
 		resp["constants"] = k;
+		resp["ok"] = true;
+	}
+	else if (cmd == "debrief_state")
+	{
+		// W2-P7 S-B1.1 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-2 R3;
+		// F2026, F2049): TEST INTROSPECTION ONLY - read-only, public API only, no
+		// vanilla accessor. What the topmost DebriefingState on this machine's stack
+		// DISPLAYS, read from its widgets in DebriefingState.cpp's fixed add() order
+		// (:144-174): texts[0] title, texts[4] recovery header, texts[5] rating;
+		// lists[0] stats, [1] recovery, [2] total, [3] soldier stats, [4] recovered
+		// items; buttons[0] OK, [1] STATS, [2] SELL, [3] TRANSFER. Vector indices and
+		// row counts are bounds-checked; the column indices read are the ones
+		// vanilla's own addRow calls create for each list (3, 3, 2, 13, 2) - TextList
+		// has no public column-count getter. Both machines' answers are compared for
+		// "the same debrief" (W2-P7 S-B1). strip() drops the colour-flip and
+		// small-font tokens, then trims the leading and trailing '.' runs (every
+		// debrief list is setDot(true), and TextList::addRow pads every column but
+		// the last with '.', TextList.cpp :347-364 - layout, not content; AMENDMENT
+		// P7-3 G9, F2029); num() parses the whole stripped cell as base 10 ("+N"
+		// and "-N" accepted), "" is 0 only where empty means "no gain" (page 2).
+		DebriefingState* db = nullptr;
+		const auto& dbStates = _game->getStates();
+		for (auto it = dbStates.rbegin(); it != dbStates.rend() && !db; ++it)
+		{
+			db = dynamic_cast<DebriefingState*>(*it);
+		}
+		const State* dbTop = dbStates.empty() ? nullptr : dbStates.back();
+		std::vector<Text*> dbTexts;
+		std::vector<TextList*> dbLists;
+		std::vector<TextButton*> dbButtons;
+		if (db)
+		{
+			for (auto* s : db->getSurfaces())
+			{
+				if (auto* tx = dynamic_cast<Text*>(s)) dbTexts.push_back(tx);
+				else if (auto* tl = dynamic_cast<TextList*>(s)) dbLists.push_back(tl);
+				else if (auto* tb = dynamic_cast<TextButton*>(s)) dbButtons.push_back(tb);
+			}
+		}
+		int parseErrors = 0;
+		auto strip = [](const std::string& in) {
+			std::string out;
+			out.reserve(in.size());
+			for (char c : in)
+			{
+				if (c != Unicode::TOK_COLOR_FLIP && c != Unicode::TOK_NL_SMALL) out.push_back(c);
+			}
+			const size_t first = out.find_first_not_of('.');
+			if (first == std::string::npos)
+			{
+				return std::string();
+			}
+			const size_t last = out.find_last_not_of('.');
+			return out.substr(first, last - first + 1);
+		};
+		auto num = [&](const std::string& in, bool emptyIsZero) -> int {
+			const std::string s = strip(in);
+			if (s.empty())
+			{
+				if (!emptyIsZero) parseErrors += 1;
+				return 0;
+			}
+			char* endp = nullptr;
+			const long v = std::strtol(s.c_str(), &endp, 10);
+			if (endp == s.c_str() || *endp != '\0')
+			{
+				parseErrors += 1;
+				return 0;
+			}
+			return (int)v;
+		};
+		auto textAt = [&](size_t i) { return i < dbTexts.size() ? strip(dbTexts[i]->getText()) : std::string(); };
+		auto listVisible = [&](size_t i) { return i < dbLists.size() && dbLists[i]->getVisible(); };
+		auto rowsOf = [&](size_t i) -> size_t { return i < dbLists.size() ? dbLists[i]->getTexts() : 0; };
+		auto cell = [&](size_t i, size_t row, size_t col) { return dbLists[i]->getCellText(row, col); };
+
+		resp["shown"] = (db != nullptr);
+		resp["onTop"] = (db != nullptr && db == dbTop);
+		resp["displayOnly"] = CoopDelta::debriefIsDisplayOnly(db);
+		Json::Value widgets(Json::objectValue);
+		widgets["texts"] = (int)dbTexts.size();
+		widgets["lists"] = (int)dbLists.size();
+		widgets["buttons"] = (int)dbButtons.size();
+		resp["widgets"] = widgets;
+		resp["page"] = listVisible(0) ? 0 : listVisible(3) ? 1 : listVisible(4) ? 2 : -1;
+		resp["sellVisible"] = dbButtons.size() > 2 && dbButtons[2]->getVisible();
+		resp["transferVisible"] = dbButtons.size() > 3 && dbButtons[3]->getVisible();
+		resp["title"] = textAt(0);
+		resp["recoveryHeader"] = textAt(4);
+		resp["rating"] = textAt(5);
+		Json::Value rows(Json::arrayValue);
+		for (size_t li = 0; li <= 1; ++li)
+		{
+			for (size_t r = 0; r < rowsOf(li); ++r)
+			{
+				Json::Value row(Json::objectValue);
+				row["item"] = strip(cell(li, r, 0));
+				row["qty"] = num(cell(li, r, 1), false);
+				row["score"] = num(cell(li, r, 2), false);
+				row["recovery"] = (li == 1);
+				rows.append(row);
+			}
+		}
+		resp["rows"] = rows;
+		resp["total"] = rowsOf(2) > 0 ? Json::Value(num(cell(2, 0, 1), false)) : Json::Value();
+		Json::Value soldiers(Json::arrayValue);
+		for (size_t r = 0; r < rowsOf(3); ++r)
+		{
+			Json::Value sol(Json::objectValue);
+			sol["name"] = strip(cell(3, r, 0));
+			Json::Value deltas(Json::arrayValue);
+			for (size_t c = 1; c <= 11; ++c)
+			{
+				deltas.append(num(cell(3, r, c), true));
+			}
+			sol["deltas"] = deltas;
+			soldiers.append(sol);
+		}
+		resp["soldiers"] = soldiers;
+		Json::Value recovered(Json::arrayValue);
+		for (size_t r = 0; r < rowsOf(4); ++r)
+		{
+			Json::Value it(Json::objectValue);
+			it["item"] = strip(cell(4, r, 0));
+			it["qty"] = num(cell(4, r, 1), false);
+			recovered.append(it);
+		}
+		resp["recovered"] = recovered;
+		resp["parseErrors"] = parseErrors;
 		resp["ok"] = true;
 	}
 	else if (cmd == "defer_intents")

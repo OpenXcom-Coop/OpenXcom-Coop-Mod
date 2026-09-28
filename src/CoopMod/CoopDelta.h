@@ -292,6 +292,9 @@ void battleEndNoteSend(const Json::Value& ev);
 /// lastSeqApplied and hashVerify (lastHashVerify()).
 void battleEndNoteTeardown();
 
+/// TEST INTROSPECTION + S-B1.2's finish (AMENDMENT P7-2 R2): true iff @a state is the display-only DebriefingState (identity compare, never dereferenced).
+bool debriefIsDisplayOnly(const void* state);
+
 } // namespace CoopDelta
 
 // ----- W2-P2 S-C, commit S-C.2: host combat cues (spec (b)11, (b)14) -----

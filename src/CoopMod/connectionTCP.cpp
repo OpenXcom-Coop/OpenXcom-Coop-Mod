@@ -2623,6 +2623,9 @@ static void resetProbes()
 static std::mutex g_battleEndMutex;
 static Json::Value g_battleEnd;              // null until first use, then battleEndZeros()
 static std::uint32_t g_battleEndSendSeq = 0; // host: this battle's stamped `battle_end` seq (0 = none yet)
+// W2-P7 S-B1.1 (AMENDMENT P7-2 R2): the display-only DebriefingState token. Set
+// only by S-B1.2's client fill; compared by identity, never dereferenced.
+static const void* g_debriefDisplayOnlyState = nullptr;
 
 static Json::Value battleEndZeros()
 {
@@ -2654,6 +2657,14 @@ static Json::Value battleEndZeros()
 	r["queueDepthAtTeardown"] = 0u;
 	r["lastSeqApplied"] = 0u;
 	r["hashVerify"] = Json::Value(); // null until the teardown snapshot
+	// W2-P7 S-B1.1 (AMENDMENT P7-2 R1): the debrief-result half (the host's payload, the client's store).
+	r["resultSent"] = 0;          // host: 1 once sent
+	r["resultReceived"] = 0;      // client: 1 once stored
+	r["resultBytes"] = 0;         // host: bytes sent; client: bytes stored
+	r["resultReceivedMs"] = 0u;   // client: SDL_GetTicks() at the store
+	r["resultWaitPasses"] = 0;    // client: consumer passes with the latch armed and no payload
+	r["resultDropped"] = 0;       // either machine: debrief-result messages refused
+	r["debriefDisplayOnly"] = 0;  // client: 1 once the display-only fill ran
 	return r;
 }
 
@@ -2682,6 +2693,7 @@ void battleEndRecordReset()
 	std::lock_guard<std::mutex> lock(g_battleEndMutex);
 	g_battleEnd = battleEndZeros();
 	g_battleEndSendSeq = 0;
+	g_debriefDisplayOnlyState = nullptr;
 }
 
 void battleEndNoteSend(const Json::Value& ev)
@@ -2722,6 +2734,12 @@ void battleEndNoteTeardown()
 	r["queueDepthAtTeardown"] = queueDepth;
 	r["lastSeqApplied"] = lastApplied;
 	r["hashVerify"] = hashVerify;
+}
+
+bool debriefIsDisplayOnly(const void* state)
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	return state != nullptr && state == g_debriefDisplayOnlyState;
 }
 
 } // namespace CoopDelta
