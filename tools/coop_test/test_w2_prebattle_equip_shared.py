@@ -33,14 +33,14 @@ Keys: as test_w2_prebattle_equip_tools (the harness options.cfg, else Options.cp
 defaults; the live values on both machines must match, F3507); the personal save is
 the plain keyInvSavePersonalEquipment (F3505), the global save vanilla's Ctrl+1
 (InventoryState::handle; index 0).
-  EQ21  the client's screen on C: (a) keyInvSavePersonalEquipment; (b) Ctrl+1. GREEN
+  EQ16s  the client's screen on C: (a) keyInvSavePersonalEquipment; (b) Ctrl+1. GREEN
         (Q9 a, SHARED): (a) the HOST's C personal layout (equip_layouts) = L and the
         client's = the host's, one `inv_bulk` sent (client coopIntentsSent) and
         received (host intentsReceivedLog) for it, none denied; (b) the HOST's global
         layout 0 = L and the client's = the host's, one `inv_bulk` for it, none
         denied; C's items unchanged on both. RED: each save lands in the client's world
         only (the client's layout = L, the host's unchanged, 0 `inv_bulk` sent).
-  RED (commit S-C.1b): EQ21 fails on its RED cell.
+  RED (commit S-C.1b): EQ16s fails on its RED cell.
 
 Common asserts: hash_now {full:true} every bucket EQUAL after the queues drain;
 desyncSeen false on both; the client's turnMirrorFired 0; coopClientBStatePushes 0 on
@@ -220,7 +220,7 @@ def spine_open_screens(host, client, ctx):
         raise AssertionError(f"spine: the pre-battle screens are not both up and announced ({rec})")
 
 
-# ===================== EQ21 =====================
+# ===================== EQ16s =====================
 
 
 def save_leg(host, client, ctx, ev, name, press, read, sig_l):
@@ -246,37 +246,37 @@ def save_leg(host, client, ctx, ev, name, press, read, sig_l):
     fails = []
     if h != sig_l:
         red = " - RED: the save landed in the client's world only" if h == b["host"] and c == sig_l else ""
-        fails.append(f"EQ21 {name}: the host's layout {b['host']} -> {h} (want L {sig_l}: the host saves it into the "
+        fails.append(f"EQ16s {name}: the host's layout {b['host']} -> {h} (want L {sig_l}: the host saves it into the "
                      f"shared world, Q9 a){red} (the client's {b['client']} -> {c}, inv_bulk sent {sent})")
     if c != sig_l:
-        fails.append(f"EQ21 {name}: FIXTURE - the client's layout {b['client']} -> {c} (want L {sig_l}: vanilla's local "
+        fails.append(f"EQ16s {name}: FIXTURE - the client's layout {b['client']} -> {c} (want L {sig_l}: vanilla's local "
                      f"write runs on the client too)")
     if sent != 1:
-        fails.append(f"EQ21 {name}: client coopIntentsSent.inv_bulk +{sent} (want +1: one inv_bulk save order)")
+        fails.append(f"EQ16s {name}: client coopIntentsSent.inv_bulk +{sent} (want +1: one inv_bulk save order)")
     if len(new_log) != 1:
-        fails.append(f"EQ21 {name}: the host received {len(new_log)} inv_bulk ({new_log}; want 1)")
+        fails.append(f"EQ16s {name}: the host received {len(new_log)} inv_bulk ({new_log}; want 1)")
     if rec["hostInvBulkDenied"][1] != rec["hostInvBulkDenied"][0]:
-        fails.append(f"EQ21 {name}: the host denied inv_bulk {rec['hostInvBulkDenied']} (want none)")
+        fails.append(f"EQ16s {name}: the host denied inv_bulk {rec['hostInvBulkDenied']} (want none)")
     if rec["inFlight"] is not None:
-        fails.append(f"EQ21 {name}: the client still has an order in flight {rec['inFlight']}")
+        fails.append(f"EQ16s {name}: the client still has an order in flight {rec['inFlight']}")
     return fails
 
 
 def eq21_shared_saves(host, client, ctx):
     c = ctx.get("C")
-    fails = pre_screen_fails(host, client, "EQ21", host_too=True)
+    fails = pre_screen_fails(host, client, "EQ16s", host_too=True)
     s = ctx.get("staged") or {}
     if not s.get("sigL") or s.get("error") or not ctx.get("keys") or not ctx.get("pile"):
-        fails.append(f"EQ21: the spine did not complete (staged {s.get('error')}, pile {ctx.get('pile')})")
+        fails.append(f"EQ16s: the spine did not complete (staged {s.get('error')}, pile {ctx.get('pile')})")
     nav = []
     if not fails:
         if not goto_unit(client, c, [c], nav):
-            fails.append(f"EQ21: the client's screen never showed C {c} ({nav})")
+            fails.append(f"EQ16s: the client's screen never showed C {c} ({nav})")
         elif inv_view(client).get("selectedItem") != -1:
-            fails.append(f"EQ21: the client's cursor holds {inv_view(client).get('selectedItem')} (want empty)")
+            fails.append(f"EQ16s: the client's cursor holds {inv_view(client).get('selectedItem')} (want empty)")
     if fails:
-        evidence("EQ21", {"nav": nav, "C": c})
-        finish([f.replace("EQ21: ", "EQ21: precondition absent - ") for f in fails])
+        evidence("EQ16s", {"nav": nav, "C": c})
+        finish([f.replace("EQ16s: ", "EQ16s: precondition absent - ") for f in fails])
     sig_l = s["sigL"]
     ih0, ic0 = items_by_id(host), items_by_id(client)
     ev = {"C": c, "H": ctx.get("H"), "L": sig_l, "baseline": s["baseline"]}
@@ -302,17 +302,17 @@ def eq21_shared_saves(host, client, ctx):
                "cDumpEqual": unit_dump(ih, c) == unit_dump(ic, c),
                "views": {"host": view_brief(inv_view(host)), "client": view_brief(inv_view(client))},
                "turn": [turn(host), turn(client)]})
-    evidence("EQ21", ev)
+    evidence("EQ16s", ev)
     ci = ev["cItems"]
     if not (ci["hostPost"] == ci["hostPre"] == ci["clientPost"] == ci["clientPre"] == sig_l) or not ev["cDumpEqual"]:
-        fails.append(f"EQ21: C's items changed or differ ({ci}, dumps equal {ev['cDumpEqual']}; want L unchanged on "
+        fails.append(f"EQ16s: C's items changed or differ ({ci}, dumps equal {ev['cDumpEqual']}; want L unchanged on "
                      f"both: a save moves no item)")
     for side, v in ev["views"].items():
         if not (v.get("open") and v.get("top") and v.get("preBattle")):
-            fails.append(f"EQ21: the {side}'s pre-battle screen is not on top ({v})")
+            fails.append(f"EQ16s: the {side}'s pre-battle screen is not on top ({v})")
     if ev["turn"] != [0, 0]:
-        fails.append(f"EQ21: turn host/client {ev['turn']} (want 0 on both)")
-    fails += tail_fails(host, client, ctx, "EQ21")
+        fails.append(f"EQ16s: turn host/client {ev['turn']} (want 0 on both)")
+    fails += tail_fails(host, client, ctx, "EQ16s")
     finish(fails)
 
 
@@ -321,7 +321,7 @@ STEPS = ((None, spine_both_briefings),
          (None, spine_units),
          (None, spine_stage),
          (None, spine_open_screens),
-         ("EQ21", eq21_shared_saves))
+         ("EQ16s", eq21_shared_saves))
 ROWS = [n for n, _ in STEPS if n]
 
 
