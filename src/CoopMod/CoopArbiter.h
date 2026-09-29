@@ -37,6 +37,7 @@ class SavedBattleGame;
 class RuleSkill; // W2-P4 S-E2: coopInterceptSkillUse()
 struct BattleAction;
 class Inventory;        // W2-P8 S-A.2: the inventory execution-point guards
+class BattlescapeButton; // W2-P8b S-A.2: the pre-battle OK button (the ready toggle)
 class BattleItem;
 class RuleInventory;
 struct BattleActionCost;
@@ -683,6 +684,25 @@ void coopTestHoldBattleReadyArm(bool on);
 bool coopTestHoldBattleReadyArmed();
 bool coopTestHoldBattleReadyHeld();
 bool coopTestHoldBattleReadyTake(Json::Value& out);
+
+/// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 5; owner D206 c, Q1 a):
+/// the ONE guarded statement in InventoryState::btnOkClick, right after its cursor refusal. TRUE (the caller returns)
+/// only on the pre-battle equip screen of a co-op battle whose equip phase is open (`!tu && parent && coopEquipOpen()`):
+/// OK is then a READY TOGGLE - this seat's ready flag flips (host: the local flag; client: `bt_equip_ready`, the flag
+/// set locally at once), the OK graphic shows it with its own pressed surface, and nothing closes. The barrier's
+/// one-shot pass-through makes it return false once (vanilla's close and startFirstTurn() run). ESC and the inventory
+/// key are OK too (F2755). False everywhere else (single player, mid-battle inventories, the base screens).
+bool coopEquipReadyPress(BattlescapeButton* btnOk, bool tu, bool parent);
+
+/// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 5, Q6): the ONE guarded statement in InventoryState::init() - under
+/// the same predicate as coopEquipReadyPress(), the OK graphic shows this seat's ready flag (pressed in when ready).
+void coopEquipApplyOkLook(BattlescapeButton* btnOk, bool tu, bool parent);
+
+/// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 9, Q13 a): the equip phase's pump step, ONE unconditional call at
+/// the RB-D5 pump point right after CoopHandshake::selectOwnUnitAtEntry(). In order: the host's screen record, the
+/// equip-open announce, the barrier; the client's entry, its open and end steps; the D216 waiting line (both). Inert
+/// in single player and in every battle without an equip phase.
+void coopEquipPump(Game* game);
 
 /// W2-P8 S-C2.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.2, C2-4; owner D166 = B,
 /// D187, D188): the covered-battle driver, called by Game::run() once per frame right after the top state's

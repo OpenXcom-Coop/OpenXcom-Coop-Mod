@@ -465,6 +465,7 @@ void InventoryState::init()
 	_txtName->setText(unit->getName(_game->getLanguage()));
 
 	_btnLinks->setVisible(Options::oxceLinks);
+	coopEquipApplyOkLook(_btnOk, _tu, _parent != 0); // W2-P8b
 
 	bool resetGroundOffset = _tu;
 	if (unit->isSummonedPlayerUnit())
@@ -1149,6 +1150,7 @@ void InventoryState::btnOkClick(Action *)
 {
 	if (_inv->getSelectedItem() != 0)
 		return;
+	if (coopEquipReadyPress(_btnOk, _tu, _parent != 0)) return; // W2-P8b
 	_game->popState();
 	if (!_tu)
 	{

@@ -120,6 +120,8 @@ en-GB:
   # SavedBattleGame::startFirstTurn()) - an entry notice explaining an
   # absence (the client has not joined yet), not a refused press.
   STR_COOP_WAITING_FOR_JOIN: "Waiting for the other player to join the battle"
+  # coop (W2-P8b, owner D216): shown on the pre-battle equip screen while you are ready and {0} still equips.
+  STR_COOP_WAITING_FOR_EQUIP: "Waiting for {0} to finish equipping"
   # coop (W1-P5, WAVE1-RUNBOOK.md ruling D8 = WV-D14): the client HARD GATES.
   # Four battlescape controls that were pure vanilla in the rewrite plus the
   # quick-load hotkey. One key per control on purpose - ADDENDUM 2026-08-31

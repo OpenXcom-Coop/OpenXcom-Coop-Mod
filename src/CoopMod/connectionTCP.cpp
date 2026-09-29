@@ -63,6 +63,8 @@
 #include "../Battlescape/MedikitState.h" // W2-P4 S-D.2: the ordering client's open medi-kit screen (D148)
 #include "../Battlescape/Inventory.h" // W2-P8 S-A.2: the inventory guards, the host's move checks, the client's answer
 #include "../Battlescape/InventoryState.h" // W2-P8 S-A.2: the ordering client's open inventory screen
+#include "../Battlescape/WarningMessage.h" // W2-P8b S-A.2: the pre-battle screen's message line (D216)
+#include "../Interface/BattlescapeButton.h" // W2-P8b S-A.2: the pre-battle OK button's pressed look (D206 c)
 #include "../Battlescape/ScannerState.h" // W2-P4 S-D.2: the scanner's screen at the client's own end
 #include "../Battlescape/SkillMenuState.h" // W2-P4 S-E2.2: chooseWeaponForSkill() + the skill continuation (ActionMenuState)
 #include "../Battlescape/PrimeGrenadeState.h" // W2-P8 S-C2.2: the host screen check closes a prime screen
@@ -4300,7 +4302,7 @@ bool attach(SavedBattleGame* battle, Json::Value& env)
 	return true;
 }
 
-void flushSync()
+void flushSync(const Json::Value* equip)
 {
 	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
 		return;
@@ -4315,7 +4317,9 @@ void flushSync()
 		std::lock_guard<std::mutex> lock(g_snapMutex);
 		if (!g_deltaArmed.load() || battle != g_snapBattle)
 			return;
-		if (!computeLocked(battle, nullptr, /*commit=*/false))
+		// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 steps 4-6, F2747): an equip signal is FORCED - it goes out with
+		// an empty delta too.
+		if (!equip && !computeLocked(battle, nullptr, /*commit=*/false))
 			return; // nothing changed since the last envelope: no `sync`
 	}
 	// Spec (b)9: a context-less chain ended with state the client has not got
@@ -4324,6 +4328,8 @@ void flushSync()
 	// at the choke, `h` the 8 structured buckets + saveBlob ((b)10; W2-P2 S-H,
 	// D138, Q-H3 = (a): a `sync` ends a chain like a bt_action_end does).
 	Json::Value ev = CoopWire::makeEv(0u, 0u, "sync");
+	if (equip)
+		ev["payload"]["equip"] = *equip; // W2-P8b S-A.2 (Q2 (a)): the equip phase's open / ready / end signal
 	ev["h"] = coopBuildActionEndHash(battle);
 	g_deltaSyncEvsEmitted.fetch_add(1);
 	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
@@ -5145,6 +5151,12 @@ void BattleAuthority::resetSeatFactions()
 //   abortPending   HOST: the aliens-crashed battle_end waits for phase Active (S-E, Q16)
 //   barrierDone    HOST: the barrier closed the phase (b6)
 //   okPressed      the flag the co-op layer last applied to the pre-battle OK button's look (Q8)
+//   openPending    CLIENT (S-A.2): an applied `sync` carried equip.open; the pump's open step has not run yet (b7)
+//   endPending     CLIENT (S-A.2): an applied `sync` carried equip.end; the pump's end step has not run yet (b7)
+//   readySyncPending HOST (S-A.2): a ready change after the announce whose forced `sync` could not go out yet (b5)
+//   endSyncPending HOST (S-A.2): the barrier ran but its forced equip.end `sync` could not go out yet (b6)
+// (S-A.2: a CLIENT stores payload.equip.ready for every seat but its own - its own flag is set locally at once,
+// so a late echo of an earlier press never overwrites a newer press.)
 // COUNTERS:
 //   entries        CLIENT: equip-entry pushes (b3)
 //   closes         CLIENT: pre-battle screens the equip end popped (b7)
@@ -5180,6 +5192,10 @@ struct CoopEquipState
 	std::atomic<bool> abortPending{false};
 	std::atomic<bool> barrierDone{false};
 	std::atomic<bool> okPressed{false};
+	std::atomic<bool> openPending{false};
+	std::atomic<bool> endPending{false};
+	std::atomic<bool> readySyncPending{false};
+	std::atomic<bool> endSyncPending{false};
 	std::atomic<int> entries{0};
 	std::atomic<int> closes{0};
 	std::atomic<int> heldUntilOpen{0};
@@ -5215,6 +5231,10 @@ static void coopEquipStateZeros()
 	g_equip.abortPending = false;
 	g_equip.barrierDone = false;
 	g_equip.okPressed = false;
+	g_equip.openPending = false;
+	g_equip.endPending = false;
+	g_equip.readySyncPending = false;
+	g_equip.endSyncPending = false;
 }
 
 // The counters' zeros (initBattleAuthority() only).
@@ -5245,6 +5265,132 @@ bool coopEquipLocalReady()
 {
 	const int seat = coopBattleAuthority().localSeat.load();
 	return seat >= 0 && seat < 4 && g_equip.ready[seat].load();
+}
+
+// ----- W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 sections 3 and 4): the equip
+// phase's small shared helpers. The steps that use them (the offer, the ready toggle, the barrier, the client's
+// entry / open / end, the D216 line) live in coopEquipPump() and its neighbours, below the handshake.
+
+// The per-seat ready flags as the wire carries them (offer `equip.ready`, `payload.equip.ready`).
+static Json::Value coopEquipReadyJson()
+{
+	Json::Value a(Json::arrayValue);
+	for (int i = 0; i < 4; ++i)
+		a.append(g_equip.ready[i].load());
+	return a;
+}
+
+// b6 / section 3: seat s COUNTS when it is mapped and commands >= 1 unit isSelectable(FACTION_PLAYER, false, true)
+// (a seat that commands none counts as ready, F2553). Both machines derive it from the same units and seat tags.
+static void coopEquipComputeCounted(SavedBattleGame* save)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	for (int s = 0; s < 4; ++s)
+	{
+		bool counted = false;
+		if (save && a.seatMapped(s))
+		{
+			for (BattleUnit* u : *save->getUnits())
+			{
+				if (u && u->isSelectable(FACTION_PLAYER, false, true) && a.commandsUnit(u, s))
+				{
+					counted = true;
+					break;
+				}
+			}
+		}
+		g_equip.counted[s] = counted;
+	}
+}
+
+// F3117: a seat is present unless it is the partner and the partner left (two seats, SPEC 16's peerAbsent).
+static bool coopEquipSeatPresent(int seat)
+{
+	return seat == coopBattleAuthority().localSeat.load() || !coopBattleAuthority().peerAbsent.load();
+}
+
+// b6: every counted seat is ready and present.
+static bool coopEquipAllReady()
+{
+	for (int s = 0; s < 4; ++s)
+	{
+		if (g_equip.counted[s].load() && (!g_equip.ready[s].load() || !coopEquipSeatPresent(s)))
+			return false;
+	}
+	return true;
+}
+
+// Section 3 (D216 c): THIS seat is ready and another counted seat is not - the lowest such seat, else -1.
+static int coopEquipWaitingOnSeat()
+{
+	const int me = coopBattleAuthority().localSeat.load();
+	if (me < 0 || me >= 4 || !g_equip.ready[me].load())
+		return -1;
+	for (int s = 0; s < 4; ++s)
+	{
+		if (s != me && g_equip.counted[s].load() && !g_equip.ready[s].load())
+			return s;
+	}
+	return -1;
+}
+
+// HOST (b1): the fresh offer's additive `equip` object - its presence means "the equip phase is open" - and the
+// host's own phase Open. `pile` = the craft pile: every original-faction player unit's tile at turn 0 (F2749), read
+// off the first one that is not out and has an inventory; omitted when there is none.
+static Json::Value coopEquipOpenForOffer(SavedBattleGame* battle)
+{
+	Json::Value equip(Json::objectValue);
+	g_equip.phase = (int)CoopEquipPhase::Open;
+	for (BattleUnit* u : *battle->getUnits())
+	{
+		if (u && u->getOriginalFaction() == FACTION_PLAYER && !u->isOut() && u->hasInventory() && u->getTile())
+		{
+			const Position p = u->getTile()->getPosition();
+			Json::Value pile(Json::arrayValue);
+			pile.append(p.x);
+			pile.append(p.y);
+			pile.append(p.z);
+			equip["pile"] = pile;
+			g_equip.pileX = p.x;
+			g_equip.pileY = p.y;
+			g_equip.pileZ = p.z;
+			g_equip.havePile = true;
+			break;
+		}
+	}
+	equip["ready"] = coopEquipReadyJson();
+	return equip;
+}
+
+// CLIENT (b7): an applied `sync`'s payload.equip. On the apply path, so it RECORDS only - the pump's open and end
+// steps act on it. `ready` is stored for every seat but this one (its own flag is set locally at once).
+static void coopEquipRecordSync(const Json::Value& equip)
+{
+	if (!equip.isObject() || coopBattleAuthority().hostSim)
+		return;
+	const int me = coopBattleAuthority().localSeat.load();
+	const Json::Value& ready = equip["ready"];
+	if (ready.isArray())
+	{
+		for (Json::ArrayIndex i = 0; i < ready.size() && i < 4; ++i)
+		{
+			if ((int)i != me)
+				g_equip.ready[i] = ready[i].asBool();
+		}
+	}
+	if (equip.get("open", false).asBool())
+	{
+		g_equip.openAnnounced = true;
+		g_equip.openPending = true;
+	}
+	if (equip.get("end", false).asBool())
+	{
+		g_equip.endPending = true;
+		g_equip.endSyncs.fetch_add(1);
+	}
+	Log(LOG_INFO) << "[coop-equip] client: applied sync carries equip (open " << equip.get("open", false).asBool()
+		<< ", end " << equip.get("end", false).asBool() << ", ready " << (ready.isArray() ? (int)ready.size() : 0)
+		<< " seats)";
 }
 
 namespace CoopDelta
@@ -6173,7 +6319,7 @@ bool coopSideIsMine(const SavedBattleGame* s)
 
 bool coopMaySelectUnit(const BattleUnit* u)
 {
-	if (!isCoopBattle())
+	if (!isCoopBattle() && !coopEquipOpen()) // W2-P8b S-A.2 (F3110, V3): the equip screen's PREV/NEXT in phase Handshake too
 		return true;
 	// W1-P13d (WAVE1-RUNBOOK.md SPEC 12, REV E.60 / owner ruling D87 = (b)):
 	// a unit this machine's seat COMMANDS is selectable exactly as before -
@@ -9752,8 +9898,11 @@ void onIntent(const Json::Value& intent)
 	}
 
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
-	BattlescapeGame* bg = save ? save->getBattleGame() : nullptr;
-	if (!save || !bg)
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 8, F2744, F3108): the host can be Active while it still reads its
+	// briefing (no BattlescapeState: getBattleGame() would dereference a null _battleState) - the read is null-safe,
+	// and in the pre-battle equip phase a null `bg` goes on to the rename branch and the equip admission below.
+	BattlescapeGame* bg = (save && connectionTCP::isBattlescapeStateLive(save->getBattleState())) ? save->getBattleGame() : nullptr;
+	if (!save || (!bg && !coopEquipOpen()))
 	{
 		Log(LOG_WARNING) << "[coop-arbiter] bt_intent with no live battle - dropped";
 		return;
@@ -9801,6 +9950,41 @@ void onIntent(const Json::Value& intent)
 		return;
 	}
 
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 8; Q3 (a), Q5 (a); owner D205 a): the pre-battle equip phase's
+	// admission. Open: a placement (`inv_move`, S-C's `inv_bulk`) passes on to its executor once the host's own equip
+	// screen is open and its BattlescapeState is live - with no turn_over and no baton term (`equipPre`; nothing is
+	// busy at turn 0, so the busy term stays) - and is denied `busy` before that (the client holds it and resends it
+	// when the equip-open `sync` arrives); every other kind is denied `busy`. Closed: a placement the client sent
+	// from its pre-battle screen (top-level `pre`) that reaches the host after turn 1 started is denied SILENTLY
+	// (`invalid_target`), the item stays where it was.
+	bool equipPre = false;
+	const bool placement = kind == "inv_move" || kind == "inv_bulk";
+	if (coopEquipOpen())
+	{
+		if (placement && bg && g_equip.hostOpen.load())
+		{
+			equipPre = true;
+		}
+		else
+		{
+			if (placement)
+				g_equip.heldUntilOpen.fetch_add(1);
+			Log(LOG_INFO) << "[coop-equip] " << kind << " iseq " << iseq << " (seat " << seat << ", actor " << actorId
+				<< ") denied busy: " << (placement ? "the host's equip screen is not open yet (held, Q3 a)"
+					: "only placements run in the pre-battle equip phase");
+			denyIntent(iseq, "busy", seat, kind);
+			return;
+		}
+	}
+	else if (placement && intent.get("pre", false).asBool())
+	{
+		g_equip.lateDenied.fetch_add(1);
+		Log(LOG_INFO) << "[coop-equip] " << kind << " iseq " << iseq << " (seat " << seat << ", actor " << actorId
+			<< ") from the pre-battle screen arrived after the equip phase closed - denied silently (Q5 a)";
+		denyIntent(iseq, "invalid_target", seat, kind);
+		return;
+	}
+
 	// W2-P4 S-E2b.2 (F1291, the R10 ruling): that actor's order with no `skill`
 	// or a different skill / type / item clears the skill grant.
 	coopNoteOrderForSkillGrant(actor, kind, intent, save);
@@ -9810,7 +9994,7 @@ void onIntent(const Json::Value& intent)
 	// HOST's own seat faction, which in gm2 (the second player commands the
 	// hostile side) denied every order the second player gave on its own side.
 	// Classic/SHARED co-op is unchanged: every seat maps to FACTION_PLAYER there.
-	if ((int)save->getSide() != coopBattleAuthority().factionOf(seat))
+	if (!equipPre && (int)save->getSide() != coopBattleAuthority().factionOf(seat))
 	{
 		denyIntent(iseq, "turn_over", seat, kind);
 		return;
@@ -9825,7 +10009,7 @@ void onIntent(const Json::Value& intent)
 	// own client-side check shows. On the host activeSeat is the baton itself
 	// (emitTally() writes g_batonSeat into it on every emission). Parallel mode
 	// and single player are unchanged.
-	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional
+	if (!equipPre && coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional
 		&& coopBattleAuthority().activeSeat.load() != seat)
 	{
 		denyIntent(iseq, "not_your_go", seat, kind);
@@ -11577,6 +11761,10 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	// from a _currentAction with skillRules - a skill follow-up.
 	if (kindStr != "skill" && coopIsCombatKind(kindStr) && !combat->skill.empty())
 		intent["skill"] = combat->skill;
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 8, Q5 (a), b12): a placement made on the pre-battle equip screen
+	// says so (additive top-level `pre`), so the host can deny it silently when it arrives after turn 1 started.
+	if ((kindStr == "inv_move" || kindStr == "inv_bulk") && coopEquipOpen())
+		intent["pre"] = true;
 
 	CoopEmit::sendBattle(intent);
 
@@ -15501,6 +15689,9 @@ void onReadyReceived(const Json::Value& msg)
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
 	if (!save)
 		return;
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 8, F2745): END TURN is ignored while the pre-battle equip phase is
+	// open - turn 1 has not started, and the tally's own reads need a live BattlescapeState the host may not have yet.
+	if (coopEquipOpen()) { g_equip.endTurnIgnored.fetch_add(1); Log(LOG_INFO) << "[coop-equip] bt_end_turn_ready ignored: the pre-battle equip phase is open"; return; }
 	const int seat = msg.get("seat", -1).asInt();
 	const int turn = msg.get("turn", -1).asInt();
 	const bool ready = msg.get("ready", false).asBool();
@@ -15910,6 +16101,10 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		CoopDelta::noteSyncApplied();
 		CoopDelta::noteCue(kind, ev.get("seq", 0u).asUInt(), ev.get("actionId", 0u).asUInt(),
 			ev["payload"]); // W2-P2 S-C.2: `sync` is one of the 16 cue kinds ((b)11/(b)16)
+		// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 7): the pre-battle equip phase's open / ready / end signal -
+		// RECORDED only (the apply path); the pump's equip steps act on it.
+		if (ev["payload"].isMember("equip"))
+			coopEquipRecordSync(ev["payload"]["equip"]);
 		return;
 	}
 
@@ -20041,6 +20236,9 @@ static void coopClientInventoryForceClose(SavedBattleGame* save)
 		reason = "battle_end";
 	if (!reason)
 		return;
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 2, F2757): never the pre-battle screen - its OK is the ready toggle; it
+	// closes only through the equip end (b7), the battle-end teardown or the leave teardown.
+	if (CoopDelta::equipIsScreen(st)) { g_equip.forceCloseSkips.fetch_add(1); return; }
 	const int unitId = unit ? unit->getId() : -1;
 	if (st != states.back())
 	{
@@ -20154,7 +20352,7 @@ static void coopHostScreenCheck()
 			reason = "not_commanded";
 		else if (!coopBattleAuthority().mySideActive(save))
 			reason = "side";
-		if (reason)
+		if (reason && !CoopDelta::equipIsScreen(st)) // W2-P8b S-A.2 (P8b-1 section 2, F2930): never the pre-battle screen
 		{
 			const int unitId = unit ? unit->getId() : -1;
 			const bool cursorHeld = inv->getSelectedItem() != nullptr;
@@ -21092,6 +21290,11 @@ std::string inventoryLineText(const char* reason)
 		return std::string();
 	if (std::strcmp(reason, "busy") == 0)
 	{
+		// W2-P8b S-A.2 (P8b-2a ruling SA-1, Q3 (a)): while this CLIENT's equip phase is open and the host's equip
+		// screen is not open yet (the host still reads its briefing), a held placement says so with SS2.6's own
+		// busy row; once the host's equip is open, the seat-attributed text below applies unchanged.
+		if (coopEquipOpen() && !coopBattleAuthority().hostSim && !g_equip.openAnnounced.load())
+			return bs->getGame()->getLanguage()->getString("STR_COOP_DENY_BUSY");
 		std::string text = waitBannerText(bs);
 		if (text.empty())
 			text = bs->getGame()->getLanguage()->getString("STR_COOP_DENY_BUSY");
@@ -22108,6 +22311,9 @@ struct PendingClient
 	// send resume_ack instead of the normal fresh-entry infoOnly
 	// BriefingState.
 	bool resumed = false;
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 steps 1-2): the offer's `equip` object (null = none), stashed for the
+	// same reason seatMap is - onBlobChunkAppended()'s initBattleAuthority() clears the equip state a second time.
+	Json::Value equip;
 };
 static PendingClient g_pendingClient;
 
@@ -22367,6 +22573,32 @@ bool freezePreBattleEquip(Game* game)
 	if (!game || coopBattleAuthority().phase == CoopBattlePhase::Idle)
 		return false;
 
+	// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 4; owner D174 a):
+	// a fresh co-op battle's equip phase is open (the offer went out at PREPARE, turn 0) - the host EQUIPS: select its
+	// first own soldier with an inventory (the generator's first soldier may be the partner's, F2771) and let vanilla
+	// push the pre-battle InventoryState; turn 1 starts at the barrier (coopEquipPump), not here. Without an equip
+	// phase (the next-stage briefing, D158) the freeze below is unchanged.
+	if (coopEquipOpen())
+	{
+		SavedBattleGame* battle = game->getSavedGame() ? game->getSavedGame()->getSavedBattle() : nullptr;
+		if (battle)
+		{
+			for (BattleUnit* u : *battle->getUnits())
+			{
+				if (u->isSelectable(FACTION_PLAYER, false, true) && coopMaySelectUnit(u))
+				{
+					battle->setSelectedUnit(u);
+					break;
+				}
+			}
+		}
+		g_equip.hostOpen = true;
+		Log(LOG_INFO) << "[coop-equip] host: pre-battle equip OPEN - the host equips its own soldiers (selected "
+			<< (battle && battle->getSelectedUnit() ? battle->getSelectedUnit()->getId() : -1) << "), turn 1 waits "
+			"for every seat's ready (D206 c)";
+		return false;
+	}
+
 	Log(LOG_INFO) << "[coop-handshake] W1-P4: pre-battle equip FROZEN (WV-D34) - "
 		"InventoryState push SKIPPED; BriefingState::btnOkClick calls "
 		"SavedBattleGame::startFirstTurn() itself instead (WV-D43), so the host does "
@@ -22393,6 +22625,10 @@ void selectOwnUnitAtEntry(Game* game)
 	// single unconditional call at the RB-D5 pump point and is completely inert
 	// in SP and outside a co-op battle.
 	if (!game || !isCoopBattle())
+		return;
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 9, F3127): not while the pre-battle equip phase is open - the
+	// entry selection runs after the equip end, i.e. after the host's startFirstTurn() re-selected the ramp's unit.
+	if (coopEquipOpen())
 		return;
 
 	const std::uint32_t battleId = coopBattleAuthority().battleId.load();
@@ -22551,7 +22787,13 @@ void prepareBattleOffer(Game* game, int gamemode)
 
 	Log(LOG_INFO) << "[coop-handshake] WV-D56: battle offer PREPARED (battleId=" << battleId
 		<< ", gamemode=" << gamemode << ", seats=" << seats.size()
-		<< ") - snapshot+send deferred to emitPreparedOffer() (after startFirstTurn())";
+		<< ") - snapshot+send: emitPreparedOffer() now (W2-P8b, turn 0)";
+
+	// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 1; owner D210 b):
+	// the EMIT runs HERE, at turn 0, before the host's briefing is pushed - both players read their briefings at
+	// once and both equip before turn 1 (the offer's `equip` object opens the phase). Phase is Handshake here, so
+	// emitPreparedOffer()'s own guards hold; BriefingState's own call stays a no-op on this path.
+	emitPreparedOffer(game);
 }
 
 void offerBattle(Game* game, int gamemode)
@@ -22692,13 +22934,17 @@ void emitPreparedOffer(Game* game)
 	missionLabel["missionType"] = battle->getMissionType(); // echo only (WR-10)
 	offer["missionLabel"] = missionLabel;
 
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 1, b12): additive `equip {pile, ready}` - the pre-battle equip
+	// phase is open (both players equip before turn 1); the host's own phase opens with it.
+	offer["equip"] = coopEquipOpenForOffer(battle);
+
 	CoopEmit::sendBattle(offer);
 
 	Log(LOG_INFO) << "[coop-handshake] battle_offer sent (battleId=" << g_pendingHost.battleId
 		<< ", gamemode=" << g_pendingHost.gamemode << ", blobBytes=" << blob.size()
 		<< ", turnMode=" << coopTurnModeName(mode)
 		<< ", saveBlob=" << g_pendingHost.saveBlobHex
-		<< ") [WV-D56: post-startFirstTurn snapshot]";
+		<< ") [W2-P8b: turn-0 snapshot, equip phase open]";
 }
 
 void offerRejoinBattle(Game* game)
@@ -23069,6 +23315,8 @@ void onOffer(Game* game, const Json::Value& offer)
 	// sets the key) - the presence-gated read matches turnMode's own D-26
 	// degrade discipline just above.
 	g_pendingClient.resumed = offer.get("resumed", false).asBool();
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 2): presence-gated - an offer without `equip` has no equip phase.
+	g_pendingClient.equip = offer.isMember("equip") ? offer["equip"] : Json::Value();
 
 	// Fresh accumulation buffer for THIS transfer - defensive against any
 	// stale leftover (resetPendingState() also clears this at the teardown
@@ -23284,6 +23532,30 @@ void onBlobChunkAppended(Game* game)
 	// does not run resetBattleAuthority()).
 	CoopSpeed::onClientActive();
 
+	// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 steps 2-3; owner D174 a,
+	// D210 b): an offer carrying `equip` opens this machine's pre-battle equip phase - the craft pile, the seats'
+	// ready flags; the equip entry itself is a pump step once the briefing has closed (coopEquipPump). The blob is
+	// at turn 0, which is correct: no turn mirror below (F2748).
+	const bool equipOffer = g_pendingClient.equip.isObject();
+	if (equipOffer)
+	{
+		const Json::Value& eq = g_pendingClient.equip;
+		g_equip.phase = (int)CoopEquipPhase::Open;
+		const Json::Value& pile = eq["pile"];
+		if (pile.isArray() && pile.size() == 3)
+		{
+			g_equip.pileX = pile[0u].asInt();
+			g_equip.pileY = pile[1u].asInt();
+			g_equip.pileZ = pile[2u].asInt();
+			g_equip.havePile = true;
+		}
+		const Json::Value& ready = eq["ready"];
+		for (Json::ArrayIndex i = 0; ready.isArray() && i < ready.size() && i < 4; ++i)
+			g_equip.ready[i] = ready[i].asBool();
+		Log(LOG_INFO) << "[coop-equip] client: the offer opens the pre-battle equip phase (pile "
+			<< (g_equip.havePile.load() ? "set" : "none") << ")";
+	}
+
 	// W1-P8 (SS2.W4 dual-set / WV-D31): allocate the HOSTILE-side reveal set,
 	// EMPTY, at the same lifecycle point the host does. Both machines therefore
 	// grow the SS2.8 `revealHostile` bucket at the same moment, so a joint sweep
@@ -23465,24 +23737,8 @@ void onBlobChunkAppended(Game* game)
 		"client BattlescapeState (infoOnly=true -> no spawnFromPrimedItems/tallyUnits/"
 		"NextTurnState/InventoryState on OK, cutscene+music suppressed)";
 
-	// W1-P4 (WV-D9 / WV-D34): the pre-battle equip freeze applies to BOTH
-	// machines, so BOTH players are told why they never got an equip screen. On
-	// the HOST the notice is raised where the InventoryState push is skipped
-	// (CoopHandshake::freezePreBattleEquip(), from BriefingState::btnOkClick);
-	// on the CLIENT there is no skip to hang it on - the entry briefing above is
-	// infoOnly, so btnOkClick returns at BriefingState.cpp:302 and never reaches
-	// that push - so the notice is raised here, at battle entry, and is the
-	// first thing on the _txtCoopWait strip when the player dismisses the
-	// briefing.
-	//
-	// DISPLAY ONLY, and placed BEFORE the battle_ready build on purpose: it sets
-	// a Text widget on the BattlescapeState pushed a few lines above and touches
-	// NO hashed state, so it cannot perturb the saveBlob this handshake is about
-	// to compute and compare. It also must not disturb the tail of the
-	// handshake: coopClientMirrorFirstTurnCounter() stays the LAST statement
-	// (RW-FIX-TURN's own sequencing constraint), which is why this sits here and
-	// not below.
-	CoopBattleUi::showEquipFrozen();
+	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 2, F2552, F3121): the W1-P4 client freeze notice is gone - a
+	// fresh co-op battle's client equips its own soldiers once its briefing closes (coopEquipPump's entry).
 
 	} // else (!g_pendingClient.resumed) - SPEC 16 (W1-P17) M3/M5
 
@@ -23514,7 +23770,9 @@ void onBlobChunkAppended(Game* game)
 	// RW-FIX-TURN: LAST statement of the client handshake, strictly after the
 	// battle_ready hashes are computed AND sent - see the function's own doc
 	// comment above for the sequencing constraint this placement satisfies.
-	coopClientMirrorFirstTurnCounter(battle);
+	// W2-P8b S-A.2 (F2748): skipped for an `equip` offer - its blob is at turn 0 by design, turn 1 arrives with the
+	// equip end's `sync`.
+	if (!equipOffer) coopClientMirrorFirstTurnCounter(battle);
 
 	Log(LOG_INFO) << "[coop-handshake] CLIENT phase Active (battleId=" << battleId
 		<< ", saveBlob=" << saveBlobHex << ") - BattlescapeState pushed, battle_ready sent";
@@ -23811,6 +24069,355 @@ void resetPendingState()
 }
 
 } // namespace CoopHandshake
+
+// ===== W2-P8b S-A.2: the pre-battle equip phase (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
+// sections 2-4; owner D174 a, D205 a, D206 c, D210 b, D216 c; ORCHESTRATOR RULINGS Q1, Q3-Q7, Q13 (a); P8b-1 RULINGS
+// Q15 (a); P8b-2a SA-1..SA-3). Both briefings show at once (the offer goes out at turn 0), each player equips its own
+// soldiers on vanilla's pre-battle InventoryState (the client's placements are orders the host performs), OK is a
+// READY TOGGLE, and turn 1 starts on the host - vanilla's own close and startFirstTurn() - once every seat that has
+// something to equip is ready; one forced `sync` carries it to the partner. The storage and its zeros are g_equip's
+// (above, beside initBattleAuthority()); everything here runs on the main thread (the pump, InventoryState's OK). =====
+
+// The Inventory surface of an InventoryState (its own surface list - no vanilla accessor).
+static Inventory* coopEquipInventoryOf(InventoryState* st)
+{
+	if (!st)
+		return nullptr;
+	for (Surface* s : st->getSurfaces())
+	{
+		if (Inventory* inv = dynamic_cast<Inventory*>(s))
+			return inv;
+	}
+	return nullptr;
+}
+
+// The pre-battle InventoryState this phase recorded, when it is the TOP state; else nullptr.
+static InventoryState* coopEquipTopScreen(Game* game)
+{
+	if (!game || game->getStates().empty() || !g_equip.screen.load())
+		return nullptr;
+	InventoryState* st = dynamic_cast<InventoryState*>(game->getStates().back());
+	return (st && CoopDelta::equipIsScreen(st)) ? st : nullptr;
+}
+
+// HOST: one FORCED `sync` carrying @a equip (F2747: it goes out with an empty delta too); true when it went out.
+static bool coopEquipSendSync(const Json::Value& equip)
+{
+	const std::uint32_t before = CoopEmit::lastSeqEmitted();
+	CoopDelta::flushSync(&equip);
+	return CoopEmit::lastSeqEmitted() != before;
+}
+
+// HOST (b5): a seat's ready flag changed - after the announce, one forced `sync` {ready} carries every seat's flag to
+// the partner (retried at the next pump pass when it cannot go out now). Before the announce, the announce carries it.
+static void coopEquipHostReadyChanged()
+{
+	if (!coopBattleAuthority().hostSim || !g_equip.openAnnounced.load())
+		return;
+	Json::Value equip(Json::objectValue);
+	equip["ready"] = coopEquipReadyJson();
+	if (coopEquipSendSync(equip))
+	{
+		g_equip.readySyncs.fetch_add(1);
+		g_equip.readySyncPending = false;
+	}
+	else
+	{
+		g_equip.readySyncPending = true;
+	}
+}
+
+bool coopEquipReadyPress(BattlescapeButton* btnOk, bool tu, bool parent)
+{
+	if (tu || !parent || !coopEquipOpen())
+		return false; // single player, a mid-battle inventory, a base screen, no equip phase: vanilla's OK
+	if (g_equip.passThrough.exchange(false))
+		return false; // b6: the barrier's one-shot - vanilla's close, saveEquipmentLayout() and startFirstTurn() run
+	BattleAuthority& a = coopBattleAuthority();
+	const int seat = a.localSeat.load();
+	if (seat < 0 || seat >= 4)
+	{
+		Log(LOG_WARNING) << "[coop-equip] OK on the pre-battle screen with no seat (" << seat << ") - ignored";
+		return true;
+	}
+	const bool ready = !g_equip.ready[seat].load();
+	g_equip.ready[seat] = ready;
+	if (a.hostSim)
+	{
+		coopEquipHostReadyChanged();
+	}
+	else
+	{
+		Json::Value msg(Json::objectValue);
+		msg["state"] = "bt_equip_ready";
+		msg["battleId"] = a.battleId.load();
+		msg["seat"] = seat;
+		msg["ready"] = ready;
+		CoopEmit::sendBattle(msg);
+	}
+	// F2754: the OK graphic's own pressed surface shows the flag - no new widget, no new text.
+	if (btnOk)
+	{
+		btnOk->allowToggleInversion();
+		btnOk->toggle(ready);
+	}
+	g_equip.okPressed = ready;
+	Log(LOG_INFO) << "[coop-equip] seat " << seat << (a.hostSim ? " (host)" : " (client)") << " is "
+		<< (ready ? "READY" : "no longer ready") << " (D206 c)";
+	return true;
+}
+
+void coopEquipApplyOkLook(BattlescapeButton* btnOk, bool tu, bool parent)
+{
+	if (tu || !parent || !btnOk || !coopEquipOpen())
+		return;
+	const bool ready = coopEquipLocalReady();
+	btnOk->allowToggleInversion();
+	btnOk->toggle(ready);
+	g_equip.okPressed = ready;
+}
+
+// HOST (b5, Q1 (a)): a client's `bt_equip_ready {battleId, seat, ready}`.
+static void coopEquipOnReadyMessage(const Json::Value& msg)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const std::uint32_t battleId = msg.get("battleId", 0u).asUInt();
+	const int seat = msg.get("seat", -1).asInt();
+	const bool ready = msg.get("ready", false).asBool();
+	if (!connectionTCP::getServerOwner() || !a.hostSim || !coopEquipOpen() || battleId == 0
+		|| battleId != a.battleId.load() || seat < 0 || seat >= 4 || !a.seatMapped(seat) || seat == a.localSeat.load())
+	{
+		Log(LOG_WARNING) << "[coop-equip] bt_equip_ready (battleId " << battleId << ", seat " << seat << ", ready "
+			<< ready << ") dropped: not the host of this battle's open equip phase, or not a partner's mapped seat";
+		return;
+	}
+	g_equip.ready[seat] = ready;
+	Log(LOG_INFO) << "[coop-equip] host: seat " << seat << " is " << (ready ? "READY" : "no longer ready");
+	coopEquipHostReadyChanged();
+}
+
+// HOST: the screen record (b4), the equip-open announce (b4, F2746/F2747), the barrier (b6, Q4 (a)).
+static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
+{
+	// b6's end signal that could not go out when the barrier ran (the phase is already Ended).
+	if (g_equip.endSyncPending.load() && isCoopBattle())
+	{
+		Json::Value end(Json::objectValue);
+		end["end"] = true;
+		if (coopEquipSendSync(end))
+		{
+			g_equip.endSyncPending = false;
+			g_equip.endSyncs.fetch_add(1);
+			Log(LOG_INFO) << "[coop-equip] host: the equip-end sync went out (retried)";
+		}
+		return;
+	}
+	if (!coopEquipOpen())
+		return;
+	// The vanilla push at BriefingState :361 is the top state at the first pass after hostOpen.
+	if (g_equip.hostOpen.load() && !g_equip.screen.load() && !game->getStates().empty())
+	{
+		if (InventoryState* st = dynamic_cast<InventoryState*>(game->getStates().back()))
+		{
+			g_equip.screen = static_cast<const void*>(st);
+			Log(LOG_INFO) << "[coop-equip] host: its pre-battle equip screen is recorded";
+		}
+	}
+	coopEquipComputeCounted(save);
+	if (!isCoopBattle())
+		return; // phase Handshake (Q16): nothing goes on the wire before the partner's battle_ready
+	if (g_equip.hostOpen.load() && !g_equip.openAnnounced.load())
+	{
+		// The announce carries spawnFromPrimedItems() and the turn-0 NextTurnState writes (F2746) and every
+		// seat's ready flag, and goes out with an empty delta too (F2747).
+		Json::Value open(Json::objectValue);
+		open["open"] = true;
+		open["ready"] = coopEquipReadyJson();
+		if (coopEquipSendSync(open))
+		{
+			g_equip.openAnnounced = true;
+			g_equip.readySyncPending = false;
+			Log(LOG_INFO) << "[coop-equip] host: equip-open announce sent";
+		}
+		return;
+	}
+	if (!g_equip.openAnnounced.load())
+		return;
+	if (g_equip.readySyncPending.load())
+		coopEquipHostReadyChanged();
+	if (!coopEquipAllReady())
+		return;
+	// Q4 (a): wait until the host's pre-battle screen is the top state; a held cursor item goes back where it was
+	// (the item never left its slot - F3125; the screen closes right after, the P8-3 / D190 precedent).
+	InventoryState* st = coopEquipTopScreen(game);
+	if (!st)
+		return;
+	Inventory* inv = coopEquipInventoryOf(st);
+	if (inv && inv->getSelectedItem())
+	{
+		Log(LOG_INFO) << "[coop-equip] host: barrier - the cursor item " << inv->getSelectedItem()->getId()
+			<< " goes back where it was (Q4 a)";
+		inv->setSelectedItem(0);
+	}
+	// F2751: vanilla's own close - popState(), saveEquipmentLayout(), startFirstTurn() - through the one-shot.
+	g_equip.passThrough = true;
+	st->btnOkClick(0);
+	if (g_equip.passThrough.exchange(false))
+	{
+		Log(LOG_ERROR) << "[coop-equip] host: barrier - vanilla's OK refused the close (the cursor still holds an "
+			"item); retried at the next pass";
+		return;
+	}
+	g_equip.screen = nullptr;
+	g_equip.phase = (int)CoopEquipPhase::Ended;
+	g_equip.barrierDone = true;
+	Log(LOG_INFO) << "[coop-equip] host: barrier - every seat is ready, turn " << save->getTurn()
+		<< " started (vanilla close)";
+	Json::Value end(Json::objectValue);
+	end["end"] = true;
+	if (coopEquipSendSync(end))
+		g_equip.endSyncs.fetch_add(1);
+	else
+		g_equip.endSyncPending = true;
+}
+
+// CLIENT: the open step (b7, F3109), the end step and close (b7, F2757), the entry (b3, Q7 (a)).
+static void coopEquipPumpClient(Game* game, SavedBattleGame* save)
+{
+	if (g_equip.openPending.exchange(false))
+	{
+		// The host's equip is open: a placement held since the host's briefing (Q3 a) goes out again now - the
+		// quiescence release's only other caller is the bt_action_end path.
+		Log(LOG_INFO) << "[coop-equip] client: the host's equip is open - a held placement is resent";
+		CoopArbiter::onQuiescenceObserved();
+	}
+	if (g_equip.endPending.exchange(false) && g_equip.phase.load() == (int)CoopEquipPhase::Open)
+	{
+		// Turn 1 started on the host: each soldier back on its own tile (the host's startFirstTurn() did the
+		// same), the phase closed, a still-held pre-battle placement dropped.
+		save->resetUnitTiles();
+		g_equip.phase = (int)CoopEquipPhase::Ended;
+		if (g_coopClientPending.active && (g_coopClientPending.kind == "inv_move" || g_coopClientPending.kind == "inv_bulk"))
+			CoopArbiter::cancelPendingIntent();
+		Log(LOG_INFO) << "[coop-equip] client: equip end - turn " << save->getTurn() << ", units back on their tiles";
+	}
+	if (g_equip.phase.load() == (int)CoopEquipPhase::Ended && g_equip.screen.load())
+	{
+		// Pop the pre-battle screen at the first pass it is on top - never its OK (the ready toggle, F2757). The
+		// Turn-1 screen under it then shows; its dismissal is the existing presentation-only close.
+		if (InventoryState* st = coopEquipTopScreen(game))
+		{
+			Inventory* inv = coopEquipInventoryOf(st);
+			if (inv && inv->getSelectedItem())
+				inv->setSelectedItem(0);
+			game->popState();
+			g_equip.screen = nullptr;
+			g_equip.closes.fetch_add(1);
+			Log(LOG_INFO) << "[coop-equip] client: the pre-battle equip screen closed (equip end)";
+		}
+		return;
+	}
+	if (!coopEquipOpen() || g_equip.entryDone.load())
+		return;
+	// Once per blob load, when the briefing has closed (the BattlescapeState is the top state).
+	BattlescapeState* bs = save->getBattleState();
+	if (!connectionTCP::isBattlescapeStateLive(bs) || game->getStates().empty() || game->getStates().back() != bs)
+		return;
+	g_equip.entryDone = true;
+	// (i) F2749: the loaded units stand on their own tiles (load's resetUnitTiles()); the host's sit on the craft pile
+	// until startFirstTurn() - so every soldier's inventory ground is the pile here too.
+	Tile* pile = g_equip.havePile.load()
+		? save->getTile(Position(g_equip.pileX.load(), g_equip.pileY.load(), g_equip.pileZ.load())) : nullptr;
+	if (pile)
+	{
+		for (BattleUnit* u : *save->getUnits())
+		{
+			if (u->getOriginalFaction() == FACTION_PLAYER && !u->isOut())
+				u->setInventoryTile(pile);
+		}
+	}
+	// (ii) this seat's first own soldier with an inventory.
+	BattleUnit* own = nullptr;
+	for (BattleUnit* u : *save->getUnits())
+	{
+		if (u->isSelectable(FACTION_PLAYER, false, true) && coopMaySelectUnit(u))
+		{
+			own = u;
+			break;
+		}
+	}
+	if (!own)
+	{
+		// Nothing to equip: S-F (D215 a) decides where this player waits; until then nothing is pushed.
+		Log(LOG_INFO) << "[coop-equip] client: no own soldier with an inventory - no equip screen";
+		return;
+	}
+	save->setSelectedUnit(own);
+	// (iii) Q7 (a): vanilla's order - the Turn-1 screen under the equip screen.
+	game->pushState(new NextTurnState(save, bs));
+	InventoryState* screen = new InventoryState(false, bs, 0);
+	g_equip.screen = static_cast<const void*>(screen);
+	game->pushState(screen);
+	g_equip.entries.fetch_add(1);
+	Log(LOG_INFO) << "[coop-equip] client: pre-battle equip screen opened on own unit " << own->getId()
+		<< (pile ? "" : " (no craft pile)");
+}
+
+// BOTH (section 3, D216 c, Q15 (a)): while this seat is ready and another counted seat is not, the pre-battle
+// screen's own message line keeps "Waiting for {0} to finish equipping" - re-shown while the line is idle or already
+// shows it, so any other message keeps its full 1.2 s and the text then returns (V1).
+static void coopEquipWaitLine(Game* game, SavedBattleGame* save)
+{
+	if (!coopEquipOpen())
+		return;
+	InventoryState* st = coopEquipTopScreen(game);
+	if (!st)
+		return;
+	if (!coopBattleAuthority().hostSim)
+		coopEquipComputeCounted(save); // the host's own step computed it this pass
+	const int seat = coopEquipWaitingOnSeat();
+	if (seat < 0)
+		return;
+	Inventory* inv = coopEquipInventoryOf(st);
+	WarningMessage* line = inv ? inv->getWarning() : nullptr;
+	if (!line)
+		return;
+	const std::string name = CoopBattleUi::seatDisplayName(save->getBattleState(), seat);
+	if (name.empty())
+	{
+		static bool logged = false;
+		if (!logged)
+		{
+			logged = true;
+			Log(LOG_WARNING) << "[coop-equip] the waiting line cannot name seat " << seat << " - nothing shown";
+		}
+		return;
+	}
+	const std::string text = game->getLanguage()->getString("STR_COOP_WAITING_FOR_EQUIP").arg(name);
+	const bool idle = !line->getVisible();
+	if (idle || line->getMessageText() == text)
+	{
+		inv->showWarning(text);
+		if (idle)
+			g_equip.waitLineShows.fetch_add(1);
+	}
+}
+
+void coopEquipPump(Game* game)
+{
+	if (!game || !connectionTCP::getCoopStatic() || coopBattleAuthority().phase.load() == CoopBattlePhase::Idle)
+		return;
+	if (g_equip.phase.load() == (int)CoopEquipPhase::None)
+		return;
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!save)
+		return;
+	if (coopBattleAuthority().hostSim)
+		coopEquipPumpHost(game, save);
+	else
+		coopEquipPumpClient(game, save);
+	coopEquipWaitLine(game, save);
+}
 
 // ===== R2-P9: client-side post-apply hash verify (BattlePump.h) =====
 // SPIKE-RUNBOOK.md SS2.8. The ONE call site for the whole mismatch path
@@ -25897,6 +26504,11 @@ void connectionTCP::updateCoopTask()
 	// CoopHandshake.h for the full placement argument.
 	CoopHandshake::selectOwnUnitAtEntry(_game);
 
+	// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 9, Q13 (a)): the
+	// pre-battle equip phase's steps - the host's screen record, announce and barrier, the client's entry, open and
+	// end, the D216 waiting line. Self-guarded (an open equip phase, or an unconsumed end).
+	coopEquipPump(_game);
+
 	// TEST-ONLY STOPGAP (W1-P7, RB-D26/RB-D32 family; delete once real network
 	// latency/loss can be injected another way): defer_intents' release half.
 	CoopArbiter::releaseDeferredIntentsIfExpired();
@@ -27809,6 +28421,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// and shows the CoopBattleUi::showDeny() banner (R2-P6's
 			// presenter, unwired until now).
 			CoopArbiter::onDeny(obj);
+		}
+		else if (stateString == "bt_equip_ready")
+		{
+			// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 5, Q1 (a)): host-inbound - a seat's pre-battle ready
+			// toggle (D206 c). Direct dispatch like bt_end_turn_ready; self-guarded (host, equip open, this battle,
+			// a mapped seat), anything else is logged and dropped.
+			coopEquipOnReadyMessage(obj);
 		}
 		else if (stateString == "bt_debrief_result")
 		{

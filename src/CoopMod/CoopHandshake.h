@@ -140,6 +140,8 @@ void offerBattle(Game* game, int gamemode);
 /// and snapshots NOTHING - phase is Handshake when this returns, but no
 /// battle_offer has gone out yet, which is exactly the window
 /// CoopBattleUi::freezeBattleInputUntilActive() exists to freeze.
+/// W2-P8b S-A.2 (owner D210 b): its LAST statement now calls emitPreparedOffer() - the snapshot and the offer
+/// (with its `equip` object) go out at turn 0, before the host's briefing is pushed.
 void prepareBattleOffer(Game* game, int gamemode);
 
 /// HOST, EMIT half (WV-D56). Everything offerBattle() used to do AFTER
@@ -379,6 +381,9 @@ bool mayReopenBriefing(Game* game);
 /// dismiss its briefing before that lands. Same predicate
 /// resolveBriefingDeployment() uses, and false in SP, so vanilla is
 /// byte-identical.
+/// W2-P8b S-A.2 (owner D174 a): with the pre-battle equip phase open (a fresh co-op battle) it selects the host's
+/// first own soldier with an inventory and returns false - vanilla pushes the equip screen; the freeze above stays
+/// for the next-stage briefing only (D158).
 bool freezePreBattleEquip(Game* game);
 
 // ----- client-inbound handlers (battle_offer, and the blob-complete check

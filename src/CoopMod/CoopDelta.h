@@ -225,7 +225,11 @@ bool attach(SavedBattleGame* battle, Json::Value& env);
 /// When armed and the delta is non-empty, emits one
 /// bt_ev{kind:"sync", actionId:0, payload:{}} carrying it, with h = the 7
 /// structured buckets. Self-guarded (coop battle, host sim).
-void flushSync();
+/// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 steps 4-6, Q2 (a)):
+/// with @a equip the `sync` is FORCED - it goes out with an empty delta too - and carries @a equip as its
+/// payload's `equip` object (the pre-battle equip phase's open / ready / end signal). Still never inside an open
+/// action context; the caller checks CoopEmit::lastSeqEmitted() to learn whether it went out.
+void flushSync(const Json::Value* equip = nullptr);
 
 /// W2-P8 S-C1.2 (Q7 (a); AMENDMENT P8-3a Q1 (a)): HOST, co-op battle only - the host's own in-battle
 /// inventory change at @a site ("move", "load", "unload", "reload", "close") latches one `sync`. A no-op
