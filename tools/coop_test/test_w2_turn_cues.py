@@ -66,6 +66,11 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
        whole flee rides one `sync`.
   C13b berserk (cycle 4, turn 4 -> 5). The same staging (a new rifle, C2
        back on C13_C2_TILE, morale 0 on BOTH), host set_seed SEED_C13B.
+       W2-H10 (F3274-F3276): C2 is stripped first (battle_strip_unit, BOTH)
+       - its start loadout is not seeded (F501/F1132) and a heavy one lowers
+       its TU at the new turn (encumbrance), which costs the third berserk
+       turn; before the fire C2 carries the rifle and clip only (weight <=
+       C2_STRENGTH) and its TU at the new turn is C2_TU_FULL.
        SEED_C13B picks berserk; C2 sees no enemy and fires at random tiles.
        GREEN: exactly one new host context {origin panic, actorId C2,
        nestedIn 0, hasFinal true}; its evs are panic {unit C2, mode berserk}
@@ -219,6 +224,14 @@ C13B_TURNS = 3
 C13B_KINDS = ["panic", "turn", "shot", "hit", "shot", "hit", "shot", "hit", "turn", "shot", "shot", "hit", "shot",
               "hit", "turn", "bt_action_end"]
 MORALE_AFTER_PANIC = 15          # UnitPanicBState: moraleChange(+15) when the panic ends
+# W2-H10 (F3274-F3276): BattleUnit::prepareTimeUnits scales the new turn's TU by strength / carried weight when the
+# weight is over the strength. C2's stats come from SEED_ROSTER (the P8 verifier's saves, both boots: currStats tu 58,
+# strength 28, armor STR_NONE_UC); no probe reads a unit's strength or weight, so they are pinned here.
+C2_STRENGTH = 28
+C2_TU_FULL = 58
+C2_TURN_COST = 1                 # TU per octant (STR_NONE_UC sets no turnCost: the default 1)
+ITEM_WEIGHTS = {"STR_RIFLE": 8, "STR_RIFLE_CLIP": 3}    # standard/xcom1/items.rul `weight`
+ARMOR_WEIGHTS = {"STR_NONE_UC": 0}                       # standard/xcom1/armors.rul (no `weight`: 0)
 
 # ----- W2-P6b S-E row E5 (spec section 9 E-d; P6b review section 2; AMENDMENT P6b-3 F1782) -----
 C2_PANIC_SOUNDS = []             # battle_state panicSounds of C2 (T0b-3 on the S-D.1 build, both machines: every stock
@@ -762,6 +775,41 @@ def c2_resolved(bs):
     return (session.units_by_id(bs).get(C2_ID) or {}).get("status") not in (STATUS_PANICKING, STATUS_BERSERK)
 
 
+def c2_strip(host, client):
+    """W2-H10 (F3274-F3276): battle_strip_unit C2 on BOTH (client first, F607; it refuses only without a battle or
+    without the unit, on either machine alike). `deleted` lists each machine's own inventory order (F882): compared
+    as sets."""
+    rc = client.cmd({"cmd": "battle_strip_unit", "unit": C2_ID})
+    rh = host.cmd({"cmd": "battle_strip_unit", "unit": C2_ID})
+    assert rh.get("ok") and rc.get("ok"), f"battle_strip_unit C2 failed: host={rh} client={rc}"
+    got = {n: (sorted(r.get("deleted") or []), r.get("skippedSpecial"), r.get("remaining"))
+           for n, r in (("host", rh), ("client", rc))}
+    assert got["host"] == got["client"], f"battle_strip_unit C2 (deleted, skippedSpecial, remaining) differ: {got}"
+    return {"deleted": got["host"][0], "skippedSpecial": got["host"][1], "remaining": got["host"][2]}
+
+
+def c2_load(gc):
+    """C2's carried items (battle_items owner C2, no special weapon) as (id, type, loaded ammo types) and their
+    weight as BattleUnit::getCarriedWeight sums it: the armor's weight + each item's + its loaded ammo's. The weight
+    is None when a type has no pinned weight."""
+    its = items(gc)
+    armor = (units(gc).get(C2_ID) or {}).get("armor")
+    carried = [(i, it.get("type"), [(its.get(a) or {}).get("type") for a in (it.get("ammo") or []) if a != i])
+               for i, it in sorted(its.items()) if it.get("owner") == C2_ID and not it.get("special")]
+    ws = [ARMOR_WEIGHTS.get(armor)] + [ITEM_WEIGHTS.get(x) for _, typ, am in carried for x in [typ] + am]
+    return {"armor": armor, "carried": carried, "weight": None if None in ws else sum(ws)}
+
+
+def tu_at_new_turn(turn_pl):
+    """C2's TU at the new turn, from the first berserk `turn` ev (before the first burst): UnitPanicBState spends
+    octants * C2_TURN_COST for the turn and the ev carries tuAfter."""
+    p = (turn_pl[0][1] or {}) if turn_pl else {}
+    if p.get("tuAfter") is None or p.get("fromDir") is None or p.get("toDir") is None:
+        return None
+    d = abs(p["fromDir"] - p["toDir"])
+    return p["tuAfter"] + min(d, 8 - d) * C2_TURN_COST
+
+
 def c13a_flee(host, client, ctx):
     rec = begin(host, client)
     fails = []
@@ -825,8 +873,10 @@ def c13a_flee(host, client, ctx):
 def c13b_berserk(host, client, ctx):
     rec = begin(host, client)
     fails = []
+    strip = c2_strip(host, client)   # W2-H10 (F3274): C2 carries only what C13b stages
     g, m = c13_stage(host, client, C13B_RIFLE_ID, C13B_CLIP_ID, fails, "C13b")
     staged_diff = diff_buckets(host, client)
+    load = {"host": c2_load(host), "client": c2_load(client)}   # W2-H10: C2's load before the fire
     uh0 = units(host)
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
     cycle(host, client, SEED_C13B, rec, "cycle 4", extra=c2_resolved)
@@ -841,7 +891,10 @@ def c13b_berserk(host, client, ctx):
     turns = [e for e in pevs if e["kind"] == "turn"]
     tpl = host_payloads(host, [e["seq"] for e in turns]) if turns else {}
     turn_pl = [(e["seq"], (tpl.get(e["seq"]) or {}).get("payload")) for e in turns]
-    print(f"EVIDENCE C13b: C2 rifle={g.get('weaponId')} clip={g.get('ammoId')} -> {C13_C2_TILE}/{C13_C2_DIR} morale "
+    tu_new = tu_at_new_turn(turn_pl)
+    print(f"EVIDENCE C13b: W2-H10 C2 strip={strip}; C2 load before the fire={load} (strength {C2_STRENGTH}); C2 TU "
+          f"at the new turn={tu_new} (full {C2_TU_FULL}); "
+          f"C2 rifle={g.get('weaponId')} clip={g.get('ammoId')} -> {C13_C2_TILE}/{C13_C2_DIR} morale "
           f"response={m.get('morale')} stagedDiff={staged_diff}; seed {SEED_C13B}; panic context={ctx_view(pc)} "
           f"kind={pc and pc.get('kind')} its evs={sv(pevs)}; turns (seq, [coop-turn] payload)={turn_pl}; "
           f"shots (seq, actionId, payload)="
@@ -853,6 +906,14 @@ def c13b_berserk(host, client, ctx):
     fails = list(rec["notes"]) + fails
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
+    # W2-H10 (F3274-F3276): before the fire C2 is not encumbered, so its TU at the new turn is its full TU
+    for name, ld in load.items():
+        if ld["weight"] is None or ld["weight"] > C2_STRENGTH:
+            fails.append(f"C13b: C2's carried weight on the {name} {ld['weight']} (armor {ld['armor']}, carried "
+                         f"{ld['carried']}) (want <= its strength {C2_STRENGTH}: the staged rifle and clip only)")
+    if tu_new != C2_TU_FULL:
+        fails.append(f"C13b: C2's TU at the new turn {tu_new} (the first berserk turn {turn_pl[:1]}) (want its full "
+                     f"TU {C2_TU_FULL})")
     fails += cycle_fails(rec, "C13b")
     if not shots or any(payload(rec, e).get("actor") != C2_ID for e in shots):
         fails.append(f"C13b: shot evs {[(e['seq'], payload(rec, e).get('actor')) for e in shots]} (want >= 1, every "
