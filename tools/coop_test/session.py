@@ -2127,6 +2127,45 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_s
     dismiss_client_briefing(client)
 
 
+def bring_up_to_briefings(host, client, seated, seat_count=2, pre_ok=None, pre_newbattle=None):
+    """W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
+    section 4 step 10; owner D210 b = both briefings at once): drive_to_battlescape's
+    steps through `newbattle_ok` - NEW BATTLE from the lobby, `seat_count` soldiers
+    seated to seat 1 (the client), `pre_ok(host)`, `pre_newbattle(host, client)`,
+    `newbattle_ok` - then a wait for the HOST's BriefingState ONLY. Returns with the
+    host's briefing up and closes nothing. Whether and when the CLIENT's briefing
+    appears is the caller's business (W2-P8b's rows assert it).
+
+    `pre_ok`: an optional `callable(host)` invoked immediately before `newbattle_ok`
+    (drive_to_battlescape's window: the pinned map seed, the turn mode).
+    `pre_newbattle`: an optional `callable(host, client)` invoked right after `pre_ok`,
+    immediately before `newbattle_ok` - the window for a CLIENT-side test lever that
+    must be armed before the host's offer (W2-P8b Q16 (a): `hold_battle_ready`).
+    Fills seated["soldierIds"] (the seated soldiers' ids, in seating order)."""
+    host.ok({"cmd": "lobby_action"})
+    host.wait_for("host at battle settings",
+                  lambda: (not has_state(host, "LobbyMenu")) or None)
+    assert top_state(host) == "NewBattleState", \
+        f"host should land on the NEW BATTLE setup screen, stack={states_stripped(host)}"
+    soldier_ids = []
+    for i in range(seat_count):
+        r = host.cmd({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1, "index": i})
+        if not r.get("ok"):
+            break
+        soldier_ids.append(r["soldierId"])
+    assert len(soldier_ids) == seat_count, (
+        f"FIXTURE: newbattle_seat_soldier stamped {len(soldier_ids)} soldier(s) to seat 1 "
+        f"(want {seat_count})")
+    seated["soldierIds"] = soldier_ids
+    if pre_ok is not None:
+        pre_ok(host)
+    if pre_newbattle is not None:
+        pre_newbattle(host, client)
+    host.ok({"cmd": "newbattle_ok"})
+    host.wait_for("host briefing", lambda: has_state(host, "BriefingState"),
+                  timeout=60)
+
+
 # ===== SPEC 19 (W1-P20): campaign co-op battle entry, client-owned units =====
 #
 # Two additive campaign bring-ups (SEPARATE guest battle, SHARED mixed-owner

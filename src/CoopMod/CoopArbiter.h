@@ -667,6 +667,23 @@ void releaseDeferredIntentsIfExpired();
 /// a single unconditional call.
 void coopOnChainQuiesced();
 
+/// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 "Shared state", F3110): the
+/// pre-battle equip phase is open on THIS machine (a co-op session, battle phase not Idle, the equip phase Open). Keyed
+/// on the equip phase, never on isCoopBattle(): the host can close its briefing in phase Handshake. False in single
+/// player and in every battle without an equip phase. Body: connectionTCP.cpp (g_equip).
+bool coopEquipOpen();
+
+/// W2-P8b S-A.1: THIS machine's seat's pre-battle ready flag (D206 c); false with no seat or no equip phase.
+bool coopEquipLocalReady();
+
+/// W2-P8b S-A.1 (AMENDMENT P8b-1 section 4 step 10, P8b-1 RULINGS Q16 (a)): TEST-ONLY `hold_battle_ready`, CLIENT.
+/// Armed, the client's handshake stashes its battle_ready instead of sending it; the TestServer lever's release
+/// takes the stash (coopTestHoldBattleReadyTake) and sends it. Inert unless armed. Never called by game logic.
+void coopTestHoldBattleReadyArm(bool on);
+bool coopTestHoldBattleReadyArmed();
+bool coopTestHoldBattleReadyHeld();
+bool coopTestHoldBattleReadyTake(Json::Value& out);
+
 /// W2-P8 S-C2.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.2, C2-4; owner D166 = B,
 /// D187, D188): the covered-battle driver, called by Game::run() once per frame right after the top state's
 /// think. HOST only, in an active co-op battle: while another screen covers the BattlescapeState and the base

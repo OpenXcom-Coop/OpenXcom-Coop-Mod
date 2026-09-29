@@ -5124,6 +5124,245 @@ void BattleAuthority::resetSeatFactions()
 		_seatFaction[i] = kUnmapped;
 }
 
+// ----- W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 "Shared state" and
+// step 10; owner D174 a, D206 c, D210 b, D216 c): the pre-battle equip phase's battle-scoped state, BOTH machines.
+// Commit S-A.1 (the RED commit) adds the storage, the zeros and the readers only - the predicate coopEquipOpen(),
+// coopEquipLocalReady(), the event_state `equip` probe (CoopDelta::equipProbe) and the inventory_view `preBattle` /
+// `okPressed` readers. Nothing writes it until commit S-A.2. Atomics: resetBattleAuthority() can run off the main
+// thread. The state resets in initBattleAuthority() AND resetBattleAuthority(); the COUNTERS reset ONLY in
+// initBattleAuthority() (the W2-P8 F2733 rule: the client's battle_end teardown must not zero them before a row
+// reads them).
+//   phase          None (no equip phase this battle), Open, Ended
+//   hostOpen       HOST: its pre-battle InventoryState is open (freezePreBattleEquip opened it, b4)
+//   openAnnounced  HOST: the forced equip-open `sync` went out (b4); CLIENT: it applied a `sync` whose
+//                  payload.equip.open is true (b7)
+//   ready[4]       per seat: the seat's OK is pressed into ready (D206 c); a client stores every payload.equip.ready
+//   counted[4]     HOST: per seat, it commands >= 1 selectable unit with an inventory (b6; false = counts as ready)
+//   pile           the craft pile tile (the offer's equip.pile); havePile false = none
+//   entryDone      CLIENT: the equip entry ran for this blob load (b3)
+//   screen         the pre-battle InventoryState the phase recorded (b3 client push, b4 host push); identity only
+//   passThrough    the barrier's one-shot: the next coopEquipReadyPress() returns false (b6)
+//   abortPending   HOST: the aliens-crashed battle_end waits for phase Active (S-E, Q16)
+//   barrierDone    HOST: the barrier closed the phase (b6)
+//   okPressed      the flag the co-op layer last applied to the pre-battle OK button's look (Q8)
+// COUNTERS:
+//   entries        CLIENT: equip-entry pushes (b3)
+//   closes         CLIENT: pre-battle screens the equip end popped (b7)
+//   heldUntilOpen  HOST: inv_move / inv_bulk denied `busy` because its equip screen was not open yet (b8, Q3 a)
+//   lateDenied     HOST: pre-battle orders (top-level `pre: true`) denied after the phase ended (b8, Q5 a)
+//   endTurnIgnored HOST: bt_end_turn_ready messages ignored while the phase was open (b8)
+//   readySyncs     HOST: forced `sync` evs carrying a ready change (b5)
+//   endSyncs       HOST: forced `sync` evs carrying equip.end (b6); CLIENT: applied `sync` evs carrying equip.end (b7)
+//   waitLineShows  BOTH: times the D216 text was put on the pre-battle screen's message line (section 3)
+//   forceCloseSkips CLIENT: force-closes skipped because the topmost InventoryState was the pre-battle screen (F2757)
+//   heldTurnScreenPresses  BOTH: presses the held Turn-1 screen swallowed (S-F)
+enum class CoopEquipPhase : int
+{
+	None = 0,
+	Open = 1,
+	Ended = 2
+};
+
+struct CoopEquipState
+{
+	std::atomic<int> phase{(int)CoopEquipPhase::None};
+	std::atomic<bool> hostOpen{false};
+	std::atomic<bool> openAnnounced{false};
+	std::atomic<bool> ready[4] = {};
+	std::atomic<bool> counted[4] = {};
+	std::atomic<bool> havePile{false};
+	std::atomic<int> pileX{0};
+	std::atomic<int> pileY{0};
+	std::atomic<int> pileZ{0};
+	std::atomic<bool> entryDone{false};
+	std::atomic<const void*> screen{nullptr};
+	std::atomic<bool> passThrough{false};
+	std::atomic<bool> abortPending{false};
+	std::atomic<bool> barrierDone{false};
+	std::atomic<bool> okPressed{false};
+	std::atomic<int> entries{0};
+	std::atomic<int> closes{0};
+	std::atomic<int> heldUntilOpen{0};
+	std::atomic<int> lateDenied{0};
+	std::atomic<int> endTurnIgnored{0};
+	std::atomic<int> readySyncs{0};
+	std::atomic<int> endSyncs{0};
+	std::atomic<int> waitLineShows{0};
+	std::atomic<int> forceCloseSkips{0};
+	std::atomic<int> heldTurnScreenPresses{0};
+};
+
+static CoopEquipState g_equip;
+
+// The state's zeros (initBattleAuthority() and resetBattleAuthority()).
+static void coopEquipStateZeros()
+{
+	g_equip.phase = (int)CoopEquipPhase::None;
+	g_equip.hostOpen = false;
+	g_equip.openAnnounced = false;
+	for (int i = 0; i < 4; ++i)
+	{
+		g_equip.ready[i] = false;
+		g_equip.counted[i] = false;
+	}
+	g_equip.havePile = false;
+	g_equip.pileX = 0;
+	g_equip.pileY = 0;
+	g_equip.pileZ = 0;
+	g_equip.entryDone = false;
+	g_equip.screen = nullptr;
+	g_equip.passThrough = false;
+	g_equip.abortPending = false;
+	g_equip.barrierDone = false;
+	g_equip.okPressed = false;
+}
+
+// The counters' zeros (initBattleAuthority() only).
+static void coopEquipCounterZeros()
+{
+	g_equip.entries = 0;
+	g_equip.closes = 0;
+	g_equip.heldUntilOpen = 0;
+	g_equip.lateDenied = 0;
+	g_equip.endTurnIgnored = 0;
+	g_equip.readySyncs = 0;
+	g_equip.endSyncs = 0;
+	g_equip.waitLineShows = 0;
+	g_equip.forceCloseSkips = 0;
+	g_equip.heldTurnScreenPresses = 0;
+}
+
+// AMENDMENT P8b-1 section 4 "Shared state" (F3110): the equip phase is open on THIS machine - not isCoopBattle()
+// (the host can close its briefing in phase Handshake, before the client's battle_ready).
+bool coopEquipOpen()
+{
+	return connectionTCP::getCoopStatic() && coopBattleAuthority().phase.load() != CoopBattlePhase::Idle
+		&& g_equip.phase.load() == (int)CoopEquipPhase::Open;
+}
+
+// THIS machine's seat's ready flag (false with no seat).
+bool coopEquipLocalReady()
+{
+	const int seat = coopBattleAuthority().localSeat.load();
+	return seat >= 0 && seat < 4 && g_equip.ready[seat].load();
+}
+
+namespace CoopDelta
+{
+Json::Value equipProbe()
+{
+	static const char* const kPhase[] = { "none", "open", "ended" };
+	const int ph = g_equip.phase.load();
+	Json::Value r(Json::objectValue);
+	r["phase"] = (ph >= 0 && ph <= 2) ? kPhase[ph] : "unknown";
+	r["hostOpen"] = g_equip.hostOpen.load();
+	r["openAnnounced"] = g_equip.openAnnounced.load();
+	Json::Value ready(Json::arrayValue);
+	Json::Value counted(Json::arrayValue);
+	for (int i = 0; i < 4; ++i)
+	{
+		ready.append(g_equip.ready[i].load());
+		counted.append(g_equip.counted[i].load());
+	}
+	r["ready"] = ready;
+	r["counted"] = counted;
+	if (g_equip.havePile.load())
+	{
+		Json::Value pile(Json::arrayValue);
+		pile.append(g_equip.pileX.load());
+		pile.append(g_equip.pileY.load());
+		pile.append(g_equip.pileZ.load());
+		r["pile"] = pile;
+	}
+	else
+	{
+		r["pile"] = Json::Value(Json::nullValue);
+	}
+	r["entryDone"] = g_equip.entryDone.load();
+	r["screen"] = (g_equip.screen.load() != nullptr);
+	r["passThrough"] = g_equip.passThrough.load();
+	r["abortPending"] = g_equip.abortPending.load();
+	r["barrierDone"] = g_equip.barrierDone.load();
+	r["okPressed"] = g_equip.okPressed.load();
+	r["entries"] = g_equip.entries.load();
+	r["closes"] = g_equip.closes.load();
+	r["heldUntilOpen"] = g_equip.heldUntilOpen.load();
+	r["lateDenied"] = g_equip.lateDenied.load();
+	r["endTurnIgnored"] = g_equip.endTurnIgnored.load();
+	r["readySyncs"] = g_equip.readySyncs.load();
+	r["endSyncs"] = g_equip.endSyncs.load();
+	r["waitLineShows"] = g_equip.waitLineShows.load();
+	r["forceCloseSkips"] = g_equip.forceCloseSkips.load();
+	r["heldTurnScreenPresses"] = g_equip.heldTurnScreenPresses.load();
+	return r;
+}
+
+bool equipIsScreen(const void* state)
+{
+	return state != nullptr && g_equip.screen.load() == state;
+}
+
+bool equipOkPressed()
+{
+	return g_equip.okPressed.load();
+}
+} // namespace CoopDelta
+
+// ----- W2-P8b S-A.1 (AMENDMENT P8b-1 section 4 step 10, P8b-1 RULINGS Q16 (a)): TEST-ONLY hold_battle_ready, CLIENT.
+// While armed, the client's handshake stashes its battle_ready instead of sending it (ONE guarded statement at the
+// send in CoopHandshake::onBlobChunkAppended); the TestServer lever's release takes the stash and sends it itself,
+// so this file's count of battle-lane sends is unchanged. Inert unless armed (STOP-IF 16): unarmed, the stash call
+// returns false at once and logs nothing. Never read by game logic; never reset by a battle reset (the lever arms it
+// before newbattle_ok and releases it).
+static std::mutex g_coopTestHoldBattleReadyMutex;
+static bool g_coopTestHoldBattleReadyArmed = false;
+static bool g_coopTestHoldBattleReadyHeld = false;
+static Json::Value g_coopTestHoldBattleReadyStash;
+
+void coopTestHoldBattleReadyArm(bool on)
+{
+	std::lock_guard<std::mutex> lock(g_coopTestHoldBattleReadyMutex);
+	g_coopTestHoldBattleReadyArmed = on;
+}
+
+bool coopTestHoldBattleReadyArmed()
+{
+	std::lock_guard<std::mutex> lock(g_coopTestHoldBattleReadyMutex);
+	return g_coopTestHoldBattleReadyArmed;
+}
+
+bool coopTestHoldBattleReadyHeld()
+{
+	std::lock_guard<std::mutex> lock(g_coopTestHoldBattleReadyMutex);
+	return g_coopTestHoldBattleReadyHeld;
+}
+
+bool coopTestHoldBattleReadyTake(Json::Value& out)
+{
+	std::lock_guard<std::mutex> lock(g_coopTestHoldBattleReadyMutex);
+	if (!g_coopTestHoldBattleReadyHeld)
+		return false;
+	out = g_coopTestHoldBattleReadyStash;
+	g_coopTestHoldBattleReadyStash = Json::Value();
+	g_coopTestHoldBattleReadyHeld = false;
+	return true;
+}
+
+// The guarded statement's call: true = armed, @a ready stashed (the caller does not send it).
+static bool coopTestHoldBattleReadyStash(const Json::Value& ready)
+{
+	{
+		std::lock_guard<std::mutex> lock(g_coopTestHoldBattleReadyMutex);
+		if (!g_coopTestHoldBattleReadyArmed)
+			return false;
+		g_coopTestHoldBattleReadyStash = ready;
+		g_coopTestHoldBattleReadyHeld = true;
+	}
+	Log(LOG_INFO) << "[coop-test] hold_battle_ready: battle_ready stashed (battleId="
+		<< ready.get("battleId", 0u).asUInt() << ") - sent by the lever's release";
+	return true;
+}
+
 void initBattleAuthority(std::uint32_t battleId)
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -5147,6 +5386,10 @@ void initBattleAuthority(std::uint32_t battleId)
 	g_coopBattleEndTeardownLatch = false;
 	// W2-P7 S-B1.2: a new battle never inherits an unconsumed display-only arm.
 	g_coopDebriefDisplayPending = false;
+	// W2-P8b S-A.1 (AMENDMENT P8b-1 section 4 "Shared state"): the equip phase's state and its counters start clear;
+	// the counters are cleared here and nowhere else (F2733 rule).
+	coopEquipStateZeros();
+	coopEquipCounterZeros();
 }
 
 // SPEC 16 (W1-P17) M2: the deferred-pause-modal latch. Set by
@@ -5656,6 +5899,9 @@ void resetBattleAuthority()
 		g_coopInvLastWarning.clear();
 		g_coopInvGuard = coopInvGuardZeros();
 	}
+	// W2-P8b S-A.1 (AMENDMENT P8b-1 section 4 "Shared state"): the equip phase's state is battle-scoped too; its
+	// counters are NOT cleared here (initBattleAuthority() only, F2733 rule).
+	coopEquipStateZeros();
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -23245,7 +23491,7 @@ void onBlobChunkAppended(Game* game)
 	ready["battleId"] = battleId;
 	ready["h"] = Json::Value(Json::objectValue); // IR-5: presence-gated, empty until R2-P9
 	ready["saveBlob"] = saveBlobHex;
-	CoopEmit::sendBattle(ready);
+	if (!coopTestHoldBattleReadyStash(ready)) CoopEmit::sendBattle(ready); // W2-P8b S-A.1 (Q16 a): TEST-ONLY hold_battle_ready, inert unless armed
 
 	if (g_pendingClient.resumed)
 	{

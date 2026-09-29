@@ -128,6 +128,7 @@ public:
 	static bool overlapItems(BattleUnit *unit, BattleItem *item, const RuleInventory *slot, int x = 0, int y = 0);
 	/// Shows a warning message.
 	void showWarning(const std::string &msg);
+	WarningMessage* getWarning() const { return _warning; } // W2-P8b S-A.1 (Q15 a): read-only, the message line
 	/// Animate surface.
 	void animate();
 	/// Get current animation frame for inventory.

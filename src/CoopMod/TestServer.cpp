@@ -96,6 +96,7 @@
 #include "../Battlescape/Map.h"
 #include "../Battlescape/Camera.h"
 #include "../Battlescape/Explosion.h" // W2-P6b S-E.1: display_rules constants HIT_FRAMES
+#include "../Battlescape/WarningMessage.h" // W2-P8b S-A.1: inventory_view lineText / lineVisible
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleInventory.h"
@@ -4647,6 +4648,16 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			}
 		}
 		resp["ground"] = ground;
+		// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10, Q8 (a),
+		// Q15 (a)): preBattle = this screen is the pre-battle InventoryState the equip phase recorded; okPressed = the
+		// flag the co-op layer last applied to its OK button's look; lineText / lineVisible = the screen's own message
+		// line (the Inventory's WarningMessage, Q15 (a)'s accessor): the text it holds and whether it is shown (it
+		// fades 1.2 s after a show, F3112).
+		resp["preBattle"] = CoopDelta::equipIsScreen(invState);
+		resp["okPressed"] = CoopDelta::equipOkPressed();
+		WarningMessage* line = invSurf ? invSurf->getWarning() : nullptr;
+		resp["lineText"] = line ? line->getMessageText() : std::string();
+		resp["lineVisible"] = line ? line->getVisible() : false;
 		resp["ok"] = true;
 	}
 	else if (cmd == "inventory_click")
@@ -4694,6 +4705,30 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			{
 				rx = 288; ry = 32; rw = 32; rh = 25;
 			}
+			// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10, F3119):
+			// the ctor rects of InventoryState's OK, PREV, NEXT and the two template buttons (InventoryState.cpp :124-:126,
+			// :131-:132 with _templateBtnX 288, _createTemplateBtnY 90, _applyTemplateBtnY 113; xcom1's `inventory`
+			// interface overrides none of them). A real click, the same recipe as above.
+			else if (widget == "ok")
+			{
+				rx = 237; ry = 1; rw = 35; rh = 22;
+			}
+			else if (widget == "prev")
+			{
+				rx = 273; ry = 1; rw = 23; rh = 22;
+			}
+			else if (widget == "next")
+			{
+				rx = 297; ry = 1; rw = 23; rh = 22;
+			}
+			else if (widget == "create_template")
+			{
+				rx = 288; ry = 90; rw = 32; rh = 22;
+			}
+			else if (widget == "apply_template")
+			{
+				rx = 288; ry = 113; rw = 32; rh = 22;
+			}
 			Surface* hit = nullptr;
 			for (auto* s : invState->getSurfaces())
 			{
@@ -4705,7 +4740,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				}
 			}
 			if (rw == 0)
-				resp["error"] = "inventory_click: unknown widget (paperdoll|unload)";
+				resp["error"] = "inventory_click: unknown widget (paperdoll|unload|ok|prev|next|create_template|apply_template)";
 			else if (!hit)
 				resp["error"] = "inventory_click: no interactive surface with the widget's rect";
 			else
@@ -6642,6 +6677,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// S-R.2's client send and host apply write it.
 		resp["renames"] = CoopArbiter::renamesProbe();
 		resp["armKey"] = g_armKey; // W2-P8 S-C2.3 (F2924, SC2-G1): TEST-ONLY battle_arm_key's record
+		// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10): the
+		// pre-battle equip phase's state and counters (CoopDelta.h equipProbe; the state resets with the battle, the
+		// counters only in initBattleAuthority()). Commit S-A.1 exposes their zeros; commit S-A.2 writes them.
+		resp["equip"] = CoopDelta::equipProbe();
 		// W2-P4 S-E2.1 (amendment C3 D147 section 3): HOST - the envelopes onIntent
 		// took into its checks, {iseq, kind, actorId, skill} (the wire `skill` field).
 		resp["intentsReceivedLog"] = CoopArbiter::intentsReceivedLog();
@@ -9975,12 +10014,62 @@ std::string TestServer::execute(const std::string& line)
 				}
 				else if (act == "ok")
 				{
-					inv->btnOkClick(nullptr);
+					// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10,
+					// Q11 (a)): on the pre-battle screen with the equip phase open, OK is a ready TOGGLE (D206 c), so
+					// this lever only SETS ready: a press when this seat is not ready, nothing when it is (noop). Any
+					// other screen (no equip phase): vanilla btnOkClick as before. preBattle = the first case applied.
+					const bool preBattle = coopEquipOpen() && CoopDelta::equipIsScreen(inv);
+					if (preBattle && coopEquipLocalReady())
+						resp["noop"] = true;
+					else
+						inv->btnOkClick(nullptr);
+					resp["preBattle"] = preBattle;
+					resp["ok"] = true;
+				}
+				else if (act == "unready")
+				{
+					// W2-P8b S-A.1 (Q11 (a)): the other half - one OK press takes this seat's ready back when it is
+					// ready on the pre-battle screen with the equip phase open; otherwise nothing (noop).
+					const bool preBattle = coopEquipOpen() && CoopDelta::equipIsScreen(inv);
+					if (preBattle && coopEquipLocalReady())
+						inv->btnOkClick(nullptr);
+					else
+						resp["noop"] = true;
+					resp["preBattle"] = preBattle;
 					resp["ok"] = true;
 				}
 				else
 					resp["error"] = "unknown inventory action";
 			}
+		}
+		else if (cmd == "hold_battle_ready")
+		{
+			// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10, P8b-1
+			// RULINGS Q16 (a)): TEST-ONLY, CLIENT. {on: true} arms it: the client's handshake then stashes its
+			// battle_ready instead of sending it, so the host stays in phase Handshake (the host-closes-its-briefing-
+			// before-battle_ready window, made deterministic). {on: false} disarms it and sends the stash, if any, from
+			// here. Without `on` it only reports. Response: {ok, armed, held (a stash waits), sent (the release sent
+			// one)}. Inert unless armed (STOP-IF 16).
+			if (req.isMember("on"))
+			{
+				const bool on = req.get("on", false).asBool();
+				coopTestHoldBattleReadyArm(on);
+				if (!on)
+				{
+					Json::Value stash;
+					const bool had = coopTestHoldBattleReadyTake(stash);
+					if (had)
+					{
+						CoopEmit::sendBattle(stash);
+						Log(LOG_INFO) << "[coop-test] hold_battle_ready: released - battle_ready sent (battleId="
+							<< stash.get("battleId", 0u).asUInt() << ")";
+					}
+					resp["sent"] = had;
+				}
+			}
+			resp["armed"] = coopTestHoldBattleReadyArmed();
+			resp["held"] = coopTestHoldBattleReadyHeld();
+			resp["ok"] = true;
 		}
 		else if (cmd == "close_briefing")
 		{

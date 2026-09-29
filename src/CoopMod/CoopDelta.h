@@ -353,6 +353,29 @@ Json::Value hostCoveredProbe();
 /// skill, medikit}}, cursorReturned, refreshes, medikitRefused, coveredDetach}.
 Json::Value hostScreensProbe();
 
+// ----- W2-P8b S-A.1 (the RED commit): the pre-battle equip phase's probes -----
+// Spec docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4
+// ("Shared state", step 10). TEST INTROSPECTION ONLY (TestServer event_state /
+// inventory_view), never on the wire. Bodies: connectionTCP.cpp, beside the
+// state (g_equip) and its zeros. Commit S-A.1 adds the readers; commit S-A.2's
+// equip entry, ready toggle, barrier and end write the state.
+
+/// [equip] BOTH: {phase none|open|ended, hostOpen, openAnnounced, ready [4 bools
+/// by seat], counted [4 bools], pile [x,y,z] or null, entryDone, screen (a
+/// pre-battle screen is recorded), passThrough, abortPending, barrierDone,
+/// okPressed, and the counters entries, closes, heldUntilOpen, lateDenied,
+/// endTurnIgnored, readySyncs, endSyncs, waitLineShows, forceCloseSkips,
+/// heldTurnScreenPresses} (each field's meaning: connectionTCP.cpp, g_equip).
+Json::Value equipProbe();
+
+/// true iff @a state is the pre-battle InventoryState the equip phase recorded
+/// (identity compare, never dereferenced) - inventory_view `preBattle`.
+bool equipIsScreen(const void* state);
+
+/// The flag the co-op layer last applied to the pre-battle OK button's look
+/// (Q8) - inventory_view `okPressed`.
+bool equipOkPressed();
+
 } // namespace CoopDelta
 
 // ----- W2-P2 S-C, commit S-C.2: host combat cues (spec (b)11, (b)14) -----
