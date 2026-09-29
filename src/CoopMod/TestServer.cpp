@@ -4213,7 +4213,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "map_tile_click_pos"
 		&& cmd != "find_doors" && cmd != "battle_close_ufo_doors"
 		&& cmd != "battle_ui_press" && cmd != "tile_census" && cmd != "inventory_view" && cmd != "inventory_click"
-		&& cmd != "inventory_cursor_clear" && cmd != "battle_arm_key")
+		&& cmd != "inventory_cursor_clear" && cmd != "battle_arm_key" && cmd != "equip_layouts")
 	{
 		return false;
 	}
@@ -4658,6 +4658,62 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		WarningMessage* line = invSurf ? invSurf->getWarning() : nullptr;
 		resp["lineText"] = line ? line->getMessageText() : std::string();
 		resp["lineVisible"] = line ? line->getVisible() : false;
+		resp["ok"] = true;
+	}
+	else if (cmd == "equip_layouts")
+	{
+		// W2-P8b S-C.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 sections 4 S-C and 5; Q9 (a),
+		// owner D209): TEST-ONLY, read-only - the saved equipment layouts THIS machine's pre-battle bulk tools read and
+		// write: the SavedGame global layout `index` (default 0; Ctrl+digit saves it, the digit applies it) and, with
+		// `unit`, that unit's Soldier personal layout (keyInvSavePersonalEquipment saves it, keyInvLoadPersonalEquipment
+		// applies it; null without a geoscape soldier), plus the live Options keys the screen binds to the tools. Each
+		// layout item {type, slot, x, y, fuse, fixed, ammo: [the loaded ammo types]}.
+		auto layoutJson = [](const std::vector<EquipmentLayoutItem*>& layout)
+		{
+			Json::Value arr(Json::arrayValue);
+			for (const auto* li : layout)
+			{
+				Json::Value j(Json::objectValue);
+				j["type"] = li->getItemType() ? li->getItemType()->getType() : std::string();
+				j["slot"] = li->getSlot() ? li->getSlot()->getId() : std::string();
+				j["x"] = li->getSlotX();
+				j["y"] = li->getSlotY();
+				j["fuse"] = li->getFuseTimer();
+				j["fixed"] = li->isFixed();
+				Json::Value am(Json::arrayValue);
+				for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
+					if (const RuleItem* a = li->getAmmoItemForSlot(s)) am.append(a->getType());
+				j["ammo"] = am;
+				arr.append(j);
+			}
+			return arr;
+		};
+		const int index = req.get("index", 0).asInt();
+		if (index < 0 || index >= SavedGame::MAX_EQUIPMENT_LAYOUT_TEMPLATES)
+		{
+			resp["error"] = "equip_layouts: index out of range";
+			return true;
+		}
+		resp["index"] = index;
+		resp["global"] = layoutJson(*sg->getGlobalEquipmentLayout(index));
+		resp["globalArmor"] = sg->getGlobalEquipmentLayoutArmor(index);
+		if (req.isMember("unit"))
+		{
+			BattleUnit* u = findUnit(req.get("unit", -1).asInt());
+			Soldier* s = u ? u->getGeoscapeSoldier() : nullptr;
+			resp["unit"] = req.get("unit", -1).asInt();
+			resp["soldier"] = (s != nullptr);
+			resp["personal"] = s ? layoutJson(*s->getPersonalEquipmentLayout()) : Json::Value();
+			resp["personalArmor"] = (s && s->getPersonalEquipmentArmor()) ? s->getPersonalEquipmentArmor()->getType() : std::string();
+		}
+		Json::Value keys(Json::objectValue);
+		keys["keyInvCreateTemplate"] = (int)Options::keyInvCreateTemplate;
+		keys["keyInvApplyTemplate"] = (int)Options::keyInvApplyTemplate;
+		keys["keyInvClear"] = (int)Options::keyInvClear;
+		keys["keyInvAutoEquip"] = (int)Options::keyInvAutoEquip;
+		keys["keyInvSavePersonalEquipment"] = (int)Options::keyInvSavePersonalEquipment;
+		keys["keyInvLoadPersonalEquipment"] = (int)Options::keyInvLoadPersonalEquipment;
+		resp["keys"] = keys;
 		resp["ok"] = true;
 	}
 	else if (cmd == "inventory_click")
