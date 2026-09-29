@@ -5997,6 +5997,30 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 				return std::string();
 			};
 		}
+		else if (field == "name")
+		{
+			// W2-P8 S-R.1 (AMENDMENT P8-4 section 4.3 R-5; AMENDMENT P8-4c: T0-R1 proved the names equal, so
+			// they are hashed): the unit's own stored name, the delta's `name`, with BattleUnit::setName.
+			read = [u]() { return Json::Value(u->getName(nullptr)); };
+			write = [u](const Json::Value& v) { u->setName(v.asString()); return std::string(); };
+		}
+		else if (field == "rawName")
+		{
+			// W2-P8 S-R.1 (R-5): the geoscape Soldier's raw name, the delta's `rawName`, with
+			// Soldier::setName; "" and the write refused for a unit without a Soldier.
+			read = [u]()
+			{
+				return Json::Value(u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getName(false) : std::string());
+			};
+			write = [u](const Json::Value& v) -> std::string
+			{
+				Soldier* s = u->getGeoscapeSoldier();
+				if (!s)
+					return "unit has no geoscape Soldier";
+				s->setName(v.asString());
+				return "";
+			};
+		}
 	}
 	else if (cls == "item")
 	{
@@ -6609,6 +6633,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// above by initBattleAuthority() only). Commit S-C2.1 exposes their zeros; commit S-C2.2 writes them.
 		resp["hostCovered"] = CoopDelta::hostCoveredProbe();
 		resp["hostScreens"] = CoopDelta::hostScreensProbe();
+		// W2-P8 S-R.1 (docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-4 section 4.3 R-4): the rename order's
+		// probe (CoopArbiter.h; zeroed and reset with the probes above). Commit S-R.1 exposes its zeros; commit
+		// S-R.2's client send and host apply write it.
+		resp["renames"] = CoopArbiter::renamesProbe();
 		resp["armKey"] = g_armKey; // W2-P8 S-C2.3 (F2924, SC2-G1): TEST-ONLY battle_arm_key's record
 		// W2-P4 S-E2.1 (amendment C3 D147 section 3): HOST - the envelopes onIntent
 		// took into its checks, {iseq, kind, actorId, skill} (the wire `skill` field).
@@ -7039,7 +7067,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		const bool combatKind = kind == "shoot" || kind == "throw" || kind == "prime"
 			|| kind == "melee" || kind == "psi" || kind == "use_item" || kind == "medikit"
 			|| kind == "reload" || kind == "reaction_hands" || kind == "skill"
-			|| kind == "inv_move"; // W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2)
+			|| kind == "inv_move" // W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2)
+			|| kind == "rename"; // W2-P8 S-R.1 (AMENDMENT P8-4 section 4.3)
 		CoopCombatIntentArgs combatArgs;
 		if (req.isMember("plan") && req["plan"].isObject())
 		{
@@ -7100,6 +7129,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				}
 			}
 		}
+
+		// W2-P8 S-R.1 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3; the draft
+		// rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.6 RN3): the `rename` order's new name, the
+		// request's top-level `name`. Before S-R.2 sendClientIntent() drops the unknown kind (not sent).
+		if (kind == "rename")
+			combatArgs.name = req.get("name", "").asString();
 
 		const std::uint32_t iseq = CoopArbiter::sendClientIntent(
 			kind.c_str(), actor, toDir, turret, kneel, tuBasisOverride,
@@ -10192,6 +10227,12 @@ std::string TestServer::execute(const std::string& line)
 						ju["psiWeapon"] = psi ? psi->getId() : -1;
 					}
 					ju["name"] = u->getName(_game->getLanguage());
+					// W2-P8 S-R.1 (AMENDMENT P8-4 section 4.3; AMENDMENT P8-4c ruling 1, F2948): pure reads of the
+					// two names S-R.2 ships and hashes. `_name` = the unit's own stored name (getName with no
+					// language returns it for every unit type; `name` above translates a non-soldier's type);
+					// `rawName` = the geoscape Soldier's raw name (Soldier::getName(false); "" without one).
+					ju["_name"] = u->getName(nullptr);
+					ju["rawName"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getName(false) : std::string();
 					ju["isPlayerSoldier"] = (u->getGeoscapeSoldier() != nullptr);
 					// PRD-J09: in-battle control split. _coop 0 = host-controlled,
 					// 1 = client-controlled; in SHARED it is derived from the owning

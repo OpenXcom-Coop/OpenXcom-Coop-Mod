@@ -15,8 +15,9 @@ the second player on purpose):
 
   HC1  Per-field coverage. For each of the 33 A5.2 rows, plus the two rows
        W2-P3 S-C adds (amendment B1 RQ9: battle.reinforcementsMemory,
-       unit.specialWeapons; red on commit S-C.1, green on S-C.2), the CLIENT
-       runs the
+       unit.specialWeapons; red on commit S-C.1, green on S-C.2) and the two
+       rows W2-P8 S-R adds (AMENDMENT P8-4 R-5: unit.name, unit.rawName; red
+       on commit S-R.1, green on S-R.2), the CLIENT runs the
        test-only `field_poke` lever (one field written with the delta
        applier's own setter, every bucket hashed by name plus saveBlob, the
        field restored with the same setter - all inside one command). The row
@@ -187,6 +188,14 @@ HC1_ROWS = (
     ("battle.reinforcementsMemory", "battle", "battle", "reinforcementsMemory",
      lambda b, c: dict(b, **{HC_WAVE: (b.get(HC_WAVE) or 0) + 1})),
     ("unit.specialWeapons", "unit", "H", "specialWeapons", lambda b, c: list(b) + [A_WEAPON]),
+    # W2-P8 S-R (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3 R-5, the draft
+    # rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.6 "HC1 rows (iff hashed)"; AMENDMENT P8-4c: T0-R1
+    # found the names equal on both machines at battle start, F2945, so S-R.2 hashes them in `synced`): H's
+    # own stored name (the delta's `name`, BattleUnit::setName) and its geoscape Soldier's raw name (the
+    # delta's `rawName`, Soldier::setName), each poked to its value + "x". RED (commit S-R.1): the poke moves
+    # no bucket.
+    ("unit.name", "unit", "H", "name", lambda b, c: b + "x"),
+    ("unit.rawName", "unit", "H", "rawName", lambda b, c: b + "x"),
 )
 
 

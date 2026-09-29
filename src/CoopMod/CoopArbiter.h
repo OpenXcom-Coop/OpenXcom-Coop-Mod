@@ -155,6 +155,11 @@ struct CoopCombatIntentArgs
 	int invY = 0;
 	int invWeapon = -1;
 	bool invSwap = false;
+	// W2-P8 S-R.1 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3; the draft
+	// rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.3 (3); owner D167 = c): the `rename`
+	// order's new name (the name field's whole text). Declared on commit S-R.1 because the
+	// battle_intent lever fills it; nothing reads it before S-R.2.
+	std::string name;
 };
 
 /**
@@ -629,6 +634,13 @@ Json::Value intentsReceivedLog();
 int invLocalWrites();
 std::string invLastWarning();
 Json::Value invGuard();
+/// W2-P8 S-R.1 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3 R-4)
+/// test/introspection (TestServer event_state `renames`), battle-scoped: zeroed and reset
+/// with the S-C1 / S-C2 inventory probes by CoopDelta::inventoryProbesReset() (C2-5). Written
+/// by nothing on commit S-R.1; S-R.2 adds the writers.
+///   renamesProbe()  {sent (CLIENT: rename orders sent), applied, refused (HOST), lastRefusal
+///                   (HOST: the last refusal; null before the first)}.
+Json::Value renamesProbe();
 
 // TEST-ONLY (W1-P7, RB-D26/RB-D32 discipline): delete once real-network
 // latency/loss can be injected another way.

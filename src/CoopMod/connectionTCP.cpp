@@ -2889,8 +2889,8 @@ static void debriefReleaseToken(const void* state)
 // battle_end teardown runs resetBattleAuthority() before a test can read a force-close made at the battle's
 // end (F2733). Commit S-C1.1 adds the storage, the zeros, the readers and the reset; commit S-C1.2's host
 // latch, its pump consumer and the client force-close are the writers. The mutex is a leaf.
-//   g_invHostDirty     HOST:   {pending, sets {move, load, unload, reload, close}, flushes, emptyFlushes,
-//                              heldByGate}
+//   g_invHostDirty     HOST:   {pending, sets {move, load, unload, reload, close, rename}, flushes,
+//                              emptyFlushes, heldByGate} (`rename`: W2-P8 S-R.1, AMENDMENT P8-4 R-4)
 //   g_invForcedCloses  CLIENT: {count, byReason {unit_out, not_commanded, side, battle_end}, notOnTop,
 //                              coveredDetach (W2-P8 S-C2, AMENDMENT P8-4 C2-3: a covered screen's unit
 //                              detached while another screen is on top of it)}
@@ -2901,7 +2901,7 @@ static Json::Value hostInventoryLatchZeros()
 	Json::Value r(Json::objectValue);
 	r["pending"] = false;
 	Json::Value sets(Json::objectValue);
-	for (const char* k : { "move", "load", "unload", "reload", "close" })
+	for (const char* k : { "move", "load", "unload", "reload", "close", "rename" }) // + rename: W2-P8 S-R.1 (R-4)
 		sets[k] = 0;
 	r["sets"] = sets;
 	r["flushes"] = 0;
@@ -2974,6 +2974,26 @@ static Json::Value hostScreensZeros()
 static Json::Value g_hostCovered = hostCoveredZeros();
 static Json::Value g_hostScreens = hostScreensZeros();
 
+// ----- W2-P8 S-R.1 (docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-4 section 4.3 R-4; the draft
+// rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.3 (6); owner D167 = c): the in-battle rename order's probe.
+// TEST INTROSPECTION ONLY (TestServer event_state `renames`), never on the wire. Zeroed and reset with the
+// probes above, in inventoryProbesReset() only (C2-5). Commit S-R.1 adds the storage, the zeros, the reader
+// (CoopArbiter::renamesProbe, right after this namespace) and the reset; commit S-R.2's client send and host
+// apply write it. Same leaf mutex.
+//   g_renames  {sent (CLIENT: rename orders sent), applied (HOST: renames applied), refused (HOST: renames
+//              the validator refused), lastRefusal (HOST: the last refusal; null before the first)}
+static Json::Value renamesZeros()
+{
+	Json::Value r(Json::objectValue);
+	r["sent"] = 0;
+	r["applied"] = 0;
+	r["refused"] = 0;
+	r["lastRefusal"] = Json::Value(Json::nullValue);
+	return r;
+}
+
+static Json::Value g_renames = renamesZeros();
+
 Json::Value hostInventoryLatchProbe()
 {
 	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
@@ -3006,6 +3026,7 @@ void inventoryProbesReset()
 	g_invForcedCloses = inventoryForceCloseZeros();
 	g_hostCovered = hostCoveredZeros(); // W2-P8 S-C2.1 (C2-5)
 	g_hostScreens = hostScreensZeros();
+	g_renames = renamesZeros(); // W2-P8 S-R.1 (C2-5, R-4)
 }
 
 // W2-P8 S-C1.2 (S-C1 PINNED STAGE TEXT step 6): the CLIENT force-close's probe writers (the force-close lives
@@ -3061,6 +3082,14 @@ static void noteHostScreenCounter(const char* key)
 }
 
 } // namespace CoopDelta
+
+// W2-P8 S-R.1 (AMENDMENT P8-4 section 4.3 R-4): the `renames` probe's reader (declared in CoopArbiter.h beside
+// invGuard()), kept next to its storage, zeros and reset above.
+Json::Value CoopArbiter::renamesProbe()
+{
+	std::lock_guard<std::mutex> lock(CoopDelta::g_invLatchProbeMutex);
+	return CoopDelta::g_renames;
+}
 
 // ===== W2-P2 S-A, commit S-A.2: the delta core (CoopDelta.h) =====
 // Spec rewrite/prompts/w2p2_delta_core.md (b)1-5, 9, 15, 16 (owner ruling

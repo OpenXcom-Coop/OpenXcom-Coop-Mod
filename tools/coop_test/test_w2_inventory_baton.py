@@ -6,7 +6,7 @@ the host too, V12). Spec docs rewrite/prompts/w2p8_inventory.md: S-C1 PINNED
 STAGE TEXT (AMENDMENT P8-3), AMENDMENT P8-3a (C7: item ids from each row's own
 staging record), AMENDMENT P8-3b.
 
-ALL FOUR ROWS ARE DECLARED GREEN AT RED (OR2 (a), F2409; the W2-P7 S-D1
+IB1-IB4 ARE DECLARED GREEN AT RED (OR2 (a), F2409; the W2-P7 S-D1
 precedent): S-A put the baton check at the inventory execution points on both
 machines, and onIntent's not_your_go term refuses a forged order before any
 per-kind branch. This file is the regression proof of D130's traditional rule on
@@ -29,6 +29,16 @@ on its own P8-2 T0-1 tile with the K0 kit through client-first lever pairs:
        actor C, plan {op move, item <the row's grenade>, to {STR_LEFT_HAND, 0,
        0}}}: client lastDeny.reason not_your_go; host closedContexts gains
        nothing; nothing executed; EQUAL.
+  IB5  W2-P8 S-R (owner D167 = c; AMENDMENT P8-4 section 4.3, the draft
+       rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.6, AMENDMENT P8-4c): an
+       off-baton rename (baton 0). The client opens C's inventory (LOOK), clicks
+       the name field and types "x" (test_w2_inventory.py's T0-R2 recipe; no
+       staging: typing needs no kit), closes with battle_close_inventory. RED
+       (commit S-R.1): client coopIntentsSent.rename +0, C's name changed on the
+       client only. GREEN: applied (R-M2: a rename needs only ownership) -
+       coopIntentsSent.rename +1, client renames.sent +1, host renames.applied
+       +1, C's name, _name and rawName = the old name + "x" on both, client
+       coopLocalExecBlocked +0; EQUAL. The only row not declared green at red.
   (the pass: host battle_action end_turn_button -> coopActiveSeat 1 on both; T0-5
        = F2408. Not a row: its record is printed and IB3 / IB2 need it.)
   IB3  host LOOK off-baton (V12, baton 1). The host opens H's inventory, picks H's
@@ -83,7 +93,8 @@ IB4_TILE = (0, 34, 0)             # P8-2 T0-1 IV2 tile
 IB2_TILE = (1, 33, 0)             # P8-2 T0-1 IV4 tile
 IB3_H_TILE = STAGE_H              # P8-2 T0-1 STAGE_H (48,24,0)
 H_TU_MAX = 58
-PASS_WAIT_S = 10.0                # T0-5 (F2408): the baton 0 -> 1 on both within 0.1 s of the host's END TURN
+IB5_LETTERS = (("x", 120),)       # W2-P8 S-R: draft section 2.6 IB5 "types one letter" (T0-R2's first letter)
+PASS_WAIT_S = 10.0               # T0-5 (F2408): the baton 0 -> 1 on both within 0.1 s of the host's END TURN
 CLICK_WAIT_S = 2.0
 ORDER_TIMEOUT_S = 20
 
@@ -221,6 +232,41 @@ def ib4_forged_order(host, client, ctx):
     fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}, "IB4")
     fails += tu_fails(rec, C_TU_MAX, "IB4")
     fails += common_fails(host, client, before, {}, None, "IB4")
+    finish(fails)
+
+
+def ib5_client_rename_off_baton(host, client, ctx):
+    """W2-P8 S-R (draft section 2.6 IB5): the client renames C while the baton is the host's."""
+    notes = []
+    leftover = inv.ensure_closed(client, notes)
+    session.wait_host_idle(host, client, timeout=30)
+    pre = baton_precondition(host, client, 0, "IB5")
+    staged = diff_buckets(host, client)
+    n0 = inv.names_both(host, client, C_ID)
+    want = (n0["client"]["name"] or "") + "".join(ch for ch, _ in IB5_LETTERS)
+    before = inv.snap_rn(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    ev = {"leftover": leftover}
+    ready = inv.open_name_field(client, C_ID, ev)
+    if ready:
+        inv.type_letters(client, C_ID, IB5_LETTERS, ev)
+    close_client(client, ev)
+    ev["hostNamesAtS"] = inv.wait_names(host, C_ID, want) if ready else None
+    rec = inv.collect_rn(host, client, seq0)
+    n1 = inv.names_both(host, client, C_ID)
+    evidence("IB5", {"seats": seats(host, client), "preDiff": staged, "namesBefore": n0, "namesAfter": n1,
+                     "want": want, "ui": ev, "rn": inv.rn_view(before, rec), "notes": notes})
+    fails = list(notes) + list(pre) + inv.pre_fails(staged)
+    if not ready:
+        fails += inv.field_fails(ev, "IB5", "the client")
+    else:
+        fails += inv.rename_order_fails(before, rec, len(IB5_LETTERS), "IB5")
+        fails += inv.names_fails(n1, want, "IB5")
+        db = inv.dnum(before["client"]["coopLocalExecBlocked"], rec["client"]["coopLocalExecBlocked"])
+        if db != 0:
+            fails.append(f"IB5: client coopLocalExecBlocked +{db} (want +0: a rename needs only ownership, R-M2)")
+        fails += inv.closed_fails(ev, "IB5", "the client")
+    fails += common_fails(host, client, before, {}, None, "IB5")
     finish(fails)
 
 
@@ -409,8 +455,8 @@ def boot(host, client):
     return {}
 
 
-SCENARIOS = (("IB1", ib1_client_look), ("IB4", ib4_forged_order), ("PASS", None), ("IB3", ib3_host_look),
-             ("IB2", ib2_baton_holder_moves))
+SCENARIOS = (("IB1", ib1_client_look), ("IB4", ib4_forged_order), ("IB5", ib5_client_rename_off_baton),
+             ("PASS", None), ("IB3", ib3_host_look), ("IB2", ib2_baton_holder_moves))
 
 
 def main():

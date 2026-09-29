@@ -95,6 +95,48 @@ live host twin before S-C1's host sync):
   and TU unchanged on both, every bucket EQUAL); IV11b answered `invalid_target`
   (S-A's host answer to op load / unload, ST1 (a)). IV1-IV5, IV11-IV13 stay green.
 
+S-R rows (W2-P8 S-R, owner D167 = c: an in-battle rename is an order the host applies
+and both players see it; AMENDMENT P8-4 section 4.3 (R-1..R-5), the draft
+rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.6, AMENDMENT P8-4c (the S-R TASK 0
+pins and rulings 1-3, F2944-F2952)). RN0 runs FIRST (at battle start); RN1-RN4 run
+after IV11b, in this order. Only RN4 stages (typing needs no kit; C and H stay where
+the earlier rows left them). The typing recipe (P8-4c T0-R2, F2949):
+battle_open_inventory <unit>; 0.3 s; ONE inject_input click at (266, 29) (the name
+TextEdit (28,6,210,17) centre x 2); 0.3 s; each letter one inject_input key, 0.3 s
+between; the screen closes only through battle_close_inventory (ruling 2, F2951: ESC
+or the INVENTORY key with the field focused blanks the name).
+  RN0   names at battle start (ruling 1, F2948; before S-R.2 hashes them, R-5):
+        battle_state units' `_name` (the unit's own stored name) and `rawName` (its
+        geoscape Soldier's raw name, "" without one) on both machines. Every unit's
+        `name`, `_name` and `rawName` equal on both, `_name` empty for every
+        non-SOLDIER unit, `rawName` empty for every unit without a Soldier. Declared
+        GREEN at red (the probes are S-R.1's). A non-empty `_name` on a non-soldier
+        is a STOP (ruling 1), never a fixture change.
+  RN1   the client renames C: opens C's inventory, clicks the name field, types "xy",
+        then End (ruling 3, F2952: a key that changes nothing), closes. RED: client
+        coopIntentsSent.rename +0, C's name changed on the client only. GREEN:
+        coopIntentsSent.rename +2, client renames.sent +2 and unchanged by End
+        (Q3 a), host renames.applied +2, C's name, _name and rawName = the old name
+        + "xy" on both, client inFlight null; EQUAL.
+  RN2   the host renames H the same way on its own screen. RED: the client's H name
+        unchanged. GREEN: host invHostDirty.sets.rename +2, host syncEvsEmitted
+        +>= 1, the client's H names = the host's (the old name + "xy") while the
+        host's screen is still open; EQUAL.
+  RN3   forged rename: client battle_intent {kind rename, actor H, name "x"}. RED:
+        not sent (sendClientIntent drops the unknown kind). GREEN: client lastDeny
+        {iseq, reason not_your_unit}, H's names unchanged on both, host
+        renames.applied +0; EQUAL.
+  RN4   a rename never waits (R-M2), in the T0-4 window (test_w2_inventory_held.py
+        IH1a's pins: the host's snap shot at fire dial 1; C K0 on (2,33,0)): the
+        client clicks C's name field before the fire and types "z" on its first
+        `shot` cue. RED: as RN1. GREEN: host renames.applied +1 while the host's
+        shot still runs (host busyOwnerSeat != -1 at the apply), host
+        syncEvsEmitted +0 over the row and invHostDirty.heldByGate +> 0 (the name
+        rode the shot's evs), client coopPendingIntent null at every sample (never
+        held), C's names = the old name + "z" on both; EQUAL.
+  RED (commit S-R.1): RN1-RN4 fail on their RED cells; RN0, IV1-IV13 and the S-B
+  rows pass.
+
 Common asserts, every row (after wait_host_idle): hash_now {full:true} every bucket
 EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged and host 0;
 client invLocalWrites 0; host inventory_view.open false; client invGuard as the row
@@ -166,7 +208,9 @@ ROW_TILE = {"IV1": (0, 33, 0), "IV2": (0, 34, 0), "IV3": (49, 25, 0), "IV4": (1,
             "IV5": (49, 24, 0), "IV11": (3, 32, 0), "IV12": (49, 23, 0), "IV13": (49, 26, 0),
             # S-B (P8-2 T0-1)
             "IV6": (0, 32, 0), "IV7": (1, 32, 0), "IV8": (0, 35, 0), "IV9": (2, 32, 0), "IV10": (48, 25, 0),
-            "IV11b": (1, 34, 0)}
+            "IV11b": (1, 34, 0),
+            # S-R (P8-3b T0-4 window A: "C K0 on STAGE_C (2,33,0)", test_w2_inventory_held.py IH1A_TILE)
+            "RN4": (2, 33, 0)}
 STAGE_H = (48, 24, 0)             # P8-2 T0-1 STAGE_H
 ROW_DIR = 2                       # section 8.2: tele_both(C, <row tile>, 2)
 
@@ -203,6 +247,24 @@ TEXT_DENY = {
     "no_ammo_loaded": "No Ammunition Loaded!",               # xcom1 STR_NO_AMMUNITION_LOADED
 }
 TU_BASIS_BAD = 99                 # F1956: "tuBasis -1" cannot be sent (-1 = recompute); pinned 99
+
+# ----- S-R (AMENDMENT P8-4 section 4.3; AMENDMENT P8-4c = ledger `## W2-P8 S-R TASK 0`, docs
+# rewrite/w2p8-task0/sr/t0_sr.py and run_par.log: "battle_open_inventory {unit}; 0.3 s settle; ONE inject_input
+# {kind click, x 266, y 29} (the name TextEdit (28,6,210,17) centre x 2); 0.3 s; keys one per inject_input {kind
+# key} with 0.3 s between; close with battle_close_inventory only. Each letter changes the typist's name within
+# 0.101 s") -----
+NAME_FIELD_RECT = (28, 6, 210, 17)  # InventoryState.cpp :114 `new TextEdit(this, 210, 17, 28, 6)` (list_widgets x,y,w,h)
+NAME_CLICK = (266, 29)              # P8-4c T0-R2: the rect's centre x 2 (the harness window is 640x400)
+RN_LETTERS = (("x", 120), ("y", 121))   # T0-R2's two letters; the inject_input key = the SDL sym (unicode = sym < 128)
+RN4_LETTERS = (("z", 122),)         # draft section 2.6 RN4: one letter
+SDLK_END = 279                      # deps/include/SDL/SDL_keysym.h; P8-4c ruling 3 (F2952): End changes no text
+RN3_NAME = "x"                      # draft section 2.6 RN3
+KEY_SETTLE_S = 0.3                  # F2888 / T0-R2: after the open, after the click, between keys
+NAME_CHANGE_S = 2.0                 # T0-R2: 0.101 s per letter on the typist; a bounded record, never a condition
+NAME_SYNC_S = 3.0                   # GREEN: the other machine shows the typist's name within this
+END_QUIET_S = 1.0                   # ruling 3: End's change handler runs in the key's own frame; sampled 1 s later
+RN_KEYS = ("renames", "invHostDirty", "syncEvsEmitted", "syncEvsApplied")
+NAME_KEYS = ("name", "_name", "rawName")
 
 # ----- windows and waits -----
 DEFER_MS = 2000                   # plan review section 2 IV3 / IV13 (the C23b5 precedent)
@@ -1555,12 +1617,419 @@ def iv11b_load_unload_denies(host, client, ctx):
     finish(fails)
 
 
-SCENARIOS = (("IV1", iv1_open_look), ("IV2", iv2_pickup_local), ("IV3", iv3_grenade_to_hand),
+# ===================== S-R rows (AMENDMENT P8-4 section 4.3, AMENDMENT P8-4c) =====================
+
+
+def probes_rn(gc):
+    """probes()' keys plus the S-C1 latch probes and S-R's `renames` (zeros on commit S-R.1)."""
+    es = event_state(gc)
+    assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
+    return {k: es.get(k) for k in PROBE_KEYS + RN_KEYS}
+
+
+def snap_rn(host, client):
+    return {"host": probes_rn(host), "client": probes_rn(client)}
+
+
+def collect_rn(host, client, seq0):
+    rec = collect(host, client, seq0)
+    rec["host"], rec["client"] = probes_rn(host), probes_rn(client)
+    return rec
+
+
+def names_of(gc, uid):
+    """battle_state's `name`, `_name` and `rawName` of `uid` on `gc` (S-R.1's probes, P8-4c ruling 1)."""
+    u = units(gc).get(uid) or {}
+    return {k: u.get(k) for k in NAME_KEYS}
+
+
+def names_both(host, client, uid):
+    return {"host": names_of(host, uid), "client": names_of(client, uid)}
+
+
+def rn_of(p, key):
+    return ((p or {}).get("renames") or {}).get(key)
+
+
+def dirty_of(p, key):
+    d = (p or {}).get("invHostDirty") or {}
+    return (d.get("sets") or {}).get("rename") if key == "setsRename" else d.get(key)
+
+
+def dnum(a, b):
+    """b - a for two probe numbers (None when either is missing: the probe is absent)."""
+    return (b - a) if isinstance(a, int) and isinstance(b, int) else None
+
+
+def rn_view(before, rec):
+    """The S-R EVIDENCE fields of one row: both machines' rename probes and counters."""
+    b, a = before, rec
+    return {"renames": {m: (b[m]["renames"], a[m]["renames"]) for m in ("host", "client")},
+            "sentRename": (count_of(b["client"]["coopIntentsSent"], "rename"),
+                           count_of(a["client"]["coopIntentsSent"], "rename")),
+            "hostSetsRename": (dirty_of(b["host"], "setsRename"), dirty_of(a["host"], "setsRename")),
+            "heldByGate": (dirty_of(b["host"], "heldByGate"), dirty_of(a["host"], "heldByGate")),
+            "syncEvsEmitted": (b["host"]["syncEvsEmitted"], a["host"]["syncEvsEmitted"]),
+            "syncEvsApplied": (b["client"]["syncEvsApplied"], a["client"]["syncEvsApplied"]),
+            "lastDeny": (b["client"]["lastDeny"], a["client"]["lastDeny"]), "inFlight": a["client"]["inFlight"],
+            "blocked": (b["client"]["coopLocalExecBlocked"], a["client"]["coopLocalExecBlocked"]),
+            "hostSeq": (b["host"]["lastSeqEmitted"], a["host"]["lastSeqEmitted"]),
+            "hostEvs": ev_tuples(rec["hev"]), "clientEvs": ev_tuples(rec["cev"]), "diff": rec["diff"],
+            "desync": rec["dsc"]}
+
+
+def open_name_field(gc, uid, ev):
+    """P8-4c T0-R2 (F2949): battle_open_inventory <uid> on `gc`; KEY_SETTLE_S; the one visible TextEdit must sit on
+    NAME_FIELD_RECT; ONE inject_input click on NAME_CLICK; KEY_SETTLE_S. Fills `ev`; returns True when the click
+    was made on `uid`'s open screen."""
+    r = gc.cmd({"cmd": "battle_open_inventory", "unit": uid})
+    ev["open"] = {k: r.get(k) for k in ("ok", "opened", "error")}
+    v = inv_view(gc)
+    ev["openView"] = {k: v.get(k) for k in ("open", "top", "unitId", "selectedItem")}
+    ev["openStack"] = stack(gc)
+    if not (r.get("opened") and v.get("open") is True and v.get("top") is True and v.get("unitId") == uid):
+        return False
+    time.sleep(KEY_SETTLE_S)
+    lw = gc.cmd({"cmd": "list_widgets"})
+    ev["nameField"] = [[w.get("x"), w.get("y"), w.get("w"), w.get("h")] for w in lw.get("widgets", [])
+                       if "TextEdit" in str(w.get("type")) and w.get("visible")]
+    if ev["nameField"] != [list(NAME_FIELD_RECT)]:
+        return False
+    c = gc.cmd({"cmd": "inject_input", "kind": "click", "x": NAME_CLICK[0], "y": NAME_CLICK[1]})
+    ev["click"] = {k: c.get(k) for k in ("ok", "error")}
+    time.sleep(KEY_SETTLE_S)
+    return bool(c.get("ok"))
+
+
+def type_letters(gc, uid, letters, ev):
+    """One inject_input key per letter, KEY_SETTLE_S between (T0-R2). After each key, a bounded record
+    (NAME_CHANGE_S) of when `gc`'s own `name` of `uid` became the old name + the letters so far: on the host and at
+    red that is vanilla's own write; at GREEN the client's own name follows the host's apply."""
+    base = names_of(gc, uid).get("name") or ""
+    typed, out = "", []
+    for ch, sym in letters:
+        typed += ch
+        want = base + typed
+        t0 = time.time()
+        r = gc.cmd({"cmd": "inject_input", "kind": "key", "key": sym})
+        got, dt = wait_until(lambda: names_of(gc, uid).get("name") == want, NAME_CHANGE_S)
+        out.append({"letter": ch, "sym": sym, "ok": r.get("ok"), "ownNameAtS": dt if got else None,
+                    "sinceKeyS": round(time.time() - t0, 3)})
+        time.sleep(KEY_SETTLE_S)
+    ev["keys"] = out
+    return out
+
+
+def wait_names(gc, uid, want):
+    """Bounded (NAME_SYNC_S): `gc`'s name, _name and rawName of `uid` all equal `want`. Seconds, or None."""
+    got, dt = wait_until(lambda: all(v == want for v in names_of(gc, uid).values()), NAME_SYNC_S)
+    return dt if got else None
+
+
+def names_fails(names, want, what, who="C"):
+    fails = []
+    for m in ("host", "client"):
+        if any(names[m].get(k) != want for k in NAME_KEYS):
+            fails.append(f"{what}: {m} {who} names {names[m]} (want name, _name and rawName {want!r} on both)")
+    return fails
+
+
+def rename_order_fails(before, rec, n, what):
+    """n letters typed by the client: n `rename` orders sent (R-1) and n applied by the host (R-4)."""
+    b, a = before, rec
+    ds = count_of(a["client"]["coopIntentsSent"], "rename") - count_of(b["client"]["coopIntentsSent"], "rename")
+    dr = dnum(rn_of(b["client"], "sent"), rn_of(a["client"], "sent"))
+    da = dnum(rn_of(b["host"], "applied"), rn_of(a["host"], "applied"))
+    fails = []
+    if (ds, dr, da) != (n, n, n):
+        fails.append(f"{what}: client coopIntentsSent.rename +{ds} renames.sent +{dr}, host renames.applied +{da} "
+                     f"(want +{n} / +{n} / +{n})")
+    if a["client"]["inFlight"] is not None:
+        fails.append(f"{what}: client inFlight {a['client']['inFlight']} (want null: a rename is untracked, R-1)")
+    return fails
+
+
+def pre_fails(pre_diff):
+    return [f"precondition: buckets differ before the row: {pre_diff} (want none)"] if pre_diff else []
+
+
+def field_fails(ev, what, who):
+    return [f"{what}: {who}'s name field was not reached (open {ev.get('open')}, view {ev.get('openView')}, stack "
+            f"{ev.get('openStack')}, visible TextEdits {ev.get('nameField')} (want [{list(NAME_FIELD_RECT)}]), "
+            f"click {ev.get('click')})"]
+
+
+def closed_fails(ev, what, who):
+    if isinstance(ev.get("close"), dict) and ev["close"]["closed"]:
+        return []
+    return [f"{what}: {who}'s screen did not close: {ev.get('close')}"]
+
+
+def rn0_names_at_start(host, client, ctx):
+    """P8-4c ruling 1 (F2948): read-only, the first row (battle start)."""
+    bh, bc = battle_state(host), battle_state(client)
+    uh, uc = session.units_by_id(bh), session.units_by_id(bc)
+    rows = []
+    for uid in sorted(set(uh) | set(uc)):
+        a, b = uh.get(uid) or {}, uc.get(uid) or {}
+        r = {"id": uid, "type": a.get("type") or b.get("type"),
+             "soldier": [a.get("isPlayerSoldier"), b.get("isPlayerSoldier")]}
+        for k in NAME_KEYS:
+            r[k] = [a.get(k), b.get(k)]
+        rows.append(r)
+    non_soldiers = [r for r in rows if r["type"] != "SOLDIER"]
+    no_soldier = [r for r in rows if r["soldier"] == [False, False]]
+    evidence("RN0", {"turn": [bh.get("turn"), bc.get("turn")], "units": len(rows), "nonSoldiers": len(non_soldiers),
+                     "withoutSoldier": len(no_soldier), "rows": rows})
+    fails = []
+    if set(uh) != set(uc):
+        fails.append(f"RN0: unit ids differ: host-only {sorted(set(uh) - set(uc))} client-only "
+                     f"{sorted(set(uc) - set(uh))}")
+    missing = [r["id"] for r in rows if any(not isinstance(v, str) for k in ("_name", "rawName") for v in r[k])]
+    if missing:
+        fails.append(f"RN0: unit(s) {missing} lack battle_state `_name` / `rawName` on a machine (want both strings on "
+                     f"every unit)")
+    unequal = [(r["id"], k, r[k]) for r in rows for k in NAME_KEYS if r[k][0] != r[k][1]]
+    if unequal:
+        fails.append(f"RN0: names differ between the machines at battle start: {unequal}")
+    bad = [(r["id"], r["type"], r["_name"]) for r in non_soldiers if r["_name"] != ["", ""]]
+    if bad:
+        fails.append(f"RN0: `_name` not empty on non-SOLDIER unit(s) {bad} (P8-4c ruling 1: STOP)")
+    bad_raw = [(r["id"], r["rawName"]) for r in no_soldier if r["rawName"] != ["", ""]]
+    if bad_raw:
+        fails.append(f"RN0: `rawName` not empty on unit(s) without a geoscape Soldier {bad_raw}")
+    if not non_soldiers:
+        fails.append("precondition: no non-SOLDIER unit at battle start (the check would be vacuous)")
+    finish(fails)
+
+
+def rn1_client_rename(host, client, ctx):
+    notes = []
+    leftover = ensure_closed(client, notes)
+    session.wait_host_idle(host, client, timeout=30)
+    pre = diff_buckets(host, client)
+    n0 = names_both(host, client, C_ID)
+    want = (n0["client"]["name"] or "") + "".join(ch for ch, _ in RN_LETTERS)
+    before = snap_rn(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    ev = {"leftover": leftover}
+    end = {}
+    ready = open_name_field(client, C_ID, ev)
+    if ready:
+        type_letters(client, C_ID, RN_LETTERS, ev)
+        # P8-4c ruling 3 (F2952, Q3 a): End runs the change handler (F2868) but changes no text
+        e0 = probes_rn(client)
+        end["before"] = {"sent": rn_of(e0, "sent"), "rename": count_of(e0["coopIntentsSent"], "rename"),
+                         "names": names_of(client, C_ID)}
+        r = client.cmd({"cmd": "inject_input", "kind": "key", "key": SDLK_END})
+        end["key"] = {"sym": SDLK_END, "ok": r.get("ok")}
+        time.sleep(END_QUIET_S)
+        e1 = probes_rn(client)
+        end["after"] = {"sent": rn_of(e1, "sent"), "rename": count_of(e1["coopIntentsSent"], "rename"),
+                        "names": names_of(client, C_ID)}
+    close_client(client, ev)
+    ev["hostNamesAtS"] = wait_names(host, C_ID, want) if ready else None
+    rec = collect_rn(host, client, seq0)
+    n1 = names_both(host, client, C_ID)
+    evidence("RN1", {"preDiff": pre, "namesBefore": n0, "namesAfter": n1, "want": want, "ui": ev, "end": end,
+                     "rn": rn_view(before, rec), "notes": notes})
+    fails = list(notes) + pre_fails(pre)
+    if not ready:
+        fails += field_fails(ev, "RN1", "the client")
+    else:
+        fails += rename_order_fails(before, rec, len(RN_LETTERS), "RN1")
+        fails += names_fails(n1, want, "RN1")
+        eb, ea = end["before"], end["after"]
+        if (ea["sent"], ea["rename"]) != (eb["sent"], eb["rename"]):
+            fails.append(f"RN1 End (Q3 a, F2952): client renames.sent {eb['sent']}->{ea['sent']}, "
+                         f"coopIntentsSent.rename {eb['rename']}->{ea['rename']} (want unchanged: the text did not "
+                         f"change)")
+        if ea["names"] != eb["names"]:
+            fails.append(f"RN1 End: client C names {eb['names']} -> {ea['names']} (want unchanged)")
+        fails += closed_fails(ev, "RN1", "the client")
+    fails += common_fails(host, client, before, {}, None, "RN1")
+    finish(fails)
+
+
+def rn2_host_rename(host, client, ctx):
+    notes = []
+    leftover = ensure_closed(client, notes)
+    session.wait_host_idle(host, client, timeout=30)
+    pre = diff_buckets(host, client)
+    n0 = names_both(host, client, H_ID)
+    want = (n0["host"]["name"] or "") + "".join(ch for ch, _ in RN_LETTERS)
+    before = snap_rn(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    ev = {"leftover": leftover}
+    open_at = None
+    ready = open_name_field(host, H_ID, ev)
+    if ready:
+        type_letters(host, H_ID, RN_LETTERS, ev)
+        # sampled with the host's screen still open (draft section 2.6 RN2 GREEN)
+        at = wait_names(client, H_ID, want)
+        eh = probes_rn(host)
+        open_at = {"clientNamesAtS": at, "hostOpen": inv_view(host).get("open"), "hostStack": stack(host),
+                   "names": names_both(host, client, H_ID), "hostSetsRename": dirty_of(eh, "setsRename"),
+                   "syncEvsEmitted": eh.get("syncEvsEmitted")}
+    close_client(host, ev)
+    rec = collect_rn(host, client, seq0)
+    n1 = names_both(host, client, H_ID)
+    evidence("RN2", {"preDiff": pre, "namesBefore": n0, "namesAfter": n1, "want": want, "ui": ev,
+                     "whileOpen": open_at, "rn": rn_view(before, rec), "notes": notes})
+    fails = list(notes) + pre_fails(pre)
+    if not ready:
+        fails += field_fails(ev, "RN2", "the host")
+    else:
+        slow = [k for k in ev["keys"] if k["ownNameAtS"] is None]
+        if slow:
+            fails.append(f"precondition (RN2): the host's own H name did not take the letter(s) {slow} within "
+                         f"{NAME_CHANGE_S} s (the T0-R2 typing recipe)")
+        ds = dnum(dirty_of(before["host"], "setsRename"), dirty_of(rec["host"], "setsRename"))
+        if ds != len(RN_LETTERS):
+            fails.append(f"RN2: host invHostDirty.sets.rename +{ds} (want +{len(RN_LETTERS)})")
+        dsync = dnum(before["host"]["syncEvsEmitted"], rec["host"]["syncEvsEmitted"])
+        if dsync is None or dsync < 1:
+            fails.append(f"RN2: host syncEvsEmitted +{dsync} (want +>= 1)")
+        if open_at["clientNamesAtS"] is None or open_at["hostOpen"] is not True:
+            fails.append(f"RN2: the client's H names {open_at['names']['client']} with the host's screen open "
+                         f"{open_at['hostOpen']} (want {want!r}, the host's, within {NAME_SYNC_S} s while it is open)")
+        fails += names_fails(n1, want, "RN2", "H")
+        fails += closed_fails(ev, "RN2", "the host")
+    fails += common_fails(host, client, before, {}, None, "RN2")
+    finish(fails)
+
+
+def rn3_forged_rename(host, client, ctx):
+    notes = []
+    leftover = ensure_closed(client, notes)
+    session.wait_host_idle(host, client, timeout=30)
+    pre = diff_buckets(host, client)
+    n0 = names_both(host, client, H_ID)
+    before = snap_rn(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    req = {"cmd": "battle_intent", "kind": "rename", "actor": H_ID, "name": RN3_NAME}
+    r = client.cmd(dict(req))
+    iseq = r.get("iseq") if r.get("ok") else None
+    si = {"resp": r, "sent": bool(iseq), "iseq": iseq, "deny": None}
+    if iseq:
+        def denied():
+            ld = event_state(client).get("lastDeny") or {}
+            return ld if ld.get("iseq") == iseq else None
+        got, dt = wait_until(denied, ANSWER_TIMEOUT_S, 0.1)
+        si["deny"], si["waited"] = got, dt
+        if not got:
+            notes.append(f"no deny for iseq {iseq} in {ANSWER_TIMEOUT_S} s")
+    rec = collect_rn(host, client, seq0)
+    n1 = names_both(host, client, H_ID)
+    evidence("RN3", {"preDiff": pre, "req": req, "intent": si, "namesBefore": n0, "namesAfter": n1,
+                     "rn": rn_view(before, rec), "leftover": leftover, "notes": notes})
+    fails = list(notes) + pre_fails(pre)
+    if not si["sent"]:
+        fails.append(f"RN3: battle_intent answered {r} (want sent: an iseq)")
+    else:
+        ld = rec["client"]["lastDeny"] or {}
+        if ld.get("iseq") != iseq or ld.get("reason") != "not_your_unit":
+            fails.append(f"RN3: client lastDeny {rec['client']['lastDeny']} (want {{iseq {iseq}, reason "
+                         f"not_your_unit}})")
+        if rec["client"]["inFlight"] is not None:
+            fails.append(f"RN3: client inFlight {rec['client']['inFlight']} (want null)")
+    for m in ("host", "client"):
+        if n1[m] != n0[m]:
+            fails.append(f"RN3: {m} H names {n0[m]} -> {n1[m]} (want unchanged)")
+    da = dnum(rn_of(before["host"], "applied"), rn_of(rec["host"], "applied"))
+    if da != 0:
+        fails.append(f"RN3: host renames.applied +{da} (want +0)")
+    fails += common_fails(host, client, before, {}, None, "RN3")
+    finish(fails)
+
+
+def rn4_rename_in_window(host, client, ctx):
+    # Imported here: test_w2_inventory_held imports this module (its T0-4 fire helpers, P8-3b T0-4 row).
+    import test_w2_inventory_held as held
+    notes = []
+    leftover = ensure_closed(client, notes)
+    ws = held.fire_setup(host, client)
+    st = restage(host, client, "RN4", "K0")
+    session.wait_host_idle(host, client, timeout=30)
+    staged = diff_buckets(host, client)
+    n0 = names_both(host, client, C_ID)
+    want = (n0["client"]["name"] or "") + "".join(ch for ch, _ in RN4_LETTERS)
+    before = snap_rn(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    ev = {"leftover": leftover}
+    win = {}
+    ready = open_name_field(client, C_ID, ev)
+    if ready:
+        t_cue = held.fire_and_cue(host, client, win)
+        if t_cue:
+            ch, sym = RN4_LETTERS[0]
+            r = client.cmd({"cmd": "inject_input", "kind": "key", "key": sym})
+            t_key = time.time()
+            win["key"] = {"letter": ch, "sym": sym, "ok": r.get("ok"), "afterCueMs": held.ms_since(t_cue)}
+            samples, applied_at = [], None
+            while time.time() - t_key < NAME_CHANGE_S:
+                eh = event_state(host)
+                s = {"t": round(time.time() - t_key, 3), "applied": rn_of(eh, "applied"),
+                     "hostBusy": eh.get("busyOwnerSeat"),
+                     "pending": battle_state(client).get("coopPendingIntent")}
+                samples.append(s)
+                if dnum(rn_of(before["host"], "applied"), s["applied"]) == 1:
+                    s["hostNames"] = names_of(host, C_ID)
+                    applied_at = s
+                    break
+                time.sleep(POLL_S)
+            win["samples"] = len(samples)
+            win["firstSample"], win["lastSample"] = samples[0], samples[-1]
+            win["appliedAt"] = applied_at
+            win["pendingSeen"] = [s for s in samples if s["pending"] is not None]
+        win["orderWait"] = wait_order(host, client, notes)
+        win["endPending"] = battle_state(client).get("coopPendingIntent")
+    close_client(client, ev)
+    ev["hostNamesAtS"] = wait_names(host, C_ID, want) if ready else None
+    rec = collect_rn(host, client, seq0)
+    n1 = names_both(host, client, C_ID)
+    evidence("RN4", {"fireSetup": ws, "staging": st, "stagedDiff": staged, "namesBefore": n0, "namesAfter": n1,
+                     "want": want, "ui": ev, "window": win, "rn": rn_view(before, rec), "notes": notes})
+    fails = list(notes) + staged_fails(st, staged)
+    if not ready:
+        fails += field_fails(ev, "RN4", "the client")
+    else:
+        fails += held.fire_fails(win, "RN4")
+        if not win.get("key"):
+            fails.append("precondition (RN4): no letter typed (no client `shot` cue)")
+        else:
+            fails += rename_order_fails(before, rec, len(RN4_LETTERS), "RN4")
+            at = win.get("appliedAt")
+            if not at or at.get("hostBusy") in (None, -1):
+                fails.append(f"RN4: host renames.applied +1 not seen while the host's shot ran (at {at}; last sample "
+                             f"{win.get('lastSample')}; want +1 within {NAME_CHANGE_S} s of the key with host "
+                             f"busyOwnerSeat != -1: a rename never waits, R-M2)")
+            dsync = dnum(before["host"]["syncEvsEmitted"], rec["host"]["syncEvsEmitted"])
+            if dsync != 0:
+                fails.append(f"RN4: host syncEvsEmitted +{dsync} over the row (want +0: the name rides the shot's evs)")
+            dg = dnum(dirty_of(before["host"], "heldByGate"), dirty_of(rec["host"], "heldByGate"))
+            if dg is None or dg <= 0:
+                fails.append(f"RN4: host invHostDirty.heldByGate +{dg} (want +> 0: the latch held by the shot's "
+                             f"context)")
+            if win.get("pendingSeen") or win.get("endPending") is not None:
+                fails.append(f"RN4: client coopPendingIntent {win.get('pendingSeen')} / at the end "
+                             f"{win.get('endPending')} (want null throughout: a rename is never held)")
+        fails += names_fails(n1, want, "RN4")
+        fails += closed_fails(ev, "RN4", "the client")
+    fails += common_fails(host, client, before, {}, None, "RN4")
+    finish(fails)
+
+
+SCENARIOS = (("RN0", rn0_names_at_start),   # S-R (P8-4c ruling 1): at battle start, before every other row
+             ("IV1", iv1_open_look), ("IV2", iv2_pickup_local), ("IV3", iv3_grenade_to_hand),
              ("IV4", iv4_ground_to_belt), ("IV5", iv5_hand_to_ground), ("IV11", iv11_host_denies),
              ("IV12", iv12_local_tu_refusal), ("IV13", iv13_real_ui_deny),
              # S-B (section 9)
              ("IV6", iv6_load), ("IV7", iv7_shift_unload), ("IV8", iv8_ctrl_autoplace),
-             ("IV9", iv9_unload_unprime), ("IV10", iv10_paperdoll), ("IV11b", iv11b_load_unload_denies))
+             ("IV9", iv9_unload_unprime), ("IV10", iv10_paperdoll), ("IV11b", iv11b_load_unload_denies),
+             # S-R (AMENDMENT P8-4 section 4.3; the draft section 2.6)
+             ("RN1", rn1_client_rename), ("RN2", rn2_host_rename), ("RN3", rn3_forged_rename),
+             ("RN4", rn4_rename_in_window))
 
 
 # ===================== bring-up =====================
