@@ -52,9 +52,9 @@ ONE boot, in this order:
       W2-P6b S-D.3 (AMENDMENT P6b-4, F1793/F1798/F1800): the CLIENT's test-only
       battle_action death_apply_hold {on: true} before the lever ({on: false}
       after the row) forces the race order - C's ghost has started when C2's
-      death is enqueued - in every run, and seq 16's record must say so
-      (headStartedAtEnqueue true), so D3 never passes vacuously in the other
-      order.
+      death is enqueued - in every run, and seq 21's record (seq 16 before
+      the W2-P8b S-A equip evs, F3426) must say so (headStartedAtEnqueue
+      true), so D3 never passes vacuously in the other order.
 
 W2-P6b S-D (spec rewrite/prompts/w2p6_display_two.md section 8 and the P6b plan
 review's section 2 rows D1-D3; AMENDMENT P6b-1; AMENDMENT P6b-2 = TASK 0b's
@@ -200,20 +200,32 @@ NO_SOUND = -1                    # a stun's record sound: the host plays none (N
 OVERKILL_NONE = 0                # getOverKillDamage() after C1, C5 and the D3 lever deaths (T0b-1, T0b-3, F1767)
 DIRS_4_TO_3 = [4, 5, 6, 7, 0, 1, 2, 3]   # the drawn directions of a 7-octant pirouette from dir 4 (D1, D2)
 PHASES_ALL = list(range(DEATH_F))        # [0, 1, 2]: every collapse frame drawn
-C1_DEATH = {"unit": A_ID, "outcome": "dead", "instant": False, "damageType": 1}          # T0b-1 (seq 7)
-C5_DEATH = {"unit": A2_ID, "outcome": "unconscious", "instant": False, "damageType": 0}  # T0b-1 (seq 12)
+C1_DEATH = {"unit": A_ID, "outcome": "dead", "instant": False, "damageType": 1}          # T0b-1 (seq 7; 12 since S-A)
+C5_DEATH = {"unit": A2_ID, "outcome": "unconscious", "instant": False, "damageType": 0}  # T0b-1 (seq 12; 17 since S-A)
 DEATH_KEYS = ("unit", "outcome", "instant", "damageType")
 DEATH_SETTLE_S = 5.0             # bounded wait for the client's death ghosts to end after the chain settled
 # D3 (TASK 0b T0b-2 = F1767/F1769: 6 runs identical, 26.6 s per boot)
 C_ID, C2_ID = 8, 9               # the client seat's soldiers
 D3_C_TILE, D3_C_DIR = (12, 26, 0), 4     # open road (H left it at C5)
 D3_C2_TILE, D3_C2_DIR = (12, 27, 0), 1   # open road
-D3_SEQ0 = 14                     # host lastSeqEmitted right before the lever (after C1 and C5)
+# W2-P8b S-A's pre-battle equip phase moved every absolute seq +5 (F3426; W2-P8b S-H.3, chain rule A.10: the
+# D3 seqs below re-pointed to the values measured on the S-A build, 2 runs identical, F3446/F3447). Traced on
+# both machines' event_log rings and logs (F3445), the evs before turn 1 are now:
+#   seq 1 reveal  hostile base restate (SS2.W4)                                  - as before S-A (seq 1)
+#   seq 2 reveal  player, the 587 VOID tiles the blob does not carry             - as before S-A (seq 2)
+#   seq 3 reveal  player, the 655 tiles of the SS2.W5 battle-entry FOV restate   - NEW: it now runs at the equip
+#                 open, after seq 2 went out (before S-A both rode seq 2: 1242 = 587 + 655 tiles)
+#   seq 4 sync    equip {open}                                                   - NEW
+#   seq 5 sync    equip {ready} seat 0 (host)                                    - NEW
+#   seq 6 sync    equip {ready} seat 1 (client)                                  - NEW
+#   seq 7 sync    equip {end} + battle.turn 1 (the offer's snapshot is turn 0)   - NEW
+# so C1's staging reveal is seq 8 (was 3), C1 runs 9..14 (was 4..9), C5 15..19 (was 10..14).
+D3_SEQ0 = 19                     # host lastSeqEmitted right before the lever (after C1 and C5; 14 before S-A)
 D3_KILLED = [C_ID, C2_ID]        # the lever's answer
-D3_EVS = [(15, "death", 0), (16, "death", 0), (17, "corpse", 0), (18, "corpse", 0)]   # host = client
-D3_DEATHS = {15: {"unit": C_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": True},
-             16: {"unit": C2_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": False}}
-D3_CORPSES = {17: {"unit": C_ID, "corpses": [101]}, 18: {"unit": C2_ID, "corpses": [102]}}
+D3_EVS = [(20, "death", 0), (21, "death", 0), (22, "corpse", 0), (23, "corpse", 0)]   # host = client
+D3_DEATHS = {20: {"unit": C_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": True},
+             21: {"unit": C2_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": False}}
+D3_CORPSES = {22: {"unit": C_ID, "corpses": [101]}, 23: {"unit": C2_ID, "corpses": [102]}}
 DIR_FACING_3 = 3                 # a collapsed unit's final direction (the corpse ev's DEAD carrier, F1767)
 
 PORT = "48625"
