@@ -21,10 +21,13 @@ it is LAST:
         an alien with H's grenade on the cursor, hostScreens.closes.byReason.side
         +0, the side not progressing. GREEN: at the first read after the
         close_nextturn (no host input in between) hostScreens.closes.byReason.side
-        +1 and byScreen.inventory +1; then the host's INVENTORY key pressed during
-        the alien side opens nothing (afterwards the next turn's NextTurnState is on
-        the host's top: the key was not eaten by it, i.e. it was handled during the
-        alien side); the grenade STR_BELT (1,0) on both; turn + 1 on both; EQUAL.
+        +1 and byScreen.inventory +1; the host's INVENTORY key, armed in-game
+        before the close (TestServer battle_arm_key, ruling SC2-G1 / F2924: the
+        alien side lasts ~80 ms, two harness round trips exceed it), fires on the
+        first frame of the alien side with the battlescape on top and opens
+        nothing (no InventoryState on the host between the fire and the next
+        turn's NextTurnState); the grenade STR_BELT (1,0) on both; turn + 1 on
+        both; EQUAL.
   HS9   (D188; declared GREEN at red, C2-6) the host presses END TURN, opens its
         Esc menu (PauseState); the client presses END TURN; the test closes the
         NextTurnState over the menu; 5 s of samples with PauseState on top: the
@@ -108,7 +111,9 @@ ARM_WAIT_S = 5.0
 FLIP_WAIT_S = 30.0
 SAMPLE_S = 5.0                    # the draft section 1.8 HS9: "sample 5 s"; T0-S6b's window (5 s of samples)
 SIDE_SAMPLE_S = 3.0               # HS8's red record: the alien side does not progress under the host's screen
-KEY_OBSERVE_S = 1.0               # HS8: the host's INVENTORY key's effect is read this long after the press
+ARM_TIMEOUT_MS = 10000            # HS8: battle_arm_key's deadline (ruling SC2-G1)
+ALIEN_END_WAIT_S = 10.0           # HS8: the armed key's record is read once the alien side is over (its next
+                                  # NextTurnState seen by the lever), within this
 CYCLE_S = 90                      # t0_sc2.py cycle_to_next: drive_full_cycle(timeout=90)
 SIDE_ALIEN = 1
 # ----- P8-4b T0-S7 row: "12 aliens killed by id; the last on (24,23,0) health 5; C (24,24,0) dir 0 stun rod; seed 1
@@ -209,17 +214,25 @@ def hs8_side_change(host, client, ctx):
         ev["clientEndTurn"] = client_end_turn(client)
         flip = flip_watch(host, t0)
         if flip and top(host) == "NextTurnState":
+            # ruling SC2-G1 (F2924): the host's INVENTORY key is armed in-game BEFORE the close, for the first frame
+            # of the alien side with the battlescape on top (the alien side is over before a harness press lands)
+            k = read_inventory_key(host.user_dir)
+            ra = host.cmd({"cmd": "battle_arm_key", "key": k, "side": SIDE_ALIEN, "timeoutMs": ARM_TIMEOUT_MS})
+            arm = {kk: ra.get(kk) for kk in ("ok", "armed", "frame", "error")}
             rn = host.cmd({"cmd": "close_nextturn"})
             eh = event_state(host)          # the first read after the close: no host input in between
             after_nts = {"close": {k: rn.get(k) for k in ("ok", "handled", "error")},
                          "hostScreens": eh.get("hostScreens"), "stack": stack(host), "side": bsv(host)["side"]}
             if (dnum(hclose(before["host"], "byReason", "side"), hclose(eh, "byReason", "side")) or 0) > 0:
-                # GREEN path: the host's INVENTORY key during the alien side (the host twin of IH5's OR3 a)
-                k = read_inventory_key(host.user_dir)
-                press(host, k)
-                time.sleep(KEY_OBSERVE_S)
+                # GREEN path: the armed INVENTORY key during the alien side (the host twin of IH5's OR3 a); its
+                # record is read once the lever saw the next turn's NextTurnState (or the arm expired)
+                def side_over():
+                    ak = event_state(host).get("armKey") or {}
+                    return ak if (ak.get("nextTurnFrame", -1) >= 0 or ak.get("expired")) else None
+                _, waited = wait_until(side_over, ALIEN_END_WAIT_S, 0.05)
                 v = inv_view(host)
-                key_row = {"key": k, "stack": stack(host), "host": bsv(host),
+                key_row = {"key": k, "arm": arm, "armKey": event_state(host).get("armKey"), "waited": waited,
+                           "stack": stack(host), "host": bsv(host),
                            "view": {kk: v.get(kk) for kk in ("open", "top", "unitId", "selectedItem")}}
             else:
                 # the RED record (F2894): the host's screen back on top during the alien side
@@ -255,14 +268,21 @@ def hs8_side_change(host, client, ctx):
             fails.append(f"HS8: after close_nextturn host hostScreens.closes byReason.side +{ds}, byScreen.inventory "
                          f"+{di}, stack {after_nts.get('stack')} (want +1 / +1, no InventoryState; red record {red})")
         elif key_row is None:
-            fails.append("HS8: the host's INVENTORY key was not pressed during the alien side")
+            fails.append("HS8: the host's INVENTORY key was not armed for the alien side")
         else:
-            if "InventoryState" in key_row["stack"] or key_row["view"].get("open") is not False:
-                fails.append(f"HS8: the host's INVENTORY key during the alien side opened a screen ({key_row})")
-            elif key_row["stack"][-1:] != ["NextTurnState"]:
-                fails.append(f"HS8: the INVENTORY key reached the host after the alien side (the next turn's "
-                             f"NextTurnState took it): the host's stack after it {key_row['stack']} (want that "
-                             f"NextTurnState still on top: the key handled during the alien side)")
+            ak = key_row.get("armKey") or {}
+            if not (key_row["arm"].get("ok") and key_row["arm"].get("armed")):
+                fails.append(f"HS8: battle_arm_key did not arm the host's INVENTORY key ({key_row['arm']})")
+            elif not ak.get("fired") or ak.get("sideAtFire") != SIDE_ALIEN or ak.get("topBefore") != "BattlescapeState":
+                fails.append(f"HS8: the armed INVENTORY key did not fire on the alien side with the battlescape on "
+                             f"top (want fired, sideAtFire {SIDE_ALIEN}, topBefore BattlescapeState; {ak})")
+            elif ak.get("nextTurnFrame", -1) < 0:
+                fails.append(f"HS8: the lever saw no next-turn NextTurnState within {ALIEN_END_WAIT_S} s of the "
+                             f"close ({ak})")
+            elif ak.get("inventoryPushesSinceFire") != 0:
+                fails.append(f"HS8: the host's INVENTORY key during the alien side opened a screen: "
+                             f"inventoryPushesSinceFire {ak.get('inventoryPushesSinceFire')} before the next "
+                             f"NextTurnState (want 0; {ak})")
     want_belt = {"owner": H_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}
     for n in ("host", "client"):
         if {k: (end["grenade"][n] or {}).get(k) for k in want_belt} != want_belt:

@@ -708,6 +708,130 @@ void TestServer::ioThread(int port)
 	SDLNet_FreeSocketSet(set);
 }
 
+// W2-P8 S-C2.3 (F2924, orchestrator ruling SC2-G1): TEST-ONLY. A key pressed from the harness reaches the game
+// two TCP round trips after the harness decides to press it; an enemy side of ~80 ms (the pinned-neutral aliens)
+// is over before that. `battle_arm_key {key, side, timeoutMs}` arms the press here, in the game thread: on the
+// first pump pass where the battle's side is `side` AND the top state is a BattlescapeState, the key goes into
+// SDL's queue ONCE through inject_input's own key path (testServerPushKey), so this frame's event loop handles it.
+// It never clicks and never touches game state itself; it disarms after firing, or at its deadline (fired false).
+// After firing it watches the stack on each pump pass until a NextTurnState is on it: topAfterNextFrame (the top
+// one pass later) and inventoryPushesSinceFire (an InventoryState newly on the stack). event_state `armKey`.
+static Json::Value armKeyZeros()
+{
+	Json::Value r(Json::objectValue);
+	r["armed"] = false;
+	r["fired"] = false;
+	r["expired"] = false;
+	r["key"] = -1;
+	r["side"] = -1;
+	r["firedFrame"] = -1;
+	r["firedTicks"] = -1;
+	r["sideAtFire"] = -1;
+	r["topBefore"] = "";
+	r["topAfterNextFrame"] = "";
+	r["inventoryPushesSinceFire"] = 0;
+	r["nextTurnFrame"] = -1;
+	r["nextTurnTicks"] = -1;
+	return r;
+}
+
+static Json::Value g_armKey = armKeyZeros();
+static bool g_armKeyArmed = false;
+static bool g_armKeyWatch = false;
+static bool g_armKeyNeedTopAfter = false;
+static bool g_armKeyInvPresent = false;
+static int g_armKeyKey = -1;
+static int g_armKeySide = -1;
+static Uint32 g_armKeyDeadline = 0;
+static int g_armKeyFrame = 0;
+
+// inject_input's key path: a real KEYDOWN + KEYUP pair into SDL's queue (Game::run's next event pass).
+static void testServerPushKey(int sym)
+{
+	SDL_Event ev;
+	memset(&ev, 0, sizeof(ev));
+	ev.type = SDL_KEYDOWN;
+	ev.key.state = SDL_PRESSED;
+	ev.key.keysym.sym = (SDLKey)sym;
+	ev.key.keysym.mod = SDL_GetModState();
+	ev.key.keysym.unicode = (sym < 128) ? (Uint16)sym : 0;
+	SDL_PushEvent(&ev);
+	memset(&ev, 0, sizeof(ev));
+	ev.type = SDL_KEYUP;
+	ev.key.state = SDL_RELEASED;
+	ev.key.keysym.sym = (SDLKey)sym;
+	ev.key.keysym.mod = SDL_GetModState();
+	SDL_PushEvent(&ev);
+}
+
+static std::string armKeyStateName(const State* s)
+{
+	if (!s)
+		return "none";
+	std::string n = typeid(*s).name();
+	const std::string prefix = "class OpenXcom::";
+	if (n.compare(0, prefix.size(), prefix) == 0)
+		n = n.substr(prefix.size());
+	return n;
+}
+
+static void armKeyTick(Game* game)
+{
+	++g_armKeyFrame;
+	if (!g_armKeyArmed && !g_armKeyWatch)
+		return;
+	const std::list<State*>& states = game->getStates();
+	const State* top = states.empty() ? nullptr : states.back();
+	if (g_armKeyWatch)
+	{
+		if (g_armKeyNeedTopAfter)
+		{
+			g_armKey["topAfterNextFrame"] = armKeyStateName(top);
+			g_armKeyNeedTopAfter = false;
+		}
+		bool inv = false, nts = false;
+		for (const State* s : states)
+		{
+			inv = inv || dynamic_cast<const InventoryState*>(s) != nullptr;
+			nts = nts || dynamic_cast<const NextTurnState*>(s) != nullptr;
+		}
+		if (inv && !g_armKeyInvPresent)
+			g_armKey["inventoryPushesSinceFire"] = g_armKey["inventoryPushesSinceFire"].asInt() + 1;
+		g_armKeyInvPresent = inv;
+		if (nts)
+		{
+			g_armKey["nextTurnFrame"] = g_armKeyFrame;
+			g_armKey["nextTurnTicks"] = (Json::UInt)SDL_GetTicks();
+			g_armKeyWatch = false;
+		}
+	}
+	if (!g_armKeyArmed)
+		return;
+	if (SDL_GetTicks() > g_armKeyDeadline)
+	{
+		g_armKeyArmed = false;
+		g_armKey["armed"] = false;
+		g_armKey["expired"] = true;
+		return;
+	}
+	SavedBattleGame* sbg = game->getSavedGame() ? game->getSavedGame()->getSavedBattle() : nullptr;
+	if (!sbg || !top || !dynamic_cast<const BattlescapeState*>(top) || (int)sbg->getSide() != g_armKeySide)
+		return;
+	g_armKeyArmed = false;
+	g_armKey["armed"] = false;
+	g_armKey["fired"] = true;
+	g_armKey["firedFrame"] = g_armKeyFrame;
+	g_armKey["firedTicks"] = (Json::UInt)SDL_GetTicks();
+	g_armKey["sideAtFire"] = (int)sbg->getSide();
+	g_armKey["topBefore"] = armKeyStateName(top);
+	testServerPushKey(g_armKeyKey);
+	g_armKeyWatch = true;
+	g_armKeyNeedTopAfter = true;
+	g_armKeyInvPresent = false;
+	Log(LOG_INFO) << "[coop-test] battle_arm_key: key " << g_armKeyKey << " pushed on pump pass " << g_armKeyFrame
+		<< " (side " << g_armKeySide << ", top " << armKeyStateName(top) << ")";
+}
+
 void TestServer::pump()
 {
 	if (!_running.load())
@@ -758,6 +882,7 @@ void TestServer::pump()
 			_outbox.push_back(resp);
 		}
 	}
+	armKeyTick(_game); // W2-P8 S-C2.3 (F2924, SC2-G1): TEST-ONLY battle_arm_key, see its own comment
 }
 
 /**
@@ -4083,7 +4208,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "map_tile_click_pos"
 		&& cmd != "find_doors" && cmd != "battle_close_ufo_doors"
 		&& cmd != "battle_ui_press" && cmd != "tile_census" && cmd != "inventory_view" && cmd != "inventory_click"
-		&& cmd != "inventory_cursor_clear")
+		&& cmd != "inventory_cursor_clear" && cmd != "battle_arm_key")
 	{
 		return false;
 	}
@@ -4426,6 +4551,29 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				invSurf->setSelectedItem(0);
 			resp["ok"] = true;
 		}
+	}
+	else if (cmd == "battle_arm_key")
+	{
+		// W2-P8 S-C2.3 (F2924, orchestrator ruling SC2-G1): TEST-ONLY - arm ONE in-game key press for the first
+		// pump pass where the battle's side is `side` and the top state is a BattlescapeState (armKeyTick, above
+		// TestServer::pump). {key (SDL sym), side (faction int), timeoutMs (default 10000)}. Re-arming replaces
+		// the record. Response: {ok, armed, frame (the pump pass count now)}; the record is event_state `armKey`.
+		g_armKey = armKeyZeros();
+		g_armKeyKey = req.get("key", -1).asInt();
+		g_armKeySide = req.get("side", -1).asInt();
+		g_armKeyDeadline = SDL_GetTicks() + (Uint32)req.get("timeoutMs", 10000).asInt();
+		g_armKeyArmed = g_armKeyKey >= 0 && g_armKeySide >= 0;
+		g_armKeyWatch = false;
+		g_armKeyNeedTopAfter = false;
+		g_armKey["armed"] = g_armKeyArmed;
+		g_armKey["key"] = g_armKeyKey;
+		g_armKey["side"] = g_armKeySide;
+		if (!g_armKeyArmed)
+			resp["error"] = "battle_arm_key: needs key >= 0 and side >= 0";
+		else
+			resp["ok"] = true;
+		resp["armed"] = g_armKeyArmed;
+		resp["frame"] = g_armKeyFrame;
 	}
 	else if (cmd == "inventory_view")
 	{
@@ -6461,6 +6609,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// above by initBattleAuthority() only). Commit S-C2.1 exposes their zeros; commit S-C2.2 writes them.
 		resp["hostCovered"] = CoopDelta::hostCoveredProbe();
 		resp["hostScreens"] = CoopDelta::hostScreensProbe();
+		resp["armKey"] = g_armKey; // W2-P8 S-C2.3 (F2924, SC2-G1): TEST-ONLY battle_arm_key's record
 		// W2-P4 S-E2.1 (amendment C3 D147 section 3): HOST - the envelopes onIntent
 		// took into its checks, {iseq, kind, actorId, skill} (the wire `skill` field).
 		resp["intentsReceivedLog"] = CoopArbiter::intentsReceivedLog();
@@ -10723,19 +10872,7 @@ std::string TestServer::execute(const std::string& line)
 			memset(&ev, 0, sizeof(ev));
 			if (kind == "key")
 			{
-				int sym = req.get("key", (int)Options::keyOk).asInt();
-				ev.type = SDL_KEYDOWN;
-				ev.key.state = SDL_PRESSED;
-				ev.key.keysym.sym = (SDLKey)sym;
-				ev.key.keysym.mod = SDL_GetModState();
-				ev.key.keysym.unicode = (sym < 128) ? (Uint16)sym : 0;
-				SDL_PushEvent(&ev);
-				memset(&ev, 0, sizeof(ev));
-				ev.type = SDL_KEYUP;
-				ev.key.state = SDL_RELEASED;
-				ev.key.keysym.sym = (SDLKey)sym;
-				ev.key.keysym.mod = SDL_GetModState();
-				SDL_PushEvent(&ev);
+				testServerPushKey(req.get("key", (int)Options::keyOk).asInt()); // W2-P8 S-C2.3: shared with battle_arm_key
 				resp["ok"] = true;
 			}
 			else if (kind == "click")
