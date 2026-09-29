@@ -73,6 +73,10 @@
 #include "../Geoscape/CraftPatrolState.h"
 #include "../Savegame/AlienBase.h"
 #include "../Ufopaedia/ArticleState.h"
+#include "../Ufopaedia/Ufopaedia.h" // W2-P8 S-D2: the pedia_state probe
+#include "../Ufopaedia/UfopaediaStartState.h"
+#include "../Ufopaedia/UfopaediaSelectState.h"
+#include "../Ufopaedia/StatsForNerdsState.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/BriefingState.h"
@@ -9015,6 +9019,71 @@ std::string TestServer::execute(const std::string& line)
 				states.append(typeid(*s).name());
 			}
 			resp["states"] = states;
+			resp["ok"] = true;
+		}
+		else if (cmd == "pedia_state")
+		{
+			// W2-P8 S-D2 (AMENDMENT P8-4f 4f.3, Q4 (a)): THIS machine's Ufopaedia screens (kind,
+			// depth, nerds, article id, a top SelectState's TextList rows), the viewer's seat and mode,
+			// and per requested id {live: vanilla, seat: coopSeatArticleAvailable}. Read-only, test-only.
+			const auto& stPS = _game->getStates();
+			State* topPS = stPS.empty() ? nullptr : stPS.back();
+			int depthPS = 0, nerdsPS = 0;
+			std::string articlePS;
+			for (auto* s : stPS)
+			{
+				if (auto* as = dynamic_cast<ArticleState*>(s)) { ++depthPS; articlePS = as->getId(); }
+				else if (dynamic_cast<StatsForNerdsState*>(s)) { ++depthPS; ++nerdsPS; }
+				else if (dynamic_cast<UfopaediaStartState*>(s) || dynamic_cast<UfopaediaSelectState*>(s)) ++depthPS;
+			}
+			resp["top"] = topPS ? typeid(*topPS).name() : "";
+			resp["kind"] = dynamic_cast<UfopaediaStartState*>(topPS) ? "start"
+				: dynamic_cast<UfopaediaSelectState*>(topPS) ? "select"
+				: dynamic_cast<ArticleState*>(topPS) ? "article"
+				: dynamic_cast<StatsForNerdsState*>(topPS) ? "nerds" : "none";
+			resp["depth"] = depthPS;
+			resp["nerds"] = nerdsPS;
+			resp["article"] = articlePS;
+			Json::Value rowsPS(Json::arrayValue), rowYPS(Json::arrayValue), rowHPS(Json::arrayValue);
+			std::vector<TextList*> listsPS;
+			if (auto* sel = dynamic_cast<UfopaediaSelectState*>(topPS))
+				for (auto* s : sel->getSurfaces())
+					if (auto* tl = dynamic_cast<TextList*>(s)) listsPS.push_back(tl);
+			resp["lists"] = (int)listsPS.size();
+			if (listsPS.size() == 1)
+			{
+				TextList* tl = listsPS[0];
+				for (size_t r = 0; r < tl->getTexts(); ++r)
+				{
+					rowsPS.append(tl->getCellText(r, 0));
+					rowYPS.append(tl->getRowY(r));
+					rowHPS.append(tl->getTextHeight(r));
+				}
+				Json::Value rect(Json::arrayValue);
+				rect.append(tl->getX()); rect.append(tl->getY()); rect.append(tl->getWidth()); rect.append(tl->getHeight());
+				resp["listRect"] = rect;
+				resp["scroll"] = (int)tl->getScroll();
+			}
+			resp["rows"] = rowsPS; resp["rowY"] = rowYPS; resp["rowH"] = rowHPS;
+			const int seatPS = coopBattleAuthority().localSeat.load();
+			resp["localSeat"] = seatPS;
+			resp["separate"] = coopResearchSeparate(_game);
+			SavedGame* livePS = _game->getSavedGame();
+			Json::Value availPS(Json::objectValue);
+			for (const auto& idV : req["ids"])
+			{
+				Json::Value e(Json::objectValue);
+				ArticleDefinition* def = _game->getMod()->getUfopaediaArticle(idV.asString(), false);
+				if (!def) e["error"] = "no article";
+				else if (!livePS) e["error"] = "no save";
+				else
+				{
+					e["live"] = Ufopaedia::isArticleAvailable(livePS, def);
+					e["seat"] = coopSeatArticleAvailable(_game, seatPS, def);
+				}
+				availPS[idV.asString()] = e;
+			}
+			resp["avail"] = availPS;
 			resp["ok"] = true;
 		}
 		else if (cmd == "world_state")
