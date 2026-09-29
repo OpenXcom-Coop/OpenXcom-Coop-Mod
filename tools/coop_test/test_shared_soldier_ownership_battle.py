@@ -51,6 +51,36 @@ def _roster(gc):
     return out
 
 
+def _f3384_dump(host, client, when):
+    """W2-P8b S-H.2 (F3384/F3407): ONE evidence block on a failure of T-CMD or
+    of the on-load-migration set_soldier_owner loop - both machines' player
+    units and base rosters, from the existing battle_state / get_soldiers
+    probes. Never raises: the caller re-raises the original failure."""
+    print(f"EVIDENCE F3384-DUMP BEGIN ({when})", flush=True)
+    for tag, gc in (("host", host), ("client", client)):
+        try:
+            bs = session.battle_state(gc)
+            units = [(u.get("id"), u.get("soldierId"), u.get("status"), u.get("health"),
+                      u.get("stun"), u.get("coop"), u.get("owner"),
+                      (u.get("x"), u.get("y"), u.get("z")), u.get("isOut"))
+                     for u in bs.get("units", [])
+                     if u.get("originalFaction") == session.FACTION_PLAYER
+                     or u.get("soldierId", -1) != -1]
+            print(f"  {tag}: selectedId={bs.get('selectedId')} turn={bs.get('turn')} "
+                  f"side={bs.get('side')} playerUnits(id,soldierId,status,health,stun,"
+                  f"coop,owner,pos,isOut)={units}", flush=True)
+        except Exception as e:  # noqa: BLE001 - evidence only, never masks the failure
+            print(f"  {tag}: battle_state probe failed: {e!r}", flush=True)
+        try:
+            for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
+                print(f"  {tag}: base {b.get('name')!r} roster(id,owner,dead)="
+                      f"{[(s['id'], s['owner'], s.get('dead')) for s in b['soldiers']]}",
+                      flush=True)
+        except Exception as e:  # noqa: BLE001 - evidence only, never masks the failure
+            print(f"  {tag}: get_soldiers probe failed: {e!r}", flush=True)
+    print("EVIDENCE F3384-DUMP END", flush=True)
+
+
 def main():
     js = shared_fixture.bring_up("jownbat", (48850, 48851, 48150))
     host, client = js.host, js.client
@@ -105,14 +135,25 @@ def main():
         session.assert_t_split(host, client, want_coop, what="S3 bootstrap ownership")
         seat1_actor = next(sid for sid in squad if want_coop[sid] == 1)
         seat0_actor = next(sid for sid in squad if want_coop[sid] == 0)
-        session.assert_t_cmd(host, client, seat1_actor, seat0_actor,
-                             what="S3 bootstrap ownership")
+        try:
+            session.assert_t_cmd(host, client, seat1_actor, seat0_actor,
+                                 what="S3 bootstrap ownership")
+        except Exception:
+            _f3384_dump(host, client, "T-CMD failed")
+            raise
+        print(f"[S-H.2 F3384] after T-CMD: host selectedId="
+              f"{session.battle_state(host).get('selectedId')} client selectedId="
+              f"{session.battle_state(client).get('selectedId')}", flush=True)
 
         # ---- ON-LOAD MIGRATION: an OLD save (pre-split) must heal on load. -----
         # Simulate a save created before the split existed: force every soldier back
         # to the unowned sentinel 999, then round-trip through SavedGame::load.
         for sid in owner:
-            host.ok({"cmd": "set_soldier_owner", "soldier_id": sid, "owner": 999})
+            try:
+                host.ok({"cmd": "set_soldier_owner", "soldier_id": sid, "owner": 999})
+            except Exception:
+                _f3384_dump(host, client, f"set_soldier_owner {sid} failed")
+                raise
         rt = host.ok({"cmd": "reload_save_roundtrip"})
         assert rt.get("ok"), f"roundtrip failed: {rt}"
         loaded = {s["id"]: s["owner"] for s in rt["soldiers"]}
