@@ -2994,6 +2994,12 @@ static Json::Value renamesZeros()
 
 static Json::Value g_renames = renamesZeros();
 
+// W2-P8 S-R.2 (AMENDMENT P8-4 section 4.3 R-2, P8-4 RULINGS Q3 (a)): CLIENT - the last name text this machine
+// sent in a `rename` order, per unit id. TextEdit runs the change handler on keys that change nothing (F2868);
+// coopInterceptRename() sends only when the text differs from this entry (or, before the unit's first order,
+// from the Soldier's raw name the field was filled with). Cleared by inventoryProbesReset() (R-2). Same mutex.
+static std::map<int, std::string> g_renameLastSent;
+
 Json::Value hostInventoryLatchProbe()
 {
 	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
@@ -3027,6 +3033,7 @@ void inventoryProbesReset()
 	g_hostCovered = hostCoveredZeros(); // W2-P8 S-C2.1 (C2-5)
 	g_hostScreens = hostScreensZeros();
 	g_renames = renamesZeros(); // W2-P8 S-R.1 (C2-5, R-4)
+	g_renameLastSent.clear(); // W2-P8 S-R.2 (R-2)
 }
 
 // W2-P8 S-C1.2 (S-C1 PINNED STAGE TEXT step 6): the CLIENT force-close's probe writers (the force-close lives
@@ -3079,6 +3086,44 @@ static void noteHostScreenCounter(const char* key)
 {
 	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
 	g_hostScreens[key] = g_hostScreens.get(key, 0).asInt() + 1;
+}
+
+// W2-P8 S-R.2 (AMENDMENT P8-4 section 4.3 R-2, R-4): the `renames` probe's writers and the client's per-unit
+// last-sent text (storage, zeros, reader and reset are S-R.1's / above). Same leaf mutex.
+// CLIENT, R-2 (Q3 (a)): does @a text differ from the last text sent for @a unitId - or, with no order sent
+// for that unit yet, from @a current (the Soldier's raw name, the text the name field starts from)?
+static bool renameTextChanged(int unitId, const std::string& text, const std::string& current)
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	const auto it = g_renameLastSent.find(unitId);
+	return text != (it != g_renameLastSent.end() ? it->second : current);
+}
+
+// CLIENT: a `rename` order for @a unitId went out with @a text: `sent` +1, the unit's last-sent text.
+static void noteRenameSent(int unitId, const std::string& text)
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_renameLastSent[unitId] = text;
+	g_renames["sent"] = g_renames.get("sent", 0).asInt() + 1;
+}
+
+// HOST: a `rename` order applied.
+static void noteRenameApplied()
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_renames["applied"] = g_renames.get("applied", 0).asInt() + 1;
+}
+
+// HOST: a `rename` order the validator refused (never answered: the order is untracked).
+static void noteRenameRefused(std::uint32_t iseq, int actorId, const char* reason)
+{
+	std::lock_guard<std::mutex> lock(g_invLatchProbeMutex);
+	g_renames["refused"] = g_renames.get("refused", 0).asInt() + 1;
+	Json::Value r(Json::objectValue);
+	r["iseq"] = iseq;
+	r["actorId"] = actorId;
+	r["reason"] = reason;
+	g_renames["lastRefusal"] = r;
 }
 
 } // namespace CoopDelta
@@ -3158,6 +3203,11 @@ struct UnitSnap
 	bool reactOffLeft = false;
 	bool reactOffRight = false;
 	std::vector<int> tags;
+	/// W2-P8 S-R.2 (AMENDMENT P8-4 section 4.3; the draft section 2.3 (5), R-M3; owner D167 = c): the unit's
+	/// own stored name (getName with no language) and its geoscape Soldier's raw name ("" without one). An
+	/// exception to plan section 3.1's per-machine exclusion, made by D167 (c); hashed in `synced` (R-5).
+	std::string name;
+	std::string rawName;
 };
 
 /// Spec (b)1 `tiles[]`: one tile (index = SavedBattleGame::getTileIndex order,
@@ -3317,6 +3367,8 @@ UnitSnap captureUnit(const BattleUnit* u)
 	s.reactOffLeft = u->isLeftHandDisabledForReactions();
 	s.reactOffRight = u->isRightHandDisabledForReactions();
 	s.tags = stripTags(u->coopScriptValuesRaw());
+	s.name = u->getName(nullptr); // W2-P8 S-R.2 (R-M3): `_name` for a null language (BattleUnit.cpp getName)
+	s.rawName = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getName(false) : std::string();
 	return s;
 }
 
@@ -3488,6 +3540,8 @@ bool diffUnit(const UnitSnap& w, const UnitSnap& n, Json::Value& e)
 	}
 	putIfChanged(e, "alreadyRespawned", w.alreadyRespawned, n.alreadyRespawned, any);
 	putIfChanged(e, "reactPref", w.reactPref, n.reactPref, any);
+	putIfChanged(e, "name", w.name, n.name, any);          // W2-P8 S-R.2 (R-M3)
+	putIfChanged(e, "rawName", w.rawName, n.rawName, any); // W2-P8 S-R.2 (R-M3)
 	putIfChanged(e, "reactOffLeft", w.reactOffLeft, n.reactOffLeft, any);
 	putIfChanged(e, "reactOffRight", w.reactOffRight, n.reactOffRight, any);
 	if (w.tags != n.tags)
@@ -9257,6 +9311,57 @@ static const char* coopSkillFollowUpDeny(BattleUnit* actor, const std::string& k
 	return nullptr;
 }
 
+// W2-P8 S-R.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3 R-3; the draft
+// rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.3 (4), R-M2, R-M4): the `rename` order's validator. The actor
+// has a geoscape Soldier (vanilla's edtSoldierChange writes nothing without one, R-3); `name` is a string of at
+// most 128 bytes, well-formed UTF-8, with no byte below 0x20. The empty name is accepted (vanilla's ESC blanks
+// the name, R-M4). nullptr = valid, else the refusal reason (logged and counted, never answered).
+static const char* validateRename(const BattleUnit* actor, const Json::Value& intent)
+{
+	if (!actor || !actor->getGeoscapeSoldier())
+		return "no_soldier";
+	const Json::Value& name = intent["name"];
+	if (!name.isString())
+		return "not_a_string";
+	const std::string text = name.asString();
+	if (text.size() > 128)
+		return "too_long";
+	std::size_t i = 0;
+	while (i < text.size())
+	{
+		const unsigned char c = (unsigned char)text[i];
+		if (c < 0x20)
+			return "control_byte";
+		std::size_t n = 0;
+		std::uint32_t cp = 0;
+		if (c < 0x80)
+			n = 1, cp = c;
+		else if ((c & 0xE0) == 0xC0)
+			n = 2, cp = c & 0x1F;
+		else if ((c & 0xF0) == 0xE0)
+			n = 3, cp = c & 0x0F;
+		else if ((c & 0xF8) == 0xF0)
+			n = 4, cp = c & 0x07;
+		else
+			return "bad_utf8";
+		if (i + n > text.size())
+			return "bad_utf8";
+		for (std::size_t k = 1; k < n; ++k)
+		{
+			const unsigned char cc = (unsigned char)text[i + k];
+			if ((cc & 0xC0) != 0x80)
+				return "bad_utf8";
+			cp = (cp << 6) | (cc & 0x3F);
+		}
+		// overlong forms, UTF-16 surrogates and code points past U+10FFFF are not well-formed UTF-8
+		if ((n == 2 && cp < 0x80) || (n == 3 && cp < 0x800) || (n == 4 && cp < 0x10000)
+			|| (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF)
+			return "bad_utf8";
+		i += n;
+	}
+	return nullptr;
+}
+
 void onIntent(const Json::Value& intent)
 {
 	if (!isCoopBattle())
@@ -9342,6 +9447,34 @@ void onIntent(const Json::Value& intent)
 	if (!actor || !coopBattleAuthority().commandsUnit(actor, seat))
 	{
 		denyIntent(iseq, "not_your_unit", seat, kind);
+		return;
+	}
+
+	// W2-P8 S-R.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3; the draft
+	// rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.3 (4), R-M1, R-M2; owner D167 = c): the `rename` order,
+	// untracked. It needs only ownership (the term above), so it runs before the skill-grant note (a rename must
+	// not clear a grant), turn_over, not_your_go and busy: a rename never waits. The named donor pair
+	// (InventoryState::edtSoldierChange: the Soldier's name, then the unit's name with its statstring); the host
+	// latch ships it (a `sync` when quiescent, else the open context's next ev). No ack; a refusal is logged and
+	// counted, never answered.
+	if (kind == "rename")
+	{
+		const char* reason = validateRename(actor, intent);
+		if (reason)
+		{
+			CoopDelta::noteRenameRefused(iseq, actorId, reason);
+			Log(LOG_WARNING) << "[coop-arbiter] rename iseq " << iseq << " for unit " << actorId << " refused ("
+				<< reason << ") - not applied, not answered";
+			return;
+		}
+		Soldier* s = actor->getGeoscapeSoldier();
+		s->setName(intent["name"].asString());
+		actor->setName(s->getName(true));
+		CoopDelta::noteHostInventoryChange("rename");
+		noteIntentReceived(kind, true);
+		CoopDelta::noteRenameApplied();
+		Log(LOG_INFO) << "[coop-arbiter] rename iseq " << iseq << " applied: unit " << actorId << " is now '"
+			<< actor->getName(nullptr) << "'";
 		return;
 	}
 
@@ -10650,6 +10783,26 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent('" << kindStr
 			<< "') outside an active coop battle - dropped";
 		return 0u;
+	}
+
+	// W2-P8 S-R.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3 R-1, F2867; the draft
+	// rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.3 (3), R-M1; owner D167 = c): `rename {name}` is
+	// UNTRACKED - its own envelope before the IR-2 lock below, so a key typed while this unit has an order in
+	// flight still goes out and a rename never blocks the unit's placements (F2634). No in-flight slot, no
+	// timeout stamp, no pending; the host applies it without an answer.
+	if (kindStr == "rename")
+	{
+		if (!combat)
+		{
+			Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent('rename') with no name - dropped";
+			return 0u;
+		}
+		const std::uint32_t iseq = g_coopClientNextIseq++;
+		Json::Value intent = CoopWire::makeIntent(iseq, coopBattleAuthority().localSeat, actorId, "rename");
+		intent["name"] = combat->name;
+		CoopEmit::sendBattle(intent);
+		g_coopIntentsSent["rename"] = g_coopIntentsSent.get("rename", 0).asInt() + 1;
+		return iseq;
 	}
 
 	// R3-P1 (REVIEW4 IR-2): "while active, input is locked for THE ACTING
@@ -13457,6 +13610,34 @@ BattleUnit* coopInventoryCloseGravityUnit(BattleUnit* u)
 	// no-op in single player (the latch self-guards).
 	CoopDelta::noteHostInventoryChange("close");
 	return u;
+}
+
+bool coopInterceptRename(BattleUnit* unit, const std::string& text)
+{
+	if (!isCoopBattle() || !unit)
+		return false; // SP and every non-co-op battle: vanilla
+	Soldier* s = unit->getGeoscapeSoldier();
+	if (!s)
+		return false; // R-3: vanilla's own no-op (it writes nothing for a unit without a Soldier)
+	if (coopBattleAuthority().hostSim)
+	{
+		// HOST: vanilla writes both names right after this returns; the latch ships them (S-C1's consumer: a
+		// `sync` when quiescent, else the open context's next ev, F2402).
+		CoopDelta::noteHostInventoryChange("rename");
+		return false;
+	}
+	// CLIENT (R-2, Q3 (a)): a key that changed nothing (arrows, Home, End: F2868) sends nothing. Never a local
+	// write: the name arrives in the host's delta.
+	if (!CoopDelta::renameTextChanged(unit->getId(), text, s->getName(false)))
+		return true;
+	CoopCombatIntentArgs args;
+	args.name = text;
+	const std::uint32_t iseq = CoopArbiter::sendClientIntent("rename", unit->getId(), -1, false, false, -1,
+		nullptr, &args);
+	if (iseq != 0u)
+		CoopDelta::noteRenameSent(unit->getId(), text);
+	Log(LOG_INFO) << "[coop-inv] rename of unit " << unit->getId() << " to '" << text << "' sent as iseq " << iseq;
+	return true;
 }
 
 // W2-P4 S-D.2 (amendment C1 PR-Q5 = Q7's mechanism): the host's OWN medi-kit
@@ -16362,6 +16543,20 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			if (ue.isMember("tags"))
 			{
 				u->coopSetScriptValuesRaw(tagsFromJson(ue["tags"]));
+				++fields;
+			}
+			// W2-P8 S-R.2 (AMENDMENT P8-4 section 4.3; the draft section 2.3 (5), R-M3; owner D167 = c): the
+			// host's names - the unit's own stored name as shipped (the statstring already in it) and, when the
+			// unit links a geoscape Soldier, that Soldier's raw name. The only client-side name write.
+			if (ue.isMember("name"))
+			{
+				u->setName(ue["name"].asString());
+				++fields;
+			}
+			if (ue.isMember("rawName"))
+			{
+				if (Soldier* s = u->getGeoscapeSoldier())
+					s->setName(ue["rawName"].asString());
 				++fields;
 			}
 			if (placed)

@@ -630,6 +630,7 @@ void InventoryState::edtSoldierPress(Action *action)
  */
 void InventoryState::edtSoldierChange(Action *)
 {
+	if (coopInterceptRename(_inv->getSelectedUnit(), _txtName->getText())) return;
 	BattleUnit *unit = _inv->getSelectedUnit();
 	if (unit != 0)
 	{

@@ -4034,6 +4034,13 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		y = mix(y, unit->isLeftHandDisabledForReactions() ? 1 : 0);
 		y = mix(y, unit->isRightHandDisabledForReactions() ? 1 : 0);
 		y = mixSyncedTags(y, unit->coopScriptValuesRaw());
+		// W2-P8 S-R.2 (AMENDMENT P8-4 section 4.3 R-5; AMENDMENT P8-4c: T0-R1 found them equal on both machines at
+		// battle start, F2945): captureUnit's two names - the unit's own stored name and its geoscape Soldier's
+		// raw name ("" without one) - in this function's own string mix.
+		y ^= fnv1a(unit->getName(nullptr));
+		y *= FNV_PRIME;
+		y ^= fnv1a(unit->getGeoscapeSoldier() ? unit->getGeoscapeSoldier()->getName(false) : std::string());
+		y *= FNV_PRIME;
 		// W2-P3 S-C.2 (B1 RQ9, F955): the unit's special-weapon link - the ids
 		// of the _items entries its own slots hold, ascending, as size then ids.
 		{

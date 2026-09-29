@@ -1110,4 +1110,14 @@ bool coopInvLocalWriteRefused();
 /// everywhere else.
 BattleUnit* coopInventoryCloseGravityUnit(BattleUnit* u);
 
+/// W2-P8 S-R.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3; owner D167 = c): the
+/// in-battle RENAME execution point, the first statement of InventoryState::edtSoldierChange:
+/// `if (coopInterceptRename(_inv->getSelectedUnit(), _txtName->getText())) return;`.
+/// FALSE (vanilla) in single player, outside an active co-op battle, with no unit, and for a unit without a
+/// geoscape Soldier (R-3: vanilla writes nothing then). HOST: the host latch's `rename` site
+/// (CoopDelta::noteHostInventoryChange), FALSE - vanilla writes and the latch ships the names. CLIENT: when
+/// @a text differs from the last text sent for the unit (R-2, Q3 (a)) an untracked `rename {name}` order goes
+/// out (renames.sent +1); TRUE either way - the client never writes a name itself.
+bool coopInterceptRename(BattleUnit* unit, const std::string& text);
+
 } // namespace OpenXcom
