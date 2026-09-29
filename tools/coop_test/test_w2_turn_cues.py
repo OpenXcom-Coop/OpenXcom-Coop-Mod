@@ -53,7 +53,10 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
        so morale 0 = a 100% panic chance, F866); SEED_C13A picks panic (not
        berserk) and a flee with a path. The host shows its own panic infobox
        (F425): the host dismisses it (dismiss_popup, host only) when it is on
-       top.
+       top. W2-H10.2 (F3299, H10-R4): C2 is stripped first (battle_strip_unit,
+       BOTH) - the flee walk stops when a step costs more TU than C2 has;
+       before the flee C2 carries the rifle and clip only (weight <=
+       C2_STRENGTH on both machines).
        GREEN: exactly one new host context {origin panic, actorId C2,
        nestedIn 0, hasFinal true}; its evs are exactly panic {unit C2, mode
        flee} -> >= 1 walk_step -> bt_action_end; the host's lastWalk is that
@@ -814,9 +817,11 @@ def c13a_flee(host, client, ctx):
     rec = begin(host, client)
     fails = []
     turn_at = battle_state(host).get("turn")
+    strip = c2_strip(host, client)   # W2-H10.2 (F3299): C2 carries only what C13a stages
     g, m = c13_stage(host, client, C13A_RIFLE_ID, C13A_CLIP_ID, fails, "C13a")
     staged_diff = diff_buckets(host, client)
     staged = {"host": uview(units(host).get(C2_ID)), "client": uview(units(client).get(C2_ID))}
+    load = {"host": c2_load(host), "client": c2_load(client)}   # W2-H10.2: C2's load before the flee
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
     cycle(host, client, SEED_C13A, rec, "cycle 3", extra=c2_resolved)
     end(host, client, rec)
@@ -824,7 +829,8 @@ def c13a_flee(host, client, ctx):
     walks = [e for e in pevs if e["kind"] == "walk_step"]
     c2_walks = [e for e in rec["hev"] if e["kind"] == "walk_step"]
     hw, cw = walk_view(rec["hw"]), walk_view(rec["cw"])
-    print(f"EVIDENCE C13a: player turn at staging={turn_at}; C2 rifle={g.get('weaponId')} clip={g.get('ammoId')} "
+    print(f"EVIDENCE C13a: W2-H10.2 C2 strip={strip}; C2 load before the flee={load} (strength {C2_STRENGTH}); "
+          f"player turn at staging={turn_at}; C2 rifle={g.get('weaponId')} clip={g.get('ammoId')} "
           f"-> {C13_C2_TILE}/{C13_C2_DIR} morale response={m.get('morale')} staged={staged} stagedDiff={staged_diff}; "
           f"seed {SEED_C13A}; panic context={ctx_view(pc)} kind={pc and pc.get('kind')} its evs={sv(pevs)}; "
           f"walk_step evs in the scenario={sv(c2_walks)}; units={units_evidence(rec, [C2_ID])}; rifle="
@@ -836,6 +842,11 @@ def c13a_flee(host, client, ctx):
         fails.append(f"precondition: battle turn {turn_at} at the staging (want player turn 2 reached)")
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
+    # W2-H10.2 (F3299, H10-R4): before the flee C2 is not encumbered (no TU check here: C13b checks the formula)
+    for name, ld in load.items():
+        if ld["weight"] is None or ld["weight"] > C2_STRENGTH:
+            fails.append(f"C13a: C2's carried weight on the {name} {ld['weight']} (armor {ld['armor']}, carried "
+                         f"{ld['carried']}) (want <= its strength {C2_STRENGTH}: the staged rifle and clip only)")
     fails += cycle_fails(rec, "C13a")
     fails += c2_state_fails(rec, {"pos": C13A_DEST, "status": STATUS_STANDING, "tu": 0,
                                   "morale": MORALE_AFTER_PANIC}, "C13a")
