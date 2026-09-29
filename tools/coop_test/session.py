@@ -2461,7 +2461,7 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     return host_squad, guest_id
 
 
-def bring_up_shared_mixed_battle(js, owners):
+def bring_up_shared_mixed_battle(js, owners, to_tactical=True):
     """SPEC 19 (W1-P20) S2/S3 fixture core: given an already-brought-up SHARED
     session (`shared_fixture.bring_up`), board a 2-soldier squad on the shared
     craft with per-slot ownership from `owners`, fly it to a fresh terror
@@ -2481,7 +2481,12 @@ def bring_up_shared_mixed_battle(js, owners):
               supplies one seat-0 and one seat-1 soldier").
 
     Returns (host, client, squad) - squad the 2 boarded soldier ids, sorted by
-    id (squad[0]/squad[1] match `owners`' slot 0/1 when `owners` is given)."""
+    id (squad[0]/squad[1] match `owners`' slot 0/1 when `owners` is given).
+
+    `to_tactical` (W2-P8b S-C.1b, ruling SC-1; additive, default True = every
+    existing caller unchanged): False returns right after the HOST's
+    BriefingState is up, before drive_both_to_tactical - the caller runs S-H's
+    spine (both briefings, then both pre-battle equip screens) itself."""
     host, client = js.host, js.client
 
     def _roster(gc):
@@ -2540,6 +2545,9 @@ def bring_up_shared_mixed_battle(js, owners):
                   timeout=180, interval=1.0)
     host.wait_for("host briefing", lambda: has_state(host, "BriefingState") or None,
                   timeout=60, interval=0.5)
+    if not to_tactical:
+        print("the host's briefing is up (live SHARED coop battle, stopped before tactical)")
+        return host, client, squad
     if not drive_both_to_tactical(host, client):
         raise TimeoutError(
             "drive_both_to_tactical timed out (host=%s client=%s)"
