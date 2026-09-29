@@ -40,6 +40,7 @@ class Mod;
 class RuleResearch;
 class BattleState;
 class SavedBattleGame;
+class SavedGame;
 
 /**
  * W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D, owner rulings D-19..D-27 =
@@ -860,6 +861,13 @@ bool coopIsManaUnlockedFor(Game* game, const BattleUnit* unit, Mod* mod);
 /// search, Alt damage tooltip), the melee damage preview and the Alt aiming
 /// damage preview (Map).
 bool coopArticleAvailableFor(Game* game, const BattleUnit* unit, ArticleDefinition* article);
+
+/// W2-P8 S-D2.2 (owner D168 = (a), D213 = (b), D217 = (a); AMENDMENT P8-4f):
+/// the in-battle Ufopaedia's article check for the VIEWER (localSeat), never
+/// a unit's seat: the seat donor above while this machine's live battle
+/// screen holds @a save, vanilla Ufopaedia::isArticleAvailable otherwise.
+/// Called by the five guarded vanilla reads in src/Ufopaedia.
+bool coopViewerArticleAvailable(SavedGame* save, ArticleDefinition* article);
 
 /// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md, owner D129 = (a),
 /// AMENDMENT P7-1): the HOST's one battle-end chokepoint - the first statement

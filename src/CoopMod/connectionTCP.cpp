@@ -5480,6 +5480,23 @@ bool coopArticleAvailableFor(Game* game, const BattleUnit* unit, ArticleDefiniti
 	return coopSeatArticleAvailable(game, unit ? (int)unit->getCoopSeat() : -1, article);
 }
 
+// W2-P8 S-D2.2 (owner D168 = (a), D213 = (b), D217 = (a); AMENDMENT P8-4f,
+// P8-4d Q1 (a)): the in-battle Ufopaedia follows the VIEWER's research
+// (localSeat; the host's seat 0 reads the live world). Routed only while this
+// machine's live battle screen holds @a save. No lock, no cache: the seat
+// donor locks per article.
+bool coopViewerArticleAvailable(SavedGame* save, ArticleDefinition* article)
+{
+	if (isCoopBattle())
+	{
+		SavedBattleGame* b = connectionTCP::getStaticBattle();
+		BattlescapeState* bs = b ? b->getBattleState() : nullptr;
+		if (connectionTCP::isBattlescapeStateLive(bs) && bs->getGame()->getSavedGame() == save)
+			return coopSeatArticleAvailable(bs->getGame(), coopBattleAuthority().localSeat.load(), article);
+	}
+	return Ufopaedia::isArticleAvailable(save, article);
+}
+
 // W2-P1 (thin-client tripwire, commit 1 of 2): the storage behind
 // coopClientBStatePushes() / coopClientBStateLastSite() /
 // coopClientPanicSkipped() (BattleAuthority.h). Battle-scoped, so declared
