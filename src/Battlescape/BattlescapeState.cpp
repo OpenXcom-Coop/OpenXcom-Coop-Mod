@@ -235,7 +235,7 @@ BattlescapeState::BattlescapeState() :
 
 	_manaBarVisible = _game->getMod()->isManaFeatureEnabled()
 		&& _game->getMod()->isManaBarEnabled()
-		&& _game->getSavedGame()->isManaUnlocked(_game->getMod());
+		&& coopSeatIsManaUnlocked(_game, coopBattleAuthority().localSeat.load(), _game->getMod());
 	int step = _manaBarVisible ? 3 : 4;
 
 	_numTimeUnits = new NumberText(15, 5, x + 136, y + 42);
@@ -2968,7 +2968,7 @@ std::string BattlescapeState::getMeleeDamagePreview(BattleUnit *actor, BattleIte
 	else
 	{
 		ArticleDefinition *article = _game->getMod()->getUfopaediaArticle(weapon->getRules()->getType(), false);
-		if (article && Ufopaedia::isArticleAvailable(_game->getSavedGame(), article))
+		if (article && coopArticleAvailableFor(_game, actor, article))
 		{
 			discovered = true; // pedia article unlocked
 		}

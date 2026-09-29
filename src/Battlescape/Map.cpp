@@ -1491,14 +1491,14 @@ void Map::drawTerrain(Surface *surface)
 										{
 											_cacheActiveWeaponUfopediaArticleUnlocked = 1; // assume unlocked
 											ArticleDefinition *article = _game->getMod()->getUfopaediaArticle(rule->getType(), false);
-											if (article && !Ufopaedia::isArticleAvailable(_game->getSavedGame(), article))
+											if (article && !coopArticleAvailableFor(_game, action->actor, article))
 											{
 												_cacheActiveWeaponUfopediaArticleUnlocked = 0; // ammo/weapon locked
 											}
 											if (rule->getType() != weapon->getType())
 											{
 												article = _game->getMod()->getUfopaediaArticle(weapon->getType(), false);
-												if (article && !Ufopaedia::isArticleAvailable(_game->getSavedGame(), article))
+												if (article && !coopArticleAvailableFor(_game, action->actor, article))
 												{
 													_cacheActiveWeaponUfopediaArticleUnlocked = 0; // weapon locked
 												}

@@ -73,6 +73,7 @@
 #include "../Interface/TextList.h" // W2-P7 S-B1.2: the display-only debrief's recovered-items page
 #include "../Savegame/MissionStatistics.h" // W2-P7 S-B1.2: the display-only debrief frees its unused MissionStatistics (F2046)
 #include "../Battlescape/AIModule.h" // W2-P3 S-C.2: a unitsAdded record's `AI` (load pass 1)
+#include "../Ufopaedia/Ufopaedia.h" // W2-P8 S-D1.2: vanilla's article check on a seat's research (coopSeatArticleAvailable)
 
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -5316,6 +5317,28 @@ bool coopSeatIsResearched(Game* game, int seat, const std::vector<const RuleRese
 	return g_coopSeatResearch[seat]->isResearched(req);
 }
 
+// W2-P8 S-D1.2 (owner D168 = (a), D213 = (b)): the same routing around
+// vanilla's string-list isResearched (Mod::getPsiRequirements() is a name
+// list: the inventory's and the unit info screen's psi-strength lines).
+bool coopSeatIsResearched(Game* game, int seat, const std::vector<std::string>& req)
+{
+	SavedGame* live = game->getSavedGame();
+	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
+		return live->isResearched(req);
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	if (!g_coopSeatResearch[seat])
+	{
+		if (!g_coopSeatResearchNoListLogged[seat])
+		{
+			g_coopSeatResearchNoListLogged[seat] = true;
+			Log(LOG_INFO) << "[coop-research] seat " << seat
+				<< " has no stored research list - its checks read the live world";
+		}
+		return live->isResearched(req);
+	}
+	return g_coopSeatResearch[seat]->isResearched(req);
+}
+
 bool coopSeatIsManaUnlocked(Game* game, int seat, Mod* mod)
 {
 	SavedGame* live = game->getSavedGame();
@@ -5333,6 +5356,31 @@ bool coopSeatIsManaUnlocked(Game* game, int seat, Mod* mod)
 		return live->isManaUnlocked(mod);
 	}
 	return g_coopSeatResearch[seat]->isManaUnlocked(mod);
+}
+
+// W2-P8 S-D1.2 (owner D168 = (a), D213 = (b); AMENDMENT P8-4 D-1, P8-4d Q2
+// (a)): vanilla Ufopaedia::isArticleAvailable() answered from @a seat's
+// research, with coopSeatIsResearched()'s exact fallbacks (the live world:
+// not separate, a seat outside 1..3, debug mode, no stored list). The seat
+// world is only read under the store's mutex (a leaf: isArticleAvailable
+// takes no lock), so no pointer to it escapes the call.
+bool coopSeatArticleAvailable(Game* game, int seat, ArticleDefinition* article)
+{
+	SavedGame* live = game->getSavedGame();
+	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
+		return Ufopaedia::isArticleAvailable(live, article);
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	if (!g_coopSeatResearch[seat])
+	{
+		if (!g_coopSeatResearchNoListLogged[seat])
+		{
+			g_coopSeatResearchNoListLogged[seat] = true;
+			Log(LOG_INFO) << "[coop-research] seat " << seat
+				<< " has no stored research list - its checks read the live world";
+		}
+		return Ufopaedia::isArticleAvailable(live, article);
+	}
+	return Ufopaedia::isArticleAvailable(g_coopSeatResearch[seat].get(), article);
 }
 
 bool coopSeatResearchStored(int seat)
@@ -5415,9 +5463,21 @@ bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<c
 	return coopSeatIsResearched(game, unit ? (int)unit->getCoopSeat() : -1, req);
 }
 
+bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<std::string>& req)
+{
+	return coopSeatIsResearched(game, unit ? (int)unit->getCoopSeat() : -1, req);
+}
+
 bool coopIsManaUnlockedFor(Game* game, const BattleUnit* unit, Mod* mod)
 {
 	return coopSeatIsManaUnlocked(game, unit ? (int)unit->getCoopSeat() : -1, mod);
+}
+
+// W2-P8 S-D1.2 (owner D168 = (a), D213 = (b)): the article check for the
+// unit's OWNER (its seat tag), the coopIsResearchedFor() shape.
+bool coopArticleAvailableFor(Game* game, const BattleUnit* unit, ArticleDefinition* article)
+{
+	return coopSeatArticleAvailable(game, unit ? (int)unit->getCoopSeat() : -1, article);
 }
 
 // W2-P1 (thin-client tripwire, commit 1 of 2): the storage behind

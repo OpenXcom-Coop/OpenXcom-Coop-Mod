@@ -33,6 +33,7 @@ namespace YAML { class YamlNodeReader; class YamlNodeWriter; }
 namespace OpenXcom
 {
 
+class ArticleDefinition;
 class BattleUnit;
 class Game;
 class Mod;
@@ -818,11 +819,21 @@ bool coopResearchSeparate(Game* game);
 /// list is stored for the seat, it is the live world's answer - unchanged.
 /// Otherwise vanilla's own function on the seat's research-only world.
 bool coopSeatIsResearched(Game* game, int seat, const std::vector<const RuleResearch*>& req);
+/// W2-P8 S-D1: the same routing around vanilla's string-list overload
+/// (the psi-strength lines pass Mod::getPsiRequirements(), a name list).
+bool coopSeatIsResearched(Game* game, int seat, const std::vector<std::string>& req);
 
 /// W2-P4r (b)5 + PR-R5: the same routing around vanilla
 /// SavedGame::isManaUnlocked(@a mod) (@a mod = the Mod* the vanilla site
 /// passes).
 bool coopSeatIsManaUnlocked(Game* game, int seat, Mod* mod);
+
+/// W2-P8 S-D1 (owner D168 = (a), D213 = (b); AMENDMENT P8-4 D-1, P8-4d Q2
+/// (a)): the same routing around vanilla Ufopaedia::isArticleAvailable(
+/// <world>, @a article) - the seat's research-only world under the store's
+/// mutex, the live world in every coopSeatIsResearched() fallback. The seat
+/// form, so the in-battle Ufopaedia (S-D2) can call it for the viewer's seat.
+bool coopSeatArticleAvailable(Game* game, int seat, ArticleDefinition* article);
 
 /// W2-P4r (b)11 (test introspection; TestServer `event_state.researchMode`):
 /// whether a research list is stored for @a seat (0..3; seat 0 never is),
@@ -840,7 +851,15 @@ int coopSeatResearchUnknown(int seat);
 /// the host's admission (coopWeaponUseDeny); @a mod = the Mod* the vanilla
 /// site passes (PR-R5).
 bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<const RuleResearch*>& req);
+bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<std::string>& req); // W2-P8 S-D1
 bool coopIsManaUnlockedFor(Game* game, const BattleUnit* unit, Mod* mod);
+
+/// W2-P8 S-D1 (owner D168 = (a), D213 = (b)): coopSeatArticleAvailable() for
+/// @a unit's OWNER (its seat tag; a null or seat-less unit reads the live
+/// world). Called by the guarded vanilla reads of the inventory (category
+/// search, Alt damage tooltip), the melee damage preview and the Alt aiming
+/// damage preview (Map).
+bool coopArticleAvailableFor(Game* game, const BattleUnit* unit, ArticleDefinition* article);
 
 /// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md, owner D129 = (a),
 /// AMENDMENT P7-1): the HOST's one battle-end chokepoint - the first statement

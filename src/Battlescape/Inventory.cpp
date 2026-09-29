@@ -49,6 +49,7 @@
 #include "../Engine/CrossPlatform.h"
 #include "TileEngine.h"
 #include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -1463,7 +1464,7 @@ bool Inventory::isInSearchString(BattleItem *item)
 	}
 
 	std::string itemLocalName;
-	if (!_game->getSavedGame()->isResearched(item->getRules()->getRequirements()))
+	if (!coopIsResearchedFor(_game, _selUnit, item->getRules()->getRequirements()))
 	{
 		// Alien artifact, shouldn't match on the real name.
 		itemLocalName = _game->getLanguage()->getString("STR_ALIEN_ARTIFACT");
@@ -1481,7 +1482,7 @@ bool Inventory::isInSearchString(BattleItem *item)
 
 	// If present in the Ufopaedia, check categories for a match as well.
 	ArticleDefinition *articleID = _game->getMod()->getUfopaediaArticle(item->getRules()->getType());
-	if (articleID && Ufopaedia::isArticleAvailable(_game->getSavedGame(), articleID))
+	if (articleID && coopArticleAvailableFor(_game, _selUnit, articleID))
 	{
 		for (const auto& itemCategoryName : item->getRules()->getCategories())
 		{

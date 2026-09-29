@@ -61,6 +61,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -670,7 +671,7 @@ void InventoryState::updateStats()
 	{
 		psiSkillWithoutAnyBonuses = unit->getGeoscapeSoldier()->getCurrentStats()->psiSkill;
 	}
-	bool showPsiStrength = (psiSkillWithoutAnyBonuses > 0 || (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements())));
+	bool showPsiStrength = (psiSkillWithoutAnyBonuses > 0 || (Options::psiStrengthEval && coopIsResearchedFor(_game, unit, _game->getMod()->getPsiRequirements())));
 
 	auto updateStatLine = [&](Text* txtField, const std::string& elementId)
 	{
@@ -1840,7 +1841,7 @@ void InventoryState::calculateCurrentDamageTooltip()
 		// same as for the battlescape indicator
 		// it's arguable if this is the correct approach, but so far this is what we have
 		ArticleDefinition *article = _game->getMod()->getUfopaediaArticle(rule->getType(), false);
-		if (article && !Ufopaedia::isArticleAvailable(_game->getSavedGame(), article))
+		if (article && !coopArticleAvailableFor(_game, _inv->getSelectedUnit(), article))
 		{
 			// ammo/weapon locked
 			rule = 0;
@@ -1848,7 +1849,7 @@ void InventoryState::calculateCurrentDamageTooltip()
 		if (rule && rule->getType() != weaponRule->getType())
 		{
 			article = _game->getMod()->getUfopaediaArticle(weaponRule->getType(), false);
-			if (article && !Ufopaedia::isArticleAvailable(_game->getSavedGame(), article))
+			if (article && !coopArticleAvailableFor(_game, _inv->getSelectedUnit(), article))
 			{
 				// weapon locked
 				rule = 0;
@@ -1930,7 +1931,7 @@ void InventoryState::invMouseOver(Action *)
 		else
 		{
 			auto* save = _game->getSavedGame();
-			if (save->isResearched(item->getRules()->getRequirements()))
+			if (coopIsResearchedFor(_game, _inv->getSelectedUnit(), item->getRules()->getRequirements()))
 			{
 				std::string text = tr(item->getRules()->getName());
 				for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
@@ -1941,7 +1942,7 @@ void InventoryState::invMouseOver(Action *)
 					}
 
 					auto* ammo = item->getAmmoForSlot(slot);
-					if (!ammo || !save->isResearched(ammo->getRules()->getRequirements()))
+					if (!ammo || !coopIsResearchedFor(_game, _inv->getSelectedUnit(), ammo->getRules()->getRequirements()))
 					{
 						continue;
 					}
