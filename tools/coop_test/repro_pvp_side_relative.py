@@ -111,15 +111,10 @@ def drive_to_gm2_battlescape(host, client):
 
     host.ok({"cmd": "set_seed", "seed": SEED})
     host.ok({"cmd": "newbattle_ok"})
-    host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=60)
-    host.ok({"cmd": "click_widget", "match": "ok"})
-    host.wait_for("host battlescape", lambda: session.has_state(host, "BattlescapeState"), timeout=40)
-    session.dismiss_battle_start_overlays(host)
-    client.wait_for("client battlescape",
-                    lambda: session.has_state(client, "BattlescapeState"), timeout=90)
-    client.wait_for("client entry briefing pushed over BattlescapeState",
-                    lambda: session.has_state(client, "BriefingState") or None, timeout=20)
-    session.dismiss_client_briefing(client)
+    # W2-P8b S-H: the shared battle-entry spine (both briefings, the host's
+    # pre-battle equip screen - the alien seat has nothing to equip - and both
+    # Turn-1 screens).
+    session.briefings_to_battlescape(host, client)
 
 
 def phase0_boot(host, client):

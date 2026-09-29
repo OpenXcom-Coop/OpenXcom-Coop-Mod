@@ -216,19 +216,12 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
 
     host.ok({"cmd": "newbattle_ok"})
 
-    host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
-
-    # WV-D56 (FX-1): the snapshot/offer now move to AFTER startFirstTurn() -
-    # i.e. to this click, not to newbattle_ok. Nothing has been sent yet (no
-    # battle_offer/battle_accept/battle_ready log line exists) until it runs.
-    host.ok({"cmd": "click_widget", "match": "ok"})
-    host.wait_for("host battlescape",
-                  lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+    # W2-P8b S-H: the shared battle-entry spine - both briefings (the offer goes
+    # out at PREPARE, D210 b), the pre-battle equip screens (D174 a / D206 c; a
+    # seat_count=0 spectator client has none), both Turn-1 screens (Q7 a).
+    session.briefings_to_battlescape(host, client)
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
-
-    client.wait_for("client battlescape",
-                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
 
     time.sleep(3)  # let both logs flush the handshake lines before reading them
 
@@ -242,17 +235,10 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
     assert equal_lines, "battle_ready arrived but 'saveBlob EQUAL' was never logged"
     assert client_active_lines, "client log missing 'CLIENT phase Active' line"
 
-    session.dismiss_battle_start_overlays(host)
+    # (the spine above already cleared both machines' battle-start overlays and
+    # the client's W1-P3 entry briefing, W2-P8b S-H)
     assert top_state(host) == "BattlescapeState", \
         f"host should be sitting ON BattlescapeState, stack={states(host)}"
-
-    # W1-P3 (SS1 WAVE-1 ADDITIONS trap 2 / WV-D9): the client now enters the
-    # battle through a read-only BriefingState pushed OVER its
-    # BattlescapeState, so every fixture that DRIVES the client must dismiss
-    # it explicitly - injected input would otherwise land on the briefing and
-    # screen-projection probes would compute against the GEOSCAPE viewport the
-    # briefing holds. No-op on a stack with no BriefingState.
-    session.dismiss_client_briefing(client)
 
     # W1-P6's entry auto-select runs on the RB-D5 pump point, i.e. on the first
     # updateCoopTask tick that finds an Active coop battle with a live

@@ -156,7 +156,22 @@ import session
 # (emitted == applied, nothing left unpublished on either side, per-part parity
 # for BOTH sets, all buckets EQUAL) are asserted separately below and do not
 # depend on this count.
-REVEAL_SEQS_AT_T0 = 2
+#
+# W2-P8b S-H RE-MEASURED IT TO AN EXACT 6 (chain rule A.10; 2/2 runs at
+# f225f1fc5, old constant 2). The offer now goes out at PREPARE at turn 0 (owner
+# D210 b) and turn 1 starts at the pre-battle equip barrier (D206 c), so "t=0"
+# (after the whole entry chain, before any ACTION) now counts the equip phase's
+# forced syncs too. Measured host log, both runs:
+#   seq 1  side:"hostile" absolute `base` restate at phase Active, unchanged.
+#   seq 2  side:"player" delta - the void-tile catch-up (631 / 642 tiles).
+#   seq 3  side:"player" delta - the host's BattlescapeState entry FOV at its
+#          briefing OK (57 tiles), no longer coalesced with seq 2 because the
+#          host now reaches Active while still in its briefing.
+#   seq 4  `sync` equip {open} - the equip-open announce (W2-P8b b4).
+#   seq 5  `sync` equip {ready} - the host's own ready press (b5; this
+#          fixture's client owns no soldier, so it never readies).
+#   seq 6  `sync` equip {end} - the barrier's turn-1 sync (b6).
+REVEAL_SEQS_AT_T0 = 6
 
 
 def top_state(gc):
@@ -215,50 +230,20 @@ def main():
             f"host should land on the NEW BATTLE setup screen, stack={session.states(host)}"
 
         host.ok({"cmd": "newbattle_ok"})
-        host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
 
-        # WV-D56 (FX-1, 2026-09-04): the coop blob SNAPSHOT and the
-        # battle_offer that advertises it now move to AFTER the host's own
-        # SavedBattleGame::startFirstTurn() - i.e. to THIS click, not to
-        # newbattle_ok's generation-time offerBattle() call. Before this click
-        # nothing has been sent (prepareBattleOffer() only mints the
-        # battleId/seats and moves phase to Handshake), so the client learns
-        # nothing about this battle - waiting for "client battlescape" BEFORE
-        # this click would deadlock (both sides correctly waiting on each
-        # other). This is also why REVEAL_SEQS_AT_T0 below had to be
-        # re-measured: seedPublished() now runs from inside this click too,
-        # after startFirstTurn() and with BattlescapeState already pushed
-        # (host.getBattleState() is already non-null), not at battle-generation
-        # time.
-        host.ok({"cmd": "click_widget", "match": "ok"})
-        host.wait_for("host battlescape",
-                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+        # W2-P8b S-H (owner D210 b): the coop blob snapshot and the battle_offer
+        # now go out at PREPARE (newbattle_ok), at turn 0, so both briefings are
+        # up at once; the shared entry spine passes both briefings, both
+        # pre-battle equip screens (D174 a / D206 c; turn 1 starts on the host
+        # when both are ready and reaches the client as one `sync`) and both
+        # Turn-1 screens (Q7 a). "t=0" below is therefore "after the whole
+        # entry chain, before any ACTION", as it was.
+        session.briefings_to_battlescape(host, client)
         assert session.has_state(host, "BattlescapeState"), \
             f"host should reach BattlescapeState, stack={session.states(host)}"
-
-        client.wait_for("client battlescape",
-                        lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-        print("PASS: both machines in BattlescapeState (G3-path handshake complete)")
-
-        # RW-FIX-TURN (R1): dismiss the host's battle-start overlays
-        # (NextTurnState + InventoryState, pushed by BriefingState::btnOkClick)
-        # BEFORE the full compare. The client mirrors the first-turn counter
-        # (turn 0->1) right after sending battle_ready; the host reaches 1
-        # only when its equip screen closes (InventoryState::btnOkClick ->
-        # startFirstTurn). Comparing pre-dismissal would red saveBlob on the
-        # turn key alone. Post-dismissal is the STRONGER assertion (8/8 at
-        # the point that was previously known-divergent), and t=0 semantics
-        # survive: dismissal emits no evs, lastSeqEmitted stays 0.
-        def _top(gc):
-            st = session.states(gc)
-            return st[-1].replace("class OpenXcom::", "") if st else ""
-
-        deadline = time.time() + 10
-        while time.time() < deadline and _top(host) != "BattlescapeState":
-            host.ok({"cmd": "inject_input", "kind": "key", "key": 27})
-            time.sleep(0.3)
-        assert _top(host) == "BattlescapeState", \
+        assert top_state(host) == "BattlescapeState", \
             f"host battle-start overlays never cleared, stack={session.states(host)}"
+        print("PASS: both machines in BattlescapeState (G3-path handshake complete)")
 
         # settle so both sides' battle_ready/onReady bookkeeping (phase -> Active)
         # has landed before the introspection reads below
@@ -339,8 +324,8 @@ def main():
 
         assert host_es["lastSeqEmitted"] == REVEAL_SEQS_AT_T0, (
             f"host lastSeqEmitted should be exactly {REVEAL_SEQS_AT_T0} at t=0 (the "
-            f"hostile BASELINE restate + the two player bring-up flushes, W1-P8) - see "
-            f"the constant's comment: {host_es}")
+            f"hostile BASELINE restate, two player bring-up flushes and the equip "
+            f"open/ready/end syncs, W2-P8b) - see the constant's comment: {host_es}")
         assert client_es["lastSeqApplied"] == host_es["lastSeqEmitted"], (
             f"client lastSeqApplied should equal the host's {host_es['lastSeqEmitted']} at t=0 (every bring-up "
             f"reveal applied): {client_es}")

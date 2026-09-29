@@ -135,34 +135,25 @@ def main():
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
         print("PASS: host reached BriefingState (vanilla push, unconditional)")
 
-        # WV-D56 (FX-1, 2026-09-04): the coop blob SNAPSHOT and the
-        # battle_offer that advertises it now move to AFTER the host's own
-        # SavedBattleGame::startFirstTurn() - i.e. to the OK click below, not
-        # to newbattle_ok's generation-time offerBattle() call. Before this
-        # click NOTHING has been sent (prepareBattleOffer() only mints the
-        # battleId/seats and moves phase to Handshake), so the client learns
-        # nothing about this battle, and every log line this test greps for
-        # below (battle_offer sent / battle_accept received / CLIENT phase
-        # Active / battle_ready saveBlob EQUAL / HOST phase Active) is written
-        # ONLY once this click runs CoopHandshake::emitPreparedOffer(). Host is
-        # still in BriefingState (pushed unconditionally after bgen.run()); its
-        # OK proceeds to BattlescapeState exactly like the SP path.
-        host.ok({"cmd": "click_widget", "match": "ok"})
-        host.wait_for("host battlescape",
-                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+        # W2-P8b S-H (owner D210 b): the coop blob snapshot and the
+        # battle_offer now go out at PREPARE (newbattle_ok), at turn 0, so both
+        # briefings are up at once; the shared entry spine then passes both
+        # briefings, both pre-battle equip screens (D174 a / D206 c) and both
+        # Turn-1 screens (Q7 a). Every handshake line this test greps for below
+        # is written by then.
+        session.briefings_to_battlescape(host, client)
         assert session.has_state(host, "BattlescapeState"), \
-            f"host should reach BattlescapeState after OK, stack={states(host)}"
-        print("PASS: host OK click dismissed BriefingState (WV-D56: this is where "
-              "emitPreparedOffer() actually sends the offer)")
+            f"host should reach BattlescapeState, stack={states(host)}"
+        print("PASS: host passed its briefing, its pre-battle equip screen and its "
+              "Turn-1 screen (W2-P8b)")
 
         # client: CoopHandshake::onBlobChunkAppended() pushes BattlescapeState
-        # directly once the blob is received+verified+loaded (no client-side
-        # BriefingState - LoadGameState.cpp's "loaded save with a live
-        # battle" precedent). Unconditional - proves offer/accept/stream/
+        # once the blob is received+verified+loaded, then its read-only
+        # briefing over it. Unconditional - proves offer/accept/stream/
         # blobSha-verify/load all worked regardless of the saveBlob outcome.
         client.wait_for("client battlescape",
                         lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-        print("PASS: client reached BattlescapeState directly (offer/accept/stream/"
+        print("PASS: client reached BattlescapeState (offer/accept/stream/"
               "blobSha-verify/load all succeeded)")
 
         # settle so both logs have flushed the handshake lines before reading them

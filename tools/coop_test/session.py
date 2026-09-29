@@ -1268,15 +1268,31 @@ def dismiss_battle_start_overlays(host, timeout=10):
     HOST-only. The client loads the streamed blob straight into
     BattlescapeState with no generation-time popups; its own entry overlay is
     the read-only BriefingState, which dismiss_client_briefing() below owns.
+
+    W2-P8b S-H (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
+    section 4 S-H): a fresh co-op battle now opens the pre-battle equip screen on
+    BOTH machines (owner D174 a) and its OK - which ESC is bound to - is the
+    ready TOGGLE (D206 c, F2755), so an ESC loop over it would flap this seat's
+    ready. While this machine's `event_state.equip.phase` is "open" this helper
+    therefore RAISES instead of pressing ESC: the equip screens close through
+    equip_both_ready() below. After the equip end both machines hold vanilla's
+    Turn-1 screen (the client's since Q7 a), and this helper clears either one;
+    called for the host and then for the client by drive_to_battlescape().
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
         st = states(host)
         if st and "BattlescapeState" in st[-1]:
             return
+        phase = (event_state(host).get("equip") or {}).get("phase")
+        if phase == "open":
+            raise AssertionError(
+                f"{host.name}: dismiss_battle_start_overlays called while the pre-battle equip phase is "
+                f"open (ESC is the ready toggle there, F2755) - use equip_both_ready() first; "
+                f"stack={states(host)}")
         host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE / Options::keyCancel
         time.sleep(0.3)
-    raise TimeoutError(f"host: battle-start overlays never cleared, stack={states(host)}")
+    raise TimeoutError(f"{host.name}: battle-start overlays never cleared, stack={states(host)}")
 
 
 def dismiss_client_briefing(client, timeout=20):
@@ -1304,6 +1320,12 @@ def dismiss_client_briefing(client, timeout=20):
     Idempotent and version-tolerant: a no-op when the client has no
     BriefingState on its stack (a resume entry, or any pre-W1-P3 build), so it
     is safe to call unconditionally at the end of every drive_to_battlescape().
+
+    W2-P8b S-H (AMENDMENT P8b-1 section 4 S-H): in a fresh co-op battle the
+    client's equip entry (a pump step once its briefing has closed) pushes
+    vanilla's Turn-1 screen and then its pre-battle equip screen, so the landing
+    top is InventoryState, NextTurnState or BattlescapeState (the entry not yet
+    run, or nothing to equip).
     """
     st = states(client)
     if not any("BriefingState" in s for s in st):
@@ -1314,9 +1336,9 @@ def dismiss_client_briefing(client, timeout=20):
         lambda: (not any("BriefingState" in s for s in states(client))) or None,
         timeout=timeout)
     top = states(client)[-1] if states(client) else None
-    assert top and "BattlescapeState" in top, (
-        "closing the client's entry briefing should land it on BattlescapeState "
-        f"(W1-P3 pushes the briefing directly OVER it), got stack={states(client)}")
+    assert top and any(t in top for t in ("InventoryState", "NextTurnState", "BattlescapeState")), (
+        "closing the client's entry briefing should land it on its pre-battle equip screen, its "
+        f"Turn-1 screen or BattlescapeState (W2-P8b), got stack={states(client)}")
     return True
 
 
@@ -2110,21 +2132,9 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_s
     if pre_ok is not None:
         pre_ok(host)
     host.ok({"cmd": "newbattle_ok"})
-    host.wait_for("host briefing", lambda: has_state(host, "BriefingState"),
-                  timeout=60)
-    # WV-D56 (FX-1): the snapshot/offer now move to AFTER startFirstTurn() -
-    # i.e. to this click, not to newbattle_ok. "client battlescape" can only be
-    # waited for AFTER it, never before.
-    host.ok({"cmd": "click_widget", "match": "ok"})
-    host.wait_for("host battlescape",
-                  lambda: has_state(host, "BattlescapeState"), timeout=40)
-    dismiss_battle_start_overlays(host)
-    client.wait_for("client battlescape",
-                    lambda: has_state(client, "BattlescapeState"), timeout=90)
-    # WV-D82: connectionTCP.cpp:8280-8330 pushes BattlescapeState and the read-only BriefingState in ONE synchronous handler; this asserts that precondition loudly instead of napping 3 s past it (WV-D80).
-    client.wait_for("client entry briefing pushed over BattlescapeState",
-                    lambda: has_state(client, "BriefingState") or None, timeout=20)
-    dismiss_client_briefing(client)
+    # W2-P8b S-H: the steps above are bring_up_to_briefings()'s (with this helper's
+    # mission / pre_seat / seat_client options); the rest is the shared entry spine.
+    briefings_to_battlescape(host, client)
 
 
 def bring_up_to_briefings(host, client, seated, seat_count=2, pre_ok=None, pre_newbattle=None):
@@ -2166,6 +2176,69 @@ def bring_up_to_briefings(host, client, seated, seat_count=2, pre_ok=None, pre_n
                   timeout=60)
 
 
+def briefings_to_battlescape(host, client):
+    """W2-P8b S-H (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
+    section 4 S-H; orchestrator ruling Q14 a): THE battle-entry spine every
+    skirmish bring-up runs after `newbattle_ok` (drive_to_battlescape() and the
+    local copies of it). Owner D210 b: the host's offer goes out at PREPARE, so
+    both briefings are up at once; D174 a: after its briefing each player lands
+    on the pre-battle equip screen for its own soldiers; D206 c: OK there is a
+    ready toggle and turn 1 starts when every seat with something to equip is
+    ready; Q7 a: the client then sees vanilla's Turn-1 screen too.
+
+    Steps: the host's BriefingState -> the client's BriefingState (<= 90 s) ->
+    the host's briefing OK -> dismiss_client_briefing(client) ->
+    equip_both_ready() -> the host's Turn-1 screen -> the client's. Returns with
+    turn 1 on both machines and BattlescapeState on top of both stacks."""
+    host.wait_for("host briefing", lambda: has_state(host, "BriefingState"),
+                  timeout=60)
+    client.wait_for("client entry briefing (both briefings at once, D210 b)",
+                    lambda: has_state(client, "BriefingState") or None, timeout=90)
+    host.ok({"cmd": "click_widget", "match": "ok"})
+    dismiss_client_briefing(client)
+    equip_both_ready(host, client)
+    dismiss_battle_start_overlays(host)
+    dismiss_battle_start_overlays(client)
+
+
+def equip_both_ready(host, client, timeout=90):
+    """W2-P8b S-H (AMENDMENT P8b-1 section 4 S-H, Q11 a): pass both pre-battle
+    equip screens. Each machine whose top state is an InventoryState gets ONE
+    `battle_inventory {action: ok}` - the idempotent ready lever (it only SETS
+    this seat's ready, a no-op when it already is), never ESC (F2755). The client's
+    screen appears only once its briefing has closed and its equip entry has run,
+    and a machine with nothing to equip (a spectator, the PvP alien seat) never
+    shows one, so the loop presses each screen when it appears. Returns once
+    `battle_state.turn` is 1 on both machines and neither stack holds an
+    InventoryState (the barrier closed both screens). Prints one line: which
+    machine pressed, each seat's `equip.counted` flag on the host, the wall."""
+    t0 = time.time()
+    pressed = {}
+
+    def step():
+        for tag, gc in (("host", host), ("client", client)):
+            if tag in pressed:
+                continue
+            st = states(gc)
+            if st and "InventoryState" in st[-1]:
+                r = gc.cmd({"cmd": "battle_inventory", "action": "ok"})
+                if r.get("error") == "no InventoryState on stack":
+                    continue  # the barrier closed it between the stack read and the press
+                assert r.get("ok") and r.get("preBattle") is True, (
+                    f"{tag}: the InventoryState on top is not the pre-battle equip screen with the equip "
+                    f"phase open (battle_inventory ok -> {r}); stack={states(gc)}")
+                pressed[tag] = "noop" if r.get("noop") else "ready"
+        if any("InventoryState" in s for gc in (host, client) for s in states(gc)):
+            return None
+        return (battle_state(host).get("turn") == 1 and battle_state(client).get("turn") == 1) or None
+
+    host.wait_for("both pre-battle equip screens ready and closed, turn 1 on both machines", step,
+                  timeout=timeout, interval=0.1)
+    counted = (event_state(host).get("equip") or {}).get("counted")
+    print(f"[equip_both_ready] pressed={pressed} host equip.counted={counted} "
+          f"wall={time.time() - t0:.2f}s", flush=True)
+
+
 # ===== SPEC 19 (W1-P20): campaign co-op battle entry, client-owned units =====
 #
 # Two additive campaign bring-ups (SEPARATE guest battle, SHARED mixed-owner
@@ -2198,18 +2271,20 @@ def drain_host_coop_notice(host, rounds=15):
 
 def drive_both_to_tactical(host, client, timeout=240):
     """F355 fix (SPEC 18 R1(a), orch49; archived VERBATIM at rewrite/artifacts/
-    spec19-fixtures/r1a_v2.py's drive_both_to_tactical): close the HOST
-    briefing FIRST - CoopHandshake::emitPreparedOffer() runs from
-    BriefingState::btnOkClick/close_briefing, not from coop_mission_start or
-    confirm_landing, so the client offer is not even SENT until the host's
-    briefing closes - THEN drain both machines through Briefing/Inventory/
-    CoopState popups until BOTH machines sit on BattlescapeState.
+    spec19-fixtures/r1a_v2.py's drive_both_to_tactical): close both briefings
+    in ANY order - W2-P8b (owner D210 b) sends the client offer at PREPARE, so
+    both briefings are up at once - and drain both machines through Briefing/
+    Inventory/CoopState popups until BOTH machines sit on BattlescapeState. The
+    pre-battle equip screens' `battle_inventory ok` is the idempotent ready
+    lever (W2-P8b Q11 a), so pressing it every second never flaps a seat's ready
+    (F2756); turn 1 starts once every seat is ready.
 
-    A campaign bring-up that waits for the CLIENT's inBattle/BattlescapeState
-    before the host closes its own briefing hangs forever: this is the ordering
-    every campaign battle-entry fixture in this packet (S1's SEPARATE guest
-    battle, S2/S3's SHARED mixed battle) needs and test_shared_battle.py's old
-    :165-191 shape lacked (F362). Returns True once both machines are on
+    A campaign bring-up that settles ONE machine at a time hangs: the host's
+    equip screen waits for the client's ready (W2-P8b), as the pre-P8b client
+    offer waited for the host's briefing OK. Driving both machines in one loop
+    is the ordering every campaign battle-entry fixture in this packet (S1's
+    SEPARATE guest battle, S2/S3's SHARED mixed battle) needs and
+    test_shared_battle.py's old :165-191 shape lacked (F362). Returns True once both machines are on
     BattlescapeState, False on timeout (the caller raises with both machines'
     top states, which names the fixture problem instead of hanging silently)."""
     deadline = time.time() + timeout

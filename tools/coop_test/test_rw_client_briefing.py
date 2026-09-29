@@ -46,7 +46,8 @@ WHAT THIS ASSERTS.
      resolution + resetDisplay() and setStandardPalette("PAL_GEOSCAPE", ...)
      (BriefingState.cpp:58-60); btnOkClick sets the BATTLESCAPE values back
      (:297-300). W1-P3 does that OVER a live BattlescapeState. After
-     close_briefing the client must be back on BattlescapeState with the
+     close_briefing, both pre-battle equip screens and both Turn-1 screens
+     (W2-P8b) the client must be back on BattlescapeState with the
      BATTLESCAPE base resolution, a SCREEN palette equal to the host's, an
      unchanged map (mapFingerprint / mapObjTiles / mapSizeXYZ, cross-checked
      against the host) and all hash buckets EQUAL.
@@ -54,10 +55,10 @@ WHAT THIS ASSERTS.
      OWN stored _palette, which a briefing round trip never touches - asserting
      on those alone would be VACUOUS for this trap, so W1-P3 added the additive
      `screen` object (base resolution + live screen palette) this test uses.
-  7. RW-FIX-TURN's sentinel did not move: turn == 1 on BOTH machines. The
-     client's counter mirror is still the LAST statement of the handshake, so
-     the briefing push (which happens BEFORE battle_ready is built) cannot have
-     reordered it.
+  7. W2-P8b S-H re-point: the offer is snapshotted at turn 0 (owner D210 b)
+     and the RW-FIX-TURN counter mirror is skipped for it, so the client's
+     briefing shows turn 0 and the host's pre-battle equip screen too; turn is
+     1 on BOTH machines once both seats are ready.
 
 COVERAGE LIMITS, stated honestly.
   * WHICH deployment-resolution path wins is fixture-dependent and deliberately
@@ -196,20 +197,14 @@ def main():
         host.wait_for("host briefing",
                       lambda: session.has_state(host, "BriefingState"), timeout=30)
 
-        # WV-D56 (FX-1, 2026-09-04) snapshot, taken HERE while host is STILL in
-        # its own PRE-battle BriefingState: the coop blob snapshot/battle_offer
-        # now move to AFTER the host's own startFirstTurn() (the OK click just
-        # below), so the client cannot reach ANYTHING - let alone ITS OWN entry
-        # briefing - until this click runs. That click is therefore also the
-        # last moment the host's OWN pre-battle briefing text can be read for
-        # assertion 2's compare below (the host is on BattlescapeState by the
-        # time the client's briefing exists) - captured now, compared later.
+        # Snapshot of the host's OWN pre-battle briefing text, taken while it is
+        # up, for assertion 2's compare below. W2-P8b (owner D210 b): the offer
+        # already went out at PREPARE (newbattle_ok), at turn 0, so both
+        # briefings are up at once; the host's OK below lands it on its
+        # pre-battle equip screen (D174 a), where it stays until both seats are
+        # ready (D206 c).
         host_texts_pre_offer = widget_texts(host)
 
-        # WV-D56: dismiss the host's briefing - this is what actually sends
-        # battle_offer (CoopHandshake::emitPreparedOffer(), called from the
-        # freeze branch after startFirstTurn()). Before this click nothing has
-        # been sent and phase is still Handshake on the host.
         host.ok({"cmd": "click_widget", "match": "ok"})
 
         # === 1. ENTRY SHAPE ==================================================
@@ -250,17 +245,16 @@ def main():
               "BriefingState with a live BattlescapeState underneath "
               "(TestServer.cpp:3468-3469 / :5260 guards hold)")
 
-        # === 7. RW-FIX-TURN sentinel: battle_ready timing did not move =======
-        # The client's counter mirror is the LAST statement of the handshake and
-        # runs strictly after battle_ready is sent; the briefing push sits BEFORE
-        # that block. If the push had been threaded through the middle of the
-        # handshake this reads 0.
-        assert cb.get("turn") == 1, (
-            f"client battle_state.turn == {cb.get('turn')}, expected 1 - the RW-FIX-TURN "
-            "counter mirror did not fire, i.e. the W1-P3 briefing push disturbed the "
-            "client handshake's tail")
-        print("PASS 7: client turn == 1 (RW-FIX-TURN mirror still the last statement "
-              "of the handshake)")
+        # === 7. the turn-0 offer (W2-P8b S-H re-point, chain rule A.10) ======
+        # The offer is snapshotted at turn 0 and carries `equip`, so the client's
+        # RW-FIX-TURN counter mirror is skipped (b2, F2748): its briefing shows
+        # turn 0, and turn 1 arrives with the equip-end `sync` after both seats
+        # are ready (asserted after equip_both_ready below).
+        assert cb.get("turn") == 0, (
+            f"client battle_state.turn == {cb.get('turn')} under its entry briefing, expected "
+            "0 - the turn-0 offer (W2-P8b b1) or the skipped RW-FIX-TURN mirror (b2) moved")
+        print("PASS 7: client turn == 0 under its entry briefing (the turn-0 offer; "
+              "turn 1 waits for both seats' ready)")
 
         # === 2. CONTENT: carried labels + deployment-specific text ===========
         assert hb["strTarget"] == cb["strTarget"] and \
@@ -354,22 +348,27 @@ def main():
               f"(was {base_seq}) with the BriefingState ON SCREEN - the drain lives in "
               "updateCoopTask(), not in a State")
 
-        # === host settles ON its map (its BriefingState was already dismissed
-        # === above under WV-D56 - only NextTurnState is left, equip frozen);
-        # === then the client dismisses its own briefing ======================
+        # === the host sits on its pre-battle equip screen (W2-P8b S-H re-point,
+        # === chain rule A.10): turn 0 until both seats are ready ==============
+        hb_equip = battle_state(host)
+        assert hb_equip["turn"] == 0, (
+            f"host turn == {hb_equip['turn']} on its pre-battle equip screen, expected 0 - "
+            "turn 1 must wait for both seats' ready (D206 c)")
+
+        # === 6. WR-24: close_briefing -> both equip screens -> a CORRECTLY ====
+        # === RENDERING map ====================================================
+        client.ok({"cmd": "close_briefing"})
+        client.wait_for("client's entry briefing closed",
+                        lambda: (not session.has_state(client, "BriefingState")) or None,
+                        timeout=20)
+        session.equip_both_ready(host, client)
         session.dismiss_battle_start_overlays(host)
+        session.dismiss_battle_start_overlays(client)
         time.sleep(1)
 
         host_scr = palettes(host)["screen"]
         hb2 = battle_state(host)
         assert hb2["turn"] == 1, f"host turn != 1 after its own entry chain: {hb2['turn']}"
-
-        # === 6. WR-24: close_briefing lands on a CORRECTLY RENDERING map ======
-        client.ok({"cmd": "close_briefing"})
-        client.wait_for("client back on the battlescape",
-                        lambda: (top_state(client) == "BattlescapeState") or None,
-                        timeout=20)
-        time.sleep(1)
 
         cstack2 = states(client)
         assert cstack2[-1] == "BattlescapeState", \

@@ -196,27 +196,11 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=3):
     seated_holder["soldierIds"] = soldier_ids
 
     host.ok({"cmd": "newbattle_ok"})
-    host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
 
-    # WV-D56 (FX-1): the snapshot/offer now move to AFTER startFirstTurn() -
-    # i.e. to this click, not to newbattle_ok. "client battlescape" can only be
-    # waited for AFTER it, never before (the client learns nothing until then).
-    host.ok({"cmd": "click_widget", "match": "ok"})
-    host.wait_for("host battlescape",
-                  lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-    session.dismiss_battle_start_overlays(host)
-
-    client.wait_for("client battlescape",
-                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
+    # W2-P8b S-H: the shared battle-entry spine (both briefings, both pre-battle
+    # equip screens, both Turn-1 screens).
+    session.briefings_to_battlescape(host, client)
     time.sleep(3)
-
-    # W1-P3 (SS1 WAVE-1 ADDITIONS trap 2 / WV-D9): the client now enters the
-    # battle through a read-only BriefingState pushed OVER its
-    # BattlescapeState, so every fixture that DRIVES the client must dismiss
-    # it explicitly - injected input would otherwise land on the briefing and
-    # screen-projection probes would compute against the GEOSCAPE viewport the
-    # briefing holds. No-op on a stack with no BriefingState.
-    session.dismiss_client_briefing(client)
 
 
 def has_door_within(gc, x, y, z, radius=2):
@@ -1037,18 +1021,11 @@ def test_reveal_hostile_gm2():
         host.wait_for("host at battle settings",
                       lambda: (not session.has_state(host, "LobbyMenu")) or None)
         host.ok({"cmd": "newbattle_ok"})
-        host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
-        # WV-D56 (FX-1): snapshot/offer move to AFTER startFirstTurn() - i.e.
-        # to this click. "client battlescape" can only be waited for AFTER it.
-        host.ok({"cmd": "click_widget", "match": "ok"})
-        host.wait_for("host battlescape",
-                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-        session.dismiss_battle_start_overlays(host)
-        client.wait_for("client battlescape",
-                        lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-        time.sleep(3)
-        session.dismiss_client_briefing(client)
-        time.sleep(2)
+        # W2-P8b S-H: the shared battle-entry spine (both briefings, the host's
+        # pre-battle equip screen - the alien seat has nothing to equip - and both
+        # Turn-1 screens).
+        session.briefings_to_battlescape(host, client)
+        time.sleep(5)  # the former 3 s log flush + 2 s settle, unchanged in total
 
         hs = host.cmd({"cmd": "battle_state"})
         assert hs.get("coopGamemode") == 2, \

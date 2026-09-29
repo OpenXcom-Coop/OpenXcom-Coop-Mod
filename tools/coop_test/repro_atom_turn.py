@@ -203,35 +203,14 @@ def drive_to_battlescape(host, client, seated_holder):
 
     host.ok({"cmd": "newbattle_ok"})
 
-    host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
-
-    # WV-D56 (FX-1): the coop blob snapshot and the battle_offer that
-    # advertises it now move to AFTER the host's own SavedBattleGame::
-    # startFirstTurn() - i.e. to the moment BELOW dismisses the host's
-    # BriefingState, not to newbattle_ok's generation-time offerBattle() call.
-    # The client therefore learns NOTHING about this battle until the host
-    # actually clicks OK here; waiting for "client battlescape" BEFORE that
-    # click deadlocks (both sides are correctly waiting on each other).
-    host.ok({"cmd": "click_widget", "match": "ok"})
-    host.wait_for("host battlescape",
-                  lambda: session.has_state(host, "BattlescapeState"), timeout=30)
+    # W2-P8b S-H: the shared battle-entry spine - both briefings (the offer goes
+    # out at PREPARE, D210 b), both pre-battle equip screens (D174 a / D206 c),
+    # both Turn-1 screens (Q7 a).
+    session.briefings_to_battlescape(host, client)
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
 
-    session.dismiss_battle_start_overlays(host)
-
-    client.wait_for("client battlescape",
-                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-
     time.sleep(3)  # let both logs flush the handshake lines before reading them
-
-    # W1-P3 (SS1 WAVE-1 ADDITIONS trap 2 / WV-D9): the client now enters the
-    # battle through a read-only BriefingState pushed OVER its
-    # BattlescapeState, so every fixture that DRIVES the client must dismiss
-    # it explicitly - injected input would otherwise land on the briefing and
-    # screen-projection probes would compute against the GEOSCAPE viewport the
-    # briefing holds. No-op on a stack with no BriefingState.
-    session.dismiss_client_briefing(client)
 
 
 # dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (WAVE1-RUNBOOK.md

@@ -158,36 +158,46 @@ def main():
             f"{MISSION!r}")
         print(f"PASS: host generated {MISSION}, phase=Handshake (nothing sent yet)")
 
-        # === dismiss the host's briefing - this is where emitPreparedOffer() ==
-        # === actually fires, AFTER startFirstTurn() (WV-D56) =================
+        # === dismiss the host's briefing - W2-P8b (owner D210 b): the offer ===
+        # === already went out at PREPARE, at turn 0; the host lands on its ===
+        # === pre-battle equip screen (D174 a) =================================
+        client.wait_for("client entry briefing (both briefings at once, D210 b)",
+                        lambda: session.has_state(client, "BriefingState") or None, timeout=90)
         host.ok({"cmd": "click_widget", "match": "ok"})
-        host.wait_for("host battlescape",
-                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-        session.dismiss_battle_start_overlays(host)   # NextTurnState only (equip frozen)
-        assert top_state(host) == "BattlescapeState", \
-            f"host should be on BattlescapeState after dismissing overlays, stack={states(host)}"
+        host.wait_for("host pre-battle equip screen on top",
+                      lambda: (top_state(host) == "InventoryState") or None, timeout=30)
 
-        # === 2. host.battle_state.turn == 1 right after closing the briefing =
+        # === 2. host.battle_state.turn == 0 right after closing the briefing =
+        # W2-P8b S-H re-point (chain rule A.10): turn 1 now starts at the ready
+        # barrier (D206 c), not at the host's briefing OK.
         hbs = battle_state(host)
-        assert hbs.get("turn") == 1, (
-            f"host battle_state.turn == {hbs.get('turn')}, expected 1 - "
-            "SavedBattleGame::startFirstTurn() did not run (or did not set _turn) "
-            "in BriefingState::btnOkClick's freeze branch")
-        print("PASS: host battle_state.turn == 1 right after closing the briefing")
+        assert hbs.get("turn") == 0, (
+            f"host battle_state.turn == {hbs.get('turn')} on its pre-battle equip screen, "
+            "expected 0 - turn 1 started before both seats were ready (W2-P8b b6)")
+        print("PASS: host battle_state.turn == 0 right after closing the briefing (equip open)")
 
-        # === client: reaches inBattle + turn==1 (its blob already carries it) =
+        # === client: reaches inBattle + turn 0 (the turn-0 blob) =============
         client.wait_for("client battlescape",
                         lambda: session.has_state(client, "BattlescapeState"), timeout=60)
         time.sleep(1)  # let both logs/handshake bookkeeping settle
-        session.dismiss_client_briefing(client)   # W1-P3 read-only entry briefing
 
         cbs = battle_state(client)
         assert cbs.get("inBattle") is True, f"client inBattle should be True: {cbs}"
-        assert cbs.get("turn") == 1, (
-            f"client battle_state.turn == {cbs.get('turn')}, expected 1 - the "
-            f"loaded blob should already carry turn 1 under WV-D56: {cbs}")
-        print("PASS: client inBattle=True, battle_state.turn == 1 (the loaded blob "
-              "already carried it - WV-D56)")
+        assert cbs.get("turn") == 0, (
+            f"client battle_state.turn == {cbs.get('turn')}, expected 0 - the loaded blob "
+            f"carries the turn-0 snapshot under W2-P8b (D210 b): {cbs}")
+        print("PASS: client inBattle=True, battle_state.turn == 0 (the turn-0 blob, W2-P8b)")
+
+        # === both pre-battle equip screens -> turn 1 on both (the barrier) ===
+        session.dismiss_client_briefing(client)   # W1-P3 read-only entry briefing
+        session.equip_both_ready(host, client)
+        session.dismiss_battle_start_overlays(host)
+        session.dismiss_battle_start_overlays(client)
+        hbs1, cbs1 = battle_state(host), battle_state(client)
+        assert hbs1.get("turn") == 1 and cbs1.get("turn") == 1, (
+            f"turn host/client = {hbs1.get('turn')}/{cbs1.get('turn')} after both seats are "
+            "ready, expected 1/1 (the equip-end sync)")
+        print("PASS: battle_state.turn == 1 on both machines after both seats are ready")
 
         # === 3. RW-FIX-TURN tripwire: must NOT have fired on the client =======
         ces = event_state(client)

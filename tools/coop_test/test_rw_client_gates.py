@@ -195,17 +195,9 @@ def bring_up(host, client, port):
     seat = host.ok({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1})
 
     host.ok({"cmd": "newbattle_ok"})
-    host.wait_for("host briefing",
-                  lambda: session.has_state(host, "BriefingState"), timeout=30)
-    # WV-D56 (FX-1): snapshot/offer move to AFTER startFirstTurn() - i.e. to
-    # this close_briefing. "client battlescape" can only be waited for AFTER it.
-    host.ok({"cmd": "close_briefing"})
-    host.wait_for("host battlescape",
-                  lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-    session.dismiss_battle_start_overlays(host)
-    client.wait_for("client battlescape",
-                    lambda: session.has_state(client, "BattlescapeState"), timeout=60)
-    session.dismiss_client_briefing(client)
+    # W2-P8b S-H: the shared battle-entry spine (both briefings, both pre-battle
+    # equip screens, both Turn-1 screens).
+    session.briefings_to_battlescape(host, client)
     time.sleep(1)
     return seat
 
@@ -242,13 +234,14 @@ def main():
         assert not (host_own & client_own), "a unit is claimed by both seats"
         print(f"fixture: host owns {sorted(host_own)}, client owns {sorted(client_own)}")
 
-        # The client entered on W1-P4's equip notice; every press below has to
-        # CHANGE the banner, which is what makes each text assertion mean
-        # "this press produced this message".
-        assert banner(client) == TXT_EQUIP_FROZEN, (
-            f"client's entry banner is {banner(client)!r}, expected "
-            f"{TXT_EQUIP_FROZEN!r} - if this is a raw STR_ key the WV-D17 language "
-            "deploy is stale and every text assertion below is meaningless")
+        # Every press below has to CHANGE the banner, which is what makes each
+        # text assertion mean "this press produced this message". W2-P8b S-H
+        # re-point (chain rule A.10): the client no longer enters on W1-P4's equip
+        # notice (TXT_EQUIP_FROZEN, deleted by W2-P8b b2) - its entry banner after
+        # both equip screens and turn 1 measured '' (2/2 runs at f225f1fc5).
+        assert banner(client) == "", (
+            f"client's entry banner is {banner(client)!r}, expected '' (no W1-P4 "
+            f"{TXT_EQUIP_FROZEN!r} notice since W2-P8b); every press below must change it")
 
         session.assert_hash_clean(host, client, full=True, what="at the gate baseline")
 

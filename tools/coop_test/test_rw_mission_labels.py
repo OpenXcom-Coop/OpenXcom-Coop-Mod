@@ -196,17 +196,11 @@ def main():
         host.ok({"cmd": "newbattle_ok"})
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
 
-        # WV-D56 (FX-1, 2026-09-04): the coop blob snapshot/battle_offer now
-        # move to AFTER the host's own startFirstTurn() - i.e. to THIS click,
-        # not to newbattle_ok's generation-time offerBattle() call. The client
-        # therefore learns NOTHING about this battle (no missionLabel, nothing)
-        # until the host actually clicks OK here - "host still sits in its
-        # PRE-battle BriefingState while the client already has the labels" is
-        # no longer a reachable window (that ordering is the exact thing
-        # WV-D56 closes). Assertion 2 below is adjusted to probe the SAME
-        # TestServer.cpp:5260 guard from the CLIENT's OWN read-only entry
-        # BriefingState instead (W1-P3) - still "a machine parked in
-        # BriefingState", just the other machine.
+        # W2-P8b (owner D210 b): the offer (and its missionLabel) now goes out
+        # at PREPARE, so both briefings are up at once; the host's OK below
+        # lands it on its pre-battle equip screen (D174 a). Assertion 2 probes
+        # the TestServer.cpp:5260 guard from the CLIENT's OWN read-only entry
+        # BriefingState (W1-P3) - "a machine parked in BriefingState".
         host.ok({"cmd": "click_widget", "match": "ok"})
         host.wait_for("host battlescape",
                       lambda: session.has_state(host, "BattlescapeState"), timeout=30)
@@ -310,10 +304,13 @@ def main():
         print("PASS re-mint suppression: host's post-BriefingState label still "
               f"{hb['strTarget']!r}, identical to the one the offer shipped")
 
-        # === host settles ON the battlescape (BriefingState already dismissed
-        # === above, under WV-D56 - only NextTurnState is left, equip frozen);
-        # === labels must not move ============================================
+        # === both machines settle ON the battlescape (W2-P8b S-H: the client's
+        # === entry briefing, both pre-battle equip screens, both Turn-1
+        # === screens); labels must not move ==================================
+        session.dismiss_client_briefing(client)
+        session.equip_both_ready(host, client)
         session.dismiss_battle_start_overlays(host)
+        session.dismiss_battle_start_overlays(client)
         time.sleep(2)
 
         hb2 = labels(host)
@@ -333,11 +330,7 @@ def main():
         print("HOST   h:", json.dumps(hh, indent=2, sort_keys=True))
 
         # === 4. ctrl-B on the CLIENT ========================================
-        # The client has been sitting on its OWN read-only entry BriefingState
-        # since bring-up (assertion 2's probe needed it there) - dismiss it now,
-        # exactly like every other fixture in this directory does before driving
-        # the client (session.dismiss_client_briefing's own precedent).
-        session.dismiss_client_briefing(client)
+        # (its entry briefing was closed above, before the equip screens)
         pal_before = palette_of(client, "BattlescapeState")
         map_before = (cb.get("mapFingerprint"), cb.get("mapObjTiles"), cb.get("mapSizeXYZ"))
         assert top_state(client) == "BattlescapeState", \

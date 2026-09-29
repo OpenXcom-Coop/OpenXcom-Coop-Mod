@@ -72,28 +72,37 @@ def lobby(gc):
     return gc.cmd({"cmd": "lobby_state"})
 
 
-def settle_on_tactical(gc, tag, timeout=180):
+def settle_on_tactical(machines, timeout=180):
     """Walk briefing / pre-battle inventory / popups until the tactical map is
     the top state, exactly as a player would: press each dialog's real control
-    and wait through transient no-button coop holds instead of forcing them."""
+    and wait through transient no-button coop holds instead of forcing them.
+
+    W2-P8b S-H: BOTH machines in ONE loop, `machines` = ((gc, tag), ...). The
+    host's pre-battle equip screen now waits for the client's ready (owner
+    D206 c) and the client's briefing is up at once (D210 b), so settling one
+    machine at a time never finishes. `battle_inventory ok` is the idempotent
+    ready lever (Q11 a): pressing it every round never flaps a seat's ready."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        t = top(gc)
-        if t == "BattlescapeState":
+        pending = [(gc, tag) for gc, tag in machines if top(gc) != "BattlescapeState"]
+        if not pending:
             return
-        if t == "BriefingState":
-            gc.cmd({"cmd": "close_briefing"})
-        elif t == "InventoryState":
-            gc.cmd({"cmd": "battle_inventory", "action": "ok"})
-        else:
-            # dismiss_popup presses the dialog's real button now (CoopState
-            # Back, GeoscapeEvent / MonthlyReport / NextTurn / etc. OK). A
-            # transient coop load/stream hold has no button to press yet and
-            # answers {"wait": True} - that is not an error; we keep polling,
-            # the way a player waits for the battle to finish landing.
-            gc.cmd({"cmd": "dismiss_popup"})
+        for gc, tag in pending:
+            t = top(gc)
+            if t == "BriefingState":
+                gc.cmd({"cmd": "close_briefing"})
+            elif t == "InventoryState":
+                gc.cmd({"cmd": "battle_inventory", "action": "ok"})
+            else:
+                # dismiss_popup presses the dialog's real button now (CoopState
+                # Back, GeoscapeEvent / MonthlyReport / NextTurn / etc. OK). A
+                # transient coop load/stream hold has no button to press yet and
+                # answers {"wait": True} - that is not an error; we keep polling,
+                # the way a player waits for the battle to finish landing.
+                gc.cmd({"cmd": "dismiss_popup"})
         time.sleep(0.5)
-    raise AssertionError(f"{tag}: never settled on the tactical map: {states(gc)}")
+    raise AssertionError("never settled on the tactical map: " + "; ".join(
+        f"{tag}={states(gc)}" for gc, tag in machines))
 
 
 def wait_peer_dropped(gc, what):
@@ -120,7 +129,7 @@ def start_skirmish_battle(host, client, port):
     for gc, tag in ((host, "host"), (client, "client")):
         gc.wait_for(f"{tag} in the battle",
                     lambda gc=gc: in_battle_save(gc) or None, timeout=180, interval=1.0)
-        settle_on_tactical(gc, tag)
+    settle_on_tactical(((host, "host"), (client, "client")))  # W2-P8b S-H: one joint loop
 
 
 def drop_client_mid_battle(host, client):
@@ -217,7 +226,7 @@ def _fly_shared_squad_into_a_battle(js):
     for gc, tag in ((host, "host"), (client, "client")):
         gc.wait_for(f"{tag} entered the battle",
                     lambda gc=gc: in_battle_save(gc) or None, timeout=240, interval=1.0)
-        settle_on_tactical(gc, tag)
+    settle_on_tactical(((host, "host"), (client, "client")))  # W2-P8b S-H: one joint loop
 
 
 def _resume_from_the_coop_menu(gc, who, peer):

@@ -27,32 +27,33 @@ divergence class that fix was built to close - and also skips
 randomizeItemLocations() / resetUnitTiles() / the per-unit prepareNewTurn(false)
 / newTurnUpdateScripts() (SavedBattleGame.cpp:1230-1260).
 
-WHAT THIS ASSERTS (the packet's acceptance list, in order).
-  (a) NO InventoryState on the HOST's stack after close_briefing - that IS the
-      freeze - and none on the client's either (its entry briefing is infoOnly,
-      so btnOkClick returns at BriefingState.cpp:302 and never reaches the
-      push). Backed by the freeze's own log line, so "no InventoryState" cannot
-      pass for the wrong reason.
-  (b) The EXACT refusal text on BOTH machines via battle_state.coopWaitText -
-      STR_COOP_EQUIP_FROZEN through the _txtCoopWait presenter (SS2.6), never
-      vanilla _warning. Exact text, never non-emptiness: a raw STR_ key here
-      means the WV-D17 language deploy is stale.
+W2-P8b S-H RE-POINT (chain rule A.10; docs rewrite/prompts/w2p8b_prebattle_equip.md,
+AMENDMENT P8b-1 section 4 S-H): the freeze is GONE for a fresh co-op battle. The
+offer goes out at PREPARE at turn 0 (owner D210 b), each player equips its own
+soldiers on the vanilla pre-battle screen (D174 a), OK is a ready toggle and
+turn 1 starts on the host when every seat is ready (D206 c). The W1-P4 freeze
+survives only for the next-stage briefing (D158), which this file does not
+reach. This file is now the "no freeze" check, with each assertion re-pointed
+to the value this build measures:
+
+WHAT THIS ASSERTS (in order).
+  (a) BOTH pre-battle equip screens are OPEN: the host's InventoryState on top
+      right after close_briefing with vanilla's NextTurnState under it, the
+      client's on top once its own briefing closes, `inventory_view.preBattle`
+      true on both; the host log carries the equip entry's line and NOT the
+      W1-P4 freeze line (so "an InventoryState is up" cannot pass for the wrong
+      reason).
+  (e) `battle_state.turn == 0` on BOTH machines while the equip screens are
+      up, with `saveBlob` EQUAL at that moment; (e2) the host readying alone
+      leaves turn 0 on both and both screens up, and turn is 1 on both once
+      both seats are ready.
+  (b) NO freeze text on either banner: `battle_state.coopWaitText` is the
+      exact measured entry value on both machines, not STR_COOP_EQUIP_FROZEN.
   (c) The host lands in BattlescapeState with the battle PLAYABLE - phase
       Active, not busy, a unit selected, and TAB actually advances the
-      selection (i.e. BattlescapeState's _gameTimer ticks again once vanilla's
-      "Turn 1 begins" overlay is gone; that is the only overlay left in a coop
-      battle now).
-  (d) `hash_now full` all buckets EQUAL on both machines. THIS assertion is the
-      host-equip gap regression: it is what an unfrozen host equip would break.
-      No hard-coded bucket count (SS1 WAVE-1 ADDITIONS: the sweep grows to nine
-      at W1-P8).
-  (e) `battle_state.turn == 1` on the HOST *immediately after close_briefing*,
-      with the `saveBlob` bucket EQUAL on both machines AT THAT MOMENT. This is
-      the assertion that catches a freeze implemented without the
-      startFirstTurn() replacement; (d) alone does NOT - two machines can be
-      equal-and-wrong if both skip the turn bump, and this fixture's client
-      does not (its mirror already forced 1 at the end of its handshake, which
-      the same step re-asserts).
+      selection.
+  (d) `hash_now full` all buckets EQUAL on both machines after both equip
+      screens and turn 1 (the host-equip gap regression).
 
 WHAT THIS DELIBERATELY DOES NOT USE.
   * `inventory_move` - a dead R1-P4 stub that answers "rewrite-pending", so any
@@ -189,90 +190,117 @@ def main():
 
         # ===== the real pre-battle path: BriefingState::btnOkClick ===========
         # close_briefing calls the REAL handler (TestServer.cpp), not a
-        # synthetic shortcut - which is the whole point: the freeze lives
+        # synthetic shortcut - which is the whole point: the equip entry lives
         # inside it.
         #
-        # WV-D56 (FX-1): the coop blob snapshot/battle_offer now move to AFTER
-        # startFirstTurn() - i.e. to THIS close_briefing call, not to
-        # newbattle_ok. The client learns nothing about this battle until it
-        # runs, so "client battlescape" can only be waited for AFTER it.
+        # W2-P8b S-H (owner D210 b): the coop blob snapshot and the battle_offer
+        # now go out at PREPARE (newbattle_ok), at turn 0, so the client's own
+        # entry briefing is up BEFORE the host closes its briefing.
+        client.wait_for("client entry briefing (both briefings at once, D210 b)",
+                        lambda: session.has_state(client, "BriefingState") or None, timeout=90)
         host.ok({"cmd": "close_briefing"})
-        host.wait_for("host battlescape",
-                      lambda: session.has_state(host, "BattlescapeState"), timeout=30)
-
-        client.wait_for("client battlescape",
-                        lambda: session.has_state(client, "BattlescapeState"), timeout=60)
+        host.wait_for("host pre-battle equip screen on top",
+                      lambda: (top_state(host) == "InventoryState") or None, timeout=30)
+        # the client closes its read-only briefing; its equip entry (a pump step)
+        # then pushes its Turn-1 screen and its own pre-battle equip screen
+        session.dismiss_client_briefing(client)
+        client.wait_for("client pre-battle equip screen on top",
+                        lambda: (top_state(client) == "InventoryState") or None, timeout=30)
         time.sleep(3)  # let both logs flush the handshake lines
         print(f"client stack at entry:      {states(client)}")
 
-        # === (a) NO InventoryState - that IS the freeze ======================
+        # === (a) BOTH equip screens OPEN - the freeze is gone (W2-P8b) =======
         post = states(host)
-        assert "InventoryState" not in post, (
-            "the pre-battle equip screen was still pushed on the HOST - the W1-P4 coop "
-            f"freeze at BriefingState::btnOkClick did not fire. stack={post}")
+        assert post[-1] == "InventoryState", (
+            "the host's pre-battle equip screen is not on top after close_briefing - "
+            f"W2-P8b's host equip entry (D174 a) did not run. stack={post}")
         assert "BattlescapeState" in post, \
             f"host never reached BattlescapeState after close_briefing: {post}"
         assert "BriefingState" not in post, \
             f"the host's briefing was not popped by btnOkClick: {post}"
-        assert post[-1] == "NextTurnState", (
-            "with equip frozen, vanilla's own 'Turn 1 begins' overlay should be the only "
-            f"thing left over the map on the host. stack={post}")
+        assert post[-2] == "NextTurnState", (
+            "vanilla's own 'Turn 1 begins' overlay should sit right under the host's "
+            f"pre-battle equip screen (BriefingState::btnOkClick's push order). stack={post}")
 
-        # NON-VACUITY: prove the gate actually FIRED, rather than the screen
-        # being absent for some unrelated reason.
+        # NON-VACUITY: the freeze did NOT fire, and the equip phase opened.
         froze = grep(host_dir, "W1-P4: pre-battle equip FROZEN")
-        assert froze, (
-            "host log has no '[coop-handshake] W1-P4: pre-battle equip FROZEN' line - "
-            "InventoryState is missing for some OTHER reason, so this test would be "
-            "vacuous")
-        print("HOST LOG:", froze[-1])
+        assert not froze, (
+            "host log has a '[coop-handshake] W1-P4: pre-battle equip FROZEN' line - the "
+            f"fresh co-op battle took the freeze branch: {froze[-1]}")
+        opened = grep(host_dir, "[coop-equip] host: pre-battle equip OPEN")
+        assert opened, (
+            "host log has no '[coop-equip] host: pre-battle equip OPEN' line - the "
+            "InventoryState on top was not pushed by W2-P8b's equip entry")
+        print("HOST LOG:", opened[-1])
 
         cstack = states(client)
-        assert "InventoryState" not in cstack, (
-            "the client got a pre-battle equip screen - it must be frozen on BOTH "
-            f"machines. stack={cstack}")
-        print(f"PASS (a) freeze: host stack={post} (no InventoryState), "
-              f"client stack={cstack} (no InventoryState)")
+        assert cstack[-1] == "InventoryState", (
+            "the client has no pre-battle equip screen on top - W2-P8b's client equip "
+            f"entry (D174 a) did not run. stack={cstack}")
+        hv = host.cmd({"cmd": "inventory_view"})
+        cv = client.cmd({"cmd": "inventory_view"})
+        assert hv.get("preBattle") is True and cv.get("preBattle") is True, (
+            f"inventory_view.preBattle host={hv.get('preBattle')} client={cv.get('preBattle')} "
+            "(want True on both: each screen is the equip entry's own)")
+        print(f"PASS (a) no freeze: host stack={post}, client stack={cstack} - both "
+              "pre-battle equip screens open")
 
-        # === (e) turn == 1 on the HOST *right now*, saveBlob EQUAL ===========
-        # IMMEDIATELY after close_briefing, before any overlay dismissal: this
-        # is where a freeze that skipped startFirstTurn() would read 0.
+        # === (e) turn == 0 on BOTH while the equip screens are up, saveBlob EQUAL
+        # The offer is snapshotted at turn 0 and turn 1 starts only at the ready
+        # barrier (D206 c), so nothing may have run startFirstTurn() yet.
         hb = battle_state(host)
         cb = battle_state(client)
-        assert hb.get("turn") == 1, (
-            f"host battle_state.turn == {hb.get('turn')} right after close_briefing, "
-            "expected 1 - the equip freeze skipped the InventoryState push WITHOUT "
-            "replacing its SavedBattleGame::startFirstTurn() call (WV-D43). The host is "
-            "now at turn 0 against a client whose RW-FIX-TURN mirror forced 1, which is "
-            "a permanent saveBlob divergence.")
-        assert cb.get("turn") == 1, (
-            f"client battle_state.turn == {cb.get('turn')}, expected 1 - the RW-FIX-TURN "
-            "mirror did not fire, so this step could not have caught a missing host "
-            "startFirstTurn() either")
+        assert hb.get("turn") == 0, (
+            f"host battle_state.turn == {hb.get('turn')} with both pre-battle equip screens "
+            "up, expected 0 - turn 1 started before every seat was ready")
+        assert cb.get("turn") == 0, (
+            f"client battle_state.turn == {cb.get('turn')} with both pre-battle equip screens "
+            "up, expected 0 (the turn-0 offer; the RW-FIX-TURN mirror is skipped)")
         hsb, csb = session.assert_hash_clean(
             host, client, buckets=["saveBlob"],
-            what="immediately after close_briefing (WV-D43 turn parity)")
-        print(f"PASS (e) WV-D43: host turn == 1 immediately after close_briefing "
-              f"(client 1 too) and saveBlob EQUAL at that moment: {hsb['saveBlob']}")
+            what="with both pre-battle equip screens up (turn 0)")
+        print(f"PASS (e) turn == 0 on both machines with both equip screens up and "
+              f"saveBlob EQUAL at that moment: {hsb['saveBlob']}")
 
-        # === (b) the exact refusal text on BOTH machines =====================
-        assert hb.get("coopWaitText") == STR_EQUIP_FROZEN_TEXT, (
-            f"host coopWaitText is {hb.get('coopWaitText')!r}, expected "
-            f"{STR_EQUIP_FROZEN_TEXT!r} - either CoopBattleUi::showEquipFrozen() did not "
-            "fire, or the string did not resolve (a raw STR_ key here means the deployed "
-            "bin/x64/Release/common/Language copy is stale relative to bin/common/, "
-            "WV-D17)")
-        assert cb.get("coopWaitText") == STR_EQUIP_FROZEN_TEXT, (
-            f"client coopWaitText is {cb.get('coopWaitText')!r}, expected "
-            f"{STR_EQUIP_FROZEN_TEXT!r} - the freeze must be VISIBLE on both machines, "
-            "and the client never sees the skip site at all (its entry briefing is "
-            "infoOnly), so its notice is raised by the battle entry itself")
-        print(f"PASS (b) refusal: both machines show {STR_EQUIP_FROZEN_TEXT!r} on the "
-              "_txtCoopWait presenter (SS2.6), never vanilla _warning")
+        # === (b) no freeze text on either banner =============================
+        # W2-P8b S-H re-point (chain rule A.10): was STR_EQUIP_FROZEN_TEXT on both;
+        # measured "" on both machines (2/2 runs at f225f1fc5).
+        assert hb.get("coopWaitText") == "", (
+            f"host coopWaitText is {hb.get('coopWaitText')!r} with its pre-battle equip screen up, "
+            f"expected '' (no {STR_EQUIP_FROZEN_TEXT!r} notice - the freeze is gone, W2-P8b)")
+        assert cb.get("coopWaitText") == "", (
+            f"client coopWaitText is {cb.get('coopWaitText')!r} with its pre-battle equip screen up, "
+            f"expected '' (the client's entry freeze notice was deleted, W2-P8b b2)")
+        print(f"PASS (b) no freeze text: coopWaitText '' on both machines (never "
+              f"{STR_EQUIP_FROZEN_TEXT!r})")
+
+        # === (e2) turn stays 0 until BOTH are ready ==========================
+        # The host readies alone (the idempotent lever, Q11 a); once the client
+        # has applied the host's ready flag, turn is still 0 on both and both
+        # screens are still up. Then equip_both_ready() readies the client.
+        r = host.ok({"cmd": "battle_inventory", "action": "ok"})
+        assert r.get("preBattle") is True and not r.get("noop"), \
+            f"host ready press did not toggle ready on its pre-battle screen: {r}"
+        client.wait_for("the host's ready flag applied on the client",
+                        lambda: ((session.event_state(client).get("equip") or {}).get("ready") or [False])[0] is True
+                        or None, timeout=10)
+        hb1, cb1 = battle_state(host), battle_state(client)
+        assert hb1.get("turn") == 0 and cb1.get("turn") == 0, (
+            f"turn host/client = {hb1.get('turn')}/{cb1.get('turn')} with only the host ready, "
+            "expected 0/0 - turn 1 must wait for every seat (D206 c)")
+        assert top_state(host) == "InventoryState" and top_state(client) == "InventoryState", (
+            f"a ready press closed an equip screen: host={states(host)} client={states(client)}")
+        print("PASS (e2) host ready alone: turn 0 on both, both equip screens still up")
+        session.equip_both_ready(host, client)
+        hb2, cb2 = battle_state(host), battle_state(client)
+        assert hb2.get("turn") == 1 and cb2.get("turn") == 1, (
+            f"turn host/client = {hb2.get('turn')}/{cb2.get('turn')} after both seats are ready, "
+            "expected 1/1")
+        print("PASS (e2) both ready: turn 1 on both machines")
 
         # === (c) the host lands on a PLAYABLE battle =========================
         session.dismiss_battle_start_overlays(host)
-        session.dismiss_client_briefing(client)
+        session.dismiss_battle_start_overlays(client)
         assert top_state(host) == "BattlescapeState", \
             f"host battle-start overlays never cleared: {states(host)}"
         time.sleep(1)
@@ -302,17 +330,17 @@ def main():
         # ADDITIONS). "All buckets EQUAL" is the invariant.
         hh, ch = session.assert_hash_clean(
             host, client, full=True,
-            what="after the frozen pre-battle equip (HOST-EQUIP GAP regression)")
+            what="after both pre-battle equip screens and turn 1 (HOST-EQUIP GAP regression)")
         assert "saveBlob" in hh, f"the full sweep did not include saveBlob: {sorted(hh)}"
         print(f"PASS (d) host-equip gap: ALL {len(hh)} hash buckets EQUAL on both "
-              f"machines after the refused equip ({sorted(hh)})")
+              f"machines after both equip screens and turn 1 ({sorted(hh)})")
 
         assert not battle_state(client)["authority"]["desyncFrozen"], \
             "client desync-frozen at the end of the run"
         assert not battle_state(host)["authority"]["desyncFrozen"], \
             "host desync-frozen at the end of the run"
 
-        print("ALL W1-P4 EQUIP-FREEZE TESTS PASSED")
+        print("ALL W2-P8b NO-FREEZE (FORMER W1-P4 EQUIP-FREEZE) TESTS PASSED")
     finally:
         host.shutdown()
         client.shutdown()
