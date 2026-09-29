@@ -41,6 +41,7 @@ class BattlescapeButton; // W2-P8b S-A.2: the pre-battle OK button (the ready to
 class BattleItem;
 class RuleInventory;
 struct BattleActionCost;
+class EquipmentLayoutItem; // W2-P8b S-C.2: the pre-battle bulk tools' layouts
 
 /**
  * W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / rulings D4+D-6 = WV-D29/WV-D30/WV-D38/
@@ -161,6 +162,11 @@ struct CoopCombatIntentArgs
 	// order's new name (the name field's whole text). Declared on commit S-R.1 because the
 	// battle_intent lever fills it; nothing reads it before S-R.2.
 	std::string name;
+	// W2-P8b S-C.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md AMENDMENT P8b-1 section 4 S-C): the
+	// `inv_bulk` plan. `action` carries the op (apply|clear|autoequip|save_personal|save_global); these
+	// carry its layout (`template`: apply and the two saves) and the global layout slot (`index`: save_global).
+	Json::Value invTemplate;
+	int invIndex = -1;
 };
 
 /**
@@ -1146,6 +1152,25 @@ bool coopInterceptInvFuse(Inventory* inv, BattleUnit* unit, BattleItem* item, in
 /// `quick_unload`. As coopInterceptInvFuse(): FALSE outside the co-op equip phase and on the host; a CLIENT sends
 /// one TU-free `inv_move {op quick_unload, item}` order (the weapon stays, its ammo to the ground) and TRUE.
 bool coopInterceptInvQuickUnload(Inventory* inv, BattleUnit* unit, BattleItem* item);
+
+/// W2-P8b S-C.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md AMENDMENT P8b-1 section 4 S-C; owner D207 a): the
+/// PRE-BATTLE BULK TOOL execution points - the first statement of InventoryState::_applyInventoryTemplate (@a op
+/// `apply`, @a layout = the template it applies: the template buttons, the personal and the global layouts) and of
+/// onClearInventory / onAutoequip after their cursor checks (`clear` / `autoequip`, @a layout null):
+/// `if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), <op>, <layout>)) return;`. FALSE (vanilla)
+/// unless a co-op battle's pre-battle equip phase is open. Then the head (ownership and side), the held (V11) and
+/// in-flight (D150) rules; the HOST: FALSE, vanilla writes (the head latches); a CLIENT sends one tracked
+/// `inv_bulk {op, template?}` order and TRUE - it never runs the tool itself.
+bool coopInterceptInvBulk(Inventory* inv, BattleUnit* unit, const char* op,
+	const std::vector<EquipmentLayoutItem*>* layout);
+
+/// W2-P8b S-C.2 (AMENDMENT P8b-1 section 4 S-C; Q9 (a), owner D209 a): the two layout SAVES, a void note right
+/// after vanilla built the layout - btnCreatePersonalTemplateClick (@a op `save_personal`, @a index -1) and
+/// saveGlobalLayout (`save_global`, @a index = the slot); vanilla's own local write always runs. A CLIENT in a
+/// SHARED campaign's pre-battle equip phase also sends one tracked `inv_bulk {op, template, index?}` order, so the
+/// host writes the same layout into the one shared world; a skirmish or SEPARATE save stays on this machine (lost
+/// after the battle, D209 a). A no-op on the host and in single player.
+void coopNoteInvLayoutSave(BattleUnit* unit, const char* op, int index, const std::vector<EquipmentLayoutItem*>& layout);
 
 /// Q2 (a): mouseClick's right-click RETURN of the cursor item. CLIENT: this
 /// unit's `inv_move` for @a item is in flight - TRUE, the item stays on the

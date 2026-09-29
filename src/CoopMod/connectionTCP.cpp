@@ -63,6 +63,8 @@
 #include "../Battlescape/MedikitState.h" // W2-P4 S-D.2: the ordering client's open medi-kit screen (D148)
 #include "../Battlescape/Inventory.h" // W2-P8 S-A.2: the inventory guards, the host's move checks, the client's answer
 #include "../Battlescape/InventoryState.h" // W2-P8 S-A.2: the ordering client's open inventory screen
+#include "../Battlescape/BattlescapeGenerator.h" // W2-P8b S-C.2: the host's auto-equip donor (autoEquip)
+#include "../Savegame/EquipmentLayoutItem.h" // W2-P8b S-C.2: the `inv_bulk` layouts
 #include "../Battlescape/WarningMessage.h" // W2-P8b S-A.2: the pre-battle screen's message line (D216)
 #include "../Interface/BattlescapeButton.h" // W2-P8b S-A.2: the pre-battle OK button's pressed look (D206 c)
 #include "../Battlescape/ScannerState.h" // W2-P4 S-D.2: the scanner's screen at the client's own end
@@ -7692,12 +7694,14 @@ static const char* coopMedikitActionName(int bma)
 // + inv_move ({op, item, to, weapon, swap}: `action` = the op, `weapon` = the
 // item, the inv* fields). Carrying the plan here inherits the busy hold, the
 // resubmit (tuBasis recomputed), the timeout and the aftermath slot unchanged.
+// W2-P8b S-C.2 (AMENDMENT P8b-1 section 4 S-C): + inv_bulk ({op, template?, index?}:
+// `action` = the op, invTemplate / invIndex), tracked like inv_move.
 static bool coopIsCombatKind(const std::string& kind)
 {
 	return kind == "shoot" || kind == "throw" || kind == "prime"
 		|| kind == "melee" || kind == "psi" || kind == "use_item"
 		|| kind == "medikit" || kind == "reload" || kind == "reaction_hands"
-		|| kind == "skill" || kind == "inv_move";
+		|| kind == "skill" || kind == "inv_move" || kind == "inv_bulk";
 }
 
 // W2-P4 S-B (spec (b)1): a combat plan's vanilla action type - `shoot` by its
@@ -8239,6 +8243,270 @@ static void coopHostInvQuickUnload(SavedBattleGame* save, BattleUnit* actor, Bat
 	te->recalculateFOV();
 }
 
+// ===== W2-P8b S-C.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md AMENDMENT P8b-1 section 4 S-C; owner D207 a,
+// D209 a, Q9 (a)): `inv_bulk` - the pre-battle BULK tools and, in SHARED, the second player's layout saves: ONE
+// tracked host order each. A layout rides as `template`, per item vanilla's EquipmentLayoutItem save keys, rebuilt on
+// the host by vanilla's own EquipmentLayoutItem load. =====
+
+static const char* const kCoopInvLayoutNoAmmo = "NONE"; // EquipmentLayoutItem.cpp's EmptyPlaceHolder
+
+// CLIENT: @a layout as the `template` array.
+static Json::Value coopInvLayoutJson(const std::vector<EquipmentLayoutItem*>& layout)
+{
+	Json::Value arr(Json::arrayValue);
+	for (const EquipmentLayoutItem* li : layout)
+	{
+		Json::Value j(Json::objectValue), ammo(Json::arrayValue);
+		j["itemType"] = li->getItemType()->getType();
+		j["slot"] = li->getSlot()->getId();
+		j["slotX"] = li->getSlotX();
+		j["slotY"] = li->getSlotY();
+		for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
+			ammo.append(li->getAmmoItemForSlot(s) ? li->getAmmoItemForSlot(s)->getType() : kCoopInvLayoutNoAmmo);
+		j["ammoItemSlots"] = ammo;
+		j["fuseTimer"] = li->getFuseTimer();
+		j["fixed"] = li->isFixed();
+		arr.append(j);
+	}
+	return arr;
+}
+
+// HOST: every item of @a layout freed, the vector emptied (vanilla's _clearInventoryTemplate).
+static void coopInvLayoutFree(std::vector<EquipmentLayoutItem*>& layout)
+{
+	for (EquipmentLayoutItem* li : layout)
+		delete li;
+	layout.clear();
+}
+
+// HOST: a `template` as new EquipmentLayoutItems in @a out, each built by vanilla's own load from its save keys;
+// FALSE (@a out empty) when it is not an array or an element is malformed or names an item type, a section or an
+// ammo type this mod does not have (vanilla's load would throw).
+static bool coopInvLayoutFromJson(const Json::Value& arr, const Mod* mod, std::vector<EquipmentLayoutItem*>& out)
+{
+	coopInvLayoutFree(out);
+	for (Json::ArrayIndex i = 0; arr.isArray() && i < arr.size(); ++i)
+	{
+		const Json::Value& j = arr[i];
+		bool ok = j.isObject() && j["itemType"].isString() && j["slot"].isString()
+			&& mod->getItem(j["itemType"].asString(), false) && mod->getInventory(j["slot"].asString(), false)
+			&& j.get("slotX", 0).isInt() && j.get("slotY", 0).isInt() && j.get("fuseTimer", -1).isInt()
+			&& j.get("fixed", false).isBool() && j.get("ammoItemSlots", Json::arrayValue).isArray()
+			&& j.get("ammoItemSlots", Json::arrayValue).size() <= (Json::ArrayIndex)RuleItem::AmmoSlotMax;
+		const Json::Value ammo = ok ? j.get("ammoItemSlots", Json::arrayValue) : Json::Value(Json::arrayValue);
+		for (const Json::Value& a : ammo)
+			ok = ok && a.isString() && (a.asString() == kCoopInvLayoutNoAmmo || mod->getItem(a.asString(), false));
+		if (!ok)
+		{
+			coopInvLayoutFree(out);
+			return false;
+		}
+		YAML::YamlRootNodeWriter writer;
+		writer.setAsMap();
+		writer.write("itemType", j["itemType"].asString());
+		writer.write("slot", j["slot"].asString());
+		writer.write("slotX", j.get("slotX", 0).asInt());
+		writer.write("slotY", j.get("slotY", 0).asInt());
+		YAML::YamlNodeWriter slots = writer["ammoItemSlots"];
+		slots.setAsSeq();
+		for (const Json::Value& a : ammo)
+			slots.write(a.asString());
+		writer.write("fuseTimer", j.get("fuseTimer", -1).asInt());
+		writer.write("fixed", j.get("fixed", false).asBool());
+		out.push_back(new EquipmentLayoutItem(writer.toReader(), mod));
+	}
+	return arr.isArray();
+}
+
+// HOST: the `inv_bulk` admission after onIntent's common terms; every refusal is the SILENT `invalid_target`: the
+// equip phase admitted it (@a equipPre); `op` is one of the five; the actor is not out and on a tile; a save only in
+// a SHARED campaign (Q9 (a), D209 a) - save_personal for an actor with a geoscape Soldier, save_global to a slot
+// vanilla's handle() accepts; apply and the saves: `template` rebuilds into @a layout.
+static const char* validateInvBulk(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
+	bool equipPre, std::string& op, int& index, std::vector<EquipmentLayoutItem*>& layout)
+{
+	op = intent.get("op", "").asString();
+	index = intent["index"].isInt() ? intent["index"].asInt() : -1;
+	const bool isSave = op == "save_personal" || op == "save_global";
+	if (!equipPre || !actor || actor->isOut() || !actor->getTile()
+		|| (!isSave && op != "apply" && op != "clear" && op != "autoequip"))
+		return "invalid_target";
+	if (isSave && (!connectionTCP::isSharedCampaignStatic()
+		|| (op == "save_personal" && !actor->getGeoscapeSoldier())
+		|| (op == "save_global" && (index < 0 || index >= SavedGame::MAX_EQUIPMENT_LAYOUT_TEMPLATES
+			|| index >= Options::oxceMaxEquipmentLayoutTemplates))))
+		return "invalid_target";
+	if ((op == "apply" || isSave) && !coopInvLayoutFromJson(intent["template"], save->getMod(), layout))
+		return "invalid_target";
+	return nullptr;
+}
+
+// HOST: vanilla's inventory-close trio for @a unit's tile (InventoryState.cpp :374-:377: gravity, the item light
+// layer, FOV), which the host never runs for a client's order otherwise (as coopHostInvMove()).
+static void coopHostInvCloseTrio(SavedBattleGame* save, BattleUnit* unit)
+{
+	save->getTileEngine()->applyGravity(unit->getTile());
+	save->getTileEngine()->calculateLighting(LL_ITEMS); // dropping/picking up flares
+	save->getTileEngine()->recalculateFOV();
+}
+
+// W2-P8b S-C.2 (RB-D10): HOST - the NAMED donor reproduction of vanilla's APPLY, InventoryState::
+// _applyInventoryTemplate (InventoryState.cpp :1426-:1621 at 267ad48db) for @a unit (the actor; `_battleGame` =
+// @a save, `_inv->overlapItems` = the static Inventory::overlapItems), statement for statement, with its twice-written
+// weapon check (the ground item, the fixed item) as one lambda, minus its UI line (STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE:
+// the returned itemMissing, logged). One addition, F3125's rule for a client's order: the host's own pre-battle
+// cursor item (@a hostCursor; a pick leaves it where it lies) is not on the ground for it. Then the close trio.
+static bool coopHostInvApplyTemplate(SavedBattleGame* save, BattleUnit* unit,
+	const std::vector<EquipmentLayoutItem*>& inventoryTemplate, const BattleItem* hostCursor)
+{
+	Tile* groundTile = unit->getTile();
+	std::vector<BattleItem*>* groundInv = groundTile->getInventory();
+	save->getTileEngine()->itemDropInventory(groundTile, unit, true, false);
+	bool itemMissing = false;
+	for (const auto* equipmentLayoutItem : inventoryTemplate)
+	{
+		bool found = false;
+		bool needsAmmo[RuleItem::AmmoSlotMax] = { };
+		const RuleItem* targetAmmo[RuleItem::AmmoSlotMax] = { };
+		BattleItem* matchedWeapon = nullptr;
+		BattleItem* matchedAmmo[RuleItem::AmmoSlotMax] = { };
+		for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
+		{
+			targetAmmo[slot] = equipmentLayoutItem->getAmmoItemForSlot(slot);
+			needsAmmo[slot] = (targetAmmo[slot] != nullptr);
+		}
+		// a loaded ammo that is not the template's remembers the weapon (an empty one preferred) and scanning goes on;
+		// else the weapon is the match (found = true, even if not equipped)
+		auto exactWeapon = [&](BattleItem* weapon)
+		{
+			bool skipWeapon = false;
+			for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
+			{
+				if (!weapon->needsAmmoForSlot(slot))
+					continue;
+				BattleItem* loadedAmmo = weapon->getAmmoForSlot(slot);
+				if ((needsAmmo[slot] && (!loadedAmmo || targetAmmo[slot] != loadedAmmo->getRules()))
+					|| (!needsAmmo[slot] && loadedAmmo))
+				{
+					if (!matchedWeapon || matchedWeapon->getAmmoForSlot(slot))
+						matchedWeapon = weapon;
+					skipWeapon = true;
+				}
+			}
+			if (!skipWeapon)
+			{
+				matchedWeapon = weapon;
+				found = true;
+			}
+			return !skipWeapon;
+		};
+		for (BattleItem* groundItem : *groundInv)
+		{
+			if (groundItem == hostCursor)
+				continue; // F3125: the host's own cursor item is not the client's to take
+			bool skipAmmo = false; // the template's ammo, remembered for a weapon found with the wrong ammo
+			for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
+			{
+				if (needsAmmo[slot] && !matchedAmmo[slot] && targetAmmo[slot] == groundItem->getRules())
+				{
+					matchedAmmo[slot] = groundItem;
+					skipAmmo = true;
+				}
+			}
+			if (!skipAmmo && !equipmentLayoutItem->isFixed() && equipmentLayoutItem->getItemType() == groundItem->getRules()
+				&& exactWeapon(groundItem))
+				break;
+		}
+		if (equipmentLayoutItem->isFixed())
+		{
+			for (BattleItem* fixedItem : *unit->getInventory())
+			{
+				if (fixedItem->getRules()->isFixed() && fixedItem->getSlot() == equipmentLayoutItem->getSlot()
+					&& fixedItem->getSlotX() == equipmentLayoutItem->getSlotX()
+					&& fixedItem->getSlotY() == equipmentLayoutItem->getSlotY()
+					&& fixedItem->getRules() == equipmentLayoutItem->getItemType() && exactWeapon(fixedItem))
+					break;
+			}
+		}
+		// no exact match, but the right weapon and the template's ammo: unload the weapon, load that ammo, use it
+		if (!found && matchedWeapon)
+		{
+			bool allMatch = true;
+			for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
+				allMatch &= (needsAmmo[slot] && matchedAmmo[slot]) || (!needsAmmo[slot]);
+			found = allMatch;
+			for (int slot = 0; allMatch && slot < RuleItem::AmmoSlotMax; ++slot)
+			{
+				if (matchedWeapon->needsAmmoForSlot(slot) && (!needsAmmo[slot] || matchedAmmo[slot]))
+				{
+					if (BattleItem* loadedAmmo = matchedWeapon->setAmmoForSlot(slot, matchedAmmo[slot]))
+						save->getTileEngine()->itemDrop(groundTile, loadedAmmo, false);
+				}
+			}
+			if (!allMatch)
+				matchedWeapon = nullptr; // nope we can't do it
+		}
+		itemMissing |= !found;
+		// a fixed weapon already sits in its slot; else the match moves to the template's cell unless it is occupied
+		if (!equipmentLayoutItem->isFixed() && matchedWeapon && !Inventory::overlapItems(unit, matchedWeapon,
+			equipmentLayoutItem->getSlot(), equipmentLayoutItem->getSlotX(), equipmentLayoutItem->getSlotY()))
+		{
+			matchedWeapon->moveToOwner(unit);
+			matchedWeapon->setSlot(equipmentLayoutItem->getSlot());
+			matchedWeapon->setSlotX(equipmentLayoutItem->getSlotX());
+			matchedWeapon->setSlotY(equipmentLayoutItem->getSlotY());
+			matchedWeapon->setFuseTimer(equipmentLayoutItem->getFuseTimer());
+		}
+	}
+	coopHostInvCloseTrio(save, unit);
+	return itemMissing;
+}
+
+// W2-P8b S-C.2 (RB-D10): HOST - the NAMED donors of vanilla's CLEAR (InventoryState::onClearInventory :1737-:1740 at
+// 267ad48db: every item to the ground, grenades unprimed) and AUTO-EQUIP (onAutoequip :1759-:1768, plus F3125's rule:
+// the host's own cursor item is not on the ground for a client's order) for @a unit, minus their UI lines; then the
+// close trio.
+static void coopHostInvClearOrAutoEquip(SavedBattleGame* save, BattleUnit* unit, bool autoEquip,
+	const BattleItem* hostCursor)
+{
+	Tile* groundTile = unit->getTile();
+	if (!autoEquip)
+	{
+		save->getTileEngine()->itemDropInventory(groundTile, unit, true, false);
+	}
+	else
+	{
+		std::vector<BattleItem*> groundInv = *groundTile->getInventory();
+		groundInv.erase(std::remove(groundInv.begin(), groundInv.end(), hostCursor), groundInv.end()); // F3125
+		Mod* mod = save->getBattleState()->getGame()->getMod(); // the equip phase's admission: a live BattlescapeState
+		std::vector<BattleUnit*> units;
+		units.push_back(unit);
+		BattlescapeGenerator::autoEquip(units, mod, &groundInv, mod->getInventoryGround(), save->getGlobalShade(), true,
+			true);
+	}
+	coopHostInvCloseTrio(save, unit);
+}
+
+// W2-P8b S-C.2 (Q9 (a), owner D209 a): HOST - the second player's layout SAVE in a SHARED campaign, into the shared
+// world, the NAMED donors of vanilla's writes: save_personal (btnCreatePersonalTemplateClick :1396-:1415 at 267ad48db)
+// replaces @a unit's Soldier personal layout and sets its personal armor by vanilla's own line with THIS machine's
+// Options::oxcePersonalLayoutIncludingArmor; save_global (saveGlobalLayout :908-:927) replaces slot @a index and
+// clears its armor (vanilla's Ctrl+digit save, `includingArmor` false). Neither option rides the order. @a layout is
+// taken over (left empty). Geoscape data: no battle bucket, no delta (F3513).
+static void coopHostInvSaveLayout(SavedGame* sg, BattleUnit* unit, const std::string& op, int index,
+	std::vector<EquipmentLayoutItem*>& layout)
+{
+	Soldier* soldier = unit->getGeoscapeSoldier();
+	std::vector<EquipmentLayoutItem*>* tmpl = op == "save_personal" ? soldier->getPersonalEquipmentLayout()
+		: sg->getGlobalEquipmentLayout(index);
+	coopInvLayoutFree(*tmpl);
+	tmpl->swap(layout);
+	if (op == "save_personal")
+		soldier->setPersonalEquipmentArmor(Options::oxcePersonalLayoutIncludingArmor ? unit->getArmor() : nullptr);
+	else
+		sg->setGlobalEquipmentLayoutArmor(index, std::string());
+}
+
 // W2-P4 S-D.2 (spec (b)3): the `use_item` order's context kind by its item's
 // battle type - `scanner` for a motion scanner, `mindprobe` for a mind probe
 // (the same kind names the host's intent context and the client's
@@ -8651,6 +8919,10 @@ static void coopClientCombatAftermath(const std::string& kind, const CoopCombatI
 	// drop sound, the screen redrawn.
 	if (kind == "inv_move")
 		coopClientInvAnswered(plan, actorId, !failed, std::string());
+	// W2-P8b S-C.2 (AMENDMENT P8b-1 section 4 S-C): an `inv_bulk` order's answer redraws the pre-battle screen with
+	// the host's result - as an inv_move answer with @a ok false: no sound, vanilla's tool played its own at the press.
+	if (kind == "inv_bulk")
+		coopClientInvAnswered(plan, actorId, false, std::string());
 }
 
 static Json::Value buildFinal(const BattleUnit* u)
@@ -10810,7 +11082,7 @@ void onIntent(const Json::Value& intent)
 		return;
 	}
 
-	if (kind == "inv_move")
+	if (kind == "inv_move" || kind == "inv_bulk")
 	{
 		// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 4;
 		// owner D130, Q4 (a), Q5 (a), Q6 (a)): an in-battle INVENTORY placement as an
@@ -10826,9 +11098,16 @@ void onIntent(const Json::Value& intent)
 		// also a grenade's unprime) run in the same wrapper; their deltas add the
 		// weapon's ammo links and a grenade's fuse. W2-P8b S-B.2 (AMENDMENT P8b-1
 		// section 4 S-B): the pre-battle ops `fuse` and `quick_unload` too, TU-free.
+		// W2-P8b S-C.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md AMENDMENT P8b-1 section 4 S-C; owner D207 a,
+		// D209 a, Q9 (a)): `inv_bulk`, a pre-battle BULK tool, runs in the same wrapper (context kind `inv_bulk`):
+		// validateInvBulk(), then apply / clear / autoequip run the named donors on the actor (the bt_action_end
+		// delta carries the items) and the saves write the SHARED world's layout (geoscape data, no delta).
+		const bool bulk = kind == "inv_bulk";
 		CoopCombatIntentArgs plan;
 		CoopInvHostOrder order;
-		const char* reason = validateInvMove(actor, intent, save, plan, order);
+		std::vector<EquipmentLayoutItem*> layout; // inv_bulk: the template it applies or saves
+		const char* reason = bulk ? validateInvBulk(actor, intent, save, equipPre, plan.action, plan.invIndex, layout)
+			: validateInvMove(actor, intent, save, plan, order);
 		if (reason)
 		{
 			denyIntent(iseq, reason, seat, kind);
@@ -10843,9 +11122,29 @@ void onIntent(const Json::Value& intent)
 		noteIntentReceived(kind, true); // spec (b)13
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
 		g_coopPendingChainActorId = actor->getId();
-		g_coopPendingChainKind = "inv_move"; // the instant context kind
+		g_coopPendingChainKind = kind; // the instant context kind
 		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
 		g_coopIntentResultKey.clear();
+
+		if (bulk)
+		{
+			const std::string& op = plan.action;
+			Log(LOG_INFO) << "[coop-ctx] admitted inv_bulk intent iseq " << iseq << " seat " << seat << " actor "
+				<< actor->getId() << " actionId " << actionId << ": op " << op << ", template " << layout.size()
+				<< " item(s), index " << plan.invIndex;
+			const Inventory* hostInv = coopEquipScreenInventory(); // F3125: the host's own cursor item
+			const BattleItem* hostCursor = hostInv ? hostInv->getSelectedItem() : nullptr;
+			beginChainArming();
+			if (op == "apply" && coopHostInvApplyTemplate(save, actor, layout, hostCursor))
+				Log(LOG_INFO) << "[coop-ctx] inv_bulk iseq " << iseq << ": not every template item was on the ground";
+			else if (op == "clear" || op == "autoequip")
+				coopHostInvClearOrAutoEquip(save, actor, op == "autoequip", hostCursor);
+			else if (op != "apply")
+				coopHostInvSaveLayout(save->getBattleState()->getGame()->getSavedGame(), actor, op, plan.invIndex, layout);
+			coopInvLayoutFree(layout);
+			endChainArming(!bg->isBusy());
+			return;
+		}
 
 		std::string target;
 		if (plan.action == "move")
@@ -11701,6 +12000,11 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 				// function the host's validateInvMove() recomputes.
 				tuBasis = coopInvOrderCost(save, actor, *combat);
 			}
+			else if (kindStr == "inv_bulk")
+			{
+				// W2-P8b S-C.2: a pre-battle bulk tool costs no TU (vanilla's `!_tu`); its payload carries no basis.
+				tuBasis = 0;
+			}
 			else if (kindStr == "skill")
 			{
 				// W2-P4 S-E2.2: SkillMenuState's own updateTU() for the row -
@@ -11899,6 +12203,17 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		}
 		intent["tuBasis"] = tuBasis;
 	}
+	else if (kindStr == "inv_bulk")
+	{
+		// W2-P8b S-C.2 (AMENDMENT P8b-1 section 4 S-C): the `inv_bulk` payload - the op, the layout it applies or
+		// saves (`template`: vanilla's EquipmentLayoutItem save keys per item), the global layout slot a
+		// save_global writes (`index`). TU-free, so no basis; no field carries timing (G1).
+		intent["op"] = combat->action;
+		if (!combat->invTemplate.isNull())
+			intent["template"] = combat->invTemplate;
+		if (combat->action == "save_global")
+			intent["index"] = combat->invIndex;
+	}
 	else // "kneel"
 	{
 		intent["kneel"] = kneel;
@@ -12074,7 +12389,8 @@ void onDeny(const Json::Value& deny)
 		// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 6,
 		// AMENDMENT P8-1 OR1 (a)): a HELD `inv_move` keeps its item on the cursor
 		// and says so on the inventory's own line with the banner's own wait text.
-		if (g_coopClientPending.kind == "inv_move")
+		// W2-P8b S-C.2: a held `inv_bulk` says so the same way.
+		if (g_coopClientPending.kind == "inv_move" || g_coopClientPending.kind == "inv_bulk")
 			coopInvShowLine(coopTopInventory(nullptr), CoopBattleUi::inventoryLineText("busy"));
 		return;
 	}
@@ -12102,6 +12418,9 @@ void onDeny(const Json::Value& deny)
 		// gives its item back and shows the reason on the inventory's own line - the
 		// banner's own text (nothing for a silent reason); the banner below as ever.
 		if (deniedKind == "inv_move")
+			coopClientInvAnswered(deniedPlan, deniedActor, false, CoopBattleUi::inventoryLineText(reason.c_str()));
+		// W2-P8b S-C.2: a refused `inv_bulk` shows its reason on the inventory's own line the same way.
+		if (deniedKind == "inv_bulk")
 			coopClientInvAnswered(deniedPlan, deniedActor, false, CoopBattleUi::inventoryLineText(reason.c_str()));
 	}
 
@@ -12444,6 +12763,8 @@ void tickIntentTimeout()
 	// W2-P8 S-A.2 (section 8.1 step 6, Q2 (a)): a timed-out `inv_move` gives its
 	// item back, with the timeout's own text on the inventory's line.
 	if (kind == "inv_move")
+		coopClientInvAnswered(plan, actorId, false, CoopBattleUi::inventoryLineText("timeout"));
+	if (kind == "inv_bulk") // W2-P8b S-C.2: a timed-out `inv_bulk`, the same line
 		coopClientInvAnswered(plan, actorId, false, CoopBattleUi::inventoryLineText("timeout"));
 	CoopBattleUi::showIntentTimeout();
 }
@@ -14309,6 +14630,69 @@ bool coopInterceptInvQuickUnload(Inventory* inv, BattleUnit* unit, BattleItem* i
 	Log(LOG_INFO) << "[coop-inv] quick unload: item " << item->getId() << " for unit " << unit->getId()
 		<< " sent as inv_move iseq " << iseq;
 	return true;
+}
+
+// W2-P8b S-C.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md AMENDMENT P8b-1 section 4 S-C; owner D207 a, D209 a,
+// Q9 (a)): the PRE-BATTLE BULK tools and the layout saves - see CoopArbiter.h for each contract. Reachable only on
+// the pre-battle equip screen (vanilla's `!_tu`), so both are inert unless the co-op equip phase is open.
+// CLIENT: one `inv_bulk {op, template?, index?}` order for @a unit; the guard record and the log.
+static void coopSendInvBulk(BattleUnit* unit, const char* op, const std::vector<EquipmentLayoutItem*>* layout, int index)
+{
+	CoopCombatIntentArgs args;
+	args.action = op;
+	if (layout)
+		args.invTemplate = CoopArbiter::coopInvLayoutJson(*layout);
+	args.invIndex = index;
+	const std::uint32_t iseq = CoopArbiter::sendClientIntent("inv_bulk", unit->getId(), -1, false, false, -1,
+		nullptr, &args);
+	coopInvNoteGuard(op, op, iseq ? "sent" : "unsent", nullptr, unit);
+	Log(LOG_INFO) << "[coop-inv] " << op << " for unit " << unit->getId() << " (template "
+		<< (layout ? (int)layout->size() : -1) << " item(s), index " << index << "): "
+		<< (iseq ? "sent as inv_bulk iseq " : "not sent (IR-2: this unit's order is in flight) ") << iseq;
+}
+
+bool coopInterceptInvBulk(Inventory* inv, BattleUnit* unit, const char* op,
+	const std::vector<EquipmentLayoutItem*>* layout)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!coopEquipOpen() || !isCoopBattle() || !inv || !unit || !op || !save)
+		return false; // SP, a base screen, a battle outside its pre-battle equip phase: vanilla, byte-identical
+	const int head = coopInvGuardHead(inv, unit, nullptr, op, op, save);
+	if (head >= 0)
+		return head == 1;
+
+	if (coopInvHeldRefused(inv, unit, nullptr, op, op)) // W2-P8 S-C1.2 (V11, Q8 (a))
+		return true;
+
+	// CLIENT, D150 = (a): as coopInterceptInvMove() - nothing is sent while this unit's order is outstanding.
+	if (coopInvUnitOrderOutstanding(unit))
+	{
+		coopInvNoteGuard(op, op, "inflight", nullptr, unit);
+		Log(LOG_INFO) << "[coop-inv] " << op << " for unit " << unit->getId()
+			<< " ignored: its order is still in flight or held (D150)";
+		return true;
+	}
+
+	// CLIENT: TRUE whether or not the envelope went out - no bulk tool ever runs on a thin client.
+	coopSendInvBulk(unit, op, layout, -1);
+	return true;
+}
+
+void coopNoteInvLayoutSave(BattleUnit* unit, const char* op, int index, const std::vector<EquipmentLayoutItem*>& layout)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!coopEquipOpen() || !isCoopBattle() || coopBattleAuthority().hostSim || !unit || !op || !save)
+		return; // SP, the host (its own save is the world's), a battle outside its pre-battle equip phase: vanilla only
+	if (!connectionTCP::isSharedCampaignStatic())
+	{
+		Log(LOG_INFO) << "[coop-inv] " << op << " for unit " << unit->getId() << ": a skirmish / SEPARATE save stays "
+			"on this machine (Q9 (a), D209 a) - nothing sent";
+		return;
+	}
+	// CLIENT, SHARED: vanilla's local write runs as ever and the host writes the same layout into the shared world.
+	// The save moves no item, so a held order does not stop it; sendClientIntent()'s IR-2 lock drops it while this
+	// unit's own order is in flight (`unsent`).
+	coopSendInvBulk(unit, op, &layout, index);
 }
 
 bool coopInterceptInvReturn(Inventory* inv, BattleItem* item)

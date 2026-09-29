@@ -914,6 +914,7 @@ void InventoryState::saveGlobalLayout(int index, bool includingArmor)
 
 	// create new template
 	_createInventoryTemplate(*tmpl);
+	coopNoteInvLayoutSave(_battleGame->getSelectedUnit(), "save_global", index, *tmpl); // W2-P8b
 
 	// optionally save armor info too
 	if (includingArmor && _battleGame->getSelectedUnit()->getGeoscapeSoldier())
@@ -1403,6 +1404,7 @@ void InventoryState::btnCreatePersonalTemplateClick(Action *)
 
 		// create new personal template
 		_createInventoryTemplate(personalTemplate);
+		coopNoteInvLayoutSave(unit, "save_personal", -1, personalTemplate); // W2-P8b
 
 		// optionally save armor info too
 		if (Options::oxcePersonalLayoutIncludingArmor)
@@ -1425,6 +1427,7 @@ void InventoryState::btnCreatePersonalTemplateClick(Action *)
 
 void InventoryState::_applyInventoryTemplate(std::vector<EquipmentLayoutItem*> &inventoryTemplate)
 {
+	if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), "apply", &inventoryTemplate)) return; // W2-P8b
 	BattleUnit               *unit          = _battleGame->getSelectedUnit();
 	Tile                     *groundTile    = unit->getTile();
 	std::vector<BattleItem*> *groundInv     = groundTile->getInventory();
@@ -1734,6 +1737,7 @@ void InventoryState::onClearInventory(Action *)
 		return;
 	}
 
+	if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), "clear", nullptr)) return; // W2-P8b
 	BattleUnit               *unit       = _battleGame->getSelectedUnit();
 	Tile                     *groundTile = unit->getTile();
 
@@ -1756,6 +1760,7 @@ void InventoryState::onAutoequip(Action *)
 		return;
 	}
 
+	if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), "autoequip", nullptr)) return; // W2-P8b
 	BattleUnit               *unit          = _battleGame->getSelectedUnit();
 	Tile                     *groundTile    = unit->getTile();
 	std::vector<BattleItem*>  groundInv     = *groundTile->getInventory();
