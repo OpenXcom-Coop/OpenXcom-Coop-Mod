@@ -18,13 +18,48 @@ Boot A (ONE boot; rows in this order; each row ONE run): the roster-pinned lobby
 client seated C1, C2; the host keeps H), set_seed SEED_MAP right before newbattle_ok,
 the host's mapFingerprint = MAP_FP. The fixture spine is fixed at red and green:
   bring_up_to_briefings -> EQ1 -> [staging, as soon as both machines hold the
-  battle] -> EQ2 -> EQ3b -> [EQ3's hold] -> EQ9 -> [spine: host close_briefing; a
-  client BriefingState still up is closed; staging if not done yet] -> EQ3 (the held
-  order lands) -> EQ4 -> EQ5 -> EQ6 -> EQ15 -> EQ7 (with EQ7b) -> EQ8.
+  battle; then S-B's staging] -> EQ2 -> EQ3b -> [EQ3's hold] -> EQ9 -> [spine: host
+  close_briefing; a client BriefingState still up is closed; staging if not done yet]
+  -> EQ3 (the held order lands) -> EQ4 -> EQ5 -> EQ6 -> EQ15 -> EQ10 -> EQ11 -> EQ12
+  -> EQ14 -> T0-6 -> [spine: the client's screen back on C2, where S-A's EQ7 finds it]
+  -> EQ7 (with EQ7b) -> EQ8.
 Staging (client first, F607; P8b-2: staged ids, never stock ids): C1 and C2 stripped on
 both machines, then one each of STAGE_TYPES dropped on the pile PILE. A row reads its
 item's ground cell from inventory_view.ground and moves the item actually picked
 (a stack-mate of the staged id at that cell, recorded).
+S-B's staging (stage W2-P8b S-B, right after S-A's, client first): C1 gets a rifle
+loaded with a clip in STR_BACK_PACK (0,0) (battle_give; the ids recorded), and
+SB_PILE_DROPS go on PILE (types S-A already staged, so they stack in S-A's ground cells
+and move no S-A item's cell). An S-B row looks its pile item up by type at run time:
+vanilla's pick returns the first item in tile-inventory order at the clicked cell
+(BattleUnit::getItem), which is the first ground entry of that type in inventory_view.
+S-B rows (AMENDMENT P8b-1 section 4 S-B and section 5; owner D205 a, D207 a: pre-battle
+placements are host orders with no TU cost and vanilla's `!_tu` rules). The client's
+screen shows C1; C1's TU is read on both machines before and after each row.
+  EQ10  TU-free move: the client moves a pile rifle clip to C1's STR_RIGHT_LEG (0,0).
+        GREEN: it lands there on both, C1's tu unchanged on both. RED: the battle move
+        cost (ground -> leg 10, xcom1 inventories.rul) spent on both.
+  EQ11  Shift-load (vanilla `!_tu` quick-swap): the client picks a pile rifle clip N
+        and Shift-drops it on C1's loaded rifle R in STR_BACK_PACK. GREEN: R holds N,
+        R's old clip on the ground at PILE on both, C1's tu unchanged. RED: the host
+        refuses it by the battle rules (in battle only a weapon held in a hand
+        quick-swaps: `invalid_target`, silent), R keeps its old clip.
+  EQ12  UNLOAD widget: the client picks R from STR_BACK_PACK, then UNLOAD. GREEN: R in
+        STR_RIGHT_HAND, its clip in STR_LEFT_HAND on both, C1's tu unchanged. RED: the
+        battle cost (the unload plus the move to the hand) spent on both.
+  EQ14  the host's cursor item (F3125): the host picks Y (the first pile grenade, the
+        same id first at its cell on both machines) onto its cursor; the client picks
+        Y and drops it on C1's STR_LEFT_LEG (0,0). GREEN: the client's line text =
+        STR_COOP_DENY_ITEM_MISSING's (invWarningWrites +1, lastDeny item_missing), Y
+        still on the host's cursor and on the pile on both; then the host's right-click
+        returns Y. RED: the host executes the order (Y on C1 on both).
+  T0-6  the pile holds (P8b-2's T0-6 ruling, STOP-IF 8): the host Ctrl-clicks a pile
+        rifle clip onto its own soldier (a host equip placement at turn 0). GREEN (and
+        at S-B.1: S-A built it): the clip on that H soldier on both, the client applied
+        the host's evs, and the client's pre-battle ground ids = the host's pile ids =
+        the host screen's ground ids.
+  RED (commit S-B.1): exactly EQ10, EQ11, EQ12, EQ14 fail, each on its RED cell; every
+  other row passes.
   EQ1   both briefings (D210 b): the host's BriefingState is up; wait <= 30 s for the
         client's. GREEN: the client's BriefingState up while the host's is up, turn 0
         on both, the client's mapFingerprint = MAP_FP. RED: the wait fails (no offer
@@ -130,11 +165,21 @@ BELT = "STR_BELT"
 RIGHT_HAND = "STR_RIGHT_HAND"
 GROUND_COLS = 20                   # Inventory::_groundSlotsX = (320 - STR_GROUND x 0) / 16: the first ground page
 
+# ----- S-B (AMENDMENT P8b-1 section 4 S-B, section 5 rows EQ10-EQ12, EQ14; P8b-2's T0-6 ruling) -----
+RIFLE_T, CLIP_T, GRENADE_T = "STR_RIFLE", "STR_RIFLE_CLIP", "STR_GRENADE"
+SB_PILE_DROPS = (CLIP_T, CLIP_T, CLIP_T, GRENADE_T)   # EQ10's, EQ11's and T0-6's clips; EQ14's Y
+BACK_PACK = "STR_BACK_PACK"
+LEFT_HAND = "STR_LEFT_HAND"
+RIGHT_LEG = "STR_RIGHT_LEG"
+LEFT_LEG = "STR_LEFT_LEG"
+TU_GROUND_TO_LEG = 10              # xcom1 inventories.rul STR_GROUND -> STR_RIGHT_LEG / STR_LEFT_LEG (RED evidence)
+
 # ----- texts (en-US; exact text) -----
 TEXT_FROZEN = "Pre-battle equipment is locked in co-op"     # STR_COOP_EQUIP_FROZEN (the freeze; RED)
 TEXT_BUSY = "Waiting - another action is in progress"      # STR_COOP_DENY_BUSY (Q3 a: the held order)
 TEXT_WAIT_HOST = "Waiting for HostPlayer to finish equipping"      # D216 c on the client ({0} = the host)
 TEXT_WAIT_CLIENT = "Waiting for ClientPlayer to finish equipping"  # D216 c on the host ({0} = the client)
+TEXT_ITEM_MISSING = "Order cancelled - item unavailable"   # STR_COOP_DENY_ITEM_MISSING (EQ14, F3125)
 
 # ----- the rename recipe (P8-4c T0-R2, test_w2_inventory.py) -----
 NAME_FIELD_RECT = (28, 6, 210, 17)  # InventoryState.cpp `new TextEdit(this, 210, 17, 28, 6)`
@@ -908,6 +953,393 @@ def eq15_host_refresh(host, client, ctx):
     finish(fails)
 
 
+# ===================== S-B: TU-free placements, quick-swap, unload, the host's cursor item =====================
+
+
+def stage_sb(host, client, ctx):
+    """S-B's staging, right after S-A's (both machines hold the battle, both briefings up; client first, F607):
+    C1 gets a rifle loaded with a clip in STR_BACK_PACK (0,0), then SB_PILE_DROPS on PILE. Records ctx['sb']."""
+    rec = {}
+    ctx["sb"] = rec
+    if not ((ctx.get("staged") or {}).get("ids")):
+        rec["error"] = "S-A's staging did not run (the client held no battle after EQ1)"
+        print(f"STAGE S-B skipped: {rec['error']}", flush=True)
+        return
+    try:
+        r = both(host, client, {"cmd": "battle_give", "unit": C1, "item": RIFLE_T, "slot": BACK_PACK, "slotX": 0,
+                                "slotY": 0, "ammo": CLIP_T}, ("weaponId", "ammoId", "weaponSlot"))
+        rec["rifle"], rec["rifleAmmo"] = r["weaponId"], r["ammoId"]
+        drops = []
+        for t in SB_PILE_DROPS:
+            d = both(host, client, {"cmd": "battle_drop", "x": PILE[0], "y": PILE[1], "z": PILE[2], "item": t},
+                     ("ids",))
+            drops.append([t, d["ids"][0]])
+        rec["drops"] = drops
+        rec["diff"] = diff_buckets(host, client)
+        rec["turn"] = [turn(host), turn(client)]
+    except Exception as e:
+        rec["error"] = short(e, 400)
+    print(f"STAGE S-B {json.dumps(rec, sort_keys=True, default=str)}", flush=True)
+
+
+def sb_staged_fails(ctx, what):
+    s = ctx.get("sb")
+    if not s:
+        return [f"{what}: S-B's staging never ran"]
+    if s.get("error"):
+        return [f"{what}: S-B's staging failed: {s['error']}"]
+    if s.get("diff"):
+        return [f"{what}: buckets differ after S-B's staging: {s['diff']}"]
+    return []
+
+
+def tu_of(gc, uid):
+    return (session.units_by_id(battle_state(gc)).get(uid) or {}).get("tu")
+
+
+def tus(host, client, uid):
+    return [tu_of(host, uid), tu_of(client, uid)]
+
+
+def first_of_type(gc, t):
+    """The id vanilla's pick returns at the ground cell of item type `t` on `gc`'s open screen: the first ground
+    entry of that type (inventory_view lists the tile inventory in order; BattleUnit::getItem returns the first item
+    at the cell, and one ground cell holds one type's stack). None when the ground holds no `t`."""
+    its = items_by_id(gc)
+    for g in inv_view(gc).get("ground") or []:
+        if (its.get(g["id"]) or {}).get("type") == t:
+            return g["id"]
+    return None
+
+
+def ammo_of(it, own):
+    """A weapon's loaded ammo ids (F2091: the battle_items `ammo` list holds the weapon's own id in slots it needs
+    no ammo for)."""
+    return [a for a in ((it or {}).get("ammo") or []) if a != own]
+
+
+def weapon_view(its, iid):
+    it = its.get(iid)
+    return dict(item_view(its, iid) or {}, ammo=ammo_of(it, iid)) if it else None
+
+
+def sb_pre(host, client, ctx, row, host_too=False):
+    """S-B's row head: both machines' pre-battle screens (the client's always), both stagings, then the client's
+    screen on C1 with an empty cursor. Returns (fails, nav)."""
+    fails = pre_screen_fails(host, client, row, host_too=host_too) + staged_fails(ctx, row) + sb_staged_fails(ctx, row)
+    nav = []
+    if not fails:
+        if not goto_unit(client, C1, C_IDS, nav):
+            fails.append(f"{row}: PREV/NEXT never reached C1 on the client ({nav})")
+        elif inv_view(client).get("selectedItem") != -1:
+            fails.append(f"{row}: the client's cursor holds {inv_view(client).get('selectedItem')} (want empty)")
+    return fails, nav
+
+
+def eq10_tu_free_move(host, client, ctx):
+    fails, nav = sb_pre(host, client, ctx, "EQ10")
+    ev = {"toC1": nav}
+    if fails:
+        evidence("EQ10", ev)
+        finish([f.replace("EQ10: ", "EQ10: precondition absent - ") for f in fails])
+    tu0 = tus(host, client, C1)
+    clip = first_of_type(client, CLIP_T)
+    ev["pick"] = {}
+    item = pick_ground(client, clip, ev["pick"]) if clip is not None else None
+    want = {"owner": C1, "slot": RIGHT_LEG, "slotX": 0, "slotY": 0}
+    got = None
+    if item is not None:
+        ev["drop"] = click(client, slot=RIGHT_LEG, x=0, y=0)
+
+        def landed():
+            a, b = item_view(items_by_id(host), item), item_view(items_by_id(client), item)
+            return all(a and b and a.get(k) == v and b.get(k) == v for k, v in want.items())
+
+        got, dt = wait_until(landed, LAND_WAIT_S, 0.1)
+        ev["landedWithin"] = dt if got else None
+    ih, ic = items_by_id(host), items_by_id(client)
+    tu1 = tus(host, client, C1)
+    ev.update({"clipOnPile": clip, "item": item, "want": want, "itemHost": item_view(ih, item),
+               "itemClient": item_view(ic, item), "c1Tu": [tu0, tu1],
+               "clientCursor": inv_view(client).get("selectedItem"),
+               "invGuardLast": (es(client).get("invGuard") or {}).get("last"), "turn": [turn(host), turn(client)]})
+    evidence("EQ10", ev)
+    if clip is None:
+        fails.append(f"EQ10: precondition absent - no {CLIP_T} on the client's pile ground")
+    elif item is None:
+        fails.append(f"EQ10: the pile clip was not picked ({ev['pick']})")
+    elif not got:
+        fails.append(f"EQ10: the clip {item} host={ev['itemHost']} client={ev['itemClient']} (want {want} on both "
+                     f"within {LAND_WAIT_S} s)")
+    if tu1 != tu0:
+        fails.append(f"EQ10: C1's tu host/client {tu0} -> {tu1} (want unchanged on both: a pre-battle placement "
+                     f"costs no TU, D205 a; RED: the battle move cost, ground -> leg {TU_GROUND_TO_LEG}, spent)")
+    if ev["clientCursor"] != -1:
+        fails.append(f"EQ10: the client's cursor holds {ev['clientCursor']} after the move (want empty)")
+    fails += tail_fails(host, client, "EQ10")
+    finish(fails)
+
+
+def eq11_shift_load(host, client, ctx):
+    fails, nav = sb_pre(host, client, ctx, "EQ11")
+    sb = ctx.get("sb") or {}
+    rifle, old = sb.get("rifle"), sb.get("rifleAmmo")
+    ev = {"toC1": nav, "rifle": rifle, "oldClip": old}
+    if not fails:
+        ih, ic = items_by_id(host), items_by_id(client)
+        ev["rifleBefore"] = {"host": weapon_view(ih, rifle), "client": weapon_view(ic, rifle)}
+        for side in ("host", "client"):
+            w = ev["rifleBefore"][side] or {}
+            if not (w.get("owner") == C1 and w.get("slot") == BACK_PACK and w.get("ammo") == [old]):
+                fails.append(f"EQ11: the {side}'s rifle {rifle} {w} (want C1's, in {BACK_PACK}, loaded with {old})")
+    if fails:
+        evidence("EQ11", ev)
+        finish([f.replace("EQ11: ", "EQ11: precondition absent - ") for f in fails])
+    tu0 = tus(host, client, C1)
+    deny0 = es(client).get("lastDeny")
+    clip = first_of_type(client, CLIP_T)
+    ev["pick"] = {}
+    new = pick_ground(client, clip, ev["pick"]) if clip is not None else None
+    got = None
+    if new is not None:
+        ev["shiftDrop"] = click(client, slot=BACK_PACK, x=0, y=0, mod="shift")
+
+        def swapped():
+            ih2, ic2 = items_by_id(host), items_by_id(client)
+            return all(ammo_of(its.get(rifle), rifle) == [new] and on_pile(item_view(its, old)) for its in (ih2, ic2))
+
+        def answered():
+            return swapped() or es(client).get("lastDeny") != deny0
+
+        got, dt = wait_until(answered, LAND_WAIT_S, 0.1)
+        ev["answeredWithin"] = dt if got else None
+        got = swapped()
+    ih, ic = items_by_id(host), items_by_id(client)
+    tu1 = tus(host, client, C1)
+    ev.update({"newClip": new, "rifleAfter": {"host": weapon_view(ih, rifle), "client": weapon_view(ic, rifle)},
+               "oldClipAfter": {"host": item_view(ih, old), "client": item_view(ic, old)},
+               "newClipAfter": {"host": item_view(ih, new), "client": item_view(ic, new)},
+               "lastDeny": [deny0, es(client).get("lastDeny")], "c1Tu": [tu0, tu1],
+               "clientCursor": inv_view(client).get("selectedItem"),
+               "invGuardLast": (es(client).get("invGuard") or {}).get("last"), "turn": [turn(host), turn(client)]})
+    evidence("EQ11", ev)
+    if clip is None:
+        fails.append(f"EQ11: precondition absent - no {CLIP_T} on the client's pile ground")
+    elif new is None:
+        fails.append(f"EQ11: the pile clip was not picked ({ev['pick']})")
+    elif not got:
+        fails.append(f"EQ11: after the Shift-drop of {new} on the loaded rifle {rifle}: rifle ammo host/client "
+                     f"{(ev['rifleAfter']['host'] or {}).get('ammo')}/{(ev['rifleAfter']['client'] or {}).get('ammo')}, "
+                     f"old clip {old} host={ev['oldClipAfter']['host']} client={ev['oldClipAfter']['client']} (want "
+                     f"[{new}] loaded and {old} on the ground at {PILE} on both: vanilla's pre-battle quick-swap; RED: "
+                     f"the host refuses it by the battle rules, client lastDeny {ev['lastDeny'][1]})")
+    if tu1 != tu0:
+        fails.append(f"EQ11: C1's tu host/client {tu0} -> {tu1} (want unchanged on both)")
+    if ev["clientCursor"] != -1:
+        fails.append(f"EQ11: the client's cursor holds {ev['clientCursor']} after the answer (want empty)")
+    fails += tail_fails(host, client, "EQ11")
+    finish(fails)
+
+
+def eq12_unload_widget(host, client, ctx):
+    fails, nav = sb_pre(host, client, ctx, "EQ12")
+    rifle = (ctx.get("sb") or {}).get("rifle")
+    ev = {"toC1": nav, "rifle": rifle}
+    loaded = None
+    if not fails:
+        ih, ic = items_by_id(host), items_by_id(client)
+        ev["rifleBefore"] = {"host": weapon_view(ih, rifle), "client": weapon_view(ic, rifle)}
+        wh, wc = ev["rifleBefore"]["host"] or {}, ev["rifleBefore"]["client"] or {}
+        if not (wh.get("owner") == C1 and wh.get("slot") == BACK_PACK and len(wh.get("ammo") or []) == 1
+                and wh == wc):
+            fails.append(f"EQ12: the rifle {rifle} host={wh} client={wc} (want C1's, in {BACK_PACK}, loaded, equal on "
+                         f"both)")
+        else:
+            loaded = wh["ammo"][0]
+    if fails:
+        evidence("EQ12", ev)
+        finish([f.replace("EQ12: ", "EQ12: precondition absent - ") for f in fails])
+    tu0 = tus(host, client, C1)
+    ev["pick"] = click(client, slot=BACK_PACK, x=0, y=0)
+    picked, dt = wait_until(lambda: inv_view(client).get("selectedItem") == rifle, CLICK_WAIT_S)
+    ev["pickedWithin"] = dt if picked else None
+    want = {rifle: {"owner": C1, "slot": RIGHT_HAND}, loaded: {"owner": C1, "slot": LEFT_HAND}}
+    got = None
+    if picked:
+        ev["unload"] = click(client, widget="unload")
+
+        def placed():
+            ih2, ic2 = items_by_id(host), items_by_id(client)
+            return all(item_view(its, i) and all(item_view(its, i).get(k) == v for k, v in w.items())
+                       for its in (ih2, ic2) for i, w in want.items())
+
+        got, dt2 = wait_until(placed, LAND_WAIT_S, 0.1)
+        ev["placedWithin"] = dt2 if got else None
+    ih, ic = items_by_id(host), items_by_id(client)
+    tu1 = tus(host, client, C1)
+    ev.update({"clip": loaded, "rifleAfter": {"host": weapon_view(ih, rifle), "client": weapon_view(ic, rifle)},
+               "clipAfter": {"host": item_view(ih, loaded), "client": item_view(ic, loaded)}, "c1Tu": [tu0, tu1],
+               "clientCursor": inv_view(client).get("selectedItem"), "lastDeny": es(client).get("lastDeny"),
+               "invGuardLast": (es(client).get("invGuard") or {}).get("last"), "turn": [turn(host), turn(client)]})
+    evidence("EQ12", ev)
+    if not picked:
+        fails.append(f"EQ12: the client's pick left {inv_view(client).get('selectedItem')} on the cursor (want the "
+                     f"rifle {rifle})")
+    elif not got:
+        fails.append(f"EQ12: after UNLOAD rifle host={ev['rifleAfter']['host']} client={ev['rifleAfter']['client']}, "
+                     f"clip {loaded} host={ev['clipAfter']['host']} client={ev['clipAfter']['client']} (want the rifle "
+                     f"in {RIGHT_HAND} and the clip in {LEFT_HAND}, C1's, on both within {LAND_WAIT_S} s)")
+    if tu1 != tu0:
+        fails.append(f"EQ12: C1's tu host/client {tu0} -> {tu1} (want unchanged on both: TU-free, D205 a; RED: the "
+                     f"battle unload cost spent)")
+    if ev["clientCursor"] != -1:
+        fails.append(f"EQ12: the client's cursor holds {ev['clientCursor']} after the unload (want empty)")
+    fails += tail_fails(host, client, "EQ12")
+    finish(fails)
+
+
+def eq14_host_cursor_item(host, client, ctx):
+    fails, nav = sb_pre(host, client, ctx, "EQ14", host_too=True)
+    ev = {"toC1": nav}
+    y_host = y_client = None
+    if not fails:
+        if inv_view(host).get("selectedItem") != -1:
+            fails.append(f"EQ14: the host's cursor holds {inv_view(host).get('selectedItem')} (want empty)")
+        y_host, y_client = first_of_type(host, GRENADE_T), first_of_type(client, GRENADE_T)
+        ev["yFirstAtCell"] = {"host": y_host, "client": y_client}
+        if y_host is None or y_host != y_client:
+            fails.append(f"EQ14: the first pile {GRENADE_T} host={y_host} client={y_client} (want one id, the same on "
+                         f"both machines)")
+    if fails:
+        evidence("EQ14", ev)
+        finish([f.replace("EQ14: ", "EQ14: precondition absent - ") for f in fails])
+    y = y_host
+    ev["hostPick"], ev["clientPick"] = {}, {}
+    hp = pick_ground(host, y, ev["hostPick"])
+    cp = pick_ground(client, y, ev["clientPick"]) if hp == y else None
+    ec0 = es(client)
+    before = {"invWarningWrites": ec0.get("invWarningWrites"), "invLastWarning": ec0.get("invLastWarning"),
+              "lastDeny": ec0.get("lastDeny")}
+    ev["before"] = before
+    answer = None
+    if hp == y and cp == y:
+        ev["drop"] = click(client, slot=LEFT_LEG, x=0, y=0)
+
+        def answered():
+            return (es(client).get("lastDeny") != before["lastDeny"]
+                    or (item_view(items_by_id(host), y) or {}).get("owner") == C1)
+
+        got, dt = wait_until(answered, ANSWER_WAIT_S, 0.1)
+        ec, ih, ic = es(client), items_by_id(host), items_by_id(client)
+        answer = {"within": dt if got else None, "invLastWarning": ec.get("invLastWarning"),
+                  "invWarningWrites": ec.get("invWarningWrites"), "lastDeny": ec.get("lastDeny"),
+                  "hostCursor": inv_view(host).get("selectedItem"), "clientCursor": inv_view(client).get("selectedItem"),
+                  "yHost": item_view(ih, y), "yClient": item_view(ic, y), "hostLine": inv_view(host).get("lineText"),
+                  "hostCursorReturned": (es(host).get("hostScreens") or {}).get("cursorReturned")}
+    ev["answer"] = answer
+    # the host's cursor goes back (vanilla's right-click return; a pick is display only, the item never left the
+    # pile). Only with an item on it: a right-click with an empty cursor on the pre-battle screen primes a grenade.
+    if inv_view(host).get("selectedItem") != -1:
+        ev["hostReturn"] = click(host, slot=GROUND, x=0, y=0, button="right")
+        wait_until(lambda: inv_view(host).get("selectedItem") == -1, CLICK_WAIT_S)
+    if inv_view(client).get("selectedItem") != -1:
+        ev["clientReturn"] = click(client, slot=GROUND, x=0, y=0, button="right")
+        wait_until(lambda: inv_view(client).get("selectedItem") == -1, CLICK_WAIT_S)
+    ih, ic = items_by_id(host), items_by_id(client)
+    ev.update({"y": y, "after": {"hostCursor": inv_view(host).get("selectedItem"),
+                                 "clientCursor": inv_view(client).get("selectedItem"),
+                                 "yHost": item_view(ih, y), "yClient": item_view(ic, y)},
+               "c1Tu": tus(host, client, C1), "turn": [turn(host), turn(client)]})
+    evidence("EQ14", ev)
+    if hp != y or cp != y:
+        fails.append(f"EQ14: the picks put host={hp} client={cp} on the cursors (want Y {y} on both: host "
+                     f"{ev['hostPick']}, client {ev['clientPick']})")
+    else:
+        a = answer
+        writes = (a["invWarningWrites"] or 0) - (before["invWarningWrites"] or 0)
+        if a["invLastWarning"] != TEXT_ITEM_MISSING or writes != 1:
+            fails.append(f"EQ14: the client's line {before['invLastWarning']!r} -> {a['invLastWarning']!r}, "
+                         f"invWarningWrites {before['invWarningWrites']} -> {a['invWarningWrites']} (want "
+                         f"{TEXT_ITEM_MISSING!r}, +1)")
+        if (a["lastDeny"] or {}).get("reason") != "item_missing" or a["lastDeny"] == before["lastDeny"]:
+            fails.append(f"EQ14: client lastDeny {before['lastDeny']} -> {a['lastDeny']} (want a new item_missing)")
+        if a["hostCursor"] != y:
+            fails.append(f"EQ14: the host's cursor holds {a['hostCursor']} at the answer (want Y {y} still on it)")
+        if not (on_pile(a["yHost"]) and on_pile(a["yClient"])):
+            fails.append(f"EQ14: Y {y} host={a['yHost']} client={a['yClient']} at the answer (want on the pile {PILE} on "
+                         f"both; RED: the host executes the order on its cursor item)")
+        if a["clientCursor"] != -1:
+            fails.append(f"EQ14: the client's cursor holds {a['clientCursor']} after the answer (want empty)")
+    if ev["after"]["hostCursor"] != -1:
+        fails.append(f"EQ14: the host's cursor holds {ev['after']['hostCursor']} after its right-click (want empty)")
+    fails += tail_fails(host, client, "EQ14")
+    finish(fails)
+
+
+def t06_pile_holds(host, client, ctx):
+    fails = pre_screen_fails(host, client, "T0-6", host_too=True) + staged_fails(ctx, "T0-6") \
+        + sb_staged_fails(ctx, "T0-6")
+    ev = {}
+    unit = inv_view(host).get("unitId")
+    if not fails:
+        if unit not in H_IDS:
+            fails.append(f"T0-6: the host's screen shows {unit} (want one of H {H_IDS})")
+        if inv_view(host).get("selectedItem") != -1:
+            fails.append(f"T0-6: the host's cursor holds {inv_view(host).get('selectedItem')} (want empty)")
+    q = first_of_type(host, CLIP_T) if not fails else None
+    hv0 = inv_view(host)
+    cell = cell_of(hv0, q) if q is not None else None
+    if not fails and (cell is None or cell[0] is None or cell[0] >= GROUND_COLS):
+        fails.append(f"T0-6: no {CLIP_T} on the host's first ground page (first {q}, cell {cell})")
+    if fails:
+        evidence("T0-6", ev)
+        finish([f.replace("T0-6: ", "T0-6: precondition absent - ") for f in fails])
+    seq0 = [es(host).get("lastSeqEmitted"), es(client).get("lastSeqApplied")]
+    ev.update({"unit": unit, "clip": q, "cell": cell, "hostGroundBefore": ground_ids(hv0)})
+    ev["ctrlClick"] = click(host, slot=GROUND, x=cell[0], y=cell[1], mod="ctrl")
+
+    def placed():
+        a, b = item_view(items_by_id(host), q), item_view(items_by_id(client), q)
+        return a and b and a.get("owner") == unit and b.get("owner") == unit
+
+    got, dt = wait_until(placed, LAND_WAIT_S, 0.1)
+    wait_until(lambda: drained(host, client), DRAIN_WAIT_S, 0.1)
+    ih, ic = items_by_id(host), items_by_id(client)
+    hv, cv = inv_view(host), inv_view(client)
+    seq1 = [es(host).get("lastSeqEmitted"), es(client).get("lastSeqApplied")]
+    ev.update({"placedWithin": dt if got else None, "clipHost": item_view(ih, q), "clipClient": item_view(ic, q),
+               "seq": [seq0, seq1], "hostPile": pile_ids(ih), "hostScreenGround": ground_ids(hv),
+               "clientGround": ground_ids(cv), "clientView": view_brief(cv), "hostView": view_brief(hv),
+               "turn": [turn(host), turn(client)]})
+    evidence("T0-6", ev)
+    if not got:
+        fails.append(f"T0-6: the host's Ctrl-click left clip {q} host={ev['clipHost']} client={ev['clipClient']} (want "
+                     f"on the host's soldier {unit} on both within {LAND_WAIT_S} s)")
+    if not (isinstance(seq1[1], int) and isinstance(seq0[1], int) and seq1[1] > seq0[1]):
+        fails.append(f"T0-6: the client applied no host ev (lastSeqApplied {seq0[1]} -> {seq1[1]})")
+    if not (cv.get("open") and cv.get("top") and cv.get("preBattle")):
+        fails.append(f"T0-6: the client's pre-battle screen is gone ({view_brief(cv)})")
+    if ev["clientGround"] != ev["hostPile"] or ev["clientGround"] != ev["hostScreenGround"]:
+        fails.append(f"T0-6: STOP-IF 8 - after the host's placement the client's pre-battle ground {ev['clientGround']} "
+                     f"(want = the host's pile ids {ev['hostPile']} = the host screen's ground {ev['hostScreenGround']})")
+    if q in ev["clientGround"]:
+        fails.append(f"T0-6: the placed clip {q} is still on the client's ground")
+    if ev["turn"] != [0, 0]:
+        fails.append(f"T0-6: turn host/client {ev['turn']} (want 0 on both)")
+    fails += tail_fails(host, client, "T0-6")
+    finish(fails)
+
+
+def sb_client_back_to_c2(host, client, ctx):
+    """The spine after S-B's rows: the client's screen back on C2 (EQ15 left it there; S-A's EQ7 Ctrl-clicks Z for
+    the screen's unit)."""
+    nav = []
+    ok = goto_unit(client, C2, C_IDS, nav)
+    print(f"SPINE client back to C2: reached {ok} {nav}", flush=True)
+    if not ok:
+        raise AssertionError(f"spine: PREV/NEXT never reached C2 on the client ({nav})")
+
+
 def eq7_barrier(host, client, ctx):
     ev = {}
     fails = pre_screen_fails(host, client, "EQ7", host_too=True) + staged_fails(ctx, "EQ7")
@@ -1115,6 +1547,7 @@ def eq8_turn_one(host, client, ctx):
 # the run, and the rows after it fail on their own preconditions).
 STEPS = (("EQ1", eq1_both_briefings),
          (None, spine_stage_early),
+         (None, stage_sb),
          ("EQ2", eq2_client_first),
          ("EQ3b", eq3b_rename_in_window),
          (None, eq3_hold),
@@ -1125,6 +1558,12 @@ STEPS = (("EQ1", eq1_both_briefings),
          ("EQ5", eq5_ready_toggle),
          ("EQ6", eq6_edit_after_ready),
          ("EQ15", eq15_host_refresh),
+         ("EQ10", eq10_tu_free_move),
+         ("EQ11", eq11_shift_load),
+         ("EQ12", eq12_unload_widget),
+         ("EQ14", eq14_host_cursor_item),
+         ("T0-6", t06_pile_holds),
+         (None, sb_client_back_to_c2),
          ("EQ7", eq7_barrier),
          ("EQ8", eq8_turn_one))
 ROWS = [n for n, _ in STEPS if n]
