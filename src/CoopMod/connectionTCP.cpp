@@ -25327,6 +25327,20 @@ void connectionTCP::updateCoopTask()
 	// down or the side changes (D190, J1). Self-guarded (host, active co-op battle).
 	CoopDisplayQueue::coopHostScreenCheck(); // W2-P8 S-C2 (D190, J1)
 
+	// W2-P8 S-C2.2b (F2925, ruling SC2-G2): the CLIENT's force-close also runs here, once per pump pass, while an
+	// InventoryState is the live top state. A covered inventory whose soldier went down is detached on the
+	// applied-ev path (C2-3); when its cover closes nothing new is applied, and this pass - before the frame's
+	// re-init - closes it through our path (`unit_out`) instead of vanilla's init. Only a top inventory is
+	// passed, so a covered one is not re-counted every frame. The helper self-guards (client, active battle).
+	if (SavedBattleGame* coopSave = getStaticBattle())
+	{
+		if (isBattlescapeStateLive(coopSave->getBattleState()) && !_game->getStates().empty()
+			&& dynamic_cast<InventoryState*>(_game->getStates().back()))
+		{
+			CoopDisplayQueue::coopClientInventoryForceClose(coopSave); // W2-P8 S-C2.2b (F2925, SC2-G2)
+		}
+	}
+
 	// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): battle-entry seat-relative
 	// selection, one-shot per battleId. Self-guarded and inert outside an
 	// Active co-op battle, so it stays a single unconditional call at the same
