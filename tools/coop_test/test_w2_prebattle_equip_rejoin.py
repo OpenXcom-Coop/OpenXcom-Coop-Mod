@@ -61,7 +61,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 from session import battle_state, event_state
-from test_w2_delta_core import both, short, diff_buckets
+from test_w2_delta_core import both, short, diff_buckets, hashes
 from test_w2_delta_items import items_by_id
 from test_w2_host_combat import bring_up_lobby_roster_pinned
 from test_w2_client_items import strip_both
@@ -90,7 +90,19 @@ def stage_w(host, client, ctx):
                      ("ids",))
             ids[t] = r["ids"][0]
         rec["ids"] = ids
-        rec["diff"] = diff_buckets(host, client)
+        # F3364 / ruling SA-5 (W1-P8: the host allocates its hostile reveal set at onReady, i.e. at phase Active;
+        # hash_now omits the key until then): while the host is in phase Handshake every bucket but revealHostile
+        # is compared, and revealHostile must be ABSENT from the host's hash_now (present - equal or not - is a
+        # FAIL); otherwise every bucket is compared.
+        hh, ch = hashes(host), hashes(client)
+        rec["hostPhase"] = es(host).get("phase")
+        handshake = rec["hostPhase"] == "Handshake"
+        skip = {"revealHostile"} if handshake else set()
+        rec["diff"] = sorted(k for k in (set(hh) | set(ch)) - skip if hh.get(k) != ch.get(k))
+        rec["revealHostile"] = [hh.get("revealHostile"), ch.get("revealHostile")]
+        if handshake and "revealHostile" in hh:
+            rec["revealHostileError"] = (f"the host is in phase Handshake but its hash_now carries revealHostile "
+                                         f"{hh['revealHostile']!r} (want ABSENT: W1-P8 allocates it at onReady)")
     except Exception as e:
         rec["error"] = short(e, 400)
     ctx["staged"] = rec
@@ -211,6 +223,12 @@ def eq1b_host_equips_in_handshake(host, client, ctx):
         if ar["turnMode"] != ["traditional", "traditional"]:
             fails.append(f"EQ1b: FIXTURE - turnMode host/client {ar['turnMode']} (want traditional on both)")
         fails += tail_fails(host, client, "EQ1b")
+        # F3364 / ruling SA-5: after the release (host Active) every bucket incl. revealHostile is EQUAL - and
+        # revealHostile is PRESENT on both (the tail's diff alone would pass a key absent on both).
+        hh, ch = hashes(host), hashes(client)
+        rh = [hh.get("revealHostile"), ch.get("revealHostile")]
+        if not ("revealHostile" in hh and "revealHostile" in ch and rh[0] == rh[1]):
+            fails.append(f"EQ1b: after the release revealHostile host/client {rh} (want present and EQUAL on both)")
     finally:
         # never leave the host in phase Handshake: release whatever is still held (recorded)
         rest = hold(client)
@@ -229,6 +247,8 @@ def staged_error(ctx):
         return f"the staging failed: {s['error']}"
     if s.get("diff"):
         return f"buckets differ after the staging: {s['diff']}"
+    if s.get("revealHostileError"):
+        return s["revealHostileError"]
     return None
 
 
