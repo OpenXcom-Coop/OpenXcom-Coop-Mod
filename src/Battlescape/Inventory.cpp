@@ -1138,6 +1138,7 @@ void Inventory::mouseClick(Action *action, State *state)
 										else
 										{
 											_warning->showMessage(_game->getLanguage()->getString(item->getRules()->getPrimeActionMessage()));
+											if (coopInterceptInvFuse(this, _selUnit, item, item->getRules()->getFuseTimerDefault())) return; // W2-P8b
 											item->setFuseTimer(item->getRules()->getFuseTimerDefault());
 											arrangeGround();
 											playSound(item->getRules()->getPrimeSound()); // prime sound
@@ -1149,6 +1150,7 @@ void Inventory::mouseClick(Action *action, State *state)
 									if (item->getRules()->getCostUnprime().Time > 0 /* && !item->getRules()->getUnprimeActionName().empty() */ )
 									{
 										_warning->showMessage(_game->getLanguage()->getString(item->getRules()->getUnprimeActionMessage()));
+										if (coopInterceptInvFuse(this, _selUnit, item, -1)) return; // W2-P8b
 										item->setFuseTimer(-1);  // Unprime the grenade
 										arrangeGround();
 										playSound(item->getRules()->getUnprimeSound()); // unprime sound
@@ -1339,6 +1341,7 @@ bool Inventory::unload(bool quickUnload)
 	}
 
 	// Simplified logic for quick-unload outside of the battlescape
+	if (quickUnload && !_tu && coopInterceptInvQuickUnload(this, _selUnit, _selItem)) return false; // W2-P8b
 	if (quickUnload && !_tu)
 	{
 		// noop(); // 1. do not move the weapon at all!

@@ -1129,6 +1129,24 @@ bool coopInterceptInvLoad(Inventory* inv, BattleUnit* unit, BattleItem* clip, Ba
 /// caller returns false on TRUE (no sound until the answer).
 bool coopInterceptInvUnload(Inventory* inv, BattleUnit* unit, BattleItem* item, BattleActionCost& cost);
 
+/// W2-P8b S-B.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md AMENDMENT P8b-1 section 4 S-B; owner D205 a,
+/// D207 a; F2760): the PRE-BATTLE FUSE execution points - Inventory::mouseClick's right-click default fuse and
+/// unprime (`if (coopInterceptInvFuse(this, _selUnit, item, <value>)) return;`) and PrimeGrenadeState's timer
+/// button (the guard before its setFuseTimer(); @a inv and @a unit null: the pre-battle screen's and the item's
+/// owner, else that screen's unit); @a fuse = the value vanilla writes (-1 unprimes); site `fuse`. FALSE (vanilla)
+/// unless a co-op battle's pre-battle equip phase is open (SP, base screens and the battle stay byte-identical).
+/// Then the head (ownership and side - no baton in the equip phase), the held (V11) and in-flight (D150) rules;
+/// the HOST: FALSE, vanilla writes (the head latches); a CLIENT sends one TU-free `inv_move {op fuse, item, fuse}`
+/// order and TRUE - it never writes a fuse itself.
+bool coopInterceptInvFuse(Inventory* inv, BattleUnit* unit, BattleItem* item, int fuse);
+
+/// W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B, F3111): the PRE-BATTLE QUICK-UNLOAD execution point, the line
+/// before Inventory::unload()'s `if (quickUnload && !_tu)` branch:
+/// `if (quickUnload && !_tu && coopInterceptInvQuickUnload(this, _selUnit, _selItem)) return false;`; site
+/// `quick_unload`. As coopInterceptInvFuse(): FALSE outside the co-op equip phase and on the host; a CLIENT sends
+/// one TU-free `inv_move {op quick_unload, item}` order (the weapon stays, its ammo to the ground) and TRUE.
+bool coopInterceptInvQuickUnload(Inventory* inv, BattleUnit* unit, BattleItem* item);
+
 /// Q2 (a): mouseClick's right-click RETURN of the cursor item. CLIENT: this
 /// unit's `inv_move` for @a item is in flight - TRUE, the item stays on the
 /// cursor until the host answers; a HELD `inv_move` for @a item is cancelled

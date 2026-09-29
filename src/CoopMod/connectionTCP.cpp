@@ -5334,6 +5334,33 @@ static int coopEquipWaitingOnSeat()
 	return -1;
 }
 
+// W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B, F3125): the Inventory of THIS machine's recorded pre-battle equip
+// screen while that screen is still on the state stack - not necessarily the top (a PrimeGrenadeState can sit over
+// it); else nullptr. The host reads its cursor item here; a client's fuse guard its message line.
+static Inventory* coopEquipScreenInventory()
+{
+	const void* screen = g_equip.screen.load();
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	if (!screen || !connectionTCP::isBattlescapeStateLive(bs) || !bs->getGame())
+		return nullptr;
+	for (State* s : bs->getGame()->getStates())
+	{
+		if (s != screen)
+			continue;
+		if (InventoryState* st = dynamic_cast<InventoryState*>(s))
+		{
+			for (Surface* surface : st->getSurfaces())
+			{
+				if (Inventory* inv = dynamic_cast<Inventory*>(surface))
+					return inv;
+			}
+		}
+		return nullptr;
+	}
+	return nullptr;
+}
+
 // HOST (b1): the fresh offer's additive `equip` object - its presence means "the equip phase is open" - and the
 // host's own phase Open. `pile` = the craft pile: every original-faction player unit's tile at turn 0 (F2749), read
 // off the first one that is not out and has an inventory; omitted when there is none.
@@ -7718,6 +7745,10 @@ static BattleActionType coopCombatActionType(const std::string& kind, const Coop
 //     ground), for a weapon held in a hand only - vanilla refuses any other
 //     silently (`invalid_target`); no swap, or a zero unload cost ->
 //     `already_loaded` (vanilla's STR_WEAPON_IS_ALREADY_LOADED).
+// W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B, F3124; owner D205 a): in the
+// pre-battle equip phase (coopEquipOpen()) this is vanilla's `!_tu` branch - a
+// Shift quick-swap needs no unload cost and works for a weapon in any section,
+// the old ammo always drops on the ground (:1003-:1010), and the cost is 0.
 struct CoopInvLoadDecision
 {
 	int slotAmmo = -1;
@@ -7757,13 +7788,16 @@ static const char* coopInvLoadDecision(SavedBattleGame* save, BattleUnit* actor,
 		oldAmmoGoesTo = rightHand;
 	else if (!weaponLeftHand || clip == weaponLeftHand)
 		oldAmmoGoesTo = leftHand;
+	const bool preBattle = coopEquipOpen(); // W2-P8b S-B.2 (F3124): vanilla's `!_tu`
 	if (weapon->getAmmoForSlot(slotAmmo) != nullptr)
 	{
-		// vanilla :994-:1028: the quick-swap (Shift, `(!_tu || tuUnload)` with _tu set)
+		// vanilla :994-:1028: the quick-swap (Shift, `(!_tu || tuUnload)`)
 		const int tuUnload = weapon->getRules()->getTUUnload(slotAmmo);
-		if (!swap || !tuUnload)
+		if (!swap || (!preBattle && !tuUnload))
 			return "already_loaded";
-		if (weapon->getSlot()->getType() != INV_HAND)
+		if (preBattle)
+			oldAmmoGoesTo = ground; // outside of the battlescape the old ammo always drops on the ground
+		else if (weapon->getSlot()->getType() != INV_HAND)
 			return "invalid_target"; // in battle only a weapon held in a hand quick-swaps (silent)
 		tuCost += tuUnload; // 1. unload the old ammo
 		if (oldAmmoGoesTo == ground)
@@ -7771,7 +7805,7 @@ static const char* coopInvLoadDecision(SavedBattleGame* save, BattleUnit* actor,
 	}
 	out.slotAmmo = slotAmmo;
 	out.oldAmmoGoesTo = oldAmmoGoesTo;
-	out.tuCost = tuCost;
+	out.tuCost = preBattle ? 0 : tuCost; // W2-P8b S-B.2 (D205 a): a pre-battle load costs no TU
 	return nullptr;
 }
 
@@ -7788,6 +7822,11 @@ static const char* coopInvLoadDecision(SavedBattleGame* save, BattleUnit* actor,
 //     `invalid_target` when it needs no ammo at all;
 //   * no free hand (the item's own hand counts as free, :1357-:1381) ->
 //     `one_hand_empty` (:1379).
+// W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B, F3124, F3111): in the pre-battle
+// equip phase (coopEquipOpen()) this is vanilla's `!_tu` unload - a slot whose
+// unload costs 0 TU is skipped (:1296) - and @a quick is vanilla's quick-unload
+// (`quickUnload && !_tu`, :1342): decided right after the item checks, before the
+// hands (the weapon never moves, the ammo drops on the ground).
 struct CoopInvUnloadDecision
 {
 	bool grenade = false;
@@ -7798,12 +7837,13 @@ struct CoopInvUnloadDecision
 };
 
 static const char* coopInvUnloadDecision(SavedBattleGame* save, BattleUnit* actor, BattleItem* item,
-	CoopInvUnloadDecision& out)
+	CoopInvUnloadDecision& out, bool quick = false)
 {
 	out = CoopInvUnloadDecision();
 	if (!save || !actor || !item || !item->getRules() || !item->getSlot())
 		return "invalid_target";
 	const Mod* mod = save->getMod();
+	const bool preBattle = coopEquipOpen(); // W2-P8b S-B.2 (F3124): vanilla's `!_tu`
 	const BattleType type = item->getRules()->getBattleType();
 	const bool grenade = type == BT_GRENADE || type == BT_PROXIMITYGRENADE;
 	const bool weapon = type == BT_FIREARM || type == BT_MELEE;
@@ -7821,11 +7861,13 @@ static const char* coopInvUnloadDecision(SavedBattleGame* save, BattleUnit* acto
 	else if (weapon)
 	{
 		// Item must be loaded (vanilla :1277-:1325; its `tu == 0 && !_tu` term is
-		// false in battle)
+		// false in battle, true pre-battle)
 		bool showError = false;
 		for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
 		{
 			if (!item->needsAmmoForSlot(s))
+				continue;
+			if (preBattle && item->getRules()->getTUUnload(s) == 0)
 				continue;
 			if (item->getAmmoForSlot(s))
 			{
@@ -7841,6 +7883,14 @@ static const char* coopInvUnloadDecision(SavedBattleGame* save, BattleUnit* acto
 	else
 	{
 		return "invalid_target"; // not weapon or grenade, can't use unload button
+	}
+
+	// W2-P8b S-B.2 (F3111): vanilla's quick-unload outside of the battlescape (:1342) needs no free hand and no cost.
+	if (quick)
+	{
+		out.grenade = grenade;
+		out.slotForAmmoUnload = slotForAmmoUnload;
+		return nullptr;
 	}
 
 	// Check which hands are free (vanilla :1353-:1381).
@@ -7898,10 +7948,12 @@ static const char* coopInvUnloadDecision(SavedBattleGame* save, BattleUnit* acto
 // coopInvUnloadDecision()'s BattleActionCost Time (vanilla :1383-:1405). An item,
 // weapon or section that does not resolve, an item with no section (a loaded clip,
 // a special weapon), or an order its decision refuses, costs 0; the host refuses
-// those before its cost check.
+// those before its cost check. W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B; owner
+// D205 a): every order placed while the pre-battle equip phase is open costs 0 -
+// on both machines, so the client's tuBasis and the host's check agree.
 static int coopInvOrderCost(SavedBattleGame* save, BattleUnit* actor, const CoopCombatIntentArgs& plan)
 {
-	if (!save || !actor)
+	if (!save || !actor || coopEquipOpen())
 		return 0;
 	BattleItem* item = findItemById(save, plan.weapon);
 	if (!item || !item->getSlot())
@@ -7953,6 +8005,19 @@ static int coopInvOrderCost(SavedBattleGame* save, BattleUnit* actor, const Coop
 //     BattleActionCost::haveTU() -> else its message's wire enum (`no_tu`,
 //     `no_energy`, ...; haveTU()'s message-less refusal is silent in vanilla ->
 //     `invalid_target`).
+// W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B; owner D205 a, D207 a; F3111,
+// F3124, F3125, F2760): while the pre-battle equip phase is open (vanilla's
+// `!_tu`) every op costs 0 and has no TU / haveTU() check, the load and unload
+// decisions take vanilla's `!_tu` branches, the item on the HOST's own equip
+// cursor is `item_missing`, and two more ops exist - reachable only then, else
+// `invalid_target`:
+//   * op `fuse` {fuse} - vanilla's right-click prime / unprime (Inventory.cpp
+//     :1110-:1156) and the timer picker (PrimeGrenadeState.cpp :180): a fused
+//     item; -1 unprimes a primed item with an unprime cost, any other value
+//     primes an unprimed item with a prime cost - a BFT_SET timer any value >= 0,
+//     every other fuse type its getFuseTimerDefault() -> else `invalid_target`;
+//   * op `quick_unload` - vanilla's quick-unload (:1342): coopInvUnloadDecision()
+//     with @a quick (no hand needed).
 // An actor with no tile (out) is refused `invalid_target` (silent; the open
 // screen cannot place for it). @a order holds the admitted order's item, its
 // target section (move), its weapon (load), the op's decision and its cost.
@@ -7984,6 +8049,7 @@ static const char* validateInvMove(BattleUnit* actor, const Json::Value& intent,
 	}
 	plan.invWeapon = intent.get("weapon", -1).asInt();
 	plan.invSwap = intent.get("swap", false).asBool();
+	plan.fuse = intent.get("fuse", -1).asInt(); // W2-P8b S-B.2: op `fuse`
 
 	if (!actor || actor->isOut() || !actor->getTile())
 		return "invalid_target";
@@ -7994,6 +8060,15 @@ static const char* validateInvMove(BattleUnit* actor, const Json::Value& intent,
 		|| !item->getSlot())
 	{
 		return "item_missing";
+	}
+	// W2-P8b S-B.2 (F3125): the pre-battle equip phase - vanilla's `!_tu`. A pick leaves its item in its slot, so the
+	// item on the HOST's own equip cursor passes the checks above: it is not available to a client's order.
+	const bool preBattle = coopEquipOpen();
+	if (preBattle)
+	{
+		const Inventory* hostInv = coopEquipScreenInventory();
+		if (hostInv && hostInv->getSelectedItem() == item)
+			return "item_missing";
 	}
 	if (plan.action == "move")
 	{
@@ -8018,12 +8093,31 @@ static const char* validateInvMove(BattleUnit* actor, const Json::Value& intent,
 			return r;
 		cost = order.load.tuCost;
 	}
-	else if (plan.action == "unload")
+	else if (plan.action == "unload" || plan.action == "quick_unload")
 	{
-		// W2-P8 S-B.2 (section 9 step 2): unload a weapon / unprime a grenade.
-		if (const char* r = coopInvUnloadDecision(save, actor, item, order.unload))
+		// W2-P8 S-B.2 (section 9 step 2): unload a weapon / unprime a grenade. W2-P8b S-B.2 (F3111):
+		// `quick_unload` is vanilla's pre-battle quick-unload (`quickUnload && !_tu`).
+		const bool quick = plan.action == "quick_unload";
+		if (quick && !preBattle)
+			return "invalid_target";
+		if (const char* r = coopInvUnloadDecision(save, actor, item, order.unload, quick))
 			return r;
-		cost = order.unload.cost.Time;
+		cost = preBattle ? 0 : order.unload.cost.Time;
+	}
+	else if (plan.action == "fuse")
+	{
+		// W2-P8b S-B.2 (F2760): vanilla's pre-battle right-click prime / unprime and timer picker (`!_tu` only).
+		const RuleItem* rules = item->getRules();
+		const BattleFuseType fuseType = rules->getFuseTimerType();
+		if (!preBattle || fuseType == BFT_NONE)
+			return "invalid_target";
+		const bool fuseOk = plan.fuse == -1
+			? (item->getFuseTimer() != -1 && rules->getCostUnprime().Time > 0)
+			: (item->getFuseTimer() == -1 && rules->getCostPrime().Time > 0
+				&& (fuseType == BFT_SET ? plan.fuse >= 0 : plan.fuse == rules->getFuseTimerDefault()));
+		if (!fuseOk)
+			return "invalid_target";
+		cost = 0;
 	}
 	else
 	{
@@ -8031,7 +8125,7 @@ static const char* validateInvMove(BattleUnit* actor, const Json::Value& intent,
 	}
 	if (intent.get("tuBasis", -1).asInt() != cost)
 		return "cost_changed";
-	if (plan.action == "unload")
+	if (plan.action == "unload" && !preBattle) // W2-P8b S-B.2: vanilla's `!_tu ||` - no haveTU() pre-battle
 	{
 		std::string msg;
 		if (!order.unload.cost.haveTU(&msg))
@@ -8094,11 +8188,13 @@ static void coopHostInvLoad(SavedBattleGame* save, BattleUnit* actor, BattleItem
 // first free hand, then a grenade's fuse cleared or the weapon's ammo taken out
 // to the second free hand (else the ground); then the inventory-close trio for
 // the actor's tile, as coopHostInvMove(). validateInvMove() already proved
-// haveTU().
+// haveTU(). W2-P8b S-B.2 (D205 a): pre-battle nothing is spent (vanilla's
+// `!_tu || cost.spendTU(&err)`).
 static void coopHostInvUnload(SavedBattleGame* save, BattleUnit* actor, BattleItem* item, CoopInvUnloadDecision& d)
 {
 	TileEngine* te = save->getTileEngine();
-	d.cost.spendTU();
+	if (!coopEquipOpen())
+		d.cost.spendTU();
 	te->itemMoveInventory(actor->getTile(), actor, item, d.firstFreeHand, 0, 0); // 1.
 	if (d.grenade)
 	{
@@ -8112,6 +8208,31 @@ static void coopHostInvUnload(SavedBattleGame* save, BattleUnit* actor, BattleIt
 			te->itemMoveInventory(actor->getTile(), actor, oldAmmo,
 				d.secondFreeHand ? d.secondFreeHand : save->getMod()->getInventoryGround(), 0, 0); // 2. (+ 3.)
 		}
+	}
+	te->applyGravity(actor->getTile());
+	te->calculateLighting(LL_ITEMS); // dropping/picking up flares
+	te->recalculateFOV();
+}
+
+// W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B, F3111; owner D207 a; RB-D10): HOST - the NAMED donor reproduction
+// of vanilla's pre-battle QUICK-UNLOAD: Inventory.cpp :1342-:1358 (vanilla `quickUnload && !_tu`) minus its UI lines
+// (the warning, the sound, the cursor, the ground re-lay) with `_selUnit` = the actor and `_selItem` = @a item - the
+// weapon never moves; a grenade's fuse is cleared, else the weapon's ammo drops on the ground by
+// Inventory::moveItem()'s own TileEngine::itemMoveInventory(); no cost. Then the inventory-close trio for the actor's
+// tile, as coopHostInvMove().
+static void coopHostInvQuickUnload(SavedBattleGame* save, BattleUnit* actor, BattleItem* item,
+	const CoopInvUnloadDecision& d)
+{
+	TileEngine* te = save->getTileEngine();
+	if (d.grenade)
+	{
+		item->setFuseTimer(-1); // unprime the grenade
+	}
+	else
+	{
+		BattleItem* oldAmmo = item->setAmmoForSlot(d.slotForAmmoUnload, nullptr);
+		if (oldAmmo)
+			te->itemMoveInventory(actor->getTile(), actor, oldAmmo, save->getMod()->getInventoryGround(), 0, 0); // 2. + 3.
 	}
 	te->applyGravity(actor->getTile());
 	te->calculateLighting(LL_ITEMS); // dropping/picking up flares
@@ -8251,7 +8372,8 @@ static void coopClientInvAnswered(const CoopCombatIntentArgs& plan, int actorId,
 			if (sound == Mod::NO_SOUND)
 				sound = Mod::ITEM_RELOAD;
 		}
-		else if (plan.action == "unload" && item && (item->getRules()->getBattleType() == BT_GRENADE
+		else if ((plan.action == "unload" || plan.action == "quick_unload") && item
+			&& (item->getRules()->getBattleType() == BT_GRENADE
 			|| item->getRules()->getBattleType() == BT_PROXIMITYGRENADE))
 		{
 			const int unprimeSound = item->getRules()->getUnprimeSound();
@@ -8263,8 +8385,21 @@ static void coopClientInvAnswered(const CoopCombatIntentArgs& plan, int actorId,
 			if (line.empty())
 				line = game->getLanguage()->getString(item->getRules()->getUnprimeActionMessage());
 		}
-		if (Sound* s = game->getMod()->getSoundByDepth(save->getDepth(), sound))
-			s->play();
+		else if (plan.action == "fuse")
+		{
+			// W2-P8b S-B.2: vanilla's fuse writes play the item's own unprime / prime sound and no drop sound (their
+			// messages showed at the click); a BFT_SET timer's prime sound already played in PrimeGrenadeState.
+			sound = Mod::NO_SOUND;
+			if (item && plan.fuse == -1)
+				sound = item->getRules()->getUnprimeSound();
+			else if (item && item->getRules()->getFuseTimerType() != BFT_SET)
+				sound = item->getRules()->getPrimeSound();
+		}
+		if (sound != Mod::NO_SOUND)
+		{
+			if (Sound* s = game->getMod()->getSoundByDepth(save->getDepth(), sound))
+				s->play();
+		}
 	}
 	BattleUnit* unit = inv->getSelectedUnit();
 	if (unit && unit->getTile())
@@ -10689,7 +10824,8 @@ void onIntent(const Json::Value& intent)
 		// (an instant order finishes inside onIntent). W2-P8 S-B.2 (section 9 step
 		// 2): op `load` (coopHostInvLoad()) and op `unload` (coopHostInvUnload(),
 		// also a grenade's unprime) run in the same wrapper; their deltas add the
-		// weapon's ammo links and a grenade's fuse.
+		// weapon's ammo links and a grenade's fuse. W2-P8b S-B.2 (AMENDMENT P8b-1
+		// section 4 S-B): the pre-battle ops `fuse` and `quick_unload` too, TU-free.
 		CoopCombatIntentArgs plan;
 		CoopInvHostOrder order;
 		const char* reason = validateInvMove(actor, intent, save, plan, order);
@@ -10717,6 +10853,10 @@ void onIntent(const Json::Value& intent)
 		else if (plan.action == "load")
 			target = "weapon " + std::to_string(order.weapon->getId()) + " slot " + std::to_string(order.load.slotAmmo)
 				+ (plan.invSwap ? " swap" : "");
+		else if (plan.action == "fuse") // W2-P8b S-B.2
+			target = "fuse " + std::to_string(plan.fuse);
+		else if (plan.action == "quick_unload") // W2-P8b S-B.2
+			target = order.unload.grenade ? "quick (unprime)" : "quick (ammo to the ground)";
 		else
 			target = order.unload.firstFreeHand->getId() + (order.unload.grenade ? " (unprime)" : " (unload)");
 		Log(LOG_INFO) << "[coop-ctx] admitted inv_move intent iseq " << iseq << " seat " << seat << " actor "
@@ -10729,6 +10869,10 @@ void onIntent(const Json::Value& intent)
 			coopHostInvLoad(save, actor, item, order.weapon, order.load);
 		else if (plan.action == "unload")
 			coopHostInvUnload(save, actor, item, order.unload);
+		else if (plan.action == "quick_unload")
+			coopHostInvQuickUnload(save, actor, item, order.unload); // W2-P8b S-B.2 (F3111)
+		else if (plan.action == "fuse")
+			item->setFuseTimer(plan.fuse); // W2-P8b S-B.2 (F2760): vanilla's own pre-battle fuse write
 		else
 			coopHostInvMove(save, actor, item, order.slot, plan.invX, plan.invY, order.cost);
 		endChainArming(!bg->isBusy());
@@ -11748,6 +11892,10 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		{
 			intent["weapon"] = combat->invWeapon;
 			intent["swap"] = combat->invSwap;
+		}
+		else if (combat->action == "fuse")
+		{
+			intent["fuse"] = combat->fuse; // W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B): the pre-battle fuse value
 		}
 		intent["tuBasis"] = tuBasis;
 	}
@@ -13884,7 +14032,12 @@ bool coopClientSkipsMedikitRemoval()
 static int coopInvGuardHead(Inventory* inv, BattleUnit* unit, BattleItem* item, const char* site, const char* op,
 	SavedBattleGame* save)
 {
-	if (!coopMayCommand(unit, save))
+	// W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B, F3118): in the pre-battle equip phase the traditional baton does
+	// not gate a placement - ownership and the side still do (the host's onIntent skips its baton term there too).
+	const bool mayCommand = coopEquipOpen()
+		? (coopBattleAuthority().commandsUnit(unit) && coopBattleAuthority().mySideActive(save))
+		: coopMayCommand(unit, save);
+	if (!mayCommand)
 	{
 		if (coopBatonTermIsTheFailure(unit, save))
 		{
@@ -13960,8 +14113,9 @@ bool coopInterceptInvMove(Inventory* inv, BattleUnit* unit, BattleItem* item, co
 	const std::string s = site ? site : "";
 
 	// CLIENT: vanilla's own TU check, read-only - when vanilla would fail, it runs
-	// and warns (its spendTimeUnits() writes nothing on a failure).
-	if (item->getMoveToCost(slot) > unit->getTimeUnits())
+	// and warns (its spendTimeUnits() writes nothing on a failure). W2-P8b S-B.2
+	// (D205 a): none in the pre-battle equip phase (vanilla's `!_tu`).
+	if (!coopEquipOpen() && item->getMoveToCost(slot) > unit->getTimeUnits())
 	{
 		coopInvNoteGuard(site, "move", "vanilla_refused", item, unit);
 		return false;
@@ -14007,8 +14161,8 @@ bool coopInterceptInvLoad(Inventory* inv, BattleUnit* unit, BattleItem* clip, Ba
 
 	// W2-P8 S-B.2 (section 9 step 1): CLIENT - vanilla's own TU check, read-only:
 	// when vanilla would fail, it runs and warns (spendTimeUnits() writes nothing
-	// on a failure).
-	if (tuCost > unit->getTimeUnits())
+	// on a failure). W2-P8b S-B.2 (D205 a): none pre-battle (vanilla's `!_tu`).
+	if (!coopEquipOpen() && tuCost > unit->getTimeUnits())
 	{
 		coopInvNoteGuard("load", "load", "vanilla_refused", clip, unit);
 		return false;
@@ -14055,7 +14209,8 @@ bool coopInterceptInvUnload(Inventory* inv, BattleUnit* unit, BattleItem* item, 
 
 	// W2-P8 S-B.2 (section 9 step 1): CLIENT - vanilla's own haveTU(), read-only:
 	// when vanilla would fail, its spendTU(&err) runs and warns with no write.
-	if (!cost.haveTU())
+	// W2-P8b S-B.2 (D205 a): none pre-battle (vanilla's `!_tu || cost.spendTU()`).
+	if (!coopEquipOpen() && !cost.haveTU())
 	{
 		coopInvNoteGuard("unload", "unload", "vanilla_refused", item, unit);
 		return false;
@@ -14073,6 +14228,86 @@ bool coopInterceptInvUnload(Inventory* inv, BattleUnit* unit, BattleItem* item, 
 	coopInvNoteGuard("unload", "unload", "sent", item, unit);
 	Log(LOG_INFO) << "[coop-inv] unload: item " << item->getId() << " (cost " << cost.Time << ") for unit "
 		<< unit->getId() << " sent as inv_move iseq " << iseq;
+	return true;
+}
+
+// W2-P8b S-B.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md AMENDMENT P8b-1 section 4 S-B; owner D205 a, D207 a;
+// F2760, F3111): the two PRE-BATTLE execution points P8's guards do not see - the fuse writes (right-click prime /
+// unprime, the timer picker) and the quick-unload. Reachable only on the pre-battle equip screen (vanilla's `!_tu`),
+// so both are inert unless the co-op equip phase is open; then the shared head (ownership and side, no baton), the
+// held / in-flight rules, and on a CLIENT one TU-free `inv_move` order. The host lets vanilla run (the head latches).
+bool coopInterceptInvFuse(Inventory* inv, BattleUnit* unit, BattleItem* item, int fuse)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!coopEquipOpen() || !isCoopBattle() || !item || !save)
+		return false; // SP, a base screen, a battle outside its pre-battle equip phase: vanilla, byte-identical
+	if (!inv)
+		inv = coopEquipScreenInventory(); // the timer picker: the pre-battle screen under it
+	if (!unit)
+		unit = item->getOwner() ? item->getOwner() : (inv ? inv->getSelectedUnit() : nullptr);
+	if (!unit)
+		return false;
+	const int head = coopInvGuardHead(inv, unit, item, "fuse", "fuse", save);
+	if (head >= 0)
+		return head == 1;
+
+	if (coopInvHeldRefused(inv, unit, item, "fuse", "fuse")) // W2-P8 S-C1.2 (V11, Q8 (a))
+		return true;
+
+	// CLIENT, D150 = (a): as coopInterceptInvMove() - nothing is written while this unit's order is outstanding.
+	if (coopInvUnitOrderOutstanding(unit))
+	{
+		coopInvNoteGuard("fuse", "fuse", "inflight", item, unit);
+		Log(LOG_INFO) << "[coop-inv] fuse " << fuse << " of item " << item->getId() << " for unit " << unit->getId()
+			<< " ignored: its order is still in flight or held (D150)";
+		return true;
+	}
+
+	// CLIENT: the fuse write becomes an `inv_move {op fuse, item, fuse}` order. TRUE whether or not the envelope went
+	// out: no fuse is ever written on a thin client.
+	CoopCombatIntentArgs args;
+	args.action = "fuse";
+	args.weapon = item->getId();
+	args.fuse = fuse;
+	const std::uint32_t iseq = CoopArbiter::sendClientIntent("inv_move", unit->getId(), -1, false, false, -1,
+		nullptr, &args);
+	coopInvNoteGuard("fuse", "fuse", "sent", item, unit);
+	Log(LOG_INFO) << "[coop-inv] fuse: item " << item->getId() << " fuse " << fuse << " for unit " << unit->getId()
+		<< " sent as inv_move iseq " << iseq;
+	return true;
+}
+
+bool coopInterceptInvQuickUnload(Inventory* inv, BattleUnit* unit, BattleItem* item)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (!coopEquipOpen() || !isCoopBattle() || !inv || !unit || !item || !save)
+		return false; // SP, a base screen, a battle outside its pre-battle equip phase: vanilla, byte-identical
+	const int head = coopInvGuardHead(inv, unit, item, "quick_unload", "quick_unload", save);
+	if (head >= 0)
+		return head == 1;
+
+	if (coopInvHeldRefused(inv, unit, item, "quick_unload", "quick_unload")) // W2-P8 S-C1.2 (V11, Q8 (a))
+		return true;
+
+	// CLIENT, D150 = (a): as coopInterceptInvMove().
+	if (coopInvUnitOrderOutstanding(unit))
+	{
+		coopInvNoteGuard("quick_unload", "quick_unload", "inflight", item, unit);
+		Log(LOG_INFO) << "[coop-inv] quick unload of item " << item->getId() << " for unit " << unit->getId()
+			<< " ignored: its order is still in flight or held (D150)";
+		return true;
+	}
+
+	// CLIENT: vanilla's quick-unload becomes an `inv_move {op quick_unload, item}` order. TRUE whether or not the
+	// envelope went out; the caller then returns false (no sound until the answer, coopClientInvAnswered()).
+	CoopCombatIntentArgs args;
+	args.action = "quick_unload";
+	args.weapon = item->getId();
+	const std::uint32_t iseq = CoopArbiter::sendClientIntent("inv_move", unit->getId(), -1, false, false, -1,
+		nullptr, &args);
+	coopInvNoteGuard("quick_unload", "quick_unload", "sent", item, unit);
+	Log(LOG_INFO) << "[coop-inv] quick unload: item " << item->getId() << " for unit " << unit->getId()
+		<< " sent as inv_move iseq " << iseq;
 	return true;
 }
 

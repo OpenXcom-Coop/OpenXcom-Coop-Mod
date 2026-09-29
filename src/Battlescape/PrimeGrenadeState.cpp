@@ -30,6 +30,7 @@
 #include "../Mod/Mod.h"
 #include "../Mod/RuleInterface.h"
 #include "../Engine/Sound.h"
+#include "../CoopMod/CoopArbiter.h"
 
 namespace OpenXcom
 {
@@ -177,6 +178,7 @@ void PrimeGrenadeState::btnClick(Action *action)
 	{
 		if (_inInventoryView)
 		{
+			if (!coopInterceptInvFuse(nullptr, nullptr, _grenadeInInventory, 0 + btnID)) // W2-P8b: a client's fuse is a host order
 			_grenadeInInventory->setFuseTimer(0 + btnID);
 			// prime sound
 			int sound = _grenadeInInventory->getRules()->getPrimeSound();
