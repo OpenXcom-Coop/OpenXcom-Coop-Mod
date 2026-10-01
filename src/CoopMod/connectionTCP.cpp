@@ -15889,9 +15889,9 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 
 	// 5. V7: X-COM's verdict is vanilla's own (finishBattle's cutscene choice:
 	//    abort -> abort, inExitArea == 0 -> lose, else win); the hostile seat
-	//    takes the complement, `abort` on an abort (ST6 (a), until D157).
+	//    takes the complement, `win` on an abort (D157 (a)).
 	const char* xcomVerdict = abort ? "abort" : (inExitArea == 0 ? "lose" : "win");
-	const char* hostileVerdict = abort ? "abort" : (inExitArea == 0 ? "win" : "lose");
+	const char* hostileVerdict = abort ? "win" : (inExitArea == 0 ? "win" : "lose");
 	coopHostSendBattleEnd(coopBuildActionEndHash(save), reason, aborted, inExitArea, xcomVerdict, hostileVerdict, t);
 }
 
@@ -16211,8 +16211,8 @@ bool connectionTCP::coopDebriefClientFinish(DebriefingState* db)
 // V5 (the last statement of DebriefingState::init). The host serializes what
 // its own vanilla debrief computed and sends it once: skirmish only (campaign
 // returns are S-C), only after this battle's `battle_end` (phase Ended, record
-// emitted 1), only when a PLAYER-faction client seat exists (G2; none in gm2,
-// D157). Non-seq, never hashed, never an ev (no seq stamp, evsAfter untouched,
+// emitted 1), when any partner seat is mapped (D157 (a): the PvP alien side
+// too). Non-seq, never hashed, never an ev (no seq stamp, evsAfter untouched,
 // F2053). The host's battle-scoped reset is NOT here (F2051, S-B2).
 void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 {
@@ -16234,15 +16234,15 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	// the battle scope and a peer's leave while it is open is silent. Before the seat check: a gm2 host is marked too.
 	CoopDelta::debriefMarkHostBattleEnd(db);
 	const int local = a.localSeat.load();
-	bool playerClientSeat = false;
-	for (int s = 0; s < 4 && !playerClientSeat; ++s)
+	bool partnerSeat = false;
+	for (int s = 0; s < 4 && !partnerSeat; ++s)
 	{
-		if (s != local && a.seatMapped(s) && a.factionOf(s) == (int)FACTION_PLAYER)
-			playerClientSeat = true;
+		if (s != local && a.seatMapped(s))
+			partnerSeat = true;
 	}
-	if (!playerClientSeat)
+	if (!partnerSeat)
 	{
-		Log(LOG_INFO) << "[coop-debrief] host: no PLAYER-faction client seat - no bt_debrief_result (D157)";
+		Log(LOG_INFO) << "[coop-debrief] host: no partner seat - no bt_debrief_result";
 		return;
 	}
 
@@ -29284,18 +29284,16 @@ void connectionTCP::updateCoopTask()
 	// phase Ended, the battle-scoped reset, then the next state - whose
 	// setState pops every state now; Game::run deletes the BattlescapeState/
 	// BattlescapeGame before the next state's init() drops the battle.
-	// W2-P7 S-B1.2 (AMENDMENT P7-2 G2-G4, F2050, F2052): a PLAYER-faction seat
-	// ends on the host's debriefing - the latch stays armed until the host's
+	// W2-P7 S-B1.2 (AMENDMENT P7-2 G2-G4, F2050, F2052): the client seat ends
+	// on the host's debriefing - the latch stays armed until the host's
 	// debrief result is stored too (either arrival order; no timeout, a lost
 	// payload is a visible red), then the display-only DebriefingState, whose
 	// init() fills from the store (V3) and drops the battle (V4, the vanilla
-	// :803 order). Any other seat (the gm2 hostile seat, D157) keeps S-A's
-	// GoToMainMenuState (the issue #82 chokepoint).
+	// :803 order). Every client seat (the PvP alien side too, D157 (a)) ends
+	// on the host's debriefing.
 	if (g_coopBattleEndTeardownLatch.load())
 	{
-		const BattleAuthority& endBa = coopBattleAuthority();
-		const bool wantsDebrief = endBa.factionOf(endBa.localSeat.load()) == (int)FACTION_PLAYER; // G2 (F2052)
-		if (wantsDebrief && !CoopDelta::debriefResultStored())
+		if (!CoopDelta::debriefResultStored())
 		{
 			// G3 (a): evidence only - the consumer passes that waited for the payload.
 			CoopDelta::battleEndRecordSet("resultWaitPasses", CoopDelta::battleEndRecord()["resultWaitPasses"].asInt() + 1);
@@ -29314,31 +29312,23 @@ void connectionTCP::updateCoopTask()
 			_game->resetTouchButtonFlags();
 			coopBattleAuthority().phase = CoopBattlePhase::Ended;
 			coopResetBattleScope();
-			if (wantsDebrief)
+			g_coopDebriefDisplayPending = true;
+			if (aliensCrashed)
 			{
-				g_coopDebriefDisplayPending = true;
-				if (aliensCrashed)
-				{
-					// W2-P8b S-E.2 (Q10 a, F3114): vanilla's "all aliens killed" first; its OK (AliensCrashState.cpp :83)
-					// pushes the display-only DebriefingState (the arm above). Unlike that debriefing's init, this screen
-					// keeps the battle alive, so the BattlescapeState setState frees is unwired from it first (the host's
-					// own AliensCrashState has no BattlescapeState either).
-					Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over, no live alien at the start - showing "
-						"'all aliens killed', then the host's debriefing";
-					if (endedBattle)
-						endedBattle->setBattleState(nullptr);
-					_game->setState(new AliensCrashState);
-				}
-				else
-				{
-					Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - showing the host's debriefing";
-					_game->setState(new DebriefingState);
-				}
+				// W2-P8b S-E.2 (Q10 a, F3114): vanilla's "all aliens killed" first; its OK (AliensCrashState.cpp :83)
+				// pushes the display-only DebriefingState (the arm above). Unlike that debriefing's init, this screen
+				// keeps the battle alive, so the BattlescapeState setState frees is unwired from it first (the host's
+				// own AliensCrashState has no BattlescapeState either).
+				Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over, no live alien at the start - showing "
+					"'all aliens killed', then the host's debriefing";
+				if (endedBattle)
+					endedBattle->setBattleState(nullptr);
+				_game->setState(new AliensCrashState);
 			}
 			else
 			{
-				Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - leaving for the main menu";
-				_game->setState(new GoToMainMenuState(false));
+				Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - showing the host's debriefing";
+				_game->setState(new DebriefingState);
 			}
 		}
 	}
