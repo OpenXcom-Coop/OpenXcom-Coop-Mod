@@ -220,6 +220,7 @@ void UnitDieBState::think()
 					if (_unit->getNotificationShown() < 2)
 					{
 						_unit->setNotificationShown(2);
+						if (coopHostDivertUnitMessage(_unit, "STR_HAS_DIED_FROM_A_FATAL_WOUND", _unit)) {} else // W2-P6a (D132)
 						game->pushState(new InfoboxOKState(game->getLanguage()->getString("STR_HAS_DIED_FROM_A_FATAL_WOUND", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
 					}
 				}
@@ -229,6 +230,7 @@ void UnitDieBState::think()
 					if (_unit->getNotificationShown() < 2)
 					{
 						_unit->setNotificationShown(2);
+						if (coopHostDivertUnitMessage(_unit, "STR_HAS_BEEN_KILLED", _unit)) {} else // W2-P6a (D132)
 						game->pushState(new InfoboxState(game->getLanguage()->getString("STR_HAS_BEEN_KILLED", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
 					}
 				}
@@ -238,6 +240,7 @@ void UnitDieBState::think()
 				if (_unit->getNotificationShown() < 1)
 				{
 					_unit->setNotificationShown(1);
+					if (coopHostDivertUnitMessage(_unit, "STR_HAS_BECOME_UNCONSCIOUS", _unit)) {} else // W2-P6a (D132)
 					game->pushState(new InfoboxOKState(game->getLanguage()->getString("STR_HAS_BECOME_UNCONSCIOUS", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
 				}
 			}

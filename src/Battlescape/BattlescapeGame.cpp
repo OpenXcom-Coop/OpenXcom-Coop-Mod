@@ -1668,16 +1668,19 @@ bool BattlescapeGame::handlePanickingUnit(BattleUnit *unit)
 		getMap()->getCamera()->centerOnPosition(unit->getPosition());
 		if (status == STATUS_PANICKING)
 		{
+			if (coopHostDivertUnitMessage(unit, "STR_HAS_PANICKED", unit)) {} else // W2-P6a (D132)
 			game->pushState(new InfoboxState(game->getLanguage()->getString("STR_HAS_PANICKED", unit->getGender()).arg(unit->getName(game->getLanguage()))));
 		}
 		else
 		{
+			if (coopHostDivertUnitMessage(unit, "STR_HAS_GONE_BERSERK", unit)) {} else // W2-P6a (D132)
 			game->pushState(new InfoboxState(game->getLanguage()->getString("STR_HAS_GONE_BERSERK", unit->getGender()).arg(unit->getName(game->getLanguage()))));
 		}
 	}
 	else if (soundPlayed)
 	{
 		// simulate a small pause by using an invisible infobox
+		if (coopHostDivertUnitMessage(unit, "", nullptr)) {} else // W2-P6a (D132)
 		game->pushState(new InfoboxState(""));
 	}
 
@@ -2396,18 +2399,22 @@ void BattlescapeGame::psiAttackMessage(BattleActionAttack attack, BattleUnit *vi
 		{
 			// show a little infobox with the name of the unit and "... is under alien control"
 			if (attack.type == BA_MINDCONTROL)
+				if (coopHostDivertUnitMessage(victim, "STR_IS_UNDER_ALIEN_CONTROL", victim)) {} else // W2-P6a (D132)
 				game->pushState(new InfoboxState(game->getLanguage()->getString("STR_IS_UNDER_ALIEN_CONTROL", victim->getGender()).arg(victim->getName(game->getLanguage()))));
 		}
 		else
 		{
 			// show a little infobox if it's successful
 			if (attack.type == BA_PANIC)
+				if (coopHostDivertUnitMessage(attack.attacker, "STR_MORALE_ATTACK_SUCCESSFUL", nullptr)) {} else // W2-P6a (D132)
 				game->pushState(new InfoboxState(game->getLanguage()->getString("STR_MORALE_ATTACK_SUCCESSFUL")));
 			else if (attack.type == BA_MINDCONTROL)
 			{
 				if (attack.weapon_item->getRules()->convertToCivilian() && victim->getOriginalFaction() == FACTION_HOSTILE)
+					if (coopHostDivertUnitMessage(attack.attacker, "STR_MIND_CONTROL_SUCCESSFUL_ALT", nullptr)) {} else // W2-P6a (D132)
 					game->pushState(new InfoboxState(game->getLanguage()->getString("STR_MIND_CONTROL_SUCCESSFUL_ALT")));
 				else
+					if (coopHostDivertUnitMessage(attack.attacker, "STR_MIND_CONTROL_SUCCESSFUL", nullptr)) {} else // W2-P6a (D132)
 					game->pushState(new InfoboxState(game->getLanguage()->getString("STR_MIND_CONTROL_SUCCESSFUL")));
 			}
 			getSave()->getBattleState()->updateSoldierInfo();
@@ -3425,6 +3432,7 @@ bool BattlescapeGame::convertInfected()
 			if (Options::battleNotifyDeath && bu->getFaction() == FACTION_PLAYER)
 			{
 				Game *game = _parentState->getGame();
+				if (coopHostDivertUnitMessage(bu, "STR_HAS_BEEN_KILLED", bu)) {} else // W2-P6a (D132)
 				game->pushState(new InfoboxState(game->getLanguage()->getString("STR_HAS_BEEN_KILLED", bu->getGender()).arg(bu->getName(game->getLanguage()))));
 			}
 

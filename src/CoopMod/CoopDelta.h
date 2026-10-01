@@ -615,4 +615,19 @@ bool coopIsRemoteIntentAction(const BattleAction& action);
 /// vanilla's own expression, so vanilla is byte-identical there. No side effect.
 bool coopForceFirePressed(const SavedBattleGame* save);
 
+// ----- W2-P6a S-M, commit S-M.2: the battle messages on the HOST (owner D132) -----
+// Spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (b)1, the W2-P6a plan review section 4 (OR1 (a)),
+// AMENDMENT P6-5 section 3. Body: connectionTCP.cpp, right after the CoopBattleUi namespace (the message store).
+
+/// The co-op HOST's decision at each of vanilla's eleven unit-message pushes (UnitDieBState x3, BattlescapeGame x8),
+/// inserted above the unchanged push as `if (coopHostDivertUnitMessage(...)) {} else` (OR1 (a)). FALSE at once outside
+/// a co-op battle and on a client: vanilla pushes. On the host it records the message (event_state `messages`) and
+/// returns TRUE only when @a about - the unit the message is ABOUT - is the PARTNER's (another seat of this seat's
+/// faction): the text then shows as vanilla's fading WarningMessage notice on the live BattlescapeState (nothing for
+/// the invisible pause, @a key "") and the push is skipped, so the shared battle never pauses for the other player's
+/// soldier. This machine's own units and units no player owns (D170 (a)) keep vanilla's box. @a named is the unit
+/// whose gender and name the text carries (nullptr for the psi texts, which take none). Writes no unit field: every
+/// setNotificationShown() stays vanilla's.
+bool coopHostDivertUnitMessage(const BattleUnit* about, const char* key, const BattleUnit* named);
+
 } // namespace OpenXcom

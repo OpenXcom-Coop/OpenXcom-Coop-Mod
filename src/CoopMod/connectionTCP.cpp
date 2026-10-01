@@ -50,6 +50,8 @@
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/Map.h" // W2-H6: the client selected-unit-out block's CT_NORMAL cursor
 #include "../Battlescape/NextTurnState.h"
+#include "../Battlescape/InfoboxState.h" // W2-P6a S-M.2: the client's own message boxes (D132)
+#include "../Battlescape/InfoboxOKState.h" // W2-P6a S-M.2: the client's own OK boxes (D132)
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/Pathfinding.h"
@@ -15471,6 +15473,11 @@ void coopEmitSideTransition(SavedBattleGame* save)
 	begin["h"] = coopBuildStructuredHash(save, /*withSaveBlob=*/false);
 	CoopEmit::sendEv(begin);
 
+	// W2-P6a S-M.2 (P6a pinned stage text (b)4; Q13 / OR6 (a), AMENDMENT P6a-2 F1727): the host's entry notices
+	// (WAITING_FOR_JOIN included) clear at its first own-side side_begin.
+	if (coopBattleAuthority().mySideActive(save))
+		CoopBattleUi::clearEntryNotices(save);
+
 	// W1-P13b (SS2.W3 boundary discipline, IR2-4): the readiness tally's
 	// per-side-phase reset+recompute+re-emit, hooked to this same quiescence
 	// point - right after side_begin, so both machines have already applied
@@ -16927,6 +16934,9 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			// and the cursor, as the host's own side start does (BattlescapeGame
 			// endTurn's setupCursor() on the player side).
 			coopClientPairSelection(save);
+			// W2-P6a S-M.2 (P6a pinned stage text (b)4; Q13 / OR6 (a), AMENDMENT P6a-2 F1727; F1219, F1270): the
+			// entry notices clear at this seat's first own-side side_begin.
+			CoopBattleUi::clearEntryNotices(save);
 		}
 		return;
 	}
@@ -18566,6 +18576,27 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 
 } // namespace CoopApply
 // RW-MINT-WHITELIST-END
+
+// W2-P6a S-M.2 (docs rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (a); OR3 (a)): the relation to
+// this machine of the unit a battle MESSAGE is about, by the unit's seat tag (a mind-controlled soldier stays its
+// owner's): "own" = this machine's seat; "partner" = another valid seat whose faction is this seat's faction;
+// "other" = everything else (aliens, civilians, units with no seat, a PvP opponent's soldiers). Read-only. File scope,
+// before the replay regions, so the camera policy can classify with it too.
+static const char* coopUnitRelation(const BattleUnit* u)
+{
+	if (!u)
+		return "other";
+	const BattleAuthority& a = coopBattleAuthority();
+	const int seat = (int)u->getCoopSeat();
+	const int me = a.localSeat.load();
+	if (seat < (int)COOP_SEAT_0 || seat > (int)COOP_SEAT_3)
+		return "other";
+	if (seat == me)
+		return "own";
+	if (me >= 0 && a.factionOf(seat) == a.factionOf(me))
+		return "partner";
+	return "other";
+}
 
 // RW-REPLAY-REGION-BEGIN
 // W1-P12 (D-3/WV-D27/WV-D49/A4): the S3 ghost stepper's implementation body.
@@ -21797,11 +21828,13 @@ void onApplied(const Json::Value& ev)
 		// the same one call site for every kind this packet handles.
 		CoopGhost::onEvApplied(save, ev);
 		// RW-REPLAY-REGION-END
+		// W2-P6a S-M.2 (P6a pinned stage text (b)2, M10): the client's pre-apply read (a convert spawn's `from`).
+		CoopBattleUi::onMessageEvPreApply(save, ev);
 		CoopApply::applyEvPayload(save, ev);
 		CoopApply::applyDelta(save, ev); // W2-P2 S-A (spec (b)6): after the wave-1 applier (V9)
-		// W2-P6a S-M.1 (P6a pinned stage text (b); probe only): the `seen` record of an applied message cue with the
-		// Game's top state, read after the delta (the decisions S-M.2 makes here use the canonical state AFTER it).
-		CoopBattleUi::noteMessageEvSeen(save, ev);
+		// W2-P6a S-M.2 (P6a pinned stage text (b)2; owner D132): the client's battle-message decisions, read after the
+		// delta (the canonical state AFTER the ev); it also writes S-M.1's `seen` record (T0a-3).
+		CoopBattleUi::onMessageEvApplied(save, ev);
 		// W2-P8 S-C1.2 (Q9 (a); F2400, P8-3a C6): call site 2 - before the side_transition push below puts
 		// NextTurnState over an open inventory screen, see the force-close's own comment.
 		coopClientInventoryForceClose(save);
@@ -21915,6 +21948,8 @@ void onApplied(const Json::Value& ev)
 		CoopGhost::onActionEndApplied(save, ev);
 		// RW-REPLAY-REGION-END
 		CoopApply::applyDelta(save, ev); // W2-P2 S-A (spec (b)6): before the auto-retry reads local TU
+		// W2-P6a S-M.2 (P6a pinned stage text (b)2, OR2 (a)): every death still pending decides its message here.
+		CoopBattleUi::onMessageActionEndApplied(save, ev);
 		CoopArbiter::onActionEndApplied(actionId); // IR-2: clears this client's own lock
 		// R2-P7: THE auto-retry trigger. bt_action_end is emitted ONLY from
 		// the host's onChainQuiesced() (RB-D11), so applying one is the
@@ -22686,6 +22721,9 @@ void resetBannerState()
 	g_coopHostInputFrozenRefusals = 0;   // FX-1 (WV-D56): battle-scoped like the rest
 }
 
+// W2-P6a S-M.2: the client's battle-message drain, defined with the message store below.
+static void drainMessages(BattlescapeState* bs);
+
 void tick()
 {
 	// 1. WV-D24's intent timeout. Self-guarded; runs even with no live
@@ -22695,6 +22733,10 @@ void tick()
 	BattlescapeState* bs = activeBattlescapeState();
 	if (!bs)
 		return;
+
+	// W2-P6a S-M.2 (P6a pinned stage text (b)3, OR7 (a); AMENDMENT P6-5 C-M3, C-M4): the CLIENT's battle-message
+	// drain - one queued message per frame while the live BattlescapeState is the Game's top state.
+	drainMessages(bs);
 
 	// 2. WV-D13 item 1: the AUTO-CLEAR rule for terminal answers. Before this
 	//    packet the only thing that ever cleared one was the player's own next
@@ -22742,6 +22784,13 @@ namespace
 
 const std::size_t kMessageRingCap = 32;
 
+/// S-M.2 (OR2 (a)): a CLIENT `death` whose message is not decided yet.
+struct PendingDeath
+{
+	int damageType = 0;        // the `death` cue's wire damageType (RuleDamageType::ResistType; 0 = DT_NONE)
+	unsigned int seq = 0;      // the `death` ev's seq
+};
+
 struct MessageStore
 {
 	unsigned int gen = 0;
@@ -22756,6 +22805,12 @@ struct MessageStore
 	std::deque<Json::Value> queue;   // S-M.2: the client's decided, not yet shown entries (queueDepth)
 	std::deque<Json::Value> ring;    // the last kMessageRingCap decided messages (CoopBattleUi.h)
 	std::deque<Json::Value> seen;    // CLIENT: the last kMessageRingCap applied message cues
+	unsigned int decided = 0;                    // S-M.2: ring records appended so far (a record's id = its index)
+	bool battleEnded = false;                    // S-M.2 (C-M4): an applied battle_end - nothing shows after it
+	std::map<int, PendingDeath> pendingDeaths;   // S-M.2 (OR2 (a)): CLIENT deaths not decided yet, by unit id
+	std::map<int, int> notified;                 // S-M.2: CLIENT per-unit dedupe 0/1/2 (vanilla's _notificationShown)
+	unsigned int convertSeq = 0;                 // S-M.2 (M10): the seq of a convert spawn read before its delta ...
+	bool convertFromPlayer = false;              // ... and whether its `from` unit was FACTION_PLAYER then
 };
 
 MessageStore g_messages;
@@ -22770,6 +22825,151 @@ void messagesSync()
 		g_messages.gen = g;
 		g_messages.bs = live;
 	}
+}
+
+/// S-M.2: the live BattlescapeState (F391: isBattlescapeStateLive) when it is the Game's top state, else nullptr.
+BattlescapeState* liveBattlescapeOnTop()
+{
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!connectionTCP::isBattlescapeStateLive(bs) || !bs->getGame())
+		return nullptr;
+	const std::list<State*>& states = bs->getGame()->getStates();
+	return (!states.empty() && states.back() == bs) ? bs : nullptr;
+}
+
+/// S-M.2 (P6a pinned stage text (b)1): the ONE text builder (the host's notice, the client's box or notice) - vanilla's
+/// own push-site expression: the key with the named unit's gender and name, or the bare key (the psi texts take none).
+std::string messageText(Language* lang, const std::string& key, const BattleUnit* named)
+{
+	if (!lang || key.empty())
+		return std::string();
+	if (named)
+		return lang->getString(key, named->getGender()).arg(named->getName(lang));
+	return lang->getString(key);
+}
+
+/// S-M.2: vanilla's two OK-box texts (UnitDieBState's InfoboxOKState pushes); every other message is a 2 s box.
+bool isOkBoxKey(const std::string& key)
+{
+	return key == "STR_HAS_DIED_FROM_A_FATAL_WOUND" || key == "STR_HAS_BECOME_UNCONSCIOUS";
+}
+
+/// S-M.2: appends one decided message to the ring and its presenter count (CoopBattleUi.h messagesProbe()); returns
+/// the record's id. @a shownAtMs 0 = not shown yet.
+unsigned int appendMessage(unsigned int seq, const std::string& kind, int unit, const std::string& key,
+	const std::string& owner, const std::string& presenter, bool queued, std::uint32_t shownAtMs)
+{
+	Json::Value r(Json::objectValue);
+	r["seq"] = seq;
+	r["kind"] = kind;
+	r["unit"] = unit;
+	r["key"] = key;
+	r["owner"] = owner;
+	r["presenter"] = presenter;
+	r["queued"] = queued;
+	r["queuedAtMs"] = (Json::UInt)SDL_GetTicks();
+	r["shownAtMs"] = (Json::UInt)shownAtMs;
+	g_messages.ring.push_back(r);
+	while (g_messages.ring.size() > kMessageRingCap)
+		g_messages.ring.pop_front();
+	if (presenter == "box")
+		++g_messages.box;
+	else if (presenter == "okbox")
+		++g_messages.okbox;
+	else if (presenter == "notice")
+		++g_messages.notice;
+	else if (presenter == "pause")
+		++g_messages.pause;
+	else
+		++g_messages.none;
+	if (queued)
+		++g_messages.queued;
+	return g_messages.decided++;
+}
+
+/// S-M.2: stamps the ring record @a id as shown (a no-op once it left the ring).
+void markShown(unsigned int id, std::uint32_t ms)
+{
+	const unsigned int front = g_messages.decided - (unsigned int)g_messages.ring.size();
+	if (id >= front && id < g_messages.decided)
+		g_messages.ring[id - front]["shownAtMs"] = (Json::UInt)ms;
+}
+
+/// S-M.2 (P6a pinned stage text (b)2-(b)3): one CLIENT decision - recorded and queued; tick() shows it. The presenter
+/// follows the unit the message is ABOUT: the partner's -> notice; own and units no player owns (D170 (a)) ->
+/// vanilla's OK box or 2 s box by key. `queued` = the live BattlescapeState was not the Game's top state at the
+/// decision (F4018). @a death: decided at a `death` (the drain holds it while that unit's collapse plays, C-M3).
+void clientDecide(unsigned int seq, const std::string& kind, const BattleUnit* about, const char* key,
+	const BattleUnit* named, bool death)
+{
+	if (!about || !key || !*key)
+		return;
+	const std::string k = key;
+	const std::string owner = coopUnitRelation(about);
+	const std::string presenter = owner == "partner" ? "notice" : (isOkBoxKey(k) ? "okbox" : "box");
+	const bool queued = liveBattlescapeOnTop() == nullptr;
+	const unsigned int id = appendMessage(seq, kind, about->getId(), k, owner, presenter, queued, 0u);
+	Json::Value q(Json::objectValue);
+	q["id"] = id;
+	q["presenter"] = presenter;
+	q["key"] = k;
+	q["named"] = named ? named->getId() : -1;
+	q["unit"] = about->getId();
+	q["death"] = death;
+	g_messages.queue.push_back(q);
+}
+
+/// S-M.2 (P6a pinned stage text (b)2, OR2 (a)): decides a pending death's message at its decision point with
+/// vanilla UnitDieBState's own conditions (:212-:243), read off the canonical state AFTER the ev's delta; this
+/// machine's own dedupe stands in for vanilla's per-unit notification flag, which the client never writes.
+void decideDeath(int unitId, unsigned int seq, const std::string& kind)
+{
+	auto it = g_messages.pendingDeaths.find(unitId);
+	if (it == g_messages.pendingDeaths.end())
+		return;
+	const PendingDeath pd = it->second;
+	g_messages.pendingDeaths.erase(it);
+	const BattleUnit* u = CoopIdMaps::unit(unitId);
+	if (!u || u->getOriginalFaction() != FACTION_PLAYER)
+		return;
+	int& level = g_messages.notified[unitId];
+	if (u->getStatus() == STATUS_DEAD)
+	{
+		if (pd.damageType == (int)DT_NONE && !u->getSpawnUnit())
+		{
+			if (level < 2)
+			{
+				level = 2;
+				clientDecide(seq, kind, u, "STR_HAS_DIED_FROM_A_FATAL_WOUND", u, true);
+			}
+		}
+		else if (Options::battleNotifyDeath && u->getGeoscapeSoldier() != 0)
+		{
+			if (level < 2)
+			{
+				level = 2;
+				clientDecide(seq, kind, u, "STR_HAS_BEEN_KILLED", u, true);
+			}
+		}
+	}
+	else if (u->indicatorsAreEnabled())
+	{
+		if (level < 1)
+		{
+			level = 1;
+			clientDecide(seq, kind, u, "STR_HAS_BECOME_UNCONSCIOUS", u, true);
+		}
+	}
+}
+
+/// S-M.2 (OR2 (a)): a `bt_action_end`, `sync` or `side_transition` decides every death still pending, in unit order.
+void decideAllPending(unsigned int seq, const std::string& kind)
+{
+	std::vector<int> ids;
+	for (const auto& e : g_messages.pendingDeaths)
+		ids.push_back(e.first);
+	for (int id : ids)
+		decideDeath(id, seq, kind);
 }
 
 } // namespace
@@ -22815,6 +23015,183 @@ Json::Value messagesProbe()
 		seen.append(r);
 	o["seen"] = seen;
 	return o;
+}
+
+void onMessageEvPreApply(const SavedBattleGame* save, const Json::Value& ev)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim.load())
+		return;
+	const Json::Value& p = ev["payload"];
+	if (ev.get("kind", "").asString() != "spawn" || p.get("cause", "").asString() != "convert" || !p.isMember("from"))
+		return;
+	messagesSync();
+	// M10 (vanilla BattlescapeGame::convertInfected): `Options::battleNotifyDeath && bu->getFaction() ==
+	// FACTION_PLAYER`, read before the conversion - here, before the spawn's delta.
+	const BattleUnit* from = CoopIdMaps::unit(p["from"].asInt());
+	g_messages.convertSeq = ev.get("seq", 0u).asUInt();
+	g_messages.convertFromPlayer = from != nullptr && from->getFaction() == FACTION_PLAYER;
+}
+
+void onMessageEvApplied(const SavedBattleGame* save, const Json::Value& ev)
+{
+	noteMessageEvSeen(save, ev); // S-M.1's `seen` record (T0a-3)
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim.load())
+		return;
+	messagesSync();
+	const std::string kind = ev.get("kind", "").asString();
+	const unsigned int seq = ev.get("seq", 0u).asUInt();
+	const Json::Value& p = ev["payload"];
+	if (kind == "battle_end")
+	{
+		// AMENDMENT P6-5 C-M4 (V2): the queue is dropped at the battle's end and nothing shows after it; a box
+		// already on top goes with the client's own teardown setState.
+		g_messages.droppedAtBattleEnd += (unsigned int)g_messages.queue.size();
+		g_messages.queue.clear();
+		g_messages.pendingDeaths.clear();
+		g_messages.battleEnded = true;
+		return;
+	}
+	if (g_messages.battleEnded)
+		return;
+	if (kind == "death")
+	{
+		PendingDeath pd;
+		pd.damageType = p.get("damageType", 0).asInt();
+		pd.seq = seq;
+		g_messages.pendingDeaths[p.get("unit", -1).asInt()] = pd;
+		return;
+	}
+	if (kind == "corpse")
+	{
+		decideDeath(p.get("unit", -1).asInt(), seq, kind);
+		return;
+	}
+	if (kind == "spawn")
+	{
+		if (p.get("cause", "").asString() != "convert" || !p.isMember("from"))
+			return;
+		const int from = p["from"].asInt();
+		if (g_messages.pendingDeaths.count(from) != 0)
+		{
+			decideDeath(from, seq, kind);
+		}
+		else if (g_messages.convertSeq == seq && seq != 0 && g_messages.convertFromPlayer && Options::battleNotifyDeath)
+		{
+			// M10 (convertInfected, no dedupe in vanilla). Recorded untested (ST3 (a)).
+			const BattleUnit* u = CoopIdMaps::unit(from);
+			clientDecide(seq, kind, u, "STR_HAS_BEEN_KILLED", u, false);
+		}
+		g_messages.convertSeq = 0;
+		return;
+	}
+	if (kind == "sync" || kind == "side_transition")
+	{
+		decideAllPending(seq, kind);
+		return;
+	}
+	if (kind == "panic")
+	{
+		// vanilla BattlescapeGame::handlePanickingUnit (:1666-:1677); the invisible pause (:1681) is never
+		// reproduced here.
+		const BattleUnit* u = CoopIdMaps::unit(p.get("unit", -1).asInt());
+		if (!u)
+			return;
+		const char* key = p.get("mode", "").asString() == "berserk" ? "STR_HAS_GONE_BERSERK" : "STR_HAS_PANICKED";
+		if (u->getVisible() || !Options::noAlienPanicMessages)
+			clientDecide(seq, kind, u, key, u, false);
+		return;
+	}
+	if (kind == "psi")
+	{
+		// vanilla BattlescapeGame::psiAttackMessage (:2390-:2414), called on a successful psi attack only.
+		if (!p.get("success", false).asBool())
+			return;
+		const std::string action = p.get("action", "").asString();
+		const BattleUnit* attacker = CoopIdMaps::unit(p.get("actor", -1).asInt());
+		const BattleUnit* victim = CoopIdMaps::unit(p.get("unit", -1).asInt());
+		if (!attacker || !victim)
+			return;
+		if (attacker->getFaction() == FACTION_HOSTILE)
+		{
+			if (action == "mc")
+				clientDecide(seq, kind, victim, "STR_IS_UNDER_ALIEN_CONTROL", victim, false);
+		}
+		else if (action == "panic")
+		{
+			clientDecide(seq, kind, attacker, "STR_MORALE_ATTACK_SUCCESSFUL", nullptr, false);
+		}
+		else if (action == "mc")
+		{
+			const RuleItem* amp = p.isMember("weaponType") ? save->getMod()->getItem(p["weaponType"].asString()) : nullptr;
+			const bool alt = amp != nullptr && amp->convertToCivilian() && victim->getOriginalFaction() == FACTION_HOSTILE;
+			clientDecide(seq, kind, attacker, alt ? "STR_MIND_CONTROL_SUCCESSFUL_ALT" : "STR_MIND_CONTROL_SUCCESSFUL",
+				nullptr, false);
+		}
+		return;
+	}
+}
+
+void onMessageActionEndApplied(const SavedBattleGame* save, const Json::Value& ev)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim.load())
+		return;
+	messagesSync();
+	if (g_messages.battleEnded)
+		return;
+	decideAllPending(ev.get("seq", 0u).asUInt(), "bt_action_end");
+}
+
+static void drainMessages(BattlescapeState* bs)
+{
+	if (!isCoopBattle() || coopBattleAuthority().hostSim.load())
+		return;
+	messagesSync();
+	if (g_messages.queue.empty() || g_messages.battleEnded)
+		return;
+	if (!connectionTCP::isBattlescapeStateLive(bs) || !bs->getGame())
+		return;
+	Game* game = bs->getGame();
+	if (game->getStates().empty() || game->getStates().back() != bs)
+		return; // OR7 (a) / Q7 (a): only while the live BattlescapeState is on top (vanilla's order)
+	for (auto it = g_messages.queue.begin(); it != g_messages.queue.end(); ++it)
+	{
+		// AMENDMENT P6-5 C-M3: a death's message waits while that unit's collapse plays; no other entry waits on it.
+		if (it->get("death", false).asBool() && CoopGhost::deathGhostActive(it->get("unit", -1).asInt()))
+			continue;
+		const std::string presenter = it->get("presenter", "").asString();
+		const std::string text = messageText(game->getLanguage(), it->get("key", "").asString(),
+			CoopIdMaps::unit(it->get("named", -1).asInt()));
+		const unsigned int id = it->get("id", 0u).asUInt();
+		g_messages.queue.erase(it);
+		markShown(id, SDL_GetTicks());
+		if (presenter == "okbox")
+			game->pushState(new InfoboxOKState(text));
+		else if (presenter == "box")
+			game->pushState(new InfoboxState(text));
+		else
+			bs->warningLongRaw(text);
+		return; // ONE per frame
+	}
+}
+
+void clearEntryNotices(const SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle())
+		return;
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!connectionTCP::isBattlescapeStateLive(bs) || !bs->getGame() || g_bannerClass != BannerClass::Notice)
+		return;
+	Language* lang = bs->getGame()->getLanguage();
+	const std::string text = bs->getCoopWaitText();
+	bool clear = text == std::string(lang->getString("STR_COOP_EQUIP_FROZEN"))
+		|| text == std::string(lang->getString("STR_COOP_WAITING_FOR_JOIN"));
+	if (!clear && text == std::string(lang->getString("STR_COOP_SPECTATOR_MODE")))
+	{
+		const BattleUnit* sel = save->getSelectedUnit();
+		clear = sel != nullptr && coopBattleAuthority().commandsUnit(sel);
+	}
+	if (clear)
+		setBanner(bs, std::string(), BannerClass::None);
 }
 
 // ---------------------------------------------------------------------------
@@ -22978,6 +23355,38 @@ void coopGrayBottomBar(SDL_Surface* surface, int x, int y, int w, int h)
 }
 
 } // namespace CoopBattleUi
+
+// W2-P6a S-M.2 (docs rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (b)1; owner D132, D170 (a);
+// AMENDMENT P6-5 C-M5): the HOST's message hook. Declared in CoopDelta.h, whose doc comment carries the contract.
+// Inside a driven step under host screens (D166) the partner's notice lands on the covered state's WarningMessage.
+bool coopHostDivertUnitMessage(const BattleUnit* about, const char* key, const BattleUnit* named)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim.load())
+		return false;
+	CoopBattleUi::messagesSync();
+	const std::string k = key ? key : "";
+	const std::string owner = coopUnitRelation(about);
+	const bool divert = owner == "partner";
+	std::string presenter;
+	if (divert)
+		presenter = k.empty() ? "none" : "notice";
+	else if (k.empty())
+		presenter = "pause";
+	else
+		presenter = CoopBattleUi::isOkBoxKey(k) ? "okbox" : "box";
+	std::uint32_t shownAt = presenter == "none" ? 0u : SDL_GetTicks();
+	if (divert && !k.empty())
+	{
+		BattlescapeState* bs = CoopBattleUi::activeBattlescapeState();
+		if (connectionTCP::isBattlescapeStateLive(bs) && bs->getGame())
+			bs->warningLongRaw(CoopBattleUi::messageText(bs->getGame()->getLanguage(), k, named));
+		else
+			shownAt = 0u;
+	}
+	CoopBattleUi::appendMessage(CoopEmit::lastSeqEmitted(), std::string(), about ? about->getId() : -1, k, owner,
+		presenter, false, shownAt);
+	return divert;
+}
 
 // ---------------------------------------------------------------------------
 // SPEC 17 (W1-P18): per-seat animation pacing. Declared in CoopSpeed.h;

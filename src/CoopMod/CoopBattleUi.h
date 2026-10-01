@@ -447,6 +447,8 @@ void showIntentTimeout();
 ///      "Please wait for {0}'s action to finish" driver
 ///      (`cbff7951d:BattlescapeState.cpp:5292-5370`), re-homed from a vanilla
 ///      per-frame method into CoopMod and fed by CoopArbiter::busyOwnerSeat().
+/// W2-P6a S-M.2 (OR7 (a)): right after the live-state check, the CLIENT's
+/// battle-message drain (onMessageEvApplied() below decides, this shows).
 void tick();
 
 /// The Terminal-class dwell, in milliseconds (rule 2 above). Long enough to read
@@ -535,6 +537,38 @@ void noteMessageEvSeen(const SavedBattleGame* save, const Json::Value& ev);
 /// live BattlescapeState changes. Every count is 0 and ring/seen are empty
 /// outside a co-op battle.
 Json::Value messagesProbe();
+
+/// W2-P6a S-M.2 (P6a pinned stage text (b)2-(b)3; owner D132, D170 (a); OR2 (a); AMENDMENT P6-5 C-M3, C-M4): the
+/// CLIENT presenter. Called once from CoopDisplayQueue::onApplied() for every applied bt_ev, after the ev's delta (it
+/// replaces S-M.1's noteMessageEvSeen() call and makes that call itself). From the cue and the canonical state AFTER
+/// the delta, with vanilla's own conditions, it decides the messages vanilla's host shows: a `death` is remembered and
+/// decided at the unit's `corpse`, at a `spawn {cause convert}` from it, or at the first applied `bt_action_end` /
+/// `sync` / `side_transition` after it (has died from a fatal wound / has been killed / has become unconscious, this
+/// machine's own per-unit dedupe 0/1/2); a `panic` (has panicked / has gone berserk); a successful `psi` (is under
+/// alien control / morale attack / mind control successful); a convert `spawn` with no pending death (has been
+/// killed, M10). The presenter follows the unit the message is ABOUT: own, and units no player owns -> vanilla's box
+/// (InfoboxOKState for the two OK-box texts, InfoboxState otherwise); the partner's -> the fading notice. Every
+/// decision is queued and shown by tick(). An applied `battle_end` clears the queue (counted droppedAtBattleEnd) and
+/// nothing shows after it. Inert on the host and outside a co-op battle; writes no unit field, draws no sim RNG,
+/// emits nothing.
+void onMessageEvApplied(const SavedBattleGame* save, const Json::Value& ev);
+
+/// W2-P6a S-M.2 (P6a pinned stage text (b)2, M10): the CLIENT's pre-apply read - for a `spawn {cause convert}`,
+/// whether its `from` unit is FACTION_PLAYER before the ev's delta (vanilla convertInfected()'s own test). Called once
+/// from CoopDisplayQueue::onApplied() before the ev's payload and delta apply. Read-only; inert on the host.
+void onMessageEvPreApply(const SavedBattleGame* save, const Json::Value& ev);
+
+/// W2-P6a S-M.2 (P6a pinned stage text (b)2, OR2 (a)): the CLIENT's bt_action_end decision point - every death still
+/// pending decides its message here. Called once from CoopDisplayQueue::onApplied()'s bt_action_end branch, after
+/// the end's delta. Inert on the host.
+void onMessageActionEndApplied(const SavedBattleGame* save, const Json::Value& ev);
+
+/// W2-P6a S-M.2 (P6a pinned stage text (b)4; Q13 / OR6 (a), widened by AMENDMENT P6a-2 F1727; F1219, F1270): the
+/// ENTRY notices clear at this seat's first own-side side_begin. A Notice-class banner is cleared when its text is
+/// STR_COOP_EQUIP_FROZEN or STR_COOP_WAITING_FOR_JOIN, or STR_COOP_SPECTATOR_MODE while this seat now commands its
+/// selected unit. Called on the CLIENT after its own-side side_begin re-selection, and on the HOST right after it sends
+/// a side_begin of its own side. No-op outside a co-op battle or with no live BattlescapeState.
+void clearEntryNotices(const SavedBattleGame* save);
 
 } // namespace CoopBattleUi
 
