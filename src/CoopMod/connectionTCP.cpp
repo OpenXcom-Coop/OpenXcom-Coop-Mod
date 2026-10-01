@@ -44,6 +44,7 @@
 #include "../Mod/UfoTrajectory.h"
 #include "../Savegame/Ufo.h"
 #include "../Battlescape/DebriefingState.h"
+#include "../Battlescape/AliensCrashState.h" // W2-P8b S-E.2: the client's aliens-crashed end (Q10 a)
 #include "../Battlescape/BattlescapeState.h"
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/BattlescapeGame.h"
@@ -15505,6 +15506,10 @@ bool coopSuppressReinforcements(const SavedBattleGame*)
 	return !coopBattleAuthority().hostSim;
 }
 
+// W2-P8b S-E.2: coopHostBattleEnd's tail, extracted below it (shared with the aliens-crashed end).
+static void coopHostSendBattleEnd(SavedBattleGame* save, const std::string& reason, bool aborted, int inExitArea,
+	const char* xcomVerdict, const char* hostileVerdict, const BattlescapeTally& t);
+
 // ===== W2-P7 S-A.2: the host's battle_end (BattleAuthority.h) =====
 // Spec rewrite/prompts/w2p7_battle_end.md, owner ruling D129 = (a), AMENDMENT
 // P7-1 (ST2 (a) every mode, ST5 (a) the reason order, ST6 (a) the PvP abort,
@@ -15580,6 +15585,17 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 	//    takes the complement, `abort` on an abort (ST6 (a), until D157).
 	const char* xcomVerdict = abort ? "abort" : (inExitArea == 0 ? "lose" : "win");
 	const char* hostileVerdict = abort ? "abort" : (inExitArea == 0 ? "win" : "lose");
+	coopHostSendBattleEnd(save, reason, aborted, inExitArea, xcomVerdict, hostileVerdict, t);
+}
+
+// ===== W2-P8b S-E.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 S-E; owner D210 b;
+// ORCHESTRATOR RULING Q10 (a); P8b-1 RULINGS Q16 (a); F2759, F3114, F3115, F3126): an all-aliens-dead start ends the
+// battle for both players. coopHostBattleEnd's tail (step 5's per-seat verdicts, step 6: the envelope, the record, the
+// send, phase Ended) is EXTRACTED into this helper so the aliens-crashed end below shares the one battle_end makeEv
+// (F3115). =====
+static void coopHostSendBattleEnd(SavedBattleGame* save, const std::string& reason, bool aborted, int inExitArea,
+	const char* xcomVerdict, const char* hostileVerdict, const BattlescapeTally& t)
+{
 	Json::Value perSeatVerdict(Json::arrayValue);
 	for (int seat = 0; seat < 4; ++seat)
 	{
@@ -15633,6 +15649,61 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 	Log(LOG_INFO) << "[coop-battle-end] host: battle_end reason=" << reason << " aborted=" << aborted
 		<< " inExitArea=" << inExitArea << " tally={" << t.liveAliens << "," << t.liveSoldiers << ","
 		<< t.inExit << "} actionId=" << actionId << " - phase Ended";
+}
+
+// W2-P8b S-E.2: the named donor of BattlescapeGame::tallyUnits() (BattlescapeGame.cpp :3323-:3413) over
+// save->getUnits(), for a host with no BattlescapeGame (BriefingState's no-aliens arm deleted its `bs`). Read-only:
+// vanilla's isSurrendering(bu) becomes the flag it returns (bu->isSurrendering()), which vanilla's own tally at
+// BriefingState :306 has just evaluated and latched.
+static BattlescapeTally coopTallyUnitsDonor(SavedBattleGame* save)
+{
+	BattlescapeTally tally = { };
+	for (auto* bu : *save->getUnits())
+	{
+		if (bu->isOut() || (bu->isOutThresholdExceed() && !(bu->getUnitRules() && bu->getUnitRules()->getSpawnUnit())))
+			continue;
+		if (bu->getOriginalFaction() == FACTION_HOSTILE)
+		{
+			if (!(Options::allowPsionicCapture && bu->getFaction() == FACTION_PLAYER && bu->getCapturable())
+				&& !(bu->isSurrendering() && bu->getCapturable()))
+				tally.liveAliens++;
+		}
+		else if (bu->getOriginalFaction() == FACTION_PLAYER)
+		{
+			const bool onEntrance = bu->isInExitArea(START_POINT);
+			const bool onExit = !onEntrance && bu->isInExitArea(END_POINT) && !bu->isBannedInNextStage();
+			if (bu->isSummonedPlayerUnit())
+			{
+				if (bu->isVIP())
+					(onEntrance ? tally.vipInEntrance : onExit ? tally.vipInExit : tally.vipInField)++;
+				continue;
+			}
+			(onEntrance ? tally.inEntrance : onExit ? tally.inExit : tally.inField)++;
+			(bu->getFaction() == FACTION_PLAYER ? tally.liveSoldiers : tally.liveAliens)++;
+		}
+	}
+	return tally;
+}
+
+// W2-P8b S-E.2: the aliens-crashed battle_end - reason aliensCrashed, aborted false, inExitArea 1, the X-COM verdict
+// `win` (the hostile seat the complement), the donor's tally. In phase Handshake nothing goes out before the
+// partner's battle_ready (Q16): the latch abortPending, emitted by onReady at Active.
+static void coopHostAliensCrashed(Game* game)
+{
+	SavedBattleGame* save = (game && game->getSavedGame()) ? game->getSavedGame()->getSavedBattle() : nullptr;
+	if (!save || !coopBattleAuthority().hostSim || save->isPreview())
+		return;
+	if (coopBattleAuthority().phase.load() == CoopBattlePhase::Handshake)
+	{
+		g_equip.abortPending = true;
+		Log(LOG_INFO) << "[coop-battle-end] host: no live alien at the briefing OK in phase Handshake - the "
+			"aliens-crashed battle_end waits for Active (Q16)";
+		return;
+	}
+	g_equip.abortPending = false;
+	if (!isCoopBattle())
+		return;
+	coopHostSendBattleEnd(save, "aliensCrashed", false, 1, "win", "lose", coopTallyUnitsDonor(save));
 }
 
 // ===== W2-P7 S-B1.2: the debrief hooks (connectionTCP.h; vanilla V3/V4/V5) =====
@@ -23994,7 +24065,14 @@ void abandonPreparedOffer(Game* game)
 	// already fired (g_pendingHost.active) - abandoning a battle already offered
 	// to the peer is the EXISTING onRefuse()/onReady()-mismatch teardown's job,
 	// not this one's.
-	(void)game;
+	// W2-P8b S-E.2 (D210 b, F2759): the EMITTED case - a co-op host whose fresh battle already went out at turn 0
+	// (S-A b1), so the partner holds it: the battle ends for both players with the aliens-crashed battle_end. The equip
+	// phase is open only on a fresh co-op battle (never a next-stage briefing, D158; never single player).
+	if (connectionTCP::getServerOwner() && coopEquipOpen())
+	{
+		coopHostAliensCrashed(game);
+		return;
+	}
 	if (!g_pendingHost.prepared || g_pendingHost.active) return;
 	Log(LOG_WARNING) << "[coop-handshake] WV-D56: a prepared battle offer was ABANDONED "
 		"before the briefing entered the battle - resetting authority";
@@ -24752,6 +24830,17 @@ void onReady(Game* game, const Json::Value& ready)
 		coopSession = true;
 	}
 	g_pendingHost = PendingHost();
+
+	// W2-P8b S-E.2 (P8b-1 RULINGS Q16 (a), F3126): the host closed its briefing on an all-aliens-dead start while
+	// still in phase Handshake - the held aliens-crashed battle_end is the first ev after Active, and the fresh-battle
+	// bootstrap below is skipped (the battle is over).
+	if (g_equip.abortPending.load())
+	{
+		coopHostAliensCrashed(game);
+		Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId
+			<< ") - the held aliens-crashed battle_end went out, fresh-battle bootstrap skipped";
+		return;
+	}
 
 	// W1-P8 (SS2.W4 dual-set / WV-D31 / WV-D39). Three things, in this order:
 	//   1. allocate the HOSTILE-side reveal set EMPTY (the BASELINE rule: it has
@@ -27413,6 +27502,7 @@ void connectionTCP::updateCoopTask()
 		else
 		{
 			g_coopBattleEndTeardownLatch = false;
+			const bool aliensCrashed = CoopDelta::battleEndRecord().get("reason", "").asString() == "aliensCrashed";
 			CoopDelta::battleEndNoteTeardown();
 			_game->getCursor()->setVisible(true);
 			SavedBattleGame* endedBattle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
@@ -27425,9 +27515,24 @@ void connectionTCP::updateCoopTask()
 			coopResetBattleScope();
 			if (wantsDebrief)
 			{
-				Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - showing the host's debriefing";
 				g_coopDebriefDisplayPending = true;
-				_game->setState(new DebriefingState);
+				if (aliensCrashed)
+				{
+					// W2-P8b S-E.2 (Q10 a, F3114): vanilla's "all aliens killed" first; its OK (AliensCrashState.cpp :83)
+					// pushes the display-only DebriefingState (the arm above). Unlike that debriefing's init, this screen
+					// keeps the battle alive, so the BattlescapeState setState frees is unwired from it first (the host's
+					// own AliensCrashState has no BattlescapeState either).
+					Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over, no live alien at the start - showing "
+						"'all aliens killed', then the host's debriefing";
+					if (endedBattle)
+						endedBattle->setBattleState(nullptr);
+					_game->setState(new AliensCrashState);
+				}
+				else
+				{
+					Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - showing the host's debriefing";
+					_game->setState(new DebriefingState);
+				}
 			}
 			else
 			{
