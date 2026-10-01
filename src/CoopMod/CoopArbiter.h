@@ -723,6 +723,12 @@ void coopEquipPump(Game* game);
 /// falls and the host's own actions still wait. A no-op everywhere else (single player included).
 void coopThinkCoveredBattle(Game* game);
 
+/// W2-P7 S-V-A.1 (docs rewrite/prompts/w2p7_sv_fatal_vote_design.md; rewrite/prompts/w2p7_battle_end.md AMENDMENT P7-5
+/// section 4.2; owner D159, D186, D214 (a)): TEST-ONLY - the fatal-wounds vote's probe record (TestServer event_state
+/// `fatalVote`, both machines). Session-lifetime and zero-valued until the vote writes it; cleared only by
+/// initBattleAuthority(). Never read by game logic, never on the wire. Body: connectionTCP.cpp.
+Json::Value coopFatalVoteProbe();
+
 /// R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104/:116/:142 @911ca487f): the
 /// THIN completion/abort hook UnitTurnBState::think() calls, once, at
 /// whichever branch actually pops its own state - never per 45-degree tick

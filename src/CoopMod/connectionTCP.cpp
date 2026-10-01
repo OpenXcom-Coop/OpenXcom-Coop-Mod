@@ -5796,6 +5796,61 @@ static bool coopTestHoldBattleReadyStash(const Json::Value& ready)
 	return true;
 }
 
+// ----- W2-P7 S-V-A.1 (docs rewrite/prompts/w2p7_sv_fatal_vote_design.md; rewrite/prompts/w2p7_battle_end.md AMENDMENT
+// P7-5 section 4.2; owner D159, D186, D214 (a)): the fatal-wounds vote's probe record (CoopArbiter.h coopFatalVoteProbe(),
+// TestServer event_state `fatalVote`, both machines). TEST INTROSPECTION ONLY: never read by game logic, never on the
+// wire. SESSION-LIFETIME like the battleEnd record: cleared only by coopFatalVoteProbeReset(), which
+// initBattleAuthority() calls, so a battle-end teardown leaves it readable. One record per machine with the pinned field
+// set - host: state .. resends; client: state, voteId, voters, wounded, answered .. questionClosedByClose. Commit
+// S-V-A.1 exposes its zeros; commit S-V-A.2 writes it. The mutex is a leaf (nothing that takes another lock runs under
+// it). -----
+static std::mutex g_fatalVoteProbeMutex;
+static Json::Value g_fatalVoteProbe; // null until first use, then fatalVoteProbeZeros()
+
+static Json::Value fatalVoteProbeZeros()
+{
+	Json::Value r(Json::objectValue);
+	r["state"] = "Idle";                                   // Idle | Armed | Open | Closed
+	r["voteId"] = 0u;
+	r["armed"] = 0;                                        // host: arms (count)
+	r["opened"] = 0;                                       // host: opens (count)
+	r["voters"] = Json::Value(Json::arrayValue);           // the voter seats, fixed at the open
+	r["wounded"] = 0;                                      // vanilla's N at the open
+	r["answers"] = Json::Value(Json::objectValue);         // host: {seat: bool}
+	r["result"] = "";                                      // "" | end | continue
+	r["openSeq"] = 0u;                                     // host: the open ev's seq
+	r["closeSeq"] = 0u;                                    // host: the close ev's seq
+	r["heldIntents"] = 0;                                  // host: intents denied busy for the vote
+	r["heldCommits"] = 0;                                  // host: END TURN commits held for the vote
+	r["coveredStepsWhileOpen"] = 0;                        // host: covered-driver steps while Open
+	r["answersDropped"] = 0;                               // host: answers refused
+	r["resends"] = 0;                                      // host: open evs re-sent after a rejoin (S-V-B.2)
+	r["answered"] = Json::Value(Json::arrayValue);         // client: the open ev's answered seats
+	r["opensApplied"] = 0;                                 // client
+	r["closesApplied"] = 0;                                // client
+	r["questionPushed"] = 0;                               // client: its question pushed (count)
+	r["questionPushedMs"] = 0u;                            // client: SDL_GetTicks() at the push
+	r["ghostWaitPasses"] = 0;                              // client: pump passes waiting for a death ghost
+	r["coverWaitPasses"] = 0;                              // client: pump passes waiting while a CoopState is top
+	r["answerSent"] = "";                                  // client: "" | yes | no
+	r["questionClosedByClose"] = 0;                        // client: its question closed by the close ev
+	return r;
+}
+
+Json::Value coopFatalVoteProbe()
+{
+	std::lock_guard<std::mutex> lock(g_fatalVoteProbeMutex);
+	if (!g_fatalVoteProbe.isObject())
+		g_fatalVoteProbe = fatalVoteProbeZeros();
+	return g_fatalVoteProbe;
+}
+
+static void coopFatalVoteProbeReset()
+{
+	std::lock_guard<std::mutex> lock(g_fatalVoteProbeMutex);
+	g_fatalVoteProbe = fatalVoteProbeZeros();
+}
+
 void initBattleAuthority(std::uint32_t battleId)
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -5811,6 +5866,8 @@ void initBattleAuthority(std::uint32_t battleId)
 	// W2-P7 S-A.1 (AMENDMENT P7-1 ST4 (a)): the session-lifetime battleEnd
 	// record is cleared here and nowhere else (CoopDelta.h).
 	CoopDelta::battleEndRecordReset();
+	// W2-P7 S-V-A.1 (AMENDMENT P7-5 section 4.2): so is the fatal-wounds vote's probe record (session-lifetime).
+	coopFatalVoteProbeReset();
 	// W2-P8 S-C1.1 (AMENDMENT P8-3a Q2 (a)): so are the inventory latch / force-close probes, never in
 	// resetBattleAuthority() (the client's battle_end teardown runs it before a test reads them, F2733).
 	CoopDelta::inventoryProbesReset();

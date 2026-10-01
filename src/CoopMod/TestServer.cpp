@@ -6728,6 +6728,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			// resets of a skirmish end. Commit S-A.1 exposes its zeros; commit
 			// S-A.2's host hook, client applier and pump consumer write it.
 			resp["battleEnd"] = CoopDelta::battleEndRecord();
+			// W2-P7 S-V-A.1 (AMENDMENT P7-5 section 4.2): the fatal-wounds vote's session-lifetime probe record
+			// (CoopArbiter.h), both machines; cleared only by initBattleAuthority(). S-V-A.1 exposes its zeros.
+			resp["fatalVote"] = coopFatalVoteProbe();
 		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the
