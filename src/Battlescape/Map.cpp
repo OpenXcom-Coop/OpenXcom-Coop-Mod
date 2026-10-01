@@ -2230,7 +2230,7 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit, const Coop
 		midphase = 0;
 	}
 	const int status = view ? view->status : (int)unit->getStatus();
-	if (unit->getVerticalDirection())
+	if (view ? view->verticalDirection : unit->getVerticalDirection())
 	{
 		midphase = 4;
 		endphase = 8;
@@ -2248,6 +2248,7 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit, const Coop
 			result.ScreenOffset.y = - (phase - endphase) * offsetY[dir];
 		}
 	}
+	if (view && view->ghostTrailing) midphase = 0; // coop (W2-P6b S-E6, D173): a trailing vertical ghost keeps the whole-sweep branch
 
 	result.NormalizedMovePhase = endphase == 16 ? phase : phase * 2;
 

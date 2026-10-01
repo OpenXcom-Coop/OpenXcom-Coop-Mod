@@ -89,11 +89,11 @@ struct CoopUnitDrawView
 	int  direction         = 0; // body facing 0-7
 	int  turretDirection   = 0; // untouched by any ghost - copied straight through
 	int  walkPhase         = 0; // raw, same domain as BattleUnit::_walkPhase
-	int  verticalDirection = 0; // untouched by any ghost - copied straight through
+	int  verticalDirection = 0; // copied straight through; W2-P6b S-E6.2: a fall ghost draws DIR_DOWN (9)
 	int  status            = 0; // UnitStatus as int
 	int  fallPhase         = 0; // W2-P6b S-D.2: the collapse frame (a death ghost's, else the unit's own)
 	bool kneeled           = false;
-	bool ghostTrailing     = false; // see CoopGhost::view()'s walk branch
+	bool ghostTrailing     = false; // see CoopGhost::view()'s walk branch and its fall ghost's trailing anchor
 
 	/// Copies every field straight off @a u (0/false/default Position when
 	/// @a u is null). Never mutates @a u - a plain read.
@@ -109,6 +109,11 @@ namespace CoopGhost
 /// caller's own CoopUnitDrawView::fromUnit(u) built it) in SP, with the
 /// option off, outside a coop battle, or for any unit with no active ghost.
 /// READS ONLY - never touches @a u.
+/// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5 E-f', owner D173 (b), P6-5 Q2 (b)): precedence is the death ghost
+/// (S-D.2), then the fall ghost, then SPEC 7. A started fall ghost draws @a u falling one level on two anchors
+/// on one clock (status FLYING, verticalDirection DIR_DOWN): the source anchor (pos = lastPos = `from`,
+/// destination one level below, walk phases 0-3 then a hold) while @a u is not canonically below `from`, the
+/// trailing anchor (pos = destination = the canonical landing position, lastPos = `from`, ghostTrailing) after.
 bool view(const BattleUnit* u, CoopUnitDrawView* io);
 
 /// The unit whose ghost is still sweeping OUT of @a tile even though the
@@ -174,6 +179,14 @@ bool ownsProjectile(const Map* map);
 /// or a thrown item no longer resolves to the pointer captured at enqueue
 /// (spec (b)9). Q5 (a): invalidates the live Map every frame while ANY ghost
 /// (SPEC 7 or combat) is live, so ghosts draw at the frame rate.
+///
+/// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5 E-f', owner D173 (b)): also starts
+/// each enqueued fall ghost at its first advance() (it runs only with the live
+/// BattlescapeState on top, so a fall applied under the next-turn screen or
+/// any other screen waits for it to close), steps it on its pace and ends it:
+/// "natural" (walk phase past 7 on the trailing anchor), "out" (the unit out,
+/// dead or off its tile), "moved" (its x,y left `from`). A fall ghost keeps
+/// the Map redrawing every frame too.
 void advance(SavedBattleGame* save, std::uint32_t nowMs);
 
 /// Drops every ghost record and resets the enqueued/completed counters.

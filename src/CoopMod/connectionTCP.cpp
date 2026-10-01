@@ -18762,6 +18762,7 @@ struct CombatProbeStore
 	EffectSoundProbe panic;
 	FallGhostCounts fall;
 	std::deque<Json::Value> fallRing;
+	std::uint64_t fallPushed = 0;    // W2-P6b S-E6.2: fall records pushed this battle (a fall ghost finds its own)
 	std::deque<Json::Value> fallSeen;
 	std::uint64_t fallAdvances = 0;
 	bool fallSeenOpen = false;
@@ -18875,6 +18876,35 @@ bool g_deathDyingOn = false;
 /// generation branch).
 bool g_deathApplyHold = false;
 
+/// W2-P6b S-E6.2 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 5 E-f', owner D173 (b), P6-5
+/// Q2 (b)): one fall ghost on the watching machine - an applied `fall` cue's unit drawn falling one level as the
+/// host's UnitFallBState draws it, on two anchors on one clock: the source anchor (the `from` tile: walk phases
+/// 0-3, then a hold) until the unit is canonically below `from`, then the trailing anchor (the landing tile, the
+/// rest of the sweep to phase 7). It starts at the first advance() after its enqueue (D173 (b): a fall applied
+/// under the next-turn screen or any other screen waits for it to close). Ids and values only, never a unit
+/// pointer; kept apart from g_coopGhosts, g_combatGhosts, the death queue and the SPEC 7 counters; exempt from
+/// Q1 (b), as death ghosts are; main thread only (P5 OQ4); cleared by combatSync()'s generation branch.
+struct FallGhost
+{
+	std::uint32_t seq = 0;
+	int unitId = -1;
+	Position from;                  // the payload's `from`: the unit's position at the host's UnitFallBState init
+	std::uint32_t paceMs = 1;       // one walk phase per pace (UnitFallBState :61/:63), fixed at enqueue (D111)
+	std::uint64_t ordinal = 0;      // its record (CombatProbeStore::fallPushed at enqueue)
+	std::uint32_t enqueuedAtMs = 0;
+	bool started = false;
+	std::uint32_t startedAtMs = 0;
+	bool landedAtStart = false;     // canonically below `from` at the start: the whole sweep is on the trailing anchor
+	bool landedSeen = false;        // an advance() saw it landed
+	std::uint32_t landedAtE = 0;    // e at that advance (a landing during the ghost: phase index kL = e / pace)
+	int levels = 0;                 // `from`.z - the canonical z once landed
+	std::uint32_t lastAdvanceMs = 0;
+	std::uint32_t maxGapMs = 0;
+	std::vector<int> phasesShown;   // each newly drawn walk phase
+	std::vector<std::string> anchors; // the anchors drawn, in order ("source", "trailing")
+};
+std::vector<FallGhost> g_fallGhosts;
+
 /// The LIVE battle's BattlescapeState, fresh on every call (OQ4: never a stored Map pointer
 /// dereferenced): null with none on the state stack (the client parked in BriefingState, a teardown).
 /// isBattlescapeStateLive() guards the cached state pointer (F391).
@@ -18949,6 +18979,9 @@ void combatSync()
 		g_deathInterval = BattlescapeState::DEFAULT_ANIM_SPEED;
 		g_deathDyingOn = false;
 		g_deathApplyHold = false; // W2-P6b S-D.3: the test-only lever is battle-scoped
+		// W2-P6b S-E6.2 (E-f' "reset"): the fall ghosts go too (they hold no Map object; their records go with
+		// the probe storage below).
+		g_fallGhosts.clear();
 		g_combatProbe = CombatProbeStore();
 		g_combatProbe.gen = g;
 	}
@@ -19133,6 +19166,15 @@ int combatPickSound(const std::vector<int>& v)
 	if (v.size() == 1)
 		return v.front();
 	return v[(std::size_t)RNG::seedless(0, (int)v.size() - 1)];
+}
+
+/// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5, the F1824 fold of E-b; F3210): a melee sound pick. Vanilla's
+/// getMeleeSound() is the one sound getter whose empty-list default is not -1 (RuleItem.cpp :1224, default 39),
+/// and ExplosionBState's damage-item optValue then keeps that 39 (:305): an empty list -> 39, else
+/// combatPickSound() (the raw list, RNG::seedless, V4).
+int combatPickMeleeSound(const std::vector<int>& v)
+{
+	return v.empty() ? 39 : combatPickSound(v);
 }
 
 /// Spec (b)7 (vanilla's own NO_SOUND guard, F1476): plays @a sound on this machine at @a angle, through
@@ -19837,12 +19879,12 @@ void combatStartHitEffect(SavedBattleGame* save, const Json::Value& ev, const st
 	}
 	else
 	{
-		sound = combatPickSound(weaponRule->getMeleeSoundRaw());
+		sound = combatPickMeleeSound(weaponRule->getMeleeSoundRaw()); // W2-P6b S-E6.2 (F1824 fold): vanilla's 39 default
 		if (damageRule)
 		{
 			combatOptValue(anim, damageRule->getMeleeAnimation());
 			combatOptValue(animFrames, damageRule->getMeleeAnimationFrames());
-			combatOptValue(sound, combatPickSound(damageRule->getMeleeSoundRaw()));
+			combatOptValue(sound, combatPickMeleeSound(damageRule->getMeleeSoundRaw()));
 		}
 	}
 	if (miss)
@@ -20414,6 +20456,304 @@ bool deathView(const BattleUnit* u, CoopUnitDrawView* io)
 	return true;
 }
 
+// ----- W2-P6b S-E6.2: the fall ghosts (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 5 E-f', owner
+// D173 (b), P6-5 Q2 (b); AMENDMENT P6-6) -----
+
+/// Pushes one fall record (event_state `displayTwo.effects.fall.ring`, the last kCombatRingCap) and returns its ordinal.
+std::uint64_t fallPushRecord(const Json::Value& r)
+{
+	const std::uint64_t ordinal = g_combatProbe.fallPushed++;
+	g_combatProbe.fallRing.push_back(r);
+	while (g_combatProbe.fallRing.size() > kCombatRingCap)
+		g_combatProbe.fallRing.pop_front();
+	return ordinal;
+}
+
+/// The fall record with @a ordinal, or null once it has left the ring.
+Json::Value* fallRecord(std::uint64_t ordinal)
+{
+	const std::uint64_t first = g_combatProbe.fallPushed - (std::uint64_t)g_combatProbe.fallRing.size();
+	if (ordinal < first || ordinal >= g_combatProbe.fallPushed)
+		return nullptr;
+	return &g_combatProbe.fallRing[(std::size_t)(ordinal - first)];
+}
+
+/// E-f' pose: what a fall ghost draws @a e ms after its start for its canonical unit at @a canon.
+struct FallPose
+{
+	bool landed = false;  // the canonical x,y == `from` x,y and the canonical z < `from`.z
+	int levels = 0;       // `from`.z - the canonical z when landed
+	int walkPhase = 0;
+	bool past = false;    // the walk phase is past 7 on the trailing anchor: the natural end
+};
+
+/// E-f' (P6-5 Q2 (b), one clock, k = e / pace). Not landed: the source anchor, walk phase min(k, 3) (OR2 (a)'s
+/// hold). Landed before the start: the trailing anchor sweeps 8 phases per level, walk phase 8 x e / (8 x levels x
+/// pace) while e < 8 x levels x pace (more than one level = one stretched sweep). Landed during the ghost at phase
+/// index kL: the walk phase continues at min(kL, 3) + 1 and advances one per pace to 7. Shared by view() and
+/// fallStep()'s phasesShown / anchors, so the probe records what view() draws. Reads only.
+FallPose fallPoseAt(const FallGhost& g, const Position& canon, std::uint32_t e)
+{
+	FallPose f;
+	const std::uint32_t pace = std::max<std::uint32_t>(1u, g.paceMs);
+	f.landed = canon.x == g.from.x && canon.y == g.from.y && canon.z < g.from.z;
+	if (!f.landed)
+	{
+		f.walkPhase = (int)std::min<std::uint32_t>(e / pace, 3u);
+		return f;
+	}
+	f.levels = g.from.z - canon.z;
+	if (g.landedAtStart)
+	{
+		const std::uint32_t span = 8u * (std::uint32_t)f.levels * pace;
+		if (e >= span)
+			f.past = true;
+		else
+			f.walkPhase = (int)(8u * e / span);
+		return f;
+	}
+	const std::uint32_t eL = g.landedSeen ? g.landedAtE : e;
+	const std::uint32_t wp = std::min<std::uint32_t>(eL / pace, 3u) + 1u + (e > eL ? e - eL : 0u) / pace;
+	if (wp > 7u)
+		f.past = true;
+	else
+		f.walkPhase = (int)wp;
+	return f;
+}
+
+/// E-f' end: @a g's record gets endedBy, cut (any end but "natural"), phasesShown, anchors and maxGapMs;
+/// completed +1 for "natural", else cut +1.
+void fallEnd(const FallGhost& g, const char* endedBy)
+{
+	const bool natural = std::string(endedBy) == "natural";
+	if (Json::Value* r = fallRecord(g.ordinal))
+	{
+		(*r)["endedBy"] = endedBy;
+		(*r)["cut"] = !natural;
+		Json::Value phases(Json::arrayValue);
+		for (int ph : g.phasesShown)
+			phases.append(ph);
+		(*r)["phasesShown"] = phases;
+		Json::Value anchors(Json::arrayValue);
+		for (const std::string& a : g.anchors)
+			anchors.append(a);
+		(*r)["anchors"] = anchors;
+		(*r)["maxGapMs"] = g.maxGapMs;
+	}
+	if (natural)
+		++g_combatProbe.fall.completed;
+	else
+		++g_combatProbe.fall.cut;
+}
+
+/// E-f' ends outside advance() (never gated, OQ3): every fall ghost of @a unitId (-1: every fall ghost) ends with
+/// @a endedBy ("replaced": a new `fall` for the unit; "moved": a SPEC 7 ghost enqueued for it; "side_transition").
+void fallEndUnit(int unitId, const char* endedBy)
+{
+	if (g_fallGhosts.empty())
+		return;
+	combatSync();
+	for (auto it = g_fallGhosts.begin(); it != g_fallGhosts.end(); )
+	{
+		if (unitId >= 0 && it->unitId != unitId)
+		{
+			++it;
+			continue;
+		}
+		const FallGhost done = *it;
+		it = g_fallGhosts.erase(it);
+		fallEnd(done, endedBy);
+	}
+}
+
+/// E-f' enqueue (a coop client, from combatOnEv()): one applied `fall`. A new `fall` for a unit first ends its
+/// running fall ghost ("replaced", never gated, OQ3); with the option on, each payload unit is read at the apply
+/// (before any delta): it must resolve and stand canonically on `from`, `from`.z > 0, its movement type not
+/// MT_FLY, the canonical tile at `from` with no floor (hasNoFloor(save), vanilla's predicate on tile state, F1746)
+/// and a tile one level below - else one `unresolved` record (enqueued and cut +1) and no ghost. Pace = the side at
+/// the apply == PLAYER ? CoopSpeed::xcomSpeedFor(nullptr) : alienSpeedFor(nullptr) (UnitFallBState :61/:63).
+/// The record: {seq, unit, from, to (one level below `from`; the landing position once landed), paceMs,
+/// phasesShown, anchors, landedAtStart, waitMs, startedTop, levels, maxGapMs, endedBy, cut, unresolved}.
+void fallOnEv(const SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs)
+{
+	const Json::Value& units = ev["payload"]["units"];
+	if (!units.isArray())
+		return;
+	for (const Json::Value& e : units)
+		fallEndUnit(e.get("unit", -1).asInt(), "replaced");
+	if (!Options::coopGhostStepper || !save)
+		return; // OR3 (a): starting a fall display is gated, ending one is not
+	const int pace = save->getSide() == FACTION_PLAYER ? CoopSpeed::xcomSpeedFor(nullptr)
+		: CoopSpeed::alienSpeedFor(nullptr);
+	for (const Json::Value& e : units)
+	{
+		const int unitId = e.get("unit", -1).asInt();
+		const Position from = CoopArbiter::coopJsonPos(e["from"]);
+		const Position below = from - Position(0, 0, 1);
+		const BattleUnit* unit = unitId >= 0 ? CoopIdMaps::unit(unitId) : nullptr;
+		const Tile* at = save->getTile(from);
+		const bool ok = unit && unit->getPosition() == from && from.z > 0 && unit->getMovementType() != MT_FLY
+			&& at && at->hasNoFloor(save) && save->getTile(below) != nullptr;
+		Json::Value r(Json::objectValue);
+		r["seq"] = ev.get("seq", 0u).asUInt();
+		r["unit"] = unitId;
+		r["from"] = CoopArbiter::coopPosJson(from);
+		r["to"] = CoopArbiter::coopPosJson(below);
+		r["paceMs"] = std::max(1, pace);
+		r["phasesShown"] = Json::Value(Json::arrayValue);
+		r["anchors"] = Json::Value(Json::arrayValue);
+		r["landedAtStart"] = false;
+		r["waitMs"] = 0;
+		r["startedTop"] = "";
+		r["levels"] = 0;
+		r["maxGapMs"] = 0;
+		r["endedBy"] = "";
+		r["cut"] = false;
+		r["unresolved"] = !ok;
+		++g_combatProbe.fall.enqueued;
+		if (!ok)
+		{
+			r["endedBy"] = "unresolved";
+			r["cut"] = true;
+			fallPushRecord(r);
+			++g_combatProbe.fall.cut;
+			continue;
+		}
+		FallGhost g;
+		g.seq = ev.get("seq", 0u).asUInt();
+		g.unitId = unitId;
+		g.from = from;
+		g.paceMs = (std::uint32_t)std::max(1, pace);
+		g.enqueuedAtMs = nowMs;
+		g.ordinal = fallPushRecord(r);
+		g_fallGhosts.push_back(g);
+	}
+}
+
+/// E-f' at one advance(): the gap probe, then the ends advance() decides - "out" (the canonical unit out, dead or
+/// off its tile), "moved" (its x,y left `from`), "natural" (the walk phase past 7 on the trailing anchor) -
+/// returned, else nullptr after recording the landing (levels, `to`), the anchor and the walk phase it draws now
+/// when they changed.
+const char* fallStep(FallGhost& g, std::uint32_t nowMs)
+{
+	const std::uint32_t gap = nowMs - g.lastAdvanceMs;
+	if (gap > g.maxGapMs)
+		g.maxGapMs = gap;
+	g.lastAdvanceMs = nowMs;
+	const BattleUnit* unit = CoopIdMaps::unit(g.unitId);
+	if (!unit || unit->isOut() || !unit->getTile())
+		return "out";
+	const Position canon = unit->getPosition();
+	if (canon.x != g.from.x || canon.y != g.from.y)
+		return "moved";
+	const std::uint32_t e = nowMs - g.startedAtMs;
+	FallPose f = fallPoseAt(g, canon, e);
+	if (f.landed && (!g.landedSeen || f.levels != g.levels))
+	{
+		if (!g.landedSeen)
+		{
+			g.landedSeen = true;
+			g.landedAtE = e;
+			f = fallPoseAt(g, canon, e);
+		}
+		g.levels = f.levels;
+		if (Json::Value* r = fallRecord(g.ordinal))
+		{
+			(*r)["levels"] = g.levels;
+			(*r)["to"] = CoopArbiter::coopPosJson(canon);
+		}
+	}
+	if (f.past)
+		return "natural";
+	const char* anchor = f.landed ? "trailing" : "source";
+	if (g.anchors.empty() || g.anchors.back() != anchor)
+		g.anchors.push_back(anchor);
+	if (g.phasesShown.empty() || g.phasesShown.back() != f.walkPhase)
+		g.phasesShown.push_back(f.walkPhase);
+	return nullptr;
+}
+
+/// E-f' at one advance() (a coop client; runs whatever the option, OQ3): starts every enqueued fall ghost - its
+/// start is this advance (advance() runs only with the live BattlescapeState on top and no popup, BattlescapeState
+/// :916-:919), so waitMs = start - enqueue and startedTop is the top state now - then steps each and ends the ones
+/// fallStep() ends. TRUE when a fall ghost was live at entry.
+bool fallAdvance(std::uint32_t nowMs)
+{
+	combatSync();
+	if (g_fallGhosts.empty())
+		return false;
+	for (auto it = g_fallGhosts.begin(); it != g_fallGhosts.end(); )
+	{
+		FallGhost& g = *it;
+		if (!g.started)
+		{
+			g.started = true;
+			g.startedAtMs = nowMs;
+			g.lastAdvanceMs = nowMs;
+			const BattleUnit* unit = CoopIdMaps::unit(g.unitId);
+			g.landedAtStart = unit && fallPoseAt(g, unit->getPosition(), 0u).landed;
+			if (Json::Value* r = fallRecord(g.ordinal))
+			{
+				(*r)["landedAtStart"] = g.landedAtStart;
+				(*r)["waitMs"] = (Json::UInt)(nowMs - g.enqueuedAtMs);
+				(*r)["startedTop"] = effectTopState();
+			}
+		}
+		if (const char* endedBy = fallStep(g, nowMs))
+		{
+			const FallGhost done = g;
+			it = g_fallGhosts.erase(it);
+			fallEnd(done, endedBy);
+			continue;
+		}
+		++it;
+	}
+	return true;
+}
+
+/// E-f' view: a started fall ghost of @a u draws its pose - status FLYING, verticalDirection DIR_DOWN; the source
+/// anchor: pos = lastPos = `from`, destination one level below; the trailing anchor: pos = destination = the
+/// canonical position, lastPos = `from`, ghostTrailing. FALSE with none, or when advance() is about to end it
+/// (out, moved, past phase 7: the canonical unit draws).
+bool fallView(const BattleUnit* u, CoopUnitDrawView* io)
+{
+	if (g_fallGhosts.empty())
+		return false;
+	combatSync();
+	const FallGhost* g = nullptr;
+	for (const FallGhost& h : g_fallGhosts)
+	{
+		if (h.started && h.unitId == u->getId())
+			g = &h;
+	}
+	if (!g || u->isOut() || !u->getTile())
+		return false;
+	const Position canon = u->getPosition();
+	if (canon.x != g->from.x || canon.y != g->from.y)
+		return false;
+	const FallPose f = fallPoseAt(*g, canon, SDL_GetTicks() - g->startedAtMs);
+	if (f.past)
+		return false;
+	io->status = (int)STATUS_FLYING;
+	io->verticalDirection = Pathfinding::DIR_DOWN;
+	io->walkPhase = f.walkPhase;
+	if (f.landed)
+	{
+		io->pos = canon;
+		io->destination = canon;
+		io->lastPos = g->from;
+		io->ghostTrailing = true;
+	}
+	else
+	{
+		io->pos = g->from;
+		io->lastPos = g->from;
+		io->destination = g->from - Position(0, 0, 1);
+		io->ghostTrailing = false;
+	}
+	return true;
+}
+
 /// The combat half of onEvApplied() (a coop client): Q1 (b)'s completion rule, never gated by the option
 /// (OQ3), then a `shot`'s own ghost when the option is on. W2-P5 S-B.2: a `hit` / `explosion` starts its
 /// impact ghost the same way, and a pellet `hit` joins the running one of its action instead (OQ1 (a)).
@@ -20436,7 +20776,17 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	// `death` goes to deathOnEv() (its `front` ending is never gated; its start is, OR3 (a)). Death ghosts are
 	// the ruled Q1 exception: no other ev ends them.
 	if (kind == "side_transition")
+	{
 		deathEndAll(nowMs, "side_transition");
+		fallEndUnit(-1, "side_transition"); // W2-P6b S-E6.2 (E-f'): never gated, OQ3
+	}
+	// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5 E-f', D173 (b)): an applied `fall` enqueues its fall ghosts (option
+	// on); exempt from Q1 (b) as death ghosts are - no other ev but those E-f' names ends one.
+	if (kind == "fall")
+	{
+		fallOnEv(save, ev, nowMs);
+		return;
+	}
 	if (kind == "death")
 	{
 		// W2-P6b S-D.3 (AMENDMENT P6b-4, F1798): the test-only lever's pre-advance - ONE deathAdvance() before the
@@ -20719,6 +21069,8 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	// WV-D49: a ghost already running for this unit is COMPLETED INSTANTLY,
 	// not queued behind - the display clock never gates apply, so the new
 	// ev's ghost starts clean from the new payload's own endpoints.
+	// W2-P6b S-E6.2 (E-f'): a SPEC 7 ghost enqueued for a unit ends its fall ghost ("moved").
+	fallEndUnit(rec.unitId, "moved");
 	auto it = g_coopGhosts.find(rec.unitId);
 	if (it != g_coopGhosts.end())
 	{
@@ -20745,9 +21097,12 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 	const bool combatLive = combatAdvance(nowMs);
 	// W2-P6b S-D.2 (section 8 D-e): the death ghosts start, step and release here, whatever the option (OQ3).
 	const bool deathLive = deathAdvance(save, nowMs);
+	// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5 E-f', D173 (b)): the fall ghosts start, step and end here, whatever
+	// the option (OQ3).
+	const bool fallLive = fallAdvance(nowMs);
 	if (combatClient())
 		++g_combatProbe.fallAdvances; // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only - one advance() run
-	if (!save || (g_coopGhosts.empty() && !combatLive && !deathLive))
+	if (!save || (g_coopGhosts.empty() && !combatLive && !deathLive && !fallLive))
 		return;
 	const bool stepperLive = !g_coopGhosts.empty();
 
@@ -20794,7 +21149,7 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 
 	// W2-P5 S-A.2 (Q5 = a): while ANY ghost is live (this frame included) the Map redraws every frame - a
 	// thin client's Map otherwise redraws only on its 100 ms animation timer or a camera move (N9).
-	if (stepperLive || combatLive || deathLive) // W2-P6b S-D.2: a death ghost redraws every frame too
+	if (stepperLive || combatLive || deathLive || fallLive) // W2-P6b S-D.2 / S-E6.2: death and fall ghosts too
 	{
 		Map* map = combatLiveMap();
 		if (map)
@@ -20806,6 +21161,9 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io)
 {
 	// W2-P6b S-D.2 (section 8 D-h, OR6 (a)): a started death ghost of `u` draws first; SPEC 7 is untouched.
 	if (u && io && deathView(u, io))
+		return true;
+	// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5 E-f'): then a started fall ghost of `u`, then SPEC 7.
+	if (u && io && fallView(u, io))
 		return true;
 	if (!u || !io || g_coopGhosts.empty())
 		return false;
