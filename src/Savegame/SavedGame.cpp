@@ -66,6 +66,7 @@
 #include "BaseFacility.h"
 #include "MissionStatistics.h"
 #include "SoldierDeath.h"
+#include "BattleUnitStatistics.h" // W2-H11: BattleUnitKills fields in the D218 log line
 #include "SoldierDiary.h"
 #include "ResearchDiary.h"
 #include "../Mod/AlienRace.h"
@@ -4206,6 +4207,31 @@ bool SavedGame::isUfoOnIgnoreList(int ufoId)
 	return _ignoredUfos.find(ufoId) != _ignoredUfos.end();
 }
 
+// W2-H11 (owner D218): one co-op log line per SavedGame::killSoldier call - the soldier and its owner, the base
+// roster it was removed from (or none), the cause and the battle turn/side. OXCE erases a dead soldier from its
+// base silently (F3384, F3567). Logging only: reads its arguments, writes nothing.
+static void coopLogKillSoldier(const Soldier* soldier, const Base* base, int baseIndex, bool resetArmor, const BattleUnitKills* cause, const SavedBattleGame* battle)
+{
+	std::ostringstream ss;
+	ss << "[coop-roster] killSoldier: soldier " << (soldier ? soldier->getId() : -1) << " '" << (soldier ? soldier->getName() : std::string())
+	   << "' owner " << (soldier ? soldier->getOwnerPlayerId() : -1);
+	if (base)
+		ss << " removed from base " << baseIndex << " '" << base->getName() << "' (coopBase " << (base->_coopBase ? 1 : 0) << ")";
+	else
+		ss << " is on no base roster - nothing removed";
+	ss << "; resetArmor " << (resetArmor ? 1 : 0);
+	if (cause)
+		ss << "; cause kill: killer '" << (!cause->type.empty() ? cause->type : cause->name) << "' faction " << (int)cause->faction
+		   << " weapon " << cause->weapon << " ammo " << cause->weaponAmmo;
+	else
+		ss << "; cause none (missing in action, debriefing re-check or craft lost)";
+	if (battle)
+		ss << "; battle turn " << battle->getTurn() << " side " << (int)battle->getSide();
+	else
+		ss << "; battle none";
+	Log(LOG_INFO) << ss.str();
+}
+
 /**
  * Registers a soldier's death in the memorial.
  * @param soldier Pointer to dead soldier.
@@ -4235,10 +4261,14 @@ std::vector<Soldier*>::iterator SavedGame::killSoldier(bool resetArmor, Soldier 
 			{
 				soldier->die(new SoldierDeath(*_time, cause));
 				_deadSoldiers.push_back(soldier);
+				if (connectionTCP::getCoopStatic() || isCoopSave())
+					coopLogKillSoldier(soldier, xbase, (int)(std::find(_bases.begin(), _bases.end(), xbase) - _bases.begin()), resetArmor, cause, _battleGame); // W2-H11 (D218)
 				return xbase->getSoldiers()->erase(soldierIt);
 			}
 		}
 	}
+	if (connectionTCP::getCoopStatic() || isCoopSave())
+		coopLogKillSoldier(soldier, nullptr, -1, resetArmor, cause, _battleGame); // W2-H11 (D218)
 	return soldierIt;
 }
 

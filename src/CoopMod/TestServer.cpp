@@ -983,6 +983,36 @@ static Json::Value soldierToJson(Soldier* s)
 	return j;
 }
 
+// W2-H11 (owner D218): set_soldier_owner's not-found diag - every base roster in order, the dead list and the
+// battle's player units. Read-only; file-static so execute() gains one nesting level only (C1061, F3573).
+static std::string coopSoldierRosterDiag(SavedGame* save, int wantId)
+{
+	std::ostringstream ss;
+	ss << "want=" << wantId;
+	if (!save) return ss.str() + " no save loaded";
+	ss << " bases:";
+	int i = 0;
+	for (auto* b : *save->getBases())
+	{
+		ss << " [" << i++ << " '" << b->getName() << "' coopBase=" << (b->_coopBase ? 1 : 0) << ":";
+		for (auto* s : *b->getSoldiers())
+			ss << " " << s->getId() << "/o" << s->getOwnerPlayerId() << "/c" << (s->getCraft() ? 1 : 0);
+		ss << "]";
+	}
+	ss << " dead:";
+	for (auto* s : *save->getDeadSoldiers())
+		ss << " " << s->getId();
+	if (save->getSavedBattle())
+	{
+		ss << " units:";
+		for (auto* u : *save->getSavedBattle()->getUnits())
+			if (u->getOriginalFaction() == FACTION_PLAYER)
+				ss << " unit" << u->getId() << "/soldier" << (u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getId() : -1)
+				   << "/st" << (int)u->getStatus() << "/hp" << u->getHealth() << "/murderer" << u->getMurdererId();
+	}
+	return ss.str();
+}
+
 /**
  * PRD-J10 test hooks, in their own dispatcher. The execute() command chain below
  * sits on MSVC's 128-block nesting limit (C1061: "blocks nested too deeply"), so
@@ -9890,6 +9920,12 @@ std::string TestServer::execute(const std::string& line)
 						if (s->getId() == sid) { s->setOwnerPlayerId(owner); found = true; }
 			resp["ok"] = found;
 			if (!found) resp["error"] = "soldier id not found";
+			if (!found) // W2-H11 (D218): a miss says who is where - the answer's diag and one host log line
+			{
+				const std::string diag = coopSoldierRosterDiag(_game->getSavedGame(), sid);
+				resp["diag"] = diag;
+				Log(LOG_INFO) << "[coop-test] set_soldier_owner: soldier " << sid << " not found - " << diag;
+			}
 		}
 		else if (cmd == "craft_assign")
 		{
