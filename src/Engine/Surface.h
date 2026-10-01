@@ -195,6 +195,7 @@ public:
 	virtual void setVisible(bool visible);
 	/// Gets the surface's visibility.
 	bool getVisible() const;
+	bool getHidden() const { return _hidden; }
 	/// Gets the cropping rectangle for the surface.
 	SurfaceCrop getCrop() const;
 	/**

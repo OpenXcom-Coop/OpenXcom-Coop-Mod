@@ -24,9 +24,9 @@ roster-pinned lobby (set_seed SEED_ROSTER before open_new_battle),
 session.bring_up_to_briefings (the client seated C1, C2; the host keeps H), set_seed
 SEED_MAP right before newbattle_ok, the host's mapFingerprint = MAP_FP. The fixture
 spine is fixed at red and green:
-  [both briefings up] -> [staging] -> [client close_briefing, host close_briefing:
-  both pre-battle screens up, the host's equip-open announce] -> [the client saves
-  C2's personal layout] -> EQ16 -> EQ17 -> EQ18 -> EQ19 -> EQ20.
+  [both briefings up] -> [staging] -> [EQ27's staging] -> [client close_briefing, host
+  close_briefing: both pre-battle screens up, the host's equip-open announce] -> [the
+  client saves C2's personal layout] -> EQ16 -> EQ17 -> EQ18 -> EQ19 -> EQ20 -> EQ27.
 Staging (both briefings up, client first, F607; staged items only, P8b-2): C1 and C2
 stripped on both machines; C1 gets L1 = a rifle loaded with a rifle clip in
 STR_RIGHT_HAND + a grenade on STR_BELT (0,0); C2 gets L2 = a pistol loaded with a
@@ -71,6 +71,36 @@ vanilla's digits (InventoryState::handle: Ctrl+1..9 saves, 1..9 applies; key 1 =
   soldier unchanged by the row while the client's changed to the tool's result, and no
   `inv_bulk` sent (buckets then differ). A row whose tool did not change the client's
   own copy fails for another reason (FIXTURE, stated in its message).
+  EQ27  (stage S-C.3, P8b-2c ruling SC-4, follows vanilla): a template the pile cannot fill
+        shows vanilla's STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE line ("Not enough items to copy
+        template!", InventoryState::_applyInventoryTemplate) on the screen of the player
+        who applied it - the `inv_bulk` answer carries the flag. The template is TWO
+        proximity grenades (PROX_T) and the pile holds exactly ONE when the client applies
+        it, so exactly one template item is missing:
+          staging (the spine step after the S-C staging, both briefings up): the pile's
+          stock PROX_T counted, then PROX_T dropped on PILE until it holds EQ27_PILE_PROX
+          (3); H1 and H2 stripped, H1 = PROX_T on STR_BELT (0,0) and (1,0), H2 = PROX_T on
+          STR_BELT (0,0) (battle_give; the host control below);
+          the row: the client clears C1 and C2 (keyInvClear, EQ19's tool: C1's EQ20 items
+          and C2's L1 go to the pile, so the pile holds all EQ27_PILE_PROX) -> on C2 two
+          Ctrl-clicks on the pile's PROX_T cell (vanilla's ctrl_fit: two inv_move orders,
+          C2 = two PROX_T, the pile keeps ONE) -> inventory_click {widget:
+          create_template} (UI-local, vanilla) -> NEXT to C1 (empty) -> inventory_click
+          {widget: apply_template}: the host finds one PROX_T for two template cells.
+        GREEN: the client's line shows the text (inventory_view lineText + lineVisible,
+        polled from the press until LINE_READ_S after the answer: the line fades 1.2 s
+        after a show, F3112, so it is read inside that window; the +LINE_READ_S read is
+        recorded as evidence only - P8b-2d SC-8); the host's and the client's C1 are equal
+        and hold the partial template
+        (one PROX_T in one of C2's two template cells), the pile holds no PROX_T on either
+        machine, one `inv_bulk` sent and received, none denied. RED (product untouched,
+        the host logs "not every template item was on the ground" and answers without the
+        flag): the client's line never shows the text - the partial apply itself already
+        happens.
+        CONTROL (vanilla, passes at red): the HOST applies the same short template (its
+        screen on H1 -> create_template -> NEXT to H2 -> apply_template; H2's own PROX_T is
+        the only one it finds) and the host's own line shows the text.
+  RED (commit S-C.3a): exactly EQ27 fails, on its RED cell; EQ16-EQ20 pass (S-C.2).
 
 Common asserts, every row: hash_now {full:true} every bucket EQUAL after the queues
 drain; desyncSeen false on both; the client's turnMirrorFired 0; coopClientBStatePushes
@@ -108,7 +138,8 @@ from test_w2_prebattle_equip import (SEED_MAP, MAP_FP, C_IDS, C1, C2, H_IDS, PIL
                                      BELT, RIGHT_HAND, LEFT_HAND, RIFLE_T, CLIP_T, GRENADE_T, EQ1_WAIT_S,
                                      ENTRY_WAIT_S, ANSWER_WAIT_S, LAND_WAIT_S, DRAIN_WAIT_S, stack, has, es,
                                      equip, turn, in_battle, inv_view, view_brief, ground_ids, pile_ids, wait_until,
-                                     evidence, finish, click, goto_unit, drained, pre_screen_fails, ammo_of)
+                                     evidence, finish, click, goto_unit, drained, pre_screen_fails, ammo_of, GROUND,
+                                     GROUND_COLS, CLICK_WAIT_S)
 
 PORT = "48833"                     # this file's lobby port (unused by every other test file)
 PISTOL_T, PISTOL_CLIP_T, SMOKE_T = "STR_PISTOL", "STR_PISTOL_CLIP", "STR_SMOKE_GRENADE"
@@ -131,6 +162,13 @@ KEY_DEFAULTS = {"keyInvCreateTemplate": 99,           # SDLK_c (EQ16 clicks the 
 SDLK_1 = 49                        # InventoryState::handle: SDLK_0..SDLK_9; key 1 = global layout index 0
 GLOBAL_INDEX = 0
 KEY_SETTLE_S = 0.3
+# EQ27 (S-C.3, SC-4): the short template = two PROX_T; the pile holds EQ27_PILE_PROX of them after the staging, two
+# go to C2 (the template), ONE is left for C1's apply
+PROX_T = "STR_PROXIMITY_GRENADE"
+EQ27_PILE_PROX = 3
+H1, H2 = H_IDS[0], H_IDS[1]        # the host control: H1 = the template source, H2 = its target
+TEXT_SHORT = "Not enough items to copy template!"   # STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE (xcom1 en-US / en-GB)
+LINE_READ_S = 1.5                  # F3112: the line fades 1.2 s after a show; read inside it, record +1.5 s
 
 
 # ===================== probes =====================
@@ -315,6 +353,58 @@ def spine_stage(host, client, ctx):
             raise AssertionError(f"spine: FIXTURE - the {side}'s live inventory keys {rec['liveKeys'][side]} != the "
                                  f"harness options.cfg keys {want_keys}")
     ctx["keys"] = want_keys
+
+
+def prox_on_pile(its):
+    return sorted(i for i in pile_ids(its) if its[i].get("type") == PROX_T)
+
+
+def spine_stage_eq27(host, client, ctx):
+    """EQ27's staging (both briefings up, client first, F607; staged items only, P8b-2): the pile's stock PROX_T
+    counted, then PROX_T dropped on PILE until it holds EQ27_PILE_PROX; H1 and H2 stripped, then H1 = PROX_T on
+    STR_BELT (0,0) and (1,0) (the host control's template source) and H2 = PROX_T on STR_BELT (0,0) (its target)."""
+    rec = {}
+    ctx["eq27"] = rec
+    try:
+        ih, ic = items_by_id(host), items_by_id(client)
+        rec["stockOnPile"] = {"host": prox_on_pile(ih), "client": prox_on_pile(ic)}
+        if rec["stockOnPile"]["host"] != rec["stockOnPile"]["client"]:
+            raise AssertionError(f"the pile's stock {PROX_T} differs: {rec['stockOnPile']}")
+        need = EQ27_PILE_PROX - len(rec["stockOnPile"]["host"])
+        if need < 0:
+            raise AssertionError(f"the pile already holds {rec['stockOnPile']['host']} {PROX_T} (want <= "
+                                 f"{EQ27_PILE_PROX})")
+        drops = []
+        for _ in range(need):
+            d = both(host, client, {"cmd": "battle_drop", "x": PILE[0], "y": PILE[1], "z": PILE[2], "item": PROX_T},
+                     ("ids",))
+            drops.append(d["ids"][0])
+        rec["drops"] = drops
+        rec["hStripped"] = {uid: strip_both(host, client, uid) for uid in (H1, H2)}
+        gives = {}
+        for uid, cells in ((H1, ((0, 0), (1, 0))), (H2, ((0, 0),))):
+            for x, y in cells:
+                r = both(host, client, {"cmd": "battle_give", "unit": uid, "item": PROX_T, "slot": BELT, "slotX": x,
+                                        "slotY": y}, ("weaponId", "ammoId", "weaponSlot"))
+                gives.setdefault(str(uid), []).append(r["weaponId"])
+        rec["gives"] = gives
+        rec["diff"] = diff_buckets(host, client)
+        ih, ic = items_by_id(host), items_by_id(client)
+        rec["pileProx"] = {"host": prox_on_pile(ih), "client": prox_on_pile(ic)}
+        rec["sigH1"], rec["sigH2"] = unit_sig(ih, H1), unit_sig(ih, H2)
+        rec["sigH1H2Client"] = [unit_sig(ic, H1), unit_sig(ic, H2)]
+    except Exception as e:
+        rec["error"] = short(e, 400)
+    print(f"STAGE EQ27 {json.dumps(rec, sort_keys=True, default=str)}", flush=True)
+    if rec.get("error"):
+        raise AssertionError(f"spine: EQ27's staging failed: {rec['error']}")
+    if rec["diff"]:
+        raise AssertionError(f"spine: buckets differ after EQ27's staging: {rec['diff']}")
+    if len(rec["pileProx"]["host"]) != EQ27_PILE_PROX or rec["pileProx"]["host"] != rec["pileProx"]["client"]:
+        raise AssertionError(f"spine: the pile's {PROX_T} {rec['pileProx']} (want {EQ27_PILE_PROX}, equal)")
+    if rec["sigH1H2Client"] != [rec["sigH1"], rec["sigH2"]] or len(rec["sigH1"]) != 2 or len(rec["sigH2"]) != 1:
+        raise AssertionError(f"spine: H1 {rec['sigH1']} H2 {rec['sigH2']} client {rec['sigH1H2Client']} (want two and "
+                             f"one {PROX_T}, equal)")
 
 
 def spine_open_screens(host, client, ctx):
@@ -607,17 +697,239 @@ def eq20_autoequip(host, client, ctx):
     finish(fails)
 
 
+def prox_cells(its, uid):
+    """The (slot, slotX, slotY) of every PROX_T `uid` holds, sorted."""
+    return sorted((it.get("slot"), it.get("slotX"), it.get("slotY")) for i, it in unit_items(its, uid).items()
+                  if it.get("type") == PROX_T)
+
+
+def settled(host, client, uid, want):
+    """`want(host sig of uid)` holds, the unit's items and the pile ids equal on both, nothing in flight."""
+    ih, ic = items_by_id(host), items_by_id(client)
+    return (want(unit_sig(ih, uid)) and unit_dump(ih, uid) == unit_dump(ic, uid) and pile_ids(ih) == pile_ids(ic)
+            and es(client).get("inFlight") is None)
+
+
+def watch_line(gc, text, t0, stop):
+    """Poll `gc`'s inventory line from t0 until `stop(now)` is true: the first time it shows `text` visibly
+    (seconds after t0) or None, and the last read."""
+    seen, last = None, {}
+    while True:
+        v = inv_view(gc)
+        last = {"text": v.get("lineText"), "visible": v.get("lineVisible")}
+        now = time.time() - t0
+        if seen is None and last["text"] == text and last["visible"] is True:
+            seen = round(now, 3)
+        if stop(now, seen):
+            return seen, last
+        time.sleep(0.05)
+
+
+def eq27_template_short(host, client, ctx):
+    fails = pre_screen_fails(host, client, "EQ27", host_too=True)
+    st = ctx.get("eq27") or {}
+    if st.get("error") or st.get("diff") or not st.get("gives") or not ctx.get("keys"):
+        fails.append(f"EQ27: the staging did not complete (EQ27 {st.get('error')}, diff {st.get('diff')}, keys "
+                     f"{bool(ctx.get('keys'))})")
+    ev = {"staged": {k: st.get(k) for k in ("stockOnPile", "drops", "gives", "pileProx")}}
+    if fails:
+        evidence("EQ27", ev)
+        finish([f.replace("EQ27: ", "EQ27: precondition absent - ") for f in fails])
+    known_prox = set(st["stockOnPile"]["host"]) | set(st["drops"])   # C7: the staging record's ids
+    keys = ctx["keys"]
+    setup = {}
+    ev["setup"] = setup
+    pre = []
+    # 1. the client clears C1 (EQ20's items) and C2 (L1): every PROX_T of the pile is on the pile again
+    for uid in (C1, C2):
+        nav = []
+        rec = {"reached": goto_unit(client, uid, C_IDS, nav), "nav": nav}
+        if rec["reached"]:
+            time.sleep(KEY_SETTLE_S)
+            rec["press"] = key(client, keys["keyInvClear"])
+            got, dt = wait_until(lambda: settled(host, client, uid, lambda sig: sig == []), LAND_WAIT_S, 0.1)
+            rec["emptyWithin"] = dt if got else None
+        setup[f"clear{uid}"] = rec
+        if not rec.get("emptyWithin"):
+            pre.append(f"EQ27: the client's clear of {uid} did not land empty on both ({rec})")
+    ih, ic = items_by_id(host), items_by_id(client)
+    setup["pileProx"] = {"host": prox_on_pile(ih), "client": prox_on_pile(ic)}
+    if not pre and (len(setup["pileProx"]["host"]) != EQ27_PILE_PROX
+                    or setup["pileProx"]["host"] != setup["pileProx"]["client"]):
+        pre.append(f"EQ27: the pile's {PROX_T} after the clears {setup['pileProx']} (want {EQ27_PILE_PROX}, equal)")
+    # 2. on C2: two Ctrl-clicks on the pile's PROX_T cell (vanilla ctrl_fit, two inv_move orders)
+    moves = []
+    setup["moves"] = moves
+    if not pre:
+        nav = []
+        setup["toC2"] = {"reached": goto_unit(client, C2, C_IDS, nav), "nav": nav}
+        if not setup["toC2"]["reached"]:
+            pre.append(f"EQ27: PREV/NEXT never reached C2 on the client ({nav})")
+    for n in ((1, 2) if not pre else ()):
+        m = {}
+        moves.append(m)
+        v, its = inv_view(client), items_by_id(client)
+        cells = [(g.get("x"), g.get("y"), g.get("id")) for g in (v.get("ground") or [])
+                 if (its.get(g.get("id")) or {}).get("type") == PROX_T]
+        m["cells"] = cells
+        if not cells or cells[0][0] is None or cells[0][0] >= GROUND_COLS:
+            pre.append(f"EQ27: no {PROX_T} cell on the first page of the client's ground ({cells})")
+            break
+        time.sleep(KEY_SETTLE_S)
+        m["click"] = click(client, slot=GROUND, x=cells[0][0], y=cells[0][1], mod="ctrl")
+        got, dt = wait_until(lambda: settled(host, client, C2, lambda sig: sum(1 for s in sig if s[0] == PROX_T) == n),
+                             LAND_WAIT_S, 0.1)
+        m["within"] = dt if got else None
+        if not got:
+            pre.append(f"EQ27: Ctrl-click {n} did not land a {PROX_T} on C2 on both ({m})")
+            break
+    ih, ic = items_by_id(host), items_by_id(client)
+    tmpl = unit_sig(ih, C2)
+    tmpl_cells = prox_cells(ih, C2)
+    setup.update({"templateSig": tmpl, "templateCells": tmpl_cells, "c2Client": unit_sig(ic, C2),
+                  "pileProxAfterMoves": {"host": prox_on_pile(ih), "client": prox_on_pile(ic)},
+                  "c2Ids": sorted(unit_items(ih, C2))})
+    if not pre and (len(tmpl) != 2 or len(tmpl_cells) != 2 or setup["c2Client"] != tmpl
+                    or len(setup["pileProxAfterMoves"]["host"]) != 1
+                    or setup["pileProxAfterMoves"]["host"] != setup["pileProxAfterMoves"]["client"]
+                    or not set(setup["c2Ids"]) <= known_prox):
+        pre.append(f"EQ27: C2 {tmpl} (client {setup['c2Client']}, ids {setup['c2Ids']} of the staged {sorted(known_prox)}) "
+                   f"/ the pile's {PROX_T} {setup['pileProxAfterMoves']} (want C2 = two {PROX_T} on both, ONE left on the "
+                   f"pile)")
+    # 3. create the template on C2 (UI-local), NEXT to C1 (empty)
+    if not pre:
+        time.sleep(KEY_SETTLE_S)
+        setup["create"] = click(client, widget="create_template")
+        time.sleep(KEY_SETTLE_S)
+        nav = []
+        setup["toC1"] = {"reached": goto_unit(client, C1, C_IDS, nav), "nav": nav}
+        if not setup["toC1"]["reached"] or inv_view(client).get("selectedItem") != -1:
+            pre.append(f"EQ27: the client's screen never showed C1 with an empty cursor ({setup['toC1']}, cursor "
+                       f"{inv_view(client).get('selectedItem')})")
+    if pre:
+        evidence("EQ27", ev)
+        finish([f.replace("EQ27: ", "EQ27: precondition absent - ") for f in pre])
+
+    # 4. the client applies the short template on C1
+    b = snapshot(host, client)
+    ev["lineBefore"] = {"text": inv_view(client).get("lineText"), "visible": inv_view(client).get("lineVisible")}
+    time.sleep(KEY_SETTLE_S)
+    t0 = time.time()
+    ev["apply"] = click(client, widget="apply_template")
+    landed = {}
+
+    def stop(now, seen):
+        if "at" not in landed and settled(host, client, C1, lambda sig: sig != []):
+            landed["at"] = round(time.time() - t0, 3)
+        if "at" in landed:
+            return seen is not None or now >= landed["at"] + LINE_READ_S
+        return now > LAND_WAIT_S
+
+    seen, last = watch_line(client, TEXT_SHORT, t0, stop)
+    landed_at = landed.get("at")
+    at_read = None
+    if landed_at is not None:
+        wait = landed_at + LINE_READ_S - (time.time() - t0)
+        if wait > 0:
+            time.sleep(wait)
+        v = inv_view(client)
+        at_read = {"text": v.get("lineText"), "visible": v.get("lineVisible"), "t": round(time.time() - t0, 3)}
+    ih, ic = items_by_id(host), items_by_id(client)
+    new_log = [e for e in host_bulk_log(host) if e.get("iseq") not in b["logIseqs"]]
+    c1_cells = prox_cells(ih, C1)
+    ev.update({"landedWithin": landed_at, "clientLineSeen": seen, "clientLineLast": last,
+               "clientLineAtRead": at_read, "c1": {"host": unit_sig(ih, C1), "client": unit_sig(ic, C1)},
+               "c1Cells": c1_cells, "c1Ids": sorted(unit_items(ih, C1)),
+               "c1DumpEqual": unit_dump(ih, C1) == unit_dump(ic, C1),
+               "pileProx": {"host": prox_on_pile(ih), "client": prox_on_pile(ic)},
+               "missing": len(tmpl_cells) - len([c for c in c1_cells if c in tmpl_cells]),
+               "invBulkSent": sent_bulk(client) - b["sent"], "hostInvBulkLog": new_log,
+               "hostInvBulkDenied": [b["denied"], host_bulk_denied(host)],
+               "clientLastWarning": [b["line"], es(client).get("invLastWarning")]})
+
+    # 5. the control: the HOST applies the same short template (vanilla, its own line)
+    ctl = {}
+    ev["hostControl"] = ctl
+    nav = []
+    ctl["toH1"] = {"reached": goto_unit(host, H1, H_IDS, nav), "nav": nav}
+    if ctl["toH1"]["reached"] and inv_view(host).get("selectedItem") == -1:
+        time.sleep(KEY_SETTLE_S)
+        ctl["create"] = click(host, widget="create_template")
+        time.sleep(KEY_SETTLE_S)
+        nav2 = []
+        ctl["toH2"] = {"reached": goto_unit(host, H2, H_IDS, nav2), "nav": nav2}
+        ctl["h2Before"] = unit_sig(items_by_id(host), H2)
+        if ctl["toH2"]["reached"]:
+            time.sleep(KEY_SETTLE_S)
+            t1 = time.time()
+            ctl["apply"] = click(host, widget="apply_template")
+            ctl["lineSeen"], ctl["lineLast"] = watch_line(
+                host, TEXT_SHORT, t1, lambda now, seen: seen is not None or now > CLICK_WAIT_S + LINE_READ_S)
+            got, dt = wait_until(lambda: settled(host, client, H2, lambda sig: True), LAND_WAIT_S, 0.1)
+            ctl["settledWithin"] = dt if got else None
+    ih, ic = items_by_id(host), items_by_id(client)
+    ctl["h2After"] = {"host": unit_sig(ih, H2), "client": unit_sig(ic, H2)}
+    ctl["h2Cells"] = prox_cells(ih, H2)
+    ctl["h1Cells"] = prox_cells(ih, H1)
+    ev["views"] = {"host": view_brief(inv_view(host)), "client": view_brief(inv_view(client))}
+    ev["turn"] = [turn(host), turn(client)]
+    evidence("EQ27", ev)
+
+    if seen is None:
+        fails.append(f"EQ27: the client's line never showed {TEXT_SHORT!r} after its apply (last read {last}, "
+                     f"+{LINE_READ_S}s read {at_read}) - RED: the inv_bulk answer carries no 'not enough items' flag "
+                     f"(the partial apply itself landed: C1 {ev['c1']['host']}, {ev['missing']} template item(s) "
+                     f"missing)")
+    if landed_at is None:
+        fails.append(f"EQ27: the apply never landed on C1 on both within {LAND_WAIT_S}s (host {ev['c1']['host']}, "
+                     f"client {ev['c1']['client']}, inFlight {es(client).get('inFlight')})")
+    if not ev["c1DumpEqual"] or ev["c1"]["host"] != ev["c1"]["client"]:
+        fails.append(f"EQ27: C1 differs: host {ev['c1']['host']} client {ev['c1']['client']}")
+    if len(c1_cells) != 1 or c1_cells[0] not in tmpl_cells or len(ev["c1"]["host"]) != 1 \
+            or not set(ev["c1Ids"]) <= known_prox:
+        fails.append(f"EQ27: C1 {ev['c1']['host']} (ids {ev['c1Ids']}) is not the partial template: want ONE {PROX_T} "
+                     f"in one of the template cells {tmpl_cells}")
+    if ev["missing"] != 1:
+        fails.append(f"EQ27: {ev['missing']} template item(s) missing (want exactly 1: the pile held one {PROX_T} for "
+                     f"two cells)")
+    if ev["pileProx"]["host"] or ev["pileProx"]["client"]:
+        fails.append(f"EQ27: the pile still holds {PROX_T} {ev['pileProx']} (want none on both)")
+    if ev["invBulkSent"] != 1:
+        fails.append(f"EQ27: client coopIntentsSent.inv_bulk +{ev['invBulkSent']} (want +1: the apply)")
+    if len(new_log) != 1:
+        fails.append(f"EQ27: the host received {len(new_log)} inv_bulk ({new_log}; want 1)")
+    if ev["hostInvBulkDenied"][1] != ev["hostInvBulkDenied"][0]:
+        fails.append(f"EQ27: the host denied inv_bulk {ev['hostInvBulkDenied']} (want none)")
+    if ctl.get("lineSeen") is None:
+        fails.append(f"EQ27: CONTROL - the host's own apply of the short template never showed {TEXT_SHORT!r} on the "
+                     f"host's line ({ctl})")
+    if ctl["h2After"]["host"] != ctl["h2After"]["client"] or ctl["h2Cells"] != [(BELT, 0, 0)] \
+            or ctl["h1Cells"] != [(BELT, 0, 0), (BELT, 1, 0)]:
+        fails.append(f"EQ27: CONTROL - H2 host {ctl['h2After']['host']} client {ctl['h2After']['client']} cells "
+                     f"{ctl['h2Cells']}, H1 cells {ctl['h1Cells']} (want H2 = its one {PROX_T} in the template's first "
+                     f"cell on both, H1 unchanged)")
+    for side, v in ev["views"].items():
+        if not (v.get("open") and v.get("top") and v.get("preBattle")):
+            fails.append(f"EQ27: the {side}'s pre-battle screen is not on top ({v})")
+    if ev["turn"] != [0, 0]:
+        fails.append(f"EQ27: turn host/client {ev['turn']} (want 0 on both)")
+    fails += tail_fails(host, client, "EQ27")
+    finish(fails)
+
+
 # (name, fn): a named step is a row (PASS/FAIL line); a None step is the fixture spine (a failure there fails the
 # run, and the rows after it fail on their own preconditions).
 STEPS = ((None, spine_both_briefings),
          (None, spine_stage),
+         (None, spine_stage_eq27),
          (None, spine_open_screens),
          (None, spine_save_personal),
          ("EQ16", eq16_template),
          ("EQ17", eq17_personal),
          ("EQ18", eq18_global),
          ("EQ19", eq19_clear),
-         ("EQ20", eq20_autoequip))
+         ("EQ20", eq20_autoequip),
+         ("EQ27", eq27_template_short))
 ROWS = [n for n, _ in STEPS if n]
 
 

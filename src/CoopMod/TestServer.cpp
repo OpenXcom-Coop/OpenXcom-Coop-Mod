@@ -4697,6 +4697,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["index"] = index;
 		resp["global"] = layoutJson(*sg->getGlobalEquipmentLayout(index));
 		resp["globalArmor"] = sg->getGlobalEquipmentLayoutArmor(index);
+		resp["globalName"] = sg->getGlobalEquipmentLayoutName(index); // W2-P8b S-C.3a (P8b-2d SC-9): the slot's name, read-only
 		if (req.isMember("unit"))
 		{
 			BattleUnit* u = findUnit(req.get("unit", -1).asInt());
@@ -4714,6 +4715,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		keys["keyInvSavePersonalEquipment"] = (int)Options::keyInvSavePersonalEquipment;
 		keys["keyInvLoadPersonalEquipment"] = (int)Options::keyInvLoadPersonalEquipment;
 		resp["keys"] = keys;
+		// W2-P8b S-C.3a (docs rewrite/prompts/w2p8b_prebattle_equip.md, P8b-2c S-C RULINGS SC-5): TEST-ONLY, read-only - the
+		// live Options THIS machine's layout saves read: vanilla's personal-save armor option (btnCreatePersonalTemplateClick
+		// keeps the unit's armor with the layout when it is on) and the key that opens the save dialog (InventorySaveState,
+		// whose SAVE+ button is the one global save WITH armor). Outside `keys`: those six are the bulk tools' keys.
+		resp["personalLayoutIncludingArmor"] = Options::oxcePersonalLayoutIncludingArmor;
+		resp["keyInventorySave"] = (int)Options::keyInventorySave;
 		resp["ok"] = true;
 	}
 	else if (cmd == "inventory_click")
@@ -11193,6 +11200,9 @@ std::string TestServer::execute(const std::string& line)
 					e["visible"] = s->getVisible();
 					e["x"] = s->getX(); e["y"] = s->getY();
 					e["w"] = s->getWidth(); e["h"] = s->getHeight();
+					// W2-P8b S-C.3a (P8b-2d SC-7): read-only - a POPUP window's state hides every surface until its popup ends
+					// (Window::think -> State::hideAll) and a hidden InteractiveSurface ignores input; `visible` does not show it.
+					e["hidden"] = s->getHidden();
 					if (auto* tb = dynamic_cast<TextButton*>(s)) e["text"] = tb->getText();
 					// W1-P2: plain Text captions too (additive - a TextButton IS not a
 					// Text, the two dynamic_casts are disjoint). Needed to read what a
