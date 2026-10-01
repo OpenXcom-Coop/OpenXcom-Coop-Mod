@@ -63,6 +63,7 @@
 #include "../Battlescape/MedikitState.h" // W2-P4 S-D.2: the ordering client's open medi-kit screen (D148)
 #include "../Battlescape/Inventory.h" // W2-P8 S-A.2: the inventory guards, the host's move checks, the client's answer
 #include "../Battlescape/InventoryState.h" // W2-P8 S-A.2: the ordering client's open inventory screen
+#include "../Battlescape/InventorySaveState.h" // W2-P8b S-C.3b: a SHARED save from the save dialog carries its name
 #include "../Battlescape/BattlescapeGenerator.h" // W2-P8b S-C.2: the host's auto-equip donor (autoEquip)
 #include "../Savegame/EquipmentLayoutItem.h" // W2-P8b S-C.2: the `inv_bulk` layouts
 #include "../Battlescape/WarningMessage.h" // W2-P8b S-A.2: the pre-battle screen's message line (D216)
@@ -7013,6 +7014,20 @@ struct CoopClientPending
 };
 static CoopClientPending g_coopClientPending;
 
+// W2-P8b S-C.3b (docs rewrite/prompts/w2p8b_prebattle_equip.md, P8b-2c S-C RULINGS SC-5, SC-6; P8b-2d SC-9): CLIENT -
+// the SHARED layout saves this machine still owes the host, one per press (coopNoteInvLayoutSave()). The equip pump
+// sends the oldest once no order is in flight or held here (coopInvFlushSaves()): a save moves no item, so it QUEUES
+// behind the tracked order instead of being dropped by the IR-2 lock (SC-6), and it is sent after vanilla's armor
+// write that follows the note, read from this machine's own world as vanilla stored it (SC-5, SC-9). Battle-scoped.
+struct CoopInvSaveNote
+{
+	int actorId = -1;
+	std::string op;      // save_personal | save_global
+	int index = -1;      // save_global: the slot
+	bool dialog = false; // save_global from the save dialog: the slot's name rides too
+};
+static std::vector<CoopInvSaveNote> g_coopInvSaveQueue;
+
 // W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): CLIENT-side order-feedback state.
 //
 // g_coopClientRunningActionId is the actionId of THIS client's own most recent
@@ -7109,6 +7124,11 @@ static std::string g_coopIntentResultKey;
 // and with the arbiter state.
 static bool g_coopIntentContinueSet = false;
 static bool g_coopIntentContinue = true;
+
+// W2-P8b S-C.3b (P8b-2c SC-4): HOST - an `inv_bulk` apply context's vanilla itemMissing (the template asked for an
+// item the ground did not hold). closeBaseContext() writes it as the additive `itemMissing` on that context's
+// bt_action_end and clears it; cleared again at every inv_bulk context begin and with the arbiter state.
+static bool g_coopIntentItemMissing = false;
 
 // W2-P4 S-E1 (spec (b)8, F423 per-player half): HOST - the actionId of the
 // admitted `shoot` intent whose order carries `forceFire: true` (0 = none).
@@ -7324,6 +7344,7 @@ static void resetCoopArbiterState()
 	g_coopClientActionActor.clear();
 	// R2-P7: the pending slot is battle-scoped too.
 	g_coopClientPending = CoopClientPending();
+	g_coopInvSaveQueue.clear(); // W2-P8b S-C.3b (SC-6): the queued SHARED layout saves too
 	// W1-P7 (WV-D13/WV-D24): the order-feedback state is battle-scoped too - a
 	// timed-out iseq from a previous battle must never suppress a fresh answer
 	// (iseq restarts at 1 per battle, SS2.2).
@@ -7342,6 +7363,7 @@ static void resetCoopArbiterState()
 	g_coopIntentResultKey.clear();
 	g_coopIntentContinueSet = false; // W2-P4 S-D.2 (D148)
 	g_coopIntentContinue = true;
+	g_coopIntentItemMissing = false; // W2-P8b S-C.3b (SC-4)
 	g_coopIntentForceFireActionId = 0; // W2-P4 S-E1 (F423)
 	g_coopSkillGrant = CoopSkillGrant(); // W2-P4 S-E2.2 (C3-Q7)
 	g_coopBusyOwnerSeat = -1;
@@ -8321,13 +8343,21 @@ static bool coopInvLayoutFromJson(const Json::Value& arr, const Mod* mod, std::v
 // HOST: the `inv_bulk` admission after onIntent's common terms; every refusal is the SILENT `invalid_target`: the
 // equip phase admitted it (@a equipPre); `op` is one of the five; the actor is not out and on a tile; a save only in
 // a SHARED campaign (Q9 (a), D209 a) - save_personal for an actor with a geoscape Soldier, save_global to a slot
-// vanilla's handle() accepts; apply and the saves: `template` rebuilds into @a layout.
+// vanilla's handle() accepts; apply and the saves: `template` rebuilds into @a layout. W2-P8b S-C.3b (SC-5, SC-9): a
+// save's `armor` (the armor half as the client's vanilla save stored it: a type this mod has, or empty) into @a armor
+// and a save_global's `name` (a string, sent for a save-dialog save only) into @a name (null when absent).
 static const char* validateInvBulk(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
-	bool equipPre, std::string& op, int& index, std::vector<EquipmentLayoutItem*>& layout)
+	bool equipPre, std::string& op, int& index, std::string& armor, Json::Value& name,
+	std::vector<EquipmentLayoutItem*>& layout)
 {
 	op = intent.get("op", "").asString();
 	index = intent["index"].isInt() ? intent["index"].asInt() : -1;
+	armor = intent["armor"].isString() ? intent["armor"].asString() : std::string();
+	name = op == "save_global" ? intent["name"] : Json::Value();
 	const bool isSave = op == "save_personal" || op == "save_global";
+	if (isSave && ((!intent["armor"].isNull() && !intent["armor"].isString()) || (!name.isNull() && !name.isString())
+		|| (!armor.empty() && !save->getMod()->getArmor(armor, false))))
+		return "invalid_target";
 	if (!equipPre || !actor || actor->isOut() || !actor->getTile()
 		|| (!isSave && op != "apply" && op != "clear" && op != "autoequip"))
 		return "invalid_target";
@@ -8489,12 +8519,14 @@ static void coopHostInvClearOrAutoEquip(SavedBattleGame* save, BattleUnit* unit,
 
 // W2-P8b S-C.2 (Q9 (a), owner D209 a): HOST - the second player's layout SAVE in a SHARED campaign, into the shared
 // world, the NAMED donors of vanilla's writes: save_personal (btnCreatePersonalTemplateClick :1396-:1415 at 267ad48db)
-// replaces @a unit's Soldier personal layout and sets its personal armor by vanilla's own line with THIS machine's
-// Options::oxcePersonalLayoutIncludingArmor; save_global (saveGlobalLayout :908-:927) replaces slot @a index and
-// clears its armor (vanilla's Ctrl+digit save, `includingArmor` false). Neither option rides the order. @a layout is
-// taken over (left empty). Geoscape data: no battle bucket, no delta (F3513).
-static void coopHostInvSaveLayout(SavedGame* sg, BattleUnit* unit, const std::string& op, int index,
-	std::vector<EquipmentLayoutItem*>& layout)
+// replaces @a unit's Soldier personal layout and sets its personal armor; save_global (saveGlobalLayout :908-:927)
+// replaces slot @a index and sets its armor. W2-P8b S-C.3b (P8b-2c SC-5, P8b-2d SC-9): the armor half is the order's
+// @a armor, as the client's vanilla save stored it (the save dialog's SAVE+ choice, the client's
+// oxcePersonalLayoutIncludingArmor; empty = none), and a save-dialog save_global's @a name (a string) names the slot as
+// the dialog did on the client; a Ctrl+digit save carries no name and leaves it, as vanilla. @a layout is taken over
+// (left empty). Geoscape data: no battle bucket, no delta (F3513).
+static void coopHostInvSaveLayout(SavedGame* sg, const Mod* mod, BattleUnit* unit, const std::string& op, int index,
+	const std::string& armor, const Json::Value& name, std::vector<EquipmentLayoutItem*>& layout)
 {
 	Soldier* soldier = unit->getGeoscapeSoldier();
 	std::vector<EquipmentLayoutItem*>* tmpl = op == "save_personal" ? soldier->getPersonalEquipmentLayout()
@@ -8502,9 +8534,15 @@ static void coopHostInvSaveLayout(SavedGame* sg, BattleUnit* unit, const std::st
 	coopInvLayoutFree(*tmpl);
 	tmpl->swap(layout);
 	if (op == "save_personal")
-		soldier->setPersonalEquipmentArmor(Options::oxcePersonalLayoutIncludingArmor ? unit->getArmor() : nullptr);
+	{
+		soldier->setPersonalEquipmentArmor(armor.empty() ? nullptr : mod->getArmor(armor, false));
+	}
 	else
-		sg->setGlobalEquipmentLayoutArmor(index, std::string());
+	{
+		sg->setGlobalEquipmentLayoutArmor(index, armor);
+		if (name.isString())
+			sg->setGlobalEquipmentLayoutName(index, name.asString());
+	}
 }
 
 // W2-P4 S-D.2 (spec (b)3): the `use_item` order's context kind by its item's
@@ -8799,8 +8837,9 @@ static void coopClientSkillAnswered(const CoopCombatIntentArgs& plan, int actorI
 // No-op with no live battlescape.
 // W2-P4 S-D.2: + the medi-kit answer (coopClientMedikitAnswered() above), the
 // scanner's ScannerState and the reload sound; @a cont is the end's `continue`.
+// W2-P8b S-C.3b (P8b-2c SC-4): @a itemMissing is the end's `itemMissing` (an `inv_bulk` apply short of items).
 static void coopClientCombatAftermath(const std::string& kind, const CoopCombatIntentArgs& plan, int actorId,
-	bool failed, bool cont)
+	bool failed, bool cont, bool itemMissing)
 {
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
 	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
@@ -8921,8 +8960,15 @@ static void coopClientCombatAftermath(const std::string& kind, const CoopCombatI
 		coopClientInvAnswered(plan, actorId, !failed, std::string());
 	// W2-P8b S-C.2 (AMENDMENT P8b-1 section 4 S-C): an `inv_bulk` order's answer redraws the pre-battle screen with
 	// the host's result - as an inv_move answer with @a ok false: no sound, vanilla's tool played its own at the press.
+	// W2-P8b S-C.3b (P8b-2c SC-4, follows vanilla): an apply the ground could not fill puts vanilla's own line on THIS
+	// machine's screen, as _applyInventoryTemplate's showWarning(tr("STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE")) does.
 	if (kind == "inv_bulk")
-		coopClientInvAnswered(plan, actorId, false, std::string());
+	{
+		std::string line;
+		if (itemMissing)
+			line = bs->getGame()->getLanguage()->getString("STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE");
+		coopClientInvAnswered(plan, actorId, false, line);
+	}
 }
 
 static Json::Value buildFinal(const BattleUnit* u)
@@ -11106,8 +11152,8 @@ void onIntent(const Json::Value& intent)
 		CoopCombatIntentArgs plan;
 		CoopInvHostOrder order;
 		std::vector<EquipmentLayoutItem*> layout; // inv_bulk: the template it applies or saves
-		const char* reason = bulk ? validateInvBulk(actor, intent, save, equipPre, plan.action, plan.invIndex, layout)
-			: validateInvMove(actor, intent, save, plan, order);
+		const char* reason = bulk ? validateInvBulk(actor, intent, save, equipPre, plan.action, plan.invIndex,
+			plan.invArmor, plan.invName, layout) : validateInvMove(actor, intent, save, plan, order);
 		if (reason)
 		{
 			denyIntent(iseq, reason, seat, kind);
@@ -11134,13 +11180,25 @@ void onIntent(const Json::Value& intent)
 				<< " item(s), index " << plan.invIndex;
 			const Inventory* hostInv = coopEquipScreenInventory(); // F3125: the host's own cursor item
 			const BattleItem* hostCursor = hostInv ? hostInv->getSelectedItem() : nullptr;
+			g_coopIntentItemMissing = false; // W2-P8b S-C.3b (SC-4): a fresh latch per context
 			beginChainArming();
 			if (op == "apply" && coopHostInvApplyTemplate(save, actor, layout, hostCursor))
-				Log(LOG_INFO) << "[coop-ctx] inv_bulk iseq " << iseq << ": not every template item was on the ground";
+			{
+				g_coopIntentItemMissing = true; // SC-4: the end carries it to the ordering client
+				Log(LOG_INFO) << "[coop-ctx] inv_bulk iseq " << iseq << ": not every template item was on the ground"
+					" - the answer carries itemMissing";
+			}
 			else if (op == "clear" || op == "autoequip")
+			{
 				coopHostInvClearOrAutoEquip(save, actor, op == "autoequip", hostCursor);
+			}
 			else if (op != "apply")
-				coopHostInvSaveLayout(save->getBattleState()->getGame()->getSavedGame(), actor, op, plan.invIndex, layout);
+			{
+				coopHostInvSaveLayout(save->getBattleState()->getGame()->getSavedGame(), save->getMod(), actor, op,
+					plan.invIndex, plan.invArmor, plan.invName, layout);
+				Log(LOG_INFO) << "[coop-ctx] inv_bulk iseq " << iseq << ": " << op << " armor '" << plan.invArmor << "'"
+					<< (plan.invName.isString() ? " name '" + plan.invName.asString() + "'" : std::string(" (no name)"));
+			}
 			coopInvLayoutFree(layout);
 			endChainArming(!bg->isBusy());
 			return;
@@ -11221,6 +11279,9 @@ static void closeBaseContext()
 	const bool continueValue = g_coopIntentContinue;
 	g_coopIntentContinueSet = false;
 	g_coopIntentContinue = true;
+	// W2-P8b S-C.3b (P8b-2c SC-4): the `inv_bulk` intent context's latched itemMissing, read the same way.
+	const bool itemMissing = g_coopIntentItemMissing && closedOrigin == "intent" && closedKind == "inv_bulk";
+	g_coopIntentItemMissing = false;
 
 	popActionContext();
 	g_coopPendingChainActorId = -1;
@@ -11347,6 +11408,11 @@ static void closeBaseContext()
 		// client continue into its own targeting.
 		if (continueSet)
 			end["continue"] = continueValue;
+		// W2-P8b S-C.3b (P8b-2c SC-4, follows vanilla): an `inv_bulk` apply whose template the ground could not fill
+		// carries vanilla's itemMissing as the additive `itemMissing` (true only, no timing, G1): the ordering client
+		// shows vanilla's "not enough items" line on its own screen.
+		if (itemMissing)
+			end["itemMissing"] = true;
 
 		const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted(); // W2-P3 S-A.2: closedContexts endSeq
 		CoopEmit::sendEv(end);
@@ -12213,6 +12279,12 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 			intent["template"] = combat->invTemplate;
 		if (combat->action == "save_global")
 			intent["index"] = combat->invIndex;
+		// W2-P8b S-C.3b (P8b-2c SC-5, P8b-2d SC-9): a save's armor half as this machine's vanilla save stored it, and a
+		// save-dialog save_global's layout name.
+		if (combat->action == "save_personal" || combat->action == "save_global")
+			intent["armor"] = combat->invArmor;
+		if (combat->action == "save_global" && combat->invName.isString())
+			intent["name"] = combat->invName;
 	}
 	else // "kneel"
 	{
@@ -14635,14 +14707,18 @@ bool coopInterceptInvQuickUnload(Inventory* inv, BattleUnit* unit, BattleItem* i
 // W2-P8b S-C.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md AMENDMENT P8b-1 section 4 S-C; owner D207 a, D209 a,
 // Q9 (a)): the PRE-BATTLE BULK tools and the layout saves - see CoopArbiter.h for each contract. Reachable only on
 // the pre-battle equip screen (vanilla's `!_tu`), so both are inert unless the co-op equip phase is open.
-// CLIENT: one `inv_bulk {op, template?, index?}` order for @a unit; the guard record and the log.
-static void coopSendInvBulk(BattleUnit* unit, const char* op, const std::vector<EquipmentLayoutItem*>* layout, int index)
+// CLIENT: one `inv_bulk {op, template?, index?}` order for @a unit; the guard record and the log. W2-P8b S-C.3b: a
+// save's @a armor and @a name (see coopInvFlushSaves()).
+static void coopSendInvBulk(BattleUnit* unit, const char* op, const std::vector<EquipmentLayoutItem*>* layout, int index,
+	const std::string& armor = std::string(), const Json::Value& name = Json::Value())
 {
 	CoopCombatIntentArgs args;
 	args.action = op;
 	if (layout)
 		args.invTemplate = CoopArbiter::coopInvLayoutJson(*layout);
 	args.invIndex = index;
+	args.invArmor = armor;
+	args.invName = name;
 	const std::uint32_t iseq = CoopArbiter::sendClientIntent("inv_bulk", unit->getId(), -1, false, false, -1,
 		nullptr, &args);
 	coopInvNoteGuard(op, op, iseq ? "sent" : "unsent", nullptr, unit);
@@ -14689,10 +14765,70 @@ void coopNoteInvLayoutSave(BattleUnit* unit, const char* op, int index, const st
 			"on this machine (Q9 (a), D209 a) - nothing sent";
 		return;
 	}
-	// CLIENT, SHARED: vanilla's local write runs as ever and the host writes the same layout into the shared world.
-	// The save moves no item, so a held order does not stop it; sendClientIntent()'s IR-2 lock drops it while this
-	// unit's own order is in flight (`unsent`).
-	coopSendInvBulk(unit, op, &layout, index);
+	// CLIENT, SHARED: vanilla's local write runs as ever and the host writes the same save into the shared world.
+	// W2-P8b S-C.3b (P8b-2c SC-5, SC-6; P8b-2d SC-9): QUEUED here, sent by the equip pump (coopInvFlushSaves()) - after
+	// vanilla's armor write that follows this note, and behind an order in flight instead of being dropped by its IR-2
+	// lock. The save dialog (InventorySaveState, still the top state while it saves) named the slot before this note,
+	// so that name rides too; a Ctrl+digit save leaves the name, as vanilla. A second press for the same soldier / slot
+	// while one is queued adds nothing: the queued one sends what is stored when it goes out, i.e. the newest save.
+	BattlescapeState* bs = save->getBattleState();
+	const bool dialog = std::strcmp(op, "save_global") == 0 && connectionTCP::isBattlescapeStateLive(bs)
+		&& !bs->getGame()->getStates().empty()
+		&& dynamic_cast<InventorySaveState*>(bs->getGame()->getStates().back()) != nullptr;
+	for (CoopInvSaveNote& queued : g_coopInvSaveQueue)
+	{
+		if (queued.actorId == unit->getId() && queued.op == op && queued.index == index)
+		{
+			queued.dialog = queued.dialog || dialog;
+			Log(LOG_INFO) << "[coop-inv] " << op << " for unit " << unit->getId() << " (index " << index
+				<< "): already queued - the queued save sends the newest";
+			return;
+		}
+	}
+	CoopInvSaveNote note;
+	note.actorId = unit->getId();
+	note.op = op;
+	note.index = index;
+	note.dialog = dialog;
+	g_coopInvSaveQueue.push_back(note);
+	Log(LOG_INFO) << "[coop-inv] " << op << " for unit " << unit->getId() << " (template " << layout.size()
+		<< " item(s), index " << index << (dialog ? ", save dialog" : "") << "): queued for the host ("
+		<< g_coopInvSaveQueue.size() << " queued)";
+}
+
+// W2-P8b S-C.3b (P8b-2c SC-5, SC-6; P8b-2d SC-9): CLIENT - the equip pump's step for the queued SHARED layout saves.
+// The oldest goes out once NO order is in flight or held on this machine (one tracked slot and one held slot exist;
+// a save never takes either from a placement), as one tracked `inv_bulk` save whose layout, armor half and (a
+// save-dialog save) slot name are read from this machine's own world: exactly what vanilla's local save stored.
+static void coopInvFlushSaves(Game* game, SavedBattleGame* save)
+{
+	if (g_coopInvSaveQueue.empty() || !isCoopBattle() || g_coopClientInFlight.active || g_coopClientPending.active)
+		return;
+	const CoopInvSaveNote note = g_coopInvSaveQueue.front();
+	g_coopInvSaveQueue.erase(g_coopInvSaveQueue.begin());
+	const bool personal = note.op == "save_personal";
+	BattleUnit* unit = CoopArbiter::findUnitById(save, note.actorId);
+	Soldier* soldier = unit ? unit->getGeoscapeSoldier() : nullptr;
+	SavedGame* sg = game->getSavedGame();
+	if (!unit || !sg || (personal && !soldier))
+	{
+		Log(LOG_WARNING) << "[coop-inv] queued " << note.op << " for unit " << note.actorId
+			<< " dropped: the unit, its soldier or this machine's world no longer resolves";
+		return;
+	}
+	const std::vector<EquipmentLayoutItem*>* layout = personal ? soldier->getPersonalEquipmentLayout()
+		: sg->getGlobalEquipmentLayout(note.index);
+	std::string armor;
+	if (personal)
+		armor = soldier->getPersonalEquipmentArmor() ? soldier->getPersonalEquipmentArmor()->getType() : std::string();
+	else
+		armor = sg->getGlobalEquipmentLayoutArmor(note.index);
+	Json::Value name;
+	if (!personal && note.dialog)
+		name = sg->getGlobalEquipmentLayoutName(note.index);
+	Log(LOG_INFO) << "[coop-inv] queued " << note.op << " for unit " << note.actorId << " goes out: armor '" << armor
+		<< "'" << (name.isString() ? ", name '" + name.asString() + "'" : std::string(", no name"));
+	coopSendInvBulk(unit, note.op.c_str(), layout, note.index, armor, name);
 }
 
 bool coopInterceptInvReturn(Inventory* inv, BattleItem* item)
@@ -21303,8 +21439,9 @@ void onApplied(const Json::Value& ev)
 		{
 			// W2-P4 S-D.2 (amendment C3 D148): + the end's `continue` (the medi-kit
 			// screen closes on false; absent = true).
+			// W2-P8b S-C.3b (P8b-2c SC-4): + the end's `itemMissing` (absent = false).
 			CoopArbiter::coopClientCombatAftermath(ownCombatKind, ownCombatPlan, ownCombatActor,
-				ev.get("halted", false).asBool(), ev.get("continue", true).asBool());
+				ev.get("halted", false).asBool(), ev.get("continue", true).asBool(), ev.get("itemMissing", false).asBool());
 			Json::Value am(Json::objectValue);
 			am["actionId"] = actionId;
 			// W2-P4 S-D.2: a `use_item` order's aftermath is its item's own kind
@@ -24918,8 +25055,19 @@ static void coopEquipPumpClient(Game* game, SavedBattleGame* save)
 		g_equip.phase = (int)CoopEquipPhase::Ended;
 		if (g_coopClientPending.active && (g_coopClientPending.kind == "inv_move" || g_coopClientPending.kind == "inv_bulk"))
 			CoopArbiter::cancelPendingIntent();
+		if (!g_coopInvSaveQueue.empty())
+		{
+			// W2-P8b S-C.3b (SC-6): the host takes a layout save only while the equip phase is open.
+			Log(LOG_WARNING) << "[coop-equip] client: equip end - " << g_coopInvSaveQueue.size()
+				<< " queued SHARED layout save(s) dropped (still behind an order when turn 1 started)";
+			g_coopInvSaveQueue.clear();
+		}
 		Log(LOG_INFO) << "[coop-equip] client: equip end - turn " << save->getTurn() << ", units back on their tiles";
 	}
+	// W2-P8b S-C.3b (P8b-2c SC-5, SC-6; P8b-2d SC-9): a queued SHARED layout save goes out once nothing is in flight
+	// or held on this machine.
+	if (coopEquipOpen())
+		coopInvFlushSaves(game, save);
 	if (g_equip.phase.load() == (int)CoopEquipPhase::Ended && g_equip.screen.load())
 	{
 		// Pop the pre-battle screen at the first pass it is on top - never its OK (the ready toggle, F2757). The

@@ -167,6 +167,11 @@ struct CoopCombatIntentArgs
 	// carry its layout (`template`: apply and the two saves) and the global layout slot (`index`: save_global).
 	Json::Value invTemplate;
 	int invIndex = -1;
+	// W2-P8b S-C.3b (P8b-2c S-C RULINGS SC-5; P8b-2d SC-9): a layout SAVE's armor half as the saving machine's vanilla
+	// save stored it (`armor`: an armor type, empty = none) and a save-dialog save_global's slot name (`name`; null =
+	// none rides: a Ctrl+digit save leaves the name, as vanilla).
+	std::string invArmor;
+	Json::Value invName;
 };
 
 /**
@@ -1169,7 +1174,10 @@ bool coopInterceptInvBulk(Inventory* inv, BattleUnit* unit, const char* op,
 /// saveGlobalLayout (`save_global`, @a index = the slot); vanilla's own local write always runs. A CLIENT in a
 /// SHARED campaign's pre-battle equip phase also sends one tracked `inv_bulk {op, template, index?}` order, so the
 /// host writes the same layout into the one shared world; a skirmish or SEPARATE save stays on this machine (lost
-/// after the battle, D209 a). A no-op on the host and in single player.
+/// after the battle, D209 a). A no-op on the host and in single player. W2-P8b S-C.3b (P8b-2c SC-5, SC-6; P8b-2d
+/// SC-9): the order is QUEUED and sent by the equip pump once no order is in flight or held on this machine (never
+/// dropped by the in-flight lock); it carries the layout, its armor half and a save-dialog save's slot name as this
+/// machine's vanilla save stored them.
 void coopNoteInvLayoutSave(BattleUnit* unit, const char* op, int index, const std::vector<EquipmentLayoutItem*>& layout);
 
 /// Q2 (a): mouseClick's right-click RETURN of the cursor item. CLIENT: this
