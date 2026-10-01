@@ -21799,6 +21799,9 @@ void onApplied(const Json::Value& ev)
 		// RW-REPLAY-REGION-END
 		CoopApply::applyEvPayload(save, ev);
 		CoopApply::applyDelta(save, ev); // W2-P2 S-A (spec (b)6): after the wave-1 applier (V9)
+		// W2-P6a S-M.1 (P6a pinned stage text (b); probe only): the `seen` record of an applied message cue with the
+		// Game's top state, read after the delta (the decisions S-M.2 makes here use the canonical state AFTER it).
+		CoopBattleUi::noteMessageEvSeen(save, ev);
 		// W2-P8 S-C1.2 (Q9 (a); F2400, P8-3a C6): call site 2 - before the side_transition push below puts
 		// NextTurnState over an open inventory screen, see the force-close's own comment.
 		coopClientInventoryForceClose(save);
@@ -22723,6 +22726,95 @@ void tick()
 		if (want != bs->getCoopWaitText())
 			setBanner(bs, want, BannerClass::Wait);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// W2-P6a S-M.1 (docs rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (b), AMENDMENT P6-5 section 3,
+// AMENDMENT P6-6 section 5; owner D132): the battle-message probe storage (CoopBattleUi.h messagesProbe()). Main
+// thread only. Battle-scoped (P6a pinned (a)): cleared on the first main-thread use after CoopGhost::reset() bumps
+// g_coopCombatGen (W2-P5 OQ4: reset() can run on the UDP-monitor thread) and whenever the live BattlescapeState
+// changes, so nothing outlives its battle. S-M.1 writes only `seen`; S-M.2's presenter writes the ring, the counts and
+// the queue.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+const std::size_t kMessageRingCap = 32;
+
+struct MessageStore
+{
+	unsigned int gen = 0;
+	const BattlescapeState* bs = nullptr;   // compared only, never dereferenced
+	unsigned int box = 0;
+	unsigned int okbox = 0;
+	unsigned int notice = 0;
+	unsigned int pause = 0;
+	unsigned int none = 0;
+	unsigned int queued = 0;
+	unsigned int droppedAtBattleEnd = 0;
+	std::deque<Json::Value> queue;   // S-M.2: the client's decided, not yet shown entries (queueDepth)
+	std::deque<Json::Value> ring;    // the last kMessageRingCap decided messages (CoopBattleUi.h)
+	std::deque<Json::Value> seen;    // CLIENT: the last kMessageRingCap applied message cues
+};
+
+MessageStore g_messages;
+
+void messagesSync()
+{
+	const unsigned int g = g_coopCombatGen.load();
+	const BattlescapeState* live = activeBattlescapeState();
+	if (g_messages.gen != g || g_messages.bs != live)
+	{
+		g_messages = MessageStore();
+		g_messages.gen = g;
+		g_messages.bs = live;
+	}
+}
+
+} // namespace
+
+void noteMessageEvSeen(const SavedBattleGame* save, const Json::Value& ev)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim.load())
+		return;
+	const std::string kind = ev.get("kind", "").asString();
+	if (kind != "death" && kind != "corpse" && kind != "panic" && kind != "psi" && kind != "spawn")
+		return;
+	messagesSync();
+	Json::Value r(Json::objectValue);
+	r["seq"] = ev.get("seq", 0u).asUInt();
+	r["kind"] = kind;
+	r["unit"] = ev["payload"].get("unit", -1).asInt();
+	r["top"] = CoopGhost::effectTopState();
+	g_messages.seen.push_back(r);
+	while (g_messages.seen.size() > kMessageRingCap)
+		g_messages.seen.pop_front();
+}
+
+Json::Value messagesProbe()
+{
+	messagesSync();
+	Json::Value o(Json::objectValue);
+	Json::Value c(Json::objectValue);
+	c["box"] = g_messages.box;
+	c["okbox"] = g_messages.okbox;
+	c["notice"] = g_messages.notice;
+	c["pause"] = g_messages.pause;
+	c["none"] = g_messages.none;
+	c["queued"] = g_messages.queued;
+	c["droppedAtBattleEnd"] = g_messages.droppedAtBattleEnd;
+	o["counts"] = c;
+	o["queueDepth"] = (Json::UInt)g_messages.queue.size();
+	Json::Value ring(Json::arrayValue);
+	for (const Json::Value& r : g_messages.ring)
+		ring.append(r);
+	o["ring"] = ring;
+	Json::Value seen(Json::arrayValue);
+	for (const Json::Value& r : g_messages.seen)
+		seen.append(r);
+	o["seen"] = seen;
+	return o;
 }
 
 // ---------------------------------------------------------------------------

@@ -94,6 +94,20 @@ coopGhostStepper is pinned true in both instances. RED (commit S-E.1): both
 scenarios fail only on E2 (no psi record, the payload has no `voxel`). One
 "EVIDENCE E2:" line per scenario.
 
+W2-P6a S-M (spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT`
+(b), the P6a review section 2 row MR5, AMENDMENT P6a-2 F1724; owner D132): both
+victims are the second player's soldiers, the HOST's partner's. MR5: C14-mc -
+the host's event_state `messages` ring +1 {C, STR_IS_UNDER_ALIEN_CONTROL,
+partner, notice}, the client's +1 {C, same key, own, box, queued Q_C14MC};
+C14-panic - the host's +1 {C2, STR_HAS_PANICKED, partner, notice}, the client's
++1 {C2, same key, own, box, queued Q_C14P}; no host infobox in either cycle
+(rec["dismissed"] == []). F1724: at the end of C14-panic one bounded wait
+(test_w2_messages.client_quiet: the client's message queue empty and
+BattlescapeState on top within 10 s) so the client's 2 s box is closed before
+the teardown; recorded, a timeout fails the row. One "EVIDENCE <id> MR5:" line
+per scenario. RED (commit S-M.1): both scenarios fail only on MR5 (both rings
+empty, the host's box dismissed).
+
 Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
 BEFORE its green conditions are checked; main() runs every scenario even
 after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>".
@@ -120,6 +134,7 @@ from test_w2_ai_origins import host_payloads, ctx_probes, ctx_view, sv, bring_up
 from test_w2_turn_cues import (begin, end, cycle, rec_evidence, cycle_fails, context_fails, payload, held_by_client,
                                items, st_seqs, panic_context_fails, c2_state_fails, c2_resolved)
 from test_w2_host_combat import effect_snap, impact_row
+from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, client_quiet
 
 # ----- bring-up (W2-P3 TASK 0c, T0c constants.md "Common bring-up" + "C14") -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
@@ -151,6 +166,11 @@ PANIC_MODE = "freeze"            # F877: C2's panic at turn 3 resolves in place 
 PSI_CHAIN = ["psi", "bt_action_end"]
 PANIC_CHAIN = ["panic", "bt_action_end"]
 PSI_WEAPON = "ALIEN_PSI_WEAPON"  # P's psi weapon: every `psi` payload's weaponType (W2-P6b S-E row E2)
+# W2-P6a S-M row MR5 (P6a review section 2; owner D132; T0a-3 on the S-M.1 build: the client's `seen` record)
+KEY_UNDER_ALIEN_CONTROL = "STR_IS_UNDER_ALIEN_CONTROL"
+KEY_PANICKED = "STR_HAS_PANICKED"
+Q_C14MC = True                   # PIN (T0a-3): the `psi` applied under the client's NextTurnState (queued)
+Q_C14P = True                    # PIN (T0a-3): C2's `panic` applied under the client's NextTurnState (queued)
 PAYLOAD_EXTRA = ("psi",)         # payloads read beyond test_w2_turn_cues.end()'s kinds
 UNIT_KEYS = ("type", "faction", "originalFaction", "mindControllerId", "mindControlled", "status", "isOut",
              "onTile", "x", "y", "z", "direction", "tu", "health", "morale", "psiWeapon", "specialWeapons")
@@ -271,6 +291,24 @@ def unit_fails(rec, uid, want, what):
 # ===================== scenarios =====================
 
 
+def mr5_fails(rec, mb, ma, uid, key, queued, quiet, what):
+    """W2-P6a S-M row MR5 (P6a review section 2; owner D132): the message about the second player's soldier - a
+    notice on the host (no host infobox in the cycle), vanilla's 2 s box on the client. `quiet` is F1724's bounded
+    wait (None when the row has none). Prints the row's EVIDENCE line."""
+    d = msg_delta(mb, ma)
+    print(f"EVIDENCE {what} MR5: messages={msg_evidence(mb, ma, rec['seq0'])}; infoboxes dismissed(host)="
+          f"{rec['dismissed']}; client quiet (F1724)={quiet}", flush=True)
+    fails = msg_rows_fails(f"{what} MR5", "host", d["host"], [want(uid, key, "partner", "notice")])
+    fails += msg_rows_fails(f"{what} MR5", "client", d["client"], [want(uid, key, "own", "box", queued=queued)])
+    if rec["dismissed"]:
+        fails.append(f"{what} MR5: the host dismissed infoboxes {rec['dismissed']} in the cycle (want none: a message "
+                     f"about the partner's soldier never pauses the host, D132)")
+    if quiet is not None and not quiet["ok"]:
+        fails.append(f"{what} MR5: the client's message queue / top at the end {quiet} (want empty and "
+                     f"BattlescapeState: F1724)")
+    return fails
+
+
 def c14_mc(host, client, ctx):
     rec = begin(host, client)
     sp = strip_both(host, client, P_ID)
@@ -287,8 +325,10 @@ def c14_mc(host, client, ctx):
     staged = {"P psiWeapon h/c": ((uh0.get(P_ID) or {}).get("psiWeapon"), (uc0.get(P_ID) or {}).get("psiWeapon")),
               "C": uview(uh0.get(C_ID)), "C2": uview(uh0.get(C2_ID))}
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
+    mb = msg_snap(host, client)          # W2-P6a S-M row MR5
     cycle(host, client, SEED_C14, rec, "cycle 1")
     end(host, client, rec)
+    ma = msg_snap(host, client)
     read_extra_payloads(host, rec)
     pfails, ai_p, cevs, psis = psi_context_fails(rec, C_ID, "mc", "C14-mc")
     print(f"EVIDENCE C14-mc: strip P={sp} strip C={sc}; P {P_TILE}/{P_DIR} C {C_TILE}/{C_DIR} C2 {C2_TILE}/{C2_DIR}; "
@@ -299,6 +339,7 @@ def c14_mc(host, client, ctx):
           f"units={units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
     # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's mind control as a psi ghost on the client
     e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
+    mr5 = mr5_fails(rec, mb, ma, C_ID, KEY_UNDER_ALIEN_CONTROL, Q_C14MC, None, "C14-mc")
     fails = list(rec["notes"])
     if sp["deleted"] != P_STRIPPED:
         fails.append(f"battle_strip_unit P deleted {sp['deleted']} (want {P_STRIPPED})")
@@ -315,6 +356,7 @@ def c14_mc(host, client, ctx):
     fails += unit_fails(rec, C_ID, {"faction": FACTION_HOSTILE, "mindControllerId": P_ID}, "C14-mc C")
     fails += context_fails(rec, "C14-mc")
     fails += e2
+    fails += mr5
     fails += common_fails(host, client, rec["before"], {}, "C14-mc")
     finish(fails)
 
@@ -332,8 +374,11 @@ def c14_panic(host, client, ctx):
               "C2 items (id, type, slot)": owned_items(items(host), C2_ID)}
     off = log_size(host)
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
+    mb = msg_snap(host, client)          # W2-P6a S-M row MR5
     cycle(host, client, SEED_C14P, rec, "cycle 2", extra=c2_resolved)
     end(host, client, rec)
+    quiet = client_quiet(client)         # F1724: the client's 2 s box closed before the teardown
+    ma = msg_snap(host, client)
     read_extra_payloads(host, rec)
     flines = faction_delta_lines(host, off)
     hev = rec["hev"]
@@ -353,6 +398,7 @@ def c14_panic(host, client, ctx):
           f"{units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
     # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's psi panic as a psi ghost on the client
     e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
+    mr5 = mr5_fails(rec, mb, ma, C2_ID, KEY_PANICKED, Q_C14P, quiet, "C14-panic")
     fails = list(rec["notes"])
     if (rc.get("psiStrength"), rc2.get("psiStrength")) != (C_PSI_STRENGTH_2, C2_PSI_STRENGTH_2):
         fails.append(f"psi staging responses C psiStrength={rc.get('psiStrength')} C2 psiStrength="
@@ -377,6 +423,7 @@ def c14_panic(host, client, ctx):
     fails += c2_state_fails(rec, {"pos": C2_TILE, "status": STATUS_STANDING, "tu": 0}, "C14-panic")
     fails += context_fails(rec, "C14-panic")
     fails += e2
+    fails += mr5
     fails += common_fails(host, client, rec["before"], {}, "C14-panic")
     finish(fails)
 

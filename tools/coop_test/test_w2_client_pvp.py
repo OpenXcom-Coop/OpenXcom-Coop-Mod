@@ -44,6 +44,13 @@ ONE boot, one scenario with two legs, in this order:
   The client's entry notice (F487, "You command no soldiers - spectator mode"
   at T0-12) and the host's selectedId on the hostile side (ST7, -1 at T0-12)
   are printed in the EVIDENCE line only (PR-Q9 / Q9 (b)).
+  QR1 (W2-P6a S-M, spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED
+  STAGE TEXT` (b), the P6a review section 2 row QR1, OR6 (a); F1219): once the
+  client's own side has begun and its seat commands a selected unit (A), the
+  entry notice is gone - after the staging and the crossing the client's
+  coopWaitText == "". RED (commit S-M.1): C25 fails on QR1 only (the client
+  still shows TEXT_SPECTATOR, a Notice is never dwell-cleared); legs W and S
+  pass.
 
 Common asserts (spec (f), after each leg settles): hash_now {full:true} - every
 bucket EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged
@@ -124,6 +131,7 @@ SEED_C25 = 1                      # host set_seed right before the shot click (n
 KEY_SNAP = 50                     # keyBattleActionItem2
 PISTOL_ROWS = 4                   # THROW, AUTO, SNAP, AIMED (W2-H6 H6a on this boot)
 SIDE_SETTLE_S = 3.0               # after an order: time for a side_transition the order would cause to land
+TEXT_SPECTATOR = "You command no soldiers - spectator mode"   # STR_COOP_SPECTATOR_MODE (en-US): QR1's RED
 
 
 # ===================== small probes =====================
@@ -321,6 +329,8 @@ def c25_pvp(host, client, ctx):
     if fails:
         print(f"EVIDENCE C25: entry={ctx['entry']} stage={stage} notes={notes}", flush=True)
         finish(fails)
+    # W2-P6a S-M row QR1 (F1219, OR6 (a)): the client's banner on its own side, read before leg W's order
+    qr1 = stage["sides"]["client"]["banner"]
     # ---- leg W: the negative control ----
     notes_w = []
     w = leg_walk(host, client, notes_w)
@@ -335,7 +345,7 @@ def c25_pvp(host, client, ctx):
     aid = hits[0]["actionId"] if len(hits) == 1 else None
     chain = chain_of(rs, aid)
     shots = shot_brief(shot_payloads(host, chain)) if chain else []
-    print(f"EVIDENCE C25: entry={ctx['entry']} stage={stage} | "
+    print(f"EVIDENCE C25: entry={ctx['entry']} stage={stage} QR1 client banner after the crossing={qr1!r} | "
           f"LEG W request={w['req']} resp={w['resp']} intent={w['intent']} lastDeny={rw['client']['lastDeny']} "
           f"banner={(w['before']['clientUi']['banner'], rw['clientUi']['banner'])}; {press_view(w['before'], rw)}; "
           f"newContexts={new_w}; host evs={ev_tuples(rw['hev'])} client evs={ev_tuples(rw['cev'])}; "
@@ -349,6 +359,10 @@ def c25_pvp(host, client, ctx):
           f"client={ubrief(rs['uc'].get(S_ID))}; after={s['after']} sideTransitions={s['st']}; diff={rs['diff']} "
           f"desync={rs['dsc']}; notes={notes_s}", flush=True)
     fails = []
+    # W2-P6a S-M row QR1 (F1219, OR6 (a)): no stale entry notice once the seat commands a selected unit
+    if qr1 != "":
+        fails.append(f"QR1: the client's coopWaitText {qr1!r} on its own side with A selected (want '': the "
+                     f"spectator entry notice clears at the seat's first own-side side_begin, F1219 / OR6 (a))")
     # leg W: admitted, A on WALK_DEST on both, the side still hostile (N26, PR-Q8)
     fails += [f"leg W: {m}" for m in notes_w]
     if not w["intent"]["sent"]:

@@ -26,6 +26,11 @@
 // just for a pointer parameter.
 struct SDL_Surface;
 
+// W2-P6a S-M.1: forward-declared at GLOBAL scope (the DogfightState.h /
+// GeoscapeState.h precedent) so this lightweight header does not pull in
+// <json/json.h> for the message probe's return type below.
+namespace Json { class Value; }
+
 namespace OpenXcom
 {
 
@@ -485,6 +490,51 @@ bool coopOffBatonGrayActive();
 /// same completed frame the probe's own pixel read does. Never read by game
 /// logic.
 std::string coopGrayBottomBarMode();
+
+// ---------------------------------------------------------------------------
+// W2-P6a S-M (docs rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE
+// TEXT` (b), AMENDMENT P6-5 section 3, AMENDMENT P6-6 section 5; owner D132):
+// the battle MESSAGES on both machines - vanilla's boxes for this machine's own
+// soldiers, a self-closing notice for the partner's. Commit S-M.1 adds the
+// probe only; the presenter is S-M.2's.
+// ---------------------------------------------------------------------------
+
+/// Test/introspection (S-M.1, probe only): on a co-op CLIENT, one `seen`
+/// record {seq, kind, unit, top} per applied `death`, `corpse`, `panic`, `psi`
+/// or `spawn` ev - `unit` is the payload's `unit` (-1 without one), `top` the
+/// class name of the Game's top state at the apply ("none" without a live
+/// BattlescapeState; T0a-3 reads it to pin which rows assert `queued`). Called
+/// once from CoopDisplayQueue::onApplied() right after the ev's delta applied
+/// (V9). Writes the probe storage only; inert on the host and outside a co-op
+/// battle.
+void noteMessageEvSeen(const SavedBattleGame* save, const Json::Value& ev);
+
+/// Test/introspection: event_state `messages`, both machines, read-only -
+/// {counts: {box, okbox, notice, pause, none, queued, droppedAtBattleEnd},
+///  queueDepth, ring, seen}.
+///   ring    the last 32 decided messages, oldest first: {seq, kind, unit, key,
+///           owner, presenter, queued, queuedAtMs, shownAtMs}. `unit` = the unit
+///           the message is ABOUT (vanilla's push site argument), `key` the
+///           vanilla STR_ key ("" for the invisible pause), `owner` its relation
+///           to this machine (own | partner | other, the pinned seat rule),
+///           `presenter` box | okbox | notice | pause | none, `queued` true when
+///           at the decision the live BattlescapeState was not the Game's top
+///           state (the entry had to wait in the queue; always false on the
+///           host, which presents at the vanilla push site), `queuedAtMs` /
+///           `shownAtMs` SDL ticks (0 = not shown yet). `seq`: on the CLIENT the
+///           seq of the applied ev the decision was made at; on the HOST its
+///           lastSeqEmitted when the push site ran. `kind`: the cue kind the
+///           decision came from (client).
+///   counts  per presenter, the records appended with it; `queued` the records
+///           appended with queued true; `droppedAtBattleEnd` the queued entries
+///           an applied battle_end cleared (AMENDMENT P6-5 C-M4).
+///   queueDepth  the client's decided-but-not-yet-shown entries.
+///   seen    CLIENT only: noteMessageEvSeen()'s records, the last 32.
+/// Battle-scoped: the storage starts over on the first main-thread use after
+/// CoopGhost::reset() bumps the combat generation (W2-P5 OQ4) and whenever the
+/// live BattlescapeState changes. Every count is 0 and ring/seen are empty
+/// outside a co-op battle.
+Json::Value messagesProbe();
 
 } // namespace CoopBattleUi
 

@@ -104,6 +104,20 @@ STR_COOP_ACTION_TIMEOUT).
 
 Out of this file (spec, amendments): the host's psi infobox (H10) is W2-P6's.
 
+W2-P6a S-M (spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT`
+(b), the P6a review section 2 row MR3; owner D132, F1245): the success message of
+the second player's psi attack is about the attacker C, the HOST's partner's
+soldier. MR3 (C22): leg P - the host's event_state `messages` ring +1 {C,
+STR_MORALE_ATTACK_SUCCESSFUL, partner, notice} and no host infobox (box_p ==
+[]); the client's ring +1 {C, same key, own, box, queued Q_C22P}; leg M - the
+same with STR_MIND_CONTROL_SUCCESSFUL, queued Q_C22M, box_m == []. F1702: after
+each leg's collect one bounded wait (test_w2_messages.client_quiet: the client's
+message queue empty and BattlescapeState on top within BOX_WAIT_S) so the
+client's own 2 s box never eats leg M's first hand click or C22o's input;
+recorded in EVIDENCE, a timeout fails the row. RED (commit S-M.1): only C22
+fails, on MR3 (both rings empty, box_p / box_m non-empty); C21, C23d and C22o
+pass.
+
 W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 and the P6b
 review's section 2 rows E1 / E2; AMENDMENT P6b-1 with F1750 folded in,
 AMENDMENTS P6b-2 / P6b-3): the watching machine plays the melee and psi
@@ -173,6 +187,7 @@ from test_w2_client_shoot import (top, snap, ubrief, press, units, place, set_tu
                                   ORDER_TIMEOUT_S)
 from test_w2_client_grenade import (admitted_fails, cancel_client_targeting, open_hand_menu, target_order, settle,
                                     host_payloads_of)
+from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, client_quiet
 
 # ----- bring-up (TASK 0: the roster-pinned terror boot) -----
 MISSION = "STR_TERROR_MISSION"
@@ -220,6 +235,12 @@ C22_TU_AFTER = C_TU_FULL - PSI_TU             # 39
 C22P_A_MORALE = 70                # A morale 100 -> 70 after the panic
 C22_ROWS = 3                      # THROW + MIND CONTROL + PANIC
 C22_CHAIN = ["psi", "bt_action_end"]
+# W2-P6a S-M row MR3 (P6a review section 2; owner D132, F1245; T0a-3 on the S-M.1 build: the client's `seen` record)
+KEY_MORALE_ATTACK = "STR_MORALE_ATTACK_SUCCESSFUL"
+KEY_MIND_CONTROL = "STR_MIND_CONTROL_SUCCESSFUL"   # STR_PSI_AMP does not convertToCivilian (not the _ALT key)
+Q_C22P = False                   # PIN (T0a-3): leg P's `psi` applied with BattlescapeState on top (not queued)
+Q_C22M = False
+BOX_WAIT_S = 5                   # F1702: the client's own 2 s success box closes by itself before the next input
 
 # ----- C22o (T0-8's order for A after the mind control; review N29 = F1096) -----
 C22O_OCTANTS = 2                  # T0b's order: A's facing + 2 octants
@@ -530,6 +551,7 @@ def psi_leg(host, client, key, seed, action, notes, box):
     set_tu_both(host, client, C_ID, TU_MAX)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
+    mb = msg_snap(host, client)          # W2-P6a S-M row MR3
     pv = {}
     try:
         target_order(client, pv, key, CURSOR_PSI, A_TILE, lambda: host.ok({"cmd": "set_seed", "seed": seed}))
@@ -539,6 +561,9 @@ def psi_leg(host, client, key, seed, action, notes, box):
     settle(host, client, notes)
     dismiss_host_infobox(host, box)
     rec = collect(host, client, seq0)
+    # F1702 (P6a review section 5): the client's own success box closed before the next leg / C22o
+    rec["boxWait"] = client_quiet(client, timeout=BOX_WAIT_S)
+    rec["msg"] = (mb, msg_snap(host, client), seq0)
     return before, rec, pv, out
 
 
@@ -559,6 +584,25 @@ def psi_leg_fails(host, before, rec, pv, action, what):
     fails += [f"{what}: {m}" for m in tu_fails(rec, C_ID, C22_TU_AFTER)]
     fails += aftermath_fails(rec, aid, "psi", what)
     return fails, aid
+
+
+def mr3_fails(rec, box, key, queued, what):
+    """W2-P6a S-M row MR3 (P6a review section 2; owner D132, F1245): the success message of the client's own psi
+    attack - a notice on the host (box == []: no host infobox), vanilla's 2 s box on the client; F1702's bounded wait
+    closed it. Prints the leg's EVIDENCE line."""
+    mb, ma, seq0 = rec["msg"]
+    d = msg_delta(mb, ma)
+    print(f"EVIDENCE C22 MR3 {what}: messages={msg_evidence(mb, ma, seq0)}; hostInfobox={box}; client box wait "
+          f"(F1702)={rec.get('boxWait')}", flush=True)
+    fails = msg_rows_fails(f"C22 MR3 {what}", "host", d["host"], [want(C_ID, key, "partner", "notice")])
+    fails += msg_rows_fails(f"C22 MR3 {what}", "client", d["client"], [want(C_ID, key, "own", "box", queued=queued)])
+    if box:
+        fails.append(f"C22 MR3 {what}: the host showed infoboxes {box} (want none: a message about the partner's "
+                     f"soldier never pauses the host, D132 / F1245)")
+    if not (rec.get("boxWait") or {}).get("ok"):
+        fails.append(f"C22 MR3 {what}: the client's message queue / top after the leg {rec.get('boxWait')} (want "
+                     f"empty and BattlescapeState within {BOX_WAIT_S} s: F1702)")
+    return fails
 
 
 def c22_psi(host, client, ctx):
@@ -604,6 +648,9 @@ def c22_psi(host, client, ctx):
     psi_seqs = [next((e["seq"] for e in chain_of(r_, a_) if e["kind"] == "psi"), None)
                 for r_, a_ in ((rec, aid_p), (rec_m, aid_m))]
     e2 = impact_row("E2", host, client, snap_e, [(s, "psi") for s in psi_seqs], PSI_AMP)
+    # W2-P6a S-M row MR3 (P6a review section 2; owner D132, F1245)
+    mr3 = mr3_fails(rec, box_p, KEY_MORALE_ATTACK, Q_C22P, "leg P") + mr3_fails(rec_m, box_m, KEY_MIND_CONTROL,
+                                                                                Q_C22M, "leg M")
     fails = list(notes) + list(notes_m)
     fails += fov_fails(fv)
     if staged:
@@ -625,6 +672,7 @@ def c22_psi(host, client, ctx):
                      f"{C_ID}) on both)")
     fails += [f"leg M: {m}" for m in common_m]
     fails += e2
+    fails += mr3
     finish(fails)
 
 

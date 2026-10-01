@@ -6884,6 +6884,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// W2-P6b S-D.1 (spec rewrite/prompts/w2p6_display_two.md section 8): the display-II probe (death ghost
 		// counts, queue depth and records), both machines; nothing writes it until S-D.2.
 		resp["displayTwo"] = CoopGhost::displayTwoProbe();
+		// W2-P6a S-M.1 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (b), AMENDMENT P6-5 section 3):
+		// the battle-message probe - counts, queueDepth, the decided-message ring and the CLIENT's `seen` list (applied
+		// message cues with the top state), both machines; S-M.1 writes only `seen` (CoopBattleUi.h messagesProbe()).
+		resp["messages"] = CoopBattleUi::messagesProbe();
 		resp["derivedPaths"] = CoopGhost::derivedPaths();
 		resp["rngSeed"] = Json::Value::Int64((int64_t)RNG::getSeed());
 		resp["shotTrajectories"] = coopShotTrajectories();

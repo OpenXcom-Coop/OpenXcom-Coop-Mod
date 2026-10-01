@@ -187,6 +187,7 @@ from test_w2_client_shoot import (top, snap, ubrief, press, menu_rows, recv_of, 
 from test_w2_client_grenade import (admitted_fails, cancel_client_targeting, settle, host_payloads_of, mod_log,
                                     wait_banner_not, MOD_DIR, MOD_ACTIVE_LINE)
 from test_w2_thin_client_tripwire import read_reload_key, loaded_ammo
+from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want
 
 # ----- bring-up (TASK 0: the roster-pinned terror boot, the mod on both) -----
 MISSION = "STR_TERROR_MISSION"
@@ -1059,6 +1060,25 @@ def c23f_hands(host, client, ctx):
     finish(fails)
 
 
+# W2-P6a S-M row MR6 (P6a review section 2; owner D132, D169 superseded: vanilla for the host's own soldier, C-M1)
+KEY_UNCONSCIOUS = "STR_HAS_BECOME_UNCONSCIOUS"
+TEXT_C23B4 = "Henryk Kaminski\nhas become unconscious"   # PIN: the host's OK box text for H (its own soldier),
+                                                       # read on the S-M.1 build (F1728: "\n")
+
+
+def mr6_fails(mb, ma, seq0, box, warning):
+    """W2-P6a S-M row MR6 (P6a review section 2; owner D132): H (the host's own soldier) knocked out by the
+    client's stun rod - vanilla's OK box on the host, a notice on the client. Prints the row's EVIDENCE line."""
+    d = msg_delta(mb, ma)
+    print(f"EVIDENCE C23b4 MR6: messages={msg_evidence(mb, ma, seq0)}; hostInfobox={box}; client warningText="
+          f"{warning!r}", flush=True)
+    fails = msg_rows_fails("C23b4 MR6", "host", d["host"], [want(H_ID, KEY_UNCONSCIOUS, "own", "okbox")])
+    fails += msg_rows_fails("C23b4 MR6", "client", d["client"], [want(H_ID, KEY_UNCONSCIOUS, "partner", "notice")])
+    if warning != TEXT_C23B4:
+        fails.append(f"C23b4 MR6: the client's warningText {warning!r} (want the notice {TEXT_C23B4!r})")
+    return fails
+
+
 def c23b4_revive(host, client, ctx):
     notes = []
     wait_banner_not(client, TEXT_ITEM_ACTION, notes)
@@ -1071,6 +1091,7 @@ def c23b4_revive(host, client, ctx):
     set_tu_both(host, client, C_ID, TU_MAX)
     b_ko = snap(host, client)
     seq_ko = b_ko["host"]["lastSeqEmitted"] or 0
+    mb = msg_snap(host, client)          # W2-P6a S-M row MR6
     ko = {}
     box = []
     try:
@@ -1092,6 +1113,8 @@ def c23b4_revive(host, client, ctx):
     except Exception as e:
         notes.append(f"the knockout: {short(e)}")
     r_ko = collect_all(host, client, seq_ko)
+    ma = msg_snap(host, client)
+    warning = battle_state(client).get("warningText")
     hko = {"host": hview(r_ko["uh"].get(H_ID)), "client": hview(r_ko["uc"].get(H_ID))}
     bodies = {n: sorted(i for i, v in its.items() if v.get("unitLink") == H_ID)
               for n, its in (("host", r_ko["ih"]), ("client", r_ko["ic"]))}
@@ -1139,6 +1162,7 @@ def c23b4_revive(host, client, ctx):
           f"screen={scr}; newContexts={new}; host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; "
           f"H host={hh} client={hc}; bodies={bodies_end}; kit host={charges(rec['ih'], kit)} client="
           f"{charges(rec['ic'], kit)}; diff={rec['diff']} desync={rec['dsc']}; notes={notes}", flush=True)
+    mr6 = mr6_fails(mb, ma, seq_ko, box, warning)
     fails = list(notes)
     for n in ("host", "client"):
         u = hko[n] or {}
@@ -1182,6 +1206,7 @@ def c23b4_revive(host, client, ctx):
             fails.append(f"H's body items after the revive host={bodies_end['host']} client={bodies_end['client']} "
                          f"(want none)")
         fails += charge_fails(rec, kit, [10, 10, 9], "C23b4")
+    fails += mr6
     fails += common_fails(host, client, before, "C23b4")
     finish(fails)
 

@@ -99,6 +99,17 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
        U_STUN's stun fell (equal on both); >= 1 floor burnt out since the
        start (equal on both); all buckets equal.
 
+W2-P6a S-M (spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT`
+(b), the P6a review section 2 row MR4; owner D132): a soldier of the second
+player who panics is the HOST's partner's soldier. MR4 (C13a, C13b): the host's
+event_state `messages` ring +1 {C2, STR_HAS_PANICKED (C13a) / STR_HAS_GONE_BERSERK
+(C13b), partner, notice} and no host infobox in the cycle (rec["dismissed"] ==
+[]); the client's ring +1 {C2, same key, own, box, queued Q_C13A / Q_C13B} (T0a-3:
+the panic applies under the client's NextTurnState). One "EVIDENCE <id> MR4:"
+line per scenario (both rings' new records, the client's `seen`). RED (commit
+S-M.1): C13a and C13b fail only on MR4 (both rings empty, the host's panic box
+dismissed); C5r, C10 and C9 pass.
+
 W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 E-d / E-f and
 the P6b review's section 2 rows E5 / E6; AMENDMENTS P6b-1..P6b-3): the
 watching machine plays the panic / berserk sound and the fall. E5 (C13a flee,
@@ -200,6 +211,7 @@ from test_w2_host_combat import (evs_since, ev_tuples, cue_probes, cue_delta, op
 from test_w2_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta, ctx_of, ctx_view, sv, by_seq,
                                 bring_up_lobby_roster_pinned)
 from test_w2_unit_spawn import ring_of, ring_at, ring_view
+from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want
 
 # ----- bring-up (W2-P3 TASK 0b, ledger `## W2-P3 TASK 0b`, T0b constants.md "Common bring-up") -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
@@ -274,6 +286,13 @@ FALL_ENDS = ("natural",)         # walkPhase past 7 on the trailing anchor; cut 
 # landing applies 276 ms later, still under NextTurnState; the first advance() after the fall runs 1309 ms after it
 # with BattlescapeState on top; the client's advance() max gap over the next 270 ms is 3 ms (136 runs) < paceMs
 # 30, so each of the 8 phases is drawn.
+
+# ----- W2-P6a S-M row MR4 (spec rewrite/prompts/w2p6_display_two.md P6a review section 2; owner D132; P6a pinned
+#       stage text (b); T0a-3 on the S-M.1 build: the client's `seen` record of the `panic` apply) -----
+KEY_PANICKED = "STR_HAS_PANICKED"
+KEY_BERSERK = "STR_HAS_GONE_BERSERK"
+Q_C13A = True                    # PIN (T0a-3): C2's panic applied under the client's NextTurnState (queued)
+Q_C13B = True
 
 # ----- C9 (T0b constants.md "C9"; F868) -----
 U_FIRE, U_STUN = 11, 12
@@ -904,6 +923,21 @@ def tu_at_new_turn(turn_pl):
     return p["tuAfter"] + min(d, 8 - d) * C2_TURN_COST
 
 
+def mr4_fails(rec, mb, ma, key, queued, what):
+    """W2-P6a S-M row MR4 (P6a review section 2; owner D132): C2's panic message - a notice on the host (the
+    partner's soldier: no host infobox in the cycle), vanilla's 2 s box on the client (its own soldier). Prints the
+    row's EVIDENCE line."""
+    d = msg_delta(mb, ma)
+    print(f"EVIDENCE {what} MR4: messages={msg_evidence(mb, ma, rec['seq0'])}; infoboxes dismissed(host)="
+          f"{rec['dismissed']}", flush=True)
+    fails = msg_rows_fails(f"{what} MR4", "host", d["host"], [want(C2_ID, key, "partner", "notice")])
+    fails += msg_rows_fails(f"{what} MR4", "client", d["client"], [want(C2_ID, key, "own", "box", queued=queued)])
+    if rec["dismissed"]:
+        fails.append(f"{what} MR4: the host dismissed infoboxes {rec['dismissed']} in the cycle (want none: a message "
+                     f"about the partner's soldier never pauses the host, D132)")
+    return fails
+
+
 def c13a_flee(host, client, ctx):
     rec = begin(host, client)
     fails = []
@@ -914,8 +948,10 @@ def c13a_flee(host, client, ctx):
     staged = {"host": uview(units(host).get(C2_ID)), "client": uview(units(client).get(C2_ID))}
     load = {"host": c2_load(host), "client": c2_load(client)}   # W2-H10.2: C2's load before the flee
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
+    mb = msg_snap(host, client)          # W2-P6a S-M row MR4
     cycle(host, client, SEED_C13A, rec, "cycle 3", extra=c2_resolved)
     end(host, client, rec)
+    ma = msg_snap(host, client)
     pfails, pc, pevs = panic_context_fails(rec, "flee", "C13a")
     walks = [e for e in pevs if e["kind"] == "walk_step"]
     c2_walks = [e for e in rec["hev"] if e["kind"] == "walk_step"]
@@ -928,6 +964,7 @@ def c13a_flee(host, client, ctx):
           f"{items_evidence(rec, [C13A_RIFLE_ID])}; {rec_evidence(rec)}", flush=True)
     # W2-P6b S-E row E5 (review section 2; section 9 E-d; F1782): C2's panic sound record on the client
     e5 = panic_sound_row(host, client, rec, snap_e, "flee", "C13a")
+    mr4 = mr4_fails(rec, mb, ma, KEY_PANICKED, Q_C13A, "C13a")
     fails = list(rec["notes"]) + fails
     if not (turn_at or 0) >= 2:
         fails.append(f"precondition: battle turn {turn_at} at the staging (want player turn 2 reached)")
@@ -968,6 +1005,7 @@ def c13a_flee(host, client, ctx):
         fails.append(f"C13a: no `walk_step` ev for C2's flee (want the flee walk streamed under the panic context)")
     fails += context_fails(rec, "C13a")
     fails += e5
+    fails += mr4
     fails += common_fails(host, client, rec["before"], {}, "C13a")
     finish(fails)
 
@@ -981,8 +1019,10 @@ def c13b_berserk(host, client, ctx):
     load = {"host": c2_load(host), "client": c2_load(client)}   # W2-H10: C2's load before the fire
     uh0 = units(host)
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
+    mb = msg_snap(host, client)          # W2-P6a S-M row MR4
     cycle(host, client, SEED_C13B, rec, "cycle 4", extra=c2_resolved)
     end(host, client, rec)
+    ma = msg_snap(host, client)
     pfails, pc, pevs = panic_context_fails(rec, "berserk", "C13b")
     shots = [e for e in rec["hev"] if e["kind"] == "shot"]
     others = {uid: {"before": (u.get("health"), u.get("stun"), u.get("status")),
@@ -1005,6 +1045,7 @@ def c13b_berserk(host, client, ctx):
           flush=True)
     # W2-P6b S-E row E5 (review section 2; section 9 E-d; F1782): C2's berserk sound record on the client
     e5 = panic_sound_row(host, client, rec, snap_e, "berserk", "C13b")
+    mr4 = mr4_fails(rec, mb, ma, KEY_BERSERK, Q_C13B, "C13b")
     fails = list(rec["notes"]) + fails
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
@@ -1040,6 +1081,7 @@ def c13b_berserk(host, client, ctx):
             fails.append(f"C13b: [coop-turn] payload units {bad} (want every berserk turn's unit C2 {C2_ID})")
     fails += context_fails(rec, "C13b")
     fails += e5
+    fails += mr4
     fails += common_fails(host, client, rec["before"], {}, "C13b")
     finish(fails)
 
