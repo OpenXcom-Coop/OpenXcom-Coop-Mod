@@ -1,24 +1,28 @@
-"""W2-P7 S-D1 + S-B1 - test_w2_battle_end_rules.py: the remaining battle
-endings. The turn limit, all X-COM down and a PvP (gm2) elimination each reach
-the host's one `battle_end` hook at the top of BattlescapeState::finishBattle,
-carry the right reason and per-seat verdict, and the skirmish client leaves the
-battle with it (spec rewrite/prompts/w2p7_battle_end.md sections (b)2-7 and
-(f) test_w2_battle_end_rules.py; the W2-P7 plan review's section 2 rows E4-E6
+"""W2-P7 S-D1 + S-B1 + S-D2 - test_w2_battle_end_rules.py: the remaining
+battle endings. The turn limit, all X-COM down, a PvP (gm2) elimination and a
+PvP host abort each reach the host's one `battle_end` hook at the top of
+BattlescapeState::finishBattle, carry the right reason and per-seat verdict,
+and the skirmish client leaves the battle with it (spec
+rewrite/prompts/w2p7_battle_end.md sections (b)2-7 and (f)
+test_w2_battle_end_rules.py; the W2-P7 plan review's section 2 rows E4-E6
 and PINNED S-D1 stage text; AMENDMENT P7-1 rulings ST1-ST8; AMENDMENT P7-2
 rulings G1-G8 and PINNED S-B1 text, R5; AMENDMENT P7-3's pin fixes G9-G14;
-owner ruling D129 = (a); V7 for the PvP complement).
+AMENDMENT P7-5 section 3 (S-D2) and its rulings Q2-Q4; owner rulings
+D129 = (a) and D157 = (a); V7 for the PvP complement).
 
 S-D1 is the reason / verdict / teardown half of E4-E6 (review scope table):
 the S-A product (c8e9a37b1) already covered these endings, so the rows were
 DECLARED GREEN-AT-RED. S-B1 (G1, G2) re-points E4 and E5 (DEBRIEF_ROWS): the
 X-COM client now ends on the host's debriefing in a display-only
 DebriefingState, with the same S-B1 rows as test_w2_battle_end.py E1/E2 (no
-page walk here). No OK is pressed. E6 is unchanged: the PvP alien seat keeps
-S-A's MainMenuState interim until D157 (G2); its host sends no
-`bt_debrief_result` (no PLAYER-faction client seat, F2060), shown in its
-evidence and not asserted. The alien seat's screen (D157) is S-D2. Three rows,
-ONE boot each (one ending per boot); the Coop_TurnLimit_Test data mod is loaded
-on E4's boot only:
+page walk here). No OK is pressed. S-D2 (owner D157 (a), AMENDMENT P7-5
+section 3) re-points E6 the same way (chain rule A.10): the PvP alien-side
+client ends on the host's debriefing, display-only, exactly as the X-COM
+second player does (the host sends it the `bt_debrief_result` too), and adds
+E6b, a PvP host abort, after which the hostile seat's recorded verdict is
+`win` (D157 (a)'s dependency paragraph (a): a record only, no screen shows
+it). Every row is a DEBRIEF_ROWS row. Four rows, ONE boot each (one ending
+per boot); the Coop_TurnLimit_Test data mod is loaded on E4's boot only:
 
   E4  T5, the turn limit. Coop_TurnLimit_Test (tools/coop_test/mods/) adds
       STR_COOP_TURN_LIMIT_TEST = the NEW BATTLE default deployment
@@ -46,10 +50,19 @@ on E4's boot only:
       presses END TURN (gm2: the host's seat alone ends the X-COM side), then
       closes its NextTurnState -> finishBattle(false, liveSoldiers 7).
       Expected record: reason aliensDown, aborted false, inExitArea 7, seat 0
-      win and seat 1 lose (V7's complement; the hostile seat's verdict is
-      plan-ruled, its screen is D157), tally {0, 7, 0}. The alien seat is torn
-      down to MainMenuState (the S-A interim; S-B/D157 re-point it). Not
-      asserted: battle_state.pvpWin (no writer, F1907).
+      win and seat 1 lose (V7's complement), tally {0, 7, 0}. D157 (a): the
+      alien seat ends on the host's debriefing, display-only, with the S-B1
+      rows of E4/E5 (S-D2; the S-A interim tore it down to MainMenuState and
+      its host sent it no `bt_debrief_result`). Not asserted:
+      battle_state.pvpWin (no writer, F1907).
+  E6b PvP gm2 host abort (E6's boot; AMENDMENT P7-5 Q3 (a)). No staging; the
+      host runs battle_action abort and confirms its AbortMissionState with
+      dismiss_popup (test_w2_battle_end.py end_e2, verbatim) ->
+      AbortMissionState::btnOkClick -> setAborted(true) + finishBattle(true,
+      inExit). Expected record (E2's analog, pinned from the S-D2.1 R6
+      capture): reason abort, aborted true, inExitArea 0, seat 0 abort and
+      seat 1 win (D157 (a): the hostile seat takes `win` on an abort), tally
+      {1, 7, 0}. The alien seat ends on the host's debriefing as in E6.
 
 The `battleEnd` record (event_state.battleEnd, CoopDelta.h) is SESSION-
 LIFETIME (ST4 (a), F1895): still readable after both machines' disconnect
@@ -71,7 +84,7 @@ E1/E2):
           envelope - OR1, measured 0 on all three triggers at T0-3/T0-4),
           stageSkips 0, hBuckets = the 9 action-end bucket names; the host's
           stack still holds DebriefingState; coopClientBStatePushes 0 and
-          desyncSeen false. E4/E5 (S-B1 rows f, g, i): the host hold (the
+          desyncSeen false. Every row (S-B1 rows f, g, i): the host hold (the
           host's top stays DebriefingState for HOST_HOLD_S after the client's
           end state, no CoopState(20), F2011/F2055); battleEnd resultSent 1,
           resultBytes > 0, resultDropped 0, debriefDisplayOnly 0;
@@ -85,16 +98,15 @@ E1/E2):
           queueDepthAtTeardown 0, lastSeqApplied == the host's seq,
           hashVerify {seq = the host's seq, kind battle_end, buckets = the
           host's hBuckets}; the wait ends on DebriefingState or MainMenuState
-          within CLIENT_LEAVE_S of the host's DebriefingState. E4/E5 (S-B1
+          within CLIENT_LEAVE_S of the host's DebriefingState. Every row (S-B1
           rows b-d, h, j): top DebriefingState, world_state has_save true,
           battle_state inBattle false, event_state phase Idle; battleEnd
           resultReceived 1, resultBytes == the host's and > 0,
           resultReceivedMs > 0, tornDownMs >= resultReceivedMs,
           resultDropped 0, debriefDisplayOnly 1; debrief_state shown, on top,
           display-only, the same widget census, page 0, parseErrors 0, and
-          every content field equal to the host's. E6 (unchanged, the alien
-          seat's interim): top MainMenuState, world_state has_save false,
-          battle_state inBattle false, event_state phase Idle.
+          every content field equal to the host's. E6 and E6b assert these
+          on the PvP alien seat (D157 (a), S-D2).
   both    no client save file (assert_client_zero_disk), no new crash log.
 
 The HOST_DEBRIEF pins (AMENDMENT P7-2 R6, P7-3) are each E4/E5 host
@@ -106,7 +118,14 @@ roster (a dead soldier's score is its rank and missions), so its pin holds
 each page-1 row as {item, qty, recovery} and no total (G14); row j still
 compares both machines' scores and totals. The S-B1.1 red run:
 E4 and E5 fail on exactly the S-B1 red (as test_w2_battle_end.py E1/E2,
-without the page walk); E6 passes.
+without the page walk); E6 passes. The E6 and E6b pins (and E6b's reason,
+aborted, inExitArea and tally) are copied verbatim from one R6 capture run on
+the S-D2.1 build (AMENDMENT P7-5 section 3). The S-D2.1 red run: E4 and E5
+pass; E6 and E6b fail on exactly the S-D2 red cells - the alien client's top
+MainMenuState (want DebriefingState) and has_save false (want true), the
+host's resultSent 0 and the client's resultReceived 0 / debriefDisplayOnly 0
+(the result keys of rows g and h), the client's debrief_state not shown (row
+j); E6b also perSeatVerdict seat 1 `abort` (want `win`) on both machines.
 
 Each row prints ONE "EVIDENCE <id>:" line with both machines' records, tops,
 the host hold, both debriefs and the pre-ending census BEFORE its verdict is
@@ -115,7 +134,7 @@ checked; main() runs every row even after an earlier one failed and prints
 out is recorded and fails the row.
 
 WV-D99 / WV-D100: one run is the result. No skip path, no second boot per
-row, no alternative map or actor. Exit 0 only when all three rows pass, 2
+row, no alternative map or actor. Exit 0 only when all four rows pass, 2
 otherwise.
 
 Run:  python tools/coop_test/test_w2_battle_end_rules.py
@@ -170,22 +189,29 @@ ROW_EXPECT = {
     "E6": {"reason": "aliensDown", "aborted": False, "inExitArea": 7,
            "verdicts": [(0, "win"), (1, "lose")],
            "tally": {"liveAliens": 0, "liveSoldiers": 7, "inExit": 0}},
+    # S-D2 (AMENDMENT P7-5 Q3 (a)): finishBattle(true, inExit) from AbortMissionState::btnOkClick in gm2; the
+    # verdict pair is D157 (a) (the hostile seat takes `win` on an abort); reason / aborted / inExitArea / tally
+    # from the R6 capture (E2's analog, F4334).
+    "E6b": {"reason": "abort", "aborted": True, "inExitArea": 0,
+            "verdicts": [(0, "abort"), (1, "win")],
+            "tally": {"liveAliens": 1, "liveSoldiers": 7, "inExit": 0}},
 }
-ROW_PORT = {"E4": "48776", "E5": "48777", "E6": "48778"}
+ROW_PORT = {"E4": "48776", "E5": "48777", "E6": "48778", "E6b": "48779"}
 
 # ----- W2-P7 S-B1 constants (AMENDMENT P7-2 R5; as test_w2_battle_end.py) -----
-DEBRIEF_ROWS = ("E4", "E5")   # the X-COM client's display-only debrief; E6 keeps S-A's MainMenuState interim (G2)
+# The client's display-only debrief: the X-COM client (E4, E5, S-B1) and the PvP alien side (E6, E6b; D157 (a), S-D2).
+DEBRIEF_ROWS = ("E4", "E5", "E6", "E6b")
 CLIENT_END_TOPS = ("DebriefingState", "MainMenuState")   # the client wait ends on either (every row)
 HOST_HOLD_S = 3       # the host's top sampled every 0.25 s for this long after the client's end state (F2055)
 DEBRIEF_WIDGETS = {"texts": 19, "lists": 5, "buttons": 4}   # DebriefingState.cpp :144-174 (F2049)
 DEBRIEF_FIELDS = ("title", "recoveryHeader", "rows", "total", "rating", "soldiers", "recovered")
 # G11 (F2031): these rows' host page 1 has at least one row; the other rows pin `rows` as [].
-ROWS_WITH_PAGE1 = ("E5",)
+ROWS_WITH_PAGE1 = ("E5", "E6")
 # G14 (F2037): these rows' page-1 scores and total come from the per-boot roster (dead soldiers' ranks and
 # missions): the pin holds each page-1 row as {item, qty, recovery} and no `total`.
 ROSTER_SCORED_ROWS = ("E5",)
 # R6: each DEBRIEF_ROWS row's host debrief_state content, copied verbatim from the capture run on the S-B1.1
-# build (pin_view: `soldiers` as each row's deltas, G10).
+# build (E4, E5) or on the S-D2.1 build (E6, E6b) (pin_view: `soldiers` as each row's deltas, G10).
 HOST_DEBRIEF = {
     # R6 capture B (S-B1.1 build): E4 = T5, the turn limit (no page-1 row, G11).
     "E4": {"title": "Terror continues", "recoveryHeader": "", "rows": [], "total": 0, "rating": "RATING> POOR!",
@@ -204,6 +230,36 @@ HOST_DEBRIEF = {
            "rows": [{"item": "X-COM OPERATIVES KILLED", "qty": 7, "recovery": False},
                     {"item": "X-COM CRAFT LOST", "qty": 1, "recovery": False}],
            "rating": "RATING> TERRIBLE!", "soldiers": [], "recovered": []},
+    # R6 capture (S-D2.1 build): E6 = T9, the PvP gm2 elimination (equal to test_w2_battle_end.py's E1 pin, F4334).
+    "E6": {"title": "UFO is recovered", "recoveryHeader": "UFO RECOVERY",
+           "rows": [{"item": "ALIEN CORPSES RECOVERED", "qty": 1, "recovery": False, "score": 5},
+                    {"item": "Alien Alloys", "qty": 1, "recovery": True, "score": 1}],
+           "total": 6, "rating": "RATING> OK",
+           "soldiers": [
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        ],
+           "recovered": [{"item": "Plasma Pistol", "qty": 1}, {"item": "  Plasma Pistol Clip", "qty": 2},
+                         {"item": "Mind Probe", "qty": 1}, {"item": "Sectoid Corpse", "qty": 1},
+                         {"item": "Alien Alloys", "qty": 1}]},
+    # R6 capture (S-D2.1 build): E6b = the PvP gm2 host abort (no page-1 row, G11; equal to the E2 pin, F4334).
+    "E6b": {"title": "UFO is not recovered", "recoveryHeader": "", "rows": [], "total": 0,
+            "rating": "RATING> POOR!",
+            "soldiers": [
+                         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                         ],
+            "recovered": []},
 }
 
 
@@ -306,7 +362,7 @@ def host_next_turn_up(host):
 
 
 def stage_none(host, client, pre):
-    """E4 staging: none (the turn limit ends the battle as it stands)."""
+    """E4 / E6b staging: none (the turn limit or the abort ends the battle as it stands)."""
     return {}
 
 
@@ -404,6 +460,23 @@ def end_e6(host, client, ending):
     if d.get("handled") != "NextTurnState->close":
         ending.append(f"host dismiss_popup answered {d} (want handled NextTurnState->close)")
     return {"close": d}
+
+
+def end_e6b(host, client, ending):
+    """E6b ending (test_w2_battle_end.py end_e2, verbatim): the host's abort and
+    its confirm (AbortMissionState::btnOkClick -> setAborted(true) +
+    finishBattle(true, inExit)), on E6's gm2 boot."""
+    try:
+        host.ok({"cmd": "battle_action", "action": "abort"})
+    except Exception as e:
+        ending.append(f"host battle_action abort: {short(e)}")
+    ok, secs = wait_until(lambda: any("AbortMissionState" in s for s in stack(host)), 30, 0.1)
+    if not ok:
+        ending.append(f"host AbortMissionState not up within {secs}s")
+    d = host.cmd({"cmd": "dismiss_popup"})
+    if d.get("handled") != "AbortMissionState":
+        ending.append(f"host dismiss_popup answered {d} (want handled AbortMissionState)")
+    return {"confirm": d}
 
 
 # ===================== one row =====================
@@ -540,8 +613,8 @@ def debrief_verdict(rid, hrec, crec, hdeb, cdeb, hold):
 
 def row_verdict(rid, expect, hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
     """Every S-A assertion of the row, with AMENDMENT P7-2 R4's re-points a-c and
-    new rows f-j on DEBRIEF_ROWS (E6 keeps the S-A end state); returns the list
-    of failures (empty = pass)."""
+    new rows f-j on DEBRIEF_ROWS (every row since S-D2; the S-A MainMenuState
+    branch below no longer runs); returns the list of failures (empty = pass)."""
     f = []
     hrec = hrec if isinstance(hrec, dict) else {}
     crec = crec if isinstance(crec, dict) else {}
@@ -788,7 +861,8 @@ def boot_e6(host, client, port):
 
 ROWS = (("E4", boot_e4, stage_none, end_e4, [MOD_DIR]),
         ("E5", boot_e5, stage_e5, end_e5, []),
-        ("E6", boot_e6, stage_e6, end_e6, []))
+        ("E6", boot_e6, stage_e6, end_e6, []),
+        ("E6b", boot_e6, stage_none, end_e6b, []))
 
 
 def main():
