@@ -51,6 +51,22 @@ ONE boot, one scenario with two legs, in this order:
   coopWaitText == "". RED (commit S-M.1): C25 fails on QR1 only (the client
   still shows TEXT_SPECTATOR, a Notice is never dwell-cleared); legs W and S
   pass.
+  KR7 (W2-P6a S-C.3, spec rewrite/prompts/w2p6_display_two.md `# W2-P6a
+  S-C.3 ... PINNED STAGE TEXT` section 5; ruling SC-5, F4163; owner D131): in
+  PvP every order the second player gives is the OPPONENT's, so the watching
+  host's camera follows its visible actions as vanilla follows an enemy turn.
+  KR7w (leg W): the host camera.suppressed delta over the walk is all +0.
+  KR7s (leg S): A goes back on A_TILE facing A_DIR first (ruling SC3-2,
+  F4209: the snap then needs no turn, so no popState lands while the
+  projectile flies and ProjectileFlyBState::cancel never skips it and
+  centres the host on the impact, F4203 / F4204), then the host camera is
+  staged on K_HOSTFAR_PVP (view level 1) before the press; after the shot
+  the host's suppressed delta is all +0, its view level 0 and its offset
+  moved off the staged one. RED (commit S-C.3a; the S-C green guard
+  suppresses every `intent` base): KR7w walkLevel +8 exactly (F4206), KR7s
+  follow +1 exactly, every other counter +0, the offset still the staged
+  one, view level 1. The client's camera is printed only (F4189). One
+  "EVIDENCE KR7:" line.
 
 Common asserts (spec (f), after each leg settles): hash_now {full:true} - every
 bucket EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged
@@ -103,6 +119,7 @@ from test_rw_seat_pacing import tab_select, SDLK_HOME
 from test_w2_delta_core import diff_buckets, short, both
 from test_w2_delta_items import items_by_id, unit_view
 from test_w2_host_combat import ev_tuples
+from test_w2_host_combat import camera_of, cam_snap, cam_offset, stage_camera, cam_suppressed_delta, cam_view
 from test_w2_client_shoot import (top, snap, ubrief, press, menu_rows, send_intent, await_press, collect, ctx_view,
                                   chain_of, forwarded_fails, common_fails, finish, press_view, ui_view, shot_payloads,
                                   shot_brief, RHAND_CENTRE, CURSOR_AIM, ORDER_TIMEOUT_S)
@@ -126,6 +143,11 @@ S_TILE, S_DIR = (17, 11, 0), 0    # S faces north, towards A
 A_TILE, A_DIR = (17, 8, 0), 4     # A faces south, towards S (open ground)
 WALK_DEST = (17, 7, 0)            # one tile behind A (T0-12's walk)
 SEED_C25 = 1                      # host set_seed right before the shot click (no hunt: the outcome is not asserted)
+# W2-P6a S-C.3 row KR7s (F4193): test_w2_reaction_prox's measured host far tile on the same 40x40x4 map (MAP_FP)
+K_HOSTFAR_PVP = (38, 38, 1)       # the host camera at view level 1, > 1 screen from A (17,8) and S (17,11)
+KR7W_WALKLEVEL_RED = 8            # KR7w's RED (F4206): the host's own K5 centre (UnitWalkBState :203) puts A on screen,
+                                  # so its one step runs all 8 walk phases and :205 writes (suppressed) once per phase;
+                                  # SC-3's 2 per step holds only for an off-screen walker
 
 # ----- UI -----
 KEY_SNAP = 50                     # keyBattleActionItem2
@@ -286,6 +308,7 @@ def stage_fails(ev):
 
 def leg_walk(host, client, notes):
     """Leg W: the client's battle_intent walk for A to WALK_DEST."""
+    cw0 = cam_snap(host, client)   # W2-P6a S-C.3 row KR7w: both cameras before the opponent's walk
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     req = {"cmd": "battle_intent", "kind": "walk", "actor": A_ID, "dest": jt(WALK_DEST)}
@@ -293,16 +316,24 @@ def leg_walk(host, client, notes):
     settle(host, client, notes)
     time.sleep(SIDE_SETTLE_S)
     settle(host, client, notes)
+    cw1 = cam_snap(host, client)   # KR7w: after the walk
     rec = collect(host, client, seq0)
     after = sides(host, client)
     common = common_fails(host, client, before, "C25 leg W")
     return {"before": before, "rec": rec, "req": req, "intent": {k: si.get(k) for k in ("sent", "iseq", "answer")},
             "resp": {k: (si.get("resp") or {}).get(k) for k in ("ok", "iseq", "error")}, "after": after,
-            "st": side_transitions(rec), "common": common}
+            "st": side_transitions(rec), "common": common, "cam0": cw0, "cam1": cw1}
 
 
 def leg_shot(host, client, notes):
     """Leg S: the client's real-UI snap of A at S."""
+    # W2-P6a S-C.3 row KR7s (ruling SC3-2, F4209): A back on A_TILE facing S (both machines, client first; only when
+    # leg W moved it, never onto its own tile), so the snap needs no turn (F4203 / F4204)
+    a = units(host).get(A_ID) or {}
+    reface = (tele_both(host, client, A_ID, A_TILE, A_DIR) if upos(a) != A_TILE
+              else {"skipped": upos(a), "dir": a.get("direction")})
+    staged = stage_camera(host, K_HOSTFAR_PVP)   # W2-P6a S-C.3 row KR7s: the host camera far, view level 1
+    cs0 = cam_snap(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     pv = {}
@@ -315,11 +346,46 @@ def leg_shot(host, client, notes):
     settle(host, client, notes)
     time.sleep(SIDE_SETTLE_S)
     settle(host, client, notes)
+    cs1 = cam_snap(host, client)   # KR7s: after the shot
     rec = collect(host, client, seq0)
     after = sides(host, client)
     common = common_fails(host, client, before, "C25 leg S")
     return {"before": before, "rec": rec, "press": pv, "outcome": out, "after": after, "st": side_transitions(rec),
-            "common": common}
+            "common": common, "staged": staged, "cam0": cs0, "cam1": cs1,
+            "reface": {k: reface.get(k) for k in ("to", "dir", "skipped")}}
+
+
+def kr7_fails(w, s, shots):
+    """W2-P6a S-C.3 row KR7 (pinned stage text section 5; ruling SC-5, F4163; owner D131): in PvP the second player's
+    orders are the OPPONENT's, so the watching host's camera follows them as vanilla follows an enemy turn. KR7w (leg
+    W, the opponent's walk): host camera.suppressed delta all +0. KR7s (leg S, the opponent's snap, the host staged on
+    K_HOSTFAR_PVP): suppressed delta all +0, view level 0, the offset moved off the staged one. The client's camera
+    is printed only (F4189). Prints one "EVIDENCE KR7:" line."""
+    supw = cam_suppressed_delta(w["cam0"]["host"], w["cam1"]["host"])
+    sups = cam_suppressed_delta(s["cam0"]["host"], s["cam1"]["host"])
+    hs1 = s["cam1"]["host"]
+    lw, ls = w["before"]["host"]["lastSeqEmitted"] or 0, s["before"]["host"]["lastSeqEmitted"] or 0
+    print(f"EVIDENCE KR7: leg S reface={s['reface']}; host staged={cam_offset(s['staged'])} (tile {K_HOSTFAR_PVP}); "
+          f"KR7w host before={cam_view(w['cam0']['host'])} after={cam_view(w['cam1']['host'])} "
+          f"suppressed delta={supw}; KR7s host before={cam_view(s['cam0']['host'])} after={cam_view(hs1)} "
+          f"suppressed delta={sups}; client (not asserted, F4189) leg W before={cam_view(w['cam0']['client'], lw)} "
+          f"after={cam_view(w['cam1']['client'], lw)} leg S before={cam_view(s['cam0']['client'], ls)} "
+          f"after={cam_view(s['cam1']['client'], ls)}; leg S shots={shots}", flush=True)
+    fails = []
+    if any(supw.values()):
+        fails.append(f"KR7w: host camera.suppressed delta {supw} over the opponent's walk (want all +0: in PvP the "
+                     f"opponent's walk moves the watching host's view level as vanilla does, D131 / SC-5; RED is "
+                     f"walkLevel +{KR7W_WALKLEVEL_RED}, F4206)")
+    if any(sups.values()):
+        fails.append(f"KR7s: host camera.suppressed delta {sups} over the opponent's shot (want all +0: the opponent's "
+                     f"shot follows on the watching host, D131 / SC-5)")
+    if hs1.get("viewLevel") != 0:
+        fails.append(f"KR7s: host camera viewLevel {hs1.get('viewLevel')} after the shot (want 0, the shot's level: "
+                     f"the opponent's shot follows on the watching host, D131)")
+    if cam_offset(hs1) == cam_offset(s["staged"]):
+        fails.append(f"KR7s: host camera offset {cam_offset(hs1)} after the shot is still the staged one (want moved: "
+                     f"the opponent's shot follows on the watching host, D131)")
+    return fails
 
 
 def c25_pvp(host, client, ctx):
@@ -358,6 +424,7 @@ def c25_pvp(host, client, ctx):
           f"client={ubrief(rs['uc'].get(A_ID))}; soldier host={ubrief(rs['uh'].get(S_ID))} "
           f"client={ubrief(rs['uc'].get(S_ID))}; after={s['after']} sideTransitions={s['st']}; diff={rs['diff']} "
           f"desync={rs['dsc']}; notes={notes_s}", flush=True)
+    kr7 = kr7_fails(w, s, shots)   # W2-P6a S-C.3 row KR7 (SC-5, F4163; owner D131)
     fails = []
     # W2-P6a S-M row QR1 (F1219, OR6 (a)): no stale entry notice once the seat commands a selected unit
     if qr1 != "":
@@ -395,6 +462,7 @@ def c25_pvp(host, client, ctx):
         fails.append(f"leg S: soldier {S_ID} host={sh} client={sc} (want equal on both)")
     fails += hostile_fails(s["after"], s["st"], "leg S")
     fails += [f"leg S: {m}" for m in s["common"]]
+    fails += kr7
     finish(fails)
 
 
