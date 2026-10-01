@@ -23876,10 +23876,31 @@ void offerRejoinBattle(Game* game)
 	missionLabel["missionType"] = battle->getMissionType(); // echo only (WR-10)
 	offer["missionLabel"] = missionLabel;
 
+	// W2-P8b S-D.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 S-D; owner D208 a, Q6 a):
+	// a rejoin during the pre-battle equip phase carries `equip` - the kept craft pile and every seat's kept ready
+	// flag - so the rejoiner returns to its equip screen (coopEquipPump's entry, once the RESUME hold releases) with
+	// its ready state as it was. The host's own phase stays open; a rejoin after turn 1 carries no `equip`.
+	const bool equipOpen = g_equip.phase.load() == (int)CoopEquipPhase::Open;
+	if (equipOpen)
+	{
+		Json::Value equip(Json::objectValue);
+		if (g_equip.havePile.load())
+		{
+			Json::Value pile(Json::arrayValue);
+			pile.append(g_equip.pileX.load());
+			pile.append(g_equip.pileY.load());
+			pile.append(g_equip.pileZ.load());
+			equip["pile"] = pile;
+		}
+		equip["ready"] = coopEquipReadyJson();
+		offer["equip"] = equip;
+	}
+
 	CoopEmit::sendBattle(offer);
 
 	Log(LOG_INFO) << "[coop-handshake] SPEC16 M5: rejoin battle_offer sent (battleId=" << battleId
-		<< ", blobBytes=" << blob.size() << ", saveBlob=" << g_pendingHost.saveBlobHex << ")";
+		<< ", blobBytes=" << blob.size() << ", saveBlob=" << g_pendingHost.saveBlobHex << ")"
+		<< (equipOpen ? " [W2-P8b: equip phase open, kept ready flags]" : "");
 }
 
 // SPEC 18 (r4 T4) M2: the DISK-RESUME sibling of offerRejoinBattle() above -
