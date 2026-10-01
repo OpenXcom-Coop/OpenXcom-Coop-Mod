@@ -3541,6 +3541,7 @@ void SavedBattleGame::appendToHitLog(HitLogEntryType type, UnitFaction faction)
 {
 	if (_side != FACTION_PLAYER) return;
 	_hitLog->appendToHitLog(type, faction);
+	coopHitLogNote(type, faction); // coop (W2-P6b S-L, D172): the host mirrors the entry; a no-op elsewhere
 }
 
 /**
@@ -3550,6 +3551,7 @@ void SavedBattleGame::appendToHitLog(HitLogEntryType type, UnitFaction faction, 
 {
 	if (_side != FACTION_PLAYER) return;
 	_hitLog->appendToHitLog(type, faction, text);
+	coopHitLogNote(type, faction); // coop (W2-P6b S-L, D172): the host mirrors the entry; a no-op elsewhere
 }
 
 /**

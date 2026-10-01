@@ -146,6 +146,7 @@
 #include "../Savegame/Node.h"
 #include "../Mod/MapDataSet.h"
 #include "../Mod/Unit.h"
+#include "../Savegame/HitLog.h" // W2-P6b S-L.2: the hit-log mirror names HitLogEntryType values
 
 // R4-P1 (SPIKE-RUNBOOK.md SS2.7/IR-6): CoopHandshake needs the full SavedGame
 // (loadCoopSaveFromMemory/saveCoopToMemory), Options/Screen (battlescape
@@ -4687,8 +4688,8 @@ Json::Value coopShotTrajectories()
 // ruling SL-1; owner D172 (a)): the hit-log mirror probe storage (CoopDelta.h coopHitLogMirrorProbe(), event_state
 // `hitLogMirror`). The HOST mirrors each hit-log entry that passes vanilla's player-side check as {t, f, k?} into a
 // pending list that rides its next outermost emit (the envelope field `hitLog`); the CLIENT appends what it applies,
-// rendered in its own language. Probe storage only at S-L.1: nothing writes it yet (S-L.2's note, sendEv attach,
-// envelope apply and local PLAYER_FIRING suppression do). Main thread only; battle-scoped like the shotTrajectories
+// rendered in its own language. S-L.1 added the storage; S-L.2's note, sendEv attach, envelope apply and local
+// PLAYER_FIRING suppression (right after coopHitLogMirrorProbe()) write it. Main thread only; battle-scoped like the shotTrajectories
 // ring above: cleared on the first main-thread use after CoopGhost::reset() bumps g_coopCombatGen (W2-P5 OQ4).
 // Outside every RW-REPLAY-REGION.
 // ---------------------------------------------------------------------------
@@ -4705,6 +4706,7 @@ struct CoopHitLogMirrorStore
 	unsigned int dropped = 0;          // entries discarded before they were sent or applied
 	std::vector<Json::Value> pending;  // HOST: entries {t, f, k?} waiting for the next outermost emit
 	std::deque<Json::Value> last;      // the last kCoopHitLogLastCap entries sent (HOST) / applied (CLIENT) {seq, t, f, k?}
+	std::vector<std::string> keys;     // HOST (S-L.2): the key(s) the next noted entry carries as `k`, then cleared
 };
 CoopHitLogMirrorStore g_coopHitLogMirror;
 const std::size_t kCoopHitLogLastCap = 32;
@@ -4737,6 +4739,193 @@ Json::Value coopHitLogMirrorProbe()
 		last.append(e);
 	o["last"] = last;
 	return o;
+}
+
+// ---------------------------------------------------------------------------
+// W2-P6b S-L.2 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6, AMENDMENT P6-6 section 5 with
+// Q2 (a); owner D172 (a): Ctrl-H on both machines, the host's log, each machine in its own language). The HOST
+// mirrors every hit-log entry that passes vanilla's player-side check (SavedBattleGame::appendToHitLog ->
+// coopHitLogNote) as {t, f, k?} into the pending list above; CoopEmit::sendEv's outermost host call attaches the list
+// as the envelope field `hitLog` (bt_ev of any kind and bt_action_end alike) and clears it. The CLIENT applies
+// `hitLog` in CoopDisplayQueue::onApplied() right after CoopReveal::applyFrom() - before the state branch, so its side
+// is the pre-ev side = the host's side at the append - through SavedBattleGame::appendToHitLog, the text rendered by
+// ITS OWN Language. The client keeps its own NextTurnState NEW_TURN (vanilla; the host's NEW_TURN re-clears when it
+// arrives) and skips its own ActionMenuState PLAYER_FIRING (V7); the host logs the partner's weapon line at the
+// order's executor (V6). Not serialized, not hashed: `h` is untouched. Outside every RW-REPLAY-REGION.
+// ---------------------------------------------------------------------------
+namespace
+{
+
+/// The co-op HOST of a battle in phase Handshake or Active (P6-6 Q2 (a): the host's turn-0 NEW_TURN can be appended
+/// before phase Active; it then rides the first Active outermost emit).
+bool coopHitLogHostRecording()
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const CoopBattlePhase ph = a.phase.load();
+	return connectionTCP::getCoopStatic() && a.hostSim
+		&& (ph == CoopBattlePhase::Handshake || ph == CoopBattlePhase::Active);
+}
+
+/// The Language this machine renders with (its own `language` option), from the live BattlescapeState's Game;
+/// nullptr when no BattlescapeState is live.
+Language* coopHitLogLanguage(SavedBattleGame* save)
+{
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	if (!bs || !connectionTCP::isBattlescapeStateLive(bs) || !bs->getGame())
+		return nullptr;
+	return bs->getGame()->getLanguage();
+}
+
+void coopHitLogKeepLast(CoopHitLogMirrorStore& s, const Json::Value& entry, Json::UInt seq)
+{
+	Json::Value r = entry;
+	r["seq"] = seq;
+	s.last.push_back(r);
+	while (s.last.size() > kCoopHitLogLastCap)
+		s.last.pop_front();
+}
+
+/// HOST, CoopEmit::sendEv's outermost `hostAuthoring` call (beside the delta attach): the pending entries ride THIS
+/// envelope as `hitLog` and the list clears. Counted per entry (`sent`), each kept in `last` with the carrying seq.
+void coopHitLogAttach(Json::Value& ev)
+{
+	coopHitLogMirrorSync();
+	CoopHitLogMirrorStore& s = g_coopHitLogMirror;
+	if (s.pending.empty())
+		return;
+	const Json::UInt seq = ev.get("seq", 0u).asUInt();
+	Json::Value list(Json::arrayValue);
+	for (const Json::Value& e : s.pending)
+	{
+		list.append(e);
+		coopHitLogKeepLast(s, e, seq);
+		++s.sent;
+	}
+	s.pending.clear();
+	ev["hitLog"] = list;
+}
+
+/// CLIENT, CoopDisplayQueue::onApplied() right after CoopReveal::applyFrom(): each entry of the envelope's `hitLog`
+/// through SavedBattleGame::appendToHitLog, PLAYER_FIRING's text = this machine's tr(k[0]), NEW_TURN_WITH_MESSAGE's =
+/// the concatenation of tr(k_i) over its keys (vanilla NextTurnState :236 / :274). Presence-gated. An entry this
+/// machine cannot apply (its side is not the player side, where vanilla's own check would drop it, or no live
+/// BattlescapeState to render a text) is counted `dropped`, never appended.
+void coopHitLogApplyFrom(SavedBattleGame* save, const Json::Value& ev)
+{
+	if (!ev.isObject() || !ev.isMember("hitLog"))
+		return;
+	const Json::Value& list = ev["hitLog"];
+	if (!list.isArray() || !save || coopBattleAuthority().hostSim)
+		return;
+	coopHitLogMirrorSync();
+	CoopHitLogMirrorStore& s = g_coopHitLogMirror;
+	const Json::UInt seq = ev.get("seq", 0u).asUInt();
+	for (const Json::Value& e : list)
+	{
+		const HitLogEntryType t = (HitLogEntryType)e.get("t", (int)HITLOG_EMPTY).asInt();
+		const UnitFaction f = (UnitFaction)e.get("f", (int)FACTION_PLAYER).asInt();
+		const bool withText = t == HITLOG_PLAYER_FIRING || t == HITLOG_NEW_TURN_WITH_MESSAGE;
+		Language* lang = withText ? coopHitLogLanguage(save) : nullptr;
+		if (save->getSide() != FACTION_PLAYER || (withText && !lang))
+		{
+			++s.dropped;
+			continue;
+		}
+		if (withText)
+		{
+			std::string text;
+			const Json::Value& k = e["k"];
+			if (k.isArray())
+			{
+				for (const Json::Value& key : k)
+				{
+					const std::string id = key.asString();
+					if (!id.empty())
+						text += std::string(lang->getString(id));
+					if (t == HITLOG_PLAYER_FIRING)
+						break; // vanilla ActionMenuState :532: tr(the weapon type) only
+				}
+			}
+			save->appendToHitLog(t, f, text);
+		}
+		else
+		{
+			save->appendToHitLog(t, f);
+		}
+		++s.applied;
+		coopHitLogKeepLast(s, e, seq);
+	}
+}
+
+/// HOST, at the three partner-order executors that run an action vanilla's ActionMenuState logs (V6): the shoot /
+/// throw / launch executor, melee (a unit target: `terrainMeleeTilePart == 0`, vanilla :493-:514) and psi, and the
+/// mind probe - right after the order's pushActionContext(actionId, "intent"). The entry vanilla :530-:532 makes on
+/// the ordering machine: the pending weapon key, then PLAYER_FIRING with the HOST's tr(the weapon type).
+void coopHitLogPartnerFiring(SavedBattleGame* save, const BattleAction& action)
+{
+	if (!save || !action.weapon || !action.weapon->getRules())
+		return;
+	Language* lang = coopHitLogLanguage(save);
+	if (!lang)
+		return;
+	const std::string& type = action.weapon->getRules()->getType();
+	coopHitLogPlayerFiring(type); // the host: sets the pending weapon key (returns false)
+	const std::string text = lang->getString(type);
+	save->appendToHitLog(HITLOG_PLAYER_FIRING, FACTION_PLAYER, text);
+}
+
+} // namespace
+
+void coopHitLogNote(HitLogEntryType type, UnitFaction faction)
+{
+	if (!coopHitLogHostRecording())
+		return;
+	coopHitLogMirrorSync();
+	CoopHitLogMirrorStore& s = g_coopHitLogMirror;
+	Json::Value e(Json::objectValue);
+	e["t"] = (int)type;
+	e["f"] = (int)faction;
+	if ((type == HITLOG_PLAYER_FIRING || type == HITLOG_NEW_TURN_WITH_MESSAGE) && !s.keys.empty())
+	{
+		Json::Value k(Json::arrayValue);
+		for (const std::string& key : s.keys)
+			k.append(key);
+		e["k"] = k;
+	}
+	s.keys.clear();
+	s.pending.push_back(e);
+	++s.noted;
+}
+
+bool coopHitLogPlayerFiring(const std::string& weaponType)
+{
+	if (coopHitLogHostRecording())
+	{
+		coopHitLogMirrorSync();
+		g_coopHitLogMirror.keys.assign(1, weaponType);
+		return false;
+	}
+	if (isCoopBattle())
+	{
+		// a co-op CLIENT (hostSim false): the host's entry replaces this machine's own weapon line (V7)
+		coopHitLogMirrorSync();
+		++g_coopHitLogMirror.localSuppressed;
+		return true;
+	}
+	return false;
+}
+
+void coopHitLogMessageKeys(const std::string& a, const std::string& b)
+{
+	if (!coopHitLogHostRecording())
+		return;
+	coopHitLogMirrorSync();
+	CoopHitLogMirrorStore& s = g_coopHitLogMirror;
+	s.keys.clear();
+	if (!a.empty())
+		s.keys.push_back(a);
+	if (!b.empty())
+		s.keys.push_back(b);
 }
 
 /// W2-P5 S-B.2 (spec rewrite/prompts/w2p5_display_ghosts.md ruling Q2 (b), amendment E1 OQ2 (a)): the two
@@ -5016,6 +5205,10 @@ void sendEv(Json::Value ev)
 	// envelope, as absolute values. Host, armed, outermost call only.
 	if (hostAuthoring && g_sendEvDepth == 1)
 		CoopDelta::attach(connectionTCP::getStaticBattle(), ev);
+	// W2-P6b S-L.2 (AMENDMENT P6-5 section 6, P6-6 section 5; owner D172 (a)): the host's pending hit-log entries
+	// ride this envelope as `hitLog` - the same host, outermost-call test as the delta (coopHitLogAttach()).
+	if (hostAuthoring && g_sendEvDepth == 1)
+		coopHitLogAttach(ev);
 
 	// R2-P11 (RB-D32): HOST-side event-ring record point - see BattlePump.h's
 	// CoopEventLog doc comment for why this (post seq-mint, every host emit
@@ -10735,6 +10928,9 @@ void onIntent(const Json::Value& intent)
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		// W2-P6b S-L.2 (AMENDMENT P6-5 section 6, V6): the partner's weapon line in the host's hit log, as vanilla's
+		// ActionMenuState logs every snap / aimed / auto / spray shot, throw and launch on the ordering machine.
+		coopHitLogPartnerFiring(save, action);
 		// Set BEFORE the first push: statePushBack() inits at once and the cue
 		// hooks / a reaction's beginNested() read the base actor (item 7).
 		g_coopPendingChainActorId = actor->getId();
@@ -10858,6 +11054,10 @@ void onIntent(const Json::Value& intent)
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		// W2-P6b S-L.2 (AMENDMENT P6-5 section 6, V6): the partner's weapon line in the host's hit log - every psi
+		// order, and a melee only at a unit (vanilla ActionMenuState :493-:514 logs no terrain swing).
+		if (kind == "psi" || action.terrainMeleeTilePart == 0)
+			coopHitLogPartnerFiring(save, action);
 		// Set BEFORE the push: statePushBack() inits at once and the cue hooks /
 		// a reaction's beginNested() read the base actor (item 7).
 		g_coopPendingChainActorId = actor->getId();
@@ -10912,6 +11112,10 @@ void onIntent(const Json::Value& intent)
 		clearDeny(seat);
 		noteIntentReceived(kind, true); // spec (b)13
 		pushActionContext(actionId, "intent"); // SS2.W7 / WV-D15
+		// W2-P6b S-L.2 (AMENDMENT P6-5 section 6, V6): the partner's weapon line in the host's hit log for the mind
+		// probe (vanilla ActionMenuState's last branch); the scanner's own row logs nothing.
+		if (!scanner)
+			coopHitLogPartnerFiring(save, action);
 		g_coopPendingChainActorId = actor->getId();
 		g_coopPendingChainKind = scanner ? "scanner" : "mindprobe"; // spec (b)3's instant kinds
 		g_coopIntentResultLatched = false; // spec (b)4: a fresh latch per context
@@ -22305,6 +22509,9 @@ void onApplied(const Json::Value& ev)
 	// branch below, whose bt_action_end arm returns early. Presence-gated: a
 	// no-op for every envelope that carries no reveal.
 	CoopReveal::applyFrom(save, ev);
+	// W2-P6b S-L.2 (AMENDMENT P6-5 section 6; owner D172 (a)): the host's hit-log entries this envelope carries, in
+	// THIS machine's language, before the state branch (the pre-ev side = the host's side at the append). Presence-gated.
+	coopHitLogApplyFrom(save, ev);
 
 	const std::string state = ev.get("state", "").asString();
 

@@ -234,6 +234,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 			{
 				_txtMessage2->setColor(friendly.color);
 				message = tr(friendly.message);
+				coopHitLogMessageKeys(friendly.message, std::string()); // coop (W2-P6b S-L, D172)
 				_txtMessage2->setText(message);
 			}
 		}
@@ -273,6 +274,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 					ss.clear();
 					ss << tr(hostile.message) << tr(neutral.message);
 					message = ss.str();
+					coopHitLogMessageKeys(hostile.message, neutral.message); // coop (W2-P6b S-L, D172)
 				}
 			}
 		}

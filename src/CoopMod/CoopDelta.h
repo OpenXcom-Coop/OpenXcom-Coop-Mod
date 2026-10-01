@@ -626,9 +626,35 @@ bool coopForceFirePressed(const SavedBattleGame* save);
 /// appended from an applied envelope, `localSuppressed` = its own ActionMenuState PLAYER_FIRING appends skipped, `last`
 /// = the entries applied with their carrier's seq. `dropped` = entries discarded before they were sent or applied.
 /// `t` = HitLogEntryType, `f` = UnitFaction, `k` = [the weapon type] for PLAYER_FIRING, [the message keys] for
-/// NEW_TURN_WITH_MESSAGE, absent otherwise. Probe storage only at S-L.1 (all zero, `last` empty): S-L.2 writes it.
+/// NEW_TURN_WITH_MESSAGE, absent otherwise. S-L.1 added the storage; S-L.2's four functions below write it.
 /// Main thread only; battle-scoped (cleared on the first use after CoopGhost::reset() bumps the combat generation).
 Json::Value coopHitLogMirrorProbe();
+
+// ----- W2-P6b S-L, commit S-L.2: the hit log on both machines (owner D172 (a)) -----
+// Spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6 (the five vanilla lines; Q3 (a) the envelope
+// carrier, Q4 (a) the client's appendToHitLog), AMENDMENT P6-6 section 5 (Q2 (a)). Body: connectionTCP.cpp, right
+// after coopHitLogMirrorProbe() (outside every RW-REPLAY-REGION). The host's sendEv attaches the pending list as the
+// envelope field `hitLog`; the client applies it right after CoopReveal::applyFrom() in CoopDisplayQueue::onApplied().
+
+enum HitLogEntryType : int; // Savegame/HitLog.h
+enum UnitFaction : int;     // Mod/Unit.h
+
+/// SavedBattleGame::appendToHitLog (both overloads), right after vanilla's append (so only an entry that passed the
+/// player-side check): on the co-op HOST (`hostSim`) of a battle in phase Handshake or Active (P6-6 Q2 (a)) it records
+/// the entry {t, f, k?} - `k` = the pending key(s) for PLAYER_FIRING / NEW_TURN_WITH_MESSAGE - in the pending list
+/// that rides the next outermost emit, then clears the pending keys. A no-op on a client and in single player.
+void coopHitLogNote(HitLogEntryType type, UnitFaction faction);
+
+/// ActionMenuState, above vanilla's PLAYER_FIRING append as `if (coopHitLogPlayerFiring(...)) {} else`: on a co-op
+/// CLIENT TRUE - the local append is skipped, the host's entry replaces it (V7; `localSuppressed` +1); on the co-op
+/// HOST it sets the pending weapon key and returns FALSE (vanilla appends, coopHitLogNote records the key); single
+/// player FALSE with no side effect.
+bool coopHitLogPlayerFiring(const std::string& weaponType);
+
+/// NextTurnState's environment block (it runs on the host only: the client skips the block): sets the pending message
+/// keys (the non-empty of `a`, `b`) for the NEW_TURN_WITH_MESSAGE entry the constructor appends next. A no-op off the
+/// co-op host.
+void coopHitLogMessageKeys(const std::string& a, const std::string& b);
 
 // ----- W2-P6a S-M, commit S-M.2: the battle messages on the HOST (owner D132) -----
 // Spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (b)1, the W2-P6a plan review section 4 (OR1 (a)),

@@ -529,6 +529,7 @@ void ActionMenuState::handleAction()
 
 		if (newHitLog)
 		{
+			if (coopHitLogPlayerFiring(weapon->getType())) {} else // coop (W2-P6b S-L, D172)
 			_game->getSavedGame()->getSavedBattle()->appendToHitLog(HITLOG_PLAYER_FIRING, FACTION_PLAYER, tr(weapon->getType()));
 		}
 	}
