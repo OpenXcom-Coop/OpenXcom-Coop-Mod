@@ -63,6 +63,26 @@ other bucket EQUAL). Then:
         abortPending false, and every EQ24 GREEN cell above. RED: no battle_end reaches
         the client after the release (no Handshake latch; abortPending stays false).
   RED (commit S-E.1): exactly EQ24 and EQ24b fail, each on its RED cell.
+Boot E3 (ONE boot; stage S-E.3, P8b-2i ruling SE-4, F3684): Boot E2's bring-up and spine
+on its own lobby port (the client's battle_ready held, the host in phase Handshake, the
+client on its pre-battle screen, the aliens staged on both machines per SE-1). Then:
+  EQ24c (S-E.3, D210 b, SE-4) the host's close_briefing in phase Handshake, then the
+        host's OK on its AliensCrashState (dismiss_popup = the real btnOkClick) -> its
+        DebriefingState while still in Handshake; snapshot A; then the client's
+        hold_battle_ready {on: false}; the host's debriefing OK is never pressed.
+        Snapshot A (RED and GREEN): the host's top DebriefingState, phase Handshake,
+        equip.abortPending true, battleEnd emitted 0 and resultSent 0; the client
+        applied 0, its pre-battle screen on top. GREEN after the release: the host's
+        phase Ended, abortPending false, resultSent 1, and the client part of EQ24's
+        GREEN cells (the host's battle_end record, the client applies it, F2757, the
+        client's AliensCrashState within CLIENT_LEAVE_S, its teardown record, its OK ->
+        its display-only DebriefingState equal to the host's). EQ24's client hold and
+        its host OK step are not run (the host pressed its OK before the release).
+        RED (today, F3684 / F3731): after the release the host's phase Active with
+        abortPending true and emitted 0 (its debriefing deleted the battle before the
+        latch's send could read it); no battle_end reaches the client, which stays on
+        its pre-battle screen.
+  RED (commit S-E.3a): exactly EQ24c fails on its RED cell; EQ24 and EQ24b pass.
 
 Common asserts before each ending (both machines in the battle): hash_now {full:true}
 every bucket EQUAL after the queues drain (E2, phase Handshake: SA-5's rule above);
@@ -109,6 +129,7 @@ from test_w2_battle_end import (H_BUCKETS, DEBRIEF_WIDGETS, DEBRIEF_FIELDS, CLIE
 
 PORT_E1 = "48837"                  # Boot E1's lobby port (unused by every other test file)
 PORT_E2 = "48838"                  # Boot E2's lobby port (unused by every other test file)
+PORT_E3 = "48839"                  # Boot E3's lobby port (unused by every other test file)
 FACTION_HOSTILE = 1
 STATUS_DEAD = 6                    # src/Mod/Unit.h enum UnitStatus (T0-5's staging value)
 ALIEN_IDS = [1000000]              # t05.log: the host's live aliens before the staging at SEED_MAP 1
@@ -317,8 +338,9 @@ def spine_e1(host, client, ctx):
 
 
 def spine_e2(host, client, ctx):
-    """Boot E2's spine: the client's briefing (<= 30 s) with its battle_ready held (the host stays in phase
-    Handshake); the client's close_briefing -> its pre-battle screen; the staging."""
+    """Boot E2's spine (Boot E3 reuses it, ctx tag "E3"): the client's briefing (<= 30 s) with its battle_ready
+    held (the host stays in phase Handshake); the client's close_briefing -> its pre-battle screen; the staging."""
+    tag = ctx.get("tag", "E2")
     rec = {"arm": ctx.get("arm")}
     g0, d0 = wait_until(lambda: has(client, "BriefingState"), EQ1_WAIT_S, 0.1)
     rec["hold1"] = hold(client)
@@ -329,10 +351,10 @@ def spine_e2(host, client, ctx):
     if g0 and g2:
         stage_aliens(host, client, ctx)
     rec.update({"host": dump(host), "client": dump(client)})
-    print(f"SPINE E2: {json.dumps(rec, sort_keys=True, default=str)}", flush=True)
+    print(f"SPINE {tag}: {json.dumps(rec, sort_keys=True, default=str)}", flush=True)
     if not (g0 and g2 and rec["hold1"].get("held") is True and rec["host"].get("phase") == "Handshake"
             and top(host) == "BriefingState"):
-        raise AssertionError(f"spine: Boot E2's client screen / host briefing in phase Handshake never held ({rec})")
+        raise AssertionError(f"spine: Boot {tag}'s client screen / host briefing in phase Handshake never held ({rec})")
 
 
 # ===================== the ending (shared GREEN cells) =====================
@@ -386,9 +408,17 @@ def client_hold(client):
 
 
 def ending_green(host, client, row, ev, base):
-    """EQ24's GREEN cells after the client applied the host's battle_end: the hold, F2757, the host's OK, the
-    client's AliensCrashState, the client's OK and the display-only debrief. Fills ev; returns the failures."""
-    fails = []
+    """EQ24's GREEN cells after the client applied the host's battle_end (EQ24, EQ24b): the host-OK part (the
+    hold, the host's OK), then the client part (the client's AliensCrashState, its OK and the display-only debrief,
+    and every check). Fills ev; returns the failures."""
+    ending_host_ok(host, client, ev)
+    return ending_client(host, client, row, ev, base)
+
+
+def ending_host_ok(host, client, ev):
+    """The host-OK part of EQ24's GREEN cells: the client's pre-battle screen holds while the host's
+    AliensCrashState is up, then the host's OK -> its DebriefingState and the debrief result. Collects into ev
+    (clientHold, hostOk); ending_client checks it."""
     # 1. the client's pre-battle screen stays until the host's OK (the teardown waits for the debrief result)
     h = {"seen": client_hold(client), "view": view_brief(inv_view(client)),
          "tornDownMs": record(client).get("tornDownMs"), "resultWaitPasses": record(client).get("resultWaitPasses"),
@@ -401,6 +431,18 @@ def ending_green(host, client, row, ev, base):
     ev["hostOk"] = {"press": {k: hp.get(k) for k in ("ok", "handled", "error", "note")},
                     "debriefWithin": d1 if g1 else None, "resultSentWithin": d2 if g2 else None,
                     "hostStack": stack(host)}
+
+
+def ending_client(host, client, row, ev, base, host_ok=True):
+    """The client part of EQ24's GREEN cells after the client applied the host's battle_end: the client's
+    AliensCrashState, its OK and the display-only debrief. Prints the row's EVIDENCE line, then checks the whole
+    ending: with host_ok (EQ24, EQ24b) also the host-OK part's cells; without it (EQ24c: its host pressed the OK
+    before the release) F2757's counters are read here instead of after the hold. Returns the failures."""
+    fails = []
+    if not host_ok:
+        # F2757's counters (they reset only in initBattleAuthority(), so they outlive the client's teardown)
+        ev["clientF2757"] = {"forceCloseSkips": equip(client).get("forceCloseSkips"),
+                             "invForcedCloses": forced(client).get("count")}
     # 3. the client's AliensCrashState
     g3, d3 = wait_until(lambda: top(client) == "AliensCrashState", CLIENT_LEAVE_S, 0.1)
     ev["clientCrash"] = {"within": d3 if g3 else None, "stack": stack(client), "record": rec_brief(record(client)),
@@ -444,13 +486,16 @@ def ending_green(host, client, row, ev, base):
         fails.append(f"{row}: client battleEnd verdicts/tally {crec.get('perSeatVerdict')} {crec.get('tally')} != "
                      f"the host's {hrec.get('perSeatVerdict')} {hrec.get('tally')}")
     # --- the hold and F2757 ---
-    if h["seen"] != []:
-        fails.append(f"{row}: the client's top left its pre-battle screen before the host's OK (tops seen {h['seen']} "
-                     f"within {HOST_HOLD_S} s; want [] - the teardown waits for the host's debrief result)")
-    if not (h["view"].get("preBattle") is True and h["view"].get("top") is True):
-        fails.append(f"{row}: after the hold the client's view {h['view']} (want its pre-battle screen on top)")
-    if h["tornDownMs"] not in (0, None):
-        fails.append(f"{row}: the client was torn down before the host's OK (tornDownMs {h['tornDownMs']})")
+    h = ev["clientHold"] if host_ok else ev["clientF2757"]
+    if host_ok:
+        if h["seen"] != []:
+            fails.append(f"{row}: the client's top left its pre-battle screen before the host's OK (tops seen "
+                         f"{h['seen']} within {HOST_HOLD_S} s; want [] - the teardown waits for the host's debrief "
+                         f"result)")
+        if not (h["view"].get("preBattle") is True and h["view"].get("top") is True):
+            fails.append(f"{row}: after the hold the client's view {h['view']} (want its pre-battle screen on top)")
+        if h["tornDownMs"] not in (0, None):
+            fails.append(f"{row}: the client was torn down before the host's OK (tornDownMs {h['tornDownMs']})")
     f0, f1 = base.get("forceCloseSkips"), h.get("forceCloseSkips")
     if not (isinstance(f0, int) and isinstance(f1, int) and f1 > f0):
         fails.append(f"{row}: client equip.forceCloseSkips {f0} -> {f1} (want it to grow: the battle_end force-close "
@@ -459,18 +504,19 @@ def ending_green(host, client, row, ev, base):
         fails.append(f"{row}: client invForcedCloses.count {base.get('invForcedCloses')} -> {h.get('invForcedCloses')} "
                      f"(want unchanged, F2757)")
     # --- the host's OK and its debriefing ---
-    if (ev["hostOk"]["press"].get("handled")) != "AliensCrashState":
-        fails.append(f"{row}: the host's OK answered {ev['hostOk']['press']} (want handled AliensCrashState)")
-    if not g1:
-        fails.append(f"{row}: no host DebriefingState within {DEBRIEF_WAIT_S} s of its OK (host stack "
-                     f"{ev['hostOk']['hostStack']})")
-    if not g2:
-        fails.append(f"{row}: host battleEnd.resultSent={hrec.get('resultSent')} (want 1)")
-    for k, want in (("shown", True), ("onTop", True), ("displayOnly", False), ("page", 0), ("parseErrors", 0)):
-        if hdeb.get(k) != want:
-            fails.append(f"{row}: host debrief_state.{k}={hdeb.get(k)!r} (want {want!r})")
-    if hdeb.get("widgets") != DEBRIEF_WIDGETS:
-        fails.append(f"{row}: host debrief_state.widgets={hdeb.get('widgets')} (want {DEBRIEF_WIDGETS})")
+    if host_ok:
+        if (ev["hostOk"]["press"].get("handled")) != "AliensCrashState":
+            fails.append(f"{row}: the host's OK answered {ev['hostOk']['press']} (want handled AliensCrashState)")
+        if ev["hostOk"]["debriefWithin"] is None:
+            fails.append(f"{row}: no host DebriefingState within {DEBRIEF_WAIT_S} s of its OK (host stack "
+                         f"{ev['hostOk']['hostStack']})")
+        if ev["hostOk"]["resultSentWithin"] is None:
+            fails.append(f"{row}: host battleEnd.resultSent={hrec.get('resultSent')} (want 1)")
+        for k, want in (("shown", True), ("onTop", True), ("displayOnly", False), ("page", 0), ("parseErrors", 0)):
+            if hdeb.get(k) != want:
+                fails.append(f"{row}: host debrief_state.{k}={hdeb.get(k)!r} (want {want!r})")
+        if hdeb.get("widgets") != DEBRIEF_WIDGETS:
+            fails.append(f"{row}: host debrief_state.widgets={hdeb.get('widgets')} (want {DEBRIEF_WIDGETS})")
     # --- the client's AliensCrashState (Q10 a) ---
     if not g3:
         fails.append(f"{row}: the client's top {top(client)!r} {CLIENT_LEAVE_S} s after the host's OK (want "
@@ -598,12 +644,103 @@ def eq24b_no_aliens_in_handshake(host, client, ctx):
                       flush=True)
 
 
+def eq24c_host_ok_in_handshake(host, client, ctx):
+    """EQ24c (S-E.3, SE-4, F3684): the host dismisses 'all aliens killed' while still in phase Handshake; the
+    battle end must still reach the second player once its game has loaded (the release)."""
+    ev = {"arm": ctx.get("arm")}
+    released = False
+    try:
+        # (1) the precondition: Boot E2's spine state with the client's battle_ready held
+        pre, base = pre_ending(host, client, "EQ24c", ctx, "Handshake")
+        ev["base"] = base
+        if hold(client).get("held") is not True:
+            pre.append(f"EQ24c: precondition absent - the client's battle_ready is not held ({hold(client)})")
+        if pre:
+            evidence("EQ24c", ev)
+            finish(pre)
+        # (2) the host's briefing OK in phase Handshake -> its AliensCrashState
+        fx = host_close(host, ev)
+        if fx:
+            evidence("EQ24c", ev)
+            finish([f"EQ24c: {m}" for m in fx])
+        # (3) the host's OK on its AliensCrashState (dismiss_popup = the real btnOkClick) -> its DebriefingState
+        hp = host.cmd({"cmd": "dismiss_popup"})
+        g, d = wait_until(lambda: top(host) == "DebriefingState", DEBRIEF_WAIT_S)
+        ev["hostCrashOk"] = {"press": {k: hp.get(k) for k in ("ok", "handled", "error")},
+                             "debriefWithin": d if g else None, "hostStack": stack(host)}
+        # (4) snapshot A: the host's debriefing is up in phase Handshake, nothing has gone out
+        hr, cr, cv = record(host), record(client), inv_view(client)
+        a = {"hostTop": top(host), "hostPhase": es(host).get("phase"), "abortPending": equip(host).get("abortPending"),
+             "emitted": hr.get("emitted"), "resultSent": hr.get("resultSent"), "clientApplied": cr.get("applied"),
+             "clientTop": top(client), "clientView": view_brief(cv)}
+        ev["A"] = a
+        afails = []
+        if hp.get("handled") != "AliensCrashState":
+            afails.append(f"EQ24c: the host's OK on its AliensCrashState answered {ev['hostCrashOk']['press']} (want "
+                          f"handled AliensCrashState)")
+        for k, want in (("hostTop", "DebriefingState"), ("hostPhase", "Handshake"), ("abortPending", True),
+                        ("emitted", 0), ("resultSent", 0), ("clientApplied", 0), ("clientTop", "InventoryState")):
+            if a.get(k) != want:
+                afails.append(f"EQ24c: snapshot A {k}={a.get(k)!r} (want {want!r})")
+        if not (a["clientView"].get("preBattle") is True and a["clientView"].get("top") is True):
+            afails.append(f"EQ24c: snapshot A client view {a['clientView']} (want its pre-battle screen on top)")
+        if afails:
+            evidence("EQ24c", ev)
+            finish(afails)
+        # (5) the release; (6) the host's debriefing OK is never pressed
+        tr = time.time()
+        ev["release"] = hold(client, on=False)
+        released = True
+        g0, d0 = wait_until(lambda: es(host).get("phase") != "Handshake", PHASE_WAIT_S)
+        g1, d1 = wait_until(lambda: record(client).get("applied") == 1, END_WAIT_S, 0.1)
+        g2, d2 = wait_until(lambda: record(host).get("resultSent") == 1, RESULT_WAIT_S) if g1 else (None, None)
+        cv = inv_view(client)
+        ev["afterRelease"] = {"hostLeftHandshakeWithin": d0 if g0 else None, "clientEndWithin": d1 if g1 else None,
+                              "resultSentWithin": d2 if g2 else None, "sinceRelease": round(time.time() - tr, 3),
+                              "hostPhase": es(host).get("phase"), "abortPending": equip(host).get("abortPending"),
+                              "hostEmitted": record(host).get("emitted"),
+                              "hostResultSent": record(host).get("resultSent"), "hostTop": top(host),
+                              "clientTop": top(client), "clientPreBattle": cv.get("preBattle")}
+        ar = ev["afterRelease"]
+        if not g1:
+            ev["noEnd"] = {"host": dump(host), "client": dump(client)}
+            evidence("EQ24c", ev)
+            finish([f"EQ24c: no battle_end after the release (F3684): the client's battleEnd "
+                    f"{rec_brief(record(client))} (applied 1 never seen within {END_WAIT_S} s), its top "
+                    f"{ar['clientTop']!r}, preBattle {ar['clientPreBattle']}; snapshot A {a}; after the release the "
+                    f"host phase {ar['hostPhase']!r}, equip.abortPending {ar['abortPending']}, battleEnd emitted "
+                    f"{ar['hostEmitted']}, resultSent {ar['hostResultSent']} - RED: the host's debriefing deleted the "
+                    f"battle in phase Handshake, so the held battle_end never goes out (F3731)"])
+        fails = []
+        if ev["release"].get("sent") is not True:
+            fails.append(f"EQ24c: the release sent no held battle_ready ({ev['release']})")
+        if ar["hostPhase"] != "Ended":
+            fails.append(f"EQ24c: host phase {ar['hostPhase']!r} after the release (want Ended; left Handshake within "
+                         f"{ar['hostLeftHandshakeWithin']} s)")
+        if ar["abortPending"] is not False:
+            fails.append(f"EQ24c: host equip.abortPending={ar['abortPending']} after the release (want false)")
+        if not g2:
+            fails.append(f"EQ24c: host battleEnd.resultSent={record(host).get('resultSent')} within {RESULT_WAIT_S} s "
+                         f"of the client's battle_end (want 1: the held debrief result goes out after the release)")
+        fails += ending_client(host, client, "EQ24c", ev, base, host_ok=False)
+        finish(fails)
+    finally:
+        if not released:
+            rest = hold(client)
+            if rest.get("armed") or rest.get("held"):
+                rel = hold(client, on=False)
+                print(f"[w2p8b-se] EQ24c cleanup: released the hold {rel}; host phase {es(host).get('phase')}",
+                      flush=True)
+
+
 # (name, fn): a named step is a row (PASS/FAIL line); a None step is the fixture spine (a failure there fails the
 # run, and the row after it fails on its own preconditions).
 STEPS_E1 = ((None, spine_e1),
             ("EQ24", eq24_no_aliens_start))
 STEPS_E2 = ((None, spine_e2),
             ("EQ24b", eq24b_no_aliens_in_handshake))
+STEPS_E3 = ((None, spine_e2),
+            ("EQ24c", eq24c_host_ok_in_handshake))
 
 
 def check_boot(host, client, seated, tag):
@@ -631,8 +768,8 @@ def boot_e1(host, client):
     return {}
 
 
-def boot_e2(host, client):
-    bring_up_lobby_roster_pinned(host, client, PORT_E2)
+def boot_e2(host, client, port=PORT_E2, tag="E2"):
+    bring_up_lobby_roster_pinned(host, client, port)
     seated = {}
     ctx = {}
 
@@ -643,13 +780,21 @@ def boot_e2(host, client):
     session.bring_up_to_briefings(host, client, seated, seat_count=2,
                                   pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP}),
                                   pre_newbattle=pre_newbattle)
-    check_boot(host, client, seated, "E2")
+    check_boot(host, client, seated, tag)
+    return ctx
+
+
+def boot_e3(host, client):
+    """Boot E3 (S-E.3, row EQ24c) = Boot E2 on its own lobby port; spine_e2 reads the tag."""
+    ctx = boot_e2(host, client, PORT_E3, "E3")
+    ctx["tag"] = "E3"
     return ctx
 
 
 # (boot name, user-dir tag, bring-up, steps)
 BOOTS = (("E1", "e1", boot_e1, STEPS_E1),
-         ("E2", "e2", boot_e2, STEPS_E2))
+         ("E2", "e2", boot_e2, STEPS_E2),
+         ("E3", "e3", boot_e3, STEPS_E3))
 ROWS = [n for _, _, _, steps in BOOTS for n, _ in steps if n]
 
 
