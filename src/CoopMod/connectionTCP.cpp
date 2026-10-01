@@ -12984,7 +12984,11 @@ bool coopHostPartnerCamera(const BattleUnit* actor, const char* what)
 	}
 	if (origin == "endturn")
 		return false; // OR5 (a), P6-5 V4: an end of turn's explosions keep vanilla's camera
-	if (origin != "intent" && std::string(coopActorRelation(actor)) != "partner")
+	// W2-P6a S-C.3 (ruling SC-5, F4163; owner D131): in PvP (gm2 / gm3) every admitted intent is the OPPONENT's order,
+	// so the `intent` term is co-op only; in PvP only a partner-commanded actor suppresses (none with one seat per side).
+	const int gamemode = connectionTCP::getCoopGamemode();
+	const bool partnerIntent = origin == "intent" && gamemode != 2 && gamemode != 3;
+	if (!partnerIntent && std::string(coopActorRelation(actor)) != "partner")
 		return false;
 	CoopGhost::noteCameraSuppressed(what);
 	Log(LOG_INFO) << "[coop-camera] host suppressed " << (what ? what : "") << " (base origin '" << origin

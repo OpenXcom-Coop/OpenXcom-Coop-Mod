@@ -643,8 +643,9 @@ bool coopHostDivertUnitMessage(const BattleUnit* about, const char* key, const B
 /// probe's `camera.suppressed[what]` +1 - iff the action context stack's FRONT (base) entry has origin `intent` (the
 /// partner's order and everything nested in it, reactions and prox included; a lone nested entry counts by the base
 /// origin it carries) or @a actor is commanded by the partner's seat (another seat of this seat's faction: a panic, a
-/// berserk, a reaction shot by the partner's soldier). An `endturn` base is never suppressed (OR5 (a)). Writes no
-/// battle state.
+/// berserk, a reaction shot by the partner's soldier). The `intent` term applies only in co-op (gamemode not 2/3).
+/// In PvP every intent is the opponent's order (SC-5): only the partner term applies, never true with one seat per side.
+/// An `endturn` base is never suppressed (OR5 (a)). Writes no battle state.
 bool coopHostPartnerCamera(const BattleUnit* actor, const char* what);
 
 } // namespace OpenXcom
