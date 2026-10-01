@@ -24855,8 +24855,9 @@ void onReady(Game* game, const Json::Value& ready)
 	// SPEC 16 (W1-P17) M5 / SPEC 18 (r4 T4) M3: SKIPPED only for an
 	// IN-MEMORY rejoin (wasResumed && !fromDisk) - this whole block is
 	// fresh-battle-AUTHORING, not idempotent re-sync, and M1's live pause
-	// kept the host's own fog/baton/tally alive through it (SPEC 16
-	// behaviour, byte-unchanged). It RUNS for a fresh battle (!wasResumed) AND
+	// kept the host's own baton/tally alive through it (SPEC 16 behaviour,
+	// byte-unchanged) but NOT its hostile fog (W2-H12: the else-branch below
+	// re-authors it). It RUNS for a fresh battle (!wasResumed) AND
 	// for a DISK resume (fromDisk): a disk resume's host fog/reveal is EMPTY
 	// (F348(4): "has no save representation" - the process just restarted)
 	// and its baton must be RESTORED, not re-seeded at the D-23 default, so
@@ -24864,8 +24865,8 @@ void onReady(Game* game, const Json::Value& ready)
 	// step calls onBattleResumed() (the persisted holder) instead of
 	// onBattleActive() (always seat 0). A rejoining client's own fog/reveal
 	// state is freshly allocated on ITS side regardless (onBlobChunkAppended's
-	// CoopFog::reset()/ensureAllocated()), so nothing here needs to re-run on
-	// the host to match a REJOIN (as opposed to a resume) client.
+	// CoopFog::reset()/ensureAllocated()) and EMPTY: the host's hostile
+	// baseline restate fills it, after a rejoin too (W2-H12).
 	if (!wasResumed || fromDisk)
 	{
 		if (SavedBattleGame* activeBattle = connectionTCP::getStaticBattle())
@@ -24893,12 +24894,21 @@ void onReady(Game* game, const Json::Value& ready)
 			}
 		}
 	}
+	else if (SavedBattleGame* activeBattle = connectionTCP::getStaticBattle())
+	{
+		// W2-H12 (SD-2, F3603/F3620): the leave's CoopPump::reset ran CoopReveal::reset ->
+		// CoopFog::reset (only the authority is spared), so the hostile set is re-authored here;
+		// the baton/tally step stays skipped because M1 kept it.
+		CoopFog::ensureAllocated(activeBattle);
+		CoopFog::authorHostilePass(activeBattle, true);
+		CoopReveal::armHostileBaseline();
+	}
 
 	Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId
 		<< (fromDisk ? ", RESUMED (disk) - peerAbsent cleared, admission resumed, "
 			"fog/reveal re-authored, baton restored"
 			: wasResumed ? ", RESUMED (in-memory rejoin) - peerAbsent cleared, admission resumed, "
-			"fresh-battle bootstrap skipped" : "") << ")";
+			"hostile fog re-authored, baton kept" : "") << ")";
 }
 
 void resetPendingState()
