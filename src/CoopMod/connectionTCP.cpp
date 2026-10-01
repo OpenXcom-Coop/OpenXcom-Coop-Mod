@@ -15506,8 +15506,9 @@ bool coopSuppressReinforcements(const SavedBattleGame*)
 	return !coopBattleAuthority().hostSim;
 }
 
-// W2-P8b S-E.2: coopHostBattleEnd's tail, extracted below it (shared with the aliens-crashed end).
-static void coopHostSendBattleEnd(SavedBattleGame* save, const std::string& reason, bool aborted, int inExitArea,
+// W2-P8b S-E.2: coopHostBattleEnd's tail, extracted below it (shared with the aliens-crashed end). S-E.3 (SE-4):
+// the caller supplies `h`, so a battle_end held across the Handshake latch carries the hash taken at the latch.
+static void coopHostSendBattleEnd(const Json::Value& h, const std::string& reason, bool aborted, int inExitArea,
 	const char* xcomVerdict, const char* hostileVerdict, const BattlescapeTally& t);
 
 // ===== W2-P7 S-A.2: the host's battle_end (BattleAuthority.h) =====
@@ -15585,7 +15586,7 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 	//    takes the complement, `abort` on an abort (ST6 (a), until D157).
 	const char* xcomVerdict = abort ? "abort" : (inExitArea == 0 ? "lose" : "win");
 	const char* hostileVerdict = abort ? "abort" : (inExitArea == 0 ? "win" : "lose");
-	coopHostSendBattleEnd(save, reason, aborted, inExitArea, xcomVerdict, hostileVerdict, t);
+	coopHostSendBattleEnd(coopBuildActionEndHash(save), reason, aborted, inExitArea, xcomVerdict, hostileVerdict, t);
 }
 
 // ===== W2-P8b S-E.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 S-E; owner D210 b;
@@ -15593,7 +15594,7 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 // battle for both players. coopHostBattleEnd's tail (step 5's per-seat verdicts, step 6: the envelope, the record, the
 // send, phase Ended) is EXTRACTED into this helper so the aliens-crashed end below shares the one battle_end makeEv
 // (F3115). =====
-static void coopHostSendBattleEnd(SavedBattleGame* save, const std::string& reason, bool aborted, int inExitArea,
+static void coopHostSendBattleEnd(const Json::Value& h, const std::string& reason, bool aborted, int inExitArea,
 	const char* xcomVerdict, const char* hostileVerdict, const BattlescapeTally& t)
 {
 	Json::Value perSeatVerdict(Json::arrayValue);
@@ -15628,7 +15629,7 @@ static void coopHostSendBattleEnd(SavedBattleGame* save, const std::string& reas
 	tally["liveSoldiers"] = t.liveSoldiers;
 	tally["inExit"] = t.inExit;
 	p["tally"] = tally;
-	ev["h"] = coopBuildActionEndHash(save);
+	ev["h"] = h;
 
 	Json::Value hBuckets(Json::arrayValue);
 	for (const auto& name : ev["h"].getMemberNames())
@@ -15685,17 +15686,55 @@ static BattlescapeTally coopTallyUnitsDonor(SavedBattleGame* save)
 	return tally;
 }
 
+// W2-P8b S-E.3 (SE-4, F3684): what the Handshake latch holds for the release (main thread only; meaningful only while
+// g_equip.abortPending): the battle_end's `h` and tally taken at the latch (F3737), and the bt_debrief_result a host
+// debriefing built before the release (its init drops the battle, F3730).
+static Json::Value g_equipHeldH;
+static Json::Value g_equipHeldResult;
+static BattlescapeTally g_equipHeldTally = { };
+
+// W2-P8b S-E.3 (SE-4): the one bt_debrief_result send (coopDebriefHostSend, and the release below): the send, the
+// record's resultSent 1 and resultBytes. Returns the bytes.
+static int coopDebriefSendResult(Json::Value& msg)
+{
+	Json::StreamWriterBuilder wb;
+	wb["indentation"] = "";
+	const int bytes = (int)Json::writeString(wb, msg).size();
+	CoopEmit::sendBattle(msg);
+	CoopDelta::battleEndRecordSet("resultSent", 1);
+	CoopDelta::battleEndRecordSet("resultBytes", bytes);
+	return bytes;
+}
+
 // W2-P8b S-E.2: the aliens-crashed battle_end - reason aliensCrashed, aborted false, inExitArea 1, the X-COM verdict
 // `win` (the hostile seat the complement), the donor's tally. In phase Handshake nothing goes out before the
-// partner's battle_ready (Q16): the latch abortPending, emitted by onReady at Active.
-static void coopHostAliensCrashed(Game* game)
+// partner's battle_ready (Q16): the latch abortPending (S-E.3: with the held h and tally), and onReady's @a release
+// at Active sends the held battle_end whether or not the battle still exists, then any held debrief result.
+static void coopHostAliensCrashed(Game* game, bool release = false)
 {
+	if (!coopBattleAuthority().hostSim)
+		return;
+	if (release)
+	{
+		g_equip.abortPending = false;
+		coopHostSendBattleEnd(g_equipHeldH, "aliensCrashed", false, 1, "win", "lose", g_equipHeldTally);
+		if (!g_equipHeldResult.isNull())
+		{
+			const int bytes = coopDebriefSendResult(g_equipHeldResult);
+			g_equipHeldResult = Json::Value();
+			Log(LOG_INFO) << "[coop-debrief] host: the held bt_debrief_result sent at the release bytes=" << bytes;
+		}
+		return;
+	}
 	SavedBattleGame* save = (game && game->getSavedGame()) ? game->getSavedGame()->getSavedBattle() : nullptr;
-	if (!save || !coopBattleAuthority().hostSim || save->isPreview())
+	if (!save || save->isPreview())
 		return;
 	if (coopBattleAuthority().phase.load() == CoopBattlePhase::Handshake)
 	{
 		g_equip.abortPending = true;
+		g_equipHeldH = coopBuildActionEndHash(save);
+		g_equipHeldTally = coopTallyUnitsDonor(save);
+		g_equipHeldResult = Json::Value();
 		Log(LOG_INFO) << "[coop-battle-end] host: no live alien at the briefing OK in phase Handshake - the "
 			"aliens-crashed battle_end waits for Active (Q16)";
 		return;
@@ -15703,7 +15742,8 @@ static void coopHostAliensCrashed(Game* game)
 	g_equip.abortPending = false;
 	if (!isCoopBattle())
 		return;
-	coopHostSendBattleEnd(save, "aliensCrashed", false, 1, "win", "lose", coopTallyUnitsDonor(save));
+	coopHostSendBattleEnd(coopBuildActionEndHash(save), "aliensCrashed", false, 1, "win", "lose",
+		coopTallyUnitsDonor(save));
 }
 
 // ===== W2-P7 S-B1.2: the debrief hooks (connectionTCP.h; vanilla V3/V4/V5) =====
@@ -15873,13 +15913,16 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	if (!db || !getServerOwner())
 		return;
 	const BattleAuthority& a = coopBattleAuthority();
-	if (!a.hostSim || a.phase.load() != CoopBattlePhase::Ended)
+	// W2-P8b S-E.3 (SE-4): a debriefing opened in phase Handshake on the aliens-crashed latch builds its result now
+	// and holds it for the release (the battle_end has not gone out yet).
+	const bool held = a.phase.load() == CoopBattlePhase::Handshake && g_equip.abortPending.load();
+	if (!a.hostSim || (a.phase.load() != CoopBattlePhase::Ended && !held))
 		return;
 	SavedGame* sg = _game->getSavedGame();
 	if (!sg || sg->getMonthsPassed() != -1)
 		return;
 	const Json::Value rec = CoopDelta::battleEndRecord();
-	if (rec.get("emitted", 0).asInt() != 1 || rec.get("resultSent", 0).asInt() != 0)
+	if ((!held && rec.get("emitted", 0).asInt() != 1) || rec.get("resultSent", 0).asInt() != 0)
 		return;
 	// W2-P7 S-B2.2 (AMENDMENT P7-4): from here this is the host's co-op skirmish battle-end debriefing - its OK resets
 	// the battle scope and a peer's leave while it is open is silent. Before the seat check: a gm2 host is marked too.
@@ -15953,12 +15996,13 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	debrief["recovered"] = recovered;
 
 	Json::Value msg = CoopWire::makeDebriefResult(a.battleId.load(), debrief);
-	Json::StreamWriterBuilder wb;
-	wb["indentation"] = "";
-	const int bytes = (int)Json::writeString(wb, msg).size();
-	CoopEmit::sendBattle(msg);
-	CoopDelta::battleEndRecordSet("resultSent", 1);
-	CoopDelta::battleEndRecordSet("resultBytes", bytes);
+	if (held)
+	{
+		g_equipHeldResult = msg;
+		Log(LOG_INFO) << "[coop-debrief] host: bt_debrief_result held for the release (phase Handshake, SE-4)";
+		return;
+	}
+	const int bytes = coopDebriefSendResult(msg);
 	Log(LOG_INFO) << "[coop-debrief] host: bt_debrief_result sent battleId=" << a.battleId.load() << " bytes=" << bytes
 		<< " stats=" << stats.size() << " soldiers=" << soldiers.size() << " recovered=" << recovered.size();
 }
@@ -24854,12 +24898,15 @@ void onReady(Game* game, const Json::Value& ready)
 
 	// W2-P8b S-E.2 (P8b-1 RULINGS Q16 (a), F3126): the host closed its briefing on an all-aliens-dead start while
 	// still in phase Handshake - the held aliens-crashed battle_end is the first ev after Active, and the fresh-battle
-	// bootstrap below is skipped (the battle is over).
+	// bootstrap below is skipped (the battle is over). S-E.3 (SE-4, F3786): the log states what the release did.
 	if (g_equip.abortPending.load())
 	{
-		coopHostAliensCrashed(game);
+		coopHostAliensCrashed(game, /*release=*/true);
+		const Json::Value rec = CoopDelta::battleEndRecord();
 		Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId
-			<< ") - the held aliens-crashed battle_end went out, fresh-battle bootstrap skipped";
+			<< ") - the held aliens-crashed battle_end released: emitted=" << rec.get("emitted", 0).asInt()
+			<< " seq=" << rec.get("seq", 0).asInt() << " resultSent=" << rec.get("resultSent", 0).asInt()
+			<< ", fresh-battle bootstrap skipped";
 		return;
 	}
 
