@@ -615,6 +615,21 @@ bool coopIsRemoteIntentAction(const BattleAction& action);
 /// vanilla's own expression, so vanilla is byte-identical there. No side effect.
 bool coopForceFirePressed(const SavedBattleGame* save);
 
+// ----- W2-P6b S-L, commit S-L.1: the hit-log mirror probe (owner D172 (a)) -----
+// Spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6, AMENDMENT P6-6 section 5 and ruling SL-1. Body:
+// connectionTCP.cpp, right after coopShotTrajectories() (the probe storage, outside every RW-REPLAY-REGION).
+
+/// [hitLogMirror] the event_state probe of THIS machine: {noted, sent, applied, localSuppressed, pending, dropped,
+/// last: [the last 32 entries {seq, t, f, k?}]}. HOST: `noted` = hit-log entries recorded after vanilla's player-side
+/// check, `sent` = entries attached to an outermost emit (counted per entry, not per envelope), `pending` = the size of
+/// the list waiting for the next emit, `last` = the entries sent with their carrying seq. CLIENT: `applied` = entries
+/// appended from an applied envelope, `localSuppressed` = its own ActionMenuState PLAYER_FIRING appends skipped, `last`
+/// = the entries applied with their carrier's seq. `dropped` = entries discarded before they were sent or applied.
+/// `t` = HitLogEntryType, `f` = UnitFaction, `k` = [the weapon type] for PLAYER_FIRING, [the message keys] for
+/// NEW_TURN_WITH_MESSAGE, absent otherwise. Probe storage only at S-L.1 (all zero, `last` empty): S-L.2 writes it.
+/// Main thread only; battle-scoped (cleared on the first use after CoopGhost::reset() bumps the combat generation).
+Json::Value coopHitLogMirrorProbe();
+
 // ----- W2-P6a S-M, commit S-M.2: the battle messages on the HOST (owner D132) -----
 // Spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (b)1, the W2-P6a plan review section 4 (OR1 (a)),
 // AMENDMENT P6-5 section 3. Body: connectionTCP.cpp, right after the CoopBattleUi namespace (the message store).

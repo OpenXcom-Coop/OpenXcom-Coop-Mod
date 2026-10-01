@@ -146,6 +146,17 @@ camera.suppressed.hitLevel +1 and the host view level still 1. RED (commit
 S-C.1): the counter +0 and the view level moved to the target's. One
 "EVIDENCE KR6 <order>:" line per order.
 
+W2-P6b S-L row L7 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5
+section 6; owner D172 (a), V6 / V7): the hit log after each of the second
+player's own orders, both machines in English. After C21 (stun rod), each C22
+leg (psi amp) and C23d (mind probe): the client's hitLog.text == the host's,
+and the host's text starts with the English weapon name (test_w2_hit_log
+WEAPONS_EN) - the weapon line the host now logs at the order's executor, which
+the client's own local line gives way to. RED (commit S-L.1): the host logs no
+weapon line for the partner's order and the client's text is its own local
+log; C21, C22 and C23d fail only on L7, C22o passes. One "EVIDENCE L7 <order>:"
+line per order.
+
 Probes: all exist before this file (S-A.1 added coopIntentsSent,
 intentsReceived, lastActionHalt, lastAftermath). The cue payloads are read from
 the HOST's own openxcom.log `[coop-cue]` lines.
@@ -199,6 +210,7 @@ from test_w2_client_grenade import (admitted_fails, cancel_client_targeting, ope
                                     host_payloads_of)
 from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, client_quiet
 from test_w2_host_combat import cam_snap, cam_offset, stage_camera, cam_suppressed_delta, cam_view, K_HOSTFAR_TERROR
+from test_w2_hit_log import hl_snap, hl_view, first_line, WEAPONS_EN
 
 # ----- bring-up (TASK 0: the roster-pinned terror boot) -----
 MISSION = "STR_TERROR_MISSION"
@@ -423,6 +435,24 @@ def dismiss_host_infobox(host, box):
                 "after": top(host)})
 
 
+def l7_fails(what, s, weapon):
+    """W2-P6b S-L row L7 (AMENDMENT P6-5 section 6; owner D172 (a), V6): after one of the second player's own orders
+    (the host runs it at the order's executor), both machines in English: the client's hitLog.text == the host's and
+    the host's text starts with the English weapon name (the partner's weapon line the host now logs, its first line).
+    `s` = hl_snap() after the order settled. Prints one "EVIDENCE L7 <what>:" line."""
+    want = WEAPONS_EN[weapon]
+    print(f"EVIDENCE L7 {what}: weapon {weapon} -> {want!r}; {hl_view(s)}", flush=True)
+    hl, cl = s["host"]["log"], s["client"]["log"]
+    fails = []
+    if first_line(hl.get("text")) != want:
+        fails.append(f"L7 {what}: the host's hitLog first line {first_line(hl.get('text'))!r} (text {hl.get('text')!r}; "
+                     f"want {want!r}: the partner's weapon line, V6)")
+    if cl.get("text") != hl.get("text"):
+        fails.append(f"L7 {what}: client hitLog text {cl.get('text')!r} != host {hl.get('text')!r} (want the host's "
+                     f"log mirrored)")
+    return fails
+
+
 def kr6_fails(what, staged, cam0, cam1):
     """W2-P6a S-C row KR6 (P6a review section 2, ST1 (a); owner D131): one order of the second player's melee / psi.
     The host's camera.suppressed.hitLevel +1 and its view level still the staged 1. Prints one "EVIDENCE KR6 <what>:"
@@ -465,6 +495,7 @@ def c21_stun(host, client, ctx):
     settle(host, client, notes)
     kr6 = kr6_fails("C21", kr6_staged, cam0, cam_snap(host, client))   # W2-P6a S-C row KR6
     rec = collect(host, client, seq0)
+    hl21 = hl_snap(host, client)   # W2-P6b S-L row L7
     new = ctx_view(before, rec)
     hits = [c for c in new if c.get("origin") == "intent" and c.get("kind") == "melee" and c.get("actorId") == C_ID]
     aid = hits[0]["actionId"] if len(hits) == 1 else None
@@ -481,6 +512,7 @@ def c21_stun(host, client, ctx):
     # W2-P6b S-E row E1 (review section 2; section 9 E-b): C's own stun-rod swing as a melee ghost on the client
     e1 = impact_row("E1", host, client, snap_e, [(next((e["seq"] for e in chain if e["kind"] == "melee"), None),
                                                   "melee")], STUN_ROD)
+    l7 = l7_fails("C21", hl21, STUN_ROD)   # W2-P6b S-L row L7
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
@@ -510,6 +542,7 @@ def c21_stun(host, client, ctx):
                      f"sent as an order)")
     fails += e1
     fails += kr6
+    fails += l7
     fails += common_fails(host, client, before, "C21")
     finish(fails)
 
@@ -534,6 +567,7 @@ def c23d_probe(host, client, ctx):
     settle(host, client, notes)
     rec = collect(host, client, seq0)
     rng1 = rng_of(client)
+    hl23 = hl_snap(host, client)   # W2-P6b S-L row L7
     tops = {"host": top(host), "client": top(client)}
     new = ctx_view(before, rec)
     hits = [c for c in new if c.get("origin") == "intent" and c.get("kind") == "mindprobe"
@@ -547,6 +581,7 @@ def c23d_probe(host, client, ctx):
           f"client={ubrief(rec['uc'].get(C_ID))}; A host={a_view(rec['uh'].get(A_ID))} "
           f"client={a_view(rec['uc'].get(A_ID))}; diff={rec['diff']} desync={rec['dsc']}; client rngSeed {rng0} -> "
           f"{rng1}; notes={notes}", flush=True)
+    l7 = l7_fails("C23d", hl23, MIND_PROBE)   # W2-P6b S-L row L7
     fails = list(notes)
     # W2-P6b S-E (AMENDMENT P6b-1: F1750 folded into S-E; P6b-2: F1762 TRACE, F1763): the client's own mind-probe
     # aftermath plays the probe's hit sound; it must never draw the sim RNG (V4, F1512). At the S-E.1 red the client
@@ -571,6 +606,7 @@ def c23d_probe(host, client, ctx):
     if tops["host"] == "UnitInfoState":
         fails.append("host top state UnitInfoState (want none on the host: the screen is the ordering player's)")
     fails += aftermath_fails(rec, aid, None, "C23d")
+    fails += l7
     fails += common_fails(host, client, before, "C23d")
     finish(fails)
 
@@ -596,6 +632,7 @@ def psi_leg(host, client, key, seed, action, notes, box):
     kr6_cam1 = cam_snap(host, client)
     rec = collect(host, client, seq0)
     rec["kr6"] = (kr6_staged, cam0, kr6_cam1)   # W2-P6a S-C row KR6
+    rec["hl"] = hl_snap(host, client)           # W2-P6b S-L row L7
     # F1702 (P6a review section 5): the client's own success box closed before the next leg / C22o
     rec["boxWait"] = client_quiet(client, timeout=BOX_WAIT_S)
     rec["msg"] = (mb, msg_snap(host, client), seq0)
@@ -688,6 +725,8 @@ def c22_psi(host, client, ctx):
                                                                                 Q_C22M, "leg M")
     # W2-P6a S-C row KR6 (both legs)
     kr6 = kr6_fails("C22 leg P", *rec["kr6"]) + kr6_fails("C22 leg M", *rec_m["kr6"])
+    # W2-P6b S-L row L7 (both legs)
+    l7 = l7_fails("C22 leg P", rec["hl"], PSI_AMP) + l7_fails("C22 leg M", rec_m["hl"], PSI_AMP)
     fails = list(notes) + list(notes_m)
     fails += fov_fails(fv)
     if staged:
@@ -711,6 +750,7 @@ def c22_psi(host, client, ctx):
     fails += e2
     fails += mr3
     fails += kr6
+    fails += l7
     finish(fails)
 
 

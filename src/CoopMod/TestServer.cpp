@@ -114,6 +114,7 @@
 #include "../Savegame/ResearchProject.h"
 #include "../Savegame/Production.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/HitLog.h" // W2-P6b S-L.1: battle_state `hitLog` reads the battle's HitLog
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
@@ -6893,6 +6894,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// CLIENT's camera-move records and the HOST's guard counters, both machines; S-C.1 writes only the camera
 		// reads (CoopGhost.h cameraProbe()).
 		resp["camera"] = CoopGhost::cameraProbe();
+		// W2-P6b S-L.1 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6, AMENDMENT P6-6 section 5;
+		// owner D172 (a)): the hit-log mirror probe - the HOST's noted / sent / pending entries, the CLIENT's applied
+		// and locally suppressed ones, the last 32 {seq, t, f, k}, both machines; S-L.1 writes nothing (CoopDelta.h
+		// coopHitLogMirrorProbe()).
+		resp["hitLogMirror"] = coopHitLogMirrorProbe();
 		resp["derivedPaths"] = CoopGhost::derivedPaths();
 		resp["rngSeed"] = Json::Value::Int64((int64_t)RNG::getSeed());
 		resp["shotTrajectories"] = coopShotTrajectories();
@@ -10251,6 +10257,22 @@ std::string TestServer::execute(const std::string& line)
 				resp["inBattle"] = true;
 				resp["turn"] = bg->getTurn();
 				resp["side"] = (int)bg->getSide();
+				// W2-P6b S-L.1 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6; owner D172 (a)): the
+				// battle's hit log as this machine renders it, read-only - the Ctrl-H text (HitLog::getHitLogText) and the
+				// Ctrl-Alt-H turn diary (HitLog::getTurnDiary). Neither is serialized nor hashed.
+				{
+					const HitLog* hl = bg->getHitLog();
+					Json::Value jh(Json::objectValue);
+					jh["text"] = hl ? hl->getHitLogText() : std::string();
+					Json::Value diary(Json::arrayValue);
+					if (hl)
+					{
+						for (const std::string& d : hl->getTurnDiary())
+							diary.append(d);
+					}
+					jh["diary"] = diary;
+					resp["hitLog"] = jh;
+				}
 				resp["missionType"] = bg->getMissionType();
 				// W1-P2 (WR-23, WAVE1-RUNBOOK.md SS2.W1): mission IDENTITY, added
 				// ADDITIVELY - the branch reported missionType but neither display

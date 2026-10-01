@@ -4682,6 +4682,63 @@ Json::Value coopShotTrajectories()
 	return out;
 }
 
+// ---------------------------------------------------------------------------
+// W2-P6b S-L.1 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6, AMENDMENT P6-6 section 5 and
+// ruling SL-1; owner D172 (a)): the hit-log mirror probe storage (CoopDelta.h coopHitLogMirrorProbe(), event_state
+// `hitLogMirror`). The HOST mirrors each hit-log entry that passes vanilla's player-side check as {t, f, k?} into a
+// pending list that rides its next outermost emit (the envelope field `hitLog`); the CLIENT appends what it applies,
+// rendered in its own language. Probe storage only at S-L.1: nothing writes it yet (S-L.2's note, sendEv attach,
+// envelope apply and local PLAYER_FIRING suppression do). Main thread only; battle-scoped like the shotTrajectories
+// ring above: cleared on the first main-thread use after CoopGhost::reset() bumps g_coopCombatGen (W2-P5 OQ4).
+// Outside every RW-REPLAY-REGION.
+// ---------------------------------------------------------------------------
+namespace
+{
+
+struct CoopHitLogMirrorStore
+{
+	unsigned int gen = 0;
+	unsigned int noted = 0;            // HOST: entries recorded after vanilla's player-side check
+	unsigned int sent = 0;             // HOST: entries attached to an outermost emit (per entry, F4238)
+	unsigned int applied = 0;          // CLIENT: entries appended from an applied envelope
+	unsigned int localSuppressed = 0;  // CLIENT: its own ActionMenuState PLAYER_FIRING appends skipped (V7)
+	unsigned int dropped = 0;          // entries discarded before they were sent or applied
+	std::vector<Json::Value> pending;  // HOST: entries {t, f, k?} waiting for the next outermost emit
+	std::deque<Json::Value> last;      // the last kCoopHitLogLastCap entries sent (HOST) / applied (CLIENT) {seq, t, f, k?}
+};
+CoopHitLogMirrorStore g_coopHitLogMirror;
+const std::size_t kCoopHitLogLastCap = 32;
+
+void coopHitLogMirrorSync()
+{
+	const unsigned int g = g_coopCombatGen.load();
+	if (g_coopHitLogMirror.gen != g)
+	{
+		g_coopHitLogMirror = CoopHitLogMirrorStore();
+		g_coopHitLogMirror.gen = g;
+	}
+}
+
+} // namespace
+
+Json::Value coopHitLogMirrorProbe()
+{
+	coopHitLogMirrorSync();
+	const CoopHitLogMirrorStore& s = g_coopHitLogMirror;
+	Json::Value o(Json::objectValue);
+	o["noted"] = s.noted;
+	o["sent"] = s.sent;
+	o["applied"] = s.applied;
+	o["localSuppressed"] = s.localSuppressed;
+	o["pending"] = (Json::UInt)s.pending.size();
+	o["dropped"] = s.dropped;
+	Json::Value last(Json::arrayValue);
+	for (const Json::Value& e : s.last)
+		last.append(e);
+	o["last"] = last;
+	return o;
+}
+
 /// W2-P5 S-B.2 (spec rewrite/prompts/w2p5_display_ghosts.md ruling Q2 (b), amendment E1 OQ2 (a)): the two
 /// additive payload fields of the `hit` / `explosion` / `melee` / `psi` cues - the RuleItem type strings of
 /// the attack's weapon (`weaponType`) and damage item (`itemType`), each only when present (an itemless

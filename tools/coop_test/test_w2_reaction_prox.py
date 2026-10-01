@@ -42,6 +42,17 @@ Three scenarios, ONE boot, in this order (TASK 0a / 0c one-boot order):
        bt_action_end whose `after` equals the offset at R's first shot, and
        {own_walker_level} per W step. RED (commit S-C.1): counters 0, the host
        offset and view level moved, no client move. One "EVIDENCE KR2:" line.
+       W2-P6b S-L row L5 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT
+       P6-5 section 6, ruling SL-1; owner D172 (a)): the hit log, both
+       machines in English. At the quiescent point after the prep END TURN
+       cycle (before the staging) the host holds one pending entry (the
+       cycle's NEW_TURN, F4239) and both logs render equal; after the walk the
+       client's hitLog text and diary == the host's, the host's text holds
+       "Reaction fire...", the host sent L5_ENTRIES since the quiescent point
+       (T0L-1, per entry) and the client applied every entry the host sent.
+       RED (commit S-L.1): the two logs differ after the walk (the client
+       keeps its own "New Turn"), the mirror counters stay 0. One
+       "EVIDENCE L5:" line.
   C8k  the kneeling walker (B1 RQ4 (a)). A reactions 0 (BOTH); C health
        C_MAX_HEALTH + tu TU_MAX (BOTH); C and A back on the C8 tiles (BOTH);
        the client kneels C (real SDLK_k); A reactions 100 + tu A_TU refilled
@@ -137,6 +148,7 @@ from test_w2_host_combat import evs_since, ev_tuples, cue_probes, cue_delta
 from test_w2_host_combat import camera_of, cam_snap, cam_offset, stage_camera, cam_moves, mv, cam_suppressed_delta,     cam_view
 from test_w2_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta, ctx_of, ctx_view, sv, by_seq,
                                 CHAIN_KINDS, end_turn_cycle, bring_up_lobby_roster_pinned)
+from test_w2_hit_log import hl_snap, hl_view, hl_count, hl_delta, STRINGS_EN
 
 # ----- bring-up (W2-P3 TASK 0a, ledger `## W2-P3 TASK 0a`) -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
@@ -167,6 +179,11 @@ KR2_WALKLEVEL_PER_STEP = 2             # ruling SC-3 (a), F4143: with the host c
                                        # so UnitWalkBState runs keepWalking(..., false) (end = 2) and writes the view level
                                        # (:204) on both calls of each step - traced over 4 steps (C8, C8k, C11); the guard
                                        # counts every write it suppresses (no dedupe)
+# W2-P6b S-L row L5 (AMENDMENT P6-5 section 6, ruling SL-1; owner D172 (a)): TASK 0 T0L-1 (F4238/F4241)
+L5_ENTRIES = 10                        # from the quiescent point after C8's END TURN cycle to the walk's end the host
+                                       # sends the cycle's pending NEW_TURN + 9 chain entries (REACTION_FIRE x4,
+                                       # NEW_SHOT, NEW_SHOT, BIG_DAMAGE, NEW_SHOT, NO_DAMAGE) on 6 evs, counted per entry
+L5_PENDING_AT_QUIET = 1                # SL-1 (F4239): the cycle's NEW_TURN waits for the host's next emit
 
 # ----- C8k (T0c constants.md "C8k") -----
 SEED_C8K = 2                           # host set_seed right before the client's click
@@ -515,6 +532,40 @@ def kr2_fails(rec, staged, cam0, cam1):
     return fails
 
 
+def l5_fails(hl_a, hl_q, hl_b):
+    """W2-P6b S-L row L5 (AMENDMENT P6-5 section 6; ruling SL-1; owner D172 (a)): the reaction fire at the client's
+    walker in the hit log, both machines in English. At the quiescent point after C8's END TURN cycle (before C8's
+    staging): the host holds exactly L5_PENDING_AT_QUIET pending entry (the cycle's NEW_TURN, SL-1 / F4239) and both
+    logs render equal (L-S1). After the walk: the client's hitLog text and diary == the host's, the host's text holds
+    "Reaction fire...", the host sent L5_ENTRIES entries since the quiescent point (T0L-1, per entry), nothing is
+    pending and the client applied every entry the host sent (applied == sent). Prints one "EVIDENCE L5:" line."""
+    hq, cq = hl_q["host"], hl_q["client"]
+    hb, cb = hl_b["host"], hl_b["client"]
+    sent = hl_delta(hl_q, hl_b, "host", "sent")
+    print(f"EVIDENCE L5: before the cycle {hl_view(hl_a)}; quiescent point {hl_view(hl_q)}; after the walk "
+          f"{hl_view(hl_b)}", flush=True)
+    fails = []
+    if cb["log"] != hb["log"]:
+        fails.append(f"L5: client hitLog {cb['log']} != host {hb['log']} after the walk (want the same text and diary: "
+                     f"the host's log mirrored)")
+    if STRINGS_EN["REACTION_FIRE"] not in (hb["log"].get("text") or ""):
+        fails.append(f"L5: host hitLog text {hb['log'].get('text')!r} (want it to hold "
+                     f"{STRINGS_EN['REACTION_FIRE']!r})")
+    if hl_count(hq["mirror"], "pending") != L5_PENDING_AT_QUIET:
+        fails.append(f"L5: the host's pending entries at the quiescent point after the cycle "
+                     f"{hl_count(hq['mirror'], 'pending')} (want {L5_PENDING_AT_QUIET}: the cycle's NEW_TURN, SL-1)")
+    if cq["log"] != hq["log"]:
+        fails.append(f"L5: client hitLog {cq['log']} != host {hq['log']} at the quiescent point after the cycle (want "
+                     f"equal renders, L-S1)")
+    if sent != L5_ENTRIES or hl_count(hb["mirror"], "pending"):
+        fails.append(f"L5: the host sent +{sent} entries from the quiescent point to the walk's end, pending "
+                     f"{hl_count(hb['mirror'], 'pending')} (want +{L5_ENTRIES}, 0: T0L-1)")
+    if hl_count(cb["mirror"], "applied") != hl_count(hb["mirror"], "sent"):
+        fails.append(f"L5: client applied {hl_count(cb['mirror'], 'applied')} != host sent "
+                     f"{hl_count(hb['mirror'], 'sent')} after the walk (want equal, SL-1)")
+    return fails
+
+
 # ===================== scenarios =====================
 
 
@@ -524,12 +575,14 @@ def c8_reaction(host, client, ctx):
     # recalculation puts A in C's spottedThisTurn (a teleport skips calculateFOV).
     tele_both(host, client, A_ID, C8_A_TILE, C8_A_DIR)
     tele_both(host, client, C_ID, C8_C_TILE, C8_C_DIR)
+    hl_a = hl_snap(host, client)   # W2-P6b S-L row L5: before the prep cycle
     turn0 = end_turn_cycle(host, client, None, notes)
     hs, cs = battle_state(host), battle_state(client)
     spotted = (units(host).get(C_ID) or {}).get("spottedThisTurn")
     prep_diff = diff_buckets(host, client)
     ctx["prep"] = {"turn": (turn0, hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")),
                    "spotted": spotted, "diff": prep_diff}
+    hl_q = hl_snap(host, client)   # W2-P6b S-L row L5 (SL-1): the quiescent point after the cycle, before the staging
     # C8 staging
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "reactions",
                         "value": A_REACTIONS}, ("tu",))
@@ -540,10 +593,12 @@ def c8_reaction(host, client, ctx):
     cam0 = cam_snap(host, client)
     rec = client_walk(host, client, SEED_C8, C8_DEST, notes)
     cam1 = cam_snap(host, client)
+    hl_b = hl_snap(host, client)   # W2-P6b S-L row L5: after the walk
     w = rec["W"]
     print(f"EVIDENCE C8: prep {ctx['prep']}; A {C8_A_TILE}/{C8_A_DIR} C {C8_C_TILE}/{C8_C_DIR} dest {C8_DEST} "
           f"stagedDiff={staged_diff}; {walk_evidence(rec, 'C8')}", flush=True)
     kr2 = kr2_fails(rec, kr2_staged, cam0, cam1)
+    l5 = l5_fails(hl_a, hl_q, hl_b)
     fails = list(notes)
     if (hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")) != (turn0 + 1, FACTION_PLAYER, turn0 + 1,
                                                                            FACTION_PLAYER):
@@ -574,6 +629,7 @@ def c8_reaction(host, client, ctx):
     fails += context_fails(rec, "C8")
     fails += common_fails(host, client, rec["before"], {}, "C8")
     fails += kr2
+    fails += l5
     finish(fails)
 
 
