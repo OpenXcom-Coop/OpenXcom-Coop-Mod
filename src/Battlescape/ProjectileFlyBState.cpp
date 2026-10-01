@@ -400,7 +400,7 @@ void ProjectileFlyBState::init()
 	if (createNewProjectile())
 	{
 		auto* conf = weapon->getActionConf(_action.type);
-		if (_parent->getMap()->isAltPressed() || (conf && !conf->followProjectiles))
+		if (_parent->getMap()->isAltPressed() || (conf && !conf->followProjectiles) || coopHostPartnerCamera(_action.actor, "follow"))
 		{
 			// temporarily turn off camera following projectiles to prevent annoying flashing effects (e.g. on minigun-like weapons)
 			_parent->getMap()->setFollowProjectile(false);

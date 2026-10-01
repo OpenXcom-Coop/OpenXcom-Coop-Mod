@@ -630,4 +630,21 @@ bool coopForceFirePressed(const SavedBattleGame* save);
 /// setNotificationShown() stays vanilla's.
 bool coopHostDivertUnitMessage(const BattleUnit* about, const char* key, const BattleUnit* named);
 
+// ----- W2-P6a S-C, commit S-C.2: the camera on the HOST (owner D131) -----
+// Spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (c)1, the W2-P6a plan review section 4 (ST1 (a)),
+// AMENDMENT P6-5 section 4 C-C1. Body: connectionTCP.cpp, right after coopThinkCoveredBattle() (the same origin test).
+
+/// The co-op HOST's guard at vanilla's five camera writes a partner's action reaches - the projectile follow
+/// (ProjectileFlyBState::init, @a what "follow"), the explosion centre and the hit view level (ExplosionBState::init,
+/// "explosion" / "hitLevel"), the walker view level (UnitWalkBState::think, "walkLevel") and the panic centre
+/// (BattlescapeGame::handlePanickingUnit, "panic"). Each sits LAST in its vanilla condition (or as `if (...) {} else`
+/// above an unconditional write), so it is evaluated only when vanilla would move the camera. FALSE at once outside a
+/// co-op battle and on a client: vanilla moves the camera. On the host it is TRUE - the write is skipped and the
+/// probe's `camera.suppressed[what]` +1 - iff the action context stack's FRONT (base) entry has origin `intent` (the
+/// partner's order and everything nested in it, reactions and prox included; a lone nested entry counts by the base
+/// origin it carries) or @a actor is commanded by the partner's seat (another seat of this seat's faction: a panic, a
+/// berserk, a reaction shot by the partner's soldier). An `endturn` base is never suppressed (OR5 (a)). Writes no
+/// battle state.
+bool coopHostPartnerCamera(const BattleUnit* actor, const char* what);
+
 } // namespace OpenXcom

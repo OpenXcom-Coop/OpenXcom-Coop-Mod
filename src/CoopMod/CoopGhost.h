@@ -150,12 +150,23 @@ BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile);
 /// (the payload's `itemType`), the explosion scatter from RNG::seedless, the frame timing fixed at enqueue,
 /// the hit / miss / explosion sound - and a pellet `hit` joins the running impact ghost of its action (one
 /// more sprite, no sound; with none running it draws nothing).
+///
+/// W2-P6a S-C.2 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (c)2 K1-K7, AMENDMENT P6-5 section 4;
+/// owner D131, D171 (a); OR4 (a), OR5 (a), Q16 (a)): with the option on, the camera policy rides these displays - a
+/// shot ghost's projectile is followed for an alien acting on its own side's turn, an alien reaction shot while this
+/// machine's own order runs and this seat's own shot (never a partner's); an explosion centres, a hit / melee / psi
+/// sets the view level (and centres on a player-faction unit hit on the hostile side), an enemy-turn walker sets the
+/// view level (centred first when visible here and off screen), an own walker sets the view level, a panic of an own
+/// or other unit centres. Every move is a camera write on the live Map recorded in `camera.moves`; no state write.
 void onEvApplied(SavedBattleGame* save, const Json::Value& ev);
 
 /// W2-P5 S-A.2 (spec (b)2, Q1 (b)): the combat completion rule for an applied `bt_action_end` - every running
 /// combat ghost ends (cut when early) before the end's delta applies. Called from
 /// CoopDisplayQueue::onApplied()'s bt_action_end branch on the line before its CoopApply::applyDelta(). Never
 /// gated by the option (OQ3); a no-op on the host and outside a coop battle.
+/// W2-P6a S-C.2 (P6a pinned stage text (c)2 K2; OR4 (a)): then, at the end of a reaction context whose shot at this
+/// machine's running order was followed, the camera returns to the offset kept at that context's first followed
+/// shot and records {restore} (option-gated, Q16 (a)).
 void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev);
 
 /// W2-P5 S-A.2 (Q3 = b): TRUE when @a map's projectile is a combat ghost's own display object on this
@@ -287,6 +298,29 @@ Json::Value displayTwoProbe();
 /// `suppressed` are probe storage nothing writes until S-C.2 (the client camera policy, the host guards). Main
 /// thread only, cleared with the combat probe storage.
 Json::Value cameraProbe();
+
+/// W2-P6a S-C.2 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (c)1; AMENDMENT P6-5 C-C1): the
+/// HOST's camera guard (coopHostPartnerCamera, CoopDelta.h) counts one suppressed write @a what ("follow",
+/// "explosion", "hitLevel", "walkLevel", "panic") in the probe's `camera.suppressed`. Probe storage only; main thread.
+void noteCameraSuppressed(const char* what);
+
+/// W2-P6a S-C.2 (P6a pinned stage text (c)2 K9; owner D171 (a)): a coop CLIENT's own player side begins (the applied
+/// `side_begin` inside mySideActive, right after the new selection is paired): the camera centres on this seat's
+/// selected unit, as vanilla's own side start does (BattlescapeGame::endTurn). Display only (a camera write and its
+/// `camera.moves` record {side_start}); option-gated (Q16 (a)); a no-op on the host and with no selected unit.
+void onSideStart(SavedBattleGame* save, const Json::Value& ev);
+
+/// W2-P6a S-C.2 (P6a pinned stage text (c)2 "own restore"; owner D171 (a)): the ordering CLIENT's own fire confirm
+/// (coopInterceptFireConfirm, after its order went out) keeps vanilla's captured camera offset @a cameraPosition
+/// for the order's unit @a actorId and wire kind @a kind - this machine only, never on the wire. Main thread.
+void noteOwnCamera(int actorId, const std::string& kind, const Position& cameraPosition);
+
+/// W2-P6a S-C.2 (P6a pinned stage text (c)2 "own restore"; PFBS :634/:642): at the applied `bt_action_end` of this
+/// client's own combat order (CoopDisplayQueue::onApplied's ownCombatEnd block) the camera returns to the offset
+/// noteOwnCamera() kept for that unit and kind - iff it is not (0,0,-1) and @a multiWaypointLaunch is false - and
+/// records {own_restore}. Option-gated (Q16 (a)); the kept offset is consumed either way. Display only.
+void onOwnCombatEnd(SavedBattleGame* save, const Json::Value& ev, int actorId, const std::string& kind,
+	bool multiWaypointLaunch);
 
 /// W2-P6b S-D.2 (spec rewrite/prompts/w2p6_display_two.md section 8 D-j; AMENDMENT P6b-1): TRUE while a death
 /// ghost for @a unitId is queued, started or holding its last frame on THIS machine (a coop client; always FALSE

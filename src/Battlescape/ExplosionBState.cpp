@@ -259,7 +259,7 @@ void ExplosionBState::init()
 			_parent->setStateInterval(std::max(1, explosionSpeed));
 			// explosion sound
 			_parent->playSound(sound);
-			if (_parent->getMap()->getFollowProjectile() || _explosionCounter > 0)
+			if ((_parent->getMap()->getFollowProjectile() || _explosionCounter > 0) && !coopHostPartnerCamera(_attack.attacker, "explosion"))
 			{
 				_parent->getMap()->getCamera()->centerOnPosition(_center.toTile(), false);
 			}
@@ -352,7 +352,7 @@ void ExplosionBState::init()
 			Explosion *explosion = new Explosion(_center, anim, 0, false, (_hit || _psi), animFrames); // Don't burn the tile
 			_parent->getMap()->getExplosions()->push_back(explosion);
 		}
-		if (_parent->getMap()->getFollowProjectile())
+		if (_parent->getMap()->getFollowProjectile() && !coopHostPartnerCamera(_attack.attacker, "hitLevel"))
 		{
 			_parent->getMap()->getCamera()->setViewLevel(_center.z / 24);
 		}

@@ -37,6 +37,7 @@
 #include "../CoopMod/CoopDoor.h"
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopSpeed.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -201,6 +202,7 @@ void UnitWalkBState::think()
 			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && _unit->getFaction() != FACTION_PLAYER && coopUnitVisibleHere(_unit))
 				_parent->getMap()->getCamera()->centerOnPosition(_unit->getPosition());
 			// if the unit changed level, camera changes level with
+			if (coopHostPartnerCamera(_unit, "walkLevel")) {} else // W2-P6a (D131)
 			_parent->getMap()->getCamera()->setViewLevel(_unit->getPosition().z);
 		}
 

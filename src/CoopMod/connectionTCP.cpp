@@ -12967,6 +12967,31 @@ void coopThinkCoveredBattle(Game* game)
 	CoopDelta::noteHostCoveredStep(origin, top); // C2-9: the probe only - the step may have popped bs
 }
 
+// W2-P6a S-C.2 (docs rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (c)1, the W2-P6a plan review section
+// 4 (ST1 (a)), AMENDMENT P6-5 C-C1; owner D131): HOST - the camera guard at vanilla's five camera writes. Declared in
+// CoopDelta.h, whose doc comment carries the contract. The origin test is the covered driver's above: the context
+// stack's FRONT (base) entry, a lone nested `reaction` / `prox` entry counting by the base origin it carries.
+static const char* coopActorRelation(const BattleUnit* u); // defined before the replay regions below
+bool coopHostPartnerCamera(const BattleUnit* actor, const char* what)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim.load())
+		return false;
+	std::string origin;
+	if (!g_coopActionContextStack.empty())
+	{
+		const CoopActionContextEntry& front = g_coopActionContextStack.front();
+		origin = CoopArbiter::isNestedOrigin(front.origin) ? front.baseOrigin : front.origin;
+	}
+	if (origin == "endturn")
+		return false; // OR5 (a), P6-5 V4: an end of turn's explosions keep vanilla's camera
+	if (origin != "intent" && std::string(coopActorRelation(actor)) != "partner")
+		return false;
+	CoopGhost::noteCameraSuppressed(what);
+	Log(LOG_INFO) << "[coop-camera] host suppressed " << (what ? what : "") << " (base origin '" << origin
+		<< "', actor " << (actor ? actor->getId() : -1) << ", equip open " << coopEquipOpen() << ")";
+	return true;
+}
+
 // R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104/:116/:142 @911ca487f - see
 // CoopArbiter.h's own doc comment on this function for the full contract).
 // Kept outside namespace CoopArbiter for the same call-site-simplicity
@@ -14000,6 +14025,11 @@ bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save)
 
 	const std::uint32_t iseq = CoopArbiter::sendClientIntent(wireKind, action->actor->getId(),
 		-1, false, false, -1, nullptr, &args);
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 "own restore"; owner D171 (a), F1712): the camera offset vanilla captured
+	// before this call (BattlescapeGame's `_currentAction.cameraPosition = ...getMapOffset()`), kept on this machine
+	// only for the order's own end.
+	if (iseq != 0u)
+		CoopGhost::noteOwnCamera(action->actor->getId(), wireKind, action->cameraPosition);
 	if (iseq == 0u && !(g_coopClientInFlight.active && g_coopClientInFlight.actorId == action->actor->getId()))
 	{
 		// Nothing went out and no earlier order of this unit is in flight to
@@ -16947,6 +16977,8 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			// and the cursor, as the host's own side start does (BattlescapeGame
 			// endTurn's setupCursor() on the player side).
 			coopClientPairSelection(save);
+			// W2-P6a S-C.2 (P6a pinned stage text (c)2 K9; owner D171 (a)): the camera centres on the new selection.
+			CoopGhost::onSideStart(save, ev);
 			// W2-P6a S-M.2 (P6a pinned stage text (b)4; Q13 / OR6 (a), AMENDMENT P6a-2 F1727; F1219, F1270): the
 			// entry notices clear at this seat's first own-side side_begin.
 			CoopBattleUi::clearEntryNotices(save);
@@ -18611,6 +18643,28 @@ static const char* coopUnitRelation(const BattleUnit* u)
 	return "other";
 }
 
+// W2-P6a S-C.2 (docs rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (a), (c); OR3 (a); owner D131): the
+// relation to this machine of the unit that ACTS, for the camera - by who commands it (commandsUnit: a mind-controlled
+// alien acting for this seat is "own"): "own" = this machine's seat commands it; "partner" = another valid seat whose
+// faction is this seat's faction commands it; "other" = everything else (aliens, civilians, units no seat commands, a
+// PvP opponent's units). Read-only. File scope, before the replay regions, so the host guard and the client camera
+// policy share it.
+static const char* coopActorRelation(const BattleUnit* u)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const int me = a.localSeat.load();
+	if (!u || me < (int)COOP_SEAT_0 || me > (int)COOP_SEAT_3)
+		return "other";
+	if (a.commandsUnit(u, me))
+		return "own";
+	for (int seat = (int)COOP_SEAT_0; seat <= (int)COOP_SEAT_3; ++seat)
+	{
+		if (seat != me && a.factionOf(seat) == a.factionOf(me) && a.commandsUnit(u, seat))
+			return "partner";
+	}
+	return "other";
+}
+
 // RW-REPLAY-REGION-BEGIN
 // W1-P12 (D-3/WV-D27/WV-D49/A4): the S3 ghost stepper's implementation body.
 // Declarations + CoopUnitDrawView + the full design doc comment live in
@@ -18833,9 +18887,73 @@ struct CombatProbeStore
 	// combatSync() only.
 	std::deque<Json::Value> cameraMoves;
 	CameraSuppressedCounts cameraSuppressed;
+	std::uint64_t cameraPushed = 0;  // W2-P6a S-C.2: move records pushed this battle (a follow finds its own)
 };
 CombatProbeStore g_combatProbe;
 const std::size_t kCombatRingCap = 32;
+
+/// W2-P6a S-C.2 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (c)2 K2 and "own restore"; owner
+/// D131, D171 (a)): the camera offsets a coop CLIENT keeps to return to - per reaction context whose shot at this
+/// machine's running order was followed, the offset at that context's first followed shot (K2); and the offset
+/// vanilla captured at this client's own fire confirm (cameraPosition, never on the wire). Main thread only; cleared
+/// by combatSync()'s generation branch.
+struct CameraKept
+{
+	Position offset;
+	int actorId = -1;
+};
+struct CameraStore
+{
+	std::map<std::uint32_t, CameraKept> reaction; // by the reaction context's actionId
+	bool ownSet = false;
+	CameraKept own;
+	std::string ownKind;
+};
+CameraStore g_cameraStore;
+
+/// W2-P6a S-C.2 (P6a pinned stage text (c)2): @a map's camera offset as the probe's {x, y, z} (z = the view level);
+/// null without a Map.
+Json::Value cameraOffsetJson(Map* map)
+{
+	if (!map || !map->getCamera())
+		return Json::Value();
+	const Position off = map->getCamera()->getMapOffset();
+	Json::Value o(Json::objectValue);
+	o["x"] = off.x;
+	o["y"] = off.y;
+	o["z"] = off.z;
+	return o;
+}
+
+/// W2-P6a S-C.2: pushes one CLIENT camera-move record {seq, reason, unit, visible, onScreen, before, after} (event_state
+/// `camera.moves`, the last kCombatRingCap) and returns its ordinal. `visible` / `onScreen` are a walker's decision
+/// inputs (null for every other move).
+std::uint64_t cameraPushMove(std::uint32_t seq, const char* reason, int unitId, const Json::Value& before,
+	const Json::Value& after, const Json::Value& visible = Json::Value(), const Json::Value& onScreen = Json::Value())
+{
+	Json::Value r(Json::objectValue);
+	r["seq"] = seq;
+	r["reason"] = reason;
+	r["unit"] = unitId;
+	r["visible"] = visible;
+	r["onScreen"] = onScreen;
+	r["before"] = before;
+	r["after"] = after;
+	const std::uint64_t ordinal = g_combatProbe.cameraPushed++;
+	g_combatProbe.cameraMoves.push_back(r);
+	while (g_combatProbe.cameraMoves.size() > kCombatRingCap)
+		g_combatProbe.cameraMoves.pop_front();
+	return ordinal;
+}
+
+/// The camera-move record with @a ordinal, or null once it has left the ring.
+Json::Value* cameraMoveRecord(std::uint64_t ordinal)
+{
+	const std::uint64_t first = g_combatProbe.cameraPushed - (std::uint64_t)g_combatProbe.cameraMoves.size();
+	if (ordinal < first || ordinal >= g_combatProbe.cameraPushed)
+		return nullptr;
+	return &g_combatProbe.cameraMoves[(std::size_t)(ordinal - first)];
+}
 
 /// W2-P5 S-A.2 (spec (b)1-6, (b)8-11 for `shot`; amendments E1 OQ3/OQ4/OQ5/PR-E5 and E2): one running
 /// combat ghost on the watching machine. MAIN-THREAD ONLY (OQ4). It owns its display object (the Map owns
@@ -18888,6 +19006,14 @@ struct CombatGhost
 	// (the ITEM_DROP precedent); Mod::NO_SOUND for every other ghost.
 	int endSound = Mod::NO_SOUND;
 	Position endSoundAt;
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K1; OR4 (a), D171 (a)): a shot ghost's camera follow, decided at the
+	// cue's apply - the move reason ("follow" | "reaction_follow" | "own_follow"; "" = never followed), the shot's seq,
+	// and once its projectile went on the Map followed, its `camera.moves` record (its `after` is written when the
+	// projectile leaves the Map).
+	std::string camReason;
+	std::uint32_t camSeq = 0;
+	bool camFollowing = false;
+	std::uint64_t camOrdinal = 0;
 };
 std::vector<CombatGhost> g_combatGhosts;
 
@@ -18985,6 +19111,16 @@ Map* combatLiveMap()
 	return bs ? bs->getMap() : nullptr;
 }
 
+/// W2-P6a S-C.2 (P6a pinned stage text (c)2 K1): a followed shot ghost's projectile left @a live (its own Map): its
+/// move record's `after` = the camera offset now.
+void cameraFollowEnded(Map* live, const CombatGhost& g)
+{
+	if (!g.camFollowing)
+		return;
+	if (Json::Value* r = cameraMoveRecord(g.camOrdinal))
+		(*r)["after"] = cameraOffsetJson(live);
+}
+
 /// Spec (b)9 / OQ4: takes @a g's projectile off the LIVE Map when that Map is the one it was drawn on and
 /// still shows it (the Map's follow flag restored, the Map redrawn), then deletes it; with no live Map or
 /// another one it only deletes (a ghost whose BattlescapeState died is freed without touching any Map).
@@ -19002,6 +19138,7 @@ Map* combatDetach(CombatGhost& g)
 			live->setProjectile(nullptr);
 			live->setFollowProjectile(g.followBefore);
 			live->invalidate();
+			cameraFollowEnded(live, g); // W2-P6a S-C.2 (K1): the follow record's `after`
 		}
 		delete g.projectile;
 		g.projectile = nullptr;
@@ -19046,6 +19183,7 @@ void combatSync()
 		// W2-P6b S-E6.2 (E-f' "reset"): the fall ghosts go too (they hold no Map object; their records go with
 		// the probe storage below).
 		g_fallGhosts.clear();
+		g_cameraStore = CameraStore(); // W2-P6a S-C.2: the kept camera offsets are battle-scoped
 		g_combatProbe = CombatProbeStore();
 		g_combatProbe.gen = g;
 	}
@@ -19186,6 +19324,173 @@ const std::uint32_t kCombatTickMs = 16;
 bool combatClient()
 {
 	return isCoopBattle() && !coopBattleAuthority().hostSim;
+}
+
+// ----- W2-P6a S-C.2: the client camera policy (spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT`
+// (c)2 K1-K9 as corrected by AMENDMENTS P6-5 section 4 and P6-6 section 5; owner D131, D171 (a); OR4 (a), OR5 (a),
+// Q16 (a)). Every move is a camera write on the live Map - display only - recorded in `camera.moves`. -----
+
+/// Q16 (a): a camera write on THIS machine is allowed - a coop client whose ghost option is on.
+bool cameraClientOn()
+{
+	return combatClient() && Options::coopGhostStepper;
+}
+
+/// The camera term of an ACTING unit (OR4 (a), D171 (a)): "own" (this seat commands it); "enemy" (an `other` actor
+/// on its own side's turn); "reaction" (an `other` actor off its side's turn while this machine's own admitted order
+/// runs, g_coopClientRunningActionId); "" for a partner's unit and every other case (no camera move). Read at the
+/// cue's apply.
+std::string cameraActorTerm(const SavedBattleGame* save, const BattleUnit* actor)
+{
+	if (!save || !actor)
+		return std::string();
+	const std::string rel = coopActorRelation(actor);
+	if (rel == "own")
+		return "own";
+	if (rel != "other")
+		return std::string();
+	if (save->getSide() == actor->getFaction())
+		return "enemy";
+	if (g_coopClientRunningActionId != 0)
+		return "reaction";
+	return std::string();
+}
+
+/// Centres @a map's camera on @a tile (vanilla's centerOnPosition, @a redraw as the vanilla site passes it) and
+/// records the move.
+void cameraCentre(Map* map, std::uint32_t seq, const char* reason, int unitId, const Position& tile, bool redraw,
+	const Json::Value& visible = Json::Value(), const Json::Value& onScreen = Json::Value())
+{
+	const Json::Value before = cameraOffsetJson(map);
+	map->getCamera()->centerOnPosition(tile, redraw);
+	map->invalidate();
+	cameraPushMove(seq, reason, unitId, before, cameraOffsetJson(map), visible, onScreen);
+}
+
+/// Sets @a map's view level to @a level (vanilla's setViewLevel) and records the move.
+void cameraLevel(Map* map, std::uint32_t seq, const char* reason, int unitId, int level,
+	const Json::Value& visible = Json::Value(), const Json::Value& onScreen = Json::Value())
+{
+	const Json::Value before = cameraOffsetJson(map);
+	map->getCamera()->setViewLevel(level);
+	map->invalidate();
+	cameraPushMove(seq, reason, unitId, before, cameraOffsetJson(map), visible, onScreen);
+}
+
+/// Returns @a map's camera to @a offset (vanilla's setMapOffset + invalidate, PFBS :634/:642) and records the move.
+void cameraRestore(Map* map, std::uint32_t seq, const char* reason, int unitId, const Position& offset)
+{
+	const Json::Value before = cameraOffsetJson(map);
+	map->getCamera()->setMapOffset(offset);
+	map->invalidate();
+	cameraPushMove(seq, reason, unitId, before, cameraOffsetJson(map));
+}
+
+/// K1: the follow flag a shot ghost's projectile goes on @a map with - TRUE when its apply decided a follow
+/// (camReason) and the option is on now; then the move is recorded (`before` = the offset now, `after` when the
+/// projectile leaves the Map) and, for a reaction at this machine's order, the offset at the context's first
+/// followed shot is kept for K2's restore.
+bool cameraFollowStart(Map* map, CombatGhost& g)
+{
+	if (g.camReason.empty() || !cameraClientOn() || !map)
+		return false;
+	const Json::Value before = cameraOffsetJson(map);
+	g.camOrdinal = cameraPushMove(g.camSeq, g.camReason.c_str(), g.unitId, before, Json::Value());
+	g.camFollowing = true;
+	if (g.camReason == "reaction_follow" && g.actionId != 0
+		&& g_cameraStore.reaction.find(g.actionId) == g_cameraStore.reaction.end())
+	{
+		CameraKept k;
+		k.offset = map->getCamera()->getMapOffset();
+		k.actorId = g.unitId;
+		g_cameraStore.reaction[g.actionId] = k;
+	}
+	return true;
+}
+
+/// K3 / K4 (C-C3): the camera at the start of the display an impact cue starts - `explosion` (power > 0): centre on
+/// its tile when the actor is enemy-turn, a reaction at this machine's order, own, or absent (OR5 (a)); `hit` /
+/// `melee` / `psi`: the view level of the voxel under the same actor rule (hit_level), then centre on it when the side
+/// is HOSTILE and the hit unit is FACTION_PLAYER (hit_centre, vanilla ExplosionBState :360). Read before the delta.
+void cameraImpact(SavedBattleGame* save, Map* map, const Json::Value& ev, const std::string& kind,
+	const BattleUnit* actor, const Position& voxel, int power)
+{
+	if (!cameraClientOn() || !save || !map)
+		return;
+	const Json::Value& p = ev["payload"];
+	const std::uint32_t seq = ev.get("seq", 0u).asUInt();
+	const int actorId = p.get("actor", -1).asInt();
+	const bool follows = !actor || !cameraActorTerm(save, actor).empty();
+	if (kind == "explosion")
+	{
+		if (follows && power > 0)
+			cameraCentre(map, seq, "explosion", actorId, voxel.toTile(), false);
+		return;
+	}
+	if (follows)
+		cameraLevel(map, seq, "hit_level", actorId, voxel.z / 24);
+	const int hitId = p.get("unit", -1).asInt();
+	const BattleUnit* hitUnit = hitId >= 0 ? CoopIdMaps::unit(hitId) : nullptr;
+	if (hitUnit && save->getSide() == FACTION_HOSTILE && hitUnit->getFaction() == FACTION_PLAYER)
+		cameraCentre(map, seq, "hit_centre", hitId, voxel.toTile(), false);
+}
+
+/// K5 / K6 (C-C5): at a `walk_step` ghost's enqueue - an enemy-turn walker: centre on its destination when it is
+/// visible here and off screen (walker_centre), then the view level of its destination, seen or not (walker_level,
+/// vanilla UnitWalkBState :202/:204); an own walker: the view level only (own_walker_level, D171 (a)); a partner's
+/// walker: nothing. A walker record carries its decision inputs `visible` and `onScreen`.
+void cameraWalker(SavedBattleGame* save, const BattleUnit* unit, std::uint32_t seq, const Position& toPos)
+{
+	if (!cameraClientOn() || !save || !unit)
+		return;
+	Map* map = combatLiveMap();
+	if (!map)
+		return;
+	const std::string term = cameraActorTerm(save, unit);
+	if (term == "enemy")
+	{
+		const bool visible = coopUnitVisibleHere(unit);
+		const int size = unit->getArmor()->getSize() - 1;
+		const bool onScreen = map->getCamera()->isOnScreen(toPos, true, size, false);
+		if (visible && !onScreen)
+			cameraCentre(map, seq, "walker_centre", unit->getId(), toPos, true, visible, onScreen);
+		cameraLevel(map, seq, "walker_level", unit->getId(), toPos.z, visible, onScreen);
+	}
+	else if (term == "own")
+	{
+		cameraLevel(map, seq, "own_walker_level", unit->getId(), toPos.z);
+	}
+}
+
+/// K7: at an applied `panic` of an own or other unit that vanilla shows (getVisible() || !noAlienPanicMessages,
+/// BattlescapeGame :1666-:1668): centre on the unit (panic_centre). A partner's unit: nothing. Read before the delta.
+void cameraPanic(SavedBattleGame* save, const Json::Value& ev)
+{
+	if (!cameraClientOn() || !save)
+		return;
+	const int unitId = ev["payload"].get("unit", -1).asInt();
+	const BattleUnit* u = unitId >= 0 ? CoopIdMaps::unit(unitId) : nullptr;
+	Map* map = combatLiveMap();
+	if (!u || !map || std::string(coopActorRelation(u)) == "partner")
+		return;
+	if (u->getVisible() || !Options::noAlienPanicMessages)
+		cameraCentre(map, ev.get("seq", 0u).asUInt(), "panic_centre", unitId, u->getPosition(), true);
+}
+
+/// K2: at the applied `bt_action_end` of a reaction context whose followed shot was kept, the camera returns to that
+/// offset (restore); the kept offset is consumed either way.
+void cameraReactionRestore(const Json::Value& ev)
+{
+	const std::uint32_t actionId = ev.get("actionId", 0u).asUInt();
+	auto it = g_cameraStore.reaction.find(actionId);
+	if (actionId == 0 || it == g_cameraStore.reaction.end())
+		return;
+	const CameraKept k = it->second;
+	g_cameraStore.reaction.erase(it);
+	Map* map = combatLiveMap();
+	if (!cameraClientOn() || !map)
+		return;
+	cameraRestore(map, ev.get("seq", 0u).asUInt(), "restore", k.actorId, k.offset);
 }
 
 int& combatKindSlot(CombatKinds& k, const std::string& kind)
@@ -19559,6 +19864,12 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	g.actionId = ev.get("actionId", 0u).asUInt();
 	g.pendingSound = sound;
 	g.pendingSoundAt = soundAt;
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K1; OR4 (a), D171 (a)): the follow is decided at this apply - an alien
+	// on its own side's turn, an alien reaction shot while this machine's own order runs, this seat's own shot.
+	const std::string camTerm = cameraActorTerm(save, shooter);
+	g.camReason = camTerm == "enemy" ? "follow" : camTerm == "reaction" ? "reaction_follow"
+		: camTerm == "own" ? "own_follow" : "";
+	g.camSeq = ev.get("seq", 0u).asUInt();
 	if (held)
 	{
 		// W2-P5 S-T.3 (H1): wait for the shooter's turn ghost (seq turnSeq); advance() releases it (H2).
@@ -19573,11 +19884,11 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 		g_combatGhosts.push_back(g);
 		return;
 	}
-	// Spec (b)5/(b)6: vanilla draws it (FOV rules and hidden-movement reveal included); the camera does not
-	// follow a ghost (D131 is W2-P6's), restored when the ghost leaves the Map.
+	// Spec (b)5/(b)6: vanilla draws it (FOV rules and hidden-movement reveal included); the Map's follow flag is
+	// restored when the ghost leaves the Map. W2-P6a S-C.2 (K1): the Map follows it only as decided above.
 	g_deathInterval = (int)kCombatTickMs; // W2-P6b S-D.2 (D-i): vanilla's projectile state interval, display only
 	map->setProjectile(projectile);
-	map->setFollowProjectile(false);
+	map->setFollowProjectile(cameraFollowStart(map, g));
 	map->invalidate();
 	g.lastAdvanceMs = g.startedAtMs;           // W2-P5 S-T.1 (E3.1 ST2 (a)): probe only
 	r["startStamp"] = ++g_combatProbe.stamp;   // W2-P5 S-T.1 (E3.1 OR5 (a)): probe only
@@ -19768,6 +20079,8 @@ void combatStartImpact(SavedBattleGame* save, const Json::Value& ev, const std::
 	// Vanilla plays the hit sound even without a sprite; an explosion with no power plays none.
 	combatPlay(save, sound, soundAngle);
 	r["sound"] = sound;
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K3 / K4, AMENDMENT P6-5 C-C3): the camera at this display's start.
+	cameraImpact(save, map, ev, kind, actor, centre, power);
 
 	if (sprites.empty() || ms == 0)
 	{
@@ -19994,6 +20307,8 @@ void combatStartHitEffect(SavedBattleGame* save, const Json::Value& ev, const st
 	// Vanilla plays the swing / psi sound even without a sprite (:365).
 	combatPlay(save, sound, map->getSoundAngle(tile));
 	r["sound"] = sound;
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K4, AMENDMENT P6-5 C-C3): the camera at this display's start.
+	cameraImpact(save, map, ev, kind, actor, voxel, 0);
 
 	if (!sprite)
 	{
@@ -20870,7 +21185,10 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 		if (kind == "medikit")
 			effectMedikit(save, ev);
 		else if (kind == "panic")
+		{
 			effectPanic(save, ev);
+			cameraPanic(save, ev); // W2-P6a S-C.2 (P6a pinned stage text (c)2 K7)
+		}
 		else
 			combatStartHitEffect(save, ev, kind);
 		return;
@@ -21048,7 +21366,7 @@ void combatReleaseHeld(const SavedBattleGame* save, std::uint32_t nowMs)
 		g_deathInterval = (int)kCombatTickMs; // W2-P6b S-D.2 (D-i): display only
 		it->followBefore = live->getFollowProjectile();
 		live->setProjectile(it->projectile);
-		live->setFollowProjectile(false);
+		live->setFollowProjectile(cameraFollowStart(live, *it)); // W2-P6a S-C.2 (K1): as decided at the apply
 		live->invalidate();
 		++it;
 	}
@@ -21152,6 +21470,12 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 		// W2-P5 S-T.1 (E3 section E3.6): probe only - the turnGhost enqueued count.
 		combatSync();
 		++g_combatProbe.turn.enqueued;
+	}
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K5 / K6, AMENDMENT P6-5 C-C5): the camera at a walk_step ghost's enqueue.
+	if (rec.kind == "walk_step")
+	{
+		combatSync();
+		cameraWalker(save, unit, rec.seq, rec.toPos);
 	}
 }
 
@@ -21328,6 +21652,8 @@ void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev)
 	combatEndAll(nowMs);
 	// W2-P6b S-D.2 (section 8 D-g, ST3 (a)): the chain's end ends every death ghost (never gated, OQ3).
 	deathEndAll(nowMs, "action_end");
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K2): a followed reaction at this machine's order returns the camera.
+	cameraReactionRestore(ev);
 }
 
 bool ownsProjectile(const Map* map)
@@ -21464,6 +21790,67 @@ Json::Value cameraProbe()
 	s["panic"] = c.panic;
 	o["suppressed"] = s;
 	return o;
+}
+
+void noteCameraSuppressed(const char* what)
+{
+	// W2-P6a S-C.2 (P6a pinned stage text (c)1): the HOST's guard counters (probe storage only).
+	combatSync();
+	const std::string w = what ? what : "";
+	CameraSuppressedCounts& c = g_combatProbe.cameraSuppressed;
+	if (w == "follow")
+		++c.follow;
+	else if (w == "explosion")
+		++c.explosion;
+	else if (w == "hitLevel")
+		++c.hitLevel;
+	else if (w == "walkLevel")
+		++c.walkLevel;
+	else if (w == "panic")
+		++c.panic;
+}
+
+void onSideStart(SavedBattleGame* save, const Json::Value& ev)
+{
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K9; D171 (a)): vanilla's side-start centre on the selected unit
+	// (BattlescapeGame::endTurn, playableUnitSelected()).
+	if (!save || !cameraClientOn())
+		return;
+	combatSync();
+	Map* map = combatLiveMap();
+	const BattleUnit* selected = save->getSelectedUnit();
+	if (!map || !selected)
+		return;
+	cameraCentre(map, ev.get("seq", 0u).asUInt(), "side_start", selected->getId(), selected->getPosition(), true);
+}
+
+void noteOwnCamera(int actorId, const std::string& kind, const Position& cameraPosition)
+{
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 "own restore"): this machine only, never on the wire.
+	if (!combatClient())
+		return;
+	combatSync();
+	g_cameraStore.ownSet = true;
+	g_cameraStore.own.offset = cameraPosition;
+	g_cameraStore.own.actorId = actorId;
+	g_cameraStore.ownKind = kind;
+}
+
+void onOwnCombatEnd(SavedBattleGame* save, const Json::Value& ev, int actorId, const std::string& kind,
+	bool multiWaypointLaunch)
+{
+	// W2-P6a S-C.2 (P6a pinned stage text (c)2 "own restore"; vanilla ProjectileFlyBState :634/:640-:642).
+	if (!save || !combatClient())
+		return;
+	combatSync();
+	if (!g_cameraStore.ownSet || g_cameraStore.own.actorId != actorId || g_cameraStore.ownKind != kind)
+		return;
+	const Position kept = g_cameraStore.own.offset;
+	g_cameraStore.ownSet = false;
+	Map* map = combatLiveMap();
+	if (!cameraClientOn() || !map || kept.z == -1 || multiWaypointLaunch)
+		return;
+	cameraRestore(map, ev.get("seq", 0u).asUInt(), "own_restore", actorId, kept);
 }
 
 bool deathGhostActive(int unitId)
@@ -22057,6 +22444,10 @@ void onApplied(const Json::Value& ev)
 			// W2-P8b S-C.3b (P8b-2c SC-4): + the end's `itemMissing` (absent = false).
 			CoopArbiter::coopClientCombatAftermath(ownCombatKind, ownCombatPlan, ownCombatActor,
 				ev.get("halted", false).asBool(), ev.get("continue", true).asBool(), ev.get("itemMissing", false).asBool());
+			// W2-P6a S-C.2 (P6a pinned stage text (c)2 "own restore"; owner D171 (a)): the camera returns to the offset
+			// kept at this order's fire confirm (not after a launch with more than one waypoint, PFBS :640).
+			CoopGhost::onOwnCombatEnd(save, ev, ownCombatActor, ownCombatKind,
+				ownCombatPlan.action == "launch" && ownCombatPlan.waypoints.size() > 1);
 			Json::Value am(Json::objectValue);
 			am["actionId"] = actionId;
 			// W2-P4 S-D.2: a `use_item` order's aftermath is its item's own kind

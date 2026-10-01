@@ -1665,6 +1665,7 @@ bool BattlescapeGame::handlePanickingUnit(BattleUnit *unit)
 	Game *game = _parentState->getGame();
 	if (unit->getVisible() || !Options::noAlienPanicMessages)
 	{
+		if (coopHostPartnerCamera(unit, "panic")) {} else // W2-P6a (D131)
 		getMap()->getCamera()->centerOnPosition(unit->getPosition());
 		if (status == STATUS_PANICKING)
 		{
