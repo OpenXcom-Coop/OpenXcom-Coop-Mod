@@ -16518,6 +16518,18 @@ void onClientAppliedSideTransition()
 	}
 }
 
+// W2-H14 (SM-2, F4012): see CoopEndTurn.h. The host reads its counter while the battle is held under its pause
+// dialog, and the rejoiner seeds it once at its own phase Active, before it sends battle_ready.
+int rejoinPhase() { return g_turn; }
+
+void seedRejoinPhase(int phase)
+{
+	if (phase < 0 || !isCoopBattle() || coopBattleAuthority().hostSim)
+		return;
+	g_turn = phase;
+	Log(LOG_INFO) << "[coop-handshake] W2-H14: rejoin END TURN side-phase counter seeded to " << phase;
+}
+
 void onSeatSetChanged(SavedBattleGame* save)
 {
 	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim)
@@ -24075,6 +24087,9 @@ struct PendingClient
 	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 steps 1-2): the offer's `equip` object (null = none), stashed for the
 	// same reason seatMap is - onBlobChunkAppended()'s initBattleAuthority() clears the equip state a second time.
 	Json::Value equip;
+	// W2-H14 (SM-2, F4012): the rejoin offer's END TURN side-phase counter; -1 = the key is absent (a fresh or a
+	// disk-resume offer), so nothing is seeded.
+	int endTurnPhase = -1;
 };
 static PendingClient g_pendingClient;
 
@@ -24804,6 +24819,9 @@ void offerRejoinBattle(Game* game)
 	// battle-generation offer; D-22's "read from the BATTLE SAVE BLOCK for a
 	// resumed offer" is r4 T4's disk-resume case, not this in-memory one).
 	offer["turnMode"] = coopTurnModeName(coopBattleAuthority().turnMode);
+	// W2-H14 (SM-2, F4012): the host's END TURN side-phase counter, kept through the pause (SPEC 16 M1); the
+	// rejoiner starts its own there (CoopEndTurn::seedRejoinPhase()). Additive key; protocolVersion stays 1.
+	offer["endTurnPhase"] = CoopEndTurn::rejoinPhase();
 
 	// W1-P2 (SS2.W1): the SAME mission identity this battle was offered
 	// with originally - still live on the battle object, never reset by M1.
@@ -25110,6 +25128,7 @@ void onOffer(Game* game, const Json::Value& offer)
 	g_pendingClient.resumed = offer.get("resumed", false).asBool();
 	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 2): presence-gated - an offer without `equip` has no equip phase.
 	g_pendingClient.equip = offer.isMember("equip") ? offer["equip"] : Json::Value();
+	g_pendingClient.endTurnPhase = offer.get("endTurnPhase", -1).asInt(); // W2-H14: presence-gated, -1 = absent
 
 	// Fresh accumulation buffer for THIS transfer - defensive against any
 	// stale leftover (resetPendingState() also clears this at the teardown
@@ -25324,6 +25343,7 @@ void onBlobChunkAppended(Game* game)
 	// battle point for both a fresh join and a SPEC-16 rejoin (this path
 	// does not run resetBattleAuthority()).
 	CoopSpeed::onClientActive();
+	CoopEndTurn::seedRejoinPhase(g_pendingClient.endTurnPhase); // W2-H14 (SM-2, F4012): start at the host's counter
 
 	// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 steps 2-3; owner D174 a,
 	// D210 b): an offer carrying `equip` opens this machine's pre-battle equip phase - the craft pile, the seats'

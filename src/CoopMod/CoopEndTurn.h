@@ -125,6 +125,20 @@ void onBattleResumed(SavedBattleGame* save, int savedSeat);
 /// yet"). Never driven by an incoming bt_end_turn_tally.
 void onClientAppliedSideTransition();
 
+/// W2-H14 (SM-2, F4012): the SPEC 16 in-memory rejoin's side-phase counter.
+/// HOST-ONLY read: offerRejoinBattle() writes it into the rejoin battle_offer's
+/// additive `endTurnPhase` key. The rejoiner's own counter restarts at 0 (its
+/// leave ran reset(), or it is a fresh process) while the host's survives the
+/// pause, so without the seed below every press it makes is stale to the host.
+int rejoinPhase();
+
+/// W2-H14: CLIENT-ONLY (self-guarded: isCoopBattle() && !hostSim; a no-op for
+/// @a phase < 0, an offer without the key). Called ONCE, from
+/// onBlobChunkAppended() right after phase Active: this machine's counter
+/// starts at the host's. The traditional baton mirror needs no seed here: the
+/// rejoin blob carries coopActiveSeat (coopLoadActiveSeat()).
+void seedRejoinPhase(int phase);
+
 /// A seat departing mid-side changes the live-seat set (WR-20): recomputes
 /// `needed`, discards the departed seat's own stored ready, and re-emits the
 /// tally. HOST-ONLY (self-guarded); called from the host's own client-drop
