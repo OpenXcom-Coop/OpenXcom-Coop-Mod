@@ -5159,6 +5159,7 @@ void BattleAuthority::resetSeatFactions()
 //   endPending     CLIENT (S-A.2): an applied `sync` carried equip.end; the pump's end step has not run yet (b7)
 //   readySyncPending HOST (S-A.2): a ready change after the announce whose forced `sync` could not go out yet (b5)
 //   endSyncPending HOST (S-A.2): the barrier ran but its forced equip.end `sync` could not go out yet (b6)
+//   noScreen       S-F (D215 a): this machine's pre-battle screen left at once - nothing to equip (the barrier's no-screen branch)
 // (S-A.2: a CLIENT stores payload.equip.ready for every seat but its own - its own flag is set locally at once,
 // so a late echo of an earlier press never overwrites a newer press.)
 // COUNTERS:
@@ -5200,6 +5201,7 @@ struct CoopEquipState
 	std::atomic<bool> endPending{false};
 	std::atomic<bool> readySyncPending{false};
 	std::atomic<bool> endSyncPending{false};
+	std::atomic<bool> noScreen{false};
 	std::atomic<int> entries{0};
 	std::atomic<int> closes{0};
 	std::atomic<int> heldUntilOpen{0};
@@ -5239,6 +5241,7 @@ static void coopEquipStateZeros()
 	g_equip.endPending = false;
 	g_equip.readySyncPending = false;
 	g_equip.endSyncPending = false;
+	g_equip.noScreen = false;
 }
 
 // The counters' zeros (initBattleAuthority() only).
@@ -21258,7 +21261,7 @@ static void coopHostScreenCheck()
 			if (!inv->getSelectedItem())
 				inv->arrangeGround();
 			inv->drawItems();
-			if (save->getSelectedUnit() == unit && !unit->isOut())
+			if (unit && save->getSelectedUnit() == unit && !unit->isOut()) // W2-P8b S-F (F3368): a null selection
 				st->updateStats();
 			CoopDelta::noteHostScreenCounter("refreshes");
 		}
@@ -23454,14 +23457,18 @@ bool freezePreBattleEquip(Game* game)
 		SavedBattleGame* battle = game->getSavedGame() ? game->getSavedGame()->getSavedBattle() : nullptr;
 		if (battle)
 		{
+			BattleUnit* own = nullptr;
 			for (BattleUnit* u : *battle->getUnits())
 			{
 				if (u->isSelectable(FACTION_PLAYER, false, true) && coopMaySelectUnit(u))
 				{
-					battle->setSelectedUnit(u);
+					own = u;
 					break;
 				}
 			}
+			// W2-P8b S-F (AMENDMENT P8b-1 section 4 S-F, D215 a): none - no selection, so the screen's init() closes it
+			// at once through the ready hook and the host waits on its Turn-1 screen.
+			battle->setSelectedUnit(own);
 		}
 		g_equip.hostOpen = true;
 		Log(LOG_INFO) << "[coop-equip] host: pre-battle equip OPEN - the host equips its own soldiers (selected "
@@ -25056,6 +25063,22 @@ bool coopEquipReadyPress(BattlescapeButton* btnOk, bool tu, bool parent)
 		return false; // single player, a mid-battle inventory, a base screen, no equip phase: vanilla's OK
 	if (g_equip.passThrough.exchange(false))
 		return false; // b6: the barrier's one-shot - vanilla's close, saveEquipmentLayout() and startFirstTurn() run
+	// W2-P8b S-F (AMENDMENT P8b-1 section 4 S-F, D215 a, F3116): no selection, or one without an inventory (init()'s
+	// two closes) - nothing to equip. The pop only (turn 1 waits for the barrier); vanilla's Turn-1 screen under it
+	// is held (coopEquipHoldTurnScreen) and this seat counts as done (b6, F2553).
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	const BattleUnit* sel = save ? save->getSelectedUnit() : nullptr;
+	if (!sel || !sel->hasInventory())
+	{
+		BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+		if (connectionTCP::isBattlescapeStateLive(bs) && bs->getGame())
+			bs->getGame()->popState();
+		g_equip.screen = nullptr;
+		g_equip.noScreen = true;
+		Log(LOG_INFO) << "[coop-equip] nothing to equip on this machine - its pre-battle screen closed, the Turn-1 "
+			"screen waits for the partner (D215 a)";
+		return true;
+	}
 	BattleAuthority& a = coopBattleAuthority();
 	const int seat = a.localSeat.load();
 	if (seat < 0 || seat >= 4)
@@ -25119,6 +25142,80 @@ static void coopEquipOnReadyMessage(const Json::Value& msg)
 	coopEquipHostReadyChanged();
 }
 
+// W2-P8b S-F (AMENDMENT P8b-1 section 4 S-F, owner D215 a): CoopSideTransition.h. NextTurnState::close()'s first
+// statement - the Turn-1 screen stays while this machine's equip phase is open; every swallowed close() is counted.
+bool coopEquipHoldTurnScreen(const SavedBattleGame*)
+{
+	if (!coopEquipOpen())
+		return false;
+	g_equip.heldTurnScreenPresses.fetch_add(1);
+	Log(LOG_INFO) << "[coop-equip] Turn-1 screen held - the equip phase is still open (D215 a)";
+	return true;
+}
+
+// HOST, S-F (F3128): the barrier with no host pre-battle screen (nothing to equip) - the preview branch's shape:
+// the selection on the craft pile (startFirstTurn() reads its tile), the donor of vanilla's close's
+// saveEquipmentLayout() (InventoryState.cpp :739, called from btnOkClick only with
+// oxceAlternateCraftEquipmentManagement off in battle), then startFirstTurn(). False when no player unit stands there.
+static bool coopEquipFirstTurnWithoutScreen(SavedBattleGame* save)
+{
+	Tile* pile = g_equip.havePile.load()
+		? save->getTile(Position(g_equip.pileX.load(), g_equip.pileY.load(), g_equip.pileZ.load())) : nullptr;
+	BattleUnit* first = nullptr;
+	for (BattleUnit* u : *save->getUnits())
+	{
+		if (u->getOriginalFaction() == FACTION_PLAYER && !u->isOut() && u->getTile() && (!pile || u->getTile() == pile))
+		{
+			first = u;
+			break;
+		}
+	}
+	if (!first)
+	{
+		Log(LOG_ERROR) << "[coop-equip] host: barrier - no player unit on the craft pile, turn 1 cannot start";
+		return false;
+	}
+	save->setSelectedUnit(first);
+	if (!Options::oxceAlternateCraftEquipmentManagement)
+	{
+		for (BattleUnit* bu : *save->getUnits())
+		{
+			if (!bu->getGeoscapeSoldier())
+				continue;
+			std::vector<EquipmentLayoutItem*>* layoutItems = bu->getGeoscapeSoldier()->getEquipmentLayout();
+			for (EquipmentLayoutItem* old : *layoutItems)
+				delete old;
+			layoutItems->clear();
+			for (BattleItem* bi : *bu->getInventory())
+			{
+				if (bi->getRules()->isFixed() ? !(bi->needsAmmoForSlot(0) && bi->getAmmoForSlot(0))
+					: !bi->getRules()->canBeEquippedToCraftInventory())
+				{
+					continue; // vanilla: a fixed item only when loaded; no item the craft cannot carry
+				}
+				layoutItems->push_back(new EquipmentLayoutItem(bi));
+			}
+		}
+	}
+	save->startFirstTurn();
+	return true;
+}
+
+// HOST (b4): the vanilla push at BriefingState :361 is the top state at the first pass after hostOpen - recorded as
+// this phase's screen. S-F (F3845): also called at the pump point BEFORE the host screen check, which otherwise sees
+// the screen first and closes it (its F2930 guard needs the record).
+static void coopEquipRecordHostScreen(Game* game)
+{
+	if (!coopBattleAuthority().hostSim || !coopEquipOpen() || !g_equip.hostOpen.load() || g_equip.screen.load()
+		|| g_equip.noScreen.load() || !game || game->getStates().empty())
+		return;
+	if (InventoryState* st = dynamic_cast<InventoryState*>(game->getStates().back()))
+	{
+		g_equip.screen = static_cast<const void*>(st);
+		Log(LOG_INFO) << "[coop-equip] host: its pre-battle equip screen is recorded";
+	}
+}
+
 // HOST: the screen record (b4), the equip-open announce (b4, F2746/F2747), the barrier (b6, Q4 (a)).
 static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
 {
@@ -25137,15 +25234,7 @@ static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
 	}
 	if (!coopEquipOpen())
 		return;
-	// The vanilla push at BriefingState :361 is the top state at the first pass after hostOpen.
-	if (g_equip.hostOpen.load() && !g_equip.screen.load() && !game->getStates().empty())
-	{
-		if (InventoryState* st = dynamic_cast<InventoryState*>(game->getStates().back()))
-		{
-			g_equip.screen = static_cast<const void*>(st);
-			Log(LOG_INFO) << "[coop-equip] host: its pre-battle equip screen is recorded";
-		}
-	}
+	coopEquipRecordHostScreen(game);
 	coopEquipComputeCounted(save);
 	if (!isCoopBattle())
 		return; // phase Handshake (Q16): nothing goes on the wire before the partner's battle_ready
@@ -25173,7 +25262,7 @@ static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
 	// Q4 (a): wait until the host's pre-battle screen is the top state; a held cursor item goes back where it was
 	// (the item never left its slot - F3125; the screen closes right after, the P8-3 / D190 precedent).
 	InventoryState* st = coopEquipTopScreen(game);
-	if (!st)
+	if (!st && !g_equip.noScreen.load())
 		return;
 	Inventory* inv = coopEquipInventoryOf(st);
 	if (inv && inv->getSelectedItem())
@@ -25182,9 +25271,13 @@ static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
 			<< " goes back where it was (Q4 a)";
 		inv->setSelectedItem(0);
 	}
+	// S-F (D215 a): the host had nothing to equip - no screen to close; turn 1 starts here.
+	if (!st && !coopEquipFirstTurnWithoutScreen(save))
+		return;
 	// F2751: vanilla's own close - popState(), saveEquipmentLayout(), startFirstTurn() - through the one-shot.
-	g_equip.passThrough = true;
-	st->btnOkClick(0);
+	g_equip.passThrough = st != nullptr;
+	if (st)
+		st->btnOkClick(0);
 	if (g_equip.passThrough.exchange(false))
 	{
 		Log(LOG_ERROR) << "[coop-equip] host: barrier - vanilla's OK refused the close (the cursor still holds an "
@@ -25282,8 +25375,10 @@ static void coopEquipPumpClient(Game* game, SavedBattleGame* save)
 	}
 	if (!own)
 	{
-		// Nothing to equip: S-F (D215 a) decides where this player waits; until then nothing is pushed.
-		Log(LOG_INFO) << "[coop-equip] client: no own soldier with an inventory - no equip screen";
+		// Nothing to equip (S-F, D215 a): vanilla's Turn-1 screen only - held until the partner is ready
+		// (coopEquipHoldTurnScreen); the equip end releases it.
+		game->pushState(new NextTurnState(save, bs));
+		Log(LOG_INFO) << "[coop-equip] client: no own soldier with an inventory - the Turn-1 screen waits (D215 a)";
 		return;
 	}
 	save->setSelectedUnit(own);
@@ -27413,6 +27508,7 @@ void connectionTCP::updateCoopTask()
 	// W2-P8 S-C2.2 (AMENDMENT P8-4 C2-8): the HOST's screens over a battle the partner's actions keep running
 	// under (D166 = B): they refresh, return a lost cursor item and close themselves when their soldier goes
 	// down or the side changes (D190, J1). Self-guarded (host, active co-op battle).
+	coopEquipRecordHostScreen(_game); // W2-P8b S-F (F3845): the pre-battle screen is recorded before the check reads it
 	CoopDisplayQueue::coopHostScreenCheck(); // W2-P8 S-C2 (D190, J1)
 
 	// W2-P8 S-C2.2b (F2925, ruling SC2-G2): the CLIENT's force-close also runs here, once per pump pass, while an

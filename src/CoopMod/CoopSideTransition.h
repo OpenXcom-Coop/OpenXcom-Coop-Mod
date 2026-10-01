@@ -93,4 +93,12 @@ bool coopSuppressNextTurnLifecycle(const SavedBattleGame* save);
 /// host itself; true only for a client inside an active coop battle.
 bool coopSuppressReinforcements(const SavedBattleGame* save);
 
+/// W2-P8b S-F (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
+/// section 4 S-F; owner D215 a): true iff NextTurnState::close() must keep the
+/// Turn-1 screen up - the pre-battle equip phase is still open on this machine
+/// (a player with nothing to equip waits there until the partner is ready).
+/// Counts every close() it swallows (event_state.equip.heldTurnScreenPresses).
+/// False outside an open equip phase, so single player is unchanged.
+bool coopEquipHoldTurnScreen(const SavedBattleGame* save);
+
 }

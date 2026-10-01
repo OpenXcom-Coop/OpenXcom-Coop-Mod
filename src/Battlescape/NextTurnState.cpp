@@ -531,6 +531,7 @@ void NextTurnState::think()
  */
 void NextTurnState::close()
 {
+	if (coopEquipHoldTurnScreen(_battleGame)) return; // W2-P8b
 	_battleGame->getBattleGame()->cleanupDeleted();
 	_game->popState();
 
