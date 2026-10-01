@@ -9,7 +9,9 @@ vanilla OK pushes the display-only DebriefingState), section 2 (F2757: the clien
 force-close never touches the pre-battle screen), section 5 rows EQ24 / EQ24b, section 8;
 P8b-1 RULINGS Q16 (a): the test-only client lever `hold_battle_ready`; ORCHESTRATOR
 RULING Q10 (a); veto line V4; AMENDMENT P8b-2 T0-5 (F3323) and the TASK 0 constants
-F3326). Stage S-F adds its boots F1 (EQ25) and F2 (EQ26) to this file.
+F3326). Stage S-F adds its boots F1 (EQ25) and F2 (EQ26) to this file (owner D215 a:
+a player with nothing to equip sees vanilla's Turn-1 screen at once and it stays until
+the partner is ready; P8b-1 section 4 S-F, section 5 rows EQ25 / EQ26; P8b-2 T0-9).
 
 Before S-E.2 (product untouched, commit S-E.1) the host's battle file is already out
 when its briefing OK finds no live alien (the offer goes out at PREPARE, S-A), and
@@ -83,6 +85,39 @@ client on its pre-battle screen, the aliens staged on both machines per SE-1). T
         latch's send could read it); no battle_end reaches the client, which stays on
         its pre-battle screen.
   RED (commit S-E.3a): exactly EQ24c fails on its RED cell; EQ24 and EQ24b pass.
+Boot F1 (ONE boot; stage S-F): Boot E1's bring-up with NO soldier seated to the client
+(seat_count 0 = drive_to_battlescape's seat_client=False: a spectator); the host keeps
+every craft soldier (ALL_IDS). Spine (spine_f): both briefings (the client's <= 30 s,
+D210 b), the host in phase Active, turn 0 on both; nothing closed. Then:
+  EQ25  (S-F, D215 a) the client's close_briefing while the host still reads its
+        briefing. GREEN: the client's top is vanilla's Turn-1 screen (NextTurnState)
+        at once, no equip screen on its stack, turn 0 on both; ONE real key
+        (inject_input SDLK_RETURN) and then the close_nextturn lever (the real
+        NextTurnState::close; never dismiss_popup, F3113) each leave it on top with
+        turn 0 on both and equip.heldTurnScreenPresses +1 (the hold counts every
+        close() it swallows); the host's close_briefing -> its pre-battle screen on its
+        own soldier while the client's Turn-1 screen stays; the host's OK (the real
+        click) -> the barrier: barrierDone, turn 1 on both, the equip phase ended on
+        both, no InventoryState left; the client's Turn-1 screen still on top, then ONE
+        real key closes it (BattlescapeState, no held press counted); the host's
+        hostScreens.closes and hostCovered unchanged since the spine (P8b-1 section 2,
+        STOP-IF 12). RED: the client on its map, no Turn-1 screen (S-A's interim:
+        nothing is pushed for a seat with nothing to equip).
+Boot F2 (ONE boot; stage S-F): Boot E1's bring-up with EVERY craft soldier seated to
+the client (P8b-2 T0-9's recipe: seat until newbattle_seat_soldier refuses - SEAT_ALL
+seated, index SEAT_ALL refused); the host commands no soldier. Spine: spine_f. Then:
+  EQ26  (S-F, D215 a) the host's close_briefing while the client still reads its
+        briefing. GREEN: the host's top is its Turn-1 screen, no InventoryState on its
+        stack, turn 0 on both; ONE real key and then close_nextturn each leave it on
+        top (turn 0, heldTurnScreenPresses +1 each); the client's close_briefing -> its
+        pre-battle screen on its own soldier, its ground = the host's pile ids, the
+        host's Turn-1 screen still up; the client's OK (the real click) -> the barrier:
+        barrierDone, turn 1 on both, the phase ended on both, no InventoryState left;
+        the host's Turn-1 screen still on top, then ONE real key closes it; hostScreens
+        .closes and hostCovered unchanged since the spine. RED: the host's pre-battle
+        equip screen opens on a client soldier (or empty) - the host commands none.
+  RED (commit S-F.1): exactly EQ25 and EQ26 fail, each on its RED cell; EQ24, EQ24b and
+  EQ24c pass.
 
 Common asserts before each ending (both machines in the battle): hash_now {full:true}
 every bucket EQUAL after the queues drain (E2, phase Handshake: SA-5's rule above);
@@ -97,7 +132,12 @@ MAP_FP, C [8, 9], H [10..14], PILE (14, 19, 1) (tseed_parallel.log, F3326, throu
 test_w2_prebattle_equip.py); ALIEN_IDS [1000000] (t05.log: "[T0-5] host live aliens
 before staging: [(1000000, 'STR_SECTOID_SOLDIER', 0)]"); the battle_end payload values
 (P8b-1 section 4 S-E); H_BUCKETS, DEBRIEF_WIDGETS, DEBRIEF_FIELDS, CLIENT_LEAVE_S and
-HOST_HOLD_S from test_w2_battle_end.py (W2-P7).
+HOST_HOLD_S from test_w2_battle_end.py (W2-P7). S-F: ALL_IDS [8..14] and SEAT_ALL 7
+(P8b-2 T0-9, t09.log: "seated to seat 1: count=7 soldierIds=[8, 9, 10, 11, 12, 13, 14];
+refusal at index 7"); Boots F1/F2 keep MAP_FP and PILE (measured at 38a3d5b62 by the
+S-F red's scratch bring-up: mapFingerprint = MAP_FP on both machines, equip.pile =
+PILE on both, for both seatings). Boots F1/F2 end each row with the common asserts
+below (test_w2_prebattle_equip's tail).
 
 Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked, then
 "PASS <id>" / "FAIL <id>: <message>"; main() runs every boot even after an earlier one
@@ -122,7 +162,7 @@ from test_w2_host_combat import bring_up_lobby_roster_pinned
 from test_w2_prebattle_equip import (SEED_MAP, MAP_FP, C_IDS, H_IDS, PILE, COOP_SEAT_0, FACTION_PLAYER,
                                      EQ1_WAIT_S, ENTRY_WAIT_S, DRAIN_WAIT_S, stack, top, has, es, equip, turn,
                                      inv_view, view_brief, screen_up, ground_ids, pile_ids, wait_until, evidence,
-                                     finish, drained, tail_fails)
+                                     finish, drained, tail_fails, ok_press, SDLK_RETURN, CLICK_WAIT_S, BARRIER_WAIT_S)
 from test_w2_delta_items import items_by_id
 from test_w2_battle_end import (H_BUCKETS, DEBRIEF_WIDGETS, DEBRIEF_FIELDS, CLIENT_LEAVE_S, HOST_HOLD_S, verdicts,
                                 tally)
@@ -133,6 +173,16 @@ PORT_E3 = "48839"                  # Boot E3's lobby port (unused by every other
 FACTION_HOSTILE = 1
 STATUS_DEAD = 6                    # src/Mod/Unit.h enum UnitStatus (T0-5's staging value)
 ALIEN_IDS = [1000000]              # t05.log: the host's live aliens before the staging at SEED_MAP 1
+
+# ----- S-F: nothing to equip (owner D215 a; AMENDMENT P8b-1 section 4 S-F, section 5 rows EQ25 / EQ26) -----
+PORT_F1 = "48846"                  # Boot F1's lobby port (unused by every other test file)
+PORT_F2 = "48847"                  # Boot F2's lobby port (unused by every other test file)
+ALL_IDS = [8, 9, 10, 11, 12, 13, 14]   # the craft's soldiers = C + H (F3326); t09.log "seated to seat 1: count=7
+                                       # soldierIds=[8, 9, 10, 11, 12, 13, 14]"
+SEAT_ALL = 7                       # t09.log: "count=7 ...; refusal at index 7" (P8b-2 T0-9's seat-everyone recipe)
+COOP_SEAT_1 = 1
+TURN_SCREEN = "NextTurnState"      # vanilla's "Turn 1" screen
+KEY_WAIT_S = 3.0                   # one real key closes a released Turn-1 screen (EQ8's bound)
 
 # ----- the aliens-crashed battle_end (AMENDMENT P8b-1 section 4 S-E) -----
 REASON = "aliensCrashed"
@@ -733,6 +783,274 @@ def eq24c_host_ok_in_handshake(host, client, ctx):
                       flush=True)
 
 
+# ===================== S-F: nothing to equip (owner D215 a) =====================
+
+
+def brief_equip(gc):
+    q = equip(gc)
+    return {k: q.get(k) for k in ("phase", "hostOpen", "openAnnounced", "ready", "counted", "pile", "entryDone",
+                                  "entries", "screen", "okPressed", "barrierDone", "endSyncs", "closes",
+                                  "heldTurnScreenPresses")}
+
+
+def presses(gc):
+    """event_state.equip.heldTurnScreenPresses (S-A.1's probe): the closes of a held Turn-1 screen swallowed."""
+    return equip(gc).get("heldTurnScreenPresses")
+
+
+def screen_probes(host):
+    """The host's screen check and covered driver, pinned unchanged across the equip phase (P8b-1 section 2: the
+    host screen check never closes or toggles a pre-battle screen, STOP-IF 12; the covered driver never steps)."""
+    e = es(host)
+    return {"hostScreensCloses": (e.get("hostScreens") or {}).get("closes"), "hostCovered": e.get("hostCovered")}
+
+
+def spine_f(host, client, ctx):
+    """Boots F1/F2's spine: both briefings (the client's <= 30 s, D210 b), the host in phase Active (the client's
+    battle_ready arrived), turn 0 on both; the host's screen probes recorded as the row's baseline. Closes nothing."""
+    tag = ctx.get("tag")
+    g0, d0 = wait_until(lambda: has(client, "BriefingState"), EQ1_WAIT_S, 0.1)
+    g1, d1 = wait_until(lambda: es(host).get("phase") == "Active", ACTIVE_WAIT_S, 0.1)
+    ctx["base"] = screen_probes(host)
+    rec = {"clientBriefingWithin": d0 if g0 else None, "hostActiveWithin": d1 if g1 else None,
+           "turn": [turn(host), turn(client)], "base": ctx["base"], "refusal": ctx.get("refusal"),
+           "hostEquip": brief_equip(host), "clientEquip": brief_equip(client), "host": dump(host),
+           "client": dump(client)}
+    print(f"SPINE {tag}: {json.dumps(rec, sort_keys=True, default=str)}", flush=True)
+    cq = equip(client)
+    if not (g0 and g1 and top(host) == "BriefingState" and top(client) == "BriefingState" and rec["turn"] == [0, 0]
+            and "heldTurnScreenPresses" in cq and cq.get("pile") == list(PILE)):
+        raise AssertionError(f"spine: Boot {tag}'s two briefings in phase Active at turn 0, the client's equip.pile "
+                             f"{list(PILE)}, never held ({rec})")
+
+
+def turn_screen_held(gc, host, client, who, row, ev):
+    """D215 a's hold on `gc`'s Turn-1 screen while the equip phase is open: ONE real key (inject_input SDLK_RETURN;
+    NextTurnState::handle turns a KEYDOWN into close()), then the close_nextturn lever (the real
+    NextTurnState::close; never dismiss_popup, which pops without close(), F3113). After each: the Turn-1 screen
+    still on top, turn 0 on both machines, heldTurnScreenPresses +1 (P8b-1 section 4 S-F: the hold counts every
+    close() it swallows). Fills ev[who + "Hold"]; returns the failures."""
+    fails = []
+    p0 = presses(gc)
+    base = p0 if isinstance(p0, int) else 0
+    rec = {"presses0": p0}
+    k = gc.cmd({"cmd": "inject_input", "kind": "key", "key": SDLK_RETURN})
+    g1, d1 = wait_until(lambda: presses(gc) == base + 1, CLICK_WAIT_S)
+    rec["key"] = {"ok": k.get("ok"), "pressesWithin": d1 if g1 else None, "presses": presses(gc),
+                  "stack": stack(gc), "turn": [turn(host), turn(client)]}
+    if rec["key"]["stack"][-1:] == [TURN_SCREEN]:
+        c = gc.cmd({"cmd": "close_nextturn"})
+        g2, d2 = wait_until(lambda: presses(gc) == base + 2, CLICK_WAIT_S)
+        rec["lever"] = {"answer": {k2: c.get(k2) for k2 in ("ok", "handled", "error")},
+                        "pressesWithin": d2 if g2 else None, "presses": presses(gc), "stack": stack(gc),
+                        "turn": [turn(host), turn(client)]}
+    ev[who + "Hold"] = rec
+    rk = rec["key"]
+    if rk["stack"][-1:] != [TURN_SCREEN] or rk["pressesWithin"] is None:
+        fails.append(f"{row}: one real key on the {who}'s Turn-1 screen left top {rk['stack'][-1:]} with "
+                     f"heldTurnScreenPresses {p0} -> {rk['presses']} (want {TURN_SCREEN} still on top and +1: held "
+                     f"while the equip phase is open, D215 a)")
+    if rk["turn"] != [0, 0]:
+        fails.append(f"{row}: turn host/client {rk['turn']} after the key on the {who}'s Turn-1 screen (want 0 on both)")
+    lv = rec.get("lever")
+    if not lv:
+        fails.append(f"{row}: close_nextturn not run on the {who} (its Turn-1 screen was gone after the key)")
+    else:
+        if lv["answer"].get("handled") != "NextTurnState::close":
+            fails.append(f"{row}: close_nextturn on the {who} answered {lv['answer']} (want handled "
+                         f"NextTurnState::close)")
+        if lv["stack"][-1:] != [TURN_SCREEN] or lv["pressesWithin"] is None:
+            fails.append(f"{row}: close_nextturn on the {who}'s Turn-1 screen left top {lv['stack'][-1:]} with "
+                         f"heldTurnScreenPresses {rk['presses']} -> {lv['presses']} (want {TURN_SCREEN} still on top "
+                         f"and +1)")
+        if lv["turn"] != [0, 0]:
+            fails.append(f"{row}: turn host/client {lv['turn']} after close_nextturn on the {who} (want 0 on both)")
+    return fails
+
+
+def turn_screen_released(gc, who, row, ev):
+    """After the equip end `gc`'s Turn-1 screen is still on top (the hold kept it; it never closed) and ONE real key
+    closes it: BattlescapeState on top within KEY_WAIT_S, no held press counted. Fills ev[who + "Release"]."""
+    fails = []
+    p = presses(gc)
+    rec = {"stackBefore": stack(gc), "pressesBefore": p}
+    if rec["stackBefore"][-1:] != [TURN_SCREEN]:
+        fails.append(f"{row}: after the equip end the {who}'s top is {rec['stackBefore'][-1:]} (want its Turn-1 screen "
+                     f"still up: it closes on the player's own key, D215 a; stack {rec['stackBefore']})")
+    else:
+        k = gc.cmd({"cmd": "inject_input", "kind": "key", "key": SDLK_RETURN})
+        g, d = wait_until(lambda: top(gc) == "BattlescapeState", KEY_WAIT_S)
+        rec.update({"key": k.get("ok"), "battlescapeWithin": d if g else None, "stack": stack(gc),
+                    "pressesAfter": presses(gc)})
+        if not g:
+            fails.append(f"{row}: one real key on the {who}'s released Turn-1 screen left {rec['stack']} (want "
+                         f"BattlescapeState on top within {KEY_WAIT_S} s)")
+        if rec["pressesAfter"] != p:
+            fails.append(f"{row}: the {who}'s key after the equip end counted a held press ({p} -> "
+                         f"{rec['pressesAfter']}; want unchanged: the hold ends with the equip phase)")
+    ev[who + "Release"] = rec
+    return fails
+
+
+def partner_turn_screen(gc, who, ev):
+    """The partner's own Turn-1 screen after the equip end (recorded, EQ8's shape): one real key when it is up."""
+    rec = {"stack": stack(gc)}
+    if rec["stack"][-1:] == [TURN_SCREEN]:
+        k = gc.cmd({"cmd": "inject_input", "kind": "key", "key": SDLK_RETURN})
+        g, d = wait_until(lambda: top(gc) == "BattlescapeState", KEY_WAIT_S)
+        rec.update({"key": k.get("ok"), "battlescapeWithin": d if g else None, "stackAfter": stack(gc)})
+    ev[who + "TurnScreen"] = rec
+
+
+def barrier_ended(host, client):
+    return (equip(host).get("barrierDone") is True and equip(host).get("phase") == "ended"
+            and equip(client).get("phase") == "ended" and turn(host) == 1 and turn(client) == 1
+            and not has(host, "InventoryState") and not has(client, "InventoryState"))
+
+
+def probe_fails(host, row, ev):
+    after = screen_probes(host)
+    ev["probesAfter"] = after
+    base = ev.get("base") or {}
+    fails = []
+    for k in ("hostScreensCloses", "hostCovered"):
+        if base.get(k) != after.get(k):
+            fails.append(f"{row}: host {k} changed across the equip phase: {base.get(k)} -> {after.get(k)} (want "
+                         f"unchanged, P8b-1 section 2 / STOP-IF 12)")
+    return fails
+
+
+def eq25_spectator(host, client, ctx):
+    """EQ25 (S-F, D215 a; Boot F1): the client commands no soldier (a spectator)."""
+    ev = {"base": ctx.get("base")}
+    # 1. the client's briefing OK while the host still reads its briefing
+    c = client.cmd({"cmd": "close_briefing"})
+    g, d = wait_until(lambda: top(client) == TURN_SCREEN, ENTRY_WAIT_S)
+    e = {"close": {k: c.get(k) for k in ("ok", "error")}, "turnScreenWithin": d if g else None,
+         "clientStack": stack(client), "hostStack": stack(host), "turn": [turn(host), turn(client)],
+         "clientEquip": brief_equip(client), "clientView": view_brief(inv_view(client)),
+         "clientBanner": battle_state(client).get("coopWaitText")}
+    ev["entry"] = e
+    if not g:
+        evidence("EQ25", ev)
+        red = e["clientStack"][-1:] == ["BattlescapeState"] and not any(TURN_SCREEN in s for s in e["clientStack"])
+        finish([f"EQ25: the client's top {e['clientStack'][-1:]} {ENTRY_WAIT_S} s after its briefing OK (want "
+                f"{TURN_SCREEN} at once, D215 a; client stack {e['clientStack']}, turn host/client {e['turn']}, client "
+                f"equip {e['clientEquip']})"
+                + (" - RED: the client on its map, no Turn-1 screen (S-A's interim: nothing is pushed for a seat "
+                   "with nothing to equip)" if red else "")])
+    fails = []
+    if any("InventoryState" in s for s in e["clientStack"]) or e["clientEquip"].get("screen"):
+        fails.append(f"EQ25: the client (no soldier) holds an equip screen (stack {e['clientStack']}, equip.screen "
+                     f"{e['clientEquip'].get('screen')}; want none)")
+    if e["turn"] != [0, 0]:
+        fails.append(f"EQ25: turn host/client {e['turn']} at the client's Turn-1 screen (want 0 on both)")
+    if e["hostStack"][-1:] != ["BriefingState"]:
+        fails.append(f"EQ25: FIXTURE - the host left its briefing before its own close (host stack {e['hostStack']})")
+    # 2. the hold: a real key, then close_nextturn
+    fails += turn_screen_held(client, host, client, "client", "EQ25", ev)
+    # 3. the host's briefing OK -> its pre-battle screen on its own soldier; the client's Turn-1 screen stays
+    hc = host.cmd({"cmd": "close_briefing"})
+    g3, d3 = wait_until(lambda: screen_up(host), ENTRY_WAIT_S)
+    hv = inv_view(host)
+    ev["hostEntry"] = {"close": {k: hc.get(k) for k in ("ok", "error")}, "screenWithin": d3 if g3 else None,
+                       "hostView": view_brief(hv), "clientStack": stack(client), "turn": [turn(host), turn(client)],
+                       "clientPresses": presses(client)}
+    if not g3 or hv.get("unitId") not in ALL_IDS:
+        fails.append(f"EQ25: the host's pre-battle screen {view_brief(hv)} within {ENTRY_WAIT_S} s of its briefing OK "
+                     f"(want it on top on one of its own soldiers {ALL_IDS})")
+    if ev["hostEntry"]["clientStack"][-1:] != [TURN_SCREEN]:
+        fails.append(f"EQ25: the client's Turn-1 screen went away when the host's equip opened (client stack "
+                     f"{ev['hostEntry']['clientStack']})")
+    # 4. the host's OK (the real click) -> the barrier -> turn 1 on both
+    o = ok_press(host)
+    g4, d4 = wait_until(lambda: barrier_ended(host, client), BARRIER_WAIT_S, 0.1)
+    ev["barrier"] = {"click": o.get("error") or o.get("ok"), "within": d4 if g4 else None,
+                     "turn": [turn(host), turn(client)], "hostEquip": brief_equip(host),
+                     "clientEquip": brief_equip(client), "hostStack": stack(host), "clientStack": stack(client)}
+    if not g4:
+        fails.append(f"EQ25: no barrier within {BARRIER_WAIT_S} s of the host's OK (turn host/client "
+                     f"{ev['barrier']['turn']}, host equip {ev['barrier']['hostEquip']}, client equip phase "
+                     f"{ev['barrier']['clientEquip'].get('phase')}; want barrierDone, the phase ended on both, turn 1 "
+                     f"on both, no InventoryState left)")
+    # 5. the client's Turn-1 screen is still up and one key closes it; 6. the host's own Turn-1 screen (recorded)
+    fails += turn_screen_released(client, "client", "EQ25", ev)
+    partner_turn_screen(host, "host", ev)
+    fails += probe_fails(host, "EQ25", ev)
+    evidence("EQ25", ev)
+    fails += tail_fails(host, client, "EQ25")
+    finish(fails)
+
+
+def eq26_host_nothing(host, client, ctx):
+    """EQ26 (S-F, D215 a; Boot F2): every craft soldier is the client's; the host commands none."""
+    ev = {"base": ctx.get("base"), "refusal": ctx.get("refusal")}
+    # 1. the host's briefing OK while the client still reads its briefing
+    hc = host.cmd({"cmd": "close_briefing"})
+    g, d = wait_until(lambda: top(host) == TURN_SCREEN and not has(host, "InventoryState"), ENTRY_WAIT_S)
+    hv = inv_view(host)
+    e = {"close": {k: hc.get(k) for k in ("ok", "error")}, "turnScreenWithin": d if g else None,
+         "hostStack": stack(host), "clientStack": stack(client), "turn": [turn(host), turn(client)],
+         "hostView": view_brief(hv), "hostEquip": brief_equip(host),
+         "hostSelected": battle_state(host).get("selectedId"), "hostProbes": screen_probes(host)}
+    ev["entry"] = e
+    if not g:
+        evidence("EQ26", ev)
+        uid = e["hostView"].get("unitId")
+        red = (e["hostStack"][-1:] == ["InventoryState"] and e["hostView"].get("preBattle") is True
+               and (uid in ALL_IDS or uid in (None, -1)))
+        finish([f"EQ26: the host's top {e['hostStack'][-1:]} {ENTRY_WAIT_S} s after its briefing OK (want "
+                f"{TURN_SCREEN} with no InventoryState on its stack, D215 a; host stack {e['hostStack']}, its "
+                f"inventory_view {e['hostView']}, host equip {e['hostEquip']}, host screen checks "
+                f"{e['hostProbes']})"
+                + (f" - RED: the host's pre-battle equip screen opened on "
+                   f"{'client soldier ' + str(uid) if uid in ALL_IDS else 'no soldier'} (the host commands none)"
+                   if red else "")])
+    fails = []
+    if e["turn"] != [0, 0]:
+        fails.append(f"EQ26: turn host/client {e['turn']} at the host's Turn-1 screen (want 0 on both)")
+    if e["clientStack"][-1:] != ["BriefingState"]:
+        fails.append(f"EQ26: FIXTURE - the client left its briefing before its own close (client stack "
+                     f"{e['clientStack']})")
+    # 2. the hold: a real key, then close_nextturn
+    fails += turn_screen_held(host, host, client, "host", "EQ26", ev)
+    # 3. the client's briefing OK -> its pre-battle screen on its own soldier; the host's Turn-1 screen stays
+    cc = client.cmd({"cmd": "close_briefing"})
+    g3, d3 = wait_until(lambda: screen_up(client), ENTRY_WAIT_S)
+    cv = inv_view(client)
+    hp = pile_ids(items_by_id(host))
+    ev["clientEntry"] = {"close": {k: cc.get(k) for k in ("ok", "error")}, "screenWithin": d3 if g3 else None,
+                         "clientView": view_brief(cv), "ground": ground_ids(cv), "hostPile": hp,
+                         "hostStack": stack(host), "turn": [turn(host), turn(client)], "hostPresses": presses(host)}
+    if not g3 or cv.get("unitId") not in ALL_IDS:
+        fails.append(f"EQ26: the client's pre-battle screen {view_brief(cv)} within {ENTRY_WAIT_S} s of its briefing "
+                     f"OK (want it on top on one of its own soldiers {ALL_IDS})")
+    elif ground_ids(cv) != hp:
+        fails.append(f"EQ26: STOP-IF 8 - the client's pre-battle ground {ground_ids(cv)} != the host's pile ids {hp}")
+    if ev["clientEntry"]["hostStack"][-1:] != [TURN_SCREEN]:
+        fails.append(f"EQ26: the host's Turn-1 screen went away when the client's equip opened (host stack "
+                     f"{ev['clientEntry']['hostStack']})")
+    # 4. the client's OK (the real click) -> the barrier -> turn 1 on both
+    o = ok_press(client)
+    g4, d4 = wait_until(lambda: barrier_ended(host, client), BARRIER_WAIT_S, 0.1)
+    ev["barrier"] = {"click": o.get("error") or o.get("ok"), "within": d4 if g4 else None,
+                     "turn": [turn(host), turn(client)], "hostEquip": brief_equip(host),
+                     "clientEquip": brief_equip(client), "hostStack": stack(host), "clientStack": stack(client),
+                     "hostSelected": battle_state(host).get("selectedId")}
+    if not g4:
+        fails.append(f"EQ26: no barrier within {BARRIER_WAIT_S} s of the client's OK (turn host/client "
+                     f"{ev['barrier']['turn']}, host equip {ev['barrier']['hostEquip']}, client equip phase "
+                     f"{ev['barrier']['clientEquip'].get('phase')}; want barrierDone, the phase ended on both, turn 1 "
+                     f"on both, no InventoryState left)")
+    # 5. the host's Turn-1 screen is still up and one key closes it; 6. the client's own Turn-1 screen (recorded)
+    fails += turn_screen_released(host, "host", "EQ26", ev)
+    partner_turn_screen(client, "client", ev)
+    fails += probe_fails(host, "EQ26", ev)
+    evidence("EQ26", ev)
+    fails += tail_fails(host, client, "EQ26")
+    finish(fails)
+
+
 # (name, fn): a named step is a row (PASS/FAIL line); a None step is the fixture spine (a failure there fails the
 # run, and the row after it fails on its own preconditions).
 STEPS_E1 = ((None, spine_e1),
@@ -741,6 +1059,10 @@ STEPS_E2 = ((None, spine_e2),
             ("EQ24b", eq24b_no_aliens_in_handshake))
 STEPS_E3 = ((None, spine_e2),
             ("EQ24c", eq24c_host_ok_in_handshake))
+STEPS_F1 = ((None, spine_f),
+            ("EQ25", eq25_spectator))
+STEPS_F2 = ((None, spine_f),
+            ("EQ26", eq26_host_nothing))
 
 
 def check_boot(host, client, seated, tag):
@@ -791,10 +1113,62 @@ def boot_e3(host, client):
     return ctx
 
 
+def check_boot_f(host, client, seated, tag, want_seated, want_host):
+    """Boots F1/F2: MAP_FP, the seating (the client's units, the host's own soldiers) and the craft pile on both."""
+    hb = battle_state(host)
+    assert hb.get("mapFingerprint") == MAP_FP, (
+        f"host mapFingerprint {hb.get('mapFingerprint')!r} (baked MAP_FP {MAP_FP!r}, SEED_MAP {SEED_MAP})")
+    sid_to_uid = {u.get("soldierId"): u["id"] for u in hb.get("units", []) if u.get("soldierId") is not None}
+    seated_uids = [sid_to_uid.get(s) for s in seated.get("soldierIds", [])]
+    assert seated_uids == want_seated, f"seated client units {seated_uids} (want {want_seated})"
+    h_ids = sorted(u["id"] for u in hb["units"] if u.get("coop") == COOP_SEAT_0
+                   and u.get("faction") == FACTION_PLAYER and not u.get("isOut"))
+    assert h_ids == want_host, f"host-seat soldiers {h_ids} (want {want_host})"
+    # the HOST only: bring_up_to_briefings returns at the host's briefing, before the client holds the battle
+    # (the client's equip probe is checked by spine_f once its briefing is up)
+    q = event_state(host).get("equip")
+    assert isinstance(q, dict) and "heldTurnScreenPresses" in q, f"host event_state lacks the W2-P8b equip probe: {q!r}"
+    assert q.get("pile") == list(PILE), f"host equip.pile {q.get('pile')} (want {list(PILE)})"
+    print(f"[w2p8b-sf] boot {tag} ok: MAP_FP={MAP_FP!r} mission={hb.get('missionType')} seated={seated_uids} "
+          f"H={h_ids} host stack={stack(host)} client stack={stack(client)}", flush=True)
+
+
+def boot_f1(host, client):
+    """Boot F1 (S-F, EQ25): no soldier seated to the client (seat_count 0 = drive_to_battlescape's
+    seat_client=False: no newbattle_seat_soldier call), so the client is a spectator; the host keeps ALL_IDS."""
+    bring_up_lobby_roster_pinned(host, client, PORT_F1)
+    seated = {}
+    session.bring_up_to_briefings(host, client, seated, seat_count=0,
+                                  pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP}))
+    check_boot_f(host, client, seated, "F1", [], ALL_IDS)
+    return {"tag": "F1"}
+
+
+def boot_f2(host, client):
+    """Boot F2 (S-F, EQ26): P8b-2 T0-9's seat-everyone recipe - SEAT_ALL soldiers seated to the client, then index
+    SEAT_ALL must refuse (the craft has no more); the host commands no soldier."""
+    bring_up_lobby_roster_pinned(host, client, PORT_F2)
+    seated = {}
+    ctx = {"tag": "F2"}
+
+    def pre_ok(h):
+        r = h.cmd({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1, "index": SEAT_ALL})
+        ctx["refusal"] = {k: r.get(k) for k in ("ok", "error")}
+        assert not r.get("ok"), (f"T0-9: newbattle_seat_soldier index {SEAT_ALL} answered {ctx['refusal']} (want the "
+                                 f"refusal: the craft seats {SEAT_ALL})")
+        h.ok({"cmd": "set_seed", "seed": SEED_MAP})
+
+    session.bring_up_to_briefings(host, client, seated, seat_count=SEAT_ALL, pre_ok=pre_ok)
+    check_boot_f(host, client, seated, "F2", ALL_IDS, [])
+    return ctx
+
+
 # (boot name, user-dir tag, bring-up, steps)
 BOOTS = (("E1", "e1", boot_e1, STEPS_E1),
          ("E2", "e2", boot_e2, STEPS_E2),
-         ("E3", "e3", boot_e3, STEPS_E3))
+         ("E3", "e3", boot_e3, STEPS_E3),
+         ("F1", "f1", boot_f1, STEPS_F1),
+         ("F2", "f2", boot_f2, STEPS_F2))
 ROWS = [n for _, _, _, steps in BOOTS for n, _ in steps if n]
 
 
