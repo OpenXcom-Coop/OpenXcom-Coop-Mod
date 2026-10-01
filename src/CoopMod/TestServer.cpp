@@ -6888,6 +6888,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// the battle-message probe - counts, queueDepth, the decided-message ring and the CLIENT's `seen` list (applied
 		// message cues with the top state), both machines; S-M.1 writes only `seen` (CoopBattleUi.h messagesProbe()).
 		resp["messages"] = CoopBattleUi::messagesProbe();
+		// W2-P6a S-C.1 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (c), AMENDMENTS P6-5 section 4 and
+		// P6-6 section 5): the camera probe - this machine's live camera offset, view level and follow flag, the
+		// CLIENT's camera-move records and the HOST's guard counters, both machines; S-C.1 writes only the camera
+		// reads (CoopGhost.h cameraProbe()).
+		resp["camera"] = CoopGhost::cameraProbe();
 		resp["derivedPaths"] = CoopGhost::derivedPaths();
 		resp["rngSeed"] = Json::Value::Int64((int64_t)RNG::getSeed());
 		resp["shotTrajectories"] = coopShotTrajectories();

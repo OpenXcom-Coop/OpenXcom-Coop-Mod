@@ -30,6 +30,18 @@ Three scenarios, ONE boot, in this order (TASK 0a / 0c one-boot order):
        RED (TASK 0d / F810): (walk_step W)(bt_action_end W) only - no shot,
        no hit, A tu A_TU -> A_TU, halted "blocked", path C8_EXECUTED, banner
        "Move stopped - path blocked".
+       W2-P6a S-C row KR2 (spec rewrite/prompts/w2p6_display_two.md P6a
+       review section 2, pinned stage text (c), AMENDMENTS P6-5 section 4 and
+       P6-6 section 5; owner D131, D171 (a)): the host camera is staged on
+       K_HOSTFAR (view level 1) before the click. GREEN: host
+       camera.suppressed follow == R's shot count and walkLevel == 2 x W's
+       walk_step count (ruling SC-3 (a): UnitWalkBState's off-screen step
+       writes the view level twice, F4143), the host offset still the staged
+       one, view level 1;
+       client camera.moves hold {reaction_follow} per R shot, {restore} at R's
+       bt_action_end whose `after` equals the offset at R's first shot, and
+       {own_walker_level} per W step. RED (commit S-C.1): counters 0, the host
+       offset and view level moved, no client move. One "EVIDENCE KR2:" line.
   C8k  the kneeling walker (B1 RQ4 (a)). A reactions 0 (BOTH); C health
        C_MAX_HEALTH + tu TU_MAX (BOTH); C and A back on the C8 tiles (BOTH);
        the client kneels C (real SDLK_k); A reactions 100 + tu A_TU refilled
@@ -122,6 +134,7 @@ from test_w2_delta_core import probes, diff_buckets, desync_record, short, both,
     delta_view
 from test_w2_delta_items import items_by_id
 from test_w2_host_combat import evs_since, ev_tuples, cue_probes, cue_delta
+from test_w2_host_combat import camera_of, cam_snap, cam_offset, stage_camera, cam_moves, mv, cam_suppressed_delta,     cam_view
 from test_w2_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta, ctx_of, ctx_view, sv, by_seq,
                                 CHAIN_KINDS, end_turn_cycle, bring_up_lobby_roster_pinned)
 
@@ -148,6 +161,12 @@ C8_DEST = (18, 7, 0)                   # planned (16,7) (17,7) (18,7): every til
 SEED_C8 = 3                            # host set_seed right before the client's click
 C8_EXECUTED = [(16, 7, 0)]             # halted after step 1 (C8_REACT_STEP 1)
 C8_C_HEALTH = 21                       # C8_C_HEALTH_AFTER: two of A's three snaps hit C (40 -> 21), C standing
+# W2-P6a S-C row KR2 (P6a pinned stage text (c); AMENDMENTS P6-5 section 4, P6-6 section 5): T0a-4's host staging
+K_HOSTFAR = (38, 38, 1)                # the host camera at view level 1, > 1 screen from A, C and the walk (map 40x40x4)
+KR2_WALKLEVEL_PER_STEP = 2             # ruling SC-3 (a), F4143: with the host camera staged far the walker is off screen,
+                                       # so UnitWalkBState runs keepWalking(..., false) (end = 2) and writes the view level
+                                       # (:204) on both calls of each step - traced over 4 steps (C8, C8k, C11); the guard
+                                       # counts every write it suppresses (no dedupe)
 
 # ----- C8k (T0c constants.md "C8k") -----
 SEED_C8K = 2                           # host set_seed right before the client's click
@@ -451,6 +470,51 @@ def outcome_fails(rec, health, what):
     return fails
 
 
+def kr2_fails(rec, staged, cam0, cam1):
+    """W2-P6a S-C row KR2 (P6a review section 2; owner D131, D171 (a); Q9 (a) as pinned by OR4 (a)): reaction fire
+    at the client's walker. HOST (the walk W is the partner's order, R is nested in it): camera.suppressed.follow ==
+    R's `shot` count, suppressed.walkLevel == KR2_WALKLEVEL_PER_STEP x W's `walk_step` count (SC-3 (a), F4143), the
+    offset still the staged one and the view level 1. CLIENT: {reaction_follow} at each R shot seq; {restore} at R's bt_action_end seq whose `after` equals
+    the `before` of the reaction_follow record at R's first shot (the offset K2 stores there); {own_walker_level} at
+    each W walk_step seq. Prints one "EVIDENCE KR2:" line."""
+    w = rec["W"]
+    rctx = [c for c in nested_in(rec, w) if c.get("origin") == "reaction"]
+    r = rctx[0].get("actionId") if len(rctx) == 1 else None
+    revs = evs_of(rec, r)
+    r_shots = [e["seq"] for e in revs if e["kind"] == "shot"]
+    r_end = [e["seq"] for e in revs if e["kind"] == "bt_action_end"]
+    w_steps = [e["seq"] for e in rec["hev"] if e["kind"] == "walk_step" and w and e["actionId"] == w]
+    sup = cam_suppressed_delta(cam0["host"], cam1["host"])
+    moves = cam_moves(cam1["client"], rec["seq0"])
+    print(f"EVIDENCE KR2: R={r} shot seqs={r_shots} end={r_end}; W={w} walk_step seqs={w_steps}; host staged="
+          f"{cam_offset(staged)} before={cam_view(cam0['host'])} after={cam_view(cam1['host'])} suppressed delta={sup}; "
+          f"client before={cam_view(cam0['client'], rec['seq0'])} after={cam_view(cam1['client'], rec['seq0'])}",
+          flush=True)
+    fails = []
+    if r is None or not r_shots or len(r_end) != 1 or not w_steps:
+        fails.append(f"KR2: precondition: R {r} shots {r_shots} end {r_end}, W {w} steps {w_steps} (want one reaction "
+                     f"context with >= 1 shot and its bt_action_end, and >= 1 walk_step of W)")
+    if (sup["follow"], sup["walkLevel"]) != (len(r_shots), KR2_WALKLEVEL_PER_STEP * len(w_steps)):
+        fails.append(f"KR2: host camera.suppressed delta follow {sup['follow']} walkLevel {sup['walkLevel']} (want "
+                     f"{len(r_shots)} = R's shots, {KR2_WALKLEVEL_PER_STEP * len(w_steps)} = {KR2_WALKLEVEL_PER_STEP} "
+                     f"x W's {len(w_steps)} steps, SC-3 / F4143)")
+    if cam_offset(cam1["host"]) != cam_offset(staged) or cam1["host"].get("viewLevel") != K_HOSTFAR[2]:
+        fails.append(f"KR2: host camera offset {cam_offset(cam1['host'])} viewLevel {cam1['host'].get('viewLevel')} "
+                     f"after the walk (want the staged {cam_offset(staged)}, view level {K_HOSTFAR[2]}: the partner's "
+                     f"walk and the reaction inside it never move the host's camera)")
+    got = [mv(m) for m in moves]
+    need = [(s, "reaction_follow") for s in r_shots] + [(s, "restore") for s in r_end] +         [(s, "own_walker_level") for s in w_steps]
+    missing = [x for x in need if x not in got]
+    if missing:
+        fails.append(f"KR2: client camera.moves lack {missing} (want {need}; moves {got})")
+    rf = [m for m in moves if r_shots and mv(m) == (r_shots[0], "reaction_follow")]
+    rs = [m for m in moves if r_end and mv(m) == (r_end[0], "restore")]
+    if rf and rs and rs[0].get("after") != rf[0].get("before"):
+        fails.append(f"KR2: client restore after={rs[0].get('after')} (want the offset at R's first shot "
+                     f"{rf[0].get('before')})")
+    return fails
+
+
 # ===================== scenarios =====================
 
 
@@ -472,10 +536,14 @@ def c8_reaction(host, client, ctx):
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu", "value": A_TU,
                         "refill": True}, ("tu",))
     staged_diff = diff_buckets(host, client)
+    kr2_staged = stage_camera(host, K_HOSTFAR)   # W2-P6a S-C row KR2 (T0a-4): the host camera far, view level 1
+    cam0 = cam_snap(host, client)
     rec = client_walk(host, client, SEED_C8, C8_DEST, notes)
+    cam1 = cam_snap(host, client)
     w = rec["W"]
     print(f"EVIDENCE C8: prep {ctx['prep']}; A {C8_A_TILE}/{C8_A_DIR} C {C8_C_TILE}/{C8_C_DIR} dest {C8_DEST} "
           f"stagedDiff={staged_diff}; {walk_evidence(rec, 'C8')}", flush=True)
+    kr2 = kr2_fails(rec, kr2_staged, cam0, cam1)
     fails = list(notes)
     if (hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")) != (turn0 + 1, FACTION_PLAYER, turn0 + 1,
                                                                            FACTION_PLAYER):
@@ -505,6 +573,7 @@ def c8_reaction(host, client, ctx):
     fails += equal_fails(rec, "C8")
     fails += context_fails(rec, "C8")
     fails += common_fails(host, client, rec["before"], {}, "C8")
+    fails += kr2
     finish(fails)
 
 

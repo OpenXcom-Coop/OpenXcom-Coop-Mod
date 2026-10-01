@@ -34,6 +34,15 @@ Eight scenarios, ONE boot, in this order:
          cueCounts.death +1; the host's displayTwo all zero; the client's
          rngSeed unchanged. Declared green at red (commit S-D.1: nothing
          writes displayTwo). One "EVIDENCE D4:" line.
+         W2-P6a S-C row KR3, host half (spec rewrite/prompts/w2p6_display_two.md
+         P6a review section 2, pinned stage text (c), AMENDMENTS P6-5 section 4
+         and P6-6 section 5, ruling SC-1 (a); owner D131): the host camera is
+         staged on K_HOSTFAR_TERROR (view level 1) before the press. GREEN:
+         host camera.suppressed.follow +1 and the host offset still the staged
+         one. C16's own-move client half is not asserted: D4 switches the
+         client's coopGhostStepper off for this order (SC-1, F4141); KR3's
+         client half is C17's. RED (commit S-C.1): the counter +0, the host
+         offset moved. One "EVIDENCE KR3 C16:" line.
   C16h   the halt. C's TU = the snap cost SNAP_TU (both); C faces dir 0 (the
          turn C16's shot produced); real-UI snap at the floor tile C16H_TARGET,
          two octants east. The pre-shot turn spends 1 TU per octant, so vanilla's
@@ -48,6 +57,13 @@ Eight scenarios, ONE boot, in this order:
          GREEN: {intent, shoot, C} holding exactly three `shot` evs with
          shotIndex 1, 2, 3 (host [coop-cue] payloads); C TU C17_TU_AFTER and the
          clip C17_CLIP_AFTER on both.
+         W2-P6a S-C row KR3, client half (ruling SC-1 (a); owner D171 (a): your
+         own actions move your camera like single player; coopGhostStepper on):
+         the client's camera is read right before its click. GREEN: the
+         client's camera.moves hold {own_follow} at each of the order's shot
+         seqs and {own_restore} at its bt_action_end seq whose `after` equals
+         the offset at the click. RED (commit S-C.1): no client move. One
+         "EVIDENCE KR3 C17:" line.
   C17p   a combat order while the host is busy. The host's fire dial is set to 1
          (seat 0 on both), H gets a rifle + clip at C17P_H_TILE; host set_seed
          SEED_C17P and battle_fire {H, auto} at C17P_H_TARGET: a ~21.4 s host
@@ -163,6 +179,8 @@ from test_w2_delta_core import diff_buckets, desync_record, short, both
 from test_w2_delta_items import items_by_id, unit_view, tile_of
 from test_w2_host_combat import bring_up_lobby_roster_pinned, evs_since, ev_tuples
 from test_w2_host_combat import display_two, death_of, death_counts, rng_of, DEATH_COUNT_KEYS
+from test_w2_host_combat import (camera_of, cam_snap, cam_offset, stage_camera, cam_moves, mv, cam_suppressed_delta,
+                                 cam_view, K_HOSTFAR_TERROR)
 from test_w2_ai_origins import host_payloads
 
 # ----- bring-up (TASK 0: the roster-pinned terror boot) -----
@@ -641,6 +659,54 @@ def shot_brief(shots):
             for s, p in shots]
 
 
+def kr3_host_fails(chain, seq0, staged, cam0, cam1):
+    """W2-P6a S-C row KR3, host half (P6a review section 2; ruling SC-1 (a); owner D131): C16 is the client's own
+    intent shot, so on the HOST it is the partner's order - camera.suppressed.follow +1 and the offset still the
+    staged one. The client's own-move half is C17's (D4 switches the client's option off for C16, F4141). Prints
+    one "EVIDENCE KR3 C16:" line."""
+    shots = [e["seq"] for e in chain if e["kind"] == "shot"]
+    sup = cam_suppressed_delta(cam0["host"], cam1["host"])
+    print(f"EVIDENCE KR3 C16: shot seqs={shots}; host staged={cam_offset(staged)} before={cam_view(cam0['host'])} "
+          f"after={cam_view(cam1['host'])} suppressed delta={sup}; client (not asserted, D4) before="
+          f"{cam_view(cam0['client'], seq0)} after={cam_view(cam1['client'], seq0)}", flush=True)
+    fails = []
+    if len(shots) != 1:
+        fails.append(f"KR3 C16: precondition: shot seqs {shots} (want one shot)")
+    if sup["follow"] != 1:
+        fails.append(f"KR3 C16: host camera.suppressed.follow +{sup['follow']} (want +1: the partner's shot)")
+    if cam_offset(cam1["host"]) != cam_offset(staged):
+        fails.append(f"KR3 C16: host camera offset {cam_offset(cam1['host'])} after the order (want the staged "
+                     f"{cam_offset(staged)}: the partner's shot never moves the host's camera)")
+    return fails
+
+
+def kr3_client_fails(chain, seq0, at_click, cam0, cam1):
+    """W2-P6a S-C row KR3, client half (ruling SC-1 (a); owner D171 (a)): C17 is the client's own real-UI autoshot
+    with coopGhostStepper on - the client's camera.moves hold {own_follow} at each shot seq and {own_restore} at the
+    order's bt_action_end seq whose `after` equals the client offset read right before the click. Prints one
+    "EVIDENCE KR3 C17:" line."""
+    shots = [e["seq"] for e in chain if e["kind"] == "shot"]
+    ends = [e["seq"] for e in chain if e["kind"] == "bt_action_end"]
+    moves = cam_moves(cam1["client"], seq0)
+    print(f"EVIDENCE KR3 C17: shot seqs={shots} end={ends}; client at the click={(at_click or {}).get('offset')} "
+          f"before={cam_view(cam0['client'], seq0)} after={cam_view(cam1['client'], seq0)}; host before="
+          f"{cam_view(cam0['host'])} after={cam_view(cam1['host'])}", flush=True)
+    fails = []
+    if len(shots) != C17_SHOTS or len(ends) != 1 or at_click is None:
+        fails.append(f"KR3 C17: precondition: shot seqs {shots}, ends {ends}, client camera at the click "
+                     f"{at_click is not None} (want {C17_SHOTS} shots, one bt_action_end, the click's camera read)")
+    got = [mv(m) for m in moves]
+    need = [(s, "own_follow") for s in shots] + [(s, "own_restore") for s in ends[:1]]
+    missing = [x for x in need if x not in got]
+    if missing:
+        fails.append(f"KR3 C17: client camera.moves lack {missing} (want {need}; moves {got})")
+    rs = [m for m in moves if ends and mv(m) == (ends[0], "own_restore")]
+    if rs and at_click is not None and rs[0].get("after") != at_click.get("offset"):
+        fails.append(f"KR3 C17: client own_restore after={rs[0].get('after')} (want the offset at the click "
+                     f"{at_click.get('offset')})")
+    return fails
+
+
 # ===================== scenarios =====================
 
 
@@ -655,6 +721,8 @@ def c16_snap_kill(host, client, ctx):
     set_tu_both(host, client, C_ID, TU_MAX)
     set_firing_both(host, client, C_ID)
     staged = diff_buckets(host, client)
+    kr3_staged = stage_camera(host, K_HOSTFAR_TERROR)   # W2-P6a S-C row KR3, host half (T0a-4): far, level 1
+    cam0 = cam_snap(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     # W2-P6b S-D row D4 (review section 2; Q16 / OR3 (a)): the client's ghost option off for this one order
@@ -673,6 +741,7 @@ def c16_snap_kill(host, client, ctx):
     except Exception as e:
         notes.append(f"wait_host_idle: {short(e)}")
     d4_on = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": True}).get("value")
+    cam1 = cam_snap(host, client)
     rec = collect(host, client, seq0)
     new = ctx_view(before, rec)
     hits = mine(new, "intent", "shoot", C_ID)
@@ -697,6 +766,7 @@ def c16_snap_kill(host, client, ctx):
           f"{death_counts(d4_0['dt']['client'])} -> {death_counts(d4_1['dt']['client'])} (enqueued +{d4_enq}); client "
           f"cueCounts.death {d4_0['cue']} -> {d4_1['cue']} (+{d4_cue}); host displayTwo={d4_1['dt']['host']}; client "
           f"rngSeed {d4_0['rng']} -> {d4_1['rng']}", flush=True)
+    kr3 = kr3_host_fails(chain, seq0, kr3_staged, cam0, cam1)
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
@@ -732,6 +802,7 @@ def c16_snap_kill(host, client, ctx):
     if aid is None or la.get("actionId") != aid or la.get("kind") != "shoot":
         fails.append(f"client lastAftermath={rec['client']['lastAftermath']} (want {{actionId {aid}, kind shoot}})")
     fails += common_fails(host, client, before, "C16")
+    fails += kr3
     finish(fails)
 
 
@@ -797,11 +868,17 @@ def c17_auto(host, client, ctx):
     set_tu_both(host, client, C_ID, TU_MAX)
     set_firing_both(host, client, C_ID)
     staged = diff_buckets(host, client)
+    cam0 = cam_snap(host, client)        # W2-P6a S-C row KR3, client half (SC-1 (a))
+    kr3_click = {}
+
+    def before_click():
+        kr3_click["client"] = camera_of(client)   # KR3: the client offset right before the click
+        host.ok({"cmd": "set_seed", "seed": SEED_C17})
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     pv = {}
     try:
-        pv = aim_click(client, KEY_AUTO, C17_TARGET, lambda: host.ok({"cmd": "set_seed", "seed": SEED_C17}))
+        pv = aim_click(client, KEY_AUTO, C17_TARGET, before_click)
     except Exception as e:
         notes.append(f"real-UI autoshot: {short(e)}")
     out = await_press(host, client, before, notes)
@@ -809,6 +886,7 @@ def c17_auto(host, client, ctx):
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
         notes.append(f"wait_host_idle: {short(e)}")
+    cam1 = cam_snap(host, client)
     rec = collect(host, client, seq0)
     new = ctx_view(before, rec)
     hits = mine(new, "intent", "shoot", C_ID)
@@ -821,6 +899,7 @@ def c17_auto(host, client, ctx):
           f"host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; C host={ubrief(rec['uh'].get(C_ID))} "
           f"client={ubrief(rec['uc'].get(C_ID))}; items={c_items(rec['ih'], rec['ic'], (rifle, clip))}; "
           f"diff={rec['diff']} desync={rec['dsc']}; notes={notes}", flush=True)
+    kr3 = kr3_client_fails(chain, seq0, kr3_click.get("client"), cam0, cam1)
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
@@ -834,6 +913,7 @@ def c17_auto(host, client, ctx):
     fails += tu_fails(rec, C_ID, C17_TU_AFTER)
     fails += qty_fails(rec, clip, C17_CLIP_AFTER, "clip")
     fails += common_fails(host, client, before, "C17")
+    fails += kr3
     finish(fails)
 
 

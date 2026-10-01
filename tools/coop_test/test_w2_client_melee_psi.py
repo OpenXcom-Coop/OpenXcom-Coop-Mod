@@ -136,6 +136,16 @@ RED (commit S-E.1): C21 fails only on E1 (no melee record), C22 only on E2 (no
 psi record, the payload has no `voxel`), C23d only on the rngSeed guard (one
 xorshift step, T0b-7); C22o passes.
 
+W2-P6a S-C row KR6 (spec rewrite/prompts/w2p6_display_two.md P6a review
+section 2, pinned stage text (c) and STOP item ST1 (a), AMENDMENTS P6-5 section
+4 and P6-6 section 5; owner D131): the second player's melee and psi never
+move the host's view level (ExplosionBState's hit branch, the fifth host
+guard). Before each order (C21, C22 leg P, C22 leg M) the host camera is
+staged on K_HOSTFAR_TERROR (view level 1). GREEN per order: host
+camera.suppressed.hitLevel +1 and the host view level still 1. RED (commit
+S-C.1): the counter +0 and the view level moved to the target's. One
+"EVIDENCE KR6 <order>:" line per order.
+
 Probes: all exist before this file (S-A.1 added coopIntentsSent,
 intentsReceived, lastActionHalt, lastAftermath). The cue payloads are read from
 the HOST's own openxcom.log `[coop-cue]` lines.
@@ -188,6 +198,7 @@ from test_w2_client_shoot import (top, snap, ubrief, press, units, place, set_tu
 from test_w2_client_grenade import (admitted_fails, cancel_client_targeting, open_hand_menu, target_order, settle,
                                     host_payloads_of)
 from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, client_quiet
+from test_w2_host_combat import cam_snap, cam_offset, stage_camera, cam_suppressed_delta, cam_view, K_HOSTFAR_TERROR
 
 # ----- bring-up (TASK 0: the roster-pinned terror boot) -----
 MISSION = "STR_TERROR_MISSION"
@@ -412,6 +423,22 @@ def dismiss_host_infobox(host, box):
                 "after": top(host)})
 
 
+def kr6_fails(what, staged, cam0, cam1):
+    """W2-P6a S-C row KR6 (P6a review section 2, ST1 (a); owner D131): one order of the second player's melee / psi.
+    The host's camera.suppressed.hitLevel +1 and its view level still the staged 1. Prints one "EVIDENCE KR6 <what>:"
+    line."""
+    sup = cam_suppressed_delta(cam0["host"], cam1["host"])
+    print(f"EVIDENCE KR6 {what}: host staged={cam_offset(staged)} before={cam_view(cam0['host'])} after="
+          f"{cam_view(cam1['host'])} suppressed delta={sup}", flush=True)
+    fails = []
+    if sup["hitLevel"] != 1:
+        fails.append(f"KR6 {what}: host camera.suppressed.hitLevel +{sup['hitLevel']} (want +1: the partner's order)")
+    if cam1["host"].get("viewLevel") != K_HOSTFAR_TERROR[2]:
+        fails.append(f"KR6 {what}: host view level {cam1['host'].get('viewLevel')} after the order (want the staged "
+                     f"{K_HOSTFAR_TERROR[2]}: the partner's melee / psi never moves the host's view level)")
+    return fails
+
+
 # ===================== scenarios =====================
 
 
@@ -424,6 +451,8 @@ def c21_stun(host, client, ctx):
          ("health", "stun", "status"))
     set_tu_both(host, client, C_ID, TU_MAX)
     staged = diff_buckets(host, client)
+    kr6_staged = stage_camera(host, K_HOSTFAR_TERROR)   # W2-P6a S-C row KR6 (T0a-4): the host at view level 1
+    cam0 = cam_snap(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E1
@@ -434,6 +463,7 @@ def c21_stun(host, client, ctx):
         notes.append(f"real-UI stun: {short(e)}")
     out = await_press(host, client, before, notes)
     settle(host, client, notes)
+    kr6 = kr6_fails("C21", kr6_staged, cam0, cam_snap(host, client))   # W2-P6a S-C row KR6
     rec = collect(host, client, seq0)
     new = ctx_view(before, rec)
     hits = [c for c in new if c.get("origin") == "intent" and c.get("kind") == "melee" and c.get("actorId") == C_ID]
@@ -479,6 +509,7 @@ def c21_stun(host, client, ctx):
         fails.append(f"client banner {rec['clientUi']['banner']!r} (the interim host-only refusal: want the press "
                      f"sent as an order)")
     fails += e1
+    fails += kr6
     fails += common_fails(host, client, before, "C21")
     finish(fails)
 
@@ -549,6 +580,8 @@ def psi_leg(host, client, key, seed, action, notes, box):
     set_seed right before the click, the bounded wait (the host infobox
     recorded and dismissed host-only). Returns (before, rec, pv, out)."""
     set_tu_both(host, client, C_ID, TU_MAX)
+    kr6_staged = stage_camera(host, K_HOSTFAR_TERROR)   # W2-P6a S-C row KR6 (T0a-4): the host at view level 1
+    cam0 = cam_snap(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     mb = msg_snap(host, client)          # W2-P6a S-M row MR3
@@ -560,7 +593,9 @@ def psi_leg(host, client, key, seed, action, notes, box):
     out = await_order(host, client, before, notes, box)
     settle(host, client, notes)
     dismiss_host_infobox(host, box)
+    kr6_cam1 = cam_snap(host, client)
     rec = collect(host, client, seq0)
+    rec["kr6"] = (kr6_staged, cam0, kr6_cam1)   # W2-P6a S-C row KR6
     # F1702 (P6a review section 5): the client's own success box closed before the next leg / C22o
     rec["boxWait"] = client_quiet(client, timeout=BOX_WAIT_S)
     rec["msg"] = (mb, msg_snap(host, client), seq0)
@@ -651,6 +686,8 @@ def c22_psi(host, client, ctx):
     # W2-P6a S-M row MR3 (P6a review section 2; owner D132, F1245)
     mr3 = mr3_fails(rec, box_p, KEY_MORALE_ATTACK, Q_C22P, "leg P") + mr3_fails(rec_m, box_m, KEY_MIND_CONTROL,
                                                                                 Q_C22M, "leg M")
+    # W2-P6a S-C row KR6 (both legs)
+    kr6 = kr6_fails("C22 leg P", *rec["kr6"]) + kr6_fails("C22 leg M", *rec_m["kr6"])
     fails = list(notes) + list(notes_m)
     fails += fov_fails(fv)
     if staged:
@@ -673,6 +710,7 @@ def c22_psi(host, client, ctx):
     fails += [f"leg M: {m}" for m in common_m]
     fails += e2
     fails += mr3
+    fails += kr6
     finish(fails)
 
 

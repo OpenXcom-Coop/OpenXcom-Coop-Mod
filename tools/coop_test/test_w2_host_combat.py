@@ -87,6 +87,13 @@ per S-E kind). The S-E helpers below are shared by the other S-E files. RED
 them): only C5 fails, on E1 (no melee record, enqueued.melee +0). One
 "EVIDENCE E1:" line.
 
+W2-P6a S-C row KR4 (spec rewrite/prompts/w2p6_display_two.md P6a review section 2, P6a pinned stage text (c),
+AMENDMENTS P6-5 section 4 and P6-6 section 5; owner D131): the host's own shot never moves the second player's
+camera. C1 stages the client camera on K_FAR_TERROR (battle_camera_center, camera-only) before the host's press;
+GREEN: no client camera.moves record whose seq is in C1's chain, the client offset still the staged one, the host's
+camera.suppressed counters all +0. Declared green at red (commit S-C.1 writes no move and no counter). One
+"EVIDENCE KR4:" line. The camera helpers below are shared by the other S-C files.
+
 Both scenarios also check the cueCounts probe against the event logs (for
 each cue kind the scenario expects: host cueCounts delta == `kind` evs the
 host emitted since the scenario's first seq, client cueCounts delta == evs
@@ -885,6 +892,99 @@ def sound_row(tag, host, client, snap0, kind, wants, extra=None):
     return fails
 
 
+# ===================== W2-P6a S-C: the camera probe (rows KR1-KR6, KR1h) =====================
+# Spec rewrite/prompts/w2p6_display_two.md, P6a pinned stage text (c) as corrected by AMENDMENTS P6-5 section 4 and
+# P6-6 section 5 (owner D131, D171 (a)). event_state `camera` (commit S-C.1, both machines): {offset {x, y, z} (the
+# live Map's Camera::getMapOffset, z = the view level), viewLevel, follow, moves [the CLIENT's camera-move records
+# {seq, reason, unit, visible, onScreen, before, after}, the last 32], suppressed {follow, explosion, hitLevel,
+# walkLevel, panic} (the HOST's guard counters)}. S-C.1 writes only offset / viewLevel / follow; S-C.2 writes `moves`
+# (the client policy K1-K9) and `suppressed` (the host guards). A move record's `before` / `after` are camera offsets
+# in `offset`'s own {x, y, z} shape (KR2 / KR3 compare them with a probe's `offset` and with each other). Shared by
+# the other S-C files.
+CAM_SUPPRESSED = ("follow", "explosion", "hitLevel", "walkLevel", "panic")
+# T0a-4 (on the S-C.1 build): the terror map's (SEED_MAP 1, 50 x 50 x 4) staging tiles - the client's camera far from
+# every action of C1 (KR4), the host's camera far from C16 / C21 / C22 at view level 1 (KR3, KR6). Both > 1 screen
+# (320 x 200 base pixels) from (12,23)-(12,26) and (24,23)-(24,24).
+K_FAR_TERROR = (45, 2, 0)
+K_HOSTFAR_TERROR = (45, 45, 1)
+
+
+def camera_of(gc):
+    """This machine's event_state.camera (asserts the S-C.1 shape)."""
+    es = event_state(gc)
+    c = es.get("camera")
+    assert es.get("ok") and isinstance(c, dict) and isinstance(c.get("moves"), list) \
+        and isinstance(c.get("suppressed"), dict) and all(k in c for k in ("offset", "viewLevel", "follow")), (
+            f"{gc.name} event_state.camera = {c!r} (want the S-C.1 camera probe)")
+    return c
+
+
+def cam_snap(host, client):
+    return {"host": camera_of(host), "client": camera_of(client)}
+
+
+def cam_offset(c):
+    o = (c or {}).get("offset")
+    return (o.get("x"), o.get("y"), o.get("z")) if isinstance(o, dict) else None
+
+
+def stage_camera(gc, t):
+    """battle_camera_center on tile `t` on THIS machine only (test-only, camera-only, never forwarded, nothing
+    emitted): the camera centred on t at view level t.z. Returns the camera probe right after the call."""
+    r = gc.cmd({"cmd": "battle_camera_center", "x": t[0], "y": t[1], "z": t[2]})
+    assert r.get("ok") and (r.get("centerX"), r.get("centerY"), r.get("viewLevel")) == (t[0], t[1], t[2]), (
+        f"battle_camera_center {t} on {gc.name}: {r}")
+    return camera_of(gc)
+
+
+def cam_moves(c, lo=None, hi=None):
+    """The client move records whose seq lies in (lo, hi] (no bound when None)."""
+    return [m for m in (c or {}).get("moves") or [] if (lo is None or (m.get("seq") or 0) > lo)
+            and (hi is None or (m.get("seq") or 0) <= hi)]
+
+
+def mv(m):
+    return (m.get("seq"), m.get("reason"))
+
+
+def cam_suppressed_delta(c0, c1):
+    s0, s1 = (c0 or {}).get("suppressed") or {}, (c1 or {}).get("suppressed") or {}
+    return {k: (s1.get(k) or 0) - (s0.get(k) or 0) for k in CAM_SUPPRESSED}
+
+
+def cam_view(c, lo=None):
+    """A camera probe for the EVIDENCE lines (the moves after seq `lo` only)."""
+    if not c:
+        return None
+    return {"offset": cam_offset(c), "viewLevel": c.get("viewLevel"), "follow": c.get("follow"),
+            "moves": [{k: m.get(k) for k in ("seq", "reason", "unit", "visible", "onScreen", "before", "after")}
+                      for m in cam_moves(c, lo)], "suppressed": c.get("suppressed")}
+
+
+def kr4_fails(chain, staged, cam0, cam1):
+    """W2-P6a S-C row KR4 (P6a review section 2; owner D131): the host's own shot moves nothing on the client - no
+    client move record whose seq is in C1's chain, the client offset still the staged one, the host's guard counters
+    +0. Declared green at red (S-C.1 writes no move and no counter)."""
+    seqs = [e["seq"] for e in chain]
+    inchain = [m for m in cam_moves(cam1["client"]) if m.get("seq") in seqs]
+    sup = cam_suppressed_delta(cam0["host"], cam1["host"])
+    print(f"EVIDENCE KR4: chain seqs={seqs}; client staged={cam_offset(staged)} before={cam_view(cam0['client'])} "
+          f"after={cam_view(cam1['client'])}; host before={cam_view(cam0['host'])} after={cam_view(cam1['host'])}; "
+          f"host suppressed delta={sup}", flush=True)
+    fails = []
+    if not seqs:
+        fails.append("KR4: C1 has no chain (want its seqs to check the client's camera against)")
+    if inchain:
+        fails.append(f"KR4: client camera.moves records in C1's chain {[mv(m) for m in inchain]} (want none: the "
+                     f"partner's action never moves your camera, D131)")
+    if cam_offset(cam1["client"]) != cam_offset(staged):
+        fails.append(f"KR4: client camera offset {cam_offset(cam1['client'])} after C1 (want the staged "
+                     f"{cam_offset(staged)} unchanged)")
+    if any(sup.values()):
+        fails.append(f"KR4: host camera.suppressed delta {sup} (want all +0: the host's own action)")
+    return fails
+
+
 # ===================== scenarios =====================
 
 
@@ -907,6 +1007,8 @@ def c1_snap_kill(host, client, ctx):
     ih0, ic0 = items_by_id(host), items_by_id(client)
     w0 = {"host": ih0.get(A_WEAPON), "client": ic0.get(A_WEAPON)}
     spotted0 = battle_state(host).get("spotted")
+    kr4_staged = stage_camera(client, K_FAR_TERROR)   # W2-P6a S-C row KR4: the client camera far from C1
+    cam0 = cam_snap(host, client)
     before = {"host": probes(host), "client": probes(client)}
     cb = {"host": cue_probes(host), "client": cue_probes(client)}
     snap_d = death_snap(host, client)   # W2-P6b S-D row D1
@@ -932,6 +1034,7 @@ def c1_snap_kill(host, client, ctx):
     except Exception as e:
         notes.append(f"wait_host_idle after the shot: {short(e)}")
     wait_death_ghosts_ended(client, notes)
+    cam1 = cam_snap(host, client)   # W2-P6a S-C row KR4
     uh, uc = units(host), units(client)
     ih, ic = items_by_id(host), items_by_id(client)
     ph, pc = probes(host), probes(client)
@@ -974,6 +1077,7 @@ def c1_snap_kill(host, client, ctx):
          "fromDir": C1_A_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN, "sounds": SECTOID_DEATH_SOUNDS,
          "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": False,
          "dirsShown": DIRS_4_TO_3, "phasesShown": PHASES_ALL}])
+    kr4 = kr4_fails(chain, kr4_staged, cam0, cam1)   # W2-P6a S-C row KR4 (declared green at red)
     fails = list(notes)
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
@@ -1027,6 +1131,7 @@ def c1_snap_kill(host, client, ctx):
     if clip1["host"] is None or clip1["host"] != clip1["client"]:
         fails.append(f"clip {clip} qty host={clip1['host']} client={clip1['client']} (want equal)")
     fails += d1
+    fails += kr4
     fails += common_fails(host, client, before, {}, "C1")
     finish(fails)
 

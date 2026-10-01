@@ -278,6 +278,16 @@ Json::Value turnGhostProbe();
 /// that apply, each true iff it holds for every payload unit; written at S-E6.1).
 Json::Value displayTwoProbe();
 
+/// W2-P6a S-C.1 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (c); AMENDMENTS P6-5 section 4 and
+/// P6-6 section 5; owner D131): the camera probe of THIS machine - {offset: {x, y, z} (the live Map's
+/// Camera::getMapOffset, z = the view level; null with no live BattlescapeState), viewLevel (-1 with none), follow
+/// (Map::getFollowProjectile), moves: [the last 32 CLIENT camera-move records {seq, reason, unit, visible, onScreen,
+/// before, after}], suppressed: {follow, explosion, hitLevel, walkLevel, panic} (the HOST's camera-guard
+/// counters)}. S-C.1 writes only offset / viewLevel / follow (read-only reads of the live Map); `moves` and
+/// `suppressed` are probe storage nothing writes until S-C.2 (the client camera policy, the host guards). Main
+/// thread only, cleared with the combat probe storage.
+Json::Value cameraProbe();
+
 /// W2-P6b S-D.2 (spec rewrite/prompts/w2p6_display_two.md section 8 D-j; AMENDMENT P6b-1): TRUE while a death
 /// ghost for @a unitId is queued, started or holding its last frame on THIS machine (a coop client; always FALSE
 /// on the host and in single player) - the predicate W2-P6a's client message queue reads so a death message

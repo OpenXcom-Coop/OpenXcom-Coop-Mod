@@ -49,6 +49,7 @@
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/Map.h" // W2-H6: the client selected-unit-out block's CT_NORMAL cursor
+#include "../Battlescape/Camera.h" // W2-P6a S-C.1: the camera probe reads the live Map's Camera
 #include "../Battlescape/NextTurnState.h"
 #include "../Battlescape/InfoboxState.h" // W2-P6a S-M.2: the client's own message boxes (D132)
 #include "../Battlescape/InfoboxOKState.h" // W2-P6a S-M.2: the client's own OK boxes (D132)
@@ -18765,6 +18766,19 @@ struct FallGhostCounts
 	int completed = 0;
 	int cut = 0;
 };
+/// W2-P6a S-C.1 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (c); AMENDMENTS P6-5 section 4
+/// and P6-6 section 5; owner D131): the HOST's camera-guard suppression counters (event_state
+/// `camera.suppressed`), one per guarded vanilla camera write - the projectile follow (ProjectileFlyBState), the
+/// explosion centre and the hit view level (ExplosionBState, ST1), the walker view level (UnitWalkBState) and the
+/// panic centre (BattlescapeGame). Probe storage only at S-C.1: nothing writes them (S-C.2's host guards do).
+struct CameraSuppressedCounts
+{
+	int follow = 0;
+	int explosion = 0;
+	int hitLevel = 0;
+	int walkLevel = 0;
+	int panic = 0;
+};
 struct CombatProbeStore
 {
 	unsigned int gen = 0;
@@ -18812,6 +18826,13 @@ struct CombatProbeStore
 	std::uint32_t fallSeenSeq = 0;
 	std::uint32_t fallSeenAtMs = 0;
 	std::uint64_t fallSeenAtAdvances = 0;
+	// W2-P6a S-C.1 (P6a pinned stage text (c); AMENDMENTS P6-5 section 4, P6-6 section 5): the camera probe storage
+	// (event_state `camera`) - the CLIENT's camera-move records {seq, reason, unit, visible, onScreen, before,
+	// after} (the last kCombatRingCap) and the HOST's guard suppression counters. Probe storage only at S-C.1:
+	// nothing writes it yet (S-C.2's client policy and host guards do). Cleared with the rest of this storage by
+	// combatSync() only.
+	std::deque<Json::Value> cameraMoves;
+	CameraSuppressedCounts cameraSuppressed;
 };
 CombatProbeStore g_combatProbe;
 const std::size_t kCombatRingCap = 32;
@@ -21402,6 +21423,46 @@ Json::Value displayTwoProbe()
 	fall["seen"] = ringOf(g_combatProbe.fallSeen);
 	effects["fall"] = fall;
 	o["effects"] = effects;
+	return o;
+}
+
+Json::Value cameraProbe()
+{
+	// W2-P6a S-C.1 (P6a pinned stage text (c)): THIS machine's camera as the live Map holds it (no live
+	// BattlescapeState: offset null, viewLevel -1, follow false), then the probe storage S-C.2 writes.
+	combatSync();
+	Json::Value o(Json::objectValue);
+	Map* live = combatLiveMap();
+	Camera* cam = live ? live->getCamera() : nullptr;
+	if (cam)
+	{
+		const Position off = cam->getMapOffset();
+		Json::Value p(Json::objectValue);
+		p["x"] = off.x;
+		p["y"] = off.y;
+		p["z"] = off.z;
+		o["offset"] = p;
+		o["viewLevel"] = cam->getViewLevel();
+		o["follow"] = live->getFollowProjectile();
+	}
+	else
+	{
+		o["offset"] = Json::Value(Json::nullValue);
+		o["viewLevel"] = -1;
+		o["follow"] = false;
+	}
+	Json::Value moves(Json::arrayValue);
+	for (const Json::Value& r : g_combatProbe.cameraMoves)
+		moves.append(r);
+	o["moves"] = moves;
+	const CameraSuppressedCounts& c = g_combatProbe.cameraSuppressed;
+	Json::Value s(Json::objectValue);
+	s["follow"] = c.follow;
+	s["explosion"] = c.explosion;
+	s["hitLevel"] = c.hitLevel;
+	s["walkLevel"] = c.walkLevel;
+	s["panic"] = c.panic;
+	o["suppressed"] = s;
 	return o;
 }
 
