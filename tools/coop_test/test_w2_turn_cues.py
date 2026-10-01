@@ -112,14 +112,15 @@ dismissed); C5r, C10 and C9 pass.
 
 W2-P6a S-C row KR5 (spec rewrite/prompts/w2p6_display_two.md P6a review
 section 2, pinned stage text (c), AMENDMENTS P6-5 section 4 and P6-6 section 5;
-owner D131, D171 (a)): C13a's panic of the second player's soldier C2. The
-host camera is staged on K_HOSTFAR (view level 1) while the host's
-player-side NextTurnState is up (after vanilla's side-start centre on the
-host's selected unit, before the panic). GREEN: host camera.suppressed.panic
-+1 and the host offset still the staged one; the client's camera.moves hold
-{panic_centre, unit C2} at the panic seq and {side_start} at the player
-side_begin seq. RED (commit S-C.1): the counter +0, the host offset moved
-(centred on C2), no client move. One "EVIDENCE KR5:" line.
+owner D131, D171 (a)): C13a's panic of the second player's soldier C2.
+GREEN: host camera.suppressed.panic +1 and the host offset after the cycle
+== KR5_HOST_TURN_CENTRE, the host's own NextTurnState-close centre on its
+selected soldier H (ruling SC-4 (a), F4160, chain rule section A.10: vanilla's
+NextTurnState close centres the host on H before the panic, so no offset
+staged under it can survive; H does not move in C13a); the client's
+camera.moves hold {panic_centre, unit C2} at the panic seq and {side_start}
+at the player side_begin seq. RED (commit S-C.1, F4158): the counter +0, the
+host centred on C2's panic tile, no client move. One "EVIDENCE KR5:" line.
 
 W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 E-d / E-f and
 the P6b review's section 2 rows E5 / E6; AMENDMENTS P6b-1..P6b-3): the
@@ -223,8 +224,7 @@ from test_w2_ai_origins import (host_payloads, ctx_probes, new_closed, opened_de
                                 bring_up_lobby_roster_pinned)
 from test_w2_unit_spawn import ring_of, ring_at, ring_view
 from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want
-from test_w2_host_combat import (camera_of, cam_snap, cam_offset, stage_camera, cam_moves, mv, cam_suppressed_delta,
-                                 cam_view)
+from test_w2_host_combat import (camera_of, cam_snap, cam_offset, cam_moves, mv, cam_suppressed_delta, cam_view)
 
 # ----- bring-up (W2-P3 TASK 0b, ledger `## W2-P3 TASK 0b`, T0b constants.md "Common bring-up") -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
@@ -308,9 +308,11 @@ Q_C13A = True                    # PIN (T0a-3): C2's panic applied under the cli
 Q_C13B = True
 
 # ----- W2-P6a S-C row KR5 (P6a pinned stage text (c); AMENDMENTS P6-5 section 4, P6-6 section 5; T0a-4) -----
-K_HOSTFAR = (38, 38, 1)          # the host camera at view level 1, > 1 screen from C2's tile and its flee (map 40x40x4);
-                                 # staged while the host's player-side NextTurnState is up: after vanilla's own side-
-                                 # start centre on the host's selected unit (BattlescapeGame :771), before the panic
+KR5_HOST_TURN_CENTRE = (160, 8, 0)   # PIN (ruling SC-4 (a), F4160; chain rule section A.10): the host's camera offset
+                                     # after cycle 3 = vanilla's NextTurnState close (NextTurnState :576 btnCenterClick)
+                                     # centring on the host's own selected soldier H, which runs before C2's panic; measured
+                                     # twice on the S-C.2 build (runs g1 and cap1, both (160, 8, 0)). At red the host ended
+                                     # on C2's panic tile instead (F4158).
 
 # ----- C9 (T0b constants.md "C9"; F868) -----
 U_FIRE, U_STUN = 11, 12
@@ -401,20 +403,6 @@ def walk_view(w):
 # ===================== driving =====================
 
 
-def run_host_turn_screen(host, rec):
-    """W2-P6a S-C row KR5 (ruling SC-2 (a), F4142): runs rec's pending `host_turn_screen` hook once, while the host's
-    NextTurnState of the new player turn is on top - called by BOTH paths that close the host's NextTurnState (the
-    cycle() loop and host_idle_now), right before the close. A no-op without a pending hook."""
-    pending = rec.get("hostTurnScreen")
-    if not pending:
-        return
-    hook, turn1 = pending
-    hs0 = battle_state(host)
-    if hs0.get("side") == FACTION_PLAYER and hs0.get("turn", -1) >= turn1:
-        rec["hostTurnScreen"] = None
-        hook()
-
-
 def host_idle_now(host, rec, extra=None):
     """HOST only: a vanilla infobox on top is dismissed (host only, F425) and
     recorded, a NextTurnState on top is closed through its real close(); True
@@ -426,7 +414,6 @@ def host_idle_now(host, rec, extra=None):
         rec["dismissed"].append((lw.split(">")[-1], host.cmd({"cmd": "dismiss_popup"}).get("handled")))
         return False
     if "NextTurnState" in lw:
-        run_host_turn_screen(host, rec)   # W2-P6a S-C row KR5 (SC-2 (a))
         dismiss_next_turn_if_present(host)
         return False
     bs = battle_state(host)
@@ -455,7 +442,7 @@ def settle_host(host, rec, extra=None, timeout=30, hold=0.6):
                        f"{bs.get('panicHandled')} pendingStates={bs.get('pendingStates')} isBusy={bs.get('isBusy')}")
 
 
-def cycle(host, client, seed, rec, what, extra=None, timeout=90, host_turn_screen=None):
+def cycle(host, client, seed, rec, what, extra=None, timeout=90):
     """Both machines press END TURN (the client first; the host presses once it
     paints END TURN 1/2, with set_seed `seed` on the HOST right before its
     press when `seed` is not None), then the full side cycle back to the
@@ -463,13 +450,8 @@ def cycle(host, client, seed, rec, what, extra=None, timeout=90, host_turn_scree
     machines, the host's own infoboxes dismissed (host only, F425), the host
     settled (settle_host with `extra`), the client on BattlescapeState, the
     host idle with the client caught up. Every wait is bounded; a timeout is
-    recorded in rec["notes"]. Appends the cycle's record to rec["cycles"].
-    `host_turn_screen` (W2-P6a S-C row KR5) runs once, the first time the
-    host's NextTurnState is seen on top on the new player turn, before it is
-    closed - by this loop or by settle_host's host_idle_now, whichever closes
-    it (ruling SC-2 (a), F4142)."""
+    recorded in rec["notes"]. Appends the cycle's record to rec["cycles"]."""
     turn0 = battle_state(host).get("turn")
-    rec["hostTurnScreen"] = (host_turn_screen, turn0 + 1) if host_turn_screen is not None else None
     seq_before = event_state(host).get("lastSeqEmitted") or 0
     try:
         client.ok({"cmd": "battle_action", "action": "end_turn_button"})
@@ -484,7 +466,6 @@ def cycle(host, client, seed, rec, what, extra=None, timeout=90, host_turn_scree
             if "Infobox" in lw:
                 rec["dismissed"].append((lw.split(">")[-1], host.cmd({"cmd": "dismiss_popup"}).get("handled")))
             if "NextTurnState" in lw:
-                run_host_turn_screen(host, rec)   # W2-P6a S-C row KR5 (SC-2 (a))
                 dismiss_next_turn_if_present(host)
             dismiss_next_turn_if_present(client)
             hs, cs = battle_state(host), battle_state(client)
@@ -977,31 +958,29 @@ def mr4_fails(rec, mb, ma, key, queued, what):
     return fails
 
 
-def kr5_fails(rec, staged, cam0, cam1):
-    """W2-P6a S-C row KR5 (P6a review section 2; owner D131, D171 (a)): C2's panic (the client's soldier). HOST:
-    camera.suppressed.panic +1 and the offset still the one staged under its player-side NextTurnState (no centre on
-    the partner's soldier). CLIENT: {panic_centre, unit C2} at the panic seq, {side_start} at the player side_begin
-    seq (K9). Prints one "EVIDENCE KR5:" line."""
+def kr5_fails(rec, cam0, cam1):
+    """W2-P6a S-C row KR5 (P6a review section 2; owner D131, D171 (a); ruling SC-4 (a), F4160): C2's panic (the
+    client's soldier). HOST: camera.suppressed.panic +1 and the offset after the cycle == KR5_HOST_TURN_CENTRE (the
+    host's own NextTurnState-close centre on H, never a centre on the partner's soldier). CLIENT: {panic_centre, unit
+    C2} at the panic seq, {side_start} at the player side_begin seq (K9). Prints one "EVIDENCE KR5:" line."""
     hev = rec["hev"]
     sts = st_seqs(hev)
     panics = [e["seq"] for e in hev if e["kind"] == "panic"]
     pbegin = [e["seq"] for e in hev if e["kind"] == "side_begin" and len(sts) >= 3 and e["seq"] > sts[2]]
     sup = cam_suppressed_delta(cam0["host"], cam1["host"])
     moves = cam_moves(cam1["client"], rec["seq0"])
-    print(f"EVIDENCE KR5: panic seqs={panics} side_transitions={sts} player side_begin={pbegin}; host staged="
-          f"{cam_offset(staged) if staged else None} before={cam_view(cam0['host'])} after={cam_view(cam1['host'])} "
+    print(f"EVIDENCE KR5: panic seqs={panics} side_transitions={sts} player side_begin={pbegin}; host turn-screen "
+          f"centre pin={KR5_HOST_TURN_CENTRE} before={cam_view(cam0['host'])} after={cam_view(cam1['host'])} "
           f"suppressed delta={sup}; client before={cam_view(cam0['client'], rec['seq0'])} after="
           f"{cam_view(cam1['client'], rec['seq0'])}", flush=True)
     fails = []
-    if staged is None:
-        fails.append("KR5: precondition: the host's player-side NextTurnState was never seen (no camera staging)")
     if len(panics) != 1 or len(pbegin) != 1:
         fails.append(f"KR5: precondition: panic seqs {panics}, player side_begin seqs {pbegin} (want one each)")
     if sup["panic"] != 1:
         fails.append(f"KR5: host camera.suppressed.panic +{sup['panic']} (want +1: the partner's soldier panicked)")
-    if staged is not None and cam_offset(cam1["host"]) != cam_offset(staged):
-        fails.append(f"KR5: host camera offset {cam_offset(cam1['host'])} after the cycle (want the staged "
-                     f"{cam_offset(staged)}: no centre on the partner's panicking soldier)")
+    if cam_offset(cam1["host"]) != KR5_HOST_TURN_CENTRE:
+        fails.append(f"KR5: host camera offset {cam_offset(cam1['host'])} after the cycle (want {KR5_HOST_TURN_CENTRE}, "
+                     f"the host's own turn-screen centre on H: no centre on the partner's panicking soldier, SC-4)")
     got = [(m.get("seq"), m.get("reason"), m.get("unit")) for m in moves]
     need = [(s, "panic_centre", C2_ID) for s in panics[:1]]
     missing = [x for x in need if x not in got]
@@ -1024,12 +1003,7 @@ def c13a_flee(host, client, ctx):
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
     mb = msg_snap(host, client)          # W2-P6a S-M row MR4
     cam0 = cam_snap(host, client)        # W2-P6a S-C row KR5
-    kr5 = {}
-
-    def kr5_stage():
-        """KR5 (T0a-4): the host camera far from C2 at view level 1, under the host's player-side NextTurnState."""
-        kr5["staged"] = stage_camera(host, K_HOSTFAR)
-    cycle(host, client, SEED_C13A, rec, "cycle 3", extra=c2_resolved, host_turn_screen=kr5_stage)
+    cycle(host, client, SEED_C13A, rec, "cycle 3", extra=c2_resolved)
     end(host, client, rec)
     ma = msg_snap(host, client)
     cam1 = cam_snap(host, client)
@@ -1046,7 +1020,7 @@ def c13a_flee(host, client, ctx):
     # W2-P6b S-E row E5 (review section 2; section 9 E-d; F1782): C2's panic sound record on the client
     e5 = panic_sound_row(host, client, rec, snap_e, "flee", "C13a")
     mr4 = mr4_fails(rec, mb, ma, KEY_PANICKED, Q_C13A, "C13a")
-    kr5 = kr5_fails(rec, kr5.get("staged"), cam0, cam1)
+    kr5 = kr5_fails(rec, cam0, cam1)
     fails = list(rec["notes"]) + fails
     if not (turn_at or 0) >= 2:
         fails.append(f"precondition: battle turn {turn_at} at the staging (want player turn 2 reached)")
