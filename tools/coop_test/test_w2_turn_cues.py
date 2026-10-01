@@ -99,17 +99,33 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
        U_STUN's stun fell (equal on both); >= 1 floor burnt out since the
        start (equal on both); all buckets equal.
 
-W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 E-d and the
-P6b review's section 2 row E5; AMENDMENTS P6b-1..P6b-3): the watching machine
-plays the panic / berserk sound. E5 (C13a flee, C13b berserk): the client's
-displayTwo.effects.panic.count +1 with ONE record for the `panic` ev's seq
-{unit C2, mode} whose sound is picked from C2's panicSounds / berserkSounds -
-[] on both machines (T0b-3, F1782), so -1 - plus the S-E common asserts
-(client rngSeed unchanged across the cycle, host displayTwo / combatGhost all
-zero, completed + cut == enqueued per S-E kind). coopGhostStepper is pinned
-true in both instances. RED (commit S-E.1): C13a and C13b fail only on E5
-(count +0); C5r, C10 and C9 pass. Row E6 (C10's fall ghost) is held pending
-owner D173 (F1816: the fall applies under the client's NextTurnState).
+W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 E-d / E-f and
+the P6b review's section 2 rows E5 / E6; AMENDMENTS P6b-1..P6b-3): the
+watching machine plays the panic / berserk sound and the fall. E5 (C13a flee,
+C13b berserk): the client's displayTwo.effects.panic.count +1 with ONE record
+for the `panic` ev's seq {unit C2, mode} whose sound is picked from C2's
+panicSounds / berserkSounds - [] on both machines (T0b-3, F1782), so -1. E6
+(C10; owner D173 (b), AMENDMENT P6-5 section 5 with P6-5 Q2 (b), AMENDMENT
+P6-6): the second player's fall animation waits for its next-turn screen to
+close, then plays in full. C10's landing `sync` applies ~0.3 s after the
+`fall` and before the client's NextTurnState closes (F1816 / F3207), so at the
+ghost's start U already stands on C10_BELOW and the whole fall sweeps on the
+trailing anchor. The client's displayTwo.effects.fall.enqueued +1 with exactly
+ONE record for the `fall` ev's seq {unit U, from C10_TILE, to C10_BELOW, paceMs
+XCOM_FLOOR_MS (30), phasesShown FALL_PHASES [0..7], anchors FALL_ANCHORS
+["trailing"], landedAtStart true, levels FALL_LEVELS (1), startedTop
+FALL_STARTED_TOP ("BattlescapeState"), waitMs > 0, endedBy "natural", cut
+false}; the `fall` seq is read from the run (every seq after turn 1 is +5 since
+the W2-P8b equip phase, F3914). Its EVIDENCE line carries `fall.seen` (TASK 0b
+T0b-4: the client's top state at the fall's apply and at every applied ev
+after it up to the first delta-bearing one, with the advance() runs in
+between; S-E6.1 adds unitAtFrom, fromNoFloor and belowExists on the fall's own
+record, T0E6-1). Both add the S-E common asserts (client rngSeed unchanged
+across the cycle, host displayTwo / combatGhost all zero, completed + cut ==
+enqueued per S-E kind). coopGhostStepper is pinned true in both instances.
+RED (commit S-E.1): C13a and C13b failed only on E5 (count +0); E6 was held
+(F1816). RED (commit S-E6.1): C10 fails only on E6 (fall.enqueued +0); C5r,
+C13a, C13b and C9 pass.
 
 Common asserts (spec (f) as amended by B1 RQ5, per scenario, after its
 chain settled): W2-P2's common asserts (hash_now {full:true} ALL buckets
@@ -166,6 +182,7 @@ completion.
 Run:  python tools/coop_test/test_w2_turn_cues.py
 """
 
+import json
 import os
 import sys
 import time
@@ -178,7 +195,8 @@ from test_rw_turn_baton import dismiss_next_turn_if_present
 from test_w2_delta_core import (probes, diff_buckets, desync_record, short, both, tele_both, set_tile_both, tile,
                                 floor_of, settle_on_battlescape, common_fails, finish, delta_view)
 from test_w2_host_combat import (evs_since, ev_tuples, cue_probes, cue_delta, open_hand_menu_host, press,
-                                 KEY_ITEM4, host_chain_done, effect_snap, sound_row)
+                                 KEY_ITEM4, host_chain_done, effect_snap, sound_row, effect_common_fails,
+                                 display_two, effects_of, rng_of)
 from test_w2_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta, ctx_of, ctx_view, sv, by_seq,
                                 bring_up_lobby_roster_pinned)
 from test_w2_unit_spawn import ring_of, ring_at, ring_view
@@ -236,9 +254,26 @@ C2_TURN_COST = 1                 # TU per octant (STR_NONE_UC sets no turnCost: 
 ITEM_WEIGHTS = {"STR_RIFLE": 8, "STR_RIFLE_CLIP": 3}    # standard/xcom1/items.rul `weight`
 ARMOR_WEIGHTS = {"STR_NONE_UC": 0}                       # standard/xcom1/armors.rul (no `weight`: 0)
 
-# ----- W2-P6b S-E row E5 (spec section 9 E-d; P6b review section 2; AMENDMENT P6b-3 F1782) -----
+# ----- W2-P6b S-E rows E5 / E6 (spec section 9 E-d / E-f; P6b review section 2; AMENDMENT P6b-3 F1782;
+#       row E6 re-pointed by AMENDMENT P6-5 section 5 for owner D173 (b), P6-5 Q2 (b)) -----
 C2_PANIC_SOUNDS = []             # battle_state panicSounds of C2 (T0b-3 on the S-D.1 build, both machines: every stock
 C2_BERSERK_SOUNDS = []           # unit's panic / berserk list is []) -> the record's sound is -1 (vanilla plays none)
+XCOM_FLOOR_MS = 30               # the fall pace CoopSpeed::xcomSpeedFor(nullptr) (UnitFallBState :61, side PLAYER at
+                                 # C10) = the SPEC 17 floor's xcom dial: Options battleXcomSpeed default 30, no dial
+                                 # moved in this file
+FALL_PHASES = [0, 1, 2, 3, 4, 5, 6, 7]   # D173 (b): a fall landed before its start sweeps all 8 walk-down phases
+                                         # (one level = 8 phases, BattleUnit :1147-:1151) at one per paceMs
+FALL_ANCHORS = ["trailing"]      # P6-5 Q2 (b): landed before the start -> only the trailing anchor (the landing tile)
+FALL_LEVELS = 1                  # C10_TILE.z - C10_BELOW.z
+FALL_STARTED_TOP = "BattlescapeState"   # the ghost starts at the first advance() after the client's NextTurnState
+                                        # closes (advance() runs only with BattlescapeState on top, BS :916-:919)
+FALL_ENDS = ("natural",)         # walkPhase past 7 on the trailing anchor; cut false
+# TASK 0 T0E6-1 (the S-E6.1 build at 7da606d77; K=2 paired with test_w2_psi, F1786; the fall window inside the
+# partner's run): the `fall` is seq 29 and the landing `sync` seq 30 (+5 since the equip phase, F3914). At the
+# fall's apply the client's fall.seen shows unitAtFrom, fromNoFloor and belowExists true, top NextTurnState; the
+# landing applies 276 ms later, still under NextTurnState; the first advance() after the fall runs 1309 ms after it
+# with BattlescapeState on top; the client's advance() max gap over the next 270 ms is 3 ms (136 runs) < paceMs
+# 30, so each of the 8 phases is drawn.
 
 # ----- C9 (T0b constants.md "C9"; F868) -----
 U_FIRE, U_STUN = 11, 12
@@ -597,7 +632,7 @@ def c2_state_fails(rec, want, what):
     return fails
 
 
-# ===================== W2-P6b S-E row E5 =====================
+# ===================== W2-P6b S-E rows E5 / E6 =====================
 
 
 def panic_sound_row(host, client, rec, snap_e, mode, what):
@@ -615,6 +650,58 @@ def panic_sound_row(host, client, rec, snap_e, mode, what):
     fails += [f"{what} {m}" for m in sound_row("E5", host, client, snap_e, "panic", [
         {"match": {"seq": panics[0]["seq"] if len(panics) == 1 else None}, "fields": {"unit": C2_ID, "mode": mode},
          "sounds": pin}], extra={"panicSeqs": [e["seq"] for e in panics], key: lists})]
+    return fails
+
+
+def fall_row(host, client, rec, snap_e, fall):
+    """Row E6 (P6b review section 2; AMENDMENT P6-5 section 5 E-f' for owner D173 (b), P6-5 Q2 (b)): the client's
+    displayTwo.effects.fall enqueued +1 and exactly ONE record for the `fall` ev's seq {unit U, from C10_TILE, to
+    C10_BELOW, paceMs XCOM_FLOOR_MS (= the client's SPEC 17 floor xcom dial), phasesShown FALL_PHASES, anchors
+    FALL_ANCHORS, landedAtStart true, levels FALL_LEVELS, startedTop FALL_STARTED_TOP, waitMs > 0, endedBy
+    "natural", cut false}; the S-E common asserts. The EVIDENCE line carries `fall.seen` (TASK 0b T0b-4: the
+    client's top state at the fall's apply and at every applied ev after it up to the first delta-bearing one, with
+    the advance() runs in between; the fall's own record adds unitAtFrom, fromNoFloor, belowExists - T0E6-1).
+    Prints ONE "EVIDENCE E6:" line, returns fails."""
+    dt1 = {"host": display_two(host), "client": display_two(client)}
+    f0 = effects_of(snap_e["dt"]["client"]).get("fall") or {}
+    f1 = effects_of(dt1["client"]).get("fall") or {}
+    s = fall["seq"] if fall else None
+    recs = [r for r in (f1.get("ring") or []) if s is not None and r.get("seq") == s]
+    seen = [r for r in (f1.get("seen") or []) if s is not None and r.get("fallSeq") == s]
+    floor_x = (((event_state(client).get("speed") or {}).get("floor") or {}).get("xcom"))
+    print("EVIDENCE E6: " + json.dumps({
+        "fallSeq": s, "records": recs, "clientFall": {"before": {k: f0.get(k) for k in ("enqueued", "completed", "cut")},
+                                                      "after": {k: f1.get(k) for k in ("enqueued", "completed", "cut")}},
+        "seen": seen, "allSeen": f1.get("seen"), "clientFloorXcom": floor_x,
+        "hostFall": effects_of(dt1["host"]).get("fall"),
+        "rngClient": {"before": snap_e["rng"], "after": rng_of(client)}}, sort_keys=True, default=str), flush=True)
+    fails = []
+    if floor_x != XCOM_FLOOR_MS:
+        fails.append(f"C10 E6: client speed floor xcom {floor_x} (want {XCOM_FLOOR_MS}: the fall pace's pin)")
+    d = (f1.get("enqueued") or 0) - (f0.get("enqueued") or 0)
+    if f0.get("enqueued") is None or f1.get("enqueued") is None or d != 1:
+        fails.append(f"C10 E6: client displayTwo.effects.fall.enqueued {f0.get('enqueued')} -> {f1.get('enqueued')} "
+                     f"(want +1: the fall ghost of U)")
+    if len(recs) != 1:
+        fails.append(f"C10 E6: client fall records for seq {s}: {len(recs)} (want exactly one; ring {f1.get('ring')})")
+    else:
+        r = recs[0]
+        got = {"unit": r.get("unit"), "from": as_tile(r.get("from")), "to": as_tile(r.get("to")),
+               "paceMs": r.get("paceMs"), "phasesShown": r.get("phasesShown"), "anchors": r.get("anchors"),
+               "landedAtStart": r.get("landedAtStart"), "levels": r.get("levels"), "startedTop": r.get("startedTop"),
+               "cut": r.get("cut")}
+        want = {"unit": U_ID, "from": C10_TILE, "to": C10_BELOW, "paceMs": XCOM_FLOOR_MS, "phasesShown": FALL_PHASES,
+                "anchors": FALL_ANCHORS, "landedAtStart": True, "levels": FALL_LEVELS,
+                "startedTop": FALL_STARTED_TOP, "cut": False}
+        if got != want:
+            fails.append(f"C10 E6: client fall record seq {s} {got} (want {want})")
+        w = r.get("waitMs")
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or w <= 0:
+            fails.append(f"C10 E6: client fall record seq {s} waitMs {w!r} (want > 0: the fall waits for the "
+                         f"client's NextTurnState to close, D173 (b))")
+        if r.get("endedBy") not in FALL_ENDS:
+            fails.append(f"C10 E6: client fall record seq {s} endedBy {r.get('endedBy')!r} (want one of {FALL_ENDS})")
+    fails += [f"C10 {m}" for m in effect_common_fails("E6", host, client, snap_e, dt1)]
     return fails
 
 
@@ -703,6 +790,7 @@ def c10_fall(host, client, ctx):
     tele_both(host, client, U_ID, C10_TILE, U_DIR)
     ft = set_tile_both(host, client, C10_TILE, fire=1)
     staged_diff = diff_buckets(host, client)
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row E6
     cycle(host, client, None, rec, "cycle 2")
     end(host, client, rec)
     hev = rec["hev"]
@@ -719,6 +807,8 @@ def c10_fall(host, client, ctx):
           f"{bh} client={bc}; cycle side_transitions={sts}; fall evs="
           f"{[(e['seq'], e['actionId'], payload(rec, e)) for e in falls]}; syncs (seq, delta)={sync_rings}; units="
           f"{units_evidence(rec, [U_ID])}; {rec_evidence(rec)}", flush=True)
+    # W2-P6b S-E6 row E6 (AMENDMENT P6-5 section 5, D173 (b); T0b-4's `seen` in its EVIDENCE line): U's fall ghost
+    e6 = fall_row(host, client, rec, snap_e, fall)
     fails = list(rec["notes"])
     if ft.get("fire") != 1:
         fails.append(f"battle_set_tile fire response {ft.get('fire')} (want 1)")
@@ -754,6 +844,7 @@ def c10_fall(host, client, ctx):
             fails.append(f"no `sync` after fall seq {fall['seq']} whose delta has units >= 1 (syncs after it "
                          f"{[(e['seq'], ring_view(ring_at(rec['ring'], e['seq']))) for e in after]})")
     fails += context_fails(rec, "C10")
+    fails += e6
     fails += common_fails(host, client, rec["before"], {}, "C10")
     finish(fails)
 
@@ -1104,7 +1195,7 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # W2-P6b S-E: coopGhostStepper pinned true in both instances (row E5 needs the client's effect displays)
+    # W2-P6b S-E: coopGhostStepper pinned true in both instances (rows E5 / E6 need the client's effect displays)
     host = GameClient("host", 49858, make_user_dir("w2p3_turn_cues_host", options={"coopGhostStepper": True}))
     client = GameClient("client", 49859, make_user_dir("w2p3_turn_cues_client", options={"coopGhostStepper": True}))
     results = {}

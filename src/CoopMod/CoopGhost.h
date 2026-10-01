@@ -256,6 +256,13 @@ Json::Value turnGhostProbe();
 /// "moved" | ...), cut}. `sound` = the id picked from the rule's raw list (-1 = none). `fall.seen` (written at
 /// S-E.1, T0b-4): {seq, kind, fallSeq, top, ms, msSinceFall, advances, delta} for an applied `fall` and every
 /// applied ev after it up to and including the first that carries a delta.
+/// W2-P6b S-E6.1 (AMENDMENT P6-5 section 5, owner D173 (b)): the fall record (written by S-E6.2) also carries
+/// landedAtStart (the unit was canonically below `from` at the ghost's start), waitMs (enqueue -> start),
+/// startedTop (the top state at the start), anchors (the anchors drawn, in order: "source", "trailing"), levels
+/// (`from`.z - the canonical z when landed) and maxGapMs (the largest advance() gap while it was live); endedBy is
+/// "natural" | "out" | "moved" | "replaced" | "side_transition" | "reset" (cut = any but "natural"). `fall.seen`'s
+/// record of the `fall` ev itself adds unitAtFrom, fromNoFloor and belowExists (T0E6-1: E-f's preconditions at
+/// that apply, each true iff it holds for every payload unit; written at S-E6.1).
 Json::Value displayTwoProbe();
 
 /// W2-P6b S-D.2 (spec rewrite/prompts/w2p6_display_two.md section 8 D-j; AMENDMENT P6b-1): TRUE while a death

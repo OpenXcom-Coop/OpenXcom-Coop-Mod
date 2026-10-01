@@ -18755,7 +18755,8 @@ struct CombatProbeStore
 	// carries a delta, with the advance() runs in between (fallAdvances counts advance() on a coop client; an
 	// open fall window remembers its count at the fall's apply). Probe storage only at S-E.1: only `fallSeen`
 	// is written (by fallSeenProbe() below); S-E.2's effects write the rest. Cleared with the rest of this
-	// storage by combatSync() only.
+	// storage by combatSync() only. W2-P6b S-E6.1 (AMENDMENT P6-5 section 5): a `fall` ev's own `fallSeen`
+	// record adds unitAtFrom, fromNoFloor and belowExists (T0E6-1); fallRing's records gain S-E6.2's fields.
 	EffectSoundProbe medikit;
 	EffectSoundProbe prime;
 	EffectSoundProbe panic;
@@ -19161,18 +19162,39 @@ std::string effectTopState()
 /// ticks), msSinceFall, advances (advance() runs since the fall's apply: advance() runs only while
 /// BattlescapeState is on top with no popup), delta (the ev carries one)}. Called before the ev's own state
 /// applies; a later `fall` opens a new window. Writes the probe storage only.
-void fallSeenProbe(const Json::Value& ev, const std::string& kind, std::uint32_t nowMs)
+/// W2-P6b S-E6.1 (AMENDMENT P6-5 section 5, T0E6-1; probe only): the `fall` ev's own record adds E-f's
+/// preconditions as this machine reads them at that apply, each true iff it holds for EVERY payload unit (false
+/// for an empty payload): unitAtFrom (the unit resolves and its canonical position == its `from`), fromNoFloor
+/// (the canonical tile at `from` exists and hasNoFloor(save)) and belowExists (a tile at `from` - (0,0,1)).
+void fallSeenProbe(const SavedBattleGame* save, const Json::Value& ev, const std::string& kind, std::uint32_t nowMs)
 {
 	const bool isFall = kind == "fall";
 	if (!isFall && !g_combatProbe.fallSeenOpen)
 		return;
 	const bool delta = ev.isMember("delta") && ev["delta"].isObject();
+	bool atFrom = false;
+	bool noFloor = false;
+	bool below = false;
 	if (isFall)
 	{
 		g_combatProbe.fallSeenOpen = true;
 		g_combatProbe.fallSeenSeq = ev.get("seq", 0u).asUInt();
 		g_combatProbe.fallSeenAtMs = nowMs;
 		g_combatProbe.fallSeenAtAdvances = g_combatProbe.fallAdvances;
+		const Json::Value& units = ev["payload"]["units"];
+		if (save && units.isArray() && !units.empty())
+		{
+			atFrom = noFloor = below = true;
+			for (const Json::Value& e : units)
+			{
+				const Position from = CoopArbiter::coopJsonPos(e["from"]);
+				const BattleUnit* u = CoopIdMaps::unit(e.get("unit", -1).asInt());
+				const Tile* at = save->getTile(from);
+				atFrom = atFrom && u && u->getPosition() == from;
+				noFloor = noFloor && at && at->hasNoFloor(save);
+				below = below && save->getTile(from - Position(0, 0, 1)) != nullptr;
+			}
+		}
 	}
 	Json::Value r(Json::objectValue);
 	r["seq"] = ev.get("seq", 0u).asUInt();
@@ -19183,6 +19205,12 @@ void fallSeenProbe(const Json::Value& ev, const std::string& kind, std::uint32_t
 	r["msSinceFall"] = (Json::UInt)(nowMs - g_combatProbe.fallSeenAtMs);
 	r["advances"] = (Json::UInt)(g_combatProbe.fallAdvances - g_combatProbe.fallSeenAtAdvances);
 	r["delta"] = delta;
+	if (isFall)
+	{
+		r["unitAtFrom"] = atFrom; // W2-P6b S-E6.1 (T0E6-1): probe only
+		r["fromNoFloor"] = noFloor;
+		r["belowExists"] = below;
+	}
 	g_combatProbe.fallSeen.push_back(r);
 	while (g_combatProbe.fallSeen.size() > kCombatRingCap)
 		g_combatProbe.fallSeen.pop_front();
@@ -20395,7 +20423,7 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	if (!combatClient())
 		return;
 	combatSync();
-	fallSeenProbe(ev, kind, SDL_GetTicks()); // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only
+	fallSeenProbe(save, ev, kind, SDL_GetTicks()); // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only
 	if (kind == "reveal")
 		return; // Q1 (b): a nested reveal carries no delta (N14) - it neither ends nor starts a ghost
 	const std::uint32_t nowMs = SDL_GetTicks();
@@ -20873,7 +20901,7 @@ void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev)
 	// ghost ends first.
 	combatSync();
 	const std::uint32_t nowMs = SDL_GetTicks();
-	fallSeenProbe(ev, "bt_action_end", nowMs); // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only
+	fallSeenProbe(save, ev, "bt_action_end", nowMs); // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only
 	combatEndPendingPairs(ev, "bt_action_end", nowMs);
 	combatEndAll(nowMs);
 	// W2-P6b S-D.2 (section 8 D-g, ST3 (a)): the chain's end ends every death ghost (never gated, OQ3).
