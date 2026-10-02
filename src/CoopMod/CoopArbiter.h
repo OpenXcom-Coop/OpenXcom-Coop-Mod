@@ -729,6 +729,27 @@ void coopThinkCoveredBattle(Game* game);
 /// initBattleAuthority(). Never read by game logic, never on the wire. Body: connectionTCP.cpp.
 Json::Value coopFatalVoteProbe();
 
+/// W2-P7 S-V-A.2 (docs rewrite/prompts/w2p7_sv_fatal_vote_design.md section 2.4; AMENDMENT P7-5 section 4.3; owner
+/// D159, D186, D214 (a)): VS1, the ONE guarded call at vanilla's fatal-wounds question in
+/// BattlescapeGame::requestEndTurn(true). FALSE in single player (vanilla pushes its question). TRUE in a co-op
+/// battle, which then pushes nothing: the HOST arms the vote (opened at quiescence by the pump) unless
+/// @a endTurnRequested (an end-of-turn kill: either answer ends the battle, SV-M11); a client never gets here.
+bool coopFatalVoteArm(SavedBattleGame* save, int wounded, bool endTurnRequested);
+
+/// W2-P7 S-V-A.2: VS3 / VS4, ConfirmEndMissionState's OK (@a yes) and CANCEL / Esc / abort key, after its own
+/// popState. FALSE in single player. A CLIENT voter sends its answer to the host (TRUE). The HOST records its own
+/// answer: all voters yes closes the vote `end` and returns FALSE (vanilla's OK then ends the mission); a no closes
+/// it `continue` (TRUE); answers still pending push CoopFatalVoteHold (TRUE).
+bool coopFatalVoteAnswer(Game* game, bool yes);
+
+/// W2-P7 S-V-A.2 (D214 (a)): HOST - TRUE while the fatal-wounds vote is armed or open (onIntent's busy term, the END
+/// TURN commit). @a held ("intent" / "commit") is counted in the probe's heldIntents / heldCommits; nullptr asks.
+bool coopFatalVoteHolds(const char* held = nullptr);
+
+/// W2-P7 S-V-A.2 (D214 (a), F3237): HOST - -1 unless the vote is open; else the lowest partner voter seat still
+/// deciding (busyOwnerSeat names it), or 0 when none is (the covered driver stands still on >= 0).
+int coopFatalVoteOpen();
+
 /// R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104/:116/:142 @911ca487f): the
 /// THIN completion/abort hook UnitTurnBState::think() calls, once, at
 /// whichever branch actually pops its own state - never per 45-degree tick

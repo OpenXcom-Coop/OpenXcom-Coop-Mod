@@ -263,6 +263,21 @@ inline Json::Value makeDebriefResult(uint32_t battleId, const Json::Value& debri
 	return obj;
 }
 
+/// bt_fatal_vote_answer {state, battleId:uint, voteId:uint, seat:int, yes:bool} (W2-P7 S-V, the design's section
+/// 2.3; AMENDMENT P7-5 section 4.3). Client->host, battle lane, NOT seq-ordered (isSeqOrdered() above), never hashed,
+/// never an ev: one voter's answer to the fatal-wounds question (OK = yes; CANCEL, Esc, the abort key = no). The host
+/// takes it only for this battle's open vote from a voter seat still deciding; anything else is counted and dropped.
+inline Json::Value makeFatalVoteAnswer(uint32_t battleId, uint32_t voteId, int seat, bool yes)
+{
+	Json::Value obj(Json::objectValue);
+	obj["state"] = "bt_fatal_vote_answer";
+	obj["battleId"] = battleId;
+	obj["voteId"] = voteId;
+	obj["seat"] = seat;
+	obj["yes"] = yes;
+	return obj;
+}
+
 } // namespace CoopWire
 
 } // namespace OpenXcom

@@ -51,6 +51,7 @@
 #include "../Battlescape/Map.h" // W2-H6: the client selected-unit-out block's CT_NORMAL cursor
 #include "../Battlescape/Camera.h" // W2-P6a S-C.1: the camera probe reads the live Map's Camera
 #include "../Battlescape/NextTurnState.h"
+#include "../Battlescape/ConfirmEndMissionState.h" // W2-P7 S-V-A.2: the fatal-wounds question (F4333)
 #include "../Battlescape/InfoboxState.h" // W2-P6a S-M.2: the client's own message boxes (D132)
 #include "../Battlescape/InfoboxOKState.h" // W2-P6a S-M.2: the client's own OK boxes (D132)
 #include "../Battlescape/UnitTurnBState.h"
@@ -6313,6 +6314,13 @@ namespace CoopDelta
 int invWarningWrites() { return g_coopInvWarningWrites.load(); }
 } // namespace CoopDelta
 
+// W2-P7 S-V-A.2 (AMENDMENT P7-5 section 4.3, Q5 (a), F4315): the fatal-wounds vote's live state (the rest of its
+// record follows `namespace CoopEndTurn` below). Declared here, above resetBattleAuthority(), which resets it - an
+// atomic because that teardown can run on the UDP-monitor thread. Decided = a partner's answer decided it; the pump
+// has not closed it yet.
+enum CoopFatalVoteState : int { FV_IDLE = 0, FV_ARMED, FV_OPEN, FV_DECIDED, FV_CLOSED };
+static std::atomic<int> g_fatalVoteState{FV_IDLE};
+
 void resetBattleAuthority()
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -6392,6 +6400,9 @@ void resetBattleAuthority()
 	// W2-P8b S-A.1 (AMENDMENT P8b-1 section 4 "Shared state"): the equip phase's state is battle-scoped too; its
 	// counters are NOT cleared here (initBattleAuthority() only, F2733 rule).
 	coopEquipStateZeros();
+	// W2-P7 S-V-A.2 (AMENDMENT P7-5 Q5 (a)): the fatal-wounds vote is battle-scoped too - the atomic state only
+	// (its record is cleared at the next arm, main thread).
+	g_fatalVoteState = FV_IDLE;
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -10786,8 +10797,8 @@ void onIntent(const Json::Value& intent)
 	// busy (SS2.5): a BState chain active, OR this arbiter's own action
 	// context is still on the stack awaiting its bt_action_end (covers the
 	// same-tick edge where _states has just emptied but onChainQuiesced()
-	// has not run yet).
-	if (bg->isBusy() || currentActionId() != 0)
+	// has not run yet). W2-P7 S-V-A.2 (D214 (a), design 2.5): OR the fatal-wounds vote is armed or open.
+	if (bg->isBusy() || currentActionId() != 0 || coopFatalVoteHolds("intent"))
 	{
 		denyIntent(iseq, "busy", seat, kind);
 		return;
@@ -13071,6 +13082,11 @@ int busyOwnerSeat()
 
 	if (coopBattleAuthority().hostSim)
 	{
+		// W2-P7 S-V-A.2 (F3237): while the fatal-wounds vote is open, the first partner voter still deciding - the
+		// Wait line names them. Never writes the busy-owner latch below.
+		const int voteSeat = coopFatalVoteOpen();
+		if (voteSeat > 0)
+			return voteSeat;
 		SavedBattleGame* save = connectionTCP::getStaticBattle();
 		// SS1 WAVE-1 ADDITIONS trap: SavedBattleGame::getBattleGame() derefs
 		// _battleState unconditionally, and this runs at the RB-D5 pump point,
@@ -13271,6 +13287,8 @@ void coopThinkCoveredBattle(Game* game)
 	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
 	if (!connectionTCP::isBattlescapeStateLive(bs))
 		return;
+	if (coopFatalVoteOpen() >= 0)
+		return; // W2-P7 S-V-A.2 (D214 (a)): the fatal-wounds vote is open - the battle stands still for everyone
 	const std::list<State*>& states = game->getStates();
 	if (states.empty() || states.back() == bs)
 		return; // on top: its own think ran
@@ -16701,6 +16719,10 @@ static void tryCommit(SavedBattleGame* save)
 {
 	if (!save)
 		return;
+	// W2-P7 S-V-A.2 (SV-M12, F4330): no commit while the fatal-wounds vote is armed or open (both turn modes); the
+	// presses stay counted and the vote's continue step runs this once.
+	if (coopFatalVoteHolds("commit"))
+		return;
 
 	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional)
 	{
@@ -16989,6 +17011,434 @@ std::vector<int> tallyReadySeats() { return g_lastTallyReadySeats; }
 int talliesSeen() { return g_talliesSeen; }
 
 } // namespace CoopEndTurn
+
+// ===== W2-P7 S-V-A.2 (docs rewrite/prompts/w2p7_sv_fatal_vote_design.md 2.1-2.7, ORCHESTRATOR RULINGS Q1-Q9 (a),
+// SV-M1..SV-M13; rewrite/prompts/w2p7_battle_end.md AMENDMENT P7-5 4.3, P7-5 RULINGS Q5-Q8 (a), P7-5b SV-T2; owner
+// D159, D186, D214 (a)): the fatal-wounds vote (CoopArbiter.h). The HOST arms it at vanilla's question (VS1), opens it
+// at quiescence (the pump) and collects every bleeding unit's owner seat's answer to vanilla's own question (VS3 / VS4,
+// the lane): all yes = vanilla's OK, the first no = vanilla's CANCEL, no timeout (D186). Armed or open, nothing new
+// acts (D214 (a)). Wire (Q3 (a), Q8 (a)): `bt_ev` kind `fatal_vote` (op open / close, actionId 0, no `h`) through ONE
+// emitter + the client's non-seq bt_fatal_vote_answer. Main thread only but resetBattleAuthority()'s reset (Q5 (a)).
+struct CoopFatalVoteRecord
+{
+	std::uint32_t voteId = 0;
+	std::vector<int> voters;      // the owner seats of the bleeding units, fixed at the open (design 2.1)
+	int wounded = 0;              // vanilla's N at the open
+	std::map<int, bool> answers;  // HOST: seat -> yes; CLIENT: the open ev's answered seats
+	std::string result;           // "" | "end" | "continue"
+};
+static std::mutex g_fatalVoteMutex; // leaf; guards g_fatalVote (reset at each host arm and each client close)
+static CoopFatalVoteRecord g_fatalVote;
+static std::uint32_t g_fatalVoteIds = 0;        // HOST: the last voteId issued
+static int g_fatalVoteCoveredAtOpen = 0;        // HOST: hostCovered.steps at the open (the probe's delta)
+static bool g_fatalVoteContinuePending = false; // HOST: its own no - END TURN's commit re-runs once (pump)
+static bool g_fatalVoteOpenPending = false;     // CLIENT: an applied open the pump has not shown yet
+static bool g_fatalVoteClosePending = false;    // CLIENT: an applied close the pump has not consumed yet
+
+// The state and the probe (its store and leaf mutex sit above initBattleAuthority()): @a st >= 0 sets the state; the
+// probe takes @a note's fields and adds 1 to @a add. Decided reads "Open" until the pump closes the vote.
+static void fatalVoteNote(int st, const char* add = nullptr, Json::Value note = Json::Value(Json::objectValue))
+{
+	if (st >= 0)
+	{
+		g_fatalVoteState = st;
+		note["state"] = st == FV_ARMED ? "Armed" : (st == FV_OPEN || st == FV_DECIDED) ? "Open"
+			: st == FV_CLOSED ? "Closed" : "Idle";
+	}
+	std::lock_guard<std::mutex> lock(g_fatalVoteProbeMutex);
+	if (!g_fatalVoteProbe.isObject())
+		g_fatalVoteProbe = fatalVoteProbeZeros();
+	for (const std::string& k : note.getMemberNames())
+		g_fatalVoteProbe[k] = note[k];
+	if (add)
+		g_fatalVoteProbe[add] = g_fatalVoteProbe[add].asInt() + 1;
+}
+
+static Json::Value fatalVoteSeatsJson(const std::vector<int>& seats)
+{
+	Json::Value out(Json::arrayValue);
+	for (int s : seats)
+		out.append(s);
+	return out;
+}
+
+// HOST: the ONE fatal_vote emitter (P7-5 Q8 (a); S-V-B's resend reuses it): open {voteId, voters, wounded, answered} /
+// close {voteId, result, answers}; it carries `delta` and any `hitLog` like every outermost host ev (F4332).
+static std::uint32_t coopFatalVoteEmit(bool open)
+{
+	Json::Value ev = CoopWire::makeEv(0u, 0u, "fatal_vote");
+	Json::Value& p = ev["payload"];
+	{
+		std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+		p["op"] = open ? "open" : "close";
+		p["voteId"] = g_fatalVote.voteId;
+		if (open)
+		{
+			p["voters"] = fatalVoteSeatsJson(g_fatalVote.voters);
+			p["wounded"] = g_fatalVote.wounded;
+			p["answered"] = Json::Value(Json::arrayValue);
+		}
+		else
+		{
+			p["result"] = g_fatalVote.result;
+			p["answers"] = Json::Value(Json::objectValue);
+		}
+		for (const auto& kv : g_fatalVote.answers)
+		{
+			if (open)
+				p["answered"].append(kv.first);
+			else
+				p["answers"][std::to_string(kv.first)] = kv.second;
+		}
+	}
+	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
+	CoopEmit::sendEv(ev);
+	return CoopDelta::hostSeqOf("fatal_vote", seqBefore);
+}
+
+// HOST: takes @a seat's answer to vote @a voteId if it is a voter still deciding (false otherwise). @a result = the
+// decision (unanimity, D159): the first no "continue", every voter's yes "end", "" while answers are pending.
+static bool coopFatalVoteTake(int seat, std::uint32_t voteId, bool yes, std::string& result)
+{
+	Json::Value note(Json::objectValue);
+	{
+		std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+		CoopFatalVoteRecord& r = g_fatalVote;
+		if (voteId == 0 || voteId != r.voteId || r.answers.count(seat)
+			|| std::find(r.voters.begin(), r.voters.end(), seat) == r.voters.end())
+			return false;
+		r.answers[seat] = yes;
+		bool allYes = true;
+		for (int v : r.voters)
+			allYes = allYes && r.answers.count(v) && r.answers[v];
+		result = r.result = !yes ? "continue" : (allYes ? "end" : "");
+		for (const auto& kv : r.answers)
+			note["answers"][std::to_string(kv.first)] = kv.second;
+	}
+	fatalVoteNote(-1, nullptr, note);
+	Log(LOG_INFO) << "[coop-fatal-vote] host: seat " << seat << " answered " << (yes ? "yes" : "no")
+		<< (result.empty() ? " - answers pending" : " - decided: " + result);
+	return true;
+}
+
+// HOST: the decision is final - Closed, the close ev, the probe (result, closeSeq, covered steps while open).
+static void coopFatalVoteClose(const std::string& result)
+{
+	Json::Value note(Json::objectValue);
+	note["result"] = result;
+	note["closeSeq"] = coopFatalVoteEmit(false);
+	note["coveredStepsWhileOpen"] = CoopDelta::hostCoveredProbe().get("steps", 0).asInt() - g_fatalVoteCoveredAtOpen;
+	fatalVoteNote(FV_CLOSED, nullptr, note);
+	Log(LOG_INFO) << "[coop-fatal-vote] host: vote closed - " << result << " (close seq " << note["closeSeq"].asUInt()
+		<< ")";
+}
+
+// D214 (a), SV-M2, SV-M13 (design 2.4.7; P7-5 Q5 (a)): HOST - the screen of a host that does not vote, or has answered
+// while a partner decides. Invisible (_screen false, no surfaces, the battle palette): the map behind it stands still
+// and takes no input; its Wait line names the voter (busyOwnerSeat's vote term). The pump pops it at the decision; it
+// pops itself when the vote is neither open nor decided (a battle reset).
+class CoopFatalVoteHold : public State
+{
+public:
+	explicit CoopFatalVoteHold(SavedBattleGame* save)
+	{
+		_screen = false;
+		if (save)
+			save->setPaletteByDepth(this);
+	}
+	void think() override
+	{
+		State::think();
+		if (g_fatalVoteState.load() != FV_OPEN && g_fatalVoteState.load() != FV_DECIDED)
+			_game->popState();
+	}
+};
+
+bool coopFatalVoteArm(SavedBattleGame* /*save*/, int wounded, bool endTurnRequested)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	if (!connectionTCP::getCoopStatic() || a.phase.load() == CoopBattlePhase::Idle)
+		return false; // single player: vanilla pushes its question
+	if (!a.hostSim.load() || endTurnRequested)
+	{
+		// A client never asks (N3); an end-of-turn kill needs no vote - either answer ends the battle (F3238, SV-M11).
+		Log(LOG_INFO) << "[coop-fatal-vote] no vote: " << (a.hostSim.load() ? "the end of turn killed the last alien"
+			: "client (unreachable, N3)");
+		return true;
+	}
+	{
+		std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+		g_fatalVote = CoopFatalVoteRecord();
+	}
+	g_fatalVoteContinuePending = false;
+	fatalVoteNote(FV_ARMED, "armed");
+	Log(LOG_INFO) << "[coop-fatal-vote] host: armed (" << wounded << " bleeding) - opens once the battle is quiet";
+	return true;
+}
+
+bool coopFatalVoteAnswer(Game* game, bool yes)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	if (!connectionTCP::getCoopStatic() || a.phase.load() == CoopBattlePhase::Idle)
+		return false; // single player: vanilla's OK / CANCEL
+	const bool open = g_fatalVoteState.load() == FV_OPEN;
+	const int seat = a.localSeat.load();
+	std::uint32_t voteId = 0;
+	{
+		std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+		voteId = g_fatalVote.voteId;
+	}
+	std::string result;
+	if (!a.hostSim.load() && open && voteId != 0)
+	{
+		// CLIENT (design 2.4.3): the answer goes to the host; this machine ends nothing itself.
+		Json::Value msg = CoopWire::makeFatalVoteAnswer(a.battleId.load(), voteId, seat, yes);
+		CoopEmit::sendBattle(msg);
+		Json::Value note(Json::objectValue);
+		note["answerSent"] = yes ? "yes" : "no";
+		fatalVoteNote(-1, nullptr, note);
+		Log(LOG_INFO) << "[coop-fatal-vote] client: seat " << seat << " answered " << note["answerSent"].asString();
+		return true;
+	}
+	if (!a.hostSim.load() || !open || !coopFatalVoteTake(seat, voteId, yes, result))
+	{
+		Log(LOG_WARNING) << "[coop-fatal-vote] an answer with no open vote awaiting seat " << seat << " - ignored";
+		return true;
+	}
+	if (result.empty())
+	{
+		if (game) // HOST (design 2.4.3): a partner still decides - the hold
+			game->pushState(new CoopFatalVoteHold(connectionTCP::getStaticBattle()));
+		return true;
+	}
+	coopFatalVoteClose(result);
+	g_fatalVoteContinuePending = result != "end"; // a no: the held END TURN presses are re-evaluated once (pump)
+	return result != "end"; // all yes: vanilla's own OK runs requestEndTurn(false) (design 2.6)
+}
+
+bool coopFatalVoteHolds(const char* held)
+{
+	const int st = g_fatalVoteState.load();
+	if (!coopBattleAuthority().hostSim.load() || (st != FV_ARMED && st != FV_OPEN && st != FV_DECIDED))
+		return false;
+	if (held)
+	{
+		fatalVoteNote(-1, std::strcmp(held, "commit") == 0 ? "heldCommits" : "heldIntents");
+		Log(LOG_INFO) << "[coop-fatal-vote] host: " << held << " held - the fatal-wounds vote is in progress (D214 a)";
+	}
+	return true;
+}
+
+int coopFatalVoteOpen()
+{
+	const int st = g_fatalVoteState.load();
+	if (!coopBattleAuthority().hostSim.load() || (st != FV_OPEN && st != FV_DECIDED))
+		return -1;
+	const int me = coopBattleAuthority().localSeat.load();
+	std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+	for (int v : g_fatalVote.voters)
+	{
+		if (v != me && !g_fatalVote.answers.count(v))
+			return v;
+	}
+	return 0;
+}
+
+// HOST (design 2.3 / 2.4.4; the bt_equip_ready precedent, F4314): a client voter's answer from the battle lane.
+// Self-guarded: the host of this battle, its open vote, a partner voter seat still deciding; anything else is counted
+// (answersDropped) and logged. RECORD ONLY, no State op: a decision arms the pump (Decided).
+static void coopFatalVoteOnAnswer(const Json::Value& msg)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const std::uint32_t battleId = msg.get("battleId", 0u).asUInt();
+	const std::uint32_t voteId = msg.get("voteId", 0u).asUInt();
+	const int seat = msg.get("seat", -1).asInt();
+	std::string result;
+	if (!connectionTCP::getServerOwner() || !a.hostSim.load() || battleId == 0 || battleId != a.battleId.load()
+		|| g_fatalVoteState.load() != FV_OPEN || seat == a.localSeat.load()
+		|| !coopFatalVoteTake(seat, voteId, msg.get("yes", false).asBool(), result))
+	{
+		fatalVoteNote(-1, "answersDropped");
+		Log(LOG_WARNING) << "[coop-fatal-vote] host: answer (battleId " << battleId << ", vote " << voteId << ", seat "
+			<< seat << ") dropped: not this battle's open vote, or not a partner voter still deciding";
+	}
+	else if (!result.empty())
+	{
+		fatalVoteNote(FV_DECIDED);
+	}
+}
+
+// CLIENT (design 2.3 "Apply rule", F3236): the applier's fatal_vote branch - RECORD + LATCH ONLY, the battle_end
+// precedent (no State op, no RNG, no world write). The pump shows or closes the question.
+static void coopFatalVoteApplied(const Json::Value& ev)
+{
+	const Json::Value& p = ev["payload"];
+	const std::string op = p.get("op", "").asString();
+	if (coopBattleAuthority().hostSim.load() || (op != "open" && op != "close"))
+		return;
+	Json::Value note(Json::objectValue);
+	{
+		std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+		if (op == "open")
+		{
+			g_fatalVote = CoopFatalVoteRecord();
+			note["voteId"] = g_fatalVote.voteId = p.get("voteId", 0u).asUInt();
+			for (const Json::Value& v : p["voters"])
+				g_fatalVote.voters.push_back(v.asInt());
+			note["voters"] = fatalVoteSeatsJson(g_fatalVote.voters);
+			note["wounded"] = g_fatalVote.wounded = p.get("wounded", 0).asInt();
+			note["answered"] = Json::Value(Json::arrayValue);
+			for (const Json::Value& v : p["answered"])
+			{
+				g_fatalVote.answers[v.asInt()] = true;
+				note["answered"].append(v.asInt());
+			}
+		}
+		note["result"] = g_fatalVote.result = p.get("result", "").asString();
+	}
+	if (op == "open")
+		g_fatalVoteOpenPending = true;
+	else
+		g_fatalVoteClosePending = true;
+	fatalVoteNote(op == "open" ? FV_OPEN : FV_CLOSED, op == "open" ? "opensApplied" : "closesApplied", note);
+	Log(LOG_INFO) << "[coop-fatal-vote] client: " << op << " applied (vote " << p.get("voteId", 0u).asUInt()
+		<< ", seq " << ev.get("seq", 0u).asUInt() << ")";
+}
+
+// The pump (design 2.4.2 / 2.4.4 / 2.4.6; P7-5 Q6 (b), Q7 (a)): ONE call at the RB-D5 point in updateCoopTask(), after
+// the drain and the quiescence read, before the SPEC 18 save latch and the SPEC 16 pause latch. HOST: opens an armed
+// vote at quiescence, closes a decided one, runs the continue step. CLIENT: closes and shows its question. Nothing is
+// pushed over a co-op dialog (CoopState): the step waits while one is the top state. Inert with no vote in flight.
+static void coopFatalVotePump(Game* game, bool quiescent)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const int st = g_fatalVoteState.load();
+	if (st == FV_IDLE)
+		g_fatalVoteContinuePending = g_fatalVoteOpenPending = g_fatalVoteClosePending = false; // never outlive a vote
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	if (st == FV_IDLE || !game || !connectionTCP::getCoopStatic() || !save
+		|| !connectionTCP::isBattlescapeStateLive(save->getBattleState()))
+		return;
+	BattlescapeGame* bg = save->getBattleGame();
+	const std::list<State*>& states = game->getStates();
+	State* top = states.empty() ? nullptr : states.back();
+	const bool dialogTop = dynamic_cast<CoopState*>(top) != nullptr;
+	const int me = a.localSeat.load();
+	const bool host = a.hostSim.load();
+	if (host && st == FV_ARMED && a.phase.load() == CoopBattlePhase::Ended)
+	{
+		fatalVoteNote(FV_IDLE); // the battle ended while the vote was armed: dropped
+	}
+	else if (host && st == FV_ARMED && a.phase.load() == CoopBattlePhase::Active && quiescent && !dialogTop)
+	{
+		// The open (design 2.1): vanilla's own count; each counted unit's owner is its seat tag, never its controller
+		// (D149, SV-M7); a seat-less unit is the host's (MJ-8). The voter set and N are fixed here.
+		std::vector<int> voters;
+		int wounded = 0;
+		for (const auto* bu : *save->getUnits())
+		{
+			if (bu->getOriginalFaction() != FACTION_PLAYER || bu->getStatus() == STATUS_DEAD || bu->getFatalWounds() <= 0)
+				continue;
+			++wounded;
+			const int seat = std::max(0, (int)bu->getCoopSeat());
+			if (std::find(voters.begin(), voters.end(), seat) == voters.end())
+				voters.push_back(seat);
+		}
+		std::sort(voters.begin(), voters.end());
+		if (voters.empty())
+		{
+			fatalVoteNote(FV_IDLE); // nobody bleeds any more: vanilla's no-wound branch, no vote
+			bg->requestEndTurn(false);
+			return;
+		}
+		Json::Value note(Json::objectValue);
+		{
+			std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+			g_fatalVote = CoopFatalVoteRecord();
+			note["voteId"] = g_fatalVote.voteId = ++g_fatalVoteIds;
+			g_fatalVote.voters = voters;
+			note["wounded"] = g_fatalVote.wounded = wounded;
+		}
+		g_fatalVoteCoveredAtOpen = CoopDelta::hostCoveredProbe().get("steps", 0).asInt();
+		note["openSeq"] = coopFatalVoteEmit(true);
+		note["voters"] = fatalVoteSeatsJson(voters);
+		note["answers"] = Json::Value(Json::objectValue);
+		note["result"] = "";
+		fatalVoteNote(FV_OPEN, "opened", note);
+		const bool hostVotes = std::find(voters.begin(), voters.end(), me) != voters.end();
+		if (hostVotes)
+			game->pushState(new ConfirmEndMissionState(save, wounded, bg));
+		else
+			game->pushState(new CoopFatalVoteHold(save));
+		Log(LOG_INFO) << "[coop-fatal-vote] host: vote " << note["voteId"].asUInt() << " open (" << wounded
+			<< " bleeding, open seq " << note["openSeq"].asUInt() << ") - " << (hostVotes ? "its question" : "it waits");
+	}
+	else if (host && st == FV_DECIDED
+		&& (dynamic_cast<CoopFatalVoteHold*>(top) || dynamic_cast<ConfirmEndMissionState*>(top)))
+	{
+		// A partner's answer decided: the hold or the host's own question goes (a co-op dialog above it waits).
+		std::string result;
+		{
+			std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+			result = g_fatalVote.result;
+		}
+		game->popState();
+		coopFatalVoteClose(result);
+		if (result == "end")
+			bg->requestEndTurn(false); // vanilla's OK (design 2.6)
+		else
+			CoopEndTurn::tryCommit(save); // vanilla's CANCEL; the held END TURN presses are re-evaluated once
+	}
+	else if (host && st == FV_CLOSED && g_fatalVoteContinuePending)
+	{
+		g_fatalVoteContinuePending = false;
+		CoopEndTurn::tryCommit(save);
+	}
+	else if (!host && g_fatalVoteClosePending)
+	{
+		// The close: this machine's own unanswered question goes once it is the top state (a co-op dialog waits).
+		const bool asking = std::any_of(states.begin(), states.end(),
+			[](State* s) { return dynamic_cast<ConfirmEndMissionState*>(s) != nullptr; });
+		if (asking && !dynamic_cast<ConfirmEndMissionState*>(top))
+			return;
+		if (asking)
+		{
+			game->popState();
+			fatalVoteNote(-1, "questionClosedByClose");
+		}
+		g_fatalVoteClosePending = g_fatalVoteOpenPending = false;
+		{
+			std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+			g_fatalVote = CoopFatalVoteRecord();
+		}
+		// No bt_action_end follows a vote, so this is the release point of an order held during it.
+		CoopArbiter::onQuiescenceObserved();
+	}
+	else if (!host && g_fatalVoteOpenPending)
+	{
+		int wounded = 0;
+		bool asks = false;
+		{
+			std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+			wounded = g_fatalVote.wounded;
+			asks = st == FV_OPEN && !g_fatalVote.answers.count(me)
+				&& std::find(g_fatalVote.voters.begin(), g_fatalVote.voters.end(), me) != g_fatalVote.voters.end();
+		}
+		if (asks && dialogTop)
+		{
+			fatalVoteNote(-1, "coverWaitPasses"); // Q6 (b): it waits while a co-op dialog is the top state
+			return;
+		}
+		g_fatalVoteOpenPending = false;
+		if (!asks)
+			return; // not a voter, or already answered: no new screen (SV-M2)
+		game->pushState(new ConfirmEndMissionState(save, wounded, bg));
+		Json::Value note(Json::objectValue);
+		note["questionPushedMs"] = (unsigned int)SDL_GetTicks();
+		fatalVoteNote(-1, "questionPushed", note);
+		Log(LOG_INFO) << "[coop-fatal-vote] client: seat " << me << " asked (" << wounded << " bleeding)";
+	}
+}
 
 // ===== R3-P1: CoopApply (CoopApply.h) - the S2-minimal client-side state
 // applier =====
@@ -17339,6 +17789,14 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		Log(LOG_INFO) << "[coop-battle-end] client: battle_end applied seq=" << ev.get("seq", 0u).asUInt()
 			<< " reason=" << p.get("reason", "").asString() << " skirmish=" << skirmish
 			<< (skirmish ? " - teardown latched" : " - terminal, return path unchanged (S-C)");
+		return;
+	}
+
+	if (kind == "fatal_vote")
+	{
+		// W2-P7 S-V-A.2 (design 2.3 "Apply rule", F3236): the fatal-wounds vote's open / close - RECORD + LATCH
+		// ONLY, no State op (the battle_end precedent above); the pump shows or closes the question.
+		coopFatalVoteApplied(ev);
 		return;
 	}
 
@@ -29260,6 +29718,11 @@ void connectionTCP::updateCoopTask()
 	// gate.
 	const bool coopQuiescentNow = coopBattleQuiescent();
 
+	// W2-P7 S-V-A.2 (design 2.4.2, AMENDMENT P7-5 section 4.3): the fatal-wounds vote's pump - opens an armed vote at
+	// this quiescence (before the SPEC 18 save latch and the SPEC 16 pause latch below), closes a decided one, and
+	// shows / closes the client's question. Self-guarded (a vote in flight).
+	coopFatalVotePump(_game, coopQuiescentNow);
+
 	// SPEC 18 (r4 T4) M8: consumed FIRST when both latches are ready at one
 	// quiescence (the pause modal would otherwise sit over the
 	// SaveGameState) - re-push the SAME SaveGameState with the stored
@@ -31148,6 +31611,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// toggle (D206 c). Direct dispatch like bt_end_turn_ready; self-guarded (host, equip open, this battle,
 			// a mapped seat), anything else is logged and dropped.
 			coopEquipOnReadyMessage(obj);
+		}
+		else if (stateString == "bt_fatal_vote_answer")
+		{
+			// W2-P7 S-V-A.2 (design 2.3, AMENDMENT P7-5 section 4.3): host-inbound - a client voter's answer to the
+			// fatal-wounds question. Direct dispatch like bt_equip_ready; self-guarded, record only (no State op).
+			coopFatalVoteOnAnswer(obj);
 		}
 		else if (stateString == "bt_debrief_result")
 		{

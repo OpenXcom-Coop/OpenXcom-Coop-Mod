@@ -2484,7 +2484,7 @@ void BattlescapeGame::requestEndTurn(bool askForConfirmation)
 		if (soldiersWithFatalWounds > 0)
 		{
 			// confirm end of turn/mission
-			_parentState->getGame()->pushState(new ConfirmEndMissionState(_save, soldiersWithFatalWounds, this));
+			if (!coopFatalVoteArm(_save, soldiersWithFatalWounds, _endTurnRequested)) _parentState->getGame()->pushState(new ConfirmEndMissionState(_save, soldiersWithFatalWounds, this)); // coop (W2-P7 S-V, D159): a co-op host votes instead
 			_endConfirmationHandled = true;
 		}
 		else
