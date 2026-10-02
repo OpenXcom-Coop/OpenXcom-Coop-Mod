@@ -28,6 +28,7 @@
 #include "../Interface/TextList.h"
 #include "../Engine/Options.h"
 #include "../Engine/Action.h"
+#include "../CoopMod/CoopSyncedOptions.h" // coop (W2-P9): synced options are marked and change through the host
 #include <algorithm>
 
 namespace OpenXcom
@@ -249,7 +250,7 @@ void OptionsAdvancedState::addSettings(const std::vector<OptionInfo> &settings)
 	auto& fixeduserOptions = _game->getMod()->getFixedUserOptions();
 	for (const auto& optionInfo : settings)
 	{
-		std::string name = tr(optionInfo.description());
+		std::string name = CoopSyncedOptions::rowName(_game, optionInfo.id(), tr(optionInfo.description())); // coop (W2-P9)
 		std::string value;
 		if (optionInfo.type() == OPTION_BOOL)
 		{
@@ -330,6 +331,7 @@ void OptionsAdvancedState::lstOptionsClick(Action *action)
 		return;
 	}
 
+	if (CoopSyncedOptions::divertLocalEdit(_game, setting, button)) return; // coop (W2-P9): a synced option changes through the host
 	std::string settingText;
 	if (setting->type() == OPTION_BOOL)
 	{

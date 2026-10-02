@@ -97,6 +97,7 @@
 #include "../Menu/NewGameState.h"
 #include "../Menu/LoadGameState.h"
 #include "../Menu/SaveGameState.h"
+#include "../Menu/OptionsAdvancedState.h" // W2-P9 S-B (PR-12): the live refresh of an open Advanced options screen
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ConfirmCydoniaState.h"
 #include "../Geoscape/Globe.h"
@@ -7042,6 +7043,7 @@ void coopSyncedOptionsPump(Game* game, bool quiescent)
 	std::vector<Json::Value> batch;
 	batch.swap(s.queue);
 	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	bool anyApplied = false;
 	for (const Json::Value& e : batch)
 	{
 		const std::string id = e.get("id", "").asString();
@@ -7081,6 +7083,7 @@ void coopSyncedOptionsPump(Game* game, bool quiescent)
 			if (s.applied.size() > 16)
 				s.applied.erase(s.applied.begin());
 			coopSyncedChat(game, e.get("player", "").asString(), *info, value);
+			anyApplied = true;
 			Log(LOG_INFO) << "[coop-synced] host applied " << id << "=" << value << " (version " << s.version
 				<< ", from seat " << e.get("from", -1).asInt() << ", heldFrames " << e.get("heldFrames", 0).asInt()
 				<< ", afterSeq " << CoopEmit::lastSeqEmitted() << ")";
@@ -7105,6 +7108,8 @@ void coopSyncedOptionsPump(Game* game, bool quiescent)
 				s.inFlight.erase(it); // a host-own entry answers the host's own request
 		}
 	}
+	if (anyApplied)
+		coopSyncedRefreshAdvanced(game); // PR-12 (S-B, Q15 a): the host's own open Advanced screen redraws live
 }
 
 // PR-7 (the P10 hook): CLIENT - the ONE place the host's values are written: the join table ("join"), the offer's
@@ -7152,8 +7157,77 @@ void coopSyncedApplyFromHost(const Json::Value& values, int version, const char*
 		s.lastTableFrom = from;
 		s.inFlight.clear();
 	}
+	if (changed > 0)
+		coopSyncedRefreshAdvanced(s.game); // PR-12 (S-B, Q15 a): an applied set or table redraws an open Advanced screen
 	Log(LOG_INFO) << "[coop-synced] client applied " << from << " (version " << version << ", " << changed
 		<< " value(s) changed)";
+}
+
+// PR-11 (S-B, Q16 a): the Advanced-screen row name. "[Synced] <desc>" for a table id while the layer holds this
+// machine's values, else the plain description (SP and non-table rows unchanged). Matches the probe's prefixed-form
+// test exactly (TestServer coopSyncedAdvancedView: getString(STR_COOP_SYNCED_OPTION).arg(tr(description))).
+std::string CoopSyncedOptions::rowName(Game* game, const std::string& id, const std::string& desc)
+{
+	if (!g_coopSynced.held || !game || !coopSyncedRow(id))
+		return desc;
+	return game->getLanguage()->getString("STR_COOP_SYNCED_OPTION").arg(desc);
+}
+
+// PR-11 (S-B, Q8 a, Q9 a, F4734): divert a synced-option click to the host. The new value is computed BEFORE vanilla's
+// write, from the current global with the table's step/range (bool flip; int +/- step with vanilla's wrap), so the
+// global and the row keep the shared value until the change lands. clicksDiverted counts only a fresh request (a
+// click ignored in flight, Q9 a, is counted by submit as clicksIgnoredInFlight). false = vanilla (inactive, or the
+// id has no table row); a mod-fixed row never reaches here (OptionsAdvancedState :327).
+bool CoopSyncedOptions::divertLocalEdit(Game* game, OptionInfo* setting, int button)
+{
+	(void)game;
+	if (!g_coopSynced.held || !setting)
+		return false;
+	const Row* row = coopSyncedRow(setting->id());
+	if (!row)
+		return false;
+	int value;
+	if (setting->type() == OPTION_BOOL)
+	{
+		value = *setting->asBool() ? 0 : 1;
+	}
+	else // OPTION_INT: vanilla's rule - left +step, right -step, below min -> max, above max -> min
+	{
+		const int increment = (button == SDL_BUTTON_LEFT) ? row->step : -row->step;
+		value = coopSyncedRead(*setting) + increment;
+		if (value < row->min)
+			value = row->max;
+		else if (value > row->max)
+			value = row->min;
+	}
+	const bool fresh = g_coopSynced.inFlight.count(setting->id()) == 0;
+	submit(setting->id(), value);
+	if (fresh)
+		++g_coopSynced.clicksDiverted;
+	return true;
+}
+
+// PR-12 (S-B, Q15 a, F4734): redraw every open OptionsAdvancedState, keeping its scroll - no vanilla method. The
+// state's TextList is the first one in its own surface list (the getSurfaces() + dynamic_cast precedent); updateList()
+// clears the list (scroll jumps to the top), so the scroll is saved and restored around it.
+void coopSyncedRefreshAdvanced(Game* game)
+{
+	if (!game)
+		return;
+	for (State* st : game->getStates())
+	{
+		OptionsAdvancedState* adv = dynamic_cast<OptionsAdvancedState*>(st);
+		if (!adv)
+			continue;
+		TextList* list = nullptr;
+		for (Surface* surface : adv->getSurfaces())
+			if ((list = dynamic_cast<TextList*>(surface)))
+				break;
+		const size_t scroll = list ? list->getScroll() : 0;
+		adv->updateList();
+		if (list)
+			list->scrollTo(scroll);
+	}
 }
 
 // R5-P2 (SPIKE-RUNBOOK.md R5-P2 packet text): the input-gating combinators.
