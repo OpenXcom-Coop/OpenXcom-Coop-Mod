@@ -150,6 +150,7 @@ en-GB:
   STR_COOP_MISSION_HOST_CRAFT_ONLY: "In co-op only the host's craft can start a mission. Seat your soldiers on the host's craft to take part."
   STR_COOP_CHAT_SYSTEM: "System"
   STR_COOP_SYNCED_OPTION_CHANGED: "{0} changed {1} to {2}"
+  STR_COOP_SYNCED_OPTION: "[Synced] {0}"
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

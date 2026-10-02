@@ -24,6 +24,7 @@
 namespace OpenXcom
 {
 class Game;
+class OptionInfo;
 
 /**
  * W2-P9 (spec rewrite/prompts/w2p9_synced_options.md, AMENDMENT P9-1 PR-1..PR-7, PR-13; owner D134, D160 a, D161 a):
@@ -82,6 +83,11 @@ bool holdArmed();
 Json::Value currentValues();
 /// PR-13: the layer's own fields of the synced_options_state probe (active, version, values, own, queue, ...).
 void stateView(Json::Value &out);
+/// PR-11 (S-B): the Advanced-screen row name - "[Synced] <desc>" for a table id while active(), else @a desc.
+std::string rowName(Game *game, const std::string &id, const std::string &desc);
+/// PR-11 (S-B): a synced-option click goes through the host (compute the new value with the table's step/range,
+/// submit, keep the shared value until it lands); true = diverted, false = vanilla (inactive or no table row).
+bool divertLocalEdit(Game *game, OptionInfo *setting, int button);
 }
 
 /// PR-6: the host's between-actions apply latch, beside the SPEC 16 pause latch in updateCoopTask().
@@ -90,4 +96,6 @@ void coopSyncedOptionsPump(Game *game, bool quiescent);
 /// its chat line).
 void coopSyncedApplyFromHost(const Json::Value &values, int version, const char *source,
 	const std::string &player = std::string());
+/// PR-12 (S-B, Q15 a): redraw every open OptionsAdvancedState, keeping its scroll (no vanilla method, F4734).
+void coopSyncedRefreshAdvanced(Game *game);
 }
