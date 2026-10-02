@@ -6772,6 +6772,13 @@ void CoopSyncedOptions::stateView(Json::Value& out)
 	out["holdArmed"] = s.holdArmed;
 }
 
+// W2-P10 S-A (AMENDMENT P10-1 PX-4, F3258): test-only lever shared_update_defer - defers THIS machine's
+// per-frame SharedEcon drain so an arrived shared_apply stays queued until the funnel's set-time drain (green)
+// or the release; makes the replica ordering window deterministic. File-scope flag, default false; inert unless armed.
+namespace { bool g_coopTestSharedUpdateDeferred = false; }
+void CoopSyncedOptions::setTestSharedUpdateDeferred(bool on) { g_coopTestSharedUpdateDeferred = on; }
+bool CoopSyncedOptions::testSharedUpdateDeferred() { return g_coopTestSharedUpdateDeferred; }
+
 namespace
 {
 const OptionInfo* coopSyncedInfo(const std::string& id)
@@ -30160,7 +30167,7 @@ void connectionTCP::updateCoopTask()
 	// PRD-J03: drain the SHARED economy protocol queues at the same controlled
 	// main-thread point as waitedTrades (host validates+applies+broadcasts queued
 	// shared_cmd; replicas apply queued shared_apply and surface shared_fail).
-	SharedEcon::update(_game);
+	if (!CoopSyncedOptions::testSharedUpdateDeferred()) SharedEcon::update(_game); // W2-P10 test lever shared_update_defer (inert unless armed)
 
 	// wrong password
 	if (onConnect == -5)

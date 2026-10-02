@@ -79,6 +79,10 @@ struct FileGuard
 /// PR-13: the test-only apply hold (lever synced_apply_hold), read by the host latch (PR-6).
 void setHoldArmed(bool on);
 bool holdArmed();
+/// W2-P10 S-A (AMENDMENT P10-1 PX-4, F3258): test-only lever shared_update_defer - defer THIS machine's
+/// per-frame SharedEcon drain so the replica ordering window is deterministic; inert unless armed.
+void setTestSharedUpdateDeferred(bool on);
+bool testSharedUpdateDeferred();
 /// The 15 current globals {id: bool|int} (the probe, the join table, battle_offer.hostRules).
 Json::Value currentValues();
 /// PR-13: the layer's own fields of the synced_options_state probe (active, version, values, own, queue, ...).
