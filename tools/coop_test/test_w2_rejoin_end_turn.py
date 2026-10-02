@@ -58,6 +58,11 @@ def log_count(gc, needle):
 def seeded(gc):
     return [int(m.group(1)) for m in (SEED_RE.search(ln) for ln in log_lines(gc)) if m]
 
+DROP_RE = re.compile(r"W2-H14b: rejoin dropped (\d+) END TURN press")    # W2-H14b's host line (spec w2h14b (e))
+
+def dropped(gc):
+    return [int(m.group(1)) for m in (DROP_RE.search(ln) for ln in log_lines(gc)) if m]
+
 def evidence(rid, obj):
     print(f"EVIDENCE {rid}: {json.dumps(obj, sort_keys=True, default=str)}", flush=True)
 
@@ -167,6 +172,7 @@ def stage_rejoin(host, client, port, kind, ctx):
     bid0 = (battle_state(host).get("authority") or {}).get("battleId")
     step("1 drop_client_mid_battle", lambda: drop_client_mid_battle(host, client), m)
     pause = snap(host)
+    ctx["pause"] = pause
     evidence(f"pause {kind}", {"host": pause})
     if kind == "T" and pause["coopActiveSeat"] != 1:
         miss("host coopActiveSeat 1 at the pause (D91)", f"host coopActiveSeat {pause['coopActiveSeat']}", m)
@@ -288,9 +294,40 @@ def h14_2(host, c2, ctx):
         f.append(f"client2 coopPendingTallyTurn {c1['coopPendingTallyTurn']} (want -1)")
     return f + tail
 
-BOOTS = (("P", PORT_P, stage_p, "H14-1", h14_1), ("T", PORT_T, stage_t, "H14-2", h14_2))
+H14B_TK = ("turn", "side", "count", "needed", "ready", "activeSeat")
+H14B_SK = (TS, "coopEndTurnText", "coopEndTurnArmed", "coopActiveSeat", "coopPendingTallyTurn")
 
-def run_boot(kind, port, stage_fn, rid, row_fn, results, walls):
+def h14b_3(host, c2, ctx):
+    """W2-H14b (D221 c, H14b-1, Q2 (a)): traditional, display only, on boot T's S0 before H14-2 (no new step).
+    RED cell: no tally rode the rejoin (client2 talliesSeen 0). GREEN: client2's tally equals the host's."""
+    s0, p, drops = ctx["S0"], ctx["pause"], dropped(host)
+    h0, c0 = s0["host"], s0["client2"]
+    ht, ct = ([(x["coopEndTurnTally"] or {}).get(k) for k in H14B_TK] for x in (h0, c0))
+    evidence("H14b-3", {"hostTally": ht, "client2Tally": ct, "hostDropped": drops, "pauseTalliesSeen": p[TS],
+                        "host": {k: h0[k] for k in H14B_SK}, "client2": {k: c0[k] for k in H14B_SK}})
+    f = [f"no tally rode the rejoin (client2 {TS} 0; host W2-H14b drop lines {drops})"] if c0[TS] == 0 else []
+    if c0[TS] not in (0, 1):
+        f.append(f"client2 {TS} {c0[TS]} (want 1)")
+    if drops != [0]:
+        f.append(f"host 'W2-H14b: rejoin dropped' counts {drops} (want exactly [0])")
+    if ht != [K_T, "player", 0, 1, [], 1]:
+        f.append(f"host tally {H14B_TK} {ht} (want {[K_T, 'player', 0, 1, [], 1]})")
+    if ct != ht:
+        f.append(f"client2 tally {H14B_TK} {ct} != host's {ht}")
+    if [c0["coopEndTurnText"], h0["coopEndTurnText"], c0["coopEndTurnArmed"]] != ["", "", False]:
+        f.append(f"(client2 text, host text, client2 armed) "
+                 f"{[c0['coopEndTurnText'], h0['coopEndTurnText'], c0['coopEndTurnArmed']]} (want ['', '', False])")
+    if [c0["coopActiveSeat"], c0["coopPendingTallyTurn"]] != [1, -1]:
+        f.append(f"client2 (coopActiveSeat, coopPendingTallyTurn) "
+                 f"{[c0['coopActiveSeat'], c0['coopPendingTallyTurn']]} (want [1, -1])")
+    if h0[TS] != p[TS] + 1:
+        f.append(f"host {TS} {h0[TS]} (want pause {p[TS]} + 1)")
+    return f
+
+BOOTS = (("P", PORT_P, stage_p, (("H14-1", h14_1),)),
+         ("T", PORT_T, stage_t, (("H14b-3", h14b_3), ("H14-2", h14_2))))   # H14b-3 reads S0 before H14-2 moves it
+
+def run_boot(kind, port, stage_fn, rows, results, walls):
     t0, ctx = time.time(), {}
     host = GameClient("host", None, make_user_dir(f"w2h14_end_turn_{kind.lower()}_host"))
     client = GameClient("client", None, make_user_dir(f"w2h14_end_turn_{kind.lower()}_client"))
@@ -299,15 +336,17 @@ def run_boot(kind, port, stage_fn, rid, row_fn, results, walls):
             stage_fn(host, client, ctx)
             c2 = stage_rejoin(host, client, port, kind, ctx)
         except Exception as e:     # a FixtureMiss printed its CAPTURE line; anything else is unexpected, still a FAIL
-            print(f"FAIL {rid}: {'rejoin' if ctx.get('booted') else 'boot'} (FIXTURE-STOP) "
-                  f"{e if isinstance(e, FixtureMiss) else short(e, 600)}", flush=True)
+            for rid, _ in rows:
+                print(f"FAIL {rid}: {'rejoin' if ctx.get('booted') else 'boot'} (FIXTURE-STOP) "
+                      f"{e if isinstance(e, FixtureMiss) else short(e, 600)}", flush=True)
             return
-        try:
-            f = row_fn(host, c2, ctx)
-        except Exception as e:
-            f = [f"{type(e).__name__}: {short(e, 600)}"]
-        results[rid] = not f
-        print(f"PASS {rid}" if not f else f"FAIL {rid}: " + "; ".join(f), flush=True)
+        for rid, row_fn in rows:
+            try:
+                f = row_fn(host, c2, ctx)
+            except Exception as e:
+                f = [f"{type(e).__name__}: {short(e, 600)}"]
+            results[rid] = not f
+            print(f"PASS {rid}" if not f else f"FAIL {rid}: " + "; ".join(f), flush=True)
     finally:
         for gc in [g for g in (host, client, ctx.get("client2")) if g is not None]:
             try:
@@ -318,9 +357,9 @@ def run_boot(kind, port, stage_fn, rid, row_fn, results, walls):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    for kind, port, stage_fn, rid, row_fn in BOOTS:
-        run_boot(kind, port, stage_fn, rid, row_fn, results, walls)
-    rids = [b[3] for b in BOOTS]
+    for kind, port, stage_fn, rows in BOOTS:
+        run_boot(kind, port, stage_fn, rows, results, walls)
+    rids = [rid for b in BOOTS for rid, _ in b[3]]
     passed, failed = [r for r in rids if results.get(r)], [r for r in rids if not results.get(r)]
     print(f"\ntest_w2_rejoin_end_turn: {len(passed)}/{len(rids)} passed (pass={passed} fail={failed}) in "
           f"{time.time() - t0:.1f}s (boot walls {walls})", flush=True)
