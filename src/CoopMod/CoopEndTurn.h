@@ -139,6 +139,16 @@ int rejoinPhase();
 /// rejoin blob carries coopActiveSeat (coopLoadActiveSeat()).
 void seedRejoinPhase(int phase);
 
+/// W2-H14b (owner D221 (c), ruling H14b-1): HOST-ONLY (self-guarded:
+/// isCoopBattle() && hostSim). Called ONCE per SPEC 16 in-memory rejoin, from
+/// onReady()'s in-memory branch (connectionTCP.cpp), after phase Active, while
+/// the rejoiner's BattlescapeState is live. The pause kept every stored press
+/// (D91/D98); this drops the returning seat's own (it must press again: a
+/// press made before the leave never ends a turn after the rejoin), then
+/// re-emits the tally so both machines show the true count. Never commits:
+/// clearing a press cannot complete a side.
+void onSeatRejoined(SavedBattleGame* save);
+
 /// A seat departing mid-side changes the live-seat set (WR-20): recomputes
 /// `needed`, discards the departed seat's own stored ready, and re-emits the
 /// tally. HOST-ONLY (self-guarded); called from the host's own client-drop

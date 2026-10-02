@@ -16909,6 +16909,24 @@ void seedRejoinPhase(int phase)
 	Log(LOG_INFO) << "[coop-handshake] W2-H14: rejoin END TURN side-phase counter seeded to " << phase;
 }
 
+// W2-H14b (owner D221 (c), ruling H14b-1): see CoopEndTurn.h. Seat 0 is this host and every other seat is the one
+// peer (coopEndTurnSeatConnected()), so the returning player's seat is every seat but 0 in this 2-seat build.
+void onSeatRejoined(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	int droppedPresses = 0;
+	for (int s = 1; s < kMaxSeats; ++s)
+	{
+		if (g_hostReady[s])
+			++droppedPresses;
+		g_hostReady[s] = false;
+	}
+	Log(LOG_INFO) << "[coop-handshake] W2-H14b: rejoin dropped " << droppedPresses
+		<< " END TURN press(es) of the returning seat; tally re-sent (side-phase counter " << g_turn << ")";
+	emitTally(save);
+}
+
 void onSeatSetChanged(SavedBattleGame* save)
 {
 	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim)
@@ -27124,6 +27142,9 @@ void onReady(Game* game, const Json::Value& ready)
 		CoopFog::ensureAllocated(activeBattle);
 		CoopFog::authorHostilePass(activeBattle, true);
 		CoopReveal::armHostileBaseline();
+		// W2-H14b (owner D221 (c), H14b-1): the returning player's END TURN press is dropped (it must press again)
+		// and both machines get the true tally; the pause kept it (D91/D98).
+		CoopEndTurn::onSeatRejoined(activeBattle);
 	}
 
 	// W2-P7 S-V-B.2 (design 2.7, AMENDMENT P7-5 4.4; owner D186, D223 (b) = P7-7, SV-M9): an in-memory rejoin during an
