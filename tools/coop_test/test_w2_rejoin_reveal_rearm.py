@@ -4,7 +4,10 @@ F3621). ONE boot (test_w2_death_side's default map, lobby PORT_H12): A_ID to
 T1, the client leaves, a fresh process (client2) rejoins, the host presses
 RESUME. H12-1: the host's hostile set is re-armed and baselined to client2.
 H12-2: A_ID to T2 grows it by >= G2 on both machines. H12-3: an END TURN
-cycle's boundary hash carries revealHostile. A boot/rejoin step past its bound
+cycle's boundary hash carries revealHostile. W2-H12b (D219 b; F3748; spec
+rewrite/prompts/w2h12b_rejoin_keep_hostile_map.md (f)) H12b-1: the leave keeps
+the host's hostile set (pause census == P, at T1); after RESUME the host's is >= P,
+client2's equal, revealHostile == P's on both. A boot/rejoin step past its bound
 is a FIXTURE-STOP (one CAPTURE line; every row FAILs "boot"/"rejoin"). Each
 row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>";
 every row runs; a staging failure fails later rows "staging". WV-D95/D99/D100:
@@ -147,7 +150,8 @@ def stage_rejoin(host, client, ctx):
     m = [host, client]
     bid0 = (battle_state(host).get("authority") or {}).get("battleId")
     step("1 drop_client_mid_battle", lambda: drop_client_mid_battle(host, client), m)
-    evidence("pause", {"hostHostile": hostile(host)})            # allocated false = F3620
+    ctx["pause"] = hostile(host)
+    evidence("pause", {"hostHostile": ctx["pause"]})             # H12b: kept
     client2 = ctx["client2"] = GameClient("rejoin", None, make_user_dir("w2h12_rearm_rejoin"))
     m.append(client2)
     step("3 client2 spawn and connect", lambda: (client2.spawn(), client2.connect()), m)
@@ -210,11 +214,34 @@ def h12_1(host, c2, ctx):
     if hh["unpublishedHostile"] is not False:
         f.append(f"host unpublishedHostile {hh['unpublishedHostile']} (want false)")
     f += hash_fails(host, c2, "after RESUME")
-    if l0n != ctx["L0"] + 1:
-        f.append(f"host BASELINE hostile restate count {l0n} (want L0+1 = {ctx['L0'] + 1})")
-    if base != 1:
-        f.append(f"client2 applied hostile base restates {base} (want exactly 1)")
+    if l0n != ctx["L0"] + 2:
+        f.append(f"host BASELINE hostile restate count {l0n} (want L0+2 = {ctx['L0'] + 2})")
+    if base != 2:
+        f.append(f"client2 applied hostile base restates {base} (want exactly 2)")
     return f + desync_fails(host, c2)
+
+def h12b_1(host, c2, ctx):
+    """W2-H12b (D219 b), reads only, after H12-1. Q2 (a): a forced pass at T1 discovers 0 (TASK 0 F4584, 3/3)."""
+    p, pz, hh, ch = ctx["P"], ctx.get("pause") or {}, hostile(host), hostile(c2)
+    rhh, rhc = rh(host), rh(c2)
+    evidence("H12b-1", {"P": p, "pause": pz, "host": hh, "client2": ch,
+                        "revealHostile": {"host": rhh, "client2": rhc},
+                        "desyncSeen": [desync_seen(host), desync_seen(c2)]})
+    lost = []
+    if not pz.get("allocated") or pz.get("census") != p["census"]:
+        lost.append(f"pause: host hostile allocated {pz.get('allocated')} census {pz.get('census')} "
+                    f"(want true, == P {p['census']})")
+    if not hh["allocated"] or any((n or 0) < (q or 0) for n, q in zip(hh["census"], p["census"])):
+        lost.append(f"after RESUME: host census {hh['census']} below P {p['census']} "
+                    f"(allocated {hh['allocated']}; want >= P in each of floor/west/north)")
+    if ch["census"] != hh["census"]:
+        lost.append(f"after RESUME: client2 census {ch['census']} != host {hh['census']}")
+    if rhh != p["revealHostile"]:
+        lost.append(f"after RESUME: host revealHostile {rhh} != P's {p['revealHostile']}")
+    if rhc != rhh:
+        lost.append(f"after RESUME: client2 revealHostile {rhc} != host's {rhh}")
+    f = ["the alien side lost its pre-leave map (" + "; ".join(lost) + ")"] if lost else []
+    return f + hash_fails(host, c2, "H12b-1") + desync_fails(host, c2)
 
 def h12_2(host, c2, ctx):
     c0, a0 = hostile(host)["census"], log_count(c2, ADD_RE)
@@ -260,7 +287,7 @@ def h12_3(host, c2, ctx):
     f += hash_fails(host, c2, "after the cycle")
     return f + notes + desync_fails(host, c2)
 
-ROWS = (("H12-1", h12_1), ("H12-2", h12_2), ("H12-3", h12_3))
+ROWS = (("H12-1", h12_1), ("H12b-1", h12b_1), ("H12-2", h12_2), ("H12-3", h12_3))
 
 def main():
     t0, results, ctx, c2 = time.time(), {}, {}, None
