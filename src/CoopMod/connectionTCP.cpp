@@ -27126,6 +27126,41 @@ void onReady(Game* game, const Json::Value& ready)
 		CoopReveal::armHostileBaseline();
 	}
 
+	// W2-P7 S-V-B.2 (design 2.7, AMENDMENT P7-5 4.4; owner D186, D223 (b) = P7-7, SV-M9): an in-memory rejoin during an
+	// OPEN fatal-wounds vote re-sends its open ev through S-V-A's ONE emitter, after the hostile `base` restate the
+	// choke ships first (F4320). D223 (b): the returning seat's stored answer is dropped first, so it is asked again
+	// (seat 0 is this host, every other seat the one peer in this 2-seat build, W2-H14b's reading); this host's stands.
+	// The rejoined client asks once no co-op dialog is on top (dialog 68 until RESUME, P7-5 Q6 (b)); the host's decided
+	// latch waits under dialog 62 (Q7 (a)). An armed vote opens by itself and a decided one closes once 62 pops.
+	if (wasResumed && !fromDisk)
+	{
+		if (g_fatalVoteState.load() == FV_OPEN)
+		{
+			const int me = coopBattleAuthority().localSeat.load();
+			int dropped = 0;
+			Json::Value note(Json::objectValue);
+			note["answers"] = Json::Value(Json::objectValue);
+			{
+				std::lock_guard<std::mutex> lock(g_fatalVoteMutex);
+				for (auto it = g_fatalVote.answers.begin(); it != g_fatalVote.answers.end();)
+				{
+					if (it->first != me)
+					{
+						it = g_fatalVote.answers.erase(it);
+						++dropped;
+						continue;
+					}
+					note["answers"][std::to_string(it->first)] = it->second;
+					++it;
+				}
+			}
+			const std::uint32_t seq = coopFatalVoteEmit(true);
+			fatalVoteNote(-1, "resends", note);
+			Log(LOG_INFO) << "[coop-fatal-vote] host: rejoin - vote open re-sent (seq " << seq << "), " << dropped
+				<< " answer(s) of the returning seat dropped (D223 b)";
+		}
+	}
+
 	Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId
 		<< (fromDisk ? ", RESUMED (disk) - peerAbsent cleared, admission resumed, "
 			"fog/reveal re-authored, baton restored"
