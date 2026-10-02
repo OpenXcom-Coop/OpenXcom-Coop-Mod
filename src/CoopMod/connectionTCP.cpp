@@ -157,6 +157,7 @@
 // (IR-6). sodium.h is already linked (connectionUDP uses it, e.g.
 // connectionUDP.h:19).
 #include "../Savegame/SavedGame.h"
+#include "../Savegame/Upgrade/SaveUpgradeTypes.h" // W2-P7 S-C-B1.2 (P7-6 Q1 (a)): yamlutil for the guest-record overlay
 #include "../Engine/Options.h"
 #include "../Engine/Screen.h"
 #include "../Engine/Palette.h"
@@ -2095,6 +2096,13 @@ static bool g_coopSharedReturnPending = false;
 static bool g_coopPostBattleWorldReady = false;
 static bool g_coopPostBattleWorldAdopted = false;
 static bool g_coopCampaignOkDeferred = false;
+// W2-P7 S-C-B1.2 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.2, PR-14; MR12, F2510, F4526,
+// F4527): a SEPARATE guest battle's live world, remembered at battle entry. While the client's live SavedGame is
+// still this pointer (the battle, then the debrief window after V4 drops the battle), the per-tick background tasks
+// must not run on it - they would upload the host's world as the client blob (F2510) or embed it in a deferred host
+// save (F4526). Identity, self-clearing: a guard read that sees a different live pointer clears it. Set at the battle
+// entry, cleared at the return's setSavedGame(own). Main thread only.
+static SavedGame* g_coopSepBattleWorld = nullptr;
 
 namespace CoopPump
 {
@@ -16852,6 +16860,32 @@ bool connectionTCP::coopDebriefClientFinish(DebriefingState* db)
 	return true;
 }
 
+// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2; PR-12, MR4): the host tags every merged guest copy's coopName
+// "coop-origin:<ownerSeat>:<ownerId>" (CoopState.cpp's coopMergeGuestContributions). V5's SEPARATE payload reads the
+// seat and the owner's own id back out of it; the return matches the owner's soldier by that id. Serializing a guest
+// soldier for the wire is coopSerializeGuestSoldier (defined beside the census below; the same Soldier::save() YAML).
+static bool coopParseOriginTag(const std::string& tag, int& seat, int& id)
+{
+	static const std::string prefix = "coop-origin:";
+	if (tag.size() <= prefix.size() || tag.compare(0, prefix.size(), prefix) != 0)
+		return false;
+	const size_t p1 = prefix.size();
+	const size_t colon = tag.find(':', p1);
+	if (colon == std::string::npos || colon == p1 || colon + 1 >= tag.size())
+		return false;
+	try
+	{
+		seat = std::stoi(tag.substr(p1, colon - p1));
+		id = std::stoi(tag.substr(colon + 1));
+	}
+	catch (...)
+	{
+		return false;
+	}
+	return true;
+}
+static std::string coopSerializeGuestSoldier(Game* game, Soldier* soldier);
+
 // V5 (the last statement of DebriefingState::init). The host serializes what
 // its own vanilla debrief computed and sends it once: skirmish and SHARED
 // campaign (S-C-A; other campaigns S-C-B1), only after this battle's `battle_end` (phase Ended, record
@@ -16871,9 +16905,11 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	SavedGame* sg = _game->getSavedGame();
 	if (!sg)
 		return;
-	// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 1, PR-1; D156 (a)): a SHARED campaign ending sends the payload (+ its
-	// world push, PR-3); any other campaign only marks the host's debriefing (S-C-B1 widens the send).
+	// W2-P7 S-C-A.2 / S-C-B1.2 (AMENDMENT P7-6 section 4.1/4.2 step 1, PR-1; D156 (a), D155 (a)): a SHARED campaign
+	// sends the world-bearing payload (mode "shared" + the PR-3 push); any other campaign (SEPARATE, PvP) sends a
+	// record-bearing payload (mode "separate" + guests[]). Only the pre-S-C skirmish path left the send untouched.
 	const bool campaign = sg->getMonthsPassed() != -1;
+	const bool separate = campaign && !isSharedCampaign();
 	const Json::Value rec = CoopDelta::battleEndRecord();
 	if ((!held && rec.get("emitted", 0).asInt() != 1) || rec.get("resultSent", 0).asInt() != 0)
 		return;
@@ -16884,11 +16920,6 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	{
 		// W2-P7 S-C-A.2 (PR-2): a campaign debriefing - its OK takes the campaign branch, its peer leaves stay today's.
 		CoopDelta::debriefMarkCampaign();
-		if (!isSharedCampaign())
-		{
-			Log(LOG_INFO) << "[coop-debrief] host: campaign debriefing marked (not SHARED) - no bt_debrief_result";
-			return;
-		}
 	}
 	const int local = a.localSeat.load();
 	bool partnerSeat = false;
@@ -16957,7 +16988,34 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 		recovered.append(e);
 	}
 	debrief["recovered"] = recovered;
-	debrief["mode"] = campaign ? "shared" : "skirmish"; // W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-8): the payload's first S-C field
+	// W2-P7 S-C-A.2 / S-C-B1.2 (AMENDMENT P7-6 PR-8): the payload's first S-C field. SHARED carries the world;
+	// SEPARATE / PvP carry the guests' record.
+	debrief["mode"] = !campaign ? "skirmish" : (separate ? "separate" : "shared");
+	if (separate)
+	{
+		// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 3, PR-8; D155 (a)): every merged guest copy in the host's
+		// bases (coopName tagged "coop-origin:<seat>:<id>", seat != the host's). B1 ships alive rows only (dead:false);
+		// B2 adds the dead. originId is the owner's own soldier id (F4524); the return matches by it.
+		const int hostSeat = local;
+		Json::Value guests(Json::arrayValue);
+		for (auto* base : *sg->getBases())
+		{
+			for (auto* s : *base->getSoldiers())
+			{
+				int gseat = -1, gid = -1;
+				if (!coopParseOriginTag(s->getCoopName(), gseat, gid) || gseat == hostSeat)
+					continue;
+				Json::Value g(Json::objectValue);
+				g["originId"] = gid;
+				g["ownerSeat"] = gseat;
+				g["rawName"] = s->getName();
+				g["dead"] = false;
+				g["soldierYaml"] = coopSerializeGuestSoldier(_game, s);
+				guests.append(g);
+			}
+		}
+		debrief["guests"] = guests;
+	}
 
 	Json::Value msg = CoopWire::makeDebriefResult(a.battleId.load(), debrief);
 	if (held)
@@ -18372,14 +18430,17 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// RB-D5 pump point in updateCoopTask(). Campaign returns are S-C.
 		const Json::Value& p = ev["payload"];
 		bool skirmish = false;
-		// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 4, PR-1): a SHARED campaign client leaves the battle too.
+		// W2-P7 S-C-A.2 / S-C-B1.2 (AMENDMENT P7-6 section 4.1/4.2 step 4, PR-1): every co-op campaign client leaves the
+		// battle on its own debriefing now - SHARED (campaignShared) and every non-SHARED campaign (SEPARATE, PvP).
 		bool campaignShared = false;
+		bool campaignCoop = false;
 		BattlescapeState* bs = save->getBattleState();
 		if (connectionTCP::isBattlescapeStateLive(bs) && bs->getGame() && bs->getGame()->getSavedGame())
 		{
 			SavedGame* endSg = bs->getGame()->getSavedGame();
 			skirmish = endSg->getMonthsPassed() == -1;
-			campaignShared = !skirmish && endSg->isCoopSave() && endSg->getCampaignType() == CoopCampaignType::Shared;
+			campaignCoop = !skirmish && endSg->isCoopSave();
+			campaignShared = campaignCoop && endSg->getCampaignType() == CoopCampaignType::Shared;
 		}
 		CoopDelta::battleEndRecordSet("applied", 1);
 		CoopDelta::battleEndRecordSet("seq", ev.get("seq", 0u).asUInt());
@@ -18392,12 +18453,12 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		CoopDelta::battleEndRecordSet("skirmish", skirmish);
 		CoopDelta::battleEndRecordSet("campaign", campaignShared);
 		g_coopBattleEndTerminal = true;
-		if (skirmish || campaignShared)
+		if (skirmish || campaignCoop)
 			g_coopBattleEndTeardownLatch = true;
 		Log(LOG_INFO) << "[coop-battle-end] client: battle_end applied seq=" << ev.get("seq", 0u).asUInt()
 			<< " reason=" << p.get("reason", "").asString() << " skirmish=" << skirmish
 			<< (skirmish ? " - teardown latched" : campaignShared ? " - campaign SHARED - teardown latched"
-				: " - terminal, return path unchanged (S-C)");
+				: campaignCoop ? " - campaign SEPARATE - teardown latched" : " - terminal, return path unchanged (S-C)");
 		return;
 	}
 
@@ -25722,6 +25783,214 @@ static void coopCampaignClientSharedLeave(Game* game, DebriefingState* db, const
 	game->setState(new GeoscapeState);
 }
 
+// W2-P7 S-C-B1.2 (AMENDMENT P7-6 P7-6 Q1 (a)): copy one node (scalar or map) verbatim from the merged copy's YAML
+// tree into the owner's soldier node under @a key (a prior same-key child was removed by the caller). ryml NodeRef ops,
+// the same primitives SaveUpgrade::yamlutil uses. D155's keys are a name (scalar), currentStats (a flat map) and
+// scalars; the map branch handles currentStats, the recursion keeps it general.
+static void coopCopyRecordNode(ryml::NodeRef dstParent, ryml::csubstr key, ryml::ConstNodeRef src)
+{
+	ryml::NodeRef dst = dstParent.append_child();
+	dst.set_key(dstParent.tree()->to_arena(key));
+	if (src.is_map())
+	{
+		dst |= ryml::MAP;
+		for (ryml::ConstNodeRef ch : src.children())
+			coopCopyRecordNode(dst, ch.key(), ch);
+	}
+	else if (src.is_seq())
+	{
+		dst |= ryml::SEQ;
+		for (ryml::ConstNodeRef ch : src.children())
+		{
+			ryml::NodeRef e = dst.append_child();
+			if (ch.has_val())
+				e.set_val(dst.tree()->to_arena(ch.val()));
+		}
+	}
+	else
+	{
+		dst.set_val(dst.tree()->to_arena(src.val()));
+	}
+}
+
+// W2-P7 S-C-B1.2 (AMENDMENT P7-6 P7-6 Q1 (a); D155 (a), F2529, F4525): the guest-record overlay. Serialize the owner's
+// own soldier, overwrite exactly D155's keys from the merged copy's YAML (a key absent in the copy is removed - save
+// omits zero recovery/healthMissing/manaMissing, so the owner's value drops to zero too), and return the merged
+// "{soldier: {...}}" YAML. Everything else (id, armor, nationality, coopname, initialStats) stays the owner's. No
+// vanilla setters (F4525); loading a fresh Soldier from this applies the record.
+static std::string coopOverlayGuestRecord(const std::string& ownYaml, const std::string& copyYaml)
+{
+	static const char* const kKeys[] = { "name", "currentStats", "rank", "missions", "kills", "stuns",
+		"recovery", "manaMissing", "healthMissing", "improvement", "psiStrImprovement" };
+	auto ownTree = SaveUpgrade::yamlutil::parseMap(ownYaml);
+	auto copyTree = SaveUpgrade::yamlutil::parseMap(copyYaml);
+	ryml::NodeRef ownS = ownTree->rootref()["soldier"];
+	ryml::ConstNodeRef copyS = copyTree->crootref()["soldier"];
+	for (const char* k : kKeys)
+	{
+		ryml::csubstr key = ryml::to_csubstr(k);
+		SaveUpgrade::yamlutil::removeKey(ownS, key);
+		if (!copyS.invalid() && copyS.is_map())
+		{
+			ryml::ConstNodeRef src = copyS.find_child(key);
+			if (!src.invalid())
+				coopCopyRecordNode(ownS, key, src);
+		}
+	}
+	return SaveUpgrade::yamlutil::emitNode(ownTree->rootref());
+}
+
+// W2-P7 S-C-B1.2: build a fresh Soldier from @a yaml ("{soldier: {...}}") resolved against @a save (the owner's own
+// world), the coopDeserializeGuestSoldier shape. The caller swaps it into the owner's base and deletes the old object.
+static Soldier* coopBuildSoldierFromYaml(Game* game, SavedGame* save, const std::string& yaml)
+{
+	YAML::YamlRootNodeReader reader(YAML::YamlString{ yaml }, "sepReturnSoldier");
+	auto soldierReader = reader["soldier"];
+	std::string type = soldierReader["type"].readVal(game->getMod()->getSoldiersList().front());
+	RuleSoldier* rule = game->getMod()->getSoldier(type, false);
+	if (!rule)
+		return nullptr;
+	Soldier* s = new Soldier(rule, nullptr, 0 /*nationality; overwritten by load*/);
+	s->load(soldierReader, game->getMod(), save, game->getMod()->getScriptGlobal());
+	s->setCraft(0);
+	return s;
+}
+
+// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 6; owner D155 (a), D156 (a), D178 (a); MR4, MR6; P7-6 Q1 (a); PR-15):
+// the SEPARATE campaign client's OK. Load its OWN world, apply each guest row's record (by the owner's own id) onto the
+// owner's soldier, return to its own geoscape IN PLACE (no CoopState / LoadGameState, P6-4), and push the updated own
+// world to the host. Its own-world blob missing (never expected) -> the main menu (the issue #82 chokepoint, P6-6).
+bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtOk)
+{
+	const std::string key = clientBlobKey(getHostName());
+	bool haveBlob = false;
+	{
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		auto it = coopFilesClient.find(key);
+		haveBlob = it != coopFilesClient.end() && !it->second.empty();
+	}
+	Json::Value sep(Json::objectValue);
+	sep["ownLoaded"] = 0;
+	sep["guestsApplied"] = 0;
+	sep["guestsMissing"] = 0;
+	sep["pushed"] = 0;
+	SavedGame* own = nullptr;
+	if (haveBlob)
+	{
+		own = new SavedGame();
+		try
+		{
+			own->loadCoopSaveFromMemory(key, _game->getMod(), _game->getLanguage(), key);
+		}
+		catch (const std::exception& e)
+		{
+			Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - own world '" << key << "' failed to load: " << e.what();
+			delete own;
+			own = nullptr;
+		}
+	}
+	if (!own)
+	{
+		// PR-15 / P6-6: no own world to return to (never expected). Record it and leave via the main-menu chokepoint.
+		Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - no own-world blob '" << key << "' - going to the main menu";
+		CoopDelta::battleEndRecordSet("sepReturn", sep);
+		CoopDelta::debriefReleaseToken(db);
+		CoopDelta::debriefClearCampaign();
+		g_coopSepBattleWorld = nullptr;
+		CoopDelta::battleEndRecordSet("debriefOk", 1);
+		CoopDelta::battleEndRecordSet("debriefOkBranch", "campaign-client-separate-missing");
+		CoopDelta::battleEndRecordSet("phaseAtOk", phaseAtOk);
+		_game->setState(new GoToMainMenuState(false));
+		return true;
+	}
+	sep["ownLoaded"] = 1;
+
+	// Apply the alive guest rows this seat owns (B1; B2 adds the dead rows and the diary/kill remap).
+	const Json::Value msg = CoopDelta::debriefResultCopy();
+	const Json::Value& guests = msg["debrief"]["guests"];
+	const int seat = localSeat();
+	int applied = 0, missing = 0;
+	if (guests.isArray())
+	{
+		for (const Json::Value& g : guests)
+		{
+			if (g.get("ownerSeat", -1).asInt() != seat || g.get("dead", false).asBool())
+				continue;
+			const int originId = g.get("originId", -1).asInt();
+			Soldier* ownS = nullptr;
+			std::vector<Soldier*>* vec = nullptr;
+			size_t idx = 0;
+			for (auto* base : *own->getBases())
+			{
+				auto& sol = *base->getSoldiers();
+				for (size_t i = 0; i < sol.size(); ++i)
+				{
+					if (sol[i]->getId() == originId && !sol[i]->getDeath())
+					{
+						ownS = sol[i];
+						vec = &sol;
+						idx = i;
+						break;
+					}
+				}
+				if (ownS)
+					break;
+			}
+			if (!ownS)
+			{
+				++missing;
+				Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - no own soldier id=" << originId
+					<< " for guest seat=" << seat;
+				continue;
+			}
+			const std::string ownSoldierYaml = coopSerializeGuestSoldier(_game, ownS);
+			const std::string merged = coopOverlayGuestRecord(ownSoldierYaml, g.get("soldierYaml", "").asString());
+			Soldier* fresh = coopBuildSoldierFromYaml(_game, own, merged);
+			if (!fresh)
+			{
+				++missing;
+				Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - rebuild failed for own soldier id=" << originId;
+				continue;
+			}
+			// MR6: a wounded returning guest loses its seat on the host's craft in its own world (re-seated when healed).
+			if (fresh->getWoundRecoveryInt() > 0)
+			{
+				fresh->setCoopCraft(-1);
+				fresh->setCoopCraftType("");
+			}
+			fresh->calcStatString(_game->getMod()->getStatStrings(), false);
+			(*vec)[idx] = fresh;
+			delete ownS;
+			++applied;
+		}
+	}
+	sep["guestsApplied"] = applied;
+	sep["guestsMissing"] = missing;
+
+	// Return to the own geoscape in place. coopMissionEnd = false makes the legacy SEPARATE mission-end reload (N13,
+	// GeoscapeState.cpp) dead for the returning client - the record is applied here, not by the old blob dance - and
+	// unblocks the own-world push below. setSavedGame(own) clears the PR-14 guard (live world is now the own world).
+	coopMissionEnd = false;
+	_coopEnd = 1;
+	_game->setSavedGame(own);
+	g_coopSepBattleWorld = nullptr;
+	g_coopSharedReturnPending = g_coopPostBattleWorldReady = g_coopPostBattleWorldAdopted = g_coopCampaignOkDeferred = false;
+	CoopDelta::debriefReleaseToken(db);
+	CoopDelta::debriefClearCampaign();
+	CoopDelta::battleEndRecordSet("debriefOk", 1);
+	CoopDelta::battleEndRecordSet("debriefOkBranch", "campaign-client-separate");
+	CoopDelta::battleEndRecordSet("phaseAtOk", phaseAtOk);
+	CoopDelta::battleEndRecordSet("phaseAfterOk", coopPhaseRecordName(coopBattleAuthority().phase.load()));
+	CoopDelta::battleEndRecordSet("resetAtOk", 0);
+	_game->setState(new GeoscapeState);
+	const bool pushed = pushProgressToHostSilently();
+	sep["pushed"] = pushed ? 1 : 0;
+	CoopDelta::battleEndRecordSet("sepReturn", sep);
+	Log(LOG_INFO) << "[coop-debrief] client: SEPARATE return - own world loaded, guests applied=" << applied
+		<< " missing=" << missing << " pushed=" << (pushed ? 1 : 0) << " - its own geoscape";
+	return true;
+}
+
 // V6 (DebriefingState::btnOkClick, first statement). W2-P7 S-B2.2 (AMENDMENT P7-4; owner D156 (a), G5 (b), Q10 (a)):
 // the OK of a co-op skirmish battle-end debriefing. The client's display-only debriefing leaves through
 // GoToMainMenuState (the issue #82 chokepoint drops the SavedGame; the main menu then disconnects) and returns true.
@@ -25740,8 +26009,15 @@ bool connectionTCP::coopDebriefOk(DebriefingState* db)
 	const bool campaign = CoopDelta::debriefIsCampaign();
 	if (campaign && client)
 	{
-		// The SHARED client (S-C-A's only latching campaign client). PR-7: an OK before the world adoption (or while a
-		// newer held world waits) is remembered, repeated presses are no-ops (F4537); the pump runs it after the adoption.
+		// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 6, PR-1; D155 (a), D156 (a)): a SEPARATE campaign client (and
+		// a PvP one, P7-5 Q4 a) has no host world to adopt - it returns to its OWN world with the guests' record applied.
+		if (!isSharedCampaign())
+		{
+			coopSeparateReturn(db, phaseAtOk);
+			return true;
+		}
+		// The SHARED client. PR-7: an OK before the world adoption (or while a newer held world waits) is remembered,
+		// repeated presses are no-ops (F4537); the pump runs it after the adoption.
 		if (g_coopSharedReturnPending && (!g_coopPostBattleWorldAdopted || g_coopPostBattleWorldReady))
 		{
 			if (!g_coopCampaignOkDeferred)
@@ -27238,6 +27514,15 @@ void onBlobChunkAppended(Game* game)
 		return;
 	}
 
+	// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 4, PR-13; F2509, T0-5): a SEPARATE guest's battle entry.
+	// Snapshot the client's live OWN world (the pre-mission funds/marker are in memory, the disk blob is stale) under
+	// its own-world key, so the return at its OK can restore it. Read the own world BEFORE setSavedGame replaces it
+	// with the battle world. Recorded (sepSnapshot) after initBattleAuthority below, which resets the record.
+	const bool sepGuestEntry = newSave->getCampaignType() == CoopCampaignType::Separate && !connectionTCP::getServerOwner();
+	bool sepSnapshotTaken = false;
+	if (sepGuestEntry)
+		sepSnapshotTaken = game->getCoopMod()->coopSepEntrySnapshot();
+
 	// PRD-J02 precedent (LoadGameState.cpp): a SHARED client adopts the
 	// host's streamed world as its own replica, then re-asserts its own seat
 	// (the streamed save carries the HOST's coop_save_owner_player_id, 0).
@@ -27250,6 +27535,14 @@ void onBlobChunkAppended(Game* game)
 	CoopIdMaps::rebuildFrom(battle); // R4-P1 calls rebuildFrom here (CoopIdMaps.h/:942 marker)
 
 	initBattleAuthority(battleId); // hostSim=false here (getServerOwner()==false on a client), localSeat
+	// W2-P7 S-C-B1.2 (AMENDMENT P7-6 PR-14/PR-13; MR12): remember the battle-world pointer so the per-tick background
+	// tasks pause while the live world is this battle world (self-clearing at the return), and record the snapshot
+	// AFTER initBattleAuthority (it reset the record via battleEndRecordReset()).
+	if (sepGuestEntry)
+	{
+		g_coopSepBattleWorld = newSave;
+		CoopDelta::battleEndRecordSet("sepSnapshot", sepSnapshotTaken ? 1 : 0);
+	}
 	coopApplySeatMap(g_pendingClient.seatMap); // R5-P1: re-apply the REAL seatMap onOffer() already validated
 	// W1-P7 deliverable 6: same re-apply, same reason - the initBattleAuthority()
 	// call above reset the mirror to the D-26 default.
@@ -29338,8 +29631,29 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 	}
 }
 
+// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 5, PR-14; MR12, F2510, F4526, F4527): true while a SEPARATE guest's
+// live world is still the battle world (g_coopSepBattleWorld). The per-tick background tasks must not run on it - after
+// V4 drops the battle it has no SavedBattle, so their own getSavedBattle() guard no longer protects, and a gift / census
+// / progress push would upload the HOST's world as the client blob. Identity, self-clearing: a different live pointer
+// means the return already swapped the own world in, so the pause is lifted. Each held call is counted (sepGuardSkips).
+static bool coopSepBackgroundHeld(Game* game)
+{
+	if (!g_coopSepBattleWorld)
+		return false;
+	if (game && game->getSavedGame() == g_coopSepBattleWorld)
+	{
+		CoopDelta::battleEndRecordSet("sepGuardSkips", CoopDelta::battleEndRecord()["sepGuardSkips"].asInt() + 1);
+		return true;
+	}
+	g_coopSepBattleWorld = nullptr;
+	return false;
+}
+
 void connectionTCP::processPendingSoldierGifts()
 {
+	// W2-P7 S-C-B1.2 (PR-14, MR12): paused while the live world is the SEPARATE battle world (the debrief window).
+	if (coopSepBackgroundHeld(_game))
+		return;
 
 	// Replay physical gifts that arrived while our world was swapped out
 	// for the peer's base view OR for a coop battle. The flags clear before
@@ -29503,7 +29817,7 @@ void connectionTCP::processPendingSoldierGifts()
 
 }
 
-void connectionTCP::pushProgressToHostSilently()
+bool connectionTCP::pushProgressToHostSilently()
 {
 
 	// Client only: serialize the current world and stream it to the host so
@@ -29512,15 +29826,18 @@ void connectionTCP::pushProgressToHostSilently()
 	// window before the own-world reload (GeoscapeState::init) has run. In all
 	// of those the live save is the PEER's world; uploading it would overwrite
 	// our own-world blob with the host's world and destroy our roster.
+	// W2-P7 S-C-B1.2 (PR-14, MR12, F2510): nor while the live world is still the SEPARATE battle world.
+	if (coopSepBackgroundHeld(_game))
+		return false;
 	if (getServerOwner() || !getCoopStatic() || connectionTCP::saveID == 0)
 	{
-		return;
+		return false;
 	}
 	// PRD-J02: a SHARED replica has no world of its own to push - the host's
 	// single authoritative save is the whole truth. No-op.
 	if (isSharedReplica())
 	{
-		return;
+		return false;
 	}
 	State* topStatePush = _game->getStates().empty() ? nullptr : _game->getStates().back();
 	if (!_game->getSavedGame() || _game->getSavedGame()->getSavedBattle()
@@ -29528,7 +29845,7 @@ void connectionTCP::pushProgressToHostSilently()
 	    || _game->getCoopMod()->coopMissionEnd
 	    || (dynamic_cast<LoadGameState*>(topStatePush) != nullptr))
 	{
-		return;
+		return false;
 	}
 
 	std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
@@ -29543,7 +29860,27 @@ void connectionTCP::pushProgressToHostSilently()
 	sendTCPPacketData(obj.toStyledString());
 
 	Log(LOG_INFO) << "[coop-gift] pushed client progress to host (" << filename << ")";
+	return true;
 
+}
+
+// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 4, PR-13; F2509, T0-5): a SEPARATE guest's battle-entry snapshot.
+// Writes the client's LIVE own world (with the pre-mission marker that only exists in memory) under its own-world
+// key, so the return at its OK restores it. Only when the live world is the own geoscape world (not a peer-base view,
+// no SavedBattle); called before setSavedGame() swaps in the battle world. Returns true iff the snapshot was taken.
+bool connectionTCP::coopSepEntrySnapshot()
+{
+	SavedGame* live = _game->getSavedGame();
+	if (!live || live->getSavedBattle() || playerInsideCoopBase)
+		return false;
+	const std::string filename = clientBlobKey(getHostName());
+	live->saveCoopToMemory(filename, _game->getMod(), filename);
+	{
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		eraseStaleBlobEntries(coopFilesClient, "client_", getHostName(), filename);
+	}
+	Log(LOG_INFO) << "[coop-debrief] client: SEPARATE battle-entry own-world snapshot taken (" << filename << ")";
+	return true;
 }
 
 void connectionTCP::syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments)
@@ -29636,6 +29973,9 @@ static std::string _lastGuestCensus;
  */
 void connectionTCP::sendGuestCensus(bool force)
 {
+	// W2-P7 S-C-B1.2 (PR-14, MR12): paused while the live world is the SEPARATE battle world (the debrief window).
+	if (coopSepBackgroundHeld(_game))
+		return;
 	if (!getCoopStatic() || !getCoopCampaign() || !_game->getSavedGame())
 		return;
 	// SHARED has one world: a transfer really moves the soldier, and
@@ -29712,6 +30052,9 @@ static std::map<std::string, std::string> _lastRosterContribSent;
  */
 void connectionTCP::sendGuestRosterContrib()
 {
+	// W2-P7 S-C-B1.2 (PR-14, MR12): paused while the live world is the SEPARATE battle world (the debrief window).
+	if (coopSepBackgroundHeld(_game))
+		return;
 	if (!getCoopStatic() || !getCoopCampaign() || !_game->getSavedGame())
 		return;
 	if (isSharedCampaign())
@@ -37166,10 +37509,16 @@ void connectionTCP::sendSaveProgressFile()
 		// saving files
 		std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
 
-		_game->getSavedGame()->saveCoopToMemory(filename, _game->getMod(), filename);
+		// W2-P7 S-C-B1.2 (PR-14, MR12, F4526): skip ONLY the live-world serialize while the live world is still the
+		// SEPARATE battle world - it would overwrite the own-world blob with the host's world. The host's deferred save
+		// still receives the earlier stored blob through the SEND below and never hangs.
+		if (!coopSepBackgroundHeld(_game))
 		{
-			std::lock_guard<std::mutex> lock(coopFilesMutex);
-			eraseStaleBlobEntries(coopFilesClient, "client_", _game->getCoopMod()->getHostName(), filename);
+			_game->getSavedGame()->saveCoopToMemory(filename, _game->getMod(), filename);
+			{
+				std::lock_guard<std::mutex> lock(coopFilesMutex);
+				eraseStaleBlobEntries(coopFilesClient, "client_", _game->getCoopMod()->getHostName(), filename);
+			}
 		}
 
 		_game->getCoopMod()->load_state = "Saving";

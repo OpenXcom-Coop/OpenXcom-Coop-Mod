@@ -672,6 +672,11 @@ class connectionTCP
 	bool coopTakePostBattleWorldSent();
 	static bool coopWorldStreamBusy();
 	bool coopAdoptWorldInPlace(const std::string& key);
+	// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2, PR-13/PR-15; D155 (a), D156 (a), MR4, MR6): CLIENT - snapshot the live
+	// own world at a SEPARATE battle entry (true iff taken), and at the OK load it, apply each guest row's record by the
+	// owner's own id, return to the own geoscape in place and push the own world to the host (false blob -> main menu).
+	bool coopSepEntrySnapshot();
+	bool coopSeparateReturn(DebriefingState* db, const char* phaseAtOk);
 	// PRD-J10: serve a replica's shared_resync_request - stream the authoritative
 	// world. No-op (the replica re-asks on its next mismatching checksum) if the
 	// single-slot streamer is busy.
@@ -1136,7 +1141,8 @@ class connectionTCP
 	// restores BOTH players' rosters; the client re-fetches its world from
 	// the host on reconnect. To keep the embedded blob fresh, the client
 	// silently pushes its progress to the host after every soldier gift.
-	void pushProgressToHostSilently();
+	// W2-P7 S-C-B1.2: returns true iff it actually serialized and sent (the SEPARATE return reports `pushed`).
+	bool pushProgressToHostSilently();
 	// Fix B (Bug 1): when the client assigns/unassigns its guest soldiers to a
 	// host craft via the mirror-base UI, the assignment is written only into the
 	// "basehost" blob (the client's copy of the HOST world). The client's OWN

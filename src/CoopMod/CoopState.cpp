@@ -2141,6 +2141,12 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 					lastId = existing->getId();
 			}
 
+			// W2-P7 S-C-B1.2 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.2, PR-12; MR4, F4524): tag
+			// the merged copy's coopName with the owner's SEAT and its OWN soldier id (soldier->getId() is still the
+			// contributed id here, before setId below). The SEPARATE return reads the seat/id back out to match and
+			// apply the record to the owner's own soldier; the tag survives a SPEC 18 resume (coopname is saved).
+			const int originId = soldier->getId();
+			soldier->setCoopNameTag("coop-origin:" + std::to_string(seat) + ":" + std::to_string(originId));
 			soldier->setId(lastId + 1);
 			soldier->setCoop(seat);
 			soldier->setOwnerPlayerId(seat);
