@@ -113,6 +113,7 @@ private:
 	int getCoop() const;
 	std::string getCoopName();
 	void setCoopName(std::string name);
+	void setCoopNameTag(const std::string& tag) { _coopname = tag; } // coop (W2-P7 S-C-B1.2, PR-12, MR4): unconditional, unlike write-once setCoopName
 	void setCoopRank(SoldierRank rank) { _rank = rank; };
 	std::string coopSoldierID();
 	/// Creates a new soldier.
