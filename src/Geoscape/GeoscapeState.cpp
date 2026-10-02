@@ -1026,7 +1026,7 @@ void GeoscapeState::init()
 		// replica is byte-identical and the frozen-replica relationship resumes -
 		// same bootstrap channel as J02 (streamSharedWorldToClient -> resume-blob
 		// streamer -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState).
-		if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner() == true)
+		if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner() == true && !_game->getCoopMod()->coopTakePostBattleWorldSent()) // coop (W2-P7 S-C-A.2, MR2): skipped once the post-battle world went out at the debriefing
 		{
 			// The client's automatic resume-hold (pushed by LoadGameState whenever a
 			// streamed world is adopted) is released by the resume_ack handler: after

@@ -2083,6 +2083,16 @@ static std::atomic<bool> g_coopBattleEndTeardownLatch{false};
 // V3). Main thread only; cleared by initBattleAuthority(), never by
 // resetBattleAuthority() (which may run on the UDP-monitor thread).
 static bool g_coopDebriefDisplayPending = false;
+// W2-P7 S-C-A.2 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.1; D156 (a), D176; MR1/MR2): the
+// SHARED campaign return. Main thread only; cleared by initBattleAuthority(), never by resetBattleAuthority(). HOST:
+// the post-battle world push is pending (PR-3) / went out (GeoscapeState's restream skip). CLIENT: the return is armed
+// (PR-4), a held world is ready / was adopted, an OK pressed before the adoption waits for it (PR-7).
+static bool g_coopPostBattlePushPending = false;
+static bool g_coopPostBattleWorldSent = false;
+static bool g_coopSharedReturnPending = false;
+static bool g_coopPostBattleWorldReady = false;
+static bool g_coopPostBattleWorldAdopted = false;
+static bool g_coopCampaignOkDeferred = false;
 
 namespace CoopPump
 {
@@ -2662,6 +2672,9 @@ static const void* g_debriefHostBattleEndState = nullptr;
 // battleEndRecordReset(), so the teardown's coopResetBattleScope() cannot wipe
 // a payload that arrived before `battle_end` was applied.
 static Json::Value g_debriefResult;
+// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-2, F2517): this machine's battle-end debriefing is a CAMPAIGN one (session-lifetime
+// like the tokens; set at the host's V5 mark / the client fill of a non-skirmish payload; cleared at the campaign OK).
+static bool g_debriefCampaign = false;
 
 static Json::Value battleEndZeros()
 {
@@ -2758,6 +2771,7 @@ void battleEndRecordReset()
 	g_debriefDisplayOnlyState = nullptr;
 	g_debriefHostBattleEndState = nullptr; // W2-P7 S-B2.2: the host token is session-lifetime too
 	g_debriefResult = Json::Value(); // W2-P7 S-B1.2: the stored payload is session-lifetime too
+	g_debriefCampaign = false; // W2-P7 S-C-A.2 (PR-2): so is the campaign flag
 }
 
 void battleEndNoteSend(const Json::Value& ev)
@@ -2910,6 +2924,26 @@ static void debriefReleaseToken(const void* state)
 		g_debriefDisplayOnlyState = nullptr;
 	if (state != nullptr && state == g_debriefHostBattleEndState)
 		g_debriefHostBattleEndState = nullptr;
+}
+
+// ----- W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-2): the campaign debriefing flag and the record's debriefCampaign key. -----
+static void debriefMarkCampaign()
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	g_debriefCampaign = true;
+	battleEndLocked()["debriefCampaign"] = 1;
+}
+
+bool debriefIsCampaign()
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	return g_debriefCampaign;
+}
+
+static void debriefClearCampaign()
+{
+	std::lock_guard<std::mutex> lock(g_battleEndMutex);
+	g_debriefCampaign = false;
 }
 
 // ----- W2-P8 S-C1.1 (docs rewrite/prompts/w2p8_inventory.md, S-C1 PINNED STAGE TEXT; AMENDMENT P8-3a Q2 (a)):
@@ -5927,6 +5961,9 @@ void initBattleAuthority(std::uint32_t battleId)
 	g_coopBattleEndTeardownLatch = false;
 	// W2-P7 S-B1.2: a new battle never inherits an unconsumed display-only arm.
 	g_coopDebriefDisplayPending = false;
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-3/PR-4/PR-7): nor the SHARED return's push, restream skip, hold or deferred OK.
+	g_coopPostBattlePushPending = g_coopPostBattleWorldSent = false;
+	g_coopSharedReturnPending = g_coopPostBattleWorldReady = g_coopPostBattleWorldAdopted = g_coopCampaignOkDeferred = false;
 	// W2-P8b S-A.1 (AMENDMENT P8b-1 section 4 "Shared state"): the equip phase's state and its counters start clear;
 	// the counters are cleared here and nowhere else (F2733 rule).
 	coopEquipStateZeros();
@@ -16134,6 +16171,13 @@ static int coopDebriefSendResult(Json::Value& msg)
 	CoopEmit::sendBattle(msg);
 	CoopDelta::battleEndRecordSet("resultSent", 1);
 	CoopDelta::battleEndRecordSet("resultBytes", bytes);
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-3; MR1, MR2, F4521): a SHARED campaign's result arms the post-battle world push
+	// (the pump streams once the streamer is idle: an SE-4 release never clobbers a stream) and the restream skip.
+	if (msg.get("debrief", Json::Value()).get("mode", "").asString() == "shared")
+	{
+		g_coopPostBattlePushPending = true;
+		g_coopPostBattleWorldSent = true;
+	}
 	return bytes;
 }
 
@@ -16213,6 +16257,9 @@ bool connectionTCP::coopDebriefClientFill(DebriefingState* db)
 	}
 	const Json::Value msg = CoopDelta::debriefResultCopy();
 	const Json::Value& d = msg["debrief"];
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-2): a campaign payload makes this a campaign debriefing (its OK, its peer leaves).
+	if (d.get("mode", "skirmish").asString() != "skirmish")
+		CoopDelta::debriefMarkCampaign();
 
 	db->_txtTitle->setText(d.get("title", "").asString());
 	db->_txtRecovery->setText(d.get("recoveryHeader", "").asString());
@@ -16334,8 +16381,8 @@ bool connectionTCP::coopDebriefClientFinish(DebriefingState* db)
 }
 
 // V5 (the last statement of DebriefingState::init). The host serializes what
-// its own vanilla debrief computed and sends it once: skirmish only (campaign
-// returns are S-C), only after this battle's `battle_end` (phase Ended, record
+// its own vanilla debrief computed and sends it once: skirmish and SHARED
+// campaign (S-C-A; other campaigns S-C-B1), only after this battle's `battle_end` (phase Ended, record
 // emitted 1), when any partner seat is mapped (D157 (a): the PvP alien side
 // too). Non-seq, never hashed, never an ev (no seq stamp, evsAfter untouched,
 // F2053). The host's battle-scoped reset is NOT here (F2051, S-B2).
@@ -16350,14 +16397,27 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	if (!a.hostSim || (a.phase.load() != CoopBattlePhase::Ended && !held))
 		return;
 	SavedGame* sg = _game->getSavedGame();
-	if (!sg || sg->getMonthsPassed() != -1)
+	if (!sg)
 		return;
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 1, PR-1; D156 (a)): a SHARED campaign ending sends the payload (+ its
+	// world push, PR-3); any other campaign only marks the host's debriefing (S-C-B1 widens the send).
+	const bool campaign = sg->getMonthsPassed() != -1;
 	const Json::Value rec = CoopDelta::battleEndRecord();
 	if ((!held && rec.get("emitted", 0).asInt() != 1) || rec.get("resultSent", 0).asInt() != 0)
 		return;
 	// W2-P7 S-B2.2 (AMENDMENT P7-4): from here this is the host's co-op skirmish battle-end debriefing - its OK resets
 	// the battle scope and a peer's leave while it is open is silent. Before the seat check: a gm2 host is marked too.
 	CoopDelta::debriefMarkHostBattleEnd(db);
+	if (campaign)
+	{
+		// W2-P7 S-C-A.2 (PR-2): a campaign debriefing - its OK takes the campaign branch, its peer leaves stay today's.
+		CoopDelta::debriefMarkCampaign();
+		if (!isSharedCampaign())
+		{
+			Log(LOG_INFO) << "[coop-debrief] host: campaign debriefing marked (not SHARED) - no bt_debrief_result";
+			return;
+		}
+	}
 	const int local = a.localSeat.load();
 	bool partnerSeat = false;
 	for (int s = 0; s < 4 && !partnerSeat; ++s)
@@ -16425,6 +16485,7 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 		recovered.append(e);
 	}
 	debrief["recovered"] = recovered;
+	debrief["mode"] = campaign ? "shared" : "skirmish"; // W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-8): the payload's first S-C field
 
 	Json::Value msg = CoopWire::makeDebriefResult(a.battleId.load(), debrief);
 	if (held)
@@ -17839,9 +17900,15 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// RB-D5 pump point in updateCoopTask(). Campaign returns are S-C.
 		const Json::Value& p = ev["payload"];
 		bool skirmish = false;
+		// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 4, PR-1): a SHARED campaign client leaves the battle too.
+		bool campaignShared = false;
 		BattlescapeState* bs = save->getBattleState();
 		if (connectionTCP::isBattlescapeStateLive(bs) && bs->getGame() && bs->getGame()->getSavedGame())
-			skirmish = bs->getGame()->getSavedGame()->getMonthsPassed() == -1;
+		{
+			SavedGame* endSg = bs->getGame()->getSavedGame();
+			skirmish = endSg->getMonthsPassed() == -1;
+			campaignShared = !skirmish && endSg->isCoopSave() && endSg->getCampaignType() == CoopCampaignType::Shared;
+		}
 		CoopDelta::battleEndRecordSet("applied", 1);
 		CoopDelta::battleEndRecordSet("seq", ev.get("seq", 0u).asUInt());
 		CoopDelta::battleEndRecordSet("reason", p.get("reason", "").asString());
@@ -17851,12 +17918,14 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		CoopDelta::battleEndRecordSet("tally", p.get("tally", Json::Value(Json::objectValue)));
 		CoopDelta::battleEndRecordSet("latchedMs", SDL_GetTicks());
 		CoopDelta::battleEndRecordSet("skirmish", skirmish);
+		CoopDelta::battleEndRecordSet("campaign", campaignShared);
 		g_coopBattleEndTerminal = true;
-		if (skirmish)
+		if (skirmish || campaignShared)
 			g_coopBattleEndTeardownLatch = true;
 		Log(LOG_INFO) << "[coop-battle-end] client: battle_end applied seq=" << ev.get("seq", 0u).asUInt()
 			<< " reason=" << p.get("reason", "").asString() << " skirmish=" << skirmish
-			<< (skirmish ? " - teardown latched" : " - terminal, return path unchanged (S-C)");
+			<< (skirmish ? " - teardown latched" : campaignShared ? " - campaign SHARED - teardown latched"
+				: " - terminal, return path unchanged (S-C)");
 		return;
 	}
 
@@ -25163,6 +25232,24 @@ static const char* coopPhaseRecordName(CoopBattlePhase p)
 	return "?";
 }
 
+// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 steps 7/9, PR-7; D156 (a), MR1): the SHARED campaign client's OK on the
+// adopted world (from V6, or the pump's adoption step for a deferred OK): its own geoscape, no CoopState / LoadGameState
+// (P6-4). The follow-up chain is S-C-C's.
+static void coopCampaignClientSharedLeave(Game* game, DebriefingState* db, const char* phaseAtOk)
+{
+	CoopDelta::debriefReleaseToken(db);
+	CoopDelta::debriefClearCampaign();
+	g_coopSharedReturnPending = g_coopPostBattleWorldReady = g_coopPostBattleWorldAdopted = g_coopCampaignOkDeferred = false;
+	CoopDelta::battleEndRecordSet("debriefOk", 1);
+	CoopDelta::battleEndRecordSet("debriefOkBranch", "campaign-client-shared");
+	CoopDelta::battleEndRecordSet("phaseAtOk", phaseAtOk);
+	CoopDelta::battleEndRecordSet("phaseAfterOk", coopPhaseRecordName(coopBattleAuthority().phase.load()));
+	CoopDelta::battleEndRecordSet("resetAtOk", 0);
+	Log(LOG_INFO) << "[coop-debrief] client: campaign debriefing OK - phaseAtOk=" << phaseAtOk
+		<< " - its own geoscape on the adopted world";
+	game->setState(new GeoscapeState);
+}
+
 // V6 (DebriefingState::btnOkClick, first statement). W2-P7 S-B2.2 (AMENDMENT P7-4; owner D156 (a), G5 (b), Q10 (a)):
 // the OK of a co-op skirmish battle-end debriefing. The client's display-only debriefing leaves through
 // GoToMainMenuState (the issue #82 chokepoint drops the SavedGame; the main menu then disconnects) and returns true.
@@ -25176,16 +25263,59 @@ bool connectionTCP::coopDebriefOk(DebriefingState* db)
 	if (!client && !host)
 		return false;
 	const char* phaseAtOk = coopPhaseRecordName(coopBattleAuthority().phase.load());
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 9; D156 (a); MR1, MR2, F2494, F2519): a campaign battle-end
+	// debriefing (the PR-2 flag). The host resets its battle scope below too, then vanilla's campaign exit runs.
+	const bool campaign = CoopDelta::debriefIsCampaign();
+	if (campaign && client)
+	{
+		// The SHARED client (S-C-A's only latching campaign client). PR-7: an OK before the world adoption (or while a
+		// newer held world waits) is remembered, repeated presses are no-ops (F4537); the pump runs it after the adoption.
+		if (g_coopSharedReturnPending && (!g_coopPostBattleWorldAdopted || g_coopPostBattleWorldReady))
+		{
+			if (!g_coopCampaignOkDeferred)
+			{
+				g_coopCampaignOkDeferred = true;
+				CoopDelta::battleEndRecordSet("okDeferred", 1);
+				Log(LOG_INFO) << "[coop-debrief] client: campaign debriefing OK before the world adoption - deferred (MR1)";
+			}
+			return true;
+		}
+		coopCampaignClientSharedLeave(_game, db, phaseAtOk);
+		return true;
+	}
+	if (campaign)
+	{
+		// SHARED: vanilla's wounded loop (DebriefingState :924-929, right after this returns false) is the one OK-time
+		// world write the replica does not see - mirrored by the host-origin unassign_wounded command (MR2).
+		Json::Value ids(Json::arrayValue);
+		if (isSharedCampaign() && !db->_destroyBase && db->_base)
+		{
+			for (auto* soldier : *db->_base->getSoldiers())
+			{
+				if (soldier->getCraft() != nullptr && soldier->isWounded())
+					ids.append(soldier->getId());
+			}
+			if (!ids.empty())
+			{
+				Json::Value payload(Json::objectValue);
+				payload["ids"] = ids;
+				SharedEcon::submitLocalCmd(_game, "unassign_wounded", SharedEcon::baseIndex(_game, db->_base), payload);
+			}
+		}
+		CoopDelta::battleEndRecordSet("unassignWoundedIds", ids);
+		CoopDelta::debriefClearCampaign();
+	}
 	if (host)
 		coopResetBattleScope();
 	CoopDelta::debriefReleaseToken(db);
 	CoopDelta::battleEndRecordSet("debriefOk", 1);
-	CoopDelta::battleEndRecordSet("debriefOkBranch", client ? "client" : "host");
+	CoopDelta::battleEndRecordSet("debriefOkBranch", client ? "client" : campaign ? "campaign-host" : "host");
 	CoopDelta::battleEndRecordSet("phaseAtOk", phaseAtOk);
 	CoopDelta::battleEndRecordSet("phaseAfterOk", coopPhaseRecordName(coopBattleAuthority().phase.load()));
 	CoopDelta::battleEndRecordSet("resetAtOk", host ? 1 : 0);
 	Log(LOG_INFO) << "[coop-debrief] " << (client ? "client" : "host") << ": debriefing OK - phaseAtOk=" << phaseAtOk
-		<< (client ? " - leaving for the main menu" : " - battle scope reset, vanilla's skirmish exit");
+		<< (client ? " - leaving for the main menu" : campaign ? " - battle scope reset, vanilla's campaign exit"
+			: " - battle scope reset, vanilla's skirmish exit");
 	if (client)
 	{
 		_game->setState(new GoToMainMenuState(false));
@@ -29315,12 +29445,42 @@ void connectionTCP::createLoopdataThread()
 // DebriefingState (identity tokens, never dereferenced). Read by the -3/-2 peer-leave branches only.
 static bool coopBattleEndDebriefOnStack(Game* game)
 {
-	if (!game)
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-2, F2517): a campaign debriefing keeps today's peer-leave dialogs.
+	if (!game || CoopDelta::debriefIsCampaign())
 		return false;
 	for (State* st : game->getStates())
 	{
 		DebriefingState* db = dynamic_cast<DebriefingState*>(st);
 		if (db && (CoopDelta::debriefIsDisplayOnly(db) || CoopDelta::debriefIsHostBattleEnd(db)))
+			return true;
+	}
+	return false;
+}
+
+// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-4): this client's display-only CAMPAIGN DebriefingState on the stack, or null.
+static DebriefingState* coopCampaignDisplayDebrief(Game* game)
+{
+	if (!game || !CoopDelta::debriefIsCampaign())
+		return nullptr;
+	for (State* st : game->getStates())
+	{
+		DebriefingState* db = dynamic_cast<DebriefingState*>(st);
+		if (db && CoopDelta::debriefIsDisplayOnly(db))
+			return db;
+	}
+	return nullptr;
+}
+
+// W2-P7 S-C-A.2 (PR-4): a world arriving now belongs to the return (its debriefing or the battle it replaces is up).
+static bool coopReturnHoldStack(Game* game)
+{
+	if (!game)
+		return false;
+	if (coopCampaignDisplayDebrief(game))
+		return true;
+	for (State* st : game->getStates())
+	{
+		if (dynamic_cast<BattlescapeState*>(st))
 			return true;
 	}
 	return false;
@@ -29919,6 +30079,34 @@ void connectionTCP::updateCoopTask()
 	// init() fills from the store (V3) and drops the battle (V4, the vanilla
 	// :803 order). Every client seat (the PvP alien side too, D157 (a)) ends
 	// on the host's debriefing.
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 3, PR-3; MR1, F2493, F4521): the HOST streams its post-battle world
+	// to the SHARED client on the first pass with the streamer idle; busy passes are counted, never dropped (PRD-11 C13).
+	if (g_coopPostBattlePushPending && getServerOwner())
+	{
+		if (sendFileClient)
+		{
+			CoopDelta::battleEndRecordSet("worldPushDeferredPasses",
+				CoopDelta::battleEndRecord()["worldPushDeferredPasses"].asInt() + 1);
+		}
+		else
+		{
+			g_coopPostBattlePushPending = false;
+			streamSharedWorldToClient();
+			const bool pushed = sendFileClient;
+			int bytes = 0;
+			{
+				std::lock_guard<std::mutex> lock(coopFilesMutex);
+				auto it = coopFilesHost.find("shared_world");
+				if (pushed && it != coopFilesHost.end())
+					bytes = (int)it->second.size();
+			}
+			CoopDelta::battleEndRecordSet("worldPushed", pushed ? 1 : 0);
+			CoopDelta::battleEndRecordSet("worldPushBytes", bytes);
+			Log(LOG_INFO) << "[coop-debrief] host: post-battle world push " << (pushed ? "streaming" : "FAILED")
+				<< " bytes=" << bytes;
+		}
+	}
+
 	if (g_coopBattleEndTeardownLatch.load())
 	{
 		if (!CoopDelta::debriefResultStored())
@@ -29957,6 +30145,29 @@ void connectionTCP::updateCoopTask()
 			{
 				Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - showing the host's debriefing";
 				_game->setState(new DebriefingState);
+			}
+		}
+	}
+
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 7, PR-4/PR-5/PR-7; MR1, F2527, F2530): the SHARED campaign CLIENT
+	// adopts the held post-battle world IN PLACE under its display-only debriefing, after the drain and the consumer
+	// (never from the receive/apply path); the held shared applies then drain onto it. A deferred OK runs right after.
+	if (g_coopPostBattleWorldReady && g_coopSharedReturnPending && !getServerOwner())
+	{
+		DebriefingState* deb = coopCampaignDisplayDebrief(_game);
+		if (deb && !(_game->getSavedGame() && _game->getSavedGame()->getSavedBattle()) && !coopTestHoldWorldAdoptArmed())
+		{
+			const int heldApplies = SharedEcon::applyQueueDepth();
+			g_coopPostBattleWorldReady = false;
+			if (coopAdoptWorldInPlace(clientBlobKey(getHostName())))
+			{
+				g_coopPostBattleWorldAdopted = true;
+				CoopDelta::battleEndRecordSet("heldAppliesAtAdopt", heldApplies);
+				CoopDelta::battleEndRecordSet("worldAdopted", CoopDelta::battleEndRecord()["worldAdopted"].asInt() + 1);
+				Log(LOG_INFO) << "[coop-debrief] client: the host's post-battle world adopted in place under the debriefing"
+					" - held shared applies=" << heldApplies;
+				if (g_coopCampaignOkDeferred)
+					coopCampaignClientSharedLeave(_game, deb, coopPhaseRecordName(coopBattleAuthority().phase.load()));
 			}
 		}
 	}
@@ -31740,7 +31951,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				&& battleId == coopBattleAuthority().battleId.load()
 				&& CoopDelta::debriefResultStore(obj);
 			if (stored)
+			{
 				Log(LOG_INFO) << "[coop-debrief] client: debrief result stored battleId=" << battleId;
+				// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 5, PR-4; MR1): a SHARED campaign's result arms the
+				// in-place return - the host's post-battle world that follows is held, not loaded over the stack.
+				if (obj.get("debrief", Json::Value()).get("mode", "").asString() == "shared")
+				{
+					g_coopSharedReturnPending = true;
+					CoopDelta::battleEndRecordSet("returnPending", 1);
+				}
+			}
 			else
 				CoopDelta::debriefResultDropped(battleId);
 		}
@@ -34494,10 +34714,25 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		writeHostMapLoadProgressFile();
 
-		_isLoadProgress = true;
+		// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 6, PR-6; MR3, F2129, F2496): a SHARED client holds every
+		// shared_apply until this world is adopted (LoadGameState :279 or the in-place adoption: notifyWorldAdopted).
+		const bool sharedClient = !getServerOwner() && isSharedCampaign();
+		if (sharedClient)
+			SharedEcon::setApplyHold(true);
+		// PR-4 (MR1, F4529): an armed SHARED return holds the world for the pump's in-place adoption (no CoopState(555)).
+		if (sharedClient && g_coopSharedReturnPending && coopReturnHoldStack(_game))
+		{
+			g_coopPostBattleWorldReady = true;
+			CoopDelta::battleEndRecordSet("worldHeld", CoopDelta::battleEndRecord()["worldHeld"].asInt() + 1);
+			Log(LOG_INFO) << "[coop-debrief] client: a streamed SHARED world held for the in-place adoption";
+		}
+		else
+		{
+			_isLoadProgress = true;
 
-		CoopState* coop = new CoopState(555);
-		coop->loadWorld();
+			CoopState* coop = new CoopState(555);
+			coop->loadWorld();
+		}
 
 	}
 
@@ -37907,6 +38142,50 @@ void connectionTCP::writeHostMapLoadProgressFile()
 	// the map data must be reset for the next use (fix)
 	mapData = "";
 
+}
+
+// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-3, MR2): HOST - consumes the "post-battle world went out" latch (restream skip).
+bool connectionTCP::coopTakePostBattleWorldSent()
+{
+	const bool sent = g_coopPostBattleWorldSent;
+	g_coopPostBattleWorldSent = false;
+	return sent;
+}
+
+// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-6, MR3, F4530): the single-slot world streamer is busy (SharedEcon's host fence).
+bool connectionTCP::coopWorldStreamBusy()
+{
+	return sendFileClient;
+}
+
+// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 7, PR-5; F2527, F2530): LoadGameState :250-279's world half for the
+// world held under @a key - sends nothing, pushes no state. False (the live world kept) when it is missing or fails.
+bool connectionTCP::coopAdoptWorldInPlace(const std::string& key)
+{
+	{
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		auto it = coopFilesClient.find(key);
+		if (it == coopFilesClient.end() || it->second.empty())
+		{
+			Log(LOG_ERROR) << "[coop-debrief] client: no held world blob '" << key << "' - nothing adopted";
+			return false;
+		}
+	}
+	SavedGame* s = new SavedGame();
+	try
+	{
+		s->loadCoopSaveFromMemory(key, _game->getMod(), _game->getLanguage(), key);
+	}
+	catch (const std::exception& e)
+	{
+		delete s;
+		Log(LOG_ERROR) << "[coop-debrief] client: the held world did not load - nothing adopted: " << e.what();
+		return false;
+	}
+	_game->setSavedGame(s);
+	coop_save_owner_player_id = 1;
+	SharedEcon::notifyWorldAdopted();
+	return true;
 }
 
 }

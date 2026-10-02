@@ -124,6 +124,7 @@
 
 #include "connectionTCP.h"
 #include "CoopState.h"
+#include "CoopDelta.h" // W2-P7 S-C-A.2: the battleEnd record's fenceDeferredPasses
 
 namespace OpenXcom
 {
@@ -160,6 +161,7 @@ std::deque<PendingCmd>  g_cmdQ;      // host:      to validate+apply+broadcast
 std::deque<Json::Value> g_applyQ;    // replica:   shared_apply to apply
 std::deque<std::string> g_failQ;     // initiator: shared_fail reasons to surface
 int g_resyncServeQ = 0;              // host:      pending shared_resync_requests
+bool g_applyHold = false;            // replica:   g_applyQ held until a streamed world's adoption (W2-P7 S-C-A.2 PR-6)
 
 // Per-machine monotonic command sequence stamp (protocol `seq`).
 std::atomic<int> g_seqCounter{0};
@@ -2611,6 +2613,26 @@ void dayTickApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 		}
 }
 
+// unassign_wounded payload: { ids: [soldier id] } (baseId = the debriefing base). W2-P7 S-C-A.2 (P7-6 4.1 step 8; MR2,
+// F2494): host-origin at a SHARED campaign debriefing's OK - mirrors vanilla's host-only wounded loop (replicas only).
+void unassignWoundedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host's vanilla loop already did it
+	if (!game || !base) return;
+	const Json::Value& ids = payload["ids"];
+	if (!ids.isArray()) return;
+	int unassigned = 0;
+	for (const auto& v : ids)
+		for (auto* soldier : *base->getSoldiers())
+			if (soldier->getId() == v.asInt() && soldier->getCraft() != nullptr)
+			{
+				soldier->setCraftAndMoveEquipment(nullptr, base, false);
+				++unassigned;
+				break;
+			}
+	Log(LOG_INFO) << "[SHARED] unassign_wounded: " << unassigned << " of " << ids.size() << " soldier(s) off their crafts";
+}
+
 // ---- Host-side command processing (main thread) ------------------------------
 void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 {
@@ -2914,6 +2936,7 @@ void init()
 	registerCmd("prod_done",        &simAccept, &prodDoneApply);
 	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
 	registerCmd("day_tick",         &simAccept, &dayTickApply);
+	registerCmd("unassign_wounded", &simAccept, &unassignWoundedApply); // W2-P7 S-C-A.2 (MR2): host-origin, replica-only
 }
 
 void broadcast(Game* game, const Json::Value& msg)
@@ -3000,7 +3023,19 @@ void update(Game* game)
 	if (!game) return;
 
 	// 1) Host: drain queued commands -> validate, debit, apply, broadcast.
-	for (;;)
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-6; MR3, F2129, F4760/F4761): the host fence - nothing is applied or broadcast while a
+	// world streams (the client would discard it); the queue runs in order once the completion message has left.
+	const bool fenced = isHost() && connectionTCP::coopWorldStreamBusy();
+	if (fenced)
+	{
+		std::unique_lock<std::mutex> lk(g_mx);
+		const bool queued = !g_cmdQ.empty();
+		lk.unlock();
+		if (queued)
+			CoopDelta::battleEndRecordSet("fenceDeferredPasses",
+				CoopDelta::battleEndRecord()["fenceDeferredPasses"].asInt() + 1);
+	}
+	for (; !fenced;)
 	{
 		PendingCmd pc;
 		{
@@ -3012,8 +3047,8 @@ void update(Game* game)
 		processHostCmd(game, pc);
 	}
 
-	// 2) Replica: drain queued applies -> setFunds + apply.
-	for (;;)
+	// 2) Replica: drain queued applies -> setFunds + apply (held while a streamed world awaits adoption, PR-6).
+	for (; !g_applyHold;)
 	{
 		Json::Value ap;
 		{
@@ -3616,6 +3651,12 @@ void notifyWorldAdopted()
 	// mismatch that reappears within the window is still treated as unrepairable.
 	g_resyncPending = false;
 	g_resyncGaveUp = false;
+	g_applyHold = false; // W2-P7 S-C-A.2 (PR-6): the held shared applies drain onto the adopted world
+}
+
+void setApplyHold(bool on)
+{
+	g_applyHold = on;
 }
 
 void verifyWorldChecksum(Game* game, const Json::Value& msg)

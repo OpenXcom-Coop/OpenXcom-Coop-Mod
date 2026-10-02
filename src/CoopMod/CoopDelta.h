@@ -309,6 +309,11 @@ void battleEndNoteTeardown();
 /// TEST INTROSPECTION + S-B1.2's finish (AMENDMENT P7-2 R2): true iff @a state is the display-only DebriefingState (identity compare, never dereferenced).
 bool debriefIsDisplayOnly(const void* state);
 
+/// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-2): true while this machine's battle-end debriefing is a campaign one (set at the
+/// host's V5 mark / the client's fill of a non-skirmish payload; cleared at the campaign OK and by
+/// battleEndRecordReset()).
+bool debriefIsCampaign();
+
 // ----- W2-P8 S-C1.1 (the RED commit): the in-battle inventory's S-C1 probes -----
 // Spec docs rewrite/prompts/w2p8_inventory.md, S-C1 PINNED STAGE TEXT; AMENDMENT
 // P8-3a Q2 (a), Q3 (a). TEST INTROSPECTION ONLY (TestServer event_state), never

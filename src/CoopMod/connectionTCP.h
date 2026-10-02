@@ -666,6 +666,12 @@ class connectionTCP
 	// streamer (single-client resume-blob lane) so the connected client adopts
 	// it as its replica. Host only; used at SHARED campaign start and resume.
 	void streamSharedWorldToClient();
+	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-3/PR-5/PR-6; MR1-MR3): HOST - true once (then cleared) when this battle's SHARED
+	// post-battle world went out at the debriefing (GeoscapeState's restream is skipped); the world streamer is busy
+	// (SharedEcon's command fence). CLIENT - adopt the streamed world held under @a key in place (false = nothing).
+	bool coopTakePostBattleWorldSent();
+	static bool coopWorldStreamBusy();
+	bool coopAdoptWorldInPlace(const std::string& key);
 	// PRD-J10: serve a replica's shared_resync_request - stream the authoritative
 	// world. No-op (the replica re-asks on its next mismatching checksum) if the
 	// single-slot streamer is busy.

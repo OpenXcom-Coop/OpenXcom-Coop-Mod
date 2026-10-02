@@ -382,6 +382,10 @@ bool requestResync(Game* game, const std::string& why, bool force = false);
 /// A streamed SHARED world was adopted (LoadGameState): clear the in-flight resync
 /// guard so a later drift can be repaired again.
 void notifyWorldAdopted();
+/// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-6, MR3): CLIENT - hold update()'s shared_apply drain (step 2) from a streamed
+/// world's arrival (MAP_RESULT_LOAD_PROGRESS) until notifyWorldAdopted() clears it, so no apply lands on the world
+/// about to be discarded.
+void setApplyHold(bool on);
 
 /// Harness/diagnostics: auto-resync bookkeeping on this machine.
 struct ResyncStats
