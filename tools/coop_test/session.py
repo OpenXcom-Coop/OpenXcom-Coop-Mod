@@ -2351,7 +2351,7 @@ def _campaign_own_roster_base(gc):
     raise AssertionError("no real base with soldiers")
 
 
-def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None):
+def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None, pre_landing=None):
     """SPEC 19 (W1-P20) S1 fixture: SEPARATE campaign, mixed-ownership squad -
     3 of the host's own soldiers plus a CLIENT guest seated on the host's
     craft (the client renames a spare soldier, transfers it to the host's coop
@@ -2371,6 +2371,10 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     guard needs (`event_state.guestContrib` must show the roster travelled
     BEFORE the battle starts). Every other caller (SPEC 18) is unaffected:
     default None, nothing runs.
+
+    `pre_landing` (W2-P7 S-C-A.1, AMENDMENT P7-6 section 4.1; additive): an
+    optional `callable(host, client)` run right before `coop_mission_start`
+    (e.g. the host's `set_seed` map pin). Default None, nothing runs.
 
     Returns (host_squad, guest_id): host_squad is the 3 host soldier ids
     (coop==0 in battle); guest_id is the CLIENT's own local soldier id for
@@ -2449,6 +2453,8 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
         return None
 
     host.wait_for("host landing prompt", landing_prompt, timeout=120, interval=0.5)
+    if pre_landing is not None:
+        pre_landing(host, client)
     ms = host.ok({"cmd": "coop_mission_start"})
     print(f"coop_mission_start -> {ms}")
     host.wait_for("host entered", lambda: battle_state(host).get("inBattle") or None,
@@ -2463,7 +2469,7 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     return host_squad, guest_id
 
 
-def bring_up_shared_mixed_battle(js, owners, to_tactical=True):
+def bring_up_shared_mixed_battle(js, owners, to_tactical=True, pre_landing=None):
     """SPEC 19 (W1-P20) S2/S3 fixture core: given an already-brought-up SHARED
     session (`shared_fixture.bring_up`), board a 2-soldier squad on the shared
     craft with per-slot ownership from `owners`, fly it to a fresh terror
@@ -2488,7 +2494,10 @@ def bring_up_shared_mixed_battle(js, owners, to_tactical=True):
     `to_tactical` (W2-P8b S-C.1b, ruling SC-1; additive, default True = every
     existing caller unchanged): False returns right after the HOST's
     BriefingState is up, before drive_both_to_tactical - the caller runs S-H's
-    spine (both briefings, then both pre-battle equip screens) itself."""
+    spine (both briefings, then both pre-battle equip screens) itself.
+
+    `pre_landing` (W2-P7 S-C-A.1, additive): an optional `callable(host,
+    client)` run right before `confirm_landing`. Default None, nothing runs."""
     host, client = js.host, js.client
 
     def _roster(gc):
@@ -2542,6 +2551,8 @@ def bring_up_shared_mixed_battle(js, owners, to_tactical=True):
         return None
 
     host.wait_for("ConfirmLandingState on host", _landing_prompt, timeout=90, interval=0.5)
+    if pre_landing is not None:
+        pre_landing(host, client)
     host.ok({"cmd": "confirm_landing"})
     host.wait_for("host entered", lambda: battle_state(host).get("inBattle") or None,
                   timeout=180, interval=1.0)

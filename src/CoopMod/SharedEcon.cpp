@@ -3110,6 +3110,9 @@ std::string lastFailReason()
 	return g_lastFail;
 }
 
+// W2-P7 S-C-A.1 (P7-6 section 4.1): read-only, TestServer shared_stats.applyQueued.
+int applyQueueDepth() { std::lock_guard<std::mutex> lk(g_mx); return (int)g_applyQ.size(); }
+
 void resetStats()
 {
 	g_cmdN = 0; g_okN = 0; g_failN = 0; g_applyN = 0; g_unknownN = 0;

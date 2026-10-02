@@ -408,6 +408,8 @@ struct Stats
 Stats stats();
 std::string lastFailReason();
 void resetStats();
+/// W2-P7 S-C-A.1 (P7-6 section 4.1): the replica's queued shared_apply count (update() step 2's queue). Read-only.
+int applyQueueDepth();
 
 /**
  * R2-P9 (rewrite spike, SPIKE-RUNBOOK.md SS2.8, RB-D20): the battle hash

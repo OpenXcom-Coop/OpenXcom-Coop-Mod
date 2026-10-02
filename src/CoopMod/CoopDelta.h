@@ -382,6 +382,13 @@ bool equipOkPressed();
 
 } // namespace CoopDelta
 
+// W2-P7 S-C-A.1 (AMENDMENT P7-6 PR-11): TEST-ONLY world-stream holds (TestServer hold_world_stream / hold_world_adopt),
+// inert unless armed; bodies: connectionTCP.cpp beside hold_battle_ready. Never read by game logic before S-C-A.2.
+void coopTestHoldWorldStreamArm(bool on);
+bool coopTestHoldWorldStreamArmed();
+void coopTestHoldWorldAdoptArm(bool on);
+bool coopTestHoldWorldAdoptArmed();
+
 // ----- W2-P2 S-C, commit S-C.2: host combat cues (spec (b)11, (b)14) -----
 // A cue is bt_ev{kind, actionId, payload}: its STATE effect is the envelope's
 // `delta` alone (attached at the CoopEmit::sendEv choke); the payload carries

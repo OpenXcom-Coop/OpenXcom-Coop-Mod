@@ -118,6 +118,10 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
+#include "../Savegame/SoldierDiary.h"         // W2-P7 S-C-A.1: soldier_record
+#include "../Savegame/SoldierDeath.h"         // W2-P7 S-C-A.1: soldier_record
+#include "../Savegame/MissionStatistics.h"    // W2-P7 S-C-A.1: soldier_record
+#include "../Savegame/BattleUnitStatistics.h" // W2-P7 S-C-A.1: soldier_record
 #include "../Savegame/EquipmentLayoutItem.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Tile.h"
@@ -1977,6 +1981,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		resp["applyCount"] = Json::Value::UInt64(st.apply);
 		resp["unknownCount"] = Json::Value::UInt64(st.unknown);
 		resp["lastFail"] = SharedEcon::lastFailReason();
+		resp["applyQueued"] = SharedEcon::applyQueueDepth(); // W2-P7 S-C-A.1 (P7-6): the replica's queued shared_apply count
 		resp["ok"] = true;
 	}
 	else if (cmd == "shared_reset_stats")
@@ -6587,7 +6592,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "set_touch_modifiers" && cmd != "forget_research"
 		&& cmd != "research_check" && cmd != "can_use_weapon" && cmd != "set_research_sync"
 		&& cmd != "clear_warning"
-		&& cmd != "display_rules" && cmd != "debrief_state")
+		&& cmd != "display_rules" && cmd != "debrief_state"
+		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
 	{
 		return false;
 	}
@@ -8743,6 +8749,144 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["parseErrors"] = parseErrors;
 		resp["ok"] = true;
 	}
+	else if (cmd == "soldier_record")
+	{
+		// W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.1, F2520): TEST INTROSPECTION
+		// ONLY - read-only. Every soldier of this machine's world whose id == {id} (or, without `id`, whose raw name ==
+		// {name}), searched in the bases in index order, their incoming transfers, then the dead list. Response {ok, count,
+		// records: [{where base|transfer|dead, baseIndex (-1 dead), id, name, coopName, owner, coop, craftId, coopCraft,
+		// coopCraftType, rank, rankString, missions, kills, stuns, recovery, healthMissing, manaMissing, improvement,
+		// psiStrImprovement, currentStats, initialStats, dead, death null | {year, month, day, hour, minute, cause},
+		// diary {missionIdList, missions [{id, found, type, region, success}] (each id resolved against this world's
+		// mission statistics), killList [{mission, turn, rank, race, weapon, status, faction}], commendations [{type,
+		// noun, level, isNew}]}}]}.
+		SavedGame* sgSR = _game->getSavedGame();
+		const bool byId = req.isMember("id");
+		const int wantId = req.get("id", -1).asInt();
+		const std::string wantName = req.get("name", "").asString();
+		if (!sgSR)
+			resp["error"] = "soldier_record: no saved game";
+		else if (!byId && wantName.empty())
+			resp["error"] = "soldier_record: give id or name";
+		else
+		{
+			auto stats = [](const UnitStats* u) {
+				Json::Value o(Json::objectValue);
+				o["tu"] = u->tu; o["stamina"] = u->stamina; o["health"] = u->health; o["bravery"] = u->bravery;
+				o["reactions"] = u->reactions; o["firing"] = u->firing; o["throwing"] = u->throwing;
+				o["strength"] = u->strength; o["psiStrength"] = u->psiStrength; o["psiSkill"] = u->psiSkill;
+				o["melee"] = u->melee; o["mana"] = u->mana;
+				return o;
+			};
+			Json::Value records(Json::arrayValue);
+			auto add = [&](Soldier* s, const char* where, int baseIndex) {
+				if (!s || (byId ? s->getId() != wantId : s->getName() != wantName))
+					return;
+				Json::Value r(Json::objectValue);
+				r["where"] = where; r["baseIndex"] = baseIndex; r["id"] = s->getId(); r["name"] = s->getName();
+				r["coopName"] = s->getCoopName(); r["owner"] = s->getOwnerPlayerId(); r["coop"] = s->getCoop();
+				r["craftId"] = s->getCraft() ? s->getCraft()->getId() : -1;
+				r["coopCraft"] = s->getCoopCraft(); r["coopCraftType"] = s->getCoopCraftType();
+				r["rank"] = (int)s->getRank(); r["rankString"] = s->getRankString();
+				r["missions"] = s->getMissions(); r["kills"] = s->getKills(); r["stuns"] = s->getStuns();
+				r["recovery"] = s->getWoundRecoveryInt(); r["healthMissing"] = s->getHealthMissing();
+				r["manaMissing"] = s->getManaMissing(); r["improvement"] = s->getImprovement();
+				r["psiStrImprovement"] = s->getPsiStrImprovement();
+				r["currentStats"] = stats(s->getCurrentStats()); r["initialStats"] = stats(s->getInitStats());
+				r["dead"] = (s->getDeath() != nullptr);
+				Json::Value death;
+				if (const SoldierDeath* d = s->getDeath())
+				{
+					const GameTime* t = d->getTime();
+					death["year"] = t->getYear(); death["month"] = t->getMonth(); death["day"] = t->getDay();
+					death["hour"] = t->getHour(); death["minute"] = t->getMinute(); death["cause"] = (d->getCause() != nullptr);
+				}
+				r["death"] = death;
+				Json::Value diary(Json::objectValue), ids(Json::arrayValue), missions(Json::arrayValue);
+				Json::Value kills(Json::arrayValue), comms(Json::arrayValue);
+				for (int mid : s->getDiary()->getMissionIdList())
+				{
+					ids.append(mid);
+					Json::Value m(Json::objectValue);
+					m["id"] = mid; m["found"] = false;
+					for (const MissionStatistics* ms : *sgSR->getMissionStatistics())
+						if (ms->id == mid)
+						{ m["found"] = true; m["type"] = ms->type; m["region"] = ms->region; m["success"] = ms->success; break; }
+					missions.append(m);
+				}
+				for (const BattleUnitKills* k : s->getDiary()->getKills())
+				{
+					Json::Value kj(Json::objectValue);
+					kj["mission"] = k->mission; kj["turn"] = k->turn; kj["rank"] = k->rank; kj["race"] = k->race;
+					kj["weapon"] = k->weapon; kj["status"] = (int)k->status; kj["faction"] = (int)k->faction;
+					kills.append(kj);
+				}
+				for (const SoldierCommendations* c : *s->getDiary()->getSoldierCommendations())
+				{
+					Json::Value cj(Json::objectValue);
+					cj["type"] = c->getType(); cj["noun"] = c->getNoun(); cj["level"] = c->getDecorationLevelInt();
+					cj["isNew"] = c->isNew();
+					comms.append(cj);
+				}
+				diary["missionIdList"] = ids; diary["missions"] = missions; diary["killList"] = kills;
+				diary["commendations"] = comms;
+				r["diary"] = diary;
+				records.append(r);
+			};
+			int bi = 0;
+			for (auto* b : *sgSR->getBases())
+			{
+				for (auto* s : *b->getSoldiers()) add(s, "base", bi);
+				for (auto* t : *b->getTransfers()) add(t->getSoldier(), "transfer", bi);
+				++bi;
+			}
+			for (auto* s : *sgSR->getDeadSoldiers()) add(s, "dead", -1);
+			resp["count"] = (int)records.size();
+			resp["records"] = records;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "coop_file_info")
+	{
+		// W2-P7 S-C-A.1 (AMENDMENT P7-6 section 4.1; F4536: has_coop_file reports presence only): TEST INTROSPECTION
+		// ONLY - read-only. One in-memory coop blob in the map hasCoopFile() reads (the host's map on the host, the
+		// client's on a client): {key}, or {role} "own_world" = clientBlobKey(getHostName()) (a client's own-world blob)
+		// or "host_copy_of_client" = hostBlobKey(getCurrentClientName()) (the host's copy of the client's world).
+		// Response {ok, key, present, bytes, fnv1a64 (16 hex digits of the blob's FNV-1a 64 hash; "" when absent)}.
+		connectionTCP* coopFI = _game->getCoopMod();
+		std::string key = req.get("key", "").asString();
+		const std::string role = req.get("role", "").asString();
+		if (key.empty() && role == "own_world")
+			key = connectionTCP::clientBlobKey(coopFI->getHostName());
+		else if (key.empty() && role == "host_copy_of_client")
+			key = connectionTCP::hostBlobKey(coopFI->getCurrentClientName());
+		if (key.empty())
+			resp["error"] = "coop_file_info: give key or role (own_world | host_copy_of_client)";
+		else
+		{
+			bool present = false;
+			std::uint64_t h = 1469598103934665603ULL;
+			std::size_t bytes = 0;
+			{
+				std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+				const auto& files = connectionTCP::getServerOwner() ? connectionTCP::coopFilesHost : connectionTCP::coopFilesClient;
+				auto it = files.find(key);
+				if (it != files.end())
+				{
+					present = true;
+					bytes = it->second.size();
+					for (unsigned char ch : it->second) { h ^= ch; h *= 1099511628211ULL; }
+				}
+			}
+			char hex[17];
+			snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)h);
+			resp["key"] = key;
+			resp["present"] = present;
+			resp["bytes"] = (Json::UInt64)bytes;
+			resp["fnv1a64"] = present ? std::string(hex) : std::string();
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "defer_intents")
 	{
 		// TEST-ONLY STOPGAP (W1-P7, RB-D26/RB-D32 family; delete once real network
@@ -10188,6 +10332,24 @@ std::string TestServer::execute(const std::string& line)
 			}
 			resp["armed"] = coopTestHoldBattleReadyArmed();
 			resp["held"] = coopTestHoldBattleReadyHeld();
+			resp["ok"] = true;
+		}
+		else if (cmd == "hold_world_stream" || cmd == "hold_world_adopt")
+		{
+			// W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md, AMENDMENT P7-6 PR-11): TEST-ONLY, one branch for
+			// both levers (C1061: execute() gains one nesting level). hold_world_stream (HOST) {on: true} arms it: the
+			// world streamer then waits before its final MAP_RESULT_LOAD_PROGRESS send (10 ms sleeps, 60 s safety cap;
+			// the host log says "[coop-test] hold_world_stream: holding" while it waits). hold_world_adopt (CLIENT)
+			// {on: true} arms the hold S-C-A.2's pump adoption step reads. {on: false} disarms (a parked stream then
+			// completes). Without `on` it only reports. Response {ok, armed}. Inert unless armed.
+			const bool stream = (cmd == "hold_world_stream");
+			if (req.isMember("on"))
+			{
+				const bool on = req.get("on", false).asBool();
+				if (stream) coopTestHoldWorldStreamArm(on); else coopTestHoldWorldAdoptArm(on);
+				Log(LOG_INFO) << "[coop-test] " << cmd << ": " << (on ? "armed" : "released");
+			}
+			resp["armed"] = stream ? coopTestHoldWorldStreamArmed() : coopTestHoldWorldAdoptArmed();
 			resp["ok"] = true;
 		}
 		else if (cmd == "close_briefing")

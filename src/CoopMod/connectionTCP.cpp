@@ -2713,6 +2713,20 @@ static Json::Value battleEndZeros()
 	r["resetAtOk"] = 0;           // host: 1 once the OK ran the battle-scoped reset (Q10 (a))
 	r["popupSuppressed"] = 0;     // either machine: peer-leave dialogs not pushed over the battle-end debriefing
 	r["popupSuppressedCode"] = 0; // the dialog not pushed: 20 host, 21 client, 440 either
+	// W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.1): the SHARED campaign return's
+	// keys - zeros here; S-C-A.2 writes them (record only, never read by game logic).
+	r["campaign"] = false;            // client: the latch armed for a campaign (SHARED) ending
+	r["debriefCampaign"] = 0;         // either machine: the PR-2 campaign debriefing flag was set
+	r["worldPushed"] = 0;             // host: the post-battle world push streamed (PR-3)
+	r["worldPushBytes"] = 0;          // host: the pushed blob's bytes
+	r["worldPushDeferredPasses"] = 0; // host: pump passes the push waited for a busy streamer
+	r["fenceDeferredPasses"] = 0;     // host: SharedEcon update passes that deferred queued commands (PR-6)
+	r["unassignWoundedIds"] = Json::Value(Json::arrayValue); // host: the unassign_wounded ids submitted at its OK
+	r["returnPending"] = 0;           // client: 1 once the SHARED return is armed (PR-4)
+	r["worldHeld"] = 0;               // client: MAP_RESULT_LOAD_PROGRESS receipts held (PR-4)
+	r["worldAdopted"] = 0;            // client: in-place adoptions (PR-5)
+	r["heldAppliesAtAdopt"] = 0;      // client: shared applies queued at the adoption (PR-6)
+	r["okDeferred"] = 0;              // client: 1 once an OK pressed before the adoption was deferred (PR-7)
 	return r;
 }
 
@@ -5799,6 +5813,38 @@ static bool coopTestHoldBattleReadyStash(const Json::Value& ready)
 	Log(LOG_INFO) << "[coop-test] hold_battle_ready: battle_ready stashed (battleId="
 		<< ready.get("battleId", 0u).asUInt() << ") - sent by the lever's release";
 	return true;
+}
+
+// ----- W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md, AMENDMENT P7-6 PR-11): TEST-ONLY world-stream holds.
+// hold_world_stream (HOST): while armed, the world streamer thread waits before its final MAP_RESULT_LOAD_PROGRESS
+// send (ONE guarded call in loopData; 10 ms sleeps, a 60 s safety cap that logs and proceeds), so sendFileClient
+// stays set. hold_world_adopt (CLIENT): read by S-C-A.2's pump adoption step only (it skips while armed). Inert
+// unless armed: unarmed, the wait returns at once and logs nothing. Never read by game logic; never reset by a
+// battle reset (the TestServer levers arm and release them).
+static std::atomic<bool> g_coopTestHoldWorldStream{false};
+static std::atomic<bool> g_coopTestHoldWorldAdopt{false};
+
+void coopTestHoldWorldStreamArm(bool on) { g_coopTestHoldWorldStream.store(on); }
+bool coopTestHoldWorldStreamArmed() { return g_coopTestHoldWorldStream.load(); }
+void coopTestHoldWorldAdoptArm(bool on) { g_coopTestHoldWorldAdopt.store(on); }
+bool coopTestHoldWorldAdoptArmed() { return g_coopTestHoldWorldAdopt.load(); }
+
+// The streamer thread's guarded wait, called only right before a MAP_RESULT_LOAD_PROGRESS send. Gives up early when
+// the connection is torn down (disconnect forces sendFileClient false, the waitForMapAck abort signal).
+static void coopTestHoldWorldStreamWait()
+{
+	if (!g_coopTestHoldWorldStream.load())
+		return;
+	Log(LOG_INFO) << "[coop-test] hold_world_stream: holding before MAP_RESULT_LOAD_PROGRESS";
+	int waitedMs = 0;
+	while (g_coopTestHoldWorldStream.load() && sendFileClient && waitedMs < 60000)
+	{
+		SDL_Delay(10);
+		waitedMs += 10;
+	}
+	if (waitedMs >= 60000)
+		Log(LOG_WARNING) << "[coop-test] hold_world_stream: 60 s safety cap reached - proceeding";
+	Log(LOG_INFO) << "[coop-test] hold_world_stream: released after " << waitedMs << " ms";
 }
 
 // ----- W2-P7 S-V-A.1 (docs rewrite/prompts/w2p7_sv_fatal_vote_design.md; rewrite/prompts/w2p7_battle_end.md AMENDMENT
@@ -28129,6 +28175,7 @@ void connectionTCP::loopData()
 				if (sendProgressLoadFileToClient != "")
 				{
 					jsonData = "{\"state\" : \"MAP_RESULT_LOAD_PROGRESS\"}";
+					coopTestHoldWorldStreamWait(); // W2-P7 S-C-A.1 (P7-6 PR-11): TEST-ONLY hold_world_stream, inert unless armed
 				}
 
 				sendTCPPacketStaticData(jsonData);
