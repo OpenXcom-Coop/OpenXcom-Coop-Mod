@@ -49,6 +49,8 @@ class ChatMenu
 	void update();
 	// coop (W2-P9 S-A): read-only view of the chat lines (the synced_options_state probe)
 	const std::vector<ChatMessage>& getMessages() const;
+	// coop (W2-P9 S-A, PR-9): a local system line (the synced-option change), stamped with this machine's time
+	void addSystemMessage(const std::string& player, const std::string& text);
 
   private:
 	std::atomic<bool> active;

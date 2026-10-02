@@ -56,8 +56,9 @@ static const int TABLE_SIZE = (int)(sizeof(TABLE) / sizeof(TABLE[0]));
 
 /// PR-3: true while the layer holds this machine's own values (session role != None).
 bool active();
-/// PR-3: the main-thread activation edge; the FIRST statement of connectionTCP::updateCoopTask().
-void tick();
+/// PR-3: the main-thread activation edge; the FIRST statement of connectionTCP::updateCoopTask(). Binds @a game
+/// (submit, the client apply funnel and the chat line need it).
+void tick(Game *game);
 /// PR-3: activates now when the session role wants it (every submit / apply path calls it first).
 void ensureActive();
 /// PR-3: writes the own values back and drops them (CoopSession::resetSession()).
@@ -85,6 +86,8 @@ void stateView(Json::Value &out);
 
 /// PR-6: the host's between-actions apply latch, beside the SPEC 16 pause latch in updateCoopTask().
 void coopSyncedOptionsPump(Game *game, bool quiescent);
-/// PR-7: the client apply funnel ("join" table, "offer" hostRules, "set" one id).
-void coopSyncedApplyFromHost(const Json::Value &values, int version, const char *source);
+/// PR-7: the client apply funnel ("join" table, "offer" hostRules, "set" one id; @a player = a set's requester, for
+/// its chat line).
+void coopSyncedApplyFromHost(const Json::Value &values, int version, const char *source,
+	const std::string &player = std::string());
 }

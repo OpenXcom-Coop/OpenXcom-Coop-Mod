@@ -35,6 +35,7 @@
 #include "FileMap.h"
 #include "Screen.h"
 #include "../CoopMod/CrashHandler.h"
+#include "../CoopMod/CoopSyncedOptions.h"
 
 namespace OpenXcom
 {
@@ -676,6 +677,7 @@ static void _setDefaultMods()
  */
 void resetDefault(bool includeMods)
 {
+	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::RESET); // coop (W2-P9)
 	for (auto& optionInfo : _info)
 	{
 		optionInfo.reset();
@@ -1326,6 +1328,7 @@ void updateOptions()
  */
 bool load(const std::string &filename)
 {
+	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::LOAD); // coop (W2-P9)
 	std::string s = _configFolder + filename + ".cfg";
 	try
 	{
@@ -1367,6 +1370,7 @@ bool load(const std::string &filename)
  */
 bool save(bool reset, const std::string& filename)
 {
+	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::SAVE); // coop (W2-P9)
 	std::string yaml;
 	std::string filepath = _configFolder + filename + ".cfg";
 	try

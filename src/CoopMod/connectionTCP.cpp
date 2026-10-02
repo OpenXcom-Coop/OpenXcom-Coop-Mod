@@ -417,6 +417,7 @@ void CoopSession::lockCustomBattleCraft(int craftId)
 void CoopSession::resetSession()
 {
 	Log(LOG_INFO) << "[coop-session] resetSession";
+	CoopSyncedOptions::deactivate(); // W2-P9 S-A (PR-3): the player's own synced option values come back
 	role = CoopRole::None;
 	lobbyMode = 0;
 	clientInLobby = false;
@@ -6695,10 +6696,10 @@ bool coopBattleQuiescent()
 	return !busy && CoopArbiter::currentActionId() == 0;
 }
 
-// W2-P9 S-A (spec rewrite/prompts/w2p9_synced_options.md, AMENDMENT P9-1 PR-2, PR-5, PR-13; D134, D160 a, D161 a):
-// the synced-options layer's state, main thread only (PR-3). S-A.1 (red) = the zero state, the accessors, the probe
-// view and a submit stub that refuses everything; S-A.2 adds the activation edge, the options.cfg guards, the host
-// latch and the wire.
+// W2-P9 S-A (spec rewrite/prompts/w2p9_synced_options.md, AMENDMENT P9-1 PR-2..PR-9, PR-13; D134, D160 a, D161 a,
+// D163 a, D165 a): the synced-options layer, main thread only (PR-3). The state and the probe view below; the
+// activation edge, the options.cfg guards, submit, the host's between-actions latch, the client apply funnel and the
+// chat line follow the probe view.
 namespace
 {
 struct CoopSyncedLayer
@@ -6713,6 +6714,7 @@ struct CoopSyncedLayer
 	int tablesApplied = 0, setsApplied = 0, nextRid = 0;
 	std::string lastTableFrom;             // "join" | "offer"
 	bool holdArmed = false;                // test lever synced_apply_hold (PR-13)
+	Game* game = nullptr;                  // bound every frame by tick() (submit, the funnel and the chat line use it)
 };
 CoopSyncedLayer g_coopSynced;
 }
@@ -6720,8 +6722,6 @@ CoopSyncedLayer g_coopSynced;
 bool CoopSyncedOptions::active() { return g_coopSynced.held; }
 void CoopSyncedOptions::setHoldArmed(bool on) { g_coopSynced.holdArmed = on; }
 bool CoopSyncedOptions::holdArmed() { return g_coopSynced.holdArmed; }
-// S-A.1 stub: refuses everything, so every caller stays vanilla; S-A.2 queues (host) or sends (client).
-bool CoopSyncedOptions::submit(const std::string&, int) { return false; }
 
 Json::Value CoopSyncedOptions::currentValues()
 {
@@ -6769,6 +6769,391 @@ void CoopSyncedOptions::stateView(Json::Value& out)
 	out["setsApplied"] = s.setsApplied;
 	out["lastTableFrom"] = s.lastTableFrom;
 	out["holdArmed"] = s.holdArmed;
+}
+
+namespace
+{
+const OptionInfo* coopSyncedInfo(const std::string& id)
+{
+	for (const OptionInfo& info : Options::getOptionInfo())
+		if (info.id() == id)
+			return &info;
+	return nullptr;
+}
+
+const CoopSyncedOptions::Row* coopSyncedRow(const std::string& id)
+{
+	for (const CoopSyncedOptions::Row& row : CoopSyncedOptions::TABLE)
+		if (id == row.id)
+			return &row;
+	return nullptr;
+}
+
+int coopSyncedRead(const OptionInfo& info)
+{
+	if (info.type() == OPTION_BOOL)
+		return *info.asBool() ? 1 : 0;
+	return info.type() == OPTION_INT ? *info.asInt() : 0;
+}
+
+void coopSyncedWrite(const OptionInfo& info, int value)
+{
+	if (info.type() == OPTION_BOOL)
+		*info.asBool() = value != 0;
+	else if (info.type() == OPTION_INT)
+		*info.asInt() = value;
+}
+
+int coopSyncedFromJson(const Json::Value& v)
+{
+	if (v.isBool())
+		return v.asBool() ? 1 : 0;
+	return v.isIntegral() ? v.asInt() : 0;
+}
+
+// Bools travel as JSON bools, ints as ints (PR-8).
+Json::Value coopSyncedJson(const OptionInfo& info, int value)
+{
+	return info.type() == OPTION_BOOL ? Json::Value(value != 0) : Json::Value(value);
+}
+
+// PR-6 / PR-7: bool, or an int within the row's min..max (vanilla's Advanced-screen range, F4737).
+bool coopSyncedValid(const CoopSyncedOptions::Row& row, const OptionInfo& info, const Json::Value& v)
+{
+	if (info.type() == OPTION_BOOL)
+		return v.isBool() || (v.isIntegral() && (v.asInt() == 0 || v.asInt() == 1));
+	if (info.type() == OPTION_INT)
+		return v.isIntegral() && v.asInt() >= row.min && v.asInt() <= row.max;
+	return false;
+}
+
+// PR-9 (D165, Q11 a, Q16 a): `System: <player> changed <option> to <YES|NO|n>`, composed locally on every machine;
+// nothing when this machine has no chat (the chat_message handler precedent) or the option has no row.
+void coopSyncedChat(Game* game, const std::string& player, const OptionInfo& info, int value)
+{
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	ChatMenu* chat = coop ? coop->getChatMenu() : nullptr;
+	if (!chat || info.description().empty())
+		return;
+	const Language* lang = game->getLanguage();
+	const std::string valueText = info.type() == OPTION_BOOL
+		? std::string(lang->getString(value ? "STR_YES" : "STR_NO")) : std::to_string(value);
+	const std::string optionText = lang->getString(info.description());
+	const std::string text = lang->getString("STR_COOP_SYNCED_OPTION_CHANGED").arg(player).arg(optionText).arg(valueText);
+	chat->addSystemMessage(lang->getString("STR_COOP_CHAT_SYSTEM"), text);
+}
+
+// PR-3: own := the 15 globals (read only - nothing is written here); host version 0, client -1 (none applied).
+void coopSyncedActivate()
+{
+	CoopSyncedLayer& s = g_coopSynced;
+	s.own = CoopSyncedOptions::currentValues();
+	s.version = connectionTCP::getServerOwner() ? 0 : -1;
+	s.queue.clear();
+	s.inFlight.clear();
+	s.applied.clear();
+	s.noops = s.rejected = s.requestsSent = s.clicksDiverted = s.clicksIgnoredInFlight = 0;
+	s.tablesApplied = s.setsApplied = 0;
+	s.lastTableFrom.clear();
+	s.held = true;
+	Json::FastWriter w;
+	Log(LOG_INFO) << "[coop-synced] activate (" << (connectionTCP::getServerOwner() ? "host" : "client")
+		<< ") own=" << w.write(s.own);
+}
+
+// PR-8: {version, values} - the join table and battle_offer.hostRules.
+Json::Value coopSyncedRules()
+{
+	CoopSyncedOptions::ensureActive();
+	Json::Value rules(Json::objectValue);
+	rules["version"] = g_coopSynced.version;
+	rules["values"] = CoopSyncedOptions::currentValues();
+	return rules;
+}
+
+// PR-6: HOST - a client's synced_option_request joins the queue in arrival order (V16).
+void coopSyncedOnRequest(const Json::Value& obj)
+{
+	CoopSyncedOptions::ensureActive();
+	if (!g_coopSynced.held)
+		return;
+	Json::Value e(Json::objectValue);
+	e["id"] = obj.get("id", "").asString();
+	e["value"] = obj["value"];
+	e["player"] = obj.get("player", "").asString();
+	e["from"] = obj.get("from", -1).asInt();
+	e["rid"] = obj.get("rid", 0).asInt();
+	e["arrivedWhileBusy"] = !coopBattleQuiescent();
+	e["heldFrames"] = 0;
+	g_coopSynced.queue.push_back(e);
+}
+
+// PR-7: CLIENT - a synced_option_set (any result) answers this machine's own request; an applied one goes through
+// the funnel.
+void coopSyncedOnSet(const Json::Value& obj)
+{
+	CoopSyncedOptions::ensureActive();
+	CoopSyncedLayer& s = g_coopSynced;
+	if (!s.held)
+		return;
+	const std::string id = obj.get("id", "").asString();
+	if (obj.get("fromSeat", -1).asInt() == connectionTCP::localSeat())
+	{
+		auto it = s.inFlight.find(id);
+		if (it != s.inFlight.end() && it->second == obj.get("rid", -1).asInt())
+			s.inFlight.erase(it);
+	}
+	if (obj.get("result", "").asString() != "applied")
+		return;
+	Json::Value one(Json::objectValue);
+	one[id] = obj["value"];
+	coopSyncedApplyFromHost(one, obj.get("version", -1).asInt(), "set", obj.get("player", "").asString());
+}
+}
+
+// PR-3: the main-thread activation edge, the FIRST statement of updateCoopTask(). Never touched off the main thread:
+// the role writers (3 on network threads, F4726) only change what this edge sees on the next frame.
+void CoopSyncedOptions::tick(Game* game)
+{
+	g_coopSynced.game = game;
+	const bool want = connectionTCP::session.role != CoopRole::None;
+	if (want && !g_coopSynced.held)
+		coopSyncedActivate();
+	else if (!want && g_coopSynced.held)
+		deactivate();
+}
+
+void CoopSyncedOptions::ensureActive()
+{
+	if (!g_coopSynced.held && connectionTCP::session.role != CoopRole::None)
+		coopSyncedActivate();
+}
+
+// PR-3 (D134, VL5): the player's own values come back; a change still waiting is dropped. Idempotent.
+void CoopSyncedOptions::deactivate()
+{
+	CoopSyncedLayer& s = g_coopSynced;
+	if (!s.held)
+		return;
+	for (const Row& row : TABLE)
+	{
+		const OptionInfo* info = coopSyncedInfo(row.id);
+		if (info && s.own.isMember(row.id))
+			coopSyncedWrite(*info, coopSyncedFromJson(s.own[row.id]));
+	}
+	s.queue.clear();
+	s.inFlight.clear();
+	s.held = false;
+	s.own = Json::Value();
+	Log(LOG_INFO) << "[coop-synced] deactivate: own values restored";
+}
+
+// PR-4 (Q7 a, Q12 a): inert unless held. save: the file receives the own values; load: a reload never changes a
+// shared value; resetDefault: the defaults become the own values (Restore Defaults' save(true) writes them).
+CoopSyncedOptions::FileGuard::FileGuard(Kind kind) : _kind(kind), _armed(g_coopSynced.held)
+{
+	if (!_armed)
+		return;
+	for (int i = 0; i < TABLE_SIZE; ++i)
+	{
+		const OptionInfo* info = coopSyncedInfo(TABLE[i].id);
+		_stash[i] = info ? coopSyncedRead(*info) : 0;
+		if (_kind == SAVE && info && g_coopSynced.own.isMember(TABLE[i].id))
+			coopSyncedWrite(*info, coopSyncedFromJson(g_coopSynced.own[TABLE[i].id]));
+	}
+}
+
+CoopSyncedOptions::FileGuard::~FileGuard()
+{
+	if (!_armed)
+		return;
+	if (_kind == RESET && g_coopSynced.held)
+		g_coopSynced.own = currentValues();
+	for (int i = 0; i < TABLE_SIZE; ++i)
+	{
+		const OptionInfo* info = coopSyncedInfo(TABLE[i].id);
+		if (info)
+			coopSyncedWrite(*info, _stash[i]);
+	}
+}
+
+// PR-5 (Q8 a, Q9 a): false when inactive (callers stay vanilla). Host: its own queue; client: synced_option_request.
+bool CoopSyncedOptions::submit(const std::string& id, int value)
+{
+	ensureActive();
+	CoopSyncedLayer& s = g_coopSynced;
+	if (!s.held)
+		return false;
+	const OptionInfo* info = coopSyncedRow(id) ? coopSyncedInfo(id) : nullptr;
+	if (!info || info->description().empty())
+	{
+		++s.rejected; // not a table id, or the hidden unload option (VL3)
+		return true;
+	}
+	if (s.inFlight.count(id))
+	{
+		++s.clicksIgnoredInFlight;
+		return true;
+	}
+	const int rid = ++s.nextRid;
+	s.inFlight[id] = rid;
+	++s.requestsSent;
+	connectionTCP* coop = s.game ? s.game->getCoopMod() : nullptr;
+	const std::string player = coop ? coop->getHostName() : std::string();
+	if (connectionTCP::getServerOwner())
+	{
+		Json::Value e(Json::objectValue);
+		e["id"] = id;
+		e["value"] = coopSyncedJson(*info, value);
+		e["player"] = player;
+		e["from"] = connectionTCP::localSeat();
+		e["rid"] = rid;
+		e["arrivedWhileBusy"] = !coopBattleQuiescent();
+		e["heldFrames"] = 0;
+		s.queue.push_back(e);
+	}
+	else if (coop)
+	{
+		Json::Value req(Json::objectValue);
+		req["state"] = "synced_option_request";
+		req["id"] = id;
+		req["value"] = coopSyncedJson(*info, value);
+		req["player"] = player;
+		req["from"] = connectionTCP::localSeat();
+		req["rid"] = rid;
+		coop->sendTCPPacketData(req.toStyledString());
+	}
+	return true;
+}
+
+// PR-6 (V14, V16): HOST - the queue applies between actions only, in arrival order; every entry is answered with a
+// synced_option_set while a peer is connected. Outside a battle `quiescent` is true: the next frame applies.
+void coopSyncedOptionsPump(Game* game, bool quiescent)
+{
+	CoopSyncedLayer& s = g_coopSynced;
+	if (!s.held || s.queue.empty() || !connectionTCP::getServerOwner())
+		return;
+	if (!quiescent || s.holdArmed)
+	{
+		for (Json::Value& e : s.queue)
+			e["heldFrames"] = e.get("heldFrames", 0).asInt() + 1;
+		return;
+	}
+	std::vector<Json::Value> batch;
+	batch.swap(s.queue);
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	for (const Json::Value& e : batch)
+	{
+		const std::string id = e.get("id", "").asString();
+		const Json::Value& v = e["value"];
+		const CoopSyncedOptions::Row* row = coopSyncedRow(id);
+		const OptionInfo* info = row ? coopSyncedInfo(id) : nullptr;
+		const bool fixed = game && game->getMod() && game->getMod()->getFixedUserOptions().count(id) > 0;
+		std::string result;
+		if (!row || !info || info->description().empty() || fixed || !coopSyncedValid(*row, *info, v))
+		{
+			++s.rejected;
+			result = "rejected";
+		}
+		else if (coopSyncedRead(*info) == coopSyncedFromJson(v))
+		{
+			++s.noops;
+			result = "noop";
+		}
+		else
+		{
+			const int value = coopSyncedFromJson(v);
+			coopSyncedWrite(*info, value);
+			++s.version;
+			result = "applied";
+			Json::Value ring(Json::objectValue);
+			ring["version"] = s.version;
+			ring["id"] = id;
+			ring["value"] = coopSyncedJson(*info, value);
+			ring["player"] = e["player"];
+			ring["fromSeat"] = e["from"];
+			ring["rid"] = e["rid"];
+			ring["afterSeq"] = Json::UInt(CoopEmit::lastSeqEmitted());
+			ring["heldFrames"] = e["heldFrames"];
+			ring["arrivedWhileBusy"] = e["arrivedWhileBusy"];
+			ring["result"] = result;
+			s.applied.push_back(ring);
+			if (s.applied.size() > 16)
+				s.applied.erase(s.applied.begin());
+			coopSyncedChat(game, e.get("player", "").asString(), *info, value);
+			Log(LOG_INFO) << "[coop-synced] host applied " << id << "=" << value << " (version " << s.version
+				<< ", from seat " << e.get("from", -1).asInt() << ", heldFrames " << e.get("heldFrames", 0).asInt()
+				<< ", afterSeq " << CoopEmit::lastSeqEmitted() << ")";
+		}
+		if (coop && connectionTCP::getCoopStatic())
+		{
+			Json::Value set(Json::objectValue);
+			set["state"] = "synced_option_set";
+			set["result"] = result;
+			set["id"] = id;
+			set["value"] = info ? coopSyncedJson(*info, coopSyncedRead(*info)) : v;
+			set["player"] = e["player"];
+			set["version"] = s.version;
+			set["fromSeat"] = e["from"];
+			set["rid"] = e["rid"];
+			coop->sendTCPPacketData(set.toStyledString());
+		}
+		if (e.get("from", -1).asInt() == connectionTCP::localSeat())
+		{
+			auto it = s.inFlight.find(id);
+			if (it != s.inFlight.end() && it->second == e.get("rid", -1).asInt())
+				s.inFlight.erase(it); // a host-own entry answers the host's own request
+		}
+	}
+}
+
+// PR-7 (the P10 hook): CLIENT - the ONE place the host's values are written: the join table ("join"), the offer's
+// hostRules ("offer") and an applied set ("set", one id). Tables apply at version >= the last applied, sets at > (F4733).
+void coopSyncedApplyFromHost(const Json::Value& values, int version, const char* source, const std::string& player)
+{
+	if (connectionTCP::getServerOwner() || !values.isObject())
+		return; // never on the host
+	CoopSyncedOptions::ensureActive();
+	CoopSyncedLayer& s = g_coopSynced;
+	if (!s.held)
+		return;
+	const std::string from = source ? source : "";
+	const bool isSet = from == "set";
+	if (isSet ? version <= s.version : version < s.version)
+		return;
+	const OptionInfo* setInfo = nullptr;
+	int setValue = 0;
+	int changed = 0;
+	for (const std::string& id : values.getMemberNames())
+	{
+		const CoopSyncedOptions::Row* row = coopSyncedRow(id);
+		const OptionInfo* info = row ? coopSyncedInfo(id) : nullptr;
+		if (!info || !coopSyncedValid(*row, *info, values[id]))
+			continue;
+		const int value = coopSyncedFromJson(values[id]);
+		if (coopSyncedRead(*info) != value)
+		{
+			coopSyncedWrite(*info, value);
+			++changed;
+		}
+		setInfo = info;
+		setValue = value;
+	}
+	s.version = version;
+	if (isSet)
+	{
+		++s.setsApplied;
+		if (setInfo)
+			coopSyncedChat(s.game, player, *setInfo, setValue);
+	}
+	else
+	{
+		++s.tablesApplied;
+		s.lastTableFrom = from;
+		s.inFlight.clear();
+	}
+	Log(LOG_INFO) << "[coop-synced] client applied " << from << " (version " << version << ", " << changed
+		<< " value(s) changed)";
 }
 
 // R5-P2 (SPIKE-RUNBOOK.md R5-P2 packet text): the input-gating combinators.
@@ -26208,6 +26593,9 @@ void emitPreparedOffer(Game* game)
 			"WITHOUT turnMode - the client must degrade to parallel (D-26) "
 			"(TEST-ONLY STOPGAP)";
 	}
+	// W2-P9 S-A (AMENDMENT P9-1 PR-8, VL2): every battle start re-asserts the host's synced game options (after the
+	// turnMode stamp and outside the omit_turn_mode test branch, so every offer carries them).
+	offer["hostRules"] = coopSyncedRules();
 
 	// W1-P2 (SS2.W1 / WV-D28 shape (d)): mission identity. Presence-gated on the
 	// envelope for protocol tolerance, but a wave-1 host ALWAYS sends it; when
@@ -26330,6 +26718,7 @@ void offerRejoinBattle(Game* game)
 	// battle-generation offer; D-22's "read from the BATTLE SAVE BLOCK for a
 	// resumed offer" is r4 T4's disk-resume case, not this in-memory one).
 	offer["turnMode"] = coopTurnModeName(coopBattleAuthority().turnMode);
+	offer["hostRules"] = coopSyncedRules(); // W2-P9 S-A (PR-8, VL2): the host's synced game options, re-asserted
 	// W2-H14 (SM-2, F4012): the host's END TURN side-phase counter, kept through the pause (SPEC 16 M1); the
 	// rejoiner starts its own there (CoopEndTurn::seedRejoinPhase()). Additive key; protocolVersion stays 1.
 	offer["endTurnPhase"] = CoopEndTurn::rejoinPhase();
@@ -26524,6 +26913,7 @@ void offerResumedBattle(Game* game)
 	// Options::CoopTurnMode (that is only correct for a fresh-generation
 	// offer, prepareBattleOffer()'s own case).
 	offer["turnMode"] = coopTurnModeName(coopBattleAuthority().turnMode);
+	offer["hostRules"] = coopSyncedRules(); // W2-P9 S-A (PR-8, VL2): the host's synced game options, re-asserted
 
 	// W1-P2 / D99(a): the SAME mission identity the battle was originally
 	// offered with - target/craftOrBase round-trip on the battle object
@@ -26640,6 +27030,11 @@ void onOffer(Game* game, const Json::Value& offer)
 	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 2): presence-gated - an offer without `equip` has no equip phase.
 	g_pendingClient.equip = offer.isMember("equip") ? offer["equip"] : Json::Value();
 	g_pendingClient.endTurnPhase = offer.get("endTurnPhase", -1).asInt(); // W2-H14: presence-gated, -1 = absent
+	// W2-P9 S-A (AMENDMENT P9-1 PR-8, F4733): presence-gated - the host's synced game options, a full-table re-assert
+	// (applies at a version >= the last one applied; heals a dropped set, N31).
+	const Json::Value hostRulesSO = offer.get("hostRules", Json::Value());
+	if (hostRulesSO.isObject())
+		coopSyncedApplyFromHost(hostRulesSO["values"], hostRulesSO.get("version", -1).asInt(), "offer");
 
 	// Fresh accumulation buffer for THIS transfer - defensive against any
 	// stale leftover (resetPendingState() also clears this at the teardown
@@ -29576,6 +29971,7 @@ static void coopNoteBattleEndLeaveSilent(int code)
 // an endless loop that processes the sync-packet data: battlescape, tasks, remove targets, research, trading, disconnect, errors.
 void connectionTCP::updateCoopTask()
 {
+	CoopSyncedOptions::tick(_game); // W2-P9 S-A (PR-3): the synced-options activation edge, main thread only
 
 	// Voting deadlines are host-authoritative. The menu keeps its own display
 	// countdown, but only this main-thread check may resolve a timed-out vote.
@@ -30137,6 +30533,9 @@ void connectionTCP::updateCoopTask()
 			_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 		}
 	}
+
+	// W2-P9 S-A (AMENDMENT P9-1 PR-6, V14, V16): the host applies queued synced-option changes between actions only.
+	coopSyncedOptionsPump(_game, coopQuiescentNow);
 
 	// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md (b)5-6, (b)9;
 	// AMENDMENT P7-1 ST1 (a), ST4 (a), ST8 (a); F1897, F1919): the skirmish
@@ -33005,6 +33404,27 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		_game->pushState(new CutsceneState(cutsceneId));
 	}
 
+	// W2-P9 S-A (AMENDMENT P9-1 PR-6..PR-8): the synced game options' three non-battle kinds. A request is the
+	// host's (queued, applied between actions); a table or a set is a client's (the apply funnel).
+	if (stateString == "synced_option_request")
+	{
+		if (getServerOwner())
+			coopSyncedOnRequest(obj);
+		return;
+	}
+	if (stateString == "synced_options_table")
+	{
+		if (!getServerOwner())
+			coopSyncedApplyFromHost(obj["values"], obj.get("version", -1).asInt(), "join");
+		return;
+	}
+	if (stateString == "synced_option_set")
+	{
+		if (!getServerOwner())
+			coopSyncedOnSet(obj);
+		return;
+	}
+
 	if (stateString == "chat_message")
 	{
 
@@ -35275,6 +35695,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		root["servername"] = sendTcpServerName;
 
 		sendTCPPacketData(root.toStyledString());
+
+		// W2-P9 S-A (AMENDMENT P9-1 PR-8, F4736; V15 amended): the joiner takes the host's synced game options - the
+		// full table right after the reply (campaign, skirmish and the issue #93 rejoin alike), no chat line.
+		Json::Value syncedTable = coopSyncedRules();
+		syncedTable["state"] = "synced_options_table";
+		sendTCPPacketData(syncedTable.toStyledString());
 
 		// "<player> has joined the game" - shown for every lobby mode. The
 		// host's lobby is already open at this point, so this lands on top of
