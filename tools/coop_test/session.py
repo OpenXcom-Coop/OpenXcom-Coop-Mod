@@ -2912,6 +2912,11 @@ def assert_t_exit(host, client, what="", expect_both=True):
     (`debrief_result`) and is NOT asserted here (OUT-OF-WAVE E65.5)."""
     tag = f" {what}" if what else ""
     before_crash = _crash_log_snapshot()
+    # U3b (F5063): the battle teardown can reset the latch (resetBattleAuthority), so
+    # desyncSeen is also read on BOTH machines while the battle is still live.
+    for gc, tag2 in ((host, "host"), (client, "client")):
+        desync = event_state(gc).get("desyncSeen")
+        assert desync is False, f"T-EXIT{tag}: {tag2} event_state.desyncSeen={desync!r} before abort"
     coop_abort_battle(host, client, expect_both=expect_both)
     geo_checks = ((host, "host"), (client, "client")) if expect_both else ((host, "host"),)
     for gc, tag2 in geo_checks:
