@@ -297,4 +297,10 @@ void ChatMenu::clearMessages()
 	miniMessages.clear();
 }
 
+// coop (W2-P9 S-A, AMENDMENT P9-1 PR-9): read-only view of the chat lines (the synced_options_state probe)
+const std::vector<ChatMessage>& ChatMenu::getMessages() const
+{
+	return messages;
+}
+
 }

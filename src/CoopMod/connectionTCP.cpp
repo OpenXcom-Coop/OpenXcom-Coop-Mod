@@ -127,6 +127,7 @@
 #include "CoopEndTurn.h"
 #include "CoopSpeed.h"
 #include "CoopDelta.h"
+#include "CoopSyncedOptions.h" // W2-P9 S-A: synced game options (the layer state, the probe view)
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -6692,6 +6693,82 @@ bool coopBattleQuiescent()
 	BattlescapeGame* bg = bs ? save->getBattleGame() : nullptr;
 	const bool busy = bg && bg->isBusy();
 	return !busy && CoopArbiter::currentActionId() == 0;
+}
+
+// W2-P9 S-A (spec rewrite/prompts/w2p9_synced_options.md, AMENDMENT P9-1 PR-2, PR-5, PR-13; D134, D160 a, D161 a):
+// the synced-options layer's state, main thread only (PR-3). S-A.1 (red) = the zero state, the accessors, the probe
+// view and a submit stub that refuses everything; S-A.2 adds the activation edge, the options.cfg guards, the host
+// latch and the wire.
+namespace
+{
+struct CoopSyncedLayer
+{
+	bool held = false;                     // own values captured (session role != None)
+	Json::Value own;                       // {id: bool|int} while held, null otherwise
+	int version = 0;                       // host: applies since activation; client: last applied (-1 = none)
+	std::vector<Json::Value> queue;        // host: {id, value, player, from, rid, arrivedWhileBusy, heldFrames} (V16)
+	std::map<std::string, int> inFlight;   // this machine's own requests: id -> rid
+	std::vector<Json::Value> applied;      // the last 16 host applies (PR-6 ring)
+	int noops = 0, rejected = 0, requestsSent = 0, clicksDiverted = 0, clicksIgnoredInFlight = 0;
+	int tablesApplied = 0, setsApplied = 0, nextRid = 0;
+	std::string lastTableFrom;             // "join" | "offer"
+	bool holdArmed = false;                // test lever synced_apply_hold (PR-13)
+};
+CoopSyncedLayer g_coopSynced;
+}
+
+bool CoopSyncedOptions::active() { return g_coopSynced.held; }
+void CoopSyncedOptions::setHoldArmed(bool on) { g_coopSynced.holdArmed = on; }
+bool CoopSyncedOptions::holdArmed() { return g_coopSynced.holdArmed; }
+// S-A.1 stub: refuses everything, so every caller stays vanilla; S-A.2 queues (host) or sends (client).
+bool CoopSyncedOptions::submit(const std::string&, int) { return false; }
+
+Json::Value CoopSyncedOptions::currentValues()
+{
+	Json::Value out(Json::objectValue);
+	for (const Row& row : TABLE)
+		for (const OptionInfo& info : Options::getOptionInfo())
+		{
+			if (info.id() != row.id)
+				continue;
+			if (info.type() == OPTION_BOOL)
+				out[row.id] = *info.asBool();
+			else if (info.type() == OPTION_INT)
+				out[row.id] = *info.asInt();
+		}
+	return out;
+}
+
+void CoopSyncedOptions::stateView(Json::Value& out)
+{
+	const CoopSyncedLayer& s = g_coopSynced;
+	out["active"] = s.held;
+	out["version"] = s.version;
+	out["values"] = currentValues();
+	out["own"] = s.held ? s.own : Json::Value(Json::nullValue);
+	out["pending"] = Json::Value(Json::arrayValue);
+	for (const Json::Value& p : s.queue)
+		out["pending"].append(p);
+	out["inFlight"] = Json::Value(Json::arrayValue);
+	for (const auto& f : s.inFlight)
+	{
+		Json::Value jf;
+		jf["id"] = f.first;
+		jf["rid"] = f.second;
+		out["inFlight"].append(jf);
+	}
+	out["applied"] = Json::Value(Json::arrayValue);
+	for (const Json::Value& a : s.applied)
+		out["applied"].append(a);
+	out["noops"] = s.noops;
+	out["rejected"] = s.rejected;
+	out["requestsSent"] = s.requestsSent;
+	out["clicksDiverted"] = s.clicksDiverted;
+	out["clicksIgnoredInFlight"] = s.clicksIgnoredInFlight;
+	out["tablesApplied"] = s.tablesApplied;
+	out["setsApplied"] = s.setsApplied;
+	out["lastTableFrom"] = s.lastTableFrom;
+	out["holdArmed"] = s.holdArmed;
 }
 
 // R5-P2 (SPIKE-RUNBOOK.md R5-P2 packet text): the input-gating combinators.

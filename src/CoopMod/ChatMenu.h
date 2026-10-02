@@ -47,6 +47,8 @@ class ChatMenu
 	void drawMiniChat(SDL_Surface* screen);
 	void updateMiniChat();
 	void update();
+	// coop (W2-P9 S-A): read-only view of the chat lines (the synced_options_state probe)
+	const std::vector<ChatMessage>& getMessages() const;
 
   private:
 	std::atomic<bool> active;

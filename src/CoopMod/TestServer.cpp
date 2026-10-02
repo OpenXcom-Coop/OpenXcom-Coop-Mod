@@ -223,6 +223,7 @@
 #include "CoopDelta.h" // W2-P2 S-A: event_state's delta probes + the delta_drop_next lever
 #include "CoopIdMaps.h" // W2-P2 S-B: item levers register/forget their ids (spec (b)15)
 #include "CoopBattleSetup.h" // W2-H9
+#include "CoopSyncedOptions.h" // W2-P9 S-A.1: synced_options_state + the three synced-option levers
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -6583,6 +6584,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_set_tile" && cmd != "delta_drop_next" && cmd != "hash_timing"
 		&& cmd != "light_census" && cmd != "light_recompute" && cmd != "light_probe_reset"
 		&& cmd != "battle_strip_unit"
+		&& cmd != "synced_options_state" && cmd != "synced_option_request" && cmd != "options_save" && cmd != "synced_apply_hold"
 		&& cmd != "battle_end_turn_ready"
 		&& cmd != "battle_visibility_rule"
 		&& cmd != "screen_pixels"
@@ -8516,6 +8518,66 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["sync"] = coopRS->_enable_research_sync;
 			resp["ok"] = true;
 		}
+	}
+	else if (cmd == "synced_options_state")
+	{
+		// W2-P9 S-A.1 (spec rewrite/prompts/w2p9_synced_options.md, AMENDMENT P9-1 PR-13): read-only - the
+		// synced-options layer on THIS machine: {active, role, localName, localSeat, version, values:{15},
+		// own:{15}|null, pending, inFlight, applied (last 16), noops, rejected, requestsSent, clicksDiverted,
+		// clicksIgnoredInFlight, tablesApplied, setsApplied, lastTableFrom, holdArmed, chatMenuExists,
+		// chat:[last 8 {time, player, text}]}. S-B.1 adds `advanced`.
+		CoopSyncedOptions::stateView(resp);
+		connectionTCP* coopSO = _game->getCoopMod();
+		const CoopRole roleSO = connectionTCP::session.role;
+		resp["role"] = roleSO == CoopRole::Host ? "Host" : (roleSO == CoopRole::Client ? "Client" : "None");
+		resp["localName"] = coopSO ? coopSO->getHostName() : std::string();
+		resp["localSeat"] = connectionTCP::localSeat();
+		ChatMenu* chatSO = coopSO ? coopSO->getChatMenu() : nullptr;
+		resp["chatMenuExists"] = (chatSO != nullptr);
+		resp["chat"] = Json::Value(Json::arrayValue);
+		if (chatSO)
+		{
+			for (const ChatMessage& m : chatSO->getMessages())
+			{
+				Json::Value jm;
+				jm["time"] = m.time;
+				jm["player"] = m.player;
+				jm["text"] = m.text;
+				resp["chat"].append(jm);
+			}
+		}
+		resp["ok"] = true;
+	}
+	else if (cmd == "synced_option_request")
+	{
+		// W2-P9 S-A.1 (PR-13, PR-5): TEST lever - {id, value: bool|int} through the SAME submit the
+		// Advanced-screen click uses (a stub returning false until S-A.2). Reply {ok, consumed}.
+		if (!req.isMember("id") || !req.isMember("value"))
+		{
+			resp["error"] = "synced_option_request: needs id and value";
+		}
+		else
+		{
+			const Json::Value& vSO = req["value"];
+			const int valueSO = vSO.isBool() ? (vSO.asBool() ? 1 : 0) : vSO.asInt();
+			resp["consumed"] = CoopSyncedOptions::submit(req["id"].asString(), valueSO);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "options_save")
+	{
+		// W2-P9 S-A.1 (PR-13): TEST lever - a plain call of vanilla Options::save() (proves the save guard
+		// without the OK path's restart). Reply {ok, saved}.
+		resp["saved"] = Options::save();
+		resp["ok"] = true;
+	}
+	else if (cmd == "synced_apply_hold")
+	{
+		// W2-P9 S-A.1 (PR-13): TEST lever - {on} holds the host's synced-option apply latch (inert until the
+		// S-A.2 latch reads it; the hold_battle_ready precedent). Reply {ok, holdArmed}.
+		CoopSyncedOptions::setHoldArmed(req.get("on", false).asBool());
+		resp["holdArmed"] = CoopSyncedOptions::holdArmed();
+		resp["ok"] = true;
 	}
 	else if (cmd == "clear_warning")
 	{
