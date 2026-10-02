@@ -154,8 +154,9 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env);
 
 /// Battle-teardown chokepoint: drops the published bitmap and both test-lever
 /// flags. Called from CoopPump::reset() (BattlePump.h), the established single
-/// battle-scoped reset point.
-void reset();
+/// battle-scoped reset point. W2-H12b (D219 b): @a keepHostile (true only on
+/// SPEC 16's spare path) keeps CoopFog's hostile set and arms its base restate.
+void reset(bool keepHostile = false);
 
 // ----- TEST LEVERS (RB-D26 discipline: deterministic, minimal, test-only) -----
 

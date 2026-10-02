@@ -95,8 +95,9 @@ std::uint32_t queueDepth();
 /// fires and the walk visibly stops mid-path when this is left
 /// unconditional). Every other CoopPump::reset() effect (the apply queue,
 /// lastSeqApplied, g_battleFrozen, the seq-mint counter, CoopEventLog/
-/// CoopReveal/CoopGhost) is UNCHANGED by this parameter - only
-/// resetCoopArbiterState() is gated.
+/// CoopReveal/CoopGhost) is UNCHANGED by this parameter, with two exceptions:
+/// resetCoopArbiterState() is gated, and so is CoopReveal's hostile set (W2-H12b,
+/// D219 b: the spare path keeps it and arms its base restate).
 void reset(bool resetChainState = true);
 
 } // namespace CoopPump

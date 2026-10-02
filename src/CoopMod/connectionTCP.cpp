@@ -1991,13 +1991,17 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env)
 	}
 }
 
-void reset()
+void reset(bool keepHostile)
 {
-	CoopFog::reset(); // W1-P8: the hostile set shares this one battle-teardown chokepoint
+	// W2-H12b (D219 b): the SPEC 16 spare path (keepHostile) keeps the alien side's explored
+	// map and arms its base restate, so the restarted seq stream's first ev restates it to
+	// whoever rejoins; every other caller still drops the hostile set here.
+	if (!keepHostile)
+		CoopFog::reset(); // W1-P8: the hostile set shares this one battle-teardown chokepoint
 	std::lock_guard<std::mutex> lock(g_revealMutex);
 	g_publishedReveal.clear();
 	g_publishedHostile.clear();
-	g_hostileBaseNeeded = false;
+	g_hostileBaseNeeded = keepHostile;
 	g_entryRestateDone = false;
 	g_armedRepublishSide = -1;
 	g_sideEmitReentry = false;
@@ -2196,7 +2200,7 @@ void reset(bool resetChainState)
 	if (resetChainState)
 		resetCoopArbiterState(); // R2-P5: action-context stack, actionId mint, deny-tick map
 	CoopEventLog::reset(); // R2-P11
-	CoopReveal::reset(); // RW-REVEAL-SYNC: published fog bitmap + its one-shot test levers
+	CoopReveal::reset(!resetChainState); // RW-REVEAL-SYNC: published fog bitmap + its one-shot test levers; W2-H12b: the SPEC 16 spare path keeps the hostile set
 	CoopDelta::reset(); // W2-P2 S-A (spec (b)5): disarm + clear the delta snapshot; a rejoin re-seeds
 	CoopGhost::reset(); // W1-P12: battle-scoped ghost queue + its counters
 }
@@ -25043,7 +25047,8 @@ void clearNetworkSessionQueues(bool resetAuthority)
 	// gates CoopPump::reset()'s chain-state argument - the SAME single flag,
 	// since both are per-battle bookkeeping M1 needs to survive together on
 	// the mid-Active-battle spare path. Every other CoopPump::reset() effect
-	// (the apply queue, CoopEventLog/CoopReveal/CoopGhost) is untouched.
+	// (the apply queue, CoopEventLog/CoopReveal/CoopGhost) is untouched,
+	// except CoopReveal's hostile set, which it keeps (W2-H12b).
 	CoopPump::reset(resetAuthority);
 	// SPEC 16 M1: @a resetAuthority is false ONLY on the one mid-`Active`-
 	// battle peer-leave path (connectionTCP::disconnectTCP's host branch and
@@ -27073,8 +27078,8 @@ void onReady(Game* game, const Json::Value& ready)
 	// IN-MEMORY rejoin (wasResumed && !fromDisk) - this whole block is
 	// fresh-battle-AUTHORING, not idempotent re-sync, and M1's live pause
 	// kept the host's own baton/tally alive through it (SPEC 16 behaviour,
-	// byte-unchanged) but NOT its hostile fog (W2-H12: the else-branch below
-	// re-authors it). It RUNS for a fresh battle (!wasResumed) AND
+	// byte-unchanged) and its hostile fog (W2-H12b: kept through the leave; the else-branch
+	// below adds current sight). It RUNS for a fresh battle (!wasResumed) AND
 	// for a DISK resume (fromDisk): a disk resume's host fog/reveal is EMPTY
 	// (F348(4): "has no save representation" - the process just restarted)
 	// and its baton must be RESTORED, not re-seeded at the D-23 default, so
@@ -27113,8 +27118,8 @@ void onReady(Game* game, const Json::Value& ready)
 	}
 	else if (SavedBattleGame* activeBattle = connectionTCP::getStaticBattle())
 	{
-		// W2-H12 (SD-2, F3603/F3620): the leave's CoopPump::reset ran CoopReveal::reset ->
-		// CoopFog::reset (only the authority is spared), so the hostile set is re-authored here;
+		// W2-H12 (SD-2, F3603/F3620) + W2-H12b (D219 b): the leave kept the hostile set (CoopReveal::reset(true)),
+		// so ensureAllocated is a no-op here, the forced pass adds current sight and the baseline restates the union;
 		// the baton/tally step stays skipped because M1 kept it.
 		CoopFog::ensureAllocated(activeBattle);
 		CoopFog::authorHostilePass(activeBattle, true);
