@@ -17,6 +17,7 @@
 #include "connection_udp_glue.h"
 #include "../connectionTCP.h"
 #include "connection_rendezvous_glue.h"
+#include "../BattleAuthority.h"
 
 #include <array>
 #include <atomic>
@@ -52,6 +53,15 @@ static std::unique_ptr<connectionUDP> s_connectionUDP;
 static bool s_udpEnabled = false;
 static std::thread s_udpPingThread;
 static std::atomic<bool> s_udpPingStop(false);
+
+// W2-H13 (D220 b, F3701/F3702): true while this HOST holds a SPEC 16 paused battle (peer left mid-Active, the
+// authority spared and peerAbsent latched by handleUdpRemotePeerLost()/disconnectTCP()). Atomics only: safe on
+// the main, ping and relist threads alike.
+static bool udpPausedBattleHeld()
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	return a.hostSim.load() && a.peerAbsent.load() && a.phase.load() == CoopBattlePhase::Active;
+}
 
 static uint64_t nowMsForGlue()
 {
@@ -455,7 +465,9 @@ void stopUdpPeer()
 	}
 
 	// Drop any queued gameplay packets from the old peer.
-	clearNetworkSessionQueues();
+	// W2-H13 (D220 b, F3701): the queues still drop, but a held paused battle keeps its
+	// authority (battleId, seat map, baton), as the TCP leave's spared clear does.
+	clearNetworkSessionQueues(!udpPausedBattleHeld());
 
 	// Only stop the UDP transport. Do not change onConnect, coopSession,
 	// server_owner or onTcpHost here. The old connectionTCP::disconnectTCP()

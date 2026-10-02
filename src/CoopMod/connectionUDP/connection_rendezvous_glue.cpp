@@ -637,9 +637,25 @@ void handleUdpRemotePeerLost()
     // Drop packets from the old peer before the host relists or the client
     // returns to menus. This matches a fresh process start more closely.
     // SPEC 16 M1: resetAuthority=false on the mid-Active-battle spare path
-    // (see sparePeerAbsentUdp above) - every other UDP-side caller of
-    // clearNetworkSessionQueues() (startUdpPeer/stopUdpPeer/
-    // clearAllReceivedUDPPackets) keeps the default full reset unchanged.
+    // (see sparePeerAbsentUdp above). W2-H13 (D220 b, F3701): stopUdpPeer()'s
+    // later clear keeps the authority too while udpPausedBattleHeld().
+    // W2-H13 (F3707, F4505): the UDP twin of disconnectTCP()'s M4 peek. A
+    // battle_leave still queued in g_rxQ (mutex-guarded) would be wiped by the
+    // clear below before onTCPMessage() saw it: read it on the way past.
+    if (sparePeerAbsentUdp)
+    {
+        std::string queuedMsg;
+        while (g_rxQ.pop(queuedMsg))
+        {
+            Json::CharReaderBuilder rb;
+            std::unique_ptr<Json::CharReader> reader(rb.newCharReader());
+            Json::Value queuedObj;
+            std::string errs;
+            if (reader->parse(queuedMsg.data(), queuedMsg.data() + queuedMsg.size(), &queuedObj, &errs)
+                && queuedObj.get("state", "").asString() == "battle_leave")
+                coopBattleAuthority().peerLeftByChoice = true;
+        }
+    }
     clearNetworkSessionQueues(!sparePeerAbsentUdp);
     if (sparePeerAbsentUdp)
     {
