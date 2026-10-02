@@ -231,6 +231,7 @@
 #include "../Interface/Text.h"
 #include "../Interface/TextList.h" // W2-P7 S-B1.1: the debrief_state probe reads the DebriefingState lists
 #include "../Interface/TextButton.h"
+#include "../Menu/OptionsAdvancedState.h" // W2-P9 S-B.1: the `advanced` view of synced_options_state (PR-13)
 #include "../Interface/BattlescapeButton.h" // W2-P4 S-E2.1b: map_tile_click_pos special-action buttons
 #include "../Engine/InteractiveSurface.h"
 
@@ -6568,6 +6569,99 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 	resp["ok"] = true;
 }
 
+// W2-P9 S-B.1 (AMENDMENT P9-1 PR-13; folds TASK 0 T0-4): read-only view of the topmost OptionsAdvancedState's list
+// for synced_options_state -> advanced:{open, scroll, visibleRows, rows:[{row,name,value,id,prefixed,line,visible,wx,wy}]}.
+// `id` = the OptionInfo whose tr(description), or whose "[Synced] "-prefixed form, equals the row name ("" header/blank,
+// "?" a collision). `prefixed` = the name is the prefixed form; inert at S-B.1 (the key/prefix are S-B.2, so every row
+// reads false - U2's RED cell). `line` = sum of getNumTextLines of the earlier rows; `visible` = scroll <= line <
+// scroll+visibleRows (F4735). `wx`/`wy` = the row's first-line centre in window pixels (click_widget's conversion),
+// set only when visible (getRowY valid only for drawn rows). No vanilla edit: every accessor is public.
+static void coopSyncedAdvancedView(Game* game, Json::Value& out)
+{
+	Json::Value adv(Json::objectValue);
+	adv["rows"] = Json::Value(Json::arrayValue);
+	OptionsAdvancedState* advState = nullptr;
+	for (auto* st : game->getStates())
+		if (auto* a = dynamic_cast<OptionsAdvancedState*>(st))
+			advState = a; // the topmost one on the stack
+	if (!advState)
+	{
+		adv["open"] = false;
+		out["advanced"] = adv;
+		return;
+	}
+	adv["open"] = true;
+	TextList* list = nullptr;
+	for (auto* s : advState->getSurfaces())
+		if (auto* tl = dynamic_cast<TextList*>(s)) { list = tl; break; }
+	if (!list)
+	{
+		out["advanced"] = adv;
+		return;
+	}
+	// name -> id over every described, non-key OptionInfo: the plain tr(description) and the prefixed form.
+	Language* lang = game->getLanguage();
+	std::map<std::string, std::string> descToId, prefToId;
+	for (const OptionInfo& info : Options::getOptionInfo())
+	{
+		if (info.type() == OPTION_KEY || info.description().empty())
+			continue;
+		std::string plain = lang->getString(info.description());
+		std::string pref = lang->getString("STR_COOP_SYNCED_OPTION").arg(plain);
+		descToId[plain] = (descToId.count(plain) && descToId[plain] != info.id()) ? "?" : info.id();
+		prefToId[pref] = (prefToId.count(pref) && prefToId[pref] != info.id()) ? "?" : info.id();
+	}
+	const size_t scroll = list->getScroll();
+	const size_t visibleRows = list->getVisibleRows();
+	adv["scroll"] = (Json::Int)scroll;
+	adv["visibleRows"] = (Json::Int)visibleRows;
+	Screen* scr = game->getScreen();
+	int line = 0;
+	const int last = list->getLastRowIndex();
+	for (int r = 0; r <= last; ++r)
+	{
+		std::string name = list->getCellText((size_t)r, 0);
+		std::string value = list->getCellText((size_t)r, 1);
+		std::string id;
+		bool prefixed = false;
+		if (!name.empty())
+		{
+			auto pit = prefToId.find(name);
+			if (pit != prefToId.end())
+			{
+				id = pit->second;
+				prefixed = true;
+			}
+			else
+			{
+				auto dit = descToId.find(name);
+				id = (dit != descToId.end()) ? dit->second : std::string();
+			}
+		}
+		const int numLines = list->getNumTextLines((size_t)r);
+		const bool visible = (size_t)line >= scroll && (size_t)line < scroll + visibleRows;
+		Json::Value row(Json::objectValue);
+		row["row"] = r;
+		row["name"] = name;
+		row["value"] = value;
+		row["id"] = id;
+		row["prefixed"] = prefixed;
+		row["line"] = line;
+		row["visible"] = visible;
+		if (visible)
+		{
+			double bx = list->getX() + list->getWidth() / 2.0;
+			double by = (double)list->getRowY((size_t)r)
+				+ 0.5 * ((double)list->getTextHeight((size_t)r) / (double)(numLines > 0 ? numLines : 1));
+			row["wx"] = (int)(bx * scr->getXScale() + scr->getCursorLeftBlackBand());
+			row["wy"] = (int)(by * scr->getYScale() + scr->getCursorTopBlackBand());
+		}
+		adv["rows"].append(row);
+		line += (numLines > 0 ? numLines : 1);
+	}
+	out["advanced"] = adv;
+}
+
 bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
@@ -8525,7 +8619,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// synced-options layer on THIS machine: {active, role, localName, localSeat, version, values:{15},
 		// own:{15}|null, pending, inFlight, applied (last 16), noops, rejected, requestsSent, clicksDiverted,
 		// clicksIgnoredInFlight, tablesApplied, setsApplied, lastTableFrom, holdArmed, chatMenuExists,
-		// chat:[last 8 {time, player, text}]}. S-B.1 adds `advanced`.
+		// chat:[last 8 {time, player, text}], advanced}. S-B.1 adds the `advanced` view.
 		CoopSyncedOptions::stateView(resp);
 		connectionTCP* coopSO = _game->getCoopMod();
 		const CoopRole roleSO = connectionTCP::session.role;
@@ -8546,6 +8640,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				resp["chat"].append(jm);
 			}
 		}
+		coopSyncedAdvancedView(_game, resp); // W2-P9 S-B.1 (PR-13): the Advanced-screen view
 		resp["ok"] = true;
 	}
 	else if (cmd == "synced_option_request")
