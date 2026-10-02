@@ -527,16 +527,18 @@ def assert_sync_clean(host, client, what="", strict=False, allow=(), timeout=30,
         ps = host.cmd({"cmd": "parallel_state"})
         persist_alarms = int(ps.get("syncBoundaryPersistAlarms") or 0)
         pending = int(ps.get("syncBoundaryPending") or 0)
-        desync = bool(host.cmd({"cmd": "battle_state"}).get("desyncSeen"))
+        # U3 (F4881): desyncSeen is published by event_state only (battle_state has no
+        # such key, so the old read was always None); a missing key fails, never passes.
+        desync = host.cmd({"cmd": "event_state"}).get("desyncSeen")
         alarmed = {n: c for n, c in bad.items() if buckets[n]["alarm"]}
         if (alarmed or pending) and not quiet:
             print(f"    NOTE{tag}: latch-aware sync-clean (report-only) - cumulative "
                   f"alarm-bucket mismatches {alarmed}; still-pending latch entries={pending}; "
                   f"persistAlarms={persist_alarms} desyncSeen={desync}\n"
                   f"    {_sync_mismatch_lines(sc)}")
-        assert not (desync or persist_alarms > 0), (
+        assert desync is False and not persist_alarms > 0, (
             f"SYNC-CHECK ALARM{tag} (latch): the persistence latch promoted a boundary "
-            f"divergence - desyncSeen={desync} syncBoundaryPersistAlarms={persist_alarms} "
+            f"divergence - host event_state.desyncSeen={desync!r} syncBoundaryPersistAlarms={persist_alarms} "
             f"(cumulative alarm-bucket mismatches {alarmed}, still-pending {pending}).\n"
             f"    {_sync_mismatch_lines(sc)}")
         return sc
@@ -2916,10 +2918,12 @@ def assert_t_exit(host, client, what="", expect_both=True):
         st = states(gc)
         assert st and "GeoscapeState" in st[-1], (
             f"T-EXIT{tag}: {tag2} not on GeoscapeState after abort: {st}")
-    # desyncSeen is verified on BOTH machines through the abort regardless of mode
+    # desyncSeen is verified on BOTH machines through the abort regardless of mode.
+    # U3 (F4881): event_state is the only probe that publishes desyncSeen (battle_state's
+    # read was always None); anything but False fails.
     for gc, tag2 in ((host, "host"), (client, "client")):
-        desync = gc.cmd({"cmd": "battle_state"}).get("desyncSeen")
-        assert not desync, f"T-EXIT{tag}: {tag2} desyncSeen={desync!r} after abort"
+        desync = event_state(gc).get("desyncSeen")
+        assert desync is False, f"T-EXIT{tag}: {tag2} event_state.desyncSeen={desync!r} after abort"
     after_crash = _crash_log_snapshot()
     new_crash = after_crash - before_crash
     assert not new_crash, f"T-EXIT{tag}: NEW crash log(s) appeared: {sorted(new_crash)}"
