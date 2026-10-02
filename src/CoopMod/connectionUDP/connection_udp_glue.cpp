@@ -266,7 +266,9 @@ bool startUdpPeer(const std::string& remoteHost,
 	// Start every UDP session with clean shared packet queues.
 	// This prevents stale packets from a previous host/client session from
 	// being delivered after a new peer joins.
-	clearNetworkSessionQueues();
+	// W2-H13 (D220 b, F3702): the relist rejoin still drops the old peer's queues, but a held
+	// paused battle keeps its authority, so offerRejoinBattle() finds it still paused.
+	clearNetworkSessionQueues(!udpPausedBattleHeld());
 
 	s_connectionUDP.reset(new connectionUDP());
 
