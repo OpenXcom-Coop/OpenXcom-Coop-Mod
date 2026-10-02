@@ -6679,6 +6679,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "light_census" && cmd != "light_recompute" && cmd != "light_probe_reset"
 		&& cmd != "battle_strip_unit"
 		&& cmd != "synced_options_state" && cmd != "synced_option_request" && cmd != "options_save" && cmd != "synced_apply_hold"
+		&& cmd != "option_values" && cmd != "shared_update_defer" // W2-P10 S-A.1 (PX-3, PX-4)
 		&& cmd != "battle_end_turn_ready"
 		&& cmd != "battle_visibility_rule"
 		&& cmd != "screen_pixels"
@@ -8672,6 +8673,41 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// S-A.2 latch reads it; the hold_battle_ready precedent). Reply {ok, holdArmed}.
 		CoopSyncedOptions::setHoldArmed(req.get("on", false).asBool());
 		resp["holdArmed"] = CoopSyncedOptions::holdArmed();
+		resp["ok"] = true;
+	}
+	else if (cmd == "option_values")
+	{
+		// W2-P10 S-A.1 (AMENDMENT P10-1 PX-3): READ-ONLY lever - the raw Options globals on THIS machine for each
+		// id in {ids:[...]}, independent of the synced table (so C1/C2/C8 have a negative control at red and the
+		// per-player controls are readable). Reply {ok, values:{id: bool|int|string|null (unknown id)}}.
+		Json::Value valsOV(Json::objectValue);
+		const Json::Value& idsOV = req["ids"];
+		for (Json::ArrayIndex iOV = 0; iOV < idsOV.size(); ++iOV)
+		{
+			const std::string idOV = idsOV[iOV].asString();
+			const OptionInfo* infoOV = nullptr;
+			for (const OptionInfo& info : Options::getOptionInfo())
+				if (info.id() == idOV) { infoOV = &info; break; }
+			if (infoOV && infoOV->type() == OPTION_BOOL)
+				valsOV[idOV] = *infoOV->asBool();
+			else if (infoOV && infoOV->type() == OPTION_INT)
+				valsOV[idOV] = *infoOV->asInt();
+			else if (infoOV && infoOV->type() == OPTION_STRING)
+				valsOV[idOV] = *infoOV->asString();
+			else
+				valsOV[idOV] = Json::Value(Json::nullValue);
+		}
+		resp["values"] = valsOV;
+		resp["ok"] = true;
+	}
+	else if (cmd == "shared_update_defer")
+	{
+		// W2-P10 S-A.1 (AMENDMENT P10-1 PX-4, F3258): TEST lever - {on} defers THIS machine's per-frame SharedEcon
+		// drain (CoopSyncedOptions::testSharedUpdateDeferred gates the one updateCoopTask call), so an arrived
+		// shared_apply stays queued until the funnel's set-time drain (green) or the release; the replica ordering
+		// window becomes deterministic. Inert unless armed. Reply {ok, deferred}.
+		CoopSyncedOptions::setTestSharedUpdateDeferred(req.get("on", false).asBool());
+		resp["deferred"] = CoopSyncedOptions::testSharedUpdateDeferred();
 		resp["ok"] = true;
 	}
 	else if (cmd == "clear_warning")

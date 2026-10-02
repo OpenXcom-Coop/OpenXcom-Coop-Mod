@@ -64,13 +64,23 @@ DEFAULTS = {i: (0 if i in INT_IDS else False) for i in IDS}
 OWN_HOST = dict(DEFAULTS, **HOST_OPTS)
 OWN_CLIENT = dict(DEFAULTS, **CLIENT_OPTS)
 
-# PR-1 / R3.1 / P9-1 D160-D161: the 14 visible rows split by Advanced-screen tab; the hidden row has no visible row.
+# PR-1 / R3.1 / P9-1 D160-D161; W2-P10 S-A.1 PX-7 re-point (chain rule A.10, F5487): the visible rows by Advanced
+# tab. P9's 11 OXC + 3 OXCE, plus W2-P10's 9 OXC (Geoscape) and 5 OXCE (1 Geoscape, 2 Basescape, 2 Battlescape),
+# F5158 -> 20 OXC + 8 OXCE prefixed once P10 S-A green lands; the hidden unload row still has no visible row.
 OXC_TAB_IDS = {"battleInstantGrenade", "battleExplosionHeight", "allowPsiStrengthImprovement", "allowPsionicCapture",
                "weaponSelfDestruction", "alienBleeding", "sneakyAI", "battleAutoEnd", "disableAutoEquip",
-               "includePrimeStateInSavedLayout", "battleUFOExtenderAccuracy"}                  # 11 rows
-OXCE_TAB_IDS = {"oxceEnableOffCentreShooting", "oxceUniformShootingSpread", "oxceReactionFireThreshold"}  # 3 rows
+               "includePrimeStateInSavedLayout", "battleUFOExtenderAccuracy",
+               "storageLimitsEnforced", "canSellLiveAliens", "fieldPromotions", "aggressiveRetaliation",
+               "allowBuildingQueue", "craftLaunchAlways", "anytimePsiTraining", "canTransferCraftsWhileAirborne",
+               "retainCorpses"}                                                                # 20 rows (11 P9 + 9 P10)
+OXCE_TAB_IDS = {"oxceEnableOffCentreShooting", "oxceUniformShootingSpread", "oxceReactionFireThreshold",
+                "oxceAutomaticPromotions", "oxceWoundedDefendBaseIf", "oxceAlternateCraftEquipmentManagement",
+                "oxceManualPromotions", "oxceGeoscapeEventsInstantDelivery"}                   # 8 rows (3 P9 + 5 P10)
 HIDDEN_ID = "oxceInventoryUnloadFixedWeapons"
-assert len(OXC_TAB_IDS) == 11 and len(OXCE_TAB_IDS) == 3
+# W2-P10 PX-7: the full synced table membership (20 + 8 + the hidden unload option = 29) - a prefixed row outside it
+# is a genuine "extra" (was IDS, the 15 P9 ids, before P10).
+TABLE_IDS = OXC_TAB_IDS | OXCE_TAB_IDS | {HIDDEN_ID}
+assert len(OXC_TAB_IDS) == 20 and len(OXCE_TAB_IDS) == 8
 
 # PR-9 / PR-10 / PR-14: the chat line, English literals (bin/common/Language/en-US.yml, STR_YES / STR_NO).
 SYSTEM = "System"
@@ -405,7 +415,7 @@ def read_tab(gc):
     rows = [rw for rw in adv_rows(a) if rw.get("id") and rw.get("id") != "?"]
     present = {rw["id"] for rw in rows}
     prefixed = {rw["id"] for rw in rows if rw.get("prefixed")}
-    extra = {rw["id"] for rw in rows if rw.get("prefixed") and rw["id"] not in IDS}
+    extra = {rw["id"] for rw in rows if rw.get("prefixed") and rw["id"] not in TABLE_IDS}  # W2-P10 PX-7: 29-id table
     hidden = any(rw.get("id") == HIDDEN_ID for rw in adv_rows(a))
     return {"present": present, "prefixed": prefixed, "extra": extra, "hidden": hidden,
             "nrows": len(adv_rows(a))}
