@@ -2743,6 +2743,16 @@ static Json::Value battleEndZeros()
 	r["worldAdopted"] = 0;            // client: in-place adoptions (PR-5)
 	r["heldAppliesAtAdopt"] = 0;      // client: shared applies queued at the adoption (PR-6)
 	r["okDeferred"] = 0;              // client: 1 once an OK pressed before the adoption was deferred (PR-7)
+	// W2-P7 S-C-B1.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.2): the SEPARATE campaign
+	// return's keys - zeros here; S-C-B1.2 writes them (record only, never read by game logic).
+	Json::Value sepReturn(Json::objectValue);
+	sepReturn["ownLoaded"] = 0;       // client: 1 once its own-world blob loaded at the return (green step 6)
+	sepReturn["guestsApplied"] = 0;   // client: guest rows whose record was applied to the own soldier by origin id
+	sepReturn["guestsMissing"] = 0;   // client: guest rows with no matching own soldier (STOP-IF P6-7)
+	sepReturn["pushed"] = 0;          // client: 1 once pushProgressToHostSilently ran after the return
+	r["sepReturn"] = sepReturn;
+	r["sepGuardSkips"] = 0;           // client: background-task calls skipped while the live world was the battle world (PR-14/MR12)
+	r["sepSnapshot"] = 0;             // client: 1 once the battle-entry own-world snapshot was taken (PR-13), after initBattleAuthority
 	return r;
 }
 
