@@ -171,6 +171,8 @@
 #include "Profile.h"
 #include "connectionTCP.h"
 #include "ServerList.h"
+#include "connectionUDP/connection_rendezvous_glue.h" // W2-H13: join_rendezvous, get_coop rendezvousActive
+#include "connectionUDP/connection_udp_glue.h" // W2-H13: get_coop udpActive
 #include "PasswordCheckMenu.h"
 #include "../Engine/Screen.h"
 #include "../Basescape/BasescapeState.h"
@@ -11608,6 +11610,9 @@ std::string TestServer::execute(const std::string& line)
 			resp["host"] = connectionTCP::getHost();
 			resp["serverOwner"] = connectionTCP::getServerOwner();
 			resp["onConnect"] = coop->isConnected();
+			// W2-H13: which transport carries the session (UDP peer up; rendezvous flow owned).
+			resp["udpActive"] = isConnectionUDPActive();
+			resp["rendezvousActive"] = isRendezvousConnectionActive();
 			resp["sessionLocked"] = connectionTCP::session.sessionLocked;
 			resp["playerReady"] = connectionTCP::isPlayerReady;
 			resp["playersReady"] = connectionTCP::isPlayersReady;
@@ -12084,6 +12089,32 @@ std::string TestServer::execute(const std::string& line)
 			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
 			coop->setCoopCampaign(campaign);
 			coop->joinDirectLanUDP(ipaddr, port, localport, player, password);
+			resp["ok"] = true;
+		}
+		else if (cmd == "join_rendezvous")
+		{
+			// W2-H13 (D220 b, Q5 a): join a listed rendezvous room by id exactly as
+			// ServerList::lstServerPress's listed-room branch does: join_tcp's own setup,
+			// the seven connection flags, the CoopState(15) connecting popup, async join.
+			std::string room = req.get("room", "").asString();
+			std::string player = req.get("player", "ClientPlayer").asString();
+			std::string password = req.get("password", "").asString();
+			coop->setCoopSession(false);
+			coop->setPlayerTurn(3);
+			coop->setHostName(player);
+			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
+			coop->setCoopCampaign(campaign);
+			coop->_waitBC = false;
+			coop->_waitBH = false;
+			coop->_battleWindow = false;
+			coop->_battleInit = false;
+			coop->coopInventory = false;
+			coop->coopMissionEnd = false;
+			coop->inventory_battle_window = true;
+			connectionTCP::forceCloseCoopStateMenu = false;
+			connectionTCP::forceClosePasswordCheckMenu = false;
+			_game->pushState(new CoopState(15));
+			joinListedViaRendezvousAsync(room, password, player, 0);
 			resp["ok"] = true;
 		}
 		else if (cmd == "crashlog_probe")
