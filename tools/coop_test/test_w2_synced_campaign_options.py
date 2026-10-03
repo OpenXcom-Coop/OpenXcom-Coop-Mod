@@ -22,6 +22,11 @@ never bytes, F4982). Rows in this order (C5 before C4 so C4's red resync cannot 
 | C5 A7     | world_diff holds bases[0].facilities (Q's buildTime differs 32 vs 16) |
 | C4 A12    | at the first read world_diff holds bases[0].items.STR_PISTOL_CLIP (differs by N=1: host 7 vs client 8) |
 | C6 order  | oxceAlternateCraftEquipmentManagement not a table id -> host rejected +1 (and the drain/world/both-false green cells fail) |
+
+Ruling P10-SA-R1 (F5509-F5511): client shared_resync_stats `mismatches` also counts an apply's by-design in-flight
+skew, so C4's resync_quiet became `no_resync` (resync `requests` unchanged over the row) + `quiet_after_apply`
+(`mismatches` unchanged over 2 s once the stores agree), and C6 adds `no_resync` (requests unchanged from before the
+defer lever to release + 2 s; the auto-resync repairs a divergence before C6's world_diff read).
 | C8 leave  | precondition "client option_values of the 14 != its boot defaults before the leave" fails |
 
 Guard every row: the 16 ids in each machine's options.cfg (parsed) == OWN_FILE (STOP-IF 3). Each row prints
@@ -500,7 +505,7 @@ def row_c4(r, x):
     x.h.cmd({"cmd": "give_layout", "item": LAYOUT_ITEM, "count": 1, "slot": LAYOUT_SLOT, "name": sol["name"]})
     x.c.cmd({"cmd": "give_layout", "item": LAYOUT_ITEM, "count": 1, "slot": LAYOUT_SLOT, "name": sol["name"]})
     ac1 = shared_stats(x.c)["applyCount"]
-    rs0 = resync_stats(x.c)["mismatches"]
+    rq0 = resync_stats(x.c)["requests"]
     x.c.cmd({"cmd": "craft_assign", "soldier_id": sol["id"], "craft_id": transport["id"], "on": True})
     okA, W = wait_until(lambda: shared_stats(x.c)["applyCount"] >= ac1 + 1, APPLY_S)
     after = {"host": item_qty(x.h, LAYOUT_ITEM), "client": item_qty(x.c, LAYOUT_ITEM)}
@@ -512,10 +517,17 @@ def row_c4(r, x):
     r.cell("item_eq", after["host"] == after["client"],
            f"{LAYOUT_ITEM} stores host {after['host']} client {after['client']} (N {after['host'] - after['client']})")
     r.cell("world_eq", not wd, f"world_diff {wd[:25]}")
+    # ruling P10-SA-R1 (F5510/F5511): `mismatches` also counts the by-design in-flight skew of an apply, so it is read
+    # only once the applied stores agree; the divergence metric is `requests` (a mismatch persisting >= 3000 ms).
+    eq, _ = wait_until(lambda: item_qty(x.h, LAYOUT_ITEM) == item_qty(x.c, LAYOUT_ITEM), APPLY_S)
+    m0 = resync_stats(x.c)["mismatches"]
     time.sleep(RESYNC_S)
-    rs1 = resync_stats(x.c)["mismatches"]
-    r.ev["resyncMismatches"] = (rs0, rs1)
-    r.cell("resync_quiet", rs1 == rs0, f"client mismatches {rs0}->{rs1} after {RESYNC_S}s")
+    rs = resync_stats(x.c)
+    m1, rq1 = rs["mismatches"], rs["requests"]
+    r.ev.update(resyncRequests=(rq0, rq1), mismatchesAfterApply=(m0, m1), itemEqHeld=eq)
+    r.cell("no_resync", rq1 == rq0, f"client resync requests {rq0}->{rq1} over the row's read window")
+    r.cell("quiet_after_apply", eq and m1 == m0,
+           f"item_eq held {eq}; client mismatches {m0}->{m1} over {RESYNC_S}s after the stores agreed")
     guard_file(r, x)
 
 
@@ -523,6 +535,7 @@ def row_c6(r, x):
     if x.sol_id is None or x.craft_id is None:
         r.cell("pre_fixture", False, "no soldier/craft pinned by C4 (FIXTURE-STOP)")
         return
+    rq0 = resync_stats(x.c)["requests"]  # ruling P10-SA-R1: before the defer lever arms
     arm = x.c.cmd({"cmd": "shared_update_defer", "on": True})
     r.ev["armDefer"] = arm
     try:
@@ -547,10 +560,11 @@ def row_c6(r, x):
         rel = x.c.cmd({"cmd": "shared_update_defer", "on": False})
         r.ev["releaseDefer"] = rel
     time.sleep(SETTLE_S)
+    rq1 = resync_stats(x.c)["requests"]  # release + SETTLE_S
     hov, cov = ov(x.h, [A12]), ov(x.c, [A12])
     wd = world_diff(x.h, x.c)
     ev_common(r, x)
-    r.ev.update(hostA12=hov.get(A12), clientA12=cov.get(A12), worldDiffAfterRelease=wd[:25])
+    r.ev.update(hostA12=hov.get(A12), clientA12=cov.get(A12), worldDiffAfterRelease=wd[:25], resyncRequests=(rq0, rq1))
     # RED: host rejected +1 (A12 not a table id at red).
     r.cell("host_accepted", (sos(x.h).get("rejected") or 0) == rej0,
            f"host rejected {rej0}->{sos(x.h).get('rejected')} (the A12 set was rejected: id not in the table)")
@@ -560,6 +574,9 @@ def row_c6(r, x):
     r.cell("both_false", hov.get(A12) is False and cov.get(A12) is False,
            f"A12 host {hov.get(A12)} client {cov.get(A12)} (want both False)")
     r.cell("world_eq_after", not wd, f"world_diff after release {wd[:25]}")
+    # ruling P10-SA-R1 (F5509): a replica that applied the queued unassign under the new value diverges until the
+    # auto-resync repairs it before the read above; the resync request is what tells rows-only from the drain.
+    r.cell("no_resync", rq1 == rq0, f"client resync requests {rq0}->{rq1} from before the lever to release+{SETTLE_S}s")
     guard_file(r, x)
 
 
