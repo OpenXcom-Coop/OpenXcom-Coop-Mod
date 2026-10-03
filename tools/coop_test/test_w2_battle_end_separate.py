@@ -43,6 +43,13 @@ RED (commit S-C-B1.1: probes/record zeros and the row, product untouched): C28P 
 never shows a DebriefingState (it stays on the battle map, F387). GREEN (commit S-C-B1.2): C28P passes.
 WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
+W2-P7 S-C-B2.1 (D181, AMENDMENT P7-6 section 4.3) adds a second boot C28P-dead: every hostile and the guest killed
+(seed-independent, host kill_unit_real), so the guest is a casualty. GREEN (commit S-C-B2.2): the death reaches the
+client's own world - "Guest Zzz" is in the client's MEMORIAL with a death, its base no longer lists it
+(sepReturn.deadApplied 1, one PR-16 [coop-roster] line), and the host's merged memorial copy is removed at its OK
+(memorialRemoved 1). RED (this commit, B1 green in place): B1 applies only the alive rows, so the dead guest is still
+alive in the client's base (cell 2 red); C28P still passes.
+
 Run:  python tools/coop_test/test_w2_battle_end_separate.py
 """
 
@@ -64,7 +71,9 @@ MARKER_DELTA = 1234567              # CONSTANTS T0-5 / AMENDMENT 4.2 `f`: client
 STATUS_DEAD = 6                     # p7t0_common STATUS_DEAD
 
 # ----- this file's constants -----
-COOP_PORT = "47206"                 # AMENDMENT P7-6 section 4 (F4545): B1/B2 = 47204-47206
+COOP_PORT = "47206"                 # AMENDMENT P7-6 section 4 (F4545): B1/B2 = 47204-47206 (C28P)
+COOP_PORT_DEAD = "47205"            # C28P-dead's boot (same B1/B2 block; distinct so the two sequential boots never reuse a socket)
+PR16_LITERAL = "S-C-B2 SEPARATE return"   # PR-16/D218: each applied death + each removed host memorial copy logs one [coop-roster] line with this cause
 ROSTER_NAMES = ("HostPlayer", "ClientPlayer")     # session.new_campaign's defaults (PR-10's `[<roster name>] `)
 DEBRIEF_FIELDS = ("title", "recoveryHeader", "rows", "total", "rating", "soldiers", "recovered")
 RECORD_FIELDS = ("currentStats", "rank", "recovery", "missions", "kills", "stuns", "name")
@@ -367,9 +376,35 @@ def guest_kill(host, client, gid, ctx, shot_seed=SEED_P, fixture_stop=True):
 # ===================== bring-up, staging, ending (pre-cell) =====================
 
 
-def stage(rid, host, client, ctx):
-    """The pre-cell part: the SEPARATE battle on SEED_P with the T0-5 marker, the guest-kill construction, the ending,
-    and the host's debriefing - plus COPY / H0 / OWN_BEFORE. Fills ctx; raises FixtureMiss (after a CAPTURE line)."""
+def kill_all_and_guest(host, client, gid, ctx):
+    """C28P-dead construction (AMENDMENT P7-6 section 4.3; seed-independent, no guest shot): kill EVERY hostile (the chain
+    settled after each, F4665), then kill the guest itself (host kill_unit_real {unit: <guest's battle unit id>}). The
+    guest's death then reaches the owner's world (D181); it needs no killer credit (F4536) and no seed."""
+    m = (host, client)
+    con = ctx.setdefault("construction", {})
+    hostiles = [u["id"] for u in battle_state(host).get("units", [])
+                if u.get("faction") == 1 and not u.get("isOut")]
+    con["hostiles"] = hostiles
+    for uid in hostiles:
+        host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid})
+        chain_settled(host, client, stable=1.0, timeout=45, want_live=None)
+    host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": gid})
+    chain_settled(host, client, stable=1.0, timeout=45, want_live=None)
+    live = sorted(u["id"] for u in battle_state(host).get("units", []) if u.get("faction") == 1 and not u.get("isOut"))
+    gnow = unit(host, gid)
+    con["afterKills"] = {"liveHostiles": live, "guestStatus": gnow.get("status"), "guestOut": gnow.get("isOut")}
+    if live:
+        capture("dead-kill: hostiles remain", f"live hostiles {live} (want none left to kill)", m)
+    if gnow.get("status") != STATUS_DEAD:
+        capture("dead-kill: guest not dead", f"guest (unit {gid}) status {gnow.get('status')!r} (want DEAD "
+                f"{STATUS_DEAD}) after host kill_unit_real", m)
+
+
+def _stage_common(rid, host, client, ctx, port, kill_fn, precheck):
+    """The pre-cell part shared by C28P and C28P-dead: the SEPARATE battle on SEED_P with the T0-5 marker, `kill_fn`'s
+    ending construction, the ending, and the host's debriefing - plus COPY / H0 / OWN_BEFORE. `precheck(copy)` returns a
+    reason string (or None) the host's merged 'Guest Zzz' copy must satisfy. Fills ctx; raises FixtureMiss (after a
+    CAPTURE line)."""
     m = (host, client)
 
     def marker(h, c):
@@ -384,7 +419,7 @@ def stage(rid, host, client, ctx):
 
     try:
         host_squad, guest_id = session.bring_up_separate_guest_battle(
-            host, client, port=COOP_PORT, pre_mission_start=marker, pre_landing=seed_pin)
+            host, client, port=port, pre_mission_start=marker, pre_landing=seed_pin)
     except Exception as e:
         capture("bring_up_separate_guest_battle", short(e, 800), m)
     ctx["hostSquad"] = host_squad
@@ -399,7 +434,7 @@ def stage(rid, host, client, ctx):
     gid = guests[0]["id"]
     ctx["guestBattleId"] = gid
 
-    guest_kill(host, client, gid, ctx)
+    kill_fn(host, client, gid, ctx)
 
     ctx["loadGamePushes0"] = log_count(client, LOADGAME_PUSH)
     end_turn_both(host, client)
@@ -421,9 +456,33 @@ def stage(rid, host, client, ctx):
     # COPY (the host's merged copy) and H0 (the host's copy of the client blob), both before any OK
     ctx["copy"] = soldier_rec(host, name="Guest Zzz")
     ctx["h0"], ctx["h0meta"] = coop_fnv(host, "host_copy_of_client")
-    if ctx["copy"].get("kills", 0) < 1:
-        capture("guest-kill precondition", f"the host's merged 'Guest Zzz' copy has kills "
-                f"{ctx['copy'].get('kills')!r} after the debriefing (want >= 1: the guest's shot was credited)", m)
+    reason = precheck(ctx["copy"])
+    if reason:
+        capture("merged-copy precondition", reason, m)
+
+
+def _precheck_alive(copy):
+    if copy.get("kills", 0) < 1:
+        return (f"the host's merged 'Guest Zzz' copy has kills {copy.get('kills')!r} after the debriefing "
+                f"(want >= 1: the guest's shot was credited)")
+    return None
+
+
+def stage(rid, host, client, ctx):
+    """C28P pre-cell: the guest's OWN kill of the last alien (the live merged copy is credited the kill / rank)."""
+    _stage_common(rid, host, client, ctx, COOP_PORT, guest_kill, _precheck_alive)
+
+
+def _precheck_dead(copy):
+    if not copy.get("dead"):
+        return (f"the host's merged 'Guest Zzz' copy is not dead after the debriefing (where={copy.get('where')!r} "
+                f"dead={copy.get('dead')!r}): the guest kill did not reach the host memorial")
+    return None
+
+
+def stage_dead(rid, host, client, ctx):
+    """C28P-dead pre-cell: every hostile and the guest killed (seed-independent), so the host's memorial copy is dead."""
+    _stage_common(rid, host, client, ctx, COOP_PORT_DEAD, kill_all_and_guest, _precheck_dead)
 
 
 # ===================== cells =====================
@@ -536,10 +595,89 @@ def c28p_cells(host, client, ctx):
     ]
 
 
+# ===================== C28P-dead cells (W2-P7 S-C-B2.1, D181) =====================
+
+
+def cell_dead_return(host, client, ctx):
+    """C28P-dead cell 2 (the RED cell): the client's OK -> its own geoscape; the guest reaches the client's MEMORIAL
+    with a death and its base no longer lists it (D181); sepReturn.deadApplied 1; one PR-16 [coop-roster] line in the
+    client log. RED: the guest is still alive in the client's base (B1 applies alive rows only; the dead guest is not in
+    the host's bases so B1's payload carries no row for it)."""
+    ok1 = press_ok(client)
+    ok, secs = wait_until(lambda: geo_clean(client), OK_S) if ok1["pressed"] else (False, 0)
+    recs, meta = soldier_recs(client, sid=ctx["guestId"])
+    crec = record(client)
+    sep = crec.get("sepReturn") if isinstance(crec.get("sepReturn"), dict) else {}
+    pr16 = log_count(client, PR16_LITERAL)
+    dead_rec = next((r for r in recs if r.get("dead")), None)
+    base_rec = next((r for r in recs if r.get("where") == "base"), None)
+    ctx["deadReturn"] = {"ok": ok1, "reached": ok, "secs": secs, "clientStack": stack(client),
+                         "records": recs, "sepReturn": sep, "pr16": pr16}
+    f = []
+    if not ok1["pressed"]:
+        f.append(ok1["note"])
+    elif (ok1.get("resp") or {}).get("handled") != "DebriefingState":
+        f.append(f"client OK answered {ok1.get('resp')} (want handled DebriefingState)")
+    if not ok:
+        f.append(f"client not on a clean GeoscapeState within {OK_S}s of its OK (stack {stack(client)})")
+        return f
+    if dead_rec is None:
+        f.append(f"client soldier_record id={ctx['guestId']} is not dead after the return (B1 applies alive rows "
+                 f"only): {recs}")
+    elif not dead_rec.get("death"):
+        f.append(f"client's dead guest has no death record (D181 carries the YAML's death): {dead_rec}")
+    if base_rec is not None:
+        f.append(f"client's base still lists the guest after the return (D181: the dead guest leaves the base): "
+                 f"{base_rec}")
+    if sep.get("deadApplied") != 1:
+        f.append(f"client battleEnd.sepReturn.deadApplied={sep.get('deadApplied')!r} (want 1)")
+    if pr16 != 1:
+        f.append(f"client PR-16 [coop-roster] '{PR16_LITERAL}' line count {pr16} (want exactly 1: the applied death)")
+    return f
+
+
+def cell_host_memorial(host, client, ctx):
+    """C28P-dead cell 3: the host's OK + drain -> the host's memorial copy of the dead guest is gone
+    (coopRemoveGuestMemorialCopies, memorialRemoved 1); the client zero-disk; fatalVote.armed 0."""
+    ok1 = press_ok(host)
+    reached, screens = drain(host) if ok1["pressed"] else (False, [])
+    recs, meta = soldier_recs(host, name="Guest Zzz")
+    hrec = record(host)
+    mem = hrec.get("memorialRemoved")
+    armed = (event_state(host).get("fatalVote") or {}).get("armed")
+    ctx["hostMemorial"] = {"ok": ok1, "reached": reached, "screens": screens, "hostStack": stack(host),
+                           "guestRecords": recs, "memorialRemoved": mem, "fatalVoteArmed": armed}
+    f = []
+    if not ok1["pressed"]:
+        f.append(ok1["note"])
+    if not reached:
+        f.append(f"host not on GeoscapeState within {DRAIN_S}s of its OK (stack {stack(host)}, screens {screens})")
+    if recs:
+        f.append(f"host still lists a 'Guest Zzz' memorial copy after its OK (D181: coopRemoveGuestMemorialCopies "
+                 f"should delete the tagged dead copy): {recs}")
+    if mem != 1:
+        f.append(f"host battleEnd.memorialRemoved={mem!r} (want 1)")
+    try:
+        session.assert_client_zero_disk(client.user_dir)
+    except AssertionError as e:
+        f.append(str(e))
+    if armed != 0:
+        f.append(f"host fatalVote.armed={armed!r} after the ending (want 0)")
+    return f
+
+
+def c28p_dead_cells(host, client, ctx):
+    return [
+        ("1 the client's display-only debriefing, equal to the host's", lambda: cell_debriefs(host, client, ctx)),
+        ("2 the client's OK first; the dead guest reaches its memorial", lambda: cell_dead_return(host, client, ctx)),
+        ("3 the host's OK + drain; the host memorial copy removed", lambda: cell_host_memorial(host, client, ctx)),
+    ]
+
+
 # ===================== one row =====================
 
 
-def run_row(rid, host, client, results, walls):
+def run_row(rid, host, client, results, walls, stage_fn, cells_fn):
     """One boot (host/client already spawned + connected): stage (pre-cell), then the cells in order; ONE EVIDENCE
     line, then PASS / FAIL."""
     t0, ctx = time.time(), {"row": rid}
@@ -547,11 +685,11 @@ def run_row(rid, host, client, results, walls):
     verdict = None
     try:
         try:
-            stage(rid, host, client, ctx)
+            stage_fn(rid, host, client, ctx)
         except Exception as e:
             verdict = (f"pre-cell (FIXTURE-STOP) {e if isinstance(e, FixtureMiss) else short(e, 800)}", None)
         if verdict is None:
-            cells = c28p_cells(host, client, ctx)
+            cells = cells_fn(host, client, ctx)
             ctx["cells"] = []
             for i, (name, fn) in enumerate(cells):
                 try:
@@ -581,20 +719,22 @@ def run_row(rid, host, client, results, walls):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    host_dir = make_user_dir("w2p7scb1_host")
-    client_dir = make_user_dir("w2p7scb1_client")
-    host = GameClient("host", 0, host_dir)
-    client = GameClient("client", 0, client_dir)
-    try:
-        host.spawn(); client.spawn(); host.connect(); client.connect()
-        run_row("C28P", host, client, results, walls)
-    finally:
-        for gc in (host, client):
-            try:
-                gc.shutdown()
-            except Exception as e:
-                print(f"[w2p7-scb1] shutdown {gc.name}: {short(e)}", flush=True)
-    order = ["C28P"]
+    # Two sequential boots (fresh host/client each): C28P (the B1 alive-return row) then C28P-dead (W2-P7 S-C-B2.1, D181).
+    boots = [("C28P", stage, c28p_cells), ("C28P-dead", stage_dead, c28p_dead_cells)]
+    for rid, stage_fn, cells_fn in boots:
+        slug = rid.lower().replace("-", "_")
+        host = GameClient("host", 0, make_user_dir(f"w2p7scb1_{slug}_host"))
+        client = GameClient("client", 0, make_user_dir(f"w2p7scb1_{slug}_client"))
+        try:
+            host.spawn(); client.spawn(); host.connect(); client.connect()
+            run_row(rid, host, client, results, walls, stage_fn, cells_fn)
+        finally:
+            for gc in (host, client):
+                try:
+                    gc.shutdown()
+                except Exception as e:
+                    print(f"[w2p7-scb1] shutdown {gc.name}: {short(e)}", flush=True)
+    order = ["C28P", "C28P-dead"]
     passed, failed = [r for r in order if results.get(r)], [r for r in order if not results.get(r)]
     print(f"\ntest_w2_battle_end_separate: {len(passed)}/{len(order)} passed (pass={passed} fail={failed}) in "
           f"{time.time() - t0:.1f}s (row walls {walls})", flush=True)

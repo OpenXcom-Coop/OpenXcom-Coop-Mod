@@ -2757,9 +2757,13 @@ static Json::Value battleEndZeros()
 	sepReturn["guestsApplied"] = 0;   // client: guest rows whose record was applied to the own soldier by origin id
 	sepReturn["guestsMissing"] = 0;   // client: guest rows with no matching own soldier (STOP-IF P6-7)
 	sepReturn["pushed"] = 0;          // client: 1 once pushProgressToHostSilently ran after the return
+	// W2-P7 S-C-B2.1 (AMENDMENT P7-6 section 4.3): SEPARATE deaths + diary keys - zeros here; S-C-B2.2 writes them.
+	sepReturn["deadApplied"] = 0;     // client: dead guest rows applied to the owner's world (D181, PR-16)
+	sepReturn["missionCopied"] = 0;   // client: 1 once this mission's statistics were copied into the owner's world (MR13)
 	r["sepReturn"] = sepReturn;
 	r["sepGuardSkips"] = 0;           // client: background-task calls skipped while the live world was the battle world (PR-14/MR12)
 	r["sepSnapshot"] = 0;             // client: 1 once the battle-entry own-world snapshot was taken (PR-13), after initBattleAuthority
+	r["memorialRemoved"] = 0;         // host: dead-guest memorial copies removed at its OK (coopRemoveGuestMemorialCopies, D181, PR-16)
 	return r;
 }
 
