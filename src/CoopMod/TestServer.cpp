@@ -117,6 +117,7 @@
 #include "../Savegame/HitLog.h" // W2-P6b S-L.1: battle_state `hitLog` reads the battle's HitLog
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/RankCount.h" // W2-H16: soldier_attr_probe openings
 #include "../Savegame/Transfer.h"
 #include "../Savegame/Region.h" // W2-H15: geo_event_probe
 #include "../Mod/RuleRegion.h"  // W2-H15: geo_event_probe
@@ -186,6 +187,7 @@
 #include "../Basescape/BuildFacilitiesState.h"
 #include "../Basescape/SoldiersState.h"
 #include "../Basescape/SoldierInfoState.h"
+#include "../Basescape/SoldierRankState.h" // W2-H16: soldier_attr_probe rankScreen
 #include "../Basescape/CraftSoldiersState.h"
 #include "../Basescape/TransferItemsState.h"
 #include "../Basescape/TransferBaseState.h" // W2-H8: screen_state reads its destination rows
@@ -6681,6 +6683,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_set_tile" && cmd != "delta_drop_next" && cmd != "hash_timing"
 		&& cmd != "light_census" && cmd != "light_recompute" && cmd != "light_probe_reset"
 		&& cmd != "battle_strip_unit"
+		&& cmd != "open_soldier_info" && cmd != "set_soldier_rank" && cmd != "soldier_attr_probe" // W2-H16 (F3260)
 		&& cmd != "synced_options_state" && cmd != "synced_option_request" && cmd != "options_save" && cmd != "synced_apply_hold"
 		&& cmd != "option_values" && cmd != "shared_update_defer" // W2-P10 S-A.1 (PX-3, PX-4)
 		&& cmd != "battle_end_turn_ready"
@@ -8945,6 +8948,118 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["recovered"] = recovered;
 		resp["parseErrors"] = parseErrors;
 		resp["ok"] = true;
+	}
+	else if (cmd == "open_soldier_info")
+	{
+		// W2-H16 (F3260): TEST lever - push the REAL SoldierInfoState for soldier {soldierId} on THIS machine; base and index
+		// found exactly as the soldier_rename lever finds them (skip _coopBase / _coopIcon bases; optional {base} name). The
+		// screen inits on the next frame. Reply {ok, baseIndex, index}.
+		const int idOS = req.get("soldierId", -1).asInt();
+		const std::string baseOS = req.get("base", "").asString();
+		Base* targetOS = nullptr;
+		size_t idxOS = 0;
+		int biOS = -1;
+		if (_game->getSavedGame())
+			for (size_t b = 0; b < _game->getSavedGame()->getBases()->size() && !targetOS; ++b)
+			{
+				Base* base = _game->getSavedGame()->getBases()->at(b);
+				if (base->_coopBase || base->_coopIcon) continue;
+				if (!baseOS.empty() && base->getName() != baseOS) continue;
+				auto* sols = base->getSoldiers();
+				for (size_t i = 0; i < sols->size(); ++i)
+					if (sols->at(i)->getId() == idOS) { targetOS = base; idxOS = i; biOS = (int)b; break; }
+			}
+		if (!targetOS)
+			resp["error"] = "open_soldier_info: soldier not found";
+		else
+		{
+			_game->pushState(new SoldierInfoState(targetOS, idxOS));
+			resp["baseIndex"] = biOS; resp["index"] = (Json::Int)idxOS; resp["ok"] = true;
+		}
+	}
+	else if (cmd == "set_soldier_rank")
+	{
+		// W2-H16 (F3260): TEST lever - STAGING on THIS machine only (call it on both machines, client first, S25): soldier
+		// {soldierId} (every base, index order) -> setRank({rank}). No command, no relay. Reply {ok, rank} (read back).
+		const int idSR = req.get("soldierId", -1).asInt(), rankSR = req.get("rank", -1).asInt();
+		Soldier* sSR = nullptr;
+		if (_game->getSavedGame())
+			for (auto* base : *_game->getSavedGame()->getBases())
+				for (auto* s : *base->getSoldiers())
+					if (!sSR && s->getId() == idSR) sSR = s;
+		if (!sSR)
+			resp["error"] = "set_soldier_rank: soldier not found";
+		else if (rankSR < (int)RANK_ROOKIE || rankSR > (int)RANK_COMMANDER)
+			resp["error"] = "set_soldier_rank: rank out of range";
+		else
+		{
+			sSR->setRank((SoldierRank)rankSR);
+			resp["rank"] = (int)sSR->getRank(); resp["ok"] = true;
+		}
+	}
+	else if (cmd == "soldier_attr_probe")
+	{
+		// W2-H16 (F3260): TEST INTROSPECTION ONLY - read-only. {id}: `top` (typeid of the top state); `soldier` {id, owner,
+		// baseIndex, rank, rankString, nationality} (every base, index order) or null; `openings` {sergeant, captain, colonel,
+		// commander} = PromotionOpenings(getAllActiveSoldiers(), mod) on this world; `rankScreen` {open (the top state is a
+		// SoldierRankState), rows [{row, name (cell 0), openings (cell 1), rank (= row: SRS adds the rows in rank order),
+		// allowed (isManualPromotionPossible(soldier, rank) on this world), wx, wy (the row centre in window pixels, the
+		// coopSyncedAdvancedView conversion; visible rows only)}]}.
+		SavedGame* sgSA = _game->getSavedGame();
+		const int idSA = req.get("id", -1).asInt();
+		State* topSA = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		resp["top"] = topSA ? typeid(*topSA).name() : "none";
+		Soldier* sSA = nullptr;
+		int biSA = -1, bSA = 0;
+		if (sgSA)
+			for (auto* base : *sgSA->getBases())
+			{
+				for (auto* s : *base->getSoldiers())
+					if (!sSA && s->getId() == idSA) { sSA = s; biSA = bSA; }
+				++bSA;
+			}
+		Json::Value solSA; // null when not found
+		if (sSA)
+		{
+			solSA["id"] = sSA->getId(); solSA["owner"] = sSA->getOwnerPlayerId(); solSA["baseIndex"] = biSA;
+			solSA["rank"] = (int)sSA->getRank(); solSA["rankString"] = sSA->getRankString();
+			solSA["nationality"] = sSA->getNationality();
+		}
+		resp["soldier"] = solSA;
+		Json::Value opSA(Json::objectValue), rsSA(Json::objectValue);
+		rsSA["open"] = (topSA != nullptr && dynamic_cast<SoldierRankState*>(topSA) != nullptr);
+		rsSA["rows"] = Json::Value(Json::arrayValue);
+		if (sgSA)
+		{
+			PromotionOpenings poSA(sgSA->getAllActiveSoldiers(), _game->getMod());
+			opSA["sergeant"] = poSA[RANK_SERGEANT]; opSA["captain"] = poSA[RANK_CAPTAIN];
+			opSA["colonel"] = poSA[RANK_COLONEL]; opSA["commander"] = poSA[RANK_COMMANDER];
+			TextList* lstSA = nullptr;
+			if (rsSA["open"].asBool())
+				for (auto* srf : topSA->getSurfaces())
+					if (auto* tl = dynamic_cast<TextList*>(srf)) { lstSA = tl; break; }
+			Screen* scr = _game->getScreen();
+			int line = 0;
+			for (int r = 0; lstSA && r <= lstSA->getLastRowIndex(); ++r)
+			{
+				const int numLines = lstSA->getNumTextLines((size_t)r);
+				Json::Value row(Json::objectValue);
+				row["row"] = r; row["rank"] = r;
+				row["name"] = lstSA->getCellText((size_t)r, 0); row["openings"] = lstSA->getCellText((size_t)r, 1);
+				row["allowed"] = (sSA != nullptr && r <= (int)RANK_COMMANDER && poSA.isManualPromotionPossible(sSA, (SoldierRank)r));
+				if ((size_t)line >= lstSA->getScroll() && (size_t)line < lstSA->getScroll() + lstSA->getVisibleRows())
+				{
+					double bx = lstSA->getX() + lstSA->getWidth() / 2.0;
+					double by = (double)lstSA->getRowY((size_t)r)
+						+ 0.5 * ((double)lstSA->getTextHeight((size_t)r) / (double)(numLines > 0 ? numLines : 1));
+					row["wx"] = (int)(bx * scr->getXScale() + scr->getCursorLeftBlackBand());
+					row["wy"] = (int)(by * scr->getYScale() + scr->getCursorTopBlackBand());
+				}
+				rsSA["rows"].append(row);
+				line += (numLines > 0 ? numLines : 1);
+			}
+		}
+		resp["openings"] = opSA; resp["rankScreen"] = rsSA; resp["ok"] = true;
 	}
 	else if (cmd == "soldier_record")
 	{
