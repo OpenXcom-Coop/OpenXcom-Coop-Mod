@@ -3808,6 +3808,9 @@ void resetSessionQueues()
 		<< " failure(s); apply hold was " << (held ? "on" : "off") << " (PR-34)";
 }
 
+// W2-P7 S-C-E1.1 (AMENDMENT P7-8 PR-46): TestServer sel_state's read of the shared selection store - the red stub is empty
+Json::Value selectionSnapshot() { return Json::Value(Json::objectValue); }
+
 Stats stats()
 {
 	Stats s;
