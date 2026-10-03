@@ -677,6 +677,9 @@ class connectionTCP
 	// owner's own id, return to the own geoscape in place and push the own world to the host (false blob -> main menu).
 	bool coopSepEntrySnapshot();
 	bool coopSeparateReturn(DebriefingState* db, const char* phaseAtOk);
+	// W2-P7 S-C-B2.2 (AMENDMENT P7-6 section 4.3 step 5; D181 (a), PR-16): HOST - after its post-battle chain, delete the
+	// memorial's SEPARATE guest copies (coopName "coop-origin:"); each guest's death lives in its owner's world.
+	void coopRemoveGuestMemorialCopies();
 	// PRD-J10: serve a replica's shared_resync_request - stream the authoritative
 	// world. No-op (the replica re-asks on its next mismatching checksum) if the
 	// single-slot streamer is busy.

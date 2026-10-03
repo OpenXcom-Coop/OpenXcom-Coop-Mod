@@ -16998,27 +16998,44 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	if (separate)
 	{
 		// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 3, PR-8; D155 (a)): every merged guest copy in the host's
-		// bases (coopName tagged "coop-origin:<seat>:<id>", seat != the host's). B1 ships alive rows only (dead:false);
-		// B2 adds the dead. originId is the owner's own soldier id (F4524); the return matches by it.
+		// bases (coopName tagged "coop-origin:<seat>:<id>", seat != the host's). originId is the owner's own soldier id
+		// (F4524); the return matches by it. W2-P7 S-C-B2.2 (section 4.3 steps 1-2; D181 (a), MR13): the memorial's
+		// tagged copies too (dead:true - this battle's KIA/MIA, moved there by prepareDebriefing's killSoldier; the YAML
+		// carries the death), every row with its host-world id (hostSoldierId, the mission's injuryList key), and this
+		// mission's statistics record (pushed into the host world at DebriefingState :608) for the owner's world.
 		const int hostSeat = local;
 		Json::Value guests(Json::arrayValue);
+		auto addGuest = [&](Soldier* s, bool dead) {
+			int gseat = -1, gid = -1;
+			if (!coopParseOriginTag(s->getCoopName(), gseat, gid) || gseat == hostSeat)
+				return;
+			Json::Value g(Json::objectValue);
+			g["originId"] = gid;
+			g["ownerSeat"] = gseat;
+			g["rawName"] = s->getName();
+			g["dead"] = dead;
+			g["hostSoldierId"] = s->getId();
+			g["soldierYaml"] = coopSerializeGuestSoldier(_game, s);
+			guests.append(g);
+		};
 		for (auto* base : *sg->getBases())
 		{
 			for (auto* s : *base->getSoldiers())
-			{
-				int gseat = -1, gid = -1;
-				if (!coopParseOriginTag(s->getCoopName(), gseat, gid) || gseat == hostSeat)
-					continue;
-				Json::Value g(Json::objectValue);
-				g["originId"] = gid;
-				g["ownerSeat"] = gseat;
-				g["rawName"] = s->getName();
-				g["dead"] = false;
-				g["soldierYaml"] = coopSerializeGuestSoldier(_game, s);
-				guests.append(g);
-			}
+				addGuest(s, false);
 		}
+		for (auto* s : *sg->getDeadSoldiers())
+			addGuest(s, true);
 		debrief["guests"] = guests;
+		if (db->_missionStatistics)
+		{
+			YAML::YamlRootNodeWriter mw;
+			mw.setAsMap();
+			db->_missionStatistics->save(mw["mission"]);
+			Json::Value mission(Json::objectValue);
+			mission["hostId"] = db->_missionStatistics->id;
+			mission["statisticsYaml"] = mw.emit().yaml;
+			debrief["mission"] = mission;
+		}
 	}
 
 	Json::Value msg = CoopWire::makeDebriefResult(a.battleId.load(), debrief);
@@ -25787,34 +25804,15 @@ static void coopCampaignClientSharedLeave(Game* game, DebriefingState* db, const
 	game->setState(new GeoscapeState);
 }
 
-// W2-P7 S-C-B1.2 (AMENDMENT P7-6 P7-6 Q1 (a)): copy one node (scalar or map) verbatim from the merged copy's YAML
-// tree into the owner's soldier node under @a key (a prior same-key child was removed by the caller). ryml NodeRef ops,
-// the same primitives SaveUpgrade::yamlutil uses. D155's keys are a name (scalar), currentStats (a flat map) and
-// scalars; the map branch handles currentStats, the recursion keeps it general.
-static void coopCopyRecordNode(ryml::NodeRef dstParent, ryml::csubstr key, ryml::ConstNodeRef src)
+// W2-P7 S-C-B1.2 (AMENDMENT P7-6 P7-6 Q1 (a)): copy one keyed node verbatim from the merged copy's YAML tree into the
+// owner's soldier node (a prior same-key child was removed by the caller). W2-P7 S-C-B2.2: the diary is a map holding
+// sequences of maps (killList, commendations) and the death a nested map, so the copy is ryml's recursive cross-tree
+// duplicate (key, values and scalar styles kept); its strings point into the source tree, which the caller keeps alive
+// until it emits.
+static void coopCopyRecordNode(ryml::NodeRef dstParent, ryml::ConstNodeRef src)
 {
-	ryml::NodeRef dst = dstParent.append_child();
-	dst.set_key(dstParent.tree()->to_arena(key));
-	if (src.is_map())
-	{
-		dst |= ryml::MAP;
-		for (ryml::ConstNodeRef ch : src.children())
-			coopCopyRecordNode(dst, ch.key(), ch);
-	}
-	else if (src.is_seq())
-	{
-		dst |= ryml::SEQ;
-		for (ryml::ConstNodeRef ch : src.children())
-		{
-			ryml::NodeRef e = dst.append_child();
-			if (ch.has_val())
-				e.set_val(dst.tree()->to_arena(ch.val()));
-		}
-	}
-	else
-	{
-		dst.set_val(dst.tree()->to_arena(src.val()));
-	}
+	ryml::Tree* t = dstParent.tree();
+	t->duplicate(src.tree(), src.id(), dstParent.id(), t->last_child(dstParent.id()));
 }
 
 // W2-P7 S-C-B1.2 (AMENDMENT P7-6 P7-6 Q1 (a); D155 (a), F2529, F4525): the guest-record overlay. Serialize the owner's
@@ -25822,14 +25820,40 @@ static void coopCopyRecordNode(ryml::NodeRef dstParent, ryml::csubstr key, ryml:
 // omits zero recovery/healthMissing/manaMissing, so the owner's value drops to zero too), and return the merged
 // "{soldier: {...}}" YAML. Everything else (id, armor, nationality, coopname, initialStats) stays the owner's. No
 // vanilla setters (F4525); loading a fresh Soldier from this applies the record.
-static std::string coopOverlayGuestRecord(const std::string& ownYaml, const std::string& copyYaml)
+// W2-P7 S-C-B2.2 (AMENDMENT P7-6 section 4.3 step 3; D181 (a), D202 (a), MR13): the keys gain `diary` (with the host's
+// commendations, D202 (a)) and `death` (a dead row). The copy's diary is the owner's own diary as contributed plus this
+// battle's entries, which name the host's mission id: each entry past the owner's own counts equal to @a hostMissionId
+// gets @a newMissionId (missionIdList; killList's mission, its turn += (new - host) * 300 keeping makeTurnUnique's
+// turn + mission * 300). The owner's earlier entries keep their own-world ids even when one equals the host's.
+static long long coopYamlScalarInt(ryml::csubstr v, long long def)
+{
+	try
+	{
+		return v.len ? std::stoll(std::string(v.str, v.len)) : def;
+	}
+	catch (...)
+	{
+		return def;
+	}
+}
+static std::string coopOverlayGuestRecord(const std::string& ownYaml, const std::string& copyYaml, int hostMissionId,
+	int newMissionId)
 {
 	static const char* const kKeys[] = { "name", "currentStats", "rank", "missions", "kills", "stuns",
-		"recovery", "manaMissing", "healthMissing", "improvement", "psiStrImprovement" };
+		"recovery", "manaMissing", "healthMissing", "improvement", "psiStrImprovement", "diary", "death" };
 	auto ownTree = SaveUpgrade::yamlutil::parseMap(ownYaml);
 	auto copyTree = SaveUpgrade::yamlutil::parseMap(copyYaml);
 	ryml::NodeRef ownS = ownTree->rootref()["soldier"];
 	ryml::ConstNodeRef copyS = copyTree->crootref()["soldier"];
+	auto seqLen = [](ryml::ConstNodeRef map, const char* k) -> size_t {
+		if (map.invalid() || !map.is_map())
+			return 0;
+		ryml::ConstNodeRef c = map.find_child(ryml::to_csubstr(k));
+		return (c.invalid() || !c.is_seq()) ? 0 : (size_t)c.num_children();
+	};
+	const ryml::ConstNodeRef ownDiary = ownS.find_child(ryml::to_csubstr("diary"));
+	const size_t ownIds = seqLen(ownDiary, "missionIdList");
+	const size_t ownKills = seqLen(ownDiary, "killList");
 	for (const char* k : kKeys)
 	{
 		ryml::csubstr key = ryml::to_csubstr(k);
@@ -25838,7 +25862,35 @@ static std::string coopOverlayGuestRecord(const std::string& ownYaml, const std:
 		{
 			ryml::ConstNodeRef src = copyS.find_child(key);
 			if (!src.invalid())
-				coopCopyRecordNode(ownS, key, src);
+				coopCopyRecordNode(ownS, src);
+		}
+	}
+	ryml::NodeRef diary = ownS.find_child(ryml::to_csubstr("diary"));
+	if (hostMissionId >= 0 && newMissionId >= 0 && !diary.invalid() && diary.is_map())
+	{
+		ryml::NodeRef ids = diary.find_child(ryml::to_csubstr("missionIdList"));
+		if (!ids.invalid() && ids.is_seq())
+		{
+			size_t i = 0;
+			for (ryml::NodeRef id : ids.children())
+			{
+				if (i++ >= ownIds && id.has_val() && coopYamlScalarInt(id.val(), -1) == hostMissionId)
+					id.set_val_serialized(newMissionId);
+			}
+		}
+		ryml::NodeRef kills = diary.find_child(ryml::to_csubstr("killList"));
+		if (!kills.invalid() && kills.is_seq())
+		{
+			size_t i = 0;
+			for (ryml::NodeRef kill : kills.children())
+			{
+				if (i++ < ownKills || !kill.is_map()
+					|| SaveUpgrade::yamlutil::getInt(kill, ryml::to_csubstr("mission"), -1) != hostMissionId)
+					continue;
+				const long long turn = SaveUpgrade::yamlutil::getInt(kill, ryml::to_csubstr("turn"), 0);
+				SaveUpgrade::yamlutil::setInt(kill, ryml::to_csubstr("mission"), newMissionId);
+				SaveUpgrade::yamlutil::setInt(kill, ryml::to_csubstr("turn"), turn + (long long)(newMissionId - hostMissionId) * 300);
+			}
 		}
 	}
 	return SaveUpgrade::yamlutil::emitNode(ownTree->rootref());
@@ -25860,6 +25912,26 @@ static Soldier* coopBuildSoldierFromYaml(Game* game, SavedGame* save, const std:
 	return s;
 }
 
+// W2-P7 S-C-B2.2 (AMENDMENT P7-6 section 4.3 step 3; MR13): this mission's statistics record from the host's YAML
+// ("{mission: {...}}"); null when absent or unreadable (the return then copies no mission and remaps no diary entry).
+static MissionStatistics* coopBuildMissionFromYaml(const std::string& yaml)
+{
+	if (yaml.empty())
+		return nullptr;
+	std::unique_ptr<MissionStatistics> ms(new MissionStatistics());
+	try
+	{
+		YAML::YamlRootNodeReader reader(YAML::YamlString{ yaml }, "sepReturnMission");
+		ms->load(reader["mission"]);
+	}
+	catch (const std::exception& e)
+	{
+		Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - mission statistics unreadable: " << e.what();
+		return nullptr;
+	}
+	return ms.release();
+}
+
 // W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 6; owner D155 (a), D156 (a), D178 (a); MR4, MR6; P7-6 Q1 (a); PR-15):
 // the SEPARATE campaign client's OK. Load its OWN world, apply each guest row's record (by the owner's own id) onto the
 // owner's soldier, return to its own geoscape IN PLACE (no CoopState / LoadGameState, P6-4), and push the updated own
@@ -25878,6 +25950,8 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 	sep["guestsApplied"] = 0;
 	sep["guestsMissing"] = 0;
 	sep["pushed"] = 0;
+	sep["deadApplied"] = 0;   // W2-P7 S-C-B2.2: the object replaces the record's whole sepReturn, so B2's keys live here too
+	sep["missionCopied"] = 0;
 	SavedGame* own = nullptr;
 	if (haveBlob)
 	{
@@ -25909,21 +25983,52 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 	}
 	sep["ownLoaded"] = 1;
 
-	// Apply the alive guest rows this seat owns (B1; B2 adds the dead rows and the diary/kill remap).
+	// Apply the guest rows this seat owns: an alive row overwrites the owner's soldier (B1), a dead row moves it to the
+	// owner's memorial with the host's death (B2, D181); both carry this mission's diary entries (B2, MR13).
 	const Json::Value msg = CoopDelta::debriefResultCopy();
 	const Json::Value& guests = msg["debrief"]["guests"];
 	const int seat = localSeat();
-	int applied = 0, missing = 0;
+	// W2-P7 S-C-B2.2 (AMENDMENT P7-6 section 4.3 step 3; MR13): this mission's statistics record, appended to the owner's
+	// world under its own id (vanilla's id = the list's size, DebriefingState :607); its injuryList keeps only this
+	// seat's guests, re-keyed from their host-world ids to the owner's ids.
+	const Json::Value& mission = msg["debrief"]["mission"];
+	const int hostMissionId = mission.isObject() ? mission.get("hostId", -1).asInt() : -1;
+	int newMissionId = -1;
+	if (hostMissionId >= 0)
+	{
+		if (MissionStatistics* ms = coopBuildMissionFromYaml(mission.get("statisticsYaml", "").asString()))
+		{
+			std::map<int, int> injuries;
+			if (guests.isArray())
+			{
+				for (const Json::Value& g : guests)
+				{
+					auto it = ms->injuryList.find(g.get("hostSoldierId", -1).asInt());
+					if (g.get("ownerSeat", -1).asInt() == seat && it != ms->injuryList.end())
+						injuries[g.get("originId", -1).asInt()] = it->second;
+				}
+			}
+			ms->injuryList = injuries;
+			newMissionId = (int)own->getMissionStatistics()->size();
+			ms->id = newMissionId;
+			own->getMissionStatistics()->push_back(ms);
+			sep["missionCopied"] = 1;
+		}
+	}
+	int applied = 0, missing = 0, deadApplied = 0;
 	if (guests.isArray())
 	{
 		for (const Json::Value& g : guests)
 		{
-			if (g.get("ownerSeat", -1).asInt() != seat || g.get("dead", false).asBool())
+			if (g.get("ownerSeat", -1).asInt() != seat)
 				continue;
+			const bool dead = g.get("dead", false).asBool();
 			const int originId = g.get("originId", -1).asInt();
 			Soldier* ownS = nullptr;
 			std::vector<Soldier*>* vec = nullptr;
 			size_t idx = 0;
+			Base* ownBase = nullptr;
+			int baseIdx = 0;
 			for (auto* base : *own->getBases())
 			{
 				auto& sol = *base->getSoldiers();
@@ -25934,11 +26039,13 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 						ownS = sol[i];
 						vec = &sol;
 						idx = i;
+						ownBase = base;
 						break;
 					}
 				}
 				if (ownS)
 					break;
+				++baseIdx;
 			}
 			if (!ownS)
 			{
@@ -25948,12 +26055,15 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 				continue;
 			}
 			const std::string ownSoldierYaml = coopSerializeGuestSoldier(_game, ownS);
-			const std::string merged = coopOverlayGuestRecord(ownSoldierYaml, g.get("soldierYaml", "").asString());
+			const std::string merged = coopOverlayGuestRecord(ownSoldierYaml, g.get("soldierYaml", "").asString(),
+				hostMissionId, newMissionId);
 			Soldier* fresh = coopBuildSoldierFromYaml(_game, own, merged);
-			if (!fresh)
+			if (!fresh || (dead && !fresh->getDeath()))
 			{
 				++missing;
-				Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - rebuild failed for own soldier id=" << originId;
+				Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - rebuild failed for own soldier id=" << originId
+					<< (fresh ? " (a dead row without a death)" : "");
+				delete fresh;
 				continue;
 			}
 			// MR6: a wounded returning guest loses its seat on the host's craft in its own world (re-seated when healed).
@@ -25963,13 +26073,29 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 				fresh->setCoopCraftType("");
 			}
 			fresh->calcStatString(_game->getMod()->getStatStrings(), false);
-			(*vec)[idx] = fresh;
+			if (dead)
+			{
+				// W2-P7 S-C-B2.2 (section 4.3 step 4; D181 (a), PR-16/D218): the guest died in the host's battle - it leaves
+				// its base for the owner's memorial with the host's death time and cause (the YAML). Not killSoldier (the
+				// death already happened), so this logs its own [coop-roster] line.
+				vec->erase(vec->begin() + idx);
+				own->getDeadSoldiers()->push_back(fresh);
+				++deadApplied;
+				Log(LOG_INFO) << "[coop-roster] SEPARATE return death: soldier " << fresh->getId() << " '" << fresh->getName()
+					<< "' owner " << fresh->getOwnerPlayerId() << " removed from base " << baseIdx << " '"
+					<< ownBase->getName() << "' to the dead list; cause S-C-B2 SEPARATE return";
+			}
+			else
+			{
+				(*vec)[idx] = fresh;
+			}
 			delete ownS;
 			++applied;
 		}
 	}
 	sep["guestsApplied"] = applied;
 	sep["guestsMissing"] = missing;
+	sep["deadApplied"] = deadApplied;
 
 	// Return to the own geoscape in place. coopMissionEnd = false makes the legacy SEPARATE mission-end reload (N13,
 	// GeoscapeState.cpp) dead for the returning client - the record is applied here, not by the old blob dance - and
@@ -25991,8 +26117,39 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 	sep["pushed"] = pushed ? 1 : 0;
 	CoopDelta::battleEndRecordSet("sepReturn", sep);
 	Log(LOG_INFO) << "[coop-debrief] client: SEPARATE return - own world loaded, guests applied=" << applied
-		<< " missing=" << missing << " pushed=" << (pushed ? 1 : 0) << " - its own geoscape";
+		<< " missing=" << missing << " dead=" << deadApplied << " mission=" << newMissionId << " pushed=" << (pushed ? 1 : 0)
+		<< " - its own geoscape";
 	return true;
+}
+
+// W2-P7 S-C-B2.2 (AMENDMENT P7-6 section 4.3 step 5; owner D181 (a), D218; PR-16): the HOST, from GeoscapeState::init's
+// post-battle block once its follow-up chain closed (CommendationLateState held these pointers): erase and delete every
+// memorial entry that is a SEPARATE guest's merged copy (coopName "coop-origin:<seat>:<id>") - the guest's death lives
+// in its owner's world (the return's dead row). One [coop-roster] line per copy; record memorialRemoved = the count.
+void connectionTCP::coopRemoveGuestMemorialCopies()
+{
+	SavedGame* sg = _game->getSavedGame();
+	if (!sg || !getServerOwner())
+		return;
+	int removed = 0;
+	std::vector<Soldier*>* deadList = sg->getDeadSoldiers();
+	for (auto it = deadList->begin(); it != deadList->end();)
+	{
+		Soldier* s = *it;
+		int seat = -1, originId = -1;
+		if (!coopParseOriginTag(s->getCoopName(), seat, originId))
+		{
+			++it;
+			continue;
+		}
+		Log(LOG_INFO) << "[coop-roster] SEPARATE memorial copy removed: soldier " << s->getId() << " '" << s->getName()
+			<< "' owner " << s->getOwnerPlayerId() << " (seat " << seat << ", owner's id " << originId
+			<< ") from the dead list; cause S-C-B2 SEPARATE return";
+		delete s;
+		it = deadList->erase(it);
+		++removed;
+	}
+	CoopDelta::battleEndRecordSet("memorialRemoved", removed);
 }
 
 // V6 (DebriefingState::btnOkClick, first statement). W2-P7 S-B2.2 (AMENDMENT P7-4; owner D156 (a), G5 (b), Q10 (a)):
