@@ -2925,6 +2925,32 @@ void transferArrivedApply(Game* game, Json::Value& payload, Base* base, int /*se
 	}
 }
 
+// W2-H18 (F3259): the soldier_fx stats, named as the soldier_training_probe names them (UnitStats::fieldLoop order).
+const std::pair<const char*, UnitStats::Ptr> kSoldierFxStats[] = {
+	{"tu", &UnitStats::tu}, {"stamina", &UnitStats::stamina}, {"health", &UnitStats::health},
+	{"bravery", &UnitStats::bravery}, {"reactions", &UnitStats::reactions}, {"firing", &UnitStats::firing},
+	{"throwing", &UnitStats::throwing}, {"strength", &UnitStats::strength}, {"psiStrength", &UnitStats::psiStrength},
+	{"psiSkill", &UnitStats::psiSkill}, {"melee", &UnitStats::melee}, {"mana", &UnitStats::mana}};
+
+// W2-H18 (F3259): one soldier's training / recovery record for soldier_fx (absolute values): the 12 current stats, this
+// month's psi improvements, the three training flags and health / mana missing. Wound recovery rides day_tick.
+Json::Value soldierFxRecord(Soldier* s)
+{
+	Json::Value r(Json::objectValue), st(Json::objectValue);
+	for (const auto& f : kSoldierFxStats)
+		st[f.first] = (int)(s->getCurrentStats()->*f.second);
+	r["id"] = s->getId();
+	r["stats"] = st;
+	r["improvement"] = s->getImprovement();
+	r["psiStrImprovement"] = s->getPsiStrImprovement();
+	r["psiTraining"] = s->isInPsiTraining();
+	r["training"] = s->isInTraining();
+	r["rtwh"] = s->getReturnToTrainingWhenHealed();
+	r["healthMissing"] = s->getHealthMissing();
+	r["manaMissing"] = s->getManaMissing();
+	return r;
+}
+
 // day_tick payload: { soldiers:[{id,recovery}], productions:[{item,spent}],
 // research:[{project,spent}] }. PRD-J06: the replica's timeXxx handlers are
 // frozen, so production _timeSpent and research _spent never advance locally;
@@ -2963,6 +2989,41 @@ void dayTickApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 			ResearchProject* rp = findResearchProject(base, rr.get("project", "").asString());
 			if (rp) rp->setSpent(rr.get("spent", rp->getSpent()).asInt());
 		}
+}
+
+// soldier_fx payload: { soldiers: [soldierFxRecord] }. W2-H18 (F3259, D226 a): host-origin after the host's day / month
+// soldier loops - the replica adopts the host's training and recovery results (it never rolls its own: time1Day is
+// frozen and time1MonthCoop's psi block is gated on a SHARED replica). Replica only; no RNG, no training call.
+void soldierFxApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host's own loops wrote these values
+	if (!game || !base) return;
+	const Json::Value& soldiers = payload["soldiers"];
+	if (!soldiers.isArray()) return;
+	Mod* mod = game->getMod();
+	SavedGame* save = game->getSavedGame();
+	// F6140: the stat string with THIS player's display option (psiStrengthEval is not a synced option)
+	const bool psiStrengthEval = Options::psiStrengthEval && save && save->isResearched(mod->getPsiRequirements());
+	int adopted = 0;
+	for (const auto& r : soldiers)
+	{
+		Soldier* s = findSoldier(base, r.get("id", -1).asInt());
+		if (!s) continue; // not at this base here: left out of the adopted count
+		UnitStats* u = s->getCurrentStatsEditable();
+		for (const auto& f : kSoldierFxStats)
+			u->*f.second = (UnitStats::Type)r["stats"].get(f.first, (int)(u->*f.second)).asInt();
+		s->setPsiImprovements(r.get("improvement", s->getImprovement()).asInt(),
+			r.get("psiStrImprovement", s->getPsiStrImprovement()).asInt());
+		s->setPsiTraining(r.get("psiTraining", s->isInPsiTraining()).asBool());
+		s->setTraining(r.get("training", s->isInTraining()).asBool());
+		s->setReturnToTrainingWhenHealed(r.get("rtwh", s->getReturnToTrainingWhenHealed()).asBool());
+		s->setHealthMissing(r.get("healthMissing", s->getHealthMissing()).asInt());
+		s->setManaMissing(r.get("manaMissing", s->getManaMissing()).asInt());
+		s->calcStatString(mod->getStatStrings(), psiStrengthEval);
+		++adopted;
+	}
+	Log(LOG_INFO) << "[SHARED] soldier_fx: " << adopted << " of " << soldiers.size() << " soldier(s) at base "
+		<< baseIndex(game, base);
 }
 
 // unassign_wounded payload: { ids: [soldier id] } (baseId = the debriefing base). W2-P7 S-C-A.2 (P7-6 4.1 step 8; MR2,
@@ -3177,6 +3238,7 @@ void ScreenRefresh::bind(Game* game, const void* owner, Base* base, bool wantPro
 		// "days left"). List views want it; a command screen must NOT throw away the
 		// player's half-entered order once per game-day because of it.
 		if (!_wantProgress && cmd == "day_tick") return;
+		if (!_wantProgress && cmd == "soldier_fx") return; // W2-H18: per-day soldier bookkeeping, like day_tick (Q4)
 		// applyBaseId < 0 = world-scoped (funds-only, base creation, dogfights):
 		// always relevant. Otherwise only this screen's own base matters.
 		if (applyBaseId >= 0 && _base)
@@ -3292,6 +3354,7 @@ void init()
 	registerCmd("prod_done",        &simAccept, &prodDoneApply);
 	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
 	registerCmd("day_tick",         &simAccept, &dayTickApply);
+	registerCmd("soldier_fx",       &simAccept, &soldierFxApply); // W2-H18 (F3259): host-origin, replica-only
 	registerCmd("unassign_wounded", &simAccept, &unassignWoundedApply); // W2-P7 S-C-A.2 (MR2): host-origin, replica-only
 }
 
@@ -4186,6 +4249,39 @@ void hostDayTick(Game* game)
 			p["productions"] = productions;
 			p["research"] = research;
 			submitLocalCmd(game, "day_tick", bi, p);
+		}
+	}
+}
+
+Json::Value soldierFxMark(Game* game)
+{
+	if (!sharedHost(game) || !game->getSavedGame()) return Json::Value(Json::nullValue);
+	Json::Value m(Json::objectValue);
+	for (auto* base : *game->getSavedGame()->getBases())
+		for (auto* s : *base->getSoldiers())
+			m[std::to_string(s->getId())] = soldierFxRecord(s);
+	return m;
+}
+
+void hostSoldierFx(Game* game, const Json::Value& mark)
+{
+	if (mark.isNull() || !sharedHost(game) || !game->getSavedGame()) return;
+	auto* bases = game->getSavedGame()->getBases();
+	for (int bi = 0; bi < (int)bases->size(); ++bi)
+	{
+		Json::Value soldiers(Json::arrayValue);
+		for (auto* s : *(*bases)[bi]->getSoldiers())
+		{
+			const std::string key = std::to_string(s->getId());
+			if (!mark.isMember(key)) continue; // not in the mark (arrived since): no training / recovery change to send
+			Json::Value r = soldierFxRecord(s);
+			if (r != mark[key]) soldiers.append(r);
+		}
+		if (!soldiers.empty())
+		{
+			Json::Value p(Json::objectValue);
+			p["soldiers"] = soldiers;
+			submitLocalCmd(game, "soldier_fx", bi, p);
 		}
 	}
 }

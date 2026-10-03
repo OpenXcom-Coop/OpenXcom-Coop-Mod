@@ -284,6 +284,8 @@ private:
 	int getImprovement() const;
 	/// returns this soldier's psionic strength improvement score for this month.
 	int getPsiStrImprovement() const;
+	/// coop W2-H18 (F3259): sets this month's psi improvement scores (the SHARED replica adopts the host's).
+	void setPsiImprovements(int improvement, int psiStrImprovement);
 	/// Gets the soldier death info.
 	SoldierDeath *getDeath() const;
 	/// Kills the soldier.

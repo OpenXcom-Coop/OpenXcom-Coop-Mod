@@ -1604,6 +1604,15 @@ int Soldier::getPsiStrImprovement() const
 }
 
 /**
+ * coop W2-H18 (F3259): sets this month's psi improvement scores (the SHARED replica adopts the host's).
+ */
+void Soldier::setPsiImprovements(int improvement, int psiStrImprovement)
+{
+	_improvement = improvement;
+	_psiStrImprovement = psiStrImprovement;
+}
+
+/**
  * Returns the soldier's death details.
  * @return Pointer to death data. NULL if no death has occurred.
  */

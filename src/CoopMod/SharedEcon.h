@@ -256,6 +256,12 @@ void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived);
 /// End-of-day soldier changes on the host (time1Day): replica adopts the
 /// per-soldier wound-recovery values for CHANGED soldiers only.
 void hostDayTick(Game* game);
+/// W2-H18 (F3259): HOST, right before a day/month soldier loop - every soldier's training/recovery record keyed by
+/// id; Json::nullValue unless this machine is the SHARED host.
+Json::Value soldierFxMark(Game* game);
+/// W2-H18 (F3259): HOST, right after the loop - sends soldier_fx per base with the absolute record of every soldier
+/// whose record changed since @a mark; no-op on a null mark.
+void hostSoldierFx(Game* game, const Json::Value& mark);
 
 /// PRD-J07: a base was destroyed by retaliation on the host (it already removed
 /// the base in BaseDestroyedState). Mirror the removal to replicas (they erase the
