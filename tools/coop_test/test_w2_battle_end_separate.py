@@ -53,6 +53,10 @@ alive in the client's base (cell 2 red); C28P still passes.
 W2-P7 S-C-C.1 (PR-C7, the P7-6 C re-pin at 2e177ff39): cell 2 walks the client's after-battle screens down to its
 geoscape; a LAST cell 4 checks the client's chain. RED: exactly cell 4 of both rows (the chain is empty).
 
+W2-P7 S-C-B2.3.1 (F5553, V-C3; the P7-6 B2.3 pin PB-3/PB-8): C28P-dead's `pre_extra` seeds ARMOR_SEED on the client's own
+guest before the battle (guarded on the host's battle unit and OWN_BEFORE); a LAST cell 5 checks the client's dead guest
+lies in DEFAULT_ARMOR, as the host's buried copy (vanilla's killSoldier(true) reset). RED: it keeps ARMOR_SEED.
+
 Run:  python tools/coop_test/test_w2_battle_end_separate.py
 """
 
@@ -91,6 +95,8 @@ LOADGAME_PUSH = "push class OpenXcom::LoadGameState"           # the [coop-ui] s
 FOLLOWUPS = ("CommendationLateState", "CommendationState", "PromotionsState", "CannotReequipState")
 CHAIN_C28P = ["PromotionsState"]              # A.10: the host's drained follow-ups, 2 equal red-build runs (guest promoted)
 CHAIN_C28P_DEAD = ["CommendationLateState"]   # A.10: the same 2 runs (the dead guest, DebriefingState :778, F4532)
+ARMOR_SEED = "STR_PERSONAL_ARMOR_UC"   # B2.3 pin PB-3: bin/standard/xcom1/armors.rul :28 (client seed_soldier_armor)
+DEFAULT_ARMOR = "STR_NONE_UC"          # B2.3 pin PB-3: the soldier type's default armor, xcom1/soldiers.rul :41
 
 
 class FixtureMiss(Exception):
@@ -449,7 +455,7 @@ def kill_all_and_guest(host, client, gid, ctx):
                 f"{STATUS_DEAD}) after host kill_unit_real", m)
 
 
-def _stage_common(rid, host, client, ctx, port, kill_fn, precheck):
+def _stage_common(rid, host, client, ctx, port, kill_fn, precheck, pre_extra=None):
     """The pre-cell part shared by C28P and C28P-dead: the SEPARATE battle on SEED_P with the T0-5 marker, `kill_fn`'s
     ending construction, the ending, and the host's debriefing - plus COPY / H0 / OWN_BEFORE. `precheck(copy)` returns a
     reason string (or None) the host's merged 'Guest Zzz' copy must satisfy. Fills ctx; raises FixtureMiss (after a
@@ -461,6 +467,8 @@ def _stage_common(rid, host, client, ctx, port, kill_fn, precheck):
         mv = int(g0.get("funds")) + MARKER_DELTA
         c.ok({"cmd": "set_funds", "value": mv})
         ctx["marker"] = mv
+        if pre_extra is not None:   # W2-P7 S-C-B2.3.1 PB-8: before OWN_BEFORE and the battle-entry snapshot (F6221)
+            pre_extra(h, c, ctx)
         ctx["ownBefore"] = soldier_rec(c, name="Guest Zzz")
 
     def seed_pin(h, c):
@@ -529,9 +537,36 @@ def _precheck_dead(copy):
     return None
 
 
+def seed_guest_armor(h, c, ctx):
+    """C28P-dead `pre_extra` (B2.3 pin section 5): the client's own guest wears ARMOR_SEED (seed_soldier_armor, no store
+    change)."""
+    sid = soldier_rec(c, name="Guest Zzz").get("id")
+    r = c.cmd({"cmd": "seed_soldier_armor", "soldier_id": sid, "armor": ARMOR_SEED})
+    ctx["armorSeed"] = {"soldierId": sid, "resp": {k: r.get(k) for k in ("ok", "armor", "error")}}
+    if r.get("armor") != ARMOR_SEED:
+        capture("armor seed", f"client seed_soldier_armor {ctx['armorSeed']} (want armor {ARMOR_SEED!r})", (h, c))
+
+
+def armored_kill_all_and_guest(host, client, gid, ctx):
+    """C28P-dead construction with the armor guard: the host's guest battle unit and OWN_BEFORE wear ARMOR_SEED."""
+    worn = {"hostUnit": unit(host, gid).get("armor"), "ownBefore": (ctx.get("ownBefore") or {}).get("armor")}
+    ctx["armorWorn"] = worn
+    if worn != {"hostUnit": ARMOR_SEED, "ownBefore": ARMOR_SEED}:
+        capture("armor worn", f"guest armor {worn} (want both {ARMOR_SEED!r})", (host, client))
+    kill_all_and_guest(host, client, gid, ctx)
+
+
+def _precheck_dead_armor(copy):
+    reason = _precheck_dead(copy)
+    if reason is None and copy.get("armor") != DEFAULT_ARMOR:
+        reason = f"the host's buried 'Guest Zzz' copy wears {copy.get('armor')!r} (want {DEFAULT_ARMOR!r}, vanilla's reset)"
+    return reason
+
+
 def stage_dead(rid, host, client, ctx):
     """C28P-dead pre-cell: every hostile and the guest killed (seed-independent), so the host's memorial copy is dead."""
-    _stage_common(rid, host, client, ctx, COOP_PORT_DEAD, kill_all_and_guest, _precheck_dead)
+    _stage_common(rid, host, client, ctx, COOP_PORT_DEAD, armored_kill_all_and_guest, _precheck_dead_armor,
+                  pre_extra=seed_guest_armor)
 
 
 # ===================== cells =====================
@@ -714,6 +749,18 @@ def cell_host_memorial(host, client, ctx):
     return f
 
 
+def cell_dead_armor(host, client, ctx):
+    """C28P-dead LAST cell 5 (B2.3 pin section 5; F5553, V-C3): the client's dead guest lies in DEFAULT_ARMOR, == the host's
+    buried copy (COPY). RED: it keeps ARMOR_SEED (the overlay copies no armor key)."""
+    recs, _meta = soldier_recs(client, sid=ctx["guestId"])
+    got = next((r for r in recs if r.get("dead")), {}).get("armor")
+    want = (ctx.get("copy") or {}).get("armor")
+    ctx["deadArmor"] = {"client": got, "copy": want, "records": len(recs)}
+    if got != DEFAULT_ARMOR or got != want:
+        return [f"the client's dead guest wears {got!r} (want its default armor {DEFAULT_ARMOR!r} == the host COPY's {want!r})"]
+    return []
+
+
 def c28p_dead_cells(host, client, ctx):
     return [
         ("1 the client's display-only debriefing, equal to the host's", lambda: cell_debriefs(host, client, ctx)),
@@ -721,6 +768,7 @@ def c28p_dead_cells(host, client, ctx):
         ("3 the host's OK + drain; the host memorial copy removed", lambda: cell_host_memorial(host, client, ctx)),
         ("4 the client's chain", lambda: cell_client_chain(host, client, ctx, "deadReturn", "hostMemorial",
                                                            CHAIN_C28P_DEAD)),
+        ("5 the client's dead guest is buried in its default armor", lambda: cell_dead_armor(host, client, ctx)),
     ]
 
 
