@@ -196,13 +196,27 @@ def short(e, n=300):
     return s if len(s) <= n else s[:n] + "..."
 
 
+def staging_settled(host, client):
+    """W2-U8b (F6305, F6471; W2-U8 F6060): the client has applied every ev the host emitted
+    (session.wait_host_idle). A host lever can make the host EMIT in its own frame: an alien teleport
+    dirties that alien's hostile FOV key, and CoopReveal::flushQuiescent (updateCoopTask, right after
+    TestServer::pump) ships a standalone `reveal` ev whose `h` hashes the host's state at that emit. If the
+    next pair's client lever runs before the client applies that ev, the client hashes a different
+    unitsStats and freezes (DESYNC unitsStats seq 8 kind=reveal). The first host read runs in a later
+    TestServer::pump than the lever, after that frame's flush, so this cannot pass before the emit."""
+    session.wait_host_idle(host, client, timeout=30)
+
+
 def both(host, client, req, keys):
-    """Send `req` to BOTH machines; assert ok and equal on `keys`."""
+    """Send `req` to BOTH machines; assert ok and equal on `keys`; then staging_settled() - the client has
+    applied every ev the host emitted before the next lever runs on it (W2-U8b). tele_both, tu_both and
+    set_tile_both (and every caller's own wrapper of both) inherit the wait."""
     rc = client.cmd(dict(req))  # F607: client first, then host
     rh = host.cmd(dict(req))
     assert rh.get("ok") and rc.get("ok"), f"staging {req} failed: host={rh} client={rc}"
     vh, vc = tuple(rh.get(k) for k in keys), tuple(rc.get(k) for k in keys)
     assert vh == vc, f"staging {req} differs: host={vh} client={vc}"
+    staging_settled(host, client)
     return rh
 
 
