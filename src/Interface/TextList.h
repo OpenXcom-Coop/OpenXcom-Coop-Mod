@@ -86,6 +86,7 @@ public:
 	void setRowColor(size_t row, Uint8 color);
 	/// Gets the text of a certain cell.
 	std::string getCellText(size_t row, size_t column) const;
+	Uint8 harnessCellColor(size_t row, size_t col) const { return _texts[row][col]->getColor(); } // coop (W2-P7 S-C-E2, P7-8 PR-51): test read of a cell colour
 	/// Sets the text of a certain cell.
 	void setCellText(size_t row, size_t column, const std::string &text);
 	/// Gets the X position of a certain column.
