@@ -4185,6 +4185,7 @@ void GeoscapeState::time1Day()
 	SavedGame *saveGame = _game->getSavedGame();
 	Mod *mod = _game->getMod();
 	bool psiStrengthEval = (Options::psiStrengthEval && saveGame->isResearched(mod->getPsiRequirements()));
+	const Json::Value h18DayMark = SharedEcon::soldierFxMark(_game); // coop W2-H18 (F3259): soldier training/recovery before the day's loops
 
 	// PRD-J04: index of a base in the shared list = the SHARED baseId; used by the
 	// host sim-result broadcasts (research/facility/day_tick).
@@ -4699,6 +4700,7 @@ void GeoscapeState::time1Day()
 
 	// PRD-J04: mirror end-of-day soldier changes (wound recovery) to SHARED
 	// replicas, for CHANGED soldiers only.
+	SharedEcon::hostSoldierFx(_game, h18DayMark); // coop W2-H18 (F3259): daily psi, martial training, return-to-training, health/mana recovery reach the replica
 	SharedEcon::hostDayTick(_game);
 }
 
@@ -4738,6 +4740,7 @@ void GeoscapeState::time1Month()
 
 	// Determine alien mission for this month.
 	determineAlienMissions();
+	const Json::Value h18MonthMark = SharedEcon::soldierFxMark(_game); // coop W2-H18 (F3259)
 
 	// Handle Psi-Training and initiate a new retaliation mission, if applicable
 	if (!Options::anytimePsiTraining)
@@ -4759,6 +4762,7 @@ void GeoscapeState::time1Month()
 		}
 	}
 
+	SharedEcon::hostSoldierFx(_game, h18MonthMark); // coop W2-H18 (F3259): the host's month-end psi results
 	// Handle funding
 	timerReset();
 
@@ -4800,6 +4804,7 @@ void GeoscapeState::time1MonthCoop()
 	}
 
 	// Handle Psi-Training and initiate a new retaliation mission, if applicable
+	if (!_game->getCoopMod()->isSharedReplica()) // coop W2-H18 (F3259): a SHARED replica adopts the host's soldier_fx instead of rolling its own
 	if (!Options::anytimePsiTraining)
 	{
 		bool psiStrengthEval = (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements()));
