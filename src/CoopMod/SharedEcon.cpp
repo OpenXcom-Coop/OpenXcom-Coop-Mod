@@ -72,6 +72,9 @@
 #include "../Savegame/Target.h"
 #include "../Savegame/AlienMission.h"
 #include "../Savegame/CraftWeapon.h"
+#include "../Savegame/Vehicle.h"       // W2-P7 S-C-D2.2 (PR-33): the forced storage sale's craft cleanup
+#include "../Engine/Collections.h"     // W2-P7 S-C-D2.2 (PR-33): vanilla's vehicle deleteIf
+#include <climits>                     // W2-P7 S-C-D2.2 (PR-33): INT_MAX
 #include "../Savegame/Country.h"
 #include "../Savegame/WeightedOptions.h"
 #include "../Mod/RuleUfo.h"
@@ -159,7 +162,7 @@ struct PendingCmd
 std::mutex g_mx;                     // guards the four queues below
 std::deque<PendingCmd>  g_cmdQ;      // host:      to validate+apply+broadcast
 std::deque<Json::Value> g_applyQ;    // replica:   shared_apply to apply
-std::deque<std::string> g_failQ;     // initiator: shared_fail reasons to surface
+std::deque<std::pair<std::string, int>> g_failQ; // initiator: shared_fail {reason, seq} to surface (seq: W2-P7 S-C-D2.2 PR-30)
 int g_resyncServeQ = 0;              // host:      pending shared_resync_requests
 bool g_applyHold = false;            // replica:   g_applyQ held until a streamed world's adoption (W2-P7 S-C-A.2 PR-6)
 
@@ -212,6 +215,206 @@ void setLastFail(const std::string& reason)
 {
 	std::lock_guard<std::mutex> lk(g_failMx);
 	g_lastFail = reason;
+}
+
+// ---- W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-30, MR10, F2526): the initiator's awaited confirms, by screen key ----------
+// A screen opened through the real UI registers its submitted seq (keepAfterSubmit); the answer is recorded here -
+// shared_ok on receipt, shared_fail when update() surfaces it, the host's own command at its apply / rejection - and
+// the screen's think() takes it. A seq nobody awaits (a harness lever, a forced screen, a cancelled one) is ignored.
+std::mutex g_resMx;
+std::map<int, std::string> g_awaitBySeq;  // awaited seq -> screen key
+std::map<std::string, int> g_awaitByKey;  // screen key -> awaited seq
+std::map<std::string, int> g_resultByKey; // screen key -> 1 ok / -1 failed, until taken
+
+void recordResult(int seq, int result)
+{
+	std::string key;
+	{
+		std::lock_guard<std::mutex> lk(g_resMx);
+		auto it = g_awaitBySeq.find(seq);
+		if (it == g_awaitBySeq.end()) return;
+		key = it->second;
+		g_awaitBySeq.erase(it);
+		auto k = g_awaitByKey.find(key);
+		if (k != g_awaitByKey.end() && k->second == seq) g_awaitByKey.erase(k);
+		g_resultByKey[key] = result;
+	}
+	Log(LOG_INFO) << "[SHARED] confirm answered: " << key << " seq=" << seq << (result > 0 ? " ok" : " failed");
+}
+
+// PR-31 (D175, MR9): a forced screen's "solved" - vanilla's own over-the-limit gates (SellState :92 / :1362,
+// ManageAlienContainmentState :299-302).
+bool storageSolved(Base* base)
+{
+	return !(Options::storageLimitsEnforced && base->storesOverfull());
+}
+
+bool containmentSolved(Base* base, int prisonType)
+{
+	const int availableContainment = base->getAvailableContainment(prisonType);
+	const int freeContainment = availableContainment - base->getUsedContainment(prisonType);
+	return !((availableContainment == 0 || Options::storageLimitsEnforced) && freeContainment < 0);
+}
+
+// PR-33 (MR15, F2500): what a forced storage SellState lists for @a rule (SellState :257-275 at the post-battle
+// origin): base stock + item transfers + transfer crafts' and base crafts' items (their weapons and vehicles too when
+// the stores are critically over).
+int forcedSellAvailable(Base* base, const RuleItem* rule, bool critical)
+{
+	int qty = base->getStorageItems()->getItem(rule);
+	for (auto* transfer : *base->getTransfers())
+	{
+		if (transfer->getItems() == rule)
+			qty += transfer->getQuantity();
+		else if (transfer->getCraft())
+			qty += critical ? transfer->getCraft()->getTotalItemCount(rule) : transfer->getCraft()->getItems()->getItem(rule);
+	}
+	for (auto* craft : *base->getCrafts())
+		qty += critical ? craft->getTotalItemCount(rule) : craft->getItems()->getItem(rule);
+	return qty;
+}
+
+// PR-33 (MR15): SellState::btnOkClick's own removal of one sold item (:739-946, ported verbatim): the base stock, then
+// each base craft's item container and then its weapons / vehicles (the launcher / clip remainders go to the stores),
+// then the transfers in list order (an item transfer shrinks or goes; a transfer craft is cleaned like a base craft).
+// Host and replica run it on identical worlds.
+void forcedSellRemove(Base* base, const RuleItem* item, int amount)
+{
+	auto cleanUpContainer = [&](ItemContainer* container, const RuleItem* rule, int toRemove) -> int
+	{
+		int curr = container->getItem(rule);
+		if (curr >= toRemove)
+		{
+			container->removeItem(rule, toRemove);
+			return 0;
+		}
+		else
+		{
+			container->removeItem(rule, INT_MAX);
+			return toRemove - curr;
+		}
+	};
+
+	auto cleanUpCraft = [&](Craft* craft2, const RuleItem* rule, int toRemove) -> int
+	{
+		struct S
+		{
+			int ToRemove, ToSave;
+			const RuleItem* rule;
+		};
+
+		auto tryRemove = [&toRemove, rule](int curr, const RuleItem* i) -> S
+		{
+			if (i == rule)
+			{
+				int r = std::min(toRemove, curr);
+				toRemove -= r;
+				curr -= r;
+				return S{ r, curr, i };
+			}
+			else
+			{
+				return S{ 0, curr, i };
+			}
+		};
+		auto tryStore = [&](S s)
+		{
+			if (s.ToSave > 0)
+			{
+				base->getStorageItems()->addItem(s.rule, s.ToSave);
+			}
+		};
+
+		for (auto*& w : *craft2->getWeapons())
+		{
+			if (w != nullptr)
+			{
+				auto* wr = w->getRules();
+
+				auto launcher = tryRemove(1, wr->getLauncherItem());
+				auto clip = tryRemove(w->getClipsLoaded(), wr->getClipItem());
+				if (launcher.ToRemove || clip.ToRemove)
+				{
+					tryStore(launcher);
+					tryStore(clip);
+
+					delete w;
+					w = nullptr;
+				}
+			}
+		}
+
+		Collections::deleteIf(
+			*craft2->getVehicles(),
+			[&](Vehicle* v)
+			{
+				auto* clipType = v->getRules()->getVehicleClipAmmo();
+
+				auto launcher = tryRemove(1, v->getRules());
+				auto clip = tryRemove(v->getRules()->getVehicleClipsLoaded(), clipType);
+
+				if (launcher.ToRemove || clip.ToRemove)
+				{
+					tryStore(launcher);
+					tryStore(clip);
+
+					return true;
+				}
+				else
+				{
+					return false;
+				}
+			}
+		);
+
+		return toRemove;
+	};
+
+	// remove all of said items from base
+	int toRemove = cleanUpContainer(base->getStorageItems(), item, amount);
+
+	// if we still need to remove any, remove them from the crafts first, and keep a running tally
+	for (auto* craft : *base->getCrafts())
+	{
+		if (toRemove <= 0) break; // loop finished
+		toRemove = cleanUpContainer(craft->getItems(), item, toRemove);
+		if (toRemove > 0)
+		{
+			toRemove = cleanUpCraft(craft, item, toRemove);
+		}
+	}
+
+	// if there are STILL any left to remove, take them from the transfers, and if necessary, delete it.
+	for (auto transferIt = base->getTransfers()->begin(); transferIt != base->getTransfers()->end() && toRemove;)
+	{
+		auto* transfer = (*transferIt);
+		if (transfer->getItems() == item)
+		{
+			if (transfer->getQuantity() <= toRemove)
+			{
+				toRemove -= transfer->getQuantity();
+				delete transfer;
+				transferIt = base->getTransfers()->erase(transferIt);
+			}
+			else
+			{
+				transfer->setItems(transfer->getItems(), transfer->getQuantity() - toRemove);
+				toRemove = 0;
+			}
+		}
+		else
+		{
+			if (transfer->getCraft())
+			{
+				toRemove = cleanUpContainer(transfer->getCraft()->getItems(), item, toRemove);
+				if (toRemove > 0)
+				{
+					toRemove = cleanUpCraft(transfer->getCraft(), item, toRemove);
+				}
+			}
+			++transferIt;
+		}
+	}
 }
 
 // ---- PRD-J10: apply notification (live screen refresh) -----------------------
@@ -546,6 +749,12 @@ bool sellValidate(Game* game, const Json::Value& payload, Base* base, int /*seat
                   int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
+	// W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-32/PR-33; MR9, MR15, F2163, F2500): a forced storage confirm that arrives after
+	// the base is back under its limit is dropped silently (checked FIRST); otherwise it may sell what the forced
+	// screen lists - the crafts' and in-transit items too, as vanilla.
+	const bool forced = payload.get("origin", "").asString() == "forced";
+	if (forced && storageSolved(base)) { failReason = "coop_forced_resolved"; return false; }
+	const bool critical = forced && base->storesOverfullCritical();
 	SavedGame* save = game->getSavedGame();
 	Mod* mod = game->getMod();
 	if (!save || !mod) { failReason = "no world"; return false; }
@@ -561,7 +770,7 @@ bool sellValidate(Game* game, const Json::Value& payload, Base* base, int /*seat
 			if (qty <= 0) continue;
 			RuleItem* r = mod->getItem(rule, false);
 			if (!r) { failReason = "unknown item: " + rule; return false; }
-			if (base->getStorageItems()->getItem(r) < qty)
+			if ((forced ? forcedSellAvailable(base, r, critical) : base->getStorageItems()->getItem(r)) < qty)
 				{ failReason = "STR_NOT_ENOUGH_ITEMS_TO_SELL"; return false; }
 			credit += (int64_t)qty * r->getSellCostAdjusted(base, save);
 		}
@@ -603,13 +812,16 @@ void sellApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 
 	// ORDER (items -> soldiers -> crafts -> scientists -> engineers) is fixed and
 	// identical on host and replica, so both worlds mutate the same way.
+	// W2-P7 S-C-D2.2 (PR-33, MR15): a forced storage sale removes in vanilla's order (stock, crafts, transfers).
+	const bool forced = payload.get("origin", "").asString() == "forced";
 	const Json::Value& items = payload["items"];
 	if (items.isArray())
 		for (const auto& it : items)
 		{
 			int qty = it.get("qty", 0).asInt();
 			RuleItem* r = mod->getItem(it.get("rule", "").asString(), false);
-			if (r && qty > 0) base->getStorageItems()->removeItem(r, qty);
+			if (r && qty > 0 && forced) forcedSellRemove(base, r, qty);
+			else if (r && qty > 0) base->getStorageItems()->removeItem(r, qty);
 		}
 
 	const Json::Value& soldiers = payload["soldiers"];
@@ -657,6 +869,10 @@ bool containmentValidate(Game* game, const Json::Value& payload, Base* base, int
                          int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
+	// W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-32; MR9, F2163): a forced containment confirm that arrives after the prison is
+	// back under its limit is dropped silently (checked FIRST).
+	if (payload.get("origin", "").asString() == "forced" && containmentSolved(base, payload.get("prisonType", 0).asInt()))
+		{ failReason = "coop_forced_resolved"; return false; }
 	SavedGame* save = game->getSavedGame();
 	Mod* mod = game->getMod();
 	if (!save || !mod) { failReason = "no world"; return false; }
@@ -2656,6 +2872,7 @@ void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 		// surfaces a shared_fail received from the host (PRD-J10: one helper, one
 		// dialog, both roles).
 		showFail(game, reason);
+		recordResult(pc.seq, -1); // W2-P7 S-C-D2.2 (PR-30): the host's own awaiting screen stays under the box
 	}
 }
 
@@ -2723,6 +2940,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// PRD-J10: the host's own open screens are as stale as a replica's after an
 	// apply (a client's buy moves the host's funds too), so both roles notify.
 	fireApplyListener(pc.cmd, pc.baseId, pc.seat);
+	if (!pc.remote) recordResult(pc.seq, 1); // W2-P7 S-C-D2.2 (PR-30): the host's own awaiting screen closes
 }
 
 // ---- Replica-side apply (main thread) ----------------------------------------
@@ -2854,6 +3072,7 @@ bool ScreenRefresh::consume()
 void showFail(Game* game, const std::string& reason)
 {
 	if (!game) return;
+	if (reason == "coop_forced_resolved") return; // W2-P7 S-C-D2.2 (PR-32): no box - the forced screen closes itself
 	// The reason is the host validator's own string: an STR_ id where the vanilla
 	// rule already had one (STR_NOT_ENOUGH_MONEY, STR_NOT_ENOUGH_CRAFT_SPACE, ...),
 	// a plain sentence otherwise. Language::getString returns the id unchanged when
@@ -2996,6 +3215,7 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 	if (state == "shared_ok")
 	{
 		++g_okN; // informational: the mutation self-applies from shared_apply
+		recordResult(obj.get("seq", 0).asInt(), 1); // W2-P7 S-C-D2.2 (PR-30): an awaiting screen closes on it
 		return true;
 	}
 	if (state == "shared_fail")
@@ -3004,7 +3224,7 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 		++g_failN;
 		setLastFail(reason);
 		std::lock_guard<std::mutex> lk(g_mx);
-		g_failQ.push_back(reason);
+		g_failQ.push_back({ reason, obj.get("seq", 0).asInt() });
 		return true;
 	}
 	if (state == "shared_resync_request")
@@ -3067,14 +3287,15 @@ void update(Game* game)
 	// 3) Initiator: surface queued failures (one dialog per fail).
 	for (;;)
 	{
-		std::string reason;
+		std::pair<std::string, int> fail;
 		bool have = false;
 		{
 			std::lock_guard<std::mutex> lk(g_mx);
-			if (!g_failQ.empty()) { reason = g_failQ.front(); g_failQ.pop_front(); have = true; }
+			if (!g_failQ.empty()) { fail = g_failQ.front(); g_failQ.pop_front(); have = true; }
 		}
 		if (!have) break;
-		showFail(game, reason);
+		showFail(game, fail.first);
+		recordResult(fail.second, -1); // W2-P7 S-C-D2.2 (PR-30): the awaiting screen stays under the fail box
 	}
 
 	// 4) Host: serve queued resync requests (PRD-J10). Re-stream the authoritative
@@ -3097,10 +3318,10 @@ void update(Game* game)
 	}
 }
 
-void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
+int submitLocalCmd(Game* game, const std::string& cmd, int baseId,
                     const Json::Value& payload)
 {
-	if (!game) return;
+	if (!game) return 0;
 	int seq = ++g_seqCounter;
 	int seat = connectionTCP::localSeat();
 
@@ -3130,6 +3351,123 @@ void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 		msg["payload"] = payload;
 		if (game->getCoopMod()) game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
 	}
+	return seq;
+}
+
+// ---- W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-30/PR-31; D175, MR9, MR10): screen keys, awaited answers, closing ----------
+namespace
+{
+std::string screenKey(const char* screen, char variant, int baseIdx, const std::string& extra)
+{
+	return std::string(screen) + "|" + variant + "|" + std::to_string(baseIdx) + "|" + extra;
+}
+
+bool sharedGame(Game* game)
+{
+	return game && game->getCoopMod() && game->getCoopMod()->isSharedCampaign();
+}
+}
+
+std::string sellKey(Game* game, Base* base, bool debrief, bool battlescapeOrigin)
+{
+	return screenKey("sell", debrief ? 'd' : battlescapeOrigin ? 'f' : 'n', baseIndex(game, base), "");
+}
+
+std::string xferKey(Game* game, Base* from, Base* to, bool debrief)
+{
+	return screenKey("xfer", debrief ? 'd' : 'n', baseIndex(game, from), std::to_string(baseIndex(game, to)));
+}
+
+std::string contKey(Game* game, Base* base, int prisonType, bool battlescapeOrigin)
+{
+	return screenKey("cont", battlescapeOrigin ? 'f' : 'n', baseIndex(game, base), "p" + std::to_string(prisonType));
+}
+
+void awaitResult(const std::string& key, int seq)
+{
+	std::lock_guard<std::mutex> lk(g_resMx);
+	auto k = g_awaitByKey.find(key);
+	if (k != g_awaitByKey.end()) g_awaitBySeq.erase(k->second);
+	g_awaitByKey[key] = seq;
+	g_awaitBySeq[seq] = key;
+	g_resultByKey.erase(key);
+}
+
+bool awaiting(const std::string& key)
+{
+	std::lock_guard<std::mutex> lk(g_resMx);
+	return g_awaitByKey.count(key) > 0;
+}
+
+int takeResult(const std::string& key)
+{
+	std::lock_guard<std::mutex> lk(g_resMx);
+	auto r = g_resultByKey.find(key);
+	if (r == g_resultByKey.end()) return 0;
+	const int result = r->second;
+	g_resultByKey.erase(r);
+	return result;
+}
+
+void forgetResult(const std::string& key)
+{
+	std::lock_guard<std::mutex> lk(g_resMx);
+	auto k = g_awaitByKey.find(key);
+	if (k != g_awaitByKey.end()) { g_awaitBySeq.erase(k->second); g_awaitByKey.erase(k); }
+	g_resultByKey.erase(key);
+}
+
+bool keepAfterSubmit(Game* game, const std::string& key, int seq, bool bound)
+{
+	if (!bound || !sharedGame(game)) return false; // a harness lever never ran init() (F2521): today's immediate pop
+	if (key.find("|f|") != std::string::npos) return true; // a forced screen stays until solved (MR9)
+	if (seq <= 0) return false;
+	awaitResult(key, seq); // MR10: the screen waits for the host's answer
+	return true;
+}
+
+bool sellScreenShouldClose(Game* game, Base* base, bool debrief, bool battlescapeOrigin)
+{
+	if (!sharedGame(game) || baseIndex(game, base) < 0) return false;
+	if (!debrief && battlescapeOrigin) return storageSolved(base);
+	return takeResult(sellKey(game, base, debrief, battlescapeOrigin)) == 1;
+}
+
+bool xferScreenShouldClose(Game* game, Base* from, Base* to, bool debrief)
+{
+	if (!sharedGame(game)) return false;
+	return takeResult(xferKey(game, from, to, debrief)) == 1;
+}
+
+bool contScreenShouldClose(Game* game, Base* base, int prisonType, bool battlescapeOrigin)
+{
+	if (!sharedGame(game) || baseIndex(game, base) < 0) return false;
+	if (battlescapeOrigin) return containmentSolved(base, prisonType);
+	return takeResult(contKey(game, base, prisonType, battlescapeOrigin)) == 1;
+}
+
+void resetSessionQueues()
+{
+	size_t cmds = 0, applies = 0, fails = 0;
+	{
+		std::lock_guard<std::mutex> lk(g_mx);
+		cmds = g_cmdQ.size();
+		applies = g_applyQ.size();
+		fails = g_failQ.size();
+		g_cmdQ.clear();
+		g_applyQ.clear();
+		g_failQ.clear();
+	}
+	{
+		std::lock_guard<std::mutex> lk(g_resMx);
+		g_awaitBySeq.clear();
+		g_awaitByKey.clear();
+		g_resultByKey.clear();
+	}
+	const bool held = g_applyHold;
+	g_applyHold = false;
+	Log(LOG_INFO) << "[SHARED] session reset: dropped " << cmds << " command(s), " << applies << " apply(s), " << fails
+		<< " failure(s); apply hold was " << (held ? "on" : "off") << " (PR-34)";
 }
 
 Stats stats()

@@ -676,6 +676,9 @@ class connectionTCP
 	// EVERY machine - a page-3 sell/transfer apply's autosell marks and its open campaign debriefing's counts.
 	void coopDebriefPage3Live(DebriefingState* deb);
 	static void coopDebriefRecoveredSold(Game* game, const Json::Value& payload, bool sell);
+	// W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-29; D154, D175): CLIENT, SHARED - the campaign OK's last step: vanilla's forced
+	// containment / storage screens on the adopted world for whatever is still over its limit.
+	static void coopSharedForcedScreens(Game* game, DebriefingState* db);
 	// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2, PR-13/PR-15; D155 (a), D156 (a), MR4, MR6): CLIENT - snapshot the live
 	// own world at a SEPARATE battle entry (true iff taken), and at the OK load it, apply each guest row's record by the
 	// owner's own id, return to the own geoscape in place and push the own world to the host (false blob -> main menu).

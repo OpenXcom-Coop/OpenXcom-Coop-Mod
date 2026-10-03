@@ -104,6 +104,10 @@
 #include "../Geoscape/BaseNameState.h"
 #include "../Geoscape/BuildNewBaseState.h"
 #include "../Basescape/PlaceLiftState.h"
+#include "../Basescape/SellState.h"                   // W2-P7 S-C-D2.2 (PR-29): the client's forced storage screen
+#include "../Basescape/ManageAlienContainmentState.h" // W2-P7 S-C-D2.2 (PR-29): the client's forced containment screen
+#include "../Menu/ErrorMessageState.h"                // W2-P7 S-C-D2.2 (PR-29): vanilla's limit boxes
+#include "../Mod/RuleInterface.h"                     // W2-P7 S-C-D2.2 (PR-29): the debriefing interface's box colours
 
 #include "./connectionUDP/connection_rendezvous_glue.h"
 
@@ -420,6 +424,7 @@ void CoopSession::resetSession()
 {
 	Log(LOG_INFO) << "[coop-session] resetSession";
 	CoopSyncedOptions::deactivate(); // W2-P9 S-A (PR-3): the player's own synced option values come back
+	SharedEcon::resetSessionQueues(); // W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-34; SK3, F5576): nothing drains into the next session
 	role = CoopRole::None;
 	lobbyMode = 0;
 	clientInLobby = false;
@@ -17145,6 +17150,22 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 		debrief["destroyBase"] = db->_destroyBase;
 		if (!db->_destroyBase && db->_base && !debrief.isMember("baseIndex"))
 			debrief["baseIndex"] = SharedEcon::baseIndex(_game, db->_base);
+		// W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-29; D154, D175, P10 Q4 (a)): what the second player's forced chain reads -
+		// the debriefing's limit flag and base options, each prison's containment state here (prepareDebriefing's).
+		debrief["limitsEnforced"] = db->_limitsEnforced;
+		debrief["canSellLiveAliens"] = Options::canSellLiveAliens;
+		debrief["retainCorpses"] = Options::retainCorpses;
+		Json::Value containment(Json::arrayValue);
+		for (const auto& pair : db->_containmentStateInfo)
+		{
+			Json::Value c(Json::objectValue);
+			c["prisonType"] = pair.first;
+			c["state"] = pair.second;
+			containment.append(c);
+		}
+		debrief["containment"] = containment;
+		debrief["storageOverfull"] = !db->_destroyBase && db->_base && Options::storageLimitsEnforced
+			&& db->_base->storesOverfull(); // record only
 	}
 
 	Json::Value msg = CoopWire::makeDebriefResult(a.battleId.load(), debrief);
@@ -25911,6 +25932,7 @@ static void coopCampaignClientSharedLeave(Game* game, DebriefingState* db, const
 	Log(LOG_INFO) << "[coop-debrief] client: campaign debriefing OK - phaseAtOk=" << phaseAtOk
 		<< " - its own geoscape on the adopted world";
 	game->setState(new GeoscapeState);
+	connectionTCP::coopSharedForcedScreens(game, db); // W2-P7 S-C-D2.2 (PR-29; D154, D175): LAST - the forced screens
 }
 
 // W2-P7 S-C-B1.2 (AMENDMENT P7-6 P7-6 Q1 (a)): copy one keyed node verbatim from the merged copy's YAML tree into the
@@ -31276,6 +31298,14 @@ void connectionTCP::updateCoopTask()
 					" - held shared applies=" << heldApplies;
 				if (g_coopCampaignOkDeferred)
 					coopCampaignClientSharedLeave(_game, deb, coopPhaseRecordName(coopBattleAuthority().phase.load()));
+			}
+			else
+			{
+				// W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-34; F5237): a failed adoption releases the apply hold - the held
+				// shared applies drain onto the live world instead of waiting for an adoption that is not coming.
+				SharedEcon::setApplyHold(false);
+				CoopDelta::battleEndRecordSet("adoptFailed", CoopDelta::battleEndRecord()["adoptFailed"].asInt() + 1);
+				Log(LOG_ERROR) << "[coop-debrief] client: the in-place adoption failed - the apply hold released (PR-34)";
 			}
 		}
 	}
@@ -39352,6 +39382,72 @@ void connectionTCP::coopDebriefPage3Live(DebriefingState* deb)
 	CoopDelta::battleEndRecordSet("page3", page3);
 	Log(LOG_INFO) << "[coop-debrief] client: page 3 live on the adopted world - baseIndex=" << (deb->_base ? idx : -1)
 		<< " showSell=" << deb->_showSellButton << " destroyBase=" << deb->_destroyBase;
+}
+
+// W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-29; D154, D175): CLIENT, SHARED - the campaign OK's LAST step: vanilla's forced
+// screens (DebriefingState :913, :933-975) on the adopted world, with the payload's limitsEnforced / containment as
+// _limitsEnforced / _containmentStateInfo and vanilla's refresh rule on the LIVE world, so whatever the host already
+// solved never shows. Vanilla's strings, colours, background and the debriefing's palette (setState only queued it).
+void connectionTCP::coopSharedForcedScreens(Game* game, DebriefingState* db)
+{
+	if (!game || !db || db->_destroyBase || !db->_base)
+		return;
+	const Json::Value msg = CoopDelta::debriefResultCopy();
+	const Json::Value& d = msg["debrief"];
+	Base* base = db->_base;
+	const int limitsEnforced = d.get("limitsEnforced", 0).asInt();
+	std::map<int, int> info;
+	for (const auto& c : d["containment"])
+		info[c.get("prisonType", 0).asInt()] = c.get("state", 0).asInt();
+	for (auto& pair : info)
+	{
+		if (pair.second == 2)
+		{
+			const int availableContainment = base->getAvailableContainment(pair.first);
+			const int usedContainment = base->getUsedContainment(pair.first);
+			const int freeContainment = availableContainment - (usedContainment * limitsEnforced);
+			if ((availableContainment > 0 && freeContainment >= 0) || usedContainment == 0)
+				pair.second = 0; // 0 = OK (solved before this OK)
+		}
+	}
+	Language* lang = game->getLanguage();
+	RuleInterface* ui = game->getMod()->getInterface("debriefing");
+	const Uint8 color = ui->getElement("errorMessage")->color;
+	const int bgColor = ui->getElement("errorPalette")->color;
+	auto trAlt = [lang](const std::string& id, int alt) { return lang->getString(alt > 0 ? id + "_" + std::to_string(alt) : id); };
+	Json::Value contRec(Json::arrayValue);
+	for (const auto& pair : info)
+	{
+		Json::Value e(Json::objectValue);
+		e["prisonType"] = pair.first;
+		e["state"] = pair.second;
+		e["pushed"] = (pair.second == 1 || pair.second == 2) ? 1 : 0;
+		if (pair.second == 2)
+		{
+			game->pushState(new ManageAlienContainmentState(base, pair.first, OPT_BATTLESCAPE));
+			game->pushState(new ErrorMessageState(trAlt("STR_CONTAINMENT_EXCEEDED", pair.first).arg(base->getName()),
+				db->_palette, color, "BACK01.SCR", bgColor));
+		}
+		else if (pair.second == 1)
+		{
+			game->pushState(new ErrorMessageState(trAlt("STR_ALIEN_DIES_NO_ALIEN_CONTAINMENT_FACILITY", pair.first),
+				db->_palette, color, "BACK01.SCR", bgColor));
+		}
+		contRec.append(e);
+	}
+	const bool storage = limitsEnforced && base->storesOverfull();
+	if (storage)
+	{
+		game->pushState(new SellState(base, 0, OPT_BATTLESCAPE));
+		game->pushState(new ErrorMessageState(lang->getString("STR_STORAGE_EXCEEDED").arg(base->getName()), db->_palette,
+			color, "BACK01.SCR", bgColor));
+	}
+	Json::Value forced(Json::objectValue);
+	forced["containment"] = contRec;
+	forced["storage"] = storage ? 1 : 0;
+	CoopDelta::battleEndRecordSet("forced", forced);
+	Log(LOG_INFO) << "[coop-debrief] client: forced screens after the OK - containment entries=" << contRec.size()
+		<< " storage=" << (storage ? 1 : 0);
 }
 
 // W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-25; MR14, F2506, F5571): the page-3 bookkeeping of a SHARED sell / transfer

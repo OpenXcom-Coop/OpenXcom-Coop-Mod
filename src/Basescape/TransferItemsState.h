@@ -101,7 +101,7 @@ public:
 	/// COOP SHARED (PRD-J05): emit the intra-world base->base "transfer" shared_cmd
 	/// from the current selection and mutate NOTHING locally. The host validates
 	/// space + funds, creates the Transfers on the destination, and broadcasts.
-	void submitSharedTransfer();
+	bool submitSharedTransfer(); // coop (W2-P7 S-C-D2, PR-30): true = this screen waits for the host's answer
 	/// Test-harness hook (PRD-J05): set the transfer amount for ITEM <itemType> to
 	/// <count> then submit the SHARED transfer. Returns false if no matching row.
 	bool harnessTransferItem(const std::string& itemType, int count);
