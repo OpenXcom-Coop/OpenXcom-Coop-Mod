@@ -394,6 +394,7 @@ void SellState::init()
 	if (!_debriefingState || _game->getCoopMod()->isSharedCampaign())
 	{
 		_sharedRefresh.bind(_game, this, _base);
+		_sharedSel.open(_game, this, _sharedRefresh.bound()); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
 	}
 }
 
@@ -412,10 +413,12 @@ void SellState::think()
 		_game->popState();
 		if (SharedEcon::baseIndex(_game, _base) >= 0)
 		{
+			_sharedSel.carryOver(); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
 			_game->pushState(new SellState(_base, _debriefingState, _origin));
 		}
 		return; // `this` is now queued for deletion - touch nothing else
 	}
+	_sharedSel.think(this); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -732,6 +735,7 @@ void SellState::btnOkClick(Action *)
 			payload["engineers"] = engineers;
 			if (_debriefingState) payload["debrief"] = true; // coop (W2-P7 S-C-D1, P7-7 PR-25, MR14): page 3 rides the apply
 			if (_debriefingState == 0 && _origin == OPT_BATTLESCAPE) payload["origin"] = "forced"; // coop (W2-P7 S-C-D2, PR-32/PR-33, MR15)
+			_sharedSel.stamp(payload); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
 			for (const auto& row : _items)
 				if (_debriefingState && row.type == TRANSFER_ITEM)
 					payload["autosell"][((RuleItem*)row.rule)->getType()] = (row.amount == row.qtySrc);
@@ -1336,6 +1340,7 @@ void SellState::decrease()
  */
 void SellState::updateItemStrings()
 {
+	_sharedSel.localEdit(this); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
 	std::ostringstream ss, ss2, ss3;
 	ss << getRow().amount;
 	_lstItems->setCellText(_sel, 2, ss.str());

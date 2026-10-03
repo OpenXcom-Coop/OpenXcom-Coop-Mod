@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
 
 #include <json/json.h>
@@ -39,6 +40,7 @@ class SavedBattleGame;
 class RuleEvent;
 class State;
 class GeoscapeState;
+class SellState; // W2-P7 S-C-E1 (P7-8 PR-43): the SelectionBinder's screen
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -166,6 +168,47 @@ private:
 	bool _dirty = false;
 	bool _bound = false;
 	bool _wantProgress = false;
+};
+
+// ---- W2-P7 S-C-E1 (D184, D203, D204, MR7, MR8, MR16; AMENDMENT P7-8 PR-37..PR-46): the shared selection -------------
+// In a SHARED campaign the players on the same Sell screen (E2: Transfer, Alien Containment) edit ONE list of pending
+// amounts per screen key (sellKey / xferKey / contKey). The host holds the list - sel_open / sel_set / sel_close /
+// sel_sync on the shared_cmd lane, each broadcast carrying the list's full state - and a replica mirrors it. The host
+// re-checks every confirm (PR-39): a duplicate counts as done (MR8), otherwise it applies its current, clamped list
+// (D203). Each screen owns a binder (a friend of the screen; no public API sets an amount without side effects, F6101).
+class SelectionBinder
+{
+public:
+	SelectionBinder() = default;
+	SelectionBinder(const SelectionBinder&) = delete;
+	SelectionBinder& operator=(const SelectionBinder&) = delete;
+	/// Leaves the list (sel_close) unless carried over; never once the transport is down (F6110).
+	~SelectionBinder();
+	/// init(), every call (acts once per instance). Unbound (the harness levers never run init(), F6126) or not
+	/// SHARED: inert for life. Else sel_open {key, seed} - seed = the non-zero local rows, i.e. page 3's autosell
+	/// pre-fill, which seeds a lone opener's list (Q-P8-2 (a)) - or nothing for a carried-over key.
+	void open(Game* game, SellState* screen, bool bound);
+	/// think(), after the screen's refresh block: re-key on a base index shift (PR-49); when the list changed, write
+	/// min(list amount, the row's maximum) into each row - except a row whose own last edit is unanswered (Q-P8-3 (a))
+	/// - recompute the totals (the list's rows this screen does not show count too, MR7, F6124) and redraw.
+	void think(SellState* screen);
+	/// First statement of the screen's amount redraw: a local edit -> sel_set {key, row, amount, eseq}.
+	void localEdit(SellState* screen);
+	/// Right before a refresh push: the replacement adopts the list and nobody leaves it (F2161, F6102).
+	void carryOver();
+	/// Confirm: selKey, selRev (the list's rev), selRows (the local rows), on page 3 selCaps (each row's maximum).
+	void stamp(Json::Value& payload);
+private:
+	static std::string keyOf(Game* game, SellState* screen);
+	static Json::Value rowsOf(SellState* screen);
+	void sendOpen(const Json::Value& seed);
+	Game* _game = nullptr;
+	SellState* _sell = nullptr;
+	std::string _key;
+	int _baseIdx = -1, _openWant = 0;
+	uint32_t _seenRev = 0;
+	bool _opened = false, _inert = false, _acked = false, _seen = false, _carried = false, _applying = false;
+	std::map<std::string, int> _lastSent; // row -> this instance's latest own eseq
 };
 
 /// One-time registration of the built-in commands (currently "buy"). Idempotent;
