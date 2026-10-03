@@ -47,6 +47,7 @@ COPY_IDS = [0, 0]           # F6232: the contributed pad id 0 + the host's own m
 RETURNED_IDS = [0, 1]       # F6232: the owner's own 0 kept (F5548) + newId = size() == 1 (coopSeparateReturn)
 TURN_SHIFT = 300            # F6232: (newId 1 - hostId 0) * 300 (makeTurnUnique; the overlay's kill remap)
 OPTION = "soldierDiaries"   # PB-4 / F6222: the host's per-player OXC option (Options.cpp :203, default true)
+RELOAD_WAIT_S = 10          # R-B23-1 (F6361): bound on the wait for the client's world reload before the pad
 
 
 # ===================== pre_extra hooks and the pre-cell guards =====================
@@ -59,9 +60,25 @@ def read_options(h, c, ctx):
     return ctx["options"]
 
 
+def wait_world_reloaded(h, c, ctx):
+    """R-B23-1 (F6361): BasescapeState::btnGeoscapeClick clears insideCoopBase BEFORE its LoadGameState replaces the
+    client's world (the load runs 10 frames later), so session.py's "client back on geoscape" wait can return while
+    the outgoing world is still live. Wait (bounded RELOAD_WAIT_S) until the client's top state is GeoscapeState and
+    no LoadGameState is on its stack; a timeout is a FIXTURE-STOP (CAPTURE of both machines, the row FAILs)."""
+    ready = lambda st: st if st and st[-1] == "GeoscapeState" and not any("LoadGameState" in x for x in st) else None
+    t0 = time.time()
+    try:
+        st = c.wait_for("client world reload done", lambda: ready(b1.stack(c)), timeout=RELOAD_WAIT_S)
+    except TimeoutError as e:
+        b1.capture("world reload", f"client stack {b1.stack(c)} after {RELOAD_WAIT_S} s (want top GeoscapeState, "
+                                   f"no LoadGameState): {b1.short(e)}", (h, c))
+    ctx["worldReady"] = {"waited": round(time.time() - t0, 2), "stack": st}
+
+
 def pad(h, c, ctx):
     """`pre_extra` (C28P-shift): the client's mission_stats_pad {count: 1, soldierId: the guest}; reply ids [0]."""
     read_options(h, c, ctx)   # evidence only here (C28P-nodiary guards it)
+    wait_world_reloaded(h, c, ctx)   # R-B23-1: never pad the outgoing world (F6361)
     sid = b1.soldier_rec(c, name="Guest Zzz").get("id")
     r = c.cmd({"cmd": "mission_stats_pad", "count": 1, "soldierId": sid})
     ctx["pad"] = {"soldierId": sid, "resp": {k: r.get(k) for k in ("ok", "ids", "size", "error")}}
