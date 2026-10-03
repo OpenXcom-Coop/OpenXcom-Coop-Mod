@@ -17232,7 +17232,7 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 			g["rawName"] = s->getName();
 			g["dead"] = dead;
 			g["hostSoldierId"] = s->getId();
-			g["soldierYaml"] = coopSerializeGuestSoldier(_game, s);
+			g["soldierYaml"] = coopSerializeSoldierRecord(_game, s); // W2-P7 S-C-B2.3.2 (F5554, V-C4): diaries forced on (PR-C4)
 			guests.append(g);
 		};
 		for (auto* base : *sg->getBases())
@@ -26460,6 +26460,10 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 				// W2-P7 S-C-B2.2 (section 4.3 step 4; D181 (a), PR-16/D218): the guest died in the host's battle - it leaves
 				// its base for the owner's memorial with the host's death time and cause (the YAML). Not killSoldier (the
 				// death already happened), so this logs its own [coop-roster] line.
+				// W2-P7 S-C-B2.3.2 (F5553, V-C3): buried in the default armor, as vanilla's SavedGame::killSoldier(true)
+				fresh->setArmor(fresh->getRules()->getDefaultArmor());
+				fresh->setReplacedArmor(0);
+				fresh->setTransformedArmor(0);
 				vec->erase(vec->begin() + idx);
 				own->getDeadSoldiers()->push_back(fresh);
 				++deadApplied;
