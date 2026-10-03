@@ -2048,6 +2048,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		resp["unknownCount"] = Json::Value::UInt64(st.unknown);
 		resp["lastFail"] = SharedEcon::lastFailReason();
 		resp["applyQueued"] = SharedEcon::applyQueueDepth(); // W2-P7 S-C-A.1 (P7-6): the replica's queued shared_apply count
+		resp["applyHold"] = SharedEcon::applyHoldOn(); // W2-P7 S-C-D2.1 (P7-7 PR-35): the replica's PR-6 apply hold
 		resp["ok"] = true;
 	}
 	else if (cmd == "shared_reset_stats")
@@ -8922,9 +8923,15 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// stripped column 0 equals tr(item); harnessSelectRow(row), then the screen's own change function by the delta
 		// (SellState changeByValue(|d|, sign); TransferItemsState increaseByValue(d) / decreaseByValue(-d)).
 		// Reply {ok, row, name, before, after, okVisible, topAfter}.
+		// W2-P7 S-C-D2.1 (P7-7 PR-35): also a top ManageAlienContainmentState - 5 columns (the amount is column 3,
+		// ManageAlienContainmentState::updateStrings), its OK is its SECOND TextButton (_btnSell is added first, :97-98),
+		// change functions increaseByValue(d) / decreaseByValue(-d) after harnessSelectRow(row).
 		State* topSR = _game->getStates().empty() ? nullptr : _game->getStates().back();
 		SellState* sellSR = dynamic_cast<SellState*>(topSR);
 		TransferItemsState* xferSR = dynamic_cast<TransferItemsState*>(topSR);
+		ManageAlienContainmentState* macSR = dynamic_cast<ManageAlienContainmentState*>(topSR);
+		const size_t colsSR = macSR ? 5 : 4, amountColSR = macSR ? 3 : 2;
+		std::vector<TextButton*> tbsSR;
 		auto classSR = [](State* s) {
 			const std::string n = s ? typeid(*s).name() : "none";
 			const size_t p = n.rfind("::");
@@ -8943,12 +8950,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		TextList* listSR = nullptr;
 		TextButton* okSR = nullptr;
 		Json::Value buttonsSR(Json::arrayValue), textsSR(Json::arrayValue), rowsSR(Json::arrayValue);
-		if (sellSR || xferSR)
+		if (sellSR || xferSR || macSR)
 		{
 			for (auto* s : topSR->getSurfaces())
 			{
 				if (auto* tb = dynamic_cast<TextButton*>(s))
 				{
+					tbsSR.push_back(tb);
 					if (!okSR) okSR = tb; // both screens add their OK first (SellState :121, TransferItemsState :93)
 					Json::Value b(Json::objectValue);
 					b["text"] = tb->getText();
@@ -8964,6 +8972,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					textsSR.append(stripSR(tx->getText()));
 				}
 			}
+			if (macSR && tbsSR.size() > 1) okSR = tbsSR[1];
 		}
 		std::map<std::string, std::string> trToTypeSR;
 		for (const auto& t : _game->getMod()->getItemsList())
@@ -8975,7 +8984,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		for (size_t r = 0; r < nRowsSR; ++r)
 		{
 			Json::Value row(Json::objectValue), cells(Json::arrayValue);
-			for (size_t c = 0; c < 4; ++c)
+			for (size_t c = 0; c < colsSR; ++c)
 			{
 				cells.append(stripSR(listSR->getCellText(r, c)));
 			}
@@ -8998,7 +9007,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 			if (!listSR)
 			{
-				resp["error"] = "screen_set_amount: no initialised SellState / TransferItemsState on top";
+				resp["error"] = "screen_set_amount: no initialised SellState / TransferItemsState / ManageAlienContainmentState on top";
 				return true;
 			}
 			if (rowSA < 0 || rowSA >= (int)nRowsSR)
@@ -9006,13 +9015,19 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				resp["error"] = "screen_set_amount: no such row";
 				return true;
 			}
-			auto amountSA = [&]() { return std::atoi(stripSR(listSR->getCellText((size_t)rowSA, 2)).c_str()); };
+			auto amountSA = [&]() { return std::atoi(stripSR(listSR->getCellText((size_t)rowSA, amountColSR)).c_str()); };
 			const int beforeSA = amountSA();
 			const int dSA = req.get("amount", 0).asInt() - beforeSA;
 			if (sellSR)
 			{
 				sellSR->harnessSelectRow((size_t)rowSA);
 				if (dSA != 0) sellSR->changeByValue(std::abs(dSA), dSA > 0 ? 1 : -1);
+			}
+			else if (macSR)
+			{
+				macSR->harnessSelectRow((size_t)rowSA);
+				if (dSA > 0) macSR->increaseByValue(dSA);
+				else if (dSA < 0) macSR->decreaseByValue(-dSA);
 			}
 			else
 			{
@@ -11581,7 +11596,8 @@ std::string TestServer::execute(const std::string& line)
 				int coopSide = req.get("coop_side", -1).asInt();
 				int killId = req.get("unit", -1).asInt();
 				int killFaction = req.get("faction", -1).asInt();
-				const RuleDamageType* dt = _game->getMod()->getDamageType(DT_AP);
+				const bool stun = req.get("stun", false).asBool(); // W2-P7 S-C-D2.1 (P7-7 PR-35): vanilla's debug stun (BattlescapeState :3423)
+				const RuleDamageType* dt = _game->getMod()->getDamageType(stun ? DT_STUN : DT_AP);
 				Json::Value killed(Json::arrayValue);
 				for (auto* u : *sbg->getUnits())
 				{
@@ -11591,7 +11607,7 @@ std::string TestServer::execute(const std::string& line)
 						|| (killFaction >= 0 && (int)u->getFaction() == killFaction);
 					if (match)
 					{
-						u->damage(Position(0, 0, 0), u->getHealth() + 1000, dt, sbg, BattleActionAttack{});
+						u->damage(Position(0, 0, 0), stun ? 1000 : u->getHealth() + 1000, dt, sbg, BattleActionAttack{});
 						killed.append(u->getId());
 					}
 				}

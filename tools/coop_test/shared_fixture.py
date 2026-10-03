@@ -200,7 +200,7 @@ def assert_world_equal(host, client, tag="", timeout=45, interval=1.0):
 class SharedSession:
     """A live SHARED campaign: host + client, world streamed, both on geoscape."""
 
-    def __init__(self, tag, ports, mods=(), transport="tcp", host_options=None):
+    def __init__(self, tag, ports, mods=(), transport="tcp", host_options=None, client_options=None):
         self.tag = tag
         self.host_port, self.client_port, self.coop_port = ports
         self.transport = transport
@@ -209,8 +209,9 @@ class SharedSession:
         # for the HOST instance only (e.g. {"battleXcomSpeed": 200} - the
         # SPEC 16 F342 lever, paces the LOCAL machine, host only). Every
         # existing caller is unaffected: default None, nothing changes.
+        # `client_options` (W2-P7 S-C-D2, AMENDMENT P7-7 PR-35, additive): the CLIENT twin of host_options.
         self.host_dir = make_user_dir(f"{tag}_host", mods=mods, options=host_options)
-        self.client_dir = make_user_dir(f"{tag}_client", mods=mods)
+        self.client_dir = make_user_dir(f"{tag}_client", mods=mods, options=client_options)
         self.host = GameClient("host", self.host_port, self.host_dir)
         self.client = GameClient("client", self.client_port, self.client_dir)
 
@@ -250,7 +251,7 @@ class SharedSession:
 
 def bring_up(tag, ports, wait_ready=True,
              host_base="HostBase", client_base="ClientBase", mods=(),
-             transport="tcp", host_options=None):
+             transport="tcp", host_options=None, client_options=None):
     """Stand up a SHARED campaign: host creates it, client joins, the host streams
     the authoritative world, both settle on the geoscape.
 
@@ -266,7 +267,8 @@ def bring_up(tag, ports, wait_ready=True,
     Cleans up its own processes if bring-up fails, so the caller's try/finally
     only has to cover the body.
     """
-    js = SharedSession(tag, ports, mods=mods, transport=transport, host_options=host_options)
+    js = SharedSession(tag, ports, mods=mods, transport=transport, host_options=host_options,
+                       client_options=client_options)
     try:
         js._start(wait_ready, host_base, client_base)
     except BaseException:

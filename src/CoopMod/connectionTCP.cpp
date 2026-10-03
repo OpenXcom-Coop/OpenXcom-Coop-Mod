@@ -2745,6 +2745,12 @@ static Json::Value battleEndZeros()
 	page3["sold"] = 0;                 // either machine: page-3 sell/transfer applies booked on its open debriefing (PR-25)
 	r["page3"] = page3;
 	r["worldAdoptDeferredPasses"] = 0; // client: pump passes a newer world waited for its debriefing to be on top (PR-26)
+	// W2-P7 S-C-D2.1 (AMENDMENT P7-7 section 3.2, PR-29/PR-34): forced-screen keys - zeros here; S-C-D2.2 writes them.
+	Json::Value forced(Json::objectValue);
+	forced["containment"] = Json::Value(Json::arrayValue); // client: [{prisonType, state, pushed}] the chain's entries (PR-29)
+	forced["storage"] = 0;             // client: 1 once the chain pushed the forced storage SellState (PR-29)
+	r["forced"] = forced;
+	r["adoptFailed"] = 0;               // client: failed in-place adoptions (PR-34)
 	// W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.1): the SHARED campaign return's
 	// keys - zeros here; S-C-A.2 writes them (record only, never read by game logic).
 	r["campaign"] = false;            // client: the latch armed for a campaign (SHARED) ending

@@ -3151,6 +3151,7 @@ std::string lastFailReason()
 
 // W2-P7 S-C-A.1 (P7-6 section 4.1): read-only, TestServer shared_stats.applyQueued.
 int applyQueueDepth() { std::lock_guard<std::mutex> lk(g_mx); return (int)g_applyQ.size(); }
+bool applyHoldOn() { return g_applyHold; } // W2-P7 S-C-D2.1 (P7-7 PR-35): read-only, TestServer shared_stats.applyHold
 
 void resetStats()
 {
