@@ -1584,7 +1584,7 @@ void DebriefingState::prepareDebriefing()
 					StatAdjustment statIncrease;
 					bunit->postMissionProcedures(_game->getMod(), save, battle, statIncrease);
 					if (bunit->getGeoscapeSoldier())
-						_soldierStats.push_back(std::pair<std::string, UnitStats>(bunit->getGeoscapeSoldier()->getName(), statIncrease.statGrowth));
+						_soldierStats.push_back(std::pair<std::string, UnitStats>(_game->getCoopMod()->coopDebriefSoldierName(this, bunit->getGeoscapeSoldier()), statIncrease.statGrowth)); // coop (W2-P7 S-C-C, D177)
 					playersInExitArea2++;
 
 					recoverItems(bunit->getInventory(), base, craft);

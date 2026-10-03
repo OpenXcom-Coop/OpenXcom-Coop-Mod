@@ -84,13 +84,14 @@ PromotionsState::PromotionsState()
 	_lstSoldiers->setBackground(_window);
 	_lstSoldiers->setMargin(8);
 
+	if (_game->getCoopMod()->coopPromotionRows(_lstSoldiers)) return; // coop (W2-P7 S-C-C, D177)
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		for (auto* soldier : *xbase->getSoldiers())
 		{
 			if (soldier->isPromoted())
 			{
-				_lstSoldiers->addRow(3, soldier->getName().c_str(), tr(soldier->getRankString()).c_str(), xbase->getName().c_str());
+				_lstSoldiers->addRow(3, _game->getCoopMod()->coopSoldierDisplayName(soldier).c_str(), tr(soldier->getRankString()).c_str(), xbase->getName().c_str()); // coop (W2-P7 S-C-C, D177)
 			}
 		}
 		for (auto* transfer : *xbase->getTransfers())
@@ -99,7 +100,7 @@ PromotionsState::PromotionsState()
 			{
 				if (transfer->getSoldier()->isPromoted())
 				{
-					_lstSoldiers->addRow(3, transfer->getSoldier()->getName().c_str(), tr(transfer->getSoldier()->getRankString()).c_str(), xbase->getName().c_str());
+					_lstSoldiers->addRow(3, _game->getCoopMod()->coopSoldierDisplayName(transfer->getSoldier()).c_str(), tr(transfer->getSoldier()->getRankString()).c_str(), xbase->getName().c_str()); // coop (W2-P7 S-C-C, D177)
 				}
 			}
 		}

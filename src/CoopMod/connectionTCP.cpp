@@ -45,6 +45,11 @@
 #include "../Savegame/Ufo.h"
 #include "../Battlescape/DebriefingState.h"
 #include "../Battlescape/AliensCrashState.h" // W2-P8b S-E.2: the client's aliens-crashed end (Q10 a)
+#include "../Battlescape/PromotionsState.h" // W2-P7 S-C-C.2 (PR-C6): the client's after-battle follow-up chain
+#include "../Battlescape/CommendationState.h" // W2-P7 S-C-C.2 (PR-C6)
+#include "../Battlescape/CommendationLateState.h" // W2-P7 S-C-C.2 (PR-C6)
+#include "../Battlescape/CannotReequipState.h" // W2-P7 S-C-C.2 (PR-C6)
+#include "../Savegame/SoldierDiary.h" // W2-P7 S-C-C.2 (PR-C3): the commendations still new at V5
 #include "../Battlescape/BattlescapeState.h"
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/BattlescapeGame.h"
@@ -16888,7 +16893,11 @@ bool connectionTCP::coopDebriefClientFill(DebriefingState* db)
 				Log(LOG_WARNING) << "[coop-debrief] client: malformed soldier stats for '"
 					<< e.get("name", "").asString() << "' - zero stats shown";
 			}
-			db->_soldierStats.push_back(std::pair<std::string, UnitStats>(e.get("name", "").asString(), gain));
+			// W2-P7 S-C-C.2 (PR-C5/PR-C10; D177 (a), MR5): this machine's view of the raw name (else the host's name).
+			const std::string pageName = e.isMember("rawName")
+				? coopSeatDisplayName(e.get("ownerSeat", 0).asInt(), e.get("rawName", "").asString())
+				: e.get("name", "").asString();
+			db->_soldierStats.push_back(std::pair<std::string, UnitStats>(pageName, gain));
 		}
 	}
 
@@ -16984,6 +16993,90 @@ static bool coopParseOriginTag(const std::string& tag, int& seat, int& id)
 }
 static std::string coopSerializeGuestSoldier(Game* game, Soldier* soldier);
 
+// W2-P7 S-C-C.2 (P7-6 C re-pin PR-C4, F5624): a soldier's record YAML with diaries forced on - Soldier::save writes
+// `diary` only under this machine's per-player soldierDiaries option (Soldier.cpp :391), restored after (main thread).
+static std::string coopSerializeSoldierRecord(Game* game, Soldier* soldier)
+{
+	struct Restore { bool v; ~Restore() { Options::soldierDiaries = v; } } restore{ Options::soldierDiaries };
+	Options::soldierDiaries = true;
+	return coopSerializeGuestSoldier(game, soldier);
+}
+
+// W2-P7 S-C-C.2 (PR-C3, F2497): that record with `isNew: true` on each commendation still new at V5 (save drops it,
+// SoldierDiary.cpp :1353-1360; load reads it, :1346); the saved list's index i is the diary vector's index i.
+static std::string coopSerializeCommendedRecord(Game* game, Soldier* soldier)
+{
+	const std::string yaml = coopSerializeSoldierRecord(game, soldier);
+	const std::vector<SoldierCommendations*>* comms = soldier->getDiary()->getSoldierCommendations();
+	auto tree = SaveUpgrade::yamlutil::parseMap(yaml);
+	ryml::NodeRef s = tree->rootref().find_child(ryml::to_csubstr("soldier"));
+	ryml::NodeRef diary = s.invalid() ? s : s.find_child(ryml::to_csubstr("diary"));
+	ryml::NodeRef list = (diary.invalid() || !diary.is_map()) ? diary : diary.find_child(ryml::to_csubstr("commendations"));
+	if (list.invalid() || !list.is_seq())
+		return yaml;
+	size_t i = 0, marked = 0;
+	for (ryml::NodeRef c : list.children())
+	{
+		if (c.is_map() && i < comms->size() && (*comms)[i]->isNew())
+		{
+			SaveUpgrade::yamlutil::setBool(c, ryml::to_csubstr("isNew"), true);
+			++marked;
+		}
+		++i;
+	}
+	return marked ? SaveUpgrade::yamlutil::emitNode(tree->rootref()) : yaml;
+}
+
+// W2-P7 S-C-C.2 (PR-C5, F2515, F5626): the host's page-2 name site (DebriefingState :1587) records each row's raw name,
+// owner seat (999 -> 0) and soldier id, index-aligned with _soldierStats; V5 consumes the list first.
+struct CoopDebriefName { std::string rawName; int ownerSeat; int soldierId; };
+static std::vector<CoopDebriefName> g_coopDebriefNames;
+static const DebriefingState* g_coopDebriefNamesOf = nullptr;
+static const Json::Value* g_coopPromotionRowsArmed = nullptr; // PR-C6: promotions[] while the chain builds PromotionsState
+static int coopOwnerSeat(const Soldier* s) { return s->getOwnerPlayerId() == 999 ? 0 : s->getOwnerPlayerId(); }
+
+// W2-P7 S-C-C.2 (PR-C10, PR-18; owner D177 (a), MR5): `[<seat name>] <name>` for another seat's soldier in a co-op
+// CAMPAIGN (ItemsArrivingState :42-52's shape), else the plain name (skirmish and single player unprefixed).
+std::string connectionTCP::coopSeatDisplayName(int seat, const std::string& rawName)
+{
+	if (!getCoopStatic() || !_staticGame || !_staticGame->getSavedGame()
+		|| _staticGame->getSavedGame()->getMonthsPassed() == -1 || seat == localSeat())
+		return rawName;
+	const std::string owner = seatName(seat);
+	return owner.empty() ? rawName : "[" + owner + "] " + rawName;
+}
+
+std::string connectionTCP::coopSoldierDisplayName(Soldier* soldier)
+{
+	return soldier ? coopSeatDisplayName(coopOwnerSeat(soldier), soldier->getName()) : std::string();
+}
+
+std::string connectionTCP::coopDebriefSoldierName(DebriefingState* db, Soldier* soldier)
+{
+	if (db != g_coopDebriefNamesOf)
+	{
+		g_coopDebriefNames.clear();
+		g_coopDebriefNamesOf = db;
+	}
+	g_coopDebriefNames.push_back({ soldier->getName(), coopOwnerSeat(soldier), soldier->getId() });
+	return coopSoldierDisplayName(soldier);
+}
+
+// W2-P7 S-C-C.2 (PR-C6, F2516): PromotionsState's row hook. Armed only while the client's chain constructs it: rows from
+// the payload (no world carries the promotion flag, F2497), vanilla's loop skipped (true); else false.
+bool connectionTCP::coopPromotionRows(TextList* list)
+{
+	if (!g_coopPromotionRowsArmed || !list)
+		return false;
+	for (const Json::Value& p : *g_coopPromotionRowsArmed)
+	{
+		const std::string name = coopSeatDisplayName(p.get("ownerSeat", 0).asInt(), p.get("rawName", "").asString());
+		const std::string rank = _game->getLanguage()->getString(p.get("rankKey", "").asString());
+		list->addRow(3, name.c_str(), rank.c_str(), p.get("baseName", "").asString().c_str());
+	}
+	return true;
+}
+
 // V5 (the last statement of DebriefingState::init). The host serializes what
 // its own vanilla debrief computed and sends it once: skirmish and SHARED
 // campaign (S-C-A; other campaigns S-C-B1), only after this battle's `battle_end` (phase Ended, record
@@ -16992,6 +17085,10 @@ static std::string coopSerializeGuestSoldier(Game* game, Soldier* soldier);
 // F2053). The host's battle-scoped reset is NOT here (F2051, S-B2).
 void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 {
+	// W2-P7 S-C-C.2 (PR-C5, F5626): consume the page-2 name list first, so an early return below still clears it.
+	std::vector<CoopDebriefName> pageNames;
+	pageNames.swap(g_coopDebriefNames);
+	g_coopDebriefNamesOf = nullptr;
 	if (!db || !getServerOwner())
 		return;
 	const BattleAuthority& a = coopBattleAuthority();
@@ -17049,6 +17146,12 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	}
 	debrief["stats"] = stats;
 	Json::Value soldiers(Json::arrayValue);
+	// W2-P7 S-C-C.2 (PR-C5, F2515): each row's raw name, owner seat and soldier id, when index-aligned with _soldierStats.
+	const bool withNames = pageNames.size() == db->_soldierStats.size();
+	if (!withNames)
+		Log(LOG_WARNING) << "[coop-debrief] host: page-2 name list has " << pageNames.size() << " entries for "
+			<< db->_soldierStats.size() << " rows - no raw names sent";
+	size_t nameIdx = 0;
 	for (const auto& sse : db->_soldierStats)
 	{
 		const UnitStats& g = sse.second;
@@ -17068,6 +17171,14 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 		Json::Value e(Json::objectValue);
 		e["name"] = sse.first;
 		e["stats"] = st;
+		if (withNames)
+		{
+			const CoopDebriefName& n = pageNames[nameIdx];
+			e["rawName"] = n.rawName;
+			e["ownerSeat"] = n.ownerSeat;
+			e["soldierId"] = n.soldierId;
+		}
+		++nameIdx;
 		soldiers.append(e);
 	}
 	debrief["soldiers"] = soldiers;
@@ -17129,6 +17240,67 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 			mission["hostId"] = db->_missionStatistics->id;
 			mission["statisticsYaml"] = mw.emit().yaml;
 			debrief["mission"] = mission;
+		}
+	}
+
+	if (campaign)
+	{
+		// W2-P7 S-C-C.2 (P7-6 C re-pin PR-C3/PR-C4; D154, MR11; F2497, F5623, F5625): the follow-up lists under vanilla's
+		// push conditions (DebriefingState :905-922), promotions in PromotionsState's order via the non-clearing getter,
+		// missing items in the host's order. No event (MR11); no baseIndex (D1's block below is its one writer, PR-C2).
+		if (db->_promotions && !db->_destroyBase)
+		{
+			Json::Value promotions(Json::arrayValue);
+			auto addPromotion = [&](Soldier* s, Base* b) {
+				if (!s || !s->getRecentlyPromotedCoop())
+					return;
+				Json::Value p(Json::objectValue);
+				p["rawName"] = s->getName();
+				p["ownerSeat"] = coopOwnerSeat(s);
+				p["rankKey"] = s->getRankString();
+				p["baseName"] = b->getName();
+				promotions.append(p);
+			};
+			for (auto* xbase : *sg->getBases())
+			{
+				for (auto* s : *xbase->getSoldiers())
+					addPromotion(s, xbase);
+				for (auto* t : *xbase->getTransfers())
+				{
+					if (t->getType() == TRANSFER_SOLDIER)
+						addPromotion(t->getSoldier(), xbase);
+				}
+			}
+			debrief["promotions"] = promotions;
+		}
+		auto commendedRows = [&](const std::vector<Soldier*>& list) {
+			Json::Value rows(Json::arrayValue);
+			for (auto* s : list)
+			{
+				Json::Value c(Json::objectValue);
+				c["soldierId"] = s->getId();
+				c["ownerSeat"] = coopOwnerSeat(s);
+				c["soldierYaml"] = coopSerializeCommendedRecord(_game, s);
+				rows.append(c);
+			}
+			return rows;
+		};
+		if (!db->_soldiersCommended.empty())
+			debrief["commended"] = commendedRows(db->_soldiersCommended);
+		if (!db->_deadSoldiersCommended.empty())
+			debrief["lateCommended"] = commendedRows(db->_deadSoldiersCommended);
+		if (!db->_destroyBase && !db->_missingItems.empty())
+		{
+			Json::Value missing(Json::arrayValue);
+			for (const auto& stat : db->_missingItems)
+			{
+				Json::Value m(Json::objectValue);
+				m["item"] = stat.item;
+				m["qty"] = stat.qty;
+				m["craft"] = stat.craft;
+				missing.append(m);
+			}
+			debrief["missingItems"] = missing;
 		}
 	}
 
@@ -25907,6 +26079,7 @@ static void coopCampaignClientSharedLeave(Game* game, DebriefingState* db, const
 	Log(LOG_INFO) << "[coop-debrief] client: campaign debriefing OK - phaseAtOk=" << phaseAtOk
 		<< " - its own geoscape on the adopted world";
 	game->setState(new GeoscapeState);
+	game->getCoopMod()->coopCampaignFollowupChain(db); // W2-P7 S-C-C.2 (PR-C6; D154): the after-battle screens
 }
 
 // W2-P7 S-C-B1.2 (AMENDMENT P7-6 P7-6 Q1 (a)): copy one keyed node verbatim from the merged copy's YAML tree into the
@@ -26015,6 +26188,81 @@ static Soldier* coopBuildSoldierFromYaml(Game* game, SavedGame* save, const std:
 	s->load(soldierReader, game->getMod(), save, game->getMod()->getScriptGlobal());
 	s->setCraft(0);
 	return s;
+}
+
+// W2-P7 S-C-C.2 (P7-6 C re-pin PR-C6, PR-17; D154, MR11; F2516, F4531): the campaign CLIENT's after-battle screens over
+// its new GeoscapeState, in vanilla's order (DebriefingState :905-921), from the payload: the medal screens on temporary
+// Soldiers (owner = the row's seat; deleted after both constructors, the states keep strings only), PromotionsState, and
+// SHARED only CannotReequipState over the adopted base (db->_base, D1). No autosave, no event. Record `chain`.
+void connectionTCP::coopCampaignFollowupChain(DebriefingState* db)
+{
+	const Json::Value msg = CoopDelta::debriefResultCopy();
+	const Json::Value& d = msg["debrief"];
+	const bool shared = d.get("mode", "").asString() == "shared";
+	SavedGame* save = _game->getSavedGame();
+	Json::Value chain(Json::arrayValue);
+	auto temps = [&](const Json::Value& rows, std::vector<Soldier*>& out) {
+		if (!rows.isArray() || !save)
+			return;
+		for (const Json::Value& r : rows)
+		{
+			Soldier* s = nullptr;
+			std::string why = "no soldier rule";
+			try
+			{
+				s = coopBuildSoldierFromYaml(_game, save, r.get("soldierYaml", "").asString());
+			}
+			catch (const std::exception& e)
+			{
+				why = e.what();
+			}
+			if (!s)
+			{
+				Log(LOG_WARNING) << "[coop-debrief] client: follow-up soldier " << r.get("soldierId", -1).asInt()
+					<< " not built (" << why << ") - skipped";
+				continue;
+			}
+			s->setOwnerPlayerId(r.get("ownerSeat", 0).asInt());
+			out.push_back(s);
+		}
+	};
+	std::vector<Soldier*> dead, alive;
+	temps(d["lateCommended"], dead);
+	temps(d["commended"], alive);
+	if (!dead.empty())
+	{
+		_game->pushState(new CommendationLateState(dead));
+		chain.append("CommendationLateState");
+	}
+	if (!alive.empty())
+	{
+		_game->pushState(new CommendationState(alive));
+		chain.append("CommendationState");
+	}
+	for (auto* s : dead)
+		delete s;
+	for (auto* s : alive)
+		delete s;
+	const Json::Value& promotions = d["promotions"];
+	if (promotions.isArray() && !promotions.empty())
+	{
+		g_coopPromotionRowsArmed = &promotions;
+		_game->pushState(new PromotionsState);
+		g_coopPromotionRowsArmed = nullptr;
+		chain.append("PromotionsState");
+	}
+	const Json::Value& missing = d["missingItems"];
+	if (shared && db && db->_base && missing.isArray() && !missing.empty())
+	{
+		std::vector<ReequipStat> items;
+		for (const Json::Value& m : missing)
+			items.push_back(ReequipStat{ m.get("item", "").asString(), m.get("qty", 0).asInt(), m.get("craft", "").asString(), 0 });
+		_game->pushState(new CannotReequipState(items, db->_base));
+		chain.append("CannotReequipState");
+	}
+	CoopDelta::battleEndRecordSet("chain", chain);
+	Log(LOG_INFO) << "[coop-debrief] client: after-battle follow-ups pushed - " << chain.size() << " screen(s), mode="
+		<< d.get("mode", "").asString();
 }
 
 // W2-P7 S-C-B2.2 (AMENDMENT P7-6 section 4.3 step 3; MR13): this mission's statistics record from the host's YAML
@@ -26218,6 +26466,7 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 	CoopDelta::battleEndRecordSet("phaseAfterOk", coopPhaseRecordName(coopBattleAuthority().phase.load()));
 	CoopDelta::battleEndRecordSet("resetAtOk", 0);
 	_game->setState(new GeoscapeState);
+	coopCampaignFollowupChain(db); // W2-P7 S-C-C.2 (PR-C6; D154): the host's after-battle screens, over the own geoscape
 	const bool pushed = pushProgressToHostSilently();
 	sep["pushed"] = pushed ? 1 : 0;
 	CoopDelta::battleEndRecordSet("sepReturn", sep);
