@@ -69,6 +69,8 @@ private:
 	TransferSortDirection _previousSort, _currentSort;
 	/// PRD-J10: live refresh when another player's shared_apply moves this base.
 	SharedEcon::ScreenRefresh _sharedRefresh;
+	SharedEcon::SelectionBinder _sharedSel; // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
+	friend class SharedEcon::SelectionBinder; // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
 
 	/// Gets the category of the current selection.
 	std::string getCategory(int sel) const;

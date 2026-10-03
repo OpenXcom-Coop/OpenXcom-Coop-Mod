@@ -75,6 +75,7 @@
 #include "../Savegame/Vehicle.h"       // W2-P7 S-C-D2.2 (PR-33): the forced storage sale's craft cleanup
 #include "../Engine/Collections.h"     // W2-P7 S-C-D2.2 (PR-33): vanilla's vehicle deleteIf
 #include <climits>                     // W2-P7 S-C-D2.2 (PR-33): INT_MAX
+#include <cstdlib>                     // W2-P7 S-C-E1: std::atoi (selection row keys)
 #include "../Savegame/Country.h"
 #include "../Savegame/WeightedOptions.h"
 #include "../Mod/RuleUfo.h"
@@ -126,6 +127,10 @@
 #include "../Savegame/AlienBase.h"
 #include "../Mod/RuleEvent.h"
 #include "../Menu/ErrorMessageState.h"
+#include "../Basescape/SellState.h"     // W2-P7 S-C-E1 (P7-8 PR-43): the SelectionBinder is a friend of the screen
+#include "../Interface/Text.h"          // W2-P7 S-C-E1: the binder's totals redraw
+#include "../Interface/TextButton.h"
+#include "../Engine/Unicode.h"
 
 #include "connectionTCP.h"
 #include "CoopState.h"
@@ -227,6 +232,29 @@ std::mutex g_resMx;
 std::map<int, std::string> g_awaitBySeq;  // awaited seq -> screen key
 std::map<std::string, int> g_awaitByKey;  // screen key -> awaited seq
 std::map<std::string, int> g_resultByKey; // screen key -> 1 ok / -1 failed, until taken
+
+// ---- W2-P7 S-C-E1 (AMENDMENT P7-8 PR-37; D184, D203): the shared selection store, by screen key ----------------------
+// The host's entry is the truth; a replica's is a mirror written only by the sel_* broadcasts and the confirm appliers
+// (PR-39 (v)). Main thread only. Row keys: i:<itemType>, s:<soldierId>, c:<craftId>:<craftType>, sci, eng.
+struct SharedSel
+{
+	std::map<std::string, int> rows, editors, eseqs;
+	uint32_t rev = 0;
+	std::set<int> viewers;
+	bool consumed = false;
+	uint32_t consumedRev = 0;
+	uint64_t consumedHash = 0;
+};
+std::map<std::string, SharedSel> g_sel;
+// This machine's bookkeeping beside the store (never on the wire), per key: per row the highest eseq of its own edits
+// seen in the list (Q-P8-3 (a); a consume clears the list's eseqs, not this) and how many of its sel_open were answered.
+struct SelLocal { std::map<std::string, int> ownSeen; int openEchoes = 0; };
+std::map<std::string, SelLocal> g_selLocal;
+std::map<std::string, std::pair<bool, int>> g_selCarry; // carried-over key -> the old binder's {acked, open echo wanted}
+int g_selEseq = 0;                                      // this machine's edit sequence (sel_set eseq)
+std::string g_selConfirmKey;                            // host: the stamped confirm being applied (PR-39 (ii) -> (v))
+uint64_t g_selConfirmHash = 0;                          // host: the hash of the rows that confirm applies
+void selConsume(Json::Value& payload);                  // PR-39 (v), with the sel_* appliers below
 
 void recordResult(int seq, int result)
 {
@@ -859,6 +887,7 @@ void sellApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (eng > 0) base->setEngineers(base->getEngineers() - eng);
 	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-25, MR14): a page-3 sale's bookkeeping (autosell marks, open debriefing counts).
 	if (payload.get("debrief", false).asBool()) connectionTCP::coopDebriefRecoveredSold(game, payload, true);
+	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E1 (P7-8 PR-39 (v)): the shared list is consumed
 }
 
 // ---- PRD-J05: "containment" --------------------------------------------------
@@ -1810,6 +1839,7 @@ void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/
 void baseDestroyedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return; // host already removed it in BaseDestroyedState
+	g_sel.clear(); // W2-P7 S-C-E1 (P7-8 PR-49, Q-P8-5 (a)): base indices shift - every binder re-keys on its next think()
 	if (!base) return;
 	SavedGame* save = game->getSavedGame();
 	if (!save) return;
@@ -2985,6 +3015,233 @@ void unassignWoundedApply(Game* game, Json::Value& payload, Base* base, int /*se
 	Log(LOG_INFO) << "[SHARED] unassign_wounded: " << unassigned << " of " << ids.size() << " soldier(s) off their crafts";
 }
 
+// ---- W2-P7 S-C-E1 (AMENDMENT P7-8 PR-38..PR-41; D184, D203, MR8): the sel_* commands and the host's confirm rules ----
+// Key "<screen>|<variant>|<baseIdx>|<extra>" (sellKey / xferKey / contKey).
+bool selParseKey(const std::string& key, std::string& screen, char& variant, int& baseIdx, std::string& extra)
+{
+	const size_t a = key.find('|'), b = a == std::string::npos ? a : key.find('|', a + 1);
+	const size_t c = b == std::string::npos ? b : key.find('|', b + 1);
+	if (c == std::string::npos || b != a + 2 || c == b + 1) return false;
+	screen = key.substr(0, a); variant = key[a + 1]; extra = key.substr(c + 1);
+	try { baseIdx = std::stoi(key.substr(b + 1, c - b - 1)); } catch (...) { return false; }
+	return screen == "sell" || screen == "xfer" || screen == "cont";
+}
+
+// PR-40 (Q-P8-1 (a)): what the host's confirm validator would accept for @a row now. Sell (sellValidate's rules): i: =
+// base stock (forced: what the forced screen lists, PR-33); s: 1 iff that soldier is at the base off its craft; c: 1 iff
+// the craft is there and not out; sci / eng <= available. Unknown or negative -> 0 (erased).
+int selClamp(Game* game, const std::string& key, const std::string& row, int amount)
+{
+	std::string screen, extra; char variant = 'n'; int idx = -1;
+	if (amount <= 0 || !selParseKey(key, screen, variant, idx, extra)) return 0;
+	Base* base = resolveBase(game, idx);
+	if (!base) return 0;
+	if (screen != "sell") return amount; // xfer / cont: S-C-E2's clamp (PR-40)
+	if (row.compare(0, 2, "i:") == 0)
+	{
+		const RuleItem* rule = game->getMod()->getItem(row.substr(2), false);
+		return !rule ? 0 : std::min(amount, variant == 'f' ? forcedSellAvailable(base, rule, base->storesOverfullCritical())
+			: base->getStorageItems()->getItem(rule));
+	}
+	for (auto* s : *base->getSoldiers())
+		if (row == "s:" + std::to_string(s->getId())) return s->getCraft() == 0 ? 1 : 0;
+	for (auto* c : *base->getCrafts())
+		if (row == "c:" + std::to_string(c->getId()) + ":" + c->getRules()->getType()) return c->getStatus() != "STR_OUT" ? 1 : 0;
+	if (row == "sci" || row == "eng") return std::min(amount, row == "sci" ? base->getAvailableScientists() : base->getAvailableEngineers());
+	return 0;
+}
+
+// FNV-1a 64 over the sorted "row=amount;" pairs: the identity of a consumed selection (PR-39 (v), MR8).
+uint64_t selHash(const std::map<std::string, int>& rows)
+{
+	uint64_t h = 1469598103934665603ULL;
+	for (const auto& r : rows)
+		for (char ch : r.first + "=" + std::to_string(r.second) + ";") h = (h ^ (unsigned char)ch) * 1099511628211ULL;
+	return h;
+}
+
+std::map<std::string, int> selMapOf(const Json::Value& v, bool positiveOnly)
+{
+	std::map<std::string, int> m;
+	for (const auto& k : v.isObject() ? v.getMemberNames() : Json::Value::Members())
+		if (!positiveOnly || v[k].asInt() > 0) m[k] = v[k].asInt();
+	return m;
+}
+
+// The list's full state, as every sel_* broadcast carries it (the host resolves it; a replica adopts it verbatim).
+Json::Value selStateJson(const std::string& key)
+{
+	Json::Value st(Json::objectValue);
+	auto it = g_sel.find(key);
+	st["erased"] = it == g_sel.end();
+	if (it == g_sel.end()) return st;
+	const char* names[] = { "rows", "editors", "eseqs" };
+	const std::map<std::string, int>* maps[] = { &it->second.rows, &it->second.editors, &it->second.eseqs };
+	for (int i = 0; i < 3; ++i)
+	{
+		st[names[i]] = Json::Value(Json::objectValue);
+		for (const auto& kv : *maps[i]) st[names[i]][kv.first] = kv.second;
+	}
+	st["rev"] = Json::UInt(it->second.rev);
+	st["viewers"] = Json::Value(Json::arrayValue);
+	for (int seat : it->second.viewers) st["viewers"].append(seat); // std::set: sorted
+	return st;
+}
+
+// PR-38: sel_open {key, seed} / sel_set {key, row, amount, eseq} / sel_close {key} / sel_sync {key} (host-origin, PR-41).
+// The host applies the rule and resolves the list's full state into payload["state"]; a replica adopts it. Then this
+// machine notes its own open answered and its own edits seen (Q-P8-3 (a)). A malformed payload changes nothing (never a
+// reject: a reject would raise a fail box).
+void selApplyOp(Game* game, Json::Value& payload, int seat, const std::string& op)
+{
+	const std::string key = payload.get("key", "").asString(), row = payload.get("row", "").asString();
+	std::string screen, extra; char variant = 'n'; int idx = -1;
+	if (!selParseKey(key, screen, variant, idx, extra) || (op == "sel_set" && row.empty()))
+		{ Log(LOG_WARNING) << "[SHARED] sel: malformed " << op << " (key '" << key << "') ignored"; return; }
+	if (isHost())
+	{
+		auto it = g_sel.find(key);
+		if (op == "sel_open")
+		{
+			SharedSel& s = g_sel[key];
+			s.viewers.erase(seat);
+			if (s.viewers.empty()) // a lone opener starts the list: at zero, or with its seed (Q-P8-2 (a))
+			{
+				s.rows.clear(); s.editors.clear(); s.eseqs.clear();
+				for (const auto& r : selMapOf(payload.get("seed", Json::Value()), true))
+					if (const int a = selClamp(game, key, r.first, r.second)) { s.rows[r.first] = a; s.editors[r.first] = seat; }
+				++s.rev;
+			}
+			s.viewers.insert(seat);
+		}
+		else if (it == g_sel.end())
+			Log(LOG_INFO) << "[SHARED] sel: " << op << " for " << key << ", which nobody has open - no change";
+		else if (op == "sel_set")
+		{
+			const int a = selClamp(game, key, row, payload.get("amount", 0).asInt());
+			if (a > 0) it->second.rows[row] = a; else it->second.rows.erase(row);
+			it->second.editors[row] = seat; // kept at amount 0 until the list clears: the sender always sees its echo
+			it->second.eseqs[row] = payload.get("eseq", 0).asInt();
+			++it->second.rev;
+		}
+		else if (op == "sel_close")
+			{ it->second.viewers.erase(seat); if (it->second.viewers.empty()) g_sel.erase(it); }
+		else // sel_sync: re-clamp to the world as it is now (PR-41)
+		{
+			std::map<std::string, int> rows;
+			for (const auto& r : it->second.rows)
+				if (const int a = selClamp(game, key, r.first, r.second)) rows[r.first] = a;
+			if (rows != it->second.rows) { it->second.rows = rows; ++it->second.rev; }
+		}
+		payload["state"] = selStateJson(key);
+	}
+	else
+	{
+		const Json::Value st = payload.get("state", Json::Value());
+		if (!st.isObject()) { Log(LOG_WARNING) << "[SHARED] sel: " << op << " for " << key << " without a state ignored"; return; }
+		if (st.get("erased", false).asBool()) g_sel.erase(key);
+		else
+		{
+			SharedSel& s = g_sel[key];
+			s.rows = selMapOf(st["rows"], true); s.editors = selMapOf(st["editors"], false);
+			s.eseqs = selMapOf(st["eseqs"], false); s.rev = st.get("rev", 0).asUInt(); s.viewers.clear();
+			for (const auto& v : st["viewers"]) s.viewers.insert(v.asInt());
+		}
+	}
+	SelLocal& loc = g_selLocal[key];
+	const int me = connectionTCP::localSeat();
+	if (op == "sel_open" && seat == me) ++loc.openEchoes;
+	auto it = g_sel.find(key);
+	if (it != g_sel.end())
+		for (const auto& e : it->second.editors)
+			if (e.second == me && it->second.eseqs.count(e.first))
+				loc.ownSeen[e.first] = std::max(loc.ownSeen[e.first], it->second.eseqs.at(e.first));
+}
+
+// PR-39 (v): a stamped confirm applied on a list - host: remember what was consumed (MR8), clear the list, rev++ and
+// stamp the new rev; replica: clear the mirror and adopt that rev. Every binder then shows zeros (D204 (a)).
+void selConsume(Json::Value& payload)
+{
+	const std::string key = payload.get("selKey", "").asString();
+	auto it = g_sel.find(key);
+	if (it == g_sel.end() || (isHost() ? g_selConfirmKey != key : !payload.isMember("selRevAfter"))) return;
+	SharedSel& s = it->second;
+	if (isHost()) { s.consumed = true; s.consumedRev = s.rev; s.consumedHash = g_selConfirmHash; g_selConfirmKey.clear(); }
+	s.rows.clear(); s.editors.clear(); s.eseqs.clear();
+	if (isHost()) payload["selRevAfter"] = Json::UInt(++s.rev);
+	else s.rev = payload["selRevAfter"].asUInt();
+	Log(LOG_INFO) << "[SHARED] sel: " << key << " consumed (rev " << s.rev << ")";
+}
+
+// PR-39 (E1: sell; E2 extends it), before the validate of a confirm stamped with a list the host holds: (i) the duplicate
+// of a consumed selection -> true = coop_sel_dup, a success (MR8); (ii) the row arrays are rebuilt from the host's clamped
+// list (D203: the host applies its current list, whatever rev the confirm saw; page 3 also capped by the stamped selCaps,
+// F6125), every other key stays the confirmer's; (iii) nothing left on a non-page-3 key -> true; (iv) a key the host does
+// not hold -> false, applied as sent.
+bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
+{
+	g_selConfirmKey.clear();
+	const std::string key = cmdPayload.get("selKey", "").asString();
+	auto it = pc.cmd == "sell" ? g_sel.find(key) : g_sel.end();
+	if (it == g_sel.end()) return false;
+	const SharedSel& s = it->second;
+	if (s.consumed && cmdPayload.get("selRev", 0).asUInt() <= s.consumedRev
+		&& selHash(selMapOf(cmdPayload.get("selRows", Json::Value()), true)) == s.consumedHash) return true;
+	const bool page3 = key.find("|d|") != std::string::npos;
+	const Json::Value caps = cmdPayload.get("selCaps", Json::Value());
+	std::map<std::string, int> rows;
+	for (const auto& r : s.rows)
+	{
+		int a = selClamp(game, key, r.first, r.second);
+		if (page3 && r.first.compare(0, 2, "i:") == 0) a = std::min(a, caps.get(r.first, 0).asInt());
+		if (a > 0) rows[r.first] = a;
+	}
+	if (rows.empty() && !page3) return true;
+	Json::Value items(Json::arrayValue), soldiers(Json::arrayValue), crafts(Json::arrayValue);
+	for (const auto& r : rows)
+	{
+		const size_t p = r.first.find(':', 2);
+		Json::Value e;
+		if (r.first.compare(0, 2, "i:") == 0) { e["rule"] = r.first.substr(2); e["qty"] = r.second; items.append(e); }
+		else if (r.first.compare(0, 2, "s:") == 0) soldiers.append(std::atoi(r.first.c_str() + 2));
+		else if (r.first.compare(0, 2, "c:") == 0 && p != std::string::npos)
+			{ e["id"] = std::atoi(r.first.substr(2, p - 2).c_str()); e["type"] = r.first.substr(p + 1); crafts.append(e); }
+	}
+	cmdPayload["items"] = items; cmdPayload["soldiers"] = soldiers; cmdPayload["crafts"] = crafts;
+	cmdPayload["scientists"] = rows.count("sci") ? rows["sci"] : 0;
+	cmdPayload["engineers"] = rows.count("eng") ? rows["eng"] : 0;
+	g_selConfirmKey = key; g_selConfirmHash = selHash(rows);
+	return false;
+}
+
+void processHostCmd(Game* game, const PendingCmd& pc);
+
+// PR-41 (F6106): after a world apply the host re-clamps every list it touched (its base; a transfer's destination and
+// every xfer key naming either; baseId < 0 = every list) and sel_syncs each changed one AT ONCE, never through g_cmdQ:
+// the apply's broadcast precedes the sel_sync's on the ordered lane, so no queued confirm sees an unclamped list.
+void selSyncTouched(Game* game, const PendingCmd& pc)
+{
+	const int toBase = pc.cmd == "transfer" ? pc.payload.get("toBaseId", -1).asInt() : -1;
+	std::vector<std::pair<std::string, int>> changed;
+	for (const auto& kv : g_sel)
+	{
+		std::string screen, extra; char variant = 'n'; int idx = -1;
+		if (!selParseKey(kv.first, screen, variant, idx, extra)) continue;
+		const std::string other = screen == "xfer" ? extra : "";
+		const bool touched = pc.baseId < 0 || idx == pc.baseId || (toBase >= 0 && idx == toBase)
+			|| (!other.empty() && (other == std::to_string(pc.baseId) || (toBase >= 0 && other == std::to_string(toBase))));
+		for (const auto& r : kv.second.rows)
+			if (touched && selClamp(game, kv.first, r.first, r.second) != r.second) { changed.push_back({ kv.first, idx }); break; }
+	}
+	for (const auto& c : changed)
+	{
+		PendingCmd sync;
+		sync.cmd = "sel_sync"; sync.seq = ++g_seqCounter; sync.seat = connectionTCP::localSeat();
+		sync.baseId = c.second; sync.payload["key"] = c.first;
+		processHostCmd(game, sync);
+	}
+}
+
 // ---- Host-side command processing (main thread) ------------------------------
 void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 {
@@ -3004,7 +3261,7 @@ void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 		// surfaces a shared_fail received from the host (PRD-J10: one helper, one
 		// dialog, both roles).
 		showFail(game, reason);
-		recordResult(pc.seq, -1); // W2-P7 S-C-D2.2 (PR-30): the host's own awaiting screen stays under the box
+		recordResult(pc.seq, reason == "coop_sel_dup" ? 1 : -1); // W2-P7 S-C-D2.2 (PR-30): the host's own awaiting screen stays under the box; S-C-E1 (PR-45): a duplicate confirm is a success
 	}
 }
 
@@ -3019,11 +3276,16 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 		return;
 	}
 
+	// W2-P7 S-C-E1 (P7-8 PR-43 (6)): a screen's sel_close may be queued in the teardown frame before the world is dropped.
+	if (!game->getSavedGame() && pc.cmd.compare(0, 4, "sel_") == 0) { Log(LOG_WARNING) << "[SHARED] " << pc.cmd << " dropped: no world"; return; }
 	Base* base = resolveBase(game, pc.baseId);
 	int64_t cost = 0;
 	std::string failReason;
 	++g_cmdN;
-	if (!hit->second.validate(game, pc.payload, base, pc.seat, cost, failReason))
+	// W2-P7 S-C-E1 (P7-8 PR-39, F6104): a stamped confirm is checked and rewritten from the host's list before the validate.
+	Json::Value cmdPayload = pc.payload;
+	if (selConfirmRules(game, pc, cmdPayload)) { rejectHostCmd(game, pc, "coop_sel_dup"); return; } // MR8 / PR-45: a success
+	if (!hit->second.validate(game, cmdPayload, base, pc.seat, cost, failReason))
 	{
 		rejectHostCmd(game, pc, failReason.empty() ? "rejected" : failReason);
 		return;
@@ -3036,7 +3298,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// payload is what we broadcast, so replicas reconstruct instead of re-rolling.
 	SavedGame* save = game->getSavedGame();
 	save->setFunds(save->getFunds() - cost);
-	Json::Value payload = pc.payload;
+	Json::Value payload = cmdPayload;
 	hit->second.apply(game, payload, base, pc.seat);
 	++g_applyN;
 
@@ -3073,6 +3335,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// apply (a client's buy moves the host's funds too), so both roles notify.
 	fireApplyListener(pc.cmd, pc.baseId, pc.seat);
 	if (!pc.remote) recordResult(pc.seq, 1); // W2-P7 S-C-D2.2 (PR-30): the host's own awaiting screen closes
+	if (pc.cmd.compare(0, 4, "sel_") != 0) selSyncTouched(game, pc); // W2-P7 S-C-E1 (P7-8 PR-41): re-clamp the touched lists now
 }
 
 // ---- Replica-side apply (main thread) ----------------------------------------
@@ -3176,6 +3439,7 @@ void ScreenRefresh::bind(Game* game, const void* owner, Base* base, bool wantPro
 		// day_tick is pure progress bookkeeping (wound recovery, research/production
 		// "days left"). List views want it; a command screen must NOT throw away the
 		// player's half-entered order once per game-day because of it.
+		if (cmd.compare(0, 4, "sel_") == 0) return; // W2-P7 S-C-E1 (P7-8 PR-42, F2502): selection traffic never rebuilds a screen
 		if (!_wantProgress && cmd == "day_tick") return;
 		// applyBaseId < 0 = world-scoped (funds-only, base creation, dogfights):
 		// always relevant. Otherwise only this screen's own base matters.
@@ -3205,6 +3469,7 @@ void showFail(Game* game, const std::string& reason)
 {
 	if (!game) return;
 	if (reason == "coop_forced_resolved") return; // W2-P7 S-C-D2.2 (PR-32): no box - the forced screen closes itself
+	if (reason == "coop_sel_dup") return; // W2-P7 S-C-E1 (P7-8 PR-45, MR8): a duplicate confirm is a success - no box
 	// The reason is the host validator's own string: an STR_ id where the vanilla
 	// rule already had one (STR_NOT_ENOUGH_MONEY, STR_NOT_ENOUGH_CRAFT_SPACE, ...),
 	// a plain sentence otherwise. Language::getString returns the id unchanged when
@@ -3293,6 +3558,11 @@ void init()
 	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
 	registerCmd("day_tick",         &simAccept, &dayTickApply);
 	registerCmd("unassign_wounded", &simAccept, &unassignWoundedApply); // W2-P7 S-C-A.2 (MR2): host-origin, replica-only
+	// W2-P7 S-C-E1 (P7-8 PR-38, D184): the shared selection - the host resolves the list's state, replicas adopt it.
+	registerCmd("sel_open", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_open"); });
+	registerCmd("sel_set", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_set"); });
+	registerCmd("sel_close", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_close"); });
+	registerCmd("sel_sync", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_sync"); }); // host-origin (PR-41)
 }
 
 void broadcast(Game* game, const Json::Value& msg)
@@ -3428,7 +3698,7 @@ void update(Game* game)
 		}
 		if (!have) break;
 		showFail(game, fail.first);
-		recordResult(fail.second, -1); // W2-P7 S-C-D2.2 (PR-30): the awaiting screen stays under the fail box
+		recordResult(fail.second, fail.first == "coop_sel_dup" ? 1 : -1); // W2-P7 S-C-D2.2 (PR-30): the awaiting screen stays under the fail box; S-C-E1 (PR-45): a duplicate is a success
 	}
 
 	// 4) Host: serve queued resync requests (PRD-J10). Re-stream the authoritative
@@ -3599,12 +3869,180 @@ void resetSessionQueues()
 	}
 	const bool held = g_applyHold;
 	g_applyHold = false;
+	g_sel.clear(); g_selLocal.clear(); g_selCarry.clear(); // W2-P7 S-C-E1 (P7-8 PR-37): no shared list outlives its session
 	Log(LOG_INFO) << "[SHARED] session reset: dropped " << cmds << " command(s), " << applies << " apply(s), " << fails
 		<< " failure(s); apply hold was " << (held ? "on" : "off") << " (PR-34)";
 }
 
-// W2-P7 S-C-E1.1 (AMENDMENT P7-8 PR-46): TestServer sel_state's read of the shared selection store - the red stub is empty
-Json::Value selectionSnapshot() { return Json::Value(Json::objectValue); }
+// W2-P7 S-C-E1.1 (AMENDMENT P7-8 PR-46): TestServer sel_state's read of the shared selection store (read-only).
+Json::Value selectionSnapshot()
+{
+	Json::Value out(Json::objectValue);
+	for (const auto& kv : g_sel) { out[kv.first] = selStateJson(kv.first); out[kv.first].removeMember("erased"); }
+	return out;
+}
+
+// ---- W2-P7 S-C-E1 (AMENDMENT P7-8 PR-43; D184, D203, D204, MR7, Q-P8-2, Q-P8-3): the SelectionBinder on SellState ----
+namespace
+{
+std::string selRowKey(const TransferRow& row)
+{
+	switch (row.type)
+	{
+	case TRANSFER_ITEM: return "i:" + ((const RuleItem*)row.rule)->getType();
+	case TRANSFER_SOLDIER: return "s:" + std::to_string(((const Soldier*)row.rule)->getId());
+	case TRANSFER_CRAFT: return "c:" + std::to_string(((const Craft*)row.rule)->getId()) + ":" + ((const Craft*)row.rule)->getRules()->getType();
+	case TRANSFER_SCIENTIST: return "sci";
+	case TRANSFER_ENGINEER: return "eng";
+	}
+	return "";
+}
+}
+
+std::string SelectionBinder::keyOf(Game* game, SellState* screen)
+{
+	return sellKey(game, screen->_base, screen->_debriefingState != 0, screen->_origin == OPT_BATTLESCAPE);
+}
+
+Json::Value SelectionBinder::rowsOf(SellState* screen)
+{
+	Json::Value rows(Json::objectValue);
+	for (const auto& row : screen->_items)
+		if (row.amount > 0) rows[selRowKey(row)] = row.amount;
+	return rows;
+}
+
+void SelectionBinder::sendOpen(const Json::Value& seed)
+{
+	_lastSent.clear();
+	_acked = _seen = false;
+	_openWant = g_selLocal[_key].openEchoes + 1; // acked once the list answers this open and lists this seat
+	Json::Value p;
+	p["key"] = _key; p["seed"] = seed;
+	submitLocalCmd(_game, "sel_open", _baseIdx, p);
+}
+
+SelectionBinder::~SelectionBinder()
+{
+	if (!_opened || _carried || !connectionTCP::getCoopStatic() || !sharedGame(_game)) return;
+	Json::Value p; p["key"] = _key;
+	try { submitLocalCmd(_game, "sel_close", _baseIdx, p); } catch (...) {}
+}
+
+void SelectionBinder::open(Game* game, SellState* screen, bool bound)
+{
+	if (_opened || _inert) return;
+	_game = game;
+	if (!bound || !sharedGame(game)) { _inert = true; return; }
+	_sell = screen; _opened = true;
+	_key = keyOf(game, screen);
+	_baseIdx = baseIndex(game, screen->_base);
+	auto c = g_selCarry.find(_key);
+	if (c == g_selCarry.end()) { sendOpen(rowsOf(screen)); return; }
+	_acked = c->second.first; // a refresh rebuild (F2161): adopt the list, send nothing
+	_openWant = c->second.second;
+	g_selCarry.erase(c);
+}
+
+void SelectionBinder::think(SellState* screen)
+{
+	const int baseIdx = _opened ? baseIndex(_game, screen->_base) : -1;
+	if (baseIdx < 0) return; // inert, or the base is gone (the screen closes itself)
+	const std::string key = keyOf(_game, screen);
+	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // PR-49: the indices shifted
+	if (!_acked && g_selLocal[_key].openEchoes < _openWant) return; // keep the local (seeded) rows until answered
+	auto it = g_sel.find(_key);
+	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; } // dropped (PR-49)
+	_acked = true;
+	const SharedSel& m = it->second;
+	if (_seen && m.rev == _seenRev) return;
+	_seen = true; _seenRev = m.rev;
+	// Each row adopts min(list amount, its maximum), unless its own last edit is not answered yet (Q-P8-3 (a)); then the
+	// totals come from every row plus the list's rows this screen does not show (another seat's soldiers, MR7, F6124).
+	const SelLocal& loc = g_selLocal[_key];
+	std::set<std::string> shown;
+	std::vector<size_t> changed;
+	int64_t total = 0; double space = 0;
+	for (size_t i = 0; i < screen->_items.size(); ++i)
+	{
+		TransferRow& row = screen->_items[i];
+		const std::string rk = selRowKey(row);
+		shown.insert(rk);
+		auto sent = _lastSent.find(rk);
+		auto seen = loc.ownSeen.find(rk);
+		auto mr = m.rows.find(rk);
+		const int target = std::max(0, std::min(mr == m.rows.end() ? 0 : mr->second, row.qtySrc));
+		const bool pending = sent != _lastSent.end() && (seen == loc.ownSeen.end() || seen->second < sent->second);
+		if (!pending && row.amount != target) { row.amount = target; changed.push_back(i); }
+		if (row.amount <= 0) continue;
+		total += (int64_t)row.cost * row.amount;
+		if (row.type == TRANSFER_ITEM) space -= row.amount * ((const RuleItem*)row.rule)->getSize();
+		else if (row.type == TRANSFER_SOLDIER && ((Soldier*)row.rule)->getArmor()->getStoreItem())
+			space += row.amount * ((Soldier*)row.rule)->getArmor()->getStoreItem()->getSize();
+	}
+	for (const auto& r : m.rows)
+	{
+		if (shown.count(r.first)) continue;
+		const RuleItem* rule = r.first.compare(0, 2, "i:") == 0 ? _game->getMod()->getItem(r.first.substr(2), false) : nullptr;
+		if (rule) total += (int64_t)rule->getSellCostAdjusted(screen->_base, _game->getSavedGame()) * r.second;
+		if (rule) space -= r.second * rule->getSize();
+		for (auto* s : *screen->_base->getSoldiers())
+			if (r.first == "s:" + std::to_string(s->getId()) && s->getArmor()->getStoreItem())
+				space += r.second * s->getArmor()->getStoreItem()->getSize();
+		for (auto* c : *screen->_base->getCrafts())
+			if (r.first == "c:" + std::to_string(c->getId()) + ":" + c->getRules()->getType())
+				total += (int64_t)c->getRules()->getSellCost() * r.second;
+	}
+	if (changed.empty() && total == screen->_total && std::fabs(space - screen->_spaceChange) < 1e-9) return;
+	screen->_total = total; screen->_spaceChange = space;
+	// Redraw through the screen's own updater: each changed visible row, else one row for the totals.
+	const size_t sel0 = screen->_sel;
+	bool drawn = false;
+	_applying = true;
+	for (size_t v = 0; v < screen->_rows.size(); ++v)
+		if (std::find(changed.begin(), changed.end(), (size_t)screen->_rows[v]) != changed.end())
+			{ screen->_sel = v; screen->updateItemStrings(); drawn = true; }
+	if (!drawn && !screen->_rows.empty())
+		{ screen->_sel = sel0 < screen->_rows.size() ? sel0 : 0; screen->updateItemStrings(); }
+	else if (!drawn)
+	{
+		screen->_txtSales->setText(screen->tr("STR_VALUE_OF_SALES").arg(Unicode::formatFunding(screen->_total)));
+		if (screen->_debriefingState == 0 && Options::storageLimitsEnforced)
+			screen->_btnOk->setVisible(!screen->_base->storesOverfull(screen->_spaceChange));
+	}
+	_applying = false; screen->_sel = sel0;
+}
+
+void SelectionBinder::localEdit(SellState* screen)
+{
+	if (!_opened || _applying || screen->_sel >= screen->_rows.size()) return;
+	const TransferRow& row = screen->_items[screen->_rows[screen->_sel]];
+	const std::string rk = selRowKey(row);
+	Json::Value p;
+	p["key"] = _key; p["row"] = rk; p["amount"] = row.amount;
+	p["eseq"] = _lastSent[rk] = ++g_selEseq;
+	submitLocalCmd(_game, "sel_set", _baseIdx, p);
+}
+
+void SelectionBinder::carryOver()
+{
+	if (!_opened) return;
+	g_selCarry[_key] = { _acked, _openWant };
+	_carried = true;
+}
+
+void SelectionBinder::stamp(Json::Value& payload)
+{
+	if (!_opened) return; // a harness lever never opened one: its confirm carries no selKey (P8-6, F6126)
+	auto it = g_sel.find(_key);
+	payload["selKey"] = _key;
+	payload["selRev"] = Json::UInt(it == g_sel.end() ? 0 : it->second.rev);
+	payload["selRows"] = rowsOf(_sell);
+	if (_key.find("|d|") == std::string::npos) return;
+	payload["selCaps"] = Json::Value(Json::objectValue); // page 3: each row's recovered count (F6125)
+	for (const auto& row : _sell->_items)
+		if (row.type == TRANSFER_ITEM) payload["selCaps"][selRowKey(row)] = row.qtySrc;
+}
 
 Stats stats()
 {
@@ -3692,6 +4130,7 @@ void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived)
 void hostBaseDestroyed(Game* game, int baseId, const std::string& name, bool missiles)
 {
 	if (!sharedHost(game)) return;
+	g_sel.clear(); // W2-P7 S-C-E1 (P7-8 PR-49, Q-P8-5 (a)): base indices shift - every binder re-keys on its next think()
 	Json::Value p;
 	p["name"] = name;
 	p["missiles"] = missiles;
