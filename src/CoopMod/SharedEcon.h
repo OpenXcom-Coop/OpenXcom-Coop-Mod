@@ -209,6 +209,7 @@ bool xferScreenShouldClose(Game* game, Base* from, Base* to, bool debrief);
 bool contScreenShouldClose(Game* game, Base* base, int prisonType, bool battlescapeOrigin);
 /// PR-34 (SK3; F5237, F5576): a session reset drops the queued commands / applies / failures, answers and apply hold.
 void resetSessionQueues();
+Json::Value selectionSnapshot(); // W2-P7 S-C-E1.1 (P7-8 PR-46): the shared selection store {key: {rows, editors, eseqs, rev, viewers}} for TestServer sel_state
 
 /// PRD-J10: THE single "the host rejected your command" dialog. Every J05-J08
 /// failure path funnels here (the screens never pop their own): the host's

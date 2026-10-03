@@ -6763,6 +6763,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "dismiss_arm" && cmd != "dismiss_arm_state" // W2-U7 (F5820)
 		&& cmd != "display_rules" && cmd != "debrief_state"
 		&& cmd != "geo_event_probe" // W2-H15 (F3261, F5602)
+		&& cmd != "sel_state" && cmd != "set_autosell" // W2-P7 S-C-E1.1 (P7-8 PR-46)
 		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
 	{
 		return false;
@@ -9331,6 +9332,38 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			for (auto* s : *sgSR->getDeadSoldiers()) add(s, "dead", -1);
 			resp["count"] = (int)records.size();
 			resp["records"] = records;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "sel_state")
+	{
+		// W2-P7 S-C-E1.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-8 PR-46, D184): TEST INTROSPECTION ONLY -
+		// read-only. THIS machine's shared selection store (the host's truth / a replica's mirror):
+		// {ok, localSeat, keys: {"<screen>|<variant>|<baseIdx>|<extra>": {rows, editors, eseqs, rev, viewers}}}.
+		resp["localSeat"] = connectionTCP::localSeat();
+		resp["keys"] = SharedEcon::selectionSnapshot();
+		resp["ok"] = true;
+	}
+	else if (cmd == "set_autosell")
+	{
+		// W2-P7 S-C-E1.1 (AMENDMENT P7-8 PR-46, Q-P8-2): TEST-ONLY world write on THIS machine - SavedGame::setAutosell(item,
+		// on), the mark vanilla's page-3 Sell pre-fills from (SellState :279). Run it on both machines, client first, so the
+		// two worlds stay equal. Reply {ok, item, autosell: getAutosell(item)} (false while the local oxceAutoSell is off).
+		const std::string itemAS = req.get("item", "").asString();
+		const RuleItem* ruleAS = _game->getMod()->getItem(itemAS, false);
+		if (!_game->getSavedGame())
+		{
+			resp["error"] = "set_autosell: no saved game";
+		}
+		else if (!ruleAS)
+		{
+			resp["error"] = "set_autosell: unknown item " + itemAS;
+		}
+		else
+		{
+			_game->getSavedGame()->setAutosell(ruleAS, req.get("on", false).asBool());
+			resp["item"] = itemAS;
+			resp["autosell"] = _game->getSavedGame()->getAutosell(ruleAS);
 			resp["ok"] = true;
 		}
 	}

@@ -43,16 +43,13 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
   Boot 2 (port 47257): D2e, then D2d, then D2f.
   D2e (before the OKs) (1) the client's page-3 SellState open (lists T: T_QTY); client held; the host's `sell {T,
           T_QTY - 1}` applied on the host.
-      (2) the client sets T = T_QTY, Sell/Sack: its page-3 SellState stays at submit (MR10); the host rejects
-          (lastFail STR_NOT_ENOUGH_ITEMS_TO_SELL); released: the client's top CoopState (code 556, the fail box) with
-          the page-3 SellState directly under it.
-      (3) coop_dialog_back: the page-3 SellState rebuilt (T: T_QTY, amount 0); T = 1, Sell/Sack: it closes after the
-          host's answer (top DebriefingState); recovered[T] == T_QTY - 1 on both.
-  D2d (1) both OKs as D2c (1); both boxes dismissed, both forced SellStates up.
-      (2) client held; the host's `sell {STR_RIFLE, 10}` applied (the host still over); the client sets Rifle = its
-          listed qty - 9 (OK visible), Sell/Sack: its forced SellState stays; the host rejects (lastFail
-          STR_NOT_ENOUGH_ITEMS_TO_SELL); released: the client's top CoopState (556) with its forced SellState under it.
-      (3) coop_dialog_back: the client's forced SellState rebuilt (Rifle qty - 10) and still forced (OK hidden).
+      (2) [re-pointed by S-C-E1.1, AMENDMENT P7-8 PR-52] the client sets T = T_QTY, Sell/Sack: the host applies its
+          shared list clamped to its stock (P7-8 PR-39/PR-40, V-E1): within ANSWER_S the client's page-3 SellState is
+          gone (top DebriefingState) although the client is still held, no CoopState on either, the client's
+          failCount unchanged, the host's stock of T == 0.
+      (3) released: recovered[T] == T_QTY - 1 on both; world_diff empty.
+  D2d (1) both OKs as D2c (1); both boxes dismissed, both forced SellStates up. (Its old cells 2-3, a stale-stock
+          rejection on a bound forced Sell screen, cannot occur after S-C-E1's clamp, F6106: deleted by PR-52.)
   D2f (1) client held; the host's `sell {STR_RIFLE, N}` (N clears the host's base by base_report): the host's forced
           SellState closes itself (top GeoscapeState).
       (2) the client (held, still over in its view) sets Rifle to clear by its view (OK visible), Sell/Sack: the host
@@ -60,12 +57,16 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
       (3) released: no CoopState within SCREEN_S, the client's forced SellState closes itself (top GeoscapeState);
           world_diff empty.
   Rows sharing a boot start by turning every hold off and dismissing any ErrorMessageState / CoopState box on both
-  machines. D2f needs D2d's forced screen: when D2d fails, D2f is reported "not reached".
+  machines; D2d also cancels a Sell screen left over a debriefing (D2e's red leaves its page-3 SellState up). D2f
+  needs D2d's forced screen: when D2d fails, D2f is reported "not reached".
 Guard on every row: host event_state.fatalVote.armed 0; no new crash log; the client zero-disk at the boot's end.
 
 RED (commit S-C-D2.1: levers and rows, product untouched): D2c fails on cell 1 (the client reaches its geoscape with
 no forced screen, F5432), D2e on cell 2 (the page-3 SellState is gone at submit, F2501), D2d on cell 1 (as D2c); D2f
 not reached. GREEN (commit S-C-D2.2): every row passes.
+RE-POINT (commit S-C-E1.1, AMENDMENT P7-8 PR-52, F6106, chain rule section A.10; Q-P8-1 (a), D203): RED on the D2
+product (pre-E1): D2e fails on cell 2 (the host rejects the stale-stock sale, so the page-3 SellState stays); D2c,
+D2d (1) and D2f pass. GREEN (commit S-C-E1.2): every row passes.
 Each row prints ONE "EVIDENCE <id>:" line (both machines' battleEnd keys page3, worldAdoptDeferredPasses, forced,
 adoptFailed), then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE foreground run, no skip path; exit 0
 only when every row passes, 2 otherwise.
@@ -93,14 +94,11 @@ RIFLE_SIZE = 0.2                         # CONSTANTS T0-S3 (ii): "(rifle size 0.
 T = "STR_SECTOID_CORPSE"                 # FX-S's T (AMENDMENT P7-7 section 3)
 T_QTY = 10                               # FX-ST boot 2: T's page-3 count and the host's stock at its debriefing (pinned
                                          # by this file's first construction, EVIDENCE D2e pre.fxST.counts / stockT)
-D2D_HOST_SELL, D2D_SHORT = 10, 9         # AMENDMENT P7-7 section 3.2 D2d (2): the host sells 10, the client asks qty - 9
 BOOT_PORT = {"ST1": "47256", "ST2": "47257"}  # AMENDMENT P7-7 section 3 (S26, F5582): D2 = 47254-47258
 HOSTILES = camp.HOSTILES                 # CONSTANTS (part 1) T0-6 (i): 1000000-1000014
 STORAGE_MARK = "STORAGE SPACE EXCEEDED"  # en-US STR_STORAGE_EXCEEDED's head (bin/standard/xcom1/Language/en-US.yml)
 SELL_OK = "Sell/Sack"                    # SellState's OK caption (STR_SELL_SACK, F5572)
-NOT_ENOUGH = "STR_NOT_ENOUGH_ITEMS_TO_SELL"   # sellValidate's reason (SharedEcon.cpp sellValidate)
 FORCED_RESOLVED = "coop_forced_resolved"      # PR-32's silent reason
-FAIL_BOX = 556                           # CoopState COOP_DLG_SHARED_FAIL (CoopState.h :56)
 ADOPT_S = camp.ADOPT_S                   # 15 s (CONSTANTS T0-S2)
 OK_S = camp.OK_S                         # 10 s: a machine's next screen after its own OK
 GEO_STEADY_S = 1.0                       # cell 1: a GeoscapeState top this long after the OK = the chain is done
@@ -494,17 +492,6 @@ def wait_answer(gc, f0, reason, ctx, key):
                           f"{f0 + 1}, lastFail {reason!r})"]
 
 
-def box_over(gc, under, ctx, key):
-    """After a release: gc's top CoopState (the fail box, code FAIL_BOX) with `under` directly below within PAGE_S."""
-    ok, secs = wait_until(lambda: stack(gc)[-2:] == [under, "CoopState"], PAGE_S)
-    info = dialog(gc)
-    ctx[key] = {"ok": ok, "secs": secs, "stack": stack(gc), "dialog": info}
-    f = [] if ok else [f"{gc.name}'s stack {stack(gc)} {PAGE_S}s after the release (want {under} + CoopState fail box)"]
-    if ok and info.get("code") != FAIL_BOX:
-        f.append(f"{gc.name}'s CoopState code {info.get('code')} (want {FAIL_BOX}, the fail box)")
-    return f
-
-
 def world_same(host, client, ctx, key):
     return p3.world_same(host, client, ctx, key)
 
@@ -594,6 +581,7 @@ def d2e_cells(host, client, ctx):
             return [f"client shared_update_defer on answered deferred={ctx['c1']['hold']!r}"]
         r = host.cmd({"cmd": "sell", "item": T, "count": T_QTY - 1})
         ok, secs = wait_until(lambda: stock_of(host, T) == 1, PAGE_S)
+        ctx["tChange"] = time.time()
         ctx["c1"]["hostSell"] = {"resp": {k: r.get(k) for k in ("ok", "sent", "error")}, "applied": ok, "secs": secs,
                                  "hostStockT": stock_of(host, T), "hostTop": top(host)}
         f = [] if r.get("ok") and r.get("sent") else [f"host sell {T} {T_QTY - 1} answered {ctx['c1']['hostSell']}"]
@@ -605,46 +593,38 @@ def d2e_cells(host, client, ctx):
         a = p3.set_amount(client, T_QTY, item=T)
         ctx["c2"] = {"set": a}
         if not (a.get("ok") and a.get("after") == T_QTY):
-            hold(client, False)
+            ctx["c2"]["release"] = hold(client, False)
             return [f"client screen_set_amount {T} {T_QTY}: {a}"]
         f0 = sstats(client).get("failCount") or 0
         ctx["c2"]["failCount0"] = f0
-        stays = held_click(client, SELL_OK, "SellState", ctx, "c2click")
-        ans = wait_answer(client, f0, NOT_ENOUGH, ctx, "c2answer")
-        ctx["c2"]["release"] = hold(client, False)
-        if stays:
-            return [f"the page-3 SellState is gone at submit (F2501): " + "; ".join(stays)] + ans
-        return ans or box_over(client, "SellState", ctx, "c2box")
+        c = p3.click(client, SELL_OK)
+        # the window ends at ANSWER_S or at HOLD_MAX_S after the host's change, whichever is first (F4529)
+        budget = max(0.5, min(ANSWER_S, HOLD_MAX_S - (time.time() - ctx["tChange"])))
+        ok, secs = wait_until(lambda: top(client) == "DebriefingState", budget, 0.1)
+        st = sstats(client)
+        ctx["c2"].update({"click": c, "gone": ok, "secs": secs, "budget": round(budget, 2), "stack": stack(client),
+                          "stats": st, "hostStockT": stock_of(host, T)})
+        f = [] if ok else [f"the client's page-3 SellState not gone within {round(budget, 2)}s of Sell/Sack while "
+                           f"held (stack {stack(client)}, stats {st}; want the host to apply its shared list clamped "
+                           f"to its stock, P7-8 PR-39/PR-40, V-E1)"]
+        cs = [gc.name for gc in (host, client) if not no_coopstate(gc)]
+        if not f and cs:
+            f.append(f"a CoopState on {cs}'s stack")
+        if not f and st.get("failCount") != f0:
+            f.append(f"the client's failCount {st.get('failCount')} (want unchanged {f0})")
+        if not f and ctx["c2"]["hostStockT"] != 0:
+            f.append(f"the host's stock of {T} {ctx['c2']['hostStockT']} (want 0: its 1 left was sold)")
+        if f:
+            ctx["c2"]["release"] = hold(client, False)
+        return f
 
     def c3():
-        b = client.cmd({"cmd": "coop_dialog_back"})
-        last = {}
-
-        def rebuilt():
-            if not screen_ready(client, "SellState"):
-                return False
-            last["T"] = row_of(rows(client), T)
-            return last["T"] == (T_QTY, 0)
-        ok, secs = wait_until(rebuilt, SCREEN_S)
-        ctx["c3"] = {"back": {k: b.get(k) for k in ("ok", "error")}, "rebuilt": ok, "secs": secs, "T": last.get("T"),
-                     "stack": stack(client)}
-        if not ok:
-            return [f"the client's page-3 SellState not rebuilt with {T} ({T_QTY}, amount 0) within {SCREEN_S}s "
-                    f"(seen {last.get('T')}, stack {stack(client)})"]
-        a = p3.set_amount(client, 1, item=T)
-        if not (a.get("ok") and a.get("after") == 1):
-            return [f"client screen_set_amount {T} 1: {a}"]
-        c = p3.click(client, SELL_OK)
-        ok, secs = wait_until(lambda: top(client) == "DebriefingState", SCREEN_S)
-        ctx["c3"]["sale"] = {"set": a, "click": c, "closed": ok, "secs": secs, "stack": stack(client)}
-        if not ok:
-            return [f"the client's page-3 SellState not closed within {SCREEN_S}s of its accepted sale (stack "
-                    f"{stack(client)})"]
-        return p3.count_is((host, client), T, T_QTY - 1, ctx, "c3count")
+        ctx["c3"] = {"release": hold(client, False), "heldAfterChangeS": round(time.time() - ctx["tChange"], 2)}
+        return p3.count_is((host, client), T, T_QTY - 1, ctx, "c3count") + world_same(host, client, ctx, "c3world")
     return [
         ("1 the client's page-3 SellState open, held; the host sells T", c1),
-        ("2 the rejected page-3 sale keeps its screen under the fail box", c2),
-        ("3 the rebuilt page-3 SellState sells 1 and closes on the host's answer", c3),
+        ("2 the stale page-3 sale is applied clamped to the host's stock while the client is held", c2),
+        ("3 released: the page-3 counts drop by 1 on both; one world", c3),
     ]
 
 
@@ -654,60 +634,12 @@ def d2e_cells(host, client, ctx):
 def d2d_cells(host, client, ctx):
     def c1():
         hygiene(host, client, ctx)
+        ctx["backToDebrief"] = {gc.name: p3.back_to_debrief(gc) for gc in (host, client)}  # a Sell screen D2e left up
         f = both_oks_forced(host, client, ctx, "c1", "SellState", STORAGE_MARK, storage_record)
         return f or boxes_to_screens(host, client, ctx, "boxes", "SellState")
-
-    def c2():
-        q0, _a = row_of(rows(client), RIFLE)
-        s0 = stock_of(host, RIFLE)
-        ctx["c2"] = {"clientRifle0": q0, "hostStock0": s0, "hold": hold(client, True)}
-        r = host.cmd({"cmd": "sell", "item": RIFLE, "count": D2D_HOST_SELL})
-        ok, secs = wait_until(lambda: stock_of(host, RIFLE) == s0 - D2D_HOST_SELL, PAGE_S, 0.1)
-        t_change = time.time()
-        hb = rifles(host)
-        ctx["c2"]["hostSell"] = {"resp": {k: r.get(k) for k in ("ok", "sent", "error")}, "applied": ok, "secs": secs,
-                                 "host": hb, "hostTop": top(host)}
-        f = [] if r.get("ok") and r.get("sent") and ok else [f"host sell Rifle {D2D_HOST_SELL}: {ctx['c2']['hostSell']}"]
-        if not f and not hb["used"] > hb["available"]:
-            f.append(f"the host's base is no longer over after its sale ({hb}): D2d needs it still over")
-        if f or q0 is None:
-            hold(client, False)
-            return f or [f"the client's forced SellState lists no Rifle row"]
-        a = p3.set_amount(client, q0 - D2D_SHORT, item=RIFLE)
-        ctx["c2"]["set"] = a
-        if not (a.get("ok") and a.get("after") == q0 - D2D_SHORT and a.get("okVisible") is True):
-            hold(client, False)
-            return [f"client screen_set_amount Rifle {q0 - D2D_SHORT}: {a} (want okVisible True)"]
-        f0 = sstats(client).get("failCount") or 0
-        stays = held_click(client, SELL_OK, "SellState", ctx, "c2click")
-        ans = wait_answer(client, f0, NOT_ENOUGH, ctx, "c2answer")
-        ctx["c2"]["release"] = hold(client, False)
-        ctx["c2"]["heldAfterChangeS"] = round(time.time() - t_change, 2)
-        return stays + ans or box_over(client, "SellState", ctx, "c2box")
-
-    def c3():
-        q0 = ctx["c2"]["clientRifle0"]
-        b = client.cmd({"cmd": "coop_dialog_back"})
-        last = {}
-
-        def rebuilt():
-            if not screen_ready(client, "SellState"):
-                return False
-            r = rows(client)
-            last["rifle"], last["ok"] = row_of(r, RIFLE), ok_visible(r, SELL_OK)
-            return last["rifle"] == (q0 - D2D_HOST_SELL, 0)
-        ok, secs = wait_until(rebuilt, SCREEN_S)
-        ctx["c3"] = {"back": {k: b.get(k) for k in ("ok", "error")}, "rebuilt": ok, "secs": secs, "last": dict(last),
-                     "stack": stack(client)}
-        if not ok:
-            return [f"the client's forced SellState not rebuilt with Rifle ({q0 - D2D_HOST_SELL}, amount 0) within "
-                    f"{SCREEN_S}s (seen {last.get('rifle')}, stack {stack(client)})"]
-        return [] if last["ok"] is False else [f"the client's rebuilt SellState {SELL_OK} visible={last['ok']!r} "
-                                               f"(want False: still forced)"]
+    # S-C-E1.1 (AMENDMENT P7-8 PR-52, F6106): cells 2-3 (a stale-stock rejection on a bound forced Sell screen) deleted.
     return [
         ("1 both OKs: both forced SellStates up", c1),
-        ("2 the rejected forced sale keeps its screen under the fail box", c2),
-        ("3 the forced SellState rebuilt and still forced", c3),
     ]
 
 
