@@ -154,6 +154,7 @@ void GeoscapeEventState::eventLogic()
 		size_t pickRegion = RNG::generate(0, rule.getRegionList().size() - 1);
 		auto& regionName = rule.getRegionList().at(pickRegion);
 		regionRule = _game->getMod()->getRegion(regionName, true);
+		_coopRegion = regionName; // coop W2-H15 (F3261): the host's region pick, sent as an id
 		std::string place = tr(regionName);
 
 		if (rule.isCitySpecific())
@@ -164,6 +165,7 @@ void GeoscapeEventState::eventLogic()
 				size_t pickCity = RNG::generate(0, cities - 1);
 				city = regionRule->getCities()->at(pickCity);
 				place = city->getName(_game->getLanguage());
+				_coopCity = (int)pickCity; // coop W2-H15
 			}
 		}
 
@@ -392,6 +394,7 @@ void GeoscapeEventState::eventLogic()
 			std::ostringstream ss;
 			ss << -removed;
 			_lstTransfers->addRow(2, tr(ti.first).c_str(), ss.str().c_str());
+			_coopRows.push_back(std::make_pair(ti.first, -removed)); // coop W2-H15
 		}
 		else if (Options::oxceGeoscapeEventsInstantDelivery)
 		{
@@ -400,6 +403,7 @@ void GeoscapeEventState::eventLogic()
 			std::ostringstream ss;
 			ss << ti.second;
 			_lstTransfers->addRow(2, tr(ti.first).c_str(), ss.str().c_str());
+			_coopRows.push_back(std::make_pair(ti.first, ti.second)); // coop W2-H15
 		}
 		else
 		{
@@ -599,6 +603,26 @@ void GeoscapeEventState::btnItemsArrivingClick(Action *)
 
 		_txtMessage->setVisible(true);
 	}
+}
+
+// coop W2-H15 (F3261): read-only accessors for the coop event relay and the geo_event_probe.
+CoopEventPicks GeoscapeEventState::coopPicks() const
+{
+	CoopEventPicks p;
+	p.region = _coopRegion; p.city = _coopCity; p.rows = _coopRows;
+	p.research = _researchName; p.bonus = _bonusResearchName;
+	return p;
+}
+
+std::vector<std::string> GeoscapeEventState::coopTexts() const
+{
+	std::vector<std::string> t{ _txtTitle->getText(), _txtMessage->getText() };
+	for (size_t r = 0; r < _lstTransfers->getTexts(); ++r)
+	{
+		t.push_back(_lstTransfers->getCellText(r, 0));
+		t.push_back(_lstTransfers->getCellText(r, 1));
+	}
+	return t;
 }
 
 }

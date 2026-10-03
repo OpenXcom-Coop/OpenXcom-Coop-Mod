@@ -1,0 +1,87 @@
+# W2-H15 (F3261, F5602) test fixture. A STR_H15_TRG_* topic (cost 1, no dependencies) completes at the next
+# midnight and spawns its event (SavedGame::handlePrimaryResearchSideEffects -> spawnEvent); the host's
+# time30Minutes pops it. A success on STR_TERROR_MISSION picks STR_H15_EV_DEBRIEF (DebriefingState :2176).
+events:
+  - name: STR_H15_EV_FUNDS
+    description: STR_H15_EV_FUNDS
+    funds: 1000000
+    points: 0
+  - name: STR_H15_EV_TRANSFER
+    description: STR_H15_EV_TRANSFER
+    funds: 1000
+    points: 0
+    everyItemList: [STR_PISTOL]
+    randomItemList: [STR_PISTOL, STR_RIFLE, STR_HEAVY_CANNON, STR_AUTO_CANNON, STR_ROCKET_LAUNCHER, STR_GRENADE, STR_SMOKE_GRENADE, STR_PISTOL_CLIP, STR_RIFLE_CLIP, STR_HC_AP_AMMO]
+    spawnedPersons: 2
+    spawnedPersonType: STR_SOLDIER
+    spawnedCraftType: STR_SKYRANGER
+  - name: STR_H15_EV_INVERT
+    description: STR_H15_EV_INVERT
+    funds: 1000
+    points: 0
+    invert: true
+    everyMultiItemList:
+      STR_GRENADE: 7
+  - name: STR_H15_EV_REGION
+    description: STR_H15_EV_REGION_DESC
+    funds: 1000
+    points: 77
+    regionList: [STR_NORTH_AMERICA, STR_EUROPE, STR_CENTRAL_ASIA, STR_SOUTH_AMERICA]
+    city: true
+  - name: STR_H15_EV_RESEARCH
+    description: STR_H15_EV_RESEARCH
+    funds: 1000
+    points: 0
+    researchList: [STR_H15_RES_A]
+  - name: STR_H15_EV_INSTANT
+    description: STR_H15_EV_INSTANT
+    funds: 1000
+    points: 0
+    everyMultiItemList:
+      STR_PISTOL: 2
+    spawnedCraftType: STR_INTERCEPTOR
+  - name: STR_H15_EV_DEBRIEF
+    description: STR_H15_EV_DEBRIEF
+    funds: 1000
+    points: 0
+    everyMultiItemList:
+      STR_PISTOL_CLIP: 3
+research:
+  - name: STR_H15_TRG_FUNDS
+    cost: 1
+    points: 0
+    spawnedEvent: STR_H15_EV_FUNDS
+  - name: STR_H15_TRG_TRANSFER
+    cost: 1
+    points: 0
+    spawnedEvent: STR_H15_EV_TRANSFER
+  - name: STR_H15_TRG_INVERT
+    cost: 1
+    points: 0
+    spawnedEvent: STR_H15_EV_INVERT
+  - name: STR_H15_TRG_REGION
+    cost: 1
+    points: 0
+    spawnedEvent: STR_H15_EV_REGION
+  - name: STR_H15_TRG_RESEARCH
+    cost: 1
+    points: 0
+    spawnedEvent: STR_H15_EV_RESEARCH
+  - name: STR_H15_TRG_INSTANT
+    cost: 1
+    points: 0
+    spawnedEvent: STR_H15_EV_INSTANT
+  - name: STR_H15_RES_A
+    cost: 50
+    points: 5
+    getOneFree: [STR_H15_RES_B, STR_H15_RES_C]
+  - name: STR_H15_RES_B
+    cost: 50
+    points: 5
+  - name: STR_H15_RES_C
+    cost: 50
+    points: 5
+alienDeployments:
+  - type: STR_TERROR_MISSION
+    successEvents:
+      STR_H15_EV_DEBRIEF: 100

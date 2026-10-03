@@ -1,0 +1,8 @@
+name: "Coop geoscape event probe"
+version: 1.0
+description: "Test-only fixture for W2-H15 (F3261, F5602). Data only. Six zero-cost research topics each spawn one
+  geoscape event (funds, transfers, invert, region, research, instant delivery), and a terror-mission success
+  raises a seventh at the host's debriefing OK. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1
