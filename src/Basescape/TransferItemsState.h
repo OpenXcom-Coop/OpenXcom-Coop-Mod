@@ -105,6 +105,7 @@ public:
 	/// Test-harness hook (PRD-J05): set the transfer amount for ITEM <itemType> to
 	/// <count> then submit the SHARED transfer. Returns false if no matching row.
 	bool harnessTransferItem(const std::string& itemType, int count);
+	void harnessSelectRow(size_t row) { _sel = row; } // coop (W2-P7 S-C-D1, P7-7 PR-28): test lever row select
 	/// Programmatic single-soldier transfer (test-harness hook): sets that
 	/// soldier's row amount to 1 and completes the transfer. Returns false if
 	/// the soldier is not a transferable row.

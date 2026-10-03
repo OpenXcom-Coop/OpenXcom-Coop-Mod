@@ -2737,6 +2737,14 @@ static Json::Value battleEndZeros()
 	r["resetAtOk"] = 0;           // host: 1 once the OK ran the battle-scoped reset (Q10 (a))
 	r["popupSuppressed"] = 0;     // either machine: peer-leave dialogs not pushed over the battle-end debriefing
 	r["popupSuppressedCode"] = 0; // the dialog not pushed: 20 host, 21 client, 440 either
+	// W2-P7 S-C-D1.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-7 section 3.1, PR-23/PR-25/PR-26): the SHARED
+	// page-3 keys - zeros here; S-C-D1.2 writes them (record only, never read by game logic).
+	Json::Value page3(Json::objectValue);
+	page3["live"] = 0;                 // client: 1 once an adoption made page 3 live on the adopted base (PR-23)
+	page3["baseIndex"] = -1;           // client: the adopted base index page 3 points at (PR-23; -1 = none)
+	page3["sold"] = 0;                 // either machine: page-3 sell/transfer applies booked on its open debriefing (PR-25)
+	r["page3"] = page3;
+	r["worldAdoptDeferredPasses"] = 0; // client: pump passes a newer world waited for its debriefing to be on top (PR-26)
 	// W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.1): the SHARED campaign return's
 	// keys - zeros here; S-C-A.2 writes them (record only, never read by game logic).
 	r["campaign"] = false;            // client: the latch armed for a campaign (SHARED) ending

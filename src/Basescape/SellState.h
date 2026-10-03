@@ -132,6 +132,7 @@ public:
 	/// SEPARATE/solo -> the vanilla local sell). Returns false if no sellable ITEM
 	/// row matches. Main thread only.
 	bool harnessSellItem(const std::string& itemType, int count);
+	void harnessSelectRow(size_t row) { _sel = row; } // coop (W2-P7 S-C-D1, P7-7 PR-28): test lever row select
 };
 
 }

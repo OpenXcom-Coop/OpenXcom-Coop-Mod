@@ -6681,6 +6681,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "synced_options_state" && cmd != "synced_option_request" && cmd != "options_save" && cmd != "synced_apply_hold"
 		&& cmd != "option_values" && cmd != "shared_update_defer" // W2-P10 S-A.1 (PX-3, PX-4)
 		&& cmd != "battle_end_turn_ready"
+		&& cmd != "screen_rows" && cmd != "screen_set_amount" && cmd != "screen_pick_base" // W2-P7 S-C-D1.1 (P7-7 PR-28)
 		&& cmd != "battle_visibility_rule"
 		&& cmd != "screen_pixels"
 		&& cmd != "battle_camera_center"
@@ -8812,6 +8813,186 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["items"] = items;
 		resp["constants"] = k;
 		resp["ok"] = true;
+	}
+	else if (cmd == "screen_rows" || cmd == "screen_set_amount")
+	{
+		// W2-P7 S-C-D1.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-7 PR-28): TEST ONLY, public API only. The
+		// TOP state when it is a SellState / TransferItemsState (its widgets exist once its init() ran - poll screen_rows
+		// first, F5573). screen_rows (READ-ONLY): its first TextList's rows as stripped cells (4 columns; debrief_state's
+		// strip plus leading/trailing spaces - ammo rows are indented), each row's `item` (the item type whose tr() equals
+		// the stripped name, "" if none), every TextButton {text, visible}, every Text, `state`. {autosell: [types]} adds
+		// autosell {type: bool} (SavedGame::getAutosell); {recovered: [types]} adds recovered {type: int} = the topmost
+		// DebriefingState's getRecoveredItemCount (page 3's remaining count - the debriefing's own list is drawn once,
+		// F5687); both work with no screen open. screen_set_amount {item | row, amount}: row = `row`, or the one whose
+		// stripped column 0 equals tr(item); harnessSelectRow(row), then the screen's own change function by the delta
+		// (SellState changeByValue(|d|, sign); TransferItemsState increaseByValue(d) / decreaseByValue(-d)).
+		// Reply {ok, row, name, before, after, okVisible, topAfter}.
+		State* topSR = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		SellState* sellSR = dynamic_cast<SellState*>(topSR);
+		TransferItemsState* xferSR = dynamic_cast<TransferItemsState*>(topSR);
+		auto classSR = [](State* s) {
+			const std::string n = s ? typeid(*s).name() : "none";
+			const size_t p = n.rfind("::");
+			return p == std::string::npos ? n : n.substr(p + 2);
+		};
+		auto stripSR = [](const std::string& in) {
+			std::string out;
+			for (char c : in)
+			{
+				if (c != Unicode::TOK_COLOR_FLIP && c != Unicode::TOK_NL_SMALL) out.push_back(c);
+			}
+			const size_t a = out.find_first_not_of(". ");
+			return a == std::string::npos ? std::string() : out.substr(a, out.find_last_not_of(". ") - a + 1);
+		};
+		resp["state"] = classSR(topSR);
+		TextList* listSR = nullptr;
+		TextButton* okSR = nullptr;
+		Json::Value buttonsSR(Json::arrayValue), textsSR(Json::arrayValue), rowsSR(Json::arrayValue);
+		if (sellSR || xferSR)
+		{
+			for (auto* s : topSR->getSurfaces())
+			{
+				if (auto* tb = dynamic_cast<TextButton*>(s))
+				{
+					if (!okSR) okSR = tb; // both screens add their OK first (SellState :121, TransferItemsState :93)
+					Json::Value b(Json::objectValue);
+					b["text"] = tb->getText();
+					b["visible"] = tb->getVisible();
+					buttonsSR.append(b);
+				}
+				else if (auto* tl = dynamic_cast<TextList*>(s))
+				{
+					if (!listSR) listSR = tl;
+				}
+				else if (auto* tx = dynamic_cast<Text*>(s))
+				{
+					textsSR.append(stripSR(tx->getText()));
+				}
+			}
+		}
+		std::map<std::string, std::string> trToTypeSR;
+		for (const auto& t : _game->getMod()->getItemsList())
+		{
+			const std::string n = _game->getLanguage()->getString(t);
+			if (!trToTypeSR.count(n)) trToTypeSR[n] = t;
+		}
+		const size_t nRowsSR = listSR ? listSR->getTexts() : 0;
+		for (size_t r = 0; r < nRowsSR; ++r)
+		{
+			Json::Value row(Json::objectValue), cells(Json::arrayValue);
+			for (size_t c = 0; c < 4; ++c)
+			{
+				cells.append(stripSR(listSR->getCellText(r, c)));
+			}
+			row["cells"] = cells;
+			const auto it = trToTypeSR.find(cells[0u].asString());
+			row["item"] = it == trToTypeSR.end() ? std::string() : it->second;
+			rowsSR.append(row);
+		}
+		if (cmd == "screen_set_amount")
+		{
+			int rowSA = req.get("row", -1).asInt();
+			if (req.isMember("item"))
+			{
+				const std::string want = _game->getLanguage()->getString(req["item"].asString());
+				rowSA = -1;
+				for (size_t r = 0; r < nRowsSR && rowSA < 0; ++r)
+				{
+					if (stripSR(listSR->getCellText(r, 0)) == want) rowSA = (int)r;
+				}
+			}
+			if (!listSR)
+			{
+				resp["error"] = "screen_set_amount: no initialised SellState / TransferItemsState on top";
+				return true;
+			}
+			if (rowSA < 0 || rowSA >= (int)nRowsSR)
+			{
+				resp["error"] = "screen_set_amount: no such row";
+				return true;
+			}
+			auto amountSA = [&]() { return std::atoi(stripSR(listSR->getCellText((size_t)rowSA, 2)).c_str()); };
+			const int beforeSA = amountSA();
+			const int dSA = req.get("amount", 0).asInt() - beforeSA;
+			if (sellSR)
+			{
+				sellSR->harnessSelectRow((size_t)rowSA);
+				if (dSA != 0) sellSR->changeByValue(std::abs(dSA), dSA > 0 ? 1 : -1);
+			}
+			else
+			{
+				xferSR->harnessSelectRow((size_t)rowSA);
+				if (dSA > 0) xferSR->increaseByValue(dSA);
+				else if (dSA < 0) xferSR->decreaseByValue(-dSA);
+			}
+			resp["row"] = rowSA;
+			resp["name"] = stripSR(listSR->getCellText((size_t)rowSA, 0));
+			resp["before"] = beforeSA;
+			resp["after"] = amountSA();
+			resp["okVisible"] = okSR != nullptr && okSR->getVisible();
+			resp["topAfter"] = classSR(_game->getStates().back());
+			resp["ok"] = true;
+			return true;
+		}
+		if (req["autosell"].isArray())
+		{
+			Json::Value as(Json::objectValue);
+			for (const auto& t : req["autosell"])
+			{
+				const RuleItem* ri = _game->getMod()->getItem(t.asString(), false);
+				as[t.asString()] = (ri && _game->getSavedGame()) ? Json::Value(_game->getSavedGame()->getAutosell(ri)) : Json::Value();
+			}
+			resp["autosell"] = as;
+		}
+		if (req["recovered"].isArray())
+		{
+			DebriefingState* dbSR = nullptr;
+			for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend() && !dbSR; ++it)
+			{
+				dbSR = dynamic_cast<DebriefingState*>(*it);
+			}
+			Json::Value rc(Json::objectValue);
+			for (const auto& t : req["recovered"])
+			{
+				const RuleItem* ri = _game->getMod()->getItem(t.asString(), false);
+				rc[t.asString()] = (ri && dbSR) ? Json::Value(dbSR->getRecoveredItemCount(ri)) : Json::Value();
+			}
+			resp["recovered"] = rc;
+		}
+		resp["screen"] = listSR != nullptr;
+		resp["rows"] = rowsSR;
+		resp["buttons"] = buttonsSR;
+		resp["texts"] = textsSR;
+		resp["ok"] = true;
+	}
+	else if (cmd == "screen_pick_base")
+	{
+		// W2-P7 S-C-D1.1 (AMENDMENT P7-7 PR-28): TEST lever. On a top TransferBaseState, TransferBaseState :162's own body:
+		// push new TransferItemsState(bases[from], bases[to], <the DebriefingState directly below it, else null>).
+		// Reply {ok, from, to, debrief}.
+		const auto& stPB = _game->getStates();
+		TransferBaseState* tbPB = stPB.empty() ? nullptr : dynamic_cast<TransferBaseState*>(stPB.back());
+		SavedGame* sgPB = _game->getSavedGame();
+		const int fromPB = req.get("from", -1).asInt();
+		const int toPB = req.get("to", -1).asInt();
+		const int nPB = sgPB ? (int)sgPB->getBases()->size() : 0;
+		if (!tbPB)
+		{
+			resp["error"] = "screen_pick_base: no TransferBaseState on top";
+		}
+		else if (fromPB < 0 || toPB < 0 || fromPB >= nPB || toPB >= nPB || fromPB == toPB)
+		{
+			resp["error"] = "screen_pick_base: bad base index";
+		}
+		else
+		{
+			DebriefingState* dbPB = stPB.size() >= 2 ? dynamic_cast<DebriefingState*>(*std::prev(stPB.end(), 2)) : nullptr;
+			_game->pushState(new TransferItemsState((*sgPB->getBases())[fromPB], (*sgPB->getBases())[toPB], dbPB));
+			resp["from"] = fromPB;
+			resp["to"] = toPB;
+			resp["debrief"] = dbPB != nullptr;
+			resp["ok"] = true;
+		}
 	}
 	else if (cmd == "debrief_state")
 	{
