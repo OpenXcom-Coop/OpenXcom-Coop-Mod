@@ -124,7 +124,9 @@ mission pin and set_seed SEED_MAP right before newbattle_ok, the baked MAP_FP
 asserted on both, session.pin_ai_neutral. Every lever pair applies to the
 CLIENT first, then the HOST (F607, S-H.1a), with the responses asserted equal;
 every item a lever creates is created on both machines with ids asserted
-equal. set_seed on the HOST immediately before each action.
+equal. set_seed on the HOST immediately before each action. W2-U8 (F6060):
+every lever pair ends with staging_settled() - the client has applied every ev
+the host emitted before the next lever runs on it (see the staging section).
 
 RED-THEN-GREEN (spec (d), Q4 = b; W2-P6b S-D: the D rows above). Commit S-C.1 (this file and the
 event_state probes hostCombatContexts / cueCounts / lastCue - storage and
@@ -157,8 +159,8 @@ from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 import repro_atom_walk as raw
 from test_rw_turn_baton import RHAND_RECT, click_nth
 from test_rw_seat_pacing import tab_select, SDLK_HOME
-from test_w2_delta_core import (probes, diff_buckets, desync_record, short, both, tele_both, tu_both,
-                                common_fails, finish, delta_view)
+from test_w2_delta_core import (probes, diff_buckets, desync_record, short, common_fails, finish, delta_view)
+from test_w2_delta_core import both as both_lever, tele_both as tele_lever, tu_both as tu_lever
 from test_w2_delta_items import items_by_id, item_diff, tile_of, unit_view
 
 # ----- common (test_w2_host_combat.py and test_w2_host_combat_terrain.py; TASK 0a-2) -----
@@ -249,6 +251,38 @@ COMBAT_CUES = tuple(k for k in CUE_KINDS if k != "sync")
 C1_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-shot turn
 C5_CHAIN = ["melee", "death", "corpse", "bt_action_end"]
 LOG_TAIL = 256                   # CoopEventLog::kCapacity
+
+
+# ===================== staging (W2-U8, F6060) =====================
+# A host lever can make the host EMIT in its own frame: an alien teleport dirties that alien's hostile FOV key, and
+# CoopReveal::flushQuiescent (updateCoopTask, right after TestServer::pump) ships a standalone `reveal` ev whose `h`
+# hashes the host's state at that emit. Before W2-U8 the next pair's client lever could run before the client applied
+# that ev (W2f verifier at K=2: C1's client battle_set_unit_state at .435, reveal seq 8 applied at .436, DESYNC
+# unitsStats seq 8 kind=reveal; C5 and D3 failed as a cascade). So every pair ends with staging_settled(): the client
+# has applied every ev the host emitted (session.wait_host_idle) before the next lever runs on it. Its first host read
+# runs in a later TestServer::pump than the lever, after that frame's flush, so it cannot pass before the emit.
+
+
+def staging_settled(host, client):
+    session.wait_host_idle(host, client, timeout=30)
+
+
+def both(host, client, req, keys):
+    r = both_lever(host, client, req, keys)
+    staging_settled(host, client)
+    return r
+
+
+def tele_both(host, client, uid, t, d):
+    r = tele_lever(host, client, uid, t, d)
+    staging_settled(host, client)
+    return r
+
+
+def tu_both(host, client, uid):
+    r = tu_lever(host, client, uid)
+    staging_settled(host, client)
+    return r
 
 
 # ===================== small probes =====================
