@@ -9345,6 +9345,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		for (auto* st : _game->getStates())
 			if (auto* g = dynamic_cast<GeoscapeEventState*>(st)) { ++countGE; topGE = g; }
 		resp["eventStates"] = countGE; resp["event"] = Json::Value(Json::nullValue);
+		resp["pendingWindows"] = SharedEcon::pendingEventWindows(); // W2-H15 (R-H15-3, F5877): the replica's queued windows
 		if (topGE)
 		{
 			const CoopEventPicks pk = topGE->coopPicks();

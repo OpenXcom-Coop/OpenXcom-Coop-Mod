@@ -1296,6 +1296,7 @@ void GeoscapeState::init()
 	}
 
 	State::init();
+	SharedEcon::flushEventWindows(_game, this); // W2-H15 (F5602): event windows that arrived while this machine was off the geoscape
 	timeDisplay();
 	updateSlackingIndicator();
 
@@ -3487,8 +3488,9 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		if (canSpawn)
 		{
 			timerReset();
+			const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15 (F3261)
 			popup(new GeoscapeEventState(*eventRules));
-			SharedEcon::hostAlert(_game, "GeoscapeEventState", eventRules->getName());
+			SharedEcon::hostGeoEvent(_game, *eventRules, h15Mark, _popups.back()); // W2-H15 (F3261): the reward's result rides geo_event
 		}
 	}
 
@@ -3747,8 +3749,9 @@ void GeoscapeState::time30Minutes()
 			if (!interrupted)
 			{
 				timerReset();
+				const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15 (F3261)
 				popup(new GeoscapeEventState(ge->getRules()));
-				SharedEcon::hostAlert(_game, "GeoscapeEventState", ge->getRules().getName());
+				SharedEcon::hostGeoEvent(_game, ge->getRules(), h15Mark, _popups.back()); // W2-H15 (F3261): the reward's result rides geo_event
 			}
 		}
 	}

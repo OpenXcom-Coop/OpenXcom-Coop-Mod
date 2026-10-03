@@ -136,6 +136,7 @@ GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule) : _eventRule(
  */
 void GeoscapeEventState::eventLogic()
 {
+	if (coopReplicaDisplay()) return; // coop W2-H15 (F3261): a SHARED replica draws the host's picks; only the host runs this logic
 	if (!_eventRule.getAdhocMissionScriptTags().empty())
 	{
 		auto* geo = _game->getGeoscapeState();
@@ -623,6 +624,35 @@ std::vector<std::string> GeoscapeEventState::coopTexts() const
 		t.push_back(_lstTransfers->getCellText(r, 1));
 	}
 	return t;
+}
+
+// coop W2-H15 (F3261): a SHARED replica's window is drawn from the host's picks (ids), in this machine's own language.
+const CoopEventPicks* GeoscapeEventState::_coopArmed = nullptr;
+void GeoscapeEventState::coopArmDisplay(const CoopEventPicks* picks) { _coopArmed = picks; }
+
+bool GeoscapeEventState::coopReplicaDisplay()
+{
+	if (!_coopArmed) return false;
+	const CoopEventPicks p = *_coopArmed;
+	_coopArmed = nullptr; // one window per arm
+	_coopRegion = p.region; _coopCity = p.city; _coopRows = p.rows;
+	_researchName = p.research; _bonusResearchName = p.bonus;
+	if (!_coopRegion.empty())
+	{
+		RuleRegion* regionRule = _game->getMod()->getRegion(_coopRegion, true);
+		std::string place = tr(_coopRegion);
+		if (_coopCity >= 0 && _coopCity < (int)regionRule->getCities()->size())
+			place = regionRule->getCities()->at(_coopCity)->getName(_game->getLanguage());
+		_txtTitle->setText(tr(_eventRule.getName()).arg(place));
+		_txtMessage->setText(tr(_eventRule.getDescription()).arg(place));
+	}
+	for (const auto& row : _coopRows)
+	{
+		std::ostringstream ss;
+		ss << row.second;
+		_lstTransfers->addRow(2, tr(row.first).c_str(), ss.str().c_str());
+	}
+	return true;
 }
 
 }

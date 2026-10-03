@@ -119,6 +119,8 @@
 #include "../Geoscape/NewPossibleFacilityState.h"
 #include "../Geoscape/TrainingFinishedState.h"
 #include "../Geoscape/GeoscapeEventState.h"
+#include "../Battlescape/DebriefingState.h" // W2-H15 (F5660): geo_event windows wait out the debriefing
+#include "../Savegame/ResearchDiary.h"       // W2-H15: geo_event diary entries
 #include "../Geoscape/AlienBaseState.h"
 #include "../Geoscape/BaseDestroyedState.h"
 #include "../Savegame/AlienBase.h"
@@ -2566,7 +2568,12 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	}
 	else if (cls == "GeoscapeEventState")
 	{
-		if (const RuleEvent* ev = mod->getEvent(msg, false)) gs->popup(new GeoscapeEventState(*ev));
+		if (const RuleEvent* ev = mod->getEvent(msg, false))
+		{
+			CoopEventPicks none; // W2-H15 (F3261): the generic lane only displays (empty picks, own language); no world write
+			GeoscapeEventState::coopArmDisplay(&none);
+			gs->popup(new GeoscapeEventState(*ev));
+		}
 	}
 	else if (cls == "NewPossibleResearchState")
 	{
@@ -2611,6 +2618,131 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 				gs->popup(new TrainingFinishedState(base, v, payload.get("flag", false).asBool()));
 		}
 	}
+}
+
+// ---- W2-H15 (F3261, F5602): geo_event - the replica side ------------------------------------------------------
+// A GeoscapeEventState's ctor runs eventLogic, which writes the world with the host's dice. Only the host runs it; the
+// host-origin geo_event carries its exact result (hostGeoEvent) and the window's picks as ids. The replica adopts the
+// result absolutely and draws a display-only window in its own language - it never re-runs eventLogic.
+struct QueuedEventWindow { const RuleEvent* rule; CoopEventPicks picks; };
+std::vector<QueuedEventWindow> g_eventWindows; // replica: windows waiting for the geoscape (F5660)
+
+// The ONE place a geo_event window is built: popped on the live geoscape, else queued until GeoscapeState::init
+// (a SHARED client's debriefing OK replaces its stack with a new GeoscapeState, which would drop a queued popup).
+void showEventWindow(Game* game, GeoscapeState* gs, const RuleEvent& rule, const CoopEventPicks& picks)
+{
+	bool debrief = false;
+	for (auto* st : game->getStates()) debrief = debrief || dynamic_cast<DebriefingState*>(st) != nullptr;
+	if (!gs || debrief)
+	{
+		g_eventWindows.push_back(QueuedEventWindow{ &rule, picks });
+		Log(LOG_INFO) << "[SHARED] geo_event " << rule.getName() << ": window queued until the geoscape returns ("
+			<< g_eventWindows.size() << " pending)";
+		return;
+	}
+	GeoscapeEventState::coopArmDisplay(&picks); // consumed by the ctor below: the window draws these picks
+	gs->popup(new GeoscapeEventState(rule));
+}
+
+// geo_event payload (hostGeoEvent): { event, picks {region, city, rows [[item, qty]], research, bonus}, transfers [yaml],
+// crafts [yaml], store [{base, items}], craftItems [{base, craft, id, items}], research {added, removed [{name,
+// popped}], status {name: value}, diary [yaml], projects [{base, names}]}, score, regions {type: value}, ids {name:
+// value} }. Funds are the packet's (processApply adopted them first).
+void geoEventApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	const RuleEvent* rule = mod ? mod->getEvent(payload.get("event", "").asString(), false) : nullptr;
+	if (!save || !rule || save->getBases()->empty()) return;
+	auto* bases = save->getBases();
+	Base* hq = bases->front();
+	auto baseAt = [&](const Json::Value& v) -> Base* { const int i = v.asInt(); return i >= 0 && i < (int)bases->size() ? (*bases)[i] : nullptr; };
+
+	// 1) research: obsolete projects (3j), discovered, statuses, popped flags, diary - the host's state, no dice
+	const Json::Value& rs = payload["research"];
+	for (const auto& pr : rs["projects"])
+	{
+		Base* b = baseAt(pr["base"]);
+		if (!b) continue;
+		std::set<std::string> keep;
+		for (const auto& n : pr["names"]) keep.insert(n.asString());
+		std::vector<ResearchProject*> gone;
+		for (auto* rp : b->getResearch()) if (!keep.count(rp->getRules()->getName())) gone.push_back(rp);
+		for (auto* rp : gone) b->removeResearch(rp);
+	}
+	for (const auto& e : rs["added"])
+		if (const RuleResearch* r = mod->getResearch(e["name"].asString(), false))
+			if (!save->isResearched(r, false)) save->addFinishedResearchSimple(r);
+	for (const auto& e : rs["removed"])
+		if (const RuleResearch* r = mod->getResearch(e["name"].asString(), false)) save->removeDiscoveredResearch(r);
+	for (const auto& k : rs["status"].getMemberNames()) save->setResearchRuleStatus(k, rs["status"][k].asInt());
+	for (const Json::Value* list : { &rs["added"], &rs["removed"] })
+		for (const auto& e : *list)
+			if (const RuleResearch* r = mod->getResearch(e["name"].asString(), false))
+			{
+				if (e["popped"].asBool()) save->addPoppedResearch(r);
+				else save->removePoppedResearch(r);
+			}
+	for (const auto& y : rs["diary"])
+	{
+		YAML::YamlRootNodeReader reader(YAML::YamlString{ y.asString() }, "geo_event diary");
+		auto* entry = new ResearchDiaryEntry(nullptr);
+		entry->load(reader["n"], mod);
+		save->addResearchDiaryEntry(entry);
+	}
+
+	// 2) the host's new hq transfers and crafts, as their own YAML (soldiers, ids and names are the host's)
+	for (const auto& y : payload["transfers"])
+	{
+		YAML::YamlRootNodeReader reader(YAML::YamlString{ y.asString() }, "geo_event transfer");
+		auto* t = new Transfer(0);
+		if (t->load(reader["n"], hq, mod, save)) hq->getTransfers()->push_back(t); // false: load already deleted it
+	}
+	for (const auto& y : payload["crafts"])
+	{
+		YAML::YamlRootNodeReader reader(YAML::YamlString{ y.asString() }, "geo_event craft");
+		const RuleCraft* cr = mod->getCraft(reader["n"]["type"].readVal<std::string>(), false);
+		if (!cr) continue;
+		auto* c = new Craft(cr, hq);
+		c->load(reader["n"], mod->getScriptGlobal(), mod, save);
+		hq->getCrafts()->push_back(c);
+	}
+
+	// 3) stores and pre-existing crafts' items: each listed container is set to the host's map exactly
+	auto setItems = [&](ItemContainer* ic, const Json::Value& items)
+	{
+		ic->clear();
+		for (const auto& k : items.getMemberNames())
+			if (RuleItem* ri = mod->getItem(k, false)) ic->addItem(ri, items[k].asInt());
+	};
+	for (const auto& s : payload["store"])
+		if (Base* b = baseAt(s["base"])) setItems(b->getStorageItems(), s["items"]);
+	for (const auto& ci : payload["craftItems"])
+		if (Base* b = baseAt(ci["base"]))
+			for (auto* c : *b->getCrafts())
+				if (craftKey(c) == craftKey(ci["craft"].asString(), ci["id"].asInt())) setItems(c->getItems(), ci["items"]);
+
+	// 4) score, region activity, id counters (stepped with getId, as prod_done keeps craft ids in step)
+	if (payload.isMember("score") && !save->getResearchScores().empty())
+		save->getResearchScores().back() = payload["score"].asInt();
+	const Json::Value& regions = payload["regions"];
+	for (auto* rg : *save->getRegions())
+		if (regions.isMember(rg->getRules()->getType()) && !rg->getActivityXcom().empty())
+			rg->getActivityXcom().back() = regions[rg->getRules()->getType()].asInt();
+	const std::map<std::string, int>& ids = save->getAllIds();
+	for (const auto& k : payload["ids"].getMemberNames())
+		while (ids.find(k) == ids.end() || ids.at(k) < payload["ids"][k].asInt()) save->getId(k);
+
+	// 5) the window: the host's picks, drawn by this machine in its own language
+	CoopEventPicks picks;
+	const Json::Value& pk = payload["picks"];
+	picks.region = pk.get("region", "").asString();
+	picks.city = pk.get("city", -1).asInt();
+	for (const auto& r : pk["rows"]) picks.rows.push_back(std::make_pair(r[0u].asString(), r[1u].asInt()));
+	picks.research = pk.get("research", "").asString();
+	picks.bonus = pk.get("bonus", "").asString();
+	showEventWindow(game, findGeoState(game), *rule, picks);
 }
 
 // PRD-DF01: the J08 host-applies-reported-result path is GONE. The host now
@@ -3146,6 +3278,7 @@ void init()
 	// frozen replica would otherwise never see (UFO lost, low fuel, items arriving,
 	// new-possibility dialogs, training finished, ...). Replica-only applier.
 	registerCmd("alert", &simAccept, &alertApply);
+	registerCmd("geo_event", &simAccept, &geoEventApply); // W2-H15 (F3261, F5602): host-origin event result, replica-only
 	// Host-authoritative alien-base discovery: a shared-world mutation, so the replica
 	// must NOT roll its own (it used to, and the two could disagree).
 	registerCmd("alien_base_found", &simAccept, &alienBaseFoundApply);
@@ -3793,6 +3926,168 @@ void hostAlert(Game* game, const std::string& cls, const std::string& msg,
 	if (rows.isArray() && !rows.empty())
 		p["rows"] = rows;
 	submitLocalCmd(game, "alert", base ? baseIndex(game, base) : 0, p);
+}
+
+// ---- W2-H15 (F3261, F5602): geo_event - the host side ------------------------------------------------------------
+namespace {
+Json::Value geoItemMap(const ItemContainer* ic)
+{
+	Json::Value m(Json::objectValue);
+	for (const auto& kv : *ic->getContents()) m[kv.first->getType()] = kv.second;
+	return m;
+}
+template <typename F> std::string geoYaml(F save)
+{
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	save(writer["n"]);
+	return writer.emit().yaml;
+}
+// Changed members of two flat objects: @a now's value for every key whose value differs from @a was.
+Json::Value geoChanged(const Json::Value& was, const Json::Value& now)
+{
+	Json::Value out(Json::objectValue);
+	for (const auto& k : now.getMemberNames())
+		if (!was.isMember(k) || was[k] != now[k]) out[k] = now[k];
+	return out;
+}
+}
+
+Json::Value eventMark(Game* game)
+{
+	if (!sharedHost(game) || !game->getSavedGame() || game->getSavedGame()->getBases()->empty())
+		return Json::Value(Json::nullValue);
+	SavedGame* save = game->getSavedGame();
+	Base* hq = save->getBases()->front();
+	Json::Value m(Json::objectValue), stores(Json::arrayValue), projects(Json::arrayValue), craftItems(Json::objectValue),
+		discovered(Json::arrayValue), status(Json::objectValue), regions(Json::objectValue), ids(Json::objectValue);
+	m["transfers"] = (int)hq->getTransfers()->size();
+	m["crafts"] = (int)hq->getCrafts()->size();
+	for (size_t i = 0; i < save->getBases()->size(); ++i)
+	{
+		Base* b = (*save->getBases())[i];
+		stores.append(geoItemMap(b->getStorageItems()));
+		Json::Value names(Json::arrayValue);
+		for (auto* rp : b->getResearch()) names.append(rp->getRules()->getName());
+		projects.append(names);
+		for (auto* c : *b->getCrafts())
+		{
+			Json::Value& j = craftItems[craftKey(c)];
+			j["base"] = (int)i; j["craft"] = c->getRules()->getType(); j["id"] = c->getId(); j["items"] = geoItemMap(c->getItems());
+		}
+	}
+	for (auto* r : save->getDiscoveredResearch()) discovered.append(r->getName());
+	for (const auto& kv : save->getResearchRuleStatusRaw()) status[kv.first] = kv.second;
+	for (auto* rg : *save->getRegions())
+		regions[rg->getRules()->getType()] = rg->getActivityXcom().empty() ? 0 : rg->getActivityXcom().back();
+	for (const auto& kv : save->getAllIds()) ids[kv.first] = kv.second;
+	m["stores"] = stores; m["projects"] = projects; m["craftItems"] = craftItems; m["discovered"] = discovered;
+	m["status"] = status; m["regions"] = regions; m["ids"] = ids;
+	m["diary"] = (int)save->getResearchDiary().size();
+	m["score"] = save->getResearchScores().empty() ? 0 : save->getResearchScores().back();
+	return m;
+}
+
+void hostGeoEvent(Game* game, const RuleEvent& rule, const Json::Value& mark, State* eventState)
+{
+	auto* ev = dynamic_cast<GeoscapeEventState*>(eventState);
+	if (mark.isNull() || !ev || !sharedHost(game)) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	Base* hq = save->getBases()->front();
+	const Json::Value now = eventMark(game);
+	Json::Value p(Json::objectValue), picks(Json::objectValue), rows(Json::arrayValue), transfers(Json::arrayValue),
+		crafts(Json::arrayValue), store(Json::arrayValue), craftItems(Json::arrayValue), research(Json::objectValue),
+		added(Json::arrayValue), removed(Json::arrayValue), diary(Json::arrayValue), projects(Json::arrayValue);
+	p["event"] = rule.getName();
+	// the window's picks, recorded by eventLogic where vanilla made them (ids only; the replica renders them)
+	const CoopEventPicks pk = ev->coopPicks();
+	for (const auto& r : pk.rows)
+	{
+		Json::Value a(Json::arrayValue);
+		a.append(r.first);
+		a.append(r.second);
+		rows.append(a);
+	}
+	picks["region"] = pk.region; picks["city"] = pk.city; picks["rows"] = rows;
+	picks["research"] = pk.research; picks["bonus"] = pk.bonus;
+	p["picks"] = picks;
+	// new hq transfers / crafts: eventLogic and its research side effects only append
+	for (size_t i = mark["transfers"].asUInt(); i < hq->getTransfers()->size(); ++i)
+	{
+		Transfer* t = (*hq->getTransfers())[i];
+		transfers.append(geoYaml([&](YAML::YamlNodeWriter w) { t->save(w, hq, mod); }));
+	}
+	for (size_t i = mark["crafts"].asUInt(); i < hq->getCrafts()->size(); ++i)
+	{
+		Craft* c = (*hq->getCrafts())[i];
+		crafts.append(geoYaml([&](YAML::YamlNodeWriter w) { c->save(w, mod->getScriptGlobal()); }));
+	}
+	p["transfers"] = transfers; p["crafts"] = crafts;
+	// changed stores (whole map per base) and changed items of crafts that existed before the event
+	for (Json::ArrayIndex b = 0; b < now["stores"].size(); ++b)
+	{
+		if (b < mark["stores"].size() && mark["stores"][b] == now["stores"][b]) continue;
+		Json::Value s(Json::objectValue);
+		s["base"] = (int)b; s["items"] = now["stores"][b];
+		store.append(s);
+	}
+	for (const auto& k : now["craftItems"].getMemberNames())
+		if (mark["craftItems"].isMember(k) && mark["craftItems"][k]["items"] != now["craftItems"][k]["items"])
+			craftItems.append(now["craftItems"][k]);
+	p["store"] = store; p["craftItems"] = craftItems;
+	// research: discovered added / removed (with the popped flag), changed statuses, new diary entries, changed projects
+	std::set<std::string> before, after;
+	for (const auto& n : mark["discovered"]) before.insert(n.asString());
+	for (const auto& n : now["discovered"]) after.insert(n.asString());
+	auto named = [&](const std::string& n)
+	{
+		Json::Value e(Json::objectValue);
+		const RuleResearch* r = mod->getResearch(n, false);
+		e["name"] = n;
+		e["popped"] = r != nullptr && save->wasResearchPopped(r);
+		return e;
+	};
+	for (const auto& n : after) if (!before.count(n)) added.append(named(n));
+	for (const auto& n : before) if (!after.count(n)) removed.append(named(n));
+	const auto& di = save->getResearchDiary();
+	for (size_t i = mark["diary"].asUInt(); i < di.size(); ++i)
+	{
+		const ResearchDiaryEntry* e = di[i];
+		diary.append(geoYaml([&](YAML::YamlNodeWriter w) { e->save(w); }));
+	}
+	for (Json::ArrayIndex b = 0; b < now["projects"].size(); ++b)
+	{
+		if (b < mark["projects"].size() && mark["projects"][b] == now["projects"][b]) continue;
+		Json::Value pr(Json::objectValue);
+		pr["base"] = (int)b; pr["names"] = now["projects"][b];
+		projects.append(pr);
+	}
+	research["added"] = added; research["removed"] = removed; research["diary"] = diary; research["projects"] = projects;
+	research["status"] = geoChanged(mark["status"], now["status"]);
+	p["research"] = research;
+	if (mark["score"] != now["score"]) p["score"] = now["score"];
+	p["regions"] = geoChanged(mark["regions"], now["regions"]);
+	p["ids"] = geoChanged(mark["ids"], now["ids"]);
+	submitLocalCmd(game, "geo_event", 0, p);
+}
+
+void flushEventWindows(Game* game, GeoscapeState* gs)
+{
+	if (!game || connectionTCP::getHost() || g_eventWindows.empty()) return;
+	std::vector<QueuedEventWindow> queued;
+	queued.swap(g_eventWindows);
+	Log(LOG_INFO) << "[SHARED] geo_event: " << queued.size() << " queued event window(s) shown on the returned geoscape";
+	for (const auto& w : queued) showEventWindow(game, gs, *w.rule, w.picks);
+}
+
+int pendingEventWindows() { return (int)g_eventWindows.size(); }
+
+void clearEventWindows()
+{
+	if (!g_eventWindows.empty())
+		Log(LOG_INFO) << "[SHARED] geo_event: session teardown drops " << g_eventWindows.size() << " queued event window(s)";
+	g_eventWindows.clear();
 }
 
 void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol)
