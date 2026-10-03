@@ -50,6 +50,19 @@ the orchestrator-authorized SS A.10 / R10 re-point of an existing assertion to
 the value the ruled mechanism (D8/WV-D14) implies (measured: SHARED abort
 returns both machines cleanly).
 
+W2-U8 (F6059): the battle map was rolled per boot (no set_seed), so T-CMD's
+one-step walk could draw reaction fire; on one roll (W2f verifier, K=2) a
+sectoid's plasma rifle killed the walker and the merge cell reported the
+death as "deleted post-battle (guest cleanup ran!)". Two changes, chain rule
+SS A.10: (1) the map is pinned - set_seed SEED_S2 on the host in
+bring_up_shared_mixed_battle's pre_landing window (the
+test_w2_battle_end_campaign seed_pin precedent), MAP_FP_S2 asserted on both
+machines; on this seed neither scenario's walk draws reaction fire. (2) the
+merge cell re-points to the true condition: a squad soldier missing from the
+roster passes only when soldier_record finds it on the DEAD list of both
+machines (killed in battle); on neither list it is still the
+guest-cleanup failure.
+
 Run:  python tools/coop_test/test_shared_battle.py
 Exit 0 = pass; 2 = failure.
 """
@@ -61,6 +74,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
 import session
 import geo
+
+# W2-U8 (F6059): the pinned S2 terror map. U8 hunt (solo_client, seeds 1-40, one boot each): 39 seeds drew no
+# reaction fire on the T-CMD walk, seed 33 drew one snap that missed. Seed 1 = test_w2_battle_end_campaign's
+# SEED_S (same bring-up, same mapFingerprint).
+SEED_S2 = 1
+MAP_FP_S2 = 5.690100025079999e+18   # host battle_state.mapFingerprint on SEED_S2 (client equal)
+
+
+def _seed_pin(host, client):
+    host.ok({"cmd": "set_seed", "seed": SEED_S2})
+
+
+def _dead_record(gc, sid):
+    """W2-U8 (F6059): this machine's soldier_record for `sid` on its DEAD list ({} when it is not there)."""
+    r = gc.cmd({"cmd": "soldier_record", "id": sid})
+    return next((x for x in r.get("records") or [] if x.get("where") == "dead" and x.get("dead")), {})
 
 
 def _geo(gc):
@@ -137,7 +166,10 @@ def run_scenario(label, owners, want_coop, ports, fail, host_has_unit):
     js = shared_fixture.bring_up(f"jbat_{label}", ports)
     host, client = js.host, js.client
     try:
-        _, _, squad = session.bring_up_shared_mixed_battle(js, owners)
+        _, _, squad = session.bring_up_shared_mixed_battle(js, owners, pre_landing=_seed_pin)
+        fp = (_battle(host).get("mapFingerprint"), _battle(client).get("mapFingerprint"))
+        assert fp == (MAP_FP_S2, MAP_FP_S2), (
+            f"FIXTURE: mapFingerprint (host, client) {fp}, want both {MAP_FP_S2!r} (SEED_S2 {SEED_S2})")
         seats = {sid: owners[i] for i, sid in enumerate(squad)}
         print(f"PASS squad: {seats} aboard the shared craft; battle entered live "
               f"(F355 briefing-close-first ordering)")
@@ -176,11 +208,20 @@ def run_scenario(label, owners, want_coop, ports, fail, host_has_unit):
                       timeout=150, interval=1.0)
         fh = _world_fingerprint(host)
         ids = [s for s, _ in fh["roster"]]
+        killed = []
         for i, sid in enumerate(squad):
-            assert sid in ids, \
-                f"squad soldier {sid} (seat {owners[i]}) was deleted post-battle (guest cleanup ran!)"
+            if sid in ids:
+                continue
+            # W2-U8 (F6059): killed in battle = on the dead list of both machines; on neither list = deleted.
+            dead = {tag: _dead_record(gc, sid) for tag, gc in (("host", host), ("client", client))}
+            assert dead["host"] and dead["client"], (
+                f"squad soldier {sid} (seat {owners[i]}) was deleted post-battle (guest cleanup ran!): on neither "
+                f"the roster nor the dead list (dead-list record host={dead['host'] or None} "
+                f"client={dead['client'] or None})")
+            killed.append(sid)
         print(f"PASS merge: post-battle worlds IDENTICAL on both machines "
-              f"(funds={fh['funds']}, roster={ids}); every squad soldier survived")
+              f"(funds={fh['funds']}, roster={ids}); every squad soldier on the roster or killed in battle "
+              f"(on both dead lists: {killed}), none deleted")
 
         # PRD-J11: the shared final-state assertions. Strictly stronger than the
         # local fingerprint above (facilities/stores/transfers/research/craft
