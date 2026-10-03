@@ -846,6 +846,15 @@ static void armKeyTick(Game* game)
 		<< " (side " << g_armKeySide << ", top " << armKeyStateName(top) << ")";
 }
 
+// W2-U7 (F5820): TEST-ONLY. A world restream's LoadGameState is on top for ~10 frames (~20 ms), under one harness round
+// trip. `dismiss_arm {type, fire, timeoutMs}` arms ONE harness command here: on the first pump pass whose top state's name
+// contains `type`, pump runs {"cmd": fire} through execute() as a harness line and records the reply; one-shot, or expires.
+static Json::Value g_u7Arm(Json::objectValue);
+static bool g_u7ArmArmed = false;
+static std::string g_u7ArmType;
+static std::string g_u7ArmFire;
+static Uint32 g_u7ArmDeadline = 0;
+
 void TestServer::pump()
 {
 	if (!_running.load())
@@ -897,6 +906,42 @@ void TestServer::pump()
 		}
 	}
 	armKeyTick(_game); // W2-P8 S-C2.3 (F2924, SC2-G1): TEST-ONLY battle_arm_key, see its own comment
+	if (g_u7ArmArmed) // W2-U7 (F5820): TEST-ONLY dismiss_arm, see its comment above pump()
+	{
+		const State* u7Top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		if (SDL_GetTicks() > g_u7ArmDeadline)
+		{
+			g_u7ArmArmed = false;
+			g_u7Arm["armed"] = false;
+			g_u7Arm["expired"] = true;
+		}
+		else if (u7Top && armKeyStateName(u7Top).find(g_u7ArmType) != std::string::npos)
+		{
+			g_u7ArmArmed = false;
+			g_u7Arm["armed"] = false;
+			g_u7Arm["fired"] = true;
+			g_u7Arm["topBefore"] = armKeyStateName(u7Top);
+			g_u7Arm["pendingAtFire"] = SharedEcon::resyncStats().pending;
+			g_u7Arm["firedTicks"] = (Json::UInt)SDL_GetTicks();
+			std::string u7Resp;
+			try
+			{
+				u7Resp = execute("{\"cmd\":\"" + g_u7ArmFire + "\"}");
+			}
+			catch (const std::exception& e)
+			{
+				Json::Value err;
+				err["ok"] = false;
+				err["error"] = std::string("exception: ") + e.what();
+				Json::FastWriter w;
+				u7Resp = w.write(err);
+				if (!u7Resp.empty() && u7Resp.back() == '\n') u7Resp.pop_back();
+			}
+			g_u7Arm["response"] = u7Resp;
+			g_u7Arm["topAfter"] = armKeyStateName(_game->getStates().empty() ? nullptr : _game->getStates().back());
+			Log(LOG_INFO) << "[coop-test] dismiss_arm: " << g_u7ArmFire << " fired on " << g_u7Arm["topBefore"].asString();
+		}
+	}
 }
 
 /**
@@ -6690,6 +6735,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "set_touch_modifiers" && cmd != "forget_research"
 		&& cmd != "research_check" && cmd != "can_use_weapon" && cmd != "set_research_sync"
 		&& cmd != "clear_warning"
+		&& cmd != "dismiss_arm" && cmd != "dismiss_arm_state" // W2-U7 (F5820)
 		&& cmd != "display_rules" && cmd != "debrief_state"
 		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
 	{
@@ -8709,6 +8755,34 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// window becomes deterministic. Inert unless armed. Reply {ok, deferred}.
 		CoopSyncedOptions::setTestSharedUpdateDeferred(req.get("on", false).asBool());
 		resp["deferred"] = CoopSyncedOptions::testSharedUpdateDeferred();
+		resp["ok"] = true;
+	}
+	else if (cmd == "dismiss_arm")
+	{
+		// W2-U7 (F5820): TEST-ONLY lever (see the comment above pump()). {type = "LoadGameState", fire = dismiss_popup |
+		// close_screens | pop_state | geo_run (default dismiss_popup), timeoutMs = 10000}. Reply {ok, armed}.
+		const std::string fireDA = req.get("fire", "dismiss_popup").asString();
+		if (fireDA != "dismiss_popup" && fireDA != "close_screens" && fireDA != "pop_state" && fireDA != "geo_run")
+		{
+			resp["error"] = "dismiss_arm: fire must be dismiss_popup, close_screens, pop_state or geo_run";
+			return true;
+		}
+		g_u7Arm = Json::Value(Json::objectValue);
+		g_u7Arm["armed"] = true;
+		g_u7Arm["fired"] = false;
+		g_u7Arm["expired"] = false;
+		g_u7Arm["type"] = g_u7ArmType = req.get("type", "LoadGameState").asString();
+		g_u7Arm["fire"] = g_u7ArmFire = fireDA;
+		g_u7ArmDeadline = SDL_GetTicks() + (Uint32)req.get("timeoutMs", 10000).asInt();
+		g_u7ArmArmed = true;
+		resp["armed"] = true;
+		resp["ok"] = true;
+	}
+	else if (cmd == "dismiss_arm_state")
+	{
+		// W2-U7 (F5820): TEST-ONLY. Reply {ok, arm: {armed, fired, expired, type, fire, topBefore, topAfter,
+		// pendingAtFire, firedTicks, response (the fired command's raw JSON reply)}}.
+		resp["arm"] = g_u7Arm;
 		resp["ok"] = true;
 	}
 	else if (cmd == "clear_warning")
