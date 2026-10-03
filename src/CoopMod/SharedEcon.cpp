@@ -2546,6 +2546,19 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	if (!research) return;
 	const std::string bName = payload.get("bonus", "").asString();
 	RuleResearch* bonus = bName.empty() ? nullptr : mod->getResearch(bName, false);
+	// W2-H17 (F3262, Q4 a): the BASE / FREE_FROM diary lines exactly as the host's time1Day writes them (GeoscapeState
+	// addResearchDiaryEntryForBase), interleaved with the adds below in the host's order.
+	const size_t h17Diary0 = save->getResearchDiary().size();
+	auto h17Diary = [&](const RuleResearch* discovered, DiscoverySourceType sourceType, const RuleResearch* sourceResearch)
+	{
+		if (save->isResearched(discovered) || save->isResearchRuleStatusDisabled(discovered->getName())) return;
+		ResearchDiaryEntry* entry = new ResearchDiaryEntry(discovered);
+		entry->setDate(save->getTime());
+		entry->source.type = sourceType;
+		if (sourceType == DiscoverySourceType::BASE) entry->source.name = base->getName();
+		else { entry->source.research = sourceResearch; entry->source.name = sourceResearch->getName(); } // FREE_FROM
+		save->addResearchDiaryEntry(entry);
+	};
 
 	// Remove the base's matching ResearchProject and free its scientists, exactly
 	// as the host's time1Day did. Mark it finished first so removeResearch() does
@@ -2564,20 +2577,88 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	// Add the discovered topic(s). The host already selected the getOneFree
 	// (RNG) and passed it as `bonus`; addFinishedResearch itself is deterministic,
 	// so applying the host's exact choices keeps the replica identical.
+	h17Diary(research, DiscoverySourceType::BASE, nullptr); // W2-H17 (Q4 a): GS 3bb, the topic and its lookup
+	if (RuleResearch* lr = mod->getResearch(research->getLookup(), true))
+		h17Diary(lr, DiscoverySourceType::BASE, nullptr);
 	if (bonus)
 	{
+		h17Diary(bonus, DiscoverySourceType::FREE_FROM, research); // W2-H17 (Q4 a): GS 3c, the bonus and its lookup
 		save->addFinishedResearch(bonus, mod, base);
 		if (!bonus->getLookup().empty())
+		{
+			h17Diary(mod->getResearch(bonus->getLookup(), true), DiscoverySourceType::FREE_FROM, research);
 			save->addFinishedResearch(mod->getResearch(bonus->getLookup(), true), mod, base);
+		}
 	}
 	save->addFinishedResearch(research, mod, base);
 	if (!research->getLookup().empty())
 		save->addFinishedResearch(mod->getResearch(research->getLookup(), true), mod, base);
+	// W2-H17 (Q4 a, F5763): every diary line this apply appended (BASE, FREE_FROM, addFinishedResearch's FREE_AFTER)
+	// carries the host's date, so a replica clock behind the host's midnight cannot date them differently.
+	const Json::Value h17Date = payload.get("date", Json::Value());
+	if (h17Date.isArray() && h17Date.size() == 3)
+		for (size_t i = h17Diary0; i < save->getResearchDiary().size(); ++i)
+		{
+			ResearchDiaryEntry* e = save->getResearchDiary()[i];
+			e->year = h17Date[0u].asUInt(); e->month = h17Date[1u].asUInt(); e->day = h17Date[2u].asUInt();
+		}
 
 	// Mirror the host popup (coop=true -> the ctor does NOT re-broadcast).
 	const std::string nrName = payload.get("newResearch", "").asString();
 	const RuleResearch* newResearch = nrName.empty() ? nullptr : mod->getResearch(nrName, false);
 	game->pushState(new ResearchCompleteState(newResearch, bonus, research, base, true));
+}
+
+// W2-H17 (F3262, D226 a; Q1 a, Q3 a): research_fx payload (hostResearchFx): { removed [{base, name}], stores [{base,
+// items {itemType: qty}}], transfers [{base, item, qty, hours}], ids {name: value} } - the host's research-completion side
+// effects (3b corpse, 3j obsolete projects + refunds, 3k spawned items, 3m counters), adopted absolutely. Replica only:
+// it runs none of the host's side-effect code (no RNG, no spawned event; 3l stays host-only, Q2 a).
+void researchFxApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+	for (const auto& r : payload["removed"])
+		if (Base* b = resolveBase(game, r.get("base", -1).asInt()))
+			for (auto* rp : b->getResearch())
+				if (rp->getRules()->getName() == r.get("name", "").asString())
+				{
+					rp->setSpent(rp->getCost()); // as finished: no replica-side refund (the host's rides `stores`)
+					b->removeResearch(rp);
+					break;
+				}
+	for (const auto& st : payload["stores"]) // the host's quantities of every changed item
+		if (Base* b = resolveBase(game, st.get("base", -1).asInt()))
+			for (const auto& k : st["items"].getMemberNames())
+				if (const RuleItem* ri = mod->getItem(k, false))
+				{
+					const int d = st["items"][k].asInt() - b->getStorageItems()->getItem(ri);
+					if (d > 0) b->getStorageItems()->addItem(ri, d);
+					else if (d < 0) b->getStorageItems()->removeItem(ri, -d);
+				}
+	for (const auto& t : payload["transfers"]) // delivered by the host's transfer_arrived (same queue, after this)
+	{
+		Base* b = resolveBase(game, t.get("base", -1).asInt());
+		const RuleItem* ri = mod->getItem(t.get("item", "").asString(), false);
+		if (!b || !ri) continue;
+		Transfer* tr = new Transfer(t.get("hours", 1).asInt());
+		tr->setItems(ri, t.get("qty", 1).asInt());
+		b->getTransfers()->push_back(tr);
+	}
+	const std::map<std::string, int>& idsNow = save->getAllIds();
+	for (const auto& k : payload["ids"].getMemberNames())
+	{
+		const int want = payload["ids"][k].asInt();
+		if (k.empty()) continue;
+		if (!idsNow.count(k)) // absent: an increase creates 2, a decrease creates 1
+		{
+			if (want > 1) save->increaseCustomCounter(k);
+			else save->decreaseCustomCounter(k);
+		}
+		while (idsNow.at(k) < want) save->increaseCustomCounter(k);
+		while (idsNow.at(k) > want && idsNow.at(k) > 1) save->decreaseCustomCounter(k);
+	}
 }
 
 // fac_done payload: { x, y, type }.
@@ -3065,6 +3146,7 @@ void init()
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
+	registerCmd("research_fx", &simAccept, &researchFxApply); // W2-H17 (F3262)
 	registerCmd("fac_done",         &simAccept, &facDoneApply);
 	registerCmd("prod_done",        &simAccept, &prodDoneApply);
 	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
@@ -3307,7 +3389,84 @@ void hostResearchDone(Game* game, int baseId, const std::string& research,
 	p["research"] = research;
 	p["bonus"] = bonus;
 	p["newResearch"] = newResearch;
+	const GameTime* h17Time = game->getSavedGame()->getTime(); // W2-H17 (F3262, Q4 a): the host's date stamps the replica's diary
+	Json::Value h17Date(Json::arrayValue); h17Date.append(h17Time->getYear()); h17Date.append(h17Time->getMonth()); h17Date.append(h17Time->getDay());
+	p["date"] = h17Date;
 	submitLocalCmd(game, "research_done", baseId, p);
+}
+
+// ---- W2-H17 (F3262, D226 a; Q1 a): research_fx - the host side ----------------------------------------------------
+// time1Day marks the world right before a base's completion block (3a) and diffs it right after
+// handlePrimaryResearchSideEffects (3j-3m): one synchronous chain, so the diff is exactly this base's completion effects
+// (F5767), incl. 3j removals and refunds in every base. 3l (spawned events) stays host-only (Q2 a).
+Json::Value researchFxMark(Game* game, bool armed)
+{
+	if (!armed || !sharedHost(game) || !game->getSavedGame()) return Json::Value(Json::nullValue);
+	SavedGame* save = game->getSavedGame();
+	Json::Value m(Json::objectValue), bases(Json::arrayValue), transfers(Json::arrayValue), ids(Json::objectValue);
+	for (auto* b : *save->getBases())
+	{
+		Json::Value e(Json::objectValue), stores(Json::objectValue), projects(Json::arrayValue);
+		for (const auto& kv : *b->getStorageItems()->getContents()) stores[kv.first->getType()] = kv.second;
+		for (auto* rp : b->getResearch()) projects.append(rp->getRules()->getName());
+		e["stores"] = stores; e["projects"] = projects;
+		bases.append(e);
+		transfers.append((int)b->getTransfers()->size());
+	}
+	for (const auto& kv : save->getAllIds()) ids[kv.first] = kv.second;
+	m["bases"] = bases; m["transfers"] = transfers; m["ids"] = ids;
+	return m;
+}
+
+void hostResearchFx(Game* game, int baseId, const Json::Value& mark)
+{
+	if (mark.isNull() || !sharedHost(game) || !game->getSavedGame()) return;
+	const Json::Value now = researchFxMark(game, true);
+	const std::vector<Base*>& bases = *game->getSavedGame()->getBases();
+	Json::Value p(Json::objectValue), removed(Json::arrayValue), stores(Json::arrayValue), transfers(Json::arrayValue),
+		ids(Json::objectValue);
+	for (Json::ArrayIndex i = 0; i < now["bases"].size() && i < mark["bases"].size() && i < bases.size(); ++i)
+	{
+		const Json::Value& was = mark["bases"][i];
+		const Json::Value& cur = now["bases"][i];
+		std::set<std::string> left; // removed: in the mark, absent now (the finished topic too; the replica skips it)
+		for (const auto& n : cur["projects"]) left.insert(n.asString());
+		for (const auto& n : was["projects"])
+			if (!left.count(n.asString()))
+			{
+				Json::Value r(Json::objectValue);
+				r["base"] = (int)i; r["name"] = n;
+				removed.append(r);
+			}
+		Json::Value items(Json::objectValue), st(Json::objectValue); // stores: changed items only, absolute, 0 when gone
+		for (const auto& k : was["stores"].getMemberNames())
+			if (!cur["stores"].isMember(k)) items[k] = 0;
+		for (const auto& k : cur["stores"].getMemberNames())
+			if (was["stores"][k] != cur["stores"][k]) items[k] = cur["stores"][k];
+		st["base"] = (int)i; st["items"] = items;
+		if (!items.empty()) stores.append(st);
+		const std::vector<Transfer*>& tv = *bases[i]->getTransfers(); // transfers: appended past the mark (3k)
+		for (size_t t = mark["transfers"][i].asUInt(); t < tv.size(); ++t)
+		{
+			if (tv[t]->getType() != TRANSFER_ITEM || !tv[t]->getItems())
+			{
+				static bool logged = false;
+				if (!logged)
+					Log(LOG_WARNING) << "[SHARED] research_fx: a new non-item transfer (type " << (int)tv[t]->getType()
+						<< ") is not mirrored (logged once)";
+				logged = true;
+				continue;
+			}
+			Json::Value tj(Json::objectValue);
+			tj["base"] = (int)i; tj["item"] = tv[t]->getItems()->getType(); tj["qty"] = tv[t]->getQuantity();
+			tj["hours"] = tv[t]->getHours();
+			transfers.append(tj);
+		}
+	}
+	for (const auto& k : now["ids"].getMemberNames()) // ids: changed or new counters (3m)
+		if (!mark["ids"].isMember(k) || mark["ids"][k] != now["ids"][k]) ids[k] = now["ids"][k];
+	p["removed"] = removed; p["stores"] = stores; p["transfers"] = transfers; p["ids"] = ids;
+	submitLocalCmd(game, "research_fx", baseId, p);
 }
 
 void hostFacilityDone(Game* game, int baseId, int x, int y, const std::string& facilityType)

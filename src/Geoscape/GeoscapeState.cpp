@@ -4271,6 +4271,7 @@ void GeoscapeState::time1Day()
 				}
 			}
 		}
+		const Json::Value h17Mark = SharedEcon::researchFxMark(_game, !finished.empty()); // coop W2-H17 (F3262): snapshot before 3a
 		// 3. add finished research, including lookups and getonefrees (up to 4x)
 		std::vector<const RuleResearch*> topicsToCheck;
 		for (auto* project : finished)
@@ -4454,6 +4455,7 @@ void GeoscapeState::time1Day()
 			// 2. handle items spawned by research
 			// 3. handle events spawned by research
 			saveGame->handlePrimaryResearchSideEffects(topicsToCheck, _game->getMod(), xbase);
+			SharedEcon::hostResearchFx(_game, sharedBaseId(xbase), h17Mark); // coop W2-H17 (F3262): corpse, refunds, obsolete projects, spawned items and counters reach the replica
 		}
 
 		// Handle soldier wounds and martial training

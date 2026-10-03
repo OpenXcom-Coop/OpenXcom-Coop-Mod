@@ -214,6 +214,13 @@ void broadcast(Game* game, const Json::Value& msg);
 /// lookups deterministically (no RNG re-roll), and pops ResearchCompleteState.
 void hostResearchDone(Game* game, int baseId, const std::string& research,
                       const std::string& bonus, const std::string& newResearch);
+/// W2-H17 (F3262): host side of research_fx; null mark unless the SHARED host and armed. HOST, time1Day, right before a
+/// base's research completion block: every base's stores and project names, its transfer count, the custom counters.
+Json::Value researchFxMark(Game* game, bool armed);
+/// W2-H17 (F3262): host side of research_fx; HOST, right after handlePrimaryResearchSideEffects - diffs the world against
+/// @a mark and sends the host-origin research_fx command for the base @a baseId (obsolete projects, changed stores, new
+/// item transfers, changed counters; absolute). No-op on a null mark.
+void hostResearchFx(Game* game, int baseId, const Json::Value& mark);
 
 /// Facility construction finished on the host (time1Day): replica sets the
 /// facility at (x,y) buildTime 0 and mirrors the completion popup.
