@@ -21,6 +21,9 @@ Row C28P-kill (boot 2, diary-file port 47221). GREEN: the returned guest's killL
 the NEW mission id, each turn remapped turn += (newId - hostId) * 300, matching the host COPY's kills under its host id.
 RED: the returned guest has no kill with the new mission id (the diary is not copied; cell 2 red).
 
+W2-P7 S-C-C.1 (PR-C7, the P7-6 C re-pin at 2e177ff39): both rows gain cell 3 (the host's OK + drain) and a LAST cell 4
+(the client's follow-up chain). RED: exactly cell 4 of both rows (the client's chain is empty).
+
 WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_w2_battle_end_separate_diary.py
@@ -40,6 +43,8 @@ MEDAL_TYPE = "STR_COOP_MEDAL_TEST"        # Coop_Medal_Test's one commendation (
 MEDAL_MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Medal_Test")
 COOP_PORT_MEDAL = "47220"                 # AMENDMENT P7-6 section 4 (F4545): the diary file = 47220-47222
 COOP_PORT_KILL = "47221"
+# W2-P7 S-C-C.1 PR-C7 (A.10): both rows' client follow-up chain = the host's drained follow-ups, 2 equal red-build runs
+CHAIN_DIARY = ["CommendationState", "PromotionsState"]
 
 
 def precheck_diary(copy):
@@ -78,8 +83,7 @@ def kill_stage(rid, host, client, ctx):
 def _client_return(host, client, ctx):
     """Press the client's OK, wait for its own clean geoscape, read the returned guest's soldier_record. Returns
     (fails, rec): `fails` is the OK/geoscape failures (empty when the client returned cleanly, B1 green)."""
-    ok1 = b1.press_ok(client)
-    ok, secs = b1.wait_until(lambda: b1.geo_clean(client), b1.OK_S) if ok1["pressed"] else (False, 0)
+    ok1, ok, secs = b1.client_ok_through_followups(client, ctx, "clientReturn")   # W2-P7 S-C-C.1 PR-C7
     rec = b1.soldier_rec(client, sid=ctx["guestId"])
     ctx.setdefault("clientReturn", {}).update({"ok": ok1, "reached": ok, "secs": secs,
                                                "clientStack": b1.stack(client), "returnedRecord": rec})
@@ -176,13 +180,21 @@ def c28p_medal_cells(host, client, ctx):
     return [
         ("1 the client's display-only debriefing, equal to the host's", lambda: b1.cell_debriefs(host, client, ctx)),
         ("2 the guest's diary records this mission and the host's medal", lambda: cell_medal(host, client, ctx)),
-    ]
+    ] + chain_cells(host, client, ctx)
 
 
 def c28p_kill_cells(host, client, ctx):
     return [
         ("1 the client's display-only debriefing, equal to the host's", lambda: b1.cell_debriefs(host, client, ctx)),
         ("2 the guest's kills are remapped under the new mission id", lambda: cell_kill(host, client, ctx)),
+    ] + chain_cells(host, client, ctx)
+
+
+def chain_cells(host, client, ctx):
+    """W2-P7 S-C-C.1 PR-C7: cell 3 = the host's OK + drain (b1's, unchanged), cell 4 = the client's follow-up chain."""
+    return [
+        ("3 the host's OK + drain; the merged copy gone", lambda: b1.cell_host_ok(host, client, ctx)),
+        ("4 the client's chain", lambda: b1.cell_client_chain(host, client, ctx, "clientReturn", "hostOk", CHAIN_DIARY)),
     ]
 
 

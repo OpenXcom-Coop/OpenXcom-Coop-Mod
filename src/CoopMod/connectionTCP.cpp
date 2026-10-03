@@ -2785,6 +2785,8 @@ static Json::Value battleEndZeros()
 	r["sepGuardSkips"] = 0;           // client: background-task calls skipped while the live world was the battle world (PR-14/MR12)
 	r["sepSnapshot"] = 0;             // client: 1 once the battle-entry own-world snapshot was taken (PR-13), after initBattleAuthority
 	r["memorialRemoved"] = 0;         // host: dead-guest memorial copies removed at its OK (coopRemoveGuestMemorialCopies, D181, PR-16)
+	// W2-P7 S-C-C.1 (P7-6 C re-pin at 2e177ff39, PR-C6/PR-C9): zero here; S-C-C.2 writes it (record only).
+	r["chain"] = Json::Value(Json::arrayValue); // client: the follow-up states its campaign OK pushed, class names bottom to top
 	return r;
 }
 
