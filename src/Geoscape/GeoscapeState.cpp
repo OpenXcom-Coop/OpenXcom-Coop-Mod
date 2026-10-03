@@ -1010,6 +1010,7 @@ void GeoscapeState::init()
 
 		}
 
+		if (!_game->getCoopMod()->isSharedCampaign()) _game->getCoopMod()->coopRemoveGuestMemorialCopies(); // coop (W2-P7 S-C-B2, D181)
 		_game->getCoopMod()->coopMissionEnd = false;
 
 		if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
