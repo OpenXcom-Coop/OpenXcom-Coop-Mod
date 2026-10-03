@@ -98,7 +98,7 @@ CommendationLateState::CommendationLateState(std::vector<Soldier*> soldiersMedal
 	for (auto* soldier : soldiersMedalled)
 	{
 		// Establish some base information
-		_lstSoldiers->addRow(3, soldier->getName().c_str(),
+		_lstSoldiers->addRow(3, _game->getCoopMod()->coopSoldierDisplayName(soldier).c_str(), // coop (W2-P7 S-C-C, D177)
 								tr(soldier->getRankString()).c_str(),
 								tr("STR_KILLS").arg(soldier->getDiary()->getKillTotal()).c_str());
 		_lstSoldiers->setRowColor(row, _lstSoldiers->getSecondaryColor());

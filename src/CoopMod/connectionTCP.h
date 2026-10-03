@@ -197,6 +197,8 @@ class ConfirmCydoniaState;
 class NewBattleState;
 class GeoscapeState;
 class DebriefingState;
+class Soldier; // W2-P7 S-C-C.2 (PR-C10)
+class TextList; // W2-P7 S-C-C.2 (PR-C6)
 class MissionSite;
 
 // ===== Coop session lifecycle state =====
@@ -684,6 +686,14 @@ class connectionTCP
 	// owner's own id, return to the own geoscape in place and push the own world to the host (false blob -> main menu).
 	bool coopSepEntrySnapshot();
 	bool coopSeparateReturn(DebriefingState* db, const char* phaseAtOk);
+	// W2-P7 S-C-C.2 (P7-6 C re-pin PR-C5/PR-C6/PR-C10; D154, D177 (a), MR5): `[Player] Name` for another seat's soldier
+	// in a co-op campaign (else the plain name); the host's page-2 name site; PromotionsState's row hook (the client's
+	// chain only, true = rows filled); CLIENT - the after-battle follow-up screens at its campaign OK.
+	static std::string coopSeatDisplayName(int seat, const std::string& rawName);
+	static std::string coopSoldierDisplayName(Soldier* soldier);
+	std::string coopDebriefSoldierName(DebriefingState* db, Soldier* soldier);
+	bool coopPromotionRows(TextList* list);
+	void coopCampaignFollowupChain(DebriefingState* db);
 	// W2-P7 S-C-B2.2 (AMENDMENT P7-6 section 4.3 step 5; D181 (a), PR-16): HOST - after its post-battle chain, delete the
 	// memorial's SEPARATE guest copies (coopName "coop-origin:"); each guest's death lives in its owner's world.
 	void coopRemoveGuestMemorialCopies();
