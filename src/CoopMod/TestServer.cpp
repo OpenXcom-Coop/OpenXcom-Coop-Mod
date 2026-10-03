@@ -13199,8 +13199,23 @@ std::string TestServer::execute(const std::string& line)
 			{
 				resp["error"] = "no CoopState on top";
 			}
+			else if (!cs->isBackVisible()
+				&& (testServerRestreamOwned(cs) || cs->getStateCode() == COOP_DLG_CLIENT_HOLD))
+			{
+				// W2-U7b (F5864): a no-button client hold - 68 (a world (re)stream's resume hold) or 65 (the base-placement hold)
+				// - closes itself when the host releases it; previous() would disconnect (68) or pop it (65), which no player can
+				// do. 68's OK after the issue #91 give-up is visible and stays pressable.
+				resp["error"] = "coop_dialog_back: a no-button hold (it closes itself when the host releases it)";
+				resp["refused"] = "hold";
+				resp["wait"] = true;
+				resp["code"] = cs->getStateCode();
+			}
 			else
 			{
+				resp["code"] = cs->getStateCode(); // W2-U7b: read before previous() may pop the dialog
+				resp["backVisible"] = cs->isBackVisible();
+				Log(LOG_INFO) << "[coop-test] coop_dialog_back: code " << cs->getStateCode()
+					<< " backVisible " << (cs->isBackVisible() ? 1 : 0);
 				cs->previous(nullptr);
 				resp["ok"] = true;
 			}
