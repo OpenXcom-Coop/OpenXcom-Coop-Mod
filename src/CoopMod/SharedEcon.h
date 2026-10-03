@@ -36,6 +36,9 @@ class Target;
 class Soldier;
 class AlienBase;
 class SavedBattleGame;
+class RuleEvent;
+class State;
+class GeoscapeState;
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -340,6 +343,22 @@ void hostAlert(Game* game, const std::string& cls, const std::string& msg = "",
                const std::vector<std::string>& names = {},
                const std::vector<int>& ids = {}, bool flag = false,
                const Json::Value& rows = Json::Value());
+/// W2-H15 (F3261, F5602): HOST, before a GeoscapeEventState is built - a snapshot of every world part its eventLogic
+/// may touch (hq transfers / crafts, stores, craft items, research, diary, score, region activity, id counters).
+/// Json::nullValue unless this machine is the SHARED host and has a base.
+Json::Value eventMark(Game* game);
+/// W2-H15 (F3261, F5602): HOST, right after @a eventState (the window of @a rule) was built from @a mark - diffs the
+/// world against the mark and sends the host-origin `geo_event` command: the exact result (absolute) plus the
+/// window's picks as ids, never rendered text. No-op on a null mark or a state that is not a GeoscapeEventState.
+void hostGeoEvent(Game* game, const RuleEvent& rule, const Json::Value& mark, State* eventState);
+/// W2-H15 (F5602): REPLICA - shows the event windows that arrived while this machine was off the geoscape (or on its
+/// debriefing); called from GeoscapeState::init. No-op on the host and when nothing is queued.
+void flushEventWindows(Game* game, GeoscapeState* gs);
+/// W2-H15 (F5877): REPLICA, read-only - how many geo_event windows wait in the queue (geo_event_probe pendingWindows).
+int pendingEventWindows();
+/// W2-H15 (F5880): drops every queued event window; called from the session teardown (CoopSession::resetSession), so
+/// a window queued in one session can never show in a later game.
+void clearEventWindows();
 /// Playtest: host broadcasts that a craft's landing decision is resolved, so every
 /// other seat's broker ConfirmLandingState closes itself.
 void broadcastLandClose(Game* game, Craft* craft);

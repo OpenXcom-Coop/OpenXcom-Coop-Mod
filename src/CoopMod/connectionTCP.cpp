@@ -420,6 +420,7 @@ void CoopSession::resetSession()
 {
 	Log(LOG_INFO) << "[coop-session] resetSession";
 	CoopSyncedOptions::deactivate(); // W2-P9 S-A (PR-3): the player's own synced option values come back
+	SharedEcon::clearEventWindows(); // W2-H15 (R-H15-4, F5880): a geo_event window queued in this session never shows in a later game
 	role = CoopRole::None;
 	lobbyMode = 0;
 	clientInLobby = false;

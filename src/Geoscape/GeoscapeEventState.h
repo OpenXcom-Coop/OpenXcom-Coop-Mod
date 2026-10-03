@@ -54,6 +54,10 @@ private:
 	std::string _coopRegion;
 	int _coopCity = -1;
 	std::vector<std::pair<std::string, int> > _coopRows;
+	/// coop W2-H15 (F3261): the picks the next window draws instead of running eventLogic (armed on a SHARED replica only).
+	static const CoopEventPicks* _coopArmed;
+	/// coop W2-H15 (F3261): copies the armed picks and draws them in this machine's language; true = the replica path.
+	bool coopReplicaDisplay();
 
 	/// Helper performing event logic.
 	void eventLogic();
@@ -72,6 +76,8 @@ public:
 	CoopEventPicks coopPicks() const;
 	/// coop W2-H15 (F3261), probe only: title, message, then each row's two cells, as drawn.
 	std::vector<std::string> coopTexts() const;
+	/// coop W2-H15 (F3261): arms the next GeoscapeEventState as a display-only replica window drawn from @a picks.
+	static void coopArmDisplay(const CoopEventPicks* picks);
 };
 
 }

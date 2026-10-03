@@ -23,6 +23,7 @@
 #include "DebriefingState.h"
 #include "CannotReequipState.h"
 #include "../Geoscape/GeoscapeEventState.h"
+#include "../CoopMod/SharedEcon.h" // W2-H15 (F5602)
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
 #include "../Engine/LocalizedText.h"
@@ -899,7 +900,9 @@ void DebriefingState::btnOkClick(Action *)
 			bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(_eventToSpawn);
 			if (canSpawn)
 			{
+				const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15 (F5602)
 				_game->pushState(new GeoscapeEventState(*_eventToSpawn));
+				SharedEcon::hostGeoEvent(_game, *_eventToSpawn, h15Mark, _game->getStates().back()); // W2-H15 (F5602): the after-battle event reaches the second player
 			}
 		}
 		if (!_deadSoldiersCommended.empty())
