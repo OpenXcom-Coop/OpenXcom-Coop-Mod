@@ -86,6 +86,10 @@
 #include "../Battlescape/AbortMissionState.h"
 #include "../Battlescape/DebriefingState.h"
 #include "../Battlescape/AliensCrashState.h"
+#include "../Battlescape/PromotionsState.h"       // W2-P7 S-C-C.1: followup_state
+#include "../Battlescape/CommendationState.h"     // W2-P7 S-C-C.1: followup_state
+#include "../Battlescape/CommendationLateState.h" // W2-P7 S-C-C.1: followup_state
+#include "../Battlescape/CannotReequipState.h"    // W2-P7 S-C-C.1: followup_state
 #include "../Battlescape/Pathfinding.h"
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/UnitTurnBState.h"
@@ -6682,6 +6686,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "option_values" && cmd != "shared_update_defer" // W2-P10 S-A.1 (PX-3, PX-4)
 		&& cmd != "battle_end_turn_ready"
 		&& cmd != "screen_rows" && cmd != "screen_set_amount" && cmd != "screen_pick_base" // W2-P7 S-C-D1.1 (P7-7 PR-28)
+		&& cmd != "followup_state" // W2-P7 S-C-C.1 (P7-6 C re-pin PR-C9)
 		&& cmd != "battle_visibility_rule"
 		&& cmd != "screen_pixels"
 		&& cmd != "battle_camera_center"
@@ -9121,6 +9126,72 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		}
 		resp["recovered"] = recovered;
 		resp["parseErrors"] = parseErrors;
+		resp["ok"] = true;
+	}
+	else if (cmd == "followup_state")
+	{
+		// W2-P7 S-C-C.1 (docs rewrite/prompts/w2p7_sc_design.md, P7-6 C re-pin at 2e177ff39 PR-C9): TEST INTROSPECTION
+		// ONLY - read-only, public API only. The topmost PromotionsState / CommendationState / CommendationLateState /
+		// CannotReequipState on this machine's stack: its first TextList's rows (columns 3 / 2 / 3 / 3, the counts each
+		// vanilla setColumns call creates - TextList has no public column-count getter), every cell stripped as
+		// debrief_state does plus leading/trailing spaces (CommendationState indents names, :117). CannotReequipState
+		// fills its rows in init() (:110-124), the other three in their ctors: read rows only while `isTop` (F5627).
+		// Reply {ok, state ("" = none), isTop, rows [[cells]], stack [class names, bottom to top]}.
+		const auto& statesFU = _game->getStates();
+		auto classFU = [](State* s) {
+			const std::string n = s ? typeid(*s).name() : "none";
+			const size_t p = n.rfind("::");
+			return p == std::string::npos ? n : n.substr(p + 2);
+		};
+		auto stripFU = [](const std::string& in) {
+			std::string out;
+			for (char c : in)
+			{
+				if (c != Unicode::TOK_COLOR_FLIP && c != Unicode::TOK_NL_SMALL) out.push_back(c);
+			}
+			const size_t a = out.find_first_not_of(". ");
+			return a == std::string::npos ? std::string() : out.substr(a, out.find_last_not_of(". ") - a + 1);
+		};
+		State* fu = nullptr;
+		size_t colsFU = 0;
+		for (auto it = statesFU.rbegin(); it != statesFU.rend() && !fu; ++it)
+		{
+			if (dynamic_cast<PromotionsState*>(*it)) { fu = *it; colsFU = 3; }
+			else if (dynamic_cast<CommendationState*>(*it)) { fu = *it; colsFU = 2; }
+			else if (dynamic_cast<CommendationLateState*>(*it)) { fu = *it; colsFU = 3; }
+			else if (dynamic_cast<CannotReequipState*>(*it)) { fu = *it; colsFU = 3; }
+		}
+		Json::Value stackFU(Json::arrayValue), rowsFU(Json::arrayValue);
+		for (auto* s : statesFU)
+		{
+			stackFU.append(classFU(s));
+		}
+		TextList* listFU = nullptr;
+		if (fu)
+		{
+			for (auto* s : fu->getSurfaces())
+			{
+				if (auto* tl = dynamic_cast<TextList*>(s))
+				{
+					listFU = tl;
+					break;
+				}
+			}
+		}
+		const size_t nRowsFU = listFU ? listFU->getTexts() : 0;
+		for (size_t r = 0; r < nRowsFU; ++r)
+		{
+			Json::Value row(Json::arrayValue);
+			for (size_t c = 0; c < colsFU; ++c)
+			{
+				row.append(stripFU(listFU->getCellText(r, c)));
+			}
+			rowsFU.append(row);
+		}
+		resp["state"] = fu ? classFU(fu) : std::string();
+		resp["isTop"] = fu != nullptr && !statesFU.empty() && fu == statesFU.back();
+		resp["rows"] = rowsFU;
+		resp["stack"] = stackFU;
 		resp["ok"] = true;
 	}
 	else if (cmd == "soldier_record")

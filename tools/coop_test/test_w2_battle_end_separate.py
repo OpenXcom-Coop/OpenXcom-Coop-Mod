@@ -50,6 +50,9 @@ client's own world - "Guest Zzz" is in the client's MEMORIAL with a death, its b
 (memorialRemoved 1). RED (this commit, B1 green in place): B1 applies only the alive rows, so the dead guest is still
 alive in the client's base (cell 2 red); C28P still passes.
 
+W2-P7 S-C-C.1 (PR-C7, the P7-6 C re-pin at 2e177ff39): cell 2 walks the client's after-battle screens down to its
+geoscape; a LAST cell 4 checks the client's chain. RED: exactly cell 4 of both rows (the chain is empty).
+
 Run:  python tools/coop_test/test_w2_battle_end_separate.py
 """
 
@@ -84,6 +87,10 @@ DRAIN_S = 60            # the host's OK + follow-ups down to its GeoscapeState
 FNV_S = 30              # cell 2: the host's copy-of-client changes after the return's push (AMENDMENT 4.2 "within 30 s")
 WAIT_TOPS = ("VoteMenu", "BattlescapeState", "SaveGameState")   # never dismissed by a drain (not ours to pop)
 LOADGAME_PUSH = "push class OpenXcom::LoadGameState"           # the [coop-ui] state-push log line (P6-4)
+# W2-P7 S-C-C.1 PR-C7 (F5621): the after-battle screens; their OK is a plain popState = dismiss_popup (F5628).
+FOLLOWUPS = ("CommendationLateState", "CommendationState", "PromotionsState", "CannotReequipState")
+CHAIN_C28P = ["PromotionsState"]              # A.10: the host's drained follow-ups, 2 equal red-build runs (guest promoted)
+CHAIN_C28P_DEAD = ["CommendationLateState"]   # A.10: the same 2 runs (the dead guest, DebriefingState :778, F4532)
 
 
 class FixtureMiss(Exception):
@@ -240,6 +247,48 @@ def geo_clean(gc):
     """Top GeoscapeState and no CoopState / LoadGameState anywhere on the stack."""
     st = stack(gc)
     return bool(st) and st[-1] == "GeoscapeState" and not any(("CoopState" in s or "LoadGameState" in s) for s in st)
+
+
+def client_ok_through_followups(client, ctx, key):
+    """PR-C7: OK as today; wait <= OK_S for the stack ["GeoscapeState"] + T (T in FOLLOWUPS, no CoopState/LoadGameState)
+    -> ctx[key]["clientChain"] = T; dismiss_popup each FOLLOWUPS top; then today's geo_clean wait."""
+    ok1, slot = press_ok(client), ctx.setdefault(key, {})
+    if not ok1["pressed"]:
+        return ok1, False, 0
+    def shaped():
+        st = stack(client)
+        good = (st[:1] == ["GeoscapeState"] and all(s in FOLLOWUPS for s in st[1:])
+                and not any(("CoopState" in s or "LoadGameState" in s) for s in st))
+        if good:
+            slot["clientChain"] = st[1:]
+        return good
+    wait_until(shaped, OK_S)
+    t0 = time.time()
+    while top(client) in FOLLOWUPS and time.time() - t0 < OK_S:
+        client.cmd({"cmd": "dismiss_popup"})
+        time.sleep(0.25)
+    ok, secs = wait_until(lambda: geo_clean(client), OK_S)
+    return ok1, ok, secs
+
+
+def host_followups(screens, shared=False):
+    """PR-C7: a drain's FOLLOWUPS tops in push order; repeats and (SEPARATE, F5421) CannotReequipState dropped."""
+    tops = [s.get("top") for s in screens or [] if s.get("top") in FOLLOWUPS[:4 if shared else 3]]
+    return [t for i, t in enumerate(tops) if i == 0 or tops[i - 1] != t][::-1]
+
+
+def cell_client_chain(host, client, ctx, key, host_key, pinned):
+    """PR-C7 LAST cell: the client's battleEnd.chain == the stack it showed after its OK, non-empty, == the host's
+    drained follow-ups and == the pinned constant (A.10). RED (S-C-C.1): the client's chain is empty."""
+    chain, seen = record(client).get("chain"), (ctx.get(key) or {}).get("clientChain")
+    want = host_followups((ctx.get(host_key) or {}).get("screens"))
+    ctx["chainCell"] = {"chain": chain, "clientChain": seen, "hostFollowups": want, "pinned": pinned}
+    if not chain:
+        return [f"the client's chain is empty: battleEnd.chain={chain!r}, its stack after the OK {seen!r} (want "
+                f"{pinned!r}; the host drained {want!r})"]
+    return [f"client battleEnd.chain={chain!r} != {n} {v!r}" for n, v in
+            (("its stack after the OK", seen), ("the host's drained follow-ups", want), ("the pinned", pinned))
+            if chain != v]
 
 
 # ===================== construction helpers (adapted from TASK 0 t_kill.py) =====================
@@ -512,8 +561,7 @@ def cell_debriefs(host, client, ctx):
 def cell_client_return(host, client, ctx):
     """Cell 2: the client's OK -> its own geoscape; funds == MARKER; the guest's record applied; sepReturn; the host's
     copy-of-client changed."""
-    ok1 = press_ok(client)
-    ok, secs = wait_until(lambda: geo_clean(client), OK_S) if ok1["pressed"] else (False, 0)
+    ok1, ok, secs = client_ok_through_followups(client, ctx, "clientReturn")   # PR-C7
     pushes = log_count(client, LOADGAME_PUSH) - ctx["loadGamePushes0"]
     rec = soldier_rec(client, sid=ctx["guestId"])
     before = ctx.get("ownBefore") or {}
@@ -521,9 +569,9 @@ def cell_client_return(host, client, ctx):
     g = client.cmd({"cmd": "geo_state"})
     crec = record(client)
     sep = crec.get("sepReturn") if isinstance(crec.get("sepReturn"), dict) else {}
-    ctx["clientReturn"] = {"ok": ok1, "reached": ok, "secs": secs, "clientStack": stack(client),
-                           "loadGamePushes": pushes, "funds": g.get("funds"), "returnedRecord": rec,
-                           "sepReturn": sep}
+    ctx["clientReturn"].update({"ok": ok1, "reached": ok, "secs": secs, "clientStack": stack(client),
+                                "loadGamePushes": pushes, "funds": g.get("funds"), "returnedRecord": rec,
+                                "sepReturn": sep})
     f = []
     if not ok1["pressed"]:
         f.append(ok1["note"])
@@ -592,6 +640,7 @@ def c28p_cells(host, client, ctx):
         ("1 the client's display-only debriefing, equal to the host's", lambda: cell_debriefs(host, client, ctx)),
         ("2 the client's OK first; its own world with the guest's record", lambda: cell_client_return(host, client, ctx)),
         ("3 the host's OK + drain; the merged copy gone", lambda: cell_host_ok(host, client, ctx)),
+        ("4 the client's chain", lambda: cell_client_chain(host, client, ctx, "clientReturn", "hostOk", CHAIN_C28P)),
     ]
 
 
@@ -603,16 +652,15 @@ def cell_dead_return(host, client, ctx):
     with a death and its base no longer lists it (D181); sepReturn.deadApplied 1; one PR-16 [coop-roster] line in the
     client log. RED: the guest is still alive in the client's base (B1 applies alive rows only; the dead guest is not in
     the host's bases so B1's payload carries no row for it)."""
-    ok1 = press_ok(client)
-    ok, secs = wait_until(lambda: geo_clean(client), OK_S) if ok1["pressed"] else (False, 0)
+    ok1, ok, secs = client_ok_through_followups(client, ctx, "deadReturn")   # PR-C7
     recs, meta = soldier_recs(client, sid=ctx["guestId"])
     crec = record(client)
     sep = crec.get("sepReturn") if isinstance(crec.get("sepReturn"), dict) else {}
     pr16 = log_count(client, PR16_LITERAL)
     dead_rec = next((r for r in recs if r.get("dead")), None)
     base_rec = next((r for r in recs if r.get("where") == "base"), None)
-    ctx["deadReturn"] = {"ok": ok1, "reached": ok, "secs": secs, "clientStack": stack(client),
-                         "records": recs, "sepReturn": sep, "pr16": pr16}
+    ctx["deadReturn"].update({"ok": ok1, "reached": ok, "secs": secs, "clientStack": stack(client),
+                              "records": recs, "sepReturn": sep, "pr16": pr16})
     f = []
     if not ok1["pressed"]:
         f.append(ok1["note"])
@@ -671,6 +719,8 @@ def c28p_dead_cells(host, client, ctx):
         ("1 the client's display-only debriefing, equal to the host's", lambda: cell_debriefs(host, client, ctx)),
         ("2 the client's OK first; the dead guest reaches its memorial", lambda: cell_dead_return(host, client, ctx)),
         ("3 the host's OK + drain; the host memorial copy removed", lambda: cell_host_memorial(host, client, ctx)),
+        ("4 the client's chain", lambda: cell_client_chain(host, client, ctx, "deadReturn", "hostMemorial",
+                                                           CHAIN_C28P_DEAD)),
     ]
 
 
