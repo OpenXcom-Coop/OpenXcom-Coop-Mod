@@ -121,6 +121,7 @@
 #include "../Savegame/Region.h" // W2-H15: geo_event_probe
 #include "../Mod/RuleRegion.h"  // W2-H15: geo_event_probe
 #include "../Mod/City.h"        // W2-H15: geo_event_probe
+#include "../Mod/RuleInterface.h" // W2-P7 S-C-E2.1: screen_rows highlightColor (P7-8 PR-51)
 #include "../Savegame/SoldierDiary.h"         // W2-P7 S-C-A.1: soldier_record
 #include "../Savegame/SoldierDeath.h"         // W2-P7 S-C-A.1: soldier_record
 #include "../Savegame/MissionStatistics.h"    // W2-P7 S-C-A.1: soldier_record
@@ -6764,6 +6765,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "display_rules" && cmd != "debrief_state"
 		&& cmd != "geo_event_probe" // W2-H15 (F3261, F5602)
 		&& cmd != "sel_state" && cmd != "set_autosell" // W2-P7 S-C-E1.1 (P7-8 PR-46)
+		&& cmd != "screen_push" // W2-P7 S-C-E2.1 (P7-8 PR-51)
 		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
 	{
 		return false;
@@ -8955,6 +8957,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		TextList* listSR = nullptr;
 		TextButton* okSR = nullptr;
 		Json::Value buttonsSR(Json::arrayValue), textsSR(Json::arrayValue), rowsSR(Json::arrayValue);
+		Json::Value textItemsSR(Json::arrayValue); // W2-P7 S-C-E2.1 (P7-8 PR-51, F6116): every Text {text, visible}
 		if (sellSR || xferSR || macSR)
 		{
 			for (auto* s : topSR->getSurfaces())
@@ -8975,6 +8978,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				else if (auto* tx = dynamic_cast<Text*>(s))
 				{
 					textsSR.append(stripSR(tx->getText()));
+					Json::Value ti(Json::objectValue); // W2-P7 S-C-E2.1 (P7-8 PR-51)
+					ti["text"] = stripSR(tx->getText());
+					ti["visible"] = tx->getVisible();
+					textItemsSR.append(ti);
 				}
 			}
 			if (macSR && tbsSR.size() > 1) okSR = tbsSR[1];
@@ -8996,6 +9003,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			row["cells"] = cells;
 			const auto it = trToTypeSR.find(cells[0u].asString());
 			row["item"] = it == trToTypeSR.end() ? std::string() : it->second;
+			row["color"] = (int)listSR->harnessCellColor(r, 0); // W2-P7 S-C-E2.1 (P7-8 PR-51): the row's drawn colour
 			rowsSR.append(row);
 		}
 		if (cmd == "screen_set_amount")
@@ -9078,6 +9086,14 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["rows"] = rowsSR;
 		resp["buttons"] = buttonsSR;
 		resp["texts"] = textsSR;
+		// W2-P7 S-C-E2.1 (P7-8 PR-51, D203, F6112, V-E4): textItems, the list's secondary colour (vanilla's "amount > 0"
+		// row colour) and the top screen's own interface button2 colour (the colour a row another player edited is drawn in).
+		resp["textItems"] = textItemsSR;
+		resp["secondaryColor"] = listSR ? Json::Value((int)listSR->getSecondaryColor()) : Json::Value();
+		const char* catSR = sellSR ? "sellMenu" : xferSR ? "transferMenu" : macSR ? "manageContainment" : nullptr;
+		const RuleInterface* riSR = catSR ? _game->getMod()->getInterface(catSR, false) : nullptr;
+		const Element* b2SR = riSR ? riSR->getElementOptional("button2") : nullptr;
+		resp["highlightColor"] = b2SR ? Json::Value(b2SR->color) : Json::Value();
 		resp["ok"] = true;
 	}
 	else if (cmd == "screen_pick_base")
@@ -9364,6 +9380,37 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			_game->getSavedGame()->setAutosell(ruleAS, req.get("on", false).asBool());
 			resp["item"] = itemAS;
 			resp["autosell"] = _game->getSavedGame()->getAutosell(ruleAS);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "screen_push")
+	{
+		// W2-P7 S-C-E2.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-8 PR-51, F6114): TEST lever. Pushes the REAL
+		// screen a player opens from the basescape, so its init() runs on the next frame (ScreenRefresh and the shared
+		// selection bind there, unlike the sell / containment / shared_transfer levers, F6126): {screen: "transfer_base"} =
+		// BasescapeState :686's new TransferBaseState(base, nullptr) (then screen_pick_base); {screen: "containment"} =
+		// BasescapeState :904's new ManageAlienContainmentState(base, prisonType, OPT_GEOSCAPE) (a facility tile, no
+		// caption). {base: index, default 0; prisonType: default 0}. Reply {ok, screen, base, prisonType}.
+		SavedGame* sgSP = _game->getSavedGame();
+		const std::string screenSP = req.get("screen", "").asString();
+		const int baseSP = req.get("base", 0).asInt();
+		const int prisonSP = req.get("prisonType", 0).asInt();
+		const int nSP = sgSP ? (int)sgSP->getBases()->size() : 0;
+		if (!sgSP)
+			resp["error"] = "screen_push: no saved game";
+		else if (baseSP < 0 || baseSP >= nSP)
+			resp["error"] = "screen_push: bad base index";
+		else if (screenSP == "transfer_base")
+			_game->pushState(new TransferBaseState((*sgSP->getBases())[baseSP], nullptr));
+		else if (screenSP == "containment")
+			_game->pushState(new ManageAlienContainmentState((*sgSP->getBases())[baseSP], prisonSP, OPT_GEOSCAPE));
+		else
+			resp["error"] = "screen_push: unknown screen " + screenSP;
+		if (!resp.isMember("error"))
+		{
+			resp["screen"] = screenSP;
+			resp["base"] = baseSP;
+			resp["prisonType"] = prisonSP;
 			resp["ok"] = true;
 		}
 	}
