@@ -6688,6 +6688,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "screen_pixels"
 		&& cmd != "battle_camera_center"
 		&& cmd != "path_probe"
+		&& cmd != "research_probe" // W2-H17 (F3262)
 		&& cmd != "field_poke"
 		&& cmd != "set_touch_modifiers" && cmd != "forget_research"
 		&& cmd != "research_check" && cmd != "can_use_weapon" && cmd != "set_research_sync"
@@ -8816,6 +8817,46 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["items"] = items;
 		resp["constants"] = k;
 		resp["ok"] = true;
+	}
+	else if (cmd == "research_probe")
+	{
+		// W2-H17 (F3262; spec rewrite/prompts/w2h17_research_side_effects.md (e)): TEST INTROSPECTION ONLY - read-only,
+		// public API only. {names[], tail}: `diary` {size, tail [{name, sourceType (int: 0 BASE, 1 FREE_FROM, 2 FREE_AFTER,
+		// 3 MISSION, 4 EVENT), sourceName, date [y, m, d]}]} (the last `tail` entries, default 12), `researched` per name
+		// (isResearched(name, false)), `ids` (the custom counters, getAllIds()), `ending` (int). Reply {ok, ...}.
+		SavedGame* sgRP = _game->getSavedGame();
+		if (!sgRP)
+		{
+			resp["error"] = "research_probe: no world";
+		}
+		else
+		{
+			Json::Value diaryRP(Json::objectValue), tailRP(Json::arrayValue), resRP(Json::objectValue), idsRP(Json::objectValue);
+			const auto& diRP = sgRP->getResearchDiary();
+			const size_t wantRP = (size_t)std::max(0, req.get("tail", 12).asInt());
+			for (size_t i = diRP.size() > wantRP ? diRP.size() - wantRP : 0; i < diRP.size(); ++i)
+			{
+				const ResearchDiaryEntry* e = diRP[i];
+				Json::Value je(Json::objectValue), dateRP(Json::arrayValue);
+				je["name"] = e->research ? e->research->getName() : std::string();
+				je["sourceType"] = (int)e->source.type;
+				je["sourceName"] = e->source.name;
+				dateRP.append((int)e->year); dateRP.append((int)e->month); dateRP.append((int)e->day);
+				je["date"] = dateRP;
+				tailRP.append(je);
+			}
+			diaryRP["size"] = (int)diRP.size();
+			diaryRP["tail"] = tailRP;
+			resp["diary"] = diaryRP;
+			for (const auto& n : req["names"])
+				resRP[n.asString()] = sgRP->isResearched(n.asString(), false);
+			resp["researched"] = resRP;
+			for (const auto& kv : sgRP->getAllIds())
+				idsRP[kv.first] = kv.second;
+			resp["ids"] = idsRP;
+			resp["ending"] = (int)sgRP->getEnding();
+			resp["ok"] = true;
+		}
 	}
 	else if (cmd == "debrief_state")
 	{

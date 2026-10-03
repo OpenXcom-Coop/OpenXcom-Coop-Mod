@@ -1,0 +1,8 @@
+name: "Coop research side effects probe"
+version: 1.0
+description: "Test-only fixture for W2-H17 (F3262). Data only. STR_H17_A (cost 1) gets STR_H17_B for free,
+  spawns 2 x STR_PISTOL and raises STR_H17_COUNTER; STR_H17_B (needItem + destroyItem) is the obsolete
+  project the host removes and refunds. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1
