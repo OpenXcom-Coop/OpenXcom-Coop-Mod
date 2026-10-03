@@ -160,7 +160,7 @@ import repro_atom_walk as raw
 from test_rw_turn_baton import RHAND_RECT, click_nth
 from test_rw_seat_pacing import tab_select, SDLK_HOME
 from test_w2_delta_core import (probes, diff_buckets, desync_record, short, common_fails, finish, delta_view)
-from test_w2_delta_core import both as both_lever, tele_both as tele_lever, tu_both as tu_lever
+from test_w2_delta_core import both, tele_both, tu_both, staging_settled
 from test_w2_delta_items import items_by_id, item_diff, tile_of, unit_view
 
 # ----- common (test_w2_host_combat.py and test_w2_host_combat_terrain.py; TASK 0a-2) -----
@@ -261,28 +261,8 @@ LOG_TAIL = 256                   # CoopEventLog::kCapacity
 # unitsStats seq 8 kind=reveal; C5 and D3 failed as a cascade). So every pair ends with staging_settled(): the client
 # has applied every ev the host emitted (session.wait_host_idle) before the next lever runs on it. Its first host read
 # runs in a later TestServer::pump than the lever, after that frame's flush, so it cannot pass before the emit.
-
-
-def staging_settled(host, client):
-    session.wait_host_idle(host, client, timeout=30)
-
-
-def both(host, client, req, keys):
-    r = both_lever(host, client, req, keys)
-    staging_settled(host, client)
-    return r
-
-
-def tele_both(host, client, uid, t, d):
-    r = tele_lever(host, client, uid, t, d)
-    staging_settled(host, client)
-    return r
-
-
-def tu_both(host, client, uid):
-    r = tu_lever(host, client, uid)
-    staging_settled(host, client)
-    return r
+# W2-U8b (F6305, F6471): that wait now lives in test_w2_delta_core.both itself (tele_both and tu_both go through
+# it), so this file imports the shared helpers and staging_settled from there instead of wrapping them.
 
 
 # ===================== small probes =====================
