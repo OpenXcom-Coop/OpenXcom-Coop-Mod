@@ -29,12 +29,41 @@ _GEO = "GeoscapeState"
 # rather than abandoning the machine's pass at it. STALL_S bounds ONE such wait.
 STALL_S = 3.0        # per-dialog ceiling (clears the measured 1.105s host-save max)
 STALL_POLL = 0.1     # poll interval while waiting a refused dialog out
+# W2-U7 (F5820, F5822): a walk never dismisses on a machine whose SHARED resync is pending; it waits up to
+# RESYNC_WAIT_S (read per call) for the repair to land, polling every RESYNC_POLL, then raises ResyncPendingError.
+RESYNC_WAIT_S = 10.0
+RESYNC_POLL = 0.1
 
 
 class StuckDialogError(RuntimeError):
     """Raised when an advance stalls: in-game time stops moving because a dialog
     can't be cleared (or re-pushes itself every frame). Carries the top state on
     each side so the offending dialog can be given explicit handling."""
+
+
+class ResyncPendingError(AssertionError):
+    """W2-U7 (F5820): a machine's SHARED resync stayed pending for RESYNC_WAIT_S before a dismissal. The message carries the
+    probe dump (shared_resync_stats, the stack, get_coop, shared_stats)."""
+
+
+def wait_resync_clear(gc, timeout=None):
+    """W2-U7 (F5820): block until `gc`'s SHARED resync is not pending (a host or a non-SHARED machine never is). Returns 0.0 when
+    it was clear at the first read, else the seconds waited; raises ResyncPendingError at the bound (RESYNC_WAIT_S, read per call)."""
+    bound = RESYNC_WAIT_S if timeout is None else timeout
+    t0 = time.time()
+    first = True
+    while True:
+        rs = gc.cmd({"cmd": "shared_resync_stats"})
+        if not rs.get("pending"):
+            return 0.0 if first else round(time.time() - t0, 3)
+        first = False
+        if time.time() - t0 >= bound:
+            co = gc.cmd({"cmd": "get_coop"})
+            dump = {"resync": rs, "states": gc.cmd({"cmd": "get_state"}).get("states"),
+                    "coop": {k: co.get(k) for k in ("shared", "lobbyMode", "coopDialog", "onConnect")},
+                    "shared_stats": gc.cmd({"cmd": "shared_stats"})}
+            raise ResyncPendingError("%s: resync pending for %.1fs before a dismissal (F5820): %r" % (gc.name, bound, dump))
+        time.sleep(RESYNC_POLL)
 
 
 class TimeWatchdog:
@@ -147,6 +176,8 @@ def _walk(gc, interest=None, keep=None, limit=25, stalled=None):
             return dismissed, top, False
         if not top or top.endswith(_GEO):
             return dismissed, None, True
+        if wait_resync_clear(gc) > 0:
+            continue   # W2-U7: the restream may have replaced the stack while we waited - re-read it
         req = {"cmd": "dismiss_popup"}
         k = keep if keep is not None else getattr(interest, "keep", None)
         if k:

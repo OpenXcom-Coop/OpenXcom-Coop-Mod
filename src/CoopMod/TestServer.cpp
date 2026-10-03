@@ -855,6 +855,19 @@ static std::string g_u7ArmType;
 static std::string g_u7ArmFire;
 static Uint32 g_u7ArmDeadline = 0;
 
+// W2-U7 (F5820, F5822): TEST-ONLY. A state a world (re)stream owns: every LoadGameState (it adopts the world and pops itself after
+// ~10 frames; a raw pop loses the world, leaves a SHARED replica's resync pending and its shared-apply hold set) and the hold the
+// adoption pushes (COOP_DLG_CLIENT_RESUME_HOLD, released by the host's campaign_begun). No player can close either.
+static bool testServerRestreamOwned(const State* s)
+{
+	if (!s)
+		return false;
+	if (dynamic_cast<const LoadGameState*>(s))
+		return true;
+	const CoopState* cs = dynamic_cast<const CoopState*>(s);
+	return cs && cs->getStateCode() == COOP_DLG_CLIENT_RESUME_HOLD;
+}
+
 void TestServer::pump()
 {
 	if (!_running.load())
@@ -1426,12 +1439,18 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		// self-repushing dialog cannot spin the pump forever.
 		int popped = 0;
 		while (popped < 16 && _game->getStates().size() > 1
-			&& !dynamic_cast<GeoscapeState*>(_game->getStates().back()))
+			&& !dynamic_cast<GeoscapeState*>(_game->getStates().back())
+			&& !testServerRestreamOwned(_game->getStates().back())) // W2-U7 (F5820): stop at a world load or its hold
 		{
 			_game->popState();
 			++popped;
 		}
 		resp["popped"] = popped;
+		if (testServerRestreamOwned(_game->getStates().back())) // W2-U7: the restream lands the geoscape itself
+		{
+			resp["refused"] = "restream";
+			resp["stoppedAt"] = typeid(*_game->getStates().back()).name();
+		}
 		resp["ok"] = true;
 	}
 	else if (cmd == "screen_state")
@@ -3915,7 +3934,8 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		State* top = topState<State>(_game);
 		bool drained = false;
 		if (top && !dynamic_cast<GeoscapeState*>(top)
-		    && !dynamic_cast<BattlescapeState*>(top))
+		    && !dynamic_cast<BattlescapeState*>(top)
+		    && !testServerRestreamOwned(top)) // W2-U7 (F5820)
 		{
 			if (auto* ev = dynamic_cast<GeoscapeEventState*>(top)) { ev->btnOkClick(nullptr); drained = true; }
 			else if (dynamic_cast<ArticleState*>(top)) { _game->popState(); drained = true; }
@@ -3927,6 +3947,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			else { _game->popState(); drained = true; }
 		}
 		resp["drained"] = drained;
+		if (testServerRestreamOwned(top)) resp["refused"] = "restream"; // W2-U7
 		resp["topType"] = top ? typeid(*top).name() : "none";
 		if (gs)
 		{
@@ -9856,6 +9877,13 @@ std::string TestServer::execute(const std::string& line)
 			{
 				resp["error"] = "refusing to pop the last state";
 			}
+			else if (testServerRestreamOwned(_game->getStates().back()))
+			{
+				// W2-U7 (F5820): a world load or its hold closes itself; a raw pop loses the world
+				resp["error"] = "pop_state: restream-owned state (closes itself; not popped)";
+				resp["refused"] = "restream";
+				resp["wait"] = true;
+			}
 			else
 			{
 				_game->popState();
@@ -12201,6 +12229,14 @@ std::string TestServer::execute(const std::string& line)
 				// pre-#87 CI client crashes came exactly from this).
 				resp["handled"] = "none";
 				resp["ok"] = true;
+			}
+			else if (testServerRestreamOwned(top))
+			{
+				// W2-U7 (F5820): a world (re)stream's LoadGameState adopts the world and pops itself after ~10 frames;
+				// a raw pop loses it. Report a self-closing wait (CoopState 68 is refused by the CoopState branch above).
+				resp["wait"] = true;
+				resp["refused"] = "restream";
+				resp["error"] = "restream-owned state (a world load in flight; closes itself; not dismissable)";
 			}
 			else
 			{
