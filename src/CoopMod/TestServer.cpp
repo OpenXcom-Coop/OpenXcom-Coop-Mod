@@ -6687,6 +6687,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_end_turn_ready"
 		&& cmd != "screen_rows" && cmd != "screen_set_amount" && cmd != "screen_pick_base" // W2-P7 S-C-D1.1 (P7-7 PR-28)
 		&& cmd != "followup_state" // W2-P7 S-C-C.1 (P7-6 C re-pin PR-C9)
+		&& cmd != "mission_stats_pad" // W2-P7 S-C-B2.3.1 (F5549)
 		&& cmd != "battle_visibility_rule"
 		&& cmd != "screen_pixels"
 		&& cmd != "battle_camera_center"
@@ -9194,6 +9195,39 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["stack"] = stackFU;
 		resp["ok"] = true;
 	}
+	else if (cmd == "mission_stats_pad")
+	{
+		// W2-P7 S-C-B2.3.1 (docs rewrite/prompts/w2p7_sc_design.md, P7-6 B2.3 pin PB-7; F5549): TEST LEVER ONLY - append {count}
+		// (default 1) MissionStatistics to THIS machine's world (id = the list's size, vanilla's rule DebriefingState :607; type
+		// "coop_test_pad") and, with {soldierId}, append each new id to that base soldier's diary. Reply {ok, ids, size}.
+		SavedGame* sgMP = _game->getSavedGame();
+		Soldier* sMP = nullptr;
+		if (sgMP)
+			for (auto* b : *sgMP->getBases())
+				for (auto* s : *b->getSoldiers())
+					if (s->getId() == req.get("soldierId", -1).asInt()) sMP = s;
+		const int countMP = req.get("count", 1).asInt();
+		if (!sgMP)
+			resp["error"] = "mission_stats_pad: no saved game";
+		else if (countMP < 1 || (req.isMember("soldierId") && !sMP))
+			resp["error"] = "mission_stats_pad: bad count or soldier not found";
+		else
+		{
+			Json::Value idsMP(Json::arrayValue);
+			for (int i = 0; i < countMP; ++i)
+			{
+				MissionStatistics* msMP = new MissionStatistics();
+				msMP->id = (int)sgMP->getMissionStatistics()->size();
+				msMP->type = "coop_test_pad";
+				sgMP->getMissionStatistics()->push_back(msMP);
+				if (sMP) sMP->getDiary()->getMissionIdList().push_back(msMP->id);
+				idsMP.append(msMP->id);
+			}
+			resp["ids"] = idsMP;
+			resp["size"] = (int)sgMP->getMissionStatistics()->size();
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "soldier_record")
 	{
 		// W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.1, F2520): TEST INTROSPECTION
@@ -9239,6 +9273,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				r["psiStrImprovement"] = s->getPsiStrImprovement();
 				r["currentStats"] = stats(s->getCurrentStats()); r["initialStats"] = stats(s->getInitStats());
 				r["dead"] = (s->getDeath() != nullptr);
+				r["armor"] = s->getArmor() ? s->getArmor()->getType() : ""; // W2-P7 S-C-B2.3.1 (F5553)
 				Json::Value death;
 				if (const SoldierDeath* d = s->getDeath())
 				{
