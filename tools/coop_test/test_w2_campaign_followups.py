@@ -383,7 +383,7 @@ def f1_cells(ctx):
 def f4_cells(ctx):
     def fixture():
         got = ctx["host"]["rows"].get("CannotReequipState")
-        return [] if got == REEQUIP_ROWS_F4 else [f"FIXTURE-STOP: the host's CannotReequipState rows {got} != "
+        return [] if sorted(got or []) == sorted(REEQUIP_ROWS_F4) else [f"FIXTURE-STOP: the host's CannotReequipState rows {got} != "
                                                   f"{REEQUIP_ROWS_F4} (T0-S6 (iv) staging)"]
 
     def shown():
