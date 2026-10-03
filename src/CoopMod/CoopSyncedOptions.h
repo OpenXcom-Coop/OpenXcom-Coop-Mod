@@ -35,7 +35,7 @@ namespace CoopSyncedOptions
 {
 /// PR-1: a row; type/pointer from Options::getOptionInfo() by id; step/min/max = vanilla's Advanced-screen rule.
 struct Row { const char *id; int step; int min; int max; };
-/// PR-1: THE ONLY LIST - 15 ids = 14 visible rows (11 OXC + 3 OXCE) + the hidden unload option. W2-P10 appends.
+/// PR-1: THE ONLY LIST - 29 ids = 28 visible rows (20 OXC + 8 OXCE) + the hidden unload option (W2-P10 added 14).
 static const Row TABLE[] = {
 	{ "battleInstantGrenade", 1, 0, 1 },
 	{ "battleExplosionHeight", 1, 0, 3 },
@@ -52,6 +52,21 @@ static const Row TABLE[] = {
 	{ "battleUFOExtenderAccuracy", 1, 0, 1 },
 	{ "oxceReactionFireThreshold", 5, 0, 100 },
 	{ "oxceInventoryUnloadFixedWeapons", 1, 0, 1 },
+	// W2-P10 (AMENDMENT P10-1 PX-1; D134, D162 a, D163 a, D200 a, P10-V1, P10-V7): the 14 campaign options, scope A1..A14.
+	{ "storageLimitsEnforced", 1, 0, 1 },
+	{ "canSellLiveAliens", 1, 0, 1 },
+	{ "fieldPromotions", 1, 0, 1 },
+	{ "oxceAutomaticPromotions", 1, 0, 1 },
+	{ "oxceWoundedDefendBaseIf", 10, 0, 100 },
+	{ "aggressiveRetaliation", 1, 0, 1 },
+	{ "allowBuildingQueue", 1, 0, 1 },
+	{ "craftLaunchAlways", 1, 0, 1 },
+	{ "anytimePsiTraining", 1, 0, 1 },
+	{ "canTransferCraftsWhileAirborne", 1, 0, 1 },
+	{ "retainCorpses", 1, 0, 1 },
+	{ "oxceAlternateCraftEquipmentManagement", 1, 0, 1 },
+	{ "oxceManualPromotions", 1, 0, 1 },
+	{ "oxceGeoscapeEventsInstantDelivery", 1, 0, 1 },
 };
 static const int TABLE_SIZE = (int)(sizeof(TABLE) / sizeof(TABLE[0]));
 
@@ -83,7 +98,7 @@ bool holdArmed();
 /// per-frame SharedEcon drain so the replica ordering window is deterministic; inert unless armed.
 void setTestSharedUpdateDeferred(bool on);
 bool testSharedUpdateDeferred();
-/// The 15 current globals {id: bool|int} (the probe, the join table, battle_offer.hostRules).
+/// The 29 current globals {id: bool|int} (the probe, the join table, battle_offer.hostRules).
 Json::Value currentValues();
 /// PR-13: the layer's own fields of the synced_options_state probe (active, version, values, own, queue, ...).
 void stateView(Json::Value &out);
