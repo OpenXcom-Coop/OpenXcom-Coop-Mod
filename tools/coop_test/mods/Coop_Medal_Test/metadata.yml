@@ -1,0 +1,9 @@
+name: "Coop medal probe"
+version: 1.0
+description: "Test-only fixture for W2-P7 S-C (PR-20). Data only. Stock xcom1 defines no
+  commendations, so the debriefing's medal screens (CommendationState) never show. This mod adds
+  ONE commendation, STR_COOP_MEDAL_TEST, with criteria totalMissions [1]: every surviving
+  participant earns it on its first mission. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1
