@@ -386,6 +386,7 @@ void notifyWorldAdopted();
 /// world's arrival (MAP_RESULT_LOAD_PROGRESS) until notifyWorldAdopted() clears it, so no apply lands on the world
 /// about to be discarded.
 void setApplyHold(bool on);
+bool applyHoldOn(); // W2-P7 S-C-D2.1 (P7-7 PR-35): read-only, TestServer shared_stats.applyHold
 
 /// Harness/diagnostics: auto-resync bookkeeping on this machine.
 struct ResyncStats
