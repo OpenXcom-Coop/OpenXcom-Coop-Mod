@@ -937,6 +937,11 @@ void TestServer::pump()
 			g_u7Arm["armed"] = false;
 			g_u7Arm["fired"] = true;
 			g_u7Arm["topBefore"] = armKeyStateName(u7Top);
+			if (const CoopState* u7Cs = dynamic_cast<const CoopState*>(u7Top)) // W2-U7b (F5864): which dialog, and was its button shown
+			{
+				g_u7Arm["codeAtFire"] = u7Cs->getStateCode();
+				g_u7Arm["backVisibleAtFire"] = u7Cs->isBackVisible();
+			}
 			g_u7Arm["pendingAtFire"] = SharedEcon::resyncStats().pending;
 			g_u7Arm["firedTicks"] = (Json::UInt)SDL_GetTicks();
 			std::string u7Resp;
@@ -8788,9 +8793,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// W2-U7 (F5820): TEST-ONLY lever (see the comment above pump()). {type = "LoadGameState", fire = dismiss_popup |
 		// close_screens | pop_state | geo_run (default dismiss_popup), timeoutMs = 10000}. Reply {ok, armed}.
 		const std::string fireDA = req.get("fire", "dismiss_popup").asString();
-		if (fireDA != "dismiss_popup" && fireDA != "close_screens" && fireDA != "pop_state" && fireDA != "geo_run")
+		if (fireDA != "dismiss_popup" && fireDA != "close_screens" && fireDA != "pop_state" && fireDA != "geo_run"
+			&& fireDA != "coop_dialog_back") // W2-U7b (F5864)
 		{
-			resp["error"] = "dismiss_arm: fire must be dismiss_popup, close_screens, pop_state or geo_run";
+			resp["error"] = "dismiss_arm: fire must be dismiss_popup, close_screens, pop_state, geo_run or coop_dialog_back";
 			return true;
 		}
 		g_u7Arm = Json::Value(Json::objectValue);
