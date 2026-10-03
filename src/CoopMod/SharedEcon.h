@@ -310,6 +310,17 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
 
+/// W2-H16 (F3260): SHARED only - no-op otherwise; called AFTER vanilla's local write
+/// (SoldierRankState); submits the soldier's current rank as an absolute end-state.
+/// The host re-checks the promotion openings against its own world and broadcasts
+/// the rank both worlds hold (soldier_rank).
+void submitSoldierRank(Game* game, Base* base, Soldier* soldier);
+
+/// W2-H16 (F3260): SHARED only - no-op otherwise; called AFTER vanilla's local write
+/// (SoldierInfoState's flag); submits the soldier's current nationality as an
+/// absolute end-state, last-write-wins (soldier_nationality).
+void submitSoldierNationality(Game* game, Base* base, Soldier* soldier);
+
 // ---- PRD-DF01: shared/replicated dogfights -----------------------------------
 /// REPLICA: route a df_state frame set here (SNAP_DOGFIGHT conflation slot, a raw
 /// top-level message, not the shared_apply lane). Epoch-guarded + fanned to the

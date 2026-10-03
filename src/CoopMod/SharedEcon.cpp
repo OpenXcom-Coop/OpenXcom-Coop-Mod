@@ -63,6 +63,7 @@
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/RankCount.h" // W2-H16: the manual promotion openings rule
 #include "../Savegame/ResearchProject.h"
 #include "../Savegame/Production.h"
 #include "../Savegame/Ufo.h"
@@ -2261,6 +2262,62 @@ void craftRearmApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	craft->checkup();
 }
 
+// soldier_rank payload: { soldierId, rank }. W2-H16 (F3260, D226 a): a manual promotion
+// or demotion (SoldierRankState) keeps vanilla's local write and submits the result as an
+// absolute end-state. HOST: when the rank differs, re-run the vanilla openings rule against
+// the host's world and apply or keep it; ALWAYS write the resolved rank into the payload
+// (the buy idiom: the broadcast carries it). REPLICA (the initiator included): adopt the
+// payload's rank. A lost race for the last opening is undone by the host's result (V1).
+bool soldierRankValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                         int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (!findSoldier(base, payload.get("soldierId", -1).asInt())) { failReason = "soldier not found"; return false; }
+	int rank = payload.get("rank", -1).asInt();
+	if (rank < (int)RANK_ROOKIE || rank > (int)RANK_COMMANDER) { failReason = "bad rank"; return false; }
+	return true;
+}
+void soldierRankApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	int rank = payload.get("rank", -1).asInt();
+	if (!s || rank < (int)RANK_ROOKIE || rank > (int)RANK_COMMANDER) return;
+	if (connectionTCP::getHost())
+	{
+		SavedGame* save = game ? game->getSavedGame() : nullptr;
+		if (save && s->getRank() != (SoldierRank)rank
+			&& PromotionOpenings(save->getAllActiveSoldiers(), game->getMod()).isManualPromotionPossible(s, (SoldierRank)rank))
+			s->setRank((SoldierRank)rank);
+		payload["rank"] = (int)s->getRank(); // the resolved rank rides the broadcast
+	}
+	else
+	{
+		s->setRank((SoldierRank)rank);
+	}
+}
+
+// soldier_nationality payload: { soldierId, nationality }. W2-H16 (F3260): the flag on the
+// soldier screen (SoldierInfoState::btnFlagClick) keeps vanilla's local write and submits the
+// result as an absolute end-state; both roles set it (last-write-wins, like soldier_rename).
+bool soldierNationalityValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                                int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (!findSoldier(base, payload.get("soldierId", -1).asInt())) { failReason = "soldier not found"; return false; }
+	if (payload.get("nationality", -1).asInt() < 0) { failReason = "bad nationality"; return false; }
+	return true;
+}
+void soldierNationalityApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	int nationality = payload.get("nationality", -1).asInt();
+	if (s && nationality >= 0) s->setNationality(nationality);
+}
+
 // soldier_armor payload: { soldierId, armor }. baseId = the soldier's base index.
 // End-state = which armor the soldier wears (identity swap, last-write-wins - the
 // J09 "model the payload to the state, not literally a count" adaptation). Mirrors
@@ -3258,6 +3315,9 @@ void init()
 	// weapon; change a soldier's armor - SoldierArmorState + CraftArmorState).
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
+	// W2-H16 (F3260): manual promotion and nationality (player-origin from either seat; the host resolves the rank).
+	registerCmd("soldier_rank",   &soldierRankValidate,   &soldierRankApply);
+	registerCmd("soldier_nationality", &soldierNationalityValidate, &soldierNationalityApply);
 	// PRD-DF01 shared/replicated dogfights: host-originated membership broadcast
 	// (df_open, full set + epoch each change; replica reconciles its render-only
 	// windows). df_state (per-tick render frames) rides the SNAP_DOGFIGHT conflation
@@ -3850,6 +3910,28 @@ void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::str
 	p["soldierId"] = soldier->getId();
 	p["armor"] = armorType;
 	submitLocalCmd(game, "soldier_armor", baseIndex(game, base), p);
+}
+
+// W2-H16 (F3260): SHARED and a real base only (the SoldierInfoState rename guard); vanilla's
+// local write already ran. The host resolves the value both worlds hold.
+void submitSoldierRank(Game* game, Base* base, Soldier* soldier)
+{
+	if (!game || !base || !soldier || base->_coopBase) return;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	Json::Value p;
+	p["soldierId"] = soldier->getId();
+	p["rank"] = (int)soldier->getRank();
+	submitLocalCmd(game, "soldier_rank", baseIndex(game, base), p);
+}
+
+void submitSoldierNationality(Game* game, Base* base, Soldier* soldier)
+{
+	if (!game || !base || !soldier || base->_coopBase) return;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	Json::Value p;
+	p["soldierId"] = soldier->getId();
+	p["nationality"] = soldier->getNationality();
+	submitLocalCmd(game, "soldier_nationality", baseIndex(game, base), p);
 }
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade)

@@ -30,6 +30,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/SharedEcon.h" // coop W2-H16
 
 namespace OpenXcom
 {
@@ -149,6 +150,7 @@ void SoldierRankState::lstRankClick(Action*)
 	{
 		Soldier* soldier = _base->getSoldiers()->at(_soldierId);
 		soldier->setRank(selectedRank.rank);
+		SharedEcon::submitSoldierRank(_game, _base, soldier); // coop W2-H16 (F3260): SHARED - the host decides the rank both worlds hold
 
 		_game->popState();
 	}
