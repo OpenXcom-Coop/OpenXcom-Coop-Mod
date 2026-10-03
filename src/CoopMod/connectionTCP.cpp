@@ -7129,6 +7129,9 @@ void coopSyncedApplyFromHost(const Json::Value& values, int version, const char*
 	CoopSyncedLayer& s = g_coopSynced;
 	if (!s.held)
 		return;
+	// W2-P10 S-A (AMENDMENT P10-1 PX-2): drain before the version check and any global write, so a shared_apply that
+	// arrived before this set/table/offer applies under the value the host applied it with (null-safe on s.game).
+	SharedEcon::update(s.game); // W2-P10 Q2 (a), F3258: queued shared_apply first, in wire order
 	const std::string from = source ? source : "";
 	const bool isSet = from == "set";
 	if (isSet ? version <= s.version : version < s.version)
