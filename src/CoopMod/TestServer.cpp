@@ -118,6 +118,9 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
+#include "../Savegame/Region.h" // W2-H15: geo_event_probe
+#include "../Mod/RuleRegion.h"  // W2-H15: geo_event_probe
+#include "../Mod/City.h"        // W2-H15: geo_event_probe
 #include "../Savegame/SoldierDiary.h"         // W2-P7 S-C-A.1: soldier_record
 #include "../Savegame/SoldierDeath.h"         // W2-P7 S-C-A.1: soldier_record
 #include "../Savegame/MissionStatistics.h"    // W2-P7 S-C-A.1: soldier_record
@@ -6759,6 +6762,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "clear_warning"
 		&& cmd != "dismiss_arm" && cmd != "dismiss_arm_state" // W2-U7 (F5820)
 		&& cmd != "display_rules" && cmd != "debrief_state"
+		&& cmd != "geo_event_probe" // W2-H15 (F3261, F5602)
 		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
 	{
 		return false;
@@ -9327,6 +9331,86 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			for (auto* s : *sgSR->getDeadSoldiers()) add(s, "dead", -1);
 			resp["count"] = (int)records.size();
 			resp["records"] = records;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "geo_event_probe")
+	{
+		// W2-H15 (F3261, F5602): TEST INTROSPECTION ONLY - read-only. {names[], items[], tail}: `eventStates` (count on the
+		// stack), `event` (the top-most GeoscapeEventState or null: `picks` = coopPicks, `texts` = coopTexts, `place` = what
+		// THIS machine renders from the picks), then the world parts an event touches (spec (e)).
+		SavedGame* sgGE = _game->getSavedGame();
+		Language* langGE = _game->getLanguage();
+		int countGE = 0; GeoscapeEventState* topGE = nullptr;
+		for (auto* st : _game->getStates())
+			if (auto* g = dynamic_cast<GeoscapeEventState*>(st)) { ++countGE; topGE = g; }
+		resp["eventStates"] = countGE; resp["event"] = Json::Value(Json::nullValue);
+		if (topGE)
+		{
+			const CoopEventPicks pk = topGE->coopPicks();
+			const std::vector<std::string> tx = topGE->coopTexts();
+			Json::Value ev(Json::objectValue), picks(Json::objectValue), texts(Json::objectValue), prows(Json::arrayValue), trows(Json::arrayValue);
+			for (const auto& r : pk.rows) { Json::Value a(Json::arrayValue); a.append(r.first); a.append(r.second); prows.append(a); }
+			picks["region"] = pk.region; picks["city"] = pk.city; picks["rows"] = prows; picks["research"] = pk.research; picks["bonus"] = pk.bonus;
+			texts["title"] = tx.size() > 0 ? tx[0] : std::string(); texts["message"] = tx.size() > 1 ? tx[1] : std::string();
+			for (size_t i = 2; i + 1 < tx.size(); i += 2) { Json::Value a(Json::arrayValue); a.append(tx[i]); a.append(tx[i + 1]); trows.append(a); }
+			texts["rows"] = trows;
+			RuleRegion* rrGE = pk.region.empty() ? nullptr : _game->getMod()->getRegion(pk.region, false);
+			const bool cityGE = rrGE && pk.city >= 0 && pk.city < (int)rrGE->getCities()->size();
+			ev["place"] = cityGE ? rrGE->getCities()->at(pk.city)->getName(langGE) : (pk.region.empty() ? std::string() : std::string(langGE->getString(pk.region)));
+			ev["picks"] = picks; ev["texts"] = texts;
+			resp["event"] = ev;
+		}
+		if (!sgGE || sgGE->getBases()->empty())
+			resp["error"] = "geo_event_probe: no world";
+		else
+		{
+			Base* hqGE = sgGE->getBases()->front();
+			Json::Value hq(Json::objectValue), trs(Json::arrayValue), crs(Json::arrayValue), craftItems(Json::objectValue), stores(Json::objectValue);
+			for (auto* t : *hqGE->getTransfers())
+			{
+				Soldier* s = t->getType() == TRANSFER_SOLDIER ? t->getSoldier() : nullptr;
+				Craft* c = t->getType() == TRANSFER_CRAFT ? t->getCraft() : nullptr;
+				Json::Value j(Json::objectValue);
+				j["type"] = (int)t->getType(); j["rule"] = transferRuleName(t); j["qty"] = t->getQuantity(); j["hours"] = t->getHours();
+				j["soldierId"] = s ? s->getId() : -1; j["soldierName"] = s ? s->getName() : std::string(); j["craftId"] = c ? c->getId() : -1;
+				trs.append(j);
+			}
+			for (auto* c : *hqGE->getCrafts())
+			{ Json::Value j(Json::objectValue); j["id"] = c->getId(); j["type"] = c->getRules()->getType(); j["status"] = c->getStatus(); crs.append(j); }
+			hq["transfers"] = trs; hq["crafts"] = crs; resp["hq"] = hq;
+			for (auto* b : *sgGE->getBases())
+			{
+				for (const auto& it : req["items"]) stores[b->getName(langGE)][it.asString()] = b->getStorageItems()->getItem(it.asString());
+				for (auto* c : *b->getCrafts())
+					for (const auto& it : req["items"]) craftItems[c->getRules()->getType() + "#" + std::to_string(c->getId())][it.asString()] = c->getItems()->getItem(it.asString());
+			}
+			resp["craftItems"] = craftItems; resp["stores"] = stores;
+			Json::Value resGE(Json::objectValue), diary(Json::objectValue), dtail(Json::arrayValue), regs(Json::objectValue), ids(Json::objectValue);
+			for (const auto& n : req["names"])
+			{
+				const RuleResearch* rr = _game->getMod()->getResearch(n.asString(), false);
+				Json::Value& e = resGE[n.asString()];
+				e["researched"] = sgGE->isResearched(n.asString(), false); e["status"] = sgGE->getResearchRuleStatus(n.asString());
+				e["popped"] = rr ? sgGE->wasResearchPopped(rr) : false;
+			}
+			resp["research"] = resGE;
+			const auto& di = sgGE->getResearchDiary();
+			const size_t tailGE = (size_t)std::max(0, req.get("tail", 8).asInt());
+			for (size_t i = di.size() > tailGE ? di.size() - tailGE : 0; i < di.size(); ++i)
+			{
+				Json::Value e(Json::objectValue);
+				e["name"] = di[i]->research ? di[i]->research->getName() : std::string();
+				e["sourceType"] = (int)di[i]->source.type; e["sourceName"] = di[i]->source.name;
+				dtail.append(e);
+			}
+			diary["size"] = (int)di.size(); diary["tail"] = dtail; resp["diary"] = diary;
+			for (auto* rg : *sgGE->getRegions())
+				regs[rg->getRules()->getType()] = rg->getActivityXcom().empty() ? 0 : rg->getActivityXcom().back();
+			resp["regions"] = regs;
+			resp["researchScore"] = sgGE->getResearchScores().empty() ? 0 : sgGE->getResearchScores().back();
+			for (const auto& kv : sgGE->getAllIds()) ids[kv.first] = kv.second;
+			resp["ids"] = ids;
 			resp["ok"] = true;
 		}
 	}

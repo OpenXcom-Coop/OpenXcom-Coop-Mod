@@ -1,0 +1,3 @@
+en-US:
+  STR_H15_EV_REGION: "H15 region event: {0}"
+  STR_H15_EV_REGION_DESC: "Points went to {0}."

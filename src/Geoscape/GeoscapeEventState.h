@@ -30,6 +30,9 @@ class Window;
 class Text;
 class RuleEvent;
 
+/// coop W2-H15 (F3261): the picks behind an event window (region id, city index, (itemRuleId, qty) rows, research ids).
+struct CoopEventPicks { std::string region; int city = -1; std::vector<std::pair<std::string, int> > rows; std::string research, bonus; };
+
 /**
  * Displays info about a custom Geoscape event.
  */
@@ -47,6 +50,10 @@ private:
 	std::string _researchName;
 	std::string _bonusResearchName;
 	const RuleEvent &_eventRule;
+	/// coop W2-H15 (F3261): the region id, city index and item rows eventLogic picked (recorded, never read by vanilla).
+	std::string _coopRegion;
+	int _coopCity = -1;
+	std::vector<std::pair<std::string, int> > _coopRows;
 
 	/// Helper performing event logic.
 	void eventLogic();
@@ -61,6 +68,10 @@ public:
 	void btnOkClick(Action *action);
 	/// Handler for clicking the ItemsArriving button.
 	void btnItemsArrivingClick(Action *action);
+	/// coop W2-H15 (F3261): the picks this window was built from.
+	CoopEventPicks coopPicks() const;
+	/// coop W2-H15 (F3261), probe only: title, message, then each row's two cells, as drawn.
+	std::vector<std::string> coopTexts() const;
 };
 
 }
