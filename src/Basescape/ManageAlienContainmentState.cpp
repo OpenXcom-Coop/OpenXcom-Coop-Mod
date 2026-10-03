@@ -321,6 +321,7 @@ void ManageAlienContainmentState::think()
 {
 	State::think();
 
+	if (SharedEcon::contScreenShouldClose(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE)) { _game->popState(); return; } // coop (W2-P7 S-C-D2, P7-7 PR-30/PR-31): answered / solved
 	// PRD-J10: a peer's shared_apply moved this base's prisoners/funds. This screen
 	// rebuilds in place (no pop-and-push) - the pending selection is cleared, which
 	// is correct: it was quantities against a prison that no longer looks like that.
@@ -373,6 +374,7 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 	// both. SEPARATE/solo path below is unchanged.
 	if (_game->getCoopMod()->isSharedCampaign())
 	{
+		if (SharedEcon::awaiting(SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE))) return; // coop (W2-P7 S-C-D2, PR-30, MR10): one confirm at a time
 		Json::Value prisoners(Json::arrayValue);
 		for (size_t i = 0; i < _qtys.size(); ++i)
 		{
@@ -384,17 +386,20 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 				prisoners.append(e);
 			}
 		}
+		int coopSeq = 0; // coop (W2-P7 S-C-D2, PR-30): the submitted command's seq
 		if (!prisoners.empty())
 		{
 			Json::Value payload;
 			payload["prisoners"] = prisoners;
 			payload["sell"] = sell;
+			if (_origin == OPT_BATTLESCAPE) { payload["origin"] = "forced"; payload["prisonType"] = _prisonType; } // coop (W2-P7 S-C-D2, PR-32)
 			int baseId = 0;
 			auto* bases = _game->getSavedGame()->getBases();
 			for (size_t i = 0; i < bases->size(); ++i)
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
-			SharedEcon::submitLocalCmd(_game, "containment", baseId, payload);
+			coopSeq = SharedEcon::submitLocalCmd(_game, "containment", baseId, payload);
 		}
+		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE), coopSeq, _sharedRefresh.bound())) return; // coop (W2-P7 S-C-D2, PR-30, MR9/MR10): wait for the host
 		_game->popState();
 		return;
 	}
@@ -449,6 +454,7 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
  */
 void ManageAlienContainmentState::btnCancelClick(Action *)
 {
+	SharedEcon::forgetResult(SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE)); // coop (W2-P7 S-C-D2, PR-30)
 	_game->popState();
 }
 

@@ -326,6 +326,7 @@ void TransferItemsState::think()
 {
 	State::think();
 
+	if (SharedEcon::xferScreenShouldClose(_game, _baseFrom, _baseTo, _debriefingState != 0)) { _game->popState(); _game->popState(); return; } // coop (W2-P7 S-C-D2, P7-7 PR-30): answered - itself + TransferBaseState
 	// PRD-J10: pop-and-rebuild - the constructor is this screen's refresh. Both
 	// bases must still exist; if either went away there is nothing to transfer
 	// between, so just leave.
@@ -557,6 +558,7 @@ void TransferItemsState::updateList()
  */
 void TransferItemsState::btnOkClick(Action *)
 {
+	if (SharedEcon::awaiting(SharedEcon::xferKey(_game, _baseFrom, _baseTo, _debriefingState != 0))) return; // coop (W2-P7 S-C-D2, PR-30, MR10): one confirm at a time
 	// COOP
 	if (Options::storageLimitsEnforced && !AreSame(_iQty, 0.0) && _baseTo->_coopBase == false)
 	{
@@ -734,7 +736,7 @@ void TransferItemsState::createPendingTransfers()
  * This is the SHARED replacement for completeTransfer()/createPendingTransfers()
  * (the SEPARATE cross-player syncTrade flow) and must not run those.
  */
-void TransferItemsState::submitSharedTransfer()
+bool TransferItemsState::submitSharedTransfer()
 {
 	Json::Value items(Json::arrayValue);
 	Json::Value soldiers(Json::arrayValue);
@@ -770,7 +772,7 @@ void TransferItemsState::submitSharedTransfer()
 		}
 	}
 	if (items.empty() && soldiers.empty() && crafts.empty() && !scientists && !engineers)
-		return;
+		return false;
 
 	// A transferred soldier's gear travels with it when "alternate craft equipment
 	// management" is on, the same as the SEPARATE path - but as ordinary rows on
@@ -829,7 +831,8 @@ void TransferItemsState::submitSharedTransfer()
 	payload["scientists"] = scientists;
 	payload["engineers"] = engineers;
 	if (_debriefingState) payload["debrief"] = true; // coop (W2-P7 S-C-D1, P7-7 PR-25, MR14): page 3 rides the apply
-	SharedEcon::submitLocalCmd(_game, "transfer", fromId, payload);
+	const int coopSeq = SharedEcon::submitLocalCmd(_game, "transfer", fromId, payload); // coop (W2-P7 S-C-D2, PR-30)
+	return SharedEcon::keepAfterSubmit(_game, SharedEcon::xferKey(_game, _baseFrom, _baseTo, _debriefingState != 0), coopSeq, _sharedRefresh.bound()); // MR10: wait for the host
 }
 
 /**
@@ -1161,6 +1164,7 @@ void TransferItemsState::completeTransfer()
  */
 void TransferItemsState::btnCancelClick(Action *)
 {
+	SharedEcon::forgetResult(SharedEcon::xferKey(_game, _baseFrom, _baseTo, _debriefingState != 0)); // coop (W2-P7 S-C-D2, PR-30)
 	_game->popState();
 	_game->popState();
 }

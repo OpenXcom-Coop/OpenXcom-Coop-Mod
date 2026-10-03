@@ -180,9 +180,32 @@ void update(Game* game);
 
 /// UI entry point (main thread). On the HOST: queues the command for local
 /// validate+apply+broadcast. On a REPLICA: emits a shared_cmd to the host and
-/// mutates nothing locally.
-void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
+/// mutates nothing locally. W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-30, F2526): returns the command's seq.
+int submitLocalCmd(Game* game, const std::string& cmd, int baseId,
                     const Json::Value& payload);
+
+// ---- W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-30..PR-32, PR-34; D175, MR9, MR10): confirms wait for the host's answer ----
+// Screen keys "<screen>|<variant>|<baseIdx>|<extra>": screen sell / xfer / cont; variant n normal, f forced (the
+// post-battle origin, no debriefing), d page 3; extra = the destination base index (xfer) or p<prisonType> (cont).
+std::string sellKey(Game* game, Base* base, bool debrief, bool battlescapeOrigin);
+std::string xferKey(Game* game, Base* from, Base* to, bool debrief);
+std::string contKey(Game* game, Base* base, int prisonType, bool battlescapeOrigin);
+/// The initiator's answer for an awaited confirm: awaitResult registers @a seq under @a key; awaiting() holds until
+/// the answer lands; takeResult() consumes it (1 ok, -1 failed, 0 none yet); forgetResult() drops both (Cancel).
+void awaitResult(const std::string& key, int seq);
+bool awaiting(const std::string& key);
+int takeResult(const std::string& key);
+void forgetResult(const std::string& key);
+/// After a SHARED confirm's submit: true = the screen stays. Unbound (a harness lever, F2521) -> false, today's
+/// immediate pop; a forced screen -> true (it closes when solved, MR9); a submitted command -> await its answer.
+bool keepAfterSubmit(Game* game, const std::string& key, int seq, bool bound);
+/// think(), before the refresh consume(): true = close (Transfer pops itself and the TransferBaseState under it). A
+/// normal / page-3 screen closes on its OK answer; a forced one once its base is back under the limit (SHARED only).
+bool sellScreenShouldClose(Game* game, Base* base, bool debrief, bool battlescapeOrigin);
+bool xferScreenShouldClose(Game* game, Base* from, Base* to, bool debrief);
+bool contScreenShouldClose(Game* game, Base* base, int prisonType, bool battlescapeOrigin);
+/// PR-34 (SK3; F5237, F5576): a session reset drops the queued commands / applies / failures, answers and apply hold.
+void resetSessionQueues();
 
 /// PRD-J10: THE single "the host rejected your command" dialog. Every J05-J08
 /// failure path funnels here (the screens never pop their own): the host's
