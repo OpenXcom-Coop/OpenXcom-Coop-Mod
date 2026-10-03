@@ -17130,6 +17130,17 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 		}
 	}
 
+	if (campaign && isSharedCampaign())
+	{
+		// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-22; D176): the SHARED second player's page 3 - the host's Sell/Transfer
+		// visibility, a destroyed base (vanilla's inert buttons) and the debriefing's base by index in the pushed world.
+		// S-C-C writes baseIndex with the same rule: whichever lands second keeps one writer (F5569).
+		debrief["showSell"] = db->_showSellButton;
+		debrief["destroyBase"] = db->_destroyBase;
+		if (!db->_destroyBase && db->_base && !debrief.isMember("baseIndex"))
+			debrief["baseIndex"] = SharedEcon::baseIndex(_game, db->_base);
+	}
+
 	Json::Value msg = CoopWire::makeDebriefResult(a.battleId.load(), debrief);
 	if (held)
 	{
@@ -30558,7 +30569,8 @@ static bool coopReturnHoldStack(Game* game)
 		return true;
 	for (State* st : game->getStates())
 	{
-		if (dynamic_cast<BattlescapeState*>(st))
+		// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-27; F5236 confirmed by F5691): the aliens-crashed ending's first screen too.
+		if (dynamic_cast<BattlescapeState*>(st) || dynamic_cast<AliensCrashState*>(st))
 			return true;
 	}
 	return false;
@@ -31237,13 +31249,21 @@ void connectionTCP::updateCoopTask()
 	if (g_coopPostBattleWorldReady && g_coopSharedReturnPending && !getServerOwner())
 	{
 		DebriefingState* deb = coopCampaignDisplayDebrief(_game);
-		if (deb && !(_game->getSavedGame() && _game->getSavedGame()->getSavedBattle()) && !coopTestHoldWorldAdoptArmed())
+		// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-26, P7-7 Q2 (a)): a SECOND world (a J10 resync) is adopted only while the
+		// debriefing is the top state - an open page-3 screen keeps its Base* (the held applies wait with the world).
+		const bool waitForTop = deb && g_coopPostBattleWorldAdopted && _game->getStates().back() != deb;
+		if (waitForTop)
+			CoopDelta::battleEndRecordSet("worldAdoptDeferredPasses",
+				CoopDelta::battleEndRecord()["worldAdoptDeferredPasses"].asInt() + 1);
+		if (deb && !waitForTop && !(_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+			&& !coopTestHoldWorldAdoptArmed())
 		{
 			const int heldApplies = SharedEcon::applyQueueDepth();
 			g_coopPostBattleWorldReady = false;
 			if (coopAdoptWorldInPlace(clientBlobKey(getHostName())))
 			{
 				g_coopPostBattleWorldAdopted = true;
+				coopDebriefPage3Live(deb); // W2-P7 S-C-D1.2 (PR-23; D176): page 3 live at EVERY adoption
 				CoopDelta::battleEndRecordSet("heldAppliesAtAdopt", heldApplies);
 				CoopDelta::battleEndRecordSet("worldAdopted", CoopDelta::battleEndRecord()["worldAdopted"].asInt() + 1);
 				Log(LOG_INFO) << "[coop-debrief] client: the host's post-battle world adopted in place under the debriefing"
@@ -39301,6 +39321,96 @@ bool connectionTCP::coopAdoptWorldInPlace(const std::string& key)
 	coop_save_owner_player_id = 1;
 	SharedEcon::notifyWorldAdopted();
 	return true;
+}
+
+// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-23; D176, PR-9): CLIENT - right after EVERY in-place adoption, the display-only
+// debriefing's page 3 goes live on the adopted world: _base re-pointed into the newest world (null when the payload's
+// baseIndex is absent or out of range), _destroyBase and the Sell/Transfer visibility from the payload, then vanilla's
+// own applyVisibility(). Vanilla parity: on a destroyed base the buttons show and do nothing (btnSellClick /
+// btnTransferClick guard !_destroyBase). No DebriefingState edit (friend access).
+void connectionTCP::coopDebriefPage3Live(DebriefingState* deb)
+{
+	if (!deb)
+		return;
+	const Json::Value msg = CoopDelta::debriefResultCopy();
+	const Json::Value& d = msg["debrief"];
+	SavedGame* sg = _game->getSavedGame();
+	const int idx = d.get("baseIndex", -1).asInt();
+	deb->_destroyBase = d.get("destroyBase", false).asBool();
+	deb->_base = (sg && idx >= 0 && idx < (int)sg->getBases()->size()) ? sg->getBases()->at(idx) : nullptr;
+	deb->_showSellButton = d.get("showSell", false).asBool() && (deb->_base != nullptr || deb->_destroyBase);
+	deb->applyVisibility();
+	Json::Value page3 = CoopDelta::battleEndRecord()["page3"];
+	page3["live"] = 1;
+	page3["baseIndex"] = deb->_base ? idx : -1;
+	CoopDelta::battleEndRecordSet("page3", page3);
+	Log(LOG_INFO) << "[coop-debrief] client: page 3 live on the adopted world - baseIndex=" << (deb->_base ? idx : -1)
+		<< " showSell=" << deb->_showSellButton << " destroyBase=" << deb->_destroyBase;
+}
+
+// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-25; MR14, F2506, F5571): the page-3 bookkeeping of a SHARED sell / transfer
+// that carries `debrief` (a page-3 screen's confirm), run by the `sell` / `transfer` appliers on the host AND every
+// replica. (i) Every `autosell` entry is applied on EVERY machine (saved world state: the CmdApplier determinism
+// rule). (ii) This machine's open campaign debriefing (the client's display-only one or the host's battle-end one),
+// if any, loses each payload item's quantity (vanilla's SellState / TransferItemsState page-3 decrement) and hides
+// its Sell/Transfer buttons once nothing recovered is left. A machine with no open debriefing books (i) only.
+void connectionTCP::coopDebriefRecoveredSold(Game* game, const Json::Value& payload, bool sell)
+{
+	if (!game || !game->getMod())
+		return;
+	Mod* mod = game->getMod();
+	SavedGame* save = game->getSavedGame();
+	const Json::Value& autosell = payload["autosell"];
+	int autosellN = 0;
+	if (save && autosell.isObject())
+	{
+		for (const auto& type : autosell.getMemberNames())
+		{
+			RuleItem* rule = mod->getItem(type, false);
+			if (!rule)
+				continue;
+			save->setAutosell(rule, autosell[type].asBool());
+			++autosellN;
+		}
+	}
+	DebriefingState* open = nullptr;
+	if (CoopDelta::debriefIsCampaign())
+	{
+		for (State* st : game->getStates())
+		{
+			DebriefingState* db = dynamic_cast<DebriefingState*>(st);
+			if (db && (CoopDelta::debriefIsDisplayOnly(db) || CoopDelta::debriefIsHostBattleEnd(db)))
+			{
+				open = db;
+				break;
+			}
+		}
+	}
+	if (!open)
+	{
+		Log(LOG_INFO) << "[coop-debrief] page-3 " << (sell ? "sell" : "transfer") << " applied - autosell marks="
+			<< autosellN << ", no open debriefing on this machine";
+		return;
+	}
+	const Json::Value& items = payload["items"];
+	if (items.isArray())
+	{
+		for (const auto& it : items)
+		{
+			const int qty = it.get("qty", 0).asInt();
+			RuleItem* rule = mod->getItem(it.get("rule", "").asString(), false);
+			if (rule && qty > 0)
+				open->decreaseRecoveredItemCount(rule, qty);
+		}
+	}
+	const int left = open->getTotalRecoveredItemCount();
+	if (left <= 0)
+		open->hideSellTransferButtons();
+	Json::Value page3 = CoopDelta::battleEndRecord()["page3"];
+	page3["sold"] = page3.get("sold", 0).asInt() + 1;
+	CoopDelta::battleEndRecordSet("page3", page3);
+	Log(LOG_INFO) << "[coop-debrief] page-3 " << (sell ? "sell" : "transfer") << " booked on this machine's debriefing"
+		" - autosell marks=" << autosellN << " recovered left=" << left << (left <= 0 ? " (Sell/Transfer hidden)" : "");
 }
 
 }

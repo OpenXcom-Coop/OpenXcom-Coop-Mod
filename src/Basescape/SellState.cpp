@@ -390,7 +390,8 @@ void SellState::init()
 	// rebuild when a peer's shared_apply moves this base. The post-battle
 	// (debriefing) variant is excluded: it belongs to DebriefingState's lifecycle
 	// and the J09 world restream heals it wholesale.
-	if (!_debriefingState)
+	// coop (W2-P7 S-C-D1, P7-7 PR-24): in SHARED page 3 refreshes too - the rebuild re-reads the debriefing's counts.
+	if (!_debriefingState || _game->getCoopMod()->isSharedCampaign())
 	{
 		_sharedRefresh.bind(_game, this, _base);
 	}
@@ -718,7 +719,7 @@ void SellState::btnOkClick(Action *)
 			case TRANSFER_ENGINEER:  engineers  += row.amount; break;
 			}
 		}
-		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers)
+		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers || _debriefingState)
 		{
 			Json::Value payload;
 			payload["items"] = items;
@@ -726,6 +727,10 @@ void SellState::btnOkClick(Action *)
 			payload["crafts"] = crafts;
 			payload["scientists"] = scientists;
 			payload["engineers"] = engineers;
+			if (_debriefingState) payload["debrief"] = true; // coop (W2-P7 S-C-D1, P7-7 PR-25, MR14): page 3 rides the apply
+			for (const auto& row : _items)
+				if (_debriefingState && row.type == TRANSFER_ITEM)
+					payload["autosell"][((RuleItem*)row.rule)->getType()] = (row.amount == row.qtySrc);
 			int baseId = 0;
 			auto* bases = _game->getSavedGame()->getBases();
 			for (size_t i = 0; i < bases->size(); ++i)

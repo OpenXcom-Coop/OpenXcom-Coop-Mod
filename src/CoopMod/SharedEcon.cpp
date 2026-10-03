@@ -643,6 +643,8 @@ void sellApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	int eng = payload.get("engineers", 0).asInt();
 	if (sci > 0) base->setScientists(base->getScientists() - sci);
 	if (eng > 0) base->setEngineers(base->getEngineers() - eng);
+	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-25, MR14): a page-3 sale's bookkeeping (autosell marks, open debriefing counts).
+	if (payload.get("debrief", false).asBool()) connectionTCP::coopDebriefRecoveredSold(game, payload, true);
 }
 
 // ---- PRD-J05: "containment" --------------------------------------------------
@@ -895,6 +897,8 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 		t->setEngineers(eng);
 		toBase->getTransfers()->push_back(t);
 	}
+	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-25, MR14): a page-3 transfer's bookkeeping (the open debriefing's counts).
+	if (payload.get("debrief", false).asBool()) connectionTCP::coopDebriefRecoveredSold(game, payload, false);
 }
 
 // ---- PRD-J06: research start / allocate / cancel -----------------------------
