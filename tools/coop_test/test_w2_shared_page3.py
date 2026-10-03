@@ -8,7 +8,8 @@ _showSellButton false and _base null), and a SHARED page-3 sale or transfer - th
 before vanilla's page-3 bookkeeping (decreaseRecoveredItemCount, setAutosell, hideSellTransferButtons), so the
 page-3 counts never drop on either machine.
 
-Fixture (AMENDMENT P7-7 section 3 FX-S / FX-B; P7-7 RULINGS R-D1-2): shared_fixture.bring_up(tag, (0, 0, PORT));
+Fixture (AMENDMENT P7-7 section 3 FX-S / FX-B; P7-7 RULINGS R-D1-2): shared_fixture.bring_up(tag, (0, 0, PORT)),
+with BOTH machines booted with oxceAutoSell on (R-D1-3, F5777: getAutosell reads false while the local option is off);
 FX-B (boot 2 only) first builds a second shared base from the client (test_shared_equip_transfer :109's
 build_new_base call) and waits for both machines to hold 2 bases, then (R-D1-2, F5688: a lift-only base has
 availableStores 0 and vanilla refuses any item transfer to it) the host fac_builds STR_GENERAL_STORES next to the
@@ -64,7 +65,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session
 from session import event_state
 import shared_fixture
-from harness import LAND_LON, LAND_LAT
+from harness import LAND_LON, LAND_LAT, make_user_dir
 import test_w2_battle_end_campaign as camp
 
 # ----- pins (AMENDMENT P7-7 section 3 FX-S; S-C-A's HOST_DEBRIEF = docs rewrite/w2p7sc-task0/t0/CONSTANTS.md T0-6 (ii)) -----
@@ -81,6 +82,9 @@ SCREEN_S = 10           # P7-7 section 3.1: "within 10 s"
 PAGE_S = 5              # a debriefing page flip / a screen push after a real click
 EQUAL_S = 10            # a shared_apply's effect may lag one round trip
 BASES_S = 45            # FX-B: the second base on both machines (test_shared_equip_transfer's wait)
+# P7-7 RULINGS R-D1-3 (F5777/F5778): SavedGame::getAutosell reads false whenever the LOCAL oxceAutoSell is off, so both
+# machines of both boots boot with it on (make_user_dir(options=...), the F5429 path; per-player, not synced, F5517).
+BOOT_OPTIONS = {"oxceAutoSell": True}
 
 
 class FixtureMiss(Exception):
@@ -280,6 +284,20 @@ def capture(name, err, machines):
 
 
 # ===================== fixtures (pre-cell) =====================
+
+
+def bring_up(tag, port):
+    """shared_fixture.bring_up(tag, (0, 0, port)) with BOTH user dirs booted with BOOT_OPTIONS (R-D1-3): the host's via
+    host_options, the client's re-made at the same path by make_user_dir(options=...) before either machine spawns."""
+    js = shared_fixture.SharedSession(tag, (0, 0, port), host_options=BOOT_OPTIONS)
+    if make_user_dir(f"{tag}_client", options=BOOT_OPTIONS) != js.client_dir:
+        raise FixtureMiss(f"client user dir re-made off its path ({js.client_dir})")
+    try:
+        js._start(True, "HostBase", "ClientBase")
+    except BaseException:
+        js.shutdown()
+        raise
+    return js
 
 
 def fx_b(js, ctx):
@@ -594,7 +612,7 @@ def run_boot(boot, tag, rows_spec, two_bases, results, walls):
     miss = None
     try:
         try:
-            js = shared_fixture.bring_up(tag, (0, 0, BOOT_PORT[boot]))
+            js = bring_up(tag, BOOT_PORT[boot])
             pre_cell(js, pre, two_bases)
         except Exception as e:
             miss = f"pre-cell (FIXTURE-STOP) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
