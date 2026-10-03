@@ -6740,6 +6740,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
 		&& cmd != "reveal_hostile_pass"
 		&& cmd != "defer_intents"
+		&& cmd != "set_soldier_training" && cmd != "soldier_training_probe" // W2-H18 (F3259, F6139)
 		&& cmd != "battle_halt_walk" && cmd != "battle_halt_walk_before_step"
 		&& cmd != "battle_reserve"
 		&& cmd != "omit_turn_mode"
@@ -8772,6 +8773,105 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		}
 		resp["values"] = valsOV;
 		resp["ok"] = true;
+	}
+	else if (cmd == "set_soldier_training")
+	{
+		// W2-H18 (F3259, F6139): TEST-ONLY STAGING lever on THIS machine (call it on both, client first, S25). {soldierId,
+		// psiTraining?, training?, rtwh?, psiSkill?, psiStrength?, healthMissing?, manaMissing?}: finds the soldier as the
+		// soldier_rename lever does (real bases only), writes each key present through the existing setters, recomputes the
+		// stat string as vanilla does after a stat write. Reply {ok, soldier: the soldier_training_probe record (read back)}.
+		SavedGame* sgST = _game->getSavedGame();
+		const int idST = req.get("soldierId", -1).asInt();
+		Soldier* sST = nullptr;
+		if (sgST)
+			for (auto* base : *sgST->getBases())
+			{
+				if (base->_coopBase || base->_coopIcon) continue;
+				for (auto* s : *base->getSoldiers())
+					if (s->getId() == idST) { sST = s; break; }
+				if (sST) break;
+			}
+		if (!sST)
+			resp["error"] = "set_soldier_training: soldier not found";
+		else
+		{
+			if (req.isMember("psiTraining")) sST->setPsiTraining(req["psiTraining"].asBool());
+			if (req.isMember("training")) sST->setTraining(req["training"].asBool());
+			if (req.isMember("rtwh")) sST->setReturnToTrainingWhenHealed(req["rtwh"].asBool());
+			if (req.isMember("psiSkill")) sST->getCurrentStatsEditable()->psiSkill = (UnitStats::Type)req["psiSkill"].asInt();
+			if (req.isMember("psiStrength")) sST->getCurrentStatsEditable()->psiStrength = (UnitStats::Type)req["psiStrength"].asInt();
+			if (req.isMember("healthMissing")) sST->setHealthMissing(req["healthMissing"].asInt());
+			if (req.isMember("manaMissing")) sST->setManaMissing(req["manaMissing"].asInt());
+			const Mod* modST = _game->getMod();
+			sST->calcStatString(modST->getStatStrings(), Options::psiStrengthEval && sgST->isResearched(modST->getPsiRequirements()));
+			Json::Value probeReqST(Json::objectValue), probeRespST(Json::objectValue);
+			probeReqST["ids"].append(idST);
+			executeIntrospect13("soldier_training_probe", probeReqST, probeRespST);
+			resp["soldier"] = probeRespST["soldiers"][0u];
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "soldier_training_probe")
+	{
+		// W2-H18 (F3259, F6139): TEST INTROSPECTION ONLY - read-only. {ids?}: `bases` [{index, name, psiLabs, freePsiLabs,
+		// training, freeTraining, healthRecovery, manaRecovery}] for every real base (not _coopBase / _coopIcon); `soldiers`
+		// [{id, found, baseIndex, psiTraining, training, rtwh, improvement, psiStrImprovement, healthMissing, manaMissing,
+		// recovery, stats {the 12 UnitStats fields}}] for each id of {ids} (every real-base soldier without it). Reply {ok}.
+		SavedGame* sgTP = _game->getSavedGame();
+		if (!sgTP)
+			resp["error"] = "soldier_training_probe: no saved game";
+		else
+		{
+			Json::Value basesTP(Json::arrayValue), soldiersTP(Json::arrayValue);
+			std::vector<std::pair<Soldier*, int> > realTP;
+			int biTP = 0;
+			for (auto* b : *sgTP->getBases())
+			{
+				if (!b->_coopBase && !b->_coopIcon)
+				{
+					const BaseSumDailyRecovery recTP = b->getSumRecoveryPerDay();
+					Json::Value jb(Json::objectValue);
+					jb["index"] = biTP; jb["name"] = b->getName();
+					jb["psiLabs"] = b->getAvailablePsiLabs(); jb["freePsiLabs"] = b->getFreePsiLabs();
+					jb["training"] = b->getAvailableTraining(); jb["freeTraining"] = b->getFreeTrainingSpace();
+					jb["healthRecovery"] = recTP.HealthRecovery; jb["manaRecovery"] = recTP.ManaRecovery;
+					basesTP.append(jb);
+					for (auto* s : *b->getSoldiers()) realTP.push_back(std::make_pair(s, biTP));
+				}
+				++biTP;
+			}
+			auto recordTP = [](Soldier* s, int bi) {
+				Json::Value r(Json::objectValue), st(Json::objectValue);
+				const UnitStats* u = s->getCurrentStats();
+				st["tu"] = u->tu; st["stamina"] = u->stamina; st["health"] = u->health; st["bravery"] = u->bravery;
+				st["reactions"] = u->reactions; st["firing"] = u->firing; st["throwing"] = u->throwing;
+				st["strength"] = u->strength; st["psiStrength"] = u->psiStrength; st["psiSkill"] = u->psiSkill;
+				st["melee"] = u->melee; st["mana"] = u->mana;
+				r["id"] = s->getId(); r["found"] = true; r["baseIndex"] = bi;
+				r["psiTraining"] = s->isInPsiTraining(); r["training"] = s->isInTraining();
+				r["rtwh"] = s->getReturnToTrainingWhenHealed(); r["improvement"] = s->getImprovement();
+				r["psiStrImprovement"] = s->getPsiStrImprovement(); r["healthMissing"] = s->getHealthMissing();
+				r["manaMissing"] = s->getManaMissing(); r["recovery"] = s->getWoundRecoveryInt(); r["stats"] = st;
+				return r;
+			};
+			if (req.isMember("ids"))
+			{
+				const Json::Value& idsTP = req["ids"];
+				for (Json::ArrayIndex k = 0; k < idsTP.size(); ++k)
+				{
+					Json::Value r(Json::objectValue);
+					r["id"] = idsTP[k].asInt(); r["found"] = false;
+					for (const auto& p : realTP)
+						if (p.first->getId() == idsTP[k].asInt()) { r = recordTP(p.first, p.second); break; }
+					soldiersTP.append(r);
+				}
+			}
+			else
+				for (const auto& p : realTP) soldiersTP.append(recordTP(p.first, p.second));
+			resp["bases"] = basesTP;
+			resp["soldiers"] = soldiersTP;
+			resp["ok"] = true;
+		}
 	}
 	else if (cmd == "shared_update_defer")
 	{
