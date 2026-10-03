@@ -1,0 +1,7 @@
+name: "Coop soldier training probe"
+version: 1.0
+description: "Test-only fixture for W2-H18 (F3259). Data only. One facility STR_H18_TRAINING with a psi lab, a gym
+  and health recovery (the psi lab's sprites and map). Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1
