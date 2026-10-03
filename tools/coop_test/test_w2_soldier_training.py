@@ -112,6 +112,7 @@ def window(ph, x, top_watch=None):  # both probes every 0.5 s for 3 s; requests 
 
 def clean(ph, x):
     h, c = x.host, x.client
+    for gc in ((h, c) if ph["tag"] == "D" else ()): gc.ok({"cmd": "geo_set_speed", "idx": 0})  # R-H18-2 (F6323, F6325)
     ph["ev"]["clean"] = cl = {"pendingWait": geo.wait_resync_clear(c, timeout=10)}
     cl["client"], cl["host"] = geo.drain_popups(c), geo.drain_popups(h)
     need(ph, x, "cleanGeoscape", wait_until(lambda: on_geo(h, c), 10, 0.2), f"stacks {stack(h)} / {stack(c)}")
