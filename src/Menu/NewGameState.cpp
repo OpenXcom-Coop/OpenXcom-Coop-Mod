@@ -40,7 +40,10 @@ namespace OpenXcom
  * Initializes all the elements in the Difficulty window.
  * @param game Pointer to the core game.
  */
-NewGameState::NewGameState(bool coopCampaign, CoopCampaignType campaignType) : _coopCampaign(coopCampaign), _campaignType(campaignType)
+NewGameState::NewGameState(bool coopCampaign, CoopCampaignType campaignType,
+	bool clientSeparateStart, const std::vector<std::string>& coopPlayers)
+	: _coopCampaign(coopCampaign), _campaignType(campaignType),
+	  _clientSeparateStart(clientSeparateStart), _coopPlayers(coopPlayers)
 {
 	// Create objects
 	_window = new Window(this, 192, 180, 64, 10, POPUP_VERTICAL);
@@ -185,6 +188,8 @@ void NewGameState::btnOkClick(Action *)
 		save->setCoopSave(true);
 		// PRD-J01: record the chosen economy model (SHARED/SEPARATE), immutable.
 		save->setCampaignType(_campaignType);
+		if (!_coopPlayers.empty())
+			save->setCoopPlayers(_coopPlayers);
 
 		// Playtest B4: a SHARED campaign shares ONE roster, so every soldier needs an
 		// explicit owner - otherwise the starting soldiers keep the default
@@ -205,6 +210,19 @@ void NewGameState::btnOkClick(Action *)
 
 	if (_coopCampaign)
 	{
+		if (_clientSeparateStart)
+		{
+			// A Separate client chooses its own difficulty/faction. This temporary
+			// world contributes its placed base to the host-authoritative save.
+			save->setSeparateResearchSharingEnabled(
+				_game->getCoopMod()->_enable_research_sync, _game->getMod());
+			connectionTCP::session.markLobbyClosed();
+			Base* base = save->getBases()->back();
+			base->setOwnerPlayerName(connectionTCP::seatName(connectionTCP::localSeat()));
+			_game->getCoopMod()->refreshSeparateBaseOwnership();
+			beginInitialBasePlacement(_game, gs, base);
+			return;
+		}
 		// Co-op: base placement happens after START CAMPAIGN. The geoscape
 		// sits paused underneath the host window and lobby.
 		connectionTCP::session.lobbyMode = 1;
@@ -214,6 +232,18 @@ void NewGameState::btnOkClick(Action *)
 
 	beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 
+}
+
+void NewGameState::harnessSelectDifficulty(int difficulty)
+{
+	switch (difficulty)
+	{
+	case 1: _difficulty = _btnExperienced; break;
+	case 2: _difficulty = _btnVeteran; break;
+	case 3: _difficulty = _btnGenius; break;
+	case 4: _difficulty = _btnSuperhuman; break;
+	default: _difficulty = _btnBeginner; break;
+	}
 }
 
 // Shared kickoff for solo new game, host lobby start, and client

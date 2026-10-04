@@ -81,6 +81,7 @@ void MissionSite::load(const YAML::YamlNodeReader& reader)
 	reader.tryRead("texture", _texture);
 	reader.tryRead("secondsRemaining", _secondsRemaining);
 	reader.tryRead("race", _race);
+	reader.tryRead("ownerPlayerName", _ownerPlayerName);
 	reader.tryRead("inBattlescape", _inBattlescape);
 	reader.tryRead("detected", _detected);
 	//_missionCustomDeploy loaded outside
@@ -109,6 +110,8 @@ void MissionSite::save(YAML::YamlNodeWriter writer) const
 	if (_secondsRemaining)
 		writer.write("secondsRemaining", _secondsRemaining);
 	writer.write("race", _race);
+	if (!_ownerPlayerName.empty())
+		writer.write("ownerPlayerName", _ownerPlayerName);
 	if (_inBattlescape)
 		writer.write("inBattlescape", _inBattlescape);
 	writer.write("detected", _detected);

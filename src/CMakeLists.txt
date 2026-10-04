@@ -151,6 +151,7 @@ set(coopmod_src
   CoopMod/ServerList.cpp
   CoopMod/SharedEcon.cpp
   CoopMod/SeparateEcon.cpp
+  CoopMod/SeparateResearchModeWarningState.cpp
 
   CoopMod/connectionUDP/connection_lan_discovery.cpp
   CoopMod/connectionUDP/connection_rendezvous_glue.cpp
@@ -424,6 +425,7 @@ set ( savegame_src
   Savegame/SaveConverter.cpp
   Savegame/SavedBattleGame.cpp
   Savegame/SavedGame.cpp
+  CoopMod/SeparateCon.cpp
   Savegame/SerializationHelper.cpp
   Savegame/Soldier.cpp
   Savegame/SoldierAvatar.cpp

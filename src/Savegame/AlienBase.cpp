@@ -57,6 +57,7 @@ void AlienBase::load(const YAML::YamlNodeReader& reader)
 	Target::load(reader);
 	reader.tryRead("pactCountry", _pactCountry);
 	reader.tryRead("race", _race);
+	reader.tryRead("ownerPlayerName", _ownerPlayerName);
 	reader.tryRead("inBattlescape", _inBattlescape);
 	reader.tryRead("discovered", _discovered);
 	reader.tryRead("startMonth", _startMonth);
@@ -75,6 +76,8 @@ void AlienBase::save(YAML::YamlNodeWriter writer) const
 
 	writer.write("pactCountry", _pactCountry);
 	writer.write("race", _race);
+	if (!_ownerPlayerName.empty())
+		writer.write("ownerPlayerName", _ownerPlayerName);
 	if (_inBattlescape)
 		writer.write("inBattlescape", _inBattlescape);
 	if (_discovered)

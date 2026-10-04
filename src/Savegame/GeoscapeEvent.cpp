@@ -41,6 +41,7 @@ void GeoscapeEvent::load(const YAML::YamlNodeReader& reader)
 {
 	reader.tryRead("spawnCountdown", _spawnCountdown);
 	reader.tryRead("over", _over);
+	reader.tryRead("ownerPlayerName", _ownerPlayerName);
 }
 
 /**
@@ -54,6 +55,8 @@ void GeoscapeEvent::save(YAML::YamlNodeWriter writer) const
 	writer.write("spawnCountdown", _spawnCountdown);
 	if (_over)
 		writer.write("over", _over);
+	if (!_ownerPlayerName.empty())
+		writer.write("ownerPlayerName", _ownerPlayerName);
 }
 
 /**

@@ -30,6 +30,7 @@
 #include "../Savegame/Craft.h"
 #include "../Savegame/Target.h"
 #include "../Savegame/Ufo.h"
+#include "../Savegame/AlienMission.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Vehicle.h"
@@ -430,6 +431,18 @@ void ConfirmLandingState::startCoopMission()
 
 	_game->getCoopMod()->coopInventory = true;
 
+	// The host generates every single-world battle, including one requested by a
+	// client-owned craft. Bind briefing/equipment/debriefing context to that
+	// craft's real base rather than whichever base the host last viewed.
+	if (_craft && _craft->getBase()
+		&& (_game->getCoopMod()->isSharedCampaign()
+			|| _game->getCoopMod()->isSeparateCampaign()))
+	{
+		const int missionBase = SeparateEcon::baseIndex(_game, _craft->getBase());
+		if (missionBase >= 0)
+			_game->getSavedGame()->setSelectedBase(static_cast<size_t>(missionBase));
+	}
+
 	std::string message = checkStartingCondition();
 	if (!message.empty())
 	{
@@ -445,8 +458,11 @@ void ConfirmLandingState::startCoopMission()
 	AlienBase* b = dynamic_cast<AlienBase*>(_craft->getDestination());
 
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
-	if (_craft && _craft->getBase())
-		bgame->setBattleOwnerPlayerName(_craft->getBase()->getOwnerPlayerName());
+	std::string battleOwner = (_craft && _craft->getBase())
+		? _craft->getBase()->getOwnerPlayerName() : std::string();
+	// Mission ownership controls who may launch a faction-specific mission; the
+	// battle itself belongs to the player whose craft actually launched it.
+	bgame->setBattleOwnerPlayerName(battleOwner);
 	_game->getSavedGame()->setBattleGame(bgame);
 	BattlescapeGenerator bgen(_game);
 	bgen.setWorldTexture(_missionTexture, _globeTexture);

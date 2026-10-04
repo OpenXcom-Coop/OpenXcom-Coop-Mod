@@ -29,10 +29,10 @@ def main():
             timeout=30, interval=0.5)
 
         host_rows = host.ok({"cmd": "items_arriving_rows"})["rows"]
-        client_rows = client.ok({"cmd": "items_arriving_rows"})["rows"]
-        assert len(host_rows) == len(client_rows) == 1
+        assert len(host_rows) == 1
         assert not host_rows[0].startswith("[")
-        assert client_rows[0].startswith("[HostPlayer] "), client_rows
+        client_states = client.ok({"cmd": "get_state"})["states"]
+        assert not any("ItemsArrivingState" in state for state in client_states), client_states
         geo.drain_popups(host); geo.drain_popups(client)
 
         roster = fixture.soldiers_at(host, "ClientBase")
@@ -44,11 +44,10 @@ def main():
             assert shown == expected, (gc.name, shown, expected)
             gc.ok({"cmd": "soldiers_ok"})
         fixture.assert_same_world(host, client, "Separate soldier arrival")
-        print("PASS Separate soldiers: arrival, owner label and private roster")
+        print("PASS Separate soldiers: owner-only arrival popup and private roster")
     finally:
         js.shutdown()
 
 
 if __name__ == "__main__":
     main()
-

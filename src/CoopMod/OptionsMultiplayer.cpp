@@ -441,6 +441,8 @@ void OptionsMultiplayerState::lstOptionsClick(Action* action)
 			{
 				_game->getCoopMod()->waitedResearch.clear();
 			}
+			if (_game->getSavedGame() && _game->getCoopMod()->isSeparateCampaign())
+				_game->getSavedGame()->setSeparateResearchSharingEnabled(*b, _game->getMod());
 			if (_game->getCoopMod()->getCoopStatic()
 				&& _game->getCoopMod()->getServerOwner())
 			{

@@ -13,9 +13,11 @@ import errno
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 import time
+import re
 
 if os.name == "nt":
     import msvcrt
@@ -161,6 +163,7 @@ class GameClient:
         self.proc = None
         self.sock = None
         self.buf = b""
+        self._request_id = 0
 
     @property
     def _port_file(self):
@@ -270,14 +273,25 @@ class GameClient:
         raise TimeoutError(f"{self.name}: test server not reachable on :{self.port}")
 
     def _send(self, obj):
-        self.sock.sendall((json.dumps(obj) + "\n").encode())
-        while b"\n" not in self.buf:
-            chunk = self.sock.recv(65536)
-            if not chunk:
-                raise ConnectionError(f"{self.name}: socket closed")
-            self.buf += chunk
-        line, self.buf = self.buf.split(b"\n", 1)
-        return json.loads(line)
+        self._request_id += 1
+        request_id = self._request_id
+        request = dict(obj)
+        request["_requestId"] = request_id
+        self.sock.sendall((json.dumps(request) + "\n").encode())
+        while True:
+            while b"\n" not in self.buf:
+                chunk = self.sock.recv(65536)
+                if not chunk:
+                    raise ConnectionError(f"{self.name}: socket closed")
+                self.buf += chunk
+            line, self.buf = self.buf.split(b"\n", 1)
+            response = json.loads(line)
+            response_id = response.get("_requestId")
+            # Backward compatibility with an executable built before request
+            # correlation was added. Once rebuilt, only the exact matching
+            # response can satisfy this command.
+            if response_id is None or response_id == request_id:
+                return response
 
     def cmd(self, obj):
         # Ephemeral coop ports (see the module header). A coop HOST command is
@@ -362,7 +376,18 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     name = "s%d_%s" % (HARNESS_SLOT, name)
     d = os.path.join(TEST_ROOT, name)
     if os.path.exists(d):
-        shutil.rmtree(d)
+        # Some large Windows mods contain read-only files.  Their attributes are
+        # preserved when the harness stages them as hardlinks, so a previous run
+        # must make such entries writable before retrying their removal.
+        def remove_readonly(func, path, exc_info):
+            try:
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+                return
+            except OSError:
+                raise exc_info[1]
+
+        shutil.rmtree(d, onerror=remove_readonly)
     os.makedirs(os.path.join(d, "xcom1"))
     # OXC_TEST_EXTRA_MOD (mod-loaded regression, GAP-10): a path - or an os.pathsep-
     # joined list of paths - to mod folder(s) appended to EVERY instance's mod set,
@@ -375,8 +400,29 @@ def make_user_dir(name, saves=(), mods=(), options=None):
         mods = list(mods) + [p for p in env_mod.split(os.pathsep) if p]
     extra = ""
     for src in mods:
-        mod_id = os.path.basename(os.path.normpath(src))
-        shutil.copytree(src, os.path.join(d, "mods", mod_id))
+        folder_id = os.path.basename(os.path.normpath(src))
+        mod_id = folder_id
+        metadata = os.path.join(src, "metadata.yml")
+        if os.path.isfile(metadata):
+            with open(metadata, encoding="utf-8", errors="replace") as meta:
+                for line in meta:
+                    match = re.match(r"^\s*id:\s*[\"']?([^\"'#\s]+)", line)
+                    if match:
+                        mod_id = match.group(1)
+                        break
+        # Large total conversions (40K/ROSIGMA) are several gigabytes. The
+        # harness only reads staged mods, so same-volume hardlinks provide the
+        # required isolated directory tree without duplicating every asset.
+        # Fall back to an ordinary copy when source and TEMP are on different
+        # volumes or the filesystem does not support links.
+        def link_or_copy(source, destination):
+            try:
+                os.link(source, destination)
+                return destination
+            except OSError:
+                return shutil.copy2(source, destination)
+        shutil.copytree(src, os.path.join(d, "mods", folder_id),
+                        copy_function=link_or_copy)
         extra += "  - active: true\n    id: " + mod_id + "\n"
     opts = HERMETIC_OPTIONS
     if extra:

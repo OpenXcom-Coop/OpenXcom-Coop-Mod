@@ -359,6 +359,7 @@
     <ClCompile Include="CoopMod\ServerList.cpp" />
     <ClCompile Include="CoopMod\SharedEcon.cpp" />
     <ClCompile Include="CoopMod\SeparateEcon.cpp" />
+    <ClCompile Include="CoopMod\SeparateResearchModeWarningState.cpp" />
     <ClCompile Include="CoopMod\TestServer.cpp" />
     <ClCompile Include="CoopMod\VoteMenu.cpp" />
     <ClCompile Include="CoopMod\connectionTCP.cpp" />
@@ -750,6 +751,7 @@
     <ClCompile Include="Savegame\SaveConverter.cpp" />
     <ClCompile Include="Savegame\SavedBattleGame.cpp" />
     <ClCompile Include="Savegame\SavedGame.cpp" />
+    <ClCompile Include="CoopMod\SeparateCon.cpp" />
     <ClCompile Include="Savegame\Upgrade\SaveUpgrade.cpp">
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
     </ClCompile>
@@ -817,6 +819,8 @@
     <ClInclude Include="CoopMod\ServerList.h" />
     <ClInclude Include="CoopMod\SharedEcon.h" />
     <ClInclude Include="CoopMod\SeparateEcon.h" />
+    <ClInclude Include="CoopMod\SeparateResearchModeWarningState.h" />
+    <ClInclude Include="CoopMod\SeparateCon.h" />
     <ClInclude Include="CoopMod\TestServer.h" />
     <ClInclude Include="CoopMod\VoteMenu.h" />
     <ClInclude Include="CoopMod\connectionTCP.h" />

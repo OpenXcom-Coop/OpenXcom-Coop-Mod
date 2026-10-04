@@ -106,6 +106,7 @@ bool Transfer::load(const YAML::YamlNodeReader& reader, Base *base, const Mod *m
 	reader.tryRead("scientists", _scientists);
 	reader.tryRead("engineers", _engineers);
 	reader.tryRead("delivered", _delivered);
+	reader.tryRead("ownerPlayerName", _ownerPlayerName);
 	return true;
 }
 
@@ -140,6 +141,8 @@ void Transfer::save(YAML::YamlNodeWriter writer, const Base* b, const Mod* mod) 
 	}
 	if (_delivered)
 		writer.write("delivered", _delivered);
+	if (!_ownerPlayerName.empty())
+		writer.write("ownerPlayerName", _ownerPlayerName);
 }
 
 /**

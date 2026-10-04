@@ -75,21 +75,19 @@ def assert_foreign_soldier_screens(gc, base_name, expected_ids=(), expected_name
 
 
 def assert_arrival_owner_label(host, client, owner_name):
-    """Owner sees a bare soldier name; the other player sees [Owner] Name."""
+    """Only the transfer owner sees the arrival popup."""
     def arrival_open(gc):
         states = gc.ok({"cmd": "get_state"}).get("states", [])
         return bool(states and "ItemsArrivingState" in states[-1]) or None
 
-    for gc in (host, client):
-        gc.wait_for(
-            "personnel arrival popup",
-            lambda gc=gc: arrival_open(gc),
-            timeout=15, interval=0.3)
-    host_rows = host.ok({"cmd": "items_arriving_rows"})["rows"]
-    client_rows = client.ok({"cmd": "items_arriving_rows"})["rows"]
-    assert len(host_rows) == len(client_rows) == 1, (host_rows, client_rows)
-    assert not host_rows[0].startswith("["), host_rows
-    assert client_rows[0].startswith(f"[{owner_name}] "), client_rows
+    owner = host if owner_name == "HostPlayer" else client
+    other = client if owner is host else host
+    owner.wait_for("owner personnel arrival popup",
+                   lambda: arrival_open(owner), timeout=15, interval=0.3)
+    owner_rows = owner.ok({"cmd": "items_arriving_rows"})["rows"]
+    assert len(owner_rows) == 1 and not owner_rows[0].startswith("["), owner_rows
+    other_states = other.ok({"cmd": "get_state"})["states"]
+    assert not any("ItemsArrivingState" in state for state in other_states), other_states
     geo_helpers.drain_popups(host)
     geo_helpers.drain_popups(client)
 

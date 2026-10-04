@@ -55,6 +55,9 @@ namespace OpenXcom
 
 		/// open Ufopaedia on a certain entry.
 		static void openArticle(Game *game, const std::string &article_id);
+		/// Open a host-authorized replicated event article even if the replica's
+		/// available-article cache has not caught up yet.
+		static bool openReplicatedEventArticle(Game *game, const std::string &article_id);
 		static void openArticleDetail(Game *game, const std::string &article_id);
 
 		/// open Ufopaedia article from a given article definition.

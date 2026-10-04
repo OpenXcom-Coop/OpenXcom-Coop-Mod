@@ -19,6 +19,8 @@
  */
 #include "../Engine/State.h"
 #include "../Savegame/SavedGame.h" // PRD-J01: CoopCampaignType for the ctor
+#include <string>
+#include <vector>
 
 namespace OpenXcom
 {
@@ -55,13 +57,20 @@ private:
 	bool _coopCampaign;
 	// PRD-J01: SHARED/SEPARATE economy model, applied to the new save on OK.
 	CoopCampaignType _campaignType;
+	bool _clientSeparateStart;
+	std::vector<std::string> _coopPlayers;
 public:
 	/// Creates the New Game state.
-	NewGameState(bool coopCampaign = false, CoopCampaignType campaignType = CoopCampaignType::Separate);
+	NewGameState(bool coopCampaign = false,
+		CoopCampaignType campaignType = CoopCampaignType::Separate,
+		bool clientSeparateStart = false,
+		const std::vector<std::string>& coopPlayers = {});
 	/// Cleans up the New Game state.
 	~NewGameState();
 	/// Handler for clicking the Ok button.
 	void btnOkClick(Action *action);
+	/// Test harness: select the same difficulty/faction button a player clicks.
+	void harnessSelectDifficulty(int difficulty);
 	/// Handler for clicking the Cancel button.
 	void btnCancelClick(Action *action);
 };

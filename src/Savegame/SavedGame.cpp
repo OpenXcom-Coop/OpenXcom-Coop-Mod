@@ -339,6 +339,8 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	// Get full save data
 	const auto& reader = documents[1].useIndex();
 	reader.tryRead("difficulty", _difficulty);
+	_separateCampaign.load(reader["separateCampaign"]);
+	_separateCampaign.ensurePlayers(_coopPlayers);
 	reader.tryRead("end", _end);
 	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
 		RNG::setSeed(reader["rng"].readVal<uint64_t>());
@@ -543,6 +545,13 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 		}
 	}
 	sortReserchVector(_discovered);
+	if (_coop && _campaignType == CoopCampaignType::Separate && !_separateCampaign.wasLoadedFromSave())
+	{
+		std::vector<std::string> legacyResearch;
+		for (const auto* research : _discovered)
+			if (research) legacyResearch.push_back(research->getName());
+		_separateCampaign.migrateLegacyResearch(_coopPlayers, legacyResearch);
+	}
 
 	// Research Diary
 	{
@@ -847,6 +856,8 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	}
 
 	reader.tryRead("difficulty", _difficulty);
+	_separateCampaign.load(reader["separateCampaign"]);
+	_separateCampaign.ensurePlayers(_coopPlayers);
 	reader.tryRead("end", _end);
 	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
 		RNG::setSeed(reader["rng"].readVal<uint64_t>());
@@ -1082,6 +1093,13 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		}
 	}
 	sortReserchVector(_discovered);
+	if (_coop && _campaignType == CoopCampaignType::Separate && !_separateCampaign.wasLoadedFromSave())
+	{
+		std::vector<std::string> legacyResearch;
+		for (const auto* research : _discovered)
+			if (research) legacyResearch.push_back(research->getName());
+		_separateCampaign.migrateLegacyResearch(_coopPlayers, legacyResearch);
+	}
 
 	// Research Diary
 	{
@@ -1319,6 +1337,8 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+		_separateCampaign.save(writer["separateCampaign"]);
 
 	// coop
 	// Only a coop save carries a saveID; a solo save must not (the load gate
@@ -1582,6 +1602,8 @@ std::string SavedGame::buildCoopStub(Mod* mod) const
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+		_separateCampaign.save(writer["separateCampaign"]);
 
 	if (_coop)
 		writer.write("saveID", connectionTCP::saveID);
@@ -1804,6 +1826,8 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+		_separateCampaign.save(writer["separateCampaign"]);
 
 	// coop
 	// Only a coop save carries a saveID; a solo save must not (the load gate
@@ -2627,8 +2651,16 @@ const std::map<std::string, bool> &SavedGame::getHiddenPurchaseItems()
  * @param research Pointer to the given research rule.
  * @return Pointer to the selected getOneFree topic. Nullptr, if nothing was selected.
  */
-const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research)
+const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research, const Base* base)
 {
+	const std::string researchOwner = (base && _coop && _campaignType == CoopCampaignType::Separate
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	auto researched = [&](const RuleResearch* topic)
+	{
+		return researchOwner.empty() ? isResearched(topic, false)
+			: isResearchedForPlayer(topic->getName(), researchOwner, false);
+	};
 	if (!research->getGetOneFree().empty() || !research->getGetOneFreeProtected().empty())
 	{
 		std::vector<const RuleResearch*> possibilities;
@@ -2638,14 +2670,14 @@ const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research)
 			{
 				continue; // skip disabled topics
 			}
-			if (!isResearched(free, false))
+			if (!researched(free))
 			{
 				possibilities.push_back(free);
 			}
 		}
 		for (auto& pair : research->getGetOneFreeProtected())
 		{
-			if (isResearched(pair.first, false))
+			if (researched(pair.first))
 			{
 				for (auto* res : pair.second)
 				{
@@ -2653,7 +2685,7 @@ const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research)
 					{
 						continue; // skip disabled topics
 					}
-					if (!isResearched(res, false))
+					if (!researched(res))
 					{
 						possibilities.push_back(res);
 					}
@@ -2714,6 +2746,35 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 		return;
 	}
 
+	const std::string researchOwner = (base && _coop && _campaignType == CoopCampaignType::Separate
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	const bool playerScoped = !researchOwner.empty();
+	auto researched = [&](const RuleResearch* topic)
+	{
+		return playerScoped ? isResearchedForPlayer(topic->getName(), researchOwner, false)
+			: isResearched(topic, false);
+	};
+	auto hasPlayerGetOneFree = [&](const RuleResearch* topic)
+	{
+		for (const auto* free : topic->getGetOneFree())
+			if (!isResearchRuleStatusDisabled(free->getName()) && !researched(free))
+				return true;
+		for (const auto& group : topic->getGetOneFreeProtected())
+			for (const auto* free : group.second)
+				if (!isResearchRuleStatusDisabled(free->getName()) && !researched(free))
+					return true;
+		return false;
+	};
+	auto hasPlayerProtectedUnlock = [&](const RuleResearch* topic)
+	{
+		for (const auto* unlock : topic->getUnlocked())
+			if (!isResearchRuleStatusDisabled(unlock->getName())
+				&& !unlock->getRequirements().empty() && !researched(unlock))
+				return true;
+		return false;
+	};
+
 	// Not really a queue in C++ terminology (we don't need or want pop_front())
 	std::vector<const RuleResearch *> queue;
 	queue.push_back(research);
@@ -2724,17 +2785,24 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 		const RuleResearch *currentQueueItem = queue.at(currentQueueIndex);
 
 		// 1. Find out and remember if the currentQueueItem has any undiscovered non-disabled "protected unlocks" or "getOneFree"
-		bool hasUndiscoveredProtectedUnlocks = hasUndiscoveredProtectedUnlock(currentQueueItem);
-		bool hasAnyUndiscoveredGetOneFrees = hasUndiscoveredGetOneFree(currentQueueItem, false);
+		bool hasUndiscoveredProtectedUnlocks = playerScoped
+			? hasPlayerProtectedUnlock(currentQueueItem) : hasUndiscoveredProtectedUnlock(currentQueueItem);
+		bool hasAnyUndiscoveredGetOneFrees = playerScoped
+			? hasPlayerGetOneFree(currentQueueItem) : hasUndiscoveredGetOneFree(currentQueueItem, false);
 
 		// 2. If the currentQueueItem was *not* already discovered before, add it to discovered research
 		bool checkRelatedZeroCostTopics = true;
-		if (!isResearched(currentQueueItem, false))
+		if (!researched(currentQueueItem))
 		{
 			if (!research->isRepeatable())
 			{
-				_discovered.push_back(currentQueueItem);
-				sortReserchVector(_discovered);
+				if (playerScoped)
+					_separateCampaign.completeResearch(researchOwner, currentQueueItem->getName());
+				else
+				{
+					_discovered.push_back(currentQueueItem);
+					sortReserchVector(_discovered);
+				}
 			}
 
 			if (currentQueueItem != research)
@@ -2761,7 +2829,10 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 			// process "disables"
 			for (const auto* dis : currentQueueItem->getDisabled())
 			{
-				removeDiscoveredResearch(dis); // unresearch
+				if (playerScoped)
+					_separateCampaign.removeCompletedResearch(researchOwner, dis->getName());
+				else
+					removeDiscoveredResearch(dis); // unresearch
 				setResearchRuleStatus(dis->getName(), RuleResearch::RESEARCH_STATUS_DISABLED); // mark as permanently disabled
 			}
 		}
@@ -2917,10 +2988,66 @@ bool SavedGame::isResearchable(const RuleItem* item, const Mod* mod) const
  */
 void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projects, const Mod *mod, Base *base, bool considerDebugMode) const
 {
+	const bool sharedSeparateResearch = _coop
+		&& _campaignType == CoopCampaignType::Separate
+		&& _separateCampaign.isResearchSharingEnabled();
+	const std::string researchOwner = (base && _coop && _campaignType == CoopCampaignType::Separate
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	const bool playerScoped = !researchOwner.empty();
+	auto researched = [&](const std::string& topic, bool debug)
+	{
+		return playerScoped ? isResearchedForPlayer(topic, researchOwner, debug)
+			: isResearched(topic, debug);
+	};
+	auto allResearchRules = [&](const std::vector<const RuleResearch*>& topics,
+		bool debug, bool skipDisabled)
+	{
+		for (const auto* topic : topics)
+		{
+			if (!topic || (skipDisabled && isResearchRuleStatusDisabled(topic->getName())))
+				continue;
+			if (!researched(topic->getName(), debug))
+				return false;
+		}
+		return true;
+	};
+	auto hasPlayerGetOneFree = [&](const RuleResearch* topic, bool onlyAvailable)
+	{
+		if (!allResearchRules(topic->getGetOneFree(), false, true))
+			return true;
+		for (const auto& group : topic->getGetOneFreeProtected())
+			if ((!onlyAvailable || (group.first && researched(group.first->getName(), false)))
+				&& !allResearchRules(group.second, false, true))
+				return true;
+		return false;
+	};
+	auto hasPlayerProtectedUnlock = [&](const RuleResearch* topic)
+	{
+		for (const auto* unlock : topic->getUnlocked())
+			if (!isResearchRuleStatusDisabled(unlock->getName())
+				&& !unlock->getRequirements().empty()
+				&& !researched(unlock->getName(), false))
+				return true;
+		return false;
+	};
+
 	// This list is used for topics that can be researched even if *not all* dependencies have been discovered yet (e.g. STR_ALIEN_ORIGINS)
 	// Note: all requirements of such topics *have to* be discovered though! This will be handled elsewhere.
 	std::vector<const RuleResearch *> unlocked;
-	for (const auto* research : _discovered)
+	std::vector<const RuleResearch*> discoverySources;
+	if (playerScoped)
+	{
+		if (const auto* player = _separateCampaign.getPlayer(researchOwner))
+			for (const auto& topic : player->completedResearch)
+				if (const auto* rule = mod->getResearch(topic, false))
+					discoverySources.push_back(rule);
+	}
+	else
+	{
+		discoverySources = _discovered;
+	}
+	for (const auto* research : discoverySources)
 	{
 		for (const auto* unl : research->getUnlocked())
 		{
@@ -2947,7 +3074,7 @@ void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projec
 		else
 		{
 			// These items are not on the "unlocked list", we must check if "dependencies" are satisfied!
-			if (!isResearched(research->getDependencies(), considerDebugMode))
+			if (!allResearchRules(research->getDependencies(), considerDebugMode, false))
 			{
 				continue;
 			}
@@ -2959,19 +3086,19 @@ void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projec
 		//   - there is an additional filter in NewPossibleResearchState::NewPossibleResearchState()
 		//   - we do this check for other functionality using this method, namely SavedGame::addFinishedResearch()
 		//     - Note: when called from there, parameter considerDebugMode = false
-		if (!isResearched(research->getRequirements(), considerDebugMode))
+		if (!allResearchRules(research->getRequirements(), considerDebugMode, false))
 		{
 			continue;
 		}
 
 		// Remove the already researched topics from the list *UNLESS* they can still give you something more
-		if (isResearched(research->getName(), false))
+		if (researched(research->getName(), false))
 		{
-			if (hasUndiscoveredGetOneFree(research, true))
+			if (playerScoped ? hasPlayerGetOneFree(research, true) : hasUndiscoveredGetOneFree(research, true))
 			{
 				// This research topic still has some more undiscovered non-disabled and *AVAILABLE* "getOneFree" topics, keep it!
 			}
-			else if (hasUndiscoveredProtectedUnlock(research))
+			else if (playerScoped ? hasPlayerProtectedUnlock(research) : hasUndiscoveredProtectedUnlock(research))
 			{
 				// This research topic still has one or more undiscovered non-disabled "protected unlocks", keep it!
 			}
@@ -2984,29 +3111,54 @@ void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projec
 
 		if (base)
 		{
-			// Check if this topic is already being researched in the given base
+			// Shared Research is one campaign-wide tree.  Unlike Shared Campaign,
+			// Separate keeps physical bases player-owned, so checking only the open
+			// base would make the two seats see different projects.  Treat ongoing
+			// work and prerequisites as world-wide while sharing is enabled.
 			bool found = false;
-			for (auto* ongoing : base->getResearch())
+			const std::vector<Base*> basesToCheck = sharedSeparateResearch
+				? _bases : std::vector<Base*>{base};
+			for (Base* researchBase : basesToCheck)
 			{
-				if (ongoing->getRules() == research)
+				for (auto* ongoing : researchBase->getResearch())
 				{
-					found = true;
-					break;
+					if (ongoing->getRules() == research)
+					{
+						found = true;
+						break;
+					}
 				}
+				if (found) break;
 			}
 			if (found)
 			{
 				continue;
 			}
 
-			// Check for needed item in the given base
-			if (research->needItem() && base->getStorageItems()->getItem(research->getNeededItem()) == 0)
+			// In shared Separate research, an item in either player's base unlocks
+			// the common tree.  The authoritative start command consumes it from the
+			// actual source base (SeparateEcon::consumeSharedResearchItem).
+			bool hasNeededItem = !research->needItem();
+			if (research->needItem())
+				for (Base* researchBase : basesToCheck)
+					if (researchBase->getStorageItems()->getItem(research->getNeededItem()) > 0)
+					{
+						hasNeededItem = true;
+						break;
+					}
+			if (!hasNeededItem)
 			{
 				continue;
 			}
 
-			// Check for required buildings/functions in the given base
-			if ((~base->getProvidedBaseFunc({}) & research->getRequireBaseFunc()).any())
+			bool hasRequiredFunctions = false;
+			for (Base* researchBase : basesToCheck)
+				if ((~researchBase->getProvidedBaseFunc({}) & research->getRequireBaseFunc()).none())
+				{
+					hasRequiredFunctions = true;
+					break;
+				}
+			if (!hasRequiredFunctions)
 			{
 				continue;
 			}
@@ -3058,11 +3210,22 @@ void SavedGame::getAvailableProductions (std::vector<RuleManufacture *> & produc
 {
 	const auto& baseProductions = base->getProductions();
 	RuleBaseFacilityFunctions baseFunc = base->getProvidedBaseFunc({});
+	const std::string researchOwner = (_coop && _campaignType == CoopCampaignType::Separate
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	auto requirementsResearched = [&](const std::vector<const RuleResearch*>& requirements)
+	{
+		if (researchOwner.empty()) return isResearched(requirements);
+		for (const RuleResearch* requirement : requirements)
+			if (requirement && !isResearchedForPlayer(requirement->getName(), researchOwner, false))
+				return false;
+		return true;
+	};
 
 	for (const auto& manuf : mod->getManufactureList())
 	{
 		RuleManufacture *m = mod->getManufacture(manuf);
-		if (!isResearched(m->getRequirements()))
+		if (!requirementsResearched(m->getRequirements()))
 		{
 			continue;
 		}
@@ -3101,8 +3264,19 @@ void SavedGame::getAvailableProductions (std::vector<RuleManufacture *> & produc
  * @param mod the Game Mod
  * @param base a pointer to a Base
  */
-void SavedGame::getDependableManufacture (std::vector<RuleManufacture *> & dependables, const RuleResearch *research, const Mod * mod, Base *) const
+void SavedGame::getDependableManufacture (std::vector<RuleManufacture *> & dependables, const RuleResearch *research, const Mod * mod, Base *base) const
 {
+	const std::string researchOwner = (base && _coop && _campaignType == CoopCampaignType::Separate
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	auto requirementsResearched = [&](const std::vector<const RuleResearch*>& requirements)
+	{
+		if (researchOwner.empty()) return isResearched(requirements);
+		for (const RuleResearch* requirement : requirements)
+			if (requirement && !isResearchedForPlayer(requirement->getName(), researchOwner, false))
+				return false;
+		return true;
+	};
 	for (const auto& manuf : mod->getManufactureList())
 	{
 		// don't show previously unlocked (and seen!) manufacturing topics
@@ -3115,7 +3289,7 @@ void SavedGame::getDependableManufacture (std::vector<RuleManufacture *> & depen
 
 		RuleManufacture *m = mod->getManufacture(manuf);
 		const auto& reqs = m->getRequirements();
-		if (isResearched(reqs) && std::find(reqs.begin(), reqs.end(), research) != reqs.end())
+		if (requirementsResearched(reqs) && std::find(reqs.begin(), reqs.end(), research) != reqs.end())
 		{
 			dependables.push_back(m);
 		}
@@ -3383,6 +3557,69 @@ bool SavedGame::isResearched(const std::vector<std::string> &research, bool cons
 	}
 
 	return true;
+}
+
+bool SavedGame::isResearchedForPlayer(const std::string &research,
+	const std::string &playerName, bool considerDebugMode) const
+{
+	if (considerDebugMode && _debug)
+		return true;
+	if (!_coop || _campaignType != CoopCampaignType::Separate || playerName.empty()
+		|| _separateCampaign.isResearchSharingEnabled())
+		return isResearched(research, false);
+	return _separateCampaign.hasCompletedResearch(playerName, research);
+}
+
+void SavedGame::setSeparateResearchSharingEnabled(bool enabled, const Mod *mod)
+{
+	if (_campaignType != CoopCampaignType::Separate)
+		return;
+
+	_separateCampaign.ensurePlayers(_coopPlayers);
+	if (enabled)
+	{
+		// Shared Research has one canonical store. Preserve every discovery made
+		// privately before the option was enabled by promoting the union.
+		if (mod)
+			for (const auto& player : _separateCampaign.getPlayers())
+				for (const auto& name : player.second.completedResearch)
+					if (RuleResearch* rule = mod->getResearch(name, false))
+						if (!haveReserchVector(_discovered, rule))
+							_discovered.push_back(rule);
+		sortReserchVector(_discovered);
+	}
+	else
+	{
+		// Disabling sharing starts both private trees with everything earned while
+		// it was shared. Run this even if the transient flag already says false:
+		// after loading a save the flag resets, while _discovered still contains
+		// the campaign's shared discoveries.
+		for (const auto* rule : _discovered)
+			if (rule)
+				for (const auto& player : _separateCampaign.getPlayers())
+					_separateCampaign.addCompletedResearch(player.first, rule->getName());
+	}
+	_separateCampaign.setResearchSharingEnabled(enabled);
+}
+
+bool SavedGame::isResearchedForPlayer(const std::vector<std::string> &research,
+	const std::string &playerName, bool considerDebugMode) const
+{
+	if (research.empty())
+		return true;
+	if (considerDebugMode && _debug)
+		return true;
+	for (const auto& topic : research)
+		if (!isResearchedForPlayer(topic, playerName, false))
+			return false;
+	return true;
+}
+
+bool SavedGame::isResearchedForBase(const std::string &research, const Base *base,
+	bool considerDebugMode) const
+{
+	return isResearchedForPlayer(research,
+		base ? base->getOwnerPlayerName() : std::string(), considerDebugMode);
 }
 
 /**
@@ -4449,7 +4686,7 @@ void SavedGame::deleteRetaliationMission(AlienMission* am, Base* base)
  * Spawn a Geoscape event from the event rules.
  * @return True if successful.
  */
-bool SavedGame::spawnEvent(const RuleEvent* eventRules)
+bool SavedGame::spawnEvent(const RuleEvent* eventRules, const std::string& ownerPlayerName)
 {
 	if (!eventRules)
 	{
@@ -4457,6 +4694,7 @@ bool SavedGame::spawnEvent(const RuleEvent* eventRules)
 	}
 
 	GeoscapeEvent* newEvent = new GeoscapeEvent(*eventRules);
+	newEvent->setOwnerPlayerName(ownerPlayerName);
 	int minutes = (eventRules->getTimer() + (RNG::generate(0, eventRules->getTimerRandom()))) / 30 * 30;
 	if (minutes < 60) minutes = 60; // just in case
 	newEvent->setSpawnCountdown(minutes);
@@ -4555,7 +4793,7 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 		addFinishedResearch(researchVec.back(), mod, base, true);
 	}
 
-	if (auto* bonus = selectGetOneFree(research))
+	if (auto* bonus = selectGetOneFree(research, base))
 	{
 		researchVec.push_back(bonus);
 		addResearchDiaryEntryForMission(bonus, DiscoverySourceType::FREE_FROM, nullptr, research);

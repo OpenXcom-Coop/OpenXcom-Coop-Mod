@@ -27,6 +27,11 @@
 #include "../Savegame/MissionSite.h"
 #include "../Engine/Options.h"
 #include "InterceptState.h"
+#include "CraftErrorState.h"
+#include "../Menu/ErrorMessageState.h"
+#include "../Mod/RuleInterface.h"
+#include "../CoopMod/SeparateEcon.h"
+#include "../Engine/LocalizedText.h"
 #include "../Mod/AlienDeployment.h"
 
 namespace OpenXcom
@@ -88,7 +93,15 @@ MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *
 
 	_txtCity->setBig();
 	_txtCity->setAlign(ALIGN_CENTER);
-	_txtCity->setText(tr(mission->getCity()));
+	std::string cityText = tr(mission->getCity());
+	if (SeparateEcon::showMissionTargetOwner(_game))
+	{
+		const std::string owner = SeparateEcon::missionTargetOwner(mission);
+		cityText += "\n" + static_cast<std::string>(tr("STR_COOP_MISSION_OWNER")
+			.arg(owner.empty() ? static_cast<std::string>(tr("STR_COOP_SHARED")) : owner));
+		_txtCity->setHeight(32);
+	}
+	_txtCity->setText(cityText);
 
 	// coop
 	if (connectionTCP::no_bases == true)
@@ -139,6 +152,16 @@ MissionDetectedState::~MissionDetectedState()
  */
 void MissionDetectedState::btnInterceptClick(Action *)
 {
+	if (!SeparateEcon::ownsMissionTarget(_game, _mission))
+	{
+		const RuleInterface* interface = _game->getMod()->getInterface("geoscape");
+		_game->pushState(new ErrorMessageState(
+			tr("STR_COOP_MISSION_BELONGS_TO_PLAYER").arg(
+				SeparateEcon::missionTargetOwner(_mission)), _palette,
+			interface->getElement("errorMessage")->color, "BACK13.SCR",
+			interface->getElement("errorPalette")->color));
+		return;
+	}
 	_state->timerReset();
 	_state->getGlobe()->center(_mission->getLongitude(), _mission->getLatitude());
 	_game->pushState(new InterceptState(_state->getGlobe(), false, 0, _mission));

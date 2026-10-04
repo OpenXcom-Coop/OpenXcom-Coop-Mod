@@ -82,6 +82,9 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	_txtResearch->setAlign(ALIGN_CENTER);
 	_txtResearch->setBig();
 	_txtResearch->setWordWrap(true);
+	// Always display the project that completed. _research intentionally stores
+	// newResearch instead, because that value controls whether View Reports may
+	// open an already-seen Ufopaedia article.
 	if (research)
 	{
 		_txtResearch->setText(tr(research->getName()));

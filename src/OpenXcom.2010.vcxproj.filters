@@ -149,6 +149,9 @@
     <ClCompile Include="Savegame\SavedGame.cpp">
       <Filter>Savegame</Filter>
     </ClCompile>
+    <ClCompile Include="CoopMod\SeparateCon.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
     <ClCompile Include="Savegame\Upgrade\SaveUpgrade.cpp">
       <Filter>Savegame\Upgrade</Filter>
     </ClCompile>
@@ -1269,6 +1272,9 @@
       <Filter>CoopMod</Filter>
     </ClCompile>
     <ClCompile Include="CoopMod\SeparateEcon.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
+    <ClCompile Include="CoopMod\SeparateResearchModeWarningState.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
     <ClCompile Include="CoopMod\AddServerMenu.cpp">
@@ -2845,6 +2851,12 @@
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\SeparateEcon.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\SeparateResearchModeWarningState.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\SeparateCon.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\AddServerMenu.h">

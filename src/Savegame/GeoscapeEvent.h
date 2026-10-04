@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/Yaml.h"
+#include <string>
 
 namespace OpenXcom
 {
@@ -33,6 +34,7 @@ private:
 	const RuleEvent &_rule;
 	size_t _spawnCountdown;
 	bool _over;
+	std::string _ownerPlayerName;
 public:
 	/// Creates a blank GeoscapeEvent.
 	GeoscapeEvent(const RuleEvent &rule);
@@ -48,6 +50,8 @@ public:
 	size_t getSpawnCountdown() const { return _spawnCountdown; }
 	/// Sets the minutes until the event pops up.
 	void setSpawnCountdown(size_t minutes);
+	const std::string& getOwnerPlayerName() const { return _ownerPlayerName; }
+	void setOwnerPlayerName(const std::string& owner) { _ownerPlayerName = owner; }
 
 	/// Is this event over?
 	bool isOver() const { return _over; }

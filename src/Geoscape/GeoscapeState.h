@@ -293,7 +293,7 @@ public:
 private:
 	bool attemptAlienRaceEvolution(int month, AlienBase* ab) const;
 	/// Process each individual mission script command.
-	bool processCommand(RuleMissionScript *command);
+	bool processCommand(RuleMissionScript *command, const std::string& ownerPlayerName = std::string());
 	bool buttonsDisabled();
 	void updateSlackingIndicator();
 };

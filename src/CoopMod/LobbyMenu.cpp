@@ -652,7 +652,7 @@ void LobbyMenu::resumeCampaign()
 	// fresh world that another campaign_start in request_load_progress
 	// would overwrite, never arming sendFileClient).
 	if (connectionTCP::_coopGamemode == 2
-		&& !connectionTCP::hasCoopFile(connectionTCP::pvpHostWorldKey(clientName)))
+		&& !connectionTCP::hasPvpClientWorld(clientName))
 	{
 		try
 		{
@@ -679,7 +679,7 @@ void LobbyMenu::resumeCampaign()
 	}
 
 	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
-		|| connectionTCP::hasCoopFile(connectionTCP::pvpHostWorldKey(clientName)))
+		|| connectionTCP::hasPvpClientWorld(clientName))
 	{
 		Json::Value root;
 		root["state"] = "campaign_resume";

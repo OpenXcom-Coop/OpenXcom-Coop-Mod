@@ -1265,7 +1265,7 @@ class connectionTCP
 	int _currentAmmoID = -1;
 	std::string currentAmmoType = "";
 
-	bool _enable_research_sync = true;
+	bool _enable_research_sync = false;
 
 	static bool _enable_time_sync;
 
@@ -1462,6 +1462,8 @@ class connectionTCP
 	// blob out before any long work.
 	static std::mutex coopFilesMutex;
 	static bool hasCoopFile(const std::string& key);
+	/// True when the host has any valid stored PvP world for this exact player name.
+	static bool hasPvpClientWorld(const std::string& clientName);
 	// PvP-only player-world keys, scoped by the current saveID:
 	// host_<saveID>_<clientName>.data / client_<saveID>_<hostName>.data
 	static std::string pvpHostWorldKey(const std::string& clientName);

@@ -1632,6 +1632,12 @@ const std::string* connectionTCP::findPvpClientWorld(const std::string& clientNa
 	return best;
 }
 
+bool connectionTCP::hasPvpClientWorld(const std::string& clientName)
+{
+	std::lock_guard<std::mutex> lock(coopFilesMutex);
+	return findPvpClientWorld(clientName) != nullptr;
+}
+
 // One authority for the campaign_start packet (see header). Reads the player
 // roster from the save (host lobby start sets it just before calling this, so
 // save->getCoopPlayers() equals the freshly-built list).
@@ -5451,12 +5457,16 @@ void connectionTCP::executeVoteAction(const std::string& action)
 
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
+	// SEPARATE owns the per-player policy layered on top of the shared command
+	// engine.  Let it prepare incoming Separate messages first (notably deriving
+	// the local foreign-base flags from persistent owner names) before the generic
+	// command engine applies them.
+	if (SeparateEcon::onMessage(_game, stateString, obj))
+		return;
 	// PRD-J03: single early hook routing the shared_* economy protocol into the
 	// SharedEcon dispatch table (the anti-if-chain requirement). If SharedEcon
 	// consumes the message, it never falls through to the if-chain below.
 	if (SharedEcon::onMessage(_game, stateString, obj))
-		return;
-	if (SeparateEcon::onMessage(_game, stateString, obj))
 		return;
 
 	// Schema-3 campaign peers share one host-authoritative strategic world. Drop
@@ -5822,6 +5832,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// client whose world is built from this packet). Missing key = classic.
 		connectionTCP::_enable_parallel_turns = obj.get("enable_parallel_turns", false).asBool();
 
+		const std::string activeMaster = Options::getActiveMaster();
+		const bool vanillaCampaign = activeMaster == "xcom1" || activeMaster == "xcom2";
+		if (campaignType == CoopCampaignType::Separate && !connectionTCP::no_bases
+			&& !vanillaCampaign)
+		{
+			// Mod campaigns may use difficulty as a faction selector (for example
+			// Rosigma). Their Separate clients choose independently. Vanilla xcom1
+			// and xcom2 retain the streamlined host-difficulty startup below.
+			_game->pushState(new NewGameState(true, CoopCampaignType::Separate,
+				true, players));
+			return;
+		}
+
 		if (campaignType == CoopCampaignType::Shared)
 		{
 			// PRD-J02: a SHARED client is a replica - it never builds its own
@@ -5842,6 +5865,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			save->setCoopPlayers(players);
 			// PRD-J01: adopt the host's campaign economy model (default Separate).
 			save->setCampaignType(campaignType);
+			if (campaignType == CoopCampaignType::Separate)
+				save->setSeparateResearchSharingEnabled(_enable_research_sync, _game->getMod());
 			_game->setSavedGame(save);
 
 			connectionTCP::session.markLobbyClosed();
@@ -7396,6 +7421,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			waitedResearch.clear();
 		}
+		if (_game->getSavedGame() && isSeparateCampaign())
+			_game->getSavedGame()->setSeparateResearchSharingEnabled(_enable_research_sync, _game->getMod());
 	}
 
 	if (stateString == "add_coop_item")
@@ -10555,6 +10582,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					mission->setRace(ju["race"].asString());
 					mission->setId(missionId);
 					mission->setRegion(ju["region"].asString(), *_game->getMod());
+					mission->setOwnerPlayerName(ju.get("ownerPlayerName", "").asString());
 					sg->getAlienMissions().push_back(mission);
 				}
 
@@ -10628,6 +10656,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					site->setLatitude(jm["lat"].asDouble());
 					site->setAlienRace(jm["race"].asString());
 					site->setCity(jm["city"].asString());
+					site->setOwnerPlayerName(jm.get("ownerPlayerName", "").asString());
 					// issue #78: mirror the host's detection state and fuse instead of
 					// forcing detected + pinning an immortal sentinel. The replica sim
 					// is frozen, so both are display-only - but they must match what
@@ -10814,6 +10843,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				std::string mission_rule_id = obj["ufos"][i]["mission_rule"].asString();
 				std::string race = obj["ufos"][i]["race"].asString();
 				std::string region = obj["ufos"][i]["region"].asString();
+				std::string ownerPlayerName = obj["ufos"][i].get("ownerPlayerName", "").asString();
 
 				int ufo_id = obj["ufos"][i]["ufo_id"].asInt();
 				std::string ufo_rule_id = obj["ufos"][i]["ufo_rule"].asString();
@@ -10864,6 +10894,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						alien_mission->setId(mission_id);
 
 						alien_mission->setRegion(region, *_game->getMod());
+						alien_mission->setOwnerPlayerName(ownerPlayerName);
 
 						_game->getSavedGame()->getAlienMissions().push_back(alien_mission);
 					}
@@ -10974,6 +11005,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				double d_lon = obj["missions"][i]["lon"].asDouble();
 				double d_lat = obj["missions"][i]["lat"].asDouble();
 				int mission_id = obj["missions"][i]["mission_id"].asInt();
+				std::string ownerPlayerName = obj["missions"][i].get("ownerPlayerName", "").asString();
 
 				MissionSite* missionSite = 0;
 
@@ -11023,6 +11055,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				missionSite->setAlienRace(str_race);
 				missionSite->setDetected(true);
 				missionSite->setCity(str_city);
+				missionSite->setOwnerPlayerName(ownerPlayerName);
 
 				missionSite->setCoop(true);
 			}
@@ -11039,6 +11072,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				std::string pact = obj["alienbases"][i]["pact"].asString();
 				bool discovered = obj["alienbases"][i]["discovered"].asBool();
 				int start_month = obj["alienbases"][i]["start_month"].asInt();
+				std::string ownerPlayerName = obj["alienbases"][i].get("ownerPlayerName", "").asString();
 
 				AlienBase *alienBase = 0;
 
@@ -11088,6 +11122,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				alienBase->setDiscovered(discovered);
 				alienBase->setPactCountry(pact);
 				alienBase->setAlienRace(str_race);
+				alienBase->setOwnerPlayerName(ownerPlayerName);
 
 				alienBase->_coop = true;
 
@@ -12581,6 +12616,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// research option
 		_enable_research_sync = Options::EnableResearchSync;
+		if (_game->getSavedGame() && isSeparateCampaign())
+			_game->getSavedGame()->setSeparateResearchSharingEnabled(_enable_research_sync, _game->getMod());
 		root["enable_research_sync"] = _enable_research_sync;
 
 		// time option
@@ -12731,6 +12768,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// session value.  Previously it continued to display the client's local
 		// default (YES), even when the host had sent NO.
 		Options::EnableResearchSync = enable_research_sync;
+		if (_game->getSavedGame() && isSeparateCampaign())
+			_game->getSavedGame()->setSeparateResearchSharingEnabled(enable_research_sync, _game->getMod());
 
 		// time option
 		bool enable_time_sync = obj["enable_time_sync"].asBool();
@@ -16814,10 +16853,11 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 		for (auto& base : *coopFile->getBases())
 		{
 
-			// _isForeignBase is seat-local presentation in a unified campaign and may
-			// mark this real base as foreign in the serialized client view. The
-			// bootstrap accepts real bases and rejects only legacy marker icons.
-			if (campaignBootstrap ? !base->_coopIcon : !base->_isForeignBase)
+			// Ownership is viewer-relative: the client's real base is necessarily
+			// foreign when this validation runs on the host. It must therefore never
+			// decide whether an uploaded PvP world contains a real base. Marker icons
+			// are the only non-real base objects in either bootstrap format.
+			if (!base->_coopIcon)
 			{
 				found = true;
 			}
@@ -16848,6 +16888,35 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 		&& connectionTCP::session.lobbyMode == 1)
 	{
 		const std::string owner = _game->getCoopMod()->getCurrentClientName();
+		SeparateCon& separate = _game->getSavedGame()->getSeparateCampaign();
+		const int hostDifficulty = static_cast<int>(_game->getSavedGame()->getDifficulty());
+		const int clientDifficulty = static_cast<int>(coopFile->getDifficulty());
+		separate.setFaction(connectionTCP::seatName(connectionTCP::localSeat()),
+			"difficulty:" + std::to_string(hostDifficulty));
+		separate.setFaction(owner,
+			"difficulty:" + std::to_string(clientDifficulty));
+		auto researchNames = [](const SavedGame* save)
+		{
+			std::vector<std::string> names;
+			if (save)
+				for (const RuleResearch* rule : save->getDiscoveredResearch())
+					if (rule) names.push_back(rule->getName());
+			return names;
+		};
+		const std::vector<std::string> hostFactionResearch = researchNames(_game->getSavedGame());
+		std::vector<std::string> clientFactionResearch = researchNames(coopFile);
+		separate.setFactionResearch(connectionTCP::seatName(connectionTCP::localSeat()),
+			hostFactionResearch);
+		separate.setFactionResearch(owner, clientFactionResearch);
+		// The temporary client save already contains the discoveries granted by
+		// its selected faction at new-save creation. Import that private profile;
+		// factionResearch is mission-script metadata and does not drive the actual
+		// New Research list.
+		if (const SeparateCon::PlayerState* clientProfile =
+			coopFile->getSeparateCampaign().getPlayer(owner))
+		{
+			separate.replaceCompletedResearch(owner, clientProfile->completedResearch);
+		}
 		bool alreadyMerged = false;
 		for (Base* base : *_game->getSavedGame()->getBases())
 			if (base && base->isOwnedByPlayer(owner)) { alreadyMerged = true; break; }
@@ -16890,8 +16959,7 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 	{
 		failReason = (coopFile == nullptr) ? "parse failed"
 			: error ? "base with empty name or null coords"
-			: campaignBootstrap ? "no real initial base present"
-			: "no non-coop (own) base present";
+			: "no real base present";
 	}
 
 	delete coopFile;

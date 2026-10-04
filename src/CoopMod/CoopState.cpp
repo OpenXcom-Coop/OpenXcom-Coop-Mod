@@ -38,6 +38,7 @@
 #include "../Engine/CrossPlatform.h"
 #include "CoopState.h"
 #include "SharedEcon.h" // PRD-I5: crash-report bundle handlers
+#include "SeparateResearchModeWarningState.h"
 
 #include "../Basescape/BasescapeState.h"
 
@@ -993,8 +994,8 @@ bool CoopState::waitSatisfied() const
 				if (base && base->isOwnedByPlayer(owner)) return true;
 			return false;
 		}
-		return connectionTCP::hasCoopFile(
-			connectionTCP::pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName()));
+		return connectionTCP::hasPvpClientWorld(
+			_game->getCoopMod()->getCurrentClientName());
 	}
 	return connectionTCP::session.resumeAck;
 }
@@ -1221,6 +1222,10 @@ void CoopState::think()
 
 void CoopState::previous(Action *)
 {
+	const bool warnDifferentFactionResearch = global_state == COOP_DLG_WAIT_BASES
+		&& _game->getCoopMod()->isSeparateCampaign()
+		&& Options::EnableResearchSync
+		&& _game->getSavedGame()->getSeparateCampaign().haveDifferentFactions();
 
 	// The host clicked RESUME on a waiting dialog: release every non-host
 	// player from their "waiting for players" hold (D5).
@@ -1307,6 +1312,8 @@ void CoopState::previous(Action *)
 	else
 	{
 		_game->popState();
+		if (warnDifferentFactionResearch)
+			_game->pushState(new SeparateResearchModeWarningState());
 	}
 
 

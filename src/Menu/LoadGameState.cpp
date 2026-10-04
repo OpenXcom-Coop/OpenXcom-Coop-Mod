@@ -21,6 +21,7 @@
 #include "../Engine/Logger.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/Base.h"
 #include "../Engine/Game.h"
 #include "../Engine/Exception.h"
 #include "../Engine/Options.h"
@@ -38,6 +39,7 @@
 #include "StatisticsState.h"
 #include "../CoopMod/HostMenu.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
 #include "../Savegame/Upgrade/SaveUpgrade.h"
 #include "SaveUpgradeDialogState.h"
@@ -252,6 +254,19 @@ void LoadGameState::think()
 
 			_game->setSavedGame(s);
 
+			// Separate Research sharing is a negotiated session policy, not save
+			// data.  Loading an authoritative campaign world replaces SavedGame and
+			// therefore resets its transient policy flag.  Restore it immediately;
+			// otherwise the connection still says Shared Research while research
+			// availability silently uses the per-player tree until the next reload.
+			if (!_coopKey.empty()
+				&& s->getCampaignType() == CoopCampaignType::Separate
+				&& _game->getCoopMod())
+			{
+				s->setSeparateResearchSharingEnabled(
+					_game->getCoopMod()->_enable_research_sync, _game->getMod());
+			}
+
 			// PRD-J02: a SHARED client just adopted the host's world as its replica.
 			// The streamed save carries the HOST's coop_save_owner_player_id (0);
 			// re-assert this machine's own seat so localSeat() reflects the client,
@@ -330,12 +345,33 @@ void LoadGameState::think()
 					{
 		
 						Base *selected_base = _game->getSavedGame()->getSelectedBase();
+						const std::string& battleOwner = _game->getSavedGame()->getSavedBattle()
+							->getBattleOwnerPlayerName();
+						if ((_game->getCoopMod()->isSharedCampaign()
+								|| _game->getCoopMod()->isSeparateCampaign())
+							&& !battleOwner.empty())
+						{
+							auto* bases = _game->getSavedGame()->getBases();
+							for (size_t i = 0; i < bases->size(); ++i)
+								if ((*bases)[i] && (*bases)[i]->isOwnedByPlayer(battleOwner))
+								{
+									selected_base = (*bases)[i];
+									_game->getSavedGame()->setSelectedBase(i);
+									break;
+								}
+						}
 
 						if (!selected_base)
 						{
 							selected_base = _game->getSavedGame()->getBases()->front();
 						}
-						BriefingState *bri = new BriefingState(0, selected_base);
+						// A streamed craft mission already carries the exact craft/base label
+						// written by the authoritative BriefingState. Passing a base here
+						// overwrote it with the loader's default base (normally HostBase).
+						// Base defense still needs the real base argument for its side effects.
+						Base* briefingBase = _game->getSavedGame()->getSavedBattle()->getMissionType()
+							== "STR_BASE_DEFENSE" ? selected_base : nullptr;
+						BriefingState *bri = new BriefingState(0, briefingBase);
 
 						bri->loadCoop();
 

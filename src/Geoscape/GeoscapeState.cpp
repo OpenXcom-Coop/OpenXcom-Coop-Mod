@@ -140,6 +140,7 @@
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/SharedEcon.h"
 #include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/SeparateCon.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
@@ -1321,6 +1322,28 @@ void GeoscapeState::init()
 		determineAlienMissions();
 		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - (_game->getSavedGame()->getBaseMaintenance() - _game->getSavedGame()->getBases()->front()->getPersonnelMaintenance()));
 
+		// Private Separate research must still start identically for players who
+		// selected the same faction. Month-zero arc scripts have only now settled
+		// the host's real starting profile. Copy that baseline once, before the
+		// authoritative world is streamed; subsequent research remains private.
+		if (_game->getCoopMod()->isSeparateCampaign()
+			&& !_game->getSavedGame()->getSeparateCampaign().isResearchSharingEnabled())
+		{
+			SeparateCon& separate = _game->getSavedGame()->getSeparateCampaign();
+			const std::vector<std::string>& players = _game->getSavedGame()->getCoopPlayers();
+			if (!players.empty())
+			{
+				const SeparateCon::PlayerState* hostProfile = separate.getPlayer(players.front());
+				if (hostProfile)
+					for (size_t i = 1; i < players.size(); ++i)
+					{
+						const SeparateCon::PlayerState* peerProfile = separate.getPlayer(players[i]);
+						if (peerProfile && peerProfile->faction == hostProfile->faction)
+							separate.replaceCompletedResearch(players[i], hostProfile->completedResearch);
+					}
+			}
+		}
+
 		// PRD-J02: host-authoritative campaign start. The host's world is now
 		// fully initialized (month advanced, start-of-game maintenance charged),
 		// so serialize it and stream it to the waiting client as its replica.
@@ -1731,6 +1754,7 @@ void GeoscapeState::think()
 					root["ufos"][ufo_index]["ufo_id"] = ufo->_coop_ufo_id;
 					root["ufos"][ufo_index]["mission_id"] = ufo->getMission()->getId();
 					root["ufos"][ufo_index]["mission_rule"] = ufo->getMission()->getRules().getType();
+					root["ufos"][ufo_index]["ownerPlayerName"] = ufo->getMission()->getOwnerPlayerName();
 					root["ufos"][ufo_index]["ufo_rule"] = ufo->getRules()->getType();
 					root["ufos"][ufo_index]["race"] = ufo->getMission()->getRace();
 					root["ufos"][ufo_index]["lon"] = ufo->getLongitude();
@@ -1823,6 +1847,7 @@ void GeoscapeState::think()
 					root["missions"][mission_index]["time"] = Json::UInt64(mission->getSecondsRemaining());
 					root["missions"][mission_index]["lon"] = mission->getLongitude();
 					root["missions"][mission_index]["lat"] = mission->getLatitude();
+					root["missions"][mission_index]["ownerPlayerName"] = mission->getOwnerPlayerName();
 
 					mission_index++;
 
@@ -1847,6 +1872,7 @@ void GeoscapeState::think()
 					root["alienbases"][alienbase_index]["lon"] = alien_base->getLongitude();
 					root["alienbases"][alienbase_index]["lat"] = alien_base->getLatitude();
 					root["alienbases"][alienbase_index]["start_month"] = alien_base->getStartMonth();
+					root["alienbases"][alienbase_index]["ownerPlayerName"] = alien_base->getOwnerPlayerName();
 
 					alienbase_index++;
 
@@ -1921,6 +1947,7 @@ void GeoscapeState::think()
 					ju["ufo_rule"] = ufo->getRules()->getType();
 					ju["mission_id"] = ufo->getMission()->getId();
 					ju["mission_rule"] = ufo->getMission()->getRules().getType();
+					ju["ownerPlayerName"] = ufo->getMission()->getOwnerPlayerName();
 					ju["race"] = ufo->getMission()->getRace();
 					ju["region"] = ufo->getMission()->getRegion();
 					ju["lon"] = ufo->getLongitude();
@@ -1948,6 +1975,7 @@ void GeoscapeState::think()
 					jm["rules"] = site->getRules()->getType();
 					jm["race"] = site->getAlienRace();
 					jm["city"] = site->getCity();
+					jm["ownerPlayerName"] = site->getOwnerPlayerName();
 					jm["lon"] = site->getLongitude();
 					jm["lat"] = site->getLatitude();
 					// issue #78: the replica mirrors the host's detection state and
@@ -3482,8 +3510,19 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		if (canSpawn)
 		{
 			timerReset();
-			popup(new GeoscapeEventState(*eventRules));
-			SharedEcon::hostAlert(_game, "GeoscapeEventState", eventRules->getName());
+			const std::string eventOwner = site->getOwnerPlayerName();
+			GeoscapeEventState* eventState = new GeoscapeEventState(*eventRules, eventOwner);
+			const std::string eventResearch = eventState->getResearchName();
+			const std::string eventBonus = eventState->getBonusResearchName();
+			if (eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat()))
+				popup(eventState);
+			else
+				delete eventState;
+			if (_game->getCoopMod()->isSeparateCampaign())
+				SeparateEcon::hostGeoscapeEvent(_game, eventRules->getName(),
+					eventResearch, eventBonus, eventOwner);
+			else
+				SharedEcon::hostAlert(_game, "GeoscapeEventState", eventRules->getName());
 		}
 	}
 
@@ -3742,8 +3781,19 @@ void GeoscapeState::time30Minutes()
 			if (!interrupted)
 			{
 				timerReset();
-				popup(new GeoscapeEventState(ge->getRules()));
-				SharedEcon::hostAlert(_game, "GeoscapeEventState", ge->getRules().getName());
+				const std::string eventOwner = ge->getOwnerPlayerName();
+				GeoscapeEventState* eventState = new GeoscapeEventState(ge->getRules(), eventOwner);
+				const std::string eventResearch = eventState->getResearchName();
+				const std::string eventBonus = eventState->getBonusResearchName();
+				if (eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat()))
+					popup(eventState);
+				else
+					delete eventState;
+				if (_game->getCoopMod()->isSeparateCampaign())
+					SeparateEcon::hostGeoscapeEvent(_game, ge->getRules().getName(),
+						eventResearch, eventBonus, eventOwner);
+				else
+					SharedEcon::hostAlert(_game, "GeoscapeEventState", ge->getRules().getName());
 			}
 		}
 	}
@@ -3939,27 +3989,23 @@ void GeoscapeState::time1Hour()
 	if (window)
 	{
 		ItemsArrivingState* ia = new ItemsArrivingState(this);
-		if (ia->getRows().empty())
+		Json::Value rowsJson(Json::arrayValue);
+		for (const auto& r : ia->getAllRows())
 		{
-			delete ia;
+			Json::Value j;
+			j["type"] = r.type;
+			j["name"] = r.name;
+			j["qty"] = r.qty;
+			j["base"] = r.base;
+			j["baseIdx"] = r.baseIdx;
+			j["ownerSeat"] = r.ownerSeat;
+			j["ownerPlayerName"] = r.ownerPlayerName;
+			rowsJson.append(j);
 		}
-		else
-		{
-			popup(ia);
-			Json::Value rowsJson(Json::arrayValue);
-			for (const auto& r : ia->getRows())
-			{
-				Json::Value j;
-				j["type"] = r.type;
-				j["name"] = r.name;
-				j["qty"] = r.qty;
-				j["base"] = r.base;
-				j["baseIdx"] = r.baseIdx;
-				j["ownerSeat"] = r.ownerSeat;
-				rowsJson.append(j);
-			}
+		if (!rowsJson.empty())
 			SharedEcon::hostAlert(_game, "ItemsArrivingState", "", nullptr, -1, {}, {}, false, rowsJson);
-		}
+		if (ia->getRows().empty()) delete ia;
+		else popup(ia);
 	}
 	// Handle Production
 	for (auto* xbase : *_game->getSavedGame()->getBases())
@@ -4293,7 +4339,7 @@ void GeoscapeState::time1Day()
 			if (lookupResearch)
 				addResearchDiaryEntryForBase(lookupResearch, DiscoverySourceType::BASE, xbase, nullptr);
 			// 3c. handle getonefrees (topic+lookup)
-			if ((bonus = saveGame->selectGetOneFree(research)))
+			if ((bonus = saveGame->selectGetOneFree(research, xbase)))
 			{
 				addResearchDiaryEntryForBase(bonus, DiscoverySourceType::FREE_FROM, nullptr, research);
 				saveGame->addFinishedResearch(bonus, mod, xbase);
@@ -4308,7 +4354,7 @@ void GeoscapeState::time1Day()
 			// Note: because different topics may lead to the same lookup
 			const RuleResearch *newResearch = research;
 			std::string name = research->getLookup().empty() ? research->getName() : research->getLookup();
-			if (saveGame->isResearched(name, false))
+			if (saveGame->isResearchedForBase(name, xbase, false))
 			{
 				newResearch = 0;
 			}
@@ -4340,7 +4386,11 @@ void GeoscapeState::time1Day()
 				}
 			}
 			// 3e. handle research complete popup + ufopedia article popups (topic+bonus)
-			popup(new ResearchCompleteState(newResearch, bonus, research, xbase));
+			// In Separate the host simulates every base, but only the owner should
+			// receive that base's completion dialog. The authoritative completion is
+			// still mirrored below to the owner's replica.
+			if (SeparateEcon::showResearchCompletion(_game, xbase))
+				popup(new ResearchCompleteState(newResearch, bonus, research, xbase));
 			// PRD-J04: mirror this completion to SHARED replicas. Carry the exact
 			// discovered topic + the host-selected getOneFree + the popup topic, so
 			// the replica removes the project (freeing scientists) and adds the SAME
@@ -4351,6 +4401,7 @@ void GeoscapeState::time1Day()
 				newResearch ? newResearch->getName() : std::string());
 			// 3f. reset timer
 			timerReset();
+			const bool showLocalResearchAlerts = SeparateEcon::showResearchCompletion(_game, xbase);
 			// 3g. warning if weapon is researched before its clip
 			if (newResearch)
 			{
@@ -4364,7 +4415,8 @@ void GeoscapeState::time1Day()
 						const RuleItem *ammo = item->getPrimaryCompatibleAmmo()->front();
 						if (std::find_if(req.begin(), req.end(), [&](const RuleResearch* r){ return r->getName() == ammo->getType(); }) != req.end() && !saveGame->isResearched(req, true))
 						{
-							popup(new ResearchRequiredState(item));
+							if (showLocalResearchAlerts)
+								popup(new ResearchRequiredState(item));
 							SharedEcon::hostAlert(_game, "ResearchRequiredState", item->getType());
 						}
 					}
@@ -4375,8 +4427,12 @@ void GeoscapeState::time1Day()
 			saveGame->getAvailableResearchProjects(after, mod, xbase);
 			std::vector<RuleResearch *> newPossibleResearch;
 			saveGame->getNewlyAvailableResearchProjects(before, after, newPossibleResearch);
-			popup(new NewPossibleResearchState(xbase, newPossibleResearch));
-			SharedEcon::hostAlert(_game, "NewPossibleResearchState", "", xbase, -1, sharedAlertNames(newPossibleResearch));
+			if (!newPossibleResearch.empty())
+			{
+				if (showLocalResearchAlerts)
+					popup(new NewPossibleResearchState(xbase, newPossibleResearch));
+				SharedEcon::hostAlert(_game, "NewPossibleResearchState", "", xbase, -1, sharedAlertNames(newPossibleResearch));
+			}
 			// 3i. inform about new possible manufacture, purchase, craft and facilities
 			std::vector<RuleManufacture *> newPossibleManufacture;
 			saveGame->getDependableManufacture(newPossibleManufacture, research, mod, xbase);
@@ -4388,7 +4444,8 @@ void GeoscapeState::time1Day()
 			{
 				Collections::sortVector(newPossibleManufacture);
 				Collections::sortVectorMakeUnique(newPossibleManufacture);
-				popup(new NewPossibleManufactureState(xbase, newPossibleManufacture));
+				if (showLocalResearchAlerts)
+					popup(new NewPossibleManufactureState(xbase, newPossibleManufacture));
 				SharedEcon::hostAlert(_game, "NewPossibleManufactureState", "", xbase, -1, sharedAlertNames(newPossibleManufacture));
 			}
 			std::vector<RuleItem *> newPossiblePurchase;
@@ -4401,7 +4458,8 @@ void GeoscapeState::time1Day()
 			{
 				Collections::sortVector(newPossiblePurchase);
 				Collections::sortVectorMakeUnique(newPossiblePurchase);
-				popup(new NewPossiblePurchaseState(xbase, newPossiblePurchase));
+				if (showLocalResearchAlerts)
+					popup(new NewPossiblePurchaseState(xbase, newPossiblePurchase));
 				SharedEcon::hostAlert(_game, "NewPossiblePurchaseState", "", xbase, -1, sharedAlertNames(newPossiblePurchase));
 			}
 			std::vector<RuleCraft *> newPossibleCraft;
@@ -4414,7 +4472,8 @@ void GeoscapeState::time1Day()
 			{
 				Collections::sortVector(newPossibleCraft);
 				Collections::sortVectorMakeUnique(newPossibleCraft);
-				popup(new NewPossibleCraftState(xbase, newPossibleCraft));
+				if (showLocalResearchAlerts)
+					popup(new NewPossibleCraftState(xbase, newPossibleCraft));
 				SharedEcon::hostAlert(_game, "NewPossibleCraftState", "", xbase, -1, sharedAlertNames(newPossibleCraft));
 			}
 			std::vector<RuleBaseFacility *> newPossibleFacilities;
@@ -4427,7 +4486,8 @@ void GeoscapeState::time1Day()
 			{
 				Collections::sortVector(newPossibleFacilities);
 				Collections::sortVectorMakeUnique(newPossibleFacilities);
-				popup(new NewPossibleFacilityState(xbase, _globe, newPossibleFacilities));
+				if (showLocalResearchAlerts)
+					popup(new NewPossibleFacilityState(xbase, _globe, newPossibleFacilities));
 				SharedEcon::hostAlert(_game, "NewPossibleFacilityState", "", xbase, -1, sharedAlertNames(newPossibleFacilities));
 			}
 
@@ -6227,6 +6287,20 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	SavedGame *save = _game->getSavedGame();
 	AlienStrategy &strategy = save->getAlienStrategy();
 	Mod *mod = _game->getMod();
+	std::string missionOwner;
+	GameDifficulty missionDifficulty = save->getDifficulty();
+	if (_game->getCoopMod()->isSeparateCampaign())
+	{
+		missionOwner = save->getSeparateCampaign().nextMissionOwner(save->getCoopPlayers());
+		missionDifficulty = static_cast<GameDifficulty>(
+			save->getSeparateCampaign().getFactionDifficulty(
+				missionOwner, static_cast<int>(missionDifficulty)));
+	}
+	auto missionResearched = [&](const std::string& topic)
+	{
+		return missionOwner.empty() ? save->isResearched(topic)
+			: save->isResearchedForPlayer(topic, missionOwner, false);
+	};
 	int month = _game->getSavedGame()->getMonthsPassed();
 	int currentScore = save->getCurrentScore(month); // _monthsPassed was already increased by 1
 	int performanceBonus = mod->getPerformanceBonus(currentScore);
@@ -6284,14 +6358,14 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				(month < 1 || arcScript->getMaxScore() >= currentScore) &&
 				(month < 1 || arcScript->getMinFunds() <= currentFunds) &&
 				(month < 1 || arcScript->getMaxFunds() >= currentFunds) &&
-				arcScript->getMinDifficulty() <= save->getDifficulty() &&
-				arcScript->getMaxDifficulty() >= save->getDifficulty())
+				arcScript->getMinDifficulty() <= missionDifficulty &&
+				arcScript->getMaxDifficulty() >= missionDifficulty)
 			{
 				// level two condition check: make sure we meet any research requirements, if any.
 				bool triggerHappy = true;
 				for (auto& trigger : arcScript->getResearchTriggers())
 				{
-					triggerHappy = (save->isResearched(trigger.first) == trigger.second);
+					triggerHappy = (missionResearched(trigger.first) == trigger.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -6496,14 +6570,14 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			(month < 1 || command->getMaxScore() >= currentScore) &&
 			(month < 1 || command->getMinFunds() <= currentFunds) &&
 			(month < 1 || command->getMaxFunds() >= currentFunds) &&
-			command->getMinDifficulty() <= save->getDifficulty() &&
-			command->getMaxDifficulty() >= save->getDifficulty())
+			command->getMinDifficulty() <= missionDifficulty &&
+			command->getMaxDifficulty() >= missionDifficulty)
 		{
 			// level two condition check: make sure we meet any research requirements, if any.
 			bool triggerHappy = true;
 			for (auto& triggerResearch : command->getResearchTriggers())
 			{
-				triggerHappy = (save->isResearched(triggerResearch.first) == triggerResearch.second);
+				triggerHappy = (missionResearched(triggerResearch.first) == triggerResearch.second);
 				if (!triggerHappy)
 					break;
 			}
@@ -6650,7 +6724,51 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			if (rngret)
 			{
 				// good news, little command pointer! you're FDA approved! off to the main processing facility with you!
-				success = processCommand(command);
+				std::string commandOwner;
+				if (!missionOwner.empty())
+				{
+					// A normal mission remains common to both players. Ownership is
+					// attached only when this script's difficulty range excludes at
+					// least one configured faction (mods such as Rosigma/XCOM Files use
+					// difficulty as their faction selector).
+					bool factionRestricted = false;
+					for (const auto& playerName : save->getCoopPlayers())
+					{
+						GameDifficulty playerDifficulty = static_cast<GameDifficulty>(
+							save->getSeparateCampaign().getFactionDifficulty(
+								playerName, static_cast<int>(save->getDifficulty())));
+						if (command->getMinDifficulty() > playerDifficulty
+							|| command->getMaxDifficulty() < playerDifficulty)
+						{
+							factionRestricted = true;
+							break;
+						}
+						for (const auto& trigger : command->getResearchTriggers())
+							if (save->isResearchedForPlayer(trigger.first, playerName, false)
+								!= trigger.second)
+							{
+								factionRestricted = true;
+								break;
+							}
+						if (factionRestricted) break;
+					}
+					if (!factionRestricted)
+						for (const auto& trigger : command->getResearchTriggers())
+						{
+							bool first = true;
+							bool expected = false;
+							for (const auto& playerName : save->getCoopPlayers())
+							{
+								bool present = save->getSeparateCampaign().hasFactionResearch(
+									playerName, trigger.first);
+								if (first) { expected = present; first = false; }
+								else if (present != expected) { factionRestricted = true; break; }
+							}
+							if (factionRestricted) break;
+						}
+					if (factionRestricted) commandOwner = missionOwner;
+				}
+				success = processCommand(command, commandOwner);
 			}
 
 		}
@@ -6684,14 +6802,14 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				(month < 1 || eventScript->getMaxScore() >= currentScore) &&
 				(month < 1 || eventScript->getMinFunds() <= currentFunds) &&
 				(month < 1 || eventScript->getMaxFunds() >= currentFunds) &&
-				eventScript->getMinDifficulty() <= save->getDifficulty() &&
-				eventScript->getMaxDifficulty() >= save->getDifficulty())
+				eventScript->getMinDifficulty() <= missionDifficulty &&
+				eventScript->getMaxDifficulty() >= missionDifficulty)
 			{
 				// level two condition check: make sure we meet any research requirements, if any.
 				bool triggerHappy = true;
 				for (auto& trigger : eventScript->getResearchTriggers())
 				{
-					triggerHappy = (save->isResearched(trigger.first) == trigger.second);
+					triggerHappy = (missionResearched(trigger.first) == trigger.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -6841,7 +6959,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			// 4. generate
 			for (auto* eventRules : toBeGenerated)
 			{
-				save->spawnEvent(eventRules);
+				save->spawnEvent(eventRules, missionOwner);
 			}
 		}
 	}
@@ -6942,7 +7060,7 @@ bool GeoscapeState::attemptAlienRaceEvolution(int month, AlienBase* ab) const
  * @param command the directive from which to read information.
  * @return whether the command successfully produced a new mission.
  */
-bool GeoscapeState::processCommand(RuleMissionScript *command)
+bool GeoscapeState::processCommand(RuleMissionScript *command, const std::string& ownerPlayerName)
 {
 	SavedGame *save = _game->getSavedGame();
 	AlienStrategy &strategy = save->getAlienStrategy();
@@ -6989,6 +7107,7 @@ bool GeoscapeState::processCommand(RuleMissionScript *command)
 				//if we're targetting a base, we ignore regions that don't contain bases, simple.
 				for (auto* xbase : *save->getBases())
 				{
+					if (!ownerPlayerName.empty() && !xbase->isOwnedByPlayer(ownerPlayerName)) continue;
 					regionsToKeep.push_back(save->locateRegion(xbase->getLongitude(), xbase->getLatitude())->getRules()->getType());
 				}
 				for (auto regionNameIt = regions.begin(); regionNameIt != regions.end();)
@@ -7169,6 +7288,7 @@ bool GeoscapeState::processCommand(RuleMissionScript *command)
 		std::vector<std::string> regionsMaster;
 		for (auto* xbase : *save->getBases())
 		{
+			if (!ownerPlayerName.empty() && !xbase->isOwnedByPlayer(ownerPlayerName)) continue;
 			regionsMaster.push_back(save->locateRegion(*xbase)->getRules()->getType());
 		}
 		// no defined mission types? then we'll prune the region list to ensure we only have a region that can generate a mission.
@@ -7314,6 +7434,7 @@ bool GeoscapeState::processCommand(RuleMissionScript *command)
 
 	// ok, we've derived all the variables we need to start up our mission, let's do magic to turn those values into a mission
 	AlienMission *mission = new AlienMission(*missionRules);
+	mission->setOwnerPlayerName(ownerPlayerName);
 	mission->setRace(missionRace);
 	mission->setId(_game->getSavedGame()->getId("ALIEN_MISSIONS"));
 	mission->setRegion(targetRegion, *_game->getMod());

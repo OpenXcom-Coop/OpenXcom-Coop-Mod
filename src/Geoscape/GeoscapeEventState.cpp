@@ -53,7 +53,8 @@ namespace OpenXcom
  * Initializes all the elements in the Geoscape Event window.
  * @param geoEvent Pointer to the event.
  */
-GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule) : _eventRule(eventRule)
+GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule,
+	const std::string& ownerPlayerName) : _ownerPlayerName(ownerPlayerName), _eventRule(eventRule)
 {
 	_screen = false;
 
@@ -144,6 +145,13 @@ void GeoscapeEventState::eventLogic()
 
 	SavedGame *save = _game->getSavedGame();
 	Base *hq = save->getBases()->front();
+	if (!_ownerPlayerName.empty())
+		for (Base* candidate : *save->getBases())
+			if (candidate && candidate->isOwnedByPlayer(_ownerPlayerName))
+			{
+				hq = candidate;
+				break;
+			}
 	const Mod *mod = _game->getMod();
 	const RuleEvent &rule = _eventRule;
 
@@ -215,12 +223,14 @@ void GeoscapeEventState::eventLogic()
 		if (spawnedPersonType == "STR_SCIENTIST")
 		{
 			Transfer* t = new Transfer(24);
+			t->setOwnerPlayerName(_ownerPlayerName);
 			t->setScientists(rule.getSpawnedPersons());
 			hq->getTransfers()->push_back(t);
 		}
 		else if (spawnedPersonType == "STR_ENGINEER")
 		{
 			Transfer* t = new Transfer(24);
+			t->setOwnerPlayerName(_ownerPlayerName);
 			t->setEngineers(rule.getSpawnedPersons());
 			hq->getTransfers()->push_back(t);
 		}
@@ -232,6 +242,7 @@ void GeoscapeEventState::eventLogic()
 				for (int i = 0; i < rule.getSpawnedPersons(); ++i)
 				{
 					Transfer* t = new Transfer(24);
+					t->setOwnerPlayerName(_ownerPlayerName);
 					int nationality = _game->getSavedGame()->selectSoldierNationalityByLocation(_game->getMod(), ruleSoldier, city);
 					Soldier* s = mod->genSoldier(save, ruleSoldier, nationality);
 					YAML::YamlRootNodeReader reader(rule.getSpawnedSoldierTemplate(), "(spawned soldier template)");
@@ -283,6 +294,7 @@ void GeoscapeEventState::eventLogic()
 			for (int i = 0; i < ts.second; ++i)
 			{
 				Transfer* t = new Transfer(24);
+				t->setOwnerPlayerName(_ownerPlayerName);
 				int nationality = _game->getSavedGame()->selectSoldierNationalityByLocation(_game->getMod(), ts.first, city);
 				Soldier* s = mod->genSoldier(save, ts.first, nationality);
 				YAML::YamlRootNodeReader reader(rule.getSpawnedSoldierTemplate(), "(spawned soldier template)");
@@ -404,6 +416,7 @@ void GeoscapeEventState::eventLogic()
 		else
 		{
 			Transfer* t = new Transfer(1);
+			t->setOwnerPlayerName(_ownerPlayerName);
 			t->setItems(mod->getItem(ti.first, true), ti.second);
 			hq->getTransfers()->push_back(t);
 		}
@@ -426,6 +439,7 @@ void GeoscapeEventState::eventLogic()
 			// same as buy
 			craft->setStatus("STR_REFUELLING");
 			Transfer* t = new Transfer(1);
+			t->setOwnerPlayerName(_ownerPlayerName);
 			t->setCraft(craft);
 			hq->getTransfers()->push_back(t);
 		}
@@ -485,7 +499,7 @@ void GeoscapeEventState::eventLogic()
 			_researchName = alreadyResearched ? "" : lookupResearch->getName();
 		}
 
-		if (auto* bonus = save->selectGetOneFree(eventResearch))
+		if (auto* bonus = save->selectGetOneFree(eventResearch, hq))
 		{
 			addResearchDiaryEntryForEvent(bonus, DiscoverySourceType::FREE_FROM, nullptr, eventResearch);
 			save->addFinishedResearch(bonus, mod, hq, true);
@@ -569,11 +583,17 @@ void GeoscapeEventState::btnOkClick(Action *)
 
 	if (!_bonusResearchName.empty())
 	{
-		Ufopaedia::openArticle(_game, _bonusResearchName);
+		if (_replicatedResearchNames)
+			Ufopaedia::openReplicatedEventArticle(_game, _bonusResearchName);
+		else
+			Ufopaedia::openArticle(_game, _bonusResearchName);
 	}
 	if (!_researchName.empty())
 	{
-		Ufopaedia::openArticle(_game, _researchName);
+		if (_replicatedResearchNames)
+			Ufopaedia::openReplicatedEventArticle(_game, _researchName);
+		else
+			Ufopaedia::openArticle(_game, _researchName);
 	}
 }
 

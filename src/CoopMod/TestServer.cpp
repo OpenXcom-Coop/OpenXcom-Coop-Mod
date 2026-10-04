@@ -127,6 +127,7 @@
 #include "../Mod/RuleCraftWeapon.h"
 #include "../Mod/RuleCraft.h"
 #include "../Mod/RuleResearch.h"
+#include "../Mod/RuleEvent.h"
 #include "../Mod/RuleManufacture.h"
 #include "../Mod/RuleUfo.h"
 #include "../Menu/NewGameState.h"
@@ -2953,6 +2954,20 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		resp["present"] = connectionTCP::hasCoopFile(key);
 		resp["ok"] = true;
 	}
+	else if (cmd == "pvp_world_state")
+	{
+		const std::string player = req.get("player",
+			_game->getCoopMod()->getCurrentClientName()).asString();
+		resp["player"] = player;
+		resp["present"] = connectionTCP::hasPvpClientWorld(player);
+		resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
+		{
+			std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+			for (const auto& entry : connectionTCP::coopFilesHost)
+				resp["hostKeys"].append(entry.first);
+		}
+		resp["ok"] = true;
+	}
 	else if (cmd == "dump_coop_file")
 	{
 		// Test fixture builder: write an in-memory blob to the user dir
@@ -3056,6 +3071,17 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			// can set it before anything reads it.
 			Options::EnableCoopParallelTurns = req.get("value", false).asBool();
 			resp["value"] = Options::EnableCoopParallelTurns;
+			resp["ok"] = true;
+		}
+		else if (name == "EnableResearchSync")
+		{
+			const bool enabled = req.get("value", true).asBool();
+			Options::EnableResearchSync = enabled;
+			_game->getCoopMod()->_enable_research_sync = enabled;
+			_game->getCoopMod()->waitedResearch.clear();
+			if (_game->getSavedGame() && _game->getCoopMod()->isSeparateCampaign())
+				_game->getSavedGame()->setSeparateResearchSharingEnabled(enabled, _game->getMod());
+			resp["value"] = enabled;
 			resp["ok"] = true;
 		}
 		else
@@ -3837,6 +3863,111 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["damage"] = ufo->getDamage();
 			resp["damageMax"] = ufo->getCraftStats().damageMax;
 			resp["status"] = (int)ufo->getStatus();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "separate_profile_state")
+	{
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+			resp["error"] = "no Separate campaign";
+		else
+		{
+			Json::Value players(Json::arrayValue);
+			for (const auto& entry : sg->getSeparateCampaign().getPlayers())
+			{
+				Json::Value player;
+				player["name"] = entry.first;
+				player["faction"] = entry.second.faction;
+				for (const auto& research : entry.second.completedResearch)
+					player["completedResearch"].append(research);
+				players.append(player);
+			}
+			resp["players"] = players;
+			resp["researchSharingEnabled"] = sg->getSeparateCampaign().isResearchSharingEnabled();
+			resp["differentFactions"] = sg->getSeparateCampaign().haveDifferentFactions();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "separate_profile_set")
+	{
+		SavedGame* sg = _game->getSavedGame();
+		const std::string playerName = req.get("player", "").asString();
+		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+			resp["error"] = "no Separate campaign";
+		else if (std::find(sg->getCoopPlayers().begin(), sg->getCoopPlayers().end(), playerName)
+			== sg->getCoopPlayers().end())
+			resp["error"] = "player is not in the campaign roster";
+		else
+		{
+			SeparateCon& state = sg->getSeparateCampaign();
+			if (req.isMember("faction"))
+				state.setFaction(playerName, req["faction"].asString());
+			if (req.isMember("research"))
+				resp["researchAdded"] = state.addCompletedResearch(playerName, req["research"].asString());
+			if (req.isMember("completedResearch"))
+			{
+				const std::string topic = req["completedResearch"].asString();
+				resp["researchCompleted"] = state.completeResearch(playerName, topic);
+			}
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "separate_profile_roundtrip")
+	{
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+			resp["error"] = "no Separate campaign";
+		else
+		{
+			YAML::YamlRootNodeWriter writer;
+			sg->getSeparateCampaign().save(writer);
+			YAML::YamlString yaml = writer.emit();
+			YAML::YamlRootNodeReader reader(yaml, "separateConHarness", false);
+			SeparateCon restored;
+			restored.load(reader);
+			Json::Value players(Json::arrayValue);
+			for (const auto& entry : restored.getPlayers())
+			{
+				Json::Value player;
+				player["name"] = entry.first;
+				player["faction"] = entry.second.faction;
+				for (const auto& research : entry.second.completedResearch)
+					player["completedResearch"].append(research);
+				players.append(player);
+			}
+			resp["players"] = players;
+			resp["serializedBytes"] = (int)yaml.yaml.size();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "separate_research_check")
+	{
+		SavedGame* sg = _game->getSavedGame();
+		const std::string research = req.get("research", "").asString();
+		const std::string player = req.get("player", "").asString();
+		const std::string baseName = req.get("base", "").asString();
+		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+			resp["error"] = "no Separate campaign";
+		else if (research.empty())
+			resp["error"] = "research is required";
+		else if (!baseName.empty())
+		{
+			Base* base = nullptr;
+			for (auto* candidate : *sg->getBases())
+				if (candidate->getName() == baseName) { base = candidate; break; }
+			if (!base)
+				resp["error"] = "base not found";
+			else
+			{
+				resp["ownerPlayerName"] = base->getOwnerPlayerName();
+				resp["researched"] = sg->isResearchedForBase(research, base, false);
+				resp["ok"] = true;
+			}
+		}
+		else
+		{
+			resp["researched"] = sg->isResearchedForPlayer(research, player, false);
 			resp["ok"] = true;
 		}
 	}
@@ -6499,6 +6630,9 @@ std::string TestServer::execute(const std::string& line)
 				resp["serverOwner"] = connectionTCP::getServerOwner();
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
 				resp["battleOwnerPlayerName"] = bg->getBattleOwnerPlayerName();
+				resp["missionCraftOrBase"] = bg->getMissionCraftOrBase();
+				Base* selectedBase = sg->getSelectedBase();
+				resp["selectedBase"] = selectedBase ? selectedBase->getName() : "";
 				// PRD-P0: the receive gate. updateCoopTask() will only hand a packet to
 				// onTCPMessage() once _coop_task_completed (or one of the per-action
 				// exemptions) says this machine is idle; everything else is parked in the
@@ -7700,7 +7834,9 @@ std::string TestServer::execute(const std::string& line)
 			std::string player = req.get("player", "HostPlayer").asString();
 
 			// campaign when a real campaign save is loaded (same check as HostMenu)
-			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
+			bool campaign = req.isMember("campaign")
+				? req["campaign"].asBool()
+				: (_game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty());
 
 			// Legacy-save migration: an empty host slot is unclaimed - the
 			// re-hosting player claims it (mirrors HostMenu::hostTCPGame)
@@ -7787,7 +7923,9 @@ std::string TestServer::execute(const std::string& line)
 			std::string port = req.get("port", "3000").asString();
 			std::string player = req.get("player", "HostPlayer").asString();
 			std::string password = req.get("password", "lan").asString();
-			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
+			bool campaign = req.isMember("campaign")
+				? req["campaign"].asBool()
+				: (_game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty());
 			if (campaign)
 			{
 				connectionTCP::session.lobbyMode = _game->getSavedGame()->getCoopPlayers().empty() ? 1 : 2;
@@ -8106,7 +8244,9 @@ std::string TestServer::execute(const std::string& line)
 			coop->setCoopSession(false);
 			coop->setPlayerTurn(3);
 			coop->setHostName(player);
-			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
+			bool campaign = req.isMember("campaign")
+				? req["campaign"].asBool()
+				: (_game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty());
 			coop->setCoopCampaign(campaign);
 			coop->connectTCPServer(ipaddr, port);
 			resp["ok"] = true;
@@ -8135,7 +8275,9 @@ std::string TestServer::execute(const std::string& line)
 			coop->setCoopSession(false);
 			coop->setPlayerTurn(3);
 			coop->setHostName(player);
-			bool campaign = _game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty();
+			bool campaign = req.isMember("campaign")
+				? req["campaign"].asBool()
+				: (_game->getSavedGame() && !_game->getSavedGame()->getCountries()->empty());
 			coop->setCoopCampaign(campaign);
 			coop->joinDirectLanUDP(ipaddr, port, localport, player, password);
 			resp["localport"] = localport;
@@ -8193,6 +8335,8 @@ std::string TestServer::execute(const std::string& line)
 			NewGameState* ng = findState<NewGameState>(_game);
 			if (ng)
 			{
+				if (req.isMember("difficulty"))
+					ng->harnessSelectDifficulty(req["difficulty"].asInt());
 				ng->btnOkClick(nullptr);
 				resp["ok"] = true;
 			}
@@ -8519,6 +8663,86 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				inv->btnOkClick(nullptr);
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "separate_faction_mission_state")
+		{
+			SavedGame* sg = _game->getSavedGame();
+			if (!sg)
+				resp["error"] = "no save";
+			else
+			{
+				resp["monthsPassed"] = sg->getMonthsPassed();
+				resp["ending"] = static_cast<int>(sg->getEnding());
+				Json::Value players(Json::arrayValue);
+				for (const auto& entry : sg->getSeparateCampaign().getPlayers())
+				{
+					Json::Value player;
+					player["name"] = entry.first;
+					player["faction"] = entry.second.faction;
+					Json::Value factionResearch(Json::arrayValue);
+					for (const auto& topic : entry.second.factionResearch)
+						factionResearch.append(topic);
+					player["factionResearch"] = factionResearch;
+					Json::Value completed(Json::arrayValue);
+					for (const auto& topic : entry.second.completedResearch)
+						completed.append(topic);
+					player["completedResearch"] = completed;
+					players.append(player);
+				}
+				resp["players"] = players;
+				Json::Value missions(Json::arrayValue);
+				for (const AlienMission* mission : sg->getAlienMissions())
+				{
+					Json::Value item;
+					item["id"] = mission->getId();
+					item["type"] = mission->getRules().getType();
+					item["ownerPlayerName"] = mission->getOwnerPlayerName();
+					missions.append(item);
+				}
+				resp["alienMissions"] = missions;
+				Json::Value sites(Json::arrayValue);
+				for (const MissionSite* site : *sg->getMissionSites())
+				{
+					Json::Value item;
+					item["id"] = site->getId();
+					item["type"] = site->getRules()->getType();
+					item["ownerPlayerName"] = site->getOwnerPlayerName();
+					sites.append(item);
+				}
+				resp["missionSites"] = sites;
+				Json::Value bases(Json::arrayValue);
+				for (const AlienBase* base : *sg->getAlienBases())
+				{
+					Json::Value item;
+					item["id"] = base->getId();
+					item["type"] = base->getDeployment()->getType();
+					item["ownerPlayerName"] = base->getOwnerPlayerName();
+					bases.append(item);
+				}
+				resp["alienBases"] = bases;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "probe_replicated_event_article")
+		{
+			// Runtime regression for Separate event rewards: press the real
+			// GeoscapeEventState OK handler and require it to push ArticleState.
+			// RuleEvent is intentionally retained for the lifetime of this short
+			// harness process because GeoscapeEventState stores it by reference.
+			const auto& articles = _game->getMod()->getUfopaediaList();
+			if (articles.empty())
+				resp["error"] = "mod has no Ufopaedia articles";
+			else
+			{
+				const std::string article = req.get("article", articles.front()).asString();
+				RuleEvent* eventRule = new RuleEvent("STR_COOP_EVENT_ARTICLE_PROBE");
+				GeoscapeEventState* eventState = new GeoscapeEventState(*eventRule);
+				eventState->setReplicatedResearchNames(article, "");
+				_game->pushState(eventState);
+				resp["article"] = article;
+				resp["researchName"] = eventState->getResearchName();
 				resp["ok"] = true;
 			}
 		}
@@ -8873,7 +9097,7 @@ std::string TestServer::execute(const std::string& line)
 					_game, SharedEcon::baseIndex(_game, target), arrived);
 				ItemsArrivingState* popup = new ItemsArrivingState(geo);
 				Json::Value rowsJson(Json::arrayValue);
-				for (const auto& row : popup->getRows())
+				for (const auto& row : popup->getAllRows())
 				{
 					Json::Value j;
 					j["type"] = row.type;
@@ -8882,9 +9106,13 @@ std::string TestServer::execute(const std::string& line)
 					j["base"] = row.base;
 					j["baseIdx"] = row.baseIdx;
 					j["ownerSeat"] = row.ownerSeat;
+					j["ownerPlayerName"] = row.ownerPlayerName;
 					rowsJson.append(j);
 				}
 				resp["rows"] = (int)popup->getRows().size();
+				if (!rowsJson.empty())
+					SharedEcon::hostAlert(_game, "ItemsArrivingState", "", nullptr,
+						-1, {}, {}, false, rowsJson);
 				if (popup->getRows().empty())
 				{
 					delete popup;
@@ -8892,8 +9120,6 @@ std::string TestServer::execute(const std::string& line)
 				else
 				{
 					geo->popup(popup);
-					SharedEcon::hostAlert(_game, "ItemsArrivingState", "", nullptr,
-						-1, {}, {}, false, rowsJson);
 				}
 				resp["remaining"] = (int)target->getTransfers()->size();
 				resp["advanced"] = advanced;
@@ -9472,6 +9698,15 @@ std::string TestServer::execute(const std::string& line)
 		{
 			resp["error"] = "unknown cmd: " + cmd;
 		}
+	}
+
+	// Correlate control requests with their responses. Heavy total conversions
+	// can stall the game thread long enough for an old response to arrive after
+	// the Python harness has moved on; echoing the id lets it discard that stale
+	// response instead of treating it as the result of the next command.
+	if (req.isMember("_requestId"))
+	{
+		resp["_requestId"] = req["_requestId"];
 	}
 
 	Json::FastWriter w;

@@ -32,6 +32,7 @@
 #include "../Mod/RuleCraft.h"
 #include "../Engine/Script.h"
 #include "ResearchDiary.h"
+#include "../CoopMod/SeparateCon.h"
 
 namespace OpenXcom
 {
@@ -175,6 +176,7 @@ private:
 	// SHARED vs SEPARATE economy model (PRD-J01); immutable after campaign start.
 	CoopCampaignType _campaignType;
 	std::vector<std::string> _coopPlayers;
+	SeparateCon _separateCampaign;
 	GameTime *_time;
 	std::vector<std::string> _userNotes;
 	std::vector<std::string> _geoscapeDebugLog;
@@ -292,14 +294,24 @@ private:
 	void migrateSharedSoldierOwnership();
 	/// Locked co-op player list (host first), set at campaign start.
 	const std::vector<std::string> &getCoopPlayers() const { return _coopPlayers; }
-	void setCoopPlayers(const std::vector<std::string> &players) { _coopPlayers = players; }
+	void setCoopPlayers(const std::vector<std::string> &players)
+	{
+		_coopPlayers = players;
+		_separateCampaign.ensurePlayers(_coopPlayers);
+	}
 	void addCoopPlayer(const std::string &name)
 	{
 		for (const auto &p : _coopPlayers)
 			if (p == name)
 				return;
 		_coopPlayers.push_back(name);
+		_separateCampaign.ensurePlayers(_coopPlayers);
 	}
+	SeparateCon& getSeparateCampaign() { return _separateCampaign; }
+	const SeparateCon& getSeparateCampaign() const { return _separateCampaign; }
+	/// Switch Separate between private player profiles and the ordinary global
+	/// research list without losing discoveries made before the switch.
+	void setSeparateResearchSharingEnabled(bool enabled, const Mod *mod);
 	/// Gets the current funds.
 	int64_t getFunds() const;
 	/// Gets the list of funds from previous months.
@@ -381,7 +393,7 @@ private:
 	/// Sets the item as hidden or unhidden
 	void setHiddenPurchaseItemsStatus(const std::string &itemName, bool hidden);
 	/// Selects a "getOneFree" topic for the given research rule.
-	const RuleResearch* selectGetOneFree(const RuleResearch* research);
+	const RuleResearch* selectGetOneFree(const RuleResearch* research, const Base* base = nullptr);
 	/// Remove a research from the "already discovered" list
 	void removeDiscoveredResearch(const RuleResearch *research);
 	/// Add a finished ResearchProject
@@ -444,6 +456,15 @@ private:
 	bool isResearched(const RuleResearch *research, bool considerDebugMode = true) const;
 	/// Gets if a certain list of research topics has been completed.
 	bool isResearched(const std::vector<std::string> &research, bool considerDebugMode = true) const;
+	/// Player-scoped research query for a one-world Separate campaign. Other
+	/// campaign types retain the ordinary global research semantics.
+	bool isResearchedForPlayer(const std::string &research, const std::string &playerName,
+		bool considerDebugMode = true) const;
+	bool isResearchedForPlayer(const std::vector<std::string> &research,
+		const std::string &playerName, bool considerDebugMode = true) const;
+	/// Convenience wrapper using Base::ownerPlayerName as the research owner.
+	bool isResearchedForBase(const std::string &research, const Base *base,
+		bool considerDebugMode = true) const;
 	/// Gets if a certain list of research topics has been completed.
 	bool isResearched(const std::vector<const RuleResearch *> &research, bool considerDebugMode = true, bool skipDisabled = false) const;
 	/// Gets if a certain item has been obtained.
@@ -615,7 +636,8 @@ private:
 	/// Delete the given retaliation mission.
 	void deleteRetaliationMission(AlienMission* am, Base* base);
 	/// Spawn a Geoscape event from the event rules.
-	bool spawnEvent(const RuleEvent* eventRules);
+	bool spawnEvent(const RuleEvent* eventRules,
+		const std::string& ownerPlayerName = std::string());
 	/// Checks if an instant Geoscape event can be spawned.
 	bool canSpawnInstantEvent(const RuleEvent* eventRules);
 	/// Handles research unlocked by successful/failed missions and despawned mission sites.

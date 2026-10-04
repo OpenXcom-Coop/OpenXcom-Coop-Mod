@@ -301,7 +301,16 @@ finally:
 | `test_separate_campaign_soldiers.py` | focused Separate personnel: foreign-base arrival cleanup, owner-prefixed popup, and private Soldier List views |
 | `test_separate_campaign_craft.py` | focused Separate craft: owner-filtered crew icons/list and the two-player 7+7 Skyranger quota |
 | `test_separate_campaign_dogfight.py` | focused Separate interception: locally owned craft rows, concurrent owner-only dogfight windows, and host-authoritative craft/UFO damage sync |
-| `test_separate_campaign_radar.py` | foreign Separate bases detect UFOs using their real facilities |
+| `test_separate_campaign_radar.py` | own and foreign Separate bases have equivalent radar detection rates with identical facilities and UFO distance |
+| `test_separate_campaign_component_contract.py` | SeparateCon player/faction/research save component and build integration |
+| `test_separate_campaign_research_ownership_contract.py` | research is player-name scoped by default and instantly copied only in Shared Research mode |
+| `test_separate_campaign_profiles.py` | live private-default and instant-shared research policies plus faction comparison |
+| `test_separate_campaign_legacy_research_contract.py` | old global Separate discoveries migrate once to the host profile only |
+| `test_separate_campaign_research_query_contract.py` | player/base-scoped research queries with safe solo/Shared fallback |
+| `test_separate_campaign_research_availability_contract.py` | research dependencies, unlocks and repeatable bonuses use the base owner's tree |
+| `test_separate_campaign_research_sharing_option_contract.py` | the single host-authoritative Shared Research toggle is disabled by default |
+| `test_separate_campaign_research_faction_warning_contract.py` | different faction/difficulty selections recommend and apply private research after initial base placement |
+| `test_separate_campaign_research_completion_contract.py` | completed research is recorded for the base owner and mirrored through the authoritative completion packet |
 | `test_separate_campaign_facility_damage.py` | host-authoritative facility damage produces the same final layout on both peers |
 | `test_separate_campaign_mission.py` | owner-only landing prompt and crash-free client YES battle start |
 | `test_separate_single_world.py` | full end-to-end Separate integration, including save/resume; retained as the slower aggregate regression |

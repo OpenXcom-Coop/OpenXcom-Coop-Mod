@@ -73,6 +73,7 @@ void AlienMission::load(const YAML::YamlNodeReader& reader, SavedGame &game, con
 {
 	reader.tryRead("region", _region);
 	reader.tryRead("race", _race);
+	reader.tryRead("ownerPlayerName", _ownerPlayerName);
 	reader.tryRead("nextWave", _nextWave);
 	reader.tryRead("nextUfoCounter", _nextUfoCounter);
 	reader.tryRead("spawnCountdown", _spawnCountdown);
@@ -143,6 +144,8 @@ void AlienMission::save(YAML::YamlNodeWriter writer) const
 	writer.write("type", _rule.getType());
 	writer.write("region", _region);
 	writer.write("race", _race);
+	if (!_ownerPlayerName.empty())
+		writer.write("ownerPlayerName", _ownerPlayerName);
 	writer.write("nextWave", _nextWave);
 	writer.write("nextUfoCounter", _nextUfoCounter);
 	writer.write("spawnCountdown", _spawnCountdown);
@@ -1202,6 +1205,7 @@ AlienBase *AlienMission::spawnAlienBase(Country *pactCountry, Game &engine, std:
 
 	SavedGame &game = *engine.getSavedGame();
 	AlienBase *ab = new AlienBase(deployment, game.getMonthsPassed());
+	ab->setOwnerPlayerName(_ownerPlayerName);
 	if (pactCountry)
 	{
 		ab->setPactCountry(pactCountry->getRules()->getType());
@@ -1505,6 +1509,7 @@ MissionSite *AlienMission::spawnMissionSite(SavedGame &game, const Mod &mod, con
 	if (deployment)
 	{
 		MissionSite *missionSite = new MissionSite(&_rule, deployment, alienCustomDeploy);
+		missionSite->setOwnerPlayerName(_ownerPlayerName);
 		missionSite->setLongitude(RNG::generate(area.lonMin, area.lonMax));
 		missionSite->setLatitude(RNG::generate(area.latMin, area.latMax));
 		missionSite->setId(game.getId(deployment->getMarkerName()));

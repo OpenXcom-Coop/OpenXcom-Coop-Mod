@@ -436,6 +436,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 	if (!save || !mod) return;
 	auto& limitLog = save->getMonthlyPurchaseLimitLog();
 	const bool host = connectionTCP::getHost();
+	const std::string transferOwner = connectionTCP::seatName(seat);
 
 	Json::Value& items = payload["items"];
 	if (!items.isArray()) return;
@@ -457,6 +458,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 			if (!r) break;
 			if (r->getMonthlyBuyLimit() > 0) limitLog[r->getType()] += qty;
 			Transfer* t = new Transfer(r->getTransferTime());
+			t->setOwnerPlayerName(transferOwner);
 			t->setItems(r, qty);
 			base->getTransfers()->push_back(t);
 			break;
@@ -464,6 +466,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 		case TRANSFER_SCIENTIST:
 		{
 			Transfer* t = new Transfer(mod->getPersonnelTime());
+			t->setOwnerPlayerName(transferOwner);
 			t->setScientists(qty);
 			base->getTransfers()->push_back(t);
 			break;
@@ -471,6 +474,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 		case TRANSFER_ENGINEER:
 		{
 			Transfer* t = new Transfer(mod->getPersonnelTime());
+			t->setOwnerPlayerName(transferOwner);
 			t->setEngineers(qty);
 			base->getTransfers()->push_back(t);
 			break;
@@ -483,6 +487,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 			for (int c = 0; c < qty; ++c)
 			{
 				Transfer* t = new Transfer(r->getTransferTime());
+				t->setOwnerPlayerName(transferOwner);
 				// getId() advances the per-type counter identically on host and
 				// replica (same start + same shared_apply on both), so no id needs
 				// to travel in the packet and the counters stay in lock-step.
@@ -521,6 +526,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 					}
 					soldier->setOwnerPlayerId(seat); // PRD-J05: purchaser owns the hire
 					Transfer* t = new Transfer(time);
+					t->setOwnerPlayerName(transferOwner);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
 					serialized.append(serializeSoldier(game, soldier));
@@ -538,6 +544,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 					if (!soldier) continue;
 					soldier->setOwnerPlayerId(seat); // belt-and-braces (also in YAML)
 					Transfer* t = new Transfer(time);
+					t->setOwnerPlayerName(transferOwner);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
 				}
@@ -819,13 +826,14 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 	return true;
 }
 
-void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*/)
+void transferApply(Game* game, Json::Value& payload, Base* fromBase, int seat)
 {
 	if (!fromBase) return;
 	Mod* mod = game->getMod();
 	if (!mod) return;
 	Base* toBase = resolveBase(game, payload.get("toBaseId", -1).asInt());
 	if (!toBase) return;
+	const std::string transferOwner = connectionTCP::seatName(seat);
 
 	double distance = baseDistance(fromBase, toBase);
 	int time = (int)floor(6 + distance / 10.0);
@@ -839,6 +847,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 			if (!r || qty <= 0) continue;
 			fromBase->getStorageItems()->removeItem(r, qty);
 			Transfer* t = new Transfer(time);
+			t->setOwnerPlayerName(transferOwner);
 			t->setItems(r, qty);
 			toBase->getTransfers()->push_back(t);
 		}
@@ -858,6 +867,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 					s->setTraining(false);
 					// Ownership unchanged by a transfer (PRD-J05).
 					Transfer* t = new Transfer(time);
+					t->setOwnerPlayerName(connectionTCP::seatName(s->getOwnerPlayerId()));
 					t->setSoldier(s);
 					toBase->getTransfers()->push_back(t);
 					fromBase->getSoldiers()->erase(it);
@@ -882,6 +892,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 					if (s->isInTraining()) s->setReturnToTrainingWhenHealed(true);
 					s->setTraining(false);
 					Transfer* t = new Transfer(time);
+					t->setOwnerPlayerName(connectionTCP::seatName(s->getOwnerPlayerId()));
 					t->setSoldier(s);
 					toBase->getTransfers()->push_back(t);
 					it = fromBase->getSoldiers()->erase(it);
@@ -890,6 +901,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 			}
 			fromBase->removeCraft(craft, false);
 			Transfer* t = new Transfer(time);
+			t->setOwnerPlayerName(transferOwner);
 			t->setCraft(craft);
 			toBase->getTransfers()->push_back(t);
 		}
@@ -900,6 +912,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 	{
 		fromBase->setScientists(fromBase->getScientists() - sci);
 		Transfer* t = new Transfer(time);
+		t->setOwnerPlayerName(transferOwner);
 		t->setScientists(sci);
 		toBase->getTransfers()->push_back(t);
 	}
@@ -907,6 +920,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 	{
 		fromBase->setEngineers(fromBase->getEngineers() - eng);
 		Transfer* t = new Transfer(time);
+		t->setOwnerPlayerName(transferOwner);
 		t->setEngineers(eng);
 		toBase->getTransfers()->push_back(t);
 	}
@@ -970,7 +984,10 @@ void resStartApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	base->addResearch(proj); // 0 scientists (allocation is a separate res_alloc)
 	// Consume the needed item exactly as the vanilla start does (deterministic).
 	if (rule->needItem() && rule->destroyItem())
-		base->getStorageItems()->removeItem(rule->getNeededItem(), 1);
+	{
+		if (!SeparateEcon::consumeSharedResearchItem(game, base, rule))
+			base->getStorageItems()->removeItem(rule->getNeededItem(), 1);
+	}
 }
 
 // res_alloc payload: { project:<ruleName>, assigned:<absolute int> }. ABSOLUTE
@@ -2326,6 +2343,7 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	const std::string cls = payload.get("cls", "").asString();
 	const std::string msg = payload.get("msg", "").asString();
 
+
 	std::vector<std::string> names;
 	const Json::Value& jn = payload["names"];
 	for (Json::ArrayIndex i = 0; i < jn.size(); ++i) names.push_back(jn[i].asString());
@@ -2334,6 +2352,15 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	// need one but were raised without a meaningful index.
 	if (!base && !game->getSavedGame()->getBases()->empty())
 		base = game->getSavedGame()->getBases()->front();
+
+	const bool researchUnlockAlert = cls == "ResearchRequiredState"
+		|| cls == "NewPossibleResearchState"
+		|| cls == "NewPossibleManufactureState"
+		|| cls == "NewPossiblePurchaseState"
+		|| cls == "NewPossibleCraftState"
+		|| cls == "NewPossibleFacilityState";
+	if (researchUnlockAlert && !SeparateEcon::showResearchCompletion(game, base))
+		return;
 
 	if (cls == "UfoLostState")
 	{
@@ -2368,9 +2395,12 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 				row.base = jr[i].get("base", "").asString();
 				row.baseIdx = jr[i].get("baseIdx", -1).asInt();
 				row.ownerSeat = jr[i].get("ownerSeat", -1).asInt();
-				rows.push_back(row);
+				row.ownerPlayerName = jr[i].get("ownerPlayerName", "").asString();
+				if (row.ownerPlayerName.empty() || !game->getCoopMod()->isSeparateCampaign()
+					|| row.ownerPlayerName == connectionTCP::seatName(connectionTCP::localSeat()))
+					rows.push_back(row);
 			}
-			gs->popup(new ItemsArrivingState(gs, rows));
+			if (!rows.empty()) gs->popup(new ItemsArrivingState(gs, rows));
 		}
 	}
 	else if (cls == "ResearchRequiredState")
@@ -2478,7 +2508,8 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	// Mirror the host popup (coop=true -> the ctor does NOT re-broadcast).
 	const std::string nrName = payload.get("newResearch", "").asString();
 	const RuleResearch* newResearch = nrName.empty() ? nullptr : mod->getResearch(nrName, false);
-	game->pushState(new ResearchCompleteState(newResearch, bonus, research, base, true));
+	if (SeparateEcon::showResearchCompletion(game, base))
+		game->pushState(new ResearchCompleteState(newResearch, bonus, research, base, true));
 }
 
 // fac_done payload: { x, y, type }.
@@ -3469,7 +3500,7 @@ void hostAlienBaseFound(Game* game, AlienBase* alienBase)
 
 void hostAlert(Game* game, const std::string& cls, const std::string& msg,
                Base* base, int craftId, const std::vector<std::string>& names,
-               const std::vector<int>& ids, bool flag, const Json::Value& rows)
+			   const std::vector<int>& ids, bool flag, const Json::Value& rows)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;

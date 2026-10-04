@@ -6,15 +6,23 @@
 #include "../Engine/State.h"
 #include "../Geoscape/ConfirmLandingState.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/GeoscapeEventState.h"
 #include "../Geoscape/ConfirmCydoniaState.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/BaseFacility.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/ItemContainer.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Ufo.h"
+#include "../Savegame/AlienMission.h"
+#include "../Savegame/AlienBase.h"
+#include "../Savegame/MissionSite.h"
 #include "../Mod/RuleBaseFacility.h"
 #include "../Mod/RuleCraft.h"
+#include "../Mod/RuleEvent.h"
+#include "../Mod/RuleResearch.h"
+#include "../Mod/Mod.h"
 #include "../Mod/Armor.h"
 
 #include <algorithm>
@@ -68,6 +76,92 @@ Json::Value craftMessage(const char* state, Game* game, Craft* craft)
 
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 {
+	if (state == "separate_geoscape_event")
+	{
+		if (game && game->getCoopMod() && !game->getCoopMod()->getServerOwner()
+			&& game->getSavedGame() && game->getMod())
+		{
+			// The world stream replaces SavedGame, while this option lives in the
+			// multiplayer session.  Keep both policy sources aligned before applying
+			// an event so live play behaves exactly like the same save after reload.
+			if (game->getSavedGame()->getSeparateCampaign().isResearchSharingEnabled()
+				!= game->getCoopMod()->_enable_research_sync)
+			{
+				game->getSavedGame()->setSeparateResearchSharingEnabled(
+					game->getCoopMod()->_enable_research_sync, game->getMod());
+			}
+			// The host already executed eventLogic and resolved any random research.
+			// Adopt its canonical Shared Research list before constructing the event
+			// state, so the replica cannot select a different event reward.
+			Base* researchBase = nullptr;
+			for (Base* candidate : *game->getSavedGame()->getBases())
+				if (candidate && !candidate->_isForeignBase)
+				{
+					researchBase = candidate;
+					break;
+				}
+			if (!researchBase && !game->getSavedGame()->getBases()->empty())
+				researchBase = game->getSavedGame()->getBases()->front();
+
+			std::string adoptedArticle;
+			std::vector<const RuleResearch*> adoptedResearch;
+			const Json::Value& discovered = obj["discoveredResearch"];
+			for (Json::ArrayIndex i = 0; i < discovered.size(); ++i)
+			{
+				const std::string name = discovered[i].asString();
+				if (!game->getSavedGame()->isResearched(name, false))
+					if (RuleResearch* rule = game->getMod()->getResearch(name, false))
+					{
+						adoptedArticle = rule->getLookup().empty()
+							? rule->getName() : rule->getLookup();
+						game->getSavedGame()->addFinishedResearch(
+							rule, game->getMod(), researchBase, true);
+						adoptedResearch.push_back(rule);
+					}
+			}
+			// Shared Campaign reaches this path through GeoscapeEventState::eventLogic,
+			// which applies the primary research side effects after discovering the
+			// event-selected topic.  Separate Campaign adopts the host's resolved
+			// discovery snapshot first to avoid a second RNG roll, so eventLogic sees
+			// those topics as already researched and deliberately skips that block.
+			// Apply the same unlock chain explicitly for only the newly adopted topics.
+			// This includes spawned items/events and custom counters used by large mods
+			// to expose follow-up projects (for example XCOM Files' Secret Files).
+			if (researchBase && !adoptedResearch.empty())
+				game->getSavedGame()->handlePrimaryResearchSideEffects(
+					adoptedResearch, game->getMod(), researchBase);
+			if (RuleEvent* eventRule = game->getMod()->getEvent(
+				obj.get("event", "").asString(), false))
+				if (GeoscapeState* gs = geo(game))
+				{
+					const std::string owner = obj.get("ownerPlayerName", "").asString();
+					GeoscapeEventState* eventState = new GeoscapeEventState(*eventRule, owner);
+					std::string article = obj.get("researchName", "").asString();
+					if (article.empty()) article = adoptedArticle;
+					eventState->setReplicatedResearchNames(
+						article,
+						obj.get("bonusResearchName", "").asString());
+					if (owner.empty() || owner == connectionTCP::seatName(connectionTCP::localSeat()))
+						gs->popup(eventState);
+					else
+						delete eventState;
+				}
+		}
+		return true;
+	}
+	if (state == "separate_apply")
+	{
+		// ownerPlayerName is the persistent Separate authority; _isForeignBase is
+		// only a local presentation/permission cache.  A streamed or resumed world
+		// may have been loaded before this process knew its final seat, so refresh
+		// that cache before SharedEcon applies a host result.  In particular this
+		// prevents a host-owned research_done from opening a completion popup on the
+		// client.  Returning false intentionally passes the packet to the generic
+		// validated command engine after the Separate preparation step.
+		if (game && game->getCoopMod())
+			game->getCoopMod()->refreshSeparateBaseOwnership();
+		return false;
+	}
 	if (state == "separate_cydonia_request")
 	{
 		if (game && game->getCoopMod() && game->getCoopMod()->getServerOwner())
@@ -107,6 +201,83 @@ bool ownsCraft(Game* game, const Craft* craft)
 	// that derivation has already completed; re-reading seatName here caused the
 	// rightful client to reject its landing prompt.
 	return !craft->getBase()->_isForeignBase;
+}
+
+std::string missionTargetOwner(const Target* target)
+{
+	if (!target) return std::string();
+	std::string owner;
+	if (const Ufo* ufo = dynamic_cast<const Ufo*>(target))
+	{
+		if (ufo->getMission()) owner = ufo->getMission()->getOwnerPlayerName();
+	}
+	else if (const MissionSite* site = dynamic_cast<const MissionSite*>(target))
+	{
+		owner = site->getOwnerPlayerName();
+	}
+	else if (const AlienBase* base = dynamic_cast<const AlienBase*>(target))
+	{
+		owner = base->getOwnerPlayerName();
+	}
+	return owner;
+}
+
+bool showMissionTargetOwner(Game* game)
+{
+	return game && game->getSavedGame() && game->getCoopMod()
+		&& game->getCoopMod()->isSeparateCampaign()
+		&& game->getSavedGame()->getSeparateCampaign().haveDifferentFactions();
+}
+
+bool ownsMissionTarget(Game* game, const Target* target)
+{
+	if (!game || !target || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign()) return true;
+	const std::string owner = missionTargetOwner(target);
+	if (owner.empty()) return true;
+	return owner == connectionTCP::seatName(connectionTCP::localSeat());
+}
+
+bool showResearchCompletion(Game* game, const Base* base)
+{
+	if (!game || !base || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign())
+		return true;
+	// The multiplayer option is the campaign policy source. When research is
+	// shared, a completed topic belongs to both player profiles and both players
+	// receive the same completion dialog as Shared Campaign. In private mode the
+	// host still simulates every base, but only that base's owner is notified.
+	return game->getCoopMod()->_enable_research_sync || !base->_isForeignBase;
+}
+
+bool consumeSharedResearchItem(Game* game, Base* projectBase,
+	const RuleResearch* research)
+{
+	if (!game || !projectBase || !research || !research->needItem()
+		|| !research->destroyItem())
+		return false;
+
+	SavedGame* save = game->getSavedGame();
+	if (!save) return false;
+
+	if (game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+		&& game->getCoopMod()->_enable_research_sync)
+	{
+		for (Base* source : *save->getBases())
+			if (source->getStorageItems()->getItem(research->getNeededItem()) > 0)
+			{
+				source->getStorageItems()->removeItem(research->getNeededItem(), 1);
+				return true;
+			}
+		return false;
+	}
+
+	if (projectBase->getStorageItems()->getItem(research->getNeededItem()) > 0)
+	{
+		projectBase->getStorageItems()->removeItem(research->getNeededItem(), 1);
+		return true;
+	}
+	return false;
 }
 
 bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
@@ -279,6 +450,38 @@ void requestCydonia(Game* game, Craft* craft)
 	Json::Value msg = craftMessage("separate_cydonia_request", game, craft);
 	if (game->getCoopMod()->getServerOwner()) onMessage(game, "separate_cydonia_request", msg);
 	else game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+}
+
+void hostGeoscapeEvent(Game* game, const std::string& eventName,
+	const std::string& researchName, const std::string& bonusResearchName,
+	const std::string& ownerPlayerName)
+{
+	if (!game || eventName.empty() || !game->getCoopMod()
+		|| !game->getCoopMod()->getServerOwner() || !game->getSavedGame()
+		|| !game->getCoopMod()->isSeparateCampaign())
+		return;
+	Json::Value msg;
+	msg["state"] = "separate_geoscape_event";
+	msg["event"] = eventName;
+	msg["ownerPlayerName"] = ownerPlayerName;
+	std::string resolvedResearchName = researchName;
+	if (resolvedResearchName.empty() && game->getMod())
+		if (const RuleEvent* eventRule = game->getMod()->getEvent(eventName, false))
+			for (const RuleResearch* rule : eventRule->getResearchList())
+				if (rule && game->getSavedGame()->isResearched(rule, false))
+				{
+					resolvedResearchName = rule->getLookup().empty()
+						? rule->getName() : rule->getLookup();
+					break;
+				}
+	msg["researchName"] = resolvedResearchName;
+	msg["bonusResearchName"] = bonusResearchName;
+	Json::Value discovered(Json::arrayValue);
+	if (game->getCoopMod()->_enable_research_sync)
+		for (const RuleResearch* rule : game->getSavedGame()->getDiscoveredResearch())
+			if (rule) discovered.append(rule->getName());
+	msg["discoveredResearch"] = discovered;
+	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
 }
 }
 }

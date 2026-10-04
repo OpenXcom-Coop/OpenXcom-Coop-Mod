@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <map>
+#include <string>
 #include "../Engine/State.h"
 
 namespace OpenXcom
@@ -46,17 +47,25 @@ private:
 	std::map<std::string, int> _itemsRemoved;
 	std::string _researchName;
 	std::string _bonusResearchName;
+	bool _replicatedResearchNames = false;
+	std::string _ownerPlayerName;
 	const RuleEvent &_eventRule;
 
 	/// Helper performing event logic.
 	void eventLogic();
 public:
 	/// Creates the GeoscapeEventState.
-	GeoscapeEventState(const RuleEvent& eventRule);
+	GeoscapeEventState(const RuleEvent& eventRule,
+		const std::string& ownerPlayerName = std::string());
 	/// Cleans up the GeoscapeEventState.
 	~GeoscapeEventState();
 	/// Initializes the state.
 	void init() override;
+	const std::string& getResearchName() const { return _researchName; }
+	const std::string& getBonusResearchName() const { return _bonusResearchName; }
+	/// Use the authoritative host's resolved event rewards on a Separate replica.
+	void setReplicatedResearchNames(const std::string& research,
+		const std::string& bonus) { _researchName = research; _bonusResearchName = bonus; _replicatedResearchNames = true; }
 	/// Handler for clicking the OK button.
 	void btnOkClick(Action *action);
 	/// Handler for clicking the ItemsArriving button.

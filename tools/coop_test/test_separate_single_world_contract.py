@@ -56,9 +56,12 @@ def main():
     assert "isSeparateCampaign()" in broker
     assert "getServerOwner()" in broker
 
-    assert 'state == "separate_land_prompt"' in separate
-    assert 'state == "separate_land_reply"' in separate
-    assert 'state == "separate_land_close"' in separate
+    assert 'submitLocalCmd(game, "land_prompt"' in separate
+    assert 'submitLocalCmd(game, "land_reply"' in separate
+    assert 'submitLocalCmd(game, "land_close"' in separate
+    assert '"separate_land_prompt"' not in separate
+    assert '"separate_land_reply"' not in separate
+    assert '"separate_land_close"' not in separate
     assert '"shared_cmd"' not in separate and '"shared_apply"' not in separate
 
     # Separate has its own public protocol names even though the validated
@@ -122,7 +125,7 @@ def main():
     assert "bootstrapProgressPacket" in tcp
     assert "void connectionTCP::sendInitialSeparateBaseToHost()" in tcp
     assert '"separate_initial_base_transfer"' in tcp
-    assert "campaignBootstrap ? !base->_coopIcon : !base->_isForeignBase" in tcp
+    assert "if (!base->_coopIcon)" in tcp
     assert "base->_isForeignBase = !base->isOwnedByPlayer(" in tcp
     assert "sendInitialSeparateBaseToHost();" in source("src/Geoscape/BaseNameState.cpp")
     assert "!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())" in save_ui

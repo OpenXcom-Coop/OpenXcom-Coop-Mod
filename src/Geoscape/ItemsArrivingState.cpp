@@ -126,7 +126,10 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 			Transfer* transfer = (*transferIt);
 			if (transfer->getHours() <= 0)
 			{
-				_base = xbase;
+				const std::string transferOwner = transfer->getOwnerPlayerName();
+				const bool showLocally = transferOwner.empty()
+					|| !_game->getCoopMod()->isSeparateCampaign()
+					|| transferOwner == connectionTCP::seatName(connectionTCP::localSeat());
 
 				// Check if we have an automated use for an item
 				if (transfer->getType() == TRANSFER_ITEM)
@@ -152,8 +155,14 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 				row.baseIdx = baseIdx;
 				row.ownerSeat = (transfer->getType() == TRANSFER_SOLDIER && transfer->getSoldier())
 					? transfer->getSoldier()->getOwnerPlayerId() : -1;
-				_rows.push_back(row);
-				_lstTransfers->addRow(3, formatRow(row).c_str(), ss.str().c_str(), xbase->getName().c_str());
+				row.ownerPlayerName = transferOwner;
+				_allRows.push_back(row);
+				if (showLocally)
+				{
+					if (!_base) _base = xbase;
+					_rows.push_back(row);
+					_lstTransfers->addRow(3, formatRow(row).c_str(), ss.str().c_str(), xbase->getName().c_str());
+				}
 				delete transfer;
 				transferIt = xbase->getTransfers()->erase(transferIt);
 			}
@@ -178,6 +187,10 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state, const std::vector<A
 
 	for (const ArrivalRow& r : rows)
 	{
+		_allRows.push_back(r);
+		if (!r.ownerPlayerName.empty() && _game->getCoopMod()->isSeparateCampaign()
+			&& r.ownerPlayerName != connectionTCP::seatName(connectionTCP::localSeat()))
+			continue;
 		_rows.push_back(r);
 		std::ostringstream ss;
 		ss << r.qty;

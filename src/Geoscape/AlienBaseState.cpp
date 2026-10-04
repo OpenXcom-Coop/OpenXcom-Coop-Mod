@@ -32,6 +32,7 @@
 #include "../Mod/RuleCountry.h"
 #include "../Savegame/AlienBase.h"
 #include "../Engine/Options.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -101,7 +102,14 @@ AlienBaseState::AlienBaseState(AlienBase *base, GeoscapeState *state) : _state(s
 	{
 		location = tr("STR_UNKNOWN");
 	}
-	_txtTitle->setText(tr("STR_XCOM_AGENTS_HAVE_LOCATED_AN_ALIEN_BASE_IN_REGION").arg(location));
+	std::string title = tr("STR_XCOM_AGENTS_HAVE_LOCATED_AN_ALIEN_BASE_IN_REGION").arg(location);
+	if (SeparateEcon::showMissionTargetOwner(_game))
+	{
+		const std::string owner = SeparateEcon::missionTargetOwner(_base);
+		title += "\n" + static_cast<std::string>(tr("STR_COOP_MISSION_OWNER")
+			.arg(owner.empty() ? static_cast<std::string>(tr("STR_COOP_SHARED")) : owner));
+	}
+	_txtTitle->setText(title);
 }
 
 /**

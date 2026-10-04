@@ -17,7 +17,9 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "SelectDestinationState.h"
+#include <algorithm>
 #include <cmath>
+#include "../CoopMod/connectionTCP.h"
 #include "../Engine/Game.h"
 #include "../Engine/Screen.h"
 #include "../Engine/Action.h"
@@ -29,6 +31,7 @@
 #include "../Interface/TextButton.h"
 #include "../Savegame/Waypoint.h"
 #include "MultipleTargetsState.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Craft.h"
 #include "../Mod/RuleCraft.h"

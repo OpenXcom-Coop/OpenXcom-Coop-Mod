@@ -34,6 +34,10 @@
 #include "../Engine/Unicode.h"
 #include "../Savegame/AlienMission.h"
 #include "InterceptState.h"
+#include "CraftErrorState.h"
+#include "../Menu/ErrorMessageState.h"
+#include "../Mod/RuleInterface.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Mod/RuleCraft.h"
 
 #include "../Savegame/MissionSite.h"
@@ -160,14 +164,20 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 	_btnCancel->onKeyboardPress((ActionHandler)&UfoDetectedState::toggleCancel, SDLK_RCTRL);
 	_btnCancel->onKeyboardRelease((ActionHandler)&UfoDetectedState::toggleCancel, SDLK_RCTRL);
 
+	std::string detectedText;
 	if (detected)
 	{
-		_txtDetected->setText(tr("STR_DETECTED"));
+		detectedText = tr("STR_DETECTED");
 	}
-	else
+	if (SeparateEcon::showMissionTargetOwner(_game))
 	{
-		_txtDetected->setText("");
+		const std::string owner = SeparateEcon::missionTargetOwner(_ufo);
+		if (!detectedText.empty()) detectedText += " - ";
+		detectedText += tr("STR_COOP_MISSION_OWNER")
+			.arg(owner.empty() ? static_cast<std::string>(tr("STR_COOP_SHARED")) : owner);
+		_txtDetected->setWidth(207);
 	}
+	_txtDetected->setText(detectedText);
 
 	_txtHyperwave->setAlign(ALIGN_CENTER);
 	_txtHyperwave->setWordWrap(true);
@@ -269,6 +279,16 @@ UfoDetectedState::~UfoDetectedState()
  */
 void UfoDetectedState::btnInterceptClick(Action *)
 {
+	if (!SeparateEcon::ownsMissionTarget(_game, _ufo))
+	{
+		const RuleInterface* interface = _game->getMod()->getInterface("geoscape");
+		_game->pushState(new ErrorMessageState(
+			tr("STR_COOP_MISSION_BELONGS_TO_PLAYER").arg(
+				SeparateEcon::missionTargetOwner(_ufo)), _palette,
+			interface->getElement("errorMessage")->color, "BACK13.SCR",
+			interface->getElement("errorPalette")->color));
+		return;
+	}
 	_state->timerReset();
 	_state->getGlobe()->center(_ufo->getLongitude(), _ufo->getLatitude());
 	_game->pushState(new InterceptState(_state->getGlobe(), false, 0, _ufo));
