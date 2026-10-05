@@ -38,6 +38,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
+#include "../CoopMod/SharedEcon.h" // coop W2-H16c
 
 namespace OpenXcom
 {
@@ -435,6 +436,7 @@ void SoldierTransformationState::btnCancelClick(Action *action)
  */
 void SoldierTransformationState::btnStartClick(Action *action)
 {
+	if (SharedEcon::submitSoldierTransform(_game, _base, _transformationRule->getName(), _sourceSoldier, _edtSoldier->getText())) { _game->popState(); return; } // coop W2-H16c (S-12): SHARED - the host runs it for both worlds
 	// Pay upfront, no refunds
 	_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - _transformationRule->getCost());
 

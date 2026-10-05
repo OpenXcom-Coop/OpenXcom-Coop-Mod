@@ -45,6 +45,9 @@ private:
 	bool _noTransformations;
 	Soldier *_soldier;
 	std::vector<Soldier*> *_list;
+	int _coopShownId = -1; // coop W2-H16c (Q4): the soldier id init() showed
+	/// coop W2-H16c (Q4): see SoldierInfoState.cpp.
+	bool coopRecheckSoldier();
 
 	Surface *_bg;
 	InteractiveSurface *_rank;
@@ -65,6 +68,8 @@ public:
 	~SoldierInfoState();
 	/// Updates the soldier info.
 	void init() override;
+	/// coop W2-H16c (Q4): re-reads a soldier a shared change replaced or removed.
+	void think() override;
 	/// Handles keypresses.
 	void handle(Action* action) override;
 	/// Set the soldier Id.
