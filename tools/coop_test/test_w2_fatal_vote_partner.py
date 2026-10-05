@@ -124,8 +124,9 @@ def v9_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
             f.append(f"{who} debrief_state shown/onTop/displayOnly {deb.get('shown')}/{deb.get('onTop')}/"
                      f"{deb.get('displayOnly')} (want True/True/{disp})")
     for k in tbe.DEBRIEF_FIELDS:
-        if cdeb.get(k) != hdeb.get(k):
-            f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r}")
+        if tbe.debrief_view(cdeb).get(k) != tbe.debrief_view(hdeb).get(k):
+            f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r} "
+                     f"(page-2 prefixes stripped, AUD-A07)")
     return f + extra
 
 

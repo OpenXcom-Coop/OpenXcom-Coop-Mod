@@ -165,7 +165,7 @@ from test_w2_prebattle_equip import (SEED_MAP, MAP_FP, C_IDS, H_IDS, PILE, COOP_
                                      finish, drained, tail_fails, ok_press, SDLK_RETURN, CLICK_WAIT_S, BARRIER_WAIT_S)
 from test_w2_delta_items import items_by_id
 from test_w2_battle_end import (H_BUCKETS, DEBRIEF_WIDGETS, DEBRIEF_FIELDS, CLIENT_LEAVE_S, HOST_HOLD_S, verdicts,
-                                tally)
+                                tally, debrief_view)
 
 PORT_E1 = "48837"                  # Boot E1's lobby port (unused by every other test file)
 PORT_E2 = "48838"                  # Boot E2's lobby port (unused by every other test file)
@@ -604,8 +604,8 @@ def ending_client(host, client, row, ev, base, host_ok=True):
     if cdeb.get("widgets") != DEBRIEF_WIDGETS:
         fails.append(f"{row}: client debrief_state.widgets={cdeb.get('widgets')} (want {DEBRIEF_WIDGETS})")
     for k in DEBRIEF_FIELDS:
-        if cdeb.get(k) != hdeb.get(k):
-            fails.append(f"{row}: client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r}")
+        if debrief_view(cdeb).get(k) != debrief_view(hdeb).get(k):
+            fails.append(f"{row}: client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r} (page-2 prefixes stripped, AUD-A07)")
     return fails
 
 
