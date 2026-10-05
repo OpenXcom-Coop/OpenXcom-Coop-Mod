@@ -9049,11 +9049,14 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// W2-P7 S-C-D2.1 (P7-7 PR-35): also a top ManageAlienContainmentState - 5 columns (the amount is column 3,
 		// ManageAlienContainmentState::updateStrings), its OK is its SECOND TextButton (_btnSell is added first, :97-98),
 		// change functions increaseByValue(d) / decreaseByValue(-d) after harnessSelectRow(row).
+		// W2-P7 S-C-E3.1 (P7-9 PR-63 (i)): also a top PurchaseState (name, cost, stock, amount = column 3; OK = its first
+		// TextButton; "buyMenu"); its rows exist from the constructor, so `screen` does not prove its init() ran.
 		State* topSR = _game->getStates().empty() ? nullptr : _game->getStates().back();
 		SellState* sellSR = dynamic_cast<SellState*>(topSR);
 		TransferItemsState* xferSR = dynamic_cast<TransferItemsState*>(topSR);
 		ManageAlienContainmentState* macSR = dynamic_cast<ManageAlienContainmentState*>(topSR);
-		const size_t colsSR = macSR ? 5 : 4, amountColSR = macSR ? 3 : 2;
+		PurchaseState* buySR = dynamic_cast<PurchaseState*>(topSR); // W2-P7 S-C-E3.1 (P7-9 PR-63 (i))
+		const size_t colsSR = macSR ? 5 : 4, amountColSR = (macSR || buySR) ? 3 : 2;
 		std::vector<TextButton*> tbsSR;
 		auto classSR = [](State* s) {
 			const std::string n = s ? typeid(*s).name() : "none";
@@ -9074,7 +9077,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		TextButton* okSR = nullptr;
 		Json::Value buttonsSR(Json::arrayValue), textsSR(Json::arrayValue), rowsSR(Json::arrayValue);
 		Json::Value textItemsSR(Json::arrayValue); // W2-P7 S-C-E2.1 (P7-8 PR-51, F6116): every Text {text, visible}
-		if (sellSR || xferSR || macSR)
+		if (sellSR || xferSR || macSR || buySR)
 		{
 			for (auto* s : topSR->getSurfaces())
 			{
@@ -9107,6 +9110,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		{
 			const std::string n = _game->getLanguage()->getString(t);
 			if (!trToTypeSR.count(n)) trToTypeSR[n] = t;
+		}
+		if (buySR) // W2-P7 S-C-E3.1 (P7-9 PR-63 (i)): Purchase's soldier, staff and craft rows (after the items)
+		{
+			std::vector<std::string> moreSR = _game->getMod()->getSoldiersList();
+			moreSR.insert(moreSR.end(), { "STR_SCIENTIST", "STR_ENGINEER" });
+			moreSR.insert(moreSR.end(), _game->getMod()->getCraftsList().begin(), _game->getMod()->getCraftsList().end());
+			for (const auto& t : moreSR) { const std::string n = _game->getLanguage()->getString(t); trToTypeSR.emplace(n, t); }
 		}
 		const size_t nRowsSR = listSR ? listSR->getTexts() : 0;
 		for (size_t r = 0; r < nRowsSR; ++r)
@@ -9147,6 +9157,16 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			auto amountSA = [&]() { return std::atoi(stripSR(listSR->getCellText((size_t)rowSA, amountColSR)).c_str()); };
 			const int beforeSA = amountSA();
 			const int dSA = req.get("amount", 0).asInt() - beforeSA;
+			if (buySR) // W2-P7 S-C-E3.1 (P7-9 PR-63 (i)): Purchase's change functions, then the same reply
+			{
+				buySR->harnessSelectRow((size_t)rowSA);
+				if (dSA > 0) buySR->increaseByValue(dSA);
+				if (dSA < 0) buySR->decreaseByValue(-dSA);
+				resp["row"] = rowSA; resp["name"] = stripSR(listSR->getCellText((size_t)rowSA, 0)); resp["before"] = beforeSA;
+				resp["after"] = amountSA(); resp["okVisible"] = okSR != nullptr && okSR->getVisible();
+				resp["topAfter"] = classSR(_game->getStates().back()); resp["ok"] = true;
+				return true;
+			}
 			if (sellSR)
 			{
 				sellSR->harnessSelectRow((size_t)rowSA);
@@ -9206,7 +9226,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// row colour) and the top screen's own interface button2 colour (the colour a row another player edited is drawn in).
 		resp["textItems"] = textItemsSR;
 		resp["secondaryColor"] = listSR ? Json::Value((int)listSR->getSecondaryColor()) : Json::Value();
-		const char* catSR = sellSR ? "sellMenu" : xferSR ? "transferMenu" : macSR ? "manageContainment" : nullptr;
+		const char* catSR = sellSR ? "sellMenu" : xferSR ? "transferMenu" : macSR ? "manageContainment" : buySR ? "buyMenu" : nullptr;
 		const RuleInterface* riSR = catSR ? _game->getMod()->getInterface(catSR, false) : nullptr;
 		const Element* b2SR = riSR ? riSR->getElementOptional("button2") : nullptr;
 		resp["highlightColor"] = b2SR ? Json::Value(b2SR->color) : Json::Value();
@@ -9774,6 +9794,19 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			_game->pushState(new ManageAlienContainmentState((*sgSP->getBases())[baseSP], prisonSP, OPT_GEOSCAPE));
 		else
 			resp["error"] = "screen_push: unknown screen " + screenSP;
+		// W2-P7 S-C-E3.1 (P7-9 PR-63 (ii)): {screen: "cannot_reequip", base, missing: [{item, qty, craft}]} = vanilla's own
+		// push (CraftEquipmentState :1230): new CannotReequipState(missing sorted by listOrder, base); rows fill in its init().
+		if (screenSP == "cannot_reequip" && sgSP && baseSP >= 0 && baseSP < nSP)
+		{
+			std::vector<ReequipStat> missingSP;
+			for (const auto& m : req["missing"])
+			{
+				const RuleItem* riSP = _game->getMod()->getItem(m.get("item", "").asString(), false);
+				missingSP.push_back({ m.get("item", "").asString(), m.get("qty", 0).asInt(), m.get("craft", "").asString(), riSP ? riSP->getListOrder() : 0 });
+			}
+			std::sort(missingSP.begin(), missingSP.end(), [](const ReequipStat& a, const ReequipStat& b) { return a.listOrder < b.listOrder; });
+			resp.removeMember("error"); _game->pushState(new CannotReequipState(missingSP, (*sgSP->getBases())[baseSP]));
+		}
 		if (!resp.isMember("error"))
 		{
 			resp["screen"] = screenSP;
@@ -13823,15 +13856,19 @@ std::string TestServer::execute(const std::string& line)
 			{
 				Json::Value items(Json::objectValue);
 				int soldiers = 0;
+				Json::Value soldierOwners(Json::arrayValue); int scientists = 0, engineers = 0; // W2-P7 S-C-E3.1 (P7-9 PR-63 (iii))
 				for (auto* t : *target->getTransfers())
 				{
 					if (t->getType() == TRANSFER_ITEM && t->getItems())
 						items[t->getItems()->getType()] = items.get(t->getItems()->getType(), 0).asInt() + t->getQuantity();
 					else if (t->getType() == TRANSFER_SOLDIER)
 						soldiers++;
+					if (t->getSoldier()) soldierOwners.append(t->getSoldier()->getOwnerPlayerId()); // E3: owners in list order
+					scientists += t->getScientists(); engineers += t->getEngineers();
 				}
 				resp["items"] = items;
 				resp["soldiers"] = soldiers;
+				resp["soldierOwners"] = soldierOwners; resp["scientists"] = scientists; resp["engineers"] = engineers;
 				resp["ok"] = true;
 			}
 		}

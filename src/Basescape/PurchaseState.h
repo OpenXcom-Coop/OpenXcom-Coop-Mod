@@ -139,6 +139,7 @@ public:
 	/// rebuilt - which is exactly what the live-refresh test asserts.
 	std::string harnessFundsText() const;
 	int harnessRowStock(const std::string& itemType) const;
+	void harnessSelectRow(size_t row) { _sel = row; } // coop (W2-P7 S-C-E3.1, P7-9 PR-63): test lever row select
 };
 
 }
