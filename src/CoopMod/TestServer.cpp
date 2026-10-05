@@ -152,6 +152,7 @@
 #include "../Mod/Mod.h"
 #include "../Engine/RNG.h"
 #include "../Mod/RuleCraftWeapon.h"
+#include "../Basescape/CraftInfoState.h" // W2-H16e: open_craft_info
 #include "../Mod/RuleCraft.h"
 #include "../Mod/RuleResearch.h"
 #include "../Mod/RuleManufacture.h"
@@ -6780,6 +6781,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "set_touch_modifiers" && cmd != "forget_research"
 		&& cmd != "research_check" && cmd != "can_use_weapon" && cmd != "set_research_sync"
 		&& cmd != "clear_warning"
+		&& cmd != "toggle_probe" && cmd != "set_toggle_state" && cmd != "open_craft_info" // W2-H16e (F6176)
 		&& cmd != "dismiss_arm" && cmd != "dismiss_arm_state" // W2-U7 (F5820)
 		&& cmd != "display_rules" && cmd != "debrief_state"
 		&& cmd != "geo_event_probe" // W2-H15 (F3261, F5602)
@@ -10208,6 +10210,118 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["unpublishedHostile"] =
 				CoopReveal::hasUnpublishedSide(bg, CoopFog::Side::Hostile);
 			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "toggle_probe")
+	{
+		// W2-H16e (F6176): TEST INTROSPECTION ONLY - read-only. `bases` = every base in list order: {index, name, detectionChance,
+		// facilities [{x, y, type, buildTime, mind (isMindShield), disabled}], crafts [{id, type, status, weapons [{slot, type,
+		// disabled, ammo, ammoMax, rearming (isRearming)}]}]}; an empty weapon slot is type "". Reply {ok, bases}.
+		Json::Value basesTP(Json::arrayValue);
+		if (_game->getSavedGame())
+			for (size_t b = 0; b < _game->getSavedGame()->getBases()->size(); ++b)
+			{
+				Base* base = _game->getSavedGame()->getBases()->at(b);
+				Json::Value jb, facsTP(Json::arrayValue), craftsTP(Json::arrayValue);
+				jb["index"] = (Json::Int)b; jb["name"] = base->getName();
+				jb["detectionChance"] = (Json::UInt)base->getDetectionChance();
+				for (auto* f : *base->getFacilities())
+				{
+					Json::Value jf;
+					jf["x"] = f->getX(); jf["y"] = f->getY(); jf["type"] = f->getRules()->getType();
+					jf["buildTime"] = f->getBuildTime(); jf["mind"] = f->getRules()->isMindShield(); jf["disabled"] = f->getDisabled();
+					facsTP.append(jf);
+				}
+				for (auto* c : *base->getCrafts())
+				{
+					Json::Value jc, wsTP(Json::arrayValue);
+					jc["id"] = c->getId(); jc["type"] = c->getRules()->getType(); jc["status"] = c->getStatus();
+					for (size_t s = 0; s < c->getWeapons()->size(); ++s)
+					{
+						CraftWeapon* w = c->getWeapons()->at(s);
+						Json::Value jw;
+						jw["slot"] = (Json::Int)s; jw["type"] = w ? w->getRules()->getType() : std::string();
+						jw["disabled"] = w && w->isDisabled(); jw["ammo"] = w ? w->getAmmo() : 0;
+						jw["ammoMax"] = w ? w->getRules()->getAmmoMax() : 0; jw["rearming"] = w && w->isRearming();
+						wsTP.append(jw);
+					}
+					jc["weapons"] = wsTP;
+					craftsTP.append(jc);
+				}
+				jb["facilities"] = facsTP; jb["crafts"] = craftsTP;
+				basesTP.append(jb);
+			}
+		resp["bases"] = basesTP;
+		resp["ok"] = true;
+	}
+	else if (cmd == "set_toggle_state")
+	{
+		// W2-H16e (F6176): TEST lever - STAGING on THIS machine only (both machines, client first, S25); the flag only (no checkup,
+		// no command). {kind: "facility", x, y, disabled, base?} (the base as open_screen finds it; the facility at (x, y)) or
+		// {kind: "weapon", craftId, craftType, slot, disabled} (the craft by (type, id) over every base). Reply {ok, disabled}.
+		const std::string kindTS = req.get("kind", "").asString(), baseTS = req.get("base", "").asString();
+		const bool disTS = req.get("disabled", false).asBool();
+		SavedGame* sgTS = _game->getSavedGame();
+		BaseFacility* facTS = nullptr; CraftWeapon* wTS = nullptr;
+		if (sgTS && kindTS == "facility")
+		{
+			Base* targetTS = nullptr;
+			for (auto* base : *sgTS->getBases())
+				if (baseTS.empty() ? (!base->_coopBase && !base->_coopIcon) : base->getName() == baseTS) { targetTS = base; break; }
+			if (targetTS)
+				for (auto* f : *targetTS->getFacilities())
+					if (f->getX() == req.get("x", -1).asInt() && f->getY() == req.get("y", -1).asInt()) { facTS = f; break; }
+		}
+		else if (sgTS && kindTS == "weapon")
+		{
+			const int idTS = req.get("craftId", -1).asInt(), slotTS = req.get("slot", -1).asInt();
+			const std::string typeTS = req.get("craftType", "").asString();
+			for (auto* base : *sgTS->getBases())
+				for (auto* c : *base->getCrafts())
+					if (!wTS && c->getId() == idTS && c->getRules()->getType() == typeTS
+						&& slotTS >= 0 && slotTS < (int)c->getWeapons()->size())
+						wTS = c->getWeapons()->at(slotTS);
+		}
+		if (kindTS != "facility" && kindTS != "weapon")
+			resp["error"] = "set_toggle_state: unknown kind";
+		else if (facTS)
+		{
+			facTS->setDisabled(disTS);
+			resp["disabled"] = facTS->getDisabled(); resp["ok"] = true;
+		}
+		else if (wTS)
+		{
+			wTS->setDisabled(disTS);
+			resp["disabled"] = wTS->isDisabled(); resp["ok"] = true;
+		}
+		else
+			resp["error"] = "set_toggle_state: " + kindTS + " not found";
+	}
+	else if (cmd == "open_craft_info")
+	{
+		// W2-H16e (F6176): TEST lever - push the REAL CraftInfoState for the craft {craftId, craftType} on THIS machine (at the
+		// named {base}, else every base in order; _coopBase / _coopIcon bases skipped). The screen inits on the next frame and
+		// is a POPUP window: wait until list_widgets shows its icons not hidden before a click (F6418). Reply {ok, baseIndex, index}.
+		const int idOC = req.get("craftId", -1).asInt();
+		const std::string typeOC = req.get("craftType", "").asString(), baseOC = req.get("base", "").asString();
+		Base* targetOC = nullptr; size_t idxOC = 0; int biOC = -1;
+		if (_game->getSavedGame())
+			for (size_t b = 0; b < _game->getSavedGame()->getBases()->size() && !targetOC; ++b)
+			{
+				Base* base = _game->getSavedGame()->getBases()->at(b);
+				if (base->_coopBase || base->_coopIcon) continue;
+				if (!baseOC.empty() && base->getName() != baseOC) continue;
+				auto* crafts = base->getCrafts();
+				for (size_t i = 0; i < crafts->size(); ++i)
+					if (crafts->at(i)->getId() == idOC && crafts->at(i)->getRules()->getType() == typeOC)
+					{ targetOC = base; idxOC = i; biOC = (int)b; break; }
+			}
+		if (!targetOC)
+			resp["error"] = "open_craft_info: craft not found";
+		else
+		{
+			_game->pushState(new CraftInfoState(targetOC, idxOC));
+			resp["baseIndex"] = biOC; resp["index"] = (Json::Int)idxOC; resp["ok"] = true;
 		}
 	}
 	else if (cmd == "screen_pixels")

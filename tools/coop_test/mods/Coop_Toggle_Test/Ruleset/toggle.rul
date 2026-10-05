@@ -1,0 +1,11 @@
+facilities:
+  - type: STR_H16E_MIND_SHIELD
+    size: 1
+    spriteShape: 2
+    spriteFacility: 30
+    mapName: XBASE_13
+    buildCost: 1000
+    buildTime: 1
+    monthlyCost: 0
+    mind: true
+    mindPower: 1

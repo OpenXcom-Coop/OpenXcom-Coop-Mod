@@ -1,0 +1,7 @@
+name: "Coop toggle probe"
+version: 1.0
+description: "Test-only fixture for W2-H16e (F6176). Data only. One facility STR_H16E_MIND_SHIELD, a mind shield with no
+  research requirement (the stock mind shield's sprites and map). Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1
