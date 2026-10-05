@@ -4,8 +4,9 @@ button colour, a confirm whose confirmer sees none of the list's rows (the other
 applies the list, a player who disconnects leaves the list, and the forced Alien Containment screen is shared by both
 players after a battle (owner D184 (a), D203: "as if both players were sitting at the same computer looking at the
 same screen"; D175, MR7, MR9; V-E3, V-E4) (docs rewrite/prompts/w2p7_sc_design.md section 4, AMENDMENT P7-8 sections
-3-4: PR-47..PR-51; the E1 green rulings: F6341 folded into S-C-E2; D243 pending: the label is asserted by its text and
-visibility only, never by its position).
+3-4: PR-47..PR-51; the E1 green rulings: F6341 folded into S-C-E2). D243 (owner 2026-10-05): the label sits just above
+the OK/Cancel buttons while another player has the same screen open; in a SHARED campaign the Sell list is ALWAYS one
+text row shorter (the label's row), with or without the other player - row E2-gs (commit S-C-E2.1b).
 
 Before S-C-E2 (design section 4, F6110, F6341): no label is drawn and a row's colour is vanilla's (secondary while its
 amount is above 0, whoever set it); a Sell confirm is built from the confirmer's VISIBLE rows (SellState :725), so a
@@ -30,7 +31,7 @@ FAILs "pre-cell"):
   list's), highlightColor (the top screen's interface button2, F6112, V-E4).
 
 Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
-  Boot PRES (port 47265): E-h, E2-se, E-g (last: the client disconnects).
+  Boot PRES (port 47265): E-h, E2-se, E2-gs, E-g (last: the client disconnects).
   E-h  (1) both Sell screens: the host's textItems hold "Also on this screen: ClientPlayer" visible, the client's
            "Also on this screen: HostPlayer" visible, within SEL_S.
        (2) client X = 2: on the host X's color == highlightColor (within SEL_S); on the client X's color ==
@@ -42,6 +43,13 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
            named after that soldier (MR7); the host's sel_state sell|n|0| rows == {s:<id>: 1} within SEL_S.
        (2) host Sell/Sack: its SellState gone within PAGE_S; that soldier gone from base 0 on both within EQUAL_S
            (sacked); the client's top stays SellState (rebuilt), every amount 0; no CoopState.
+  E2-gs (D243; geometry = list_widgets on the top state: the first TextList's rect, the Cancel button's rect, every
+           Text starting with the label's head; test_w2_shared_selection_screens.geo_cell)
+       (1) the host alone opens Sell: its list height == SHARED_LIST_H (120 - 8 = 112: one text row shorter than
+           vanilla's 120) and no label visible, within SEL_S.
+       (2) the client opens Sell too: on both the list height stays 112 and a VISIBLE label names the other player, its
+           rect between the list's bottom and the Cancel button's top, within SEL_S.
+       (3) the host Cancels: the client's list height stays 112, its label hidden, within SEL_S.
   E-g  (1) host open_screen sell, then client open_screen sell: the host's sel_state sell|n|0| viewers [0, 1] within
            SEL_S (R-E2-2, F6449: no label clause here - E-h (1) asserts the label).
        (2) client disconnect_to_menu: within DROP_S the host's sel_state sell|n|0| viewers [0].
@@ -57,8 +65,9 @@ boot's end.
 
 RED (commit S-C-E2.1: screen_push, the row colours and textItems, these rows; product untouched): E-h fails on cell 1
 (no label), E2-se on cell 2 (the soldier stays in base 0 on both: the host's confirm submitted nothing, F6341), E-g on
-cell 2 (the host's viewers stay [0, 1], F6110), E2-cf on cell 2 (the host's L amount stays 0). GREEN (commit
-S-C-E2.2): every row passes.
+cell 2 (the host's viewers stay [0, 1], F6110), E2-cf on cell 2 (the host's L amount stays 0). RED (commit
+S-C-E2.1b, D243, test only): E2-gs fails on cell 1 (the list keeps vanilla's 120). GREEN (commit S-C-E2.2): every row
+passes.
 Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE foreground
 run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
@@ -354,6 +363,38 @@ def e2_se_cells(host, client, ctx):
     ]
 
 
+def e2_gs_cells(host, client, ctx):
+    """D243 on Sell: the SHARED list is one row shorter with or without the other player; the label sits between the
+    list and the buttons while both are on the screen."""
+    names = boot_of(ctx)["names"]
+
+    def open_sell(gc, key):
+        r = gc.cmd({"cmd": "open_screen", "screen": "sell"})
+        ok, secs = wait_until(lambda: e1.screen_ready(gc), PAGE_S)
+        ctx[key] = {"resp": {k: r.get(k) for k in ("ok", "error")}, "ready": ok, "secs": secs}
+        if not ok:
+            e1.capture(f"E2-gs open_screen sell ({gc.name})", f"SellState not ready ({ctx[key]})", (host, client))
+
+    def c1():
+        scr.hygiene(host, client, ctx)
+        open_sell(host, "c1open")
+        return scr.geo_cell((host,), "SellState", ctx, "c1geo")
+
+    def c2():
+        open_sell(client, "c2open")
+        return scr.geo_cell((host, client), "SellState", ctx, "c2geo", names=names)
+
+    def c3():
+        ctx["c3cancel"] = e1.click(host, CANCEL)
+        f = e1.gone(host, ctx, "c3hostGone")
+        return f or scr.geo_cell((client,), "SellState", ctx, "c3geo")
+    return [
+        ("1 the host alone: its Sell list is one row shorter, no label (D243)", c1),
+        ("2 the client joins: both lists one row shorter, each label between the list and the buttons", c2),
+        ("3 the host leaves: the client's list stays one row shorter, its label hidden", c3),
+    ]
+
+
 def e_g_cells(host, client, ctx):
     def c1():
         scr.hygiene(host, client, ctx)
@@ -445,7 +486,7 @@ def bring_up_ct2(tag, port):
 
 
 BOOTS = (("PRES", "w2p7sce2_pres", scr.bring_up_sel, pres_pre,
-          (("E-h", e_h_cells), ("E2-se", e2_se_cells), ("E-g", e_g_cells)), False),
+          (("E-h", e_h_cells), ("E2-se", e2_se_cells), ("E2-gs", e2_gs_cells), ("E-g", e_g_cells)), False),
          ("CT2", "w2p7sce2_ct2", bring_up_ct2, ct2_pre, (("E2-cf", e2_cf_cells),), True))
 
 
