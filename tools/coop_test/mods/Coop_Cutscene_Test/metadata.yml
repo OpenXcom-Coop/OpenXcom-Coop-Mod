@@ -1,0 +1,7 @@
+name: "Coop cutscene endings probe"
+version: 1.0
+description: "Test-only fixture for W2-H17b (F7207, F7209). Data only. Three empty cutscenes (win, lose, story), two
+  events that play them and five research topics that trigger them. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1
