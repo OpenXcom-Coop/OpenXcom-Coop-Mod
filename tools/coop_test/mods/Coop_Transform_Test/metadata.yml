@@ -1,0 +1,6 @@
+name: "Coop transform test"
+version: 1.0
+description: "Test-only fixture for W2-H16c (S-12, F6605). Data only. Four soldier transformations STR_H16C_BOOST,
+  _CLONE, _RETIRE and _RAISE (no language file: raw keys). Both machines in a co-op pair must load it."
+author: coop harness
+master: xcom1

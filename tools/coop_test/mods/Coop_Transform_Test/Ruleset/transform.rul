@@ -1,0 +1,28 @@
+soldierTransformation:
+  - name: STR_H16C_BOOST
+    allowedSoldierTypes: [STR_SOLDIER]
+    allowsLiveSoldiers: true
+    cost: 100000
+    requiredItems:
+      STR_SMALL_ROCKET: 1
+    flatMin:
+      firing: 1
+      reactions: 1
+    flatMax:
+      firing: 30
+      reactions: 30
+  - name: STR_H16C_CLONE
+    allowedSoldierTypes: [STR_SOLDIER]
+    allowsLiveSoldiers: true
+    createsClone: true
+    cost: 50000
+    transferTime: 24
+  - name: STR_H16C_RETIRE
+    allowedSoldierTypes: [STR_SOLDIER]
+    allowsLiveSoldiers: true
+    producedItem: STR_SMALL_ROCKET
+    transferTime: 24
+  - name: STR_H16C_RAISE
+    allowedSoldierTypes: [STR_SOLDIER]
+    allowsDeadSoldiers: true
+    needsCorpseRecovered: false
