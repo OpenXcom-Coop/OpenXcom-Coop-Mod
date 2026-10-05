@@ -989,6 +989,8 @@ void BasescapeState::miniRightClick(Action *)
 		// only able to move the currently selected base
 		if (bases[baseIndex] == _base)
 		{
+			// coop W2-H16d (#65 playtest rule): SHARED must not reorder the shared base list (shared commands address a base by its index).
+			if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 			std::swap(bases[baseIndex], bases[baseIndex - 1]);
 			init();
 		}

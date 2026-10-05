@@ -202,6 +202,8 @@ void CraftsState::lstCraftsClick(Action *action)
 	}
 	else if (_game->isRightClick(action))
 	{
+		// coop W2-H16d (#65 playtest rule): SHARED must not reorder the shared craft list.
+		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 		bool shift = _game->isShiftPressed();
 		if (shift && row < (crafts.size() - 1))
 		{
