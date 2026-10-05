@@ -10281,6 +10281,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				regs[rg->getRules()->getType()] = rg->getActivityXcom().empty() ? 0 : rg->getActivityXcom().back();
 			resp["regions"] = regs;
 			resp["researchScore"] = sgGE->getResearchScores().empty() ? 0 : sgGE->getResearchScores().back();
+			{ Json::Value rsGE(Json::arrayValue); for (int v : sgGE->getResearchScores()) rsGE.append(v); resp["researchScores"] = rsGE; } // W2-H17c (F7225): every month, oldest first
 			for (const auto& kv : sgGE->getAllIds()) ids[kv.first] = kv.second;
 			resp["ids"] = ids;
 			resp["ok"] = true;

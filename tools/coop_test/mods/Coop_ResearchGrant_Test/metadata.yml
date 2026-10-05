@@ -1,0 +1,8 @@
+name: "Coop research grant probe"
+version: 1.0
+description: "Test-only fixture for W2-H17c (F7222, F7224, F7225). Data only. A terror site that despawns untouched
+  grants research, a counter and a geoscape event; a month-1 arc script grants a topic and opens its Ufopaedia article.
+  Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1

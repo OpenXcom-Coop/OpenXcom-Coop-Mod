@@ -1,0 +1,36 @@
+# W2-H17c test mod (spec (f) "Test mod"; raw keys, no language file).
+# G4: STR_TERROR_MISSION overlay - a despawned site unlocks STR_H17C_DESPAWN (+ getOneFree STR_H17C_FREE),
+#     bumps STR_H17C_DESPAWN_CNT and raises STR_H17C_EV_DESPAWN (its window holds the host's heartbeat, F7230).
+# G5: arc script STR_H17C_ARCS fires at the first month roll only (firstMonth 1; month 0 excluded) and opens
+#     the STR_H17C_ARC article (the stock STR_ALIEN_ORIGINS text-article shape).
+alienDeployments:
+  - type: STR_TERROR_MISSION
+    unlockedResearchOnDespawn: STR_H17C_DESPAWN
+    counterDespawn: STR_H17C_DESPAWN_CNT
+    despawnEvents:
+      STR_H17C_EV_DESPAWN: 100
+events:
+  - name: STR_H17C_EV_DESPAWN
+    description: STR_H17C_EV_DESPAWN
+research:
+  - name: STR_H17C_DESPAWN
+    cost: 1000
+    points: 7
+    getOneFree: [STR_H17C_FREE]
+  - name: STR_H17C_FREE
+    cost: 1000
+    points: 3
+  - name: STR_H17C_ARC
+    cost: 1000
+    points: 11
+arcScripts:
+  - type: STR_H17C_ARCS
+    firstMonth: 1
+    sequentialArcs: [STR_H17C_ARC]
+ufopaedia:
+  - id: STR_H17C_ARC
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H17C_ARC
+    text: STR_H17C_ARC
