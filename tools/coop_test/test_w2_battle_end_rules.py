@@ -149,6 +149,7 @@ from harness import GameClient, make_user_dir
 import session
 from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 import repro_atom_walk as raw
+from test_w2_battle_end import debrief_view
 from repro_atom_side_begin import row_for as gm2_row_for
 from repro_pvp_side_relative import drive_to_gm2_battlescape
 
@@ -606,8 +607,9 @@ def debrief_verdict(rid, hrec, crec, hdeb, cdeb, hold):
     if cdeb.get("parseErrors") != 0:
         f.append(f"client debrief_state.parseErrors={cdeb.get('parseErrors')} (want 0)")
     for k in DEBRIEF_FIELDS:
-        if cdeb.get(k) != hdeb.get(k):
-            f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r}")
+        if debrief_view(cdeb).get(k) != debrief_view(hdeb).get(k):
+            f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r} "
+                     f"(page-2 prefixes stripped, AUD-A07)")
     return f
 
 

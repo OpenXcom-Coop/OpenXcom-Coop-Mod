@@ -563,6 +563,19 @@ def pin_view(deb):
     return out
 
 
+SEAT_PREFIXES = tuple(f"[{n}] " for n in (raw.HOST_PLAYER, raw.CLIENT_PLAYER))   # AUD-A07: the page-2 seat prefixes
+
+
+def debrief_view(deb):
+    """Row j's view (W2-A0712 Q5 a, PR-10): DEBRIEF_FIELDS, each page-2 name's leading SEAT_PREFIXES entry removed."""
+    def bare(n):
+        return next((n[len(p):] for p in SEAT_PREFIXES if isinstance(n, str) and n.startswith(p)), n)
+    out = {k: (deb if isinstance(deb, dict) else {}).get(k) for k in DEBRIEF_FIELDS}
+    if isinstance(out["soldiers"], list):
+        out["soldiers"] = [dict(s, name=bare(s.get("name"))) if isinstance(s, dict) else s for s in out["soldiers"]]
+    return out
+
+
 def debrief_verdict(rid, hrec, crec, hdeb, cdeb, hold):
     """AMENDMENT P7-2 R4 rows f-j (S-B1); returns the list of failures."""
     f = []
@@ -631,8 +644,9 @@ def debrief_verdict(rid, hrec, crec, hdeb, cdeb, hold):
     if cdeb.get("parseErrors") != 0:
         f.append(f"client debrief_state.parseErrors={cdeb.get('parseErrors')} (want 0)")
     for k in DEBRIEF_FIELDS:
-        if cdeb.get(k) != hdeb.get(k):
-            f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r}")
+        if debrief_view(cdeb).get(k) != debrief_view(hdeb).get(k):
+            f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r} "
+                     f"(page-2 prefixes stripped, AUD-A07)")
     return f
 
 
