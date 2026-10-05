@@ -377,7 +377,7 @@ def row_10(r, x):
         a0 = ss(h)["applyCount"]
         start(r, x, h, BOOST, x.H2, "host", back=SS)
         ok = wait_until(lambda: ss(h)["applyCount"] >= a0 + 1, UI_S)[0]
-        r.ev["host applyCount +1 (wait; EVIDENCE only)"] = {"ok": ok, "before": a0, "now": ss(h)["applyCount"]}
+        r.ev["host applyCount +1 (wait)"] = {"ok": ok, "before": a0, "now": ss(h)["applyCount"]}
         hf = tp(h).get("funds")
         guard(r, x, "host funds 0", hf == 0, f"host funds {hf}")
         start(r, x, c, BOOST, x.C4, "client stale")         # the client's stale Start is visible: guard + EVIDENCE
@@ -388,12 +388,13 @@ def row_10(r, x):
     r.ev["refusal box"] = {"seen": seen, "back": pick(c.cmd({"cmd": "coop_dialog_back"}), "ok", "code", "error") if seen else None}
     guard(r, x, "refusal box closed", wait_until(lambda: top(c) != BOX, UI_S)[0], f"stack {stack(c)}")
     e = poll(r, x)
-    lf = ss(c)["lastFail"]
+    lf, a1 = ss(c)["lastFail"], ss(h)["applyCount"]
     want = {"H2": hist(p0["host"], x.H2, BOOST) + 1, "C4": hist(p0["host"], x.C4, BOOST), "funds": 0}
     got = {n: {"H2": hist(e[n], x.H2, BOOST), "C4": hist(e[n], x.C4, BOOST), "funds": e[n].get("funds")} for n in e}
-    r.cell("agree", all(v == want for v in got.values()) and lf == "STR_NOT_ENOUGH_MONEY",
-           f"BOOST counts / funds {got} (want {want} on both); client lastFail '{lf}' (want STR_NOT_ENOUGH_MONEY): two "
-           f"transformations paid from one budget; the worlds disagree")
+    # F6939 / R-H16c-R-1: the host applied the winning transformation (one apply), the stale one was refused
+    r.cell("agree", all(v == want for v in got.values()) and lf == "STR_NOT_ENOUGH_MONEY" and a1 == a0 + 1,
+           f"BOOST counts / funds {got} (want {want} on both); client lastFail '{lf}' (want STR_NOT_ENOUGH_MONEY); host "
+           f"applyCount {a0} -> {a1} (want +1): two transformations paid from one budget; the worlds disagree")
     close(r, x)
 
 def row_11(r, x):
