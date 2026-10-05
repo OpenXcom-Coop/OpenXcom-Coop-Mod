@@ -416,6 +416,7 @@ void SoldierInfoState::init()
 		_soldierId = 0;
 	}
 	_soldier = _list->at(_soldierId);
+	_coopShownId = _soldier->getId(); // coop W2-H16c (Q4)
 	_edtSoldier->setBig();
 	_edtSoldier->setText(_soldier->getName());
 	const UnitStats *initial = _soldier->getInitStats();
@@ -630,6 +631,7 @@ void SoldierInfoState::init()
  */
 void SoldierInfoState::handle(Action* action)
 {
+	if (coopRecheckSoldier()) return; // coop W2-H16c (Q4): the event was aimed at a soldier that is gone
 	State::handle(action);
 
 	if (Options::oxceThumbButtons && action->getDetails()->type == SDL_MOUSEBUTTONDOWN)
@@ -699,6 +701,33 @@ void SoldierInfoState::harnessRename(const std::string &name)
 {
 	_edtSoldier->setText(name);
 	edtSoldierChange(nullptr);
+}
+
+/**
+ * coop W2-H16c (Q4): in SHARED a host-resolved command (soldier_transform, sack) can replace or delete this screen's soldier on a
+ * replica after init() ran. Compare the slot's pointer (never dereference the cached one); when it changed, find the soldier
+ * init() showed by its id (a replaced soldier keeps it) and re-run vanilla's init() (index clamp; pop on an empty list).
+ * @return true when the screen was re-initialised.
+ */
+bool SoldierInfoState::coopRecheckSoldier()
+{
+	if (!_game->getCoopMod()->isSharedCampaign() || !_list) return false;
+	if (_soldierId < _list->size() && _list->at(_soldierId) == _soldier) return false;
+	for (size_t i = 0; i < _list->size(); ++i)
+	{
+		if (_list->at(i)->getId() == _coopShownId) { _soldierId = i; break; }
+	}
+	init();
+	return true;
+}
+
+/**
+ * coop W2-H16c (Q4): see coopRecheckSoldier.
+ */
+void SoldierInfoState::think()
+{
+	State::think();
+	coopRecheckSoldier();
 }
 
 /**

@@ -385,6 +385,11 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
 
+/// W2-H16c (S-12): SHARED and a real base only - returns false otherwise (vanilla runs). Submits soldier_transform
+/// for @a soldier (alive, or dead in the memorial) with the name box's text; writes nothing locally: the host runs
+/// vanilla's transformation and both worlds adopt its result. Own soldiers only (AUD-A48).
+bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier, const std::string& name);
+
 /// W2-H16 (F3260): SHARED only - no-op otherwise; called AFTER vanilla's local write
 /// (SoldierRankState); submits the soldier's current rank as an absolute end-state.
 /// The host re-checks the promotion openings against its own world and broadcasts

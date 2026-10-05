@@ -460,6 +460,7 @@ void SoldiersState::initList(size_t scrl)
 					// soldiers outside of the base are not eligible
 					continue;
 				}
+				if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop W2-H16c (F6605): SHARED lists own soldiers only (aud-E1-11)
 				if (soldier->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(soldier);
@@ -468,6 +469,7 @@ void SoldiersState::initList(size_t scrl)
 			}
 			for (auto* deadMan : *_game->getSavedGame()->getDeadSoldiers())
 			{
+				if (!SharedEcon::ownsSoldier(_game, deadMan)) continue; // coop W2-H16c (F6605)
 				if (deadMan->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(deadMan);
