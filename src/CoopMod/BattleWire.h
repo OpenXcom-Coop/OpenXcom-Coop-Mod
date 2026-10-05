@@ -190,6 +190,10 @@ inline Json::Value makeLeave(int seat, const char* reasonKey)
 /// (CoopBattleSetup.h::coopMergeGuestContributions(), called from
 /// ConfirmLandingState::btnYesClick before generation); the per-seat store is
 /// cleared by resetBattleAuthority() (connectionTCP.cpp).
+/// W2-H19 (F6860): the battle-end reset (coopResetBattleScope) keeps a roster
+/// that arrived after the battle ended (it is for the next landing); after
+/// every battle-scope reset the sender resends its whole roster once; an empty
+/// @a soldiers list drops a destination whose guest left the craft.
 inline Json::Value makeRosterContrib(int seat, int baseId, int craftId, const char* craftType,
 	const std::vector<std::string>& soldiers)
 {

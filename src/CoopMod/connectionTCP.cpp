@@ -6116,6 +6116,7 @@ struct CoopGuestContribEntry
 	int craftId = -1;
 	std::string craftType;
 	std::vector<std::string> soldiers; // each guest's Soldier::save() YAML
+	bool afterEnd = false; // W2-H19 (F6860): stored while this host's battle was Ended - kept for the NEXT landing (coopResetBattleScope)
 };
 static CoopGuestContribEntry g_guestContrib[4]; // kMaxSeats (RB-D17: private, stays 4)
 
@@ -6148,6 +6149,10 @@ const std::string& coopGuestContribSoldierYaml(int seat, int index)
 // was resent this tick - see sendGuestRosterContrib()).
 static int g_guestContribLastSentCount = 0;
 int coopGuestContribLastSentCount() { return g_guestContribLastSentCount; }
+
+// W2-H19 (F6860; Q3 a): raised by every resetBattleAuthority() (any thread), consumed on the main thread by
+// sendGuestRosterContrib(): after a battle-scope reset this machine resends its whole guest roster once.
+static std::atomic<bool> g_guestContribResendAll{false};
 
 // W2-P4r (owner D149 = (a); spec rewrite/prompts/w2p4r_research_list.md (b)3,
 // Q-R1 (a)): the per-seat research store - one research-only SavedGame per
@@ -6507,8 +6512,10 @@ void resetBattleAuthority()
 		entry.craftId = -1;
 		entry.craftType.clear();
 		entry.soldiers.clear();
+		entry.afterEnd = false; // W2-H19
 	}
 	g_guestContribLastSentCount = 0;
+	g_guestContribResendAll = true; // W2-H19 (Q3 a): resend the roster after every reset
 	// W2-P4r S-R.2 (spec (b)3/(b)9): the per-seat research lists are
 	// battle-scoped too - a new battle must never inherit the previous one's.
 	coopClearSeatResearch();
@@ -26073,10 +26080,26 @@ void clearNetworkSessionQueues(bool resetAuthority)
 // first), so CoopIdMaps never holds a dropped battle's pointers.
 static void coopResetBattleScope()
 {
+	// W2-H19 (F6860; Q1 a): a guest roster stored after this battle ended (a client that pressed OK first and is back on
+	// its own geoscape) is for the NEXT landing - it survives this battle-end reset. Main thread (both callers).
+	CoopGuestContribEntry keepContrib[4];
+	for (int s = 0; s < 4; ++s)
+	{
+		if (g_guestContrib[s].afterEnd)
+			keepContrib[s] = g_guestContrib[s];
+	}
 	CoopPump::reset(true);
 	CoopIdMaps::reset();
 	resetBattleAuthority();
 	CoopHandshake::resetPendingState();
+	for (int s = 0; s < 4; ++s)
+	{
+		if (keepContrib[s].afterEnd)
+		{
+			g_guestContrib[s] = keepContrib[s];
+			g_guestContrib[s].afterEnd = false;
+		}
+	}
 }
 
 // W2-P7 S-B2.2 (AMENDMENT P7-4): the battle phase as the record names it (event_state's names).
@@ -30609,6 +30632,14 @@ void connectionTCP::sendGuestRosterContrib()
 	if (isSharedCampaign())
 		return;
 
+	// W2-H19 (F6860; Q3 a): after a battle-scope reset every destination's last-sent payload is blanked (the keys stay -
+	// the removal below needs them), so this census resends the whole roster once.
+	if (g_guestContribResendAll.exchange(false))
+	{
+		for (auto& kv : _lastRosterContribSent)
+			kv.second.clear();
+	}
+
 	struct Group
 	{
 		int baseId = -1;
@@ -30644,6 +30675,37 @@ void connectionTCP::sendGuestRosterContrib()
 	g_guestContribLastSentCount = totalSent;
 
 	const int seat = connectionTCP::localSeat();
+	// W2-H19 (F6986; Q2 a): a destination that left the census (its guest was unseated, or came back wounded - MR6) is
+	// sent ONCE with no soldiers so the host's store stops naming it; then every current destination is resent - the
+	// host keeps ONE entry per seat, so the last message must be a current one. Only while the OWN world is live: a
+	// peer-base visit or a pending own-world load reads no guests (F6983; the gift replay's predicate above).
+	State* rosterTop = _game->getStates().empty() ? nullptr : _game->getStates().back();
+	const bool ownWorldLive = !playerInsideCoopBase && !coopMissionEnd && !_game->getSavedGame()->getSavedBattle()
+		&& dynamic_cast<LoadGameState*>(rosterTop) == nullptr;
+	bool removed = false;
+	for (auto it = _lastRosterContribSent.begin(); ownWorldLive && it != _lastRosterContribSent.end();)
+	{
+		if (groups.count(it->first))
+		{
+			++it;
+			continue;
+		}
+		const std::string& key = it->first; // "baseId:craftId:craftType"
+		const size_t c1 = key.find(':');
+		const size_t c2 = key.find(':', c1 + 1);
+		const int baseId = std::atoi(key.substr(0, c1).c_str());
+		const int craftId = std::atoi(key.substr(c1 + 1, c2 - c1 - 1).c_str());
+		const std::string craftType = key.substr(c2 + 1);
+		Json::Value msg = CoopWire::makeRosterContrib(seat, baseId, craftId, craftType.c_str(), std::vector<std::string>());
+		sendTCPPacketData(msg.toStyledString());
+		it = _lastRosterContribSent.erase(it);
+		removed = true;
+	}
+	if (removed)
+	{
+		for (auto& kv : _lastRosterContribSent)
+			kv.second.clear();
+	}
 	for (const auto& kv : groups)
 	{
 		const Group& g = kv.second;
@@ -33275,6 +33337,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					entry.craftId = obj.get("craftId", -1).asInt();
 					entry.craftType = obj.get("craftType", "").asString();
 					entry.soldiers.clear();
+					entry.afterEnd = coopBattleAuthority().phase.load() == CoopBattlePhase::Ended; // W2-H19 (F6860; Q1 a)
 					const Json::Value& soldiers = obj["soldiers"];
 					if (soldiers.isArray())
 					{
