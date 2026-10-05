@@ -4,8 +4,10 @@ MR10, MR16): an amount either player sets shows on the other player's screen wit
 rejected Transfer keeps the list and the screen (MR10), the other player's screen stays open after a confirm, rebuilt
 at zero (D204 (a)), and a confirm whose confirmer sees none of the list's rows (the other player's soldier rows are
 hidden, MR7) still applies the list (F6341, V-E3) (docs rewrite/prompts/w2p7_sc_design.md section 4, AMENDMENT P7-8
-sections 3-4: PR-47..PR-51; the E1 green rulings: F6341 folded into S-C-E2; D243 pending: the label is asserted by
-its text and visibility only, never by its position).
+sections 3-4: PR-47..PR-51; the E1 green rulings: F6341 folded into S-C-E2). D243 (owner 2026-10-05): the label sits
+just above the OK/Cancel buttons while another player has the same screen open; in a SHARED campaign the Transfer list
+is ALWAYS one text row shorter (the label's row), with or without the other player; Alien Containment keeps its list
+(its gap above the buttons holds the label) - rows E2-gx / E2-gc (commit S-C-E2.1b).
 
 Before S-C-E2 (design section 4, F6341): TransferItemsState and ManageAlienContainmentState are not on the shared
 selection - each machine keeps its own amounts, the other player never sees them, the store (sel_state) holds no
@@ -35,7 +37,7 @@ FAILs "pre-cell"):
   roster = save_markers.coopPlayers, seat 0 = the host).
 
 Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
-  Boot XFER (port 47262): E2-xa, E2-xr, E2-xe.
+  Boot XFER (port 47262): E2-xa, E2-xr, E2-xe, E2-gx.
   E2-xa (1) client Rifle = 3 -> the host's Rifle amount 3 within SEL_S.
         (2) host Rifle = 4 -> the client's Rifle amount 4 within SEL_S; both screens' textItems hold the label naming
             the other player, visible.
@@ -52,15 +54,26 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
         (2) host Transfer -> OK: within PAGE_S the host's TransferItemsState and TransferBaseState gone; the soldier
             left base 0 on both within EQUAL_S (in transit); chkTransfers +1 on both; the client's top stays
             TransferItemsState (rebuilt), every amount 0; no CoopState.
-  Boot CONT (port 47263): E2-ca.
+  E2-gx (D243; geometry = list_widgets on the top state: the first TextList's rect, the Cancel button's rect, every
+            Text starting with the label's head)
+        (1) the host alone opens the Transfer screen (base 0 -> 1): its list height == SHARED_LIST_H (128 - 8 = 120:
+            one text row shorter than vanilla's 128) and no label visible, within SEL_S.
+        (2) the client opens it too: on both the list height stays 120 and a VISIBLE label names the other player, its
+            rect between the list's bottom and the Cancel button's top, within SEL_S.
+        (3) the host Cancels: the client's list height stays 120, its label hidden, within SEL_S.
+  Boot CONT (port 47263): E2-ca, E2-gc.
   E2-ca (1) client L = 2 -> the host's L amount 2 within SEL_S; both screens' labels visible.
         (2) host Remove Selected: its screen gone within PAGE_S; the client's ManageAlienContainmentState stays (rebuilt
             in place), every amount 0; L stock 2 and STR_SECTOID_CORPSE +2 on both; world_diff empty.
+  E2-gc (D243) (1) the host alone opens containment: its list height == 112 (vanilla, unchanged), no label visible.
+        (2) the client opens it too: both lists 112; on both a VISIBLE label names the other player, its rect between the
+            list's bottom and the Cancel button's top (the containment's gap above its buttons), within SEL_S.
 Guard on every row: no new crash log; the client zero-disk at each boot's end.
 
 RED (commit S-C-E2.1: screen_push, the row colours and textItems, these rows; product untouched): E2-xa, E2-xe and
 E2-ca fail on cell 1 (the host's amount stays 0 / the host's sel_state holds no xfer key), E2-xr on cell 1 (sel_state
-lacks the key). GREEN (commit S-C-E2.2): every row passes.
+lacks the key). RED (commit S-C-E2.1b, D243, test only): E2-gx fails on cell 1 (the list keeps vanilla's 128), E2-gc
+on cell 2 (no label). GREEN (commit S-C-E2.2): every row passes.
 Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE foreground
 run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
@@ -97,6 +110,14 @@ CONTAINMENT, CT_X, CT_Y, CT_INDEX = fct.CONTAINMENT, fct.CT_X, fct.CT_Y, fct.CT_
 SECOND_BASE = p3.SECOND_BASE             # FX-B's base (index 1)
 QUARTERS, QUARTERS_X, QUARTERS_Y = "STR_LIVING_QUARTERS", 2, 3   # E2-xe staging: next to Second Base's lift (3, 3)
 LABEL_HEAD = "Also on this screen: "     # STR_COOP_ALSO_ON_SCREEN "Also on this screen: {0}" (D203, PR-50 (iii))
+# D243 (owner 2026-10-05): the label sits just above the OK/Cancel buttons; in a SHARED campaign the Sell and Transfer
+# lists are ALWAYS one text row shorter (the label's row), Alien Containment keeps its list (its gap above the buttons
+# holds the label). Vanilla list heights = the screens' constructors: SellState :110 TextList(287, 120, 8, 54),
+# TransferItemsState :82 TextList(287, 128, 8, 44), ManageAlienContainmentState :91 TextList(286, 112, 8, 53); one
+# small-font text row = 8 px (FONT_SMALL height 9 + spacing -1, TextList::updateVisible).
+ROW_H = 8
+VANILLA_LIST_H = {"SellState": 120, "TransferItemsState": 128, "ManageAlienContainmentState": 112}
+SHARED_LIST_H = {"SellState": 120 - ROW_H, "TransferItemsState": 128 - ROW_H, "ManageAlienContainmentState": 112}
 XFER_OK, CONFIRM_OK, CANCEL = "Transfer", "OK", "Cancel"   # TransferItemsState / TransferConfirmState captions (F5572)
 CONT_OK = fct.CONT_OK                    # "Remove Selected" (2-button layout: canSellLiveAliens off)
 MACS = "ManageAlienContainmentState"
@@ -281,6 +302,65 @@ def labels_cell(host, client, names, ctx, key, timeout=SEL_S):
     ctx[key] = {"ok": ok, "want": want, "labels": got, "secs": secs}
     return [] if ok else [f"the screens' label textItems (host, client) {got} {timeout}s on (want a visible textItem "
                           f"{want['host']!r} on the host and {want['client']!r} on the client, D203)"]
+
+
+def geometry(gc):
+    """list_widgets on the top state (rects in screen pixels): its first TextList {x, y, w, h, rows}, every TextButton
+    by caption, every Text starting with the label's head {text, visible, x, y, w, h}."""
+    ws = gc.cmd({"cmd": "list_widgets"}).get("widgets") or []
+
+    def kind(w):
+        return str(w.get("type") or "").rsplit("::", 1)[-1].split(" ")[-1]
+    lst = next(({k: w.get(k) for k in ("x", "y", "w", "h")} for w in ws if kind(w) == "TextList"), None)
+    if lst and isinstance(lst.get("h"), int):
+        lst["rows"] = -(-lst["h"] // ROW_H)   # TextList::updateVisible: one row per started ROW_H
+    return {"top": top(gc), "list": lst,
+            "buttons": {str(w.get("text")): {k: w.get(k) for k in ("x", "y", "w", "h", "visible")}
+                        for w in ws if kind(w) == "TextButton"},
+            "labels": [{k: w.get(k) for k in ("text", "visible", "x", "y", "w", "h")} for w in ws
+                       if kind(w) == "Text" and str(w.get("text") or "").startswith(LABEL_HEAD)]}
+
+
+def geo_ok(g, cls, want_label):
+    """(ok, why) for one machine's geometry: its top is cls; its list height is SHARED_LIST_H[cls] (D243); with
+    want_label a VISIBLE label whose text == want_label lies between the list's bottom and the Cancel button's top;
+    without, no label is visible."""
+    lst, cancel = g.get("list") or {}, (g.get("buttons") or {}).get(CANCEL) or {}
+    if g.get("top") != cls or not isinstance(lst.get("h"), int):
+        return False, f"top {g.get('top')!r} / list {lst} (want {cls} with its list)"
+    if lst["h"] != SHARED_LIST_H[cls]:
+        return False, (f"list height {lst['h']} ({lst.get('rows')} rows; want {SHARED_LIST_H[cls]}, vanilla "
+                       f"{VANILLA_LIST_H[cls]}: D243)")
+    shown = [t for t in g.get("labels") or [] if t.get("visible") is True]
+    if not want_label:
+        return (not shown), ("" if not shown else f"a label is visible {shown} (want none: nobody else on the screen)")
+    hit = [t for t in shown if t.get("text") == want_label]
+    if not hit:
+        return False, f"no visible label {want_label!r} (labels {g.get('labels')})"
+    t, bottom = hit[0], lst["y"] + lst["h"]
+    if not (isinstance(cancel.get("y"), int) and t["y"] >= bottom and t["y"] + t["h"] <= cancel["y"]):
+        return False, (f"label rect y {t['y']}..{t['y'] + t['h']} not between the list's bottom {bottom} and the "
+                       f"{CANCEL} button's top {cancel.get('y')} (D243)")
+    return True, ""
+
+
+def geo_cell(machines, cls, ctx, key, names=None, timeout=SEL_S):
+    """Every machine in `machines` passes geo_ok within timeout: with names, each shows the label naming the other
+    seat (host = seat 0); without, none shows a label."""
+    last = {}
+
+    def all_ok():
+        out = True
+        for gc in machines:
+            g = geometry(gc)
+            want = label_text(names, 0 if gc.name == "host" else 1) if names else None
+            ok, why = geo_ok(g, cls, want)
+            last[gc.name] = {"ok": ok, "why": why, "geo": g}
+            out = out and ok
+        return out, dict(last)
+    ok, got, secs = poll(all_ok, timeout)
+    ctx[key] = {"ok": ok, "secs": secs, "seen": got}
+    return [] if ok else [f"{gc.name}: {got[gc.name]['why']} {timeout}s on" for gc in machines if not got[gc.name]["ok"]]
 
 
 def view(gc):
@@ -701,6 +781,51 @@ def e2_xe_cells(host, client, ctx):
     ]
 
 
+def open_one(gc, screen, ctx, key):
+    """ONE machine opens the real screen: "xfer" = screen_push {transfer_base, base 0} + screen_pick_base {0, 1};
+    "cont" = screen_push {containment, base 0, prisonType 0}; ready or a FIXTURE-STOP."""
+    cls = "TransferItemsState" if screen == "xfer" else MACS
+    if screen == "xfer":
+        r = gc.cmd({"cmd": "screen_push", "screen": "transfer_base", "base": 0})
+        wait_until(lambda: top(gc) == "TransferBaseState", PAGE_S)
+        time.sleep(0.2)   # one pump: TransferBaseState's own init() runs first (F5573)
+        p = gc.cmd({"cmd": "screen_pick_base", "from": 0, "to": 1})
+        resp = {"push": {k: r.get(k) for k in ("ok", "error")}, "pick": {k: p.get(k) for k in ("ok", "debrief", "error")}}
+    else:
+        r = gc.cmd({"cmd": "screen_push", "screen": "containment", "base": 0, "prisonType": 0})
+        resp = {k: r.get(k) for k in ("ok", "error")}
+    ok, secs = wait_until(lambda: screen_ready(gc, cls), PAGE_S)
+    ctx[key] = {"resp": resp, "ready": ok, "secs": secs}
+    if not ok:
+        capture(f"open the {cls} ({gc.name})", f"not ready within {PAGE_S}s ({resp}; stack {stack(gc)})", (gc,))
+
+
+def e2_gx_cells(host, client, ctx):
+    """D243 on Transfer: the SHARED list is one row shorter with or without the other player; the label sits between
+    the list and the buttons while both are on the screen."""
+    names = boot_of(ctx)["names"]
+
+    def c1():
+        hygiene(host, client, ctx)
+        restore_funds(host, client, ctx, boot_of(ctx))
+        open_one(host, "xfer", ctx, "c1open")
+        return geo_cell((host,), "TransferItemsState", ctx, "c1geo")
+
+    def c2():
+        open_one(client, "xfer", ctx, "c2open")
+        return geo_cell((host, client), "TransferItemsState", ctx, "c2geo", names=names)
+
+    def c3():
+        ctx["c3cancel"] = click(host, CANCEL)
+        f = gone(host, ctx, "c3hostGone", ("TransferItemsState",))
+        return f or geo_cell((client,), "TransferItemsState", ctx, "c3geo")
+    return [
+        ("1 the host alone: its Transfer list is one row shorter, no label (D243)", c1),
+        ("2 the client joins: both lists one row shorter, each label between the list and the buttons", c2),
+        ("3 the host leaves: the client's list stays one row shorter, its label hidden", c3),
+    ]
+
+
 # ===================== CONT row =====================
 
 
@@ -736,6 +861,24 @@ def e2_ca_cells(host, client, ctx):
     return [
         ("1 the client's removal amount reaches the host's containment screen; both name the other player", c1),
         ("2 the host's Remove Selected applies; the client's screen rebuilt in place at zero", c2),
+    ]
+
+
+def e2_gc_cells(host, client, ctx):
+    """D243 on Alien Containment: the list keeps its vanilla height; the label sits in the gap above the buttons."""
+    names = boot_of(ctx)["names"]
+
+    def c1():
+        hygiene(host, client, ctx)
+        open_one(host, "cont", ctx, "c1open")
+        return geo_cell((host,), MACS, ctx, "c1geo")
+
+    def c2():
+        open_one(client, "cont", ctx, "c2open")
+        return geo_cell((host, client), MACS, ctx, "c2geo", names=names)
+    return [
+        ("1 the host alone: its containment list keeps its vanilla height, no label (D243)", c1),
+        ("2 the client joins: both lists unchanged, each label in the gap above the buttons", c2),
     ]
 
 
@@ -813,8 +956,8 @@ def bring_up_sel(tag, port):
 
 
 BOOTS = (("XFER", "w2p7sce2_xfer", bring_up_sel, xfer_pre,
-          (("E2-xa", e2_xa_cells), ("E2-xr", e2_xr_cells), ("E2-xe", e2_xe_cells)), False),
-         ("CONT", "w2p7sce2_cont", bring_up_sel, cont_pre, (("E2-ca", e2_ca_cells),), False))
+          (("E2-xa", e2_xa_cells), ("E2-xr", e2_xr_cells), ("E2-xe", e2_xe_cells), ("E2-gx", e2_gx_cells)), False),
+         ("CONT", "w2p7sce2_cont", bring_up_sel, cont_pre, (("E2-ca", e2_ca_cells), ("E2-gc", e2_gc_cells)), False))
 
 
 def main():
