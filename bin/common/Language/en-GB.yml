@@ -151,6 +151,8 @@ en-GB:
   STR_COOP_CHAT_SYSTEM: "System"
   STR_COOP_SYNCED_OPTION_CHANGED: "{0} changed {1} to {2}"
   STR_COOP_SYNCED_OPTION: "[Synced] {0}"
+  # W2-P7 S-C-E2 (owner D203, D243): the presence line on a SHARED Sell / Transfer / Alien Containment screen.
+  STR_COOP_ALSO_ON_SCREEN: "Also on this screen: {0}"
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

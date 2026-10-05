@@ -725,7 +725,7 @@ void SellState::btnOkClick(Action *)
 			}
 		}
 		int coopSeq = 0; // coop (W2-P7 S-C-D2, PR-30): the submitted command's seq
-		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers || _debriefingState)
+		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers || _debriefingState || _sharedSel.listed()) // coop (W2-P7 S-C-E2, F6341, V-E3): the shared list's hidden rows
 		{
 			Json::Value payload;
 			payload["items"] = items;

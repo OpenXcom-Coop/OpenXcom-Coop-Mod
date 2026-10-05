@@ -211,6 +211,7 @@ void ManageAlienContainmentState::init()
 	// in-place rebuild (resetListAndTotals, used by init above), so it needs no
 	// pop-and-push - see think().
 	_sharedRefresh.bind(_game, this, _base);
+	_sharedSel.open(_game, this, _sharedRefresh.bound()); // coop (W2-P7 S-C-E2, D184, P7-8 PR-47)
 }
 
 /**
@@ -329,6 +330,7 @@ void ManageAlienContainmentState::think()
 	{
 		resetListAndTotals();
 	}
+	_sharedSel.think(this); // coop (W2-P7 S-C-E2, D184, P7-8 PR-47): also re-applies the list after a rebuild in place
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -393,6 +395,7 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 			payload["prisoners"] = prisoners;
 			payload["sell"] = sell;
 			if (_origin == OPT_BATTLESCAPE) { payload["origin"] = "forced"; payload["prisonType"] = _prisonType; } // coop (W2-P7 S-C-D2, PR-32)
+			_sharedSel.stamp(payload); // coop (W2-P7 S-C-E2, D184, P7-8 PR-47)
 			int baseId = 0;
 			auto* bases = _game->getSavedGame()->getBases();
 			for (size_t i = 0; i < bases->size(); ++i)
@@ -679,6 +682,7 @@ void ManageAlienContainmentState::decreaseByValue(int change)
  */
 void ManageAlienContainmentState::updateStrings()
 {
+	_sharedSel.localEdit(this); // coop (W2-P7 S-C-E2, D184, P7-8 PR-47)
 	std::ostringstream ss, ss2;
 	int qty = getQuantity() - _qtys[_sel];
 	ss << qty;

@@ -61,6 +61,8 @@ private:
 	int _total, _pQty, _cQty, _aQty;
 	/// PRD-J10: live refresh when a peer's shared_apply moves either base.
 	SharedEcon::ScreenRefresh _sharedRefresh;
+	SharedEcon::SelectionBinder _sharedSel; // coop (W2-P7 S-C-E2, D184, P7-8 PR-47)
+	friend class SharedEcon::SelectionBinder; // coop (W2-P7 S-C-E2, D184, P7-8 PR-47)
 	double _iQty;
 	double _distance;
 	Uint8 _ammoColor;

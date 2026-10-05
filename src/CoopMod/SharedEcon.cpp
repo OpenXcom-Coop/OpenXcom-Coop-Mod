@@ -131,6 +131,11 @@
 #include "../Interface/Text.h"          // W2-P7 S-C-E1: the binder's totals redraw
 #include "../Interface/TextButton.h"
 #include "../Engine/Unicode.h"
+#include "../Basescape/TransferItemsState.h"          // W2-P7 S-C-E2 (P7-8 PR-47): the binder on Transfer and
+#include "../Basescape/ManageAlienContainmentState.h" // Alien Containment (a friend of each screen)
+#include "../Interface/TextList.h"                    // S-C-E2 (PR-50, D243): the highlight and the one-row-shorter list
+#include "../Engine/Font.h"
+#include "../Savegame/EquipmentLayoutItem.h"          // S-C-E2 (PR-47): the transfer rewrite's gear port
 
 #include "connectionTCP.h"
 #include "CoopState.h"
@@ -956,6 +961,7 @@ void containmentApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 			}
 		}
 	}
+	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E2 (P7-8 PR-39 (v), PR-47): the shared list is consumed
 }
 
 // ---- PRD-J05: "transfer" (intra-world base -> base) --------------------------
@@ -1146,6 +1152,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 	}
 	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-25, MR14): a page-3 transfer's bookkeeping (the open debriefing's counts).
 	if (payload.get("debrief", false).asBool()) connectionTCP::coopDebriefRecoveredSold(game, payload, false);
+	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E2 (P7-8 PR-39 (v), PR-47): the shared list is consumed
 }
 
 // ---- PRD-J06: research start / allocate / cancel -----------------------------
@@ -3029,24 +3036,25 @@ bool selParseKey(const std::string& key, std::string& screen, char& variant, int
 
 // PR-40 (Q-P8-1 (a)): what the host's confirm validator would accept for @a row now. Sell (sellValidate's rules): i: =
 // base stock (forced: what the forced screen lists, PR-33); s: 1 iff that soldier is at the base off its craft; c: 1 iff
-// the craft is there and not out; sci / eng <= available. Unknown or negative -> 0 (erased).
+// the craft is there and not out; sci / eng <= available. Unknown or negative -> 0 (erased). S-C-E2: Transfer the same
+// (transferValidate's, from the source; c: 1 iff the craft is there), containment i: = stock only (containmentValidate's).
 int selClamp(Game* game, const std::string& key, const std::string& row, int amount)
 {
 	std::string screen, extra; char variant = 'n'; int idx = -1;
 	if (amount <= 0 || !selParseKey(key, screen, variant, idx, extra)) return 0;
 	Base* base = resolveBase(game, idx);
-	if (!base) return 0;
-	if (screen != "sell") return amount; // xfer / cont: S-C-E2's clamp (PR-40)
+	if (!base || (screen == "cont" && row.compare(0, 2, "i:") != 0)) return 0;
 	if (row.compare(0, 2, "i:") == 0)
 	{
 		const RuleItem* rule = game->getMod()->getItem(row.substr(2), false);
-		return !rule ? 0 : std::min(amount, variant == 'f' ? forcedSellAvailable(base, rule, base->storesOverfullCritical())
-			: base->getStorageItems()->getItem(rule));
+		return !rule ? 0 : std::min(amount, screen == "sell" && variant == 'f'
+			? forcedSellAvailable(base, rule, base->storesOverfullCritical()) : base->getStorageItems()->getItem(rule));
 	}
 	for (auto* s : *base->getSoldiers())
 		if (row == "s:" + std::to_string(s->getId())) return s->getCraft() == 0 ? 1 : 0;
 	for (auto* c : *base->getCrafts())
-		if (row == "c:" + std::to_string(c->getId()) + ":" + c->getRules()->getType()) return c->getStatus() != "STR_OUT" ? 1 : 0;
+		if (row == "c:" + std::to_string(c->getId()) + ":" + c->getRules()->getType())
+			return screen == "xfer" || c->getStatus() != "STR_OUT" ? 1 : 0;
 	if (row == "sci" || row == "eng") return std::min(amount, row == "sci" ? base->getAvailableScientists() : base->getAvailableEngineers());
 	return 0;
 }
@@ -3177,12 +3185,13 @@ void selConsume(Json::Value& payload)
 // of a consumed selection -> true = coop_sel_dup, a success (MR8); (ii) the row arrays are rebuilt from the host's clamped
 // list (D203: the host applies its current list, whatever rev the confirm saw; page 3 also capped by the stamped selCaps,
 // F6125), every other key stays the confirmer's; (iii) nothing left on a non-page-3 key -> true; (iv) a key the host does
-// not hold -> false, applied as sent.
+// not hold -> false, applied as sent. S-C-E2 (PR-47): "transfer" (+ the soldiers' gear) and "containment" alike.
 bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 {
 	g_selConfirmKey.clear();
 	const std::string key = cmdPayload.get("selKey", "").asString();
-	auto it = pc.cmd == "sell" ? g_sel.find(key) : g_sel.end();
+	const char* screen = pc.cmd == "sell" ? "sell|" : pc.cmd == "transfer" ? "xfer|" : pc.cmd == "containment" ? "cont|" : "";
+	auto it = *screen && key.compare(0, 5, screen) == 0 ? g_sel.find(key) : g_sel.end();
 	if (it == g_sel.end()) return false;
 	const SharedSel& s = it->second;
 	if (s.consumed && cmdPayload.get("selRev", 0).asUInt() <= s.consumedRev
@@ -3207,9 +3216,30 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 		else if (r.first.compare(0, 2, "c:") == 0 && p != std::string::npos)
 			{ e["id"] = std::atoi(r.first.substr(2, p - 2).c_str()); e["type"] = r.first.substr(p + 1); crafts.append(e); }
 	}
-	cmdPayload["items"] = items; cmdPayload["soldiers"] = soldiers; cmdPayload["crafts"] = crafts;
-	cmdPayload["scientists"] = rows.count("sci") ? rows["sci"] : 0;
-	cmdPayload["engineers"] = rows.count("eng") ? rows["eng"] : 0;
+	// PR-47 (F6107): the soldiers' alternate-equipment gear as item rows, TransferItemsState :784-:817's rule on this world.
+	Base* from = pc.cmd == "transfer" ? resolveBase(game, pc.baseId) : nullptr;
+	if (from && Options::oxceAlternateCraftEquipmentManagement && !soldiers.empty())
+	{
+		std::map<const RuleItem*, int> claimed, gear;
+		for (const auto& e : items) claimed[game->getMod()->getItem(e["rule"].asString(), false)] += e["qty"].asInt();
+		auto take = [&](const RuleItem* rule)
+			{ if (rule && claimed[rule] + gear[rule] < from->getStorageItems()->getItem(rule)) gear[rule]++; };
+		for (auto* sol : *from->getSoldiers())
+			if (rows.count("s:" + std::to_string(sol->getId())))
+				for (auto* li : *sol->getEquipmentLayout())
+				{
+					take(li->getItemType());
+					for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot) take(li->getAmmoItemForSlot(slot));
+				}
+		for (const auto& g : gear) { Json::Value e; e["rule"] = g.first->getType(); e["qty"] = g.second; items.append(e); }
+	}
+	if (pc.cmd == "containment") cmdPayload["prisoners"] = items; // a containment list holds i: rows only (PR-40)
+	else
+	{
+		cmdPayload["items"] = items; cmdPayload["soldiers"] = soldiers; cmdPayload["crafts"] = crafts;
+		cmdPayload["scientists"] = rows.count("sci") ? rows["sci"] : 0;
+		cmdPayload["engineers"] = rows.count("eng") ? rows["eng"] : 0;
+	}
 	g_selConfirmKey = key; g_selConfirmHash = selHash(rows);
 	return false;
 }
@@ -3882,6 +3912,21 @@ Json::Value selectionSnapshot()
 	return out;
 }
 
+// W2-P7 S-C-E2 (P7-8 PR-48; D203): the host's seat-leave chokepoint (CoopSession::onClientDrop). The seat (< 0: every
+// other seat, the transport is 1:1) leaves every list; an unviewed list is erased; nothing is broadcast (the peer is gone).
+void onPeerLeft(int seat)
+{
+	const int me = connectionTCP::localSeat();
+	int dropped = 0;
+	for (auto it = g_sel.begin(); it != g_sel.end();)
+	{
+		for (auto v = it->second.viewers.begin(); v != it->second.viewers.end();)
+			if (seat < 0 ? *v != me : *v == seat) { v = it->second.viewers.erase(v); ++dropped; } else ++v;
+		if (it->second.viewers.empty()) it = g_sel.erase(it); else ++it;
+	}
+	Log(LOG_INFO) << "[SHARED] sel: seat " << seat << " left - " << dropped << " viewer(s) dropped, " << g_sel.size() << " list(s) left";
+}
+
 // ---- W2-P7 S-C-E1 (AMENDMENT P7-8 PR-43; D184, D203, D204, MR7, Q-P8-2, Q-P8-3): the SelectionBinder on SellState ----
 namespace
 {
@@ -3896,6 +3941,76 @@ std::string selRowKey(const TransferRow& row)
 	case TRANSFER_ENGINEER: return "eng";
 	}
 	return "";
+}
+
+// ---- W2-P7 S-C-E2 (AMENDMENT P7-8 PR-47, PR-50; D203, D243, V-E4): Transfer and containment rows, label, highlight ----
+// Q-P8-3 (a): a row adopts min(list amount, its maximum) unless its own last edit is not answered yet. True = changed.
+bool selAdopt(int& amount, const std::string& rk, int max, const SharedSel& m, const SelLocal& loc,
+	const std::map<std::string, int>& sent)
+{
+	auto s = sent.find(rk), o = loc.ownSeen.find(rk), r = m.rows.find(rk);
+	const int target = std::max(0, std::min(r == m.rows.end() ? 0 : r->second, max));
+	if ((s != sent.end() && (o == loc.ownSeen.end() || o->second < s->second)) || amount == target) return false;
+	amount = target;
+	return true;
+}
+
+std::vector<std::string> selVisible(const std::vector<TransferRow>& items, const std::vector<int>& rows)
+{
+	std::vector<std::string> keys;
+	for (int i : rows) keys.push_back(selRowKey(items[i]));
+	return keys;
+}
+
+uint64_t selSig(const std::vector<int>& v)
+{
+	uint64_t h = 1469598103934665603ULL ^ v.size();
+	for (int x : v) h = (h ^ (uint32_t)x) * 1099511628211ULL;
+	return h;
+}
+
+// D243 (owner 2026-10-05): in a SHARED campaign a Sell / Transfer list gives up its last text row for good (TextList::
+// setHeight re-places its down arrow and scrollbar and recounts its visible rows, TextList.cpp :542-549, :105-113,
+// :982-990); the label (State-owned, hidden while alone) takes the line above the buttons (containment: its gap, F6111).
+Text* selLayout(Game* game, State* screen, TextList* list, Surface* buttons, const char* cat, bool shrink)
+{
+	const Font* f = game->getMod()->getFont("FONT_SMALL");
+	if (shrink) list->setHeight(list->getHeight() - (f->getHeight() + f->getSpacing()));
+	Text* label = new Text(list->getWidth() - 2, f->getHeight(), list->getX() + 2, buttons->getY() - f->getHeight() - 1);
+	screen->add(label, "text", cat);
+	label->setVisible(false);
+	Log(LOG_INFO) << "[SHARED] sel: " << cat << " list y " << list->getY() << " h " << list->getHeight() << " ("
+		<< list->getVisibleRows() << " rows), presence label y " << label->getY() << ", buttons y " << buttons->getY();
+	return label;
+}
+
+// PR-50: the label names the other seats on the list; a visible row above 0 last edited by another seat is drawn in the
+// screen's button2 colour (F6112, V-E4), one that loses it goes back to the screen's updater; only on a rev / rows change.
+void selPresent(Game* game, State* screen, const SharedSel& m, Text* label, std::string& shown, TextList* list,
+	const char* cat, uint64_t rowsSig, uint64_t& drawnSig, std::map<std::string, int>& lit,
+	const std::function<std::vector<std::string>()>& visibleKeys, const std::function<void(size_t)>& redraw)
+{
+	const int me = connectionTCP::localSeat();
+	std::string names;
+	for (int seat : m.viewers)
+		if (seat != me && !connectionTCP::seatName(seat).empty()) names += (names.empty() ? "" : ", ") + connectionTCP::seatName(seat);
+	if (label && names != shown)
+		{ shown = names; label->setText(screen->tr("STR_COOP_ALSO_ON_SCREEN").arg(names)); label->setVisible(!names.empty()); }
+	const uint64_t sig = (rowsSig ^ m.rev) * 1099511628211ULL + 1;
+	if (sig == drawnSig) return;
+	drawnSig = sig;
+	const RuleInterface* ri = game->getMod()->getInterface(cat, false);
+	const Element* b2 = ri ? ri->getElementOptional("button2") : nullptr;
+	const std::vector<std::string> keys = visibleKeys();
+	std::map<std::string, int> now;
+	for (size_t v = 0; v < keys.size(); ++v)
+	{
+		auto r = m.rows.find(keys[v]), e = m.editors.find(keys[v]);
+		if (b2 && r != m.rows.end() && r->second > 0 && e != m.editors.end() && e->second != me)
+			{ list->setRowColor(v, b2->color); now[keys[v]] = 1; }
+		else if (lit.count(keys[v])) redraw(v);
+	}
+	lit = now;
 }
 }
 
@@ -3935,6 +4050,7 @@ void SelectionBinder::open(Game* game, SellState* screen, bool bound)
 	_game = game;
 	if (!bound || !sharedGame(game)) { _inert = true; return; }
 	_sell = screen; _opened = true;
+	_label = selLayout(game, screen, screen->_lstItems, screen->_btnCancel, "sellMenu", true); // S-C-E2 (PR-50, D243)
 	_key = keyOf(game, screen);
 	_baseIdx = baseIndex(game, screen->_base);
 	auto c = g_selCarry.find(_key);
@@ -3955,7 +4071,14 @@ void SelectionBinder::think(SellState* screen)
 	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; } // dropped (PR-49)
 	_acked = true;
 	const SharedSel& m = it->second;
-	if (_seen && m.rev == _seenRev) return;
+	auto present = [&]() // W2-P7 S-C-E2 (P7-8 PR-50; D203, V-E4): the presence label and the highlight, after the rows
+	{
+		selPresent(_game, screen, m, _label, _labelShown, screen->_lstItems, "sellMenu", selSig(screen->_rows), _hlSig, _hlOn,
+			[&]() { return selVisible(screen->_items, screen->_rows); },
+			[&](size_t v) { const size_t s0 = screen->_sel; _applying = true; screen->_sel = v; screen->updateItemStrings();
+				_applying = false; screen->_sel = s0; });
+	};
+	if (_seen && m.rev == _seenRev) { present(); return; }
 	_seen = true; _seenRev = m.rev;
 	// Each row adopts min(list amount, its maximum), unless its own last edit is not answered yet (Q-P8-3 (a)); then the
 	// totals come from every row plus the list's rows this screen does not show (another seat's soldiers, MR7, F6124).
@@ -3993,7 +4116,7 @@ void SelectionBinder::think(SellState* screen)
 			if (r.first == "c:" + std::to_string(c->getId()) + ":" + c->getRules()->getType())
 				total += (int64_t)c->getRules()->getSellCost() * r.second;
 	}
-	if (changed.empty() && total == screen->_total && std::fabs(space - screen->_spaceChange) < 1e-9) return;
+	if (changed.empty() && total == screen->_total && std::fabs(space - screen->_spaceChange) < 1e-9) { present(); return; }
 	screen->_total = total; screen->_spaceChange = space;
 	// Redraw through the screen's own updater: each changed visible row, else one row for the totals.
 	const size_t sel0 = screen->_sel;
@@ -4011,6 +4134,7 @@ void SelectionBinder::think(SellState* screen)
 			screen->_btnOk->setVisible(!screen->_base->storesOverfull(screen->_spaceChange));
 	}
 	_applying = false; screen->_sel = sel0;
+	present();
 }
 
 void SelectionBinder::localEdit(SellState* screen)
@@ -4037,11 +4161,170 @@ void SelectionBinder::stamp(Json::Value& payload)
 	auto it = g_sel.find(_key);
 	payload["selKey"] = _key;
 	payload["selRev"] = Json::UInt(it == g_sel.end() ? 0 : it->second.rev);
-	payload["selRows"] = rowsOf(_sell);
-	if (_key.find("|d|") == std::string::npos) return;
+	payload["selRows"] = _sell ? rowsOf(_sell) : _xfer ? rowsOf(_xfer) : rowsOf(_cont); // S-C-E2 (PR-47): the three screens
+	if (_key.find("|d|") == std::string::npos || (!_sell && !_xfer)) return;
 	payload["selCaps"] = Json::Value(Json::objectValue); // page 3: each row's recovered count (F6125)
-	for (const auto& row : _sell->_items)
+	for (const auto& row : _sell ? _sell->_items : _xfer->_items)
 		if (row.type == TRANSFER_ITEM) payload["selCaps"][selRowKey(row)] = row.qtySrc;
+}
+
+bool SelectionBinder::listed() const
+{
+	auto it = _opened ? g_sel.find(_key) : g_sel.end();
+	return it != g_sel.end() && !it->second.rows.empty();
+}
+
+// ---- W2-P7 S-C-E2 (AMENDMENT P7-8 PR-47, PR-49, PR-50; D184, D203, MR7, MR10): the binder on Transfer and containment ----
+std::string SelectionBinder::keyOf(Game* game, TransferItemsState* screen)
+	{ return xferKey(game, screen->_baseFrom, screen->_baseTo, screen->_debriefingState != 0); }
+std::string SelectionBinder::keyOf(Game* game, ManageAlienContainmentState* screen)
+	{ return contKey(game, screen->_base, screen->_prisonType, screen->_origin == OPT_BATTLESCAPE); }
+
+Json::Value SelectionBinder::rowsOf(TransferItemsState* screen)
+{
+	Json::Value rows(Json::objectValue);
+	for (const auto& row : screen->_items)
+		if (row.amount > 0) rows[selRowKey(row)] = row.amount;
+	return rows;
+}
+
+Json::Value SelectionBinder::rowsOf(ManageAlienContainmentState* screen)
+{
+	Json::Value rows(Json::objectValue);
+	for (size_t i = 0; i < screen->_qtys.size() && i < screen->_aliens.size(); ++i)
+		if (screen->_qtys[i] > 0) rows["i:" + screen->_aliens[i]] = screen->_qtys[i];
+	return rows;
+}
+
+void SelectionBinder::open(Game* game, TransferItemsState* screen, bool bound)
+{
+	if (_opened || _inert) return;
+	if (!bound || !sharedGame(game)) { _inert = true; return; }
+	_game = game; _xfer = screen; _opened = true;
+	_label = selLayout(game, screen, screen->_lstItems, screen->_btnCancel, "transferMenu", true);
+	_key = keyOf(game, screen); _baseIdx = baseIndex(game, screen->_baseFrom);
+	auto c = g_selCarry.find(_key);
+	if (c == g_selCarry.end()) { sendOpen(rowsOf(screen)); return; }
+	_acked = c->second.first; _openWant = c->second.second; // a refresh rebuild (F2161): adopt the list, send nothing
+	g_selCarry.erase(c);
+}
+
+void SelectionBinder::open(Game* game, ManageAlienContainmentState* screen, bool bound)
+{
+	if (_opened || _inert) return;
+	if (!bound || !sharedGame(game)) { _inert = true; return; }
+	_game = game; _cont = screen; _opened = true; // rebuilds in place: never carried over
+	_label = selLayout(game, screen, screen->_lstAliens, screen->_btnCancel, "manageContainment", false);
+	_key = keyOf(game, screen); _baseIdx = baseIndex(game, screen->_base);
+	sendOpen(rowsOf(screen));
+}
+
+void SelectionBinder::think(TransferItemsState* screen)
+{
+	const int baseIdx = _opened && baseIndex(_game, screen->_baseTo) >= 0 ? baseIndex(_game, screen->_baseFrom) : -1;
+	if (baseIdx < 0) return; // inert, or a base is gone (the screen leaves itself)
+	const std::string key = keyOf(_game, screen);
+	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // PR-49: the indices shifted
+	if (!_acked && g_selLocal[_key].openEchoes < _openWant) return;
+	auto it = g_sel.find(_key);
+	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; }
+	_acked = true;
+	const SharedSel& m = it->second;
+	if (!_seen || m.rev != _seenRev)
+	{
+		// The rows adopt the list; totals as increase/decreaseByValue keep them (:1386-:1546), + hidden rows (MR7, F6124).
+		_seen = true; _seenRev = m.rev;
+		std::set<std::string> shown; std::vector<size_t> changed;
+		int total = 0, pQty = 0, cQty = 0, aQty = 0; double iQty = 0;
+		for (size_t i = 0; i < screen->_items.size(); ++i)
+		{
+			TransferRow& row = screen->_items[i];
+			shown.insert(selRowKey(row));
+			if (selAdopt(row.amount, selRowKey(row), row.qtySrc, m, g_selLocal[_key], _lastSent)) changed.push_back(i);
+			if (row.amount <= 0) continue;
+			if (row.type == TRANSFER_CRAFT)
+			{
+				Craft* c = (Craft*)row.rule;
+				++cQty; pQty += c->getNumTotalSoldiers(); iQty += c->getTotalItemStorageSize();
+				total += !Options::canTransferCraftsWhileAirborne || c->getStatus() != "STR_OUT" ? row.cost : 0;
+				continue;
+			}
+			total += row.cost * row.amount;
+			if (row.type != TRANSFER_ITEM) pQty += row.amount;
+			else { iQty += row.amount * ((RuleItem*)row.rule)->getSize(); aQty += ((RuleItem*)row.rule)->isAlien() ? row.amount : 0; }
+		}
+		for (const auto& r : m.rows)
+			for (auto* s : *screen->_baseFrom->getSoldiers())
+				if (!shown.count(r.first) && r.first == "s:" + std::to_string(s->getId())) { ++pQty; total += (int)(5 * screen->_distance); }
+		screen->_total = total; screen->_pQty = pQty; screen->_cQty = cQty; screen->_aQty = aQty; screen->_iQty = iQty;
+		const size_t sel0 = screen->_sel; _applying = true;
+		for (size_t v = 0; v < screen->_rows.size(); ++v)
+			if (std::find(changed.begin(), changed.end(), (size_t)screen->_rows[v]) != changed.end())
+				{ screen->_sel = v; screen->updateItemStrings(); }
+		_applying = false; screen->_sel = sel0;
+	}
+	selPresent(_game, screen, m, _label, _labelShown, screen->_lstItems, "transferMenu", selSig(screen->_rows), _hlSig, _hlOn,
+		[&]() { return selVisible(screen->_items, screen->_rows); },
+		[&](size_t v) { const size_t s0 = screen->_sel; _applying = true; screen->_sel = v; screen->updateItemStrings();
+			_applying = false; screen->_sel = s0; });
+}
+
+void SelectionBinder::think(ManageAlienContainmentState* screen)
+{
+	const int baseIdx = _opened ? baseIndex(_game, screen->_base) : -1;
+	if (baseIdx < 0) return; // inert, or the base is gone
+	const std::string key = keyOf(_game, screen);
+	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // PR-49: the indices shifted
+	if (!_acked && g_selLocal[_key].openEchoes < _openWant) return;
+	auto it = g_sel.find(_key);
+	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; }
+	_acked = true;
+	const SharedSel& m = it->second;
+	// init() and a refresh rebuild the list in place (resetListAndTotals zeroes and repaints every row): re-apply, re-draw.
+	if (selSig(screen->_qtys) != _contSig) { _seen = false; _hlSig = 0; }
+	if (!_seen || m.rev != _seenRev)
+	{
+		_seen = true; _seenRev = m.rev;
+		std::vector<size_t> changed; int sold = 0;
+		for (size_t i = 0; i < screen->_qtys.size() && i < screen->_aliens.size(); ++i)
+		{
+			const int stock = screen->_base->getStorageItems()->getItem(screen->_aliens[i]);
+			if (selAdopt(screen->_qtys[i], "i:" + screen->_aliens[i], stock, m, g_selLocal[_key], _lastSent)) changed.push_back(i);
+			sold += screen->_qtys[i];
+		}
+		screen->_aliensSold = sold; // updateStrings reads it for the space / button totals
+		const size_t sel0 = screen->_sel; _applying = true;
+		for (size_t i : changed) { screen->_sel = i; screen->updateStrings(); }
+		_applying = false; screen->_sel = sel0;
+		_contSig = selSig(screen->_qtys);
+	}
+	selPresent(_game, screen, m, _label, _labelShown, screen->_lstAliens, "manageContainment",
+		selSig(std::vector<int>(1, (int)screen->_qtys.size())), _hlSig, _hlOn,
+		[&]() { std::vector<std::string> k; for (const auto& a : screen->_aliens) k.push_back("i:" + a); return k; },
+		[&](size_t v) { const size_t s0 = screen->_sel; _applying = true; screen->_sel = v; screen->updateStrings();
+			_applying = false; screen->_sel = s0; });
+}
+
+void SelectionBinder::localEdit(TransferItemsState* screen)
+{
+	if (!_opened || _applying || screen->_sel >= screen->_rows.size()) return;
+	const TransferRow& row = screen->_items[screen->_rows[screen->_sel]];
+	const std::string rk = selRowKey(row);
+	Json::Value p;
+	p["key"] = _key; p["row"] = rk; p["amount"] = row.amount;
+	p["eseq"] = _lastSent[rk] = ++g_selEseq;
+	submitLocalCmd(_game, "sel_set", _baseIdx, p);
+}
+
+void SelectionBinder::localEdit(ManageAlienContainmentState* screen)
+{
+	if (!_opened || _applying || screen->_sel >= screen->_qtys.size() || screen->_sel >= screen->_aliens.size()) return;
+	const std::string rk = "i:" + screen->_aliens[screen->_sel];
+	Json::Value p;
+	p["key"] = _key; p["row"] = rk; p["amount"] = screen->_qtys[screen->_sel];
+	p["eseq"] = _lastSent[rk] = ++g_selEseq;
+	submitLocalCmd(_game, "sel_set", _baseIdx, p);
+	_contSig = selSig(screen->_qtys); // the screen's own edit, not a rebuild
 }
 
 Stats stats()

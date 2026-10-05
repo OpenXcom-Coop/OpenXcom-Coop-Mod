@@ -56,6 +56,8 @@ private:
 	bool _doNotReset, _threeButtons;
 	/// PRD-J10: live refresh when another player's shared_apply moves this base.
 	SharedEcon::ScreenRefresh _sharedRefresh;
+	SharedEcon::SelectionBinder _sharedSel; // coop (W2-P7 S-C-E2, D184, P7-8 PR-47)
+	friend class SharedEcon::SelectionBinder; // coop (W2-P7 S-C-E2, D184, P7-8 PR-47)
 
 	/// Gets selected quantity.
 	int getQuantity();
