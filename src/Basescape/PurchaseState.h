@@ -67,6 +67,8 @@ private:
 	Timer *_timerInc, *_timerDec;
 	/// PRD-J10: live refresh when another player's shared_apply moves this base.
 	SharedEcon::ScreenRefresh _sharedRefresh;
+	SharedEcon::SelectionBinder _sharedSel; // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+	friend class SharedEcon::SelectionBinder; // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
 	/// Gets the category of the current selection.
 	std::string getCategory(int sel) const;
 	/// Determines if the current selection belongs to a given category.

@@ -42,6 +42,7 @@ class State;
 class GeoscapeState;
 class SellState; // W2-P7 S-C-E1 (P7-8 PR-43): the SelectionBinder's screen
 class TransferItemsState; class ManageAlienContainmentState; class Text; // W2-P7 S-C-E2 (P7-8 PR-47, PR-50)
+class PurchaseState; // W2-P7 S-C-E3 (D242, P7-9 PR-59): the binder on the Purchase/Hire screen
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -208,6 +209,12 @@ public:
 	void localEdit(ManageAlienContainmentState* screen);
 	/// F6341 (V-E3): the shared list holds a row - a confirm that sees none of them (MR7) still submits the list.
 	bool listed() const;
+	// W2-P7 S-C-E3 (D242, P7-9 PR-59): Purchase/Hire (key buy|n| or, opened from "not enough equipment", buy|r|).
+	void open(Game* game, PurchaseState* screen, bool bound);
+	void think(PurchaseState* screen);
+	void localEdit(PurchaseState* screen);
+	/// PR-58: opened through init() on a SHARED screen (false for the harness levers: today's immediate pop).
+	bool opened() const { return _opened; }
 private:
 	static std::string keyOf(Game* game, SellState* screen);
 	static Json::Value rowsOf(SellState* screen);
@@ -215,6 +222,7 @@ private:
 	static Json::Value rowsOf(TransferItemsState* screen);
 	static std::string keyOf(Game* game, ManageAlienContainmentState* screen);
 	static Json::Value rowsOf(ManageAlienContainmentState* screen);
+	static std::string keyOf(Game* game, PurchaseState* screen); static Json::Value rowsOf(PurchaseState* screen); // S-C-E3
 	void sendOpen(const Json::Value& seed);
 	Game* _game = nullptr;
 	SellState* _sell = nullptr;
@@ -226,6 +234,7 @@ private:
 	TransferItemsState* _xfer = nullptr; ManageAlienContainmentState* _cont = nullptr; Text* _label = nullptr; // S-C-E2
 	std::string _labelShown; uint64_t _contSig = 0; // S-C-E2: the names the label shows; containment's amounts as last seen
 	uint64_t _hlSig = 0; std::map<std::string, int> _hlOn; // S-C-E2 (D203): what the highlight was drawn for; the rows lit
+	PurchaseState* _buy = nullptr; // S-C-E3 (P7-9 PR-59)
 };
 
 /// One-time registration of the built-in commands (currently "buy"). Idempotent;
@@ -253,6 +262,7 @@ int submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 std::string sellKey(Game* game, Base* base, bool debrief, bool battlescapeOrigin);
 std::string xferKey(Game* game, Base* from, Base* to, bool debrief);
 std::string contKey(Game* game, Base* base, int prisonType, bool battlescapeOrigin);
+std::string buyKey(Game* game, Base* base, bool reequip); // W2-P7 S-C-E3 (P7-9 PR-54): buy|n|<base>| / buy|r|<base>|
 /// The initiator's answer for an awaited confirm: awaitResult registers @a seq under @a key; awaiting() holds until
 /// the answer lands; takeResult() consumes it (1 ok, -1 failed, 0 none yet); forgetResult() drops both (Cancel).
 void awaitResult(const std::string& key, int seq);
@@ -267,6 +277,7 @@ bool keepAfterSubmit(Game* game, const std::string& key, int seq, bool bound);
 bool sellScreenShouldClose(Game* game, Base* base, bool debrief, bool battlescapeOrigin);
 bool xferScreenShouldClose(Game* game, Base* from, Base* to, bool debrief);
 bool contScreenShouldClose(Game* game, Base* base, int prisonType, bool battlescapeOrigin);
+bool buyScreenShouldClose(Game* game, Base* base, bool reequip); // W2-P7 S-C-E3 (P7-9 PR-58, Q-P9-2 (a)): answered
 /// PR-34 (SK3; F5237, F5576): a session reset drops the queued commands / applies / failures, answers and apply hold.
 void resetSessionQueues();
 Json::Value selectionSnapshot(); // W2-P7 S-C-E1.1 (P7-8 PR-46): the shared selection store {key: {rows, editors, eseqs, rev, viewers}} for TestServer sel_state

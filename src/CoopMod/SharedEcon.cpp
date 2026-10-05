@@ -131,6 +131,10 @@
 #include "../Mod/RuleEvent.h"
 #include "../Menu/ErrorMessageState.h"
 #include "../Basescape/SellState.h"     // W2-P7 S-C-E1 (P7-8 PR-43): the SelectionBinder is a friend of the screen
+#include "../Basescape/PurchaseState.h" // W2-P7 S-C-E3 (P7-9 PR-59): ... and of the Purchase/Hire screen
+#include "../Battlescape/CannotReequipState.h" // W2-P7 S-C-E3 (P7-9 PR-61): the reequip decrement rides the apply
+#include <iomanip>                      // W2-P7 S-C-E3 (P7-9 PR-59): Purchase's space-used text, as the screen formats it
+#include <sstream>
 #include "../Interface/Text.h"          // W2-P7 S-C-E1: the binder's totals redraw
 #include "../Interface/TextButton.h"
 #include "../Engine/Unicode.h"
@@ -685,6 +689,11 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 			Transfer* t = new Transfer(r->getTransferTime());
 			t->setItems(r, qty);
 			base->getTransfers()->push_back(t);
+			// W2-P7 S-C-E3 (P7-9 PR-61, Q-P9-3 (a)): a purchase from the "not enough equipment" screen lowers the missing
+			// counts of every such screen on this machine (screen state, not world state; vanilla PurchaseState :940-:944).
+			if (payload.get("reequip", false).asBool())
+				for (auto* st : game->getStates())
+					if (auto* cannot = dynamic_cast<CannotReequipState*>(st)) cannot->decreaseMissingItemCount(r, qty);
 			break;
 		}
 		case TRANSFER_SCIENTIST:
@@ -774,6 +783,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 			break;
 		}
 	}
+	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E3 (P7-9 PR-56, P7-8 PR-39 (v)): the shared list is consumed
 }
 
 // ---- PRD-J05: "sell" ---------------------------------------------------------
@@ -3595,7 +3605,7 @@ bool selParseKey(const std::string& key, std::string& screen, char& variant, int
 	if (c == std::string::npos || b != a + 2 || c == b + 1) return false;
 	screen = key.substr(0, a); variant = key[a + 1]; extra = key.substr(c + 1);
 	try { baseIdx = std::stoi(key.substr(b + 1, c - b - 1)); } catch (...) { return false; }
-	return screen == "sell" || screen == "xfer" || screen == "cont";
+	return screen == "sell" || screen == "xfer" || screen == "cont" || screen == "buy"; // S-C-E3 (P7-9 PR-54, F6623): + buy
 }
 
 // PR-40 (Q-P8-1 (a)): what the host's confirm validator would accept for @a row now. Sell (sellValidate's rules): i: =
@@ -3608,6 +3618,22 @@ int selClamp(Game* game, const std::string& key, const std::string& row, int amo
 	if (amount <= 0 || !selParseKey(key, screen, variant, idx, extra)) return 0;
 	Base* base = resolveBase(game, idx);
 	if (!base || (screen == "cont" && row.compare(0, 2, "i:") != 0)) return 0;
+	if (screen == "buy") // W2-P7 S-C-E3 (P7-9 PR-55, Q-P9-1 (a)): per row only - an unknown rule -> 0, else the (mods-only,
+	{                    // F6638) monthly limit; funds / stores / quarters / hangars / containment stay buyValidate's (V-P1)
+		if (row == "sci" || row == "eng") return amount;
+		Mod* mod = game->getMod();
+		const bool item = row.compare(0, 2, "i:") == 0, hire = row.compare(0, 2, "h:") == 0, craft = row.compare(0, 3, "cr:") == 0;
+		const std::string type = item || hire ? row.substr(2) : craft ? row.substr(3) : std::string();
+		const RuleItem* ri = item ? mod->getItem(type, false) : nullptr;
+		const RuleSoldier* rs = hire ? mod->getSoldier(type, false) : nullptr;
+		const RuleCraft* rc = craft ? mod->getCraft(type, false) : nullptr;
+		if (!ri && !rs && !rc) return 0;
+		const int limit = ri ? ri->getMonthlyBuyLimit() : rs ? rs->getMonthlyBuyLimit() : rc->getMonthlyBuyLimit();
+		if (limit <= 0) return amount;
+		const auto& log = game->getSavedGame()->getMonthlyPurchaseLimitLog();
+		const auto used = log.find(type);
+		return std::max(0, std::min(amount, limit - (used == log.end() ? 0 : used->second)));
+	}
 	if (row.compare(0, 2, "i:") == 0)
 	{
 		const RuleItem* rule = game->getMod()->getItem(row.substr(2), false);
@@ -3754,8 +3780,9 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 {
 	g_selConfirmKey.clear();
 	const std::string key = cmdPayload.get("selKey", "").asString();
-	const char* screen = pc.cmd == "sell" ? "sell|" : pc.cmd == "transfer" ? "xfer|" : pc.cmd == "containment" ? "cont|" : "";
-	auto it = *screen && key.compare(0, 5, screen) == 0 ? g_sel.find(key) : g_sel.end();
+	const std::string screen = pc.cmd == "sell" ? "sell|" : pc.cmd == "transfer" ? "xfer|" : pc.cmd == "containment" ? "cont|"
+		: pc.cmd == "buy" ? "buy|" : ""; // S-C-E3 (P7-9 PR-56): + buy
+	auto it = !screen.empty() && key.compare(0, screen.size(), screen) == 0 ? g_sel.find(key) : g_sel.end();
 	if (it == g_sel.end()) return false;
 	const SharedSel& s = it->second;
 	if (s.consumed && cmdPayload.get("selRev", 0).asUInt() <= s.consumedRev
@@ -3770,6 +3797,23 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 		if (a > 0) rows[r.first] = a;
 	}
 	if (rows.empty() && !page3) return true;
+	if (pc.cmd == "buy") // S-C-E3 (P7-9 PR-56 (ii)): typed rows (Transfer.h: ITEM 0, CRAFT 1, SOLDIER 2, SCIENTIST 3, ENGINEER 4)
+	{                    // from the host's list; total (an estimate the validator ignores) and reequip stay the confirmer's
+		Json::Value buy(Json::arrayValue);
+		for (const auto& r : rows)
+		{
+			Json::Value e;
+			const bool staff = r.first == "sci" || r.first == "eng";
+			e["type"] = (int)(r.first == "sci" ? TRANSFER_SCIENTIST : r.first == "eng" ? TRANSFER_ENGINEER : r.first.compare(0, 2, "i:") == 0
+				? TRANSFER_ITEM : r.first.compare(0, 3, "cr:") == 0 ? TRANSFER_CRAFT : TRANSFER_SOLDIER);
+			e["rule"] = staff ? std::string() : r.first.substr(r.first.find(':') + 1);
+			e["qty"] = r.second;
+			buy.append(e);
+		}
+		cmdPayload["items"] = buy;
+		g_selConfirmKey = key; g_selConfirmHash = selHash(rows);
+		return false;
+	}
 	Json::Value items(Json::arrayValue), soldiers(Json::arrayValue), crafts(Json::arrayValue);
 	for (const auto& r : rows)
 	{
@@ -4396,6 +4440,12 @@ std::string contKey(Game* game, Base* base, int prisonType, bool battlescapeOrig
 	return screenKey("cont", battlescapeOrigin ? 'f' : 'n', baseIndex(game, base), "p" + std::to_string(prisonType));
 }
 
+// W2-P7 S-C-E3 (P7-9 PR-54, Q-P9-3 (a)): the Purchase/Hire screen; the one opened from "not enough equipment" has its own list.
+std::string buyKey(Game* game, Base* base, bool reequip)
+{
+	return screenKey("buy", reequip ? 'r' : 'n', baseIndex(game, base), "");
+}
+
 void awaitResult(const std::string& key, int seq)
 {
 	std::lock_guard<std::mutex> lk(g_resMx);
@@ -4459,6 +4509,12 @@ bool contScreenShouldClose(Game* game, Base* base, int prisonType, bool battlesc
 	return takeResult(contKey(game, base, prisonType, battlescapeOrigin)) == 1;
 }
 
+// W2-P7 S-C-E3 (P7-9 PR-58, Q-P9-2 (a), MR10): a Purchase/Hire screen closes on its OK answer.
+bool buyScreenShouldClose(Game* game, Base* base, bool reequip)
+{
+	return sharedGame(game) && baseIndex(game, base) >= 0 && takeResult(buyKey(game, base, reequip)) == 1;
+}
+
 void resetSessionQueues()
 {
 	size_t cmds = 0, applies = 0, fails = 0;
@@ -4517,6 +4573,20 @@ std::string selRowKey(const TransferRow& row)
 	case TRANSFER_ITEM: return "i:" + ((const RuleItem*)row.rule)->getType();
 	case TRANSFER_SOLDIER: return "s:" + std::to_string(((const Soldier*)row.rule)->getId());
 	case TRANSFER_CRAFT: return "c:" + std::to_string(((const Craft*)row.rule)->getId()) + ":" + ((const Craft*)row.rule)->getRules()->getType();
+	case TRANSFER_SCIENTIST: return "sci";
+	case TRANSFER_ENGINEER: return "eng";
+	}
+	return "";
+}
+
+// W2-P7 S-C-E3 (P7-9 PR-54, F6622): a Purchase row holds a rule, never a Soldier / Craft - its own row key.
+std::string buyRowKey(const TransferRow& row)
+{
+	switch (row.type)
+	{
+	case TRANSFER_ITEM: return "i:" + ((const RuleItem*)row.rule)->getType();
+	case TRANSFER_SOLDIER: return "h:" + ((const RuleSoldier*)row.rule)->getType();
+	case TRANSFER_CRAFT: return "cr:" + ((const RuleCraft*)row.rule)->getType();
 	case TRANSFER_SCIENTIST: return "sci";
 	case TRANSFER_ENGINEER: return "eng";
 	}
@@ -4741,7 +4811,8 @@ void SelectionBinder::stamp(Json::Value& payload)
 	auto it = g_sel.find(_key);
 	payload["selKey"] = _key;
 	payload["selRev"] = Json::UInt(it == g_sel.end() ? 0 : it->second.rev);
-	payload["selRows"] = _sell ? rowsOf(_sell) : _xfer ? rowsOf(_xfer) : rowsOf(_cont); // S-C-E2 (PR-47): the three screens
+	payload["selRows"] = _sell ? rowsOf(_sell) : _xfer ? rowsOf(_xfer) : _buy ? rowsOf(_buy) : rowsOf(_cont); // S-C-E2/E3
+	if (_buy && _key.compare(0, 6, "buy|r|") == 0) payload["reequip"] = true; // S-C-E3 (P7-9 PR-59, PR-61)
 	if (_key.find("|d|") == std::string::npos || (!_sell && !_xfer)) return;
 	payload["selCaps"] = Json::Value(Json::objectValue); // page 3: each row's recovered count (F6125)
 	for (const auto& row : _sell ? _sell->_items : _xfer->_items)
@@ -4905,6 +4976,117 @@ void SelectionBinder::localEdit(ManageAlienContainmentState* screen)
 	p["eseq"] = _lastSent[rk] = ++g_selEseq;
 	submitLocalCmd(_game, "sel_set", _baseIdx, p);
 	_contSig = selSig(screen->_qtys); // the screen's own edit, not a rebuild
+}
+
+// ---- W2-P7 S-C-E3 (AMENDMENT P7-9 PR-59; D242 (b), D184, D203, D243, MR8, MR10): the binder on Purchase/Hire ----------
+// Both variants (normal buy|n|, reequip buy|r|); rows keyed by buyRowKey (a Purchase row holds a rule, F6622).
+std::string SelectionBinder::keyOf(Game* game, PurchaseState* screen)
+	{ return buyKey(game, screen->_base, screen->_parent != nullptr); }
+
+Json::Value SelectionBinder::rowsOf(PurchaseState* screen)
+{
+	Json::Value rows(Json::objectValue);
+	for (const auto& row : screen->_items)
+		if (row.amount > 0) rows[buyRowKey(row)] = row.amount;
+	return rows;
+}
+
+void SelectionBinder::open(Game* game, PurchaseState* screen, bool bound)
+{
+	if (_opened || _inert) return;
+	if (!bound || !sharedGame(game)) { _inert = true; return; } // the buy lever never runs init() (P9-6)
+	_game = game; _buy = screen; _opened = true;
+	_label = selLayout(game, screen, screen->_lstItems, screen->_btnCancel, "buyMenu", true); // D243 by analogy (V-P4)
+	_key = keyOf(game, screen); _baseIdx = baseIndex(game, screen->_base);
+	auto c = g_selCarry.find(_key);
+	if (c == g_selCarry.end()) { sendOpen(rowsOf(screen)); return; } // seed = the reequip pre-fill only (F6642)
+	_acked = c->second.first; _openWant = c->second.second; // a refresh rebuild (F2161, V-P6): adopt the list, send nothing
+	g_selCarry.erase(c);
+}
+
+void SelectionBinder::think(PurchaseState* screen)
+{
+	const int baseIdx = _opened ? baseIndex(_game, screen->_base) : -1;
+	if (baseIdx < 0) return; // inert, or the base is gone (the screen leaves itself)
+	const std::string key = keyOf(_game, screen);
+	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // PR-49: the indices shifted
+	if (!_acked && g_selLocal[_key].openEchoes < _openWant) return;
+	auto it = g_sel.find(_key);
+	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; }
+	_acked = true;
+	const SharedSel& m = it->second;
+	if (!_seen || m.rev != _seenRev)
+	{
+		// Each row adopts the list's amount with no local cap - qtySrc is the base's stock, not a maximum (F6625) - unless its
+		// own last edit is unanswered (Q-P8-3 (a)). The five totals increaseByValue gates on come from every row, hidden or
+		// filtered too (F6629), plus the list's rows this screen does not build, at their rule's cost and size (F6124).
+		_seen = true; _seenRev = m.rev;
+		Mod* mod = _game->getMod();
+		std::set<std::string> shown; std::vector<size_t> changed;
+		int64_t total = 0; int pQty = 0, cQty = 0; double iQty = 0; std::map<int, int> prison;
+		auto addItem = [&](const RuleItem* r, int n) { iQty += n * r->getSize(); if (r->isAlien()) prison[r->getPrisonType()] += n; };
+		for (size_t i = 0; i < screen->_items.size(); ++i)
+		{
+			TransferRow& row = screen->_items[i];
+			const std::string rk = buyRowKey(row);
+			shown.insert(rk);
+			if (selAdopt(row.amount, rk, INT_MAX, m, g_selLocal[_key], _lastSent)) changed.push_back(i);
+			if (row.amount <= 0) continue;
+			total += (int64_t)row.cost * row.amount;
+			if (row.type == TRANSFER_ITEM) addItem((const RuleItem*)row.rule, row.amount);
+			else if (row.type == TRANSFER_CRAFT) cQty += row.amount;
+			else pQty += row.amount;
+		}
+		for (const auto& r : m.rows)
+		{
+			if (shown.count(r.first)) continue;
+			const std::string type = r.first.substr(r.first.find(':') + 1);
+			if (r.first == "sci" || r.first == "eng")
+				{ total += (int64_t)r.second * (r.first == "sci" ? mod->getHireScientistCost() : mod->getHireEngineerCost()); pQty += r.second; }
+			else if (const RuleSoldier* rs = r.first.compare(0, 2, "h:") == 0 ? mod->getSoldier(type, false) : nullptr)
+				{ total += (int64_t)r.second * rs->getBuyCost(); pQty += r.second; }
+			else if (const RuleCraft* rc = r.first.compare(0, 3, "cr:") == 0 ? mod->getCraft(type, false) : nullptr)
+				{ total += (int64_t)r.second * rc->getBuyCost(); cQty += r.second; }
+			else if (const RuleItem* ri = r.first.compare(0, 2, "i:") == 0 ? mod->getItem(type, false) : nullptr)
+				{ total += (int64_t)r.second * ri->getBuyCostAdjusted(screen->_base, _game->getSavedGame()); addItem(ri, r.second); }
+		}
+		const bool redraw = !changed.empty() || total != screen->_total || std::fabs(iQty - screen->_iQty) > 1e-9;
+		screen->_total = (int)total; screen->_pQty = pQty; screen->_cQty = cQty; screen->_iQty = iQty; screen->_iPrisonQty = prison;
+		const size_t sel0 = screen->_sel;
+		bool drawn = false;
+		_applying = true;
+		for (size_t v = 0; redraw && v < screen->_rows.size(); ++v) // each changed visible row, else one row for the totals
+			if (std::find(changed.begin(), changed.end(), (size_t)screen->_rows[v]) != changed.end())
+				{ screen->_sel = v; screen->updateItemStrings(); drawn = true; }
+		if (redraw && !drawn && !screen->_rows.empty())
+			{ screen->_sel = sel0 < screen->_rows.size() ? sel0 : 0; screen->updateItemStrings(); }
+		else if (redraw && !drawn) // no visible row: the two totals texts as updateItemStrings sets them (PurchaseState :1497, :1517-:1526)
+		{
+			std::ostringstream ss;
+			ss << screen->_base->getUsedStores();
+			if (std::abs(screen->_iQty) > 0.05)
+				ss << "(" << (screen->_iQty > 0.05 ? "+" : "") << std::fixed << std::setprecision(1) << screen->_iQty << ")";
+			ss << ":" << screen->_base->getAvailableStores();
+			screen->_txtPurchases->setText(screen->tr("STR_COST_OF_PURCHASES").arg(Unicode::formatFunding(screen->_total)));
+			screen->_txtSpaceUsed->setText(screen->tr("STR_SPACE_USED").arg(ss.str()));
+		}
+		_applying = false; screen->_sel = sel0;
+	}
+	selPresent(_game, screen, m, _label, _labelShown, screen->_lstItems, "buyMenu", selSig(screen->_rows), _hlSig, _hlOn,
+		[&]() { std::vector<std::string> k; for (int i : screen->_rows) k.push_back(buyRowKey(screen->_items[i])); return k; },
+		[&](size_t v) { const size_t s0 = screen->_sel; _applying = true; screen->_sel = v; screen->updateItemStrings();
+			_applying = false; screen->_sel = s0; });
+}
+
+void SelectionBinder::localEdit(PurchaseState* screen)
+{
+	if (!_opened || _applying || screen->_sel >= screen->_rows.size()) return;
+	const TransferRow& row = screen->_items[screen->_rows[screen->_sel]];
+	const std::string rk = buyRowKey(row);
+	Json::Value p;
+	p["key"] = _key; p["row"] = rk; p["amount"] = row.amount;
+	p["eseq"] = _lastSent[rk] = ++g_selEseq;
+	submitLocalCmd(_game, "sel_set", _baseIdx, p);
 }
 
 Stats stats()
