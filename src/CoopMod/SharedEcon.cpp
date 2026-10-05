@@ -2348,6 +2348,84 @@ void soldierNationalityApply(Game* /*game*/, Json::Value& payload, Base* base, i
 	if (s && nationality >= 0) s->setNationality(nationality);
 }
 
+// soldier_training payload: { soldierId, training, rtwh }; soldier_psi_training payload: { soldierId, psi }.
+// W2-H16b (S-10, S-11; D226 a): a martial / psi allocation (AllocateTrainingState / AllocatePsiTrainingState)
+// keeps vanilla's local write and submits the soldier's flags as an absolute end-state. The host refuses a
+// soldier the sending seat does not own (AUD-A48). HOST: re-run vanilla's gates against the host's world,
+// apply or keep, and ALWAYS write the resolved flags into the payload (the broadcast carries them).
+// REPLICA (the initiator included): adopt the payload's flags. A lost race for the last place is undone (V1).
+bool soldierTrainingValidate(Game* /*game*/, const Json::Value& payload, Base* base, int seat,
+                             int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	if (!s) { failReason = "soldier not found"; return false; }
+	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // W2-H16b A1 (AUD-A48): own soldiers only
+	return true;
+}
+void soldierTrainingApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	if (!s) return;
+	bool training = payload.get("training", false).asBool();
+	bool rtwh = payload.get("rtwh", false).asBool();
+	if (connectionTCP::getHost())
+	{
+		// vanilla's gates (AllocateTrainingState :493, :496, :514) against the HOST's world
+		if (training && !s->isInTraining()
+			&& (s->isFullyTrained() || s->isWounded() || base->getUsedTraining() >= base->getAvailableTraining()))
+			training = false;
+		if (rtwh && s->isFullyTrained())
+			rtwh = false;
+		s->setTraining(training);
+		s->setReturnToTrainingWhenHealed(rtwh);
+		payload["training"] = s->isInTraining(); // the resolved flags ride the broadcast
+		payload["rtwh"] = s->getReturnToTrainingWhenHealed();
+	}
+	else
+	{
+		s->setTraining(training);
+		s->setReturnToTrainingWhenHealed(rtwh);
+	}
+}
+bool soldierPsiTrainingValidate(Game* /*game*/, const Json::Value& payload, Base* base, int seat,
+                                int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	if (!s) { failReason = "soldier not found"; return false; }
+	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // W2-H16b A1 (AUD-A48): own soldiers only
+	return true;
+}
+void soldierPsiTrainingApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	if (!s) return;
+	bool psi = payload.get("psi", false).asBool();
+	if (connectionTCP::getHost())
+	{
+		// vanilla's gates (AllocatePsiTrainingState :492-502) against the HOST's world
+		if (psi && !s->isInPsiTraining()
+			&& (s->getRules()->getTrainingStatCaps().psiSkill <= 0 || s->isFullyPsiTrained()
+				|| base->getUsedPsiLabs() >= base->getAvailablePsiLabs()))
+			psi = false;
+		s->setPsiTraining(psi);
+		payload["psi"] = s->isInPsiTraining(); // the resolved flag rides the broadcast
+	}
+	else
+	{
+		s->setPsiTraining(psi);
+	}
+	// both roles: the stat string with THIS machine's psiStrengthEval (AllocatePsiTrainingState::btnOkClick, F6140)
+	if (game && game->getSavedGame())
+		s->calcStatString(game->getMod()->getStatStrings(), Options::psiStrengthEval &&
+			game->getSavedGame()->isResearched(game->getMod()->getPsiRequirements()));
+}
+
 // soldier_armor payload: { soldierId, armor }. baseId = the soldier's base index.
 // End-state = which armor the soldier wears (identity swap, last-write-wins - the
 // J09 "model the payload to the state, not literally a count" adaptation). Mirrors
@@ -3726,6 +3804,9 @@ void init()
 	// W2-H16 (F3260): manual promotion and nationality (player-origin from either seat; the host resolves the rank).
 	registerCmd("soldier_rank",   &soldierRankValidate,   &soldierRankApply);
 	registerCmd("soldier_nationality", &soldierNationalityValidate, &soldierNationalityApply);
+	// W2-H16b (S-10, S-11): martial / psi training allocations (player-origin; own soldiers only, the host resolves the flags).
+	registerCmd("soldier_training",     &soldierTrainingValidate,    &soldierTrainingApply);
+	registerCmd("soldier_psi_training", &soldierPsiTrainingValidate, &soldierPsiTrainingApply);
 	// PRD-DF01 shared/replicated dogfights: host-originated membership broadcast
 	// (df_open, full set + epoch each change; replica reconciles its render-only
 	// windows). df_state (per-tick render frames) rides the SNAP_DOGFIGHT conflation
@@ -4598,6 +4679,46 @@ void submitSoldierNationality(Game* game, Base* base, Soldier* soldier)
 	submitLocalCmd(game, "soldier_nationality", baseIndex(game, base), p);
 }
 
+// W2-H16b (S-10, S-11): SHARED and a real base only; vanilla's local write already ran. The host
+// re-checks the gym / psi-lab rules and resolves the flags both worlds hold.
+void submitSoldierTraining(Game* game, Base* base, Soldier* soldier)
+{
+	if (!game || !base || !soldier || base->_coopBase) return;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	Json::Value p;
+	p["soldierId"] = soldier->getId();
+	p["training"] = soldier->isInTraining();
+	p["rtwh"] = soldier->getReturnToTrainingWhenHealed();
+	submitLocalCmd(game, "soldier_training", baseIndex(game, base), p);
+}
+
+void submitSoldierPsiTraining(Game* game, Base* base, Soldier* soldier)
+{
+	if (!game || !base || !soldier || base->_coopBase) return;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	Json::Value p;
+	p["soldierId"] = soldier->getId();
+	p["psi"] = soldier->isInPsiTraining();
+	submitLocalCmd(game, "soldier_psi_training", baseIndex(game, base), p);
+}
+
+// W2-H16b (S-9b / S-9c): the crew screen's two "remove soldiers" keys in SHARED - craft_assign off for every
+// own soldier (A1) of @a base on a craft that is not OUT (only @a onlyCraft when non-null); true = handled.
+bool submitCraftDeassign(Game* game, Base* base, Craft* onlyCraft)
+{
+	if (!game || !base || base->_coopBase) return false;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return false;
+	for (auto* s : *base->getSoldiers())
+	{
+		if (!ownsSoldier(game, s)) continue; // W2-H16b A1 (AUD-A48): the hotkeys unseat only the local player's own soldiers
+		Craft* sc = s->getCraft();
+		if (!sc || sc->getStatus() == "STR_OUT") continue; // an OUT craft is locked (CraftSoldiersState :675-679, craftAssignValidate)
+		if (onlyCraft && sc != onlyCraft) continue;
+		submitCraftAssign(game, sc, s, false);
+	}
+	return true;
+}
+
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade)
 {
 	if (!sharedHost(game) || !craft) return;
@@ -4880,6 +5001,19 @@ std::vector<Soldier*> visibleSoldiers(Game* game, Base* base)
 			out.push_back(s);
 	}
 	return out;
+}
+
+// W2-H16b A1 (AUD-A48): the roster index behind display row @a row of an own-only list
+// (AllocateTrainingState / AllocatePsiTrainingState); identity outside SHARED.
+size_t visibleRowToRosterIndex(Game* game, Base* base, size_t row)
+{
+	if (!base) return row;
+	std::vector<Soldier*> view = visibleSoldiers(game, base);
+	if (row >= view.size()) return row;
+	const auto& all = *base->getSoldiers();
+	for (size_t i = 0; i < all.size(); ++i)
+		if (all[i] == view[row]) return i;
+	return row;
 }
 
 void hostDayTick(Game* game)

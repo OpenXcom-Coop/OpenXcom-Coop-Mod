@@ -39,6 +39,7 @@
 #include "../Basescape/SoldierSortUtil.h"
 #include <algorithm>
 #include "../Engine/Unicode.h"
+#include "../CoopMod/SharedEcon.h" // coop W2-H16b
 
 namespace OpenXcom
 {
@@ -307,6 +308,7 @@ void AllocatePsiTrainingState::initList(size_t scrl)
 	_lstSoldiers->clearList();
 	for (auto* soldier : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop W2-H16b A1 (AUD-A48): SHARED lists only the local player's own soldiers
 		const UnitStats* stats = _btnPlus->getPressed() ? soldier->getStatsWithSoldierBonusesOnly() : soldier->getCurrentStats();
 
 		std::ostringstream ssStr;
@@ -337,6 +339,7 @@ void AllocatePsiTrainingState::initList(size_t scrl)
 			{
 				_labSpace++;
 				soldier->setPsiTraining(false);
+				SharedEcon::submitSoldierPsiTraining(_game, _base, soldier); // coop W2-H16b (S-11)
 			}
 		}
 		else if (soldier->isFullyPsiTrained())
@@ -347,6 +350,7 @@ void AllocatePsiTrainingState::initList(size_t scrl)
 			{
 				_labSpace++;
 				soldier->setPsiTraining(false);
+				SharedEcon::submitSoldierPsiTraining(_game, _base, soldier); // coop W2-H16b (S-11)
 			}
 		}
 		else if (soldier->isInPsiTraining())
@@ -489,6 +493,7 @@ void AllocatePsiTrainingState::lstSoldiersClick(Action *action)
 	if (action->getDetails()->button.button == SDL_BUTTON_LEFT)
 	{
 		auto* s = _base->getSoldiers()->at(_sel);
+		s = _base->getSoldiers()->at(SharedEcon::visibleRowToRosterIndex(_game, _base, _sel)); // coop W2-H16b A1: the own-only row's soldier
 		if (s->getRules()->getTrainingStatCaps().psiSkill <= 0)
 		{
 			// noop
@@ -506,6 +511,7 @@ void AllocatePsiTrainingState::lstSoldiersClick(Action *action)
 				_labSpace--;
 				_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
 				s->setPsiTraining(true);
+				SharedEcon::submitSoldierPsiTraining(_game, _base, s); // coop W2-H16b (S-11)
 			}
 		}
 		else
@@ -515,11 +521,13 @@ void AllocatePsiTrainingState::lstSoldiersClick(Action *action)
 			_labSpace++;
 			_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
 			s->setPsiTraining(false);
+			SharedEcon::submitSoldierPsiTraining(_game, _base, s); // coop W2-H16b (S-11)
 		}
 	}
 	else if (action->getDetails()->button.button == SDL_BUTTON_RIGHT)
 	{
 		_doNotReset = true;
+		_sel = SharedEcon::visibleRowToRosterIndex(_game, _base, _sel); // coop W2-H16b A1: SoldierInfoState takes the roster index
 		_game->pushState(new SoldierInfoState(_base, _sel, true, true));
 	}
 }
@@ -563,7 +571,9 @@ void AllocatePsiTrainingState::btnDeassignAllSoldiersClick(Action* action)
 	int row = 0;
 	for (auto* s : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, s)) continue; // coop W2-H16b A1 (AUD-A48): own soldiers only
 		s->setPsiTraining(false);
+		SharedEcon::submitSoldierPsiTraining(_game, _base, s); // coop W2-H16b (S-11)
 		if (s->getRules()->getTrainingStatCaps().psiSkill <= 0)
 		{
 			_lstSoldiers->setCellText(row, 3, tr("STR_NO_WOUNDED"));
@@ -592,6 +602,7 @@ void AllocatePsiTrainingState::btnAssignAllSoldiersClick(Action* action)
 	int row = 0;
 	for (auto* s : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, s)) continue; // coop W2-H16b A1 (AUD-A48): own soldiers only
 		if (s->getRules()->getTrainingStatCaps().psiSkill <= 0)
 		{
 			// noop
@@ -606,6 +617,7 @@ void AllocatePsiTrainingState::btnAssignAllSoldiersClick(Action* action)
 			_lstSoldiers->setRowColor(row, _lstSoldiers->getSecondaryColor());
 			_labSpace--;
 			s->setPsiTraining(true);
+			SharedEcon::submitSoldierPsiTraining(_game, _base, s); // coop W2-H16b (S-11)
 		}
 		row++;
 	}

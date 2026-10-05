@@ -378,6 +378,20 @@ void submitSoldierRank(Game* game, Base* base, Soldier* soldier);
 /// absolute end-state, last-write-wins (soldier_nationality).
 void submitSoldierNationality(Game* game, Base* base, Soldier* soldier);
 
+/// W2-H16b (S-10): SHARED and a real base only - no-op otherwise; called AFTER vanilla's local write
+/// (AllocateTrainingState); submits the soldier's training + rtwh as an absolute end-state. The host
+/// re-checks the gym rules and broadcasts the flags both worlds hold (soldier_training).
+void submitSoldierTraining(Game* game, Base* base, Soldier* soldier);
+
+/// W2-H16b (S-11): the same for psi training (AllocatePsiTrainingState; the psi-lab rules;
+/// soldier_psi_training).
+void submitSoldierPsiTraining(Game* game, Base* base, Soldier* soldier);
+
+/// W2-H16b (S-9b/c): SHARED and a real base only - returns false otherwise; submits craft_assign off
+/// for every soldier of @a base that this machine's player owns (ownsSoldier) on a craft that is not
+/// OUT (only @a onlyCraft when non-null); returns true.
+bool submitCraftDeassign(Game* game, Base* base, Craft* onlyCraft);
+
 // ---- PRD-DF01: shared/replicated dogfights -----------------------------------
 /// REPLICA: route a df_state frame set here (SNAP_DOGFIGHT conflation slot, a raw
 /// top-level message, not the shared_apply lane). Epoch-guarded + fanned to the
@@ -405,6 +419,9 @@ void applyDogfightState(Game* game, const Json::Value& obj);
 std::vector<Soldier*> visibleSoldiers(Game* game, Base* base);
 /// True if this machine's player owns @a soldier (SHARED owner==localSeat; else true).
 bool ownsSoldier(Game* game, const Soldier* soldier);
+/// coop W2-H16b A1 (AUD-A48): the base-roster index of display row @a row of visibleSoldiers(@a game, @a base);
+/// @a row unchanged outside SHARED or when it is out of range.
+size_t visibleRowToRosterIndex(Game* game, Base* base, size_t row);
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 /// Playtest (Bug: waypoint arrival never reached clients): host broadcasts that a craft

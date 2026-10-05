@@ -20,6 +20,7 @@
 #include "../Engine/TouchState.h"
 #include <vector>
 #include "SoldierSortUtil.h"
+#include "../CoopMod/SharedEcon.h" // coop W2-H16b (PRD-J10 live refresh)
 
 namespace OpenXcom
 {
@@ -53,6 +54,8 @@ private:
 	std::vector<Soldier *> _viewSoldiers;
 	std::vector<SortFunctor *> _sortFunctors;
 	getStatFn_t _dynGetter;
+	/// coop W2-H16b (PRD-J10): live refresh - a shared apply for this base redraws the list.
+	SharedEcon::ScreenRefresh _sharedRefresh;
 	///initializes the display list based on the craft soldier's list and the position to display
 	void initList(size_t scrl);
 public:
@@ -66,6 +69,8 @@ public:
 	void cbxSortByChange(Action *action);
 	/// Updates the soldier armors.
 	void init() override;
+	/// coop W2-H16b: applies a pending live refresh.
+	void think() override;
 	/// Handler for clicking the Soldiers reordering button.
 	void lstItemsLeftArrowClick(Action *action);
 	/// Moves a soldier up.
