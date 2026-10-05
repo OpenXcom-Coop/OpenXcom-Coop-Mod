@@ -212,6 +212,8 @@
 #include "../Basescape/CraftWeaponsState.h"
 #include "../Basescape/SoldierArmorState.h"
 #include "../Basescape/CraftArmorState.h"
+#include "../Geoscape/AllocateTrainingState.h"
+#include "../Geoscape/AllocatePsiTrainingState.h"
 #include "../Mod/Armor.h"
 #include "SharedEcon.h"
 #include "CoopState.h"
@@ -6756,6 +6758,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "light_census" && cmd != "light_recompute" && cmd != "light_probe_reset"
 		&& cmd != "battle_strip_unit"
 		&& cmd != "open_soldier_info" && cmd != "set_soldier_rank" && cmd != "soldier_attr_probe" // W2-H16 (F3260)
+		&& cmd != "open_alloc_screen" && cmd != "alloc_screen_probe" && cmd != "set_soldier_recovery" // W2-H16b (F6180, F6189)
 		&& cmd != "synced_options_state" && cmd != "synced_option_request" && cmd != "options_save" && cmd != "synced_apply_hold"
 		&& cmd != "option_values" && cmd != "shared_update_defer" // W2-P10 S-A.1 (PX-3, PX-4)
 		&& cmd != "battle_end_turn_ready"
@@ -9597,6 +9600,109 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["ids"] = idsMP;
 			resp["size"] = (int)sgMP->getMissionStatistics()->size();
 			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "open_alloc_screen")
+	{
+		// W2-H16b (S-10, S-11): TEST lever - push the REAL AllocateTrainingState {kind: martial} / AllocatePsiTrainingState {psi}
+		// on THIS machine; the base as open_screen finds it. The screen inits on the next frame. Reply {ok, baseIndex}.
+		const std::string kindOA = req.get("kind", "").asString(), nameOA = req.get("base", "").asString();
+		Base* baseOA = nullptr; int biOA = 0;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+			{
+				if (nameOA.empty() ? (!b->_coopBase && !b->_coopIcon) : b->getName() == nameOA) { baseOA = b; break; }
+				++biOA;
+			}
+		if (!baseOA)
+			resp["error"] = "open_alloc_screen: base not found";
+		else if (kindOA != "martial" && kindOA != "psi")
+			resp["error"] = "open_alloc_screen: unknown kind";
+		else
+		{
+			if (kindOA == "martial") _game->pushState(new AllocateTrainingState(baseOA));
+			else _game->pushState(new AllocatePsiTrainingState(baseOA));
+			resp["baseIndex"] = biOA; resp["ok"] = true;
+		}
+	}
+	else if (cmd == "alloc_screen_probe")
+	{
+		// W2-H16b (S-9..S-11; A1 P7): TEST INTROSPECTION ONLY - read-only. {base?} (open_screen's rule). `top`; `kind` martial |
+		// psi | craft_armor | craft_soldiers | none; `baseIndex`; `rows` [{row, soldierId, status (cell 8 / 3 / 1 / 2), wx, wy
+		// (window pixels, the soldier_attr_probe conversion, visible rows)}] of the top state's first TextList. soldierId: the
+		// craft screens' harnessDisplayedSoldierIds; martial / psi: the roster's ids if the row count is its size (`listing`
+		// roster), else visibleSoldiers' if it is that size (own), else an error reply (0 rows: no error).
+		const std::string nameAP = req.get("base", "").asString();
+		Base* baseAP = nullptr; int biAP = 0;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+			{
+				if (nameAP.empty() ? (!b->_coopBase && !b->_coopIcon) : b->getName() == nameAP) { baseAP = b; break; }
+				++biAP;
+			}
+		State* topAP = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		resp["top"] = topAP ? typeid(*topAP).name() : "none";
+		std::string kindAP = "none";
+		size_t colAP = 0;
+		std::vector<int> idsAP;
+		if (auto* caAP = dynamic_cast<CraftArmorState*>(topAP)) { kindAP = "craft_armor"; colAP = 1; idsAP = caAP->harnessDisplayedSoldierIds(); }
+		else if (auto* csAP = dynamic_cast<CraftSoldiersState*>(topAP)) { kindAP = "craft_soldiers"; colAP = 2; idsAP = csAP->harnessDisplayedSoldierIds(); }
+		else if (dynamic_cast<AllocateTrainingState*>(topAP)) { kindAP = "martial"; colAP = 8; }
+		else if (dynamic_cast<AllocatePsiTrainingState*>(topAP)) { kindAP = "psi"; colAP = 3; }
+		TextList* lstAP = nullptr;
+		if (kindAP != "none")
+			for (auto* srf : topAP->getSurfaces())
+				if (auto* tl = dynamic_cast<TextList*>(srf)) { lstAP = tl; break; }
+		const size_t nAP = lstAP ? lstAP->getTexts() : 0;
+		resp["kind"] = kindAP;
+		resp["baseIndex"] = baseAP ? biAP : -1;
+		bool matchAP = true;
+		if ((kindAP == "martial" || kindAP == "psi") && nAP > 0)
+		{
+			std::vector<Soldier*> listAP;
+			if (baseAP && nAP == baseAP->getSoldiers()->size()) { listAP = *baseAP->getSoldiers(); resp["listing"] = "roster"; }
+			else if (baseAP && nAP == SharedEcon::visibleSoldiers(_game, baseAP).size()) { listAP = SharedEcon::visibleSoldiers(_game, baseAP); resp["listing"] = "own"; }
+			else matchAP = false;
+			for (auto* s : listAP) idsAP.push_back(s->getId());
+		}
+		Json::Value rowsAP(Json::arrayValue);
+		Screen* scrAP = _game->getScreen();
+		int lineAP = 0;
+		for (size_t r = 0; r < nAP; ++r)
+		{
+			const int numLines = lstAP->getNumTextLines(r);
+			Json::Value row(Json::objectValue);
+			row["row"] = (Json::Int)r; row["soldierId"] = r < idsAP.size() ? idsAP[r] : -1;
+			row["status"] = lstAP->getCellText(r, colAP);
+			if ((size_t)lineAP >= lstAP->getScroll() && (size_t)lineAP < lstAP->getScroll() + lstAP->getVisibleRows())
+			{
+				double bx = lstAP->getX() + lstAP->getWidth() / 2.0;
+				double by = (double)lstAP->getRowY(r) + 0.5 * ((double)lstAP->getTextHeight(r) / (double)(numLines > 0 ? numLines : 1));
+				row["wx"] = (int)(bx * scrAP->getXScale() + scrAP->getCursorLeftBlackBand());
+				row["wy"] = (int)(by * scrAP->getYScale() + scrAP->getCursorTopBlackBand());
+			}
+			rowsAP.append(row);
+			lineAP += (numLines > 0 ? numLines : 1);
+		}
+		resp["rows"] = rowsAP;
+		if (!matchAP) resp["error"] = "rows match neither list"; else resp["ok"] = true;
+	}
+	else if (cmd == "set_soldier_recovery")
+	{
+		// W2-H16b (F6189): TEST lever - STAGING on THIS machine only (both machines, client first, S25): soldier {soldierId}
+		// (every base, index order) -> setWoundRecovery({days}) (isWounded for days > 0). Reply {ok, recovery} (read back).
+		const int idWR = req.get("soldierId", -1).asInt();
+		Soldier* sWR = nullptr;
+		if (_game->getSavedGame())
+			for (auto* base : *_game->getSavedGame()->getBases())
+				for (auto* s : *base->getSoldiers())
+					if (!sWR && s->getId() == idWR) sWR = s;
+		if (!sWR)
+			resp["error"] = "set_soldier_recovery: soldier not found";
+		else
+		{
+			sWR->setWoundRecovery(req.get("days", 0).asInt());
+			resp["recovery"] = sWR->getWoundRecoveryInt(); resp["ok"] = true;
 		}
 	}
 	else if (cmd == "soldier_record")
