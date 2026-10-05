@@ -198,13 +198,14 @@ def short(e, n=300):
 
 def staging_settled(host, client):
     """W2-U8b (F6305, F6471; W2-U8 F6060): the client has applied every ev the host emitted
-    (session.wait_host_idle). A host lever can make the host EMIT in its own frame: an alien teleport
-    dirties that alien's hostile FOV key, and CoopReveal::flushQuiescent (updateCoopTask, right after
-    TestServer::pump) ships a standalone `reveal` ev whose `h` hashes the host's state at that emit. If the
-    next pair's client lever runs before the client applies that ev, the client hashes a different
-    unitsStats and freezes (DESYNC unitsStats seq 8 kind=reveal). The first host read runs in a later
-    TestServer::pump than the lever, after that frame's flush, so this cannot pass before the emit."""
-    session.wait_host_idle(host, client, timeout=30)
+    (session.wait_seq_barrier, W2-U8b.1 F6494). A host lever can make the host EMIT in its own frame: an
+    alien teleport dirties that alien's hostile FOV key, and CoopReveal::flushQuiescent (updateCoopTask,
+    right after TestServer::pump) ships a standalone `reveal` ev whose `h` hashes the host's state at that
+    emit. If the next pair's client lever runs before the client applies that ev, the client hashes a
+    different unitsStats and freezes (DESYNC unitsStats seq 8 kind=reveal). The barrier's host read follows
+    a client read, so it runs in a later TestServer::pump than the lever, after that frame's flush, and
+    cannot pass before the emit."""
+    session.wait_seq_barrier(host, client, timeout=30)
 
 
 def both(host, client, req, keys):
