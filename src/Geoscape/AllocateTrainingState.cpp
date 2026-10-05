@@ -39,6 +39,7 @@
 #include "../Basescape/SoldierSortUtil.h"
 #include <algorithm>
 #include "../Engine/Unicode.h"
+#include "../CoopMod/SharedEcon.h" // coop W2-H16b
 
 namespace OpenXcom
 {
@@ -315,6 +316,7 @@ void AllocateTrainingState::initList(size_t scrl)
 	_lstSoldiers->clearList();
 	for (auto* soldier : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop W2-H16b A1 (AUD-A48): SHARED lists only the local player's own soldiers
 		const UnitStats* stats = _btnPlus->getPressed() ? soldier->getStatsWithSoldierBonusesOnly() : soldier->getCurrentStats();
 
 		std::ostringstream tu;
@@ -488,6 +490,7 @@ void AllocateTrainingState::lstSoldiersClick(Action *action)
 	if (action->getDetails()->button.button == SDL_BUTTON_LEFT)
 	{
 		auto* soldier = _base->getSoldiers()->at(_sel);
+		soldier = _base->getSoldiers()->at(SharedEcon::visibleRowToRosterIndex(_game, _base, _sel)); // coop W2-H16b A1: the own-only row's soldier
 
 		// can't put fully trained soldiers back into training
 		if (soldier->isFullyTrained()) return;
@@ -505,6 +508,7 @@ void AllocateTrainingState::lstSoldiersClick(Action *action)
 				_lstSoldiers->setCellText(_sel, 8, tr("STR_NO_QUEUED").c_str());
 				soldier->setReturnToTrainingWhenHealed(true);
 			}
+			SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop W2-H16b (S-10)
 			return;
 		}
 
@@ -519,6 +523,7 @@ void AllocateTrainingState::lstSoldiersClick(Action *action)
 				_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
 				soldier->setTraining(true);
 				soldier->setReturnToTrainingWhenHealed(false);
+				SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop W2-H16b (S-10)
 			}
 		}
 		else
@@ -529,11 +534,13 @@ void AllocateTrainingState::lstSoldiersClick(Action *action)
 			_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
 			soldier->setTraining(false);
 			soldier->setReturnToTrainingWhenHealed(false);
+			SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop W2-H16b (S-10)
 		}
 	}
 	else if (action->getDetails()->button.button == SDL_BUTTON_RIGHT)
 	{
 		_doNotReset = true;
+		_sel = SharedEcon::visibleRowToRosterIndex(_game, _base, _sel); // coop W2-H16b A1: SoldierInfoState takes the roster index
 		_game->pushState(new SoldierInfoState(_base, _sel, true, true));
 	}
 }
@@ -577,8 +584,10 @@ void AllocateTrainingState::btnDeassignAllSoldiersClick(Action* action)
 	int row = 0;
 	for (auto* soldier : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop W2-H16b A1 (AUD-A48): own soldiers only
 		soldier->setTraining(false);
 		soldier->setReturnToTrainingWhenHealed(false);
+		SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop W2-H16b (S-10)
 
 		std::string status;
 		if (soldier->isFullyTrained())
@@ -605,6 +614,7 @@ void AllocateTrainingState::btnAssignAllSoldiersClick(Action* action)
 	int row = 0;
 	for (auto* soldier : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop W2-H16b A1 (AUD-A48): own soldiers only
 		if (soldier->isFullyTrained())
 		{
 			// can't put fully trained soldiers back into training
@@ -616,6 +626,7 @@ void AllocateTrainingState::btnAssignAllSoldiersClick(Action* action)
 			{
 				_lstSoldiers->setCellText(row, 8, tr("STR_NO_QUEUED").c_str());
 				soldier->setReturnToTrainingWhenHealed(true);
+				SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop W2-H16b (S-10)
 			}
 		}
 		else if (_space > 0 && !soldier->isInTraining())
@@ -626,6 +637,7 @@ void AllocateTrainingState::btnAssignAllSoldiersClick(Action* action)
 			_space--;
 			soldier->setTraining(true);
 			soldier->setReturnToTrainingWhenHealed(false);
+			SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop W2-H16b (S-10)
 		}
 		row++;
 	}

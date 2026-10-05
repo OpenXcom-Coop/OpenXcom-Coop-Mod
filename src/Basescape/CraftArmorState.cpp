@@ -164,6 +164,7 @@ CraftArmorState::CraftArmorState(Base *base, size_t craft) : _base(base), _craft
  */
 CraftArmorState::~CraftArmorState()
 {
+	_sharedRefresh.unbind(this); // coop W2-H16b (PRD-J10)
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -283,6 +284,7 @@ void CraftArmorState::init()
 	}
 
 	touchComponentsRefresh();
+	_sharedRefresh.bind(_game, this, _base); // coop W2-H16b (PRD-J10): redraw when a shared apply lands
 }
 
 /**
@@ -483,6 +485,7 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 				Craft* c = _base->getCrafts()->at(_craft);
 				if (s->getCraft() == c)
 				{
+					if (_game->getCoopMod()->isSharedCampaign()) { SharedEcon::submitCraftAssign(_game, c, s, false); return; } // coop W2-H16b (S-9): the host unseats (craft_assign); the refresh redraws
 					s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
 					_lstSoldiers->setCellText(_lstSoldiers->getSelectedRow(), 1, tr("STR_NONE_UC"));
 					_lstSoldiers->setRowColor(_lstSoldiers->getSelectedRow(), _lstSoldiers->getColor());
@@ -493,6 +496,7 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 					CraftPlacementErrors err = c->validateAddingSoldier(space, s);
 					if (err == CPE_None)
 					{
+						if (_game->getCoopMod()->isSharedCampaign()) { SharedEcon::submitCraftAssign(_game, c, s, true); return; } // coop W2-H16b (S-9): the host seats (craft_assign); the refresh redraws
 						s->setCraftAndMoveEquipment(c, _base, _game->getSavedGame()->getMonthsPassed() == -1, true);
 						_lstSoldiers->setCellText(_lstSoldiers->getSelectedRow(), 1, c->getName(_game->getLanguage()));
 						_lstSoldiers->setRowColor(_lstSoldiers->getSelectedRow(), _lstSoldiers->getSecondaryColor());
@@ -639,6 +643,7 @@ void CraftArmorState::btnDeequipAllArmorClick(Action *action)
 	int row = 0;
 	for (auto* soldier : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop W2-H16b A1 (aud-E1-11): SHARED resets only the local player's own soldiers
 		if (!(soldier->getCraft() && soldier->getCraft()->getStatus() == "STR_OUT"))
 		{
 			Armor *a = soldier->getRules()->getDefaultArmor();
@@ -687,6 +692,7 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 	int row = 0;
 	for (auto* s : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, s)) continue; // coop W2-H16b A1 (aud-E1-11): SHARED resets only the local player's own soldiers
 		if (s->getCraft() == c || s->getCraft() == 0)
 		{
 			Armor *a = s->getRules()->getDefaultArmor();
@@ -720,6 +726,24 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 			}
 		}
 		row++;
+	}
+}
+
+/**
+ * coop W2-H16b (PRD-J10): applies a pending live refresh (the CraftSoldiersState::think shape).
+ */
+void CraftArmorState::think()
+{
+	State::think();
+	if (_sharedRefresh.consume())
+	{
+		if (SharedEcon::baseIndex(_game, _base) < 0 || _craft >= _base->getCrafts()->size())
+		{
+			_game->popState(); // the base or the craft was removed out from under this screen
+			return;
+		}
+		_base->prepareSoldierStatsWithBonuses();
+		initList(_lstSoldiers->getScroll());
 	}
 }
 
