@@ -16857,8 +16857,12 @@ bool connectionTCP::coopDebriefClientFill(DebriefingState* db)
 	if (d.get("mode", "skirmish").asString() != "skirmish")
 		CoopDelta::debriefMarkCampaign();
 
-	db->_txtTitle->setText(d.get("title", "").asString());
-	db->_txtRecovery->setText(d.get("recoveryHeader", "").asString());
+	// AUD-A12: this machine's language. An empty key leaves the text empty; init's own :548-:559 then applies vanilla's rule
+	// (STR_BOUNTY when recovery rows exist, cleared when none), exactly as on the host.
+	const std::string titleKey = d.get("titleKey", "").asString();
+	const std::string recoveryKey = d.get("recoveryKey", "").asString();
+	db->_txtTitle->setText(titleKey.empty() ? std::string() : std::string(db->tr(titleKey)));
+	db->_txtRecovery->setText(recoveryKey.empty() ? std::string() : std::string(db->tr(recoveryKey)));
 
 	// Page 1: one DebriefingStat per entry (the destructor frees them).
 	const Json::Value& stats = d["stats"];
@@ -16906,7 +16910,7 @@ bool connectionTCP::coopDebriefClientFill(DebriefingState* db)
 				Log(LOG_WARNING) << "[coop-debrief] client: malformed soldier stats for '"
 					<< e.get("name", "").asString() << "' - zero stats shown";
 			}
-			// W2-P7 S-C-C.2 (PR-C5/PR-C10; D177 (a), MR5): this machine's view of the raw name (else the host's name).
+			// W2-P7 S-C-C.2 (PR-C5/PR-C10; D177 (a), AUD-A07): this machine's view of the raw name (else the host's name).
 			const std::string pageName = e.isMember("rawName")
 				? coopSeatDisplayName(e.get("ownerSeat", 0).asInt(), e.get("rawName", "").asString())
 				: e.get("name", "").asString();
@@ -17041,27 +17045,47 @@ static std::string coopSerializeCommendedRecord(Game* game, Soldier* soldier)
 }
 
 // W2-P7 S-C-C.2 (PR-C5, F2515, F5626): the host's page-2 name site (DebriefingState :1587) records each row's raw name,
-// owner seat (999 -> 0) and soldier id, index-aligned with _soldierStats; V5 consumes the list first.
+// seat (coopDebriefSeat) and soldier id, index-aligned with _soldierStats; V5 consumes the list first.
 struct CoopDebriefName { std::string rawName; int ownerSeat; int soldierId; };
 static std::vector<CoopDebriefName> g_coopDebriefNames;
 static const DebriefingState* g_coopDebriefNamesOf = nullptr;
 static const Json::Value* g_coopPromotionRowsArmed = nullptr; // PR-C6: promotions[] while the chain builds PromotionsState
 static int coopOwnerSeat(const Soldier* s) { return s->getOwnerPlayerId() == 999 ? 0 : s->getOwnerPlayerId(); }
 
-// W2-P7 S-C-C.2 (PR-C10, PR-18; owner D177 (a), MR5): `[<seat name>] <name>` for another seat's soldier in a co-op
-// CAMPAIGN (ItemsArrivingState :42-52's shape), else the plain name (skirmish and single player unprefixed).
+// W2-P7 S-C-C.2 (PR-C10, PR-18; owner D177 (a)) + AUD-A07 (reverses MR5): `[<seat name>] <name>` for another seat's soldier on
+// every co-op debrief, campaign and Custom Battle (ItemsArrivingState :42-52's shape); single player and this seat plain. A
+// Custom Battle has no roster (seatName() empty): the two-player bridge names the peer, as seatDisplayName does.
 std::string connectionTCP::coopSeatDisplayName(int seat, const std::string& rawName)
 {
-	if (!getCoopStatic() || !_staticGame || !_staticGame->getSavedGame()
-		|| _staticGame->getSavedGame()->getMonthsPassed() == -1 || seat == localSeat())
+	if (!getCoopStatic() || !_staticGame || !_staticGame->getSavedGame() || seat < 0 || seat == localSeat())
 		return rawName;
-	const std::string owner = seatName(seat);
+	std::string owner = seatName(seat);
+	if (owner.empty() && seatCount() == 2 && _staticGame->getCoopMod())
+		owner = _staticGame->getCoopMod()->getCurrentClientName();
 	return owner.empty() ? rawName : "[" + owner + "] " + rawName;
 }
 
 std::string connectionTCP::coopSoldierDisplayName(Soldier* soldier)
 {
 	return soldier ? coopSeatDisplayName(coopOwnerSeat(soldier), soldier->getName()) : std::string();
+}
+
+// AUD-A07: a Custom Battle names the seat commanding the soldier's unit at the end (the session's or a conversion's split, a
+// resumed battle's tags, a battle gift); a campaign keeps the owner seat. COOP_SEAT_NONE (unseated) stays plain.
+static int coopDebriefSeat(Game* game, Soldier* soldier)
+{
+	SavedGame* sg = game ? game->getSavedGame() : nullptr;
+	if (!sg || sg->getMonthsPassed() != -1)
+		return coopOwnerSeat(soldier);
+	if (SavedBattleGame* battle = sg->getSavedBattle())
+	{
+		for (auto* u : *battle->getUnits())
+		{
+			if (u && u->getGeoscapeSoldier() == soldier)
+				return (int)u->getCoopSeat();
+		}
+	}
+	return (int)COOP_SEAT_NONE;
 }
 
 std::string connectionTCP::coopDebriefSoldierName(DebriefingState* db, Soldier* soldier)
@@ -17071,8 +17095,9 @@ std::string connectionTCP::coopDebriefSoldierName(DebriefingState* db, Soldier* 
 		g_coopDebriefNames.clear();
 		g_coopDebriefNamesOf = db;
 	}
-	g_coopDebriefNames.push_back({ soldier->getName(), coopOwnerSeat(soldier), soldier->getId() });
-	return coopSoldierDisplayName(soldier);
+	const int seat = coopDebriefSeat(_game, soldier); // AUD-A07
+	g_coopDebriefNames.push_back({ soldier->getName(), seat, soldier->getId() });
+	return coopSeatDisplayName(seat, soldier->getName());
 }
 
 // W2-P7 S-C-C.2 (PR-C6, F2516): PromotionsState's row hook. Armed only while the client's chain constructs it: rows from
@@ -17143,8 +17168,10 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	}
 
 	Json::Value debrief(Json::objectValue);
-	debrief["title"] = db->_txtTitle->getText();
-	debrief["recoveryHeader"] = db->_txtRecovery->getText();
+	// AUD-A12 (D172, H15-Q2; replaces P7-2 G6 (a)): the title and the recovery header travel as the keys prepareDebriefing used;
+	// each machine renders them in its own language.
+	debrief["titleKey"] = db->_coopTitleKey;
+	debrief["recoveryKey"] = db->_coopRecoveryKey;
 	Json::Value stats(Json::arrayValue);
 	for (const auto* ds : db->_stats)
 	{

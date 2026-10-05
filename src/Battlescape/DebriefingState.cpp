@@ -1348,6 +1348,7 @@ void DebriefingState::prepareDebriefing()
 				_missionStatistics->alienRace = ufo->getAlienRace();
 			}
 			_txtRecovery->setText(tr("STR_UFO_RECOVERY"));
+			_coopRecoveryKey = "STR_UFO_RECOVERY"; // coop (AUD-A12)
 			ufo->setInBattlescape(false);
 			// if XCom failed to secure the landing zone, the UFO
 			// takes off immediately and proceeds according to its mission directive
@@ -1412,6 +1413,7 @@ void DebriefingState::prepareDebriefing()
 		if (ab->isInBattlescape())
 		{
 			_txtRecovery->setText(tr("STR_ALIEN_BASE_RECOVERY"));
+			_coopRecoveryKey = "STR_ALIEN_BASE_RECOVERY"; // coop (AUD-A12)
 			bool destroyAlienBase = true;
 
 			if (aborted || playersSurvived == 0)
@@ -1802,18 +1804,22 @@ void DebriefingState::prepareDebriefing()
 		if (target == "STR_BASE")
 		{
 			_txtTitle->setText(tr("STR_BASE_IS_SAVED"));
+			_coopTitleKey = "STR_BASE_IS_SAVED"; // coop (AUD-A12)
 		}
 		else if (target == "STR_UFO")
 		{
 			_txtTitle->setText(tr("STR_UFO_IS_RECOVERED"));
+			_coopTitleKey = "STR_UFO_IS_RECOVERED"; // coop (AUD-A12)
 		}
 		else if (target == "STR_ALIEN_BASE")
 		{
 			_txtTitle->setText(tr("STR_ALIEN_BASE_DESTROYED"));
+			_coopTitleKey = "STR_ALIEN_BASE_DESTROYED"; // coop (AUD-A12)
 		}
 		else
 		{
 			_txtTitle->setText(tr("STR_ALIENS_DEFEATED"));
+			_coopTitleKey = "STR_ALIENS_DEFEATED"; // coop (AUD-A12)
 			if (!aborted && !savedEnoughVIPs)
 			{
 				// Special case: mission was NOT aborted, all enemies were neutralized, but we couldn't save enough VIPs...
@@ -1854,15 +1860,18 @@ void DebriefingState::prepareDebriefing()
 			if (!missionFailedText.empty())
 			{
 				_txtTitle->setText(tr(missionFailedText));
+				_coopTitleKey = missionFailedText; // coop (AUD-A12)
 			}
 			else
 			{
 				_txtTitle->setText(tr("STR_TERROR_CONTINUES"));
+				_coopTitleKey = "STR_TERROR_CONTINUES"; // coop (AUD-A12)
 			}
 		}
 		else if (!missionCompleteText.empty())
 		{
 			_txtTitle->setText(tr(missionCompleteText));
+			_coopTitleKey = missionCompleteText; // coop (AUD-A12)
 		}
 
 		if (!aborted)
@@ -1908,23 +1917,28 @@ void DebriefingState::prepareDebriefing()
 		if (lostCraft)
 		{
 			_txtTitle->setText(tr("STR_CRAFT_IS_LOST"));
+			_coopTitleKey = "STR_CRAFT_IS_LOST"; // coop (AUD-A12)
 		}
 		else if (target == "STR_BASE")
 		{
 			_txtTitle->setText(tr("STR_BASE_IS_LOST"));
+			_coopTitleKey = "STR_BASE_IS_LOST"; // coop (AUD-A12)
 			_destroyBase = true;
 		}
 		else if (target == "STR_UFO")
 		{
 			_txtTitle->setText(tr("STR_UFO_IS_NOT_RECOVERED"));
+			_coopTitleKey = "STR_UFO_IS_NOT_RECOVERED"; // coop (AUD-A12)
 		}
 		else if (target == "STR_ALIEN_BASE")
 		{
 			_txtTitle->setText(tr("STR_ALIEN_BASE_STILL_INTACT"));
+			_coopTitleKey = "STR_ALIEN_BASE_STILL_INTACT"; // coop (AUD-A12)
 		}
 		else
 		{
 			_txtTitle->setText(tr("STR_TERROR_CONTINUES"));
+			_coopTitleKey = "STR_TERROR_CONTINUES"; // coop (AUD-A12)
 			if (!objectiveFailedText.empty())
 			{
 				addStat(objectiveFailedText, 1, objectiveFailedScore);
@@ -1933,6 +1947,7 @@ void DebriefingState::prepareDebriefing()
 		if (!missionFailedText.empty())
 		{
 			_txtTitle->setText(tr(missionFailedText));
+			_coopTitleKey = missionFailedText; // coop (AUD-A12)
 		}
 
 		if (playersSurvived > 0 && !_destroyBase)
