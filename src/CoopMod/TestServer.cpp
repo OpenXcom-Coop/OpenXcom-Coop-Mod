@@ -205,6 +205,8 @@
 #include "../Basescape/ResearchState.h"
 #include "../Basescape/NewResearchListState.h"
 #include "../Basescape/ResearchInfoState.h"
+#include "../Basescape/CraftPilotsState.h" // W2-H16f: open_craft_pilots / craft_pilots_probe
+#include "../Basescape/CraftPilotSelectState.h" // W2-H16f: craft_pilots_probe (the select popup)
 #include "../Basescape/StoresState.h"
 #include "../Basescape/ManufactureState.h"
 #include "../Basescape/ManufactureInfoState.h"
@@ -6761,6 +6763,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "set_soldier_training" && cmd != "soldier_training_probe" // W2-H18 (F3259, F6139)
 		&& cmd != "battle_halt_walk" && cmd != "battle_halt_walk_before_step"
 		&& cmd != "battle_reserve"
+		&& cmd != "open_craft_pilots" && cmd != "craft_pilots_probe" && cmd != "set_craft_pilots" // W2-H16f (F6606)
 		&& cmd != "omit_turn_mode"
 		&& cmd != "battle_teleport_unit" && cmd != "battle_teleport_all"
 		&& cmd != "battle_set_unit_state"
@@ -8908,6 +8911,123 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		CoopSyncedOptions::setTestSharedUpdateDeferred(req.get("on", false).asBool());
 		resp["deferred"] = CoopSyncedOptions::testSharedUpdateDeferred();
 		resp["ok"] = true;
+	}
+	else if (cmd == "open_craft_pilots")
+	{
+		// W2-H16f (F6606): TEST lever - push the REAL CraftPilotsState (CraftInfoState's call): craft {craftId} (+ optional
+		// {craftType}) at the base open_screen finds ({base} name, else the first non-mirror base). Reply {ok, baseIndex, index}.
+		const std::string baseOP = req.get("base", "").asString(), typeOP = req.get("craftType", "").asString();
+		Base* bOP = nullptr; Craft* cOP = nullptr; size_t ciOP = 0; int biOP = -1, idOP = req.get("craftId", -1).asInt();
+		for (size_t b = 0; _game->getSavedGame() && !bOP && b < _game->getSavedGame()->getBases()->size(); ++b)
+		{
+			Base* base = _game->getSavedGame()->getBases()->at(b);
+			if (baseOP.empty() ? (!base->_coopBase && !base->_coopIcon) : base->getName() == baseOP) { bOP = base; biOP = (int)b; }
+		}
+		for (size_t i = 0; bOP && !cOP && i < bOP->getCrafts()->size(); ++i)
+			if (bOP->getCrafts()->at(i)->getId() == idOP
+				&& (typeOP.empty() || bOP->getCrafts()->at(i)->getRules()->getType() == typeOP)) { cOP = bOP->getCrafts()->at(i); ciOP = i; }
+		if (!cOP)
+			resp["error"] = "open_craft_pilots: craft not found";
+		else
+		{
+			_game->pushState(new CraftPilotsState(bOP, ciOP));
+			resp["baseIndex"] = biOP; resp["index"] = (Json::Int)ciOP; resp["ok"] = true;
+		}
+	}
+	else if (cmd == "set_craft_pilots")
+	{
+		// W2-H16f (F6606): TEST lever - STAGING on THIS machine only (both machines, client first, S25): craft {craftId} (+ optional
+		// {craftType}, first non-mirror base): removeAllPilots, then addPilot({pilots}) in order. Reply {ok, pilots} (read as the probe).
+		const std::string typeSP = req.get("craftType", "").asString();
+		Craft* cSP = nullptr;
+		if (_game->getSavedGame())
+			for (auto* base : *_game->getSavedGame()->getBases())
+				for (auto* c : *base->getCrafts())
+					if (!cSP && !base->_coopBase && !base->_coopIcon && c->getId() == req.get("craftId", -1).asInt()
+						&& (typeSP.empty() || c->getRules()->getType() == typeSP)) cSP = c;
+		if (!cSP)
+			resp["error"] = "set_craft_pilots: craft not found";
+		else
+		{
+			cSP->removeAllPilots();
+			for (const auto& id : req["pilots"]) cSP->addPilot(id.asInt());
+			YAML::YamlRootNodeWriter w;
+			w.setAsMap();
+			cSP->save(w["craft"], _game->getMod()->getScriptGlobal());
+			YAML::YamlRootNodeReader rd(w.emit(), "set_craft_pilots");
+			std::vector<int> ids;
+			rd["craft"].tryRead("pilots", ids);
+			resp["pilots"] = Json::Value(Json::arrayValue);
+			for (int id : ids) resp["pilots"].append(id);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "craft_pilots_probe")
+	{
+		// W2-H16f (F6606, F6704): TEST INTROSPECTION ONLY, read-only; the craft as open_craft_pilots finds it. {required, pilots
+		// (in order, read via Craft::save: getPilotList / arePilotsOnboard rewrite it, F6703), crew [{id, owner}] aboard, top; top
+		// CraftPilots(Select)State: rows [{row, name, wx, wy}] of its first TextList (soldier_attr_probe), buttons [{text, visible, hidden}]}.
+		const std::string baseCP = req.get("base", "").asString(), typeCP = req.get("craftType", "").asString();
+		Base* bCP = nullptr; Craft* cCP = nullptr;
+		if (_game->getSavedGame())
+			for (auto* base : *_game->getSavedGame()->getBases())
+				if (!bCP && (baseCP.empty() ? (!base->_coopBase && !base->_coopIcon) : base->getName() == baseCP)) bCP = base;
+		for (size_t i = 0; bCP && !cCP && i < bCP->getCrafts()->size(); ++i)
+			if (bCP->getCrafts()->at(i)->getId() == req.get("craftId", -1).asInt()
+				&& (typeCP.empty() || bCP->getCrafts()->at(i)->getRules()->getType() == typeCP)) cCP = bCP->getCrafts()->at(i);
+		State* topCP = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		resp["top"] = topCP ? typeid(*topCP).name() : "none";
+		if (!cCP)
+			resp["error"] = "craft_pilots_probe: craft not found";
+		else
+		{
+			YAML::YamlRootNodeWriter w;
+			w.setAsMap();
+			cCP->save(w["craft"], _game->getMod()->getScriptGlobal());
+			YAML::YamlRootNodeReader rd(w.emit(), "craft_pilots_probe");
+			std::vector<int> ids;
+			rd["craft"].tryRead("pilots", ids);
+			Json::Value pilotsCP(Json::arrayValue), crewCP(Json::arrayValue), rowsCP(Json::arrayValue), btnCP(Json::arrayValue);
+			for (int id : ids) pilotsCP.append(id);
+			for (auto* s : *bCP->getSoldiers())
+				if (s->getCraft() == cCP)
+				{
+					Json::Value e(Json::objectValue); e["id"] = s->getId(); e["owner"] = s->getOwnerPlayerId(); crewCP.append(e);
+				}
+			if (topCP && (dynamic_cast<CraftPilotsState*>(topCP) || dynamic_cast<CraftPilotSelectState*>(topCP)))
+			{
+				TextList* lstCP = nullptr;
+				for (auto* srf : topCP->getSurfaces())
+				{
+					if (!lstCP) lstCP = dynamic_cast<TextList*>(srf);
+					if (auto* tb = dynamic_cast<TextButton*>(srf))
+					{
+						Json::Value e(Json::objectValue); e["text"] = tb->getText(); e["visible"] = tb->getVisible();
+						e["hidden"] = tb->getHidden(); btnCP.append(e);
+					}
+				}
+				Screen* scr = _game->getScreen();
+				int line = 0;
+				for (int r = 0; lstCP && r <= lstCP->getLastRowIndex(); ++r)
+				{
+					const int numLines = lstCP->getNumTextLines((size_t)r);
+					Json::Value row(Json::objectValue);
+					row["row"] = r; row["name"] = lstCP->getCellText((size_t)r, 0);
+					if ((size_t)line >= lstCP->getScroll() && (size_t)line < lstCP->getScroll() + lstCP->getVisibleRows())
+					{
+						double bx = lstCP->getX() + lstCP->getWidth() / 2.0;
+						double by = (double)lstCP->getRowY((size_t)r)
+							+ 0.5 * ((double)lstCP->getTextHeight((size_t)r) / (double)(numLines > 0 ? numLines : 1));
+						row["wx"] = (int)(bx * scr->getXScale() + scr->getCursorLeftBlackBand());
+						row["wy"] = (int)(by * scr->getYScale() + scr->getCursorTopBlackBand());
+					}
+					rowsCP.append(row);
+					line += (numLines > 0 ? numLines : 1);
+				}
+			}
+			resp["required"] = cCP->getRules()->getPilots(); resp["pilots"] = pilotsCP; resp["crew"] = crewCP;
+			resp["rows"] = rowsCP; resp["buttons"] = btnCP; resp["ok"] = true;
+		}
 	}
 	else if (cmd == "dismiss_arm")
 	{

@@ -1,0 +1,7 @@
+name: "Coop pilots probe"
+version: 1.0
+description: "Test-only fixture for W2-H16f (F6606). Data only. Stock xcom1 crafts have no pilot seats; this mod
+  gives the Skyranger two, so the craft screen offers PILOTS. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1
