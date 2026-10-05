@@ -143,6 +143,7 @@ void CraftPilotSelectState::lstPilotClick(Action *)
 	int pilotId = _pilot[_lstPilot->getSelectedRow()];
 	Craft *c = _base->getCrafts()->at(_craft);
 	c->addPilot(pilotId);
+	SharedEcon::submitCraftPilotAdd(_game, c, pilotId); // coop W2-H16f (F6606): the host applies the pick to the shared world
 
 	_game->popState();
 }
