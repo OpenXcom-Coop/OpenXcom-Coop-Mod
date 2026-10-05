@@ -477,6 +477,7 @@ void CoopSession::resetSession()
 void CoopSession::onClientDrop()
 {
 	Log(LOG_INFO) << "[coop-session] onClientDrop";
+	SharedEcon::onPeerLeft(-1); // W2-P7 S-C-E2 (D203, P7-8 PR-48): the dropped seat leaves every shared screen
 	clientInLobby = false;
 	resumeAck = false;
 	resumeBattlePending = false;

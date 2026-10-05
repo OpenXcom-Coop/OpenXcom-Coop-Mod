@@ -41,6 +41,7 @@ class RuleEvent;
 class State;
 class GeoscapeState;
 class SellState; // W2-P7 S-C-E1 (P7-8 PR-43): the SelectionBinder's screen
+class TransferItemsState; class ManageAlienContainmentState; class Text; // W2-P7 S-C-E2 (P7-8 PR-47, PR-50)
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -198,9 +199,22 @@ public:
 	void carryOver();
 	/// Confirm: selKey, selRev (the list's rev), selRows (the local rows), on page 3 selCaps (each row's maximum).
 	void stamp(Json::Value& payload);
+	// W2-P7 S-C-E2 (P7-8 PR-47, PR-49): Transfer and Alien Containment on the same binder (containment rebuilds in place).
+	void open(Game* game, TransferItemsState* screen, bool bound);
+	void open(Game* game, ManageAlienContainmentState* screen, bool bound);
+	void think(TransferItemsState* screen);
+	void think(ManageAlienContainmentState* screen);
+	void localEdit(TransferItemsState* screen);
+	void localEdit(ManageAlienContainmentState* screen);
+	/// F6341 (V-E3): the shared list holds a row - a confirm that sees none of them (MR7) still submits the list.
+	bool listed() const;
 private:
 	static std::string keyOf(Game* game, SellState* screen);
 	static Json::Value rowsOf(SellState* screen);
+	static std::string keyOf(Game* game, TransferItemsState* screen);
+	static Json::Value rowsOf(TransferItemsState* screen);
+	static std::string keyOf(Game* game, ManageAlienContainmentState* screen);
+	static Json::Value rowsOf(ManageAlienContainmentState* screen);
 	void sendOpen(const Json::Value& seed);
 	Game* _game = nullptr;
 	SellState* _sell = nullptr;
@@ -209,6 +223,9 @@ private:
 	uint32_t _seenRev = 0;
 	bool _opened = false, _inert = false, _acked = false, _seen = false, _carried = false, _applying = false;
 	std::map<std::string, int> _lastSent; // row -> this instance's latest own eseq
+	TransferItemsState* _xfer = nullptr; ManageAlienContainmentState* _cont = nullptr; Text* _label = nullptr; // S-C-E2
+	std::string _labelShown; uint64_t _contSig = 0; // S-C-E2: the names the label shows; containment's amounts as last seen
+	uint64_t _hlSig = 0; std::map<std::string, int> _hlOn; // S-C-E2 (D203): what the highlight was drawn for; the rows lit
 };
 
 /// One-time registration of the built-in commands (currently "buy"). Idempotent;
@@ -253,6 +270,7 @@ bool contScreenShouldClose(Game* game, Base* base, int prisonType, bool battlesc
 /// PR-34 (SK3; F5237, F5576): a session reset drops the queued commands / applies / failures, answers and apply hold.
 void resetSessionQueues();
 Json::Value selectionSnapshot(); // W2-P7 S-C-E1.1 (P7-8 PR-46): the shared selection store {key: {rows, editors, eseqs, rev, viewers}} for TestServer sel_state
+void onPeerLeft(int seat); // W2-P7 S-C-E2 (P7-8 PR-48): host - the seat (< 0: every other seat) leaves every shared list
 
 /// PRD-J10: THE single "the host rejected your command" dialog. Every J05-J08
 /// failure path funnels here (the screens never pop their own): the host's
