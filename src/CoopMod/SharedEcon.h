@@ -353,6 +353,16 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// only - vehicles are deferred (caller must not route a vehicle item).
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
 
+/// W2-H16e (F6176): SHARED and a real base only - no-op otherwise; called AFTER vanilla's local toggle
+/// (BasescapeState, mind shield); submits the facility's flag as an absolute end-state; the host re-checks
+/// vanilla's gate and broadcasts the flag both worlds hold (fac_disable).
+void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled);
+
+/// W2-H16e (F6176): SHARED only - no-op otherwise; called AFTER vanilla's local toggle (CraftInfoState's weapon
+/// icon; the host's DogfightState with 'remember disabled craft weapons'); submits the weapon's flag as an
+/// absolute end-state; the host decides the craft re-check (craft_weapon_disable).
+void submitCraftWeaponDisabled(Game* game, Craft* craft, int slot);
+
 /// PRD-J09 GAP-5b: mount @a weaponType (empty = dismount) in weapon @a slot of
 /// @a craft in the shared world (SHARED only - caller gates). The launcher + loaded
 /// clips move against the host-authoritative base stores, so a replica must route
