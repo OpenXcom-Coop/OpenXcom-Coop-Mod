@@ -2080,6 +2080,46 @@ def wait_host_idle(host, client, timeout=30):
                     timeout=timeout)
 
 
+SEQ_BARRIER_KEYS = ("lastSeqEmitted", "lastSeqApplied", "queueDepth", "busyOwnerSeat", "desyncSeen", "phase")
+
+
+def wait_seq_barrier(host, client, timeout=30):
+    """W2-U8b.1 (F6494): wait_host_idle's predicate in TWO reads per poll instead of five - the CLIENT's
+    event_state first, then the HOST's - passing when the host's busyOwnerSeat == -1, the client's
+    lastSeqApplied == the host's lastSeqEmitted, and both queueDepth == 0.
+
+    Order is the argument. The host's lastSeqEmitted only grows within a battle (CoopEmit::nextSeq is
+    the one writer; CoopPump::reset re-zeroes it only at a battle reset), and the client can only apply
+    a seq the host minted. So a client value read BEFORE the host value that equals it means the client
+    had applied every ev the host emitted up to the LATER host read. The host read comes after a client
+    round trip, so it runs in a later TestServer::pump than the caller's last host lever, after that
+    frame's updateCoopTask (CoopReveal::flushQuiescent's standalone `reveal`, F6471).
+
+    wait_host_idle's hazard (counters transiently equal between a turn's bt_ev and its bt_action_end)
+    stays covered: busyOwnerSeat and lastSeqEmitted come from ONE host event_state (one main-thread
+    TestServer::execute), and CoopArbiter pops the action context and emits its bt_action_end in the
+    same onChainQuiesced call, so a host snapshot with no open context already counts that end.
+    On timeout: raises with both machines' last values."""
+    last = {}
+
+    def settled():
+        c = event_state(client)
+        h = event_state(host)
+        last["client"] = {k: c.get(k) for k in SEQ_BARRIER_KEYS}
+        last["host"] = {k: h.get(k) for k in SEQ_BARRIER_KEYS}
+        return (h.get("busyOwnerSeat") == -1
+                and isinstance(c.get("lastSeqApplied"), int)
+                and c.get("lastSeqApplied") == h.get("lastSeqEmitted")
+                and c.get("queueDepth") == 0
+                and h.get("queueDepth") == 0) or None
+
+    try:
+        client.wait_for("seq barrier (client read, then host read: host idle, client applied every "
+                        "host ev, both queues empty)", settled, timeout=timeout)
+    except TimeoutError as e:
+        raise TimeoutError(f"{e}; last reads: client={last.get('client')} host={last.get('host')}") from None
+
+
 def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_seat=None, pre_ok=None, seat_client=True):
     """repro_atom_walk.drive_to_battlescape plus the mission pin. Kept local
     rather than parameterising the walk repro's copy: that file carries a
