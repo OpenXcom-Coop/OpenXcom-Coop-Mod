@@ -325,6 +325,12 @@ void CraftSoldiersState::cbxSortByChange(Action *)
 	}
 	else
 	{
+		// coop W2-H16d (#65 playtest rule): in SHARED "original order" is the shared order - never re-append it.
+		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+		{
+			initList(_lstSoldiers->getScroll());
+			return;
+		}
 		// restore original ordering, ignoring (of course) those
 		// soldiers that have been sacked since this state started
 		for (const auto* origSoldier : _origSoldierOrder)

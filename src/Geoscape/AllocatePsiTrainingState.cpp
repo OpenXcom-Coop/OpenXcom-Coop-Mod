@@ -206,6 +206,12 @@ void AllocatePsiTrainingState::cbxSortByChange(Action *action)
 		return;
 	}
 
+	// coop W2-H16d (#65 playtest rule): SHARED must not reorder the shared roster (no sort, no restore).
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+	{
+		initList(_lstSoldiers->getScroll());
+		return;
+	}
 	SortFunctor *compFunc = _btnPlus->getPressed() ? _sortFunctorsPlus[selIdx] : _sortFunctors[selIdx];
 	if (compFunc)
 	{
@@ -402,6 +408,8 @@ void AllocatePsiTrainingState::lstItemsLeftArrowClick(Action *action)
  */
 void AllocatePsiTrainingState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
+	// coop W2-H16d (#65 playtest rule): SHARED must not reorder the shared roster (arrows and wheel).
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -455,6 +463,8 @@ void AllocatePsiTrainingState::lstItemsRightArrowClick(Action *action)
  */
 void AllocatePsiTrainingState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
+	// coop W2-H16d (#65 playtest rule): SHARED must not reorder the shared roster (arrows and wheel).
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
