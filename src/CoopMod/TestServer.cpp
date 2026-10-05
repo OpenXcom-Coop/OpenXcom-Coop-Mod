@@ -193,6 +193,8 @@
 #include "../Basescape/SoldiersState.h"
 #include "../Basescape/SoldierInfoState.h"
 #include "../Basescape/SoldierRankState.h" // W2-H16: soldier_attr_probe rankScreen
+#include "../Basescape/SoldierTransformationState.h" // W2-H16c: open_transformation
+#include "../Mod/RuleSoldierTransformation.h" // W2-H16c: open_transformation, transform_probe
 #include "../Basescape/CraftSoldiersState.h"
 #include "../Basescape/TransferItemsState.h"
 #include "../Basescape/TransferBaseState.h" // W2-H8: screen_state reads its destination rows
@@ -6748,6 +6750,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob"
+		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe" // W2-H16c (S-12, F6605)
 		&& cmd != "battle_intent" && cmd != "inject_ev"
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
 		&& cmd != "reveal_hostile_pass"
@@ -9521,6 +9524,165 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 		}
 		resp["openings"] = opSA; resp["rankScreen"] = rsSA; resp["ok"] = true;
+	}
+	else if (cmd == "open_transformation")
+	{
+		// W2-H16c (S-12, F6697): TEST lever - push the REAL SoldierTransformationState on THIS machine, exactly as the direct
+		// route does (SoldierTransformState :258: no list, so the arrows stay hidden). {rule, soldierId, dead?, base?}: the base
+		// as open_screen finds it (by name, else the first base with _coopBase and _coopIcon false); the soldier by id from the
+		// save's dead list when {dead}, else from that base's roster; the rule by getSoldierTransformation(rule, false). The
+		// screen is not a popup. Reply {ok, baseIndex}; an unknown base / rule / soldier -> error.
+		SavedGame* sgOT = _game->getSavedGame();
+		const std::string baseOT = req.get("base", "").asString();
+		const int idOT = req.get("soldierId", -1).asInt();
+		Base* targetOT = nullptr;
+		int biOT = -1;
+		if (sgOT)
+			for (size_t b = 0; b < sgOT->getBases()->size() && !targetOT; ++b)
+			{
+				Base* base = sgOT->getBases()->at(b);
+				if (baseOT.empty() ? (!base->_coopBase && !base->_coopIcon) : base->getName() == baseOT)
+				{ targetOT = base; biOT = (int)b; }
+			}
+		RuleSoldierTransformation* ruleOT = _game->getMod()->getSoldierTransformation(req.get("rule", "").asString(), false);
+		Soldier* sOT = nullptr;
+		if (targetOT)
+		{
+			std::vector<Soldier*>* listOT = req.get("dead", false).asBool() ? sgOT->getDeadSoldiers() : targetOT->getSoldiers();
+			for (auto* s : *listOT)
+				if (!sOT && s->getId() == idOT) sOT = s;
+		}
+		if (!targetOT)
+			resp["error"] = "open_transformation: base not found";
+		else if (!ruleOT)
+			resp["error"] = "open_transformation: unknown rule";
+		else if (!sOT)
+			resp["error"] = "open_transformation: soldier not found";
+		else
+		{
+			_game->pushState(new SoldierTransformationState(ruleOT, targetOT, sOT, nullptr));
+			resp["baseIndex"] = biOT; resp["ok"] = true;
+		}
+	}
+	else if (cmd == "set_soldier_dead")
+	{
+		// W2-H16c (F6697): TEST lever - STAGING on THIS machine only (call it on both machines, client first, S25): soldier
+		// {soldierId} (every base, index order, as set_soldier_rank finds it) -> vanilla's SavedGame::killSoldier(true, s,
+		// nullptr) (default armor, unseated, missing in action). No command, no relay. Reply {ok, dead} (read back from the
+		// dead list).
+		SavedGame* sgSD = _game->getSavedGame();
+		const int idSD = req.get("soldierId", -1).asInt();
+		Soldier* sSD = nullptr;
+		if (sgSD)
+			for (auto* base : *sgSD->getBases())
+				for (auto* s : *base->getSoldiers())
+					if (!sSD && s->getId() == idSD) sSD = s;
+		if (!sSD)
+			resp["error"] = "set_soldier_dead: soldier not found";
+		else
+		{
+			sgSD->killSoldier(true, sSD, nullptr);
+			bool deadSD = false;
+			for (auto* s : *sgSD->getDeadSoldiers())
+				if (s == sSD && s->getDeath() != nullptr) deadSD = true;
+			resp["dead"] = deadSD; resp["ok"] = true;
+		}
+	}
+	else if (cmd == "transform_probe")
+	{
+		// W2-H16c (S-12, F6697): TEST INTROSPECTION ONLY - read-only. {base?} (found as open_transformation finds it): funds;
+		// soldierCounter (getAllIds "STR_SOLDIER", 0 when absent); transformations (the names getAvailableTransformations
+		// offers at the base); stores (the base's whole store map); transfers [{hours, kind soldier|item|other, soldierId,
+		// item, qty}] in list order; soldiers [{id, where base|transfer|dead, type (rule type), owner, name, nationality,
+		// rank, armor, recovery, craftId, stats (the soldier_record currentStats keys), history (getPreviousTransformations)}]
+		// over the base's roster, its transfers and the dead list; top (typeid); buttons [{text, visible}] of the top state's
+		// TextButtons; rows [{row, c0, c1, c2}] = the first TextList of the top state's surfaces, cells 0-2, read only on the
+		// two transformation screens (SoldierTransformationListState: name, materials, eligible soldiers; and
+		// SoldierTransformationState), whose every row has three cells (TextList::getCellText has no column bound).
+		SavedGame* sgTP = _game->getSavedGame();
+		const std::string baseTP = req.get("base", "").asString();
+		Base* targetTP = nullptr;
+		if (sgTP)
+			for (auto* base : *sgTP->getBases())
+				if (!targetTP && (baseTP.empty() ? (!base->_coopBase && !base->_coopIcon) : base->getName() == baseTP))
+					targetTP = base;
+		State* topTP = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		const std::string topNameTP = topTP ? typeid(*topTP).name() : "none";
+		resp["top"] = topNameTP;
+		Json::Value buttonsTP(Json::arrayValue), rowsTP(Json::arrayValue);
+		TextList* listTP = nullptr;
+		if (topTP)
+			for (auto* srf : topTP->getSurfaces())
+			{
+				if (auto* tb = dynamic_cast<TextButton*>(srf))
+				{
+					Json::Value b(Json::objectValue);
+					b["text"] = tb->getText(); b["visible"] = tb->getVisible();
+					buttonsTP.append(b);
+				}
+				else if (!listTP)
+					listTP = dynamic_cast<TextList*>(srf);
+			}
+		if (listTP && topNameTP.find("SoldierTransformation") != std::string::npos)
+			for (size_t r = 0; r < listTP->getTexts(); ++r)
+			{
+				Json::Value row(Json::objectValue);
+				row["row"] = (int)r;
+				row["c0"] = listTP->getCellText(r, 0); row["c1"] = listTP->getCellText(r, 1); row["c2"] = listTP->getCellText(r, 2);
+				rowsTP.append(row);
+			}
+		resp["buttons"] = buttonsTP; resp["rows"] = rowsTP;
+		if (!sgTP || !targetTP)
+			resp["error"] = "transform_probe: no saved game or base";
+		else
+		{
+			resp["funds"] = Json::Value::Int64(sgTP->getFunds());
+			const auto& idsTP = sgTP->getAllIds();
+			const auto counterTP = idsTP.find("STR_SOLDIER");
+			resp["soldierCounter"] = counterTP == idsTP.end() ? 0 : counterTP->second;
+			Json::Value trTP(Json::arrayValue);
+			std::vector<RuleSoldierTransformation*> availTP;
+			sgTP->getAvailableTransformations(availTP, _game->getMod(), targetTP);
+			for (auto* rule : availTP) trTP.append(rule->getName());
+			resp["transformations"] = trTP;
+			Json::Value storesTP(Json::objectValue);
+			for (const auto& kv : *targetTP->getStorageItems()->getContents()) storesTP[kv.first->getType()] = kv.second;
+			resp["stores"] = storesTP;
+			Json::Value solsTP(Json::arrayValue), transfersTP(Json::arrayValue);
+			auto addTP = [&](Soldier* s, const char* where) {
+				if (!s) return;
+				const UnitStats* u = s->getCurrentStats();
+				Json::Value o(Json::objectValue), st(Json::objectValue), hist(Json::objectValue);
+				o["id"] = s->getId(); o["where"] = where; o["type"] = s->getRules()->getType(); o["owner"] = s->getOwnerPlayerId();
+				o["name"] = s->getName(); o["nationality"] = s->getNationality(); o["rank"] = (int)s->getRank();
+				o["armor"] = s->getArmor() ? s->getArmor()->getType() : std::string(); o["recovery"] = s->getWoundRecoveryInt();
+				o["craftId"] = s->getCraft() ? s->getCraft()->getId() : -1;
+				st["tu"] = u->tu; st["stamina"] = u->stamina; st["health"] = u->health; st["bravery"] = u->bravery;
+				st["reactions"] = u->reactions; st["firing"] = u->firing; st["throwing"] = u->throwing;
+				st["strength"] = u->strength; st["psiStrength"] = u->psiStrength; st["psiSkill"] = u->psiSkill;
+				st["melee"] = u->melee; st["mana"] = u->mana;
+				o["stats"] = st;
+				for (const auto& kv : s->getPreviousTransformations()) hist[kv.first] = kv.second;
+				o["history"] = hist;
+				solsTP.append(o);
+			};
+			for (auto* s : *targetTP->getSoldiers()) addTP(s, "base");
+			for (auto* t : *targetTP->getTransfers())
+			{
+				Json::Value o(Json::objectValue);
+				const TransferType k = t->getType();
+				o["hours"] = t->getHours();
+				o["kind"] = k == TRANSFER_SOLDIER ? "soldier" : (k == TRANSFER_ITEM ? "item" : "other");
+				o["soldierId"] = (k == TRANSFER_SOLDIER && t->getSoldier()) ? t->getSoldier()->getId() : -1;
+				o["item"] = (k == TRANSFER_ITEM && t->getItems()) ? t->getItems()->getType() : std::string();
+				o["qty"] = t->getQuantity();
+				transfersTP.append(o);
+				if (k == TRANSFER_SOLDIER) addTP(t->getSoldier(), "transfer");
+			}
+			for (auto* s : *sgTP->getDeadSoldiers()) addTP(s, "dead");
+			resp["transfers"] = transfersTP; resp["soldiers"] = solsTP;
+			resp["ok"] = true;
+		}
 	}
 	else if (cmd == "followup_state")
 	{
