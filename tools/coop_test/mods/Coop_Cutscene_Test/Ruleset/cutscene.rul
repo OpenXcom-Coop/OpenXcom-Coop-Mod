@@ -1,0 +1,35 @@
+# W2-H17b (F7207, F7209) test fixture (spec rewrite/prompts/w2h17b_research_endings.md (f)). No language file (raw keys).
+# Each cutscene has no videos and no slideshow: CutsceneState::init logs "cutscene definition empty: <id>" and plays nothing.
+cutscenes:
+  - type: STR_H17B_WIN
+    winGame: true
+  - type: STR_H17B_LOSE
+    loseGame: true
+  - type: STR_H17B_STORY
+events:
+  - name: STR_H17B_EV_STORY
+    description: STR_H17B_EV_STORY
+    cutscene: STR_H17B_STORY
+  - name: STR_H17B_EV_WIN
+    cutscene: STR_H17B_WIN
+research:
+  - name: STR_H17B_T_WIN
+    cost: 1
+    points: 5
+    cutscene: STR_H17B_WIN
+  - name: STR_H17B_T_FREE
+    cost: 1
+    points: 5
+    getOneFree: [STR_H17B_T_LOSE]
+  - name: STR_H17B_T_LOSE
+    cost: 1000
+    points: 5
+    cutscene: STR_H17B_LOSE
+  - name: STR_H17B_T_EVSTORY
+    cost: 1
+    points: 5
+    spawnedEvent: STR_H17B_EV_STORY
+  - name: STR_H17B_T_EVWIN
+    cost: 1
+    points: 5
+    spawnedEvent: STR_H17B_EV_WIN

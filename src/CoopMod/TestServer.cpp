@@ -9426,6 +9426,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				idsRP[kv.first] = kv.second;
 			resp["ids"] = idsRP;
 			resp["ending"] = (int)sgRP->getEnding();
+			resp["monthsPassed"] = sgRP->getMonthsPassed(); // W2-H17b (F7209): the month / day counters and the relay latch
+			resp["daysPassed"] = sgRP->getDaysPassed();
+			resp["allowCutscene"] = _game->getCoopMod()->allow_cutscene;
 			resp["ok"] = true;
 		}
 	}
