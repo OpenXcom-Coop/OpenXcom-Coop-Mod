@@ -2179,6 +2179,7 @@ void DogfightState::hostToggleWeapon(int idx)
 	{
 		CraftWeapon* w = _craft->getWeapons()->at(idx);
 		if (w) w->setDisabled(!_weaponEnabled[idx]);
+		if (w) SharedEcon::submitCraftWeaponDisabled(_game, _craft, idx); // coop W2-H16e (F6176): the remembered flag reaches the replica
 	}
 }
 
@@ -2659,6 +2660,7 @@ void DogfightState::weaponClick(Action * a)
 				if (w)
 				{
 					w->setDisabled(!_weaponEnabled[i]);
+					SharedEcon::submitCraftWeaponDisabled(_game, _craft, i); // coop W2-H16e (F6176)
 				}
 			}
 			return;

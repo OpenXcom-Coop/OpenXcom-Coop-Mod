@@ -2478,6 +2478,78 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	if (save) save->setLastSelectedArmor(next->getType());
 }
 
+// W2-H16e (F6176) fac_disable { x, y, disabled }, baseId = the base index: the host re-checks vanilla's gate, applies and broadcasts the resolved flag; a replica adopts it.
+bool facDisableValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                        int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	int x = payload.get("x", -1).asInt();
+	int y = payload.get("y", -1).asInt();
+	for (auto* f : *base->getFacilities())
+		if (f->getX() == x && f->getY() == y && f->getRules()->isMindShield()) return true;
+	failReason = "mind shield not found";
+	return false;
+}
+void facDisableApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	int x = payload.get("x", -1).asInt();
+	int y = payload.get("y", -1).asInt();
+	BaseFacility* fac = nullptr;
+	for (auto* f : *base->getFacilities())
+		if (f->getX() == x && f->getY() == y) { fac = f; break; }
+	if (!fac || !fac->getRules()->isMindShield()) return;
+	if (connectionTCP::getHost())
+	{
+		if (fac->getBuildTime() == 0) // vanilla's gate (BasescapeState::viewRightClick)
+			fac->setDisabled(payload.get("disabled", false).asBool());
+		payload["disabled"] = fac->getDisabled(); // the resolved flag rides the broadcast
+	}
+	else
+	{
+		fac->setDisabled(payload.get("disabled", false).asBool());
+	}
+}
+
+// W2-H16e (F6176) craft_weapon_disable { craftId, craftType, slot, disabled }: as fac_disable; the host also decides the craft re-check, never for a craft that is out.
+bool craftWeaponDisableValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+                                int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) { failReason = "craft not found"; return false; }
+	int slot = payload.get("slot", -1).asInt();
+	if (slot < 0 || slot >= (int)craft->getWeapons()->size() || !craft->getWeapons()->at(slot))
+	{ failReason = "no weapon in slot"; return false; }
+	return true;
+}
+void craftWeaponDisableApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) return;
+	int slot = payload.get("slot", -1).asInt();
+	if (slot < 0 || slot >= (int)craft->getWeapons()->size()) return;
+	CraftWeapon* w = craft->getWeapons()->at(slot);
+	if (!w) return;
+	bool disabled = payload.get("disabled", false).asBool();
+	bool checkup;
+	if (connectionTCP::getHost())
+	{
+		// vanilla re-checks on enabling (CraftInfoState::btnWIconClick), a screen an out craft never reaches
+		checkup = !disabled && craft->getStatus() != "STR_OUT";
+		payload["checkup"] = checkup; // the host's decision rides the broadcast
+	}
+	else
+	{
+		checkup = payload.get("checkup", false).asBool();
+	}
+	w->setDisabled(disabled);
+	if (checkup) craft->checkup();
+}
+
 // PRD-DF01: df_open applier (REPLICA only). The host publishes the FULL dogfight
 // membership set + epoch on every change; the replica adopts it and reconciles its
 // render-only windows (opens new tuples once their craft + UFO are replicated,
@@ -3822,6 +3894,9 @@ void init()
 	registerCmd("craft_retarget", &craftOrderValidate,  &craftOrderApply);
 	registerCmd("craft_return",   &craftExistsValidate, &craftReturnApply);
 	registerCmd("craft_patrol",   &craftExistsValidate, &craftPatrolApply);
+	// W2-H16e (F6176): the mind-shield and craft-weapon switches (player-origin from either seat; host-origin from the host's dogfight).
+	registerCmd("fac_disable",          &facDisableValidate,         &facDisableApply);
+	registerCmd("craft_weapon_disable", &craftWeaponDisableValidate, &craftWeaponDisableApply);
 
 	// PRD-J09: shared-world squad assembly (mixed-owner deployment).
 	registerCmd("craft_assign",   &craftAssignValidate, &craftAssignApply);
@@ -4918,6 +4993,30 @@ void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int
 	p["item"] = itemType;
 	p["count"] = desiredOnCraft;
 	submitLocalCmd(game, "craft_equip", craftBaseIndex(game, craft), p);
+}
+
+void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled)
+{
+	if (!game || !base || base->_coopBase) return;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	Json::Value p;
+	p["x"] = x;
+	p["y"] = y;
+	p["disabled"] = disabled;
+	submitLocalCmd(game, "fac_disable", baseIndex(game, base), p);
+}
+
+void submitCraftWeaponDisabled(Game* game, Craft* craft, int slot)
+{
+	if (!game || !craft) return;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (slot < 0 || slot >= (int)craft->getWeapons()->size() || !craft->getWeapons()->at(slot)) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["slot"] = slot;
+	p["disabled"] = craft->getWeapons()->at(slot)->isDisabled();
+	submitLocalCmd(game, "craft_weapon_disable", craftBaseIndex(game, craft), p);
 }
 
 void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& weaponType)

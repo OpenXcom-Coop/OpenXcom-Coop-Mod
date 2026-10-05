@@ -855,6 +855,7 @@ void BasescapeState::viewRightClick(Action *)
 		if (f->getBuildTime() == 0)
 		{
 			f->setDisabled(!f->getDisabled());
+			SharedEcon::submitFacilityDisabled(_game, _base, f->getX(), f->getY(), f->getDisabled()); // coop W2-H16e (F6176): the host applies it to the shared world
 			_view->draw();
 			_mini->draw();
 		}
