@@ -247,8 +247,8 @@ inline Json::Value makeSpeedSeats(uint32_t battleId, uint32_t seq, const Json::V
 	return obj;
 }
 
-/// bt_debrief_result {state, battleId:uint, debrief:{title:string,
-/// recoveryHeader:string, stats:[{item, qty, score, recovery}], soldiers:[{name,
+/// bt_debrief_result {state, battleId:uint, debrief:{titleKey:string,
+/// recoveryKey:string, stats:[{item, qty, score, recovery}], soldiers:[{name,
 /// stats:[12 ints]}], recovered:[{item, qty}]}} (W2-P7 S-B1, plan section 4
 /// `debrief_result`, Q1 (a)). Host->client, battle lane, NOT seq-ordered
 /// (isSeqOrdered() above), NEVER hashed, never an ev. The display content the
@@ -256,8 +256,8 @@ inline Json::Value makeSpeedSeats(uint32_t battleId, uint32_t seq, const Json::V
 /// non-zero qty in order (`item` = the STR id), `soldiers` = the stat gains in
 /// UnitStats member order (tu, stamina, health, bravery, reactions, firing,
 /// throwing, strength, psiStrength, psiSkill, melee, mana), `recovered` = item
-/// type ids in the mod's item-list order; `title` / `recoveryHeader` are the
-/// host's rendered text (G6 (a)). Total and rating are derived on the client.
+/// type ids in the mod's item-list order; `titleKey` / `recoveryKey` are the keys
+/// the host's prepareDebriefing used; each machine renders them (AUD-A12). Total and rating are derived on the client.
 inline Json::Value makeDebriefResult(uint32_t battleId, const Json::Value& debrief)
 {
 	Json::Value obj(Json::objectValue);

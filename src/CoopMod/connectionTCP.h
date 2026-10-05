@@ -686,8 +686,8 @@ class connectionTCP
 	// owner's own id, return to the own geoscape in place and push the own world to the host (false blob -> main menu).
 	bool coopSepEntrySnapshot();
 	bool coopSeparateReturn(DebriefingState* db, const char* phaseAtOk);
-	// W2-P7 S-C-C.2 (P7-6 C re-pin PR-C5/PR-C6/PR-C10; D154, D177 (a), MR5): `[Player] Name` for another seat's soldier
-	// in a co-op campaign (else the plain name); the host's page-2 name site; PromotionsState's row hook (the client's
+	// W2-P7 S-C-C.2 (P7-6 C re-pin PR-C5/PR-C6/PR-C10; D154, D177 (a)): `[Player] Name` for another seat's soldier
+	// on every co-op debrief (AUD-A07; else the plain name); the host's page-2 name site; PromotionsState's row hook (the client's
 	// chain only, true = rows filled); CLIENT - the after-battle follow-up screens at its campaign OK.
 	static std::string coopSeatDisplayName(int seat, const std::string& rawName);
 	static std::string coopSoldierDisplayName(Soldier* soldier);
