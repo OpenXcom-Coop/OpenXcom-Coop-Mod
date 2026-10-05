@@ -5,7 +5,7 @@ toggle_probe, set_toggle_state (staging, THIS machine), open_craft_info. Real in
 left-click on the CraftInfoState weapon icon (after its icons are not hidden, F6581). Boot A (SHARED, the host's
 oxceRememberDisabledCraftWeapons on): H16e-1..H16e-8 (H16e-8 the dogfight, last); Boot B (SEPARATE): H16e-9 (guard row).
 S0 (every row): every switch enabled except the row's start values, client first (S25); both probes equal; R0 = requests.
-RED (commit 1): H16e-1..6 and H16e-8 fail on their named cell; H16e-7 and H16e-9 pass. GREEN: all pass. "G:" cells are
+RED (1, 1b): H16e-1..8 fail on their named cell (H16e-7 on bothEnabled since 1b, F6649); H16e-9 passes. GREEN: all pass. "G:" cells are
 guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2."""
 
 import json
@@ -210,9 +210,10 @@ def row_h16e_7(r, x):
         time.sleep(2.0)
         e = end(r, x)
         guard(r, x, "client own change", flag(e["client"], "I2.1") is False, f"client I2.1 {flag(e['client'], 'I2.1')}")
-        hs = craft(e["host"], INT, 2)["status"]
-        r.ev["slot 1 disabled (EVIDENCE only, F6649)"] = {n: flag(e[n], "I2.1") for n in e}
+        hs, sl = craft(e["host"], INT, 2)["status"], {n: flag(e[n], "I2.1") for n in e}
         r.cell("outGate", hs == "STR_OUT", f"host status {hs} after the click (want STR_OUT): a craft that is out was re-checked")
+        r.cell("bothEnabled", sl == {"host": False, "client": False}, f"slot 1 disabled {sl} (want False on both): "
+               "the client's enable on a craft that is out never reached the host (F6649, R-H16e-R-1)")
     finally:
         r.ev["force ready"] = pick(h.cmd({"cmd": "craft_force", "craft_id": 2, "status": "STR_READY"}), "ok", "error")
     close(r, x, d)
