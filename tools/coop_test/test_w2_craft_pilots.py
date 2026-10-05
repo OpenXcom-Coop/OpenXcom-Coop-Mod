@@ -222,16 +222,17 @@ def row_h16f_6(r, x):
         pick(r, x, h, x.H2, "host H2")
         guard(r, x, "host [H1, H2]", (hp := pil(h)) == [x.H1, x.H2], f"host {hp}")
         ok = wait_until(lambda: ss(h)["applyCount"] >= a0 + 1, 2.0)[0]
-        r.ev["host applyCount +1 (wait; EVIDENCE only)"] = {"ok": ok, "before": a0, "now": ss(h)["applyCount"]}
+        r.ev["host applyCount +1 (wait)"] = ha = {"ok": ok, "before": a0, "now": ss(h)["applyCount"]}
         pick(r, x, c, x.C1, "client C1")      # its stale list [H1] shows Add: guard "client C1 Add shown" + EVIDENCE
         time.sleep(1.0)
     finally:
         r.ev["defer off"] = c.cmd({"cmd": "shared_update_defer", "on": False})
     r.ev["poll"] = poll(x)
     v = end(r, x)
-    r.cell("agree", v["host"] == [x.H1, x.H2] and v["client"] == [x.H1, x.H2],
-           f"host {v['host']}, client {v['client']} (want [{x.H1}, {x.H2}] on both): two pilots for one seat; "
-           f"the worlds disagree")
+    # F7071 / R-H16f-R-1: the host applied the winning pick (its applyCount + 1 after its own pick)
+    r.cell("agree", v["host"] == [x.H1, x.H2] and v["client"] == [x.H1, x.H2] and ha["ok"],
+           f"host {v['host']}, client {v['client']} (want [{x.H1}, {x.H2}] on both); host applyCount {ha['before']} -> "
+           f"{ha['now']} after its pick (want +1): two pilots for one seat; the worlds disagree")
     close(r, x, d)
 
 def sky_status(gc):
