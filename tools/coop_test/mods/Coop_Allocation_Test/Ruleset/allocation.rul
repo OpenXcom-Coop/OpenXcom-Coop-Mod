@@ -1,0 +1,11 @@
+facilities:
+  - type: STR_H16B_TRAINING
+    size: 1
+    spriteShape: 1
+    spriteFacility: 31
+    mapName: XBASE_14
+    buildCost: 1000
+    buildTime: 1
+    monthlyCost: 0
+    psiLabs: 1
+    trainingRooms: 1
