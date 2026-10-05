@@ -2025,6 +2025,21 @@ void craftOrderApply(Game* game, Json::Value& payload, Base* base, int seat)
 	Craft* craft = resolveOrderCraft(game, payload, base);
 	if (!craft) return;
 	g_craftOrderSeat[craftKey(craft)] = seat; // initiating seat (dogfight routing)
+	// W2-H16f (F6703): the launch check's automatic pilots (craftOrderValidate's arePilotsOnboard) reach the replica too
+	if (craft->getRules()->getPilots() > 0)
+	{
+		if (connectionTCP::getHost())
+		{
+			Json::Value ids(Json::arrayValue);
+			for (auto* p : craft->getPilotList(true, game->getMod())) ids.append(p->getId());
+			payload["pilots"] = ids;
+		}
+		else if (payload.isMember("pilots"))
+		{
+			craft->removeAllPilots();
+			for (const auto& id : payload["pilots"]) craft->addPilot(id.asInt());
+		}
+	}
 
 	std::string tt = payload.get("targetType", "").asString();
 	Target* target = nullptr;
@@ -2152,6 +2167,59 @@ void craftAssignApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 		s->setCraftAndMoveEquipment(craft, base, newBattle, true);
 	else if (s->getCraft() == craft)
 		s->setCraftAndMoveEquipment(0, base, newBattle);
+}
+
+// ---- W2-H16f (F6606; D226 a): craft pilot picks ----------------------------------------------------------------
+// craft_pilots { craftId, craftType, op: "add" | "clear", soldierId (add) }, baseId = the craft's home base. Player-origin
+// from either seat. The host applies vanilla's rules to its own world (add: a free seat for a crew soldier able to fly, else
+// kept silently; clear: the seat's own pilots go, the partner's stay, aud-E1-11) and writes the resolved list as "pilots".
+bool craftPilotsValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                         int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
+	const std::string op = payload.get("op", "").asString();
+	if (op == "clear") return true;
+	if (op != "add") { failReason = "unknown pilot order"; return false; }
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	if (!s) { failReason = "soldier not found"; return false; }
+	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // aud-E1-11: own soldiers only
+	return true;
+}
+void craftPilotsApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!base) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) return;
+	if (connectionTCP::getHost())
+	{
+		// vanilla's manual list, as the pilots screen shows it (CraftPilotsState :165)
+		std::vector<Soldier*> list = craft->getPilotList(false, game->getMod());
+		if (payload.get("op", "").asString() == "clear")
+		{
+			craft->removeAllPilots();
+			for (auto* p : list)
+				if (p->getOwnerPlayerId() != seat) craft->addPilot(p->getId()); // the partner's picks stay (aud-E1-11)
+		}
+		else
+		{
+			Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+			// vanilla's gates: the select screen offers crew able to fly (CraftPilotSelectState :99); Add shows only
+			// while a seat is free (CraftPilotsState :209)
+			if (s && s->getCraft() == craft && s->hasAllPilotingRequirements()
+				&& (int)list.size() < craft->getRules()->getPilots())
+				craft->addPilot(s->getId());
+		}
+		Json::Value ids(Json::arrayValue);
+		for (auto* p : craft->getPilotList(false, game->getMod())) ids.append(p->getId());
+		payload["pilots"] = ids; // the resolved list rides the broadcast
+	}
+	else
+	{
+		craft->removeAllPilots();
+		for (const auto& id : payload["pilots"]) craft->addPilot(id.asInt());
+	}
 }
 
 // ---- PRD-J09 GAP-5: shared-world craft equipment loadout ---------------------
@@ -3722,6 +3790,8 @@ void init()
 	registerCmd("sell",        &sellValidate,        &sellApply);
 	registerCmd("containment", &containmentValidate, &containmentApply);
 	registerCmd("transfer",    &transferValidate,    &transferApply);
+	// W2-H16f (F6606): craft pilot picks (player-origin from either seat; the host resolves the list).
+	registerCmd("craft_pilots", &craftPilotsValidate, &craftPilotsApply);
 	// PRD-J06 research + manufacture commands (client -> host mutation requests).
 	registerCmd("res_start",   &resStartValidate,    &resStartApply);
 	registerCmd("res_alloc",   &resAllocValidate,    &resAllocApply);
@@ -4815,6 +4885,34 @@ int lastCraftOrderSeat(const Craft* craft)
 	if (!craft) return -1;
 	auto it = g_craftOrderSeat.find(craftKey(craft));
 	return it == g_craftOrderSeat.end() ? -1 : it->second;
+}
+
+void submitCraftPilotAdd(Game* game, Craft* craft, int soldierId)
+{
+	if (!game || !craft) return;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["op"] = "add";
+	p["soldierId"] = soldierId;
+	submitLocalCmd(game, "craft_pilots", craftBaseIndex(game, craft), p);
+}
+
+bool removeOwnCraftPilots(Game* game, Craft* craft)
+{
+	if (!game || !craft) return false;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return false;
+	std::vector<Soldier*> list = craft->getPilotList(false, game->getMod());
+	craft->removeAllPilots();
+	for (auto* s : list)
+		if (!ownsSoldier(game, s)) craft->addPilot(s->getId()); // aud-E1-11: the partner's picks stay
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["op"] = "clear";
+	submitLocalCmd(game, "craft_pilots", craftBaseIndex(game, craft), p);
+	return true;
 }
 
 void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff)

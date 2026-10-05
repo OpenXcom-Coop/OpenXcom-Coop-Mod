@@ -355,6 +355,12 @@ void submitCraftTarget(Game* game, Craft* craft, Target* target); // launch/reta
 void submitCraftPoint(Game* game, Craft* craft, double lon, double lat); // waypoint
 void submitCraftReturn(Game* game, Craft* craft);
 void submitCraftPatrol(Game* game, Craft* craft, bool autoPatrol);
+/// W2-H16f (F6606): SHARED only - no-op otherwise; called AFTER vanilla's local addPilot (CraftPilotSelectState);
+/// the host re-checks the seat and broadcasts the craft's pilot list (craft_pilots).
+void submitCraftPilotAdd(Game* game, Craft* craft, int soldierId);
+/// W2-H16f (F6606, aud-E1-11): SHARED only - returns false otherwise (vanilla's removeAllPilots runs); removes THIS
+/// player's own pilots locally, keeps the partner's, submits craft_pilots clear; returns true.
+bool removeOwnCraftPilots(Game* game, Craft* craft);
 
 /// Seat of the last order applied for @a craft, or -1 if it was never commanded
 /// through the protocol (treat as host-owned -> vanilla local dogfight).
