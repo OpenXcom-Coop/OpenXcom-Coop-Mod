@@ -1330,7 +1330,7 @@ bool manStartValidate(Game* game, const Json::Value& payload, Base* base, int /*
 	return true;
 }
 
-void manStartApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+void manStartApply(Game* game, Json::Value& payload, Base* base, int seat)
 {
 	if (!base) return;
 	Mod* mod = game->getMod();
@@ -1348,6 +1348,7 @@ void manStartApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	p->setAssignedEngineers(engineers);
 	p->setSellItems(payload.get("sell", false).asBool());
 	base->addProduction(p);
+	p->setCoopStarterSeat(seat); // W2-H16g (OC-H16g-1 a): the starter owns what it spawns
 	base->setEngineers(base->getEngineers() - engineers);
 	if (payload.get("fallback", false).asBool())
 	{
@@ -3383,35 +3384,11 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 
 	const std::string mName = payload.get("manufacture", "").asString();
 	int units = payload.get("units", 0).asInt();
-	// GAP-6b: the host Production's SELL flag. When set, Production::step() credited
-	// funds and added NOTHING to stores for the produced items; the authoritative
-	// funds ride this shared_apply as usual, so the replica must skip the storage add
-	// or its item count drifts ABOVE the host. The sell branch lives inside the
-	// NON-craft arm of Production::step(), so a produced CRAFT is never sold - the
-	// craft materialization below stays unconditional.
-	bool sell = payload.get("sell", false).asBool();
 	RuleManufacture* rule = mod->getManufacture(mName, false);
 	if (!rule || units <= 0) return;
 
-	// Materialize the deterministic output (items + crafts). Random/spawned-person
-	// production is host-RNG and NOT reconstructed here (documented limitation);
-	// the next shared_apply / checksum surfaces any resulting drift.
-	if (!sell)
-		for (const auto& it : rule->getProducedItems())
-			base->getStorageItems()->addItem(it.first, it.second * units);
-	if (const RuleCraft* craftRule = rule->getProducedCraft())
-	{
-		for (int c = 0; c < units; ++c)
-		{
-			// getId(craftType) advances the per-type counter identically to the
-			// host (all craft creation rides shared_apply), so ids stay in lockstep.
-			Craft* craft = new Craft(const_cast<RuleCraft*>(craftRule), base,
-			                         save->getId(craftRule->getType()));
-			craft->initFixedWeapons(mod);
-			craft->checkup();
-			base->getCrafts()->push_back(craft);
-		}
-	}
+	// W2-H16g (F7292-F7294): every unit, sold or made, already reached this replica by prod_fx in the hour the host made it;
+	// prod_done only removes the production and shows the window.
 
 	// Remove the matching Production (returns its engineers to the base pool) and
 	// mirror the completion popup.
@@ -3429,6 +3406,53 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 			break;
 		}
 	}
+}
+
+// prod_fx payload: { manufacture, transfers: [yaml], crafts: [yaml], craftsRemoved: [{type, id}], stores?, engineers?, assigned?,
+// ids: {counter: value}, score? }. W2-H16g (F6711, F7292-F7298, D226 a): host-origin after each Production::step that changed its
+// base - the replica adopts the host's result (new transfers / crafts are the host's own YAML: soldier, craft, names, ids, owner);
+// it never rolls. Funds ride the shared_apply. prod_done then only removes the production and shows the window (Q2 a).
+void prodFxApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host's step wrote these
+	if (!game || !base) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+	for (const auto& y : payload["transfers"])
+	{
+		YAML::YamlRootNodeReader reader(YAML::YamlString{ y.asString() }, "prod_fx transfer");
+		auto* t = new Transfer(0);
+		if (t->load(reader["n"], base, mod, save)) base->getTransfers()->push_back(t); // false: load already deleted it
+	}
+	for (const auto& y : payload["crafts"])
+	{
+		YAML::YamlRootNodeReader reader(YAML::YamlString{ y.asString() }, "prod_fx craft");
+		const RuleCraft* cr = mod->getCraft(reader["n"]["type"].readVal<std::string>(), false);
+		if (!cr) continue;
+		auto* c = new Craft(cr, base);
+		c->load(reader["n"], mod->getScriptGlobal(), mod, save);
+		base->getCrafts()->push_back(c);
+	}
+	for (const auto& k : payload["craftsRemoved"])
+		if (Craft* c = findCraft(base, k.get("id", -1).asInt(), k.get("type", "").asString())) { base->removeCraft(c, true); delete c; }
+	if (payload.isMember("stores"))
+	{
+		base->getStorageItems()->clear();
+		for (const auto& k : payload["stores"].getMemberNames())
+			if (RuleItem* ri = mod->getItem(k, false)) base->getStorageItems()->addItem(ri, payload["stores"][k].asInt());
+	}
+	if (payload.isMember("engineers")) base->setEngineers(payload["engineers"].asInt());
+	if (payload.isMember("assigned"))
+		if (Production* p = findProduction(base, payload.get("manufacture", "").asString()))
+			p->setAssignedEngineers(payload["assigned"].asInt());
+	const std::map<std::string, int>& ids = save->getAllIds();
+	for (const auto& k : payload["ids"].getMemberNames())
+		while (ids.find(k) == ids.end() || ids.at(k) < payload["ids"][k].asInt()) save->getId(k);
+	if (payload.isMember("score") && !save->getResearchScores().empty())
+		save->getResearchScores().back() = payload["score"].asInt();
+	Log(LOG_INFO) << "[SHARED] prod_fx: " << payload.get("manufacture", "").asString() << " at base " << baseIndex(game, base) << ": "
+		<< payload["transfers"].size() << " transfer(s), " << payload["crafts"].size() << " craft(s)";
 }
 
 // transfer_arrived payload: { arrived: [ {type, rule, qty} ] }.
@@ -4209,6 +4233,7 @@ void init()
 	registerCmd("fac_done",         &simAccept, &facDoneApply);
 	registerCmd("prod_done",        &simAccept, &prodDoneApply);
 	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
+	registerCmd("prod_fx",          &simAccept, &prodFxApply); // W2-H16g (F6711): host-origin, replica-only
 	registerCmd("day_tick",         &simAccept, &dayTickApply);
 	registerCmd("soldier_fx",       &simAccept, &soldierFxApply); // W2-H18 (F3259): host-origin, replica-only
 	registerCmd("unassign_wounded", &simAccept, &unassignWoundedApply); // W2-P7 S-C-A.2 (MR2): host-origin, replica-only
@@ -5762,6 +5787,67 @@ void hostGeoEvent(Game* game, const RuleEvent& rule, const Json::Value& mark, St
 	p["regions"] = geoChanged(mark["regions"], now["regions"]);
 	p["ids"] = geoChanged(mark["ids"], now["ids"]);
 	submitLocalCmd(game, "geo_event", 0, p);
+}
+
+// ---- W2-H16g (F6711, F7292-F7298): prod_fx - the host side --------------------------------------------------------------
+Json::Value productionFxMark(Game* game, Base* base)
+{
+	if (!sharedHost(game) || !base || !game->getSavedGame()) return Json::Value(Json::nullValue);
+	SavedGame* save = game->getSavedGame();
+	Json::Value m(Json::objectValue), crafts(Json::objectValue), ids(Json::objectValue);
+	m["stores"] = geoItemMap(base->getStorageItems());
+	m["transfers"] = (int)base->getTransfers()->size();
+	for (auto* c : *base->getCrafts())
+	{
+		Json::Value k(Json::objectValue);
+		k["type"] = c->getRules()->getType(); k["id"] = c->getId();
+		crafts[craftKey(c)] = k;
+	}
+	m["crafts"] = crafts;
+	m["engineers"] = base->getEngineers();
+	for (const auto& kv : save->getAllIds()) ids[kv.first] = kv.second;
+	m["ids"] = ids;
+	m["score"] = save->getResearchScores().empty() ? 0 : save->getResearchScores().back();
+	m["funds"] = Json::Value::Int64(save->getFunds());
+	return m;
+}
+
+void hostProductionFx(Game* game, Base* base, const std::string& manufacture, const Json::Value& mark)
+{
+	if (mark.isNull() || !sharedHost(game) || !base) return;
+	Mod* mod = game->getMod();
+	Production* prod = findProduction(base, manufacture);
+	Json::Value p(Json::objectValue), transfers(Json::arrayValue), crafts(Json::arrayValue), removed(Json::arrayValue);
+	p["manufacture"] = manufacture;
+	for (size_t i = mark["transfers"].asUInt(); i < base->getTransfers()->size(); ++i) // Production::step only appends
+	{
+		Transfer* t = (*base->getTransfers())[i];
+		if (Soldier* s = t->getSoldier())
+			if (s->getOwnerPlayerId() == 999) s->setOwnerPlayerId(prod && prod->getCoopStarterSeat() >= 0 ? prod->getCoopStarterSeat() : s->getId() % 2); // OC-H16g-1 (a): the produced soldier's owner
+		transfers.append(geoYaml([&](YAML::YamlNodeWriter w) { t->save(w, base, mod); }));
+	}
+	std::set<std::string> now;
+	for (auto* c : *base->getCrafts())
+	{
+		now.insert(craftKey(c));
+		if (!mark["crafts"].isMember(craftKey(c)))
+			crafts.append(geoYaml([&](YAML::YamlNodeWriter w) { c->save(w, mod->getScriptGlobal()); }));
+	}
+	for (const auto& k : mark["crafts"].getMemberNames())
+		if (!now.count(k)) removed.append(mark["crafts"][k]); // startItem's required crafts
+	const Json::Value after = productionFxMark(game, base);
+	if (mark["stores"] != after["stores"]) p["stores"] = after["stores"];
+	if (mark["engineers"] != after["engineers"]) p["engineers"] = after["engineers"];
+	if (prod) p["assigned"] = prod->getAssignedEngineers();
+	p["ids"] = geoChanged(mark["ids"], after["ids"]);
+	if (mark["score"] != after["score"]) p["score"] = after["score"];
+	if (transfers.empty() && crafts.empty() && removed.empty() && !p.isMember("stores") && !p.isMember("engineers")
+		&& p["ids"].empty() && !p.isMember("score") && mark["funds"] == after["funds"])
+		return; // this hour changed nothing at the base (progress rides day_tick)
+	p["transfers"] = transfers;
+	p["crafts"] = crafts;
+	p["craftsRemoved"] = removed;
+	submitLocalCmd(game, "prod_fx", baseIndex(game, base), p);
 }
 
 void flushEventWindows(Game* game, GeoscapeState* gs)

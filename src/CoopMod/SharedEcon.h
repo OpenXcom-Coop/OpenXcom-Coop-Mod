@@ -323,11 +323,15 @@ void hostResearchFx(Game* game, int baseId, const Json::Value& mark);
 void hostFacilityDone(Game* game, int baseId, int x, int y,
                       const std::string& facilityType);
 
-/// Manufacture batch finished on the host (time1Hour): replica materializes the
-/// produced items/crafts, removes the Production (freeing engineers), and mirrors
-/// the completion popup.
+/// Manufacture finished on the host (time1Hour): the replica removes the Production (freeing engineers) and mirrors the completion popup; every unit already arrived by prod_fx (W2-H16g).
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
                         int units, int progress, bool sell);
+/// W2-H16g (F6711): HOST, right before one production's hourly step - the base's stores, transfer count, crafts, engineers,
+/// id counters, research score and funds; Json::nullValue unless this machine is the SHARED host.
+Json::Value productionFxMark(Game* game, Base* base);
+/// W2-H16g (F6711): HOST, right after that step - sends prod_fx with everything the step changed at the base (new transfers
+/// and crafts as their own YAML); no-op on a null mark or when nothing changed.
+void hostProductionFx(Game* game, Base* base, const std::string& manufacture, const Json::Value& mark);
 
 /// Transfers delivered on the host (time1Hour): replica delivers the matching
 /// pending transfers (items/scientists/engineers/craft) and removes them.
