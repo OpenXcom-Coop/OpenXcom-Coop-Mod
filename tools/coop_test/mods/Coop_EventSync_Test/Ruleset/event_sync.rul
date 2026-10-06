@@ -1,0 +1,122 @@
+# Test-only mod for test_coop_event_sync.py. Timers are long and random
+# (timerRandom 20000 min, about 14 days) so two machines rolling them on their own
+# almost never agree; the test reads the countdowns through the geo_events lever.
+research:
+  - name: STR_COOP_EV_CERTAIN_TOPIC
+    cost: 10
+    points: 1
+  - name: STR_COOP_EV_RANDOM_A_TOPIC
+    cost: 10
+    points: 1
+  - name: STR_COOP_EV_RANDOM_B_TOPIC
+    cost: 10
+    points: 1
+  - name: STR_COOP_EV_TRIGGER
+    cost: 10
+    points: 1
+  - name: STR_COOP_EV_COND_TOPIC
+    cost: 10
+    points: 1
+  - name: STR_COOP_EV_TRIGGER_HOST
+    cost: 10
+    points: 1
+  - name: STR_COOP_EV_COND_HOST_TOPIC
+    cost: 10
+    points: 1
+
+events:
+  - name: STR_COOP_EV_CERTAIN
+    description: STR_COOP_EV_CERTAIN_DESCRIPTION
+    researchList:
+      - STR_COOP_EV_CERTAIN_TOPIC
+    timer: 60
+    timerRandom: 20000
+  - name: STR_COOP_EV_RANDOM_A
+    description: STR_COOP_EV_RANDOM_DESCRIPTION
+    researchList:
+      - STR_COOP_EV_RANDOM_A_TOPIC
+    timer: 60
+    timerRandom: 20000
+  - name: STR_COOP_EV_RANDOM_B
+    description: STR_COOP_EV_RANDOM_DESCRIPTION
+    researchList:
+      - STR_COOP_EV_RANDOM_B_TOPIC
+    timer: 60
+    timerRandom: 20000
+  - name: STR_COOP_EV_COND
+    description: STR_COOP_EV_COND_DESCRIPTION
+    researchList:
+      - STR_COOP_EV_COND_TOPIC
+    timer: 60
+    timerRandom: 20000
+  - name: STR_COOP_EV_COND_HOST
+    description: STR_COOP_EV_COND_DESCRIPTION
+    researchList:
+      - STR_COOP_EV_COND_HOST_TOPIC
+    timer: 60
+    timerRandom: 20000
+
+eventScripts:
+  # certain: odds 100, one possible event (the XCF advisor shape)
+  - type: STR_COOP_EV_CERTAIN_SCRIPT
+    oneTimeSequentialEvents:
+      - STR_COOP_EV_CERTAIN
+    firstMonth: 0
+    lastMonth: 0
+    executionOdds: 100
+  # random: a weighted pick between two events
+  - type: STR_COOP_EV_RANDOM_SCRIPT
+    oneTimeRandomEvents:
+      STR_COOP_EV_RANDOM_A: 50
+      STR_COOP_EV_RANDOM_B: 50
+    firstMonth: 0
+    lastMonth: 0
+    executionOdds: 100
+  # certain once a research trigger is met (both players meet it in the test)
+  - type: STR_COOP_EV_COND_SCRIPT
+    oneTimeRandomEvents:
+      STR_COOP_EV_COND: 100
+    firstMonth: 1
+    executionOdds: 100
+    researchTriggers:
+      STR_COOP_EV_TRIGGER: true
+  # certain once a research trigger is met (only the host meets it in the test)
+  - type: STR_COOP_EV_COND_HOST_SCRIPT
+    oneTimeRandomEvents:
+      STR_COOP_EV_COND_HOST: 100
+    firstMonth: 1
+    executionOdds: 100
+    researchTriggers:
+      STR_COOP_EV_TRIGGER_HOST: true
+
+ufopaedia:
+  - id: STR_COOP_EV_CERTAIN_TOPIC
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_COOP_EV_CERTAIN_TOPIC
+    text: STR_COOP_EV_ARTICLE_TEXT
+  - id: STR_COOP_EV_RANDOM_A_TOPIC
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_COOP_EV_RANDOM_A_TOPIC
+    text: STR_COOP_EV_ARTICLE_TEXT
+  - id: STR_COOP_EV_RANDOM_B_TOPIC
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_COOP_EV_RANDOM_B_TOPIC
+    text: STR_COOP_EV_ARTICLE_TEXT
+  - id: STR_COOP_EV_COND_TOPIC
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_COOP_EV_COND_TOPIC
+    text: STR_COOP_EV_ARTICLE_TEXT
+  - id: STR_COOP_EV_COND_HOST_TOPIC
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_COOP_EV_COND_HOST_TOPIC
+    text: STR_COOP_EV_ARTICLE_TEXT
