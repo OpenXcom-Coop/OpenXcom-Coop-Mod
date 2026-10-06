@@ -425,6 +425,13 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
 
+/// W2-H20 (D255 a): SHARED and a real base only - no-op otherwise. A base equipment screen (soldier or craft inventory) is about to
+/// open: records every soldier of @a base (equipment layout, personal layout and its armor) BEFORE vanilla's open may clear a layout.
+void baseEquipOpen(Game* game, Base* base);
+/// W2-H20 (D255 a): the screen's OK, right after vanilla's saveEquipmentLayout: a changed record of a partner's soldier is put back
+/// (aud-E1-11); the changed records of this player's own soldiers go to the host as one soldier_equip. No-op unless @a base is marked.
+void baseEquipOk(Game* game, Base* base);
+
 /// W2-H16c (S-12): SHARED and a real base only - returns false otherwise (vanilla runs). Submits soldier_transform
 /// for @a soldier (alive, or dead in the memorial) with the name box's text; writes nothing locally: the host runs
 /// vanilla's transformation and both worlds adopt its result. Own soldiers only (AUD-A48).

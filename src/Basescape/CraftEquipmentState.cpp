@@ -1095,6 +1095,7 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 		{
 			_game->getSavedGame()->setDisableSoldierEquipment(true);
 		}
+		SharedEcon::baseEquipOpen(_game, _base); // coop W2-H20 (D255 a): the soldiers' gear before vanilla's open (Ctrl+Alt clears it)
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.runInventory(craft);
 

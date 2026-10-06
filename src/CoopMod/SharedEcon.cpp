@@ -2701,6 +2701,95 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	if (save) save->setLastSelectedArmor(next->getType());
 }
 
+// ---- W2-H20 (D255 a): soldier_equip - a SHARED base equipment screen's OK --------------------------------------------------------
+// payload: { soldiers: [{id, layout, personal, personalArmor}] }, baseId = the screen's base. layout / personal = the soldier's equipment
+// layout and personal layout as vanilla's own save writes them (Soldier.cpp :381-:386; EquipmentLayoutItem::save) under key "l";
+// personalArmor = the personal layout's armor type ("" = none). Player-origin from either seat at its base-screen OK: one entry per OWN
+// soldier whose record changed (aud-E1-11, D255 a). The host writes an entry only for a soldier the sending seat owns and broadcasts its
+// own record for any other entry (Q5 a); a replica adopts every entry. No stores move (option ON's craft moves: W2-H20b).
+Json::Value g_baseEquipMark(Json::nullValue); // W2-H20: the open base screen's records {base: index, soldiers: {"<id>": record}}
+
+std::string equipYaml(const std::vector<EquipmentLayoutItem*>& layout)
+{
+	if (layout.empty()) return std::string(); // "" = an empty layout (never parsed)
+	YAML::YamlRootNodeWriter w;
+	w.setAsMap();
+	w.write("l", layout, [](YAML::YamlNodeWriter& n, EquipmentLayoutItem* i) { i->save(n.write()); });
+	return w.emit().yaml;
+}
+
+// Vanilla's own load (Soldier.cpp :243-:251) of an equipYaml string into @a out (emptied first); an item this mod cannot load is skipped.
+void equipFromYaml(Game* game, const std::string& yaml, std::vector<EquipmentLayoutItem*>& out)
+{
+	for (auto* li : out) delete li;
+	out.clear();
+	if (yaml.empty()) return;
+	try
+	{
+		YAML::YamlRootNodeReader reader(YAML::YamlString{yaml}, "soldierEquip");
+		for (const auto& n : reader["l"].children())
+		{
+			try { out.push_back(new EquipmentLayoutItem(n, game->getMod())); }
+			catch (const std::exception& e) { Log(LOG_ERROR) << "[SHARED] soldier_equip: layout item not loaded: " << e.what(); }
+		}
+	}
+	catch (const std::exception& e) { Log(LOG_ERROR) << "[SHARED] soldier_equip: layout not read: " << e.what(); }
+}
+
+Json::Value soldierEquipRecord(Soldier* s)
+{
+	Json::Value r(Json::objectValue);
+	r["id"] = s->getId();
+	r["layout"] = equipYaml(*s->getEquipmentLayout());
+	r["personal"] = equipYaml(*s->getPersonalEquipmentLayout());
+	r["personalArmor"] = s->getPersonalEquipmentArmor() ? s->getPersonalEquipmentArmor()->getType() : std::string();
+	return r;
+}
+
+// Writes the present fields of record @a r into @a s.
+void soldierEquipAdopt(Game* game, Soldier* s, const Json::Value& r)
+{
+	if (r.isMember("layout")) equipFromYaml(game, r["layout"].asString(), *s->getEquipmentLayout());
+	if (r.isMember("personal")) equipFromYaml(game, r["personal"].asString(), *s->getPersonalEquipmentLayout());
+	if (r.isMember("personalArmor")) s->setPersonalEquipmentArmor(game->getMod()->getArmor(r["personalArmor"].asString(), false));
+}
+
+bool soldierEquipValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                          int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (!payload["soldiers"].isArray()) { failReason = "soldier not found"; return false; }
+	return true;
+}
+
+void soldierEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!game || !base) return;
+	const bool host = connectionTCP::getHost();
+	const int bi = baseIndex(game, base);
+	const bool marked = g_baseEquipMark.isObject() && g_baseEquipMark.get("base", -1).asInt() == bi;
+	Json::Value resolved(Json::arrayValue);
+	int adopted = 0, kept = 0;
+	for (const auto& r : payload["soldiers"])
+	{
+		Soldier* s = findSoldier(base, r.get("id", -1).asInt());
+		if (!s) continue; // not at this base (any more): left out of the broadcast
+		if (host && s->getOwnerPlayerId() != seat)
+		{
+			resolved.append(soldierEquipRecord(s)); // Q5 (a): not the sender's soldier - the host's record rides instead
+			++kept;
+			continue;
+		}
+		soldierEquipAdopt(game, s, r);
+		resolved.append(r);
+		++adopted;
+		if (marked) g_baseEquipMark["soldiers"][std::to_string(s->getId())] = soldierEquipRecord(s); // Q2 (a): an open screen keeps it
+	}
+	if (host) payload["soldiers"] = resolved;
+	Log(LOG_INFO) << "[SHARED] soldier_equip: " << adopted << " adopted, " << kept << " kept by the host, base " << bi;
+}
+
 // W2-H16e (F6176) fac_disable { x, y, disabled }, baseId = the base index: the host re-checks vanilla's gate, applies and broadcasts the resolved flag; a replica adopts it.
 bool facDisableValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
                         int64_t& cost, std::string& failReason)
@@ -4259,6 +4348,7 @@ void init()
 	// weapon; change a soldier's armor - SoldierArmorState + CraftArmorState).
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
+	registerCmd("soldier_equip",  &soldierEquipValidate, &soldierEquipApply); // W2-H20 (D255 a): base-screen OK, player-origin, owner-gated
 	// W2-H16 (F3260): manual promotion and nationality (player-origin from either seat; the host resolves the rank).
 	registerCmd("soldier_rank",   &soldierRankValidate,   &soldierRankApply);
 	registerCmd("soldier_nationality", &soldierNationalityValidate, &soldierNationalityApply);
@@ -5559,6 +5649,49 @@ void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::str
 	p["soldierId"] = soldier->getId();
 	p["armor"] = armorType;
 	submitLocalCmd(game, "soldier_armor", baseIndex(game, base), p);
+}
+
+// W2-H20 (D255 a): see SharedEcon.h.
+void baseEquipOpen(Game* game, Base* base)
+{
+	g_baseEquipMark = Json::Value(Json::nullValue);
+	if (!game || !base || base->_coopBase || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	Json::Value m(Json::objectValue);
+	m["base"] = baseIndex(game, base);
+	m["soldiers"] = Json::Value(Json::objectValue);
+	for (auto* s : *base->getSoldiers())
+		m["soldiers"][std::to_string(s->getId())] = soldierEquipRecord(s);
+	g_baseEquipMark = m;
+}
+
+void baseEquipOk(Game* game, Base* base)
+{
+	Json::Value mark = g_baseEquipMark;
+	g_baseEquipMark = Json::Value(Json::nullValue);
+	if (!game || !base || !mark.isObject() || mark.get("base", -1).asInt() != baseIndex(game, base)) return;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	Json::Value soldiers(Json::arrayValue);
+	int restored = 0;
+	for (auto* s : *base->getSoldiers())
+	{
+		const std::string key = std::to_string(s->getId());
+		if (!mark["soldiers"].isMember(key)) continue; // arrived after the screen opened: not on it
+		Json::Value now = soldierEquipRecord(s);
+		if (now == mark["soldiers"][key]) continue;
+		if (ownsSoldier(game, s))
+			soldiers.append(now);
+		else
+		{
+			soldierEquipAdopt(game, s, mark["soldiers"][key]); // Q2 (a): the partner's gear stays the partner's (aud-E1-11)
+			++restored;
+		}
+	}
+	Log(LOG_INFO) << "[SHARED] base equip OK: " << soldiers.size() << " own record(s) sent, " << restored
+		<< " partner record(s) put back, base " << baseIndex(game, base);
+	if (soldiers.empty()) return;
+	Json::Value p(Json::objectValue);
+	p["soldiers"] = soldiers;
+	submitLocalCmd(game, "soldier_equip", baseIndex(game, base), p);
 }
 
 // W2-H16c (S-12): see SharedEcon.h. The rule travels by name; the host resolves the rest.

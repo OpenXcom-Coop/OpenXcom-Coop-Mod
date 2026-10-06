@@ -62,6 +62,7 @@
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/SharedEcon.h" // coop W2-H20 (D255 a)
 
 namespace OpenXcom
 {
@@ -1159,6 +1160,7 @@ void InventoryState::btnOkClick(Action *)
 		{
 			saveEquipmentLayout();
 		}
+		if (_base) SharedEcon::baseEquipOk(_game, _base); // coop W2-H20 (D255 a): own soldiers' gear to the host, the partner's put back
 		if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft)
 		{
 			// assign all soldiers back, if possible
