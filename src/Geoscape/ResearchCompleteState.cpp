@@ -91,8 +91,7 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	// PRD-J04: fence the SEPARATE peer-research mirror in SHARED. A SHARED host
 	// broadcasts research completions over the SharedEcon channel (research_done)
 	// instead; the replica pops this state with coop=true, so it never re-enters
-	// here. (This also avoids the newResearch->getName() null-deref below when the
-	// host completes an already-seen lookup.)
+	// here.
 	if (_game->getCoopMod()->getCoopStatic() == true && _coop == false
 		&& !_game->getCoopMod()->isSharedCampaign()
 		&& _game->getCoopMod()->_enable_research_sync)
@@ -101,7 +100,15 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 		Json::Value root;
 
 		root["state"] = "research";
-		root["new_research_name"] = newResearch->getName();
+		root["new_research_name"] = "";
+
+		// newResearch is null when the finished topic (or its lookup) was already
+		// researched, e.g. a repeatable getOneFree topic or one research sync
+		// delivered first. The peer then shows no Ufopaedia article, as here.
+		if (newResearch)
+		{
+			root["new_research_name"] = newResearch->getName();
+		}
 
 		root["research_name"] = "";
 
