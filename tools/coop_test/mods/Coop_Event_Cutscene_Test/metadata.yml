@@ -1,0 +1,7 @@
+name: "Coop event cutscene probe"
+version: 1.0
+description: "Test-only fixture for W2-H17d (F7719, F7727). Data only. Three empty cutscenes, two events that play
+  them, two research topics that spawn the events, and a month-1 game over. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1

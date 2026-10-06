@@ -1,0 +1,27 @@
+# W2-H17d (F7719, F7727) test fixture (spec rewrite/prompts/w2h17d_event_cutscene_once.md (f)). No language file (raw keys).
+# Each cutscene has no videos, no slideshow, no winGame / loseGame: a play logs "cutscene definition empty: <id>".
+# defeatScore and gameOver are read only by MonthlyReportState: the first month end is a game over whose video
+# (STR_H17D_MR) does not end the game.
+defeatScore: 100000
+gameOver:
+  loseRating: STR_H17D_MR
+cutscenes:
+  - type: STR_H17D_A
+  - type: STR_H17D_B
+  - type: STR_H17D_MR
+events:
+  - name: STR_H17D_EV_A
+    description: STR_H17D_EV_A
+    cutscene: STR_H17D_A
+  - name: STR_H17D_EV_B
+    description: STR_H17D_EV_B
+    cutscene: STR_H17D_B
+research:
+  - name: STR_H17D_T_A
+    cost: 1
+    points: 5
+    spawnedEvent: STR_H17D_EV_A
+  - name: STR_H17D_T_B
+    cost: 1
+    points: 5
+    spawnedEvent: STR_H17D_EV_B
