@@ -1130,6 +1130,7 @@ void CraftEquipmentState::saveGlobalLoadout(int index)
 			tmpl->addItem(item, cQty);
 		}
 	}
+	SharedEcon::submitLoadoutTemplate(_game, _base, index); // coop W2-H20b (A10): the slot to the host
 }
 
 void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
