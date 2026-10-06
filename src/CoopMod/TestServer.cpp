@@ -6761,6 +6761,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "reveal_hostile_pass"
 		&& cmd != "defer_intents"
 		&& cmd != "set_soldier_training" && cmd != "soldier_training_probe" // W2-H18 (F3259, F6139)
+		&& cmd != "soldier_fx_probe" && cmd != "set_soldier_dogfight_xp" // W2-H18b (F7285)
 		&& cmd != "battle_halt_walk" && cmd != "battle_halt_walk_before_step"
 		&& cmd != "battle_reserve"
 		&& cmd != "open_craft_pilots" && cmd != "craft_pilots_probe" && cmd != "set_craft_pilots" // W2-H16f (F6606)
@@ -8900,6 +8901,98 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["bases"] = basesTP;
 			resp["soldiers"] = soldiersTP;
 			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "soldier_fx_probe")
+	{
+		// W2-H18b (F7285): TEST INTROSPECTION ONLY - read-only. {ids?}: `bases` [{index, name, sickBayAbs, sickBayRel
+		// (getSumRecoveryPerDay), crafts [{id, type}]}] for every real base (not _coopBase / _coopIcon); `soldiers` [{id, found,
+		// baseIndex, craftId (-1 none), owner, recovery (getWoundRecoveryInt), recoveryExact (the soldier's own YAML `recovery`,
+		// 0 when absent), daysToHeal (getNeededRecoveryTime of its base's sums), firing, reactions, bravery (current stats),
+		// dogfightXp {firing, reactions, bravery} (getDailyDogfightExperienceCache)}] for each id of {ids} (every real-base
+		// soldier without it). Reply {ok}.
+		SavedGame* sgFX = _game->getSavedGame();
+		if (!sgFX)
+			resp["error"] = "soldier_fx_probe: no saved game";
+		else
+		{
+			Json::Value basesFX(Json::arrayValue), soldiersFX(Json::arrayValue);
+			std::vector<std::pair<Soldier*, std::pair<Base*, int> > > realFX;
+			int biFX = 0;
+			for (auto* b : *sgFX->getBases())
+			{
+				if (!b->_coopBase && !b->_coopIcon)
+				{
+					const BaseSumDailyRecovery recFX = b->getSumRecoveryPerDay();
+					Json::Value jb(Json::objectValue), jc(Json::arrayValue);
+					jb["index"] = biFX; jb["name"] = b->getName();
+					jb["sickBayAbs"] = (double)recFX.SickBayAbsoluteBonus; jb["sickBayRel"] = (double)recFX.SickBayRelativeBonus;
+					for (auto* c : *b->getCrafts())
+						{ Json::Value o(Json::objectValue); o["id"] = c->getId(); o["type"] = c->getRules()->getType(); jc.append(o); }
+					jb["crafts"] = jc;
+					basesFX.append(jb);
+					for (auto* s : *b->getSoldiers()) realFX.push_back(std::make_pair(s, std::make_pair(b, biFX)));
+				}
+				++biFX;
+			}
+			const ScriptGlobal* globalFX = _game->getMod()->getScriptGlobal();
+			auto recordFX = [globalFX](Soldier* s, Base* b, int bi) {
+				Json::Value r(Json::objectValue), xp(Json::objectValue);
+				YAML::YamlRootNodeWriter w; w.setAsMap();
+				s->save(w["soldier"], globalFX);
+				YAML::YamlRootNodeReader rd(w.emit(), "soldier_fx_probe");
+				float exactFX = 0.0f;
+				rd["soldier"].tryRead("recovery", exactFX);
+				const UnitStats* u = s->getCurrentStats();
+				const UnitStats* c = s->getDailyDogfightExperienceCache();
+				r["id"] = s->getId(); r["found"] = true; r["baseIndex"] = bi;
+				r["craftId"] = s->getCraft() ? s->getCraft()->getId() : -1; r["owner"] = s->getOwnerPlayerId();
+				r["recovery"] = s->getWoundRecoveryInt(); r["recoveryExact"] = (double)exactFX;
+				r["daysToHeal"] = s->getNeededRecoveryTime(b->getSumRecoveryPerDay());
+				r["firing"] = u->firing; r["reactions"] = u->reactions; r["bravery"] = u->bravery;
+				xp["firing"] = c->firing; xp["reactions"] = c->reactions; xp["bravery"] = c->bravery;
+				r["dogfightXp"] = xp;
+				return r;
+			};
+			if (req.isMember("ids"))
+			{
+				const Json::Value& idsFX = req["ids"];
+				for (Json::ArrayIndex k = 0; k < idsFX.size(); ++k)
+				{
+					Json::Value r(Json::objectValue);
+					r["id"] = idsFX[k].asInt(); r["found"] = false;
+					for (const auto& p : realFX)
+						if (p.first->getId() == idsFX[k].asInt()) { r = recordFX(p.first, p.second.first, p.second.second); break; }
+					soldiersFX.append(r);
+				}
+			}
+			else
+				for (const auto& p : realFX) soldiersFX.append(recordFX(p.first, p.second.first, p.second.second));
+			resp["bases"] = basesFX; resp["soldiers"] = soldiersFX; resp["ok"] = true;
+		}
+	}
+	else if (cmd == "set_soldier_dogfight_xp")
+	{
+		// W2-H18b (F7285): TEST lever - STAGING on THIS machine only (both machines, client first, S25). {soldierId, firing?,
+		// reactions?, bravery?}: the soldier found as set_soldier_training finds it (real bases); writes each present field of
+		// getDailyDogfightExperienceCache(). Reply {ok, dogfightXp {firing, reactions, bravery}} (read back).
+		SavedGame* sgDX = _game->getSavedGame();
+		const int idDX = req.get("soldierId", -1).asInt();
+		Soldier* sDX = nullptr;
+		if (sgDX)
+			for (auto* base : *sgDX->getBases())
+				for (auto* s : *base->getSoldiers())
+					if (!sDX && !base->_coopBase && !base->_coopIcon && s->getId() == idDX) sDX = s;
+		if (!sDX)
+			resp["error"] = "set_soldier_dogfight_xp: soldier not found";
+		else
+		{
+			UnitStats* cDX = sDX->getDailyDogfightExperienceCache();
+			if (req.isMember("firing")) cDX->firing = (UnitStats::Type)req["firing"].asInt();
+			if (req.isMember("reactions")) cDX->reactions = (UnitStats::Type)req["reactions"].asInt();
+			if (req.isMember("bravery")) cDX->bravery = (UnitStats::Type)req["bravery"].asInt();
+			resp["dogfightXp"]["firing"] = cDX->firing; resp["dogfightXp"]["reactions"] = cDX->reactions;
+			resp["dogfightXp"]["bravery"] = cDX->bravery; resp["ok"] = true;
 		}
 	}
 	else if (cmd == "shared_update_defer")

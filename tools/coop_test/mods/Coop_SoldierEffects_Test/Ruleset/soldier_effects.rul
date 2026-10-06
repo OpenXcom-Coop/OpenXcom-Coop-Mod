@@ -1,0 +1,20 @@
+facilities:
+  - type: STR_H18B_SICKBAY
+    size: 1
+    spriteShape: 1
+    spriteFacility: 31
+    mapName: XBASE_14
+    buildCost: 1000
+    buildTime: 1
+    monthlyCost: 0
+    sickBayAbsoluteBonus: 0.5
+crafts:
+  - type: STR_AVENGER
+    pilots: 1
+soldiers:
+  - type: STR_SOLDIER
+    dogfightExperience:
+      firing: 100
+      reactions: 100
+      bravery: 100
+pilotsEmergencyEvacuationSurvivalChance: 0
