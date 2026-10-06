@@ -34395,17 +34395,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	{
 
 		std::string cutsceneId = obj["cutsceneId"].asString();
-		int monthsPassed = obj["monthsPassed"].asInt();
-		int daysPassed = obj["daysPassed"].asInt();
 		int ending = obj["ending"].asInt();
 
 		if (_game->getSavedGame())
 		{
 
-			_game->getSavedGame()->setEnding((GameEnding)ending);
-
-			_game->getSavedGame()->setMonthsPassed(monthsPassed);
-			_game->getSavedGame()->setMonthsPassed(daysPassed);
+			// coop W2-H17b (F7209, F7213): adopt the sender's ending only when it names one and this world has none yet
+			// (vanilla's first ending stands); the sender's month/day counters are never adopted
+			if (ending != (int)END_NONE && _game->getSavedGame()->getEnding() == END_NONE)
+				_game->getSavedGame()->setEnding((GameEnding)ending);
 		}
 
 		allow_cutscene = false;
