@@ -4483,7 +4483,7 @@ bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules)
  * 2. Adds also getOneFree bonus and possible lookup(s). Also silently.
  * 3. Handles alien mission interruption.
  */
-bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment)
+bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut)
 {
 	if (!research)
 	{
@@ -4529,6 +4529,8 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 
 	if (auto* bonus = selectGetOneFree(research))
 	{
+		if (bonusOut)
+			*bonusOut = bonus; // coop: research sync mirrors the same bonus
 		researchVec.push_back(bonus);
 		addResearchDiaryEntryForMission(bonus, DiscoverySourceType::FREE_FROM, nullptr, research);
 		addFinishedResearch(bonus, mod, base, true);

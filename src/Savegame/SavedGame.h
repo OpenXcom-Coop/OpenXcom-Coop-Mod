@@ -616,7 +616,7 @@ private:
 	/// Checks if an instant Geoscape event can be spawned.
 	bool canSpawnInstantEvent(const RuleEvent* eventRules);
 	/// Handles research unlocked by successful/failed missions and despawned mission sites.
-	bool handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment);
+	bool handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut = nullptr);
 	/// Handles research side effects for primary research sources.
 	void handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base, bool spawnItems = true);
 	/// Gets the list of user notes.

@@ -3484,7 +3484,13 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 	{
 		// Unlock research defined in alien deployment, if the mission site despawned
 		const RuleResearch* research = _game->getMod()->getResearch(site->getDeployment()->getUnlockedResearchOnDespawn());
-		_game->getSavedGame()->handleResearchUnlockedByMissions(research, _game->getMod(), site->getDeployment());
+		const RuleResearch* bonus = nullptr;
+		if (_game->getSavedGame()->handleResearchUnlockedByMissions(research, _game->getMod(), site->getDeployment(), &bonus))
+		{
+			// coop SEPARATE, shared research: the site lived in this world only; the
+			// other player learns the same topic and bonus.
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, _game->getSavedGame()->getBases()->front());
+		}
 
 		// Increase counters
 		_game->getSavedGame()->increaseCustomCounter(site->getDeployment()->getCounterDespawn());
