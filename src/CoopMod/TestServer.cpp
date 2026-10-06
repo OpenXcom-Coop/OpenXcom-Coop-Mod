@@ -6987,6 +6987,8 @@ static void coopTestBaseInventoryUnload(Game* game, const Json::Value& req, Json
 //   {op: select, name} / {op: rename, name, text} on the TOP base InventoryState (a battle's inventory refused, as U6's levers):
 //     btnNextClick until the selected unit's soldier name contains `name` -> {selected, id}; rename then sets the 210-px name field
 //     (the quick search is 40 px) and calls its onChange handler edtSoldierChange -> soldierName = the Soldier's name read back.
+//   W2-H20b-B: {op: loadout_load, index, addOnTop} -> the TOP CraftEquipmentState's loadGlobalLoadout (A8); {op: ground_to_base}
+//     -> the TOP base InventoryState's onMoveGroundInventoryToBase (A12), reply craftId + the craft's items before / after.
 static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value& resp)
 {
 	const std::string op = req.get("op", "").asString();
@@ -7009,6 +7011,32 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 		resp["loadout"] = loadout;
 		resp["loadoutName"] = sg->getGlobalCraftLoadoutName(index);
 		resp["lastSelectedArmor"] = sg->getLastSelectedArmor();
+		resp["ok"] = true;
+		return;
+	}
+	if (op == "loadout_load") // W2-H20b-B (A8): the TOP CraftEquipmentState's public loadGlobalLoadout (CraftEquipmentLoadState :126's call)
+	{
+		const int index = req.get("index", 0).asInt();
+		CraftEquipmentState* ces = topState<CraftEquipmentState>(game);
+		if (index < 0 || index >= SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES) resp["error"] = "base_screen_op: index out of range";
+		else if (!ces) resp["error"] = "base_screen_op: no CraftEquipmentState on top";
+		else { ces->loadGlobalLoadout(index, req.get("addOnTop", false).asBool()); resp["ok"] = true; }
+		return;
+	}
+	if (op == "ground_to_base") // W2-H20b-B (A12): the TOP base InventoryState's public onMoveGroundInventoryToBase (Ctrl+Alt+keyInvClear)
+	{
+		InventoryState* inv = topState<InventoryState>(game);
+		SavedBattleGame* sbg = sg->getSavedBattle();
+		if (!inv || !sbg || sbg->getBattleState() != nullptr) { resp["error"] = "base_screen_op: no base inventory screen on top"; return; }
+		BattleUnit* u = sbg->getSelectedUnit();
+		Craft* c = (u && u->getGeoscapeSoldier()) ? u->getGeoscapeSoldier()->getCraft() : nullptr;
+		Json::Value before(Json::objectValue), after(Json::objectValue);
+		if (c) for (const auto& pr : *c->getItems()->getContents()) before[pr.first->getType()] = pr.second;
+		inv->onMoveGroundInventoryToBase(nullptr);
+		if (c) for (const auto& pr : *c->getItems()->getContents()) after[pr.first->getType()] = pr.second;
+		resp["craftId"] = c ? c->getId() : -1;
+		resp["before"] = before;
+		resp["after"] = after;
 		resp["ok"] = true;
 		return;
 	}
