@@ -680,6 +680,10 @@ def run_s2():
                 r = gc.cmd({"cmd": "battle_teleport_unit", "unit": target["id"],
                             "x": tx, "y": ty, "z": tz, "dir": 0})
                 if not r.get("ok"):
+                    if gc is host:  # W2-U8d (F8172): the client leg already moved the soldier - stop, never stage on
+                        print(f"FAIL: the host refused tile ({tx},{ty},{tz}) for soldier {target['id']} that the "
+                              f"client accepted ({r}): the two machines answered one lever differently")
+                        sys.exit(1)
                     ok_both = False
                     break
             if ok_both:
