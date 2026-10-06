@@ -292,6 +292,20 @@ def _tracking_sys_exit(code=None):
 sys.exit = _tracking_sys_exit
 
 
+_orig_excepthook = sys.excepthook
+
+
+def _tracking_excepthook(exc_type, exc, tb):
+    # W2-U8d (F7624): an uncaught exception never calls sys.exit; Python reports it through this hook and the
+    # process exits 1, so test_end must say 1, not the default 0 (an uncaught KeyboardInterrupt exits with the
+    # OS's Ctrl-C code and is logged 1: non-zero, never 0). Then the original hook prints it as before.
+    _TIMELOG_EXIT_CODE[0] = 1
+    _orig_excepthook(exc_type, exc, tb)
+
+
+sys.excepthook = _tracking_excepthook
+
+
 def _timelog_test_end():
     _timelog("test_end", "%s exit=%s" % (
         os.path.basename(sys.argv[0]), _TIMELOG_EXIT_CODE[0]))
