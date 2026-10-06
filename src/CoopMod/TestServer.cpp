@@ -180,6 +180,7 @@
 #include "../Geoscape/InterceptState.h"
 #include "../Geoscape/ConfirmDestinationState.h"
 #include "../Geoscape/DogfightState.h"
+#include "../Geoscape/ProductionCompleteState.h" // W2-H16h
 #include "LobbyMenu.h"
 #include "HostMenu.h"
 #include "Profile.h"
@@ -6980,6 +6981,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "followup_state" // W2-P7 S-C-C.1 (P7-6 C re-pin PR-C9)
 		&& cmd != "mission_stats_pad" // W2-P7 S-C-B2.3.1 (F5549)
 		&& cmd != "prod_fx_probe" // W2-H16g (F6711)
+		&& cmd != "prodwin_probe" // W2-H16h (F7299)
 		&& cmd != "battle_visibility_rule"
 		&& cmd != "screen_pixels"
 		&& cmd != "battle_camera_center"
@@ -10293,6 +10295,56 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["productions"] = prodsPF;
 			resp["ok"] = true;
 		}
+	}
+	else if (cmd == "prodwin_probe")
+	{
+		// W2-H16h (F7299, spec (e)): TEST INTROSPECTION ONLY - read-only. The top state, if it is a ProductionCompleteState: open;
+		// listVisible / listHidden (its one TextList); rows [{name (column 0), qty (column 1), item (the type whose name in this machine's
+		// language is column 0, "" if none), cx, cy (row centre in WINDOW pixels, as click_widget)}]; buttons [{text, visible, hidden, cx, cy}]; top.
+		State* topPW = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		auto* winPW = dynamic_cast<ProductionCompleteState*>(topPW);
+		resp["top"] = topPW ? typeid(*topPW).name() : "none";
+		resp["open"] = winPW != nullptr;
+		Json::Value rowsPW(Json::arrayValue), buttonsPW(Json::arrayValue);
+		if (winPW)
+		{
+			Screen* scrPW = _game->getScreen();
+			auto wxPW = [&](double bx) { return (int)(bx * scrPW->getXScale() + scrPW->getCursorLeftBlackBand()); };
+			auto wyPW = [&](double by) { return (int)(by * scrPW->getYScale() + scrPW->getCursorTopBlackBand()); };
+			std::map<std::string, std::string> typeOfPW;
+			for (const auto& t : _game->getMod()->getItemsList())
+			{
+				const std::string n = _game->getLanguage()->getString(t);
+				typeOfPW.emplace(n, t);
+			}
+			for (auto* s : winPW->getSurfaces())
+			{
+				if (auto* tb = dynamic_cast<TextButton*>(s))
+				{
+					Json::Value b(Json::objectValue);
+					b["text"] = tb->getText(); b["visible"] = tb->getVisible(); b["hidden"] = tb->getHidden();
+					b["cx"] = wxPW(tb->getX() + tb->getWidth() / 2.0); b["cy"] = wyPW(tb->getY() + tb->getHeight() / 2.0);
+					buttonsPW.append(b);
+				}
+				else if (auto* tl = dynamic_cast<TextList*>(s))
+				{
+					resp["listVisible"] = tl->getVisible(); resp["listHidden"] = tl->getHidden();
+					for (size_t r = 0; r < tl->getTexts(); ++r)
+					{
+						Json::Value o(Json::objectValue);
+						const std::string n = tl->getCellText(r, 0);
+						const auto it = typeOfPW.find(n);
+						o["name"] = n; o["qty"] = std::atoi(tl->getCellText(r, 1).c_str());
+						o["item"] = it == typeOfPW.end() ? std::string() : it->second;
+						o["cx"] = wxPW(tl->getX() + tl->getWidth() / 2.0); o["cy"] = wyPW(tl->getRowY(r) + tl->getTextHeight(r) / 2.0);
+						rowsPW.append(o);
+					}
+				}
+			}
+		}
+		resp["rows"] = rowsPW;
+		resp["buttons"] = buttonsPW;
+		resp["ok"] = true;
 	}
 	else if (cmd == "open_alloc_screen")
 	{
