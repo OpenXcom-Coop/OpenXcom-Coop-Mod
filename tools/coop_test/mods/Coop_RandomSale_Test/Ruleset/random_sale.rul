@@ -1,0 +1,8 @@
+manufacture:
+  - name: STR_H16H_RANDOM
+    category: STR_AMMUNITION
+    space: 1
+    cost: 1000
+    time: 10
+    producedItems: {}
+    randomProducedItems: [[1, {STR_SMALL_ROCKET: 3, STR_LARGE_ROCKET: 1}]]

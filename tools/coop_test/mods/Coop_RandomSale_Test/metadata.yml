@@ -1,0 +1,6 @@
+name: "Coop random sale test"
+version: 1.0
+description: "Test-only fixture for W2-H16h (F7299). Data only. One no-research manufacture project STR_H16H_RANDOM with one
+  weighted random set (3 small + 1 large rocket; no language file: raw key). Both machines must load it."
+author: coop harness
+master: xcom1
