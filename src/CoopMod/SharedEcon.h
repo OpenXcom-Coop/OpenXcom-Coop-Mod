@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <string>
 
@@ -512,7 +513,20 @@ void hostAlert(Game* game, const std::string& cls, const std::string& msg = "",
                Base* base = nullptr, int craftId = -1,
                const std::vector<std::string>& names = {},
                const std::vector<int>& ids = {}, bool flag = false,
-               const Json::Value& rows = Json::Value());
+               const Json::Value& rows = Json::Value(), const Json::Value& text = Json::Value());
+/// W2-A12b (AUD-A12; F6780, F6783, F6784): co-op text a peer renders in ITS OWN language - a node {t: literal} (a
+/// player-typed or language-neutral string) or {k: key, a: [args]} = tr(k) with each arg (a node, or an integer)
+/// applied in order (vanilla's tr(...).arg(...) chain). hostAlert's @a text, when given, replaces @a msg on the replica.
+void hostAlertText(Game* game, const std::string& cls, const Json::Value& text, Base* base = nullptr, int craftId = -1);
+Json::Value textKey(const std::string& key, std::initializer_list<Json::Value> args = {});
+Json::Value textLiteral(const std::string& text);
+/// A target's name: a base or a custom name as a literal, else its default name's parts (a craft: STR_CRAFTNAME with its
+/// type's key and its id; any other target: its marker key with its marker id).
+Json::Value textName(Game* game, const Target* target);
+/// The parts of Craft::getGeoscapeStatusString (the owner's airborne status) as a node.
+Json::Value craftStatusText(Game* game, const Craft* craft);
+/// Renders @a node in this machine's language ("" for anything that is not a node).
+std::string textRender(Game* game, const Json::Value& node);
 /// W2-H15 (F3261, F5602): HOST, before a GeoscapeEventState is built - a snapshot of every world part its eventLogic
 /// may touch (hq transfers / crafts, stores, craft items, research, diary, score, region activity, id counters).
 /// Json::nullValue unless this machine is the SHARED host and has a base.

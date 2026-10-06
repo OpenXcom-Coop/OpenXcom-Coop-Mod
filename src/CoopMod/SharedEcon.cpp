@@ -2980,7 +2980,7 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (!gs || !game->getSavedGame()) return;
 	Mod* mod = game->getMod();
 	const std::string cls = payload.get("cls", "").asString();
-	const std::string msg = payload.get("msg", "").asString();
+	const std::string msg = payload.isMember("text") ? textRender(game, payload["text"]) : payload.get("msg", "").asString(); // W2-A12b (F6783): this machine's language
 
 	std::vector<std::string> names;
 	const Json::Value& jn = payload["names"];
@@ -3019,7 +3019,7 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 			{
 				ArrivalRow row;
 				row.type = jr[i].get("type", 0).asInt();
-				row.name = jr[i].get("name", "").asString();
+				row.name = jr[i].isMember("text") ? textRender(game, jr[i]["text"]) : jr[i].get("name", "").asString(); // W2-A12b (F6783)
 				row.qty = jr[i].get("qty", 0).asInt();
 				row.base = jr[i].get("base", "").asString();
 				row.baseIdx = jr[i].get("baseIdx", -1).asInt();
@@ -5692,9 +5692,82 @@ void hostAlienBaseFound(Game* game, AlienBase* alienBase)
 	submitLocalCmd(game, "alien_base_found", 0, p);
 }
 
+// ---- W2-A12b (AUD-A12; F6780, F6783, F6784): text nodes - the sender ships a key and its pieces, never its own language ----
+Json::Value textKey(const std::string& key, std::initializer_list<Json::Value> args)
+{
+	Json::Value n(Json::objectValue);
+	n["k"] = key;
+	Json::Value a(Json::arrayValue);
+	for (const auto& arg : args)
+		a.append(arg);
+	n["a"] = a;
+	return n;
+}
+
+Json::Value textLiteral(const std::string& text)
+{
+	Json::Value n(Json::objectValue);
+	n["t"] = text;
+	return n;
+}
+
+Json::Value textName(Game* game, const Target* target)
+{
+	if (!target)
+		return textLiteral("");
+	Language* lang = game->getLanguage();
+	const std::string shown = target->getName(lang);
+	if (dynamic_cast<const Base*>(target) || shown != target->getDefaultName(lang))
+		return textLiteral(shown); // a player-typed name reads the same in every language
+	if (const Craft* craft = dynamic_cast<const Craft*>(target))
+		return textKey("STR_CRAFTNAME", {textKey(craft->getType()), Json::Value(craft->getId())}); // Craft::getDefaultName
+	return textKey(target->getMarkerName(), {Json::Value(target->getMarkerId())}); // Target / Ufo::getDefaultName
+}
+
+Json::Value craftStatusText(Game* game, const Craft* craft)
+{
+	// the branches of Craft::getGeoscapeStatusString (Craft.cpp :1107-:1146), same order
+	if (craft->getLowFuel())
+		return textKey("STR_LOW_FUEL_RETURNING_TO_BASE");
+	if (craft->getMissionComplete())
+		return textKey("STR_MISSION_COMPLETE_RETURNING_TO_BASE");
+	const Target* dest = craft->getDestination();
+	if (dest == nullptr)
+		return textKey("STR_PATROLLING");
+	if (dest == (const Target*)craft->getBase())
+		return textKey("STR_RETURNING_TO_BASE");
+	if (const Ufo* u = dynamic_cast<const Ufo*>(dest))
+	{
+		if (craft->isInDogfight())
+			return textKey("STR_TAILING_UFO");
+		if (u->getStatus() == Ufo::FLYING)
+			return textKey("STR_INTERCEPTING_UFO", {Json::Value(u->getId())});
+		return textKey("STR_DESTINATION_UC_", {textName(game, u)});
+	}
+	return textKey("STR_DESTINATION_UC_", {textName(game, dest)});
+}
+
+std::string textRender(Game* game, const Json::Value& node)
+{
+	if (!node.isObject())
+		return "";
+	if (node.isMember("t"))
+		return node["t"].asString();
+	LocalizedText text = game->getLanguage()->getString(node.get("k", "").asString());
+	const Json::Value& args = node["a"];
+	for (Json::ArrayIndex i = 0; args.isArray() && i < args.size(); ++i)
+	{
+		if (args[i].isIntegral())
+			text = static_cast<const LocalizedText&>(text).arg(args[i].asInt());
+		else
+			text = static_cast<const LocalizedText&>(text).arg(textRender(game, args[i]));
+	}
+	return text;
+}
+
 void hostAlert(Game* game, const std::string& cls, const std::string& msg,
                Base* base, int craftId, const std::vector<std::string>& names,
-               const std::vector<int>& ids, bool flag, const Json::Value& rows)
+               const std::vector<int>& ids, bool flag, const Json::Value& rows, const Json::Value& text)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;
@@ -5710,7 +5783,13 @@ void hostAlert(Game* game, const std::string& cls, const std::string& msg,
 	p["ids"] = ji;
 	if (rows.isArray() && !rows.empty())
 		p["rows"] = rows;
+	if (text.isObject()) p["text"] = text; // W2-A12b (AUD-A12): the replica renders it instead of msg
 	submitLocalCmd(game, "alert", base ? baseIndex(game, base) : 0, p);
+}
+
+void hostAlertText(Game* game, const std::string& cls, const Json::Value& text, Base* base, int craftId)
+{
+	hostAlert(game, cls, "", base, craftId, {}, {}, false, Json::Value(), text); // W2-A12b (F6783)
 }
 
 // ---- W2-H15 (F3261, F5602): geo_event - the host side ------------------------------------------------------------
