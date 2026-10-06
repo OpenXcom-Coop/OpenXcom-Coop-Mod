@@ -130,7 +130,7 @@ from harness import GameClient, make_user_dir
 import session
 from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 from test_w2_delta_core import diff_buckets, short, both, tele_both, common_fails, finish
-from test_w2_ai_origins import host_payloads, ctx_probes, ctx_view, sv, bring_up_lobby_roster_pinned
+from test_w2_ai_origins import host_payloads, ctx_probes, ctx_view, sv, bring_up_lobby_roster_pinned, k4_fails
 from test_w2_turn_cues import (begin, end, cycle, rec_evidence, cycle_fails, context_fails, payload, held_by_client,
                                items, st_seqs, panic_context_fails, c2_state_fails, c2_resolved)
 from test_w2_host_combat import effect_snap, impact_row
@@ -340,6 +340,8 @@ def c14_mc(host, client, ctx):
           f"units={units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
     # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's mind control as a psi ghost on the client
     e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
+    # W2-G1 row G1-3 (AUD-A16, D171): P's successful mind control of C does not centre the client's camera on C
+    g13 = k4_fails(client, psis[0]["seq"] if psis else None, P_ID, C_ID, False, "C14-mc G1-3")
     mr5 = mr5_fails(rec, mb, ma, C_ID, KEY_UNDER_ALIEN_CONTROL, Q_C14MC, None, "C14-mc")
     fails = list(rec["notes"])
     if sp["deleted"] != P_STRIPPED:
@@ -357,6 +359,7 @@ def c14_mc(host, client, ctx):
     fails += unit_fails(rec, C_ID, {"faction": FACTION_HOSTILE, "mindControllerId": P_ID}, "C14-mc C")
     fails += context_fails(rec, "C14-mc")
     fails += e2
+    fails += g13
     fails += mr5
     fails += common_fails(host, client, rec["before"], {}, "C14-mc")
     finish(fails)
@@ -399,6 +402,8 @@ def c14_panic(host, client, ctx):
           f"{units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
     # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's psi panic as a psi ghost on the client
     e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
+    # W2-G1 row G1-4 (AUD-A16, D171; guard): P's psi panic on C2 still centres the client's camera on C2
+    g14 = k4_fails(client, psis[0]["seq"] if psis else None, P_ID, C2_ID, True, "C14-panic G1-4")
     mr5 = mr5_fails(rec, mb, ma, C2_ID, KEY_PANICKED, Q_C14P, quiet, "C14-panic")
     fails = list(rec["notes"])
     if (rc.get("psiStrength"), rc2.get("psiStrength")) != (C_PSI_STRENGTH_2, C2_PSI_STRENGTH_2):
@@ -424,6 +429,7 @@ def c14_panic(host, client, ctx):
     fails += c2_state_fails(rec, {"pos": C2_TILE, "status": STATUS_STANDING, "tu": 0}, "C14-panic")
     fails += context_fails(rec, "C14-panic")
     fails += e2
+    fails += g14
     fails += mr5
     fails += common_fails(host, client, rec["before"], {}, "C14-panic")
     finish(fails)

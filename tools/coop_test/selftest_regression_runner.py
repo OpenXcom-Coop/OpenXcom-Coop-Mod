@@ -294,10 +294,12 @@ def safe(f, *a):
     except Exception as exc:
         return "error %r" % exc
 for key, names in (("fam_inv", ["test_w2_inventory_held"]), ("fam_hs", ["test_w2_host_screens_turn", "x"]),
-                   ("fam_u6", ["test_coop_peer_equip_screens"]), ("fam_none", ["test_w2_client_shoot"])):
+                   ("fam_u6", ["test_coop_peer_equip_screens"]), ("fam_none", ["test_w2_client_shoot"]),
+                   ("fam_s16", ["test_w2_harness_truth"])):  # W2-G1 Q5 (F8463): spec16 S2's lobby 49970
     out[key] = safe(lambda n: sorted(rr.families(n)), names)
 for key, x, y in (("c16_18", "16", "18"), ("c5_9", "5", "9"), ("c18_19", "18", "19")):
     out[key] = safe(rr.conflicts, R[x], R[y], getattr(rr, "EXCLUSIVE_TESTS", None))
+out["c_s16"] = safe(rr.conflicts, ["test_spec16_pause_on_leave_s2"], ["test_w2_harness_truth"])  # W2-G1 Q5 (F8463)
 print("U13-9-JSON " + json.dumps(out, default=repr))
 """
 
@@ -311,7 +313,9 @@ def u13_9(row):
     for key, want, name in (("fam_inv", ["s26"], "families inventory_held {s26}"), ("fam_u6", ["u6"], "families peer_equip_screens {u6}"),
                             ("fam_hs", ["s26"], "families host_screens_turn,x {s26}"), ("fam_none", [], "families client_shoot set()"),
                             ("c16_18", True, "conflicts(R130[16], R130[18]) True"), ("c5_9", True, "conflicts(R130[5], R130[9]) True"),
-                            ("c18_19", False, "conflicts(R130[18], R130[19]) False")):
+                            ("c18_19", False, "conflicts(R130[18], R130[19]) False"),
+                            ("fam_s16", ["s16s2"], "families harness_truth {s16s2}"),  # W2-G1 Q5 (F8463)
+                            ("c_s16", True, "conflicts(spec16_s2, harness_truth) True")):
         got = res.get(key)
         row.cell(name, got is want if isinstance(want, bool) else got == want, str(got))
     row.cell("import starts nothing (no new s* dir, no subprocess)", not res.get("new_dirs") and not res.get("popen_calls"),
