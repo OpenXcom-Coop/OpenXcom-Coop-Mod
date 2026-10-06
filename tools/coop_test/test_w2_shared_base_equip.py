@@ -14,8 +14,9 @@ personal, personalArmor), exact. W = 10 s at 0.25 s polls (Q9 a); partner-unchan
   H20-3 every HostBase soldier's whole record equal on both within W (F7742).
   H20-4 client: SKYRANGER craft screen, inventory_move {C2, STR_PISTOL, left}, close. Non-vacuity: moved, client pistols
         in C2 +1. (A) the host's C2 == the client's within W; (B) the client's records of the host's soldiers == the host's.
-  H20-5 client: soldier screen, inventory_move {C, STR_PISTOL, ground, from: unit}, key keyInvSavePersonalEquipment,
-        close. Non-vacuity: moved, key ok, the client's personal of C [] -> non-empty, its pistols in C 1 -> 0. The host's
+  H20-5 client: soldier screen, inventory_move {C, STR_GRENADE, belt} (R-H20-G-1 staging, S25), inventory_move {C,
+        STR_PISTOL, ground, from: unit}, key keyInvSavePersonalEquipment, close. Non-vacuity: staged, moved, key ok,
+        the client's personal of C [] -> non-empty, its pistols in C 1 -> 0. The host's
         whole record of C == the client's within W.
   H20-6 owner gate (Q5 a): client shared_cmd soldier_equip {H: FORGED, C2: FORGED}; the client's failCount unchanged
         within W; the host's C2 layout == one item {STR_PISTOL, STR_LEFT_HAND, 0, 0}, the client's C2 == the host's, the
@@ -44,6 +45,7 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 TAG_A, PORTS_A = "w2h20a", (48704, 48705, 47922)
 TAG_B, LABELS_B, LOBBY_B = "w2h20b", (48706, 48707), "47923"
 HB, CB, OPT, ITEM = "HostBase", "ClientBase", "oxceAlternateCraftEquipmentManagement", "STR_PISTOL"
+STAGE = "STR_GRENADE"  # R-H20-G-1 (S25): H20-5 stages this craft-pile item on C so C keeps an item after the drop
 W, POLL, GEO = 10.0, 0.25, "GeoscapeState"
 FORGED = "l:\n  - {itemType: STR_PISTOL, slot: STR_LEFT_HAND}\n"
 UNKNOWN = "unknown command: soldier_equip"
@@ -286,6 +288,8 @@ def h20_5(x, r):
     if not open_soldier_screen(r, c):
         return
     key = (q(c, {"cmd": "equip_layouts"}).get("keys") or {}).get("keyInvSavePersonalEquipment")
+    r.ev["stage"] = st = q(c, {"cmd": "inventory_move", "name": name, "item": STAGE, "slot": "belt"})  # R-H20-G-1
+    r.cell(f"G: client staged {STAGE} on C (R-H20-G-1)", st.get("moved") is True and st.get("landedOnUnit") is True, st)
     rep = move(r, c, {"name": name, "slot": "ground", "from": "unit"})
     krep = q(c, {"cmd": "inject_input", "kind": "key", "key": key})
     saved = wait_until(lambda: (layouts(c).get(name) or {}).get("personal"), 5.0)  # the key lands on the next frame
