@@ -6996,6 +6996,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "sel_state" && cmd != "set_autosell" // W2-P7 S-C-E1.1 (P7-8 PR-46)
 		&& cmd != "screen_push" // W2-P7 S-C-E2.1 (P7-8 PR-51)
 		&& cmd != "inventory_move" && cmd != "inventory_unload" // U6
+		&& cmd != "soldier_layouts" // W2-H20 (D255 a)
 		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
 	{
 		return false;
@@ -11179,6 +11180,59 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	{
 		// U6 (D241 a, Q2 b, Q3 a): the base-screen lever; see coopTestBaseInventoryUnload() above.
 		coopTestBaseInventoryUnload(_game, req, resp);
+	}
+	else if (cmd == "soldier_layouts")
+	{
+		// W2-H20 (owner D255 a; docs rewrite/prompts/w2h20_shared_base_equip_sync.md (e), Q7 (a)): TEST-ONLY, read-only - every
+		// soldier of a base (`base` = its name; default the first own base) in roster order with its whole gear record:
+		// the equipment layout, the personal layout and the personal layout's armor ("" = none). Each layout item
+		// {type, slot, x, y, fuse, fixed, ammo: [the loaded ammo types]} in stored order (the equip_layouts shape).
+		auto layoutJson = [](const std::vector<EquipmentLayoutItem*>& layout)
+		{
+			Json::Value arr(Json::arrayValue);
+			for (const auto* li : layout)
+			{
+				Json::Value j(Json::objectValue);
+				j["type"] = li->getItemType() ? li->getItemType()->getType() : std::string();
+				j["slot"] = li->getSlot() ? li->getSlot()->getId() : std::string();
+				j["x"] = li->getSlotX();
+				j["y"] = li->getSlotY();
+				j["fuse"] = li->getFuseTimer();
+				j["fixed"] = li->isFixed();
+				Json::Value am(Json::arrayValue);
+				for (int s = 0; s < RuleItem::AmmoSlotMax; ++s)
+					if (const RuleItem* a = li->getAmmoItemForSlot(s)) am.append(a->getType());
+				j["ammo"] = am;
+				arr.append(j);
+			}
+			return arr;
+		};
+		const std::string slBase = req.get("base", "").asString();
+		Base* slTarget = nullptr;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+				if (slBase.empty() ? (!b->_coopBase && !b->_coopIcon) : b->getName() == slBase) { slTarget = b; break; }
+		if (!slTarget)
+		{
+			resp["error"] = "soldier_layouts: base not found";
+			return true;
+		}
+		Json::Value slSoldiers(Json::arrayValue);
+		for (auto* s : *slTarget->getSoldiers())
+		{
+			Json::Value j(Json::objectValue);
+			j["id"] = s->getId();
+			j["name"] = s->getName();
+			j["owner"] = s->getOwnerPlayerId();
+			j["craftId"] = s->getCraft() ? s->getCraft()->getId() : -1;
+			j["layout"] = layoutJson(*s->getEquipmentLayout());
+			j["personal"] = layoutJson(*s->getPersonalEquipmentLayout());
+			j["personalArmor"] = s->getPersonalEquipmentArmor() ? s->getPersonalEquipmentArmor()->getType() : std::string();
+			slSoldiers.append(j);
+		}
+		resp["base"] = slTarget->getName();
+		resp["soldiers"] = slSoldiers;
+		resp["ok"] = true;
 	}
 
 	return true;
