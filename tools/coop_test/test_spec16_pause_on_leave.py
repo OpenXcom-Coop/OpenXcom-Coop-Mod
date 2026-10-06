@@ -411,6 +411,7 @@ def _run_scenario(tag, run_idx, drop, seed):
                          "x": elevator_tile[0], "y": elevator_tile[1], "z": elevator_tile[2],
                          "dir": away_dir})
             assert tr.get("ok"), f"battle_teleport_unit failed on {gc.name}: {tr}"
+        session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
 
         assert _select_by_tab(host, actor["id"]), "could not TAB-select the host actor"
 
@@ -683,6 +684,7 @@ def run_s2():
                     ok_both = False
                     break
             if ok_both:
+                session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
                 placed = True
                 print(f"[setup] teleported soldier {target['id']} to ({tx},{ty},{tz})")
                 break

@@ -438,6 +438,7 @@ def place_host_first(host, client, uid, tile, d):
     assert rc.get("ok"), f"staging {req}: the client leg refused ({rc}) after the host's ok ({rh})"
     assert (rh.get("to"), rh.get("dir")) == (rc.get("to"), rc.get("dir")), (
         f"staging {req} differs: host={(rh.get('to'), rh.get('dir'))} client={(rc.get('to'), rc.get('dir'))}")
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     return {"teleported": tuple(tile), "dir": rh.get("dir")}
 
 

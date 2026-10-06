@@ -796,6 +796,7 @@ def place_deterministic(host, client, moves, what=""):
             f"place_deterministic{tag}: move {i} ({lever}) replies differ between "
             f"host and client - host={hr} client={cr}")
         results.append((hr, cr))
+        wait_seq_barrier(host, client)  # W2-U8c (F6495)
     assert_hash_clean(host, client, full=True, what=f"place_deterministic{tag}")
     return results
 
@@ -1541,6 +1542,7 @@ def pin_ai_neutral(host, client, tag=""):
             assert r.get("tu") == 0, (
                 f"pin_ai_neutral{tagstr}: unit {uid} read back tu={r.get('tu')} "
                 f"after refill on {who}, expected 0")
+        wait_seq_barrier(host, client)  # W2-U8c (F6495)
     assert_hash_clean(host, client, full=True, what=f"pin_ai_neutral{tagstr}")
     print(f"[pin_ai_neutral{tagstr}] pinned {len(targets)} NONE-seat non-player "
           f"unit(s): {targets}")

@@ -736,6 +736,7 @@ def c7_ai_throw(host, client, ctx):
     assert sorted(strip_h.get("deleted") or []) == sorted(strip_c.get("deleted") or []), (
         f"battle_strip_unit A deleted ids differ as sets (F882): host={strip_h.get('deleted')} "
         f"client={strip_c.get('deleted')}")
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     gw = both(host, client, {"cmd": "battle_give", "unit": A_ID, "item": "STR_GRENADE", "slot": "STR_BELT"},
               ("weaponId", "ammoId", "weaponSlot"))
     gid = gw.get("weaponId")
@@ -879,6 +880,7 @@ def kr1h_stage(host, client):
     assert sorted(strip_h.get("deleted") or []) == sorted(strip_c.get("deleted") or []), (
         f"battle_strip_unit A deleted ids differ as sets (F882): host={strip_h.get('deleted')} "
         f"client={strip_c.get('deleted')}")
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     gw = both(host, client, {"cmd": "battle_give", "unit": A_ID, "item": KR1H_WEAPON, "ammo": KR1H_AMMO},
               ("weaponId", "ammoId", "weaponSlot"))
     placed = {uid: place_both(host, client, uid, t, d) for uid, t, d in (

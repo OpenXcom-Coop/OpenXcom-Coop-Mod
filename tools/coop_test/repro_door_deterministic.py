@@ -120,6 +120,7 @@ def pin_tu(host, client, actor_id, tu):
         r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": actor_id,
                    "stat": "tu", "value": tu, "refill": True})
         assert r.get("ok"), f"pin_tu({gc.name}): set_stat failed: {r}"
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
 
 
 def wait_counter(host, pred, timeout=15):

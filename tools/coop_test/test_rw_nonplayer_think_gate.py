@@ -227,8 +227,10 @@ def run_leg_b_classic():
             assert rh.get("deleted") == rc.get("deleted"), (
                 f"LEG B: E.5 - the two machines' deleted item id lists differ for "
                 f"unit {uid}: host={rh.get('deleted')} client={rc.get('deleted')}")
+            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
             client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
             host.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
+            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
 
         turn0 = battle_state(host)["turn"]
 

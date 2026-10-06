@@ -259,6 +259,7 @@ def stage_v(r, wounded, seat_pins=((0, WS0), (1, WS1))):
             wr[f"{gc.name}:{uid}"] = resp.get("fatalWounds")
             if resp.get("fatalWounds") != WOUND:
                 r.fail("pre", f"{gc.name} battle_set_unit_state {uid} fatalWounds answered {resp} (want {WOUND})")
+        session.wait_seq_barrier(h, c)  # W2-U8c (F6495)
     try:
         session.wait_host_idle(h, c, timeout=30)
     except Exception as e:

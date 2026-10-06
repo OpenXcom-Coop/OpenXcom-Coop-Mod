@@ -213,6 +213,10 @@ def both_rec(host, client, req, keys, fails, what):
     `fails`. Returns (host response, client response)."""
     rc = client.cmd(dict(req))
     rh = host.cmd(dict(req))
+    try:
+        session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    except TimeoutError as e:
+        fails.append(f"{what}: {e}")
     if not rh.get("ok") or not rc.get("ok"):
         fails.append(f"{what}: host ok={rh.get('ok')} error={rh.get('error')!r}; client ok={rc.get('ok')} "
                      f"error={rc.get('error')!r} (want ok on both)")

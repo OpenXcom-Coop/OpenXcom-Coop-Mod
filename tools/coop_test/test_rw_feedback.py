@@ -336,6 +336,7 @@ def both_ok(host, client, req, keys):
     rh = host.ok(dict(req))
     vc, vh = tuple(rc.get(k) for k in keys), tuple(rh.get(k) for k in keys)
     assert vc == vh, f"{req['cmd']} disagrees across machines: host={vh} client={vc}"
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     return rh
 
 

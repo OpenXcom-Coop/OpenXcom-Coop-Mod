@@ -300,6 +300,7 @@ def stage(rid, js, ctx, wound=False, holds=False):
         want = hp0 - WOUND_HP
         rc = client.cmd({"cmd": "battle_set_unit_state", "unit": u["id"], "health": want})   # client first (F607)
         rh = host.cmd({"cmd": "battle_set_unit_state", "unit": u["id"], "health": want})
+        session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
         ctx["wound"] = {"unit": u["id"], "soldier": squad[0], "health0": hp0, "want": want,
                         "host": {k: rh.get(k) for k in ("ok", "health", "error")},
                         "client": {k: rc.get(k) for k in ("ok", "health", "error")}}
