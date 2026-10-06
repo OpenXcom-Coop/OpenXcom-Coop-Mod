@@ -9,7 +9,8 @@ interest; poll = both machines' ending_state + research_probe every 0.2 s for 5 
 keep list names CutsceneState and StatisticsState (H17b-3 also SlideshowState, R-H17b-T0-1); no dismiss_popup ever
 reaches a machine whose top is one of them (atomic keep list, top read first). The packet-arrived guard is the receiving
 machine's allowCutscene false in H17b-1 / H17b-4 (a window sits under its cutscene) and, in H17b-2 / -3 / -5, its engine
-log's play of the packet's cutscene after the row's S0 mark (R-H17b-R-1; there GeoscapeState::init re-arms the latch).
+log's play of the packet's cutscene after the row's S0 mark (R-H17b-R-1; there GeoscapeState::init re-arms the latch);
+H17b-3 also accepts a SlideshowState push after that machine's StatisticsState push (the stock loseGame, R-H17b-G-2).
 Boot A (SHARED): H17b-1 (first), H17b-2; Boot B: H17b-3; Boot C: H17b-4; Boot D (SEPARATE): H17b-5.
 RED (commit 1): H17b-1..5 fail on their named cells; GREEN: all pass. "G:" cells are guards (CAPTURE on a miss).
 EVIDENCE then PASS / FAIL per row; ONE run; every row runs after a failure; exit 0 only if all pass, else 2.
@@ -99,6 +100,17 @@ def log_ev(gc, cur):
             if typ in UI_TYPES:
                 ui.append(f"{ln[1:24][-12:]} {op} {typ}")
     return {"plays": plays, "ui": ui[-24:]}
+
+def stock_play(gc, cur):
+    """R-H17b-G-2: since `cur`, a [coop-ui] push of SlideshowState after this machine's StatisticsState push."""
+    stat = False
+    for ln in log_lines(gc, cur):
+        i = ln.find("[coop-ui] push ")
+        typ = ln[i + 15:].strip().split(" depth=")[0].split("::")[-1] if i >= 0 else ""
+        stat = stat or typ == "StatisticsState"
+        if stat and typ == "SlideshowState":
+            return True
+    return False
 
 def guard(r, x, name, ok, detail):
     """A miss: CAPTURE both machines' ending_state, research_probe, get_state, eventStates and engine log tail."""
@@ -202,7 +214,7 @@ def row_h17b_1(r, x):
     r.cell("endings", e["host"]["ending"] == 0 and e["client"]["ending"] == 0,
            f"end host {e['host']['ending']} / client {e['client']['ending']}")
 
-def ending_row(r, x, on, topic, shared, keep, want, cut):
+def ending_row(r, x, on, topic, shared, keep, want, cut, stock=False):
     """trigger(topic, on) to the row's interest; the starting machine ends; the other machine must end the same way."""
     h, c = x.host, x.client
     rx, sk, rk = (c, "h", "c") if on is h else (h, "c", "h")
@@ -215,8 +227,9 @@ def ending_row(r, x, on, topic, shared, keep, want, cut):
     guard(r, x, "starterEnds", any(s[sk]["ending"] == want and s[sk]["statistics"] for s in p),
           f"{on.name}: ending {r.ev['poll'][sk + '.ending']}, statistics {r.ev['poll'][sk + '.statistics']}")
     plays = r.ev["log"][rx.name]["plays"].get(cut, 0)    # R-H17b-R-1: the receiver played this packet's cutscene since S0
-    guard(r, x, "receiverPlay", plays >= 1, f"the packet never reached {rx.name}: {cut} plays since S0 {plays}, "
-                                            f"log {r.ev['log'][rx.name]}")
+    slide = stock and stock_play(rx, cur[rx.name])      # R-H17b-G-2 (H17b-3): or the stock loseGame slideshow
+    guard(r, x, "receiverPlay", plays >= 1 or slide, f"the packet never reached {rx.name}: {cut} plays since S0 {plays}, "
+                                                     f"stock slideshow {slide}, log {r.ev['log'][rx.name]}")
     return p, s0, rk
 
 def row_h17b_2(r, x):
@@ -226,7 +239,7 @@ def row_h17b_2(r, x):
            f"{r.ev['poll']['c.ending']}, statistics {r.ev['poll']['c.statistics']}")
 
 def row_h17b_3(r, x):
-    p, _s0, rk = ending_row(r, x, x.host, T_FREE, True, KEEP_B, 2, "STR_H17B_LOSE")
+    p, _s0, rk = ending_row(r, x, x.host, T_FREE, True, KEEP_B, 2, "STR_H17B_LOSE", stock=True)
     lose = (r.ev["end"]["host"]["research_probe"].get("researched") or {}).get(T_LOSE)
     guard(r, x, "hostResearchedLose", lose is True, f"host researched {T_LOSE}: {lose}")
     r.cell("replicaEnds", any(s[rk]["ending"] == 2 and s[rk]["statistics"] for s in p),
