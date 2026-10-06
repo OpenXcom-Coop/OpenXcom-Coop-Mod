@@ -1400,8 +1400,10 @@ void GeoscapeState::think()
 						// The peer's discovery is a discovery here too: apply it the way
 						// time1Day applies a local one - the getOneFree bonus and the topic,
 						// each with its lookup, then the vanilla side effects (obsolete
-						// projects removed, spawned items/events, counters). The article to
-						// offer depends on what THIS player already knew, as in time1Day.
+						// projects removed, spawned events, counters) - except spawned items,
+						// which go only to the player who did the research (owner ruling).
+						// The article to offer depends on what THIS player already knew,
+						// as in time1Day.
 						Mod* mod = _game->getMod();
 						SavedGame* save = _game->getSavedGame();
 						Base* ownBase = save->getSelectedBase();
@@ -1432,7 +1434,7 @@ void GeoscapeState::think()
 						std::vector<const RuleResearch*> topicsToCheck = { research };
 						if (bonus)
 							topicsToCheck.push_back(bonus);
-						save->handlePrimaryResearchSideEffects(topicsToCheck, mod, ownBase);
+						save->handlePrimaryResearchSideEffects(topicsToCheck, mod, ownBase, false);
 
 						// Nothing new to this player (e.g. its own copy of the project
 						// finished after the peer's): no popup.

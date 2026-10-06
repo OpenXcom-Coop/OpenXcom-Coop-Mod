@@ -4560,7 +4560,7 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 /**
  * Handles research side effects for primary research sources.
  */
-void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base)
+void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base, bool spawnItems)
 {
 	for (auto* myResearchRule : topicsToCheck)
 	{
@@ -4588,8 +4588,9 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 				}
 			}
 		}
-		// 3k. handle spawned items
-		RuleItem* spawnedItem = mod->getItem(myResearchRule->getSpawnedItem());
+		// 3k. handle spawned items (coop: not for a peer's mirrored discovery - the
+		// item goes only to the player who did the research)
+		RuleItem* spawnedItem = spawnItems ? mod->getItem(myResearchRule->getSpawnedItem()) : nullptr;
 		if (spawnedItem)
 		{
 			Transfer* t = new Transfer(1);
@@ -4598,7 +4599,7 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 		}
 		for (const auto& spawnedItemName2 : myResearchRule->getSpawnedItemList())
 		{
-			RuleItem* spawnedItem2 = mod->getItem(spawnedItemName2);
+			RuleItem* spawnedItem2 = spawnItems ? mod->getItem(spawnedItemName2) : nullptr;
 			if (spawnedItem2)
 			{
 				Transfer* t = new Transfer(1);
