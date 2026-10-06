@@ -22,10 +22,13 @@ Session 1 (research sync on):
   E1 the client schedules the certain month-0 event at campaign start.
   E2 both players' certain event has the same countdown (the host's).
   E3 each player rolls its own random month-0 event (exactly one of A/B each).
-  E4 when the certain event fires, both players open its article, and neither gets
-     a research-sync "Research Completed" popup for it (each got its own event).
-  E5 both know STR_COOP_EV_TRIGGER at the month change: both get STR_COOP_EV_COND
-     with the same countdown.
+  E4 the certain event fires for both when the host's copy fires (only the host's
+     countdown is shortened; the client's copy follows the host's signal, since the
+     client clock can skip 30-minute steps), both players open its article, and
+     neither gets a research-sync "Research Completed" popup for it.
+  E5 both know STR_COOP_EV_TRIGGER at the month change: both get STR_COOP_EV_COND,
+     and the client's copy fires when the host's does (only the host's countdown is
+     shortened), with no research-sync popup.
   E6 only the host knows STR_COOP_EV_TRIGGER_HOST: only the host gets the event;
      when it fires, research sync gives the client the topic with a popup whose
      VIEW REPORTS opens the article.
@@ -137,7 +140,7 @@ def roll_month(host, client):
 
 
 def same_countdown(a, b):
-    return a is not None and b is not None and abs(a - b) <= 30
+    return a is not None and b is not None and a == b
 
 
 def session_sync_on(results):
@@ -153,10 +156,9 @@ def session_sync_on(results):
             len(RANDOM & set(he)) == 1 and len(RANDOM & set(ce)) == 1,
             f"host={sorted(RANDOM & set(he))} client={sorted(RANDOM & set(ce))}")
 
-        # E4: fire the certain event on both (equal short countdowns)
+        # E4: fire the host's copy soon; the client's copy must fire with it
         if CERTAIN in ce:
-            for gc in (host, client):
-                gc.ok({"cmd": "set_event_countdown", "name": CERTAIN, "minutes": 60})
+            host.ok({"cmd": "set_event_countdown", "name": CERTAIN, "minutes": 60})
             seen = advance(host, client, 180)
             topic = "article:STR_COOP_EV_CERTAIN_TOPIC"
             ok = all(topic in seen[gc.name] and "RC" not in seen[gc.name] for gc in (host, client))
@@ -172,10 +174,16 @@ def session_sync_on(results):
         he, ce = events(host), events(client)
         if COND not in he or COND_HOST not in he:
             raise Inconclusive(f"E5/E6: host did not schedule the month-1 events: {he}")
-        results["E5 conditional, both qualify"] = (same_countdown(he.get(COND), ce.get(COND)),
-                                                   f"host={he.get(COND)} client={ce.get(COND)}")
         if COND_HOST in ce:
             raise Inconclusive(f"E6: client scheduled {COND_HOST} without its trigger")
+        if COND in ce:
+            host.ok({"cmd": "set_event_countdown", "name": COND, "minutes": 60})
+            seen = advance(host, client, 180)
+            topic = "article:STR_COOP_EV_COND_TOPIC"
+            ok = all(topic in seen[gc.name] and "RC" not in seen[gc.name] for gc in (host, client))
+            results["E5 conditional, both qualify"] = (ok, f"host={seen[host.name]} client={seen[client.name]}")
+        else:
+            results["E5 conditional, both qualify"] = (False, f"client never scheduled {COND}: {ce}")
         host.ok({"cmd": "set_event_countdown", "name": COND_HOST, "minutes": 60})
         seen = advance(host, client, 180)
         topic = "STR_COOP_EV_COND_HOST_TOPIC"
