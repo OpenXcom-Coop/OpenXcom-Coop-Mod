@@ -16,7 +16,7 @@ Fixture mod Coop_EventSync_Test (same shape as the XCF advisors):
   STR_COOP_EV_RANDOM_A/B month 0, 50/50 pick                          -> random
   STR_COOP_EV_COND       month 1+, certain once STR_COOP_EV_TRIGGER is known
   STR_COOP_EV_COND_HOST  month 1+, certain once STR_COOP_EV_TRIGGER_HOST is known
-Delays are 60 + random(20000) minutes, so independent rolls practically never match.
+Delays are 1440 + random(20000) minutes, so independent rolls practically never match.
 
 Session 1 (research sync on):
   E1 the client schedules the certain month-0 event at campaign start.

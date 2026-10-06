@@ -1,6 +1,8 @@
 # Test-only mod for test_coop_event_sync.py. Timers are long and random
 # (timerRandom 20000 min, about 14 days) so two machines rolling them on their own
 # almost never agree; the test reads the countdowns through the geo_events lever.
+# The minimum (timer: 1440, one day) keeps every event from firing on its own inside
+# a test's 3-hour window; rows that need a fire shorten the countdown explicitly.
 research:
   - name: STR_COOP_EV_CERTAIN_TOPIC
     cost: 10
@@ -29,31 +31,31 @@ events:
     description: STR_COOP_EV_CERTAIN_DESCRIPTION
     researchList:
       - STR_COOP_EV_CERTAIN_TOPIC
-    timer: 60
+    timer: 1440
     timerRandom: 20000
   - name: STR_COOP_EV_RANDOM_A
     description: STR_COOP_EV_RANDOM_DESCRIPTION
     researchList:
       - STR_COOP_EV_RANDOM_A_TOPIC
-    timer: 60
+    timer: 1440
     timerRandom: 20000
   - name: STR_COOP_EV_RANDOM_B
     description: STR_COOP_EV_RANDOM_DESCRIPTION
     researchList:
       - STR_COOP_EV_RANDOM_B_TOPIC
-    timer: 60
+    timer: 1440
     timerRandom: 20000
   - name: STR_COOP_EV_COND
     description: STR_COOP_EV_COND_DESCRIPTION
     researchList:
       - STR_COOP_EV_COND_TOPIC
-    timer: 60
+    timer: 1440
     timerRandom: 20000
   - name: STR_COOP_EV_COND_HOST
     description: STR_COOP_EV_COND_DESCRIPTION
     researchList:
       - STR_COOP_EV_COND_HOST_TOPIC
-    timer: 60
+    timer: 1440
     timerRandom: 20000
 
 eventScripts:
