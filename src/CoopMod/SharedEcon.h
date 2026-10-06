@@ -398,8 +398,13 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// PRD-J09 GAP-5: set the ABSOLUTE quantity of @a itemType loaded on @a craft in
 /// the shared world (SHARED only - caller gates). Submits craft_equip; mutates
 /// nothing locally (host validates/clamps + broadcasts, replica applies). Items
-/// only - vehicles are deferred (caller must not route a vehicle item).
+/// only here; an HWP's count goes through craftVehiclesMoved (W2-H20c).
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
+
+/// W2-H20c (A17, F8261): SHARED, a live campaign and a real base only - no-op otherwise; called right AFTER vanilla's own move in
+/// CraftEquipmentState::moveLeftByValue / moveRightByValue: when @a craft's count of vehicle type @a itemType differs from @a before,
+/// that absolute count goes to the host as craft_equip (its HWP branch); a non-vehicle type is a no-op (items route before vanilla).
+void craftVehiclesMoved(Game* game, Base* base, Craft* craft, const std::string& itemType, int before);
 
 /// W2-H16e (F6176): SHARED and a real base only - no-op otherwise; called AFTER vanilla's local toggle
 /// (BasescapeState, mind shield); submits the facility's flag as an absolute end-state; the host re-checks

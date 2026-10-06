@@ -2394,8 +2394,8 @@ void craftPilotsApply(Game* game, Json::Value& payload, Base* base, int seat)
 //   { craftId, craftType, item, count }   baseId = the craft's home-base index.
 // count = the ABSOLUTE desired quantity of `item` loaded on the craft, so host
 // and replica converge regardless of arrival order (the J08/J09 last-write-wins
-// idiom). Items only; vehicles/ammo are deferred (like craft_assign's vehicle
-// variant - CraftEquipmentState still routes non-vehicle items only).
+// idiom). A vehicle item (an HWP) counts whole vehicles with their clip ammo (craftEquipVehicles, W2-H20c);
+// CraftEquipmentState routes an item move before vanilla's and an HWP move's end-state right after it.
 bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
                         int64_t& cost, std::string& failReason)
 {
@@ -2404,8 +2404,44 @@ bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int 
 	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
 	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
 	if (!item) { failReason = "unknown item"; return false; }
-	if (item->getVehicleUnit()) { failReason = "vehicles not routed"; return false; }
 	return true;
+}
+
+// W2-H20c (A17, F8261): the HWP branch of craft_equip. `count` = the ABSOLUTE number of vehicles of type `item` on the craft, resolved
+// with vanilla's CraftEquipmentState rules (moveRightByValue / moveLeftByValue): a vehicle leaves the stores with its clip ammo while the
+// craft has room and enters with full ammo (each one resets a custom craft deployment); an unloaded one returns with its clips. The host
+// writes its resolved count into the payload, so the replica ends on the host's result; the presser already holds it (a no-op).
+void craftEquipVehicles(Json::Value& payload, Base* base, Craft* craft, const RuleItem* item)
+{
+	ItemContainer* store = base->getStorageItems();
+	const RuleItem* ammo = item->getVehicleClipAmmo();
+	const int perVehicle = ammo ? item->getVehicleClipsLoaded() : 0;
+	const bool clips = ammo && perVehicle > 0;
+	const int size = item->getVehicleUnit()->getArmor()->getTotalSize();
+	const int current = craft->getVehicleCount(item->getType());
+	int target = std::max(0, payload.get("count", 0).asInt());
+	if (target > current)
+	{
+		int add = std::min(target - current, store->getItem(item)); // the vehicles the base holds,
+		add = std::min(add, craft->validateAddingVehicles(size));   // the craft's room,
+		if (clips) add = std::min(add, store->getItem(ammo) / perVehicle); // the clips to arm them
+		for (int i = 0; i < add; ++i)
+		{
+			if (clips) store->removeItem(ammo, perVehicle);
+			store->removeItem(item);
+			craft->getVehicles()->push_back(new Vehicle(item, item->getVehicleClipSize(), size));
+			craft->resetCustomDeployment(); // adding a vehicle into a craft invalidates a custom craft deployment (vanilla)
+		}
+		target = current + std::max(0, add);
+	}
+	else if (target < current)
+	{
+		store->addItem(item, current - target);
+		if (clips) store->addItem(ammo, perVehicle * (current - target));
+		Collections::deleteIf(*craft->getVehicles(), current - target, [&](Vehicle* v) { return v->getRules() == item; });
+	}
+	if (connectionTCP::getHost()) payload["count"] = target; // the host's resolution rides the broadcast
+	Log(LOG_INFO) << "[SHARED] craft_equip vehicles: " << item->getType() << " " << current << " -> " << target << ", craft " << craft->getId();
 }
 
 void craftEquipApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
@@ -2413,6 +2449,7 @@ void craftEquipApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (!base) return;
 	Craft* craft = resolveOrderCraft(game, payload, base);
 	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
+	if (craft && item && item->getVehicleUnit()) { craftEquipVehicles(payload, base, craft, item); return; } // W2-H20c (A17): HWPs
 	if (!craft || !item || item->getVehicleUnit()) return;
 
 	ItemContainer* craftItems = craft->getItems();
@@ -5688,6 +5725,17 @@ void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int
 	p["item"] = itemType;
 	p["count"] = desiredOnCraft;
 	submitLocalCmd(game, "craft_equip", craftBaseIndex(game, craft), p);
+}
+
+// W2-H20c (A17, F8261): see SharedEcon.h.
+void craftVehiclesMoved(Game* game, Base* base, Craft* craft, const std::string& itemType, int before)
+{
+	if (!game || !base || !craft || base->_coopBase || !game->getSavedGame() || game->getSavedGame()->getMonthsPassed() == -1
+		|| !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	const RuleItem* item = game->getMod()->getItem(itemType, false);
+	const int now = craft->getVehicleCount(itemType);
+	if (item && item->getVehicleUnit() && now != before)
+		submitCraftEquip(game, craft, itemType, now); // the absolute count; the host resolves it, the replica adopts (craftEquipVehicles)
 }
 
 void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled)
