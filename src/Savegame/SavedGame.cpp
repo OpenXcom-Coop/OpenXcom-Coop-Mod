@@ -1310,7 +1310,11 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	// See src/Savegame/Upgrade/ and PRD save-upgrader.md.
 	headerWriter.write("saveSchema", (int)SAVE_SCHEMA_CURRENT);
 	_time->save(headerWriter["time"]);
-	if (_battleGame != 0)
+	// coop W2-H21c (F8968): a preview battle (the Ufopaedia craft deployment, the base preview) is not part of the world - vanilla never
+	// saves one, and a peer loading it null-derefs the Ufopaedia's stand-in soldiers (ids -1..-n, in no base), the crash buildCoopStub
+	// avoids below: a co-op blob carries neither the preview battle nor its header markers.
+	const bool coopSaveBattle = _battleGame != 0 && !_battleGame->isPreview();
+	if (coopSaveBattle)
 	{
 		headerWriter.write("mission", _battleGame->getMissionType());
 		headerWriter.write("target", _battleGame->getMissionTarget());
@@ -1513,7 +1517,7 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	for (const auto& optionInfo : Options::getOptionInfo())
 		optionInfo.save(optionsWriter);
 
-	if (_battleGame)
+	if (coopSaveBattle)
 		_battleGame->save(writer["battleGame"]);
 	_scriptValues.save(writer.toBase(), mod->getScriptGlobal());
 
