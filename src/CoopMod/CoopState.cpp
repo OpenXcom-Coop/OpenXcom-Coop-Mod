@@ -2103,10 +2103,10 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 		if (!coopGuestContribCraftMatches(seat, craft->getId(), craftType))
 			continue;
 
-		const int count = coopGuestContribStoredCount(seat);
+		const int count = coopGuestContribCraftCount(seat, craft->getId(), craftType); // W2-H19b (F6989): this craft's guests only
 		for (int i = 0; i < count; ++i)
 		{
-			const std::string& yaml = coopGuestContribSoldierYaml(seat, i);
+			const std::string& yaml = coopGuestContribSoldierYaml(seat, craft->getId(), craftType, i);
 			if (yaml.empty())
 				continue;
 

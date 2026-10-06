@@ -194,6 +194,8 @@ inline Json::Value makeLeave(int seat, const char* reasonKey)
 /// that arrived after the battle ended (it is for the next landing); after
 /// every battle-scope reset the sender resends its whole roster once; an empty
 /// @a soldiers list drops a destination whose guest left the craft.
+/// W2-H19b (F6989): the host keeps one entry per seat AND destination (craftId +
+/// craftType); a landing merges only the landing craft's entry.
 inline Json::Value makeRosterContrib(int seat, int baseId, int craftId, const char* craftType,
 	const std::vector<std::string>& soldiers)
 {
