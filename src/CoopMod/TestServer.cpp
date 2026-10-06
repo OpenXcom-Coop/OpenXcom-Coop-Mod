@@ -180,6 +180,7 @@
 #include "../Geoscape/UfoDetectedState.h"
 #include "../Geoscape/InterceptState.h"
 #include "../Geoscape/ConfirmDestinationState.h"
+#include "../Geoscape/SelectDestinationState.h" // W2-H21b
 #include "../Geoscape/DogfightState.h"
 #include "../Geoscape/ProductionCompleteState.h" // W2-H16h
 #include "LobbyMenu.h"
@@ -7075,6 +7076,36 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 	resp["ok"] = true;
 }
 
+// W2-H21b (F8671, F8802; docs rewrite/prompts/w2h21b_select_destination_recopy.md (e)): TEST-ONLY open_select_destination on ONE
+// machine, never forwarded, never read by game logic. Pushes the REAL destination picker for one own craft and LEAVES IT OPEN: the push
+// GeoscapeCraftState::btnTargetClick makes after it pops itself (SelectDestinationState({craft}, the geoscape's globe)); no other lever
+// opens it (craft_order drives ConfirmDestinationState directly). {craft_id, craft_type (default STR_SKYRANGER)} -> {ok, depth}.
+static void coopTestOpenSelectDestination(Game* game, const Json::Value& req, Json::Value& resp)
+{
+	SavedGame* sg = game->getSavedGame();
+	GeoscapeState* geo = topState<GeoscapeState>(game);
+	const int craftId = req.get("craft_id", -1).asInt();
+	const std::string craftType = req.get("craft_type", "STR_SKYRANGER").asString();
+	Craft* craft = nullptr;
+	if (sg)
+		for (auto* b : *sg->getBases())
+			for (auto* c : *b->getCrafts())
+				if (!craft && !c->coop && c->getId() == craftId && c->getRules()->getType() == craftType)
+					craft = c;
+	if (!sg)
+		resp["error"] = "open_select_destination: no save loaded";
+	else if (!geo)
+		resp["error"] = "open_select_destination: no GeoscapeState on top";
+	else if (!craft)
+		resp["error"] = "open_select_destination: no matching own craft";
+	else
+	{
+		game->pushState(new SelectDestinationState(std::vector<Craft*>{ craft }, geo->getGlobe()));
+		resp["depth"] = (int)game->getStates().size();
+		resp["ok"] = true;
+	}
+}
+
 bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
@@ -7124,6 +7155,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "inventory_move" && cmd != "inventory_unload" // U6
 		&& cmd != "soldier_layouts" // W2-H20 (D255 a)
 		&& cmd != "base_screen_op" // W2-H20b
+		&& cmd != "open_select_destination" // W2-H21b
 		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
 	{
 		return false;
@@ -11443,6 +11475,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["ok"] = true;
 	}
 	else if (cmd == "base_screen_op") { coopTestBaseScreenOp(_game, req, resp); } // W2-H20b (D255 a; spec (e), Q7 a)
+	else if (cmd == "open_select_destination") { coopTestOpenSelectDestination(_game, req, resp); } // W2-H21b (F8802)
 
 	return true;
 }
