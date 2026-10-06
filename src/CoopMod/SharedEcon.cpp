@@ -820,6 +820,7 @@ bool sellValidate(Game* game, const Json::Value& payload, Base* base, int /*seat
 			if (qty <= 0) continue;
 			RuleItem* r = mod->getItem(rule, false);
 			if (!r) { failReason = "unknown item: " + rule; return false; }
+			if (payload.get("capToStores", false).asBool()) qty = std::min(qty, base->getStorageItems()->getItem(r)); // W2-H16h (V-E1): sell what is left
 			if ((forced ? forcedSellAvailable(base, r, critical) : base->getStorageItems()->getItem(r)) < qty)
 				{ failReason = "STR_NOT_ENOUGH_ITEMS_TO_SELL"; return false; }
 			credit += (int64_t)qty * r->getSellCostAdjusted(base, save);
@@ -860,6 +861,12 @@ void sellApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	Mod* mod = game->getMod();
 	if (!mod) return;
 
+	// W2-H16h (V-E1, F7299): a capped sale (the random-production window) sells what the host's stores still hold; the host
+	// writes the count it sold into the broadcast payload, so every replica removes the same.
+	if (connectionTCP::getHost() && payload.get("capToStores", false).asBool())
+		for (Json::ArrayIndex i = 0; i < payload["items"].size(); ++i)
+			if (RuleItem* r = mod->getItem(payload["items"][i].get("rule", "").asString(), false))
+				payload["items"][i]["qty"] = std::min(payload["items"][i].get("qty", 0).asInt(), base->getStorageItems()->getItem(r));
 	// ORDER (items -> soldiers -> crafts -> scientists -> engineers) is fixed and
 	// identical on host and replica, so both worlds mutate the same way.
 	// W2-P7 S-C-D2.2 (PR-33, MR15): a forced storage sale removes in vanilla's order (stock, crafts, transfers).
@@ -3543,6 +3550,12 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	{
 		if (prod->getRules()->getName() == mName)
 		{
+			if (payload.isMember("random")) // W2-H16h (F7299): the host's list, so this window lists and sells what the host's does
+			{
+				std::map<std::string, int> info;
+				for (const auto& k : payload["random"].getMemberNames()) info[k] = payload["random"][k].asInt();
+				prod->setRandomProductionInfo(info);
+			}
 			GeoscapeState* gs = findGeoState(game);
 			if (gs)
 				game->pushState(new ProductionCompleteState(
@@ -5420,6 +5433,14 @@ void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
 	// GAP-6b: carry the host Production's SELL flag so the replica materializes
 	// exactly what the host did (sold -> funds only, nothing to stores).
 	p["sell"] = sell;
+	// W2-H16h (F7299): the finished production's random-production list, absolute (GeoscapeState removes the production after this call)
+	if (Base* b = resolveBase(game, baseId))
+		if (Production* pr = findProduction(b, manufacture))
+			if (!pr->getRules()->getRandomProducedItems().empty())
+			{
+				p["random"] = Json::Value(Json::objectValue);
+				for (const auto& kv : pr->getRandomProductionInfo()) p["random"][kv.first] = kv.second;
+			}
 	submitLocalCmd(game, "prod_done", baseId, p);
 }
 
@@ -5705,6 +5726,23 @@ bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Sol
 	p["dead"] = soldier->getDeath() != nullptr;
 	p["name"] = name;
 	submitLocalCmd(game, "soldier_transform", baseIndex(game, base), p);
+	return true;
+}
+
+// W2-H16h (F7299): see SharedEcon.h. The random-production window's right-click sale goes through the host's "sell" (re-priced there
+// with the window's own formula; capped at the host's stores, V-E1); nothing is written locally.
+bool submitRandomProductionSale(Game* game, Base* base, const std::string& itemType, int qty)
+{
+	if (!game || !base || base->_coopBase) return false;
+	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return false;
+	if (qty <= 0) return true; // nothing left to sell here; the window keeps vanilla's row bookkeeping
+	Json::Value item(Json::objectValue), p(Json::objectValue);
+	item["rule"] = itemType;
+	item["qty"] = qty;
+	p["items"] = Json::Value(Json::arrayValue);
+	p["items"].append(item);
+	p["capToStores"] = true;
+	submitLocalCmd(game, "sell", baseIndex(game, base), p);
 	return true;
 }
 

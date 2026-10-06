@@ -437,6 +437,11 @@ void baseEquipOk(Game* game, Base* base);
 /// vanilla's transformation and both worlds adopt its result. Own soldiers only (AUD-A48).
 bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier, const std::string& name);
 
+/// W2-H16h (F7299): SHARED and a real base only - returns false otherwise (vanilla's local sale runs). Called by the random-production
+/// window's right-click with the count vanilla would sell; submits it to the host's "sell" (capped there at the stores the host still
+/// holds, V-E1) and writes nothing locally; a count <= 0 submits nothing.
+bool submitRandomProductionSale(Game* game, Base* base, const std::string& itemType, int qty);
+
 /// W2-H16 (F3260): SHARED only - no-op otherwise; called AFTER vanilla's local write
 /// (SoldierRankState); submits the soldier's current rank as an absolute end-state.
 /// The host re-checks the promotion openings against its own world and broadcasts
