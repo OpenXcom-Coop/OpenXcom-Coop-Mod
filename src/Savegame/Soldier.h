@@ -242,6 +242,10 @@ private:
 	int getWoundRecoveryInt() const;
 	/// Sets the soldier's wound recovery time.
 	void setWoundRecovery(int recovery);
+	/// coop W2-H18b (F6136): the exact wound recovery (fractional with sick-bay bonuses); the SHARED replica adopts the host's.
+	float getWoundRecoveryExact() const;
+	/// coop W2-H18b (F6136): sets the exact wound recovery, clamped at 0 as setWoundRecovery.
+	void setWoundRecoveryExact(float recovery);
 	/// Gets ther soldier's wound recovery.
 	int getWoundRecovery(float absBonus, float relBonus) const;
 

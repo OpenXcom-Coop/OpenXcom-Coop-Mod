@@ -104,6 +104,7 @@
 #include "../Basescape/SoldierTransformationState.h" // W2-H16c (Q1 a)
 #include "../Mod/RuleSoldierTransformation.h" // W2-H16c
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/DogfightState.h" // W2-H18b (F7282): the replica's lost-craft guard
 #include "../Geoscape/ConfirmLandingState.h"
 #include "../Geoscape/Globe.h"
 #include "../Geoscape/ResearchCompleteState.h"
@@ -2047,11 +2048,6 @@ GeoscapeState* findGeoState(Game* game)
 	return nullptr;
 }
 
-// Last wound-recovery value the host broadcast per soldier id, so day_tick only
-// carries CHANGED soldiers (process-global; compare-and-set makes stale entries
-// self-correct on the next change).
-std::unordered_map<int, int> g_soldierRecovery;
-
 bool simAccept(Game* /*game*/, const Json::Value& /*payload*/, Base* /*base*/,
                int /*seat*/, int64_t& cost, std::string& /*failReason*/)
 {
@@ -3483,7 +3479,7 @@ const std::pair<const char*, UnitStats::Ptr> kSoldierFxStats[] = {
 	{"psiSkill", &UnitStats::psiSkill}, {"melee", &UnitStats::melee}, {"mana", &UnitStats::mana}};
 
 // W2-H18 (F3259): one soldier's training / recovery record for soldier_fx (absolute values): the 12 current stats, this
-// month's psi improvements, the three training flags and health / mana missing. Wound recovery rides day_tick.
+// month's psi improvements, the three training flags, health / mana missing, the exact wound recovery and today's pilot experience (W2-H18b).
 Json::Value soldierFxRecord(Soldier* s)
 {
 	Json::Value r(Json::objectValue), st(Json::objectValue);
@@ -3498,10 +3494,13 @@ Json::Value soldierFxRecord(Soldier* s)
 	r["rtwh"] = s->getReturnToTrainingWhenHealed();
 	r["healthMissing"] = s->getHealthMissing();
 	r["manaMissing"] = s->getManaMissing();
+	r["recovery"] = (double)s->getWoundRecoveryExact(); // W2-H18b (F6136, F7278): exact; replaces day_tick's cached ceil
+	UnitStats* xp = s->getDailyDogfightExperienceCache(); // W2-H18b (F6137): today's pilot experience
+	r["dogfightXp"]["firing"] = (int)xp->firing; r["dogfightXp"]["reactions"] = (int)xp->reactions; r["dogfightXp"]["bravery"] = (int)xp->bravery;
 	return r;
 }
 
-// day_tick payload: { soldiers:[{id,recovery}], productions:[{item,spent}],
+// day_tick payload: { productions:[{item,spent}],
 // research:[{project,spent}] }. PRD-J06: the replica's timeXxx handlers are
 // frozen, so production _timeSpent and research _spent never advance locally;
 // the host broadcasts the day's progress so the "days left" / "Progress" columns
@@ -3510,21 +3509,6 @@ void dayTickApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
 	if (!base) return;
-	const Json::Value& soldiers = payload["soldiers"];
-	if (soldiers.isArray())
-		for (const auto& s : soldiers)
-		{
-			int id = s.get("id", -1).asInt();
-			int recovery = s.get("recovery", 0).asInt();
-			for (auto* soldier : *base->getSoldiers())
-			{
-				if (soldier->getId() == id)
-				{
-					soldier->setWoundRecovery(recovery);
-					break;
-				}
-			}
-		}
 	const Json::Value& productions = payload["productions"];
 	if (productions.isArray())
 		for (const auto& pr : productions)
@@ -3569,11 +3553,30 @@ void soldierFxApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 		s->setReturnToTrainingWhenHealed(r.get("rtwh", s->getReturnToTrainingWhenHealed()).asBool());
 		s->setHealthMissing(r.get("healthMissing", s->getHealthMissing()).asInt());
 		s->setManaMissing(r.get("manaMissing", s->getManaMissing()).asInt());
+		s->setWoundRecoveryExact((float)r.get("recovery", (double)s->getWoundRecoveryExact()).asDouble()); // W2-H18b (F6136, F7278)
+		UnitStats* xp = s->getDailyDogfightExperienceCache(); // W2-H18b (F6137)
+		const Json::Value& jx = r["dogfightXp"];
+		xp->firing = (UnitStats::Type)jx.get("firing", (int)xp->firing).asInt();
+		xp->reactions = (UnitStats::Type)jx.get("reactions", (int)xp->reactions).asInt();
+		xp->bravery = (UnitStats::Type)jx.get("bravery", (int)xp->bravery).asInt();
 		s->calcStatString(mod->getStatStrings(), psiStrengthEval);
 		++adopted;
 	}
 	Log(LOG_INFO) << "[SHARED] soldier_fx: " << adopted << " of " << soldiers.size() << " soldier(s) at base "
 		<< baseIndex(game, base);
+}
+
+// craft_lost payload: { craftId, craftType, evacuated: [{id, hours, training, rtwh}], killed: [id] } (baseId = the craft's base).
+// W2-H18b (F6177, F7281, D226 a): host-origin when the host's time5Seconds removes a destroyed craft. The replica queues it and
+// flushLostCrafts applies vanilla's sequence from the replica's own geoscape think, never while one of its dogfight windows still
+// holds the craft (F7282). No RNG: the host resolved who escaped.
+std::vector<std::pair<int, Json::Value> > g_lostCrafts; // replica: (base index, payload) waiting for the geoscape
+
+void craftLostApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // the host's vanilla block already did it
+	if (!game || !base) return;
+	g_lostCrafts.push_back(std::make_pair(baseIndex(game, base), payload));
 }
 
 // unassign_wounded payload: { ids: [soldier id] } (baseId = the debriefing base). W2-P7 S-C-A.2 (P7-6 4.1 step 8; MR2,
@@ -4212,6 +4215,7 @@ void init()
 	registerCmd("day_tick",         &simAccept, &dayTickApply);
 	registerCmd("soldier_fx",       &simAccept, &soldierFxApply); // W2-H18 (F3259): host-origin, replica-only
 	registerCmd("unassign_wounded", &simAccept, &unassignWoundedApply); // W2-P7 S-C-A.2 (MR2): host-origin, replica-only
+	registerCmd("craft_lost",       &simAccept, &craftLostApply); // W2-H18b (F6177): host-origin, replica-only (applied from the replica's geoscape)
 	// W2-P7 S-C-E1 (P7-8 PR-38, D184): the shared selection - the host resolves the list's state, replicas adopt it.
 	registerCmd("sel_open", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_open"); });
 	registerCmd("sel_set", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_set"); });
@@ -5850,21 +5854,6 @@ void hostDayTick(Game* game)
 	for (int bi = 0; bi < (int)bases->size(); ++bi)
 	{
 		Base* base = (*bases)[bi];
-		Json::Value soldiers(Json::arrayValue);
-		for (auto* soldier : *base->getSoldiers())
-		{
-			int id = soldier->getId();
-			int rec = soldier->getWoundRecoveryInt();
-			auto hit = g_soldierRecovery.find(id);
-			if (hit == g_soldierRecovery.end() || hit->second != rec)
-			{
-				g_soldierRecovery[id] = rec;
-				Json::Value js;
-				js["id"] = id;
-				js["recovery"] = rec;
-				soldiers.append(js);
-			}
-		}
 		// PRD-J06: carry each running production's _timeSpent and each research
 		// project's _spent so the frozen replica's progress columns stay current
 		// (its own step() never runs). Small payload; sent whole each active day.
@@ -5884,10 +5873,9 @@ void hostDayTick(Game* game)
 			jr["spent"] = rp->getSpent();
 			research.append(jr);
 		}
-		if (!soldiers.empty() || !productions.empty() || !research.empty())
+		if (!productions.empty() || !research.empty())
 		{
 			Json::Value p;
-			p["soldiers"] = soldiers;
 			p["productions"] = productions;
 			p["research"] = research;
 			submitLocalCmd(game, "day_tick", bi, p);
@@ -5926,6 +5914,92 @@ void hostSoldierFx(Game* game, const Json::Value& mark)
 			submitLocalCmd(game, "soldier_fx", bi, p);
 		}
 	}
+}
+
+// ---- W2-H18b (F6177, F7281, F7282): craft_lost ----------------------------------------------------------------------------
+Json::Value craftLostMark(Game* game, Base* base, Craft* craft)
+{
+	if (!sharedHost(game) || !base || !craft || !game->getSavedGame()) return Json::Value(Json::nullValue);
+	Json::Value m(Json::objectValue), crew(Json::arrayValue);
+	for (auto* s : *base->getSoldiers())
+		if (s->getCraft() == craft) crew.append(s->getId());
+	m["crew"] = crew;
+	m["transfers"] = (int)base->getTransfers()->size();
+	return m;
+}
+
+void hostCraftLost(Game* game, Base* base, Craft* craft, const Json::Value& mark)
+{
+	if (mark.isNull() || !sharedHost(game) || !base || !craft) return;
+	SavedGame* save = game->getSavedGame();
+	Json::Value p(Json::objectValue), evacuated(Json::arrayValue), killed(Json::arrayValue);
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	for (size_t i = mark["transfers"].asUInt(); i < base->getTransfers()->size(); ++i) // evacuateCrew only appends
+		if (Soldier* s = (*base->getTransfers())[i]->getSoldier())
+		{
+			Json::Value e(Json::objectValue);
+			e["id"] = s->getId();
+			e["hours"] = (*base->getTransfers())[i]->getHours();
+			e["training"] = s->isInTraining();
+			e["rtwh"] = s->getReturnToTrainingWhenHealed();
+			evacuated.append(e);
+		}
+	for (const auto& id : mark["crew"])
+		for (auto* d : *save->getDeadSoldiers())
+			if (d->getId() == id.asInt()) { killed.append(id.asInt()); break; }
+	p["evacuated"] = evacuated;
+	p["killed"] = killed;
+	submitLocalCmd(game, "craft_lost", baseIndex(game, base), p);
+}
+
+void flushLostCrafts(Game* game, GeoscapeState* gs)
+{
+	if (!game || !gs || connectionTCP::getHost() || g_lostCrafts.empty()) return;
+	SavedGame* save = game->getSavedGame();
+	if (!save) { g_lostCrafts.clear(); return; }
+	std::vector<std::pair<int, Json::Value> > keep;
+	for (auto& e : g_lostCrafts)
+	{
+		Base* base = resolveBase(game, e.first);
+		const Json::Value& p = e.second;
+		Craft* craft = base ? findCraft(base, p.get("craftId", -1).asInt(), p.get("craftType", "").asString()) : nullptr;
+		bool held = false;
+		for (auto* df : gs->getDogfights())
+			if (craft && df->getCraft() == craft) held = true;
+		if (held) { keep.push_back(e); continue; } // F7282: its window closes first (df_open membership)
+		int moved = 0, killedN = 0;
+		if (base)
+		{
+			auto& roster = *base->getSoldiers();
+			for (const auto& ev : p["evacuated"])
+				for (auto it = roster.begin(); it != roster.end(); ++it)
+					if ((*it)->getId() == ev.get("id", -1).asInt())
+					{
+						Soldier* s = *it;
+						s->setCraft(0);
+						s->setTraining(ev.get("training", false).asBool());
+						s->setReturnToTrainingWhenHealed(ev.get("rtwh", s->getReturnToTrainingWhenHealed()).asBool());
+						roster.erase(it);
+						Transfer* t = new Transfer(ev.get("hours", 1).asInt());
+						t->setSoldier(s);
+						base->getTransfers()->push_back(t);
+						++moved;
+						break;
+					}
+			for (const auto& kv : p["killed"])
+				if (Soldier* s = findSoldier(base, kv.asInt())) { save->killSoldier(true, s); ++killedN; }
+		}
+		if (craft)
+		{
+			save->stopHuntingXcomCraft(craft);
+			base->removeCraft(craft, false);
+			delete craft;
+		}
+		Log(LOG_INFO) << "[SHARED] craft_lost: " << p.get("craftType", "").asString() << " " << p.get("craftId", -1).asInt()
+			<< (craft ? " removed" : " not found") << ", " << moved << " evacuated, " << killedN << " killed, base " << e.first;
+	}
+	g_lostCrafts.swap(keep);
 }
 
 // ---- PRD-J04 detect + PRD-J10 repair: world checksum -------------------------

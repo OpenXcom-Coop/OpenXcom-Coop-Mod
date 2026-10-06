@@ -2999,6 +2999,7 @@ void DogfightState::awardExperienceToPilots()
 	if (_firedAtLeastOnce && !_experienceAwarded && _craft && _ufo && (_ufo->isCrashed() || _ufo->isDestroyed()))
 	{
 		bool psiStrengthEval = (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements()));
+		const Json::Value h18bMark = SharedEcon::soldierFxMark(_game); // coop W2-H18b (F6137): the pilots' records before the award
 		for (auto* pilot : _craft->getPilotList(false, nullptr)) // refresh already done in the constructor
 		{
 			if (pilot->getCurrentStats()->firing < pilot->getRules()->getStatCaps().firing)
@@ -3027,6 +3028,7 @@ void DogfightState::awardExperienceToPilots()
 			}
 			pilot->calcStatString(_game->getMod()->getStatStrings(), psiStrengthEval);
 		}
+		SharedEcon::hostSoldierFx(_game, h18bMark); // coop W2-H18b (F6137): the host's pilot experience reaches the replica
 		_experienceAwarded = true;
 	}
 }
