@@ -64,8 +64,9 @@ Four scenarios, ONE boot, in this order (the W2-P3 TASK 0a one-boot order, then 
        set_seed SEED_KR1H right before its END TURN press (T0a-8's seed).
        GREEN: the alien side's first `ai` context is a shot by A whose `hit`
        unit is H (the fixture); the client's camera.moves for the cycle carry
-       {follow} at that shot's seq, {hit_level} and {hit_centre} at its hit
-       seq, and equal KR1's rules for everything else; the client offset
+       {follow} at that shot's seq and {hit_level} at its hit seq, never
+       {hit_centre} there (W2-G1, AUD-A16: a bullet hit never centres), and
+       equal KR1's rules for everything else; the client offset
        moved; host camera.suppressed all +0; the file's common and context
        asserts. RED (commit S-C.1): the client's moves are empty.
 
@@ -77,8 +78,8 @@ are written by S-C.2):
   KR1  (checked in C6, on cycle 1) C3e stages the client camera on K_FAR
        before the host's press. GREEN: the client's camera.moves for the
        cycle are exactly {explosion} at the C3e explosion (OR5 (a)), {follow}
-       per shot of A, {hit_level} per hit of A plus {hit_centre} when the hit
-       unit is FACTION_PLAYER on the hostile side, {walker_level} per A
+       per shot of A, {hit_level} per hit of A (never {hit_centre} on a bullet
+       hit: W2-G1, AUD-A16), {walker_level} per A
        walk_step plus {walker_centre} iff that record is visible and off
        screen, and {side_start} at the player side_begin (K9, D171 (a)); the
        client offset moved; host suppressed all +0. RED: no move, offset
@@ -474,8 +475,8 @@ def kr1_expected(hev, pl, closed, uh, client_selected):
     """KR1's rules (P6a review section 2 row KR1; pinned stage text (c) K1, K3, K4, K5/K6 and K9 as ruled by OR4 (a),
     OR5 (a), C-C3, C-C5 and D171 (a)) for one END TURN cycle whose only actor is the alien A: the (seq, reason) of every
     client camera move the cycle must record, in host-log order. {explosion} per explosion whose actor is A or absent
-    (OR5 (a)); {follow} per shot of A; {hit_level} per hit of A (or actorless), plus {hit_centre} when it lands on the
-    hostile side on a FACTION_PLAYER unit; {walker_level} per walk_step of an `ai` context of A ({walker_centre} is
+    (OR5 (a)); {follow} per shot of A; {hit_level} per hit of A (or actorless), never {hit_centre} on a bullet hit
+    (W2-G1, AUD-A16); {walker_level} per walk_step of an `ai` context of A ({walker_centre} is
     added by the caller iff that walker_level record has visible true and onScreen false); {side_start} at the
     player side_begin when the client has a selected unit after the cycle (K9). Returns (pairs, walk_step seqs)."""
     sts = st_seqs(hev)
@@ -490,9 +491,6 @@ def kr1_expected(hev, pl, closed, uh, client_selected):
             exp.append((s, "follow"))
         elif k == "hit" and p.get("actor") in (None, A_ID):
             exp.append((s, "hit_level"))
-            u = p.get("unit")
-            if side == FACTION_HOSTILE and u is not None and (uh.get(u) or {}).get("faction") == FACTION_PLAYER:
-                exp.append((s, "hit_centre"))
         elif k == "walk_step" and (ctx_of(closed, e["actionId"]) or {}).get("actorId") == A_ID:
             exp.append((s, "walker_level"))
             walks.append(s)
@@ -525,6 +523,17 @@ def cam_rows_fails(tag, rec, cam, exp, walks, staged):
     if any(sup.values()):
         fails.append(f"{tag}: host camera.suppressed delta {sup} (want all +0: no partner action in the cycle)")
     return fails, moves
+
+
+def k4_fails(client, seq, actor, unit, centre, what):
+    """W2-G1 (AUD-A16, owner D171; spec rewrite/prompts/w2g_fidelity_pass.md rows G1-3..G1-5): the client's camera move records
+    at the melee / psi cue `seq` are exactly {hit_level} on the actor plus, iff `centre`, {hit_centre} on the hit unit - vanilla
+    centres only on the unit a melee or psi attack names, read after the attack. Prints one EVIDENCE line; returns the fails."""
+    got = sorted((m.get("reason"), m.get("unit")) for m in camera_of(client).get("moves") or [] if seq is not None and m.get("seq") == seq)
+    want = sorted([("hit_level", actor)] + ([("hit_centre", unit)] if centre else []))
+    print(f"EVIDENCE {what}: client camera moves at seq {seq} (reason, unit)={got} want={want}", flush=True)
+    return [] if got == want else [f"{what}: the client's camera moves at seq {seq} are {got} (want exactly {want}; AUD-A16: "
+                                   f"vanilla centres only on a melee / psi target that is still the player's after the attack)"]
 
 
 def cycle_payloads(host, hev):
@@ -942,14 +951,18 @@ def kr1h_host_target(host, client, ctx):
             or not hit1 or hp.get("unit") != H_ID:
         fails.append(f"precondition (T0a-8): the alien side's first ai context {ctx_view(c1)} evs {sv(c1evs)} shot "
                      f"{sp or None} hit {hp or None} (want kind shoot by A {A_ID} whose hit unit is H {H_ID})")
-    # the camera (P6-5 C-C2): {follow} at that shot, {hit_level} + {hit_centre} at its hit, KR1's rules for the rest
+    # the camera (P6-5 C-C2; W2-G1, AUD-A16): {follow} at that shot, {hit_level} at its hit, no {hit_centre}; KR1's rules
     if shot1 and hit1:
         moves = cam_moves(cam["after"]["client"], rec["seq0"])
-        need = [(shot1["seq"], "follow"), (hit1["seq"], "hit_level"), (hit1["seq"], "hit_centre")]
+        need = [(shot1["seq"], "follow"), (hit1["seq"], "hit_level")]
         missing = [x for x in need if x not in [mv(m) for m in moves]]
         if missing:
             fails.append(f"KR1h: client camera.moves lack {missing} for A's shot at H (want {need}; moves "
                          f"{[mv(m) for m in moves]})")
+        centred = [m for m in moves if mv(m) == (hit1["seq"], "hit_centre")]
+        if centred:
+            fails.append(f"KR1h: the client centred on H {H_ID} hit by A's bullet at seq {hit1['seq']} (AUD-A16: vanilla "
+                         f"centres only on a melee / psi target, never on a bullet hit; records {centred})")
     f, _ = cam_rows_fails("KR1h", rec, cam, exp, walks, staged)
     fails += f
     fails += ai_actions_fails(side, rec["closed"], "KR1h")
