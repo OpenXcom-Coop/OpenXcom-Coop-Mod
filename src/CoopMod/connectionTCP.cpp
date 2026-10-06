@@ -20884,6 +20884,8 @@ struct DeathGhost
 	bool soundDone = false;
 	bool ended = false;
 	std::uint32_t endedAtE = 0;     // e at its end (an ended head still waits for its release, D-g)
+	std::uint32_t lastAdvanceMs = 0;  // W2-U8d (F6304): probe only - the last advance() that stepped it
+	std::uint32_t maxGapMs = 0;       // W2-U8d (F6304): probe only - the largest advance() gap while it drew
 	std::vector<int> dirsShown;
 	std::vector<int> phasesShown;
 };
@@ -22383,6 +22385,7 @@ void deathStart(DeathGhost& g, std::uint32_t nowMs)
 {
 	g.started = true;
 	g.startedAtMs = nowMs;
+	g.lastAdvanceMs = nowMs; // W2-U8d (F6304): probe only
 	const int is = std::max(1, g_deathInterval);
 	const int first = g.front ? 0 : is;
 	int ic = is;
@@ -22427,6 +22430,7 @@ void deathEnd(DeathGhost& g, const char* endedBy, std::uint32_t nowMs)
 	{
 		(*r)["endedBy"] = endedBy;
 		(*r)["holdMs"] = (Json::UInt)((g.started && e > g.isOutMs) ? e - g.isOutMs : 0u);
+		(*r)["maxGapMs"] = g.maxGapMs; // W2-U8d (F6304): probe only
 		Json::Value dirs(Json::arrayValue);
 		for (int d : g.dirsShown)
 			dirs.append(d);
@@ -22475,6 +22479,12 @@ void deathReleaseHead()
 /// changed, and plays its death sound once, at the first advance at or after tc (outcome "dead" only, N6).
 bool deathStep(DeathGhost& g, const SavedBattleGame* save, std::uint32_t nowMs)
 {
+	// W2-U8d (F6304): probe only - the advance() gap first (the fall ghost's order), so the record's maxGapMs
+	// covers every frame that stepped this ghost; dirsShown / phasesShown leave an entry out only across one.
+	const std::uint32_t gap = nowMs - g.lastAdvanceMs;
+	if (gap > g.maxGapMs)
+		g.maxGapMs = gap;
+	g.lastAdvanceMs = nowMs;
 	const BattleUnit* unit = CoopIdMaps::unit(g.unitId);
 	if (!unit || unit->isOut() || !unit->getTile())
 	{
@@ -22583,6 +22593,7 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	r["unitDyingCleared"] = false;
 	r["overKill"] = unit ? unit->getOverKillDamage() : 0;
 	r["holdMs"] = 0;
+	r["maxGapMs"] = 0; // W2-U8d (F6304): probe only - deathEnd writes the value
 	r["endedBy"] = "";
 	// W2-P6b S-D.3 (AMENDMENT P6b-4, probe only): the queue head had started when this death was enqueued.
 	r["headStartedAtEnqueue"] = !g_deathGhosts.empty() && g_deathGhosts.front().started;
