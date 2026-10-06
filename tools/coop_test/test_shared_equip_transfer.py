@@ -6,7 +6,7 @@ coverage of it at all, so this is the equivalent walk-through in one shared
 world:
 
   1. equip a soldier by REALLY dragging items onto it in the base inventory
-     (the path that writes the craft's coopItems manifest), and check that the
+     (inventory_move on the real equip screen), and check that the
      soldier equip screen and the craft equip screen agree about it;
   2. seat it on a craft, take it off again - the seat must stick;
   3. transfer it to the OTHER player's base through the intra-world "transfer"
@@ -137,9 +137,10 @@ def main():
             host.ok({"cmd": "give_layout", "item": item, "slot": slot,
                      "name": "Zzz", "count": 1, "qty": qty})
 
-        # 1. really drag gear onto the local crew (populates the coopItems manifest)
+        # 1. really drag gear onto the local crew
         moved = P.equip_by_hand(host, hb)
         print(f"host equipped {moved} items by hand at {hb}")
+        assert moved > 0, f"the host equipped nothing by hand at {hb} (inventory_move)"
 
         # 1b. both equip screens must agree about the target at its home base
         def seat_home():

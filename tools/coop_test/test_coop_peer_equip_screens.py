@@ -7,18 +7,15 @@ and rockets in the backpack is transferred to another player's base; at that bas
 with the soldier equip screen, and items dropped onto the soldier there "drop
 right back down to the ground items lower panel".
 
-ROOT CAUSE. `BattlescapeGenerator::deployXCOM` assigned per-type sequential
-`coopID`s only in its CRAFT branch; the base-storage branch left every item at
-the default `coopID == 0`. A craft's `coopItems` manifest is written from that
-very base-inventory screen (`SavedBattleGame::moveBaseCoopInventorySave`), so the
-manifest was all-zero too - and `BattleUnit::hasCoopItem`, which matches on
-`(id, type, owner)`, degenerated into a TYPE-ONLY match. `placeItemByLayout` then
-refused to auto-place a visiting player's OWN weapon whenever the peer had ever
-equipped that item type on that craft (and `moveCoopItemsToGround` dumped it back
-to the floor for the same reason).
+ROOT CAUSE (release line). A per-player item check on the equip screens matched
+the peer's items by type alone, so a visiting player's OWN weapon was refused a
+slot whenever the peer had equipped that item type on that craft, and was
+dumped back to the floor.
 
-Both branches now share one per-type counter, so every item on the inventory tile
-has a distinct (type, coopID).
+The rewrite restored the vanilla equip screens and has no per-player item check
+at a peer base (owner D241 (a)). This test still guards the visible symptom:
+the transferred soldier keeps its full loadout on both screens, at home and at
+the peer base.
 
 WHAT IS ASSERTED. Three things, in both a co-op and a plain own-base setting
 (that is the co-op-vs-vanilla parity: whatever holds at your own base must hold
@@ -42,11 +39,6 @@ Run:  python tools/coop_test/test_coop_peer_equip_screens.py
 import os
 import sys
 
-# RW-TRIAGE: SKIP-PENDING(r4/r5)
-# Keep the standalone test quarantined without exiting its helper importers.
-if __name__ == "__main__":
-    print("SKIP-PENDING: rewrite")
-    sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
@@ -55,7 +47,7 @@ import test_coop_transferred_equipment as T
 
 OPT = "oxceAlternateCraftEquipmentManagement"
 GEAR = [("STR_RIFLE", "right", 1), ("STR_PISTOL", "left", 1), ("STR_SMALL_ROCKET", "backpack", 2)]
-# what the peer equips on its own crew, by hand, to populate the craft manifest
+# what the peer equips on its own crew, by hand, before the transfer
 PEER_DRAGS = (("STR_RIFLE", "right"), ("STR_PISTOL", "left"), ("STR_SMALL_ROCKET", "backpack"))
 
 
@@ -123,8 +115,8 @@ def assert_screens_agree(base_g, craft_g, who, label):
 
 
 def equip_by_hand(gc, base_name, crew_limit=3):
-    """Really drag items onto the local crew, the way a player does - this is what
-    writes the craft's coopItems manifest."""
+    """Really drag items onto the local crew on the base equip screen, the way a
+    player does (inventory_move). Returns how many items moved."""
     open_base_inventory(gc, base_name)
     g = gc.ok({"cmd": "inventory_ground"})
     moved = 0
@@ -149,19 +141,10 @@ def main():
         hb = T.own_base(host)["name"]
         cb = T.own_base(client)["name"]
 
-        # The peer equips its own crew by hand, filling its craft's coopItems
-        # manifest. This is the precondition the playtest had and the earlier
-        # tests did not - without it hasCoopItem has nothing to match against.
+        # The peer equips its own crew by hand first. This is the precondition
+        # the playtest had and the earlier tests did not.
         moved = equip_by_hand(client, cb)
         assert moved > 0, "precondition failed - the peer equipped nothing by hand"
-        manifest = next(c for c in client.ok({"cmd": "base_report", "base": cb})["crafts"]
-                        if c["type"] == "STR_SKYRANGER")["coopItems"]
-        assert manifest, "precondition failed - the peer craft's coopItems manifest is empty"
-        ids = sorted({(e["type"], e["id"]) for e in manifest})
-        assert len(ids) == len(manifest), (
-            f"the co-op item manifest has DUPLICATE (type, id) pairs - hasCoopItem "
-            f"cannot tell those items apart and will match by type alone: {manifest}")
-        print(f"peer manifest populated: {len(manifest)} entries, all (type,id) distinct")
 
         # equip the target soldier and transfer it to the peer's base
         r = host.ok({"cmd": "base_report", "base": hb})
