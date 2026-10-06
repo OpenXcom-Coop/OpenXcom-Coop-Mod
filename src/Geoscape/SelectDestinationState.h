@@ -39,6 +39,7 @@ class SelectDestinationState : public State
 private:
 	std::vector<Craft*> _crafts; 
 	Globe *_globe;
+	State *_coopGeo = nullptr; // coop W2-H21b (F8671): the geoscape that owns _globe; compared by pointer only, never dereferenced
 	InteractiveSurface *_btnRotateLeft, *_btnRotateRight, *_btnRotateUp, *_btnRotateDown, *_btnZoomIn, *_btnZoomOut;
 	Window *_window;
 	Text *_txtTitle;

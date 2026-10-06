@@ -25,6 +25,7 @@
 #include "../Engine/Surface.h"
 #include "../Interface/Window.h"
 #include "Globe.h"
+#include "GeoscapeState.h" // coop W2-H21b
 #include "../Interface/Text.h"
 #include "../Interface/TextButton.h"
 #include "../Savegame/Waypoint.h"
@@ -167,6 +168,9 @@ SelectDestinationState::SelectDestinationState(std::vector<Craft*> crafts, Globe
 		}
 	}
 
+	// coop W2-H21b (F8671): remember the geoscape whose globe every opener passes in; the destructor compares this pointer only.
+	for (auto* st : _game->getStates()) { auto* geo = dynamic_cast<GeoscapeState*>(st); if (geo && geo->getGlobe() == _globe) _coopGeo = st; }
+
 	if (_crafts.front()->getStatus() != "STR_OUT")
 	{
 		_globe->setCraftRange(_crafts.front()->getLongitude(), _crafts.front()->getLatitude(), _crafts.front()->getBaseRange());
@@ -179,6 +183,12 @@ SelectDestinationState::SelectDestinationState(std::vector<Craft*> crafts, Globe
  */
 SelectDestinationState::~SelectDestinationState()
 {
+	// coop W2-H21b (F8671): a world re-copy (LoadGameState) or a teardown to the main menu pops this screen together with that geoscape,
+	// and Game::run deletes the lower state first, so its globe is already freed: touch the globe only while the geoscape is on the stack.
+	bool coopGeoLive = false;
+	for (auto* st : _game->getStates()) if (st == _coopGeo) coopGeoLive = true;
+	if (!coopGeoLive) return;
+
 	_globe->setCraftRange(0.0, 0.0, 0.0);
 }
 
