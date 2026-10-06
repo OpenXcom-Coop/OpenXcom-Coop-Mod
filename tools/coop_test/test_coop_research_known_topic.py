@@ -13,9 +13,10 @@ which XCF lets a player research again while it still has getOneFree rewards.
 Rows (vanilla rules, no external mod):
   A  SEPARATE: the host re-researches a topic it already knows (the XCF
      repeatable-topic shape). RED: the host crashes on the daily tick.
-  B  SEPARATE: both players research the same topic; the host finishes first,
-     research sync marks it known on the client, then the client's own project
-     finishes. RED: the client crashes.
+  B  SEPARATE: both players research the same repeatable topic (getOneFree
+     rewards left, so research sync keeps the client's own project running); the
+     host finishes first, sync marks it known on the client, then the client's
+     own project finishes. RED: the client crashes.
   S  SHARED: the host re-researches a known topic. The SHARED path never sends
      the SEPARATE packet (and research_done already carries "" for a null
      newResearch), so this row is green before and after the fix; it guards the
@@ -45,7 +46,7 @@ PORT = "47962"
 SHARED_PORTS = (48961, 48962, 47963)
 RELEASE_DIR = os.path.dirname(harness.EXE)
 TOPIC_A = "STR_MOTION_SCANNER"
-TOPIC_B = "STR_LASER_WEAPONS"
+TOPIC_B = "STR_SECTOID_ENGINEER"  # getOneFree: 8 UFO topics; lookup STR_SECTOID
 TOPIC_S = "STR_MEDI_KIT"
 DAY = 26 * 60  # one daily tick plus slack, in game minutes
 
@@ -82,7 +83,10 @@ def researched(gc, topic):
 
 
 def advance_day(host, client, label):
-    r = geo.skip_ingame_time(host, client, minutes=DAY, speed_idx=5,
+    # Speed 4 (1 hour per step), not 5: at speed 5 the host clock overwrites the
+    # SEPARATE client's mid-step, so the client's own daily tick can be skipped or
+    # doubled and row B's client-side completion would depend on timing.
+    r = geo.skip_ingame_time(host, client, minutes=DAY, speed_idx=4,
                              real_timeout=90, stuck_timeout=40)
     print(f"[{label}] advanced {r['game_minutes']} min, dismissed={r['dismissed']}")
 

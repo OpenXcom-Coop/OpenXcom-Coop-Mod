@@ -65,6 +65,7 @@
 #include "../Geoscape/ItemsArrivingState.h"
 #include "../Geoscape/GeoscapeCraftState.h"
 #include "../Geoscape/GeoscapeEventState.h"
+#include "../Geoscape/ResearchCompleteState.h"
 #include "../Geoscape/MonthlyReportState.h"
 #include "../Geoscape/MissionDetectedState.h"
 #include "../Geoscape/ConfirmLandingState.h"
@@ -7149,7 +7150,19 @@ std::string TestServer::execute(const std::string& line)
 			// unknown popups surface instead of silently hanging.
 			State* top = topState<State>(_game);
 			resp["type"] = top ? typeid(*top).name() : "none";
-			if (auto* ev = dynamic_cast<GeoscapeEventState*>(top))
+			if (auto* rc = dynamic_cast<ResearchCompleteState*>(top))
+			{
+				// Research-complete popup: OK by default. view_reports presses the real
+				// VIEW REPORTS button instead, which opens the topic and bonus articles
+				// as ArticleState tops (their ids are reported as they are dismissed).
+				if (req.get("view_reports", false).asBool())
+					rc->btnReportClick(nullptr);
+				else
+					rc->btnOkClick(nullptr);
+				resp["handled"] = "ResearchCompleteState";
+				resp["ok"] = true;
+			}
+			else if (auto* ev = dynamic_cast<GeoscapeEventState*>(top))
 			{
 				ev->btnOkClick(nullptr);
 				resp["handled"] = "GeoscapeEventState";
@@ -7162,6 +7175,7 @@ std::string TestServer::execute(const std::string& line)
 				// protected); it is the exact handler _btnOk fires. For an article
 				// btnOkClick is itself only _game->popState(), but we route through
 				// the real control for faithfulness/consistency.
+				resp["article"] = art->getId();
 				art->testConfirm();
 				resp["handled"] = "ArticleState->btnOkClick";
 				resp["ok"] = true;
