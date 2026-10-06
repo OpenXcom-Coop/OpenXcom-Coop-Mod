@@ -633,6 +633,8 @@ void MonthlyReportState::calculateChanges()
 			root["sharedExpenditure"] = Json::Value::Int64(
 				hostExpenditures.empty() ? 0 : hostExpenditures.back());
 			root["sharedResearchScore"] = 0; // new month starts at 0 (matches the roll)
+			const auto& h17cScores = _game->getSavedGame()->getResearchScores(); // coop W2-H17c (F7225): the month just ended
+			root["sharedResearchScoreEnded"] = h17cScores.size() >= 2 ? h17cScores[h17cScores.size() - 2] : 0; // coop (council bonus, arcs)
 		}
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());

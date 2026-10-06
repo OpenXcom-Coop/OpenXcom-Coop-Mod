@@ -123,6 +123,7 @@
 #include "../Geoscape/NewPossibleFacilityState.h"
 #include "../Geoscape/TrainingFinishedState.h"
 #include "../Geoscape/GeoscapeEventState.h"
+#include "../Ufopaedia/Ufopaedia.h" // W2-H17c: the replica opens the arc's article
 #include "../Battlescape/DebriefingState.h" // W2-H15 (F5660): geo_event windows wait out the debriefing
 #include "../Savegame/ResearchDiary.h"       // W2-H15: geo_event diary entries
 #include "../Geoscape/AlienBaseState.h"
@@ -3350,6 +3351,66 @@ void researchFxApply(Game* game, Json::Value& payload, Base* /*base*/, int /*sea
 	}
 }
 
+// W2-H17c (F7222; Q1 a, Q2 a, Q4 a): research_grant (hostResearchGrant): { source, research {added / removed [{name, popped}], status
+// {name: value}, diary [yaml], projects [{base, names}]}, score?, ids {name: value}, articles [id] } - adopted absolutely (geoEventApply step 1's twin), then the host's arc articles open in order. Replica only; no RNG, no mission interruption.
+void researchGrantApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+	auto* bases = save->getBases();
+	const Json::Value& rs = payload["research"];
+	for (const auto& pr : rs["projects"])
+	{
+		const int bi = pr["base"].asInt();
+		if (bi < 0 || bi >= (int)bases->size()) continue;
+		Base* b = (*bases)[bi];
+		std::set<std::string> keep;
+		for (const auto& n : pr["names"]) keep.insert(n.asString());
+		std::vector<ResearchProject*> gone;
+		for (auto* rp : b->getResearch()) if (!keep.count(rp->getRules()->getName())) gone.push_back(rp);
+		for (auto* rp : gone) { rp->setSpent(rp->getCost()); b->removeResearch(rp); } // as finished: no replica-side refund
+	}
+	for (const auto& e : rs["added"])
+		if (const RuleResearch* r = mod->getResearch(e["name"].asString(), false))
+			if (!save->isResearched(r, false)) save->addFinishedResearchSimple(r);
+	for (const auto& e : rs["removed"])
+		if (const RuleResearch* r = mod->getResearch(e["name"].asString(), false)) save->removeDiscoveredResearch(r);
+	for (const auto& k : rs["status"].getMemberNames()) save->setResearchRuleStatus(k, rs["status"][k].asInt());
+	for (const Json::Value* list : { &rs["added"], &rs["removed"] })
+		for (const auto& e : *list)
+			if (const RuleResearch* r = mod->getResearch(e["name"].asString(), false))
+			{
+				if (e["popped"].asBool()) save->addPoppedResearch(r);
+				else save->removePoppedResearch(r);
+			}
+	for (const auto& y : rs["diary"])
+	{
+		YAML::YamlRootNodeReader reader(YAML::YamlString{ y.asString() }, "research_grant diary");
+		auto* entry = new ResearchDiaryEntry(nullptr);
+		entry->load(reader["n"], mod);
+		save->addResearchDiaryEntry(entry);
+	}
+	if (payload.isMember("score") && !save->getResearchScores().empty())
+		save->getResearchScores().back() = payload["score"].asInt();
+	const std::map<std::string, int>& idsNow = save->getAllIds();
+	for (const auto& k : payload["ids"].getMemberNames())
+	{
+		const int want = payload["ids"][k].asInt();
+		if (k.empty()) continue;
+		if (!idsNow.count(k)) // absent: an increase creates 2, a decrease creates 1 (SG :2379-2417)
+		{
+			if (want > 1) save->increaseCustomCounter(k);
+			else save->decreaseCustomCounter(k);
+		}
+		while (idsNow.at(k) < want) save->increaseCustomCounter(k);
+		while (idsNow.at(k) > want && idsNow.at(k) > 1) save->decreaseCustomCounter(k);
+	}
+	for (const auto& a : payload["articles"])
+		Ufopaedia::openArticle(game, a.asString());
+}
+
 // fac_done payload: { x, y, type }.
 void facDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
@@ -4207,6 +4268,7 @@ void init()
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
 	registerCmd("research_fx", &simAccept, &researchFxApply); // W2-H17 (F3262)
+	registerCmd("research_grant", &simAccept, &researchGrantApply); // W2-H17c (F7222)
 	registerCmd("fac_done",         &simAccept, &facDoneApply);
 	registerCmd("prod_done",        &simAccept, &prodDoneApply);
 	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
@@ -5763,6 +5825,69 @@ void hostGeoEvent(Game* game, const RuleEvent& rule, const Json::Value& mark, St
 	p["regions"] = geoChanged(mark["regions"], now["regions"]);
 	p["ids"] = geoChanged(mark["ids"], now["ids"]);
 	submitLocalCmd(game, "geo_event", 0, p);
+}
+
+namespace { // ---- W2-H17c (F7222, F7224): research_grant - the host side ---------------------------------------------
+std::vector<std::string> g_grantArticles; // host: the arc articles vanilla opened since the last research_grant
+}
+void noteGrantArticle(Game* game, const RuleResearch* research)
+{
+	if (!research || !sharedHost(game)) return;
+	g_grantArticles.push_back(research->getLookup().empty() ? research->getName() : research->getLookup());
+}
+void hostResearchGrant(Game* game, const Json::Value& mark, const char* source, bool withScore)
+{
+	if (mark.isNull() || !sharedHost(game))
+	{
+		g_grantArticles.clear();
+		return;
+	}
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	const Json::Value now = eventMark(game);
+	Json::Value p(Json::objectValue), research(Json::objectValue), added(Json::arrayValue), removed(Json::arrayValue),
+		diary(Json::arrayValue), projects(Json::arrayValue), articles(Json::arrayValue);
+	std::set<std::string> before, after;
+	for (const auto& n : mark["discovered"]) before.insert(n.asString());
+	for (const auto& n : now["discovered"]) after.insert(n.asString());
+	auto named = [&](const std::string& n)
+	{
+		Json::Value e(Json::objectValue);
+		const RuleResearch* r = mod->getResearch(n, false);
+		e["name"] = n;
+		e["popped"] = r != nullptr && save->wasResearchPopped(r);
+		return e;
+	};
+	for (const auto& n : after) if (!before.count(n)) added.append(named(n));
+	for (const auto& n : before) if (!after.count(n)) removed.append(named(n));
+	const auto& di = save->getResearchDiary();
+	for (size_t i = mark["diary"].asUInt(); i < di.size(); ++i)
+	{
+		const ResearchDiaryEntry* e = di[i];
+		diary.append(geoYaml([&](YAML::YamlNodeWriter w) { e->save(w); }));
+	}
+	for (Json::ArrayIndex b = 0; b < now["projects"].size(); ++b)
+	{
+		if (b < mark["projects"].size() && mark["projects"][b] == now["projects"][b]) continue;
+		Json::Value pr(Json::objectValue);
+		pr["base"] = (int)b; pr["names"] = now["projects"][b];
+		projects.append(pr);
+	}
+	for (const auto& a : g_grantArticles) articles.append(a);
+	g_grantArticles.clear();
+	research["added"] = added; research["removed"] = removed; research["diary"] = diary; research["projects"] = projects;
+	research["status"] = geoChanged(mark["status"], now["status"]);
+	const Json::Value ids = geoChanged(mark["ids"], now["ids"]);
+	const bool scoreChanged = withScore && mark["score"] != now["score"];
+	if (added.empty() && removed.empty() && diary.empty() && projects.empty() && research["status"].empty() && ids.empty()
+		&& !scoreChanged && articles.empty())
+		return; // nothing granted (no arc fired; a deployment without despawn research or counters)
+	p["source"] = source;
+	p["research"] = research;
+	if (scoreChanged) p["score"] = now["score"];
+	p["ids"] = ids;
+	p["articles"] = articles;
+	submitLocalCmd(game, "research_grant", 0, p);
 }
 
 void flushEventWindows(Game* game, GeoscapeState* gs)

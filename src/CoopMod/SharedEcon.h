@@ -38,6 +38,7 @@ class Soldier;
 class AlienBase;
 class SavedBattleGame;
 class RuleEvent;
+class RuleResearch; // W2-H17c
 class State;
 class GeoscapeState;
 class SellState; // W2-P7 S-C-E1 (P7-8 PR-43): the SelectionBinder's screen
@@ -509,6 +510,12 @@ Json::Value eventMark(Game* game);
 /// world against the mark and sends the host-origin `geo_event` command: the exact result (absolute) plus the
 /// window's picks as ids, never rendered text. No-op on a null mark or a state that is not a GeoscapeEventState.
 void hostGeoEvent(Game* game, const RuleEvent& rule, const Json::Value& mark, State* eventState);
+/// W2-H17c (F7224): HOST, in the arc loop right after vanilla grants an arc topic - remembers the Ufopaedia article vanilla opens
+/// for it (the lookup, else the topic) for the next research_grant. No-op unless this machine is the SHARED host.
+void noteGrantArticle(Game* game, const RuleResearch* research);
+/// W2-H17c (F7222): HOST, after a research grant outside the lab (mission-site despawn, arc scripts) that started at @a mark (eventMark):
+/// sends research_grant (research, diary, statuses, popped, lab lists, id counters, noted articles; score if @a withScore). No-op on a null mark or no change.
+void hostResearchGrant(Game* game, const Json::Value& mark, const char* source, bool withScore);
 /// W2-H15 (F5602): REPLICA - shows the event windows that arrived while this machine was off the geoscape (or on its
 /// debriefing); called from GeoscapeState::init. No-op on the host and when nothing is queued.
 void flushEventWindows(Game* game, GeoscapeState* gs);

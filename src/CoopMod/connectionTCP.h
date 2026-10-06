@@ -926,6 +926,7 @@ class connectionTCP
 	int64_t sharedMonthlyIncome = 0;
 	int64_t sharedMonthlyExpenditure = 0;
 	int sharedMonthlyResearchScore = 0;
+	int sharedMonthlyResearchScoreEnded = 0; // W2-H17c (F7225): the host's research score of the month it just ended
 
 	std::vector<std::string> _happyListCoop, _sadListCoop, _pactListCoop, _cancelPactListCoop;
 
