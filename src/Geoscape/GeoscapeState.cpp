@@ -3980,7 +3980,9 @@ void GeoscapeState::time1Hour()
 		std::map<Production*, productionProgress_e> toRemove;
 		for (auto* prod : xbase->getProductions())
 		{
+			const Json::Value h16gMark = SharedEcon::productionFxMark(_game, xbase); // coop W2-H16g (F6711): the base before this production's hour
 			toRemove[prod] = prod->step(xbase, _game->getSavedGame(), _game->getMod(), _game->getLanguage());
+			SharedEcon::hostProductionFx(_game, xbase, prod->getRules()->getName(), h16gMark); // coop W2-H16g (F6711): each unit reaches the replica in the hour it is made
 		}
 		for (const auto& pair : toRemove)
 		{
