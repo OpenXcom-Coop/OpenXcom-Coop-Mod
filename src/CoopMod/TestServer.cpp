@@ -81,6 +81,7 @@
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/InventoryState.h"
+#include "../Interface/TextEdit.h" // W2-H20b (test-only)
 #include "../Battlescape/Inventory.h"
 #include "../Battlescape/NextTurnState.h"
 #include "../Battlescape/AbortMissionState.h"
@@ -6979,6 +6980,73 @@ static void coopTestBaseInventoryUnload(Game* game, const Json::Value& req, Json
 	resp["ok"] = true;
 }
 
+// W2-H20b (owner D255 a, D226 a; docs rewrite/prompts/w2h20b_shared_base_writes.md (e), Q7 (a)): TEST-ONLY base_screen_op on ONE
+// machine, never forwarded, never read by game logic. Ops:
+//   {op: read, index} (read-only, any screen) -> SavedGame craft loadout `index` {type: count}, loadoutName, lastSelectedArmor
+//   {op: loadout_save, index} -> the TOP CraftEquipmentState's public saveGlobalLoadout (CraftEquipmentSaveState's call), then read
+//   {op: select, name} / {op: rename, name, text} on the TOP base InventoryState (a battle's inventory refused, as U6's levers):
+//     btnNextClick until the selected unit's soldier name contains `name` -> {selected, id}; rename then sets the 210-px name field
+//     (the quick search is 40 px) and calls its onChange handler edtSoldierChange -> soldierName = the Soldier's name read back.
+static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value& resp)
+{
+	const std::string op = req.get("op", "").asString();
+	SavedGame* sg = game->getSavedGame();
+	if (!sg) { resp["error"] = "base_screen_op: no save loaded"; return; }
+	if (op == "read" || op == "loadout_save")
+	{
+		const int index = req.get("index", 0).asInt();
+		if (index < 0 || index >= SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES) { resp["error"] = "base_screen_op: index out of range"; return; }
+		if (op == "loadout_save")
+		{
+			CraftEquipmentState* ces = topState<CraftEquipmentState>(game);
+			if (!ces) { resp["error"] = "base_screen_op: no CraftEquipmentState on top"; return; }
+			ces->saveGlobalLoadout(index);
+		}
+		Json::Value loadout(Json::objectValue);
+		for (const auto& pr : *sg->getGlobalCraftLoadout(index)->getContents())
+			loadout[pr.first->getType()] = pr.second;
+		resp["index"] = index;
+		resp["loadout"] = loadout;
+		resp["loadoutName"] = sg->getGlobalCraftLoadoutName(index);
+		resp["lastSelectedArmor"] = sg->getLastSelectedArmor();
+		resp["ok"] = true;
+		return;
+	}
+	InventoryState* invState = topState<InventoryState>(game);
+	SavedBattleGame* bg = sg->getSavedBattle();
+	if (op != "select" && op != "rename")
+		resp["error"] = "base_screen_op: unknown op " + op;
+	else if (!invState || !bg)
+		resp["error"] = "base_screen_op: no base inventory screen on top (soldiers_inventory / craft_inventory first)";
+	else if (bg->getBattleState() != nullptr)
+		resp["error"] = "base_screen_op: base screens only - a battle's inventory uses inventory_click (W2-P8)";
+	if (resp.isMember("error")) return;
+	const std::string who = req.get("name", "").asString();
+	Soldier* s = nullptr;
+	for (size_t i = 0; i <= bg->getUnits()->size() && !s; ++i)
+	{
+		if (i > 0) invState->btnNextClick(nullptr); // the next-soldier button's own handler
+		BattleUnit* u = bg->getSelectedUnit();
+		Soldier* gs = u ? u->getGeoscapeSoldier() : nullptr;
+		if (gs && gs->getName().find(who) != std::string::npos) s = gs;
+	}
+	if (!s) { resp["error"] = "base_screen_op: no unit matching name: " + who; return; }
+	resp["selected"] = s->getName();
+	resp["id"] = s->getId();
+	if (op == "rename")
+	{
+		TextEdit* field = nullptr;
+		for (auto* surf : invState->getSurfaces())
+			if (auto* t = dynamic_cast<TextEdit*>(surf))
+				if (t->getWidth() == 210) { field = t; break; }
+		if (!field) { resp["error"] = "base_screen_op: no 210-px name field"; return; }
+		field->setText(req.get("text", "").asString());
+		invState->edtSoldierChange(nullptr); // the name field's onChange handler (IS :197)
+		resp["soldierName"] = s->getName();
+	}
+	resp["ok"] = true;
+}
+
 bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
@@ -7027,6 +7095,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "screen_push" // W2-P7 S-C-E2.1 (P7-8 PR-51)
 		&& cmd != "inventory_move" && cmd != "inventory_unload" // U6
 		&& cmd != "soldier_layouts" // W2-H20 (D255 a)
+		&& cmd != "base_screen_op" // W2-H20b
 		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
 	{
 		return false;
@@ -11345,6 +11414,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["soldiers"] = slSoldiers;
 		resp["ok"] = true;
 	}
+	else if (cmd == "base_screen_op") { coopTestBaseScreenOp(_game, req, resp); } // W2-H20b (D255 a; spec (e), Q7 a)
 
 	return true;
 }
