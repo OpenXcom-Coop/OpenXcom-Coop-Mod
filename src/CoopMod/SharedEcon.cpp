@@ -754,7 +754,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 						soldier->load(tReader.toBase(), mod, save, mod->getScriptGlobal(), true);
 						if (soldier->getNationality() != nationalityOrig) soldier->genName();
 					}
-					soldier->setOwnerPlayerId(seat); // PRD-J05: purchaser owns the hire
+					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // PRD-J05: purchaser owns the hire; S-C-E3.3 (D254 b, PR-57): a shared list's Soldier-row editor
 					Transfer* t = new Transfer(time);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
@@ -771,7 +771,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 				{
 					Soldier* soldier = deserializeSoldier(game, serialized[s].asString());
 					if (!soldier) continue;
-					soldier->setOwnerPlayerId(seat); // belt-and-braces (also in YAML)
+					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // belt-and-braces (also in YAML); S-C-E3.3 (D254 b, PR-57, F6640)
 					Transfer* t = new Transfer(time);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
@@ -3808,6 +3808,7 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 				? TRANSFER_ITEM : r.first.compare(0, 3, "cr:") == 0 ? TRANSFER_CRAFT : TRANSFER_SOLDIER);
 			e["rule"] = staff ? std::string() : r.first.substr(r.first.find(':') + 1);
 			e["qty"] = r.second;
+			if (r.first.compare(0, 2, "h:") == 0 && s.editors.count(r.first)) e["owner"] = s.editors.at(r.first); // S-C-E3.3 (D254 b, PR-57): the row's last editor owns its hires
 			buy.append(e);
 		}
 		cmdPayload["items"] = buy;
