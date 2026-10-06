@@ -4828,20 +4828,58 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
  */
 void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base)
 {
+	const std::string researchOwner = (base && _coop
+		&& _campaignType == CoopCampaignType::Separate
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	const bool playerScoped = !researchOwner.empty();
+	auto researched = [&](const RuleResearch* topic)
+	{
+		return playerScoped ? isResearchedForPlayer(topic->getName(), researchOwner, false)
+			: isResearched(topic, false);
+	};
+	auto hasRemainingGetOneFree = [&](const RuleResearch* topic)
+	{
+		for (const RuleResearch* free : topic->getGetOneFree())
+			if (free && !isResearchRuleStatusDisabled(free->getName()) && !researched(free))
+				return true;
+		for (const auto& group : topic->getGetOneFreeProtected())
+			if (group.first && researched(group.first))
+				for (const RuleResearch* free : group.second)
+					if (free && !isResearchRuleStatusDisabled(free->getName()) && !researched(free))
+						return true;
+		return false;
+	};
+	auto hasRemainingProtectedUnlock = [&](const RuleResearch* topic)
+	{
+		for (const RuleResearch* unlock : topic->getUnlocked())
+			if (unlock && !unlock->getRequirements().empty()
+				&& !isResearchRuleStatusDisabled(unlock->getName()) && !researched(unlock))
+				return true;
+		return false;
+	};
+
 	for (auto* myResearchRule : topicsToCheck)
 	{
 		// 3j. now iterate through all the bases and remove this project from their labs (unless it can still yield more stuff!)
 		for (Base* otherBase : _bases)
 		{
+			// A private Separate discovery must never cancel the same project in
+			// another player's laboratory. Both bases live in one authoritative
+			// world, so the original campaign-wide loop needs an ownership fence.
+			if (playerScoped && !otherBase->isOwnedByPlayer(researchOwner))
+				continue;
 			for (ResearchProject* otherProject : otherBase->getResearch())
 			{
 				if (myResearchRule == otherProject->getRules())
 				{
-					if (hasUndiscoveredGetOneFree(myResearchRule, true))
+					if (playerScoped ? hasRemainingGetOneFree(myResearchRule)
+						: hasUndiscoveredGetOneFree(myResearchRule, true))
 					{
 						// This research topic still has some more undiscovered non-disabled and *AVAILABLE* "getOneFree" topics, keep it!
 					}
-					else if (hasUndiscoveredProtectedUnlock(myResearchRule))
+					else if (playerScoped ? hasRemainingProtectedUnlock(myResearchRule)
+						: hasUndiscoveredProtectedUnlock(myResearchRule))
 					{
 						// This research topic still has one or more undiscovered non-disabled "protected unlocks", keep it!
 					}
@@ -4859,6 +4897,7 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 		if (spawnedItem)
 		{
 			Transfer* t = new Transfer(1);
+			t->setOwnerPlayerName(researchOwner);
 			t->setItems(spawnedItem, std::max(1, myResearchRule->getSpawnedItemCount()));
 			base->getTransfers()->push_back(t);
 		}
@@ -4868,13 +4907,14 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 			if (spawnedItem2)
 			{
 				Transfer* t = new Transfer(1);
+				t->setOwnerPlayerName(researchOwner);
 				t->setItems(spawnedItem2);
 				base->getTransfers()->push_back(t);
 			}
 		}
 		// 3l. handle spawned events
 		RuleEvent* spawnedEventRule = mod->getEvent(myResearchRule->getSpawnedEvent());
-		spawnEvent(spawnedEventRule);
+		spawnEvent(spawnedEventRule, researchOwner);
 		// 3m. handle counters
 		for (auto& inc : myResearchRule->getIncreaseCounter())
 		{

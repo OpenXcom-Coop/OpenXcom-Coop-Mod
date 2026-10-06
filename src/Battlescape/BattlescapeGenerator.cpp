@@ -23,6 +23,7 @@
 #include "../Engine/Logger.h"
 #include "../Engine/Options.h"
 #include "../Engine/RNG.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Mod/AlienDeployment.h"
 #include "../Mod/AlienRace.h"
 #include "../Mod/Armor.h"
@@ -773,6 +774,10 @@ void BattlescapeGenerator::nextStage()
  */
 void BattlescapeGenerator::run()
 {
+	// Last safety gate before Soldier ids become BattleUnit ids. Lobby/load paths
+	// normally normalize earlier, but scripted mission starts can bypass them.
+	SeparateEcon::normalizeSoldierIds(_game);
+
 	bool isPreview = _save->isPreview();
 
 	_save->setAlienCustom(_alienCustomDeploy ? _alienCustomDeploy->getType() : "", _alienCustomMission ? _alienCustomMission->getType() : "");
@@ -986,6 +991,36 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 		_craft->resetTemporaryCustomVehicleDeploymentFlags();
 	}
 
+	// Shared's single roster naturally reaches the craft deployment in alternating
+	// seat order. Separate stores the same owners in different base rosters, so
+	// reproduce that ordering explicitly before the normal craft placement code.
+	// The craft/ruleset remains the sole authority for actual tile positions.
+	std::vector<Soldier*> deploymentSoldiers;
+	if (_base)
+	{
+		deploymentSoldiers.assign(_base->getSoldiers()->begin(), _base->getSoldiers()->end());
+		if (_craft && _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
+		{
+			std::vector<Soldier*> hostSoldiers;
+			std::vector<Soldier*> clientSoldiers;
+			std::vector<Soldier*> otherSoldiers;
+			for (Soldier* soldier : deploymentSoldiers)
+			{
+				if (soldier->getCoop() == 0) hostSoldiers.push_back(soldier);
+				else if (soldier->getCoop() == 1) clientSoldiers.push_back(soldier);
+				else otherSoldiers.push_back(soldier);
+			}
+			deploymentSoldiers.clear();
+			const size_t rounds = std::max(hostSoldiers.size(), clientSoldiers.size());
+			for (size_t i = 0; i < rounds; ++i)
+			{
+				if (i < hostSoldiers.size()) deploymentSoldiers.push_back(hostSoldiers[i]);
+				if (i < clientSoldiers.size()) deploymentSoldiers.push_back(clientSoldiers[i]);
+			}
+			deploymentSoldiers.insert(deploymentSoldiers.end(), otherSoldiers.begin(), otherSoldiers.end());
+		}
+	}
+
 	// we will need this during debriefing to show a list of recovered items
 	// Note: saved info is required only because of base defense missions, other missions could work without a save too
 	// IMPORTANT: the number of vehicles and their ammo has been messed up by Base::setupDefenses() already :( and will need to be handled separately later
@@ -1072,7 +1107,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 	// enviro effects and starting conditions - armor transformation and replacement
 	if (startingCondition != 0 || enviro != 0)
 	{
-		for (auto* soldier : *_base->getSoldiers())
+		for (auto* soldier : deploymentSoldiers)
 		{
 			if ((_craft != 0 && soldier->getCraft() == _craft) ||
 				(_craft == 0 && (soldier->hasFullHealth() || soldier->canDefendBase()) && (soldier->getCraft() == 0 || soldier->getCraft()->getStatus() != "STR_OUT")))
@@ -1110,7 +1145,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 
 	// add soldiers that are in the craft or base (2x2 only)
 	{
-		for (auto* soldier : *_base->getSoldiers())
+		for (auto* soldier : deploymentSoldiers)
 		{
 			if (soldier->getArmor()->getSize() == 1)
 			{
@@ -1171,7 +1206,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 
 	// add soldiers that are in the craft or base (1x1 only)
 	{
-		for (auto* soldier : *_base->getSoldiers())
+		for (auto* soldier : deploymentSoldiers)
 		{
 			if (soldier->getArmor()->getSize() > 1)
 			{

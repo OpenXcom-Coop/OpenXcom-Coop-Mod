@@ -1819,10 +1819,12 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		else
 		{
 			std::vector<RuleResearch*> avail;
-			sg->getAvailableResearchProjects(avail, _game->getMod(), target, false);
+			const bool considerDebug = req.get("considerDebugMode", false).asBool();
+			sg->getAvailableResearchProjects(avail, _game->getMod(), target, considerDebug);
 			Json::Value topics(Json::arrayValue);
 			for (auto* r : avail) topics.append(r->getName());
 			resp["topics"] = topics;
+			resp["debugMode"] = sg->getDebugMode();
 			resp["ok"] = true;
 		}
 	}
@@ -3968,6 +3970,57 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		else
 		{
 			resp["researched"] = sg->isResearchedForPlayer(research, player, false);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "separate_research_side_effects")
+	{
+		// Exercise the real private-research completion and side-effect path. This
+		// catches ownership leaks which source-shape tests and initial-tree snapshots
+		// cannot observe (spawned items/events and cross-player project removal).
+		SavedGame* sg = _game->getSavedGame();
+		const std::string baseName = req.get("base", "").asString();
+		const std::string requestedTopic = req.get("topic", "").asString();
+		Base* base = nullptr;
+		if (sg)
+			for (Base* candidate : *sg->getBases())
+				if (candidate && candidate->getName() == baseName) { base = candidate; break; }
+		RuleResearch* research = requestedTopic.empty()
+			? nullptr : _game->getMod()->getResearch(requestedTopic, false);
+		if (!research)
+			for (const auto& entry : _game->getMod()->getResearchMap())
+				if (entry.second && (!entry.second->getSpawnedItem().empty()
+					|| !entry.second->getSpawnedItemList().empty()))
+				{
+					research = entry.second;
+					break;
+				}
+		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+			resp["error"] = "no Separate campaign";
+		else if (!base)
+			resp["error"] = "base not found";
+		else if (!research)
+			resp["error"] = "no research with spawned items found";
+		else
+		{
+			const size_t firstTransfer = base->getTransfers()->size();
+			sg->addFinishedResearch(research, _game->getMod(), base, true);
+			std::vector<const RuleResearch*> topics{research};
+			sg->handlePrimaryResearchSideEffects(topics, _game->getMod(), base);
+			Json::Value transfers(Json::arrayValue);
+			for (size_t i = firstTransfer; i < base->getTransfers()->size(); ++i)
+			{
+				Transfer* transfer = base->getTransfers()->at(i);
+				Json::Value row;
+				row["ownerPlayerName"] = transfer->getOwnerPlayerName();
+				row["type"] = transfer->getType();
+				row["item"] = transfer->getItems() ? transfer->getItems()->getType() : "";
+				row["quantity"] = transfer->getQuantity();
+				transfers.append(row);
+			}
+			resp["topic"] = research->getName();
+			resp["baseOwnerPlayerName"] = base->getOwnerPlayerName();
+			resp["transfers"] = transfers;
 			resp["ok"] = true;
 		}
 	}
@@ -6250,6 +6303,8 @@ std::string TestServer::execute(const std::string& line)
 				const int countryFunding = sg->getCountryFunding();
 				resp["countryFunding"] = countryFunding;
 				resp["monthlyIncomeDisplay"] = sg->getPlayerIncomeShare(countryFunding);
+				resp["worldMaintenance"] = sg->getBaseMaintenance();
+				resp["monthlyMaintenanceDisplay"] = SeparateEcon::localPlayerMaintenance(_game);
 				Json::Value countries(Json::arrayValue);
 				for (auto* c : *sg->getCountries())
 				{
@@ -6337,11 +6392,22 @@ std::string TestServer::execute(const std::string& line)
 			// until a SHARED battle exercises ownership end to end.
 			int sid = req.get("soldier_id", -1).asInt();
 			int owner = req.get("owner", 999).asInt();
+			const std::string ownerBase = req.get("base", "").asString();
 			bool found = false;
 			if (_game->getSavedGame())
 				for (auto* b : *_game->getSavedGame()->getBases())
+				{
+					if (!ownerBase.empty() && b->getName() != ownerBase) continue;
 					for (auto* s : *b->getSoldiers())
-						if (s->getId() == sid) { s->setOwnerPlayerId(owner); found = true; }
+						if (s->getId() == sid)
+						{
+							s->setOwnerPlayerId(owner);
+							s->setCoop(owner);
+							found = true;
+							break;
+						}
+					if (found) break;
+				}
 			resp["ok"] = found;
 			if (!found) resp["error"] = "soldier id not found";
 		}
@@ -6585,6 +6651,9 @@ std::string TestServer::execute(const std::string& line)
 					resp["mapSizeXYZ"] = n;
 				}
 				resp["coopTurn"] = BattlescapeGame::isYourTurn;  // 2 = my active turn
+				const BattleUnit* selectedUnit = bg->getSelectedUnit();
+				resp["selectedUnitId"] = selectedUnit ? selectedUnit->getId() : -1;
+				resp["selectedUnitCoop"] = selectedUnit ? selectedUnit->getCoop() : -1;
 				// This machine's battle role: host controls coop==0 units, client coop==1
 				// (BattlescapeGame.cpp select gate). Exposed so a test can prove the two
 				// machines control DISJOINT unit sets - the real "both command same team"
@@ -8523,6 +8592,7 @@ std::string TestServer::execute(const std::string& line)
 				// consume that base's quarters.
 				resp["usedQuarters"] = target->getUsedQuarters();
 				resp["availableQuarters"] = target->getAvailableQuarters();
+				resp["residentSoldiers"] = static_cast<int>(target->getSoldiers()->size());
 				// General-stores accounting (read-only). Personnel hires need ZERO
 				// store space, so a full store must never block a scientist/engineer/
 				// soldier recruit while quarters are free - a test can assert both
@@ -8530,6 +8600,8 @@ std::string TestServer::execute(const std::string& line)
 				resp["usedStores"] = target->getUsedStores();
 				resp["availableStores"] = target->getAvailableStores();
 				resp["totalSoldiers"] = target->getTotalSoldiers();
+				resp["monthlyMaintenance"] = target->getMonthlyMaintenace();
+				resp["localPlayerMaintenance"] = SeparateEcon::localPlayerMaintenance(_game);
 				resp["coopQuarters"] = target->coop_quarters;
 				resp["coopSoldiers"] = target->coop_soldiers;
 				resp["coopGuests"] = target->coop_guests;

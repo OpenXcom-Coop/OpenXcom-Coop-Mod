@@ -22,8 +22,14 @@ def main():
         players = {p["name"]: p for p in state["players"]}
         assert players["HostPlayer"]["faction"] == "difficulty:0", players
         assert players["ClientPlayer"]["faction"] == "difficulty:0", players
-        host = set(js.host.ok({"cmd": "available_research", "base": "HostBase"})["topics"])
-        client = set(js.client.ok({"cmd": "available_research", "base": "ClientBase"})["topics"])
+        host_result = js.host.ok({"cmd": "available_research", "base": "HostBase",
+                                  "considerDebugMode": True})
+        client_result = js.client.ok({"cmd": "available_research", "base": "ClientBase",
+                                      "considerDebugMode": True})
+        assert not host_result["debugMode"] and not client_result["debugMode"], {
+            "host": host_result["debugMode"], "client": client_result["debugMode"]}
+        host = set(host_result["topics"])
+        client = set(client_result["topics"])
         assert host, "host research menu unexpectedly empty"
         assert client == host, {"host": sorted(host), "client": sorted(client)}
         assert any("STRATEGY" in topic for topic in client), sorted(client)

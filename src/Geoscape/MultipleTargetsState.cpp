@@ -37,8 +37,7 @@
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SeparateEcon.h"
-#include "../Menu/ErrorMessageState.h"
-#include "../Mod/RuleInterface.h"
+#include "CraftErrorState.h"
 
 namespace OpenXcom
 {
@@ -127,12 +126,9 @@ void MultipleTargetsState::popupTarget(Target *target)
 	_game->popState();
 	if (!SeparateEcon::ownsMissionTarget(_game, target))
 	{
-		const RuleInterface* interface = _game->getMod()->getInterface("geoscape");
-		_game->pushState(new ErrorMessageState(
+		_game->pushState(new CraftErrorState(_state,
 			tr("STR_COOP_MISSION_BELONGS_TO_PLAYER").arg(
-				SeparateEcon::missionTargetOwner(target)), _palette,
-			interface->getElement("errorMessage")->color, "BACK13.SCR",
-			interface->getElement("errorPalette")->color));
+				SeparateEcon::missionTargetOwner(target))));
 		return;
 	}
 	if (_crafts.size() == 0)

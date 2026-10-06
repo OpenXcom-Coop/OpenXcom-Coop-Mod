@@ -8,10 +8,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
 
 
-def bring_up(tag, ports):
+def bring_up(tag, ports, host_options=None, client_options=None):
     return shared_fixture.bring_up(
         tag, ports, campaign_mode="coop",
-        host_base="HostBase", client_base="ClientBase")
+        host_base="HostBase", client_base="ClientBase",
+        host_options=host_options, client_options=client_options)
 
 
 def geo(gc):
@@ -58,4 +59,3 @@ def assert_fresh_named_world(host, client):
             roster = soldiers_at(gc, base_name)
             assert roster and all(s["owner"] == owner for s in roster), roster
     assert_same_world(host, client, "fresh Separate")
-

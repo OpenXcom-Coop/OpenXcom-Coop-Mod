@@ -6725,7 +6725,8 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			{
 				// good news, little command pointer! you're FDA approved! off to the main processing facility with you!
 				std::string commandOwner;
-				if (!missionOwner.empty())
+				if (!missionOwner.empty()
+					&& save->getSeparateCampaign().haveDifferentFactions())
 				{
 					// A normal mission remains common to both players. Ownership is
 					// attached only when this script's difficulty range excludes at

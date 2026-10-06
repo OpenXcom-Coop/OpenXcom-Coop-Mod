@@ -371,6 +371,8 @@ void GeoscapeEventState::eventLogic()
 			int removed = 0;
 			for (auto* xbase : *save->getBases())
 			{
+				if (!_ownerPlayerName.empty() && !xbase->isOwnedByPlayer(_ownerPlayerName))
+					continue;
 				int bQty = xbase->getStorageItems()->getItem(r);
 				if (bQty > 0)
 				{
@@ -385,6 +387,8 @@ void GeoscapeEventState::eventLogic()
 			{
 				for (auto* xbase : *save->getBases())
 				{
+					if (!_ownerPlayerName.empty() && !xbase->isOwnedByPlayer(_ownerPlayerName))
+						continue;
 					for (auto* xcraft : *xbase->getCrafts())
 					{
 						int cQty = xcraft->getItems()->getItem(r);
@@ -450,7 +454,8 @@ void GeoscapeEventState::eventLogic()
 
 	for (auto* rRule : rule.getResearchList())
 	{
-		if (!save->isResearched(rRule, false) || save->hasUndiscoveredGetOneFree(rRule, true))
+		if (!save->isResearchedForBase(rRule->getName(), hq, false)
+			|| save->hasUndiscoveredGetOneFree(rRule, true))
 		{
 			possibilities.push_back(rRule);
 		}
@@ -463,7 +468,7 @@ void GeoscapeEventState::eventLogic()
 		const RuleResearch *eventResearch = possibilities.at(pickResearch);
 
 		std::string name = eventResearch->getLookup().empty() ? eventResearch->getName() : eventResearch->getLookup();
-		bool alreadyResearched = save->isResearched(name, false); // we have seen the pedia article already, don't show it again
+		bool alreadyResearched = save->isResearchedForBase(name, hq, false); // this player has seen the pedia article already
 
 		auto addResearchDiaryEntryForEvent = [&](const RuleResearch* discoveredResearch, DiscoverySourceType sourceType, const RuleEvent* sourceEvent, const RuleResearch* sourceResearch)
 		{

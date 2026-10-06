@@ -31,7 +31,7 @@ en-GB:
   STR_SAVE_UPGRADE_LOAD_BTN: "Load upgraded save"
   # coop (PRD-P6): action-intent deny / timeout flashes.
   STR_COOP_PLAYER_BUSY: "Another action is running - try again"
-  STR_COOP_MISSION_BELONGS_TO_PLAYER: "This belongs to {0}"
+  STR_COOP_MISSION_BELONGS_TO_PLAYER: "This mission belongs to {0}."
   STR_COOP_MISSION_OWNER: "Owner: {0}"
   STR_COOP_SHARED: "Shared"
   STR_COOP_TURN_OVER: "The turn has already ended"

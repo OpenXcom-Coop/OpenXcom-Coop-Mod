@@ -1465,6 +1465,39 @@ void BattlescapeState::think()
 			// the deny/ready flashes P6/P8 put through the same widget).
 			const bool coopParallel = _game->getCoopMod()->parallelTurnActive();
 
+			// A resumed battle restores the host's selectedUnit from the shared
+			// battle save on BOTH machines.  Unlike fresh battle initialization,
+			// some resume handshakes already have _battleInit/playerTurn consumed,
+			// so the selector block below is not guaranteed to run again.  Repair
+			// only this machine-local UI pointer once the parallel player side is
+			// live; unit positions, ownership and the host-authored battle remain
+			// untouched.  Re-checking here also covers an old Separate save whose
+			// selected unit was written while the host was active.
+			if (coopParallel && _game->getCoopMod()->_battleInit
+				&& _save->getSide() == FACTION_PLAYER && _battleGame->isYourTurn == 2)
+			{
+				const int mySeat = connectionTCP::localSeat();
+				BattleUnit* selected = _save->getSelectedUnit();
+				if (!selected || selected->getCoop() != mySeat || selected->isOut()
+					|| selected->getHealth() <= 0 || selected->getFaction() != FACTION_PLAYER)
+				{
+					BattleUnit* mine = nullptr;
+					for (BattleUnit* unit : *_save->getUnits())
+					{
+						if (unit && unit->getCoop() == mySeat && unit->getHealth() > 0
+							&& !unit->isOut() && unit->getFaction() == FACTION_PLAYER)
+						{
+							mine = unit;
+							break;
+						}
+					}
+					_save->setSelectedUnit(mine);
+					_battleGame->getCurrentAction()->actor = mine;
+					updateSoldierInfo();
+					_battleGame->setupCursor();
+				}
+			}
+
 			// coop: off-turn "<peer>'s Turn" banner. Classic mode only - parallel mode
 			// has no off-turn side (both machines hold isYourTurn == 2), so coopParallel
 			// gates it out.
@@ -2958,6 +2991,27 @@ void BattlescapeState::selectNextPlayerUnit(bool checkReselect, bool setReselect
 		BattleUnit *unit = byDistance
 			? _save->selectNextPlayerUnitByDistance(checkReselect, setReselect, checkInventory)
 			: _save->selectNextPlayerUnit(checkReselect, setReselect, checkInventory);
+		// Parallel co-op has one simultaneous player side, but each machine must
+		// keep its local selection on its own seat.  SavedBattleGame's vanilla
+		// selector only filters by faction; after loading the host-authored battle
+		// it could therefore leave the client on a host soldier and every map click
+		// was then correctly rejected as STR_COOP_NOT_YOUR_SOLDIER.  Walk the same
+		// ordered roster until a locally-owned unit is selected.  Classic turns do
+		// not use this filter because their current-turn hand-off owns selection.
+		if (connectionTCP::parallelTurnActive())
+		{
+			const int localSeat = connectionTCP::localSeat();
+			const size_t count = _save->getUnits()->size();
+			for (size_t i = 0; unit && unit->getCoop() != localSeat && i < count; ++i)
+			{
+				unit = _save->selectNextPlayerUnit(false, false, checkInventory);
+			}
+			if (unit && unit->getCoop() != localSeat)
+			{
+				_save->setSelectedUnit(0);
+				unit = 0;
+			}
+		}
 		updateSoldierInfo(checkFOV);
 		if (unit && !_game->isShiftPressed(true)) _map->getCamera()->centerOnPosition(unit->getPosition());
 		_battleGame->cancelAllActions();
@@ -2977,6 +3031,20 @@ void BattlescapeState::selectPreviousPlayerUnit(bool checkReselect, bool setRese
 	if (allowButtons())
 	{
 		BattleUnit *unit = _save->selectPreviousPlayerUnit(checkReselect, setReselect, checkInventory);
+		if (connectionTCP::parallelTurnActive())
+		{
+			const int localSeat = connectionTCP::localSeat();
+			const size_t count = _save->getUnits()->size();
+			for (size_t i = 0; unit && unit->getCoop() != localSeat && i < count; ++i)
+			{
+				unit = _save->selectPreviousPlayerUnit(false, false, checkInventory);
+			}
+			if (unit && unit->getCoop() != localSeat)
+			{
+				_save->setSelectedUnit(0);
+				unit = 0;
+			}
+		}
 		updateSoldierInfo();
 		if (unit && !_game->isShiftPressed(true)) _map->getCamera()->centerOnPosition(unit->getPosition());
 		_battleGame->cancelAllActions();

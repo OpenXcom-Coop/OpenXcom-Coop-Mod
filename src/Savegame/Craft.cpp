@@ -1646,8 +1646,15 @@ int Craft::getSpaceAvailable() const
 	// player seven places; the peer's crew does not consume the local quota.
 	if (connectionTCP::isSeparateCampaignStatic())
 	{
-		return std::max(0, getMaxUnitsClamped() / 2
-			- getSpaceUsedByOwner(connectionTCP::localSeat()));
+		const int capacity = getMaxUnitsClamped();
+		// Round an odd per-player quota up, otherwise a one-seat mod craft gets
+		// a quota of zero and its initially assigned pilot can never be put back.
+		// The physical-space check still prevents both players from exceeding the
+		// craft's real capacity (for capacity 1, the first assignment occupies it).
+		const int ownerAvailable = (capacity + 1) / 2
+			- getSpaceUsedByOwner(connectionTCP::localSeat());
+		const int physicalAvailable = capacity - getSpaceUsed();
+		return std::max(0, std::min(ownerAvailable, physicalAvailable));
 	}
 
 	// coop
@@ -1843,6 +1850,23 @@ void Craft::addPilot(int pilotId)
 	if (std::find(_pilots.begin(), _pilots.end(), pilotId) == _pilots.end())
 	{
 		_pilots.push_back(pilotId);
+	}
+}
+
+/**
+ * Replaces a soldier id without changing that soldier's pilot assignment.
+ * Separate Campaign uses this while upgrading player-local soldier ids into
+ * the single authoritative world's id space.
+ */
+void Craft::remapPilotId(int oldId, int newId)
+{
+	for (int& pilotId : _pilots)
+	{
+		if (pilotId == oldId)
+		{
+			pilotId = newId;
+			return;
+		}
 	}
 }
 

@@ -41,6 +41,7 @@
 #include "../Menu/SaveGameState.h"
 #include "../Mod/RuleInterface.h"
 #include "../Mod/RuleVideo.h"
+#include "../CoopMod/SeparateEcon.h"
 
 #include "../Mod/RuleRegion.h"
 
@@ -213,7 +214,8 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtIncome->setText(ss.str());
 
 	std::ostringstream ss2;
-	ss2 << tr("STR_MAINTENANCE") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(_game->getSavedGame()->getBaseMaintenance());
+	ss2 << tr("STR_MAINTENANCE") << "> " << Unicode::TOK_COLOR_FLIP
+		<< Unicode::formatFunding(SeparateEcon::localPlayerMaintenance(_game));
 	_txtMaintenance->setText(ss2.str());
 
 	int performanceBonus = _game->getMod()->getPerformanceBonus(_ratingTotal);

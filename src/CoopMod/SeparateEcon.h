@@ -22,6 +22,11 @@ class Target;
  */
 namespace SeparateEcon
 {
+/// Give every live soldier in Separate's unified world a globally unique id.
+/// Returns the number of legacy/player-local collisions that were upgraded.
+int normalizeSoldierIds(Game* game);
+/// Sum monthly maintenance for bases owned by this local Separate player.
+int localPlayerMaintenance(Game* game);
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj);
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 	const Json::Value& payload);

@@ -3,6 +3,7 @@
 #include "connectionTCP.h"
 #include "SharedEcon.h"
 #include "../Engine/Game.h"
+#include "../Engine/Logger.h"
 #include "../Engine/State.h"
 #include "../Geoscape/ConfirmLandingState.h"
 #include "../Geoscape/GeoscapeState.h"
@@ -26,6 +27,8 @@
 #include "../Mod/Armor.h"
 
 #include <algorithm>
+#include <map>
+#include <set>
 
 namespace OpenXcom
 {
@@ -74,6 +77,91 @@ Json::Value craftMessage(const char* state, Game* game, Craft* craft)
 }
 }
 
+int normalizeSoldierIds(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !save->isCoopSave()
+		|| save->getCampaignType() != CoopCampaignType::Separate)
+	{
+		return 0;
+	}
+
+	// Imported Separate bases used to retain their player-local Soldier ids.
+	// Reserve every original id first so a replacement can never collide with a
+	// later base whose roster has not been visited yet. Fill the lowest free id
+	// instead of max+1 so player units always remain below MAX_SOLDIER_ID even in
+	// long-running or heavily modded campaigns.
+	int nextId = 1;
+	std::set<int> reserved;
+	for (Base* base : *save->getBases())
+	{
+		if (!base) continue;
+		for (Soldier* soldier : *base->getSoldiers())
+			if (soldier) reserved.insert(soldier->getId());
+	}
+	for (Soldier* soldier : *save->getDeadSoldiers())
+		if (soldier) reserved.insert(soldier->getId());
+
+	std::set<int> used;
+	int changed = 0;
+	for (Base* base : *save->getBases())
+	{
+		if (!base) continue;
+		for (Soldier* soldier : *base->getSoldiers())
+		{
+			if (!soldier) continue;
+			const int oldId = soldier->getId();
+			if (used.insert(oldId).second) continue;
+
+			while (reserved.count(nextId)) ++nextId;
+			const int newId = nextId++;
+			if (Craft* craft = soldier->getCraft())
+				craft->remapPilotId(oldId, newId);
+			soldier->setId(newId);
+			used.insert(newId);
+			reserved.insert(newId);
+			++changed;
+			Log(LOG_INFO) << "Separate Campaign: upgraded duplicate soldier id "
+				<< oldId << " -> " << newId << " for " << soldier->getName();
+		}
+	}
+
+	// New hires use SavedGame's STR_SOLDIER counter. Keep it beyond every
+	// migrated/live/dead id or the next purchase could recreate the collision.
+	int highestId = 0;
+	for (int id : reserved) highestId = std::max(highestId, id);
+	std::map<std::string, int> ids = save->getAllIds();
+	if (ids["STR_SOLDIER"] <= highestId)
+	{
+		ids["STR_SOLDIER"] = highestId + 1;
+		save->setAllIds(ids);
+	}
+
+	return changed;
+}
+
+int localPlayerMaintenance(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !game->getCoopMod() || !game->getCoopMod()->isSeparateCampaign())
+		return save ? save->getBaseMaintenance() : 0;
+
+	const std::string playerName = connectionTCP::seatName(connectionTCP::localSeat());
+	int total = 0;
+	for (Base* base : *save->getBases())
+	{
+		if (!base) continue;
+		// Persistent names are authoritative. The view flag is only a legacy
+		// fallback for an ownerless upgraded save.
+		if ((!playerName.empty() && base->isOwnedByPlayer(playerName))
+			|| (base->getOwnerPlayerName().empty() && !base->_isForeignBase))
+		{
+			total += base->getMonthlyMaintenace();
+		}
+	}
+	return total;
+}
+
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 {
 	if (state == "separate_geoscape_event")
@@ -93,9 +181,11 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 			// The host already executed eventLogic and resolved any random research.
 			// Adopt its canonical Shared Research list before constructing the event
 			// state, so the replica cannot select a different event reward.
+			const std::string owner = obj.get("ownerPlayerName", "").asString();
 			Base* researchBase = nullptr;
 			for (Base* candidate : *game->getSavedGame()->getBases())
-				if (candidate && !candidate->_isForeignBase)
+				if (candidate && (owner.empty()
+					? !candidate->_isForeignBase : candidate->isOwnedByPlayer(owner)))
 				{
 					researchBase = candidate;
 					break;
@@ -134,7 +224,6 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 				obj.get("event", "").asString(), false))
 				if (GeoscapeState* gs = geo(game))
 				{
-					const std::string owner = obj.get("ownerPlayerName", "").asString();
 					GeoscapeEventState* eventState = new GeoscapeEventState(*eventRule, owner);
 					std::string article = obj.get("researchName", "").asString();
 					if (article.empty()) article = adoptedArticle;
@@ -233,6 +322,12 @@ bool ownsMissionTarget(Game* game, const Target* target)
 {
 	if (!game || !target || !game->getCoopMod()
 		|| !game->getCoopMod()->isSeparateCampaign()) return true;
+	// Ownership exists only to separate faction-restricted content. If every
+	// player selected the same faction, old saves may still contain an owner on
+	// a target, but that target is cooperative and must remain usable by both.
+	if (!game->getSavedGame()
+		|| !game->getSavedGame()->getSeparateCampaign().haveDifferentFactions())
+		return true;
 	const std::string owner = missionTargetOwner(target);
 	if (owner.empty()) return true;
 	return owner == connectionTCP::seatName(connectionTCP::localSeat());
@@ -326,8 +421,11 @@ bool validateCraftAssign(Game* game, const Json::Value& payload, Base* base,
 	{
 		if (!soldier->hasFullHealth())
 			{ failReason = "STR_SOLDIER_NOT_APPROVED"; return false; }
-		int space = std::max(0, craft->getMaxUnitsClamped() / 2
-			- craft->getSpaceUsedByOwner(seat));
+		const int capacity = craft->getMaxUnitsClamped();
+		const int ownerAvailable = (capacity + 1) / 2
+			- craft->getSpaceUsedByOwner(seat);
+		const int physicalAvailable = capacity - craft->getSpaceUsed();
+		const int space = std::max(0, std::min(ownerAvailable, physicalAvailable));
 		if (craft->validateAddingSoldier(space, soldier) != CPE_None)
 			{ failReason = "STR_NOT_ENOUGH_CRAFT_SPACE"; return false; }
 	}

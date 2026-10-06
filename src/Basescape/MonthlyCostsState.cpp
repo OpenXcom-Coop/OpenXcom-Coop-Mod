@@ -31,6 +31,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Mod/RuleCraft.h"
 #include "../Mod/RuleSoldier.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -101,11 +102,13 @@ MonthlyCostsState::MonthlyCostsState(Base *base) : _base(base)
 	_txtSalaries->setText(tr("STR_SALARIES"));
 
 	std::ostringstream ss;
-	ss << tr("STR_INCOME") << "=" << Unicode::formatFunding(_game->getSavedGame()->getCountryFunding());
+	ss << tr("STR_INCOME") << "=" << Unicode::formatFunding(
+		_game->getSavedGame()->getPlayerIncomeShare(_game->getSavedGame()->getCountryFunding()));
 	_txtIncome->setText(ss.str());
 
 	std::ostringstream ss2;
-	ss2 << tr("STR_MAINTENANCE") << "=" << Unicode::formatFunding(_game->getSavedGame()->getBaseMaintenance());
+	ss2 << tr("STR_MAINTENANCE") << "=" << Unicode::formatFunding(
+		SeparateEcon::localPlayerMaintenance(_game));
 	_txtMaintenance->setText(ss2.str());
 
 	_lstCrafts->setColumns(4, 125, 70, 44, 50);

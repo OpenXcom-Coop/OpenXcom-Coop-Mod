@@ -28,8 +28,6 @@
 #include "../Engine/Options.h"
 #include "InterceptState.h"
 #include "CraftErrorState.h"
-#include "../Menu/ErrorMessageState.h"
-#include "../Mod/RuleInterface.h"
 #include "../CoopMod/SeparateEcon.h"
 #include "../Engine/LocalizedText.h"
 #include "../Mod/AlienDeployment.h"
@@ -154,12 +152,9 @@ void MissionDetectedState::btnInterceptClick(Action *)
 {
 	if (!SeparateEcon::ownsMissionTarget(_game, _mission))
 	{
-		const RuleInterface* interface = _game->getMod()->getInterface("geoscape");
-		_game->pushState(new ErrorMessageState(
+		_game->pushState(new CraftErrorState(_state,
 			tr("STR_COOP_MISSION_BELONGS_TO_PLAYER").arg(
-				SeparateEcon::missionTargetOwner(_mission)), _palette,
-			interface->getElement("errorMessage")->color, "BACK13.SCR",
-			interface->getElement("errorPalette")->color));
+				SeparateEcon::missionTargetOwner(_mission))));
 		return;
 	}
 	_state->timerReset();

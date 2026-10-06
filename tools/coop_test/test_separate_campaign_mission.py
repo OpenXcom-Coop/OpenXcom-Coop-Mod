@@ -6,7 +6,10 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo
+import session
 import separate_campaign_fixture as fixture
+import test_parallel_intents as parallel_intents
+import test_parallel_sharedturn as parallel_sharedturn
 
 
 def states(gc):
@@ -33,11 +36,32 @@ def drain_to_tactical(host, client, rounds=12):
         time.sleep(1.0)
 
 
-def main():
-    js = fixture.bring_up("sep_mission", (48972, 48973, 48272))
+def main(parallel=False):
+    tag = "sep_parallel_mission" if parallel else "sep_mission"
+    ports = (48982, 48983, 48282) if parallel else (48972, 48973, 48272)
+    battle_options = {
+        "EnableCoopParallelTurns": parallel,
+        "battleXcomSpeed": 2,
+        "battleAlienSpeed": 2,
+        "skipNextTurnScreen": parallel,
+    }
+    js = fixture.bring_up(
+        tag, ports,
+        host_options=battle_options,
+        client_options={"EnableCoopParallelTurns": False,
+                        "battleXcomSpeed": 2, "battleAlienSpeed": 2})
     host, client = js.host, js.client
     try:
         fixture.assert_fresh_named_world(host, client)
+
+        # Separate is one authoritative world. Player-local starting rosters may
+        # originally use the same ids, but they must be upgraded before any
+        # Soldier id is inherited by a BattleUnit.
+        for gc, label in ((host, "host"), (client, "client")):
+            roster = gc.ok({"cmd": "get_soldiers"})["bases"]
+            ids = [s["id"] for b in roster for s in b["soldiers"]]
+            assert len(ids) == len(set(ids)), \
+                f"{label} Separate world still contains duplicate soldier ids: {ids}"
         geo.slow_clock(host, client)
         world = fixture.geo(host)
         client_base = next(b for b in world["bases"] if b["name"] == "ClientBase")
@@ -45,6 +69,23 @@ def main():
                                 if b["name"] == "ClientBase")
         assert not client_base_view["coopBase"], client_base_view
         craft = next(c for c in client_base["crafts"] if c["type"] == "STR_SKYRANGER")
+
+        # A real Separate craft may carry both players' soldiers.  Preserve the
+        # deployment rule the UI relies on (host crew occupies the outer craft
+        # positions and host authority starts the battle), and prove that this
+        # does not block either seat from moving on the first parallel XCOM side.
+        if parallel:
+            aboard = [s for s in fixture.soldiers_at(host, "ClientBase")
+                      if s["craftId"] == craft["id"]]
+            assert len(aboard) >= 2, aboard
+            # Shared's roster order alternates ownership. Stamp the Separate
+            # fixture the same way so the runtime assertion proves the normal
+            # craft deployment maps host/client to its left/right sequence.
+            for index, member in enumerate(aboard):
+                owner = index % 2
+                for gc in (host, client):
+                    gc.ok({"cmd": "set_soldier_owner", "base": "ClientBase",
+                           "soldier_id": member["id"], "owner": owner})
 
         # Send the CLIENT-owned craft to a nearby real mission site.
         site = host.ok({"cmd": "spawn_mission_site",
@@ -158,6 +199,20 @@ def main():
         assert hb["host"] is True, hb
         assert cb["host"] is False, cb
         assert cb["battleInit"] is True, cb
+        assert hb.get("parallelActive") is parallel, hb
+        assert cb.get("parallelActive") is parallel, cb
+        if parallel:
+            deployed = [u for u in hb["units"] if u.get("faction") == 0
+                        and not u.get("isOut") and u.get("isPlayerSoldier")]
+            for seat, label in ((0, "host"), (1, "client")):
+                assert any(u.get("faction") == 0 and not u.get("isOut")
+                           and u.get("coop") == seat for u in hb["units"]), (
+                               f"mixed Separate craft has no {label} soldier", hb)
+            host_x = [u["x"] for u in deployed if u.get("coop") == 0]
+            client_x = [u["x"] for u in deployed if u.get("coop") == 1]
+            assert max(host_x) < min(client_x), (
+                "Separate deployment must put every host soldier in the left "
+                f"lane and every client soldier in the right lane: {deployed}")
 
         def client_controls_soldier():
             bs = client.ok({"cmd": "battle_state"})
@@ -188,10 +243,13 @@ def main():
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1),
                            (1, 1), (1, -1), (-1, 1), (-1, -1)):
                 target = (before[0] + dx, before[1] + dy, before[2])
-                result = client.cmd({"cmd": "battle_action", "action": "move",
+                command = "battle_intent" if parallel else "battle_action"
+                result = client.cmd({"cmd": command, "action": "move",
                                      "unit": unit["id"], "x": target[0],
                                      "y": target[1], "z": target[2]})
                 if result.get("ok"):
+                    if parallel:
+                        assert result.get("routed") is True, result
                     moved = (unit["id"], before)
                     break
                 errors.append((unit["id"], target, result.get("error")))
@@ -206,6 +264,16 @@ def main():
                     return unit["x"], unit["y"], unit["z"]
             return None
 
+        if parallel:
+            client.wait_for(
+                "client parallel intent finishes",
+                lambda: (parallel_intents.parallel(client).get("pendingReqId") == 0) or None,
+                timeout=60, interval=0.25)
+            deny = parallel_intents.parallel(client).get("lastDenyWarning", "")
+            assert not deny, (
+                f"client-owned Separate soldier {moved_id} was denied: {deny}; "
+                f"host units={host.ok({'cmd': 'battle_state'})['units']}; "
+                f"client units={client.ok({'cmd': 'battle_state'})['units']}")
         client.wait_for("client walk completes",
                         lambda: (unit_pos(client, moved_id) != before) or None,
                         timeout=30, interval=0.25)
@@ -214,23 +282,78 @@ def main():
                       timeout=30, interval=0.25)
         assert unit_pos(host, moved_id) != before
 
+        if parallel:
+            # The client-requested mission must retain the exact useful mixed
+            # deployment of a host-requested mission: host crew at the outer
+            # craft positions and client crew behind them, with BOTH seats able
+            # to begin leaving the craft during the first shared XCOM side.
+            host_moved = None
+            for unit in [u for u in host.ok({"cmd": "battle_state"})["units"]
+                         if u.get("faction") == 0 and not u.get("isOut")
+                         and u.get("coop") == 0]:
+                probe = host.cmd({"cmd": "battle_intent", "action": "probe_step",
+                                  "unit": unit["id"], "radius": 3, "max": 400})
+                if not probe.get("steps"):
+                    continue
+                step = probe["steps"][-1]
+                host_before = unit_pos(host, unit["id"])
+                result = host.cmd({"cmd": "battle_intent", "action": "move",
+                                   "unit": unit["id"], "x": step["x"],
+                                   "y": step["y"], "z": step["z"]})
+                if not result.get("ok"):
+                    continue
+                host.wait_for("host first-turn craft walk finishes",
+                              lambda: parallel_intents.parallel(host).get("canAdmit") is True or None,
+                              timeout=60, interval=0.25)
+                if unit_pos(host, unit["id"]) != host_before:
+                    host_moved = unit["id"]
+                    break
+            assert host_moved is not None, (
+                "host could not move its outer-positioned soldier on the first "
+                "parallel XCOM side")
+            client.wait_for("host first-turn craft walk reaches client",
+                            lambda: unit_pos(client, host_moved) == unit_pos(host, host_moved) or None,
+                            timeout=45, interval=0.25)
+            print("PASS Separate mixed craft: host and client both move their own "
+                  "soldiers on the first parallel XCOM side")
+
         # Both ready presses must advance the side rather than leave NextTurnState
 		# permanently waiting.
         start = host.ok({"cmd": "battle_state"})
         start_turn, start_side = start["turn"], start["side"]
         client.ok({"cmd": "battle_action", "action": "end_turn_button"})
-        host.wait_for(
-            "Separate end turn leaves the player side",
-            lambda: ((lambda bs: bs.get("side") != start_side
-                     or bs.get("turn", start_turn) > start_turn)(
-                         host.ok({"cmd": "battle_state"}))) or None,
-            timeout=60, interval=0.5)
-        client.wait_for(
-            "client observes the same side transition",
-            lambda: ((lambda bs: bs.get("side") != start_side
-                     or bs.get("turn", start_turn) > start_turn)(
-                         client.ok({"cmd": "battle_state"}))) or None,
-            timeout=60, interval=0.5)
+        if parallel:
+            # Parallel mode closes the shared player side only after both seats
+            # are ready.  Run the complete alien side: the reported regression
+            # surfaced at the following sidestart, not merely on hand-off.
+            host.ok({"cmd": "sync_capture", "on": True})
+            client.ok({"cmd": "sync_capture", "on": True})
+            returned_turn = parallel_sharedturn.cycle_side(host, client)
+            assert returned_turn and returned_turn > start_turn, {
+                "host": host.ok({"cmd": "battle_state"}),
+                "client": client.ok({"cmd": "battle_state"})}
+            host_sync = host.ok({"cmd": "parallel_state"}).get("syncCheck", {})
+            client_sync = client.ok({"cmd": "parallel_state"}).get("syncCheck", {})
+            assert not host_sync.get("fieldDiffs"), host_sync.get("fieldDiffs")
+            assert not client_sync.get("fieldDiffs"), client_sync.get("fieldDiffs")
+            session.assert_battle_synced(
+                host, client, "Separate parallel alien-side return")
+            session.assert_sync_clean(
+                host, client, "Separate parallel alien-side return")
+            print("PASS Separate parallel boundary: alien side returns without desync")
+        else:
+            host.wait_for(
+                "Separate end turn leaves the player side",
+                lambda: ((lambda bs: bs.get("side") != start_side
+                         or bs.get("turn", start_turn) > start_turn)(
+                             host.ok({"cmd": "battle_state"}))) or None,
+                timeout=60, interval=0.5)
+            client.wait_for(
+                "client observes the same side transition",
+                lambda: ((lambda bs: bs.get("side") != start_side
+                         or bs.get("turn", start_turn) > start_turn)(
+                             client.ok({"cmd": "battle_state"}))) or None,
+                timeout=60, interval=0.5)
         print("PASS Separate tactical control: client walk converges and end turn advances")
         print("PASS Separate mission: owner-only prompt, correct base, and playable battle")
     finally:

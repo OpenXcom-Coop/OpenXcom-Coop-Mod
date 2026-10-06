@@ -13829,6 +13829,13 @@ void connectionTCP::refreshSeparateBaseOwnership()
 	if (save && save->isCoopSave()
 		&& save->getCampaignType() == CoopCampaignType::Separate)
 	{
+		// Schema-3 is one world, so player-local soldier ids must be upgraded
+		// before a BattleUnit inherits them. This is deterministic on replicas and
+		// also upgrades old Separate geoscape saves on first load.
+		if (!save->getSavedBattle())
+		{
+			SeparateEcon::normalizeSoldierIds(_game);
+		}
 		const std::string localName = seatName(localSeat());
 		if (!localName.empty())
 		{

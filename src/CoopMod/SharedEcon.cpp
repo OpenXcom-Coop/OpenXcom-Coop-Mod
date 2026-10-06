@@ -3953,7 +3953,15 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 	//
 	// The ITEM terms keep comparing unconditionally: an item id minted on one
 	// machine only is not a state a late chain can heal.
-	const bool unitsComparable = !rxPassDeferred();
+	// Parallel replay intentionally reaches this legacy checksum BEFORE the
+	// host's next_turn unit snapshot is applied.  A death/fall animation may
+	// therefore still be one display step behind even when the snapshot about to
+	// be consumed makes the two battles identical.  The modern unitsCore and
+	// unitsRegen buckets compare at SIDESTART, after that absolute snapshot, and
+	// retain the real persistent-unit desync coverage.  Keep this old pre-apply
+	// unit term for classic co-op only; its item-id/census terms remain active in
+	// both modes below.
+	const bool unitsComparable = !connectionTCP::parallelTurnActive() && !rxPassDeferred();
 	// coop (option 3, 2c lever-on): the ITEM terms also get the behind-at-boundary guard
 	// (a corpse mint / item removal still replaying here is a late chain that heals) - the
 	// same rxPassDeferred() guard `units` already uses. Lever-off keeps the item terms

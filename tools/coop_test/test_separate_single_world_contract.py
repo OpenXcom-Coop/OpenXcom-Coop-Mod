@@ -92,11 +92,13 @@ def main():
     assert "SharedEcon::ownsSoldier(_game, soldier)" in craft_info
     separate_capacity = craft.split("if (connectionTCP::isSeparateCampaignStatic())", 1)[1]
     separate_capacity = separate_capacity.split("// coop", 1)[0]
-    assert "getMaxUnitsClamped() / 2" in separate_capacity
+    assert "(capacity + 1) / 2" in separate_capacity
+    assert "std::min(ownerAvailable, physicalAvailable)" in separate_capacity
     assert "getSpaceUsedByOwner(connectionTCP::localSeat())" in separate_capacity
     separate_validation = separate.split("bool validateCraftAssign", 1)[1].split(
         "void submitCraftEquip", 1)[0]
-    assert "getMaxUnitsClamped() / 2" in separate_validation
+    assert "(capacity + 1) / 2" in separate_validation
+    assert "std::min(ownerAvailable, physicalAvailable)" in separate_validation
     assert "getSpaceUsedByOwner(seat)" in separate_validation
     assert "soldier->getOwnerPlayerId() != seat" in separate_validation
     separate_assign = separate.split("void submitCraftAssign", 1)[1].split(
@@ -174,7 +176,8 @@ def main():
 
     assert 'reader.tryRead("battleOwnerPlayerName"' in battle
     assert 'writer.write("battleOwnerPlayerName"' in battle
-    assert "setBattleOwnerPlayerName(_craft->getBase()->getOwnerPlayerName())" in landing
+    assert "_craft->getBase()->getOwnerPlayerName()" in landing
+    assert "setBattleOwnerPlayerName(battleOwner)" in landing
 
     country_funding = save.split("int SavedGame::getCountryFunding", 1)[1].split(
         "int SavedGame::getPlayerIncomeShare", 1)[0]

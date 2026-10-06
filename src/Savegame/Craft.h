@@ -323,6 +323,8 @@ public:
 	bool isPilot(int pilotId);
 	/// Adds a pilot to the list.
 	void addPilot(int pilotId);
+	/// Replaces a persistent soldier id in the pilot list.
+	void remapPilotId(int oldId, int newId);
 	/// Removes all pilots from the list.
 	void removeAllPilots();
 	/// Gets the list of craft pilots.

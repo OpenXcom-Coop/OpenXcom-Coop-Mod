@@ -35,8 +35,6 @@
 #include "../Savegame/AlienMission.h"
 #include "InterceptState.h"
 #include "CraftErrorState.h"
-#include "../Menu/ErrorMessageState.h"
-#include "../Mod/RuleInterface.h"
 #include "../CoopMod/SeparateEcon.h"
 #include "../Mod/RuleCraft.h"
 
@@ -281,12 +279,9 @@ void UfoDetectedState::btnInterceptClick(Action *)
 {
 	if (!SeparateEcon::ownsMissionTarget(_game, _ufo))
 	{
-		const RuleInterface* interface = _game->getMod()->getInterface("geoscape");
-		_game->pushState(new ErrorMessageState(
+		_game->pushState(new CraftErrorState(_state,
 			tr("STR_COOP_MISSION_BELONGS_TO_PLAYER").arg(
-				SeparateEcon::missionTargetOwner(_ufo)), _palette,
-			interface->getElement("errorMessage")->color, "BACK13.SCR",
-			interface->getElement("errorPalette")->color));
+				SeparateEcon::missionTargetOwner(_ufo))));
 		return;
 	}
 	_state->timerReset();
