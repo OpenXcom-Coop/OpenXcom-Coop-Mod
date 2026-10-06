@@ -3469,6 +3469,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 	}
 	if (removeSite)
 	{
+		const Json::Value h17cMark = SharedEcon::eventMark(_game); // coop W2-H17c (F7222): the despawn's research and counters, from here
 		// Unlock research defined in alien deployment, if the mission site despawned
 		const RuleResearch* research = _game->getMod()->getResearch(site->getDeployment()->getUnlockedResearchOnDespawn());
 		_game->getSavedGame()->handleResearchUnlockedByMissions(research, _game->getMod(), site->getDeployment());
@@ -3481,6 +3482,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		_game->getSavedGame()->decreaseCustomCounter(site->getDeployment()->getDecreaseCounterDespawn());
 		_game->getSavedGame()->decreaseCustomCounter(site->getDeployment()->getDecreaseCounterFailure()); // despawn is also a type of failure
 		_game->getSavedGame()->decreaseCustomCounter(site->getDeployment()->getDecreaseCounterAll());
+		SharedEcon::hostResearchGrant(_game, h17cMark, "despawn", true); // coop W2-H17c (F7222): before the despawn event's geo_event
 
 		// Generate a despawn event
 		auto* eventRules = _game->getMod()->getEvent(site->getDeployment()->chooseDespawnEvent());
@@ -4851,6 +4853,8 @@ void GeoscapeState::time1MonthCoop()
 			sg->getExpenditures().back() = _game->getCoopMod()->sharedMonthlyExpenditure;
 		if (!sg->getResearchScores().empty())
 			sg->getResearchScores().back() = _game->getCoopMod()->sharedMonthlyResearchScore;
+		if (sg->getResearchScores().size() >= 2) // coop W2-H17c (F7225): the month the host just ended, as the host settled it
+			sg->getResearchScores()[sg->getResearchScores().size() - 2] = _game->getCoopMod()->sharedMonthlyResearchScoreEnded; // coop
 		_game->getCoopMod()->sharedMonthlyPending = false;
 	}
 
@@ -6360,6 +6364,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			}
 		}
 
+		const Json::Value h17cArcMark = save->getMonthsPassed() > 0 ? SharedEcon::eventMark(_game) : Json::Value(); // coop W2-H17c (F7224): month 0 rides the first world stream
 		// start processing command array
 		for (auto* arcCommand : relevantArcScripts)
 		{
@@ -6394,6 +6399,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			{
 				auto* ruleResearchSeq = mod->getResearch(disabledSeqArcs.front(), true); // take first
 				save->addFinishedResearch(ruleResearchSeq, mod, hq, true);
+				SharedEcon::noteGrantArticle(_game, ruleResearchSeq); // coop W2-H17c (Q2 a): the article vanilla opens below
 				++arcsEnabled;
 				if (ruleResearchSeq)
 				{
@@ -6413,6 +6419,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			{
 				auto* ruleResearchRng = mod->getResearch(disabledRngArcs.choose(), true); // take random
 				save->addFinishedResearch(ruleResearchRng, mod, hq, true);
+				SharedEcon::noteGrantArticle(_game, ruleResearchRng); // coop W2-H17c (Q2 a): the article vanilla opens below
 				++arcsEnabled; // for good measure :)
 				if (ruleResearchRng)
 				{
@@ -6428,6 +6435,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				}
 			}
 		}
+		SharedEcon::hostResearchGrant(_game, h17cArcMark, "arc", false); // coop W2-H17c (Q3 a): no score - the monthly roll carries the ended month
 	}
 
 	// well, here it is, ladies and gents, the nuts and bolts behind the geoscape mission scheduling.

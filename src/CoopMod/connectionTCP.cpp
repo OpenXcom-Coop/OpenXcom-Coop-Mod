@@ -35440,6 +35440,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			sharedMonthlyIncome = obj.get("sharedIncome", 0).asInt64();
 			sharedMonthlyExpenditure = obj.get("sharedExpenditure", 0).asInt64();
 			sharedMonthlyResearchScore = obj.get("sharedResearchScore", 0).asInt();
+			sharedMonthlyResearchScoreEnded = obj.get("sharedResearchScoreEnded", 0).asInt(); // W2-H17c (F7225)
 			sharedMonthlyPending = true;
 		}
 
