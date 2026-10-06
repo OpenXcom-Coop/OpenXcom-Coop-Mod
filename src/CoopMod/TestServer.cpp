@@ -11731,6 +11731,7 @@ std::string TestServer::execute(const std::string& line)
 						jc["coopBaseId"] = b->_coop_base_id;
 						jc["coop"] = c->coop;
 						jc["type"] = c->getRules()->getType();
+						jc["name"] = c->getName(_game->getLanguage()); // W2-A12b (F6784): the name the geoscape craft window shows (read-only)
 						jc["status"] = c->getStatus();
 						jc["lon"] = c->getLongitude();
 						jc["lat"] = c->getLatitude();
