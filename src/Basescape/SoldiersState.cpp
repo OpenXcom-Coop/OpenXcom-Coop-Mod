@@ -943,6 +943,7 @@ void SoldiersState::btnInventoryClick(Action *)
 			}
 		}
 
+		SharedEcon::baseEquipOpen(_game, _base); // coop W2-H20 (D255 a): the soldiers' gear before vanilla's open (Ctrl+Alt clears it)
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.setBase(_base);
 		bgen.runInventory(0);
