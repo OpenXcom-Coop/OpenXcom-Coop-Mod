@@ -775,7 +775,7 @@ def main():
               f"yet): {RESET_TALLY}")
 
         # host's RESUME click - CoopState(62) -> BattlescapeState, no HostMenu/LobbyMenu
-        host.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host, "host RESUME", codes=(60, 62))
         for gc, tag in ((host, "host"), (client, "client")):
             gc.wait_for(f"{tag} on BattlescapeState after RESUME",
                         lambda gc=gc: (top(gc) == "BattlescapeState") or None, timeout=60, interval=0.5)

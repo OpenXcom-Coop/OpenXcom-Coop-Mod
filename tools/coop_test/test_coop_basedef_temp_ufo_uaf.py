@@ -119,7 +119,7 @@ def main():
         host.wait_for("client world ack",
                       lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
                       timeout=120)
-        host.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host, "host RESUME", codes=(60, 62))
         time.sleep(2.0)
         geo.drain_popups(host); geo.drain_popups(client)
 
