@@ -1688,15 +1688,14 @@ void GeoscapeState::think()
 						// new!
 						root["crafts"][craft_index]["shield"] = craft->getShield();
 						root["crafts"][craft_index]["interceptionOrder"] = craft->getInterceptionOrder();
-						root["crafts"][craft_index]["craft_name"] = craft->getName(_game->getLanguage());
+						root["crafts"][craft_index]["craft_name"] = craft->getName(_game->getLanguage()) == craft->getDefaultName(_game->getLanguage()) ? std::string() : craft->getName(_game->getLanguage()); // coop W2-A12b (F6784): a custom name only - the peer renders a default name in its own language
 						// returning-state flags, so the peer shows the correct craft
 						// status ("LOW FUEL" vs "MISSION COMPLETE" vs "RETURNING")
 						root["crafts"][craft_index]["lowFuel"] = craft->getLowFuel();
 						root["crafts"][craft_index]["mission"] = craft->getMissionComplete();
-						// full pre-localized airborne status string (destination /
-						// dogfight state is not replicated, so the peer can't derive
-						// it locally). Renders identically to the owner's own UI.
-						root["crafts"][craft_index]["geoStatus"] = craft->getGeoscapeStatusString(_game->getLanguage());
+						// the owner's airborne status as a text node (its destination / dogfight state is not replicated); the peer
+						// renders it in its own language (coop W2-A12b, F6784)
+						root["crafts"][craft_index]["geoStatusText"] = SharedEcon::craftStatusText(_game, craft);
 						// vehciles
 						root["crafts"][craft_index]["num_total_vehicles"] = craft->getNumTotalVehicles();
 						// soldiers
@@ -2622,7 +2621,7 @@ void GeoscapeState::time5Seconds()
 				{
 					std::string msg = tr("STR_UFO_HAS_LANDED").arg(ufo->getName(_game->getLanguage()));
 					popup(new CraftErrorState(this, msg, true, ufo));
-					SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+					SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_UFO_HAS_LANDED", {SharedEcon::textName(_game, ufo)})); // coop W2-A12b (AUD-A12)
 				}
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty())
 				{
@@ -2630,7 +2629,7 @@ void GeoscapeState::time5Seconds()
 					if (!(ufo->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && ufo->getStatus() == Ufo::LANDED) && ufo->_coop == false)
 					{
 						popup(new UfoLostState(ufo->getName(_game->getLanguage())));
-						SharedEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
+						SharedEcon::hostAlertText(_game, "UfoLostState", SharedEcon::textName(_game, ufo)); // coop W2-A12b (AUD-A12)
 					}
 				
 				}
@@ -2661,8 +2660,8 @@ void GeoscapeState::time5Seconds()
 					// would double-apply the consequences. The client gets the alert, and
 					// then the outcome - the battle (battlehost), base_damaged, or
 					// base_destroyed - through its own replicated path.
-					SharedEcon::hostAlert(_game, "CraftErrorState",
-						tr("STR_BASE_UNDER_ATTACK").arg(base->getName()), base);
+					SharedEcon::hostAlertText(_game, "CraftErrorState", // coop W2-A12b (AUD-A12)
+						SharedEcon::textKey("STR_BASE_UNDER_ATTACK", {SharedEcon::textLiteral(base->getName())}), base); // coop W2-A12b (AUD-A12)
 					if (!base->getDefenses()->empty() && !ufo->getMission()->getRules().ignoreBaseDefenses())
 					{
 						bool instaHyper = ufo->getRules()->isInstaHyper() || mission->getRules().isInstaHyper();
@@ -2710,7 +2709,7 @@ void GeoscapeState::time5Seconds()
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty() && ufo->_coop == false)
 				{
 					popup(new UfoLostState(ufo->getName(_game->getLanguage())));
-					SharedEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
+					SharedEcon::hostAlertText(_game, "UfoLostState", SharedEcon::textName(_game, ufo)); // coop W2-A12b (AUD-A12)
 				}
 			}
 			break;
@@ -2942,14 +2941,14 @@ void GeoscapeState::time5Seconds()
 								if (xcraft->getRules()->isWaterOnly() && u->getAltitudeInt() > xcraft->getRules()->getMaxAltitude())
 								{
 									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_DEPTH")));
-									SharedEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_DEPTH"), nullptr, xcraft->getId());
+									SharedEcon::hostAlertText(_game, "DogfightErrorState", SharedEcon::textKey("STR_UNABLE_TO_ENGAGE_DEPTH"), nullptr, xcraft->getId()); // coop W2-A12b (AUD-A12)
 									dogfight->setMinimized(true);
 									dogfight->setWaitForAltitude(true);
 								}
 								else if (xcraft->getRules()->isWaterOnly() && !_globe->insideLand(xcraft->getLongitude(), xcraft->getLatitude()))
 								{
 									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
-									SharedEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_AIRBORNE"), nullptr, xcraft->getId());
+									SharedEcon::hostAlertText(_game, "DogfightErrorState", SharedEcon::textKey("STR_UNABLE_TO_ENGAGE_AIRBORNE"), nullptr, xcraft->getId()); // coop W2-A12b (AUD-A12)
 									dogfight->setMinimized(true);
 									dogfight->setWaitForPoly(true);
 								}
@@ -3328,7 +3327,7 @@ void GeoscapeState::ufoHuntingAndEscorting()
 							.arg(ufo->getName(_game->getLanguage()))
 							.arg(newTarget->getName(_game->getLanguage()));
 						popup(new CraftErrorState(this, msg));
-						SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+						SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_UFO_STARTED_HUNTING", {SharedEcon::textName(_game, ufo), SharedEcon::textName(_game, newTarget)})); // coop W2-A12b (AUD-A12)
 					}
 				}
 			}
@@ -3462,7 +3461,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 			if (!noFollowers)
 			{
 				popup(new UfoLostState(site->getName(_game->getLanguage())));
-				SharedEcon::hostAlert(_game, "UfoLostState", site->getName(_game->getLanguage()));
+				SharedEcon::hostAlertText(_game, "UfoLostState", SharedEcon::textName(_game, site)); // coop W2-A12b (AUD-A12)
 			}
 		}
 		else
@@ -3623,7 +3622,7 @@ void GeoscapeState::time30Minutes()
 					{
 						std::string msg = tr("STR_CRAFT_IS_READY").arg(xcraft->getName(_game->getLanguage())).arg(xbase->getName());
 						popup(new CraftErrorState(this, msg));
-						SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+						SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_CRAFT_IS_READY", {SharedEcon::textName(_game, xcraft), SharedEcon::textLiteral(xbase->getName())})); // coop W2-A12b (AUD-A12)
 					}
 					// auto-patrol
 					if (xcraft->getStatus() == "STR_READY" && xcraft->getRules()->canAutoPatrol())
@@ -3650,7 +3649,7 @@ void GeoscapeState::time30Minutes()
 										.arg(xcraft->getName(_game->getLanguage()))
 										.arg(xbase->getName());
 					popup(new CraftErrorState(this, msg));
-					SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+					SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REFUEL_CRAFT_AT_BASE", {SharedEcon::textKey(item), SharedEcon::textName(_game, xcraft), SharedEcon::textLiteral(xbase->getName())})); // coop W2-A12b (AUD-A12)
 				}
 			}
 		}
@@ -3831,7 +3830,7 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 			if (!ufo->getFollowers()->empty() && ufo->_coop == false)
 			{
 				popup(new UfoLostState(ufo->getName(_game->getLanguage())));
-				SharedEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
+				SharedEcon::hostAlertText(_game, "UfoLostState", SharedEcon::textName(_game, ufo)); // coop W2-A12b (AUD-A12)
 			}
 		}
 	}
@@ -3886,7 +3885,7 @@ void GeoscapeState::time1Hour()
 									   .arg(xcraft->getName(_game->getLanguage()))
 									   .arg(xbase->getName());
 					popup(new CraftErrorState(this, msg));
-					SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+					SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REARM_CRAFT_AT_BASE", {SharedEcon::textKey(ammo->getType()), SharedEcon::textName(_game, xcraft), SharedEcon::textLiteral(xbase->getName())})); // coop W2-A12b (AUD-A12)
 				}
 			}
 			if (xcraft->getShieldCapacity() > 0 && xcraft->getStatus() != "STR_OUT")
@@ -3910,7 +3909,7 @@ void GeoscapeState::time1Hour()
 					.arg(tr(facility->getRules()->getType()))
 					.arg(xbase->getName());
 				popup(new CraftErrorState(this, msg));
-				SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+				SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REARM_FACILITY_AT_BASE", {SharedEcon::textKey(ammo->getType()), SharedEcon::textKey(facility->getRules()->getType()), SharedEcon::textLiteral(xbase->getName())})); // coop W2-A12b (AUD-A12)
 			}
 		}
 	}
@@ -3965,6 +3964,8 @@ void GeoscapeState::time1Hour()
 				Json::Value j;
 				j["type"] = r.type;
 				j["name"] = r.name;
+				j["text"] = r.nameKey.empty() ? SharedEcon::textLiteral(r.name) : r.nameId < 0 ? SharedEcon::textKey(r.nameKey) // coop W2-A12b (F6783)
+					: SharedEcon::textKey("STR_CRAFTNAME", {SharedEcon::textKey(r.nameKey), Json::Value(r.nameId)}); // coop W2-A12b (F6783)
 				j["qty"] = r.qty;
 				j["base"] = r.base;
 				j["baseIdx"] = r.baseIdx;
@@ -4701,7 +4702,7 @@ void GeoscapeState::time1Day()
 				.arg(Unicode::formatFunding(maintenance))
 				.arg(Unicode::formatFunding(projection));
 			popup(new CraftErrorState(this, msg, false));
-			SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+			SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_ECONOMY_WARNING", {SharedEcon::textLiteral(Unicode::formatFunding(funds)), SharedEcon::textLiteral(Unicode::formatFunding(income)), SharedEcon::textLiteral(Unicode::formatFunding(maintenance)), SharedEcon::textLiteral(Unicode::formatFunding(projection))})); // coop W2-A12b (AUD-A12)
 		}
 	}
 

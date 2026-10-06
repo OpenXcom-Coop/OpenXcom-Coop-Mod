@@ -17344,7 +17344,17 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 				Json::Value m(Json::objectValue);
 				m["item"] = stat.item;
 				m["qty"] = stat.qty;
-				m["craft"] = stat.craft;
+				// W2-A12b (F6780; AUD-A12): the craft's name as a text node - ReequipStat holds only the host's rendered name
+				// (DebriefingState.h :52), so the craft that renders it gives the parts; the SHARED client renders it.
+				m["craftText"] = SharedEcon::textLiteral(stat.craft);
+				for (auto* b : *_game->getSavedGame()->getBases())
+				{
+					for (auto* c : *b->getCrafts())
+					{
+						if (c->getName(_game->getLanguage()) == stat.craft)
+							m["craftText"] = SharedEcon::textName(_game, c);
+					}
+				}
 				missing.append(m);
 			}
 			debrief["missingItems"] = missing;
@@ -26336,7 +26346,7 @@ void connectionTCP::coopCampaignFollowupChain(DebriefingState* db)
 	{
 		std::vector<ReequipStat> items;
 		for (const Json::Value& m : missing)
-			items.push_back(ReequipStat{ m.get("item", "").asString(), m.get("qty", 0).asInt(), m.get("craft", "").asString(), 0 });
+			items.push_back(ReequipStat{ m.get("item", "").asString(), m.get("qty", 0).asInt(), SharedEcon::textRender(_game, m["craftText"]), 0 }); // W2-A12b (F6780)
 		_game->pushState(new CannotReequipState(items, db->_base));
 		chain.append("CannotReequipState");
 	}
@@ -35739,8 +35749,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						// packets don't throw); drives the correct status display
 						craft->setLowFuel(obj["crafts"][i].get("lowFuel", false).asBool());
 						craft->setMissionComplete(obj["crafts"][i].get("mission", false).asBool());
-						// pre-localized airborne status string from the owner
-						craft->setCoopGeoStatus(obj["crafts"][i].get("geoStatus", "").asString());
+						// the owner's airborne status as a text node, rendered in this machine's language (W2-A12b, F6784)
+						craft->setCoopGeoStatus(SharedEcon::textRender(_game, obj["crafts"][i]["geoStatusText"]));
 
 						// weapons
 						auto& weapons = *craft->getWeapons();

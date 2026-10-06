@@ -39,6 +39,7 @@ struct ArrivalRow
 	std::string base;
 	int baseIdx;
 	int ownerSeat;
+	std::string nameKey; int nameId = -1; // coop W2-A12b (AUD-A12): the replica renders name from these ("" = language-neutral; nameId >= 0 = a craft's default name)
 };
 
 /**
