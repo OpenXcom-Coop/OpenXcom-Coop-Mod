@@ -1179,6 +1179,7 @@ void InventoryState::btnOkClick(Action *)
 				}
 			}
 		}
+		if (_base && _noCraft) SharedEcon::craftStageClose(_game, _base); // coop W2-H20b-B (A3): the screen's craft end-state to the host
 		if (_parent)
 		{
 			_battleGame->startFirstTurn();
@@ -2083,6 +2084,7 @@ void InventoryState::onMoveGroundInventoryToBase(Action *)
 	Tile                     *groundTile = unit->getTile();
 	std::vector<BattleItem*> *groundInv = groundTile->getInventory();
 
+	Json::Value coopCraftMark = SharedEcon::craftItemsMark(_game, _base, c); // coop W2-H20b-B (A12)
 	// step 1: move stuff from craft to base
 	for (auto* bi : *groundInv)
 	{
@@ -2106,6 +2108,7 @@ void InventoryState::onMoveGroundInventoryToBase(Action *)
 		_base->getStorageItems()->addItem(weaponType);
 	}
 
+	SharedEcon::craftItemsCommit(_game, _base, c, coopCraftMark); // coop W2-H20b-B (A12): the end-state to the host
 	// step 2: clear ground
 	for (auto itemIt = groundInv->begin(); itemIt != groundInv->end(); )
 	{

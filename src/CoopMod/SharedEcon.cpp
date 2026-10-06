@@ -2852,6 +2852,11 @@ void equipTemplateApply(Game* game, Json::Value& payload, Base* /*base*/, int /*
 	Log(LOG_INFO) << "[SHARED] equip_template: " << kind << " " << index << " written";
 }
 
+// W2-H20b-B (QB2 a): THIS machine's open option-ON staging window, null = closed: {base: index, crafts: [{craftId, craftType, items
+// {type: count}}], seats {"<soldier id>": {craftId, craftType} or null}}. craftStageOpen opens it, craftStageClose commits and closes it,
+// notifyWorldAdopted / resetSessionQueues drop it; while it is open verifyWorldChecksum skips this machine's check (F8259).
+Json::Value g_craftStage(Json::nullValue);
+
 // W2-H16e (F6176) fac_disable { x, y, disabled }, baseId = the base index: the host re-checks vanilla's gate, applies and broadcasts the resolved flag; a replica adopts it.
 bool facDisableValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
                         int64_t& cost, std::string& failReason)
@@ -4769,6 +4774,7 @@ bool buyScreenShouldClose(Game* game, Base* base, bool reequip)
 
 void resetSessionQueues()
 {
+	g_craftStage = Json::Value(Json::nullValue); // W2-H20b-B (QB2 a): no staging window outlives its session
 	size_t cmds = 0, applies = 0, fails = 0;
 	{
 		std::lock_guard<std::mutex> lk(g_mx);
@@ -5739,6 +5745,7 @@ void baseEquipOpen(Game* game, Base* base)
 	for (auto* s : *base->getSoldiers())
 		m["soldiers"][std::to_string(s->getId())] = soldierEquipRecord(s);
 	g_baseEquipMark = m;
+	craftStageOpen(game, base); // W2-H20b-B (A3): the soldier screen's de-assign follows (the craft screen opened it before its staging)
 }
 
 void baseEquipOk(Game* game, Base* base)
@@ -5826,6 +5833,91 @@ void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::strin
 	}
 	soldier->setArmor(prev, true);
 	Log(LOG_INFO) << "[SHARED] base armor change on the partner's soldier " << soldier->getId() << " put back, base " << baseIndex(game, base);
+}
+
+// W2-H20b-B (A8, A12; QB1 a): see SharedEcon.h.
+Json::Value craftItemsMark(Game* game, Base* base, Craft* craft)
+{
+	if (!game || !base || !craft || base->_coopBase || !game->getSavedGame() || game->getSavedGame()->getMonthsPassed() == -1
+		|| !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return Json::Value(Json::nullValue);
+	Json::Value m(Json::objectValue);
+	for (const auto& pr : *craft->getItems()->getContents())
+		if (pr.second > 0) m[pr.first->getType()] = pr.second;
+	return m;
+}
+
+// W2-H20b-B (A8, A12, the window's close; QB1 a, QB4 a): see SharedEcon.h.
+void craftItemsCommit(Game* game, Base* base, Craft* craft, const Json::Value& mark, bool every)
+{
+	if (!game || !base || !craft || !mark.isObject()) return;
+	if (g_craftStage.isObject() && g_craftStage.get("base", -1).asInt() == baseIndex(game, base)) return; // QB4 (a): the close commits
+	const Json::Value now = craftItemsMark(game, base, craft);
+	if (!now.isObject()) return;
+	std::set<std::string> types;
+	for (const auto& t : mark.getMemberNames()) types.insert(t);
+	for (const auto& t : now.getMemberNames()) types.insert(t);
+	std::vector<std::pair<std::string, int>> down, up; // decreases first: the host's capacity clamp (craftEquipApply) sees the room
+	for (const auto& t : types)
+	{
+		const int before = mark.get(t, 0).asInt(), after = now.get(t, 0).asInt();
+		const RuleItem* rule = game->getMod()->getItem(t, false);
+		if ((after == before && !every) || !rule || rule->getVehicleUnit()) continue;
+		(after < before ? down : up).emplace_back(t, after);
+	}
+	for (const auto& d : down) submitCraftEquip(game, craft, d.first, d.second);
+	for (const auto& u : up) submitCraftEquip(game, craft, u.first, u.second);
+	if (!down.empty() || !up.empty())
+		Log(LOG_INFO) << "[SHARED] craft items commit: " << (down.size() + up.size()) << " type(s), craft " << craft->getId() << ", base " << baseIndex(game, base);
+}
+
+// W2-H20b-B (A3, A4; QB2 a): see SharedEcon.h.
+void craftStageOpen(Game* game, Base* base)
+{
+	if (!game || !base || base->_coopBase || !Options::oxceAlternateCraftEquipmentManagement || !game->getSavedGame()
+		|| game->getSavedGame()->getMonthsPassed() == -1 || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (g_craftStage.isObject() && g_craftStage.get("base", -1).asInt() == baseIndex(game, base)) return; // the craft screen opened it
+	Json::Value w(Json::objectValue);
+	w["base"] = baseIndex(game, base);
+	w["crafts"] = Json::Value(Json::arrayValue);
+	for (auto* c : *base->getCrafts())
+	{
+		Json::Value rec(Json::objectValue);
+		rec["craftId"] = c->getId();
+		rec["craftType"] = c->getRules()->getType();
+		rec["items"] = craftItemsMark(game, base, c);
+		w["crafts"].append(rec);
+	}
+	w["seats"] = Json::Value(Json::objectValue);
+	for (auto* s : *base->getSoldiers())
+	{
+		Json::Value seat(Json::nullValue);
+		if (Craft* c = s->getCraft()) { seat = Json::Value(Json::objectValue); seat["craftId"] = c->getId(); seat["craftType"] = c->getRules()->getType(); }
+		w["seats"][std::to_string(s->getId())] = seat;
+	}
+	g_craftStage = w;
+	Log(LOG_INFO) << "[SHARED] craft staging window opened, base " << w["base"].asInt();
+}
+
+// W2-H20b-B (A3, A4, A6; QB1 a, QB3 a): see SharedEcon.h.
+void craftStageClose(Game* game, Base* base)
+{
+	if (!game || !base || !g_craftStage.isObject() || g_craftStage.get("base", -1).asInt() != baseIndex(game, base)) return;
+	Json::Value w = g_craftStage; // a copy: baseEquipOk's idiom
+	g_craftStage = Json::Value(Json::nullValue); // closed first, so the commits below are not deferred (QB4 a)
+	std::set<Craft*> unseated;
+	for (auto* s : *base->getSoldiers())
+	{
+		const std::string key = std::to_string(s->getId());
+		if (s->getCraft() || !w["seats"].isMember(key) || !w["seats"][key].isObject()) continue;
+		Craft* c = findCraft(base, w["seats"][key]["craftId"].asInt(), w["seats"][key]["craftType"].asString());
+		if (!c) continue;
+		submitCraftAssign(game, c, s, false); // QB3 (a): vanilla's capacity outcome here is the shared seat (the partner's soldier too)
+		unseated.insert(c);
+	}
+	for (const auto& rec : w["crafts"])
+		if (Craft* c = findCraft(base, rec["craftId"].asInt(), rec["craftType"].asString()))
+			craftItemsCommit(game, base, c, rec["items"], unseated.count(c) > 0); // a craft that lost a seat: every type (F8519)
+	Log(LOG_INFO) << "[SHARED] craft staging window closed, base " << w["base"].asInt() << ", " << unseated.size() << " craft(s) lost a seat";
 }
 
 // W2-H16c (S-12): see SharedEcon.h. The rule travels by name; the host resolves the rest.
@@ -6678,6 +6770,7 @@ void notifyWorldAdopted()
 	g_resyncPending = false;
 	g_resyncGaveUp = false;
 	g_applyHold = false; // W2-P7 S-C-A.2 (PR-6): the held shared applies drain onto the adopted world
+	g_craftStage = Json::Value(Json::nullValue); // W2-H20b-B (QB2 a): an adopted world ends any open staging window
 }
 
 void setApplyHold(bool on)
@@ -6689,6 +6782,7 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 {
 	if (!game || !game->getSavedGame()) return;
 	if (!msg.isMember("chkFunds")) return; // older/non-SHARED host
+	if (g_craftStage.isObject()) { g_mismatchSinceMs = -1; return; } // W2-H20b-B (QB2 a): this machine's own option-ON staging moves its stores until the screen closes
 	SavedGame* save = game->getSavedGame();
 	int64_t hostFunds = msg["chkFunds"].asInt64();
 	int hostBases = msg.get("chkBases", -1).asInt();

@@ -443,6 +443,22 @@ void submitLoadoutTemplate(Game* game, Base* base, int index);
 /// soldier_armor (both machines then wear and stock the same); a partner's soldier's change is put back at once (stores and armor).
 void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::string& prevArmorType);
 
+/// W2-H20b-B (A8, A12; QB1 a): SHARED and a real base of a live campaign only - null otherwise: the {type: count} of @a craft's items,
+/// taken right BEFORE a vanilla local batch that moves items between @a craft and @a base's stores (a template load, move-ground-to-base).
+Json::Value craftItemsMark(Game* game, Base* base, Craft* craft);
+/// W2-H20b-B (QB1 a, QB4 a): right AFTER that batch: each item type whose count on @a craft differs from @a mark (@a every: each type of
+/// either) goes to the host as craft_equip with its absolute count, decreases first; the host clamps, both machines apply, the stores
+/// follow. No-op for a null mark, or while @a base's staging window is open (its close commits).
+void craftItemsCommit(Game* game, Base* base, Craft* craft, const Json::Value& mark, bool every = false);
+/// W2-H20b-B (A3, A4; QB2 a): SHARED, a live campaign, alternate craft equipment ON and a real base only - no-op otherwise or while
+/// @a base's window is open: opens the staging window before vanilla's option-ON inventory staging (the soldier screen's de-assign, the
+/// craft screen's load-all), recording each craft's items and each soldier's craft; this machine's checksum check pauses while it is open.
+void craftStageOpen(Game* game, Base* base);
+/// W2-H20b-B (A3, A4, A6; QB1 a, QB3 a): no-op unless @a base's window is open: closes it after vanilla's re-assign (soldier screen OK) or
+/// excess removal (craft screen return); a soldier vanilla could not seat again leaves its craft on both machines (craft_assign off, the
+/// partner's soldier too), then each recorded craft's item end-state goes to the host (craftItemsCommit; every type for a craft that lost a seat).
+void craftStageClose(Game* game, Base* base);
+
 /// W2-H16c (S-12): SHARED and a real base only - returns false otherwise (vanilla runs). Submits soldier_transform
 /// for @a soldier (alive, or dead in the memorial) with the name box's text; writes nothing locally: the host runs
 /// vanilla's transformation and both worlds adopt its result. Own soldiers only (AUD-A48).
