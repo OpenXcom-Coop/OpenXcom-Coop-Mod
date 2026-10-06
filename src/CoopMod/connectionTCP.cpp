@@ -21246,8 +21246,11 @@ bool cameraFollowStart(Map* map, CombatGhost& g)
 
 /// K3 / K4 (C-C3): the camera at the start of the display an impact cue starts - `explosion` (power > 0): centre on
 /// its tile when the actor is enemy-turn, a reaction at this machine's order, own, or absent (OR5 (a)); `hit` /
-/// `melee` / `psi`: the view level of the voxel under the same actor rule (hit_level), then centre on it when the side
-/// is HOSTILE and the hit unit is FACTION_PLAYER (hit_centre, vanilla ExplosionBState :360). Read before the delta.
+/// `melee` / `psi`: the view level of the voxel under the same actor rule (hit_level), then - W2-G1 (AUD-A16, owner D171), as
+/// vanilla ExplosionBState (:125, :360) - centre on the unit a melee or psi-amp attack names (a `melee` / `psi` cue, or a `hit`
+/// whose damage item is a psi amp: OXCE's psi-amp use) when the side is HOSTILE and that unit, AFTER the attack, is FACTION_PLAYER
+/// (hit_centre): never on a bullet hit, nor on a successful mind control (vanilla's psiAttack turns the victim first). Read before
+/// the delta.
 void cameraImpact(SavedBattleGame* save, Map* map, const Json::Value& ev, const std::string& kind,
 	const BattleUnit* actor, const Position& voxel, int power)
 {
@@ -21267,7 +21270,13 @@ void cameraImpact(SavedBattleGame* save, Map* map, const Json::Value& ev, const 
 		cameraLevel(map, seq, "hit_level", actorId, voxel.z / 24);
 	const int hitId = p.get("unit", -1).asInt();
 	const BattleUnit* hitUnit = hitId >= 0 ? CoopIdMaps::unit(hitId) : nullptr;
-	if (hitUnit && save->getSide() == FACTION_HOSTILE && hitUnit->getFaction() == FACTION_PLAYER)
+	// W2-G1 (AUD-A16): vanilla names a target only for a psi amp or a melee hit (ExplosionBState :122-:125).
+	const RuleItem* hitItem = kind == "hit" && p.isMember("itemType") && p["itemType"].isString()
+		? save->getMod()->getItem(p["itemType"].asString()) : nullptr;
+	const bool named = kind == "melee" || kind == "psi" || (hitItem && hitItem->getBattleType() == BT_PSIAMP);
+	// W2-G1 (AUD-A16): vanilla reads the faction after TileEngine::psiAttack, which turns a mind-controlled victim.
+	const bool turned = kind == "psi" && p.get("action", "").asString() == "mc" && p.get("success", false).asBool();
+	if (named && !turned && hitUnit && save->getSide() == FACTION_HOSTILE && hitUnit->getFaction() == FACTION_PLAYER)
 		cameraCentre(map, seq, "hit_centre", hitId, voxel.toTile(), false);
 }
 
